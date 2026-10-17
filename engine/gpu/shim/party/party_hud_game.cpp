@@ -18,6 +18,7 @@
 // 1 / 1 (the remote data module is not kept up to date): HP comes from VITALS, the position (exact,
 // every frame) from the chr.
 #include "party_hud.h"
+#include "party_perf.h"
 #include "party_balance.h"
 #include "game_state.h"
 #include "coop_hooks.h"
@@ -330,9 +331,12 @@ void PerfHudGameState(bool* game_menu, bool* area_banner) {
 }
 
 void PartyHudTick(const GameSnapshot& s, party::PartyLink* link, party::MemberState local_state) {
+    perf::Scope profile(perf::Zone::HudMenu);
     HudState& st = S();
     GameMenuTick(link != nullptr && s.world_up);
+    profile.Next(perf::Zone::HudPlate);
     GamePlateOff(link != nullptr && BbSettings::Get().party_name_tags);  // off: the game's plate, vanilla
+    profile.Next(perf::Zone::HudVitals);
     if (!st.log_init) {
         st.log_init = true;
         const char* v = std::getenv("BB_PARTY_HUD_LOG");

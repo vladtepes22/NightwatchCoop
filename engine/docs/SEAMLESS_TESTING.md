@@ -49,6 +49,23 @@ save checks and a package start without development tools. Internet multiplayer,
 actual chalice dungeon gameplay and visible rendering need testing on real PCs.
 Five players is experimental.
 
+## CPU regression check
+
+From the source checkout, run the existing isolated world save headlessly and muted:
+
+```powershell
+$env:BB_PARTY_AUTOCONTINUE = '1'
+python tools/smoke-game.py --name host --seconds 60 --max-party-tick-ms 1
+```
+
+The check requires three final in-world profiling windows with party update p99
+at or below 1 ms, plus silent audio, hidden presentation and a clean exit. It
+fails when the world has not loaded. Use an isolated character created by this
+harness; the test never selects the installed user's save folder. Logs go to
+D:\project-artifacts\BloodborneSeamless\smoke-host. Profiling is enabled only
+for this test process. Rendered performance comparisons use the same scene,
+mods, model detail, resolution, upscaler and frame cap in both installations.
+
 This build uses Awakenchan's published engine source and its complete available
 optimization settings. The newer upstream binary's additional game-edition and
 modified-executable support is not included. Use the clean CUSA03173 1.09 dump.

@@ -3459,9 +3459,15 @@ void PartyDirector::Tick() {
         g_host_prologue.store(false);
     }
     // C4 rot, D7 enemy scaling, E2 extras: the host's rules for the party (party_balance.h).
-    if (role != PartyRole::None) balance::Tick(s, link, role == PartyRole::Host);
+    if (role != PartyRole::None) {
+        perf::Scope z(perf::Zone::Balance);
+        balance::Tick(s, link, role == PartyRole::Host);
+    }
     // I1 friendly fire / PvP (party_pvp.h): the party rule on this game's team tables.
-    if (role != PartyRole::None) pvp::Tick(s, role == PartyRole::Host);
+    if (role != PartyRole::None) {
+        perf::Scope z(perf::Zone::Pvp);
+        pvp::Tick(s, role == PartyRole::Host);
+    }
     // B1: the host's warps go to every guest (reliable: replayed to a member who reconnects).
     if (link && role == PartyRole::Guest) {
         StoryIntent up;

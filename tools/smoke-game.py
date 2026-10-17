@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -22,6 +23,8 @@ def main():
     parser.add_argument('--code-file', type=Path)
     parser.add_argument('--engine', type=Path, default=REPO / 'engine')
     parser.add_argument('--without-development-runtime', action='store_true')
+    parser.add_argument('--max-party-tick-ms', type=float,
+                        help='Require the last three in-world 5-second party tick p99 measurements below this limit.')
     args = parser.parse_args()
     engine = args.engine.resolve()
     if b'Headless: hidden, unfocusable surface' not in (engine / 'out/bb-probe.exe').read_bytes():
@@ -47,6 +50,10 @@ def main():
     if args.without_development_runtime:
         env['BB_MSYS2'] = str(data / 'no-development-runtime')
         env['PATH'] = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32')
+    if args.max_party_tick_ms is not None:
+        if args.max_party_tick_ms <= 0:
+            parser.error('--max-party-tick-ms must be positive')
+        env.update(BB_PARTY_PERF='1', BB_PARTY_PERF_SECONDS='5')
     if args.new_game:
         env.update(BB_TEST_NEWGAME='1', BB_TEST_NAME='Smoke', BB_IME_TEXT='Smoke', BB_TEST_PROLOGUE_SKIP='1')
     if args.manual_title:
@@ -94,7 +101,19 @@ def main():
         manual = not args.manual_title or ('restarted after an unclean exit' in text and 'auto-continue: Cross #' not in text)
         if args.manual_title:
             print(f'Stale recovery marker leaves title under manual control: {manual}', flush=True)
-        return 0 if headless and muted and ready and progressed and manual and game.returncode == 0 else 1
+        performance = True
+        if args.max_party_tick_ms is not None:
+            reports = re.split(r'Party perf: [\d.]+ s,', text)[1:]
+            measurements = []
+            for report in reports[-3:]:
+                tick = re.search(r'Party perf:\s+tick\s+per frame p50\s+([\d.]+) p99\s+([\d.]+)', report)
+                world = 'Party perf:   b2.work ' in report and 'Party perf:   balance ' in report
+                if tick and world:
+                    measurements.append((float(tick[1]), float(tick[2])))
+            performance = len(measurements) == 3 and all(p99 <= args.max_party_tick_ms for _, p99 in measurements)
+            print(f'Party tick p50/p99 ms (last three in-world windows): {measurements}; '
+                  f'p99 <= {args.max_party_tick_ms}: {performance}', flush=True)
+        return 0 if headless and muted and ready and progressed and manual and performance and game.returncode == 0 else 1
     finally:
         log.close()
 

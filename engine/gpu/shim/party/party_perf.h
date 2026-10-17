@@ -51,6 +51,14 @@ enum class Zone : int {
     HookFourpSlot,     ///< H1 SessionSlotSummary (our part)
     HookFourpSpfx,     ///< H4 ApplySpEffect 7501 check
     Log,               ///< party log lines (printf + fflush)
+    B2State,
+    B2Work,
+    B2Travel,
+    HudMenu,
+    HudPlate,
+    HudVitals,
+    Balance,
+    Pvp,
     kCount
 };
 constexpr int kZoneCount = static_cast<int>(Zone::kCount);

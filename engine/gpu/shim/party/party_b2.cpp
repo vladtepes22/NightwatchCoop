@@ -9,6 +9,7 @@
 #include "party_fourp.h"
 #include "party_link.h"
 #include "party_runtime.h"
+#include "party_perf.h"
 
 #include "coop_hooks.h"
 #include "game_state.h"
@@ -7885,6 +7886,7 @@ void NoteOwnAppearanceChanged() {
 }
 
 void Tick(const GameSnapshot& s) {
+    perf::Scope profile(perf::Zone::B2State);
     if (!g_on.load()) {
         return;
     }
@@ -8049,6 +8051,7 @@ void Tick(const GameSnapshot& s) {
     if (const u32 n = g_stale_hits.exchange(0, std::memory_order_relaxed)) {
         Log("remote chr on a streamed-out block: stale map hit cleared %u time(s); tasks:%s", n, DescribeTasks().c_str());
     }
+    profile.Next(perf::Zone::B2Work);
     ProbeTick(s);
     DirectSummonTick(s, now);
     if (TitleJoinOn() || EnvOn("BB_PARTY_TITLE_JOIN_PROBE")) {
@@ -8130,6 +8133,7 @@ void Tick(const GameSnapshot& s) {
         if (gp != GuestPhase::Idle && Role() != RoleHost) {
             FallbackToB1("the session ended during the re-join");
         }
+        profile.Next(perf::Zone::B2Travel);
         HostTick(s, now);
     }
 }

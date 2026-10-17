@@ -2,9 +2,10 @@
 // The in-game party flow's game glue (party_flow.h): party.json in the user folder, the current
 // context, the relaunch, the text box and the test driver. Nothing here touches the game's code:
 // the only game reads are two pointers (is a character loaded, its save slot), through the
-// party library's fault-safe guest_read.
+// runtime's fault-guarded reads, without memory-permission queries on the frame thread.
 #include "party_flow.h"
 #include "party_async_io.h"
+#include "game_state.h"
 
 #include "party_code.h"
 #include "party_runtime.h"
@@ -124,19 +125,19 @@ void StoreLocked(const Saved& s) {
 template <class T>
 bool Read(std::uint64_t off, T* out) {
     const std::uintptr_t base = bbnet::guest_image_base();
-    return base && bbnet::guest_read(base + off, out, sizeof(T));
+    return base && coop::SafeGet(base + off, out);
 }
 
 bool WorldUp() {
     std::uint64_t man = 0, player = 0;
-    return Read(kWorldChrMan, &man) && man && bbnet::guest_read(man + 0x60, &player, 8) && player;
+    return Read(kWorldChrMan, &man) && man && coop::SafeGet(man + 0x60, &player) && player;
 }
 
 int LastSlot() {
     std::uint64_t gdm = 0, p = 0;
     std::uint32_t slot = 0xffffffffu;
-    if (!Read(kGameDataMan, &gdm) || !gdm || !bbnet::guest_read(gdm + 0x50, &p, 8) || !p ||
-        !bbnet::guest_read(p + 2000, &slot, 4) || slot >= 10)
+    if (!Read(kGameDataMan, &gdm) || !gdm || !coop::SafeGet(gdm + 0x50, &p) || !p ||
+        !coop::SafeGet(p + 2000, &slot) || slot >= 10)
         return -1;
     return int(slot);
 }
