@@ -59,6 +59,8 @@ enum class Zone : int {
     HudVitals,
     Balance,
     Pvp,
+    HookCollision,
+    CollisionScan,
     kCount
 };
 constexpr int kZoneCount = static_cast<int>(Zone::kCount);

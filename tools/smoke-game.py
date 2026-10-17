@@ -22,12 +22,15 @@ def main():
     parser.add_argument('--port', type=int, default=47892)
     parser.add_argument('--code-file', type=Path)
     parser.add_argument('--engine', type=Path, default=REPO / 'engine')
+    parser.add_argument('--probe', type=Path, help='Use a specific native binary for before/after comparisons.')
+    parser.add_argument('--native-log', action='store_true', help='Exercise separate native output capture used by GUI launches.')
     parser.add_argument('--without-development-runtime', action='store_true')
     parser.add_argument('--max-party-tick-ms', type=float,
                         help='Require the last three in-world 5-second party tick p99 measurements below this limit.')
     args = parser.parse_args()
     engine = args.engine.resolve()
-    if b'Headless: hidden, unfocusable surface' not in (engine / 'out/bb-probe.exe').read_bytes():
+    probe = args.probe.resolve() if args.probe else engine / 'out/bb-probe.exe'
+    if b'Headless: hidden, unfocusable surface' not in probe.read_bytes():
         raise RuntimeError('Build the engine with headless support before running this test.')
     data = REPO / 'work' / f'smoke-{args.name}'
     artifacts = Path(r'D:\project-artifacts\BloodborneSeamless') / f'smoke-{args.name}'
@@ -40,7 +43,7 @@ def main():
         config.write_text('upscaler=off\noutput_res=1280x720\nlive_resolution=0\nfullscreen=0\nskip_intro=1\nshow_fps=1\nparty_hud=1\n')
     env = dict(os.environ)
     env.update(BB_HEADLESS='1', BB_AUDIO='none', BB_PREBUILT='1', BB_DATA_DIR=str(data), BB_CONFIG=str(config), BB_USER_DIR=str(user),
-               BB_GAME_DIR=args.game, BB_PROBE=str(engine / 'out/bb-probe.exe'),
+               BB_GAME_DIR=args.game, BB_PROBE=str(probe),
                BB_PARTY=args.role, BB_PARTY_NAME='HostSmoke' if args.role=='host' else 'GuestSmoke',
                BB_PARTY_MAX='2', BB_PARTY_PORT=str(args.port),
                BB_PARTY_UPNP='0', BB_PARTY_STUN='off', BB_PARTY_LOOPBACK='1', BB_PARTY_LOCAL_IP='127.0.0.1',
@@ -54,6 +57,9 @@ def main():
         if args.max_party_tick_ms <= 0:
             parser.error('--max-party-tick-ms must be positive')
         env.update(BB_PARTY_PERF='1', BB_PARTY_PERF_SECONDS='5')
+    if args.native_log:
+        env.pop('BB_LOG_FILE', None)
+        env['BB_CRASH_DIR'] = str(artifacts)
     if args.new_game:
         env.update(BB_TEST_NEWGAME='1', BB_TEST_NAME='Smoke', BB_IME_TEXT='Smoke', BB_TEST_PROLOGUE_SKIP='1')
     if args.manual_title:
@@ -66,13 +72,13 @@ def main():
     status_path = user / 'party_status.json'
     status_path.unlink(missing_ok=True)
     (user / 'party_command.json').unlink(missing_ok=True)
-    session_log = artifacts / 'session.log'
-    log_offset = session_log.stat().st_size if session_log.exists() else 0
+    session_log = artifacts / ('native_session.log' if args.native_log else 'session.log')
+    log_offset = session_log.stat().st_size if session_log.exists() and not args.native_log else 0
     log = (artifacts / 'launcher.log').open('w', encoding='utf-8')
     python = engine / 'tools/python/python.exe'
     game = subprocess.Popen([str(python) if python.exists() else sys.executable, '-u', str(engine / 'scripts/run_windows.py')], env=env,
                             stdout=log, stderr=log, cwd=engine, creationflags=subprocess.CREATE_NO_WINDOW)
-    print(f'Launcher PID {game.pid}; isolated user {user}; log {artifacts / "session.log"}', flush=True)
+    print(f'Launcher PID {game.pid}; isolated user {user}; log {session_log}', flush=True)
     ready = False
     try:
         end = time.monotonic() + args.seconds

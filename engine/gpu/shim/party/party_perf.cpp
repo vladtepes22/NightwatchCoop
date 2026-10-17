@@ -123,6 +123,7 @@ const char* kNames[kZoneCount] = {
     "seamless.params", "fourp", "hook.set_flag", "hook.set_flag_value", "hook.broadcast_flag", "hook.emk_end",
     "hook.emevd", "hook.award", "hook.give_list", "hook.funnel", "hook.lamp_warp", "hook.remo", "hook.fourp_slot",
     "hook.fourp_spfx", "log", "b2.state", "b2.work", "b2.travel", "hud.menu", "hud.plate", "hud.vitals", "balance", "pvp",
+    "hook.collision", "collision.scan",
 };
 
 void Report(double secs) {

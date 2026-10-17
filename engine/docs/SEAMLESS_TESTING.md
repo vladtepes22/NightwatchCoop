@@ -73,3 +73,32 @@ modified-executable support is not included. Use the clean CUSA03173 1.09 dump.
 Launcher configuration: %APPDATA%\bloodborne-seamless. Session logs are under
 this package's logs; large crash/capture artifacts are directed to
 D:\project-artifacts\BloodborneSeamless\user-tests on the configured PC.
+
+The launcher log prints **Runtime log:** with the native engine log's path.
+With the configured artifact folder, it is
+D:\project-artifacts\BloodborneSeamless\user-tests\native_session.log;
+previous_native_session.log preserves the preceding run.
+For hitch diagnosis, enable **Settings → Frame statistics in the log** and add
+`BB_PARTY_PERF=1 BB_PARTY_PERF_SECONDS=5` under **Extra variables** for the
+reproduction. Party reports include maxima for the collision hook and registry
+scans, including calls outside the party update. Remove those extra variables
+and disable frame statistics after capturing the test.
+
+## Two-instance co-op regression
+
+`python tools/smoke-coop.py --label collision --seconds 240` starts a host and
+guest over loopback, using copies of the isolated smoke-host and smoke-guest
+party saves. Both instances run headlessly with silent audio. The result JSON
+under D:\project-artifacts\BloodborneSeamless records actual world entry on
+both sides, the longest continuous joined interval, process exit codes and
+native log paths. Success requires at least 15 seconds joined and clean exits.
+`--steps` accepts a director travel script; `--require-boundary` also requires
+a logged stage-record boundary crossing with a remote character present and
+at least 15 seconds joined on both instances afterward.
+`--probe` selects a preserved native binary for a before/after comparison.
+`--seed-host` and `--seed-guest` select existing smoke-test fixture names to
+start both characters in the region under test.
+
+The `party-collision-test` native target checks that local/NPC characters do
+not access the collision registry, valid remote hits remain intact, and stale
+remote hit pointers are cleared without dereferencing the freed records.

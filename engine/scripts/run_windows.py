@@ -30,7 +30,7 @@ LOG_STREAM = None
 
 
 def init_session_log():
-    """Route launcher/runtime diagnostics to BB_LOG_FILE when the GUI launcher supplies one."""
+    """Route preparation/runtime diagnostics to an explicitly requested combined log."""
     global LOG_STREAM
     path = os.environ.get('BB_LOG_FILE')
     if not path:
@@ -46,6 +46,21 @@ def init_session_log():
     print(f'Launcher root: {ROOT}')
     print(f'Log file: {log_path.resolve()}')
     print('=' * 80, flush=True)
+
+
+def run_probe(command):
+    if LOG_STREAM is not None:
+        return subprocess.call([str(c) for c in command], cwd=ROOT, stdout=LOG_STREAM, stderr=LOG_STREAM)
+    # The GUI-subsystem probe needs explicit file handles: inherited launcher pipes lose its output.
+    folder = Path(os.environ.get('BB_CRASH_DIR') or ROOT / 'logs')
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / 'native_session.log'
+    if path.exists():
+        shutil.copy2(path, folder / 'previous_native_session.log')
+    print(f'Runtime log: {path.resolve()}', flush=True)
+    with path.open('w', encoding='utf-8', errors='backslashreplace') as log:
+        print(f'Bloodborne native session started: {datetime.now().isoformat(timespec="seconds")}', file=log, flush=True)
+        return subprocess.call([str(c) for c in command], cwd=ROOT, stdout=log, stderr=log)
 
 
 def msys_root():
@@ -385,12 +400,7 @@ def main():
         os.environ['PATH'] = os.pathsep.join([str(msys_root() / 'clang64/bin'), os.environ.get('PATH', '')])
         print('Starting:', ' '.join(shlex.quote(str(c)) for c in command), flush=True)
         try:
-            status = subprocess.call(
-                [str(c) for c in command],
-                cwd=ROOT,
-                stdout=LOG_STREAM,
-                stderr=LOG_STREAM,
-            )
+            status = run_probe(command)
         except KeyboardInterrupt:
             status = 130
         print(f'bb-probe exited with code {status}', flush=True)

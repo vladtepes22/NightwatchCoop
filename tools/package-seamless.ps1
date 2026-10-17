@@ -3,7 +3,7 @@ param(
     [string]$Game = 'E:\games\bloodborne seamless\gamedir\CUSA03173',
     [string]$RuntimeAssets = 'E:\games\bloodborne seamless\BloodbornePC\engine',
     [string]$MsysRoot = 'C:\msys64',
-    [string]$Version = '0.1.0-beta.3'
+    [string]$Version = '0.1.0-beta.4'
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent

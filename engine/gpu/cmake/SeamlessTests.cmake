@@ -39,6 +39,11 @@ target_include_directories(party-nat-test PRIVATE shim)
 
 set_target_properties(party-nat-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
+add_executable(party-collision-test EXCLUDE_FROM_ALL ../tests/test_party_collision.cpp)
+target_include_directories(party-collision-test PRIVATE shim)
+target_compile_options(party-collision-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+set_target_properties(party-collision-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
 add_executable(party-flow-test EXCLUDE_FROM_ALL ../tests/test_party_flow.cpp shim/party/party_flow.cpp shim/net/json.cpp)
 
 target_compile_options(party-flow-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
