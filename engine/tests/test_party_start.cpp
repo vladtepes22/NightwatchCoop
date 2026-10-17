@@ -390,6 +390,12 @@ static void test_saved_prologue() {
 }
 
 int main() {
+    CHECK(!ShouldAutoContinue(-1, false));
+    CHECK(ShouldAutoContinue(-1, true));
+    CHECK(!ShouldAutoContinue(0, false));
+    CHECK(!ShouldAutoContinue(0, true));
+    CHECK(ShouldAutoContinue(1, false));
+    CHECK(ShouldAutoContinue(1, true));
     test_saved_prologue();
     test_travel_audience();
     test_mode();

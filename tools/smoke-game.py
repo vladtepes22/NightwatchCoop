@@ -16,6 +16,7 @@ def main():
     parser.add_argument('--name', default='host')
     parser.add_argument('--game', default=r'E:\games\bloodborne seamless\gamedir\CUSA03173')
     parser.add_argument('--new-game', action='store_true')
+    parser.add_argument('--manual-title', action='store_true')
     parser.add_argument('--role', choices=['host', 'join'], default='host')
     parser.add_argument('--port', type=int, default=47892)
     parser.add_argument('--code-file', type=Path)
@@ -48,6 +49,11 @@ def main():
         env['PATH'] = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32')
     if args.new_game:
         env.update(BB_TEST_NEWGAME='1', BB_TEST_NAME='Smoke', BB_IME_TEXT='Smoke', BB_TEST_PROLOGUE_SKIP='1')
+    if args.manual_title:
+        if args.new_game:
+            parser.error('--manual-title cannot be combined with --new-game')
+        env.update(BB_PARTY_AUTOCONTINUE='0', BB_PARTY_RESTARTED='0')
+        (user / 'party_state.json').write_text(json.dumps({'role': args.role, 'secret': '0011223344556677', 'members': []}))
     if args.code_file:
         env['BB_PARTY_CODE_FILE'] = str(args.code_file.resolve())
     status_path = user / 'party_status.json'
@@ -85,7 +91,10 @@ def main():
             ['prologue skip: done; after the warp:', 'prologue skip: already past the prologue']) and 'GAVE UP' not in text)
         print(f'New-game progression verified: {progressed}' if args.new_game else 'Startup check complete.', flush=True)
         print(f'Silent audio backend verified: {muted}', flush=True)
-        return 0 if headless and muted and ready and progressed and game.returncode == 0 else 1
+        manual = not args.manual_title or ('restarted after an unclean exit' in text and 'auto-continue: Cross #' not in text)
+        if args.manual_title:
+            print(f'Stale recovery marker leaves title under manual control: {manual}', flush=True)
+        return 0 if headless and muted and ready and progressed and manual and game.returncode == 0 else 1
     finally:
         log.close()
 

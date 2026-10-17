@@ -23,7 +23,12 @@ public static class SeamlessSession
     public static void Command(LauncherSettings settings, string action, string name = "")
     {
         if (!Workspace.Current.Game.Running) throw new InvalidOperationException("Start the game first.");
-        var path = Path.Combine(GameEnvironment.UserDir(settings), "party_command.json");
+        PostCommand(GameEnvironment.UserDir(settings), action, name);
+    }
+
+    internal static void PostCommand(string user, string action, string name = "")
+    {
+        var path = Path.Combine(user, "party_command.json");
         File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(new { action, name }));
         File.Move(path + ".tmp", path, true);
     }

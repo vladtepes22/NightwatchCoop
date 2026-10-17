@@ -2829,6 +2829,8 @@ void PartyDirector::ConfigureFromEnv() {
     if (const char* c = std::getenv("BB_PARTY_AUTOCONTINUE"); c && c[0]) {
         st.auto_continue = c[0] == '0' ? 0 : 1;
     }
+    st.auto_continue = ShouldAutoContinue(st.auto_continue,
+        bb_party_value_on(std::getenv("BB_PARTY_RESTARTED")));
     // A crash-restarted game (run.bat's BB_PARTY_RESTARTED=1) takes BB_PARTY_DIRECTOR_TEST_RESTART
     // as its test chain when that is set ("none": no steps), so a scripted run's chain is not run a
     // second time from its start after a --crash-plan kill (tools/mp/smoke_party.py).
@@ -3397,14 +3399,14 @@ void PartyDirector::Tick() {
             st.last_from_client = std::move(fc);
         }
     }
-    // Title: Continue on our own (party mode default; always after a crash restart).
+    // Recovered party state does not authorize input on a manually started game.
     if (role != PartyRole::None) {
         int ac;
         {
             std::lock_guard<std::mutex> lk(st.mu);
             ac = st.auto_continue;
         }
-        if ((ac == 1 || party::runtime().restarted()) && !NewGameTestRequested()) {
+        if (ac == 1 && !NewGameTestRequested()) {
             AutoContinue(st, s, role, link, now);
         }
     }

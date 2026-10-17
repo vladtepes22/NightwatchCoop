@@ -20,6 +20,11 @@ The launcher shows live members and supports leave, rejoin and host member
 removal. In-game System pages contain Party, Party mode, Members, Rules, Pings
 and scaling controls. The base engine's PC Options remain available.
 
+An ordinary launch leaves the title screen under your control. Automatic Continue
+runs for an explicit in-game Continue request or a crash restart managed by the
+launcher. A leftover session marker can restore the party identity without
+pressing buttons. Stop requests orderly shutdown before its timeout fallback.
+
 ## Saves and recovery
 
 This package uses its own user folder; seamless play writes savedata_party.

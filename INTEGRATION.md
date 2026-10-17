@@ -35,7 +35,7 @@ The user's clean CUSA03173 target passed startup and hook validation.
 
 ## Validation
 
-- 189 Python tests completed successfully, with 52 platform/fixture skips.
+- 191 Python tests completed successfully, with 52 platform/fixture skips.
 - 39 native regression tests passed, including encrypted links, security fuzzing,
   party rules, travel/chalice logic, progression, atomic saves, launcher commands
   and menu row limits across party states.
@@ -48,6 +48,10 @@ The user's clean CUSA03173 target passed startup and hook validation.
 - The self-contained package repeated host/join and leave/rejoin with development
   tools removed from PATH. Both instances used hidden windows, silent audio and
   exited normally. Their isolated party saves passed structural/progress checks.
+- A fresh crash marker was recreated in an isolated headless, muted run. Manual
+  launch remained at the title without automatic Cross presses. Only explicit
+  Continue and supervised restarts authorize this input; Stop posts a graceful
+  quit command, and successful exits remove any remaining crash marker.
 
 Second-PC Internet/NAT traversal, extended campaign play, actual chalice dungeon
 play and visual/performance behavior of the combined build remain user tests.

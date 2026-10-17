@@ -55,6 +55,8 @@ public static partial class SeamlessSettings
     public static void Apply(LauncherSettings s, Dictionary<string, string> env)
     {
         env["BB_PARTY"] = Enabled(s) ? s.Str("party_mode") : "off";
+        env["BB_PARTY_AUTOCONTINUE"] = "0";
+        env["BB_PARTY_RESTARTED"] = "0";
         if (!Enabled(s)) return;
         env["BB_ONLINE"] = "0";
         env["BB_PARTY_NAME"] = Name(s);

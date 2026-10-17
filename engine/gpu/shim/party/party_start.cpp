@@ -8,6 +8,10 @@
 
 namespace coop {
 
+bool ShouldAutoContinue(int configured, bool supervised_restart) {
+    return configured > 0 || (configured < 0 && supervised_restart);
+}
+
 StartMode ParseStartMode(const char* text, bool* known) {
     if (known) {
         *known = true;

@@ -46,6 +46,23 @@ class PartyLaunchTests(unittest.TestCase):
         self.assertEqual(run_loop(start, env, sleep=lambda _: None, clock=lambda: 0), 23)
         self.assertEqual(len(calls), 3)
         self.assertEqual(calls[1]['BB_PARTY_RESTARTED'], '1')
+        self.assertEqual(calls[1]['BB_PARTY_AUTOCONTINUE'], '1')
+
+    def test_clean_exit_removes_a_leftover_crash_marker(self):
+        with tempfile.TemporaryDirectory() as folder:
+            marker = Path(folder, 'party_state.json')
+            marker.write_text('{}')
+            env = {'BB_PARTY': 'host', 'BB_USER_DIR': folder}
+            self.assertEqual(run_loop(lambda: 0, env), 0)
+            self.assertFalse(marker.exists())
+
+    def test_failed_exit_keeps_recovery_state(self):
+        with tempfile.TemporaryDirectory() as folder:
+            marker = Path(folder, 'party_state.json')
+            marker.write_text('{}')
+            env = {'BB_PARTY': 'host', 'BB_USER_DIR': folder, 'BB_PARTY_RESTART': '0'}
+            self.assertEqual(run_loop(lambda: 23, env), 23)
+            self.assertTrue(marker.exists())
 
     def test_off_mode_does_not_restart_a_failure(self):
         for mode in ['', '0', 'off', 'FALSE']:

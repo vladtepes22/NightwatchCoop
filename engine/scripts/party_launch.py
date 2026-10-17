@@ -39,6 +39,9 @@ def run_loop(start, env=os.environ, sleep=time.sleep, clock=time.monotonic):
     attempts, window = 0, clock()
     while True:
         status = start()
+        if status == 0 and party_enabled(env):
+            user = Path(env.get('BB_USER_DIR', Path(env.get('BB_DATA_DIR', '.')) / 'user'))
+            (user / 'party_state.json').unlink(missing_ok=True)
         if status == 75:
             user = Path(env.get('BB_USER_DIR', Path(env.get('BB_DATA_DIR', '.')) / 'user'))
             apply_relaunch(user / 'party_relaunch.bat', env)
@@ -55,4 +58,5 @@ def run_loop(start, env=os.environ, sleep=time.sleep, clock=time.monotonic):
             return status
         print(f'Party: game exited with {status}; restart {attempts}/{limit} to rejoin', flush=True)
         env['BB_PARTY_RESTARTED'] = '1'
+        env['BB_PARTY_AUTOCONTINUE'] = '1'
         sleep(1)

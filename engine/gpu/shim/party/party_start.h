@@ -26,6 +26,10 @@
 
 namespace coop {
 
+/// Explicit Continue or a supervised crash restart may advance the title. A recovered
+/// party identity alone never authorizes input; configured 0 keeps manual control.
+bool ShouldAutoContinue(int configured, bool supervised_restart);
+
 enum class StartMode { PrologueSolo, Immediate };
 
 /// "prologue_solo" / "immediate" (case-insensitive; also "solo", "prologue", "clinic"); empty or

@@ -13,6 +13,7 @@ namespace BloodborneLauncher.Core
     {
         private Process? _process;
         private StreamWriter? _log;
+        private string? _partyUserDir;
 
         /// <summary>Everything the last session printed: logs\last_session.log in the engine folder.</summary>
         public static string SessionLog => Path.Combine(Paths.IsPortDir(Paths.PortDir) ? Paths.PortDir : Paths.ConfigDir, "logs", "last_session.log");
@@ -84,6 +85,7 @@ namespace BloodborneLauncher.Core
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
                 _process = process;
+                _partyUserDir = SeamlessSettings.Enabled(s) ? GameEnvironment.UserDir(s) : null;
                 StartedAt = DateTime.Now;
                 return null;
             }
@@ -131,12 +133,18 @@ namespace BloodborneLauncher.Core
             }
         }
 
-        /// <summary>Asks the game window to close, and kills the process tree after three seconds.</summary>
+        /// <summary>Requests orderly shutdown, with a bounded fallback for an unresponsive game.</summary>
         public async Task StopAsync()
         {
             var process = _process;
             if (process == null)
                 return;
+
+            if (_partyUserDir is { } user)
+            {
+                try { SeamlessSession.PostCommand(user, "quit"); }
+                catch (IOException) { /* the window close remains available */ }
+            }
 
             foreach (var probe in ProcessTree.Descendants(process.Id))
             {
@@ -145,7 +153,7 @@ namespace BloodborneLauncher.Core
             }
             try { process.CloseMainWindow(); } catch { /* no window */ }
 
-            await Task.WhenAny(process.WaitForExitAsync(), Task.Delay(3000));
+            await Task.WhenAny(process.WaitForExitAsync(), Task.Delay(8000));
             if (!process.HasExited)
             {
                 try { process.Kill(entireProcessTree: true); } catch { /* already gone */ }
