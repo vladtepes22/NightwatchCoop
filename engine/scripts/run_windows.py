@@ -222,6 +222,8 @@ def configure_frame_rate(env):
 
 
 def main():
+    # Asset preparation tools use the same native DLLs as the game executable.
+    os.environ['PATH'] = os.pathsep.join([str(msys_root() / 'clang64/bin'), os.environ.get('PATH', '')])
     arguments = sys.argv[1:]
     game = os.environ.get('BB_GAME_DIR')
     if arguments[:1] == ['--game-dir'] and len(arguments) > 1:
@@ -236,6 +238,9 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault('BB_CONFIG', str(data / 'bbport.ini'))
     config = Path(os.environ['BB_CONFIG'])
+    os.environ['BB_GPU_USER_DIR'] = os.environ.get('BB_USER_DIR', str(data / 'user'))
+    # A command posted during the previous process's shutdown belongs to that process.
+    (Path(os.environ['BB_GPU_USER_DIR']) / 'party_command.json').unlink(missing_ok=True)
     from online import configure_online, read_settings
     try:
         override = configure_online(read_settings(config) if config.exists() else {}, data, os.environ)
@@ -300,7 +305,8 @@ def main():
                 from engine_assets import prepare_menu_assets
                 try:
                     menus = prepare_menu_assets(merged, out / 'eboot.elf', data / 'engine-assets',
-                                                out / 'bb-engine-assets.exe', rebirth=settings_value(config, 'rebirth') == '1')
+                                                (out / 'bb-engine-assets.exe') if (out / 'bb-engine-assets.exe').is_file() else ROOT / 'out' / 'bb-engine-assets.exe',
+                                                rebirth=settings_value(config, 'rebirth') == '1')
                     os.environ['BB_PC_MENU_ASSETS'] = str(menus)
                     print(f'Engine: native PC menus prepared locally: {menus}', flush=True)
                     if settings_value(config, 'rebirth') == '1':
@@ -388,6 +394,17 @@ def main():
         except KeyboardInterrupt:
             status = 130
         print(f'bb-probe exited with code {status}', flush=True)
+        from party_env import party_enabled
+        if party_enabled():
+            from party_session import check_completed_session
+            try:
+                problems = check_completed_session(os.environ['BB_GPU_USER_DIR'])
+                for level, message in problems:
+                    print(f'Party save check {level}: {message}', flush=True)
+                if not problems:
+                    print('Party save checks passed.', flush=True)
+            except (OSError, ValueError) as error:
+                print(f'Party save check could not finish: {error}', flush=True)
         # Windows crash codes (0xC0000005) do not fit sys.exit: pass them on as the signed
         # 32-bit value the launcher reads, not -1.
         return status - (1 << 32) if status >= (1 << 31) else status
@@ -398,4 +415,5 @@ def main():
 
 if __name__ == '__main__':
     init_session_log()
-    sys.exit(main())
+    from party_launch import run_loop
+    sys.exit(run_loop(main))

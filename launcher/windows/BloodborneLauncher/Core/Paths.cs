@@ -7,12 +7,12 @@ namespace BloodborneLauncher.Core
     /// Where things live. The engine folder holds out\bb-probe.exe, scripts\run_windows.py and a
     /// bundled Python; bbport.ini, mods.json and patches.json live in its data folder (BB_DATA_DIR,
     /// by default the engine folder itself), as run_windows.py expects them.
-    /// Launcher settings are per-user, in %APPDATA%\bbport-launcher\settings.json.
+    /// Launcher settings are per-user, in %APPDATA%\bloodborne-seamless\settings.json.
     /// </summary>
     public static class Paths
     {
         public static readonly string ConfigDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "bbport-launcher");
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "bloodborne-seamless");
 
         public static readonly string ConfigFile = Path.Combine(ConfigDir, "settings.json");
 

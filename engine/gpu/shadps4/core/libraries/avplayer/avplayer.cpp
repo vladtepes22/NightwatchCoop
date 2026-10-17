@@ -8,6 +8,7 @@
 #include "core/libraries/libs.h"
 
 #include <string_view>
+extern "C" void bbport_test_note_movie(void);
 
 namespace Libraries::AvPlayer {
 
@@ -16,7 +17,9 @@ s32 PS4_SYSV_ABI sceAvPlayerAddSource(AvPlayerHandle handle, const char* filenam
     if (handle == nullptr) {
         return ORBIS_AVPLAYER_ERROR_INVALID_PARAMS;
     }
-    return handle->AddSource(filename);
+    const s32 result = handle->AddSource(filename);
+    if (result == 0) bbport_test_note_movie();
+    return result;
 }
 
 s32 PS4_SYSV_ABI sceAvPlayerAddSourceEx(AvPlayerHandle handle, AvPlayerUriType uri_type,
@@ -26,7 +29,9 @@ s32 PS4_SYSV_ABI sceAvPlayerAddSourceEx(AvPlayerHandle handle, AvPlayerUriType u
         return ORBIS_AVPLAYER_ERROR_INVALID_PARAMS;
     }
     const auto path = std::string_view(source_details->uri.name, source_details->uri.length);
-    return handle->AddSourceEx(path, source_details->source_type);
+    const s32 result = handle->AddSourceEx(path, source_details->source_type);
+    if (result == 0) bbport_test_note_movie();
+    return result;
 }
 
 int PS4_SYSV_ABI sceAvPlayerChangeStream() {

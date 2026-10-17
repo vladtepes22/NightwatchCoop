@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <thread>
+#include "bbport_toggles.h"
 #ifndef _WIN32
 #include <sched.h>
 #include <sys/resource.h>

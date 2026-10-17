@@ -1,3 +1,4 @@
+#include "bbport_camera.h"
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "video_core/renderer_vulkan/vk_camera_motion.h"
 
@@ -76,6 +77,7 @@ CameraMotion::CameraMotion(const Instance& instance_, Scheduler& scheduler_,
     : instance{instance_}, scheduler{scheduler_}, texture_cache{texture_cache_}, runtime{runtime_} {
     const char* env = std::getenv("BB_DEBUG_MOTION");
     debug_overlay = env && env[0] == '1';
+    for_party = bb_party_enabled();
     const char* upscaler = std::getenv("BB_UPSCALER");
     // The upscaler can be switched on from the menu at any time: the camera is always tracked
     // unless BB_UPSCALER=none.
@@ -369,6 +371,7 @@ void CameraMotion::CommitFrameCamera() {
     previous = current;
     current = pass_camera;
     committed = true;
+    if (current.valid) BbCamera::Publish(current.view, current.proj);
 }
 
 void CameraMotion::OnDisplayPass(VideoCore::ImageId frame) {
@@ -388,12 +391,91 @@ void CameraMotion::OnDisplayPass(VideoCore::ImageId frame) {
             std::printf("; the last pass's camera goes with its depth\n");
         }
     }
+    if (const u32 probe_seq = BbCamera::TakeProbeRequest()) ProbeDepth(probe_seq);
     if (!frame_has_camera) InvalidateHistory();
     frame_has_camera = false;
     pass_has_camera = false;
     committed = false;
     frame_gbuffer_passes = 0;
     depth_id = {};
+}
+
+void CameraMotion::ProbeDepth(u32 seq) {
+    BbCamera::Probe none;
+    none.valid = true;
+    none.seq = seq;
+    if (!depth_id || !current.valid) {
+        BbCamera::PublishProbe(none);  // no scene this frame: the ping falls back at once
+        return;
+    }
+    auto& depth = texture_cache.GetImage(depth_id);
+    const auto format = depth.info.pixel_format;
+    const u32 iw = depth.info.size.width, ih = depth.info.size.height;
+    const u32 w = render_size[0] && render_size[0] <= iw ? render_size[0] : iw;
+    const u32 h = render_size[1] && render_size[1] <= ih ? render_size[1] : ih;
+    constexpr u32 MaxRows = 4096;
+    if ((format != vk::Format::eD32Sfloat && format != vk::Format::eD32SfloatS8Uint) || w < 2 || h < 2 ||
+        h > MaxRows) {
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            std::printf("Camera motion: ping depth probe skipped (depth %s %ux%u)\n",
+                        vk::to_string(format).c_str(), iw, ih);
+        }
+        BbCamera::PublishProbe(none);
+        return;
+    }
+    if (!probe_buffer) {
+        probe_buffer = std::make_unique<VideoCore::Buffer>(instance, 0, MaxRows * sizeof(float),
+                                                           VideoCore::MemoryType::HostCached);
+    }
+    const vk::BufferImageCopy column{
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {vk::ImageAspectFlagBits::eDepth, 0, 0, 1},
+        .imageOffset = {static_cast<std::int32_t>(w / 2), 0, 0},
+        .imageExtent = {1, h, 1},
+    };
+    runtime.DownloadImage(&depth, probe_buffer.get(), std::span<const vk::BufferImageCopy>(&column, 1));
+    scheduler.Record([](vk::CommandBuffer cmdbuf) {
+        const vk::MemoryBarrier2 to_host{
+            .srcStageMask = vk::PipelineStageFlagBits2::eCopy,
+            .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
+            .dstStageMask = vk::PipelineStageFlagBits2::eHost,
+            .dstAccessMask = vk::AccessFlagBits2::eHostRead,
+        };
+        cmdbuf.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &to_host});
+    });
+    // Read once the GPU is past this frame: depth -> view z (camera_motion.comp) -> world.
+    scheduler.DeferOperation([buffer = probe_buffer.get(), seq, h, cam = current]() {
+        buffer->Invalidate(0, u64(h) * sizeof(float));
+        const float* d = reinterpret_cast<const float*>(buffer->mapped_data.data());
+        BbCamera::Probe p;
+        p.valid = true;
+        p.seq = seq;
+        const auto& iv = cam.inv_view;
+        p.cam = {iv[3], iv[7], iv[11]};
+        p.n = BbCamera::kProbeSamples;
+        int centre = 0;
+        float best = 1e9f;
+        for (int i = 0; i < p.n; ++i) {
+            const u32 row = std::min<u32>(h - 1, u32((float(i) + 0.5f) * float(h) / float(p.n)));
+            const float ndc_y = (float(row) + 0.5f) / float(h) * 2.0f - 1.0f;
+            if (std::fabs(ndc_y) < best) best = std::fabs(ndc_y), centre = i;
+            const float depth_value = d ? d[row] : 1.0f;
+            if (!std::isfinite(depth_value) || depth_value >= 1.0f || depth_value <= 0.0f) continue;
+            const float z = cam.proj[3] / std::min(depth_value - cam.proj[2], -1e-8f);
+            if (!std::isfinite(z) || z <= 0.0f) continue;
+            const float v[3] = {0.0f, ndc_y * z / cam.proj[1], z};  // the centre column: ndc x 0
+            for (int r = 0; r < 3; ++r) {
+                p.pts[i][r] = iv[r * 4 + 0] * v[0] + iv[r * 4 + 1] * v[1] + iv[r * 4 + 2] * v[2] + iv[r * 4 + 3];
+            }
+            p.hit[i] = 1;
+        }
+        p.centre = centre;
+        BbCamera::PublishProbe(p);
+    });
 }
 
 void CameraMotion::Overlay(VideoCore::ImageId frame) {

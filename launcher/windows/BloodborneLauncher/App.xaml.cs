@@ -9,7 +9,7 @@ namespace BloodborneLauncher
     {
         private static readonly string CrashLog = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "bbport-launcher", "crash.log");
+                "bloodborne-seamless", "crash.log");
 
         protected override void OnStartup(StartupEventArgs e)
         {

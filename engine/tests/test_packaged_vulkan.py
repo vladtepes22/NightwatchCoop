@@ -5,12 +5,14 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import os
 
 spec = importlib.util.spec_from_file_location("bbport_vulkan", ROOT / "launcher/bbport_vulkan.py")
 vulkan = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(vulkan)
 
 
+@unittest.skipIf(os.name == 'nt', 'Linux AppImage driver discovery')
 class PackagedVulkanTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

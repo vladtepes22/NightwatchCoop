@@ -22,11 +22,11 @@ namespace BloodborneLauncher.Core
     /// </summary>
     public static class Updater
     {
-        public const string Repository = "Awakenchan/BloodBorneButPc";
+        public const string Repository = "Artificial-Sweetener/BloodBorneButPc";
         public static string ReleasesPage => $"https://github.com/{Repository}/releases";
 
         /// <summary>The engine build this launcher is made for (package.json "engine").</summary>
-        public const string EngineId = "bbhost-0.4.0-fps49";
+        public const string EngineId = "awaken-seamless-0.1.0";
 
         private const string ExeName = "Bloodborne Launcher.exe";
         private const string PackageFile = "package.json";

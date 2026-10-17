@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Merge loose-file mods through links, preserving the original game and mod files."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -289,6 +290,86 @@ def build_overlay(game, out, mods, update=None):
         raise
 
 
+COSMETIC_FOLDERS = {'adhoc', 'facegen', 'font', 'menu', 'movie', 'msg', 'mtd', 'parts', 'sfx', 'shader', 'sound'}
+COSMETIC_SUFFIXES = ('.tpf', '.tpf.dcx', '.tpfbhd', '.tpfbdt', '.texbnd', '.texbnd.dcx', '.dds')
+PARTY_MODS_FILE = 'party_mods.txt'
+PARTY_MODS_CACHE = 'party_mods_cache.json'
+# Generated layers (name: stamp), hashed by stamp: scripts/dream_mirror.py LAYER_NAME, STAMP.
+GENERATED_STAMPS = {'Dream mirror (bbhost)': 'dream-mirror 1'}
+
+
+def mod_file_is_cosmetic(relative):
+    """True when the game file `relative` (dvdroot_ps4/...) changes no gameplay."""
+    parts = [p.casefold() for p in Path(relative).parts]
+    if len(parts) > 2 and parts[1] in COSMETIC_FOLDERS:
+        return True
+    return parts[-1].endswith(COSMETIC_SUFFIXES)
+
+
+def file_sha256(path, cache):
+    stat = path.stat()
+    key = str(path)
+    hit = cache.get(key)
+    if hit and hit[0] == stat.st_size and hit[1] == stat.st_mtime_ns:
+        return hit[2]
+    digest = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for block in iter(lambda: f.read(1 << 20), b''):
+            digest.update(block)
+    cache[key] = [stat.st_size, stat.st_mtime_ns, digest.hexdigest()]
+    return cache[key][2]
+
+
+def party_mod_set(layers, cache_file=None):
+    """(hash hex, gameplay items, cosmetic mod names) of the mods `layers` ([(name, folder)], load
+    order). The hash covers the winning gameplay files (game path, contents), not folder names."""
+    owners = {}
+    for name, root in layers:
+        for relative, source in mod_files(root):
+            owners[relative.as_posix().casefold()] = (name, source)
+    cache = {}
+    if cache_file and Path(cache_file).is_file():
+        try:
+            cache = json.loads(Path(cache_file).read_text(encoding='utf-8'))
+        except ValueError:
+            cache = {}
+    digest = hashlib.sha256(b'bbparty-mods-1')
+    counts, cosmetic = {}, set()
+    for key in sorted(owners):
+        name, source = owners[key]
+        if mod_file_is_cosmetic(key):
+            cosmetic.add(name)
+            continue
+        counts[name] = counts.get(name, 0) + 1
+        # The generated mirror layout is the same file everywhere (a SHA-256-checked rewrite), but
+        # its DCX bytes depend on the zlib build: it counts by its stamp.
+        content = GENERATED_STAMPS.get(name) or file_sha256(source, cache)
+        digest.update(b'\0file\0' + key.encode('utf-8') + b'\0' + content.encode())
+    if cache_file:
+        try:
+            Path(cache_file).write_text(json.dumps(cache), encoding='utf-8')
+        except OSError:
+            pass
+    items = [f'{name} ({counts[name]} files)' for name, _ in layers if name in counts]
+    if not counts:
+        return '0' * 64, [], sorted(cosmetic - set(counts))
+    return digest.hexdigest(), items, sorted(cosmetic - set(counts))
+
+
+def write_party_mods_file(out, layers):
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    digest, items, cosmetic = party_mod_set(layers, out / PARTY_MODS_CACHE)
+    lines = ['# Party version check (scripts/mods.py): the enabled mods that change gameplay files. Players',
+             '# with another hash are refused by the party host; texture/shader/sound-only mods do not count.',
+             f'hash {digest}']
+    lines += [f'mod {item}' for item in items]
+    lines += [f'# cosmetic {name}' for name in cosmetic]
+    (out / PARTY_MODS_FILE).write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    return digest, items
+
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('game', type=Path)
@@ -309,6 +390,7 @@ def main():
         else:
             for name in selected(args.mods_dir, args.config):
                 layers.append((name, args.mods_dir / name))
+    write_party_mods_file(args.out,layers)
     print(build_overlay(args.game, args.out, layers, update_folder(args.game.resolve())))
 
 

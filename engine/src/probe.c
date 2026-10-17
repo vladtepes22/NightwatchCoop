@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <cpuid.h>
 #include "runtime.h"
+#include "../gpu/bbnet.h"
 #include "gpu/bbgpu.h"
 #include "respawn_patch.h"
 #if !defined(__x86_64__) || !defined(__GNUC__)
@@ -552,7 +553,11 @@ static void start_crash_helper(void) {
     const char *log = getenv("BB_LOG_FILE");
     const char *slash = log ? strrchr(log, '\\') : NULL, *other = log ? strrchr(log, '/') : NULL;
     if (other > slash) slash = other;
-    if (slash && (size_t)(slash - log) + sizeof("\\crash.dmp") < sizeof(crash_dump_path)) {
+    const char *dump_dir=getenv("BB_CRASH_DIR");
+    if (dump_dir && *dump_dir) {
+        snprintf(crash_dump_dir,sizeof(crash_dump_dir),"%s",dump_dir);
+        snprintf(crash_dump_path,sizeof(crash_dump_path),"%s\\crash-%lu.dmp",dump_dir,GetCurrentProcessId());
+    } else if (slash && (size_t)(slash - log) + sizeof("\\crash.dmp") < sizeof(crash_dump_path)) {
         snprintf(crash_dump_path, sizeof(crash_dump_path), "%.*s\\crash.dmp", (int)(slash - log), log);
     } else {
         snprintf(crash_dump_dir, sizeof(crash_dump_dir), "logs");
@@ -579,6 +584,15 @@ static void write_crash_dump(EXCEPTION_POINTERS *e) {
 }
 static LONG CALLBACK vectored_handler(EXCEPTION_POINTERS *e) {
     EXCEPTION_RECORD *r = e->ExceptionRecord;
+    if (r->ExceptionCode==0x20474343 && getenv("BB_LOG_CXX_EXCEPTIONS")) {
+        void *frames[32];
+        USHORT depth=RtlCaptureStackBackTrace(0,32,frames,NULL);
+        fprintf(stderr,"C++ exception, thread %lu:\n",GetCurrentThreadId());
+        for (USHORT i=0;i<depth;++i) {
+            char name[512]; describe(name,sizeof(name),(uintptr_t)frames[i]);
+            fprintf(stderr,"  #%u %s\n",i,name);
+        }
+    }
     if (r->ExceptionCode == EXCEPTION_SINGLE_STEP && hw_watch_file && (e->ContextRecord->Dr6 & 1)) {
         /* A thread may still hold the previous address (or a cleared watch) until the watch
          * thread updates it: report only hits on the current address. */
@@ -778,6 +792,8 @@ static void apply_patches(const char *path, Segment *segments, uint64_t ns, cons
  * released before the new process opens its own. */
 volatile int runtime_restarting;
 void runtime_restart(void) {
+    const char *loop=getenv("BB_RELAUNCH_LOOP");
+    if (loop && !strcmp(loop,"1")) { runtime_relaunch(75); return; }
     fflush(NULL);
 #ifdef _WIN32
     /* scripts/run_windows.py sets its own command line here; the new process prepares the
@@ -804,6 +820,17 @@ void runtime_restart(void) {
     execlp("bash", "bash", "run.sh", (char *)NULL);
     perror("runtime_restart: exec");
     _exit(1);
+#endif
+}
+
+void runtime_relaunch(int exit_code) {
+    bbnet_shutdown();
+    runtime_restarting=1;
+    fflush(NULL);
+#ifdef _WIN32
+    TerminateProcess(GetCurrentProcess(),(UINT)exit_code);
+#else
+    _exit(exit_code);
 #endif
 }
 

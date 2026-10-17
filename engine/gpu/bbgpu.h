@@ -43,3 +43,13 @@ unsigned bbgpu_symbol_count(void);
 }
 #endif
 #endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+int bbgpu_ping_combo_enabled(void);
+void bbgpu_ping_request(void);
+const char *bbgpu_ime_preset(uint32_t max_length);
+#ifdef __cplusplus
+}
+#endif

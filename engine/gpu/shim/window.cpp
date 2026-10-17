@@ -1,3 +1,4 @@
+#include "bbport_headless.h"
 // bbport: SDL3 window for the Vulkan swapchain (X11, Wayland or Win32).
 #include <cstdlib>
 #include <cstring>
@@ -98,9 +99,19 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_FULLSCREEN_BOOLEAN,
                            fullscreen ? fullscreen[0] == '1' : BbSettings::Get().fullscreen.load());
     base_title = title;
+    if (BbHeadless::On()) {
+        SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN,"0");
+        SDL_SetBooleanProperty(props,SDL_PROP_WINDOW_CREATE_FULLSCREEN_BOOLEAN,false);
+        SDL_SetBooleanProperty(props,SDL_PROP_WINDOW_CREATE_HIDDEN_BOOLEAN,true);
+        SDL_SetBooleanProperty(props,SDL_PROP_WINDOW_CREATE_FOCUSABLE_BOOLEAN,false);
+    }
     window = SDL_CreateWindowWithProperties(props);
     SDL_DestroyProperties(props);
     ASSERT_MSG(window, "Failed to create window: {}", SDL_GetError());
+    if (BbHeadless::On()) {
+        ASSERT_MSG(SDL_GetWindowFlags(window)&SDL_WINDOW_HIDDEN,"Headless window became visible");
+        std::puts("Headless: hidden, unfocusable surface; graphics draws and presentation disabled");
+    }
 
     const char* driver = SDL_GetCurrentVideoDriver();
     const SDL_PropertiesID wp = SDL_GetWindowProperties(window);
@@ -156,10 +167,40 @@ int WindowSDL::PollTextInput(std::string& out) {
 }
 
 void WindowSDL::UpdateTextTitle() {
-    const std::string title = text_active ? base_title + " \u2014 " + text_prompt + ": " + text + "_  (Enter = OK, Esc = cancel)"
+    std::string prompt_lower=text_prompt;
+    std::transform(prompt_lower.begin(),prompt_lower.end(),prompt_lower.begin(),[](unsigned char c){ return char(std::tolower(c)); });
+    const std::string shown=prompt_lower.find("password")!=std::string::npos ? std::string(text.size(),'*') : text;
+    const std::string title = text_active ? base_title + " \u2014 " + text_prompt + ": " + shown + "_  (Enter = OK, Esc = cancel)"
                                           : base_title;
     SDL_SetWindowTitle(window, title.c_str());
-    BbOverlay::SetTextPrompt(text_active, text_prompt, text);
+    BbOverlay::SetTextPrompt(text_active, text_prompt, shown);
+}
+
+bool WindowSDL::IsTextInputActive() {
+    std::scoped_lock guard{text_mutex};
+    return text_requested || text_active;
+}
+
+void WindowSDL::TestType(const std::string& keys) {
+    static const auto ascii=[] {
+        std::array<std::array<char,2>,128> chars{};
+        for (int i=0;i<128;++i) chars[i][0]=char(i);
+        return chars;
+    }();
+    for (unsigned char c:keys) {
+        SDL_Event event{};
+        if (c=='\n' || c=='\b' || c==27) {
+            event.type=SDL_EVENT_KEY_DOWN;
+            event.key.windowID=SDL_GetWindowID(window);
+            event.key.key=c=='\n' ? SDLK_RETURN : c=='\b' ? SDLK_BACKSPACE : SDLK_ESCAPE;
+            event.key.down=true;
+        } else if(c>=32 && c<127) {
+            event.type=SDL_EVENT_TEXT_INPUT;
+            event.text.windowID=SDL_GetWindowID(window);
+            event.text.text=ascii[c].data();
+        } else continue;
+        SDL_PushEvent(&event);
+    }
 }
 
 bool WindowSDL::PollEvents() {

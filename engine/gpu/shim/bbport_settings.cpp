@@ -89,6 +89,44 @@ void Set(Values& v, const std::string& key, const std::string& value) {
                         "or tr)\n",
                         value.c_str());
         }
+    } else if (key == "party_toasts") {
+        v.party_toasts = i != 0;
+    } else if (key == "party_hud") {
+        v.party_hud = i != 0;
+    } else if (key == "party_guest_lamps") {
+        v.party_guest_lamps = i != 0;
+    } else if (key == "party_rot") {
+        v.party_rot = i != 0;
+    } else if (key == "party_boss_hp") {
+        v.party_boss_hp = std::clamp(i, 0, 400);
+    } else if (key == "party_boss_damage") {
+        v.party_boss_damage = std::clamp(i, 0, 100);
+    } else if (key == "party_boss_poise") {
+        v.party_boss_poise = std::clamp(i, -100, 300);
+    } else if (key == "party_enemy_hp") {
+        v.party_enemy_hp = std::clamp(i, 0, 400);
+    } else if (key == "party_enemy_damage") {
+        v.party_enemy_damage = std::clamp(i, 0, 100);
+    } else if (key == "party_enemy_poise") {
+        v.party_enemy_poise = std::clamp(i, -100, 300);
+    } else if (key == "party_name_tags") {
+        v.party_name_tags = i != 0;
+    } else if (key == "party_npc_talk") {
+        v.party_npc_talk = i != 0;
+    } else if (key == "party_pings") {
+        v.party_pings = i != 0;
+    } else if (key == "party_through_walls") {
+        v.party_through_walls = i != 0;
+    } else if (key == "party_friendly_fire") {
+        v.party_friendly_fire = i != 0;
+    } else if (key == "party_share_lamps") {
+        v.party_share_lamps = i != 0;
+    } else if (key == "party_rendezvous") {
+        v.party_rendezvous = (i != 0 || value == "on" || value == "true");
+    } else if (key == "party_npc_talk_range") {
+        v.party_npc_talk_range = std::clamp(i, 0, 500);
+    } else if (key == "party_overhead") {
+        v.party_overhead = std::clamp(i, 0, 5);
     } else if (key == "upscaler") {
         for (int u = 0; u < UpscalerCount; ++u) {
             if (value == UpscalerName(u)) {
@@ -465,6 +503,25 @@ void Save() {
     };
     const auto flag = [](bool value) { return std::string(value ? "1" : "0"); };
     put("menu_language", MenuLanguageCodes[int(v.menu_language.load())]);
+    put("party_toasts", flag(v.party_toasts));
+    put("party_hud", flag(v.party_hud));
+    put("party_name_tags", flag(v.party_name_tags));
+    put("party_npc_talk", flag(v.party_npc_talk));
+    put("party_pings", flag(v.party_pings));
+    put("party_through_walls", flag(v.party_through_walls));
+    put("party_friendly_fire", flag(v.party_friendly_fire));
+    put("party_share_lamps", flag(v.party_share_lamps));
+    put("party_rendezvous", flag(v.party_rendezvous));
+    put("party_npc_talk_range", std::to_string(v.party_npc_talk_range.load()));
+    put("party_guest_lamps", flag(v.party_guest_lamps));
+    put("party_rot", flag(v.party_rot));
+    put("party_boss_hp", std::to_string(v.party_boss_hp.load()));
+    put("party_boss_damage", std::to_string(v.party_boss_damage.load()));
+    put("party_boss_poise", std::to_string(v.party_boss_poise.load()));
+    put("party_enemy_hp", std::to_string(v.party_enemy_hp.load()));
+    put("party_enemy_damage", std::to_string(v.party_enemy_damage.load()));
+    put("party_enemy_poise", std::to_string(v.party_enemy_poise.load()));
+    put("party_overhead", std::to_string(v.party_overhead.load()));
     put("upscaler", UpscalerName(v.upscaler));
     put("preset", std::to_string(v.preset.load()));
     put("sharpen", flag(v.sharpen));

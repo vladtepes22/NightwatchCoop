@@ -87,6 +87,10 @@ namespace BloodborneLauncher.Core
 
             try
             {
+                var initial = Path.Combine(AppContext.BaseDirectory, "seamless-defaults.json");
+                if (!File.Exists(Paths.ConfigFile) && File.Exists(initial) &&
+                    JsonNode.Parse(File.ReadAllText(initial)) is JsonObject firstRun)
+                    foreach (var (key, value) in firstRun) _data[key] = value?.DeepClone();
                 if (File.Exists(Paths.ConfigFile) &&
                     JsonNode.Parse(File.ReadAllText(Paths.ConfigFile)) is JsonObject saved)
                 {
@@ -131,6 +135,13 @@ namespace BloodborneLauncher.Core
         {
             get => Secret.Unprotect(Str("hd_token"));
             set => Set("hd_token", value.Length == 0 ? "" : Secret.Protect(value) is { Length: > 0 } encrypted ? encrypted : value);
+        }
+
+        public string PartyPassword
+        {
+            get => Secret.Unprotect(Str("party_password"));
+            set => Set("party_password", value.Length == 0 ? "" :
+                Secret.Protect(value) is { Length: > 0 } encrypted ? encrypted : value);
         }
 
         public string Str(string key)

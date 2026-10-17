@@ -5,6 +5,7 @@
  * Paths containing ".." components are rejected rather than normalized. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "../gpu/bbnet.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,13 +47,46 @@ typedef struct {
 _Static_assert(sizeof(GuestStat)==120,"FreeBSD stat layout");
 
 typedef struct { char *names; size_t count, *offsets; unsigned char *types; } Listing;
-typedef struct { int used, host; Listing *dir; size_t position; char path[512]; } File;
+typedef struct { int used, host, dirty; Listing *dir; size_t position; char path[512]; char *commit, *temp; } File;
 typedef struct { char guest[64]; char host[512]; } Mount;
 static File files[MAX_FILES];
 static Mount mounts[MAX_MOUNTS];
 static size_t mount_count, opens, reads, writes, missing;
 static uint64_t bytes_read;
 static HostMutex lock=HOST_MUTEX_INIT;
+
+static int save_path(const char *p) { return p && !strncmp(p,"/savedata",9); }
+/* Save activity for the backups (save_policy.h): bumped by every change under /savedataN. */
+static uint64_t save_generation;
+static int pending_save_commits;
+static void save_changed(void) { __atomic_add_fetch(&save_generation,1,__ATOMIC_SEQ_CST); }
+static int temp_name(const char *name) {
+    size_t n=strlen(name);
+    return n>6 && !strcmp(name+n-6,".bbtmp");
+}
+/* Copies left by a crash (none of them open): removed when their directory is mounted. */
+static void remove_stale_temps(const char *dir,int depth) {
+    DIR *d=opendir(dir);
+    if (!d) return;
+    for (struct dirent *e; (e=readdir(d));) {
+        if (e->d_name[0]=='.') continue;
+        char path[1024];
+        if ((size_t)snprintf(path,sizeof(path),"%s/%s",dir,e->d_name)>=sizeof(path)) continue;
+        if (temp_name(e->d_name)) {
+            int open_now=0;
+            for (int i=3;i<MAX_FILES;++i) if (files[i].used && files[i].temp && !strcmp(files[i].temp,path)) open_now=1;
+            if (!open_now && !unlink(path)) printf("Runtime: removed %s (a save interrupted earlier; the file it would have replaced is intact)\n",path);
+        } else if (depth<4) {
+#ifdef _WIN32
+            struct _stat64 st; /* no d_type in MinGW's dirent */
+            if (!_stat64(path,&st) && S_ISDIR(st.st_mode)) remove_stale_temps(path,depth+1);
+#else
+            if (e->d_type==DT_DIR) remove_stale_temps(path,depth+1);
+#endif
+        }
+    }
+    closedir(d);
+}
 
 int runtime_file_mount(const char *guest,const char *host) {
     host_lock(&lock);
@@ -64,6 +98,7 @@ int runtime_file_mount(const char *guest,const char *host) {
     snprintf(mounts[mount_count].guest,64,"%s",guest);
     snprintf(mounts[mount_count].host,512,"%s",host);
     ++mount_count;
+    if (save_path(guest)) remove_stale_temps(host,0);
     host_unlock(&lock);
     return 0;
 }
@@ -75,8 +110,17 @@ void runtime_file_unmount(const char *guest) {
     host_unlock(&lock);
 }
 static char user_root[512]="user";
+void runtime_file_save_activity(uint64_t *generation,int *open_writes) {
+    int n=0;
+    host_lock(&lock);
+    for (int i=3;i<MAX_FILES;++i) if (files[i].used && files[i].commit) ++n;
+    host_unlock(&lock);
+    *generation=__atomic_load_n(&save_generation,__ATOMIC_SEQ_CST);
+    *open_writes=n+__atomic_load_n(&pending_save_commits,__ATOMIC_SEQ_CST);
+}
 const char *runtime_file_user_dir(void) { return user_root; }
 void runtime_file_configure(const char *app0,const char *user) {
+    bbnet_configure(app0,user);
     char path[600];
     snprintf(user_root,sizeof(user_root),"%s",user);
     runtime_file_mount("/app0",app0);
@@ -135,6 +179,7 @@ static Listing *list_directory(const char *path) {
     size_t capacity=0,bytes=0,cap_names=0;
     struct dirent *e;
     while (l && (e=readdir(d))) {
+        if (temp_name(e->d_name)) continue;
         size_t n=strlen(e->d_name)+1;
         if (l->count==capacity) {
             capacity=capacity ? capacity*2 : 64;
@@ -198,24 +243,118 @@ static int game_path(const char *p) {
     return (!strncmp(p,"/app0",5) && (!p[5] || p[5]=='/')) ||
            (!strncmp(p,"/hostapp",8) && (!p[8] || p[8]=='/'));
 }
+static int save_trace(void) { const char *v=getenv("BB_SAVE_TRACE"); return v && v[0]=='1'; }
+static int open_host(const char *path,int flags,int mode,int shared) {
+#ifdef _WIN32
+    return shared ? runtime_win_open_shared(path,flags,mode) : open(path,flags,mode);
+#else
+    (void)shared; return open(path,flags,mode);
+#endif
+}
+static unsigned temp_serial;
+static int copy_contents(int from,int to) {
+    char buffer[65536];
+    for (;;) {
+        ssize_t n=read(from,buffer,sizeof(buffer));
+        if (n<0 && errno==EINTR) continue;
+        if (n<=0) return n<0 ? -1 : 0;
+        for (ssize_t done=0; done<n;) {
+            ssize_t w=write(to,buffer+done,(size_t)(n-done));
+            if (w<0 && errno==EINTR) continue;
+            if (w<0) return -1;
+            done+=w;
+        }
+    }
+}
+/* A save file open for writing is its copy to the operations by path too (the game stats the
+ * file it is writing, which may not exist yet: it renames the old one to its backup first). */
+static void current_copy(char *path,size_t size,int write) {
+    host_lock(&lock);
+    for (int i=3;i<MAX_FILES;++i)
+        if (files[i].used && files[i].commit && !strcmp(files[i].commit,path)) { snprintf(path,size,"%s",files[i].temp); files[i].dirty|=write; break; }
+    host_unlock(&lock);
+}
+/* Returns the descriptor of the copy, or -(errno). */
+static int open_for_commit(const char *path,const char *source,int flags,int mode,char **commit,char **temp) {
+    int hf=host_flags(flags);
+    HostStat s;
+    int exists=!host_stat(source,&s);
+    if (exists && !S_ISREG(s.st_mode)) { int h=open_host(path,hf,mode ? mode : 0644,1); return h<0 ? -errno : h; }
+    if (exists && (hf&O_CREAT) && (hf&O_EXCL)) return -EEXIST;
+    if (!exists && !(hf&O_CREAT)) return -ENOENT;
+    size_t n=strlen(path)+32;
+    char *t=malloc(n), *c=strdup(path);
+    if (!t || !c) { free(t); free(c); return -ENOMEM; }
+    snprintf(t,n,"%s.%u.bbtmp",path,__atomic_add_fetch(&temp_serial,1,__ATOMIC_RELAXED));
+    int out=open_host(t,O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC|O_BINARY,exists ? (int)(s.st_mode&07777) : mode ? mode : 0644,1);
+    int e=out<0 ? errno : 0;
+    if (!e && exists && !(hf&O_TRUNC)) {
+        int in=open_host(source,O_RDONLY|O_CLOEXEC|O_BINARY,0,1);
+        if (in<0 || copy_contents(in,out)) e=errno ? errno : EIO;
+        if (in>=0) close(in);
+    }
+    if (out>=0) close(out);
+    int host=e ? -1 : open_host(t,hf&~(O_CREAT|O_EXCL|O_TRUNC),0,1);
+    if (host<0) {
+        if (!e) e=errno;
+        unlink(t); free(t); free(c);
+        return -e;
+    }
+    *commit=c; *temp=t;
+    return host;
+}
+static void sync_directory(const char *file) {
+#ifdef _WIN32
+    (void)file; return; /* the rename itself is MOVEFILE_WRITE_THROUGH (runtime_win_rename) */
+#endif
+    char dir[1024];
+    snprintf(dir,sizeof(dir),"%s",file);
+    char *slash=strrchr(dir,'/');
+    if (!slash) return;
+    *slash=0;
+    int d=open(dir,O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+    if (d>=0) { fsync(d); close(d); }
+}
+static int commit_file(const File *f) {
+    if (!f->dirty) { close(f->host); unlink(f->temp); return 0; } /* opened for writing, not written */
+    int e=fsync(f->host) ? errno : 0;
+    close(f->host);
+    if (!e && rename(f->temp,f->commit)) e=errno;
+    if (e) {
+        fprintf(stderr,"Runtime: save file %s not replaced (%s); the old one is kept\n",f->path,strerror(e));
+        unlink(f->temp);
+        return -e;
+    }
+    sync_directory(f->commit);
+    return 0;
+}
+
 /* All operations return >=0 or -(host errno); wrappers adapt the convention. */
 static int64_t do_open(const char *guest,int flags,int mode) {
     if (game_path(guest) && (flags & (3|0x8|0x200|0x400|0x800))) return -EROFS;
     char path[1024];
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
+    char current[1024], *commit=NULL, *temp=NULL;
+    snprintf(current,sizeof(current),"%s",path);
+    if (save_path(guest)) current_copy(current,sizeof(current),0);
     HostStat s;
     Listing *dir=NULL;
     int host=-1;
+    const int dirty_on_open = (flags&0x400) || ((flags&0x200) && host_stat(current,&s));
 #ifdef _WIN32
     /* Windows cannot open a directory as a descriptor: list it, keep no host descriptor. */
-    if (!host_stat(path,&s) && S_ISDIR(s.st_mode)) {
+    if (!host_stat(current,&s) && S_ISDIR(s.st_mode)) {
         if (flags&3) return -EISDIR;
         if (!(dir=list_directory(path))) return -errno;
     } else
 #endif
     {
-    host=open(path,host_flags(flags),mode ? mode : 0644);
+    if (save_path(guest) && (flags&3)) {
+        host=open_for_commit(path,current,flags,mode,&commit,&temp);
+        save_changed();
+        if (host<0) { errno=-host; host=-1; }
+    } else host=open_host(current,host_flags(flags),mode ? mode : 0644,save_path(guest));
     if (host<0) {
         e=errno;
         if (e==ENOENT) { ++missing; printf("Runtime: open(%s) -> not found\n",guest); }
@@ -226,8 +365,8 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     host_lock(&lock);
     int fd=-1;
     for (int i=3;i<MAX_FILES;++i) if (!files[i].used) { fd=i; break; }
-    if (fd<0) { host_unlock(&lock); if (host>=0) close(host); free_listing(dir); return -EMFILE; }
-    files[fd]=(File){.used=1,.host=host,.dir=dir};
+    if (fd<0) { host_unlock(&lock); if (host>=0) close(host); free_listing(dir); if (temp) unlink(temp); free(commit); free(temp); return -EMFILE; }
+    files[fd]=(File){.used=1,.host=host,.dir=dir,.commit=commit,.temp=temp,.dirty=!!dirty_on_open};
     snprintf(files[fd].path,sizeof(files[fd].path),"%s",guest);
     ++opens;
     host_unlock(&lock);
@@ -250,16 +389,35 @@ static int64_t do_close(int fd) {
     host_lock(&lock);
     File *f=get(fd);
     if (!f) { host_unlock(&lock); return -EBADF; }
-    if (f->host>=0) close(f->host);
-    free_listing(f->dir);
+    File closed=*f;
+    if (closed.temp) __atomic_add_fetch(&pending_save_commits,1,__ATOMIC_SEQ_CST);
     *f=(File){0};
     host_unlock(&lock);
-    return 0;
+    free_listing(closed.dir);
+    int result=0;
+    if (closed.temp) {
+        result=commit_file(&closed);
+        save_changed();
+        __atomic_sub_fetch(&pending_save_commits,1,__ATOMIC_SEQ_CST);
+    }
+    else if (closed.host>=0) close(closed.host);
+    if (save_trace() && save_path(closed.path))
+        printf("Save trace: close(fd %d, %s)%s -> %d\n",fd,closed.path,closed.temp ? closed.dirty ? " commit" : " unwritten" : "",result);
+    free(closed.commit); free(closed.temp);
+    return result;
 }
 static int host_fd(int fd) {
     if (fd>=0 && fd<3) return fd;
     File *f=get(fd);
     return f ? f->host : -1;
+}
+static int host_fd_written(int fd) {
+    if (fd>=0 && fd<3) return fd;
+    File *f=get(fd);
+    if (!f) return -1;
+    if (!f->dirty && save_trace() && save_path(f->path)) printf("Save trace: first write to fd %d (%s)\n",fd,f->path);
+    f->dirty=1;
+    return f->host;
 }
 /* The GPU side is told of the write first (runtime_memory_note_write: its tracking unprotects the
  * range). Pages protected again meanwhile would make the kernel's copy fail with EFAULT instead
@@ -333,7 +491,7 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     return n;
 }
 static int64_t do_write(int fd,const void *buffer,uint64_t size) {
-    int h=host_fd(fd);
+    int h=host_fd_written(fd);
     if (h<0) return -EBADF;
     ssize_t n=write(h,buffer,size);
     if (n<0) return -errno;
@@ -341,7 +499,7 @@ static int64_t do_write(int fd,const void *buffer,uint64_t size) {
     return n;
 }
 static int64_t do_pwrite(int fd,const void *buffer,uint64_t size,int64_t offset) {
-    int h=host_fd(fd);
+    int h=host_fd_written(fd);
     if (h<0) return -EBADF;
     ssize_t n=pwrite(h,buffer,size,offset);
     return n<0 ? -errno : n;
@@ -374,6 +532,7 @@ static int64_t do_stat(const char *guest,GuestStat *out) {
     char path[1024]; HostStat s;
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
+    if (save_path(guest)) { current_copy(path,sizeof(path),0); }
     if (!out) return -EFAULT;
     if (host_stat(path,&s)) return -errno;
     convert_stat(&s,out); return 0;
@@ -413,6 +572,7 @@ static int64_t path_op(const char *guest,int op,int mode) {
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
     int r= op==0 ? mkdir(path,mode ? mode : 0755) : op==1 ? rmdir(path) : unlink(path);
+    if (!r && save_path(guest)) save_changed();
     return r ? -errno : 0;
 }
 static int64_t do_rename(const char *from,const char *to) {
@@ -421,10 +581,12 @@ static int64_t do_rename(const char *from,const char *to) {
     int e=translate(from,a,sizeof(a));
     if (!e) e=translate(to,b,sizeof(b));
     if (e) return -e;
-    return rename(a,b) ? -errno : 0;
+    int result=rename(a,b) ? -errno : 0;
+    if (!result && (save_path(from) || save_path(to))) save_changed();
+    return result;
 }
 static int64_t do_ftruncate(int fd,int64_t length) {
-    int h=host_fd(fd);
+    int h=host_fd_written(fd);
     if (h<0) return -EBADF;
     return ftruncate(h,length) ? -errno : 0;
 }
@@ -433,6 +595,7 @@ static int64_t do_truncate(const char *guest,int64_t length) {
     char path[1024];
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
+    if (save_path(guest)) { current_copy(path,sizeof(path),1); save_changed(); }
     return truncate(path,length) ? -errno : 0;
 }
 static int64_t do_fsync(int fd) { int h=host_fd(fd); if (h<0) return -EBADF; return fsync(h) ? -errno : 0; }
@@ -440,6 +603,7 @@ static int64_t do_access(const char *guest,int mode) {
     char path[1024];
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
+    if (save_path(guest)) { current_copy(path,sizeof(path),0); }
 #ifdef _WIN32
     return access(path,mode&6) ? -errno : 0; /* no execute bit to test */
 #else

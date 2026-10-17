@@ -391,7 +391,7 @@ extern "C" void bbnet_initialize(void) {
     Libraries::Np::NpManager::InitializeRuntime();
 }
 
-extern "C" void bbnet_set_image(unsigned char* image, uint64_t size) {
+extern "C" void bbnet_online_set_image(unsigned char* image, uint64_t size) {
     BbThd::SetImage(image, size);
 }
 

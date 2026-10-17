@@ -102,6 +102,56 @@ inline constexpr const char* PadIconsNames[] = {"auto", "playstation", "xbox"};
 static_assert(sizeof(PadIconsNames) / sizeof(PadIconsNames[0]) == PadIconsCount);
 
 struct Values {
+    /// Party mode: short join / leave / travel notices in a top corner (ini party_toasts). Live.
+    std::atomic<bool> party_toasts{true};
+    /// Party mode: the party HUD, companions' names / health / whereabouts in the bottom left
+    /// corner (party_hud.h; ini party_hud). Never shown solo. Live.
+    std::atomic<bool> party_hud{true};
+    /// Party mode: guests may use world lamps and Dream headstones too; their use moves the whole
+    /// party, host-led (ini party_guest_lamps; env BB_PARTY_GUEST_LAMPS overrides). On restart.
+    std::atomic<bool> party_guest_lamps{true};
+    /// Party rules (party_balance.h; the host's values are the party's, sent to every guest. Live).
+    /// C4: the death debuff "rot": each death stacks max HP -10 % (5 stacks), a lamp rest cleanses
+    /// it (ini party_rot; on by default, user decision 2026-10-11).
+    std::atomic<bool> party_rot{true};
+    /// D7: enemy scaling per extra hunter (coop::balance::Rules): HP / poise in % of Bloodborne's
+    /// boss step (100 = vanilla), damage + % (ini party_boss_hp ... party_enemy_poise).
+    std::atomic<int> party_boss_hp{150}, party_boss_damage{10}, party_boss_poise{100};
+    std::atomic<int> party_enemy_hp{50}, party_enemy_damage{0}, party_enemy_poise{0};
+    /// E2: what is shown above party members (coop::balance::Overhead: 0 off, 1 name, 2 name +
+    /// level, 3 name + health bar, 4 name + deaths; ini party_overhead). Live, local.
+    std::atomic<int> party_overhead{3};
+    /// Party name tags: on (default) = in a party our name plate replaces the game's phantom plate
+    /// (which hides behind any occluder); off = the game's own plate as in vanilla, ours not drawn
+    /// (ini party_name_tags; env BB_PARTY_HUD_GAME_PLATE=1 keeps the game's plate for tests). Live.
+    std::atomic<bool> party_name_tags{true};
+    /// D8: a party member's NPC conversation (subtitles, voice, choices, gifts) is shared with the
+    /// members near it (ini party_npc_talk; env BB_PARTY_NPC_TALK overrides). Live, local.
+    std::atomic<bool> party_npc_talk{true};
+    /// I2: pings - hold the touchpad and press R3 (or V) to mark the spot looked at for the party;
+    /// everyone sees it through walls with its distance for 10 s (ini party_pings; env
+    /// BB_PARTY_PINGS overrides). Live, local: off = no combo, no sending, others' pings not drawn.
+    std::atomic<bool> party_pings{true};
+    /// I2: every party member on this map drawn through walls as a small marker with its distance
+    /// in its colour (ini party_through_walls; off by default: busy next to the name plates). Live.
+    std::atomic<bool> party_through_walls{false};
+    /// I1: friendly fire / PvP - party members can hurt each other (party_pvp.h). A party rule: the
+    /// host's value is sent to every guest, a guest's own value never counts. Off by default (ini
+    /// party_friendly_fire; env BB_PARTY_FRIENDLY_FIRE=0/1 overrides at start). Live.
+    std::atomic<bool> party_friendly_fire{false};
+    /// Statsaudit finding 5: lamps are shared by the whole party (a lamp any member lit is lit for
+    /// everyone, in each member's own save too). A party rule: the host's value counts. On by
+    /// default (ini party_share_lamps; env BB_PARTY_SHARE_LAMPS=0/1 overrides at start).
+    std::atomic<bool> party_share_lamps{true};
+    /// ... within this many metres of the NPC (0 = anywhere on the same map; ini
+    /// party_npc_talk_range; env BB_PARTY_NPC_TALK_RANGE overrides). Live, local.
+    std::atomic<int> party_npc_talk_range{25};
+    /// F2: the automatic hole-punching rendezvous over the public BitTorrent DHT (party_rdv.h):
+    /// OPT-IN, off by default (it posts the guest's IP on the DHT; user decision 2026-10-14). Both
+    /// host and guest need it on. ini party_rendezvous; env BB_PARTY_RENDEZVOUS (the launcher's
+    /// Party tab) overrides at start. Read when the party starts (System > Party rules).
+    std::atomic<bool> party_rendezvous{false};
+
     std::atomic<MenuLanguage> menu_language{MenuLanguage::English};
     std::atomic<int> upscaler{UpscalerFsr3};
     std::atomic<int> preset{NativeAA};

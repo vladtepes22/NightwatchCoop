@@ -446,7 +446,7 @@ Tests: `bash build.sh --test`, `python3 -m unittest discover -s tests`, and
 
 ## Credits and licenses
 
-bbport is licensed under the **GNU GPL v2 or later** ([LICENSE](LICENSE)) — it contains code
+Awaken Seamless is licensed under the **GNU GPL v3 or later** ([LICENSE](LICENSE)) — it contains code
 from shadPS4 (GPL-2.0-or-later). Third-party components keep their licenses:
 [shadPS4](https://github.com/shadps4-emu/shadPS4) video core and shader recompiler (GPL-2.0+),
 [sirit](https://github.com/shadps4-emu/sirit), [half](https://half.sourceforge.net/),

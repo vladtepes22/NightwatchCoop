@@ -71,6 +71,12 @@ ONLINE_PAUSED = os.environ.get('BB_ONLINE_PAUSED', '0') == '1'
 
 
 def configure_online(settings, data, env):
+    from party_env import party_enabled
+    if party_enabled(env):
+        for key in ONLINE_ENV:
+            env.pop(key, None)
+        env['BB_ONLINE'] = '0'
+        return None
     # The Hunter's Dream pool is the reworked connection: the pause is the shadNet pool's.
     if (settings.get('online_pool') == 'huntersdream' and settings.get('online_enabled') == '1' and
             settings.get('online_connected', '1') == '1'):

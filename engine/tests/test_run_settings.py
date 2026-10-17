@@ -11,6 +11,7 @@ import tempfile
 import unittest
 
 
+@unittest.skipIf(os.name == 'nt', 'POSIX run.sh restart integration; Windows uses run_windows.py')
 class RestartResolutionTests(unittest.TestCase):
     def run_restarts(self, explicit=False, live=False, ini_extra='', caps=None, bare_path=False):
         with tempfile.TemporaryDirectory() as directory:

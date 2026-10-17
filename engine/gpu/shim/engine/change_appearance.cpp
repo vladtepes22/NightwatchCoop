@@ -1,6 +1,10 @@
+#include "../party/lamp_travel.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The editor controller/refcount lifecycle is adapted from bbhost, not the GPU renderer.
 #include "engine_hooks.h"
+#include "../party/party_director.h"
+#include "../bbport_game_menu.h"
+#include "../seamless_launcher.h"
 #include "camera.h"
 #include "widescreen.h"
 #include "../input/input.h"
@@ -126,6 +130,7 @@ void release_list() {
 }
 
 bool g_frame_on = false;
+bool frame_tick_installed = false;
 
 }  // namespace
 
@@ -156,6 +161,9 @@ std::int64_t __attribute__((sysv_abi)) StepHook(std::uint64_t, const std::uint64
     return 0;
 }
 std::int64_t __attribute__((sysv_abi)) FrameHook(std::uint64_t, const std::uint64_t*) {
+    if (coop::PartyRequested()) { SeamlessLauncher::Poll(); coop::CoopTick(); }
+    else coop::lamptravel::Tick();
+    BbGameMenu::Poll();
     change_appearance_tick();
     Rebirth::Tick();
     Options::Tick();
@@ -217,5 +225,7 @@ void Install(std::uint8_t* image, std::size_t size) {
         Log("engine enhancements disabled: no compatible feature could be prepared"); return;
     }
     Commit(hooks);
+    frame_tick_installed = true;
 }
+bool FrameTickInstalled() { return frame_tick_installed; }
 } // namespace BbEngine

@@ -138,9 +138,10 @@ namespace BloodborneLauncher.Core
             if (process == null)
                 return;
 
-            foreach (var probe in Process.GetProcessesByName("bb-probe"))
+            foreach (var probe in ProcessTree.Descendants(process.Id))
             {
                 try { probe.CloseMainWindow(); } catch { /* no window */ }
+                probe.Dispose();
             }
             try { process.CloseMainWindow(); } catch { /* no window */ }
 

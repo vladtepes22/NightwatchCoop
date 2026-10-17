@@ -30,7 +30,7 @@ try {
         "-DCMAKE_C_COMPILER=$env:CC" "-DCMAKE_CXX_COMPILER=$env:CXX" `
         "-DCMAKE_MAKE_PROGRAM=$(Join-Path $toolchain 'ninja.exe')" `
         "-DCMAKE_PREFIX_PATH=$(Join-Path $MsysRoot 'clang64')" `
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_LTO=ON -DBB_PGO=off `
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_LTO=ON -DBB_PGO=off -DBB_NATIVE_RUNTIME=ON `
         '-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O2 -gline-tables-only -DNDEBUG' `
         '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O2 -gline-tables-only -DNDEBUG'
     if ($LASTEXITCODE) { throw 'Engine configuration failed' }

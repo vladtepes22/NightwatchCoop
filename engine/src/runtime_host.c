@@ -2,6 +2,9 @@
 #define _GNU_SOURCE
 #include "runtime.h"
 #include <stdlib.h>
+/* Guest TLS accesses are rewritten to GS/TEB by this runtime. Host calls leave that
+ * mapping intact, so party callbacks have no FS selector to restore. */
+ABI void restore_guest_fs(void) {}
 #ifdef _WIN32
 #include <process.h>
 

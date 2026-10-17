@@ -46,4 +46,5 @@ template <typename... A> std::int64_t Call(std::uint64_t fn, A... args) {
     }
 }
 void Install(std::uint8_t* image, std::size_t size);
+bool FrameTickInstalled();
 } // namespace BbEngine

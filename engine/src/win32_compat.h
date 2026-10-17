@@ -66,5 +66,7 @@ void runtime_win_set_thread_name(const char *name);
 /* Networking helpers without winsock headers. */
 int runtime_win_inet_pton4(const char *src, void *dst);
 const char *runtime_win_inet_ntop4(const void *src, char *dst, uint32_t size);
+int runtime_win_open_shared(const char *path,int flags,int mode);
+int runtime_win_thread_name(uint32_t thread_id,char *out,size_t size);
 #endif
 #endif

@@ -6,6 +6,7 @@
  * Metadata lives beside the directory so the guest's own files are untouched. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "save_policy.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -81,7 +82,7 @@ static void bloodborne_sound_hack(void) {
     for (size_t i=0;i<sizeof(ids)/sizeof(*ids);++i) if (!strcmp(title_id,ids[i])) bloodborne=1;
     if (!bloodborne) return;
     char users[700];
-    snprintf(users,sizeof(users),"%s/savedata",runtime_file_user_dir());
+    snprintf(users,sizeof(users),"%s/%s",runtime_file_user_dir(),runtime_savepolicy_dir());
     DIR *dir=opendir(users);
     if (!dir) return;
     for (struct dirent *e; (e=readdir(dir));) {
@@ -101,6 +102,7 @@ static void bloodborne_sound_hack(void) {
 }
 void runtime_savedata_configure(const char *title) {
     if (title && *title) snprintf(title_id,sizeof(title_id),"%s",title);
+    runtime_savepolicy_start();
     bloodborne_sound_hack();
 }
 
@@ -111,7 +113,7 @@ static int make_dirs(const char *path) {
     return mkdir(buffer,0755) && errno!=EEXIST ? -1 : 0;
 }
 static void root(int32_t user, const char *title, char *out, size_t size) {
-    snprintf(out,size,"%s/savedata/%d/%s",runtime_file_user_dir(),user,title && *title ? title : title_id);
+    snprintf(out,size,"%s/%s/%d/%s",runtime_file_user_dir(),runtime_savepolicy_dir(),user,title && *title ? title : title_id);
 }
 static int valid_name(const char *name, size_t max) {
     size_t n=strnlen(name,max);
@@ -362,3 +364,4 @@ static const RuntimeExport exports[]={
 };
 uintptr_t runtime_savedata_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
 void runtime_savedata_report(void) { printf("Runtime: save data mounts=%zu, memory writes=%zu\n",mounts_done,memory_writes); }
+int runtime_savedata_mount_count(void) { return (int)mounts_done; }

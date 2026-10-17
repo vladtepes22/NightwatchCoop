@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""Bloodborne 1.09 item lots for the party co-op C3 (docs/party/items.md): generates the lot tables
+of gpu/shim/party/party_items.inc and checks the C3 ledger flag range.
+
+Game data (read-only, untrusted; run with python -I). GAME = .../dvdroot_ps4.
+
+  python -I tools/party/item_tool.py gen-inc GAME [--out gpu/shim/party/party_items.inc]
+      ITEM_LOT_FLAG(lot, flag): every ItemLotParam row with a pickup flag (getItemFlagId > 0),
+      except the Chalice Dungeons (lot >= 100,000,000 or a flag of area 29). Treasure follows
+      flag = 50,000,000 + lot; NPC / key-item / boss lots do not, and 50 flags are shared by
+      alternative lots, so the table lists every row.
+      ITEM_LEDGER(idx, lot, done flag, note): the flagless (getItemFlagId <= 0) lots that an EMEVD
+      2003[4] (host-only award) gives, minus the per-player / repeatable sources (docs/party/items.md
+      6.1 item 3). `done flag` is the awarding event's completion flag (event id + slot), which
+      the host's save keeps once the award ran. The index is the guest's ledger bit
+      60009000 + idx, so it is stable: an existing --out file's indices are kept and new lots
+      appended.
+  python -I tools/party/item_tool.py check-ledger GAME [--first 60009000 --last 60009999]
+      Scans every EMEVD, the param bnd, the talk ESD and the Lua bnds (decoded flag operands plus
+      every u32 / f32 / f64 at any byte offset) for an id in the range; exit 1 on a hit.
+"""
+import argparse, glob, re, struct, sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import flag_tool as ft  # noqa: E402
+
+LEDGER_BASE = 60009000
+LEDGER_SIZE = 1000
+
+# EMEVD sources whose lots are never replayed (docs/party/items.md 6.1 item 3).
+DENY_EVENTS = {
+    ("common", 9100): "NPC gift, repeatable (何度でも)",
+    ("common", 9440): "covenant gem (per player)",
+    ("common", 9500): "rune / gem use (per player)",
+    ("m35_00_00_00", 13501940): "Clock Tower NPC gift, repeatable",
+    ("m21_00_00_00", 12105064): "DLC messenger costumes (per player)",
+}
+DENY_LOTS = {
+    0: "parameterised event, lot unresolved",
+    43802: "cycle variant of 43800 (per-player flag 6671)",
+}
+
+
+def is_chalice(lot, flag):
+    return lot >= 100_000_000 or (flag > 0 and (flag // 100_000) % 100 == 29 and flag // 10_000_000 in (1, 5))
+
+
+def load(game):
+    game = Path(game)
+    P = ft.load_params(game / "param" / "gameparam" / "gameparam.parambnd.dcx",
+                       game / "paramdef" / "paramdef.paramdefbnd.dcx", ["ItemLotParam"])
+    rows = {r["id"]: r for r in P["ItemLotParam"]}
+    emedf = ft.load_emedf(ft.find_emedf(game / "event"))
+    return rows, ft.expand_all(game / "event", emedf)
+
+
+def ledger_candidates(rows, allrec):
+    """{lot: (done flag, note)} for flagless host-only awards."""
+    out = {}
+    for stem, recs in allrec.items():
+        for r in recs:
+            for m in r["markers"]:
+                if m["m"] != "item_lot":  # 2003[4]; 2003[36] (item_lot_client) gives on clients too
+                    continue
+                vals = m["v"]
+                lot = vals[0] if isinstance(vals, (list, tuple)) else vals
+                if not isinstance(lot, int) or lot in DENY_LOTS or stem.startswith("m29"):
+                    continue
+                row = rows.get(lot)
+                if row is None or row["getItemFlagId"] > 0 or is_chalice(lot, -1):
+                    continue
+                if (stem, r["event"]) in DENY_EVENTS:
+                    continue
+                done = r["event"] + r["slot"]
+                note = f"{stem} ev {r['event']} slot {r['slot']}"
+                # The first non-denied source wins (sorted below for a stable choice).
+                cur = out.get(lot)
+                if cur is None or (done, note) < cur:
+                    out[lot] = (done, note)
+    return out
+
+
+INC_LEDGER = re.compile(r"ITEM_LEDGER\(\s*(\d+)\s*,\s*(\d+)\s*,")
+
+
+def cmd_gen_inc(a):
+    rows, allrec = load(a.game)
+    flagged = sorted((lot, r["getItemFlagId"]) for lot, r in rows.items()
+                     if r["getItemFlagId"] > 0 and not is_chalice(lot, r["getItemFlagId"]))
+    cand = ledger_candidates(rows, allrec)
+    # Keep the indices an existing table already gave out.
+    keep = {}
+    outp = Path(a.out)
+    if outp.exists():
+        for m in INC_LEDGER.finditer(outp.read_text(encoding="utf-8")):
+            keep[int(m.group(2))] = int(m.group(1))
+    order = sorted(cand, key=lambda lot: (keep.get(lot, 1 << 30), lot))
+    used = set(keep.values())
+    nxt = 0
+    ledger = []
+    for lot in order:
+        if lot in keep:
+            idx = keep[lot]
+        else:
+            while nxt in used:
+                nxt += 1
+            idx = nxt
+            used.add(idx)
+        if idx >= LEDGER_SIZE:
+            raise ValueError("ledger full")
+        ledger.append((idx, lot) + cand[lot])
+    dropped = sorted(set(keep) - set(cand))
+    ledger.sort()
+    out = [
+        "// Generated by tools/party/item_tool.py gen-inc from ItemLotParam and the EMEVD scripts",
+        "// (Bloodborne 1.09). Do not edit by hand: change the tool's rules and regenerate.",
+        "// ITEM_LOT_FLAG(lot, getItemFlagId): every lot row with a pickup flag (Chalice Dungeons",
+        "// excluded). A lot award also rolls lot+1, +2... while rows exist (docs/party/items.md 2.1).",
+        "// ITEM_LEDGER(idx, lot, done flag, note): flagless host-only awards; the guest keeps",
+        f"// \"given\" in flag {LEDGER_BASE} + idx. Indices are stable (append only).",
+        f"// ---- {len(flagged)} flagged lots",
+        "#ifdef ITEM_LOT_FLAG",
+    ]
+    for lot, flag in flagged:
+        out.append(f"ITEM_LOT_FLAG({lot}, {flag})")
+    out += ["#endif", f"// ---- {len(ledger)} ledger lots", "#ifdef ITEM_LEDGER"]
+    for idx, lot, done, note in ledger:
+        out.append(f'ITEM_LEDGER({idx}, {lot}, {done}, "{note}")')
+    out.append("#endif")
+    for lot in dropped:
+        out.append(f"// retired ledger lot {lot} (index {keep[lot]} stays reserved)")
+    outp.parent.mkdir(parents=True, exist_ok=True)
+    outp.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
+    print(f"wrote {outp}: {len(flagged)} flagged lots, {len(ledger)} ledger lots")
+
+
+def cmd_check_ledger(a):
+    game = Path(a.game)
+    lo, hi = a.first, a.last
+    hits = []
+    emedf = ft.load_emedf(ft.find_emedf(game / "event"))
+    allrec = ft.expand_all(game / "event", emedf)
+
+    def scan(v, where):
+        if isinstance(v, bool):
+            return
+        if isinstance(v, int):
+            if lo <= v <= hi:
+                hits.append((where, v))
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                scan(x, where)
+        elif isinstance(v, dict):
+            for x in v.values():
+                scan(x, where)
+
+    for stem, recs in allrec.items():
+        for r in recs:
+            where = f"{stem}:{r['event']}/{r['slot']}"
+            for o in r["ops"]:
+                scan([o["first"], o["last"]], where)
+            for m in r["markers"]:
+                scan(m["v"], where)
+            for rd in r["reads"]:
+                scan(rd["ids"], where)
+    files = sorted(set(glob.glob(str(game / "event" / "*.emevd*")) + [str(game / "param" / "gameparam" / "gameparam.parambnd.dcx")]
+                       + glob.glob(str(game / "script" / "**" / "*.dcx"), recursive=True)))
+    nbytes = 0
+    for p in files:
+        b = ft.read_maybe_dcx(p)
+        nbytes += len(b)
+        for off in range(0, len(b) - 3):
+            u, = struct.unpack_from("<I", b, off)
+            f, = struct.unpack_from("<f", b, off)
+            d = struct.unpack_from("<d", b, off)[0] if off + 8 <= len(b) else 0.0
+            if lo <= u <= hi or lo <= f <= hi or lo <= d <= hi:
+                hits.append((Path(p).name, off))
+    print(f"{lo}..{hi}: {len(files)} files ({nbytes} bytes decompressed) + decoded EMEVD operands; "
+          f"{len(hits)} hits")
+    for h in hits[:40]:
+        print("  ", h)
+    return 1 if hits else 0
+
+
+def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sp = ap.add_subparsers(dest="cmd", required=True)
+    p = sp.add_parser("gen-inc")
+    p.add_argument("game")
+    p.add_argument("--out", default=str(Path(__file__).resolve().parents[2] / "gpu/shim/party/party_items.inc"))
+    p = sp.add_parser("check-ledger")
+    p.add_argument("game")
+    p.add_argument("--first", type=int, default=LEDGER_BASE)
+    p.add_argument("--last", type=int, default=LEDGER_BASE + LEDGER_SIZE - 1)
+    a = ap.parse_args()
+    try:
+        return {"gen-inc": cmd_gen_inc, "check-ledger": cmd_check_ledger}[a.cmd](a) or 0
+    except (ValueError, OSError, StopIteration, struct.error) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

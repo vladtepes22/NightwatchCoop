@@ -4,6 +4,7 @@
 // motion vectors as colors into the frame before it is copied to the display.
 
 #pragma once
+#include "../../../party_env.h"
 
 #include <array>
 #include <vector>
@@ -43,7 +44,7 @@ public:
     }
 
     [[nodiscard]] bool Enabled() const noexcept {
-        return debug_overlay || for_upscaler;
+        return debug_overlay || for_upscaler || for_party;
     }
 
     /// Both cameras and the scene depth of the current frame are known.
@@ -93,6 +94,8 @@ private:
     };
 
     void Overlay(VideoCore::ImageId frame);
+    void ProbeDepth(u32 seq);
+    std::unique_ptr<VideoCore::Buffer> probe_buffer;
 
     const Instance& instance;
     Scheduler& scheduler;
@@ -100,6 +103,7 @@ private:
     Runtime& runtime;
     bool debug_overlay = false;
     bool for_upscaler = false;
+    bool for_party = false;
     vk::UniqueDescriptorSetLayout motion_desc_layout;
     vk::UniquePipelineLayout motion_pipeline_layout;
     vk::UniquePipeline motion_pipeline;

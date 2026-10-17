@@ -303,6 +303,13 @@
                                 <TextBlock Text="Online" />
                             </StackPanel>
                         </RadioButton>
+                        <RadioButton x:Name="ClassicSeamless" GroupName="Classic" Style="{StaticResource SidebarItem}"
+                                     Tag="{x:Type views:SeamlessPage}" Checked="SidebarItem_Checked">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="People24" Style="{StaticResource SidebarIcon}" />
+                                <TextBlock Text="Seamless co-op" />
+                            </StackPanel>
+                        </RadioButton>
                         <TextBlock Text="SYSTEM" Style="{StaticResource SidebarHeader}" Margin="18,18,0,6" />
                         <RadioButton x:Name="ClassicOutput" GroupName="Classic" Style="{StaticResource SidebarItem}"
                                      Tag="{x:Type views:OutputPage}" Checked="SidebarItem_Checked">

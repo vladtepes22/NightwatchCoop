@@ -348,10 +348,17 @@ static void sample_host(PadData *d) {
     d->orientation[3]=1.0f;
     d->connected=1; d->connected_count=connected_count ? connected_count : 1;
     d->timestamp=now_us();
+    static int headless=-1;
+    if (headless<0) { const char *value=getenv("BB_HEADLESS"); headless=value && value[0]=='1'; }
+    if (headless) return;
     SDL_Gamepad *g=current_gamepad();
     if (!bindings_ready) { load_bindings(); bindings_ready=1; }
     if (bbgpu_overlay_captures_input()) return; /* settings menu open: neutral input */
     const bool *k=SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetKeyboardState(NULL) : NULL;
+    static int ping_key_down;
+    const int ping_key = k && k[SDL_SCANCODE_V];
+    if (ping_key && !ping_key_down && bbgpu_ping_combo_enabled()) bbgpu_ping_request();
+    ping_key_down = ping_key;
     if (g) {
         int touch_right=0;
         for (int i=IN_CROSS;i<=IN_RIGHT;++i) {
@@ -538,6 +545,48 @@ static void touch_ids(PadData *d) {
  * name, the button that closed the menu) stay hidden until all are released: the game would
  * take them as a new press. From Supermedo/bloodborne_pc 1d34202 (hold_after_capture). */
 static int hold_after_capture;
+static uint32_t director_buttons, last_sample_buttons, cross_presses;
+static int director_axes[4]={-1,-1,-1,-1};
+void runtime_pad_director_press(uint32_t buttons) { __atomic_store_n(&director_buttons,buttons,__ATOMIC_RELAXED); }
+void runtime_pad_director_sticks(int lx,int ly,int rx,int ry) {
+    const int values[4]={lx,ly,rx,ry};
+    for (int i=0;i<4;++i) __atomic_store_n(&director_axes[i],values[i],__ATOMIC_RELAXED);
+}
+uint32_t runtime_pad_last_buttons(void) { return __atomic_load_n(&last_sample_buttons,__ATOMIC_RELAXED); }
+uint32_t runtime_pad_cross_presses(void) { return __atomic_load_n(&cross_presses,__ATOMIC_RELAXED); }
+static void ping_combo(PadData *d) {
+    static int state, right, r3_prev; /* state 0 idle, 1 touchpad held back, 2 ping sent */
+    static uint64_t click_until;
+    const uint64_t now=now_us();
+    const int tp=(d->buttons & BTN_TOUCHPAD)!=0, r3=(d->buttons & BTN_R3)!=0;
+    const int r3_rise=r3 && !r3_prev;
+    r3_prev=r3;
+    switch (state) {
+    case 0:
+        if (tp && bbgpu_ping_combo_enabled()) {
+            state=1; click_until=0;
+            right=d->touch_count>0 && d->touches[0].x>=960;
+            break;
+        }
+        if (click_until) {
+            if (now<click_until) touch_click(d,right);
+            else click_until=0;
+        }
+        return;
+    case 1:
+        if (r3_rise) { state=2; bbgpu_ping_request(); puts("Runtime: ping (touchpad + R3)"); break; }
+        if (!tp) { state=0; click_until=now+120000; touch_click(d,right); return; }
+        break;
+    default:
+        if (!tp && !r3) { state=0; return; }
+        break;
+    }
+    d->buttons&=~BTN_TOUCHPAD;
+    if (state==2) d->buttons&=~BTN_R3;
+    d->touch_count=0;
+
+}
+
 static void sample(PadData *d) {
     sample_host(d);
     if (bbgpu_overlay_captures_input()) { hold_after_capture=1; return; }
@@ -545,6 +594,7 @@ static void sample(PadData *d) {
     read_inject();
     replay_sample(d);
     d->buttons|=injected.buttons;
+    d->buttons|=__atomic_load_n(&director_buttons,__ATOMIC_RELAXED);
     if (hold_after_capture) {
         if (d->buttons) { d->buttons=0; d->l2=d->r2=0; }
         else hold_after_capture=0;
@@ -555,6 +605,14 @@ static void sample(PadData *d) {
     if (injected.buttons & BTN_R2) d->r2=255;
     uint8_t *axes[4]={&d->left_x,&d->left_y,&d->right_x,&d->right_y};
     for (int i=0;i<4;++i) if (injected.stick[i]>=0) *axes[i]=(uint8_t)injected.stick[i];
+    for (int i=0;i<4;++i) {
+        const int value=__atomic_load_n(&director_axes[i],__ATOMIC_RELAXED);
+        if (value>=0) *axes[i]=(uint8_t)value;
+    }
+    if ((d->buttons & BTN_CROSS) && !(last_sample_buttons & BTN_CROSS))
+        __atomic_add_fetch(&cross_presses,1,__ATOMIC_RELAXED);
+    __atomic_store_n(&last_sample_buttons,d->buttons,__ATOMIC_RELAXED);
+    ping_combo(d);
     touch_ids(d);
 }
 

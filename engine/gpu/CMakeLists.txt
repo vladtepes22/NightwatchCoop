@@ -125,6 +125,7 @@ if (WIN32)
     foreach(ffx_target IN ITEMS ffx_vulkan_portable ffx_vulkan_fsr3_vk_backend_1_1_4
             ffx_vulkan_fsr3_host_1_1_4 ffx_vulkan_fsr4_v07_vulkan ffx_vulkan_fsr4_v07_assets)
         if (TARGET ${ffx_target})
+            target_compile_options(${ffx_target} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/win_compat.h>")
             target_compile_options(${ffx_target} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include cstdio>"
                 "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include cwchar>" "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include cstring>"
                 "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include cmath>" "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include new>"
@@ -209,6 +210,20 @@ add_library(bbgpu ${BBGPU_LIBRARY_TYPE} ${VIDEO_CORE} ${RECOMPILER} ${COMMON} ${
     shadps4/core/libraries/videoout/driver.cpp shadps4/core/libraries/videoout/video_out.cpp
     shadps4/core/libraries/kernel/equeue.cpp ${AVPLAYER}
     shadps4/core/libraries/videodec/video_utils.cpp)
+target_sources(bbgpu PRIVATE third_party/monocypher/monocypher.c)
+file(GLOB_RECURSE BB_ID_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*.h ../src/*.c ../src/*.h)
+set(BB_ID_CONTENT "awaken-seamless-0.1.0-visy-0.6.5")
+foreach(source IN LISTS BB_ID_SOURCES)
+    file(SHA256 "${source}" source_hash)
+    string(APPEND BB_ID_CONTENT "${source_hash}")
+endforeach()
+string(SHA256 BB_SEAMLESS_SOURCE_ID "${BB_ID_CONTENT}")
+string(SUBSTRING "${BB_SEAMLESS_SOURCE_ID}" 0 16 BB_SEAMLESS_SOURCE_ID)
+set_source_files_properties(shim/seamless_build.cpp PROPERTIES
+    COMPILE_DEFINITIONS "BB_SEAMLESS_BUILD_ID=\"awaken-seamless-0.1.0-${BB_SEAMLESS_SOURCE_ID}\"")
+if(WIN32)
+    target_link_libraries(bbgpu PUBLIC ole32 oleaut32 crypt32 synchronization iphlpapi)
+endif()
 add_dependencies(bbgpu host_shaders)
 add_subdirectory(bbnet)
 target_link_libraries(bbgpu PUBLIC bbnet)
@@ -248,8 +263,11 @@ if (WIN32)
     endif()
     # bb-probe.exe links libbbgpu.a with these (out/gpu/bbgpu_link.txt, one argument per line,
     # in link order): the static library's transitive dependencies.
-    include(cmake/LinkClosure.cmake)
-    bb_write_link_closure(bbgpu ${CMAKE_CURRENT_BINARY_DIR}/bbgpu_link.txt)
+    option(BB_NATIVE_RUNTIME "Build the Windows runtime with CMake" OFF)
+    if(NOT BB_NATIVE_RUNTIME)
+        include(cmake/LinkClosure.cmake)
+        bb_write_link_closure(bbgpu ${CMAKE_CURRENT_BINARY_DIR}/bbgpu_link.txt)
+    endif()
 else()
     # Runtime symbols (runtime_memory_*, runtime_process_*) resolve against bb-probe.
     target_link_options(bbgpu PRIVATE -Wl,--allow-shlib-undefined)
@@ -377,3 +395,5 @@ target_compile_options(widescreen-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 if(WIN32)
     include(cmake/Runtime.cmake)
 endif()
+
+include(cmake/SeamlessTests.cmake)

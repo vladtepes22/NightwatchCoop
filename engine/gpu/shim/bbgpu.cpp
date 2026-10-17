@@ -27,7 +27,20 @@
 #include <vector>
 #include <SDL3/SDL.h>
 #include "../bbgpu.h"
+#include "../bbnet.h"
 #include "common/elf_info.h"
+
+extern "C" void bbgpu_request_quit(void) {
+    SDL_Event quit{};
+    quit.type = SDL_EVENT_QUIT;
+    SDL_PushEvent(&quit);
+}
+
+[[noreturn]] void BbHardExit(int code) {
+    bbnet_shutdown();
+    std::fflush(nullptr);
+    std::_Exit(code);
+}
 #include "common/logging/log.h"
 #include "common/rdtsc.h"
 #include "common/signal_context.h"
@@ -387,6 +400,11 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
 namespace Libraries::Kernel { void StartKernelService(); }
 extern "C" void bbnet_register(void);
 extern "C" void bbnet_initialize(void);
+#include "../bbnet.h"
+#include "party/party_director.h"
+#include "party/coop_hooks.h"
+#include "party/lamp_travel.h"
+#include "bbport_game_menu.h"
 extern "C" void bbgpu_start_online(void) {
     const char* online = std::getenv("BB_ONLINE");
     if (online && online[0] == '1') bbnet_initialize();
@@ -401,6 +419,7 @@ extern "C" void bbgpu_register_kernel(void) {
 }
 
 extern "C" uintptr_t bbgpu_resolve(const char* scoped_nid) {
+    if (const uintptr_t party = bbnet_resolve(scoped_nid)) return party;
     const char* hash = std::strchr(scoped_nid, '#');
     const size_t length = hash ? size_t(hash - scoped_nid) : std::strlen(scoped_nid);
     for (const auto& symbol : g_symbols) {
@@ -463,11 +482,16 @@ extern "C" int bbgpu_handle_fault(void* ucontext, void* address) {
     return runtime_memory_restore_access(ucontext, reinterpret_cast<uintptr_t>(address), 0);
 }
 
-extern "C" void bbnet_set_image(unsigned char* image, uint64_t size);
+extern "C" void bbnet_online_set_image(unsigned char* image, uint64_t size);
 extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
-    bbnet_set_image(image, size); // before the engine's hooks change the code it checks
+    bbnet_set_image(image, size);
+    bbnet_online_set_image(image, size); // before the engine's hooks change the code it checks
     BbGnmHooks::PatchImage(image, size);
     BbEngine::Install(image, size);
+    coop::HooksInit(image, size);
+    BbGameMenu::PatchImage(image, size);
+    coop::lamptravel::Install(image, size);
+    if (coop::PartyRequested()) { coop::PartyInit(image, size); bbnet_start(); }
 }
 
 extern "C" unsigned bbgpu_symbol_count(void) {
@@ -537,6 +561,16 @@ extern "C" int bbgpu_text_input_begin(const char* initial, const char* prompt) {
     return 1;
 }
 
+extern "C" int bbgpu_text_input_is_active(void) {
+    return g_window && g_window->IsTextInputActive();
+}
+
+extern "C" int bbgpu_text_input_test_type(const char* keys) {
+    if(!g_window || !keys) return 0;
+    g_window->TestType(keys);
+    return 1;
+}
+
 extern "C" int bbgpu_text_input_poll(char* out, uint64_t size) {
     if (!g_window) return 2;
     std::string text;
@@ -548,3 +582,6 @@ extern "C" int bbgpu_text_input_poll(char* out, uint64_t size) {
     }
     return state;
 }
+
+
+extern "C" const char *bbgpu_ime_preset(uint32_t max_length) { return BbGameMenu::ImePreset(max_length); }

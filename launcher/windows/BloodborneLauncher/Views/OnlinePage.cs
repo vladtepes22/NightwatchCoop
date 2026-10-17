@@ -24,6 +24,9 @@ namespace BloodborneLauncher.Views
             "1. Turn on Play online. 2. Enter your account below. 3. In the game, choose online at the title screen: " +
             "The Hunter's Dream's welcome message means you are online. Everyone needs game version 1.09.")
         {
+            Add(Card(SymbolRegular.People24, "Seamless campaign co-op", "Host or join visy's seamless party.",
+                SmallButton("Seamless", SymbolRegular.People24, (_, _) =>
+                    ((MainWindow)Application.Current.MainWindow).Show("seamless")), out _));
             // One server now: the bbbridge pool and custom servers are gone (scripts/online.py defaults).
             foreach (var key in new[] { "online_host", "online_port", "online_webapi", "online_game_api", "online_thd_account" })
                 if (Ini.Get(key).Length > 0) Ini.Set(key, "");

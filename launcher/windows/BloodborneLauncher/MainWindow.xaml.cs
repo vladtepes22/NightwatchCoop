@@ -302,13 +302,14 @@ namespace BloodborneLauncher
                 {
                     "output" => ClassicOutput,
                     "online" => ClassicOnline,
+                    "seamless" => ClassicSeamless,
                     "mods" => ClassicMods,
                     "controls" => ClassicControls,
                     _ => ClassicPlay,
                 }
                 : page switch
                 {
-                    "output" or "online" or "mods" or "advanced" => MoreItem,
+                    "output" or "online" or "seamless" or "mods" or "advanced" => MoreItem,
                     "controls" => ControlsItem,
                     _ => PlayItem,
                 };
@@ -424,10 +425,16 @@ namespace BloodborneLauncher
 
             var s = ws.Settings;
             var ini = ws.Ini;
+            if (SeamlessSettings.Validate(s) is { } partyProblem)
+            {
+                Prompt.Tell("Seamless co-op", partyProblem);
+                Show("seamless");
+                return;
+            }
             // A connected Hunter's Dream account plays in its own co-op pool (the engine's thd backend);
             // decided here, not only when the Online page is opened.
             ini.Set("online_pool", s.HuntersDreamToken.Length > 0 && s.Str("hd_name").Length > 0 ? "huntersdream" : "");
-            if (!HuntersDream.OnlinePaused && ini.Get("online_enabled") == "1" && ini.Get("online_pool") != "huntersdream")
+            if (!SeamlessSettings.Enabled(s) && !HuntersDream.OnlinePaused && ini.Get("online_enabled") == "1" && ini.Get("online_pool") != "huntersdream")
             {
                 // The engine refuses these at start; say so here instead.
                 var problem = ini.Get("online_username").Contains('@') ? "The account name is the name registered on the server, not an email address."
@@ -468,7 +475,7 @@ namespace BloodborneLauncher
             // A patch that changes the game's region (Unlock Game Region) leaves the game without a
             // Bloodborne server: online, ask whether to leave it out for this session.
             GameEnvironment.RegionPatchOnline = null;
-            if (!HuntersDream.OnlinePaused && ini.Get("online_enabled") == "1" && ini.Get("online_connected", "1") == "1" &&
+            if (!SeamlessSettings.Enabled(s) && !HuntersDream.OnlinePaused && ini.Get("online_enabled") == "1" && ini.Get("online_connected", "1") == "1" &&
                 Patches.RegionChanging(GameEnvironment.PatchesDir(s)) is { Count: > 0 } region)
             {
                 var names = string.Join(", ", region.Select(p => $"\"{p.Name}\""));
@@ -548,7 +555,7 @@ namespace BloodborneLauncher
 
             // A game left running in the background (an earlier start that never ended, or another
             // launcher's) keeps its whole memory pool, and a new start fails (Windows error 1450).
-            var leftovers = System.Diagnostics.Process.GetProcessesByName("bb-probe");
+            var leftovers = ProcessTree.GamesIn(Paths.PortDir);
             if (leftovers.Length > 0)
             {
                 var choice = Prompt.Choose("The game is still running in the background",

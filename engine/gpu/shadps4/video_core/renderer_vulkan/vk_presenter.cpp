@@ -1,3 +1,6 @@
+#include "bbport_headless.h"
+#include "bbport_frame_state.h"
+#include "bbport_present_hold.h"
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -825,15 +828,44 @@ Frame* Presenter::PrepareBlankFrame(bool present_thread) {
 }
 
 void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame) {
+    if (!is_reusing_frame && is_game_frame) {
+        BbFrameState::OnPresent();
+        if (BbPresentHold::Active()) {
+            if (held_frame) {
+                last_submit_frame = held_frame;
+                if (Frame* again = PrepareLastFrame()) Present(again, true, false);
+                std::scoped_lock lock{free_mutex};
+                free_queue.push(frame);
+                free_cv.notify_one();
+                DebugState.IncFlipFrameNum();
+                return;
+            }
+            held_frame = frame;
+        } else if (held_frame) {
+            std::scoped_lock lock{free_mutex};
+            free_queue.push(held_frame);
+            free_cv.notify_one();
+            held_frame = nullptr;
+        }
+    }
     // Free the frame for reuse
     const auto free_frame = [&] {
         if (!is_reusing_frame) {
             last_submit_frame = frame;
             std::scoped_lock fl{free_mutex};
-            free_queue.push(frame);
-            free_cv.notify_one();
+            if (frame != held_frame) { free_queue.push(frame); free_cv.notify_one(); }
         }
     };
+
+    if (BbHeadless::On()) {
+        if (!is_reusing_frame) {
+            if (is_game_frame) draw_scheduler.Wait(frame->ready_tick);
+            else present_scheduler.Wait(frame->ready_tick);
+        }
+        free_frame();
+        if (!is_reusing_frame && is_game_frame) DebugState.IncFlipFrameNum();
+        return;
+    }
 
     // bbport: nothing to present to while the window is minimised (a 0x0 surface, issue #31).
     if (window.GetWidth() == 0 || window.GetHeight() == 0) {

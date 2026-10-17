@@ -3774,4 +3774,94 @@ Will help with better input delay/response times for 90 FPS. Remember to change 
             <Line Type="bytes" Address="0x01914c24" Value="c5fa5e458c0f1f00"/>
         </PatchList>
     </Metadata>
+
+<Metadata Title="Bloodborne" Name="Party: Bells anywhere" Author="bbport, after Wozzardman/shadp2p" Note="Party co-op (BB_PARTY; BB_PARTY_SEAMLESS=0 turns it off): the Beckoning, Small Resonant and Sinister bells work in every area, also negative SOS areas (defeated-boss regions, Hunter&apos;s Dream). Beckoning range check 0x157f8c8 unsigned ja -&gt; signed jg and its area-flag result 0x157f960 allowed; Small/Sinister availability 0x157f6d1/0x157f6d3 allowed through the checked epilogue; active-bell updater 0x1506820 range 0x15068bb signed and area flag 0x15068fc allowed (effect 9003, not the X 9004); responder search range 0x191a8c3 signed; SOS status area result 0x18700d3 (from the area validator 0x131d7b0) allowed. Original attribute: the 1.09 bytes, checked by patches.py." PatchVer="1.0" AppVer="01.09" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="bytes" Address="0x0197f8c8" Value="0f8f90000000" Original="0f8790000000"/>
+            <Line Type="bytes" Address="0x0197f960" Value="31c0" Original="3401"/>
+            <Line Type="bytes" Address="0x0197f6d1" Value="b101" Original="88c3"/>
+            <Line Type="bytes" Address="0x0197f6d3" Value="e9e9090000909090" Original="4c89f7e8f59f3400"/>
+            <Line Type="bytes" Address="0x019068bb" Value="7f4a" Original="774a"/>
+            <Line Type="bytes" Address="0x019068fc" Value="b301909090" Original="88c380f301"/>
+            <Line Type="bytes" Address="0x01d1a8c3" Value="7d0488c1eb02" Original="18c920c1eb02"/>
+            <Line Type="bytes" Address="0x01c700d3" Value="4531ed90909090909090909090909090" Original="84c041bdffffffff440f44eb41c1ed1f"/>
+        </PatchList>
+    </Metadata>
+<Metadata Title="Bloodborne" Name="Party: Bells after boss defeated" Author="bbport, after Wozzardman/shadp2p" Note="Party co-op: summons still build after the area boss is dead and across maps. NOPs the summon builder&apos;s area-event rejection 0x18749e8 (the validator 0x131d7b0 reports the boss-cleared flag, e.g. 2410), its negative event id rejection 0x18749f0, the candidate&apos;s responder-area mismatch 0x14b714a, and makes the builder&apos;s area jump 0x1874b79 unconditional." PatchVer="1.0" AppVer="01.09" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="bytes" Address="0x01c749e8" Value="909090909090" Original="0f8548010000"/>
+            <Line Type="bytes" Address="0x01c749f0" Value="909090909090" Original="0f8840010000"/>
+            <Line Type="bytes" Address="0x018b714a" Value="909090909090" Original="0f85c0030000"/>
+            <Line Type="bytes" Address="0x01c74b79" Value="eb0d" Original="740d"/>
+        </PatchList>
+    </Metadata>
+<Metadata Title="Bloodborne" Name="Party: Keep session on map reload" Author="bbport, after Wozzardman/shadp2p" Note="Party co-op: the stage task destructor 0x19470f0 no longer stops multiplayer during a summoned map reload: its call at 0x19471b1 to CSMultiPlayMan::Stop 0x1ed07a0 calls the class&apos;s matching-exists predicate 0x1ed00a0 instead (same success branch, the room stays)." PatchVer="1.0" AppVer="01.09" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="bytes" Address="0x01d471b1" Value="e8ea8e5800" Original="e8ea955800"/>
+        </PatchList>
+    </Metadata>
+<Metadata Title="Bloodborne" Name="Party: SOS sign timeout 30s" Author="bbport, after Wozzardman/shadp2p" Note="Party co-op: a sign in the SOS status list (0x1872360) expires after 30 s instead of 180 s (float at 0x4927a5c, read only there), so an unanswered bell is renewed by the party director sooner. The 55 s float next to it is unchanged." PatchVer="1.0" AppVer="01.09" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="float32" Address="0x04d27a5c" Value="30.0" Original="00003443"/>
+        </PatchList>
+    </Metadata>
+<Metadata Title="Bloodborne" Name="Party: Skip Online/Offline Choice (Online)" Author="bbport, after Wozzardman/shadp2p" Note="Party co-op variant of Skip Online/Offline Choice: the dialog builder 0x1b39030 returns what its PLAY ONLINE item returns (operator() 0x1b49eb0 of item functor vtable 0x533be80; the same as PLAY OFFLINE 0x1b49cd0 with the online flag 1), so the game goes to the main menu online. patches.py uses it for BB_SKIP_NETWORK_CHOICE=online." PatchVer="1.0" AppVer="01.09" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="bytes" Address="0x01f39030" Value="554889e5534883ec184889fb488d053d2e80034889042448897424084889e6e85c0e01004889d84883c4185b5dc3" Original="554889e54157415641554154534881ec481300004989f44989fe488b058fab8a03488b00488945d0498d5c2448c7"/>
+        </PatchList>
+    </Metadata>
+<Metadata Title="Bloodborne" Name="Party: Bells without Insight" Author="bbport" Note="Party co-op (BB_PARTY; BB_PARTY_BELL_NO_INSIGHT=0 or BB_PARTY_SEAMLESS=0 turns it off): a goods item&apos;s Insight cost (EquipParamGoods consumeHeroPoint +0x38; 1 for the Beckoning Bell 200) neither greys it out nor is spent. Availability 0x157f200: setg al at 0x157fa5c (cost &gt; Insight) -&gt; xor al,al; goods use 0x18c9160: movzx eax,[goods+0x38]; neg eax (the Insight delta) at 0x18c92bb -&gt; xor eax,eax. The party layer also writes the Beckoning Bell row&apos;s cost to 0 at run time." PatchVer="1.0" AppVer="01.09" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="bytes" Address="0x0197fa5c" Value="30c090" Original="0f9fc0"/>
+            <Line Type="bytes" Address="0x01cc92bb" Value="31c00f1f440000" Original="410fb64738f7d8"/>
+        </PatchList>
+    </Metadata>
+<Metadata Title="Bloodborne" Name="Party: Fast multiplayer messages" Party="cosmetic" Author="bbport" Note="Party co-op (BB_PARTY; BB_PARTY_FAST_MESSAGES=0 turns it off): the multiplayer banner (Scaleform SummonMessage dialog, update 0x1bff910; FMG EventText 100001..200000: bell searching / discovered, X has arrived, entered the world of X, died, returning to own world, farewell) holds 1.5 s instead of 5.0 s. The fades are the movie's own (about 0.17 s in, 0.23 s out). 0x1bfface mov dword [r13],5.0 (a new message) and the rodata 5.0 at 0x4928a98, read only at 0x1bffa7d (re-show after a cutscene). docs/party/join_timing.md." PatchVer="1.0" AppVer="01.09" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="bytes" Address="0x01ffface" Value="41c745000000c03f" Original="41c745000000a040"/>
+            <Line Type="bytes" Address="0x04d28a98" Value="0000c03f" Original="0000a040"/>
+        </PatchList>
+    </Metadata>
+<Metadata Title="Bloodborne" Name="Party: Hide bell searching messages" Party="cosmetic" Author="bbport" Note="Party co-op (BB_PARTY; BB_PARTY_FAST_MESSAGES=0 turns it off): the party director rings the bells itself, so the &quot;Searching for the chime of a Beckoning Bell / Small Resonant Bell...&quot; banners (100100/100110, 100001/100011) are not shown; the bell itself (SpEffect, sign, sound) is unchanged. 0x1389cfc: the tail jmp to ShowSummonMessage 0x1bffe80 after the epilogue -> ret; 0x17c3cea: call 0x1bffe80 (result unused) -> 5-byte nop. docs/party/join_timing.md." PatchVer="1.0" AppVer="01.09" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="bytes" Address="0x01789cfc" Value="c390909090" Original="e97f618700"/>
+            <Line Type="bytes" Address="0x01bc3cea" Value="0f1f440000" Original="e891c14300"/>
+        </PatchList>
+    </Metadata>
+<Metadata Title="Bloodborne" Name="Party: Fast join" Party="cosmetic" Author="bbport" Note="Party co-op (BB_PARTY; BB_PARTY_FAST_JOIN=0 turns it off): the game&apos;s fixed summon / join pauses, none of which waits for data (docs/party/join_timing.md). CSEnterleaveDirectionStep timers (static initializer 0x196d3a0): guest self-prologue 0x5574ad0 5.0 -&gt; 0.1 s (STEP_C2H_Wait_forSelfPrologue 0x196b500; the guest&apos;s loading of the host world waits for it), others-epilogue cap 0x5574ad8 5.0 -&gt; 1.0 s (0x196be90 ends earlier when the effect is done), return-home wait 0x5574ae0 5.0 -&gt; 1.0 s and its fade 0x5574ae8 2.0 -&gt; 0.5 s (STEP_H2C_Wait_forEffect 0x196c2d0). Host summon message (SummonStepManager tick 0x14b5e10): the check whether the summoned guest is a connected peer before the summon data goes out repeats every 0.5 s instead of 3.0 s (0x14b80c4), with 16 tries instead of 5 (0x14b4975, 0x14bb067: an 8 s window instead of 15 s; a summon that fails ends sooner and the sign is offered again). NexusRevolution transport defaults (0xcdb250): the first retransmission timeout 3000 -&gt; 300 ms (0xcdb2e8; the guest&apos;s session connect on vport 30 crosses the host&apos;s and is resent only after it), like TCP&apos;s initial RTO." PatchVer="1.0" AppVer="01.09" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="bytes" Address="0x01d6d3a8" Value="c7051e77c003cdcccc3d" Original="c7051e77c0030000a040"/>
+            <Line Type="bytes" Address="0x01d6d3b2" Value="c7051c77c0030000803f" Original="c7051c77c0030000a040"/>
+            <Line Type="bytes" Address="0x01d6d3c6" Value="c7051077c0030000803f" Original="c7051077c0030000a040"/>
+            <Line Type="bytes" Address="0x01d6d3d0" Value="c7050e77c0030000003f" Original="c7050e77c00300000040"/>
+            <Line Type="bytes" Address="0x018b80c4" Value="41c7451c0000003f" Original="41c7451c00004040"/>
+            <Line Type="bytes" Address="0x018b4975" Value="41c744241801001000" Original="41c744241801000500"/>
+            <Line Type="bytes" Address="0x018bb067" Value="c7431801001000" Original="c7431801000500"/>
+            <Line Type="bytes" Address="0x010db2e8" Value="c78424880000002c010000" Original="c7842488000000b80b0000"/>
+        </PatchList>
+    </Metadata>
+<Metadata Title="Bloodborne" Name="Party: Fast rejoin" Party="cosmetic" Author="bbport" Note="Party co-op (BB_PARTY; BB_PARTY_FAST_JOIN=0 turns it off): the host&apos;s peer pool (0x147b350) keeps a peer reserved for a summoned player&apos;s online id 10 s instead of 30 s after the last use (+0xe4 keep flag, +0xe8 timer; 0x147af20 renews it on every summon retry, 0x1480d10 counts it down and re-arms it while the player is a session member). A guest that crashed and restarted is summoned again once the stale reservation lapses (docs/party/join_timing.md)." PatchVer="1.0" AppVer="01.09" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="bytes" Address="0x0187afe4" Value="41c78424e800000000002041" Original="41c78424e80000000000f041"/>
+            <Line Type="bytes" Address="0x0187b0a7" Value="c781e800000000002041" Original="c781e80000000000f041"/>
+            <Line Type="bytes" Address="0x01880cf7" Value="c787e800000000002041" Original="c787e80000000000f041"/>
+            <Line Type="bytes" Address="0x01880e14" Value="c780e800000000002041" Original="c780e80000000000f041"/>
+        </PatchList>
+    </Metadata>
+<Metadata Title="Bloodborne" Name="Party: Fast bell sign" Party="cosmetic" Author="bbport" Note="Party co-op (with BB_PARTY_FAST_JOIN; BB_PARTY_FAST_SIGN=0 turns it off alone): the bell sign sender (vtable 0x532f390; update 0x18a9350 counts +0x28 down, then SendSign 0x1901320, then 30 s to the next resend) sends the first sign 2.0 s after a bell instead of 5.0 s: start functions 0x18a9250 / 0x18a9280 (0x18a9264 / 0x18a9324) and the ten inlined starts of sign kinds 1..10 (0x189a095 + n*0x110). docs/party/join_timing.md." PatchVer="1.0" AppVer="01.09" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="bytes" Address="0x01ca9264" Value="c7472800000040" Original="c747280000a040"/>
+            <Line Type="bytes" Address="0x01ca9324" Value="c7472800000040" Original="c747280000a040"/>
+            <Line Type="bytes" Address="0x01c9a095" Value="c7432800000040" Original="c743280000a040"/>
+            <Line Type="bytes" Address="0x01c9a1a5" Value="c7432800000040" Original="c743280000a040"/>
+            <Line Type="bytes" Address="0x01c9a2b5" Value="c7432800000040" Original="c743280000a040"/>
+            <Line Type="bytes" Address="0x01c9a3c5" Value="c7432800000040" Original="c743280000a040"/>
+            <Line Type="bytes" Address="0x01c9a4d5" Value="c7432800000040" Original="c743280000a040"/>
+            <Line Type="bytes" Address="0x01c9a5e5" Value="c7432800000040" Original="c743280000a040"/>
+            <Line Type="bytes" Address="0x01c9a6f5" Value="c7432800000040" Original="c743280000a040"/>
+            <Line Type="bytes" Address="0x01c9a805" Value="c7432800000040" Original="c743280000a040"/>
+            <Line Type="bytes" Address="0x01c9a915" Value="c7432800000040" Original="c743280000a040"/>
+            <Line Type="bytes" Address="0x01c9aa25" Value="c7432800000040" Original="c743280000a040"/>
+        </PatchList>
+    </Metadata>
 </Patch>

@@ -6,6 +6,8 @@
  * Every entry here is an explicit contract; unknown functions still stop. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "../gpu/bbnet.h"
+#include "../gpu/party_env.h"
 #include "gpu/bbgpu.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -253,16 +255,20 @@ static void ime_complete(int end_status, const char *text) {
     ime.end_status=end_status; ime.finished=1; ime.running=0;
     printf("Runtime: ImeDialog %s%s%s\n",end_status ? "cancelled" : "text: ",end_status ? "" : text,"");
 }
+static int ime_opened;
+int runtime_ime_dialog_count(void) { return __atomic_load_n(&ime_opened,__ATOMIC_RELAXED); }
 static ABI int32_t ime_init(const ImeParam *param, const void *extended) {
     (void)extended;
     if (!param || !param->buffer || !param->max_length) return (int32_t)0x80BC0004; /* IME INVALID_ADDRESS */
     if (ime.running) return (int32_t)0x80BC0003;                                  /* BUSY */
+    __atomic_add_fetch(&ime_opened,1,__ATOMIC_RELAXED);
     memset(&ime,0,sizeof(ime));
     ime.buffer=param->buffer; ime.max_length=param->max_length; ime.running=1;
     char initial[512], prompt[256];
     utf16_to_utf8(param->buffer,param->max_length,initial,sizeof(initial));
     utf16_to_utf8(param->title,128,prompt,sizeof(prompt));
     const char *preset=getenv("BB_IME_TEXT");
+    if (!preset || !*preset) preset=bbgpu_ime_preset(param->max_length);
     if (preset) { ime_complete(0,preset); return 0; }
     /* An empty field starts with the player name (launcher) or "Hunter", so a controller alone
      * can accept it: there is no on-screen keyboard (Supermedo/bloodborne_pc 1d34202). */
@@ -500,6 +506,10 @@ static int online_symbol(const char *symbol) {
     return online;
 }
 uintptr_t runtime_services_resolve(const char *name) {
+    if (bb_party_enabled()) {
+        const uintptr_t party=bbnet_resolve(name);
+        if (party) return party;
+    }
     const char *enabled=getenv("BB_ONLINE");
     if (enabled && enabled[0]=='1') {
         const char *symbol=runtime_symbol(name);

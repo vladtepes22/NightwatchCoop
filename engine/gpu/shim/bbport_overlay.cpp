@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_overlay.h"
+#include "seamless_overlay.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1125,7 +1126,7 @@ bool HandleEvent(const SDL_Event& event) {
 }
 
 bool Visible() {
-    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps);
+    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps || SeamlessOverlay::Visible());
 }
 
 bool MenuOpen() {
@@ -1172,6 +1173,7 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     if (prompt_active && !menu_open) {
         TextPrompt();
     }
+    if (!menu_open && !prompt_active) SeamlessOverlay::Draw(base_scale);
     ImGui::Render();
 
     const vk::RenderingAttachmentInfo attachment{

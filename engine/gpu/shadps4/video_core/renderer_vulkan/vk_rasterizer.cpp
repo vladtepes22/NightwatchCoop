@@ -1,3 +1,5 @@
+#include "bbport_headless.h"
+#include "bbport_frame_state.h"
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -626,6 +628,7 @@ void Rasterizer::PrepareRenderState(const GraphicsPipeline* pipeline) {
     // bbport: the G-buffer pass (5+ color targets) holds the scene depth, and its constants the
     // main camera (shadow passes bind the same layout with the light's camera).
     gbuffer_draw = camera_motion->Enabled() && std::popcount(key.mrt_mask) >= 5 && db_desc.first;
+    if (std::popcount(key.mrt_mask) >= 5 && db_desc.first) BbFrameState::NoteScenePass();
     if (gbuffer_draw) {
         const auto& vp = regs.viewports[0];
         camera_motion->OnGBufferPass(db_desc.first, vp.xscale < 0.0f ? -1.0f : 1.0f,
@@ -1755,6 +1758,7 @@ bool Rasterizer::FilterDrawPasses() const {
 }
 
 void Rasterizer::Draw(bool is_indexed, u32 index_offset, const PreparedDraw* prepared) {
+    if (BbHeadless::On()) return;
     RENDERER_TRACE;
     BbStats::draws.fetch_add(1, std::memory_order_relaxed);
     if (occlusion) {
@@ -2081,6 +2085,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
 void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u32 stride,
                               u32 max_count, VAddr count_address, u16 vertex_sgpr_offset,
                               u16 instance_sgpr_offset) {
+    if (BbHeadless::On()) return;
     RENDERER_TRACE;
     if (occlusion) {
         occlusion->NoteIssued();

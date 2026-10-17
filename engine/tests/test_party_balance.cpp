@@ -1,0 +1,167 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Party balance rules (gpu/shim/party/party_balance_rules.h): scaling rows, rot, JSON.
+// cmake --build out/gpu --target party-balance-test && out/gpu/party-balance-test
+#include "party/party_balance_rules.h"
+
+#include <cassert>
+#include <cmath>
+#include <cstdio>
+#include <string>
+
+using namespace coop::balance;
+
+static bool Near(float a, float b) {
+    return std::fabs(a - b) < 1e-4f;
+}
+
+int main() {
+    // Vanilla rules reproduce the game's own rows 7500 / 7501 / 7502 / (7503 unused).
+    const Rules v = Vanilla();
+    assert(!v.rot);
+    for (int n = 1; n <= 3; ++n) {
+        const Doping d = Boss(v, n);
+        assert(Near(d.hp_rate, 1.0f + 0.5f * n) && Near(d.resist_rate, d.hp_rate));
+        assert(Near(d.attack_rate, 1.0f) && d.super_armor == 30 * n);
+        assert(Enemy(v, n) == Doping{});
+    }
+    assert(!EnemyScalingActive(v));
+    assert(Boss(v, 0) == Doping{} && Enemy(Rules{}, 0) == Doping{});
+
+    // The defaults: harder than vanilla (user decision 2026-10-11).
+    const Rules d;
+    assert(d.rot && d.boss_hp == 150 && d.boss_damage == 10 && d.enemy_hp == 50);
+    const Doping b1 = Boss(d, 1), b2 = Boss(d, 2), e2 = Enemy(d, 2);
+    assert(Near(b1.hp_rate, 1.75f) && Near(b2.hp_rate, 2.5f) && Near(b1.attack_rate, 1.1f) && b1.super_armor == 30);
+    assert(Near(e2.hp_rate, 1.5f) && Near(e2.attack_rate, 1.0f) && e2.super_armor == 0);
+    assert(EnemyScalingActive(d));
+    // Poise below zero: easier to stagger with more hunters (ERSC's 3-4 player note).
+    Rules p;
+    p.enemy_poise = -50;
+    assert(Enemy(p, 3).super_armor == -45);
+    // Counts past 3 count as 3 (the game's slots).
+    assert(Boss(d, 9) == Boss(d, 3));
+
+    // Slider tables.
+    assert(AtPosition(kHpTable, Position(kHpTable, 150)) == 150 && Position(kHpTable, 100) == 4);
+    assert(Position(kPoiseTable, 0) == 4 && AtPosition(kDamageTable, 99) == 100 && AtPosition(kDamageTable, -3) == 0);
+
+    // JSON round trip, clamping, malformed input.
+    Rules r;
+    r.rot = false;
+    r.boss_hp = 300;
+    r.enemy_poise = -75;
+    Rules back;
+    assert(FromJson(ToJson(r), &back) && back == r);
+    Rules c;
+    assert(FromJson("{\"boss_hp\":100000,\"enemy_damage\":-5,\"rot\":7}", &c));
+    assert(c.boss_hp == 400 && c.enemy_damage == 0 && c.rot);
+    std::string err;
+    assert(!FromJson("[1,2]", &c, &err) && !err.empty());
+    assert(!FromJson("{", &c, &err));
+    assert(!FromJson(std::string(5000, ' '), &c, &err));
+
+    // Rot.
+    assert(Near(RotHpFactor(0), 1.0f) && Near(RotHpFactor(2), 0.8f) && Near(RotHpFactor(5), 0.5f));
+    assert(Near(RotHpFactor(9), 0.5f) && Near(RotHpFactor(-1), 1.0f));
+    // What cleanses the rot: a lamp warp is the respawn only while the player is down from a death.
+    assert(LampWarpIsRespawn(false, 3.0, false));        // dead at the warp: the respawn
+    assert(LampWarpIsRespawn(true, 5.0, false));         // just respawned, not up yet
+    assert(!LampWarpIsRespawn(true, 19.0, true));        // playtest 1 H5:6072: revived in place, then a lamp
+    assert(!LampWarpIsRespawn(true, 60.0, false));       // long after
+    assert(!LampWarpIsRespawn(true, -1.0, false));       // no death yet
+    // #21: the lamp menu opened beside a lamp is a rest.
+    // Rot belongs to the character: stacks in a prologue save are another character's.
+    assert(RotFromAnotherCharacter(2, true, kStaleRotPrologueS));
+    assert(!RotFromAnotherCharacter(2, true, 1.0));   // a moment's reading, not yet
+    assert(!RotFromAnotherCharacter(2, false, 60.0)); // past the prologue: its own
+    assert(!RotFromAnotherCharacter(0, true, 60.0));  // nothing to drop
+    // Save audit S4: party_rot.txt per save slot.
+    {
+        // The old unkeyed file: dropped (whose it was is unknown), the count kept for the log.
+        const RotFile old = ParseRotFile("stacks 2\nkind0 1\nkind1 1\nkind2 0\nkind3 0\nkind4 0\n");
+        assert(old.legacy_stacks == 2 && old.slots.empty());
+        assert(old.Get(0).Stacks() == 0 && old.Get(1).Stacks() == 0);
+        assert(ParseRotFile("stacks 9\n").legacy_stacks == kRotMaxStacks);
+        assert(FormatRotFile(old).empty());
+        // Two characters, each its own.
+        RotFile f;
+        SlotRot a;
+        a.slot = 1;
+        a.kind[0] = 1;
+        a.kind[3] = 1;
+        f.Set(a);
+        SlotRot b;
+        b.slot = 0;
+        b.kind[2] = 3;
+        f.Set(b);
+        assert(f.Get(1).Stacks() == 2 && f.Get(0).Stacks() == 3 && f.Get(4).Stacks() == 0 && f.Get(4).slot == 4);
+        const RotFile g = ParseRotFile(FormatRotFile(f));
+        assert(g.legacy_stacks == 0 && g.slots.size() == 2);
+        assert(g.Get(1).kind[0] == 1 && g.Get(1).kind[3] == 1 && g.Get(0).kind[2] == 3);
+        // A cleansed character's entry goes.
+        SlotRot clean;
+        clean.slot = 1;
+        f.Set(clean);
+        assert(f.slots.size() == 1 && f.Get(1).Stacks() == 0);
+        assert(FormatRotFile(f) == "slot 0 kinds 0 0 3 0 0\n");
+        // Clamped to kRotMaxStacks in all; junk and out-of-range slots ignored.
+        const RotFile c = ParseRotFile("slot 2 kinds 4 4 4 0 0\nslot 11 kinds 1 0 0 0 0\nslot x\n");
+        assert(c.slots.size() == 1 && c.Get(2).Stacks() == kRotMaxStacks && c.Get(2).kind[1] == 1);
+        // The active slot switches only to a known, different one.
+        assert(RotSlotChanged(-1, 0) && RotSlotChanged(0, 1));
+        assert(!RotSlotChanged(1, 1) && !RotSlotChanged(1, -1) && !RotSlotChanged(-1, -1));
+    }
+    assert(LampMenuRest(true, true, 1.5f, 0.2f, -1.0f));
+    assert(!LampMenuRest(false, true, 1.5f, 0.2f, -1.0f));  // no dialog
+    assert(!LampMenuRest(true, false, 1.5f, 0.2f, -1.0f));  // dead
+    assert(!LampMenuRest(true, true, 6.0f, 0.0f, 0.0f));    // an item box elsewhere
+    assert(!LampMenuRest(true, true, 1.0f, 5.0f, 0.0f));    // a floor above
+
+    // C4 stamina cost: +10 % a stack, charged on each drop, fraction carried.
+    {
+        float carry = 0;
+        assert(RotExtraStaminaDrain(100, 90, 100, 100, 1.1f, &carry) == 1 && carry < 0.01f);  // roll 10 -> +1
+        carry = 0;
+        assert(RotExtraStaminaDrain(100, 95, 100, 100, 1.1f, &carry) == 0 && carry > 0.49f);  // 0.5 carried
+        assert(RotExtraStaminaDrain(95, 90, 100, 100, 1.1f, &carry) == 1 && carry < 0.01f);
+        carry = 0;
+        assert(RotExtraStaminaDrain(100, 70, 100, 100, 1.2f, &carry) == 6);   // 2 stacks: 30 -> +6
+        assert(RotExtraStaminaDrain(90, 95, 100, 100, 1.1f, &carry) == 0);    // regen
+        assert(RotExtraStaminaDrain(100, 90, 100, 90, 1.1f, &carry) == 0);    // max changed (stamina rot)
+        assert(RotExtraStaminaDrain(100, 90, 100, 100, 1.0f, &carry) == 0);   // no stack
+        assert(RotExtraStaminaDrain(-1, 90, 100, 100, 1.5f, &carry) == 0);    // unknown
+        carry = 0;
+        assert(RotExtraStaminaDrain(10, 1, 100, 100, 2.0f, &carry) == 1);     // never below 0
+    }
+
+    // C4 rally: -15 % a stack of each non-vial HP gain, fraction carried.
+    {
+        float carry = 0;
+        assert(RotRallyTakeBack(400, 500, 719, 719, 0.85f, false, &carry) == 15);   // +100 -> keep 85
+        assert(RotRallyTakeBack(400, 500, 719, 719, 0.85f, true, &carry) == 0);     // a Blood Vial
+        assert(RotRallyTakeBack(0, 500, 719, 719, 0.85f, false, &carry) == 0);      // a revive
+        assert(RotRallyTakeBack(400, 500, 647, 719, 0.85f, false, &carry) == 0);    // the max changed
+        assert(RotRallyTakeBack(500, 400, 719, 719, 0.85f, false, &carry) == 0);    // damage
+        assert(RotRallyTakeBack(400, 500, 719, 719, 1.0f, false, &carry) == 0);     // no stack
+        carry = 0;
+        assert(RotRallyTakeBack(400, 410, 719, 719, 0.85f, false, &carry) == 1 && carry > 0.49f);  // 1.5
+        assert(RotRallyTakeBack(410, 420, 719, 719, 0.85f, false, &carry) == 2);   // 1.5 + 0.5
+        carry = 0;
+        assert(RotRallyTakeBack(400, 500, 719, 719, -1.0f, false, &carry) == 100);  // clamped
+        assert(RotRallyGainInWindow(0.5));     // a hit back right after damage
+        assert(RotRallyGainInWindow(kRotRallyWindowS));
+        assert(!RotRallyGainInWindow(kRotRallyWindowS + 0.1));  // a regeneration tick later
+        assert(!RotRallyGainInWindow(-1.0));   // no damage seen
+        // Item discovery: -10 points (0.1) a stack, floor 0.1, clamped stacks, unknown left alone.
+        assert(Near(RotItemDiscovery(1.0f, 0), 1.0f) && Near(RotItemDiscovery(1.0f, 2), 0.8f));
+        assert(Near(RotItemDiscovery(1.7f, 5), 1.2f) && Near(RotItemDiscovery(1.0f, 9), 0.5f));
+        assert(Near(RotItemDiscovery(0.3f, 5), kRotDiscoveryFloor) && Near(RotItemDiscovery(0.0f, 3), 0.0f));
+        assert(Near(RotItemDiscovery(2.1f, -1), 2.1f));
+    }
+
+    // Menu texts.
+    assert(DescribeHp(150, false).find("+75 %") != std::string::npos);
+    assert(DescribePoise(-100, false).find("-30") != std::string::npos);
+    std::printf("party balance rules: ok\n");
+    return 0;
+}

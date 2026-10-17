@@ -168,6 +168,7 @@ private:
     vk::UniqueCommandPool command_pool;
     std::vector<Frame> present_frames;
     std::queue<Frame*> free_queue;
+    Frame* held_frame = nullptr;
     Frame* last_submit_frame;
     std::mutex free_mutex;
     std::condition_variable free_cv;

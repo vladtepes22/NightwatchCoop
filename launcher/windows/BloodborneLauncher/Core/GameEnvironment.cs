@@ -216,6 +216,15 @@ namespace BloodborneLauncher.Core
                     env[item[..at]] = item[(at + 1)..];
             }
             WindowsMonitors.ApplyEnvironment(s.Str("display_device"), WindowsMonitors.All(), env);
+            if (s.Str("artifact_dir") is { Length: > 0 } artifacts)
+            {
+                artifacts = Paths.Expand(artifacts);
+                Directory.CreateDirectory(artifacts);
+                env["BB_CRASH_DIR"] = artifacts;
+                env["BB_CAPTURE_DIR"] = artifacts;
+                env["BB_DUMP_DIR"] = artifacts;
+            }
+            SeamlessSettings.Apply(s, env);
             return env;
         }
 

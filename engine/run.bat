@@ -3,10 +3,17 @@ rem Windows counterpart of run.sh (scripts/run_windows.py): builds the port thro
 rem needed and starts the game. Usage: run.bat [--game-dir DIR] [bb-probe options...]
 rem MSYS2 is expected in C:\msys64 (set BB_MSYS2 otherwise); see README "Windows".
 setlocal
+if not defined BB_PARTY goto party_env_done
+set "party_check=%BB_PARTY: =%"
+if "%party_check%"=="" set "BB_PARTY="
+for %%v in (0 off false no) do if /i "%party_check%"=="%%v" set "BB_PARTY="
+set "party_check="
+:party_env_done
 if not defined BB_MSYS2 set "BB_MSYS2=C:\msys64"
 rem Packaged builds put an embeddable Python runtime under tools\python. Prefer it so a
 rem prebuilt Bloodborne PC package does not require MSYS2 on the player's machine.
 set "BB_PYTHON=%~dp0tools\python\python.exe"
+if exist "%BB_PYTHON%" if not defined BB_PREBUILT set "BB_PREBUILT=1"
 if not exist "%BB_PYTHON%" set "BB_PYTHON=%BB_MSYS2%\clang64\bin\python.exe"
 if not exist "%BB_PYTHON%" (
     if defined BB_LOG_FILE (

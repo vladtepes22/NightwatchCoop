@@ -13,6 +13,7 @@ namespace BloodborneLauncher.Views
             ("mods", "Mods", typeof(ModsPage)),
             ("cheats", "Cheats", typeof(CheatsPage)),
             ("online", "Online", typeof(OnlinePage)),
+            ("seamless", "Seamless", typeof(SeamlessPage)),
             ("advanced", "Advanced", typeof(SettingsPage)),
             ("output", "Log", typeof(OutputPage)),
         }.Where(s => s.Item1 != "cheats" || CheatsPage.Supported).ToArray();

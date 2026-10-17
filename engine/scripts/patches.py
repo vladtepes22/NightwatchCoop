@@ -5,6 +5,8 @@ image places eboot vaddr 0 at image offset 0. Only literal writes are supported
 (bytes, bytes16/32/64, float32/64, utf8, utf16); pattern ("mask") patches are rejected.
 """
 import argparse
+import hashlib
+from party_env import party_enabled, party_switch_on
 import json
 import os
 import struct
@@ -14,6 +16,129 @@ import zlib
 from pathlib import Path
 
 EBOOT_BASE=0x400000
+SKIP_NETWORK_CHOICE='Skip Online/Offline Choice'
+
+
+SKIP_NETWORK_CHOICE_ONLINE='Party: Skip Online/Offline Choice (Online)'
+
+
+def skip_network_choice(env=os.environ):
+    return env.get('BB_SKIP_NETWORK_CHOICE','1')!='0'
+
+
+def network_choice_patch(env=os.environ, available=None):
+    """The title-dialog patch for BB_SKIP_NETWORK_CHOICE: '0' none (the game asks), 'online' the
+    PLAY ONLINE variant (party mode; none, with a warning, when the XML lacks it), else PLAY OFFLINE."""
+    # Party mode (BB_PARTY set) boots ONLINE through the party NP layer unless told otherwise.
+    value=env.get('BB_SKIP_NETWORK_CHOICE','online' if party_mode(env) else '1').strip().lower()
+    if value=='0':
+        return None
+    if value=='online':
+        if available is not None and SKIP_NETWORK_CHOICE_ONLINE not in available:
+            print(f'Patches: BB_SKIP_NETWORK_CHOICE=online but "{SKIP_NETWORK_CHOICE_ONLINE}" is not in the '
+                  'patch file; the title asks PLAY ONLINE / PLAY OFFLINE',file=sys.stderr)
+            return None
+        return SKIP_NETWORK_CHOICE_ONLINE
+    return SKIP_NETWORK_CHOICE
+
+
+# Party co-op (BB_PARTY set): the seamless patches (docs/party/seamless_rules.md), unless
+# BB_PARTY_SEAMLESS=0. The community "Disable HTTP Requests" patch is never applied in party mode
+# (the party's FROM API runs over the game's HTTP calls).
+PARTY_SEAMLESS=['Party: Bells anywhere','Party: Bells after boss defeated',
+                'Party: Keep session on map reload','Party: SOS sign timeout 30s']
+PARTY_NO_INSIGHT='Party: Bells without Insight'
+# Join timing (docs/party/join_timing.md): the multiplayer banners' hold and the bell "Searching..."
+# banners (BB_PARTY_FAST_MESSAGES=0 turns them off); the game's own join / summon pacing
+# (BB_PARTY_FAST_JOIN=0 turns it off). Both on by default in party mode, independent of
+# BB_PARTY_SEAMLESS, and left out of the party version check (Party="cosmetic").
+PARTY_FAST_MESSAGES=['Party: Fast multiplayer messages','Party: Hide bell searching messages']
+PARTY_FAST_JOIN=['Party: Fast join','Party: Fast rejoin']
+# With fast join unless BB_PARTY_FAST_SIGN=0: the first sign 0.5 s after a bell (docs/party/join_timing.md).
+PARTY_FAST_SIGN='Party: Fast bell sign'
+DISABLE_HTTP='Disable HTTP Requests'
+
+
+def party_mode(env=os.environ):
+    """BB_PARTY turns party mode on (party_env.py: unset, empty, 0, off, false, no = off)."""
+    return party_enabled(env)
+
+
+def party_patches(env=os.environ):
+    if not party_mode(env):
+        return []
+    names=[]
+    if env.get('BB_PARTY_SEAMLESS','1').strip()!='0':
+        names+=PARTY_SEAMLESS
+        if env.get('BB_PARTY_BELL_NO_INSIGHT','1').strip()!='0':
+            names.append(PARTY_NO_INSIGHT)
+    if party_switch_on(env,'BB_PARTY_FAST_JOIN'):
+        names+=PARTY_FAST_JOIN
+    if party_switch_on(env,'BB_PARTY_FAST_JOIN') and party_switch_on(env,'BB_PARTY_FAST_SIGN'):
+        names.append(PARTY_FAST_SIGN)
+    if party_switch_on(env,'BB_PARTY_FAST_MESSAGES'):
+        names+=PARTY_FAST_MESSAGES
+    return names
+
+
+# Party version check (gpu/shim/party/party_runtime.cpp, PartyLink HELLO): the host admits a guest
+# only with the same eboot.bin, the same gameplay patches and the same gameplay mods. Patches that
+# change only what one machine draws or plays back (graphics, frame rate, resolution, LOD, sound
+# workarounds, camera and input feel, language) are left out of that check, so friends can play
+# with different graphics settings. Every other patch counts: the party patches, the skip-online
+# dialog, rally / physics / debug / cheat patches and any patch not listed here (external ones
+# too, unless their XML marks them Party="cosmetic").
+COSMETIC_PATCHES={
+    # Frame rate (the 30 FPS rule's speed fixes go with them).
+    '30 FPS++','60 FPS++','90 FPS++','Uncap FPS++','Sprint Fix (High FPS)',
+    # Resolution / render size / memory for it.
+    'Optimal 1080p','Increased Graphics Heap Sizes',
+    # Effects and level of detail.
+    'Disable AA','Disable Chromatic Aberration','Disable DoF','Disable Dynamic Light Shadows (perf increase)',
+    'Disable Motion Blur (perf increase)','Disable SSAO','Enable Screen Space Reflections (READ NOTE)',
+    'Model LOD -2 (Highest)','Model LOD 1 (Lower)','Model LOD 2 (Lowest)','Performance Patch (perf increase)',
+    # Platform workarounds (CPU / sound).
+    'Intel Black Tonemap Fix','Intel 12th Gen+ SFX workaround','FMOD Crash Fix',
+    # Presentation, camera and input on this machine only.
+    '50% Text scale','Skip Intro','Unlock Game Region','Bookmark and Capture outputs',
+    'Increased camera distance','Disable Camera Auto Rotation via Movement','Sensitive Analog Input (easier to run)',
+    # Party join timing and banners (BB_PARTY_FAST_JOIN / BB_PARTY_FAST_MESSAGES): local pacing only.
+    'Party: Fast join','Party: Fast rejoin','Party: Fast bell sign','Party: Fast multiplayer messages','Party: Hide bell searching messages',
+}
+COSMETIC_PREFIXES=('Resolution Patch ',)
+COSMETIC_MARKS=('Light Grid',)
+PARTY_PATCH_FILE='party_patch_hash.txt'
+
+
+def patch_is_cosmetic(name, meta=None):
+    """True when patch `name` changes no gameplay (left out of the party version check)."""
+    if meta is not None and meta.get('Party','').strip().lower() in ('cosmetic','gameplay'):
+        return meta.get('Party').strip().lower()=='cosmetic'
+    return (name in COSMETIC_PATCHES or name.startswith(COSMETIC_PREFIXES)
+            or any(mark in name for mark in COSMETIC_MARKS))
+
+
+def party_patch_set(items):
+    """(hash hex, names) of the gameplay patches. items: [(name, meta or None, writes)]; cosmetic
+    ones are dropped; the hash covers names and bytes, independent of order."""
+    gameplay=sorted((name,writes) for name,meta,writes in items if not patch_is_cosmetic(name,meta))
+    digest=hashlib.sha256(b'bbparty-patches-1')
+    for name,writes in gameplay:
+        digest.update(b'\0patch\0'+name.encode('utf-8')+b'\0')
+        for offset,data in writes:
+            digest.update(struct.pack('<QQ',offset,len(data))+data)
+    return digest.hexdigest(),[name for name,_ in gameplay]
+
+
+def write_party_patch_file(out, digest, names, cosmetic=()):
+    lines=['# Party version check (scripts/patches.py): the gameplay patches of patches.bin. Players',
+           '# with another hash are refused by the party host; cosmetic patches do not count.',
+           f'hash {digest}']
+    lines+=[f'patch {n}' for n in names]
+    lines+=[f'# cosmetic {n}' for n in cosmetic]
+    (Path(out)/PARTY_PATCH_FILE).write_text('\n'.join(lines)+'\n',encoding='utf-8')
+
+
 # BB_FPS presets: patch names from patches/Bloodborne.xml (app version 01.09).
 # Above 60 FPS the sprint fix always goes with the frame rate patch: without it sprinting drops to
 # half speed (the game's wall detector measured distance per frame, a 30 FPS rule).
@@ -342,6 +467,24 @@ def encode(line):
     raise ValueError(f'unsupported patch type {kind!r}')
 
 
+def originals_match(xml, name, app_version, elf):
+    """False (with a message) when a line of patch `name` carries Original="hex" (the 1.09 bytes
+    the patch replaces) and the eboot holds something else there: the patch is then left out."""
+    for meta in ET.parse(xml).getroot().iter('Metadata'):
+        if meta.get('Name')!=name or meta.get('AppVer')!=app_version: continue
+        for line in meta.iter('Line'):
+            original=line.get('Original')
+            if not original: continue
+            want=bytes.fromhex(original.replace(' ',''))
+            have=original_bytes(elf,int(line.get('Address'),0)-EBOOT_BASE,len(want))
+            if len(want)!=len(encode(line)) or have!=want:
+                print(f'Patches: "{name}" left out: {line.get("Address")} holds '
+                      f'{have.hex() if have else "nothing"}, not {want.hex()} (another eboot?)',file=sys.stderr)
+                return False
+    return True
+
+
+
 def compile_patches(xml, names, app_version, segments):
     found={}
     for meta in ET.parse(xml).getroot().iter('Metadata'):
@@ -557,7 +700,7 @@ def skip_for_online(key):
           'server (Play online would fail); it applies again with online off',file=sys.stderr)
 
 
-def compile_external(selected, segments, resolution=None):
+def compile_external(selected, segments, resolution=None, applied=None):
     """Writes of the selected external patches; a patch with unsupported lines is skipped whole.
     `resolution`: (footprint, output size) while the output resolution sets the game's resolution
     and UI itself: a patch that writes them too is left out, unless the player kept it (the
@@ -565,6 +708,9 @@ def compile_external(selected, segments, resolution=None):
     kept the patch's shape with black bars, and the widescreen hooks found its bytes and refused."""
     writes=[]
     for key,_,meta in selected:
+        if party_mode() and meta.get('Name') == DISABLE_HTTP:
+            print(f'Patches: {key} disabled in party mode',file=sys.stderr)
+            continue
         try:
             ours=[]
             for line in meta.iter('Line'):
@@ -585,6 +731,7 @@ def compile_external(selected, segments, resolution=None):
                   f'resolution ({w}x{h}) already does; it applies again with a 1920x1080 output',file=sys.stderr)
             continue
         writes+=ours
+        if applied is not None: applied.append((key,meta,ours))
         print(f'Patches: external {key} ({len(ours)} writes)')
     return writes
 
@@ -632,6 +779,9 @@ def main():
     names+=selected
     if intel_tonemap_fix() and INTEL_TONEMAP not in names:
         names.append(INTEL_TONEMAP)
+    if party_mode():
+        names=[n for n in names if n not in (DISABLE_HTTP,SKIP_NETWORK_CHOICE)]
+        names += [n for n in party_patches() + [SKIP_NETWORK_CHOICE_ONLINE] if n not in names]
     validate_patch_requirements(names,a.game_dir)
     elf=(a.out/'eboot.elf').read_bytes()
     segments=eboot_segments(elf)
@@ -640,7 +790,10 @@ def main():
     for name in [n for n in names if breaks_online(compile_patches(a.xml,[n],a.app_version,segments))]:
         skip_for_online(name)
         names.remove(name)
+    names=[n for n in names if originals_match(a.xml,n,a.app_version,elf)]
     writes=compile_patches(a.xml,names,a.app_version,segments)
+    metas={m.get('Name'):m for m in ET.parse(a.xml).getroot().iter('Metadata') if m.get('AppVer')==a.app_version}
+    party_items=[(n,metas.get(n),compile_patches(a.xml,[n],a.app_version,segments)) for n in names]
     if a.fps in SCALED_FPS and SCALED_BASE in names:
         writes=rate_scaled(writes,SCALED_FPS[a.fps])
         print(f'Patches: {a.fps} FPS: {SCALED_BASE} with its frame-rate values for {a.fps}')
@@ -669,8 +822,10 @@ def main():
     if a.patches_dir:
         # After the built-in ones: an external patch of the same bytes wins.
         resolution=(resolution_footprint(a.xml,a.app_version,segments),out) if out!=OUTPUT_SIZE else None
+        applied=[]
         writes+=compile_external(external_selection(external_patches(a.patches_dir,a.app_version,a.xml),
-                                                    a.patches_config),segments,resolution)
+                                                    a.patches_config),segments,resolution,applied)
+        party_items += [(meta.get('Name')+' (external)',meta,ours) for _,meta,ours in applied]
     # Whether a patch enlarges the game's heaps (the built-in one, or a resolution patch above
     # 1080p from a patches/ file): run_windows.py then gives the game the larger memory pool.
     heap_bytes={offset+i for offset,data in compile_patches(a.xml,[HEAP_PATCH],a.app_version,segments)
@@ -682,6 +837,8 @@ def main():
     blob=struct.pack('<8sQQ',b'BBPATCH2',EBOOT_BASE,len(writes))
     for offset,data in writes: blob+=struct.pack('<QQ',offset,len(data))+data
     (a.out/'patches.bin').write_bytes(blob)
+    digest,gameplay=party_patch_set(party_items)
+    write_party_patch_file(a.out,digest,gameplay,sorted(n for n,m,_ in party_items if patch_is_cosmetic(n,m)))
     print(f'Patches: FPS preset {a.fps}; {len(writes)} writes from {names or "none"}')
 
 
