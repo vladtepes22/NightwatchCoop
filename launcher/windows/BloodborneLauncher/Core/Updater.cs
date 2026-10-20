@@ -22,7 +22,7 @@ namespace BloodborneLauncher.Core
     /// </summary>
     public static class Updater
     {
-        public const string Repository = "Artificial-Sweetener/BloodBorneButPc";
+        public const string Repository = "vladtepes22/LanternEngine";
         public static string ReleasesPage => $"https://github.com/{Repository}/releases";
 
         /// <summary>The engine build this launcher is made for (package.json "engine").</summary>

@@ -11,7 +11,9 @@ import sys
 import time
 
 REPO = Path(__file__).resolve().parent.parent
-ARTIFACTS = Path(r'D:\project-artifacts\BloodborneSeamless')
+ARTIFACTS = Path(os.environ.get('BB_ARTIFACT_ROOT', r'D:\project-artifacts\BloodborneSeamless'))
+if not ARTIFACTS.anchor or not Path(ARTIFACTS.anchor).exists():
+    ARTIFACTS = REPO / 'work' / 'artifacts'  # as tools/smoke-game.py
 
 
 def read_status(path):
@@ -36,6 +38,7 @@ def main():
     parser.add_argument('--require-boundary', action='store_true')
     parser.add_argument('--seed-host', default='host', help='Existing smoke-game save fixture name.')
     parser.add_argument('--seed-guest', default='guest', help='Existing smoke-game save fixture name.')
+    parser.add_argument('--game', help='Game folder (CUSA03173), passed to smoke-game.py.')
     args = parser.parse_args()
     run = f'coop-{args.label}-{datetime.now():%Y%m%d-%H%M%S}'
     artifacts = ARTIFACTS / run
@@ -68,6 +71,8 @@ def main():
             logs.append(output)
             command = [sys.executable, '-u', str(REPO / 'tools/smoke-game.py'), '--name', name,
                        '--role', role, '--port', str(port), '--code-file', str(code), '--seconds', str(args.seconds)]
+            if args.game:
+                command += ['--game', args.game]
             if args.probe:
                 command += ['--probe', str(args.probe.resolve())]
             child_env = dict(env, BB_PAD_FILE=str(artifacts / f'{seed}-pad.txt'))
