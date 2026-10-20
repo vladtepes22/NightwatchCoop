@@ -12,6 +12,8 @@ retail release) with update 1.09.
 
 > **Test build.** Back up your saves.
 
+**Discord:** [discord.gg/sBK9FKKeup](https://discord.gg/sBK9FKKeup): help, finding players, bug reports.
+
 **Guides:** [Install](#install) · [Single player](#play-single-player) · [Host a game](#host-an-online-game) ·
 [Join a game](#join-a-friends-game) · [Play on the same network](#play-on-the-same-network-lan) ·
 [If friends can't connect](#if-friends-cant-connect) · [Host without an open port (Tailscale)](#host-without-an-open-port-tailscale) ·
@@ -171,7 +173,8 @@ Inside the game: **System → Party** (status, codes, rejoin, leave) and **Syste
 ## Reporting a bug
 
 Write down what happened and when, then send `logs\last_session.log` from **every** player's
-`AwakenSeamless` folder (the previous session is in `logs\previous_session.log`). Open an
+`AwakenSeamless` folder (the previous session is in `logs\previous_session.log`). Post them on the
+[Discord](https://discord.gg/sBK9FKKeup) or open an
 [issue](https://github.com/vladtepes22/LanternEngine/issues).
 
 ## Credits
