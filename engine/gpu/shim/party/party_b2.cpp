@@ -1037,6 +1037,26 @@ bool BossFightActive(std::string* who = nullptr) {
     return false;
 }
 
+/// A boss bar is still up for a chr whose HP is 0 (or gone): the boss died and the game's defeat
+/// event, which clears the bar (2003[12]) and sets the defeat flag, has not run yet.
+bool BossBarDying() {
+    const u64 hud = Slot(0x5562878);
+    if (!hud) {
+        return false;
+    }
+    for (int i = 0; i < 3; ++i) {
+        const u32 h = Field<u32>(hud, 0x165c + u64(i) * 0x14, ~0u);
+        if (h == ~0u) {
+            continue;
+        }
+        const u64 chr = ChrOfHandle(h);
+        if (!chr || Field<int>(Field<u64>(Field<u64>(chr, 0x3b0), 0x20), 0xf8, -1) <= 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// The presentation slot table (GSM +0x16F8): 5 entries at +0x1C (stride 0x14: chr handle, kind,
 /// state, a, b), the counts +0x8/+0xC/+0x10/+0x14, the handle list +0x80..+0x8C (+0x90 count)
 /// and the max (flow +0xC). The game's cooperator count (0x15BDC20) walks the entries.
@@ -4484,6 +4504,25 @@ void HostDownTick(const GameSnapshot& s, double now) {
     dv.down_seen = seen;
     dv.limbo = g_host_limbo.load();
     dv.boss_active = dv.limbo && BossFightActive();
+    {
+        // The boss died while the host lay in limbo: wait for the game's defeat event (it clears the
+        // bar and sets the defeat flag), then 3 s more for its flags, at most 20 s from the kill.
+        static double gone_at = 0;
+        if (dv.limbo && !dv.boss_active) {
+            if (gone_at == 0) gone_at = now;
+            const bool dying = BossBarDying();
+            const double since = now - gone_at;
+            dv.boss_dying = since < 20.0 && (dying || since < 3.0);
+            static bool logged = false;
+            if (dv.boss_dying && !logged) {
+                logged = true;
+                Log("host death: the boss is down; waiting for its defeat to be saved before the respawn load");
+            }
+            if (!dv.boss_dying) logged = false;
+        } else {
+            gone_at = 0;
+        }
+    }
     dv.revive_opt_in = HostReviveOn();
     dv.down_for = now - g_host_down_at.load();
     dv.delay = delay;

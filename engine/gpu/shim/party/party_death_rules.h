@@ -95,6 +95,9 @@ struct DownView {
     int down_seen = 0;
     bool limbo = false;        ///< the death came in a boss fight
     bool boss_active = false;  ///< the boss fight is still on
+    /// The boss's HP reached 0 but the game's defeat event has not cleared its bar yet (it saves the
+    /// defeat flag): a respawn load now would bring the boss back (Father Gascoigne, host in limbo).
+    bool boss_dying = false;
     bool revive_opt_in = false;
     bool lamp_here = false;
     double down_for = 0;       ///< s since the death was taken
@@ -109,7 +112,7 @@ inline DownTick PlanDownTick(const DownView& v) {
     if (v.down_for < v.delay) {
         return DownTick::Wait;
     }
-    if (v.limbo && v.boss_active) {
+    if (v.limbo && (v.boss_active || v.boss_dying)) {
         return DownTick::Wait;
     }
     if (!v.revive_opt_in) {

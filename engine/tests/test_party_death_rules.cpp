@@ -97,6 +97,16 @@ int main() {
     d.down_seen = 0;
     d.down_for = 1.5;
     CHECK(PlanDownTick(d) == DownTick::PartyLoad);  // default: the respawn load (only the limbo gets here)
+    {
+        // The host in limbo, the boss at 0 HP: no respawn load until its defeat is saved.
+        DownView k = d;
+        k.limbo = true;
+        k.boss_active = false;
+        k.boss_dying = true;
+        CHECK(PlanDownTick(k) == DownTick::Wait);
+        k.boss_dying = false;
+        CHECK(PlanDownTick(k) != DownTick::Wait);
+    }
     d.revive_opt_in = true;
     CHECK(PlanDownTick(d) == DownTick::AloneLoad);
     d.lamp_here = true;
