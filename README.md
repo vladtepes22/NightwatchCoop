@@ -10,14 +10,13 @@ lamp travel don't end the session, and progress counts for everyone.
 **No game files are included.** You need your own decrypted Bloodborne dump (CUSA03173, or another
 retail release) with update 1.09.
 
-> **Test build.** Co-op has passed automated tests and local two-player sessions on one PC; a real
-> session between two PCs over the Internet is still being tested. Back up your saves.
+> **Test build.** Back up your saves.
 
 **Guides:** [Install](#install) · [Single player](#play-single-player) · [Host a game](#host-an-online-game) ·
 [Join a game](#join-a-friends-game) · [Play on the same network](#play-on-the-same-network-lan) ·
-[Test co-op alone on one PC](#test-co-op-alone-on-one-pc) · [If friends can't connect](#if-friends-cant-connect) ·
-[Saves](#where-the-saves-are) · [How co-op works](#how-co-op-works) · [Known issues](#known-issues) ·
-[Reporting a bug](#reporting-a-bug) · [Building from source](#building-from-source) · [Credits](#credits)
+[If friends can't connect](#if-friends-cant-connect) · [Host without an open port (Tailscale)](#host-without-an-open-port-tailscale) ·
+[Saves](#where-the-saves-are) · [How co-op works](#how-co-op-works) · [Reporting a bug](#reporting-a-bug) ·
+[Credits](#credits)
 
 ## Install
 
@@ -58,6 +57,10 @@ Single-player uses your normal saves; co-op never touches them.
 
 The code stays the same in later sessions. Next time: Mode Host → Play → continue your character.
 
+New characters play their own prologue first (the clinic, the first death, the first Hunter's
+Dream visit). Once a player has both starting weapons, the bells are added and the party joins up
+by itself; until then a joining player shows as "joining".
+
 ## Join a friend's game
 
 1. Install this same release (everyone needs exactly the same build and gameplay mods).
@@ -77,46 +80,58 @@ You can also do all of this inside the game: title screen → **Party** → **Ho
 Same as above, but the host sends the **LAN code** instead of the Internet code. Use it whenever
 the players are on the same router: most routers cannot connect a PC to their own Internet address.
 
-## Test co-op alone on one PC
-
-Two copies of the game, a host and a guest, in small windows side by side, each with its own test
-profile (your own settings are copied, never changed; your saves are not used). It needs about
-11 GB of RAM per copy.
-
-**Two launchers (the real flow):**
-1. Start `Lantern Engine.exe` once. The scripts below are in your `AwakenSeamless` folder.
-2. Run **`Two-Launchers.cmd`**. The first time it copies the install to `AwakenSeamless-Guest`
-   (a second game cannot run from the same folder). Two launchers open: the one with
-   **Mode: Host** on its Seamless page is the host, **Mode: Join** the guest.
-3. Press **Play** in the host launcher and wait until that game is in the world.
-4. Press **Play** in the guest launcher. It is already set to join `127.0.0.1:9307`. To try the
-   real party code instead, copy the host's **LAN code** (host launcher → Seamless → Copy codes)
-   into the guest's **Host code or address** first.
-
-**Two games without launchers:** `Play-Two.cmd` starts both games
-directly; the guest joins by itself.
-
-Keyboard and controller go to the game window you clicked last. Logs: each install's
-`logs\last_session.log`.
-
 ## If friends can't connect
 
-Try these in order:
+Only the **host** needs a reachable port; guests never do. Try these in order:
 
 1. **Check the Network line** on the host's Seamless page while the game runs: it says whether
-   the port is reachable.
-2. **Forward the port:** in your router, forward **9307, TCP and UDP**, to the host PC (needed
-   when UPnP is off or not supported).
-3. **Guest code:** the guest copies its **guest code** (`BBG1-…`) from its Seamless page and sends
-   it to the host, who clicks **Add copied guest code**. The game then connects through both routers.
-4. **Tailscale (works almost always):** everyone installs [Tailscale](https://tailscale.com) and
-   signs in to the same account or network. The guest enters `<host's Tailscale IP>:9307` as the host
-   address.
-5. **DHT rendezvous:** switch it on on **every** PC to find each other without codes (your IP is
-   visible to the public BitTorrent DHT, as with any torrent client).
+   the port is open.
+2. **Open the port:** in the host's router, allow UPnP for the host PC, or forward **9307, TCP and
+   UDP**, to it. On a FRITZ!Box: *Internet → Freigaben → Portfreigaben → Gerät für Freigaben
+   hinzufügen* → pick the PC → tick *Selbstständige Portfreigaben für dieses Gerät erlauben*
+   (or add port 9307 for TCP and for UDP), then restart the game.
+3. **Let someone else host:** a player whose port is open can host for everyone.
+4. **Guest code:** the guest copies its **guest code** (`BBG1-…`) from its Seamless page and sends
+   it to the host, who clicks **Add copied guest code** while the guest is trying to join. This
+   works when the host's router is a "cone" NAT (the Network line says which).
+5. **Tailscale:** see the next section. It works even when the host cannot open a port at all.
 
-A guest whose build, game files, patches or mods differ from the host's is refused; the message
-says what differs.
+"Wrong password" means the connection works: clear the password on every PC (or type the same one
+everywhere) and restart the host's game. A guest whose build, game files, patches or mods differ
+from the host's is refused; the message says what differs.
+
+## Host without an open port (Tailscale)
+
+For a host whose router can't open a port (no UPnP, no port forwarding, mobile or carrier NAT, a
+"symmetric NAT" on the Network line). [Tailscale](https://tailscale.com) connects the PCs directly,
+or through its own relays when nothing else works.
+
+**Everyone, once:**
+1. Install Tailscale and sign in.
+2. Put the PCs in one Tailscale network: the host opens **login.tailscale.com/admin → Machines**,
+   clicks **⋯** next to their PC → **Share…**, and sends the link to each friend, who opens it while
+   signed in.
+
+**Host:**
+1. Note your **Tailscale IP**: Tailscale tray icon, it starts with `100.` (for example
+   `100.101.102.103`).
+2. Allow the party port on every network type, once: **Terminal (Admin)** and run
+   ```
+   New-NetFirewallRule -DisplayName "Awaken Seamless party (TCP 9307)" -Direction Inbound -Protocol TCP -LocalPort 9307 -Profile Any -Action Allow
+   New-NetFirewallRule -DisplayName "Awaken Seamless party (UDP 9307)" -Direction Inbound -Protocol UDP -LocalPort 9307 -Profile Any -Action Allow
+   ```
+3. **Important:** Seamless page → **Host public address** = `<your Tailscale IP>:9307` (for example
+   `100.101.102.103:9307`). Without it the game tells guests the router's own Internet address,
+   which they cannot reach: the guest connects, loads, and lands back in its own world.
+4. **Mode: Host** → **Play** (restart the game after changing the address).
+
+**Guest:**
+1. Seamless page → **Mode: Join** → **Host code or address** = `<host's Tailscale IP>:9307`.
+2. The host's password (or none) and the same party size → **Play**.
+
+`tailscale ping <host's Tailscale IP>` shows how the PCs are connected: "via <address>" is direct,
+"via DERP" is through Tailscale's relay (slower, but it works). ZeroTier and other VPNs work the
+same way: the host's VPN address as **Host public address** and as the guest's host address.
 
 ## Where the saves are
 
@@ -153,43 +168,11 @@ Echoes). Each player's own save only gains progress, it never loses any.
 Inside the game: **System → Party** (status, codes, rejoin, leave) and **System → Party mode**
 (switch between host, join and single player; the game restarts).
 
-## Known issues
-
-- **A guest can't be damaged after one kind of respawn.** A guest that dies outside a boss fight
-  and is revived at its own lamp without a loading screen can stay invulnerable until the next load.
-- **A guest can see an NPC the host doesn't.** When a fresh guest joins right after its own
-  prologue, its game may show clinic NPCs (Iosefka) from its own story state. Don't talk to an NPC
-  only one player sees: the choice would be shared.
-- **"userdata0010: the game data file is damaged"** in the log after a party session quit at the
-  title screen. The file is only empty at the title; it is not damaged.
-- **Two copies on one PC** need about 11 GB of RAM each.
-- **Steam Deck / Linux:** not supported. The co-op layer is Windows-only; running through Proton
-  is untested.
-
 ## Reporting a bug
 
 Write down what happened and when, then send `logs\last_session.log` from **every** player's
 `AwakenSeamless` folder (the previous session is in `logs\previous_session.log`). Open an
 [issue](https://github.com/vladtepes22/LanternEngine/issues).
-
-## Building from source
-
-Windows, with [MSYS2](https://www.msys2.org) in `C:\msys64` and the CLANG64 packages from
-`engine/.github/workflows/windows-offline-build.yml`, plus the .NET 8 SDK or newer.
-
-1. `git clone --recursive https://github.com/vladtepes22/LanternEngine.git` (branch `awaken-seamless`)
-2. In an MSYS2 **CLANG64** shell: `cd engine && bash build.sh` (`BB_LTO=OFF` for faster test builds).
-   Build from a path without your user name in it (e.g. a `subst` drive) if you want to publish the
-   binaries: debug line tables keep the build folder.
-3. Tests: `ninja -C out/gpu seamless-tests && (cd out/gpu && ctest -R "party|save|seamless|game-menu|atomic")`.
-4. Package (PowerShell), with an official Lantern Engine release extracted as the base:
-   `tools\package-seamless.ps1 -Base <extracted>\BloodbornePC -Release`.
-
-Source versions: Lantern Engine 0.9.34 beta 9.5 (Awakenchan, the engine patch applied to
-DarkIzuku/bloodborne_pc v0.4.0-darkizuku-preview.1) with visy's co-op v0.6.8. The co-op start
-(party patches, the version check of patches and mods, the restart after a crash or a role change)
-is ported to Lantern's native start `bb-start.exe` (`engine/start/party.cpp`). See
-[INTEGRATION.md](INTEGRATION.md) for the original integration notes.
 
 ## Credits
 
