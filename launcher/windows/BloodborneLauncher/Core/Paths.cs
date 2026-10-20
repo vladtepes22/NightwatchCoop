@@ -12,8 +12,12 @@ namespace BloodborneLauncher.Core
     /// </summary>
     public static class Paths
     {
-        public static readonly string ConfigDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "bloodborne-seamless");
+        /// <summary>The launcher's settings: %APPDATA%\bloodborne-seamless, or BB_LAUNCHER_CONFIG_DIR (a second
+        /// launcher on one PC, e.g. a local co-op test, keeps its own).</summary>
+        public static readonly string ConfigDir =
+            Environment.GetEnvironmentVariable("BB_LAUNCHER_CONFIG_DIR") is { Length: > 0 } configDir
+                ? configDir
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "bloodborne-seamless");
 
         public static readonly string ConfigFile = Path.Combine(ConfigDir, "settings.json");
 
