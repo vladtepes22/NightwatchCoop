@@ -1344,14 +1344,7 @@ bool PopHostTravel(TravelIntent* out) {
     return g_host_queue.Pop(out);
 }
 
-void RequestGuestTravel(const TravelIntent& t) {
-    if (!g_travel_on.load()) {
-        return;
-    }
-    // Any intent with a last-lamp record also tells where the host respawns now.
-    if (const u32 lamp = HostLampFromTravel(t); lamp != kTravelNone) {
-        g_death_lamp = lamp;
-    }
+bool GuestSkipsChaliceTravel(const TravelIntent& t) {
     g_host_chalice = t.chalice_channel;
     // Chalice Dungeons: only into the dungeon this game has (docs/party/chalice.md).
     if (!ChaliceReplayAllowed(t, chalice::LocalChannel())) {
@@ -1359,7 +1352,7 @@ void RequestGuestTravel(const TravelIntent& t) {
             "(the summon brings it in: quick join by ChannelId)",
             DescribeTravel(t).c_str(), static_cast<unsigned long long>(t.chalice_channel),
             static_cast<unsigned long long>(chalice::LocalChannel()));
-        return;
+        return true;
     }
     // Into a dungeon from outside: its own copy would only be left again for the summon (two loads,
     // run c20); staying put, the summon's quick join brings it in with one load.
@@ -1369,8 +1362,22 @@ void RequestGuestTravel(const TravelIntent& t) {
             Log("guest travel %s not followed: the host enters chalice dungeon %llu from outside one; the summon "
                 "brings this game in (one load)",
                 DescribeTravel(t).c_str(), static_cast<unsigned long long>(t.chalice_channel));
-            return;
+            return true;
         }
+    }
+    return false;
+}
+
+void RequestGuestTravel(const TravelIntent& t) {
+    if (!g_travel_on.load()) {
+        return;
+    }
+    // Any intent with a last-lamp record also tells where the host respawns now.
+    if (const u32 lamp = HostLampFromTravel(t); lamp != kTravelNone) {
+        g_death_lamp = lamp;
+    }
+    if (GuestSkipsChaliceTravel(t)) {
+        return;
     }
     // Only a member in the host's session follows (summoned, joining, or just sent home); one in
     // its prologue or alone in its own world stays (ERSC_PARITY.md B3).

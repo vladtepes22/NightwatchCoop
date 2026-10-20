@@ -420,6 +420,9 @@ bool Hold(std::uint32_t id, bool mark) {
         // member's lamp"). No question: the guests cannot follow into a dungeon by travel, they are
         // summoned into it (chalice.md 4).
         Log("lamp %u (host): a Chalice Dungeon awaken point: the host enters alone, the party is summoned there", id);
+        // ... and the captured travel says so (live, beta 5: it went out as a party travel and
+        // every guest followed into a dungeon its game did not have).
+        SetNextHostTravelAlone(true);
         return false;
     }
     if (!mark) {

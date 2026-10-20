@@ -8582,6 +8582,16 @@ bool OnHostTravel(const TravelIntent& t) {
     if (!g_on.load() || Role() != RoleClient) {
         return false;
     }
+    if (GuestSkipsChaliceTravel(t)) {
+        // Live (beta 5, 3 guests): the B2 re-join loaded the host's dungeon lamp without the
+        // dungeon in the guest's slot (m255, an empty world): every guest fell and died, then
+        // respawned at that lamp and fell again. The guest stays, as for a host travelling alone;
+        // the summon's quick join brings it in.
+        g_host_left = true;
+        g_host_alone_seen = Now();
+        NoteAway(0);
+        return true;
+    }
     if (t.alone) {
         // Split travel: the host goes alone; this guest stays and does not load. Its chr here
         // goes (main thread, SplitTick); the two meet again when they share an area.
