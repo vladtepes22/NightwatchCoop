@@ -172,7 +172,6 @@ void NoteAward(std::int32_t lot);
 /// guestsvc's test trace of the talk command switch (that hook is ours; it calls this first).
 using CommandTrace = void (*)(std::uint64_t env, std::uint64_t call);
 void SetCommandTrace(CommandTrace fn);
-void ObserveCommand(std::uint64_t env, std::uint64_t call);
 
 /// The overlay (any thread): the caption under the subtitles - a header ("Hunter talking to
 /// Gilbert"), an optional line (the talker's choice / gift, or the subtitle text when the game's

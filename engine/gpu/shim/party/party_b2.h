@@ -183,6 +183,9 @@ int MembersApart();
 bool HostRejoinRunning();
 /// Any role: a B2 re-join (a host load's re-sync, a guest's follow / alone travel back) is running.
 bool RejoinRunning();
+/// Guest: a travel re-join is between the host's travel and its own arrival (the game shows its
+/// loading card from the start, ~10 s before its loading flag rises): the party overlay hides.
+bool GuestTravelPending();
 /// The local player's HP (-1: no chr).
 int LocalHp();
 /// Host: when (Now() clock, s) the last member_down notice came; 0 never (test aid).
@@ -229,5 +232,8 @@ bool NativeWarpLocal(std::uint64_t player, const float* pos16, const float* rot1
 /// The local player's in-world warp: NativeWarpLocal unless BB_PARTY_WARP_REFRESH=0, else the chr
 /// warp vfunc +0x5F8. Main thread.
 bool LocalChrWarp(std::uint64_t player, const float* pos16, const float* rot16, const char* why);
+/// Guest: the boss-clear action-button hold (+0x52) is lifted for this session (K10 kept the
+/// party; issue #4 item 1). The item box must not put the hold back then.
+bool K10ActionHoldLifted();
 
 } // namespace coop::b2

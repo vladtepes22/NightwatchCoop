@@ -719,7 +719,9 @@ void LogTransitions(State& st, const GameSnapshot& now) {
         }
         if (!now.world_up) BossBarReset();  // A11: a load ends any boss fight
     }
-    BbFrameState::NoteGameLoading(now.loading);
+    // A guest's travel re-join shows the game's loading card well before its loading flag rises
+    // (smoke s1: card at +100 s, flag at +110 s): the overlay hides from the host's travel on.
+    BbFrameState::NoteGameLoading(now.loading || b2::GuestTravelPending());
     if (now.loading != was.loading) {
         Log("loading screen %s", now.loading ? "up" : "gone");
         static int load_marks = 0;

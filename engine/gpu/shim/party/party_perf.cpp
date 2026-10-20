@@ -2,6 +2,7 @@
 // Party co-op cost probes (see party_perf.h).
 #include "party_perf.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -126,6 +127,30 @@ const char* kNames[kZoneCount] = {
     "hook.collision", "collision.scan",
 };
 
+constexpr int kSections = 256;
+struct Section {
+    const char* name = nullptr;
+    std::atomic<u64> ns{0}, calls{0}, max{0};
+};
+std::array<Section, kSections> g_sec;
+std::atomic<int> g_sec_count{0};
+
+void ReportSections(double secs) {
+    const int n = std::min(g_sec_count.load(), kSections);
+    for (int i = 0; i < n; ++i) {
+        Section& s = g_sec[i];
+        const u64 ns = s.ns.exchange(0, std::memory_order_relaxed);
+        const u64 calls = s.calls.exchange(0, std::memory_order_relaxed);
+        const u64 mx = s.max.exchange(0, std::memory_order_relaxed);
+        if (!calls || double(ns) / 1e6 < 0.5 * secs) {
+            continue; // under 0.05 ms per second of game time: not interesting
+        }
+        std::printf("Party perf:   section %-48.48s total %8.2f ms, %7llu calls, avg %8.2f us, max %8.2f us\n", s.name,
+                    double(ns) / 1e6, static_cast<unsigned long long>(calls), double(ns) / 1e3 / double(calls),
+                    double(mx) / 1e3);
+    }
+}
+
 void Report(double secs) {
     Taken fi;
     fi.From(g_frame_interval);
@@ -152,6 +177,7 @@ void Report(double secs) {
                     static_cast<unsigned long long>(off), c.Quantile(0.5) / 1e3, c.Quantile(0.99) / 1e3,
                     double(c.max) / 1e3, double(c.sum) / 1e6);
     }
+    ReportSections(secs);
     std::fflush(stdout);
 }
 
@@ -216,6 +242,27 @@ void Record(Zone z, u64 ticks) {
         s.frame_calls.fetch_add(1, std::memory_order_relaxed);
     } else {
         s.off_thread.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+int RegisterSection(const char* name) {
+    const int id = g_sec_count.fetch_add(1);
+    if (id < kSections) {
+        g_sec[id].name = name;
+    }
+    return id;
+}
+
+void RecordSection(int id, u64 ticks) {
+    if (id < 0 || id >= kSections) {
+        return;
+    }
+    const u64 ns = u64(double(ticks) * g_ns_per_tick);
+    Section& s = g_sec[id];
+    s.ns.fetch_add(ns, std::memory_order_relaxed);
+    s.calls.fetch_add(1, std::memory_order_relaxed);
+    u64 m = s.max.load(std::memory_order_relaxed);
+    while (ns > m && !s.max.compare_exchange_weak(m, ns, std::memory_order_relaxed)) {
     }
 }
 

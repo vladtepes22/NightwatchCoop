@@ -71,6 +71,10 @@ void* guest_image_at(std::uint64_t offset, std::size_t len);
 // Copies n bytes of game memory at `addr` (image or heap) into `out`; false when the range
 // is not committed readable memory (a pointer the game has not set up yet).
 bool guest_read(std::uintptr_t addr, void* out, std::size_t n);
+// The game process's fault-recovering reader (coop::SafeRead), installed by the party director at
+// start-up. Without it guest_read checks the range with VirtualQuery first, which costs
+// milliseconds per call on Windows once the address space is large (GitHub issue #3).
+void set_guest_reader(bool (*reader)(std::uint64_t addr, void* out, std::size_t n));
 // Writes n bytes at `addr` when the range is committed writable memory.
 bool guest_write(std::uintptr_t addr, const void* in, std::size_t n);
 // BB_PARTY_TRACE=1: log every party request and answer.

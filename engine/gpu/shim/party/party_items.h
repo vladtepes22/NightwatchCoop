@@ -277,6 +277,7 @@ struct ItemApplyState {
     bool alive = true;        ///< the local player's HP > 0
     bool cutscene = false;    ///< a remo (cutscene) plays
     bool boss_quiet = true;   ///< no boss health bar and the boss-defeat banner had time to end
+    bool game_dialog = false; ///< a game message / dialog is open (menu +0x78; parity67 D4: a box under it)
 };
 /// Why the item-get dialog may not open now (playtest 1 #15 / #12: a box pushed while the player
 /// was dead, in a cutscene or under the boss-defeat banner stayed on screen and could not be

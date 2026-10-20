@@ -313,6 +313,18 @@ private:
     std::map<std::uint32_t, double> played_;  // base remo id -> last play
 };
 
+/// D10 (smoke068 s1): a guest's forwarded scene from a boss first-fight intro event (worldact's
+/// FirstFightSpotFor: Gascoigne 12411802 ...) is the scene the host's own copy of that event plays
+/// moments later, when worldact starts it on the host for the guest who went in first. Played on
+/// the host as well it ran twice there (the host's own 2002 waits for the remo player and plays
+/// after it: 2 x 48 s for Gascoigne). The host holds such a forwarded scene up to kGuestIntroWait s:
+/// the host's own play notes the remo in HostStoryUpGuard, which then drops the held one; when the
+/// host's event does not come, the guest's copy plays as before. Guests drop both (they watched it).
+constexpr double kGuestIntroWait = 8.0;
+inline bool HoldGuestIntroForHostEvent(bool first_fight_intro, double held_for) {
+    return first_fight_intro && held_for < kGuestIntroWait;
+}
+
 // ---- Story notices (D10, pard3) ----
 /// A game dialog (EMEVD 2007[1]) that tells the story and that only the host's event shows (its
 /// client copy ends on 1003[6]): Yahar'gul's "Ritual secret broken. Seek the nightmare newborn."

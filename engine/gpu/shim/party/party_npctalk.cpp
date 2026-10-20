@@ -287,6 +287,7 @@ bool EventRate::Take(int slot, double now) {
 #include "bbport_settings.h"
 #include "coop_hooks.h"
 #include "game_state.h"
+#include "lamp_travel.h"
 #include "party_director.h"
 #include "party_guestsvc.h"
 #include "party_hud.h"
@@ -813,8 +814,6 @@ void SetCommandTrace(CommandTrace fn) {
     g_trace.store(fn);
 }
 
-void ObserveCommand(u64 env,u64 call) { CommandEntry(env,call,0,0,0,0); }
-
 void Init() {
     if (g_installed) return;
     g_installed = true;
@@ -824,11 +823,15 @@ void Init() {
                                                0x81, 0xec, 0x70, 0x01, 0x00, 0x00},
                                    &LineEntry, "NPC talk line (observer)");
     // push rbp; mov rbp, rsp; push r15..r12, rbx; sub rsp, 0x3c8 (20 bytes; then mov rbx, rsi).
-    const bool cmd = lamptravel::ObservesTalkCommands() || HookPrologue(kTalkCommand, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54,
-                                                 0x53, 0x48, 0x81, 0xec, 0xc8, 0x03, 0x00, 0x00},
-                                  &CommandEntry, "talk command switch (observer)");
-    Log("shared NPC dialogue: talk line observer %s, talk menu observer %s; %s, %s", line ? "on" : "NOT installed",
-        cmd ? "on" : "NOT installed", Enabled() ? "on" : "off", DescribeRange(Range()).c_str());
+    // Lamp travel (on by default) replaces this switch's prologue first; then the tracker rides on
+    // its hook (issue #4: it could not hook the switch itself and never ran).
+    const bool shared = lamptravel::AddTalkCommandObserver(&CommandEntry);
+    const bool cmd = shared || HookPrologue(kTalkCommand, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55,
+                                                           0x41, 0x54, 0x53, 0x48, 0x81, 0xec, 0xc8, 0x03, 0x00, 0x00},
+                                            &CommandEntry, "talk command switch (observer)");
+    Log("shared NPC dialogue: talk line observer %s, talk menu observer %s%s; %s, %s", line ? "on" : "NOT installed",
+        cmd ? "on" : "NOT installed", shared ? " (through lamp travel's hook)" : "", Enabled() ? "on" : "off",
+        DescribeRange(Range()).c_str());
 }
 
 void NoteAward(std::int32_t lot) {

@@ -145,8 +145,16 @@ bool memory_allows(std::uintptr_t addr, std::size_t n, bool write) {
 }
 }  // namespace
 
+namespace {
+std::atomic<bool (*)(std::uint64_t, void*, std::size_t)> g_guest_reader{nullptr};
+}  // namespace
+
+void set_guest_reader(bool (*reader)(std::uint64_t addr, void* out, std::size_t n)) { g_guest_reader.store(reader); }
+
 bool guest_read(std::uintptr_t addr, void* out, std::size_t n) {
-    if (!out || !memory_allows(addr, n, false)) return false;
+    if (!out) return false;
+    if (auto* reader = g_guest_reader.load(std::memory_order_relaxed)) return reader(addr, out, n);
+    if (!memory_allows(addr, n, false)) return false;
     std::memcpy(out, reinterpret_cast<const void*>(addr), n);
     return true;
 }

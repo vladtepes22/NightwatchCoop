@@ -114,4 +114,36 @@ private:
     std::uint64_t t0_;
 };
 
+/// Named sections (finer than the zones, for hunting a cost): total / calls / max per report,
+/// the costly ones printed. `PARTY_PERF_SECTION("name");` times until the end of the scope;
+/// `PARTY_PERF_CALL(f(x));` times one statement under its own text.
+int RegisterSection(const char* name);
+void RecordSection(int id, std::uint64_t ticks);
+class SectionScope {
+public:
+    explicit SectionScope(int id) : id_(id), t0_(g_on ? Now() : 0) {}
+    ~SectionScope() {
+        if (t0_) {
+            RecordSection(id_, Now() - t0_);
+        }
+    }
+    SectionScope(const SectionScope&) = delete;
+    SectionScope& operator=(const SectionScope&) = delete;
+
+private:
+    int id_;
+    std::uint64_t t0_;
+};
+
 } // namespace coop::perf
+
+#define PARTY_PERF_CAT2(a, b) a##b
+#define PARTY_PERF_CAT(a, b) PARTY_PERF_CAT2(a, b)
+#define PARTY_PERF_SECTION(name)                                                               \
+    static const int PARTY_PERF_CAT(pps_id_, __LINE__) = ::coop::perf::RegisterSection(name); \
+    ::coop::perf::SectionScope PARTY_PERF_CAT(pps_, __LINE__)(PARTY_PERF_CAT(pps_id_, __LINE__))
+#define PARTY_PERF_CALL(stmt)      \
+    do {                           \
+        PARTY_PERF_SECTION(#stmt); \
+        stmt;                      \
+    } while (0)

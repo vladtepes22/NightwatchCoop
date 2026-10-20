@@ -3,6 +3,7 @@
 #include "party_desync.h"
 
 #include "net/json.h"
+#include "party_enemy_census.h"
 
 #include <algorithm>
 #include <chrono>
@@ -121,6 +122,25 @@ CensusReport CompareCensusList(const CensusList& host, const std::vector<CensusE
     r.unnamed_alive_delta = here.unnamed_alive - host.unnamed_alive;
     r.unnamed_dead_delta = here.unnamed_dead - host.unnamed_dead;
     return r;
+}
+
+std::vector<std::pair<u32, int>> CensusRepairTargets(const CensusList& host, const std::vector<CensusEntry>& mine) {
+    std::vector<std::pair<u32, int>> out;
+    const CensusList here = CensusListOf(host.map, mine, host.buckets);
+    std::map<u32, int> h, m;  // entity -> alive count
+    for (const CensusEntry& e : host.entries) h[e.entity] += e.alive ? 1 : 0;
+    for (const CensusEntry& e : here.entries) m[e.entity] += e.alive ? 1 : 0;
+    for (const auto& [id, alive_host] : h) {
+        const auto it = m.find(id);
+        if (!id || it == m.end() || it->second <= alive_host || EnemyIsBossEntity(id)) continue;
+        out.emplace_back(id, it->second - alive_host);
+    }
+    return out;
+}
+
+bool CensusRepairFromEnv() {
+    const char* v = std::getenv("BB_PARTY_CENSUS_REPAIR");
+    return !(v && *v == '0');
 }
 
 std::string DescribeCensusReport(const CensusReport& r) {

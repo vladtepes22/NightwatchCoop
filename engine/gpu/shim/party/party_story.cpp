@@ -25,6 +25,7 @@
 #include "party_travel.h"
 #include "seamless_rules.h"
 #include "party_split.h"
+#include "party_worldact.h"
 #include "../bbport_game_menu_pages.h"
 
 #include <atomic>
@@ -2171,6 +2172,26 @@ void HostPlayGuestStory(const GameSnapshot& g, const StoryState& st) {
                 Log("host: slot %d's cutscene %u (event %u) dropped: %s", item.first, s.id, s.event_id, no);
             }
             return;
+        }
+    }
+    if (s.instr != 6) {
+        static std::map<std::uint64_t, double> intro_held;  // guest seq -> when the host got it
+        const bool intro = worldact::GuestFirstFightEnabled() && worldact::FirstFightSpotFor(s.event_id) != nullptr;
+        auto it = intro_held.find(s.seq);
+        if (intro && it == intro_held.end()) {
+            it = intro_held.emplace(s.seq, Now()).first;
+            Log("host: slot %d's cutscene %u is event %u's first-fight intro: waiting %.0f s for the host's own copy "
+                "of the event (one play here)", item.first, s.id, s.event_id, kGuestIntroWait);
+        }
+        if (HoldGuestIntroForHostEvent(intro, intro ? Now() - it->second : 0.0)) {
+            std::lock_guard<std::mutex> lk(g_up_mu);
+            g_from_guests.push_front(item);
+            return;
+        }
+        if (intro) {
+            intro_held.erase(it);
+            Log("host: slot %d's cutscene %u: the host's own event did not play it in %.0f s; played from the guest",
+                item.first, s.id, kGuestIntroWait);
         }
     }
     if (s.instr == 6) {

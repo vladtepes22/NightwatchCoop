@@ -173,7 +173,7 @@ struct CensusCheck {
     double ask_at = 0;
     u32 ask_map = 0;
     std::vector<int> ask_buckets;
-    u64 digests = 0, matched = 0, differed = 0, confirmed = 0, transient = 0, other_map = 0, no_world = 0;
+    u64 digests = 0, matched = 0, differed = 0, confirmed = 0, transient = 0, other_map = 0, no_world = 0, repaired = 0;
     int test_after = -1;
     bool test_fired = false;
     u32 fake_dead = 0;  // BB_PARTY_CENSUS_TEST: a living enemy this game reports as dead
@@ -278,9 +278,30 @@ void GuestCensus(party::PartyLink* link) {
             BLog("enemy census: the same as the host's again (%zu entries checked; a change in flight)", hl.entries.size());
         } else {
             ++c.confirmed;
-            BLog("enemy census: DIFFERS from the host's in %s: %s (report only; %llu of %llu digests matched)",
+            BLog("enemy census: DIFFERS from the host's in %s: %s (%s; %llu of %llu digests matched)",
                  MapName(map).c_str(), desync::DescribeCensusReport(r).c_str(),
+                 desync::CensusRepairFromEnv() && !r.dead_on_host.empty() ? "repairing the dead on the host" : "report only",
                  static_cast<unsigned long long>(c.matched), static_cast<unsigned long long>(c.digests));
+            if (!r.dead_on_host.empty() && desync::CensusRepairFromEnv()) {
+                // soak67: a host kill of a neighbouring block's enemy never arrives through the
+                // game's own enemy sync; the confirmed difference puts it to death here (HP 0: the
+                // game's own death, drop roll and kill echoes follow as for a kill).
+                std::map<u32, int> want;
+                for (const auto& [id, n] : desync::CensusRepairTargets(hl, list)) want[id] = n;
+                int done = 0;
+                std::string ids;
+                for (const EnemyKillCandidate& e : balance::LoadedEnemies()) {
+                    auto it = want.find(e.entity);
+                    if (it == want.end() || it->second <= 0 || !e.alive || !balance::SetEnemyHpZero(e.chr)) continue;
+                    --it->second;
+                    ++done;
+                    ids += (ids.empty() ? "" : " ") + std::to_string(e.entity);
+                }
+                c.repaired += static_cast<u64>(done);
+                BLog("enemy census: repair: %d enemy chr(s) dead on the host put to death here (HP 0)%s%s; %llu so far "
+                     "(BB_PARTY_CENSUS_REPAIR=0: report only)",
+                     done, ids.empty() ? "" : ": ", ids.c_str(), static_cast<unsigned long long>(c.repaired));
+            }
             if (c.fake_dead && std::find(r.alive_on_host.begin(), r.alive_on_host.end(), c.fake_dead) != r.alive_on_host.end()) {
                 BLog("census test: the fake kill of entity %u was found by the digest and named by the host's list; "
                      "forgotten again", c.fake_dead);

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <map>
 #include <string>
 
 namespace coop::deathrules {
@@ -118,6 +119,138 @@ inline DownTick PlanDownTick(const DownView& v) {
         return DownTick::AloneLoad;
     }
     return DownTick::Revive;
+}
+
+// ---- The host's record of members that are down (issue #4 item 6) ----
+// A member's "member_down" notice is sent once per HP-0 period, so the record must last until the
+// member is back: a confirmed revival ("member_revived"), a new chr ("arrived": a rejoin or a
+// respawn load) or the member gone from the roster (left / replaced). It used to be dropped after
+// 90 s, so a guest that spectated longer than that no longer counted when the host died: no wipe,
+// both players stuck in a boss fight's limbo. Reconcile() also clears a record whose member's own
+// vitals say alive for kDownAliveConfirm s (a revive notice that never came), but only once the
+// notice is kDownNoticeGrace s old (vitals can lag the notice).
+constexpr double kDownNoticeGrace = 3.0;
+constexpr double kDownAliveConfirm = 3.0;
+struct MemberNow {
+    int slot = -1;
+    bool in_roster = true;    ///< the slot is in the party's roster (connected or kept while lost)
+    bool vitals_fresh = false;///< its vitals are recent and read from a live chr
+    bool alive = false;       ///< those vitals say hp > 0
+};
+class DownLedger {
+public:
+    void Down(int slot, double now) {
+        if (slot > 0 && slot < 16) {
+            e_[slot] = Entry{now, -1.0};
+        }
+    }
+    /// A confirmed revival, a new chr (rejoin / respawn load) or a leave.
+    void Clear(int slot) {
+        e_.erase(slot);
+    }
+    void ClearAll() {
+        e_.clear();
+    }
+    bool Has(int slot) const {
+        return e_.count(slot) != 0;
+    }
+    int Count() const {
+        return int(e_.size());
+    }
+    /// Against the members' current state; returns how many records it cleared (the last slot in
+    /// *cleared_slot, for the log).
+    template <class Container>
+    int Reconcile(const Container& members, double now, int* cleared_slot = nullptr) {
+        int cleared = 0;
+        for (auto it = e_.begin(); it != e_.end();) {
+            const MemberNow* m = nullptr;
+            for (const MemberNow& x : members) {
+                if (x.slot == it->first) {
+                    m = &x;
+                    break;
+                }
+            }
+            bool drop = false;
+            if (!m || !m->in_roster) {
+                drop = true;  // left the party (or replaced: a new member has another record)
+            } else if (m->vitals_fresh && m->alive && now - it->second.since >= kDownNoticeGrace) {
+                if (it->second.alive_since < 0) {
+                    it->second.alive_since = now;
+                }
+                drop = now - it->second.alive_since >= kDownAliveConfirm;
+            } else {
+                it->second.alive_since = -1.0;  // dead (or unknown) again: the confirm starts over
+            }
+            if (drop) {
+                if (cleared_slot) {
+                    *cleared_slot = it->first;
+                }
+                ++cleared;
+                it = e_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        return cleared;
+    }
+
+private:
+    struct Entry {
+        double since = 0;
+        double alive_since = -1.0;
+    };
+    std::map<int, Entry> e_;
+};
+/// Members seen at HP 0 right now (their own fresh vitals): HostDeathView / DownView down_seen.
+template <class Container>
+inline int SeenDown(const Container& members) {
+    int n = 0;
+    for (const MemberNow& m : members) {
+        n += (m.in_roster && m.vitals_fresh && !m.alive) ? 1 : 0;
+    }
+    return n;
+}
+
+// ---- A guest's respawn at a lamp of the loaded map (issue #4 item 7) ----
+// The in-place revive (no load) puts the chr on the lamp's spawn spot. After a FALL death that
+// broke the guest's game (issue #4: a 27 m fall, revived 157 m from its lamp: camera underground,
+// only forward movement, broken world); correct over seamless: then the vanilla respawn loading
+// screen (a re-join load for this guest only). The distance alone does not matter: the issue's
+// bundles had seven in-place revives 60-191 m from the lamp after normal deaths that all worked,
+// so the 60 m rule of the first fix is gone (user decision: "fall state only").
+// kGuestReviveFallDrop: the chr dropped at least this far in the 3 s before its death or after it
+// (lethal falls in Bloodborne are well over 10 m; a void fall keeps dropping): a fall death.
+constexpr double kGuestReviveFallDrop = 6.0;
+// The game's own fall-death state, left on the chr after the death (issue #4 bundles: only the fall
+// death had them; nine normal deaths had neither): PlayerIns +0x1E1 (5 bytes read as one value)
+// bit 0x40 of its first byte and 0x04 of its fifth (0x04'0000'0040), and the HP module's +0x200 word
+// bits 0x7800 (the fall read 0xF800; a normal death 0x0000 or 0x8000).
+constexpr std::uint64_t kFallFlags1e1 = 0x0400000040ull;
+constexpr std::uint16_t kFallBitsHp200 = 0x7800;
+inline bool FallDeathState(std::uint64_t f1e1, std::uint16_t hp200) {
+    return (f1e1 & kFallFlags1e1) != 0 || (hp200 & kFallBitsHp200) != 0;
+}
+enum class GuestRevive { InPlace, LoadFall, LoadFallState };
+inline const char* GuestReviveName(GuestRevive g) {
+    return g == GuestRevive::InPlace    ? "in place"
+           : g == GuestRevive::LoadFall ? "a fall death: loading screen"
+                                        : "the game's fall-death state: loading screen";
+}
+/// `fell_m`: how far it dropped around its death (negative / 0: no fall); `fall_known` false: no
+/// height history (a death right after a load); `fall_state`: FallDeathState of the dead chr.
+inline GuestRevive PlanGuestRevive(double fell_m, bool fall_known, bool fall_state) {
+    if (fall_known && fell_m >= kGuestReviveFallDrop) {
+        return GuestRevive::LoadFall;
+    }
+    if (fall_state) {
+        return GuestRevive::LoadFallState;
+    }
+    return GuestRevive::InPlace;
+}
+/// The drop around a death from the height history: the highest point in the 3 s before the death
+/// against the height at the death and now (a body falling into the void keeps dropping).
+inline double FallDrop(double peak_before, double y_at_death, double y_now) {
+    return peak_before - std::min(y_at_death, y_now);
 }
 
 // ---- Split travel's question ("Travel with the party?") ----

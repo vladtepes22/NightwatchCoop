@@ -77,6 +77,9 @@ std::vector<EnemyKillCandidate> LoadedEnemies();
 /// A chr's HP (+0xF8 of its data module; -1 unreadable) and physics position.
 int EnemyHp(std::uint64_t chr);
 bool ChrPosition(std::uint64_t chr, float out[3]);
+/// HP 0 on a living chr (the state a lethal hit leaves: the chr's own update runs its death, drop
+/// roll and kill echoes as for a kill). False: unreadable or already dead. Main thread.
+bool SetEnemyHpZero(std::uint64_t chr);
 /// H3: what the game's kill-echo payer (0x18C5070) checks on a dead chr, for the logs.
 std::string DescribeKillEchoGates(std::uint64_t chr);
 

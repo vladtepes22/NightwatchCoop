@@ -39,6 +39,7 @@
 #include <cstdint>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace coop::desync {
@@ -154,6 +155,14 @@ struct CensusReport {
 /// The host's entries of `host.buckets` against this game's census (the same buckets).
 CensusReport CompareCensusList(const CensusList& host, const std::vector<CensusEntry>& mine);
 std::string DescribeCensusReport(const CensusReport& r);
+/// The repair after a confirmed difference (soak67): a host kill of an enemy of a neighbouring map
+/// block (a Cathedral Ward enemy 2400xxx while the session map is m24_01, the Tomb of Oedon) never
+/// reaches the guest through the game's own enemy sync (live twice: the guest kept it alive for
+/// minutes). Per entity dead on the host and alive here: how many of this game's living chrs of that
+/// id to put to death (this game's alive count minus the host's). Boss entities are left out (their
+/// defeat runs its own path, K10 / D1). BB_PARTY_CENSUS_REPAIR=0: report only, as before.
+std::vector<std::pair<u32, int>> CensusRepairTargets(const CensusList& host, const std::vector<CensusEntry>& mine);
+bool CensusRepairFromEnv();
 
 std::string CensusAskToJson(u32 map, const std::vector<int>& buckets);
 bool CensusAskFromJson(const std::string& text, u32* map, std::vector<int>* buckets, std::string* error = nullptr);

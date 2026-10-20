@@ -40,6 +40,12 @@ void Tick();
 /// Lamp travel hooked its own main-thread tick (solo with BB_LAMP_TRAVEL on): Tick() runs every
 /// frame without a party (the world warper's tick rides on it).
 bool OwnsTick();
-bool ObservesTalkCommands();
+/// An observer of the talk command switch 0x203FFD0 (the prologue-hook handler signature). With
+/// lamp travel on, the switch's prologue is lamp travel's, so another hook on it cannot install:
+/// the shared NPC talk's choice tracker registers here instead and runs first in every call.
+using TalkCommandObserver = void(__attribute__((sysv_abi)) *)(std::uint64_t env, std::uint64_t call, std::uint64_t a2, std::uint64_t a3,
+                                     std::uint64_t a4, std::uint64_t a5);
+/// True: lamp travel owns the switch and calls `fn` from now on (before the game runs).
+bool AddTalkCommandObserver(TalkCommandObserver fn);
 
 } // namespace coop::lamptravel

@@ -86,6 +86,7 @@ struct Pending {
     u64 dialog = 0;
     int test_step = 0;
     int reopens = 0;  // the dialog did not show (menu +0x78 0): opened again
+    double free_since = -1;  // Queued: since when no dialog / menu is up (the settle before opening)
     double test_at = 0;
     bool after_scene = false;  // a story warp: ask once its cutscene is over (kAskAfterSceneDelay)
 };
@@ -181,6 +182,13 @@ struct Choosing {
 std::atomic<u32> g_decided_id{0}, g_member_run_id{0};
 std::atomic<double> g_decided_at{-1}, g_member_run_at{-1};
 Choosing g_choosing;  // under g_note_mu
+
+/// No game dialog is up and the menu is not busy (what OpenQuestion / OpenMessage need).
+bool MenuFree() {
+    const u64 mm = Slot(kSlotMenuMan);
+    u8 busy = 0;
+    return mm && Field<int>(mm, 0x78, -1) == 0 && SafeGet(Guest(kMenuBusyByte), &busy) && !busy;
+}
 
 /// Opens the game's YES / NO dialog with our question; the dialog struct, 0 when it cannot open.
 u64 OpenQuestion(u32 text_override = 0) {
@@ -637,7 +645,18 @@ void Tick(const GameSnapshot& s, party::PartyLink* link) {
         return;
     }
     if (p.state == Ask::Queued) {
-        const u64 dlg = OpenQuestion();
+        // Issue #4 item 3: a question opened in the frames right after the lamp's own menu closed
+        // did not show (menu +0x78 stayed 0, reopened 3 times). Open it only once the menu has
+        // been free for kAskSettle s (the lamp menu's close is over).
+        constexpr double kAskSettle = 0.4;
+        if (!MenuFree()) {
+            std::lock_guard<std::mutex> lk(g_mu);
+            g_p.free_since = -1;
+        } else if (p.free_since < 0) {
+            std::lock_guard<std::mutex> lk(g_mu);
+            g_p.free_since = now;
+        }
+        const u64 dlg = p.free_since >= 0 && now - p.free_since >= kAskSettle ? OpenQuestion() : 0;
         if (!dlg) {
             if (now - p.since > 5.0) {
                 finish();
@@ -662,12 +681,25 @@ void Tick(const GameSnapshot& s, party::PartyLink* link) {
             // stayed 0, three Cross presses did nothing and it closed after 30 s with no travel.
             // Not up 2.5 s after opening: open it again (3 times at most).
             const int up = Field<int>(Slot(kSlotMenuMan), 0x78, -1);
+            if (r == -1 && up == 0 && now - p.since > 2.5 && p.reopens >= 3) {
+                // Issue #4 item 3: it never showed: the party's travel, as when no dialog can open
+                // at all (it used to stay unseen until the 30 s timeout and nothing ran).
+                u8 busy = 0;
+                SafeGet(Guest(kMenuBusyByte), &busy);
+                Log("lamp %u: the question did not show after %d reopens (menu +0x78 %d, busy %u, dialog +0x10 %u "
+                    "+0x14 %d); the default runs",
+                    p.id, p.reopens, up, unsigned(busy), unsigned(Field<u8>(p.dialog, 0x10)), Field<int>(p.dialog, 0x14, -1));
+                finish();
+                Carry(p, false, "the question never showed");
+                return;
+            }
             if (r == -1 && up == 0 && now - p.since > 2.5 && p.reopens < 3) {
                 std::lock_guard<std::mutex> lk(g_mu);
                 g_p.state = Ask::Queued;
                 g_p.reopens = p.reopens + 1;
                 g_p.test_step = 0;
                 g_p.since = now;
+                g_p.free_since = -1;
                 --g_asked;  // the same question (BB_PARTY_SPLIT_TEST counts questions)
                 Log("lamp %u: the question did not show (menu +0x78 0 after %.1f s); opening it again (%d)", p.id,
                     now - p.since, p.reopens + 1);
