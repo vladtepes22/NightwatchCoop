@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <string>
 #include <vector>
 #include <chrono>
 #include <cstdio>
@@ -20,6 +21,7 @@
 #include "bbport_heap_sites.h"
 #include "bbport_wait_trace.h"
 #include "bbport_freeze.h"
+#include "bbport_settings.h"
 #include "video_core/renderer_vulkan/vk_frame_capture.h"
 #include "common/debug.h"
 #include "common/thread.h"
@@ -409,7 +411,10 @@ static void LogRam() {
 void VideoOutDriver::Flip(const Request& req) {
     BbFreeze::NoteFlip();
     // Update HDR status before presenting, then present the frame (bbport: on the swap thread).
+    // bbport: frame generation drops its generated frame while the next flip waits here.
+    presenter->NoteFlipQueued(1);
     RunPresenter([this, frame = req.frame, hdr = req.port->is_hdr] {
+        presenter->NoteFlipQueued(-1);
         presenter->SetHDR(hdr);
         presenter->Present(frame);
     });
@@ -989,8 +994,22 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                     "of the frames are rendered and never shown (a lower FPS preset saves that GPU "
                     "work)\n", frame_limit, refresh, 100 - refresh * 100 / frame_limit);
     }
-    const auto frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
-                                          : std::chrono::nanoseconds(0);
+    auto frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
+                                    : std::chrono::nanoseconds(0);
+    // bbport: frame generation's cap (BbSettings::frame_gen_cap, any present mode): the game at
+    // half the refresh rate, so its frame and the generated one fill every refresh (with Mailbox
+    // a faster game replaces generated frames before they are shown). Applied while generated
+    // frames are shown (BbSettings::frame_gen_active), back to the limit above otherwise.
+    const u32 base_limit = frame_limit;
+    const u32 half_refresh = Frontend::DisplayRefreshHz() / 2;
+    const auto effective_limit = [&] {
+        const auto& s = BbSettings::Get();
+        if (half_refresh < 20 || !s.frame_gen_cap.load(std::memory_order_relaxed) ||
+            !s.frame_gen_active.load(std::memory_order_relaxed)) {
+            return base_limit;
+        }
+        return base_limit == 0 ? half_refresh : std::min(base_limit, half_refresh);
+    };
     auto next_flip = std::chrono::steady_clock::now();
     std::printf("VideoOut: vblank %u Hz, frame limit %u FPS, precise pacing %s\n",
                 EmulatorSettings.GetVblankFrequency(), frame_limit,
@@ -1049,9 +1068,24 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     // Flips on vblank ticks without a frame limit keep the AccurateTimer path below.
     if (immediate_flips && Common::PrecisePacingEnabled()) {
         using Clock = std::chrono::steady_clock;
-        const std::chrono::nanoseconds pace = frame_limit ? frame_period : vblank_period;
-        const std::chrono::nanoseconds min_gap = pace * 7 / 8;
-        const std::chrono::nanoseconds slack = pace - min_gap;
+        std::chrono::nanoseconds pace = frame_limit ? frame_period : vblank_period;
+        std::chrono::nanoseconds min_gap = pace * 7 / 8;
+        std::chrono::nanoseconds slack = pace - min_gap;
+        // bbport: the pace follows frame generation's cap (effective_limit) when it changes.
+        const auto update_pace = [&] {
+            const u32 limit = effective_limit();
+            if (limit == frame_limit) {
+                return;
+            }
+            std::printf("VideoOut: frame limit %u FPS%s\n", limit,
+                        limit != base_limit ? " (frame generation: half the refresh)" : "");
+            frame_limit = limit;
+            frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
+                                       : std::chrono::nanoseconds(0);
+            pace = frame_limit ? frame_period : vblank_period;
+            min_gap = pace * 7 / 8;
+            slack = pace - min_gap;
+        };
         // OS sleeps wake up late: sleep most of the way, spin the rest. The spin follows how late
         // the timer actually wakes (Common::PreciseSpin; at most 1.5 ms and 1/8 of the vblank
         // period), and only flips get it when there is a frame limit: vblank ticks then only
@@ -1090,6 +1124,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         };
 
         while (!token.stop_requested()) {
+            update_pace();
             const Clock::time_point tick_deadline = next_tick + vblank_period;
 
             if (DebugState.IsGuestThreadsPaused()) {
@@ -1145,6 +1180,14 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     while (!token.stop_requested()) {
         timer.Start();
         const auto tick_deadline = std::chrono::steady_clock::now() + vblank_period;
+        // bbport: frame generation's cap with VSync (effective_limit).
+        if (immediate_flips) {
+            if (const u32 limit = effective_limit(); limit != frame_limit) {
+                frame_limit = limit;
+                frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
+                                           : std::chrono::nanoseconds(0);
+            }
+        }
 
         if (DebugState.IsGuestThreadsPaused()) {
             DrawLastFrame();

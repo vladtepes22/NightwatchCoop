@@ -123,7 +123,9 @@ if (WIN32)
     # AMD's FidelityFX sources rely on MSVC's transitive includes (memset, floor, placement new,
     # swprintf_s) on _WIN32.
     foreach(ffx_target IN ITEMS ffx_vulkan_portable ffx_vulkan_fsr3_vk_backend_1_1_4
-            ffx_vulkan_fsr3_host_1_1_4 ffx_vulkan_fsr4_v07_vulkan ffx_vulkan_fsr4_v07_assets)
+            ffx_vulkan_fsr3_host_1_1_4 ffx_vulkan_fsr4_v07_vulkan ffx_vulkan_fsr4_v07_assets
+            ffx_vulkan_fsr3_vk_framegeneration_3_1_6 ffx_vulkan_fsr3_framegen_3_1_6_scaffold
+            ffx_vulkan_fsr3_sdk_core_3_1_5_scaffold)
         if (TARGET ${ffx_target})
             target_compile_options(${ffx_target} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/win_compat.h>")
             target_compile_options(${ffx_target} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include cstdio>"
@@ -174,6 +176,8 @@ add_host_shader(taa_sharpen.comp taa_sharpen_ldr_comp LDR_OUTPUT=1)
 add_host_shader(fsr4_color.comp fsr4_decode_comp)
 add_host_shader(fsr4_color.comp fsr4_encode_comp ENCODE=1)
 add_host_shader(fsr4_reactive.comp fsr4_reactive_comp)
+add_host_shader(frame_gen_compose.comp frame_gen_compose_comp)
+add_host_shader(frame_gen_depth.comp frame_gen_depth_comp)
 add_host_shader(buffer_multi_copy.comp buffer_multi_copy_comp)
 add_host_shader(depth_resample.frag depth_resample_frag)
 add_host_shader(depth_resample.frag depth_stencil_resample_frag HAS_STENCIL=1)
@@ -213,7 +217,7 @@ add_library(bbgpu ${BBGPU_LIBRARY_TYPE} ${VIDEO_CORE} ${RECOMPILER} ${COMMON} ${
     shadps4/core/libraries/videodec/video_utils.cpp)
 target_sources(bbgpu PRIVATE third_party/monocypher/monocypher.c)
 file(GLOB_RECURSE BB_ID_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*.h ../src/*.c ../src/*.h)
-set(BB_ID_CONTENT "awaken-seamless-0.2.0-lantern-0.9.34-beta.9.5-visy-0.6.9")
+set(BB_ID_CONTENT "awaken-seamless-0.2.0-lantern-0.9.34-beta.9.8-visy-0.6.9")
 foreach(source IN LISTS BB_ID_SOURCES)
     file(SHA256 "${source}" source_hash)
     string(APPEND BB_ID_CONTENT "${source_hash}")
@@ -250,7 +254,8 @@ if(NOT WIN32)
     target_compile_options(bbgpu PRIVATE -ftls-model=initial-exec)
     target_link_options(bbgpu PRIVATE -Wl,--allow-shlib-undefined)
 endif()
-target_link_libraries(bbgpu PRIVATE ffx-vulkan::portable ffx-vulkan::fsr4-v07-vulkan)
+target_link_libraries(bbgpu PRIVATE ffx-vulkan::portable ffx-vulkan::fsr4-v07-vulkan
+    ffx-vulkan::fsr3-vk-framegeneration-3.1.6) # bbport: frame generation (vk_frame_generation.cpp)
 target_link_libraries(bbgpu PUBLIC Vulkan::Headers fmt::fmt Boost::headers magic_enum::magic_enum
     tsl::robin_map GPUOpen::VulkanMemoryAllocator PkgConfig::XXHASH PkgConfig::SDL3 PkgConfig::FFMPEG miniz::miniz Zydis::Zydis sirit)
 if (WIN32)

@@ -86,8 +86,10 @@ namespace BloodborneLauncher.Views
         private void Copy()
         {
             if (_output.Text.Length == 0) return;
-            Clipboard.SetText(_output.Text);
-            Ws.Log("Game output copied.", LogLevel.Good);
+            if (ClipboardText.Set(_output.Text))
+                Ws.Log("Game output copied.", LogLevel.Good);
+            else
+                Ws.Log("Could not copy: another program is using the clipboard. Try again, or use Export.", LogLevel.Warn);
         }
 
         private void Export()

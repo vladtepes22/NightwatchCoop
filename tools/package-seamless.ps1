@@ -6,13 +6,13 @@
 #                             engine\scripts and engine\tools once the engine starts natively)
 # Shaders, upscaler assets, the shader catalog and the two small start programs come from the
 # official Lantern Engine release this build is based on (-Base: its extracted BloodbornePC folder).
-#   tools\package-seamless.ps1 -Base work\downloads\lantern-0.9.34-beta.9.5\x\BloodbornePC
+#   tools\package-seamless.ps1 -Base work\downloads\lantern-0.9.34-beta.9.8\x\BloodbornePC
 param(
     [Parameter(Mandatory)][string]$Base,
     [string]$Destination = '',
     [string]$Game = '',
     [string]$MsysRoot = 'C:\msys64',
-    [string]$Version = '0.2.0-beta.4',
+    [string]$Version = '0.2.0-beta.5',
     # A package to publish: no first-run settings with this PC's folders (the launcher finds its own).
     [switch]$Release
 )

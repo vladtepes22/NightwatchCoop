@@ -23,6 +23,7 @@ from link_libc import encode_id
 DEFAULT_MODULES = ('libc.prx', 'libSceFios2.prx')
 FS_LOAD = bytes.fromhex('64488b042500000000')  # mov rax, fs:[0]
 RED_ZONE_SITES = Path(__file__).resolve().parent.parent / 'patches' / 'redzone.json'
+RED_ZONE_FUNCTIONS = Path(__file__).resolve().parent.parent / 'patches' / 'redzone_functions.json'
 LEA_DOWN = bytes.fromhex('488d642480')        # lea rsp, [rsp-0x80]
 LEA_UP = bytes.fromhex('488da42480000000')    # lea rsp, [rsp+0x80]
 
@@ -123,6 +124,77 @@ def protect_red_zones(image, sites, base, skip=()):
         code += b'\xe9' + struct.pack('<i', end - (base + len(code) + 5))
         code += b'\xcc' * (-len(code) % 16)
         image[offset:end] = b'\xe9' + struct.pack('<i', here - (offset + 5)) + b'\xcc' * (len(original) - 5)
+        applied += 1
+    return bytes(code), applied
+
+
+def rewrite_red_zone_functions(image, functions, base, skip=()):
+    """Run whole red-zone leaf functions with their locals above rsp (BB_RED_ZONE_FUNCTIONS=1).
+
+    protect_red_zones covers the stores that fault on GPU-tracked pages; anything else written
+    below a guest thread's rsp still lands on the locals. Each function of
+    patches/redzone_functions.json (tools/redzone_functions.py: sha256 and a per-instruction
+    recipe, no game code) is copied to `base` with rsp 0x80 lower for its whole body, every
+    [rsp+d] operand moved by 0x80, jumps re-aimed inside the copy (rel32) and rip-relative
+    operands re-aimed at their old targets; its entry jumps to the copy. Functions whose bytes
+    differ or that hold a relocation (`skip`: sorted targets) stay as they are. Returns the
+    copies and the number of functions moved."""
+    code = bytearray()
+    applied = 0
+    for f in functions:
+        start, size = f['offset'], f['size']
+        end = start + size
+        near = bisect.bisect_right(skip, start - 8)
+        if hashlib.sha256(image[start:end]).hexdigest() != f['sha256'] or \
+                (near < len(skip) and skip[near] < end):
+            continue
+        here = base + len(code)
+        body = bytearray()
+        at = {}      # old offset in the function -> offset in body
+        jumps = []   # (position of the rel32 in body, old target offset)
+        pos = 0
+        for item in f['insns']:
+            n, kind = item[0], item[1] if len(item) > 1 else 0
+            insn = bytearray(image[start + pos:start + pos + n])
+            at[pos] = len(body)
+            if kind == 0:
+                body += insn
+            elif kind == 1:  # [rsp+d] -> [rsp+d+0x80]
+                modrm, disp, width = item[2], item[3], item[4]
+                old = 0 if width == 0 else struct.unpack_from('<b' if width == 1 else '<i', insn, disp)[0]
+                new = old + 0x80
+                if width == 1 and -128 <= new <= 127:
+                    insn[disp] = new & 0xff
+                elif width == 4:
+                    struct.pack_into('<i', insn, disp, new)
+                else:  # mod 00/01 -> 10: disp32 in place of the disp8 (or after the SIB)
+                    insn[modrm] = (insn[modrm] & 0x3f) | 0x80
+                    insn[disp:disp + width] = struct.pack('<i', new)
+                body += insn
+            elif kind == 2:  # rip-relative: same target from the copy
+                disp = item[2]
+                target = start + pos + n + struct.unpack_from('<i', insn, disp)[0]
+                struct.pack_into('<i', insn, disp, target - (here + len(body) + n))
+                body += insn
+            elif kind == 3:  # jump inside the function, as rel32
+                cc, target = item[2], item[3]
+                body += b'\xe9' if cc == 16 else bytes((0x0f, 0x80 + cc))
+                jumps.append((len(body), target))
+                body += bytes(4)
+            elif kind == 4:  # prologue sub rsp, then the frame 0x80 lower
+                body += insn + LEA_DOWN
+            elif kind == 5:  # epilogue: back up, then add rsp
+                body += LEA_UP + insn
+            else:
+                raise ValueError(f'unknown recipe kind {kind}')
+            pos += n
+        if pos != size or any(target not in at for _, target in jumps):
+            raise ValueError(f'{start:#x}: bad recipe (covers {pos} of {size} bytes, or a jump into an item)')
+        for where, target in jumps:
+            struct.pack_into('<i', body, where, at[target] - (where + 4))
+        code += body
+        code += b'\xcc' * (-len(code) % 16)
+        image[start:start + 5] = b'\xe9' + struct.pack('<i', here - (start + 5))
         applied += 1
     return bytes(code), applied
 
@@ -235,12 +307,19 @@ def link(game, out, module_names=DEFAULT_MODULES, red_zones=os.name == 'nt'):
         base = (base + modsize + 65535) & ~65535
 
     red_zone_sites = 0
+    code = b''
+    if red_zones and os.environ.get('BB_RED_ZONE_FUNCTIONS') == '1' and RED_ZONE_FUNCTIONS.is_file():
+        functions = json.loads(RED_ZONE_FUNCTIONS.read_text())['functions']
+        code, moved = rewrite_red_zone_functions(image, functions, base, sorted(r[0] for r in relocs))
+        print(f'Red zone: {moved} of {len(functions)} functions run with their locals above rsp '
+              '(BB_RED_ZONE_FUNCTIONS=1)')
     if red_zones and RED_ZONE_SITES.is_file():
         sites = json.loads(RED_ZONE_SITES.read_text())['sites']
-        code, red_zone_sites = protect_red_zones(image, sites, base, sorted(r[0] for r in relocs))
-        if code:
-            image.extend(bytes(base - len(image)) + code)
-            segments.append((base, len(code), 5))
+        more, red_zone_sites = protect_red_zones(image, sites, base + len(code), sorted(r[0] for r in relocs))
+        code += more
+    if code:
+        image.extend(bytes(base - len(image)) + code)
+        segments.append((base, len(code), 5))
 
     bindings, unresolved = [], []
     for identity, index in identities.items():

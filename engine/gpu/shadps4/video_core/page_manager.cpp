@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <boost/container/small_vector.hpp>
+#include "bbport_copy.h"
 #include "bbport_sections.h"
 #include "bbport_threads.h"
 #include "bbport_toggles.h"
@@ -707,6 +708,13 @@ struct PageManager::Impl {
         NoteFaultSite(context, addr);
         // bbport: the draw recording thread handles its faults inline too (vk_draw_pipe.h).
         const auto is_gpu_thread = rasterizer->IsGpuSideThread();
+        // bbport: copy threads working for a GPU-side thread fault on its behalf, several at once:
+        // one at a time, as that thread's own faults are.
+        static std::mutex for_gpu_side_mutex;
+        std::unique_lock for_gpu_side_lock{for_gpu_side_mutex, std::defer_lock};
+        if (BbCopy::ForGpuSide()) {
+            for_gpu_side_lock.lock();
+        }
         if (is_gpu_thread) {
             BbStats::gpu_signal_faults.fetch_add(1, std::memory_order_relaxed);
         }

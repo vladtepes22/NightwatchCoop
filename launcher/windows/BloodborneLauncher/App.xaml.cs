@@ -36,34 +36,11 @@ namespace BloodborneLauncher
             // An update to the engine\ layout: the old top-level engine folders go first.
             if (Core.Paths.DetectPortDir() is { } package)
             {
-                SyncGameWindowIcon(package);
                 FixShippedMouseBinds(package);
                 var failed = Core.LayoutCleanup.Run(package);
                 if (failed.Count > 0)
                     MessageBox.Show("These old files could not be removed (in use?) and can be deleted by hand:\n\n" +
                                     string.Join("\n", failed), "Lantern Engine", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-        }
-
-        /// <summary>The game window takes its icon from engine\out\bloodborne.ico: the launcher's own
-        /// (the red or blue lantern), also after an update that brought only the launcher.</summary>
-        private static void SyncGameWindowIcon(string package)
-        {
-            try
-            {
-                var target = Path.Combine(Core.Paths.EngineDirOf(package), "out", "bloodborne.ico");
-                if (!Directory.Exists(Path.GetDirectoryName(target))) return;
-                using var source = GetResourceStream(new Uri("pack://application:,,,/app.ico"))?.Stream;
-                if (source == null) return;
-                using var memory = new MemoryStream();
-                source.CopyTo(memory);
-                var bytes = memory.ToArray();
-                if (!File.Exists(target) || !File.ReadAllBytes(target).AsSpan().SequenceEqual(bytes))
-                    File.WriteAllBytes(target, bytes);
-            }
-            catch (Exception)
-            {
-                // The old icon stays: nothing else depends on it.
             }
         }
 

@@ -16,6 +16,7 @@
 #include "bbport_timeline.h"
 #include "bbport_sections.h"
 #include "bbport_settings.h"
+#include "bbport_copy.h"
 #include "bbport_ce_stats.h"
 #include "bbport_toggles.h"
 #include "bbport_write_log.h"
@@ -86,6 +87,11 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
         liverpool->BindRasterizer(this);
     }
     BbGuestMemory::Install(instance); // bbport: before the runtime maps direct memory
+    // bbport: copy threads working for the GPU command or draw recording thread handle their
+    // faults as it would (BbCopy::ForGpuSide).
+    static Rasterizer* gpu_side_rasterizer = nullptr;
+    gpu_side_rasterizer = this;
+    BbCopy::SetGpuSideQuery([] { return gpu_side_rasterizer->IsGpuSideThread(); });
     memory->SetRasterizer(this);
 
     GpuProfiler::Init(instance, scheduler);
@@ -807,7 +813,8 @@ void Rasterizer::DrainDrawPipe(u32 reason, u32 line, const char* function) {
 }
 
 bool Rasterizer::IsGpuSideThread() const {
-    return OnStageA() || DrawPipe::OnStageB();
+    // bbport: a copy thread working for one of them (BbCopy::ForGpuSide) too.
+    return OnStageA() || DrawPipe::OnStageB() || BbCopy::ForGpuSide();
 }
 
 bool Rasterizer::IsGpuSideThreadId(u32 tid) const {
@@ -2164,7 +2171,21 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
 
     BindVertexBuffers(pipeline);
     if (is_indexed) {
-        BindIndexBuffer();
+        // bbport: an indirect draw's index count is in GPU memory; NUM_INDICES may be another
+        // draw's (smaller) count. The buffer's own size (INDEX_BUFFER_SIZE) bounds what it can
+        // read: the larger of the two is synced, so no indices are left stale.
+        const auto& regs = Regs();
+        const bool is_index16 = regs.index_buffer_type.index_type == AmdGpu::IndexType::Index16;
+        const u32 index_size = is_index16 ? sizeof(u16) : sizeof(u32);
+        // A stale or garbage size register is not trusted past 4M indices.
+        const u32 capacity = regs.max_index_size <= (4u << 20) ? regs.max_index_size : 0u;
+        const u32 index_bytes = std::max(regs.num_indices, capacity) * index_size;
+        const auto [index_buffer, index_offset] = buffer_cache.ObtainBuffer(
+            regs.index_base_address.Address<VAddr>(), index_bytes, false);
+        needs_barrier |= runtime.IsBufferAccessed(index_buffer, index_offset, index_bytes);
+        index_bind = {index_buffer->Handle(), index_offset,
+                      is_index16 ? vk::IndexType::eUint16 : vk::IndexType::eUint32};
+        EmitIndexBuffer();
     }
 
     const auto [buffer, base] =
@@ -2876,6 +2897,14 @@ void Rasterizer::ResolveVertexBuffers(const GraphicsPipeline* pipeline,
                 !BbToggle::Disabled(BbToggle::PreparedResources)
             ? &prepared->vertex
             : nullptr;
+    // bbport: the V#s this draw's packet carries are the truth. If the worker's copy differs
+    // (the game rewrote the table after the worker read it), its addresses or strides are stale
+    // and vertex fetch reads the wrong data ("vertex explosion"): read them here instead.
+    if (ready && packet_vsharps.size() == ready->count &&
+        std::memcmp(ready->buffers, packet_vsharps.data(),
+                    ready->count * sizeof(AmdGpu::Buffer)) != 0) {
+        ready = nullptr;
+    }
     if (ready) {
         attributes.assign(ready->attributes, ready->attributes + ready->count);
         bindings.assign(ready->bindings, ready->bindings + ready->count);

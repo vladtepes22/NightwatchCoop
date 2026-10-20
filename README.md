@@ -1,6 +1,6 @@
 # Awaken Seamless
 
-Bloodborne on Windows with **seamless co-op**: Awakenchan's **Lantern Engine 0.9.34 beta 9.5**
+Bloodborne on Windows with **seamless co-op**: Awakenchan's **Lantern Engine 0.9.34 beta 9.8**
 (performance, upscalers, PC menus and controls) with **visy's seamless co-op v0.6.9**, building on
 Artificial-Sweetener's integration of the two.
 
@@ -22,7 +22,7 @@ retail release) with update 1.09.
 
 ## Install
 
-1. Download `AwakenSeamless-v0.2.0-beta.4-win64.zip` from
+1. Download `AwakenSeamless-v0.2.0-beta.5-win64.zip` from
    [Releases](https://github.com/vladtepes22/LanternEngine/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its

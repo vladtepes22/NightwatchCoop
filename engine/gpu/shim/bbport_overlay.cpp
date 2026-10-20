@@ -544,6 +544,29 @@ void Menu() {
             "Проверка при гостинге: сеть FSR 4 нормирует цвет по экспозиции и по ней решает, "
             "когда отбросить прошлые кадры. Меняются сразу, без перезапуска."));
     }
+    // bbport: frame generation (vk_frame_generation.h); live.
+    const char* frame_gens[] = {BbSettings::MenuText("Off", "Выкл"), "FSR 3.1"};
+    static_assert(std::size(frame_gens) == BbSettings::FrameGenCount);
+    int frame_gen = std::clamp(s.frame_gen.load(), 0, BbSettings::FrameGenCount - 1);
+    if (ImGui::Combo(BbSettings::MenuText("Frame generation", "Генерация кадров"), &frame_gen,
+                     frame_gens, BbSettings::FrameGenCount)) {
+        Store(s.frame_gen, frame_gen, true);
+    }
+    Hint(BbSettings::MenuText(
+        "Shows an extra frame between the game's own (2x smoother motion). Adds a little input "
+        "lag. Needs an upscaler; off in menus, movies and with HDR output.",
+        "Показывает дополнительный кадр между кадрами игры (движение в 2 раза плавнее). Немного "
+        "увеличивает задержку ввода. Нужен апскейлер; не работает в меню, роликах и с HDR."));
+    ImGui::BeginDisabled(frame_gen == BbSettings::FrameGenOff);
+    Checkbox(BbSettings::MenuText("Frame generation: game at half the refresh rate",
+                                  "Генерация кадров: игра на половине частоты экрана"),
+             s.frame_gen_cap);
+    ImGui::EndDisabled();
+    Hint(BbSettings::MenuText(
+        "Every generated frame reaches the screen evenly (60 + 60 at 120 Hz). Off: the game runs "
+        "faster, but the screen skips some generated frames.",
+        "Каждый сгенерированный кадр равномерно попадает на экран (60 + 60 при 120 Гц). Выкл: "
+        "игра быстрее, но часть сгенерированных кадров экран пропускает."));
     const bool upscaler_on = s.upscaler != BbSettings::UpscalerOff;
     const bool taa = s.upscaler == BbSettings::UpscalerTaa;
     ImGui::BeginDisabled(!upscaler_on);
@@ -898,6 +921,11 @@ void FpsCounter() {
     if (s.show_fps_rate) {
         n += std::snprintf(text + n, sizeof(text) - n, "%.0f FPS",
                            frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f);
+        // bbport: with frame generation the frames shown and the game's own.
+        if (s.frame_gen_active) {
+            n += std::snprintf(text + n, sizeof(text) - n, " (game %.0f, frame gen 2x)",
+                               s.frame_gen_game_fps.load());
+        }
     }
     if (s.show_fps_frame_time) {
         n += std::snprintf(text + n, sizeof(text) - n, "%s%.1f ms", n ? "  " : "", frame_ms_avg);

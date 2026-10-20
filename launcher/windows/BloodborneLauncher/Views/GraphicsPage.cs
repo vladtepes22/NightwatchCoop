@@ -11,6 +11,9 @@ namespace BloodborneLauncher.Views
     {
         private readonly TextBlock _upscalerHint, _dlssHint;
         private readonly SettingRow _presetCard, _sharpenCard, _sharpnessCard;
+        private readonly System.Windows.FrameworkElement _enginePreset;
+        private readonly Dictionary<string, ToggleSwitch> _features = new();
+        private bool _syncing;
 
         public GraphicsPage() : base("Graphics",
             "Stored in bbport.ini; the upscaler can also be changed in game (Insert or L3 + R3).")
@@ -37,6 +40,12 @@ namespace BloodborneLauncher.Views
             SliderRow(SymbolRegular.SlideSize24, "Sharpening strength", "Up to 1: the upscaler's own sharpening. Above 1: an extra pass", 0, 2, 0.05,
                 () => ParseDouble(Ini.Get("sharpness"), 0.5), v => Ini.Set("sharpness", Fmt(v)));
             _sharpnessCard = (SettingRow)Body.Children[^1];
+
+            IniCombo(SymbolRegular.FastForward24, "Frame generation",
+                "Shows an extra frame between the game's own (2x smoother motion). Adds a little input lag. Off by default.",
+                Choices.FrameGeneration, "frame_gen");
+            IniToggle(SymbolRegular.Timer24, "Frame generation: game at half refresh rate",
+                "Every generated frame reaches the screen evenly (60 + 60 at 120 Hz). Off: the game runs faster, but the screen skips some generated frames", "frame_gen_cap");
 
             SettingCombo(SymbolRegular.BrainCircuit24, "DLSS model",
                 "Which NVIDIA model DLSS runs. Applied on the next launch", Choices.DlssModels, "dlss_preset");
@@ -84,9 +93,14 @@ namespace BloodborneLauncher.Views
 
             // Engine features from 0.9.4, each with a switch, as IFreemz's "Bloodborne - Experimental".
             Group("Experimental");
+            // Engine preset: New or Legacy (0.9.33) turns the newer features below on or off at
+            // once; a feature changed by hand shows Custom.
+            _enginePreset = ComboRow(SymbolRegular.Options24, "Engine preset",
+                "New is the current engine. Legacy runs it the way 0.9.33 did: try it if the game crashes or draws something wrong",
+                EnginePreset.Choices, () => EnginePreset.Current(S), v => EnginePreset.Apply(S, v), changed: SyncFeatures);
             var exp = Advanced("Experimental engine features");
             SettingToggle(SymbolRegular.Code24, "Legacy shader compiler",
-                "Compiles the game's shaders the way earlier versions did. The native compiler (the default) reads constant data through the GPU's constant cache; turn this on only if a scene looks wrong and tell Awaken where. Switching recompiles every shader once",
+                "On by default: compiles the game's shaders the way 0.9.33 did. Off uses the native compiler, which reads constant data through the GPU's constant cache but is slower in dense scenes on some GPUs for now. Switching recompiles every shader once",
                 "legacy_shaders", exp);
             SettingToggle(SymbolRegular.Broom24, "VRAM cleanup",
                 "Frees video memory held by textures the GPU drew, so long sessions don't fill up VRAM and slow down. Recommended: on",
@@ -94,8 +108,8 @@ namespace BloodborneLauncher.Views
             SettingToggle(SymbolRegular.Timer24, "Precise frame pacing",
                 "A high-resolution timer and even spacing between frames: steadier frame times and less VRR flicker. Uses a little CPU. Off by default",
                 "exp_frame_pacing", exp);
-            SettingToggle(SymbolRegular.Storage24, "Use more VRAM for textures",
-                "Keeps textures in video memory up to 80% of the card instead of about 40%, so they aren't thrown out and loaded again (the cause of most stutters on 8 GB cards). On by default in betas while it is tested",
+            Feature(SymbolRegular.Storage24, "Use more VRAM for textures",
+                "Keeps textures in video memory up to 80% of the card instead of about 40%, so they aren't thrown out and loaded again (the cause of most stutters on 8 GB cards)",
                 "exp_vram_budget", exp);
             SettingToggle(SymbolRegular.TopSpeed24, "Graphics threads first",
                 "Runs the engine's graphics threads at a higher CPU priority than the game's other threads, so a frame isn't held up behind them. Off by default",
@@ -106,13 +120,13 @@ namespace BloodborneLauncher.Views
             SettingToggle(SymbolRegular.FlashFlow24, "Background shader compiling",
                 "New shaders compile on helper threads instead of freezing the frame: much shorter hitches when you reach a new area. On by default",
                 "exp_async_pipelines", exp);
-            SettingToggle(SymbolRegular.EyeOff24, "Occlusion culling",
+            Feature(SymbolRegular.EyeOff24, "Occlusion culling",
                 "The game skips objects hidden behind walls instead of drawing them all: much higher FPS in dense areas. Turn it off if lamps or glare flicker",
                 "exp_occlusion", exp);
-            SettingToggle(SymbolRegular.FastForward24, "Faster draw thread",
+            Feature(SymbolRegular.FastForward24, "Faster draw thread",
                 "Remembers texture and sampler lookups and hands the end of each frame to the draw thread: higher FPS in busy areas. New: turn it off if the game hangs or crashes",
                 "exp_fast_draws", exp);
-            SettingToggle(SymbolRegular.Shapes24, "No shader freezes",
+            Feature(SymbolRegular.Shapes24, "No shader freezes",
                 "While a new shader compiles, the objects that need it appear a moment later instead of the game freezing. New: turn it off if something stays missing",
                 "exp_compile_skip", exp);
             SettingToggle(SymbolRegular.ArrowForward24, "Fast loading",
@@ -144,6 +158,28 @@ namespace BloodborneLauncher.Views
         private void IniSlider(SymbolRegular icon, string title, double min, double max, string key, Panel? into = null,
             double step = 0.05, double fallback = 1.0) =>
             SliderRow(icon, title, null, min, max, step, () => ParseDouble(Ini.Get(key, Fmt(fallback)), fallback), v => Ini.Set(key, Fmt(v)), into: into);
+
+        /// <summary>A switch the engine preset sets: changing it by hand shows the preset it now matches.</summary>
+        private void Feature(SymbolRegular icon, string title, string hint, string key, Panel into) =>
+            _features[key] = SettingToggle(icon, title, hint, key, into, changed: SyncPreset);
+
+        /// <summary>The preset was picked: its switches show their new values.</summary>
+        private void SyncFeatures()
+        {
+            foreach (var (key, toggle) in _features)
+                toggle.IsChecked = S.Bool(key);
+            SyncPreset();
+        }
+
+        private void SyncPreset()
+        {
+            if (_syncing) return;
+            _syncing = true;
+            var index = Choices.IndexOf(EnginePreset.Choices, EnginePreset.Current(S));
+            if (_enginePreset is Segmented segmented) segmented.Select(index, notify: false);
+            else if (_enginePreset is ComboBox box) box.SelectedIndex = index;
+            _syncing = false;
+        }
 
         private static SymbolRegular EffectIcon(string key) => key switch
         {

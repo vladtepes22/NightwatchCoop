@@ -38,6 +38,7 @@ class Scheduler;
 class Runtime;
 class CameraMotion;
 class SceneTargets;
+class FrameGenerator;
 
 /// bbport BB_FINAL_DUMP_TRIGGER: the frame as presented (after FSR and post processing) is saved
 /// as final_<w>x<h> in BB_DUMP_DIR when the trigger file exists (consumed). `image` in General.
@@ -54,6 +55,12 @@ public:
 
     [[nodiscard]] bool Enabled() const noexcept {
         return enabled;
+    }
+
+    /// bbport: frame generation (vk_frame_generation.h) takes its inputs from the upscaled
+    /// frames: depth, motion and camera after the motion pass, the frame before its UI.
+    void SetFrameGenerator(FrameGenerator* generator) noexcept {
+        frame_gen = generator;
     }
 
     /// A draw into a full-size RGBA16F target with the scene depth: the scene color.
@@ -173,6 +180,11 @@ private:
     /// bbport: native HDR output: the output-size UI image as a native HDR source (UNORM view:
     /// the display-encoded values, whatever its format).
     HdrNative::Source HdrUiImage();
+    /// bbport: frame generation: this frame's depth and motion (after the motion pass), and the
+    /// frame before its UI (a guest render target, or the output-size UI image).
+    void CaptureFrameGenInputs(vk::ImageView depth_view, u32 w, u32 h);
+    void CaptureFrameGenHudless(VideoCore::ImageId id);
+    void CaptureFrameGenUiImage();
     /// The scene's size inside a `w` x `h` render target: the game's viewport.
     [[nodiscard]] std::array<u32, 2> SceneSize(u32 w, u32 h) const;
     // The scene color is drawn into a reduced SceneTargets proxy (live presets).
@@ -200,6 +212,7 @@ private:
     CameraMotion& camera_motion;
     SceneTargets& scene_targets;
     HdrNative& hdr_native;
+    FrameGenerator* frame_gen = nullptr; ///< bbport: SetFrameGenerator
     /// bbport: native HDR output: the game's UI target this frame's UI-free copy came from.
     VideoCore::ImageId hdr_ui_target{};
     int applied_preset = -1;

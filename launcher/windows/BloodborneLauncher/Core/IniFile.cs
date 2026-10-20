@@ -22,6 +22,8 @@ namespace BloodborneLauncher.Core
             ("model_lod", "0"),
             ("camera_tuning", "original"),
             ("live_resolution", "0"),
+            ("frame_gen", "off"),
+            ("frame_gen_cap", "1"),
         };
 
         private readonly Dictionary<string, string?> _values = new(StringComparer.Ordinal);

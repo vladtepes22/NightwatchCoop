@@ -429,6 +429,99 @@ Bytes ProtectRedZones(Bytes& image, const nlohmann::json& sites, std::uint64_t b
     return code;
 }
 
+/// BB_RED_ZONE_FUNCTIONS=1: whole red-zone leaf functions run with their locals above rsp, so
+/// nothing Windows writes below a guest thread's rsp can reach them: see link_modules.py
+/// rewrite_red_zone_functions (patches/redzone_functions.json, tools/redzone_functions.py).
+Bytes RewriteRedZoneFunctions(Bytes& image, const nlohmann::json& functions, std::uint64_t base,
+                              const std::vector<std::uint64_t>& skip, int& applied) {
+    Bytes code;
+    for (const auto& f : functions) {
+        const std::uint64_t start = f.at("offset").get<std::uint64_t>();
+        const std::uint64_t size = f.at("size").get<std::uint64_t>();
+        const std::uint64_t end = start + size;
+        const auto next_reloc = std::upper_bound(skip.begin(), skip.end(), start - 8);
+        if (size < 5 || end > image.size() || Sha256Hex(image.data() + start, size) != f.at("sha256").get<std::string>() ||
+            (next_reloc != skip.end() && *next_reloc < end))
+            continue;
+        const std::uint64_t here = base + code.size();
+        Bytes body;
+        std::unordered_map<std::uint64_t, std::size_t> at;             // old offset -> offset in body
+        std::vector<std::pair<std::size_t, std::uint64_t>> jumps;      // rel32 position, old target
+        std::uint64_t pos = 0;
+        bool bad = false;
+        for (const auto& item : f.at("insns")) {
+            const std::uint64_t n = item.at(0).get<std::uint64_t>();
+            const int kind = item.size() > 1 ? item.at(1).get<int>() : 0;
+            if (pos + n > size) {
+                bad = true;
+                break;
+            }
+            Bytes insn(image.begin() + std::ptrdiff_t(start + pos), image.begin() + std::ptrdiff_t(start + pos + n));
+            at[pos] = body.size();
+            if (kind == 1) {  // [rsp+d] -> [rsp+d+0x80]
+                const std::size_t modrm = item.at(2).get<std::size_t>(), disp = item.at(3).get<std::size_t>();
+                const int width = item.at(4).get<int>();
+                const std::int32_t old = width == 0 ? 0
+                                         : width == 1 ? std::int32_t(std::int8_t(insn[disp]))
+                                                      : Load<std::int32_t>(insn.data() + disp);
+                const std::int32_t value = old + 0x80;
+                if (width == 1 && value >= -128 && value <= 127) {
+                    insn[disp] = std::uint8_t(value);
+                } else if (width == 4) {
+                    Store<std::int32_t>(insn.data() + disp, value);
+                } else {  // mod 00/01 -> 10: disp32 in place of the disp8 (or after the SIB)
+                    insn[modrm] = std::uint8_t((insn[modrm] & 0x3f) | 0x80);
+                    Bytes disp32;
+                    Append<std::int32_t>(disp32, value);
+                    insn.erase(insn.begin() + std::ptrdiff_t(disp), insn.begin() + std::ptrdiff_t(disp + std::size_t(width)));
+                    insn.insert(insn.begin() + std::ptrdiff_t(disp), disp32.begin(), disp32.end());
+                }
+                body.insert(body.end(), insn.begin(), insn.end());
+            } else if (kind == 2) {  // rip-relative: same target from the copy
+                const std::size_t disp = item.at(2).get<std::size_t>();
+                const std::int64_t target = std::int64_t(start + pos + n) + Load<std::int32_t>(insn.data() + disp);
+                Store<std::int32_t>(insn.data() + disp, std::int32_t(target - std::int64_t(here + body.size() + n)));
+                body.insert(body.end(), insn.begin(), insn.end());
+            } else if (kind == 3) {  // jump inside the function, as rel32
+                const int cc = item.at(2).get<int>();
+                if (cc == 16) {
+                    body.push_back(0xe9);
+                } else {
+                    body.push_back(0x0f);
+                    body.push_back(std::uint8_t(0x80 + cc));
+                }
+                jumps.push_back({body.size(), item.at(3).get<std::uint64_t>()});
+                body.insert(body.end(), 4, 0);
+            } else if (kind == 4) {  // prologue sub rsp, then the frame 0x80 lower
+                body.insert(body.end(), insn.begin(), insn.end());
+                body.insert(body.end(), kLeaDown.begin(), kLeaDown.end());
+            } else if (kind == 5) {  // epilogue: back up, then add rsp
+                body.insert(body.end(), kLeaUp.begin(), kLeaUp.end());
+                body.insert(body.end(), insn.begin(), insn.end());
+            } else if (kind == 0) {
+                body.insert(body.end(), insn.begin(), insn.end());
+            } else {
+                bad = true;
+                break;
+            }
+            pos += n;
+        }
+        for (const auto& jump : jumps) bad = bad || !at.count(jump.second);
+        if (bad || pos != size) {
+            Log("Red zone: the recipe for %s does not fit; left as it is", Hex(start).c_str());
+            continue;
+        }
+        for (const auto& [where, target] : jumps)
+            Store<std::int32_t>(body.data() + where, std::int32_t(std::int64_t(at[target]) - std::int64_t(where + 4)));
+        code.insert(code.end(), body.begin(), body.end());
+        while (code.size() % 16) code.push_back(0xcc);
+        image[start] = 0xe9;
+        Store<std::int32_t>(image.data() + start + 1, std::int32_t(std::int64_t(here) - std::int64_t(start + 5)));
+        ++applied;
+    }
+    return code;
+}
+
 struct Export {
     std::uint64_t address, kind;
     std::string file;
@@ -566,18 +659,28 @@ void LinkModules(const fs::path& game, const fs::path& out, Module& main, Boot b
 
     int red_zone_sites = 0;
     const fs::path sites_path = engine / "patches" / "redzone.json";
+    const fs::path functions_path = engine / "patches" / "redzone_functions.json";
     std::error_code error;
+    std::vector<std::uint64_t> skip;
+    for (const Reloc& r : boot.relocs) skip.push_back(r.target);
+    std::sort(skip.begin(), skip.end());
+    Bytes code;
+    if (Env("BB_RED_ZONE_FUNCTIONS", "") == "1" && fs::is_regular_file(functions_path, error)) {
+        const auto functions = nlohmann::json::parse(ReadText(functions_path)).at("functions");
+        int moved = 0;
+        code = RewriteRedZoneFunctions(image, functions, base, skip, moved);
+        Log("Red zone: %d of %zu functions run with their locals above rsp (BB_RED_ZONE_FUNCTIONS=1)", moved,
+            functions.size());
+    }
     if (fs::is_regular_file(sites_path, error)) {
         const auto sites = nlohmann::json::parse(ReadText(sites_path)).at("sites");
-        std::vector<std::uint64_t> skip;
-        for (const Reloc& r : boot.relocs) skip.push_back(r.target);
-        std::sort(skip.begin(), skip.end());
-        const Bytes code = ProtectRedZones(image, sites, base, skip, red_zone_sites);
-        if (!code.empty()) {
-            image.resize(base, 0);
-            image.insert(image.end(), code.begin(), code.end());
-            boot.segments.push_back({base, code.size(), 5});
-        }
+        const Bytes more = ProtectRedZones(image, sites, base + code.size(), skip, red_zone_sites);
+        code.insert(code.end(), more.begin(), more.end());
+    }
+    if (!code.empty()) {
+        image.resize(base, 0);
+        image.insert(image.end(), code.begin(), code.end());
+        boot.segments.push_back({base, code.size(), 5});
     }
 
     std::vector<std::array<std::uint64_t, 3>> bindings;
@@ -685,6 +788,7 @@ std::string PrepareKey(const fs::path& game, const std::string& sku, const fs::p
     paths.push_back(fs::path(std::wstring(self, GetModuleFileNameW(nullptr, self, DWORD(std::size(self))))));
     paths.push_back(engine / "data" / "image_109_hashes.txt");
     paths.push_back(engine / "patches" / "redzone.json");
+    paths.push_back(engine / "patches" / "redzone_functions.json");
     for (const fs::path& path : paths) {
         const std::string name = Utf8(path.filename());
         digest.Update(name);
@@ -695,7 +799,8 @@ std::string PrepareKey(const fs::path& game, const std::string& sku, const fs::p
         }
         digest.Update("\0", 1);
     }
-    digest.Update("sku=" + sku + ";check=" + Env("BB_SKIP_GAME_CHECK", ""));
+    digest.Update("sku=" + sku + ";check=" + Env("BB_SKIP_GAME_CHECK", "") +
+                  ";redzone_functions=" + Env("BB_RED_ZONE_FUNCTIONS", ""));
     return digest.HexDigest();
 }
 

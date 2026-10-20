@@ -739,8 +739,10 @@ namespace BloodborneLauncher.Views
 
         private void CopyProfile()
         {
-            Clipboard.SetText(ControlProfiles.ToJson(CurrentAsProfile()));
-            Ws.Log("Profile JSON copied. Paste it on any paste site and share the link.", LogLevel.Good);
+            if (ClipboardText.Set(ControlProfiles.ToJson(CurrentAsProfile())))
+                Ws.Log("Profile JSON copied. Paste it on any paste site and share the link.", LogLevel.Good);
+            else
+                Ws.Log("Could not copy: another program is using the clipboard. Try again.", LogLevel.Warn);
         }
 
         private void ExportProfile()

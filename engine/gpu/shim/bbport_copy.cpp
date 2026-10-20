@@ -20,6 +20,8 @@ namespace BbCopy {
 namespace {
 
 thread_local bool in_copy_thread = false;
+thread_local bool for_gpu_side = false;
+std::atomic<bool (*)()> gpu_side_query{nullptr};
 
 class Pool {
 public:
@@ -110,10 +112,11 @@ public:
         return true;
     }
 
-    void Run(std::size_t count, const std::function<void(std::size_t)>& task) {
+    void Run(std::size_t count, const std::function<void(std::size_t)>& task, bool gpu_side) {
         auto job = std::make_shared<Job>();
         job->task = &task;
         job->count = count;
+        job->gpu_side = gpu_side;
         {
             std::scoped_lock lk{mutex};
             current = job;
@@ -145,6 +148,7 @@ private:
     struct Job {
         const std::function<void(std::size_t)>* task{};
         std::size_t count{};
+        bool gpu_side{};
         std::atomic<std::size_t> next{0};
         std::atomic<std::size_t> done{0};
     };
@@ -189,13 +193,15 @@ private:
     }
 
     static void Work(Job& job) {
-        const bool was = in_copy_thread;
+        const bool was = in_copy_thread, was_gpu_side = for_gpu_side;
         in_copy_thread = true;
+        for_gpu_side = job.gpu_side;
         for (std::size_t i; (i = job.next.fetch_add(1, std::memory_order_relaxed)) < job.count;) {
             (*job.task)(i);
             job.done.fetch_add(1, std::memory_order_release);
         }
         in_copy_thread = was;
+        for_gpu_side = was_gpu_side;
     }
 
     void Loop(unsigned index) {
@@ -322,7 +328,16 @@ void ParallelFor(std::size_t count, const std::function<void(std::size_t)>& task
         }
         return;
     }
-    GetPool().Run(count, task);
+    const auto query = gpu_side_query.load(std::memory_order_acquire);
+    GetPool().Run(count, task, query && query());
+}
+
+void SetGpuSideQuery(bool (*query)()) {
+    gpu_side_query.store(query, std::memory_order_release);
+}
+
+bool ForGpuSide() {
+    return for_gpu_side;
 }
 
 } // namespace BbCopy

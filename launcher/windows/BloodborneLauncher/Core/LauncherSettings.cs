@@ -63,6 +63,7 @@ namespace BloodborneLauncher.Core
             ["ui_background"] = "game", // game | custom | none
             ["ui_background_image"] = "",
             ["ui_background_blur"] = "strong", // strong | light | off
+            ["app_icon"] = "auto", // auto | red | blue | j3loo (AppIcon)
             ["ui_window_buttons"] = "mac", // mac | windows
             ["ui_window_buttons_side"] = "usual", // usual (mac left, windows right) | left | right
             ["fsr4_balanced"] = false,
@@ -76,12 +77,12 @@ namespace BloodborneLauncher.Core
             ["exp_sfx_workaround"] = false,
             ["exp_camera_easing"] = false,
             ["borderless_fullscreen"] = false,
-            // New engine features that could still crash or hang: on in beta builds, where they are
-            // tested, and off in stable ones until they have been.
-            ["exp_occlusion"] = Updater.CurrentBeta > 0,
-            ["exp_fast_draws"] = Updater.CurrentBeta > 0,
-            ["exp_compile_skip"] = Updater.CurrentBeta > 0,
-            ["exp_vram_budget"] = Updater.CurrentBeta > 0,
+            // The new engine features (EnginePreset New): on since 0.9.34, stable builds too.
+            ["exp_occlusion"] = true,
+            ["exp_fast_draws"] = true,
+            ["exp_compile_skip"] = true,
+            ["exp_vram_budget"] = true,
+            // Still being tested: on in beta builds only.
             ["exp_sharp_ui"] = Updater.CurrentBeta > 0,
             ["audio_priority"] = false,
             ["sound_output"] = "",
@@ -92,7 +93,7 @@ namespace BloodborneLauncher.Core
             ["shader_capture"] = false,
             ["overlay_keys"] = "both",
             ["dlss_preset"] = "k",
-            ["legacy_shaders"] = false,
+            ["legacy_shaders"] = true, // beta 9.8: the native compiler costs FPS in dense scenes on NVIDIA
             ["trophy_notifications"] = true,
             ["trophy_sound"] = true,
             ["trophy_volume"] = 70,
@@ -128,6 +129,16 @@ namespace BloodborneLauncher.Core
                     // GB of 2486 MiB: evictions, re-uploads and tiled write-backs every frame).
                     if (Updater.CurrentBeta > 0 && !saved.ContainsKey("vram_budget_beta_on"))
                         _data["exp_vram_budget"] = true;
+                    // 0.9.34: the new engine features are on in stable builds too (Engine preset
+                    // New); files from before saved them off, so New is applied once. Legacy is
+                    // one click away on the Graphics page.
+                    if (!saved.ContainsKey("engine_preset_applied"))
+                        EnginePreset.Apply(this, EnginePreset.New);
+                    // Beta 9.8: the legacy shader compiler is the default again (the native one
+                    // held 45-55 FPS where the legacy one held 60, Forbidden Woods, RTX 3090);
+                    // switched on once, the native one stays a choice.
+                    if (!saved.ContainsKey("legacy_shaders_default_98"))
+                        _data["legacy_shaders"] = true;
                     // Older launchers kept the shadNet password in plain text: encrypted now, and
                     // the file rewritten without it.
                     if (Str("online_password") is { Length: > 0 } plain && !Secret.IsProtected(plain))
@@ -144,6 +155,8 @@ namespace BloodborneLauncher.Core
             // Saved with the next change: from then on the player's own choice stays.
             if (Updater.CurrentBeta > 0)
                 _data["vram_budget_beta_on"] = true;
+            _data["engine_preset_applied"] = true;
+            _data["legacy_shaders_default_98"] = true;
         }
 
         public void Save()

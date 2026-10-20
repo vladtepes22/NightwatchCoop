@@ -63,5 +63,14 @@ int main() {
     assert(!InnerViewport(3840, 2160, 1920, 1080, sharp) && !InnerViewport(1920, 1080, 1920, 1080, sharp));
     assert(!InnerViewport(1916, 1076, 1920, 1080, sharp) && !InnerViewport(4096, 2160, 1920, 1080, sharp));
     assert(!InnerViewport(0, 0, 1920, 1080, sharp));
+    // Sharp UI with Native AA (scene, UI viewport and output 2560x1440) or a scene of exactly
+    // 1920x1080 (aligned a few pixels larger): post passes have a UI viewport, it marks no UI draw.
+    assert(SceneHasUiViewportSize(2560, 1440, ParseUiSize("2560x1440")));
+    assert(SceneHasUiViewportSize(1920, 1080, sharp) && SceneHasUiViewportSize(1924, 1084, sharp));
+    // Scaled presets (Sharp UI or not) and Widescreen: the viewport still tells UI draws apart.
+    assert(!SceneHasUiViewportSize(1708, 960, ParseUiSize("2560x1440")));
+    assert(!SceneHasUiViewportSize(2560, 1440, ParseUiSize(nullptr)));
+    assert(!SceneHasUiViewportSize(2296, 960, ParseUiSize("3360x1440")));
+    assert(!SceneHasUiViewportSize(3440, 1440, ParseUiSize("3360x1440")));
     std::puts("UI composition: PASS (menu without camera, HUD, FSR off, viewport scaling)");
 }

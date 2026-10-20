@@ -66,6 +66,21 @@ inline bool InnerViewport(float width, float height, uint32_t target_width,
            !TargetViewport(width, height, target_width, target_height);
 }
 
+// A scene rendered at a UI viewport's size (Sharp UI with Native AA: the scene, the UI viewport
+// and the output all 2560x1440; or a scaled scene of exactly 1920x1080, as Performance at 4K):
+// the game's full-screen post passes then have a UI movie's viewport too, so a native viewport
+// no longer tells a UI draw apart. (The UI composition started on such a pass, into a post-process
+// target before the game's frame: the menus' icon sheet showed over the screen.) The game's
+// targets are aligned a few pixels larger than the scene, as TargetViewport.
+inline bool SceneHasUiViewportSize(uint32_t scene_width, uint32_t scene_height,
+                                   std::array<float, 2> ui = UiSize()) {
+    const auto near = [&](std::array<float, 2> size) {
+        return std::abs(float(scene_width) - size[0]) < 8.0f &&
+               std::abs(float(scene_height) - size[1]) < 8.0f;
+    };
+    return near({1920.0f, 1080.0f}) || near(ui);
+}
+
 // Scaleform draws, including the first stencil/movie pass. A native-size viewport
 // alone also matches every fullscreen post pass when guest targets stay at 1080p.
 constexpr bool MovieShader(uint64_t hash) {

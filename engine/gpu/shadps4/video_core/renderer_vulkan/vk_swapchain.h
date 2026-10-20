@@ -71,6 +71,20 @@ public:
         return image_count;
     }
 
+    /// bbport: frame generation presents two frames per game frame: one more image while it is
+    /// on. True when the count changed (the caller recreates the swapchain).
+    bool SetExtraImages(u32 count) {
+        if (extra_images == count) {
+            return false;
+        }
+        extra_images = count;
+        return true;
+    }
+
+    vk::PresentModeKHR GetPresentMode() const {
+        return present_mode;
+    }
+
     u32 GetFrameIndex() const {
         return frame_index;
     }
@@ -164,6 +178,7 @@ private:
     u32 width = 0;
     u32 height = 0;
     u32 image_count = 0;
+    u32 extra_images = 0; ///< bbport: SetExtraImages
     u32 image_index = 0;
     u32 frame_index = 0;
     bool needs_recreation = true;

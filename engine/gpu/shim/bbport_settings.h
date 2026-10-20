@@ -20,6 +20,11 @@ inline bool IsFsr4(int upscaler) {
 inline bool IsFrameUpscaler(int upscaler) {
     return IsFsr4(upscaler) || upscaler == UpscalerDlss;
 }
+/// bbport: frame_gen in bbport.ini (BB_FRAME_GEN): a generated frame between the game's own
+/// (vk_frame_generation.h). Only FSR 3.1 frame interpolation, 2x, for now.
+enum FrameGen : int { FrameGenOff = 0, FrameGenFsr3 = 1, FrameGenCount };
+inline constexpr const char* FrameGenNames[] = {"off", "fsr3"};
+static_assert(sizeof(FrameGenNames) / sizeof(FrameGenNames[0]) == FrameGenCount);
 enum Preset : int { NativeAA = 0, Quality, Balanced, Performance, UltraPerformance, PresetCount };
 enum DebugView : int { DebugNone = 0, DebugReactive = 1, DebugMotion = 2, DebugViewCount };
 /// The menu's language, in the Language selector's order (bbport_overlay.cpp).
@@ -159,6 +164,14 @@ struct Values {
     std::atomic<MenuLanguage> menu_language{MenuLanguage::English};
     std::atomic<int> upscaler{UpscalerFsr3};
     std::atomic<int> preset{NativeAA};
+    std::atomic<int> frame_gen{FrameGenOff}; ///< FrameGen; live
+    /// While generated frames are shown, the game runs at half the refresh rate so every
+    /// generated frame reaches the display (any present mode); live.
+    std::atomic<bool> frame_gen_cap{true};
+    /// Set by the renderer: frame generation is running (the FPS counter shows both rates), and
+    /// the frames shown and the game's own frames a second.
+    std::atomic<bool> frame_gen_active{false};
+    std::atomic<float> frame_gen_shown_fps{0.0f}, frame_gen_game_fps{0.0f};
     std::atomic<bool> sharpen{true};
     std::atomic<float> sharpness{0.3f};
     std::atomic<bool> jitter{true};

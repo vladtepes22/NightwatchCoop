@@ -132,14 +132,15 @@ def prepare_key(game, sku):
     modules = sorted((game / 'sce_module').iterdir()) if (game / 'sce_module').is_dir() else []
     # patches/redzone.json: the stores link_modules.py moves below the red zone (Intel 12th gen+).
     for path in [game / 'eboot.bin', game / 'sce_sys/param.sfo', *modules, *(SCRIPTS / s for s in PREPARE_SCRIPTS),
-                 ROOT / 'patches' / 'redzone.json']:
+                 ROOT / 'patches' / 'redzone.json', ROOT / 'patches' / 'redzone_functions.json']:
         digest.update(path.name.encode('utf-8') + b'\0')
         if path.is_file():
             with path.open('rb') as f:
                 while chunk := f.read(1 << 20):
                     digest.update(chunk)
         digest.update(b'\0')
-    digest.update(f'sku={sku};check={os.environ.get("BB_SKIP_GAME_CHECK", "")}'.encode('utf-8'))
+    digest.update(f'sku={sku};check={os.environ.get("BB_SKIP_GAME_CHECK", "")};'
+                  f'redzone_functions={os.environ.get("BB_RED_ZONE_FUNCTIONS", "")}'.encode('utf-8'))
     return digest.hexdigest()
 
 

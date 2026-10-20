@@ -30,6 +30,7 @@
 #include "video_core/renderer_vulkan/vk_shader_util.h"
 #include "video_core/renderer_vulkan/vk_camera_motion.h"
 #include "video_core/renderer_vulkan/vk_frame_capture.h"
+#include "video_core/renderer_vulkan/vk_frame_generation.h"
 #include "video_core/renderer_vulkan/vk_hdr_native.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
@@ -384,6 +385,9 @@ bool TemporalUpscaler::RasterScaling() const {
 }
 
 bool TemporalUpscaler::OnFrameStart() {
+    if (frame_gen) {
+        frame_gen->OnFrameStart();
+    }
     // bbport: BB_PRESET_FILE=<file> holding a preset number, read about once a second: switches
     // the preset like the menu does (scripted tests of live preset changes).
     static const char* preset_file = std::getenv("BB_PRESET_FILE");
@@ -1286,6 +1290,7 @@ void TemporalUpscaler::Run() {
     own_barrier(vk::Image(motion_image), vk::ImageLayout::eGeneral,
                 vk::PipelineStageFlagBits2::eComputeShader, vk::AccessFlagBits2::eShaderWrite,
                 vk::ImageLayout::eGeneral, all, vk::AccessFlagBits2::eShaderRead);
+    CaptureFrameGenInputs(input_depth_view, w, h);
 
     const bool has_reactive = mask_ready || RecordReactive(input_color_view);
 
@@ -1548,6 +1553,14 @@ void TemporalUpscaler::OnColorTarget(VideoCore::ImageId color) {
 
 void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
                               VideoCore::ImageId depth, bool native_viewport) {
+    // bbport: frame generation: the game's finished frame before the first UI pixel (as for
+    // native HDR below); the scaled presets copy the output-size UI image after the upscale.
+    if (frame_gen && frame_gen->WantsHudless() && !Scaled() &&
+        (vs_hash == ui_trigger_vs || UiComposition::MovieShader(vs_hash))) {
+        CaptureFrameGenHudless(LdrFrame(color)        ? color
+                               : LdrFrame(ldr_target) ? ldr_target
+                                                      : VideoCore::ImageId{});
+    }
     if (!Scaled() && vs_hash == ui_trigger_vs) done_this_frame = true;
     // bbport: native HDR output: the game's tonemapped frame before the first UI pixel (the
     // first Scaleform draw of any kind). A stencil-only first pass binds no colour: the last
@@ -1581,8 +1594,12 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
         return;
     }
     const auto& image = texture_cache.GetImage(color);
+    // A UI movie's viewport marks a UI draw only while the scene is of another size: at the same
+    // size every full-screen post pass has it too (Sharp UI with Native AA), and the UI then
+    // starts with the game's Scaleform shaders instead.
     const bool movie = vs_hash == ui_trigger_vs || UiComposition::MovieShader(vs_hash) ||
-                       (scaled_session && native_viewport);
+                       (scaled_session && native_viewport &&
+                        !UiComposition::SceneHasUiViewportSize(render_width, render_height));
     const bool ui_draw = movie &&
         (image.info.pixel_format == vk::Format::eR8G8B8A8Unorm ||
          image.info.pixel_format == vk::Format::eR8G8B8A8Srgb) &&
@@ -1603,6 +1620,9 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
     case UiComposition::Background::Copy:
         RunUiOnly(color, depth);
         break;
+    }
+    if (ui_phase) {
+        CaptureFrameGenUiImage();
     }
     // bbport: native HDR output: the output-size frame the UI is about to be drawn into.
     if (ui_phase && hdr_native.WantsUiStart() && HdrNative::Wanted()) {
@@ -1639,6 +1659,14 @@ void TemporalUpscaler::OnDisplayPass(VAddr address, VideoCore::ImageId frame) {
             hdr_native.OnUiStart(HdrUiImage());
         }
     }
+    // bbport: frame generation: a frame without UI is its own frame without UI.
+    if (frame_gen && frame_gen->WantsHudless()) {
+        if (ui_phase) {
+            CaptureFrameGenUiImage();
+        } else if (!Scaled() && LdrFrame(frame)) {
+            CaptureFrameGenHudless(frame);
+        }
+    }
     HdrNative::Source source{};
     if (HdrNative::Wanted()) {
         if (ui_phase) {
@@ -1656,6 +1684,39 @@ void TemporalUpscaler::OnDisplayPass(VAddr address, VideoCore::ImageId frame) {
     }
     hdr_native.OnDisplayPass(address, source);
     hdr_ui_target = {};
+}
+
+void TemporalUpscaler::CaptureFrameGenInputs(vk::ImageView depth_view, u32 w, u32 h) {
+    if (!frame_gen) {
+        return;
+    }
+    // The jitter as the upscaler gives it to FSR (toggle 1 << 26 flips the sign for tests).
+    const float sign = BbToggle::Disabled(1u << 26) ? -1.0f : 1.0f;
+    frame_gen->CaptureInputs(scheduler, depth_view, vk::Image(motion_image), w, h,
+                             {sign * jitter[0], sign * jitter[1]}, camera_motion.Near(),
+                             camera_motion.VerticalFov());
+}
+
+void TemporalUpscaler::CaptureFrameGenHudless(VideoCore::ImageId id) {
+    if (!frame_gen || !id || !frame_gen->WantsHudless()) {
+        return;
+    }
+    scheduler.EndRendering();
+    auto& image = texture_cache.GetImage(id);
+    runtime.Transit(&image, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eTransfer,
+                    vk::AccessFlagBits2::eTransferRead);
+    runtime.FlushBarriers();
+    frame_gen->CaptureHudless(scheduler, image.GetImage(), image.info.pixel_format,
+                              image.info.size.width, image.info.size.height);
+}
+
+void TemporalUpscaler::CaptureFrameGenUiImage() {
+    if (!frame_gen || !frame_gen->WantsHudless() || !ui_image) {
+        return;
+    }
+    // General layout: written by the upscale (or the background copy), no UI drawn yet.
+    scheduler.EndRendering();
+    frame_gen->CaptureHudless(scheduler, vk::Image(ui_image), ui_format, ui_width, ui_height);
 }
 
 void TemporalUpscaler::EnsureUiResources(u32 w, u32 h, vk::Format color, vk::Format depth) {
@@ -1964,6 +2025,7 @@ void TemporalUpscaler::RunScaled() {
     barrier(vk::Image(motion_image), vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eGeneral,
             vk::PipelineStageFlagBits2::eComputeShader, vk::AccessFlagBits2::eShaderWrite,
             vk::ImageLayout::eGeneral, all, vk::AccessFlagBits2::eShaderRead);
+    CaptureFrameGenInputs(depth_view, w, h);
 
     const auto now = std::chrono::steady_clock::now();
     float frame_ms = std::chrono::duration<float, std::milli>(now - last_frame).count();

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <array>
+#include <atomic>
 #include <deque>
 
 #include <chrono>
@@ -14,6 +16,7 @@
 #include "video_core/renderer_vulkan/host_passes/fsr_pass.h"
 #include "video_core/renderer_vulkan/host_passes/hdr_pass.h"
 #include "video_core/renderer_vulkan/host_passes/pp_pass.h"
+#include "video_core/renderer_vulkan/vk_frame_generation.h"
 #include "video_core/renderer_vulkan/vk_hdr_native.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
@@ -47,6 +50,11 @@ struct Frame {
     /// frame shown (else the HDR encode falls back to expand).
     std::unique_ptr<HdrGainMap> hdr_gain;
     bool hdr_native{false};
+    /// bbport: frame generation (vk_frame_generation.h): the generated frame shown before this
+    /// one, or null. On a generated frame: its commands recorded it (std::atomic_ref: set on a
+    /// recording thread, read on the swap thread after the submission went out).
+    Frame* generated{nullptr};
+    bool generated_ok{false};
 };
 
 enum SchedulerType {
@@ -115,12 +123,23 @@ public:
     void Present(Frame* frame, bool is_reusing_frame = false, bool is_game_frame = true);
     Frame* PrepareLastFrame();
 
+    /// bbport: frame generation: a flip was queued for the swap thread (+1) or reached it (-1).
+    void NoteFlipQueued(int delta) {
+        frame_gen->NoteFlipQueued(delta);
+    }
+
 private:
     Frame* GetRenderFrame();
 
     void RecreateFrame(Frame* frame, u32 width, u32 height);
 
     void SetExpectedGameSize(s32 width, s32 height);
+
+    /// bbport: frame generation: a free generated frame (its last present done), or null.
+    Frame* TakeGeneratedFrame();
+    /// Shows the generated frame of `frame` (if made and in time), then waits for the real one's
+    /// slot. True when it was shown.
+    bool PresentGenerated(Frame* frame, Frame* generated);
 
     /// bbport: HDR output. A swapchain-sized image of the SDR format (the frame letterboxed into
     /// it, or the menu layer drawn into it), sampled by the HDR encode pass.
@@ -177,6 +196,11 @@ private:
     std::condition_variable free_cv;
     std::condition_variable_any frame_cv;
     std::vector<VAddr> vo_buffers_addr;
+    /// bbport: frame generation and its own presentation frames (outside free_queue: the game
+    /// never waits for one; a busy one is in a frame on its way to the swap thread).
+    std::unique_ptr<FrameGenerator> frame_gen;
+    std::array<Frame, 2> generated_frames{};
+    std::array<std::atomic<bool>, 2> generated_busy{};
 };
 
 } // namespace Vulkan

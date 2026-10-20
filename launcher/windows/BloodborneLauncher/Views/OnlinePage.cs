@@ -104,7 +104,7 @@ namespace BloodborneLauncher.Views
                 Ws.Log($"The Hunter's Dream: signed in as {name}", LogLevel.Good);
                 if (code.Length > 0)
                 {
-                    try { Clipboard.SetText(code); } catch (Exception) { }
+                    ClipboardText.Set(code);
                     Prompt.Tell("Your recovery code", $"Signed in as {name}.\n\nRecovery code (copied to the clipboard):\n\n{code}\n\n" +
                         "Write it down now: it is shown only once, and it is the only way back into this account.");
                 }
@@ -153,7 +153,7 @@ namespace BloodborneLauncher.Views
             try
             {
                 var link = await HuntersDream.StartLinkAsync(_linking.Token);
-                try { Clipboard.SetText(link.UserCode); } catch (Exception) { }
+                ClipboardText.Set(link.UserCode);
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(link.Page) { UseShellExecute = true });
                 SetHint(_hdHint, $"Enter the code {link.UserCode} on the page that opened (it is on the clipboard), then approve");
                 _hdHint.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextFillColorTertiaryBrush");

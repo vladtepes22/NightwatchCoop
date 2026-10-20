@@ -37,6 +37,7 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <optional>
 #include <memory>
 #include <span>
 #include <sstream>
@@ -151,6 +152,15 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
         frame.present_done = fence;
         free_queue.push(&frame);
     }
+    // bbport: frame generation's frames (images made at their first use).
+    for (u32 i = 0; i < generated_frames.size(); ++i) {
+        Frame& frame = generated_frames[i];
+        frame.id = u8(num_images + i);
+        frame.present_done = Check<"create present done fence">(
+            device.createFence({.flags = vk::FenceCreateFlagBits::eSignaled}));
+    }
+    frame_gen = std::make_unique<FrameGenerator>(instance, draw_scheduler);
+    rasterizer->GetUpscaler().SetFrameGenerator(frame_gen.get());
 
     fsr_settings.enable = EmulatorSettings.IsFsrEnabled();
     fsr_settings.use_rcas = EmulatorSettings.IsRcasEnabled();
@@ -159,7 +169,9 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
 
     fsr_pass.Create(device, instance.GetAllocator(), num_images);
     pp_pass.Create(device, swapchain.GetSurfaceFormat().format);
-    BbOverlay::Init(instance, swapchain.GetSurfaceFormat().format, num_images);
+    // bbport: + 2: frame generation presents up to twice per game frame, and adds a swapchain
+    // image; the menu's vertex buffers rotate over this many.
+    BbOverlay::Init(instance, swapchain.GetSurfaceFormat().format, num_images + 2);
     // bbport: HDR output (hdr in bbport.ini): frames, passes and the menu stay SDR; the encode
     // pass writes the HDR swapchain format chosen at start.
     if (const vk::Format hdr_format = swapchain.GetHdrFormat().format;
@@ -243,6 +255,14 @@ Presenter::~Presenter() {
     for (auto& frame : present_frames) {
         vmaDestroyImage(instance.GetAllocator(), frame.image, frame.allocation);
         device.destroyImageView(frame.image_view);
+        device.destroyFence(frame.present_done);
+    }
+    frame_gen.reset();
+    for (auto& frame : generated_frames) {
+        if (frame.image) {
+            vmaDestroyImage(instance.GetAllocator(), frame.image, frame.allocation);
+            device.destroyImageView(frame.image_view);
+        }
         device.destroyFence(frame.present_done);
     }
     DestroyHdrTarget(hdr_game);
@@ -745,14 +765,39 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     pp_settings.srgb_input =
         attribute.attrib.pixel_format == Libraries::VideoOut::PixelFormat::A2R10G10B10Srgb;
 
+    // bbport: frame generation: this frame's generated one, shown before it. Without a free
+    // generated frame the interpolation still runs (its history stays whole) but none is shown.
+    frame->generated = nullptr;
+    std::optional<FrameGenerator::Job> gen_job;
+    Frame* generated = nullptr;
+    {
+        const bool hdr = BbSettings::Get().hdr_output.load(std::memory_order_relaxed) !=
+                             BbSettings::HdrOutputOff ||
+                         frame->is_hdr;
+        gen_job = frame_gen->Prepare(image_size, view_info.format, hdr, fsr_settings.enable,
+                                     draw_scheduler.CurrentTick());
+        if (gen_job && gen_job->present) {
+            generated = TakeGeneratedFrame();
+            if (generated) {
+                if (generated->width != frame->width || generated->height != frame->height ||
+                    generated->is_hdr != frame->is_hdr) {
+                    RecreateFrame(generated, frame->width, frame->height);
+                }
+                std::atomic_ref<bool>(generated->generated_ok).store(false);
+            } else {
+                gen_job->present = false;
+            }
+        }
+    }
+
     // Numbered here, in command order; marked where the commands are recorded.
     const u32 stream = draw_scheduler.CrumbStream();
     const bool crumbs = Breadcrumbs::Enabled();
     const u32 fsr_crumb = crumbs ? Breadcrumbs::Note(stream, {.name = "presenter FSR"}) : 0;
     const u32 pp_crumb = crumbs ? Breadcrumbs::Note(stream, {.name = "presenter post process"}) : 0;
     draw_scheduler.Record([this, frame, image_view, image_size, frame_subresources, stream,
-                           fsr_crumb, pp_crumb, fsr = fsr_settings,
-                           pp = pp_settings](vk::CommandBuffer cmdbuf) {
+                           fsr_crumb, pp_crumb, fsr = fsr_settings, pp = pp_settings, generated,
+                           gen_job](vk::CommandBuffer cmdbuf) {
         // Frames of different submissions may be recorded on two threads at once.
         std::scoped_lock lock{passes_mutex};
         const auto pre_barrier = vk::ImageMemoryBarrier2{
@@ -783,12 +828,38 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
         if (pp_crumb) {
             Breadcrumbs::Mark(cmdbuf, stream, pp_crumb, true);
         }
+        // bbport: frame generation: interpolated and composed, then the same post process
+        // into the generated frame's image.
+        if (gen_job && frame_gen->Record(cmdbuf, *gen_job, image_view) && generated) {
+            const auto to_target = vk::ImageMemoryBarrier2{
+                .srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentRead,
+                .dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
+                .oldLayout = vk::ImageLayout::eUndefined,
+                .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
+                .image = generated->image,
+                .subresourceRange{frame_subresources},
+            };
+            cmdbuf.pipelineBarrier2(vk::DependencyInfo{
+                .imageMemoryBarrierCount = 1,
+                .pImageMemoryBarriers = &to_target,
+            });
+            pp_pass.Render(cmdbuf, frame_gen->ComposedView(), image_size, *generated, pp);
+            std::atomic_ref<bool>(generated->generated_ok).store(true, std::memory_order_release);
+        }
     });
 
     // Flush frame creation commands.
     BbStats::frame_number.fetch_add(1, std::memory_order_relaxed); // bbport: game frames shown
     frame->ready_semaphore = draw_scheduler.GetWorkSemaphore()->Handle();
     frame->ready_tick = draw_scheduler.CurrentTick();
+    if (generated) {
+        generated->ready_semaphore = frame->ready_semaphore;
+        generated->ready_tick = frame->ready_tick;
+        generated->hdr_native = false;
+        frame->generated = generated;
+    }
     SubmitInfo info{};
     draw_scheduler.Flush(info);
     BbTimeline::Note(BbTimeline::PipeTask, 5, frame->ready_tick);
@@ -890,6 +961,38 @@ Frame* Presenter::PrepareBlankFrame(bool present_thread) {
     return frame;
 }
 
+Frame* Presenter::TakeGeneratedFrame() {
+    const vk::Device device = instance.GetDevice();
+    for (u32 i = 0; i < generated_frames.size(); ++i) {
+        Frame& frame = generated_frames[i];
+        if (generated_busy[i].load(std::memory_order_acquire) ||
+            device.getFenceStatus(frame.present_done) != vk::Result::eSuccess) {
+            continue;
+        }
+        generated_busy[i].store(true, std::memory_order_release);
+        return &frame;
+    }
+    return nullptr;
+}
+
+bool Presenter::PresentGenerated(Frame* frame, Frame* generated) {
+    // Its commands went out with the real frame's submission.
+    if (frame->ready_semaphore == draw_scheduler.GetWorkSemaphore()->Handle()) {
+        draw_scheduler.WaitSubmitted(frame->ready_tick);
+    }
+    bool shown = false;
+    if (std::atomic_ref<bool>(generated->generated_ok).load(std::memory_order_acquire) &&
+        frame_gen->ShouldPresentGenerated()) {
+        const auto start = FrameGenerator::Clock::now();
+        Present(generated, true, false);
+        shown = true;
+        frame_gen->WaitForRealSlot(start);
+    }
+    const auto index = size_t(generated - generated_frames.data());
+    generated_busy[index].store(false, std::memory_order_release);
+    return shown;
+}
+
 void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame) {
     if (!is_reusing_frame && is_game_frame) {
         BbFrameState::OnPresent();
@@ -897,6 +1000,10 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
             if (held_frame) {
                 last_submit_frame = held_frame;
                 if (Frame* again = PrepareLastFrame()) Present(again, true, false);
+                // A held frame's generated frame is never shown: its slot is freed.
+                if (Frame* generated = std::exchange(frame->generated, nullptr)) {
+                    generated_busy[size_t(generated - generated_frames.data())].store(false, std::memory_order_release);
+                }
                 std::scoped_lock lock{free_mutex};
                 free_queue.push(frame);
                 free_cv.notify_one();
@@ -911,6 +1018,28 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
             held_frame = nullptr;
         }
     }
+    // bbport: frame generation: one more swapchain image while it is on; the generated frame
+    // goes first, the real one half a game frame later.
+    const bool real_game_frame = !is_reusing_frame && is_game_frame;
+    const auto present_start = FrameGenerator::Clock::now();
+    bool generated_made = false, generated_shown = false;
+    if (real_game_frame) {
+        if (swapchain.SetExtraImages(frame_gen->WantsExtraImage() ? 1 : 0) &&
+            window.GetWidth() != 0 && window.GetHeight() != 0) {
+            swapchain.Recreate(window.GetWidth(), window.GetHeight());
+            std::printf("Frame generation: swapchain of %u images\n", swapchain.GetImageCount());
+        }
+        if (Frame* generated = std::exchange(frame->generated, nullptr)) {
+            generated_made = true;
+            generated_shown = PresentGenerated(frame, generated);
+        }
+    }
+    const auto note_real = [&] {
+        if (real_game_frame && frame_gen->Enabled()) {
+            frame_gen->OnRealPresented(present_start, generated_shown, generated_made);
+        }
+    };
+
     // Free the frame for reuse
     const auto free_frame = [&] {
         if (!is_reusing_frame) {
@@ -1130,6 +1259,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     if (!is_reusing_frame && is_game_frame) {
         DebugState.IncFlipFrameNum();
     }
+    note_real();
 }
 
 Frame* Presenter::GetRenderFrame() {

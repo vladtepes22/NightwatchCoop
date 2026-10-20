@@ -106,6 +106,8 @@ namespace BloodborneLauncher.Views
             SettingCombo(SymbolRegular.Blur24, "Background blur", null,
                 new[] { new Choice("Strong", "strong"), new Choice("Light", "light"), new Choice("Off", "off") },
                 "ui_background_blur", changed: () => MainWindow.Instance?.ApplyBackdrop());
+            SettingCombo(SymbolRegular.Image24, "App icon", "The launcher's and the game window's icon. The game window takes it at its next start",
+                AppIcon.Choices, "app_icon", changed: () => MainWindow.Instance?.ApplyIcon());
             SettingCombo(SymbolRegular.Window24, "Window buttons", "macOS: the red, yellow and green dots. Windows: – □ ✕",
                 new[] { new Choice("macOS", "mac"), new Choice("Windows", "windows") },
                 "ui_window_buttons", changed: () => MainWindow.Instance?.ApplyWindowButtons());
@@ -487,7 +489,11 @@ namespace BloodborneLauncher.Views
 
         private void CopySettingsCode()
         {
-            Clipboard.SetText(SharedSettings.ToCode(SharedSettings.Take(Ini, S)));
+            if (!ClipboardText.Set(SharedSettings.ToCode(SharedSettings.Take(Ini, S))))
+            {
+                Ws.Log("Could not copy: another program is using the clipboard. Try again, or use Save settings file.", LogLevel.Warn);
+                return;
+            }
             Ws.Log("Settings code copied. Paste it in Discord; others import it in Settings › Share settings.", LogLevel.Good);
             Prompt.Tell("Settings code copied", "Paste it in Discord or anywhere else. Others use Import settings › Paste code.");
         }
@@ -509,7 +515,9 @@ namespace BloodborneLauncher.Views
 
         private void ImportSettingsCode()
         {
-            var clipboard = Clipboard.ContainsText() ? Clipboard.GetText() : "";
+            string clipboard;
+            try { clipboard = Clipboard.ContainsText() ? Clipboard.GetText() : ""; }
+            catch (System.Runtime.InteropServices.ExternalException) { clipboard = ""; }
             var values = Prompt.Ask("Import settings", $"Paste the code someone shared (it starts with {SharedSettings.CodePrefix}).",
                 new Prompt.Field("Code", clipboard.Contains(SharedSettings.CodePrefix, StringComparison.OrdinalIgnoreCase) ? clipboard.Trim() : "",
                     SharedSettings.CodePrefix + "…", Multiline: true));

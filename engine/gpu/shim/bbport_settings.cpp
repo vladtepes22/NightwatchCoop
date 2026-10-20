@@ -133,6 +133,11 @@ void Set(Values& v, const std::string& key, const std::string& value) {
                 v.upscaler = u;
             }
         }
+    } else if (key == "frame_gen") {
+        // bbport: "off" / "fsr3"; 0 and 1 too (BB_FRAME_GEN=0).
+        v.frame_gen = (value == "fsr3" || value == "1") ? FrameGenFsr3 : FrameGenOff;
+    } else if (key == "frame_gen_cap") {
+        v.frame_gen_cap = i != 0;
     } else if (key == "preset") {
         v.preset = std::clamp(i, 0, PresetCount - 1);
     } else if (key == "sharpen") {
@@ -438,7 +443,8 @@ void Load() {
         {"BB_UPSCALE_PRESET", "preset"},            {"BB_OBJECT_MOTION", "object_motion"},
         {"BB_HDR", "hdr"},                          {"BB_HDR_PAPER_WHITE", "hdr_paper_white"},
         {"BB_HDR_PEAK", "hdr_peak"},                {"BB_HDR_BOOST", "hdr_boost"},
-        {"BB_HDR_MODE", "hdr_mode"},
+        {"BB_HDR_MODE", "hdr_mode"},                {"BB_FRAME_GEN", "frame_gen"},
+        {"BB_FRAME_GEN_CAP", "frame_gen_cap"},
     };
     for (const auto& [env, key] : env_keys) {
         if (const char* value = std::getenv(env)) {
@@ -536,6 +542,8 @@ void Save() {
     put("party_overhead", std::to_string(v.party_overhead.load()));
     put("upscaler", UpscalerName(v.upscaler));
     put("preset", std::to_string(v.preset.load()));
+    put("frame_gen", FrameGenNames[std::clamp(v.frame_gen.load(), 0, FrameGenCount - 1)]);
+    put("frame_gen_cap", flag(v.frame_gen_cap));
     put("sharpen", flag(v.sharpen));
     put("sharpness", fixed(v.sharpness, 2));
     put("jitter", flag(v.jitter));

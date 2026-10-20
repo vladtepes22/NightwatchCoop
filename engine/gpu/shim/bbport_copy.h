@@ -11,6 +11,17 @@ namespace BbCopy {
 /// thread (no nesting).
 void ParallelFor(std::size_t count, const std::function<void(std::size_t)>& task);
 
+/// bbport: tells ParallelFor whether its caller is a GPU-side thread (the GPU command thread
+/// or the draw recording thread: Rasterizer::IsGpuSideThread). Their copy threads then work for
+/// it: see ForGpuSide.
+void SetGpuSideQuery(bool (*query)());
+
+/// bbport: true while this thread runs a ParallelFor task for a GPU-side caller, which waits
+/// for it. A memory fault there is handled inline as the caller's would be: sent to the GPU
+/// command thread, it waited for that thread, which waited for the caller (a black screen at the
+/// start: image hashes read GPU-written memory, beta 9).
+bool ForGpuSide();
+
 /// True when ParallelFor would split work (more than one thread available).
 bool Enabled();
 

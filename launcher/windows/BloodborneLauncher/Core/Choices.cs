@@ -18,6 +18,14 @@
             new("Off", "off"),
         };
 
+        /// <summary>frame_gen in bbport.ini: a generated frame between the game's own (the engine's
+        /// vk_frame_generation.h). Off by default.</summary>
+        public static readonly Choice[] FrameGeneration =
+        {
+            new("Off", "off"),
+            new("FSR 3.1 (2x)", "fsr3", "Needs an upscaler. Not in menus, movies or with HDR output"),
+        };
+
         public static readonly Choice[] Presets =
         {
             new("Native AA (no upscaling; DLAA with DLSS)", "0"),
