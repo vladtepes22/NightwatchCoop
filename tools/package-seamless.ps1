@@ -1,56 +1,65 @@
+# Assembles a playable Awaken Seamless package in the Lantern Engine 0.9.34 layout:
+#   <package>\Lantern Engine.exe, Bloodborne.exe, Bloodborne Launcher.exe, bbport.ini, package.json
+#   <package>\engine\out      this repo's bb-start, bb-probe, bb-shader-lab, ... and their DLLs
+#   <package>\engine\patches  this repo's patches (with the Party: patches)
+#   <package>\seamless        the party save tools and their own Python (the launcher removes
+#                             engine\scripts and engine\tools once the engine starts natively)
+# Shaders, upscaler assets, the shader catalog and the two small start programs come from the
+# official Lantern Engine release this build is based on (-Base: its extracted BloodbornePC folder).
+#   tools\package-seamless.ps1 -Base work\downloads\lantern-0.9.34-beta.9.5\x\BloodbornePC
 param(
-    [string]$Destination = 'E:\games\bloodborne seamless\AwakenSeamless',
-    [string]$Game = 'E:\games\bloodborne seamless\gamedir\CUSA03173',
-    [string]$RuntimeAssets = 'E:\games\bloodborne seamless\BloodbornePC\engine',
+    [Parameter(Mandatory)][string]$Base,
+    [string]$Destination = '',
+    [string]$Game = '',
     [string]$MsysRoot = 'C:\msys64',
-    [string]$Version = '0.1.0-beta.4'
+    [string]$Version = '0.2.0-beta.1'
 )
 $ErrorActionPreference = 'Stop'
+# JSON without a byte-order mark (Windows PowerShell's -Encoding utf8 writes one).
+function Write-Json($value, $path) { [IO.File]::WriteAllText($path, ($value | ConvertTo-Json), [Text.UTF8Encoding]::new($false)) }
+$engineId = 'awaken-seamless-0.2.0'
 $repo = Split-Path $PSScriptRoot -Parent
 $engine = Join-Path $repo 'engine'
-$destinationRoot = [IO.Path]::GetFullPath($Destination)
 $native = Join-Path $MsysRoot 'clang64\bin'
-if (!(Test-Path -LiteralPath (Join-Path $engine 'out\bb-probe.exe'))) { throw 'Build the native engine first.' }
-if (!(Test-Path -LiteralPath (Join-Path $Game 'eboot.bin'))) { throw 'Game dump not found.' }
+$base = (Resolve-Path -LiteralPath $Base).Path
+if (!$Destination) { $Destination = Join-Path $repo 'work\package\AwakenSeamless' }
+$destinationRoot = [IO.Path]::GetFullPath($Destination)
+
+$programs = 'bb-start.exe', 'bb-probe.exe', 'bb-shader-lab.exe', 'bb-engine-assets.exe', 'bb-gpu-capabilities.exe'
+foreach ($file in $programs + 'gpu-cache.id', 'gpu-cache.legacy.id') {
+    if (!(Test-Path -LiteralPath (Join-Path $engine "out\$file"))) { throw "Build the engine first (engine\build.sh): out\$file is missing." }
+}
+if (!(Test-Path -LiteralPath (Join-Path $base 'engine\out\bb-start.exe'))) { throw "Not a Lantern Engine 0.9.32+ package: $base" }
+# The shader catalog is only valid for the shader compiler it was made with.
+$ourCache = (Get-Content -LiteralPath (Join-Path $engine 'out\gpu-cache.id') -Raw).Trim()
+$baseCache = (Get-Content -LiteralPath (Join-Path $base 'engine\out\gpu-cache.id') -Raw).Trim()
+$keepCatalog = $ourCache -eq $baseCache
+if (!$keepCatalog) { Write-Warning "Shader compiler differs from the base ($ourCache vs $baseCache): the shader catalog is left out." }
+
 if (Test-Path -LiteralPath $destinationRoot) {
     $marker = Join-Path $destinationRoot 'package.json'
     if (!(Test-Path -LiteralPath $marker) -or
         ((Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json).engine -notlike 'awaken-seamless-*')) {
-        throw "Destination is not an existing seamless package: $destinationRoot"
+        throw "Destination exists and is not an Awaken Seamless package: $destinationRoot"
     }
 }
 New-Item -ItemType Directory -Force -Path $destinationRoot | Out-Null
-@{engine='awaken-seamless-0.2.0';incomplete=$true} | ConvertTo-Json |
-    Set-Content -LiteralPath (Join-Path $destinationRoot 'package.json') -Encoding utf8NoBOM
-$out = Join-Path $destinationRoot 'out'
-New-Item -ItemType Directory -Force -Path $out | Out-Null
-foreach ($file in 'bb-probe.exe','bb-engine-assets.exe','bb-gpu-capabilities.exe') {
+Write-Json @{engine=$engineId; incomplete=$true} (Join-Path $destinationRoot 'package.json')
+
+# 1. The base package, without anything a player's start generated or the release's own identity.
+robocopy $base $destinationRoot /E /XF package.json 'Lantern Engine.exe' /XD user logs mods network engine-assets /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { throw "Copying the base package failed (robocopy $LASTEXITCODE)." }
+if (!$keepCatalog) { Remove-Item -LiteralPath (Join-Path $destinationRoot 'engine\shader-catalog') -Recurse -Force -ErrorAction SilentlyContinue }
+
+# 2. This repo's engine programs; the MSYS2 DLLs they were linked with replace the base's.
+$out = Join-Path $destinationRoot 'engine\out'
+Get-ChildItem -LiteralPath $out -File | Where-Object { $_.Extension -eq '.dll' -and $_.Name -ne 'nvngx_dlss.dll' } |
+    Remove-Item -Force -Confirm:$false
+foreach ($file in $programs + 'gpu-cache.id', 'gpu-cache.legacy.id') {
     Copy-Item -LiteralPath (Join-Path $engine "out\$file") -Destination $out -Force
 }
-foreach ($folder in 'scripts','patches','docs') {
-    Copy-Item -LiteralPath (Join-Path $engine $folder) -Destination $destinationRoot -Recurse -Force
-}
-Copy-Item -LiteralPath (Join-Path $engine 'run.bat') -Destination $destinationRoot -Force
-Copy-Item -LiteralPath (Join-Path $engine 'LICENSE') -Destination $destinationRoot -Force
-Copy-Item -LiteralPath (Join-Path $engine 'docs\SEAMLESS_TESTING.md') -Destination (Join-Path $destinationRoot 'TESTING.md') -Force
-$sourceLicenses = Join-Path $destinationRoot 'licenses\source'
-New-Item -ItemType Directory -Force -Path $sourceLicenses | Out-Null
-Copy-Item -LiteralPath (Join-Path $engine 'gpu\third_party\monocypher\LICENCE.md') -Destination (Join-Path $sourceLicenses 'Monocypher.md') -Force
-Copy-Item -LiteralPath (Join-Path $engine 'licenses\GPL-2.0.txt') -Destination $sourceLicenses -Force
-foreach ($folder in 'fsr4_shaders','fsr4vk','licenses') {
-    $source = Join-Path $RuntimeAssets $folder
-    if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination $destinationRoot -Recurse -Force }
-}
-foreach ($file in 'out\nvngx_dlss.dll','gamecontrollerdb.txt') {
-    $source = Join-Path $RuntimeAssets $file
-    if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $destinationRoot $file) -Force }
-}
-
-# Walk imports from the built binaries. Windows and the display driver's Vulkan loader stay system-owned.
 $queue = [Collections.Generic.Queue[string]]::new()
-Get-ChildItem -LiteralPath $out -File | Where-Object Extension -in '.exe','.dll' | ForEach-Object { $queue.Enqueue($_.FullName) }
-$provider = Join-Path $destinationRoot 'fsr4vk\amd_fidelityfx_upscaler_vk.dll'
-if (Test-Path -LiteralPath $provider) { $queue.Enqueue($provider) }
+foreach ($file in $programs) { $queue.Enqueue((Join-Path $out $file)) }
 $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 while ($queue.Count) {
     $binary = $queue.Dequeue()
@@ -61,9 +70,8 @@ while ($queue.Count) {
         if ($line -match '^Export Table:') { break }
         if ($line -notmatch 'DLL Name:\s*(\S+)') { continue }
         $dll = $Matches[1]
-        if ($dll -ieq [IO.Path]::GetFileName($binary)) { continue }
-        if ($dll -eq 'vulkan-1.dll' -or $dll -like 'api-ms-*' -or $dll -like 'ext-ms-*' -or
-            (Test-Path -LiteralPath (Join-Path $env:SystemRoot "System32\$dll"))) { continue }
+        if ($dll -ieq [IO.Path]::GetFileName($binary) -or $dll -eq 'vulkan-1.dll' -or $dll -like 'api-ms-*' -or
+            $dll -like 'ext-ms-*' -or (Test-Path -LiteralPath (Join-Path $env:SystemRoot "System32\$dll"))) { continue }
         $target = Join-Path $out $dll
         if (!(Test-Path -LiteralPath $target)) {
             $source = Join-Path $native $dll
@@ -73,44 +81,55 @@ while ($queue.Count) {
         $queue.Enqueue($target)
     }
 }
-$licenseDestination = Join-Path $destinationRoot 'licenses\msys2'
-New-Item -ItemType Directory -Force -Path $licenseDestination | Out-Null
-Copy-Item -Path (Join-Path $MsysRoot 'clang64\share\licenses\*') -Destination $licenseDestination -Recurse -Force
+foreach ($folder in 'patches', 'data') {
+    Copy-Item -Path (Join-Path $engine "$folder\*") -Destination (Join-Path $destinationRoot "engine\$folder") -Recurse -Force
+}
+$licenses = Join-Path $destinationRoot 'engine\licenses'
+New-Item -ItemType Directory -Force -Path (Join-Path $licenses 'msys2') | Out-Null
+Copy-Item -Path (Join-Path $MsysRoot 'clang64\share\licenses\*') -Destination (Join-Path $licenses 'msys2') -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $engine 'gpu\third_party\monocypher\LICENCE.md') -Destination (Join-Path $licenses 'Monocypher.md') -Force
 
+# 3. The party save tools and an embedded Python (python.org, signature checked) in seamless\.
+$seamless = Join-Path $destinationRoot 'seamless'
+$scripts = Join-Path $seamless 'scripts'
+New-Item -ItemType Directory -Force -Path $scripts | Out-Null
+foreach ($file in 'party_save_tool.py', 'party_session.py', 'party_saves.py', 'party_env.py') {
+    Copy-Item -LiteralPath (Join-Path $engine "scripts\$file") -Destination $scripts -Force
+}
 $pythonVersion = '3.12.10'
-$archive = Join-Path $repo "work\python-$pythonVersion-embed-amd64.zip"
+$downloads = Join-Path $repo 'work\downloads'
+New-Item -ItemType Directory -Force -Path $downloads | Out-Null
+$archive = Join-Path $downloads "python-$pythonVersion-embed-amd64.zip"
 if (!(Test-Path -LiteralPath $archive)) {
     Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$pythonVersion/python-$pythonVersion-embed-amd64.zip" -OutFile $archive
 }
-$pythonDestination = Join-Path $destinationRoot 'tools\python'
-New-Item -ItemType Directory -Force -Path $pythonDestination | Out-Null
-Expand-Archive -LiteralPath $archive -DestinationPath $pythonDestination -Force
-Set-Content -LiteralPath (Join-Path $pythonDestination 'python312._pth') -Encoding ascii -Value @('python312.zip','.','..\..\scripts')
-$signature = Get-AuthenticodeSignature -FilePath (Join-Path $pythonDestination 'python.exe')
-if ($signature.Status -ne 'Valid') { throw 'The embedded Python signature is not valid.' }
+$python = Join-Path $seamless 'python'
+New-Item -ItemType Directory -Force -Path $python | Out-Null
+Expand-Archive -LiteralPath $archive -DestinationPath $python -Force
+Set-Content -LiteralPath (Join-Path $python 'python312._pth') -Encoding ascii -Value @('python312.zip', '.', '..\scripts')
+if ((Get-AuthenticodeSignature -FilePath (Join-Path $python 'python.exe')).Status -ne 'Valid') {
+    throw 'The embedded Python signature is not valid.'
+}
 
+# 4. The launcher (self-contained); Bloodborne.exe and Bloodborne Launcher.exe are the base's.
+$published = Join-Path $repo 'work\published-launcher'
 dotnet publish (Join-Path $repo 'launcher\windows\BloodborneLauncher\BloodborneLauncher.csproj') `
     -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true `
-    -p:DebugType=none "-p:Version=$Version" -o (Join-Path $repo 'work\published-launcher') --nologo
+    -p:DebugType=none "-p:Version=$Version" -o $published --nologo -v q
 if ($LASTEXITCODE) { throw 'Launcher publish failed.' }
-Copy-Item -LiteralPath (Join-Path $repo 'work\published-launcher\Bloodborne Launcher.exe') -Destination $destinationRoot -Force
-$artifacts = 'D:\project-artifacts\BloodborneSeamless\user-tests'
-New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
-$defaults = @{
-    game_dir=$Game; port_dir=$destinationRoot; party_mode='host'; party_max='2';
-    check_updates=$false; artifact_dir=$artifacts; hardware_offered=$true
-}
-$defaults | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $destinationRoot 'seamless-defaults.json') -Encoding utf8NoBOM
-$metadata = @{
-    version=$Version; engine='awaken-seamless-0.2.0';
-    source=(git -C $repo rev-parse HEAD); runtime_sha256=(Get-FileHash -LiteralPath (Join-Path $out 'bb-probe.exe')).Hash.ToLowerInvariant();
-    source_url='https://github.com/Artificial-Sweetener/BloodBorneButPc/tree/seamless-integration';
-    base='Awakenchan f3dcca13da2c2c81d2b9904dd549277e876e19e6'; seamless='visy ae113015554722e7e150e93c30060784694136ab'
-}
-$metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $destinationRoot 'package.json') -Encoding utf8NoBOM
-$ini = Join-Path $destinationRoot 'bbport.ini'
-if (!(Test-Path -LiteralPath $ini)) {
-    Set-Content -LiteralPath $ini -Encoding ascii -Value @('upscaler=fsr3','preset=0','output_res=1920x1080','live_resolution=auto','fullscreen=0','show_fps=1','party_hud=1','party_name_tags=1','party_toasts=1')
-}
+Copy-Item -LiteralPath (Join-Path $published 'Lantern Engine.exe') -Destination $destinationRoot -Force
+Copy-Item -LiteralPath (Join-Path $engine 'docs\SEAMLESS_TESTING.md') -Destination (Join-Path $destinationRoot 'TESTING.md') -Force
+Copy-Item -LiteralPath (Join-Path $repo 'README.md') -Destination (Join-Path $destinationRoot 'README.md') -Force
+
+# 5. First-run launcher settings and the package's identity.
+$defaults = [ordered]@{ port_dir = $destinationRoot; party_mode = 'host'; party_max = '2'; check_updates = $false; hardware_offered = $true }
+if ($Game) { $defaults.game_dir = $Game }
+Write-Json $defaults (Join-Path $destinationRoot 'seamless-defaults.json')
+$baseInfo = Get-Content -LiteralPath (Join-Path $base 'package.json') -Raw | ConvertFrom-Json
+Write-Json ([ordered]@{
+    version = $Version; engine = $engineId; source = (git -C $repo rev-parse HEAD)
+    base = "Lantern Engine $($baseInfo.version) ($($baseInfo.engine))"; seamless = 'visy v0.6.8'
+    runtime_sha256 = (Get-FileHash -LiteralPath (Join-Path $out 'bb-probe.exe')).Hash.ToLowerInvariant()
+}) (Join-Path $destinationRoot 'package.json')
 Write-Output "Package assembled: $destinationRoot"
