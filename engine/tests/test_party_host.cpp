@@ -781,6 +781,9 @@ static void test_remote_guest_lan() {
     CHECK(rg.ok_call("join_room", obj({{"RoomId", int_of(made, "RoomId", 0)}}), reply, err));
     const json::Value* m = reply.find("Members");
     CHECK(m && m->array.size() == 1 && str_of(m->array[0], "Addr") == "192.168.1.112");
+    // Its STUN-mapped endpoint too: the guest's peer table prefers it over Addr.
+    CHECK(m && m->array.size() == 1 && str_of(m->array[0], "MappedAddr") == "192.168.1.112" &&
+          int_of(m->array[0], "MappedPort", 0) == 9307);
     // Another member's answer (not the host) is not touched.
     call(svc, "Other", "context_start", obj({{"OnlineId", "Other"}, {"SignalingAddr", "203.0.113.9"}, {"SignalingPort", 9307}}));
     CHECK(rg.ok_call("signaling_resolve", obj({{"OnlineId", "Other"}}), reply, err));
@@ -789,6 +792,10 @@ static void test_remote_guest_lan() {
     rg.set_host_endpoint(bbnet::party::ip_parse("26.18.40.7"), 9307, false);
     CHECK(rg.ok_call("signaling_resolve", obj({{"OnlineId", "HostVisy"}}), reply, err));
     CHECK(str_of(reply, "Addr") == "26.18.40.7" && int_of(reply, "Port", 0) == 9307);
+    CHECK(rg.ok_call("join_room", obj({{"RoomId", int_of(made, "RoomId", 0)}}), reply, err));
+    m = reply.find("Members");
+    CHECK(m && !m->array.empty() && str_of(m->array[0], "Addr") == "26.18.40.7" &&
+          str_of(m->array[0], "MappedAddr") == "26.18.40.7" && int_of(m->array[0], "MappedPort", 0) == 9307);
     // A symmetric-NAT host: its STUN-mapped port only fits the STUN server; the port the link
     // reached (forwarded / UPnP) is the one that answers.
     call(svc, "HostVisy", "signaling_update",

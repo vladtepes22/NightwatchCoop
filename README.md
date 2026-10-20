@@ -22,7 +22,7 @@ retail release) with update 1.09.
 
 ## Install
 
-1. Download `AwakenSeamless-v0.2.0-beta.3-win64.zip` from
+1. Download `AwakenSeamless-v0.2.0-beta.4-win64.zip` from
    [Releases](https://github.com/vladtepes22/LanternEngine/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its
@@ -122,7 +122,7 @@ puts the PCs in one virtual network, as if they were on the same router.
    New-NetFirewallRule -DisplayName "Awaken Seamless party (TCP 9307)" -Direction Inbound -Protocol TCP -LocalPort 9307 -Profile Any -Action Allow
    New-NetFirewallRule -DisplayName "Awaken Seamless party (UDP 9307)" -Direction Inbound -Protocol UDP -LocalPort 9307 -Profile Any -Action Allow
    ```
-3. **Mode: Host** → **Play**. Leave **Host public address** empty: since beta 3 the guests send
+3. **Mode: Host** → **Play**. Leave **Host public address** empty: since beta 4 the guests send
    game traffic to the address they reached you at.
 4. Send your friends your Radmin IP with the port: `<your Radmin IP>:9307`.
 
@@ -133,7 +133,7 @@ puts the PCs in one virtual network, as if they were on the same router.
 
 To check the connection, right-click the host in Radmin VPN → **Ping**. Tailscale, ZeroTier,
 Hamachi and other VPNs work the same way: the guest joins the host's VPN address. Everyone needs
-beta 3 or later; with an older build the host has to set **Host public address** =
+beta 4 or later; with an older build the host has to set **Host public address** =
 `<VPN IP>:9307`.
 
 ## Where the saves are

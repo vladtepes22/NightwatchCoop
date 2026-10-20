@@ -171,9 +171,18 @@ void RemoteGuest::fix_host_addresses(json::Value& v) const {
     if (!addr) return;
     auto fix_record = [&](json::Value& r, const char* addr_key, const char* port_key) {
         if (r.type != json::Value::Type::Object) return;
-        if (ip_parse(str_of(r, addr_key)) == addr && (!port || int_of(r, port_key, 0) == port)) return;
+        // A room member's STUN-mapped endpoint wins over its Addr in the guest's peer table
+        // (peers_from_members), so it gets the link's endpoint too (live, Radmin: Addr was fixed, the
+        // game still punched the host's STUN address and the join timed out).
+        const std::string mapped = str_of(r, "MappedAddr");
+        const bool mapped_ok = mapped.empty() || (ip_parse(mapped) == addr && (!port || int_of(r, "MappedPort", 0) == port));
+        if (ip_parse(str_of(r, addr_key)) == addr && (!port || int_of(r, port_key, 0) == port) && mapped_ok) return;
         r.set(addr_key, ip_text(addr));
         if (port || int_of(r, port_key, 0) <= 0) r.set(port_key, static_cast<int>(port));
+        if (!mapped_ok) {
+            r.set("MappedAddr", ip_text(addr));
+            r.set("MappedPort", static_cast<int>(port ? port : int_of(r, port_key, 0)));
+        }
     };
     if (str_of(v, "Name").empty() && v.find("ResKind") && !v.find("Members") && !v.find("RoomId")) {  // signaling_resolve
         std::string host_online;
