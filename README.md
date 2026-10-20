@@ -21,7 +21,7 @@ retail release) with update 1.09.
 
 ## Install
 
-1. Download `AwakenSeamless-v0.2.0-beta.1-win64.zip` from
+1. Download `AwakenSeamless-v0.2.0-beta.2-win64.zip` from
    [Releases](https://github.com/vladtepes22/LanternEngine/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its
@@ -84,8 +84,7 @@ profile (your own settings are copied, never changed; your saves are not used). 
 11 GB of RAM per copy.
 
 **Two launchers (the real flow):**
-1. Copy `tools\Two-Launchers.cmd` and `tools\two-launchers.ps1` into your `AwakenSeamless` folder
-   (beside `Lantern Engine.exe`), and start `Lantern Engine.exe` once.
+1. Start `Lantern Engine.exe` once. The scripts below are in your `AwakenSeamless` folder.
 2. Run **`Two-Launchers.cmd`**. The first time it copies the install to `AwakenSeamless-Guest`
    (a second game cannot run from the same folder). Two launchers open: the one with
    **Mode: Host** on its Seamless page is the host, **Mode: Join** the guest.
@@ -94,7 +93,7 @@ profile (your own settings are copied, never changed; your saves are not used). 
    real party code instead, copy the host's **LAN code** (host launcher → Seamless → Copy codes)
    into the guest's **Host code or address** first.
 
-**Two games without launchers:** `tools\Play-Two.cmd` (with `play-two.ps1`) starts both games
+**Two games without launchers:** `Play-Two.cmd` starts both games
 directly; the guest joins by itself.
 
 Keyboard and controller go to the game window you clicked last. Logs: each install's

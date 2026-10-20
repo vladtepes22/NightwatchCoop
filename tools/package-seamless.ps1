@@ -12,7 +12,7 @@ param(
     [string]$Destination = '',
     [string]$Game = '',
     [string]$MsysRoot = 'C:\msys64',
-    [string]$Version = '0.2.0-beta.1',
+    [string]$Version = '0.2.0-beta.2',
     # A package to publish: no first-run settings with this PC's folders (the launcher finds its own).
     [switch]$Release
 )
@@ -123,6 +123,10 @@ if ($LASTEXITCODE) { throw 'Launcher publish failed.' }
 Copy-Item -LiteralPath (Join-Path $published 'Lantern Engine.exe') -Destination $destinationRoot -Force
 Copy-Item -LiteralPath (Join-Path $engine 'docs\SEAMLESS_TESTING.md') -Destination (Join-Path $destinationRoot 'TESTING.md') -Force
 Copy-Item -LiteralPath (Join-Path $repo 'README.md') -Destination (Join-Path $destinationRoot 'README.md') -Force
+# Local co-op tests on one PC (README: Test co-op alone on one PC).
+foreach ($file in 'Two-Launchers.cmd', 'two-launchers.ps1', 'Play-Two.cmd', 'play-two.ps1') {
+    Copy-Item -LiteralPath (Join-Path $repo "tools\$file") -Destination $destinationRoot -Force
+}
 
 # 5. First-run launcher settings and the package's identity.
 $defaultsFile = Join-Path $destinationRoot 'seamless-defaults.json'
