@@ -369,6 +369,87 @@ fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector
     }
 }
 
+// ---- Party version check (the seamless fork's scripts/mods.py party_mod_set) ----
+// out/party_mods.txt: the hash of the enabled mods' winning files that change gameplay, read by
+// party_runtime.cpp; texture, shader, sound, font ... files do not count.
+const std::set<std::wstring> kCosmeticFolders{L"adhoc", L"facegen", L"font", L"menu", L"movie", L"msg",
+                                              L"mtd",   L"parts",   L"sfx",  L"shader", L"sound"};
+const wchar_t* const kCosmeticSuffixes[] = {L".tpf", L".tpf.dcx", L".tpfbhd", L".tpfbdt", L".texbnd", L".texbnd.dcx", L".dds"};
+
+bool ModFileIsCosmetic(const fs::path& relative) {
+    std::vector<std::wstring> parts;
+    for (const fs::path& part : relative) parts.push_back(Fold(part.native()));
+    if (parts.size() > 2 && kCosmeticFolders.count(parts[1])) return true;
+    const std::wstring& last = parts.back();
+    for (const wchar_t* suffix : kCosmeticSuffixes) {
+        const std::wstring s(suffix);
+        if (last.size() >= s.size() && last.compare(last.size() - s.size(), s.size(), s) == 0) return true;
+    }
+    return false;
+}
+
+// SHA-256 of a mod file, from out/party_mods_cache.json while its size and time are unchanged.
+std::string CachedFileSha256(const fs::path& path, nlohmann::json& cache) {
+    const std::string key = Utf8(path);
+    const auto size = std::uint64_t(fs::file_size(path));
+    const auto time = std::int64_t(fs::last_write_time(path).time_since_epoch().count());
+    if (const auto it = cache.find(key); it != cache.end() && it->is_array() && it->size() == 3 &&
+                                         (*it)[0] == size && (*it)[1] == time && (*it)[2].is_string())
+        return (*it)[2].get<std::string>();
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if (file == INVALID_HANDLE_VALUE) throw Error("cannot read " + key);
+    Sha256Stream hash;
+    std::vector<std::uint8_t> block(1 << 20);
+    DWORD got = 0;
+    while (::ReadFile(file, block.data(), DWORD(block.size()), &got, nullptr) && got) hash.Update(block.data(), got);
+    CloseHandle(file);
+    const std::string digest = hash.HexDigest();
+    cache[key] = nlohmann::json::array({size, time, digest});
+    return digest;
+}
+
+void WritePartyModsFile(const fs::path& out, const std::vector<std::pair<std::wstring, fs::path>>& layers) {
+    std::map<std::string, std::pair<std::wstring, fs::path>> owners;  // folded game path: (mod, file)
+    for (const auto& [name, root] : layers)
+        for (const auto& [relative, source] : ModFiles(root)) owners[Utf8(Fold(relative.generic_wstring()))] = {name, source};
+    const fs::path cache_file = out / "party_mods_cache.json";
+    nlohmann::json cache = nlohmann::json::object();
+    try {
+        cache = nlohmann::json::parse(ReadText(cache_file));
+        if (!cache.is_object()) cache = nlohmann::json::object();
+    } catch (const std::exception&) {
+    }
+    Sha256Stream hash;
+    hash.Update("bbparty-mods-1");
+    std::map<std::wstring, std::size_t> counts;
+    std::set<std::wstring> cosmetic;
+    for (const auto& [key, owner] : owners) {
+        const auto& [name, source] = owner;
+        if (ModFileIsCosmetic(Path(key))) {
+            cosmetic.insert(name);
+            continue;
+        }
+        ++counts[name];
+        hash.Update(std::string_view("\0file\0", 6));
+        hash.Update(key);
+        hash.Update(std::string_view("\0", 1));
+        hash.Update(CachedFileSha256(source, cache));
+    }
+    try {
+        WriteText(cache_file, cache.dump());
+    } catch (const std::exception&) {
+    }
+    std::string text = "# Party version check (bb-start): the enabled mods that change gameplay files. Players\n"
+                       "# with another hash are refused by the party host; texture/shader/sound-only mods do not count.\n";
+    text += "hash " + (counts.empty() ? std::string(64, '0') : hash.HexDigest()) + "\n";
+    for (const auto& [name, root] : layers)
+        if (const auto it = counts.find(name); it != counts.end())
+            text += "mod " + Utf8(name) + " (" + std::to_string(it->second) + " files)\n";
+    for (const std::wstring& name : cosmetic)
+        if (!counts.count(name)) text += "# cosmetic " + Utf8(name) + "\n";
+    WriteText(out / "party_mods.txt", text);
+}
+
 } // namespace
 
 void RemoveOverlay(const fs::path& path) {
@@ -393,6 +474,8 @@ fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::p
             for (const std::wstring& name : Selected(mods_dir, config)) layers.emplace_back(name, mods_dir / name);
         }
     }
+    fs::create_directories(out);
+    WritePartyModsFile(out, layers);
     return BuildOverlay(game, out, layers, UpdateFolder(fs::canonical(game)));
 }
 

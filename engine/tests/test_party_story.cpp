@@ -676,6 +676,41 @@ static void test_host_story_up_guard() {
     CHECK(h.Refuse(28000040, false, 210) != nullptr);
 }
 
+// smoke068 s1: two guests went in at Gascoigne's fog; their forwarded intro played on the host,
+// then the host's own event 12411802 played it again (2 x 48 s). The forwarded copy waits for the
+// host's own play, which the guard then drops; without the host's event it plays after the wait.
+static void test_guest_intro_once_on_host() {
+    // Held while the wait runs, only for a first-fight intro.
+    CHECK(HoldGuestIntroForHostEvent(true, 0.0));
+    CHECK(HoldGuestIntroForHostEvent(true, kGuestIntroWait - 0.1));
+    CHECK(!HoldGuestIntroForHostEvent(true, kGuestIntroWait));
+    CHECK(!HoldGuestIntroForHostEvent(false, 0.0));  // any other scene: at once, as before
+    // Two guests forward the same intro at t = 127.3; the host's own 2002[3] at 127.6.
+    HostStoryUpGuard h;
+    const double t0 = 127.3;
+    bool played_from_guest = false;
+    for (int k = 0; k < 200; ++k) {
+        const double t = t0 + 0.1 * k;
+        if (k == 3) h.NotePlayed(24010010, t);  // the host's own event, 0.3 s later
+        if (h.Refuse(24010010, false, t) != nullptr) break;           // dropped: one play
+        if (!HoldGuestIntroForHostEvent(true, t - t0)) {
+            played_from_guest = true;
+            break;
+        }
+    }
+    CHECK(!played_from_guest);
+    // The host's event never comes (its visit failed): the guest's copy plays after the wait.
+    HostStoryUpGuard none;
+    double played_at = -1;
+    for (double t = t0; t < t0 + 20.0; t += 0.1) {
+        if (none.Refuse(24010010, false, t) == nullptr && !HoldGuestIntroForHostEvent(true, t - t0)) {
+            played_at = t;
+            break;
+        }
+    }
+    CHECK(played_at >= t0 + kGuestIntroWait - 0.11 && played_at < t0 + kGuestIntroWait + 0.2);
+}
+
 // User decision (2026-10-15): the host's ending asks the guest first (pard3).
 static void test_ending_question() {
     CHECK(GuestEndingType(1, false) == 1 && GuestEndingType(1, true) == 1);  // the host submitted: A
@@ -765,6 +800,7 @@ int main() {
     test_dedupe_skip();
     test_own_world_scene_not_replayed();
     test_host_story_up_guard();
+    test_guest_intro_once_on_host();
     std::printf("party-story-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

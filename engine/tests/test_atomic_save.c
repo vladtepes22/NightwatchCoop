@@ -7,6 +7,14 @@ int runtime_memory_guest_writable(uintptr_t address,uint64_t size) { (void)addre
 int32_t *runtime_errno(void) { return &guest_errno; }
 int32_t runtime_guest_errno(int error) { return error; }
 void runtime_memory_note_write(uintptr_t address,uint64_t size) { (void)address; (void)size; }
+/* Lantern's streaming statistics and prefetch (runtime_file.c): no loader threads here, and no
+ * prefetch thread is ever started. */
+int runtime_thread_is_loader(void) { return 0; }
+uint64_t host_monotonic_ns(void) { return 0; }
+int host_thread_start(HostThread *thread,size_t stack,void *(*entry)(void *),void *argument) {
+    (void)thread; (void)stack; (void)entry; (void)argument; return -1;
+}
+void host_thread_detach(HostThread thread) { (void)thread; }
 void bbnet_configure(const char *app0,const char *user) { (void)app0; (void)user; }
 uintptr_t runtime_lookup(const RuntimeExport *table,size_t size,const char *name) {
     for (size_t i=0;i<size;++i) if (!strcmp(table[i].name,name)) return (uintptr_t)table[i].function;

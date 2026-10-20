@@ -392,6 +392,26 @@ void TestCensus() {
     CHECK(DescribeCensusReport(r).find(std::to_string(victim)) != std::string::npos);
     CHECK(CompareCensusList(list, guest).empty());  // the kill reached this game: no difference
     CHECK(DescribeCensusReport(CompareCensusList(list, guest)) == "no difference");
+    // soak67 repair: dead on the host, alive here -> put to death here; the other way round never
+    // (a dead chr is not revived), bosses never, a shared id only as many as differ.
+    CHECK(CensusRepairTargets(list, killed).empty());  // alive on the host, dead here: nothing to do
+    {
+        const u32 cw = 2400125u, boss = 2400800u, twin = 2400203u;
+        CensusList hl2;
+        hl2.map = 0x18010000u;
+        hl2.buckets = {CensusBucket(cw), CensusBucket(boss), CensusBucket(twin)};
+        std::sort(hl2.buckets.begin(), hl2.buckets.end());
+        hl2.buckets.erase(std::unique(hl2.buckets.begin(), hl2.buckets.end()), hl2.buckets.end());
+        hl2.entries = {{cw, false}, {boss, false}, {twin, true}, {twin, false}};
+        const std::vector<CensusEntry> here2 = {{cw, true}, {boss, true}, {twin, true}, {twin, true}};
+        const auto t = CensusRepairTargets(hl2, here2);
+        CHECK(t.size() == 2);
+        CHECK(t.size() == 2 && t[0].first == cw && t[0].second == 1);
+        CHECK(t.size() == 2 && t[1].first == twin && t[1].second == 1);
+        CHECK(CompareCensusList(hl2, here2).dead_on_host.size() == 3);  // the report still names the boss
+        const std::vector<CensusEntry> synced = {{cw, false}, {boss, false}, {twin, true}, {twin, false}};
+        CHECK(CensusRepairTargets(hl2, synced).empty());
+    }
     // An enemy without an id killed on one side: only the counts tell.
     std::vector<CensusEntry> u = guest;
     for (CensusEntry& e : u)

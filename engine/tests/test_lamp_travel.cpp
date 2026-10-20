@@ -110,6 +110,24 @@ int main() {
     s.loading = true;
     CHECK(!Offer(s));
 
+    // The talk command switch's other observers (issue #4: shared NPC talk's choice tracker).
+    {
+        static int calls_a = 0, calls_b = 0;
+        static std::uint64_t seen = 0;
+        using Obs = void (*)(std::uint64_t, std::uint64_t);
+        ObserverList<Obs, 2> list;
+        const Obs a = [](std::uint64_t, std::uint64_t call) { ++calls_a; seen = call; };
+        const Obs b = [](std::uint64_t, std::uint64_t) { ++calls_b; };
+        CHECK(list.Add(a) && !list.Add(a) && !list.Add(nullptr));  // once each
+        CHECK(list.Add(b) && list.Size() == 2);
+        CHECK(!list.Add([](std::uint64_t, std::uint64_t) {}));     // full
+        list.Dispatch(std::uint64_t(1), std::uint64_t(0x1234));
+        CHECK(calls_a == 1 && calls_b == 1 && seen == 0x1234);
+        ObserverList<Obs, 2> empty;
+        empty.Dispatch(std::uint64_t(1), std::uint64_t(2));  // nothing registered: no call
+        CHECK(calls_a == 1);
+    }
+
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

@@ -3,6 +3,7 @@
 // short and the behaviour, byte for byte, the same.
 #include "patches.h"
 #include "elf.h"
+#include "party.h"
 #include "xml.h"
 
 #include <nlohmann/json.hpp>
@@ -169,6 +170,13 @@ public:
     explicit PatchFile(const fs::path& path) : path_(path), root_(ParseXml(path)) {}
     const fs::path& FilePath() const { return path_; }
     const XmlElement& Root() const { return *root_; }
+    /// The Metadata of patch `name` for this app version (nullptr: none).
+    const XmlElement* Meta(const std::string& name, const std::string& app_version) const {
+        for (const XmlElement* meta : root_->Iter("Metadata"))
+            if (meta->Get("Name") == name && meta->Get("AppVer") == app_version && meta->Get("AppElf", "eboot.bin") == "eboot.bin")
+                return meta;
+        return nullptr;
+    }
 
     Writes Compile(const std::vector<std::string>& names, const std::string& app_version, const Segments& segments) const {
         std::map<std::string, const XmlElement*> found;
@@ -534,6 +542,31 @@ std::vector<std::string> CheckedPatches(const PatchFile& xml, const std::vector<
     return out;
 }
 
+// False (with a message) when a line of patch `name` carries Original="hex" (the 1.09 bytes it
+// replaces, as the Party: patches do) and the executable holds something else there.
+bool OriginalsMatch(const PatchFile& xml, const std::string& name, const std::string& app_version, const Bytes& elf) {
+    for (const XmlElement* meta : xml.Root().Iter("Metadata")) {
+        if (meta->Get("Name") != name || meta->Get("AppVer") != app_version) continue;
+        for (const XmlElement* line : meta->Iter("Line")) {
+            const auto original = line->Get("Original");
+            if (!original || original->empty()) continue;
+            std::string hex;
+            for (char c : *original)
+                if (c != ' ') hex += c;
+            const Bytes want = FromHex(hex);
+            const std::string address = line->Get("Address", "");
+            const auto value = ParseInt(address);
+            const auto have = value ? OriginalBytes(elf, std::uint64_t(*value) - kBase, want.size()) : std::nullopt;
+            if (want.size() != Encode(*line).size() || have != want) {
+                Log("Patches: \"%s\" left out: %s holds %s, not %s (another eboot?)", name.c_str(), address.c_str(),
+                    have ? ToHex(have->data(), have->size()).c_str() : "nothing", ToHex(want.data(), want.size()).c_str());
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool SameAppVersion(const std::optional<std::string>& value, const std::string& app_version) {
     if (!value) return false;
     const auto parse = [](const std::string& text) -> std::optional<std::vector<int>> {
@@ -597,9 +630,15 @@ void ExternalPatches(const fs::path& directory, const std::string& app_version, 
 }
 
 Writes CompileExternal(const std::vector<External>& selected, const Segments& segments,
-                       const std::optional<std::pair<std::set<std::uint64_t>, Size>>& resolution) {
+                       const std::optional<std::pair<std::set<std::uint64_t>, Size>>& resolution,
+                       std::vector<PartyPatch>* applied = nullptr) {
     Writes writes;
     for (const External& patch : selected) {
+        // The party's FROM API runs over the game's HTTP calls.
+        if (PartyEnabled() && patch.meta->Get("Name") == kDisableHttp) {
+            Log("Patches: %s disabled in party mode", patch.key.c_str());
+            continue;
+        }
         Writes ours;
         try {
             for (const XmlElement* line : patch.meta->Iter("Line")) {
@@ -631,6 +670,7 @@ Writes CompileExternal(const std::vector<External>& selected, const Segments& se
             continue;
         }
         writes.insert(writes.end(), ours.begin(), ours.end());
+        if (applied) applied->push_back({patch.meta->Get("Name", "None") + " (external)", PartyMark(patch.meta), ours});
         Log("Patches: external %s (%zu writes)", patch.key.c_str(), ours.size());
     }
     return writes;
@@ -708,6 +748,16 @@ PatchResult CompilePatches(const PatchRequest& request) {
     names.insert(names.end(), selected.begin(), selected.end());
     if (Env("BB_INTEL_TONEMAP_FIX", "") == "1" && !has(kIntelTonemap)) names.push_back(kIntelTonemap);
     if (Env("BB_SFX_WORKAROUND", "") == "1" && !has(kSfxWorkaround)) names.push_back(kSfxWorkaround);
+    if (PartyEnabled()) {
+        // Party mode boots online through the party's own network layer, with the seamless patches.
+        names.erase(std::remove_if(names.begin(), names.end(),
+                                   [](const std::string& n) { return n == kDisableHttp || n == kSkipNetworkChoice; }),
+                    names.end());
+        std::vector<std::string> party = PartyPatchNames();
+        party.push_back(kSkipNetworkChoiceOnline);
+        for (const std::string& n : party)
+            if (!has(n)) names.push_back(n);
+    }
 
     if (has("Restore Debug Camera") && has("Enemy Control"))
         throw Error("Restore Debug Camera conflicts with Enemy Control; enable only one");
@@ -755,7 +805,15 @@ PatchResult CompilePatches(const PatchRequest& request) {
         }
         names = kept;
     }
+    names.erase(std::remove_if(names.begin(), names.end(),
+                               [&](const std::string& n) { return !OriginalsMatch(xml, n, app_version, elf); }),
+                names.end());
     Writes writes = xml.Compile(names, app_version, segments);
+    // What the party host compares (party_patch_hash.txt): each patch's own writes, before the
+    // frame-rate scaling below changes them.
+    std::vector<PartyPatch> party_patches;
+    for (const std::string& n : names)
+        party_patches.push_back({n, PartyMark(xml.Meta(n, app_version)), xml.Compile({n}, app_version, segments)});
     if (scaled_fps.count(request.fps) && has(kScaledBase)) {
         writes = RateScaled(writes, scaled_fps.at(request.fps));
         Log("Patches: %s FPS: %s with its frame-rate values for %s", request.fps.c_str(), kScaledBase, request.fps.c_str());
@@ -868,12 +926,13 @@ PatchResult CompilePatches(const PatchRequest& request) {
         for (const External& e : found)
             if (enabled.count(e.key) || (!disabled.count(e.key) && Lower(e.meta->Get("isEnabled", "false")) == "true"))
                 chosen.push_back(e);
-        const Writes external = CompileExternal(chosen, segments, resolution);
+        const Writes external = CompileExternal(chosen, segments, resolution, &party_patches);
         writes.insert(writes.end(), external.begin(), external.end());
     }
     if (Env("BB_OTHER_EDITION", "") == "1") {
         writes.clear();
         names.clear();
+        party_patches.clear();
         Log("Patches: none: this edition's executable is not the one they were made for (CUSA03173 1.09)");
     }
     PatchResult result;
@@ -891,6 +950,7 @@ PatchResult CompilePatches(const PatchRequest& request) {
         Append(blob, data.data(), data.size());
     }
     WriteFile(request.out / "patches.bin", blob);
+    WritePartyPatchFile(request.out, party_patches);
     Log("Patches: FPS preset %s; %zu writes from %s", request.fps.c_str(), writes.size(),
         names.empty() ? "none" : Repr(names).c_str());
     return result;

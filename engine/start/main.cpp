@@ -12,6 +12,7 @@
 #include "elf.h"
 #include "mods.h"
 #include "online.h"
+#include "party.h"
 #include "patches.h"
 #include "prepare.h"
 
@@ -234,10 +235,17 @@ int Main(std::vector<std::wstring> arguments) {
     // arguments; without it the folder was %APPDATA%\shadPS4 (bb-probe runs in engine\,
     // which has no user folder): shared with the shadPS4 emulator, never reset with an
     // engine update nor by the launcher's Clear, so a damaged or outdated shader stayed.
+    // A party game keeps its state (party.json, saves, the launcher's commands) in the player's user
+    // folder, which the party layer reads as BB_GPU_USER_DIR (the seamless fork's run_windows.py).
+    if (PartyEnabled()) SetEnv("BB_GPU_USER_DIR", Env("BB_USER_DIR", Utf8(data / "user")));
     if (Env("BB_GPU_USER_DIR", "").empty()) SetEnv("BB_GPU_USER_DIR", Utf8(folders.package / "user"));
+    // Where patches.bin and the party identity files are (party_runtime.cpp out_dir).
+    SetEnv("BB_OUT_DIR", Utf8(out));
     {
         std::error_code error;
         fs::create_directories(Path(Env("BB_GPU_USER_DIR", "")), error); // bb-probe falls back without it
+        // A command the launcher posted while the previous game was closing belongs to that game.
+        fs::remove(Path(Env("BB_GPU_USER_DIR", "")) / "party_command.json", error);
     }
     try {
         const auto package = nlohmann::json::parse(ReadText(folders.package / "package.json"));
@@ -516,7 +524,7 @@ int wmain(int argc, wchar_t** argv) {
             start::Log("heap_patch=%d ui=%dx%d", int(result.heap_patch), result.ui.w, result.ui.h);
             return 0;
         }
-        return start::Main(std::move(arguments));
+        return start::RunPartyLoop([&] { return start::Main(arguments); });
     } catch (const std::exception& e) {
         start::Log("bb-start: %s", e.what());
         return 1;

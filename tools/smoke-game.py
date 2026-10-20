@@ -33,7 +33,11 @@ def main():
     if b'Headless: hidden, unfocusable surface' not in probe.read_bytes():
         raise RuntimeError('Build the engine with headless support before running this test.')
     data = REPO / 'work' / f'smoke-{args.name}'
-    artifacts = Path(r'D:\project-artifacts\BloodborneSeamless') / f'smoke-{args.name}'
+    # Captures go to the artifact drive when there is one, else beside the test's data.
+    artifact_root = Path(os.environ.get('BB_ARTIFACT_ROOT', r'D:\project-artifacts\BloodborneSeamless'))
+    if not artifact_root.anchor or not Path(artifact_root.anchor).exists():
+        artifact_root = REPO / 'work' / 'artifacts'
+    artifacts = artifact_root / f'smoke-{args.name}'
     artifacts.mkdir(parents=True, exist_ok=True)
     data.mkdir(parents=True, exist_ok=True)
     user = data / 'user'
@@ -75,9 +79,14 @@ def main():
     session_log = artifacts / ('native_session.log' if args.native_log else 'session.log')
     log_offset = session_log.stat().st_size if session_log.exists() and not args.native_log else 0
     log = (artifacts / 'launcher.log').open('w', encoding='utf-8')
-    python = engine / 'tools/python/python.exe'
-    game = subprocess.Popen([str(python) if python.exists() else sys.executable, '-u', str(engine / 'scripts/run_windows.py')], env=env,
-                            stdout=log, stderr=log, cwd=engine, creationflags=subprocess.CREATE_NO_WINDOW)
+    native_start = engine / 'out/bb-start.exe'
+    if native_start.exists():
+        # Lantern Engine 0.9.32+: the native start (boot image, mods, patches, then bb-probe).
+        command = [str(native_start), '--game-dir', args.game]
+    else:
+        python = engine / 'tools/python/python.exe'
+        command = [str(python) if python.exists() else sys.executable, '-u', str(engine / 'scripts/run_windows.py')]
+    game = subprocess.Popen(command, env=env, stdout=log, stderr=log, cwd=engine, creationflags=subprocess.CREATE_NO_WINDOW)
     print(f'Launcher PID {game.pid}; isolated user {user}; log {session_log}', flush=True)
     ready = False
     try:

@@ -51,5 +51,20 @@ int runtime_memory_direct_phys(uintptr_t, uint64_t*, uintptr_t*) { std::abort();
 void runtime_wait_report(double) {}
 void runtime_sleep_stats(uint64_t* calls, uint64_t* ns) { *calls = 0; *ns = 0; }
 uint64_t runtime_heap_growths() { return 0; }
+// The party layer (gpu/shim/party) is in the GPU library too; renderer tests never start a party.
+__attribute__((sysv_abi)) void restore_guest_fs(void) {}
+const char* runtime_file_user_dir(void) { return nullptr; }
+int runtime_ime_dialog_count(void) { return 0; }
+uint32_t runtime_pad_cross_presses(void) { return 0; }
+void runtime_pad_director_press(uint32_t) {}
+void runtime_pad_director_sticks(int, int, int, int) {}
+uint32_t runtime_pad_last_buttons(void) { return 0; }
+void runtime_relaunch(int) { std::abort(); }
+int runtime_savedata_mount_count(void) { return 0; }
+struct SavePolicyCheck;
+int runtime_savepolicy_check(const char*, const char*, int, SavePolicyCheck*) { return -1; }
+const char* runtime_savepolicy_dir(void) { return "savedata"; }
+const char* runtime_symbol(const char*) { return nullptr; }
+int runtime_win_thread_name(uint32_t, char*, size_t) { return 0; }
 }
 

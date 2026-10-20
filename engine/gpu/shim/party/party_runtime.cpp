@@ -240,6 +240,13 @@ bool read_file(const fs::path& path, std::string* out) {
 
 std::string data_dir() { return env("BB_DATA_DIR") ? env("BB_DATA_DIR") : "."; }
 
+// The folder bb-start writes patches.bin and the identity files to (BB_OUT_DIR: engine\out beside
+// the package's data folder), else <data>/out as the scripts had it.
+fs::path out_dir() {
+    if (const char* o = env("BB_OUT_DIR"); o && *o) return fs::path(o);
+    return fs::path(data_dir()) / "out";
+}
+
 std::string user_dir() {
     const std::string& configured = bbnet::settings().user_dir;
     if (!configured.empty()) return configured;
@@ -332,7 +339,7 @@ void patch_identity(LinkConfig& cfg, std::string* what) {
         *what += "patches not compared (BB_PARTY_HASH_PATCHES=0)";
         return;
     }
-    const fs::path out = fs::path(data_dir()) / "out";
+    const fs::path out = out_dir();
     std::string data;
     if (read_file(out / "party_patch_hash.txt", &data) &&
         parse_identity_file(data, "patch", &cfg.patches_hash, &cfg.patch_names)) {
@@ -359,7 +366,7 @@ void mod_identity(LinkConfig& cfg, std::string* what) {
         return;
     }
     std::string data;
-    const fs::path f = fs::path(data_dir()) / "out" / "party_mods.txt";
+    const fs::path f = out_dir() / "party_mods.txt";
     if (read_file(f, &data) && parse_identity_file(data, "mod", &cfg.mods_hash, &cfg.mod_names)) {
         *what += cfg.mod_names.empty() ? ", no gameplay mods" : ", " + std::to_string(cfg.mod_names.size()) + " gameplay mods";
         return;

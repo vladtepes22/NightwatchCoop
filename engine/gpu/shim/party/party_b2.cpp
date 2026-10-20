@@ -2529,7 +2529,7 @@ void ArrivalRenderCheckTick(const GameSnapshot& s, double now) {
     static int last_flow = -1, arrivals = 0, step = 0;
     static double up_at = 0;
     static bool armed = false;
-    static u64 frames0 = 0, scenes0 = 0, freed0 = 0, draws0 = 0;
+    static u64 freed0 = 0, draws0 = 0;
     static u32 probe_seq = 0;
     static double probe_at = 0;
     const int fs = Field<int>(Slot(kSlotFlow), 0x84, -1);
@@ -2550,9 +2550,9 @@ void ArrivalRenderCheckTick(const GameSnapshot& s, double now) {
     }
     if (up_at == 0) {
         up_at = now;
-        frames0 = BbFrameState::presented_frames.load(std::memory_order_relaxed);
-        scenes0 = BbFrameState::scene_frames.load(std::memory_order_relaxed);
-        freed0 = BbStats::gc_freed_total.load(std::memory_order_relaxed);
+        // Lantern Engine counts no presented or scene frames: the check reports whether a scene is
+        // drawn now and how many frames in a row went without one.
+        freed0 = BbStats::gc_freed_images.load(std::memory_order_relaxed);
         draws0 = BbStats::draws.load(std::memory_order_relaxed);
         return;
     }
@@ -2578,8 +2578,8 @@ void ArrivalRenderCheckTick(const GameSnapshot& s, double now) {
     if (answered) {
         for (int i = 0; i < probe.n; ++i) hits += probe.hit[i] ? 1 : 0;
     }
-    const u64 frames = BbFrameState::presented_frames.load(std::memory_order_relaxed) - frames0;
-    const u64 scenes = BbFrameState::scene_frames.load(std::memory_order_relaxed) - scenes0;
+    const bool scene_now = BbFrameState::scene_active.load(std::memory_order_relaxed);
+    const u64 without_scene = BbFrameState::frames_without_scene.load(std::memory_order_relaxed);
     const u64 draws = BbStats::draws.load(std::memory_order_relaxed) - draws0;
     float me[4] = {};
     ChrPos(s.player, me);
@@ -2603,13 +2603,12 @@ void ArrivalRenderCheckTick(const GameSnapshot& s, double now) {
     }
     // The scene drawn with geometry in the probe while the screen is black points past the scene:
     // the upscaler or the frame's post passes.
-    Log("arrival render check %d (%.0f s after the world was up, %s, upscaler %s%s): %llu of %llu frames drew "
-        "the 3D scene, %llu draws; %s; %s; textures %llu MiB (pressure %llu, critical %llu MiB), %llu freed since",
+    Log("arrival render check %d (%.0f s after the world was up, %s, upscaler %s): 3D scene %s (%llu frames in a "
+        "row without one), %llu draws; %s; %s; textures %llu MiB (clean-up from %llu MiB), %llu images freed since",
         arrivals, marks[step], MapName(LocalMap()).c_str(), BbSettings::UpscalerName(BbSettings::Get().upscaler.load()),
-        BbSettings::Get().upscaler_scene_above_output.load() ? " not running: the scene is larger than the output" : "",
-        ull(scenes), ull(frames), ull(draws), cam_text,
-        probe_text, ull(BbStats::gc_used_bytes.load() >> 20), ull(BbStats::gc_pressure_bytes.load() >> 20),
-        ull(BbStats::gc_critical_bytes.load() >> 20), ull(BbStats::gc_freed_total.load() - freed0));
+        scene_now ? "drawn" : "NOT drawn", ull(without_scene), ull(draws), cam_text, probe_text,
+        ull(BbStats::gc_used_bytes.load() >> 20), ull(BbStats::gc_trigger_bytes.load() >> 20),
+        ull(BbStats::gc_freed_images.load() - freed0));
     probe_seq = 0;
     ++step;
 }

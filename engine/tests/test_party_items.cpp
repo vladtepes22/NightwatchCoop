@@ -696,6 +696,9 @@ static void test_popup_hold() {
     ItemApplyState boss = s;
     boss.boss_quiet = false;
     CHECK(std::string(ItemPopupHold(boss)) == "boss defeat banner");
+    ItemApplyState message = s;
+    message.game_dialog = true;
+    CHECK(std::string(ItemPopupHold(message)) == "game message");
     ItemApplyState fight = s;
     fight.calm = false;
     CHECK(std::string(ItemPopupHold(fight)) == "in a fight");

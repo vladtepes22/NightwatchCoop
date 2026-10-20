@@ -113,6 +113,19 @@ namespace BloodborneLauncher.Core
                     var code = -1;
                     try { process.WaitForExit(); code = process.ExitCode; } catch { /* gone */ }
                     _process = null;
+                    if (_partyUserDir is { } user)
+                    {
+                        // The party save checks after every party session, in the session log.
+                        try
+                        {
+                            foreach (var line in SeamlessSession.RunSaveTool(user, "check").GetAwaiter().GetResult().Split('\n'))
+                                Emit("Party save check: " + line.TrimEnd());
+                        }
+                        catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception or InvalidOperationException)
+                        {
+                            Emit("Party save check could not finish: " + e.Message);
+                        }
+                    }
                     CloseLog();
                     Exited?.Invoke(code);
                 };

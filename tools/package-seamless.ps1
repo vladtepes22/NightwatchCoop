@@ -20,7 +20,7 @@ if (Test-Path -LiteralPath $destinationRoot) {
     }
 }
 New-Item -ItemType Directory -Force -Path $destinationRoot | Out-Null
-@{engine='awaken-seamless-0.1.0';incomplete=$true} | ConvertTo-Json |
+@{engine='awaken-seamless-0.2.0';incomplete=$true} | ConvertTo-Json |
     Set-Content -LiteralPath (Join-Path $destinationRoot 'package.json') -Encoding utf8NoBOM
 $out = Join-Path $destinationRoot 'out'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
@@ -103,7 +103,7 @@ $defaults = @{
 }
 $defaults | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $destinationRoot 'seamless-defaults.json') -Encoding utf8NoBOM
 $metadata = @{
-    version=$Version; engine='awaken-seamless-0.1.0';
+    version=$Version; engine='awaken-seamless-0.2.0';
     source=(git -C $repo rev-parse HEAD); runtime_sha256=(Get-FileHash -LiteralPath (Join-Path $out 'bb-probe.exe')).Hash.ToLowerInvariant();
     source_url='https://github.com/Artificial-Sweetener/BloodBorneButPc/tree/seamless-integration';
     base='Awakenchan f3dcca13da2c2c81d2b9904dd549277e876e19e6'; seamless='visy ae113015554722e7e150e93c30060784694136ab'

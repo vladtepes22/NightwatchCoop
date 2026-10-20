@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "online.h"
+#include "party.h"
 
 #include <nlohmann/json.hpp>
 
@@ -146,6 +147,13 @@ bool ConfigureHuntersDream(const std::map<std::string, std::string>& settings, c
 
 bool ConfigureOnline(const std::map<std::string, std::string>& settings, const fs::path& data) {
     const auto get = [&](const char* key, const char* fallback = "") { return Setting(settings, key).value_or(fallback); };
+    if (PartyEnabled()) {
+        // A party game plays through the party's own network layer, never The Hunter's Dream or shadNet.
+        for (const char* key : kOnlineEnv) UnsetEnv(key);
+        for (const char* key : kThdEnv) UnsetEnv(key);
+        SetEnv("BB_ONLINE", "0");
+        return false;
+    }
     if (get("online_pool") == "huntersdream" && get("online_enabled") == "1" && get("online_connected", "1") == "1")
         return ConfigureHuntersDream(settings, data);
     const bool paused = Env("BB_ONLINE_PAUSED", "0") == "1";

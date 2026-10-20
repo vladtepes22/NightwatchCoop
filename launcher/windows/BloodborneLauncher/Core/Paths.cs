@@ -58,6 +58,19 @@ namespace BloodborneLauncher.Core
         /// <summary>The Python an older engine started with (scripts\run_windows.py).</summary>
         public static string Python => Path.Combine(EngineDir, "tools", "python", "python.exe");
 
+        /// <summary>The party save tools (party_save_tool.py and its modules) and their own Python, in the
+        /// package's seamless\ folder: the engine's scripts\ and tools\ are removed once it starts natively
+        /// (LayoutCleanup). A source checkout runs them from engine\scripts with the engine's Python.</summary>
+        public static string SeamlessScripts =>
+            File.Exists(Path.Combine(PortDir, "seamless", "scripts", "party_save_tool.py"))
+                ? Path.Combine(PortDir, "seamless", "scripts")
+                : Path.Combine(EngineDir, "scripts");
+
+        public static string SeamlessPython =>
+            File.Exists(Path.Combine(PortDir, "seamless", "python", "python.exe"))
+                ? Path.Combine(PortDir, "seamless", "python", "python.exe")
+                : File.Exists(Python) ? Python : "py";
+
         /// <summary>The port next to the game folder (its usual layout: &lt;port&gt;\CUSA03173).</summary>
         public static string? PortBesideGame(string gameDir)
         {
