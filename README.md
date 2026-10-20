@@ -22,7 +22,7 @@ retail release) with update 1.09.
 
 ## Install
 
-1. Download `AwakenSeamless-v0.2.0-beta.5-win64.zip` from
+1. Download `AwakenSeamless-v0.2.0-beta.6-win64.zip` from
    [Releases](https://github.com/vladtepes22/LanternEngine/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its

@@ -12,7 +12,7 @@ param(
     [string]$Destination = '',
     [string]$Game = '',
     [string]$MsysRoot = 'C:\msys64',
-    [string]$Version = '0.2.0-beta.5',
+    [string]$Version = '0.2.0-beta.6',
     # A package to publish: no first-run settings with this PC's folders (the launcher finds its own).
     [switch]$Release
 )
