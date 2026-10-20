@@ -56,7 +56,7 @@ struct Occlusion::Shared {
     vk::QueryPool pool;
     Rasterizer* rasterizer = nullptr;
     bool precise = false;
-    u64 max_lag = 3;
+    u64 max_lag = 6;
 
     struct Pending {
         u64 tick;   ///< the submission holding the dump (and every query before it)
@@ -159,7 +159,7 @@ bool Occlusion::Init() {
     shared->pool = pool;
     shared->rasterizer = &rasterizer;
     shared->precise = precise;
-    shared->max_lag = EnvU64("BB_OCCLUSION_MAX_LAG", 3);
+    shared->max_lag = EnvU64("BB_OCCLUSION_MAX_LAG", 6);
     shared->results.resize(2ull * PoolSize);
     std::printf("Occlusion: real sample counts (BB_OCCLUSION=0: the old always-visible fake) - a "
                 "query on each of the %u draws after a block's begin, results written when the "

@@ -9,6 +9,8 @@
 #endif
 #include "bbport_free_check.h"
 #include "bbport_sampler.h"
+#include "bbport_freeze.h"
+#include "bbport_platform.h"
 #include "bbport_toggles.h"
 #include "engine/engine_hooks.h"
 #include <algorithm>
@@ -19,6 +21,8 @@
 #include <boost/asio/io_context.hpp>
 #include "common/polyfill_thread.h"
 #include "video_core/renderdoc.h"
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -50,6 +54,7 @@ extern "C" void bbgpu_request_quit(void) {
 #include "core/memory.h"
 #include "core/signals.h"
 #include "sdl_window.h"
+#include "video_core/renderer_vulkan/vk_presenter.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 
 extern "C" {
@@ -75,6 +80,7 @@ int runtime_memory_restore_access(void* context, uintptr_t address, int repeated
 namespace Shader { void RegisterSrtFaultHandler(); }
 
 Frontend::WindowSDL* g_window = nullptr;
+extern std::unique_ptr<Vulkan::Presenter> presenter;
 
 namespace Libraries::GnmDriver { void RegisterLib(Core::Loader::SymbolsResolver* sym); }
 namespace Libraries::AvPlayer { void RegisterLib(Core::Loader::SymbolsResolver* sym); }
@@ -112,7 +118,7 @@ public:
         // emulator's profile. Use the same validated game directory as the launcher.
         const char* app0 = std::getenv("BB_GAME_DIR");
         if (app0 && *app0) {
-            info.game_folder = std::filesystem::u8path(app0);
+            info.game_folder = std::filesystem::path(app0);
             info.app_ver = "01.09";
             std::ifstream file(info.game_folder / "sce_sys/npbind.dat", std::ios::binary);
             if (file) {
@@ -292,6 +298,30 @@ std::thread g_window_thread;
 std::mutex g_window_mutex;
 std::condition_variable g_window_cv;
 bool g_window_ready;
+
+// bbport: exit tuning (milliseconds) from the environment; fallback when unset or invalid.
+long EnvMs(const char* name, long fallback) {
+    const char* value = std::getenv(name);
+    if (!value || !*value) {
+        return fallback;
+    }
+    char* end = nullptr;
+    const long ms = std::strtol(value, &end, 10);
+    return (end && *end == '\0' && ms >= 0 && ms <= 60'000) ? ms : fallback;
+}
+
+// bbport: the end of every window-close exit. TerminateProcess (not _Exit/ExitProcess, which
+// runs every DLL's process-detach - the Vulkan driver's included - after killing the other
+// threads, and stalled the desktop while the driver tore a busy device down). BB_EXIT_MODE=exit:
+// the old std::_Exit.
+[[noreturn]] void TerminateNow(int code) {
+    std::fflush(stdout);
+    const char* mode = std::getenv("BB_EXIT_MODE");
+    if (mode && std::strcmp(mode, "exit") == 0) {
+        std::_Exit(code);
+    }
+    BbPlatform::TerminateProcessNow(static_cast<unsigned>(code));
+}
 } // namespace
 
 #ifdef BB_PGO_GENERATE
@@ -343,6 +373,11 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
     StartProfileWriter();
 #endif
     BbSampler::Start(); // BB_SAMPLE_THREADS: where loading time goes
+    BbFreeze::SetStateReporter([] {
+        if (presenter) {
+            presenter->ReportState();
+        }
+    });
     g_sdk_version = config->sdk_version;
 #ifdef _WIN32
     if (config->user_dir && !std::getenv("BB_GPU_USER_DIR")) _putenv_s("BB_GPU_USER_DIR", config->user_dir);
@@ -361,29 +396,57 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             g_window_ready = true;
         }
         g_window_cv.notify_all();
+        // bbport: wait for the next input event instead of sleeping 2 ms between polls: mouse and
+        // keyboard input is handled as it arrives, and at most 2 ms still pass between rounds (as
+        // with SDL_PollEvent, on the thread that created the window).
         while (window->PollEvents()) {
-            SDL_Delay(2);
+            SDL_WaitEventTimeout(nullptr, 2);
         }
         LOG_INFO(Frontend, "Window closed by user");
-        // _Exit skips renderer destructors. Snapshot completed pipeline work and drain its
-        // asynchronous cache writes before terminating; no gameplay queue waits are added.
-        Vulkan::PipelineCache::SaveAllForShutdown();
-        // bbport: give the display back before terminating (_Exit skips SDL's cleanup): leave
-        // fullscreen and hide the window, on this thread, which owns it. It is not destroyed:
-        // the present thread may still be presenting to its Vulkan surface, and a window
-        // destroyed under a live swapchain fails the next present or recreate (an assert,
-        // exit 23). A window call that blocks cannot hold the exit up: the watchdog ends it.
-        std::thread([] {
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-            std::fflush(stdout);
-            std::_Exit(0);
+        const auto exit_started = std::chrono::steady_clock::now();
+        // bbport: the watchdog starts first, so nothing below (cache save, a window call, the
+        // GPU drain) can hold the exit up past BB_EXIT_WATCHDOG_MS (default 4000).
+        const long watchdog_ms = EnvMs("BB_EXIT_WATCHDOG_MS", 4000);
+        std::thread([watchdog_ms] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(watchdog_ms));
+            std::printf("Exit: watchdog ended the process after %ld ms\n", watchdog_ms);
+            TerminateNow(0);
         }).detach();
+        // Snapshot completed pipeline work and drain its asynchronous cache writes, on its own
+        // thread: disk writes overlap the GPU drain below instead of preceding it.
+        std::atomic<bool> cache_saved{false};
+        std::thread([&cache_saved] {
+            Vulkan::PipelineCache::SaveAllForShutdown();
+            cache_saved.store(true, std::memory_order_release);
+            cache_saved.notify_all();
+        }).detach();
+        // Give the display back before terminating (no SDL cleanup runs): leave fullscreen and
+        // hide the window, on this thread, which owns it. It is not destroyed: the present
+        // thread may still be presenting to its Vulkan surface, and a window destroyed under a
+        // live swapchain fails the next present or recreate (an assert, exit 23).
         if (SDL_Window* sdl_window = window->GetSDLWindow()) {
             SDL_SetWindowFullscreen(sdl_window, false);
             SDL_HideWindow(sdl_window);
         }
-        std::fflush(stdout);
-        std::_Exit(0);
+        // The GPU finishes the work already submitted before the process ends (at most
+        // BB_EXIT_GPU_WAIT_MS, default 1500): a process killed with work in flight makes the
+        // driver preempt and tear down a busy context, which stalled the whole desktop for
+        // seconds after closing the game. New submissions are blocked while it drains.
+        if (presenter) {
+            presenter->WaitForSubmittedWork(u64(EnvMs("BB_EXIT_GPU_WAIT_MS", 1500)) * 1'000'000ull);
+        }
+        // The cache save is waited for (the watchdog bounds it); it usually finished meanwhile.
+        bool saved = cache_saved.load(std::memory_order_acquire);
+        while (!saved) {
+            cache_saved.wait(false, std::memory_order_acquire);
+            saved = cache_saved.load(std::memory_order_acquire);
+        }
+        std::printf("Exit: clean shutdown in %lld ms\n",
+                    static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                               std::chrono::steady_clock::now() - exit_started)
+                                               .count()));
+        Common::Log::Flush();
+        TerminateNow(0);
     });
     g_window_thread.detach();
     {

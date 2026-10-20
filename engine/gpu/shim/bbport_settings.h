@@ -54,14 +54,18 @@ inline constexpr Effect Effects[] = {
     {"debug_menu", "Debug menu (requires font files)", "Debug menu (нужны файлы шрифтов)", false},
 };
 inline constexpr int EffectCount = int(sizeof(Effects) / sizeof(Effects[0]));
-/// Live output resolutions: the upscaler's output and the UI host targets. The last is the
-/// display's own size (output_res = auto): BB_DISPLAY_SIZE, which run_windows.py reads from
-/// Windows at start, else 1920x1080. Use OutputWidth/OutputHeight, which know it.
-inline constexpr int OutputWidths[] = {1280,1920,2560,3840,2560,3440,3840,3840,5120,5120,7680,0};
-inline constexpr int OutputHeights[] = {720,1080,1440,2160,1080,1440,1600,1080,1440,2160,2160,0};
-inline constexpr int OutputCount = 12;
-inline constexpr int OutputAuto = 11;
-inline constexpr int OutputDefault = 1; ///< 1920x1080, the game's own size
+/// Live output resolutions: the upscaler's output and the UI host targets. OutputAuto is the
+/// display's own size (output_res = auto): BB_DISPLAY_SIZE, which bb-start reads from Windows at
+/// start, else 1920x1080. OutputCustom is any other WxH the player wrote (output_res = 1280x1024, a
+/// 5:4 screen). Use OutputWidth/OutputHeight, which know both.
+inline constexpr int OutputWidths[] = {1280,1600,1920,2560,3840,2560,3440,3840,3840,5120,5120,7680,0,0};
+inline constexpr int OutputHeights[] = {720,900,1080,1440,2160,1080,1440,1600,1080,1440,2160,2160,0,0};
+inline constexpr int OutputCount = 14;
+inline constexpr int OutputAuto = 12;
+inline constexpr int OutputCustom = 13;
+/// A custom output size is even, 640x360 to 16384x8640 (the swapchain and the game's half-size buffers).
+bool ValidOutputSize(int w, int h);
+inline constexpr int OutputDefault = 2; ///< 1920x1080, the game's own size
 static_assert(sizeof(OutputWidths) / sizeof(OutputWidths[0]) == OutputCount &&
               sizeof(OutputHeights) / sizeof(OutputHeights[0]) == OutputCount);
 int OutputWidth(int index);
@@ -196,6 +200,8 @@ struct Values {
     std::atomic<float> camera_fov_scale{1.0f}, camera_distance_scale{1.0f}, camera_height_scale{1.0f};
     std::atomic<int> model_lod{0}; ///< -2 highest .. 2 lowest, 0 the game's
     std::atomic<int> output_res{OutputDefault}; ///< index into OutputWidths
+    /// output_res = OutputCustom's size, from bbport.ini (fixed for the session).
+    int custom_output_w = 1920, custom_output_h = 1080;
     /// CheatOff, CheatInfinite or the amount to keep (1..CheatMaxAmount); live.
     std::atomic<int> cheat_vials{CheatOff}, cheat_bullets{CheatOff};
     /// The other cheats (0/1 in bbport.ini); live.

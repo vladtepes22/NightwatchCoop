@@ -56,6 +56,56 @@ FfxVkPortableImage Describe(vk::Image image, vk::Format format, u32 width, u32 h
     return out;
 }
 
+/// bbport: with sub-pixel jitter, the game's full-screen passes leave the scene's last row and
+/// column brighter in some phases (a shimmering line at the right and bottom edges once upscaled,
+/// GitHub issue 43). The row and column before them are copied over them before the upscaler
+/// reads the scene: one edge pixel, and jitter keeps its full detail.
+void ClampSceneEdges(Scheduler& scheduler, vk::Image image, u32 width, u32 height) {
+    if (width < 2 || height < 2) {
+        return;
+    }
+    scheduler.Record([image, width, height](vk::CommandBuffer cmdbuf) {
+        const vk::MemoryBarrier2 before{
+            .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+            .srcAccessMask = vk::AccessFlagBits2::eMemoryWrite,
+            .dstStageMask = vk::PipelineStageFlagBits2::eTransfer,
+            .dstAccessMask = vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite,
+        };
+        cmdbuf.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &before});
+        const vk::ImageSubresourceLayers layers{vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+        const vk::ImageCopy row{
+            .srcSubresource = layers,
+            .srcOffset = {0, s32(height - 2), 0},
+            .dstSubresource = layers,
+            .dstOffset = {0, s32(height - 1), 0},
+            .extent = {width, 1, 1},
+        };
+        cmdbuf.copyImage(image, vk::ImageLayout::eGeneral, image, vk::ImageLayout::eGeneral, row);
+        const vk::MemoryBarrier2 between{
+            .srcStageMask = vk::PipelineStageFlagBits2::eTransfer,
+            .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
+            .dstStageMask = vk::PipelineStageFlagBits2::eTransfer,
+            .dstAccessMask = vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite,
+        };
+        cmdbuf.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &between});
+        const vk::ImageCopy column{
+            .srcSubresource = layers,
+            .srcOffset = {s32(width - 2), 0, 0},
+            .dstSubresource = layers,
+            .dstOffset = {s32(width - 1), 0, 0},
+            .extent = {1, height, 1},
+        };
+        cmdbuf.copyImage(image, vk::ImageLayout::eGeneral, image, vk::ImageLayout::eGeneral, column);
+        const vk::MemoryBarrier2 after{
+            .srcStageMask = vk::PipelineStageFlagBits2::eTransfer,
+            .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
+            .dstStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+            .dstAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
+        };
+        cmdbuf.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &after});
+    });
+}
+
 /// bbport: BB_DUMP_TRIGGER=<file> BB_DUMP_DIR=<dir> (default out/dump): creating the file dumps
 /// the upscaler's images of the next BB_DUMP_FRAMES (8) frames as raw files
 /// <dir>/fNNN_<name>_<w>x<h>_<format>.raw, for checking temporal stability offline.
@@ -452,7 +502,11 @@ void TemporalUpscaler::OnDispatch(u64 cs_hash) {
     }
     if (!done_this_frame && !failed && !Scaled()) {
         done_this_frame = true;
-        if (!scene_color || !camera_motion.Ready() || !Active()) {
+        // bbport: a frame with several G-buffer passes is a menu's 3D preview (character
+        // creation): its "scene" is one of the previews, and accumulating it into the history
+        // the result replaces it with held the hunter's old hair and parts on screen after
+        // changes, until a restart. Not anti-aliased; the history starts again after it.
+        if (!scene_color || !camera_motion.Ready() || !Active() || camera_motion.PreviewFrame()) {
             reset = true;
         } else {
             Run();
@@ -1197,6 +1251,9 @@ void TemporalUpscaler::Run() {
         input_color_view = c.view;
         input_depth_view = d.view;
     }
+    if (jitter[0] != 0.0f || jitter[1] != 0.0f) {
+        ClampSceneEdges(scheduler, input_color, w, h);
+    }
     const auto cmdbuf = scheduler.CommandBuffer();
     const Breadcrumbs::Scope crumb{cmdbuf, scheduler.CrumbStream(), "TAA"};
 
@@ -1761,10 +1818,11 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
     s32 x0 = 0, y0 = 0, x1 = s32(ui_width), y1 = s32(ui_height);
     if (const auto ui = UiComposition::UiSize(); ui[0] != 1920.0f || ui[1] != 1080.0f) {
         const auto fit = UiComposition::Fit(ui_width, ui_height, ui);
-        x0 = std::clamp(s32(std::lround(fit.offset[0] + fit.scale[0] * (ui[0] - 1920.0f) / 2)), 0, s32(ui_width));
-        y0 = std::clamp(s32(std::lround(fit.offset[1] + fit.scale[1] * (ui[1] - 1080.0f) / 2)), 0, s32(ui_height));
-        x1 = std::clamp(s32(std::lround(x0 + fit.scale[0] * 1920.0f)), x0, s32(ui_width));
-        y1 = std::clamp(s32(std::lround(y0 + fit.scale[1] * 1080.0f)), y0, s32(ui_height));
+        const float stage = UiComposition::StageScale(ui), w = 1920.0f * stage, h = 1080.0f * stage;
+        x0 = std::clamp(s32(std::lround(fit.offset[0] + fit.scale[0] * (ui[0] - w) / 2)), 0, s32(ui_width));
+        y0 = std::clamp(s32(std::lround(fit.offset[1] + fit.scale[1] * (ui[1] - h) / 2)), 0, s32(ui_height));
+        x1 = std::clamp(s32(std::lround(x0 + fit.scale[0] * w)), x0, s32(ui_width));
+        y1 = std::clamp(s32(std::lround(y0 + fit.scale[1] * h)), y0, s32(ui_height));
     }
     const bool bars = x0 > 0 || y0 > 0 || x1 < s32(ui_width) || y1 < s32(ui_height);
     const auto from = [&](s32 v, u32 dst, u32 src) { return s32(std::lround(double(v) * src / dst)); };
@@ -1893,6 +1951,9 @@ void TemporalUpscaler::RunScaled() {
     const auto color_access = vk::AccessFlagBits2::eColorAttachmentRead |
                               vk::AccessFlagBits2::eColorAttachmentWrite;
     const auto rw = vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite;
+    if (jitter[0] != 0.0f || jitter[1] != 0.0f) {
+        ClampSceneEdges(scheduler, color_image, source_width, source_height);
+    }
     // The previous frame's display pass read it: all commands before.
     barrier(vk::Image(ui_image), vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eUndefined,
             all, vk::AccessFlagBits2::eNone, vk::ImageLayout::eGeneral, all, rw);
@@ -2408,6 +2469,14 @@ bool TemporalUpscaler::RecordFsr4(vk::CommandBuffer cmdbuf, Fsr4Upscaler::Image 
         // Its model is being built: FSR 3.1 meanwhile (EnsureResources makes its context next
         // frame), and FSR 4 again when the build is done (the per-frame settings above).
         fsr4_building = true;
+        reset = true;
+    } else if (!ok && !use_dlss && fsr4->Fatal() &&
+               settings.upscaler == BbSettings::UpscalerFsr411 && instance.IsFsr4Int8Supported()) {
+        // bbport: FSR 4.1.1 cannot run here (fsr4vk failed on this driver): the built-in FSR 4
+        // model next, which needs only the GPU features this one has; FSR 3.1 if that fails too.
+        std::printf("Upscaler: FSR 4.1.1 failed; falling back to FSR 4 (built-in model)\n");
+        BbSettings::Get().upscaler = BbSettings::UpscalerFsr4;
+        fsr4->ClearFailure();
         reset = true;
     } else if (!ok && (use_dlss ? dlss->Fatal() : fsr4->Fatal())) {
         std::printf("Upscaler: falling back to FSR 3.1\n");

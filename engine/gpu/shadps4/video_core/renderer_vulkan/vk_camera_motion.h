@@ -51,6 +51,14 @@ public:
     [[nodiscard]] bool Ready() const noexcept {
         return current.valid && previous.valid && depth_id;
     }
+    /// bbport: the last frame drew more than one G-buffer pass: a menu's 3D preview (character
+    /// creation's ChrMake_BG renders two to four), not the world alone. Not a planar reflection:
+    /// water and puddles (the sewers, Gascoigne's arena) draw the world once more from the camera
+    /// mirrored in the water's plane, the same x and z at another height; those frames are the
+    /// world and stay upscaled (they read as previews and the upscaler went off by where one looked).
+    [[nodiscard]] bool PreviewFrame() const noexcept {
+        return last_frame_gbuffer_passes > 1 && !last_frame_reflection;
+    }
     [[nodiscard]] VideoCore::ImageId Depth() const noexcept {
         return depth_id;
     }
@@ -117,7 +125,11 @@ private:
     bool pass_has_camera = false;
     bool committed = false;
     u32 frame_gbuffer_passes = 0;
+    u32 last_frame_gbuffer_passes = 0;
     std::array<std::array<float, 3>, 4> pass_positions{};
+    bool last_frame_reflection = false;
+    /// The frame's passes are the world and its mirror image (pass_positions).
+    [[nodiscard]] bool MirroredPasses() const noexcept;
     void CommitFrameCamera();
     std::array<float, 2> jitter{}, previous_jitter{};
     std::array<u32, 2> render_size{};

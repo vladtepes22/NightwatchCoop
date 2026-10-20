@@ -11,11 +11,12 @@ struct Size {
     bool operator==(const Size&) const = default;
 };
 inline Size ForPreset(int preset, Size output = {}) {
-    // Even dimensions for half-resolution effects; match the preset labels exactly.
+    // Multiples of 4: even for half-resolution effects, and the game pads its targets to 4 (an
+    // undrawn column at the right edge otherwise); the preset labels show the same sizes.
     constexpr std::array<double, 5> scales{1.0, 1.5, 1.7, 2.0, 3.0};
     const double scale = scales[std::clamp(preset, 0, 4)];
-    return {uint32_t(std::max(1l, std::lround(output.width / scale / 2)) * 2),
-            uint32_t(std::max(1l, std::lround(output.height / scale / 2)) * 2)};
+    return {uint32_t(std::max(1l, std::lround(output.width / scale / 4)) * 4),
+            uint32_t(std::max(1l, std::lround(output.height / scale / 4)) * 4)};
 }
 constexpr uint32_t Pack(Size size) { return size.width | (size.height << 16); }
 constexpr Size Unpack(uint32_t packed) {

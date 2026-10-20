@@ -321,6 +321,16 @@ private:
     void NotifyUiDraw(const GraphicsPipeline* pipeline);
     RenderState BeginRendering(const GraphicsPipeline* pipeline);
     RenderState BeginRenderingFull(const GraphicsPipeline* pipeline);
+    /// bbport: a pass drawn into the upscaler's output-size images (UI, display pass): what its
+    /// draws' transform is made from. The scale, offset and full scissor follow each draw's own
+    /// viewport (UpdateUiTransform), also for draws the render state memo continues the pass with.
+    struct UiPass {
+        bool active = false;
+        bool native_ui = false;
+        std::array<u32, 2> guest{1, 1};  ///< the guest target's size
+        std::array<u32, 2> output{1, 1}; ///< the redirected image's size
+    };
+    void UpdateUiTransform(const GraphicsPipeline* pipeline);
     /// bbport: a draw continuing the open render pass with the same inputs gets the same render
     /// state (RenderStateMemo); nothing can have broken the pass in between (barriers, copies and
     /// dispatches end it).
@@ -355,6 +365,7 @@ private:
         std::array<u64, AmdGpu::NUM_COLOR_BUFFERS + 1> uids{};
         std::array<const void*, AmdGpu::NUM_COLOR_BUFFERS + 1> backings{};
         u64 scene_generation = 0; ///< SceneTargets::Generation (proxy attachments)
+        UiPass ui_pass{}; ///< active: the transform is made again for each draw
     } begin_memo;
     u64 begin_memo_hits = 0, begin_memo_misses = 0;
     u64 begin_memo_revalidated = 0; ///< hits after a registry generation change
@@ -559,6 +570,7 @@ private:
     std::array<float,2> target_offset{};
     std::array<float, 2> target_scale{1.0f, 1.0f}; ///< pass drawn into the upscaler's output-size images
     std::array<u32, 2> ui_full_scissor{}; ///< widened UI pass: a scissor this large (guest) is the whole image
+    UiPass ui_pass{}; ///< the open pass's (BeginRenderingFull, or the memo's)
     const bool host_markers_enabled;
     const bool guest_markers_enabled;
 

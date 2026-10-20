@@ -66,15 +66,16 @@ constexpr bool PredicatedDraws(bool visible, bool unknown, bool draw_if_visible)
 }
 
 /// Hysteresis per Gnm block against flicker (lamps and their glare at the edge of occluders:
-/// sample counts of small proxies going 0/N/0 with the jittered, reduced scene): a block
+/// sample counts of small proxies going 0/N/0 with the jittered, reduced scene; candles in the
+/// Nightmare of Mensis still flickered with three): a block
 /// reports the largest of its last `Depth` measured counts. It reads occluded only after Depth
 /// results in a row found no samples, visible as soon as one finds any. Results it has not seen
 /// count as `UnknownPast`: visible, with the smallest count (a count-scaled effect stays dark
 /// rather than flashing).
 struct BlockHistory {
-    static constexpr std::uint32_t Depth = 3;
+    static constexpr std::uint32_t Depth = 5;
     static constexpr std::uint64_t UnknownPast = 1;
-    std::uint64_t previous[Depth - 1] = {UnknownPast, UnknownPast};
+    std::uint64_t previous[Depth - 1] = {UnknownPast, UnknownPast, UnknownPast, UnknownPast};
 
     /// The count to report for the block's new result `measured`, which is remembered.
     constexpr std::uint64_t Report(std::uint64_t measured) {

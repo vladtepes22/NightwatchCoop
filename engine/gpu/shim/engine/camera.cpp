@@ -2,8 +2,10 @@
 // Adapted from bbhost engine/camera.cpp and params.cpp. Uses the real repository
 // instead of scanning all guest memory: one authoritative LockCamParam table.
 #include "camera.h"
+#include "widescreen.h"
 #include "bbport_platform.h"
 #include "bbport_settings.h"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -14,10 +16,11 @@ namespace BbEngine::Camera {
 namespace {
 std::uint64_t slide;
 bool active;
+bool controls; // the player's distance/height/FOV scales; off: Vert+ only (scales of 1)
 struct Row { std::uint64_t address; std::array<float,3> original, written; };
 std::uint64_t table;
 std::vector<Row> rows;
-std::array<float,3> last_scale{1,1,1};
+std::array<float,4> last_scale{1,1,1,1};
 template<typename T> bool Read(std::uint64_t address, T* out) {
     return address && BbPlatform::ReadProcessMemory(reinterpret_cast<void*>(address), out, sizeof(T));
 }
@@ -69,7 +72,14 @@ bool LoadRows(std::uint64_t file) {
 }
 
 bool Install(std::uint8_t* image, std::size_t size) {
-    if (!BbSettings::Get().camera_controls) return false;
+    // Widescreen on a screen narrower than 16:9 (16:10, 4:3, 5:4): the vertical FOV is widened so
+    // the 16:9 horizontal view stays (Vert+, Widescreen::NarrowFovFactor), camera controls or not.
+    const auto& settings = BbSettings::Get();
+    const int w = BbSettings::OutputWidth(settings.startup_output_res);
+    const int h = BbSettings::OutputHeight(settings.startup_output_res);
+    const bool narrow = settings.widescreen && w > 0 && h > 0 && std::int64_t(w) * 9 < std::int64_t(h) * 16;
+    controls = settings.camera_controls;
+    if (!controls && !narrow) return false;
     constexpr std::size_t clamp=0x143af4e;
     constexpr std::uint8_t original[]={0x48,0x0f,0x46,0xc6}, lifted[]={0x48,0x89,0xf0,0x90};
     if (clamp>size || sizeof original>size-clamp ||
@@ -79,15 +89,21 @@ bool Install(std::uint8_t* image, std::size_t size) {
     std::memcpy(image+clamp,lifted,sizeof lifted);
     slide=reinterpret_cast<std::uint64_t>(image);
     active=true;
-    std::puts("Engine: bbhost camera adjustments enabled (distance, height and FOV)");
+    std::puts(controls ? "Engine: bbhost camera adjustments enabled (distance, height and FOV)"
+                       : "Engine: camera FOV hook for a screen narrower than 16:9 (Vert+)");
     return true;
 }
+
+bool Active() { return active; }
 
 void Tick() {
     if (!active) return;
     const auto& settings=BbSettings::Get();
-    const std::array<float,3> scale={settings.camera_distance_scale.load(),settings.camera_height_scale.load(),settings.camera_fov_scale.load()};
-    if (scale==std::array<float,3>{1,1,1} && last_scale==scale) return;
+    const float narrow=Widescreen::NarrowFovFactor();
+    const std::array<float,4> scale={controls?settings.camera_distance_scale.load():1.0f,
+                                     controls?settings.camera_height_scale.load():1.0f,
+                                     controls?settings.camera_fov_scale.load():1.0f,narrow};
+    if (scale==std::array<float,4>{1,1,1,1} && last_scale==scale) return;
     static unsigned ticks;
     if (!table || ticks++%150==0) {
         const auto found=FindTable();
@@ -103,13 +119,18 @@ void Tick() {
             if (!Read(row.address+fields[f],&current) || !std::isfinite(current)) { table=0;rows.clear();return; }
             // Preserve bbhost's reload/external edit semantics; never multiply our own output.
             if (current!=row.written[f]) row.original[f]=current;
-            const float wanted=row.original[f]*scale[f];
+            float wanted=row.original[f]*scale[f];
+            if (f==2 && scale[3]>1.0f) {
+                // Vert+: tan(vertical FOV / 2) grows with 16:9 / aspect (degrees in the table).
+                constexpr float rad=3.14159265f/180.0f;
+                wanted=std::min(170.0f,2.0f*std::atan(std::tan(wanted*rad*0.5f)*scale[3])/rad);
+            }
             if (current!=wanted) std::memcpy(reinterpret_cast<void*>(row.address+fields[f]),&wanted,sizeof wanted);
             row.written[f]=wanted;
         }
     }
     if (scale!=last_scale) {
-        std::printf("Engine: camera distance x%.2f, height x%.2f, FOV x%.2f\n",scale[0],scale[1],scale[2]);
+        std::printf("Engine: camera distance x%.2f, height x%.2f, FOV x%.2f, Vert+ x%.4f\n",scale[0],scale[1],scale[2],scale[3]);
         last_scale=scale;
     }
 }

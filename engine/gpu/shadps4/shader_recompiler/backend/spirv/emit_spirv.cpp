@@ -12,6 +12,7 @@
 #include "shader_recompiler/backend/spirv/emit_spirv.h"
 #include "shader_recompiler/backend/spirv/emit_spirv_instructions.h"
 #include "shader_recompiler/backend/spirv/spirv_emit_context.h"
+#include "shader_recompiler/compile_stats.h"
 #include "shader_recompiler/frontend/translate/translate.h"
 #include "shader_recompiler/ir/basic_block.h"
 #include "shader_recompiler/ir/program.h"
@@ -656,6 +657,7 @@ void PatchPhiNodes(const IR::Program& program, EmitContext& ctx) {
 
 std::vector<u32> EmitSPIRV(const Profile& profile, const RuntimeInfo& runtime_info,
                            const IR::Program& program, Bindings& binding) {
+    CompileStats::Timer timer; // bbport (BB_FRAME_STATS): compile_stats.h
     EmitContext ctx{profile, runtime_info, program.info, binding};
     const Id main{DefineMain(ctx, program)};
     DefineEntryPoint(program.info, ctx, main);
@@ -663,7 +665,10 @@ std::vector<u32> EmitSPIRV(const Profile& profile, const RuntimeInfo& runtime_in
     SetupFloatMode(ctx, profile, runtime_info, main);
     PatchPhiNodes(program, ctx);
     binding.user_data += program.info.ud_mask.NumRegs();
-    return ctx.Assemble();
+    auto spv = ctx.Assemble();
+    timer.Next(CompileStats::Spirv);
+    CompileStats::End();
+    return spv;
 }
 
 Id EmitPhi(EmitContext& ctx, IR::Inst* inst) {

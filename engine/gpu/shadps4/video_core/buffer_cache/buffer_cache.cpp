@@ -26,7 +26,9 @@
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
+#include "video_core/renderer_vulkan/vk_gpu_savings.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
+#include "video_core/renderer_vulkan/vk_scene_resolution.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/texture_cache/texture_cache.h"
 
@@ -523,6 +525,23 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
                block_size);
     block_shift = std::bit_width(block_size) - 1;
     blocks_per_arena_page = ARENA_PAGE_SIZE / block_size;
+    {
+        // bbport: a request across two arenas merges them (GetArena's migration); after one,
+        // objects and textures went missing and loads hung (2026-10-15 reports, all with the
+        // game's memory past 4 GiB: 9-12 GiB of direct memory with larger heaps). A new arena
+        // takes its whole aligned group of up to 4 pages (16 GiB; a sparse buffer reserves
+        // addresses, not memory) when the driver allows buffers that large.
+        const auto props = instance.GetPhysicalDevice()
+                               .getProperties2<vk::PhysicalDeviceProperties2,
+                                               vk::PhysicalDeviceVulkan13Properties>();
+        const u64 max_buffer = props.get<vk::PhysicalDeviceVulkan13Properties>().maxBufferSize;
+        while (arena_group_pages < 4 && (arena_group_pages * 2) * ARENA_PAGE_SIZE <= max_buffer) {
+            arena_group_pages *= 2;
+        }
+        std::printf("Guest memory: GPU arenas of %llu GiB (largest buffer %llu GiB)\n",
+                    (unsigned long long)((arena_group_pages * ARENA_PAGE_SIZE) >> 30),
+                    (unsigned long long)(max_buffer >> 30));
+    }
     blocks_per_arena_page_shift = ARENA_PAGE_BITS - block_shift;
     group_use.assign(u64{1} << (ADDRESS_SPACE_BITS - USE_GROUP_BITS), 0);
     group_demoted.assign(group_use.size(), 0);
@@ -1208,13 +1227,24 @@ const Buffer* BufferCache::GetArena(u64 first_block, u64 last_block) {
     const auto* last_arena = address_space[last_page];
     if (first_arena == last_arena) {
         if (!first_arena) {
-            const u64 base_block = Common::AlignDownPow2<u64>(first_block, blocks_per_arena_page);
-            const u64 num_pages = last_page - first_page + 1;
+            // bbport: the free pages of first_page's aligned group (arena_group_pages).
+            u64 begin = first_page, end = last_page + 1;
+            const u64 group = Common::AlignDownPow2<u64>(first_page, arena_group_pages);
+            while (begin > group && !address_space[begin - 1]) --begin;
+            while (end < std::min<u64>(group + arena_group_pages, NUM_ARENA_PAGES) &&
+                   !address_space[end]) {
+                ++end;
+            }
             const auto* new_arena =
-                &arenas.emplace_back(instance, base_block << block_shift,
-                                     num_pages << ARENA_PAGE_BITS, MemoryType::Sparse);
-            address_space[first_page] = new_arena;
-            address_space[last_page] = new_arena;
+                &arenas.emplace_back(instance, begin << ARENA_PAGE_BITS,
+                                     (end - begin) << ARENA_PAGE_BITS, MemoryType::Sparse);
+            for (u64 page = begin; page < end; ++page) {
+                address_space[page] = new_arena;
+            }
+            std::printf("Guest memory: arena [%#llx, %#llx) at GPU address %#llx\n",
+                        static_cast<unsigned long long>(new_arena->cpu_addr),
+                        static_cast<unsigned long long>(new_arena->cpu_addr + new_arena->size_bytes),
+                        static_cast<unsigned long long>(new_arena->BufferDeviceAddress()));
         }
         return address_space[first_page];
     }
@@ -1229,6 +1259,10 @@ const Buffer* BufferCache::GetArena(u64 first_block, u64 last_block) {
     const u64 total_size = first_size + last_size;
     const u64 end_block = (first_addr + total_size) >> block_shift;
     auto* new_arena = &arenas.emplace_back(instance, first_addr, total_size, MemoryType::Sparse);
+    std::printf("Guest memory: arena migrated to [%#llx, %#llx) at GPU address %#llx\n",
+                static_cast<unsigned long long>(first_addr),
+                static_cast<unsigned long long>(first_addr + total_size),
+                static_cast<unsigned long long>(new_arena->BufferDeviceAddress()));
     auto* bind = BindsForArena(new_arena);
     resident_ranges.ForEachInRange(base_block, end_block, [&](const Backing& backing) {
         const u64 start = std::max(base_block, backing.start);
@@ -1350,7 +1384,6 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
     boost::container::small_vector<vk::BufferCopy, 8> copies;
     const auto staging =
         staging_pool.Request(total_blocks * sizeof(vk::DeviceAddress), MemoryType::HostUncached);
-    ArenaBinds* arena_binds = BindsForArena(arena);
     auto* bda_addrs = reinterpret_cast<vk::DeviceAddress*>(staging.mapped);
     u64 offset = staging.offset;
     for (const auto& bind : binds) {
@@ -1361,7 +1394,7 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
         backing.offset = bind.offset >> block_shift;
         resident_ranges.Add(backing);
 
-        const auto& sparse = arena_binds->binds.emplace_back(vk::SparseMemoryBind{
+        const vk::SparseMemoryBind sparse = BindsForArena(arena)->binds.emplace_back(vk::SparseMemoryBind{
             .resourceOffset = (bind.start << block_shift) - arena->cpu_addr,
             .size = (bind.end - bind.start) << block_shift,
             .memory = bind.memory,
@@ -1369,6 +1402,26 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
         });
         for (u64 block = 0; block < sparse.size; block += block_size) {
             *(bda_addrs++) = arena->BufferDeviceAddress() + sparse.resourceOffset + block;
+        }
+        // bbport: an arena replaced by a migration (GetArena) still covers these addresses and
+        // can still be bound by a draw; it gets the same memory, as eviction unbinds it from
+        // every arena. Bound only in the new one, a block evicted and back after a migration
+        // read zeros through the old arena: objects and textures went missing for good.
+        const VAddr bind_begin = bind.start << block_shift;
+        const VAddr bind_end = bind.end << block_shift;
+        for (const auto& other : arenas) {
+            if (&other == arena || other.cpu_addr >= bind_end ||
+                other.cpu_addr + other.size_bytes <= bind_begin) {
+                continue;
+            }
+            const VAddr begin = std::max<VAddr>(bind_begin, other.cpu_addr);
+            const VAddr end = std::min<VAddr>(bind_end, other.cpu_addr + other.size_bytes);
+            BindsForArena(&other)->binds.emplace_back(vk::SparseMemoryBind{
+                .resourceOffset = begin - other.cpu_addr,
+                .size = end - begin,
+                .memory = bind.memory,
+                .memoryOffset = bind.offset + (begin - bind_begin),
+            });
         }
         const u64 copy_size = (bind.end - bind.start) * sizeof(vk::DeviceAddress);
         copies.emplace_back(offset, bind.start * sizeof(vk::DeviceAddress), copy_size);
@@ -1716,12 +1769,28 @@ void BufferCache::EvictIdleCopies(u32 now) {
     // copies unused for a while go. Kept: blocks with data the GPU wrote (only VRAM has it), and
     // all of them while shaders read the game's memory through the page table (dma_second).
     const int level = vram_level.load(std::memory_order_relaxed);
-    if (level == 0 || TwinsEnabled()) {
+    if (TwinsEnabled()) {
         return;
     }
     // Longer than the PC memory model's 15 s and 3 s: an evicted block costs an upload and can show
     // as late geometry when it comes back.
-    const u32 idle = std::min(VramIdleSeconds(), level >= 2 ? 10u : 30u);
+    // bbport: with room in VRAM too, copies unused for BB_VRAM_CLEANUP_SECONDS (default 180; 0:
+    // only while VRAM is tight) go: without it every block the game's GPU work ever touched kept
+    // its copy, and long sessions on 8 GB cards (laptops, RTX 4060) went from 2.6 to 5 GB of VRAM
+    // in 90 minutes until a crash or a lost device. A block is used again within seconds of its
+    // area loading, so three minutes unused is an area left behind.
+    static const u32 cleanup = [] {
+        const char* env = std::getenv("BB_VRAM_CLEANUP_SECONDS");
+        return env && env[0] ? u32(std::strtoul(env, nullptr, 10)) : 180u;
+    }();
+    if (level == 0 && (cleanup == 0 || now - last_cleanup_scan < 10)) {
+        return;
+    }
+    if (level == 0) {
+        last_cleanup_scan = now;
+    }
+    const u32 idle = level == 0 ? std::max(cleanup, VramIdleSeconds())
+                                : std::min(VramIdleSeconds(), level >= 2 ? 10u : 30u);
     const u32 dma = dma_second.load(std::memory_order_relaxed);
     if (dma != 0 && now - dma < idle) {
         if (dma_kept_reports < 10 && now - dma_kept_second >= 60) {
@@ -1770,8 +1839,9 @@ void BufferCache::EvictIdleCopies(u32 now) {
     if (evict_reports < 20 &&
         (evicted_bytes == bytes || (evicted_bytes >> 28) != ((evicted_bytes - bytes) >> 28))) {
         ++evict_reports;
-        std::printf("Guest memory: VRAM tight, %llu MiB of the game's data unused for %u s left VRAM "
+        std::printf("Guest memory: %s%llu MiB of the game's data unused for %u s left VRAM "
                     "so far (uploaded again when used)\n",
+                    level == 0 ? "cleanup, " : "VRAM tight, ",
                     (unsigned long long)(evicted_bytes >> 20), idle);
     }
 }
@@ -2793,6 +2863,57 @@ bool BufferCache::SynchronizeMemoryFromImage(const Buffer* arena, VAddr device_a
                "Texel buffer aliases image subresources {:x} : {:x}", device_addr,
                image.info.guest_address);
     const u64 arena_offset = arena->Offset(device_addr);
+
+    // bbport (BB_IMAGE_TILE_MEMO): left out when the range already holds the image as it is.
+    // The image: no write access since (Runtime::Transit counts them in write_seq; every GPU
+    // write needs a layout change after the fill's transfer read), same backing and flags, no
+    // CPU write seen (tracked) and no proxy write pending. The range: no GPU write recorded
+    // over it (Runtime::AccessBuffer), no newer in-place write tick, same residency; uploads of
+    // CPU writes into a VRAM copy are GPU writes there. Otherwise filled as before.
+    const bool memo_on = Vulkan::GpuSavings::TileMemoOn();
+    auto& savings = Vulkan::GpuSavings::Get();
+    const u64 watched_size = std::max<u64>(size, image.info.guest_size);
+    const bool in_place = IsInPlace(device_addr, size);
+    const bool cpu_writes_seen =
+        !in_place || (image.IsTracked() && image.track_addr <= device_addr &&
+                      device_addr + watched_size <= image.track_addr_end);
+    const auto memo_flags = static_cast<u32>(image.flags);
+    const bool image_clean = False(image.flags & ImageFlagBits::Dirty);
+    const bool proxy_stale = runtime.scene_targets && runtime.scene_targets->NativeStale(image);
+    if (memo_on) {
+        for (auto& memo : tile_memos) {
+            if (memo.address != device_addr || memo.size != size || memo.arena != arena ||
+                memo.arena_offset != arena_offset) {
+                continue;
+            }
+            const bool same_image = memo.image_uid == image.image_uid &&
+                                    memo.backing == image.backing &&
+                                    memo.write_seq == image.write_seq &&
+                                    memo.flags == memo_flags && image_clean;
+            const bool same_buffer = runtime.BufferUnwritten(memo.watch) &&
+                                     memo.write_tick == WriteTicks().Newest(device_addr, watched_size);
+            const bool same_other = cpu_writes_seen && memo.residency == ResidencyGeneration();
+            if (same_image && same_buffer && same_other && !proxy_stale) {
+                savings.tile_skips.fetch_add(1, std::memory_order_relaxed);
+                savings.tile_bytes_skipped.fetch_add(image.info.guest_size,
+                                                     std::memory_order_relaxed);
+                DropShadows(device_addr, size);
+                if (GuestInPlace() && !WriteTracking()) {
+                    NoteGpuWrite(device_addr, size);
+                }
+                return true;
+            }
+            auto& why = !same_image   ? savings.tile_miss_image
+                        : !same_buffer ? savings.tile_miss_buffer
+                        : proxy_stale  ? savings.tile_miss_proxy
+                                       : savings.tile_miss_other;
+            why.fetch_add(1, std::memory_order_relaxed);
+            memo.address = 0;
+            break;
+        }
+    }
+    savings.tile_fills.fetch_add(1, std::memory_order_relaxed);
+
     boost::container::small_vector<vk::BufferImageCopy, 8> buffer_copies;
     for (u32 mip = 0; mip < image.info.resources.levels; mip++) {
         const auto& mip_info = image.info.mips_layout[mip];
@@ -2821,6 +2942,25 @@ bool BufferCache::SynchronizeMemoryFromImage(const Buffer* arena, VAddr device_a
     }
     auto& tile_manager = texture_cache.GetTileManager();
     tile_manager.TileImage(image, buffer_copies, arena, arena_offset);
+    if (memo_on) {
+        // After the fill: its own writes are not watched, the resolve of a proxy it caused is
+        // in write_seq. Images with CPU writes pending are filled every time.
+        if (False(image.flags & ImageFlagBits::Dirty) && cpu_writes_seen) {
+            tile_memos[tile_memo_next++ % tile_memos.size()] = {
+                .address = device_addr,
+                .size = size,
+                .arena = arena,
+                .arena_offset = arena_offset,
+                .image_uid = image.image_uid,
+                .backing = image.backing,
+                .write_seq = image.write_seq,
+                .flags = static_cast<u32>(image.flags),
+                .watch = runtime.WatchBufferWrites(arena, arena_offset, watched_size),
+                .residency = ResidencyGeneration(),
+                .write_tick = WriteTicks().Newest(device_addr, watched_size),
+            };
+        }
+    }
     DropShadows(device_addr, size);
     // A GPU write like any other: what the GPU copies there each frame (a render target read as a
     // texel buffer) goes to VRAM instead of crossing PCIe twice (written there, read back).

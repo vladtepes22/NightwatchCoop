@@ -321,6 +321,7 @@ private:
     /// game's data unused for 30 s (10 s when full) leave VRAM; their slots take the next blocks
     /// instead of new VRAM, and they are uploaded again from the game's memory when bound.
     void EvictIdleCopies(u32 now);
+    u32 last_cleanup_scan = 0; ///< bbport: EvictIdleCopies with room in VRAM, every 10 s
     /// Residency chunks without blocks for 5 s, the rebinds away from them done: back to the driver.
     void FreeEmptyChunks(u32 now);
     [[nodiscard]] static u32 VramIdleSeconds();
@@ -351,6 +352,24 @@ private:
         u64 generation = ~0ULL;
     };
     std::array<ImageMiss, 256> image_miss_cache{};
+    // bbport (BB_IMAGE_TILE_MEMO): the last fills of texel buffer ranges from the image over
+    // them. A fill is left out while the image, its scene proxy, the buffer range and its
+    // residency are all as they were after the previous one.
+    struct TileMemo {
+        VAddr address = 0;
+        u32 size = 0;
+        const Buffer* arena = nullptr;
+        u64 arena_offset = 0;
+        u64 image_uid = 0;
+        const void* backing = nullptr;
+        u64 write_seq = 0;
+        u32 flags = 0;
+        u64 watch = 0;
+        u64 residency = 0;
+        u64 write_tick = 0;
+    };
+    std::array<TileMemo, 8> tile_memos{};
+    u32 tile_memo_next = 0;
     Vulkan::Runtime& runtime;
     Vulkan::StagingBufferPool& staging_pool;
     AmdGpu::Liverpool* liverpool;
@@ -478,6 +497,9 @@ private:
     u32 block_size{};
     u32 block_shift{};
     u32 blocks_per_arena_page{};
+    /// bbport: arena pages a new arena covers at most (an aligned group, within the driver's
+    /// largest buffer): the game's memory in one arena, never migrated (GetArena).
+    u64 arena_group_pages{1};
     u32 blocks_per_arena_page_shift{};
 };
 

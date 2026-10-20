@@ -198,9 +198,10 @@ file(GLOB AVPLAYER CONFIGURE_DEPENDS shadps4/core/libraries/avplayer/*.cpp)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavformat libavcodec libavutil libswscale libswresample)
 file(GLOB SHIM_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*/*.cpp)
 if (WIN32)
-    # These optional experiments use Linux dma-buf mappings and SIGTRAP hooks. Keep the
+    # These optional experiments use Linux dma-buf mappings and SIGTRAP hooks (the libGnm entry
+    # hooks, bbport_gnm_hooks.cpp, are inline patches and build on Windows too). Keep the
     # section-backed Win32 memory and its vectored crash diagnostics; do not emulate dma-buf.
-    list(FILTER SHIM_SOURCES EXCLUDE REGEX "/bbport_(guest_memory|guest_hooks|gnm_hooks|free_check|heap_sites)\\.cpp$")
+    list(FILTER SHIM_SOURCES EXCLUDE REGEX "/bbport_(guest_memory|guest_hooks|free_check|heap_sites)\\.cpp$")
     set(BBGPU_LIBRARY_TYPE STATIC)
 else()
     set(BBGPU_LIBRARY_TYPE SHARED)
@@ -306,6 +307,13 @@ target_link_libraries(pipeline-compile-test PRIVATE bbgpu)
 if (WIN32)
     target_link_libraries(pipeline-compile-test PRIVATE winmm ws2_32 psapi onecore)
 endif()
+# The shader lab (tests/shader_lab.cpp): shader captures compiled offline, without the game.
+add_executable(bb-shader-lab EXCLUDE_FROM_ALL ../tests/shader_lab.cpp ../tests/test_gpu_runtime_stubs.cpp)
+target_include_directories(bb-shader-lab PRIVATE shim shadps4 third_party/gcn/include)
+target_link_libraries(bb-shader-lab PRIVATE bbgpu miniz::miniz)
+if (WIN32)
+    target_link_libraries(bb-shader-lab PRIVATE winmm ws2_32 psapi onecore)
+endif()
 add_executable(motion-shader-test EXCLUDE_FROM_ALL ../tests/test_motion_shaders.cpp ../tests/test_gpu_runtime_stubs.cpp)
 target_compile_options(motion-shader-test PRIVATE -UNDEBUG)
 target_include_directories(motion-shader-test PRIVATE shim shadps4 third_party/gcn/include)
@@ -387,7 +395,7 @@ target_include_directories(pc-input-test PRIVATE shim)
 target_link_libraries(pc-input-test PRIVATE PkgConfig::SDL3)
 target_compile_options(pc-input-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_executable(widescreen-test EXCLUDE_FROM_ALL ../tests/test_widescreen.cpp
-    shim/engine/widescreen.cpp shim/engine/engine_hooks.cpp shim/bbport_settings.cpp
+    shim/engine/widescreen.cpp shim/engine/camera.cpp shim/engine/engine_hooks.cpp shim/bbport_settings.cpp
     shim/bbport_menu_i18n.cpp)
 target_include_directories(widescreen-test PRIVATE shim)
 target_compile_options(widescreen-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)

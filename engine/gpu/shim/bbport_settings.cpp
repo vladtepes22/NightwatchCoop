@@ -152,7 +152,7 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     } else if (key == "reactive_max") {
         v.reactive_max = Clamp(f, 0.0f, 1.0f);
     } else if (key == "debug_view") {
-        v.debug_view = std::clamp(i, 0, DebugViewCount - 1);
+        // Debug views last one session: a saved one came back on every start and looked like a bug.
     } else if (key == "show_fps") {
         v.show_fps = i != 0;
     } else if (key == "show_fps_rate") {
@@ -301,8 +301,14 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     } else if (key == "cheat_echo_multiplier") {
         v.cheat_echo_multiplier = CheatChoice(key, value, CheatEchoMultipliers, "1, 2, 5 or 10");
     } else if (key == "output_res") {
+        int w = 0, h = 0;
+        char tail = 0;
         if (value == "auto") {
             v.output_res = OutputAuto;
+        } else if (std::sscanf(value.c_str(), "%dx%d%c", &w, &h, &tail) == 2 && ValidOutputSize(w, h)) {
+            v.output_res = OutputCustom;
+            v.custom_output_w = w & ~1;
+            v.custom_output_h = h & ~1;
         }
         for (int r = 0; r < OutputAuto; ++r) {
             if (value == std::to_string(OutputWidths[r]) + "x" + std::to_string(OutputHeights[r])) {
@@ -356,13 +362,19 @@ static std::pair<int, int> DisplaySize() {
     return size;
 }
 
+bool ValidOutputSize(int w, int h) {
+    return w >= 640 && h >= 360 && w <= 16384 && h <= 8640;
+}
+
 int OutputWidth(int index) {
     index = std::clamp(index, 0, OutputCount - 1);
+    if (index == OutputCustom) return Get().custom_output_w;
     return index == OutputAuto ? DisplaySize().first : OutputWidths[index];
 }
 
 int OutputHeight(int index) {
     index = std::clamp(index, 0, OutputCount - 1);
+    if (index == OutputCustom) return Get().custom_output_h;
     return index == OutputAuto ? DisplaySize().second : OutputHeights[index];
 }
 
@@ -532,7 +544,6 @@ void Save() {
     put("reactive_scale", fixed(v.reactive_scale, 2));
     put("reactive_threshold", fixed(v.reactive_threshold, 2));
     put("reactive_max", fixed(v.reactive_max, 2));
-    put("debug_view", std::to_string(v.debug_view.load()));
     put("show_fps", flag(v.show_fps));
     put("show_fps_rate", flag(v.show_fps_rate));
     put("show_fps_frame_time", flag(v.show_fps_frame_time));
@@ -591,8 +602,8 @@ void Save() {
     put("cheat_no_durability", flag(v.cheat_no_durability));
     put("cheat_consumables", flag(v.cheat_consumables));
     put("output_res", v.output_res == OutputAuto ? std::string("auto")
-                                                  : std::to_string(OutputWidths[v.output_res]) + "x" +
-                                                        std::to_string(OutputHeights[v.output_res]));
+                                                  : std::to_string(OutputWidth(v.output_res)) + "x" +
+                                                        std::to_string(OutputHeight(v.output_res)));
     // Read by run.sh at start.
     put("live_resolution", v.live_resolution < 0 ? "auto" : flag(v.live_resolution != 0));
     if (v.menu_x >= 0.0f && v.menu_y >= 0.0f) {

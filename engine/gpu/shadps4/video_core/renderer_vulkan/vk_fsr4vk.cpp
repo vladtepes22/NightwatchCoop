@@ -9,8 +9,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
+#include <chrono>
 #include <deque>
 #include <string>
+#include <thread>
 #include <type_traits>
 
 #include "video_core/renderer_vulkan/vk_fsr4vk.h"
@@ -232,12 +235,39 @@ struct Fsr4Vk::Impl {
     std::deque<u64> ticks; ///< scheduler ticks of the frames in flight (the provider's slot ring)
     std::string problem, described, provider_name;
     bool fatal{};
+    // bbport: the context is created on a worker thread (StartCreate): creating it compiles the
+    // model's compute pipelines, which held the draw recording thread for 10 s on an RTX 5060 the
+    // first time (no frame meanwhile). While `preparing`, only the worker touches the context and
+    // the fields above; the render thread reads them again after joining it. FSR 3.1 meanwhile.
+    std::thread prep;
+    std::atomic<bool> preparing{false};
+    bool created_ok{};
 
     Impl(const Instance& instance_, Scheduler& scheduler_)
         : instance{instance_}, scheduler{scheduler_} {}
 
     ~Impl() {
+        if (prep.joinable()) {
+            prep.join();
+        }
         DestroyContextNow(false);
+    }
+
+    void StartCreate(u32 ow, u32 oh) {
+        preparing = true;
+        std::printf("Upscaler: FSR 4.1.1 (fsr4vk) compiling its shaders in the background (%ux%u); "
+                    "FSR 3.1 until it is ready\n",
+                    ow, oh);
+        prep = std::thread([this, ow, oh] {
+            const auto start = std::chrono::steady_clock::now();
+            created_ok = CreateContextNow(ow, oh);
+            if (created_ok) {
+                std::printf("Upscaler: FSR 4.1.1 (fsr4vk) ready after %.1f s\n",
+                            std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+                                .count());
+            }
+            preparing = false;
+        });
     }
 
     /// Fsr4Upscaler logs the reason and the fallback to FSR 3.1.
@@ -302,7 +332,15 @@ struct Fsr4Vk::Impl {
         }
         CreateUpscale desc{};
         desc.header.type = CreateUpscaleType;
-        desc.flags = FlagHdr | FlagDepthInverted | FlagAutoExposure;
+        // bbport: the scene's depth is standard, 0 at the near plane (CameraMotion::Near), as FSR 3,
+        // FSR 4 and DLSS are told; the inverted flag (from the fsr4vk integration's source port)
+        // made 4.1.1 read near as far: disocclusion and thin moving objects lost their history.
+        // BB_FSR4VK_DEPTH_INVERTED=1 keeps the old flag.
+        static const bool inverted = [] {
+            const char* env = std::getenv("BB_FSR4VK_DEPTH_INVERTED");
+            return env && env[0] == '1';
+        }();
+        desc.flags = FlagHdr | FlagAutoExposure | (inverted ? FlagDepthInverted : 0u);
         desc.max_render_size = {ow, oh};
         desc.max_upscale_size = {ow, oh};
         desc.message = ProviderMessage;
@@ -326,7 +364,20 @@ struct Fsr4Vk::Impl {
         if (query(nullptr, &features_query.header) == ReturnOk && features_query.version >= 1) {
             api.header.next = &features.header;
         }
-        if (const u32 result = create(&context, &desc.header, nullptr); result != ReturnOk) {
+        u32 result = create(&context, &desc.header, nullptr);
+        if (result != ReturnOk && !(desc.flags & FlagDepthInverted)) {
+            // bbport: on AMD the provider runs the driver's own FSR 4 path, which only takes
+            // inverted depth ("provider requires inverted depth and low-resolution non-jittered
+            // motion vectors"): the flag again, as up to beta 4, where 4.1.1 ran on a 9070 XT.
+            context = nullptr;
+            desc.flags |= FlagDepthInverted;
+            result = create(&context, &desc.header, nullptr);
+            if (result == ReturnOk) {
+                std::printf("Upscaler: fsr4vk accepted the context with the inverted depth flag "
+                            "(this GPU's FSR 4 path requires it)\n");
+            }
+        }
+        if (result != ReturnOk) {
             context = nullptr;
             Fail(std::string{"context creation failed: "} + ReturnName(result) + " (" +
                      std::to_string(result) + "); the provider may lack FSR 4.1.1 or a device feature",
@@ -435,6 +486,15 @@ struct Fsr4Vk::Impl {
     }
 
     bool Record(const Fsr4Upscaler::Frame& f) {
+        if (preparing) {
+            return false; // Problem(): still compiling; FSR 3.1 this frame
+        }
+        if (prep.joinable()) {
+            prep.join();
+            if (!created_ok) {
+                return false; // CreateContextNow's Fail() said why
+            }
+        }
         if (fatal) {
             return false;
         }
@@ -452,7 +512,16 @@ struct Fsr4Vk::Impl {
         }
         if (!context || f.output.width != out_width || f.output.height != out_height) {
             DestroyContextNow(true);
-            if (!CreateContextNow(f.output.width, f.output.height)) {
+            static const bool async = [] {
+                const char* env = std::getenv("BB_FSR4VK_ASYNC");
+                return !(env && env[0] == '0');
+            }();
+            if (!async) {
+                if (!CreateContextNow(f.output.width, f.output.height)) {
+                    return false;
+                }
+            } else {
+                StartCreate(f.output.width, f.output.height);
                 return false;
             }
         }
@@ -516,11 +585,14 @@ bool Fsr4Vk::Record(const Fsr4Upscaler::Frame& frame) {
 }
 
 const char* Fsr4Vk::Problem() const noexcept {
+    if (impl->preparing) {
+        return "compiling its shaders in the background; FSR 3.1 until they are ready";
+    }
     return impl->problem.empty() ? nullptr : impl->problem.c_str();
 }
 
 bool Fsr4Vk::Fatal() const noexcept {
-    return impl->fatal;
+    return !impl->preparing && impl->fatal;
 }
 
 std::string Fsr4Vk::Describe() const {

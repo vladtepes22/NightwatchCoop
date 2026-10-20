@@ -72,4 +72,9 @@ const u32* GetFetchShaderCode(const Info& info, u32 sgpr_base);
 
 std::optional<FetchShaderData> ParseFetchShader(const Shader::Info& info);
 
+/// bbport: the fetch shader's layout given instead of parsed from its code on this thread (the
+/// cache recompile, tests/shader_lab.cpp: a catalog ships the layout, never the code, which the
+/// game generates at run time). Null: parse as usual.
+inline thread_local const FetchShaderData* fetch_override = nullptr; // fetch_override
+
 } // namespace Shader::Gcn

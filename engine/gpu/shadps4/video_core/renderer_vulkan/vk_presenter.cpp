@@ -30,6 +30,7 @@
 #include <chrono>
 #include <cmath>
 #include <csetjmp>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <filesystem>
@@ -40,6 +41,7 @@
 #include <span>
 #include <sstream>
 #include <system_error>
+#include <thread>
 #include <vector>
 #include <vk_mem_alloc.h>
 
@@ -165,6 +167,67 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
         hdr_pass.Create(device, hdr_format);
     }
 
+}
+
+void Presenter::ReportState() {
+    const vk::Device device = instance.GetDevice();
+    const std::array<std::pair<const char*, Scheduler*>, 3> schedulers{{
+        {"draw", &draw_scheduler}, {"present", &present_scheduler}, {"flip", &flip_scheduler}}};
+    for (const auto& [name, scheduler] : schedulers) {
+        Semaphore* semaphore = scheduler->GetWorkSemaphore();
+        const auto [result, value] = device.getSemaphoreCounterValue(semaphore->Handle());
+        std::printf("Freeze: %s scheduler: next tick %llu, submitted %llu, GPU done %llu%s\n", name,
+                    static_cast<unsigned long long>(semaphore->CurrentTick()),
+                    static_cast<unsigned long long>(scheduler->SubmittedTick()),
+                    static_cast<unsigned long long>(value),
+                    result == vk::Result::eSuccess ? "" : " (query failed)");
+    }
+    std::unique_lock lock{free_mutex, std::try_to_lock};
+    if (lock.owns_lock()) {
+        std::printf("Freeze: %zu free presentation frames\n", free_queue.size());
+    } else {
+        std::printf("Freeze: presentation frames locked\n");
+    }
+}
+
+void Presenter::WaitForSubmittedWork(u64 timeout_ns) {
+    // bbport: exit only. One deadline for the whole wait (it was timeout_ns per scheduler, up to
+    // 3x). Every queue submission and present goes out under Scheduler::submit_mutex: taking it
+    // (and never giving it back - the process is ending) stops the guest from queueing more
+    // frames while the GPU drains, so the process does not end with fresh work in flight. Only
+    // ticks already in the queue are waited for (CurrentTick-1 may never be submitted once the
+    // lock is held; waiting for it just ran into the timeout). BB_EXIT_BLOCK_SUBMIT=0: old wait.
+    using Clock = std::chrono::steady_clock;
+    const auto deadline = Clock::now() + std::chrono::nanoseconds(timeout_ns);
+    const char* block_env = std::getenv("BB_EXIT_BLOCK_SUBMIT");
+    if (!(block_env && block_env[0] == '0')) {
+        while (!Scheduler::submit_mutex.try_lock()) {
+            if (Clock::now() >= deadline) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    const vk::Device device = instance.GetDevice();
+    for (Scheduler* scheduler : {&draw_scheduler, &present_scheduler, &flip_scheduler}) {
+        const u64 value = scheduler->SubmittedTick();
+        if (value == 0) {
+            continue;
+        }
+        const auto now = Clock::now();
+        if (now >= deadline) {
+            return;
+        }
+        const vk::Semaphore handle = scheduler->GetWorkSemaphore()->Handle();
+        const vk::SemaphoreWaitInfo wait_info{
+            .semaphoreCount = 1,
+            .pSemaphores = &handle,
+            .pValues = &value,
+        };
+        const u64 remaining = u64(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(deadline - now).count());
+        (void)device.waitSemaphores(wait_info, remaining);
+    }
 }
 
 Presenter::~Presenter() {
@@ -959,14 +1022,30 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
                                vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlagBits::eByRegion,
                                {}, {}, pre_barriers);
-        const vk::ClearColorValue black{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}};
-        cmdbuf.clearColorImage(swapchain_image, vk::ImageLayout::eTransferDstOptimal, black, color_range);
-        const vk::MemoryBarrier clear_done{
-            .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
-            .dstAccessMask = vk::AccessFlagBits::eTransferWrite,
-        };
-        cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer,
-                               vk::DependencyFlagBits::eByRegion, clear_done, {}, {});
+        // bbport: the black bars are only needed where the fitted blit leaves part of the image
+        // uncovered; a frame of the swapchain's aspect (the usual case: the game renders at the
+        // window size) overwrites every pixel, and the full-screen clear plus its barrier were
+        // one more full-resolution write each present. BB_PRESENT_ALWAYS_CLEAR=1: always clear.
+        static const bool always_clear = [] {
+            const char* env = std::getenv("BB_PRESENT_ALWAYS_CLEAR");
+            return env && env[0] == '1';
+        }();
+        const vk::Rect2D fit = FitImage(s32(frame->width), s32(frame->height), s32(extent.width),
+                                        s32(extent.height));
+        const bool covers = fit.offset.x == 0 && fit.offset.y == 0 &&
+                            fit.extent.width == extent.width && fit.extent.height == extent.height;
+        if (always_clear || !covers) {
+            const vk::ClearColorValue black{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}};
+            cmdbuf.clearColorImage(swapchain_image, vk::ImageLayout::eTransferDstOptimal, black,
+                                   color_range);
+            const vk::MemoryBarrier clear_done{
+                .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
+                .dstAccessMask = vk::AccessFlagBits::eTransferWrite,
+            };
+            cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                   vk::PipelineStageFlagBits::eTransfer,
+                                   vk::DependencyFlagBits::eByRegion, clear_done, {}, {});
+        }
         cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
                          vk::ImageLayout::eTransferDstOptimal,
                          MakeImageBlitFit(frame->width, frame->height, extent.width, extent.height),

@@ -3,6 +3,7 @@
 // The existing renderer and bbport.ini remain authoritative.
 #include "option_menu.h"
 #include "engine_hooks.h"
+#include <SDL3/SDL.h>
 #include "menu_memory.h"
 #include "graphics.h"
 #include "../input/bindings.h"
@@ -619,8 +620,8 @@ bool enhancements_seeded=false;
 StartupToggle graphics_toggles[]={{nullptr,117001},{nullptr,117000}};
 StartupToggle effect_toggles[]={{nullptr,117005},{nullptr,117002},{nullptr,117003},{nullptr,120001}};
 bool graphics_seeded=false,effects_seeded=false;
-std::int32_t output_resolution=1,last_resolution=1;
-const Choice outputs[]={{0,117010},{1,117012},{2,117013},{3,117015},{4,117040},{5,117041},{6,117042},{7,117043},{8,117044},{9,117045},{10,117046},{11,117047}};
+std::int32_t output_resolution=BbSettings::OutputDefault,last_resolution=BbSettings::OutputDefault;
+const Choice outputs[]={{0,117010},{1,117011},{2,117012},{3,117013},{4,117015},{5,117040},{6,117041},{7,117042},{8,117043},{9,117044},{10,117045},{11,117046},{12,117047},{13,117048}};
 static_assert(sizeof(outputs)/sizeof(outputs[0])==BbSettings::OutputCount);
 // What "Defaults" puts a toggle back to: an effect's own default (bbport_settings.h Effects: CA,
 // DoF, motion blur and the game's AA are off), on for the others (vignette).
@@ -745,6 +746,8 @@ GUEST_ABI std::int64_t OpenControls(void* root,void* params) {return open_named(
 GUEST_ABI std::int64_t OpenKeys(void* root,void* params) {return open_named(root,params,"PCKeys",reinterpret_cast<void*>(&pc_keys_handler),-2);}
 GUEST_ABI void* OpenControlsRow(void* out,void* ctx) {GuestFunction f(kOpenerFunctorVTable,reinterpret_cast<void*>(&OpenControls));hle_call_guest<std::int64_t>(guest_fn(kOpenSectionFlow),out,ctx,f.buf);return out;}
 GUEST_ABI void* OpenKeysRow(void* out,void* ctx) {GuestFunction f(kOpenerFunctorVTable,reinterpret_cast<void*>(&OpenKeys));hle_call_guest<std::int64_t>(guest_fn(kOpenSectionFlow),out,ctx,f.buf);return out;}
+constexpr std::uint32_t kQuitRowId=122000,kSystemQuitRowId=110015,kQuitQuestion=920001;
+void AddQuitRow(void* builder,std::uint32_t caption);
 GUEST_ABI void* SystemFinalize(void* out,void* builder,void* arg3) {
     std::int64_t flag=0;
     { Captions c(110013);GuestFunction f(kRowFunctorVTable,reinterpret_cast<void*>(&OpenEnhancementsRow));
@@ -763,9 +766,68 @@ GUEST_ABI void* SystemFinalize(void* out,void* builder,void* arg3) {
     }
     if (camera_page) { Captions c(110011);GuestFunction f(kRowFunctorVTable,reinterpret_cast<void*>(&OpenCameraRow));
       hle_call_guest<std::int64_t>(guest_fn(kAddCommandRow),builder,c.buf,f.buf,&flag); }
+    // Quit to Desktop, last: the game's own Exit Game only goes back to the title.
+    AddQuitRow(builder,kSystemQuitRowId);
     hle_call_guest<std::int64_t>(guest_fn(kSystemFinalize),out,builder,arg3);
-    host_log("pc-options: System list includes PC Enhancements%s%s",graphics_page?", PC Graphics / PC Effects / PC Colour":"",camera_page?", PC Camera":"");
+    host_log("pc-options: System list includes PC Enhancements%s%s, Quit to Desktop",graphics_page?", PC Graphics / PC Effects / PC Colour":"",camera_page?", PC Camera":"");
     return out;
+}
+// Quit Game on the title menu (after bbhost, src/engine/option_menu.cpp): the title's command list
+// (Continue, Load Game, New Game, System, Log In) is finalised by one call; through a stub here it
+// first gains a "Quit Game" row (the way System's Exit Game is added), whose opener builds the
+// menu's own YES/NO message box. YES closes the game as the window's close button does.
+constexpr std::uint64_t kTitleFinalize=0x1fea820,kAddExitRow=0x1f4c9a0;
+
+GUEST_ABI std::int64_t QuitYes(std::int64_t,std::int64_t) {
+    host_log("pc-options: Quit to Desktop");
+    SDL_Event quit{}; quit.type=SDL_EVENT_QUIT; SDL_PushEvent(&quit);
+    return 0;
+}
+void release_engine_ref(std::uint64_t obj) {
+    if (!obj) return;
+    auto* rc=reinterpret_cast<std::int32_t*>(static_cast<std::uintptr_t>(obj+8));
+    if ((*rc)--==1) {
+        const std::uint64_t vt=*reinterpret_cast<std::uint64_t*>(static_cast<std::uintptr_t>(obj));
+        hle_call_guest<std::int64_t>(reinterpret_cast<void*>(static_cast<std::uintptr_t>(
+            *reinterpret_cast<std::uint64_t*>(static_cast<std::uintptr_t>(vt)))),obj);
+    }
+}
+GUEST_ABI void* QuitOpener(void* out,void* factory) {
+    alignas(16) std::uint8_t caption[0x40]{};
+    hle_call_guest<std::int64_t>(guest_fn(kMsgRepository),&caption[0],0xcc,kQuitQuestion);
+    std::uint64_t box=0,command=0;
+    hle_call_guest<std::int64_t>(guest_fn(0x201ed10),&box,factory,&caption[0]);
+    GuestFunction action(kOpenerFunctorVTable,reinterpret_cast<void*>(&QuitYes));
+    hle_call_guest<std::int64_t>(guest_fn(0x1d5db60),&command,&action.buf[0],2);
+    hle_call_guest<std::int64_t>(guest_fn(0x201a070),out,&box,&command);
+    release_engine_ref(command);
+    release_engine_ref(box);
+    Captions::free_wstring(&caption[0x08]);
+    return out;
+}
+void AddQuitRow(void* builder,std::uint32_t caption) {
+    Captions c(caption);GuestFunction f(kRowFunctorVTable,reinterpret_cast<void*>(&QuitOpener));
+    hle_call_guest<std::int64_t>(guest_fn(kAddExitRow),builder,c.buf,f.buf);
+}
+GUEST_ABI void* TitleFinalize(void* out,void* builder,void* arg3) {
+    AddQuitRow(builder,kQuitRowId);
+    hle_call_guest<std::int64_t>(guest_fn(kTitleFinalize),out,builder,arg3);
+    return out;
+}
+// A call (image offset) sent through 16 bytes of padding to a host function: mov r11, fn; jmp r11.
+bool route_call(std::uint8_t* image,std::size_t size,std::size_t call,std::uint64_t target_bn,
+                std::size_t pad,const void* fn) {
+    constexpr std::uint8_t padding[]={0x90,0x66,0x66,0x66,0x66,0x66,0x66,0x2e,0x0f,0x1f,0x84,0,0,0,0,0};
+    std::int32_t rel=0;
+    if (size<call+5 || size<pad+16 || image[call]!=0xe8) return false;
+    std::memcpy(&rel,image+call+1,4);
+    if (static_cast<std::int64_t>(call+5)+rel!=static_cast<std::int64_t>(target_bn-kPreferredGuestSlide) ||
+        std::memcmp(image+pad,padding,16)) return false;
+    std::uint8_t* p=image+pad; *p++=0x49; *p++=0xbb;
+    const auto to=reinterpret_cast<std::uint64_t>(fn);
+    std::memcpy(p,&to,8); p+=8; *p++=0x41; *p++=0xff; *p=0xe3;
+    const std::int32_t to_pad=static_cast<std::int32_t>(pad-(call+5)); std::memcpy(image+call+1,&to_pad,4);
+    return true;
 }
 } // namespace
 
@@ -788,14 +850,22 @@ bool Install(std::uint8_t* image,std::size_t size) {
     namespace fs=std::filesystem;
     std::vector<std::pair<std::string,std::string>> mounts;
     try {
-        const fs::path root=fs::u8path(assets),original=fs::u8path(game);
+        const fs::path root=fs::path(assets),original=fs::path(game);
+        // The prepared files are built from the game as mods leave it (bb-start: BB_GAME_MERGED):
+        // a translation mod's menu.msgbnd gets the PC rows too. A file that is neither (changed
+        // after the start) wins and is left alone.
+        const char* merged_env=std::getenv("BB_GAME_MERGED");
+        const fs::path merged=merged_env && *merged_env ? fs::path(merged_env) : original;
         auto add=[&](const fs::path& relative) {
             const auto prepared=root/relative;
             const auto path="/app0/"+relative.generic_string();
             char resolved[512]{}; std::error_code ec;
             if (!fs::is_regular_file(prepared) || runtime_file_translate(path.c_str(),resolved,sizeof resolved) ||
-                !fs::equivalent(fs::u8path(resolved),original/relative,ec) || ec)
-                return false; // A player's own file wins; never bind a foreign movie.
+                !(fs::equivalent(fs::path(resolved),merged/relative,ec) ||
+                  fs::equivalent(fs::path(resolved),original/relative,ec))) {
+                host_log("pc-options disabled: %s is not the file the PC menus were built from",relative.generic_string().c_str());
+                return false;
+            }
             mounts.emplace_back(path,prepared.string()); return true;
         };
         if (!add("dvdroot_ps4/menu/optionsetting.gfx")) return false;
@@ -843,6 +913,8 @@ bool Install(std::uint8_t* image,std::size_t size) {
     const auto target=reinterpret_cast<std::uint64_t>(&SystemFinalize);
     std::memcpy(p,&target,8); p+=8; *p++=0x41; *p++=0xff; *p=0xe3;
     const std::int32_t to_pad=pad-(call+5); std::memcpy(image+call+1,&to_pad,4);
+    if (!route_call(image,size,0x1b4adb3,kTitleFinalize,0x1b49ac0,reinterpret_cast<void*>(&TitleFinalize)))
+        host_log("pc-options: the title menu's Quit Game left out (bytes differ from verified 1.09)");
     g_installed=true;
     host_log("pc-options: native System pages installed (%u local assets): Enhancements%s%s",installed,graphics_page?", Graphics / Effects / Colour":"",camera_page?", Camera":"");
     return true;

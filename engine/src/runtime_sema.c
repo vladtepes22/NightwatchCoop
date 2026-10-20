@@ -19,6 +19,7 @@ typedef struct Sema {
     int32_t count, initial, maximum;
     unsigned active;
     int deleted;
+    char name[32]; /* the guest's, for the freeze report */
     Waiter *first;
     struct Sema *next;
 } Sema;
@@ -43,6 +44,7 @@ static ABI int32_t sem_create(uint32_t *out,const char *name,uint32_t attr,
     host_lock(&lock);
     if (next_id==UINT32_MAX) { host_unlock(&lock); free(s); return ERR(28); }
     s->id=next_id++; s->attr=attr; s->count=s->initial=initial; s->maximum=maximum;
+    snprintf(s->name,sizeof s->name,"%s",name);
     s->next=registry; registry=s; *out=s->id; ++created;
     printf("Runtime: semaphore id=%u, attr=%u, initial=%d, max=%d\n",s->id,attr,initial,maximum);
     host_unlock(&lock);
@@ -75,6 +77,7 @@ static int32_t wait_count(uint32_t id,int32_t need,uint32_t *timeout,int block) 
         while (*tail) tail=&(*tail)->next;
         *tail=&w; ++s->active;
         const uint64_t wait_start=runtime_wait_clock();
+        const int slot=runtime_block_begin(RUNTIME_BLOCK_SEMA,id);
         uint64_t deadline=timeout ? now_ns()+(uint64_t)*timeout*1000 : 0;
         while (!w.done) {
 #ifdef _WIN32
@@ -94,6 +97,7 @@ static int32_t wait_count(uint32_t id,int32_t need,uint32_t *timeout,int block) 
                 *p=w.next; w.result=ERR(60); w.done=1; ++timed_out;
             } else if (e!=ETIMEDOUT) host_check(e);
         }
+        runtime_block_end(slot);
         runtime_wait_note(2,runtime_wait_clock()-wait_start);
         result=w.result;
         if (!result) ++acquired;
@@ -163,6 +167,17 @@ static ABI int32_t sem_delete(uint32_t id) {
     if (!s->active) free(s);
     host_unlock(&lock);
     return 0;
+}
+/* The freeze report: the semaphore's name, count and waiters in order (host thread ids). */
+void runtime_sema_describe(uint32_t id,char *out,size_t size) {
+    host_lock(&lock);
+    Sema *s=find(id);
+    if (!s) snprintf(out,size,"semaphore %u (deleted)",id);
+    else {
+        int n=snprintf(out,size,"semaphore %u '%s', count %d of %d, waiters needing",id,s->name,s->count,s->maximum);
+        for (Waiter *w=s->first;w && n>0 && (size_t)n<size;w=w->next) n+=snprintf(out+n,size-(size_t)n," %d",w->need);
+    }
+    host_unlock(&lock);
 }
 /* Read-only test/diagnostic snapshot, not exposed to guest code. */
 unsigned runtime_sema_waiters(uint32_t id) {

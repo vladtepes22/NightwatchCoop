@@ -85,12 +85,12 @@ class NativeUiTests(unittest.TestCase):
     def test_output_other_than_1080p_scales_the_scene(self):
         self.assertIsNone(scaled_sizes({'output_res': '1920x1080', 'preset': '2'}))
         # Steam Deck: below 1080p the scene is still the preset's fraction of the output.
-        for preset, expected in [(0, (1280, 720)), (2, (752, 424)), (4, (426, 240))]:
+        for preset, expected in [(0, (1280, 720)), (2, (752, 424)), (4, (428, 240))]:
             with self.subTest(preset=preset):
                 self.assertEqual(scaled_sizes({'output_res': '1280x720', 'preset': str(preset)}),
                                  (expected, (1280, 720)))
         self.assertEqual(scaled_sizes({'output_res': '3840x2160', 'preset': '3'}),
-                         ((1916, 1078), (3840, 2160)))
+                         ((1916, 1076), (3840, 2160)))
         # TAA is native-only and uses the live host targets.
         self.assertIsNone(scaled_sizes({'output_res': '1280x720', 'upscaler': 'taa', 'preset': '3'}))
 
@@ -359,7 +359,18 @@ class FrameRateFixTests(unittest.TestCase):
     def test_uncapped_keeps_its_list_but_the_effects(self):
         writes = patches.compile_patches(XML, ['Uncap FPS++'], '01.09', self.WIDE)
         fixed = patches.frame_rate_fixes(writes, None)
-        self.assertEqual(fixed, [w for w in writes if w[0] + EBOOT_BASE not in patches.EFFECT_RATE_SITES])
+        at, _was, now = patches.EFFECT_STEP_SECOND
+        self.assertEqual(fixed, [w for w in writes if w[0] + EBOOT_BASE not in patches.EFFECT_RATE_SITES] +
+                         [(at - EBOOT_BASE, now)])
+
+    def test_status_effects_follow_the_frame_time_twice(self):
+        # Issue 15: the second advance of a character's effects (0x1cbc50d) reads the frame's
+        # time wherever a list points the first (0x1cbc4f7) at it; the list's own 1/60 was right at 60 only.
+        at, _was, now = patches.EFFECT_STEP_SECOND
+        for name in ('60 FPS++', '90 FPS++', 'Uncap FPS++'):
+            writes = patches.compile_patches(XML, [name], '01.09', self.WIDE)
+            self.assertIn((at - EBOOT_BASE, now), patches.frame_rate_fixes(writes, 120))
+        self.assertEqual(patches.frame_rate_fixes([], 60), [])
 
 
 class RenderPoolTests(unittest.TestCase):

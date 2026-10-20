@@ -47,7 +47,9 @@ typedef struct {
 _Static_assert(sizeof(GuestStat)==120,"FreeBSD stat layout");
 
 typedef struct { char *names; size_t count, *offsets; unsigned char *types; } Listing;
-typedef struct { int used, host, dirty; Listing *dir; size_t position; char path[512]; char *commit, *temp; } File;
+/* opened_ns/loader: a game file a resource loader thread opened (streaming statistics).
+ * commit/temp/dirty: a save file written through its copy (open_for_commit). */
+typedef struct { int used, host, dirty; Listing *dir; size_t position; uint64_t opened_ns; int loader; char path[512]; char *commit, *temp; } File;
 typedef struct { char guest[64]; char host[512]; } Mount;
 static File files[MAX_FILES];
 static Mount mounts[MAX_MOUNTS];
@@ -119,9 +121,11 @@ void runtime_file_save_activity(uint64_t *generation,int *open_writes) {
     *open_writes=n+__atomic_load_n(&pending_save_commits,__ATOMIC_SEQ_CST);
 }
 const char *runtime_file_user_dir(void) { return user_root; }
+static void stream_configure(const char *app0);
 void runtime_file_configure(const char *app0,const char *user) {
     bbnet_configure(app0,user);
     char path[600];
+    stream_configure(app0);
     snprintf(user_root,sizeof(user_root),"%s",user);
     runtime_file_mount("/app0",app0);
     runtime_file_mount("/hostapp",app0);
@@ -328,6 +332,220 @@ static int commit_file(const File *f) {
     sync_directory(f->commit);
     return 0;
 }
+/* ---- bbport: streaming (the game's resource loader threads, Core.Res.*) ----
+ * Bloodborne streams map parts, textures and characters on Core.Res.CacheableFileLoader with
+ * blocking reads, one file after another; Core.Res.PostProcessor_N decompress (DCX) in guest code.
+ * Sampled in play (user log, beta 8): CacheableFileLoader 75-100% of its time in NtReadFile for
+ * minutes while walking, the PostProcessors 85-99% idle: reads, not the CPU, hold streaming up.
+ * On a hard disk each file is a seek (~10 ms); the PS4 read its packed image with fewer.
+ *
+ * BB_FILE_SEQUENTIAL (auto: on when the game's disk has a seek penalty, i.e. a hard disk; 0/1):
+ *   game files opened read-only with the sequential-scan hint: Windows reads ahead more and
+ *   earlier (the archives' neighbouring entries come with one seek).
+ * BB_FILE_PREFETCH (auto: on a hard disk; 0/1): when a loader opens a file in a map area folder
+ *   (map/mAA_BB_CC_DD, map/mAA), one background thread reads that folder's files (each up to
+ *   BB_FILE_PREFETCH_FILE_MB, 32; up to BB_FILE_PREFETCH_MB a folder, 1024) in name order into
+ *   the system file cache, once a session, with low memory priority (its pages are dropped from
+ *   the cache first). Big sequential reads instead of one seek per part: the loader's own reads
+ *   of that area are then cache hits. It waits up to 4 ms before each 1 MiB read while a loader
+ *   read is in flight, so the game's reads go first.
+ * Frame stats (BB_FRAME_STATS): the "Streaming:" line, every window with loader file activity. */
+static int stream_hdd=-1; /* the game's disk: 1 seek penalty (hard disk), 0 none, -1 unknown */
+static int stream_sequential, stream_prefetch;
+static uint64_t st_reads, st_bytes, st_read_ns, st_read_max_ns, st_fast_reads, st_opens, st_open_ns,
+                st_requests, st_request_ns, st_request_max_ns, st_other_bytes, st_inflight,
+                pf_files, pf_bytes, pf_dirs, st_window_start;
+static void atomic_max_u64(uint64_t *p,uint64_t v) {
+    uint64_t c=__atomic_load_n(p,__ATOMIC_RELAXED);
+    while (v>c && !__atomic_compare_exchange_n(p,&c,v,1,__ATOMIC_RELAXED,__ATOMIC_RELAXED)) {}
+}
+static int env_mode(const char *name,int automatic) {
+    const char *e=getenv(name);
+    if (e && e[0]=='0') return 0;
+    if (e && e[0]=='1') return 1;
+    return automatic;
+}
+#ifdef _WIN32
+#include <winioctl.h>
+static uint64_t env_mb(const char *name,uint64_t fallback) {
+    const char *e=getenv(name);
+    return (e && *e ? strtoull(e,NULL,10) : fallback)<<20;
+}
+/* IOCTL_STORAGE_QUERY_PROPERTY, StorageDeviceSeekPenaltyProperty (7), standard query: declared
+ * here so older MinGW headers do not matter. */
+typedef struct { DWORD property, query; BYTE extra[4]; } SeekPenaltyQuery;
+typedef struct { DWORD version, size; BOOLEAN incurs_seek_penalty; } SeekPenaltyAnswer;
+static int seek_penalty(const char *path) {
+    char volume[MAX_PATH];
+    if (!GetVolumePathNameA(path,volume,sizeof(volume))) return -1;
+    size_t n=strlen(volume);
+    if (n && (volume[n-1]=='\\' || volume[n-1]=='/')) volume[--n]=0;
+    if (n!=2 || volume[1]!=':') return -1; /* a mounted folder or network path: not asked */
+    const char device[]={'\\','\\','.','\\',volume[0],':',0}; /* \\.\E: */
+    HANDLE h=CreateFileA(device,0,FILE_SHARE_READ|FILE_SHARE_WRITE,NULL,OPEN_EXISTING,0,NULL);
+    if (h==INVALID_HANDLE_VALUE) return -1;
+    SeekPenaltyQuery query={7,0,{0}};
+    SeekPenaltyAnswer answer={0,0,0};
+    DWORD got=0;
+    BOOL ok=DeviceIoControl(h,IOCTL_STORAGE_QUERY_PROPERTY,&query,sizeof(query),&answer,sizeof(answer),&got,NULL);
+    CloseHandle(h);
+    return ok && got>offsetof(SeekPenaltyAnswer,incurs_seek_penalty) ? answer.incurs_seek_penalty!=0 : -1;
+}
+
+enum { PF_QUEUE=32, PF_SEEN=1024, PF_CHUNK=1<<20 };
+static HostMutex pf_lock=HOST_MUTEX_INIT;
+static HostCond pf_cond=HOST_COND_INIT;
+static char pf_queue[PF_QUEUE][520];
+static unsigned pf_head, pf_tail, pf_seen_count;
+static uint64_t pf_seen[PF_SEEN], pf_dir_cap, pf_file_cap;
+static int pf_started;
+static void prefetch_dir(const char *dir,unsigned char *buffer) {
+    char pattern[600];
+    snprintf(pattern,sizeof(pattern),"%s\\*",dir);
+    WIN32_FIND_DATAA e;
+    HANDLE find=FindFirstFileA(pattern,&e); /* NTFS lists in name order */
+    if (find==INVALID_HANDLE_VALUE) return;
+    uint64_t total=0;
+    /* Folders, and placeholders whose data is not on this disk (a cloud-synced folder). */
+    const DWORD skip=FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_OFFLINE|0x00400000 /* RECALL_ON_DATA_ACCESS */;
+    do {
+        if (e.dwFileAttributes & skip) continue;
+        const uint64_t size=((uint64_t)e.nFileSizeHigh<<32)|e.nFileSizeLow;
+        if (!size || size>pf_file_cap) continue;
+        if (total+size>pf_dir_cap) break;
+        char path[900];
+        snprintf(path,sizeof(path),"%s\\%s",dir,e.cFileName);
+        HANDLE f=CreateFileA(path,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,
+                             OPEN_EXISTING,FILE_FLAG_SEQUENTIAL_SCAN,NULL);
+        if (f==INVALID_HANDLE_VALUE) continue;
+        for (;;) {
+            /* The game's reads first: a little wait while a loader read is in flight. */
+            for (int i=0;i<4 && __atomic_load_n(&st_inflight,__ATOMIC_RELAXED);++i) Sleep(1);
+            DWORD n=0;
+            if (!ReadFile(f,buffer,PF_CHUNK,&n,NULL) || !n) break;
+            __atomic_add_fetch(&pf_bytes,n,__ATOMIC_RELAXED);
+            if (n<PF_CHUNK) break;
+        }
+        CloseHandle(f);
+        __atomic_add_fetch(&pf_files,1,__ATOMIC_RELAXED);
+        total+=size;
+    } while (FindNextFileA(find,&e));
+    FindClose(find);
+    __atomic_add_fetch(&pf_dirs,1,__ATOMIC_RELAXED);
+}
+static void *prefetch_main(void *unused) {
+    (void)unused;
+    runtime_win_set_thread_name("bb:Prefetch");
+    SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_BELOW_NORMAL);
+    /* Low memory priority (ThreadMemoryPriority = 0, MEMORY_PRIORITY_LOW = 2): what it reads
+     * leaves the file cache before the game's other cached pages. */
+    typedef BOOL (WINAPI *SetInfo)(HANDLE,int,LPVOID,DWORD);
+    SetInfo set_info=(SetInfo)(void *)GetProcAddress(GetModuleHandleA("kernel32.dll"),"SetThreadInformation");
+    if (set_info) { ULONG priority=2; set_info(GetCurrentThread(),0,&priority,sizeof(priority)); }
+    unsigned char *buffer=malloc(PF_CHUNK);
+    if (!buffer) return NULL;
+    char dir[520];
+    for (;;) {
+        host_lock(&pf_lock);
+        while (pf_head==pf_tail) host_cond_wait(&pf_cond,&pf_lock);
+        memcpy(dir,pf_queue[pf_head%PF_QUEUE],sizeof(dir));
+        ++pf_head;
+        host_unlock(&pf_lock);
+        prefetch_dir(dir,buffer);
+    }
+    return NULL;
+}
+/* A loader opened `host` (guest path `guest`): its folder is queued once if it is a map area's. */
+static void prefetch_note(const char *guest,const char *host) {
+    const char *m=strstr(guest,"/map/m");
+    if (!m || !strchr(m+5,'/')) return; /* map/mXX.../file only */
+    const char *slash=strrchr(host,'/'), *back=strrchr(host,'\\');
+    if (back>slash) slash=back;
+    if (!slash || (size_t)(slash-host)>=sizeof(pf_queue[0])) return;
+    uint64_t h=0xcbf29ce484222325ull;
+    for (const char *p=host;p<slash;++p) h=(h^(unsigned char)(*p=='/' ? '\\' : *p))*0x100000001b3ull;
+    host_lock(&pf_lock);
+    for (unsigned i=0;i<pf_seen_count;++i) if (pf_seen[i]==h) { host_unlock(&pf_lock); return; }
+    if (pf_seen_count==PF_SEEN || pf_tail-pf_head==PF_QUEUE) { host_unlock(&pf_lock); return; }
+    pf_seen[pf_seen_count++]=h;
+    char *slot=pf_queue[pf_tail%PF_QUEUE];
+    memcpy(slot,host,(size_t)(slash-host)); slot[slash-host]=0;
+    for (char *p=slot;*p;++p) if (*p=='/') *p='\\';
+    ++pf_tail;
+    int start=!pf_started; pf_started=1;
+    host_cond_signal(&pf_cond);
+    host_unlock(&pf_lock);
+    if (start) {
+        HostThread t;
+        if (!host_thread_start(&t,256*1024,prefetch_main,NULL)) host_thread_detach(t);
+    }
+}
+#else
+static int seek_penalty(const char *path) { (void)path; return -1; }
+static void prefetch_note(const char *guest,const char *host) { (void)guest; (void)host; }
+#endif
+static void stream_configure(const char *app0) {
+    stream_hdd=seek_penalty(app0);
+    stream_sequential=env_mode("BB_FILE_SEQUENTIAL",stream_hdd==1);
+    stream_prefetch=env_mode("BB_FILE_PREFETCH",stream_hdd==1);
+#ifdef _WIN32
+    pf_dir_cap=env_mb("BB_FILE_PREFETCH_MB",1024);
+    pf_file_cap=env_mb("BB_FILE_PREFETCH_FILE_MB",32);
+#else
+    stream_sequential=stream_prefetch=0;
+#endif
+    st_window_start=host_monotonic_ns();
+    printf("Streaming: game files on %s; read-ahead hint %s (BB_FILE_SEQUENTIAL), map area prefetch %s (BB_FILE_PREFETCH)\n",
+           stream_hdd==1 ? "a hard disk (seek penalty): models and textures load late while walking; an SSD loads them several times faster"
+           : stream_hdd==0 ? "a solid-state disk" : "a disk of unknown type",
+           stream_sequential ? "on" : "off", stream_prefetch ? "on" : "off");
+}
+void runtime_file_stream_report(void) {
+    const uint64_t now=host_monotonic_ns();
+    const uint64_t start=__atomic_exchange_n(&st_window_start,now,__ATOMIC_RELAXED);
+    const double window=start && now>start ? (now-start)/1e9 : 5.0;
+    const uint64_t reads=__atomic_exchange_n(&st_reads,0,__ATOMIC_RELAXED),
+                   bytes=__atomic_exchange_n(&st_bytes,0,__ATOMIC_RELAXED),
+                   read_ns=__atomic_exchange_n(&st_read_ns,0,__ATOMIC_RELAXED),
+                   read_max=__atomic_exchange_n(&st_read_max_ns,0,__ATOMIC_RELAXED),
+                   fast=__atomic_exchange_n(&st_fast_reads,0,__ATOMIC_RELAXED),
+                   opens=__atomic_exchange_n(&st_opens,0,__ATOMIC_RELAXED),
+                   open_ns=__atomic_exchange_n(&st_open_ns,0,__ATOMIC_RELAXED),
+                   requests=__atomic_exchange_n(&st_requests,0,__ATOMIC_RELAXED),
+                   request_ns=__atomic_exchange_n(&st_request_ns,0,__ATOMIC_RELAXED),
+                   request_max=__atomic_exchange_n(&st_request_max_ns,0,__ATOMIC_RELAXED),
+                   other=__atomic_exchange_n(&st_other_bytes,0,__ATOMIC_RELAXED),
+                   prefetched=__atomic_exchange_n(&pf_bytes,0,__ATOMIC_RELAXED),
+                   prefetched_files=__atomic_exchange_n(&pf_files,0,__ATOMIC_RELAXED);
+    if (!reads && !opens && !prefetched) return;
+    printf("Streaming: loaders read %.1f MB/s (%llu reads, %.0f KiB avg, %.2f ms avg, longest %.1f ms, %.0f%% under 1 ms; "
+           "reading %.0f%% of the time); %llu files opened (%.2f ms to open), %llu closed %.1f ms after opening (longest %.0f ms); "
+           "other threads %.1f MB/s; prefetch %.1f MB/s (%llu files, %llu folders so far)%s\n",
+           bytes/(window*1e6),(unsigned long long)reads,reads ? bytes/1024.0/reads : 0.0,reads ? read_ns/1e6/reads : 0.0,
+           read_max/1e6,reads ? 100.0*fast/reads : 0.0,100.0*read_ns/(window*1e9),
+           (unsigned long long)opens,opens ? open_ns/1e6/opens : 0.0,
+           (unsigned long long)requests,requests ? request_ns/1e6/requests : 0.0,request_max/1e6,
+           other/(window*1e6),prefetched/(window*1e6),(unsigned long long)prefetched_files,
+           (unsigned long long)__atomic_load_n(&pf_dirs,__ATOMIC_RELAXED),
+           stream_hdd==1 ? "; game on a hard disk" : "");
+}
+/* Around a host read on a game file descriptor: in-flight count for the prefetcher, times. */
+static uint64_t stream_read_begin(int loader) {
+    if (!loader) return 0;
+    __atomic_add_fetch(&st_inflight,1,__ATOMIC_RELAXED);
+    return host_monotonic_ns();
+}
+static void stream_read_end(int loader,uint64_t start,int64_t n) {
+    if (!loader) { if (n>0) __atomic_add_fetch(&st_other_bytes,(uint64_t)n,__ATOMIC_RELAXED); return; }
+    const uint64_t ns=host_monotonic_ns()-start;
+    __atomic_sub_fetch(&st_inflight,1,__ATOMIC_RELAXED);
+    __atomic_add_fetch(&st_reads,1,__ATOMIC_RELAXED);
+    if (n>0) __atomic_add_fetch(&st_bytes,(uint64_t)n,__ATOMIC_RELAXED);
+    __atomic_add_fetch(&st_read_ns,ns,__ATOMIC_RELAXED);
+    if (ns<1000000) __atomic_add_fetch(&st_fast_reads,1,__ATOMIC_RELAXED);
+    atomic_max_u64(&st_read_max_ns,ns);
+}
+static int fd_is_loader(int fd) { File *f=get(fd); return f && f->loader; }
 
 /* All operations return >=0 or -(host errno); wrappers adapt the convention. */
 static int64_t do_open(const char *guest,int flags,int mode) {
@@ -342,6 +560,9 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     Listing *dir=NULL;
     int host=-1;
     const int dirty_on_open = (flags&0x400) || ((flags&0x200) && host_stat(current,&s));
+    const int game_read=game_path(guest) && !(flags&3);
+    const int loader=game_read && runtime_thread_is_loader();
+    const uint64_t open_start=host_monotonic_ns();
 #ifdef _WIN32
     /* Windows cannot open a directory as a descriptor: list it, keep no host descriptor. */
     if (!host_stat(current,&s) && S_ISDIR(s.st_mode)) {
@@ -354,7 +575,13 @@ static int64_t do_open(const char *guest,int flags,int mode) {
         host=open_for_commit(path,current,flags,mode,&commit,&temp);
         save_changed();
         if (host<0) { errno=-host; host=-1; }
-    } else host=open_host(current,host_flags(flags),mode ? mode : 0644,save_path(guest));
+    } else {
+        int hflags=host_flags(flags);
+#ifdef _O_SEQUENTIAL
+        if (game_read && stream_sequential) hflags|=_O_SEQUENTIAL;
+#endif
+        host=open_host(current,hflags,mode ? mode : 0644,save_path(guest));
+    }
     if (host<0) {
         e=errno;
         if (e==ENOENT) { ++missing; printf("Runtime: open(%s) -> not found\n",guest); }
@@ -362,11 +589,16 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     }
     if (!host_fstat(host,&s) && S_ISDIR(s.st_mode)) dir=list_directory(path);
     }
+    if (loader && !dir) {
+        __atomic_add_fetch(&st_opens,1,__ATOMIC_RELAXED);
+        __atomic_add_fetch(&st_open_ns,host_monotonic_ns()-open_start,__ATOMIC_RELAXED);
+        if (stream_prefetch) prefetch_note(guest,path);
+    }
     host_lock(&lock);
     int fd=-1;
     for (int i=3;i<MAX_FILES;++i) if (!files[i].used) { fd=i; break; }
     if (fd<0) { host_unlock(&lock); if (host>=0) close(host); free_listing(dir); if (temp) unlink(temp); free(commit); free(temp); return -EMFILE; }
-    files[fd]=(File){.used=1,.host=host,.dir=dir,.commit=commit,.temp=temp,.dirty=!!dirty_on_open};
+    files[fd]=(File){.used=1,.host=host,.dir=dir,.opened_ns=open_start,.loader=loader && !dir,.commit=commit,.temp=temp,.dirty=!!dirty_on_open};
     snprintf(files[fd].path,sizeof(files[fd].path),"%s",guest);
     ++opens;
     host_unlock(&lock);
@@ -391,6 +623,12 @@ static int64_t do_close(int fd) {
     if (!f) { host_unlock(&lock); return -EBADF; }
     File closed=*f;
     if (closed.temp) __atomic_add_fetch(&pending_save_commits,1,__ATOMIC_SEQ_CST);
+    if (f->loader) {
+        const uint64_t ns=host_monotonic_ns()-f->opened_ns;
+        __atomic_add_fetch(&st_requests,1,__ATOMIC_RELAXED);
+        __atomic_add_fetch(&st_request_ns,ns,__ATOMIC_RELAXED);
+        atomic_max_u64(&st_request_max_ns,ns);
+    }
     *f=(File){0};
     host_unlock(&lock);
     free_listing(closed.dir);
@@ -471,8 +709,11 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
     if (h<0) return get(fd) ? -EISDIR : -EBADF;
     runtime_memory_note_write((uintptr_t)buffer,size);
     touch_for_write(buffer,size);
+    const int loader=fd_is_loader(fd);
+    const uint64_t start=stream_read_begin(loader);
     ssize_t n=read(h,buffer,size);
     if (n<0 && size && runtime_memory_guest_writable((uintptr_t)buffer,size)) n=read_bounced(h,buffer,size,-1);
+    stream_read_end(loader,start,n);
     if (n<0) { int e=errno; note_read_failure(fd,size,-1,e); return -e; }
     if (n>0) runtime_memory_note_write((uintptr_t)buffer,(uint64_t)n); /* and once the data is there */
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
@@ -483,8 +724,11 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     if (h<0) return get(fd) ? -EISDIR : -EBADF;
     runtime_memory_note_write((uintptr_t)buffer,size);
     touch_for_write(buffer,size);
+    const int loader=fd_is_loader(fd);
+    const uint64_t start=stream_read_begin(loader);
     ssize_t n=pread(h,buffer,size,offset);
     if (n<0 && size && offset>=0 && runtime_memory_guest_writable((uintptr_t)buffer,size)) n=read_bounced(h,buffer,size,offset);
+    stream_read_end(loader,start,n);
     if (n<0) { int e=errno; note_read_failure(fd,size,offset,e); return -e; }
     if (n>0) runtime_memory_note_write((uintptr_t)buffer,(uint64_t)n); /* and once the data is there */
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);

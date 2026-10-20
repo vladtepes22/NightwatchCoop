@@ -211,11 +211,17 @@ Sample Get(bool cpu, bool gpu) {
         return last;
     }
     next = now + std::chrono::milliseconds(500);
-    // One PDH collection gives both; the CPU figure falls back to GetSystemTimes.
+    // The CPU figure is the share of time the processors were busy (GetSystemTimes), as Task
+    // Manager shows it now. "% Processor Utility" also scales by the clock against the base
+    // clock: a boosting CPU read 100% at 70% busy. BB_CPU_UTILITY=1: that counter instead.
+    static const bool utility = [] {
+        const char* env = std::getenv("BB_CPU_UTILITY");
+        return env && env[0] == '1';
+    }();
     const float gpu_now = counter.Percent();
     const float system_cpu = CpuPercent();
     if (cpu) {
-        last.cpu = counter.cpu >= 0.0f ? counter.cpu : system_cpu;
+        last.cpu = utility && counter.cpu >= 0.0f ? counter.cpu : system_cpu;
     }
     if (gpu) {
         last.gpu = gpu_now;

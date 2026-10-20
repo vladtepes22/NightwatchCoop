@@ -188,9 +188,11 @@ bool Install(std::uint8_t* image,std::size_t size) {
     if (size<at+sizeof prologue || std::memcmp(image+at,prologue,sizeof prologue)) return false;
     char resolved[512]{}; std::error_code ec;
     const std::string guest=std::string("/app0/")+kArchive;
+    const char* merged=std::getenv("BB_GAME_MERGED");
     if (runtime_file_translate(guest.c_str(),resolved,sizeof resolved) ||
-        !fs::equivalent(fs::u8path(resolved),fs::u8path(game)/kArchive,ec) || ec ||
-        !fs::is_regular_file(fs::u8path(asset)) || runtime_file_mount(guest.c_str(),asset)) return false;
+        !(fs::equivalent(fs::path(resolved),fs::path(game)/kArchive,ec) ||
+          (merged && *merged && fs::equivalent(fs::path(resolved),fs::path(merged)/kArchive,ec))) ||
+        !fs::is_regular_file(fs::path(asset)) || runtime_file_mount(guest.c_str(),asset)) return false;
     g_slide=reinterpret_cast<std::uint64_t>(image);
     g_watch=menu_steps_watch(7,u"LevelUp");
     if (g_watch<0) { runtime_file_unmount(guest.c_str());return false; }

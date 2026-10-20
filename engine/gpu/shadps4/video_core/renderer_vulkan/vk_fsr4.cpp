@@ -516,4 +516,9 @@ bool Fsr4Upscaler::Fatal() const noexcept {
     return impl->fatal;
 }
 
+void Fsr4Upscaler::ClearFailure() noexcept {
+    impl->fatal = false;
+    impl->problem.clear();
+}
+
 } // namespace Vulkan

@@ -5,6 +5,11 @@ Other versions start and then fail inside the game's code (the base game 1.00 fa
 offset 0x20348b8): hooks and patches use the addresses of this one executable. The check compares
 the loaded executable image, whose hash is the same whatever tool dumped it (the SELF headers
 around it differ). BB_SKIP_GAME_CHECK=1 skips it.
+
+An image that differs from 1.09's in a few places only (a 1.09 eboot with byte patches, such as
+the 60 FPS packages) starts with a warning: image_109_hashes.txt holds a hash of each 64 KiB of the
+1.09 image, and every engine hook and patch checks its own bytes before it writes. More than
+PATCHED_CHUNKS pieces differing is another version or a bad dump.
 """
 import hashlib
 import os
@@ -13,6 +18,22 @@ from pathlib import Path
 SUPPORTED_TITLE = 'CUSA03173'
 SUPPORTED_VERSION = '01.09'
 SUPPORTED_IMAGE = '071df19c8880086d97182dbc057bc8cb37badaca57d9112683836b24a0444c0a'
+CHUNK = 1 << 16
+PATCHED_CHUNKS = 32
+
+
+def differing_chunks(image):
+    """How many 64 KiB pieces of `image` differ from the 1.09 image; None when its size differs or
+    the list is missing."""
+    try:
+        lines = (Path(__file__).with_name('image_109_hashes.txt')).read_text(encoding='utf-8').split()
+    except OSError:
+        return None
+    expected = [line for line in lines if len(line) == 16]
+    if (len(image) + CHUNK - 1) // CHUNK != len(expected):
+        return None
+    return sum(hashlib.sha256(image[i * CHUNK:(i + 1) * CHUNK]).hexdigest()[:16] != want
+               for i, want in enumerate(expected))
 
 
 def image_sha256(game):
@@ -26,7 +47,7 @@ def image_sha256(game):
     return hashlib.sha256(image).hexdigest()
 
 
-def problem(game, image_hash=None):
+def problem(game, image_hash=None, image=None):
     """None for the supported game, else (kind, title, version): kind is 'missing_update' (base
     game or an older update), 'wrong_eboot' (param.sfo says 1.09, eboot.bin is another version),
     'other_title' (another edition or region) or 'unreadable'."""
@@ -43,6 +64,11 @@ def problem(game, image_hash=None):
             return None
     except (OSError, ValueError, IndexError, StopIteration, KeyError):
         return 'unreadable', title, version
+    if image is not None and (n := differing_chunks(image)) is not None and n <= PATCHED_CHUNKS:
+        print(f'Game check: eboot.bin is 1.09 with {n} of {(len(image) + CHUNK - 1) // CHUNK} '
+              '64 KiB pieces changed (a patched eboot, e.g. a 60 FPS package); starting anyway. '
+              'If the game crashes, use the clean eboot.bin from the dumped 1.09 update.')
+        return None
     if title != SUPPORTED_TITLE:
         return 'other_title', title, version
     if version != SUPPORTED_VERSION:

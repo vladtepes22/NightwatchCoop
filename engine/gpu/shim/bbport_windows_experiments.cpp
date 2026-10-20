@@ -20,11 +20,6 @@ void Install(const Vulkan::Instance&) {
 const Chunk* Find(std::uint64_t) { return nullptr; }
 }
 namespace BbGuestHooks { void Install(RangeCallback) {} }
-namespace BbGnmHooks {
-void PatchImage(unsigned char*, std::uint64_t) {}
-void CheckSubmission(const std::uint32_t*, std::uint64_t) {}
-DriverWrite::~DriverWrite() = default;
-}
 namespace BbFreeCheck {
 bool Enabled() { return false; }
 void Check(std::uint64_t, std::uint64_t, const void*, Source, std::uint64_t) {}

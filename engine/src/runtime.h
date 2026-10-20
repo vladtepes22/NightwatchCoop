@@ -65,10 +65,19 @@ void runtime_set_main_tls(const void *data, uint64_t filesz, uint64_t memsz, uin
 void runtime_thread_attach_main(void);
 /* The calling thread runs guest code (it has a guest thread record). */
 int runtime_thread_has_record(void);
+/* The calling thread is one of the game's resource loaders (Core.Res.*). */
+int runtime_thread_is_loader(void);
 int32_t *runtime_errno(void);
 uintptr_t runtime_sema_resolve(const char *name);
 void runtime_sema_report(void);
 unsigned runtime_sema_waiters(uint32_t id);
+/* The freeze report: what blocked guest threads wait for (runtime_blocked.c). */
+enum { RUNTIME_BLOCK_MUTEX = 1, RUNTIME_BLOCK_SEMA = 2, RUNTIME_BLOCK_COND = 3 };
+int runtime_block_begin(int kind, uintptr_t object);
+void runtime_block_end(int slot);
+void runtime_blocked_report(void);
+void runtime_mutex_describe(uintptr_t mutex, char *out, size_t size);
+void runtime_sema_describe(uint32_t id, char *out, size_t size);
 uintptr_t runtime_time_resolve(const char *name);
 void runtime_content_configure(const uint32_t values[5]);
 uintptr_t runtime_content_resolve(const char *name);
@@ -81,6 +90,8 @@ uintptr_t runtime_kernel_resolve(const char *name);
 uintptr_t runtime_file_resolve(const char *name);
 uintptr_t runtime_services_resolve(const char *name);
 void runtime_file_report(void);
+/* bbport (frame stats): the "Streaming:" line, the loader threads' reads since the last call. */
+void runtime_file_stream_report(void);
 void runtime_file_configure(const char *app0, const char *user);
 int runtime_file_mount(const char *guest, const char *host);
 void runtime_file_unmount(const char *guest);

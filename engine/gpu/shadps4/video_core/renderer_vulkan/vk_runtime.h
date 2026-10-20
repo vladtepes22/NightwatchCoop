@@ -101,6 +101,12 @@ public:
     bool IsBufferAccessed(const VideoCore::Buffer* handle, u64 offset, u64 size,
                           bool check_read_access = false);
 
+    /// bbport (BB_IMAGE_TILE_MEMO): notes GPU writes (AccessBuffer with a write access) over the
+    /// range from now on; the token asks BufferUnwritten. A few ranges at a time, oldest dropped.
+    u64 WatchBufferWrites(const VideoCore::Buffer* handle, u64 offset, u64 size);
+    /// Nothing recorded since WatchBufferWrites wrote the range (false once the watch was dropped).
+    [[nodiscard]] bool BufferUnwritten(u64 token) const;
+
     void FlushBarriers();
 
     /// bbport: runs before this thread changes image state (layouts, pending image
@@ -136,6 +142,13 @@ private:
     };
     std::array<AccessMemo, 512> access_memo{};
     u32 access_epoch = 1;
+    struct BufferWatch {
+        u64 resource = 0, start = 0, end = 0, token = 0;
+        bool written = true;
+    };
+    std::array<BufferWatch, 8> buffer_watches{};
+    u64 next_watch_token = 1;
+    u32 live_watches = 0; ///< watches not written yet: AccessBuffer looks only while nonzero
 };
 
 } // namespace Vulkan

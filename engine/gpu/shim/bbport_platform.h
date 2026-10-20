@@ -24,6 +24,13 @@ struct Memory {
     std::uint64_t free_phys = 0, total_phys = 0, commit_left = 0;
 };
 
+/// Where the game's resident RAM is (bytes): the game's own memory (its PS4 direct and flexible
+/// memory, one mapped section from 0x1000000000), other mapped sections, program and DLL images,
+/// and the private memory of the engine, the driver and the game executable's data.
+struct MemoryBreakdown {
+    std::uint64_t game_pool = 0, mapped = 0, images = 0, priv = 0, shared = 0;
+};
+
 struct Usage {
     std::uint64_t user_us = 0, sys_us = 0, invol_switches = 0, vol_switches = 0, minor_faults = 0;
 };
@@ -33,6 +40,7 @@ struct Usage {
 /// Windows has no per-thread context switch or fault counters: those stay 0 for threads.
 bool GetUsage(bool thread, Usage& out);
 bool GetMemory(Memory& out);
+bool GetMemoryBreakdown(MemoryBreakdown& out);
 /// OS id of the calling thread.
 std::uint32_t CurrentThreadId();
 /// A CPU clock of the calling thread that other threads can read (-1: unavailable): a
@@ -44,8 +52,18 @@ std::uint64_t ReadThreadCpuClockNs(int clock);
 void DescribeAddress(const void* address, char* out, std::size_t size);
 std::size_t CaptureStack(void** frames, std::size_t count);
 bool ReadProcessMemory(const void* source, void* destination, std::size_t size);
+/// Ends the process at once: TerminateProcess on itself. Unlike exit/_exit (ExitProcess), no
+/// DLL_PROCESS_DETACH runs, so the GPU driver does not tear its device down under threads
+/// that were just killed, and no destructors walk the game's GBs of memory.
+[[noreturn]] void TerminateProcessNow(unsigned code);
 #else
+[[noreturn]] inline void TerminateProcessNow(unsigned code) {
+    _exit(static_cast<int>(code));
+}
 inline bool GetMemory(Memory&) {
+    return false;
+}
+inline bool GetMemoryBreakdown(MemoryBreakdown&) {
     return false;
 }
 

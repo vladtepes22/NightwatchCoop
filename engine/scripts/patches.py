@@ -227,6 +227,15 @@ CAMERA_STORES=((0x183FF29,0x183FF6B),(0x1840799,0x18407E6))
 CAMERA_ANGLE,CAMERA_KEPT=0x238,0x1a8
 CAMERA_EASES={0x4D25E68:0.1,0x4D25E94:1/30}
 CAMERA_PARAM_EASE=(0x183A7DE,bytes.fromhex('cdcc4c3d'))  # mov dword [rbx+0x330], 0.05
+# Status effects (GitHub issue 15). A character's effects advance twice a frame: 0x1cbc470 passes
+# its step (the load at 0x1cbc4f7) to the effect update, then calls vtable +0x150 (0x1cc9d90), which
+# advances them again by the step it is given at 0x1cbc50d. The game gives both 1/30 (0x4D27C4C).
+# Every list points the first load at the frame's time (0x575A908, kept by the 60 FPS++ cave) and
+# sets the constant the second reads to 1/60: right at 60 only, so at 90, 120 and 144 effects ran
+# 1.33, 1.5 and 1.6 times as fast (poison ticks, build-up and its decay, buff durations). The
+# second load reads the frame's time too, wherever a list repoints the first.
+EFFECT_STEP_FIRST=0x1CBC4FB
+EFFECT_STEP_SECOND=(0x1CBC511,bytes.fromhex('37b70603'),bytes.fromhex('f3e3a903'))  # vmovss xmm0, [rip+disp]
 
 
 def camera_value(field, value, frames):
@@ -263,6 +272,9 @@ def frame_rate_fixes(writes, fps, elf=None):
             elif a in CAMERA_EASES:
                 data=f(camera_value(None,CAMERA_EASES[a],30/fps))
         out.append((offset,data))
+    at,was,now=EFFECT_STEP_SECOND
+    if any(offset+EBOOT_BASE==EFFECT_STEP_FIRST for offset,_ in out) and             (elf is None or original_bytes(elf,at-EBOOT_BASE,len(was))==was):
+        out.append((at-EBOOT_BASE,now))
     if fps and camera:
         at,was=CAMERA_PARAM_EASE
         if elf is None or original_bytes(elf,at-EBOOT_BASE,len(was))==was:
@@ -297,6 +309,11 @@ EFFECTS={
 # PS4's AMD CPU, so a block the game gates on a computed flag never runs. The community fix runs
 # it always; on by default on Intel. BB_INTEL_TONEMAP_FIX=0/1 forces it off or on.
 INTEL_TONEMAP='Intel Black Tonemap Fix'
+# The effect ribbon writers (0x28ce7b0, 0x28ceec0) still lost their red-zone locals on a 14th gen
+# Intel CPU (GXWorker, guest+0x28cf0d6, Witch of Hemwick) with the stores protected
+# (link_modules.protect_red_zones). BB_SFX_WORKAROUND=1 (the launcher's Extra variables) applies
+# emoose's patch instead: a return at that ribbon type's draw, which then draws no ribbon.
+SFX_WORKAROUND='Intel 12th Gen+ SFX workaround'
 HEAP_PATCH='Increased Graphics Heap Sizes'
 # The game's two per-frame render pools: it makes them at start, 256 KiB each, from its graphics
 # heap (mov edx,0x40000 at these image offsets), and its GX worker threads take each frame's draw
@@ -402,10 +419,13 @@ def scaled_sizes(settings):
     if settings.get('upscaler','fsr3')!='off':
         preset=int(settings.get('preset','0') or 0)
         scale=PRESET_SCALES[max(0,min(preset,len(PRESET_SCALES)-1))]
-    render=tuple(max(2,round(v/scale/2)*2) for v in out)
+    # Multiples of 4: the game's render targets are padded to them, and a scene of 854 got a
+    # 856-wide target whose last columns it never drew - a shimmering line at the right and
+    # bottom edges once upscaled (1708x960, 856x536 at 1440p and 1600p).
+    render=tuple(max(4,round(v/scale/4)*4) for v in out)
     # A scene of exactly 1920x1080 (4K Performance) is indistinguishable from the game's UI
     # coordinate space, which the port's UI composition recognizes by that size.
-    if render==OUTPUT_SIZE: render=(1916,1078)
+    if render==OUTPUT_SIZE: render=(1916,1076)
     return render,out
 
 
@@ -568,6 +588,25 @@ def render_pool_writes(elf):
 
 
 
+# The Old Hunters edition (Kyo's "bb 00900" patch, after droogie/bbhost patches/old-hunters.toml):
+# the locale setup stores the package edition from a call (BN 0x23b6d20, sub_23b8ee0: the tens digit
+# of USER_DEFINED_PARAM_1, 1 on the Game of the Year edition, 0 on the base game). `mov eax, 1` makes
+# the base game the edition that includes the DLC: its title screen, and the DLC's event flag (6899)
+# CSDlc sets from it. With the launcher's DLC switch on (BB_DLC=1, GitHub issue 44).
+EDITION_SITE=(0x1fb6d20,bytes.fromhex('e8bb210000'),bytes.fromhex('b801000000'))
+
+
+def old_hunters_writes(elf):
+    """The edition write, when the DLC switch is on and the executable has the 1.09 call there."""
+    if os.environ.get('BB_DLC')!='1':
+        return []
+    site,was,now=EDITION_SITE
+    if original_bytes(elf,site,len(was))!=was:
+        print('Patches: The Old Hunters edition left alone: this executable differs there',flush=True)
+        return []
+    return [(site,now)]
+
+
 def write_site_table(xml, app_version, elf_path):
     """The site table from a verified 1.09 eboot.elf (every eboot patch of `app_version`)."""
     from engine_assets import EBOOT_SHA, sha
@@ -628,7 +667,7 @@ def external_patches(directory, app_version='01.09', exclude=Path(__file__).reso
 # from patches.json. The launcher hides the same ones (Core/Mods.cs ManagedBuiltIn).
 def managed_builtin(name):
     return (name in {n for names in FPS_PRESETS.values() for n in names} or name in (SCALED_BASE, '30 FPS++',
-            '60FPS (no deltatime)', INTEL_TONEMAP, 'Intel 12th Gen+ SFX workaround') or
+            '60FPS (no deltatime)', INTEL_TONEMAP, SFX_WORKAROUND) or
             name in {n for pair in EFFECTS.values() for n in pair if n} or name in MODEL_LOD.values() or
             name.startswith('Resolution Patch'))
 
@@ -782,6 +821,8 @@ def main():
     if party_mode():
         names=[n for n in names if n not in (DISABLE_HTTP,SKIP_NETWORK_CHOICE)]
         names += [n for n in party_patches() + [SKIP_NETWORK_CHOICE_ONLINE] if n not in names]
+    if os.environ.get('BB_SFX_WORKAROUND')=='1' and SFX_WORKAROUND not in names:
+        names.append(SFX_WORKAROUND)
     validate_patch_requirements(names,a.game_dir)
     elf=(a.out/'eboot.elf').read_bytes()
     segments=eboot_segments(elf)
@@ -799,6 +840,7 @@ def main():
         print(f'Patches: {a.fps} FPS: {SCALED_BASE} with its frame-rate values for {a.fps}')
     if preset and preset[0] in names:
         writes=frame_rate_fixes(writes,{'60':60,'90':90,**SCALED_FPS}.get(a.fps),elf)
+    writes+=old_hunters_writes(elf)
     pools=render_pool_writes(elf)
     if pools:
         writes+=pools

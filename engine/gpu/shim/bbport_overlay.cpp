@@ -561,8 +561,8 @@ void Menu() {
                 label, sizeof(label),
                 BbSettings::MenuText("%s (x%.1f, render %dx%d)", "%s (x%.1f, рендер %dx%d)"),
                 BbSettings::PresetName(i), scale,
-                int(std::lround(BbSettings::OutputWidth(output) / scale / 2) * 2),
-                int(std::lround(BbSettings::OutputHeight(output) / scale / 2) * 2));
+                int(std::lround(BbSettings::OutputWidth(output) / scale / 4) * 4),
+                int(std::lround(BbSettings::OutputHeight(output) / scale / 4) * 4));
             if (ImGui::Selectable(label, i == preset)) {
                 Store(s.preset, i, true);
             }
@@ -646,10 +646,13 @@ void Menu() {
     ImGui::EndDisabled(); // upscaler off
 
     ImGui::SeparatorText(BbSettings::MenuText("Output resolution", "Разрешение вывода"));
-    static const char* outputs[] = {"1280 x 720", "1920 x 1080", "2560 x 1440", "3840 x 2160",
+    static const char* outputs[] = {"1280 x 720", "1600 x 900", "1920 x 1080", "2560 x 1440", "3840 x 2160",
         "2560 x 1080", "3440 x 1440", "3840 x 1600", "3840 x 1080", "5120 x 1440", "5120 x 2160",
-        "7680 x 2160", "Display (auto)"};
+        "7680 x 2160", "Display (auto)", "Custom"};
     static_assert(std::size(outputs)==BbSettings::OutputCount);
+    static char custom[48];
+    std::snprintf(custom, sizeof custom, "Custom (%d x %d)", s.custom_output_w, s.custom_output_h);
+    outputs[BbSettings::OutputCustom] = custom;
     int output = s.output_res;
     if (ImGui::BeginCombo(BbSettings::MenuText("Output resolution", "Разрешение вывода"),
                           outputs[output])) {
@@ -840,11 +843,14 @@ void Menu() {
     Checkbox(BbSettings::MenuText("FPS counter in corner", "Счётчик FPS в углу"), s.show_fps);
     if (s.show_fps) {
         ImGui::Indent();
+        // Its own ID scope: "Upscaler" here would clash with the upscaler choice above.
+        ImGui::PushID("fps_counter");
         Checkbox(BbSettings::MenuText("Frame rate", "Частота кадров"), s.show_fps_rate);
         Checkbox(BbSettings::MenuText("Frame time", "Время кадра"), s.show_fps_frame_time);
         Checkbox(BbSettings::MenuText("Upscaler", "Апскейлер"), s.show_fps_upscaler);
         Checkbox(BbSettings::MenuText("CPU usage", "Загрузка ЦП"), s.show_fps_cpu);
         Checkbox(BbSettings::MenuText("GPU usage", "Загрузка ГП"), s.show_fps_gpu);
+        ImGui::PopID();
         ImGui::Unindent();
     }
     Checkbox(BbSettings::MenuText("Hide mouse cursor", "Скрывать курсор мыши"), s.hide_cursor);
@@ -859,8 +865,12 @@ void Menu() {
     // force-close the game. Asks once more before quitting; the game's own save is untouched.
     static bool quit_armed = false;
     ImGui::SameLine();
-    if (ImGui::Button(quit_armed ? BbSettings::MenuText("Press again to quit", "Нажмите ещё раз")
-                                 : BbSettings::MenuText("Quit game", "Выйти из игры"))) {
+    // One ID for both labels ("###quit"): a label change made it a new button, and a controller's
+    // focus stayed on the old one, so the confirmation was dropped before the second press.
+    const std::string quit_label =
+        std::string(quit_armed ? BbSettings::MenuText("Press again to quit", "Нажмите ещё раз")
+                               : BbSettings::MenuText("Quit game", "Выйти из игры")) + "###quit";
+    if (ImGui::Button(quit_label.c_str())) {
         if (quit_armed) {
             SDL_Event quit{};
             quit.type = SDL_EVENT_QUIT;
@@ -957,6 +967,19 @@ void SetTextPrompt(bool active, const std::string& prompt, const std::string& te
     prompt_active = active;
 }
 
+/// bbport: what opens this menu (BB_OVERLAY_KEYS, the launcher's "In-game menu shortcut"): "both"
+/// (Insert and L3+R3, the default), "insert" (a controller can't open it by accident: L3 and R3
+/// pressed together in a fight did) or "off" (only the game's own PC menus).
+enum class OverlayKeys { Both, Insert, Off };
+static OverlayKeys MenuKeys() {
+    static const OverlayKeys keys = [] {
+        const char* env = std::getenv("BB_OVERLAY_KEYS");
+        const std::string value = env ? env : "";
+        return value == "off" ? OverlayKeys::Off : value == "insert" ? OverlayKeys::Insert : OverlayKeys::Both;
+    }();
+    return keys;
+}
+
 void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) {
     std::scoped_lock lock{imgui_mutex};
     if (initialized) {
@@ -966,6 +989,7 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr; // window positions are not kept
+    io.ConfigDebugHighlightIdConflicts = false; // a programmer's warning, not for players
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
     io.BackendPlatformName = "bbport";
@@ -1017,7 +1041,9 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
         return;
     }
     initialized = true;
-    std::printf("Overlay: menu ready (Insert or L3+R3)\n");
+    std::printf("Overlay: menu ready (%s)\n", MenuKeys() == OverlayKeys::Both     ? "Insert or L3+R3"
+                                             : MenuKeys() == OverlayKeys::Insert ? "Insert; L3+R3 off"
+                                                                                 : "shortcuts off");
 }
 
 void UpdateTextInput(SDL_Window* window) {
@@ -1047,7 +1073,8 @@ bool HandleEvent(const SDL_Event& event) {
     case SDL_EVENT_KEY_UP: {
         const bool down = event.type == SDL_EVENT_KEY_DOWN;
         if (down && !event.key.repeat &&
-            (event.key.key == SDLK_INSERT || (is_open && event.key.key == SDLK_ESCAPE))) {
+            ((event.key.key == SDLK_INSERT && (is_open || MenuKeys() != OverlayKeys::Off)) ||
+             (is_open && event.key.key == SDLK_ESCAPE))) {
             SetOpen(event.key.key == SDLK_INSERT ? !is_open : false);
             return true;
         }
@@ -1071,7 +1098,7 @@ bool HandleEvent(const SDL_Event& event) {
         } else if (button == SDL_GAMEPAD_BUTTON_RIGHT_STICK) {
             r3_down = down;
         }
-        if (down && l3_down && r3_down) {
+        if (down && l3_down && r3_down && (is_open || MenuKeys() == OverlayKeys::Both)) {
             SetOpen(!is_open);
             return true;
         }

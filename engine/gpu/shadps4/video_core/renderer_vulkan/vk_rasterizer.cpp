@@ -34,6 +34,7 @@
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/pipeline_compile_queue.h"
+#include "video_core/renderer_vulkan/vk_gpu_savings.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_occlusion.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
@@ -1439,13 +1440,25 @@ void Rasterizer::LookaheadLoop(std::stop_token stop) {
             // Far enough ahead: lines fetched now would be gone before stage B gets there.
             BbStats::lookahead_waits.fetch_add(1, std::memory_order_relaxed);
             const auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(100);
+            // bbport (BB_LOOKAHEAD_SLEEP=0: yields to the end, as before): stage B stuck on one
+            // long packet (a compile, a wait for the GPU or for host copies) kept this thread
+            // yielding on a core of its own; after 1 ms it sleeps in short steps (a prefetcher:
+            // late, it only syncs to stage B again).
+            static const bool sleep_on = GpuSavings::EnvOn("BB_LOOKAHEAD_SLEEP");
+            const auto sleep_after = until + std::chrono::microseconds(900);
             for (u32 spins = 1; number > draw_pipe->ConsumedPackets() + window; ++spins) {
                 if (stop.stop_requested()) {
                     return;
                 }
                 __builtin_ia32_pause();
-                if (!(spins & 255) && std::chrono::steady_clock::now() >= until) {
-                    std::this_thread::yield();
+                if (!(spins & 255)) {
+                    const auto now = std::chrono::steady_clock::now();
+                    if (sleep_on && now >= sleep_after) {
+                        GpuSavings::Get().lookahead_sleeps.fetch_add(1, std::memory_order_relaxed);
+                        std::this_thread::sleep_for(std::chrono::microseconds(250));
+                    } else if (now >= until) {
+                        std::this_thread::yield();
+                    }
                 }
             }
             continue;
@@ -1803,6 +1816,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset, const PreparedDraw* pre
             return;
         }
     }
+    const u32 srt_faults = Shader::Info::srt_walk_faults;
     const GraphicsPipeline* pipeline = pipeline_cache.GetGraphicsPipeline({}, prepared);
     const PreparedDraw* used_prepared = pipeline_cache.UsedPrepared();
     if (prepared) {
@@ -1810,7 +1824,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset, const PreparedDraw* pre
                          prepared->state.load(std::memory_order_acquire) == PreparedDraw::Ready &&
                          prepared->reg_checksum == liverpool->gfx_reg_checksum);
     }
-    if (!pipeline) {
+    if (!pipeline || Shader::Info::srt_walk_faults != srt_faults) {
         return;
     }
     if (pipelined && FilterDrawPasses()) {
@@ -2106,8 +2120,9 @@ void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u3
         .vertex_sgpr_offset = vertex_sgpr_offset,
         .instance_sgpr_offset = instance_sgpr_offset,
     };
+    const u32 srt_faults = Shader::Info::srt_walk_faults;
     const GraphicsPipeline* pipeline = pipeline_cache.GetGraphicsPipeline(params);
-    if (!pipeline) {
+    if (!pipeline || Shader::Info::srt_walk_faults != srt_faults) {
         return;
     }
     const IndirectDraw indirect = {arg_address + offset, count_address, stride, max_count};
@@ -2245,8 +2260,9 @@ void Rasterizer::DispatchDirect() {
     if (!pipelined) {
         DrainDrawPipe();
     }
+    const u32 srt_faults = Shader::Info::srt_walk_faults;
     const ComputePipeline* pipeline = pipeline_cache.GetComputePipeline();
-    if (!pipeline) {
+    if (!pipeline || Shader::Info::srt_walk_faults != srt_faults) {
         return;
     }
     if (pipelined) {
@@ -2336,8 +2352,9 @@ void Rasterizer::DispatchIndirect(VAddr address, u32 offset, u32 size) {
     if (!pipelined) {
         DrainDrawPipe();
     }
+    const u32 srt_faults = Shader::Info::srt_walk_faults;
     const ComputePipeline* pipeline = pipeline_cache.GetComputePipeline();
-    if (!pipeline) {
+    if (!pipeline || Shader::Info::srt_walk_faults != srt_faults) {
         return;
     }
     if (pipelined) {
@@ -3249,6 +3266,9 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                              Shader::PushData& push_data, u32& write_index) {
     BB_SECTION(BindBuffers);
     const u64 alignment = instance.StorageMinAlignment();
+    const u64 uniform_alignment = std::max<u64>(instance.UniformMinAlignment(), alignment);
+    static const u64 max_uniform_range =
+        instance.GetPhysicalDevice().getProperties().limits.maxUniformBufferRange;
     for (u32 buffer_index = 0; buffer_index < stage.buffers.size(); ++buffer_index) {
         const auto& desc = stage.buffers[buffer_index];
         const RingBinding* ring = num_ring_stages ? FindRingBinding(stage, buffer_index) : nullptr;
@@ -3261,7 +3281,9 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                 }
                 push_data.AddOffset(binding.buffer, 0);
             }
-            buffer_infos.emplace_back(constant_ring->Handle(), ring->offset, ring->size);
+            buffer_infos.emplace_back(constant_ring->Handle(), ring->offset,
+                                      desc.is_uniform ? std::min<u64>(ring->size, max_uniform_range)
+                                                      : u64(ring->size));
         } else if (desc.IsSpecial()) {
             if (desc.buffer_type == Shader::BufferType::GdsBuffer) {
                 const auto* gds_buf = buffer_cache.GetGdsBuffer();
@@ -3274,8 +3296,8 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                     FrameCapture::Buffer(stage.pgm_hash, binding.buffer, 0,
                                          stage.FlatUserData().data(), ubo_size);
                 }
-                const u64 offset =
-                    vk_buffer.Copy(stage.FlatUserData().data(), ubo_size, alignment);
+                const u64 offset = vk_buffer.Copy(stage.FlatUserData().data(), ubo_size,
+                                                  desc.is_uniform ? uniform_alignment : alignment);
                 buffer_infos.emplace_back(vk_buffer.Handle(), offset, ubo_size);
             } else if (desc.buffer_type == Shader::BufferType::ClipPlanes) {
                 // Permutations compiled without enabled planes never read the buffer, so the
@@ -3351,14 +3373,19 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                 TraceShaderBinding(stage, vsharp.base_address, size, desc.is_written,
                                    buffer_cache.IsInPlace(vsharp.base_address, size),
                                    buffer_cache.IsAnyInPlace(vsharp.base_address, size));
-                const u64 offset_aligned = Common::AlignDown(offset, alignment);
+                // bbport: a uniform buffer's offset follows the uniform alignment (64 on NVIDIA);
+                // the shader adds the remainder (push data, at most 255 bytes).
+                const u64 offset_aligned =
+                    Common::AlignDown(offset, desc.is_uniform ? uniform_alignment : alignment);
                 const u64 adjust = offset - offset_aligned;
                 if (adjust % 4 != 0) {
                     LOG_WARNING(Render_Vulkan, "Buffer binding in shader {:#x} isn't dword aligned",
                                 stage.pgm_hash);
                 }
                 push_data.AddOffset(binding.buffer, adjust);
-                buffer_infos.emplace_back(buffer->Handle(), offset_aligned, size + adjust);
+                buffer_infos.emplace_back(buffer->Handle(), offset_aligned,
+                                          desc.is_uniform ? std::min<u64>(size + adjust, max_uniform_range)
+                                                          : size + adjust);
                 bound_buffers.emplace_back(buffer, offset, size, desc.is_written);
                 if (desc.is_written) {
                     // Raw storage-buffer writes can also make an aliased cached image stale.
@@ -3374,7 +3401,8 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
         set_write.dstBinding = binding.unified++;
         set_write.dstArrayElement = 0;
         set_write.descriptorCount = 1;
-        set_write.descriptorType = vk::DescriptorType::eStorageBuffer;
+        set_write.descriptorType = desc.is_uniform ? vk::DescriptorType::eUniformBuffer
+                                                   : vk::DescriptorType::eStorageBuffer;
         set_write.pBufferInfo = &buffer_infos.back();
         ++binding.buffer;
     }
@@ -4280,6 +4308,88 @@ bool Rasterizer::RevalidateBeginMemo(const BeginSignature& signature) {
     return true;
 }
 
+// bbport: a draw into the upscaler's output-size images (BeginRenderingFull's redirected passes):
+// its scale, offset and full scissor from this draw's own viewport. Made for every draw, also
+// those the render state memo continues a pass with: a UI pass mixes viewports, and the scale of
+// the pass's first draw was kept for all of them.
+void Rasterizer::UpdateUiTransform(const GraphicsPipeline* pipeline) {
+    target_scale = {1.0f, 1.0f};
+    target_offset = {0, 0};
+    ui_full_scissor = {};
+    if (!ui_pass.active) {
+        return;
+    }
+    const auto& regs = Regs();
+    const auto [gw, gh] = ui_pass.guest;
+    const auto [ow, oh] = ui_pass.output;
+    // The UI movie viewport is now 1920x1080 even when the scene is 960x540.
+    // A native viewport (or native window-space UI vertices) must not be doubled
+    // again. The final display copy still uses the guest render-size coordinates.
+    const auto& viewport = regs.viewports[0];
+    const float vw = viewport.xscale * 2, vh = viewport.yscale * 2;
+    const bool window_space = regs.IsClipDisabled() && !regs.viewport_control.xscale_enable &&
+                              !regs.viewport_control.yscale_enable;
+    const bool sharp_ui = UiComposition::StageScale(UiComposition::UiSize()) > 1.0f;
+    const bool movie_viewport = UiComposition::NativeViewport(vw, vh);
+    // Sharp UI: a viewport of its own inside the UI viewport (an item icon's rectangle, which the
+    // game places in the movie viewport's pixels) is in those pixels too. Only the viewport over
+    // the whole guest target is in the target's (render-size) pixels; scaled by the output over
+    // the render size, the icons came out up to three times their size, spread from the top left.
+    const bool inner_viewport =
+        sharp_ui && !window_space && UiComposition::InnerViewport(vw, vh, gw, gh);
+    const bool native_coordinates =
+        ui_pass.native_ui && (movie_viewport || window_space || inner_viewport);
+    // The stage's own 1920x1080 viewport is centred; the widened one (UiComposition::UiSize,
+    // Widescreen on another screen shape) fills the image, its sides included. Vertices in
+    // window space are in the UI viewport's pixels whatever the viewport registers still
+    // hold (with Sharp UI the item icons were drawn twice their size from the top left).
+    const bool stage_viewport = !(window_space && sharp_ui) &&
+                                UiComposition::ViewportIs(vw, vh, {1920.0f, 1080.0f});
+    const auto ui = stage_viewport ? std::array<float, 2>{1920.0f, 1080.0f} : UiComposition::UiSize();
+    target_scale = UiComposition::Scale(gw, gh, ow, oh, native_coordinates, ui);
+    // A 16:9 viewport of the output's size (Sharp UI) is stretched like the 1920x1080 one.
+    if (native_coordinates && (BbSettings::Get().widescreen || ui[0] * 1080.0f != ui[1] * 1920.0f)) {
+        const auto fit = UiComposition::Fit(ow, oh, ui);
+        target_scale = fit.scale;
+        target_offset = fit.offset;
+        // A scissor over the whole guest target or viewport is the whole image: the
+        // widened viewport can be wider than the scene's target it was set from.
+        if (!stage_viewport && (ui[0] != 1920.0f || ui[1] != 1080.0f)) {
+            ui_full_scissor = {std::min(u32(ui[0]), gw), std::min(u32(ui[1]), gh)};
+        }
+    }
+    // BB_UI_VIEWPORT_LOG=1: each kind of draw of these passes once (vertex shader, viewport, the
+    // pixels its vertices are taken in), to see which path a screen's pictures take.
+    static const bool log = [] {
+        const char* value = std::getenv("BB_UI_VIEWPORT_LOG");
+        return value && value[0] == '1';
+    }();
+    if (log) {
+        static std::unordered_set<u64> seen;
+        const u32 space = !ui_pass.native_ui ? 0
+                          : window_space     ? 1
+                          : stage_viewport   ? 2
+                          : movie_viewport   ? 3
+                          : inner_viewport   ? 4
+                                             : 5;
+        const u64 vs = pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash;
+        const u64 key = (vs * 0x9E3779B97F4A7C15ull) ^ (u64(std::lround(std::abs(vw))) << 36) ^
+                        (u64(std::lround(std::abs(vh))) << 16) ^ space;
+        if (seen.size() < 512 && seen.insert(key).second) {
+            static constexpr const char* names[] = {
+                "display pass",         "window space, UI viewport pixels",
+                "stage 1920x1080",      "UI movie viewport",
+                "own rectangle, UI viewport pixels", "guest target pixels"};
+            std::printf("UI pass: vs %08llx viewport %.0fx%.0f at %.0f,%.0f%s: %s, scale %.3fx%.3f "
+                        "offset %.0f,%.0f (guest %ux%u, image %ux%u)\n",
+                        static_cast<unsigned long long>(vs), vw, vh,
+                        viewport.xoffset - viewport.xscale, viewport.yoffset - viewport.yscale,
+                        regs.IsClipDisabled() ? ", clip off" : "", names[space], target_scale[0],
+                        target_scale[1], target_offset[0], target_offset[1], gw, gh, ow, oh);
+        }
+    }
+}
+
 RenderState Rasterizer::BeginRendering(const GraphicsPipeline* pipeline) {
     BB_SECTION(BeginRendering);
     // bbport: RenderStateMemo (see BeginMemo).
@@ -4339,6 +4449,12 @@ RenderState Rasterizer::BeginRendering(const GraphicsPipeline* pipeline) {
             target_scale = begin_memo.target_scale;
             target_offset=begin_memo.target_offset;
             ui_full_scissor = begin_memo.ui_full_scissor;
+            // The same pass, not the same viewport: a UI pass mixes the movie viewport,
+            // window-space vertices, the stage's viewport and item icons' own rectangles.
+            ui_pass = begin_memo.ui_pass;
+            if (ui_pass.active) {
+                UpdateUiTransform(pipeline);
+            }
             return begin_memo.state;
         }
         ++begin_memo_misses;
@@ -4356,6 +4472,7 @@ RenderState Rasterizer::BeginRendering(const GraphicsPipeline* pipeline) {
             // Recomputed after the full path: it may have started the scene (scene_started).
             begin_memo = {true, MakeBeginSignature(pipeline), state, push_data.scene_size,
                           target_scale,target_offset,ui_full_scissor};
+            begin_memo.ui_pass = ui_pass;
             RememberBeginTargets();
         }
     }
@@ -4596,6 +4713,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
     target_scale = {1.0f, 1.0f};
     target_offset={0,0};
     ui_full_scissor = {};
+    ui_pass = {};
     if (color_redirected || depth_redirected) {
         u32 color_targets = 0;
         for (u32 cb = 0; cb < state.num_color_attachments; ++cb) {
@@ -4634,32 +4752,10 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         } else {
             state.width = redirect.width;
             state.height = redirect.height;
-            // The UI movie viewport is now 1920x1080 even when the scene is 960x540.
-            // A native viewport (or native window-space UI vertices) must not be doubled
-            // again. The final display copy still uses the guest render-size coordinates.
-            const auto& viewport = regs.viewports[0];
-            const bool native_coordinates = redirect.native_ui &&
-                (UiComposition::NativeViewport(viewport.xscale * 2, viewport.yscale * 2) ||
-                 (regs.IsClipDisabled() && !regs.viewport_control.xscale_enable &&
-                  !regs.viewport_control.yscale_enable));
-            target_scale = UiComposition::Scale(guest_extent.first, guest_extent.second,
-                                                redirect.width, redirect.height,
-                                                native_coordinates);
-            // The stage's own 1920x1080 viewport is centred; the widened one (UiComposition::UiSize,
-            // Widescreen on another screen shape) fills the image, its sides included.
-            const bool stage_viewport = UiComposition::ViewportIs(viewport.xscale * 2, viewport.yscale * 2,
-                                                                  {1920.0f, 1080.0f});
-            const auto ui = stage_viewport ? std::array<float, 2>{1920.0f, 1080.0f} : UiComposition::UiSize();
-            if (native_coordinates && (BbSettings::Get().widescreen || ui[0] != 1920.0f || ui[1] != 1080.0f)) {
-                const auto fit=UiComposition::Fit(redirect.width,redirect.height,ui);
-                target_scale=fit.scale;target_offset=fit.offset;
-                // A scissor over the whole guest target or viewport is the whole image: the
-                // widened viewport can be wider than the scene's target it was set from.
-                if (!stage_viewport && (ui[0] != 1920.0f || ui[1] != 1080.0f)) {
-                    ui_full_scissor = {std::min(u32(ui[0]), guest_extent.first),
-                                       std::min(u32(ui[1]), guest_extent.second)};
-                }
-            }
+            // Viewports and scissors follow each draw's viewport (UpdateUiTransform).
+            ui_pass = {true, redirect.native_ui, {guest_extent.first, guest_extent.second},
+                       {redirect.width, redirect.height}};
+            UpdateUiTransform(pipeline);
         }
     }
 
@@ -4674,6 +4770,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         state.width = proxy.width;
         state.height = proxy.height;
         target_scale = {float(size.width) / 1920.0f, float(size.height) / 1080.0f};
+        ui_pass.active = false; // the memo keeps this scale for the pass
     }
     if (FrameCapture::Active()) {
         std::array<const VideoCore::ImageInfo*, AmdGpu::NUM_COLOR_BUFFERS> colors{};

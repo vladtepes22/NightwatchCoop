@@ -45,6 +45,9 @@ struct Program {
     struct Module {
         vk::ShaderModule module;
         Shader::StageSpecialization spec;
+        /// bbport: its shader state is in the cache folder (Shader::Native::StoreState), so draws
+        /// skip the store's lookup. Set through std::atomic_ref (draw-preparation workers).
+        mutable bool state_stored = false;
     };
     static constexpr size_t MaxPermutations = 8;
     using ModuleList = boost::container::small_vector<Module, MaxPermutations>;

@@ -83,6 +83,24 @@ int main() {
     gated.NextFrame();
     assert(!gated.Moving(weapon, 4));     // after a skipped frame: no comparison
     assert(!gated.Moving(weapon, 5));     // second occurrence of the same draw
+
+    // Held (BB_OBJECT_MOTION_HOLD): bones that move on some frames only (a weapon on the back)
+    // keep storing in between, so the next change finds last frame's positions.
+    History held(1024);
+    held.SetHold(2);
+    const auto step = [&](uint64_t palette) {
+        held.NextFrame();
+        return held.Moving(weapon, palette);
+    };
+    assert(!held.Moving(weapon, 1));      // first sight
+    assert(step(2));                      // changed
+    assert(step(2) && held.stats.held == 1); // unchanged, held: stores for the next change
+    assert(step(3));                      // changed again: the held frame stored
+    assert(step(3) && step(3));           // two held frames after the last change
+    assert(!step(3) && held.stats.held == 3); // stopped
+    held.NextFrame();
+    held.NextFrame();
+    assert(!held.Moving(weapon, 4));      // a skipped frame drops the hold with the comparison
     assert(ClassifyBuffer(864) == BufferRole::Other && ClassifyBuffer(416) == BufferRole::Other);
     assert(ClassifyBuffer(96) == BufferRole::SmallSkeleton &&
            ClassifyBuffer(384) == BufferRole::SmallSkeleton);

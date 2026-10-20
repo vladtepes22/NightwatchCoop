@@ -162,6 +162,9 @@ public:
     /// bbport: gc tick of the last LRU touch; skips the LRU list (a cache miss) when current.
     mutable u64 lru_touched_tick = ~0ULL;
     u64 tick_accessed_last{};
+    /// bbport: counts accesses that may write the image (Runtime::Transit with a write access,
+    /// backing swaps): unchanged, the image holds what it held (BB_IMAGE_TILE_MEMO).
+    u64 write_seq = 0;
     /// bbport (image write-back GC): gc tick before which a failed write-back is not retried.
     u64 writeback_retry_tick = 0;
     ImageId depth_id{};

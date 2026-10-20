@@ -41,6 +41,8 @@ u32 ArgsSlot();
 void CopyArgs(vk::CommandBuffer cmdbuf, vk::Buffer args, u64 offset, u32 slot);
 /// Device lost: prints, per stream, the command the GPU did not finish and what it was.
 void ReportDeviceLost(const char* where);
+void ReportDeviceFault();
+vk::UniqueDebugUtilsMessengerEXT CreateAddressReport(vk::Instance instance);
 /// The same report, once, while the GPU has not finished submitted work for a long time (no
 /// device lost yet: a reset may never come, or the waiting thread would not see it).
 void ReportStuck(const char* where);

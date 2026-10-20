@@ -111,7 +111,7 @@ static int native_cond_signal(NativeCond *c) { return pthread_cond_signal(c); }
 static int native_cond_broadcast(NativeCond *c) { return pthread_cond_broadcast(c); }
 #endif
 typedef struct { int type; } GuestAttr;
-typedef struct { NativeMutex native; } GuestMutex;
+typedef struct { NativeMutex native; char name[32]; } GuestMutex; /* name: the guest's, for the freeze report */
 static size_t created, locks, unlocks;
 static int32_t orbis_error(int e) {
     if (!e) return 0;
@@ -147,7 +147,6 @@ static ABI int32_t attr_destroy(GuestAttr **attr) {
     free(*attr); *attr = NULL; return 0;
 }
 static ABI int32_t mutex_init(GuestMutex **out, GuestAttr **attr, const char *name) {
-    (void)name;
     if (!out || (attr && !*attr)) return orbis_error(EINVAL);
     int type = attr ? (*attr)->type : 1;
     if (type < 1 || type > 4) return orbis_error(EINVAL);
@@ -155,6 +154,7 @@ static ABI int32_t mutex_init(GuestMutex **out, GuestAttr **attr, const char *na
     if (!mutex) return orbis_error(ENOMEM);
     int e = native_init(&mutex->native, type);
     if (e) { free(mutex); return orbis_error(e); }
+    snprintf(mutex->name, sizeof mutex->name, "%s", name ? name : "");
     *out = mutex; ++created; return 0;
 }
 static HostMutex static_init = HOST_MUTEX_INIT;
@@ -180,7 +180,9 @@ static ABI int32_t mutex_lock(GuestMutex **mutex) {
     int r = native_trylock(&(*mutex)->native);
     if (r == EBUSY) {
         const uint64_t start = runtime_wait_clock();
+        const int slot = runtime_block_begin(RUNTIME_BLOCK_MUTEX, (uintptr_t)*mutex);
         r = native_lock(&(*mutex)->native);
+        runtime_block_end(slot);
         runtime_wait_note(1, runtime_wait_clock() - start);
     }
     e = orbis_error(r);
@@ -257,7 +259,9 @@ static ABI int32_t cond_wait(GuestCond **cond, GuestMutex **mutex) {
     if (!mutex || (uintptr_t)*mutex < 3) return orbis_error(EINVAL);
     ++waits;
     const uint64_t start = runtime_wait_clock();
+    const int slot = runtime_block_begin(RUNTIME_BLOCK_COND, (uintptr_t)*cond);
     const int e2 = native_cond_wait(&(*cond)->native, &(*mutex)->native, 0);
+    runtime_block_end(slot);
     runtime_wait_note(0, runtime_wait_clock() - start);
     return orbis_error(e2);
 }
@@ -338,6 +342,18 @@ uintptr_t runtime_mutex_resolve(const char *name) {
     if (!strcmp(name, "tn3VlD0hG60#p#J")) return (uintptr_t)mutex_unlock;
     if (!strcmp(name, "2Of0f+3mhhE#p#J")) return (uintptr_t)mutex_destroy;
     return 0;
+}
+void runtime_mutex_describe(uintptr_t object, char *out, size_t size) {
+    const GuestMutex *m = (const GuestMutex *)object;
+#ifdef _WIN32
+    const DWORD held = owner(&m->native);
+    snprintf(out, size, "mutex %#llx%s%s%s, type %d, %s%lu (depth %u)", (unsigned long long)object,
+             m->name[0] ? " '" : "", m->name, m->name[0] ? "'" : "", m->native.type,
+             held ? "held by thread " : "free; last ", (unsigned long)held, m->native.depth);
+#else
+    snprintf(out, size, "mutex %#llx%s%s%s", (unsigned long long)object,
+             m->name[0] ? " '" : "", m->name, m->name[0] ? "'" : "");
+#endif
 }
 void runtime_mutex_report(void) {
     printf("Runtime: mutexes created=%zu, locks=%zu, unlocks=%zu\n", created, locks, unlocks);

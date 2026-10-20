@@ -58,6 +58,8 @@ public:
     [[nodiscard]] const char* Problem() const noexcept;
     /// Assets or device features are missing: FSR 4 will not run in this session.
     [[nodiscard]] bool Fatal() const noexcept;
+    /// bbport: forgets a failure (FSR 4.1.1 failed: the built-in FSR 4 model is tried next).
+    void ClearFailure() noexcept;
 
 private:
     struct Impl;

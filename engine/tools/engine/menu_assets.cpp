@@ -839,6 +839,16 @@ std::size_t find(const Bytes& b, const char* what, std::size_t n, std::size_t fr
     return it == b.end() ? std::string::npos : static_cast<std::size_t>(it - b.begin());
 }
 
+// The end of a UTF-16LE string starting at `from`: the first 0 code unit, read two bytes at a time.
+// A byte-wise search for "\0\0" also matches across two characters, an ASCII one (high byte 0)
+// followed by one whose low byte is 0 (U+AC00, U+C800, U+4E00, ...), and cut the text there:
+// Korean menu text lost its end (parsifal295, GitHub #69).
+std::size_t utf16_end(const Bytes& b, std::size_t from, std::size_t limit) {
+    for (std::size_t z = from; z + 1 < limit; z += 2)
+        if (b[z] == 0 && b[z + 1] == 0) return z;
+    return std::string::npos;
+}
+
 struct BndFile {
     std::uint64_t flags;
     std::uint32_t id;
@@ -869,11 +879,8 @@ Bnd4 bnd_read(const Bytes& b) {
         f.id = u32(b, e + 0x1c);
         const std::uint32_t name_off = u32(b, e + 0x20);
         if (r.unicode) {
-            const std::size_t end = std::min<std::size_t>(b.size(), name_off + 4096);
-            std::size_t z = name_off;
-            while (z + 1 < end && !(b[z] == 0 && b[z + 1] == 0)) ++z;
-            std::size_t stop = z + 1;  // Python keeps up to and including the first byte of the pair
-            if ((stop - name_off) % 2) stop -= 1;  // an even UTF-16 name, which every entry here is
+            const std::size_t stop = utf16_end(b, name_off, std::min<std::size_t>(b.size(), name_off + 4096));
+            if (stop == std::string::npos) throw Fail{"an unterminated bundle entry name"};
             f.name.assign(b.begin() + name_off, b.begin() + stop);
         } else {
             std::size_t z = name_off;
@@ -940,9 +947,8 @@ Fmg fmg_read(const Bytes& b) {
                 ids[mid] = std::nullopt;
                 continue;
             }
-            std::size_t e = find(b, "\0\0", 2, o);
+            const std::size_t e = utf16_end(b, o, b.size());
             if (e == std::string::npos) throw Fail{"an unterminated FMG string"};
-            if ((e - o) % 2) e += 1;
             ids[mid] = Bytes(b.begin() + o, b.begin() + e);
         }
     }

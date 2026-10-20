@@ -48,6 +48,25 @@ int win_mem_space(uintptr_t start, uintptr_t end) {
     return 0;
 }
 int win_mem_section(uint64_t size, void **backing) {
+    /* bbport: bb-start made this section (its commit charged there) and passes it on as an
+     * inherited handle, "handle:bytes", so the size it was checked at is the size the game gets. */
+    const char *given = getenv("BB_POOL_SECTION");
+    if (given && *given) {
+        char *end = NULL;
+        const unsigned long long handle = strtoull(given, &end, 10);
+        const unsigned long long bytes = end && *end == ':' ? strtoull(end + 1, NULL, 10) : 0;
+        if (handle && bytes == size) {
+            section = (HANDLE)(uintptr_t)handle;
+            *backing = MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, size);
+            if (*backing) return 0;
+            fprintf(stderr, "Runtime: the pool bb-start made cannot be mapped (Windows error %lu); making one\n",
+                    GetLastError());
+        } else {
+            fprintf(stderr, "Runtime: BB_POOL_SECTION %s is not a %llu byte pool; making one\n", given,
+                    (unsigned long long)size);
+        }
+        section = NULL; /* a stale handle (another process's value) is not ours to close */
+    }
     section = CreateFileMappingW(INVALID_HANDLE_VALUE, NULL, PAGE_EXECUTE_READWRITE | SEC_COMMIT,
                                  (DWORD)(size >> 32), (DWORD)size, NULL);
     if (!section) { report("creating the memory pool section", 0, size); return -1; }

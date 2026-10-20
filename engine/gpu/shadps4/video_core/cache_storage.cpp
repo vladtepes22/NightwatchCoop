@@ -246,6 +246,29 @@ bool DataBase::Save(BlobType type, const std::string& name, std::vector<u32>&& d
     return WriteVector(type, std::move(path), std::move(data));
 }
 
+bool DataBase::IsFolder() const {
+    return opened && !EmulatorSettings.IsPipelineCacheArchived();
+}
+
+bool DataBase::SaveNow(BlobType type, const std::string& name, std::span<const u8> data) {
+    if (!IsFolder()) {
+        return false;
+    }
+    auto path = cache_path / name;
+    path.replace_extension(GetBlobFileExtension(type));
+    return ReplaceCacheFile(path, data);
+}
+
+void DataBase::Remove(BlobType type, const std::string& name) {
+    if (!IsFolder()) {
+        return;
+    }
+    auto path = cache_path / name;
+    path.replace_extension(GetBlobFileExtension(type));
+    std::error_code error;
+    std::filesystem::remove(path, error);
+}
+
 void DataBase::Load(BlobType type, const std::string& name, std::vector<u8>& data) {
     if (!opened) {
         return;

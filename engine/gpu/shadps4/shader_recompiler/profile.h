@@ -54,6 +54,10 @@ struct Profile {
     bool needs_unorm_fixup{};
     bool needs_clip_distance_emulation{};
     bool supports_shader_stencil_export{};
+    /// bbport (native shaders; BB_NATIVE_SHADERS=0 turns them off): guest constant buffers the
+    /// shader only reads with scalar constant loads (s_buffer_load) are uniform buffers instead of
+    /// storage buffers: NVIDIA reads them through its constant cache instead of the memory path.
+    bool uniform_constant_buffers{};
 
     bool operator==(const Profile&) const = default;
 };

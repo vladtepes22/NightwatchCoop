@@ -13,6 +13,7 @@ typedef sigjmp_buf RuntimeRecoverBuf;
 #endif
 // Renderer tests have no guest process. Clock/host-thread services work; guest accesses abort.
 extern "C" {
+void* runtime_low_map(size_t, int) { return nullptr; }
 // Engine asset mounts belong to the runtime; GPU-only tests never install them.
 int runtime_file_mount(const char*, const char*) { return -1; }
 void runtime_file_unmount(const char*) {}

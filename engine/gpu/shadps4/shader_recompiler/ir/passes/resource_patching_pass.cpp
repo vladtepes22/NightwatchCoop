@@ -109,6 +109,7 @@ public:
         buffer.used_types |= desc.used_types;
         buffer.is_written |= desc.is_written;
         buffer.is_formatted |= desc.is_formatted;
+        buffer.only_const_reads &= desc.only_const_reads;
         return index;
     }
 
@@ -206,6 +207,7 @@ void PatchBufferSharp(const ResourceDiscovery& resource, Info& info, Descriptors
         .is_written = IsBufferStore(inst),
         .is_formatted = inst.GetOpcode() == IR::Opcode::LoadBufferFormatF32 ||
                         inst.GetOpcode() == IR::Opcode::StoreBufferFormatF32,
+        .only_const_reads = inst.GetOpcode() == IR::Opcode::ReadConstBuffer,
         .post_op = resource.sharps[0].post_op,
         .post_op_dw1_mask = resource.sharps[0].post_op_data.dw1_mask,
     });
@@ -960,6 +962,16 @@ void ResourcePatchingPass(Shader::Info& info, const ResourceDiscoveryList& resou
             PatchImageArgs(inst, info);
         } else if (IsDataRingInstruction(inst)) {
             PatchGlobalDataShareAccess(inst, info, descriptors, profile);
+        }
+    }
+
+    // bbport: a guest buffer the shader only reads with scalar constant loads becomes a uniform
+    // buffer (native shaders): a constant buffer in the GPU's own sense.
+    if (profile.uniform_constant_buffers) {
+        for (auto& buffer : info.buffers) {
+            buffer.is_uniform = buffer.buffer_type == BufferType::Guest && buffer.only_const_reads &&
+                                !buffer.is_written && !buffer.is_formatted &&
+                                buffer.used_types == IR::Type::U32;
         }
     }
 }

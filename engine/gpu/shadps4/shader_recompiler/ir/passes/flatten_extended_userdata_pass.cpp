@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <boost/container/flat_map.hpp>
@@ -8,6 +9,11 @@
 #include <xbyak/xbyak.h>
 #include <xbyak/xbyak_util.h>
 #include "common/arch.h"
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <ucontext.h>
+#endif
 #include "common/decoder.h"
 #include "common/io_file.h"
 #include "common/logging/log.h"
@@ -89,56 +95,48 @@ static bool SrtWalkerSignalHandler(void* context, void* fault_address) {
         return false; // Not in SRT code range
     }
 
-    // bbport: draw-preparation workers run the same walker concurrently; a second thread that
-    // faulted on the instruction before the first one patched it finds the patch and retries.
-    static std::mutex patch_mutex;
-    std::scoped_lock patch_lock{patch_mutex};
-    const u8* bytes = reinterpret_cast<const u8*>(code);
-    if ((bytes[0] == 0x48 && bytes[1] == 0x31 && bytes[2] == 0xFF) ||
-        (bytes[0] == 0x45 && bytes[1] == 0x31 && bytes[2] == 0xD2)) {
-        return true;
-    }
-
-    // Patch instruction to zero register
     ZydisDecodedInstruction instruction;
     ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
     ZyanStatus status = Common::Decoder::Instance()->decodeInstruction(instruction, operands,
                                                                        const_cast<void*>(code), 15);
-
-    ASSERT(ZYAN_SUCCESS(status) && instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
-           operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-           operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY);
-
-    size_t len = instruction.length;
-    const size_t patch_size = 3;
-    u8* code_patch = const_cast<u8*>(reinterpret_cast<const u8*>(code));
-
+    if (!ZYAN_SUCCESS(status) || instruction.mnemonic != ZYDIS_MNEMONIC_MOV ||
+        operands[0].type != ZYDIS_OPERAND_TYPE_REGISTER ||
+        operands[1].type != ZYDIS_OPERAND_TYPE_MEMORY) {
+        return false;
+    }
+#ifdef _WIN32
+    auto* regs = static_cast<EXCEPTION_POINTERS*>(context)->ContextRecord;
+    u64* rdi = reinterpret_cast<u64*>(&regs->Rdi);
+    u64* r10 = reinterpret_cast<u64*>(&regs->R10);
+    u64* rip = reinterpret_cast<u64*>(&regs->Rip);
+#else
+    auto* gregs = static_cast<ucontext_t*>(context)->uc_mcontext.gregs;
+    u64* rdi = reinterpret_cast<u64*>(&gregs[REG_RDI]);
+    u64* r10 = reinterpret_cast<u64*>(&gregs[REG_R10]);
+    u64* rip = reinterpret_cast<u64*>(&gregs[REG_RIP]);
+#endif
     // We can only encounter rdi or r10d as the first operand in a
     // fault memory access for SRT walker.
     switch (operands[0].reg.value) {
     case ZYDIS_REGISTER_RDI:
-        // mov rdi, [rdi + (off_dw << 2)] -> xor rdi, rdi
-        code_patch[0] = 0x48;
-        code_patch[1] = 0x31;
-        code_patch[2] = 0xFF;
+        *rdi = 0;
         break;
     case ZYDIS_REGISTER_R10D:
-        // mov r10d, [rdi + (off_dw << 2)] -> xor r10d, r10d
-        code_patch[0] = 0x45;
-        code_patch[1] = 0x31;
-        code_patch[2] = 0xD2;
+        *r10 = 0;
         break;
     default:
-        UNREACHABLE_MSG("Unsupported register for SRT walker patch");
         return false;
     }
+    *rip += instruction.length;
+    ++Shader::Info::srt_walk_faults;
 
-    // Fill nops
-    memset(code_patch + patch_size, 0x90, len - patch_size);
-
-    LOG_WARNING(Render_Recompiler, "Patched SRT walker at {}, fault address {}", code,
-                fault_address);
-
+    static std::atomic<u32> reports{0};
+    if (reports.fetch_add(1, std::memory_order_relaxed) < 8) {
+        LOG_WARNING(Render_Recompiler,
+                    "SRT walker at {} read a null table pointer (fault address {}); the draw is "
+                    "skipped",
+                    code, fault_address);
+    }
     return true;
 }
 

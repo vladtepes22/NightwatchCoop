@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "bbport_native_calls.h"
 #include "bbport_threads.h"
 #include "bbport_toggles.h"
 #include "common/thread.h"
@@ -20,10 +21,15 @@ namespace Vulkan {
 
 namespace {
 
-bool IsDirectDraw(AmdGpu::PM4ItOpcode opcode) {
+bool IsDirectDraw(const AmdGpu::PM4Header* header) {
     using AmdGpu::PM4ItOpcode;
+    const PM4ItOpcode opcode = header->type3.opcode;
+    // bbport BB_NATIVE_CALLS=1: a draw call's record NOP (bbport_native_calls.h) is a direct
+    // draw; ApplyGraphicsRegisterPacket applies it as the DRAW_INDEX_* packet it stands for.
     return opcode == PM4ItOpcode::DrawIndex2 || opcode == PM4ItOpcode::DrawIndexOffset2 ||
-           opcode == PM4ItOpcode::DrawIndexAuto;
+           opcode == PM4ItOpcode::DrawIndexAuto ||
+           (opcode == PM4ItOpcode::Nop &&
+            BbNativeCalls::IsRecordNop(reinterpret_cast<const u32*>(header)));
 }
 
 /// Walks the type-3 packets of a command buffer (type-2 padding skipped).
@@ -235,7 +241,7 @@ std::shared_ptr<DrawPreparation::Submission> DrawPreparation::Build(
     auto submission = std::make_shared<Submission>();
     submission->commands.assign(commands.begin(), commands.end());
     ForEachPacket(submission->commands, [&](const AmdGpu::PM4Header* header) {
-        submission->num_draws += IsDirectDraw(header->type3.opcode);
+        submission->num_draws += IsDirectDraw(header);
     });
     submission->draws = std::make_unique<PreparedDraw[]>(submission->num_draws);
     return submission;
@@ -444,7 +450,7 @@ void DrawPreparation::WorkerLoop(std::stop_token stop, u32 index) {
         arena = FlatArena{};
         ForEachPacket(target->commands, [&](const AmdGpu::PM4Header* header) {
             AmdGpu::Liverpool::ApplyGraphicsRegisterPacket(*regs, header, checksum);
-            if (!IsDirectDraw(header->type3.opcode)) {
+            if (!IsDirectDraw(header)) {
                 return;
             }
             // Past the GPU thread the draws are no longer worth preparing.

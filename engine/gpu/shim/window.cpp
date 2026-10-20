@@ -1,5 +1,6 @@
 #include "bbport_headless.h"
 // bbport: SDL3 window for the Vulkan swapchain (X11, Wayland or Win32).
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -53,6 +54,23 @@ static void ApplyBloodborneWindowIcon(void* hwnd_ptr, void*& big_storage, void*&
     }
 }
 #endif
+
+namespace {
+std::atomic<u32> display_refresh_hz{0};
+
+// Window thread only (SDL video calls belong to the thread that made the window).
+void UpdateDisplayRefresh(SDL_Window* window) {
+    const SDL_DisplayID display = SDL_GetDisplayForWindow(window);
+    const SDL_DisplayMode* mode = display ? SDL_GetCurrentDisplayMode(display) : nullptr;
+    if (mode && mode->refresh_rate > 1.0f) {
+        display_refresh_hz.store(u32(mode->refresh_rate + 0.5f), std::memory_order_relaxed);
+    }
+}
+} // namespace
+
+u32 DisplayRefreshHz() {
+    return display_refresh_hz.load(std::memory_order_relaxed);
+}
 
 WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}, height{height_} {
     // Gamepads are sampled by runtime_pad.c; their events are pumped here with the window's.
@@ -137,6 +155,7 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     SDL_GetWindowSizeInPixels(window, &w, &h);
     width = w;
     height = h;
+    UpdateDisplayRefresh(window);
     LOG_INFO(Frontend, "Window {}x{} on {}", w, h, driver);
 }
 
@@ -152,9 +171,31 @@ WindowSDL::~WindowSDL() {
 #endif
 }
 
+namespace {
+std::atomic<bool> window_unfocused{false}, window_minimized{false};
+} // namespace
+
+bool WindowInBackground() {
+    return window_unfocused.load(std::memory_order_relaxed) ||
+           window_minimized.load(std::memory_order_relaxed);
+}
+
+u32 BackgroundFrameLimit() {
+    static const u32 limit = [] {
+        const char* online = std::getenv("BB_ONLINE");
+        if (online && online[0] == '1') return 0u; // co-op and invasions keep their pace
+        const char* env = std::getenv("BB_BACKGROUND_FPS");
+        return env && env[0] ? u32(std::clamp(std::atoi(env), 0, 240)) : 30u;
+    }();
+    return limit;
+}
+
 void WindowSDL::BeginTextInput(const std::string& initial, const std::string& prompt) {
     std::scoped_lock lock{text_mutex};
     text = initial;
+    // The text the field starts with (the player name, or what the game put there) is selected:
+    // the first key typed replaces it (GitHub issue 54), Enter or Cross still accepts it.
+    text_selected = !initial.empty();
     text_prompt = prompt;
     text_state = 0;
     text_requested = true;
@@ -169,8 +210,9 @@ int WindowSDL::PollTextInput(std::string& out) {
 void WindowSDL::UpdateTextTitle() {
     std::string prompt_lower=text_prompt;
     std::transform(prompt_lower.begin(),prompt_lower.end(),prompt_lower.begin(),[](unsigned char c){ return char(std::tolower(c)); });
-    const std::string shown=prompt_lower.find("password")!=std::string::npos ? std::string(text.size(),'*') : text;
-    const std::string title = text_active ? base_title + " \u2014 " + text_prompt + ": " + shown + "_  (Enter = OK, Esc = cancel)"
+    const std::string body=prompt_lower.find("password")!=std::string::npos ? std::string(text.size(),'*') : text;
+    const std::string shown = text_selected ? "[" + body + "]" : body + "_";
+    const std::string title = text_active ? base_title + " \u2014 " + text_prompt + ": " + shown + "  (Enter = OK, Esc = cancel, Ctrl+V = paste)"
                                           : base_title;
     SDL_SetWindowTitle(window, title.c_str());
     BbOverlay::SetTextPrompt(text_active, text_prompt, shown);
@@ -224,8 +266,27 @@ bool WindowSDL::PollEvents() {
         }
         if (text_active && (event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_KEY_DOWN)) {
             std::scoped_lock lock{text_mutex};
+            const bool ctrl = event.type == SDL_EVENT_KEY_DOWN && (event.key.mod & SDL_KMOD_CTRL);
             if (event.type == SDL_EVENT_TEXT_INPUT) {
+                if (text_selected) text.clear();
+                text_selected = false;
                 text += event.text.text;
+            } else if (ctrl && event.key.key == SDLK_V) {
+                if (char* clip = SDL_GetClipboardText()) {
+                    std::string pasted;
+                    for (const char* c = clip; *c; ++c) {
+                        if (*c != '\r' && *c != '\n' && *c != '\t') pasted += *c;
+                    }
+                    SDL_free(clip);
+                    if (text_selected) text.clear();
+                    text_selected = false;
+                    text += pasted;
+                }
+            } else if (ctrl && event.key.key == SDLK_A) {
+                text_selected = !text.empty();
+            } else if (event.key.key == SDLK_BACKSPACE && text_selected) {
+                text.clear();
+                text_selected = false;
             } else if (event.key.key == SDLK_BACKSPACE && !text.empty()) {
                 size_t cut = text.size() - 1; // drop one UTF-8 code point
                 while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
@@ -254,6 +315,23 @@ bool WindowSDL::PollEvents() {
             continue;
         }
         switch (event.type) {
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
+            window_unfocused.store(true, std::memory_order_relaxed);
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            window_unfocused.store(false, std::memory_order_relaxed);
+            break;
+        case SDL_EVENT_WINDOW_MINIMIZED:
+            window_minimized.store(true, std::memory_order_relaxed);
+            break;
+        case SDL_EVENT_WINDOW_RESTORED:
+        case SDL_EVENT_WINDOW_MAXIMIZED:
+            window_minimized.store(false, std::memory_order_relaxed);
+            break;
+        case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
+        case SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED:
+            UpdateDisplayRefresh(window);
+            break;
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
         case SDL_EVENT_WINDOW_RESIZED: {
             int w = 0, h = 0;

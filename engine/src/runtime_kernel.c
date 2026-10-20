@@ -127,8 +127,11 @@ uint64_t runtime_process_time_us(void) { return process_time(); }
 uint64_t runtime_process_time_counter(void) { return process_time_counter(); }
 uint64_t runtime_tsc_frequency(void) { return tsc_frequency(); }
 static _Atomic uint64_t sleep_calls, sleep_total_ns;
+/* Called once per frame-stats window (BB_FRAME_STATS, videoout driver.cpp): the runtime's other
+ * per-window line (file streaming) goes out from here too. */
 void runtime_sleep_stats(uint64_t *calls, uint64_t *ns) {
     *calls=atomic_exchange(&sleep_calls,0); *ns=atomic_exchange(&sleep_total_ns,0);
+    runtime_file_stream_report();
 }
 static int sleep_ns(uint64_t ns) {
     const uint64_t start=host_monotonic_ns();

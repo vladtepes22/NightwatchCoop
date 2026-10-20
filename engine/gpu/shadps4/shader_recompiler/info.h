@@ -242,10 +242,15 @@ struct Info : InfoPersistent {
         bnd.user_data += ud_mask.NumRegs();
     }
 
+    static inline thread_local u32 srt_walk_faults = 0;
+
+    static inline thread_local const u32* lab_flat = nullptr; // lab_flat (tests/shader_lab.cpp)
+    static inline thread_local size_t lab_flat_size = 0; // lab_flat
     void RefreshFlatBuf() {
         flattened_ud_buf.resize(srt_info.flattened_bufsize_dw);
         ASSERT(user_data.size() <= NUM_USER_DATA_REGS);
         std::memcpy(flattened_ud_buf.data(), user_data.data(), user_data.size_bytes());
+        if (lab_flat) { std::memcpy(flattened_ud_buf.data(), lab_flat, (lab_flat_size < flattened_ud_buf.size() ? lab_flat_size : flattened_ud_buf.size()) * sizeof(u32)); return; } // lab_flat: bb-shader-lab's captured tables
         if (srt_info.walker_func) {
             srt_info.walker_func(user_data.data(), flattened_ud_buf.data());
         }

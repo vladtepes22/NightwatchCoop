@@ -162,6 +162,14 @@ public:
         return buffer_marker;
     }
 
+    bool IsDeviceFaultSupported() const {
+        return device_fault;
+    }
+
+    bool IsAddressBindingReportSupported() const {
+        return address_binding_report;
+    }
+
     /// Returns true if VK_EXT_attachment_feedback_loop_layout is supported
     bool IsAttachmentFeedbackLoopLayoutSupported() const {
         return attachment_feedback_loop;
@@ -436,6 +444,16 @@ public:
         return vk11_props.subgroupSize;
     }
 
+    /// Returns the largest storage buffer descriptor range.
+    u32 MaxStorageBufferRange() const {
+        return properties.limits.maxStorageBufferRange;
+    }
+
+    /// Returns the largest dispatch width (workgroups in X).
+    u32 MaxComputeWorkGroupCountX() const {
+        return properties.limits.maxComputeWorkGroupCount[0];
+    }
+
     /// Returns the maximum size of compute shared memory.
     u32 MaxComputeSharedMemorySize() const {
         return properties.limits.maxComputeSharedMemorySize;
@@ -600,6 +618,7 @@ private:
     vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR compute_shader_derivatives_features;
     vk::DriverIdKHR driver_id;
     vk::UniqueDebugUtilsMessengerEXT debug_callback{};
+    vk::UniqueDebugUtilsMessengerEXT address_report{};
     std::string vendor_name;
     VmaAllocator allocator{};
     vk::Queue present_queue;
@@ -634,6 +653,8 @@ private:
     bool maintenance_5{};
     bool maintenance_8{};
     bool buffer_marker{};
+    bool device_fault{};
+    bool address_binding_report{};
     bool attachment_feedback_loop{};
     bool image_2d_view_of_3d{};
     bool image_view_min_lod{};

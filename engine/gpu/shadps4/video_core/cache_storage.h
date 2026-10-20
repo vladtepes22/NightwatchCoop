@@ -8,6 +8,7 @@
 #include "common/types.h"
 
 #include <functional>
+#include <span>
 #include <atomic>
 #include <thread>
 #include <vector>
@@ -44,6 +45,16 @@ public:
 
     void ForEachBlob(BlobType type, const std::function<void(std::vector<u8>&& data)>& func);
     std::vector<std::string> ListBlobs(BlobType type) const;
+
+    /// bbport: the cache is a folder of files (not the archive): the recompile pass
+    /// (cache_recompile.cpp) rewrites and removes records during preload, synchronously.
+    [[nodiscard]] bool IsFolder() const;
+    /// The cache folder (empty for the archive or a closed cache).
+    [[nodiscard]] std::filesystem::path FolderPath() const {
+        return IsFolder() ? cache_path : std::filesystem::path{};
+    }
+    bool SaveNow(BlobType type, const std::string& name, std::span<const u8> data);
+    void Remove(BlobType type, const std::string& name);
 
 private:
     std::jthread io_worker{};

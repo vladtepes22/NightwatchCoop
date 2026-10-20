@@ -1,6 +1,10 @@
 // SPDX-FileCopyrightText: Copyright 2025-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <unordered_set>
 #include "common/serdes.h"
 #include "common/hash.h"
@@ -60,6 +64,38 @@ void RegisterPipelineData(const GraphicsPipelineKey& key, u64 hash,
 
     Storage::DataBase::Instance().Save(Storage::BlobType::PipelineKey,
                                        fmt::format("g_{:#018x}", hash), ar.TakeOff());
+}
+
+std::vector<u8> SerializeShaderMeta(const Shader::Info& info, const Shader::StageSpecialization& spec,
+                                    size_t perm_hash, size_t perm_idx) {
+    Serialization::Archive ar;
+    Serialization::Writer meta{ar};
+
+    meta.Write(Serialization::ShaderMetaVersion);
+    const bool vertex_motion = info.hw_stage == Shader::HwStage::Vertex &&
+                               spec.runtime_info.hw.vs.motion_vectors;
+    meta.Write(vertex_motion ? Serialization::MotionShaderBinaryVersion
+                             : Serialization::ShaderBinaryVersion);
+    meta.Write(perm_hash);
+    meta.Write(perm_idx);
+    spec.Serialize(ar);
+    info.Serialize(ar);
+    return ar.TakeOff();
+}
+
+bool ReadShaderMetaSpec(std::vector<u8>&& blob, Shader::StageSpecialization& spec, size_t& perm_idx) {
+    Serialization::Archive ar{std::move(blob)};
+    Serialization::Reader meta{ar};
+    u32 meta_version{}, binary_version{};
+    u64 perm_hash{};
+    meta.Read(meta_version);
+    if (meta_version != Serialization::ShaderMetaVersion) {
+        return false;
+    }
+    meta.Read(binary_version);
+    meta.Read(perm_hash);
+    meta.Read(perm_idx);
+    return spec.Deserialize(ar);
 }
 
 void RegisterShaderMeta(const Shader::Info& info,
@@ -445,11 +481,48 @@ void PipelineCache::WarmUp() {
 
     const auto* regs = sel.regs;
     u32 damaged = 0;
+    // bbport: a GPU driver that crashes building one cached pipeline (an AMD driver did, at every
+    // start) would end every start the same way. The pipeline being built is written to
+    // warmup.running (the OS keeps the write when the process dies); the next start leaves that
+    // pipeline out and builds the others. BB_WARMUP_GUARD=0: not used.
+    std::string crashed;
+    std::fstream guard;
+    if (const auto folder = database.FolderPath(); !folder.empty()) {
+        const char* guard_env = std::getenv("BB_WARMUP_GUARD");
+        if (!(guard_env && guard_env[0] == '0')) {
+            const auto guard_path = folder / "warmup.running";
+            if (std::ifstream last{guard_path}; last) {
+                std::getline(last, crashed);
+                while (!crashed.empty() && (crashed.back() == ' ' || crashed.back() == '\r')) {
+                    crashed.pop_back();
+                }
+            }
+            if (!crashed.empty()) {
+                database.Remove(Storage::BlobType::PipelineKey, crashed);
+                std::printf("GPU cache: the GPU driver crashed building cached pipeline %s at the last "
+                            "start; it is left out (it compiles again when a draw needs it)\n",
+                            crashed.c_str());
+            }
+            guard.open(guard_path, std::ios::out | std::ios::trunc);
+        }
+    }
     // Sequential by design: selection, programs, SRT walker allocation and archive reads are
     // shared. A worker pool needs isolated reconstruction state before it can be safe.
     for (const auto& name : names) {
         bool loaded = false;
         sel = {.regs = regs}; // Clear partial state after rejection, including runtime/fetch.
+        if (name == crashed) {
+            std::scoped_lock lock{progress_mutex};
+            ++precache_progress.rejected;
+            continue;
+        }
+        if (guard.is_open()) {
+            std::string line = name;
+            line.resize(std::max<size_t>(line.size(), 120), ' ');
+            guard.seekp(0);
+            guard << line << '\n';
+            guard.flush();
+        }
         try {
             std::vector<u8> data;
             database.Load(Storage::BlobType::PipelineKey, name, data);
@@ -470,6 +543,11 @@ void PipelineCache::WarmUp() {
         loaded ? ++precache_progress.loaded : ++precache_progress.rejected;
     }
     sel = {.regs = regs};
+    if (guard.is_open()) {
+        guard.close();
+        std::error_code ignored;
+        std::filesystem::remove(database.FolderPath() / "warmup.running", ignored);
+    }
     if (damaged) {
         // A failed reconstruction may have inserted earlier stages of the damaged record.
         // 0.4 discards those too, while retaining the fork's preload progress reporting.

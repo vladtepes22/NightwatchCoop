@@ -14,6 +14,9 @@
 #include "menu_memory.h"
 #include "graphics.h"
 #include "cheats.h"
+#include "loading.h"
+#include "render_guard.h"
+#include "effect_timing.h"
 #include "online_fixes.h"
 #include "trophy_sync.h"
 #include "bbport_settings.h"
@@ -160,7 +163,8 @@ std::int64_t __attribute__((sysv_abi)) StepHook(std::uint64_t, const std::uint64
     menu_steps_notify(saved);
     return 0;
 }
-std::int64_t __attribute__((sysv_abi)) FrameHook(std::uint64_t, const std::uint64_t*) {
+std::int64_t __attribute__((sysv_abi)) FrameHook(std::uint64_t, const std::uint64_t* saved) {
+    Loading::Tick(saved[5]); // rdi: the frame pacer
     if (coop::PartyRequested()) { SeamlessLauncher::Poll(); coop::CoopTick(); }
     else coop::lamptravel::Tick();
     BbGameMenu::Poll();
@@ -203,6 +207,7 @@ void Install(std::uint8_t* image, std::size_t size) {
         Log("mirror disabled: engine bytes differ or hook allocation failed"); return;
     }
     g_slide = reinterpret_cast<std::uint64_t>(image);
+    Loading::Install(image);
     StateInitialize(g_slide);
     if (asset && std::filesystem::is_regular_file(asset, error) && !error && !runtime_file_mount(guest, asset)) {
         g_watch = menu_steps_watch(kListType,kListName); g_frame_on = g_watch>=0;
@@ -220,7 +225,9 @@ void Install(std::uint8_t* image, std::size_t size) {
     const bool rebirth=menus && Rebirth::Install(image,size);
     const bool cheats=Cheats::Install(image,size);
     const bool online=OnlineFixes::Install(image,size);
-    if (!g_frame_on && !camera && !rebirth && !menus && !graphics && !wide && !input && !cheats && !online) {
+    const bool guard=RenderGuard::Install(image,size);
+    const bool timing=EffectTiming::Install(image,size);
+    if (!g_frame_on && !camera && !rebirth && !menus && !graphics && !wide && !input && !cheats && !online && !guard && !timing) {
         for (auto& hook : hooks) Discard(hook);
         Log("engine enhancements disabled: no compatible feature could be prepared"); return;
     }

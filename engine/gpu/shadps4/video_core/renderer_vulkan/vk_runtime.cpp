@@ -11,6 +11,7 @@
 #include "video_core/renderer_vulkan/image_copy_region.h"
 #include "video_core/texture_cache/overlap_diagnostics.h"
 #include "video_core/renderer_vulkan/vk_gpu_profiler.h"
+#include "video_core/renderer_vulkan/vk_gpu_savings.h"
 #include "video_core/renderer_vulkan/vk_scene_resolution.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/texture_cache/blit_helper.h"
@@ -110,6 +111,9 @@ Runtime::Runtime(const Instance& instance_, Scheduler& scheduler_)
 
 void Runtime::TickFrame() {
     staging_pool.TickFrame();
+    if (BbStats::enabled) {
+        GpuSavings::Report();
+    }
 }
 
 void Runtime::CopyBuffer(const VideoCore::Buffer* src, const VideoCore::Buffer* dst,
@@ -241,6 +245,14 @@ bool Runtime::Transit(VideoCore::Image* image, vk::ImageLayout dst_layout,
                       std::optional<VideoCore::SubresourceRange> subres_range) {
     BeforeImageAccess();
     if (scene_targets) scene_targets->NativeAccess(*image, dst_access);
+    constexpr vk::AccessFlags2 ImageWrites =
+        vk::AccessFlagBits2::eShaderWrite | vk::AccessFlagBits2::eShaderStorageWrite |
+        vk::AccessFlagBits2::eTransferWrite | vk::AccessFlagBits2::eColorAttachmentWrite |
+        vk::AccessFlagBits2::eDepthStencilAttachmentWrite | vk::AccessFlagBits2::eMemoryWrite |
+        vk::AccessFlagBits2::eHostWrite;
+    if (dst_access & ImageWrites) {
+        ++image->write_seq;
+    }
     const size_t prev_num_barriers = static_cast<size_t>(image_barriers.size());
     image->GetBarriers(image_barriers, dst_layout, dst_access, dst_stage, subres_range);
     return image_barriers.size() != prev_num_barriers;
@@ -780,6 +792,7 @@ void Runtime::SetBackingSamples(VideoCore::Image* image, u32 num_samples, bool c
     }
 
     backing = new_backing;
+    ++image->write_seq; // other contents from here on (BB_IMAGE_TILE_MEMO)
 }
 
 bool Runtime::IsBufferAccessed(const VideoCore::Buffer* handle, u64 offset, u64 size,
@@ -794,6 +807,22 @@ bool Runtime::IsBufferAccessed(const VideoCore::Buffer* handle, u64 offset, u64 
         has_access |= barrier_tracker.FindRange(range, Access::Read);
     }
     return has_access;
+}
+
+u64 Runtime::WatchBufferWrites(const VideoCore::Buffer* handle, u64 offset, u64 size) {
+    const u64 token = next_watch_token++;
+    auto& watch = buffer_watches[token % buffer_watches.size()];
+    if (!watch.written) {
+        --live_watches;
+    }
+    watch = {reinterpret_cast<u64>(handle), offset, offset + size, token, false};
+    ++live_watches;
+    return token;
+}
+
+bool Runtime::BufferUnwritten(u64 token) const {
+    const auto& watch = buffer_watches[token % buffer_watches.size()];
+    return token != 0 && watch.token == token && !watch.written;
 }
 
 void Runtime::AccessBuffer(const VideoCore::Buffer* handle, u64 offset, u64 size,
@@ -843,6 +872,15 @@ void Runtime::AccessBuffer(const VideoCore::Buffer* handle, u64 offset, u64 size
     };
     if (src_access & WRITE_MASK) {
         insert(Access::Write);
+        if (live_watches != 0) {
+            for (auto& watch : buffer_watches) {
+                if (!watch.written && watch.resource == range.resource &&
+                    offset < watch.end && watch.start < offset + size) {
+                    watch.written = true;
+                    --live_watches;
+                }
+            }
+        }
     }
     if (src_access & READ_MASK) {
         insert(Access::Read);

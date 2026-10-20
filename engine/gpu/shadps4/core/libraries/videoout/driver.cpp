@@ -19,6 +19,7 @@
 #include "bbport_toggles.h"
 #include "bbport_heap_sites.h"
 #include "bbport_wait_trace.h"
+#include "bbport_freeze.h"
 #include "video_core/renderer_vulkan/vk_frame_capture.h"
 #include "common/debug.h"
 #include "common/thread.h"
@@ -32,6 +33,7 @@ extern "C" void runtime_sleep_stats(uint64_t* calls, uint64_t* ns);
 extern "C" void runtime_wait_report(double frames);
 #include "video_core/page_manager.h"
 #include "core/libraries/videoout/videoout_error.h"
+#include "sdl_window.h"
 #include "imgui/renderer/imgui_core.h"
 #include "video_core/amdgpu/liverpool.h"
 #include "video_core/renderer_vulkan/pipeline_compile_queue.h"
@@ -388,10 +390,24 @@ static void LogRam() {
                 mib(m.total_phys), mib(m.commit_left), mib(BbStats::vk_image_bytes.load()),
                 mib(BbStats::live_image_bytes.load()),
                 static_cast<unsigned long long>(BbStats::live_images.load()));
+    // Where that RAM is: on the first report, then every five minutes. Listing every resident page
+    // takes a while, so not on this (the presenting) thread.
+    static int reports = 0;
+    if (reports++ % 5 == 0) {
+        std::thread([mib] {
+            BbPlatform::MemoryBreakdown b;
+            if (!BbPlatform::GetMemoryBreakdown(b)) return;
+            std::printf("Memory by kind: game memory %llu MiB, other mapped %llu MiB, programs and DLLs %llu MiB, "
+                        "engine and driver %llu MiB (shared %llu MiB)\n",
+                        mib(b.game_pool), mib(b.mapped), mib(b.images), mib(b.priv), mib(b.shared));
+            std::fflush(stdout);
+        }).detach();
+    }
     std::fflush(stdout);
 }
 
 void VideoOutDriver::Flip(const Request& req) {
+    BbFreeze::NoteFlip();
     // Update HDR status before presenting, then present the frame (bbport: on the swap thread).
     RunPresenter([this, frame = req.frame, hdr = req.port->is_hdr] {
         presenter->SetHDR(hdr);
@@ -399,6 +415,18 @@ void VideoOutDriver::Flip(const Request& req) {
     });
     Vulkan::FrameCapture::OnFlip(req.index >= 0 ? req.port->buffer_slots[req.index].address_left
                                                 : 0);
+
+    {
+        static auto last_flip = std::chrono::steady_clock::now();
+        const u32 background_fps = Frontend::BackgroundFrameLimit();
+        if (background_fps && Frontend::WindowInBackground()) {
+            const auto due = last_flip + std::chrono::nanoseconds(1000000000 / background_fps);
+            if (std::chrono::steady_clock::now() < due) {
+                std::this_thread::sleep_until(due);
+            }
+        }
+        last_flip = std::chrono::steady_clock::now();
+    }
 
     {
         static auto next_ram = std::chrono::steady_clock::now() + std::chrono::seconds(30);
@@ -939,7 +967,28 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
 
     // bbport: frame limit (see EmulatorSettings::GetFrameLimit). A request waits in the queue
     // until its slot; slots advance by one period (no drift) but never lag behind by more.
-    const u32 frame_limit = EmulatorSettings.GetFrameLimit();
+    u32 frame_limit = EmulatorSettings.GetFrameLimit();
+    // bbport: uncapped presets never present faster than the display refreshes. With Mailbox
+    // (the default) every frame past the refresh rate is rendered in full - scene, upscaler,
+    // post process - and then replaced in the mailbox before it is ever shown: GPU work and
+    // power for nothing (240 FPS on a 144 Hz screen threw away 40% of it). Fixed presets are
+    // left alone (their game speed follows the flip rate), and so is Immediate, chosen for
+    // tearing at the lowest latency. BB_CAP_TO_REFRESH=0 turns it off.
+    if (EmulatorSettings.IsUncappedVblank() && EmulatorSettings.GetPresentMode() != "Immediate") {
+        const char* env = std::getenv("BB_CAP_TO_REFRESH");
+        const u32 refresh = Frontend::DisplayRefreshHz();
+        if (!(env && env[0] == '0') && refresh >= 30 && (frame_limit == 0 || frame_limit > refresh)) {
+            std::printf("VideoOut: frame limit %u FPS lowered to the display's %u Hz "
+                        "(BB_CAP_TO_REFRESH=0 keeps it)\n", frame_limit, refresh);
+            frame_limit = refresh;
+        }
+    } else if (const u32 refresh = Frontend::DisplayRefreshHz();
+               refresh >= 30 && frame_limit > refresh + 1 &&
+               EmulatorSettings.GetPresentMode() == "Mailbox") {
+        std::printf("VideoOut: the %u FPS preset is faster than the display's %u Hz: about %u%% "
+                    "of the frames are rendered and never shown (a lower FPS preset saves that GPU "
+                    "work)\n", frame_limit, refresh, 100 - refresh * 100 / frame_limit);
+    }
     const auto frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
                                           : std::chrono::nanoseconds(0);
     auto next_flip = std::chrono::steady_clock::now();

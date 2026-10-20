@@ -1252,12 +1252,13 @@ ImageView& TextureCache::FindDepthTarget(ImageId image_id, const ImageDesc& desc
             stencil_id = slot_images.insert(instance, runtime, slot_image_views, info);
             RegisterImage(stencil_id);
         }
+        const auto depth_uid = slot_images[image_id].image_uid;
         Image& stencil_image = slot_images[stencil_id];
         TouchImage(stencil_image);
-        stencil_image.AssociateDepth(image_id, image.image_uid);
+        stencil_image.AssociateDepth(image_id, depth_uid);
     }
 
-    return image.FindView(desc.view_info, false);
+    return slot_images[image_id].FindView(desc.view_info, false);
 }
 
 void TextureCache::RefreshImage(Image& image) {

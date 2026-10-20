@@ -6,6 +6,7 @@
 
 #include "thd.h"
 #include "thd_internal.h"
+#include "windows_trust.h"
 
 #include <algorithm>
 #include <atomic>
@@ -16,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -191,27 +193,39 @@ HttpResult Perform(const std::string& base, const std::string& path, const std::
                    int timeout_ms) {
     thread_local std::map<std::string, std::unique_ptr<httplib::Client>> clients;
     auto& cli = clients[base];
-    if (!cli) {
+    const auto timeout = std::chrono::milliseconds(timeout_ms);
+    auto open = [&] {
         cli = std::make_unique<httplib::Client>(base);
         cli->set_keep_alive(true);
         cli->set_follow_location(false);
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
         cli->enable_server_certificate_verification(Cfg().verify_tls);
+        if (Cfg().verify_tls) bbnet::TrustWindowsRoots(*cli, base);
 #endif
-    }
-    const auto timeout = std::chrono::milliseconds(timeout_ms);
-    cli->set_connection_timeout(timeout);
-    cli->set_read_timeout(timeout);
-    cli->set_write_timeout(timeout);
+    };
+    const bool reused = cli != nullptr;
+    if (!cli) open();
     httplib::Headers headers{{"Accept", "application/json"},
                              {"User-Agent", Cfg().client},
                              {"X-BBHost-Ruleset", Cfg().ruleset}};
     if (const std::string token = AccountToken(); !token.empty()) {
         headers.emplace("X-BB-Token", token);
     }
+    auto send = [&] {
+        // Connecting stays at a few seconds; only the read waits as long as the request asks (a held poll).
+        cli->set_connection_timeout(std::min(timeout, std::chrono::milliseconds(5000)));
+        cli->set_read_timeout(timeout);
+        cli->set_write_timeout(timeout);
+        return post ? cli->Post(path, headers, *post, "application/json") : cli->Get(path, headers);
+    };
     HttpResult r;
-    httplib::Result res = post ? cli->Post(path, headers, *post, "application/json")
-                               : cli->Get(path, headers);
+    httplib::Result res = send();
+    // A kept-alive connection the server closed meanwhile fails on its first read or write
+    // ("Failed to read connection"): once more on a new one, as bbhost's fresh request would.
+    if (!res && reused && (res.error() == httplib::Error::Read || res.error() == httplib::Error::Write)) {
+        open();
+        res = send();
+    }
     if (!res) {
         r.error = httplib::to_string(res.error());
         cli.reset(); // a fresh connection next time
@@ -696,15 +710,37 @@ std::atomic<bool> g_pollrun{false};
 std::function<void(const Json&)> g_handler;
 long long g_cursor = 0;
 
-void PollerMain() {
+// The server holds an empty poll open until an event for this player arrives or the wait ends
+// (WaitMs; droogie's long polling): invites arrive at once and the server is not asked four times a
+// second. Every answer from such a server carries WaitMaxMs; one without it answers at once, so
+// the poller goes back to the 250 ms pacing against it. One poll in flight per player: a poller
+// left over from a stop (still inside a held poll) ends instead of polling beside the new one.
+std::atomic<unsigned> g_pollgen{0};
+
+int Jitter(int ms) {
+    thread_local unsigned seed = static_cast<unsigned>(
+        std::chrono::steady_clock::now().time_since_epoch().count() ^ std::hash<std::thread::id>{}(std::this_thread::get_id()));
+    seed = seed * 1103515245u + 12345u;
+    const int span = ms / 5; // +-20%
+    return span > 0 ? ms - span + static_cast<int>((seed >> 8) % static_cast<unsigned>(2 * span + 1)) : ms;
+}
+
+void PollerMain(unsigned gen) {
     const std::string me = OnlineId();
-    int interval_ms = 250;
-    while (g_pollrun.load()) {
+    const auto running = [gen] { return g_pollrun.load() && g_pollgen.load() == gen; };
+    int wait_ms = 25000; // long polling from the first poll
+    int backoff_ms = 0;
+    while (running()) {
         Json body = {{"OnlineId", me}, {"Cursor", g_cursor}, {"Categories", Json::array({"matching2"})}};
+        if (wait_ms > 0) body["WaitMs"] = wait_ms;
         Json reply;
         std::string err;
-        if (NpPost("/np/events/poll", body, reply, err, 4000)) {
-            interval_ms = 250;
+        int pause_ms = 0;
+        // The read timeout sits above the wait, or every empty poll would end as an error.
+        if (NpPost("/np/events/poll", body, reply, err, wait_ms > 0 ? wait_ms + 5000 : 4000)) {
+            backoff_ms = 0;
+            const long long max_wait = IntOf(reply, "WaitMaxMs", 0);
+            wait_ms = max_wait > 0 ? static_cast<int>(std::min<long long>(25000, max_wait)) : 0;
             const long long next = IntOf(reply, "NextCursor", g_cursor);
             if (IntOf(reply, "HasEvent", 0) != 0) {
                 std::function<void(const Json&)> handler;
@@ -728,13 +764,17 @@ void PollerMain() {
                 continue; // drain without waiting while there are events
             }
             g_cursor = std::max(g_cursor, next);
+            if (wait_ms > 0) continue; // the server did the waiting: poll again now
+            pause_ms = 250;            // a server without long polling answers at once
         } else if (Refused()) {
-            interval_ms = 60000; // nothing arrives until this PC signs in again
+            pause_ms = 60000; // nothing arrives until this PC signs in again
         } else {
-            interval_ms = interval_ms < 4000 ? interval_ms * 2 : 4000; // the server is away
+            // The server is away (network error, timeout, 5xx, 429): 1, 2, 4 ... 30 s.
+            backoff_ms = backoff_ms ? std::min(backoff_ms * 2, 30000) : 1000;
+            pause_ms = Jitter(backoff_ms);
         }
         std::unique_lock lk(g_pollmu);
-        g_pollcv.wait_for(lk, std::chrono::milliseconds(interval_ms), [] { return !g_pollrun.load(); });
+        g_pollcv.wait_for(lk, std::chrono::milliseconds(pause_ms), [&] { return !running(); });
     }
 }
 
@@ -795,7 +835,7 @@ void PollerStart(std::function<void(const Json&)> handler) {
     g_handler = std::move(handler);
     if (g_pollrun.exchange(true)) return;
     g_cursor = 0;
-    std::thread(PollerMain).detach();
+    std::thread(PollerMain, g_pollgen.fetch_add(1) + 1).detach();
     if (!g_keeprun.exchange(true)) std::thread(KeepaliveMain).detach();
 }
 

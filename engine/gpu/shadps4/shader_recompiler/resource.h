@@ -81,6 +81,10 @@ struct BufferResource {
     BufferType buffer_type{};
     bool is_written{};
     bool is_formatted{};
+    /// bbport: every access is a scalar constant load (ReadConstBuffer).
+    bool only_const_reads{true};
+    /// bbport: declared and bound as a uniform buffer (Profile::uniform_constant_buffers).
+    bool is_uniform{};
     SharpFetchPostOp post_op{};
     u32 post_op_dw1_mask{};
 

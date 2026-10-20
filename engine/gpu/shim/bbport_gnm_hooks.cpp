@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_gnm_hooks.h"
+#include "bbport_native_calls.h"
 
 #include <algorithm>
 #include <initializer_list>
@@ -10,8 +11,17 @@
 #include <cstring>
 #include <thread>
 #include <vector>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+// The stubs call Enter/Leave with the guest's (System V) convention: arguments in rdi/rsi/rdx,
+// no shadow space.
+#define BB_GNM_ABI __attribute__((sysv_abi))
+#else
 #include <sys/mman.h>
 #include <unistd.h>
+#define BB_GNM_ABI
+#endif
 
 namespace BbGnmHooks {
 namespace {
@@ -36,22 +46,58 @@ constexpr std::size_t SlotSize = 256; // observing stubs are ~190 bytes
 constexpr std::size_t CounterStride = 64; // one cache line per counter
 
 u8* stubs = nullptr;
+std::size_t PageSize() {
+#ifdef _WIN32
+    return 4096;
+#else
+    return std::size_t(sysconf(_SC_PAGESIZE));
+#endif
+}
 u64* CounterAt(std::size_t i) {
-    const std::size_t page = std::size_t(sysconf(_SC_PAGESIZE));
+    const std::size_t page = PageSize();
     const std::size_t code_bytes = ((Count + 1) * SlotSize + page - 1) / page * page;
     return reinterpret_cast<u64*>(stubs + code_bytes + i * CounterStride);
 }
 
+} // namespace
+} // namespace BbGnmHooks
+#ifdef _WIN32
+// bbport: the runtime's own allocator for host memory the guest sees (src/runtime_memory.c): it
+// hands out the low area the image was loaded from, which the runtime has reserved whole, so a
+// VirtualAlloc there finds nothing free.
+extern "C" void* runtime_low_map(std::size_t size, int prot);
+#endif
+namespace BbGnmHooks {
+namespace {
+
 /// A mapping within +-2 GiB of the image text, for rel32 jumps both ways.
 u8* MapNear(unsigned char* image, std::uint64_t image_size, std::size_t size) {
+#ifdef _WIN32
+    if (auto* p = static_cast<u8*>(runtime_low_map(size, 3))) {
+        const auto base = reinterpret_cast<std::intptr_t>(image);
+        const auto at = reinterpret_cast<std::intptr_t>(p);
+        if (at + std::intptr_t(size) - base < INT32_MAX && base + std::intptr_t(image_size) - at < INT32_MAX) {
+            return p;
+        }
+    }
+#endif
     const u64 base = reinterpret_cast<u64>(image);
     for (u64 k = 1; k <= 64; ++k) {
         for (const u64 hint : {base - k * (16ull << 20), base + image_size + k * (16ull << 20)}) {
+#ifdef _WIN32
+            // bbport: Windows reserves at 64 KiB granularity.
+            void* p = VirtualAlloc(reinterpret_cast<void*>(hint & ~u64(0xFFFF)), size,
+                                   MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+            if (p) {
+                return static_cast<u8*>(p);
+            }
+#else
             void* p = mmap(reinterpret_cast<void*>(hint), size, PROT_READ | PROT_WRITE,
                            MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
             if (p != MAP_FAILED) {
                 return static_cast<u8*>(p);
             }
+#endif
         }
     }
     return nullptr;
@@ -72,7 +118,27 @@ bool Rel32(const u8* from_next, const void* to, std::int32_t& rel) {
 /// wrote in a shadow table (writer, checksum). Submissions are checked against it: which packets
 /// came from known API calls, which from elsewhere, which were changed after the call wrote them.
 bool observe = false;
+bool census = false;
 u8* exit_thunk = nullptr;
+
+/// bbport BB_NATIVE_CALLS (bbport_native_calls.h): the draw functions by table index (their
+/// BbNativeCalls::DrawKind; verify mode only, for Leave) and the table index of each kind.
+u8 native_kind[Count];
+std::uint32_t native_index[4];
+
+/// The draw function at an eboot offset: its BbNativeCalls::DrawKind, 0 for others.
+std::uint32_t NativeKindAt(u64 offset) {
+    switch (offset) {
+    case 0x10741b0:
+        return BbNativeCalls::DrawAuto;
+    case 0x1074360:
+        return BbNativeCalls::DrawIndex;
+    case 0x1074420:
+        return BbNativeCalls::DrawIndexOffset;
+    default:
+        return 0;
+    }
+}
 
 struct Frame {
     std::uint32_t index;
@@ -201,7 +267,7 @@ void Mark(std::uint32_t index, u64 before, u64 after, u64 cb = 0) {
     }
 }
 
-extern "C" void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot) {
+extern "C" BB_GNM_ABI void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot) {
     __atomic_fetch_add(CounterAt(index), 1, __ATOMIC_RELAXED);
     if (depth == MaxDepth) {
         overflow.fetch_add(1, std::memory_order_relaxed);
@@ -210,7 +276,7 @@ extern "C" void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot) {
     Frame& f = frames[depth++];
     // A traced function that is not a command buffer method: no write pointer to note.
     f = {index, cb, Table[index].cb_method ? *reinterpret_cast<const u64*>(cb + 0x10) : 0, *slot, {}};
-    if (index == trace_index) {
+    if (index == trace_index || native_kind[index]) {
         // The stub saved rdi..r9 just below the return address slot.
         f.args[0] = slot[-1]; f.args[1] = slot[-2]; f.args[2] = slot[-3];
         f.args[3] = slot[-4]; f.args[4] = slot[-5]; f.args[5] = slot[-6];
@@ -218,7 +284,7 @@ extern "C" void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot) {
     *slot = reinterpret_cast<u64>(exit_thunk);
 }
 
-extern "C" u64 BbGnmLeave() {
+extern "C" BB_GNM_ABI u64 BbGnmLeave() {
     const Frame f = frames[--depth];
     const bool cb_method = Table[f.index].cb_method;
     if (f.index == trace_index && trace_left.fetch_sub(1, std::memory_order_relaxed) > 0) {
@@ -249,8 +315,106 @@ extern "C" u64 BbGnmLeave() {
     if (!cb_method) {
         return f.ret;
     }
-    Mark(f.index, f.before, *reinterpret_cast<const u64*>(f.cb + 0x10), f.cb);
+    const u64 after = *reinterpret_cast<const u64*>(f.cb + 0x10);
+    // BB_NATIVE_CALLS=verify: the call's record, by the address of the packet the game's code
+    // wrote (all its dwords follow one reserve, so it ends at the write pointer, even in a new
+    // chunk). Nothing written: the reserve callback failed.
+    if (const std::uint32_t kind = native_kind[f.index]; kind && after != f.before) {
+        BbNativeCalls::DrawRecord r;
+        r.kind = kind;
+        r.predicate = *reinterpret_cast<const std::uint32_t*>(f.cb + 0x28) & 1;
+        if (kind == BbNativeCalls::DrawIndexOffset) {
+            r.index_offset = std::uint32_t(f.args[1]); // esi
+            r.index_count = std::uint32_t(f.args[2]);  // edx
+        } else {
+            r.index_count = std::uint32_t(f.args[1]); // esi
+            r.index_addr = kind == BbNativeCalls::DrawIndex ? f.args[2] : 0; // rdx
+        }
+        BbNativeCalls::Remember(after - 4ull * BbNativeCalls::ReservedDwords(kind), r);
+    }
+    if (observe) {
+        Mark(f.index, f.before, after, f.cb);
+    }
     return f.ret;
+}
+
+/// BB_NATIVE_CALLS=1: the three draw functions, replaced (the hook stub jumps here with the
+/// guest's arguments). The reserve is the original's: room for the whole call, else the command
+/// buffer's callback (cb+0x18, user data cb+0x20; it may start a new chunk), nothing written if
+/// it fails. Command buffer: cb+0x8 end, cb+0x10 write pointer, cb+0x28 flags.
+using ReserveFn = u8(BB_GNM_ABI*)(u64 cb, std::uint32_t dwords, u64 user);
+using ThreadTraceFn = u8(BB_GNM_ABI*)();
+constexpr u64 ThreadTraceCheck = 0x1089c40; // returns whether a thread trace marker follows
+
+void NativeDraw(u64 cb, BbNativeCalls::DrawRecord r) {
+    const std::uint32_t index = native_index[r.kind];
+    if (census) {
+        __atomic_fetch_add(CounterAt(index), 1, __ATOMIC_RELAXED);
+    }
+    const std::uint32_t n = BbNativeCalls::ReservedDwords(r.kind);
+    const u64 before = *reinterpret_cast<const u64*>(cb + 0x10);
+    const u64 end = *reinterpret_cast<const u64*>(cb + 0x8);
+    // The original compares the low 32 bits of the free dword count, unsigned.
+    if (std::uint32_t((end - before) >> 2) <= n - 1) {
+        const auto reserve = *reinterpret_cast<const ReserveFn*>(cb + 0x18);
+        if (!reserve(cb, n, *reinterpret_cast<const u64*>(cb + 0x20))) {
+            return;
+        }
+    }
+    auto* out = *reinterpret_cast<std::uint32_t* const*>(cb + 0x10);
+    const std::uint32_t flags = *reinterpret_cast<const std::uint32_t*>(cb + 0x28);
+    r.predicate = flags & 1;
+    if (reinterpret_cast<ThreadTraceFn>(image_base + ThreadTraceCheck)()) {
+        // A thread trace marker after the draw: the original encoding.
+        const std::uint32_t words = BbNativeCalls::EncodeDrawPacket(r, out);
+        out[words] = 0xc0004600u | (flags & 2); // EVENT_WRITE
+        out[words + 1] = 0x35;                  // thread trace marker
+        BbNativeCalls::NoteWritten(false);
+    } else {
+        BbNativeCalls::EncodeRecordNop(r, out);
+        BbNativeCalls::NoteWritten(true);
+    }
+    const u64 after = reinterpret_cast<u64>(out + n);
+    *reinterpret_cast<u64*>(cb + 0x10) = after;
+    if (observe) {
+        Mark(index, before, after, cb);
+    }
+}
+
+BB_GNM_ABI void NativeDrawIndexAuto(u64 cb, std::uint32_t index_count) {
+    BbNativeCalls::DrawRecord r;
+    r.kind = BbNativeCalls::DrawAuto;
+    r.index_count = index_count;
+    NativeDraw(cb, r);
+}
+
+BB_GNM_ABI void NativeDrawIndex(u64 cb, std::uint32_t index_count, u64 index_addr) {
+    BbNativeCalls::DrawRecord r;
+    r.kind = BbNativeCalls::DrawIndex;
+    r.index_count = index_count;
+    r.index_addr = index_addr;
+    NativeDraw(cb, r);
+}
+
+BB_GNM_ABI void NativeDrawIndexOffset(u64 cb, std::uint32_t index_offset, std::uint32_t index_count) {
+    BbNativeCalls::DrawRecord r;
+    r.kind = BbNativeCalls::DrawIndexOffset;
+    r.index_offset = index_offset;
+    r.index_count = index_count;
+    NativeDraw(cb, r);
+}
+
+u64 NativeEntry(std::uint32_t kind) {
+    switch (kind) {
+    case BbNativeCalls::DrawAuto:
+        return reinterpret_cast<u64>(&NativeDrawIndexAuto);
+    case BbNativeCalls::DrawIndex:
+        return reinterpret_cast<u64>(&NativeDrawIndex);
+    case BbNativeCalls::DrawIndexOffset:
+        return reinterpret_cast<u64>(&NativeDrawIndexOffset);
+    default:
+        return 0;
+    }
 }
 
 // Submission check statistics (written by the submitting thread, read by the report thread).
@@ -513,11 +677,14 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
     const char* env = std::getenv("BB_GNM_CENSUS");
     const char* observe_env = std::getenv("BB_GNM_OBSERVE");
     observe = observe_env && observe_env[0] == '1';
-    if (!observe && (!env || env[0] != '1')) {
+    census = env && env[0] == '1';
+    // BB_NATIVE_CALLS alone hooks only the three draw functions.
+    const BbNativeCalls::Mode native_mode = BbNativeCalls::GetMode();
+    if (!observe && !census && native_mode == BbNativeCalls::Mode::Off) {
         return;
     }
     const std::size_t stub_bytes = (Count + 1) * SlotSize; // + the shared exit thunk
-    const std::size_t page = std::size_t(sysconf(_SC_PAGESIZE));
+    const std::size_t page = PageSize();
     const std::size_t code_bytes = (stub_bytes + page - 1) / page * page;
     const std::size_t map_bytes = code_bytes + Count * CounterStride;
     image_base = reinterpret_cast<u64>(image);
@@ -546,8 +713,14 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
         std::sscanf(r, "%zu:%zu", &first, &last);
     }
     u8* counters = stubs + code_bytes;
+    std::size_t native_hooked = 0;
     for (std::size_t i = first; i < std::min(last, Count); ++i) {
         const Entry& e = Table[i];
+        const std::uint32_t kind =
+            native_mode != BbNativeCalls::Mode::Off ? NativeKindAt(e.offset) : 0;
+        if (!observe && !census && kind == 0) {
+            continue;
+        }
         u8* fn = image + e.offset;
         if (e.offset + e.prologue_size > size || std::memcmp(fn, e.prologue, e.prologue_size) != 0) {
             ++mismatched;
@@ -557,7 +730,17 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
         u8* counter = counters + i * CounterStride;
         std::int32_t rel;
         u8* body;
-        if (observe && (e.cb_method || i == trace_index)) {
+        if (kind && native_mode == BbNativeCalls::Mode::Native) {
+            // mov rax, NativeDraw*; jmp rax (the guest's arguments and return address stay).
+            Writer w{s};
+            w.Put({0x48, 0xb8});
+            w.Imm64(NativeEntry(kind));
+            w.Put({0xff, 0xe0});
+            native_index[kind] = std::uint32_t(i);
+            body = nullptr;
+        } else if ((observe && (e.cb_method || i == trace_index)) || kind) {
+            // Verify mode: the game's function runs; Leave notes the record.
+            native_kind[i] = u8(kind);
             body = WriteObserveStub(s, std::uint32_t(i));
         } else {
             // lock inc qword [rip+rel]
@@ -569,26 +752,57 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
             std::memcpy(s + 4, &rel, 4);
             body = s + 8;
         }
-        std::memcpy(body, e.prologue, e.prologue_size);
-        u8* j = body + e.prologue_size;
-        j[0] = 0xe9;
-        if (!Rel32(j + 5, fn + e.prologue_size, rel)) {
-            ++mismatched;
-            continue;
+        if (body) {
+            std::memcpy(body, e.prologue, e.prologue_size);
+            u8* j = body + e.prologue_size;
+            j[0] = 0xe9;
+            if (!Rel32(j + 5, fn + e.prologue_size, rel)) {
+                native_kind[i] = 0;
+                ++mismatched;
+                continue;
+            }
+            std::memcpy(j + 1, &rel, 4);
         }
-        std::memcpy(j + 1, &rel, 4);
         // The entry: jmp stub, the rest of the moved prologue int3 (never reached).
         std::int32_t to_stub;
         if (!Rel32(fn + 5, s, to_stub)) {
+            native_kind[i] = 0;
             ++mismatched;
             continue;
         }
+#ifdef _WIN32
+        DWORD old_protect = 0;
+        if (!VirtualProtect(fn, e.prologue_size, PAGE_EXECUTE_READWRITE, &old_protect)) {
+            native_kind[i] = 0;
+            ++mismatched;
+            continue;
+        }
+#endif
         fn[0] = 0xe9;
         std::memcpy(fn + 1, &to_stub, 4);
         std::memset(fn + 5, 0xcc, e.prologue_size - 5);
+#ifdef _WIN32
+        VirtualProtect(fn, e.prologue_size, old_protect, &old_protect);
+        FlushInstructionCache(GetCurrentProcess(), fn, e.prologue_size);
+#endif
         ++patched;
+        native_hooked += kind != 0;
     }
+#ifdef _WIN32
+    DWORD old_protect = 0;
+    VirtualProtect(stubs, code_bytes, PAGE_EXECUTE_READ, &old_protect);
+    FlushInstructionCache(GetCurrentProcess(), stubs, code_bytes);
+#else
     mprotect(stubs, code_bytes, PROT_READ | PROT_EXEC);
+#endif
+    if (native_mode != BbNativeCalls::Mode::Off) {
+        std::printf("Native calls: %zu of 3 draw functions hooked (%s)\n", native_hooked,
+                    native_mode == BbNativeCalls::Mode::Native ? "replaced" : "verified");
+    }
+    if (!observe && !census) {
+        std::fflush(stdout);
+        return;
+    }
     std::printf("Gnm census: %zu of %zu libGnm entry points hooked (%zu do not match the 1.09 eboot)%s\n",
                 patched, Count, mismatched, observe ? "; command buffer methods observed" : "");
     std::thread(ReportLoop).detach();

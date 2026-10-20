@@ -208,10 +208,20 @@ Image::Image(const Vulkan::Instance& instance, Vulkan::Runtime& runtime_,
         .usage = usage_flags,
         .flags = flags,
     };
-    const auto image_format_properties = [&] {
+    auto image_format_properties = [&] {
         BbStats::Timer timer{BbStats::t_image_query};
         return ImageFormatProperties(instance, format_info);
     }();
+    if (image_format_properties.result == vk::Result::eErrorFormatNotSupported &&
+        info.props.is_block && (usage_flags & vk::ImageUsageFlagBits::eStorage)) {
+        vk::PhysicalDeviceImageFormatInfo2 sampled_info = format_info;
+        sampled_info.usage &= ~vk::ImageUsageFlagBits::eStorage;
+        auto sampled = ImageFormatProperties(instance, sampled_info);
+        if (sampled.result == vk::Result::eSuccess) {
+            usage_flags = sampled_info.usage;
+            image_format_properties = sampled;
+        }
+    }
     if (image_format_properties.result == vk::Result::eErrorFormatNotSupported) {
         LOG_ERROR(Render_Vulkan, "image format {} type {} is not supported (flags {}, usage {})",
                   vk::to_string(supported_format), vk::to_string(format_info.type),

@@ -62,6 +62,9 @@ public:
     Presenter(Frontend::WindowSDL& window, AmdGpu::Liverpool* liverpool);
     ~Presenter();
 
+    void WaitForSubmittedWork(u64 timeout_ns);
+    void ReportState();
+
     HostPasses::PostProcessingPass::Settings& GetPPSettingsRef() {
         return pp_settings;
     }

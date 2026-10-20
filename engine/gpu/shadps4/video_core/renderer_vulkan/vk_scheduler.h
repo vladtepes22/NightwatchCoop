@@ -888,6 +888,10 @@ public:
     /// bbport: waits until the submission signalling `tick` is in the queue. Another thread's
     /// submission waiting for the tick on the same queue must not go first (BB_ASYNC_SUBMIT
     /// submits from the recording threads): the queue would wait for a later submission.
+    [[nodiscard]] u64 SubmittedTick() const noexcept {
+        return submitted_tick.load(std::memory_order_acquire);
+    }
+
     void WaitSubmitted(u64 tick) {
         u64 submitted = submitted_tick.load(std::memory_order_acquire);
         while (submitted < tick) {

@@ -25,6 +25,9 @@ from mods import remove_overlay
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / 'scripts'
+# The package keeps the engine in engine\ beside the player's files (bbport.ini, user, mods, logs):
+# those are the data folder's by default. Older packages had both in one folder.
+PACKAGE = ROOT.parent if ROOT.name.lower() == 'engine' and (ROOT.parent / 'package.json').is_file() else ROOT
 PYTHON = sys.executable
 LOG_STREAM = None
 
@@ -173,16 +176,27 @@ def settings_value(config, key):
 
 def gpu_cache_dir(env=os.environ):
     """Where the engine keeps its shader and pipeline caches (bb-probe runs in ROOT)."""
-    return Path(env.get('BB_GPU_USER_DIR', ROOT / 'user')) / 'cache'
+    return Path(env.get('BB_GPU_USER_DIR', PACKAGE / 'user')) / 'cache'
+
+
+def gpu_cache_id(out, engine):
+    """The GPU cache's identity: out/gpu-cache.id (engine/build.sh), else the engine id."""
+    try:
+        value = (out / 'gpu-cache.id').read_text(encoding='utf-8').strip()
+        return f'gpu {value}' if value else engine
+    except OSError:
+        return engine
 
 
 def reset_stale_gpu_cache(cache, engine):
     """Deletes the shader and pipeline caches another engine build wrote. The engine checks them
     against the GPU only, so a damaged record or one from an older build was preloaded every
     session, through updates (characters' skin and hair missing in every save: GitHub issue 30).
-    The first start of each engine rebuilds them, as after a driver update. The GPU driver's own
-    cache (*.vkcache) stays: the engine checks it against the GPU and driver, and it holds only
-    what the driver compiled, so the next start compiles less."""
+    `engine` is the GPU cache's identity (gpu_cache_id): a hash of the sources that decide what
+    the caches hold, so an update that leaves the shader recompiler and the pipeline records alone
+    keeps every shader the player's PC compiled (no stutter in each area again after updates).
+    The GPU driver's own cache (*.vkcache) stays: the engine checks it against the GPU and driver,
+    and it holds only what the driver compiled, so the next start compiles less."""
     stamp = cache / 'engine.txt'
     try:
         if not engine or stamp.read_text(encoding='utf-8').strip() == engine:
@@ -206,7 +220,7 @@ def reset_stale_gpu_cache(cache, engine):
     cache.mkdir(parents=True, exist_ok=True)
     stamp.write_text(engine + '\n', encoding='utf-8')
     if removed:
-        print(f'GPU cache: cleared for engine {engine}; shaders compile again on this start', flush=True)
+        print(f'GPU cache: cleared ({engine}: the shader compiler changed); shaders compile again on this start', flush=True)
     return removed
 
 
@@ -243,11 +257,13 @@ def main():
     game = os.environ.get('BB_GAME_DIR')
     if arguments[:1] == ['--game-dir'] and len(arguments) > 1:
         game, arguments = arguments[1], arguments[2:]
-    data = Path(os.environ.get('BB_DATA_DIR', ROOT))
-    out = data / 'out'
+    data = Path(os.environ.get('BB_DATA_DIR', PACKAGE))
+    # The engine's programs and what each start generates for them: beside the engine, unless the
+    # data folder holds an engine of its own (one folder for both, as older packages had).
+    out = data / 'out' if (data / 'out' / 'bb-probe.exe').is_file() else ROOT / 'out'
     try:
-        engine = json.loads((ROOT / 'package.json').read_text(encoding='utf-8-sig')).get('engine', '')
-        reset_stale_gpu_cache(gpu_cache_dir(), engine)
+        engine = json.loads((PACKAGE / 'package.json').read_text(encoding='utf-8-sig')).get('engine', '')
+        reset_stale_gpu_cache(gpu_cache_dir(), gpu_cache_id(out, engine))
     except (OSError, ValueError):
         pass
     out.mkdir(parents=True, exist_ok=True)
@@ -272,7 +288,7 @@ def main():
     remembered = out / 'game_dir.txt'
     if not game and remembered.is_file():
         game = remembered.read_text(encoding='utf-8').strip()
-    game = Path(game) if game else ROOT.parent / 'CUSA03173'
+    game = Path(game) if game else PACKAGE.parent / 'CUSA03173'
     if not (game / 'eboot.bin').is_file():
         sys.exit(f'No eboot.bin in {game} (pass --game-dir or set BB_GAME_DIR).')
     original = game.resolve()

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "common/logging/classes.h"
+#include "shader_recompiler/compile_stats.h"
 #include "shader_recompiler/frontend/control_flow_graph.h"
 #include "shader_recompiler/frontend/decode.h"
 #include "shader_recompiler/frontend/structured_control_flow.h"
@@ -68,6 +69,9 @@ IR::Program TranslateProgram(const std::span<const u32>& code, Pools& pools, Inf
         LOG_WARNING(Render_Recompiler, "First instruction is not s_mov_b32 vcc_hi, #imm");
     }
 
+    CompileStats::Begin(); // bbport: phase times (BB_FRAME_STATS), compile_stats.h
+    CompileStats::Timer timer;
+
     Gcn::GcnCodeSlice slice(code.data(), code.data() + code.size());
     Gcn::GcnDecodeContext decoder;
 
@@ -80,11 +84,13 @@ IR::Program TranslateProgram(const std::span<const u32>& code, Pools& pools, Inf
 
     // Clear any previous pooled data.
     pools.ReleaseContents();
+    timer.Next(CompileStats::Decode);
 
     // Create control flow graph
     Common::ObjectPool<Gcn::Block> gcn_block_pool{64};
     Gcn::CFG cfg{gcn_block_pool, program.ins_list};
     EmitControlFlowGraph(program, pools, cfg, runtime_info, profile);
+    timer.Next(CompileStats::Translate);
 
     // On NVIDIA GPUs HW interpolation of clip distance values seems broken, and we need to emulate
     // it with expensive discard in PS.
@@ -96,6 +102,7 @@ IR::Program TranslateProgram(const std::span<const u32>& code, Pools& pools, Inf
     }
     Shader::Optimization::SsaRewritePass(program);
     Shader::Optimization::ConstantPropagationPass(program.post_order_blocks);
+    timer.Next(CompileStats::Ssa);
     if (info.sw_stage == SwStage::TessellationControl) {
         Shader::Optimization::TessellationPreprocess(program, runtime_info);
         Shader::Optimization::HullShaderTransform(program, runtime_info);
@@ -106,11 +113,13 @@ IR::Program TranslateProgram(const std::span<const u32>& code, Pools& pools, Inf
     Shader::Optimization::RingAccessElimination(program, runtime_info);
     Shader::Optimization::ReadLaneEliminationPass(program);
     Shader::IR::DumpProgram(program, info, "pre-res-discover.");
+    timer.Next(CompileStats::Passes);
     auto resources = Shader::Optimization::ResourceDiscoverPass(program, profile);
     Shader::Optimization::FlattenExtendedUserdataPass(program);
     Shader::IR::DumpProgram(program, info, "pre-res-patch.");
     Shader::Optimization::ResourcePatchingPass(program.info, resources, profile);
     Shader::Optimization::LowerBufferFormatToRaw(program);
+    timer.Next(CompileStats::Resources);
     Shader::Optimization::SharedMemorySimplifyPass(program, profile);
     Shader::Optimization::SharedMemoryToStoragePass(program, runtime_info, profile);
     Shader::Optimization::LowerUserClipPlanes(program, runtime_info);
@@ -118,6 +127,7 @@ IR::Program TranslateProgram(const std::span<const u32>& code, Pools& pools, Inf
     Shader::Optimization::InverseBallotEliminationPass(program);
     Shader::Optimization::LowerHardwareIntrinsics(program);
     Shader::IR::DumpProgram(program, info, "pre-lower-phi.");
+    timer.Next(CompileStats::Passes);
 
     // Prepare for structurization by clearing flow graph and lowering phis
     for (auto* ir_block : program.blocks) {
@@ -131,6 +141,7 @@ IR::Program TranslateProgram(const std::span<const u32>& code, Pools& pools, Inf
     program.syntax_list = Shader::Gcn::BuildASL(pools, cfg, info);
     program.blocks = GenerateBlocks(program.syntax_list);
     program.post_order_blocks = Shader::IR::PostOrder(program.syntax_list.front().data.block);
+    timer.Next(CompileStats::Structurize);
 
     // Run optimization passes on structured graph
     Shader::Optimization::SsaRepairPass(program);
@@ -145,6 +156,7 @@ IR::Program TranslateProgram(const std::span<const u32>& code, Pools& pools, Inf
     }
     Shader::Optimization::CollectShaderInfoPass(program, profile);
     Shader::IR::DumpProgram(program, info);
+    timer.Next(CompileStats::LatePasses);
 
     return program;
 }

@@ -8,7 +8,7 @@
 
 namespace Shader::Optimization {
 
-void Visit(Info& info, const IR::Inst& inst) {
+void Visit(Info& info, const IR::Inst& inst, const Profile& profile) {
     switch (inst.GetOpcode()) {
     case IR::Opcode::GetAttribute:
     case IR::Opcode::GetAttributeU1:
@@ -145,9 +145,12 @@ void Visit(Info& info, const IR::Inst& inst) {
         break;
     case IR::Opcode::ReadConst:
         if (!info.has_readconst) {
+            // bbport: native shaders read the flattened user data (a few dozen dwords, written for
+            // every draw) as a uniform buffer.
             info.buffers.push_back({
                 .used_types = IR::Type::U32,
                 .buffer_type = BufferType::Flatbuf,
+                .is_uniform = profile.uniform_constant_buffers,
             });
             info.has_readconst = true;
         }
@@ -172,7 +175,7 @@ void CollectShaderInfoPass(IR::Program& program, const Profile& profile) {
     Info& info = program.info;
     for (IR::Block* const block : program.post_order_blocks) {
         for (IR::Inst& inst : block->Instructions()) {
-            Visit(info, inst);
+            Visit(info, inst, profile);
         }
     }
 

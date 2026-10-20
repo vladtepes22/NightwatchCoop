@@ -54,5 +54,14 @@ int main() {
     assert(std::abs((300 * w.scale[0] + w.offset[0]) - Fit(3360, 1440).offset[0]) < .01f);
     const auto t = Fit(1920, 1200, ParseUiSize("1920x1200"));
     assert(t.scale[0] == 1 && t.offset[1] == 0);
+    // Sharp UI at 4K, scene 1916x1076 (target aligned to 1920x1080 or a few pixels more): the
+    // target's own viewport is in its pixels, an item icon's rectangle in the UI viewport's.
+    const auto sharp = ParseUiSize("3840x2160");
+    assert(TargetViewport(1916, -1076, 1920, 1080) && TargetViewport(1708, 960, 1712, 960));
+    assert(!TargetViewport(128, 128, 1920, 1080));
+    assert(InnerViewport(128, -128, 1920, 1080, sharp) && InnerViewport(2560, 1440, 1712, 960, sharp));
+    assert(!InnerViewport(3840, 2160, 1920, 1080, sharp) && !InnerViewport(1920, 1080, 1920, 1080, sharp));
+    assert(!InnerViewport(1916, 1076, 1920, 1080, sharp) && !InnerViewport(4096, 2160, 1920, 1080, sharp));
+    assert(!InnerViewport(0, 0, 1920, 1080, sharp));
     std::puts("UI composition: PASS (menu without camera, HUD, FSR off, viewport scaling)");
 }

@@ -73,17 +73,19 @@ int main() {
     assert(PredicatedDraws(false, false, false));
     assert(!PredicatedDraws(true, false, false));
 
-    // Hysteresis: the largest of the last three results; occluded only after three results in
+    // Hysteresis: the largest of the last Depth results; occluded only after Depth results in
     // a row found nothing, visible at once; an unseen past reads visible with the least count.
     {
         BlockHistory fresh;
-        assert(fresh.Report(0) == BlockHistory::UnknownPast);
-        assert(fresh.Report(0) == BlockHistory::UnknownPast);
+        for (std::uint32_t i = 0; i + 1 < BlockHistory::Depth; ++i) {
+            assert(fresh.Report(0) == BlockHistory::UnknownPast);
+        }
         assert(fresh.Report(0) == 0);
         assert(fresh.Report(0) == 0);
         assert(fresh.Report(9) == 9); // visible at once
-        assert(fresh.Report(0) == 9);
-        assert(fresh.Report(0) == 9);
+        for (std::uint32_t i = 0; i + 1 < BlockHistory::Depth; ++i) {
+            assert(fresh.Report(0) == 9);
+        }
         assert(fresh.Report(0) == 0);
     }
     {
@@ -93,13 +95,14 @@ int main() {
         for (const std::uint64_t m : measured) {
             assert(lamp.Report(m) >= 35);
         }
-        // The largest of the last three: a drop shows after two more results.
+        // The largest of the last Depth: a drop shows after Depth - 1 more results.
         BlockHistory fading;
-        fading.Report(100);
-        fading.Report(100);
-        fading.Report(100);
-        assert(fading.Report(10) == 100);
-        assert(fading.Report(10) == 100);
+        for (std::uint32_t i = 0; i < BlockHistory::Depth; ++i) {
+            fading.Report(100);
+        }
+        for (std::uint32_t i = 0; i + 1 < BlockHistory::Depth; ++i) {
+            assert(fading.Report(10) == 100);
+        }
         assert(fading.Report(10) == 10);
         // Unmeasured (fail-safe visible) counts too.
         BlockHistory unknown;
@@ -114,9 +117,10 @@ int main() {
         for (std::uint32_t pipes : {8u, 16u}) {
             BlockHistory history;
             std::uint64_t total = 1000;
-            const std::uint64_t measured[] = {12, 0, 0, 0, 5};
+            const std::uint64_t measured[] = {12, 0, 0, 0, 0, 0, 5};
             const Block expected[] = {Block::Visible, Block::Visible, Block::Visible,
-                                      Block::Occluded, Block::Visible};
+                                      Block::Visible, Block::Visible, Block::Occluded,
+                                      Block::Visible};
             for (std::size_t i = 0; i < sizeof(measured) / sizeof(measured[0]); ++i) {
                 std::uint64_t block[2 * MaxPipes] = {};
                 Dump(block, pipes, total, false);

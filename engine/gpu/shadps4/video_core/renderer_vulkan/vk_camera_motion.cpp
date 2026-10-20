@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "video_core/renderer_vulkan/vk_camera_motion.h"
 
+#include <algorithm>
 #include <chrono>
+#include <limits>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -396,6 +398,10 @@ void CameraMotion::OnDisplayPass(VideoCore::ImageId frame) {
     frame_has_camera = false;
     pass_has_camera = false;
     committed = false;
+    last_frame_gbuffer_passes = frame_gbuffer_passes;
+    last_frame_reflection = frame_gbuffer_passes > 1 && MirroredPasses();
+    // A pass whose camera is not seen next frame must not keep this frame's position.
+    for (auto& position : pass_positions) position.fill(std::numeric_limits<float>::quiet_NaN());
     frame_gbuffer_passes = 0;
     depth_id = {};
 }
@@ -476,6 +482,26 @@ void CameraMotion::ProbeDepth(u32 seq) {
         p.centre = centre;
         BbCamera::PublishProbe(p);
     });
+}
+
+bool CameraMotion::MirroredPasses() const noexcept {
+    // BB_REFLECTION_PASSES=0: every frame with several passes is a preview, as before.
+    static const bool on = [] {
+        const char* env = std::getenv("BB_REFLECTION_PASSES");
+        return !(env && env[0] == '0');
+    }();
+    if (!on) return false;
+    const u32 n = std::min<u32>(frame_gbuffer_passes, u32(pass_positions.size()));
+    const auto& first = pass_positions[0];
+    for (u32 i = 1; i < n; ++i) {
+        const auto& p = pass_positions[i];
+        // NaN (a pass without a camera) fails every comparison: a preview, as before.
+        if (!(std::abs(p[0] - first[0]) < 0.05f && std::abs(p[2] - first[2]) < 0.05f &&
+              std::abs(p[1] - first[1]) > 0.01f)) {
+            return false;
+        }
+    }
+    return n > 1;
 }
 
 void CameraMotion::Overlay(VideoCore::ImageId frame) {

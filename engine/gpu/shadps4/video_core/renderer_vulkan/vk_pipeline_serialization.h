@@ -17,6 +17,13 @@ void RegisterShaderMeta(const Shader::Info& info,
                         const std::optional<Shader::Gcn::FetchShaderData>& fetch_shader_data,
                         const Shader::StageSpecialization& spec, size_t perm_hash, size_t perm_idx);
 void RegisterShaderBinary(std::vector<u32>&& spv, u64 pgm_hash, size_t perm_idx);
+/// bbport: a ShaderMeta record's bytes, as RegisterShaderMeta stores them (the cache recompile in
+/// tests/shader_lab.cpp writes them itself).
+std::vector<u8> SerializeShaderMeta(const Shader::Info& info, const Shader::StageSpecialization& spec,
+                                    size_t perm_hash, size_t perm_idx);
+/// bbport: only the specialization of a ShaderMeta record (and its permutation), without its Info,
+/// whose layout may belong to another engine. False for another record version.
+bool ReadShaderMetaSpec(std::vector<u8>&& blob, Shader::StageSpecialization& spec, size_t& perm_idx);
 bool LoadShaderMeta(Serialization::Archive& ar, Shader::Info& info,
                     std::optional<Shader::Gcn::FetchShaderData>& fetch_shader_data,
                     Shader::StageSpecialization& spec, size_t& perm_idx, u64 expected_hash);

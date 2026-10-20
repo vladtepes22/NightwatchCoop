@@ -19,6 +19,7 @@
 #include "shader_recompiler/backend/spirv/emit_spirv.h"
 #include "shader_recompiler/info.h"
 #include "shader_recompiler/recompiler.h"
+#include "shader_recompiler/native/capture.h"
 #include "shader_recompiler/runtime_info.h"
 #include "video_core/amdgpu/liverpool.h"
 #include "video_core/cache_storage.h"
@@ -146,7 +147,7 @@ using Shader::SwStage;
 constexpr static auto SpirvVersion1_6 = 0x00010600U;
 
 constexpr static std::array DescriptorHeapSizes = {
-    vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, 512},
+    vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, 8192},
     vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, 8192},
     vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage, 8192},
     vk::DescriptorPoolSize{vk::DescriptorType::eStorageImage, 1024},
@@ -452,7 +453,20 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
         .needs_unorm_fixup = instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
         .needs_clip_distance_emulation = instance.GetDriverID() == vk::DriverId::eNvidiaProprietary,
         .supports_shader_stencil_export = instance_.IsShaderStencilExportSupported(),
+        // bbport: native shaders, on unless BB_NATIVE_SHADERS=0 (the launcher's "Legacy shader
+        // compiler"). Uniform buffers need the per-buffer offset in the push data (a 64-byte
+        // uniform alignment can leave a remainder) and the 64 KiB range the shaders declare.
+        .uniform_constant_buffers =
+            [] {
+                const char* env = std::getenv("BB_NATIVE_SHADERS");
+                return !(env && env[0] == '0');
+            }() &&
+            instance.StorageMinAlignment() > 4 && instance.UniformMinAlignment() <= 256 &&
+            instance.GetPhysicalDevice().getProperties().limits.maxUniformBufferRange >= 65536,
     };
+    if (profile.uniform_constant_buffers) {
+        std::printf("Native shaders: constant buffers as uniform buffers (BB_NATIVE_SHADERS=0: legacy)\n");
+    }
     CreateNativeCache();
     WarmUp();
     std::scoped_lock lock{Registry().mutex};
@@ -905,7 +919,10 @@ vk::ShaderModule PipelineCache::CompileModule(Shader::Info& info, Shader::Runtim
     DumpShader(code, info.pgm_hash, info.hw_stage, perm_idx, "bin");
     CompileTimer timer;
 
+    const auto runtime_before = runtime_info; // the compile changes it (clip distance emulation)
     const auto ir_program = Shader::TranslateProgram(code, pools, info, runtime_info, profile);
+    Shader::Native::Capture(info, runtime_before, code, profile);
+    Shader::Native::StoreState(info, runtime_before, code, perm_idx);
     auto spv = Shader::Backend::SPIRV::EmitSPIRV(profile, runtime_info, ir_program, binding);
     DumpShader(spv, info.pgm_hash, info.hw_stage, perm_idx, "spv");
 
@@ -961,6 +978,7 @@ PipelineCache::Result PipelineCache::GetProgram(PipelineSelection& sel, HwStage 
         }
         runtime_fault_recover = &recover;
         info.RefreshFlatBuf();
+        if (Shader::Native::CaptureEnabled()) Shader::Native::Capture(info, runtime_info, params.code, profile);
         auto spec = Shader::StageSpecialization(info, runtime_info, profile, binding);
         runtime_fault_recover = nullptr;
         const auto it = std::ranges::find(program->modules, spec, &Program::Module::spec);
@@ -970,6 +988,7 @@ PipelineCache::Result PipelineCache::GetProgram(PipelineSelection& sel, HwStage 
         }
         info.AddBindings(binding);
         const size_t perm_idx = std::distance(program->modules.begin(), it);
+        if (!std::atomic_ref<bool>(it->state_stored).load(std::memory_order_relaxed) && Shader::Native::StatesEnabled()) { runtime_fault_recover = &recover; Shader::Native::StoreState(info, runtime_info, params.code, perm_idx); runtime_fault_recover = nullptr; std::atomic_ref<bool>(it->state_stored).store(true, std::memory_order_relaxed); }
         worker.stages.push_back(
             {program, params.hash, hw_stage, info.pgm_base, &info.flattened_ud_buf});
         return std::make_tuple(&info, it->module, it->spec.fetch_shader_data,
@@ -1007,6 +1026,7 @@ PipelineCache::Result PipelineCache::GetProgram(PipelineSelection& sel, HwStage 
     info.pgm_base = params.Base(); // Needs to be actualized for inline cbuffer address fixup
     info.user_data = params.user_data;
     info.RefreshFlatBuf();
+    if (Shader::Native::CaptureEnabled()) Shader::Native::Capture(info, runtime_info, params.code, profile);
     auto spec = Shader::StageSpecialization(info, runtime_info, profile, binding);
 
     size_t perm_idx = program->modules.size();
@@ -1021,6 +1041,7 @@ PipelineCache::Result PipelineCache::GetProgram(PipelineSelection& sel, HwStage 
                   : std::ranges::find(program->modules, spec, &Program::Module::spec);
     if (it != program->modules.end()) {
         program->last_used = std::distance(program->modules.begin(), it);
+        if (!std::atomic_ref<bool>(it->state_stored).load(std::memory_order_relaxed) && Shader::Native::StatesEnabled()) { Shader::Native::StoreState(info, runtime_info, params.code, program->last_used); std::atomic_ref<bool>(it->state_stored).store(true, std::memory_order_relaxed); }
     }
     if (it == program->modules.end()) {
         auto new_info = Shader::Info(hw_stage, sw_stage, params);

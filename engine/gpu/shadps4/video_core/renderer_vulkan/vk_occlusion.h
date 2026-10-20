@@ -31,10 +31,10 @@
 // - Fail-safe towards "visible": an unavailable query, a missing query, an imprecise device's
 //   nonzero result, all add a large count. A dump over memory that holds neither the game's
 //   zeroes nor our own last value (freed and reused) is not written, nor one more than
-//   BB_OCCLUSION_MAX_LAG frames late unless we wrote that block before and it is at most twice
+//   BB_OCCLUSION_MAX_LAG (6) frames late unless we wrote that block before and it is at most twice
 //   that late: the block stays not ready.
-// - Hysteresis against flicker (lamps, glare): a block reports the largest of its last three
-//   results (OcclusionModel::BlockHistory): occluded only after three in a row found nothing,
+// - Hysteresis against flicker (lamps, glare): a block reports the largest of its last five
+//   results (OcclusionModel::BlockHistory): occluded only after five in a row found nothing,
 //   visible at once.
 // - SET_PREDICATION: the draws between a ZPASS set and its clear are skipped only when every
 //   dump into the block has been resolved and the block reads occluded; otherwise they are

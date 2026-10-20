@@ -13,6 +13,7 @@
 #include "sdl_window.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "bbport_toggles.h"
+#include "video_core/renderer_vulkan/vk_breadcrumbs.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_fsr4vk.h"
 #include "video_core/renderer_vulkan/vk_occlusion.h"
@@ -182,6 +183,9 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
                VK_VERSION_MAJOR(properties.apiVersion), VK_VERSION_MINOR(properties.apiVersion));
 
     CreateDevice();
+    if (address_binding_report) {
+        address_report = Breadcrumbs::CreateAddressReport(*instance);
+    }
     CollectPhysicalMemoryInfo();
     CollectImageFormatInfo();
     CollectToolingInfo();
@@ -225,7 +229,8 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE,
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR, vk::PhysicalDeviceShaderFloat8FeaturesEXT,
         vk::PhysicalDeviceMutableDescriptorTypeFeaturesEXT,
-        vk::PhysicalDeviceDescriptorBufferFeaturesEXT>();
+        vk::PhysicalDeviceDescriptorBufferFeaturesEXT, vk::PhysicalDeviceFaultFeaturesEXT,
+        vk::PhysicalDeviceAddressBindingReportFeaturesEXT>();
     features = feature_chain.get().features;
 
     const vk::StructureChain properties_chain = physical_device.getProperties2<
@@ -283,6 +288,13 @@ bool Instance::CreateDevice() {
     maintenance_8 = add_extension(VK_KHR_MAINTENANCE_8_EXTENSION_NAME);
     // bbport: GPU breadcrumbs (vk_breadcrumbs.h).
     buffer_marker = add_extension(VK_AMD_BUFFER_MARKER_EXTENSION_NAME);
+    device_fault = feature_chain.get<vk::PhysicalDeviceFaultFeaturesEXT>().deviceFault &&
+                   add_extension(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
+    address_binding_report =
+        device_fault &&
+        feature_chain.get<vk::PhysicalDeviceAddressBindingReportFeaturesEXT>().reportAddressBinding &&
+        !(std::getenv("BB_ADDRESS_REPORT") && std::getenv("BB_ADDRESS_REPORT")[0] == '0') &&
+        add_extension(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
     attachment_feedback_loop = add_extension(VK_EXT_ATTACHMENT_FEEDBACK_LOOP_LAYOUT_EXTENSION_NAME);
     if (attachment_feedback_loop) {
         attachment_feedback_loop =
@@ -313,19 +325,33 @@ bool Instance::CreateDevice() {
         LOG_INFO(Render_Vulkan, "- primitiveTopologyPatchListRestart: {}",
                  list_restart_features.primitiveTopologyPatchListRestart);
     }
+    const char* amd_env = std::getenv("BB_AMD_SHADER_EXT");
+    const bool amd_shader_ext = !amd_env || amd_env[0] != '0';
+    if (!amd_shader_ext) {
+        std::printf("GPU: AMD shader extensions off (BB_AMD_SHADER_EXT=0)\n");
+    }
     amd_shader_explicit_vertex_parameter =
-        add_extension(VK_AMD_SHADER_EXPLICIT_VERTEX_PARAMETER_EXTENSION_NAME);
+        amd_shader_ext && add_extension(VK_AMD_SHADER_EXPLICIT_VERTEX_PARAMETER_EXTENSION_NAME);
     if (!amd_shader_explicit_vertex_parameter) {
         fragment_shader_barycentric =
             add_extension(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
     }
     provoking_vertex = add_extension(VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME);
     shader_stencil_export = add_extension(VK_EXT_SHADER_STENCIL_EXPORT_EXTENSION_NAME);
-    image_load_store_lod = add_extension(VK_AMD_SHADER_IMAGE_LOAD_STORE_LOD_EXTENSION_NAME);
-    amd_gcn_shader = add_extension(VK_AMD_GCN_SHADER_EXTENSION_NAME);
-    amd_shader_trinary_minmax = add_extension(VK_AMD_SHADER_TRINARY_MINMAX_EXTENSION_NAME);
-    nv_framebuffer_mixed_samples = add_extension(VK_NV_FRAMEBUFFER_MIXED_SAMPLES_EXTENSION_NAME);
-    amd_mixed_attachment_samples = add_extension(VK_AMD_MIXED_ATTACHMENT_SAMPLES_EXTENSION_NAME);
+    image_load_store_lod =
+        amd_shader_ext && add_extension(VK_AMD_SHADER_IMAGE_LOAD_STORE_LOD_EXTENSION_NAME);
+    amd_gcn_shader = amd_shader_ext && add_extension(VK_AMD_GCN_SHADER_EXTENSION_NAME);
+    amd_shader_trinary_minmax =
+        amd_shader_ext && add_extension(VK_AMD_SHADER_TRINARY_MINMAX_EXTENSION_NAME);
+    const char* mixed_env = std::getenv("BB_MIXED_SAMPLES");
+    const bool mixed_samples = !mixed_env || mixed_env[0] != '0';
+    if (!mixed_samples) {
+        std::printf("GPU: mixed sample counts off: color targets take the depth's (BB_MIXED_SAMPLES=0)\n");
+    }
+    nv_framebuffer_mixed_samples =
+        mixed_samples && add_extension(VK_NV_FRAMEBUFFER_MIXED_SAMPLES_EXTENSION_NAME);
+    amd_mixed_attachment_samples =
+        mixed_samples && add_extension(VK_AMD_MIXED_ATTACHMENT_SAMPLES_EXTENSION_NAME);
     shader_atomic_float = add_extension(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
     shader_atomic_float2 = add_extension(VK_EXT_SHADER_ATOMIC_FLOAT_2_EXTENSION_NAME);
     if (shader_atomic_float2) {
@@ -669,6 +695,12 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceDescriptorBufferFeaturesEXT{
             .descriptorBuffer = true,
         },
+        vk::PhysicalDeviceFaultFeaturesEXT{
+            .deviceFault = true,
+        },
+        vk::PhysicalDeviceAddressBindingReportFeaturesEXT{
+            .reportAddressBinding = true,
+        },
     };
 
     if (!custom_border_color) {
@@ -700,6 +732,12 @@ bool Instance::CreateDevice() {
     }
     if (!maintenance_8) {
         device_chain.unlink<vk::PhysicalDeviceMaintenance8FeaturesKHR>();
+    }
+    if (!device_fault) {
+        device_chain.unlink<vk::PhysicalDeviceFaultFeaturesEXT>();
+    }
+    if (!address_binding_report) {
+        device_chain.unlink<vk::PhysicalDeviceAddressBindingReportFeaturesEXT>();
     }
     if (!attachment_feedback_loop) {
         device_chain.unlink<vk::PhysicalDeviceAttachmentFeedbackLoopLayoutFeaturesEXT>();
@@ -866,6 +904,10 @@ void Instance::CollectDeviceParameters() {
     const std::string api_version = GetReadableVersion(properties.apiVersion);
     const std::string extensions = fmt::format("{}", fmt::join(available_extensions, ", "));
 
+    std::printf("GPU: %s%s, driver %s (%s), Vulkan %s\n", model_name.c_str(),
+                IsIntegrated() ? " (integrated)" : "", driver_version.c_str(), vendor_name.c_str(),
+                api_version.c_str());
+    std::fflush(stdout);
     LOG_INFO(Render_Vulkan, "GPU_Vendor: {}", vendor_name);
     LOG_INFO(Render_Vulkan, "GPU_Model: {}", model_name);
     LOG_INFO(Render_Vulkan, "GPU_Integrated: {}", IsIntegrated() ? "Yes" : "No");

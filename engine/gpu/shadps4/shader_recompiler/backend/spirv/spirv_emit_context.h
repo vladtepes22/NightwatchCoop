@@ -183,11 +183,7 @@ public:
     Id EmitFlatbufferLoad(Id flatbuf_offset) {
         const auto& flatbuf_buffer{buffers[flatbuf_index]};
         ASSERT(flatbuf_buffer.binding >= 0 && flatbuf_buffer.buffer_type == BufferType::Flatbuf);
-        const auto [flatbuf_buffer_id, flatbuf_pointer_type] =
-            flatbuf_buffer.aliases[u32(PointerType::U32)];
-        const auto ptr{
-            OpAccessChain(flatbuf_pointer_type, flatbuf_buffer_id, u32_zero_value, flatbuf_offset)};
-        return OpLoad(U32[1], ptr);
+        return LoadBufferDword(flatbuf_buffer, flatbuf_offset);
     }
 
     Info& info;
@@ -351,6 +347,10 @@ public:
         BufferType buffer_type;
         std::array<Id, u32(PointerSize::NumClass)> offsets;
         std::array<BufferSpv, u32(PointerType::NumAlias)> aliases;
+        /// bbport: a uniform buffer of uvec4s (std140: an array of scalars would have a 16-byte
+        /// stride), read a dword at a time (EmitReadConstBuffer). Invalid for storage buffers.
+        Id uniform_id{};
+        Id uniform_vec_pointer{};
 
         template <class Self>
         auto& Alias(this Self& self, PointerType alias) {
@@ -362,6 +362,21 @@ public:
             return self.offsets[u32(size)];
         }
     };
+
+    /// bbport: a dword of a buffer read as data, from a storage buffer's u32 alias or a uniform
+    /// buffer's uvec4s (its vector, then the component).
+    Id LoadBufferDword(const BufferDefinition& buffer, Id index) {
+        if (Sirit::ValidId(buffer.uniform_id)) {
+            const Id vec_index{OpShiftRightLogical(U32[1], index, ConstU32(2U))};
+            const Id component{OpBitwiseAnd(U32[1], index, ConstU32(3U))};
+            const Id vec{OpLoad(U32[4], OpAccessChain(buffer.uniform_vec_pointer, buffer.uniform_id,
+                                                      u32_zero_value, vec_index))};
+            return OpVectorExtractDynamic(U32[1], vec, component);
+        }
+        const auto [id, pointer_type] = buffer.aliases[u32(PointerType::U32)];
+        return OpLoad(U32[1], OpAccessChain(pointer_type, id, u32_zero_value, index));
+    }
+
 
     Bindings& binding;
     boost::container::small_vector<Id, 16> buf_type_ids;
@@ -422,6 +437,11 @@ private:
     SpirvAttribute GetAttributeInfo(AmdGpu::NumberFormat fmt, Id id, u32 num_components,
                                     bool output, bool loaded = false, bool array = false);
 
+    void DefineUniformBuffer(BufferDefinition& buffer);
+    /// bbport: the uniform buffers' block type and element pointer, declared once (SPIR-V
+    /// forbids decorating the same array type twice).
+    Id uniform_block_type{};
+    Id uniform_vec_pointer_type{};
     BufferSpv DefineBuffer(bool is_written, bool is_coherent, u32 elem_shift,
                            BufferType buffer_type, Id data_type);
 

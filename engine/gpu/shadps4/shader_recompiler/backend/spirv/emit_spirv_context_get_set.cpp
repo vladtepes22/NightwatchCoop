@@ -74,6 +74,9 @@ Id EmitReadConstBuffer(EmitContext& ctx, u32 handle, Id index) {
     if (const Id offset = buffer.Offset(PointerSize::B32); Sirit::ValidId(offset)) {
         index = ctx.OpIAdd(ctx.U32[1], index, offset);
     }
+    if (Sirit::ValidId(buffer.uniform_id)) {
+        return ctx.LoadBufferDword(buffer, index); // bbport: a uniform buffer
+    }
     const auto [id, pointer_type] = buffer.Alias(PointerType::U32);
     const Id ptr{ctx.OpAccessChain(pointer_type, id, ctx.u32_zero_value, index)};
     const Id result{ctx.OpLoad(ctx.U32[1], ptr)};

@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <thread>
+#include <vector>
 #include <windows.h>
 #include <psapi.h>
 #include "bbport_platform.h"
@@ -56,6 +57,41 @@ bool GetMemory(Memory& out) {
     return true;
 }
 
+bool GetMemoryBreakdown(MemoryBreakdown& out) {
+    // Every resident page (QueryWorkingSet), grouped by the region it is in.
+    std::vector<ULONG_PTR> buffer(1 << 20);
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        if (QueryWorkingSet(GetCurrentProcess(), buffer.data(), DWORD(buffer.size() * sizeof(ULONG_PTR)))) break;
+        if (GetLastError() != ERROR_BAD_LENGTH) return false;
+        buffer.resize(buffer.front() + 4096 + buffer.size());
+        if (attempt == 3) return false;
+    }
+    const std::size_t count = std::min<std::size_t>(buffer.front(), buffer.size() - 1);
+    std::vector<std::uint64_t> pages;
+    pages.reserve(count);
+    std::uint64_t shared = 0;
+    for (std::size_t i = 1; i <= count; ++i) {
+        const auto& info = reinterpret_cast<const PSAPI_WORKING_SET_BLOCK&>(buffer[i]);
+        pages.push_back(std::uint64_t(info.VirtualPage) << 12);
+        shared += info.Shared ? 4096 : 0;
+    }
+    std::sort(pages.begin(), pages.end());
+    constexpr std::uint64_t kGameMin = 0x1000000000ull, kGameMax = 0x1000000000ull * 16;
+    MEMORY_BASIC_INFORMATION region{};
+    std::uint64_t region_end = 0;
+    for (const std::uint64_t page : pages) {
+        if (page >= region_end) {
+            if (!VirtualQuery(reinterpret_cast<void*>(page), &region, sizeof region)) continue;
+            region_end = std::uint64_t(region.BaseAddress) + region.RegionSize;
+        }
+        if (region.Type == MEM_IMAGE) out.images += 4096;
+        else if (region.Type == MEM_MAPPED) (page >= kGameMin && page < kGameMax ? out.game_pool : out.mapped) += 4096;
+        else out.priv += 4096;
+    }
+    out.shared = shared;
+    return true;
+}
+
 std::uint32_t CurrentThreadId() {
     return static_cast<std::uint32_t>(GetCurrentThreadId());
 }
@@ -100,6 +136,12 @@ std::size_t CaptureStack(void** frames, std::size_t count) {
 bool ReadProcessMemory(const void* source, void* destination, std::size_t size) {
     SIZE_T read = 0;
     return ::ReadProcessMemory(GetCurrentProcess(), source, destination, size, &read) && read == size;
+}
+
+void TerminateProcessNow(unsigned code) {
+    std::fflush(nullptr);
+    TerminateProcess(GetCurrentProcess(), code);
+    _exit(static_cast<int>(code)); // not reached
 }
 
 } // namespace BbPlatform

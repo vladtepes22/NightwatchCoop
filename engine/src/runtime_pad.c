@@ -107,6 +107,10 @@ static void follow_active_pad(void) {
     last=now;
     for (int s=0;s<MAX_OTHER_PADS;++s)
         if (other_pads[s] && !SDL_GamepadConnected(other_pads[s])) { SDL_CloseGamepad(other_pads[s]); other_pads[s]=NULL; }
+    /* bbport: the pad in use keeps the input while it is used too. A pad that shows as two (DS4Windows
+     * or Steam Input beside the DualSense) had both active together, and they swapped five times a
+     * second for hours ("gamepad in use" 25000 times in one log). */
+    if (gamepad && pad_active(gamepad)) return;
     int count=0;
     SDL_JoystickID *ids=SDL_GetGamepads(&count);
     if (!ids) return;

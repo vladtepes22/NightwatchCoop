@@ -17,6 +17,7 @@
 #include "bbport_copy.h"
 #include "bbport_platform.h"
 #include "bbport_toggles.h"
+#include <atomic>
 #include <cstdio>
 #include <boost/preprocessor/stringize.hpp>
 
@@ -34,6 +35,7 @@
 #include "video_core/amdgpu/liverpool.h"
 #include "bbport_write_log.h"
 #include "bbport_free_check.h"
+#include "bbport_native_calls.h"
 #include "video_core/amdgpu/pm4_cmds.h"
 #include "video_core/renderdoc.h"
 #include "video_core/renderer_vulkan/vk_occlusion.h"
@@ -954,6 +956,20 @@ void Liverpool::ApplyGraphicsRegisterPacket(Regs& regs, const PM4Header* header,
         regs.num_indices = reinterpret_cast<const PM4CmdDrawIndexBufferSize*>(header)->num_indices;
         mark_field(regs.num_indices);
         break;
+    case PM4ItOpcode::Nop: {
+        // bbport BB_NATIVE_CALLS=1 (bbport_native_calls.h): a draw call's record has the effects
+        // of the DRAW_INDEX_* packet it stands for and is hashed as that packet, so registers,
+        // checksums and prepared draws are those of the original encoding.
+        BbNativeCalls::DrawRecord record;
+        if (!BbNativeCalls::ReadRecord(reinterpret_cast<const u32*>(header), record)) {
+            return;
+        }
+        u32 words[8];
+        BbNativeCalls::EncodeDrawPacket(record, words);
+        ApplyGraphicsRegisterPacket(regs, reinterpret_cast<const PM4Header*>(words), checksum,
+                                    dirty);
+        return;
+    }
     case PM4ItOpcode::EventWrite: {
         const auto* event = reinterpret_cast<const PM4CmdEventWrite*>(header);
         if (event->event_type.Value() != EventType::SoVgtStreamoutFlush) {
@@ -1015,7 +1031,9 @@ void ScanDcb(std::span<const u32> dcb, int depth) {
             break;
         }
         const PM4ItOpcode op = header->type3.opcode;
-        if (IsDrawOpcode(op)) {
+        // bbport BB_NATIVE_CALLS=1: a draw call's record NOP is a draw.
+        if (IsDrawOpcode(op) || (op == PM4ItOpcode::Nop &&
+                                 BbNativeCalls::IsRecordNop(reinterpret_cast<const u32*>(header)))) {
             ++draws;
         } else if (op == PM4ItOpcode::DispatchDirect || op == PM4ItOpcode::DispatchIndirect) {
             ++dispatches;
@@ -1097,6 +1115,70 @@ void ReportBadPacket(uintptr_t base, std::size_t dwords, const u32* at, u64 seq,
     BbWriteLog::DumpRange(base, dwords * 4);
     std::fflush(stderr);
 }
+
+static_assert(PM4CmdNop::PayloadType::BbNativeDrawTag == BbNativeCalls::TagMagic);
+
+// bbport BB_NATIVE_CALLS=verify (bbport_native_calls.h): the record the hooked call noted for the
+// draw packet at `packet` (guest `address`; registers already applied) against the decode: the
+// packet words, the register checksum it leaves, the draw registers, and the trailer the call
+// wrote after it (NOP, or the thread trace EVENT_WRITE mode 1 keeps as PM4).
+void VerifyNativeDraw(std::span<const u32> packet, u64 address, u64 checksum_before,
+                      u64 checksum_after, const Regs& regs) {
+    BbNativeCalls::DrawRecord record;
+    if (!BbNativeCalls::Take(address, record)) {
+        BbNativeCalls::NoteUnrecorded(); // another draw function, or our driver
+        return;
+    }
+    const auto* header = reinterpret_cast<const PM4Header*>(packet.data());
+    const u32 words = std::min<u32>(header->type3.NumWords() + 1, u32(packet.size()));
+    u32 expected[8];
+    const u32 expected_words = BbNativeCalls::EncodeDrawPacket(record, expected);
+    const char* what = nullptr;
+    if (words != expected_words ||
+        std::memcmp(packet.data(), expected, expected_words * sizeof(u32)) != 0) {
+        what = "packet";
+    } else if (Liverpool::HashRegisterPacket(checksum_before, expected, expected_words) !=
+               checksum_after) {
+        what = "checksum";
+    } else {
+        bool same = regs.num_indices == record.index_count;
+        switch (record.kind) {
+        case BbNativeCalls::DrawAuto:
+            same = same && regs.draw_initiator == 2;
+            break;
+        case BbNativeCalls::DrawIndex:
+            same = same && regs.max_index_size == record.index_count && regs.draw_initiator == 0 &&
+                   regs.index_base_address.Address<u64>() == (record.index_addr & 0xfffffffffeull);
+            break;
+        case BbNativeCalls::DrawIndexOffset:
+            same = same && regs.max_index_size == record.index_count && regs.draw_initiator == 0;
+            break;
+        default:
+            same = false;
+            break;
+        }
+        if (!same) {
+            what = "registers";
+        }
+    }
+    if (!what) {
+        if (packet.size() < size_t(words) + 2) {
+            what = "no trailer";
+        } else if (packet[words] == 0xc0001000u && packet[words + 1] == 0) {
+            // NOP: the record stands for it too
+        } else if ((packet[words] & ~2u) == 0xc0004600u && packet[words + 1] == 0x35) {
+            BbNativeCalls::NoteTraceTrailer();
+        } else {
+            what = "trailer";
+        }
+    }
+    BbNativeCalls::NoteVerified(what == nullptr);
+    if (what) {
+        BbNativeCalls::ReportMismatch(what, address, record, packet.data(),
+                                      std::min<u32>(u32(packet.size()), words + 2),
+                                      regs.num_instances.num_instances);
+    }
+}
 } // namespace
 
 Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<const u32> ccb,
@@ -1114,6 +1196,20 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     if (dcb_stats) {
         ScanDcb(dcb, dcb_depth);
     }
+    // bbport BB_NATIVE_CALLS (bbport_native_calls.h): verify compares the draw packets with the
+    // calls' records; BB_FRAME_STATS times the packets on this thread (us/draw, any mode).
+    static const bool native_verify = BbNativeCalls::GetMode() == BbNativeCalls::Mode::Verify;
+    static const bool native_timing = BbNativeCalls::TimingEnabled();
+    static const bool native_report =
+        native_timing || BbNativeCalls::GetMode() != BbNativeCalls::Mode::Off;
+    // Records are noted by guest address; a top-level buffer is decoded from its copy.
+    const auto guest_address = [&](const PM4Header* at) -> u64 {
+        const auto* p = reinterpret_cast<const u32*>(at);
+        if (copy && p >= copy->data.data() && p < copy->data.data() + copy->dcb_dwords) {
+            return reinterpret_cast<u64>(copy->guest_dcb + (p - copy->data.data()));
+        }
+        return reinterpret_cast<u64>(p);
+    };
 
     cblock.Reset();
 
@@ -1140,11 +1236,23 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             ReportBadPacket(base_addr, dcb_dwords, dcb.data(), seq, dcb_depth);
             UNREACHABLE_MSG("Wrong PM4 type {}", type);
             break;
-        case 0:
+        case 0: {
+            // bbport: a zero dword (type 0, register 0: no game writes one) is zeroed memory in the
+            // buffer; stepped over as padding instead of stopping the engine ("PM4 type 0" crash).
+            static std::atomic<int> zero_dwords{0};
+            if (*dcb.data() == 0) {
+                if (zero_dwords.fetch_add(1, std::memory_order_relaxed) < 4) {
+                    ReportBadPacket(base_addr, dcb_dwords, dcb.data(), seq, dcb_depth);
+                    std::fprintf(stderr, "PM4: a zero dword skipped as padding\n");
+                }
+                dcb = NextPacket(dcb, 1);
+                continue;
+            }
             ReportBadPacket(base_addr, dcb_dwords, dcb.data(), seq, dcb_depth);
             UNREACHABLE_MSG("Unimplemented PM4 type 0, base reg: {}, size: {}",
                             header->type0.base.Value(), header->type0.NumWords());
             break;
+        }
         case 2:
             // Type-2 packet are used for padding purposes
             dcb = NextPacket(dcb, 1);
@@ -1152,6 +1260,14 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
         case 3:
             const u32 count = header->type3.NumWords();
             const PM4ItOpcode opcode = header->type3.opcode;
+            // bbport BB_NATIVE_CALLS: a draw call's record NOP (mode 1), the checksum before the
+            // packet (verify), the packet's start (BB_FRAME_STATS).
+            const u64 packet_start = native_timing ? BbNativeCalls::Ticks() : 0;
+            const u64 checksum_before = gfx_reg_checksum;
+            BbNativeCalls::DrawRecord native_record;
+            const bool native_draw =
+                opcode == PM4ItOpcode::Nop &&
+                BbNativeCalls::ReadRecord(reinterpret_cast<const u32*>(header), native_record);
             ApplyGraphicsRegisterPacket(regs, header, gfx_reg_checksum, &pipe_dirty);
             // DmaData to 0x3022C does nothing here (skipped below): no need to wait.
             if (rasterizer && !PipelinedOpcode(opcode) &&
@@ -1163,6 +1279,28 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             }
             switch (opcode) {
             case PM4ItOpcode::Nop: {
+                if (native_draw) {
+                    // bbport BB_NATIVE_CALLS=1: a draw call's record. Its registers were applied
+                    // above as its DRAW_INDEX_* packet; drawn as the DRAW_INDEX_* cases below.
+                    BbNativeCalls::NoteDecoded();
+                    if (DebugState.DumpingCurrentReg()) {
+                        DebugState.PushRegsDump(base_addr, reinterpret_cast<uintptr_t>(header),
+                                                regs);
+                    }
+                    if (!rasterizer) {
+                        break;
+                    }
+                    const bool is_indexed = native_record.kind != BbNativeCalls::DrawAuto;
+                    const u32 index_offset = native_record.kind == BbNativeCalls::DrawIndexOffset
+                                                 ? native_record.index_offset
+                                                 : 0;
+                    const auto cmd_address = reinterpret_cast<const void*>(header);
+                    const auto* prepared = draw_prep ? draw_prep->NextDraw() : nullptr;
+                    rasterizer->ScopeMarker(
+                        "gfx:{}:NativeDraw", fmt::make_format_args(cmd_address),
+                        [&] { rasterizer->Draw(is_indexed, index_offset, prepared); });
+                    break;
+                }
                 const auto* nop = reinterpret_cast<const PM4CmdNop*>(header);
                 if (nop->header.count.Value() == 0) {
                     break;
@@ -1322,6 +1460,10 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 break; // registers: ApplyGraphicsRegisterPacket
             }
             case PM4ItOpcode::DrawIndex2: {
+                if (native_verify) {
+                    VerifyNativeDraw(dcb, guest_address(header), checksum_before,
+                                     gfx_reg_checksum, regs);
+                }
                 if (DebugState.DumpingCurrentReg()) {
                     DebugState.PushRegsDump(base_addr, reinterpret_cast<uintptr_t>(header), regs);
                 }
@@ -1335,6 +1477,10 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 break;
             }
             case PM4ItOpcode::DrawIndexOffset2: {
+                if (native_verify) {
+                    VerifyNativeDraw(dcb, guest_address(header), checksum_before,
+                                     gfx_reg_checksum, regs);
+                }
                 const auto* draw_index_off =
                     reinterpret_cast<const PM4CmdDrawIndexOffset2*>(header);
                 if (DebugState.DumpingCurrentReg()) {
@@ -1351,6 +1497,10 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 break;
             }
             case PM4ItOpcode::DrawIndexAuto: {
+                if (native_verify) {
+                    VerifyNativeDraw(dcb, guest_address(header), checksum_before,
+                                     gfx_reg_checksum, regs);
+                }
                 const auto* draw_index = reinterpret_cast<const PM4CmdDrawIndexAuto*>(header);
                 if (DebugState.DumpingCurrentReg()) {
                     DebugState.PushRegsDump(base_addr, reinterpret_cast<uintptr_t>(header), regs);
@@ -1782,6 +1932,17 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             default:
                 UNREACHABLE_MSG("Unknown PM4 type 3 opcode {:#x} with count {}",
                                 static_cast<u32>(opcode), count);
+            }
+            if (native_report) {
+                // bbport BB_FRAME_STATS: this thread's time per packet (nested IBs count their
+                // own packets), per draw; the "Native calls" lines every 5 s.
+                const bool is_draw = native_draw || IsDrawOpcode(opcode);
+                if (native_timing && opcode != PM4ItOpcode::IndirectBuffer) {
+                    BbNativeCalls::AddPacketTicks(BbNativeCalls::Ticks() - packet_start, is_draw);
+                }
+                if (is_draw) {
+                    BbNativeCalls::MaybeReport();
+                }
             }
             dcb = NextPacket(dcb, header->type3.NumWords() + 1);
             break;

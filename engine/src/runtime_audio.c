@@ -17,6 +17,7 @@
 #include "runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 #include <time.h>
 #include <SDL3/SDL.h>
@@ -50,6 +51,7 @@ typedef struct {
     unsigned stat_starved, stat_buffers; int stat_min_queued;
     int stat_start_queued; uint64_t stat_bytes; /* the device's rate: what it took of what was given */
     unsigned resets;                /* queues dropped back to the target */
+    float fold_gain;                /* the stereo fold's limiter (0: not started, as 1) */
 } Port;
 typedef struct { uint16_t output; uint8_t channel, reserved; int16_t volume; uint16_t reroute; uint64_t flag, reserved64[2]; } PortState;
 _Static_assert(sizeof(PortState)==32,"AudioOut port state layout");
@@ -225,14 +227,23 @@ static int32_t output_port(int32_t handle, const void *data, int pace) {
         if (p->out_channels==2 && p->channels==8) {
             /* SDL's 7.1 order by now (FL FR FC LFE BL BR SL SR); each stereo frame is written over
                the start of the buffer, behind the 7.1 frame it is made of. */
-            const float k=0.70710678f;
+            /* bbport: loud moments (centre and surrounds busy with the front pair) sum past full
+               scale; clipped flat they crackled. A limiter turns the fold down at once where a
+               frame would clip and back up over ~50 ms, so the level stays as before otherwise. */
+            const float k=0.70710678f, full=p->is_float ? 1.0f : 32767.0f, ceiling=0.97f*full;
+            const float release=1.0f/(0.05f*48000.0f);
+            float gain=p->fold_gain>0.0f ? p->fold_gain : 1.0f;
             for (size_t f=0;f<(size_t)p->frames;++f) {
                 float s[8];
                 for (int c=0;c<8;++c) {
                     if (p->is_float) memcpy(&s[c],converted+(f*8+(size_t)c)*4,4);
                     else { int16_t v; memcpy(&v,converted+(f*8+(size_t)c)*2,2); s[c]=(float)v; }
                 }
-                const float lr[2]={s[0]+k*(s[2]+s[4]+s[6]), s[1]+k*(s[2]+s[5]+s[7])};
+                float lr[2]={s[0]+k*(s[2]+s[4]+s[6]), s[1]+k*(s[2]+s[5]+s[7])};
+                const float peak=fmaxf(fabsf(lr[0]),fabsf(lr[1]));
+                const float target=peak>ceiling ? ceiling/peak : 1.0f;
+                gain=target<gain ? target : gain+(target-gain)*release;
+                lr[0]*=gain; lr[1]*=gain;
                 for (int c=0;c<2;++c) {
                     if (p->is_float) {
                         const float v=lr[c]>1.0f ? 1.0f : lr[c]<-1.0f ? -1.0f : lr[c];
@@ -243,6 +254,7 @@ static int32_t output_port(int32_t handle, const void *data, int pace) {
                     }
                 }
             }
+            p->fold_gain=gain;
         }
         if (p->dump) fwrite(converted,1,bytes,p->dump);
         if (p->stats) {

@@ -6,6 +6,13 @@ int32_t *runtime_errno(void) { return &guest_errno; }
 int32_t runtime_guest_errno(int e) { return e; }
 /* Reads into guest memory tell the GPU side (runtime_memory.c); nothing to tell here. */
 void runtime_memory_note_write(uintptr_t address, uint64_t size) { (void)address; (void)size; }
+int runtime_memory_guest_writable(uintptr_t address, uint64_t size) { (void)address; (void)size; return 1; }
+/* Streaming statistics (runtime_thread.c, runtime_host.c): no loader threads here. */
+int runtime_thread_is_loader(void) { return 0; }
+uint64_t host_monotonic_ns(void) {
+    struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t);
+    return (uint64_t)t.tv_sec*1000000000u+(uint64_t)t.tv_nsec;
+}
 uintptr_t runtime_lookup(const RuntimeExport *table,size_t n,const char *name) {
     for (size_t i=0;i<n;++i) if (!strcmp(table[i].name,name)) return (uintptr_t)table[i].function;
     return 0;

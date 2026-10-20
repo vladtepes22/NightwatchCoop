@@ -46,8 +46,8 @@ const BindingInfo kInfo[kBindCount] = {
     {"attack", "Attack", "R1. With the strong attack modifier held, R2.", kR1, nullptr, 1},
     {"strong_attack", "Strong Attack", "R2. Hold to charge.", kR2, "V", 0},
     {"strong_modifier", "Strong Attack Modifier", "Held with Attack, attacks strong (R2).", 0, "Left Shift", 0},
-    {"transform", "Transform", "L1. Transform the trick weapon.", kL1, "C", 3},
-    {"firearm", "Firearm / Parry", "L2. Shoot the left-hand weapon.", kL2, "X", 2},
+    {"transform", "Transform", "L1. Transform the trick weapon.", kL1, "C", 2},
+    {"firearm", "Firearm / Parry", "L2. Shoot the left-hand weapon.", kL2, "X", 3},
     {"blood_vial", "Blood Vial", "Triangle. Restore HP with a Blood Vial.", kTriangle, "R", 0},
     {"use_item", "Use Item", "Square. Use the selected quick item.", kSquare, "F", 0},
 
@@ -133,13 +133,14 @@ const char* scancode_name(int sc) {
 #endif
 }
 
-// Mouse 1..5 are the buttons; 6 and 7 the wheel turned up and down, which the
-// pad read makes a short press of each notch (hle/system.cpp).
+// Mouse 1..5 are the buttons in SDL's numbering, as input.cpp reads them (1 left, 2 middle,
+// 3 right); 6 and 7 the wheel turned up and down, which the pad read makes a short press of
+// each notch (hle/system.cpp).
 constexpr int kMouseInputs = 7;
-const char* const kMouseNames[kMouseInputs + 1] = {nullptr,  "Left Button", "Right Button", "Middle Button",
+const char* const kMouseNames[kMouseInputs + 1] = {nullptr,  "Left Button", "Middle Button", "Right Button",
                                                    "Button 4", "Button 5", "Wheel Up", "Wheel Down"};
 // The same where the name has to fit in a sentence.
-const char* const kMouseShort[kMouseInputs + 1] = {nullptr, "L Mouse", "R Mouse", "M Mouse", "Mouse 4", "Mouse 5", "Wheel Up", "Wheel Down"};
+const char* const kMouseShort[kMouseInputs + 1] = {nullptr, "L Mouse", "M Mouse", "R Mouse", "Mouse 4", "Mouse 5", "Wheel Up", "Wheel Down"};
 // Their names in [keys]: Mouse1..Mouse5, WheelUp, WheelDown.
 std::string mouse_token(int m) { return m == 6 ? "WheelUp" : m == 7 ? "WheelDown" : "Mouse" + std::to_string(m); }
 

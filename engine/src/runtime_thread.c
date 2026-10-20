@@ -77,15 +77,43 @@ static void set_gs(void *base) {
     if (syscall(SYS_arch_prctl,ARCH_SET_GS,(unsigned long)base)) { perror("STOP: arch_prctl(ARCH_SET_GS)"); exit(21); }
 #endif
 }
+/* Thread records and TLS blocks live in low memory, below 1 TiB like the stacks (64-byte
+ * aligned pieces of 64 KiB chunks; never freed, as before). A record's address is the guest's
+ * thread handle (scePthreadSelf, pthread_self), and the game packs it into 40 bits: its own
+ * locks keep the owner in the low 40 bits of a word and compare that with the full handle, as
+ * PS4 handles fit. A host heap pointer above 1 TiB (the heap grows there after a while) made the
+ * owner never recognise itself: it slept on its own lock's semaphore, and main and the loader
+ * threads with it (area loads freezing, more often the longer a session ran). */
+static HostMutex low_lock=HOST_MUTEX_INIT;
+static void *low_alloc(size_t size) {
+    static unsigned char *chunk;
+    static size_t left;
+    const size_t need=(size+63)&~(size_t)63, chunk_size=need>65536 ? need : 65536;
+    void *p=NULL;
+    host_lock(&low_lock);
+    if (left<need) {
+        chunk=runtime_low_map(chunk_size,PROT_READ|PROT_WRITE);
+        left=chunk ? chunk_size : 0;
+    }
+    if (left>=need) { p=chunk; chunk+=need; left-=need; }
+    host_unlock(&low_lock);
+    if (p) { memset(p,0,size); return p; }
+    static int warned;
+    if (!__atomic_exchange_n(&warned,1,__ATOMIC_RELAXED))
+        fputs("Runtime: no low memory left for thread records; heap memory instead\n",stderr);
+#ifdef _WIN32
+    p=_aligned_malloc(need,64);
+#else
+    p=aligned_alloc(64,need);
+#endif
+    if (p) memset(p,0,size);
+    return p;
+}
 /* Build TCB/static TLS for the calling host thread and point GS at it. */
 static void attach(GuestThread *t) {
     uint64_t offset=tls_offset();
     size_t total=offset+256;
-#ifdef _WIN32
-    unsigned char *block=_aligned_malloc((total+63)&~(size_t)63,64);
-#else
-    unsigned char *block=aligned_alloc(64,(total+63)&~(size_t)63);
-#endif
+    unsigned char *block=low_alloc(total);
     if (!block) { fputs("Cannot allocate guest TLS\n",stderr); exit(1); }
     memset(block,0,total);
     if (tls_filesz) memcpy(block,tls_template,tls_filesz);
@@ -99,7 +127,7 @@ static void attach(GuestThread *t) {
     current=t;
 }
 static GuestThread *new_thread(void) {
-    GuestThread *t=calloc(1,sizeof(*t));
+    GuestThread *t=low_alloc(sizeof(*t));
     if (!t) return NULL;
     t->attr=(ThreadAttr){.magic=ATTR_MAGIC,.policy=1,.prio=DEFAULT_PRIO,.stack=DEFAULT_STACK,.affinity=0x7f};
     return t;
@@ -133,6 +161,9 @@ void runtime_thread_attach_main(void) {
 }
 /* No record is created here: the fault handler asks (probe.c). */
 int runtime_thread_has_record(void) { return current!=NULL; }
+/* bbport: the game's resource loader threads (Core.Res.FileLoader, CacheableFileLoader,
+ * TaskManager, PostProcessor_N): their file reads are the streaming the player sees. */
+int runtime_thread_is_loader(void) { return current && !strncmp(current->name,"Core.Res.",9); }
 static GuestThread *find_thread(void *handle) {
     GuestThread *found=NULL;
     host_lock(&lock);

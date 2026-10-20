@@ -243,6 +243,9 @@ struct PM4CmdNop {
         PrepareFlipLabel = 0x68750778u,     ///< Flip marker with label address
         PrepareFlipInterrupt = 0x68750780u, ///< Flip marker with interrupt
         PrepareFlipInterruptLabel = 0x68750781u, ///< Flip marker with interrupt and label
+        /// bbport BB_NATIVE_CALLS=1: top half of a draw call's record (bbport_native_calls.h:
+        /// kind in the low byte, checked payload); the decoder draws it as DRAW_INDEX_*.
+        BbNativeDrawTag = 0xbb5d0000u,
     };
 };
 

@@ -169,7 +169,7 @@ def prepare(game, out):
             raise ValueError('segment file size exceeds memory size')
         image[p['vaddr']:p['vaddr'] + p['filesz']] = span(elf, p['offset'], p['filesz'])
     # bbport: only the supported executable runs (game_check.py); others fail in the game's code.
-    if found := game_check.problem(game, hashlib.sha256(image).hexdigest()):
+    if found := game_check.problem(game, hashlib.sha256(image).hexdigest(), image):
         raise GameCheckError(game_check.explain(*found))
     dp = next(p for p in ph if p['type'] == 2)
     dyn = []

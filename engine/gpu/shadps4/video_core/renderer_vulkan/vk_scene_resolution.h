@@ -63,6 +63,9 @@ public:
     [[nodiscard]] bool Tracks(u64 image_uid) const {
         return !copying && tracked.contains(image_uid);
     }
+    /// A proxy of the image holds writes its native image has not seen yet (NativeAccess would
+    /// resolve them).
+    [[nodiscard]] bool NativeStale(const VideoCore::Image& image) const;
     void ResolveAll();
     bool debug = false; ///< BB_SCENE_DEBUG frame: print resolves and fills
 private:

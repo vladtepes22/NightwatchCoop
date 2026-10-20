@@ -167,6 +167,9 @@ static void find_addons(void) {
     }
     if (titles) closedir(titles);
     if (dlc && *dlc && !addon_count) printf("Runtime: DLC folder %s: no add-ons found\n",dlc);
+    /* bbport: BB_DLC=1 (the launcher's DLC switch on) without a dumped add-on: The Old Hunters, whose
+     * data ships with 1.09; its label is the same for every region (UP9000-CUSA00900_00-SPEXPANSIONDLC03). */
+    if (enabled && enabled[0]=='1' && !addon_count) add_addon("","SPEXPANSIONDLC03",0);
 }
 static ABI int32_t addon_list(uint32_t service,void *list,uint32_t capacity,uint32_t *hits) {
     int32_t result=require_initialized();

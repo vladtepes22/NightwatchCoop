@@ -220,12 +220,8 @@ Id EmitContext::GetBufferSize(const u32 sharp_idx) {
     // Can this be done with memory access? Like we do now with ReadConst
     const auto& srt_flatbuf = buffers[flatbuf_index];
     ASSERT(srt_flatbuf.buffer_type == BufferType::Flatbuf);
-    const auto [id, pointer_type] = srt_flatbuf.Alias(PointerType::U32);
-
-    const auto rsrc1{
-        OpLoad(U32[1], OpAccessChain(pointer_type, id, u32_zero_value, ConstU32(sharp_idx + 1)))};
-    const auto rsrc2{
-        OpLoad(U32[1], OpAccessChain(pointer_type, id, u32_zero_value, ConstU32(sharp_idx + 2)))};
+    const auto rsrc1{LoadBufferDword(srt_flatbuf, ConstU32(sharp_idx + 1))};
+    const auto rsrc2{LoadBufferDword(srt_flatbuf, ConstU32(sharp_idx + 2))};
 
     const auto stride{OpBitFieldUExtract(U32[1], rsrc1, ConstU32(16u), ConstU32(14u))};
     const auto num_records{rsrc2};
@@ -824,6 +820,29 @@ void EmitContext::DefinePushDataBlock() {
     interfaces.push_back(push_data_block);
 }
 
+void EmitContext::DefineUniformBuffer(BufferDefinition& buffer) {
+    // 64 KiB, the guaranteed uniform buffer range on the GPUs this is enabled for (the bound
+    // range is the buffer's size; reads past it are out of bounds as in a storage buffer).
+    constexpr u32 kVec4s = 4096;
+    if (!Sirit::ValidId(uniform_block_type)) {
+        const Id array_type{TypeArray(U32[4], ConstU32(kVec4s))};
+        Decorate(array_type, spv::Decoration::ArrayStride, 16U);
+        uniform_block_type = TypeStruct(array_type);
+        Decorate(uniform_block_type, spv::Decoration::Block);
+        MemberName(uniform_block_type, 0, "data");
+        MemberDecorate(uniform_block_type, 0, spv::Decoration::Offset, 0U);
+        uniform_vec_pointer_type = TypePointer(spv::StorageClass::Uniform, U32[4]);
+    }
+    const Id id{AddGlobalVariable(TypePointer(spv::StorageClass::Uniform, uniform_block_type),
+                                  spv::StorageClass::Uniform)};
+    Decorate(id, spv::Decoration::Binding, binding.unified);
+    Decorate(id, spv::Decoration::DescriptorSet, 0U);
+    Name(id, fmt::format("ubo_{}", buffer.binding));
+    buffer.uniform_id = id;
+    buffer.uniform_vec_pointer = uniform_vec_pointer_type;
+    interfaces.push_back(id);
+}
+
 EmitContext::BufferSpv EmitContext::DefineBuffer(bool is_written, bool is_coherent, u32 elem_shift,
                                                  BufferType buffer_type, Id data_type) {
     // Define array type.
@@ -898,6 +917,11 @@ void EmitContext::DefineBuffers() {
 
         // Define aliases depending on the shader usage.
         auto& spv_buffer = buffers.emplace_back(binding.buffer++, desc.buffer_type);
+        if (desc.is_uniform) {
+            DefineUniformBuffer(spv_buffer);
+            ++binding.unified;
+            continue;
+        }
         if (True(desc.used_types & IR::Type::U64)) {
             spv_buffer.Alias(PointerType::U64) =
                 DefineBuffer(desc.is_written, is_coherent, 3, desc.buffer_type, U64);

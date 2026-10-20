@@ -10,6 +10,15 @@ struct SDL_Window;
 
 namespace Frontend {
 
+/// bbport: the game window is not in front (unfocused or minimized): VideoOut caps the frame
+/// rate then (BB_BACKGROUND_FPS, default 30; 0 off; never in online sessions), so an alt-tabbed
+/// game does not keep the GPU and CPU busy rendering frames no one sees.
+bool WindowInBackground();
+u32 BackgroundFrameLimit();
+/// bbport: refresh rate (Hz, rounded) of the display the game window is on; 0 until known.
+/// Updated by the window thread when the window moves to another display or its mode changes.
+u32 DisplayRefreshHz();
+
 enum class WindowSystemType : u8 { Headless, Windows, X11, Wayland, Metal };
 
 struct WindowSystemInfo {
@@ -42,6 +51,7 @@ private:
     std::atomic<bool> is_open{true};
     std::mutex text_mutex;
     bool text_requested{}, text_active{};
+    bool text_selected{}; ///< the whole text is selected: typing or pasting replaces it
     int text_state{};
     std::string text, text_prompt, base_title;
     void UpdateTextTitle();

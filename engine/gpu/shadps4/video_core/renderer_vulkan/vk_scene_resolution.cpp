@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "video_core/renderer_vulkan/vk_scene_resolution.h"
+#include "video_core/renderer_vulkan/vk_gpu_savings.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -119,6 +120,15 @@ void SceneTargets::ResolveAll() {
         }
     }
 }
+bool SceneTargets::NativeStale(const VideoCore::Image& image) const {
+    if (!image.scene_proxy) return false;
+    const u32 levels = std::min(16u, image.info.resources.levels);
+    for (u32 level = 0; level < levels; ++level) {
+        const auto it = entries.find(Key(image.image_uid, level));
+        if (it != entries.end() && it->second->state.dirty) return true;
+    }
+    return false;
+}
 void SceneTargets::NativeAccess(VideoCore::Image& image, vk::AccessFlags2 access) {
     if (copying || !image.scene_proxy) return; // most images never had a proxy
     constexpr auto writes = vk::AccessFlagBits2::eShaderWrite | vk::AccessFlagBits2::eTransferWrite |
@@ -129,7 +139,20 @@ void SceneTargets::NativeAccess(VideoCore::Image& image, vk::AccessFlags2 access
         const auto it = entries.find(Key(image.image_uid, level));
         if (it == entries.end()) continue;
         auto& entry = *it->second;
-        if (entry.state.dirty) Copy(entry, image, true);
+        if (entry.state.dirty) {
+            Copy(entry, image, true);
+            if (BbStats::enabled) {
+                // BB_FRAME_STATS: what made the native image needed (GpuSavings::Report).
+                const u32 kind =
+                    access & (vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite) ? 0
+                    : access & (vk::AccessFlagBits2::eShaderWrite | vk::AccessFlagBits2::eShaderStorageWrite) ? 2
+                    : access & (vk::AccessFlagBits2::eColorAttachmentWrite |
+                                vk::AccessFlagBits2::eDepthStencilAttachmentWrite) ? 3
+                    : access & vk::AccessFlagBits2::eShaderRead ? 1
+                    : 4;
+                GpuSavings::Get().scene_resolves[kind].fetch_add(1, std::memory_order_relaxed);
+            }
+        }
         if (access & writes) entry.state.NativeWrite();
     }
 }

@@ -305,7 +305,8 @@ void DrawMouse(Canvas& c, int button) {
     const Box face = Inset(body, 1.3f, 1.3f, 1.3f, 1.3f);
     Paint(c, kFace, [&](float x, float y) { return Inside(face, x, y); });
     const float cx = 16.0f, split = 13.0f;
-    if (button == 1 || button == 2) {
+    // SDL's numbering (input.cpp): 1 left, 2 middle (the wheel), 3 right.
+    if (button == 1 || button == 3) {
         Paint(c, kInk, [&](float x, float y) {
             const bool side = button == 1 ? x < cx - 0.6f : x > cx + 0.6f;
             return side && y < split - 0.6f ? Inside(face, x, y) : 0.0f;
@@ -316,7 +317,7 @@ void DrawMouse(Canvas& c, int button) {
         const bool seam = (std::abs(x - cx) <= 0.6f && y < split) || std::abs(y - split) <= 0.6f;
         return seam ? Inside(face, x, y) : 0.0f;
     });
-    const bool wheel = button == 3 || button == 6 || button == 7;
+    const bool wheel = button == 2 || button == 6 || button == 7;
     const Box wheel_box{cx - 2.0f, 4.5f, cx + 2.0f, 11.5f, 2.0f};
     Paint(c, wheel ? kInk : kOutline, [&](float x, float y) { return Inside(wheel_box, x, y); });
     if (button == 6 || button == 7) {

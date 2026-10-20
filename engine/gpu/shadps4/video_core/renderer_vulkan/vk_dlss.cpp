@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -122,6 +123,28 @@ void SetF(NgxParameter* p, const char* name, float v) {
 void SetP(NgxParameter* p, const char* name, void* v) {
     Slot<void (*)(NgxParameter*, const char*, void*)>(p, SetVoid)(p, name, v);
 }
+/// bbport: NVSDK_NGX_DLSS_Hint_Render_Preset (0 the DLL's default, 1 A ... 11 K) from
+/// BB_DLSS_PRESET ("k" when unset).
+unsigned DlssPreset() {
+    static const unsigned preset = [] {
+        const char* env = std::getenv("BB_DLSS_PRESET");
+        if (env && std::strcmp(env, "default") == 0) {
+            return 0u;
+        }
+        const char letter = env && env[0] ? char(std::tolower(static_cast<unsigned char>(env[0]))) : 'k';
+        return letter >= 'a' && letter <= 'z' ? unsigned(letter - 'a' + 1) : 11u;
+    }();
+    return preset;
+}
+/// The same preset for every quality mode: the feature is created again when the mode changes.
+void SetPreset(NgxParameter* p, unsigned preset) {
+    for (const char* name : {"DLSS.Hint.Render.Preset.DLAA", "DLSS.Hint.Render.Preset.Quality",
+                             "DLSS.Hint.Render.Preset.Balanced", "DLSS.Hint.Render.Preset.Performance",
+                             "DLSS.Hint.Render.Preset.UltraPerformance",
+                             "DLSS.Hint.Render.Preset.UltraQuality"}) {
+        SetUI(p, name, preset);
+    }
+}
 NgxResult GetI(NgxParameter* p, const char* name, int* v) {
     return Slot<NgxResult (*)(NgxParameter*, const char*, int*)>(p, GetInt)(p, name, v);
 }
@@ -187,6 +210,7 @@ struct DlssUpscaler::Impl {
     bool available = false;
     bool fatal = false;
     std::string problem;
+    unsigned applied_preset = 0; ///< the render preset the feature was created with (0: default)
 
 #ifdef _WIN32
     HMODULE core = nullptr;
@@ -242,6 +266,33 @@ struct DlssUpscaler::Impl {
         if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\NVIDIA Corporation\\Global\\NGXCore",
                          L"FullPath", RRF_RT_REG_SZ, nullptr, dir, &size) == ERROR_SUCCESS) {
             core = LoadLibraryW((std::wstring(dir) + L"\\_nvngx.dll").c_str());
+        }
+        // bbport: some driver installs (laptops) leave that key out; the core is then in the
+        // display driver's DriverStore folder (nv*.inf_amd64_*), the newest one in use.
+        if (!core) {
+            wchar_t windows[MAX_PATH];
+            const UINT length = GetSystemDirectoryW(windows, MAX_PATH);
+            if (length > 0 && length < MAX_PATH) {
+                const std::wstring repo = std::wstring(windows) + L"\\DriverStore\\FileRepository\\";
+                WIN32_FIND_DATAW found;
+                std::wstring newest;
+                FILETIME newest_time{};
+                const HANDLE find = FindFirstFileW((repo + L"nv*").c_str(), &found);
+                if (find != INVALID_HANDLE_VALUE) {
+                    do {
+                        if (!(found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+                        const std::wstring file = repo + found.cFileName + L"\\_nvngx.dll";
+                        WIN32_FILE_ATTRIBUTE_DATA info;
+                        if (GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &info) &&
+                            CompareFileTime(&info.ftLastWriteTime, &newest_time) > 0) {
+                            newest = file;
+                            newest_time = info.ftLastWriteTime;
+                        }
+                    } while (FindNextFileW(find, &found));
+                    FindClose(find);
+                }
+                if (!newest.empty()) core = LoadLibraryW(newest.c_str());
+            }
         }
 #else
         core = dlopen("libnvidia-ngx.so.1", RTLD_NOW);
@@ -396,18 +447,35 @@ struct DlssUpscaler::Impl {
             }
             SetI(params, "DLSS.Feature.Create.Flags", flags);
             SetI(params, "DLSS.Enable.Output.Subrects", 0);
-            const NgxResult r = create_feature(VkDevice(instance.GetDevice()),
-                                               VkCommandBuffer(f.cmdbuf), kFeatureSuperSampling,
-                                               params, &feature);
+            // bbport: the model is chosen, not left to the DLL's default per mode: preset K (the
+            // transformer model) keeps thin moving objects - a weapon on the back, railings -
+            // steadier than the CNN presets. BB_DLSS_PRESET: a letter (e: the last CNN model) or
+            // "default". A preset the DLL refuses is retried with its default.
+            const unsigned preset = DlssPreset();
+            SetPreset(params, preset);
+            NgxResult r = create_feature(VkDevice(instance.GetDevice()), VkCommandBuffer(f.cmdbuf),
+                                         kFeatureSuperSampling, params, &feature);
+            if ((Failed(r) || !feature) && preset != 0) {
+                std::printf("DLSS: preset %c refused (%#x); the DLL's default\n", char('A' + preset - 1), r);
+                feature = nullptr;
+                applied_preset = 0;
+                SetPreset(params, 0);
+                r = create_feature(VkDevice(instance.GetDevice()), VkCommandBuffer(f.cmdbuf),
+                                   kFeatureSuperSampling, params, &feature);
+            } else if (!Failed(r) && feature) {
+                applied_preset = preset;
+            }
             if (Failed(r) || !feature) {
                 feature = nullptr;
                 Fail(fmt_hex("DLSS feature creation failed", r), false);
                 return false;
             }
             key = wanted;
-            std::printf("DLSS: %ux%u -> %ux%u, quality mode %d, %s input\n", key.render_width,
-                        key.render_height, key.out_width, key.out_height, key.quality,
-                        key.hdr ? "HDR" : "LDR");
+            std::printf("DLSS: %ux%u -> %ux%u, quality mode %d, %s input, preset %s",
+                        key.render_width, key.render_height, key.out_width, key.out_height,
+                        key.quality, key.hdr ? "HDR" : "LDR",
+                        applied_preset ? std::string(1, char('A' + applied_preset - 1)).c_str() : "default");
+            std::putchar(10);
         }
         ResourceVk color = Resource(f.color, vk::ImageAspectFlagBits::eColor, false);
         ResourceVk depth = Resource(f.depth, vk::ImageAspectFlagBits::eDepth, false);

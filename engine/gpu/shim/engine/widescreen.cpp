@@ -2,6 +2,7 @@
 // Camera blend, stage pins and projected plates adapted from bbhost db5457cb.
 // Existing bbport resolution, Vulkan targets and temporal providers remain authoritative.
 #include "widescreen.h"
+#include "camera.h"
 #include "engine_hooks.h"
 #include "bbport_settings.h"
 #include "bbport_platform.h"
@@ -100,6 +101,17 @@ void Tick() {
     for(auto at:bottom_bounds)WriteCode(base+at+1,&b,4);
     for(const auto& s:left)WriteCode(base+s.at,(rx>1.0005f?s.after:s.before).data(),s.n);
     for(const auto& s:top)WriteCode(base+s.at,(ry>1.0005f?s.after:s.before).data(),s.n);
-    applied=want;std::printf("Engine: camera aspect %.4f, world plates x%u / y%u, vertical FOV preserved\n",want,r,b);
+    applied=want;
+    // Narrower than 16:9 the camera keeps the 16:9 horizontal view and sees more above and below
+    // (Vert+, camera.cpp scales LockCamParam's vertical FOV by NarrowFovFactor). With the vertical
+    // FOV kept instead, a 5:4 screen showed 30% less to the sides, zoomed in.
+    std::printf("Engine: camera aspect %.4f, world plates x%u / y%u, %s\n",want,r,b,
+                ry>1.0005f?(Camera::Active()?"horizontal FOV preserved (Vert+)":"vertical FOV preserved (narrower view: camera hook off)")
+                          :"vertical FOV preserved");
+}
+float NarrowFovFactor() {
+    if(!installed)return 1.0f;
+    const float a=aspect.load();
+    return a>0.1f && a<original_aspect ? original_aspect/a : 1.0f;
 }
 }

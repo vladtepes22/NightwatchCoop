@@ -146,8 +146,18 @@ ObjectMotion::ObjectMotion(const Instance& instance_, Scheduler& scheduler_)
         .pBufferInfo = &buffer_info,
     };
     device.updateDescriptorSets(write, {});
+    // bbport: BB_OBJECT_MOTION_HOLD=<frames> (default 30, a quarter second at 120 FPS): how long
+    // a small skeleton (weapon, prop) keeps its history after its bone palette last changed, so
+    // bones the game moves on some frames only still get object vectors (Motion::History::
+    // Moving). 0 is the old rule: history only on frames whose palette changed.
+    static const u32 hold = [] {
+        const char* value = std::getenv("BB_OBJECT_MOTION_HOLD");
+        return value && value[0] ? u32(std::strtoul(value, nullptr, 10)) : 30u;
+    }();
+    history.SetHold(hold);
     enabled = true;
-    std::printf("Object motion: on (%u vertices per frame)\n", PositionsPerFrame);
+    std::printf("Object motion: on (%u vertices per frame, moved small skeletons held %u frames)\n",
+                PositionsPerFrame, hold);
 }
 
 ObjectMotion::~ObjectMotion() {
@@ -170,13 +180,16 @@ void ObjectMotion::OnFrameStart() {
     }
     if (BbStats::enabled && (frame % 600) == 0 && history.stats.draws) {
         const auto& s = history.stats;
+        // bbport: "held" counts small-skeleton draws kept in history though their palette did
+        // not change this frame (BB_OBJECT_MOTION_HOLD); they are part of "draws".
         std::printf("Object motion: %llu draws, %llu stored, %llu with history, %llu unmatched, "
-                    "%llu capacity skips, %llu invalid, %llu still (600 frames); last frame %u/%u vertices; "
-                    "index ranges %llu reused, %llu scanned (%llu found changed), %zu cached\n",
+                    "%llu capacity skips, %llu invalid, %llu still, %llu held (600 frames); last frame "
+                    "%u/%u vertices; index ranges %llu reused, %llu scanned (%llu found changed), "
+                    "%zu cached\n",
                     (unsigned long long)s.draws, (unsigned long long)s.stored,
                     (unsigned long long)s.loaded, (unsigned long long)s.unmatched,
                     (unsigned long long)s.exhausted, (unsigned long long)s.invalid,
-                    (unsigned long long)s.still,
+                    (unsigned long long)s.still, (unsigned long long)s.held,
                     history.Used(), PositionsPerFrame, (unsigned long long)index_ranges.stats.hits,
                     (unsigned long long)index_ranges.stats.scans,
                     (unsigned long long)index_ranges.stats.stale, index_ranges.Size());

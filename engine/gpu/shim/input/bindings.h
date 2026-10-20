@@ -15,7 +15,7 @@
 // Defaults are overridden by bind.<action> records in bbport.ini, which both
 // the WPF launcher and the native Key Bindings page write. A value names
 // the whole binding: E, Mouse2, X, Mouse2, or none. Mouse1..Mouse5 are the
-// left, right and middle buttons and the two
+// left, middle and right buttons (SDL's numbering) and the two
 // side buttons; WheelUp and WheelDown the wheel, each notch a short press.
 
 #include <cstddef>

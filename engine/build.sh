@@ -87,11 +87,35 @@ if [[ ! -f out/gpu/build.ninja || $(cat out/gpu/bb-configure.txt 2>/dev/null) !=
 fi
 echo "GPU library: PGO $pgo, LTO ${BB_LTO:-ON}, march ${BB_MARCH:-default}"
 # A failed GPU build must stop here: an older libbbgpu.so would otherwise be used silently.
-if ! ninja -C out/gpu ${BB_JOBS:+-j "$BB_JOBS"} bbgpu bb-engine-assets > out/gpu-build.log 2>&1; then
+if ! ninja -C out/gpu ${BB_JOBS:+-j "$BB_JOBS"} bbgpu bb-engine-assets bb-shader-lab > out/gpu-build.log 2>&1; then
     grep -v '^\[' out/gpu-build.log | tail -40 >&2
     echo 'GPU library build failed (full log: out/gpu-build.log)' >&2; exit 1
 fi
 cp -f out/gpu/bb-engine-assets* out/
+# The cache recompile after a compiler change (start/main.cpp RecompileGpuCache).
+cp -f out/gpu/bb-shader-lab* out/ 2>/dev/null || true
+# The GPU cache's identity (start/main.cpp ResetStaleGpuCache): a hash of the sources that decide
+# what the shader and pipeline caches hold - the shader recompiler, the register layouts in the
+# keys, the keys and their records, the shader patches. An engine update that leaves them alone
+# keeps the players' compiled shaders; one that changes them starts the caches again (GitHub
+# issue 30). The code that builds and schedules Vulkan pipelines from the keys is not part of it
+# (nothing it does is stored), nor are comments, blank lines or line endings.
+gpu_cache_sources() {
+    find gpu/shadps4/shader_recompiler gpu/shadps4/video_core/amdgpu gpu/shadps4/common/serdes.h \
+        gpu/shadps4/video_core/cache_storage.cpp gpu/shadps4/video_core/cache_storage.h \
+        gpu/shadps4/video_core/renderer_vulkan/liverpool_to_vk.* gpu/shadps4/video_core/renderer_vulkan/vk_*pipeline* \
+        gpu/shadps4/video_core/renderer_vulkan/pipeline_cache_blob.h gpu/shadps4/video_core/renderer_vulkan/vk_object_motion.* \
+        -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.inc' \) | LC_ALL=C sort
+}
+# The shader capture (shader_recompiler/native/capture.*, BB_SHADER_CAPTURE) and the shader lab's
+# override (Info::lab_flat) store nothing in the caches: their files and one-line hooks are left out.
+gpu_cache_sources | grep -v -E 'vk_(graphics|compute)_pipeline\.cpp$|vk_pipeline_common\.(cpp|h)$|pipeline_compile_queue\.h$|native/capture\.(cpp|h)$' |
+    xargs cat | tr -d '\r' | grep -v -E 'Shader::Native::Capture|shader_recompiler/native/capture\.h|lab_flat|fetch_override' |
+    sed -E 's#^[[:space:]]*//.*$##; s/[[:space:]]+$//' | grep -v '^$' |
+    sha256sum | cut -c1-16 > out/gpu-cache.id
+# The identity as earlier engines computed it (whole files): a cache stamped with it for these same
+# sources is kept and stamped again with the new one.
+gpu_cache_sources | xargs cat | sha256sum | cut -c1-16 > out/gpu-cache.legacy.id
 # $ORIGIN/gpu: packaged copies keep the library next to the binary without patching it.
 gpu=(-Lout/gpu -lbbgpu -Wl,-rpath,'$ORIGIN/gpu' -Wl,-rpath,"$PWD/out/gpu" -rdynamic)
 runtime=(src/runtime*.c)
@@ -133,6 +157,13 @@ else
 echo "Built $PWD/out/bb-probe"
 # GPU and controller inventory; keep the Windows C dialect and include SDL headers.
 "$CC" "${cstd[@]}" -O2 -Wall -Wextra -Werror "${includes[@]}" tools/gpu_capabilities.c "${libraries[@]}" -o out/bb-gpu-capabilities
+fi
+# The native start (Windows): boot image, mods, patches, engine assets, then bb-probe. One static
+# program: it runs before bb-probe's DLLs are found, and replaces the Python scripts.
+if [[ -n $windows ]] && [[ ! -f out/bb-start.exe || -n $(find start -newer out/bb-start.exe -print -quit) ]]; then
+    "${CXX:-clang++}" -std=c++20 -O2 -Wall -Wextra -Wno-deprecated-declarations -Wno-missing-field-initializers \
+        -municode -static start/*.cpp -lz -lexpat -lbcrypt -o out/bb-start.exe
+    echo "Built $PWD/out/bb-start.exe"
 fi
 if [[ ${1:-} == --test ]]; then
     "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_pad.c "${libraries[@]}" -o out/pad-test

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <string>
+#include <map>
+#include <chrono>
 #include <array>
 #include <atomic>
 #include <cstdio>
@@ -11,6 +14,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "video_core/renderer_vulkan/vk_breadcrumbs.h"
+#include <vector>
 #include "video_core/renderer_vulkan/vk_instance.h"
 
 extern "C" int runtime_memory_vma_info(uintptr_t address, int* prot, int* type, uintptr_t* end);
@@ -55,7 +59,163 @@ struct ArgsNote {
 };
 std::array<ArgsNote, ArgSlots> args_notes{};
 
+struct AddressBinding {
+    u64 base;
+    u64 size;
+    u64 handle;
+    VkObjectType type;
+    std::chrono::steady_clock::time_point freed;
+    char name[112];
+};
+struct FreedRing {
+    std::unique_ptr<AddressBinding[]> entries;
+    u64 capacity = 0;
+    u64 next = 0;
+    void Push(const AddressBinding& entry) {
+        if (!entries) {
+            entries = std::make_unique<AddressBinding[]>(capacity);
+        }
+        entries[next++ % capacity] = entry;
+    }
+};
+std::mutex address_mutex;
+std::map<u64, AddressBinding> address_bound;
+FreedRing freed_images{.capacity = 32768};
+FreedRing freed_others{.capacity = 65536};
+
+const char* ObjectTypeName(VkObjectType type) {
+    switch (type) {
+    case VK_OBJECT_TYPE_IMAGE:
+        return "image";
+    case VK_OBJECT_TYPE_BUFFER:
+        return "buffer";
+    case VK_OBJECT_TYPE_DEVICE_MEMORY:
+        return "memory";
+    case VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR:
+        return "acceleration structure";
+    default:
+        return "object";
+    }
+}
+
+VKAPI_ATTR VkBool32 VKAPI_CALL AddressReportCallback(VkDebugUtilsMessageSeverityFlagBitsEXT,
+                                                     VkDebugUtilsMessageTypeFlagsEXT type,
+                                                     const VkDebugUtilsMessengerCallbackDataEXT* data,
+                                                     void*) {
+    if (!(type & VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT) || !data) {
+        return VK_FALSE;
+    }
+    const VkDeviceAddressBindingCallbackDataEXT* binding = nullptr;
+    for (auto* next = static_cast<const VkBaseInStructure*>(data->pNext); next; next = next->pNext) {
+        if (next->sType == VK_STRUCTURE_TYPE_DEVICE_ADDRESS_BINDING_CALLBACK_DATA_EXT) {
+            binding = reinterpret_cast<const VkDeviceAddressBindingCallbackDataEXT*>(next);
+            break;
+        }
+    }
+    if (!binding || binding->size == 0) {
+        return VK_FALSE;
+    }
+    AddressBinding entry{.base = binding->baseAddress, .size = binding->size, .name = {}};
+    if (data->objectCount > 0 && data->pObjects) {
+        entry.handle = data->pObjects[0].objectHandle;
+        entry.type = data->pObjects[0].objectType;
+        if (data->pObjects[0].pObjectName) {
+            std::snprintf(entry.name, sizeof(entry.name), "%s", data->pObjects[0].pObjectName);
+        }
+    }
+    std::scoped_lock lock{address_mutex};
+    if (binding->bindingType == VK_DEVICE_ADDRESS_BINDING_TYPE_BIND_EXT) {
+        address_bound[entry.base] = entry;
+        return VK_FALSE;
+    }
+    if (auto it = address_bound.find(entry.base); it != address_bound.end()) {
+        if (!entry.name[0]) {
+            std::memcpy(entry.name, it->second.name, sizeof(entry.name));
+        }
+        if (entry.type == VK_OBJECT_TYPE_UNKNOWN) {
+            entry.type = it->second.type;
+        }
+        address_bound.erase(it);
+    }
+    entry.freed = std::chrono::steady_clock::now();
+    (entry.type == VK_OBJECT_TYPE_IMAGE ? freed_images : freed_others).Push(entry);
+    return VK_FALSE;
+}
+
+bool FindFreed(const FreedRing& ring, u64 address, std::chrono::steady_clock::time_point now) {
+    const u64 count = std::min(ring.next, ring.capacity);
+    for (u64 i = 0; i < count; ++i) {
+        const auto& freed = ring.entries[(ring.next - 1 - i) % ring.capacity];
+        if (address >= freed.base && address < freed.base + freed.size) {
+            std::printf("    in a FREED %s %#llx [%#llx, +%#llx), freed %lld ms before the crash: %s\n",
+                        ObjectTypeName(freed.type), static_cast<unsigned long long>(freed.handle),
+                        static_cast<unsigned long long>(freed.base),
+                        static_cast<unsigned long long>(freed.size),
+                        static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                   now - freed.freed)
+                                                   .count()),
+                        freed.name);
+            return true;
+        }
+    }
+    return false;
+}
+
+void DescribeRing(const char* what, const FreedRing& ring, std::chrono::steady_clock::time_point now) {
+    const u64 count = std::min(ring.next, ring.capacity);
+    if (count == 0) {
+        std::printf("    %s: none freed\n", what);
+        return;
+    }
+    const auto& oldest = ring.entries[(ring.next - count) % ring.capacity];
+    std::printf("    %s: %llu freed in all, the last %llu kept (back to %lld ms before the crash)\n", what,
+                static_cast<unsigned long long>(ring.next), static_cast<unsigned long long>(count),
+                static_cast<long long>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(now - oldest.freed).count()));
+}
+
+void DescribeFaultAddress(u64 address) {
+    std::scoped_lock lock{address_mutex};
+    auto it = address_bound.upper_bound(address);
+    if (it != address_bound.begin()) {
+        const auto& bound = std::prev(it)->second;
+        if (address < bound.base + bound.size) {
+            std::printf("    in a live %s %#llx [%#llx, +%#llx) %s\n", ObjectTypeName(bound.type),
+                        static_cast<unsigned long long>(bound.handle),
+                        static_cast<unsigned long long>(bound.base),
+                        static_cast<unsigned long long>(bound.size), bound.name);
+            return;
+        }
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (freed_images.entries && FindFreed(freed_images, address, now)) {
+        return;
+    }
+    if (freed_others.entries && FindFreed(freed_others, address, now)) {
+        return;
+    }
+    std::printf("    not in any memory bound now (%zu bound) or freed recently\n", address_bound.size());
+    DescribeRing("images", freed_images, now);
+    DescribeRing("other objects", freed_others, now);
+    if (it != address_bound.begin()) {
+        const auto& below = std::prev(it)->second;
+        std::printf("    nearest below: %s [%#llx, +%#llx) %s\n", ObjectTypeName(below.type),
+                    static_cast<unsigned long long>(below.base),
+                    static_cast<unsigned long long>(below.size), below.name);
+    }
+    if (it != address_bound.end()) {
+        std::printf("    nearest above: %s [%#llx, +%#llx) %s\n", ObjectTypeName(it->second.type),
+                    static_cast<unsigned long long>(it->second.base),
+                    static_cast<unsigned long long>(it->second.size), it->second.name);
+    }
+}
+
+vk::Device fault_device{};
+
 void Init(const Instance& instance) {
+    if (instance.IsDeviceFaultSupported()) {
+        fault_device = instance.GetDevice();
+    }
     const char* env = std::getenv("BB_BREADCRUMBS");
     if (env && env[0] == '0') {
         return;
@@ -274,9 +434,78 @@ void Report(const char* title, const char* where);
 
 void ReportDeviceLost(const char* where) {
     static std::atomic_flag reported = ATOMIC_FLAG_INIT;
-    if (enabled && !reported.test_and_set()) {
+    if (reported.test_and_set()) {
+        return;
+    }
+    if (enabled) {
         Report("at device lost", where);
     }
+    ReportDeviceFault();
+}
+
+vk::UniqueDebugUtilsMessengerEXT CreateAddressReport(vk::Instance instance) {
+    const vk::DebugUtilsMessengerCreateInfoEXT info = {
+        .messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo |
+                           vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose |
+                           vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
+                           vk::DebugUtilsMessageSeverityFlagBitsEXT::eError,
+        .messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eDeviceAddressBinding,
+        .pfnUserCallback = reinterpret_cast<vk::PFN_DebugUtilsMessengerCallbackEXT>(AddressReportCallback),
+    };
+    auto [result, messenger] = instance.createDebugUtilsMessengerEXTUnique(info);
+    if (result != vk::Result::eSuccess) {
+        return {};
+    }
+    std::printf("GPU fault reports: memory binds are tracked (VK_EXT_device_address_binding_report)\n");
+    return std::move(messenger);
+}
+
+void ReportDeviceFault() {
+    const auto get = VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceFaultInfoEXT;
+    if (!fault_device || !get) {
+        return;
+    }
+    const VkDevice device = static_cast<VkDevice>(fault_device);
+    VkDeviceFaultCountsEXT counts{.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT};
+    if (get(device, &counts, nullptr) != VK_SUCCESS) {
+        std::printf("GPU fault: the driver gave no fault report\n");
+        return;
+    }
+    std::vector<VkDeviceFaultAddressInfoEXT> addresses(counts.addressInfoCount);
+    std::vector<VkDeviceFaultVendorInfoEXT> vendor(counts.vendorInfoCount);
+    counts.vendorBinarySize = 0;
+    VkDeviceFaultInfoEXT info{.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_EXT,
+                              .pAddressInfos = addresses.data(),
+                              .pVendorInfos = vendor.data()};
+    const VkResult result = get(device, &counts, &info);
+    if (result != VK_SUCCESS && result != VK_INCOMPLETE) {
+        std::printf("GPU fault: the driver gave no fault report\n");
+        return;
+    }
+    static constexpr const char* kinds[] = {"none",          "read",         "write",
+                                            "execute",       "instruction",  "invalid instruction",
+                                            "fault instruction"};
+    std::printf("GPU fault: %s; %u addresses, %u vendor records\n",
+                info.description[0] ? info.description : "(no description)",
+                counts.addressInfoCount, counts.vendorInfoCount);
+    for (u32 i = 0; i < counts.addressInfoCount; ++i) {
+        const auto& a = addresses[i];
+        const u32 kind = static_cast<u32>(a.addressType);
+        std::printf("  %s at GPU address %#llx (+-%#llx)\n", kind < 7 ? kinds[kind] : "?",
+                    static_cast<unsigned long long>(a.reportedAddress),
+                    static_cast<unsigned long long>(a.addressPrecision));
+        if (a.addressType == VK_DEVICE_FAULT_ADDRESS_TYPE_READ_INVALID_EXT ||
+            a.addressType == VK_DEVICE_FAULT_ADDRESS_TYPE_WRITE_INVALID_EXT) {
+            DescribeFaultAddress(a.reportedAddress);
+        }
+    }
+    for (u32 i = 0; i < counts.vendorInfoCount; ++i) {
+        const auto& v = vendor[i];
+        std::printf("  vendor: %s (code %#llx, data %#llx)\n", v.description,
+                    static_cast<unsigned long long>(v.vendorFaultCode),
+                    static_cast<unsigned long long>(v.vendorFaultData));
+    }
+    std::fflush(stdout);
 }
 
 void ReportStuck(const char* where) {
