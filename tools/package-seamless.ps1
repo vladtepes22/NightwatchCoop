@@ -12,7 +12,9 @@ param(
     [string]$Destination = '',
     [string]$Game = '',
     [string]$MsysRoot = 'C:\msys64',
-    [string]$Version = '0.2.0-beta.1'
+    [string]$Version = '0.2.0-beta.1',
+    # A package to publish: no first-run settings with this PC's folders (the launcher finds its own).
+    [switch]$Release
 )
 $ErrorActionPreference = 'Stop'
 # JSON without a byte-order mark (Windows PowerShell's -Encoding utf8 writes one).
@@ -123,9 +125,14 @@ Copy-Item -LiteralPath (Join-Path $engine 'docs\SEAMLESS_TESTING.md') -Destinati
 Copy-Item -LiteralPath (Join-Path $repo 'README.md') -Destination (Join-Path $destinationRoot 'README.md') -Force
 
 # 5. First-run launcher settings and the package's identity.
-$defaults = [ordered]@{ port_dir = $destinationRoot; party_mode = 'host'; party_max = '2'; check_updates = $false; hardware_offered = $true }
-if ($Game) { $defaults.game_dir = $Game }
-Write-Json $defaults (Join-Path $destinationRoot 'seamless-defaults.json')
+$defaultsFile = Join-Path $destinationRoot 'seamless-defaults.json'
+if ($Release) {
+    Remove-Item -LiteralPath $defaultsFile -Force -ErrorAction SilentlyContinue
+} else {
+    $defaults = [ordered]@{ port_dir = $destinationRoot; party_mode = 'host'; party_max = '2'; check_updates = $false; hardware_offered = $true }
+    if ($Game) { $defaults.game_dir = $Game }
+    Write-Json $defaults $defaultsFile
+}
 $baseInfo = Get-Content -LiteralPath (Join-Path $base 'package.json') -Raw | ConvertFrom-Json
 Write-Json ([ordered]@{
     version = $Version; engine = $engineId; source = (git -C $repo rev-parse HEAD)
