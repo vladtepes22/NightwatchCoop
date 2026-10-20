@@ -117,14 +117,9 @@ puts the PCs in one virtual network, as if they were on the same router.
 **Host:**
 1. Note your **Radmin IP**: shown under your PC's name at the top of Radmin VPN, it starts with
    `26.` (for example `26.12.34.56`).
-2. Allow the party port on every network type, once: **Terminal (Admin)** and run
-   ```
-   New-NetFirewallRule -DisplayName "Awaken Seamless party (TCP 9307)" -Direction Inbound -Protocol TCP -LocalPort 9307 -Profile Any -Action Allow
-   New-NetFirewallRule -DisplayName "Awaken Seamless party (UDP 9307)" -Direction Inbound -Protocol UDP -LocalPort 9307 -Profile Any -Action Allow
-   ```
-3. **Mode: Host** → **Play**. Leave **Host public address** empty: since beta 4 the guests send
+2. **Mode: Host** → **Play**. Leave **Host public address** empty: since beta 4 the guests send
    game traffic to the address they reached you at.
-4. Send your friends your Radmin IP with the port: `<your Radmin IP>:9307`.
+3. Send your friends your Radmin IP with the port: `<your Radmin IP>:9307`.
 
 **Guest:**
 1. Seamless page → **Mode: Join** → **Host code or address** = `<host's Radmin IP>:9307`.
