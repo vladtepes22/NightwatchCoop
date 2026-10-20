@@ -16,7 +16,7 @@ retail release) with update 1.09.
 
 **Guides:** [Install](#install) · [Single player](#play-single-player) · [Host a game](#host-an-online-game) ·
 [Join a game](#join-a-friends-game) · [Play on the same network](#play-on-the-same-network-lan) ·
-[If friends can't connect](#if-friends-cant-connect) · [Host without an open port (Tailscale)](#host-without-an-open-port-tailscale) ·
+[If friends can't connect](#if-friends-cant-connect) · [Host without an open port (Radmin VPN)](#host-without-an-open-port-radmin-vpn) ·
 [Saves](#where-the-saves-are) · [How co-op works](#how-co-op-works) · [Reporting a bug](#reporting-a-bug) ·
 [Credits](#credits)
 
@@ -96,44 +96,45 @@ Only the **host** needs a reachable port; guests never do. Try these in order:
 4. **Guest code:** the guest copies its **guest code** (`BBG1-…`) from its Seamless page and sends
    it to the host, who clicks **Add copied guest code** while the guest is trying to join. This
    works when the host's router is a "cone" NAT (the Network line says which).
-5. **Tailscale:** see the next section. It works even when the host cannot open a port at all.
+5. **Radmin VPN:** see the next section. It works even when the host cannot open a port at all.
 
 "Wrong password" means the connection works: clear the password on every PC (or type the same one
 everywhere) and restart the host's game. A guest whose build, game files, patches or mods differ
 from the host's is refused; the message says what differs.
 
-## Host without an open port (Tailscale)
+## Host without an open port (Radmin VPN)
 
 For a host whose router can't open a port (no UPnP, no port forwarding, mobile or carrier NAT, a
-"symmetric NAT" on the Network line). [Tailscale](https://tailscale.com) connects the PCs directly,
-or through its own relays when nothing else works.
+"symmetric NAT" on the Network line). [Radmin VPN](https://www.radmin-vpn.com) (free, Windows)
+puts the PCs in one virtual network, as if they were on the same router.
 
 **Everyone, once:**
-1. Install Tailscale and sign in.
-2. Put the PCs in one Tailscale network: the host opens **login.tailscale.com/admin → Machines**,
-   clicks **⋯** next to their PC → **Share…**, and sends the link to each friend, who opens it while
-   signed in.
+1. Install Radmin VPN and start it.
+2. The host clicks **Network → Create network**, picks a network name and password, and sends
+   both to the friends. Each friend clicks **Network → Join network** and enters them.
+3. Everyone appears in the host's network list with a green dot when connected.
 
 **Host:**
-1. Note your **Tailscale IP**: Tailscale tray icon, it starts with `100.` (for example
-   `100.101.102.103`).
+1. Note your **Radmin IP**: shown under your PC's name at the top of Radmin VPN, it starts with
+   `26.` (for example `26.12.34.56`).
 2. Allow the party port on every network type, once: **Terminal (Admin)** and run
    ```
    New-NetFirewallRule -DisplayName "Awaken Seamless party (TCP 9307)" -Direction Inbound -Protocol TCP -LocalPort 9307 -Profile Any -Action Allow
    New-NetFirewallRule -DisplayName "Awaken Seamless party (UDP 9307)" -Direction Inbound -Protocol UDP -LocalPort 9307 -Profile Any -Action Allow
    ```
-3. **Important:** Seamless page → **Host public address** = `<your Tailscale IP>:9307` (for example
-   `100.101.102.103:9307`). Without it the game tells guests the router's own Internet address,
+3. **Important:** Seamless page → **Host public address** = `<your Radmin IP>:9307` (for example
+   `26.12.34.56:9307`). Without it the game tells guests the router's own Internet address,
    which they cannot reach: the guest connects, loads, and lands back in its own world.
 4. **Mode: Host** → **Play** (restart the game after changing the address).
 
 **Guest:**
-1. Seamless page → **Mode: Join** → **Host code or address** = `<host's Tailscale IP>:9307`.
+1. Seamless page → **Mode: Join** → **Host code or address** = `<host's Radmin IP>:9307`.
+   Leave your own **Host public address** empty.
 2. The host's password (or none) and the same party size → **Play**.
 
-`tailscale ping <host's Tailscale IP>` shows how the PCs are connected: "via <address>" is direct,
-"via DERP" is through Tailscale's relay (slower, but it works). ZeroTier and other VPNs work the
-same way: the host's VPN address as **Host public address** and as the guest's host address.
+To check the connection, right-click the host in Radmin VPN → **Ping**. Tailscale, ZeroTier and
+other VPNs work the same way: the host's VPN address as **Host public address** and as the
+guest's host address.
 
 ## Where the saves are
 
