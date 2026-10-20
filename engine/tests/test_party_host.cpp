@@ -785,7 +785,18 @@ static void test_remote_guest_lan() {
     call(svc, "Other", "context_start", obj({{"OnlineId", "Other"}, {"SignalingAddr", "203.0.113.9"}, {"SignalingPort", 9307}}));
     CHECK(rg.ok_call("signaling_resolve", obj({{"OnlineId", "Other"}}), reply, err));
     CHECK(str_of(reply, "Addr") == "203.0.113.9");
-    std::printf("remote guest over a LAN link: host records use its LAN address\n");
+    // A VPN link outside the private ranges (Radmin 26/8, Hamachi 25/8): the VPN address too.
+    rg.set_host_endpoint(bbnet::party::ip_parse("26.18.40.7"), 9307, false);
+    CHECK(rg.ok_call("signaling_resolve", obj({{"OnlineId", "HostVisy"}}), reply, err));
+    CHECK(str_of(reply, "Addr") == "26.18.40.7" && int_of(reply, "Port", 0) == 9307);
+    // A symmetric-NAT host: its STUN-mapped port only fits the STUN server; the port the link
+    // reached (forwarded / UPnP) is the one that answers.
+    call(svc, "HostVisy", "signaling_update",
+         obj({{"OnlineId", "HostVisy"}, {"MappedAddr", "89.27.12.144"}, {"MappedPort", 51234}}));
+    rg.set_host_endpoint(bbnet::party::ip_parse("89.27.12.144"), 9307, false);
+    CHECK(rg.ok_call("signaling_resolve", obj({{"OnlineId", "HostVisy"}}), reply, err));
+    CHECK(str_of(reply, "Addr") == "89.27.12.144" && int_of(reply, "Port", 0) == 9307);
+    std::printf("remote guest over a LAN / VPN link: host records use the link's address\n");
 }
 
 // BB_PARTY_MAX=4 (a separate run: party_max_members() is read once): host + 3 guests in one room,

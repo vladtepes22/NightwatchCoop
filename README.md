@@ -1,7 +1,7 @@
 # Awaken Seamless
 
 Bloodborne on Windows with **seamless co-op**: Awakenchan's **Lantern Engine 0.9.34 beta 9.5**
-(performance, upscalers, PC menus and controls) with **visy's seamless co-op v0.6.8**, building on
+(performance, upscalers, PC menus and controls) with **visy's seamless co-op v0.6.9**, building on
 Artificial-Sweetener's integration of the two.
 
 Play the whole campaign together: no bells, no summon signs, no fog walls. Deaths, boss kills and
@@ -22,7 +22,7 @@ retail release) with update 1.09.
 
 ## Install
 
-1. Download `AwakenSeamless-v0.2.0-beta.2-win64.zip` from
+1. Download `AwakenSeamless-v0.2.0-beta.3-win64.zip` from
    [Releases](https://github.com/vladtepes22/LanternEngine/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its
@@ -122,19 +122,19 @@ puts the PCs in one virtual network, as if they were on the same router.
    New-NetFirewallRule -DisplayName "Awaken Seamless party (TCP 9307)" -Direction Inbound -Protocol TCP -LocalPort 9307 -Profile Any -Action Allow
    New-NetFirewallRule -DisplayName "Awaken Seamless party (UDP 9307)" -Direction Inbound -Protocol UDP -LocalPort 9307 -Profile Any -Action Allow
    ```
-3. **Important:** Seamless page → **Host public address** = `<your Radmin IP>:9307` (for example
-   `26.12.34.56:9307`). Without it the game tells guests the router's own Internet address,
-   which they cannot reach: the guest connects, loads, and lands back in its own world.
-4. **Mode: Host** → **Play** (restart the game after changing the address).
+3. **Mode: Host** → **Play**. Leave **Host public address** empty: since beta 3 the guests send
+   game traffic to the address they reached you at.
+4. Send your friends your Radmin IP with the port: `<your Radmin IP>:9307`.
 
 **Guest:**
 1. Seamless page → **Mode: Join** → **Host code or address** = `<host's Radmin IP>:9307`.
-   Leave your own **Host public address** empty.
+   Leave **Host public address** empty.
 2. The host's password (or none) and the same party size → **Play**.
 
-To check the connection, right-click the host in Radmin VPN → **Ping**. Tailscale, ZeroTier and
-other VPNs work the same way: the host's VPN address as **Host public address** and as the
-guest's host address.
+To check the connection, right-click the host in Radmin VPN → **Ping**. Tailscale, ZeroTier,
+Hamachi and other VPNs work the same way: the guest joins the host's VPN address. Everyone needs
+beta 3 or later; with an older build the host has to set **Host public address** =
+`<VPN IP>:9307`.
 
 ## Where the saves are
 
@@ -159,7 +159,7 @@ Echoes). Each player's own save only gains progress, it never loses any.
   player's own save. A guest who is behind catches up; a guest who is ahead loses nothing (in the
   session it sees the host's world).
 - **Travel:** lamps ask "Travel with the party?" (yes: everyone travels together; no: only you).
-- **Deaths:** a guest gets up at its own lamp; a host death respawns the whole party at the
+- **Deaths:** a guest gets up at its own lamp after a short loading screen; a host death respawns the whole party at the
   host's lamp; in a boss fight the dead watch the others until the boss dies or everyone is dead.
 - **Loot:** world items once per player; one shared roll per enemy, everyone gets their own copy.
 - **NPC quests are shared:** the first choice anyone makes applies to every player's save. If a
@@ -183,7 +183,7 @@ Write down what happened and when, then send `logs\last_session.log` from **ever
 | | |
 |---|---|
 | **Lantern Engine** | by **Awaken**: the launcher, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, online through The Hunter's Dream, fixes) |
-| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.6.8 |
+| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.6.9 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
 | VRAM cleanup and frame pacing | adapted from [IFreemz/shadPS4-Bloodborne-DLSS-FSR](https://github.com/IFreemz/shadPS4-Bloodborne-DLSS-FSR) |

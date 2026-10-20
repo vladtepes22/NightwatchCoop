@@ -153,38 +153,27 @@ bool RemoteGuest::host_is_local() const {
     return st_->host_loopback || st_->solo;  // solo: our own service is the host
 }
 
-// A record (or invite) naming the host with no address this guest can use gets the address
-// PartyLink reached the host at.
+// A record (or invite) naming the host gets the endpoint PartyLink reached the host at, whenever it
+// differs from the advertised one: game traffic takes the path the link proved, never the advertised
+// public endpoint. A LAN link (a router without hairpin NAT drops the public one; live: the bell join
+// timed out after 48 s with 9 datagrams each way), a VPN link of any range (Tailscale 100.64/10,
+// ZeroTier, Hamachi 25/8, Radmin 26/8; PR #6 report: a symmetric-NAT host over Tailscale advertised
+// its router's address and port, and the join fell back to the guest's own world), or a host whose
+// STUN-mapped port only fits the STUN server (symmetric NAT) while its forwarded port answers.
 void RemoteGuest::fix_host_addresses(json::Value& v) const {
     std::uint32_t addr;
     std::uint16_t port;
-    bool loopback;
     {
         std::lock_guard<std::mutex> lk(st_->mu);
         addr = st_->host_addr;
         port = st_->host_port;
-        loopback = st_->host_loopback;
     }
     if (!addr) return;
-    auto unusable = [&](const std::string& a) {
-        const std::uint32_t x = ip_parse(a);
-        return !x || (ip_is_loopback(x) && !loopback);
-    };
-    // The link reached the host on a LAN / VPN address: game traffic takes that path too, never
-    // the advertised public endpoint (a router without hairpin NAT drops it; live: the bell
-    // join timed out after 48 s with 9 datagrams each way).
-    const bool lan_link = ip_is_private(addr);
     auto fix_record = [&](json::Value& r, const char* addr_key, const char* port_key) {
         if (r.type != json::Value::Type::Object) return;
-        const std::string have = str_of(r, addr_key);
-        if (lan_link && ip_parse(have) != addr) {
-            r.set(addr_key, ip_text(addr));
-            r.set(port_key, static_cast<int>(port));
-            return;
-        }
-        if (!unusable(have)) return;
+        if (ip_parse(str_of(r, addr_key)) == addr && (!port || int_of(r, port_key, 0) == port)) return;
         r.set(addr_key, ip_text(addr));
-        if (int_of(r, port_key, 0) <= 0) r.set(port_key, static_cast<int>(port));
+        if (port || int_of(r, port_key, 0) <= 0) r.set(port_key, static_cast<int>(port));
     };
     if (str_of(v, "Name").empty() && v.find("ResKind") && !v.find("Members") && !v.find("RoomId")) {  // signaling_resolve
         std::string host_online;

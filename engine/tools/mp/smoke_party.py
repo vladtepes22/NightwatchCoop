@@ -287,7 +287,8 @@ def check_s1(v, L):
     d = need(v, L, "s1 guest death (scripted)", 1, r"travel step \d+/\d+: guest_die", lv or 0)
     if d is not None:
         need(v, L, "s1 bloodstain recorded (5000 echoes)", 1, r"guest: bloodstain recorded", d)
-        need(v, L, "s1 guest revived at the lamp", 1, r"guest: died alone: revived|revived at", d)
+        # 0.6.9: a guest's death takes the respawn load (the in-place revive left it unhittable)
+    need(v, L, "s1 guest respawned at the lamp", 1, r"guest: respawned at the host's lamp|guest: died alone: revived|revived at", d)
     tr = need(v, L, "s1 party lamp travel (host)", 0, r"travel step \d+/\d+: host_warp to lamp 2412953")
     if tr is not None:
         for i in (1, 2):

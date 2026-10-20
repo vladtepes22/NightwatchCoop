@@ -12,14 +12,14 @@ param(
     [string]$Destination = '',
     [string]$Game = '',
     [string]$MsysRoot = 'C:\msys64',
-    [string]$Version = '0.2.0-beta.2',
+    [string]$Version = '0.2.0-beta.3',
     # A package to publish: no first-run settings with this PC's folders (the launcher finds its own).
     [switch]$Release
 )
 $ErrorActionPreference = 'Stop'
 # JSON without a byte-order mark (Windows PowerShell's -Encoding utf8 writes one).
 function Write-Json($value, $path) { [IO.File]::WriteAllText($path, ($value | ConvertTo-Json), [Text.UTF8Encoding]::new($false)) }
-$engineId = 'awaken-seamless-0.2.0'
+$engineId = "awaken-seamless-$Version"
 $repo = Split-Path $PSScriptRoot -Parent
 $engine = Join-Path $repo 'engine'
 $native = Join-Path $MsysRoot 'clang64\bin'
@@ -140,7 +140,7 @@ if ($Release) {
 $baseInfo = Get-Content -LiteralPath (Join-Path $base 'package.json') -Raw | ConvertFrom-Json
 Write-Json ([ordered]@{
     version = $Version; engine = $engineId; source = (git -C $repo rev-parse HEAD)
-    base = "Lantern Engine $($baseInfo.version) ($($baseInfo.engine))"; seamless = 'visy v0.6.8'
+    base = "Lantern Engine $($baseInfo.version) ($($baseInfo.engine))"; seamless = 'visy v0.6.9'
     runtime_sha256 = (Get-FileHash -LiteralPath (Join-Path $out 'bb-probe.exe')).Hash.ToLowerInvariant()
 }) (Join-Path $destinationRoot 'package.json')
 Write-Output "Package assembled: $destinationRoot"

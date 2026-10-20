@@ -4247,6 +4247,12 @@ bool GuestReviveInPlace(const GameSnapshot& s, u32 lamp, const char* why) {
         // own fall-death state on the chr) the respawn load instead (the in-place warp left the
         // guest's camera underground and its controls broken); any other death revives in place at
         // any distance. BB_PARTY_GUEST_REVIVE_FAR=1: the in-place revive after a fall too.
+        // 0.6.9, correct over seamless: every death takes the respawn load. A guest revived in place
+        // could not be hit until its next load (enemy attacks passed through it; PR #6 report, live
+        // revive1 runs 2-7: with or without the body revive 0x1900710 and with the "restore" step;
+        // a flags word of the chr's module [+0x3B0]+0x80 +0x2A0 (bit 0x01000000) and chr
+        // +0x218..+0x26C stay as in death). BB_PARTY_GUEST_REVIVE_INPLACE=1: the in-place revive.
+        static const bool inplace = deathrules::OptIn(std::getenv("BB_PARTY_GUEST_REVIVE_INPLACE"));
         static const bool always = deathrules::OptIn(std::getenv("BB_PARTY_GUEST_REVIVE_FAR"));
         float p[3] = {0, 0, 0};
         double dist = std::numeric_limits<double>::quiet_NaN(), fell = 0;
@@ -4259,10 +4265,12 @@ bool GuestReviveInPlace(const GameSnapshot& s, u32 lamp, const char* why) {
         ReadDeathFields(s.player, &dead);
         const bool fall_state = deathrules::FallDeathState(dead.f1e1, dead.m20_200);
         const deathrules::GuestRevive plan = deathrules::PlanGuestRevive(fell, g_death_height.known, fall_state);
-        if (plan != deathrules::GuestRevive::InPlace && !always) {
+        if ((plan != deathrules::GuestRevive::InPlace || !inplace) && !always) {
             Log("guest: died %.1f m from %s %u (dropped %.1f m%s, +0x1e1 %010llx hp+0x200 %04x): %s", dist, why,
                 lamp, fell, g_death_height.known ? "" : ", no height history", ull(dead.f1e1),
-                unsigned(dead.m20_200), deathrules::GuestReviveName(plan));
+                unsigned(dead.m20_200),
+                plan == deathrules::GuestRevive::InPlace ? "loading screen (in-place revive off)"
+                                                         : deathrules::GuestReviveName(plan));
             if (GuestDeadLoadAt(lamp, 0.0, why)) {
                 return true;
             }

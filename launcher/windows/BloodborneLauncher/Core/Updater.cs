@@ -25,8 +25,17 @@ namespace BloodborneLauncher.Core
         public const string Repository = "vladtepes22/LanternEngine";
         public static string ReleasesPage => $"https://github.com/{Repository}/releases";
 
-        /// <summary>The engine build this launcher is made for (package.json "engine").</summary>
-        public const string EngineId = "awaken-seamless-0.2.0";
+        /// <summary>The engine build this launcher is made for (package.json "engine"): one per release
+        /// ("awaken-seamless-0.2.0-beta.3"), so every update replaces the co-op engine with the launcher.</summary>
+        public static string EngineId { get; } = "awaken-seamless-" + ReleaseVersion();
+
+        private static string ReleaseVersion()
+        {
+            var text = typeof(Updater).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "";
+            var plus = text.IndexOf('+');
+            return plus > 0 ? text[..plus] : text.Length > 0 ? text : Current.ToString();
+        }
 
         public const string ExeName = "Lantern Engine.exe";
         /// <summary>The launcher's name before 0.9.34 beta 8 (now a forwarder to ExeName).</summary>
