@@ -75,6 +75,7 @@ namespace BloodborneLauncher.Views
             // ==================== Profiles ====================
             Group("Profiles");
             _profileBox = new ComboBox { Width = 260, VerticalAlignment = VerticalAlignment.Center };
+            ComboSearch.Attach(_profileBox);
             _profileBox.SelectionChanged += (_, _) => ProfileChosen();
             _deleteProfile = IconButton(SymbolRegular.Delete24, "Delete this profile", (_, _) => DeleteProfile());
             Add(Card(SymbolRegular.PeopleCommunity24, "Profile", "", Row(_profileBox, _deleteProfile), out _profileHint));

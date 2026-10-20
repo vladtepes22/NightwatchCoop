@@ -35,14 +35,62 @@ namespace BloodborneLauncher.Views
             finally { _refreshingMonitors = false; }
         }
 
+        /// <summary>Output resolution: a named size, the display's own, or Custom with its width and
+        /// height (the engine takes any even WxH from 640 × 360 to 16384 × 8640).</summary>
+        private void OutputResolutionRows()
+        {
+            static bool Named(string v) => v == "auto" || Choices.OutputResolutions.Any(c => c.Value == v && c.Value != Choices.Custom);
+            var widthBox = new Wpf.Ui.Controls.TextBox { Width = 90, PlaceholderText = "Width", PlaceholderEnabled = true };
+            var heightBox = new Wpf.Ui.Controls.TextBox { Width = 90, PlaceholderText = "Height", PlaceholderEnabled = true };
+            var (w0, h0) = Choices.OutputSize(Ini.Get("output_res", "1920x1080"));
+            widthBox.Text = w0.ToString();
+            heightBox.Text = h0.ToString();
+            SettingRow customRow = null!;
+            System.Windows.Controls.TextBlock customNote = null!;
+
+            void ApplyCustom()
+            {
+                if (!int.TryParse(widthBox.Text.Trim(), out var w) || !int.TryParse(heightBox.Text.Trim(), out var h) ||
+                    !Choices.ValidCustomSize(w, h))
+                {
+                    SetHint(customNote, "Width 640 to 16384, height 360 to 8640");
+                    return;
+                }
+                w &= ~1;
+                h &= ~1;
+                widthBox.Text = w.ToString();
+                heightBox.Text = h.ToString();
+                Ini.Set("output_res", $"{w}x{h}");
+                SetHint(customNote, null);
+                Ws.SaveSoon();
+            }
+
+            ComboRow(SymbolRegular.ResizeLarge24, "Output resolution", "The upscaler renders below this and fills it in",
+                Choices.OutputResolutions,
+                () => { var v = Ini.Get("output_res", "1920x1080"); return Named(v) ? v : Choices.Custom; },
+                v =>
+                {
+                    customRow.Visibility = v == Choices.Custom ? Visibility.Visible : Visibility.Collapsed;
+                    if (v == Choices.Custom) ApplyCustom();
+                    else Ini.Set("output_res", v);
+                });
+
+            foreach (var box in new[] { widthBox, heightBox })
+            {
+                box.LostFocus += (_, _) => ApplyCustom();
+                box.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) ApplyCustom(); };
+            }
+            customRow = Add(Card(SymbolRegular.Ruler24, "Custom resolution",
+                "Your own output size, any shape (5:4, 16:10, 32:9...): the camera and UI follow it with Widescreen on",
+                Row(widthBox, new System.Windows.Controls.TextBlock { Text = "×", Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center }, heightBox),
+                out customNote));
+            customRow.Visibility = Named(Ini.Get("output_res", "1920x1080")) ? Visibility.Collapsed : Visibility.Visible;
+        }
+
         public DisplayPage() : base("Display", "Resolution, window mode, frame rate and menu language. Applied when the game starts.")
         {
             _monitor.SetResourceReference(StyleProperty, "DefaultComboBoxStyle");
-            Group("Language");
-            ComboRow(SymbolRegular.LocalLanguage24, "In-game menu language", "The port's settings menu (Insert or L3 + R3)",
-                Choices.MenuLanguages, () => Ini.Get("menu_language", "en"), v => Ini.Set("menu_language", v));
-            SettingCombo(SymbolRegular.Translate24, "Game language", "The game's own text and voices", Choices.GameLanguages, "language");
-
+            ComboSearch.Attach(_monitor);
             Group("Screen");
             Add(Card(SymbolRegular.Desktop24, "Monitor",
                 "The game opens here from the start, including fullscreen and HDR. If this monitor is disconnected, the Windows primary monitor is used. Applied on the next launch.",
@@ -54,14 +102,23 @@ namespace BloodborneLauncher.Views
                 S.Set("display_device", item.Tag as string ?? "");
                 Ws.SaveSoon();
             };
-            IniCombo(SymbolRegular.ResizeLarge24, "Output resolution",
-                "The upscaler renders below this and fills it in", Choices.OutputResolutions, "output_res");
-            IniCombo(SymbolRegular.ArrowSync24, "Live resolution change",
-                "Change the resolution in the game menu without restarting. Off is faster; turn on only if you switch resolutions in game", Choices.LiveResolution, "live_resolution");
-            IniToggle(SymbolRegular.FullScreenMaximize24, "Fullscreen", "Borderless, so trophy notifications show on top", "fullscreen");
-            ToggleRow(SymbolRegular.RatioOneToOne24, "Widescreen", "21:9 and 32:9 outputs (3440 × 1440, 5120 × 1440) with the right field of view",
+            OutputResolutionRows();
+            SettingToggle(SymbolRegular.TextFont24, "Sharp UI",
+                "Menus, HUD and text drawn at the output resolution instead of 1080p stretched up: much sharper at 1440p and 4K. New: on by default in betas while it is tested. Applied on the next launch",
+                "exp_sharp_ui");
+            IniToggle(SymbolRegular.FullScreenMaximize24, "Fullscreen", "The game covers the whole screen", "fullscreen");
+            SettingToggle(SymbolRegular.WindowNew24, "Borderless fullscreen",
+                "Keeps fullscreen a borderless window, so trophy notifications and other windows show on top. Off: the driver may switch to exclusive fullscreen (lowest latency, G-SYNC fullscreen-only mode), which hides them",
+                "borderless_fullscreen");
+            ToggleRow(SymbolRegular.RatioOneToOne24, "Widescreen", "Outputs that are not 16:9 (21:9, 32:9, 16:10, 5:4) with the right field of view and the UI kept in shape",
                 () => Ini.Get("widescreen", "1") != "0", v => Ini.Set("widescreen", v ? "1" : "0"));
-            SettingCombo(SymbolRegular.Image24, "Presentation mode", null, Choices.PresentModes, "present_mode");
+            var screenMore = Advanced();
+            IniCombo(SymbolRegular.ArrowSync24, "Live resolution change",
+                "Change the resolution in the game menu without restarting. Off is faster; turn on only if you switch resolutions in game", Choices.LiveResolution, "live_resolution", into: screenMore);
+            SettingCombo(SymbolRegular.Image24, "Presentation mode", null, Choices.PresentModes, "present_mode", into: screenMore);
+
+            Group("Frame rate");
+            SettingCombo(SymbolRegular.Gauge24, "Frame rate", "30, 60, 90, 120 and 144 are the game's frame-rate patches for that rate; Uncapped uses the community uncapped patch", Choices.FpsModes, "fps_mode");
 
             Group("HDR");
             var hdrHint = WindowsHdr.AnyOn()
@@ -83,13 +140,18 @@ namespace BloodborneLauncher.Views
                 format: "0' nits'", valueWidth: 82);
             ComboRow(SymbolRegular.Sparkle24, "Highlight boost", "Off keeps the game's own look; higher makes lamps, fire and the sky brighter",
                 Choices.HdrBoost, () => Ini.Get("hdr_boost", "0.25"), v => Ini.Set("hdr_boost", v));
+            var hdrMore = Advanced();
             ComboRow(SymbolRegular.TextFont24, "UI brightness", "Native source only: how bright the HUD, menus and subtitles are, against paper white",
-                Choices.HdrUiBrightness, () => Ini.Get("hdr_ui_brightness", "1"), v => Ini.Set("hdr_ui_brightness", v));
+                Choices.HdrUiBrightness, () => Ini.Get("hdr_ui_brightness", "1"), v => Ini.Set("hdr_ui_brightness", v), hdrMore);
             ComboRow(SymbolRegular.Color24, "UI colour", "Native source only: Vivid shows the HUD and menus with the colours a wide-gamut monitor gives SDR; Exact keeps sRGB's",
-                Choices.HdrUiColor, () => Ini.Get("hdr_ui_color", "1"), v => Ini.Set("hdr_ui_color", v));
+                Choices.HdrUiColor, () => Ini.Get("hdr_ui_color", "1"), v => Ini.Set("hdr_ui_color", v), hdrMore);
 
-            Group("Frame rate");
-            SettingCombo(SymbolRegular.Gauge24, "Frame rate", "30, 60, 90, 120 and 144 are the game's frame-rate patches for that rate; Uncapped uses the community uncapped patch", Choices.FpsModes, "fps_mode");
+            Group("Language");
+            ComboRow(SymbolRegular.LocalLanguage24, "In-game menu language", "The port's settings menu (Insert or L3 + R3)",
+                Choices.MenuLanguages, () => Ini.Get("menu_language", "en"), v => Ini.Set("menu_language", v));
+            SettingCombo(SymbolRegular.Translate24, "Game language", "The game's own text and voices", Choices.GameLanguages, "language");
+            SettingCombo(SymbolRegular.Keyboard24, "In-game menu shortcut",
+                "What opens the port's settings menu while playing. Applied on the next launch", Choices.OverlayKeys, "overlay_keys");
         }
     }
 }

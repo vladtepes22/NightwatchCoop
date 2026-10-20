@@ -102,7 +102,7 @@ namespace BloodborneLauncher.Core
                 throw new FormatException("The settings are damaged (copy the whole code).");
             }
             if (root["bbpc_settings"] is not JsonValue version || !version.TryGetValue<int>(out var v) || v != 1)
-                throw new FormatException("These are not Bloodborne PC settings, or they come from a newer launcher.");
+                throw new FormatException("These are not Lantern Engine settings, or they come from a newer launcher.");
 
             var ini = new SortedDictionary<string, string>(StringComparer.Ordinal);
             if (root["ini"] is JsonObject iniObject)

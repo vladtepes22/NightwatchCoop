@@ -26,6 +26,24 @@ namespace BloodborneLauncher.Core
 
         public static bool Custom(LauncherSettings s) => s.Str("launch_method") == "custom";
 
+        /// <summary>Whether a file can be made in <paramref name="dir"/> (made if missing): not under Program
+        /// Files without administrator rights, where the engine's first write fails before any log.</summary>
+        private static bool Writable(string dir)
+        {
+            try
+            {
+                Directory.CreateDirectory(dir);
+                var probe = Path.Combine(dir, ".write-test");
+                File.WriteAllText(probe, "");
+                File.Delete(probe);
+                return true;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
         /// <summary>Starts the game; returns null, or why it could not start.</summary>
         public string? Start(LauncherSettings s)
         {
@@ -44,20 +62,37 @@ namespace BloodborneLauncher.Core
             else
             {
                 if (!Paths.IsPortDir(Paths.PortDir))
-                    return "The engine folder is not set. Choose it in Settings › Bloodborne PC.";
-                // The package's own Python runs the engine's run_windows.py (prepare, patch, start).
-                var python = File.Exists(Paths.Python) ? Paths.Python : "py";
-                info = new ProcessStartInfo(python);
-                if (python == "py") info.ArgumentList.Add("-3");
-                info.ArgumentList.Add(Path.Combine(Paths.PortDir, "scripts", "run_windows.py"));
+                    return "The engine folder is not set. Choose it in Settings › Lantern Engine.";
+                if (!Writable(Path.Combine(Paths.EngineDir, "out")))
+                    return $"Windows does not let the game write into its own folder ({Paths.PortDir}), which it needs for its " +
+                           "prepared files, logs and saves. This happens under Program Files: move the Lantern Engine folder " +
+                           "somewhere else, such as C:\\Games or your Documents.";
+                if (File.Exists(Paths.Start))
+                {
+                    // The engine's native start: the boot image, mods, patches, then bb-probe.
+                    info = new ProcessStartInfo(Paths.Start);
+                }
+                else
+                {
+                    // An engine older than 0.9.32 (a launcher update before the engine's): its Python
+                    // runs scripts\run_windows.py.
+                    var python = File.Exists(Paths.Python) ? Paths.Python : "py";
+                    info = new ProcessStartInfo(python);
+                    if (python == "py") info.ArgumentList.Add("-3");
+                    info.ArgumentList.Add(Path.Combine(Paths.EngineDir, "scripts", "run_windows.py"));
+                }
                 info.ArgumentList.Add("--game-dir");
                 info.ArgumentList.Add(GameEnvironment.GameDir(s));
             }
 
-            info.WorkingDirectory = Paths.IsPortDir(Paths.PortDir) ? Paths.PortDir : Environment.CurrentDirectory;
+            info.WorkingDirectory = Paths.IsPortDir(Paths.PortDir) ? Paths.EngineDir : Environment.CurrentDirectory;
             foreach (var (key, value) in GameEnvironment.Build(s))
                 info.Environment[key] = value;
             info.Environment["PYTHONUNBUFFERED"] = "1";
+            // UTF-8 whatever the Windows language: the game title (param.sfo) has a ™ that GBK and other
+            // code pages cannot write.
+            info.Environment["PYTHONUTF8"] = "1";
+            info.Environment["PYTHONIOENCODING"] = "utf-8";
             info.UseShellExecute = false;
             info.CreateNoWindow = true;
             info.RedirectStandardOutput = true;
@@ -70,7 +105,7 @@ namespace BloodborneLauncher.Core
                 var process = new Process { StartInfo = info, EnableRaisingEvents = true };
                 OpenLog();
                 // The first line of every log, the Output page's export included: which build ran.
-                Emit($"Bloodborne Launcher {Updater.CurrentLabel}, engine {Updater.LocalEngine() ?? "unknown"}, {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                Emit($"Lantern Engine {Updater.CurrentLabel}, engine {Updater.LocalEngine() ?? "unknown"}, {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
                 process.OutputDataReceived += (_, e) => { if (e.Data != null) Emit(e.Data); };
                 process.ErrorDataReceived += (_, e) => { if (e.Data != null) Emit(e.Data); };
                 process.Exited += (_, _) =>
@@ -133,7 +168,12 @@ namespace BloodborneLauncher.Core
             }
         }
 
-        /// <summary>Requests orderly shutdown, with a bounded fallback for an unresponsive game.</summary>
+        /// <summary>Asks the game window to close, and kills the process tree if it has not ended in time.
+        /// The engine's own close (window close request) saves the shader cache, lets the GPU finish
+        /// its submitted work and ends itself within its 4 s watchdog (BB_EXIT_WATCHDOG_MS): killing it
+        /// earlier, mid GPU work, made the driver tear down a busy context and stalled the desktop. So
+        /// the wait is longer than that watchdog when the window took the request, and short when no
+        /// window did (still loading). Nothing here blocks the UI thread.</summary>
         public async Task StopAsync()
         {
             var process = _process;
@@ -146,17 +186,40 @@ namespace BloodborneLauncher.Core
                 catch (IOException) { /* the window close remains available */ }
             }
 
-            foreach (var probe in ProcessTree.Descendants(process.Id))
+            // Only this game's own processes: two local instances must not close each other.
+            var probes = ProcessTree.Descendants(process.Id).ToArray();
+            try
             {
-                try { probe.CloseMainWindow(); } catch { /* no window */ }
-                probe.Dispose();
-            }
-            try { process.CloseMainWindow(); } catch { /* no window */ }
+                var asked = false;
+                foreach (var probe in probes)
+                {
+                    try { asked |= probe.CloseMainWindow(); } catch { /* no window */ }
+                }
+                try { asked |= process.CloseMainWindow(); } catch { /* no window */ }
 
-            await Task.WhenAny(process.WaitForExitAsync(), Task.Delay(8000));
-            if (!process.HasExited)
+                var graceMs = asked ? 6000 : 1500;
+                var waits = new List<Task> { process.WaitForExitAsync() };
+                foreach (var probe in probes)
+                {
+                    try { waits.Add(probe.WaitForExitAsync()); } catch { /* gone */ }
+                }
+                await Task.WhenAny(Task.WhenAll(waits), Task.Delay(graceMs)).ConfigureAwait(false);
+
+                // Hard kill whatever is left, off the UI thread (Kill and its wait can take a moment
+                // while Windows frees the game's memory pool).
+                await Task.Run(() =>
+                {
+                    foreach (var probe in probes)
+                    {
+                        try { if (!probe.HasExited) probe.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                    }
+                    try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                }).ConfigureAwait(false);
+            }
+            finally
             {
-                try { process.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                foreach (var probe in probes)
+                    probe.Dispose();
             }
         }
     }

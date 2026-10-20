@@ -38,9 +38,12 @@ namespace BloodborneLauncher.Views
                 () => ParseDouble(Ini.Get("sharpness"), 0.5), v => Ini.Set("sharpness", Fmt(v)));
             _sharpnessCard = (SettingRow)Body.Children[^1];
 
+            SettingCombo(SymbolRegular.BrainCircuit24, "DLSS model",
+                "Which NVIDIA model DLSS runs. Applied on the next launch", Choices.DlssModels, "dlss_preset");
             IniToggle(SymbolRegular.ArrowMove24, "Object motion vectors", "Less ghosting on characters; costs about 10% FPS", "object_motion");
             IniToggle(SymbolRegular.DataUsage24, "Show FPS", null, "show_fps");
-            // What the counter shows (on unless turned off).
+            // What the counter shows (on unless turned off), folded under the switch.
+            var fpsParts = Advanced("What the FPS counter shows");
             foreach (var (icon, key, title) in new[]
                      {
                          (SymbolRegular.TopSpeed24, "show_fps_rate", "Frame rate"),
@@ -52,8 +55,8 @@ namespace BloodborneLauncher.Views
             {
                 // CPU and GPU use are off unless chosen (the engine's defaults, bbport_settings.h).
                 var fallback = key is "show_fps_cpu" or "show_fps_gpu" ? "0" : "1";
-                ToggleRow(icon, title, "Shown in the FPS counter", () => Ini.Get(key, fallback) == "1", v => Ini.Set(key, v ? "1" : "0"));
-                ((System.Windows.FrameworkElement)Body.Children[^1]).Margin = new System.Windows.Thickness(24, 0, 0, 4);
+                ToggleRow(icon, title, "Shown in the FPS counter", () => Ini.Get(key, fallback) == "1", v => Ini.Set(key, v ? "1" : "0"), fpsParts);
+                ((System.Windows.FrameworkElement)fpsParts.Children[^1]).Margin = new System.Windows.Thickness(24, 0, 0, 0);
             }
 
             Add(Card(SymbolRegular.DeveloperBoard24, "DLSS", "", null, out _dlssHint));
@@ -81,40 +84,57 @@ namespace BloodborneLauncher.Views
 
             // Engine features from 0.9.4, each with a switch, as IFreemz's "Bloodborne - Experimental".
             Group("Experimental");
+            var exp = Advanced("Experimental engine features");
+            SettingToggle(SymbolRegular.Code24, "Legacy shader compiler",
+                "Compiles the game's shaders the way earlier versions did. The native compiler (the default) reads constant data through the GPU's constant cache; turn this on only if a scene looks wrong and tell Awaken where. Switching recompiles every shader once",
+                "legacy_shaders", exp);
             SettingToggle(SymbolRegular.Broom24, "VRAM cleanup",
                 "Frees video memory held by textures the GPU drew, so long sessions don't fill up VRAM and slow down. Recommended: on",
-                "exp_vram_cleanup");
+                "exp_vram_cleanup", exp);
             SettingToggle(SymbolRegular.Timer24, "Precise frame pacing",
                 "A high-resolution timer and even spacing between frames: steadier frame times and less VRR flicker. Uses a little CPU. Off by default",
-                "exp_frame_pacing");
+                "exp_frame_pacing", exp);
             SettingToggle(SymbolRegular.Storage24, "Use more VRAM for textures",
-                "Keeps textures in video memory up to 80% of the card instead of about 40%, so they aren't thrown out and loaded again (the cause of most stutters on 8 GB cards). Off by default while it is tested",
-                "exp_vram_budget");
+                "Keeps textures in video memory up to 80% of the card instead of about 40%, so they aren't thrown out and loaded again (the cause of most stutters on 8 GB cards). On by default in betas while it is tested",
+                "exp_vram_budget", exp);
             SettingToggle(SymbolRegular.TopSpeed24, "Graphics threads first",
                 "Runs the engine's graphics threads at a higher CPU priority than the game's other threads, so a frame isn't held up behind them. Off by default",
-                "exp_thread_priority");
+                "exp_thread_priority", exp);
             SettingToggle(SymbolRegular.Sleep24, "Shorter sleep spin",
                 "The game's many short sleeps busy-wait only as long as the timer needs (about 0.2–0.4 ms instead of 0.6 ms), leaving that CPU time to the graphics threads. Off by default",
-                "exp_sleep_spin");
+                "exp_sleep_spin", exp);
             SettingToggle(SymbolRegular.FlashFlow24, "Background shader compiling",
                 "New shaders compile on helper threads instead of freezing the frame: much shorter hitches when you reach a new area. On by default",
-                "exp_async_pipelines");
+                "exp_async_pipelines", exp);
             SettingToggle(SymbolRegular.EyeOff24, "Occlusion culling",
                 "The game skips objects hidden behind walls instead of drawing them all: much higher FPS in dense areas. Turn it off if lamps or glare flicker",
-                "exp_occlusion");
+                "exp_occlusion", exp);
             SettingToggle(SymbolRegular.FastForward24, "Faster draw thread",
                 "Remembers texture and sampler lookups and hands the end of each frame to the draw thread: higher FPS in busy areas. New: turn it off if the game hangs or crashes",
-                "exp_fast_draws");
+                "exp_fast_draws", exp);
             SettingToggle(SymbolRegular.Shapes24, "No shader freezes",
                 "While a new shader compiles, the objects that need it appear a moment later instead of the game freezing. New: turn it off if something stays missing",
-                "exp_compile_skip");
+                "exp_compile_skip", exp);
+            SettingToggle(SymbolRegular.ArrowForward24, "Fast loading",
+                "Loading screens run at 30 FPS: fewer frames leave the CPU to the loading work itself. Not before cutscenes. New: off by default while it is tested",
+                "exp_fast_loading", exp);
+            SettingToggle(SymbolRegular.Flash24, "Fewer memory write checks",
+                "Memory the game rewrites before almost every use is no longer watched for changes, saving up to about 2 ms a frame in busy areas. New: off by default while it is tested",
+                "exp_hot_pages", exp);
+            SettingToggle(SymbolRegular.ShieldCheckmark24, "Effect trail crash fix",
+                "For crashes while drawing effect trails on newer Intel CPUs (Witch of Hemwick, for example): stops the crash, and that kind of trail is not drawn. Off by default",
+                "exp_sfx_workaround", exp);
+            SettingToggle(SymbolRegular.Camera24, "Camera easing for high FPS",
+                "With the FPS++ follow camera only: its eases converted for 60 FPS and above. Off by default",
+                "exp_camera_easing", exp);
             SettingToggle(SymbolRegular.Run24, "Sharper motion (FSR 4)",
                 "Uses FSR 4's balanced model at Performance and Ultra Performance: fewer trails behind moving characters, a little more GPU time",
-                "fsr4_balanced");
+                "fsr4_balanced", exp);
 
             Group("Game effects");
             Body.Children.Add(Text("Patches to the game, applied when it starts.", "Faint"));
             IniCombo(SymbolRegular.Cube24, "Model detail", null, Choices.ModelLod, "model_lod");
+            IniCombo(SymbolRegular.Camera24, "Follow camera", "Original keeps the game's camera distance, angle and follow speed at 60 FPS and above", Choices.CameraTuning, "camera_tuning");
             foreach (var effect in Choices.Effects)
                 IniToggle(EffectIcon(effect.Key), effect.Title, effect.Hint, effect.Key);
 
@@ -143,7 +163,7 @@ namespace BloodborneLauncher.Views
             var value = Ini.Get("upscaler");
             string? hint = value switch
             {
-                "fsr4" => Directory.Exists(Path.Combine(Paths.PortDir, "fsr4_shaders"))
+                "fsr4" => Directory.Exists(Path.Combine(Paths.EngineDir, "fsr4_shaders"))
                     ? "Assets found. GPUs without the needed shader features fall back to FSR 3.1"
                     : "fsr4_shaders is missing from the port folder: the game falls back to FSR 3.1",
                 "fsr411" when Fsr4VkFound() =>
@@ -171,13 +191,13 @@ namespace BloodborneLauncher.Views
 
         /// <summary>The fsr4vk provider the package ships (FSR 4.1.1 on any GPU, vk_fsr4vk.cpp).</summary>
         private static bool Fsr4VkFound() =>
-            File.Exists(Path.Combine(Paths.PortDir, "fsr4vk", "amd_fidelityfx_upscaler_vk.dll"));
+            File.Exists(Path.Combine(Paths.EngineDir, "fsr4vk", "amd_fidelityfx_upscaler_vk.dll"));
 
         private static string Fsr411Dir()
         {
             var env = Environment.GetEnvironmentVariable("BB_FSR411_DIR");
             if (!string.IsNullOrEmpty(env)) return env;
-            var local = Path.Combine(Paths.PortDir, "fsr4_411");
+            var local = Path.Combine(Paths.EngineDir, "fsr4_411");
             return Directory.Exists(local) ? local : Path.Combine(Paths.DataDir, "fsr4_411");
         }
 
