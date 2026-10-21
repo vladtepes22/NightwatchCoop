@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
+#include <cstring>
 
 namespace party::nat {
 
@@ -10,6 +12,67 @@ namespace {
 std::uint16_t sw16(std::uint16_t v) { return static_cast<std::uint16_t>((v >> 8) | (v << 8)); }
 std::uint64_t key_of(const rudp::Endpoint& e) { return static_cast<std::uint64_t>(e.addr) << 16 | e.port; }
 }  // namespace
+
+namespace {
+bool parse_dotted(const std::string& s, std::uint8_t out[4]) {
+    unsigned a, b, c, d;
+    char tail;
+    if (std::sscanf(s.c_str(), "%u.%u.%u.%u%c", &a, &b, &c, &d, &tail) != 4 || a > 255 || b > 255 || c > 255 ||
+        d > 255)
+        return false;
+    out[0] = std::uint8_t(a), out[1] = std::uint8_t(b), out[2] = std::uint8_t(c), out[3] = std::uint8_t(d);
+    return true;
+}
+}  // namespace
+
+Outside classify_outside(const std::string& upnp_external, const std::string& stun_public) {
+    std::uint8_t u[4];
+    if (!parse_dotted(upnp_external, u) || (u[0] | u[1] | u[2] | u[3]) == 0) return Outside::Unknown;
+    if (u[0] == 100 && (u[1] & 0xC0) == 64) return Outside::ProviderNat;
+    if (u[0] == 10 || (u[0] == 172 && (u[1] & 0xF0) == 16) || (u[0] == 192 && u[1] == 168))
+        return Outside::PrivateNat;
+    std::uint8_t s[4];
+    if (parse_dotted(stun_public, s) && std::memcmp(u, s, 4) != 0) return Outside::Mismatch;
+    return Outside::Public;
+}
+
+const char* outside_name(Outside o) {
+    switch (o) {
+    case Outside::Unknown: return "unknown";
+    case Outside::Public: return "public";
+    case Outside::ProviderNat: return "provider NAT (CGNAT)";
+    case Outside::PrivateNat: return "behind another router";
+    case Outside::Mismatch: return "behind another NAT";
+    }
+    return "?";
+}
+
+std::string outside_advice(Outside o, const std::string& upnp_external, const std::string& stun_public,
+                           std::uint16_t port) {
+    const std::string p = std::to_string(port);
+    const std::string seen = stun_public.empty() ? std::string() : " (the internet sees " + stun_public + ")";
+    std::string why;
+    switch (o) {
+    case Outside::ProviderNat:
+        why = "your internet provider uses a shared NAT (CGNAT): the router's outside address " + upnp_external +
+              " is the provider's, not yours" + seen + ", so opening port " + p +
+              " on the router (UPnP or a port forward) cannot let guests in";
+        break;
+    case Outside::PrivateNat:
+        why = "your router is behind another router: its outside address " + upnp_external + " is private" + seen +
+              ", so port " + p + " is only open between the two routers; forward " + p +
+              " on the first router too, or set it to bridge mode";
+        break;
+    case Outside::Mismatch:
+        why = "the router's outside address " + upnp_external + " is not the one the internet sees" +
+              (stun_public.empty() ? std::string() : " (" + stun_public + ")") +
+              ": another NAT is in between, so port " + p + " is not open to the internet";
+        break;
+    default: return "";
+    }
+    return why + ". Use a VPN (Radmin VPN, Tailscale, ZeroTier; guests join <your VPN IP>:" + p +
+           "), let a player with an open port host, or ask your provider for a public IPv4 address";
+}
 
 const char* type_name(Type t) {
     switch (t) {

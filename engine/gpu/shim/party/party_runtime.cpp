@@ -964,7 +964,7 @@ void on_state(LinkState s, const std::string& detail) {
         break;
     }
     case LinkState::Connecting: break;  // PartyLink logs it (on_log)
-    case LinkState::Reconnecting: plog("connection lost; reconnecting%s%s", detail.empty() ? "" : ": ", detail.c_str()); break;
+    case LinkState::Reconnecting: break;  // PartyLink logs it with the reason (on_log): one line, not two
     case LinkState::Rejected: {
         const RejectCode code = link->reject_code();
         if (code == RejectCode::Mismatch) {
@@ -1081,7 +1081,10 @@ LinkCallbacks make_callbacks(bool host) {
     LinkCallbacks cb;
     cb.on_state = on_state;
     cb.on_roster = on_roster;
-    cb.on_log = [](const std::string& line) { plog("link: %s", line.c_str()); };
+    // PartyLink's lines start with "party link: " themselves.
+    cb.on_log = [](const std::string& line) {
+        plog("link: %s", line.rfind("party link: ", 0) == 0 ? line.c_str() + 12 : line.c_str());
+    };
     if (host) {
         cb.on_member_joined = [](const RosterEntry& m, bool rejoined) {
             plog("%s %s (slot %d)", m.name.c_str(), rejoined ? "is back" : "joined", m.slot);
@@ -1747,7 +1750,8 @@ void start_host(LinkConfig cfg) {
         std::lock_guard<std::mutex> lk(r.mu);
         r.upnp = std::move(m);
     }
-    plog("UPnP: %s", upnp_msg.c_str());
+    // The mapper's messages start with "UPnP: " themselves.
+    plog("UPnP: %s", upnp_msg.rfind("UPnP: ", 0) == 0 ? upnp_msg.c_str() + 6 : upnp_msg.c_str());
 
     // The public address: loopback test / BB_PARTY_PUBLIC_ADDR / STUN from the game's port / UPnP.
     std::array<std::uint8_t, 4> pub{};
@@ -1785,7 +1789,9 @@ void start_host(LinkConfig cfg) {
                 std::memcpy(pub.data(), &ma, 4);
                 pub_port = mp;
                 source = "stun " + server;
-                if (mp != port) plog("note: the NAT maps UDP %u to %u: guests may need the host relay", port, mp);
+                // A fact, not a verdict: an open port (UPnP / a forward) still lets guests in on `port`;
+                // the NAT line below says which.
+                if (mp != port) plog("STUN: the internet sees UDP %u of this PC as port %u (the NAT changes the port)", port, mp);
                 host_nat = traversal::detect(stun_fn, {true, ma, mp}, bbnet::local_ipv4(), port, false);
             } else {
                 plog("STUN %s: no answer", server.c_str());
@@ -1826,14 +1832,24 @@ void start_host(LinkConfig cfg) {
     {
         // F2 traversal chain: TCP to an open port -> UDP straight in (full cone) -> hole punch
         // (the guest's endpoint from the DHT rendezvous or a guest code) -> relay / VPN advice.
-        const bool port_open = upnp_ok || source == "override" || host_nat == nat::Type::Open;
+        // A UPnP mapping opens the port to the internet only when the router's own outside address
+        // is the one the internet sees: behind the provider's NAT (CGNAT) or another router it opens
+        // nothing (beta 8 report: "port open: guests connect directly" behind CGNAT, no guest got in).
+        const std::string stun_text = source.rfind("stun", 0) == 0 ? format_ipv4(pub) : std::string();
+        const nat::Outside outside = upnp_ok ? nat::classify_outside(upnp_ip, stun_text) : nat::Outside::Unknown;
+        const bool upnp_opens = upnp_ok && (outside == nat::Outside::Public || outside == nat::Outside::Unknown);
+        const bool port_open = upnp_opens || source == "override" || host_nat == nat::Type::Open;
         // The DHT rendezvous is opt-in (launcher Party tab / System > Party members; both PCs).
         const bool rdv_on = !port_open && !internet.empty() && traversal::rendezvous_enabled(lb);
         const nat::Rendezvous rdv = internet.empty()                     ? nat::Rendezvous::NotApplicable
                                     : traversal::rendezvous_enabled(lb) ? nat::Rendezvous::On
                                                                         : nat::Rendezvous::Off;
-        const std::string adv = nat::advice(host_nat, true, port_open, rdv, port);
-        plog("NAT: %s (%s); %s", nat::type_name(host_nat), port_open ? "port open" : "no open port", adv.c_str());
+        const std::string blocked = port_open ? std::string() : nat::outside_advice(outside, upnp_ip, stun_text, port);
+        // Behind a provider NAT or another router the open-port advice cannot work: that comes first.
+        const std::string adv = blocked.empty() ? nat::advice(host_nat, true, port_open, rdv, port)
+                                                : blocked + " (" + nat::advice(host_nat, true, false, rdv, port) + ")";
+        plog("NAT: %s (%s); %s", nat::type_name(host_nat),
+             port_open ? "port open" : !blocked.empty() ? nat::outside_name(outside) : "no open port", adv.c_str());
         {
             std::lock_guard<std::mutex> lk(r.mu);
             r.st.network = adv;

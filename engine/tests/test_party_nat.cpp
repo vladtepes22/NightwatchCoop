@@ -60,6 +60,33 @@ static std::uint32_t ip(int a, int b, int c, int d) {
 }
 static std::uint16_t nbo(std::uint16_t p) { return htons(p); }
 
+// ---- the router's outside address ----
+
+// The router's outside address against what the internet sees (beta 8 report: UPnP "mapped" behind
+// CGNAT was taken for an open port). Addresses from that report's log.
+static void test_outside() {
+    using namespace nat;
+    CHECK(classify_outside("100.64.5.37", "200.81.52.37") == Outside::ProviderNat);
+    CHECK(classify_outside("100.127.255.1", "") == Outside::ProviderNat);
+    CHECK(classify_outside("100.128.0.1", "100.128.0.1") == Outside::Public);  // just past 100.64.0.0/10
+    CHECK(classify_outside("192.168.0.10", "203.0.113.4") == Outside::PrivateNat);
+    CHECK(classify_outside("10.1.2.3", "") == Outside::PrivateNat);
+    CHECK(classify_outside("172.20.0.1", "") == Outside::PrivateNat);
+    CHECK(classify_outside("172.32.0.1", "172.32.0.1") == Outside::Public);
+    CHECK(classify_outside("203.0.113.4", "198.51.100.7") == Outside::Mismatch);
+    CHECK(classify_outside("203.0.113.4", "203.0.113.4") == Outside::Public);
+    CHECK(classify_outside("203.0.113.4", "") == Outside::Public);  // no STUN answer: UPnP is believed
+    CHECK(classify_outside("", "203.0.113.4") == Outside::Unknown);
+    CHECK(classify_outside("0.0.0.0", "") == Outside::Unknown);
+    CHECK(classify_outside("not an ip", "") == Outside::Unknown);
+    CHECK(classify_outside("1.2.3.4.5", "") == Outside::Unknown);
+    const std::string cg = outside_advice(Outside::ProviderNat, "100.64.5.37", "200.81.52.37", 9307);
+    CHECK(cg.find("CGNAT") != std::string::npos && cg.find("200.81.52.37") != std::string::npos &&
+          cg.find("VPN") != std::string::npos && cg.find(":9307") != std::string::npos);
+    CHECK(outside_advice(Outside::Public, "203.0.113.4", "203.0.113.4", 9307).empty());
+    std::printf("  %s\n", cg.c_str());
+}
+
 // ---- the model against simulated NATs ----
 
 static void test_classify() {
@@ -542,6 +569,8 @@ int main() {
 #endif
     }
     std::setvbuf(stdout, nullptr, _IONBF, 0);
+    std::printf("outside address (CGNAT, double NAT)\n");
+    test_outside();
     std::printf("classify\n");
     test_classify();
     std::printf("NAT matrix (model vs simulated NATs, real rudp streams)\n");

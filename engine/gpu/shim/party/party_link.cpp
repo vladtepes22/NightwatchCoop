@@ -447,11 +447,15 @@ std::string host_no_answer_hint(double since_host_gone_s, bool auto_punch) {
                       since_host_gone_s);
         return b;
     }
+    // Never connected: first the likely causes on the host's side, then what punching can still do.
+    const std::string causes =
+        "the host is not reachable from here: its port is not open to the internet (no UPnP or port forward, a "
+        "firewall, or its provider's CGNAT; the host's NAT line says which), or its game is not hosting yet; ";
     if (auto_punch)
-        return "behind a NAT: the host finds you through the DHT if it has the DHT option on too; else it needs "
-               "your guest code";
-    return "behind a NAT: automatic punching is off: send the host your guest code, or turn on the DHT "
-           "option on both PCs";
+        return causes + "behind a NAT the host finds you through the DHT if it has the DHT option on too; else it "
+                        "needs your guest code";
+    return causes + "behind a NAT: automatic punching is off: send the host your guest code, or turn on the DHT "
+                    "option on both PCs";
 }
 
 UdpFallbackSocket udp_fallback_socket(bool external_transport, double heard_on_party_port_s_ago) {

@@ -39,6 +39,24 @@ const char* type_name(Type t);  // "unknown", "open", "full cone", ... (stable, 
 // "open", "full", "addr", "port", "cone", "sym" (and the type_name spellings) -> Type; Unknown otherwise.
 Type parse_type(const std::string& s);
 
+// Where the router's own outside address (UPnP's external IP) sits. A UPnP mapping only opens the
+// port to the internet when that address is the one the internet sees (STUN); a router behind the
+// provider's NAT (CGNAT, 100.64.0.0/10) or behind another router (a private address) maps the port
+// on itself and nothing comes in (Nightwatch beta 8 report: "port open" behind CGNAT).
+enum class Outside : std::uint8_t {
+    Unknown,      // no UPnP external address
+    Public,       // public, and STUN agrees (or did not answer)
+    ProviderNat,  // 100.64.0.0/10: the provider's shared NAT
+    PrivateNat,   // 10/8, 172.16/12, 192.168/16: another router in front of this one
+    Mismatch,     // public, but the internet sees another address (another NAT in between)
+};
+// Dotted IPv4 text; empty when unknown.
+Outside classify_outside(const std::string& upnp_external, const std::string& stun_public);
+const char* outside_name(Outside o);
+// The host's line when its UPnP mapping does not reach the internet ("" for Unknown / Public).
+std::string outside_advice(Outside o, const std::string& upnp_external, const std::string& stun_public,
+                           std::uint16_t port);
+
 struct StunSample {
     bool ok = false;
     std::uint32_t addr = 0;  // network order

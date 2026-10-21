@@ -239,7 +239,7 @@ void keepalive_main() {
         }
         // The relay port matters too: a restarted host may hand out another one.
         if (now != last && now.rfind(":0 ", 0) != 0) {
-            log("stun: our address is now %s (was %s); telling the host", now.c_str(), last.c_str());
+            log("stun: our address is now %s (was %s); updating the party's session records", now.c_str(), last.c_str());
             server_signaling_update();
             last = now;
         }
