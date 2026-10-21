@@ -1,13 +1,13 @@
 # Assembles a playable Nightwatch Co-op package in the Lantern Engine 0.9.34 layout:
-#   <package>\Nightwatch Co-op.exe, Bloodborne.exe, bbport.ini, package.json, and Lantern Engine.exe:
-#             a forwarder for launchers before v0.2.0 beta 8, which update and restart by that name
+#   <package>\Nightwatch Co-op.exe, Bloodborne.exe, bbport.ini, package.json (since beta 9.2 no
+#             Lantern Engine.exe forwarder: beta 9.2 is a fresh download for everyone)
 #   <package>\engine\out      this repo's bb-start, bb-probe, bb-shader-lab, ... and their DLLs
 #   <package>\engine\patches  this repo's patches (with the Party: patches)
 #   <package>\seamless        the party save tools and their own Python (the launcher removes
 #                             engine\scripts and engine\tools once the engine starts natively)
 # Shaders, upscaler assets and the shader catalog come from the official Lantern Engine release
 # this build is based on (-Base: its extracted BloodbornePC folder); the small start programs are
-# built here (launcher\windows\BloodbornePlay, LanternForward).
+# built here (launcher\windows\BloodbornePlay).
 #   tools\package-seamless.ps1 -Base work\downloads\lantern-0.9.36\x\BloodbornePC
 param(
     [Parameter(Mandatory)][string]$Base,
@@ -115,8 +115,7 @@ if ((Get-AuthenticodeSignature -FilePath (Join-Path $python 'python.exe')).Statu
     throw 'The embedded Python signature is not valid.'
 }
 
-# 4. The launcher (self-contained), Bloodborne.exe (starts the game straight away) and the
-# Lantern Engine.exe forwarder (the launcher deletes it once it runs).
+# 4. The launcher (self-contained) and Bloodborne.exe (starts the game straight away).
 $published = Join-Path $repo 'work\published-launcher'
 dotnet publish (Join-Path $repo 'launcher\windows\BloodborneLauncher\BloodborneLauncher.csproj') `
     -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true `
@@ -129,8 +128,7 @@ New-Item -ItemType Directory -Force -Path $helpers | Out-Null
 $path = $env:PATH
 $env:PATH = "$native;$path"
 try {
-    foreach ($helper in @(@{ Dir = 'BloodbornePlay'; Rc = 'play.rc'; Exe = 'Bloodborne.exe' },
-                          @{ Dir = 'LanternForward'; Rc = 'forward.rc'; Exe = 'Lantern Engine.exe' })) {
+    foreach ($helper in @(@{ Dir = 'BloodbornePlay'; Rc = 'play.rc'; Exe = 'Bloodborne.exe' })) {
         $source = Join-Path $repo "launcher\windows\$($helper.Dir)"
         $res = Join-Path $helpers "$($helper.Dir).res"
         & (Join-Path $native 'windres.exe') -I $source (Join-Path $source $helper.Rc) -O coff -o $res

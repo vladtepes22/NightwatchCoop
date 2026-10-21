@@ -59,9 +59,21 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 3. Open the extracted `NightwatchCoop` folder and run **`Nightwatch Co-op.exe`**.
    If Windows shows "Windows protected your PC", click **More info → Run anyway** (the files are
    not code-signed). (`Bloodborne.exe` starts the game straight away with your launcher settings,
-   e.g. from Steam; `Lantern Engine.exe` is only there for updating from older betas and removes
-   itself.)
+   e.g. from Steam.)
 4. Choose your game folder: the one with `eboot.bin` in it.
+
+### Moving from an older version
+
+Beta 9.2 is a fresh download. Close the old launcher and the game, extract the new zip to a new
+folder, then copy these from the old `NightwatchCoop` folder into the new one (replace when asked):
+
+- the `user` folder: your saves (single player and party), save backups, party code and identity
+- the `Mods` folder, if you have one
+- `bbport.ini`: your graphics, controls and game settings
+
+The launcher's own settings (game folder, co-op mode, name) are kept in `%APPDATA%` and carry
+over by themselves. Start the new `Nightwatch Co-op.exe` once everything works, then delete the
+old folder.
 
 ## Play single player
 
