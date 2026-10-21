@@ -58,6 +58,10 @@ extern std::atomic<u64> g_bb_compile_ns;
 extern std::atomic<u32> g_bb_compiles;
 } // namespace Vulkan
 
+namespace AmdGpu {
+void OcclusionDumpCounts(u64& dumps, u64& in_order); // bbport: liverpool.cpp
+} // namespace AmdGpu
+
 namespace Libraries::VideoOut {
 
 constexpr static bool Is32BppPixelFormat(PixelFormat format) {
@@ -422,6 +426,7 @@ static void LogLoad(double seconds, u64 flips, double worst_ms, u64 slow) {
     struct Snapshot {
         u64 draws, dispatches, cpu_us, faults, tracker_faults, protects, protect_pages;
         u64 rw_found, rw_steps, sema_found, sema_steps, thread_found, thread_steps;
+        u64 zpass, zpass_in_order;
     };
     static Snapshot last{};
     Snapshot now{};
@@ -434,6 +439,7 @@ static void LogLoad(double seconds, u64 flips, double worst_ms, u64 slow) {
     now.tracker_faults = BbStats::tracker_faults.load(std::memory_order_relaxed);
     now.protects = BbStats::protect_calls.load(std::memory_order_relaxed);
     now.protect_pages = BbStats::protect_pages.load(std::memory_order_relaxed);
+    AmdGpu::OcclusionDumpCounts(now.zpass, now.zpass_in_order);
     u64 rwlocks = 0, semas = 0, made = 0, finished = 0;
     runtime_rwlock_census(&rwlocks, &now.rw_found, &now.rw_steps);
     runtime_sema_census(&semas, &now.sema_found, &now.sema_steps);
@@ -452,7 +458,7 @@ static void LogLoad(double seconds, u64 flips, double worst_ms, u64 slow) {
                 "frame; CPU %.1f cores, %.0f page faults/s; write faults %.0f/s, protects %.0f/s "
                 "(%.0f pages/s), hot pages %lld; threads %llu live of %llu, rwlocks %llu (%.1f "
                 "steps, %.0f/s), semaphores %llu (%.1f steps), memory map %llu regions, heap "
-                "growths %llu\n",
+                "growths %llu; occlusion dumps %.1f a frame (%.1f in order)\n",
                 double(flips) / secs, static_cast<unsigned long long>(slow), worst_ms,
                 first ? 0.0 : double(delta(now.draws, last.draws)) / frames,
                 first ? 0.0 : double(delta(now.dispatches, last.dispatches)) / frames,
@@ -466,7 +472,9 @@ static void LogLoad(double seconds, u64 flips, double worst_ms, u64 slow) {
                 per_s(now.rw_found, last.rw_found), static_cast<unsigned long long>(semas),
                 steps(delta(now.sema_found, last.sema_found), delta(now.sema_steps, last.sema_steps)),
                 static_cast<unsigned long long>(runtime_memory_regions()),
-                static_cast<unsigned long long>(runtime_heap_growths()));
+                static_cast<unsigned long long>(runtime_heap_growths()),
+                first ? 0.0 : double(delta(now.zpass, last.zpass)) / frames,
+                first ? 0.0 : double(delta(now.zpass_in_order, last.zpass_in_order)) / frames);
     last = now;
 }
 

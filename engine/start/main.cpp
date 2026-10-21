@@ -370,9 +370,14 @@ int Main(std::vector<std::wstring> arguments) {
     try {
         SetEnv("BB_ENGINE_IMAGE_SHA256", VerifyExecutable(out / "eboot.elf"));
         if (is_on("change_appearance")) {
-            const fs::path asset = PrepareMirror(merged, out / "eboot.elf", data / "engine-assets");
-            SetEnv("BB_DREAM_MIRROR_ASSET", Utf8(asset));
-            Log("Engine: Dream mirror prepared locally: %s", Utf8(asset).c_str());
+            // A modded Hunter's Dream layout only costs the mirror, not the PC menus below.
+            try {
+                const fs::path asset = PrepareMirror(merged, out / "eboot.elf", data / "engine-assets");
+                SetEnv("BB_DREAM_MIRROR_ASSET", Utf8(asset));
+                Log("Engine: Dream mirror prepared locally: %s", Utf8(asset).c_str());
+            } catch (const std::exception& e) {
+                Log("Engine: Dream mirror skipped: %s", e.what());
+            }
         }
         if (is_on("change_appearance") || is_on("camera_controls") || is_on("rebirth") || is_on("graphics_controls") ||
             Setting(settings, "pc_controls") != "0" || Setting(settings, "widescreen") != "0") {

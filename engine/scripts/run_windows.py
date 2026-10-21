@@ -329,9 +329,13 @@ def main():
             from engine_assets import prepare_mirror, verify_executable
             os.environ['BB_ENGINE_IMAGE_SHA256'] = verify_executable(out / 'eboot.elf')
             if settings_value(config, 'change_appearance') == '1':
-                asset = prepare_mirror(merged, out / 'eboot.elf', data / 'engine-assets')
-                os.environ['BB_DREAM_MIRROR_ASSET'] = str(asset)
-                print(f'Engine: Dream mirror prepared locally: {asset}', flush=True)
+                # A modded Hunter's Dream layout only costs the mirror, not the PC menus below.
+                try:
+                    asset = prepare_mirror(merged, out / 'eboot.elf', data / 'engine-assets')
+                    os.environ['BB_DREAM_MIRROR_ASSET'] = str(asset)
+                    print(f'Engine: Dream mirror prepared locally: {asset}', flush=True)
+                except (OSError, ValueError, IndexError, struct.error, zlib.error) as error:
+                    print(f'Engine: Dream mirror skipped: {error}', flush=True)
             if (any(settings_value(config, key) == '1' for key in ('change_appearance', 'camera_controls', 'rebirth', 'graphics_controls'))
                 or any(settings_value(config, key) != '0' for key in ('pc_controls', 'widescreen'))):
                 from engine_assets import prepare_menu_assets

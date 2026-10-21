@@ -8,7 +8,7 @@
 # Shaders, upscaler assets and the shader catalog come from the official Lantern Engine release
 # this build is based on (-Base: its extracted BloodbornePC folder); the small start programs are
 # built here (launcher\windows\BloodbornePlay, LanternForward).
-#   tools\package-seamless.ps1 -Base work\downloads\lantern-0.9.34\x\BloodbornePC
+#   tools\package-seamless.ps1 -Base work\downloads\lantern-0.9.35\x\BloodbornePC
 param(
     [Parameter(Mandatory)][string]$Base,
     [string]$Destination = '',
