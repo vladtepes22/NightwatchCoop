@@ -51,6 +51,9 @@ namespace BloodborneLauncher.Core
         {
             public bool IsNewerThan(Version version, int beta) => Compare(Version, Beta, version, beta) > 0;
             public bool IsCurrent => Compare(Version, Beta, Current, CurrentBeta) == 0;
+            /// <summary>A release published with only its zip (no launcher exe, no package.json): it is
+            /// installed by hand into a new folder, not in place (beta 9.2 was the first).</summary>
+            public bool FreshDownload => ZipUrl != null && ExeUrl == null && PackageUrl == null;
         }
 
         public static Version Current

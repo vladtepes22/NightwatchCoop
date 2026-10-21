@@ -761,6 +761,18 @@ namespace BloodborneLauncher
         private async Task InstallAsync(Updater.Release release, bool package, bool chosen = false)
         {
             var ws = Workspace.Current;
+            if (release.FreshDownload)
+            {
+                // Installed by hand into a new folder: its release page says what to copy over.
+                var text = release.Notes.Trim();
+                if (text.Length > 1200) text = text[..1200] + "…";
+                if (Prompt.Confirm(L.F($"{release.Name} is a fresh download"),
+                        L.T("This version is not installed over this one: download its zip, extract it to a new folder and copy your saves and settings over (its release page says how).") +
+                        (text.Length > 0 ? "\n\n" + L.T("What's new") + ":\n" + text : ""),
+                        L.T("Open the download page")))
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(release.Page) { UseShellExecute = true });
+                return;
+            }
             if (package && ws.Game.Running)
             {
                 Prompt.Tell(L.T("Close the game first"), L.T("This update replaces the engine, so the game has to be closed."));
