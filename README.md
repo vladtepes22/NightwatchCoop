@@ -1,8 +1,11 @@
 # Nightwatch Co-op
 
-Bloodborne on Windows with **co-op**: built on the open-source **Lantern Engine 0.9.36**
-(performance, upscalers, PC menus and controls) and **visy's seamless co-op v0.7.0**, building on
-Artificial-Sweetener's integration of the two.
+**Play the whole of Bloodborne together with friends, on PC.** No bells, no summon signs, no fog
+walls: deaths, boss kills and lamp travel don't end the session, and everyone's save keeps the
+progress. Up to 4 hunters. Free and open source.
+
+Built on the open-source **Lantern Engine 0.9.36** (Bloodborne running natively on Windows, with
+upscalers and PC controls) and **visy's seamless co-op v0.7.0**.
 
 > **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22. It is not made, supported or
 > endorsed by Awaken / Lantern Engine, The Hunter's Dream, FromSoftware or Sony. Please don't
@@ -14,20 +17,36 @@ Artificial-Sweetener's integration of the two.
 > Bloodborne is a trademark of Sony Interactive Entertainment; the game is by FromSoftware. This
 > project ships no game files, art, music or other content from the game: you need your own copy.
 
-Play the whole campaign together: no bells, no summon signs, no fog walls. Deaths, boss kills and
-lamp travel don't end the session, and progress counts for everyone.
+## What you need
 
-**No game files are included.** You need your own decrypted Bloodborne dump (CUSA03173, or another
-retail release) with update 1.09.
+- **Windows 10 or 11, 64-bit**, and a graphics card with **Vulkan 1.3** (any recent NVIDIA, AMD or
+  Intel GPU with current drivers).
+- **Your own decrypted Bloodborne dump**: the `CUSA03173` folder (or another retail release) with
+  **update 1.09 copied over the base game**. No game files are included; the base game alone
+  (1.00) does not start.
+- For co-op: **everyone on the same Nightwatch release** and the same mods.
 
-> **Test build.** Back up your saves.
+> **Beta.** It is very playable, but back up your saves (the launcher also keeps automatic
+> backups of the co-op saves). See [Known issues](#known-issues).
+
+## Co-op in four steps
+
+1. Everyone installs this release ([Install](#install)) and starts `Nightwatch Co-op.exe`.
+2. **Host:** Co-op tab → **Mode: Host**, pick the **Party size** → **Play**. While the game runs,
+   click **Copy codes** on the Co-op tab and send your friends the **Internet code** (`BBP3-…`).
+3. **Friends:** Co-op tab → **Mode: Join** → paste the code, the same **Party size** → **Play**.
+4. Continue a character and you appear next to the host (a new character plays its own prologue
+   first, then joins by itself).
+
+Can't connect? The host's **Network line** (Co-op tab) says why: see
+[If friends can't connect](#if-friends-cant-connect).
 
 **Discord:** [discord.gg/sBK9FKKeup](https://discord.gg/sBK9FKKeup): help, finding players, bug reports.
 
 **Guides:** [Install](#install) · [Single player](#play-single-player) · [Host a game](#host-a-game) ·
 [Join a game](#join-a-friends-game) · [Play on the same network](#play-on-the-same-network-lan) ·
 [If friends can't connect](#if-friends-cant-connect) · [Host without an open port (Radmin VPN)](#host-without-an-open-port-radmin-vpn) ·
-[Saves](#where-the-saves-are) · [How co-op works](#how-co-op-works) · [Reporting a bug](#reporting-a-bug) ·
+[Saves](#where-the-saves-are) · [How co-op works](#how-co-op-works) · [Known issues](#known-issues) · [Reporting a bug](#reporting-a-bug) ·
 [Credits](#credits)
 
 ## Install
@@ -39,7 +58,9 @@ retail release) with update 1.09.
    folder on every start.
 3. Open the extracted `NightwatchCoop` folder and run **`Nightwatch Co-op.exe`**.
    If Windows shows "Windows protected your PC", click **More info → Run anyway** (the files are
-   not code-signed).
+   not code-signed). (`Bloodborne.exe` starts the game straight away with your launcher settings,
+   e.g. from Steam; `Lantern Engine.exe` is only there for updating from older betas and removes
+   itself.)
 4. Choose your game folder: the one with `eboot.bin` in it.
 
 ## Play single player
@@ -173,6 +194,24 @@ Echoes). Each player's own save only gains progress, it never loses any.
 
 Inside the game: **System → Party** (status, codes, rejoin, leave) and **System → Party mode**
 (switch between host, join and single player; the game restarts).
+
+## Known issues
+
+Being worked on (visy's list for the next co-op version):
+
+- An elevator door can misbehave in co-op.
+- After a revive at a far lamp, lock-on can be lost until you lock on again.
+- While spectating, name tags can stack.
+- Key items given while summoned can show up twice in the list.
+- A boss killed in the moment the host dies may not give the host the arena revive.
+- Enemies in a neighbouring area can respawn after the host walks away and back.
+
+Good to know:
+
+- **Use the same frame rate setting on every PC.** Very high or different frame rates make
+  elevators and moving platforms skip, and players can float or fall through floors.
+- A guest whose build, game files, patches or mods differ from the host's is refused; the message
+  says what differs.
 
 ## Reporting a bug
 
