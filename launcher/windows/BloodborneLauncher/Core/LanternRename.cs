@@ -6,13 +6,14 @@ using System.Windows.Controls;
 namespace BloodborneLauncher.Core
 {
     /// <summary>
-    /// 0.9.34 beta 8 renames the launcher from "Bloodborne Launcher.exe" to "Lantern Engine.exe".
-    /// Packages still carry a small "Bloodborne Launcher.exe" forwarder (launcher\LanternForward):
-    /// launchers before the rename update by that name and restart it, and it opens Lantern Engine.
+    /// Nightwatch Co-op v0.2.0 beta 8 renames the launcher from "Lantern Engine.exe" to
+    /// "Nightwatch Co-op.exe" (Lantern Engine itself renamed it from "Bloodborne Launcher.exe" in
+    /// 0.9.34 beta 8). Packages carry a small "Lantern Engine.exe" forwarder (launcher\LanternForward):
+    /// launchers before the rename update by that name and restart it, and it opens Nightwatch Co-op.
     /// Once here: the launcher copied under its new name (when an old launcher updated only itself),
     /// shortcuts on the desktop, in the Start menu and on the taskbar pointed at the new name, and
-    /// the old file deleted, so the folder holds only Lantern Engine.exe and Bloodborne.exe. A window
-    /// says so while it works; the forwarder an update brings back is deleted quietly.
+    /// the old files deleted, so the folder holds only Nightwatch Co-op.exe and Bloodborne.exe. A
+    /// window says so while it works; the forwarder an update brings back is deleted quietly.
     /// </summary>
     public static class LanternRename
     {
@@ -27,13 +28,13 @@ namespace BloodborneLauncher.Core
                 if (self == null) return false;
                 var folder = Path.GetDirectoryName(self)!;
                 var renamed = Path.Combine(folder, Updater.ExeName);
-                var old = Path.Combine(folder, Updater.OldExeName);
-                var runningOld = string.Equals(Path.GetFileName(self), Updater.OldExeName, StringComparison.OrdinalIgnoreCase);
+                var runningOld = Updater.OldExeNames.Any(name =>
+                    string.Equals(Path.GetFileName(self), name, StringComparison.OrdinalIgnoreCase));
                 if (runningOld)
                 {
-                    // The full launcher under the old name (an old launcher updated only itself): it
-                    // becomes Lantern Engine.exe, which finishes the job (this file is in use meanwhile).
-                    Show(new() { ("Renaming the launcher to Lantern Engine.exe", () =>
+                    // The full launcher under an old name (an old launcher updated only itself): it
+                    // becomes Nightwatch Co-op.exe, which finishes the job (this file is in use meanwhile).
+                    Show(new() { ($"Renaming the launcher to {Updater.ExeName}", () =>
                     {
                         if (!File.Exists(renamed) || new FileInfo(renamed).Length < ForwarderMaxBytes ||
                             File.GetLastWriteTimeUtc(renamed) < File.GetLastWriteTimeUtc(self))
@@ -43,18 +44,26 @@ namespace BloodborneLauncher.Core
                     Process.Start(new ProcessStartInfo(renamed, args) { UseShellExecute = false, WorkingDirectory = folder });
                     return true;
                 }
-                if (!File.Exists(old)) return false;
-                var oldIsFull = new FileInfo(old).Length > ForwarderMaxBytes;
-                var shortcuts = Shortcuts.Pointing(old);
                 var steps = new List<(string Text, Action Work)>();
-                if (shortcuts.Count > 0)
-                    steps.Add(($"Pointing {shortcuts.Count} shortcut(s) at Lantern Engine.exe", () => Shortcuts.Retarget(shortcuts, renamed)));
-                // The old launcher or the forwarder that started this one may still be closing.
-                steps.Add(("Removing Bloodborne Launcher.exe", () => Retry(() => File.Delete(old), attempts: 40)));
-                if (oldIsFull || shortcuts.Count > 0)
+                var quiet = new List<Action>();
+                var show = false;
+                foreach (var name in Updater.OldExeNames)
+                {
+                    var old = Path.Combine(folder, name);
+                    if (!File.Exists(old)) continue;
+                    var shortcuts = Shortcuts.Pointing(old);
+                    if (shortcuts.Count > 0)
+                        steps.Add(($"Pointing {shortcuts.Count} shortcut(s) at {Updater.ExeName}", () => Shortcuts.Retarget(shortcuts, renamed)));
+                    // The old launcher or the forwarder that started this one may still be closing.
+                    Action delete = () => Retry(() => File.Delete(old), attempts: 40);
+                    steps.Add(($"Removing {name}", delete));
+                    quiet.Add(delete);
+                    show |= new FileInfo(old).Length > ForwarderMaxBytes || shortcuts.Count > 0;
+                }
+                if (show)
                     Show(steps);
-                else
-                    _ = Task.Run(() => { try { steps[^1].Work(); } catch (Exception) { } });
+                else if (quiet.Count > 0)
+                    _ = Task.Run(() => { foreach (var delete in quiet) try { delete(); } catch (Exception) { } });
             }
             catch (Exception)
             {
@@ -82,7 +91,7 @@ namespace BloodborneLauncher.Core
             var bar = new ProgressBar { Height = 6, Minimum = 0, Maximum = steps.Count, Margin = new Thickness(0, 12, 0, 0) };
             var window = new Window
             {
-                Title = "Lantern Engine",
+                Title = "Nightwatch Co-op",
                 Width = 440,
                 SizeToContent = SizeToContent.Height,
                 ResizeMode = ResizeMode.NoResize,
@@ -94,7 +103,7 @@ namespace BloodborneLauncher.Core
                     Margin = new Thickness(22),
                     Children =
                     {
-                        new TextBlock { Text = "Updating to Lantern Engine", FontSize = 16, FontWeight = FontWeights.SemiBold },
+                        new TextBlock { Text = "Updating to Nightwatch Co-op", FontSize = 16, FontWeight = FontWeights.SemiBold },
                         new TextBlock
                         {
                             Text = "The launcher has a new name. Renaming files and fixing shortcuts; your game, saves, " +

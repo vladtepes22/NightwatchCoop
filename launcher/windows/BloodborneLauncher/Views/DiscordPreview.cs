@@ -15,7 +15,6 @@ namespace BloodborneLauncher.Views
         private static readonly Brush Bright = Frozen(Color.FromRgb(0xF2, 0xF3, 0xF5));
         private static readonly Brush Green = Frozen(Color.FromRgb(0x3B, 0xA5, 0x5C));
         private static readonly Brush ButtonFill = Frozen(Color.FromRgb(0x4E, 0x50, 0x58));
-        private static readonly ImageSource Lantern = LoadLantern();
 
         private readonly Image _picture = new() { Width = 72, Height = 72, Stretch = Stretch.UniformToFill };
         private readonly Image _badge = new() { Width = 24, Height = 24, Stretch = Stretch.UniformToFill };
@@ -63,7 +62,7 @@ namespace BloodborneLauncher.Views
             Visibility = look == null ? Visibility.Collapsed : Visibility.Visible;
             if (look == null) return;
             _name.Text = look.Name;
-            _picture.Source = look.Image == "logo" ? Lantern : look.Image.Length > 0 ? FromLink(look.Image) : null;
+            _picture.Source = look.Image.Length > 0 ? FromLink(look.Image) : null;
             _picture.ToolTip = look.ImageText;
             _badgeFrame.Visibility = look.Badge.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             _badge.Source = look.Badge.Length > 0 ? FromLink(look.Badge) : null;
@@ -103,13 +102,6 @@ namespace BloodborneLauncher.Views
             {
                 return null;
             }
-        }
-
-        private static ImageSource LoadLantern()
-        {
-            var image = new BitmapImage(new Uri("pack://application:,,,/Assets/discord-logo.png", UriKind.Absolute));
-            image.Freeze();
-            return image;
         }
 
         private static Brush Frozen(Color color)

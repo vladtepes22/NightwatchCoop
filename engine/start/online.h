@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// The online profile (was scripts/online.py): The Hunter's Dream's server for the engine's thd
-// backend, the host overrides the game's requests follow, or offline.
+// The online profile (was scripts/online.py): always offline in Nightwatch Co-op, whose co-op runs
+// through the party's own network layer.
 #pragma once
 #include "common.h"
 
 namespace start {
 
-/// Sets the engine's online environment from bbport.ini; true when online.
+/// Clears the engine's online environment and sets BB_ONLINE=0; always false (offline).
 bool ConfigureOnline(const std::map<std::string, std::string>& settings, const fs::path& data);
 
 } // namespace start

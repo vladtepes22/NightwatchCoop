@@ -222,14 +222,6 @@ namespace BloodborneLauncher.Core
                 env["BB_PIPELINE_TAKE"] = "0";
                 env["BB_MODS_ENABLED"] = "0";
             }
-            // The Hunter's Dream account (scripts/online.py uses it in that pool only).
-            if (s.HuntersDreamToken is { Length: > 0 } token && s.Str("hd_name") is { Length: > 0 } name)
-            {
-                env["BB_THD_TOKEN"] = token;
-                env["BB_THD_ONLINE_ID"] = name;
-            }
-            // The client version the online backend reports to the server.
-            env["BB_CLIENT_VERSION"] = "shadPS4 Awakenchan/v0.20.0";
 
             // The Engine page's switches, only those changed from the engine's default; safe mode
             // starts without them, as without the other experimental options.

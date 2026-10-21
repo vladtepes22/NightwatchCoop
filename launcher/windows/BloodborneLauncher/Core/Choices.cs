@@ -202,7 +202,7 @@
         /// <summary>pad_icons: the game's controller icons as they are (PlayStation's) or as an Xbox controller's buttons; automatic follows the controller in use.</summary>
         public static readonly Choice[] DiscordStatus =
         {
-            new(L.T("Off"), "off"), new("Lantern Engine", "lantern"), new("Custom", "custom"),
+            new(L.T("Off"), "off"), new(L.T("My own Discord app"), "custom"),
         };
 
         public static readonly Choice[] PadIcons =
@@ -228,11 +228,6 @@
         public static readonly Choice[] HdrUiColor =
         {
             new(L.T("Exact (sRGB)"), "0"), new(L.T("In between"), "0.5"), new(L.T("Vivid (default)"), "1"),
-        };
-
-        public static readonly Choice[] OnlineServers =
-        {
-            new(L.T("The Hunter's Dream"), "huntersdream"),
         };
 
         public static readonly Choice[] SignTimeout =

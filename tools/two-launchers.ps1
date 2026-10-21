@@ -1,7 +1,7 @@
 # Two launchers and two games on this PC: a host and a guest, each with its own launcher settings,
 # data folder (bbport.ini, saves, logs) and install folder, for trying co-op alone exactly as two
 # players would. Your own launcher settings, bbport.ini and saves are copied from, never changed.
-# Put this file in the Awaken Seamless folder (beside Lantern Engine.exe):
+# Put this file in the Nightwatch Co-op folder (beside Nightwatch Co-op.exe):
 #   Two-Launchers.cmd   then press Play in the HOST launcher first, then in the GUEST launcher.
 param(
     [int]$Width = 960,
@@ -11,15 +11,15 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $package = $PSScriptRoot
-if (!(Test-Path -LiteralPath (Join-Path $package 'Lantern Engine.exe'))) { throw 'Put this script in the Awaken Seamless folder.' }
+if (!(Test-Path -LiteralPath (Join-Path $package 'Nightwatch Co-op.exe'))) { throw 'Put this script in the Nightwatch Co-op folder.' }
 $guestPackage = "$package-Guest"
 $tests = Join-Path $package 'local-test'
 $mine = Join-Path $env:APPDATA 'bloodborne-seamless\settings.json'
-if (!(Test-Path -LiteralPath $mine)) { throw "Start Lantern Engine.exe once first (no $mine)." }
+if (!(Test-Path -LiteralPath $mine)) { throw "Start Nightwatch Co-op.exe once first (no $mine)." }
 
 # The guest's own install: a second game may not run from the same folder (the launcher would close it).
-if (!(Test-Path -LiteralPath (Join-Path $guestPackage 'Lantern Engine.exe')) -or
-    (Get-Item (Join-Path $package 'Lantern Engine.exe')).LastWriteTime -gt (Get-Item (Join-Path $guestPackage 'Lantern Engine.exe')).LastWriteTime) {
+if (!(Test-Path -LiteralPath (Join-Path $guestPackage 'Nightwatch Co-op.exe')) -or
+    (Get-Item (Join-Path $package 'Nightwatch Co-op.exe')).LastWriteTime -gt (Get-Item (Join-Path $guestPackage 'Nightwatch Co-op.exe')).LastWriteTime) {
     Write-Output "Copying the install for the guest to $guestPackage ..."
     robocopy $package $guestPackage /E /XD local-test user logs mods network engine-assets /XF Two-Launchers.cmd two-launchers.ps1 /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "Copying the install failed (robocopy $LASTEXITCODE)." }
@@ -48,7 +48,7 @@ function Prepare([string]$role, [string]$install, [int]$port, [string]$name) {
 }
 
 function Start-Launcher([string]$install, $paths, [string]$title) {
-    $info = [Diagnostics.ProcessStartInfo]::new((Join-Path $install 'Lantern Engine.exe'))
+    $info = [Diagnostics.ProcessStartInfo]::new((Join-Path $install 'Nightwatch Co-op.exe'))
     $info.WorkingDirectory = $install
     $info.UseShellExecute = $false
     $info.EnvironmentVariables['BB_LAUNCHER_CONFIG_DIR'] = $paths.Config

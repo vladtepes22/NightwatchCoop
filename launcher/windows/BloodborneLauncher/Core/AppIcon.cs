@@ -6,26 +6,16 @@ namespace BloodborneLauncher.Core
 {
     /// <summary>
     /// Settings › Appearance › App icon (app_icon): the launcher window's and the game window's
-    /// icon. Auto is the build's own (the red lantern for betas, the blue one for stable releases);
-    /// the exe file keeps the build's icon whatever is chosen.
+    /// icon: the build's own (app.ico) whatever is chosen; the setting is kept for older settings files.
     /// </summary>
     public static class AppIcon
     {
         public static readonly Choice[] Choices =
         {
-            new(L.T("Auto"), "auto", L.T("Red lantern in betas, blue in stable releases")),
-            new(L.T("Red lantern"), "red"),
-            new(L.T("Blue lantern"), "blue"),
-            new(L.T("Lantern by j3loo"), "j3loo", L.T("Fan art by j3loo")),
+            new(L.T("Auto"), "auto"),
         };
 
-        private static string Resource(string choice) => choice switch
-        {
-            "red" => "lantern-beta.ico",
-            "blue" => "lantern-stable.ico",
-            "j3loo" => "lantern-j3loo.ico",
-            _ => "app.ico",
-        };
+        private static string Resource(string choice) => "app.ico";
 
         /// <summary>The chosen icon's .ico file, as the launcher carries it.</summary>
         public static byte[]? Bytes(string choice)

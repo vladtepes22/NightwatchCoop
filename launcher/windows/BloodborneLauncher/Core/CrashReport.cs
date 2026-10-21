@@ -149,7 +149,7 @@ namespace BloodborneLauncher.Core
         {
             var hw = Hardware.Detect();
             var text = new StringBuilder();
-            text.AppendLine($"Lantern Engine {Updater.CurrentLabel}, engine {Updater.LocalEngine() ?? "unknown"}");
+            text.AppendLine($"Nightwatch Co-op {Updater.CurrentLabel}, engine {Updater.LocalEngine() ?? "unknown"}");
             var tail = Tail(GameRunner.SessionLog, 120).ToList();
             text.AppendLine(L.F($"Exit code 0x{EngineCode(tail, code):X}: {Explain(code)}"));
             text.AppendLine(L.F($"{hw.Summary}, {hw.RamBytes >> 30} GB RAM, Windows {Environment.OSVersion.Version}"));

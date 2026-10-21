@@ -92,7 +92,7 @@ namespace BloodborneLauncher.Core
             var bar = new ProgressBar { Height = 6, Minimum = 0, Maximum = leftovers.Count, Margin = new Thickness(0, 14, 0, 0) };
             var window = new Window
             {
-                Title = "Lantern Engine",
+                Title = "Nightwatch Co-op",
                 Width = 420,
                 SizeToContent = SizeToContent.Height,
                 ResizeMode = ResizeMode.NoResize,
@@ -107,7 +107,7 @@ namespace BloodborneLauncher.Core
                         new TextBlock { Text = "New version: cleaning up", FontSize = 16, FontWeight = FontWeights.SemiBold },
                         new TextBlock
                         {
-                            Text = "Removing the old engine files from the Lantern Engine folder. Your saves, settings and mods stay. Please wait…",
+                            Text = "Removing the old engine files from the Nightwatch Co-op folder. Your saves, settings and mods stay. Please wait…",
                             TextWrapping = TextWrapping.Wrap,
                             Margin = new Thickness(0, 8, 0, 0),
                         },

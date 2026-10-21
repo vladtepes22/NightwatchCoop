@@ -1,6 +1,6 @@
 # Two copies of the game on this PC, a host and a guest that joins it, in small windows side by side:
 # for trying co-op alone. Each copy has its own test profile in local-test\ (saves, settings, logs);
-# the player's own saves are not used. Put this file in the package folder (beside Lantern Engine.exe).
+# the player's own saves are not used. Put this file in the package folder (beside Nightwatch Co-op.exe).
 #   Play-Two.cmd                  (or)  powershell -ExecutionPolicy Bypass -File play-two.ps1 -Width 960 -Height 540
 # Input goes to the window that has focus: click a window to play it.
 param(
@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $package = $PSScriptRoot
 $start = Join-Path $package 'engine\out\bb-start.exe'
-if (!(Test-Path -LiteralPath $start)) { throw "Put this script in the Awaken Seamless folder (no engine\out\bb-start.exe beside it)." }
+if (!(Test-Path -LiteralPath $start)) { throw "Put this script in the Nightwatch Co-op folder (no engine\out\bb-start.exe beside it)." }
 if (!$Game) {
     $settings = Join-Path $env:APPDATA 'bloodborne-seamless\settings.json'
     if (Test-Path -LiteralPath $settings) { $Game = (Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json).game_dir }

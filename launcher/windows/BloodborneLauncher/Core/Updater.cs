@@ -22,12 +22,12 @@ namespace BloodborneLauncher.Core
     /// </summary>
     public static class Updater
     {
-        public const string Repository = "vladtepes22/LanternEngine";
+        public const string Repository = "vladtepes22/NightwatchCoop";
         public static string ReleasesPage => $"https://github.com/{Repository}/releases";
 
         /// <summary>The engine build this launcher is made for (package.json "engine"): one per release
-        /// ("awaken-seamless-0.2.0-beta.3"), so every update replaces the co-op engine with the launcher.</summary>
-        public static string EngineId { get; } = "awaken-seamless-" + ReleaseVersion();
+        /// ("nightwatch-coop-0.2.0-beta.8"), so every update replaces the co-op engine with the launcher.</summary>
+        public static string EngineId { get; } = "nightwatch-coop-" + ReleaseVersion();
 
         private static string ReleaseVersion()
         {
@@ -37,9 +37,10 @@ namespace BloodborneLauncher.Core
             return plus > 0 ? text[..plus] : text.Length > 0 ? text : Current.ToString();
         }
 
-        public const string ExeName = "Lantern Engine.exe";
-        /// <summary>The launcher's name before 0.9.34 beta 8 (now a forwarder to ExeName).</summary>
-        public const string OldExeName = "Bloodborne Launcher.exe";
+        public const string ExeName = "Nightwatch Co-op.exe";
+        /// <summary>The launcher's names before v0.2.0 beta 8 ("Lantern Engine.exe", now a forwarder to
+        /// ExeName) and before Lantern 0.9.34 beta 8.</summary>
+        public static readonly string[] OldExeNames = { "Lantern Engine.exe", "Bloodborne Launcher.exe" };
         private const string PackageFile = "package.json";
 
         /// <summary>Files and folders of the player's that a package update never touches.</summary>
@@ -181,11 +182,11 @@ namespace BloodborneLauncher.Core
                 var name = asset.GetProperty("name").GetString() ?? "";
                 var url = asset.GetProperty("browser_download_url").GetString();
                 var size = asset.GetProperty("size").GetInt64();
-                // GitHub stores "Lantern Engine.exe" as "Lantern.Engine.exe". A release before the
-                // rename has only the old name.
+                // GitHub stores "Nightwatch Co-op.exe" as "Nightwatch.Co-op.exe". A release before the
+                // rename has only an old name.
                 var spaced = name.Replace(".", " ").Replace(" exe", ".exe");
                 if (spaced.Equals(ExeName, StringComparison.OrdinalIgnoreCase) ||
-                    (exe == null && spaced.Equals(OldExeName, StringComparison.OrdinalIgnoreCase)))
+                    (exe == null && OldExeNames.Any(old => spaced.Equals(old, StringComparison.OrdinalIgnoreCase))))
                     (exe, exeSize) = (url, size);
                 else if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && zip == null)
                     (zip, zipSize) = (url, size);
@@ -283,7 +284,7 @@ namespace BloodborneLauncher.Core
                 var unpacked = Path.Combine(work, "unpacked");
                 Extract(zip, unpacked, skipped);
                 var root = (Directory.GetFiles(unpacked, ExeName, SearchOption.AllDirectories).FirstOrDefault() ??
-                            Directory.GetFiles(unpacked, OldExeName, SearchOption.AllDirectories).FirstOrDefault()) is { } found
+                            OldExeNames.Select(old => Directory.GetFiles(unpacked, old, SearchOption.AllDirectories).FirstOrDefault()).FirstOrDefault(f => f != null)) is { } found
                     ? Path.GetDirectoryName(found)
                     : throw new InvalidOperationException($"The package has no {ExeName}.");
                 CopyPackage(root!, folder, self, skipped);
@@ -326,7 +327,7 @@ namespace BloodborneLauncher.Core
 
         private static Exception Blocked(string file, Exception e) => new InvalidOperationException(
             $"{e.Message}\n\nAn antivirus is most likely holding or removing {Path.GetFileName(file)}. Allow it (or the " +
-            "Lantern Engine folder) in the antivirus and update again.", e);
+            "Nightwatch Co-op folder) in the antivirus and update again.", e);
 
         private static void Extract(string zip, string to, List<string> skipped)
         {

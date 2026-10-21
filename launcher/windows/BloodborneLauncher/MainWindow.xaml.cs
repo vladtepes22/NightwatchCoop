@@ -31,7 +31,6 @@ namespace BloodborneLauncher
             ws.GameStateChanged += UpdatePlayButton;
             ws.GameStateChanged += UpdateDiscord;
             ws.GameCrashed += OnGameCrashed;
-            ws.SignInRefused += OnSignInRefused;
             ws.Initialise();
             KeyDown += Window_KeyDown;
             PreviewMouseDown += Window_PreviewMouseDown;
@@ -100,8 +99,8 @@ namespace BloodborneLauncher
                     Dispatcher.BeginInvoke(() => Prompt.Confirm(L.T("Switch layout"), L.T("The launcher restarts to change its layout."), L.T("Restart now")),
                         System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                 ws.Log(Paths.IsPortDir(Paths.PortDir)
-                        ? L.F($"Lantern Engine ready. Engine: {Paths.PortDir}")
-                        : L.T("Lantern Engine ready. Choose the engine folder in Settings."),
+                        ? L.F($"Nightwatch Co-op ready. Engine: {Paths.PortDir}")
+                        : L.T("Nightwatch Co-op ready. Choose the engine folder in Settings."),
                     Paths.IsPortDir(Paths.PortDir) ? LogLevel.Good : LogLevel.Warn);
                 // Once: the settings that suit this PC, shown before anything changes.
                 if (_directPlay)
@@ -120,8 +119,7 @@ namespace BloodborneLauncher
         private bool _directPlay, _directKeepOpen;
 
         /// <summary>--play: starts the game; the launcher closes when it ends normally, and opens when
-        /// the start did not happen, the game crashed (the crash dialog first) or The Hunter's Dream
-        /// refused the sign-in (the Online page is where the player signs in again).</summary>
+        /// the start did not happen or the game crashed (the crash dialog first).</summary>
         private async Task PlayDirectAsync()
         {
             var ws = Workspace.Current;
@@ -134,7 +132,6 @@ namespace BloodborneLauncher
                 return;
             }
             ws.GameCrashed += (_, _) => _directKeepOpen = true;
-            ws.SignInRefused += (_, _) => _directKeepOpen = true;
             ws.GameStateChanged += () =>
             {
                 if (!_directPlay || ws.Game.Running) return;
@@ -236,19 +233,6 @@ namespace BloodborneLauncher
                 ws.SaveSoon();
                 ws.Log(L.T("The next start uses safe mode (once)."), LogLevel.Step);
             }
-        }
-
-        /// <summary>The Hunter's Dream refused this PC's sign-in during the game (the engine's THD line):
-        /// nobody could summon or invite the player. The Online page marks the account until they sign in again.</summary>
-        private void OnSignInRefused(string name, string reason)
-        {
-            var choice = Prompt.Choose(L.T("The Hunter's Dream refused the sign-in"),
-                L.F($"During the game, The Hunter's Dream refused this PC's sign-in as {name} ({reason}). ") +
-                L.T("Until you sign in again, nobody can summon or invite you.\n\n") +
-                L.T("Sign in again on the Online page: Hunter's Dream account › Sign in again."),
-                L.T("Later"), L.T("Open the Online page"));
-            if (choice == 1)
-                Show("online");
         }
 
         /// <summary>
@@ -443,7 +427,7 @@ namespace BloodborneLauncher
 
             var answer = System.Windows.MessageBox.Show(this,
                 L.T("The game is still running. Stop it and close the launcher?"),
-                "Lantern Engine", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+                "Nightwatch Co-op", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
             if (answer == MessageBoxResult.Cancel)
             {
                 e.Cancel = true;
@@ -493,14 +477,13 @@ namespace BloodborneLauncher
             item.Content as string ??
             (item.Content as Panel)?.Children.OfType<System.Windows.Controls.TextBlock>().FirstOrDefault()?.Text;
 
-        /// <summary>Shows a page: a tab ("online", "advanced": Settings), or one of More's ("output", "mods", "engine").</summary>
+        /// <summary>Shows a page: a tab ("seamless": Co-op, "advanced": Settings), or one of More's ("output", "mods", "engine").</summary>
         public void Show(string page)
         {
             var item = SettingRow.Classic
                 ? page switch
                 {
                     "output" => ClassicOutput,
-                    "online" => ClassicOnline,
                     "seamless" => ClassicSeamless,
                     "advanced" => ClassicSettings,
                     "mods" => ClassicMods,
@@ -510,9 +493,9 @@ namespace BloodborneLauncher
                 }
                 : page switch
                 {
-                    "online" => OnlineItem,
+                    "seamless" => CoopItem,
                     "advanced" => SettingsItem,
-                    "output" or "mods" or "engine" or "seamless" => MoreItem,
+                    "output" or "mods" or "engine" => MoreItem,
                     "controls" => ControlsItem,
                     _ => PlayItem,
                 };
@@ -812,7 +795,7 @@ namespace BloodborneLauncher
                         L.T("Windows or an antivirus would not let these through, so the old ones were kept:\n") +
                         string.Join("\n", skipped.Take(5)) +
                         L.T("\n\nThe game runs without them; online play may need ") +
-                        L.F($"them. Allow the Lantern Engine folder in the antivirus and update again, or take them from {Updater.ReleasesPage}"));
+                        L.F($"them. Allow the Nightwatch Co-op folder in the antivirus and update again, or take them from {Updater.ReleasesPage}"));
                 Application.Current.Shutdown();
             }
             catch (Exception ex)
@@ -858,17 +841,9 @@ namespace BloodborneLauncher
                 Show("seamless");
                 return;
             }
-            // A connected Hunter's Dream account plays in its own co-op pool (the engine's thd backend);
-            // decided here, not only when the Online page is opened.
-            ini.Set("online_pool", s.HuntersDreamToken.Length > 0 && s.Str("hd_name").Length > 0 ? "huntersdream" : "");
-            if (!SeamlessSettings.Enabled(s) && !HuntersDream.OnlinePaused && ini.Get("online_enabled") == "1" && ini.Get("online_pool") != "huntersdream")
-            {
-                // Online play is The Hunter's Dream's: without its account the engine stays offline.
-                Prompt.Tell(L.T("Online"), L.T("Connect your Hunter's Dream account on the Online page first (with Discord, or without it).") +
-                                      L.T("\n\nOr turn \"Play online\" off to play offline."));
-                Show("online");
-                return;
-            }
+            // No public online play (no shadNet, no The Hunter's Dream): co-op is the party's own.
+            ini.Set("online_enabled", "0");
+            ini.Set("online_pool", "");
 
             // No port folder yet: look for it again, then let the player point at it right here.
             if (!GameRunner.Custom(s) && !Paths.IsPortDir(Paths.PortDir))
@@ -877,7 +852,7 @@ namespace BloodborneLauncher
                 if (!Paths.IsPortDir(Paths.PortDir))
                 {
                     if (!Prompt.Confirm(L.T("Where is the engine?"),
-                            L.T("The launcher needs the Lantern Engine (the folder with run.py and bin\\bb-probe.exe). ") +
+                            L.T("The launcher needs the engine (the folder with run.py and bin\\bb-probe.exe). ") +
                             L.T("It is normally the folder the launcher came in."), L.T("Choose folder")))
                         return;
                     var dialog = new Microsoft.Win32.OpenFolderDialog { Title = L.T("Port folder (with Bloodborne.exe and run.py)") };
@@ -893,26 +868,7 @@ namespace BloodborneLauncher
                 }
             }
 
-            // A patch that changes the game's region (Unlock Game Region) leaves the game without a
-            // Bloodborne server: online, ask whether to leave it out for this session.
             GameEnvironment.RegionPatchOnline = null;
-            if (!SeamlessSettings.Enabled(s) && !HuntersDream.OnlinePaused && ini.Get("online_enabled") == "1" && ini.Get("online_connected", "1") == "1" &&
-                Patches.RegionChanging(GameEnvironment.PatchesDir(s)) is { Count: > 0 } region)
-            {
-                var names = string.Join(", ", region.Select(p => $"\"{p.Name}\""));
-                var choice = Prompt.Choose(L.T("Play online with ") + names + "?",
-                    names + L.T(" moves the game to a region that has no Bloodborne server, so Play online fails with ") +
-                    L.T("\"Failure to acquire information from the Bloodborne server\".\n\n") +
-                    L.T("Leave it out for this session? It stays on for offline play."),
-                    L.T("Cancel"), L.T("Keep it on"), L.T("Leave it out"));
-                if (choice <= 0) return;
-                GameEnvironment.RegionPatchOnline = choice == 1 ? "keep" : "skip";
-                ws.Log(choice == 1 ? L.F($"{names}: kept on while online; Play online will not reach the server.")
-                    : L.F($"{names}: left out while online; it applies again with online off."), LogLevel.Step);
-            }
-
-            if (!HuntersDream.OnlinePaused && ini.Get("online_enabled") == "1")
-                await Online.PrepareTrustAsync();
 
             // A third-party resolution patch while the output resolution sets the game's resolution
             // and UI itself: it would keep its own shape (black bars) and stop the widescreen hooks.

@@ -1,5 +1,5 @@
 /* Bloodborne.exe: starts the game straight away with the launcher's saved settings
- * ("Lantern Engine.exe" --play, beside this file; "Bloodborne Launcher.exe" before 0.9.34 beta 8) and waits for it, so a shortcut or Steam
+ * ("Nightwatch Co-op.exe" --play, beside this file; "Lantern Engine.exe" before v0.2.0 beta 8) and waits for it, so a shortcut or Steam
  * (as a non-Steam game) sees the game running until it ends. Arguments are passed on. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -14,10 +14,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR arguments, int
     if (slash) slash[1] = 0;
 
     static wchar_t launcher[32768], line[32768 + 1024];
-    if (_snwprintf(launcher, sizeof(launcher) / sizeof(launcher[0]), L"%lsLantern Engine.exe", folder) < 0)
+    if (_snwprintf(launcher, sizeof(launcher) / sizeof(launcher[0]), L"%lsNightwatch Co-op.exe", folder) < 0)
         return 1;
     if (GetFileAttributesW(launcher) == INVALID_FILE_ATTRIBUTES &&
-        _snwprintf(launcher, sizeof(launcher) / sizeof(launcher[0]), L"%lsBloodborne Launcher.exe", folder) < 0)
+        _snwprintf(launcher, sizeof(launcher) / sizeof(launcher[0]), L"%lsLantern Engine.exe", folder) < 0)
         return 1;
     if (_snwprintf(line, sizeof(line) / sizeof(line[0]), L"\"%ls\" --play %ls", launcher,
                    arguments ? arguments : L"") < 0)
@@ -28,9 +28,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR arguments, int
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process;
     if (!CreateProcessW(launcher, line, NULL, NULL, FALSE, 0, NULL, folder, &startup, &process)) {
-        MessageBoxW(NULL, L"Bloodborne Launcher.exe was not found beside Bloodborne.exe.\n\n"
-                          L"Keep Bloodborne.exe in the Bloodborne PC folder.",
-                    L"Bloodborne", MB_OK | MB_ICONERROR);
+        MessageBoxW(NULL, L"Nightwatch Co-op.exe was not found beside Bloodborne.exe.\n\n"
+                          L"Keep Bloodborne.exe in the Nightwatch Co-op folder.",
+                    L"Nightwatch Co-op", MB_OK | MB_ICONERROR);
         return 1;
     }
     CloseHandle(process.hThread);

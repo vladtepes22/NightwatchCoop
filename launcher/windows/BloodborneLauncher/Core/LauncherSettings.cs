@@ -10,8 +10,7 @@ namespace BloodborneLauncher.Core
     /// </summary>
     public sealed class LauncherSettings
     {
-        public const string OnlineCommunity = "https://thehuntersdream.com";
-        public const string Discord = "https://discord.gg/d3Uv3Cfr5x";
+        public const string Discord = "https://discord.gg/sBK9FKKeup";
         public const string ShadnetServer = "srv.shadps4.net:31313";
 
         private JsonObject _data = new();
@@ -63,7 +62,7 @@ namespace BloodborneLauncher.Core
             ["ui_background"] = "game", // game | custom | none
             ["ui_background_image"] = "",
             ["ui_background_blur"] = "strong", // strong | light | off
-            ["app_icon"] = "auto", // auto | red | blue | j3loo (AppIcon)
+            ["app_icon"] = "auto", // auto only (AppIcon)
             ["ui_window_buttons"] = "mac", // mac | windows
             ["ui_window_buttons_side"] = "usual", // usual (mac left, windows right) | left | right
             ["fsr4_balanced"] = false,
@@ -170,28 +169,12 @@ namespace BloodborneLauncher.Core
             set => Set("online_password", Secret.Protect(value) is { Length: > 0 } encrypted ? encrypted : value);
         }
 
-        /// <summary>The Hunter's Dream account token (its device link), encrypted like the password.</summary>
-        public string HuntersDreamToken
-        {
-            get => Secret.Unprotect(Str("hd_token"));
-            set
-            {
-                Set("hd_token", value.Length == 0 ? "" : Secret.Protect(value) is { Length: > 0 } encrypted ? encrypted : value);
-                // A new sign-in (or none): a refusal was for the token before it.
-                Set("hd_refused", "");
-            }
-        }
-
         public string PartyPassword
         {
             get => Secret.Unprotect(Str("party_password"));
             set => Set("party_password", value.Length == 0 ? "" :
                 Secret.Protect(value) is { Length: > 0 } encrypted ? encrypted : value);
         }
-
-        /// <summary>Why The Hunter's Dream refused this PC's sign-in in a game (hd_refused, the server's
-        /// reason), until the player signs in again; empty when it did not.</summary>
-        public string HuntersDreamRefused => Str("hd_refused");
 
         public string Str(string key)
         {

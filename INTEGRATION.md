@@ -1,4 +1,4 @@
-# Awaken Seamless integration
+# Nightwatch Co-op integration
 
 This fork combines Awakenchan's published engine with visy's v0.6.5 seamless co-op.
 The Windows test package targets the clean CUSA03173 game dump and its 1.09 update

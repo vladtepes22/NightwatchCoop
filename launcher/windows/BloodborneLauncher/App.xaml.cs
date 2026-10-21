@@ -41,7 +41,7 @@ namespace BloodborneLauncher
                 var failed = Core.LayoutCleanup.Run(package);
                 if (failed.Count > 0)
                     MessageBox.Show("These old files could not be removed (in use?) and can be deleted by hand:\n\n" +
-                                    string.Join("\n", failed), "Lantern Engine", MessageBoxButton.OK, MessageBoxImage.Information);
+                                    string.Join("\n", failed), "Nightwatch Co-op", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
 

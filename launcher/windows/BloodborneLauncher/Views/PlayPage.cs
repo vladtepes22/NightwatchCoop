@@ -328,7 +328,7 @@ namespace BloodborneLauncher.Views
             var exe = Path.Combine(Paths.PortDir, "Bloodborne.exe");
             if (!File.Exists(exe))
             {
-                Prompt.Tell(L.T("Add to Steam"), L.T("Bloodborne.exe is missing from the Lantern Engine folder: reinstall the package."));
+                Prompt.Tell(L.T("Add to Steam"), L.T("Bloodborne.exe is missing from the Nightwatch Co-op folder: reinstall the package."));
                 return;
             }
             if (SteamShortcut.SteamDir() is null)

@@ -1,10 +1,10 @@
-# Awaken Seamless test build
+# Nightwatch Co-op test build
 
 Open **Bloodborne Launcher.exe** in this package. Its first-run defaults select
 the game at E:\games\bloodborne seamless\gamedir\CUSA03173 and Host mode for two
 players. The engine uses the sibling CUSA03173-patch update when present.
 
-1. Open **More → Seamless** (or Seamless co-op in the classic navigation).
+1. Open the **Co-op** tab.
 2. Choose Host, a unique player name and the party size. Start the game, then
    use **Copy codes** to share the host code.
 3. On the other PC, use the same package, game version, gameplay mods, party
@@ -29,7 +29,7 @@ pressing buttons. Stop requests orderly shutdown before its timeout fallback.
 
 This package uses its own user folder; seamless play writes savedata_party.
 The existing installations' saves remain in their original folders. Fresh
-characters are the default for testing. The Seamless page can copy single-player
+characters are the default for testing. The Co-op page can copy single-player
 progress from this package's profile into party saves after confirmation.
 
 Every party session starts with a snapshot of both save folders. Saves are

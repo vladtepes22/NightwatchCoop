@@ -5,7 +5,7 @@
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
                  xmlns:views="clr-namespace:BloodborneLauncher.Views"
-                 Title="Lantern Engine"
+                 Title="Nightwatch Co-op"
                  Icon="app.ico"
                  Height="780" Width="1040"
                  MinHeight="560" MinWidth="820"
@@ -341,7 +341,7 @@
                 </Grid>
 
                 <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" IsHitTestVisible="False">
-                    <Run Text="Lantern Engine" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                    <Run Text="Nightwatch Co-op" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                     <Run x:Name="TitlePage" Text="" Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                 </TextBlock>
 
@@ -442,18 +442,11 @@
                                 <TextBlock Text="{loc:Tr &#x27;Mods &amp; patches&#x27;}" />
                             </StackPanel>
                         </RadioButton>
-                        <RadioButton x:Name="ClassicOnline" GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                     Tag="{x:Type views:OnlinePage}" Checked="SidebarItem_Checked">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Globe24" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="{loc:Tr &#x27;Online&#x27;}" />
-                            </StackPanel>
-                        </RadioButton>
                         <RadioButton x:Name="ClassicSeamless" GroupName="Classic" Style="{StaticResource SidebarItem}"
                                      Tag="{x:Type views:SeamlessPage}" Checked="SidebarItem_Checked">
                             <StackPanel Orientation="Horizontal">
                                 <ui:SymbolIcon Symbol="People24" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="Seamless co-op" />
+                                <TextBlock Text="{loc:Tr &#x27;Co-op&#x27;}" />
                             </StackPanel>
                         </RadioButton>
                         <TextBlock Text="{loc:Tr &#x27;SYSTEM&#x27;}" Style="{StaticResource SidebarHeader}" Margin="18,18,0,6" />
@@ -496,8 +489,8 @@
                                  Tag="{x:Type views:ControlsPage}" Checked="SidebarItem_Checked" />
                     <RadioButton Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Trophies&#x27;}"
                                  Tag="{x:Type views:TrophiesPage}" Checked="SidebarItem_Checked" />
-                    <RadioButton x:Name="OnlineItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Online&#x27;}"
-                                 Tag="{x:Type views:OnlinePage}" Checked="SidebarItem_Checked" />
+                    <RadioButton x:Name="CoopItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Co-op&#x27;}"
+                                 Tag="{x:Type views:SeamlessPage}" Checked="SidebarItem_Checked" />
                     <RadioButton x:Name="SettingsItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Settings&#x27;}"
                                  Tag="{x:Type views:SettingsPage}" Checked="SidebarItem_Checked" />
                     <RadioButton x:Name="MoreItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;More&#x27;}"

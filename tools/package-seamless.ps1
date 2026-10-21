@@ -1,30 +1,32 @@
-# Assembles a playable Awaken Seamless package in the Lantern Engine 0.9.34 layout:
-#   <package>\Lantern Engine.exe, Bloodborne.exe, Bloodborne Launcher.exe, bbport.ini, package.json
+# Assembles a playable Nightwatch Co-op package in the Lantern Engine 0.9.34 layout:
+#   <package>\Nightwatch Co-op.exe, Bloodborne.exe, bbport.ini, package.json, and Lantern Engine.exe:
+#             a forwarder for launchers before v0.2.0 beta 8, which update and restart by that name
 #   <package>\engine\out      this repo's bb-start, bb-probe, bb-shader-lab, ... and their DLLs
 #   <package>\engine\patches  this repo's patches (with the Party: patches)
 #   <package>\seamless        the party save tools and their own Python (the launcher removes
 #                             engine\scripts and engine\tools once the engine starts natively)
-# Shaders, upscaler assets, the shader catalog and the two small start programs come from the
-# official Lantern Engine release this build is based on (-Base: its extracted BloodbornePC folder).
-#   tools\package-seamless.ps1 -Base work\downloads\lantern-0.9.34-beta.9.8\x\BloodbornePC
+# Shaders, upscaler assets and the shader catalog come from the official Lantern Engine release
+# this build is based on (-Base: its extracted BloodbornePC folder); the small start programs are
+# built here (launcher\windows\BloodbornePlay, LanternForward).
+#   tools\package-seamless.ps1 -Base work\downloads\lantern-0.9.34\x\BloodbornePC
 param(
     [Parameter(Mandatory)][string]$Base,
     [string]$Destination = '',
     [string]$Game = '',
     [string]$MsysRoot = 'C:\msys64',
-    [string]$Version = '0.2.0-beta.7',
+    [string]$Version = '0.2.0-beta.8',
     # A package to publish: no first-run settings with this PC's folders (the launcher finds its own).
     [switch]$Release
 )
 $ErrorActionPreference = 'Stop'
 # JSON without a byte-order mark (Windows PowerShell's -Encoding utf8 writes one).
 function Write-Json($value, $path) { [IO.File]::WriteAllText($path, ($value | ConvertTo-Json), [Text.UTF8Encoding]::new($false)) }
-$engineId = "awaken-seamless-$Version"
+$engineId = "nightwatch-coop-$Version"
 $repo = Split-Path $PSScriptRoot -Parent
 $engine = Join-Path $repo 'engine'
 $native = Join-Path $MsysRoot 'clang64\bin'
 $base = (Resolve-Path -LiteralPath $Base).Path
-if (!$Destination) { $Destination = Join-Path $repo 'work\package\AwakenSeamless' }
+if (!$Destination) { $Destination = Join-Path $repo 'work\package\NightwatchCoop' }
 $destinationRoot = [IO.Path]::GetFullPath($Destination)
 
 $programs = 'bb-start.exe', 'bb-probe.exe', 'bb-shader-lab.exe', 'bb-engine-assets.exe', 'bb-gpu-capabilities.exe'
@@ -41,15 +43,15 @@ if (!$keepCatalog) { Write-Warning "Shader compiler differs from the base ($ourC
 if (Test-Path -LiteralPath $destinationRoot) {
     $marker = Join-Path $destinationRoot 'package.json'
     if (!(Test-Path -LiteralPath $marker) -or
-        ((Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json).engine -notlike 'awaken-seamless-*')) {
-        throw "Destination exists and is not an Awaken Seamless package: $destinationRoot"
+        ((Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json).engine -notlike 'nightwatch-coop-*')) {
+        throw "Destination exists and is not a Nightwatch Co-op package: $destinationRoot"
     }
 }
 New-Item -ItemType Directory -Force -Path $destinationRoot | Out-Null
 Write-Json @{engine=$engineId; incomplete=$true} (Join-Path $destinationRoot 'package.json')
 
 # 1. The base package, without anything a player's start generated or the release's own identity.
-robocopy $base $destinationRoot /E /XF package.json 'Lantern Engine.exe' /XD user logs mods network engine-assets /NFL /NDL /NJH /NJS /NP | Out-Null
+robocopy $base $destinationRoot /E /XF package.json 'Lantern Engine.exe' 'Bloodborne Launcher.exe' Bloodborne.exe /XD user logs mods network engine-assets /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Copying the base package failed (robocopy $LASTEXITCODE)." }
 if (!$keepCatalog) { Remove-Item -LiteralPath (Join-Path $destinationRoot 'engine\shader-catalog') -Recurse -Force -ErrorAction SilentlyContinue }
 
@@ -113,14 +115,35 @@ if ((Get-AuthenticodeSignature -FilePath (Join-Path $python 'python.exe')).Statu
     throw 'The embedded Python signature is not valid.'
 }
 
-# 4. The launcher (self-contained); Bloodborne.exe and Bloodborne Launcher.exe are the base's.
+# 4. The launcher (self-contained), Bloodborne.exe (starts the game straight away) and the
+# Lantern Engine.exe forwarder (the launcher deletes it once it runs).
 $published = Join-Path $repo 'work\published-launcher'
 dotnet publish (Join-Path $repo 'launcher\windows\BloodborneLauncher\BloodborneLauncher.csproj') `
     -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true `
     -p:DebugType=none "-p:Version=$Version" -o $published --nologo -v q
 if ($LASTEXITCODE) { throw 'Launcher publish failed.' }
-Copy-Item -LiteralPath (Join-Path $published 'Lantern Engine.exe') -Destination $destinationRoot -Force
+Copy-Item -LiteralPath (Join-Path $published 'Nightwatch Co-op.exe') -Destination $destinationRoot -Force
+$helpers = Join-Path $repo 'work\published-helpers'
+New-Item -ItemType Directory -Force -Path $helpers | Out-Null
+$path = $env:PATH
+$env:PATH = "$native;$path"
+try {
+    foreach ($helper in @(@{ Dir = 'BloodbornePlay'; Rc = 'play.rc'; Exe = 'Bloodborne.exe' },
+                          @{ Dir = 'LanternForward'; Rc = 'forward.rc'; Exe = 'Lantern Engine.exe' })) {
+        $source = Join-Path $repo "launcher\windows\$($helper.Dir)"
+        $res = Join-Path $helpers "$($helper.Dir).res"
+        & (Join-Path $native 'windres.exe') -I $source (Join-Path $source $helper.Rc) -O coff -o $res
+        if ($LASTEXITCODE) { throw "$($helper.Rc): windres failed." }
+        & (Join-Path $native 'clang.exe') -O2 -municode -mwindows -o (Join-Path $helpers $helper.Exe) (Join-Path $source 'main.c') $res
+        if ($LASTEXITCODE) { throw "$($helper.Exe): build failed." }
+        Copy-Item -LiteralPath (Join-Path $helpers $helper.Exe) -Destination $destinationRoot -Force
+    }
+} finally {
+    $env:PATH = $path
+}
+# The game window's icon until the launcher writes the chosen one (AppIcon.SyncGameWindow).
+Copy-Item -LiteralPath (Join-Path $repo 'launcher\windows\BloodborneLauncher\app.ico') -Destination (Join-Path $destinationRoot 'engine\out\bloodborne.ico') -Force
 Copy-Item -LiteralPath (Join-Path $engine 'docs\SEAMLESS_TESTING.md') -Destination (Join-Path $destinationRoot 'TESTING.md') -Force
 Copy-Item -LiteralPath (Join-Path $repo 'README.md') -Destination (Join-Path $destinationRoot 'README.md') -Force
 # Local co-op tests on one PC (README: Test co-op alone on one PC).

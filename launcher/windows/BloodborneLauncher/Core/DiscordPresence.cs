@@ -7,31 +7,24 @@ using System.Text.Json.Nodes;
 namespace BloodborneLauncher.Core
 {
     /// <summary>
-    /// Discord status while the game runs ("Playing Lantern Engine"), through the Discord app's own
+    /// Discord status while the game runs, through the Discord app's own
     /// local connection (the named pipe discord-ipc-N: an 8-byte header, opcode and length, then
     /// JSON). Nothing when Discord is not running; it is looked for again every 20 s.
-    /// discord_status: "off" (default), "lantern", or "custom": the player's own lines, picture
-    /// (an uploaded asset name or an https link), hover texts, small badge, timer and up to two
-    /// buttons. {version} in a line is the launcher's version.
+    /// discord_status: "off" (default) or "custom": the player's own Discord app (by its Application
+    /// ID), lines, picture (an https link), hover texts, small badge, timer and up to two buttons.
+    /// {version} in a line is the launcher's version. Nightwatch Co-op has no Discord app of its own.
     /// </summary>
     public static class DiscordPresence
     {
-        private const string LanternApp = "1561836572364505089";
-        /// <summary>A second app named "Bloodborne"; empty until it is registered.</summary>
-        private const string BloodborneApp = "";
-
-        /// <summary>The name in bold is the Discord app's own: one app per name. A player's own
-        /// app (any name they gave it on discord.com/developers) by its Application ID.</summary>
-        public static Choice[] Names => string.IsNullOrEmpty(BloodborneApp)
-            ? new[] { new Choice("Lantern Engine", "lantern"), new Choice("My own Discord app", "own") }
-            : new[] { new Choice("Lantern Engine", "lantern"), new Choice("Bloodborne", "bloodborne"), new Choice("My own Discord app", "own") };
+        /// <summary>The name in bold is the Discord app's own: the player's app (any name they gave it
+        /// on discord.com/developers) by its Application ID.</summary>
+        public static Choice[] Names => new[] { new Choice("My own Discord app", "own") };
 
         /// <summary>What the status shows; the launcher's preview draws the same.</summary>
         public sealed record Look(string AppId, string Name, string Details, string State, string Image, string ImageText, string Badge,
             string BadgeText, bool Timer, IReadOnlyList<(string Label, string Url)> Buttons);
 
-        /// <summary>Pictures uploaded to the Lantern Engine app (Rich Presence art assets).</summary>
-        public static readonly Choice[] Pictures = { new("Lantern", "logo"), new("Your own link", "url") };
+        public static readonly Choice[] Pictures = { new("None", "none"), new("Your own link", "url") };
 
         public static string Version => Updater.CurrentLabel;
 
@@ -39,11 +32,9 @@ namespace BloodborneLauncher.Core
         public static Look? LookOf(LauncherSettings s)
         {
             var mode = s.Str("discord_status");
-            if (mode.Length == 0 || mode == "off") return null;
-            if (mode != "custom")
-                return new Look(LanternApp, "Lantern Engine", "Hunting in Yharnam", Version, "logo", "Lantern Engine", "", "", true, Array.Empty<(string, string)>());
+            if (mode != "custom" || !IsAppId(s.Str("discord_app_id"))) return null;
             string Text(string key, string fallback) => Fill(s.Str(key).Trim() is { Length: > 0 } v ? v : fallback);
-            var picture = s.Str("discord_picture") == "url" && IsLink(s.Str("discord_image_url")) ? s.Str("discord_image_url").Trim() : "logo";
+            var picture = s.Str("discord_picture") == "url" && IsLink(s.Str("discord_image_url")) ? s.Str("discord_image_url").Trim() : "";
             var badge = IsLink(s.Str("discord_badge_url")) ? s.Str("discord_badge_url").Trim() : "";
             var buttons = new List<(string, string)>();
             foreach (var n in new[] { 1, 2 })
@@ -52,17 +43,10 @@ namespace BloodborneLauncher.Core
                 var url = s.Str($"discord_button{n}_url").Trim();
                 if (label.Length > 0 && IsLink(url)) buttons.Add((Cut(label, 32), url));
             }
-            var (app, name) = s.Str("discord_app") switch
-            {
-                "bloodborne" when BloodborneApp.Length > 0 => (BloodborneApp, "Bloodborne"),
-                "own" when IsAppId(s.Str("discord_app_id")) => (s.Str("discord_app_id").Trim(),
-                    s.Str("discord_app_name").Trim() is { Length: > 0 } own ? own : "Your app"),
-                _ => (LanternApp, "Lantern Engine"),
-            };
-            // Another app has none of the Lantern Engine app's uploaded pictures: a link or nothing.
-            if (picture == "logo" && app != LanternApp) picture = "";
-            return new Look(app, name, Text("discord_details", "Hunting in Yharnam"), Fill(s.Str("discord_state").Trim()), picture,
-                Text("discord_image_text", "Lantern Engine"), badge, Fill(s.Str("discord_badge_text").Trim()),
+            var app = s.Str("discord_app_id").Trim();
+            var name = s.Str("discord_app_name").Trim() is { Length: > 0 } own ? own : "Your app";
+            return new Look(app, name, Text("discord_details", "Hunting together"), Fill(s.Str("discord_state").Trim()), picture,
+                Text("discord_image_text", "Nightwatch Co-op"), badge, Fill(s.Str("discord_badge_text").Trim()),
                 s.Bool("discord_timer"), buttons);
         }
 
@@ -103,7 +87,7 @@ namespace BloodborneLauncher.Core
         private static readonly object Gate = new();
         private static NamedPipeClientStream? _pipe;
         private static string _pipeApp = "";  // the app the pipe signed in as
-        private static string _wantedApp = LanternApp;
+        private static string _wantedApp = "";
         private static JsonObject? _wanted;   // the activity to show; null: none
         private static bool _dirty;
         private static CancellationTokenSource? _loop;

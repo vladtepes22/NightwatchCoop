@@ -24,7 +24,6 @@ namespace BloodborneLauncher.Views
             { "bbhost-0.4.0-fps1", "bbhost-0.4.0-fps2", "bbhost-0.4.0-fps3", "bbhost-0.4.0-fps4" };
 
         private readonly InfoBar _engine;
-        private readonly InfoBar _online;
 
         public CheatsPage() : base(L.T("Cheats"),
             L.T("Set here for the next start. While playing, change them in the in-game menu (Insert or L3 + R3): they apply live. Turning a cheat off puts the game's values back; items you already have stay."))
@@ -38,17 +37,6 @@ namespace BloodborneLauncher.Views
                 Message = L.T("Your engine doesn't apply cheats yet: they arrive with the next engine update. What you pick here is saved and starts working then."),
             };
             Body.Children.Add(_engine);
-            // The engine turns every cheat off in an online session (cheats.cpp SharedWorld).
-            _online = new InfoBar
-            {
-                IsClosable = false,
-                Severity = InfoBarSeverity.Informational,
-                Margin = new Thickness(0, 14, 0, 0),
-                Title = L.T("Off while playing online"),
-                Message = L.T("Play online is on: every cheat stays off in online sessions, so other players never meet them. ") +
-                          L.T("Turn Play online off and they work again; what you pick here is kept."),
-            };
-            Body.Children.Add(_online);
 
             Group(L.T("Items"));
             Cheat(SymbolRegular.Drop24, L.T("Blood Vials"), "cheat_vials", "cheat_vials_amount");
@@ -113,7 +101,6 @@ namespace BloodborneLauncher.Views
         public override void OnShown()
         {
             _engine.IsOpen = !Supported;
-            _online.IsOpen = Ini.Get("online_enabled") == "1" && !HuntersDream.OnlinePaused;
         }
     }
 }

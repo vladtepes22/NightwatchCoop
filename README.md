@@ -1,8 +1,15 @@
-# Awaken Seamless
+# Nightwatch Co-op
 
-Bloodborne on Windows with **seamless co-op**: Awakenchan's **Lantern Engine 0.9.34 beta 9.8**
-(performance, upscalers, PC menus and controls) with **visy's seamless co-op v0.6.9**, building on
+Bloodborne on Windows with **seamless co-op**: built on the open-source **Lantern Engine 0.9.34**
+(performance, upscalers, PC menus and controls) and **visy's seamless co-op v0.6.9**, building on
 Artificial-Sweetener's integration of the two.
+
+> **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22. It is not made, supported or
+> endorsed by Awaken / Lantern Engine, visy, The Hunter's Dream, FromSoftware or Sony. Please don't
+> ask them for help with this build: use the Discord below.
+>
+> There is no public online play. Co-op runs directly between the players' PCs; this build never
+> connects to The Hunter's Dream or any other online server.
 
 Play the whole campaign together: no bells, no summon signs, no fog walls. Deaths, boss kills and
 lamp travel don't end the session, and progress counts for everyone.
@@ -14,7 +21,7 @@ retail release) with update 1.09.
 
 **Discord:** [discord.gg/sBK9FKKeup](https://discord.gg/sBK9FKKeup): help, finding players, bug reports.
 
-**Guides:** [Install](#install) · [Single player](#play-single-player) · [Host a game](#host-an-online-game) ·
+**Guides:** [Install](#install) · [Single player](#play-single-player) · [Host a game](#host-a-game) ·
 [Join a game](#join-a-friends-game) · [Play on the same network](#play-on-the-same-network-lan) ·
 [If friends can't connect](#if-friends-cant-connect) · [Host without an open port (Radmin VPN)](#host-without-an-open-port-radmin-vpn) ·
 [Saves](#where-the-saves-are) · [How co-op works](#how-co-op-works) · [Reporting a bug](#reporting-a-bug) ·
@@ -22,12 +29,12 @@ retail release) with update 1.09.
 
 ## Install
 
-1. Download `AwakenSeamless-v0.2.0-beta.7-win64.zip` from
-   [Releases](https://github.com/vladtepes22/LanternEngine/releases).
+1. Download `NightwatchCoop-v0.2.0-beta.8-win64.zip` from
+   [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its
    folder on every start.
-3. Open the extracted `AwakenSeamless` folder and run **`Lantern Engine.exe`**.
+3. Open the extracted `NightwatchCoop` folder and run **`Nightwatch Co-op.exe`**.
    If Windows shows "Windows protected your PC", click **More info → Run anyway** (the files are
    not code-signed).
 4. Choose your game folder: the one with `eboot.bin` in it.
@@ -38,14 +45,14 @@ this one (graphics and key binds), and `%APPDATA%\bbport-launcher\settings.json`
 
 ## Play single player
 
-1. In `Lantern Engine.exe`, open **More → Seamless** and set **Mode** to **Single player**.
+1. In `Nightwatch Co-op.exe`, open the **Co-op** tab and set **Mode** to **Single player**.
 2. Press **Play** on the main page.
 
 Single-player uses your normal saves; co-op never touches them.
 
-## Host an online game
+## Host a game
 
-1. Open **More → Seamless**:
+1. Open the **Co-op** tab:
    - **Mode:** Host
    - **Your name:** any name (1-16 letters, numbers, `_` or `-`)
    - **Party size:** how many players (host included); everyone uses the same number
@@ -53,7 +60,7 @@ Single-player uses your normal saves; co-op never touches them.
    - Leave **UPnP** on: it asks your router to open the party port (9307) for you
 2. Press **Play** on the main page. Allow the Windows Firewall prompt the first time.
 3. In the game, start a **New Game** (your first party character) or continue one.
-4. Copy your code: **Copy codes** on the launcher's Seamless page, or in the game
+4. Copy your code: **Copy codes** on the launcher's Co-op tab, or in the game
    **System → Party → Copy Internet code**.
 5. Send your friends the **Internet code** (`BBP3-…`) and the password if you set one.
 
@@ -66,7 +73,7 @@ by itself; until then a joining player shows as "joining".
 ## Join a friend's game
 
 1. Install this same release (everyone needs exactly the same build and gameplay mods).
-2. Open **More → Seamless**:
+2. Open the **Co-op** tab:
    - **Mode:** Join
    - **Host code or address:** paste the host's code
    - **Password:** the host's, if they set one
@@ -86,14 +93,14 @@ the players are on the same router: most routers cannot connect a PC to their ow
 
 Only the **host** needs a reachable port; guests never do. Try these in order:
 
-1. **Check the Network line** on the host's Seamless page while the game runs: it says whether
+1. **Check the Network line** on the host's Co-op page while the game runs: it says whether
    the port is open.
 2. **Open the port:** in the host's router, allow UPnP for the host PC, or forward **9307, TCP and
    UDP**, to it. On a FRITZ!Box: *Internet → Freigaben → Portfreigaben → Gerät für Freigaben
    hinzufügen* → pick the PC → tick *Selbstständige Portfreigaben für dieses Gerät erlauben*
    (or add port 9307 for TCP and for UDP), then restart the game.
 3. **Let someone else host:** a player whose port is open can host for everyone.
-4. **Guest code:** the guest copies its **guest code** (`BBG1-…`) from its Seamless page and sends
+4. **Guest code:** the guest copies its **guest code** (`BBG1-…`) from its Co-op page and sends
    it to the host, who clicks **Add copied guest code** while the guest is trying to join. This
    works when the host's router is a "cone" NAT (the Network line says which).
 5. **Radmin VPN:** see the next section. It works even when the host cannot open a port at all.
@@ -122,7 +129,7 @@ puts the PCs in one virtual network, as if they were on the same router.
 3. Send your friends your Radmin IP with the port: `<your Radmin IP>:9307`.
 
 **Guest:**
-1. Seamless page → **Mode: Join** → **Host code or address** = `<host's Radmin IP>:9307`.
+1. Co-op page → **Mode: Join** → **Host code or address** = `<host's Radmin IP>:9307`.
    Leave **Host public address** empty.
 2. The host's password (or none) and the same party size → **Play**.
 
@@ -133,7 +140,7 @@ beta 4 or later; with an older build the host has to set **Host public address**
 
 ## Where the saves are
 
-In your `AwakenSeamless` folder:
+In your `NightwatchCoop` folder:
 
 | What | Folder |
 |---|---|
@@ -142,7 +149,7 @@ In your `AwakenSeamless` folder:
 | Automatic party save backups | `user\save_backups\` |
 
 To keep playing a character from Lantern Engine, copy its `user\savedata` folder into this one's
-`user\`. The Seamless page can copy your single-player saves into the party saves (the old party
+`user\`. The Co-op page can copy your single-player saves into the party saves (the old party
 saves are backed up first), check the party saves after a session, and undo the last session.
 
 ## How co-op works
@@ -169,22 +176,21 @@ Inside the game: **System → Party** (status, codes, rejoin, leave) and **Syste
 ## Reporting a bug
 
 Write down what happened and when, then send `logs\last_session.log` from **every** player's
-`AwakenSeamless` folder (the previous session is in `logs\previous_session.log`). Post them on the
+`NightwatchCoop` folder (the previous session is in `logs\previous_session.log`). Post them on the
 [Discord](https://discord.gg/sBK9FKKeup) or open an
-[issue](https://github.com/vladtepes22/LanternEngine/issues).
+[issue](https://github.com/vladtepes22/NightwatchCoop/issues).
 
 ## Credits
 
 | | |
 |---|---|
-| **Lantern Engine** | by **Awaken**: the launcher, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, online through The Hunter's Dream, fixes) |
+| **Lantern Engine** | by **Awaken** (not involved in this project): the launcher, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, fixes) |
 | Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.6.9 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
 | VRAM cleanup and frame pacing | adapted from [IFreemz/shadPS4-Bloodborne-DLSS-FSR](https://github.com/IFreemz/shadPS4-Bloodborne-DLSS-FSR) |
 | Crash and controller fixes | adapted from [AwesomeObserver](https://github.com/AwesomeObserver/bloodborne_pc), [Supermedo](https://github.com/Supermedo/bloodborne_pc) and [deadinside28](https://github.com/deadinside28/bloodborne_pc) |
 | Cheats, online sign-in, occlusion culling and trophy research | [droogie/bbhost](https://github.com/droogie/bbhost) |
-| Online servers | [The Hunter's Dream](https://thehuntersdream.com) |
 | FSR 3.1 and FSR 4 on Vulkan | [FireBurn/FSR-Vulkan](https://github.com/FireBurn/FSR-Vulkan) and the AMD FidelityFX SDK |
 | FSR 4.1.1 | [fsr4vk](https://github.com/dvj5411/fsr4vk), with the AMD driver fix from [0xCydral](https://github.com/0xCydral/bloodborne_pc) |
 | DLSS | NVIDIA DLSS SDK |
