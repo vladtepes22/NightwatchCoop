@@ -1,7 +1,7 @@
 # Nightwatch Co-op
 
 Bloodborne on Windows with **co-op**: built on the open-source **Lantern Engine 0.9.36**
-(performance, upscalers, PC menus and controls) and **visy's seamless co-op v0.6.9**, building on
+(performance, upscalers, PC menus and controls) and **visy's seamless co-op v0.7.0**, building on
 Artificial-Sweetener's integration of the two.
 
 > **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22. It is not made, supported or
@@ -32,7 +32,7 @@ retail release) with update 1.09.
 
 ## Install
 
-1. Download `NightwatchCoop-v0.2.0-beta.8-win64.zip` from
+1. Download `NightwatchCoop-v0.2.0-beta.9-win64.zip` from
    [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its
@@ -94,10 +94,17 @@ Only the **host** needs a reachable port; guests never do. Try these in order:
 
 1. **Radmin VPN:** see the next section. It works even when the host cannot open a port at all.
 2. **Check the Network line** on the host's Co-op page while the game runs: it says whether
-   the port is open.
+   the port is open, and why not.
 3. **Open the port:** in the host's router, allow UPnP for the host PC, or forward **9307, TCP and
    UDP**, to it. Then restart the game.
 4. **Let someone else host:** a player whose port is open can host for everyone.
+
+**"Your internet provider uses a shared NAT (CGNAT)"** on the Network line means port forwarding
+can never work for that host, however it is set up: the provider does not give the router its own
+internet address (the router's outside address starts with `100.64`-`100.127`). Use Radmin VPN,
+let someone else host, or ask the provider for a public IPv4 address. **"Your router is behind
+another router"** means the same port has to be forwarded on the first router too (or that router
+set to bridge mode).
 
 "Wrong password" means the connection works: clear the password on every PC (or type the same one
 everywhere) and restart the host's game. A guest whose build, game files, patches or mods differ
@@ -179,7 +186,7 @@ Write down what happened and when, then send `logs\last_session.log` from **ever
 | | |
 |---|---|
 | **Lantern Engine** | by **Awaken** (not involved in this project): the launcher, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, fixes) |
-| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.6.9 |
+| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.0 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
 | VRAM cleanup and frame pacing | adapted from [IFreemz/shadPS4-Bloodborne-DLSS-FSR](https://github.com/IFreemz/shadPS4-Bloodborne-DLSS-FSR) |
