@@ -202,20 +202,21 @@ static void report_guest_heap(void) {
 /* Controls: what each PS4 input is bound to. Defaults below; bbport.ini (BB_CONFIG) lines
  * key.<input>=<SDL key names> and pad.<input>=<SDL gamepad button names>, comma-separated,
  * replace an input's binding (empty: unbound). Inputs: the buttons (cross ... right, touchpad =
- * a left-side click, touchpad_right), and on the keyboard the sticks: move_* (left), look_*
+ * a left-side click, touchpad_right), ping (co-op, a gamepad button of its own; no PS4 button:
+ * the touchpad + R3 combo always pings too), and on the keyboard the sticks: move_* (left), look_*
  * (right). Gamepad names as SDL's: a b x y back start leftstick rightstick leftshoulder
  * rightshoulder dpup dpdown dpleft dpright touchpad misc1 paddle1-4, plus lefttrigger and
  * righttrigger. The keyboard works next to a gamepad (the Steam Deck always has one): its buttons
  * add to the gamepad's, a held move/look key moves the stick all the way. */
 enum {
     IN_CROSS, IN_CIRCLE, IN_SQUARE, IN_TRIANGLE, IN_L1, IN_R1, IN_L2, IN_R2, IN_L3, IN_R3,
-    IN_OPTIONS, IN_TOUCHPAD, IN_TOUCHPAD_RIGHT, IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT,
+    IN_OPTIONS, IN_TOUCHPAD, IN_TOUCHPAD_RIGHT, IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT, IN_PING,
     IN_MOVE_UP, IN_MOVE_DOWN, IN_MOVE_LEFT, IN_MOVE_RIGHT, IN_LOOK_UP, IN_LOOK_DOWN, IN_LOOK_LEFT,
     IN_LOOK_RIGHT, IN_COUNT
 };
 static const char *const input_names[IN_COUNT]={
     "cross","circle","square","triangle","l1","r1","l2","r2","l3","r3","options","touchpad",
-    "touchpad_right","up","down","left","right","move_up","move_down","move_left","move_right",
+    "touchpad_right","up","down","left","right","ping","move_up","move_down","move_left","move_right",
     "look_up","look_down","look_left","look_right",
 };
 static const uint32_t input_buttons[IN_COUNT]={
@@ -363,6 +364,10 @@ static void sample_host(PadData *d) {
     const int ping_key = k && k[SDL_SCANCODE_V];
     if (ping_key && !ping_key_down && bbgpu_ping_combo_enabled()) bbgpu_ping_request();
     ping_key_down = ping_key;
+    static int ping_pad_down;
+    const int ping_pad = g && pad_value(g,IN_PING)>30;
+    if (ping_pad && !ping_pad_down && bbgpu_ping_combo_enabled()) bbgpu_ping_request();
+    ping_pad_down = ping_pad;
     if (g) {
         int touch_right=0;
         for (int i=IN_CROSS;i<=IN_RIGHT;++i) {
