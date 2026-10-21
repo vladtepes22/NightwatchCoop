@@ -76,6 +76,60 @@ namespace BloodborneLauncher.Core
                     ["use_item"] = "V",
                     ["transform"] = "C",
                 }, BuiltIn: true),
+            // visy's two layouts (runtime_pad.c; the mouse & keyboard one is Mrsuss60's Souls-PC scheme).
+            // Shift + right click (transform) has no modifier here: the side button X1 does it.
+            new("Souls PC", "visy", L.T("visy's mouse & keyboard layout: left click attack, Shift + left click or side button 2 strong attack, ") +
+                L.T("right click firearm, side button 1 transform, middle click or Q lock on, X Blood Vial, 1-4 and the wheel the d-pad."),
+                new Dictionary<string, string>(DefaultBindings())
+                {
+                    ["attack"] = "Mouse1",
+                    ["strong_modifier"] = "Left Shift",
+                    ["strong_attack"] = "Mouse5",
+                    ["firearm"] = "Mouse3",
+                    ["transform"] = "Mouse4",
+                    ["lock_on"] = "Q, Mouse2",
+                    ["roll"] = "Space",
+                    ["l3"] = "C",
+                    ["blood_vial"] = "X",
+                    ["use_item"] = "R",
+                    ["interact"] = "E",
+                    ["confirm"] = "Return",
+                    ["back"] = "",
+                    ["dpad_up"] = "1, WheelUp",
+                    ["switch_item"] = "2, WheelDown",
+                    ["switch_left"] = "3",
+                    ["switch_right"] = "4",
+                    ["gestures"] = "Tab",
+                    ["personal_effects"] = "Backspace",
+                    ["menu"] = "Escape",
+                    ["walk"] = "Left Alt",
+                }, BuiltIn: true),
+            new("Keyboard only", "visy", L.T("visy's classic layout without the mouse: camera on I J K L, 3 attack, F strong attack, R firearm, ") +
+                L.T("1 transform, C lock on, Space interact, Left Shift dodge, Q Blood Vial, E quick item."),
+                new Dictionary<string, string>(DefaultBindings())
+                {
+                    ["attack"] = "3",
+                    ["strong_modifier"] = "",
+                    ["strong_attack"] = "F",
+                    ["firearm"] = "R",
+                    ["transform"] = "1",
+                    ["lock_on"] = "C",
+                    ["roll"] = "Left Shift",
+                    ["l3"] = "Z",
+                    ["blood_vial"] = "Q",
+                    ["use_item"] = "E",
+                    ["interact"] = "Space",
+                    ["confirm"] = "Return",
+                    ["back"] = "Escape",
+                    ["dpad_up"] = "Up",
+                    ["switch_item"] = "Down",
+                    ["switch_left"] = "Left",
+                    ["switch_right"] = "Right",
+                    ["gestures"] = "Tab",
+                    ["personal_effects"] = "Backspace",
+                    ["menu"] = "F1",
+                    ["walk"] = "Left Alt",
+                }, BuiltIn: true),
         };
         // ---------------------------------------------------------------- saved profiles
 
