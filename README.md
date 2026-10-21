@@ -5,7 +5,7 @@ walls: deaths, boss kills and lamp travel don't end the session, and everyone's 
 progress. Up to 4 hunters. Free and open source.
 
 Built on the open-source **Lantern Engine 0.9.36** (Bloodborne running natively on Windows, with
-upscalers and PC controls) and **visy's seamless co-op v0.7.0**.
+upscalers and PC controls) and **visy's seamless co-op v0.7.1**.
 
 > **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22. It is not made, supported or
 > endorsed by Awaken / Lantern Engine, The Hunter's Dream, FromSoftware or Sony. Please don't
@@ -51,7 +51,7 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 ## Install
 
-1. Download `NightwatchCoop-v0.2.0-beta.9.2-win64.zip` from
+1. Download `NightwatchCoop-v0.2.0-beta.10-win64.zip` from
    [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its
@@ -64,7 +64,8 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 ### Moving from an older version
 
-Beta 9.2 is a fresh download. Close the old launcher and the game, extract the new zip to a new
+From beta 9.2 or later, the launcher's update button installs the new version. From an older
+beta, download the zip: close the old launcher and the game, extract the new zip to a new
 folder, then copy these from the old `NightwatchCoop` folder into the new one (replace when asked):
 
 - the `user` folder: your saves (single player and party), save backups, party code and identity
@@ -237,7 +238,7 @@ Write down what happened and when, then send `logs\last_session.log` from **ever
 | | |
 |---|---|
 | **Lantern Engine** | by **Awaken** (not involved in this project): the launcher, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, fixes) |
-| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.0 |
+| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.1 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
 | VRAM cleanup and frame pacing | adapted from [IFreemz/shadPS4-Bloodborne-DLSS-FSR](https://github.com/IFreemz/shadPS4-Bloodborne-DLSS-FSR) |
