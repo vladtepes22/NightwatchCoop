@@ -5,7 +5,7 @@ Bloodborne on Windows with **seamless co-op**: built on the open-source **Lanter
 Artificial-Sweetener's integration of the two.
 
 > **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22. It is not made, supported or
-> endorsed by Awaken / Lantern Engine, visy, The Hunter's Dream, FromSoftware or Sony. Please don't
+> endorsed by Awaken / Lantern Engine, The Hunter's Dream, FromSoftware or Sony. Please don't
 > ask them for help with this build: use the Discord below.
 >
 > There is no public online play. Co-op runs directly between the players' PCs; this build never
