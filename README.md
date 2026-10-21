@@ -1,6 +1,6 @@
 # Nightwatch Co-op
 
-Bloodborne on Windows with **seamless co-op**: built on the open-source **Lantern Engine 0.9.34**
+Bloodborne on Windows with **co-op**: built on the open-source **Lantern Engine 0.9.34**
 (performance, upscalers, PC menus and controls) and **visy's seamless co-op v0.6.9**, building on
 Artificial-Sweetener's integration of the two.
 
@@ -38,10 +38,6 @@ retail release) with update 1.09.
    If Windows shows "Windows protected your PC", click **More info → Run anyway** (the files are
    not code-signed).
 4. Choose your game folder: the one with `eboot.bin` in it.
-
-Coming from Lantern Engine? Your settings can be copied: `bbport.ini` from your Lantern folder into
-this one (graphics and key binds), and `%APPDATA%\bbport-launcher\settings.json` into
-`%APPDATA%\bloodborne-seamless\` (launcher settings; keep `port_dir` empty).
 
 ## Play single player
 
@@ -92,18 +88,12 @@ the players are on the same router: most routers cannot connect a PC to their ow
 ## If friends can't connect
 
 Only the **host** needs a reachable port; guests never do. Try these in order:
-
-1. **Check the Network line** on the host's Co-op page while the game runs: it says whether
+1.  **Radmin VPN:** see the next section. It works even when the host cannot open a port at all.
+2. **Check the Network line** on the host's Co-op page while the game runs: it says whether
    the port is open.
 2. **Open the port:** in the host's router, allow UPnP for the host PC, or forward **9307, TCP and
-   UDP**, to it. On a FRITZ!Box: *Internet → Freigaben → Portfreigaben → Gerät für Freigaben
-   hinzufügen* → pick the PC → tick *Selbstständige Portfreigaben für dieses Gerät erlauben*
-   (or add port 9307 for TCP and for UDP), then restart the game.
+   UDP**, to it. Then restart the game.
 3. **Let someone else host:** a player whose port is open can host for everyone.
-4. **Guest code:** the guest copies its **guest code** (`BBG1-…`) from its Co-op page and sends
-   it to the host, who clicks **Add copied guest code** while the guest is trying to join. This
-   works when the host's router is a "cone" NAT (the Network line says which).
-5. **Radmin VPN:** see the next section. It works even when the host cannot open a port at all.
 
 "Wrong password" means the connection works: clear the password on every PC (or type the same one
 everywhere) and restart the host's game. A guest whose build, game files, patches or mods differ
