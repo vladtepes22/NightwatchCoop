@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstring>
 #include <cmath>
+#include <mutex>
 namespace BbEngine::Graphics {
 namespace {
 #define GUEST_ABI __attribute__((sysv_abi))
@@ -16,8 +17,18 @@ constexpr std::uint64_t kRenderView = 0x269e990;
 // push rbp; mov rbp, rsp; push r15..r12; push rbx; sub rsp, 0xea8
 const std::uint8_t kRenderViewPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55,
                                             0x41, 0x54, 0x53, 0x48, 0x81, 0xec, 0xa8, 0x0e, 0x00, 0x00};
-constexpr std::size_t kCapabilities = 0x48, kSsaoFlag = 0x2968, kAaFlag = 0x296a;
-constexpr std::uint64_t kSsaoCapability = 0x8, kAaCapability = 0x10;
+constexpr std::size_t kCapabilities = 0x48, kSsaoFlag = 0x2968, kMotionBlurFlag = 0x2969, kAaFlag = 0x296a;
+constexpr std::uint64_t kSsaoCapability = 0x8, kAaCapability = 0x10, kMotionBlurCapability = 0x20;
+// bbport: motion blur. The renderer's +0x2969 gates the velocity map and the blur pass every view
+// (sub_269e990 and the post it calls); its constructor sets it (the "Disable Motion Blur" patch
+// makes that 0) and the velocity map is allocated with capability 0x20 either way, so it is safe
+// to clear and to set back at run time. Held off while the renderer says so (motion_blur_held:
+// an upscaler takes the finished frame, blur and all); the game's own value, as each renderer
+// first had it, is written back after - the player's setting is never changed.
+struct BlurView { std::uint64_t renderer; std::uint8_t game; };
+BlurView g_blur[8]{};
+std::mutex g_blur_mutex;
+int g_blur_logged = -1;
 
 constexpr std::uint64_t kYebisRecord = 0x25d4860;
 // push rbp; mov rbp, rsp; push r15..r12; push rbx; sub rsp, 0x28; mov r13, r9
@@ -80,6 +91,21 @@ template<typename T> void Write(std::uint64_t at,const T& value) { std::memcpy(r
 // read every call: off, each returns at once and the game's own values stand - so the switch
 // and every setting are live.
 bool On() { return BbSettings::Get().graphics_controls.load(std::memory_order_relaxed); }
+void MotionBlur(std::uint64_t r) {
+    const bool held=BbSettings::Get().motion_blur_held.load(std::memory_order_relaxed);
+    std::lock_guard lock{g_blur_mutex};
+    BlurView* view=nullptr;
+    for (auto& v:g_blur) if (v.renderer==r) { view=&v;break; }
+    for (auto& v:g_blur) if (!view && !v.renderer && Read(r+kMotionBlurFlag,&v.game)) { v.renderer=r;view=&v; }
+    if (!view) return;  // more renderers than expected: left as the game has them
+    Write(r+kMotionBlurFlag,static_cast<std::uint8_t>(held ? 0 : view->game));
+    if (view->game && g_blur_logged!=held) {
+        g_blur_logged=held;
+        host_log(held ? "Motion blur: held off while the upscaler takes the finished frame (output other than 1080p): "
+                        "it would accumulate the blur into a smear; the setting is unchanged (BB_UPSCALER_NO_BLUR)"
+                      : "Motion blur: on (the game's own)");
+    }
+}
 // SSAO and AA are effects with their own settings (Picture tuning doesn't gate them): written
 // every view, so switching Picture tuning off leaves nothing forced behind.
 GUEST_ABI std::int64_t RenderView(std::uint64_t,const std::uint64_t* saved) {
@@ -88,6 +114,7 @@ GUEST_ABI std::int64_t RenderView(std::uint64_t,const std::uint64_t* saved) {
     const std::uint8_t ssao=BbSettings::Get().effects[3].load() && (caps&kSsaoCapability);
     const std::uint8_t aa=BbSettings::Get().effects[4].load() && (caps&kAaCapability);
     Write(r+kSsaoFlag,ssao);Write(r+kAaFlag,aa);
+    if (caps&kMotionBlurCapability) MotionBlur(r);
     return 0;
 }
 GUEST_ABI std::int64_t AoDraw(std::uint64_t,const std::uint64_t* saved) {

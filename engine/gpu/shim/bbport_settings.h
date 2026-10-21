@@ -237,6 +237,9 @@ struct Values {
     std::atomic<bool> fsr4_auto_exposure{true};
     std::atomic<bool> fsr4_invert_jitter{false};
     std::atomic<int> active_render_width{1920}, active_render_height{1080};
+    /// Set by the renderer: the game's motion blur is held off (engine/graphics.cpp), as a temporal
+    /// upscaler takes the game's finished frame, blur and all (BB_UPSCALER_NO_BLUR).
+    std::atomic<bool> motion_blur_held{false};
     /// Applied at start (patches.py); the menu shows when a restart is needed.
     std::atomic<bool> effects[EffectCount]{};
     std::atomic<bool> camera_controls{false}; // startup engine hook, opt-in

@@ -165,7 +165,11 @@ extern "C" int bbgpu_pc_input(BbPcPad* d,const bool* keys,int nkeys,int gamepad_
         }
         // Separate immutable menu navigation from gameplay keys (only while a menu has the screen:
         // menu_pointer_navigating).
-        const bool navigating=menu && menu_pointer_navigating();
+        // bbport: for 250 ms after a menu or prompt is confirmed or closed, the movement keys stay
+        // the left stick: the menu state lags the closing, so a quick tap of W right after a
+        // prompt was a d-pad up in the world. A menu still open reads the stick the same way.
+        static uint64_t settle_until=0;
+        const bool navigating=menu && menu_pointer_navigating() && SDL_GetTicks()>=settle_until;
         // bbport: a direction held when a menu or prompt is confirmed or closed is no d-pad until
         // it is let go of: the menu state lags the closing by a few frames, and W held through a
         // prompt was a d-pad up in the world (HP turned into Quicksilver Bullets).
@@ -196,7 +200,7 @@ extern "C" int bbgpu_pc_input(BbPcPad* d,const bool* keys,int nkeys,int gamepad_
                 p.buttons|=menu_pointer_take_press();
             }
             const uint32_t closing=menu_confirm_button()|menu_back_button();
-            if(p.buttons&~last_buttons&closing)dpad_blocked|=dpad_held;
+            if(p.buttons&~last_buttons&closing){dpad_blocked|=dpad_held;settle_until=SDL_GetTicks()+250;}
         }else {
             bool mh[kBindCount]={};host_bindings_mouse_held(buttons|edges|(scroll>0?32:scroll<0?64:0),mh);
             host_bindings_apply(mh,held[kBindStrongMod]||mh[kBindStrongMod],p);

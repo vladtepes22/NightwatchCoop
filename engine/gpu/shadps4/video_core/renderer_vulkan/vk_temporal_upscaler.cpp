@@ -467,6 +467,17 @@ bool TemporalUpscaler::OnFrameStart() {
     }
     BbSettings::Get().active_render_width = Scaled() ? render_width : scene_targets.Size().width;
     BbSettings::Get().active_render_height = Scaled() ? render_height : scene_targets.Size().height;
+    // bbport: outputs other than 1080p upscale the game's finished frame (RunScaled), after its
+    // motion blur: the upscaler accumulated the blurred frames along motion vectors that do not
+    // describe the blur, a smear over the whole picture (worst at low render sizes). The game's
+    // blur is held off then (engine/graphics.cpp); at 1080p the upscale comes before the post and
+    // its blur. Opt-in: BB_UPSCALER_NO_BLUR=1 holds it there; =2: held under any upscaler.
+    static const int no_blur = [] {
+        const char* env = std::getenv("BB_UPSCALER_NO_BLUR");
+        return env && env[0] ? std::atoi(env) : 0;
+    }();
+    BbSettings::Get().motion_blur_held.store(no_blur != 0 && active && (Scaled() || no_blur == 2),
+                                             std::memory_order_relaxed);
     if (changed || !dispatched_last_frame) reset = true;
     if (changed) jitter_index = 0;
     applied_preset = preset;

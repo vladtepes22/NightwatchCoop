@@ -1,6 +1,6 @@
 # Nightwatch Co-op
 
-Bloodborne on Windows with **co-op**: built on the open-source **Lantern Engine 0.9.35**
+Bloodborne on Windows with **co-op**: built on the open-source **Lantern Engine 0.9.36**
 (performance, upscalers, PC menus and controls) and **visy's seamless co-op v0.6.9**, building on
 Artificial-Sweetener's integration of the two.
 

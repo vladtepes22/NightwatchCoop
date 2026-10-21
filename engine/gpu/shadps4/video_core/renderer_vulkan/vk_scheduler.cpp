@@ -26,6 +26,7 @@
 #include "common/thread.h"
 #include "imgui/renderer/texture_manager.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
+#include "video_core/renderer_vulkan/vk_optiscaler.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "bbport_threads.h"
 
@@ -163,6 +164,8 @@ Scheduler::Scheduler(const Instance& instance, bool threaded_recording)
     if (!workers.empty()) {
         const char* async = std::getenv("BB_ASYNC_SUBMIT");
         async_submit = !async || async[0] != '0';
+        // OptiScaler loaded: one thread submits (its submit hooks keep global state).
+        async_submit = async_submit && !OptiScaler::Part("BB_OPTISCALER_SYNC_SUBMIT");
         if (async_submit) {
             std::printf("GPU: submissions go out from the recording threads (BB_ASYNC_SUBMIT)\n");
         }

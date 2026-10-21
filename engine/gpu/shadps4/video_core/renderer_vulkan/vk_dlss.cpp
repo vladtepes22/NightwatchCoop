@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstring>
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@
 
 #include "video_core/renderer_vulkan/vk_dlss.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
+#include "video_core/renderer_vulkan/vk_optiscaler.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "bbport_settings.h"
 
@@ -237,6 +239,14 @@ struct DlssUpscaler::Impl {
         bool operator==(const Key&) const = default;
     } key{};
 
+    /// OptiScaler's NGX calls may run vkDeviceWaitIdle (a feature released or its backend
+    /// changed), which needs every queue externally synchronized: they go out under the lock
+    /// our submissions and presents take (BB_OPTISCALER_NGX_LOCK).
+    const bool ngx_lock = OptiScaler::Part("BB_OPTISCALER_NGX_LOCK");
+    std::unique_lock<std::mutex> QueueLock() {
+        return ngx_lock ? std::unique_lock{Scheduler::submit_mutex} : std::unique_lock<std::mutex>{};
+    }
+
     Impl(const Instance& instance_, Scheduler& scheduler_)
         : instance{instance_}, scheduler{scheduler_} {}
 
@@ -430,6 +440,7 @@ struct DlssUpscaler::Impl {
         if (!feature || !(wanted == key)) {
             if (feature) {
                 scheduler.Finish(); // the feature's resources may still be in use
+                const auto lock = QueueLock();
                 release_feature(feature);
                 feature = nullptr;
             }
@@ -453,6 +464,7 @@ struct DlssUpscaler::Impl {
             // "default". A preset the DLL refuses is retried with its default.
             const unsigned preset = DlssPreset();
             SetPreset(params, preset);
+            const auto lock = QueueLock();
             NgxResult r = create_feature(VkDevice(instance.GetDevice()), VkCommandBuffer(f.cmdbuf),
                                          kFeatureSuperSampling, params, &feature);
             if ((Failed(r) || !feature) && preset != 0) {
@@ -494,8 +506,10 @@ struct DlssUpscaler::Impl {
         SetUI(params, "DLSS.Render.Subrect.Dimensions.Width", f.render_width);
         SetUI(params, "DLSS.Render.Subrect.Dimensions.Height", f.render_height);
         SetF(params, "FrameTimeDeltaInMsec", f.frame_ms);
-        const NgxResult r =
-            evaluate_feature(VkCommandBuffer(f.cmdbuf), feature, params, nullptr);
+        const NgxResult r = [&] {
+            const auto lock = QueueLock();
+            return evaluate_feature(VkCommandBuffer(f.cmdbuf), feature, params, nullptr);
+        }();
         if (Failed(r)) {
             Fail(fmt_hex("DLSS evaluation failed", r), false);
             return false;
@@ -510,6 +524,7 @@ struct DlssUpscaler::Impl {
         }
         scheduler.Finish();
         if (feature) {
+            const auto lock = QueueLock();
             release_feature(feature);
         }
         if (params) {

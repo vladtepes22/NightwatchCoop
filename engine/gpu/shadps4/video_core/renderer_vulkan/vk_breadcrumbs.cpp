@@ -16,6 +16,7 @@
 #include "video_core/renderer_vulkan/vk_breadcrumbs.h"
 #include <vector>
 #include "video_core/renderer_vulkan/vk_instance.h"
+#include "video_core/renderer_vulkan/vk_optiscaler.h"
 
 extern "C" int runtime_memory_vma_info(uintptr_t address, int* prot, int* type, uintptr_t* end);
 
@@ -441,6 +442,12 @@ void ReportDeviceLost(const char* where) {
         Report("at device lost", where);
     }
     ReportDeviceFault();
+    if (const auto& opti = OptiScaler::Detect(); opti.loaded) {
+        std::printf("Device lost with OptiScaler loaded (as %s, compatibility mode %s): it hooks "
+                    "submissions and runs DLSS itself; to rule it out, remove %s and try again\n",
+                    opti.module.c_str(), OptiScaler::Compat() ? "on" : "off", opti.module.c_str());
+        std::fflush(stdout);
+    }
 }
 
 vk::UniqueDebugUtilsMessengerEXT CreateAddressReport(vk::Instance instance) {
