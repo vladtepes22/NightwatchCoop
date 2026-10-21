@@ -106,6 +106,7 @@ constexpr u64 kDtorResetCall = 0x1947207;   // e8 24 d6 50 00 -> 0x1e54830
 constexpr u64 kUidLeaveCall = 0x193c657;    // e8 44 41 59 00 -> 0x1ed07a0
 constexpr u64 kUidDropCall = 0x193c689;     // e8 82 26 c8 ff -> 0x15bed10
 constexpr u64 kMatchCheckCall = 0x13809b7;  // e8 e4 fd b4 00 -> 0x1ed07a0
+constexpr u64 kMatchErrorCall = 0x1380a65;  // e8 36 fd b4 00 -> 0x1ed07a0
 constexpr u64 kJoinStartCall = 0x178524f;   // e8 2c 25 b9 ff -> 0x1317780
 constexpr u64 kFunnelLeaveJne = 0x13cdeae;  // 75 6c (cmp [GSM+0x1592],0 ; jne skip-leave)
 constexpr u64 kHostDeathReturnCall = 0x18c4d7d; // e8 2e 00 59 00 -> 0x1e54db0 (ChrIns_OnDeath, role 3)
@@ -862,13 +863,32 @@ BB_COOP_SYSV u64 FlagApplyHook(u64 man, u64 blob) {
     return r;
 }
 
-// K5: Lua OnMatchingCheck: a member's chr is missing (it is loading).
-BB_COOP_SYSV u64 MatchCheckHook(u64 session) {
+// K5: Lua OnMatchingCheck 0x13808B0: a member's chr is missing (it is loading). The check has two
+// ends: with the event's +8 clear it leaves at once (0x13809B7); with +8 set it posts event
+// 0xFE0/4 instead, and Lua OnMatchingError 0x13809F0 leaves (0x1380A65) when that event names the
+// current room (live: summoned guests left the host's Chalice Dungeon 1-3 s after arriving, the
+// members apart in other worlds having no chr there).
+bool MatchLeaveHeld(const char* what) {
     // Split travel: a member apart (no chr here, by design), or a chr removed / re-created in the
     // last 15 s (live split1: the leave came 50 ms after a meet's rewind, the chr not built yet).
     const bool split = g_apart_k5.load() > 0 || Now() - g_split_change_at.load() < 15.0;
     if (g_on.load() && (g_rejoin.load() || split)) {
-        Log("K5: OnMatchingCheck leave suppressed (%s)", g_rejoin.load() ? "re-join in flight" : "split travel: members apart");
+        Log("K5: %s leave suppressed (%s)", what, g_rejoin.load() ? "re-join in flight" : "split travel: members apart");
+        return true;
+    }
+    return false;
+}
+
+BB_COOP_SYSV u64 MatchCheckHook(u64 session) {
+    if (MatchLeaveHeld("OnMatchingCheck")) {
+        return 0;
+    }
+    using Fn = u64(BB_COOP_SYSV*)(u64);
+    return reinterpret_cast<Fn>(Guest(kBeginLeave))(session);
+}
+
+BB_COOP_SYSV u64 MatchErrorHook(u64 session) {
+    if (MatchLeaveHeld("OnMatchingError")) {
         return 0;
     }
     using Fn = u64(BB_COOP_SYSV*)(u64);
@@ -8972,6 +8992,8 @@ void Init() {
     InstallCall(kUidDropCall, kDropPresentation, reinterpret_cast<const void*>(&UidDropHook), "B2 K4 stage-UID drop");
     InstallCall(kMatchCheckCall, kBeginLeave, reinterpret_cast<const void*>(&MatchCheckHook),
                 "B2 K5 OnMatchingCheck leave");
+    InstallCall(kMatchErrorCall, kBeginLeave, reinterpret_cast<const void*>(&MatchErrorHook),
+                "B2 K5 OnMatchingError leave");
     InstallCall(kJoinStartCall, kJoinStartLua, reinterpret_cast<const void*>(&JoinStartHook), "B2 K6 OnBeJoinStart");
     InstallCall(kHostDeathReturnCall, kRequestReturn, reinterpret_cast<const void*>(&HostDeathReturnHook),
                 "B2 K8 host death return-all");

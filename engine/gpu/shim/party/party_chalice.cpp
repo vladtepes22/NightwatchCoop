@@ -173,8 +173,30 @@ BB_COOP_SYSV void SummonMessageProbe(u64, u64, u64 wrapper, u64, u64, u64) {
 
 namespace {
 constexpr std::uint32_t kRecordBits = 1376; // +992 name 0x30 bytes ends here
+constexpr std::uint64_t kMapLoadSlotCall = 0x192876a; // e8 11 76 aa ff -> 0x13cfd80 (9020, 7)
 std::atomic<double> g_quick_join_at{0};
+std::atomic<int> g_quick_join_slot{-1};      // the helper slot the quick join wrote (slot 0)
+std::atomic<std::uint64_t> g_carried{0};     // the host's dungeon carried into load mode 1
 void* g_set_load_mode = nullptr;
+
+using FlagGet = std::uint32_t(BB_COOP_SYSV*)(u64, std::uint32_t, std::uint32_t);
+using FlagSet = void(BB_COOP_SYSV*)(u64, std::uint32_t, std::uint32_t, std::uint32_t);
+
+std::uint32_t RecordBase(int slot) {
+    return kRecordBase + static_cast<std::uint32_t>(slot) * kRecordStride;
+}
+
+// The slot a quick join wrote within the last 180 s, while its record holds a dungeon map (area
+// 29); -1 otherwise.
+int JoinedSlot(u64 man) {
+    const int slot = g_quick_join_slot.load();
+    const double joined = g_quick_join_at.load();
+    if (!man || slot < 0 || slot >= kSlots || joined <= 0 || Seconds() - joined >= 180) {
+        return -1;
+    }
+    const std::uint32_t map = reinterpret_cast<FlagGet>(Guest(0x13cfd80))(man, RecordBase(slot) + 96, 32);
+    return (map & 0xff000000u) == 0x1d000000u ? slot : -1;
+}
 } // namespace
 
 // The ritual helper's steps around a summoned member's quick join (step table 0x1aaa8c0):
@@ -214,6 +236,9 @@ BB_COOP_SYSV void QuickJoinRequestProbe(u64 helper, u64 channel_at, u64, u64, u6
 }
 
 BB_COOP_SYSV void QuickJoinStepProbe(u64 helper, u64, u64, u64, u64, u64) {
+    std::uint32_t slot = 0xffffffffu;
+    SafeGet(helper + 0xc8, &slot);
+    g_quick_join_slot.store(slot < static_cast<std::uint32_t>(kSlots) ? static_cast<int>(slot) : -1);
     g_quick_join_at.store(Seconds());
     LogHelperStep("STEP_Exec_forQuickJoin", helper);
 }
@@ -228,45 +253,72 @@ BB_COOP_SYSV void CancelStepProbe(u64 helper, u64, u64, u64, u64, u64) {
 // reads the slot record's dungeon map (+96) from that storage, finds none and loads m255 (live: the
 // guest fell through an empty world). So the record is carried over too: snapshotted before the
 // switch, written into the load-mode-1 storage after it — transient, never the member's save.
+//
+// The quick join always writes slot 0's record (the network slot), but the map load reads the
+// record of the CURRENT slot (9020+k). A member whose own ritual dungeon is selected (slot 1..)
+// loaded m255 (live: "slot 1's record holds no dungeon", the guest sent home 3 s later). So the
+// map load's slot read answers the quick-joined slot (MapLoadSlotBits), and in load mode 1 the
+// record is also written under the current slot, for the loads that follow in the host's world.
 
 BB_COOP_SYSV void SetLoadModeHook(u64 man, u64 mode) {
     using Fn = void(BB_COOP_SYSV*)(u64, u64);
-    using Get = std::uint32_t(BB_COOP_SYSV*)(u64, std::uint32_t, std::uint32_t);
-    using Set = void(BB_COOP_SYSV*)(u64, std::uint32_t, std::uint32_t, std::uint32_t);
     std::int32_t cur = -1;
     const double joined = g_quick_join_at.load();
     const bool carry = static_cast<std::uint32_t>(mode) == 1 && man && SafeGet(man + kLoadModeOff, &cur) && cur == 0 &&
                        joined > 0 && Seconds() - joined < 180;
     std::uint32_t rec[kRecordBits / 32] = {};
-    int slot = -1;
+    int slot = -1, from = -1;
     if (carry) {
-        const Get get = reinterpret_cast<Get>(Guest(0x13cfd80));
+        const FlagGet get = reinterpret_cast<FlagGet>(Guest(0x13cfd80));
         slot = SlotFromBits(get(man, kSlotFlag, kSlots));
-        if (slot >= 0) {
-            const std::uint32_t base = kRecordBase + static_cast<std::uint32_t>(slot) * kRecordStride;
-            for (std::uint32_t i = 0; i < kRecordBits / 32; ++i) rec[i] = get(man, base + 32 * i, 32);
+        from = JoinedSlot(man);
+        if (from < 0) from = slot;
+        if (from >= 0) {
+            for (std::uint32_t i = 0; i < kRecordBits / 32; ++i) rec[i] = get(man, RecordBase(from) + 32 * i, 32);
         }
     }
+    if (static_cast<std::uint32_t>(mode) == 0) {
+        g_carried.store(0);
+    }
     reinterpret_cast<Fn>(g_set_load_mode)(man, mode);
-    if (!carry || slot < 0) {
+    if (!carry || from < 0) {
         return;
     }
     g_quick_join_at.store(0);
     if ((rec[3] & 0xff000000u) != 0x1d000000u) {
-        std::printf("Party: chalice: load mode 1: slot %d's record holds no dungeon (map 0x%08x): not carried\n", slot, rec[3]);
+        std::printf("Party: chalice: load mode 1: slot %d's record holds no dungeon (map 0x%08x): not carried\n", from, rec[3]);
         std::fflush(stdout);
         return;
     }
-    const Get get = reinterpret_cast<Get>(Guest(0x13cfd80));
-    const Set set = reinterpret_cast<Set>(Guest(0x13d0060));
-    const std::uint32_t base = kRecordBase + static_cast<std::uint32_t>(slot) * kRecordStride;
-    const std::uint32_t before = get(man, base + 96, 32);
-    for (std::uint32_t i = 0; i < kRecordBits / 32; ++i) set(man, base + 32 * i, 32, rec[i]);
-    const std::uint32_t after = get(man, base + 96, 32);
-    std::printf("Party: chalice: load mode 1: slot %d's record (dungeon %llu, map 0x%08x) carried over (map read 0x%08x -> 0x%08x)\n",
-                slot, static_cast<unsigned long long>((static_cast<std::uint64_t>(rec[2]) << 32) | rec[1]), rec[3],
-                before, after);
+    const FlagGet get = reinterpret_cast<FlagGet>(Guest(0x13cfd80));
+    const FlagSet set = reinterpret_cast<FlagSet>(Guest(0x13d0060));
+    const std::uint32_t before = get(man, RecordBase(from) + 96, 32);
+    for (std::uint32_t i = 0; i < kRecordBits / 32; ++i) set(man, RecordBase(from) + 32 * i, 32, rec[i]);
+    if (slot >= 0 && slot != from) {
+        for (std::uint32_t i = 0; i < kRecordBits / 32; ++i) set(man, RecordBase(slot) + 32 * i, 32, rec[i]);
+    }
+    const std::uint32_t after = get(man, RecordBase(slot >= 0 ? slot : from) + 96, 32);
+    const std::uint64_t channel = ChannelFromDwords(rec[1], rec[2]);
+    g_carried.store(channel);
+    std::printf("Party: chalice: load mode 1: slot %d's record (dungeon %llu, map 0x%08x) carried over%s (map read 0x%08x -> 0x%08x)\n",
+                from, static_cast<unsigned long long>(channel), rec[3],
+                slot >= 0 && slot != from ? (" and under the current slot " + std::to_string(slot)).c_str() : "", before,
+                after);
     std::fflush(stdout);
+}
+
+// The map load's read of the current slot (GetEventFlagValue(9020, 7) at 0x192876a, only for an
+// area-29 map): the quick-joined slot while its record holds the host's dungeon.
+BB_COOP_SYSV std::uint32_t MapLoadSlotBits(u64 man, std::uint32_t flag, std::uint32_t bits) {
+    const std::uint32_t own = reinterpret_cast<FlagGet>(Guest(0x13cfd80))(man, flag, bits);
+    const int joined = flag == kSlotFlag && bits == static_cast<std::uint32_t>(kSlots) ? JoinedSlot(man) : -1;
+    if (joined < 0 || SlotFromBits(own) == joined) {
+        return own;
+    }
+    std::printf("Party: chalice: map load: the quick-joined slot %d's dungeon, not the current slot %d's\n", joined,
+                SlotFromBits(own));
+    std::fflush(stdout);
+    return 1u << (kSlots - 1 - joined);
 }
 
 void InstallProbes() {
@@ -283,6 +335,8 @@ void InstallProbes() {
     HookPrologue(0x1aa8410, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &CancelStepProbe, "chalice: cancel step probe");
     ReplacePrologue(0x13bb590, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, reinterpret_cast<const void*>(&SetLoadModeHook),
                     &g_set_load_mode, "chalice: carry the slot record into load mode 1");
+    HookCallSite(kMapLoadSlotCall, 0x13cfd80, reinterpret_cast<const void*>(&MapLoadSlotBits),
+                 "chalice: the map load reads the quick-joined slot");
 }
 
 namespace {
@@ -467,12 +521,13 @@ void Tick(bool host) {
             std::fflush(stdout);
         }
     }
-    if (!host && s.slot >= 0 && s.channel && (s.load_mode == 0 || s.slot != 0)) {
+    if (!host && s.slot >= 0 && s.channel && (s.load_mode == 0 || (s.slot != 0 && s.channel != g_carried.load()))) {
         // A guest's own ritual dungeon: its FormData for the host's board (a shared fixed dungeon is
         // never uploaded; the host's glyph join and a summon need it). Once per dungeon and minute.
         // Also while summoned (load mode 1) from its own ritual slot (1..): a guest that title-joined
         // never stands in its own world (live g1b: no FormData, no party dungeon at the host's
-        // altar); slot 0 in load mode 1 is the host's quick-joined dungeon, not the guest's.
+        // altar); slot 0 in load mode 1 is the host's quick-joined dungeon, not the guest's, and so
+        // is the record SetLoadModeHook carried under the current slot.
         static std::uint64_t sent_for = 0;
         static double sent_at = -100;
         if (sent_for != s.channel || now - sent_at >= 60.0) {

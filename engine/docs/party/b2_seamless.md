@@ -160,6 +160,7 @@ only in state 1 (queued until then). Enemy net sync per peer is re-armed by `0x1
 | K3 | 0x193C657 | `e8 44 41 59 00` call 0x1ED07A0 | no leave with a session | stage-record change (streamed blocks) |
 | K4 | 0x193C689 | `e8 82 26 c8 ff` call 0x15BED10 | skip with a session | keeps the presentation members |
 | K5 | 0x13809B7 | `e8 e4 fd b4 00` call 0x1ED07A0 | no leave while a re-join runs | OnMatchingCheck: member chr missing while loading |
+| K5 | 0x1380A65 | `e8 36 fd b4 00` call 0x1ED07A0 | same rule | OnMatchingError: OnMatchingCheck's other end (event +8 set: posts 0xFE0/4 for the room) |
 | K6 | 0x178524F | `e8 2c 25 b9 ff` call 0x1317780 | skip while a guest re-join runs | no vanilla SummonReloadStart |
 | K7 | 0x13CDEAE | `75 6c` | `eb 6c` written / restored around the guest's own warp (main thread) | guest warp without leaving |
 | K8 | 0x18C4D7D | `e8 2e 00 59 00` call 0x1E54DB0 | skip on the host (role 3) | ChrIns_OnDeath asks every human task to return when the host dies |

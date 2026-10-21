@@ -16,7 +16,9 @@
 // with the same ChannelId in their current slot generate the same dungeon.
 //
 // The party layer only READS these flags: 9020-9026 and the chalice groups are never written
-// from outside (party_progress NeverWritable).
+// from outside (party_progress NeverWritable). The one exception is a summoned guest's
+// load-mode-1 storage (the host's world, transient): the quick-joined record is carried there,
+// also under the guest's current slot (party_chalice.cpp SetLoadModeHook).
 //
 // Main thread only (game calls).
 #pragma once
