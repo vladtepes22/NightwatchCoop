@@ -129,7 +129,7 @@ namespace BloodborneLauncher.Views
 
             // Steam: Bloodborne.exe as a non-Steam game (Core/SteamShortcut.cs).
             Add(Card(SymbolRegular.Games24, L.T("Add to Steam"),
-                L.T("Bloodborne as a non-Steam game in your Steam library: Steam Input, the overlay and Big Picture work with it"),
+                L.T("Nightwatch Co-op as a non-Steam game in your Steam library: Steam Input, the overlay and Big Picture work with it"),
                 SmallButton(L.T("Add to Steam"), SymbolRegular.Add24, (_, _) => AddToSteam()), out _));
 
             // Player profiles: each its own saves and trophies (a button with a menu, not a drop-down,
@@ -339,7 +339,7 @@ namespace BloodborneLauncher.Views
             while (SteamShortcut.SteamRunning())
             {
                 if (Prompt.Choose(L.T("Close Steam first"),
-                        L.T("Steam rewrites its list of non-Steam games when it closes, so it has to be closed while Bloodborne is added. ") +
+                        L.T("Steam rewrites its list of non-Steam games when it closes, so it has to be closed while Nightwatch Co-op is added. ") +
                         L.T("Exit Steam (Steam › Exit, or right-click its tray icon › Exit), then press Try again."),
                         L.T("Cancel"), L.T("Try again")) <= 0)
                     return;
@@ -347,9 +347,9 @@ namespace BloodborneLauncher.Views
             try
             {
                 SteamShortcut.Add(exe);
-                Ws.Log(L.T("Added Bloodborne to Steam as a non-Steam game"), LogLevel.Good);
+                Ws.Log(L.T("Added Nightwatch Co-op to Steam as a non-Steam game"), LogLevel.Good);
                 Prompt.Tell(L.T("Added to Steam"),
-                    L.T("Bloodborne is in your Steam library after Steam starts again. It starts the game with this launcher's settings; ") +
+                    L.T("Nightwatch Co-op is in your Steam library after Steam starts again. It starts the game with this launcher's settings; ") +
                     L.T("Steam shows it as running until the game ends."));
             }
             catch (Exception e)

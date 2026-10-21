@@ -12,7 +12,7 @@ namespace BloodborneLauncher.Core
     /// </summary>
     public static class SteamShortcut
     {
-        public const string AppName = "Bloodborne";
+        public const string AppName = "Nightwatch Co-op";
 
         /// <summary>Steam's folder, or null when Steam is not installed.</summary>
         public static string? SteamDir()

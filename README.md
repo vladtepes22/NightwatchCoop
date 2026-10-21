@@ -10,6 +10,9 @@ Artificial-Sweetener's integration of the two.
 >
 > There is no public online play. Co-op runs directly between the players' PCs; this build never
 > connects to The Hunter's Dream or any other online server.
+>
+> Bloodborne is a trademark of Sony Interactive Entertainment; the game is by FromSoftware. This
+> project ships no game files, art, music or other content from the game: you need your own copy.
 
 Play the whole campaign together: no bells, no summon signs, no fog walls. Deaths, boss kills and
 lamp travel don't end the session, and progress counts for everyone.
@@ -88,12 +91,13 @@ the players are on the same router: most routers cannot connect a PC to their ow
 ## If friends can't connect
 
 Only the **host** needs a reachable port; guests never do. Try these in order:
-1.  **Radmin VPN:** see the next section. It works even when the host cannot open a port at all.
+
+1. **Radmin VPN:** see the next section. It works even when the host cannot open a port at all.
 2. **Check the Network line** on the host's Co-op page while the game runs: it says whether
    the port is open.
-2. **Open the port:** in the host's router, allow UPnP for the host PC, or forward **9307, TCP and
+3. **Open the port:** in the host's router, allow UPnP for the host PC, or forward **9307, TCP and
    UDP**, to it. Then restart the game.
-3. **Let someone else host:** a player whose port is open can host for everyone.
+4. **Let someone else host:** a player whose port is open can host for everyone.
 
 "Wrong password" means the connection works: clear the password on every PC (or type the same one
 everywhere) and restart the host's game. A guest whose build, game files, patches or mods differ

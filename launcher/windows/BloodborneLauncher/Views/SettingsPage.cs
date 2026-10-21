@@ -224,7 +224,7 @@ namespace BloodborneLauncher.Views
                 v => S.Set("discord_app", v), discordCustom, changed: DiscordChanged);
             TextRow(SymbolRegular.Key24, L.T("Application ID"), L.T("From your app's General Information page"), L.T("e.g. 1234567890123456789"),
                 () => S.Str("discord_app_id"), v => { S.Set("discord_app_id", v); DiscordChanged(); }, discordOwn, 380);
-            TextRow(SymbolRegular.Rename24, L.T("Your app's name"), L.T("Only for the preview: Discord shows the name you gave the app"), "Bloodborne",
+            TextRow(SymbolRegular.Rename24, L.T("Your app's name"), L.T("Only for the preview: Discord shows the name you gave the app"), "Hunt night",
                 () => S.Str("discord_app_name"), v => { S.Set("discord_app_name", v); DiscordChanged(); }, discordOwn, 380);
             discordCustom.Children.Add(discordOwn);
             DiscordText(L.T("First line"), "Hunting together", "discord_details", L.T("{version} shows the launcher's version"));
