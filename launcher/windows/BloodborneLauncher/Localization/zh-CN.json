@@ -1050,6 +1050,7 @@
   "Changed from the default": "已修改默认绑定",
   "The controller button for this action (the game's {0}). Click, then press a button on the pad.": "此操作对应的手柄按钮 (游戏原始按钮为 {0})。点击后，按下手柄上的按钮。",
   "A controller button of its own for Ping (Touchpad + R3 always works too). Click, then press a button on the pad.": "Ping 专用的手柄按钮 (触摸板 + R3 始终可用)。点击后，按下手柄上的按钮。",
+  "A controller button of its own for Gather the party (Touchpad + L3 always works too). Click, then press a button on the pad.": "召集队伍专用的手柄按钮 (触摸板 + L3 始终可用)。点击后，按下手柄上的按钮。",
   "Press the button on your controller, or pick one below. Esc cancels. A button another action uses swaps over.": "按下手柄按钮，或从下方选择。按 Esc 取消。如果按钮已被占用，会与原操作交换。",
   "Pick a button below (pressing one works while the game is closed).": "从下方选择按钮 (游戏关闭时也可直接按手柄按钮)。",
   "Pick a button below.": "从下方选择按钮。",

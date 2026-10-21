@@ -490,7 +490,7 @@ namespace BloodborneLauncher.Views
             var current = PadMap.Main(Ini, input);
             var chip = new Wpf.Ui.Controls.Button
             {
-                Content = current.Length > 0 ? PadMap.Label(current) : input == "ping" ? control.Pad : L.T("Not bound"),
+                Content = current.Length > 0 ? PadMap.Label(current) : input is "ping" or "gather" ? control.Pad : L.T("Not bound"),
                 Icon = Icon(SymbolRegular.XboxController24),
                 Padding = new Thickness(8, 3, 10, 3),
                 FontSize = 12.5,
@@ -498,6 +498,8 @@ namespace BloodborneLauncher.Views
                 HorizontalAlignment = HorizontalAlignment.Left,
                 ToolTip = input == "ping"
                     ? L.T("A controller button of its own for Ping (Touchpad + R3 always works too). Click, then press a button on the pad.")
+                    : input == "gather"
+                    ? L.T("A controller button of its own for Gather the party (Touchpad + L3 always works too). Click, then press a button on the pad.")
                     : L.F($"The controller button for this action (the game's {control.Pad}). Click, then press a button on the pad."),
             };
             if (!PadMap.IsDefault(Ini, input)) chip.FontWeight = FontWeights.SemiBold;

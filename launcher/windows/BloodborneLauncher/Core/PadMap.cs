@@ -34,7 +34,7 @@ namespace BloodborneLauncher.Core
             ["L1"] = "l1", ["R1"] = "r1", ["L2"] = "l2", ["R2"] = "r2", ["L3"] = "l3", ["R3"] = "r3",
             ["Options"] = "options", ["Touchpad (left)"] = "touchpad", ["Touchpad (right)"] = "touchpad_right",
             ["D-pad up"] = "up", ["D-pad down"] = "down", ["D-pad left"] = "left", ["D-pad right"] = "right",
-            ["Touchpad + R3"] = "ping",
+            ["Touchpad + R3"] = "ping", ["Touchpad + L3"] = "gather",
         };
 
         /// <summary>The engine's defaults (runtime_pad.c bind_defaults).</summary>
@@ -47,6 +47,8 @@ namespace BloodborneLauncher.Core
             ["up"] = "dpup", ["down"] = "dpdown", ["left"] = "dpleft", ["right"] = "dpright",
             // Not a PS4 button: a button of its own for Ping (co-op); Touchpad + R3 always works too.
             ["ping"] = "",
+            // The same for Gather the party (host); Touchpad + L3 always works too.
+            ["gather"] = "",
         };
 
         public static IEnumerable<string> Inputs => Defaults.Keys;
