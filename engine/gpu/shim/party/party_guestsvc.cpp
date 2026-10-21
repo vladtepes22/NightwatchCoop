@@ -98,6 +98,10 @@ bool LampTalk(std::uint32_t talk) {
     return map >= 210 && map <= 369 && map % 10 <= 2 && talk % 1000 <= 3;
 }
 
+bool ChaliceLampTalk(std::uint32_t talk) {
+    return talk >= 290110 && talk <= 290119;
+}
+
 bool LampLitFlagAllowed(std::uint32_t id) {
     const std::uint32_t type = id / 10000000, area = id / 100000 % 100, zone = id / 1000 % 10, n = id % 1000;
     if (area < 21 || area > 36 || id / 10000 % 10 > 2) {
@@ -303,6 +307,12 @@ extern "C" void runtime_pad_director_sticks(int lx, int ly, int rx, int ry); // 
 namespace coop {
 
 /// Guest lamps / headstones: env BB_PARTY_GUEST_LAMPS ("0" / "1") over the Party page setting.
+// Test / diagnostic escape hatch only (no menu row: off would bring the dead lamps back, the host
+// stuck in its dungeon): BB_PARTY_CHALICE_LAMPS=0 leaves the dungeon lamps' talk tests as the game has them.
+bool ChaliceLampsOn() {
+    static const bool on = !(std::getenv("BB_PARTY_CHALICE_LAMPS") && std::getenv("BB_PARTY_CHALICE_LAMPS")[0] == '0');
+    return on;
+}
 bool GuestLampsOn() {
     return GuestLampsEnabledFromEnv(std::getenv("BB_PARTY_GUEST_LAMPS"), BbSettings::Get().party_guest_lamps.load());
 }
@@ -405,7 +415,8 @@ void NoteEnv(std::uint64_t env) {
 // its menu opens; its warp becomes a lamp request to the host (GuestLampIntercept).
 std::uint64_t LampClientAnswer(std::uint64_t env, std::uint64_t value) {
     const std::uint32_t talk = *reinterpret_cast<const std::uint32_t*>(env + 0x10);
-    if (!LampTalk(talk) || HeadstoneTalk(talk) || !g_lamps.load(std::memory_order_relaxed) ||
+    const bool lamp = LampTalk(talk) || (ChaliceLampTalk(talk) && ChaliceLampsOn());
+    if (!lamp || HeadstoneTalk(talk) || !g_lamps.load(std::memory_order_relaxed) ||
         g_session_role.load(std::memory_order_relaxed) != kSessionRoleClient) {
         return value;
     }
@@ -490,7 +501,10 @@ std::uint64_t BB_COOP_SYSV MultiFilter(std::uint64_t env, std::uint64_t value) {
     static const bool host_altars = !(std::getenv("BB_PARTY_HOST_ALTARS") && std::getenv("BB_PARTY_HOST_ALTARS")[0] == '0');
     const bool altar = (altars || (host_altars && LocalSessionRole() != kSessionRoleClient)) && talk >= 210050 &&
                        talk <= 210110 && talk % 10 == 0;
-    if (!HeadstoneTalk(talk) && !LampTalk(talk) && !altar) {
+    // A Chalice Dungeon's lamps (t290110-t290119), both roles: the host's way out of its dungeon
+    // and a guest's lamp (its warp becomes the party's travel question / request as for a world lamp).
+    const bool chalice_lamp = ChaliceLampTalk(talk) && ChaliceLampsOn();
+    if (!HeadstoneTalk(talk) && !LampTalk(talk) && !altar && !chalice_lamp) {
         return value;
     }
     g_multi_overrides.fetch_add(1, std::memory_order_relaxed);
@@ -2069,7 +2083,8 @@ void LogLampTalks() {
             client_logged[i] = t;
             const bool world_talk = g_world_talk.load(std::memory_order_relaxed) && worldact::WorldTalkAllowed(t);
             Log("talk t%06u asks IsClientPlayer (%s)", t,
-                LampTalk(t) && !HeadstoneTalk(t) ? "world lamp: answered 0 with BB_PARTY_GUEST_LAMPS=1"
+                ChaliceLampTalk(t)               ? "Chalice Dungeon lamp: answered 0"
+                : LampTalk(t) && !HeadstoneTalk(t) ? "world lamp: answered 0 with BB_PARTY_GUEST_LAMPS=1"
                 : world_talk                     ? "NPC talk in the host's world: answered 0 (D8)"
                                                  : "as before");
         }
@@ -2080,7 +2095,11 @@ void LogLampTalks() {
         if (t && multi_logged[i] != t) {
             multi_logged[i] = t;
             Log("talk t%06u asks IsMultiplayerInProgress (%s)", t,
-                HeadstoneTalk(t) ? "headstone" : LampTalk(t) ? "lamp: answered 0" : "left as is");
+                HeadstoneTalk(t) ? "headstone"
+                : LampTalk(t)    ? "lamp: answered 0"
+                : ChaliceLampTalk(t) ? (ChaliceLampsOn() ? "Chalice Dungeon lamp: answered 0"
+                                                                                     : "Chalice Dungeon lamp: left as is (BB_PARTY_CHALICE_LAMPS=0)")
+                                 : "left as is");
         }
     }
 }

@@ -104,10 +104,12 @@ constexpr std::uint32_t kItemWeapon = 0x00000000u, kItemProtector = 0x10000000u,
 /// How many of item `id` (type bits above) the local player holds: 0 none, -1 unknown.
 int ItemCount(std::uint32_t type_bits, std::uint32_t id);
 /// How many inventory entries (stacks) hold item `id`: 1 normally; 2 or more is a duplicated stack
-/// (a unique key item given while one was held: the save then lists it twice). -1 unknown.
+/// (a unique key item given while one was held: the save then lists it twice), the key section out
+/// of view counted too (the save writes both; items.md 10.7). -1 unknown.
 int ItemStacks(std::uint32_t type_bits, std::uint32_t id);
 /// The inventory's first section (key items and unique goods, index below +0x24): {type bits | id,
-/// count} of every used entry. Empty for a summoned guest after a host-world load.
+/// count} of every used entry: the key section in view (a summoned guest's emptied one with
+/// BB_PARTY_KEY_VIEW=0, items.md 10.7).
 std::vector<std::pair<std::uint32_t, int>> KeySectionItems();
 /// GiveItemDirect 0x131CB70(0, type bits, id, count); false when the code differs or no player.
 /// It shows nothing; ShowItemGet adds the native "item acquired" entry.

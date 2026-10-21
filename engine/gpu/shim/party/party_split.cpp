@@ -265,6 +265,11 @@ void Carry(const Pending& p, bool alone, const char* how) {
     g_decided_id = p.id;
     g_decided_at = Now();
     Log("lamp %u (%s): %s -> %s", p.id, p.host ? "host" : "guest", how, alone ? "travel alone" : "travel with the party");
+    if (!p.host && alone) {
+        // The guest's own choice to go (option b): while the host is in a Chalice Dungeon it stays out
+        // until Party > Rejoin, instead of being sent home for the summon.
+        b2::NoteChosenApart(p.mark ? "its own Hunter's Mark, alone" : "a lamp / headstone, alone");
+    }
     if (p.host) {
         // Inside the loaded map: no load for anyone (the chr warp; guests of this map beside).
         if (alone ? b2::WarpToLampNoLoad(p.id, false) : b2::HostPartyWarpNoLoad(p.id)) {

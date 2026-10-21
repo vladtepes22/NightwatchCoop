@@ -128,11 +128,18 @@ public:
     // and a member in its prologue is shown none: no summon touches a prologue world (the party
     // director sets this on the host every tick; a manual bell in the prologue finds nothing).
     void set_prologue_members(const std::set<std::string>& ids);
+    // A member whose last join failed and whose UDP is not heard: its signs are not offered and a
+    // summon of it is refused for `ms` (renewed while it stays unheard). Unlike hold_signs this
+    // holds no one else's join (hold_left_ms does not count it).
+    void hide_unreachable(const std::string& online_id, int ms);
     // The longest sign hold still running, ms (0: none). The title join waits it out too.
     std::int64_t hold_left_ms();
     // How long ago the host's game asked to summon a sign (summon_messenger/request), ms.
     std::int64_t ms_since_request();
     std::uint64_t user_id_of(const std::string& online_id);
+    // How long ago the party port heard this member's UDP (its game address as the party knows
+    // it), ms; -1: never / no address. `probe`: also hole-punch it now (its answer counts).
+    std::int64_t udp_heard_ms(const std::string& online_id, bool probe);
     /// The Chalice Dungeon channel board (tests, the party layer).
     ChannelBoard& channels() { return channels_; }
 
@@ -153,6 +160,7 @@ private:
     std::int64_t min_sign_age_ms_ = 0;
     std::vector<Sign> signs_;
     std::vector<std::pair<std::string, std::int64_t>> holds_;
+    std::vector<std::pair<std::string, std::int64_t>> unreach_;  // hide_unreachable: online id -> until
     std::set<std::string> prologue_;  // under mu_  // online id -> steady ms until
     std::uint64_t next_sign_ = 1;
     std::int64_t last_request_ms_ = -(1LL << 40);

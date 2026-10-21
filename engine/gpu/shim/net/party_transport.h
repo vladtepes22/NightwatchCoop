@@ -140,6 +140,14 @@ public:
     void set_host_endpoint(std::uint32_t addr_nbo, std::uint16_t port, bool loopback);
     // The host's online id: its signaling_resolve answer gets the same address fix-up.
     void set_host_online_id(const std::string& id);
+    // F2 (0.7.1): another member reached at an endpoint other than its room records say: the member
+    // relaying for us (its public endpoint that we reach, while the host lists it at the LAN address
+    // its link came from; real 2-PC run 20261021_1929: our game addressed the member at its LAN
+    // address, never reached it, heard it from its public one and never finished the join). Its
+    // records (room members, member-joined events, signaling_resolve) get this endpoint, so our
+    // game sends to and hears it at one address. `port` host order; empty `online_id` clears all.
+    void set_peer_endpoint(const std::string& online_id, std::uint32_t addr_nbo, std::uint16_t port);
+    void clear_peer_endpoints();
     // An EVENT frame's payload from PartyLink; returns the EventId to ACK (0 when unparsable).
     std::uint64_t on_link_event(const std::string& event_json);
     // The host restarted (PartyLink WELCOME not resumed): its EventIds start again at 1.

@@ -52,9 +52,10 @@ constexpr std::uint64_t ChannelFromDwords(std::uint32_t lo, std::uint32_t hi) {
 // by a ritual) any member owns go to every member that lacks them (a guest's to the host, the
 // host's to every guest), in the receiver's own world: whichever dungeon the party clears, every
 // member can perform the next ritual itself, and the host can enter a dungeon a guest made.
-constexpr std::uint32_t kChaliceGoods[] = {6100, 6109, 6200, 6209, 6210, 6219, 6300, 6302, 6309,
-                                           6310, 6312, 6319, 6401, 6409, 6420, 6429, 6500, 6502,
-                                           6509, 6520, 6522, 6529, 6530, 6532, 6539};
+// Only the fixed chalices (ids ending in 9, HolygrailExParam isGenericHolygrail 0): a Root Chalice
+// (isGenericHolygrail 1: 6100, 6200, 6210, 6300, 6302, 6310, 6312, 6401, 6420, 6500, 6502, 6520,
+// 6522, 6530, 6532) is used up by its ritual, so sharing it would hand a used one back.
+constexpr std::uint32_t kChaliceGoods[] = {6109, 6209, 6219, 6309, 6319, 6409, 6429, 6509, 6529, 6539};
 bool IsChaliceGoods(std::uint32_t goods_id);
 constexpr const char* kGoodsEventName = "chalice_goods";
 /// {"goods":[id, ...]}

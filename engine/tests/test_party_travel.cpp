@@ -366,8 +366,17 @@ static void test_chalice_state() {
     std::vector<std::uint32_t> ids;
     CHECK(GoodsFromJsonText(GoodsToJsonText({6109, 6209}), &ids) && ids == (std::vector<std::uint32_t>{6109, 6209}));
     // A peer's list: only chalices, once each.
-    CHECK(GoodsFromJsonText(R"({"goods":[6109,6109,200,7000,-5,1e300,"x",6100]})", &ids) &&
-          ids == (std::vector<std::uint32_t>{6109, 6100}));
+    CHECK(GoodsFromJsonText(R"({"goods":[6109,6109,200,7000,-5,1e300,"x",6209]})", &ids) &&
+          ids == (std::vector<std::uint32_t>{6109, 6209}));
+    // Root Chalices are used up by their ritual: never shared (a used one would come back), also
+    // not when an older peer still sends them; every fixed chalice (id ending in 9) is.
+    for (std::uint32_t root : {6100u, 6200u, 6210u, 6300u, 6302u, 6310u, 6312u, 6401u, 6420u, 6500u, 6502u, 6520u,
+                               6522u, 6530u, 6532u})
+        CHECK(!IsChaliceGoods(root));
+    for (std::uint32_t fixed : {6109u, 6209u, 6219u, 6309u, 6319u, 6409u, 6429u, 6509u, 6529u, 6539u})
+        CHECK(IsChaliceGoods(fixed) && fixed % 10 == 9);
+    CHECK(GoodsFromJsonText(R"({"goods":[6100,6309,6532,6539]})", &ids) &&
+          ids == (std::vector<std::uint32_t>{6309, 6539}));
     CHECK(!GoodsFromJsonText("[]", &ids) && !GoodsFromJsonText(R"({"goods":5})", &ids));
 }
 

@@ -37,6 +37,8 @@ void Poll() {
                 else if (action->string == "quit") bbgpu_request_quit();
                 else if (action->string == "add_guest_code" && name && name->type == json::Value::Type::String)
                     RequestAddGuestCode(name->string);
+                else if (action->string == "add_relay_code" && name && name->type == json::Value::Type::String)
+                    RequestAddRelayCode(name->string);
                 else if (action->string == "kick" && name && name->type == json::Value::Type::String)
                     KickMember(name->string);
             }

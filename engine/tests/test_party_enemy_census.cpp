@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // H4 enemy census (party_enemy_census.h).
 #include "party/party_enemy_census.h"
+#include "party/party_kill_record.h"
 
 #include <cassert>
 #include <cstdio>
@@ -92,6 +93,62 @@ int main() {
         assert(r.Update({{7, false, dying}}, 6.1).size() == 1);
         r.Reset();
         assert(r.Update({{7, false, dying}}, 10).empty());
+    }
+    {
+        // The party's kill record (party_kill_record.h, streamsync).
+        using namespace coop::killrec;
+        using L = std::vector<Obs>;
+        std::vector<std::uint32_t> died;
+        // A neighbour map's enemy killed here, streamed out, back in as a new chr: silent re-kill.
+        KillRecord h;
+        h.Reset(1);
+        assert(h.Update(L{{2400125, true, 0xA0, 11}, {2410247, true, 0xB0, 12}}, 0, &died).empty() && died.empty());
+        assert(h.Update(L{{2400125, false, 0xA0, 11}, {2410247, true, 0xB0, 12}}, 1, &died).empty());
+        assert(died.size() == 1 && died[0] == 2400125 && h.PaidHere(2400125));
+        died.clear();
+        assert(h.Update(L{{2410247, true, 0xB0, 12}}, 5, &died).empty());  // streamed out
+        auto a = h.Update(L{{2400125, true, 0xC0, 13}, {2410247, true, 0xB0, 12}}, 20, &died);
+        assert(a.size() == 1 && a[0].entity == 2400125 && a[0].chr == 0xC0 && a[0].silent && a[0].respawn);
+        assert(died.empty());
+        assert(h.Update(L{{2400125, true, 0xC0, 13}}, 20.5, &died).empty());  // acted on: not twice
+        assert(h.Update(L{{2400125, false, 0xC0, 13}}, 21, &died).empty() && died.empty());  // dead again: no new kill
+        // The same chr alive again without leaving: a revive by the game, forgotten.
+        KillRecord r;
+        r.Update(L{{2410300, true, 0xD0, 1}}, 0, &died);
+        r.Update(L{{2410300, false, 0xD0, 1}}, 1, &died);
+        assert(r.Update(L{{2410300, true, 0xD0, 1}}, 2, &died).empty() && !r.Dead(2410300));
+        died.clear();
+        // A party member's kill: loaded and alive here at the kill -> after the grace, with echoes.
+        KillRecord g;
+        g.Reset(4);
+        g.Update(L{{2400125, true, 0xE0, 2}}, 0, &died);
+        assert(g.AddRemote(2400125, 1) && !g.AddRemote(2400125, 1));
+        assert(g.Update(L{{2400125, true, 0xE0, 2}}, 2, &died).empty());  // grace: the game's own sync first
+        a = g.Update(L{{2400125, true, 0xE0, 2}}, 4.5, &died);
+        assert(a.size() == 1 && !a[0].silent && !a[0].respawn);
+        assert(g.Update(L{{2400125, false, 0xE0, 2}}, 5, &died).empty() && died.empty() && g.PaidHere(2400125));
+        // Not loaded here at the kill: put to death silently when it streams in.
+        assert(g.AddRemote(2400200, 6));
+        a = g.Update(L{{2400200, true, 0xF0, 3}}, 30, &died);
+        assert(a.size() == 1 && a[0].silent && !a[0].respawn);
+        // Died through the game's own sync within the grace: nothing to do.
+        g.Update(L{{2410400, true, 0x100, 4}}, 31, &died);
+        g.AddRemote(2410400, 31.2);
+        assert(g.Update(L{{2410400, false, 0x100, 4}}, 32, &died).empty() && died.empty());
+        // Bosses and enemies without an entity id are never recorded.
+        assert(!g.AddRemote(2410800, 40) && !g.AddRemote(0, 40) && !g.AddRemote(0xFFFFFFFFu, 40));
+        // This game's own load: a hold first (a party load's reset may come later), then silent.
+        g.LocalLoad(50);
+        assert(g.Update(L{{2400125, true, 0x200, 9}}, 51, &died).empty());
+        a = g.Update(L{{2400125, true, 0x200, 9}}, 61, &died);
+        assert(a.size() == 1 && a[0].silent && a[0].respawn);
+        // The host's next epoch: everything forgotten.
+        g.Reset(5);
+        assert(g.size() == 0 && g.epoch() == 5 && g.Update(L{{2400125, true, 0x300, 7}}, 70, &died).empty());
+        // Two chrs of one id: left alone.
+        KillRecord d;
+        d.Update(L{{2400300, true, 1, 1}, {2400300, true, 2, 2}}, 0, &died);
+        assert(d.Update(L{{2400300, false, 1, 1}, {2400300, true, 2, 2}}, 1, &died).empty() && !d.Dead(2400300));
     }
     std::puts("party-enemy-census-test: ok");
     return 0;

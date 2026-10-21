@@ -137,6 +137,13 @@ constexpr long long kSignSummonHold = 20000;
 constexpr long long kSignSummonNoJoin = 10000;
 bool SignSummonBusy(const HostView& v);
 const char* HostRefusal(const HostView& v);
+/// A guest whose last direct summon failed (dsum_done ok 0) and whose UDP the host's party port
+/// has not heard since (a probe's answer counts): an unreachable joiner that entered the room
+/// made the guest already in the session leave (OnMatchingError -> BeginLeaveSession, smoke
+/// summonfail 2026-10-21). Neither path summons it until it is heard, or kUnreachableMax passed.
+/// `failed_at` / `heard_at`: seconds on one clock (<= 0: never).
+constexpr double kUnreachableMax = 180.0;
+bool UnreachableHold(double failed_at, double heard_at, double now);
 /// The "wait" word a refusal of `v` carries (the guest's Party page / its gather): Prologue,
 /// OtherMap, Boss, Cutscene or None.
 Busy RefusalWait(const HostView& v);

@@ -119,6 +119,19 @@ static void EveryState() {
                                         ++states;
                                     }
     std::printf("game menu rows: %d party states within %zu rows a page\n", states, P::RowsPerPage);
+    // 0.7.1: the switches that had only an env variable (Shared world: the host's rules, one row
+    // each for host and guest; Party rewards: the key item rows, full at six with the Insight list).
+    for (const ps::Role role : {ps::Role::Host, ps::Role::Guest, ps::Role::Off}) {
+        ps::ResetForTest(true);
+        ps::SetRole(role);
+        P::Load();
+        const auto world = Names(PageNamed("Shared world"));
+        assert(world.size() == 3 && Has(world, "Enemies stay dead") && Has(world, "Host can gather") &&
+               Has(world, "NPCs as in host's world"));
+        const auto rewards = Names(PageNamed("Party rewards"));
+        assert(rewards.size() == P::RowsPerPage && Has(rewards, "Own key items as guest") &&
+               Has(rewards, "Key items at once") && rewards.back() == "Insight for bosses");
+    }
 }
 
 /// The states players reported.

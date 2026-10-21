@@ -14,6 +14,9 @@
 #include "party_async_io.h"
 #include "party_desync.h"
 #include "party_balance.h"
+#include "party_kill_record.h"
+#include "party_status.h"
+#include "../bbport_settings.h"
 
 #include "game_state.h"
 #include "party_link.h"
@@ -168,6 +171,149 @@ void HostDesync(Bridge& b, party::PartyLink* link, const std::map<int, std::stri
     }
 }
 
+// ---- The party's kill record (party_kill_record.h) ----
+struct KillRecordGame {
+    killrec::KillRecord rec;
+    bool started = false;  // host: its first epoch; guest: ran once
+    bool on = false;       // the switch at the last tick
+    bool was_down = true;  // loading / no world at the last tick
+    bool was_active = false;
+    std::set<int> members;  // host: the members its full record went to
+    double next = 0;
+    u64 respawns = 0, remote = 0, sent = 0;
+};
+KillRecordGame& KR() {
+    static KillRecordGame k;
+    return k;
+}
+
+std::string IdList(const std::vector<u32>& v) {
+    std::string o;
+    for (std::size_t i = 0; i < v.size() && i < 12; ++i) o += (i ? " " : "") + std::to_string(v[i]);
+    if (v.size() > 12) o += " ...";
+    return o;
+}
+
+void PostKills(party::PartyLink* link, int slot, const std::vector<u32>& ids) {
+    desync::KillRecordMsg m;
+    m.epoch = static_cast<u32>(KR().rec.epoch());
+    m.kills = ids;
+    if (m.kills.size() > desync::kKillRecordMaxIds) m.kills.resize(desync::kKillRecordMaxIds);
+    link->post_event(slot, desync::kKillRecordEvent, desync::KillRecordToJson(m));
+}
+
+/// Every frame in a party session (host: a member connected; guest: in the host's world): the
+/// party's kill record. `members`: the host's connected member slots (a new one gets the record).
+void KillRecordTick(party::PartyLink* link, bool host, bool active, const std::map<int, std::string>& members) {
+    // The host's rule (System > Shared world, bbport.ini party_kill_record, BB_PARTY_KILL_RECORD
+    // at start): the host's own setting, a guest follows the host's (party_balance Rules). Live.
+    const bool on = host ? BbSettings::Get().party_kill_record.load()
+                         : party::status::HostRuleOn(party::status::HostRule::KillRecord);
+    if (!link) return;
+    KillRecordGame& k = KR();
+    const double now = NowS();
+    if (!on) {
+        // The host relays nothing while off. A guest keeps what came in: the host's record of a
+        // new world can arrive just before its rules turn the switch on again (live: 40 ms).
+        if (host) (void)desync::PopKillRecords();
+        if (k.on) BLog("kill record: off (%s)", host ? "System > Shared world" : "the host's rule");
+        k.on = false;
+        return;
+    }
+    if (!k.on && k.started) {
+        // On again: kills from before may be stale (a rest in between). The host starts a new
+        // world (its members get it afresh); a guest waits for the host's.
+        if (host) {
+            k.rec.Reset(k.rec.epoch() + 1);
+            k.members.clear();
+        } else {
+            k.rec.Reset(0);
+        }
+        BLog("kill record: on again: world %llu", static_cast<unsigned long long>(k.rec.epoch()));
+    }
+    k.on = true;
+    k.started = k.started || !host;
+    if (host && !k.started) {
+        k.started = true;
+        k.rec.Reset(1);
+    }
+    for (auto& [slot, m] : desync::PopKillRecords()) {
+        if (host) {
+            if (m.epoch != k.rec.epoch()) continue;  // sent before the host's last load
+            std::vector<u32> fresh;
+            for (u32 id : m.kills)
+                if (k.rec.AddRemote(id, now)) fresh.push_back(id);
+            if (fresh.empty()) continue;
+            k.remote += fresh.size();
+            PostKills(link, party::kBroadcast, fresh);
+            BLog("kill record: %zu kill(s) seen on slot %d's game (%s): recorded, relayed to the party", fresh.size(),
+                 slot, IdList(fresh).c_str());
+            continue;
+        }
+        if (m.epoch != k.rec.epoch()) {
+            BLog("kill record: the host's world %u (was %llu): record cleared, %zu kill(s) in it", m.epoch,
+                 static_cast<unsigned long long>(k.rec.epoch()), m.kills.size());
+            k.rec.Reset(m.epoch);
+        }
+        std::vector<u32> fresh;
+        for (u32 id : m.kills)
+            if (k.rec.AddRemote(id, now)) fresh.push_back(id);
+        k.remote += fresh.size();
+        if (!fresh.empty()) BLog("kill record: %zu party kill(s) from the host (%s)", fresh.size(), IdList(fresh).c_str());
+    }
+    const GameSnapshot g = ReadGameState(false);
+    const bool down = !g.world_up || g.loading || !g.player;
+    if (down && !k.was_down && g.loading) {
+        if (host) {
+            // A rest, a death, a travel: every enemy respawned, for the whole party.
+            k.rec.Reset(k.rec.epoch() + 1);
+            if (active) PostKills(link, party::kBroadcast, {});
+            BLog("kill record: a load: world %llu, record cleared", static_cast<unsigned long long>(k.rec.epoch()));
+        } else {
+            k.rec.LocalLoad(now);
+        }
+    }
+    k.was_down = down;
+    if (host && active && !k.was_active && k.rec.size()) {
+        // Alone in between (single-player rules): the world as the game left it.
+        k.rec.Reset(k.rec.epoch() + 1);
+        BLog("kill record: a party again: world %llu, record cleared", static_cast<unsigned long long>(k.rec.epoch()));
+    }
+    k.was_active = active;
+    if (host) {
+        for (auto it = k.members.begin(); it != k.members.end();) it = members.count(*it) ? std::next(it) : k.members.erase(it);
+        for (const auto& [slot, name] : members) {
+            if (k.members.insert(slot).second) {
+                PostKills(link, slot, k.rec.Entities());
+                BLog("kill record: %zu kill(s) of world %llu sent to %s (slot %d)", k.rec.size(),
+                     static_cast<unsigned long long>(k.rec.epoch()), name.c_str(), slot);
+            }
+        }
+    }
+    if (!active || down || now < k.next) return;
+    k.next = now + 0.5;
+    std::vector<killrec::Obs> obs;
+    for (const EnemyKillCandidate& e : balance::LoadedEnemies()) obs.push_back({e.entity, e.alive, e.chr, e.id});
+    std::vector<u32> died;
+    const std::vector<killrec::Action> acts = k.rec.Update(obs, now, &died);
+    if (!died.empty() && (host || k.rec.epoch() != 0)) {
+        k.sent += died.size();
+        PostKills(link, host ? party::kBroadcast : party::kHostSlot, died);
+        BLog("kill record: %zu death(s) here (%s) sent to %s", died.size(), IdList(died).c_str(),
+             host ? "the party" : "the host");
+    }
+    for (const killrec::Action& a : acts) {
+        const bool ok = a.silent ? balance::SetEnemyDeadQuietly(a.chr) : balance::SetEnemyHpZero(a.chr);
+        if (a.respawn) ++k.respawns;
+        BLog("kill record: entity %u %s: %s", a.entity,
+             a.respawn ? "alive again after its map streamed in (no rest, no death load)"
+             : a.silent ? "streamed in alive, killed by the party before this game had it loaded"
+                        : "alive here, killed by the party 3 s ago",
+             ok ? (a.silent ? "put to death again (no echoes, no drop)" : "put to death (the kill's echoes and drop roll)")
+                : "could not be put to death");
+    }
+}
+
 /// Guest, main thread: the host digest's enemy census against this game's (party_desync.h).
 struct CensusCheck {
     bool ask_due = false;
@@ -178,6 +324,7 @@ struct CensusCheck {
     int test_after = -1;
     bool test_fired = false;
     u32 fake_dead = 0;  // BB_PARTY_CENSUS_TEST: a living enemy this game reports as dead
+    bool last_matched = false;  // the last compared digest matched (a match after a difference is logged)
 };
 std::atomic<const char*> g_census_log_next{nullptr};  // CensusLogNext: why
 CensusCheck& CC() {
@@ -221,11 +368,12 @@ void GuestCensus(party::PartyLink* link) {
             if (diff.empty() && !unnamed) {
                 ++c.matched;
                 const char* why = g_census_log_next.exchange(nullptr);
-                if (c.matched == 1 || c.matched % 20 == 0 || why) {
+                if (c.matched == 1 || c.matched % 20 == 0 || why || !c.last_matched) {
                     BLog("enemy census: digest %llu matches the host's (%s in %s)%s%s",
                          static_cast<unsigned long long>(c.matched), CensusCounts(mine).c_str(), MapName(map).c_str(),
-                         why ? ", after " : "", why ? why : "");
+                         why ? ", after " : !c.last_matched && c.matched > 1 ? " again" : "", why ? why : "");
                 }
+                c.last_matched = true;
                 if (c.test_after < 0) c.test_after = desync::CensusTestAfterFromEnv();
                 if (c.test_after > 0 && !c.test_fired && c.matched >= static_cast<u64>(c.test_after)) {
                     for (const desync::CensusEntry& e : list) {
@@ -240,6 +388,7 @@ void GuestCensus(party::PartyLink* link) {
                 }
             } else {
                 ++c.differed;
+                c.last_matched = false;
                 g_census_log_next.store(nullptr);
                 BLog("enemy census: differs from the host's digest in %zu bucket(s)%s (host %s, here %s); checking "
                      "again in %.0f s",
@@ -297,7 +446,10 @@ void GuestCensus(party::PartyLink* link) {
                 std::string ids;
                 for (const EnemyKillCandidate& e : balance::LoadedEnemies()) {
                     auto it = want.find(e.entity);
-                    if (it == want.end() || it->second <= 0 || !e.alive || !balance::SetEnemyHpZero(e.chr)) continue;
+                    // Already paid for here (the kill record: it died on this game before): quietly.
+                    if (it == want.end() || it->second <= 0 || !e.alive ||
+                        !(KR().rec.PaidHere(e.entity) ? balance::SetEnemyDeadQuietly(e.chr) : balance::SetEnemyHpZero(e.chr)))
+                        continue;
                     --it->second;
                     ++done;
                     ids += (ids.empty() ? "" : " ") + std::to_string(e.entity);
@@ -316,7 +468,8 @@ void GuestCensus(party::PartyLink* link) {
     }
 }
 
-void GuestDesync(party::PartyLink* link) {
+void GuestDesync(party::PartyLink* link, bool in_world) {
+    KillRecordTick(link, false, in_world, {});
     std::string body;
     if (link && !link->is_host() && desync::GuestPopResync(&body)) {
         link->post_event(party::kHostSlot, desync::kResyncEvent, body);
@@ -409,6 +562,7 @@ void HostSide(Bridge& b, party::PartyLink* link) {
              static_cast<unsigned long long>(changes.front().seq), static_cast<unsigned long long>(changes.back().seq));
     }
     HostDesync(b, link, b.connected);
+    KillRecordTick(link, true, !b.connected.empty(), b.connected);
     if (!b.want_snapshot.empty()) {
         FlagSnapshot snap;
         WorldImage image;
@@ -474,7 +628,7 @@ void DirectorTick(const GameSnapshot& s, party::PartyLink* link) {
         break;
     case Role::Guest:
         GuestSide(b, s);
-        GuestDesync(link);
+        GuestDesync(link, b.guest_in_world);
         break;
     default:
         break;

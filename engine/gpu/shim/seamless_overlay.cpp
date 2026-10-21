@@ -26,7 +26,6 @@ ImFont* game_font = nullptr;
 std::atomic<std::uint64_t> toast_seen{0};  // the party event already shown
 std::atomic<std::int64_t> toast_until_ms{0}; // steady clock
 std::string toast_text;                      // present thread (imgui_mutex)
-constexpr std::int64_t ToastMs = 4000;
 
 std::int64_t SteadyMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -269,7 +268,11 @@ void PartyHud() {
         const float name_h = ImGui::GetItemRectSize().y;
         ImGui::PopFont();
         float right_edge = row.x + width;
-        if (c.same_map) {
+        if (c.spectating && here) {
+            // C5: dead in the boss fight, its camera following a member (its chr is carried along:
+            // a distance would say "0.2 m" from that member).
+            std::snprintf(right_text, sizeof right_text, "%s", BbSettings::MenuText("Spectating", "Наблюдает"));
+        } else if (c.same_map) {
             const float d = party::hud::Distance(b.me_pos, c.pos);
             const float r = 5.5f * s;
             const ImVec2 centre(right_edge - r, row.y + name_h * 0.5f);
@@ -316,6 +319,15 @@ void PartyHud() {
     const int overhead = BbSettings::Get().party_overhead.load();
     const ImVec2 display = viewport->Size;
     ImDrawList* bg = ImGui::GetBackgroundDrawList();
+    // Our own body on screen (its physics position now, the board's as the fallback): a member
+    // behind it gets no tag (party_hud.h OwnBodyTagAlpha; walls still do not hide tags).
+    party::hud::ScreenBox me_box;
+    if (b.me_have_pos) {
+        float me[3] = {b.me_pos[0], b.me_pos[1], b.me_pos[2]};
+        coop::PartyHudChrPos(b.me_chr, b.me_pos, me);
+        me_box = party::hud::BodyBox(cam.view.data(), cam.proj.data(), me, display.x, display.y,
+                                     party::hud::kOwnBodyHalfWidth);
+    }
     for (int i = 0; i < b.count; ++i) {
         const party::hud::Companion& c = b.c[i];
         // Only a live chr here, alive, on our map, from a fresh board (a dead / re-spawned / removed
@@ -355,26 +367,47 @@ void PartyHud() {
         if ((u < 0.34f && v < 0.26f) || (u > 0.80f && v > 0.86f)) {
             continue;
         }
-        {   // Test aids: BB_PARTY_HUD_TAGLOG=1 logs the tag's distance / camera depth / anchor once a
-            // second (plate measurements), BB_PARTY_HUD_TAGLOG=frame every frame with the chr position
-            // used and the camera's age; BB_PARTY_HUD_TAG_HIDE=1 draws no tag (the game's plate alone).
+        const party::hud::ScreenBox member_box = party::hud::BodyBox(
+            cam.view.data(), cam.proj.data(), pos, display.x, display.y, party::hud::kMemberBodyHalfWidth);
+        const float cover = party::hud::OwnBodyTagAlpha(member_box, me_box);
+        const int slot = c.slot >= 0 && c.slot < party::kMaxVitals ? c.slot : 0;
+        {
+            static bool behind_logged[party::kMaxVitals];
+            if (behind_logged[slot] != (cover <= 0.0f)) {
+                behind_logged[slot] = cover <= 0.0f;
+                std::printf("Party HUD: tag %s %s (its box x %.0f..%.0f depth %.1f, ours x %.0f..%.0f depth %.1f)\n",
+                            c.name,
+                            cover <= 0.0f ? "hidden: behind this player's own character" : "out from behind this player",
+                            member_box.x0, member_box.x1, member_box.depth, me_box.x0, me_box.x1, me_box.depth);
+            }
+        }
+        {   // Test aids: BB_PARTY_HUD_TAGLOG=1 logs each tag's distance / camera depth / anchor once a
+            // second (plate measurements; the own-body cover with both boxes), BB_PARTY_HUD_TAGLOG=frame
+            // every frame with the chr position used and the camera's age; BB_PARTY_HUD_TAG_HIDE=1 draws
+            // no tag (the game's plate alone).
             static const char* const taglog_env = std::getenv("BB_PARTY_HUD_TAGLOG");
             static const bool taglog = taglog_env != nullptr, every_frame = taglog && taglog_env[0] == 'f';
-            static std::int64_t last_log = 0;
-            if (taglog && (every_frame || party::hud::NowMs() - last_log >= 1000)) {
-                last_log = party::hud::NowMs();
+            static std::int64_t last_log[party::kMaxVitals] = {};
+            if (taglog && (every_frame || party::hud::NowMs() - last_log[slot] >= 1000)) {
+                last_log[slot] = party::hud::NowMs();
                 std::printf("Party HUD: tagdiag %s d=%.2f depth=%.2f x=%.1f y=%.1f display=%.0fx%.0f t=%lld "
-                            "chr=(%.3f %.3f %.3f) %s board=(%.3f %.3f %.3f) cam_age=%lld\n",
+                            "chr=(%.3f %.3f %.3f) %s board=(%.3f %.3f %.3f) cam_age=%lld cover_alpha=%.2f "
+                            "box=(%.0f..%.0f, %.0f..%.0f) own=(%.0f..%.0f, %.0f..%.0f)\n",
                             c.name, d, sp.depth, sp.x, sp.y, display.x, display.y,
-                            static_cast<long long>(last_log), pos[0], pos[1], pos[2], live ? "live" : "board",
-                            c.pos[0], c.pos[1], c.pos[2], static_cast<long long>(BbCamera::NowMs() - cam.at_ms));
+                            static_cast<long long>(last_log[slot]), pos[0], pos[1], pos[2], live ? "live" : "board",
+                            c.pos[0], c.pos[1], c.pos[2], static_cast<long long>(BbCamera::NowMs() - cam.at_ms), cover,
+                            member_box.x0, member_box.x1, member_box.y0, member_box.y1, me_box.x0, me_box.x1,
+                            me_box.y0, me_box.y1);
             }
             static const bool hide = std::getenv("BB_PARTY_HUD_TAG_HIDE") != nullptr;
             if (hide) {
                 continue;
             }
         }
-        const float alpha = std::clamp((80.0f - d) / 30.0f, 0.0f, 1.0f) * 0.95f;
+        if (cover <= 0.0f) {
+            continue;
+        }
+        const float alpha = std::clamp((80.0f - d) / 30.0f, 0.0f, 1.0f) * 0.95f * cover;
         // Name, with the level ("Lv 42") or the deaths ("3 deaths, rot 2") after it.
         char label[96];
         const bool ru = BbSettings::MenuText("en", "ru")[0] == 'r';
@@ -658,7 +691,7 @@ void PartyPings() {
     }
 }
 
-/// Party notices (join / leave / travel): the latest party_status event for ToastMs in a bottom
+/// Party notices (join / leave / travel): the latest party_status event for ToastMs (by its length) in a bottom
 /// corner, clear of the game's HUD (bottom left; bottom right while the performance HUD has the
 /// bottom left), fading out. Not
 /// interactive, never "menu open"; a newer event replaces the one shown.
@@ -671,7 +704,7 @@ void PartyToast() {
         const party::status::Board b = party::status::Snapshot();
         toast_seen = b.event_seq;
         toast_text = b.last_event;
-        toast_until_ms = toast_text.empty() ? 0 : now + ToastMs;
+        toast_until_ms = toast_text.empty() ? 0 : now + party::status::ToastMs(toast_text);
     }
     const std::int64_t left = toast_until_ms.load() - now;
     if (left <= 0 || toast_text.empty()) {
@@ -816,7 +849,7 @@ void HoldPartyNoticesInGameMenu() {
         const party::status::Board b = party::status::Snapshot();
         toast_seen = b.event_seq;
         toast_text = b.last_event;
-        toast_until_ms = toast_text.empty() ? 0 : now + ToastMs;
+        toast_until_ms = toast_text.empty() ? 0 : now + party::status::ToastMs(toast_text);
     } else if (toast_until_ms.load() > now) {
         toast_until_ms += dt;
     }

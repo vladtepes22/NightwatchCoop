@@ -30,7 +30,8 @@ target_include_directories(party-link-test PRIVATE shim)
 set_target_properties(party-link-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
 add_executable(party-nat-test EXCLUDE_FROM_ALL ../tests/test_party_nat.cpp ${PARTY_LINK_SOURCES}
-    shim/party/party_nat.cpp shim/party/party_rdv.cpp shim/net/net_stun.cpp shim/net/netsim.cpp
+    shim/party/party_nat.cpp shim/party/party_rdv.cpp shim/party/party_netpath.cpp shim/net/party_route.cpp
+    shim/net/party_udp.cpp shim/net/net_stun.cpp shim/net/netsim.cpp
     third_party/monocypher/monocypher.c)
 
 target_compile_options(party-nat-test PRIVATE -UNDEBUG -Wall -Wextra)
@@ -116,6 +117,21 @@ target_compile_options(party-spectate-test PRIVATE -UNDEBUG -Wall -Wextra -Werro
 target_include_directories(party-spectate-test PRIVATE shim)
 
 set_target_properties(party-spectate-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
+add_executable(party-gather-test EXCLUDE_FROM_ALL ../tests/test_party_gather.cpp)
+target_compile_options(party-gather-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-gather-test PRIVATE shim)
+set_target_properties(party-gather-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
+add_executable(party-remote-show-test EXCLUDE_FROM_ALL ../tests/test_party_remote_show.cpp)
+target_compile_options(party-remote-show-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-remote-show-test PRIVATE shim)
+set_target_properties(party-remote-show-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
+add_executable(party-npc-mirror-test EXCLUDE_FROM_ALL ../tests/test_party_npc_mirror.cpp)
+target_compile_options(party-npc-mirror-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-npc-mirror-test PRIVATE shim)
+set_target_properties(party-npc-mirror-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
 add_executable(party-death-rules-test EXCLUDE_FROM_ALL ../tests/test_party_death_rules.cpp)
 
@@ -420,3 +436,14 @@ target_include_directories(game-menu-rows-test PRIVATE .. shim)
 set_target_properties(game-menu-rows-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 add_test(NAME game-menu-rows-test COMMAND game-menu-rows-test)
 add_dependencies(seamless-tests game-menu-rows-test)
+
+# visy builds everything with WIN32_LEAN_AND_MEAN: without it <windows.h> brings in winsock, whose
+# h_addr macro breaks shim/net/party_route.cpp (Router::Client::h_addr, 0.7.1). The test targets
+# compiling it get the define here.
+get_property(_seamless_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_target IN LISTS _seamless_targets)
+    get_target_property(_sources ${_target} SOURCES)
+    if(NOT _target STREQUAL "bbgpu" AND "${_sources}" MATCHES "party_route\.cpp")
+        target_compile_definitions(${_target} PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    endif()
+endforeach()

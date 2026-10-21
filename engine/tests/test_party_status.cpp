@@ -131,7 +131,17 @@ static void test_threads() {
     assert(EventSeq() == 200);
 }
 
+static void test_toast_ms() {
+    assert(ToastMs("") == 3000);
+    assert(ToastMs("Hunter1 joined") == 3000 + 14 * 60);
+    assert(ToastMs("Hunter1 can't reach you (UDP blocked)") == 3000 + 37 * 60);
+    assert(ToastMs("\xd0\x9e\xd1\x85\xd0\xbe\xd1\x82\xd0\xbd\xd0\xb8\xd0\xba") == 3000 + 7 * 60);  // 7 Cyrillic letters, 14 bytes
+    assert(ToastMs(std::string(300, 'x')) == 10000);  // capped
+    assert(ToastMs(std::string(116, 'x')) == 9960 && ToastMs(std::string(117, 'x')) == 10000);
+}
+
 int main() {
+    test_toast_ms();
     test_snapshot();
     test_commands();
     test_threads();

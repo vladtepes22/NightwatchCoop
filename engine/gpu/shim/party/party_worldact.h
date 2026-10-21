@@ -74,7 +74,65 @@ bool NpcGiftTrigger(std::uint32_t id);
 /// clears the trigger as 9100 would. -1: not such a trigger.
 std::int32_t RepeatGiftLot(std::uint32_t trigger);
 
-constexpr std::size_t kMaxKicks = 4, kMaxFog = 2, kMaxStory = 2;
+constexpr std::size_t kMaxKicks = 4, kMaxFog = 2, kMaxStory = 2, kMaxLift = 4;
+
+/// D3 (lifts071): a lift (elevator) and its state flags, from the EMEVD of its up / down events.
+/// `pos` is where the car is (the up event sets it 1, the down event 0, or the other way round),
+/// `busy` is on while a ride runs (and after it until every player left the car), `host_state` the
+/// newer lifts' "host's state" copy of `pos` (event `...ホスト状態管理`, 0 = none), `car` the car's
+/// map object. Each game runs its own copy of a lift's events; the game's own network sync starts
+/// the copies of the other games that have the lift's map block loaded (live: within 0.05 s), but
+/// a game with that block streamed out (Cathedral Ward's lifts while that game is far away in
+/// Central Yharnam) never runs its copy: its world keeps the car at the old end, and the block's
+/// init event puts the car there again when the block streams back in.
+/// liftfall: a lift whose events have no network sync (the Nightmare of Mensis' library lift
+/// 12601352: each game's copy only waits for its own player in the car) never moves on the other
+/// games. `gate` / the end animations: what its own copy plays right before it writes `pos` (the car
+/// and its gate standing at that end); LiftReplayTick plays them on a game whose `pos` changed
+/// without its own ride (the mirror brought the host's ride to a guest, or the host took a guest's).
+/// busy 0: none (that lift's ride ends with the flag).
+struct Lift {
+    std::uint32_t pos, busy, host_state;
+    std::int32_t car;
+    std::int32_t gate = 0;
+    std::int16_t car_end_on = -1, car_end_off = -1, gate_end_on = -1, gate_end_off = -1;
+    bool Replays() const { return car_end_on >= 0 && car_end_off >= 0; }
+};
+/// Every lift of the main game and the DLC (not the Chalice Dungeons' generated ones).
+const std::vector<Lift>& Lifts();
+/// The lift whose position flag is `pos`, or nullptr.
+const Lift* LiftByPosFlag(std::uint32_t pos);
+/// The host's answer to a guest's finished ride (lift_set / lift_clr): `same` the host's world has
+/// that end already (its own copy ran: the usual case), `busy` a ride runs in the host's world (its
+/// own copy decides), `loaded` the car is loaded in the host's game but its copy did not follow
+/// (left alone: setting the flag would not move the car), `apply` the lift's block is not loaded
+/// here: the flags are written and the block's init event puts the car at that end when it
+/// streams in.
+/// liftfall: a lift that `replays` (Lift::Replays) is applied with its car loaded too (the host's
+/// LiftReplayTick then puts the car at that end), unless the host stands at it (`occupied`: within
+/// a few m of the car: its own copy may be about to ride; left alone).
+enum class LiftSync { apply, same, busy, loaded, occupied };
+LiftSync HostLiftSync(bool host_pos, bool host_busy, bool car_loaded, bool want, bool replays = false,
+                      bool occupied = false);
+/// liftfall: what LiftReplayTick does when `pos` changed on this game: nothing when the car shows the
+/// new end's animation already (its own copy rode) or the lift does not replay; else play the end.
+bool LiftNeedsReplay(const Lift& l, bool pos_now, std::int32_t car_anim);
+/// Any role, main thread (liftfall): replays lifts' ends (Lift::Replays) moved by another game.
+void LiftReplayTick(const GameSnapshot& s);
+/// liftfall: the local chr at `p` stands within kLiftCarRadius m (horizontally) of a lift car that
+/// plays an animation (a ride): the fall recovery's "on a moving object" (the chr's own ride flag
+/// is not set on the local chr: live, Mensis lift 2601240).
+constexpr float kLiftCarRadius = 4.0f;
+/// The local player stands in a car (the library lift's car regions are 1.7 m from its call spots).
+constexpr float kLiftInCarRadius = 1.2f;
+bool OnMovingLiftCar(const float p[3]);
+/// liftfall: a ride of lift `l` runs on this game (its car animates) or the local player stands
+/// within `radius` m (horizontally) of its car. False when the car is not loaded.
+bool LiftBusyHere(const Lift& l, float radius);
+/// Guest: a lift position change of its own copy goes to the host once the ride is over (`busy`
+/// off) and the flag still reads the value it changed to; false while it runs.
+bool GuestLiftRideDone(bool pos_now, bool pos_changed_to, bool busy);
+
 struct Request {
     std::uint32_t map = 0;  ///< the guest's map when it sent this (logged; not trusted)
     std::vector<std::uint32_t> set, clr;
@@ -87,8 +145,12 @@ struct Request {
     /// D10: story events (StoryTrigger::event) whose trigger spot the guest reached: the host's chr
     /// runs the event (its scene plays for the whole party). Never written into anyone's save.
     std::vector<std::uint32_t> story;
+    /// D3 (lifts071): lift position flags (Lift::pos) the guest's own copy of a lift's events moved
+    /// to 1 / 0 (a finished ride); the host applies them when its own copy did not run (HostLiftSync).
+    std::vector<std::uint32_t> lift_set, lift_clr;
     bool operator==(const Request& o) const {
-        return map == o.map && set == o.set && clr == o.clr && kick == o.kick && fog == o.fog && story == o.story;
+        return map == o.map && set == o.set && clr == o.clr && kick == o.kick && fog == o.fog && story == o.story &&
+               lift_set == o.lift_set && lift_clr == o.lift_clr;
     }
 };
 std::string RequestToJson(const Request& r);
@@ -238,8 +300,11 @@ const KeyItemGate* KeyItemGateByOpenFlag(std::uint32_t open_flag);
 /// condition `group`: the data's own (held_group: 1, the other: 0), both flipped when `invert`.
 std::uint8_t KeyItemGateHeldState(const KeyItemGate& g, int group, bool invert);
 /// Guest: invert the gate's checks? Only a summoned guest (role 6, the host-world overlay) whose
-/// own save or the host's world has the item's pickup flag.
-bool KeyItemGateInvert(bool summoned_guest, bool own_flag, bool host_world_flag);
+/// own save or the host's world has the item's pickup flag, and whose inventory reads the item as
+/// not held (`held` <= 0). In the game's summoned key view every key reads 0; with the own key
+/// section shown (items.md 10.7, BB_PARTY_KEY_VIEW) a held emblem reads 1 and the data's own check
+/// opens the gate - inverted, it would take the "need the emblem" branch.
+bool KeyItemGateInvert(bool summoned_guest, bool own_flag, bool host_world_flag, int held);
 /// The visit is over (put the host back): the event went on (the boss-started flag, the intro's
 /// boss-area flag 9180 - not for a chained spot - or a cutscene) or it timed out.
 bool FirstFightVisitDone(bool host_flag_on, bool flag9180_on, bool cutscene, double visit_s, bool chained = false,
@@ -318,6 +383,17 @@ bool StandAtObject(std::int32_t entity, float dist, float angle_deg, std::string
 /// The point StandAtObject would use (DIST m from map object ENTITY at ANGLE degrees from its
 /// front), without moving anyone; false when the object is not loaded.
 bool ObjectPoint(std::int32_t entity, float dist, float angle_deg, float out[3]);
+/// Test aid (lifts071): a map object's animation state, as the EMEVD 2003[18] "wait for the end"
+/// condition reads it (0x13CC180): the per-block object entry (0x2E0 bytes) of `entity`'s handle,
+/// +0x208 the playing animation id, +0x1FE bit 3 "playing", +0x1FC flags, +0x230 the anim state.
+/// False when the object is not loaded.
+struct ObjAnimState {
+    std::uint64_t entry = 0;
+    std::uint32_t handle = 0, flags = 0;
+    std::int32_t anim = -1, state = -1;
+    bool playing = false;
+};
+bool ReadObjAnim(std::int32_t entity, ObjAnimState* out);
 /// Test fixture: the same for a character (NPC) entity.
 bool StandAtChr(std::int32_t entity, float dist, float angle_deg, std::string* what);
 /// BB_PARTY_WORLDACT_TEST: the fixture's objects and pickups once more, its "after=" s from now.

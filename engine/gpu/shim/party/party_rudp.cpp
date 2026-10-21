@@ -363,4 +363,61 @@ bool decode_guest_code(const std::string& code, std::uint32_t* addr_nbo, std::ui
     return *port_nbo != 0;
 }
 
+std::string encode_guest_code6(const std::uint8_t addr[16], std::uint16_t port_nbo) {
+    std::uint8_t b[19];
+    std::memcpy(b, addr, 16);
+    std::memcpy(b + 16, &port_nbo, 2);
+    b[18] = crc8(b, 18);
+    std::string s;
+    std::uint32_t acc = 0;
+    int bits = 0;
+    for (std::uint8_t x : b) {
+        acc = (acc << 8) | x;
+        bits += 8;
+        while (bits >= 5) {
+            s.push_back(kB32[(acc >> (bits - 5)) & 31]);
+            bits -= 5;
+        }
+    }
+    s.push_back(kB32[(acc << (5 - bits)) & 31]);  // 152 bits: 31 symbols, 3 zero bits
+    std::string out = "BBG6";
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        if (i % 4 == 0) out += '-';
+        out += s[i];
+    }
+    return out;
+}
+
+bool decode_guest_code6(const std::string& code, std::uint8_t addr[16], std::uint16_t* port_nbo) {
+    std::string s;
+    for (char c : code) {
+        if (c == '-' || c == ' ') continue;
+        s.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+    }
+    if (s.rfind("BBG6", 0) != 0) return false;
+    s = s.substr(4);
+    if (s.size() != 31) return false;
+    std::uint8_t b[19];
+    std::size_t got = 0;
+    std::uint32_t acc = 0;
+    int bits = 0;
+    for (char c : s) {
+        if (c == 'O') c = '0';
+        if (c == 'I' || c == 'L') c = '1';
+        const char* p = std::strchr(kB32, c);
+        if (!p || !*p) return false;
+        acc = (acc << 5) | static_cast<std::uint32_t>(p - kB32);
+        bits += 5;
+        if (bits >= 8) {
+            if (got >= sizeof b) return false;
+            b[got++] = static_cast<std::uint8_t>(acc >> (bits - 8));
+            bits -= 8;
+        }
+    }
+    if (got != sizeof b || (acc & ((1u << bits) - 1)) || crc8(b, 18) != b[18]) return false;
+    std::memcpy(addr, b, 16);
+    std::memcpy(port_nbo, b + 16, 2);
+    return *port_nbo != 0;
+}
+
 }  // namespace party::rudp

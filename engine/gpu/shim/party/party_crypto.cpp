@@ -71,6 +71,42 @@ static Key keyed(const Key& k, const char* label, const Nonce& a, const Nonce& b
     return out;
 }
 
+Key relay_key_for(const std::string& password, const std::uint8_t secret[8]) {
+    static const std::uint8_t kZero[8] = {};
+    return relay_key(derive_party_key(password, password.empty() ? secret : kZero));
+}
+
+Key relay_key(const Key& party_key) {
+    static const char kLabel[] = "bbport member relay v1";
+    Key out{};
+    crypto_blake2b_keyed(out.data(), 32, party_key.data(), 32, reinterpret_cast<const std::uint8_t*>(kLabel),
+                         sizeof kLabel - 1);
+    return out;
+}
+
+void mac16(const Key& key, const std::uint8_t* d, std::size_t n, std::uint8_t out[kMacSize]) {
+    crypto_blake2b_keyed(out, kMacSize, key.data(), 32, d, n);
+}
+
+void cpace_generator(const Key& relay_key, const std::uint8_t sid[16], std::uint8_t g[32]) {
+    static const char kLabel[] = "bbport cpace generator v1";
+    crypto_blake2b_ctx ctx;
+    crypto_blake2b_keyed_init(&ctx, 32, relay_key.data(), 32);
+    crypto_blake2b_update(&ctx, reinterpret_cast<const std::uint8_t*>(kLabel), sizeof kLabel - 1);
+    crypto_blake2b_update(&ctx, sid, 16);
+    std::uint8_t hidden[32];
+    crypto_blake2b_final(&ctx, hidden);
+    crypto_elligator_map(g, hidden);
+    crypto_wipe(hidden, sizeof hidden);
+}
+
+bool x25519(const std::uint8_t scalar[32], const std::uint8_t point[32], std::uint8_t out[32]) {
+    crypto_x25519(out, scalar, point);
+    std::uint8_t z = 0;
+    for (int i = 0; i < 32; ++i) z |= out[i];
+    return z != 0;
+}
+
 Key auth_proof(const Key& party_key, const Nonce& host_nonce, const Nonce& guest_nonce) {
     return keyed(party_key, "bbp-auth", host_nonce, guest_nonce);
 }

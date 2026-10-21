@@ -171,6 +171,7 @@ std::vector<Page> pages;
 u32 split_text[1] = {0};
 u32 notice_text[1] = {0};
 u32 ending_text[1] = {0};
+u32 gather_text[1] = {0};
 
 /// A confirmed button's help line: the row's own help, or "press again to confirm" while armed
 /// (a run-time text of its own wrapping the row's).
@@ -246,6 +247,7 @@ struct MemberTexts {
     u32 member_name[MaxMembers], member_value[MaxMembers], member_help[MaxMembers];
     u32 restart_help;
     u32 event_value, event_help;
+    u32 net_value, net_help;  // Party network (F2, 0.7.1)
     u32 mode_none;
 } party;
 /// The HDR page's run-time help lines (whether HDR runs, and why not; the automatic peak).
@@ -348,6 +350,28 @@ void RefreshParty() {
                                     : std::string(L(r, "Last: ", "Последнее: ")) + b.last_event;
     });
     SetDynamic(party.event_help, en, ru);
+
+    // Party network: which path the link took (party_netroute: IPv6, a member relay) and the advice.
+    {
+        const std::string& n = b.network;
+        const bool relayed = n.find("'s relay") != std::string::npos && n.find("Connected over") != std::string::npos;
+        const bool v6 = n.find("via IPv6") != std::string::npos;
+        both([&](bool r) {
+            if (!on || n.empty()) return std::string("-");
+            if (host) return std::string(n.find("Through a member's relay") != std::string::npos ? L(r, "Host, relayed guest", "Хост, гость через ретр.")
+                                                                                          : L(r, "Host", "Хост"));
+            if (relayed) return std::string(L(r, "Member relay", "Через участника"));
+            if (v6) return std::string("IPv6");
+            if (n.find("Connected over UDP") != std::string::npos) return std::string("UDP");
+            if (n.find("Connected over TCP") != std::string::npos) return std::string("TCP");
+            return std::string(L(r, "Not connected", "Нет связи"));
+        });
+        SetDynamic(party.net_value, en, ru);
+        const std::string text = n.empty() ? std::string("No network information yet") : n;
+        const std::size_t cut = MaxHelpLength - 3;
+        const std::string help = text.size() > MaxHelpLength ? text.substr(0, cut) + "..." : text;
+        SetDynamic(party.net_help, help, help);
+    }
 
     // Members.
     member_rows = std::clamp(int(b.members.size()), 1, MaxMembers);
@@ -534,6 +558,7 @@ void DefineBuiltinPartyRows() {
 
     PartyRow lan;
     lan.order = 21;
+    lan.page = 1;  // the Party page is full with Gather the party (only a host has two codes)
     lan.name = [](const B&) { return T2("Copy LAN code", "Копировать код LAN"); };
     lan.value = [](const B& b) { return CopyValue(b.lan_code, 1); };
     lan.help = [](const B& b) {
@@ -571,6 +596,24 @@ void DefineBuiltinPartyRows() {
         if (Active(b)) ps::RequestRejoin();
     };
     party_rows.push_back({rejoin});
+
+    // I5: the host brings every guest to it (party_gather.h): each guest is asked first; an
+    // in-world warp in the host's map, one load from another map. The Party page holds six rows
+    // for a running host: the LAN code row is on the Party mode page (below).
+    PartyRow gather;
+    gather.order = 32;
+    gather.name = [](const B&) { return T2("Gather the party", "Собрать группу"); };
+    gather.value = [](const B&) { return T2("Gather", "Собрать"); };
+    gather.help = [](const B&) {
+        return T2("Bring every guest to you; each is asked, not in boss fights, 30 s apart. Also touchpad + L3 / H",
+                  "Перенести всех гостей к вам; каждого спросят, не в бою с боссом, раз в 30 с. Ещё тачпад + L3 / H");
+    };
+    gather.visible = [](const B& b) { return Running(b) && b.role == ps::Role::Host; };
+    gather.press = PartyRow::Press::Once;
+    gather.run = [](const B& b) {
+        if (Running(b) && b.role == ps::Role::Host) ps::RequestGather();
+    };
+    party_rows.push_back({gather});
 
     // The host's code stays the same from one launch to the next until it asks for a new one here
     // (or in the launcher's Party tab): for a code that went to someone it should not have. On the
@@ -650,11 +693,11 @@ void DefineAll() {
     const u32 off_on[2] = {off, on};
     for (int page = 0; page < 2; ++page) {
         if (page == 0) {
-            AddPage("Party", "Группа", "Party co-op: status, codes, rejoin, leave (bbport)",
-                    "Совместная игра: состояние, коды, возврат, выход (bbport)");
+            AddPage("Party", "Группа", "Party co-op: status, codes, rejoin, gather, leave (bbport)",
+                    "Совместная игра: состояние, коды, возврат, сбор, выход (bbport)");
         } else {
-            AddPage("Party mode", "Режим группы", "Party co-op: host, join, back to single player (bbport)",
-                    "Совместная игра: хост, вход, одиночная игра (bbport)");
+            AddPage("Party mode", "Режим группы", "Party co-op: host, join, LAN code, back to single player (bbport)",
+                    "Совместная игра: хост, вход, код LAN, одиночная игра (bbport)");
         }
         for (std::size_t i = 0; i < party_rows.size(); ++i) {
             const PartyEntry& e = party_rows[i];
@@ -707,6 +750,26 @@ void DefineAll() {
     AddRow(Info(), AddText("Last event", "Последнее"), party.event_help, {party.event_value}, Kind::Button,
            [] { return member_rows <= 3; });  // four members: the six rows are full
 
+    // ---- Party network (F2, 0.7.1, party_netroute.h): the link's path, the member relay, IPv6 ----
+    AddPage("Party network", "Сеть группы", "The link's path, relaying for members, IPv6 (bbport)",
+            "Путь связи, ретрансляция для участников, IPv6 (bbport)");
+    party.net_value = AddDynamic(MaxValueLength);
+    party.net_help = AddDynamic(MaxHelpLength);
+    AddRow(Info(), AddText("Network", "Сеть"), party.net_help, {party.net_value}, Kind::Button);
+    AddRow(Flag(&Values::party_member_relay), AddText("Relay for members", "Ретранслятор"),
+           AddText("Relays a party member that cannot reach the host (or you through one). Party members only",
+                   "Ретрансляция для участника, не достающего до хоста (или вас через него). Только группа"),
+           toggle, Kind::Toggle);
+    AddRow(Flag(&Values::party_ipv6), AddText("IPv6", "IPv6"),
+           AddText("IPv6: players reach you over it; the party code then holds your IPv6 address, changing when Windows rotates it",
+                   "IPv6: связь по нему; код группы тогда содержит ваш адрес IPv6 и меняется вместе с ним"),
+           toggle, Kind::Toggle);
+    AddRow(Button([] { party::status::RequestAddRelayCodeFromClipboard(); }), AddText("Join via a member", "Через участника"),
+           AddText("Guest: copy a member's guest code (BBG1-...) and press: its relay if the host is out of reach",
+                   "Гость: скопируйте гостевой код участника (BBG1-...) и нажмите: его ретранслятор, если хост недоступен"),
+           {AddText("Paste", "Вставить")}, Kind::Button,
+           [] { return party::status::Snapshot().role == party::status::Role::Guest; });
+
     // The split-travel question (party_split.cpp): a game dialog with YES / NO after a lamp,
     // headstone or Hunter's Mark in a party (docs/party/split_travel.md).
     split_text[0] = AddText("Travel with the party?\nYES: everyone travels together.  NO: you travel alone.\n"
@@ -718,6 +781,10 @@ void DefineAll() {
     // game's EventText 10012014, as its English / Russian text.
     notice_text[0] = AddText("Ritual secret broken.\nSeek the nightmare newborn.",
                              "Тайна ритуала раскрыта. Ищите новорождённого кошмара.");
+
+    // I5: the host gathers the party (party_gather.cpp): each guest is asked first.
+    gather_text[0] = AddText("The host gathers the party.\nYES: go to the host now.  NO: stay where you are.",
+                             "Хозяин собирает группу.\nДА: перейти к хозяину сейчас.  НЕТ: остаться здесь.");
 
     // The host's ending (party_story GuestStory::AnswerEnding): each guest is asked first.
     ending_text[0] = AddText("The host has reached an ending.\nYES: play this ending now (staff roll, then New Game+ in your save).\n"
@@ -812,6 +879,34 @@ void DefineAll() {
         "No co-op walls on area borders: the party walks anywhere. Keep it the same for everyone. Next start",
         "Без стен совместной игры на границах зон: группа ходит везде. Одинаково у всех. Со следующего запуска");
 
+    // ---- Shared world (0.7.1: party_kill_record, party_npc_mirror, party_gather): the host's ----
+    AddPage("Shared world", "Общий мир", "Enemies stay dead, gathering the party, NPCs as in the host's world (bbport)",
+            "Враги не оживают, сбор группы, NPC как в мире хоста (bbport)");
+    host_rule(&Values::party_kill_record, "Enemies stay dead", "Враги не оживают",
+              AddText("A party kill is dead for everyone, also as maps stream in again, until a rest. Party rule",
+                      "Убитый группой враг мёртв у всех, и при новой подгрузке карты, до отдыха. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::KillRecord); },
+              {"The host's rule: an enemy the party killed stays dead for you too, until a rest",
+               "Правило хоста: убитый группой враг мёртв и у вас, до отдыха"},
+              {"The host decides; off: an enemy killed out of your sight may stand again here",
+               "Решает хост; выкл.: враг, убитый не у вас на глазах, может стоять у вас"});
+    host_rule(&Values::party_gather, "Host can gather", "Хост собирает группу",
+              AddText("Party > Gather the party brings every guest to you (each is asked). Party rule",
+                      "Группа > Собрать группу переносит гостей к вам (каждого спросят). Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::Gather); },
+              {"The host may gather the party: you are asked each time and may say no",
+               "Хост может собрать группу: вас каждый раз спросят, можно отказаться"},
+              {"The host turned gathering off: you are never moved to the host",
+               "Хост выключил сбор группы: вас не переносят к нему"});
+    host_rule(&Values::party_npc_mirror, "NPCs as in host's world", "NPC как в мире хоста",
+              AddText("An NPC gone from your world is gone for the guests too (the clinic's door). Party rule",
+                      "NPC, которого нет в вашем мире, нет и у гостей (дверь клиники). Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::NpcMirror); },
+              {"The host's rule: an NPC gone from the host's world is gone here too",
+               "Правило хоста: NPC, которого нет в мире хоста, нет и у вас"},
+              {"The host decides; off: you may see NPCs the host's world no longer has",
+               "Решает хост; выкл.: вы можете видеть NPC, которых нет в мире хоста"});
+
     // ---- Story & dialogue (party_npctalk, party_progress, party_story) ----
     AddPage("Story & dialogue", "Сюжет и диалоги", "Shared NPC dialogue, story progress, NPC quests, cutscenes (bbport)",
             "Общие диалоги NPC, прогресс сюжета, квесты NPC, ролики (bbport)");
@@ -839,8 +934,8 @@ void DefineAll() {
         "Гость в мире хоста смотрит ролик вместе с ним. Выкл.: позже, в своём мире. Со следующего запуска");
 
     // ---- Party rewards (party_items, party_director, party_phantom) ----
-    AddPage("Party rewards", "Награды группы", "Echoes and drops, item rewards, bells, Insight for guests (bbport)",
-            "Отголоски и добыча, предметы, колокольчики, озарение гостям (bbport)");
+    AddPage("Party rewards", "Награды группы", "Echoes and drops, item rewards, bells, key items, Insight for guests (bbport)",
+            "Отголоски и добыча, предметы, колокольчики, ключи, озарение гостям (bbport)");
     own(&Values::party_full_rewards, "Full rewards for guests", "Полные награды гостям",
         "While you are a guest: full Blood Echoes and enemy drops, like the host. Off: the game's co-op. Next start",
         "Пока вы гость: полные отголоски крови и добыча, как у хоста. Выкл.: как в игре. Со следующего запуска");
@@ -850,6 +945,13 @@ void DefineAll() {
     own(&Values::party_grant_bells, "Give the bells", "Выдать колокольчики",
         "The Beckoning Bell and Small Resonant Bell after the prologue (for ringing by hand). Next start",
         "Колокол призыва и Малый резонирующий колокол после пролога (звонить вручную). Со следующего запуска");
+    // H4 (0.7.1, party_items): the own key section while summoned, and host-world keys given at once.
+    own(&Values::party_key_view, "Own key items as guest", "Свои ключи у гостя",
+        "While you are a guest: your own keys and badges show in Key Items. Off: the game's empty list. Next start",
+        "Пока вы гость: ваши ключи и значки видны в ключевых предметах. Выкл.: пусто, как в игре. Со след. запуска");
+    own(&Values::party_key_items_summoned, "Key items at once", "Ключи сразу",
+        "While you are a guest: a key the host's world gives you is yours at once (needs own key items). Off: at home",
+        "Пока вы гость: ключ из мира хоста ваш сразу (нужны свои ключи). Выкл.: дома, в своём мире");
     // A list opens a pop-up over the rows below it: last on the page.
     AddRow(Setting(
                Kind::List, [](const Values& v) { return std::clamp(v.party_guest_insight.load(), 0, 2); },
@@ -916,6 +1018,13 @@ void DefineAll() {
             AddText("Name and health", "Имя и здоровье"), AddText("Name and deaths", "Имя и смерти"),
             AddText("Name and ping", "Имя и пинг")},
            Kind::List);
+
+    // ---- Chalice Dungeons (party_guestsvc, party_b2; docs/party/chalice.md): each player's own, read live ----
+    AddPage("Chalice Dungeons", "Подземелья Чаши", "Deaths and getting back in, in a party's Chalice Dungeon (bbport)",
+            "Смерти и возвращение в Подземелье Чаши группы (bbport)");
+    own(&Values::party_chalice_rejoin, "Stay in Chalice Dungeons", "Остаться в Чаше",
+        "Guest: out of the host's dungeon by a death or forced trip, you are summoned back. Left by choice: Rejoin",
+        "Гость: вне подземелья хоста после смерти или переноса - призыв вернёт. Ушли сами: Вернуться");
 }
 
 /// The party rules' help lines: the current value, and on a guest that the host's rules count.
@@ -957,6 +1066,11 @@ void RefreshBalance() {
 u32 EndingQuestionText() {
     Define();
     return ending_text[0];
+}
+
+u32 GatherQuestionText() {
+    Define();
+    return gather_text[0];
 }
 
 u32 StoryNoticeText(u32 game_message) {

@@ -62,6 +62,7 @@ void Compose(const ComposeIn& in, Board* out) {
     std::memcpy(b.me_pos, in.me_pos, sizeof b.me_pos);
     b.me_yaw = in.me_yaw;
     b.me_map = in.local_map;
+    b.me_chr = in.me_have_pos ? in.me_chr : 0;
     // Companions in slot order.
     for (int slot = 0; slot < kMaxVitals; ++slot) {
         if (slot == in.local_slot) continue;
@@ -103,9 +104,12 @@ void Compose(const ComposeIn& in, Board* out) {
                 c.have_pos = true;
                 std::memcpy(c.pos, v.pos, sizeof c.pos);
             }
+            c.spectating = (v.flags & kVitalsSpectating) != 0;
         }
-        // Its PlayerIns here: the game's own copy, current every frame.
-        if (c.same_world)
+        // Its PlayerIns here: the game's own copy, current every frame. Not for a spectator: its
+        // copy is hidden here and its chr is carried along with the member it follows (a chr that
+        // matches by name is that carried copy: "0.2 m"); its VITALS give the body's spot.
+        if (c.same_world && !c.spectating)
             for (int i = 0; i < in.chrs_n; ++i) {
                 const LocalChr& l = in.chrs[i];
                 if (std::strncmp(l.name, c.name, kNameBytes) != 0) continue;
@@ -363,6 +367,35 @@ ScreenPoint WorldToScreen(const float view[12], const float proj[4], const float
     sp.depth = depth;
     sp.visible = u >= margin && u <= 1.0f - margin && v >= margin && v <= 1.0f - margin;
     return sp;
+}
+
+ScreenBox BodyBox(const float view[12], const float proj[4], const float feet[3], float w, float h, float half_width) {
+    ScreenBox box;
+    const float head[3] = {feet[0], feet[1] + kBodyHeightM, feet[2]};
+    const ScreenPoint f = WorldToScreen(view, proj, feet, w, h), t = WorldToScreen(view, proj, head, w, h);
+    if (!f.in_front || !t.in_front) return box;
+    const float half = half_width * std::fabs(t.y - f.y);
+    box.valid = true;
+    box.x0 = std::min(f.x, t.x) - half;
+    box.x1 = std::max(f.x, t.x) + half;
+    box.y0 = std::min(f.y, t.y);
+    box.y1 = std::max(f.y, t.y);
+    box.depth = 0.5f * (f.depth + t.depth);
+    return box;
+}
+
+float CoveredFraction(const ScreenBox& a, const ScreenBox& b) {
+    const float area = (a.x1 - a.x0) * (a.y1 - a.y0);
+    if (!a.valid || !b.valid || !(area > 0.0f)) return 0.0f;
+    const float ix = std::min(a.x1, b.x1) - std::max(a.x0, b.x0), iy = std::min(a.y1, b.y1) - std::max(a.y0, b.y0);
+    if (ix <= 0.0f || iy <= 0.0f) return 0.0f;
+    return std::clamp(ix * iy / area, 0.0f, 1.0f);
+}
+
+float OwnBodyTagAlpha(const ScreenBox& member, const ScreenBox& me) {
+    if (!member.valid || !me.valid || member.depth < me.depth + kOwnCoverDepthM) return 1.0f;
+    const float cover = CoveredFraction(member, me);
+    return std::clamp((kCoverHidden - cover) / (kCoverHidden - kCoverFadeFrom), 0.0f, 1.0f);
 }
 
 void MemberColour(int slot, float rgb[3]) {

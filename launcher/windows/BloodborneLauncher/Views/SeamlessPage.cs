@@ -37,6 +37,11 @@ public sealed class SeamlessPage : LauncherPage
         ToggleRow(SymbolRegular.Router24, "UPnP", "Map the host's port automatically.", () => SeamlessSettings.Flag(S, "party_upnp"), v => S.Set("party_upnp", v));
         ToggleRow(SymbolRegular.Globe24, "DHT rendezvous", "Optional NAT traversal through the public BitTorrent DHT. Enable on every PC to use it.",
             () => SeamlessSettings.Flag(S, "party_rendezvous", false), v => S.Set("party_rendezvous", v));
+        // Kept in bbport.ini like the game's System > Party network rows, so both show the same value.
+        ToggleRow(SymbolRegular.People24, "Relay for party members", "A member that cannot reach the host joins through you (party members only, capped upload).",
+            () => Ini.Get("party_member_relay", "1") == "1", v => Ini.Set("party_member_relay", v ? "1" : "0"));
+        ToggleRow(SymbolRegular.Globe24, "IPv6", "Try IPv6 when both PCs have it. A host without an open port then puts its IPv6 address into the party code.",
+            () => Ini.Get("party_ipv6", "0") == "1", v => Ini.Set("party_ipv6", v ? "1" : "0"));
         TextRow(SymbolRegular.Server24, "STUN server", "Empty uses stun.l.google.com:19302. Use off to disable.", "Default",
             () => S.Str("party_stun"), v => S.Set("party_stun", v));
         TextRow(SymbolRegular.Globe24, "Host public address", "Optional host address override, including a VPN address.", "Automatic",
@@ -82,9 +87,19 @@ public sealed class SeamlessPage : LauncherPage
             SmallButton("Add copied guest code", SymbolRegular.Link24, (_, _) => {
                 try {
                     var code = Clipboard.GetText();
-                    if (SeamlessSession.Read(S)?.role != "host" || code.Length > 3500 || !code.Contains("BBG1", StringComparison.OrdinalIgnoreCase))
+                    if (SeamlessSession.Read(S)?.role != "host" || code.Length > 3500 ||
+                        !(code.Contains("BBG1", StringComparison.OrdinalIgnoreCase) || code.Contains("BBG6", StringComparison.OrdinalIgnoreCase)))
                         throw new InvalidOperationException("Host a party and copy the guest's BBG1 connection code first.");
                     SeamlessSession.Command(S, "add_guest_code", code);
+                } catch (Exception e) { Prompt.Tell("Party", e.Message); }
+            }), out _));
+        Add(Card(SymbolRegular.Link24, "Join through a member", "Guest: when the host cannot be reached but another member can, copy that member's guest code and add it here.",
+            SmallButton("Add copied member code", SymbolRegular.Link24, (_, _) => {
+                try {
+                    var code = Clipboard.GetText();
+                    if (SeamlessSession.Read(S)?.role != "guest" || code.Length > 3500 || !code.Contains("BBG1", StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException("Join a party and copy another member's BBG1 guest code first.");
+                    SeamlessSession.Command(S, "add_relay_code", code);
                 } catch (Exception e) { Prompt.Tell("Party", e.Message); }
             }), out _));
 
@@ -105,7 +120,10 @@ public sealed class SeamlessPage : LauncherPage
             ("party_guest_lamps", "Guests can use lamps", true), ("party_friendly_fire", "Friendly fire / PvP", false),
             ("party_npc_talk", "Share nearby NPC dialogue", true), ("party_pings", "Party pings", true),
             ("party_hud", "Party health display", true), ("party_name_tags", "Player name tags", true),
-            ("party_toasts", "Join, leave and travel notices", true), ("party_through_walls", "Player outlines through walls", false) })
+            ("party_toasts", "Join, leave and travel notices", true), ("party_through_walls", "Player outlines through walls", false),
+            ("party_kill_record", "Enemies stay dead", true), ("party_npc_mirror", "NPCs as in the host's world", true),
+            ("party_gather", "Host can gather the party", true), ("party_key_view", "Own key items as guest", true),
+            ("party_key_items_summoned", "Key items given at once", true) })
         {
             var field = key;
             ToggleRow(SymbolRegular.People24, label, null, () => Ini.Get(field, fallback ? "1" : "0") == "1", v => Ini.Set(field, v ? "1" : "0"));

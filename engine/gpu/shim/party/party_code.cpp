@@ -241,7 +241,23 @@ void fill_lan_prefix(PartyCode* code, const std::array<std::uint8_t, 4>& local) 
     code->host = format_ipv4(code->ipv4);
 }
 
+namespace {
+// The "+6" tail: 16 address bytes and their crc8, 28 symbols.
+std::string ipv6_tail(const std::array<std::uint8_t, 16>& a) {
+    std::uint8_t raw[17];
+    std::memcpy(raw, a.data(), 16);
+    raw[16] = crc8(raw, 16);
+    return to_symbols(raw, sizeof raw, "+6");
+}
+constexpr std::size_t kIpv6TailSymbols = (17 * 8 + 4) / 5;  // 28
+}  // namespace
+
 std::string encode_party_code(const PartyCode& code) {
+    if (code.has_ipv6) {
+        PartyCode v4 = code;
+        v4.has_ipv6 = false;
+        return encode_party_code(v4) + ipv6_tail(code.ipv6);
+    }
     if (code.version >= 3 && code_fits_v3(code)) return encode_v3(code);
     const bool fits_v2 = code.secret[6] == 0 && code.secret[7] == 0;
     if (code.version >= 2 && fits_v2) {
@@ -285,6 +301,30 @@ bool decode_party_code(std::string_view text_in, PartyCode* out, std::string* er
     };
     std::string text = trim(text_in);
     if (text.empty()) return fail("empty party code");
+    if (const auto plus = text.find('+'); plus != std::string::npos) {
+        // The IPv6 tail ("+6-XXXX-..."): the code before it decodes as usual.
+        std::vector<int> vals;
+        std::size_t i = plus + 1;
+        while (i < text.size() && (text[i] == ' ' || text[i] == '-')) ++i;
+        if (i >= text.size() || text[i] != '6') return fail("unknown part after '+' in the party code");
+        for (++i; i < text.size(); ++i) {
+            const char c = text[i];
+            if (c == '-' || c == ' ' || c == '\t') continue;
+            const int v = symbol_value(c);
+            if (v < 0) return fail("invalid character in the party code's IPv6 part");
+            vals.push_back(v);
+        }
+        std::uint8_t raw[17];
+        if (vals.size() != kIpv6TailSymbols || !from_symbols(vals, raw, sizeof raw) || crc8(raw, 16) != raw[16])
+            return fail("party code IPv6 part checksum mismatch (typo?)");
+        PartyCode pc;
+        if (!decode_party_code(std::string_view(text).substr(0, plus), &pc, error)) return false;
+        if (pc.plain) return fail("an IPv6 part needs a BBP party code before it");
+        pc.has_ipv6 = true;
+        std::memcpy(pc.ipv6.data(), raw, 16);
+        *out = pc;
+        return true;
+    }
 
     std::string upper;
     for (char c : text) upper += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -423,12 +463,17 @@ bool decode_party_code(std::string_view text_in, PartyCode* out, std::string* er
 }
 
 std::string make_party_code(const std::array<std::uint8_t, 4>& ipv4, std::uint16_t port,
-                            const std::array<std::uint8_t, 8>& secret, std::uint8_t flags) {
+                            const std::array<std::uint8_t, 8>& secret, std::uint8_t flags,
+                            const std::array<std::uint8_t, 16>* ipv6) {
     PartyCode pc;
     pc.flags = flags;
     pc.ipv4 = ipv4;
     pc.port = port;
     pc.secret = secret;
+    if (ipv6) {
+        pc.has_ipv6 = true;
+        pc.ipv6 = *ipv6;
+    }
     return encode_party_code(pc);
 }
 

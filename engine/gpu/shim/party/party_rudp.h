@@ -153,5 +153,9 @@ private:
 // "BBG1-XXXX-XXXX" (Crockford base32 of ip[4] port[2] crc8; dashes / case ignored).
 std::string encode_guest_code(std::uint32_t addr_nbo, std::uint16_t port_nbo);
 bool decode_guest_code(const std::string& code, std::uint32_t* addr_nbo, std::uint16_t* port_nbo);
+// "BBG6-XXXX-..." (F2, 0.7.1): the guest's IPv6 party endpoint (address[16] port[2] crc8, 31
+// symbols), so a host behind an IPv6 firewall opens it like a BBG1 code (network_robustness.md 4a).
+std::string encode_guest_code6(const std::uint8_t addr[16], std::uint16_t port_nbo);
+bool decode_guest_code6(const std::string& code, std::uint8_t addr[16], std::uint16_t* port_nbo);
 
 }  // namespace party::rudp

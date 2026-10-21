@@ -493,6 +493,21 @@ void TestCensus() {
     CHECK(GuestOnDigest(body, false, w, &res, &corrupt, &err));
     CensusDigest cd;
     CHECK(GuestPopCensusDigest(&cd) && cd == hd && !GuestPopCensusDigest(&cd));
+
+    // The kill record's wire and queue (party_kill_record.h).
+    KillRecordMsg km;
+    km.epoch = 3;
+    km.kills = {2400125, 2410247};
+    KillRecordMsg kb;
+    CHECK(KillRecordFromJson(KillRecordToJson(km), &kb, &err) && kb.epoch == 3 && kb.kills == km.kills);
+    km.kills.clear();
+    CHECK(KillRecordFromJson(KillRecordToJson(km), &kb, &err) && kb.kills.empty());
+    CHECK(!KillRecordFromJson(R"({"v":1,"ep":1,"k":[0]})", &kb, &err));
+    CHECK(!KillRecordFromJson(R"({"v":1,"k":[5]})", &kb, &err));
+    CHECK(!KillRecordFromJson(R"({"v":2,"ep":1,"k":[5]})", &kb, &err));
+    CHECK(QueueKillRecord(2, R"({"v":1,"ep":1,"k":[5]})", &err) && !QueueKillRecord(2, "{}", &err));
+    const auto kq = PopKillRecords();
+    CHECK(kq.size() == 1 && kq[0].first == 2 && kq[0].second.kills == std::vector<u32>({5}) && PopKillRecords().empty());
 }
 
 int main() {

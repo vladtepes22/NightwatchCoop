@@ -880,6 +880,12 @@ int main() {
     test_dispatcher();
     test_port_remap(party_port);
     test_sockets(party_port);
+    // F2 (0.7.1, IPv6 off by default): the party port opens without an IPv6 socket unless asked.
+    CHECK(bbnet::p2p_open());
+    CHECK(!bbnet::p2p_ipv6_open());
+    bbnet::p2p_set_ipv6(true);  // turned on: [::1] under BB_PARTY_LOOPBACK
+    CHECK(bbnet::p2p_ipv6_open());
+    bbnet::p2p_set_ipv6(false);
     // json round trip (the host service's bodies).
     json::Value o = json::Value::make_object();
     o.set("totalResults", 0);

@@ -21,6 +21,10 @@ const char* runtime_symbol(const char* nid);
 
 namespace bbnet::udp {
 class RelayClient;
+class Router;
+struct Ip6;
+struct Ep6;
+struct Wire;
 }
 
 namespace bbnet {
@@ -119,6 +123,27 @@ bool p2p_relay_vport_for(std::uint32_t addr, std::uint16_t port_host, std::uint1
 void p2p_set_relay_admit(std::function<bool(std::uint32_t addr)> admit);
 void p2p_punch(const char* label, std::uint32_t addr, std::uint16_t port, std::uint32_t local_addr,
                std::uint16_t local_port);
+// F2 (0.7.1, party_route.h): the party port's route table (IPv6, the member relay), which every
+// datagram of the port passes; the party runtime configures it.
+udp::Router& p2p_router();
+// IPv6 on the party port: a second socket on its number (now, or when the port opens) and IPv6
+// routes in the table. Off: IPv4 only, as before.
+void p2p_set_ipv6(bool on);
+bool p2p_ipv6_open();
+// Another guest's IPv6 endpoint (the host's net6 table) for its IPv4 key: PeerPaths probes it
+// too and its traffic goes over IPv6 when IPv4 does not answer.
+void p2p_peer_v6(std::uint32_t addr, std::uint16_t port_host, const udp::Ep6& e6);
+// One datagram straight onto the wire (party_route.h Wire: the host's IPv6 nonce check).
+bool p2p_send_wire(const udp::Wire& w);
+// Opens our IPv6 firewall towards a guest (its BBG6 code): probes from the party port for 10 s.
+void p2p_punch6(const char* label, const udp::Ep6& e6);
+// This PC's global IPv6 address (the shortest-lived preferred one: a temporary privacy address
+// where there is one; BB_PARTY_IPV6_ADDR
+// forces one, ::1 included, for loopback tests). False when there is none.
+bool local_ipv6(udp::Ip6* out, std::string* how = nullptr);
+// How long ago the party port last heard addr (network order) : port (host order), anything (a
+// probe's answer too), ms; -1: never (or no party port).
+std::int64_t p2p_ms_since_heard(std::uint32_t addr, std::uint16_t port_host);
 // One line about the party port (counters), for the status line.
 std::string p2p_status();
 // This machine's LAN IPv4 address (network order), BB_PARTY_LOCAL_IP overriding; 0 when none.

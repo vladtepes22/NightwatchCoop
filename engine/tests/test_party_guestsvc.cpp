@@ -109,6 +109,12 @@ int main() {
         assert(!LampLitFromJsonText(LampLitToJsonText({12411800}, true), &ids, &err, &own));
     }
     assert(!LampTalk(241004) && !LampTalk(241190) && !LampTalk(210304) && !LampTalk(243000) && !LampTalk(100000));
+    // The Chalice Dungeons' lamp scripts (t290110-t290119; the tester's t290114) are not world lamps
+    // (LampTalk) and not the dungeon's other talks (t290000, t290300).
+    assert(ChaliceLampTalk(290110) && ChaliceLampTalk(290114) && ChaliceLampTalk(290119));
+    assert(!ChaliceLampTalk(290109) && !ChaliceLampTalk(290120) && !ChaliceLampTalk(290000) && !ChaliceLampTalk(290300) &&
+           !ChaliceLampTalk(241000));
+    assert(!LampTalk(290114) && !LampTalk(290110));
 
     // Lamp requests.
     {

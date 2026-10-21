@@ -13,6 +13,7 @@
 #include "party_ids.h"
 #include "party_split.h"
 #include "seamless_rules.h"
+#include "../../party_env.h"
 #include "world_warper.h"
 
 #include <algorithm>
@@ -352,6 +353,7 @@ struct TestState {
     bool dream = false;
     u32 walked = 0;        // the lamp walked to
     int rewalks = 0;
+    bool setup_only = false;  // setuponly: done after continue / start= (no lamp walk, no warp menu)
     bool start_any = false;  // startany: the start= warp also when the save is in that map  // dream: Cross, Left (YES), Cross at the lamp; done when a load starts (#22)  // titleany: also in a party process whose host never answers (#22)
     u32 lamp = 0;          // lamp=ID (0: the nearest lit one)
     u32 to = 0;            // to=ID (0: "other": the first lamp of another map)
@@ -382,6 +384,7 @@ void TestParse() {
         else if (item == "titleany") g_t.cont = g_t.any_title = true;
         else if (item == "dream") g_t.dream = true;
         else if (item == "startany") g_t.start_any = true;
+        else if (item == "setuponly") g_t.setup_only = true;
         else if (item == "members") g_t.members = true;
         else if (item.rfind("lamp=", 0) == 0) g_t.lamp = static_cast<u32>(std::strtoul(item.c_str() + 5, nullptr, 10));
         else if (item.rfind("start=", 0) == 0) g_t.start = static_cast<u32>(std::strtoul(item.c_str() + 6, nullptr, 10));
@@ -434,7 +437,11 @@ void TestTick(const GameSnapshot& s, double now) {
             Log("test: in the world (%s)", MapName(s.map_id).c_str());
             return;
         }
-        if (g_t.cont && (!PartyRequested() || g_t.any_title) && now - g_t.at >= (g_t.any_title ? 1.2 : 2.5)) {
+        static const bool solo_test = [] {  // BB_PARTY_DIRECTOR_TEST_SOLO: a director chain without a party
+            const char* v = std::getenv("BB_PARTY_DIRECTOR_TEST_SOLO");
+            return v && v[0] == '1' && !bb_party_enabled();
+        }();
+        if (g_t.cont && (!PartyRequested() || g_t.any_title || solo_test) && now - g_t.at >= (g_t.any_title ? 1.2 : 2.5)) {
             // titleany: a Join-a-party guest with no host stays on "Failed to acquire server
             // information" (auto-continue waits for the link): Right (CANCEL), Cross, alternately.
             g_t.at = now;
@@ -469,6 +476,11 @@ void TestTick(const GameSnapshot& s, double now) {
             }
             if (g_t.members_at == 0 || now - g_t.members_at < 12.0) return;
         } else if (now - g_t.steady_since < 5.0) {
+            return;
+        }
+        if (g_t.setup_only) {
+            Log("test: setup done in %s (setuponly: no lamp walk)", MapName(s.map_id).c_str());
+            g_t.stage = TestState::Done;
             return;
         }
         g_t.stage = TestState::Walk;

@@ -982,15 +982,23 @@ static void test_key_catchup() {
         GoodsLimitsFromRow(row, &s);
         CHECK(s.usable == 0 && s.goods_type == 1 && KeyRegiveAllowed(s));
     }
-    // 0.7.0 summoned restore after a host-world load: a key that is never used up, only at 0.
-    CHECK(SummonedRestoreAllowed(key, 0));
-    CHECK(!SummonedRestoreAllowed(key, 1));
-    CHECK(!SummonedRestoreAllowed(key, -1));
-    CHECK(!SummonedRestoreAllowed(pendant, 0));   // the Gold Pendant: never
-    CHECK(!SummonedRestoreAllowed(tear, 0));      // the Tear Stone: never
-    CHECK(!SummonedRestoreAllowed(ritual, 0));    // not a key item
-    CHECK(!SummonedRestoreAllowed(unknown_use, 0));
-    CHECK(SummonedRestoreAllowed(chalice, 0));
+    // H4 (0.7.1): the own key section shown while summoned (BB_PARTY_KEY_VIEW, on unless "0").
+    CHECK(KeyViewOn(nullptr));
+    CHECK(KeyViewOn("1"));
+    CHECK(KeyViewOn(""));
+    CHECK(!KeyViewOn("0"));
+    CHECK(KeyViewOn("01"));
+    // Key items given at once while summoned: with the own section shown unless
+    // BB_PARTY_KEY_ITEMS_SUMMONED=0, usable ones too (the held count is real there).
+    CHECK(SummonedKeyGiveNowRule(true, nullptr, false));
+    CHECK(SummonedKeyGiveNowRule(true, nullptr, true));
+    CHECK(SummonedKeyGiveNowRule(true, "1", false));
+    CHECK(!SummonedKeyGiveNowRule(true, "0", false));
+    // The game's empty summoned view: only on "1", never a usable unique item.
+    CHECK(!SummonedKeyGiveNowRule(false, nullptr, false));
+    CHECK(SummonedKeyGiveNowRule(false, "1", false));
+    CHECK(!SummonedKeyGiveNowRule(false, "1", true));
+    CHECK(!SummonedKeyGiveNowRule(false, "0", false));
     // Owed lots at home. Given while summoned: only a key that is never used up, and only at 0.
     CHECK(OwedGiveAllowed(true, true, key, 0));
     CHECK(!OwedGiveAllowed(true, true, key, 1));

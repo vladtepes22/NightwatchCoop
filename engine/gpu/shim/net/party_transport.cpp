@@ -9,6 +9,7 @@
 #include "party_util.h"
 
 #include <atomic>
+#include <map>
 #include <mutex>
 #include <thread>
 
@@ -122,6 +123,7 @@ struct RemoteGuest::State {
     std::uint16_t host_port = 0;
     bool host_loopback = false;
     std::string host_online;
+    std::map<std::string, std::pair<std::uint32_t, std::uint16_t>> peers;  // set_peer_endpoint
     EventHandler handler;
     std::string online_id;
     std::uint64_t last_event = 0;
@@ -148,6 +150,17 @@ void RemoteGuest::set_host_online_id(const std::string& id) {
     st_->host_online = id;
 }
 
+void RemoteGuest::set_peer_endpoint(const std::string& online_id, std::uint32_t addr_nbo, std::uint16_t port) {
+    std::lock_guard<std::mutex> lk(st_->mu);
+    if (online_id.empty() || !addr_nbo) return;
+    if (st_->peers.size() < 8 || st_->peers.count(online_id)) st_->peers[online_id] = {addr_nbo, port};
+}
+
+void RemoteGuest::clear_peer_endpoints() {
+    std::lock_guard<std::mutex> lk(st_->mu);
+    st_->peers.clear();
+}
+
 bool RemoteGuest::host_is_local() const {
     std::lock_guard<std::mutex> lk(st_->mu);
     return st_->host_loopback || st_->solo;  // solo: our own service is the host
@@ -163,10 +176,33 @@ bool RemoteGuest::host_is_local() const {
 void RemoteGuest::fix_host_addresses(json::Value& v) const {
     std::uint32_t addr;
     std::uint16_t port;
+    std::map<std::string, std::pair<std::uint32_t, std::uint16_t>> peers;
     {
         std::lock_guard<std::mutex> lk(st_->mu);
         addr = st_->host_addr;
         port = st_->host_port;
+        peers = st_->peers;
+    }
+    // Another member's records (set_peer_endpoint): the endpoint we reach it at, whatever the host
+    // listed (a member relaying for us; the generic fix-up below is the host's own).
+    if (!peers.empty()) {
+        auto fix_peer = [&](json::Value& r, const char* addr_key, const char* port_key) {
+            if (r.type != json::Value::Type::Object) return;
+            auto it = peers.find(str_of(r, "OnlineId"));
+            if (it == peers.end()) return;
+            r.set(addr_key, ip_text(it->second.first));
+            r.set(port_key, static_cast<int>(it->second.second));
+            if (r.find("MappedAddr")) {
+                r.set("MappedAddr", ip_text(it->second.first));
+                r.set("MappedPort", static_cast<int>(it->second.second));
+            }
+        };
+        if (json::Value* members = const_cast<json::Value*>(v.find("Members")))
+            if (members->type == json::Value::Type::Array)
+                for (json::Value& m : members->array) fix_peer(m, "Addr", "Port");
+        if (str_of(v, "Name") == "room_member_joined" ||
+            (str_of(v, "Name").empty() && v.find("ResKind") && !v.find("Members") && !v.find("RoomId")))
+            fix_peer(v, "Addr", "Port");
     }
     if (!addr) return;
     auto fix_record = [&](json::Value& r, const char* addr_key, const char* port_key) {

@@ -203,9 +203,9 @@ static void report_guest_heap(void) {
  * key.<input>=<SDL key names> and pad.<input>=<SDL gamepad button names>, comma-separated,
  * replace an input's binding (empty: unbound). Inputs: the buttons (cross ... right, touchpad =
  * a left-side click, touchpad_right), ping (co-op, a gamepad button of its own; no PS4 button:
- * the touchpad + R3 combo always pings too), and on the keyboard the sticks: move_* (left), look_*
- * (right). Gamepad names as SDL's: a b x y back start leftstick rightstick leftshoulder
- * rightshoulder dpup dpdown dpleft dpright touchpad misc1 paddle1-4, plus lefttrigger and
+ * the touchpad + R3 combo always pings too; the touchpad + L3 gathers the party on the host), and
+ * on the keyboard the sticks: move_* (left), look_* (right). Gamepad names as SDL's: a b x y back
+ * start leftstick rightstick leftshoulder rightshoulder dpup dpdown dpleft dpright touchpad misc1 paddle1-4, plus lefttrigger and
  * righttrigger. The keyboard works next to a gamepad (the Steam Deck always has one): its buttons
  * add to the gamepad's, a held move/look key moves the stick all the way. */
 enum {
@@ -568,34 +568,46 @@ static uint32_t last_sample_left=0x8080u;
 uint32_t runtime_pad_last_left(void) { return __atomic_load_n(&last_sample_left,__ATOMIC_RELAXED); }
 uint32_t runtime_pad_cross_presses(void) { return __atomic_load_n(&cross_presses,__ATOMIC_RELAXED); }
 static void ping_combo(PadData *d) {
-    static int state, right, r3_prev; /* state 0 idle, 1 touchpad held back, 2 ping sent */
+    static int state, right, r3_prev, l3_prev; /* state 0 idle, 1 touchpad held back, 2 combo sent */
+    static uint32_t combo_button; /* the combo's stick click (BTN_R3 / BTN_L3), held back too */
     static uint64_t click_until;
     const uint64_t now=now_us();
-    const int tp=(d->buttons & BTN_TOUCHPAD)!=0, r3=(d->buttons & BTN_R3)!=0;
-    const int r3_rise=r3 && !r3_prev;
+    const int tp=(d->buttons & BTN_TOUCHPAD)!=0, r3=(d->buttons & BTN_R3)!=0, l3=(d->buttons & BTN_L3)!=0;
+    const int r3_rise=r3 && !r3_prev, l3_rise=l3 && !l3_prev;
     r3_prev=r3;
+    l3_prev=l3;
     switch (state) {
     case 0:
-        if (tp && bbgpu_ping_combo_enabled()) {
-            state=1; click_until=0;
-            right=d->touch_count>0 && d->touches[0].x>=960;
+        if (!tp || !(bbgpu_ping_combo_enabled() || bbgpu_gather_combo_enabled())) {
+            if (click_until) {
+                if (now<click_until) touch_click(d,right);
+                else click_until=0;
+            }
+            return;
+        }
+        state=1; click_until=0;
+        right=d->touch_count>0 && d->touches[0].x>=960;
+        /* the stick click pressed on the same sample (a director's tap) counts too */
+        /* fall through */
+    case 1:
+        if (r3_rise && bbgpu_ping_combo_enabled()) {
+            state=2; combo_button=BTN_R3;
+            bbgpu_ping_request(); puts("Runtime: ping (touchpad + R3)");
             break;
         }
-        if (click_until) {
-            if (now<click_until) touch_click(d,right);
-            else click_until=0;
+        if (l3_rise && bbgpu_gather_combo_enabled()) {
+            state=2; combo_button=BTN_L3;
+            bbgpu_gather_request("touchpad + L3"); puts("Runtime: gather (touchpad + L3)");
+            break;
         }
-        return;
-    case 1:
-        if (r3_rise) { state=2; bbgpu_ping_request(); puts("Runtime: ping (touchpad + R3)"); break; }
         if (!tp) { state=0; click_until=now+120000; touch_click(d,right); return; }
         break;
     default:
-        if (!tp && !r3) { state=0; return; }
+        if (!tp && !(d->buttons & combo_button)) { state=0; return; }
         break;
     }
     d->buttons&=~BTN_TOUCHPAD;
-    if (state==2) d->buttons&=~BTN_R3;
+    if (state==2) d->buttons&=~combo_button;
     d->touch_count=0;
 
 }

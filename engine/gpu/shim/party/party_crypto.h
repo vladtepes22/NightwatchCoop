@@ -4,6 +4,8 @@
 //   AUTH proof  = keyed BLAKE2b-256(key = party key, "bbp-auth" || host nonce || guest nonce)
 //   session key = keyed BLAKE2b-256(key = party key, label || host nonce || guest nonce),
 //                 label "bbp-h2g" (host -> guest) / "bbp-g2h" (guest -> host)
+//   relay key   = keyed BLAKE2b-256(key = party key, "bbport member relay v1"); relay MAC = keyed
+//                 BLAKE2b-128 under it (net/party_route.h handshake proofs)
 //   frames      = XChaCha20-Poly1305 (crypto_aead_lock), nonce = u64 LE counter || 16 zero bytes,
 //                 one counter per direction starting at 0, additional data = the frame header.
 #pragma once
@@ -56,6 +58,20 @@ private:
     std::uint64_t counter_ = 0;
     bool ready_ = false;
 };
+
+// F2 member relay (net/party_route.h, 0.7.1): its key, keyed BLAKE2b-256(key = party key,
+// "bbport member relay v1"), and the relay's MAC: keyed BLAKE2b-128 under it.
+Key relay_key(const Key& party_key);
+void mac16(const Key& key, const std::uint8_t* d, std::size_t n, std::uint8_t out[kMacSize]);
+// The party's relay key as every side derives it (L3): with a password, from the password alone
+// (secret zero: the key a plain host:port member also has, so code and plain-address members relay
+// for each other); without one, from the code's secret. The PAKE keeps either from offline guessing.
+Key relay_key_for(const std::string& password, const std::uint8_t secret[8]);
+// The relay handshake's PAKE (CPace on X25519, net/party_route.h): the generator for session id
+// `sid` = Elligator2(keyed BLAKE2b-256(relay key, "bbport cpace generator v1" || sid)), and X25519
+// (false when the result is all zero: a low-order point).
+void cpace_generator(const Key& relay_key, const std::uint8_t sid[16], std::uint8_t g[32]);
+bool x25519(const std::uint8_t scalar[32], const std::uint8_t point[32], std::uint8_t out[32]);
 
 // SHA-256 is not in monocypher; callers hash the eboot themselves. BLAKE2b-256 for anything else
 // (e.g. a patches/mods digest built from file names + contents).

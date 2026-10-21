@@ -215,6 +215,21 @@ std::mutex g_chr_names_mu;
 std::vector<std::pair<std::uint64_t, std::string>> g_chr_names;  // the last tick's chr -> member name
 }  // namespace
 
+namespace {
+// C5 spectate (party_b2 SpectateBegin / SpectateEnd): this player's body spot while it spectates.
+std::atomic<bool> g_spectating{false};
+std::mutex g_body_mu;
+float g_body[3] = {0, 0, 0};
+}  // namespace
+
+void PartyHudSpectating(bool on, const float body[3]) {
+    if (on && body) {
+        std::lock_guard<std::mutex> lk(g_body_mu);
+        std::memcpy(g_body, body, sizeof g_body);
+    }
+    g_spectating.store(on);
+}
+
 std::string PartyHudChrName(std::uint64_t chr) {
     std::lock_guard<std::mutex> lk(g_chr_names_mu);
     for (const auto& e : g_chr_names) {
@@ -374,6 +389,13 @@ void PartyHudTick(const GameSnapshot& s, party::PartyLink* link, party::MemberSt
         me.map_id = s.map_id != 0xffffffffu ? s.map_id : 0;
         // Positions to a tenth of a millimetre are noise: a standing player sends keepalives only.
         for (int i = 0; i < 3; ++i) me.pos[i] = std::round(mine.pos[i] * 100.0f) / 100.0f;
+        if (g_spectating.load()) {
+            // Spectating: the chr is carried along with the member it follows; the others' panels
+            // show "Spectating" and the body's spot (they hide its copy), not "0.2 m".
+            me.flags |= party::kVitalsSpectating;
+            std::lock_guard<std::mutex> lk(g_body_mu);
+            for (int i = 0; i < 3; ++i) me.pos[i] = std::round(g_body[i] * 100.0f) / 100.0f;
+        }
         me.yaw = std::round(mine.yaw * 100.0f) / 100.0f;
         me.level = static_cast<std::uint16_t>(s.level > 0 && s.level < 1000 ? s.level : 0);
     }
@@ -555,6 +577,7 @@ void PartyHudTick(const GameSnapshot& s, party::PartyLink* link, party::MemberSt
     in.local_map = me.map_id;
     in.me_have_pos = mine.have_pos;
     std::memcpy(in.me_pos, mine.pos, sizeof in.me_pos);
+    in.me_chr = s.player;
     in.me_yaw = mine.yaw;
     in.roster = st.roster.data();
     in.roster_n = roster_n;
@@ -565,6 +588,22 @@ void PartyHudTick(const GameSnapshot& s, party::PartyLink* link, party::MemberSt
     party::hud::Board b;
     party::hud::Compose(in, &b);
     party::hud::Publish(b);
+    {
+        // One line when a companion starts / stops spectating (C5; the smoke's host_death check).
+        static bool was[party::kMaxVitals] = {};
+        bool now_spec[party::kMaxVitals] = {};
+        for (int i = 0; i < b.count; ++i)
+            if (b.c[i].slot >= 0 && b.c[i].slot < party::kMaxVitals && b.c[i].spectating) now_spec[b.c[i].slot] = true;
+        for (int slot = 0; slot < party::kMaxVitals; ++slot) {
+            if (now_spec[slot] == was[slot]) continue;
+            was[slot] = now_spec[slot];
+            for (int i = 0; i < b.count; ++i)
+                if (b.c[i].slot == slot)
+                    Log(now_spec[slot] ? "slot %d spectating: the panel shows \"Spectating\" (its body at %.1f %.1f %.1f)"
+                                       : "slot %d no longer spectating", slot, double(b.c[i].pos[0]),
+                        double(b.c[i].pos[1]), double(b.c[i].pos[2]));
+        }
+    }
     bool any_local = false;
     for (int i = 0; i < b.count; ++i) any_local = any_local || b.c[i].local_read;
     if (any_local && !st.together) st.together_at = now;

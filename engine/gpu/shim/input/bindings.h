@@ -35,7 +35,7 @@ enum BindAction : int {
     // Camera and menus
     kBindLookU, kBindLookD, kBindLookL, kBindLookR, kBindMenu, kBindConfirm, kBindBack,
     // Other
-    kBindL3, kBindPing, kBindDebugMenu,
+    kBindL3, kBindPing, kBindGather, kBindDebugMenu,
     kBindCount,
 };
 constexpr int kBindPages = 5, kBindPerPage = 7;

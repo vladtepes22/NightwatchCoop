@@ -54,10 +54,10 @@ Per extra hunter (cooperator), Nightreign semantics where vanilla has a step (10
 |---|---|---|---|---|
 | Boss health (`party_boss_hp`) | % of the boss HP step (+50 %) | 0..400 | **150** (+75 % HP per hunter) | 100 |
 | Boss damage (`party_boss_damage`) | + % damage per hunter | 0..100 | **10** | 0 |
-| Boss poise (`party_boss_poise`) | % of the poise step (+30) | -100..300 | 100 | 100 |
+| Boss poise (`party_boss_poise`) | % of the poise step (+30) | 0..300 | 100 | 100 |
 | Enemy health (`party_enemy_hp`) | % of the boss HP step | 0..400 | **50** (+25 % HP per hunter) | 0 |
 | Enemy damage (`party_enemy_damage`) | + % damage per hunter | 0..100 | 0 | 0 |
-| Enemy poise (`party_enemy_poise`) | % of the poise step | -100..300 | 0 | 0 |
+| Enemy poise (`party_enemy_poise`) | % of the poise step | 0..300 | 0 | 0 |
 
 Status resistance follows the HP setting (as in vanilla). Why these defaults (user decision
 2026-10-11: harder than vanilla, ERSC-like boss boosts, adjustable): a party of three with free
@@ -66,8 +66,10 @@ ERSC's own defaults add per extra player +100 % boss HP and +35 % enemy HP with 
 scaling. Ours: two cooperators give a boss 2.5x HP (vanilla 2.0x) and +20 % damage, normal enemies
 1.5x HP; one cooperator 1.75x / 1.25x. Damage stays modest because Bloodborne's rally lets the
 party regain HP. ERSC's note that in 3-4 player parties big enemies' poise drops (more
-staggerable) is offered as negative poise values (e.g. enemy poise -50 %: -15 poise per hunter);
-the default keeps vanilla poise.
+staggerable) is not offered: negative poise was tried (-100..-25 %) and measured live to make
+enemies stagger *less* (0 of 20 hits at -100 % against 18 of 40 at 0 %, misc071), so the poise
+sliders start at 0 % (user decision 2026-10-21). A negative value from an older bbport.ini, the
+menu or a host's rules reads as 0. The default keeps vanilla poise.
 
 ### 2.3 How
 

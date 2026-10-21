@@ -91,6 +91,12 @@ bool HeadstoneTalk(std::uint32_t talk);
 /// headstones t210000..t210003). Their talk tests IsMultiplayerInProgress / IsClientPlayer keep a
 /// lamp shut while a session is up; the party lifts them (host: party mode, guest: BB_PARTY_GUEST_LAMPS).
 bool LampTalk(std::uint32_t talk);
+/// The Chalice Dungeons' lamp scripts t290110..t290119 (lamps 2902950..2902959: their "Return to the
+/// Hunter's Dream" sets 72900100 + n, m29's event 12907020 warps to the altar spot 2102954 + slot).
+/// Their IsMultiplayerInProgress / IsClientPlayer tests shut every dungeon lamp while anyone is
+/// summoned (a tester's report: lamps could be lit, nothing else); the party lifts them as for the
+/// world lamps, always in party mode (BB_PARTY_CHALICE_LAMPS=0: test / diagnostic escape hatch only).
+bool ChaliceLampTalk(std::uint32_t talk);
 
 // ---- Lamp requests (guest -> host) ----
 constexpr const char* kLampRequestEventName = "lamp_request";

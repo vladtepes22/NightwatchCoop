@@ -35,8 +35,10 @@
 #include "party_hud.h"
 #include "party_status.h"
 #include "party_guestvals_rules.h"
+#include "party_remote_show_rules.h"
 #include "party_ping.h"
 #include "party_flow.h"
+#include "party_worldact.h"
 #include "../bbport_camera.h"
 #include "../bbport_frame_state.h"
 #include "../bbport_settings.h"
@@ -106,7 +108,9 @@ constexpr u64 kDtorResetCall = 0x1947207;   // e8 24 d6 50 00 -> 0x1e54830
 constexpr u64 kUidLeaveCall = 0x193c657;    // e8 44 41 59 00 -> 0x1ed07a0
 constexpr u64 kUidDropCall = 0x193c689;     // e8 82 26 c8 ff -> 0x15bed10
 constexpr u64 kMatchCheckCall = 0x13809b7;  // e8 e4 fd b4 00 -> 0x1ed07a0
-constexpr u64 kMatchErrorCall = 0x1380a65;  // e8 36 fd b4 00 -> 0x1ed07a0
+constexpr u64 kMatchErrorCall = 0x1380a65;  // e8 36 fd b4 00 -> 0x1ed07a0 (Lua OnMatchingError)
+constexpr u64 kOwnNumberRecvCall = 0x17831ae;  // e8 2d 62 00 00 -> 0x17893e0 (packet 7: the own player number)
+constexpr u64 kRecvFromHost = 0x17893e0;       // int (net man, packet type, buffer, size): read from the host
 constexpr u64 kJoinStartCall = 0x178524f;   // e8 2c 25 b9 ff -> 0x1317780
 constexpr u64 kFunnelLeaveJne = 0x13cdeae;  // 75 6c (cmp [GSM+0x1592],0 ; jne skip-leave)
 constexpr u64 kHostDeathReturnCall = 0x18c4d7d; // e8 2e 00 59 00 -> 0x1e54db0 (ChrIns_OnDeath, role 3)
@@ -169,6 +173,8 @@ std::atomic<bool> g_rejoin{false};  // a B2 re-join is in flight (K5 / K6 armed)
 std::atomic<bool> g_k1_xml{false};  // the XML retarget already keeps the room at 0x19471B1
 std::atomic<int> g_apart_k5{0};     // members in another area (split travel): K5 stands aside
 std::atomic<double> g_split_change_at{-100.0};  // the last split chr removal / meet rewind (Now())
+std::atomic<double> g_renumber_at{-100.0};      // guest: PlayerNumberTick changed the own number (Now())
+std::atomic<int> g_renumber_from{0}, g_renumber_to{0};
 std::atomic<double> g_title_served_at{-1e9};  // host: the last title-join room sent (Now()), holds lamp travel
 
 bool IdEquals(u64 a, u64 b) {
@@ -244,6 +250,17 @@ std::vector<u64> Members() {
 bool ChrPos(u64 chr, float out[3]) {
     const u64 a = Field<u64>(Field<u64>(Field<u64>(Field<u64>(chr, 0x58), 8), 0x3b0), 0x68);
     return a && SafeRead(a + 0x1e0, out, 12);
+}
+
+/// The game's last safe ground spot of a chr (fallsafe): PlayerIns +0x400 -> +0x30 position, +0x3C
+/// rotation (0x1904660 / 0x1904690). The bloodstain record 0x13D2910 builds the stain there (its
+/// +0x00), and the game's own safe-spot warp 0x13CBAD0 (Lua, entity 10000) puts the player there.
+/// False: no tracker (the getters return zeros then).
+bool GameSafeSpot(u64 chr, float pos[4], float rot[4]) {
+    const u64 t = chr ? Field<u64>(chr, 0x400) : 0;
+    pos[3] = 1.0f;
+    rot[3] = 0.0f;
+    return t && SafeRead(t + 0x30, pos, 12) && SafeRead(t + 0x3c, rot, 12);
 }
 
 std::string DescribeChr(u64 chr) {
@@ -431,6 +448,7 @@ std::atomic<bool> g_title_continuing{false};  // the director's AutoContinue is 
 std::atomic<bool> g_title_joined{false};  // this guest came in by a title join (no own world loaded)
 std::atomic<bool> g_title_home_now{false};
 std::atomic<bool> g_chalice_bail{false};  // the guest left a host's dungeon it loaded without the dungeon
+std::atomic<bool> g_chalice_chosen{false};  // this guest's own choice took it away (NoteChosenApart)
 
 bool SendHomeVeto(u64 site) {
     const bool own_leave = SendHomeVetoForOwnLeave() || g_chalice_bail.exchange(false);
@@ -502,6 +520,26 @@ int HostDeadSkipFrom() {
         return v && v[0] ? std::max(0, std::atoi(v)) : 1;
     }();
     return from;
+}
+
+// A summoned guest's stale boss clear (deathrules::StaleBossClear): BlockClear2 0x13849A0 (state,
+// ctx, args; args +0x14 the boss entity) returns at once, as its own early exit (args +8) does: no
+// PREY SLAUGHTERED, no clear bonus, no Insight 4680, no next state. `g_load_end_at`: the end of this
+// game's last load (the b2 tick, beside ChaliceApartTick), < 0 none seen yet.
+void* g_block_clear_orig = nullptr;
+std::atomic<double> g_load_end_at{-1};
+BB_COOP_SYSV void BlockClear2Hook(u64 state, u64 ctx, u64 args) {
+    if (g_on.load() && Role() == RoleClient) {
+        const double at = g_load_end_at.load();
+        const double since = at < 0 ? -1 : Now() - at;
+        if (deathrules::StaleBossClear(true, since)) {
+            Log("boss clear of boss %u skipped on this guest: %.1f s after its arrival (the boss was dead in the host's "
+                "world already: no banner, no clear echoes, no Insight)", Field<u32>(args, 0x14), since);
+            return;
+        }
+    }
+    using Fn = void(BB_COOP_SYSV*)(u64, u64, u64);
+    reinterpret_cast<Fn>(g_block_clear_orig)(state, ctx, args);
 }
 
 BB_COOP_SYSV void HostDeadHook(u64 ctx, u64 state) {
@@ -887,8 +925,28 @@ BB_COOP_SYSV u64 MatchCheckHook(u64 session) {
     return reinterpret_cast<Fn>(Guest(kBeginLeave))(session);
 }
 
+// K5b: Lua OnMatchingError (0x13809F0): the host's OnMatchingCheck did not find this guest's chr
+// under the player number the guest's check message carries (IsMatchingMultiPlay(host no,
+// GetPlayID)), so it sent OnMatchingError for that number, and the guest with that number
+// (GetLocalPlayerId() == GetParam3()) leaves. Right after PlayerNumberTick changed the own number
+// (a guest summoned while a lower slot is absent gets the host's next free number, e.g. 2 for
+// slot 2), the host's copy of this chr still has the old number until its 1.5 s rebuild, and the
+// summon's check message already carries the new one (live sf3: every join of guest 2 after guest
+// 1's failed join ended 0.2 s after the arrival load). That error is a stale chr there, not a
+// broken session: ignored for 10 s after a renumber (the host's rebuild fixes its copy). The K5
+// holds above (re-join, split travel) come first.
 BB_COOP_SYSV u64 MatchErrorHook(u64 session) {
     if (MatchLeaveHeld("OnMatchingError")) {
+        return 0;
+    }
+    const double since = Now() - g_renumber_at.load();
+    if (g_on.load() && Role() == RoleClient && since < 10.0) {
+        // The packet 7 receive (OwnNumberRecvHook) numbers the guest before its chr exists, so this
+        // should not happen any more: loud when it does.
+        Log("K5b: WARNING (unexpected since the packet 7 fix): OnMatchingError leave ignored: the host checked "
+            "player number %d %.1f s after this guest changed it from %d, before its chr there was rebuilt with it "
+            "(cleared: that error only)",
+            g_renumber_to.load(), since, g_renumber_from.load());
         return 0;
     }
     using Fn = u64(BB_COOP_SYSV*)(u64);
@@ -2333,25 +2391,52 @@ void RemoteVisibleTick(double now) {
         // chr +0x1E0 bit 20: set on every drawn player chr (local and remote, both games), clear on
         // the invisible re-created one ("the health bar but no model", live vis3 render probe:
         // 0x00009800 vs 0x00109800). Put back.
+        // Never before the member's first data (party_remote_show_rules.h): that data brings the draw
+        // bit itself and the game's own fade-in follows. Logged once per such chr (how long the
+        // data took, and that the game drew it).
+        float p[3] = {};
+        const bool awaits = !ChrPos(c, p) || coop::remote_show::AwaitsFirstData(ChrHp(c), p);
+        const u32 f = Field<u32>(c, 0x1e0);
+        // chr -> {first seen without its member's data, when the data came}
+        static std::map<u64, std::pair<double, double>> built_at;
+        if (awaits) {
+            built_at.emplace(c, std::make_pair(now, 0.0));
+            continue;
+        }
+        if (auto b = built_at.find(c); b != built_at.end()) {
+            if (b->second.second == 0) {
+                b->second.second = now;
+            }
+            if (f & 0x100000u) {
+                Log("remote chr %#llx (handle %x, mode %d): its member's data after %.1f s, drawn by the game %.1f s "
+                    "later%s", ull(c), Field<u32>(c, 8), t.mode, b->second.second - b->second.first,
+                    now - b->second.second, party::runtime().restarted() ? " [crash-restarted game]" : "");
+                built_at.erase(b);
+            }
+        }
         // A chr of a task we rewound: shown as at a load's end (the root cause, above).
         if (auto it = g_rewound.find(t.task); it != g_rewound.end()) {
             g_rewound.erase(it);
+            built_at.erase(c);
             ShowLikeInGameStart(c, "re-created by a rewind");
             continue;
         }
         // Safety net: any other remote chr without the draw bit 4 s after we first saw it so.
         static std::map<u64, double> hidden_since;
-        const u32 f = Field<u32>(c, 0x1e0);
         if (f && !(f & 0x100000u)) {
             auto h = hidden_since.emplace(c, now).first;
-            if (now - h->second >= 4.0) {
+            if (coop::remote_show::SafetyNetShows(awaits, false, now - h->second)) {
                 hidden_since.erase(h);
+                built_at.erase(c);
                 Log("remote chr %#llx (mode %d): no draw bit for 4 s (safety net); enterleave%s", ull(c), t.mode,
                     DescribeEnterLeave().c_str());
                 ShowLikeInGameStart(c, "safety net");
             }
         } else {
             hidden_since.erase(c);
+        }
+        if (built_at.size() > 64) {
+            built_at.clear();  // chrs gone before their data: never shrinks otherwise
         }
     }
     for (auto it = g_rewound.begin(); it != g_rewound.end();) {
@@ -3012,6 +3097,34 @@ bool ClientIntroSkip(int event_id, int bank, int id) {
     return true;
 }
 
+/// liftfall: the local chr rides a moving object: the chr's ride flag (seen on remote chrs in a lift
+/// car) or a lift car playing a ride animation right where it stands (worldact::OnMovingLiftCar;
+/// the local chr does not carry the flag: live, Mensis lift 2601240).
+bool LocalRiding(u64 chr, const float p[3]) {
+    if (deathrules::RidingObject(Field<u64>(chr, 0x1e1))) {
+        return true;
+    }
+    static double at = -1;  // the car scan at most every 0.25 s (the death-height tick runs every frame)
+    static bool on_car = false;
+    const double now = Now();
+    if (now - at >= 0.25) {
+        at = now;
+        on_car = worldact::OnMovingLiftCar(p);
+    }
+    return on_car;
+}
+
+/// A recovery net saw a ride down on a moving object: one line per ride (none for 20 s before).
+void RideNotice(const char* net, const float p[3], double dy, double dt) {
+    static double last = -100;
+    const double now = Now();
+    if (now - last >= 20.0) {
+        Log("recovery (%s): riding a moving object (a lift's car) at (%.1f, %.1f, %.1f), %.1f m/s down: no fall", net,
+            double(p[0]), double(p[1]), double(p[2]), dy / dt);
+    }
+    last = now;
+}
+
 /// Recovery net (any role, own world only): a player that keeps falling for 6 s (an endless fall
 /// out of the map after a bad saved position - the game's own death plane did not catch it) is
 /// warped to its own last lamp (0x13CDF30 with the low dword of WorldTransitionState +0x1528).
@@ -3019,8 +3132,11 @@ bool ClientIntroSkip(int event_id, int bank, int id) {
 /// through the host's m24_01 from y -28 to -1500 after the second guest arrived and was never
 /// recovered - own-world recovery only) is put back where it last stood still, in place (the chr
 /// warp +0x5F8, no load).
+/// liftfall: never on a lift or other moving object (the ride flag, deathrules::FallSample) nor for a
+/// slow drop (deathrules::FallRecoveryDue: a real fall's 40 m in the 6 s); in a player's report the
+/// own-world net warped the host to its lamp mid-ride on the Nightmare of Mensis' 60 m lift.
 void HostWorldFallTick(const GameSnapshot& s, double now) {
-    static float stable[4] = {0, 0, 0, 0}, last_y = 0;
+    static float stable[4] = {0, 0, 0, 0}, last_y = 0, from_y = 0;
     static double last_t = 0, falling_since = 0, still_since = 0;
     static u64 last_player = 0;
     static bool have_stable = false;
@@ -3039,6 +3155,7 @@ void HostWorldFallTick(const GameSnapshot& s, double now) {
         return;
     }
     const float dy = last_player == s.player ? last_y - p[1] : 0.0f;
+    const double dt = now - last_t;
     last_y = p[1];
     last_t = now;
     if (last_player != s.player) {
@@ -3055,30 +3172,51 @@ void HostWorldFallTick(const GameSnapshot& s, double now) {
         return;
     }
     still_since = 0;
-    if (dy < 0.7f) {  // 0.5 s: more than 0.7 m down is a fall
+    const bool riding = dy > 0.0f && LocalRiding(s.player, p);
+    if (!deathrules::FallSample(dy, dt, 1.4, riding)) {  // 0.5 s: more than 0.7 m down is a fall
+        if (riding && dy > 0.0f) RideNotice("host's world", p, dy, dt);
         falling_since = 0;
         return;
     }
     if (falling_since == 0) {
         falling_since = now;
+        from_y = p[1] + dy;
         return;
     }
-    if (now - falling_since < 6.0 || !have_stable) {
+    if (!deathrules::FallRecoveryDue(now - falling_since, double(from_y) - p[1]) || !have_stable) {
         return;
     }
     falling_since = 0;
     alignas(16) float to[4] = {stable[0], stable[1] + 0.3f, stable[2], 1.0f};
     alignas(16) float rot[4] = {0, 0, 0, 0};
     SafeRead(pm + 0x1d0, rot, 16);
+    // fallsafe: the game's own last safe ground spot (where it would put the bloodstain) when it has
+    // one near; the spot this tick saw it stand still on otherwise.
+    alignas(16) float safe[4], safe_rot[4];
+    const bool game = deathrules::SafeSpotUsable(GameSafeSpot(s.player, safe, safe_rot), safe, stable);
+    if (game) {
+        std::memcpy(to, safe, sizeof to);
+        std::memcpy(rot, safe_rot, sizeof rot);
+    }
     using Warp = void(BB_COOP_SYSV*)(u64, const float*, const float*, u32);
     reinterpret_cast<Warp>(Field<u64>(Field<u64>(s.player, 0), 0x5f8))(s.player, to, rot, 1);
-    Log("recovery: falling for 6 s in the host's world at (%.1f, %.1f, %.1f); back to (%.1f, %.1f, %.1f) where it last stood",
-        p[0], p[1], p[2], to[0], to[1], to[2]);
+    Log("recovery: falling for 6 s in the host's world at (%.1f, %.1f, %.1f); back to (%.1f, %.1f, %.1f) %s",
+        p[0], p[1], p[2], to[0], to[1], to[2], game ? "on the game's last safe ground spot" : "where it last stood");
+}
+
+/// Test aid BB_PARTY_FALL_RECOVERY=0 (fallsafe): both recovery nets off, so a fall out of the world
+/// runs until the game's own kill plane / fall death (or forever where it has none).
+bool FallRecoveryOn() {
+    static const bool on = !EnvOff("BB_PARTY_FALL_RECOVERY");
+    return on;
 }
 
 void FallRecoveryTick(const GameSnapshot& s, double now) {
+    if (!FallRecoveryOn()) {
+        return;
+    }
     HostWorldFallTick(s, now);
-    static float last_y = 0;
+    static float last_y = 0, from_y = 0;
     static double last_t = 0, falling_since = 0;
     static u64 last_player = 0;
     if (!s.world_up || s.loading || !s.player || Field<u8>(Slot(kSlotGsm), 0x1592) != 1) {
@@ -3095,13 +3233,19 @@ void FallRecoveryTick(const GameSnapshot& s, double now) {
         return;
     }
     const float dy = last_player == s.player ? last_y - p[1] : 0.0f;
+    const double dt = now - last_t;
     last_y = p[1];
     last_t = now;
     last_player = s.player;
-    if (dy > 1.5f) {
+    const bool riding = dy > 0.0f && LocalRiding(s.player, p);
+    if (riding && dy > 0.0f && !deathrules::FallSample(dy, dt, 1.5, riding)) {
+        RideNotice("own world", p, dy, dt);
+    }
+    if (deathrules::FallSample(dy, dt, 1.5, riding)) {
         if (falling_since == 0) {
             falling_since = now;
-        } else if (now - falling_since >= 6.0) {
+            from_y = p[1] + dy;
+        } else if (deathrules::FallRecoveryDue(now - falling_since, double(from_y) - p[1])) {
             falling_since = 0;
             // A stage request already pending (a death redirect's lamp warp): that one wins.
             if (Field<u8>(Slot(kSlotGsm), 8) != 0) {
@@ -3112,6 +3256,18 @@ void FallRecoveryTick(const GameSnapshot& s, double now) {
             // last lamp is often the Hunter's Dream, and a bell rung there joins the host's world at
             // Dream coordinates (live r5: fell in the arena, recovered to the Dream, re-summoned
             // into the host's m24_01 with stage 0x15000000 placement).
+            {
+                // fallsafe: back onto the game's last safe ground spot (where a death here would put
+                // the bloodstain) when it has one near, in place with no load; else the lamp below.
+                alignas(16) float safe[4], safe_rot[4];
+                const float here[3] = {p[0], p[1], p[2]};
+                if (deathrules::SafeSpotUsable(GameSafeSpot(s.player, safe, safe_rot), safe, here) &&
+                    WarpLocal(safe, safe_rot[1], "fall recovery: the last safe ground spot")) {
+                    Log("recovery: falling for 6 s at (%.1f, %.1f, %.1f); back on the last safe ground spot (%.1f, %.1f, "
+                        "%.1f), no load", p[0], p[1], p[2], double(safe[0]), double(safe[1]), double(safe[2]));
+                    return;
+                }
+            }
             const u32 own = Field<u32>(Slot(kSlotGsm), 0x1528);
             const u32 host = GuestDeathRedirectLamp();
             const bool use_host = bb_party_enabled() && host != kTravelNone && host != 0;
@@ -3355,6 +3511,14 @@ void StainFromRecordLocked(int slot, const char* why) {
     p.s.map = Field<u32>(rec, 0x3c);
     p.s.echoes = Field<int>(rec, 0x38);
     SafeRead(rec + 0x18, p.s.pos, 12);
+    {
+        // fallsafe: where the game builds the live stain (+0x00, its last safe ground spot), not the
+        // chr's spot at the death (+0x18: the bottom of a fall, under the level after a void fall).
+        float obj[3] = {};
+        if (deathrules::SafeSpotUsable(SafeRead(rec, obj, 12), obj, p.s.pos)) {
+            std::memcpy(p.s.pos, obj, sizeof obj);
+        }
+    }
     p.have_raw = SafeRead(rec, p.raw, sizeof p.raw);
     p.made_at = Now();
     if (p.s.echoes <= 0) {
@@ -3375,12 +3539,35 @@ void StainFromRecordLocked(int slot, const char* why) {
     WriteStainLocked(slot);
 }
 
+// C3 (player report 2026-10-21, Logarius): the host's wipe load that came while this guest was
+// still dying (its HP 0 starts the wipe at once, the game takes the death ~8 s later): the follow
+// waits for the death (HeldDeathTick, deathrules::PlanWipeFollow). Under g_wipe_wait_mu.
+std::mutex g_wipe_wait_mu;
+TravelIntent g_wipe_wait_t;
+double g_wipe_wait_at = 0;              // when that travel came; 0 none
+std::atomic<double> g_wipe_arrived_at{0};  // the last arrival with the host's death load (a wipe)
+bool g_dead_at_host_travel = false;        // this guest was down at the host's travel (main thread)
+bool WipeFollowWaiting() {
+    std::lock_guard<std::mutex> lk(g_wipe_wait_mu);
+    return g_wipe_wait_at > 0;
+}
+// Where this guest's body lay at HP 0 when a load began before its death was taken (the bloodstain
+// goes there, never to the load's destination: deathrules::StainAtDeathSpot). Main thread.
+struct UntakenDeathSpot {
+    bool valid = false;
+    double at = 0;
+    u32 map = 0;
+    float pos[3] = {};
+};
+UntakenDeathSpot g_untaken_death;
+
 /// ERSC / single-player rule (design decision 3): a guest dying in the host's world drops its echoes
 /// into a bloodstain, as the host does. The game's own record 0x13D2910(SprjEventMan +0x80, chr, 1)
 /// (what SoloPlayDeath_2 calls) is used; in host-world mode (GSM +0x1592 == 0) it would place the
 /// stain at the guest's pre-summon spot (forced placement +0x1500), so the call runs with +0x1592 = 1
 /// (the chr's own position and map) and +0x1770 = 1 (the record gate), both put back after.
 /// BB_PARTY_GUEST_BLOODSTAIN=0: off (a phantom keeps its echoes, vanilla).
+bool FallStainToSafeSpot(const char* why);
 void GuestBloodstain() {
     static const bool on = !(std::getenv("BB_PARTY_GUEST_BLOODSTAIN") && std::getenv("BB_PARTY_GUEST_BLOODSTAIN")[0] == '0');
     const u64 gsm = Slot(kSlotGsm), player = Field<u64>(Slot(kSlotWorldChrMan), 0x60);
@@ -3399,12 +3586,32 @@ void GuestBloodstain() {
     reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u32)>(Guest(0x13d2910))(events, player, 1);
     SafeWrite(gsm + 0x1592, &own, 1);
     SafeWrite(gsm + 0x1770, &gate, 1);
+    FallStainToSafeSpot("a guest's death");  // fallsafe: before the party stain takes the spot
     const u64 rec = Field<u64>(Slot(kSlotGameData), 0x30);
-    float pos[3] = {};
+    {
+        // C3: a load moved the dying body before the game took its death (the report's stain lay at
+        // the host's lamp, 170 m from the arena): the record goes where it died.
+        UntakenDeathSpot& u = g_untaken_death;
+        const bool known = u.valid && Now() - u.at < 120.0 && rec;
+        if (deathrules::StainAtDeathSpot(known, u.valid)) {
+            float was[3] = {};
+            SafeRead(rec + 0x18, was, 12);
+            SafeWrite(rec, u.pos, 12);
+            SafeWrite(rec + 0x18, u.pos, 12);
+            SafeWrite(rec + 0x3c, &u.map, 4);
+            Log("guest: bloodstain: a load moved the body before its death was taken: the record moved from (%.1f, "
+                "%.1f, %.1f) to where it died (%.1f, %.1f, %.1f) map %#x", double(was[0]), double(was[1]),
+                double(was[2]), double(u.pos[0]), double(u.pos[1]), double(u.pos[2]), u.map);
+        }
+        u.valid = false;
+    }
+    float pos[3] = {}, obj[3] = {};
     SafeRead(rec + 0x18, pos, 12);
-    Log("guest: bloodstain recorded: echoes %d -> %d, stain %d echoes at (%.1f, %.1f, %.1f) map %#x (gate was %u)", echoes,
+    SafeRead(rec, obj, 12);  // the stain object's spot: the game's last safe ground spot
+    Log("guest: bloodstain recorded: echoes %d -> %d, stain %d echoes at (%.1f, %.1f, %.1f) (stain object at (%.1f, "
+        "%.1f, %.1f)) map %#x (gate was %u)", echoes,
         Field<int>(pgd, 0x94, -1), Field<int>(rec, 0x38, -1), double(pos[0]), double(pos[1]), double(pos[2]),
-        Field<u32>(rec, 0x3c), unsigned(gate));
+        double(obj[0]), double(obj[1]), double(obj[2]), Field<u32>(rec, 0x3c), unsigned(gate));
     if (PartyStainOn()) {
         const int slot = party::flow::CurrentSaveSlot();
         if (slot >= 0) {
@@ -3429,6 +3636,7 @@ bool HoldGuestDeath() {
     }
     g_death_held_at = Now();
     g_last_hold_at = g_death_held_at.load();
+    g_chalice_chosen = false;  // a death is never a choice: back to the dungeon by the summon
     GuestBloodstain();
     Send(0, "{\"op\":\"member_down\"}");  // the host counts its members down (C2: a wipe while it is down)
     if (phase != GuestPhase::Idle) {
@@ -3436,6 +3644,7 @@ bool HoldGuestDeath() {
     }
     Log("guest: own death in the host's world held (%s)",
         phase != GuestPhase::Idle ? "the host's travel is in flight: it takes the guest along"
+        : WipeFollowWaiting()     ? "the host's wipe load waits for it: the party's respawn follows"
                                   : "waiting for a host travel");
     return true;
 }
@@ -3717,8 +3926,80 @@ bool GuestDeathAloneToOwnLamp(const GameSnapshot& s, u32 own);
 bool GuestArenaRevive(const GameSnapshot& s, double held_for);
 bool GuestArenaRuleOn();
 bool LivingMemberHere(u64 me);
+bool GuestChaliceRevive(const GameSnapshot& s);
+bool GuestFallSafeRevive(const GameSnapshot& s);
+/// C3: the host's wipe load that waited for this guest's death (OnHostTravel) is followed now: a
+/// dead follow (the host's respawn records, one load to its lamp with the party) once the death is
+/// taken, or as before when the guest is up again. The host has re-synced after its own load by
+/// now: a fresh snapshot is asked for ("respawn", as a lone respawn; the host also removes the
+/// guest's dead chr where it lay). True while the wait goes on or the follow began.
+bool WipeFollowTick(const GameSnapshot& s, double now) {
+    TravelIntent t;
+    double since;
+    {
+        std::lock_guard<std::mutex> lk(g_wipe_wait_mu);
+        if (g_wipe_wait_at <= 0) {
+            return false;
+        }
+        t = g_wipe_wait_t;
+        since = g_wipe_wait_at;
+    }
+    if (!SessionUp()) {
+        std::lock_guard<std::mutex> lk(g_wipe_wait_mu);
+        g_wipe_wait_at = 0;
+        return false;
+    }
+    if (s.loading || !s.world_up || !s.player) {
+        return true;
+    }
+    const int hp = ChrHp(s.player);
+    const bool taken = g_death_held_at.load() > 0;
+    deathrules::WipeFollow plan = deathrules::PlanWipeFollow(true, hp, taken, now - since);
+    if (plan == deathrules::WipeFollow::WaitDeath) {
+        return true;
+    }
+    if (plan == deathrules::WipeFollow::TakeDeath) {
+        // Never taken (no death state): taken here, where it lies (its bloodstain there).
+        Log("guest: its death was not taken %.1f s after the host's wipe load came: taken now", now - since);
+        if (!HoldGuestDeath()) {
+            g_death_held_at = now;
+        }
+        plan = deathrules::WipeFollow::DeadFollow;
+    }
+    {
+        std::lock_guard<std::mutex> lk(g_wipe_wait_mu);
+        g_wipe_wait_at = 0;
+    }
+    const bool dead = plan == deathrules::WipeFollow::DeadFollow;
+    if (dead) {
+        g_death_held_at = 0;
+        g_dead_follow = true;
+        g_solo_respawn = false;
+    }
+    if (!BeginRejoin(t, true, false)) {
+        if (dead) {
+            g_dead_follow = false;
+            g_death_held_at = now - DeathGrace();  // the held death's usual way (HeldDeathTick)
+        }
+        Log("guest: the host's wipe load could not be followed now (a re-join runs); %s",
+            dead ? "the held death goes on" : "staying");
+        return false;
+    }
+    float p[3] = {0, 0, 0};
+    ChrPos(s.player, p);
+    char b[128];
+    std::snprintf(b, sizeof b, "{\"op\":\"respawn\",\"pos\":[%.3f,%.3f,%.3f]}", p[0], p[1], p[2]);
+    Send(0, b);
+    Log("guest: %s %.1f s after the host's wipe load came: %s (%s); asked the host for a snapshot",
+        dead ? "own death taken" : "up again", now - since,
+        dead ? "follows it dead to the host's lamp with the party (one load)" : "follows it", DescribeTravel(t).c_str());
+    return true;
+}
 void HeldDeathTick(const GameSnapshot& s, double now) {
     LimboKillTick(s.loading || !s.world_up, now);
+    if (WipeFollowTick(s, now)) {
+        return;
+    }
     if (g_dead_follow.load() && !SessionUp()) {
         // The follow ended without an arrival (B1 fallback): the host's records stay, which is
         // where the fallback and the gather take the guest anyway.
@@ -3757,13 +4038,25 @@ void HeldDeathTick(const GameSnapshot& s, double now) {
         return;
     }
     static double limbo_logged = 0;
+    // C3 (player report 2026-10-21): a death taken right after this guest arrived with the host's
+    // wipe load belongs to that wipe: no second revive at its own last lamp (it stood beside the
+    // arena), the party's lamp instead.
+    const deathrules::AfterWipe after_wipe =
+        deathrules::PlanHeldAfterWipe(now - g_wipe_arrived_at.load(), s.player && ChrHp(s.player) > 0);
+    if (after_wipe == deathrules::AfterWipe::Drop) {
+        g_death_held_at = 0;
+        Log("guest: a death taken %.1f s after the party's respawn load: part of that wipe, up at the host's lamp "
+            "already (no revive of its own)", now - g_wipe_arrived_at.load());
+        return;
+    }
     {
         // C3: the host is down too: its death load (a wipe: one load for the whole party) takes
         // this guest along. Live parx deaths (3 players): the guest died 11 s before the host and
         // was revived in place while the host lay dead, 4 s before the party's respawn load.
         static double host_down_logged = 0;
-        // At most 30 s (a stale host chr must not hold the respawn for good).
-        if (now - at < 30.0 && HostChrDown()) {
+        // As long as the host is down, with a safety cap (a stale host chr must not hold the
+        // respawn for good; the old 30 s ran out in a long spectate): never a revive alone.
+        if (deathrules::GuestWaitsForHostDown(HostChrDown(), now - at)) {
             if (host_down_logged != at) {
                 host_down_logged = at;
                 Log("guest: dead while the host is down too: no revive; the host's death load takes it along");
@@ -3787,8 +4080,8 @@ void HeldDeathTick(const GameSnapshot& s, double now) {
         // its limbo, or in the grace with the fight on at its death): it gets up in the arena, no
         // load, once the defeat is saved (PR #6's wait, as the host's arena revive).
         const LimboKillWatch& kw = g_limbo_kill;
-        const bool in_fight = limbo_logged == at || (g_local_death_in_fight && kw.killed && g_local_death_at > 0 &&
-                                                     kw.gone_at >= g_local_death_at && at - g_local_death_at < 60.0);
+        const bool in_fight = limbo_logged == at || deathrules::KilledAfterHp0(g_local_death_in_fight, kw.killed,
+                                                                               g_local_death_at, kw.gone_at, at);
         const deathrules::GuestLimboEnd end =
             in_fight ? deathrules::PlanGuestLimboEnd(kw.killed, GuestArenaRuleOn(), kw.pending,
                                                      s.player && LivingMemberHere(s.player))
@@ -3815,6 +4108,9 @@ void HeldDeathTick(const GameSnapshot& s, double now) {
         SpectateEnd();  // also one begun at the hold, when the boss died in the grace
     }
     g_death_held_at = 0;
+    if (GuestFallSafeRevive(s)) {
+        return;
+    }
     // Design decisions (ERSC_PARITY.md): outside a boss fight a dead player respawns at its OWN last
     // lamp (split travel: a re-join when that lamp is in the host's area, else an alone load);
     // after a boss fight everyone uses the party's lamp, the host's last lamp (SoloRespawn).
@@ -3826,7 +4122,24 @@ void HeldDeathTick(const GameSnapshot& s, double now) {
         const u32 own = Field<u32>(Slot(kSlotGsm), 0x1528);
         const u32 party = GuestDeathRedirectLamp();
         const bool boss = limbo_logged == at;
-        if (!boss && own_lamp) {
+        // A death in the host's Chalice Dungeon (a tester's report: the guest went to its own lamp
+        // in the Dream and could not get back in): a dungeon is entered only by the summon's quick
+        // join, and its lamps are not in the party's spot table (LampTableSpotTrusted), so the guest
+        // gets up beside the nearest living member, no load; never to its own lamp outside.
+        // bbport.ini party_chalice_rejoin (BB_PARTY_CHALICE_REJOIN=0: the own-lamp rule as elsewhere).
+        const bool dungeon = (s.map_id >> 24) == 29 && BbSettings::Get().party_chalice_rejoin.load();
+        if (dungeon && !boss) {
+            if (GuestChaliceRevive(s)) {
+                return;
+            }
+            Log("guest: died in the host's Chalice Dungeon: nobody alive here to get up beside; the death redirect "
+                "(not its own last lamp %u)", own);
+        }
+        if (after_wipe == deathrules::AfterWipe::HostLamp) {
+            Log("guest: a death taken %.1f s after the party's respawn load: part of that wipe; the host's lamp %u "
+                "(not its own %u)", now - g_wipe_arrived_at.load(), party, own);
+        }
+        if (!boss && own_lamp && !dungeon && after_wipe == deathrules::AfterWipe::None) {
             if (GuestReviveInPlace(s, own, "its own last lamp")) {
                 return;
             }
@@ -3871,6 +4184,7 @@ struct LampSpot {
     alignas(16) float rot[4] = {};
     bool exact = false;           // the arena revive: this very spot (no 0.5 m step beside a member)
     const char* what = nullptr;   // the warp's log name (default: "... revive at the lamp")
+    bool safe_floor = false;      // fallsafe: the game's safe spot of a fall death (SafeReviveWatchTick)
 };
 LampSpot g_lamp_spot;  // main thread
 bool ChrTransform(u64 chr, float pos[4], float rot[4]);
@@ -3910,13 +4224,27 @@ CorpseSpot g_host_corpse;
 // Any role: where the local chr stood at its last HP 0 (LocalDeathHeightTick), for a guest's arena
 // revive (the spectate carries the dead chr along afterwards). Main thread.
 CorpseSpot g_local_corpse;
+// Any role: the game's last safe ground spot of the local chr at that HP 0 (GameSafeSpot; valid:
+// deathrules::SafeSpotUsable), where its bloodstain goes: a fall death gets up there. Main thread.
+CorpseSpot g_local_safe;
+// fallsafe: a revive on the game's safe spot, watched for SafeReviveWatchTick's 5 s (main thread).
+struct SafeReviveWatch {
+    double at = 0;
+    float y = 0;
+    bool host = false;
+};
+SafeReviveWatch g_safe_revive;
 std::atomic<bool> g_host_down{false};    // the host's death was taken; not revived yet
 std::atomic<double> g_host_down_at{0};
 std::atomic<int> g_revivals{0};
 std::atomic<bool> g_host_limbo{false};   // the host's death came in a boss fight: it waits for the end
+std::atomic<bool> g_host_limbo_late{false};  // ...its boss killed in its death animation (KilledAfterHp0)
 std::mutex g_dead_mu;
 deathrules::DownLedger g_dead_members;    // host: party slots down until revived / re-arrived / gone (under g_dead_mu)
 std::atomic<bool> g_host_revived_note{false};  // guest: the host was revived in place (re-create its chr)
+// The local player's respawn record (GSM +0x1528) on its last frame alive (LocalDeathHeightTick):
+// a death whose script moves it (deathrules::ScriptedDeathWarp) is told from the record at the funnel.
+std::atomic<u32> g_alive_lamp{0};
 
 // What a chr death writes (ChrIns_OnDeath 0x18C49F0 and its followers 0x18C4F90 / 0x18C5070, the
 // per-frame trigger 0x18BD9D0), snapshot while the host is alive.
@@ -4135,7 +4463,7 @@ bool RecipeHas(const char* step) {
     // '|' separates the recipes of successive revivals (the last one repeats): one run tries several.
     static const std::vector<std::string> list = [] {
         const char* v = std::getenv("BB_PARTY_B2_REVIVE_RECIPE");
-        std::string all = v && v[0] ? v : "recover,flags,ctrl,fade,reset,idle,hitbody,warp,gsm,rearm";
+        std::string all = v && v[0] ? v : "recover,flags,ctrl,fade,safewarp,reset,idle,hitbody,warp,gsm,rearm";
         std::vector<std::string> out;
         for (std::size_t a = 0;;) {
             const std::size_t b = all.find('|', a);
@@ -4166,10 +4494,36 @@ void LampSpotTick(const GameSnapshot& s) {
         const u32 rec = Field<u32>(gsm, 0x153c);
         lamp_load = ((mode == 1 || mode == 2) && rec != 0xffffffffu && rec != 0) || Field<u8>(gsm, 0x1524) != 0;
         stable = 0;
-        Log("lamp spot: load starts (respawn mode %u, record %u, at-last-lamp %u, last lamp %u)%s", mode, rec,
-            unsigned(Field<u8>(gsm, 0x1524)), Field<u32>(gsm, 0x1528), lamp_load ? ": a lamp arrival" : "");
+        Log("lamp spot: load starts (respawn mode %u, record %u, at-last-lamp %u, last lamp %u; destination map %#x, "
+            "placement stage %#x, +0x1521 %u +0x1593 %u +0x1598 %u)%s", mode, rec,
+            unsigned(Field<u8>(gsm, 0x1524)), Field<u32>(gsm, 0x1528), Field<u32>(gsm, 0xc), Field<u32>(gsm, 0x14c4),
+            unsigned(Field<u8>(gsm, 0x1521)), unsigned(Field<u8>(gsm, 0x1593)), unsigned(Field<u8>(gsm, 0x1598)),
+            lamp_load ? ": a lamp arrival" : "");
     }
     was_loading = loading;
+    {
+        // A Chalice Dungeon lamp lit (or used) in the world: the last-lamp record names it with no
+        // load, the player stands at it. Its spot is not in the party's table (LampTableSpotTrusted),
+        // so this is where the host's revive puts it (else the party's respawn load).
+        static u32 seen_lamp = 0;
+        const u32 now_lamp = Field<u32>(gsm, 0x1528);
+        if (loading) {
+            seen_lamp = now_lamp;
+        } else if (now_lamp != seen_lamp) {
+            seen_lamp = now_lamp;
+            LampSpot sp;
+            sp.lamp = now_lamp;
+            sp.map = s.map_id;
+            if (!deathrules::LampTableSpotTrusted(now_lamp) && ((s.map_id >> 24) & 0xff) == 29 && s.player &&
+                Field<u8>(gsm, 0x1592) == 1 && ChrHp(s.player) > 0 && ChrTransform(s.player, sp.pos, sp.rot)) {
+                sp.valid = true;
+                g_lamp_spot = sp;
+                Log("lamp spot: Chalice Dungeon lamp %u lit / used in %s at (%.2f, %.2f, %.2f) yaw %.2f (the host's revive "
+                    "spot)", sp.lamp, MapName(sp.map).c_str(), double(sp.pos[0]), double(sp.pos[1]), double(sp.pos[2]),
+                    double(sp.rot[1]));
+            }
+        }
+    }
     if (loading || !lamp_load || !s.player) {
         return;
     }
@@ -4256,6 +4610,27 @@ bool SoloReviveTest() {
     return on;
 }
 
+bool HostFallDeath(u64 chr);
+/// The host's death moves its respawn point to another map by script (deathrules::ScriptedDeathWarp:
+/// the Snatcher's kidnap to the Gaol, the first death with Insight to the Dream): the party's
+/// respawn load, whatever the revive switch says. `why` (optional): for the log line.
+bool ScriptedDeathWarpNow(u32 lamp, u32 stage, std::string* why = nullptr) {
+    bool f9420 = false, f9423 = false;
+    const bool ok = ReadEventFlag(9420, &f9420) && ReadEventFlag(9423, &f9423);
+    const bool kidnap = ok && deathrules::KidnapDeath(lamp, f9420, f9423);
+    const u32 alive = g_alive_lamp.load();
+    const bool moved = deathrules::RespawnMovedAtDeath(alive, lamp, ids::EntityMap(lamp) >> 16, stage >> 16);
+    if (why) {
+        char b[160];
+        std::snprintf(b, sizeof b, "%s%s%s (respawn record %u, %u while alive; 9420 %d, 9423 %d)",
+                      kidnap ? "the Snatcher's kidnap" : "", kidnap && moved ? ", " : "",
+                      moved ? "the death's script moved the respawn to another map" : "", lamp, alive, f9420 ? 1 : 0,
+                      f9423 ? 1 : 0);
+        *why = b;
+    }
+    return deathrules::ScriptedDeathWarp(kidnap, moved);
+}
+
 bool HostDeathIntercept() {
     if (!g_on.load() || (Role() != RoleHost && !SoloReviveTest())) {
         return false;
@@ -4273,7 +4648,8 @@ bool HostDeathIntercept() {
     // lamp from the game data (party_ids ReturnSpot, split_travel.md 3a), when it is in this map.
     if (HostReviveOn() && !(g_lamp_spot.valid && g_lamp_spot.lamp == lamp)) {
         float rs[4];
-        if (lamp != 0 && lamp != kTravelNone && (ids::EntityMap(lamp) >> 16) == (stage >> 16) && ids::ReturnSpot(lamp, rs)) {
+        if (lamp != 0 && lamp != kTravelNone && deathrules::LampTableSpotTrusted(lamp) &&
+            (ids::EntityMap(lamp) >> 16) == (stage >> 16) && ids::ReturnSpot(lamp, rs)) {
             LampSpot d;
             d.valid = true;
             d.lamp = lamp;
@@ -4293,11 +4669,34 @@ bool HostDeathIntercept() {
     v.down_reported = reported;
     v.down_seen = seen;
     v.boss_fight = BossFightActive(&boss);
+    {
+        // The boss killed while the host's death animation ran (its HP 0 in the fight, the death
+        // taken 8-13 s later with no living bar left: hostcheck run C): the limbo, then the arena
+        // revive, as the guest's held death (LimboKillTick, LocalDeathHeightTick).
+        const LimboKillWatch& kw = g_limbo_kill;
+        v.boss_killed_late = !v.boss_fight && deathrules::KilledAfterHp0(g_local_death_in_fight, kw.killed,
+                                                                         g_local_death_at, kw.gone_at, Now());
+        if (v.boss_killed_late) {
+            char b[96];
+            std::snprintf(b, sizeof b, "boss killed %.1f s after the host's HP 0", kw.killed_at - g_local_death_at);
+            boss = b;
+        }
+    }
+    v.arena_revive_on = HostLimboReviveOn();
     v.revive_opt_in = HostReviveOn();
     // The stage id (PlayerIns +0x3F8) and the map id share the area / block bytes.
     v.lamp_here = sp.valid && sp.lamp == lamp && (sp.map >> 16) == (stage >> 16);
+    // fallsafe: a fall death gets up on its last safe floor in this map (ReviveHost): no lamp needed.
+    const bool fall_here = HostFallDeath(Field<u64>(Slot(kSlotWorldChrMan), 0x60)) && g_local_safe.valid;
+    v.lamp_here = v.lamp_here || fall_here;
     v.alone_opt = !(std::getenv("BB_PARTY_HOST_DEATH_ALONE") && std::getenv("BB_PARTY_HOST_DEATH_ALONE")[0] == '0');
     v.solo_fixture = SoloReviveTest();
+    std::string scripted;
+    v.scripted_warp = ScriptedDeathWarpNow(lamp, stage, &scripted);
+    if (v.scripted_warp) {
+        Log("host death: a scripted death warp: %s; the whole party goes (one load), no revive or lone load",
+            scripted.c_str());
+    }
     const deathrules::HostDeathPlan plan = deathrules::PlanHostDeath(v);
     switch (plan) {
     case deathrules::HostDeathPlan::Stock:
@@ -4322,6 +4721,7 @@ bool HostDeathIntercept() {
         g_host_down = true;
         g_host_down_at = Now();
         g_host_limbo = true;
+        g_host_limbo_late = v.boss_killed_late;
         g_host_corpse = CorpseSpot{};
         g_host_corpse.valid = ChrTransform(Field<u64>(Slot(kSlotWorldChrMan), 0x60), g_host_corpse.pos, g_host_corpse.rot);
         Log("host death in a boss fight (%s): limbo until the boss is gone (killed: %s), a wipe or a rest; "
@@ -4378,7 +4778,28 @@ constexpr u32 kAliveHitLayer = 0x08;  // a living player's (live: 0x01000008)
 // The collision filter of the local chr's hit bodies while alive (ChrCtrl +0x20 +0xA8, see
 // RestoreHitBodies), kept by LocalDeathHeightTick with the draw factor.
 u32 g_local_hitfilter_alive = 0;
+bool HostFallDeath(u64 chr);
+bool SafeFloorSpot(LampSpot* out, u32 map, const char* what);
 void ReviveHost(const GameSnapshot& s) {
+    // fallsafe (user decision): a fall death (off a ledge, or out of the world) gets up at its lamp
+    // like any death when that lamp is in the loaded map (its bloodstain stays on its last safe
+    // floor); with the lamp elsewhere, on that safe floor, no load (a load after a death out of the
+    // world lands in the Hunter's Dream). HostDeathIntercept takes such a death even without a lamp here.
+    const u32 lamp = Field<u32>(Slot(kSlotGsm), 0x1528);
+    const LampSpot& ls = g_lamp_spot;
+    const bool lamp_here = ls.valid && ls.lamp == lamp && (ls.map >> 16) == (Field<u32>(s.player, 0x3f8) >> 16);
+    const deathrules::FallRespawn f =
+        deathrules::PlanFallRespawn(HostFallDeath(s.player), true, lamp_here, false, g_local_safe.valid, true);
+    LampSpot sp;
+    if (f == deathrules::FallRespawn::SafeFloor && SafeFloorSpot(&sp, s.map_id, "host revive on its last safe floor (a fall)")) {
+        Log("host death: a fall, its lamp %u not in the loaded map: up on its last safe floor (%.1f, %.1f, %.1f), no load",
+            lamp, double(sp.pos[0]), double(sp.pos[1]), double(sp.pos[2]));
+        ReviveLocal(s, sp, true);
+        return;
+    }
+    if (f == deathrules::FallRespawn::OwnLamp) {
+        Log("host death: a fall: up at its lamp %u (no load); its bloodstain on its last safe floor", lamp);
+    }
     ReviveLocal(s, g_lamp_spot, true);
 }
 
@@ -4413,10 +4834,47 @@ void RestoreHitBodies(u64 p, bool host) {
 /// Main thread: the local player's chr revived where it lies and put on `sp` (its lamp's spawn
 /// spot in the loaded map). `host`: the party host (peers re-create its chr on "host_revived");
 /// otherwise a guest (peers re-create the member chr nearest to where it died, "member_revived").
+// fallsafe: a revive waiting for its body to be moved up from far below (ReviveLocal). Main thread.
+struct PendingRevive {
+    bool on = false, host = false, resuming = false;
+    LampSpot sp;
+    double at = 0, inv_until = 0;
+    float from_y = 0;
+    bool inv_set = false;
+    u32 load_lamp = 0;          // a guest's respawn load waiting for its body (GuestReviveInPlace)
+    const char* load_why = "";
+};
+PendingRevive g_pending_revive;
 void ReviveLocal(const GameSnapshot& s, const LampSpot& sp, bool host) {
     const u64 p = s.player;
     float died_at[4] = {}, died_rot[4] = {};
     ChrTransform(p, died_at, died_rot);
+    if (RecipeHas("warp") && sp.valid && !g_pending_revive.resuming) {
+        // fallsafe (live r6 / r7): a body out of the world (fell to the kill plane, y -1500) revived
+        // at its lamp died again in the next frame: the game's warp moves the chr a frame late, and
+        // with its HP back it met the kill plane again (that second death's empty stain cost the
+        // first one's echoes). A body far below its spot is moved there first while still dead
+        // (the game's own warp); PendingReviveTick finishes the revive once it stands there.
+        const float dy = died_at[1] - sp.pos[1];
+        // Called once the death is taken (HostDownTick, a guest's held death, the arena revives).
+        if (deathrules::PlanFallReviveStep(true, !std::isfinite(died_at[1]) || dy < -20.0f, false, false, 0.0) ==
+            deathrules::FallReviveStep::MoveBody) {
+            alignas(16) float pos[4], rot[4];
+            std::memcpy(pos, sp.pos, sizeof pos);
+            std::memcpy(rot, sp.rot, sizeof rot);
+            pos[3] = 1.0f;
+            LocalChrWarpImpl(p, pos, rot, host ? "host revive: the body first" : "guest revive: the body first");
+            g_pending_revive.on = true;
+            g_pending_revive.sp = sp;
+            g_pending_revive.host = host;
+            g_pending_revive.at = Now();
+            g_pending_revive.from_y = died_at[1];
+            Log("%s revive: the body is %.0f m below its spot (%.1f, %.1f, %.1f): moved there first, the revive follows "
+                "once it stands there", host ? "host" : "guest", double(-dy), double(sp.pos[0]), double(sp.pos[1]),
+                double(sp.pos[2]));
+            return;
+        }
+    }
     DeathFields before;
     ReadDeathFields(p, &before);
     Log("host revive: before: hp %d, %s; alive: %s; echoes %d", ChrHp(p), DescribeDeathFields(before).c_str(),
@@ -4526,6 +4984,21 @@ void ReviveLocal(const GameSnapshot& s, const LampSpot& sp, bool host) {
         const u8 b = u8(Field<u8>(p, 0x1e5) & ~4u);
         SafeWrite(p + 0x1e5, &b, 1);
     }
+    if (RecipeHas("safewarp")) {
+        // fallsafe (live r6-r8): a revived chr out of the world (the kill plane) died again a frame
+        // after the revive, also at its lamp with 2 s of invincibility. The game's own safe-spot
+        // warp-and-revive 0x13CBAD0 (Lua, entity 10000) also writes these: [[+0x3B0] +0x58] +0x28
+        // +0x0C = 1, and for the local player WorldChrMan +0x68 = 0.
+        const u64 wcm = Slot(kSlotWorldChrMan);
+        const u64 m58 = Field<u64>(Field<u64>(Field<u64>(p, 0x3b0), 0x58), 0x28);
+        const u8 w68 = Field<u8>(wcm, 0x68), c0 = Field<u8>(m58, 0xc), one = 1, zero = 0;
+        // Written only for a body brought back from far below (PendingReviveTick); read for every revive.
+        const bool fell = g_pending_revive.resuming;
+        if (fell && m58) SafeWrite(m58 + 0xc, &one, 1);
+        if (fell && wcm && w68) SafeWrite(wcm + 0x68, &zero, 1);
+        Log("%s revive: the game's safe-spot revive fields: WorldChrMan +0x68 %u, [[+0x3B0] +0x58] +0x28 +0xC %u%s",
+            host ? "host" : "guest", unsigned(w68), unsigned(c0), fell ? " (set as 0x13CBAD0 does: 0, 1)" : "");
+    }
     if (RecipeHas("gsm")) {
         const u64 gsm = Slot(kSlotGsm);
         const u8 zero = 0;
@@ -4589,6 +5062,9 @@ void ReviveLocal(const GameSnapshot& s, const LampSpot& sp, bool host) {
         }
         LocalChrWarpImpl(p, pos, rot, sp.what ? sp.what : host ? "host revive at the lamp" : "guest revive at the lamp");
     }
+    if (sp.safe_floor) {
+        g_safe_revive = SafeReviveWatch{Now(), sp.pos[1], host};
+    }
     if (RecipeHas("rearm")) {
         RearmDeathScript(host ? "host revive" : "guest revive");
     }
@@ -4596,9 +5072,11 @@ void ReviveLocal(const GameSnapshot& s, const LampSpot& sp, bool host) {
     ReadDeathFields(p, &after);
     g_revivals.fetch_add(1);
     g_seen_dying = false;
-    char where[48];
-    if (sp.exact) {
-        std::snprintf(where, sizeof where, "in the arena (no lamp)");
+    char where[80];
+    if (!sp.valid) {
+        std::snprintf(where, sizeof where, "where it lies");
+    } else if (sp.exact) {
+        std::snprintf(where, sizeof where, "%s", sp.what ? sp.what : "in the arena (no lamp)");
     } else {
         std::snprintf(where, sizeof where, "at lamp %u", sp.lamp);
     }
@@ -4619,20 +5097,35 @@ void ReviveLocal(const GameSnapshot& s, const LampSpot& sp, bool host) {
 /// no known spawn spot (the caller loads as before).
 // The local chr's height around its death (issue #4 item 7): the highest point in the 3 s before
 // HP 0 and the height at HP 0, for PlanGuestRevive's fall test. Main thread, every role.
+// liftfall: the peak counts from the last sample on a moving object (deathrules::PeakSinceRide: a
+// ride down in a lift's car is no fall), and a body lying in the car (`riding`) is not followed down.
 struct DeathHeight {
     bool known = false;
+    bool riding = false;
     double peak = 0, at_death = 0;
 };
 DeathHeight g_death_height;
 void LocalDeathHeightTick(const GameSnapshot& s, double now) {
-    static std::deque<std::pair<double, float>> hist;
+    static std::deque<deathrules::HeightSample> hist;
     static bool was_dead = false;
     static u64 chr = 0;
+    static u32 last_map = 0;
     if (!s.world_up || s.loading || !s.player) {
+        if (was_dead && g_local_corpse.valid && Role() == RoleClient && g_last_hold_at.load() < g_local_death_at) {
+            // C3: a load begins while this guest is down and its death not taken yet: where it died
+            // (GuestBloodstain puts the record there when the death is taken after the load).
+            g_untaken_death.valid = true;
+            g_untaken_death.at = Now();
+            g_untaken_death.map = last_map;
+            std::memcpy(g_untaken_death.pos, g_local_corpse.pos, sizeof g_untaken_death.pos);
+            Log("guest: a load begins before its death was taken: its bloodstain stays where it died (%.1f, %.1f, "
+                "%.1f)", double(g_local_corpse.pos[0]), double(g_local_corpse.pos[1]), double(g_local_corpse.pos[2]));
+        }
         hist.clear();
         was_dead = false;
         return;
     }
+    last_map = s.map_id;
     if (s.player != chr) {
         chr = s.player;
         hist.clear();
@@ -4643,6 +5136,12 @@ void LocalDeathHeightTick(const GameSnapshot& s, double now) {
         return;
     }
     const bool dead = ChrHp(s.player) <= 0;
+    if (!dead) {
+        g_alive_lamp = Field<u32>(Slot(kSlotGsm), 0x1528);
+        if (g_untaken_death.valid && now - g_untaken_death.at > 15.0) {
+            g_untaken_death.valid = false;  // up again and the death never taken: a later death is its own
+        }
+    }
     if (!dead && !(Field<u64>(s.player, 0x1e1) & 0x10000)) {
         const float draw = Field<float>(s.player, 0x208);
         if (draw > 0.5f && draw <= 1.0f) {
@@ -4654,23 +5153,203 @@ void LocalDeathHeightTick(const GameSnapshot& s, double now) {
             }
         }
     }
+    const bool riding = LocalRiding(s.player, p);
     if (!dead) {
-        hist.emplace_back(now, p[1]);
-        while (!hist.empty() && now - hist.front().first > 3.0) hist.pop_front();
+        hist.push_back({now, double(p[1]), riding});
+        while (!hist.empty() && now - hist.front().t > 3.0) hist.pop_front();
     } else if (!was_dead) {
         DeathHeight d;
-        d.known = !hist.empty() && now - hist.front().first >= 1.0;
+        d.known = !hist.empty() && now - hist.front().t >= 1.0;
         d.at_death = p[1];
-        d.peak = p[1];
-        for (const auto& h : hist) d.peak = std::max(d.peak, double(h.second));
+        d.riding = riding;
+        d.peak = deathrules::PeakSinceRide(hist, d.at_death);
         g_death_height = d;
         g_local_death_at = now;
         g_local_death_in_fight = LivingBossHandle() != ~0u;
         g_local_corpse = CorpseSpot{};
         g_local_corpse.valid = ChrTransform(s.player, g_local_corpse.pos, g_local_corpse.rot) &&
                                std::isfinite(g_local_corpse.pos[1]);
+        // fallsafe: the game's safe spot as it was at HP 0 (the bloodstain's spot; read later, a
+        // spectate's carry or the body's own landing could move it).
+        g_local_safe = CorpseSpot{};
+        const bool read = GameSafeSpot(s.player, g_local_safe.pos, g_local_safe.rot);
+        g_local_safe.valid = deathrules::SafeSpotUsable(read, g_local_safe.pos, p);
+        const double dx = double(g_local_safe.pos[0] - p[0]), dz = double(g_local_safe.pos[2] - p[2]);
+        Log("local death: HP 0 at (%.1f, %.1f, %.1f), dropped %.1f m in the 3 s before%s%s; the game's last safe ground "
+            "spot (%.1f, %.1f, %.1f), %.1f m away (height %+.1f m)%s",
+            double(p[0]), double(p[1]), double(p[2]), d.peak - d.at_death, d.known ? "" : " (no height history)",
+            d.riding ? " (on a moving object: a lift's car)" : "",
+            double(g_local_safe.pos[0]), double(g_local_safe.pos[1]), double(g_local_safe.pos[2]),
+            std::sqrt(dx * dx + dz * dz), double(g_local_safe.pos[1] - p[1]),
+            g_local_safe.valid ? "" : read ? " (not usable)" : " (none)");
     }
     was_dead = dead;
+}
+
+/// Any role (fallsafe): this death was a fall - the drop test of the height history (around the
+/// death; `y_now` the chr's height now, NaN: at HP 0 only, a spectate carries the body) or the
+/// game's fall-death flags on the chr (`mask` bits it carried alive left out: the host's arena revive).
+bool LocalFallDeath(u64 chr, double y_now, u64 mask = 0) {
+    const DeathHeight dh = g_death_height;
+    const double y = std::isfinite(y_now) ? y_now : dh.at_death;
+    DeathFields dead;
+    ReadDeathFields(chr, &dead);
+    return deathrules::PlanGuestRevive(deathrules::FallDropRide(dh.peak, dh.at_death, y, dh.riding), dh.known,
+                                       deathrules::FallDeathState(dead.f1e1 & ~mask, dead.m20_200)) !=
+           deathrules::GuestRevive::InPlace;
+}
+
+/// The host's own death was a fall (fall flags it did not carry alive left out, as the arena revive).
+bool HostFallDeath(u64 chr) {
+    return chr && LocalFallDeath(chr, std::numeric_limits<double>::quiet_NaN(), g_alive_fields_ok ? g_alive_fields.f1e1 : 0);
+}
+
+/// A fall death's revive spot (fallsafe): the game's safe spot kept at HP 0, exact (no side step).
+bool SafeFloorSpot(LampSpot* out, u32 map, const char* what) {
+    if (!g_local_safe.valid) {
+        return false;
+    }
+    std::memcpy(out->pos, g_local_safe.pos, sizeof out->pos);
+    std::memcpy(out->rot, g_local_safe.rot, sizeof out->rot);
+    out->pos[3] = 1.0f;
+    out->valid = out->exact = out->safe_floor = true;
+    out->map = map;
+    out->what = what;
+    return true;
+}
+
+/// fallsafe: a fall death's bloodstain on the same spot the player gets up on. The game's safe-spot
+/// history goes on after HP 0 (the body lies on whatever it landed on): its stain record, written
+/// 8-11 s later (the host's death funnel, a guest's held death), drifted towards the corpse (live
+/// fallsafe r4: the host's stain 1.0 m on, a guest's on its corpse spot itself, 4.1 m from the HP 0
+/// value; under the level after a fall through it). So the record's stain spot (+0x00) is set to the
+/// safe spot kept at HP 0 when the record is this death's (its +0x18 is this HP 0 spot) and the
+/// death was a fall; the live stain is built again there (0x1868A50(stains, 1) drops the old object
+/// first) in the own world. True: the record was moved.
+bool FallStainToSafeSpot(const char* why) {
+    const u64 rec = Field<u64>(Slot(kSlotGameData), 0x30);
+    const u64 me = Field<u64>(Slot(kSlotWorldChrMan), 0x60);
+    float died[3] = {}, obj[3] = {};
+    if (!rec || !me || !g_local_safe.valid || !g_local_corpse.valid || !SafeRead(rec + 0x18, died, 12) ||
+        !SafeRead(rec, obj, 12)) {
+        return false;
+    }
+    const float dx = died[0] - g_local_corpse.pos[0], dy = died[1] - g_local_corpse.pos[1], dz = died[2] - g_local_corpse.pos[2];
+    const float ox = obj[0] - g_local_safe.pos[0], oy = obj[1] - g_local_safe.pos[1], oz = obj[2] - g_local_safe.pos[2];
+    // This death's record: its death spot under this HP 0's (a body falling out of the world keeps
+    // falling until the record, 8-11 s later), not an older death's.
+    if (dx * dx + dz * dz > 2.25f || dy > 1.5f || ox * ox + oy * oy + oz * oz < 0.04f ||
+        !LocalFallDeath(me, std::numeric_limits<double>::quiet_NaN())) {
+        return false;
+    }
+    SafeWrite(rec, g_local_safe.pos, 12);
+    const bool own_world = Field<u8>(Slot(kSlotGsm), 0x1592) == 1;
+    const u64 stains = Field<u64>(Field<u64>(Slot(0x553b108), 0x80), 8);
+    if (own_world && stains && Field<u8>(Slot(kSlotGameData), 0x28) == 1 && Field<int>(rec, 0x38, -1) > 0) {
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u32)>(Guest(0x1868a50))(stains, 1);
+    }
+    Log("bloodstain (%s): a fall death: the stain moved from (%.1f, %.1f, %.1f) to the last safe ground spot at HP 0 "
+        "(%.1f, %.1f, %.1f), where the player gets up%s",
+        why, double(obj[0]), double(obj[1]), double(obj[2]), double(g_local_safe.pos[0]), double(g_local_safe.pos[1]),
+        double(g_local_safe.pos[2]), own_world ? " (live stain built again)" : "");
+    return true;
+}
+
+/// Any role, every frame (fallsafe): the host's own death record (SoloPlayDeath_2's) comes after
+/// its HP 0; for 30 s after a fall death's HP 0 the record is put on the safe spot once it is there.
+void FallStainTick(const GameSnapshot& s, double now) {
+    static double done_for = -1;
+    if (!s.world_up || s.loading || !s.player || g_local_death_at <= 0 || done_for == g_local_death_at ||
+        now - g_local_death_at > 30.0) {
+        return;
+    }
+    if (FallStainToSafeSpot("own record")) {
+        done_for = g_local_death_at;
+    }
+}
+
+/// fallsafe: the game's safe spot is a spot the chr stood on, a few seconds before the fall (its
+/// history lags: live, the walk's start, not the ledge). Should a revive there still drop (more than
+/// 3 m in the 5 s after it: an edge that gave way), the player goes to the lamp instead (the host's
+/// own last lamp, a guest's the host's), in the loaded map with no load; else the fall recovery.
+/// fallsafe: finishes a revive whose body was moved up first (ReviveLocal), once it stands within
+/// 3 m of its spot (or after 2 s); then 2 s of the game's invincibility (chr +0x1E1 bit 14, as
+/// EnableInvincible) so a kill plane or a fall's landing still pending cannot take the new life.
+void PendingReviveTick(const GameSnapshot& s, double now) {
+    PendingRevive& r = g_pending_revive;
+    if (r.inv_set && now >= r.inv_until) {
+        r.inv_set = false;
+        u32 f = 0;
+        if (s.player && SafeRead(s.player + 0x1e1, &f, 4) && (f & (1u << 14))) {
+            f &= ~(1u << 14);
+            SafeWrite(s.player + 0x1e1, &f, 4);
+        }
+        Log("%s revive: the 2 s of invincibility after the fall revive are over (hp %d)", r.host ? "host" : "guest",
+            s.player ? ChrHp(s.player) : -1);
+    }
+    if (!r.on || !s.world_up || s.loading || !s.player) {
+        return;
+    }
+    float at[3] = {};
+    ChrPos(s.player, at);
+    const float dx = at[0] - r.sp.pos[0], dy = at[1] - r.sp.pos[1], dz = at[2] - r.sp.pos[2];
+    const bool there = dx * dx + dy * dy + dz * dz < 9.0f;
+    if (deathrules::PlanFallReviveStep(true, true, true, there, now - r.at) != deathrules::FallReviveStep::Revive) {
+        return;
+    }
+    r.on = false;
+    if (r.load_lamp) {
+        const u32 lamp = r.load_lamp;
+        r.load_lamp = 0;
+        Log("guest: the body %s %.1f s after the move (at (%.1f, %.1f, %.1f)); the respawn load starts now",
+            there ? "stands on its safe floor" : "did not reach its safe floor", now - r.at, double(at[0]), double(at[1]),
+            double(at[2]));
+        if (!GuestDeadLoadAt(lamp, 0.0, r.load_why)) {
+            LampSpot sp;
+            if (SafeFloorSpot(&sp, s.map_id, "guest revive on its last safe floor (the respawn load failed)")) {
+                ReviveLocal(s, sp, false);
+            }
+        }
+        return;
+    }
+    Log("%s revive: the body %s %.1f s after the move (at (%.1f, %.1f, %.1f)); the revive runs now", r.host ? "host" : "guest",
+        there ? "stands on its spot" : "did not reach its spot", now - r.at, double(at[0]), double(at[1]), double(at[2]));
+    r.resuming = true;
+    ReviveLocal(s, r.sp, r.host);
+    r.resuming = false;
+    // Not the game's own safe-spot revive 0x13CBAD0 as well: it calls BeginLeaveSession at +0x13CBD0F
+    // (live r12 / r14: a guest left the host's world, a host closed its room and sent its guests home).
+    // The settle before the revive (PlanFallReviveStep) is what keeps the new life.
+    u32 f = 0;
+    if (SafeRead(s.player + 0x1e1, &f, 4) && !(f & (1u << 14))) {
+        f |= 1u << 14;
+        SafeWrite(s.player + 0x1e1, &f, 4);
+        r.inv_set = true;
+        r.inv_until = now + 2.0;
+    }
+}
+
+void SafeReviveWatchTick(const GameSnapshot& s, double now) {
+    SafeReviveWatch& w = g_safe_revive;
+    if (w.at <= 0 || !s.world_up || s.loading || !s.player) {
+        return;
+    }
+    if (now - w.at > 5.0) {
+        Log("%s revive on its last safe floor: still standing 5 s after it", w.host ? "host" : "guest");
+        w.at = 0;
+        return;
+    }
+    float p[3];
+    if (!ChrPos(s.player, p) || p[1] > w.y - 3.0f) {
+        return;
+    }
+    const u32 lamp = w.host ? Field<u32>(Slot(kSlotGsm), 0x1528) : GuestDeathRedirectLamp();
+    Log("%s revive on its last safe floor: dropped %.1f m in %.1f s after it; to %s lamp %u instead", w.host ? "host" : "guest",
+        double(w.y - p[1]), now - w.at, w.host ? "its" : "the host's", lamp);
+    w.at = 0;
+    if (!WarpToLampInWorld(lamp, !w.host, "fall revive fallback")) {
+        Log("revive fallback: lamp %u is not in the loaded map; the fall recovery takes over", lamp);
+    }
 }
 
 /// Diagnostics (BB_PARTY_B2_REVIVE_DIFF=1), any role: the alive copy for a guest too (the host's is
@@ -4717,8 +5396,8 @@ bool GuestReviveInPlace(const GameSnapshot& s, u32 lamp, const char* why) {
     static const bool on = !(std::getenv("BB_PARTY_GUEST_REVIVE") && std::getenv("BB_PARTY_GUEST_REVIVE")[0] == '0');
     const u32 stage = Field<u32>(s.player, 0x3f8);
     float rs[4];
-    if (!on || !s.player || lamp == 0 || lamp == kTravelNone || (ids::EntityMap(lamp) >> 16) != (stage >> 16) ||
-        !ids::ReturnSpot(lamp, rs)) {
+    if (!on || !s.player || lamp == 0 || lamp == kTravelNone || !deathrules::LampTableSpotTrusted(lamp) ||
+        (ids::EntityMap(lamp) >> 16) != (stage >> 16) || !ids::ReturnSpot(lamp, rs)) {
         return false;
     }
     {
@@ -4741,7 +5420,7 @@ bool GuestReviveInPlace(const GameSnapshot& s, u32 lamp, const char* why) {
         if (ChrPos(s.player, p) && std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2])) {
             const double dx = p[0] - rs[0], dy = p[1] - rs[1], dz = p[2] - rs[2];
             dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-            fell = deathrules::FallDrop(g_death_height.peak, g_death_height.at_death, p[1]);
+            fell = deathrules::FallDropRide(g_death_height.peak, g_death_height.at_death, p[1], g_death_height.riding);
         }
         DeathFields dead;
         ReadDeathFields(s.player, &dead);
@@ -4753,6 +5432,30 @@ bool GuestReviveInPlace(const GameSnapshot& s, u32 lamp, const char* why) {
                 unsigned(dead.m20_200),
                 plan == deathrules::GuestRevive::InPlace ? "loading screen (in-place revive off)"
                                                          : deathrules::GuestReviveName(plan));
+            if (g_local_safe.valid && std::isfinite(p[1]) && p[1] < g_local_safe.pos[1] - 20.0f) {
+                // fallsafe (live r6 / r7): a body out of the world (the kill plane, y -1500) took
+                // this respawn load to the Hunter's Dream instead of the lamp, the guest left there
+                // as a client of a party it could not see. The dead body is moved onto its last
+                // safe floor first (the game's warp); PendingReviveTick starts the load once it
+                // stands there.
+                alignas(16) float pos[4], rot[4];
+                std::memcpy(pos, g_local_safe.pos, sizeof pos);
+                std::memcpy(rot, g_local_safe.rot, sizeof rot);
+                pos[3] = 1.0f;
+                LocalChrWarpImpl(s.player, pos, rot, "guest respawn: the body first");
+                PendingRevive& r = g_pending_revive;
+                r.on = true;
+                r.host = false;
+                r.at = Now();
+                r.from_y = p[1];
+                r.sp = LampSpot{};
+                std::memcpy(r.sp.pos, pos, sizeof pos);
+                r.load_lamp = lamp;
+                r.load_why = why;
+                Log("guest: its body fell out of the world (y %.0f): moved onto its last safe floor (%.1f, %.1f, %.1f) "
+                    "before the respawn load", double(p[1]), double(pos[0]), double(pos[1]), double(pos[2]));
+                return true;
+            }
             if (GuestDeadLoadAt(lamp, 0.0, why)) {
                 return true;
             }
@@ -4783,31 +5486,99 @@ bool GuestArenaRevive(const GameSnapshot& s, double held_for) {
     if (!s.player || !NearestLivingMember(s.player, &arena)) {
         return false;
     }
-    // The height history's drop (the spectate has carried the chr since: its height now says nothing).
-    const double fell_m = deathrules::FallDrop(g_death_height.peak, g_death_height.at_death, g_death_height.at_death);
-    DeathFields dead;
-    ReadDeathFields(s.player, &dead);
-    const bool fell = deathrules::PlanGuestRevive(fell_m, g_death_height.known, deathrules::FallDeathState(dead.f1e1, dead.m20_200)) !=
-                      deathrules::GuestRevive::InPlace;
+    // The height history's drop at HP 0 (the spectate has carried the chr since: its height now
+    // says nothing) or the fall flags.
+    const bool fell = LocalFallDeath(s.player, std::numeric_limits<double>::quiet_NaN());
     const CorpseSpot& c = g_local_corpse;
     const double dx = double(c.pos[0] - arena.pos[0]), dz = double(c.pos[2] - arena.pos[2]);
     const double horiz = std::sqrt(dx * dx + dz * dz), dy = double(c.pos[1] - arena.pos[1]);
-    const bool corpse = deathrules::ArenaReviveAtCorpse(c.valid, fell, horiz, dy);
-    if (corpse) {
+    // fallsafe: a fall gets up on its last safe floor (the bloodstain's spot), never the corpse's.
+    const deathrules::ArenaSpot where = deathrules::PlanArenaReviveSpot(c.valid, fell, horiz, dy, g_local_safe.valid);
+    if (where == deathrules::ArenaSpot::Corpse) {
         std::memcpy(arena.pos, c.pos, sizeof arena.pos);
         std::memcpy(arena.rot, c.rot, sizeof arena.rot);
+    } else if (where == deathrules::ArenaSpot::SafeFloor) {
+        SafeFloorSpot(&arena, s.map_id, nullptr);
     }
     arena.exact = true;
     arena.map = s.map_id;
-    arena.what = corpse ? "guest revive at its corpse spot (arena)" : "guest revive at the nearest member (arena)";
+    arena.what = where == deathrules::ArenaSpot::Corpse      ? "guest revive at its corpse spot (arena)"
+                 : where == deathrules::ArenaSpot::SafeFloor ? "guest revive on its last safe floor (arena, a fall)"
+                                                             : "guest revive at the nearest member (arena)";
     Log("guest: the boss was killed while it lay dead in the fight (%.1f s after its death): up again in the arena %s at "
         "(%.1f, %.1f, %.1f), no load; the corpse spot was %.1f m from the nearest living member (height %+.1f m)%s; its "
         "echoes stay in its bloodstain",
-        held_for, corpse ? "where it died" : "on the nearest member's spot", double(arena.pos[0]), double(arena.pos[1]),
-        double(arena.pos[2]), horiz, dy, !c.valid ? ", no corpse spot kept" : fell ? ", a fall death" : "");
+        held_for, deathrules::ArenaSpotName(where), double(arena.pos[0]), double(arena.pos[1]), double(arena.pos[2]),
+        horiz, dy, !c.valid ? ", no corpse spot kept" : !fell ? "" : g_local_safe.valid ? ", a fall death" : ", a fall death, no safe spot kept");
     SpectateEnd();
     ReviveLocal(s, arena, false);
     party::status::SetLastEvent("The boss fell: you are back on your feet");
+    return true;
+}
+
+/// Guest, main thread: its death in the host's Chalice Dungeon (party_chalice_rejoin). The dungeon's
+/// lamps are not in the party's spot table (deathrules::LampTableSpotTrusted): up beside the nearest
+/// living member, a spot a living chr stands on, no load (as the arena revive). False: nobody alive.
+bool GuestChaliceRevive(const GameSnapshot& s) {
+    LampSpot sp;
+    if (s.player && NearestLivingMember(s.player, &sp)) {
+        sp.exact = false;
+        sp.map = s.map_id;
+        sp.what = "guest revive beside the nearest member (Chalice Dungeon)";
+        Log("guest: died in the host's Chalice Dungeon (%s): up again beside the nearest living member at "
+            "(%.1f, %.1f, %.1f), no load; its echoes stay in its bloodstain", MapName(s.map_id).c_str(),
+            double(sp.pos[0]), double(sp.pos[1]), double(sp.pos[2]));
+        ReviveLocal(s, sp, false);
+        party::status::SetLastEvent("You are back on your feet beside the party");
+        return true;
+    }
+    return false;
+}
+
+/// Guest, main thread (fallsafe, user decision): its held death was a fall - off a ledge, or out of
+/// the world into the kill plane - outside a boss arena's revive: it gets up at its own last lamp
+/// when that is in the loaded map, else at the host's last lamp there (beside it), in place with no
+/// load (deathrules::PlanFallRespawn); its bloodstain stays on its last safe floor. Never a load for
+/// a fall: a respawn load after a death out of the world landed in the Hunter's Dream (live r6-r10:
+/// the destination was the lamp's map at the load's start, the arrival m21); with neither lamp in
+/// the loaded map, its last safe floor. False: no fall, or the in-place revive is off (System >
+/// Deaths & revives): the respawn as before.
+bool GuestFallSafeRevive(const GameSnapshot& s) {
+    if (!s.player) {
+        return false;
+    }
+    float at[3] = {0, 0, 0};
+    const bool known = ChrPos(s.player, at) && std::isfinite(at[1]);
+    const bool fell = LocalFallDeath(s.player, known ? double(at[1]) : std::numeric_limits<double>::quiet_NaN());
+    const u32 stage = Field<u32>(s.player, 0x3f8);
+    auto here = [&](u32 lamp, float rs[4]) {
+        return lamp != 0 && lamp != kTravelNone && (ids::EntityMap(lamp) >> 16) == (stage >> 16) && ids::ReturnSpot(lamp, rs);
+    };
+    const u32 own = Field<u32>(Slot(kSlotGsm), 0x1528), host = GuestDeathRedirectLamp();
+    float own_rs[4] = {}, host_rs[4] = {};
+    const deathrules::FallRespawn f = deathrules::PlanFallRespawn(
+        fell, BbSettings::Get().party_guest_revive_inplace.load(), here(own, own_rs), here(host, host_rs), g_local_safe.valid,
+        false);
+    if (f == deathrules::FallRespawn::Respawn) {
+        return false;
+    }
+    LampSpot sp;
+    if (f == deathrules::FallRespawn::SafeFloor) {
+        SafeFloorSpot(&sp, s.map_id, "guest revive on its last safe floor (a fall, no lamp in the loaded map)");
+    } else {
+        const float* rs = f == deathrules::FallRespawn::OwnLamp ? own_rs : host_rs;
+        sp.valid = true;
+        sp.lamp = f == deathrules::FallRespawn::OwnLamp ? own : host;
+        sp.map = ids::EntityMap(sp.lamp);
+        sp.pos[0] = rs[0], sp.pos[1] = rs[1], sp.pos[2] = rs[2], sp.pos[3] = 1.0f;
+        sp.rot[1] = rs[3] * 3.14159265f / 180.0f;
+    }
+    Log("guest: died from a fall (HP 0 at (%.1f, %.1f, %.1f), the body now at (%.1f, %.1f, %.1f)): up at %s %u (%.1f, %.1f, "
+        "%.1f) in the host's world, no load; its bloodstain on its last safe floor (%.1f, %.1f, %.1f)",
+        double(g_local_corpse.pos[0]), double(g_local_corpse.pos[1]), double(g_local_corpse.pos[2]), double(at[0]),
+        double(at[1]), double(at[2]), deathrules::FallRespawnName(f), sp.lamp, double(sp.pos[0]), double(sp.pos[1]),
+        double(sp.pos[2]), double(g_local_safe.pos[0]), double(g_local_safe.pos[1]), double(g_local_safe.pos[2]));
+    ReviveLocal(s, sp, false);
     return true;
 }
 
@@ -4819,6 +5590,21 @@ bool GuestDeathAloneToOwnLamp(const GameSnapshot& s, u32 own) {
         return false;
     }
     LampSpot none;  // not valid: revived where it lies, no warp
+    // fallsafe: after a fall "where it lies" is the bottom of the fall (often under the level): up
+    // on the game's last safe floor instead (its bloodstain's spot); none kept: the respawn load.
+    float at[3] = {0, 0, 0};
+    ChrPos(s.player, at);
+    const bool fell = LocalFallDeath(s.player, std::isfinite(at[1]) ? double(at[1]) : std::numeric_limits<double>::quiet_NaN());
+    const deathrules::LiesRevive lies = deathrules::PlanLiesRevive(fell, g_local_safe.valid);
+    if (lies == deathrules::LiesRevive::Load) {
+        Log("guest: died alone after a fall, no safe spot kept: no revive where it lies (the respawn load instead)");
+        return false;
+    }
+    if (lies == deathrules::LiesRevive::SafeFloor) {
+        SafeFloorSpot(&none, s.map_id, "guest revive on its last safe floor (a fall)");
+        Log("guest: died alone after a fall at (%.1f, %.1f, %.1f): up on its last safe floor (%.1f, %.1f, %.1f) first",
+            double(at[0]), double(at[1]), double(at[2]), double(none.pos[0]), double(none.pos[1]), double(none.pos[2]));
+    }
     ReviveLocal(s, none, false);
     if (!TravelAlone(lt, AloneWhy::Lamp)) {
         Log("guest: died alone: revived, but the alone travel to %u was refused", own);
@@ -5055,9 +5841,12 @@ void HostDownTick(const GameSnapshot& s, double now) {
         if (dv.limbo && !dv.boss_active) {
             if (gone_at == 0) gone_at = now;
             const bool dying = BossBarDying();
-            if (!killed && (dying || (boss_h != ~0u && ChrHp(ChrOfHandle(boss_h)) == 0))) {
+            // A late kill (before the death was taken) was seen by LimboKillTick.
+            if (!killed && (dying || g_host_limbo_late || (boss_h != ~0u && ChrHp(ChrOfHandle(boss_h)) == 0))) {
                 killed = true;
-                Log("host death: the limbo's boss was killed (%s)", dying ? "its bar over a dead chr" : "its chr at HP 0");
+                Log("host death: the limbo's boss was killed (%s)", dying ? "its bar over a dead chr"
+                                                                    : g_host_limbo_late ? "before the death was taken"
+                                                                                        : "its chr at HP 0");
             }
             dv.boss_killed = killed;
             const double since = now - gone_at;
@@ -5090,6 +5879,8 @@ void HostDownTick(const GameSnapshot& s, double now) {
         const u32 lamp = Field<u32>(Slot(kSlotGsm), 0x1528);
         const LampSpot& sp = g_lamp_spot;
         dv.lamp_here = sp.valid && sp.lamp == lamp && (sp.map >> 16) == (Field<u32>(s.player, 0x3f8) >> 16);
+        dv.lamp_here = dv.lamp_here || (HostFallDeath(s.player) && g_local_safe.valid);  // fallsafe
+        dv.scripted_warp = ScriptedDeathWarpNow(lamp, Field<u32>(s.player, 0x3f8));
     }
     const deathrules::DownTick plan = deathrules::PlanDownTick(dv);
     if (plan == deathrules::DownTick::Wait) {
@@ -5115,31 +5906,30 @@ void HostDownTick(const GameSnapshot& s, double now) {
     if (plan == deathrules::DownTick::ArenaRevive) {
         // Its corpse spot (by its bloodstain) when safe, else the followed member's own spot. Both
         // short warps inside the arena; the bloodstain (its echoes) stays where it died.
-        const DeathHeight dh = g_death_height;
-        u64 f = 0;
-        SafeRead(s.player + 0x1e1, &f, 5);
         // The fall-death state counts only for bits the chr did not carry alive (live arena run: the
         // host's HP module +0x200 read 0x3800 alive and dead, a normal death taken for a fall).
-        const u16 hp200 = Field<u16>(Field<u64>(Field<u64>(s.player, 0x3b0), 0x20), 0x200);
-        const u64 f_new = g_alive_fields_ok ? f & ~g_alive_fields.f1e1 : f;
-        const u16 hp200_new = u16(g_alive_fields_ok ? hp200 & ~g_alive_fields.m20_200 : hp200);
-        const bool fell = (dh.known && deathrules::FallDrop(dh.peak, dh.at_death, dh.at_death) >= deathrules::kGuestReviveFallDrop) ||
-                          deathrules::FallDeathState(f_new, hp200_new);
+        const bool fell = LocalFallDeath(s.player, std::numeric_limits<double>::quiet_NaN(),
+                                         g_alive_fields_ok ? g_alive_fields.f1e1 : 0);
         const CorpseSpot& c = g_host_corpse;
         const double dx = double(c.pos[0] - arena.pos[0]), dz = double(c.pos[2] - arena.pos[2]);
         const double horiz = std::sqrt(dx * dx + dz * dz), dy = double(c.pos[1] - arena.pos[1]);
-        const bool corpse = deathrules::ArenaReviveAtCorpse(c.valid, fell, horiz, dy);
-        if (corpse) {
+        // fallsafe: a fall gets up on its last safe floor (the bloodstain's spot), never the corpse's.
+        const deathrules::ArenaSpot where = deathrules::PlanArenaReviveSpot(c.valid, fell, horiz, dy, g_local_safe.valid);
+        if (where == deathrules::ArenaSpot::Corpse) {
             std::memcpy(arena.pos, c.pos, sizeof arena.pos);
             std::memcpy(arena.rot, c.rot, sizeof arena.rot);
+        } else if (where == deathrules::ArenaSpot::SafeFloor) {
+            SafeFloorSpot(&arena, s.map_id, nullptr);
         }
         arena.exact = true;
         arena.map = s.map_id;
-        arena.what = corpse ? "host revive at its corpse spot (arena)" : "host revive at the followed member (arena)";
+        arena.what = where == deathrules::ArenaSpot::Corpse      ? "host revive at its corpse spot (arena)"
+                     : where == deathrules::ArenaSpot::SafeFloor ? "host revive on its last safe floor (arena, a fall)"
+                                                                 : "host revive at the followed member (arena)";
         Log("host death: up again in the arena %s at (%.1f, %.1f, %.1f): no load for anyone; the corpse spot was "
             "%.1f m from the followed member (height %+.1f m)%s; echoes stay in its bloodstain",
-            corpse ? "where it died" : "on the followed member's spot", double(arena.pos[0]), double(arena.pos[1]),
-            double(arena.pos[2]), horiz, dy, fell ? ", a fall death" : "");
+            deathrules::ArenaSpotName(where), double(arena.pos[0]), double(arena.pos[1]), double(arena.pos[2]), horiz,
+            dy, !fell ? "" : g_local_safe.valid ? ", a fall death" : ", a fall death, no safe spot kept");
         SpectateEnd();
         ReviveLocal(s, arena, true);
         party::status::SetLastEvent("The boss fell: you are back on your feet");
@@ -6165,11 +6955,13 @@ void SpectateBegin(const char* who) {
     char b[128];
     std::snprintf(b, sizeof b, "{\"op\":\"spectating\",\"pos\":[%.3f,%.3f,%.3f]}", p[0], p[1], p[2]);
     Send(-1, b);
+    PartyHudSpectating(true, p);  // the others' panels: "Spectating", the body's spot (not the carried chr's)
     Log("%s: spectating a living party member until the respawn (%s)", who,
         SpectateSmooth(1e9) ? "smooth follow" : "BB_PARTY_SPECTATE_SMOOTH=0: the old 0.2 s follow");
 }
 void SpectateEnd() {
     if (g_spectating.exchange(false)) {
+        PartyHudSpectating(false, nullptr);
         Log("spectating ended");
     }
 }
@@ -6454,6 +7246,34 @@ int OwnGuestNumber() {
     return slot >= 1 ? coop::fourp::PlayerNumberForSlot(slot) : 2;
 }
 
+/// Packet 7 (the host's game hands a joining guest its player number; 0x1783160 writes it to the
+/// own GameData +0x10 and the local chr +0x3B8 right after this read): the guest's party-slot
+/// number instead (OwnGuestNumber), before its chr and its record exist. The host's game hands out
+/// its next free number (2 for slot 2 while slot 1 is absent); taken as it was, PlayerNumberTick
+/// had to change it after the arrival load, and the summon's OnMatchingCheck then reached the host
+/// with the new number while its copy of the chr still had the old one: the host's OnMatchingError
+/// sent the guest home 0.2 s after arriving (K5b). BB_PARTY_PLAYER_NUMBERS=0: as the host sent it.
+BB_COOP_SYSV u64 OwnNumberRecvHook(u64 net, u64 type, u64 buf, u64 size) {
+    using Fn = u64(BB_COOP_SYSV*)(u64, u64, u64, u64);
+    const u64 r = reinterpret_cast<Fn>(Guest(kRecvFromHost))(net, type, buf, size);
+    static const bool on = !EnvOff("BB_PARTY_PLAYER_NUMBERS");
+    int got = -1;
+    if (!u32(r) || !buf || !SafeGet(buf, &got)) {
+        return r;
+    }
+    const int slot = g_local_slot.load();
+    const int want = OwnGuestNumber();
+    if (on && g_on.load() && slot >= 1 && got != want && coop::fourp::PlayerNumberValid(got) &&
+        coop::fourp::PlayerNumberValid(want)) {
+        SafeWrite(buf, &want, 4);
+        Log("player number: packet 7 from the host gives %d; this guest (party slot %d) takes %d before its chr "
+            "exists (session %d)", got, slot, want, Role());
+    } else {
+        Log("player number: packet 7 from the host gives %d (party slot %d; kept)", got, slot);
+    }
+    return r;
+}
+
 /// Host and guests in a session: the own player number kept (host 1, guest OwnGuestNumber()) once
 /// the world is up in the session (flow 4); a load or a late packet 7 that changed it is undone and
 /// the own record re-broadcast with a rebuild request (the mirror's path: the peers rebuild this
@@ -6482,9 +7302,15 @@ void PlayerNumberTick(const GameSnapshot& s, double now) {
     if (was != want) {
         SafeWrite(own + 0x10, &want, 4);
         SafeWrite(s.player + 0x3b8, &want, 4);  // as the packet 7 receive writes both
+        if (guest) {
+            g_renumber_from = was;
+            g_renumber_to = want;
+            g_renumber_at = Now();  // K5b: the host's copy keeps the old number until its rebuild
+        }
         NoteOwnAppearanceChanged();             // own record again (with the number), peers rebuild this chr
-        Log("player number: own %d -> %d (%s, party slot %d): record re-broadcast, the peers rebuild this chr",
-            was, want, host ? "host" : "guest", host ? 0 : g_local_slot.load());
+        Log("player number: own %d -> %d (%s, party slot %d): record re-broadcast, the peers rebuild this chr%s",
+            was, want, host ? "host" : "guest", host ? 0 : g_local_slot.load(),
+            guest ? " (WARNING: a guest's number should be right from packet 7 on)" : "");
     }
     std::string clash;
     const u64 rows = Field<u64>(gdm, 0x10), occ = Field<u64>(gdm, 0x18);
@@ -6823,6 +7649,7 @@ void GuestTick(const GameSnapshot& s, double now) {
             st.screen_done = true;
             SaveOverlay();
             st.hp_before = Field<int>(Field<u64>(Field<u64>(s.player, 0x3b0), 0x20), 0xf8, -1);
+            g_dead_at_host_travel = st.hp_before == 0 || g_dead_follow.load();
             if (st.hp_before <= 0) {
                 // Dead at the host's travel (a held death): back with full HP, as the host respawns.
                 st.hp_before = Field<int>(Field<u64>(Field<u64>(s.player, 0x3b0), 0x20), 0xfc, -1);
@@ -7034,6 +7861,10 @@ void GuestTick(const GameSnapshot& s, double now) {
                         DescribeChr(s.player).c_str());
                 }
                 st.solo = false;
+                if (st.intent.kind == TravelKind::HostDeath && g_dead_at_host_travel) {
+                    g_wipe_arrived_at = now;  // C3: a death taken after this belongs to the wipe
+                }
+                g_dead_at_host_travel = false;
             }
             const int n = RewindRemoteTasks("guest");
             Log("guest: arrived in the host world (flow 4); %d remote task(s) rewound", n);
@@ -7814,6 +8645,7 @@ struct DirectSummon {
     double req_at = -1e9, served_at = -1e9, done_at = -1e9;
     bool done_ok = false, refused_wait = false;
     double refused_at = -1e9;  // host: the last refusal (HostBellHeld: an unanswered request holds the bell)
+    std::map<int, double> failed_at;  // host: slot -> its last failed delivery (UnreachableHold)
 };
 DirectSummon& DS() {
     static DirectSummon d;
@@ -7905,6 +8737,34 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
         req.swap(DS().requests);
         names = DS().names;
     }
+    // Unreachable guests (UnreachableHold): their signs stay hidden while they are unheard, also
+    // when they do not ask (the hold is renewed here every 5 s; heard again: it ends).
+    static double unreach_tick = 0;
+    if (now - unreach_tick > 5.0) {
+        unreach_tick = now;
+        std::map<int, double> failed;
+        {
+            std::lock_guard<std::mutex> lk(DS().mu);
+            failed = DS().failed_at;
+        }
+        for (const auto& [fslot, fat] : failed) {
+            const std::string fname = names.count(fslot) ? names[fslot] : std::string();
+            if (fname.empty()) continue;
+            const std::int64_t hm = bbnet::party::FromApi::instance().udp_heard_ms(fname, false);
+            const double heard_at = hm >= 0 ? Now() - double(hm) / 1000.0 : 0;
+            if (dsummon::UnreachableHold(fat, heard_at, Now())) {
+                bbnet::party::FromApi::instance().hide_unreachable(fname, 35000);
+            } else {
+                bbnet::party::FromApi::instance().hide_unreachable(fname, 0);
+                {
+                    std::lock_guard<std::mutex> lk(DS().mu);
+                    DS().failed_at.erase(fslot);
+                }
+                Log("direct summon: slot %d (%s): %s since its failed join: summoned again", fslot, fname.c_str(),
+                    heard_at >= fat ? "its UDP was heard on the party port" : "the unreachable hold ran out");
+            }
+        }
+    }
     static double first = 0;
     static const bool gather_dsum = !EnvOff("BB_PARTY_GATHER_DSUM");  // A5: carry across maps (default on)
     std::vector<int> keep, defer;
@@ -7955,6 +8815,43 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
             }
         }
         deferred_at.erase(slot);
+        // An unreachable joiner in the room made the guest already in the session leave
+        // (OnMatchingError): a guest whose last join failed is served once its UDP is heard again.
+        double failed = 0;
+        {
+            std::lock_guard<std::mutex> lk(DS().mu);
+            if (DS().failed_at.count(slot)) failed = DS().failed_at[slot];
+        }
+        if (failed > 0 && !name.empty()) {
+            static std::map<int, double> probed_at;
+            const bool probe = now - probed_at[slot] > 15.0;
+            if (probe) probed_at[slot] = now;
+            const std::int64_t heard_ms = bbnet::party::FromApi::instance().udp_heard_ms(name, probe);
+            const double heard_at = heard_ms >= 0 ? Now() - double(heard_ms) / 1000.0 : 0;
+            if (!dsummon::UnreachableHold(failed, heard_at, Now())) {
+                {
+                    std::lock_guard<std::mutex> lk(DS().mu);
+                    DS().failed_at.erase(slot);
+                }
+                bbnet::party::FromApi::instance().hide_unreachable(name, 0);
+                Log("direct summon: slot %d (%s): %s since its failed join: served again", slot, name.c_str(),
+                    heard_at >= failed ? "its UDP was heard on the party port" : "the unreachable hold ran out");
+            } else {
+                bbnet::party::FromApi::instance().hide_unreachable(name, 35000);
+                Send(slot, dsummon::EncodeRefuse());
+                {
+                    std::lock_guard<std::mutex> lk(DS().mu);
+                    DS().refused_wait = false;
+                    DS().refused_at = Now();
+                }
+                Log("direct summon: slot %d (%s) refused (its last join failed and its UDP has not been heard on the "
+                    "party port since%s: nothing from its game reaches this host's party port, no summon until it does; "
+                    "its signs are held too: an unreachable joiner in the room makes the members in the session leave)", slot, name.c_str(), probe ? "; probing it now" : "");
+                // Short for the toast; the log line above has the why.
+                party::status::SetLastEvent(name + " can't reach you (UDP blocked)");
+                continue;
+            }
+        }
         if (const char* why = dsummon::HostRefusal(v)) {
             const dsummon::Busy wait = dsummon::RefusalWait(v);
             Send(slot, dsummon::EncodeRefuse(wait));
@@ -8170,6 +9067,113 @@ void ChaliceEmptyWorldTick(const GameSnapshot& s, double now) {
                      "world; the party's summon brings you into the dungeon.");
 }
 
+/// Guest: still in the host's session but apart from it (split travel: an alone load elsewhere,
+/// e.g. the respawn at its own lamp in the Dream) while the host is in a Chalice Dungeon. No travel
+/// brings it back (a dungeon is entered only by the summon's quick join: the host's travels there
+/// are "not followed"), and its game's send-home is dropped while apart, so it stood there until the
+/// host restarted (a tester's report). User decision (option b, deathrules::PlanChaliceApart): after
+/// a death or a forced trip it leaves the session after a few steady seconds like a send-home (its own
+/// world, one load) and the bell's summon brings it into the dungeon; a guest that chose to leave
+/// (NoteChosenApart) stays out with a one-time notice until Party > Rejoin (ChaliceRejoinPressed).
+/// bbport.ini party_chalice_rejoin (BB_PARTY_CHALICE_REJOIN=0: stays apart, as before).
+std::atomic<bool> g_chalice_apart{false};   // main thread's last read: apart from a host in a dungeon
+void ChaliceLeaveSession(const char* why) {
+    g_chalice_bail = !g_title_joined.load();
+    if (g_title_joined.load()) g_title_home_now = true;
+    // The game's own leave with the load home (OnLeave_Limit: the pre-summon spot, BeginLeave, the
+    // return load): its own world in load mode 0, its own chalice slot bit again. A bare BeginLeave
+    // (before) left an apart guest in its host-world-mode alone load, still in load mode 1 with no
+    // slot bit: the next summon carried no slot record, the dungeon's flags read as none and the
+    // dead layer boss came up alive and paid its clear again (chalamp cl8).
+    const bool own = coop::LeaveGameSession();
+    Log("chalice: %s: leaving the session to its own world (%s); the summon brings it into the host's dungeon", why,
+        own ? "the game's own leave and load home" : "session leave only");
+    if (!own) {
+        using Fn = u8(BB_COOP_SYSV*)(u64);
+        reinterpret_cast<Fn>(Guest(kBeginLeave))(Slot(kSlotSession));
+    }
+}
+
+void ChaliceApartTick(const GameSnapshot& s, double now) {
+    static double since = 0;
+    static bool left = false, noticed = false;
+    int host_state = -1;
+    u32 host_map = 0;
+    coop::MemberRoster(0, &host_state, &host_map);
+    GuestPhase phase;
+    {
+        std::lock_guard<std::mutex> lk(S().mu);
+        phase = S().gphase;
+    }
+    const bool client = Role() == RoleClient && s.session_role == RoleClient;
+    const bool steady = s.world_up && !s.loading && s.map_id != 0xffffffffu && s.map_id != 0;
+    const bool host_dungeon = dsummon::ChaliceMap(host_map);
+    // The choice holds only while the host is in its dungeon and this guest is away from it; a guest
+    // that chose to go before the host entered is then a host travel it could not follow (forced).
+    // "Back in the dungeon" ends it only after it was away (the choice is made inside the dungeon).
+    static bool away_since_choice = false;
+    if (!g_chalice_chosen.load()) away_since_choice = false;
+    if (steady && client && ((s.map_id >> 24) & 0xff) != 29) away_since_choice = true;
+    if (steady && (!client || !host_dungeon || (((s.map_id >> 24) & 0xff) == 29 && away_since_choice)) &&
+        g_chalice_chosen.exchange(false)) {
+        Log("chalice: the guest's own choice to stay out is over (%s)",
+            !client ? "out of the session" : !host_dungeon ? "the host left its dungeon" : "back in the dungeon");
+    }
+    const bool apart = client && steady && ((s.map_id >> 24) & 0xff) != 29 && host_dungeon &&
+                       phase == GuestPhase::Idle && g_death_held_at.load() <= 0 && !g_dead_follow.load();
+    g_chalice_apart = apart;
+    if (!apart) {
+        since = 0;
+        noticed = false;
+        if (s.loading || s.session_role != RoleClient) left = false;
+        return;
+    }
+    if (since == 0) since = now;
+    const deathrules::ChaliceApart plan = deathrules::PlanChaliceApart(BbSettings::Get().party_chalice_rejoin.load(),
+                                                                       g_chalice_chosen.load(), now - since);
+    if (plan == deathrules::ChaliceApart::Stay) {
+        if (!noticed && g_chalice_chosen.load()) {
+            noticed = true;
+            Log("chalice: this guest chose to leave the host's Chalice Dungeon (%s, the host in %s): it stays out; "
+                "notice shown, Party > Rejoin brings it back", MapName(s.map_id).c_str(), MapName(host_map).c_str());
+            party::status::SetAlert(deathrules::ChaliceApartNotice());
+        }
+        return;
+    }
+    if (left || plan != deathrules::ChaliceApart::SendHome) return;
+    left = true;
+    char why[160];
+    std::snprintf(why, sizeof why, "this guest is apart in %s while the host is in its Chalice Dungeon (%s) for %.1f s",
+                  MapName(s.map_id).c_str(), MapName(host_map).c_str(), now - since);
+    ChaliceLeaveSession(why);
+    party::status::SetLastEvent("The host is in a Chalice Dungeon: back to your world, the summon brings you in");
+}
+
+} // namespace
+
+void NoteChosenApart(const char* why) {
+    if (Role() != RoleClient) return;
+    g_chalice_chosen = true;
+    Log("chalice: the guest's own choice (%s): while the host is in a Chalice Dungeon it stays out until Party > "
+        "Rejoin", why);
+}
+
+bool ChaliceRejoinPressed() {
+    if (!g_on.load() || Role() != RoleClient) return false;
+    int host_state = -1;
+    u32 host_map = 0;
+    coop::MemberRoster(0, &host_state, &host_map);
+    if (!deathrules::ChaliceRejoinLeavesFirst(true, g_chalice_apart.load(), dsummon::ChaliceMap(host_map))) {
+        return false;
+    }
+    g_chalice_chosen = false;
+    ChaliceLeaveSession("Party > Rejoin while apart from the host's Chalice Dungeon");
+    party::status::SetLastEvent("Rejoining the host's Chalice Dungeon: the summon brings you in");
+    return true;
+}
+
+namespace {
+
 void DirectSummonEvent(int from_slot, const std::string& body) {
     switch (dsummon::KindOf(body)) {
     case dsummon::Kind::Busy: {  // guest: A11, the host's boss fight / cutscene started or ended
@@ -8216,17 +9220,28 @@ void DirectSummonEvent(int from_slot, const std::string& body) {
             std::lock_guard<std::mutex> lk(DS().mu);
             if (DS().names.count(from_slot)) name = DS().names[from_slot];
         }
+        // A failure: no summon of it (direct or sign) until its UDP is heard (UnreachableHold); a
+        // probe now: a reachable guest answers within a second and its signs are offered again.
+        std::int64_t heard_ms = -1;
+        if (!ok && !name.empty()) heard_ms = bbnet::party::FromApi::instance().udp_heard_ms(name, true);
+        const bool heard_now = heard_ms >= 0 && heard_ms < 1500;
         {
             std::lock_guard<std::mutex> lk(DS().mu);
             DS().done_at = Now();
             DS().done_ok = ok;
+            if (ok || heard_now) DS().failed_at.erase(from_slot);
+            else DS().failed_at[from_slot] = Now();
         }
         if (!name.empty()) {
             bbnet::party::FromApi::instance().hold_signs(name, ok ? 3000 : 1);
+            bbnet::party::FromApi::instance().hide_unreachable(name, ok || heard_now ? 0 : 35000);
             if (!ok) bbnet::party::FromApi::instance().renew_signs(name);
         }
         Log("direct summon: slot %d (%s) reports %s", from_slot, name.c_str(),
-            ok ? "it joined" : "a failure: its signs are offered again");
+            ok         ? "it joined"
+            : heard_now ? "a failure: its signs are offered again (its UDP was heard just now)"
+                        : "a failure: its UDP is not heard on the party port: no summon of it (signs held) until it is "
+                          "(probing it)");
         return;
     }
     default:
@@ -8997,7 +10012,9 @@ void Init() {
     InstallCall(kMatchCheckCall, kBeginLeave, reinterpret_cast<const void*>(&MatchCheckHook),
                 "B2 K5 OnMatchingCheck leave");
     InstallCall(kMatchErrorCall, kBeginLeave, reinterpret_cast<const void*>(&MatchErrorHook),
-                "B2 K5 OnMatchingError leave");
+                "B2 K5/K5b OnMatchingError leave");
+    InstallCall(kOwnNumberRecvCall, kRecvFromHost, reinterpret_cast<const void*>(&OwnNumberRecvHook),
+                "B2 packet 7 own player number");
     InstallCall(kJoinStartCall, kJoinStartLua, reinterpret_cast<const void*>(&JoinStartHook), "B2 K6 OnBeJoinStart");
     InstallCall(kHostDeathReturnCall, kRequestReturn, reinterpret_cast<const void*>(&HostDeathReturnHook),
                 "B2 K8 host death return-all");
@@ -9013,6 +10030,12 @@ void Init() {
                                   0xec, 0xf8, 0x07, 0x00, 0x00},
                       &ChrPreStepHook, "remote chr stale map hit guard (0x18CB0E0)")) {
         Log("remote chr stale map hit guard: NOT installed (bytes differ)");
+    }
+    // The stale boss clear on a summoned guest (BlockClear2's entry: push rbp; mov rbp, rsp; push r15).
+    if (!ReplacePrologue(0x13849a0, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, reinterpret_cast<const void*>(&BlockClear2Hook),
+                         &g_block_clear_orig, "B2 stale boss clear (BlockClear2 0x13849A0)")) {
+        g_block_clear_orig = nullptr;
+        Log("stale boss clear guard: NOT installed (bytes differ)");
     }
     // K12: the guest's HostDead state (push rbp; mov rbp, rsp; push r15: 6 bytes, position-independent).
     if (!ReplacePrologue(kHostDeadState, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, reinterpret_cast<const void*>(&HostDeadHook),
@@ -9373,6 +10396,14 @@ void Tick(const GameSnapshot& s) {
     ProbeTick(s);
     DirectSummonTick(s, now);
     ChaliceEmptyWorldTick(s, now);
+    ChaliceApartTick(s, now);
+    {
+        // The end of this game's last load (BlockClear2Hook's arrival clock).
+        static bool was_up = false;
+        const bool up = s.world_up && !s.loading;
+        if (up && !was_up) g_load_end_at = now;
+        was_up = up;
+    }
     if (TitleJoinOn() || EnvOn("BB_PARTY_TITLE_JOIN_PROBE")) {
         TitleJoinHostTick(s);
         TitleJoinGuestTick(s, now);
@@ -9401,6 +10432,9 @@ void Tick(const GameSnapshot& s) {
     SpectatorRemoveTick(s);
     SpectateTick(s, Now());
     OwnStainLogTick(s);
+    FallStainTick(s, now);
+    PendingReviveTick(s, now);
+    SafeReviveWatchTick(s, now);
     OwnStainWatchTick(s);
     NgGuardTick(s);
     GuestStainTick(s);
@@ -9555,6 +10589,23 @@ bool OnHostTravel(const TravelIntent& t) {
             NoteAway(0);
             Log("guest: the host died in %s, this guest is apart in %s: it respawns alone; staying here (no load)",
                 MapName(host).c_str(), MapName(g.map_id).c_str());
+            return true;
+        }
+        // C3 (player report 2026-10-21): this guest's HP 0 started the wipe, its death animation
+        // still runs and the game has not taken the death: followed now, the load moved the dying
+        // body to the host's lamp (the bloodstain there), and the death taken after it revived the
+        // guest alone at its own lamp beside the arena. The follow waits (WipeFollowTick).
+        if (idle && g.world_up && !g.loading && g.player &&
+            deathrules::PlanWipeFollow(true, ChrHp(g.player), g_death_held_at.load() > 0, 0.0) ==
+                deathrules::WipeFollow::WaitDeath) {
+            {
+                std::lock_guard<std::mutex> lk(g_wipe_wait_mu);
+                g_wipe_wait_t = t;
+                g_wipe_wait_at = Now();
+            }
+            Log("guest: the host's wipe load came while this guest is still dying (%s): it follows once its death is "
+                "taken (its bloodstain where it died), at most %.0f s", DescribeTravel(t).c_str(),
+                deathrules::kWipeDeathWait);
             return true;
         }
     }
@@ -10015,6 +11066,84 @@ bool HostPartyWarpNoLoad(std::uint32_t id) {
     return true;
 }
 
+namespace {
+/// I5 gather: the host's chr in this world and its transform, when it stands where the host reports
+/// itself (vitals, fresh) in the block this guest stands in.
+bool HostChrTransform(float pos[4], float rot[4]) {
+    if (!g_on.load() || Role() != RoleClient) {
+        return false;
+    }
+    const Where* w = WhereOf(0);
+    const bool vit = w && w->has_pos && w->age_ms < 2000;
+    if (!vit || !InLoadedBlock(w->map)) {
+        return false;
+    }
+    for (const TaskInfo& t : Tasks(false)) {
+        const u64 host = t.mode == 2 ? PlayerForPeer(t.task + kTaskPeer) : 0;
+        alignas(16) float hp[4], hr[4];
+        if (host && ChrTransform(host, hp, hr) && deathrules::HostChrPlaced(hp, true, w->pos)) {
+            std::memcpy(pos, hp, sizeof hp);
+            std::memcpy(rot, hr, sizeof hr);
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
+
+bool HostChrHere(float* distance_m) {
+    alignas(16) float hp[4], hr[4], me[4], mr[4];
+    const u64 player = Field<u64>(Slot(kSlotWorldChrMan), 0x60);
+    if (!player || !HostChrTransform(hp, hr) || !ChrTransform(player, me, mr)) {
+        return false;
+    }
+    if (distance_m) {
+        const float dx = hp[0] - me[0], dy = hp[1] - me[1], dz = hp[2] - me[2];
+        *distance_m = std::sqrt(dx * dx + dy * dy + dz * dz);
+    }
+    return true;
+}
+
+bool GatherBesideHost(const char* why) {
+    alignas(16) float hp[4], hr[4];
+    if (LocalHp() <= 0 || !HostChrTransform(hp, hr)) {
+        return false;
+    }
+    float pos[4];
+    std::memcpy(pos, hp, sizeof pos);
+    BesideHost(pos, hr, g_local_slot.load());
+    pos[3] = 1.0f;
+    char b[96];
+    std::snprintf(b, sizeof b, "%s: beside the host", why ? why : "gather");
+    if (!WarpLocal(pos, hr[1], b)) {
+        return false;
+    }
+    Log("gather: put beside the host (%.1f, %.1f, %.1f), the host at (%.1f, %.1f, %.1f), no load", double(pos[0]),
+        double(pos[1]), double(pos[2]), double(hp[0]), double(hp[1]), double(hp[2]));
+    return true;
+}
+
+bool Spectating() {
+    return g_spectating.load();
+}
+
+bool GatherTravelToHost() {
+    const u32 host = HostMap();
+    if (!g_on.load() || Role() != RoleClient || host == 0 || host == 0xffffffffu) {
+        Log("gather: no travel to the host (role %d, host map %#x)", Role(), host);
+        return false;
+    }
+    const u32 lamp = LampNearHost(host);
+    TravelIntent t;
+    if (lamp == 0 || !LampIntent(lamp, &t)) {
+        Log("gather: no lamp of the host's map %s known", MapName(host).c_str());
+        return false;
+    }
+    Log("gather: one load into the host's map %s (lamp %u, nearest the host), then beside the host", MapName(host).c_str(),
+        lamp);
+    return TravelAlone(t, AloneWhy::Gather);
+}
+
 void SetWhere(const std::vector<Where>& members) {
     g_where = members;
 }
@@ -10030,6 +11159,7 @@ const char* AloneWhyName(AloneWhy w) {
     case AloneWhy::HuntersMark: return "hunters_mark";
     case AloneWhy::Death: return "death";
     case AloneWhy::Join: return "join";
+    case AloneWhy::Gather: return "gather";
     }
     return "?";
 }

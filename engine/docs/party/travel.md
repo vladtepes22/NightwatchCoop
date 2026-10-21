@@ -230,6 +230,17 @@ if (own && n < 2)                   → state "SoloPlayDeath"   (solo)
   `Failed_BossAreaMission_LeaveMap 0x138B4E0`, `PlayerKill_4030_1 0x1383A00`, direct
   `BeginLeaveSession` in `OnMatchingCheck 0x13808B0` (`0x13809B7`, remote chr not found in WorldChrMan),
   `OnMatchingError 0x13809F0`, `OnLeaveMenu_Yes 0x1389FB0` (`0x138A11E`).
+  The pair (eventcommon.lua, event 4064 sub 3 / 4, type 0xC; fired through 0x132EAD0, which also sends
+  it to every peer as packet 0x0E {0xC, 4064, sub, param, sender's player number}): a client's summon
+  sends OnMatchingCheck; a non-client that gets it runs `IsMatchingMultiPlay(GetHostPlayerNo,
+  GetPlayID)` (0x1338CE0: a chr with `+0x3B8` == the host's number and one with the sender's) and, when
+  that fails, fires OnMatchingError with the sender's number as param 3; the player whose own number
+  (`GameDataMan+8 -> +0x10`) equals it leaves (`BeginLeaveSession` at `0x1380A65`). Live sf3 / integ s2:
+  a guest renumbered by PlayerNumberTick (2 -> 3) right after its load was checked by the host under 3
+  while the host's copy of its chr still had 2 (rebuilt 1.5 s later): left 0.2 s after arrival. Fixed at
+  the packet 7 read (0x17831AE, the host hands the joining guest its number): the guest takes its slot's
+  number there, before its chr exists (`player number: packet 7 from the host gives 2; this guest (party
+  slot 2) takes 3`); K5b stays as a safety net and logs a WARNING if it ever fires.
 
 ### 1.6 Call sites of `0x13CDE30` → travel kind (for the hook in 3.1)
 

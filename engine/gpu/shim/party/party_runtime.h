@@ -79,6 +79,9 @@ bool runtime_new_code(std::string* message);
 /// Host: guest code text (one or more BBG1-..., comma / newline separated): punch towards each
 /// valid one. Returns how many were valid.
 int runtime_add_guest_code(const std::string& text);
+/// Guest (F2, 0.7.1): a member's guest code (BBG1-...) or a.b.c.d:port: a member that may relay for
+/// us when the host cannot be reached directly (Party page "Join through a member"). How many new.
+int runtime_add_relay_code(const std::string& text);
 /// Host: finds the game transport's config copies in the background (C6 crash rejoin; a cooperator joined).
 void runtime_nr_prescan();
 RuntimeStatus runtime_status();

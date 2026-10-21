@@ -8,6 +8,7 @@
 #include "game_state.h"
 
 #include "party_code.h"
+#include "game_state.h"
 #include "party_runtime.h"
 #include "party_status.h"
 #include "test_newgame.h"
@@ -352,11 +353,13 @@ namespace {
 /// process. Each start of the game takes the file's first line (and removes it), so the run.bat
 /// relaunch loop's next process gets the next one: "<title|world|joined> <seconds> <MenuScript>"
 /// (after that many seconds at the title / in the world / in the world with the party together;
+/// `mNN_NN` instead: together and in that map, e.g. m24_01 after a host-world travel;
 /// MenuScript tokens, test_newgame.h) or "-" (no
 /// walk this time). type= / enter / esc go to the text box as SDL key events (no OS input).
 struct MenuTest {
     bool loaded = false, active = false, in_world = false, joined = false, done = false;
     double delay = 0;
+    std::string map;  ///< "m24_01": the walk waits for this map (prefix of MapName), together
     coop::MenuScript script;
     std::chrono::steady_clock::time_point since{};
 };
@@ -402,7 +405,8 @@ void LoadMenuTest() {
         Log("test menu: unknown token '%s'", bad.c_str());
         return;
     }
-    m.joined = std::strcmp(where, "joined") == 0;  // in the world and together (summoned / members in)
+    if (where[0] == 'm' && std::isdigit(static_cast<unsigned char>(where[1]))) m.map = where;
+    m.joined = std::strcmp(where, "joined") == 0 || !m.map.empty();  // in the world and together
     m.in_world = m.joined || std::strcmp(where, "world") == 0;
     m.delay = delay;
     m.active = true;
@@ -421,6 +425,7 @@ void MenuTestTick(bool at_title, bool world_up) {
         const bool title_menu = BbGameMenu::TextSeenMs("New Game") > 0 || BbGameMenu::TextSeenMs("Continue") > 0;
         const bool together = party::status::Snapshot().state == party::status::State::Joined;
         if (!(m.in_world ? world_up && (!m.joined || together) : at_title && title_menu)) return;
+        if (!m.map.empty() && coop::MapName(coop::ReadGameState(false).map_id).rfind(m.map, 0) != 0) return;
         m.since = now;
         Log("test menu: %s; starting in %.0f s", m.in_world ? "in the world" : "title menu up", m.delay);
     }

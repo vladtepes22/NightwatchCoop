@@ -34,27 +34,48 @@ int main() {
     assert(Near(b1.hp_rate, 1.75f) && Near(b2.hp_rate, 2.5f) && Near(b1.attack_rate, 1.1f) && b1.super_armor == 30);
     assert(Near(e2.hp_rate, 1.5f) && Near(e2.attack_rate, 1.0f) && e2.super_armor == 0);
     assert(EnemyScalingActive(d));
-    // Poise below zero: easier to stagger with more hunters (ERSC's 3-4 player note).
+    // Poise starts at 0 (user decision 2026-10-21): below zero enemies staggered less, not more
+    // (live: 0 of 20 hits at -100 % against 18 of 40 at 0 %), so old negative values read as 0.
     Rules p;
     p.enemy_poise = -50;
-    assert(Enemy(p, 3).super_armor == -45);
+    p.boss_poise = -100;
+    assert(Enemy(p, 3).super_armor == 0 && Boss(p, 2).super_armor == 0);
+    assert(Clamped(p).enemy_poise == 0 && Clamped(p).boss_poise == 0);
+    p.enemy_poise = 50;
+    assert(Enemy(p, 3).super_armor == 45);
     // Counts past 3 count as 3 (the game's slots).
     assert(Boss(d, 9) == Boss(d, 3));
 
     // Slider tables.
     assert(AtPosition(kHpTable, Position(kHpTable, 150)) == 150 && Position(kHpTable, 100) == 4);
-    assert(Position(kPoiseTable, 0) == 4 && AtPosition(kDamageTable, 99) == 100 && AtPosition(kDamageTable, -3) == 0);
+    assert(kPoiseTable[0] == 0 && kPoiseTable[10] == 300 && Position(kPoiseTable, 0) == 0);
+    assert(Position(kPoiseTable, -100) == 0 && AtPosition(kPoiseTable, Position(kPoiseTable, 100)) == 100);
+    assert(AtPosition(kDamageTable, 99) == 100 && AtPosition(kDamageTable, -3) == 0);
 
     // JSON round trip, clamping, malformed input.
     Rules r;
     r.rot = false;
     r.boss_hp = 300;
-    r.enemy_poise = -75;
+    r.enemy_poise = 75;
     Rules back;
     assert(FromJson(ToJson(r), &back) && back == r);
+    // 0.7.1: the kill record, the NPC mirror and Gather the party go with the rules; a host from
+    // before them sends none: on.
+    r.kill_record = false;
+    r.gather = false;
+    assert(FromJson(ToJson(r), &back) && back == r && !back.kill_record && back.npc_mirror && !back.gather);
+    r.npc_mirror = false;
+    assert(FromJson(ToJson(r), &back) && !back.npc_mirror && back != Rules{});
+    {
+        Rules old;
+        assert(FromJson("{\"rot\":true,\"host_revive\":false}", &old) && old.kill_record && old.npc_mirror &&
+               old.gather && !old.host_revive);
+    }
     Rules c;
     assert(FromJson("{\"boss_hp\":100000,\"enemy_damage\":-5,\"rot\":7}", &c));
     assert(c.boss_hp == 400 && c.enemy_damage == 0 && c.rot);
+    // A host still sending negative poise (an older build): 0 on the guest.
+    assert(FromJson("{\"boss_poise\":-100,\"enemy_poise\":-25}", &c) && c.boss_poise == 0 && c.enemy_poise == 0);
     std::string err;
     assert(!FromJson("[1,2]", &c, &err) && !err.empty());
     assert(!FromJson("{", &c, &err));
@@ -168,7 +189,7 @@ int main() {
         assert(DescribeRot(mixed, true).find("Гниль 3/5") == 0);
     }
     assert(DescribeHp(150, false).find("+75 %") != std::string::npos);
-    assert(DescribePoise(-100, false).find("-30") != std::string::npos);
+    assert(DescribePoise(300, false).find("+90") != std::string::npos);
     std::printf("party balance rules: ok\n");
     return 0;
 }

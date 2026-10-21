@@ -160,7 +160,8 @@ only in state 1 (queued until then). Enemy net sync per peer is re-armed by `0x1
 | K3 | 0x193C657 | `e8 44 41 59 00` call 0x1ED07A0 | no leave with a session | stage-record change (streamed blocks) |
 | K4 | 0x193C689 | `e8 82 26 c8 ff` call 0x15BED10 | skip with a session | keeps the presentation members |
 | K5 | 0x13809B7 | `e8 e4 fd b4 00` call 0x1ED07A0 | no leave while a re-join runs | OnMatchingCheck: member chr missing while loading |
-| K5 | 0x1380A65 | `e8 36 fd b4 00` call 0x1ED07A0 | same rule | OnMatchingError: OnMatchingCheck's other end (event +8 set: posts 0xFE0/4 for the room) |
+| K5 / K5b | 0x1380A65 | `e8 36 fd b4 00` call 0x1ED07A0 | K5's rule first (no leave while a re-join runs or members are apart); then guest: no leave for 10 s after PlayerNumberTick changed the own number (a safety net: logs a WARNING; the packet 7 hook below keeps it from happening) | OnMatchingError: the host's check missed this guest's chr under its new number (its copy there is rebuilt 1.5 s later) |
+| packet 7 | 0x17831AE | `e8 2d 62 00 00` call 0x17893E0 | guest: the number read from the host's packet 7 becomes the party slot's (OwnNumberRecvHook) before 0x1783160 writes it to GameData +0x10 and the chr +0x3B8 | the guest is numbered before its chr and record exist: no renumber after the arrival load |
 | K6 | 0x178524F | `e8 2c 25 b9 ff` call 0x1317780 | skip while a guest re-join runs | no vanilla SummonReloadStart |
 | K7 | 0x13CDEAE | `75 6c` | `eb 6c` written / restored around the guest's own warp (main thread) | guest warp without leaving |
 | K8 | 0x18C4D7D | `e8 2e 00 59 00` call 0x1E54DB0 | skip on the host (role 3) | ChrIns_OnDeath asks every human task to return when the host dies |
@@ -688,6 +689,48 @@ slots 0..2 and resets them to -1; counted while the handle resolves to a living 
   alive: the host's `ArenaRevive` and then guest 1's (it waited while the host's chr was down), both at
   their corpse spots, no loading screen anywhere; stain recovered; hits taken. Smoke group `arena`
   (s2, Cleric Beast: guest 2 dead in the fight, up in the arena, an enemy hit, no load) passes.
+* **Fall deaths: the last safe floor** (fallsafe 2026-10-21, user rule: "a fall death uses the same logic
+  as the bloodstain"). The game keeps a chr's last safe ground spot at PlayerIns +0x400 -> +0x30
+  (position) / +0x3C (rotation), read by 0x1904660 / 0x1904690 for the stain record 0x13D2910 (its
+  +0x00, where 0x1868A50 builds the live stain) and by the game's own safe-spot warp-and-revive
+  0x13CBAD0 (Lua, entity 10000). It is a lagging history of grounded spots (live: a few seconds behind,
+  the walk's start rather than the ledge) and goes on after HP 0 while the body lies on something
+  (a guest's record 11 s later sat on the corpse). `LocalDeathHeightTick` keeps it at HP 0
+  (`g_local_safe`, `deathrules::SafeSpotUsable`: finite, not zeros, within 60 m of the HP 0 spot) and
+  logs `local death: HP 0 at ...; the game's last safe ground spot ...`. A fall death
+  (`LocalFallDeath`: the 6 m drop test or the +0x1E1 fall flags; a death out of the world has no fall
+  flags, the drop test catches it) then:
+  * the arena revives (host `DownTick::ArenaRevive`, guest `GuestArenaRevive`, also the late kill):
+    `deathrules::PlanArenaReviveSpot` - the safe spot, else the member's spot, never the corpse;
+  * outside an arena revive, after the death is taken (host `ReviveHost`, guest `GuestFallSafeRevive`
+    from `HeldDeathTick`; `deathrules::PlanFallRespawn`; user decision 2026-10-21: at a lamp, the walk
+    back stays the penalty): in place at its own last lamp when that is in the loaded map, a guest
+    otherwise at the host's last lamp there (beside it), no load; never a load for a fall (it lands
+    in the Dream), so with neither lamp in the loaded map the safe spot (the host's death is taken
+    for that even without a lamp here); a guest with the in-place revive off: the respawn as before;
+  * the guest's revive before an alone travel (`GuestDeathAloneToOwnLamp`): the safe spot first
+    (`PlanLiesRevive`);
+  * the stain: `FallStainToSafeSpot` puts the record's +0x00 on the HP 0 safe spot (the host's own
+    record by `FallStainTick`, a guest's in `GuestBloodstain`) and rebuilds the live stain in the own
+    world; the party stain takes +0x00 (it took +0x18, the death spot, before);
+  * a body far below its spot (out of the world): `ReviveLocal` moves it there first while dead and
+    `PendingReviveTick` revives it once it has stood there `kFallSettle` s (`PlanFallReviveStep`);
+    then 2 s of invincibility (not the game's own 0x13CBAD0: it calls BeginLeaveSession at
+    +0x13CBD0F, live a guest left the host's world and a host closed its room); `SafeReviveWatchTick` sends a safe-spot revive
+    that still drops 3 m within 5 s to the lamp. The same order holds for a lamp revive of a body
+    out of the world (moved up to the lamp first).
+  Kill plane: m24_01 kills a chr that falls out of the world at about y -1500 (about 30 s of fall from
+  the Great Bridge; no +0x1E1 fall flags). Single player then wakes in the Hunter's Dream (solo run:
+  `map - -> m21_00_00_00` after the death); in a party the guest's respawn load did the same (r6-r10,
+  destination map m24_01 at the load's start, arrival m21) and a revive in the same frame as the
+  body's move died again 33 ms later (the host lost its stain's echoes to that second death). The
+  fall recovery nets (6 s of falling) normally catch such a fall first and put the chr back on the
+  safe spot (`BB_PARTY_FALL_RECOVERY=0`: off, test aid). Live (fallsafe runs, Great Bridge, test aids:
+  a 23-40 m drop by `guest_move` / `host_move` into the air, a fall through the bridge's floor into the
+  void with the recovery off): arena revives on the safe floor (host and guest), stains moved there;
+  void deaths outside a fight: up once (no second death), no load, never the Dream (r12 / r13, then
+  at the safe floor; the lamp rule's run: see ERSC_PARITY / the fallsafe report). Smoke group `fall`
+  (phase fl).
 * Shared boss lamp (design decision, ERSC_PARITY @ 7552b38): every respawn after a boss fight goes to
   the same lamp - the host's last lamp (a guest's lone respawn already uses the host's last lamp, or
   a lit lamp of the loaded map, 6.10; the wipe and the host use the host's lamp).
@@ -896,6 +939,18 @@ opt-in. The decisions are pure functions in `party_death_rules.h` (unit party-de
 * Wipe race (bug 18): the dead are recounted every frame while the host is down (`PlanDownTick`), and
   a guest's chr at HP 0 sends `member_down` at once (`GuestDownNoticeTick`) instead of only when its
   death state runs seconds later.
+* Late wipe (player report 2026-10-21, Logarius): that early notice makes the last guest's HP 0 start
+  the wipe while its death animation still runs (the game takes the death ~8.6 s later). Followed at
+  once, the load moved the dying body to the host's lamp, the death was taken there (bloodstain at the
+  lamp) and the held death revived the guest alone at its own last lamp beside the arena. Now
+  `OnHostTravel` parks a host-death travel while the own chr is at HP 0 and the death is not taken
+  (`deathrules::PlanWipeFollow`); `WipeFollowTick` follows it as a dead follow once the death is held
+  (at most `kWipeDeathWait` 15 s, then the hold is taken there) and asks the host for a fresh snapshot
+  (`respawn`). Safety nets: a death taken within 30 s after such an arrival belongs to the wipe
+  (`PlanHeldAfterWipe`: up already = dropped, down = the host's lamp, never its own); the bloodstain
+  record goes to the HP 0 spot when a load began before the death was taken (`StainAtDeathSpot`); a
+  dead guest holds while the host's chr is down up to `kGuestHostDownHold` 120 s (was 30 s). Smoke:
+  `--only wipe_late`.
 * Guest rest (bug 3): a guest that answers NO at a lamp / headstone travels alone as before and sends
   a `rest` lamp request; the host (`HostRestLoadTick`, gate `PlanRestLoad`: in the world, alive, no
   boss fight, not in the Dream, nothing pending, 20 s apart) runs `HostTravelTransformNow`: its own

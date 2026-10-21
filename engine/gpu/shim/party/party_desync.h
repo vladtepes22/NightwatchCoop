@@ -277,6 +277,22 @@ std::vector<std::pair<int, std::pair<u32, std::vector<int>>>> HostPopCensusAsks(
 /// named it, so the next digest must find it and the list must name it (live check of the path).
 int CensusTestAfterFromEnv();
 
+// ---- The party's kill record (party_kill_record.h, streamsync) ----
+// Every game sends the enemy deaths it sees to the host, the host relays its record's new entries
+// to every member; a new epoch (the host's load: everything respawned) clears it. Wire:
+//   "kill_record" {"v":1,"ep":epoch,"k":[entity...]}   (k empty: only the epoch)
+constexpr const char* kKillRecordEvent = "kill_record";
+constexpr std::size_t kKillRecordMaxIds = 2048;
+struct KillRecordMsg {
+    u32 epoch = 0;
+    std::vector<u32> kills;
+};
+std::string KillRecordToJson(const KillRecordMsg& m);
+bool KillRecordFromJson(const std::string& text, KillRecordMsg* out, std::string* error = nullptr);
+/// The link's callback thread: EVENT kill_record from `slot` (validated, kept for the main thread).
+bool QueueKillRecord(int slot, const std::string& body, std::string* error = nullptr);
+std::vector<std::pair<int, KillRecordMsg>> PopKillRecords();
+
 /// Host, the link's callback thread: EVENT sync_resync from `slot` (validated, queued).
 bool HostQueueResync(int slot, const std::string& body, std::string* error = nullptr);
 /// Host, main thread: the queued requests (slot, request).

@@ -470,11 +470,14 @@ bool SummonedKeyGiveNow(const std::vector<LotSlotState>& slots);
 /// only a KeyRegiveAllowed item reading 0. Not given (deferred): never when the lot's done flag is
 /// in the save now (the award or another path gave it), else one only when none is held.
 bool OwedGiveAllowed(bool given, bool done_flag_set, const LotSlotState& s, int held);
-/// 0.7.0: after each host-world load a summoned guest's key section is empty (the game's phantom
-/// view; the save keeps it). A known key item of this character (seen in its own world, gained while
-/// summoned, or the done flag of its lot in the save) is put back silently when it reads 0 - only
-/// one that is never used up (KeyRegiveAllowed: never the Gold Pendant or the Tear Stone).
-bool SummonedRestoreAllowed(const LotSlotState& s, int held);
+/// H4 (0.7.1, items.md 10.7): the inventory keeps two key sections, the character's own (the save's)
+/// and a summoned one the game empties at every host-world load and shows instead. BB_PARTY_KEY_VIEW
+/// unset or `1`: a party guest is shown its own section while summoned too; `0`: the game's view.
+bool KeyViewOn(const char* env);
+/// Give a key item / unique goods to a summoned guest at once (`give_env` = BB_PARTY_KEY_ITEMS_SUMMONED)?
+/// With the own key section shown (`key_view`) the held count is the real one, so yes unless `0`.
+/// Without it only `1` gives at once, and never a usable unique item (`usable`, the Gold Pendant).
+bool SummonedKeyGiveNowRule(bool key_view, const char* give_env, bool usable);
 /// party_summoned_gives.txt is one file per user folder, shared by every character in the save
 /// slots: an entry given to the character in save slot `entry_slot` is re-given only to that one
 /// (-1 on either side = unknown: an older file or an unreadable slot; given as before).
@@ -522,6 +525,8 @@ private:
 /// parity patches (byte-verified; a mismatch is logged and that site skipped). Registers
 /// OnHostFlagSet as C2's item-flag observer (progress::SetItemFlagObserver).
 void InstallItemsPatches();
+/// The own key section is shown to this summoned guest (KeyViewOn and its load hook is in).
+bool SummonedKeyViewActive();
 /// Host: C2 reports a host item-pickup flag 0 -> 1 (any thread).
 void OnHostFlagSet(std::uint32_t flag);
 /// Main thread, own world (load mode 0), before C2 applies any host flag (C2's before-apply hook):

@@ -20,6 +20,13 @@ BB_PARTY_PORT=base+i, BB_PARTY_NAME=Hunter{i}, no UPnP, no public STUN, 127.0.0.
 --env still overrides any of these; --ienv I:KEY=VALUE sets a variable for instance I only (e.g. a
 test action on the guest); --start-when I/W:REGEX starts instance I once instance W's log matched REGEX. --crash-at S kills instance --crash-instance's bbport.exe
 (TerminateProcess, as a crash) S seconds into the run; run.bat then restarts it (BB_PARTY_RESTART).
+--real-net (with --party): a real-network party on this PC instead of loopback (the VPN session:
+tools/mp/realnet_party.py): no BB_MP_LOCAL_TEST / BB_PARTY_LOOPBACK / BB_PARTY_LOCAL_IP, every socket on
+the real adapters, public STUN on, UPnP on the host (--real-net-no-upnp: off), the guests join by the
+host's Internet code. Each instance keeps its fixed exe path ROOT\\inst<i>\\out\\bbport.exe (a VPN's
+per-app split tunnel can take exactly one). Every instance's public IPv4 as STUN saw it, the host's
+view of each guest and the path each link took are printed and written to ROOT\\realnet_report.txt.
+--start-order 0,2,1: start the instances in this order (e.g. a relaying guest 2 before guest 1).
 --crash-plan I[/W]:REGEX[@D] (repeatable, in order): several crashes in one run; each kills instance
 I's game D s (default 0) after instance W's log (default I) matched REGEX, looking only at what was
 logged after the previous crash (e.g. the host crashes during a travel, then the guest crashes during
@@ -468,7 +475,22 @@ def run(a):
     code_file = Path(a.root) / "party_code.txt"
     if a.party and code_file.exists():
         code_file.unlink()  # a stale code (old secret) would only get the guests rejected
-    for i in range(a.count):
+    real_net = bool(getattr(a, "real_net", False))
+    if real_net:
+        if not a.party:
+            sys.exit("--real-net needs --party")
+        here = stun_public_ipv4()
+        print("[real-net] this PC's public IPv4 outside any VPN (STUN from the harness): %s" % (here or "no STUN answer"),
+              flush=True)
+        for i in range(a.count):
+            print("[real-net] instance %d exe: %s" % (i, Path(a.root).resolve() / f"inst{i}" / "out" / "bbport.exe"),
+                  flush=True)
+    order = list(range(a.count))
+    if getattr(a, "start_order", None):
+        order = [int(x) for x in a.start_order.split(",") if x.strip()]
+        if sorted(order) != list(range(a.count)):
+            sys.exit("--start-order must name every instance 0..%d once" % (a.count - 1))
+    for n_started, i in enumerate(order):
         inst = Path(a.root) / f"inst{i}"
         env = os.environ.copy()
         env.update({
@@ -498,6 +520,13 @@ def run(a):
                 "BB_PARTY_STUN": "off", "BB_PARTY_LOOPBACK": "1", "BB_PARTY_LOCAL_IP": "127.0.0.1",
                 "BB_SKIP_NETWORK_CHOICE": "online", "BB_PATCHES": "Skip Intro",
             })
+            if getattr(a, "real_net", False):
+                # A normal player's network: nothing forced to 127.0.0.1, public STUN, UPnP on the
+                # host. The guests read the Internet code first from BB_PARTY_CODE_FILE (no PREFER_LAN).
+                for k in ("BB_MP_LOCAL_TEST", "BB_PARTY_LOOPBACK", "BB_PARTY_LOCAL_IP", "BB_PARTY_STUN",
+                          "BB_PARTY_PREFER_LAN", "BB_PARTY_PUBLIC_ADDR", "BB_NET_SIM"):
+                    env.pop(k, None)
+                env["BB_PARTY_UPNP"] = "1" if i == 0 and not getattr(a, "real_net_no_upnp", False) else "0"
         if i >= a.count - getattr(a, "headless", 0):
             # Headless-lite (gpu/shim/bbport_headless.h): minimised, nothing drawn or presented,
             # game logic and the party code as usual. Its window gives no screenshots.
@@ -581,7 +610,7 @@ def run(a):
                     [{"pid": q.pid, "created": process_created(q.pid)} for _, q, _ in procs]), encoding="utf-8")
             except OSError:
                 pass
-        if i + 1 < a.count:
+        if n_started + 1 < len(order):
             time.sleep(a.stagger)
     # The run's clock (--crash-at, --seconds, the lease) starts one stagger after the last start,
     # as before the stagger was skipped after the last instance.
@@ -605,6 +634,7 @@ def run(a):
     for u in a.until or []:
         m = re.match(r"^(\d):(.*)$", u)
         until.append((int(m.group(1)), re.compile(m.group(2))) if m else (None, re.compile(u)))
+    until_seen_at = 0.0
     marks = list(starts)  # log offsets at the crash: --until then looks at what follows it
     verdict = None
 
@@ -642,7 +672,15 @@ def run(a):
     # it). End 60 s after that and name the markers that never matched.
     until_quiet = float(os.environ.get("BB_MP_UNTIL_QUIET", "60"))
     settled_at, last_crash = None, 0.0
+    net_seen, net_check = {}, 0.0
     while any(p.poll() is None for _, p, _ in procs) and time.time() - t0 < a.seconds + 90:
+        if real_net and time.time() - net_check > 2:
+            net_check = time.time()
+            for i in range(a.count):  # each new address / path line once, as it appears
+                for key, line in real_net_lines(log_text(i, starts[i])):
+                    if net_seen.get((i, key)) != line:
+                        net_seen[(i, key)] = line
+                        print("[real-net +%.0f s] inst%d %s: %s" % (time.time() - ts0, i, key, line), flush=True)
         if until:
             for i in range(a.count):
                 if len(crash_rx.findall(log_text(i, starts[i]))) > planned_kills[i]:
@@ -712,8 +750,14 @@ def run(a):
             texts = [log_text(i, marks[i]) for i in range(a.count)]
             text = chr(10).join(texts)
             if all(u.search(texts[i] if i is not None and i < a.count else text) for i, u in until):
-                verdict = "all --until markers seen after %.0f s" % (time.time() - t0)
-                break
+                # --until-hold S: the run goes on S s more (e.g. a guest must stay in the host's world)
+                if a.until_hold > 0 and not until_seen_at:
+                    until_seen_at = time.time()
+                    print("[harness +%.1f s] --until markers seen: %.0f s more (--until-hold)"
+                          % (time.time() - ts0, a.until_hold), flush=True)
+                if time.time() - (until_seen_at or 0) >= a.until_hold:
+                    verdict = "all --until markers seen after %.0f s" % (time.time() - t0)
+                    break
         if until and any(expects_steps) and plan_next >= len(plan) and until_quiet > 0:
             done = True
             for i in range(a.count):
@@ -744,6 +788,102 @@ def run(a):
             time.sleep(0.5)  # the copier thread drains the pipe
         log.close()
         print(f"instance {i}: exit {code}")
+    if real_net:
+        report = real_net_report([log_text(i, starts[i]) for i in range(a.count)])
+        print(report, flush=True)
+        try:
+            (Path(a.root) / "realnet_report.txt").write_text(report + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+
+# ---- --real-net: public addresses -------------------------------------------------------------
+
+def stun_public_ipv4(server=("stun.l.google.com", 19302), timeout=2.0, tries=3):
+    """This process's public IPv4 by one STUN Binding request (RFC 5389); None without an answer.
+    The harness's own Python is outside any per-app VPN tunnel: the reference address."""
+    import socket, struct
+    for _ in range(tries):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(timeout)
+        try:
+            tid = os.urandom(12)
+            s.sendto(struct.pack(">HHI", 0x0001, 0, 0x2112A442) + tid, server)
+            data, _ = s.recvfrom(2048)
+        except OSError:
+            continue
+        finally:
+            s.close()
+        if len(data) < 20 or data[8:20] != tid:
+            continue
+        pos = 20
+        while pos + 4 <= len(data):
+            typ, ln = struct.unpack(">HH", data[pos:pos + 4])
+            val = data[pos + 4:pos + 4 + ln]
+            if typ in (0x0020, 0x8020) and len(val) >= 8 and val[1] == 1:  # XOR-MAPPED-ADDRESS, IPv4
+                return socket.inet_ntoa(bytes(b ^ m for b, m in zip(val[4:8], struct.pack(">I", 0x2112A442))))
+            if typ == 0x0001 and len(val) >= 8 and val[1] == 1:  # MAPPED-ADDRESS
+                return socket.inet_ntoa(val[4:8])
+            pos += 4 + ln + (-ln % 4)
+    return None
+
+
+# The game's own lines that say where each instance is on the network (party_runtime.cpp,
+# np_session.cpp, party_netroute.cpp, party_route.cpp): (key, regex); the last match of each counts.
+REAL_NET_RX = [
+    ("public (STUN, host)", r"public address (\d+\.\d+\.\d+\.\d+:\d+) \(([^)]*)\)"),
+    ("public (STUN, guest)", r"guest code .*?\(UDP (\d+\.\d+\.\d+\.\d+:\d+), (stun [^)]*)\)"),
+    ("STUN failed", r"(guest code: STUN .* did not answer|STUN \S+: no answer)"),
+    ("UPnP", r"UPnP: (.*)"),
+    ("NAT", r"NAT: (.*)"),
+    ("joins", r"joining (\S+) as "),
+    ("LAN fallback", r"LAN fallback: (.*)"),
+    ("seen by the host at", r"connected to the host as slot \d+ \(we are seen at ([^)]*)\)"),
+    ("network path", r"network path: (.*)"),
+    ("member relay", r"member relay: (.*)"),
+]
+
+
+def real_net_lines(text):
+    """(key, value) of the last line per REAL_NET_RX key in one instance's log text."""
+    out = {}
+    for key, rx in REAL_NET_RX:
+        for m in re.finditer(rx, text):
+            out[key] = " ".join(g for g in m.groups() if g)
+    return list(out.items())
+
+
+def _ip(v):
+    m = re.match(r"(\d+\.\d+\.\d+\.\d+)", v or "")
+    return m.group(1) if m else None
+
+
+def real_net_report(texts):
+    """The run's network summary: each instance's public IPv4 (STUN), how the host saw each guest,
+    each link's path, and whether guest 1 (instance 1) left through another public address (a VPN)."""
+    rows = [dict(real_net_lines(t)) for t in texts]
+    lines = ["[real-net] network summary"]
+    for i, r in enumerate(rows):
+        lines.append("  inst%d (%s):" % (i, "host" if i == 0 else "guest %d" % i))
+        for key, _ in REAL_NET_RX:
+            if key in r:
+                lines.append("    %-22s %s" % (key, r[key][:200]))
+    host_pub = _ip(rows[0].get("public (STUN, host)")) if rows else None
+    for i in range(1, len(rows)):
+        g_pub = _ip(rows[i].get("public (STUN, guest)"))
+        seen = _ip(rows[i].get("seen by the host at"))
+        if not host_pub or not g_pub:
+            verdict = "UNKNOWN (no STUN line on %s)" % ("the host" if not host_pub else "this guest")
+        elif g_pub != host_pub:
+            verdict = "OTHER public IPv4 than the host (through a VPN / another network)"
+        else:
+            verdict = "SAME public IPv4 as the host (not through a VPN)"
+        if seen and g_pub and seen == g_pub:
+            verdict += "; the host saw it at that address"
+        elif seen:
+            verdict += "; the host saw it at %s (a LAN address, or a relay's view)" % seen
+        lines.append("  guest %d: %s" % (i, verdict))
+    return "\n".join(lines)
 
 
 def logs(a):
@@ -823,6 +963,11 @@ def main():
     ap.add_argument("--stagger", type=float, default=float(os.environ.get("BB_MP_STAGGER", "2")),
                     help="run: s between instance starts (guests wait for the host's party code file anyway)")
     ap.add_argument("--party", action="store_true", help="instance 0 hosts a loopback party, the others join")
+    ap.add_argument("--real-net", action="store_true",
+                    help="run --party on the real network (no loopback; public STUN, UPnP on the host, the Internet code)")
+    ap.add_argument("--real-net-no-upnp", action="store_true",
+                    help="run --real-net: the host asks for no UPnP mapping (its port stays closed unless forwarded)")
+    ap.add_argument("--start-order", help="run: comma list, the order the instances start in (default 0,1,2,...)")
     ap.add_argument("--crash-at", type=float, default=0, help="run: kill one instance's game this many s in")
     ap.add_argument("--crash-instance", type=int, default=1)
     ap.add_argument("--crash-when", help="run: kill that instance's game once its log matches this regex")
@@ -836,6 +981,8 @@ def main():
     ap.add_argument("--until", action="append",
                     help="run: stop (kill all) once every such regex matched in the logs (after the crash, if any); "
                          "I:REGEX matches instance I's log only")
+    ap.add_argument("--until-hold", type=float, default=0,
+                    help="run: once every --until marker is seen, run this many s more")
     ap.add_argument("--instance", type=int, default=1, help="crash: which instance")
     ap.add_argument("--after", type=float, default=0, help="crash: wait this many s first")
     ap.add_argument("--env", action="append")

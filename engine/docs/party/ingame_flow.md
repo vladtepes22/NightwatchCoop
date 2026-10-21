@@ -31,9 +31,9 @@ character loads, the game joins the host and the summon follows by itself. *Cont
 *New Game* on the title stay the single-player game.
 
 **In the world (party game):** *System → Party* has the party status, *Copy party code* (a host:
-*Copy Internet code* and *Copy LAN code*; the help line shows the code, the value *Copy* /
-*Copied*), *Summon again* / *Rejoin
-the host* and *Leave the party*; *System → Party mode* has **Host party** / **Join party** (the
+*Copy Internet code*, with *Copy LAN code* on the *Party mode* page; the help line shows the code,
+the value *Copy* / *Copied*), *Summon again* / *Rejoin
+the host*, the host's **Gather the party** (I5, party_gather.h) and *Leave the party*; *System → Party mode* has **Host party** / **Join party** (the
 other role: a restart, the character continues; or hosting / joining again after *Leave*) and
 **Single player** (restart into the single-player game and saves). In a launcher-started party
 game the title has *Party* (the status: role and "not open yet" / "not joined yet" before the

@@ -249,9 +249,13 @@ int main() {
             assert(!KeyItemGateFor(12400761) && KeyItemGateByOpenFlag(12400160u) == kg && !KeyItemGateByOpenFlag(12400161u));
             assert(KeyItemGateHeldState(*kg, 1, false) == 0 && KeyItemGateHeldState(*kg, 2, false) == 1);  // the data
             assert(KeyItemGateHeldState(*kg, 1, true) == 1 && KeyItemGateHeldState(*kg, 2, true) == 0);   // guest: 0 opens
-            assert(KeyItemGateInvert(true, true, false) && KeyItemGateInvert(true, false, true));
-            assert(!KeyItemGateInvert(true, false, false));  // no emblem anywhere: "need the emblem", as in vanilla
-            assert(!KeyItemGateInvert(false, true, true));   // the host / a guest at home reads its real inventory
+            assert(KeyItemGateInvert(true, true, false, 0) && KeyItemGateInvert(true, false, true, 0));
+            assert(KeyItemGateInvert(true, true, false, -1));  // unknown held count: as 0
+            assert(!KeyItemGateInvert(true, false, false, 0));  // no emblem anywhere: "need the emblem", as in vanilla
+            assert(!KeyItemGateInvert(false, true, true, 0));   // the host / a guest at home reads its real inventory
+            // H4 (0.7.1): the own key section shown while summoned: a held emblem reads 1 and the
+            // data's own check opens the gate (inverted it would say "need the emblem").
+            assert(!KeyItemGateInvert(true, true, true, 1));
         }
         assert(FirstFightSpotFor(13401801)->chained && !FirstFightSpotFor(13501851)->chained);
         assert(!FirstFightSpotFor(12401802)->chained);
@@ -375,6 +379,68 @@ int main() {
     }
     assert(!NpcGiftTrigger(9043));
     assert(pg::CategoryOf(72400489u) == pg::Category::npc_quest);  // what made it a world action before
+
+    // D3 (lifts071): lifts. Every position / busy / host-state flag is a C2 state id (the mirror
+    // carries the host's values), never a plain world action; a finished ride goes up as lift_set /
+    // lift_clr instead.
+    assert(Lifts().size() == 21);  // liftfall: + Cainhurst, seven Nightmare of Mensis lifts, Nightmare Frontier
+    for (const Lift& l : Lifts()) {
+        assert(LiftByPosFlag(l.pos) == &l && (l.busy == 0 || !LiftByPosFlag(l.busy)) && l.car > 0);
+        assert(pg::ModeFor(pg::Policy::Defaults(), l.pos, pg::CategoryOf(l.pos)) == pg::SyncMode::State);
+        assert(!WorldActionAllowed(l.pos, false, (l.pos / 100000u % 100u) << 24));
+        if (l.host_state) {
+            assert(pg::ModeFor(pg::Policy::Defaults(), l.host_state, pg::CategoryOf(l.host_state)) == pg::SyncMode::State);
+        }
+    }
+    const Lift* cy = LiftByPosFlag(12410350);
+    assert(cy && cy->busy == 12415350 && cy->host_state == 12410351 && cy->car == 2411320);
+    const Lift* cw = LiftByPosFlag(12400827);  // Cathedral Ward <-> Old Yharnam: the l7 desync
+    assert(cw && cw->busy == 12400828 && cw->host_state == 0 && cw->car == 2401102);
+    assert(!LiftByPosFlag(12410351) && !LiftByPosFlag(0));
+    const Lift* mensis = LiftByPosFlag(12601256);  // the player's report: the long lift (lever kick 12601241)
+    assert(mensis && mensis->busy == 12605256 && mensis->host_state == 0 && mensis->car == 2601240);
+    assert(!LiftByPosFlag(12605256) && !mensis->Replays());  // a busy flag; a network-synced lift
+    // The library lift (the report's 60 m ride): no network sync, no busy flag; its ends replay.
+    const Lift* lib = LiftByPosFlag(12601253);
+    assert(lib && lib->busy == 0 && lib->car == 2601260 && lib->gate == 2601261 && lib->Replays());
+    assert(lib->car_end_on == 7 && lib->gate_end_on == 9 && lib->car_end_off == 9 && lib->gate_end_off == 7);
+    assert(!LiftNeedsReplay(*lib, true, 7) && !LiftNeedsReplay(*lib, false, 9));  // its own ride
+    assert(LiftNeedsReplay(*lib, true, 9) && LiftNeedsReplay(*lib, false, 7) && LiftNeedsReplay(*lib, true, -1));
+    assert(!LiftNeedsReplay(*cy, true, 0));  // network-synced lifts never replay
+    // The host takes a guest's ride of it with its car loaded (the replay moves the car), unless it
+    // stands at the car; a lift that does not replay stays `loaded`.
+    assert(HostLiftSync(false, false, true, true, true, false) == LiftSync::apply);
+    assert(HostLiftSync(false, false, true, true, true, true) == LiftSync::occupied);
+    assert(HostLiftSync(true, false, true, true, true, false) == LiftSync::same);
+    assert(HostLiftSync(false, false, true, true, false, false) == LiftSync::loaded);
+    // The host: its own copy ran (same), a ride runs there (busy), the car is loaded but its copy did
+    // not follow (left alone: a flag alone would not move it), the block is not loaded (apply).
+    assert(HostLiftSync(true, false, false, true) == LiftSync::same);
+    assert(HostLiftSync(false, false, true, false) == LiftSync::same);
+    assert(HostLiftSync(false, true, false, true) == LiftSync::busy);
+    assert(HostLiftSync(false, true, true, true) == LiftSync::busy);
+    assert(HostLiftSync(false, false, true, true) == LiftSync::loaded);
+    assert(HostLiftSync(false, false, false, true) == LiftSync::apply);
+    assert(HostLiftSync(true, false, false, false) == LiftSync::apply);
+    // The guest: only once its ride is over, and only if the car stayed at that end.
+    assert(GuestLiftRideDone(true, true, false) && GuestLiftRideDone(false, false, false));
+    assert(!GuestLiftRideDone(true, true, true) && !GuestLiftRideDone(false, true, false));
+    Request lift;
+    lift.map = m2400;
+    lift.lift_set = {12400827};
+    lift.lift_clr = {12410350};
+    assert(RequestFromJson(RequestToJson(lift), &back, &err) && back == lift);  // a lift ride alone is a request
+    bad = lift;
+    bad.lift_set.push_back(12400828);  // the busy flag is not a lift position
+    assert(!RequestFromJson(RequestToJson(bad), &back, &err));
+    bad = lift;
+    bad.lift_set.push_back(12410350);  // set and cleared
+    assert(!RequestFromJson(RequestToJson(bad), &back, &err));
+    bad = lift;
+    bad.lift_set = {12200125, 12400150, 12400827, 12420154, 12700134};  // more than kMaxLift
+    assert(!RequestFromJson(RequestToJson(bad), &back, &err));
+    assert(!RequestFromJson(R"({"v":1,"map":0,"set":[],"clr":[],"lift_set":[12410351]})", &back, &err));
+    assert(!RequestFromJson(R"({"v":1,"map":0,"set":[],"clr":[],"lift_set":12410350})", &back, &err));
     std::printf("party-worldact-test: ok\n");
     return 0;
 }

@@ -108,6 +108,9 @@ std::vector<std::uint32_t> StoryFlagsForRemo(std::uint32_t remo_id);
 /// The scene changes the guest's world or is a story scene it must see even if it missed the
 /// live mirror (boss intros etc. are mirror-only).
 bool ReplayWorthy(const StoryIntent& s);
+/// A scene a guest's replay skips while keeping its flags / time of day: the kidnapped host's
+/// Gaol waking scene 28000010 (the guests were not kidnapped).
+bool GuestSkipsScene(std::uint32_t remo_id);
 /// A remo id the game has: remo/sAA_BB_NNNN.remobnd.dcx or an EMEVD 2002 play (party_ids.h,
 /// generated from the game data by tools/party/ids_tool.py). Anything else would make the
 /// guest's game look for a file that is not there.
@@ -182,6 +185,14 @@ struct StoryAction {
 };
 const char* StoryActionName(StoryAction::Kind k);
 
+/// A live mirror of cutscene `remo` (remo AABBnnnn: map mAA_BB) may play on a guest standing in
+/// map `map_id` (0xAABBCCDD, all ones = unknown): only in the scene's own map. The host's scene in
+/// a map the guest has not loaded drew without its scenery (a player report: the host's Gaol waking
+/// scene on guests still in the Cathedral Ward); such a guest gets no mirror.
+constexpr bool MirrorMapOk(std::uint32_t remo, std::uint32_t map_id) {
+    return map_id == 0xffffffffu || ((remo / 1000000u) << 24 | (remo / 10000u % 100u) << 16) == (map_id & 0xffff0000u);
+}
+
 class GuestStory {
 public:
     static constexpr int kStableTicks = 30;
@@ -243,6 +254,14 @@ public:
         mirror_cut_ = 0;
         return r;
     }
+    /// The remo of a live mirror dropped because this guest stands in another map (MirrorMapOk;
+    /// 0 = none) and that map, once.
+    std::uint32_t TakeMirrorOtherMap(std::uint32_t* map = nullptr) {
+        const std::uint32_t r = mirror_other_map_;
+        if (map) *map = mirror_other_map_at_;
+        mirror_other_map_ = 0;
+        return r;
+    }
 
 private:
     struct Op {
@@ -269,6 +288,8 @@ private:
     std::deque<StoryIntent> queue_;
     std::set<std::uint32_t> seen_;
     std::uint32_t mirror_cut_ = 0; ///< a live mirror stopped early (kMirrorMinSeen); TakeMirrorCut
+    std::uint32_t mirror_other_map_ = 0;     ///< a mirror dropped for another map; TakeMirrorOtherMap
+    std::uint32_t mirror_other_map_at_ = 0;  ///< the guest's map then
     std::uint64_t last_seq_ = 0;
     int stable_mirror_ = 0, stable_own_ = 0;
     bool dirty_ = false;

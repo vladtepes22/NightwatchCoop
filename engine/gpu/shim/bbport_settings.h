@@ -167,6 +167,15 @@ struct Values {
     /// host and guest need it on. ini party_rendezvous; env BB_PARTY_RENDEZVOUS (the launcher's
     /// Party tab) overrides at start. Read when the party starts (System > Party members).
     std::atomic<bool> party_rendezvous{false};
+    /// F2 (0.7.1, network_robustness.md 4a): relay for a party member that cannot reach the host
+    /// (and use such a member when we cannot): party members only, capped. On by default. ini
+    /// party_member_relay; env BB_PARTY_MEMBER_RELAY overrides at start. Serving follows it live.
+    std::atomic<bool> party_member_relay{true};
+    /// F2 (0.7.1): IPv6 for the party link and the game's UDP when both PCs have a global IPv6
+    /// address (tried before any relay). OFF by default (user decision 0.7.1: the party code would
+    /// carry the PC's IPv6 address). ini party_ipv6; env BB_PARTY_IPV6 overrides at start. Read when
+    /// the party starts.
+    std::atomic<bool> party_ipv6{false};
     /// Party gameplay switches (the launcher's Party Rules & Sync, the game's party rules pages in
     /// System; PartySwitches below): ini key = the member's name, env BB_PARTY_* = 0/1 wins at start.
     /// On by default. Load puts each value into the process environment when its variable is unset,
@@ -179,6 +188,7 @@ struct Values {
     std::atomic<bool> party_guest_revive_inplace{true}; ///< a guest gets up at the lamp without a load
     std::atomic<bool> party_guest_respawn{true};  ///< a dead guest comes back at the host's lamp
     std::atomic<bool> party_guest_refill{true};   ///< vials / bullets refilled with the host's
+    std::atomic<bool> party_chalice_rejoin{true}; ///< a guest stays with / comes back to the host's Chalice Dungeon
     std::atomic<bool> party_guest_mark{true};     ///< guests can use the Hunter's Mark
     std::atomic<bool> party_full_rewards{true};   ///< full echoes and drops for guests
     std::atomic<bool> party_items{true};          ///< the host's item rewards given to guests
@@ -188,6 +198,15 @@ struct Values {
     std::atomic<bool> party_progress_npc{true};   ///< ... with NPC quest choices
     std::atomic<bool> party_story{true};          ///< cutscenes, time of day, endings shared
     std::atomic<bool> party_story_mirror{true};   ///< ... played live with the host
+    /// 0.7.1 (user rule: every party gameplay switch in the menu, the launcher and the ini). Not put
+    /// into the environment (PartySwitch::env_export false): read live from here; an explicit env
+    /// variable still wins at start. The host's (party_balance Rules; a guest follows the host's):
+    std::atomic<bool> party_kill_record{true};  ///< enemies stay dead for the party (party_kill_record.h)
+    std::atomic<bool> party_npc_mirror{true};   ///< an NPC gone from the host's world is gone on guests
+    std::atomic<bool> party_gather{true};       ///< I5: the host may gather the party (party_gather.h)
+    /// Each player's own (while it is a guest; party_items):
+    std::atomic<bool> party_key_view{true};     ///< the own key items while summoned (next start)
+    std::atomic<bool> party_key_items_summoned{true}; ///< a host-world key item given at once (needs key_view)
     /// Insight a guest gets for a boss the host kills (party_phantom InsightMode): 0 same as the
     /// host (parity), 1 full bonus, 2 the game's own +1 (ini party_guest_insight parity|full|0; env
     /// BB_PARTY_GUEST_INSIGHT). Next start.
@@ -306,6 +325,9 @@ struct PartySwitch {
     const char* key;
     const char* env;
     std::atomic<bool> Values::*member;
+    /// Load puts the ini's value into `env` when it is unset (for modules reading it at start);
+    /// false: the module reads the member, only an explicit variable is taken (never exported).
+    bool env_export = true;
 };
 extern const PartySwitch PartySwitches[];
 extern const int PartySwitchCount;

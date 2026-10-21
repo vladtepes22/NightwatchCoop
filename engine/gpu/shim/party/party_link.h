@@ -162,7 +162,9 @@ enum : std::uint8_t {
     kVitalsValid = 1,   // hp / max_hp / stamina read from a live player
     kVitalsAlive = 2,   // hp > 0
     kVitalsHasPos = 4,  // pos / yaw valid
-    kVitalsKnownFlags = 7,
+    kVitalsSpectating = 8,  // dead in a boss fight, spectating (C5): pos is where its body fell, not
+                            // the carried spot its camera orbits (older peers drop the bit)
+    kVitalsKnownFlags = 15,
 };
 struct MemberVitals {
     int slot = -1;
@@ -254,6 +256,10 @@ struct LinkConfig {
     // Host: lock out an address after repeated wrong passwords (AuthThrottle). Only the fuzzer
     // turns it off (its random handshakes come from 127.0.0.1 like its real members).
     bool auth_throttle = true;
+    // Host: the address a peer's wrong passwords count under (F2 0.7.1: an IPv6 peer's /64, from the
+    // party port's route table, a /56 by the peer's key; net/party_route.h throttle_key). Unset: the
+    // peer's own address.
+    std::function<std::uint32_t(std::uint32_t ip, std::uint16_t port)> throttle_key;  // port: network order
 };
 
 // What differs between the host's and a guest's game (bbport build, eboot.bin, game params,
@@ -355,6 +361,9 @@ public:
     std::string observed_address() const;  // guest: "ip:port" the host saw us at
     // Host: the IPv4 (network byte order) member `slot` is connected from; 0 when not connected.
     std::uint32_t member_ip(int slot) const;
+    // Host: the address and port (network order) member `slot` is connected from (its UDP stream's
+    // endpoint for a link over UDP); false when not connected.
+    bool member_endpoint(int slot, std::uint32_t* ip, std::uint16_t* port_nbo) const;
     RejectCode reject_code() const;
     std::string reject_reason() const;
 
@@ -422,6 +431,11 @@ public:
     using UdpSend = std::function<bool(std::uint32_t addr, std::uint16_t port, const std::uint8_t* d, std::size_t n)>;
     void set_udp_transport(UdpSend send);
     void on_udp_datagram(std::uint32_t addr, std::uint16_t port, const std::uint8_t* d, std::size_t n);
+    // F2 (0.7.1): the party port's route table reaches the host another way (IPv6, a member relay:
+    // net/party_route.h). `route(addr, port)` (network order): 0 = no route, 1 = routed (the UDP
+    // fallback then dials from the party port, never a separate socket), 2 = routed, UDP at once (no
+    // TCP: a member relay carries datagrams only). Asked at every dial; call before start_guest.
+    void set_udp_route_hint(std::function<int(std::uint32_t addr, std::uint16_t port)> route);
     // Host: open our NAT mapping towards a guest's public endpoint (its guest code) for 60 s.
     void punch_guest(std::uint32_t addr, std::uint16_t port);
     // The link's own UDP socket's port (host order; 0 without one) and whether the guest's

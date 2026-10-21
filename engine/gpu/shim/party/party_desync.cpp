@@ -730,6 +730,56 @@ std::vector<std::pair<int, std::pair<u32, std::vector<int>>>> HostPopCensusAsks(
     return out;
 }
 
+std::string KillRecordToJson(const KillRecordMsg& m) {
+    json::Value v = json::Value::make_object();
+    v.set("v", 1);
+    v.set("ep", static_cast<unsigned>(m.epoch));
+    json::Value k = json::Value::make_array();
+    for (u32 id : m.kills) k.push(static_cast<unsigned>(id));
+    v.set("k", k);
+    return json::dump(v, 0);
+}
+
+bool KillRecordFromJson(const std::string& text, KillRecordMsg* out, std::string* error) {
+    return Parse(text, error, [&](const json::Value& v) {
+        KillRecordMsg m;
+        if (!U32From(v.find("ep"), &m.epoch)) return false;
+        const json::Value* k = v.find("k");
+        if (!k || k->type != json::Value::Type::Array || k->array.size() > kKillRecordMaxIds) return false;
+        for (const json::Value& x : k->array) {
+            u32 id = 0;
+            if (!U32From(&x, &id) || !id) return false;
+            m.kills.push_back(id);
+        }
+        *out = std::move(m);
+        return true;
+    });
+}
+
+namespace {
+std::mutex g_kill_mu;
+std::vector<std::pair<int, KillRecordMsg>> g_kill_queue;
+}  // namespace
+
+bool QueueKillRecord(int slot, const std::string& body, std::string* error) {
+    KillRecordMsg m;
+    if (!KillRecordFromJson(body, &m, error)) return false;
+    std::lock_guard<std::mutex> lk(g_kill_mu);
+    if (g_kill_queue.size() >= 256) {
+        if (error) *error = "too many kill records queued";
+        return false;
+    }
+    g_kill_queue.emplace_back(slot, std::move(m));
+    return true;
+}
+
+std::vector<std::pair<int, KillRecordMsg>> PopKillRecords() {
+    std::lock_guard<std::mutex> lk(g_kill_mu);
+    std::vector<std::pair<int, KillRecordMsg>> out;
+    out.swap(g_kill_queue);
+    return out;
+}
+
 int CensusTestAfterFromEnv() {
     const char* v = std::getenv("BB_PARTY_CENSUS_TEST");
     return v && *v ? std::max(0, std::atoi(v)) : 0;

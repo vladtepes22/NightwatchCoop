@@ -438,6 +438,8 @@ std::string FromApi::sign_get(const Caller& caller, const json::Value& body) {
                                    [&](const Sign& s) {
                                        for (const auto& h : holds_)
                                            if (h.first == s.online_id) return true;
+                                       for (const auto& h : unreach_)
+                                           if (h.first == s.online_id && h.second > now) return true;
                                        return false;
                                    }),
                     board.end());
@@ -514,6 +516,19 @@ std::int64_t FromApi::ms_since_request() {
     return steady_now_ms() - last_request_ms_;
 }
 
+std::int64_t FromApi::udp_heard_ms(const std::string& online_id, bool probe) {
+    json::Value r = json::Value::make_object();
+    if (online_id.empty() || !service_.resolve(online_id, &r)) return -1;
+    const std::uint32_t addr = ip_parse(str_of(r, "Addr"));
+    const auto port = static_cast<std::uint16_t>(int_of(r, "Port", 0));
+    if (!addr || !port) return -1;
+    if (probe) {
+        p2p_punch(online_id.c_str(), addr, port, ip_parse(str_of(r, "LocalAddr")),
+                  static_cast<std::uint16_t>(int_of(r, "LocalPort", 0)));
+    }
+    return p2p_ms_since_heard(addr, port);
+}
+
 std::int64_t FromApi::hold_left_ms() {
     std::lock_guard<std::mutex> lk(mu_);
     const std::int64_t now = steady_now_ms();
@@ -529,6 +544,18 @@ void FromApi::set_prologue_members(const std::set<std::string>& ids) {
     std::string names;
     for (const std::string& id : ids) names += (names.empty() ? "" : ", ") + id;
     log("from api: members in their prologue (no signs shown to or from them): %s", names.empty() ? "none" : names.c_str());
+}
+
+void FromApi::hide_unreachable(const std::string& online_id, int ms) {
+    std::lock_guard<std::mutex> lk(mu_);
+    const std::int64_t until = steady_now_ms() + ms;
+    for (auto& h : unreach_) {
+        if (h.first == online_id) {
+            h.second = until;
+            return;
+        }
+    }
+    unreach_.emplace_back(online_id, until);
 }
 
 void FromApi::hold_signs(const std::string& online_id, int ms) {
@@ -597,6 +624,17 @@ std::string FromApi::sign_request(const Caller& caller, const json::Value& body)
                 if (uid == target_uid) target = id;
             }
         }
+    }
+    bool unreachable = false;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        const std::int64_t now = steady_now_ms();
+        for (const auto& h : unreach_) unreachable |= h.first == target && h.second > now;
+    }
+    if (unreachable) {
+        log("from api: %s asked to summon %s: refused (its last join failed and its UDP is not heard)",
+            caller.online_id.c_str(), target.c_str());
+        return "0";
     }
     if (target.empty() || target == caller.online_id) {
         log("from api: %s asked to summon user %llu: no such sign", caller.online_id.c_str(),

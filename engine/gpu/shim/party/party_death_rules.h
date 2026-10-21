@@ -53,10 +53,18 @@ struct HostDeathView {
     int down_reported = 0;     ///< members that said they are down
     int down_seen = 0;         ///< members seen at HP 0 (early notices)
     bool boss_fight = false;
+    /// The boss was killed between the host's HP 0 and this taken death (KilledAfterHp0): the fight
+    /// is over, but the death still counts as one in it (hostcheck run C).
+    bool boss_killed_late = false;
+    bool arena_revive_on = true;  ///< BB_PARTY_HOST_LIMBO_REVIVE (the arena revive's switch)
     bool revive_opt_in = false;
     bool lamp_here = false;    ///< the host's last lamp has a spawn spot in the loaded map
     bool alone_opt = true;     ///< BB_PARTY_HOST_DEATH_ALONE (revive mode only)
     bool solo_fixture = false; ///< BB_PARTY_B2_HOST_REVIVE_SOLO=1 (test, no members needed)
+    /// The death's own script moved the respawn point to another map (ScriptedDeathWarp: the
+    /// Snatcher's kidnap to the Hypogean Gaol): always the party's respawn load, never the revive
+    /// or a lone load.
+    bool scripted_warp = false;
 };
 inline HostDeathPlan PlanHostDeath(const HostDeathView& v) {
     if (!v.party_on || (v.members <= 0 && !v.solo_fixture)) {
@@ -65,10 +73,13 @@ inline HostDeathPlan PlanHostDeath(const HostDeathView& v) {
     if (Wiped(v.members, v.down_reported, v.down_seen)) {
         return HostDeathPlan::Wipe;
     }
-    if (v.boss_fight) {
+    // A boss killed while the host's death animation ran: the limbo too, so PlanDownTick waits for
+    // the defeat to be saved and gets the host up in the arena (not at the lamp: run C). With the
+    // arena revive off the death is planned as before (outside a fight).
+    if (v.boss_fight || (v.boss_killed_late && v.arena_revive_on)) {
         return HostDeathPlan::BossLimbo;
     }
-    if (!v.revive_opt_in) {
+    if (!v.revive_opt_in || v.scripted_warp) {
         return HostDeathPlan::PartyLoad;
     }
     if (!v.lamp_here) {
@@ -117,6 +128,7 @@ struct DownView {
     bool member_here = false;
     bool revive_opt_in = false;
     bool lamp_here = false;
+    bool scripted_warp = false;  ///< as HostDeathView::scripted_warp (a death in a fight: after the limbo)
     double down_for = 0;       ///< s since the death was taken
     double delay = 1.0;        ///< BB_PARTY_B2_HOST_REVIVE_DELAY
 };
@@ -139,13 +151,41 @@ inline DownTick PlanDownTick(const DownView& v) {
     if (v.limbo && v.boss_killed && v.arena_revive_on && v.member_here) {
         return DownTick::ArenaRevive;
     }
-    if (!v.revive_opt_in) {
+    if (!v.revive_opt_in || v.scripted_warp) {
         return DownTick::PartyLoad;
     }
     if (!v.lamp_here) {
         return DownTick::AloneLoad;
     }
     return DownTick::Revive;
+}
+
+// ---- Scripted death warps (quest_audit.md "Scripted death warps") ----
+// A host death whose own EMEVD moves the respawn point (2003[23]) to another map. The party's
+// respawn load takes everyone there with one loading screen (the guests replay it as a lamp warp
+// to the host's last lamp record, which the script has just set); the in-place revive or a lone
+// load would send the host away alone and leave the guests where they are (a player report: the
+// host kidnapped alone, the guests shown its waking scene in the Cathedral Ward). The deaths in the
+// game data (every 2003[23] outside the lamp events): common 9421 (the Snatcher's kidnap: 9420 from
+// 12400780 / 12700500 -> the Gaol 2802959, until the waking scene sets 9423), 9404 (the first death
+// with Insight after the first Dream -> the Dream 2102961), 9400 (the prologue's first death -> the
+// Dream 2102962; the clinic has no multiplayer). All three end on a client: never a guest's.
+constexpr std::uint32_t kGaolReturnPoint = 2802959;  ///< ReturnPointParam row of the Gaol cell (m28)
+/// The kidnap is pending or done by this death: 9420 (the trigger) on, or the respawn record on the
+/// Gaol, while the waking scene has not played (9423 off; 9421 ends once it is on: a later grab is a
+/// plain death in the game data too).
+inline bool KidnapDeath(std::uint32_t lamp, bool trigger_9420, bool woke_9423) {
+    return !woke_9423 && (trigger_9420 || lamp == kGaolReturnPoint);
+}
+/// The respawn record changed after the player was last seen alive and points into another map than
+/// the one it died in (area << 8 | block of each, 0 = unknown: no).
+inline bool RespawnMovedAtDeath(std::uint32_t alive_lamp, std::uint32_t lamp, std::uint32_t lamp_map,
+                                std::uint32_t death_map) {
+    const bool known = alive_lamp != 0 && alive_lamp != 0xffffffffu && lamp != 0 && lamp != 0xffffffffu;
+    return known && lamp != alive_lamp && lamp_map != 0 && death_map != 0 && lamp_map != death_map;
+}
+inline bool ScriptedDeathWarp(bool kidnap, bool respawn_moved) {
+    return kidnap || respawn_moved;
 }
 
 // ---- Where the host gets up in the arena (DownTick::ArenaRevive) ----
@@ -158,11 +198,120 @@ constexpr double kArenaCorpseRise = 4.0;   ///< m (height) from the followed mem
 inline bool ArenaReviveAtCorpse(bool corpse_known, bool fall_death, double horiz_m, double dy_m) {
     return corpse_known && !fall_death && horiz_m <= kArenaCorpseNear && std::fabs(dy_m) <= kArenaCorpseRise;
 }
+
+// ---- Where a player gets up after a FALL death (fallsafe, user rule 2026-10-21) ----
+// A fall death never gets up at its corpse spot (the bottom of the fall, often under the level: a
+// report showed a revived guest under Cathedral Ward looking up at it). It gets up where the game
+// itself puts the bloodstain: the chr's last safe ground spot, PlayerIns +0x400 -> +0x30 (position)
+// / +0x3C (rotation), read by 0x1904660 / 0x1904690 for the stain record 0x13D2910 (its +0x00) and
+// by the game's own safe-spot warp 0x13CBAD0. The game's value as it was at HP 0, never a computed
+// height. Usable: read, finite, not the origin (no tracker: zeros) and within kSafeSpotNear m
+// (horizontal) of where the chr stood at HP 0 (hostcheck: the stain up to ~11 m from the death spot).
+constexpr double kSafeSpotNear = 60.0;
+inline bool SafeSpotUsable(bool read_ok, const float safe[3], const float died[3]) {
+    if (!read_ok || !std::isfinite(safe[0]) || !std::isfinite(safe[1]) || !std::isfinite(safe[2])) {
+        return false;
+    }
+    if (std::fabs(safe[0]) < 0.01f && std::fabs(safe[1]) < 0.01f && std::fabs(safe[2]) < 0.01f) {
+        return false;
+    }
+    if (!std::isfinite(died[0]) || !std::isfinite(died[2])) {
+        return true;  // nothing to compare with (the death spot unknown): the game's value alone
+    }
+    const double dx = double(safe[0]) - double(died[0]), dz = double(safe[2]) - double(died[2]);
+    return std::sqrt(dx * dx + dz * dz) <= kSafeSpotNear;
+}
+/// The arena revive's spot (host DownTick::ArenaRevive, guest GuestLimboEnd::ArenaRevive). A fall:
+/// the game's safe spot, else on the followed / nearest living member's spot (never the corpse).
+/// Any other death: its corpse spot when that is within 40 m / 4 m of the member, else the member's.
+enum class ArenaSpot { Corpse, SafeFloor, Member };
+inline const char* ArenaSpotName(ArenaSpot a) {
+    return a == ArenaSpot::Corpse ? "where it died" : a == ArenaSpot::SafeFloor ? "on its last safe floor (a fall death)"
+                                                                               : "on the living member's spot";
+}
+inline ArenaSpot PlanArenaReviveSpot(bool corpse_known, bool fall_death, double horiz_m, double dy_m, bool safe_ok) {
+    if (fall_death) {
+        return safe_ok ? ArenaSpot::SafeFloor : ArenaSpot::Member;
+    }
+    return ArenaReviveAtCorpse(corpse_known, false, horiz_m, dy_m) ? ArenaSpot::Corpse : ArenaSpot::Member;
+}
+/// A revive "where it lies" (GuestDeathAloneToOwnLamp: up again, then the alone travel to its own
+/// lamp in another map). A fall: warped onto the game's safe spot first; with none, no revive here
+/// (the caller's respawn load). Any other death: where it lies, as before.
+/// The order of a fall revive (fallsafe, user report: the host was put on its safe spot and then
+/// still got "YOU DIED"): nothing before the game's death is taken (the host's death funnel / a
+/// guest's held death); then a body far below its spot (out of the world) is moved there while
+/// still dead; the revive itself runs once the body stands on the spot (or kFallMoveWait s after
+/// the move, whichever first) and has stood there kFallSettle s: the game's own warp updates the
+/// position at once but its physics a few frames later, and a revive in the same frame met the kill
+/// plane again (live r11: the guest's HP 0 again 36 ms after the revive, "YOU DIED", then a load).
+constexpr double kFallMoveWait = 3.0;
+constexpr double kFallSettle = 1.0;
+enum class FallReviveStep { Wait, MoveBody, Revive };
+inline FallReviveStep PlanFallReviveStep(bool death_taken, bool body_far_below, bool moved, bool at_spot,
+                                         double since_move) {
+    if (!death_taken) {
+        return FallReviveStep::Wait;
+    }
+    if (body_far_below && !moved) {
+        return FallReviveStep::MoveBody;
+    }
+    if (moved && since_move < (at_spot ? kFallSettle : kFallMoveWait)) {
+        return FallReviveStep::Wait;
+    }
+    return FallReviveStep::Revive;
+}
+/// Where a fall death (off a ledge or out of the world) gets up outside a boss arena's revive (user
+/// decision 2026-10-21: at a lamp, so the walk back stays the penalty; its bloodstain stays on its
+/// last safe floor). In place with no load: its own last lamp when that is in the loaded map; a
+/// guest otherwise the host's last lamp in the party's map (beside it). Never a load for a fall (a
+/// respawn load after a death out of the world lands in the Hunter's Dream, as single player does):
+/// with neither lamp in the loaded map, its last safe floor. `inplace_on` off (a guest's System >
+/// Deaths & revives) or no fall: the respawn as before.
+enum class FallRespawn { OwnLamp, HostLamp, SafeFloor, Respawn };
+inline const char* FallRespawnName(FallRespawn f) {
+    return f == FallRespawn::OwnLamp    ? "its own last lamp"
+           : f == FallRespawn::HostLamp ? "the host's last lamp"
+           : f == FallRespawn::SafeFloor ? "its last safe floor (no lamp in the loaded map)"
+                                         : "the respawn as before";
+}
+inline FallRespawn PlanFallRespawn(bool fall_death, bool inplace_on, bool own_lamp_here, bool host_lamp_here, bool safe_ok,
+                                   bool host_role) {
+    if (!fall_death || !inplace_on) {
+        return FallRespawn::Respawn;
+    }
+    if (own_lamp_here) {
+        return FallRespawn::OwnLamp;
+    }
+    if (!host_role && host_lamp_here) {
+        return FallRespawn::HostLamp;
+    }
+    return safe_ok ? FallRespawn::SafeFloor : FallRespawn::Respawn;
+}
+enum class LiesRevive { WhereItLies, SafeFloor, Load };
+inline LiesRevive PlanLiesRevive(bool fall_death, bool safe_ok) {
+    if (!fall_death) {
+        return LiesRevive::WhereItLies;
+    }
+    return safe_ok ? LiesRevive::SafeFloor : LiesRevive::Load;
+}
 /// PR #6's wait after a limbo's boss died: its bar still up over the dead chr (the game's defeat
 /// event, which saves the defeat flag, has not run), or less than 3 s since the bar went; at most
 /// 20 s from the moment the boss was gone.
 inline bool DefeatPending(double since_gone_s, bool bar_dying) {
     return since_gone_s < 20.0 && (bar_dying || since_gone_s < 3.0);
+}
+
+// ---- The boss is killed between a player's HP 0 and its taken death ----
+// The game takes a death 8-13 s after HP 0 (the death animation; live arenaguest A1, hostcheck run
+// C: the host's HP 0 at +169.5 s, the boss killed at +181.4 s, the death taken at +182.2 s with no
+// living bar left, so the host got the lamp revive). Such a death still counts as one in the fight:
+// a living boss bar was up at HP 0, that boss was killed after it (its bar's last living frame no
+// earlier than HP 0) and the death is taken within kLateKillWindow s of HP 0. Both roles: the
+// guest's held death (PlanGuestLimboEnd) and the host's (HostDeathView::boss_killed_late).
+constexpr double kLateKillWindow = 60.0;
+inline bool KilledAfterHp0(bool hp0_in_fight, bool boss_killed, double hp0_at, double gone_at, double taken_at) {
+    return hp0_in_fight && boss_killed && hp0_at > 0 && gone_at >= hp0_at && taken_at - hp0_at < kLateKillWindow;
 }
 
 // ---- A guest's boss-fight limbo ends (its held death; user request 2026-10-21) ----
@@ -321,6 +470,61 @@ inline double FallDrop(double peak_before, double y_at_death, double y_now) {
     return peak_before - std::min(y_at_death, y_now);
 }
 
+// ---- Lifts and moving platforms (liftfall) ----
+// A player's report (Nightmare of Mensis): the long lift 2601240 drops 60 m at ~4 m/s, and the fall
+// recovery nets (6 s of dropping more than 1.5 m/s) warped the host back to its lamp mid-ride and
+// put the summoned guest back on the top floor while the car went on down (then a fall down the
+// empty shaft). PlayerIns +0x1E5 bit 0x02 (the fifth byte of the +0x1E1 flags) is set on a REMOTE
+// chr standing in a lift car (the report: all 62 samples on lift rides, none elsewhere; off within a
+// second of leaving the car, on for a body lying in it); the local chr does not carry it (live,
+// Mensis lift 2601240: 0000005098 all the ride), so the game side also asks whether a lift car plays
+// a ride animation where the chr stands (worldact::OnMovingLiftCar), and the rate tests below hold
+// without either.
+constexpr std::uint64_t kRideFlag1e1 = 0x0200000000ull;
+inline bool RidingObject(std::uint64_t f1e1) {
+    return (f1e1 & kRideFlag1e1) != 0;
+}
+// A lift's car is steady and slow (every Bloodborne lift a few m/s); a fall out of the world is not
+// (the kill plane of m24_01, ~1470 m below the Great Bridge, in ~30 s: ~49 m/s on average). A drop
+// faster than this per sample is a fall even with the ride flag on (a stale flag never hides one).
+constexpr double kLiftMaxRate = 10.0;
+/// One recovery sample: the chr dropped `dy` m in `dt` s. A fall sample: at least `min_rate` m/s
+/// down, and not a ride on a moving object at a lift's rate.
+inline bool FallSample(double dy, double dt, double min_rate, bool riding) {
+    if (!(dt > 0.0) || !std::isfinite(dy)) {
+        return false;
+    }
+    const double rate = dy / dt;
+    return rate >= min_rate && !(riding && rate < kLiftMaxRate);
+}
+// The nets fire after kFallRecoverySeconds of fall samples and only for a real fall's drop over that
+// time: a free fall covers well over 100 m in 6 s; a lift that never set the ride flag 25-30 m.
+constexpr double kFallRecoverySeconds = 6.0;
+constexpr double kFallRecoveryMinDrop = 40.0;
+inline bool FallRecoveryDue(double falling_for, double dropped_m) {
+    return falling_for >= kFallRecoverySeconds && dropped_m >= kFallRecoveryMinDrop;
+}
+/// The drop test's top (PlanGuestRevive): the highest point since the chr last stood on a moving
+/// object. A ride down (12 m in the 3 s window at a lift's rate) is no fall; a fall off the car or
+/// onto it counts from where it left the car. `hist`: {t, y, riding} samples in time order.
+struct HeightSample {
+    double t = 0, y = 0;
+    bool riding = false;
+};
+template <class Container>
+inline double PeakSinceRide(const Container& hist, double y_at_death) {
+    double peak = y_at_death;
+    for (const HeightSample& h : hist) {
+        peak = h.riding ? h.y : std::max(peak, h.y);
+    }
+    return std::max(peak, y_at_death);
+}
+/// FallDrop for a chr that may lie in a lift's car: a body carried on down by the car (riding at
+/// HP 0) did not fall, so only the drop up to HP 0 counts then.
+inline double FallDropRide(double peak_before, double y_at_death, double y_now, bool riding_at_death) {
+    return riding_at_death ? peak_before - y_at_death : FallDrop(peak_before, y_at_death, y_now);
+}
+
 // ---- Split travel's question ("Travel with the party?") ----
 constexpr double kAskTimeout = 30.0;  ///< s an open question waits (was 120 s)
 enum class AskClose { Keep, Load, Dead, Timeout };
@@ -368,6 +572,44 @@ inline bool LampTriggerFlag(std::uint32_t id) {
 /// lamp flags (a mirrored host 0 would undo a guest's Doll handshake mid level-up).
 inline bool TalkStateFlag(std::uint32_t id) {
     return id >= 70000000u && id < 80000000u && id / 1000 % 10 == 0 && id % 1000 / 100 == 1 && !LampTriggerFlag(id);
+}
+/// The party's lamp spawn table (party_ids ReturnSpot: the MSB revive points) holds this lamp's
+/// real spot. Not for a Chalice Dungeon's lamps (area 29, 2902950..): a dungeon is assembled from
+/// pieces at load time, so its lamps stand elsewhere (a tester's report: the host's revive for lamp
+/// 2902952 put it 80 m from that lamp, at the template's spot); their spot is the one seen there.
+inline bool LampTableSpotTrusted(std::uint32_t lamp) {
+    return lamp / 100000 != 29;
+}
+/// A guest still in the host's session but apart from it, in a map outside the Chalice Dungeon the host
+/// is in (user decision 2026-10-21, option b). Only the summon's quick join enters a dungeon, so:
+/// after a death or a forced trip (a death respawn, a scripted warp or kidnap, a host travel it could
+/// not follow) it goes home after `kChaliceApartWait` s and the summon brings it back (SendHome); a
+/// guest that CHOSE to leave (alone at a lamp or headstone, its own Hunter's Mark) stays out (Stay:
+/// a one-time notice, Party > Rejoin brings it back). `rule_on`: party_chalice_rejoin.
+enum class ChaliceApart { Wait, SendHome, Stay };
+constexpr double kChaliceApartWait = 6.0;
+inline ChaliceApart PlanChaliceApart(bool rule_on, bool chosen, double apart_s) {
+    if (!rule_on || chosen) return ChaliceApart::Stay;
+    return apart_s >= kChaliceApartWait ? ChaliceApart::SendHome : ChaliceApart::Wait;
+}
+/// Party > Rejoin pressed by a guest: true when it must first leave the session to its own world (it is
+/// still a session client, apart, while the host is in a Chalice Dungeon): the bell's summon then
+/// quick-joins it in. Outside the session the Rejoin rings as before.
+inline bool ChaliceRejoinLeavesFirst(bool in_session, bool apart, bool host_in_dungeon) {
+    return in_session && apart && host_in_dungeon;
+}
+/// A summoned guest's boss clear (Lua BlockClear2 0x13849A0: PREY SLAUGHTERED, the clear bonus
+/// echoes, Insight 4680) that runs within `kStaleBossClearS` of its arrival in the host's world is a
+/// boss that was already dead there (chalamp cl6 / cl8: re-summoned into a cleared Chalice Dungeon,
+/// the boss came up alive for a moment and its defeat paid 1995 echoes and +1 Insight each time).
+/// A guest never arrives into a running boss fight (the host's summon waits for the fight's end,
+/// A11), so a real kill is never that early: the first real kill pays everyone as before.
+constexpr double kStaleBossClearS = 15.0;
+inline bool StaleBossClear(bool summoned_guest, double since_arrival_s) {
+    return summoned_guest && since_arrival_s >= 0 && since_arrival_s < kStaleBossClearS;
+}
+inline const char* ChaliceApartNotice() {
+    return "The host is in a Chalice Dungeon: Party > Rejoin to go back";
 }
 constexpr double kLampOriginWindow = 10.0;  ///< s from a lamp's flag to its warp (the event waits ~3-4 s)
 enum class LampOrigin { Own, Other };
@@ -431,6 +673,53 @@ inline bool DropSameWarpQuestion(bool pending, std::uint32_t mine, int my_slot, 
 /// unknown: follow as before. A dead guest (a wipe) follows.
 inline bool StayApartAtHostDeath(bool guest_dead, bool guest_idle, std::uint32_t host_area, std::uint32_t own_area) {
     return !guest_dead && guest_idle && host_area != 0 && own_area != 0 && host_area != own_area;
+}
+
+// ---- C3: the last guest down starts the wipe (player report 2026-10-21, Logarius) ----
+// The guest's HP 0 tells the host at once (member_down), so the wipe's respawn load comes while
+// this guest's death animation still runs; the game takes the death (PartyGhostDeath, ~8 s after
+// HP 0) only later. Followed at once, the load moved the dying body to the host's lamp, the death
+// was then taken there (its bloodstain at the lamp) and the held death revived it alone at its own
+// last lamp beside the arena. The follow waits for the death instead: the bloodstain where it
+// died, then one dead follow to the host's lamp with everyone.
+constexpr double kWipeDeathWait = 15.0;  ///< s; the dead watchdog takes the death at 11 s
+enum class WipeFollow { Now, WaitDeath, DeadFollow, TakeDeath };
+inline const char* WipeFollowName(WipeFollow w) {
+    return w == WipeFollow::Now ? "now" : w == WipeFollow::WaitDeath ? "wait for the death" : w == WipeFollow::DeadFollow ? "dead follow" : "take the death";
+}
+/// A guest at the host's death travel (`host_death`), its own chr's HP (`hp` -1 unknown), its
+/// death taken (held), `waited_s` since the travel came.
+inline WipeFollow PlanWipeFollow(bool host_death, int hp, bool death_taken, double waited_s) {
+    if (!host_death || hp != 0) {
+        return WipeFollow::Now;  // alive (or unknown): the follow as before
+    }
+    if (death_taken) {
+        return WipeFollow::DeadFollow;
+    }
+    return waited_s < kWipeDeathWait ? WipeFollow::WaitDeath : WipeFollow::TakeDeath;
+}
+/// A death taken (held) within kWipeArrivalWindow s after the guest arrived with the host's death
+/// load: part of that wipe, never a second death of its own. Up already: dropped (no revive at its
+/// own lamp); still down: revived at the host's lamp, where the party is.
+constexpr double kWipeArrivalWindow = 30.0;
+enum class AfterWipe { None, Drop, HostLamp };
+inline AfterWipe PlanHeldAfterWipe(double since_arrival_s, bool alive) {
+    if (!(since_arrival_s >= 0.0 && since_arrival_s < kWipeArrivalWindow)) {
+        return AfterWipe::None;
+    }
+    return alive ? AfterWipe::Drop : AfterWipe::HostLamp;
+}
+/// A dead guest waits for the host's wipe decision (no revive of its own) while the host's chr is
+/// down, at most kGuestHostDownHold s (a stale host chr must not hold the respawn for good; was 30 s,
+/// shorter than a long boss-fight spectate).
+constexpr double kGuestHostDownHold = 120.0;
+inline bool GuestWaitsForHostDown(bool host_down, double held_s) {
+    return host_down && held_s < kGuestHostDownHold;
+}
+/// The guest's bloodstain goes where it died (its HP 0 spot) when a load moved the body between
+/// its HP 0 and the death's record, never to the load's destination.
+inline bool StainAtDeathSpot(bool spot_known, bool loaded_since_hp0) {
+    return spot_known && loaded_since_hp0;
 }
 
 // ---- A11 (live a11c): the host's chr is not placed yet ----

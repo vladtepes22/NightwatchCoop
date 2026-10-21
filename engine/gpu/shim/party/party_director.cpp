@@ -31,6 +31,7 @@
 #include "party_npc_test.h"
 #include "party_guestsvc.h"
 #include "party_split.h"
+#include "party_gather.h"
 #include "lamp_travel.h"
 #include "party_phantom.h"
 #include "party_start.h"
@@ -55,6 +56,7 @@
 #include "../net/np_session.h"
 #include "../net/party_util.h"
 #include "../../party_env.h"
+#include "../bbport_settings.h"
 
 #include <algorithm>
 
@@ -145,6 +147,8 @@ struct TravelStep {
         // host_alone=ID: the host travels to ID alone, decided (no question).
         HostLamp, GuestLamp, HostAlone, GuestKill,
         HostOutage, GuestOutage, // a simulated total network outage of `buttons` ms (BB_NET_SIM on)
+        HostSpfx, // host_spfx=ENTITY:ID: SpEffect ID on that entity's chr by its ApplySpEffect (D7 doping dedupe)
+        HostPoise, // host_poise=N: the Enemy poise setting (party_enemy_poise, % of the step) set live, not saved (D7 A/B)
         HostObj, GuestObj, HostChr, GuestChr, // stand at a map object / character: ENTITY[:DIST[:ANGLE]]
         HostUse, GuestUse, // use goods ID as the item does (test aid): its behaviour's SpEffect on the own chr
         GuestFixture, // guest_fixture@S: the BB_PARTY_WORLDACT_TEST objects / pickups again (worldact::FixtureRearm)
@@ -156,7 +160,9 @@ struct TravelStep {
         // RequestLeave / RequestRejoin): host_leave / guest_leave wait for the join like any step;
         // host_rejoin / guest_rejoin run S s after this player went out of the party (or after the
         // previous step, the later), while it is out (repeat cycles: tools/mp/smoke_party.py).
-        HostLeave, GuestLeave, HostRejoin, GuestRejoin
+        HostLeave, GuestLeave, HostRejoin, GuestRejoin,
+        // I5: the Party page's Gather the party as the host presses it (party_status RequestGather).
+        HostGather
     } kind = HostWarp;
     bool after_scene = false; // "~": the delay counts from the end of a cutscene after the previous step
     std::uint32_t id = 0; // HostWarp: the ReturnPointParam row for 0x13CDF30; HostKill: the entity id
@@ -169,7 +175,13 @@ struct TravelStep {
     std::string args;     // HostStage / HostWalk / HostHeadstone
     double delay = 15.0;
     int min_join = 0;     // "#N": not before this player's Nth join
+    int min_coop = 0;     // "^N" (host): not before the host's game has N cooperators; S counts from then
+    int coop_rise = 0;    // "^N*K": ... and only once the count has risen to N for the K-th time
     bool alive = false;   // "!" on a press step: waits as a step with the own chr (alive, world up)
+    // "?FLAG=V" at the end (liftfall): not before event flag FLAG reads V on this game; S counts from
+    // then (e.g. a lift's position flag at the end of its ride: no fixed wait for the ride's length)
+    std::uint32_t wait_flag = 0;
+    bool wait_value = true;
 };
 
 // host_route / guest_route (B1): a waypoint counts as reached within this many m; still blocked after
@@ -256,6 +268,13 @@ struct Test {
     std::vector<std::int32_t> log_objs;
     std::map<std::int32_t, std::array<float, 3>> log_obj_pos;
     Clock::time_point log_obj_at{};
+    // log_flag=ID[/ID...]: those event flags' values on this game whenever one changes (a lift's
+    // state flags on every game of the party, lifts071), checked every tick.
+    std::vector<std::uint32_t> log_flags;
+    std::map<std::uint32_t, int> log_flag_val;
+    // log_objanim=ENTITY: that map object's animation state (worldact::ReadObjAnim) whenever it changes.
+    std::vector<std::int32_t> log_objanims;
+    std::map<std::int32_t, std::string> log_objanim_last;
     const char* ring = nullptr; // the event to raise once
     double delay = 10.0;
     bool start = false, grant_bells = false, drop_bells = false, drop_done = false;
@@ -282,6 +301,10 @@ struct Test {
     bool armed = false;        // a join since the last step ran
     int joins = 0;
     Clock::time_point joined_at{};
+    Clock::time_point coop_since{};  // the next step's "^N" cooperator count reached (its clock)
+    Clock::time_point flag_since{};  // the next step's "?FLAG=V" condition met (its clock)
+    int last_coop = 0;               // the host's cooperators at the previous tick ("^N*K")
+    int coop_rises[8] = {};          // how often the count rose to >= N (index N), since the start
     Clock::time_point step_at{}; // the last step's run, for "back after" times
     bool ran = false;            // a step of this role ran
     TravelStep::Kind last_kind = TravelStep::HostWarp;
@@ -305,6 +328,7 @@ struct Test {
     Clock::time_point release_at{};  // a press step's buttons are released then
     bool pressing = false;
     std::uint32_t chr_target = 0;  // the last host_chr / guest_chr entity (press logs its HP)
+    Clock::time_point press_at{};  // the last host_press / guest_press tap (BB_PARTY_TARGET_ANIM)
     bool step_waiting = false;  // the next step waits (dead chr / a re-join running), logged once
     Clock::time_point left_at{};  // the last time this player went out of the party (host_rejoin / guest_rejoin)
 };
@@ -1151,6 +1175,8 @@ const char* TravelStepName(TravelStep::Kind k) {
     case TravelStep::HostPress: return "host_press";
     case TravelStep::GuestPress: return "guest_press";
     case TravelStep::HostOutage: return "host_outage";
+    case TravelStep::HostPoise: return "host_poise";
+    case TravelStep::HostSpfx: return "host_spfx";
     case TravelStep::GuestOutage: return "guest_outage";
     case TravelStep::HostMark: return "host_mark";
     case TravelStep::GuestMark: return "guest_mark";
@@ -1183,6 +1209,7 @@ const char* TravelStepName(TravelStep::Kind k) {
     case TravelStep::GuestLeave: return "guest_leave";
     case TravelStep::HostRejoin: return "host_rejoin";
     case TravelStep::GuestRejoin: return "guest_rejoin";
+    case TravelStep::HostGather: return "host_gather";
     }
     return "?";
 }
@@ -1588,14 +1615,78 @@ void DieForTest() {
 
 /// The live travel test chain (TravelStep): joins are tracked in any state; a step runs in the
 /// world, with no loading screen and no stage request pending.
+/// Test aid (D7 stagger, BB_PARTY_TARGET_ANIM=1): every new animation of the host_chr / guest_chr
+/// target, from its TimeAct ring ([[chr+0x3B0]+0x18]: 10 x {anim id, ...} at +0x20, the next
+/// write index at +0xC0; the same ring as the player's), with its HP and the time since the last
+/// press tap, so hit reactions (staggers) can be counted per hit. `=keep`: its HP is put back to
+/// max whenever it falls below half (many hits on one enemy: an A/B with host_poise in one run).
+void TargetAnimTick(Test& t, Clock::time_point now) {
+    static const char* mode = std::getenv("BB_PARTY_TARGET_ANIM");
+    if (!mode || mode[0] == '0' || !mode[0] || !t.chr_target) return;
+    static std::uint32_t entity = 0;
+    static std::uint64_t chr = 0;
+    static Clock::time_point refresh{};
+    static std::int32_t last_idx = -1;
+    if (entity != t.chr_target || now >= refresh) {
+        if (entity != t.chr_target) last_idx = -1;
+        entity = t.chr_target;
+        chr = 0;
+        for (const auto& e : balance::LoadedEnemies()) {
+            if (e.entity == entity) chr = e.chr;
+        }
+        refresh = now + std::chrono::seconds(1);
+    }
+    std::uint64_t cm = 0, ta = 0, dm = 0;
+    std::int32_t idx = -1;
+    if (!chr || !SafeGet(chr + 0x3b0, &cm) || !cm || !SafeGet(cm + 0x18, &ta) || !ta || !SafeGet(ta + 0xc0, &idx) ||
+        idx < 0 || idx >= 10) {
+        return;
+    }
+    SafeGet(cm + 0x20, &dm);
+    std::int32_t hp = -1, mhp = -1;
+    if (dm) {
+        SafeGet(dm + 0xf8, &hp);
+        SafeGet(dm + 0xfc, &mhp);
+    }
+    if (idx != last_idx) {
+        // Every entry written since the last look (a hit can start two animations in one frame).
+        const int from = last_idx < 0 ? (idx + 9) % 10 : last_idx;
+        for (int k = from; k != idx; k = (k + 1) % 10) {
+            std::int32_t anim = 0;
+            SafeGet(ta + 0x20 + std::uint64_t(k) * 0x10, &anim);
+            const double since = t.press_at == Clock::time_point{} ? -1.0 : Seconds(t.press_at, now);
+            Log("test: target anim: entity %u animation %d (HP %d/%d, %.2f s = %d frame(s) at 30 fps after the last press)",
+                entity, anim, hp, mhp, since, since < 0 ? -1 : int(since * 30.0 + 0.5));
+        }
+        last_idx = idx;
+    }
+    if (mode[0] == 'k' && hp > 0 && mhp > 0 && hp < mhp / 2) {
+        SafeWrite(dm + 0xf8, &mhp, 4);
+        Log("test: target anim: entity %u HP %d -> %d (keep)", entity, hp, mhp);
+    }
+}
+
 void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::time_point now) {
     Test& t = st.test;
+    TargetAnimTick(t, now);
+    // BB_PARTY_DIRECTOR_TEST_SOLO=1: the host steps without a cooperator, "joined" from the first
+    // steady world on: in single player (no BB_PARTY) or as a party host alone (vanilla comparisons,
+    // e.g. streamsync: does a neighbour map's kill stay dead when that map streams out and in).
+    static const bool solo = [] {
+        const char* v = std::getenv("BB_PARTY_DIRECTOR_TEST_SOLO");
+        return v && v[0] == '1';
+    }();
+    const bool solo_now = solo && (role == PartyRole::None || role == PartyRole::Host);
+    if (solo_now) {
+        role = PartyRole::Host;
+    }
     if (t.steps.empty() || role == PartyRole::None) {
         return;
     }
     // Guest: in once a client with the world loaded; out only when the session ends (the summon's
     // own map reload into the host world is still in).
-    const bool joined = role == PartyRole::Host ? s.cooperators >= 1
+    const bool joined = solo_now                  ? t.joined || (s.world_up && !s.loading)
+                        : role == PartyRole::Host ? s.cooperators >= 1
                         : t.joined                ? s.session_role == RoleClient
                                                   : s.session_role == RoleClient && s.world_up && !s.loading;
     if (joined != t.joined) {
@@ -1614,6 +1705,12 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
             t.left_at = now;
             Log("test: travel steps: out of the party (%s)", Describe(s).c_str());
         }
+    }
+    // "^N*K": count every rise of the host's cooperators to >= N (a guest's Leave and Rejoin: 2 -> 1 -> 2).
+    if (s.cooperators >= 0) {
+        for (int n = 1; n < 8; ++n)
+            if (s.cooperators >= n && t.last_coop < n) ++t.coop_rises[n];
+        t.last_coop = s.cooperators;
     }
     // The other role's steps are that instance's: skip them.
     auto mine = [&](const TravelStep& step) {
@@ -1661,6 +1758,21 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
         // Leave, the host's Leave, a kick), then presses S s after it went out (or after the
         // previous step, the later). Back in by itself before that: the step is done without a press.
         const TravelStep& step = t.steps[t.next_step];
+        if (step.args == "now") {
+            // guest_rejoin:now@S[%MAP]: the press S s after the previous step, in the world, also while
+            // still in the session (a guest apart from a host in a Chalice Dungeon, chalamp).
+            const bool map_ok = step.map.empty() || MapName(s.map_id).find(step.map) != std::string::npos;
+            if (!t.ran || !s.world_up || s.loading || !map_ok || Seconds(t.step_at, now) < step.delay) {
+                return;
+            }
+            ++t.next_step;
+            t.step_at = now;
+            t.last_kind = step.kind;
+            ::party::status::RequestRejoin();
+            Log("test: travel step %zu/%zu: %s: Party > Rejoin pressed now (%s)", t.next_step, t.steps.size(),
+                TravelStepName(step.kind), Describe(s).c_str());
+            return;
+        }
         const bool went_out = t.left_at != Clock::time_point{} && (!t.ran || t.left_at > t.step_at);
         if (joined) {
             if (!went_out) {
@@ -1694,6 +1806,34 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
         t.pressing = false;
         runtime_pad_director_press(0);
     }
+    // "^N": a condition, not a fixed wait: the step waits until the host's game has N cooperators,
+    // and its S counts from that moment (e.g. host_warp=ID@3^2: 3 s after the second guest is in).
+    if (t.next_step < t.steps.size() && t.steps[t.next_step].min_coop) {
+        const TravelStep& cs = t.steps[t.next_step];
+        if (s.cooperators < cs.min_coop || (cs.coop_rise && t.coop_rises[cs.min_coop < 8 ? cs.min_coop : 7] < cs.coop_rise)) {
+            t.coop_since = {};
+            return;
+        }
+        if (t.coop_since == Clock::time_point{}) t.coop_since = now;
+    } else {
+        t.coop_since = {};
+    }
+    // "?FLAG=V": the same, on an event flag of this game (a lift's position flag at the ride's end).
+    if (t.next_step < t.steps.size() && t.steps[t.next_step].wait_flag) {
+        const TravelStep& fs = t.steps[t.next_step];
+        bool v = false;
+        if (!progress::ReadFlag(fs.wait_flag, &v) || v != fs.wait_value) {
+            t.flag_since = {};
+            return;
+        }
+        if (t.flag_since == Clock::time_point{}) {
+            t.flag_since = now;
+            Log("test: travel step %zu (%s): flag %u = %d now; its delay counts from here", t.next_step + 1,
+                TravelStepName(fs.kind), fs.wait_flag, int(v));
+        }
+    } else {
+        t.flag_since = {};
+    }
     if (t.next_step < t.steps.size() &&
         (next_kind == TravelStep::HostKill || next_kind == TravelStep::HostMove || next_kind == TravelStep::GuestMove ||
          next_kind == TravelStep::HostPress || next_kind == TravelStep::GuestPress || next_kind == TravelStep::HostWalk ||
@@ -1710,6 +1850,8 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
         // S s after the later of: the last load (steady again), the previous step (or the join).
         const Clock::time_point prev = t.ran ? t.step_at : t.joined_at;
         Clock::time_point from = t.steady_at > prev ? t.steady_at : prev;
+        if (t.coop_since > from) from = t.coop_since;
+        if (t.flag_since > from) from = t.flag_since;
         if (t.steps[t.next_step].after_scene) {
             // "~": waits for a cutscene that ended after the previous step, then S s after its end.
             if (t.scene_on || t.scene_end_at <= prev) {
@@ -1724,7 +1866,8 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
             return;
         }
     } else if (t.next_step >= t.steps.size() || !t.armed || !joined || !s.world_up || s.loading ||
-               t.joins < t.steps[t.next_step].min_join || Seconds(t.joined_at, now) < t.steps[t.next_step].delay) {
+               t.joins < t.steps[t.next_step].min_join ||
+               Seconds(t.coop_since > t.joined_at ? t.coop_since : t.joined_at, now) < t.steps[t.next_step].delay) {
         return;
     }
     {
@@ -1733,6 +1876,7 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
         // step's delay then counts from the end of the wait.
         const TravelStep::Kind k = t.steps[t.next_step].kind;
         const bool own_chr = !(k == TravelStep::HostPress || k == TravelStep::GuestPress || k == TravelStep::HostOutage ||
+                               k == TravelStep::HostPoise || k == TravelStep::HostSpfx ||
                                k == TravelStep::GuestOutage || k == TravelStep::HostFlag || k == TravelStep::GuestFlag ||
                                k == TravelStep::HostSkipRemo || k == TravelStep::GuestSkipRemo ||
                                k == TravelStep::HostLastLamp || k == TravelStep::GuestLastLamp || k == TravelStep::HostKill || k == TravelStep::GuestKill) ||
@@ -1850,15 +1994,40 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
             Log("test: %s %#llx -> %#llx", TravelStepName(step.kind), static_cast<unsigned long long>(rec),
                 static_cast<unsigned long long>(now_rec));
         }
+    } else if (step.kind == TravelStep::HostSpfx) {
+        int entity = 0, id = 0;
+        std::sscanf(step.args.c_str(), "%d:%d", &entity, &id);
+        std::string what;
+        const bool ok = balance::ApplySpEffectToEntity(entity, id, &what);
+        Log("test: host_spfx: SpEffect %d on entity %d: %s", id, entity, ok ? what.c_str() : "FAILED: no such chr loaded");
+    } else if (step.kind == TravelStep::HostPoise) {
+        // D7 stagger A/B in one session: the host's Enemy poise setting, live (not saved); the
+        // balance pass rewrites row 7503 and sends the rules on.
+        const int was = BbSettings::Get().party_enemy_poise.load();
+        BbSettings::Get().party_enemy_poise = std::clamp(std::atoi(step.args.c_str()), 0, 300);
+        Log("test: host_poise: Enemy poise %d -> %d %% of the step", was, BbSettings::Get().party_enemy_poise.load());
     } else if (step.kind == TravelStep::HostOutage || step.kind == TravelStep::GuestOutage) {
         bbnet::netsim::outage_now(double(step.buttons));
         Log("test: %s %u ms (%s)", TravelStepName(step.kind), step.buttons, Describe(s).c_str());
     } else if (step.kind == TravelStep::HostPress || step.kind == TravelStep::GuestPress) {
         // In-process pad input (runtime_pad_director_press, OR-ed into every pad sample; no OS
-        // input): a tap, released 0.15 s later.
-        runtime_pad_director_press(step.buttons);
-        t.pressing = true;
-        t.release_at = now + std::chrono::milliseconds(150);
+        // input): a tap, released 0.15 s later. ":lock": not while the lock-on (chr +0xF8) is on.
+        // R3 with no target in the camera's view only turns the camera behind the player, as on
+        // a pad: after a chr warp (host_chr) the camera can face away from the target (live
+        // deaths071: the first R3 after host_chr missed with and without a death before it, the
+        // second locked on).
+        std::uint8_t locked = 0;
+        if (step.args == "lock") {
+            if (const std::uint64_t pl = LocalPlayer()) SafeGet(pl + 0xf8, &locked);
+        }
+        if (!locked) {
+            runtime_pad_director_press(step.buttons);
+            t.press_at = now;
+            t.pressing = true;
+            t.release_at = now + std::chrono::milliseconds(150);
+        } else {
+            Log("test: %s 0x%x:lock skipped: locked on already", TravelStepName(step.kind), step.buttons);
+        }
         std::string target;
         if (t.chr_target) {
             // A weapon fight (host_chr / guest_chr then R1 taps): the target's HP and distance.
@@ -1915,6 +2084,10 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
             target += b;
         }
         Log("test: %s 0x%x%s", TravelStepName(step.kind), step.buttons, target.c_str());
+    } else if (step.kind == TravelStep::HostGather) {
+        const bool queued = ::party::status::RequestGather();
+        Log("test: host_gather: Party > Gather the party pressed%s (%s)", queued ? "" : " - NOT queued (not the host)",
+            Describe(s).c_str());
     } else if (step.kind == TravelStep::HostLeave || step.kind == TravelStep::GuestLeave) {
         ::party::status::RequestLeave();
         Log("test: %s: Party > Leave pressed (%s)", TravelStepName(step.kind), Describe(s).c_str());
@@ -2529,7 +2702,17 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
             SafeGet(a + 0x68, &a) && a) {
             SafeRead(a + 0x1e0, p, 12);
         }
-        Log("test: pos area 0x%08x (%.2f, %.2f, %.2f)", area, p[0], p[1], p[2]);
+        // fallsafe: the game's last safe ground spot (PlayerIns +0x400 -> +0x30, the bloodstain's spot)
+        float safe[3] = {};
+        std::uint64_t tr = 0;
+        if (s.player && SafeGet(s.player + 0x400, &tr) && tr) {
+            SafeRead(tr + 0x30, safe, 12);
+        }
+        // liftfall: the chr's +0x1E1 flags (+0x1E5 bit 0x02: on a moving object, deathrules::RidingObject)
+        std::uint64_t f = 0;
+        if (s.player) SafeRead(s.player + 0x1e1, &f, 5);
+        Log("test: pos area 0x%08x (%.2f, %.2f, %.2f) safe (%.2f, %.2f, %.2f) f %010llx", area, p[0], p[1], p[2], safe[0],
+            safe[1], safe[2], static_cast<unsigned long long>(f));
     }
     if (!t.watch_texts.empty() && Seconds(t.watch_at, now) >= 0.25) {
         t.watch_at = now;
@@ -2580,6 +2763,40 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
                 Log("test: object %d at (%.2f, %.2f, %.2f)%s", e, p[0], p[1], p[2],
                     it == t.log_obj_pos.end() ? " (first seen)" : "");
                 t.log_obj_pos[e] = {p[0], p[1], p[2]};
+            }
+        }
+    }
+    if (!t.log_flags.empty() && s.world_up && !s.loading) {
+        std::string line;
+        bool changed = false;
+        for (const std::uint32_t id : t.log_flags) {
+            bool v = false;
+            const int now_v = ReadEventFlag(id, &v) ? (v ? 1 : 0) : -1;
+            auto it = t.log_flag_val.find(id);
+            if (it == t.log_flag_val.end() || it->second != now_v) {
+                changed = true;
+                t.log_flag_val[id] = now_v;
+            }
+            char buf[32];
+            std::snprintf(buf, sizeof buf, " %u=%d", id, now_v);
+            line += buf;
+        }
+        if (changed) Log("test: flags%s", line.c_str());
+    }
+    if (!t.log_objanims.empty() && s.world_up && !s.loading) {
+        for (const std::int32_t e : t.log_objanims) {
+            worldact::ObjAnimState a;
+            char buf[160];
+            if (worldact::ReadObjAnim(e, &a)) {
+                std::snprintf(buf, sizeof buf, "anim %d playing %d state %d flags %#x (handle %#x)", a.anim,
+                              a.playing ? 1 : 0, a.state, a.flags, a.handle);
+            } else {
+                std::snprintf(buf, sizeof buf, "not loaded");
+            }
+            std::string& last = t.log_objanim_last[e];
+            if (last != buf) {
+                last = buf;
+                Log("test: object %d %s", e, buf);
             }
         }
     }
@@ -3082,6 +3299,20 @@ void PartyDirector::ConfigureFromEnv() {
             if (after_scene) {
                 item.pop_back();
             }
+            // "?FLAG=V" (V 0 / 1, default 1) at the end of a travel step: its flag condition.
+            std::uint32_t wait_flag = 0;
+            bool wait_value = true;
+            if (item.rfind("host_", 0) == 0 || item.rfind("guest_", 0) == 0) {
+                if (const std::size_t q = item.find('?'); q != std::string::npos) {
+                    unsigned long f = 0;
+                    int v = 1;
+                    if (std::sscanf(item.c_str() + q + 1, "%lu=%d", &f, &v) >= 1 && f > 0 && f <= 0xffffffffull) {
+                        wait_flag = static_cast<std::uint32_t>(f);
+                        wait_value = v != 0;
+                    }
+                    item.erase(q);
+                }
+            }
             at = end + 1;
             if (item == "log_state") {
                 st.test.log_state = true;
@@ -3223,6 +3454,17 @@ void PartyDirector::ConfigureFromEnv() {
             } else if (item.rfind("log_obj=", 0) == 0) {
                 const int e = std::atoi(item.c_str() + 8);
                 if (e > 0) st.test.log_objs.push_back(e);
+            } else if (item.rfind("log_objanim=", 0) == 0) {
+                const int e = std::atoi(item.c_str() + 12);
+                if (e > 0) st.test.log_objanims.push_back(e);
+            } else if (item.rfind("log_flag=", 0) == 0) {
+                for (const char* q = item.c_str() + 9; *q;) {
+                    char* end = nullptr;
+                    const unsigned long id = std::strtoul(q, &end, 10);
+                    if (end == q) break;
+                    if (id) st.test.log_flags.push_back(static_cast<std::uint32_t>(id));
+                    q = *end == '/' ? end + 1 : end;
+                }
             } else if (item.rfind("echoes=", 0) == 0) {
                 st.test.echoes = std::atoi(item.c_str() + 7);
             } else if (item.rfind("armor=", 0) == 0) {
@@ -3246,13 +3488,16 @@ void PartyDirector::ConfigureFromEnv() {
                        item.rfind("host_lastlamp=", 0) == 0 || item.rfind("guest_lastlamp=", 0) == 0 || item.rfind("host_lamp=", 0) == 0 ||
                        item.rfind("guest_lamp=", 0) == 0 || item.rfind("host_alone=", 0) == 0 || item.rfind("guest_kill=", 0) == 0 ||
                        item.rfind("host_outage=", 0) == 0 || item.rfind("guest_outage=", 0) == 0 ||
+                       item.rfind("host_poise=", 0) == 0 || item.rfind("host_spfx=", 0) == 0 ||
                        item.rfind("guest_home", 0) == 0 || item.rfind("host_leave", 0) == 0 ||
                        item.rfind("guest_leave", 0) == 0 || item.rfind("host_rejoin", 0) == 0 ||
-                       item.rfind("guest_rejoin", 0) == 0) {
+                       item.rfind("guest_rejoin", 0) == 0 || item.rfind("host_gather", 0) == 0) {
                 TravelStep step;
                 step.after_scene = after_scene;
                 step.kind = item.rfind("guest_outage", 0) == 0  ? TravelStep::GuestOutage
                             : item.rfind("host_outage", 0) == 0   ? TravelStep::HostOutage
+                            : item.rfind("host_poise", 0) == 0    ? TravelStep::HostPoise
+                            : item.rfind("host_spfx", 0) == 0     ? TravelStep::HostSpfx
                             : item.rfind("guest_move", 0) == 0    ? TravelStep::GuestMove
                             : item.rfind("guest_press", 0) == 0  ? TravelStep::GuestPress
                             : item.rfind("host_press", 0) == 0   ? TravelStep::HostPress
@@ -3267,6 +3512,7 @@ void PartyDirector::ConfigureFromEnv() {
                             : item.rfind("guest_leave", 0) == 0  ? TravelStep::GuestLeave
                             : item.rfind("host_rejoin", 0) == 0  ? TravelStep::HostRejoin
                             : item.rfind("guest_rejoin", 0) == 0 ? TravelStep::GuestRejoin
+                            : item.rfind("host_gather", 0) == 0  ? TravelStep::HostGather
                             : item[0] == 'g'                     ? TravelStep::GuestDie
                             : item.rfind("host_die", 0) == 0     ? TravelStep::HostDie
                             : item.rfind("host_kill", 0) == 0    ? TravelStep::HostKill
@@ -3280,6 +3526,10 @@ void PartyDirector::ConfigureFromEnv() {
                 }
                 if (step.kind == TravelStep::HostLamp) {
                     step.id = static_cast<std::uint32_t>(std::strtoul(item.c_str() + 10, nullptr, 10));
+                }
+                if ((step.kind == TravelStep::GuestRejoin || step.kind == TravelStep::HostRejoin) &&
+                    item.find(":now") != std::string::npos) {
+                    step.args = "now";  // guest_rejoin:now@S: press it even while still in the session
                 }
                 if (step.kind == TravelStep::HostLastLamp || step.kind == TravelStep::GuestLastLamp) {
                     step.id = static_cast<std::uint32_t>(std::strtoul(item.c_str() + item.find('=') + 1, nullptr, 10));
@@ -3299,10 +3549,16 @@ void PartyDirector::ConfigureFromEnv() {
                 if (step.kind == TravelStep::HostOutage || step.kind == TravelStep::GuestOutage) {
                     step.buttons = static_cast<std::uint32_t>(std::strtoul(item.c_str() + item.find('=') + 1, nullptr, 10));
                 }
+                if (step.kind == TravelStep::HostPoise || step.kind == TravelStep::HostSpfx) {
+                    step.args = item.substr(item.find('=') + 1, item.find_first_of("@%") - item.find('=') - 1);
+                }
                 if (step.kind == TravelStep::HostPress || step.kind == TravelStep::GuestPress) {
                     step.buttons = static_cast<std::uint32_t>(std::strtoul(item.c_str() + item.find('=') + 1, nullptr, 0));
                     // "!": only once the own chr is alive and the world up (not into a death screen).
                     step.alive = item.find('!') != std::string::npos;
+                    // BUTTONS:lock: R3 only while the lock-on is off (a second try after an R3 that
+                    // only turned the camera; never a tap that releases the lock).
+                    if (item.find(":lock") != std::string::npos) step.args = "lock";
                     if (const std::size_t pc = item.find('%'); pc != std::string::npos) {
                         step.map = item.substr(pc + 1, item.find('!', pc) == std::string::npos ? std::string::npos
                                                                                               : item.find('!', pc) - pc - 1);
@@ -3339,10 +3595,17 @@ void PartyDirector::ConfigureFromEnv() {
                 if (const std::size_t hash = item.find('#'); hash != std::string::npos) {
                     step.min_join = std::atoi(item.c_str() + hash + 1);
                 }
+                if (const std::size_t caret = item.find('^'); caret != std::string::npos) {
+                    step.min_coop = std::atoi(item.c_str() + caret + 1);  // "^N": N cooperators in
+                    if (const std::size_t star = item.find('*', caret); star != std::string::npos)
+                        step.coop_rise = std::atoi(item.c_str() + star + 1);  // "^N*K": the K-th time
+                }
                 // "%MAP#N" / "%MAP!": the map name ends at the next option (a '#2' in it never matched).
-                if (const std::size_t cut = step.map.find_first_of("#!@"); cut != std::string::npos) {
+                if (const std::size_t cut = step.map.find_first_of("#!@^"); cut != std::string::npos) {
                     step.map.erase(cut);
                 }
+                step.wait_flag = wait_flag;
+                step.wait_value = wait_value;
                 st.test.steps.push_back(step);
             } else if (item.rfind("host_mark", 0) == 0 || item.rfind("guest_mark", 0) == 0 ||
                        item.rfind("host_stage=", 0) == 0 || item.rfind("host_walk=", 0) == 0 ||
@@ -3389,10 +3652,17 @@ void PartyDirector::ConfigureFromEnv() {
                 if (const std::size_t hash = item.find('#'); hash != std::string::npos) {
                     step.min_join = std::atoi(item.c_str() + hash + 1);
                 }
+                if (const std::size_t caret = item.find('^'); caret != std::string::npos) {
+                    step.min_coop = std::atoi(item.c_str() + caret + 1);  // "^N": N cooperators in
+                    if (const std::size_t star = item.find('*', caret); star != std::string::npos)
+                        step.coop_rise = std::atoi(item.c_str() + star + 1);  // "^N*K": the K-th time
+                }
                 // "%MAP#N" / "%MAP!": the map name ends at the next option (a '#2' in it never matched).
-                if (const std::size_t cut = step.map.find_first_of("#!@"); cut != std::string::npos) {
+                if (const std::size_t cut = step.map.find_first_of("#!@^"); cut != std::string::npos) {
                     step.map.erase(cut);
                 }
+                step.wait_flag = wait_flag;
+                step.wait_value = wait_value;
                 st.test.steps.push_back(step);
             } else if (!item.empty()) {
                 Log("BB_PARTY_DIRECTOR_TEST: '%s' is not log_state, start, grant_bells, drop_bells, award_lot=N, set_flag=N[:N], insight=N, "
@@ -3875,6 +4145,9 @@ void PartyDirector::Tick() {
     worldact::Tick(s, link);
     npctalk::Tick(s, link);  // shared NPC dialogue (party_npctalk.h)
     split::Tick(s, link);  // split travel: the lamp choice dialog (party_split.h)
+    if (role != PartyRole::None) {
+        gather::Tick(s, link, role == PartyRole::Host);  // I5 Gather the party (party_gather.h)
+    }
     if (role == PartyRole::Host) {
         AltarAutopilotTick(s);  // "Enter the party's dungeon" in one press
     }

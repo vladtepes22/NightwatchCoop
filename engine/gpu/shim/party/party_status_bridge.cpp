@@ -7,6 +7,8 @@
 #ifndef BB_PARTY_BRIDGE_NO_GAME
 #include "party_runtime.h"
 #include "party_director.h"
+#include "party_gather.h"
+#include "party_b2.h"
 #endif
 
 #include <chrono>
@@ -122,12 +124,18 @@ Actions DefaultActions() {
     Actions a;
     a.leave = [] { party::runtime_leave(); };
     a.leave_session = [] { return coop::LeaveGameSession(); };
-    a.rejoin = [] { return party::runtime_rejoin(); };
+    a.rejoin = [] {
+        // A guest apart from a host in a Chalice Dungeon (still in the session) goes home first; the
+        // bell then gets it summoned into the dungeon (quick join; deathrules::ChaliceRejoinLeavesFirst).
+        coop::b2::ChaliceRejoinPressed();
+        return party::runtime_rejoin();
+    };
     a.kick = [](const std::string& name) {
         PartyLink* link = party::runtime_link();
         return link && link->is_host() && link->kick_name(name, "kicked by the host");
     };
     a.add_guest_code = [](const std::string& text) { return party::runtime_add_guest_code(text); };
+    a.add_relay_code = [](const std::string& text) { return party::runtime_add_relay_code(text); };
     a.new_code = [] {
         std::thread([] {  // key derivations: not on the game's main thread
             std::string message;
@@ -135,6 +143,7 @@ Actions DefaultActions() {
             status::SetLastEvent(message);
         }).detach();
     };
+    a.gather = [] { coop::gather::RequestFromMenu(); };
     return a;
 }
 #else
@@ -184,10 +193,24 @@ void HandleCommand(Bridge& b, const status::Command& c, const TickIn& in, TickOu
                                    : "No valid guest code (BBG1-XXXX-XXXX-XXXX) on the clipboard");
         break;
     }
+    case status::CommandType::AddRelayCode: {
+        if (in.host) break;
+        const int n = a.add_relay_code ? a.add_relay_code(c.name) : 0;
+        Log("status: Join through a member: %d new member code(s)", n);
+        status::SetLastEvent(n > 0 ? "Member added: if the host cannot be reached directly, the party goes through it"
+                                   : "No new member guest code (BBG1-XXXX-XXXX-XXXX) on the clipboard");
+        break;
+    }
     case status::CommandType::NewCode: {
         if (!in.host) break;
         Log("status: New party code pressed");
         if (a.new_code) a.new_code();
+        break;
+    }
+    case status::CommandType::Gather: {
+        if (!in.host) break;
+        Log("status: Gather the party pressed");
+        if (a.gather) a.gather();
         break;
     }
     case status::CommandType::Kick: {
@@ -598,6 +621,7 @@ void RunScript(Bridge& b, bool host, Clock::time_point now) {
             else if (cmd == "rejoin") s.type = status::CommandType::Rejoin;
             else if (cmd == "kick") s.type = status::CommandType::Kick;
             else if (cmd == "newcode") s.type = status::CommandType::NewCode;
+            else if (cmd == "gather") s.type = status::CommandType::Gather;
             else continue;
             b.script.push_back(s);
             Log("status test: %s%s%s at %.0f s", status::CommandName(s.type), s.name.empty() ? "" : " ",
@@ -615,6 +639,9 @@ void RunScript(Bridge& b, bool host, Clock::time_point now) {
             it->name.c_str());
         if (it->type == status::CommandType::Leave) status::RequestLeave();
         else if (it->type == status::CommandType::Rejoin) status::RequestRejoin();
+        else if (it->type == status::CommandType::Gather) {
+            if (!status::RequestGather()) Log("status test: gather refused by the board (not the host)");
+        }
         else if (it->type == status::CommandType::NewCode) {
             if (!status::RequestNewCode()) Log("status test: new code refused by the board (not the host)");
         }

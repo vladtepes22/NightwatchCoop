@@ -59,4 +59,16 @@ void start_host(const std::uint8_t* key, bool loopback,
 void start_guest(const std::uint8_t* key, bool loopback, std::uint16_t port, std::function<bool()> want, Log log);
 void stop();
 
+// F2 (0.7.1, party_netroute.h): the member relay through the same DHT (the same opt-in switch).
+// `relay_key`: the party's relay key (party_crypto relay_key, 32 bytes): its own info hash, so members
+// and guests never mix with the guest rendezvous above. A member that relays announces `port` (host
+// order: its party port's public mapping) while `want` says so; a guest that cannot reach the host
+// looks members up every 10 s (`found`, each endpoint at most once per 50 s) until stop_relay_lookup.
+void start_relay_announce(const std::uint8_t* relay_key, bool loopback, std::uint16_t port, std::function<bool()> want,
+                          Log log);
+void start_relay_lookup(const std::uint8_t* relay_key, bool loopback,
+                        std::function<void(std::uint32_t addr_nbo, std::uint16_t port_nbo)> found, Log log);
+void stop_relay_lookup();
+bool relay_lookup_running();
+
 }  // namespace party::traversal

@@ -39,6 +39,9 @@
 // Decoding is case-insensitive, ignores '-' and blanks, reads I/L as 1 and O as 0; the check
 // catches any other typo. A plain "host:port" (or "host" = default port) is accepted too, with
 // no secret: the password alone then keys the party.
+// IPv6 tail (F2, 0.7.1): "<code>+6-XXXX-..." carries the host's global IPv6 address (16 bytes +
+// crc8: 28 symbols; the port is the code's). The host adds it only while its IPv4 port is not open
+// (network_robustness.md 4a); a code without it decodes as before.
 #pragma once
 
 #include <array>
@@ -74,6 +77,8 @@ struct PartyCode {
     bool plain = false;     // decoded from "host:port": no secret, flags unknown
     bool lan_partial = false;  // a BBP3 / BBP2 LAN code: only ipv4[3] came with it (fill_lan_prefix)
     std::string host;       // dotted ipv4 (or the hostname given in plain form)
+    bool has_ipv6 = false;  // the "+6" tail: the host's IPv6 address (same port)
+    std::array<std::uint8_t, 16> ipv6{};
 
     std::string address() const;  // "a.b.c.d:port" (or host:port for a plain hostname)
 };
@@ -101,7 +106,8 @@ bool best_local_ipv4(std::array<std::uint8_t, 4>* out);
 // Codes for the host: the Internet code carries the public address (STUN / UPnP / override,
 // see party_addr.h), the LAN code the best local address with kCodeFlagLan.
 std::string make_party_code(const std::array<std::uint8_t, 4>& ipv4, std::uint16_t port,
-                            const std::array<std::uint8_t, 8>& secret, std::uint8_t flags);
+                            const std::array<std::uint8_t, 8>& secret, std::uint8_t flags,
+                            const std::array<std::uint8_t, 16>* ipv6 = nullptr);
 bool make_lan_code(std::uint16_t port, const std::array<std::uint8_t, 8>& secret, std::uint8_t flags,
                    std::string* code);
 

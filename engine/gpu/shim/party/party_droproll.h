@@ -118,6 +118,9 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool host);
 bool OnEvent(const std::string& body, std::string* why);
 /// The shared roll is installed and on.
 bool Enabled();
+/// Main thread: the next drop roll of `chr` drops nothing (an enemy put to death again by the kill
+/// record: it dropped its items at its first death). Needs the roll hook.
+void SkipDrop(std::uint64_t chr);
 /// worldact's test fixture hooks the drop insert (0x17D5320) itself and hands each record here.
 void FixtureInsert(std::uint64_t rec);
 #endif

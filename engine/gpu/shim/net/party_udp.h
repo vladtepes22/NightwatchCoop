@@ -203,6 +203,9 @@ public:
         bool relayed = false;
         int switches = 0;  // direct <-> relay changes
         bool answered = false;
+        // F2 (0.7.1): its IPv6 endpoint is known (party_route.h binds it); `via6`: the IPv4 probes
+        // go unanswered while the IPv6 ones are answered, so its traffic goes over IPv6.
+        bool v6 = false, answered6 = false, via6 = false;
     };
     PeerPaths() = default;
     explicit PeerPaths(Config c) : cfg_(c) {}
@@ -213,10 +216,15 @@ public:
     void remove(std::uint32_t addr, std::uint16_t port_nbo);
     // A probe ack from addr:port.
     void on_ack(std::uint32_t addr, std::uint16_t port_nbo, Clock::time_point now);
+    // F2 (0.7.1): the peer also has an IPv6 candidate (probed too: IPv4 first, then IPv6, then the
+    // relay), and an ack that came over IPv6.
+    void set_v6(std::uint32_t addr, std::uint16_t port_nbo, bool has, Clock::time_point now);
+    void on_ack6(std::uint32_t addr, std::uint16_t port_nbo, Clock::time_point now);
     // Applies the timeouts and appends the direct addresses due a probe now; `notes` (optional)
-    // gets a log line per path change.
+    // gets a log line per path change; `probes6` (optional) the peers due an IPv6 probe.
     void tick(Clock::time_point now, std::vector<std::pair<std::uint32_t, std::uint16_t>>* probes,
-              std::vector<std::string>* notes = nullptr);
+              std::vector<std::string>* notes = nullptr,
+              std::vector<std::pair<std::uint32_t, std::uint16_t>>* probes6 = nullptr);
     // The game sends to addr:port: true (with the peer's relay port) when it goes through the relay.
     bool relayed(std::uint32_t addr, std::uint16_t port_nbo, std::uint16_t* relay_port) const;
     // A relay delivery from relay port `relay_port` (host order): the peer's direct address.
@@ -226,7 +234,7 @@ public:
 private:
     struct Peer {
         PeerView v;
-        Clock::time_point added, last_ack, next_probe;
+        Clock::time_point added, last_ack, next_probe, last_ack6, next_probe6;
     };
     static std::uint64_t key(std::uint32_t a, std::uint16_t p) { return a | (static_cast<std::uint64_t>(p) << 32); }
     mutable std::mutex mu_;

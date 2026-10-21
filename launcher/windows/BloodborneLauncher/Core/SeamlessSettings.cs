@@ -11,6 +11,7 @@ public static partial class SeamlessSettings
         ("party_open_world", "BB_PARTY_OPEN_WORLD", "Remove multiplayer barriers"),
         ("party_guest_respawn", "BB_PARTY_GUEST_RESPAWN", "Guest respawn"),
         ("party_guest_refill", "BB_PARTY_GUEST_REFILL", "Refill guest supplies"),
+        ("party_chalice_rejoin", "BB_PARTY_CHALICE_REJOIN", "Stay in Chalice Dungeons"),
         ("party_guest_mark", "BB_PARTY_GUEST_MARK", "Guests can use Hunter's Mark"),
         ("party_full_rewards", "BB_PARTY_FULL_REWARDS", "Full Blood Echo rewards"),
         ("party_items", "BB_PARTY_ITEMS", "Items for every player"),

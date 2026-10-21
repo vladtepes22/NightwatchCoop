@@ -5,6 +5,7 @@
 #include "../net/json.h"
 
 #include <algorithm>
+#include <utility>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -14,13 +15,16 @@ namespace coop::balance {
 
 const int kHpTable[11] = {0, 25, 50, 75, 100, 125, 150, 200, 250, 300, 400};
 const int kDamageTable[11] = {0, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100};
-const int kPoiseTable[11] = {-100, -75, -50, -25, 0, 25, 50, 100, 150, 200, 300};
+// Poise starts at 0 (user decision 2026-10-21): a negative changeSuperArmorPoint made enemies
+// stagger less, not more (live: 0 of 20 hits at -100 % against 18 of 40 at 0 %).
+const int kPoiseTable[11] = {0, 25, 50, 75, 100, 125, 150, 175, 200, 250, 300};
 
 bool Rules::operator==(const Rules& o) const {
     return rot == o.rot && boss_hp == o.boss_hp && boss_damage == o.boss_damage && boss_poise == o.boss_poise &&
            enemy_hp == o.enemy_hp && enemy_damage == o.enemy_damage && enemy_poise == o.enemy_poise &&
            friendly_fire == o.friendly_fire && share_lamps == o.share_lamps && host_revive == o.host_revive &&
-           host_limbo_revive == o.host_limbo_revive;
+           host_limbo_revive == o.host_limbo_revive && kill_record == o.kill_record && npc_mirror == o.npc_mirror &&
+           gather == o.gather;
 }
 
 bool Doping::operator==(const Doping& o) const {
@@ -76,6 +80,9 @@ std::string ToJson(const Rules& r) {
     v.set("share_lamps", r.share_lamps);
     v.set("host_revive", r.host_revive);
     v.set("host_limbo_revive", r.host_limbo_revive);
+    v.set("kill_record", r.kill_record);
+    v.set("npc_mirror", r.npc_mirror);
+    v.set("gather", r.gather);
     return json::dump(v, 0);
 }
 
@@ -96,6 +103,9 @@ bool FromJson(const std::string& text, Rules* out, std::string* error) {
         r.host_revive = m->boolean;
     if (const json::Value* m = v.find("host_limbo_revive"); m && m->type == json::Value::Type::Bool)
         r.host_limbo_revive = m->boolean;
+    for (auto [key, to] : {std::pair<const char*, bool*>{"kill_record", &r.kill_record},
+                           {"npc_mirror", &r.npc_mirror}, {"gather", &r.gather}})
+        if (const json::Value* m = v.find(key); m && m->type == json::Value::Type::Bool) *to = m->boolean;
     const auto num = [&](const char* key, int* to) {
         const json::Value* m = v.find(key);
         if (m && m->type == json::Value::Type::Number && std::isfinite(m->number) && std::fabs(m->number) < 1e6) {

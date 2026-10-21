@@ -400,6 +400,18 @@ int ItemStacks(std::uint32_t type_bits, std::uint32_t id) {
             ++n;
         }
     }
+    // The key section not in view (items.md 10.7: the list keeps the saved key section at +0x28
+    // and the summoned one at +0x38; the key view +0x58 is one of them). The save
+    // writes both, so an entry there is a stack in the save too.
+    const std::uint64_t saved = Field<std::uint64_t>(list, 0x28, 0), summoned = Field<std::uint64_t>(list, 0x38, 0);
+    const std::uint64_t hidden = first == saved ? summoned : first == summoned ? saved : 0;
+    for (std::uint32_t i = 0; hidden && i < split; ++i) {
+        std::uint32_t handle = 0, item = 0;
+        if (SafeGet(hidden + 16ull * i, &handle) && handle != 0 && SafeGet(hidden + 16ull * i + 4, &item) &&
+            item == (type_bits | id)) {
+            ++n;
+        }
+    }
     return n;
 }
 

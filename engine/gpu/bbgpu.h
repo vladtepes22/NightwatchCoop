@@ -49,6 +49,11 @@ extern "C" {
 #endif
 int bbgpu_ping_combo_enabled(void);
 void bbgpu_ping_request(void);
+/* I5 gather the party (gpu/shim/party/party_gather.h): 1 while this game hosts a running party
+ * with gathering on; the pad reader calls request on touchpad held + L3. `source` names the
+ * combo in the log. */
+int bbgpu_gather_combo_enabled(void);
+void bbgpu_gather_request(const char *source);
 const char *bbgpu_ime_preset(uint32_t max_length);
 #ifdef __cplusplus
 }

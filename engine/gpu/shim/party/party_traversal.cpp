@@ -15,7 +15,7 @@ namespace party::traversal {
 
 namespace {
 std::mutex g_mu;
-std::unique_ptr<rdv::Rendezvous> g_host, g_guest;
+std::unique_ptr<rdv::Rendezvous> g_host, g_guest, g_relay_announce, g_relay_lookup;
 
 const char* env(const char* n) {
     const char* v = std::getenv(n);
@@ -117,14 +117,71 @@ void start_guest(const std::uint8_t* key, bool loopback, std::uint16_t port, std
 }
 
 void stop() {
-    std::unique_ptr<rdv::Rendezvous> h, g;
+    std::unique_ptr<rdv::Rendezvous> h, g, ra, rl;
     {
         std::lock_guard<std::mutex> lk(g_mu);
         h = std::move(g_host);
         g = std::move(g_guest);
+        ra = std::move(g_relay_announce);
+        rl = std::move(g_relay_lookup);
     }
     if (h) h->stop();
     if (g) g->stop();
+    if (ra) ra->stop();
+    if (rl) rl->stop();
+}
+
+void start_relay_announce(const std::uint8_t* relay_key, bool loopback, std::uint16_t port, std::function<bool()> want,
+                          Log log) {
+    auto r = std::make_unique<rdv::Rendezvous>(rdv::info_hash(relay_key, 32), bootstrap(), loopback, log);
+    if (!r->start_guest(port, std::move(want), 45000)) {
+        if (log) log("member relay: no UDP socket for the DHT");
+        return;
+    }
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_relay_announce = std::move(r);
+}
+
+void start_relay_lookup(const std::uint8_t* relay_key, bool loopback,
+                        std::function<void(std::uint32_t, std::uint16_t)> found, Log log) {
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        if (g_relay_lookup) return;
+    }
+    auto last = std::make_shared<std::map<std::uint64_t, std::chrono::steady_clock::time_point>>();
+    auto r = std::make_unique<rdv::Rendezvous>(rdv::info_hash(relay_key, 32), bootstrap(), loopback, log);
+    const bool ok = r->start_host(
+        [found, last](const rdv::Endpoint& e) {
+            const std::uint64_t k = static_cast<std::uint64_t>(e.addr) << 16 | e.port;
+            const auto now = std::chrono::steady_clock::now();
+            auto it = last->find(k);
+            if (it != last->end() && now - it->second < std::chrono::seconds(50)) return;
+            if (last->size() > 256) last->clear();
+            (*last)[k] = now;
+            found(e.addr, e.port);
+        },
+        10000);
+    if (!ok) {
+        if (log) log("member relay: no UDP socket for the DHT");
+        return;
+    }
+    if (log) log("member relay: looking for party members that relay in the DHT every 10 s");
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_relay_lookup = std::move(r);
+}
+
+void stop_relay_lookup() {
+    std::unique_ptr<rdv::Rendezvous> rl;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        rl = std::move(g_relay_lookup);
+    }
+    if (rl) rl->stop();
+}
+
+bool relay_lookup_running() {
+    std::lock_guard<std::mutex> lk(g_mu);
+    return static_cast<bool>(g_relay_lookup);
 }
 
 }  // namespace party::traversal

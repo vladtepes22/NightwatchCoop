@@ -165,12 +165,14 @@ bool DropRollBeforeArrival(bool world_up, bool loading, std::uint32_t map) {
 #include "party_link.h"
 #include "seamless_rules.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <vector>
 
 namespace coop::droproll {
 namespace {
@@ -332,8 +334,23 @@ bool ReadLotRow(i32 lot, LotSlot (&slots)[8]) {
     return true;
 }
 
+std::vector<std::pair<u64, double>> g_skip;  // main thread: SkipDrop chrs and until when (10 s: the roll comes at once)
+
 BB_COOP_SYSV void DropRollReplace(u64 mim, u64 handle_arg, u64 npc) {
     const u32 handle = u32(handle_arg);
+    if (!g_skip.empty()) {
+        const double now = Now();
+        g_skip.erase(std::remove_if(g_skip.begin(), g_skip.end(), [&](const auto& e) { return e.second < now; }),
+                     g_skip.end());
+    }
+    const u64 chr_of = g_skip.empty() ? 0 : ChrOfHandle(handle);
+    if (const auto it = std::find_if(g_skip.begin(), g_skip.end(), [&](const auto& e) { return chr_of && e.first == chr_of; });
+        it != g_skip.end()) {
+        g_skip.erase(it);
+        Log("enemy drop roll on this game: chr handle %#x: no drop (put to death again by the kill record: it "
+            "dropped at its first death)", handle);
+        return;
+    }
     const int mode = g_mode.load();
     DropKey k;
     k.handle = handle;
@@ -480,6 +497,12 @@ void Init(bool log_rolls) {
 
 bool Enabled() {
     return g_on && g_shared;
+}
+
+void SkipDrop(u64 chr) {
+    if (!g_roll_original || !chr) return;
+    if (g_skip.size() >= 64) g_skip.erase(g_skip.begin());
+    g_skip.emplace_back(chr, Now() + 10.0);
 }
 
 void Tick(const GameSnapshot& s, party::PartyLink* link, bool host) {

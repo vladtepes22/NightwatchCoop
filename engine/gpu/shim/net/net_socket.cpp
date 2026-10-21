@@ -8,6 +8,8 @@
 // [0xff][flags][src vport][dst vport]. Hole-punch probes (fe 'bbhp'), STUN Binding traffic and
 // relay frames ([0xfb]['R'|'r']) share that port and never reach the game. The party host
 // answers STUN Binding Requests on it and relays between guests that cannot reach each other.
+// F2 (0.7.1): every datagram of the port passes the route table (party_route.h): an IPv6 socket
+// on the same port number and the member relay ([0xfc] frames) under the IPv4 endpoints above.
 //
 // Errors follow the runtime's libSceNet convention (runtime_services.c): the call returns
 // 0x80410100 | errno and sceNetErrnoLoc's word holds the errno, both FreeBSD numbers.
@@ -15,6 +17,7 @@
 #include "net_stun.h"
 #include "netsim.h"
 #include "nr_outage.h"
+#include "party_route.h"
 #include "party_udp.h"
 
 #if defined(_WIN32)
@@ -363,6 +366,7 @@ struct SockQueue {
 // 40 at boot and 30 for a session, both on 3658). A reader thread drains it into the queues.
 struct P2pPort {
     sockfd_t fd = kBadSock;
+    std::atomic<sockfd_t> fd6{kBadSock};  // F2: the IPv6 socket on the same port number (p2p_set_ipv6)
     std::uint16_t port = 0;  // host order
     std::mutex mu;
     std::map<std::uint16_t, std::shared_ptr<SockQueue>> by_vport;
@@ -442,6 +446,46 @@ udp::PeerPaths& paths() {
 udp::RelayServer g_relay_server;
 inline std::uint64_t source_key(std::uint32_t addr, std::uint16_t port_nbo) {
     return addr | (static_cast<std::uint64_t>(port_nbo) << 32);
+}
+
+// F2 (0.7.1): the party port's route table (party_route.h): IPv6 and the member relay.
+udp::Router& router() {
+    static udp::Router* r = new udp::Router;
+    return *r;
+}
+std::atomic<bool> g_ipv6_wanted{false};
+void flush_route_notes() {
+    for (const std::string& line : router().take_notes()) log("%s", line.c_str());
+}
+// One datagram as the route table put it on the wire.
+ssize_type wire_send(P2pPort& port, const udp::Wire& w) {
+    if (!w.v6) {
+        sockaddr_in t{};
+        t.sin_family = AF_INET;
+        t.sin_addr.s_addr = w.addr;
+        t.sin_port = w.port;
+        return raw_sendto(port.fd, w.data.data(), w.data.size(), &t);
+    }
+    const sockfd_t fd6 = port.fd6.load();
+    if (!sock_ok(fd6)) return -1;
+    sockaddr_in6 t6{};
+    t6.sin6_family = AF_INET6;
+    std::memcpy(&t6.sin6_addr, w.addr6.b.data(), 16);
+    t6.sin6_port = w.port;
+    return ::sendto(fd6, reinterpret_cast<const char*>(w.data.data()), static_cast<int>(w.data.size()), 0,
+                    reinterpret_cast<const sockaddr*>(&t6), sizeof t6);
+}
+// Every datagram of the party port leaves here: to the IPv4 endpoint `sa` as the layers above
+// know it, through the route table (IPv6, a member relay) onto the wire. A datagram the route
+// cannot carry yet (a relay handshake, an IPv6 key without IPv6) counts as sent and lost.
+ssize_type port_send(P2pPort& port, const void* buf, std::size_t len, const sockaddr_in* sa) {
+    std::vector<udp::Wire> out;
+    router().outgoing(sa->sin_addr.s_addr, sa->sin_port, static_cast<const std::uint8_t*>(buf), len, Clock::now(),
+                      &out);
+    ssize_type r = static_cast<ssize_type>(len);
+    for (const udp::Wire& w : out)
+        if (wire_send(port, w) < 0) r = -1;
+    return r;
 }
 
 // One line per port every 60 s (and at close): the stream's shape.
@@ -555,7 +599,7 @@ void answer_stun(P2pPort& port, const std::uint8_t* buf, std::size_t n, const so
         g_relay_server.answer_stun(buf, n, sa.sin_addr.s_addr, sa.sin_port, settings().host, out, &note);
     if (!len) return;
     if (!note.empty()) log("%s", note.c_str());
-    raw_sendto(port.fd, out, len, &sa);
+    port_send(port, out, len, &sa);
     std::lock_guard<std::mutex> lk(port.mu);
     ++port.stun_answered;
 }
@@ -574,9 +618,25 @@ void relay_forward(P2pPort& port, std::uint8_t* buf, std::size_t n, const sockad
     to.sin_family = AF_INET;
     to.sin_addr.s_addr = to_addr;
     to.sin_port = to_port;
-    raw_sendto(port.fd, frame, len, &to);
+    port_send(port, frame, len, &to);
     std::lock_guard<std::mutex> lk(port.mu);
     ++port.relayed;
+}
+
+// Waits for a datagram on the IPv4 socket or the IPv6 one (kBadSock: none); *r4 / *r6 say which.
+int poll2(sockfd_t fd, sockfd_t fd6, int ms, bool* r4, bool* r6) {
+    *r4 = *r6 = false;
+#if defined(_WIN32)
+    WSAPOLLFD p[2] = {{fd, POLLIN, 0}, {fd6, POLLIN, 0}};
+    const int r = ::WSAPoll(p, sock_ok(fd6) ? 2 : 1, ms);
+#else
+    pollfd p[2] = {{fd, POLLIN, 0}, {fd6, POLLIN, 0}};
+    const int r = ::poll(p, sock_ok(fd6) ? 2 : 1, ms);
+#endif
+    if (r <= 0) return r;
+    *r4 = p[0].revents != 0;
+    *r6 = sock_ok(fd6) && p[1].revents != 0;
+    return r;
 }
 
 void p2p_reader(std::shared_ptr<P2pPort> port) {
@@ -584,38 +644,88 @@ void p2p_reader(std::shared_ptr<P2pPort> port) {
     std::atomic<int> logs{0};
     auto last_expire = Clock::now();
     auto last_tick = Clock::now();
-    std::vector<std::pair<std::uint32_t, std::uint16_t>> probes;
+    std::vector<std::pair<std::uint32_t, std::uint16_t>> probes, probes6;
     std::vector<std::string> notes;
+    std::vector<udp::Wire> rout;
+    std::vector<std::uint8_t> inner;
     while (!port->stop.load(std::memory_order_relaxed)) {
         if (settings().host && Clock::now() - last_expire > std::chrono::seconds(60)) {
             last_expire = Clock::now();
             g_relay_server.expire(last_expire);
         }
-        if (!settings().host && Clock::now() - last_tick > std::chrono::milliseconds(100)) {
-            // Probe every other guest directly (relayed or not) and switch paths on the answers.
+        if (Clock::now() - last_tick > std::chrono::milliseconds(100)) {
             last_tick = Clock::now();
-            probes.clear();
-            notes.clear();
-            paths().tick(last_tick, &probes, &notes);
-            for (const auto& [a, p] : probes) {
-                sockaddr_in t{};
-                t.sin_family = AF_INET;
-                t.sin_addr.s_addr = a;
-                t.sin_port = p;
-                alias_out(t);
-                raw_sendto(port->fd, udp::kProbe, sizeof(udp::kProbe), &t);
+            // The route table: relay handshakes, keepalives, expiry (party_route.h).
+            rout.clear();
+            router().poll(last_tick, &rout);
+            for (const udp::Wire& w : rout) wire_send(*port, w);
+            if (!settings().host) {
+                // Probe every other guest directly (relayed or not), over IPv6 too where it has an
+                // IPv6 endpoint, and switch paths on the answers.
+                probes.clear();
+                probes6.clear();
+                notes.clear();
+                paths().tick(last_tick, &probes, &notes, &probes6);
+                for (const auto& [a, p] : probes) {
+                    sockaddr_in t{};
+                    t.sin_family = AF_INET;
+                    t.sin_addr.s_addr = a;
+                    t.sin_port = p;
+                    alias_out(t);
+                    raw_sendto(port->fd, udp::kProbe, sizeof(udp::kProbe), &t);
+                }
+                rout.clear();
+                for (const auto& [a, p] : probes6) router().outgoing_v6(a, p, udp::kProbe, sizeof(udp::kProbe), &rout);
+                for (const udp::Wire& w : rout) wire_send(*port, w);
+                for (const std::string& line : notes) log("%s", line.c_str());
+                if (!probes6.empty())
+                    for (const auto& pv : paths().peers())
+                        if (pv.v6) router().route_v6(pv.addr, pv.port, pv.via6);
             }
-            for (const std::string& line : notes) log("%s", line.c_str());
+            flush_route_notes();
         }
-        if (sock_poll(port->fd, POLLIN, 200) <= 0) continue;
+        bool r4 = false, r6 = false;
+        const sockfd_t fd6 = port->fd6.load();
+        if (poll2(port->fd, fd6, 200, &r4, &r6) <= 0) continue;
         sockaddr_in sa{};
-        socklen_type sl = sizeof(sa);
-        ssize_type n = raw_recvfrom(port->fd, buf, sizeof(buf), 0, &sa, &sl);
+        udp::Wire from;
+        ssize_type n = -1;
+        if (r4) {
+            socklen_type sl = sizeof(sa);
+            n = raw_recvfrom(port->fd, buf, sizeof(buf), 0, &sa, &sl);
+            // A simulated NAT (BB_NET_SIM nat=1): nothing from an endpoint we have not sent to.
+            if (n >= 0 && netsim::enabled() && netsim::config().nat &&
+                netsim::applies_to(netsim::config(), sa.sin_addr.s_addr) &&
+                !netsim::nat_allow_in(sa.sin_addr.s_addr, sa.sin_port))
+                continue;
+            from.addr = sa.sin_addr.s_addr;
+            from.port = sa.sin_port;
+        }
+        if (n < 0 && r6) {
+            sockaddr_in6 s6{};
+            socklen_type sl6 = sizeof(s6);
+            n = ::recvfrom(fd6, reinterpret_cast<char*>(buf), static_cast<int>(sizeof(buf)), 0,
+                           reinterpret_cast<sockaddr*>(&s6), &sl6);
+            from.v6 = true;
+            std::memcpy(from.addr6.b.data(), &s6.sin6_addr, 16);
+            from.port = s6.sin6_port;
+        }
         if (n < 0) continue;  // Windows: an ICMP port unreachable surfaces as WSAECONNRESET
-        // A simulated NAT (BB_NET_SIM nat=1): nothing from an endpoint we have not sent to.
-        if (netsim::enabled() && netsim::config().nat && netsim::applies_to(netsim::config(), sa.sin_addr.s_addr) &&
-            !netsim::nat_allow_in(sa.sin_addr.s_addr, sa.sin_port))
-            continue;
+        // The route table (party_route.h): an IPv6 source becomes its IPv4 key, member relay frames
+        // are answered, forwarded or unwrapped; what is left reaches the layers below as before.
+        from.data.assign(buf, buf + n);
+        rout.clear();
+        bool via6 = false, via_relay = false;
+        std::uint32_t ka = 0;
+        std::uint16_t kp = 0;
+        const bool deliver = router().incoming(from, Clock::now(), &inner, &ka, &kp, &rout, &via6, &via_relay);
+        for (const udp::Wire& w : rout) wire_send(*port, w);
+        if (!deliver || inner.size() > sizeof(buf)) continue;
+        std::memcpy(buf, inner.data(), inner.size());
+        n = static_cast<ssize_type>(inner.size());
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = ka;
+        sa.sin_port = kp;
         // The party link's UDP path (party_rudp.h) and LAN discovery (party_lan.h: probes / replies).
         if ((n >= 16 && buf[0] == 0xfa && buf[1] == 'L') || (n >= 4 && buf[0] == 0xfa && buf[1] == 'D')) {
             std::function<void(std::uint32_t, std::uint16_t, const std::uint8_t*, std::size_t)> h;
@@ -657,9 +767,19 @@ void p2p_reader(std::shared_ptr<P2pPort> port) {
                     std::uint32_t pa = sa.sin_addr.s_addr;
                     std::uint16_t pp = sa.sin_port;
                     aliases().incoming(&pa, &pp);  // an aliased peer's ack counts for its primary
-                    paths().on_ack(pa, pp, Clock::now());
+                    if (via6) paths().on_ack6(pa, pp, Clock::now());
+                    else paths().on_ack(pa, pp, Clock::now());
+                } else if (via6) {  // the path works: answered the way the probe came
+                    udp::Wire ack;
+                    ack.v6 = true;
+                    ack.addr6 = from.addr6;
+                    ack.port = from.port;
+                    ack.data.assign(udp::kProbeAck, udp::kProbeAck + sizeof(udp::kProbeAck));
+                    wire_send(*port, ack);
+                } else if (via_relay) {
+                    port_send(*port, udp::kProbeAck, sizeof(udp::kProbeAck), &sa);
                 } else {
-                    raw_sendto(port->fd, udp::kProbeAck, sizeof(udp::kProbeAck), &sa);  // the path works
+                    raw_sendto(port->fd, udp::kProbeAck, sizeof(udp::kProbeAck), &sa);
                 }
                 std::lock_guard<std::mutex> lk(port->mu);
                 ++port->rx;
@@ -791,6 +911,42 @@ void p2p_reader(std::shared_ptr<P2pPort> port) {
     }
 }
 
+// F2 (0.7.1): the IPv6 socket on the party port's number ([::]:port, IPv6 only; [::1] when the
+// IPv4 side is loopback only). Without it the port is IPv4 only, as before.
+void open_v6(P2pPort& port) {
+    if (sock_ok(port.fd6.load()) || !port.port) return;
+#if defined(_WIN32)
+    const sockfd_t s = ::socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+#else
+    const sockfd_t s = ::socket(AF_INET6, SOCK_DGRAM, 0);
+#endif
+    if (!sock_ok(s)) {
+        log("party port %u: no IPv6 socket (errno %d): IPv4 only", port.port, sock_errno());
+        return;
+    }
+    sock_setopt_int(s, IPPROTO_IPV6, IPV6_V6ONLY, 1);
+#if defined(_WIN32)
+    sock_setopt_int(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, 1);
+    BOOL no_reset = FALSE;
+    DWORD ret = 0;
+    ::WSAIoctl(s, _WSAIOW(IOC_VENDOR, 12) /* SIO_UDP_CONNRESET */, &no_reset, sizeof(no_reset), nullptr, 0, &ret,
+               nullptr, nullptr);
+#endif
+    sock_set_nonblock(s, true);
+    sockaddr_in6 a{};
+    a.sin6_family = AF_INET6;
+    a.sin6_port = bswap16(port.port);
+    const bool lb = forced_local_ipv4() == bswap32(0x7f000001u);
+    if (lb) a.sin6_addr = in6addr_loopback;
+    if (::bind(s, reinterpret_cast<sockaddr*>(&a), sizeof(a)) != 0) {
+        log("party port %u: IPv6 bind failed (errno %d): IPv4 only", port.port, sock_errno());
+        sock_close(s);
+        return;
+    }
+    port.fd6.store(s);
+    log("party port %u: IPv6 too (%s)", port.port, lb ? "[::1], loopback test" : "[::]");
+}
+
 // Under g_net_mu. The instance's party UDP port, opened on first use (the game's first P2P
 // bind, or the session layer's STUN query before it).
 std::shared_ptr<P2pPort> p2p_port_open(std::uint16_t want) {
@@ -842,6 +998,7 @@ std::shared_ptr<P2pPort> p2p_port_open(std::uint16_t want) {
     if (port->port != want) log("party port %u (BB_PARTY_PORT %u was taken); peers reach this game there", port->port, want);
     else log("party port %u: listening on this PC (whether the internet reaches it: the Party NAT line)", port->port);
     g_bound_port.store(port->port);
+    if (g_ipv6_wanted.load()) open_v6(*port);
     port->reader = std::thread(p2p_reader, port);
     g_p2p_ports[port->port] = port;
     return port;
@@ -867,6 +1024,7 @@ void p2p_detach(NetSock& sock) {
         if (port->reader.joinable()) port->reader.join();
         if (sock_ok(port->fd)) sock_close(port->fd);
         port->fd = kBadSock;
+        if (const sockfd_t f6 = port->fd6.exchange(kBadSock); sock_ok(f6)) sock_close(f6);
         g_p2p_ports.erase(port->port);
         g_bound_port.store(0);
     }
@@ -1025,11 +1183,13 @@ int dgram_send(int s, const void* buf, std::uint64_t len, int flags, const SceSo
         stun_sa.sin_family = AF_INET;
         stun_sa.sin_addr.s_addr = stun_addr;
         stun_sa.sin_port = stun_port;
-        n = raw_sendto(fd, pkt, kRelayHeader + hdr + static_cast<std::size_t>(len), &stun_sa);
+        n = sock.port ? port_send(*sock.port, pkt, kRelayHeader + hdr + static_cast<std::size_t>(len), &stun_sa)
+                      : raw_sendto(fd, pkt, kRelayHeader + hdr + static_cast<std::size_t>(len), &stun_sa);
         if (n >= 0) n -= static_cast<ssize_type>(kRelayHeader);
     } else {
         if (sock.p2p) alias_out(sa);  // a peer heard on its LAN address
-        n = raw_sendto(fd, body, hdr + static_cast<std::size_t>(len), &sa);
+        n = sock.p2p && sock.port ? port_send(*sock.port, body, hdr + static_cast<std::size_t>(len), &sa)
+                                  : raw_sendto(fd, body, hdr + static_cast<std::size_t>(len), &sa);
     }
     if (PacketTraceFn tf = g_packet_trace.load(std::memory_order_relaxed); tf && sock.p2p && buf)
         tf(true, sock.vport, dst_vport, static_cast<const unsigned char*>(buf), static_cast<std::size_t>(len));
@@ -2006,7 +2166,7 @@ bool p2p_stun(const char* host, std::uint16_t sport, int timeout_ms, std::uint32
     port->stun_server_addr = sa.sin_addr.s_addr;
     port->stun_server_port = sa.sin_port;
     lk.unlock();
-    (void)raw_sendto(port->fd, req, req_len, &sa);
+    (void)port_send(*port, req, req_len, &sa);
     lk.lock();
     port->stun_cv.wait_for(lk, std::chrono::milliseconds(timeout_ms), [&] { return port->stun_done; });
     const bool ok = port->stun_done;
@@ -2061,10 +2221,15 @@ bool p2p_send_raw(std::uint32_t addr, std::uint16_t port_nbo, const std::uint8_t
     sa.sin_family = AF_INET;
     sa.sin_addr.s_addr = addr;
     sa.sin_port = port_nbo;
-    return raw_sendto(port->fd, d, n, &sa) >= 0;
+    return port_send(*port, d, n, &sa) >= 0;
 }
 
 const udp::RelayClient& p2p_relay_client() { return g_relay; }
+
+// F2: IPv6 candidates of other guests (the host's net6 table) by their IPv4 key, applied to
+// PeerPaths when the game adds that peer (the table may come first).
+std::mutex g_peer6_mu;
+std::map<std::uint64_t, udp::Ep6> g_peer6;
 
 void p2p_add_peer(const char* label, std::uint32_t addr, std::uint16_t port_host, std::uint16_t relay_port) {
     if (settings().host || !addr || !port_host) return;
@@ -2074,7 +2239,139 @@ void p2p_add_peer(const char* label, std::uint32_t addr, std::uint16_t port_host
     if (relay_port && relay_port == own) return;  // ourselves
     if (relay_port) g_relay.add_relay_port(relay_port);
     paths().add(addr, bswap16(port_host), relay_port, Clock::now());
+    {
+        std::lock_guard<std::mutex> lk(g_peer6_mu);
+        if (g_peer6.count(source_key(addr, bswap16(port_host))))
+            paths().set_v6(addr, bswap16(port_host), true, Clock::now());
+    }
     if (party_trace()) log("paths: %s relay port %u", label ? label : "peer", relay_port);
+}
+
+udp::Router& p2p_router() { return router(); }
+
+void p2p_set_ipv6(bool on) {
+    g_ipv6_wanted.store(on);
+    router().set_ipv6(on);
+    if (!on) return;
+    std::lock_guard<std::mutex> lock(g_net_mu);
+    auto it = g_p2p_ports.find(g_bound_port.load());
+    if (it != g_p2p_ports.end()) open_v6(*it->second);
+}
+
+bool p2p_ipv6_open() {
+    std::lock_guard<std::mutex> lock(g_net_mu);
+    auto it = g_p2p_ports.find(g_bound_port.load());
+    return it != g_p2p_ports.end() && sock_ok(it->second->fd6.load());
+}
+
+void p2p_peer_v6(std::uint32_t addr, std::uint16_t port_host, const udp::Ep6& e6) {
+    if (!addr || !port_host) return;
+    router().bind_v6(addr, bswap16(port_host), e6, false);
+    {
+        std::lock_guard<std::mutex> lk(g_peer6_mu);
+        if (g_peer6.size() < 64) g_peer6[source_key(addr, bswap16(port_host))] = e6;
+    }
+    paths().set_v6(addr, bswap16(port_host), true, Clock::now());
+    flush_route_notes();
+}
+
+bool p2p_send_wire(const udp::Wire& w) {
+    std::shared_ptr<P2pPort> port;
+    {
+        std::lock_guard<std::mutex> lock(g_net_mu);
+        auto it = g_p2p_ports.find(g_bound_port.load());
+        if (it != g_p2p_ports.end()) port = it->second;
+    }
+    return port && wire_send(*port, w) >= 0;
+}
+
+void p2p_punch6(const char* label, const udp::Ep6& e6) {
+    std::shared_ptr<P2pPort> port;
+    {
+        std::lock_guard<std::mutex> lock(g_net_mu);
+        auto it = g_p2p_ports.find(g_bound_port.load());
+        if (it != g_p2p_ports.end()) port = it->second;
+    }
+    if (!port || !sock_ok(port->fd6.load())) return;
+    const std::string name = label ? label : "peer";
+    std::thread([port, e6, name] {
+        // Opens our IPv6 firewall (most home routers keep a pinhole per outbound flow) towards it.
+        udp::Wire w;
+        w.v6 = true;
+        w.addr6 = e6.addr;
+        w.port = e6.port;
+        w.data.assign(udp::kProbe, udp::kProbe + sizeof(udp::kProbe));
+        int sent = 0;
+        for (int i = 0; i < 40 && !port->stop.load(std::memory_order_relaxed); ++i) {
+            if (wire_send(*port, w) >= 0) ++sent;
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+        log("punch %s [%s]:%u over IPv6: %d probes", name.c_str(), udp::ip6_text(e6.addr).c_str(), bswap16(e6.port), sent);
+    }).detach();
+}
+
+bool local_ipv6(udp::Ip6* out, std::string* how) {
+    if (const char* forced = std::getenv("BB_PARTY_IPV6_ADDR"); forced && *forced) {
+        if (udp::parse_ip6(forced, out) && !udp::ip6_zero(*out)) {
+            if (how) *how = std::string("BB_PARTY_IPV6_ADDR=") + forced;
+            return true;
+        }
+        log("BB_PARTY_IPV6_ADDR=%s is not an IPv6 address; ignored", forced);
+    }
+#if defined(_WIN32)
+    wsa_start();
+    ULONG size = 32 * 1024;
+    std::vector<std::uint8_t> buf(size);
+    const ULONG flags = GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_DNS_SERVER;
+    ULONG r = ::GetAdaptersAddresses(AF_INET6, flags, nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data()), &size);
+    if (r == ERROR_BUFFER_OVERFLOW) {
+        buf.resize(size);
+        r = ::GetAdaptersAddresses(AF_INET6, flags, nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data()), &size);
+    }
+    bool found = false;
+    ULONG best_valid = 0, best_pref = 0;
+    std::string best_name;
+    for (auto* a = r == NO_ERROR ? reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data()) : nullptr; a; a = a->Next) {
+        if (a->OperStatus != IfOperStatusUp || a->IfType == IF_TYPE_SOFTWARE_LOOPBACK || a->IfType == IF_TYPE_TUNNEL)
+            continue;
+        std::string name;
+        if (a->FriendlyName) {
+            const int n = ::WideCharToMultiByte(CP_UTF8, 0, a->FriendlyName, -1, nullptr, 0, nullptr, nullptr);
+            if (n > 1) {
+                name.resize(static_cast<std::size_t>(n - 1));
+                ::WideCharToMultiByte(CP_UTF8, 0, a->FriendlyName, -1, &name[0], n, nullptr, nullptr);
+            }
+        }
+        if (adapter_is_virtual(name)) continue;
+        for (auto* u = a->FirstUnicastAddress; u; u = u->Next) {
+            if (u->Address.lpSockaddr->sa_family != AF_INET6 || u->DadState != IpDadStatePreferred) continue;
+            udp::Ip6 ip;
+            std::memcpy(ip.b.data(), &reinterpret_cast<sockaddr_in6*>(u->Address.lpSockaddr)->sin6_addr, 16);
+            // Global unicast, not Teredo (2001::/32) or 6to4 (2002::/16): tunnels that rarely pass.
+            if (!udp::ip6_global(ip) || (ip.b[0] == 0x20 && ip.b[1] == 0x01 && ip.b[2] == 0 && ip.b[3] == 0) ||
+                (ip.b[0] == 0x20 && ip.b[1] == 0x02))
+                continue;
+            // Privacy first (F2 review L5): the shortest-lived preferred address, i.e. a temporary
+            // privacy address where Windows makes them, not the stable one (on some systems built
+            // from the adapter's MAC). The host's code then changes when that address rotates.
+            if (u->PreferredLifetime == 0) continue;
+            if (!found || u->PreferredLifetime < best_pref ||
+                (u->PreferredLifetime == best_pref && u->ValidLifetime < best_valid)) {
+                found = true;
+                *out = ip;
+                best_valid = u->ValidLifetime;
+                best_pref = u->PreferredLifetime;
+                best_name = name;
+            }
+        }
+    }
+    if (found && how) *how = "adapter " + best_name;
+    if (!found && how) *how = "no global IPv6 address on an adapter";
+    return found;
+#else
+    if (how) *how = "not implemented here";
+    return false;
+#endif
 }
 
 std::string p2p_paths_status() {
@@ -2104,6 +2401,12 @@ void p2p_punch(const char* label, std::uint32_t addr, std::uint16_t port_host, s
         std::uint32_t sa_addr = 0;
         std::uint16_t sa_port = 0;
         if (g_relay.frame_for(addr, bswap16(port_host), hdr, &sa_addr, &sa_port)) return;  // the relay needs no hole
+    }
+    // A guest a member relays for (party_route.h): its traffic goes through that member; raw
+    // probes would only open a direct flow beside the relayed one.
+    if (router().relayed_guest(addr, bswap16(port_host))) {
+        log("punch %s: through a member's relay (no direct punch)", label ? label : "peer");
+        return;
     }
     std::vector<sockaddr_in> targets;
     sockaddr_in a{};
@@ -2173,6 +2476,20 @@ void p2p_punch(const char* label, std::uint32_t addr, std::uint16_t port_host, s
             targets.size() > 1 ? " (+local)" : "", sent, heard ? "peer heard" : "nothing heard",
             static_cast<long long>(ms));
     }).detach();
+}
+
+std::int64_t p2p_ms_since_heard(std::uint32_t addr, std::uint16_t port_host) {
+    std::shared_ptr<P2pPort> port;
+    {
+        std::lock_guard<std::mutex> lock(g_net_mu);
+        auto it = g_p2p_ports.find(g_bound_port.load());
+        if (it != g_p2p_ports.end()) port = it->second;
+    }
+    if (!port || !addr || !port_host) return -1;
+    std::lock_guard<std::mutex> lk(port->mu);
+    auto it = port->heard.find(source_key(addr, bswap16(port_host)));
+    if (it == port->heard.end()) return -1;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - it->second).count();
 }
 
 std::string p2p_status() {

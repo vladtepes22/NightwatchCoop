@@ -87,6 +87,55 @@ int main() {
     v.members = 2;
     CHECK(PlanHostDeath(v) == HostDeathPlan::PartyLoad);  // one of two guests down: not a wipe
 
+    {
+        // kidnap071 (a player report): the Snatcher's kidnap moves the host's respawn to the Gaol
+        // (common 9421 -> 2802959, m28) at its death; with the revive on (0.7.0 default) that was a
+        // lone load and the guests stayed. A scripted death warp is always the party's load.
+        HostDeathView k;
+        k.members = 2;
+        k.revive_opt_in = true;
+        k.lamp_here = false;
+        CHECK(PlanHostDeath(k) == HostDeathPlan::AloneLoad);  // a plain lamp in another map: alone
+        k.scripted_warp = true;
+        CHECK(PlanHostDeath(k) == HostDeathPlan::PartyLoad);
+        k.lamp_here = true;
+        CHECK(PlanHostDeath(k) == HostDeathPlan::PartyLoad);  // never the revive in place either
+        k.alone_opt = false;
+        k.revive_opt_in = false;
+        CHECK(PlanHostDeath(k) == HostDeathPlan::PartyLoad);
+        k.down_reported = 2;
+        CHECK(PlanHostDeath(k) == HostDeathPlan::Wipe);       // a wipe stays a wipe (also everyone's load)
+        k.down_reported = 0;
+        k.boss_fight = true;
+        CHECK(PlanHostDeath(k) == HostDeathPlan::BossLimbo);  // a fight's limbo first ...
+        DownView kd;
+        kd.members = 2;
+        kd.down_for = 2;
+        kd.limbo = true;
+        kd.revive_opt_in = true;
+        kd.scripted_warp = true;
+        CHECK(PlanDownTick(kd) == DownTick::PartyLoad);       // ... then the party's load, not alone
+        kd.lamp_here = true;
+        CHECK(PlanDownTick(kd) == DownTick::PartyLoad);
+        kd.boss_killed = true;
+        kd.member_here = true;
+        CHECK(PlanDownTick(kd) == DownTick::ArenaRevive);     // the boss killed: up in the arena as before
+
+        // Which deaths are scripted warps.
+        CHECK(KidnapDeath(kGaolReturnPoint, false, false));   // 9421 ran: the record is the Gaol
+        CHECK(KidnapDeath(2402950, true, false));             // 9420 set, 9421 not yet run
+        CHECK(!KidnapDeath(kGaolReturnPoint, true, true));    // woke there already (9423): a plain death
+        CHECK(!KidnapDeath(2402950, false, false));
+        // 9404 (the first death with Insight): the record moved from a Cathedral Ward lamp
+        // (m24_00) to the Dream (m21_00) between the last frame alive and the funnel.
+        CHECK(RespawnMovedAtDeath(2402950, 2102961, 0x1500, 0x1800));
+        CHECK(!RespawnMovedAtDeath(2402950, 2402950, 0x1800, 0x1800));  // unchanged
+        CHECK(!RespawnMovedAtDeath(2402950, 2402951, 0x1800, 0x1800));  // moved within the map
+        CHECK(!RespawnMovedAtDeath(0, 2102961, 0x1500, 0x1800));        // never seen alive: unknown
+        CHECK(!RespawnMovedAtDeath(0xffffffffu, 2102961, 0x1500, 0x1800));
+        CHECK(ScriptedDeathWarp(true, false) && ScriptedDeathWarp(false, true) && !ScriptedDeathWarp(false, false));
+    }
+
     // While the host is down: recount at every frame (bug 18).
     DownView d;
     d.members = 1;
@@ -157,6 +206,59 @@ int main() {
         CHECK(!ArenaReviveAtCorpse(true, true, 12.0, 0.5));    // a fall death: the member's spot
         CHECK(!ArenaReviveAtCorpse(true, false, 41.0, 0.5));   // not in the arena with the member
         CHECK(!ArenaReviveAtCorpse(true, false, 5.0, -4.5));   // another floor
+        // fallsafe: a fall death gets up on the game's safe spot (the bloodstain's), never the corpse.
+        CHECK(PlanArenaReviveSpot(true, true, 12.0, 0.5, true) == ArenaSpot::SafeFloor);
+        CHECK(PlanArenaReviveSpot(true, true, 12.0, 0.5, false) == ArenaSpot::Member);  // no safe spot read
+        CHECK(PlanArenaReviveSpot(true, true, 2.0, -40.0, true) == ArenaSpot::SafeFloor);  // corpse far below
+        CHECK(PlanArenaReviveSpot(true, false, 12.0, 0.5, true) == ArenaSpot::Corpse);  // no fall: as before
+        CHECK(PlanArenaReviveSpot(true, false, 41.0, 0.5, true) == ArenaSpot::Member);
+        CHECK(PlanArenaReviveSpot(false, false, 1.0, 0.0, true) == ArenaSpot::Member);
+        // The game's value is usable: read, finite, not the origin, near the HP 0 spot horizontally.
+        const float died[3] = {-130.0f, -95.0f, 50.0f};  // 70 m below the bridge
+        const float safe[3] = {-134.6f, -26.6f, 54.7f};
+        CHECK(SafeSpotUsable(true, safe, died));
+        CHECK(!SafeSpotUsable(false, safe, died));
+        const float zero[3] = {0.0f, 0.0f, 0.0f};
+        CHECK(!SafeSpotUsable(true, zero, died));  // no tracker: the getter's zeros
+        const float far[3] = {-200.0f, -26.6f, 54.7f};
+        CHECK(!SafeSpotUsable(true, far, died));   // 70 m away: stale (another place)
+        const float nan3[3] = {std::numeric_limits<float>::quiet_NaN(), 0.0f, 1.0f};
+        CHECK(!SafeSpotUsable(true, nan3, died));
+        CHECK(SafeSpotUsable(true, safe, nan3));   // the death spot unknown: the game's value alone
+        // A revive where it lies (then the alone travel): a fall on the safe spot, or no revive here.
+        CHECK(PlanLiesRevive(false, false) == LiesRevive::WhereItLies);
+        CHECK(PlanLiesRevive(true, true) == LiesRevive::SafeFloor);
+        CHECK(PlanLiesRevive(true, false) == LiesRevive::Load);
+        // Outside an arena revive (user decision): a fall gets up at a lamp in the loaded map, no load.
+        CHECK(PlanFallRespawn(true, true, true, true, true, false) == FallRespawn::OwnLamp);
+        CHECK(PlanFallRespawn(true, true, false, true, true, false) == FallRespawn::HostLamp);   // guest: the host's
+        CHECK(PlanFallRespawn(true, true, false, true, true, true) == FallRespawn::SafeFloor);   // the host: no "host lamp"
+        CHECK(PlanFallRespawn(true, true, true, false, true, true) == FallRespawn::OwnLamp);
+        CHECK(PlanFallRespawn(true, true, false, false, true, false) == FallRespawn::SafeFloor); // never a load (Dream)
+        CHECK(PlanFallRespawn(true, true, false, false, false, false) == FallRespawn::Respawn);
+        CHECK(PlanFallRespawn(true, false, true, true, true, false) == FallRespawn::Respawn);    // in-place revive off
+        CHECK(PlanFallRespawn(false, true, true, true, true, false) == FallRespawn::Respawn);   // no fall: as before
+        {
+            // The sequence of a death out of the world: HP 0 (the game's death plays), the death taken
+            // (held), the body moved up, a settle, the revive in place - and no load.
+            double t = 0;
+            CHECK(PlanFallReviveStep(false, true, false, false, t) == FallReviveStep::Wait);  // dying
+            CHECK(PlanFallRespawn(true, true, true, true, true, false) == FallRespawn::OwnLamp); // taken: no load
+            CHECK(PlanFallReviveStep(true, true, false, false, t) == FallReviveStep::MoveBody);
+            int frames = 0;
+            for (t = 0; PlanFallReviveStep(true, true, true, true, t) == FallReviveStep::Wait; t += 1.0 / 30) ++frames;
+            CHECK(frames >= 29);  // at least kFallSettle s of frames with the body on its spot first
+        }
+        // The order: never before the death is taken; a body out of the world moved first; then up.
+        CHECK(PlanFallReviveStep(false, true, false, false, 0.0) == FallReviveStep::Wait);
+        CHECK(PlanFallReviveStep(false, false, false, true, 0.0) == FallReviveStep::Wait);
+        CHECK(PlanFallReviveStep(true, true, false, false, 0.0) == FallReviveStep::MoveBody);
+        CHECK(PlanFallReviveStep(true, true, true, false, 0.5) == FallReviveStep::Wait);
+        CHECK(PlanFallReviveStep(true, true, true, true, 0.0) == FallReviveStep::Wait);    // moved this frame
+        CHECK(PlanFallReviveStep(true, true, true, true, 0.5) == FallReviveStep::Wait);    // physics settling
+        CHECK(PlanFallReviveStep(true, true, true, true, kFallSettle) == FallReviveStep::Revive);
+        CHECK(PlanFallReviveStep(true, true, true, false, kFallMoveWait) == FallReviveStep::Revive);
+        CHECK(PlanFallReviveStep(true, false, false, false, 0.0) == FallReviveStep::Revive);  // landed near
     }
     {
         // PR #6's wait: the bar over the dead boss, or 3 s after it went; at most 20 s.
@@ -186,6 +288,45 @@ int main() {
         h.down_reported = 2;
         CHECK(PlanDownTick(h) == DownTick::Wipe);
     }
+    {
+        // The boss killed between the host's HP 0 and its taken death (hostcheck run C: HP 0 at
+        // +169.5 s, the kill at +181.4 s, the death taken at +182.2 s): the limbo, then the arena.
+        CHECK(KilledAfterHp0(true, true, 169.5, 181.4, 182.2));
+        CHECK(!KilledAfterHp0(false, true, 169.5, 181.4, 182.2));  // no living boss bar at HP 0
+        CHECK(!KilledAfterHp0(true, false, 169.5, 181.4, 182.2));  // the bar went without a kill
+        CHECK(!KilledAfterHp0(true, true, 169.5, 160.0, 182.2));   // that fight ended before HP 0
+        CHECK(!KilledAfterHp0(true, true, 0.0, 181.4, 182.2));     // no HP 0 seen (a load since)
+        CHECK(!KilledAfterHp0(true, true, 100.0, 120.0, 161.0));   // 61 s: not this death's fight
+        HostDeathView v;
+        v.members = 1;
+        v.revive_opt_in = true;
+        v.lamp_here = true;
+        CHECK(PlanHostDeath(v) == HostDeathPlan::ReviveInPlace);   // before: the lamp revive
+        v.boss_killed_late = true;
+        CHECK(PlanHostDeath(v) == HostDeathPlan::BossLimbo);
+        CHECK(PlanTakesFunnel(PlanHostDeath(v)));
+        v.arena_revive_on = false;
+        CHECK(PlanHostDeath(v) == HostDeathPlan::ReviveInPlace);   // the switch off: as before
+        v.arena_revive_on = true;
+        v.down_reported = 1;
+        CHECK(PlanHostDeath(v) == HostDeathPlan::Wipe);            // the guest is down too: a wipe
+        // Then each frame: the wait for the defeat (PR #6), then up in the arena; nobody here alive:
+        // the lamp revive.
+        DownView h;
+        h.members = 1;
+        h.limbo = true;
+        h.boss_killed = true;
+        h.revive_opt_in = true;
+        h.lamp_here = true;
+        h.down_for = 2.0;
+        h.member_here = true;
+        h.boss_dying = DefeatPending(0.5, true);
+        CHECK(PlanDownTick(h) == DownTick::Wait);
+        h.boss_dying = DefeatPending(4.0, false);
+        CHECK(PlanDownTick(h) == DownTick::ArenaRevive);
+        h.member_here = false;
+        CHECK(PlanDownTick(h) == DownTick::Revive);
+    }
 
     // The split question closes on a load, a death or after 30 s (bug 12).
     CHECK(PlanAskClose(true, false, false, 5) == AskClose::Keep);
@@ -214,6 +355,26 @@ int main() {
     }
     CHECK(PlanLampOrigin(-1, -1) == LampOrigin::Other);     // no own flag: another game's warp event
     CHECK(PlanLampOrigin(-1, -1, false) == LampOrigin::Own); // no flag hook: ask as before
+    // A Chalice Dungeon's lamps stand where the generated layout puts them, not at the table's spot.
+    CHECK(LampTableSpotTrusted(2412952) && LampTableSpotTrusted(2102950) && LampTableSpotTrusted(3602952));
+    CHECK(!LampTableSpotTrusted(2902950) && !LampTableSpotTrusted(2902952) && !LampTableSpotTrusted(2902959));
+    // Option b (2026-10-21): death / forced -> home and summoned; chosen -> stays; rule off -> stays.
+    CHECK(PlanChaliceApart(true, false, 2.0) == ChaliceApart::Wait);
+    CHECK(PlanChaliceApart(true, false, kChaliceApartWait) == ChaliceApart::SendHome);
+    CHECK(PlanChaliceApart(true, true, 600.0) == ChaliceApart::Stay);
+    CHECK(PlanChaliceApart(false, false, 600.0) == ChaliceApart::Stay);
+    // Rejoin into a dungeon: leave the session first only when still in it, apart, host in a dungeon.
+    CHECK(ChaliceRejoinLeavesFirst(true, true, true));
+    CHECK(!ChaliceRejoinLeavesFirst(false, true, true) && !ChaliceRejoinLeavesFirst(true, false, true) &&
+          !ChaliceRejoinLeavesFirst(true, true, false));
+    CHECK(std::string(ChaliceApartNotice()) == "The host is in a Chalice Dungeon: Party > Rejoin to go back");
+    // A re-summoned guest never gets a dead boss's clear again; a real kill (later) pays as before.
+    CHECK(StaleBossClear(true, 0.5) && StaleBossClear(true, 14.9));
+    CHECK(!StaleBossClear(true, 15.0) && !StaleBossClear(true, 300.0));
+    CHECK(!StaleBossClear(false, 0.5));        // the host's own clear
+    CHECK(!StaleBossClear(true, -1.0));         // no arrival seen yet: as before
+    // The dungeon lamps' "Return to the Hunter's Dream" flags (m29 event 12907020) are lamp flags.
+    CHECK(LampTriggerFlag(72900100) && LampTriggerFlag(72900108));
     CHECK(PlanLampOrigin(12, -1) == LampOrigin::Other);     // a stale own flag
     // parg: story warps are the triggering player's own use; lamp / warp-object events are not.
     CHECK(StoryWarpEvent(13201803, true));   // Blood Moon -> Yahar'gul, on the host
@@ -478,6 +639,41 @@ int main() {
     CHECK(PlanGuestRevive(0.0, true, FallDeathState(0x0001001098ull, 0x8000)) == GuestRevive::InPlace);
     CHECK(FallDrop(-20.0, -40.0, -80.0) == 60.0);                            // into the void: still dropping
     CHECK(FallDrop(-20.0, -21.0, -21.0) == 1.0);
+    // liftfall: lifts and moving objects. The report's remote chr flags: 0200001098 / 0200081098 on
+    // the Mensis lift, 0001001098 off it; the game's fall flags (0x0400000040) are another bit.
+    CHECK(RidingObject(0x0200001098ull) && RidingObject(0x0200081098ull) && RidingObject(0x020000108cull));
+    CHECK(!RidingObject(0x0001001098ull) && !RidingObject(0x04010010d8ull) && !RidingObject(0));
+    CHECK(!FallDeathState(0x0200001098ull, 0) && !FallDeathState(0x020000108cull, 0xf800));  // a body in a car
+    // The recovery samples: the own-world net (1 s, 1.5 m/s) and the host's-world net (0.5 s, 1.4 m/s).
+    CHECK(FallSample(4.0, 1.0, 1.5, false));          // a lift without the ride flag: a fall sample ...
+    CHECK(!FallSample(4.0, 1.0, 1.5, true));          // ... with it: a ride
+    CHECK(!FallSample(2.0, 0.5, 1.4, true));          // the host's-world net, the same ride
+    CHECK(FallSample(30.0, 1.0, 1.5, true));          // far faster than any lift: a fall, flag or not
+    CHECK(!FallSample(1.0, 1.0, 1.5, false));         // a slope
+    CHECK(!FallSample(-4.0, 1.0, 1.5, false));        // up
+    CHECK(!FallSample(4.0, 0.0, 1.5, false) && !FallSample(std::nan(""), 1.0, 1.5, false));
+    // ... and the nets' decision: 6 s and a real fall's drop. The report: 27 m of the Mensis lift in
+    // 6.5 s fired (warped to the lamp); a fall out of the world covers 100+ m in that time.
+    CHECK(!FallRecoveryDue(6.5, 27.0) && !FallRecoveryDue(15.0, 39.0));
+    CHECK(FallRecoveryDue(6.0, 150.0) && !FallRecoveryDue(5.9, 150.0));
+    // The drop test around a death: the peak counts from the last sample on a moving object.
+    {
+        std::vector<HeightSample> ride = {{0.0, 1003.8, true}, {1.0, 999.8, true}, {2.0, 995.8, true}, {3.0, 991.8, true}};
+        CHECK(PeakSinceRide(ride, 991.6) == 991.8);                           // killed in the car: no fall
+        CHECK(PlanGuestRevive(FallDropRide(PeakSinceRide(ride, 991.6), 991.6, 943.8, true), true, false) ==
+              GuestRevive::InPlace);                                          // the body rides on down
+        std::vector<HeightSample> off = {{0.0, 1003.8, true}, {0.5, 1001.8, true}, {1.0, 999.0, false},
+                                         {2.0, 985.0, false}};                 // out of the car, down the shaft
+        CHECK(PeakSinceRide(off, 960.0) == 1001.8);
+        CHECK(PlanGuestRevive(FallDropRide(PeakSinceRide(off, 960.0), 960.0, 960.0, false), true, false) ==
+              GuestRevive::LoadFall);
+        std::vector<HeightSample> onto = {{0.0, 1003.8, false}, {1.0, 990.0, false}, {2.0, 960.0, false}};
+        CHECK(PeakSinceRide(onto, 943.8) == 1003.8);                          // a fall onto the car counts
+        CHECK(FallDropRide(1003.8, 943.8, 900.0, true) == 60.0);              // not followed down in the car
+        CHECK(FallDropRide(-20.0, -40.0, -80.0, false) == 60.0);              // the void: as FallDrop
+        std::vector<HeightSample> none;
+        CHECK(PeakSinceRide(none, 5.0) == 5.0);
+    }
     CHECK(GuestReviveName(GuestRevive::LoadFall)[0] != '?');
     CHECK(RestLoadName(RestLoad::TooSoon)[0] != '?');
     // K12: the guest's HostDead state (the host's death event) on a party guest.
@@ -490,6 +686,34 @@ int main() {
     CHECK(!SkipGuestHostDead(true, 6, 1, 0, 5));     // BB_PARTY_HOSTDEAD_SKIP=0: never
     CHECK(!SkipGuestHostDead(true, 6, 1, 3, 2));     // =3: the first two host deaths the game's
     CHECK(SkipGuestHostDead(true, 6, 1, 3, 3));
+    // C3, the last guest down starts the wipe (player report 2026-10-21, Logarius): its follow of
+    // the host's death load waits until its own death is taken.
+    CHECK(PlanWipeFollow(false, 0, false, 0.0) == WipeFollow::Now);     // not a host death travel
+    CHECK(PlanWipeFollow(true, 527, false, 0.0) == WipeFollow::Now);    // alive: follows at once
+    CHECK(PlanWipeFollow(true, -1, false, 0.0) == WipeFollow::Now);     // HP unknown: as before
+    CHECK(PlanWipeFollow(true, 0, false, 0.1) == WipeFollow::WaitDeath);  // the report: dying at the travel
+    CHECK(PlanWipeFollow(true, 0, false, 8.6) == WipeFollow::WaitDeath);  // the game's death ~8.6 s after HP 0
+    CHECK(PlanWipeFollow(true, 0, true, 8.6) == WipeFollow::DeadFollow);  // taken: one dead follow
+    CHECK(PlanWipeFollow(true, 0, true, 0.0) == WipeFollow::DeadFollow);  // taken before the travel (s1 wipe)
+    CHECK(PlanWipeFollow(true, 0, false, kWipeDeathWait) == WipeFollow::TakeDeath);  // never taken: safety
+    CHECK(PlanWipeFollow(true, 0, false, 60.0) == WipeFollow::TakeDeath);
+    CHECK(std::string(WipeFollowName(WipeFollow::WaitDeath)) == "wait for the death");
+    // A death taken after the wipe's arrival is part of the wipe: no revive at its own lamp.
+    CHECK(PlanHeldAfterWipe(5.0, true) == AfterWipe::Drop);         // the report: up at the host's lamp already
+    CHECK(PlanHeldAfterWipe(5.0, false) == AfterWipe::HostLamp);    // still down: the host's lamp, not its own
+    CHECK(PlanHeldAfterWipe(0.0, false) == AfterWipe::HostLamp);
+    CHECK(PlanHeldAfterWipe(kWipeArrivalWindow, false) == AfterWipe::None);  // a later death of its own
+    CHECK(PlanHeldAfterWipe(-1.0, false) == AfterWipe::None);       // no wipe arrival (never: now - 0 is large)
+    CHECK(PlanHeldAfterWipe(1e9, true) == AfterWipe::None);
+    // A dead guest waits for the host's decision as long as the host is down (64.5 s in the report).
+    CHECK(GuestWaitsForHostDown(true, 64.5));
+    CHECK(GuestWaitsForHostDown(true, 0.0));
+    CHECK(!GuestWaitsForHostDown(true, kGuestHostDownHold));         // a stale host chr: not for good
+    CHECK(!GuestWaitsForHostDown(false, 1.0));                       // the host is up: its own rules
+    // The bloodstain where the guest died, not at the load's destination.
+    CHECK(StainAtDeathSpot(true, true));
+    CHECK(!StainAtDeathSpot(true, false));   // the usual death: the game's own record
+    CHECK(!StainAtDeathSpot(false, true));   // HP 0 spot unknown
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

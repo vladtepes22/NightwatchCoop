@@ -21,6 +21,7 @@
 #include "party_fourp.h"
 #include "party_progress.h"
 #include "party_split.h"
+#include "party_gather.h"
 #include "party_desync.h"
 #include "party_travel.h"
 #include "party_worldact.h"
@@ -34,12 +35,14 @@
 #include "party_rudp.h"
 #include "party_lan.h"
 #include "party_traversal.h"
+#include "party_netroute.h"
 
 #include "../net/bbnet_internal.h"
 #include "../net/np_hle.h"
 #include "../net/np_session.h"
 #include "../net/from_api.h"
 #include "../net/party_host_service.h"
+#include "../net/party_route.h"
 #include "../net/party_transport.h"
 #include "../net/party_util.h"
 #include "../../bbnet.h"
@@ -398,6 +401,8 @@ struct CodeAddress {
     std::uint8_t flags = 0;
     bool lb = false;          // loopback test
     bool rendezvous = false;  // the DHT rendezvous runs
+    bool has_ipv6 = false;    // F2 (0.7.1): the Internet code's IPv6 tail (party_netroute HostCodeIpv6)
+    std::array<std::uint8_t, 16> ipv6{};
 };
 
 struct Runtime {
@@ -798,6 +803,7 @@ void on_state(LinkState s, const std::string& detail) {
         gen = ++r.loss_gen;
     }
     if (!link) return;
+    if (!host) netroute::GuestLinkState(s);  // F2 (0.7.1): the next attempt's path
     std::string reason = link->reject_reason();
     if (!host && s == LinkState::Rejected && link->reject_code() == RejectCode::Auth) {
         std::lock_guard<std::mutex> lk(r.mu);
@@ -1162,6 +1168,7 @@ LinkCallbacks make_callbacks(bool host) {
             bbnet::party::PartyHostService::instance().context_gone(m.name);
         };
         cb.on_event = [](int slot, std::uint64_t, const std::string& name, const std::string& body) {
+            if (netroute::OnEvent(true, slot, name, body)) return;  // F2: a guest's IPv6 endpoint
             if (name == coop::split::kChoosingEventName) {  // a guest asks "Travel with the party?"
                 on_split_choosing(slot, body);
                 return;
@@ -1195,6 +1202,11 @@ LinkCallbacks make_callbacks(bool host) {
                 else plog("%s event from slot %d: %s", name.c_str(), slot, err.c_str());
                 return;
             }
+            if (name == coop::desync::kKillRecordEvent) {  // the deaths a guest's game saw (party_kill_record.h)
+                std::string err;
+                if (!coop::desync::QueueKillRecord(slot, body, &err)) plog("kill_record from slot %d refused: %s", slot, err.c_str());
+                return;
+            }
             if (name == coop::desync::kCensusAskEvent) {  // a guest's enemy census differs from the digest
                 std::string err;
                 if (!coop::desync::HostQueueCensusAsk(slot, body, &err)) plog("census_ask from slot %d refused: %s", slot, err.c_str());
@@ -1226,6 +1238,10 @@ LinkCallbacks make_callbacks(bool host) {
             }
             if (name == party::ping::kEventName) {  // a guest's ping (I2, party_ping.h): relayed by the tick
                 coop::ping::OnEvent(slot, body);
+                return;
+            }
+            if (name == coop::gather::kEventName) {  // a guest's answer to Gather the party (I5, party_gather.h)
+                coop::gather::OnEvent(slot, body);
                 return;
             }
             if (name == coop::worldact::kEventName) {  // a guest's lever / door / NPC talk (D3, D8)
@@ -1269,6 +1285,7 @@ LinkCallbacks make_callbacks(bool host) {
         // the room's end sends us home at once, not the game's "Session lost" 15-19 s later.
         bbnet::np::set_host_closed_room_hook(&host_lost);
         cb.on_event = [](int slot, std::uint64_t, const std::string& name, const std::string& body) {
+            if (netroute::OnEvent(false, slot, name, body)) return;  // F2: IPv6 table, relay punch
             if (name == coop::split::kChoosingEventName) {  // the host asks "Travel with the party?"
                 on_split_choosing(slot, body);
                 return;
@@ -1297,6 +1314,10 @@ LinkCallbacks make_callbacks(bool host) {
                 coop::b2::OnLinkEvent(slot, body);
                 return;
             }
+            if (name == "npc_off") {  // the NPCs off in the host's world (party_npc_mirror.h)
+                if (!coop::balance::OnNpcOff(slot, body)) plog("npc_off event refused (slot %d)", slot);
+                return;
+            }
             if (name == coop::balance::kEventName) {  // the host's party rules (party_balance.h)
                 std::string err;
                 if (!coop::balance::OnHostRules(body, &err)) plog("balance event refused: %s", err.c_str());
@@ -1314,6 +1335,11 @@ LinkCallbacks make_callbacks(bool host) {
                 std::string err;
                 if (coop::StoryFromJsonText(body, &s, &err) && coop::SanitizePeerStory(&s, &err)) coop::RequestGuestStory(s);
                 else plog("story event refused: %s", err.c_str());
+                return;
+            }
+            if (name == coop::desync::kKillRecordEvent) {  // the host's kill record (party_kill_record.h)
+                std::string err;
+                if (!coop::desync::QueueKillRecord(slot, body, &err)) plog("kill_record event: %s", err.c_str());
                 return;
             }
             if (name == coop::desync::kCensusListEvent) {  // the host's census entries asked for
@@ -1365,6 +1391,10 @@ LinkCallbacks make_callbacks(bool host) {
             }
             if (name == party::ping::kEventName) {  // a member's ping (I2, party_ping.h)
                 coop::ping::OnEvent(slot, body);
+                return;
+            }
+            if (name == coop::gather::kEventName) {  // the host gathers the party (I5, party_gather.h)
+                coop::gather::OnEvent(slot, body);
                 return;
             }
             if (name == coop::kPhantomEventName) {  // host lamp / rested / boss Insight
@@ -1589,7 +1619,7 @@ void publish_codes(const std::array<std::uint8_t, 8>& secret, std::string* inter
     }
     internet->clear();
     lan->clear();
-    if (c.internet) *internet = make_party_code(c.pub, c.port, secret, c.flags);
+    if (c.internet) *internet = make_party_code(c.pub, c.port, secret, c.flags, c.has_ipv6 ? &c.ipv6 : nullptr);
     if (c.lb) {
         *lan = make_party_code({127, 0, 0, 1}, c.port, secret, static_cast<std::uint8_t>(c.flags | kCodeFlagLan));
     } else if (!make_lan_code(c.port, secret, c.flags, lan)) {
@@ -1618,6 +1648,7 @@ void start_host_rendezvous(const std::string& password, const std::array<std::ui
         key.data(), lb,
         [](std::uint32_t a, std::uint16_t p) {
             if (PartyLink* l = runtime_link()) l->punch_guest(a, p);
+            netroute::HostPunched(a, p);  // a member may have to relay for it
         },
         [](const std::string& m) { plog("%s", m.c_str()); });
 }
@@ -1666,6 +1697,8 @@ void start_host(LinkConfig cfg) {
     // shares the number, which is fine (different protocol).
     if (!bbnet::p2p_open()) plog("warning: cannot open the party UDP port %u (another program?)", port);
 
+    // F2 (0.7.1): wrong passwords from IPv6 peers count per /64 (the route table's throttle key).
+    cfg.throttle_key = [](std::uint32_t ip, std::uint16_t port) { return bbnet::p2p_router().throttle_key(ip, port); };
     auto* link = new PartyLink(cfg, make_callbacks(true));
     attach_udp_path(link);
     if (const char* gc = env("BB_PARTY_GUEST_CODES")) add_guest_code_text(gc);
@@ -1713,6 +1746,7 @@ void start_host(LinkConfig cfg) {
     coop::PartyDirector::Get().SetLink(link);
     write_marker();
     lan_responder_start(cfg, lb);
+    netroute::HostStart(lb, cfg.password, cfg.secret);  // F2 (0.7.1): IPv6, guests relayed by a member
 
     bbnet::party::PartyHostService& svc = bbnet::party::PartyHostService::instance();
     svc.set_loading_query([](const std::string& id) {
@@ -1803,6 +1837,10 @@ void start_host(LinkConfig cfg) {
     std::uint8_t flags = 0;
     if (!cfg.password.empty()) flags |= kCodeFlagPasswordRequired;
     const std::string pub_text = source.empty() ? std::string() : format_ipv4(pub) + ":" + std::to_string(pub_port);
+    // F2 (0.7.1): the Internet code carries our IPv6 address only while the IPv4 port is not open.
+    const bool v4_port_open = upnp_ok || source == "override" || host_nat == nat::Type::Open;
+    std::array<std::uint8_t, 16> code6{};
+    const bool has_code6 = !source.empty() && netroute::HostCodeIpv6(v4_port_open, &code6);
     {
         std::lock_guard<std::mutex> lk(r.mu);
         r.st.public_address = source.empty() ? "unknown" : pub_text + " (" + source + ")";
@@ -1814,6 +1852,8 @@ void start_host(LinkConfig cfg) {
         r.codes.port = port;
         r.codes.flags = flags;
         r.codes.lb = lb;
+        r.codes.has_ipv6 = has_code6;
+        r.codes.ipv6 = code6;
     }
     std::string internet, lan;
     publish_codes(cfg.secret, &internet, &lan);
@@ -1821,6 +1861,16 @@ void start_host(LinkConfig cfg) {
          internet.empty() ? "(no public address: set BB_PARTY_PUBLIC_ADDR)" : internet.c_str(),
          lan.empty() ? "(no LAN address)" : lan.c_str());
     if (!source.empty()) plog("public address %s (%s)", pub_text.c_str(), source.c_str());
+    {
+        // F2: our own addresses are never a relayed guest's (party_route.h).
+        std::vector<std::uint32_t> own{bbnet::local_ipv4()};
+        if (!source.empty()) {
+            std::uint32_t p4 = 0;
+            std::memcpy(&p4, pub.data(), 4);
+            own.push_back(p4);
+        }
+        bbnet::p2p_router().set_own_addrs(own);
+    }
 
     // The host's own endpoint for guests' records and our MappedAddr.
     const std::string ep_addr = source.empty() ? bbnet::party::ip_text(bbnet::local_ipv4()) : format_ipv4(pub);
@@ -1850,10 +1900,12 @@ void start_host(LinkConfig cfg) {
                                                 : blocked + " (" + nat::advice(host_nat, true, false, rdv, port) + ")";
         plog("NAT: %s (%s); %s", nat::type_name(host_nat),
              port_open ? "port open" : !blocked.empty() ? nat::outside_name(outside) : "no open port", adv.c_str());
+        if (has_code6) plog("IPv6: the Internet code carries this PC's IPv6 address (the IPv4 port is not open)");
         {
             std::lock_guard<std::mutex> lk(r.mu);
             r.st.network = adv;
         }
+        netroute::HostNetworkLine(adv);
         bridge::OnNetwork(adv);
         if (rdv_on) {
             {
@@ -1966,7 +2018,9 @@ std::uint16_t publish_guest_code(nat::Type* type) {
         *type = traversal::detect(stun_fn, {true, ma, static_cast<std::uint16_t>((mp >> 8) | (mp << 8))},
                                   bbnet::local_ipv4(), bbnet::settings().party_port, false);
     }
-    const std::string code = rudp::encode_guest_code(ma, mp);
+    std::string code = rudp::encode_guest_code(ma, mp);
+    // F2 (0.7.1): with IPv6, the guest's IPv6 endpoint too (a host behind an IPv6 firewall opens it).
+    if (const std::string code6 = netroute::GuestCode6(); !code6.empty()) code += ", " + code6;
     {
         std::lock_guard<std::mutex> lk(R().mu);
         R().st.guest_code = code;
@@ -1977,6 +2031,7 @@ std::uint16_t publish_guest_code(nat::Type* type) {
     const auto* ip = reinterpret_cast<const std::uint8_t*>(&ma);
     plog("guest code %s (UDP %u.%u.%u.%u:%u, %s): give it to the host if it cannot open a port", code.c_str(), ip[0], ip[1],
          ip[2], ip[3], static_cast<unsigned>(static_cast<std::uint16_t>((mp >> 8) | (mp << 8))), source.c_str());
+    netroute::GuestRendezvous(ma, mp);  // F2 (0.7.1): members that relay, through the DHT (opt-in)
     return static_cast<std::uint16_t>((mp >> 8) | (mp << 8));
 }
 
@@ -2022,9 +2077,9 @@ void guest_traversal(const LinkConfig& cfg, const PartyCode& code, bool lan_code
             const bool up = l && l->state() == LinkState::Connected;
             if (up && !was) {
                 const bool udp = l->connected_over_udp();
-                const std::string path =
-                    udp ? "UDP (the host's NAT let us in or punched towards us)" : "TCP (the host's port is open)";
+                const std::string path = netroute::GuestPathText(udp);  // F2: IPv6 / member relay too
                 plog("network path: party link over %s", path.c_str());
+                netroute::GuestNetworkLine("Connected over " + path + ". " + adv);
                 bridge::OnNetwork("Connected over " + path + ". " + adv);
             }
             was = up;
@@ -2071,11 +2126,20 @@ void punch_guest_codes_tick() {
     for (const std::string& c : codes) {
         std::uint32_t a = 0;
         std::uint16_t p = 0;
+        bbnet::udp::Ep6 e6;
+        if (rudp::decode_guest_code6(c, e6.addr.b.data(), &e6.port)) {
+            // F2 (0.7.1): a guest's IPv6 endpoint: open our IPv6 firewall towards it.
+            bbnet::p2p_punch6("a guest (BBG6 code)", e6);
+            std::lock_guard<std::mutex> lk(g_codes_mu);
+            g_codes_seen.insert(c);
+            continue;
+        }
         if (!rudp::decode_guest_code(c, &a, &p)) {
             plog("guest code '%s' is not valid (BBG1-XXXX-XXXX-XXXX)", c.c_str());
             continue;
         }
         if (l) l->punch_guest(a, p);
+        netroute::HostPunched(a, p);  // a member may have to relay for it
         // The game's own UDP traffic to that guest too: one probe out of the party port opens the
         // same mapping (the link's punches already share it).
         std::lock_guard<std::mutex> lk(g_codes_mu);
@@ -2553,6 +2617,7 @@ void start_guest(LinkConfig cfg) {
     plog("joining %s as %s%s", r.st.host_address.c_str(), cfg.name.c_str(),
          (code.flags & kCodeFlagLan) ? " (LAN code)" : "");
     bbnet::party::remote_guest();  // the RemoteGuest transport exists before the game asks
+    netroute::GuestStart(link, cfg, code, nbo, port, loopback_mode());  // F2 (0.7.1): IPv6, member relays
     if (!link->start_guest(format_ipv4(ip), port, &err)) {
         set_error("cannot join: " + err);
         plog("cannot join: %s", err.c_str());
@@ -2644,6 +2709,15 @@ void startup_main() {
         std::lock_guard<std::mutex> lk(r.mu);
         if (r.stopping) return;
     }
+    netroute::Configure({[] { return runtime_link(); }, [](const std::string& m) { plog("%s", m.c_str()); },
+                         [](const std::string& line) {
+                             {
+                                 std::lock_guard<std::mutex> lk(R().mu);
+                                 R().st.network = line;
+                             }
+                             bridge::OnNetwork(line);
+                         },
+                         [] { return stopping(); }});
     if (host) start_host(std::move(cfg));
     else start_guest(std::move(cfg));
     bool have;
@@ -2680,6 +2754,7 @@ void do_shutdown() {
         link->stop(true);  // BYE; the object stays (never deleted)
     }
     traversal::stop();
+    netroute::Stop();
     if (upnp) upnp->stop(2000);
 }
 
@@ -2933,7 +3008,8 @@ int runtime_add_guest_code(const std::string& text) {
     auto one = [&] {
         std::uint32_t a = 0;
         std::uint16_t p = 0;
-        if (!cur.empty() && rudp::decode_guest_code(cur, &a, &p)) ++valid;
+        std::uint8_t a6[16];
+        if (!cur.empty() && (rudp::decode_guest_code(cur, &a, &p) || rudp::decode_guest_code6(cur, a6, &p))) ++valid;
         cur.clear();
     };
     for (char c : text) {
@@ -2949,6 +3025,8 @@ PartyLink* runtime_link() {
     std::lock_guard<std::mutex> lk(R().mu);
     return R().link;
 }
+
+int runtime_add_relay_code(const std::string& text) { return netroute::AddRelayText(text, "pasted guest code"); }
 
 void set_local_state(MemberState state, std::uint32_t map_id) {
     Runtime& r = R();

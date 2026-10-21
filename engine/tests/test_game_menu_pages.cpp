@@ -13,6 +13,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "gpu/shim/bbport_game_menu_pages.h"
@@ -226,6 +227,19 @@ static void LiveValues() {
     Advance(16);
     assert(s.party_boss_hp == AtPosition(kHpTable, other) && P::ValueChanges() == values);
 
+    // Poise starts at 0 (user decision 2026-10-21: below 0 enemies staggered less): the slider's
+    // leftmost position is the game's own 0 %, the rightmost +300 %.
+    const P::Row& enemy_poise = RowNamed(scaling, u"Enemy poise");
+    *P::Byte(enemy_poise.field) = 0;
+    Advance(16);
+    assert(s.party_enemy_poise == 0);
+    assert(std::u16string(P::Text(enemy_poise.help, false)).find(P::Utf16(DescribePoise(0, false).c_str())) == 0);
+    *P::Byte(enemy_poise.field) = 10;
+    Advance(16);
+    assert(s.party_enemy_poise == 300);
+    s.party_enemy_poise = 0;
+    Advance(16);
+
     // A toggle (rot on death), a pop-up list (above companions) and a steps row (model detail).
     const P::Page& rules = PageNamed(u"Deaths & revives");
     const P::Row& rot = RowNamed(rules, u"Rot on death");
@@ -303,16 +317,33 @@ static void Party() {
         const int none[ps::kRotKinds] = {};
         ps::SetRot(none);
     }
-    // One code (no LAN code): one copy row, the code as its value; the LAN row hidden.
+    // One code (no LAN code): one copy row, the code as its value; the LAN row (on the Party mode
+    // page: the Party page is full with Gather the party) hidden.
+    const P::Page& mode = PageNamed(u"Party mode");
+    const P::Row& lan = RowNamed(mode, u"Copy LAN code");
     assert(std::u16string(P::Text(party.rows[2].name, false)) == u"Copy party code");
     assert(std::u16string(P::Text(party.rows[2].choices[0], false)) == u"Copy");
     assert(std::u16string(P::Text(party.rows[2].help, true)).find(u"BBP1-ABCD-EFGH-IJKL") != std::u16string::npos);
-    assert(!party.rows[3].visible());
+    assert(!lan.visible());
     ps::SetLanCode("BBP1-LLLL-AAAA-NNNN");
     P::Load();
-    assert(std::u16string(P::Text(party.rows[2].name, false)) == u"Copy Internet code" && party.rows[3].visible());
-    assert(std::u16string(P::Text(party.rows[3].name, false)) == u"Copy LAN code");
-    assert(std::u16string(P::Text(party.rows[3].help, false)).find(u"BBP1-LLLL-AAAA-NNNN") != std::u16string::npos);
+    assert(std::u16string(P::Text(party.rows[2].name, false)) == u"Copy Internet code" && lan.visible());
+    assert(std::u16string(P::Text(lan.help, false)).find(u"BBP1-LLLL-AAAA-NNNN") != std::u16string::npos);
+    // I5: Gather the party, the host's row (one press queues the command; a guest's board has none).
+    {
+        const P::Row& gather = RowNamed(party, u"Gather the party");
+        assert(gather.visible && gather.visible());
+        ps::Command c;
+        while (ps::PopCommand(&c)) {}
+        Press(gather);
+        assert(ps::PopCommand(&c) && c.type == ps::CommandType::Gather);
+        ps::SetRole(ps::Role::Guest);
+        P::Load();
+        assert(!gather.visible());
+        assert(!ps::RequestGather());
+        ps::SetRole(ps::Role::Host);
+        P::Load();
+    }
 
     // Member rows: one per member, name, state and ping; the host's own row cannot be kicked.
     int visible = 0;
@@ -400,7 +431,7 @@ static void Party() {
     // rejoin, leave) are hidden, the extension row shows (in order).
     ps::ResetForTest(false);
     P::Load();
-    assert(P::PartyRowCount() == 8); // status, rot, copy, LAN copy, rejoin, new party code, leave + the extension row
+    assert(P::PartyRowCount() == 9); // status, rot, copy, LAN copy, rejoin, gather, new party code, leave + the extension row
     assert(!hud.visible()); // the party HUD switch: party mode only
     std::vector<const P::Row*> shown;
     for (const P::Row& row : party.rows) if (!row.visible || row.visible()) shown.push_back(&row);
@@ -438,7 +469,10 @@ static void RulesPages() {
                      u"Open world"};
     const V story = {u"Share NPC dialogue", u"NPC dialogue range", u"Share story progress", u"Share NPC quests",
                      u"Share cutscenes, endings", u"Cutscenes live with host"};
-    const V rewards = {u"Full rewards for guests", u"Host's item rewards", u"Give the bells", u"Insight for bosses"};
+    const V chalice = {u"Stay in Chalice Dungeons"};
+    const V shared = {u"Enemies stay dead", u"Host can gather", u"NPCs as in host's world"};
+    const V rewards = {u"Full rewards for guests", u"Host's item rewards", u"Give the bells", u"Own key items as guest",
+                       u"Key items at once", u"Insight for bosses"};
     const V display = {u"Party HUD", u"Party name tags", u"Pings", u"Show party through walls", u"Bloodstain marker",
                        u"Above companions"};
     for (const ps::Role role : {ps::Role::Host, ps::Role::Guest}) {
@@ -446,14 +480,21 @@ static void RulesPages() {
         ps::SetRole(role);
         ps::SetHostRule(ps::HostRule::HostRevive, false);
         ps::SetHostRule(ps::HostRule::HostLimboRevive, true);
+        ps::SetHostRule(ps::HostRule::KillRecord, true);
+        ps::SetHostRule(ps::HostRule::Gather, false);
+        ps::SetHostRule(ps::HostRule::NpcMirror, true);
         BbSettings::Get().party_host_revive = true;  // EverySettingSaved changed every row once
+        BbSettings::Get().party_gather = true;
+        BbSettings::Get().party_kill_record = true;
         P::Load();
         Advance(300);
         assert(names(u"Deaths & revives") == deaths);
         assert(names(u"World & PvP") == world);
+        assert(names(u"Shared world") == shared);
         assert(names(u"Story & dialogue") == story);
         assert(names(u"Party rewards") == rewards);
         assert(names(u"Party display") == display);
+        assert(names(u"Chalice Dungeons") == chalice);
         assert(names(u"Enemy scaling").size() == 6);
         const bool guest = role == ps::Role::Guest;
         const auto k = kinds(u"Deaths & revives");
@@ -461,6 +502,12 @@ static void RulesPages() {
         assert(k[0] == (guest ? P::Kind::Button : P::Kind::Toggle) && k[1] == P::Kind::Toggle);
         assert(k[2] == k[0] && k[3] == k[0] && k[4] == P::Kind::Toggle);
         assert(kinds(u"Party rewards").back() == P::Kind::List && kinds(u"Party display").back() == P::Kind::List);
+        // 0.7.1: the Shared world rows are the host's rules; the key item rows each player's own.
+        for (const P::Kind kind : kinds(u"Shared world")) assert(kind == (guest ? P::Kind::Button : P::Kind::Toggle));
+        assert(kinds(u"Party rewards")[3] == P::Kind::Toggle && kinds(u"Party rewards")[4] == P::Kind::Toggle);
+        const std::string shared_line = P::ShownSummary(PageNamed(u"Shared world"));
+        assert(shared_line.find("Host can gather=" + std::string(guest ? "Off" : "On")) != std::string::npos);
+        assert(shared_line.find("Enemies stay dead=On") != std::string::npos);
         // The trace's page line (smoke_party "rules" asserts it): every row, its value, nothing cut.
         for (const P::Page& page : P::All()) assert(P::ShownSummary(page).find("(CUT)") == std::string::npos);
         const std::string deaths_line = P::ShownSummary(PageNamed(u"Deaths & revives"));
@@ -471,6 +518,9 @@ static void RulesPages() {
             assert(std::u16string(P::Text(shown[2]->choices[0], false)) == u"Off");
             assert(std::u16string(P::Text(shown[3]->choices[0], true)) == u"Вкл");
             assert(std::u16string(P::Text(shown[2]->help, false)).find(u"The host decides") == 0);
+            const auto world = P::ShownRows(PageNamed(u"Shared world"));
+            assert(std::u16string(P::Text(world[1]->help, false)).find(u"The host turned gathering off") == 0);
+            assert(std::u16string(P::Text(world[0]->help, false)).find(u"The host's rule") == 0);
         }
     }
     // A row writes its bbport.ini key (the launcher reads the same key).
@@ -487,6 +537,25 @@ static void RulesPages() {
     *P::Byte(limbo.field) = 1;
     Advance(16);
     assert(s.party_host_limbo_revive && ReadIni()["party_host_limbo_revive"] == "1");
+    // 0.7.1: the new rows write their keys too (the launcher's Party Rules & Sync reads them).
+    for (const auto& [page, row, key, member] :
+         {std::tuple{u"Shared world", u"Enemies stay dead", "party_kill_record", &BbSettings::Values::party_kill_record},
+          std::tuple{u"Shared world", u"Host can gather", "party_gather", &BbSettings::Values::party_gather},
+          std::tuple{u"Shared world", u"NPCs as in host's world", "party_npc_mirror", &BbSettings::Values::party_npc_mirror},
+          std::tuple{u"Party rewards", u"Own key items as guest", "party_key_view", &BbSettings::Values::party_key_view},
+          std::tuple{u"Party rewards", u"Key items at once", "party_key_items_summoned",
+                     &BbSettings::Values::party_key_items_summoned}}) {
+        s.*member = true;
+        P::Load();
+        const P::Row& r = RowNamed(PageNamed(page), row);
+        assert(*P::Byte(r.field) == 1);
+        *P::Byte(r.field) = 0;
+        Advance(16);
+        assert(!(s.*member) && ReadIni()[key] == "0");
+        *P::Byte(r.field) = 1;
+        Advance(16);
+        assert((s.*member) && ReadIni()[key] == "1");
+    }
     const P::Row& insight = RowNamed(PageNamed(u"Party rewards"), u"Insight for bosses");
     *P::Value(insight.field) = 2;
     Advance(16);

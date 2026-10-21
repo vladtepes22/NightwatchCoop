@@ -806,6 +806,70 @@ static void test_remote_guest_lan() {
     std::printf("remote guest over a LAN / VPN link: host records use the link's address\n");
 }
 
+// F2 (0.7.1), the real 2-PC relay run 20261021_1929: the member relaying for us joined the host over
+// the LAN, so the host lists it at its LAN address; we reach it only at its public endpoint (where it
+// relays for us). Without the fix-up our game sent to the LAN address (never reached), heard the
+// member from its public one (an unknown source) and the room join never finished, while the party
+// link through the relay worked. With set_peer_endpoint its records say the public endpoint, in the
+// join_room members, its member-joined event and signaling_resolve; other records are untouched.
+static void test_remote_guest_relay_member() {
+    bbnet::party::RemoteGuest rg;
+    PartyHostService svc;
+    svc.set_host_endpoint("HostR", "203.0.113.10", 47795);
+    rg.set_rpc([&](const char* kind, const std::string& rq, std::string& out, std::string& e, int) {
+        json::Value v, r;
+        if (!json::parse(rq, v, e)) return false;
+        svc.handle(Caller{"Relayed", bbnet::party::ip_parse("198.51.100.200")}, kind, v, r);
+        out = json::dump(r, 0);
+        return true;
+    });
+    rg.set_host_online_id("HostR");
+    rg.set_host_endpoint(bbnet::party::ip_parse("203.0.113.10"), 47795, false);
+    call(svc, "HostR", "context_start", obj({{"OnlineId", "HostR"}, {"SignalingAddr", "192.168.1.112"}, {"SignalingPort", 47795}}));
+    json::Value made = call(svc, "HostR", "create_room", obj({{"OnlineId", "HostR"}}));
+    // The member joined over the LAN: its records carry its LAN address.
+    call(svc, "Member", "context_start", obj({{"OnlineId", "Member"}, {"SignalingAddr", "192.168.56.1"}, {"SignalingPort", 47797}}));
+    call(svc, "Member", "join_room", obj({{"OnlineId", "Member"}, {"RoomId", int_of(made, "RoomId", 0)},
+                                          {"LocalAddr", "192.168.56.1"}, {"LocalPort", 47797}}));
+    json::Value reply;
+    std::string err;
+    CHECK(rg.ok_call("context_start", obj({{"OnlineId", "Relayed"}, {"SignalingAddr", "10.2.0.2"}, {"SignalingPort", 47796}}),
+                     reply, err));
+    auto member_addr = [&](const json::Value& rep, std::string* mapped) {
+        const json::Value* m = rep.find("Members");
+        if (!m) return std::string();
+        for (const json::Value& e : m->array)
+            if (str_of(e, "OnlineId") == "Member") {
+                if (mapped) *mapped = str_of(e, "MappedAddr");
+                return str_of(e, "Addr") + ":" + std::to_string(int_of(e, "Port", 0));
+            }
+        return std::string();
+    };
+    // The bug: the member at its LAN address, which we cannot reach.
+    CHECK(rg.ok_call("join_room", obj({{"RoomId", int_of(made, "RoomId", 0)}}), reply, err));
+    CHECK(member_addr(reply, nullptr) == "192.168.56.1:47797");
+    // The fix: the member's records say where it relays for us.
+    rg.set_peer_endpoint("Member", bbnet::party::ip_parse("203.0.113.10"), 47797);
+    CHECK(rg.ok_call("leave_room", obj({{"SessionId", str_of(reply, "SessionId")}, {"MemberId", int_of(reply, "MemberId", 0)}}),
+                     reply, err));
+    CHECK(rg.ok_call("join_room", obj({{"RoomId", int_of(made, "RoomId", 0)}}), reply, err));
+    std::string mapped;
+    CHECK(member_addr(reply, &mapped) == "203.0.113.10:47797");
+    CHECK(mapped.empty() || mapped == "203.0.113.10");
+    CHECK(rg.ok_call("signaling_resolve", obj({{"OnlineId", "Member"}}), reply, err));
+    CHECK(str_of(reply, "Addr") == "203.0.113.10" && int_of(reply, "Port", 0) == 47797);
+    std::vector<std::string> got;
+    rg.start_events("Relayed", [&](const json::Value& ev) { got.push_back(str_of(ev, "OnlineId") + "@" + str_of(ev, "Addr")); });
+    CHECK(rg.on_link_event(R"({"EventId":1,"Name":"room_member_joined","OnlineId":"Member","Addr":"192.168.56.1","Port":47797})") == 1);
+    CHECK(rg.on_link_event(R"({"EventId":2,"Name":"room_member_joined","OnlineId":"Other","Addr":"192.168.56.9","Port":47798})") == 2);
+    CHECK(got.size() == 2 && got[0] == "Member@203.0.113.10" && got[1] == "Other@192.168.56.9");
+    // The relay gone: the records as the host lists them again.
+    rg.clear_peer_endpoints();
+    CHECK(rg.ok_call("signaling_resolve", obj({{"OnlineId", "Member"}}), reply, err));
+    CHECK(str_of(reply, "Addr") == "192.168.56.1");
+    std::printf("remote guest through a member relay: the member's records use where it relays for us\n");
+}
+
 // BB_PARTY_MAX=4 (a separate run: party_max_members() is read once): host + 3 guests in one room,
 // every member hears the others' joins, a 4th guest is refused.
 static void test_service_four() {
@@ -1228,6 +1292,7 @@ int main() {
     } else {
     test_service();
     test_remote_guest();
+    test_remote_guest_relay_member();
     test_remote_guest_lan();
     test_matching2_host();
     test_from_api();

@@ -4,6 +4,7 @@
 
 #include "../../party_env.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -93,6 +94,8 @@ const char* CommandName(CommandType type) {
     case CommandType::Kick: return "kick";
     case CommandType::AddGuestCode: return "add_guest_code";
     case CommandType::NewCode: return "new_code";
+    case CommandType::AddRelayCode: return "add_relay_code";
+    case CommandType::Gather: return "gather";
     }
     return "?";
 }
@@ -160,6 +163,12 @@ void SetLastEvent(const std::string& text) {
     ++board.version;
 }
 
+std::int64_t ToastMs(const std::string& text) {
+    std::int64_t chars = 0;
+    for (const char c : text) chars += (static_cast<unsigned char>(c) & 0xc0) != 0x80;  // not a continuation byte
+    return std::min<std::int64_t>(3000 + 60 * chars, 10000);
+}
+
 void SetAlert(const std::string& text) {
     std::scoped_lock lock{mutex};
     board.alert = text;
@@ -200,7 +209,7 @@ bool ShareLamps() {
     return g_share_lamps.load();
 }
 namespace {
-std::atomic<bool> g_host_rules[int(HostRule::Count)] = {true, true, true};
+std::atomic<bool> g_host_rules[int(HostRule::Count)] = {true, true, true, true, true, true};
 }  // namespace
 void SetHostRule(HostRule rule, bool on) {
     if (rule < HostRule::Count) g_host_rules[int(rule)].store(on);
@@ -242,6 +251,13 @@ bool RequestNewCode() {
     std::scoped_lock lock{mutex};
     if (board.role != Role::Host) return false;
     Queue({CommandType::NewCode, {}});
+    return true;
+}
+
+bool RequestGather() {
+    std::scoped_lock lock{mutex};
+    if (board.role != Role::Host) return false;
+    Queue({CommandType::Gather, {}});
     return true;
 }
 
@@ -290,7 +306,8 @@ bool RequestCopyGuestCode() {
     return CopyText(code);
 }
 
-bool RequestAddGuestCodeFromClipboard(std::string* got) {
+namespace {
+std::string clipboard_text() {
     std::string text;
 #ifdef _WIN32
     if (OpenClipboard(nullptr)) {
@@ -308,18 +325,40 @@ bool RequestAddGuestCodeFromClipboard(std::string* got) {
         CloseClipboard();
     }
 #endif
+    return text;
+}
+std::string upper_of(const std::string& text) {
+    std::string upper;
+    for (char c : text) upper.push_back(static_cast<char>(c >= 'a' && c <= 'z' ? c - 32 : c));
+    return upper;
+}
+}  // namespace
+
+bool RequestAddGuestCodeFromClipboard(std::string* got) {
+    const std::string text = clipboard_text();
     if (got) *got = text;
     return RequestAddGuestCode(text);
 }
 
 bool RequestAddGuestCode(const std::string& text) {
     if (text.size()>4096) return false;
-    std::string upper;
-    for (char c : text) upper.push_back(static_cast<char>(c >= 'a' && c <= 'z' ? c - 32 : c));
-    if (upper.find("BBG1") == std::string::npos) return false;
+    const std::string upper = upper_of(text);
+    if (upper.find("BBG1") == std::string::npos && upper.find("BBG6") == std::string::npos) return false;
     std::scoped_lock lock{mutex};
     if (board.role!=Role::Host) return false;
     Queue({CommandType::AddGuestCode, text});
+    return true;
+}
+
+bool RequestAddRelayCodeFromClipboard(std::string* got) {
+    const std::string text = clipboard_text();
+    if (got) *got = text;
+    return RequestAddRelayCode(text);
+}
+
+bool RequestAddRelayCode(const std::string& text) {
+    if (text.size() > 4096 || upper_of(text).find("BBG1") == std::string::npos) return false;
+    Queue({CommandType::AddRelayCode, text});
     return true;
 }
 

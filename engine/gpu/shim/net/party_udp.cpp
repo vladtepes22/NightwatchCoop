@@ -3,6 +3,7 @@
 // droogie/bbhost src/hle/net.cpp @8f2746c (moved out of net_socket.cpp).
 #include "party_udp.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -400,8 +401,25 @@ void PeerPaths::on_ack(std::uint32_t addr, std::uint16_t port_nbo, Clock::time_p
     it->second.v.answered = true;
 }
 
+void PeerPaths::set_v6(std::uint32_t addr, std::uint16_t port_nbo, bool has, Clock::time_point now) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = peers_.find(key(addr, port_nbo));
+    if (it == peers_.end() || it->second.v.v6 == has) return;
+    it->second.v.v6 = has;
+    it->second.next_probe6 = now;
+    if (!has) it->second.v.answered6 = it->second.v.via6 = false;
+}
+
+void PeerPaths::on_ack6(std::uint32_t addr, std::uint16_t port_nbo, Clock::time_point now) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = peers_.find(key(addr, port_nbo));
+    if (it == peers_.end() || !it->second.v.v6) return;
+    it->second.last_ack6 = now;
+    it->second.v.answered6 = true;
+}
+
 void PeerPaths::tick(Clock::time_point now, std::vector<std::pair<std::uint32_t, std::uint16_t>>* probes,
-                     std::vector<std::string>* notes) {
+                     std::vector<std::string>* notes, std::vector<std::pair<std::uint32_t, std::uint16_t>>* probes6) {
     std::lock_guard<std::mutex> lk(mu_);
     const auto ms = [](int v) { return std::chrono::milliseconds(v); };
     for (auto& [k, p] : peers_) {
@@ -410,9 +428,31 @@ void PeerPaths::tick(Clock::time_point now, std::vector<std::pair<std::uint32_t,
             if (probes) probes->emplace_back(p.v.addr, p.v.port);
             p.next_probe = now + ms(cfg_.probe_interval_ms);
         }
+        const bool fresh4 = p.v.answered && now - p.last_ack <= ms(cfg_.probe_interval_ms * 3 / 2);
+        const bool fresh6 = p.v.v6 && p.v.answered6 && now - p.last_ack6 <= ms(cfg_.probe_interval_ms * 3 / 2);
+        if (p.v.v6) {
+            if (now >= p.next_probe6) {
+                if (probes6) probes6->emplace_back(p.v.addr, p.v.port);
+                p.next_probe6 = now + ms(cfg_.probe_interval_ms);
+            }
+            // IPv4 while it answers (no change from before), IPv6 once IPv4 is down and IPv6 answers,
+            // back to IPv4 as soon as it answers again (or IPv6 stops answering).
+            const bool v4_down = !p.v.answered ? now - p.added > ms(cfg_.fallback_ms) : now - p.last_ack > ms(cfg_.lost_ms);
+            const bool v6_down = !p.v.answered6 || now - p.last_ack6 > ms(cfg_.lost_ms);
+            const bool keep6 = p.v.via6 ? !fresh4 && !v6_down : v4_down && fresh6;
+            if (keep6 != p.v.via6) {
+                p.v.via6 = keep6;
+                if (notes)
+                    notes->push_back("path to " + addr_text(p.v.addr, p.v.port) +
+                                     (keep6 ? ": IPv4 probes unanswered, IPv6 answers: over IPv6"
+                                            : std::string(": IPv6 no longer needed or answered")));
+            }
+        }
         if (cfg_.force || !p.v.relay_port) continue;
-        const bool fresh_ack = p.v.answered && now - p.last_ack <= ms(cfg_.probe_interval_ms * 3 / 2);
-        const bool lost = !p.v.answered ? now - p.added > ms(cfg_.fallback_ms) : now - p.last_ack > ms(cfg_.lost_ms);
+        const bool any_answered = p.v.answered || p.v.answered6;
+        const Clock::time_point last_any = std::max(p.last_ack, p.v.answered6 ? p.last_ack6 : p.last_ack);
+        const bool fresh_ack = fresh4 || fresh6;
+        const bool lost = !any_answered ? now - p.added > ms(cfg_.fallback_ms) : now - last_any > ms(cfg_.lost_ms);
         const bool want = p.v.relayed ? !fresh_ack : lost;
         if (want != p.v.relayed) {
             p.v.relayed = want;

@@ -63,6 +63,8 @@ u32 SplitTravelText(int which);
 u32 StoryNoticeText(u32 game_message);
 /// The ending question a guest gets when the host reaches an ending.
 u32 EndingQuestionText();
+/// I5: the question a guest gets when the host gathers the party (party_gather.cpp).
+u32 GatherQuestionText();
 const std::vector<Page>& All();
 int FieldCount();
 

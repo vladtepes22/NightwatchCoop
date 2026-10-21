@@ -182,6 +182,7 @@ static StoryState Phantom() {
     StoryState st = OwnWorld();
     st.session_role = 6;
     st.own_world = false;
+    st.map_id = 0x20000000;  // m32_00: the host's map, where the tests' scene 32000000 plays (MirrorMapOk)
     return st;
 }
 
@@ -245,6 +246,59 @@ static void test_mirror_then_replay() {
     CHECK(a && a->kind == StoryAction::SetFlags && a->on && a->flags == std::vector<std::uint32_t>{70002802});
     CHECK(!Until(g, ph, t, 60));
     CHECK(!g.Busy());
+}
+
+// kidnap071 (a player report): the host's Gaol waking scene (28000010, m28) reached guests that
+// were still in the Cathedral Ward (m24_00) and played there without the cell's scenery. A live
+// mirror plays only in its own map; on a guest in another map it is dropped (TakeMirrorOtherMap).
+// User decision 2026-10-21: guests that arrive in the Gaol with the kidnapped host skip its waking
+// scene; the replay keeps the scene's flags (9423).
+static void test_guest_skips_gaol_scene() {
+    CHECK(GuestSkipsScene(28000010));
+    CHECK(!GuestSkipsScene(24010010));  // a boss intro still plays
+    CHECK(!GuestSkipsScene(21000000));
+}
+
+static void test_mirror_needs_its_map() {
+    CHECK(MirrorMapOk(28000010, 0x1c000000));   // m28_00
+    CHECK(!MirrorMapOk(28000010, 0x18000000));  // m24_00
+    CHECK(MirrorMapOk(24010010, 0x18010000));   // Gascoigne's intro in m24_01
+    CHECK(!MirrorMapOk(24010010, 0x18000000));  // ... not over m24_00
+    CHECK(MirrorMapOk(28001040, 0x1c000000));   // the +1000 sibling: the same map
+    CHECK(MirrorMapOk(28000010, 0xffffffffu));  // unknown map: as before
+    GuestStory g;
+    double t = 100;
+    StoryIntent s;
+    s.seq = 1;
+    s.kind = StoryKind::Cutscene;
+    s.id = 28000010;
+    s.instr = 3;
+    CHECK(g.Offer(s, true, t));
+    StoryState ph = Phantom();
+    ph.map_id = 0x18000000;  // m24_00: the host went to the Gaol, this guest did not
+    CHECK(!Until(g, ph, t, 100));
+    std::uint32_t at = 0;
+    CHECK(!g.MirrorPending() && g.TakeMirrorOtherMap(&at) == 28000010 && at == 0x18000000);
+    CHECK(g.TakeMirrorOtherMap() == 0);
+    // Its queued replay (a story scene) does not play there as a summoned replay either.
+    CHECK(g.QueueSize() == 1 && !Until(g, ph, t, 200) && g.QueueSize() == 1);
+    // In the Gaol (the party's load brought it there): the mirror plays.
+    s.seq = 2;
+    CHECK(g.Offer(s, true, t));
+    ph.map_id = 0x1c000000;
+    auto a = Until(g, ph, t, 100);
+    CHECK(a && a->kind == StoryAction::PlayRemo && a->id == 28000010 && a->mirror);
+    PlayToEnd(g, ph, t);
+    t += 1.0 / 60;
+    CHECK(!g.Step(ph, t));
+    CHECK(g.Seen(28000010));
+    // Still loading (no stable world): it waits for the arrival, not dropped.
+    GuestStory w;
+    CHECK(w.Offer(s, true, t));
+    StoryState ld = Phantom();
+    ld.loading = true;
+    CHECK(!Until(w, ld, t, 100));
+    CHECK(w.MirrorPending() && w.TakeMirrorOtherMap() == 0);
 }
 
 // parg (live): a live mirror the guest's own load cut after 1.4 s is not "seen"; the queued
@@ -332,6 +386,7 @@ static void test_missed_scene_replayed_while_summoned() {
     CHECK(g.Offer(s, false, t));
     CHECK(g.QueueSize() == 2 && !g.MirrorPending());
     StoryState ph = Phantom();
+    ph.map_id = 0x1c000000;  // in Yahar'gul (m28_00), the scene's map
     // Not calm (lost HP lately): nothing.
     ph.calm = false;
     CHECK(!Until(g, ph, t, 80));
@@ -787,6 +842,8 @@ int main() {
     test_json();
     test_host_queue();
     test_mirror_then_replay();
+    test_mirror_needs_its_map();
+    test_guest_skips_gaol_scene();
     test_cut_mirror_replayed();
     test_replay_waits_home_when_summoned_off();
     test_missed_scene_replayed_while_summoned();

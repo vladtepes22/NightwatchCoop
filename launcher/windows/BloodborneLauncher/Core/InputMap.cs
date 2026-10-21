@@ -48,6 +48,7 @@ namespace BloodborneLauncher.Core
             new("look_left", L.T("Look left"), L.T("Camera keys"), "", "J", "Right stick"),
             new("look_right", L.T("Look right"), L.T("Camera keys"), "", "L", "Right stick"),
             new("ping", L.T("Ping"), L.T("Co-op"), L.T("Mark the spot you look at for the party"), "B", "Touchpad + R3"),
+            new("gather", L.T("Gather the party"), L.T("Co-op"), L.T("Host: bring every guest to you (each is asked first)"), "H", "Touchpad + L3"),
         };
 
         /// <summary>Keys the port itself uses while the game runs.</summary>

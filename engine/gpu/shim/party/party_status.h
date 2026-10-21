@@ -75,6 +75,8 @@ void SetState(State state, const std::string& detail = {});
 void SetMembers(const std::vector<Member>& members);
 /// A one-line event for the log line and the toast ("Hunter1 joined", "Travelling to ...").
 void SetLastEvent(const std::string& text);
+/// How long the toast shows `text`: 3 s plus 60 ms per character (UTF-8 code points), at most 10 s.
+std::int64_t ToastMs(const std::string& text);
 /// An important notice shown as a message box in the middle of the screen for a while (lines
 /// split by '\n'; the first is its title). Empty clears it.
 void SetAlert(const std::string& text);
@@ -94,7 +96,7 @@ void SetShareLamps(bool on);
 bool ShareLamps();
 /// The host's other rules in force (party_balance; the host's values on a guest once its rules
 /// arrived, else this player's own), for the menus' read-only lines on a guest.
-enum class HostRule { Rot, HostRevive, HostLimboRevive, Count };
+enum class HostRule { Rot, HostRevive, HostLimboRevive, KillRecord, NpcMirror, Gather, Count };
 void SetHostRule(HostRule rule, bool on);
 bool HostRuleOn(HostRule rule);
 /// C4: this player's rot stacks per kind (party_balance; health, stamina, stamina cost, rally,
@@ -107,12 +109,12 @@ void Rot(int kind[kRotKinds]);
 bool Enabled();
 
 // --- commands: UI -> party code ---
-enum class CommandType : std::uint8_t { Leave, Rejoin, Kick, AddGuestCode, NewCode };
+enum class CommandType : std::uint8_t { Leave, Rejoin, Kick, AddGuestCode, NewCode, Gather, AddRelayCode };
 const char* CommandName(CommandType type);
 
 struct Command {
     CommandType type = CommandType::Leave;
-    std::string name;  // Kick: the member's name; AddGuestCode: the code text
+    std::string name;  // Kick: the member's name; AddGuestCode / AddRelayCode: the code text
 };
 
 void RequestLeave();
@@ -120,6 +122,8 @@ void RequestRejoin();
 /// Host: a new party code (the old one stops working). False (nothing queued) when this player
 /// is not the host.
 bool RequestNewCode();
+/// Host: I5 "Gather the party" (party_gather.h). False (nothing queued) when this player is not the host.
+bool RequestGather();
 /// Host only: false (nothing queued) when this player is not the host, the name is empty or
 /// not a remote member of the current roster.
 bool KickMember(const std::string& name);
@@ -134,6 +138,11 @@ bool RequestCopyGuestCode();
 /// when the clipboard holds no BBG1 text. `got` (optional): the text.
 bool RequestAddGuestCodeFromClipboard(std::string* got = nullptr);
 bool RequestAddGuestCode(const std::string& text);
+/// Guest (F2, 0.7.1): queues a member's guest code on the clipboard: a member that may relay for us
+/// when the host cannot be reached directly ("Join through a member"). False when it holds no BBG1.
+bool RequestAddRelayCodeFromClipboard(std::string* got = nullptr);
+/// The same for a code the launcher passes (party_command.json add_relay_code).
+bool RequestAddRelayCode(const std::string& text);
 /// The director, once a frame: true and *out filled while commands are queued (FIFO; at most 16
 /// kept, a repeated Leave / Rejoin / Kick of the same name is coalesced).
 bool PopCommand(Command* out);

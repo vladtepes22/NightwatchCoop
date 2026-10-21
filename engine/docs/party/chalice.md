@@ -165,10 +165,12 @@ Before this work the party answered `word_search` / `random_join` with `{"ResKin
   an area-29 map). A member whose own ritual dungeon was selected (slot 1..) loaded m255 and was
   sent home (live: `slot 1's record holds no dungeon`). party_chalice retargets that one read to
   the quick-joined slot while its record holds a dungeon (`map load: the quick-joined slot 0's
-  dungeon, not the current slot 1's`); the member's save keeps its own selection. In load mode 1
-  the record is also written under the current slot (the load-mode-1 storage only carries the slot
-  bit), so later loads in the host's world find it, and that copy is never uploaded as the
-  member's own ritual.
+  dungeon, not the current slot 1's`); the member's save keeps its own selection. The retarget
+  stays on for the later loads in the host's world (load mode 1 with the dungeon carried), and an
+  own-world load (load mode 0) ends it, also after a quick join that never loaded. Nothing is
+  written under the current slot: the slot records are not part of the load-mode-1 storage, and a
+  copy written there replaced the member's own slot-1 dungeon in its save after a summoned save
+  (live test); only the quick-joined slot's own record is carried.
 * So what the party needs is that **get_details_info finds the host's dungeon**: the host's game
   uploads it when it performs the ritual / resumes it online (helper steps 5-6, ChannelUpload), and
   the board keeps it. **Our rule** (FromApi::sign_get): a host whose sign query is in area 29 gets
@@ -220,15 +222,17 @@ Before this work the party answered `word_search` / `random_join` with `{"ResKin
 
 ## 5. Progress and rewards
 
-* **Chalices for everyone** (party_chalice.h): the chalices (goods 6100..6539 that are
-  HolygrailExParam rows; isOnlyOne, never consumed by a ritual) any member owns go to every member
+* **Chalices for everyone** (party_chalice.h): the fixed chalices (goods 6109..6539 ending in 9:
+  HolygrailExParam rows with isGenericHolygrail 0; isOnlyOne, never consumed by a ritual) any member owns go to every member
   that lacks them (`chalice_goods` event, every change and every 60 s): a guest sends its list to
   the host, the host gives itself the missing ones and broadcasts its (now merged) list, and each
   guest gives itself the missing ones in its own world (load mode 0; GiveItemDirect). Whichever
   member's dungeon the party clears, every member can perform the next ritual itself, and the host
   can open the altar menu for a dungeon a guest made (the altar refuses everything with "A Holy
   Chalice is required to conduct a ritual." when the player owns no chalice, run c16). A peer's
-  list is filtered to the 25 chalice ids (no other goods can be given this way).
+  list is filtered to the 10 fixed chalice ids (no other goods can be given this way). Root Chalices
+  (isGenericHolygrail 1, the ids not ending in 9) are used up by their ritual and are not shared (0.7.1:
+  before, another member's copy gave a used one back); each player gets its own from the boss (ItemSource).
 * Dungeon flags (layer doors, boss kills, treasure in area 29, 1100xxxxx / 2001xxxxx lots) live in
   the **slot's own groups** (areas 40..47 remapped from area 29 by the slot), so a summoned guest
   (load mode 1, the host's overlay) never progresses its own copy, exactly like vanilla. They are
@@ -346,10 +350,11 @@ Before this work the party answered `word_search` / `random_join` with `{"ResKin
   was already at the top (the car starts there) or from 0.5 m further back.
 * **Layer 2**: the next layer boss 2900200 (MSB (56.3, -59.7, -35.2)) is not loaded at the bottom of
   the first lift (host_kill: NOT loaded); a real descent through layer 2 needs its route (not done).
-  Lamps 2902950..2902959 are the dungeon's ReturnPoints; the lamp objects 2900950..2900958 stand at
-  (40, 31.5, -54) layer 1 start, (-48.1, 30.7, -93.4) layer 1 boss room, (-106, 10.1, -89.8),
-  (-132.7, 17.4, -15.5), (-128, -10.9, 53.2), (24.5, -17, 49.5), (98.7, -59.9, 50), (95, -66, -115.5)
-  (a lamp id +2000 = its object id is a guess, not checked).
+  Lamps 2902950..2902959 are the dungeon's ReturnPoints; the lamp objects are **2901950 + n** (checked
+  live, chalamp probe: log_obj): 2901950 (40, 31.5, -54) layer 1 start, 2901951 (37, 31.1, -92.2),
+  2901952 (-48.2, 30.6, -93.4) layer 1 boss room (return point 2902952, talk t290112), 2901953 (-106,
+  10.1, -89.8), 2901954 (-132.7, 17.4, -15.5), 2901955 (-128, -10.9, 53.2), 2901956 (24.5, -17.5, 49.5),
+  2901957 (98.7, -59.9, 50), 2901958 (95, -66.5, -115.5) (Pthumeru Chalice layout, chalice_pthumeru_inside).
 * **Since 0.5.2 work (2026-10-11, runs c24-c26)**:
   - a guest's current dungeon (from any session) reaches the host's board through its FormData event
     and becomes the party's dungeon at the host's altar (`dungeon N of Hunter1 (slot 1): FormData
@@ -442,3 +447,63 @@ Before this work the party answered `word_search` / `random_join` with `{"ResKin
   - **K10c**: the guest's boss-clear Lua state scheduled the farewell message ("The final battle has ended. It is
     time to bid farewell.", event 0xFF9 `RecallMenuEvent_MisssionClear_forNormalCoop`, call 0x13855DB) although
     the party stays; it is skipped while the party is on (`BB_PARTY_BOSS_FAREWELL=1`: vanilla). g1z: no box.
+
+## 8. The dungeon lamps in a party (chalamp, 2026-10-21)
+
+A tester's report (a derivative build, 2 players): the lamps could be lit but did nothing else; a guest that
+died was sent to the Hunter's Dream and could not get back in until the host restarted; the host died, got up
+"at the first lamp" and could not leave. All three reproduced from the logs and fixed on master:
+
+* **The lamps (C, logs + live)**: a dungeon lamp is talk **t290110 + n** (lamp 2902950 + n; ids in
+  `m29_00_00_00.talkesdbnd`), not one of the world lamps' tAAB000..003 (`LampTalk`). Its "Return to the
+  Hunter's Dream" sets 72900100 + n; m29's event 12907020 then warps to the Dream's altar spot **2102954 +
+  slot** (one per slot flag 9020..9026), not 2102950. Its talk tests IsMultiplayerInProgress / IsClientPlayer
+  shut the lamp while anyone is summoned (the tester's host log: `talk t290114 asks IsMultiplayerInProgress
+  (left as is)`). party_guestsvc `ChaliceLampTalk` answers both 0 in party mode, for host and guests
+  (`... (Chalice Dungeon lamp: answered 0)`); no setting (an off would bring the softlock back; a
+  `BB_PARTY_CHALICE_LAMPS=0` escape hatch for tests only). The lamp's warp then takes the party's usual
+  path (split question / host-led travel; a guest's becomes its lamp request). Lamp travel's warp menu does
+  not apply in area 29 (no table lamp within 15 m: the vanilla question), so `BB_LAMP_TRAVEL` makes no
+  difference here. Travel between two dungeon lamps is the altar's "Select location to awaken in" (vanilla).
+* **The host's revive spot (C, live)**: party_ids' ReturnSpot table comes from the m29 template MSB; a
+  generated dungeon puts its lamps elsewhere (tester: lamp 2902952 lit in the boss room at (-48, 30.5, -93),
+  the revive put the host at the table's (-127.2, 20.4, -20.0)). `deathrules::LampTableSpotTrusted` keeps
+  area-29 lamps out of the table; `LampSpotTick` records the spot where the host stood when its last-lamp
+  record changed to a dungeon lamp in the world (`lamp spot: Chalice Dungeon lamp N lit / used ...`), and a
+  host death with no seen spot takes the host's lone load to the lamp (the game's own placement; the guests
+  stay and are re-joined, live cl2).
+* **A guest's death (C, live)**: outside a boss fight a dead guest went to its OWN last lamp (the Dream:
+  an alone load) and stayed apart; a dungeon is entered only by the summon, its game's send-home is dropped
+  while apart, and the host's travels into the dungeon are "not followed", so nothing brought it back. Now
+  (bbport.ini `party_chalice_rejoin`, System > Chalice Dungeons, launcher; default on) it gets up beside the
+  nearest living member, no load (`guest: died in the host's Chalice Dungeon ...: up again beside the nearest
+  living member`); and `ChaliceApartTick`: a guest still in the session but apart in a map outside area 29
+  while the host's roster map is in area 29. **User decision (option b)**, `deathrules::PlanChaliceApart`:
+  after a death or a forced trip (a death respawn, a scripted warp / kidnap, a host travel it could not
+  follow) it leaves the session after 6 s (`chalice: this guest is apart ...`) and its bell's summon
+  quick-joins it in again; after its OWN choice (party_split `Carry` alone at a lamp / headstone, its own
+  Hunter's Mark: `NoteChosenApart`, `chalice: the guest's own choice ...`) it stays out with a one-time
+  notice "The host is in a Chalice Dungeon: Party > Rejoin to go back". Party > Rejoin then leaves the
+  session first (`ChaliceRejoinPressed`, `deathrules::ChaliceRejoinLeavesFirst`: still a session client,
+  apart, host in a dungeon), and the bell's summon brings it in. A death clears the choice; so does the
+  host leaving its dungeon (a later host trip into one is then a forced trip) or the guest back in it.
+  Party > Leave was already a choice (out of the session, no bell until Rejoin).
+* **Smoke `chalamp`** (phase cl, host fixture `chalice_pthumeru_inside`, guest the default save; cl5 16/16;
+  with option b's case cl8 23/23: guest 1's lamp to the Dream answered alone (`BB_PARTY_TRAVEL_CHOICE=alone`
+  on it) -> stays out with the notice 20 s, no send-home -> `guest_rejoin:now` (new: the press while still
+  in the session) -> home first -> summoned into the dungeon):
+  light 2901952, guest death (up beside the host), host death (revive at (-49.4, 30.5, -93.4)), the lamp to the
+  Dream (both in m21_00, party travel), `host_lamp=2902952` from the Dream (the altar's warp: host in alone,
+  the guest apart -> home -> summoned back, both in m29 at the lamp). Not run live: a guest's own use of a
+  dungeon lamp (its talk answers 0, `t290112 asks IsClientPlayer (Chalice Dungeon lamp: answered 0)`).
+* **A boss paid once (0.7.1, cl9)**: cl6 / cl8 showed every re-summon into the cleared dungeon paying the
+  layer boss again (`boss clear on this game (BlockClear2): boss 2900100, clear bonus 1995`, Insight 6 -> 7).
+  Cause (verified): `ChaliceLeaveSession` used a bare BeginLeave, so an apart guest stayed in its
+  host-world-mode alone load (load mode 1, no chalice slot bit: `slot -1`); the next summon's SetLoadMode(1)
+  found mode 1 already and carried no slot record, the area-29 flags read as none, the boss came up alive,
+  died at once and its defeat ran on the guest. Fix: the game's own leave with the load home
+  (`coop::LeaveGameSession`, OnLeave_Limit): cl9 shows `load mode 0` at home, `slot 0's record ... carried
+  over` at each re-summon, `kill seen: entity 2900100 ... (paid 0)`, no clear. Guard behind it:
+  BlockClear2 (0x13849A0) returns at once on a summoned guest within 15 s of its arrival
+  (`deathrules::StaleBossClear`; a guest never arrives into a running boss fight), log `boss clear of boss N
+  skipped on this guest`; it did not need to fire in cl9.
