@@ -379,8 +379,12 @@ namespace BloodborneLauncher.Core
 
         private static void ReplaceSelf(string self, string replacement)
         {
+            // The exe an earlier update moved aside can still be running (a launcher window left open)
+            // or be read-only, and then cannot be deleted ("Access to the path ... .old is denied"):
+            // this update moves the running exe to a name of its own instead. CleanUp removes them all.
             var aside = self + ".old";
-            if (File.Exists(aside)) File.Delete(aside);
+            if (File.Exists(aside) && !TryDelete(aside))
+                aside = self + "." + DateTime.Now.ToString("yyyyMMddHHmmss") + ".old";
             File.Move(self, aside);
             try
             {
@@ -412,17 +416,35 @@ namespace BloodborneLauncher.Core
             }
         }
 
-        /// <summary>Removes the exe an update moved aside (it was still running then).</summary>
+        /// <summary>Removes the exes updates moved aside (they were still running then).</summary>
         public static void CleanUp()
         {
             try
             {
-                if (Environment.ProcessPath is { } self && File.Exists(self + ".old"))
-                    File.Delete(self + ".old");
+                if (Environment.ProcessPath is not { } self) return;
+                var name = Path.GetFileName(self);
+                foreach (var old in Directory.GetFiles(Path.GetDirectoryName(self)!, name + ".*old"))
+                    TryDelete(old); // still in use for a moment: removed next time
             }
-            catch
+            catch (Exception)
             {
-                // Still in use for a moment; removed next time.
+            }
+        }
+
+        /// <summary>Deletes a file, read-only or not; false when it cannot be deleted now.</summary>
+        private static bool TryDelete(string path)
+        {
+            try
+            {
+                var attributes = File.GetAttributes(path);
+                if (attributes.HasFlag(FileAttributes.ReadOnly))
+                    File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+                File.Delete(path);
+                return true;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                return false;
             }
         }
 
