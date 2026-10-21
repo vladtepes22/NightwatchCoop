@@ -8,6 +8,7 @@
 #include "../bbport_settings.h"
 #include "../bbport_overlay.h"
 #include "../engine/option_menu.h"
+#include "../party/party_ping.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <atomic>
@@ -169,6 +170,8 @@ extern "C" int bbgpu_pc_input(BbPcPad* d,const bool* keys,int nkeys,int gamepad_
         // it is let go of: the menu state lags the closing by a few frames, and W held through a
         // prompt was a d-pad up in the world (HP turned into Quicksilver Bullets).
         static uint32_t dpad_blocked=0, last_buttons=0;
+        static bool ping_held=false;  // a Ping key held through a menu sends nothing when it closes
+        if(menu)ping_held=held[kBindPing];
         uint32_t dpad_held=0;
         if(keys) {
             if(keys[SDL_SCANCODE_UP]||held[kBindMoveF])dpad_held|=0x10;
@@ -197,6 +200,10 @@ extern "C" int bbgpu_pc_input(BbPcPad* d,const bool* keys,int nkeys,int gamepad_
         }else {
             bool mh[kBindCount]={};host_bindings_mouse_held(buttons|edges|(scroll>0?32:scroll<0?64:0),mh);
             host_bindings_apply(mh,held[kBindStrongMod]||mh[kBindStrongMod],p);
+            // The Ping key (co-op): one ping per press, in the world only.
+            const bool ping=held[kBindPing]||mh[kBindPing];
+            if(ping && !ping_held && coop::ping::Enabled())coop::ping::Request("Ping key");
+            ping_held=ping;
             float x,y;if(camera && mouse_camera_flick(x,y)){
                 p.rx=uint8_t(std::clamp(127+int(127*x),0,254));p.ry=uint8_t(std::clamp(127+int(127*y),0,254));}
         }

@@ -74,6 +74,9 @@ const BindingInfo kInfo[kBindCount] = {
     {"back", "Menu Back", "Return, in menus.", 0, "Backspace", 0},
 
     {"l3", "Left Stick Press", "L3.", kL3, "Left Ctrl", 0},
+    // Co-op: marks the spot the camera looks at for the party (party_ping.h), as the touchpad + R3
+    // does on a pad. Not a pad press: input.cpp sends it on the press, outside menus.
+    {"ping", "Ping", "Co-op: mark the spot you look at for the party.", 0, "B", 0},
     // The developers' debug menu: not a pad press at all. The patch opens it
     // on the touchpad's left side, which is also Gestures; this key toggles
     // the menu itself (engine/debug_menu.h), when the Debug Menu plugin is

@@ -103,6 +103,7 @@ namespace BloodborneLauncher.Core
                     ["personal_effects"] = "Backspace",
                     ["menu"] = "Escape",
                     ["walk"] = "Left Alt",
+                    ["ping"] = "V",
                 }, BuiltIn: true),
             new("Keyboard only", "visy", L.T("visy's classic layout without the mouse: camera on I J K L, 3 attack, F strong attack, R firearm, ") +
                 L.T("1 transform, C lock on, Space interact, Left Shift dodge, Q Blood Vial, E quick item."),
@@ -129,6 +130,7 @@ namespace BloodborneLauncher.Core
                     ["personal_effects"] = "Backspace",
                     ["menu"] = "F1",
                     ["walk"] = "Left Alt",
+                    ["ping"] = "V",
                 }, BuiltIn: true),
         };
         // ---------------------------------------------------------------- saved profiles
