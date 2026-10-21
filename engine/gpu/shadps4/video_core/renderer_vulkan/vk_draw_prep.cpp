@@ -393,6 +393,7 @@ void DrawPreparation::ScannerLoop(std::stop_token stop) {
 void DrawPreparation::WorkerLoop(std::stop_token stop, u32 index) {
     Common::SetCurrentThreadName(("bb:DrawPrep" + std::to_string(index)).c_str());
     BbThreads::MakeBackground();
+    bb_fault_recovers_only = true; // its faults leave the draw to the GPU thread
     auto regs = std::make_unique<AmdGpu::Regs>();
     constexpr u64 NoPosition = ~0ull;
     u64 position = NoPosition; ///< `regs` holds the state at the start of this buffer
@@ -457,6 +458,19 @@ void DrawPreparation::WorkerLoop(std::stop_token stop, u32 index) {
             if (ordinal < target->num_draws &&
                 target->seq >= gpu_seq.load(std::memory_order_acquire)) {
                 auto& draw = target->draws[ordinal];
+                // bbport: the draw's other guest reads (shader headers in GetParams, the vertex
+                // buffer table in PrepareVertexInputs) recover too. Handled, such a fault sent a
+                // readback to the GPU command thread and waited for it; on memory the guest has
+                // protected or freed meanwhile it faulted again forever, or ended the game.
+                // GetProgram's own recovery point (inside programs_mutex) hands back to this one.
+                BbRecoverBuf recover;
+                if (BB_RECOVER_SET(recover)) {
+                    runtime_fault_recover = nullptr;
+                    draw.state.store(PreparedDraw::Unavailable, std::memory_order_release);
+                    ++ordinal;
+                    return;
+                }
+                runtime_fault_recover = &recover;
                 prep_worker.stages.clear();
                 prep_worker.failed = false;
                 sel.draw_indirect_params = {};
@@ -486,6 +500,7 @@ void DrawPreparation::WorkerLoop(std::stop_token stop, u32 index) {
                 } else {
                     draw.state.store(PreparedDraw::Unavailable, std::memory_order_release);
                 }
+                runtime_fault_recover = nullptr;
             }
             ++ordinal;
         });

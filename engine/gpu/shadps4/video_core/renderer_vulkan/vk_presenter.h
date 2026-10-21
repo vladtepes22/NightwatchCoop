@@ -199,8 +199,11 @@ private:
     /// bbport: frame generation and its own presentation frames (outside free_queue: the game
     /// never waits for one; a busy one is in a frame on its way to the swap thread).
     std::unique_ptr<FrameGenerator> frame_gen;
-    std::array<Frame, 2> generated_frames{};
-    std::array<std::atomic<bool>, 2> generated_busy{};
+    /// One per game frame between preparation and the swap thread: with 2, every third frame
+    /// found both busy and got no generated frame (100 FPS shown instead of 120, beta 9.8).
+    static constexpr size_t NumGeneratedFrames = 4;
+    std::array<Frame, NumGeneratedFrames> generated_frames{};
+    std::array<std::atomic<bool>, NumGeneratedFrames> generated_busy{};
 };
 
 } // namespace Vulkan

@@ -587,6 +587,18 @@ private:
         bool is_written;
     };
     boost::container::static_vector<BoundBuffer, Shader::NUM_BUFFERS> bound_buffers;
+    /// bbport: uniform buffers bound by BindBuffers outside the constant ring (BB_FRAME_STATS):
+    /// at an aligned offset, with an offset in the push data, or copied by the CPU or the GPU to an
+    /// aligned place
+    /// (Profile::uniform_exact_base). Ring bindings are counted too.
+    struct UboStats {
+        u64 ring = 0;
+        u64 in_place = 0;
+        u64 offset = 0;
+        u64 staged = 0;
+        u64 copied = 0;
+    } ubo_stats;
+    void ReportUboStats();
 
     u32 set_write_index{};
     Pipeline::DescriptorWrites set_writes;

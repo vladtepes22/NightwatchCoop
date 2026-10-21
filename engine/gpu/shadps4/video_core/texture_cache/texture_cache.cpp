@@ -360,7 +360,10 @@ void TextureCache::DownloadImageMemory(ImageId image_id, bool sync) {
         Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(image.info.guest_address),
                                                   download.mapped, download_size);
         if (!WriteTracking()) {
-            buffer_cache.InvalidateMemory(image.info.guest_address, download_size);
+            // bbport: the caches' own thread (stage A drained, or the draw recording thread):
+            // a readback the range needs runs here. Sent to the GPU command thread, it waited
+            // for that thread, or for this one, which never came back to run it.
+            buffer_cache.InvalidateMemory(image.info.guest_address, download_size, true);
         }
     } else {
         scheduler.DeferPriorityOperation(
@@ -517,7 +520,7 @@ bool TextureCache::WriteBackTiledImage(ImageId image_id) {
     image.mip_hashes_current = false;
     // Guest memory changed under the copies made of it, even by a partial store.
     if (!WriteTracking()) {
-        buffer_cache.InvalidateMemory(address, size);
+        buffer_cache.InvalidateMemory(address, size, true); // the caches' thread (see above)
     }
     // As a CPU write over them would: re-uploaded from guest memory at their next use.
     for (const ImageId other_id : overlapping) {
@@ -618,8 +621,15 @@ u64 TextureCache::MaybeDirtyHash(const Image& image) {
 
 void TextureCache::MarkAsMaybeDirty(ImageId image_id, Image& image) {
     if (image.hash == 0) {
-        // Initialize hash
-        image.hash = MaybeDirtyHash(image);
+        // Initialize hash. bbport: from a copy read by CopySparseMemory (through the backing view
+        // with BB_READBACKS=2), the same bytes MaybeDirtyHash reads. This runs in the fault
+        // handlers with `mutex` held: a read fault on a GPU-written page of the image sent a
+        // guest thread to wait for the GPU command thread, which drains the draw recording
+        // thread first, which waited for `mutex`.
+        std::vector<u8> bytes(image.info.guest_size);
+        Core::Memory::Instance()->CopySparseMemory(image.info.guest_address, bytes.data(),
+                                                   bytes.size());
+        image.hash = GuestMemoryHash(bytes.data(), bytes.size());
     }
     image.flags |= ImageFlagBits::MaybeCpuDirty;
     UntrackImage(image_id);

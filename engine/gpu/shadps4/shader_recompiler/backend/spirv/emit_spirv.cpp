@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
+#include <cstdio>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -430,6 +432,28 @@ void DefineEntryPoint(const Info& info, EmitContext& ctx, Id main) {
         }
         if (info.stores.GetAny(IR::Attribute::Depth)) {
             ctx.AddExecutionMode(main, spv::ExecutionMode::DepthReplacing);
+        }
+        // bbport: the game asked for the depth test before this shader. Not when the shader
+        // decides what the test sees (its depth, stencil value or coverage), nor with clip
+        // distances emulated by a discard here, which must reject a fragment before it writes.
+        {
+            const bool early =
+                ctx.runtime_info.hw.fs.depth_first && !ctx.runtime_info.hw.fs.clip_distance_emulation &&
+                !info.stores.GetAny(IR::Attribute::Depth) &&
+                !info.stores.GetAny(IR::Attribute::StencilRef) &&
+                !info.stores.GetAny(IR::Attribute::SampleMask);
+            if (early) {
+                ctx.AddExecutionMode(main, spv::ExecutionMode::EarlyFragmentTests);
+            }
+            // How many pixel shaders the game draws depth-first (a line per 256 translated).
+            static std::atomic<u32> translated{0}, depth_first{0}, made_early{0};
+            depth_first += ctx.runtime_info.hw.fs.depth_first ? 1 : 0;
+            made_early += early ? 1 : 0;
+            if (++translated % 256 == 0) {
+                std::printf("Early depth: %u of %u pixel shaders drawn with DEPTH_BEFORE_SHADER, "
+                            "%u of them with early fragment tests\n",
+                            depth_first.load(), translated.load(), made_early.load());
+            }
         }
         break;
     case SwStage::Geometry:

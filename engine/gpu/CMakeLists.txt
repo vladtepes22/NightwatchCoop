@@ -240,9 +240,10 @@ target_sources(bbgpu PRIVATE third_party/imgui/imgui.cpp third_party/imgui/imgui
 target_include_directories(bbgpu PRIVATE third_party/imgui third_party/imgui/backends)
 target_compile_definitions(bbgpu PRIVATE IMGUI_IMPL_VULKAN_NO_PROTOTYPES
     BB_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/DejaVuSans.ttf"
+    BB_CJK_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/LanternMenuSC.ttf"
     BB_KEYCAP_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/misc/fonts/Roboto-Medium.ttf")
 set_source_files_properties(shim/bbport_overlay.cpp PROPERTIES
-    OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/DejaVuSans.ttf)
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/DejaVuSans.ttf;${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/LanternMenuSC.ttf")
 # Keyboard prompts' keycaps (shim/engine/keycap_art.cpp): Roboto Medium (Apache License 2.0).
 set_source_files_properties(shim/engine/keycap_art.cpp PROPERTIES
     OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/misc/fonts/Roboto-Medium.ttf)

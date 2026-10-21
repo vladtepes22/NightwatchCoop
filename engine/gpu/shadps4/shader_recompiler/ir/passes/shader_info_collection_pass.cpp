@@ -146,11 +146,13 @@ void Visit(Info& info, const IR::Inst& inst, const Profile& profile) {
     case IR::Opcode::ReadConst:
         if (!info.has_readconst) {
             // bbport: native shaders read the flattened user data (a few dozen dwords, written for
-            // every draw) as a uniform buffer.
+            // every draw) as a uniform buffer, unless BB_UBO_FLATBUF=0 or BB_UBO_STAGES leaves
+            // this stage out.
             info.buffers.push_back({
                 .used_types = IR::Type::U32,
                 .buffer_type = BufferType::Flatbuf,
-                .is_uniform = profile.uniform_constant_buffers,
+                .is_uniform = profile.uniform_constant_buffers && !profile.flatbuf_storage &&
+                              !((profile.uniform_stage_skip >> static_cast<u32>(info.sw_stage)) & 1),
             });
             info.has_readconst = true;
         }

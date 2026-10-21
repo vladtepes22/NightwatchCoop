@@ -66,5 +66,11 @@ int runtime_savepolicy_check(const char*, const char*, int, SavePolicyCheck*) { 
 const char* runtime_savepolicy_dir(void) { return "savedata"; }
 const char* runtime_symbol(const char*) { return nullptr; }
 int runtime_win_thread_name(uint32_t, char*, size_t) { return 0; }
+void runtime_rwlock_census(uint64_t* live, uint64_t* found, uint64_t* steps) { *live = *found = *steps = 0; }
+void runtime_sema_census(uint64_t* live, uint64_t* found, uint64_t* steps) { *live = *found = *steps = 0; }
+void runtime_thread_census(uint64_t* made, uint64_t* finished, uint64_t* found, uint64_t* steps) {
+    *made = *finished = *found = *steps = 0;
+}
+uint64_t runtime_memory_regions() { return 0; }
 }
 

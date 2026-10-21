@@ -33,6 +33,12 @@
 
 extern "C" void runtime_sleep_stats(uint64_t* calls, uint64_t* ns);
 extern "C" void runtime_wait_report(double frames);
+extern "C" void runtime_rwlock_census(uint64_t* live, uint64_t* found, uint64_t* steps);
+extern "C" void runtime_sema_census(uint64_t* live, uint64_t* found, uint64_t* steps);
+extern "C" void runtime_thread_census(uint64_t* made, uint64_t* finished, uint64_t* found,
+                                      uint64_t* steps);
+extern "C" uint64_t runtime_memory_regions(void);
+extern "C" uint64_t runtime_heap_growths(void);
 #include "video_core/page_manager.h"
 #include "core/libraries/videoout/videoout_error.h"
 #include "sdl_window.h"
@@ -408,6 +414,62 @@ static void LogRam() {
     std::fflush(stdout);
 }
 
+/// bbport: what each frame costs and the counts that could grow with every area load, after the
+/// "Memory:" line, without BB_FRAME_STATS: FPS falling over a session (90 to 50 after a few
+/// deaths, players 2026-10) shows here as one of them climbing with it. `flips` and
+/// `worst_ms`, `slow` (frames over 33 ms) since the last call, `seconds` ago.
+static void LogLoad(double seconds, u64 flips, double worst_ms, u64 slow) {
+    struct Snapshot {
+        u64 draws, dispatches, cpu_us, faults, tracker_faults, protects, protect_pages;
+        u64 rw_found, rw_steps, sema_found, sema_steps, thread_found, thread_steps;
+    };
+    static Snapshot last{};
+    Snapshot now{};
+    now.draws = BbStats::draws.load(std::memory_order_relaxed);
+    now.dispatches = BbStats::dispatches.load(std::memory_order_relaxed);
+    if (BbPlatform::Usage usage; BbPlatform::GetUsage(false, usage)) {
+        now.cpu_us = usage.user_us + usage.sys_us;
+        now.faults = usage.minor_faults;
+    }
+    now.tracker_faults = BbStats::tracker_faults.load(std::memory_order_relaxed);
+    now.protects = BbStats::protect_calls.load(std::memory_order_relaxed);
+    now.protect_pages = BbStats::protect_pages.load(std::memory_order_relaxed);
+    u64 rwlocks = 0, semas = 0, made = 0, finished = 0;
+    runtime_rwlock_census(&rwlocks, &now.rw_found, &now.rw_steps);
+    runtime_sema_census(&semas, &now.sema_found, &now.sema_steps);
+    runtime_thread_census(&made, &finished, &now.thread_found, &now.thread_steps);
+    const bool first = last.draws == 0 && last.cpu_us == 0;
+    const double frames = static_cast<double>(std::max<u64>(flips, 1));
+    const double secs = std::max(seconds, 1.0);
+    // The frame stats (BB_FRAME_STATS) reset some of these counters every window: a counter
+    // below its last value started again (a garbage rate in 9.9's first logs).
+    const auto delta = [](u64 a, u64 b) { return a >= b ? a - b : a; };
+    const auto per_s = [&](u64 a, u64 b) { return first ? 0.0 : double(delta(a, b)) / secs; };
+    const auto steps = [](u64 found, u64 walked) {
+        return found ? double(walked) / double(found) : 0.0;
+    };
+    std::printf("Load: %.1f FPS (%llu over 33 ms, worst %.0f ms), %.0f draws and %.0f dispatches a "
+                "frame; CPU %.1f cores, %.0f page faults/s; write faults %.0f/s, protects %.0f/s "
+                "(%.0f pages/s), hot pages %lld; threads %llu live of %llu, rwlocks %llu (%.1f "
+                "steps, %.0f/s), semaphores %llu (%.1f steps), memory map %llu regions, heap "
+                "growths %llu\n",
+                double(flips) / secs, static_cast<unsigned long long>(slow), worst_ms,
+                first ? 0.0 : double(delta(now.draws, last.draws)) / frames,
+                first ? 0.0 : double(delta(now.dispatches, last.dispatches)) / frames,
+                per_s(now.cpu_us, last.cpu_us) / 1e6, per_s(now.faults, last.faults),
+                per_s(now.tracker_faults, last.tracker_faults), per_s(now.protects, last.protects),
+                per_s(now.protect_pages, last.protect_pages),
+                static_cast<long long>(BbStats::hot_pages.load(std::memory_order_relaxed)),
+                static_cast<unsigned long long>(made - finished),
+                static_cast<unsigned long long>(made), static_cast<unsigned long long>(rwlocks),
+                steps(delta(now.rw_found, last.rw_found), delta(now.rw_steps, last.rw_steps)),
+                per_s(now.rw_found, last.rw_found), static_cast<unsigned long long>(semas),
+                steps(delta(now.sema_found, last.sema_found), delta(now.sema_steps, last.sema_steps)),
+                static_cast<unsigned long long>(runtime_memory_regions()),
+                static_cast<unsigned long long>(runtime_heap_growths()));
+    last = now;
+}
+
 void VideoOutDriver::Flip(const Request& req) {
     BbFreeze::NoteFlip();
     // Update HDR status before presenting, then present the frame (bbport: on the swap thread).
@@ -435,9 +497,26 @@ void VideoOutDriver::Flip(const Request& req) {
 
     {
         static auto next_ram = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-        if (const auto now = std::chrono::steady_clock::now(); now >= next_ram) {
+        // bbport: flips since the last report, for LogLoad.
+        static auto load_start = std::chrono::steady_clock::now(), load_last = load_start;
+        static u64 load_flips = 0, load_slow = 0;
+        static double load_worst_ms = 0.0;
+        const auto flip_time = std::chrono::steady_clock::now();
+        const double flip_ms =
+            std::chrono::duration<double, std::milli>(flip_time - load_last).count();
+        load_last = flip_time;
+        ++load_flips;
+        load_slow += flip_ms > 33.0;
+        load_worst_ms = std::max(load_worst_ms, flip_ms);
+        if (const auto now = flip_time; now >= next_ram) {
             next_ram = now + std::chrono::seconds(60);
             LogRam();
+            LogLoad(std::chrono::duration<double>(now - load_start).count(), load_flips,
+                    load_worst_ms, load_slow);
+            std::fflush(stdout);
+            load_start = now;
+            load_flips = load_slow = 0;
+            load_worst_ms = 0.0;
         }
     }
 
@@ -1002,13 +1081,18 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     // frames are shown (BbSettings::frame_gen_active), back to the limit above otherwise.
     const u32 base_limit = frame_limit;
     const u32 half_refresh = Frontend::DisplayRefreshHz() / 2;
+    // The frame limit caps the frames shown, generated ones included: the game runs at half of
+    // it (a 120 FPS limit is 60 + 60 generated, not 120 + 120).
     const auto effective_limit = [&] {
         const auto& s = BbSettings::Get();
-        if (half_refresh < 20 || !s.frame_gen_cap.load(std::memory_order_relaxed) ||
-            !s.frame_gen_active.load(std::memory_order_relaxed)) {
+        if (!s.frame_gen_active.load(std::memory_order_relaxed)) {
             return base_limit;
         }
-        return base_limit == 0 ? half_refresh : std::min(base_limit, half_refresh);
+        u32 limit = base_limit / 2;
+        if (half_refresh >= 20 && s.frame_gen_cap.load(std::memory_order_relaxed)) {
+            limit = limit == 0 ? half_refresh : std::min(limit, half_refresh);
+        }
+        return limit == 0 ? base_limit : limit;
     };
     auto next_flip = std::chrono::steady_clock::now();
     std::printf("VideoOut: vblank %u Hz, frame limit %u FPS, precise pacing %s\n",
@@ -1078,7 +1162,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                 return;
             }
             std::printf("VideoOut: frame limit %u FPS%s\n", limit,
-                        limit != base_limit ? " (frame generation: half the refresh)" : "");
+                        limit != base_limit ? " (frame generation: half the frames shown)" : "");
             frame_limit = limit;
             frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
                                        : std::chrono::nanoseconds(0);

@@ -351,6 +351,9 @@ public:
         /// stride), read a dword at a time (EmitReadConstBuffer). Invalid for storage buffers.
         Id uniform_id{};
         Id uniform_vec_pointer{};
+        /// bbport: the uniform buffer is an array of dwords (Profile::uniform_dword_layout);
+        /// uniform_vec_pointer then points to one dword.
+        bool uniform_dwords{};
 
         template <class Self>
         auto& Alias(this Self& self, PointerType alias) {
@@ -366,6 +369,10 @@ public:
     /// bbport: a dword of a buffer read as data, from a storage buffer's u32 alias or a uniform
     /// buffer's uvec4s (its vector, then the component).
     Id LoadBufferDword(const BufferDefinition& buffer, Id index) {
+        if (Sirit::ValidId(buffer.uniform_id) && buffer.uniform_dwords) {
+            return OpLoad(U32[1], OpAccessChain(buffer.uniform_vec_pointer, buffer.uniform_id,
+                                                u32_zero_value, index));
+        }
         if (Sirit::ValidId(buffer.uniform_id)) {
             const Id vec_index{OpShiftRightLogical(U32[1], index, ConstU32(2U))};
             const Id component{OpBitwiseAnd(U32[1], index, ConstU32(3U))};

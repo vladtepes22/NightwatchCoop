@@ -429,6 +429,11 @@ public:
         return properties.limits.minUniformBufferOffsetAlignment;
     }
 
+    /// bbport: uniform blocks may use std430 rules (a scalar array with a 4-byte stride).
+    bool IsUniformBufferStandardLayoutSupported() const {
+        return vk12_features.uniformBufferStandardLayout;
+    }
+
     /// Returns the minimum required alignment for storage buffers
     vk::DeviceSize StorageMinAlignment() const {
         return properties.limits.minStorageBufferOffsetAlignment;

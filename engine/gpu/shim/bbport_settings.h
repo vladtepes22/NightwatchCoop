@@ -26,15 +26,17 @@ enum FrameGen : int { FrameGenOff = 0, FrameGenFsr3 = 1, FrameGenCount };
 inline constexpr const char* FrameGenNames[] = {"off", "fsr3"};
 static_assert(sizeof(FrameGenNames) / sizeof(FrameGenNames[0]) == FrameGenCount);
 enum Preset : int { NativeAA = 0, Quality, Balanced, Performance, UltraPerformance, PresetCount };
+/// bbport: where the FPS counter sits (fps_position).
+enum FpsPosition : int { FpsTopRight = 0, FpsTopLeft, FpsBottomRight, FpsBottomLeft, FpsTopCentre, FpsPositionCount };
 enum DebugView : int { DebugNone = 0, DebugReactive = 1, DebugMotion = 2, DebugViewCount };
 /// The menu's language, in the Language selector's order (bbport_overlay.cpp).
 enum class MenuLanguage {
-    English, Russian, Spanish, PortugueseBrazil, French, German, Italian, Polish, Turkish
+    English, Russian, Spanish, PortugueseBrazil, French, German, Italian, Polish, Turkish, ChineseSimplified
 };
 /// menu_language in bbport.ini, by MenuLanguage; the launcher's BB_MENU_LANGUAGE uses the same codes.
-inline constexpr const char* MenuLanguageCodes[] = {"en", "ru", "es", "pt_BR", "fr", "de", "it", "pl", "tr"};
+inline constexpr const char* MenuLanguageCodes[] = {"en", "ru", "es", "pt_BR", "fr", "de", "it", "pl", "tr", "zh_CN"};
 inline constexpr int MenuLanguageCount = int(sizeof(MenuLanguageCodes) / sizeof(MenuLanguageCodes[0]));
-static_assert(MenuLanguageCount == int(MenuLanguage::Turkish) + 1);
+static_assert(MenuLanguageCount == int(MenuLanguage::ChineseSimplified) + 1);
 
 /// Game effects switched by the community patches at start (patches.py EFFECTS): ini key,
 /// menu label, default (the game's own behaviour).
@@ -188,6 +190,15 @@ struct Values {
     std::atomic<bool> show_fps_upscaler{true};
     std::atomic<bool> show_fps_cpu{false}; ///< bbport: the PC's CPU use (bbport_usage.h)
     std::atomic<bool> show_fps_gpu{false}; ///< bbport: the GPU's 3D engine use
+    /// bbport: the FPS counter's look (fps_* in bbport.ini; live): its corner (FpsPosition),
+    /// size, text and background colours (0xRRGGBB), background opacity and border.
+    std::atomic<int> fps_position{0};
+    std::atomic<float> fps_scale{1.0f};
+    std::atomic<unsigned> fps_text_color{0xFFFFFFu};
+    std::atomic<unsigned> fps_bg_color{0x0F0F0Fu};
+    std::atomic<float> fps_bg_opacity{0.5f};
+    std::atomic<float> fps_text_opacity{1.0f};
+    std::atomic<bool> fps_border{true};
     /// The mouse cursor hidden over the game 2 s after the mouse last moved (window.cpp).
     std::atomic<bool> hide_cursor{true};
     /// The settings menu's position (fraction of the screen), -1 until it is moved.
@@ -260,6 +271,8 @@ Values& Get();
 /// Localized overlay text; the Language selector itself stays in English. The other languages
 /// look the English text up (bbport_menu_i18n.cpp) and show it when they have no translation.
 const char* MenuText(const char* english, const char* russian);
+/// Text without a Russian translation at its call site: English in Russian too.
+inline const char* MenuText(const char* english) { return MenuText(english, english); }
 
 /// Reads the file, then the environment overrides. Called once at start.
 void Load();

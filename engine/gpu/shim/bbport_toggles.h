@@ -28,6 +28,11 @@ typedef sigjmp_buf BbRecoverBuf;
 extern "C" __thread BbRecoverBuf* runtime_fault_recover;
 #define BB_RECOVER_SET(buf) sigsetjmp(buf, 0)
 #endif
+/// bbport: this thread reads guest memory only ahead of the GPU thread (draw preparation): a
+/// fault under a recovery point jumps to it instead of being handled. Handling a read fault
+/// waits for the GPU command thread, which may wait for a lock this thread holds
+/// (programs_mutex: a freeze a minute into play, beta 9.8).
+inline thread_local bool bb_fault_recovers_only = false;
 
 namespace BbToggle {
 enum : std::uint64_t {

@@ -3310,6 +3310,7 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                 }
                 push_data.AddOffset(binding.buffer, 0);
             }
+            ubo_stats.ring += desc.is_uniform ? 1 : 0;
             buffer_infos.emplace_back(constant_ring->Handle(), ring->offset,
                                       desc.is_uniform ? std::min<u64>(ring->size, max_uniform_range)
                                                       : u64(ring->size));
@@ -3389,8 +3390,28 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                                      reinterpret_cast<const void*>(vsharp.base_address),
                                      memory->ClampRangeSize(vsharp.base_address, vsharp.GetSize()));
             }
+            const bool exact_base =
+                desc.is_uniform && pipeline_cache.GetProfile().uniform_exact_base;
             if (vsharp.base_address == 0 || vsharp.GetSize() == 0) {
                 buffer_infos.emplace_back(VK_NULL_HANDLE, 0, VK_WHOLE_SIZE);
+            } else if (exact_base && vsharp.base_address % uniform_alignment != 0 &&
+                       !buffer_cache.IsRegionGpuModified(
+                           vsharp.base_address,
+                           memory->ClampRangeSize(vsharp.base_address, vsharp.GetSize()))) {
+                // bbport: a uniform buffer the shader reads from the V#'s first byte
+                // (Profile::uniform_exact_base) that no uniform-aligned offset reaches, with
+                // nothing of it written by the GPU: its bytes as the game wrote them, copied now
+                // to an aligned place, as stage A copies the constant ring's.
+                const u64 range = std::min<u64>(
+                    memory->ClampRangeSize(vsharp.base_address, vsharp.GetSize()), max_uniform_range);
+                auto& stream = buffer_cache.GetStreamBuffer();
+                const auto [data, at] = stream.Map(range, uniform_alignment);
+                ASSERT_MSG(data, "no stream buffer space for a uniform buffer copy");
+                memory->CopySparseMemory(vsharp.base_address, data, range);
+                stream.Commit();
+                push_data.AddOffset(binding.buffer, 0);
+                buffer_infos.emplace_back(stream.Handle(), at, range);
+                ++ubo_stats.staged;
             } else {
                 const u64 size = memory->ClampRangeSize(vsharp.base_address, vsharp.GetSize());
                 if (size != vsharp.GetSize()) {
@@ -3411,11 +3432,30 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                     LOG_WARNING(Render_Vulkan, "Buffer binding in shader {:#x} isn't dword aligned",
                                 stage.pgm_hash);
                 }
-                push_data.AddOffset(binding.buffer, adjust);
-                buffer_infos.emplace_back(buffer->Handle(), offset_aligned,
-                                          desc.is_uniform ? std::min<u64>(size + adjust, max_uniform_range)
-                                                          : size + adjust);
-                bound_buffers.emplace_back(buffer, offset, size, desc.is_written);
+                if (exact_base && adjust != 0) {
+                    // The same for bytes the GPU wrote: copied on the GPU, right before the draw,
+                    // so they are what an in-place read would have seen.
+                    const u64 range = std::min<u64>(size, max_uniform_range);
+                    auto& stream = buffer_cache.GetStreamBuffer();
+                    const auto at = stream.Reserve(range, uniform_alignment);
+                    ASSERT_MSG(at, "no stream buffer space for a uniform buffer copy");
+                    const vk::BufferCopy region{.srcOffset = offset, .dstOffset = *at, .size = range};
+                    runtime.CopyBuffer(buffer, &stream, std::span{&region, 1});
+                    push_data.AddOffset(binding.buffer, 0);
+                    buffer_infos.emplace_back(stream.Handle(), *at, range);
+                    bound_buffers.emplace_back(&stream, *at, u32(range), false);
+                    needs_barrier = true;
+                    ++ubo_stats.copied;
+                } else {
+                    if (desc.is_uniform) {
+                        ++(adjust ? ubo_stats.offset : ubo_stats.in_place);
+                    }
+                    push_data.AddOffset(binding.buffer, adjust);
+                    buffer_infos.emplace_back(buffer->Handle(), offset_aligned,
+                                              desc.is_uniform ? std::min<u64>(size + adjust, max_uniform_range)
+                                                              : size + adjust);
+                    bound_buffers.emplace_back(buffer, offset, size, desc.is_written);
+                }
                 if (desc.is_written) {
                     // Raw storage-buffer writes can also make an aliased cached image stale.
                     const VideoCore::InvalidateReason reason{"storage buffer"};
@@ -5523,10 +5563,27 @@ void Rasterizer::MarkPass(const GraphicsPipeline* pipeline, const RenderState& s
     });
 }
 
+void Rasterizer::ReportUboStats() {
+    static const bool enabled = std::getenv("BB_FRAME_STATS") != nullptr;
+    static u32 frames = 0;
+    if (!enabled || ++frames < 300) {
+        return;
+    }
+    const auto& s = ubo_stats;
+    std::printf("Uniform buffers per frame: %.0f from the constant ring, %.0f in place, %.0f in "
+                "place with an offset, %.0f copied by the CPU and %.0f by the GPU to an aligned "
+                "place\n",
+                s.ring / double(frames), s.in_place / double(frames), s.offset / double(frames),
+                s.staged / double(frames), s.copied / double(frames));
+    ubo_stats = {};
+    frames = 0;
+}
+
 void Rasterizer::NoteFrameStart() {
     if (auto* profiler = GpuProfiler::Get()) {
         profiler->BeginFrame();
     }
+    ReportUboStats();
     const u64 frame = BbStats::gpu_frames.fetch_add(1, std::memory_order_relaxed) + 1;
     // BB_BUFFER_STATS=1: how many earlier frames the GPU has not finished when the GPU thread
     // starts a frame — the lag that decides whether guest memory can be read in place.

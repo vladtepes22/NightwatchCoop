@@ -65,6 +65,8 @@ static _Thread_local int32_t guest_errno;
 static const unsigned char *tls_template;
 static uint64_t tls_filesz, tls_memsz, tls_align=16;
 static size_t created, joined_count, exited;
+/* bbport: list entries walked by find_thread (the 60 s "Load:" line). */
+static uint64_t thread_lookups, thread_lookup_steps;
 
 void runtime_set_main_tls(const void *data,uint64_t filesz,uint64_t memsz,uint64_t align) {
     tls_template=data; tls_filesz=filesz; tls_memsz=memsz; tls_align=align ? align : 16;
@@ -164,10 +166,23 @@ int runtime_thread_has_record(void) { return current!=NULL; }
 /* bbport: the game's resource loader threads (Core.Res.FileLoader, CacheableFileLoader,
  * TaskManager, PostProcessor_N): their file reads are the streaming the player sees. */
 int runtime_thread_is_loader(void) { return current && !strncmp(current->name,"Core.Res.",9); }
+/* bbport: records are never removed (a dozen threads come with every area load), so a found
+ * thread moves to the front: the threads the game asks about (priorities, affinity) are not
+ * behind every finished one. BB_THREAD_FRONT=0: the list keeps its order, as before. */
 static GuestThread *find_thread(void *handle) {
+    static int front=-1;
+    if (front<0) { const char *e=getenv("BB_THREAD_FRONT"); front=!(e && e[0]=='0'); }
     GuestThread *found=NULL;
     host_lock(&lock);
-    for (GuestThread *t=threads;t;t=t->next) if (t==handle) { found=t; break; }
+    ++thread_lookups;
+    GuestThread **link=&threads;
+    for (GuestThread *t=threads;t;link=&t->next,t=t->next) {
+        ++thread_lookup_steps;
+        if (t!=handle) continue;
+        found=t;
+        if (front && link!=&threads) { *link=t->next; t->next=threads; threads=t; }
+        break;
+    }
     host_unlock(&lock);
     return found;
 }
@@ -446,6 +461,12 @@ uintptr_t runtime_thread_resolve(const char *name) {
     for (size_t i=0;i<sizeof(table)/sizeof(*table);++i)
         if (!strcmp(name,table[i].nid)) return (uintptr_t)table[i].fn;
     return 0;
+}
+/* bbport: guest threads created and finished so far, and lookups and the entries they walked. */
+void runtime_thread_census(uint64_t *made, uint64_t *finished, uint64_t *found, uint64_t *steps) {
+    host_lock(&lock);
+    *made=created; *finished=exited; *found=thread_lookups; *steps=thread_lookup_steps;
+    host_unlock(&lock);
 }
 void runtime_thread_report(void) {
     host_lock(&lock);

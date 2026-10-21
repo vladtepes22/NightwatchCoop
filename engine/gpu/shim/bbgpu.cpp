@@ -530,6 +530,9 @@ extern "C" int bbgpu_handle_fault(void* ucontext, void* address) {
     if (BbFreeCheck::OnTrapFault(ucontext, reinterpret_cast<std::uint64_t>(address))) {
         return 1;
     }
+    if (bb_fault_recovers_only && runtime_fault_recover) {
+        return 0; // the loader jumps to the recovery point (bbport_toggles.h)
+    }
     if (Core::Signals::Instance()->DispatchAccessViolation(ucontext, address)) {
         if (FaultRepeats(ucontext, address)) {
             runtime_memory_restore_access(ucontext, reinterpret_cast<uintptr_t>(address), 1);

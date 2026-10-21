@@ -295,6 +295,8 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(PipelineSelection& se
                 : 1;
         info.hw.fs.z_export_format = regs.z_export_format;
         info.hw.fs.motion_vectors = sel.motion;
+        info.hw.fs.depth_first =
+            profile.early_fragment_tests && regs.depth_shader_control.depth_before_shader;
         u8 stencil_ref_export_enable = regs.depth_shader_control.stencil_op_val_export_enable |
                                        regs.depth_shader_control.stencil_test_val_export_enable;
         info.hw.fs.mrtz_mask = regs.depth_shader_control.z_export_enable |
@@ -464,9 +466,60 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
             instance.StorageMinAlignment() > 4 && instance.UniformMinAlignment() <= 256 &&
             instance.GetPhysicalDevice().getProperties().limits.maxUniformBufferRange >= 65536,
     };
-    if (profile.uniform_constant_buffers) {
-        std::printf("Native shaders: constant buffers as uniform buffers (BB_NATIVE_SHADERS=0: legacy)\n");
+    // bbport: the native constant-buffer layout and binding, and the console's early depth
+    // order. They are part of the profile, so the caches start again when one changes.
+    const auto switch_on = [](const char* name) {
+        const char* env = std::getenv(name);
+        return !(env && env[0] == '0');
+    };
+    profile.uniform_dword_layout = profile.uniform_constant_buffers &&
+                                   instance.IsUniformBufferStandardLayoutSupported() &&
+                                   switch_on("BB_UBO_DWORDS");
+    // Opt-in: the constant buffers the GPU wrote (500-650 a frame at the test spot) then need a
+    // GPU copy each, which ends the render pass: more passes and stalls than the offsets cost.
+    profile.uniform_exact_base = profile.uniform_constant_buffers && [] {
+        const char* env = std::getenv("BB_UBO_EXACT");
+        return env && env[0] == '1';
+    }();
+    // Opt-in: measured slower at the test spot (Profile::early_fragment_tests).
+    profile.early_fragment_tests = [] {
+        const char* env = std::getenv("BB_EARLY_Z");
+        return env && env[0] == '1';
+    }();
+    // bbport: which stages take uniform buffers, to find where they cost GPU time. BB_UBO_STAGES
+    // lists them (fs, vs, gs, tcs, tes, cs; "none" for none); unset, all of them.
+    const char* ubo_stages = std::getenv("BB_UBO_STAGES");
+    if (ubo_stages && profile.uniform_constant_buffers) {
+        static constexpr std::pair<const char*, Shader::SwStage> names[] = {
+            {"fs", Shader::SwStage::Fragment},
+            {"vs", Shader::SwStage::Vertex},
+            {"gs", Shader::SwStage::Geometry},
+            {"tcs", Shader::SwStage::TessellationControl},
+            {"tes", Shader::SwStage::TessellationEval},
+            {"cs", Shader::SwStage::Compute},
+        };
+        const std::string list = std::string(",") + ubo_stages + ",";
+        u8 skip = 0;
+        for (const auto& [name, stage] : names) {
+            if (list.find(std::string(",") + name + ",") == std::string::npos) {
+                skip |= u8(1u << static_cast<u32>(stage));
+            }
+        }
+        profile.uniform_stage_skip = skip;
     }
+    profile.flatbuf_storage = profile.uniform_constant_buffers && !switch_on("BB_UBO_FLATBUF");
+    if (profile.uniform_constant_buffers) {
+        std::printf("Native shaders: constant buffers as uniform buffers (BB_NATIVE_SHADERS=0: "
+                    "legacy), %s, %s, stages: %s (BB_UBO_STAGES), user data in %s "
+                    "(BB_UBO_FLATBUF)\n",
+                    profile.uniform_dword_layout ? "dwords (BB_UBO_DWORDS=0: uvec4s)" : "uvec4s",
+                    profile.uniform_exact_base ? "bound at the V# (BB_UBO_EXACT=1)"
+                                               : "offset in push data (BB_UBO_EXACT=1: bound at the V#)",
+                    ubo_stages ? ubo_stages : "all",
+                    profile.flatbuf_storage ? "a storage buffer" : "a uniform buffer");
+    }
+    std::printf("Early depth: DEPTH_BEFORE_SHADER %s (BB_EARLY_Z)\n",
+                profile.early_fragment_tests ? "honoured" : "ignored");
     CreateNativeCache();
     WarmUp();
     std::scoped_lock lock{Registry().mutex};
@@ -971,8 +1024,12 @@ PipelineCache::Result PipelineCache::GetProgram(PipelineSelection& sel, HwStage 
         // pointers in the registers; ahead of the GPU thread that memory may already be
         // reused. A fault returns here (runtime_fault_recover) and the draw is left to the GPU
         // thread. A jump out of the specialization leaks its partial allocations (rare).
+        // bbport: the worker's own recovery point for the whole draw (DrawPreparation::WorkerLoop)
+        // comes back after this one: jumping there would leave programs_mutex locked.
+        BbRecoverBuf* const outer_recover = runtime_fault_recover;
         BbRecoverBuf recover;
         if (BB_RECOVER_SET(recover)) {
+            runtime_fault_recover = outer_recover;
             worker.failed = true;
             return {};
         }
@@ -980,7 +1037,7 @@ PipelineCache::Result PipelineCache::GetProgram(PipelineSelection& sel, HwStage 
         info.RefreshFlatBuf();
         if (Shader::Native::CaptureEnabled()) Shader::Native::Capture(info, runtime_info, params.code, profile);
         auto spec = Shader::StageSpecialization(info, runtime_info, profile, binding);
-        runtime_fault_recover = nullptr;
+        runtime_fault_recover = outer_recover;
         const auto it = std::ranges::find(program->modules, spec, &Program::Module::spec);
         if (it == program->modules.end()) {
             worker.failed = true;
@@ -988,7 +1045,7 @@ PipelineCache::Result PipelineCache::GetProgram(PipelineSelection& sel, HwStage 
         }
         info.AddBindings(binding);
         const size_t perm_idx = std::distance(program->modules.begin(), it);
-        if (!std::atomic_ref<bool>(it->state_stored).load(std::memory_order_relaxed) && Shader::Native::StatesEnabled()) { runtime_fault_recover = &recover; Shader::Native::StoreState(info, runtime_info, params.code, perm_idx); runtime_fault_recover = nullptr; std::atomic_ref<bool>(it->state_stored).store(true, std::memory_order_relaxed); }
+        if (!std::atomic_ref<bool>(it->state_stored).load(std::memory_order_relaxed) && Shader::Native::StatesEnabled()) { runtime_fault_recover = &recover; Shader::Native::StoreState(info, runtime_info, params.code, perm_idx); runtime_fault_recover = outer_recover; std::atomic_ref<bool>(it->state_stored).store(true, std::memory_order_relaxed); }
         worker.stages.push_back(
             {program, params.hash, hw_stage, info.pgm_base, &info.flattened_ud_buf});
         return std::make_tuple(&info, it->module, it->spec.fetch_shader_data,

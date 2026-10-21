@@ -17,7 +17,7 @@
 //   bb-shader-lab --recompile-cache <cache folder>
 //                                                 the cache recompiled with this compiler from
 //                                                 its shader states (bb-start, after an update)
-// --native: the native compiler's options on (Profile::uniform_constant_buffers).
+// --native: the native compiler's options on (Profile::uniform_constant_buffers, dword layout).
 // --spv-dir: each compile's SPIR-V written there (<capture>.spv) for spirv-val.
 #include <algorithm>
 #include <array>
@@ -244,8 +244,9 @@ struct LoadedCapture {
             if (!take(&tess_info, sizeof(tess_info))) {
                 return "capture cut short";
             }
-            tess = LowWords((tess_info.size + 3) / 4);
-            if (!tess) {
+            // bbport: a state without tessellation constants (size 0) needs no low memory.
+            tess = tess_info.size ? LowWords((tess_info.size + 3) / 4) : nullptr;
+            if (tess_info.size && !tess) {
                 return "no low memory for the tessellation constants";
             }
             if (!take(tess, tess_info.size)) {
@@ -319,6 +320,9 @@ int RunOne(const fs::path& file, const fs::path& profile_file) {
     std::memcpy(&profile, profile_bytes.data() + 4,
                 std::min<size_t>(profile_bytes.size() - 4, sizeof(Profile)));
     profile.uniform_constant_buffers = g_native;
+    // bbport: the engine's default native layout (dwords, offsets in the push data).
+    profile.uniform_dword_layout = g_native;
+    profile.uniform_exact_base = false;
 
     LoadedCapture cap;
     if (const char* error = cap.Load(file)) {

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstring>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -46,6 +47,31 @@ asm(".section .rodata\n"
     ".previous\n");
 extern "C" const unsigned char bb_font_ttf[];
 extern "C" const unsigned char bb_font_ttf_end[];
+#endif
+
+// bbport: Lantern Menu SC (a Noto Sans SC subset: the Simplified Chinese menu's characters,
+// third_party/fonts, SIL Open Font License 1.1), merged into DejaVu Sans at Init.
+#ifdef _WIN32
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+alignas(16) static const unsigned char bb_font_cjk[] = {
+#embed BB_CJK_FONT_PATH
+};
+#pragma GCC diagnostic pop
+static const unsigned char* const bb_font_cjk_end = bb_font_cjk + sizeof(bb_font_cjk);
+#else
+asm(".section .rodata\n"
+    ".balign 16\n"
+    ".hidden bb_font_cjk\n"
+    ".global bb_font_cjk\n"
+    "bb_font_cjk:\n"
+    ".incbin \"" BB_CJK_FONT_PATH "\"\n"
+    ".hidden bb_font_cjk_end\n"
+    ".global bb_font_cjk_end\n"
+    "bb_font_cjk_end:\n"
+    ".previous\n");
+extern "C" const unsigned char bb_font_cjk[];
+extern "C" const unsigned char bb_font_cjk_end[];
 #endif
 
 extern "C" void runtime_restart(void); // bb-probe (probe.c)
@@ -196,7 +222,7 @@ void Cheat(const char* label, std::atomic<int>& value, BbEngine::Cheats::Which w
         }
     }
     if (const char* why = BbEngine::Cheats::Unavailable(which)) {
-        ImGui::TextDisabled("%s: %s", BbSettings::MenuText("Unavailable", "Недоступно"), why);
+        ImGui::TextDisabled("%s: %s", BbSettings::MenuText("Unavailable", "Недоступно"), BbSettings::MenuText(why));
     }
     ImGui::PopID();
 }
@@ -214,7 +240,7 @@ void Hint(const char* text) {
 
 void CheatUnavailable(BbEngine::Cheats::Which which) {
     if (const char* why = BbEngine::Cheats::Unavailable(which)) {
-        ImGui::TextDisabled("%s: %s", BbSettings::MenuText("Unavailable", "Недоступно"), why);
+        ImGui::TextDisabled("%s: %s", BbSettings::MenuText("Unavailable", "Недоступно"), BbSettings::MenuText(why));
     }
 }
 
@@ -379,7 +405,7 @@ void PictureSection() {
     moved |= Slider(BbSettings::MenuText("Saturation", "Насыщенность"), s.graphics_saturation, 0.0f, 3.0f);
     moved |= Slider(BbSettings::MenuText("Hue", "Оттенок"), s.graphics_hue, -180.0f, 180.0f, "%.0f");
     moved |= Slider(BbSettings::MenuText("Fog", "Туман"), s.graphics_fog, 0.0f, 3.0f);
-    moved |= Slider("Bloom", s.graphics_bloom, 0.0f, 3.0f);
+    moved |= Slider(BbSettings::MenuText("Bloom"), s.graphics_bloom, 0.0f, 3.0f);
     Checkbox(BbSettings::MenuText("Vignette", "Виньетка"), s.graphics_vignette);
     moved |= vignette != s.graphics_vignette;
     moved |= Slider(BbSettings::MenuText("Ambient occlusion strength", "Сила затенения (AO)"), s.graphics_ao_strength,
@@ -464,10 +490,10 @@ void Menu() {
     // Always readable, whatever language the rest of the menu is in: each language by its own
     // name, in MenuLanguage order.
     static const char* languages[] = {"English",  "Русский",  "Español", "Português (Brasil)",
-                                      "Français", "Deutsch",  "Italiano", "Polski", "Türkçe"};
+                                      "Français", "Deutsch",  "Italiano", "Polski", "Türkçe", "简体中文"};
     static_assert(std::size(languages) == BbSettings::MenuLanguageCount);
     int language = int(s.menu_language.load());
-    if (ImGui::Combo("Language", &language, languages, BbSettings::MenuLanguageCount)) {
+    if (ImGui::Combo(BbSettings::MenuText("Language"), &language, languages, BbSettings::MenuLanguageCount)) {
         s.menu_language =
             BbSettings::MenuLanguage(std::clamp(language, 0, BbSettings::MenuLanguageCount - 1));
         BbSettings::Save();
@@ -508,9 +534,11 @@ void Menu() {
     }
     if (const char* problem = s.fsr4_problem.load()) {
         ImGui::PushTextWrapPos();
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f), "Upscaler unavailable: %s", problem);
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f), BbSettings::MenuText("Upscaler unavailable: %s"),
+                           BbSettings::MenuText(problem));
         if (!BbSettings::IsFsr4(s.upscaler))
-            ImGui::TextUnformatted("The mode selected above is active. You can select it again to retry.");
+            ImGui::TextUnformatted(
+                BbSettings::MenuText("The mode selected above is active. You can select it again to retry."));
         ImGui::PopTextWrapPos();
     }
     if (BbSettings::IsFsr4(s.upscaler)) {
@@ -573,8 +601,8 @@ void Menu() {
     ImGui::BeginDisabled(taa);
     int preset = taa ? BbSettings::NativeAA : s.preset.load();
     char preset_label[64];
-    std::snprintf(preset_label, sizeof(preset_label), "%s (x%.1f)", BbSettings::PresetName(preset),
-                  BbSettings::PresetScale(preset));
+    std::snprintf(preset_label, sizeof(preset_label), "%s (x%.1f)",
+                  BbSettings::MenuText(BbSettings::PresetName(preset)), BbSettings::PresetScale(preset));
     if (ImGui::BeginCombo(BbSettings::MenuText("Preset", "Пресет"), preset_label)) {
         for (int i = 0; i < BbSettings::PresetCount; ++i) {
             char label[64];
@@ -583,7 +611,7 @@ void Menu() {
             std::snprintf(
                 label, sizeof(label),
                 BbSettings::MenuText("%s (x%.1f, render %dx%d)", "%s (x%.1f, рендер %dx%d)"),
-                BbSettings::PresetName(i), scale,
+                BbSettings::MenuText(BbSettings::PresetName(i)), scale,
                 int(std::lround(BbSettings::OutputWidth(output) / scale / 4) * 4),
                 int(std::lround(BbSettings::OutputHeight(output) / scale / 4) * 4));
             if (ImGui::Selectable(label, i == preset)) {
@@ -594,50 +622,58 @@ void Menu() {
     }
     ImGui::EndDisabled();
     if (taa) {
-        ImGui::TextWrapped("TAA anti-aliases the scene at the output resolution, without an FSR "
-                           "model or upscaling. The saved preset returns when an upscaler is selected.");
+        ImGui::TextWrapped("%s", BbSettings::MenuText(
+                                     "TAA anti-aliases the scene at the output resolution, without an FSR "
+                                     "model or upscaling. The saved preset returns when an upscaler is selected."));
     }
-    ImGui::Text("Active scene render: %d x %d", s.active_render_width.load(),
+    ImGui::Text(BbSettings::MenuText("Active scene render: %d x %d"), s.active_render_width.load(),
                 s.active_render_height.load());
     if (BbSettings::FixedRenderSession()) {
-        ImGui::Text("Preset at startup: %s", BbSettings::PresetName(s.startup_preset));
+        ImGui::Text(BbSettings::MenuText("Preset at startup: %s"),
+                    BbSettings::MenuText(BbSettings::PresetName(s.startup_preset)));
         if (const char* automatic = std::getenv("BB_AUTO_RENDER_RES");
             automatic && automatic[0] == '1') {
-            Hint("With an output other than 1080p the whole game renders at the preset resolution "
-                 "(patched at startup): fastest on the Steam Deck and weaker GPUs. Preset or output "
-                 "changes apply after a restart. \"Live resolution changes\" below allows changing "
-                 "without a restart (post-processing then stays at 1080p, slower).");
+            Hint(BbSettings::MenuText(
+                "With an output other than 1080p the whole game renders at the preset resolution "
+                "(patched at startup): fastest on the Steam Deck and weaker GPUs. Preset or output "
+                "changes apply after a restart. \"Live resolution changes\" below allows changing "
+                "without a restart (post-processing then stays at 1080p, slower)."));
         } else {
-            Hint("BB_RENDER_RES fixes the scene size at startup. Remove this explicit variable "
-                 "to change resolution and presets without restarting the game.");
+            Hint(BbSettings::MenuText(
+                "BB_RENDER_RES fixes the scene size at startup. Remove this explicit variable "
+                "to change resolution and presets without restarting the game."));
         }
     } else {
-        Hint("Native AA: the upscaler works as anti-aliasing. The other presets lower the scene "
-             "render resolution relative to the output. The UI is drawn at the output resolution. "
-             "The preset applies from the next frame without restarting the game.");
+        Hint(BbSettings::MenuText(
+            "Native AA: the upscaler works as anti-aliasing. The other presets lower the scene "
+            "render resolution relative to the output. The UI is drawn at the output resolution. "
+            "The preset applies from the next frame without restarting the game."));
     }
-    Checkbox("Sharpening (RCAS)", s.sharpen);
+    Checkbox(BbSettings::MenuText("Sharpening (RCAS)"), s.sharpen);
     ImGui::BeginDisabled(!s.sharpen);
-    Slider("Sharpness", s.sharpness, 0.0f, 2.0f);
-    Hint("Up to 1: the upscaler's own sharpening (RCAS). Above 1 another RCAS pass is added. "
-         "DLSS has no sharpening of its own: an RCAS pass does all of it. "
-         "Ctrl+click the slider to type an exact value.");
+    Slider(BbSettings::MenuText("Sharpness"), s.sharpness, 0.0f, 2.0f);
+    Hint(BbSettings::MenuText(
+        "Up to 1: the upscaler's own sharpening (RCAS). Above 1 another RCAS pass is added. "
+        "DLSS has no sharpening of its own: an RCAS pass does all of it. "
+        "Ctrl+click the slider to type an exact value."));
     ImGui::EndDisabled();
-    Checkbox("Sub-pixel jitter", s.jitter);
-    Hint("Each frame the scene shifts by a fraction of a pixel, and the upscaler gathers more "
-         "detail from several frames. Without it you only get history-based anti-aliasing.");
+    Checkbox(BbSettings::MenuText("Sub-pixel jitter"), s.jitter);
+    Hint(BbSettings::MenuText(
+        "Each frame the scene shifts by a fraction of a pixel, and the upscaler gathers more "
+        "detail from several frames. Without it you only get history-based anti-aliasing."));
 
-    ImGui::SeparatorText("Reactive mask");
+    ImGui::SeparatorText(BbSettings::MenuText("Reactive mask"));
     ImGui::BeginDisabled(taa);
-    Checkbox("Enable mask", s.reactive);
-    Hint("Marks transparent effects (particles, haze) so the upscaler relies less on past "
-         "frames. Fewer trails behind effects, but shimmer returns underneath them.");
+    Checkbox(BbSettings::MenuText("Enable mask"), s.reactive);
+    Hint(BbSettings::MenuText(
+        "Marks transparent effects (particles, haze) so the upscaler relies less on past "
+        "frames. Fewer trails behind effects, but shimmer returns underneath them."));
     ImGui::BeginDisabled(!s.reactive);
-    Slider("Scale", s.reactive_scale, 0.0f, 4.0f);
-    Slider("Threshold", s.reactive_threshold, 0.0f, 1.0f);
-    Slider("Maximum", s.reactive_max, 0.0f, 1.0f);
+    Slider(BbSettings::MenuText("Scale"), s.reactive_scale, 0.0f, 4.0f);
+    Slider(BbSettings::MenuText("Threshold"), s.reactive_threshold, 0.0f, 1.0f);
+    Slider(BbSettings::MenuText("Maximum"), s.reactive_max, 0.0f, 1.0f);
     bool show_mask = s.debug_view == BbSettings::DebugReactive;
-    if (ImGui::Checkbox("Show mask (debug)", &show_mask)) {
+    if (ImGui::Checkbox(BbSettings::MenuText("Show mask (debug)"), &show_mask)) {
         s.debug_view = show_mask ? BbSettings::DebugReactive : BbSettings::DebugNone;
     }
     ImGui::EndDisabled();
@@ -669,9 +705,9 @@ void Menu() {
     ImGui::EndDisabled(); // upscaler off
 
     ImGui::SeparatorText(BbSettings::MenuText("Output resolution", "Разрешение вывода"));
-    static const char* outputs[] = {"1280 x 720", "1600 x 900", "1920 x 1080", "2560 x 1440", "3840 x 2160",
+    const char* outputs[] = {"1280 x 720", "1600 x 900", "1920 x 1080", "2560 x 1440", "3840 x 2160",
         "2560 x 1080", "3440 x 1440", "3840 x 1600", "3840 x 1080", "5120 x 1440", "5120 x 2160",
-        "7680 x 2160", "Display (auto)", "Custom"};
+        "7680 x 2160", BbSettings::MenuText("Display (auto)"), "Custom"};
     static_assert(std::size(outputs)==BbSettings::OutputCount);
     static char custom[48];
     std::snprintf(custom, sizeof custom, "Custom (%d x %d)", s.custom_output_w, s.custom_output_h);
@@ -781,11 +817,11 @@ void Menu() {
         }
     }
 
-    ImGui::SeparatorText("PC Camera");
-    ImGui::TextDisabled("Enable PC Camera in the launcher before starting; changes here are live.");
-    Slider("Camera FOV scale", s.camera_fov_scale, 1.0f, 1.5f);
-    Slider("Camera distance scale", s.camera_distance_scale, 0.5f, 1.5f);
-    Slider("Camera height scale", s.camera_height_scale, 0.5f, 1.5f);
+    ImGui::SeparatorText(BbSettings::MenuText("PC Camera"));
+    ImGui::TextDisabled("%s", BbSettings::MenuText("Enable PC Camera in the launcher before starting; changes here are live."));
+    Slider(BbSettings::MenuText("Camera FOV scale"), s.camera_fov_scale, 1.0f, 1.5f);
+    Slider(BbSettings::MenuText("Camera distance scale"), s.camera_distance_scale, 0.5f, 1.5f);
+    Slider(BbSettings::MenuText("Camera height scale"), s.camera_height_scale, 0.5f, 1.5f);
 
     ImGui::SeparatorText(BbSettings::MenuText("Cheats", "Читы"));
     Cheat(BbSettings::MenuText("Blood Vials", "Флаконы крови"), s.cheat_vials, BbEngine::Cheats::Vials,
@@ -873,6 +909,44 @@ void Menu() {
         Checkbox(BbSettings::MenuText("Upscaler", "Апскейлер"), s.show_fps_upscaler);
         Checkbox(BbSettings::MenuText("CPU usage", "Загрузка ЦП"), s.show_fps_cpu);
         Checkbox(BbSettings::MenuText("GPU usage", "Загрузка ГП"), s.show_fps_gpu);
+        // bbport: the counter's look.
+        const char* positions[] = {BbSettings::MenuText("Top right", "Сверху справа"),
+                                   BbSettings::MenuText("Top left", "Сверху слева"),
+                                   BbSettings::MenuText("Bottom right", "Снизу справа"),
+                                   BbSettings::MenuText("Bottom left", "Снизу слева"),
+                                   BbSettings::MenuText("Top centre", "Сверху по центру")};
+        static_assert(std::size(positions) == BbSettings::FpsPositionCount);
+        int position = std::clamp(s.fps_position.load(), 0, BbSettings::FpsPositionCount - 1);
+        if (ImGui::Combo(BbSettings::MenuText("Position", "Положение"), &position, positions,
+                         BbSettings::FpsPositionCount)) {
+            Store(s.fps_position, position, true);
+        }
+        float scale = s.fps_scale;
+        if (ImGui::SliderFloat(BbSettings::MenuText("Size", "Размер"), &scale, 0.75f, 2.0f, "%.2fx")) {
+            Store(s.fps_scale, scale, true);
+        }
+        const auto edit_colour = [](const char* label, std::atomic<unsigned>& rgb) {
+            const unsigned v = rgb;
+            float c[3] = {float((v >> 16) & 0xFF) / 255.0f, float((v >> 8) & 0xFF) / 255.0f,
+                          float(v & 0xFF) / 255.0f};
+            if (ImGui::ColorEdit3(label, c, ImGuiColorEditFlags_NoInputs)) {
+                const auto byte = [](float f) { return unsigned(std::lround(std::clamp(f, 0.0f, 1.0f) * 255.0f)); };
+                Store(rgb, (byte(c[0]) << 16) | (byte(c[1]) << 8) | byte(c[2]), true);
+            }
+        };
+        edit_colour(BbSettings::MenuText("Text colour", "Цвет текста"), s.fps_text_color);
+        float text_opacity = s.fps_text_opacity;
+        if (ImGui::SliderFloat(BbSettings::MenuText("Text opacity", "Непрозрачность текста"), &text_opacity,
+                               0.1f, 1.0f, "%.2f")) {
+            Store(s.fps_text_opacity, text_opacity, true);
+        }
+        edit_colour(BbSettings::MenuText("Background colour", "Цвет фона"), s.fps_bg_color);
+        float opacity = s.fps_bg_opacity;
+        if (ImGui::SliderFloat(BbSettings::MenuText("Background opacity", "Непрозрачность фона"), &opacity,
+                               0.0f, 1.0f, "%.2f")) {
+            Store(s.fps_bg_opacity, opacity, true);
+        }
+        Checkbox(BbSettings::MenuText("Border", "Рамка"), s.fps_border);
         ImGui::PopID();
         ImGui::Unindent();
     }
@@ -946,18 +1020,58 @@ void FpsCounter() {
     if (n == 0) {
         return;
     }
+    // bbport: the text changes twice a second: redrawn every frame its numbers flickered too fast
+    // to read (100+ frames a second with frame generation).
+    static char shown[sizeof(text)] = "";
+    static auto shown_at = std::chrono::steady_clock::time_point{};
+    const auto now = std::chrono::steady_clock::now();
+    if (shown[0] == '\0' || now - shown_at >= std::chrono::milliseconds(500)) {
+        std::memcpy(shown, text, sizeof(text));
+        shown_at = now;
+    }
+    // bbport: its corner, size, colours, background opacity and border (fps_* settings).
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const float pad = 12.0f * base_scale;
-    ImGui::SetNextWindowPos(
-        ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - pad, viewport->WorkPos.y + pad),
-        ImGuiCond_Always, ImVec2(1.0f, 0.0f));
-    ImGui::SetNextWindowBgAlpha(0.5f);
+    const int position = std::clamp(s.fps_position.load(), 0, BbSettings::FpsPositionCount - 1);
+    const bool right = position == BbSettings::FpsTopRight || position == BbSettings::FpsBottomRight;
+    const bool bottom = position == BbSettings::FpsBottomRight || position == BbSettings::FpsBottomLeft;
+    const bool centre = position == BbSettings::FpsTopCentre;
+    const float x = centre  ? viewport->WorkPos.x + viewport->WorkSize.x * 0.5f
+                    : right ? viewport->WorkPos.x + viewport->WorkSize.x - pad
+                            : viewport->WorkPos.x + pad;
+    const float y = bottom ? viewport->WorkPos.y + viewport->WorkSize.y - pad : viewport->WorkPos.y + pad;
+    ImGui::SetNextWindowPos(ImVec2(x, y), ImGuiCond_Always,
+                            ImVec2(centre ? 0.5f : right ? 1.0f : 0.0f, bottom ? 1.0f : 0.0f));
+    // bbport: the box only grows (until what it shows or its size changes): sized to each text,
+    // it moved sideways whenever a number got a digit narrower or wider and the text shook.
+    static float min_width = 0.0f;
+    static size_t min_width_key = 0;
+    const size_t width_key = size_t(s.show_fps_rate) | size_t(s.show_fps_frame_time) << 1 |
+                             size_t(s.show_fps_upscaler) << 2 | size_t(s.show_fps_cpu) << 3 |
+                             size_t(s.show_fps_gpu) << 4 | size_t(s.frame_gen_active) << 5 |
+                             size_t(s.upscaler) << 6 | size_t(s.fps_scale * 100.0f) << 12;
+    if (width_key != min_width_key) {
+        min_width = 0.0f;
+        min_width_key = width_key;
+    }
+    ImGui::SetNextWindowSizeConstraints(ImVec2(min_width, 0.0f), ImVec2(FLT_MAX, FLT_MAX));
+    const auto colour = [](unsigned rgb, float alpha) {
+        return ImVec4(float((rgb >> 16) & 0xFF) / 255.0f, float((rgb >> 8) & 0xFF) / 255.0f,
+                      float(rgb & 0xFF) / 255.0f, alpha);
+    };
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, colour(s.fps_bg_color, s.fps_bg_opacity));
+    ImGui::PushStyleColor(ImGuiCol_Text, colour(s.fps_text_color, std::clamp(s.fps_text_opacity.load(), 0.1f, 1.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, s.fps_border ? 1.0f : 0.0f);
     ImGui::Begin("##fps", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                      ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
                      ImGuiWindowFlags_NoFocusOnAppearing);
-    ImGui::TextUnformatted(text);
+    ImGui::SetWindowFontScale(std::clamp(s.fps_scale.load(), 0.75f, 2.0f));
+    ImGui::TextUnformatted(shown);
+    min_width = std::max(min_width, ImGui::GetWindowWidth());
     ImGui::End();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
 }
 
 void TextPrompt() {
@@ -980,7 +1094,7 @@ void TextPrompt() {
     ImGui::Separator();
     ImGui::Text("%s_", text.c_str());
     ImGui::Separator();
-    ImGui::TextUnformatted("Keyboard: type, Backspace = delete, Enter = OK, Esc = cancel");
+    ImGui::TextUnformatted(BbSettings::MenuText("Keyboard: type, Backspace = delete, Enter = OK, Esc = cancel"));
     ImGui::End();
 }
 
@@ -1036,6 +1150,12 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
     font_config.FontDataOwnedByAtlas = false;
     io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(bb_font_ttf),
                                    int(bb_font_ttf_end - bb_font_ttf), 18.0f, &font_config);
+    // bbport: the Chinese characters DejaVu Sans lacks, merged into it (loaded when first drawn too).
+    ImFontConfig cjk_config;
+    cjk_config.FontDataOwnedByAtlas = false;
+    cjk_config.MergeMode = true;
+    io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(bb_font_cjk),
+                                   int(bb_font_cjk_end - bb_font_cjk), 18.0f, &cjk_config);
 
     const vk::Instance vk_instance = instance.GetInstance();
     ImGui_ImplVulkan_LoadFunctions(

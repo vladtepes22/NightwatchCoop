@@ -242,6 +242,10 @@ void EmitContext::DefineBufferProperties() {
         if (buffer.buffer_type != BufferType::Guest) {
             continue;
         }
+        // bbport: bound at the guest's address itself (Rasterizer::BindBuffers): no offset.
+        if (desc.is_uniform && profile.uniform_exact_base) {
+            continue;
+        }
 
         const u32 half = PushData::BufOffsetIndex + (binding >> 4);
         const u32 comp = (binding & 0xf) >> 2;
@@ -824,15 +828,19 @@ void EmitContext::DefineUniformBuffer(BufferDefinition& buffer) {
     // 64 KiB, the guaranteed uniform buffer range on the GPUs this is enabled for (the bound
     // range is the buffer's size; reads past it are out of bounds as in a storage buffer).
     constexpr u32 kVec4s = 4096;
+    const bool dwords = profile.uniform_dword_layout;
     if (!Sirit::ValidId(uniform_block_type)) {
-        const Id array_type{TypeArray(U32[4], ConstU32(kVec4s))};
-        Decorate(array_type, spv::Decoration::ArrayStride, 16U);
+        // Dwords: 16384 of them with a 4-byte stride (std430 for a uniform block); else uvec4s.
+        const Id element{dwords ? U32[1] : U32[4]};
+        const Id array_type{TypeArray(element, ConstU32(dwords ? kVec4s * 4 : kVec4s))};
+        Decorate(array_type, spv::Decoration::ArrayStride, dwords ? 4U : 16U);
         uniform_block_type = TypeStruct(array_type);
         Decorate(uniform_block_type, spv::Decoration::Block);
         MemberName(uniform_block_type, 0, "data");
         MemberDecorate(uniform_block_type, 0, spv::Decoration::Offset, 0U);
-        uniform_vec_pointer_type = TypePointer(spv::StorageClass::Uniform, U32[4]);
+        uniform_vec_pointer_type = TypePointer(spv::StorageClass::Uniform, element);
     }
+    buffer.uniform_dwords = dwords;
     const Id id{AddGlobalVariable(TypePointer(spv::StorageClass::Uniform, uniform_block_type),
                                   spv::StorageClass::Uniform)};
     Decorate(id, spv::Decoration::Binding, binding.unified);

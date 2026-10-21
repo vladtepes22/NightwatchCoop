@@ -967,7 +967,9 @@ void ResourcePatchingPass(Shader::Info& info, const ResourceDiscoveryList& resou
 
     // bbport: a guest buffer the shader only reads with scalar constant loads becomes a uniform
     // buffer (native shaders): a constant buffer in the GPU's own sense.
-    if (profile.uniform_constant_buffers) {
+    // A stage BB_UBO_STAGES leaves out keeps them as storage buffers.
+    if (profile.uniform_constant_buffers &&
+        !((profile.uniform_stage_skip >> static_cast<u32>(info.sw_stage)) & 1)) {
         for (auto& buffer : info.buffers) {
             buffer.is_uniform = buffer.buffer_type == BufferType::Guest && buffer.only_const_reads &&
                                 !buffer.is_written && !buffer.is_formatted &&

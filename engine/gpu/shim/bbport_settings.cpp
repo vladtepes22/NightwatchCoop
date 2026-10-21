@@ -77,6 +77,10 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     const float f = float(std::atof(value.c_str()));
     const int i = std::atoi(value.c_str());
     if (key == "menu_language") {
+        if (value == "zh" || value == "zh-CN" || value == "zh_CN") {
+            v.menu_language = MenuLanguage::ChineseSimplified;
+            return;
+        }
         bool known = false;
         for (int l = 0; l < MenuLanguageCount; ++l) {
             if (value == MenuLanguageCodes[l]) {
@@ -86,7 +90,7 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         }
         if (!known) {
             std::printf("Settings: unknown menu_language '%s' (expected en, ru, es, pt_BR, fr, de, it, pl "
-                        "or tr)\n",
+                        "or tr, zh_CN)\n",
                         value.c_str());
         }
     } else if (key == "party_toasts") {
@@ -170,6 +174,24 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.show_fps_cpu = i != 0;
     } else if (key == "show_fps_gpu") {
         v.show_fps_gpu = i != 0;
+    } else if (key == "fps_position") {
+        v.fps_position = std::clamp(i, 0, FpsPositionCount - 1);
+    } else if (key == "fps_scale") {
+        v.fps_scale = Clamp(f, 0.75f, 2.0f);
+    } else if (key == "fps_text_color" || key == "fps_bg_color") {
+        // "#RRGGBB" (or without the #).
+        const char* hex = value.c_str() + (value.starts_with('#') ? 1 : 0);
+        char* end = nullptr;
+        const unsigned long rgb = std::strtoul(hex, &end, 16);
+        if (end && end != hex && *end == '\0' && rgb <= 0xFFFFFFul) {
+            (key == "fps_text_color" ? v.fps_text_color : v.fps_bg_color) = unsigned(rgb);
+        }
+    } else if (key == "fps_bg_opacity") {
+        v.fps_bg_opacity = Clamp(f, 0.0f, 1.0f);
+    } else if (key == "fps_text_opacity") {
+        v.fps_text_opacity = Clamp(f, 0.1f, 1.0f);
+    } else if (key == "fps_border") {
+        v.fps_border = i != 0;
     } else if (key == "hide_cursor") {
         v.hide_cursor = i != 0;
     } else if (key == "menu_pos") {
@@ -331,6 +353,7 @@ void Set(Values& v, const std::string& key, const std::string& value) {
 
 // The menu's language for the launcher's code (BB_MENU_LANGUAGE: en, ru, pt_BR...) or a locale
 // (ru_RU.UTF-8, de_DE...): its first two letters; Portuguese only as pt_BR. Else English.
+// Simplified Chinese is never picked from the locale, only chosen (menu_language=zh_CN).
 MenuLanguage LanguageOfLocale(const char* lang) {
     if (!lang || !lang[0] || !lang[1]) {
         return MenuLanguage::English;
@@ -558,6 +581,18 @@ void Save() {
     put("show_fps_upscaler", flag(v.show_fps_upscaler));
     put("show_fps_cpu", flag(v.show_fps_cpu));
     put("show_fps_gpu", flag(v.show_fps_gpu));
+    const auto colour = [](unsigned rgb) {
+        char text[8];
+        std::snprintf(text, sizeof(text), "#%06X", rgb & 0xFFFFFFu);
+        return std::string(text);
+    };
+    put("fps_position", std::to_string(v.fps_position.load()));
+    put("fps_scale", fixed(v.fps_scale, 2));
+    put("fps_text_color", colour(v.fps_text_color));
+    put("fps_bg_color", colour(v.fps_bg_color));
+    put("fps_bg_opacity", fixed(v.fps_bg_opacity, 2));
+    put("fps_text_opacity", fixed(v.fps_text_opacity, 2));
+    put("fps_border", flag(v.fps_border));
     put("hide_cursor", flag(v.hide_cursor));
     put("fsr4_auto_exposure", flag(v.fsr4_auto_exposure));
     put("fsr4_invert_jitter", flag(v.fsr4_invert_jitter));

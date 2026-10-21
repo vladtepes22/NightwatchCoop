@@ -58,7 +58,9 @@ typedef struct Rwlock {
 } Rwlock;
 static HostMutex registry_lock = HOST_MUTEX_INIT;
 static Rwlock *registry;
-static size_t created, reads, writes, unlocks;
+static size_t created, destroyed, reads, writes, unlocks;
+/* bbport: list entries walked by find_locked (the 60 s "Load:" line: steps per lookup). */
+static uint64_t lookups, lookup_steps;
 static int32_t error(int e) {
     if (!e) return 0;
     unsigned code;
@@ -74,9 +76,22 @@ static int32_t error(int e) {
     }
     return (int32_t)(UINT32_C(0x80020000)|code);
 }
-/* All helpers ending in _locked require registry_lock. */
+/* All helpers ending in _locked require registry_lock.
+ * bbport: a found rwlock moves to the front of the registry. New ones went in front, so the
+ * game's busiest locks, made at boot, sat behind every one made since: each area load made the
+ * walk under registry_lock longer for every lock and unlock of every guest thread.
+ * BB_RWLOCK_FRONT=0: the list keeps its order, as before. */
 static Rwlock *find_locked(Rwlock *handle) {
-    for (Rwlock *r=registry; r; r=r->next) if (r==handle) return r;
+    static int front=-1;
+    if (front<0) { const char *e=getenv("BB_RWLOCK_FRONT"); front=!(e && e[0]=='0'); }
+    ++lookups;
+    Rwlock **link=&registry;
+    for (Rwlock *r=registry; r; link=&r->next, r=r->next) {
+        ++lookup_steps;
+        if (r!=handle) continue;
+        if (front && link!=&registry) { *link=r->next; r->next=registry; registry=r; }
+        return r;
+    }
     return NULL;
 }
 static int create_locked(Rwlock **out) {
@@ -171,7 +186,7 @@ static ABI int32_t rw_destroy(Rwlock **handle) {
     if (!e) {
         Rwlock **link=&registry;
         while (*link!=r) link=&(*link)->next;
-        *link=r->next; free(r); *handle=(Rwlock *)(uintptr_t)1;
+        *link=r->next; free(r); *handle=(Rwlock *)(uintptr_t)1; ++destroyed;
     }
     host_unlock(&registry_lock); return error(e);
 }
@@ -187,8 +202,14 @@ uintptr_t runtime_rwlock_resolve(const char *name) {
     if (!strcmp(name,"adh--6nIqTk#p#J")) return (uintptr_t)rw_timedwrite;
     return 0;
 }
+/* bbport: rwlocks alive now, and lookups and the list entries they walked so far. */
+void runtime_rwlock_census(uint64_t *live, uint64_t *found, uint64_t *steps) {
+    host_lock(&registry_lock);
+    *live=created-destroyed; *found=lookups; *steps=lookup_steps;
+    host_unlock(&registry_lock);
+}
 void runtime_rwlock_report(void) {
     host_lock(&registry_lock);
-    printf("Runtime: rwlocks created=%zu, reads=%zu, writes=%zu, unlocks=%zu\n",created,reads,writes,unlocks);
+    printf("Runtime: rwlocks created=%zu, destroyed=%zu, reads=%zu, writes=%zu, unlocks=%zu\n",created,destroyed,reads,writes,unlocks);
     host_unlock(&registry_lock);
 }

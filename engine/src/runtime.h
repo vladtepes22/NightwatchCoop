@@ -36,6 +36,8 @@ uintptr_t runtime_mutex_resolve(const char *name);
 void runtime_mutex_report(void);
 uintptr_t runtime_memory_resolve(const char *name);
 void runtime_memory_report(void);
+/* bbport: entries in the guest memory map now (it splits as the game maps and protects). */
+uint64_t runtime_memory_regions(void);
 int runtime_memory_is_mapped(uintptr_t address, uint64_t size);
 /* Guest memory whose guest protection allows writing, all of the range. */
 int runtime_memory_guest_writable(uintptr_t address, uint64_t size);
@@ -55,12 +57,16 @@ static inline uint64_t runtime_wait_clock(void) { return host_monotonic_ns(); }
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);
+/* bbport: rwlocks alive, lookups and list entries walked so far (the 60 s "Load:" line). */
+void runtime_rwlock_census(uint64_t *live, uint64_t *found, uint64_t *steps);
 void runtime_set_libc_tls(const void *data, uint64_t filesz, uint64_t memsz);
 void runtime_set_module_tls(uint64_t module, const void *data, uint64_t filesz, uint64_t memsz);
 void runtime_set_procparam(void *param);
 void **runtime_application_heap_api(void);
 uintptr_t runtime_thread_resolve(const char *name);
 void runtime_thread_report(void);
+/* bbport: guest threads created and finished, lookups and list entries walked so far. */
+void runtime_thread_census(uint64_t *made, uint64_t *finished, uint64_t *found, uint64_t *steps);
 void runtime_set_main_tls(const void *data, uint64_t filesz, uint64_t memsz, uint64_t align);
 void runtime_thread_attach_main(void);
 /* The calling thread runs guest code (it has a guest thread record). */
@@ -70,6 +76,8 @@ int runtime_thread_is_loader(void);
 int32_t *runtime_errno(void);
 uintptr_t runtime_sema_resolve(const char *name);
 void runtime_sema_report(void);
+/* bbport: semaphores alive, lookups and list entries walked so far. */
+void runtime_sema_census(uint64_t *live, uint64_t *found, uint64_t *steps);
 unsigned runtime_sema_waiters(uint32_t id);
 /* The freeze report: what blocked guest threads wait for (runtime_blocked.c). */
 enum { RUNTIME_BLOCK_MUTEX = 1, RUNTIME_BLOCK_SEMA = 2, RUNTIME_BLOCK_COND = 3 };

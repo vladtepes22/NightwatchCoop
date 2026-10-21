@@ -27,10 +27,26 @@ static HostMutex lock=HOST_MUTEX_INIT;
 static Sema *registry;
 static uint32_t next_id=1;
 static size_t created, deleted, acquired, signaled, timed_out;
-static Sema *find(uint32_t id) {
-    for (Sema *s=registry;s;s=s->next) if (s->id==id) return s;
+/* bbport: list entries walked by find (the 60 s "Load:" line: steps per lookup). */
+static uint64_t lookups, lookup_steps;
+/* bbport: a found semaphore moves to the front. New ones went in front, so the ones made at boot
+ * sat behind every one made since, each wait and signal walking past them under the one lock.
+ * Not for the freeze report's lookups (describe), which leave the order alone.
+ * BB_SEMA_FRONT=0: the list keeps its order, as before. */
+static Sema *find_ordered(uint32_t id,int reorder) {
+    static int front=-1;
+    if (front<0) { const char *e=getenv("BB_SEMA_FRONT"); front=!(e && e[0]=='0'); }
+    ++lookups;
+    Sema **link=&registry;
+    for (Sema *s=registry;s;link=&s->next,s=s->next) {
+        ++lookup_steps;
+        if (s->id!=id) continue;
+        if (reorder && front && link!=&registry) { *link=s->next; s->next=registry; registry=s; }
+        return s;
+    }
     return NULL;
 }
+static Sema *find(uint32_t id) { return find_ordered(id,1); }
 static void host_check(int e) {
     if (e) { fprintf(stderr,"STOP: semaphore host error %d\n",e); exit(21); }
 }
@@ -171,7 +187,7 @@ static ABI int32_t sem_delete(uint32_t id) {
 /* The freeze report: the semaphore's name, count and waiters in order (host thread ids). */
 void runtime_sema_describe(uint32_t id,char *out,size_t size) {
     host_lock(&lock);
-    Sema *s=find(id);
+    Sema *s=find_ordered(id,0);
     if (!s) snprintf(out,size,"semaphore %u (deleted)",id);
     else {
         int n=snprintf(out,size,"semaphore %u '%s', count %d of %d, waiters needing",id,s->name,s->count,s->maximum);
@@ -182,7 +198,7 @@ void runtime_sema_describe(uint32_t id,char *out,size_t size) {
 /* Read-only test/diagnostic snapshot, not exposed to guest code. */
 unsigned runtime_sema_waiters(uint32_t id) {
     host_lock(&lock);
-    Sema *s=find(id); unsigned n=0;
+    Sema *s=find_ordered(id,0); unsigned n=0;
     if (s) for (Waiter *w=s->first;w;w=w->next) ++n;
     host_unlock(&lock);
     return n;
@@ -195,6 +211,12 @@ uintptr_t runtime_sema_resolve(const char *name) {
     if (!strcmp(name,"4DM06U2BNEY#p#J")) return (uintptr_t)sem_cancel;
     if (!strcmp(name,"R1Jvn8bSCW8#p#J")) return (uintptr_t)sem_delete;
     return 0;
+}
+/* bbport: semaphores alive now, and lookups and the list entries they walked so far. */
+void runtime_sema_census(uint64_t *live, uint64_t *found, uint64_t *steps) {
+    host_lock(&lock);
+    *live=created-deleted; *found=lookups; *steps=lookup_steps;
+    host_unlock(&lock);
 }
 void runtime_sema_report(void) {
     host_lock(&lock);

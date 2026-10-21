@@ -165,12 +165,21 @@ extern "C" int bbgpu_pc_input(BbPcPad* d,const bool* keys,int nkeys,int gamepad_
         // Separate immutable menu navigation from gameplay keys (only while a menu has the screen:
         // menu_pointer_navigating).
         const bool navigating=menu && menu_pointer_navigating();
+        // bbport: a direction held when a menu or prompt is confirmed or closed is no d-pad until
+        // it is let go of: the menu state lags the closing by a few frames, and W held through a
+        // prompt was a d-pad up in the world (HP turned into Quicksilver Bullets).
+        static uint32_t dpad_blocked=0, last_buttons=0;
+        uint32_t dpad_held=0;
+        if(keys) {
+            if(keys[SDL_SCANCODE_UP]||held[kBindMoveF])dpad_held|=0x10;
+            if(keys[SDL_SCANCODE_DOWN]||held[kBindMoveB])dpad_held|=0x40;
+            if(keys[SDL_SCANCODE_LEFT]||held[kBindMoveL])dpad_held|=0x80;
+            if(keys[SDL_SCANCODE_RIGHT]||held[kBindMoveR])dpad_held|=0x20;
+        }
+        dpad_blocked&=dpad_held;
         if(navigating && keys) {
             for(int i=kBindLookU;i<=kBindLookR;i++)held[i]=false;
-            if(keys[SDL_SCANCODE_UP]||held[kBindMoveF])p.buttons|=0x10;
-            if(keys[SDL_SCANCODE_DOWN]||held[kBindMoveB])p.buttons|=0x40;
-            if(keys[SDL_SCANCODE_LEFT]||held[kBindMoveL])p.buttons|=0x80;
-            if(keys[SDL_SCANCODE_RIGHT]||held[kBindMoveR])p.buttons|=0x20;
+            p.buttons|=dpad_held&~dpad_blocked;
             if(keys[SDL_SCANCODE_RETURN])p.buttons|=menu_confirm_button();
             if(keys[SDL_SCANCODE_BACKSPACE])p.buttons|=menu_back_button();
             for(int i=kBindMoveF;i<=kBindMoveR;i++)held[i]=false;
@@ -183,12 +192,15 @@ extern "C" int bbgpu_pc_input(BbPcPad* d,const bool* keys,int nkeys,int gamepad_
                 if(navigating && scroll>0)p.buttons|=0x10;if(navigating && scroll<0)p.buttons|=0x40;
                 p.buttons|=menu_pointer_take_press();
             }
+            const uint32_t closing=menu_confirm_button()|menu_back_button();
+            if(p.buttons&~last_buttons&closing)dpad_blocked|=dpad_held;
         }else {
             bool mh[kBindCount]={};host_bindings_mouse_held(buttons|edges|(scroll>0?32:scroll<0?64:0),mh);
             host_bindings_apply(mh,held[kBindStrongMod]||mh[kBindStrongMod],p);
             float x,y;if(camera && mouse_camera_flick(x,y)){
                 p.rx=uint8_t(std::clamp(127+int(127*x),0,254));p.ry=uint8_t(std::clamp(127+int(127*y),0,254));}
         }
+        last_buttons=p.buttons;
     }
     {std::lock_guard lock(state_lock);snapshot=p;}
     d->buttons=p.buttons;d->lx=p.lx;d->ly=p.ly;d->rx=p.rx;d->ry=p.ry;d->l2=p.l2;d->r2=p.r2;

@@ -58,6 +58,28 @@ struct Profile {
     /// shader only reads with scalar constant loads (s_buffer_load) are uniform buffers instead of
     /// storage buffers: NVIDIA reads them through its constant cache instead of the memory path.
     bool uniform_constant_buffers{};
+    /// bbport: those uniform buffers are arrays of dwords (std430 rules, which
+    /// uniformBufferStandardLayout allows for uniform blocks) instead of uvec4s, so a constant is
+    /// one load at its own address rather than a vector load and a dynamic component pick.
+    /// BB_UBO_DWORDS=0 keeps the uvec4s.
+    bool uniform_dword_layout{};
+    /// bbport: and they are bound at the exact address of the guest's V# (the rasterizer copies
+    /// those it cannot bind there), so their reads add no offset from the push data and a
+    /// constant index stays a constant: NVIDIA then reads it as an operand of the instruction
+    /// that uses it. Off unless BB_UBO_EXACT=1: the copies of GPU-written constants end render
+    /// passes, which cost more than the offsets at the test spot.
+    bool uniform_exact_base{};
+    /// bbport: a pixel shader drawn with DB_SHADER_CONTROL.DEPTH_BEFORE_SHADER runs after the
+    /// depth and stencil tests, as on the console (EarlyFragmentTests). Off unless BB_EARLY_Z=1:
+    /// at the test spot it cost frames (57.8 against 60.2 FPS) and the driver orders them itself.
+    bool early_fragment_tests{};
+    /// bbport: the logical stages (a bit per SwStage) whose constant buffers stay storage buffers
+    /// while the rest are uniform buffers (BB_UBO_STAGES lists the stages that take them). Zero,
+    /// every stage, unless set: a way to measure where uniform buffers cost GPU time.
+    u8 uniform_stage_skip{};
+    /// bbport: the flattened user data stays a storage buffer in native shaders
+    /// (BB_UBO_FLATBUF=0); it is a uniform buffer by default.
+    bool flatbuf_storage{};
 
     bool operator==(const Profile&) const = default;
 };

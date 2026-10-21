@@ -452,7 +452,8 @@ from shadPS4 (GPL-2.0-or-later). Third-party components keep their licenses:
 [sirit](https://github.com/shadps4-emu/sirit), [half](https://half.sourceforge.net/),
 [FSR-Vulkan](https://github.com/FireBurn/FSR-Vulkan) by FireBurn (MIT; FSR 3.1 on Vulkan and the
 FSR 4 v07 provider), AMD FidelityFX SDK (MIT), [LibAtrac9](https://github.com/Thealexbarney/LibAtrac9)
-(MIT), [Dear ImGui](https://github.com/ocornut/imgui) (MIT), DejaVu fonts,
+(MIT), [Dear ImGui](https://github.com/ocornut/imgui) (MIT), DejaVu fonts, Noto Sans SC (a subset,
+Lantern Menu SC, for the Chinese menu; SIL Open Font License 1.1),
 [dxil-spirv](https://github.com/HansKristian-Work/dxil-spirv) (MIT, used to build the
 FSR 4.1.1 assets). Game patches by Kyo, Lance McDonald, auser1337, illusion, emoose and other
 community members (`patches/Bloodborne.xml`). AMD's FSR 4 DLLs and model data are not
