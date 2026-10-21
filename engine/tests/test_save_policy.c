@@ -208,6 +208,120 @@ int main(void) {
         puts("PASS: party session snapshots");
     }
 
+    /* Saves from other builds: param.sfo both ways. */
+    {
+        SaveSfo in={0}, back;
+        snprintf(in.title,sizeof(in.title),"Bloodborne SaveData"); snprintf(in.detail,sizeof(in.detail),"Hunter's Dream");
+        in.user_param=7;
+        unsigned char sfo[4096];
+        size_t n=runtime_savepolicy_sfo_build(&in,"SPRJ0005","CUSA00207",sfo,sizeof(sfo));
+        assert(n>20 && !memcmp(sfo,"\0PSF",4) && sfo[4]==1 && sfo[5]==1);
+        assert(!runtime_savepolicy_sfo_parse(sfo,n,&back));
+        assert(!strcmp(back.title,"Bloodborne SaveData") && !strcmp(back.detail,"Hunter's Dream") && !back.subtitle[0] && back.user_param==7);
+        assert(runtime_savepolicy_sfo_build(&in,"SPRJ0005","CUSA00207",sfo,64)==0);
+        assert(runtime_savepolicy_sfo_parse(sfo,10,&back)==-1 && runtime_savepolicy_sfo_parse("PSF\0xxxxxxxxxxxxxxxxxxxxx",24,&back)==-1);
+        /* A truncated file: entries pointing past the end are skipped, never read. */
+        assert(!runtime_savepolicy_sfo_parse(sfo,n-1100,&back));
+        assert(runtime_savepolicy_bloodborne_title("CUSA03173") && runtime_savepolicy_bloodborne_title("CUSA00900") &&
+               !runtime_savepolicy_bloodborne_title("CUSA12345") && !runtime_savepolicy_bloodborne_title(NULL));
+
+        /* shadPS4's layout (sce_sys/param.sfo inside the folder, no .sce_sys beside it): param.bin made from it. */
+        remove_tree(user); mkdirs(user);
+        put("savedata/1/CUSA00207/SPRJ0005/userdata0000",SLOT,5);
+        put("savedata/1/CUSA00207/SPRJ0005/userdata0010",SYSTEM,3);
+        { char p[1024]; snprintf(p,sizeof(p),"%s/savedata/1/CUSA00207/SPRJ0005/sce_sys",user); mkdirs(p);
+          strcat(p,"/param.sfo"); FILE *f=fopen(p,"wb"); fwrite(sfo,1,n,f); fclose(f); }
+        put("savedata/1/CUSA00207/SPRJ0005/sce_sys/icon0.png",100,9);
+        assert(runtime_savepolicy_adopt(user,"savedata",1,"CUSA00207")==1);
+        char bin[1024]; snprintf(bin,sizeof(bin),"%s/savedata/1/CUSA00207/SPRJ0005.sce_sys",user);
+        assert(has(bin,"param.bin") && has(bin,"icon0.png"));
+        { char p[1100]; snprintf(p,sizeof(p),"%s/param.bin",bin); FILE *f=fopen(p,"rb"); unsigned char b[1328];
+          assert(f && fread(b,1,sizeof(b),f)==1328); fclose(f);
+          assert(!strcmp((char *)b,"Bloodborne SaveData") && !strcmp((char *)b+256,"Hunter's Dream") && b[1280]==7); }
+        assert(runtime_savepolicy_adopt(user,"savedata",1,"CUSA00207")==0); /* once */
+        SavePolicyCheck c;
+        snprintf(bin,sizeof(bin),"%s/savedata",user);
+        assert(runtime_savepolicy_check(bin,NULL,2,&c)==0 && c.slots_used==1); /* sce_sys inside: no error */
+
+        /* Another region's title id: copied (kept) into the folder this game reads; the newest wins. */
+        remove_tree(user); mkdirs(user);
+        put("savedata/1/CUSA00207/SPRJ0005/userdata0000",SLOT,5);
+        put("savedata/1/CUSA00207/SPRJ0005/userdata0010",SYSTEM,3);
+        sleep_1s();
+        put("savedata/1/CUSA00900/SPRJ0005/userdata0000",SLOT,6);
+        put("savedata/1/CUSA00900/SPRJ0005/userdata0010",SYSTEM,3);
+        put("savedata/1/CUSA00900/SPRJ0005.sce_sys/param.bin",1328,1);
+        put("savedata/1/CUSA99999/OTHER/userdata0000",SLOT,7); /* another game: never taken */
+        assert(runtime_savepolicy_adopt(user,"savedata",1,"CUSA03173")==1);
+        char got[1024]; snprintf(got,sizeof(got),"%s/savedata/1/CUSA03173",user);
+        assert(has(got,"SPRJ0005/userdata0000") && has(got,"SPRJ0005.sce_sys/param.bin"));
+        { char p[1100]; snprintf(p,sizeof(p),"%s/SPRJ0005/userdata0000",got); FILE *f=fopen(p,"rb"); unsigned char b[2];
+          assert(f && fread(b,1,2,f)==2 && b[1]==6); fclose(f); } /* CUSA00900's: the newer one */
+        snprintf(got,sizeof(got),"%s/savedata/1/CUSA00207",user);
+        assert(has(got,"SPRJ0005/userdata0000")); /* the original stays */
+        assert(runtime_savepolicy_adopt(user,"savedata",1,"CUSA03173")==0); /* it has a save now: nothing more */
+
+        /* Another user id (another build's user folder), in the party folder. */
+        remove_tree(user); mkdirs(user);
+        put("savedata_party/1000/CUSA00207/SPRJ0005/userdata0000",SLOT,5);
+        assert(runtime_savepolicy_adopt(user,"savedata_party",1,"CUSA00207")==1);
+        snprintf(got,sizeof(got),"%s/savedata_party/1/CUSA00207",user);
+        assert(has(got,"SPRJ0005/userdata0000"));
+
+        /* Our own save: left alone; nothing found anywhere: nothing done. */
+        assert(runtime_savepolicy_adopt(user,"savedata_party",1,"CUSA00207")==0);
+        assert(runtime_savepolicy_adopt(user,"savedata_none",1,"CUSA00207")==0);
+        remove_tree(user); mkdirs(user);
+        puts("PASS: saves from other builds");
+    }
+
+    /* Party side files: a slot that holds another character than last time drops the old one's entries. */
+    {
+        remove_tree(user); mkdirs(user);
+        char folder[1024]; snprintf(folder,sizeof(folder),"%s/savedata_party/1/CUSA00207/SPRJ0005",user);
+        mkdirs(folder);
+        /* a character: play time at +8, a UTF-16 name after the header */
+        #define CHARACTER(slot,name,play) do { unsigned char *b=calloc(1,SLOT); b[0]=0x41; unsigned p=(play); memcpy(b+8,&p,4); \
+            const char *nm=(name); for (int i=0;nm[i];++i) b[0x100+2*i]=(unsigned char)nm[i]; \
+            char pth[1100]; snprintf(pth,sizeof(pth),"%s/userdata%04d",folder,(slot)); FILE *f=fopen(pth,"wb"); \
+            fwrite(b,1,SLOT,f); fclose(f); free(b); } while (0)
+        CHARACTER(0,"Alfred",3600000); CHARACTER(3,"Eileen",7200000);
+        assert(runtime_savepolicy_side_files(user,folder)==0); /* first start: only remembered */
+        assert(has(user,"party_characters.txt"));
+        put("party_rot.txt",0,0);
+        { char p[1100]; snprintf(p,sizeof(p),"%s/party_rot.txt",user); FILE *f=fopen(p,"wb");
+          fputs("slot 0 kinds 1 0 0 0 0\nslot 3 kinds 2 0 0 0 0\n",f); fclose(f);
+          snprintf(p,sizeof(p),"%s/party_stain.txt",user); f=fopen(p,"wb"); fputs("0 385875968 1.0 2.0 3.0 500 abcd\n",f); fclose(f);
+          snprintf(p,sizeof(p),"%s/party_prologue.txt",user); f=fopen(p,"wb"); fputs("last 0\nslot 0 1\nslot 3 0\n",f); fclose(f);
+          snprintf(p,sizeof(p),"%s/party_gestures.txt",user); f=fopen(p,"wb"); fputs("owed 0 805 1\nowed 3 808 0\n",f); fclose(f);
+          snprintf(p,sizeof(p),"%s/party_owed_lots.txt",user); f=fopen(p,"wb"); fputs("12345 0\n555 3\n",f); fclose(f);
+          snprintf(p,sizeof(p),"%s/party_summoned_gives.txt",user); f=fopen(p,"wb"); fputs("1 4001 1 1 0\n",f); fclose(f);
+          snprintf(p,sizeof(p),"%s/party_story.json",user); f=fopen(p,"wb"); fputs("{}",f); fclose(f); }
+        /* the same characters, played on: nothing dropped */
+        CHARACTER(0,"Alfred",3700000);
+        assert(runtime_savepolicy_side_files(user,folder)==0 && has(user,"party_story.json"));
+        /* another save copied over the party save: slot 0 holds another character, slot 3 is empty */
+        CHARACTER(0,"Djura",9000000);
+        { char p[1100]; snprintf(p,sizeof(p),"%s/userdata0003",folder); remove(p); }
+        assert(runtime_savepolicy_side_files(user,folder)==((1<<0)|(1<<3)));
+        char text[2048]; FILE *f; char p[1100];
+        snprintf(p,sizeof(p),"%s/party_prologue.txt",user); f=fopen(p,"rb"); size_t n=fread(text,1,sizeof(text)-1,f); text[n]=0; fclose(f);
+        assert(!strcmp(text,"last 0\n"));
+        assert(!has(user,"party_rot.txt") && !has(user,"party_stain.txt") && !has(user,"party_gestures.txt") &&
+               !has(user,"party_owed_lots.txt") && !has(user,"party_summoned_gives.txt") && !has(user,"party_story.json"));
+        /* an older save of the same character (play time back): dropped too; then remembered as it is */
+        CHARACTER(0,"Djura",9500000); assert(runtime_savepolicy_side_files(user,folder)==0);
+        snprintf(p,sizeof(p),"%s/party_rot.txt",user); f=fopen(p,"wb"); fputs("slot 0 kinds 1 0 0 0 0\nslot 5 kinds 1 0 0 0 0\n",f); fclose(f);
+        CHARACTER(0,"Djura",1000000);
+        assert(runtime_savepolicy_side_files(user,folder)==1);
+        f=fopen(p,"rb"); n=fread(text,1,sizeof(text)-1,f); text[n]=0; fclose(f);
+        assert(!strcmp(text,"slot 5 kinds 1 0 0 0 0\n"));
+        assert(runtime_savepolicy_side_files(user,folder)==0);
+        #undef CHARACTER
+        remove_tree(user); mkdirs(user);
+        puts("PASS: party side files of a replaced character");
+    }
+
     /* Nothing to back up. */
     assert(runtime_savepolicy_backup(user,"savedata_none","start",3,NULL,0)==0);
     remove_tree(user);

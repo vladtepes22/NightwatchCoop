@@ -141,4 +141,17 @@ inline bool ip_is_private(std::uint32_t nbo) {
            (a == 169 && b == 254);
 }
 
+// A summon cannot work: the other game is across the internet (`peer_addr`, the address its
+// party link comes from / goes to, is public), this game's own address `local_addr` is a private
+// one and its STUN-mapped endpoint is unknown (no MappedAddr, or port 0). The other side then has
+// only the private LAN address for it: every summon times out (2026-10-20: 4 x 20 s of punching a
+// remote guest's 192.168 address, then the host watchdog). Network order; 0 = unknown (usable).
+inline bool summon_endpoint_unusable(std::uint32_t peer_addr, std::uint32_t local_addr, std::uint32_t mapped_addr,
+                                     int mapped_port) {
+    if (mapped_addr && mapped_port > 0) return false;
+    if (!peer_addr || ip_is_loopback(peer_addr) || ip_is_private(peer_addr)) return false;  // LAN / VPN
+    if (local_addr && !ip_is_private(local_addr) && !ip_is_loopback(local_addr)) return false;  // no NAT
+    return true;
+}
+
 }  // namespace bbnet::party

@@ -92,6 +92,7 @@ const char* CommandName(CommandType type) {
     case CommandType::Rejoin: return "rejoin";
     case CommandType::Kick: return "kick";
     case CommandType::AddGuestCode: return "add_guest_code";
+    case CommandType::NewCode: return "new_code";
     }
     return "?";
 }
@@ -198,6 +199,25 @@ void SetShareLamps(bool on) {
 bool ShareLamps() {
     return g_share_lamps.load();
 }
+namespace {
+std::atomic<bool> g_host_rules[int(HostRule::Count)] = {true, true, true};
+}  // namespace
+void SetHostRule(HostRule rule, bool on) {
+    if (rule < HostRule::Count) g_host_rules[int(rule)].store(on);
+}
+bool HostRuleOn(HostRule rule) {
+    return rule < HostRule::Count && g_host_rules[int(rule)].load();
+}
+
+namespace {
+std::atomic<int> g_rot[kRotKinds];
+}  // namespace
+void SetRot(const int kind[kRotKinds]) {
+    for (int k = 0; k < kRotKinds; ++k) g_rot[k].store(kind[k]);
+}
+void Rot(int kind[kRotKinds]) {
+    for (int k = 0; k < kRotKinds; ++k) kind[k] = g_rot[k].load();
+}
 
 std::uint64_t AlertSeq() {
     return alert_seq.load(std::memory_order_acquire);
@@ -216,6 +236,13 @@ void RequestLeave() {
 void RequestRejoin() {
     std::scoped_lock lock{mutex};
     Queue({CommandType::Rejoin, {}});
+}
+
+bool RequestNewCode() {
+    std::scoped_lock lock{mutex};
+    if (board.role != Role::Host) return false;
+    Queue({CommandType::NewCode, {}});
+    return true;
 }
 
 bool KickMember(const std::string& name) {

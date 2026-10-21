@@ -415,6 +415,23 @@ public:
         }
     }
 
+    /// Images that start exactly at cpu_addr (and overlap [cpu_addr, cpu_addr + size)). Such an
+    /// image is always registered in the page of its start, so only that page's bucket is looked
+    /// at instead of every page of the range (shadPS4 145932bf).
+    template <typename Func>
+    void ForEachImageWithAddress(VAddr cpu_addr, size_t size, Func&& func) {
+        const auto it = page_table.find(cpu_addr >> Traits::PageBits);
+        if (it == nullptr) {
+            return;
+        }
+        for (const ImageId image_id : *it) {
+            Image& image = slot_images[image_id];
+            if (image.info.guest_address == cpu_addr && image.Overlaps(cpu_addr, size)) {
+                func(image_id, image);
+            }
+        }
+    }
+
 private:
     /// Iterate over all page indices in a range
     template <typename Func>

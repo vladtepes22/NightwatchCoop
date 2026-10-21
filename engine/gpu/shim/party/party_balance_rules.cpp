@@ -19,7 +19,8 @@ const int kPoiseTable[11] = {-100, -75, -50, -25, 0, 25, 50, 100, 150, 200, 300}
 bool Rules::operator==(const Rules& o) const {
     return rot == o.rot && boss_hp == o.boss_hp && boss_damage == o.boss_damage && boss_poise == o.boss_poise &&
            enemy_hp == o.enemy_hp && enemy_damage == o.enemy_damage && enemy_poise == o.enemy_poise &&
-           friendly_fire == o.friendly_fire && share_lamps == o.share_lamps;
+           friendly_fire == o.friendly_fire && share_lamps == o.share_lamps && host_revive == o.host_revive &&
+           host_limbo_revive == o.host_limbo_revive;
 }
 
 bool Doping::operator==(const Doping& o) const {
@@ -73,6 +74,8 @@ std::string ToJson(const Rules& r) {
     v.set("enemy_poise", r.enemy_poise);
     v.set("friendly_fire", r.friendly_fire);
     v.set("share_lamps", r.share_lamps);
+    v.set("host_revive", r.host_revive);
+    v.set("host_limbo_revive", r.host_limbo_revive);
     return json::dump(v, 0);
 }
 
@@ -89,6 +92,10 @@ bool FromJson(const std::string& text, Rules* out, std::string* error) {
         r.friendly_fire = m->boolean;
     if (const json::Value* m = v.find("share_lamps"); m && m->type == json::Value::Type::Bool)
         r.share_lamps = m->boolean;
+    if (const json::Value* m = v.find("host_revive"); m && m->type == json::Value::Type::Bool)
+        r.host_revive = m->boolean;
+    if (const json::Value* m = v.find("host_limbo_revive"); m && m->type == json::Value::Type::Bool)
+        r.host_limbo_revive = m->boolean;
     const auto num = [&](const char* key, int* to) {
         const json::Value* m = v.find(key);
         if (m && m->type == json::Value::Type::Number && std::isfinite(m->number) && std::fabs(m->number) < 1e6) {
@@ -266,6 +273,40 @@ std::string DescribeDamage(int percent, bool russian) {
     char b[96];
     std::snprintf(b, sizeof b, russian ? "+%d %% урона за охотника" : "+%d %% damage per extra hunter", percent);
     return b;
+}
+
+std::string DescribeRotEffect(int k, int stacks, bool russian) {
+    // Per stack, as party_balance's UpdateRotFactor applies them.
+    static const char* const kEn[kRotFileKinds] = {"max HP -%d %%", "max stamina -%d %%", "stamina costs +%d %%",
+                                                    "rally -%d %%", "item discovery -%d"};
+    static const char* const kRu[kRotFileKinds] = {"здоровье -%d %%", "выносливость -%d %%", "траты выносл. +%d %%",
+                                                    "отыгрыш -%d %%", "находки -%d"};
+    static const int kPer[kRotFileKinds] = {kRotHpPercentPerStack, kRotHpPercentPerStack, 10, 15, 10};
+    const int n = std::clamp(stacks, 0, kRotMaxStacks);
+    if (k < 0 || k >= kRotFileKinds || n == 0) return {};
+    char b[64];
+    std::snprintf(b, sizeof b, russian ? kRu[k] : kEn[k], std::min(n * kPer[k], 100));
+    return b;
+}
+
+std::string DescribeRotHead(const int kind[kRotFileKinds], bool russian) {
+    int stacks = 0;
+    for (int k = 0; k < kRotFileKinds; ++k) stacks += std::clamp(kind[k], 0, kRotMaxStacks);
+    if (stacks == 0) return {};
+    char head[32];
+    std::snprintf(head, sizeof head, russian ? "Гниль %d/%d: " : "Rot %d/%d: ", std::min(stacks, kRotMaxStacks),
+                  kRotMaxStacks);
+    return head;
+}
+
+std::string DescribeRot(const int kind[kRotFileKinds], bool russian) {
+    std::string what;
+    for (int k = 0; k < kRotFileKinds; ++k) {
+        const std::string e = DescribeRotEffect(k, kind[k], russian);
+        if (!e.empty()) what += (what.empty() ? "" : ", ") + e;
+    }
+    const std::string head = DescribeRotHead(kind, russian);
+    return head.empty() ? head : head + what;
 }
 
 std::string DescribePoise(int percent, bool russian) {

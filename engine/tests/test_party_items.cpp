@@ -3,6 +3,7 @@
 // ledger tables, the deny rules, award and flag classification, the EVENT "items" JSON round trip,
 // the host's send-once ledger and the guest's queue / apply gate with an injected game state.
 // Build and run: ninja -C out/gpu party-items-test && out/gpu/party-items-test.exe
+#include <cstring>
 #include "party/party_items.h"
 
 #include <algorithm>
@@ -59,6 +60,14 @@ static void test_tables() {
     CHECK(ItemLedgerIndex(17010) == kItemNone);    // repeatable (common 9100)
     CHECK(ItemLedgerIndex(43000) == kItemNone);    // repeatable (13501940)
     CHECK(ItemLedgerIndex(2400450) == kItemNone);  // flagged
+    // Item spots hidden by the awarding event's own flag (playtest 2026-10-20: Old Yharnam's altar)
+    CHECK(ItemAwardSpotFlags(2300170) == std::vector<std::int32_t>{12300130});
+    CHECK(ItemAwardSpotFlags(2605005) == std::vector<std::int32_t>{12600028}); // two lots, one spot
+    CHECK(ItemAwardSpotFlags(43200).size() == 2);                              // one lot, two spots
+    CHECK(ItemAwardSpotFlags(2400450).empty());   // map treasure: its lot flag is the spot's
+    CHECK(ItemAwardSpotFlags(80000000).empty());  // boss reward: the event is a boss defeat
+    CHECK(ItemAwardSpotFlags(75002400).empty());  // flagless (ledger) lots keep their ledger bit only
+    CHECK(ItemAwardSpotFlags(10010).empty());     // per-player Messenger gift
     for (std::size_t i = 0; i < ItemLedgerCount(); ++i) {
         const int lot = ItemLedgerLot(static_cast<std::int32_t>(i));
         CHECK(lot > 0);
@@ -901,6 +910,7 @@ static void test_key_catchup() {
     key.max_num = 1;
     key.max_storage = 0;
     key.goods_type = 1;
+    key.usable = 0;  // a key: no use from the menu
     CHECK(KeyCatchupNeeded({key}));
     LotSlotState held = key;
     held.owned = 1;
@@ -908,20 +918,91 @@ static void test_key_catchup() {
     LotSlotState unknown = key;
     unknown.owned = -1;
     CHECK(!KeyCatchupNeeded({unknown}));
-    // 0.6.2: unique goods with goodsType 0 (Amelia's 4001, badges) are caught up too: a summoned
-    // guest no longer gives them (their held count reads 0 there).
+    // 0.6.2 - 0.6.9 caught up every unique goods item, Amelia's Gold Pendant 4001 too (goodsType 0,
+    // maxNum 1, used from the menu: it becomes a blood gem). 0.6.9 playtest 2: the host's pendant
+    // came back after every own-world load once used. Usable unique goods are never caught up.
     LotSlotState pendant = key;
     pendant.id = 4001;
     pendant.goods_type = 0;
-    CHECK(KeyCatchupNeeded({pendant}));
+    pendant.usable = 1;
+    CHECK(!KeyCatchupNeeded({pendant}));
+    CHECK(!KeyRegiveAllowed(pendant));
     pendant.owned = 1;
     CHECK(!KeyCatchupNeeded({pendant}));
+    LotSlotState tear = pendant;  // Tear Stone 4301 (lot 14000): the same
+    tear.id = 4301;
+    tear.owned = 0;
+    CHECK(!KeyCatchupNeeded({tear}));
+    LotSlotState chalice = key;  // a chalice (goodsType 6, unique, not used from the menu)
+    chalice.id = 6109;
+    chalice.goods_type = 6;
+    CHECK(KeyRegiveAllowed(chalice) && KeyCatchupNeeded({chalice}));
+    LotSlotState unknown_use = key;  // the param row could not be read: never given again
+    unknown_use.usable = -1;
+    CHECK(!KeyRegiveAllowed(unknown_use) && !KeyCatchupNeeded({unknown_use}));
+    CHECK(!KeyCatchupNeeded({key, pendant}));  // one usable slot keeps the whole lot out
     LotSlotState vial_slot = key;
     vial_slot.goods_type = 0;
     vial_slot.max_num = 20;
     vial_slot.max_storage = 600;
     CHECK(!KeyCatchupNeeded({vial_slot}));
     CHECK(!KeyCatchupNeeded({}));
+    // Summoned: a key that is never used up is given now (and owed: a dropped copy comes back at
+    // home); a usable unique item waits for the own world (a copy used while summoned would read 0
+    // at home and come back).
+    CHECK(SummonedKeyGiveNow({key}));
+    CHECK(SummonedKeyGiveNow({chalice}));
+    CHECK(!SummonedKeyGiveNow({pendant}));
+    CHECK(!SummonedKeyGiveNow({key, pendant}));
+    CHECK(!SummonedKeyGiveNow({unknown_use}));
+    LotSlotState ritual = key;  // Ritual Blood: stackable with storage, not KeyGoods at all
+    ritual.id = 7000;
+    ritual.max_num = 99;
+    ritual.max_storage = 600;
+    ritual.goods_type = 2;
+    CHECK(SummonedKeyGiveNow({ritual}) && !KeyRegiveAllowed(ritual));
+    // The param row decides `usable` (EquipParamGoods refId +0x00, goodsUseAnim +0x3E): the Gold
+    // Pendant (refId 3392, anim 29) is usable, the Oedon Tomb Key (refId -1, anim 0) is not.
+    {
+        std::uint8_t row[kGoodsRowBytes] = {};
+        const std::int32_t ref_pendant = 3392, ref_key = -1;
+        const std::int16_t one = 1;
+        std::memcpy(row + 0x36, &one, sizeof one);
+        std::memcpy(row, &ref_pendant, sizeof ref_pendant);
+        row[0x3E] = 29;
+        LotSlotState s;
+        s.category = 4;
+        s.id = 4001;
+        GoodsLimitsFromRow(row, &s);
+        CHECK(s.usable == 1 && s.max_num == 1 && s.max_storage == 0 && !KeyRegiveAllowed(s));
+        std::memcpy(row, &ref_key, sizeof ref_key);
+        row[0x3E] = 0;
+        row[0x3A] = 1;
+        s.id = 4000;
+        GoodsLimitsFromRow(row, &s);
+        CHECK(s.usable == 0 && s.goods_type == 1 && KeyRegiveAllowed(s));
+    }
+    // 0.7.0 summoned restore after a host-world load: a key that is never used up, only at 0.
+    CHECK(SummonedRestoreAllowed(key, 0));
+    CHECK(!SummonedRestoreAllowed(key, 1));
+    CHECK(!SummonedRestoreAllowed(key, -1));
+    CHECK(!SummonedRestoreAllowed(pendant, 0));   // the Gold Pendant: never
+    CHECK(!SummonedRestoreAllowed(tear, 0));      // the Tear Stone: never
+    CHECK(!SummonedRestoreAllowed(ritual, 0));    // not a key item
+    CHECK(!SummonedRestoreAllowed(unknown_use, 0));
+    CHECK(SummonedRestoreAllowed(chalice, 0));
+    // Owed lots at home. Given while summoned: only a key that is never used up, and only at 0.
+    CHECK(OwedGiveAllowed(true, true, key, 0));
+    CHECK(!OwedGiveAllowed(true, true, key, 1));
+    CHECK(!OwedGiveAllowed(true, true, key, -1));
+    CHECK(!OwedGiveAllowed(true, true, pendant, 0));   // used while summoned: never back
+    CHECK(!OwedGiveAllowed(true, true, ritual, 0));
+    // Deferred (never given): once, when none is held and the lot's done flag is not in the save.
+    CHECK(OwedGiveAllowed(false, false, pendant, 0));  // the first give of a deferred pendant
+    CHECK(!OwedGiveAllowed(false, false, pendant, 1));
+    CHECK(!OwedGiveAllowed(false, true, pendant, 0));  // the award gave it (and it was used): no
+    CHECK(!OwedGiveAllowed(false, true, key, 0));
+    CHECK(OwedGiveAllowed(false, false, ritual, 3));   // stackable goods of a deferred lot
     // party_summoned_gives.txt entries belong to the character (save slot) they were given to.
     CHECK(SummonedGiveForSlot(1, 1));
     CHECK(!SummonedGiveForSlot(1, 0));
@@ -1043,7 +1124,52 @@ static void test_messenger_own() {
     CHECK(regive.result == LotPlanResult::Give && regive.items.size() == 1 && regive.items[0].id == 4312);
 }
 
+// EquipParamGoods rows +0x36..+0x4B as in the 1.09 gameparam (maxNum, goodsType, maxRepositoryNum).
+static void test_goods_limits() {
+    struct Row {
+        int id, max_num, max_storage, type;
+        std::uint8_t bytes[22];
+    };
+    const Row rows[] = {
+        {1230, 20, 99, 0, {0x14, 0x00, 0x00, 0x32, 0x00, 0x01, 0x05, 0x00, 0x03, 0x00, 0x00, 0x00, 0xff, 0xff, 0xdf, 0x18, 0x08, 0x00, 0x63, 0x00, 0x00, 0x00}}, // Pebble
+        {1100, 10, 99, 0, {0x0a, 0x00, 0x00, 0x32, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xdf, 0x18, 0x08, 0x00, 0x63, 0x00, 0x00, 0x00}}, // Antidote
+        {1000, 20, 600, 0, {0x14, 0x00, 0x00, 0x32, 0x00, 0x02, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, 0xff, 0xff, 0x9f, 0x18, 0x88, 0x09, 0x58, 0x02, 0x00, 0x00}}, // Blood Vial
+        {7000, 99, 600, 2, {0x63, 0x00, 0x00, 0x32, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x9f, 0x18, 0x00, 0x00, 0x58, 0x02, 0x00, 0x00}}, // Ritual Blood (1)
+        {4114, 1, 0, 1, {0x01, 0x00, 0x00, 0x32, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x9f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}, // Sword Hunter Badge
+    };
+    for (const Row& r : rows) {
+        std::uint8_t row[kGoodsRowBytes] = {};
+        std::memcpy(row + 0x36, r.bytes, sizeof r.bytes);
+        LotSlotState s;
+        s.category = 4;
+        s.id = r.id;
+        GoodsLimitsFromRow(row, &s);
+        CHECK(s.max_num == r.max_num);
+        CHECK(s.max_storage == r.max_storage);
+        CHECK(s.goods_type == r.type);
+    }
+    // A Pebble at its inventory maximum goes to the storage: not "Full" (it was with storage read as 0).
+    std::uint8_t row[kGoodsRowBytes] = {};
+    std::memcpy(row + 0x36, rows[0].bytes, sizeof rows[0].bytes);
+    LotSlotState pebble;
+    pebble.category = 4;
+    pebble.id = 1230;
+    pebble.num = 1;
+    pebble.owned = 20;
+    GoodsLimitsFromRow(row, &pebble);
+    CHECK(ClassifyLotFit({pebble}) == LotFit::Give);
+    LotSlotState badge;
+    badge.category = 4;
+    badge.id = 4114;
+    badge.num = 1;
+    badge.owned = 1;
+    std::memcpy(row + 0x36, rows[4].bytes, sizeof rows[4].bytes);
+    GoodsLimitsFromRow(row, &badge);
+    CHECK(ClassifyLotFit({badge}) == LotFit::Owned);
+}
+
 int main() {
+    test_goods_limits();
     test_tables();
     test_fit();
     test_ledger_seed();

@@ -231,6 +231,7 @@ struct M2 {
 M2 g;
 // F5: when a member last left our room (steady ms; 0 = never).
 std::atomic<std::int64_t> g_member_left_ms{0};
+std::atomic<std::int64_t> g_member_joined_ms{0};
 std::atomic<HostClosedRoomHook> g_host_closed_room_hook{nullptr};
 std::int64_t steady_ms_now() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
@@ -619,6 +620,7 @@ void on_server_event(const json::Value& ev) {
             if (trace()) log("np: member %u (%s) already known; address refreshed", mid, peer.online_id.c_str());
             return;
         }
+        g_member_joined_ms = steady_ms_now();
         log("np: member %u (%s) joined room %llu", peer.member_id, peer.online_id.c_str(),
             static_cast<unsigned long long>(g.room_id));
         session::dispatch_after(join_ms(300, 100), session::Prio::RoomEvent, [peer] {
@@ -1149,11 +1151,21 @@ std::int64_t ms_since_member_left() {
     return at ? steady_ms_now() - at : (std::int64_t(1) << 40);
 }
 
+std::int64_t ms_since_member_joined() {
+    const std::int64_t at = g_member_joined_ms.load();
+    return at ? steady_ms_now() - at : (std::int64_t(1) << 40);
+}
+
 void set_host_closed_room_hook(HostClosedRoomHook hook) { g_host_closed_room_hook = hook; }
 
 bool party_guest_in_room() {
     std::lock_guard<std::mutex> lk(g.mu);
     return g.in_room && !g.is_host;
+}
+
+std::uint16_t own_member_id() {
+    std::lock_guard<std::mutex> lk(g.mu);
+    return g.in_room ? g.member_id : 0;
 }
 
 bool matching2_context_started() {

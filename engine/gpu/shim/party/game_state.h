@@ -18,6 +18,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
+#include <vector>
 #include <string>
 
 namespace coop {
@@ -101,6 +103,12 @@ constexpr std::uint32_t kItemWeapon = 0x00000000u, kItemProtector = 0x10000000u,
                         kItemGoods = 0x40000000u;
 /// How many of item `id` (type bits above) the local player holds: 0 none, -1 unknown.
 int ItemCount(std::uint32_t type_bits, std::uint32_t id);
+/// How many inventory entries (stacks) hold item `id`: 1 normally; 2 or more is a duplicated stack
+/// (a unique key item given while one was held: the save then lists it twice). -1 unknown.
+int ItemStacks(std::uint32_t type_bits, std::uint32_t id);
+/// The inventory's first section (key items and unique goods, index below +0x24): {type bits | id,
+/// count} of every used entry. Empty for a summoned guest after a host-world load.
+std::vector<std::pair<std::uint32_t, int>> KeySectionItems();
 /// GiveItemDirect 0x131CB70(0, type bits, id, count); false when the code differs or no player.
 /// It shows nothing; ShowItemGet adds the native "item acquired" entry.
 bool GiveItem(std::uint32_t type_bits, std::uint32_t id, int count);
@@ -125,6 +133,9 @@ std::uint32_t QuickItemId(int slot, bool* selected = nullptr);
 /// (+0), so call it after the item is held. False (nothing queued) when the code differs, there
 /// is no list / free node or the item is not in the inventory.
 bool ShowItemGet(std::uint32_t type_bits, std::uint32_t id, int count);
+/// The same entry with a null handle, as the talk scripts' item notice (ESD command 0x41) pushes it
+/// for an item that is no inventory entry (a gesture's goods 800..822).
+bool ShowItemGetNotice(std::uint32_t type_bits, std::uint32_t id, int count);
 /// Entries in the item-get dialog's live list (*0x553B1C0 +8); -1 without the list.
 int ItemGetEntries();
 /// The dialog's confirm check can fire (0x16D86E0: player chr flag +0x41 bit 7 clear and the

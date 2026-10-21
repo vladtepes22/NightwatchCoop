@@ -454,6 +454,12 @@ std::string host_no_answer_hint(double since_host_gone_s, bool auto_punch) {
            "option on both PCs";
 }
 
+UdpFallbackSocket udp_fallback_socket(bool external_transport, double heard_on_party_port_s_ago) {
+    if (!external_transport) return UdpFallbackSocket::Ephemeral;  // the link's own socket anyway
+    return heard_on_party_port_s_ago >= 0 && heard_on_party_port_s_ago < kPartyPortHeardS ? UdpFallbackSocket::PartyPort
+                                                                                         : UdpFallbackSocket::Ephemeral;
+}
+
 std::string auth_reject_reason(bool host_has_password) {
     if (host_has_password)
         return "wrong password, or a party code from another hosting session";
@@ -736,6 +742,10 @@ struct PartyLink::Impl {
     sock::Socket usock = sock::kInvalid;  // own UDP socket (no external transport)
     std::uint16_t uport = 0;
     PartyLink::UdpSend uext;
+    // Guest with uext: endpoints whose UDP fallback runs on usock (an ephemeral port, not the
+    // party port: udp_fallback_socket), and when each endpoint was last heard on the party port.
+    std::set<std::uint64_t> own_peers;
+    std::map<std::uint64_t, Clock::time_point> ext_heard;
     std::mutex uin_mu;
     std::deque<std::pair<rudp::Endpoint, std::vector<std::uint8_t>>> uin;  // from on_udp_datagram
     bool udp_prefer = false;  // guest: the last working connection was UDP: dial it at once
@@ -968,8 +978,9 @@ struct PartyLink::Impl {
 
     // ---------- UDP path ----------
     bool udp_enabled() const { return cfg.udp_link; }
+    static std::uint64_t ep_key(const rudp::Endpoint& e) { return static_cast<std::uint64_t>(e.addr) << 16 | e.port; }
     void udp_out(const rudp::Datagram& d) {
-        if (uext) {
+        if (uext && !(usock != sock::kInvalid && own_peers.count(ep_key(d.to)))) {
             uext(d.to.addr, d.to.port, d.data.data(), d.data.size());
             return;
         }
@@ -982,8 +993,8 @@ struct PartyLink::Impl {
         ::sendto(usock, reinterpret_cast<const char*>(d.data.data()), static_cast<int>(d.data.size()), 0,
                  reinterpret_cast<const sockaddr*>(&sa), sizeof sa);
     }
-    bool open_udp_socket(std::uint16_t want) {  // mu held or before the threads
-        if (uext || usock != sock::kInvalid) return true;
+    bool open_udp_socket(std::uint16_t want, bool beside_uext = false) {  // mu held or before the threads
+        if ((uext && !beside_uext) || usock != sock::kInvalid) return true;
         sock::Socket s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (s == sock::kInvalid) return false;
         sockaddr_in a{};
@@ -1011,13 +1022,26 @@ struct PartyLink::Impl {
     bool switch_to_udp(Conn* c, const char* why) {
         if (host || c->us || !udp_enabled() || c->dead) return false;
         if (!uext && usock == sock::kInvalid && !open_udp_socket(0)) return false;
+        rudp::Endpoint ep;
+        std::memcpy(&ep.addr, c->peer_ip.data(), 4);
+        ep.port = htons(c->peer_port);
+        const auto heard = ext_heard.find(ep_key(ep));
+        const double heard_s = heard == ext_heard.end() ? -1.0 : ms_between(heard->second, Clock::now()) / 1000.0;
+        std::string via;
+        if (uext) {
+            if (udp_fallback_socket(true, heard_s) == UdpFallbackSocket::Ephemeral && open_udp_socket(0, true)) {
+                if (own_peers.insert(ep_key(ep)).second)
+                    via = "; from a separate UDP port " + std::to_string(uport) +
+                          " until the host is heard on the party port (blind datagrams from the party port can "
+                          "block that port's path to the host)";
+            } else {
+                if (own_peers.erase(ep_key(ep))) via = "; from the party port (the host was heard on it)";
+            }
+        }
         if (c->s != sock::kInvalid) {
             sock::close(c->s);
             c->s = sock::kInvalid;
         }
-        rudp::Endpoint ep;
-        std::memcpy(&ep.addr, c->peer_ip.data(), 4);
-        ep.port = htons(c->peer_port);
         c->us = umux.connect(ep, Clock::now(), cfg.connect_timeout_ms);
         c->created = c->last_rx = Clock::now();
         const double gone = since_host_gone_s();
@@ -1026,7 +1050,7 @@ struct PartyLink::Impl {
              : cfg.auto_punch ? std::string("the DHT announces us for a host behind a NAT; else give it your guest code")
                               : std::string("give the host your guest code if it is behind a NAT, or turn on the DHT "
                                             "option on both PCs")) +
-            ")");
+            ")" + via);
         return true;
     }
     // Every pass (mu held): datagrams in, accepted streams, stream <-> connection bytes, datagrams out.
@@ -1049,7 +1073,13 @@ struct PartyLink::Impl {
                 std::lock_guard<std::mutex> lk(uin_mu);
                 q.swap(uin);
             }
-            for (auto& [ep, d] : q) udp_in(ep, d.data(), d.size(), now);
+            for (auto& [ep, d] : q) {
+                if (!host) {
+                    if (ext_heard.size() > 64) ext_heard.clear();
+                    ext_heard[ep_key(ep)] = now;
+                }
+                udp_in(ep, d.data(), d.size(), now);
+            }
         }
         if (host) {
             while (auto st = umux.accept()) {
@@ -2813,6 +2843,24 @@ void PartyLink::on_udp_datagram(std::uint32_t addr, std::uint16_t port, const st
     if (!rudp::is_rudp(d, n)) return;
     std::lock_guard<std::mutex> lk(impl_->uin_mu);
     if (impl_->uin.size() < 4096) impl_->uin.emplace_back(rudp::Endpoint{addr, port}, std::vector<std::uint8_t>(d, d + n));
+}
+
+void PartyLink::set_secret(const std::array<std::uint8_t, 8>& secret) {
+    Impl& I = *impl_;
+    std::string password;
+    {
+        std::lock_guard<std::mutex> lk(I.mu);
+        password = I.cfg.password;
+    }
+    Key key = crypto::derive_party_key(password, secret.data());  // Argon2i: outside the lock
+    {
+        std::lock_guard<std::mutex> lk(I.mu);
+        I.cfg.secret = secret;
+        crypto::wipe(I.party_key.data(), I.party_key.size());
+        I.party_key = key;
+    }
+    crypto::wipe(key.data(), key.size());
+    I.log("party link: the party code's secret changed: new players need the new code (the members in now stay)");
 }
 
 void PartyLink::punch_guest(std::uint32_t addr, std::uint16_t port) {

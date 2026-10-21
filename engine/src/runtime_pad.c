@@ -557,6 +557,10 @@ void runtime_pad_director_sticks(int lx,int ly,int rx,int ry) {
     for (int i=0;i<4;++i) __atomic_store_n(&director_axes[i],values[i],__ATOMIC_RELAXED);
 }
 uint32_t runtime_pad_last_buttons(void) { return __atomic_load_n(&last_sample_buttons,__ATOMIC_RELAXED); }
+/* runtime_pad_last_left: the left stick of the last sample the game read, lx | ly << 8 (0..255, 128
+ * neutral; the party's host-death lock log compares it with the chr's movement; visy 0.7.0). */
+static uint32_t last_sample_left=0x8080u;
+uint32_t runtime_pad_last_left(void) { return __atomic_load_n(&last_sample_left,__ATOMIC_RELAXED); }
 uint32_t runtime_pad_cross_presses(void) { return __atomic_load_n(&cross_presses,__ATOMIC_RELAXED); }
 static void ping_combo(PadData *d) {
     static int state, right, r3_prev; /* state 0 idle, 1 touchpad held back, 2 ping sent */
@@ -616,6 +620,7 @@ static void sample(PadData *d) {
     if ((d->buttons & BTN_CROSS) && !(last_sample_buttons & BTN_CROSS))
         __atomic_add_fetch(&cross_presses,1,__ATOMIC_RELAXED);
     __atomic_store_n(&last_sample_buttons,d->buttons,__ATOMIC_RELAXED);
+    __atomic_store_n(&last_sample_left,(uint32_t)d->left_x|(uint32_t)d->left_y<<8,__ATOMIC_RELAXED);
     ping_combo(d);
     touch_ids(d);
 }

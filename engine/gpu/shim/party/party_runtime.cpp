@@ -4,6 +4,7 @@
 #include "party_runtime.h"
 #include "party_async_io.h"
 #include "party_chalice.h"
+#include "party_gestures.h"
 
 #include "party_addr.h"
 #include "party_code.h"
@@ -388,6 +389,17 @@ struct Pump {
     std::atomic<bool> stop{false};
 };
 
+// Host: the address part of its codes (start_host), for New party code.
+struct CodeAddress {
+    bool on = false;        // start_host got this far
+    bool internet = false;  // a public address is known (an Internet code)
+    std::array<std::uint8_t, 4> pub{};
+    std::uint16_t port = 0;
+    std::uint8_t flags = 0;
+    bool lb = false;          // loopback test
+    bool rendezvous = false;  // the DHT rendezvous runs
+};
+
 struct Runtime {
     std::mutex mu;
     std::condition_variable cv;
@@ -415,6 +427,7 @@ struct Runtime {
     std::string marker_head;  // its pid / role / name / started members
     bool marker_secret = false;
     std::array<std::uint8_t, 8> secret{};  // host: the party code's secret (kept across a crash)
+    CodeAddress codes;                      // host: what its codes carry besides the secret
     // guest
     std::uint32_t host_ip_nbo = 0;
     // Guest: what it joined with, for a readable Auth refusal (bridge::AuthRejectText).
@@ -1172,6 +1185,13 @@ LinkCallbacks make_callbacks(bool host) {
                 else plog("%s event from slot %d: %s", name.c_str(), slot, err.c_str());
                 return;
             }
+            if (name == coop::gestures::kEventName) {  // a guest's gestures (party_gestures.h)
+                std::vector<std::uint32_t> ids;
+                std::string err;
+                if (coop::gestures::FromJsonText(body, &ids, &err)) coop::gestures::RequestPeer(ids);
+                else plog("%s event from slot %d: %s", name.c_str(), slot, err.c_str());
+                return;
+            }
             if (name == coop::desync::kCensusAskEvent) {  // a guest's enemy census differs from the digest
                 std::string err;
                 if (!coop::desync::HostQueueCensusAsk(slot, body, &err)) plog("census_ask from slot %d refused: %s", slot, err.c_str());
@@ -1315,6 +1335,13 @@ LinkCallbacks make_callbacks(bool host) {
                 } else {
                     plog("%s event: %s", name.c_str(), err.c_str());
                 }
+                return;
+            }
+            if (name == coop::gestures::kEventName) {  // the host's (the party's) gestures (party_gestures.h)
+                std::vector<std::uint32_t> ids;
+                std::string err;
+                if (coop::gestures::FromJsonText(body, &ids, &err)) coop::gestures::RequestPeer(ids);
+                else plog("%s event: %s", name.c_str(), err.c_str());
                 return;
             }
             if (name == coop::chalice::kGoodsEventName) {  // the host's chalices (party_chalice.h)
@@ -1532,30 +1559,64 @@ void lan_on_datagram(std::uint32_t a, std::uint16_t p, const std::uint8_t* d, st
     }
 }
 
-// The host's secret as the BBP3 code carries it (party_code.h): 4 bytes while a password is set
-// (the password keeps strangers out), 6 without (the secret alone does). A stored secret of the
-// other size is shortened / lengthened, a missing one made: the party key changes with it, so
-// friends need the new code once.
-void fit_secret_to_code(std::array<std::uint8_t, 8>* secret, bool password) {
-    auto& s = *secret;
-    const bool empty = std::all_of(s.begin(), s.end(), [](std::uint8_t b) { return b == 0; });
-    if (empty) {
-        crypto::random_bytes(s.data(), password ? kSecretBytesWithPassword : kSecretBytes);
-        return;
-    }
-    if (s[6] || s[7] || (password && (s[4] || s[5]))) {
-        // An 8-byte secret from before BBP2, or a 6-byte one now that a password is set.
-        for (std::size_t i = password ? kSecretBytesWithPassword : kSecretBytes; i < s.size(); ++i) s[i] = 0;
-        plog("party secret shortened to %u bits for the shorter party code: send your friends the new code",
-             static_cast<unsigned>(8 * (password ? kSecretBytesWithPassword : kSecretBytes)));
-    } else if (!password && !s[4] && !s[5]) {
-        // A 4-byte secret from a party with a password: without one the code is all that keeps
-        // strangers out, so it gets its 48 bits back.
-        do {
-            crypto::random_bytes(s.data() + 4, 2);
-        } while (!s[4] && !s[5]);
+// fit_secret_to_code (party_code.h) with its log line: the code changes, friends need the new one.
+void fit_secret_logged(std::array<std::uint8_t, 8>* secret, bool password) {
+    switch (fit_secret_to_code(secret, password)) {
+    case SecretFit::Shortened:
+        plog("party secret shortened to %u bits for the shorter party code (a password is set): send your friends "
+             "the new code",
+             static_cast<unsigned>(8 * kSecretBytesWithPassword));
+        break;
+    case SecretFit::Lengthened:
         plog("party secret lengthened to 48 bits (no password): send your friends the new code");
+        break;
+    case SecretFit::Made:
+    case SecretFit::Kept: break;
     }
+}
+
+// The host's codes from the address start_host found (r.codes) and `secret`: the status board,
+// the Party page / overlay (bridge) and *internet / *lan.
+void publish_codes(const std::array<std::uint8_t, 8>& secret, std::string* internet, std::string* lan) {
+    Runtime& r = R();
+    CodeAddress c;
+    {
+        std::lock_guard<std::mutex> lk(r.mu);
+        c = r.codes;
+    }
+    internet->clear();
+    lan->clear();
+    if (c.internet) *internet = make_party_code(c.pub, c.port, secret, c.flags);
+    if (c.lb) {
+        *lan = make_party_code({127, 0, 0, 1}, c.port, secret, static_cast<std::uint8_t>(c.flags | kCodeFlagLan));
+    } else if (!make_lan_code(c.port, secret, c.flags, lan)) {
+        lan->clear();
+    }
+    {
+        std::lock_guard<std::mutex> lk(r.mu);
+        r.st.internet_code = *internet;
+        r.st.lan_code = *lan;
+    }
+    bridge::OnCode(!internet->empty() ? *internet : *lan);
+    bridge::OnLanCode(!internet->empty() ? *lan : std::string());  // the second code, when there are two
+}
+
+// <user>/party_code.txt (the launcher shows it) and BB_PARTY_CODE_FILE (tools/mp).
+void write_code_files(const std::string& internet, const std::string& lan) {
+    std::string text = "internet=" + internet + "\nlan=" + lan + "\n";
+    write_text_file(fs::path(user_dir()) / "party_code.txt", text);
+    if (const char* cf = env("BB_PARTY_CODE_FILE")) write_text_file(cf, text);
+}
+
+// The DHT rendezvous (opt-in) under the party key of `secret`.
+void start_host_rendezvous(const std::string& password, const std::array<std::uint8_t, 8>& secret, bool lb) {
+    const crypto::Key key = crypto::derive_party_key(password, secret.data());
+    traversal::start_host(
+        key.data(), lb,
+        [](std::uint32_t a, std::uint16_t p) {
+            if (PartyLink* l = runtime_link()) l->punch_guest(a, p);
+        },
+        [](const std::string& m) { plog("%s", m.c_str()); });
 }
 
 void start_host(LinkConfig cfg) {
@@ -1565,16 +1626,28 @@ void start_host(LinkConfig cfg) {
     std::string from;
     const bool restarted = restart_info().restarted;
     const std::string menu_secret = flow::RuntimeHostSecret();
-    if (restarted && previous_party(&cfg.secret, &kept, &from)) {
+    // The party code stays the same from one launch to the next (party_code.h pick_host_secret)
+    // until the host asks for a new one; only a crash restart keeps the member slots too.
+    std::array<std::uint8_t, 8> restart_secret{};
+    const bool have_restart = restarted && previous_party(&restart_secret, &kept, &from);
+    std::string saved_text;
+    read_file(fs::path(user_dir()) / "party_secret.txt", &saved_text);
+    const HostSecretFrom src =
+        pick_host_secret(have_restart ? &restart_secret : nullptr, menu_secret, saved_text, &cfg.secret);
+    if (src == HostSecretFrom::CrashRestart) {
         plog("restarted host: keeping the party code (secret from %s) and %zu member slot(s)", from.c_str(), kept.size());
-    } else if (!menu_secret.empty() && unhex(menu_secret, cfg.secret.data(), cfg.secret.size())) {
+    } else if (src == HostSecretFrom::Menu) {
         plog("party game from the menu: the party code of the last session (secret from party.json)");
+    } else if (src == HostSecretFrom::Saved) {
+        plog("hosting again: the same party code as last time (secret from party_secret.txt; New party code in the "
+             "launcher or System > Party mode makes a new one)");
     } else {
-        cfg.secret = {};
+        plog("a new party code (none saved): send it to your friends");
     }
-    fit_secret_to_code(&cfg.secret, !cfg.password.empty());
+    if (src != HostSecretFrom::CrashRestart) kept.clear();
+    fit_secret_logged(&cfg.secret, !cfg.password.empty());
     flow::StoreHostSecret(hex_of(cfg.secret.data(), cfg.secret.size()));
-    // <user>/party_secret.txt: the restart's second source after the crash marker.
+    // <user>/party_secret.txt: every launch's source (the restart's second one after the marker).
     write_text_file(fs::path(user_dir()) / "party_secret.txt", hex_of(cfg.secret.data(), cfg.secret.size()) + "\n");
     {
         std::lock_guard<std::mutex> lk(r.mu);
@@ -1723,24 +1796,21 @@ void start_host(LinkConfig cfg) {
 
     std::uint8_t flags = 0;
     if (!cfg.password.empty()) flags |= kCodeFlagPasswordRequired;
-    std::string internet, lan;
-    if (!source.empty()) internet = make_party_code(pub, port, cfg.secret, flags);
-    if (lb) {
-        lan = make_party_code({127, 0, 0, 1}, port, cfg.secret, static_cast<std::uint8_t>(flags | kCodeFlagLan));
-    } else if (!make_lan_code(port, cfg.secret, flags, &lan)) {
-        lan.clear();
-    }
     const std::string pub_text = source.empty() ? std::string() : format_ipv4(pub) + ":" + std::to_string(pub_port);
     {
         std::lock_guard<std::mutex> lk(r.mu);
-        r.st.internet_code = internet;
-        r.st.lan_code = lan;
         r.st.public_address = source.empty() ? "unknown" : pub_text + " (" + source + ")";
         r.st.upnp = upnp_msg;
         r.st.local_slot = 0;
+        r.codes.on = true;
+        r.codes.internet = !source.empty();
+        r.codes.pub = pub;
+        r.codes.port = port;
+        r.codes.flags = flags;
+        r.codes.lb = lb;
     }
-    bridge::OnCode(!internet.empty() ? internet : lan);
-    bridge::OnLanCode(!internet.empty() ? lan : std::string());  // the second code, when there are two
+    std::string internet, lan;
+    publish_codes(cfg.secret, &internet, &lan);
     plog("hosting on port %u as %s; code (Internet): %s; code (LAN): %s", port, name.c_str(),
          internet.empty() ? "(no public address: set BB_PARTY_PUBLIC_ADDR)" : internet.c_str(),
          lan.empty() ? "(no LAN address)" : lan.c_str());
@@ -1757,7 +1827,7 @@ void start_host(LinkConfig cfg) {
         // F2 traversal chain: TCP to an open port -> UDP straight in (full cone) -> hole punch
         // (the guest's endpoint from the DHT rendezvous or a guest code) -> relay / VPN advice.
         const bool port_open = upnp_ok || source == "override" || host_nat == nat::Type::Open;
-        // The DHT rendezvous is opt-in (launcher Party tab / System > Party rules; both PCs).
+        // The DHT rendezvous is opt-in (launcher Party tab / System > Party members; both PCs).
         const bool rdv_on = !port_open && !internet.empty() && traversal::rendezvous_enabled(lb);
         const nat::Rendezvous rdv = internet.empty()                     ? nat::Rendezvous::NotApplicable
                                     : traversal::rendezvous_enabled(lb) ? nat::Rendezvous::On
@@ -1770,18 +1840,62 @@ void start_host(LinkConfig cfg) {
         }
         bridge::OnNetwork(adv);
         if (rdv_on) {
-            const crypto::Key key = crypto::derive_party_key(cfg.password, cfg.secret.data());
-            traversal::start_host(
-                key.data(), lb,
-                [](std::uint32_t a, std::uint16_t p) {
-                    if (PartyLink* l = runtime_link()) l->punch_guest(a, p);
-                },
-                [](const std::string& m) { plog("%s", m.c_str()); });
+            {
+                std::lock_guard<std::mutex> lk(r.mu);
+                r.codes.rendezvous = true;
+            }
+            start_host_rendezvous(cfg.password, cfg.secret, lb);
         }
     }
-    std::string text = "internet=" + internet + "\nlan=" + lan + "\n";
-    write_text_file(fs::path(user_dir()) / "party_code.txt", text);
-    if (const char* cf = env("BB_PARTY_CODE_FILE")) write_text_file(cf, text);
+    write_code_files(internet, lan);
+}
+
+// New party code (System > Party mode; the launcher's button works while the game is closed): a fresh
+// secret for the running host. The link refuses the old code from now on (new handshakes; the
+// members in stay), the LAN responder and the DHT rendezvous take the new key, and the codes,
+// party_secret.txt, party.json and the crash marker get the new secret, so the next launch keeps
+// the new code.
+bool new_code_impl(std::string* message) {
+    Runtime& r = R();
+    PartyLink* link;
+    LinkConfig cfg;
+    std::array<std::uint8_t, 8> old{};
+    bool rdv = false, lb = false;
+    {
+        std::lock_guard<std::mutex> lk(r.mu);
+        link = r.link;
+        cfg = r.cfg;
+        old = r.secret;
+        rdv = r.codes.rendezvous;
+        lb = r.codes.lb;
+        if (!link || !link->is_host() || !r.have_cfg || !r.codes.on || r.left || r.stopping) {
+            if (message) *message = "Not hosting: host first, then New party code";
+            return false;
+        }
+    }
+    const std::array<std::uint8_t, 8> secret = new_host_secret(old, !cfg.password.empty());
+    link->set_secret(secret);
+    {
+        std::lock_guard<std::mutex> lk(r.mu);
+        r.secret = secret;
+        r.cfg.secret = secret;
+    }
+    flow::StoreHostSecret(hex_of(secret.data(), secret.size()));
+    write_text_file(fs::path(user_dir()) / "party_secret.txt", hex_of(secret.data(), secret.size()) + "\n");
+    write_marker();
+    cfg.secret = secret;
+    lan_responder_start(cfg, lb);
+    if (rdv) {
+        traversal::stop();
+        start_host_rendezvous(cfg.password, secret, lb);
+    }
+    std::string internet, lan;
+    publish_codes(secret, &internet, &lan);
+    write_code_files(internet, lan);
+    plog("new party code (the host asked for one): code (Internet): %s; code (LAN): %s; the old code is refused from now on",
+         internet.empty() ? "(none)" : internet.c_str(), lan.empty() ? "(none)" : lan.c_str());
+    if (message) *message = "New party code: send it to your friends (the old one no longer works)";
+    return true;
 }
 
 
@@ -2696,6 +2810,8 @@ void runtime_leave() {
     }
     std::thread(leave_main).detach();
 }
+
+bool runtime_new_code(std::string* message) { return new_code_impl(message); }
 
 int runtime_rejoin() {
     Runtime& r = R();

@@ -9,7 +9,7 @@
 //   story      StoryFromJsonText + SanitizePeerStory + GuestStory
 //   items      ItemsFromJsonText + FilterPeerItems + GuestItems
 //   phantom    PhantomEventFromJsonText
-//   peerev     the other peer events: chalice_goods (GoodsFromJsonText), drop_seed (DropSeedFromJson),
+//   peerev     the other peer events: chalice_goods (GoodsFromJsonText), gestures, drop_seed (DropSeedFromJson),
 //              the B2 direct summon bodies (dsummon DecodeRoom / DecodeDone / WaitOf), gift_up
 //              (GiftUpFromJsonText), sync_digest / sync_resync (party_desync.h) and map_ping
 //              (party_ping.h FromJson + the relay rate + the marker board)
@@ -47,6 +47,7 @@
 #include "party_sign_blob.h"
 #include "party/party_balance_rules.h"
 #include "party/party_chalice.h"
+#include "party/party_gestures.h"
 #include "party/party_droproll.h"
 #include "party/party_ping.h"
 #include "party/party_dsummon.h"
@@ -783,6 +784,10 @@ void run_peerev(Rng& r, const Corpus& c) {
     if (coop::chalice::GoodsFromJsonText(s, &goods, &err)) {
         INVARIANT(goods.size() <= 64);
         for (std::uint32_t g : goods) INVARIANT(coop::chalice::IsChaliceGoods(g));
+    }
+    if (coop::gestures::FromJsonText(s, &goods, &err)) {  // EVENT gestures: both sides
+        INVARIANT(goods.size() <= std::size_t(coop::gestures::kCount));
+        for (std::uint32_t g : goods) INVARIANT(coop::gestures::IsGestureGoods(g));
     }
     party::ping::PingEvent pe;  // EVENT map_ping (I2): both sides
     if (party::ping::FromJson(s, &pe, &err)) {

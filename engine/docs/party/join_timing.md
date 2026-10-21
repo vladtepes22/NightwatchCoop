@@ -529,7 +529,10 @@ Details: network_robustness.md §3c.
 Ported from droogie/bbhost (`engine/summon_invite.cpp`, GPL-3.0+): `party_dsummon.{h,cpp}` (wire
 format, type-1 payload, decisions; `party-dsummon-test`) and the game side in `party_b2.cpp`.
 The guest sends `dsum_req` when its director rings the Small Resonant Bell; the host (in its
-world, not full, its game not summoning a sign in the last 20 s, no crash hold) creates its room
+world, not full, its game not summoning a sign (asked in the last 10 s, or in the last 20 s with a
+member joining since: a sign summon that brought nobody in is failing, and the game summoned the
+failed guest's new sign every ~30 s, which kept every direct summon refused for minutes; refused
+with `"wait":"sign"`, the guest asks again every 1.5 s), no crash hold) creates its room
 if it has none (0x1ECFCD0, as the title join), serializes it (`SerializeRoom`, head type 7, 209
 bytes) and answers `dsum_room` with FrpgNetMan +0xa7c area / +0xaac position, holding the guest's
 signs (20 s) so its game does not summon the same guest by sign. The guest, on the game thread,

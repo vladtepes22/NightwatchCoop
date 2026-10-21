@@ -85,6 +85,10 @@ bool GuestServiceTalkAllowed(std::uint32_t talk, const std::string& extra) {
     return false;
 }
 
+bool GehrmanLastEvent(bool f1028, bool f1029, bool f1030) {
+    return f1028 || (f1029 && !f1030);
+}
+
 bool HeadstoneTalk(std::uint32_t talk) {
     return (talk >= 210000 && talk <= 210003) || talk == 210721;
 }
@@ -248,6 +252,10 @@ bool DollLevelUpCharTypeTest(int event_id, int bank, int id, int entity, int typ
            (type == 0 || type == 1);
 }
 
+bool PerPlayerMessengerEvent(std::uint32_t event_id) {
+    return event_id == 12105040;
+}
+
 bool GuestLampsEnabledFromEnv(const char* v, bool fallback) {
     if (v && v[0] == '0' && !v[1]) {
         return false;
@@ -290,6 +298,7 @@ bool GuestServicesEnabledFromEnv(const char* v) {
 #include <vector>
 
 extern "C" void runtime_pad_director_press(std::uint32_t buttons); // src/runtime_pad.c
+extern "C" void runtime_pad_director_sticks(int lx, int ly, int rx, int ry); // src/runtime_pad.c
 
 namespace coop {
 
@@ -352,6 +361,8 @@ LampRequestGate g_lamp_gate;
 std::atomic<int> g_lamp_requests_made{0}; // guest: lamp warps turned into requests (tests)
 
 std::atomic<bool> g_gate{false};
+// Gehrman's ordinary talk for a guest (the tick: the gate is open and his last event is not up).
+std::atomic<bool> g_gehrman_talk{false};
 std::atomic<std::uint32_t> g_overrides{0};
 // Talk environments seen asking while the gate was open (discovery log, tick side).
 constexpr int kEnvSlots = 32;
@@ -431,7 +442,8 @@ std::uint64_t BB_COOP_SYSV IsClientFilter(std::uint64_t env, std::uint64_t value
     // choice sets the lamp's flag; m21's event 12107000 (client end skipped, LampSkipRules) warps,
     // which becomes the guest's lamp request to the host (the party follows the host's warp).
     const bool headstone = g_lamps.load(std::memory_order_relaxed) && talk >= 210000 && talk <= 210003;
-    if (!headstone && !GuestServiceTalkAllowed(talk, g.extra)) {
+    const bool gehrman = talk == kGehrmanTalk && g_gehrman_talk.load(std::memory_order_relaxed);
+    if (!headstone && !gehrman && !GuestServiceTalkAllowed(talk, g.extra)) {
         return value;
     }
     g_overrides.fetch_add(1, std::memory_order_relaxed);
@@ -545,7 +557,8 @@ void LogEnv(std::uint64_t env) {
     std::uint32_t talk = 0;
     SafeGet(env + 0x10, &talk);
     Log("talk script t%u (environment %p) asks IsClientPlayer: %s; ids:%s; head:%s", talk, reinterpret_cast<void*>(env),
-        GuestServiceTalkAllowed(talk, g.extra) ? "allowed" : "kept vanilla", found.empty() ? " none" : found.c_str(),
+        GuestServiceTalkAllowed(talk, g.extra) || (talk == kGehrmanTalk && g_gehrman_talk.load()) ? "allowed" : "kept vanilla",
+        found.empty() ? " none" : found.c_str(),
         hex.c_str());
 }
 
@@ -864,6 +877,7 @@ struct LevelUpScript {
     enum Stage { Off, WaitPlaced, Greeting, MenuUp, WaitScreen, Raise, Confirm, Accept, WaitLevel, BackOut, Done, Keys };
     std::uint32_t menus0 = 0;
     bool shop = false;                 ///< "buy": a messenger's Purchase instead of the Doll's level up
+    bool keybuy = false;               ///< keys=...,buy: the dialog's cursor found by trying Left / Right / Down
     bool open = false;                 ///< "open[=TEXT]": open a menu, then press "keys=" one by one
     std::string keys;                  ///< "cross,left,..." pressed 1.5 s apart once the menu is open
     std::size_t key_at = 0;
@@ -910,12 +924,12 @@ bool PromptUp(std::uint32_t* id = nullptr) {
 
 // Stand the local player at `dist` m from `chr` on the side `side` (0 its front, 1 back, 2 / 3
 // its sides; forward(yaw) = (-sin, -cos)), facing it (PlayerIns vfunc +0x5F8).
-bool StandAt(const GameSnapshot& s, std::uint64_t chr, float dist, int side) {
+bool StandAt(const GameSnapshot& s, std::uint64_t chr, float dist, int side, float turn = 0.0f) {
     float d[4] = {}, r[4] = {};
     if (!chr || !s.player || !SafeRead(chr + 0xc0, d, sizeof d) || !SafeRead(chr + 0xd0, r, sizeof r)) {
         return false;
     }
-    const float a = r[1] + (side == 1 ? 3.14159265f : side == 2 ? 1.5707963f : side == 3 ? -1.5707963f : 0.0f);
+    const float a = r[1] + turn + (side == 1 ? 3.14159265f : side == 2 ? 1.5707963f : side == 3 ? -1.5707963f : 0.0f);
     alignas(16) float pos[4] = {d[0] - dist * std::sin(a), d[1], d[2] - dist * std::cos(a), 1.0f};
     alignas(16) float rot[4] = {0, a + 3.14159265f, 0, 0};
     std::uint64_t vtbl = 0, fn = 0;
@@ -1068,6 +1082,18 @@ void LevelUpTick(const GameSnapshot& s, double now) {
             go(LevelUpScript::WaitLevel, "the purchase went through");
         } else if (s.level > L.level0 && L.level0 >= 0) {
             go(LevelUpScript::WaitLevel, "level changed already");
+        } else if (L.keybuy && since >= 1.2) {
+            // Cancel just closes the dialog and the next Cross opens it again on the same row.
+            static const std::uint32_t seq[] = {kPadLeft, kPadCross, kPadCross, kPadRight, kPadCross, kPadCross, kPadDown, kPadCross};
+            static const char* const names[] = {"Left", "Cross", "Cross", "Right", "Cross", "Cross", "Down", "Cross"};
+            if (L.tries >= 8) {
+                go(LevelUpScript::WaitLevel, "no purchase after the dialog presses");
+                break;
+            }
+            Tap(seq[L.tries], now);
+            Log("test: levelup: buy dialog: %s (Insight %d, echoes %d)", names[L.tries], s.insight, s.echoes);
+            ++L.tries;
+            L.at = now;
         } else if (since >= 1.2) {
             if (++L.tries > 2) {
                 go(LevelUpScript::WaitLevel, "no level change after the confirm presses");
@@ -1114,6 +1140,17 @@ void LevelUpTick(const GameSnapshot& s, double now) {
             }
             const std::string k = L.keys.substr(L.key_at, end - L.key_at);
             L.key_at = end + 1;
+            if (k == "buy") {
+                // The shop's purchase dialog ("Buy X for N Insight?", cursor on CANCEL): Left / Cross
+                // until the echoes or Insight change (Accept), then the purchase is logged.
+                L.shop = true;
+                L.keybuy = true;
+                L.echoes0 = s.echoes;
+                L.insight0 = s.insight;
+                Tap(kPadCross, now);
+                go(LevelUpScript::Accept, "key buy: Cross on the selected row, then the dialog");
+                break;
+            }
             const std::uint32_t b = k == "cross" ? kPadCross : k == "circle" ? kPadCircle : k == "left" ? kPadLeft
                                     : k == "right" ? kPadRight : k == "up" ? kPadUp : k == "down" ? kPadDown : 0;
             if (b) {
@@ -1126,11 +1163,19 @@ void LevelUpTick(const GameSnapshot& s, double now) {
         break;
     case LevelUpScript::BackOut:
         if (since >= 1.0 * (L.tries + 1)) {
-            if (++L.tries > 4) {
-                go(LevelUpScript::Done, "done");
+            // A game message box (MessageUI +0x78 != 0, e.g. the vanilla "storage is full" notice
+            // after a purchase) takes Cross (OK); Circle backs out of the menus.
+            std::uint64_t ui = 0;
+            std::int32_t box = 0;
+            const bool boxed = SafeGet(Guest(0x5562878), &ui) && ui && SafeGet(ui + 0x78, &box) && box != 0;
+            if (++L.tries > (boxed ? 8 : 4)) {
+                go(LevelUpScript::Done, boxed ? "done (a message box still up)" : "done (menus closed)");
                 break;
             }
-            Tap(kPadCircle, now);
+            Tap(boxed ? kPadCross : kPadCircle, now);
+            if (boxed) {
+                Log("test: levelup: a message box is up (kind %d): Cross (OK)", box);
+            }
         }
         break;
     default:
@@ -1274,6 +1319,43 @@ BB_COOP_SYSV void LampObjEntry(u64 obj, u64, u64, u64, u64, u64); // test probe 
 BB_COOP_SYSV void TalkManEntry(u64 man, u64, u64, u64, u64, u64);  // test probe (below)
 BB_COOP_SYSV void ButtonEntry(u64, u64 type, u64 id, u64, u64, u64);  // test probe (below)
 
+// Packet 0x31 (a network-synced EMEVD event's state) is drained by 0x12F0F90 (the EMEVD event
+// manager's update) at 0x12F1744: 0x1789200(net man, peer, 0x31, buf, 0x100) until it returns 0;
+// buf {+0 u16 kind (0: event state), +2 u16, +4 u32 size (< 0xF1), +8 i32 event id, +0xC i16 slot,
+// +0x10 state} goes to every event instance with that id and slot (vfunc +0x28). The lower bath's
+// messengers' animation event is dropped here (PerPlayerMessengerEvent).
+constexpr u64 kEventSyncRead = 0x12f1744, kPacketRead = 0x1789200;
+std::atomic<std::uint32_t> g_messenger_drops{0};
+BB_COOP_SYSV u64 EventSyncRead(u64 man, u64 peer, u64 type, u64 buf, u64 size) {
+    using Fn = u64(BB_COOP_SYSV*)(u64, u64, u64, u64, u64);
+    for (;;) {
+        const u64 r = reinterpret_cast<Fn>(Guest(kPacketRead))(man, peer, type, buf, size);
+        std::uint16_t kind = 1;
+        std::int32_t event = 0;
+        if (std::int32_t(r) <= 0 || !buf || !SafeGet(buf, &kind) || kind != 0 || !SafeGet(buf + 8, &event) ||
+            !PerPlayerMessengerEvent(std::uint32_t(event))) {
+            return r;
+        }
+        // Main thread (the EMEVD update); the next packet, if any, is read in the same call.
+        if (g_messenger_drops.fetch_add(1) < 8) {
+            Log("Bath Messengers: event %d's state from another player not applied (their talk flag is per "
+                "player: each game animates its messengers from its own player's shop use)", event);
+        }
+    }
+}
+
+void InstallMessengerSyncFilter() {
+    const char* v = std::getenv("BB_PARTY_MESSENGER_SYNC");
+    if (v && v[0] == '1' && !v[1]) {
+        Log("Bath Messengers: the animation events stay network-synced (BB_PARTY_MESSENGER_SYNC=1: the old "
+            "behaviour: they rise and sink every 2 s while another player uses their shop)");
+        return;
+    }
+    const bool ok = HookCallSite(kEventSyncRead, kPacketRead, reinterpret_cast<const void*>(&EventSyncRead),
+                                 "Bath Messengers: per-player animation event (EMEVD sync packet 0x31)");
+    Log("Bath Messengers: the lower bath's animation event 12105040 per player %s", ok ? "on" : "NOT installed");
+}
+
 void GuestServicesInit() {
     if (g.init) {
         return;
@@ -1383,6 +1465,7 @@ void GuestServicesInit() {
     // (0x176BFE0, the request's first test, is not hooked: replacing it stopped the guest from
     // joining in a live run.)
     EnsureEmevdFilter();
+    InstallMessengerSyncFilter();
     // rdi = r15 (the talk environment), rsi = eax (the game's answer).
     g.installed = HookValueFilter(kIsClientLoad, {0x41, 0x0f, 0xb6, 0x47, 0x25}, {0x4c, 0x89, 0xff, 0x89, 0xc6},
                                   &IsClientFilter, kTestResultInt, "talk IsClientPlayer (guest services)");
@@ -2178,6 +2261,88 @@ void LampTick(const GameSnapshot& s, party::PartyLink* link) {
     }
 }
 
+/// "hosttalk=N": the talk the host's fixture uses (default: headstone t210000).
+std::uint32_t HostTalkTarget() {
+    const std::size_t k = g.test.find("hosttalk=");
+    return k == std::string::npos ? 210000 : std::uint32_t(std::strtoul(g.test.c_str() + k + 9, nullptr, 10));
+}
+
+/// Live test "watchtalk=N[:M[:A]][@D]" (either role): D s (default 8) into a steady Dream with
+/// another player present, stand M m (default 1.5) from talk N, facing it, in its use range: A
+/// degrees off its front (default: tries 60, -60, 90, -90, 40, -40 until its action prompt shows;
+/// the player never presses it), then the camera behind the player (Lua CamReset). The player who
+/// watches another player use that NPC (the Bath Messengers' shop). Again after each load.
+void WatchTalkTick(const GameSnapshot& s) {
+    static double steady_at = 0, warped_at = 0, cam_until = 0;
+    static int tries = 0;
+    static bool done = false;
+    if (cam_until > 0 && Now() >= cam_until) {
+        cam_until = 0;
+        runtime_pad_director_sticks(-1, -1, -1, -1);
+        Log("test: watchtalk: camera turned (right stick released)");
+    }
+    const std::size_t k = g.test.find("watchtalk=");
+    if (k == std::string::npos) {
+        return;
+    }
+    if (!s.world_up || s.loading || !IsDreamMap(s.map_id) ||
+        (s.session_role != kSessionRoleClient && s.cooperators < 1)) {
+        steady_at = warped_at = 0;
+        tries = 0;
+        done = false;
+        return;
+    }
+    if (steady_at == 0) {
+        steady_at = Now();
+    }
+    char* end = nullptr;
+    const std::uint32_t target = std::uint32_t(std::strtoul(g.test.c_str() + k + 10, &end, 10));
+    const float dist = end && *end == ':' ? std::strtof(end + 1, &end) : 1.5f;
+    const bool fixed = end && *end == ':';
+    const float angle = fixed ? std::strtof(end + 1, &end) : 0.0f;
+    const double delay = end && *end == '@' ? std::strtod(end + 1, nullptr) : 8.0;
+    static const float kAngles[] = {60, -60, 90, -90, 40, -40};
+    if (done || Now() - steady_at < delay) {
+        return;
+    }
+    if (warped_at > 0) {
+        if (Now() - warped_at < 1.0) {
+            return;
+        }
+        std::uint32_t prompt = 0;
+        const bool up = PromptUp(&prompt);
+        Log("test: watchtalk: watch_text %s%s", up ? "action prompt " : "no action prompt",
+            up ? std::to_string(prompt).c_str() : "");
+        if (up || fixed || tries >= int(std::size(kAngles))) {
+            done = true;
+            // 0x132F5A0(ctx, 10000 = the local player, 1): the camera behind the player (party_b2).
+            using CamReset = std::uint64_t(BB_COOP_SYSV*)(std::uint64_t, std::uint32_t, std::uint32_t);
+            reinterpret_cast<CamReset>(Guest(0x132f5a0))(0, 10000, 1);
+            // "cam=RX:RY:S": then the right stick held S s (default 170:215:0.5, a little right and
+            // down: the bath is low and the player's own body hid it).
+            int rx = 170, ry = 215;
+            double secs = 0.5;
+            if (const std::size_t c = g.test.find("cam="); c != std::string::npos) {
+                std::sscanf(g.test.c_str() + c + 4, "%d:%d:%lf", &rx, &ry, &secs);
+            }
+            runtime_pad_director_sticks(-1, -1, rx, ry);
+            cam_until = Now() + secs;
+            Log("test: watchtalk: in place%s; camera put behind the player, right stick %d:%d for %.1f s",
+                up ? " (in use range)" : "", rx, ry, secs);
+            return;
+        }
+    }
+    const std::uint64_t chr = FindChr(target);
+    if (!chr) {
+        return;
+    }
+    const float a = fixed ? angle : kAngles[tries++];
+    const bool ok = StandAt(s, chr, dist, 0, a * 0.017453293f);
+    warped_at = Now();
+    Log("test: watchtalk: standing %.1f m from t%u, %.0f deg off its front, facing it%s", dist, target, a,
+        ok ? "" : " - warp failed");
+}
+
 /// "hsdelay=S" (hostheadstone / guestheadstone): s after the first steady Dream (default 20).
 double HeadstoneTestDelay() {
     const std::size_t k = g.test.find("hsdelay=");
@@ -2186,6 +2351,7 @@ double HeadstoneTestDelay() {
 
 void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
     LampTick(s, link);
+    WatchTalkTick(s);
     // Live test "hostheadstone[;keys=...]": the HOST uses a Dream headstone (t210000) with a guest
     // present (IsMultiplayerInProgress lift), 20 s after the first cooperator: the party follows.
     {
@@ -2193,19 +2359,27 @@ void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
         static double coop_at = 0;
         // "guestheadstone[;keys=...]": the same on the GUEST (a client in the host's Dream; needs
         // the headstones allowed for guests, BB_PARTY_GUEST_LAMPS=1).
+        // "hosttalk=N[;open=TEXT][;keys=...]": the HOST uses talk N instead (a Bath Messenger's shop).
         static const int role = g.test.find("guestheadstone") != std::string::npos ? kSessionRoleClient
-                                : g.test.find("hostheadstone") != std::string::npos ? 3
-                                                                                      : -1;
+                                : g.test.find("hostheadstone") != std::string::npos ||
+                                          g.test.find("hosttalk=") != std::string::npos
+                                    ? 3
+                                    : -1;
         if (!started && role >= 0 && s.session_role == role &&
             IsDreamMap(s.map_id) && s.world_up && !s.loading && (role != 3 || s.cooperators >= 1)) {
             if (coop_at == 0) {
                 coop_at = Now();
-            } else if (Now() - coop_at >= HeadstoneTestDelay() && FindChr(210000)) {
+            } else if (Now() - coop_at >= HeadstoneTestDelay() && FindChr(HostTalkTarget())) {
                 started = true;
                 g_lvl = LevelUpScript{};
                 g_lvl.open = true;
-                g_lvl.target = 210000;
-                g_lvl.menu_text = 0;
+                g_lvl.target = HostTalkTarget();
+                // "hosttalk=N;open=TEXT": that talk menu row first (a shop's Purchase), else none.
+                if (const std::size_t o = g.test.find("open="); o != std::string::npos && g_lvl.target != 210000) {
+                    g_lvl.menu_text = std::uint32_t(std::strtoul(g.test.c_str() + o + 5, nullptr, 10));
+                } else {
+                    g_lvl.menu_text = 0;
+                }
                 if (const std::size_t k = g.test.find("keys="); k != std::string::npos) {
                     const std::size_t e = g.test.find(';', k);
                     g_lvl.keys = g.test.substr(k + 5, e == std::string::npos ? std::string::npos : e - k - 5);
@@ -2254,6 +2428,20 @@ void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
         } else {
             Log("closed (role %s, map %s%s)", SessionRoleName(s.session_role), MapName(s.map_id).c_str(),
                 s.loading ? ", loading" : "");
+        }
+    }
+    {
+        // Gehrman (t210305): his ordinary talk is a guest's too; his last event (the ending choice)
+        // stays the host's. The flags are the host world's (1000-1999 come with the join snapshot
+        // and the mirror); an unreadable flag keeps him vanilla.
+        bool f1028 = true, f1029 = true, f1030 = false;
+        const bool read = open && ReadEventFlag(1028, &f1028) && ReadEventFlag(1029, &f1029) && ReadEventFlag(1030, &f1030);
+        const bool talk = read && !GehrmanLastEvent(f1028, f1029, f1030);
+        if (talk != g_gehrman_talk.exchange(talk, std::memory_order_relaxed) && open) {
+            Log("Gehrman (t210305): %s (flags 1028 %d, 1029 %d, 1030 %d)",
+                talk ? "a guest may talk to him (his ordinary lines)"
+                     : "kept vanilla for a guest (his last event: the ending choice is the host's)",
+                int(f1028), int(f1029), int(f1030));
         }
     }
     const double now = Now();
@@ -2383,6 +2571,23 @@ std::uint64_t GuestSvcFindChr(std::uint32_t id) {
 
 bool GuestSvcPromptUp(std::uint32_t* id) {
     return PromptUp(id);
+}
+
+bool GuestSvcOnlyPrompt(std::uint32_t id, std::uint32_t* other) {
+    std::uint32_t ids[256];
+    const int n = BbGameMenu::RecentLookups(400, ids, 256);
+    bool seen = false;
+    *other = 0;
+    for (int i = 0; i < n; ++i) {
+        if ((ids[i] >= 10010000 && ids[i] < 10020000) || (ids[i] >= 70000000 && ids[i] < 70010000)) {
+            if (ids[i] == id) {
+                seen = true;
+            } else if (!*other) {
+                *other = ids[i];
+            }
+        }
+    }
+    return seen && !*other;
 }
 
 bool GuestServicesOpen() {

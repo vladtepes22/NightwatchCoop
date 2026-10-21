@@ -90,6 +90,14 @@ int PickFreeSpot(int slot, float d, float hx, float hz, float yaw, const float (
 float FreeSpotRight(int pick, int slot, float d);
 /// The spot party slot `slot` tries on attempt 0, 1, 2 (its own, the mirrored one, then 3 or 1).
 int SpotForTry(int slot, int attempt);
+/// The player number (PlayerGameData +0x10, PlayerIns +0x3B8) of party slot `slot`: the host 1
+/// (the session create writes it), guest slot N gets N + 1. A remote player's chr takes its game
+/// data from the record whose number matches its row's (0x18D8100: the own record first, then the
+/// 4 remote rows): two players with one number are drawn with one look. The vanilla host hands out
+/// 2, 3, ... (packet 7); the title join used to write 2 for every guest.
+int PlayerNumberForSlot(int slot);
+/// A number the game's record send (0x1781AC0) accepts: 1 or 2..0x7FFE.
+bool PlayerNumberValid(int n);
 /// E6: an NPC summon sign event (xx04400..xx04406 or 12906962).
 bool IsNpcSignEvent(int event_id);
 /// E6: the new count byte for the 3[29] argument bytes `a` (group, client type, comparison, count)

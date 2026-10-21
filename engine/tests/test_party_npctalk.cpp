@@ -108,6 +108,10 @@ static void TestRecent() {
 }
 
 static void TestChoices() {
+    // Only a speaking NPC's menu is a conversation (the Doll yes; the workbench, a shop, a headstone no).
+    assert(ChoiceInConversation(210304, 210304));
+    assert(!ChoiceInConversation(210692, 210304) && !ChoiceInConversation(210698, 210304));
+    assert(!ChoiceInConversation(210000, 0) && !ChoiceInConversation(0, 0));
     ChoiceTracker t;
     std::uint32_t msg = 0, npc = 0;
     const std::uint32_t kShow = 10, kTalk = 1;

@@ -21,6 +21,15 @@ static GuestServicesInput Guest(std::uint32_t map) {
 }
 
 int main() {
+    // The lower bath messengers' animation event: per player (its 0x31 sync dropped), nothing else.
+    assert(PerPlayerMessengerEvent(12105040u));
+    assert(!PerPlayerMessengerEvent(12105043u)); // Insight messenger: the host's copy drives it (ends on a client)
+    assert(!PerPlayerMessengerEvent(12105041u)); // the talk flag, not an event
+    assert(!PerPlayerMessengerEvent(12105064u)); // dress-up messenger: ends in multiplayer itself
+    assert(!PerPlayerMessengerEvent(12105070u)); // dress-up flag control: world state, stays synced
+    assert(!PerPlayerMessengerEvent(12101010u)); // lineup time-of-day flags
+    assert(!PerPlayerMessengerEvent(12400750u)); // a door event (synced by design)
+
     // Dream maps.
     assert(IsDreamMap(0x15000000u)); // m21_00_00_00
     assert(IsDreamMap(0x15010000u)); // m21_01_00_00
@@ -63,6 +72,14 @@ int main() {
     assert(!GuestServiceTalk(0));
     assert(GuestServiceTalkAllowed(210304, ""));
     assert(!GuestServiceTalkAllowed(210305, ""));
+    // Gehrman t210305: his last event (ending choice) is up with 1028, or 1029 without 1030.
+    assert(!GehrmanLastEvent(false, false, false));
+    assert(!GehrmanLastEvent(false, false, true));
+    assert(!GehrmanLastEvent(false, true, true));
+    assert(GehrmanLastEvent(false, true, false));
+    assert(GehrmanLastEvent(true, false, false));
+    assert(GehrmanLastEvent(true, true, true));
+    assert(kGehrmanTalk == 210305);
     assert(GuestServiceTalkAllowed(210305, "all"));
     assert(GuestServiceTalkAllowed(210305, "123,210305"));
     assert(!GuestServiceTalkAllowed(210305, "123,2103050"));

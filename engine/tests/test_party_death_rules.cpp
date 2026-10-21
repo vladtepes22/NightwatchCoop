@@ -124,6 +124,68 @@ int main() {
     d.boss_active = false;
     d.revive_opt_in = false;
     CHECK(PlanDownTick(d) == DownTick::PartyLoad);  // boss gone: one respawn load for everyone
+    {
+        // The guests killed the boss while the host lay in limbo: it gets up in the arena, no load.
+        DownView a = d;
+        a.boss_killed = true;
+        a.member_here = true;
+        CHECK(PlanDownTick(a) == DownTick::ArenaRevive);
+        a.revive_opt_in = true;
+        a.lamp_here = true;
+        CHECK(PlanDownTick(a) == DownTick::ArenaRevive);  // beside the member, not the lamp warp
+        a.boss_dying = true;
+        CHECK(PlanDownTick(a) == DownTick::Wait);  // the defeat is saved first (PR #6)
+        a.boss_dying = false;
+        a.down_seen = 1;
+        CHECK(PlanDownTick(a) == DownTick::Wipe);  // a wipe still loads
+        a.down_seen = 0;
+        a.arena_revive_on = false;
+        CHECK(PlanDownTick(a) == DownTick::Revive);  // the switch off: as before (here the opt-in lamp revive)
+        a.revive_opt_in = false;
+        CHECK(PlanDownTick(a) == DownTick::PartyLoad);
+        a.arena_revive_on = true;
+        a.member_here = false;
+        CHECK(PlanDownTick(a) == DownTick::PartyLoad);  // nobody alive to stand beside
+        a.member_here = true;
+        a.boss_killed = false;
+        CHECK(PlanDownTick(a) == DownTick::PartyLoad);  // the bar went without a kill
+        a.boss_killed = true;
+        a.limbo = false;
+        CHECK(PlanDownTick(a) == DownTick::PartyLoad);  // a death outside a boss fight: unchanged
+        CHECK(ArenaReviveAtCorpse(true, false, 12.0, 0.5));
+        CHECK(!ArenaReviveAtCorpse(false, false, 12.0, 0.5));  // no corpse spot kept
+        CHECK(!ArenaReviveAtCorpse(true, true, 12.0, 0.5));    // a fall death: the member's spot
+        CHECK(!ArenaReviveAtCorpse(true, false, 41.0, 0.5));   // not in the arena with the member
+        CHECK(!ArenaReviveAtCorpse(true, false, 5.0, -4.5));   // another floor
+    }
+    {
+        // PR #6's wait: the bar over the dead boss, or 3 s after it went; at most 20 s.
+        CHECK(DefeatPending(0.5, true));
+        CHECK(DefeatPending(1.0, false));
+        CHECK(DefeatPending(10.0, true));
+        CHECK(!DefeatPending(3.5, false));
+        CHECK(!DefeatPending(21.0, true));
+        // A guest dead in the fight when the boss died (user request 2026-10-21): up in the arena.
+        CHECK(PlanGuestLimboEnd(true, true, false, true) == GuestLimboEnd::ArenaRevive);
+        CHECK(PlanGuestLimboEnd(true, true, true, true) == GuestLimboEnd::Wait);    // the defeat saved first
+        CHECK(PlanGuestLimboEnd(true, true, true, false) == GuestLimboEnd::Wait);
+        CHECK(PlanGuestLimboEnd(true, true, false, false) == GuestLimboEnd::Lamp);  // nobody alive here
+        CHECK(PlanGuestLimboEnd(false, true, false, true) == GuestLimboEnd::Lamp);  // the bar went, no kill
+        CHECK(PlanGuestLimboEnd(true, false, false, true) == GuestLimboEnd::Lamp);  // the switch off: as before
+        CHECK(PlanGuestLimboEnd(true, false, true, true) == GuestLimboEnd::Lamp);   // no wait either
+        // Host and a guest dead, the other guest's kill: both up in the arena (the host by
+        // PlanDownTick, the guest here); a wipe is the host's death load (PlanDownTick Wipe).
+        DownView h = d;
+        h.limbo = true;
+        h.boss_killed = true;
+        h.member_here = true;
+        h.down_reported = 1;  // guest 1 down; guest 2 alive
+        h.members = 2;
+        CHECK(PlanDownTick(h) == DownTick::ArenaRevive);
+        CHECK(PlanGuestLimboEnd(true, true, false, true) == GuestLimboEnd::ArenaRevive);
+        h.down_reported = 2;
+        CHECK(PlanDownTick(h) == DownTick::Wipe);
+    }
 
     // The split question closes on a load, a death or after 30 s (bug 12).
     CHECK(PlanAskClose(true, false, false, 5) == AskClose::Keep);
@@ -140,6 +202,15 @@ int main() {
     }
     for (std::uint32_t f : {72410201u, 72410000u, 12410202u, 72100200u, 9401u, 1001u, 72411101u, 82410101u}) {
         CHECK(!LampTriggerFlag(f));
+    }
+    // Live 2026-10-20: the Dream's talk state (Doll handshake, Gehrman's lines) and 70000100 are no
+    // lamp use; they stay out of the mirror as talk state.
+    for (std::uint32_t f : {72100100u, 72100101u, 72100102u, 72100123u, 72100124u, 72100136u, 70000100u}) {
+        CHECK(!LampTriggerFlag(f));
+        CHECK(TalkStateFlag(f));
+    }
+    for (std::uint32_t f : {72110100u, 72410101u, 72102110u, 72410201u, 9401u}) {
+        CHECK(!TalkStateFlag(f));
     }
     CHECK(PlanLampOrigin(-1, -1) == LampOrigin::Other);     // no own flag: another game's warp event
     CHECK(PlanLampOrigin(-1, -1, false) == LampOrigin::Own); // no flag hook: ask as before
@@ -399,11 +470,26 @@ int main() {
     CHECK(FallDeathState(0x0400011088ull, 0) && FallDeathState(0x00030010d8ull, 0));
     CHECK(!FallDeathState(0x0001001098ull, 0x0000) && !FallDeathState(0x0001001098ull, 0x8000));
     CHECK(!FallDeathState(0x0003001098ull, 0x8000));  // after a normal revive
+    // revivecheck live: deaths with no drop and hp+0x200 0x7000 (an enemy's kill), 0xD000 and 0xF800
+    // (ForceDeads) are no falls; only the +0x1E1 flags are.
+    CHECK(!FallDeathState(0x0001001098ull, 0x7000) && !FallDeathState(0x0001001098ull, 0xd000));
+    CHECK(!FallDeathState(0x0001001098ull, 0xf800));
+    CHECK(PlanGuestRevive(0.0, true, FallDeathState(0x0001001098ull, 0xf800)) == GuestRevive::InPlace);
     CHECK(PlanGuestRevive(0.0, true, FallDeathState(0x0001001098ull, 0x8000)) == GuestRevive::InPlace);
     CHECK(FallDrop(-20.0, -40.0, -80.0) == 60.0);                            // into the void: still dropping
     CHECK(FallDrop(-20.0, -21.0, -21.0) == 1.0);
     CHECK(GuestReviveName(GuestRevive::LoadFall)[0] != '?');
     CHECK(RestLoadName(RestLoad::TooSoon)[0] != '?');
+    // K12: the guest's HostDead state (the host's death event) on a party guest.
+    CHECK(SkipGuestHostDead(true, 6, 1, 1, 1));      // a summoned guest, default: skipped
+    CHECK(SkipGuestHostDead(true, 6, 0, 1, 4));      // chr type 0 after a B2 load: skipped too
+    CHECK(!SkipGuestHostDead(false, 6, 1, 1, 1));    // no B2 party: the game's
+    CHECK(!SkipGuestHostDead(true, 3, 1, 1, 1));     // the host: the game's (it returns at once)
+    CHECK(!SkipGuestHostDead(true, 6, 2, 1, 1));     // an invader: the game's PK-success path
+    CHECK(!SkipGuestHostDead(true, 6, 8, 1, 1));
+    CHECK(!SkipGuestHostDead(true, 6, 1, 0, 5));     // BB_PARTY_HOSTDEAD_SKIP=0: never
+    CHECK(!SkipGuestHostDead(true, 6, 1, 3, 2));     // =3: the first two host deaths the game's
+    CHECK(SkipGuestHostDead(true, 6, 1, 3, 3));
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

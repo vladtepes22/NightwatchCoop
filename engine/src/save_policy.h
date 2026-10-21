@@ -46,6 +46,35 @@ int runtime_savepolicy_session_snapshot(const char *user, const char *role, int 
 /* Tests: forget the cached environment. */
 void runtime_savepolicy_reset(void);
 
+/* ---- saves from other builds (docs/SAVES.md "Saves from other builds") ----
+ * Our layout keeps a save's description BESIDE its folder: <title id>/<dir>.sce_sys/param.bin (the
+ * raw OrbisSaveDataParam, 1328 bytes). shadPS4 keeps it INSIDE: <title id>/<dir>/sce_sys/param.sfo
+ * (a PSF file: MAINTITLE, SUBTITLE, DETAIL, SAVEDATA_LIST_PARAM, ...). The game's own files are the
+ * same in both. We read either and write both, so a save moves between the two builds as it is. */
+typedef struct { char title[128], subtitle[128], detail[1024]; uint32_t user_param; } SaveSfo;
+/* A param.sfo's save description. 0 read, -1 not a PSF file. */
+int runtime_savepolicy_sfo_parse(const void *data, size_t size, SaveSfo *out);
+/* A save param.sfo as shadPS4 writes it, into out (cap bytes, 4096 is plenty). Its size, 0 if too small. */
+size_t runtime_savepolicy_sfo_build(const SaveSfo *in, const char *dir_name, const char *title_id, void *out, size_t cap);
+/* One of Bloodborne's title ids (CUSA00207 US, CUSA03173 EU, CUSA00900 JP, ...). */
+int runtime_savepolicy_bloodborne_title(const char *title_id);
+/* At start, before the check: makes <user>/<dir>/<user id>/<title id> (the folder this game reads)
+ * hold the saves a player brought from another build. A save folder in shadPS4's layout gets our
+ * <dir>.sce_sys/param.bin from its sce_sys/param.sfo (both kept). Without any save there, the newest
+ * save under another user id or another Bloodborne title id (another region's game, another build's
+ * user folder) is copied in (never moved; the original stays). Saves found anywhere else under
+ * <user>/<dir> are named in the log with where they belong. Returns the number of saves taken in. */
+int runtime_savepolicy_adopt(const char *user, const char *dir, int user_id, const char *title_id);
+/* Party side files of a character that is no longer in its save slot. The party keeps per character
+ * state next to the saves, keyed by save slot: party_rot.txt, party_stain.txt, party_prologue.txt,
+ * party_gestures.txt, party_summoned_gives.txt, party_owed_lots.txt (and the unkeyed story replay
+ * queue party_story.json). A save copied over the party save (or a new game in a used slot) put
+ * another character in that slot, which then got the old one's rot, bloodstain, prologue reading and
+ * owed items. <user>/party_characters.txt remembers each slot's character (its name and play time);
+ * a slot whose name changed, whose play time went back, or that was emptied has its entries dropped.
+ * save_folder: the folder with userdata0000..0009. Returns a bit per slot that changed. */
+int runtime_savepolicy_side_files(const char *user, const char *save_folder);
+
 /* runtime_file.c: save activity. generation changes with every write, rename or removal under
  * /savedataN; open_writes counts save files open for writing. */
 void runtime_file_save_activity(uint64_t *generation, int *open_writes);

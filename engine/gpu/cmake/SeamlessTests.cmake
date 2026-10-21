@@ -352,17 +352,26 @@ set(PARTY_FUZZ_SOURCES ../tests/party_fuzz.cpp ${PARTY_NET_SOURCES} ${PARTY_LINK
     shim/party/party_items.cpp shim/party/party_phantom.cpp shim/party/party_progress.cpp
     shim/party/party_guestsvc.cpp shim/party/party_worldact.cpp shim/party/party_balance_rules.cpp
     shim/party/party_chalice.cpp shim/party/party_droproll.cpp shim/party/party_dsummon.cpp
-    shim/party/party_desync.cpp shim/party/party_npctalk.cpp shim/party/party_ping.cpp)
+    shim/party/party_desync.cpp shim/party/party_npctalk.cpp shim/party/party_ping.cpp
+    shim/party/party_gestures.cpp)
 add_executable(party-security-test EXCLUDE_FROM_ALL ${PARTY_FUZZ_SOURCES})
 target_compile_definitions(party-security-test PRIVATE PARTY_FUZZ_QUICK
     BB_PARTY_TRAVEL_NO_GAME BB_PARTY_STORY_NO_GAME BB_PARTY_ITEMS_NO_GAME
     BB_PARTY_PHANTOM_NO_GAME BB_PARTY_PROGRESS_NO_GAME BB_PARTY_GUESTSVC_NO_GAME
     BB_PARTY_WORLDACT_NO_GAME BB_PARTY_NPCTALK_NO_GAME BB_PARTY_PING_NO_GAME
-    BB_PARTY_CHALICE_NO_GAME BB_PARTY_DROPROLL_NO_GAME)
+    BB_PARTY_CHALICE_NO_GAME BB_PARTY_DROPROLL_NO_GAME BB_PARTY_GESTURES_NO_GAME)
 target_include_directories(party-security-test PRIVATE shim shim/net ..)
 target_link_libraries(party-security-test PRIVATE ws2_32 iphlpapi ole32 oleaut32)
 target_compile_options(party-security-test PRIVATE -UNDEBUG -Wall -Wextra)
 set_target_properties(party-security-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# Party gestures (shim/party/party_gestures.cpp; in bbgpu through SHIM_SOURCES): ids, JSON, the
+# owed store and the decision (BB_PARTY_GESTURES_NO_GAME). ninja -C out/gpu party-gestures-test
+add_executable(party-gestures-test EXCLUDE_FROM_ALL ../tests/test_party_gestures.cpp shim/party/party_gestures.cpp
+    shim/net/json.cpp)
+target_compile_definitions(party-gestures-test PRIVATE BB_PARTY_GESTURES_NO_GAME)
+target_compile_options(party-gestures-test PRIVATE -UNDEBUG -Wall -Wextra)
+target_include_directories(party-gestures-test PRIVATE shim)
+set_target_properties(party-gestures-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 get_property(all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 set(party_tests)
 foreach(target IN LISTS all_targets)

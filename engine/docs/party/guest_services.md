@@ -68,6 +68,30 @@ EMEVD animation events (12105043 Insight messenger, 12105064 dress-up messenger:
 multiplayer after the first animation request) only decide whether the messenger has risen; with
 the host's flag (e.g. 12100320) in the overlay the guest sees the same messenger state.
 
+**The lower bath messengers' animation is per player [R]** (bathsync, 2026-10-21). m21 event
+12105040 (売買メッセンジャーアニメ, messengers 2100211-2100213 of t210691 / t210694 / t210695) loops:
+`[0-2]` 2003[18] idle in the bath (7001/7002/7041), `[3]` wait 12105041 ON, `[4-6]` rise
+(7005/7006/7029), wait 29 frames, `[8-10]` at the shop (7003/7004/7043), `[11]` wait 12105041 OFF,
+`[12-14]` sink (7007/7008/7047), wait 28 frames, `[16]` 1000[04] restart. 12105041 is set by the
+talk script (talk command switch, return 0x2043F5C -> 0x27C1C12 -> SetEventFlag) of whoever opens
+the shop, in its own game only, and cleared by it when the player leaves (return 0x27C1D3D). The
+event's state is network-synced: packet 0x31, drained by
+0x12F0F90 at 0x12F1744 (`{u16 kind 0, u16, u32 size, i32 event, i16 slot, state}` to every
+instance with that event id and slot, vfunc +0x28). With one player in the shop (flag 1) and one
+watching (flag 0) each game passed the other's wait: the shopper's `[3]` ON reached the watcher,
+the watcher's `[11]` OFF reached the shopper, and the event ran rise / sink every ~2.0 s on both
+games (the watcher saw the messengers pop in and out with their sound; the shopper too, behind the
+menu). No SetEventFlag of 12105041 ever happened on the watcher (`BB_PARTY_WORLD_WATCH` write
+trace). Now (`PerPlayerMessengerEvent`, `BB_PARTY_MESSENGER_SYNC=1` restores it) the 0x31 packets
+of 12105040 are dropped on receipt: each game animates the messengers from its own talk flag (live
+after: the shopper's messengers rise once, stay at 3007003 and sink once when it leaves; on the
+watcher they rose once with the other player's shop opening - the animation itself reaches it
+some other way - and stayed up, no loop; the rise / sink loop count on the watcher went from 16
+to 0). The
+Insight messenger's 12105043 is different and stays synced: its copy ends on a client
+(`1003[101]`), the host's copy drives every game (live: one rise 3007034/3007035 when the host
+opened t210698, one sink 3007036 when it closed; its talk script clears 12105044 on leaving).
+
 ### 2.2 Which talk scripts (MSB m21_00_00_00 entity -> talk script) [C]
 
 The filter allows by talk script id; the entity column is where the script is placed.
@@ -82,7 +106,7 @@ The filter allows by talk script id; the entity column is where the script is pl
 | 2100211, 2100215, 2100216 | t210691, t210694, t210695 | Bath Messengers: shops, sell | yes |
 | 2100218 | t210697 | dress-up messenger (attire for flags 6071..) | yes |
 | 2100219 | t210698 | Insight messenger (Insight shop) | yes |
-| 2100600 | t210305 | Gehrman (last event: the ending choice) | no |
+| 2100600 | t210305 | Gehrman: ordinary lines (72100120-72100129, 72100133-72100135); last event: the ending choice | yes, outside his last event (2.7) |
 | 2100800 | t210306 | (Gehrman / Doll death branch) | no |
 | 2100950.. | t210000-3 | headstones (travel) | no (lamp phase) |
 | 2100230, 2100231 | t210720, t210721 | Dream lamp / warp menus | no (lamp phase) |
@@ -104,7 +128,7 @@ saved, and continues at `0x203EECF` with the filtered eax. The filter answers 0 
   widens it for diagnostics).
 
 Everywhere else the game's own answer stands: quest NPCs in the host's world keep refusing guests,
-Gehrman's ending choice and the travel menus stay host-only. Nothing runs on the host (role 3: the
+Gehrman's ending choice (his last event, 2.7) and the travel menus stay host-only. Nothing runs on the host (role 3: the
 game already answers 0 there).
 
 Log lines (`Party guest services:`): `open: guest in the host's m21_00_00_00; level L, echoes E,
@@ -183,6 +207,24 @@ guest's level-up. party_flags.inc now has never_sync override rows (flag_tool.py
 12100112-12100118 (kneel, gesture, SFX, bow, surprise, gesture reaction), 72100100-72100102,
 72100105-72100108 (idle talk / bow / surprise triggers), 72100110 and 72100113 (talk state). Each
 player levels up at its own Doll; the key-item gift (72100112 / 72100114) is unchanged.
+
+### 2.7 Gehrman on a guest [data, R]
+
+Live (2-player session 2026-10-20, 0.6.9): in the host's Dream the guest could not talk to Gehrman;
+the host's talks played on the guest (shared lines), and each time the guest's prompt 10010200
+showed for 0.4 s and went (`talk script t210305 ... asks IsClientPlayer: kept vanilla`). Talk ESD
+`t210305.esd` (m21_00_00_00.talkesdbnd): StateMachine 1 runs machine 0x7FFFFFF7 while
+`IsClientPlayer() == 0` and the "client wait" machine 0x7FFFFFF8 while it is 1, so the whole talk is
+host-only, not only the choice. 0x7FFFFFF7 picks the last event (0x7FFFFFF5 -> 0x7FFFFFF4: Yes / No,
+72100130 submit / 72100131 refuse; its "attacked" branch 0x7FFFFFF3 sets 72100131) when **1028** is
+on or **1029** is on and **1030** off (m21 events 12100143 / 12100144 / 12100145); otherwise the
+ordinary talk 0x7FFFFFF6 (lines 1500000-1501300, flags 72100120-72100129 / 72100133-72100135, no
+choice). Fix: in the Dream gate the filter answers 0 for t210305 while the guest's flags 1028 / 1029 /
+1030 (the host's: global 1000-1999, join snapshot and mirror) say his last event is not up (the tick
+reads them; an unreadable flag keeps him vanilla). When the host's Dream reaches the last event the
+next IsClientPlayer answer is 1 again and machine 1 goes back to the client wait. 72100130 / 72100131
+stay never_sync and out of world actions. t210306 (the boss Gehrman's death lines, no menu) stays
+vanilla. Log: `Gehrman (t210305): a guest may talk to him (his ordinary lines) (flags ...)`.
 
 ## 3. Lamps and headstones (implemented, opt-in `BB_PARTY_GUEST_LAMPS=1` until run live)
 

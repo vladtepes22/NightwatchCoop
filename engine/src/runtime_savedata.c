@@ -102,6 +102,23 @@ static void bloodborne_sound_hack(void) {
 }
 void runtime_savedata_configure(const char *title) {
     if (title && *title) snprintf(title_id,sizeof(title_id),"%s",title);
+    /* Party saves: another character in a save slot than last time (a save copied over the party
+     * save) does not inherit the old one's party side files. Before the party modules read them.
+     * (visy 0.7.0, 0a3bfe20; the save adoption and param.sfo parts are not taken.) */
+    if (!strcmp(runtime_savepolicy_dir(),"savedata_party")) {
+        char titles[800]; snprintf(titles,sizeof(titles),"%s/savedata_party/1/%s",runtime_file_user_dir(),title_id);
+        DIR *d=opendir(titles);
+        for (struct dirent *e; d && (e=readdir(d));) {
+            char folder[1100], system[1200]; struct stat st;
+            if (e->d_name[0]=='.' || strstr(e->d_name,".sce_sys") || strstr(e->d_name,".memory")) continue;
+            snprintf(folder,sizeof(folder),"%s/%s",titles,e->d_name);
+            snprintf(system,sizeof(system),"%s/userdata0010",folder);
+            if (stat(system,&st)) continue;
+            runtime_savepolicy_side_files(runtime_file_user_dir(),folder);
+            break;
+        }
+        if (d) closedir(d);
+    }
     runtime_savepolicy_start();
     bloodborne_sound_hack();
 }

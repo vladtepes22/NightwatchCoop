@@ -582,6 +582,7 @@ dissolved. Steps (`BB_PARTY_B2_REVIVE_RECIPE`, default `recover,flags,ctrl,fade,
 | fade | +0x20C alpha 0 -> 1 at 1.5/s, +0x1E5 &= ~4 | ChrFadeIn 0x1339010 |
 | reset | `0x18BCF30(player, 1)` + PlayerIns +0x1E4 \|= 2 (transform re-applied, ChrCtrl vfunc +0x38, behavior graph reset) | Lua ChrResetRequest 0x13370B0 |
 | idle | behavior event L"Idle_wild" (0x4992C40) via `0x1A19F60([+0x3B0]+0x30, name)` when its +0x384 is set: out of BeDead | Lua ChrResetAnimation 0x13370F0 |
+| hitbody | the hit bodies' collision filter back to the alive one: `0x1812400(ChrCtrl +0x20, filter)` (that object's vfunc +0x30) | see *Hit bodies* below |
 | warp | chr warp vfunc +0x5F8 to the lamp spot | as the B2 spacing |
 | gsm | GSM +0x1522 / +0x1523 (local player died / fell) = 0 | ChrIns_OnDeath |
 
@@ -596,6 +597,23 @@ alive copy of ChrCtrl +0x370 / module +8 written back, hd6 / hd7). So the bits a
 as a stage request is armed after a revive (`a stage request after the revive; ChrCtrl death bits
 set again for the load`); the load re-creates the chr anyway (hd12: both post-revive lamp warps
 loaded, the guest followed with B2 each time).
+
+**Hit bodies (why a player revived in place could not be hit).** Attacks find their targets in
+the hit world `[0x553D700]+0x28` (query `0x185FBE0` -> `0x1860FB0(attack, target)` -> hit record
+`0x185B200` -> `0x18B79E0` -> the victim's damage module, container +0x98, vfunc +0x60 `0x1A33440` ->
++0x68 `0x1A2A600`). A chr's hit bodies are the Havok bodies of ChrCtrl +0x20; their collision filter
+is set by that object's vfunc +0x30 `0x1812400(obj, filter)` (each body through `0xB6A370`, then
++0xA8 / +0xAC; the per-frame update `0x180DF90` re-applies it when the two differ). About 5 s into a
+death (the corpse) the game moves them to layer 0x36 (`0x01000008` -> `0x01000036` on a living
+player; caller stack `0x180E012` <- `0x18BF4AE`, hardware breakpoint, revivehit ab1), which attacks
+and other chrs do not collide with; walls still collide (the character proxy is separate). Only a
+chr rebuild (a load) brought them back, so a revived player took no hits and was never pushed
+(0.6.9 report; ruled out before: the body revive 0x1900710, the alive copy of chr / ChrCtrl /
+module fields, SpEffects, chr +0x218..+0x26C (the floor hit record, setter 0x18BBA70) and module
++0x88 +0x1C0 (a SpEffect entry's flags)). The `hitbody` step calls `0x1812400` with the filter the
+chr had alive (kept every frame while alive; else the dead one with layer 8). It also fixed the
+guest's team: 0x1900710 re-resolved it from type 0 (19, the host's body); `0x18C2A00` runs again
+with the phantom type back (20).
 
 **The guests.** `{"op":"host_revived"}` to every member: each guest removes its copy of the host's
 chr (it died with the host: +0x1E1 0x10000, invisible) as the host does for a guest's lone respawn
@@ -628,9 +646,47 @@ slots 0..2 and resets them to -1; counted while the handle resolves to a living 
   0: ...): limbo`); it lies dead (YOU DIED, no load) until the bar goes (boss killed: revived at its
   lamp as above, or the party move if the lamp is elsewhere), every guest is down (a wipe: the stock
   funnel, everyone to the host's lamp) or a load starts (someone rests).
+* **Arena revive** (2026-10-21, `BB_PARTY_HOST_LIMBO_REVIVE`, default on; `party_death_rules.h`
+  `DownTick::ArenaRevive`): the limbo ends with a kill (the bar seen over a chr at HP 0, or the last
+  boss handle's chr at HP 0; a bar that just goes is no kill) and, after PR #6's wait for the defeat
+  event, the host is revived in place with `ReviveLocal` (all steps incl. `hitbody`) at its corpse
+  spot (kept at the limbo's start) when that is within 40 m / 4 m of the nearest living member and no
+  fall death (fall-state bits counted only when the chr did not carry them alive: the host's HP
+  module +0x200 reads 0x3800 alive), else exactly on that member's spot (`LampSpot::exact`, no 0.5 m
+  side step). Spectating ends; `host_revived` makes each guest rebuild the host chr and stop hiding
+  it as a spectator. No load for anyone, the bloodstain stays where the host died. Live: see
+  ERSC_PARITY C5 (2026-10-21).
 * A guest dies in a boss fight: its held death (6.8) is kept past the grace while the bar is up
   (`guest: dead in a boss fight (...): limbo until the boss is gone, a wipe or a rest`), then the lone
   respawn (6.9) at the host's last lamp; a host travel (wipe, rest) takes it along as before.
+* **Guest arena revive** (arenaguest 2026-10-21, the same rule `BB_PARTY_HOST_LIMBO_REVIVE`, the
+  host's value sent with the party rules; `party_death_rules.h` `PlanGuestLimboEnd`): the boss KILLED while the
+  guest lay dead in the fight (in its limbo, or before its held death: the game's death state runs
+  ~8 s after HP 0, so a death with a living boss bar up (`LocalDeathHeightTick`) and a kill after it
+  count too - live A1: guest 2 died at +174.7, the kill came at +181.8, its hold at +183.3).
+  `LimboKillTick` keeps the last living boss bar's chr; once no living bar is up, a kill is the bar
+  over a dead chr or that chr at HP 0 (`boss fight: the boss was killed (...)`), and
+  `DefeatPending` is PR #6's wait (bar still up, or < 3 s after it went, at most 20 s):
+  `guest: the limbo's boss was killed (...): waiting for its defeat to be saved`. Then
+  `GuestArenaRevive`: `ReviveLocal` (guest steps incl. `hitbody`) at its corpse spot (its transform
+  at HP 0, `LocalDeathHeightTick`: the spectate carries the dead chr afterwards) when that is within
+  40 m / 4 m of the nearest living member and no fall death (the height history's drop or the
+  +0x1E1 fall flags), else exactly on that member's spot (`LampSpot::exact`). Spectating ends; no
+  load; the party stain stays where it fell (walking back onto it pays it, `GuestStainTick`).
+  `member_revived` (the carried spot) now goes from the host on to the other guests too, and
+  `RecreateMemberNear` prefers a spectator's hidden copy, then a copy at HP 0, over a living member
+  standing as near (the carried spot is on the followed member's own spot). Host and a guest both
+  dead, the other guest's kill: the host by `DownTick::ArenaRevive`, the guest by this rule (it waits
+  while the host's chr is down, at most 30 s from its death, as before). Switch off, a bar that went
+  without a kill, or nobody alive here: the host's lamp as before; a wipe: the host's death load.
+  Live (arenaguest, 3 players, Father Gascoigne, `host_kill=2410810:hp` on the host's game): A2 guest 1
+  died by script, guest 2 was killed by Gascoigne 6 s before the kill (its hold came after it): both
+  `up again in the arena where it died ... no load`, the host re-created both chrs; guest 1 rolled,
+  walked 6 m away and back onto its stain (`party stain: recovered 5000 Blood Echoes`), then took
+  enemy hits next to 2410100 (`hit: HP 719 -> 662 (-57)` ... 495). B2 host and guest 1 dead, guest 2
+  alive: the host's `ArenaRevive` and then guest 1's (it waited while the host's chr was down), both at
+  their corpse spots, no loading screen anywhere; stain recovered; hits taken. Smoke group `arena`
+  (s2, Cleric Beast: guest 2 dead in the fight, up in the arena, an enemy hit, no load) passes.
 * Shared boss lamp (design decision, ERSC_PARITY @ 7552b38): every respawn after a boss fight goes to
   the same lamp - the host's last lamp (a guest's lone respawn already uses the host's last lamp, or
   a lit lamp of the loaded map, 6.10; the wipe and the host use the host's lamp).
@@ -857,6 +913,21 @@ opt-in. The decisions are pure functions in `party_death_rules.h` (unit party-de
   by the boss-clear watchdog after a `host_kill` ForceDead raised BlockClear2_3 on the guest, so it
   left and rejoined by the bell - a test-aid artifact) and the guest's same-map solo load (it came
   while the host death's re-join ran and was correctly dropped: "nothing runs", the host stayed).
+
+**2026-10-20 (spectcam): C5 spectate camera, smooth follow.** User report from a real 2-player
+session: "spectator cam is weird". Live A/B in one session (Gascoigne, host dead in the fight, the
+guest walking circles and rolling; `BB_PARTY_SPECTATE_SMOOTH_AFTER=22`, `BB_PARTY_SPECTATE_LOG=1`):
+the old follow (dead chr carried every 0.2 s to 3 m behind the member's body yaw, Lua CamReset at
+every > 0.6 rad turn) logged 66-124 camera resets a minute, 4-5 m carry steps per tick and render
+camera moves of 5-10 m / turns of 113 degrees between frames; the screenshots show walls, pillars
+and fences in front of the camera most of the time. The smooth follow (carried every frame onto
+the member's own spot with a 0.15 s exponential lag, CamReset only for a new member) logged 0
+resets, 0.23 m steps, camera moves up to 0.35 m and turns up to 8.5 degrees between frames, the
+member on screen in every shot. The member's own spot is never inside a wall; the game's camera
+keeps its own distance and wall collision from there (no raycast needed). The guest's spectate now
+starts at its held death in a boss fight (it waited for the 8 s grace before). The host's ~9 s
+before the spectate is the game's own death (animation, YOU DIED) up to SoloPlayDeath_2's funnel,
+which also records the bloodstain from the chr's position: not shortened.
 
 ## 7. Risks / open items
 

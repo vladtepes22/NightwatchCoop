@@ -814,6 +814,17 @@ bool PartyHostService::room(std::uint64_t room_id, RoomView* out) const {
     return true;
 }
 
+std::vector<std::pair<std::string, std::string>> PartyHostService::unusable_endpoints() const {
+    std::vector<std::pair<std::string, std::string>> out;
+    std::lock_guard<std::mutex> lk(d_->mu);
+    for (const auto& [id, c] : d_->contexts) {
+        if (id == d_->host_online) continue;
+        if (summon_endpoint_unusable(c.link_addr, ip_parse(c.ep.local_addr), ip_parse(c.ep.mapped_addr), c.ep.mapped_port))
+            out.emplace_back(id, c.ep.local_addr + ":" + std::to_string(c.ep.local_port));
+    }
+    return out;
+}
+
 bool PartyHostService::resolve(const std::string& online_id, json::Value* record) const {
     json::Value rq = json::Value::make_object();
     rq.set("OnlineId", online_id);

@@ -37,7 +37,17 @@ struct Room {
     std::uint32_t area = 0;          // the host's FrpgNetMan +0xa7c
     float pos[3] = {0, 0, 0};        // FrpgNetMan +0xaac
     std::uint32_t level = 0;         // FrpgNetMan +0xaa8
+    /// The host's ChannelId (FrpgNetMan +0xa88) while its room is in a Chalice Dungeon, else
+    /// kNoChannel. The type-1 message the host's own game sends carries it at +0x28; the guest's
+    /// game quick-joins that dungeon by it (docs/party/chalice.md 4). Without it the guest loads
+    /// m29 with no dungeon in its slot: an empty world (live, after PR #8: fell to y -1500).
+    std::uint64_t channel = 0x8000000000000000ull;
 };
+constexpr std::uint64_t kNoChannel = 0x8000000000000000ull;
+/// A ChannelId the guest's game can quick-join: not 0, not the game's "none" (top bit set).
+constexpr bool ChannelSet(std::uint64_t c) { return c != 0 && (c >> 63) == 0; }
+/// A map / room area in area 29 (the Chalice Dungeons).
+constexpr bool ChaliceMap(std::uint32_t m) { return m != 0xffffffffu && ((m >> 24) & 0xff) == 29; }
 
 enum class Kind { None, Req, Room, Done, Busy };
 Kind KindOf(const std::string& body);
@@ -46,16 +56,26 @@ Kind KindOf(const std::string& body);
 /// word of a refusal (never broadcast as dsum_busy).
 /// MemberPrologue (#19): another party member is still in its prologue - summons start once
 /// everybody is ready.
-enum class Busy { None, Boss, Cutscene, Prologue, OtherMap, MemberPrologue, Settle };
+enum class Busy { None, Boss, Cutscene, Prologue, OtherMap, MemberPrologue, Settle, Chalice, Sign };
 /// Settle (F5): the host's game is still ending the session a member left (after a network
 /// outage it leaves its room ~5 s after the member did): the guest asks again in kReaskWait.
+/// Chalice: the host is in a Chalice Dungeon whose ChannelId is not set / not on the party's board
+/// yet (the guest asks again, as for Settle), or a title joiner does not have that dungeon (it
+/// continues into its own world and the summon's quick join brings it in).
+/// Sign: the host's game asked to summon a sign moments ago (SignSummonBusy): the guest asks
+/// again, as for Settle; a sign summon that brought nobody into the room ends the wait early.
 /// The boss bar wins over a cutscene (a boss intro cutscene ends in the fight).
 Busy HostBusy(bool boss_bar_up, bool cutscene_playing);
 /// Why the host refuses a guest's title join (the restarted / launching guest asks at its title):
 /// HostBusy, else Prologue while the host has not finished its own start (the director's
 /// LocalStartReady). Playtest 1 #1 verification: the title-join path created and served a room
 /// while the host was still in its prologue (only the direct summon checked host_ready).
-Busy TitleJoinBusy(bool boss_bar_up, bool cutscene_playing, bool host_ready, bool member_in_prologue = false);
+Busy TitleJoinBusy(bool boss_bar_up, bool cutscene_playing, bool host_ready, bool member_in_prologue = false,
+                   bool chalice_elsewhere = false);
+/// Host: a title joiner must not load the host's Chalice Dungeon from its title (that join has no
+/// quick join: its game builds its own current slot's dungeon, or none) unless its own slot holds
+/// the host's dungeon (`guest_channel`; 0 / none when not known). True: refuse it with Chalice.
+bool TitleJoinChaliceElsewhere(std::uint32_t host_map, std::uint64_t host_channel, std::uint64_t guest_channel);
 /// "boss" / "cutscene" / "prologue" / "map" / "none" (the wire word).
 const char* BusyWord(Busy b);
 /// The player-facing wait line: the guest's ("Waiting: the host is in a boss fight") or the
@@ -99,11 +119,23 @@ struct HostView {
     bool carry = false;                        // CarriesAcrossMaps: no map check
     int cooperators = 0, max_cooperators = 3;
     long long ms_since_sign_summon = 1 << 30;  // the host's game asked to summon a sign this long ago
+    long long ms_since_member_joined = 1 << 30; // a member joined the host's room this long ago
     long long other_hold_ms = 0;               // a crash hold running (C6)
     Busy busy = Busy::None;                    // A11: a boss fight / cutscene: joiners wait
     bool settling = false;                     // F5: a member left our room moments ago and our game
                                                // (host, no cooperators) is about to end that session
+    bool chalice_unready = false;              // the host is in a Chalice Dungeon whose ChannelId is not
+                                               // set / not on the board yet: the room could not carry it
 };
+/// The host's game is summoning a sign: the guest's direct summon waits. A sign summon whose
+/// guest joined the room (a member joined since the request) holds for kSignSummonHold; one that
+/// brought nobody in within kSignSummonNoJoin is failing (the game's own wait for the guest runs
+/// ~30 s and then summons the next sign): the direct summon goes on. Without this, a failed join
+/// locked the host: its game summoned the failed guest's new sign every ~30 s and every direct
+/// summon landed in the hold (smoke 2026-10-21, 230+ s of refusals).
+constexpr long long kSignSummonHold = 20000;
+constexpr long long kSignSummonNoJoin = 10000;
+bool SignSummonBusy(const HostView& v);
 const char* HostRefusal(const HostView& v);
 /// The "wait" word a refusal of `v` carries (the guest's Party page / its gather): Prologue,
 /// OtherMap, Boss, Cutscene or None.
@@ -127,7 +159,7 @@ struct Guest {
 /// entry is not: the bell's SpEffect 9005 was "already on" from an attempt whose entry the game had
 /// used up, so ringing again made no new entry. Drop the bell's effect and ring it again (once per
 /// request); the entry wait starts again from the re-ring.
-/// Reask (F5): a Settle refusal: ask the host again.
+/// Reask (F5): a Settle / Chalice / Sign refusal: ask the host again.
 enum class Action { None, Deliver, ReportOk, ReportFail, Rearm, Reask };
 constexpr double kReaskWait = 1.5;  // F5: a Settle refusal: the guest asks again this much later
 constexpr int kMaxReasks = 8;       // ... at most this often (~12 s), then the bell sign path
@@ -146,6 +178,11 @@ void OnRoom(Guest& g, double now, bool refused, Busy wait = Busy::None);
 /// map (A5, playtest 1 #9). Fails the attempt with gather set and returns true (report a failure);
 /// false when the room may be delivered (or the phase is not HaveRoom).
 bool RoomElsewhere(Guest& g, double now, std::uint32_t room_area, std::uint32_t own_map, bool carry);
+/// Guest, before delivery: the host's room is in a Chalice Dungeon but carries no ChannelId (an
+/// older host, or its dungeon not set up): handed to the game, it loads m29 without the dungeon,
+/// an empty world. Fails the attempt (waited, no gather: this game stays in its own world) and
+/// returns true; false when the room may be delivered (or the phase is not HaveRoom).
+bool RoomLacksDungeon(Guest& g, double now, const Room& r);
 void OnDelivered(Guest& g, double now, bool ok);
 /// A guest whose own world is in another map than the host's (A5, late joiner): gather to the
 /// host's lamp first (one extra load) only when the direct summon cannot carry it: off, or its

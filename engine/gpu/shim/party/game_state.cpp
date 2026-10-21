@@ -356,6 +356,53 @@ int ItemCount(std::uint32_t type_bits, std::uint32_t id) {
     return handle == 0 ? 0 : count;
 }
 
+std::vector<std::pair<std::uint32_t, int>> KeySectionItems() {
+    std::vector<std::pair<std::uint32_t, int>> out;
+    const std::uint64_t rec = Field<std::uint64_t>(Slot(kGameDataMan), 8, 0);
+    if (!rec) {
+        return out;
+    }
+    const std::uint64_t list = rec + kRecInventory;
+    const std::int32_t last = Field<std::int32_t>(list, 0x88, -1);
+    const std::uint32_t split = Field<std::uint32_t>(list, 0x24, 0);
+    const std::uint64_t first = Field<std::uint64_t>(list, 0x58, 0);
+    if (last < 0 || last > 4096 || split > 4096 || !first) {
+        return out;
+    }
+    for (std::uint32_t i = 0; i < split && i <= std::uint32_t(last); ++i) {
+        std::uint32_t handle = 0, item = 0;
+        std::int32_t count = 0;
+        if (SafeGet(first + 16ull * i, &handle) && handle != 0 && SafeGet(first + 16ull * i + 4, &item) &&
+            SafeGet(first + 16ull * i + 8, &count) && count > 0) {
+            out.emplace_back(item, count);
+        }
+    }
+    return out;
+}
+
+int ItemStacks(std::uint32_t type_bits, std::uint32_t id) {
+    const std::uint64_t rec = Field<std::uint64_t>(Slot(kGameDataMan), 8, 0);
+    if (!rec) {
+        return -1;
+    }
+    const std::uint64_t list = rec + kRecInventory;
+    const std::int32_t last = Field<std::int32_t>(list, 0x88, -1);
+    const std::uint32_t split = Field<std::uint32_t>(list, 0x24, 0);
+    const std::uint64_t first = Field<std::uint64_t>(list, 0x58, 0), second = Field<std::uint64_t>(list, 0x48, 0);
+    if (last < 0 || last > 4096 || split > 4096 || !first || !second) {
+        return -1;
+    }
+    int n = 0;
+    for (std::uint32_t i = 0; i <= std::uint32_t(last); ++i) {
+        const std::uint64_t entry = i < split ? first + 16ull * i : second + 16ull * (i - split);
+        std::uint32_t handle = 0, item = 0;
+        if (SafeGet(entry, &handle) && handle != 0 && SafeGet(entry + 4, &item) && item == (type_bits | id)) {
+            ++n;
+        }
+    }
+    return n;
+}
+
 namespace {
 /// The inventory entry's gaitem handle for an item (0 = not held / unknown).
 std::uint32_t ItemHandle(std::uint32_t type_bits, std::uint32_t id) {
@@ -395,6 +442,18 @@ bool ShowItemGet(std::uint32_t type_bits, std::uint32_t id, int count) {
     }
     // The give list copies the handle into a wrapper (ref +1) around the call and drops it after
     // (ref -1); ours lives across the call unchanged, the push takes its own reference.
+    using Fn = void(BB_COOP_SYSV*)(std::uint64_t, std::uint32_t*, std::uint32_t, std::uint32_t, std::int32_t, std::uint32_t);
+    reinterpret_cast<Fn>(Guest(kItemGetPush))(list, handle, type_bits, id & 0x0fffffffu, count, 0);
+    return true;
+}
+
+bool ShowItemGetNotice(std::uint32_t type_bits, std::uint32_t id, int count) {
+    const std::uint64_t list = Slot(kItemGetList);
+    if (!list || (!Field<std::uint64_t>(list, 0x10, 0) && !Field<std::uint64_t>(list, 8, 0)) || !ItemGetOk()) {
+        return false;
+    }
+    // The talk scripts' item notice (ESD command 0x41 in 0x203FFD0): a null handle, no inventory entry.
+    std::uint32_t handle[2] = {0, 0};
     using Fn = void(BB_COOP_SYSV*)(std::uint64_t, std::uint32_t*, std::uint32_t, std::uint32_t, std::int32_t, std::uint32_t);
     reinterpret_cast<Fn>(Guest(kItemGetPush))(list, handle, type_bits, id & 0x0fffffffu, count, 0);
     return true;

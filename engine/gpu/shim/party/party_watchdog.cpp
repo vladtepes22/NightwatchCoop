@@ -2,6 +2,7 @@
 // Host session watchdog decision (see party_watchdog.h).
 #include "party_watchdog.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 
@@ -63,16 +64,24 @@ bool HostWatchdog::Update(const HostWatchdogInput& in) {
         return false;
     }
     std::string sig;
-    bool incoming = false, waiting = false;
+    bool incoming = false, waiting = false, anyone = false;
     for (const party::RosterEntry& e : in.roster) {
-        if (e.slot == party::kHostSlot) {
+        if (e.slot == party::kHostSlot ||
+            std::find(in.unreachable.begin(), in.unreachable.end(), e.name) != in.unreachable.end()) {
             continue;
         }
+        anyone = true;
         char b[64];
         std::snprintf(b, sizeof b, "%d:%d:%d:%u;", e.slot, e.connected ? 1 : 0, int(e.state), e.map_id);
         sig += b;
         incoming = incoming || MemberIncoming(e);
         waiting = waiting || (e.connected && e.state == party::MemberState::Home);
+    }
+    if (!anyone && !in.unreachable.empty()) {
+        // Only members nobody can summon (yet): nothing is stuck, nothing to stop.
+        armed_ = false;
+        incoming_since_ = -1;
+        return false;
     }
     if (!armed_) {
         armed_ = true;

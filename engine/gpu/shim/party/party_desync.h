@@ -114,7 +114,7 @@ constexpr int kCensusMaxEntries = 4096;
 using CensusBuckets = std::array<u32, kCensusBuckets>;
 
 struct CensusEntry {
-    u32 entity = 0;  ///< map entity id (chr +0x1F0); 0 = none
+    u32 entity = 0;  ///< map entity id (chr +0x1F0); 0 or -1 = none (CensusNamed)
     bool alive = false;
     bool operator==(const CensusEntry& o) const { return entity == o.entity && alive == o.alive; }
 };
@@ -129,6 +129,10 @@ struct CensusDigest {
     }
 };
 int CensusBucket(u32 entity);
+/// An enemy with a map entity id: chr +0x1F0 reads 0 or -1 (0xFFFFFFFF) for the ones without
+/// (hostcheck, live: 17 chrs at -1 counted as one shared id; the counts follow streaming, so a host
+/// far away "had fewer alive" and the census repair put all 17 to death on the guest).
+inline bool CensusNamed(u32 entity) { return entity != 0 && entity != 0xFFFFFFFFu; }
 CensusDigest MakeCensusDigest(u32 map, const std::vector<CensusEntry>& list);
 /// The buckets that differ; *unnamed: the counts of the enemies without an entity id differ.
 std::vector<int> CensusDiffBuckets(const CensusDigest& host, const CensusDigest& mine, bool* unnamed);

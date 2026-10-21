@@ -145,8 +145,16 @@ stamina cost, rally and item discovery (see the table).
 - A lamp / headstone warp the player starts (0x13CDF30, party_travel `SetLampUseObserver`,
   before the guest lamp interceptor) cleanses it; the respawn warp of a death (within 20 s of it)
   does not. Travelling along with the party (a replay) does not either: only who rests is cleansed.
+- Shown (2026-10-20): System > Party has a *Rot* row (value "3/5", help "Rot 3/5: max HP -20 %,
+  stamina costs +10 %. A lamp rest cleanses it"; `DescribeRot`), and the party HUD panel a line
+  with the same text under the companions while there is rot. Each player shows its own stacks
+  (party_status `SetRot`, set by the balance tick; zeros while the party's rule is off); the
+  companions' stack counts are in the name tags' "Name and deaths". Live 2026-10-20 (uifix): a
+  guest's death in the host's Dream (`BB_PARTY_ROT_KIND=0`, then 2): "Rot 1/5: max HP -10 %" /
+  "Rot 1/5: stamina costs +10 %" under the party HUD after the respawn (screenshots); the Party
+  page row is unit-tested (game-menu-pages-test), not seen live.
 - Kept in `<user>/party_rot.txt` across restarts. Party mode only; host and guests alike; the
-  host's on/off is the party's. Setting: System > Party rules > "Rot on death" (and the overlay's Party tab) (on by default,
+  host's on/off is the party's. Setting: System > Deaths & revives > "Rot on death" (and the overlay's Party tab) (on by default,
   user decision 2026-10-11).
 - Echoes / bloodstain: unchanged here. The user's decision is single-player behaviour for everyone
   (echoes drop into a recoverable bloodstain); that is the hostdeath work. Rot only touches max HP,
@@ -157,7 +165,7 @@ stamina cost, rally and item discovery (see the table).
 
 ERSC `overhead_player_display`: normal / none / ping / level / death count. Ours: the party HUD's
 name tags (projected with the game camera above each companion in view, 1-80 m), now a setting of
-their own, independent of the HUD panel: System > Party rules > "Above companions": Nothing / Name
+their own, independent of the HUD panel: System > Party display > "Above companions": Nothing / Name
 / Name and level ("Hunter1  Lv 37") / Name and health (default, the HP bar as before) / Name and
 deaths ("Hunter0  deaths 1, rot 1"). Local only. Bloodborne itself draws a phantom plate
 (FrpgMenuDlgFloatingPCGauge: blue role line, name, thin HP bar), but hides it whenever anything is

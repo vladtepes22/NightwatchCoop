@@ -19,6 +19,7 @@
 #include "party_link.h"
 #include "party_perf.h"
 
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <algorithm>
@@ -178,6 +179,7 @@ struct CensusCheck {
     bool test_fired = false;
     u32 fake_dead = 0;  // BB_PARTY_CENSUS_TEST: a living enemy this game reports as dead
 };
+std::atomic<const char*> g_census_log_next{nullptr};  // CensusLogNext: why
 CensusCheck& CC() {
     static CensusCheck c;
     return c;
@@ -218,9 +220,11 @@ void GuestCensus(party::PartyLink* link) {
             const std::vector<int> diff = desync::CensusDiffBuckets(host, mine, &unnamed);
             if (diff.empty() && !unnamed) {
                 ++c.matched;
-                if (c.matched == 1 || c.matched % 20 == 0) {
-                    BLog("enemy census: digest %llu matches the host's (%s in %s)",
-                         static_cast<unsigned long long>(c.matched), CensusCounts(mine).c_str(), MapName(map).c_str());
+                const char* why = g_census_log_next.exchange(nullptr);
+                if (c.matched == 1 || c.matched % 20 == 0 || why) {
+                    BLog("enemy census: digest %llu matches the host's (%s in %s)%s%s",
+                         static_cast<unsigned long long>(c.matched), CensusCounts(mine).c_str(), MapName(map).c_str(),
+                         why ? ", after " : "", why ? why : "");
                 }
                 if (c.test_after < 0) c.test_after = desync::CensusTestAfterFromEnv();
                 if (c.test_after > 0 && !c.test_fired && c.matched >= static_cast<u64>(c.test_after)) {
@@ -236,6 +240,7 @@ void GuestCensus(party::PartyLink* link) {
                 }
             } else {
                 ++c.differed;
+                g_census_log_next.store(nullptr);
                 BLog("enemy census: differs from the host's digest in %zu bucket(s)%s (host %s, here %s); checking "
                      "again in %.0f s",
                      diff.size(), unnamed ? " and the enemies without an entity id" : "", CensusCounts(host).c_str(),
@@ -474,6 +479,10 @@ void DirectorTick(const GameSnapshot& s, party::PartyLink* link) {
     default:
         break;
     }
+}
+
+void CensusLogNext(const char* why) {
+    g_census_log_next.store(why);
 }
 
 } // namespace coop::progress

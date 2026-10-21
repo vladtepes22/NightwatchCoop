@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "party_code.h"
+#include "party_crypto.h"
 
 #if defined(_WIN32)
 #include <winsock2.h>
@@ -7,6 +8,7 @@
 #include <iphlpapi.h>
 #endif
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -492,5 +494,81 @@ bool best_local_ipv4(std::array<std::uint8_t, 4>* out) {
 bool best_local_ipv4(std::array<std::uint8_t, 4>*) { return false; }  // stub: not needed off Windows yet
 
 #endif
+
+// ---- the host's code secret across launches ----
+
+const char* host_secret_from_name(HostSecretFrom from) {
+    switch (from) {
+    case HostSecretFrom::CrashRestart: return "the crash marker";
+    case HostSecretFrom::Menu: return "party.json";
+    case HostSecretFrom::Saved: return "party_secret.txt";
+    case HostSecretFrom::New: return "new";
+    }
+    return "?";
+}
+
+bool parse_secret_hex(std::string_view text, std::array<std::uint8_t, 8>* out) {
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) text.remove_prefix(1);
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.remove_suffix(1);
+    if (text.size() != 2 * out->size()) return false;
+    std::array<std::uint8_t, 8> v{};
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        const int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+        if (d < 0) return false;
+        v[i / 2] = static_cast<std::uint8_t>(v[i / 2] << 4 | d);
+    }
+    if (std::all_of(v.begin(), v.end(), [](std::uint8_t b) { return b == 0; })) return false;
+    *out = v;
+    return true;
+}
+
+HostSecretFrom pick_host_secret(const std::array<std::uint8_t, 8>* restart_secret, const std::string& menu_hex,
+                                const std::string& saved_text, std::array<std::uint8_t, 8>* secret) {
+    *secret = {};
+    if (restart_secret && std::any_of(restart_secret->begin(), restart_secret->end(), [](std::uint8_t b) { return b != 0; })) {
+        *secret = *restart_secret;
+        return HostSecretFrom::CrashRestart;
+    }
+    if (!menu_hex.empty() && parse_secret_hex(menu_hex, secret)) return HostSecretFrom::Menu;
+    if (!saved_text.empty() && parse_secret_hex(saved_text, secret)) return HostSecretFrom::Saved;
+    *secret = {};
+    return HostSecretFrom::New;
+}
+
+SecretFit fit_secret_to_code(std::array<std::uint8_t, 8>* secret, bool password) {
+    auto& s = *secret;
+    const std::size_t want = password ? kSecretBytesWithPassword : kSecretBytes;
+    const bool empty = std::all_of(s.begin(), s.end(), [](std::uint8_t b) { return b == 0; });
+    if (empty) {
+        do {
+            crypto::random_bytes(s.data(), want);
+        } while (std::all_of(s.begin(), s.begin() + static_cast<std::ptrdiff_t>(want), [](std::uint8_t b) { return b == 0; }));
+        return SecretFit::Made;
+    }
+    if (s[6] || s[7] || (password && (s[4] || s[5]))) {
+        // An 8-byte secret from before BBP2, or a 6-byte one now that a password is set.
+        for (std::size_t i = want; i < s.size(); ++i) s[i] = 0;
+        return SecretFit::Shortened;
+    }
+    if (!password && !s[4] && !s[5]) {
+        // A 4-byte secret from a party with a password: without one the code is all that keeps
+        // strangers out, so it gets its 48 bits back.
+        do {
+            crypto::random_bytes(s.data() + 4, 2);
+        } while (!s[4] && !s[5]);
+        return SecretFit::Lengthened;
+    }
+    return SecretFit::Kept;
+}
+
+std::array<std::uint8_t, 8> new_host_secret(const std::array<std::uint8_t, 8>& old, bool password) {
+    std::array<std::uint8_t, 8> s{};
+    do {
+        s = {};
+        fit_secret_to_code(&s, password);
+    } while (s == old);
+    return s;
+}
 
 }  // namespace party

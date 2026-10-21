@@ -103,6 +103,9 @@ public:
     // The room `online_id` owns (true) or is in.
     bool room_of(const std::string& online_id, RoomView* out, bool owned_only = false) const;
     bool room(std::uint64_t room_id, RoomView* out) const;
+    // Members whose game endpoint cannot be summoned (summon_endpoint_unusable: remote, no
+    // STUN-mapped address yet): online ids, each with what the host knows ("192.168.1.5:9307").
+    std::vector<std::pair<std::string, std::string>> unusable_endpoints() const;
     // A member record for `online_id` as signaling_resolve answers it (false: no context).
     bool resolve(const std::string& online_id, json::Value* record) const;
     std::string status_line() const;

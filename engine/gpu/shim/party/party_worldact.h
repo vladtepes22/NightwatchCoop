@@ -320,6 +320,8 @@ bool StandAtObject(std::int32_t entity, float dist, float angle_deg, std::string
 bool ObjectPoint(std::int32_t entity, float dist, float angle_deg, float out[3]);
 /// Test fixture: the same for a character (NPC) entity.
 bool StandAtChr(std::int32_t entity, float dist, float angle_deg, std::string* what);
+/// BB_PARTY_WORLDACT_TEST: the fixture's objects and pickups once more, its "after=" s from now.
+void FixtureRearm();
 /// Counters for logs / tests.
 struct Stats {
     std::uint64_t sent = 0, sent_flags = 0, received = 0, applied = 0, refused = 0, own_save = 0;

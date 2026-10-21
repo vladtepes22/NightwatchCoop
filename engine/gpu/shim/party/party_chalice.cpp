@@ -156,6 +156,18 @@ BB_COOP_SYSV void SummonMessageProbe(u64, u64, u64 wrapper, u64, u64, u64) {
     }
     std::printf("Party: chalice: summon message type %u, host map 0x%08x, ChannelId 0x%llx, room data %u bytes (head %s)\n",
                 type, map, static_cast<unsigned long long>(channel), size, hex);
+    // A summon into a dungeon: the handler takes the ChannelId only with FrpgNetMan +0xb14 bit 0
+    // (the chalice wait, SpEffect 9900). Without it the quick join is skipped and the guest loads
+    // m29 without the dungeon (an empty world), so the bit is set for this message (any summon path).
+    std::uint64_t net = 0;
+    std::uint8_t wait = 0;
+    const std::uint64_t at = Guest(0x553b120);
+    if (type == 1 && ((map >> 24) & 0xff) == 29 && channel != 0 && !(channel >> 63) && at && SafeGet(at, &net) && net &&
+        SafeGet(net + 0xb14, &wait) && !(wait & 1)) {
+        const std::uint8_t set = static_cast<std::uint8_t>(wait | 1);
+        SafeWrite(net + 0xb14, &set, 1);
+        std::printf("Party: chalice: chalice wait bit (FrpgNetMan +0xb14 bit 0) was clear: set for this summon's quick join\n");
+    }
     std::fflush(stdout);
 }
 

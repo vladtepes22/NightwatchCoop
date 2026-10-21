@@ -217,9 +217,18 @@ void keepalive_main() {
         last = g_mapped.addr + ":" + std::to_string(g_mapped.port) + " relay " + std::to_string(g_mapped.relay_port);
     }
     while (g_keeprun.load()) {
+        // No STUN answer yet: retry every 40 s instead. Then nothing goes from our port to the
+        // host's for longer than a router keeps a refused / unanswered UDP flow (~30 s), so a
+        // stale one (the host's game was not up when we first sent) can expire and the next try
+        // gets through; the summon waits meanwhile (summon_endpoint_unusable).
+        bool known;
+        {
+            std::lock_guard<std::mutex> lk(g_mapped.mu);
+            known = !g_mapped.addr.empty() && g_mapped.port > 0;
+        }
         {
             std::unique_lock<std::mutex> lk(g_keepmu);
-            g_keepcv.wait_for(lk, std::chrono::seconds(15), [] { return !g_keeprun.load(); });
+            g_keepcv.wait_for(lk, std::chrono::seconds(known ? 15 : 40), [] { return !g_keeprun.load(); });
         }
         if (!g_keeprun.load()) break;
         mapped_refresh(true);
@@ -564,6 +573,13 @@ void set_stun_server(const std::string& host, std::uint16_t port) {
     g_mapped.stun_host = host;
     g_mapped.stun_port = port;
     g_mapped.asked = false;
+}
+
+bool mapped_known(std::string* stun_host, bool* asked) {
+    std::lock_guard<std::mutex> lk(g_mapped.mu);
+    if (stun_host) *stun_host = g_mapped.stun_host;
+    if (asked) *asked = g_mapped.asked;
+    return !g_mapped.addr.empty() && g_mapped.port > 0;
 }
 
 void set_mapped_override(const std::string& addr, int port) {

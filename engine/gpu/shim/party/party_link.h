@@ -265,6 +265,18 @@ std::string identity_mismatch(const LinkConfig& host, const LinkConfig& guest);
 // usual cause is a wrong one; without, a party code from another hosting session (or a guest
 // that sent a password the host does not use).
 std::string auth_reject_reason(bool host_has_password);
+
+// Guest, the TCP connect got no answer: the link's UDP fallback. With the game's party port as
+// the transport (set_udp_transport) it dials from the party port only once the host was heard
+// on it (its punch: guest code / DHT) within kPartyPortHeardS; before that from a separate
+// ephemeral socket. Blind datagrams from the party port towards a host whose game was not up yet
+// (2026-10-20: about a minute of them) left that address:port pair dead afterwards: no STUN
+// answer, no punch heard, nothing from it reached the host, while TCP worked (a router keeps
+// a refused flow's state as long as datagrams keep coming). `heard_on_party_port_s_ago` < 0:
+// never heard. Without an external transport the link's own socket dials anyway (Ephemeral).
+enum class UdpFallbackSocket { PartyPort, Ephemeral };
+constexpr double kPartyPortHeardS = 60.0;
+UdpFallbackSocket udp_fallback_socket(bool external_transport, double heard_on_party_port_s_ago);
 // Guest, the host does not answer (no TCP / UDP answer): within kHostBackWaitS of the host ending
 // the party or its link dropping (`since_host_gone_s` >= 0) the host is most likely restarting,
 // so the text says to wait for it, not the NAT advice (playtest 1: "behind a NAT: it needs your
@@ -389,6 +401,9 @@ public:
     // Host: kick() by member name; false when no remote member has it.
     bool kick_name(const std::string& name, const std::string& reason = {});
     bool is_banned(const std::string& name) const;
+    // Host: a new party code secret (System > Party mode > New party code): new handshakes need the
+    // new code (an old code's AUTH is refused); the members in now keep their sessions.
+    void set_secret(const std::array<std::uint8_t, 8>& secret);
     // Guest: while Reconnecting, try again now (backoff reset). False in any other state.
     bool reconnect_now();
 

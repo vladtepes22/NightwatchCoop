@@ -1156,6 +1156,40 @@ static void test_chalice_channels() {
     CHECK(host_get(0x18010000u, 4242) == both);
 }
 
+// 2026-10-20: a remote guest (its link from a public address) registered only its private LAN
+// address (mapped :0, the host's STUN gave it no answer): no summon for it until a mapped
+// endpoint comes (signaling_update); a LAN guest or one with a mapping is fine.
+static void test_unusable_endpoint() {
+    using bbnet::party::ip_parse;
+    using bbnet::party::summon_endpoint_unusable;
+    const std::uint32_t pub = ip_parse("198.51.100.20"), lan = ip_parse("192.168.1.5");
+    CHECK(summon_endpoint_unusable(pub, lan, 0, 0));
+    CHECK(summon_endpoint_unusable(pub, lan, ip_parse("198.51.100.20"), 0));      // port 0: unknown
+    CHECK(!summon_endpoint_unusable(pub, lan, ip_parse("198.51.100.20"), 41234));  // mapped
+    CHECK(!summon_endpoint_unusable(ip_parse("192.168.1.9"), lan, 0, 0));          // same LAN
+    CHECK(!summon_endpoint_unusable(ip_parse("100.101.1.2"), lan, 0, 0));          // VPN (Tailscale)
+    CHECK(!summon_endpoint_unusable(ip_parse("127.0.0.1"), ip_parse("127.0.0.1"), 0, 0));
+    CHECK(!summon_endpoint_unusable(pub, pub, 0, 0));                              // no NAT
+    CHECK(!summon_endpoint_unusable(0, lan, 0, 0));                                // unknown peer
+    PartyHostService s;
+    std::int64_t now = 7000000;
+    s.set_clock([&] { return now; });
+    call(s, "Host", "context_start", obj({{"OnlineId", "Host"}, {"SignalingAddr", "192.168.1.10"}, {"SignalingPort", 9307}}));
+    json::Value reply;
+    s.handle(Caller{"Far", pub}, "context_start",
+             obj({{"OnlineId", "Far"}, {"SignalingAddr", "192.168.1.5"}, {"SignalingPort", 9307}}), reply);
+    CHECK(int_of(reply, "ResKind", -1) == 0);
+    s.handle(Caller{"Near", ip_parse("192.168.1.20")}, "context_start",
+             obj({{"OnlineId", "Near"}, {"SignalingAddr", "192.168.1.20"}, {"SignalingPort", 9307}}), reply);
+    auto bad = s.unusable_endpoints();
+    CHECK(bad.size() == 1 && bad[0].first == "Far" && bad[0].second == "192.168.1.5:9307");
+    // Its STUN answer arrives later (the keepalive's retry): summonable again.
+    s.handle(Caller{"Far", pub}, "signaling_update",
+             obj({{"OnlineId", "Far"}, {"MappedAddr", "198.51.100.20"}, {"MappedPort", 50123}}), reply);
+    CHECK(s.unusable_endpoints().empty());
+    std::printf("unusable endpoint: remote guest without a mapping held back, back after its STUN answer\n");
+}
+
 int main() {
     bbnet::party::FromApi::instance().set_min_sign_age_ms(0);  // A4's 1.5 s sign age: checked once below
     // Loopback-only sockets: no Windows Firewall prompt for a test program (party_sock.h).
@@ -1200,6 +1234,7 @@ int main() {
     test_chalice_channels();
     test_matching2_leave_and_join();
     test_impersonation();
+    test_unusable_endpoint();
     }
 
     if (g_failures) {

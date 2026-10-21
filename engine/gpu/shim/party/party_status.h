@@ -92,11 +92,22 @@ bool FriendlyFire();
 /// Statsaudit finding 5: shared lamps in force (the host's rule on a guest), for the menus.
 void SetShareLamps(bool on);
 bool ShareLamps();
+/// The host's other rules in force (party_balance; the host's values on a guest once its rules
+/// arrived, else this player's own), for the menus' read-only lines on a guest.
+enum class HostRule { Rot, HostRevive, HostLimboRevive, Count };
+void SetHostRule(HostRule rule, bool on);
+bool HostRuleOn(HostRule rule);
+/// C4: this player's rot stacks per kind (party_balance; health, stamina, stamina cost, rally,
+/// discovery; all 0 while rot is not in force), for System > Party and the party HUD. Cheap
+/// (atomics); set by the party tick.
+constexpr int kRotKinds = 5;
+void SetRot(const int kind[kRotKinds]);
+void Rot(int kind[kRotKinds]);
 /// BB_PARTY turns party mode on for this run (party_env.h: unset, empty, 0, off, false, no = off) (read once, or forced by tests via ResetForTest).
 bool Enabled();
 
 // --- commands: UI -> party code ---
-enum class CommandType : std::uint8_t { Leave, Rejoin, Kick, AddGuestCode };
+enum class CommandType : std::uint8_t { Leave, Rejoin, Kick, AddGuestCode, NewCode };
 const char* CommandName(CommandType type);
 
 struct Command {
@@ -106,6 +117,9 @@ struct Command {
 
 void RequestLeave();
 void RequestRejoin();
+/// Host: a new party code (the old one stops working). False (nothing queued) when this player
+/// is not the host.
+bool RequestNewCode();
 /// Host only: false (nothing queued) when this player is not the host, the name is empty or
 /// not a remote member of the current roster.
 bool KickMember(const std::string& name);

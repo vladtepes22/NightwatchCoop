@@ -1542,6 +1542,131 @@ static void test_lan() {
     CHECK(auth_reject_reason(false).find("no password") != std::string::npos);
 }
 
+// The host's party code across launches (party_code.h pick_host_secret): a crash restart's
+// secret first, then the menu flow's party.json, then party_secret.txt (a normal launch keeps
+// the same code), else a new one; a revoke (new_host_secret) always changes it; a password
+// set / removed changes it once (fit_secret_to_code).
+static void test_host_secret_reuse() {
+    using A = std::array<std::uint8_t, 8>;
+    const A marker = {1, 2, 3, 4, 5, 6, 0, 0}, menu = {0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0, 0};
+    A s{};
+    // A normal launch: party_secret.txt as the game wrote it (hex and a line end).
+    CHECK(pick_host_secret(nullptr, "", "a1b2c3d4e5f60000\r\n", &s) == HostSecretFrom::Saved && s == menu);
+    // Not the marker's members: a normal launch passes no restart secret even when a marker exists.
+    CHECK(pick_host_secret(&marker, "", "a1b2c3d4e5f60000\n", &s) == HostSecretFrom::CrashRestart && s == marker);
+    CHECK(pick_host_secret(nullptr, "0102030405060000", "a1b2c3d4e5f60000\n", &s) == HostSecretFrom::Menu &&
+          s == marker);
+    // Revoked (the launcher deletes party_secret.txt) / broken / zero: a new one.
+    CHECK(pick_host_secret(nullptr, "", "", &s) == HostSecretFrom::New && s == A{});
+    CHECK(pick_host_secret(nullptr, "", "not hex at all!!\n", &s) == HostSecretFrom::New && s == A{});
+    CHECK(pick_host_secret(nullptr, "", "0000000000000000", &s) == HostSecretFrom::New);
+    const A zero{};
+    CHECK(pick_host_secret(&zero, "zz", "a1b2c3d4e5f60000", &s) == HostSecretFrom::Saved && s == menu);
+    // The same secret gives the same code on every launch (no password: 6 bytes, kept).
+    A again = menu;
+    CHECK(fit_secret_to_code(&again, false) == SecretFit::Kept && again == menu);
+    const std::string code1 = make_party_code({203, 0, 113, 7}, 9307, menu, 0);
+    CHECK(code1 == make_party_code({203, 0, 113, 7}, 9307, again, 0));
+    // A password set: the secret is shortened (another code, once), then kept.
+    A pw = menu;
+    CHECK(fit_secret_to_code(&pw, true) == SecretFit::Shortened && pw[4] == 0 && pw[5] == 0);
+    CHECK(fit_secret_to_code(&pw, true) == SecretFit::Kept);
+    CHECK(make_party_code({203, 0, 113, 7}, 9307, pw, kCodeFlagPasswordRequired) != code1);
+    // Removed again: lengthened back to 48 bits (yet another code).
+    A nopw = pw;
+    CHECK(fit_secret_to_code(&nopw, false) == SecretFit::Lengthened && (nopw[4] || nopw[5]));
+    A made{};
+    CHECK(fit_secret_to_code(&made, false) == SecretFit::Made && made != A{} && !made[6] && !made[7]);
+    // New party code: never the old one, the right size for the password state.
+    for (int i = 0; i < 50; ++i) {
+        const A n = new_host_secret(menu, false);
+        CHECK(n != menu && !n[6] && !n[7] && (n[4] || n[5] || n[0]));
+        const A m = new_host_secret(pw, true);
+        CHECK(m != pw && !m[4] && !m[5] && !m[6] && !m[7]);
+    }
+    std::printf("  saved secret reused (code %s), revoke always new, password change: new code once\n", code1.c_str());
+}
+
+// A live revoke (PartyLink::set_secret): the old code is refused with the "another hosting
+// session" reason, the new one gets in, a member that was in stays.
+static void test_new_code_live() {
+    LinkCallbacks none;
+    LinkConfig hc = base_cfg("Host", "");
+    hc.secret = {1, 2, 3, 4, 5, 6, 0, 0};
+    PartyLink host(hc, none);
+    std::string err;
+    CHECK(host.start_host(&err));
+    LinkConfig old_code = base_cfg("Early", "");
+    old_code.secret = hc.secret;
+    PartyLink early(old_code, none);
+    CHECK(early.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(early.wait_connected(5000));
+    const std::array<std::uint8_t, 8> fresh = new_host_secret(hc.secret, false);
+    host.set_secret(fresh);
+    LinkConfig late_old = base_cfg("Late", "");
+    late_old.secret = hc.secret;
+    PartyLink refused(late_old, none);
+    CHECK(refused.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(refused.wait_state(LinkState::Rejected, 5000) && refused.reject_code() == RejectCode::Auth);
+    CHECK(refused.reject_reason() == auth_reject_reason(false));
+    LinkConfig late_new = base_cfg("Late2", "");
+    late_new.secret = fresh;
+    PartyLink joined(late_new, none);
+    CHECK(joined.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(joined.wait_connected(5000));
+    CHECK(early.state() == LinkState::Connected);
+    CHECK(wait_for([&] { return host.roster().size() == 3; }, 2000));
+    std::printf("  new code: old refused (%s), new joined, the member in stays\n", refused.reject_reason().c_str());
+}
+
+// The UDP fallback's socket (udp_fallback_socket): with the game's party port as transport, a
+// guest whose TCP connect gets no answer dials from a separate ephemeral socket, not the party
+// port, until the host was heard on the party port.
+static void test_udp_fallback_socket() {
+    CHECK(udp_fallback_socket(true, -1) == UdpFallbackSocket::Ephemeral);
+    CHECK(udp_fallback_socket(true, 5) == UdpFallbackSocket::PartyPort);
+    CHECK(udp_fallback_socket(true, kPartyPortHeardS + 1) == UdpFallbackSocket::Ephemeral);
+    CHECK(udp_fallback_socket(false, 5) == UdpFallbackSocket::Ephemeral);
+    // Live: a "party port" (an external transport that counts), the host not up (nobody on the
+    // TCP port): the fallback's SYNs leave from the link's own socket, none from the party port.
+    sock::startup();
+    sock::Socket hole = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);  // a free port number, then closed
+    sockaddr_in a{};
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    ::bind(hole, reinterpret_cast<sockaddr*>(&a), sizeof a);
+    sock::socklen al = sizeof a;
+    getsockname(hole, reinterpret_cast<sockaddr*>(&a), &al);
+    const std::uint16_t dead_port = ntohs(a.sin_port);
+    sock::close(hole);
+    std::atomic<int> via_party_port{0};
+    LinkConfig gc = base_cfg("Blind", "");
+    gc.tcp_fallback_ms = 200;
+    gc.connect_timeout_ms = 1500;
+    PartyLink g(gc, LinkCallbacks{});
+    g.set_udp_transport([&](std::uint32_t, std::uint16_t, const std::uint8_t*, std::size_t) {
+        ++via_party_port;
+        return true;
+    });
+    std::string err;
+    CHECK(g.start_guest("127.0.0.1", dead_port, &err));
+    CHECK(wait_for([&] { return g.udp_local_port() != 0; }, 5000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(800));
+    CHECK(via_party_port.load() == 0);
+    // The host heard on the party port (its punch): the next dial goes from the party port.
+    rudp::Mux hm{1};
+    hm.punch({htonl(INADDR_LOOPBACK), htons(dead_port)}, std::chrono::steady_clock::now(), 1000, 100);
+    std::vector<rudp::Datagram> out;
+    hm.poll(std::chrono::steady_clock::now(), out);
+    CHECK(!out.empty());
+    for (const rudp::Datagram& d : out)
+        g.on_udp_datagram(htonl(INADDR_LOOPBACK), htons(dead_port), d.data.data(), d.data.size());
+    CHECK(wait_for([&] { return via_party_port.load() > 0; }, 8000));
+    std::printf("  blind fallback from the own port %u; after the host was heard: %d datagram(s) on the party port\n",
+                g.udp_local_port(), via_party_port.load());
+    g.stop(false);
+}
+
 int main() {
     // Loopback-only sockets: no Windows Firewall prompt for a test program (party_sock.h).
     if (!std::getenv("BB_PARTY_LOOPBACK")) {
@@ -1566,6 +1691,11 @@ int main() {
     test_identity();
     std::printf("loopback party\n");
     test_party();
+    std::printf("host secret across launches, new party code\n");
+    test_host_secret_reuse();
+    test_new_code_live();
+    std::printf("UDP fallback socket\n");
+    test_udp_fallback_socket();
     std::printf("max players 2, secret-only key\n");
     test_max_players_two();
     test_plain_address_password();

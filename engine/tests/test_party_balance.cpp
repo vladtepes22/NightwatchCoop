@@ -160,6 +160,13 @@ int main() {
     }
 
     // Menu texts.
+    {   // The rot as the menu and the party HUD show it.
+        const int none[kRotFileKinds] = {}, mixed[kRotFileKinds] = {2, 0, 1, 0, 0}, rally[kRotFileKinds] = {0, 0, 0, 5, 0};
+        assert(DescribeRot(none, false).empty());
+        assert(DescribeRot(mixed, false) == "Rot 3/5: max HP -20 %, stamina costs +10 %");
+        assert(DescribeRot(rally, false) == "Rot 5/5: rally -75 %");
+        assert(DescribeRot(mixed, true).find("Гниль 3/5") == 0);
+    }
     assert(DescribeHp(150, false).find("+75 %") != std::string::npos);
     assert(DescribePoise(-100, false).find("-30") != std::string::npos);
     std::printf("party balance rules: ok\n");

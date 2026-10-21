@@ -162,6 +162,14 @@ float FreeSpotRight(int pick, int slot, float d) {
     return r;
 }
 
+int PlayerNumberForSlot(int slot) {
+    return slot <= 0 ? 1 : slot < 0x7ffe ? slot + 1 : 2;
+}
+
+bool PlayerNumberValid(int n) {
+    return n == 1 || (n >= 2 && n <= 0x7ffe);
+}
+
 int SpotForTry(int slot, int attempt) {
     if (slot < 1 || slot >= 5) {
         slot = 1;

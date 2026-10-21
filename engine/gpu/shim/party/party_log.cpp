@@ -112,7 +112,8 @@ unsigned AreaOfEvent(const std::string& name) {
     if (name == "travel" || name == "lamp_request" || name == "lamp_lit") return kTravel;
     if (name == "b2") return kSummon;
     if (name == "phantom") return kDeath;
-    if (name == "items" || name == "items_full" || name == "gift_up" || name == "drop_seed" || name == "chalice_goods")
+    if (name == "items" || name == "items_full" || name == "gift_up" || name == "drop_seed" || name == "chalice_goods" ||
+        name == "gestures")
         return kItems;
     if (name == "flags" || name == "flag_snapshot" || name == "world_groups" || name == "story" ||
         name == "story_up" || name == "story_notice" || name == "world_action")

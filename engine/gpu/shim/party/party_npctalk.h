@@ -148,6 +148,13 @@ private:
     std::int32_t shown_result_ = -1; ///< MessageUI +0xEC0 when the menu showed
 };
 
+/// A talk menu's choice is shared only inside a conversation: its NPC spoke this game's last talk
+/// line (the Doll's "Channel Blood Echoes"). The Hunter's Dream workbench, the Bath Messengers'
+/// shop and a headstone are talk menus of entities that never speak (live 2026-10-20: npc 210692
+/// "Repair Weapons", 210698 "Acquire Items", 210000 "Old Yharnam"); their choices went out with
+/// the last speaker's line, so the others saw "[Hunter talking to the Doll]" at the workbench.
+bool ChoiceInConversation(std::uint32_t choice_npc, std::uint32_t last_line_npc);
+
 /// Events per talker per 10 s at most (a chatty NPC chains ~1 line / 2 s).
 class EventRate {
 public:

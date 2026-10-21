@@ -59,6 +59,7 @@ uint32_t runtime_pad_cross_presses(void) { return 0; }
 void runtime_pad_director_press(uint32_t) {}
 void runtime_pad_director_sticks(int, int, int, int) {}
 uint32_t runtime_pad_last_buttons(void) { return 0; }
+uint32_t runtime_pad_last_left(void) { return 0x8080u; }
 void runtime_relaunch(int) { std::abort(); }
 int runtime_savedata_mount_count(void) { return 0; }
 struct SavePolicyCheck;

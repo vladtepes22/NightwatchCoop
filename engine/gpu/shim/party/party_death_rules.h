@@ -9,6 +9,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -80,6 +81,15 @@ inline bool PlanTakesFunnel(HostDeathPlan p) {
     return p == HostDeathPlan::BossLimbo || p == HostDeathPlan::ReviveInPlace;
 }
 
+// ---- A guest gets the host's death event (K12, the HostDead Lua state 0x1381870) ----
+/// The guest's HostDead state is skipped: a B2 party guest (session role 6) whose chr is not an
+/// invader (type 2: the "PK success" path) or type 8 (the game returns early for it anyway).
+/// `skip_from` is BB_PARTY_HOSTDEAD_SKIP (0: never; N: from the Nth host death on), `nth` this
+/// host death's number in the run (1 = the first).
+inline bool SkipGuestHostDead(bool party_on, int role, int chr_type, int skip_from, int nth) {
+    return party_on && role == 6 && chr_type != 2 && chr_type != 8 && skip_from > 0 && nth >= skip_from;
+}
+
 // ---- Each frame while the host is down (a taken death) ----
 enum class DownTick {
     Wait,           ///< not yet (the revive delay, or the boss still fights)
@@ -87,6 +97,7 @@ enum class DownTick {
     Revive,         ///< revive in place (opt-in) at the lamp here
     PartyLoad,      ///< the stock funnel: the respawn load for everyone
     AloneLoad,      ///< the lamp is in another map: the host loads it alone (revive mode)
+    ArenaRevive,    ///< the boss died while the host lay in limbo: it gets up in the arena, no load
 };
 inline const char* DownTickName(DownTick d);
 struct DownView {
@@ -98,6 +109,12 @@ struct DownView {
     /// The boss's HP reached 0 but the game's defeat event has not cleared its bar yet (it saves the
     /// defeat flag): a respawn load now would bring the boss back (Father Gascoigne, host in limbo).
     bool boss_dying = false;
+    /// The limbo's boss was seen killed (its bar up over a chr at HP 0), not a bar that just went.
+    bool boss_killed = false;
+    /// BB_PARTY_HOST_LIMBO_REVIVE (default on; "0": the respawn load as before).
+    bool arena_revive_on = true;
+    /// A living member is in the world to get up beside (the one the host spectated).
+    bool member_here = false;
     bool revive_opt_in = false;
     bool lamp_here = false;
     double down_for = 0;       ///< s since the death was taken
@@ -115,6 +132,13 @@ inline DownTick PlanDownTick(const DownView& v) {
     if (v.limbo && (v.boss_active || v.boss_dying)) {
         return DownTick::Wait;
     }
+    // User request (2026-10-21): the guests killed the boss while the host lay dead in the fight:
+    // the host gets up in the arena beside the member it followed and nobody loads (the defeat is
+    // saved by now: the wait above). A wipe (above), a bar that went without a kill, or the switch
+    // off: the respawn load as before.
+    if (v.limbo && v.boss_killed && v.arena_revive_on && v.member_here) {
+        return DownTick::ArenaRevive;
+    }
     if (!v.revive_opt_in) {
         return DownTick::PartyLoad;
     }
@@ -122,6 +146,43 @@ inline DownTick PlanDownTick(const DownView& v) {
         return DownTick::AloneLoad;
     }
     return DownTick::Revive;
+}
+
+// ---- Where the host gets up in the arena (DownTick::ArenaRevive) ----
+// Its corpse spot (where it stood when it died, by its bloodstain) when that is in the arena with
+// the member it followed and the death was no fall; else the followed member's own spot (a spot a
+// living chr stands on: never inside a wall or over the void). Both are a short warp from where
+// the spectating chr was carried (a 250 m in-map warp broke occlusion, playtest 1 bug 7).
+constexpr double kArenaCorpseNear = 40.0;  ///< m (horizontal) from the followed member
+constexpr double kArenaCorpseRise = 4.0;   ///< m (height) from the followed member
+inline bool ArenaReviveAtCorpse(bool corpse_known, bool fall_death, double horiz_m, double dy_m) {
+    return corpse_known && !fall_death && horiz_m <= kArenaCorpseNear && std::fabs(dy_m) <= kArenaCorpseRise;
+}
+/// PR #6's wait after a limbo's boss died: its bar still up over the dead chr (the game's defeat
+/// event, which saves the defeat flag, has not run), or less than 3 s since the bar went; at most
+/// 20 s from the moment the boss was gone.
+inline bool DefeatPending(double since_gone_s, bool bar_dying) {
+    return since_gone_s < 20.0 && (bar_dying || since_gone_s < 3.0);
+}
+
+// ---- A guest's boss-fight limbo ends (its held death; user request 2026-10-21) ----
+// The boss is gone while a guest lay dead in the fight. Killed (not a bar that just went), the
+// switch on (BB_PARTY_HOST_LIMBO_REVIVE, the host's arena revive's) and a living member here:
+// once the defeat is saved (DefeatPending) the guest gets up in the arena, no load, its stain stays
+// where it fell. Otherwise its respawn at the host's lamp as before. A wipe never gets here (the
+// host's death load takes the guest along first).
+enum class GuestLimboEnd { Lamp, Wait, ArenaRevive };
+inline const char* GuestLimboEndName(GuestLimboEnd g) {
+    return g == GuestLimboEnd::Lamp ? "the host's lamp" : g == GuestLimboEnd::Wait ? "wait for the defeat" : "arena revive";
+}
+inline GuestLimboEnd PlanGuestLimboEnd(bool boss_killed, bool switch_on, bool defeat_pending, bool member_here) {
+    if (!boss_killed || !switch_on) {
+        return GuestLimboEnd::Lamp;
+    }
+    if (defeat_pending) {
+        return GuestLimboEnd::Wait;
+    }
+    return member_here ? GuestLimboEnd::ArenaRevive : GuestLimboEnd::Lamp;
 }
 
 // ---- The host's record of members that are down (issue #4 item 6) ----
@@ -227,11 +288,15 @@ constexpr double kGuestReviveFallDrop = 6.0;
 // The game's own fall-death state, left on the chr after the death (issue #4 bundles: only the fall
 // death had them; nine normal deaths had neither): PlayerIns +0x1E1 (5 bytes read as one value)
 // bit 0x40 of its first byte and 0x04 of its fifth (0x04'0000'0040), and the HP module's +0x200 word
-// bits 0x7800 (the fall read 0xF800; a normal death 0x0000 or 0x8000).
+// bits 0x7800 (the fall read 0xF800; normal deaths 0x0000 or 0x8000 in the bundles). The +0x200
+// word is no fall sign (revivecheck 2026-10-21 live, normal deaths with no drop: an enemy's kill
+// 0x7000, ForceDeads 0xD000 and 0xF800 - the fall's own value - each sent to the loading screen
+// as a fall), so only the +0x1E1 flags count (with the 6 m drop test above). kDeathBitsHp200:
+// what the revive's "flags" step still clears (the revives after 0xD000 -> 0x8000 worked).
 constexpr std::uint64_t kFallFlags1e1 = 0x0400000040ull;
-constexpr std::uint16_t kFallBitsHp200 = 0x7800;
-inline bool FallDeathState(std::uint64_t f1e1, std::uint16_t hp200) {
-    return (f1e1 & kFallFlags1e1) != 0 || (hp200 & kFallBitsHp200) != 0;
+constexpr std::uint16_t kDeathBitsHp200 = 0x7800;
+inline bool FallDeathState(std::uint64_t f1e1, std::uint16_t /*hp200*/) {
+    return (f1e1 & kFallFlags1e1) != 0;
 }
 enum class GuestRevive { InPlace, LoadFall, LoadFallState };
 inline const char* GuestReviveName(GuestRevive g) {
@@ -283,11 +348,26 @@ inline AskClose PlanAskClose(bool open, bool loading, bool local_dead, double op
 /// headstone's talk script sets it on the user's own game (SetEventFlag). The same warp event
 /// also runs on every other game in that map (live splitq: the guest's 12107000 reached its warp
 /// 2003[49] 0.05 s after the host's, with no flag set there), so both players were asked.
+/// The 7AAB01xx shape alone also matched the talk state flags of m21_00 (72100100-72100102 the
+/// Doll's level-up handshake, 72100120-72100136 Gehrman's lines) and 700001xx (live 2026-10-20:
+/// a guest's Doll / Gehrman talk and the workbench logged as "this player's lamp use", which then
+/// counted as its own use for a lamp warp of another member's within 10 s). Lamps are 7AAB01xx of
+/// areas 22-36 and m21_01 (72110100); see TalkStateFlag for the rest.
 inline bool LampTriggerFlag(std::uint32_t id) {
     if (id / 1000 == 72102 || id / 1000 == 72103) {
         return true;
     }
-    return id >= 70000000u && id < 80000000u && id / 1000 % 10 == 0 && id % 1000 / 100 == 1;
+    if (!(id >= 70000000u && id < 80000000u && id / 1000 % 10 == 0 && id % 1000 / 100 == 1)) {
+        return false;
+    }
+    const std::uint32_t area = id / 100000 % 100, block = id / 10000 % 10;
+    return area >= 21 && !(area == 21 && block == 0);
+}
+/// The other 7AAB01xx flags: per-player talk state (the Dream's 721001xx, 700001xx), set and
+/// cleared by each game's own talk scripts and events; kept out of the host-world mirror like the
+/// lamp flags (a mirrored host 0 would undo a guest's Doll handshake mid level-up).
+inline bool TalkStateFlag(std::uint32_t id) {
+    return id >= 70000000u && id < 80000000u && id / 1000 % 10 == 0 && id % 1000 / 100 == 1 && !LampTriggerFlag(id);
 }
 constexpr double kLampOriginWindow = 10.0;  ///< s from a lamp's flag to its warp (the event waits ~3-4 s)
 enum class LampOrigin { Own, Other };
@@ -627,6 +707,7 @@ inline const char* DownTickName(DownTick d) {
     case DownTick::Revive: return "revive";
     case DownTick::PartyLoad: return "party load";
     case DownTick::AloneLoad: return "alone load";
+    case DownTick::ArenaRevive: return "arena revive";
     }
     return "?";
 }

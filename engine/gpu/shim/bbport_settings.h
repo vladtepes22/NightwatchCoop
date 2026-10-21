@@ -146,6 +146,11 @@ struct Values {
     /// I2: every party member on this map drawn through walls as a small marker with its distance
     /// in its colour (ini party_through_walls; off by default: busy next to the name plates). Live.
     std::atomic<bool> party_through_walls{false};
+    /// The marker on this player's own lost-echoes bloodstain in the host's world ("Blood Echoes N"
+    /// with the distance, through walls; party_ping StainMark). Off by default (user decision
+    /// 2026-10-20); the bloodstain and its echoes are there either way (ini party_stain_marker; env
+    /// BB_PARTY_STAIN_MARKER overrides). Live, local.
+    std::atomic<bool> party_stain_marker{false};
     /// I1: friendly fire / PvP - party members can hurt each other (party_pvp.h). A party rule: the
     /// host's value is sent to every guest, a guest's own value never counts. Off by default (ini
     /// party_friendly_fire; env BB_PARTY_FRIENDLY_FIRE=0/1 overrides at start). Live.
@@ -160,8 +165,33 @@ struct Values {
     /// F2: the automatic hole-punching rendezvous over the public BitTorrent DHT (party_rdv.h):
     /// OPT-IN, off by default (it posts the guest's IP on the DHT; user decision 2026-10-14). Both
     /// host and guest need it on. ini party_rendezvous; env BB_PARTY_RENDEZVOUS (the launcher's
-    /// Party tab) overrides at start. Read when the party starts (System > Party rules).
+    /// Party tab) overrides at start. Read when the party starts (System > Party members).
     std::atomic<bool> party_rendezvous{false};
+    /// Party gameplay switches (the launcher's Party Rules & Sync, the game's party rules pages in
+    /// System; PartySwitches below): ini key = the member's name, env BB_PARTY_* = 0/1 wins at start.
+    /// On by default. Load puts each value into the process environment when its variable is unset,
+    /// so the party modules that read their switch once at start see the ini's value (the rows of
+    /// those say "next start"); the revive switches are read live from here (party_b2).
+    /// The host's own (its death; shown read-only to guests through party_balance's rules):
+    std::atomic<bool> party_host_revive{true};       ///< the host gets up at its lamp without a load
+    std::atomic<bool> party_host_limbo_revive{true}; ///< the host gets up in the arena after a boss kill
+    /// Each player's own (applies while it is a guest, or to its own world):
+    std::atomic<bool> party_guest_revive_inplace{true}; ///< a guest gets up at the lamp without a load
+    std::atomic<bool> party_guest_respawn{true};  ///< a dead guest comes back at the host's lamp
+    std::atomic<bool> party_guest_refill{true};   ///< vials / bullets refilled with the host's
+    std::atomic<bool> party_guest_mark{true};     ///< guests can use the Hunter's Mark
+    std::atomic<bool> party_full_rewards{true};   ///< full echoes and drops for guests
+    std::atomic<bool> party_items{true};          ///< the host's item rewards given to guests
+    std::atomic<bool> party_grant_bells{true};    ///< the bells after the prologue
+    std::atomic<bool> party_open_world{true};     ///< no co-op area walls
+    std::atomic<bool> party_progress{true};       ///< story progress copied into guests' saves
+    std::atomic<bool> party_progress_npc{true};   ///< ... with NPC quest choices
+    std::atomic<bool> party_story{true};          ///< cutscenes, time of day, endings shared
+    std::atomic<bool> party_story_mirror{true};   ///< ... played live with the host
+    /// Insight a guest gets for a boss the host kills (party_phantom InsightMode): 0 same as the
+    /// host (parity), 1 full bonus, 2 the game's own +1 (ini party_guest_insight parity|full|0; env
+    /// BB_PARTY_GUEST_INSIGHT). Next start.
+    std::atomic<int> party_guest_insight{0};
 
     std::atomic<MenuLanguage> menu_language{MenuLanguage::English};
     std::atomic<int> upscaler{UpscalerFsr3};
@@ -266,6 +296,18 @@ struct Values {
     int startup_live_resolution = 0;
     bool startup_hdr = false;
 };
+
+/// The party gameplay switches (Values::party_host_revive ... party_story_mirror): ini key, the
+/// environment variable, the member.
+struct PartySwitch {
+    const char* key;
+    const char* env;
+    std::atomic<bool> Values::*member;
+};
+extern const PartySwitch PartySwitches[];
+extern const int PartySwitchCount;
+/// party_guest_insight's ini / env values by index (parity, full, 0).
+const char* GuestInsightName(int mode);
 
 Values& Get();
 /// Localized overlay text; the Language selector itself stays in English. The other languages

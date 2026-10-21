@@ -190,6 +190,17 @@ static void test_spots() {
     CHECK(kMaxPlayers == 5);
 }
 
+static void test_player_numbers() {
+    // Every party slot its own number (the host 1): no two chrs drawn from one record.
+    for (int a = 0; a < kMaxPlayers; ++a) {
+        CHECK(PlayerNumberValid(PlayerNumberForSlot(a)));
+        for (int b = a + 1; b < kMaxPlayers; ++b) CHECK(PlayerNumberForSlot(a) != PlayerNumberForSlot(b));
+    }
+    CHECK(PlayerNumberForSlot(0) == 1 && PlayerNumberForSlot(1) == 2 && PlayerNumberForSlot(2) == 3 &&
+          PlayerNumberForSlot(3) == 4);
+    CHECK(!PlayerNumberValid(0) && !PlayerNumberValid(-1) && !PlayerNumberValid(0x7fff) && PlayerNumberValid(0x7ffe));
+}
+
 int main() {
     // Loopback-only sockets: no Windows Firewall prompt for a test program (party_sock.h).
     if (!std::getenv("BB_PARTY_LOOPBACK")) {

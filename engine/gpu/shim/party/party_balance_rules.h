@@ -45,6 +45,11 @@ struct Rules {
     /// Statsaudit finding 5 (user decision 2026-10-15): lamps are shared by the whole party - a lamp
     /// any member lit is lit for everyone (each member's own save too). On by default; the host's.
     bool share_lamps = true;
+    /// The host's deaths (party_b2; user decision 2026-10-21: in the game's menus): the host gets
+    /// up at its lamp without a load, and in the arena after the guests kill the boss. The host's
+    /// own settings; sent so a guest's menu shows them. On by default.
+    bool host_revive = true;
+    bool host_limbo_revive = true;
     bool operator==(const Rules& o) const;
     bool operator!=(const Rules& o) const { return !(*this == o); }
 };
@@ -154,6 +159,15 @@ RotFile ParseRotFile(const std::string& text);
 std::string FormatRotFile(const RotFile& f);
 /// The loaded character's rot is another one's: a known save slot that is not the active one.
 bool RotSlotChanged(int active_slot, int current_slot);
+
+/// C4 rot as the player sees it (System > Party, the party HUD): "Rot 3/5: max HP -20 %, stamina
+/// costs +10 %" from the stacks per kind (party_rot.txt's order: health, stamina, stamina cost,
+/// rally, discovery); empty without stacks.
+std::string DescribeRot(const int kind[kRotFileKinds], bool russian);
+/// The parts of DescribeRot, for a HUD that colours each effect: "Rot 3/5: " (empty without rot)
+/// and one effect ("max HP -20 %"; empty when that kind has no stacks).
+std::string DescribeRotHead(const int kind[kRotFileKinds], bool russian);
+std::string DescribeRotEffect(int k, int stacks, bool russian);
 
 /// Short value texts for the menu (help line): "150 % (+75 % HP per extra hunter)".
 std::string DescribeHp(int percent, bool russian);

@@ -496,6 +496,10 @@ BB_SYSV void Rows(void* page, void*) {
         std::printf("Game menu: page %d %s open\n", N, ascii.c_str());
     }
     P::Load();
+    if (Trace()) {
+        std::printf("Game menu: page %d rows (%zu): %s\n", N, P::ShownRows(P::All()[N]).size(),
+                    P::ShownSummary(P::All()[N]).c_str());
+    }
     AddRows(page, P::All()[N]);
 }
 template <int N>

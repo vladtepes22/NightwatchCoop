@@ -16,6 +16,8 @@
 //   - members only wait at home (not invited) and nothing moved for `wait_s`       -> stop
 //     (an invite normally reaches a waiting member within ~30 s; 2026-10-10 runs saw 26 s)
 //   - `hard_s` in total, whatever the roster does                                   -> stop
+// Members in `unreachable` (no usable UDP endpoint: the host does not summon them) do not count;
+// with nobody else the watchdog stays off.
 // Leaving role 3, a cooperator arriving or a loading screen resets it. After a stop the next
 // stop comes `retry_s` later at the earliest (the leave takes a moment; role 7 resets anyway).
 //
@@ -62,6 +64,9 @@ struct HostWatchdogInput {
     /// counted as stuck through a host travel). The clocks restart once it is over.
     bool host_travel = false;
     std::vector<party::RosterEntry> roster;
+    /// Members the host does not summon (summon_endpoint_unusable: remote, no STUN-mapped UDP
+    /// endpoint yet): left out, so a member nobody can summon never stops the session.
+    std::vector<std::string> unreachable;
 };
 
 class HostWatchdog {

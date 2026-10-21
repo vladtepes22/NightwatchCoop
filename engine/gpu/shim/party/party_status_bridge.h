@@ -146,6 +146,9 @@ struct Actions {
     /// Guest Leave while summoned: the game's own session leave first (main thread), so the game
     /// sends the guest home itself instead of noticing a dead session ("Session lost" dialog).
     std::function<bool()> leave_session;
+    /// Host: New party code (party_runtime.h runtime_new_code; it runs off the main thread and
+    /// reports through the last event).
+    std::function<void()> new_code;
 };
 
 /// Tests: the bridge's own state back to the start (no actions until SetActionsForTest).

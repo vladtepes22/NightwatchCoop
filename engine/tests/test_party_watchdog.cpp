@@ -247,6 +247,37 @@ static void test_host_travel() {
     CHECK(RunUntilStop(w2, 60.5, 80, 3, 0, joining) > 0);  // ...so the 60 s stall still ends it
 }
 
+// 2026-10-20: a remote guest with no STUN-mapped endpoint (the host does not summon it): it waits
+// at home forever, and the watchdog must not stop the session for it (it used to at 90 s).
+static void test_unreachable_member() {
+    HostWatchdog w;
+    bool stopped = false;
+    for (double t = 0; t <= 600 && !stopped; t += 0.5) {
+        HostWatchdogInput in = In(t, 3, 0, Roster(MemberState::Home));
+        in.unreachable = {"Hunter1"};
+        stopped = w.Update(in);
+    }
+    CHECK(!stopped && !w.armed());
+    // Its mapping comes back (no longer unreachable): the usual wait clock from then on.
+    double at = -1;
+    for (double t = 600.5; t <= 900 && at < 0; t += 0.5)
+        if (w.Update(In(t, 3, 0, Roster(MemberState::Home)))) at = t;
+    CHECK(at == 690.5);
+    // Another member that can be summoned still counts.
+    std::vector<party::RosterEntry> r = Roster(MemberState::Home);
+    r.push_back(r[1]);
+    r[2].slot = 2;
+    r[2].name = "Hunter2";
+    HostWatchdog w2;
+    at = -1;
+    for (double t = 0; t <= 400 && at < 0; t += 0.5) {
+        HostWatchdogInput in = In(t, 3, 0, r);
+        in.unreachable = {"Hunter1"};
+        if (w2.Update(in)) at = t;
+    }
+    CHECK(at == 90);
+}
+
 int main() {
     test_host_travel();
     test_not_host();
@@ -258,6 +289,7 @@ int main() {
     test_retry_and_reset();
     test_test_stop();
     test_config();
+    test_unreachable_member();
     std::printf("party-watchdog-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -252,12 +253,16 @@ struct HdrTexts {
     u32 status_help = 0, peak_help = 0;
 } hdr_texts;
 struct BalanceTexts {
-    u32 rot_help = 0;
     u32 scale_help[6]{};
     u32 npc_range_help = 0;
-    u32 ff_help = 0, ff_value = 0, ff_guest_help = 0;
-    u32 lamps_help = 0, lamps_value = 0, lamps_guest_help = 0;
 } balance;
+/// A host's rule on a guest: the read-only line's value and help, from the rule in force.
+struct GuestRule {
+    u32 value = 0, help = 0;
+    std::function<bool()> on;
+    Texts on_help, off_help;
+};
+std::vector<GuestRule> guest_rules;
 std::string member_names[MaxMembers]; // the member row k stands for (kick)
 bool member_kickable[MaxMembers]{};
 int member_rows = 1;                  // rows the Members page shows (one when nobody is there)
@@ -433,9 +438,10 @@ Texts CopyValue(const std::string& code, int which) {
     return code.empty() ? T2("Not known yet", "Ещё неизвестен") : T2("Copy", "Копировать");
 }
 
-/// The Party page's own rows (orders 10..40): status, copy code (two rows for a host with an
-/// Internet and a LAN code), rejoin, leave. The join/leave notices switch and the last event are
-/// on the Party members page (room for the party flow's rows here).
+/// The Party page's own rows (orders 10..40): status, rot, copy code (two rows for a host with an
+/// Internet and a LAN code), rejoin, leave; New party code (host) is on the Party mode page. The
+/// join/leave notices switch and the last event are on the Party members page (room for the party
+/// flow's rows here).
 void DefineBuiltinPartyRows() {
     namespace ps = party::status;
     using B = ps::Board;
@@ -469,6 +475,37 @@ void DefineBuiltinPartyRows() {
     };
     status.visible = [](const B&) { return !(status_hooks.hidden && status_hooks.hidden()); };
     party_rows.push_back({status});
+
+    // C4: this player's rot now and what it does (party_balance; each player has its own, under
+    // the host's "Rot on death" rule).
+    PartyRow rot;
+    rot.order = 15;
+    rot.name = [](const B&) { return T2("Rot", "Гниль"); };
+    rot.value = [](const B&) {
+        int kind[ps::kRotKinds];
+        ps::Rot(kind);
+        int n = 0;
+        for (int k : kind) n += k;
+        if (n == 0) return T2("None", "Нет");
+        const std::string v = std::to_string(std::min(n, coop::balance::kRotMaxStacks)) + "/" +
+                              std::to_string(coop::balance::kRotMaxStacks);
+        return Texts{v, v};
+    };
+    rot.help = [](const B&) {
+        int kind[ps::kRotKinds];
+        ps::Rot(kind);
+        const std::string en = coop::balance::DescribeRot(kind, false), ru = coop::balance::DescribeRot(kind, true);
+        if (en.empty())
+            return T2("No rot. Each death adds a stack (Deaths & revives > Rot on death)",
+                      "Гнили нет. Каждая смерть добавляет её (Правила группы > Гниль при смерти)");
+        // All five kinds fill the help line: the lamp hint only while it fits.
+        const auto with = [](const std::string& t, const char* hint) {
+            return Utf16((t + hint).c_str()).size() <= MaxHelpLength ? t + hint : t;
+        };
+        return Texts{with(en, ". A lamp rest cleanses it"), with(ru, ". Отдых у фонаря снимает")};
+    };
+    rot.visible = [](const B& b) { return Running(b); };
+    party_rows.push_back({rot});
 
     // Copy the party code: one row per code, the value shows the code ("Copied" for a moment).
     // A host has two (party_status.h lan_code): Internet (friends elsewhere) and LAN (same network).
@@ -534,6 +571,25 @@ void DefineBuiltinPartyRows() {
         if (Active(b)) ps::RequestRejoin();
     };
     party_rows.push_back({rejoin});
+
+    // The host's code stays the same from one launch to the next until it asks for a new one here
+    // (or in the launcher's Party tab): for a code that went to someone it should not have. On the
+    // Party mode page (hosting): the Party page already shows six rows for a running host.
+    PartyRow newcode;
+    newcode.order = 27;
+    newcode.page = 1;
+    newcode.name = [](const B&) { return T2("New party code", "Новый код группы"); };
+    newcode.value = [](const B&) { return T2("Make new", "Создать"); };
+    newcode.help = [](const B&) {
+        return T2("Press twice: the old code stops working; send friends the new one (a password change also gives a new code)",
+                  "Нажмите дважды: старый код перестанет работать; отправьте друзьям новый (смена пароля тоже меняет код)");
+    };
+    newcode.visible = [](const B& b) { return Running(b) && b.role == ps::Role::Host; };
+    newcode.press = PartyRow::Press::Confirm;
+    newcode.run = [](const B& b) {
+        if (Running(b) && b.role == ps::Role::Host) ps::RequestNewCode();
+    };
+    party_rows.push_back({newcode});
 
     PartyRow leave;
     leave.order = 40;
@@ -623,8 +679,8 @@ void DefineAll() {
            });
 
     // ---- Party members: one row each (state, ping); the host kicks with two presses. ----
-    AddPage("Party members", "Участники группы", "The hunters in the party, their state and ping (bbport)",
-            "Охотники группы, их состояние и пинг (bbport)");
+    AddPage("Party members", "Участники группы", "The hunters in the party, their state and ping; notices, DHT (bbport)",
+            "Охотники группы, их состояние и пинг; уведомления, DHT (bbport)");
     for (int k = 0; k < MaxMembers; ++k) {
         party.member_name[k] = AddDynamic(MaxNameLength);
         party.member_value[k] = AddDynamic(MaxValueLength);
@@ -636,26 +692,20 @@ void DefineAll() {
                [k] { return k < member_rows; });
     }
     // One row per member (kMaxPartyPlayers = 4), then the switches, within the page's six rows:
-    // a full party of four shows the notices and party HUD switches, three also guest lamps
-    // (also on the overlay's Party tab), two or fewer also the last event.
+    // a full party of four shows the notices and the DHT switch, two or fewer also the last event.
+    // (Party HUD and Guests use lamps: Party display / World & PvP since 2026-10-21.)
     AddRow(Flag(&Values::party_toasts), "Join/leave notices", "Уведомления",
            "A short notice in a top corner when a hunter joins or leaves",
            "Короткое уведомление в углу, когда охотник входит или выходит", toggle, Kind::Toggle);
-    // Party HUD (party_hud.h): party mode only. With four members the last event row gives way.
-    AddRow(Flag(&Values::party_hud), AddText("Party HUD", "Панель группы"),
-           AddText("Companions' names, health and where they are, in the bottom left corner",
-                   "Имена, здоровье и местоположение спутников в левом нижнем углу"),
-           toggle, Kind::Toggle, [] { return party::status::Enabled(); });
-    // Guests use lamps and headstones (party_guestsvc; read at the next start). Shown while fewer
-    // than four hunters are in the party (the page holds six rows).
-    AddRow(Flag(&Values::party_guest_lamps), AddText("Guests use lamps", "Фонари гостям"),
-           AddText("Guests may use lamps and headstones; the whole party travels (after a restart)",
-                   "Гости могут пользоваться фонарями и надгробиями; группа идёт вместе (после перезапуска)"),
-           toggle, Kind::Toggle, [] { return party::status::Enabled() && member_rows <= 3; });
+    // F2: the DHT rendezvous (party_rdv.h), opt-in: it posts this PC's IP on the public BitTorrent DHT.
+    AddRow(Flag(&Values::party_rendezvous), AddText("Find via public DHT", "Поиск через DHT"),
+           AddText("Auto hole punching via the public BitTorrent DHT (shares your IP). Both PCs; next party start",
+                   "Пробивка NAT через публичный DHT BitTorrent (виден ваш IP). На обоих ПК; со следующей группы"),
+           toggle, Kind::Toggle);
     party.event_value = AddDynamic(MaxValueLength);
     party.event_help = AddDynamic(MaxHelpLength);
     AddRow(Info(), AddText("Last event", "Последнее"), party.event_help, {party.event_value}, Kind::Button,
-           [] { return !party::status::Enabled() || member_rows <= 2; });
+           [] { return member_rows <= 3; });  // four members: the six rows are full
 
     // The split-travel question (party_split.cpp): a game dialog with YES / NO after a lamp,
     // headstone or Hunter's Mark in a party (docs/party/split_travel.md).
@@ -675,77 +725,141 @@ void DefineAll() {
                              "Хозяин достиг концовки.\nДА: увидеть эту концовку сейчас (титры, затем Новая игра+ в вашем сохранении).\n"
                              "НЕТ: не сейчас - вы вернётесь в свой Сон охотника и продолжите своё путешествие.");
 
-    // ---- Party rules (party_balance.h): the death debuff and the overhead display. ----
-    AddPage("Party rules", "Правила группы", "Death debuff, shared NPC dialogue, what shows above companions, DHT (bbport)",
-            "Штраф за смерть, общие диалоги NPC, что видно над спутниками (bbport)");
-    balance.rot_help = AddDynamic(MaxHelpLength);
-    AddRow(Flag(&Values::party_rot), AddText("Rot on death", "Гниль при смерти"), balance.rot_help, toggle,
-           Kind::Toggle);
-    // Party name tags (party_hud_game.cpp): ours instead of the game's phantom plate, or the game's.
-    AddRow(Flag(&Values::party_name_tags), AddText("Party name tags", "Имена над спутниками"),
-           AddText("On: our name plates above companions (never hidden by walls). Off: the game's own",
-                   "Вкл.: наши таблички над спутниками (не прячутся за стенами). Выкл.: игровые"),
-           toggle, Kind::Toggle);
+    // ---- The party rules (user decision 2026-10-21): every party gameplay option has a row, on
+    // pages by theme, the rows a page holds ordered by how often players change them. A host's rule
+    // (party_balance Rules, sent to every guest) is a toggle for the host and a solo player and a
+    // read-only line with the host's value for a guest. The other rows are this player's own
+    // (bbport.ini; BbSettings::PartySwitches); "next start": a party module reads it at start. ----
+    const auto is_guest = [] { return party::status::Snapshot().role == party::status::Role::Guest; };
+    const auto host_rule = [&](std::atomic<bool> Values::*member, const char* en, const char* ru, u32 help,
+                               std::function<bool()> in_force, Texts guest_on, Texts guest_off) {
+        AddRow(Flag(member), AddText(en, ru), help, toggle, Kind::Toggle, [is_guest] { return !is_guest(); });
+        GuestRule g{AddDynamic(MaxValueLength), AddDynamic(MaxHelpLength), std::move(in_force),
+                    std::move(guest_on), std::move(guest_off)};
+        AddRow(Info(), AddText(en, ru), g.help, {g.value}, Kind::Button, is_guest);
+        guest_rules.push_back(std::move(g));
+    };
+    const auto own = [&](std::atomic<bool> Values::*member, const char* en, const char* ru, const char* help_en,
+                         const char* help_ru) {
+        AddRow(Flag(member), AddText(en, ru), AddText(help_en, help_ru), toggle, Kind::Toggle);
+    };
+    namespace ps = party::status;
+
+    // ---- Deaths & revives (party_b2, party_balance, party_phantom) ----
+    AddPage("Deaths & revives", "Смерти и подъём", "Rot on death, getting up without a loading screen, respawns (bbport)",
+            "Гниль при смерти, подъём без экрана загрузки, возрождение (bbport)");
+    host_rule(&Values::party_rot, "Rot on death", "Гниль при смерти",
+              AddText("Each death: max HP -10 % (up to 5), a lamp rest cleanses it. Party rule",
+                      "Каждая смерть: -10 % здоровья (до 5 раз), отдых у фонаря снимает. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::Rot); },
+              {"The host's rule: each death max HP -10 % (up to 5), a lamp rest cleanses it",
+               "Правило хоста: каждая смерть -10 % здоровья (до 5 раз), отдых у фонаря снимает"},
+              {"The host turned rot off: deaths cost no max HP",
+               "Хост выключил гниль: смерти не отнимают здоровье"});
+    own(&Values::party_guest_revive_inplace, "Guest gets up, no load", "Гость встаёт сразу",
+        "While you are a guest: you get up at the host's lamp without a loading screen. Off: the respawn load",
+        "Пока вы гость: вы встаёте у фонаря хоста без экрана загрузки. Выкл.: загрузка возрождения");
+    host_rule(&Values::party_host_revive, "Host gets up, no load", "Хост встаёт сразу",
+              AddText("You get up at your lamp without a loading screen for the party. Off: the respawn load. Host's",
+                      "Вы встаёте у своего фонаря без экрана загрузки для группы. Выкл.: загрузка. Решает хост"),
+              [] { return ps::HostRuleOn(ps::HostRule::HostRevive); },
+              {"The host gets up at its lamp without a loading screen for the party (host decides)",
+               "Хост встаёт у своего фонаря без экрана загрузки для группы (решает хост)"},
+              {"The host decides; off: the whole party gets the respawn loading screen at its death",
+               "Решает хост; выкл.: при его смерти вся группа видит экран загрузки"});
+    host_rule(&Values::party_host_limbo_revive, "Up after boss kill", "Встать после босса",
+              AddText("Dead in a boss fight the others win: you get up in the arena, no load. Host's",
+                      "Погибли в бою, а другие убили босса: вы встаёте на арене без загрузки. Решает хост"),
+              [] { return ps::HostRuleOn(ps::HostRule::HostLimboRevive); },
+              {"Dead in a boss fight the others win: you get up in the arena, no load (host decides)",
+               "Погибли в бою, а другие убили босса: вы встаёте на арене без загрузки (решает хост)"},
+              {"The host decides; off: a boss kill after a death brings the respawn load / the host's lamp",
+               "Решает хост; выкл.: после победы над боссом - загрузка возрождения / фонарь хоста"});
+    own(&Values::party_guest_respawn, "Respawn at host's lamp", "Возврат к фонарю хоста",
+        "While you are a guest: a death brings you back at the host's lamp, not home. Next start",
+        "Пока вы гость: после смерти вы у фонаря хоста, а не дома. Со следующего запуска");
+    own(&Values::party_guest_refill, "Refill vials, bullets", "Пополнять склянки, пули",
+        "While you are a guest: vials and bullets refill when the host rests, dies or travels. Next start",
+        "Пока вы гость: склянки и пули пополняются, когда хост отдыхает, гибнет или уходит. Со след. запуска");
+
+    // ---- World & PvP (party_pvp, party_balance, party_guestsvc, seamless_rules, party_phantom) ----
+    AddPage("World & PvP", "Мир и PvP", "Friendly fire, shared lamps, lamps and Hunter's Mark for guests, open world (bbport)",
+            "Огонь по своим, общие фонари, фонари и Метка охотника гостям, открытый мир (bbport)");
+    host_rule(&Values::party_friendly_fire, "Friendly fire / PvP", "Огонь по своим / PvP",
+              AddText("Party members can hurt each other (both ways); a party kill is a normal death. Party rule",
+                      "Члены группы могут ранить друг друга; убийство в группе - обычная смерть. Правило группы"),
+              [] { return ps::FriendlyFire(); },
+              {"The host turned friendly fire on: party members can hurt each other",
+               "Хост включил огонь по своим: члены группы могут ранить друг друга"},
+              {"The host decides; off: party members cannot hurt each other",
+               "Решает хост; выкл.: члены группы не могут ранить друг друга"});
+    host_rule(&Values::party_share_lamps, "Shared lamps", "Общие фонари",
+              AddText("A lamp any party member lights is lit for everyone, in each save. Party rule",
+                      "Фонарь, зажжённый любым членом группы, горит у всех, в каждом сохранении. Правило группы"),
+              [] { return ps::ShareLamps(); },
+              {"The host shares lamps: every lamp lit in the party is lit for you too",
+               "Хост делит фонари: каждый фонарь группы горит и у вас"},
+              {"The host turned shared lamps off: your own lamps stay yours",
+               "Хост выключил общие фонари: ваши фонари остаются вашими"});
+    // Guests use lamps and headstones (party_guestsvc; read at the next start).
+    own(&Values::party_guest_lamps, "Guests use lamps", "Фонари гостям",
+        "Guests may use lamps and headstones; the whole party travels (after a restart)",
+        "Гости могут пользоваться фонарями и надгробиями; группа идёт вместе (после перезапуска)");
+    own(&Values::party_guest_mark, "Guests use Hunter's Mark", "Метка охотника гостям",
+        "A guest's Hunter's Mark asks: travel alone or with the party. Off: as in the game. Next start",
+        "Метка охотника гостя спрашивает: одному или всей группой. Выкл.: как в игре. Со следующего запуска");
+    own(&Values::party_open_world, "Open world", "Открытый мир",
+        "No co-op walls on area borders: the party walks anywhere. Keep it the same for everyone. Next start",
+        "Без стен совместной игры на границах зон: группа ходит везде. Одинаково у всех. Со следующего запуска");
+
+    // ---- Story & dialogue (party_npctalk, party_progress, party_story) ----
+    AddPage("Story & dialogue", "Сюжет и диалоги", "Shared NPC dialogue, story progress, NPC quests, cutscenes (bbport)",
+            "Общие диалоги NPC, прогресс сюжета, квесты NPC, ролики (bbport)");
     // Shared NPC dialogue (party_npctalk.h): a companion's NPC conversation near you, and how near.
-    AddRow(Flag(&Values::party_npc_talk), AddText("Share NPC dialogue", "Общие диалоги NPC"),
-           AddText("See and hear the NPC conversations of companions near you (subtitles, choices, gifts)",
-                   "Видеть и слышать разговоры спутников с NPC рядом с вами (субтитры, выбор, подарки)"),
-           toggle, Kind::Toggle);
+    own(&Values::party_npc_talk, "Share NPC dialogue", "Общие диалоги NPC",
+        "See and hear the NPC conversations of companions near you (subtitles, choices, gifts)",
+        "Видеть и слышать разговоры спутников с NPC рядом с вами (субтитры, выбор, подарки)");
     balance.npc_range_help = AddDynamic(MaxHelpLength);
     AddRow(Setting(
                Kind::Slider,
                [](const Values& v) { return coop::npctalk::RangePosition(v.party_npc_talk_range.load()); },
                [](int i) { BbSettings::Get().party_npc_talk_range = coop::npctalk::RangeAtPosition(i); }),
            AddText("NPC dialogue range", "Дальность диалогов NPC"), balance.npc_range_help, {}, Kind::Slider);
-    // F2: the DHT rendezvous (party_rdv.h), opt-in: it posts this PC's IP on the public BitTorrent DHT.
-    AddRow(Flag(&Values::party_rendezvous), AddText("Find via public DHT", "Поиск через DHT"),
-           AddText("Auto hole punching via the public BitTorrent DHT (shares your IP). Both PCs; next party start",
-                   "Пробивка NAT через публичный DHT BitTorrent (виден ваш IP). На обоих ПК; со следующей группы"),
-           toggle, Kind::Toggle);
+    own(&Values::party_progress, "Share story progress", "Общий прогресс сюжета",
+        "Bosses, lamps, shortcuts and key events copied into every guest's save. Host and guests. Next start",
+        "Боссы, фонари, срезки и события копируются в сохранение каждого гостя. Хост и гости. Со след. запуска");
+    own(&Values::party_progress_npc, "Share NPC quests", "Общие квесты NPC",
+        "The first NPC quest choice anyone makes applies to every save (needs story progress). Next start",
+        "Первый выбор в квесте NPC действует во всех сохранениях (нужен общий прогресс). Со след. запуска");
+    own(&Values::party_story, "Share cutscenes, endings", "Общие ролики и концовки",
+        "Guests see the host's cutscenes, time of day and ending. Host and guests. Next start",
+        "Гости видят ролики хоста, время суток и концовку. Хост и гости. Со следующего запуска");
+    own(&Values::party_story_mirror, "Cutscenes live with host", "Ролики вместе с хостом",
+        "A guest in the host's world watches a cutscene with the host. Off: later, in its own world. Next start",
+        "Гость в мире хоста смотрит ролик вместе с ним. Выкл.: позже, в своём мире. Со следующего запуска");
+
+    // ---- Party rewards (party_items, party_director, party_phantom) ----
+    AddPage("Party rewards", "Награды группы", "Echoes and drops, item rewards, bells, Insight for guests (bbport)",
+            "Отголоски и добыча, предметы, колокольчики, озарение гостям (bbport)");
+    own(&Values::party_full_rewards, "Full rewards for guests", "Полные награды гостям",
+        "While you are a guest: full Blood Echoes and enemy drops, like the host. Off: the game's co-op. Next start",
+        "Пока вы гость: полные отголоски крови и добыча, как у хоста. Выкл.: как в игре. Со следующего запуска");
+    own(&Values::party_items, "Host's item rewards", "Предметы хоста гостям",
+        "Boss drops, key items and gifts the host gets are given to each guest too, once. Next start",
+        "Добыча с боссов, ключевые предметы и подарки хоста выдаются и каждому гостю, один раз. Со след. запуска");
+    own(&Values::party_grant_bells, "Give the bells", "Выдать колокольчики",
+        "The Beckoning Bell and Small Resonant Bell after the prologue (for ringing by hand). Next start",
+        "Колокол призыва и Малый резонирующий колокол после пролога (звонить вручную). Со следующего запуска");
     // A list opens a pop-up over the rows below it: last on the page.
     AddRow(Setting(
-               Kind::List, [](const Values& v) { return std::clamp(v.party_overhead.load(), 0, 5); },
-               [](int i) { BbSettings::Get().party_overhead = std::clamp(i, 0, 5); }),
-           AddText("Above companions", "Над спутниками"),
-           AddText("What shows above party members in view (only you see it)",
-                   "Что показывать над спутниками в поле зрения (только у вас)"),
-           {AddText("Nothing", "Ничего"), AddText("Name", "Имя"), AddText("Name and level", "Имя и уровень"),
-            AddText("Name and health", "Имя и здоровье"), AddText("Name and deaths", "Имя и смерти"),
-            AddText("Name and ping", "Имя и пинг")},
+               Kind::List, [](const Values& v) { return std::clamp(v.party_guest_insight.load(), 0, 2); },
+               [](int i) { BbSettings::Get().party_guest_insight = std::clamp(i, 0, 2); }),
+           AddText("Insight for bosses", "Озарение за боссов"),
+           AddText("While you are a guest: Insight when the host kills a boss. Next start",
+                   "Пока вы гость: озарение, когда хост убивает босса. Со следующего запуска"),
+           {AddText("Same as the host", "Как у хоста"), AddText("Full bonus", "Полный бонус"),
+            AddText("Game's own (+1)", "Как в игре (+1)")},
            Kind::List);
-
-    // ---- Pings (I2, party_ping.h): Party rules holds six rows already, so a page of its own. ----
-    AddPage("Pings", "Метки", "Mark a spot for the party, see companions through walls (bbport)",
-            "Отметить место для группы, видеть спутников сквозь стены (bbport)");
-    AddRow(Flag(&Values::party_pings), AddText("Pings", "Метки"),
-           AddText("Hold the touchpad and press R3 (keyboard: V) to mark where you look; everyone sees it 10 s",
-                   "Зажмите тачпад и нажмите R3 (клавиатура: V), чтобы отметить место; группа видит его 10 с"),
-           toggle, Kind::Toggle);
-    AddRow(Flag(&Values::party_through_walls), AddText("Show party through walls", "Группа сквозь стены"),
-           AddText("A small marker with the distance on each companion on your map, also behind walls",
-                   "Маленькая метка с расстоянием на каждом спутнике на вашей карте, и за стенами"),
-           toggle, Kind::Toggle);
-
-    // ---- Friendly fire / PvP (I1, party_pvp.h): a party rule only the host sets (ERSC's
-    // Judicator's Rulebook). The host gets the toggle; a guest sees the host's rule, read-only. ----
-    AddPage("Friendly fire", "Огонь по своим", "PvP and shared lamps: rules the host decides (bbport)",
-            "PvP и общие фонари: правила, которые решает хост (bbport)");
-    balance.ff_help = AddDynamic(MaxHelpLength);
-    AddRow(Flag(&Values::party_friendly_fire), AddText("Friendly fire / PvP", "Огонь по своим / PvP"), balance.ff_help,
-           toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
-    balance.ff_value = AddDynamic(MaxValueLength);
-    balance.ff_guest_help = AddDynamic(MaxHelpLength);
-    AddRow(Info(), AddText("Friendly fire / PvP", "Огонь по своим / PvP"), balance.ff_guest_help, {balance.ff_value},
-           Kind::Button, [] { return party::status::Snapshot().role == party::status::Role::Guest; });
-
-    // Shared lamps (statsaudit finding 5): a party rule only the host sets, on by default.
-    balance.lamps_help = AddDynamic(MaxHelpLength);
-    AddRow(Flag(&Values::party_share_lamps), AddText("Shared lamps", "Общие фонари"), balance.lamps_help, toggle,
-           Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
-    balance.lamps_value = AddDynamic(MaxValueLength);
-    balance.lamps_guest_help = AddDynamic(MaxHelpLength);
-    AddRow(Info(), AddText("Shared lamps", "Общие фонари"), balance.lamps_guest_help, {balance.lamps_value},
-           Kind::Button, [] { return party::status::Snapshot().role == party::status::Role::Guest; });
 
     // ---- Enemy scaling (party_balance.h): per extra hunter, the host's values count. ----
     AddPage("Enemy scaling", "Сила врагов", "Boss and enemy health, damage and poise per extra hunter (bbport)",
@@ -760,48 +874,67 @@ void DefineAll() {
                AddText(en, ru), balance.scale_help[index], {}, Kind::Slider);
     };
     using namespace coop::balance;
+    // Health and damage first (changed most), poise last.
     scale_row(&Values::party_boss_hp, kHpTable, "Boss health", "Здоровье боссов", 0);
     scale_row(&Values::party_boss_damage, kDamageTable, "Boss damage", "Урон боссов", 1);
-    scale_row(&Values::party_boss_poise, kPoiseTable, "Boss poise", "Стойкость боссов", 2);
     scale_row(&Values::party_enemy_hp, kHpTable, "Enemy health", "Здоровье врагов", 3);
     scale_row(&Values::party_enemy_damage, kDamageTable, "Enemy damage", "Урон врагов", 4);
+    scale_row(&Values::party_boss_poise, kPoiseTable, "Boss poise", "Стойкость боссов", 2);
     scale_row(&Values::party_enemy_poise, kPoiseTable, "Enemy poise", "Стойкость врагов", 5);
+
+    // ---- Party display: what this player sees of the party (local) ----
+    AddPage("Party display", "Отображение группы", "Party HUD, name tags, pings, markers, what shows above companions (bbport)",
+            "Панель группы, имена, метки, маркеры, что видно над спутниками (bbport)");
+    // Party HUD (party_hud.h): party mode only.
+    AddRow(Flag(&Values::party_hud), AddText("Party HUD", "Панель группы"),
+           AddText("Companions' names, health and where they are, in the bottom left corner",
+                   "Имена, здоровье и местоположение спутников в левом нижнем углу"),
+           toggle, Kind::Toggle, [] { return party::status::Enabled(); });
+    // Party name tags (party_hud_game.cpp): ours instead of the game's phantom plate, or the game's.
+    own(&Values::party_name_tags, "Party name tags", "Имена над спутниками",
+        "On: our name plates above companions (never hidden by walls). Off: the game's own",
+        "Вкл.: наши таблички над спутниками (не прячутся за стенами). Выкл.: игровые");
+    // I2 pings (party_ping.h).
+    own(&Values::party_pings, "Pings", "Метки",
+        "Hold the touchpad and press R3 (keyboard: V) to mark where you look; everyone sees it 10 s",
+        "Зажмите тачпад и нажмите R3 (клавиатура: V), чтобы отметить место; группа видит его 10 с");
+    own(&Values::party_through_walls, "Show party through walls", "Группа сквозь стены",
+        "A small marker with the distance on each companion on your map, also behind walls",
+        "Маленькая метка с расстоянием на каждом спутнике на вашей карте, и за стенами");
+    // The marker on the own lost-echoes bloodstain (bbport_overlay PartyStainMarker), off by default.
+    own(&Values::party_stain_marker, "Bloodstain marker", "Метка пятна крови",
+        "A marker with Blood Echoes and distance on your lost echoes' bloodstain, also behind walls",
+        "Метка с отголосками и расстоянием на пятне крови с вашими отголосками, и за стенами");
+    // A list opens a pop-up over the rows below it: last on the page.
+    AddRow(Setting(
+               Kind::List, [](const Values& v) { return std::clamp(v.party_overhead.load(), 0, 5); },
+               [](int i) { BbSettings::Get().party_overhead = std::clamp(i, 0, 5); }),
+           AddText("Above companions", "Над спутниками"),
+           AddText("What shows above party members in view (only you see it)",
+                   "Что показывать над спутниками в поле зрения (только у вас)"),
+           {AddText("Nothing", "Ничего"), AddText("Name", "Имя"), AddText("Name and level", "Имя и уровень"),
+            AddText("Name and health", "Имя и здоровье"), AddText("Name and deaths", "Имя и смерти"),
+            AddText("Name and ping", "Имя и пинг")},
+           Kind::List);
 }
 
 /// The party rules' help lines: the current value, and on a guest that the host's rules count.
 void RefreshBalance() {
-    if (!balance.rot_help) return;
+    if (!balance.npc_range_help) return;
     const auto& v = BbSettings::Get();
     const bool guest = party::status::Snapshot().role == party::status::Role::Guest;
     const std::string g_en = guest ? " (host decides)" : "", g_ru = guest ? " (решает хост)" : "";
-    SetDynamic(balance.rot_help, "Each death: max HP -10 % (up to 5), a lamp rest cleanses it" + g_en,
-               "Каждая смерть: -10 % здоровья (до 5 раз), отдых у фонаря снимает" + g_ru);
-    if (balance.npc_range_help) {
+    {
         const int r = coop::npctalk::RangeAtPosition(coop::npctalk::RangePosition(v.party_npc_talk_range.load()));
         SetDynamic(balance.npc_range_help, "Companions' NPC dialogue reaches you " + coop::npctalk::DescribeRange(r),
                    r > 0 ? "Диалоги спутников с NPC: в пределах " + std::to_string(r) + " м от NPC"
                          : std::string("Диалоги спутников с NPC: на всей карте"));
     }
-    if (balance.ff_help) {
-        SetDynamic(balance.ff_help,
-                   "Party members can hurt each other (both ways); a party kill is a normal death. Party rule",
-                   "Члены группы могут ранить друг друга; убийство в группе - обычная смерть. Правило группы");
-        const bool ff = party::status::FriendlyFire();
-        SetDynamic(balance.ff_value, ff ? "On" : "Off", ff ? "Вкл" : "Выкл");
-        SetDynamic(balance.ff_guest_help, ff ? "The host turned friendly fire on: party members can hurt each other"
-                                             : "The host decides; off: party members cannot hurt each other",
-                   ff ? "Хост включил огонь по своим: члены группы могут ранить друг друга"
-                      : "Решает хост; выкл.: члены группы не могут ранить друг друга");
-    }
-    if (balance.lamps_help) {
-        SetDynamic(balance.lamps_help, "A lamp any party member lights is lit for everyone, in each save. Party rule",
-                   "Фонарь, зажжённый любым членом группы, горит у всех, в каждом сохранении. Правило группы");
-        const bool on = party::status::ShareLamps();
-        SetDynamic(balance.lamps_value, on ? "On" : "Off", on ? "Вкл" : "Выкл");
-        SetDynamic(balance.lamps_guest_help, on ? "The host shares lamps: every lamp lit in the party is lit for you too"
-                                                : "The host turned shared lamps off: your own lamps stay yours",
-                   on ? "Хост делит фонари: каждый фонарь группы горит и у вас"
-                      : "Хост выключил общие фонари: ваши фонари остаются вашими");
+    for (const GuestRule& g : guest_rules) {
+        const bool on = g.on();
+        SetDynamic(g.value, on ? "On" : "Off", on ? "Вкл" : "Выкл");
+        const Texts& t = on ? g.on_help : g.off_help;
+        SetDynamic(g.help, t.en, t.ru);
     }
     using namespace coop::balance;
     const int values[6] = {v.party_boss_hp, v.party_boss_damage, v.party_boss_poise,
@@ -1029,6 +1162,68 @@ void SetPartyStatusHooks(PartyStatusHooks hooks) {
     status_hooks = std::move(hooks);
 }
 
+namespace {
+/// BB_GAME_MENU_TRACE=1 (scripted menu tests, tools/mp/smoke_party.py "rules"): each change a
+/// page applies, as "Game menu: row 'NAME' -> VALUE".
+bool TraceChanges() {
+    static const bool on = [] {
+        const char* env = std::getenv("BB_GAME_MENU_TRACE");
+        return env && env[0] == '1';
+    }();
+    return on;
+}
+std::string Ascii(u32 id) {
+    std::string out;
+    for (const char16_t* c = Text(id, false); c && *c; ++c) out.push_back(*c < 128 ? char(*c) : '?');
+    return out;
+}
+/// What a row shows in its value column now (English).
+std::string ValueText(const Row& r) {
+    const int f = r.field;
+    switch (r.kind) {
+    case Kind::Slider: return std::to_string(int(bytes[std::size_t(f)]));
+    case Kind::List: {
+        const int v = values[std::size_t(f)];
+        return v >= 0 && std::size_t(v) < r.choices.size() ? Ascii(r.choices[std::size_t(v)]) : "?";
+    }
+    case Kind::Toggle:
+    case Kind::Steps: {
+        const int count = int(r.choices.size());
+        const int c = r.kind == Kind::Toggle ? std::clamp(int(bytes[std::size_t(f)]), 0, count - 1)
+                                             : ChoiceFromPosition(bytes[std::size_t(f)], count);
+        return count ? Ascii(r.choices[std::size_t(c)]) : "?";
+    }
+    case Kind::Button: return r.choices.empty() ? "" : Ascii(r.choices[0]);
+    }
+    return "?";
+}
+/// A text past its column (MaxNameLength / MaxValueLength) or cut by SetDynamic ("...").
+bool Cut(u32 id, std::size_t limit) {
+    const char16_t* t = Text(id, false);
+    std::u16string_view v = t ? t : u"";
+    return v.size() > limit || (IsDynamic(id) && v.size() >= 3 && v.substr(v.size() - 3) == u"...");
+}
+const Row* RowOfField(int field) {
+    for (const Page& p : pages)
+        for (const Row& r : p.rows)
+            if (r.field == field && (!r.visible || r.visible())) return &r;
+    return nullptr;
+}
+} // namespace
+
+std::string ShownSummary(const Page& page) {
+    std::scoped_lock lock{StateMutex()};
+    std::string out;
+    for (const Row* r : ShownRows(page)) {
+        if (!out.empty()) out += " | ";
+        out += Ascii(r->name) + "=" + ValueText(*r);
+        bool cut = Cut(r->name, MaxNameLength);
+        for (u32 c : r->choices) cut = cut || Cut(c, MaxValueLength);
+        if (cut) out += " (CUT)";
+    }
+    return out;
+}
+
 void Poll(std::int64_t now_ms) {
     std::scoped_lock lock{StateMutex()};
     if (!loaded) {
@@ -1076,6 +1271,9 @@ void Poll(std::int64_t now_ms) {
         if (f.set) {
             f.set(value);
             save = true;
+            if (TraceChanges())
+                if (const Row* r = RowOfField(int(i)))
+                    std::printf("Game menu: row '%s' -> %s\n", Ascii(r->name).c_str(), ValueText(*r).c_str());
         }
     }
     if (save) {

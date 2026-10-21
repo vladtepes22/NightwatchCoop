@@ -412,6 +412,20 @@ void TestCensus() {
         const std::vector<CensusEntry> synced = {{cw, false}, {boss, false}, {twin, true}, {twin, false}};
         CHECK(CensusRepairTargets(hl2, synced).empty());
     }
+    // hostcheck (live): enemies without an id read -1 (0xFFFFFFFF), not only 0: never one shared id
+    // whose alive count (it follows streaming) makes the repair put them all to death.
+    {
+        std::vector<CensusEntry> hostm1, here;
+        for (int i = 0; i < 17; ++i) here.push_back({0xFFFFFFFFu, true});
+        hostm1.push_back({0xFFFFFFFFu, false});
+        const CensusDigest a = MakeCensusDigest(0x18010000u, hostm1), b = MakeCensusDigest(0x18010000u, here);
+        CHECK(a.unnamed_dead == 1 && b.unnamed_alive == 17);
+        bool un = false;
+        CHECK(CensusDiffBuckets(a, b, &un).empty() && un);  // only the counts differ
+        const CensusList hl = CensusListOf(0x18010000u, hostm1, {CensusBucket(0xFFFFFFFFu)});
+        CHECK(hl.entries.empty() && CensusRepairTargets(hl, here).empty());
+        CHECK(CompareCensusList(hl, here).dead_on_host.empty());
+    }
     // An enemy without an id killed on one side: only the counts tell.
     std::vector<CensusEntry> u = guest;
     for (CensusEntry& e : u)

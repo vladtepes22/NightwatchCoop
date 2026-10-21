@@ -114,4 +114,31 @@ inline bool code_ignores_password(const PartyCode& code) {
 bool parse_ipv4(std::string_view s, std::array<std::uint8_t, 4>* out);
 std::string format_ipv4(const std::array<std::uint8_t, 4>& ip);
 
+// ---- The host's code secret from one launch to the next (party_runtime.cpp start_host) ----
+// The party code stays the same across game launches until the host asks for a new one
+// (launcher Party tab "New code", System > Party mode > New party code). Where it comes from:
+//   CrashRestart  the crash marker (party_state.json) of a restarted host: with its member slots
+//   Menu          a party game started from the game's menus: party.json's host_secret
+//   Saved         a normal launch: <user>/party_secret.txt (never the marker's member slots)
+//   New           none of them (first host, or after a revoke): fit_secret_to_code makes one
+enum class HostSecretFrom { CrashRestart, Menu, Saved, New };
+const char* host_secret_from_name(HostSecretFrom from);
+// 16 hex digits (blanks / line ends around them ignored) -> the 8-byte slot. False otherwise.
+bool parse_secret_hex(std::string_view text, std::array<std::uint8_t, 8>* out);
+// The choice above. `restart_secret`: the crash restart's secret (null: not a restart, or none
+// found); `menu_hex`: party.json's host_secret ("" when this run is not a menu party game);
+// `saved_text`: party_secret.txt's contents ("" when there is none). A source that does not parse
+// is skipped. New leaves *secret all zero.
+HostSecretFrom pick_host_secret(const std::array<std::uint8_t, 8>* restart_secret, const std::string& menu_hex,
+                                const std::string& saved_text, std::array<std::uint8_t, 8>* secret);
+
+// The secret as the BBP3 code carries it: 4 bytes while a password is set (the password keeps
+// strangers out), 6 without (the secret alone does). A stored secret of the other size is
+// shortened / lengthened, a missing one made: the party key changes with it, so friends need the
+// new code once (setting or removing a password therefore still gives a new code).
+enum class SecretFit { Kept, Made, Shortened, Lengthened };
+SecretFit fit_secret_to_code(std::array<std::uint8_t, 8>* secret, bool password);
+// A revoke: a fresh random secret of the right size for `password`, never equal to `old`.
+std::array<std::uint8_t, 8> new_host_secret(const std::array<std::uint8_t, 8>& old, bool password);
+
 }  // namespace party

@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <thread>
 
 namespace party::bridge {
 
@@ -127,6 +128,13 @@ Actions DefaultActions() {
         return link && link->is_host() && link->kick_name(name, "kicked by the host");
     };
     a.add_guest_code = [](const std::string& text) { return party::runtime_add_guest_code(text); };
+    a.new_code = [] {
+        std::thread([] {  // key derivations: not on the game's main thread
+            std::string message;
+            party::runtime_new_code(&message);
+            status::SetLastEvent(message);
+        }).detach();
+    };
     return a;
 }
 #else
@@ -174,6 +182,12 @@ void HandleCommand(Bridge& b, const status::Command& c, const TickIn& in, TickOu
         Log("status: Add guest code: %d valid code(s)", n);
         status::SetLastEvent(n > 0 ? "Guest code added: opening the way for that guest"
                                    : "No valid guest code (BBG1-XXXX-XXXX-XXXX) on the clipboard");
+        break;
+    }
+    case status::CommandType::NewCode: {
+        if (!in.host) break;
+        Log("status: New party code pressed");
+        if (a.new_code) a.new_code();
         break;
     }
     case status::CommandType::Kick: {
@@ -550,7 +564,7 @@ void OnRejoining() {
 
 namespace {
 
-// BB_PARTY_STATUS_TEST=leave@60,rejoin@80,kick:Hunter1@40 - presses the Party tab's buttons this
+// BB_PARTY_STATUS_TEST=leave@60,rejoin@80,kick:Hunter1@40,newcode@90 - presses the Party tab's buttons this
 // many s after the first tick (tests without keystrokes).
 void RunScript(Bridge& b, bool host, Clock::time_point now) {
     if (!b.script_parsed) {
@@ -583,6 +597,7 @@ void RunScript(Bridge& b, bool host, Clock::time_point now) {
             if (cmd == "leave") s.type = status::CommandType::Leave;
             else if (cmd == "rejoin") s.type = status::CommandType::Rejoin;
             else if (cmd == "kick") s.type = status::CommandType::Kick;
+            else if (cmd == "newcode") s.type = status::CommandType::NewCode;
             else continue;
             b.script.push_back(s);
             Log("status test: %s%s%s at %.0f s", status::CommandName(s.type), s.name.empty() ? "" : " ",
@@ -600,6 +615,9 @@ void RunScript(Bridge& b, bool host, Clock::time_point now) {
             it->name.c_str());
         if (it->type == status::CommandType::Leave) status::RequestLeave();
         else if (it->type == status::CommandType::Rejoin) status::RequestRejoin();
+        else if (it->type == status::CommandType::NewCode) {
+            if (!status::RequestNewCode()) Log("status test: new code refused by the board (not the host)");
+        }
         else if (!status::KickMember(it->name)) Log("status test: kick %s refused by the board", it->name.c_str());
         it = b.script.erase(it);
     }

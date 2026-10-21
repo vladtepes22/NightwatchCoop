@@ -1145,10 +1145,7 @@ bool TextureCache::IsExactMatch(ImageId image_id, const ImageInfo& info) const {
 
 ImageId TextureCache::FindImageFromRange(VAddr address, size_t size, bool ensure_valid) {
     ImageIds image_ids;
-    ForEachImageInRegion(address, size, [&](ImageId image_id, Image& image) {
-        if (image.info.guest_address != address) {
-            return;
-        }
+    ForEachImageWithAddress(address, size, [&](ImageId image_id, Image& image) {
         if (ensure_valid && !image.SafeToDownload()) {
             return;
         }

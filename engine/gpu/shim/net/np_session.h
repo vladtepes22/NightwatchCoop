@@ -101,6 +101,9 @@ int stun_rtt_us();
 // Where our STUN Binding Requests go (a guest: the party host's address and party port, A4);
 // unset (the host) means no STUN - the host's mapped address is set_mapped_override's.
 void set_stun_server(const std::string& host, std::uint16_t port);
+// Guest: our STUN-mapped endpoint is known (false while the host's STUN gave no answer);
+// `stun_host` (optional): where our STUN goes (the host's address); `asked`: a STUN was tried.
+bool mapped_known(std::string* stun_host = nullptr, bool* asked = nullptr);
 // The host's public endpoint (A4: UPnP / public STUN / LAN), reported as our MappedAddr.
 void set_mapped_override(const std::string& addr, int port);
 

@@ -305,7 +305,8 @@ bool SnapshotFromJson(const std::string& text, FlagSnapshot* out, std::string* e
 // and 60009000+ (C3's ledger); map types 1,5,6,7 of the 17 table maps minus type-1 zones 4-6
 // (boss-fight state and enemy AI: the vanilla snapshot carries the current map's, a live copy breaks
 // the fog / boss scripts) and the chalice maps (29, 40-47). Bits never written: 2000-2099 (session
-// flags the guest's own session code keeps) and 9020-9026 (chalice slot, set by SetLoadMode(1)).
+// flags the guest's own session code keeps), 9020-9026 (chalice slot, set by SetLoadMode(1)) and
+// the shop stock flags (ShopStockFlag: the guest's own, from its pool).
 
 struct MemOps;
 using GroupBytes = std::array<u8, kBlockBytes>;
@@ -317,6 +318,22 @@ const GroupBytes& WorldMirrorMask(int key);
 /// The item_lot_picked bits of a mirror key (D4). With instanced items on, the mirror leaves them
 /// alone: the guest's overlay shows the guest's OWN pickups (its pool), not the host's.
 const GroupBytes& WorldItemMask(int key);
+/// Shop stock is per player: the one-time ShopLineupParam rows' stock flags (party_flags.inc rows
+/// "shop stock row ...": the Bath Messengers' armor 70009000-70009490, the Dream's starting weapons
+/// 72101000-72101011, the bells / chalice 6610-6660). The global T7 zone 9 and the m21_00 T7 zone 1
+/// groups are host-world overlay groups in load mode 1, so without this a guest's shop read the
+/// host's purchases (sold out, never bought) and its own purchase went into the discarded overlay.
+bool ShopStockFlag(u32 id);
+/// The shop stock bits of a mirror key (never mirrored: the overlay keeps the guest's own stock).
+const GroupBytes& WorldShopMask(int key);
+/// Guest, load mode 1: one overlay group against the same group of the own pool, shop stock bits
+/// only, set-only both ways (a stock flag only goes 0 -> 1): a purchase the guest made in the
+/// host's world goes to its pool (`saved`), its own earlier purchases show in the overlay
+/// (`shown`). Bytes outside `mask` are never touched. Pure.
+struct ShopMerge {
+    std::vector<u32> saved, shown;  ///< flag ids written to the pool / to the overlay
+};
+ShopMerge MergeShopStock(u32 block, const GroupBytes& mask, GroupBytes* overlay, GroupBytes* pool);
 /// D4 (user decision: world items are instanced per player). Any thread; set once at init.
 void SetInstancedItems(bool on);
 bool InstancedItems();
@@ -493,6 +510,9 @@ void SessionEnded();
 /// retried until the baseline exists), session boundaries (hosting / first member connected ->
 /// "host", last one gone -> ended); guest: entering / leaving the host's world -> "guest" / ended.
 void DirectorTick(const GameSnapshot& s, party::PartyLink* link);
+/// Guest, any thread: the next enemy census check is logged whatever its result (a host revive in
+/// place: the census after it is the desync check, hostcheck; otherwise only the 1st / 20th match).
+void CensusLogNext(const char* why);
 
 // Host.
 /// C3 hook point (party_items): called on the main thread, outside every progress lock, once for

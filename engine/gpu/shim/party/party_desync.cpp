@@ -59,7 +59,7 @@ CensusDigest MakeCensusDigest(u32 map, const std::vector<CensusEntry>& list) {
     std::vector<CensusEntry> named;
     for (const CensusEntry& e : list) {
         e.alive ? ++d.alive : ++d.dead;
-        if (!e.entity) {
+        if (!CensusNamed(e.entity)) {
             e.alive ? ++d.unnamed_alive : ++d.unnamed_dead;
             continue;
         }
@@ -89,7 +89,7 @@ CensusList CensusListOf(u32 map, const std::vector<CensusEntry>& all, const std:
     std::sort(l.buckets.begin(), l.buckets.end());
     l.buckets.erase(std::unique(l.buckets.begin(), l.buckets.end()), l.buckets.end());
     for (const CensusEntry& e : all) {
-        if (!e.entity) {
+        if (!CensusNamed(e.entity)) {
             e.alive ? ++l.unnamed_alive : ++l.unnamed_dead;
             continue;
         }
@@ -132,7 +132,7 @@ std::vector<std::pair<u32, int>> CensusRepairTargets(const CensusList& host, con
     for (const CensusEntry& e : here.entries) m[e.entity] += e.alive ? 1 : 0;
     for (const auto& [id, alive_host] : h) {
         const auto it = m.find(id);
-        if (!id || it == m.end() || it->second <= alive_host || EnemyIsBossEntity(id)) continue;
+        if (!CensusNamed(id) || it == m.end() || it->second <= alive_host || EnemyIsBossEntity(id)) continue;
         out.emplace_back(id, it->second - alive_host);
     }
     return out;

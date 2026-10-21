@@ -502,7 +502,7 @@ It assumes a host respawn load will follow, as it did before 6.13. Since the hos
 party_b2.cpp:3086, "no stage request, no party move"), no load ever comes. The guest's death/leave state machine therefore stays
 half-done and, until the next load, blocks the action-button interactions (pickups, prompts). This is a likely mechanism, not yet confirmed by RE.
 
-**Fixed on head**: no.
+**Fixed on head**: likely (K12, 2026-10-20; a pickup right after a host death not yet re-tested live): a party guest now skips the HostDead state itself (party_b2.cpp `HostDeadHook`). RE: HostDead sets flag 4047, runs 0x1386960 (banner 103101, `[0x553B130]+0x70` = 1) and starts Lua timer 4000: "EventMenuBrake" for 5 s (MenuMan +0x2DC = 1, menus blocked) and then HostDead_1. Live (`BB_HOSTDEAD_LOG=1`): without K12 +0x70, `*0x553B0D8 = 2` and GSM +0x1520 = 1 stayed until the next load; with K12 none of them is set (flag 4047 still arrives ~2 s later from the host's world image, the world mirror). Walking was not blocked in either case on the test PC.
 
 **Severity**: major (the loot is lost or blocked for minutes, and every host death triggers it).
 

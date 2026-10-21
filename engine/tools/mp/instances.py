@@ -18,7 +18,7 @@ when BB_MP_LOCAL_TEST=1. Windows are placed side by side.
 the code the host writes to ROOT/party_code.txt (BB_PARTY_CODE_FILE, deleted before the run);
 BB_PARTY_PORT=base+i, BB_PARTY_NAME=Hunter{i}, no UPnP, no public STUN, 127.0.0.1 everywhere.
 --env still overrides any of these; --ienv I:KEY=VALUE sets a variable for instance I only (e.g. a
-test action on the guest). --crash-at S kills instance --crash-instance's bbport.exe
+test action on the guest); --start-when I/W:REGEX starts instance I once instance W's log matched REGEX. --crash-at S kills instance --crash-instance's bbport.exe
 (TerminateProcess, as a crash) S seconds into the run; run.bat then restarts it (BB_PARTY_RESTART).
 --crash-plan I[/W]:REGEX[@D] (repeatable, in order): several crashes in one run; each kills instance
 I's game D s (default 0) after instance W's log (default I) matched REGEX, looking only at what was
@@ -48,7 +48,32 @@ def base_port(root) -> int:
     if r == Path(DEFAULT_ROOT).resolve() and REPO.parent.parent.name != "agents":
         return BASE_PORT
     import zlib
-    return 47700 + 10 * (zlib.crc32(str(r).lower().encode()) % 150)
+    # Below 49152: Windows (Hyper-V / WSL / WinNAT) reserves blocks of the dynamic range at will
+    # (2026-10-21: UDP 49152-49551 excluded; a root hashed to 49190 and its guests' party port
+    # bind failed with "in use by another program", so the direct summon never joined).
+    port = 47700 + 10 * (zlib.crc32(str(r).lower().encode()) % 145)
+    excluded = excluded_ports()
+    for _ in range(400):
+        if not any(lo <= q <= hi for lo, hi in excluded for q in (port, port + 9)):
+            return port
+        port = 20000 + (port - 20000 + 10) % 27000
+    return port
+
+
+def excluded_ports():
+    """Windows' reserved port ranges (netsh int ipv4 show excludedportrange), UDP and TCP both."""
+    out = []
+    if os.name != "nt":
+        return out
+    import re, subprocess
+    for proto in ("udp", "tcp"):
+        try:
+            txt = subprocess.run(["netsh", "int", "ipv4", "show", "excludedportrange", f"protocol={proto}"],
+                                 capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        out += [(int(a), int(b)) for a, b in re.findall(r"^\s*(\d+)\s+(\d+)", txt, re.M)]
+    return out
 # Up to 4 test games share one GPU and RAM: lowest-cost settings (720p, no upscaler, every optional
 # effect off, lowest model detail). Agents read screenshots, so 720p stays.
 INI = ("upscaler=off\npreset=0\noutput_res=1280x720\nlive_resolution=0\nshow_fps=1\n"
@@ -208,10 +233,26 @@ def setup(a):
                     shutil.copy2(src, t)
         user = inst / "user"
         user.mkdir(exist_ok=True)
+        if a.saves and Path(a.saves).is_dir() and (user / "savedata").exists() and save_damaged(user / "savedata"):
+            # A game file all zeros (live: backup0010, the system data, zeroed by a killed run): the
+            # game then opens its first-boot brightness screen and auto-continue never gets past it.
+            print("instance", i, ": the test save copy is damaged (a file all zeros); copied again from", a.saves)
+            shutil.rmtree(user / "savedata")
         if a.saves and Path(a.saves).is_dir() and not (user / "savedata").exists():
             shutil.copytree(a.saves, user / "savedata")
         (inst / "bbport.ini").write_text(INI, encoding="utf-8")
         print("instance", i, "->", inst)
+
+
+def save_damaged(folder: Path) -> bool:
+    """The game's system data (userdata0010 / backup0010) all zeros. Character slots that were never
+    used (userdata0001-0009 in the test save) are all zeros on purpose and not looked at."""
+    for f in folder.rglob("*0010"):
+        if f.is_file() and f.stat().st_size:
+            with open(f, "rb") as h:
+                if not h.read().strip(b"\0"):
+                    return True
+    return False
 
 
 def party_saves_from(user: Path, fresh: bool = False):
@@ -423,6 +464,7 @@ def run(a):
     ts0 = time.time()
     print("[harness] %.1f s from the game slot to the first start (setup, leftovers check)" % (ts0 - t_slot), flush=True)
     starts = [0] * a.count  # where this run begins in each run.log
+    expects_steps = [False] * a.count  # instance i has a director test chain of travel steps
     code_file = Path(a.root) / "party_code.txt"
     if a.party and code_file.exists():
         code_file.unlink()  # a stale code (old secret) would only get the guests rejected
@@ -472,6 +514,7 @@ def run(a):
             if who.strip() == str(i):
                 k, _, v = kv.partition("=")
                 env[k] = v.replace("{i}", str(i)).replace("{port}", str(port0 + i))
+        expects_steps[i] = bool(re.search(r"(?:^|,)(?:host|guest)_[a-z_]+[=@]", env.get("BB_PARTY_DIRECTOR_TEST", "")))
         if (getattr(a, "headless_delay_after_join", 0) and a.party and i > 0 and
                 i == a.count - getattr(a, "headless", 0)):
             # The headless instances start once the first guest has joined (the host's
@@ -502,6 +545,22 @@ def run(a):
                     pass
                 time.sleep(2)
             print("[harness +%.1f s] %s: starting instance %d" % (time.time() - ts0, want, i), flush=True)
+        for sw in a.start_when or []:
+            # --start-when I/W:REGEX: instance I starts once instance W's log matched REGEX (300 s at most).
+            who, _, rx = sw.partition(":")
+            tgt, _, src = who.partition("/")
+            if tgt.strip() != str(i):
+                continue
+            src_log = Path(a.root) / f"inst{int(src or 0)}" / "run.log"
+            deadline = time.time() + 300
+            while time.time() < deadline and any(q.poll() is None for _, q, _ in procs):
+                try:
+                    if re.search(rx, src_log.read_text(encoding="utf-8", errors="replace")):
+                        break
+                except OSError:
+                    pass
+                time.sleep(1)
+            print("[harness +%.1f s] start-when %s: starting instance %d" % (time.time() - ts0, sw, i), flush=True)
         log, starts[i] = open_log(inst / "run.log")
         # Test games run ABOVE_NORMAL (children inherit) so agents' builds never starve them.
         prio = 0x00008000 if os.name == "nt" else 0
@@ -567,7 +626,44 @@ def run(a):
     idle_rx = re.compile(r"^(Party|Net): ")
     idle_limit = a.idle
     last_party_count, last_party_change = -1, time.time()
+    # Unplanned crash in a scripted run (--until): run.bat restarts the game, but a restarted game takes
+    # BB_PARTY_DIRECTOR_TEST_RESTART as its chain (smoke s2: "none"), so its steps never run and the
+    # run would idle to its cap (live: a startup crash on Windows' commit limit, s2 waited ~7 min).
+    # End it at once with the reason instead.
+    crash_rx = re.compile(r"the game exited with -?\d+ \(a crash\); restart \d+ of")
+    planned_kills = [0] * a.count
+    # Without --until and without a crash plan: the run ends 20 s after every instance with a test
+    # chain logged its last travel step ("travel step N/N"), so finished runs do not sit idle in the
+    # shared game queue (the user stopped several by hand, 2026-10-21).
+    step_rx = re.compile(r"test: travel step (\d+)/(\d+)")
+    chains_done_at = None
+    # With --until: every chain done and every planned crash done, yet a marker never shows (a fix
+    # changed the line it waits for: itemsync's s2, 2026-10-21, idled 3.5 min until the user killed
+    # it). End 60 s after that and name the markers that never matched.
+    until_quiet = float(os.environ.get("BB_MP_UNTIL_QUIET", "60"))
+    settled_at, last_crash = None, 0.0
     while any(p.poll() is None for _, p, _ in procs) and time.time() - t0 < a.seconds + 90:
+        if until:
+            for i in range(a.count):
+                if len(crash_rx.findall(log_text(i, starts[i]))) > planned_kills[i]:
+                    verdict = verdict or ("UNPLANNED CRASH: instance %d crashed and was restarted at %.0f s (see its "
+                                          "out\\crash_*.log); its test chain does not run again"
+                                          % (i, time.time() - t0))
+            if verdict:
+                print(verdict, flush=True)
+                break
+        if not until and not plan and any(expects_steps):
+            done = True
+            for i in range(a.count):
+                if expects_steps[i]:
+                    last = step_rx.findall(log_text(i, starts[i]))
+                    done = done and bool(last) and last[-1][0] == last[-1][1]
+            if done and chains_done_at is None:
+                chains_done_at = time.time()
+            if chains_done_at is not None and time.time() - chains_done_at >= 20:
+                verdict = "all test chains done (last step + 20 s) after %.0f s" % (time.time() - t0)
+                print(verdict, flush=True)
+                break
         if time.time() - t0 > lease and time.time() - last_lease_check > 5:
             last_lease_check = time.time()
             try:
@@ -594,6 +690,8 @@ def run(a):
                 plan_marks = list(marks)
                 print("[harness +%.1f s] crash %d of %d: instance %d" % (time.time() - ts0, plan_next, len(plan), inst),
                       flush=True)
+                planned_kills[inst] += 1
+                last_crash = time.time()  # a restarted game reloads and may run its RESTART chain
                 crash_instance(a.root, inst)
         if idle_limit > 0:
             # Distinct party lines with numbers blanked: periodic status/roster/state lines repeat
@@ -615,6 +713,25 @@ def run(a):
             text = chr(10).join(texts)
             if all(u.search(texts[i] if i is not None and i < a.count else text) for i, u in until):
                 verdict = "all --until markers seen after %.0f s" % (time.time() - t0)
+                break
+        if until and any(expects_steps) and plan_next >= len(plan) and until_quiet > 0:
+            done = True
+            for i in range(a.count):
+                if expects_steps[i]:
+                    last = step_rx.findall(log_text(i, starts[i]))
+                    done = done and bool(last) and last[-1][0] == last[-1][1]
+            if not done:
+                settled_at = None
+            elif settled_at is None:
+                settled_at = time.time()
+            elif time.time() - max(settled_at, last_crash + 90) >= until_quiet:
+                texts = [log_text(i, marks[i]) for i in range(a.count)]
+                text = chr(10).join(texts)
+                missing = [("%d:" % i if i is not None else "") + u.pattern for i, u in until
+                           if not u.search(texts[i] if i is not None and i < a.count else text)]
+                verdict = ("UNTIL NOT MET: every test chain and crash done %.0f s ago, still missing: %s"
+                           % (until_quiet, " ; ".join(missing)))
+                print(verdict, flush=True)
                 break
         time.sleep(1)
     if until or verdict:
@@ -722,6 +839,10 @@ def main():
     ap.add_argument("--instance", type=int, default=1, help="crash: which instance")
     ap.add_argument("--after", type=float, default=0, help="crash: wait this many s first")
     ap.add_argument("--env", action="append")
+    ap.add_argument("--reserve", type=int, default=0,
+                    help="run: hold this many game slots (at least --count), e.g. 2 for a performance run alone on the GPU")
+    ap.add_argument("--start-when", action="append",
+                    help="run: I/W:REGEX, instance I starts once instance W's log matched REGEX (300 s at most)")
     ap.add_argument("--ienv", action="append", help="run: I:KEY=VALUE, set for instance I only (after --env)")
     ap.add_argument("--timestamps", action="store_true",
                     help="run: prefix every log line with [+seconds] since the run started (one clock for all instances)")

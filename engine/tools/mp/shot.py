@@ -207,7 +207,9 @@ def main():
         elif seen_window and time.time() - last_window > 20:
             return
         if next_shot and time.time() >= next_shot:
-            shoot(a.root, out, f"{a.tag}_{int(time.time() - t0)}s")
+            el = time.time() - t0
+            # Sub-second series (--every 0.5): tenths in the name, or every other shot overwrote one.
+            shoot(a.root, out, f"{a.tag}_{int(el)}s" if a.every >= 1 else f"{a.tag}_{el:05.1f}s")
             next_shot += a.every
         for p in logs:
             if not p.exists():

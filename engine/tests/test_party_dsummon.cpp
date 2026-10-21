@@ -161,6 +161,42 @@ int main() {
         OnRoom(h, 30.0, true, Busy::Settle);  // too often: the sign path
         CHECK(h.phase == Phase::Failed);
     }
+    // A failed join locked the host (smoke 2026-10-21): its game summoned the failed guest's new
+    // sign every ~30 s and every direct summon landed in the 20 s sign hold, for minutes. A sign
+    // summon that brought nobody into the room ends its hold after kSignSummonNoJoin; the guest
+    // asks again (Sign) and is served then.
+    {
+        HostView w; w.world_up = true; w.cooperators = 0;
+        w.ms_since_sign_summon = 200; w.ms_since_member_joined = 1 << 30;
+        CHECK(SignSummonBusy(w) && HostRefusal(w) && std::strstr(HostRefusal(w), "summoning a sign") &&
+              RefusalWait(w) == Busy::Sign);
+        w.ms_since_sign_summon = kSignSummonNoJoin - 1; CHECK(SignSummonBusy(w));
+        w.ms_since_sign_summon = kSignSummonNoJoin + 500; CHECK(!SignSummonBusy(w) && !HostRefusal(w));  // nobody came
+        w.ms_since_member_joined = 3000;  // its guest joined the room 3 s ago: a real summon, held
+        CHECK(SignSummonBusy(w) && RefusalWait(w) == Busy::Sign);
+        w.ms_since_member_joined = kSignSummonNoJoin + 900;  // joined before the request: not this summon
+        CHECK(!SignSummonBusy(w));
+        w.ms_since_member_joined = 3000; w.ms_since_sign_summon = kSignSummonHold; CHECK(!SignSummonBusy(w));
+        w.ms_since_sign_summon = 1000; w.cooperators = 3; CHECK(RefusalWait(w) == Busy::None);  // full: no re-ask
+        w.cooperators = 0; w.settling = true; CHECK(RefusalWait(w) == Busy::Sign);  // the sign hold is named first
+        CHECK(WaitOf(EncodeRefuse(Busy::Sign)) == Busy::Sign && BusyText(Busy::Sign, false).empty());
+        // The guest: asks again every kReaskWait; the hold ends within the re-asks (8 x 1.5 s > 10 s).
+        CHECK(kMaxReasks * kReaskWait * 1000.0 > double(kSignSummonNoJoin));
+        Guest g;
+        OnAsked(g, 0.0);
+        OnRoom(g, 0.2, true, Busy::Sign);
+        CHECK(g.phase == Phase::Asked && Step(g, 0.2 + kReaskWait, false, false) == Action::Reask);
+        OnRoom(g, 2.0, false);
+        CHECK(g.phase == Phase::HaveRoom);
+        Guest h;
+        OnAsked(h, 0.0);
+        for (int i = 0; i < kMaxReasks; ++i) {
+            OnRoom(h, 1.0 + i * 2.0, true, Busy::Sign);
+            CHECK(Step(h, 1.0 + i * 2.0 + kReaskWait, false, false) == Action::Reask);
+        }
+        OnRoom(h, 30.0, true, Busy::Sign);  // still summoning: the bell sign path, not a wait
+        CHECK(h.phase == Phase::Failed && !h.waited);
+    }
     // Playtest 1 #9: the guest in another map gathers first (refused with "wait":"map")
     CHECK(MapKnown(0x15000000) && !MapKnown(0) && !MapKnown(0xffffffffu));
     CHECK(SameMap(0x18010000, 0x18010000) && SameMap(0x18010000, 0x18010001) && !SameMap(0x18010000, 0x18000000));
@@ -253,6 +289,47 @@ int main() {
         CHECK(JoinBesideWaits(Busy::None, origin));
         CHECK(!JoinBesideWaits(Busy::None, lamp));
         CHECK(!JoinBesideWaits(Busy::OtherMap, lamp));
+    }
+    // Chalice Dungeons (after PR #8, live): the direct summon's message carries the host's ChannelId,
+    // else the guest's game builds no dungeon and the guest falls through an empty m29.
+    {
+        Room c = r;
+        c.area = 0x1d0a5a00;
+        c.channel = 1110692594440089ull;  // 0x3f22b458bd799, the shared fixed Pthumeru dungeon
+        Room cd;
+        CHECK(DecodeRoom(EncodeRoom(c), &cd, &refused, &err) && cd.channel == c.channel && cd.area == c.area);
+        const auto cp = BuildPayload(id, c);
+        std::memcpy(&q, &cp[0x28], 8); CHECK(q == 1110692594440089ull);
+        // An older host (no "channel" key) decodes as none.
+        CHECK(DecodeRoom("{\"op\":\"dsum_room\",\"room\":\"00112233445566778899\",\"area\":486539264,\"pos\":[0,0,0],\"level\":0}",
+                         &cd, &refused, &err) && cd.channel == kNoChannel);
+        CHECK(ChannelSet(1110692594440089ull) && !ChannelSet(0) && !ChannelSet(kNoChannel) && !ChannelSet(0x8000000000000001ull));
+        CHECK(ChaliceMap(0x1d000000) && ChaliceMap(0x1d0a5a00) && !ChaliceMap(0x15000000) && !ChaliceMap(0xffffffffu));
+        // The guest keeps a dungeon room without a ChannelId out of its game (waited, no gather).
+        Guest cg; OnAsked(cg, 0); OnRoom(cg, 1, false);
+        CHECK(RoomLacksDungeon(cg, 2, cd) && cg.phase == Phase::Failed && cg.waited && !cg.gather);
+        Guest cg2; OnAsked(cg2, 0); OnRoom(cg2, 1, false);
+        CHECK(!RoomLacksDungeon(cg2, 2, c) && cg2.phase == Phase::HaveRoom);
+        Room plain = r;  // a room outside the dungeons needs none
+        CHECK(!RoomLacksDungeon(cg2, 2, plain) && cg2.phase == Phase::HaveRoom);
+        // The host refuses while its dungeon's ChannelId is not ready, with the Chalice wait (the guest asks again).
+        HostView hv; hv.world_up = true; hv.ms_since_sign_summon = 30000;
+        hv.chalice_unready = true;
+        CHECK(HostRefusal(hv) && std::strstr(HostRefusal(hv), "ChannelId") && RefusalWait(hv) == Busy::Chalice);
+        hv.chalice_unready = false; CHECK(!HostRefusal(hv));
+        CHECK(WaitOf(EncodeRefuse(Busy::Chalice)) == Busy::Chalice);
+        Guest rg; OnAsked(rg, 0); OnRoom(rg, 1, true, Busy::Chalice);
+        CHECK(rg.phase == Phase::Asked && rg.reask_at > 1);
+        CHECK(Step(rg, 1 + kReaskWait + 0.1, false, false) == Action::Reask);
+        // Title join: only a joiner whose own slot holds the host's dungeon comes in from its title.
+        CHECK(!TitleJoinChaliceElsewhere(0x15000000, kNoChannel, 0));
+        CHECK(TitleJoinChaliceElsewhere(0x1d000000, 1110692594440089ull, 0));
+        CHECK(TitleJoinChaliceElsewhere(0x1d000000, 1110692594440089ull, 42));
+        CHECK(TitleJoinChaliceElsewhere(0x1d000000, kNoChannel, kNoChannel));
+        CHECK(!TitleJoinChaliceElsewhere(0x1d000000, 1110692594440089ull, 1110692594440089ull));
+        CHECK(TitleJoinBusy(false, false, true, false, true) == Busy::Chalice &&
+              TitleJoinBusy(true, false, true, false, true) == Busy::Boss);
+        CHECK(!BusyText(Busy::Chalice, false).empty() && std::string(BusyWord(Busy::Chalice)) == "chalice");
     }
     std::printf("party-dsummon-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

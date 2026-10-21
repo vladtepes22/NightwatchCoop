@@ -840,6 +840,84 @@ static void TestWorldMirror() {
     CHECK(gs2.ReadVisible(52410101, &v) && v);  // instancing off: the host's world again
 }
 
+// Shop stock is per player (player report 2026-10-20: the host bought the Hunter set and it was
+// sold out for the guest, who never had it): which flags, the mirror never carries them, and the
+// guest's overlay / own pool merge.
+static void TestShopStock() {
+    // the id rule: every one-time ShopLineupParam row's stock flag (party_flags.inc "shop stock row")
+    for (u32 id = 70009000; id <= 70009490; id += 10) {
+        CHECK(ShopStockFlag(id));  // Bath Messengers' armor / emblem / ardeo, Insight shop sets, chalices
+    }
+    CHECK(ShopStockFlag(70009000) && ShopStockFlag(70009030));  // Yharnam Hunter Cap .. Trousers
+    CHECK(ShopStockFlag(72101000) && ShopStockFlag(72101002) && ShopStockFlag(72101010) && ShopStockFlag(72101011));
+    CHECK(ShopStockFlag(6610) && ShopStockFlag(6650) && ShopStockFlag(6660));  // bells, chalice (own pool anyway)
+    CHECK(!ShopStockFlag(70009001) && !ShopStockFlag(70009495) && !ShopStockFlag(70009500));
+    CHECK(!ShopStockFlag(72101003) && !ShopStockFlag(72101012) && !ShopStockFlag(72100100));  // Doll talk
+    CHECK(!ShopStockFlag(70000030) && !ShopStockFlag(12401800) && !ShopStockFlag(6611) && !ShopStockFlag(0));
+    CHECK(CategoryOf(70009000) == Category::never_sync && !HostCandidate(70009000));
+
+    // the mirror never writes them; the shop mask holds them
+    const int k9 = PoolKeyOfId(70009000), k21 = PoolKeyOfId(72101000);
+    CHECK(WorldMirrorKey(k9) && WorldMirrorKey(k21));
+    CHECK(!GetBit(WorldMirrorMask(k9).data(), 0) && GetBit(WorldShopMask(k9).data(), 0));
+    CHECK(GetBit(WorldMirrorMask(k9).data(), 1) && !GetBit(WorldShopMask(k9).data(), 1));  // 70009001: mirrored
+    CHECK(!GetBit(WorldMirrorMask(k21).data(), 0) && GetBit(WorldShopMask(k21).data(), 11));
+    std::size_t shop_bits = 0;
+    for (int key : WorldMirrorKeys()) {
+        const GroupBytes &m = WorldMirrorMask(key), &sm = WorldShopMask(key);
+        for (u32 i = 0; i < kBlockBytes; ++i) {
+            CHECK((m[i] & sm[i]) == 0);
+            shop_bits += std::size_t(__builtin_popcount(sm[i]));
+        }
+    }
+    CHECK(shop_bits == 50 + 5);  // 70009000-70009490, 72101000-002 / 010-011 (66xx: block 6, own pool)
+    const GroupBytes& own6 = WorldShopMask(PoolKeyOfId(6610));
+    CHECK(std::none_of(own6.begin(), own6.end(), [](u8 b) { return b != 0; }));  // not a mirror key
+
+    // the host bought the Yharnam Hunter Cap: its world image reaches the guest's overlay without it
+    FakeStore host;
+    host.Build(0);
+    host.SetPoolBit(70009000, true);
+    host.SetPoolBit(70009001, true);  // a non-shop bit of the same group still mirrors
+    host.SetPoolBit(72101000, true);
+    HostWorldTracker ht;
+    ht.Observe(host.pool.data(), nullptr);
+    FakeStore guest;
+    guest.Build(1);
+    guest.SetPoolBit(70009040, true);  // the guest bought Gehrman's Hunter Cap at home earlier
+    FakeOverlayMap ovm;
+    ovm.Build(guest);
+    std::map<u32, u64> ov;
+    CHECK(guest.view().OverlayGroups(&ov));
+    GuestWorldMirror gm;
+    gm.Receive(ht.Full(1));
+    GuestWorldMirror::Result r;
+    CHECK(gm.Apply(ov, guest.ops(), true, &r));
+    CHECK(!guest.OverlayBit(70009000) && guest.OverlayBit(70009001) && !guest.OverlayBit(72101000));
+
+    // merge: the guest's own stock shows, its purchase here is saved, nothing else is touched
+    GroupBytes o{}, own{}, mask = WorldShopMask(k9);
+    std::memcpy(o.data(), guest.overlay[70009].data(), kBlockBytes);
+    std::memcpy(own.data(), guest.pool.data() + k9 * kBlockBytes, kBlockBytes);
+    PutBit(own.data(), 5, true);  // 70009005: not a shop bit, never copied
+    ShopMerge sm = MergeShopStock(70009, mask, &o, &own);
+    CHECK(sm.saved.empty() && sm.shown == std::vector<u32>{70009040u});
+    CHECK(GetBit(o.data(), 40) && !GetBit(o.data(), 5) && GetBit(o.data(), 1));
+    PutBit(o.data(), 10, true);  // the guest buys the Yharnam Hunter Garb in the host's world
+    sm = MergeShopStock(70009, mask, &o, &own);
+    CHECK(sm.saved == std::vector<u32>{70009010u} && sm.shown.empty());
+    CHECK(GetBit(own.data(), 10) && GetBit(own.data(), 40) && !GetBit(own.data(), 1) && !GetBit(own.data(), 0));
+    sm = MergeShopStock(70009, mask, &o, &own);
+    CHECK(sm.saved.empty() && sm.shown.empty());  // settled
+    PutBit(o.data(), 10, false);  // a rebuilt overlay (zeroed): set-only, the purchase comes back
+    sm = MergeShopStock(70009, mask, &o, &own);
+    CHECK(sm.shown == std::vector<u32>{70009010u} && GetBit(own.data(), 10));
+
+    // D3: a guest purchase is never a local change the host would take
+    guest.SetOverlayBit(70009020, true);
+    CHECK(gm.LocalChanges(ov, guest.ops(), 64).empty());
+}
+
 static void TestBbpf(const char* source_dir) {
     FakeStore f;
     f.Build(1);
@@ -924,6 +1002,7 @@ int main(int argc, char** argv) {
     TestApplier();
     TestNpcFollow();
     TestWorldMirror();
+    TestShopStock();
     TestBbpf(source_dir);
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

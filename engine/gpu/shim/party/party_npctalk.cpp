@@ -155,6 +155,10 @@ const char* NpcNameForTalk(std::uint32_t talk) {
     }
 }
 
+bool ChoiceInConversation(std::uint32_t choice_npc, std::uint32_t last_line_npc) {
+    return choice_npc != 0 && choice_npc == last_line_npc;
+}
+
 std::string CaptionFor(const std::string& who, std::uint32_t talk) {
     const char* npc = NpcNameForTalk(talk);
     return (who.empty() ? std::string("A hunter") : who) + " talking to " + (npc ? npc : "someone");
@@ -937,6 +941,11 @@ void Tick(const GameSnapshot& s, PartyLink* link) {
     }
     for (TalkEvent& e : out) {
         e.map = s.map_id;
+        if (e.kind == Kind::Choice && !ChoiceInConversation(e.npc, g_conv.npc)) {
+            Log("local choice: npc %u msg %u \"%s\": a menu without talk (workbench, shop, headstone), not shared",
+                e.npc, e.msg, MenuRowText(e.msg).c_str());
+            continue;
+        }
         if (e.kind == Kind::Choice) {
             Log("local choice: npc %u msg %u \"%s\"%s", e.npc, e.msg, MenuRowText(e.msg).c_str(), share ? " -> party" : "");
         } else {

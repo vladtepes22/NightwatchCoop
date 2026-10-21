@@ -67,13 +67,22 @@ bool GuestServicesGate(const GuestServicesInput& in);
 /// MSB m21_00_00_00 entity in brackets): 210304 Doll (2100700: level up), 210693 storage (2100200),
 /// 210692 workbench (2100201: upgrade, Blood Gems, repair, crush), 210696 mirror (2100202),
 /// 210699 Memory Altar (2100203), 210691 / 210694 / 210695 Bath Messengers (shops, sell), 210697 dress-up messenger,
-/// 210698 Insight messenger. Not: Gehrman 210305 (the last choice), 210306, headstones
+/// 210698 Insight messenger. Not: Gehrman 210305 (only outside his last choice: GehrmanLastEvent), 210306, headstones
 /// 210000-210003, the Dream lamp / warp menus 210720 / 210721 (travel: the lamp phase), chalice
 /// altars 210050 / 210100 / 210110.
 bool GuestServiceTalk(std::uint32_t talk);
 /// Empty `extra` = the built-in list only; "all" = any talk script (diagnostics); else a comma
 /// list of more talk script ids (BB_PARTY_GUEST_SERVICES_TALK).
 bool GuestServiceTalkAllowed(std::uint32_t talk, const std::string& extra);
+
+/// Gehrman in his wheelchair (MSB 2100600, talk t210305). Its StateMachine 1 runs the talk only
+/// while IsClientPlayer() is 0 (else its "client wait" machine), so a guest could not talk to him
+/// at all. Its machine 0x7FFFFFF7 picks the last event (the Submit / Refuse choice: 72100130 /
+/// 72100131, also its "attacked" branch) when flag 1028 is on or 1029 is on and 1030 off (m21
+/// events 12100143 / 12100144 / 12100145); else the ordinary lines (72100120-72100129,
+/// 72100133-72100135). A guest talks to him unless the last event is up.
+constexpr std::uint32_t kGehrmanTalk = 210305;
+bool GehrmanLastEvent(bool f1028, bool f1029, bool f1030);
 
 /// Dream headstones and warp menus whose multiplayer / client tests the lamp part lifts:
 /// 210000-210003 (headstones), 210721 (warp menu with StartWarpMenuInit).
@@ -148,6 +157,17 @@ std::vector<EmevdSkipRule> DollPlacementRules();
 /// True when an instruction (event, bank, id, entity, type) is one of those tests.
 bool DollLevelUpCharTypeTest(int event_id, int bank, int id, int entity, int type); // 12100112-114
 
+/// The lower bath's shop messengers' rise / sink animation event (m21_00 12105040: messengers
+/// 2100211-2100213, waits for talk flag 12105041 ON, then OFF, then starts again). The flag is per
+/// player (the talk script of whoever opens the shop sets it in its own game; nothing clears it
+/// until a load) but the event's state is network-synced (packet 0x31): each game passed the
+/// other's wait, so while one player used the shop the event ping-ponged on every game in the
+/// session (rise, sink, rise ... every 2 s, with their sounds; live bathsync). Its 0x31 packets
+/// are dropped: each game animates them from its own player's talk. The Insight messenger's
+/// 12105043 is not one: it ends on a client (1003[101]) and the host's copy drives every game's
+/// (one rise when the host opens the shop, one sink when it closes; its talk clears 12105044).
+bool PerPlayerMessengerEvent(std::uint32_t event_id);
+
 /// The local character's record (PlayerGameData +0x90 level, +0x94 echoes, +0x84 Insight).
 struct PlayerRecord {
     int level = -1, echoes = -1, insight = -1;
@@ -196,6 +216,9 @@ bool GuestServicesOpen();
 std::uint64_t GuestSvcFindChr(std::uint32_t id);
 /// An action-button prompt text was looked up in the last 400 ms (*id: its text id).
 bool GuestSvcPromptUp(std::uint32_t* id);
+/// Tests: the action prompt `id` is on screen and no other action-button text (`*other`: the first
+/// other one seen, e.g. a floor message's "View Notes" next to Gehrman's "Talk").
+bool GuestSvcOnlyPrompt(std::uint32_t id, std::uint32_t* other);
 #endif
 
 } // namespace coop

@@ -175,6 +175,22 @@ Before this work the party answered `word_search` / `random_join` with `{"ResKin
   to a guest whose sign is already out when the host enters its dungeon (run #10: the guest rang
   ~10 s before, the summon then carried no quick join) (live: `summon message type 1, host map
   0x1d0a5a00, ChannelId 0x3f22b458bd799` -> two get_details_info -> quick join).
+* **The direct summon carries the ChannelId** (2026-10-21, after PR #8): the party's direct summon
+  (party_b2 `DeliverSummon`, from bbhost) builds the type-1 message on the guest itself, and it
+  always wrote "none" at +0x28 (buffer +0x2c). Live (host from the Dream entrance, lamp 2902950;
+  guest without the dungeon, sent home by PR #8): `summon message type 1, host map 0x1d0a5a00,
+  ChannelId 0x8000000000000000` -> no quick join -> map "-" (m255), y -581 -> -1500, HP 0. The
+  runs that worked used other paths: run #13/#14 the bell sign, where the host's own game sends the
+  message with +0x2c from FrpgNetMan +0xa88; g1m/g1b3 a guest whose own slot held the same
+  dungeon (the travel replay / title join built its own identical copy). Now the host's
+  `dsum_room` carries `channel` (FrpgNetMan +0xa88 in area 29) and `BuildPayload` writes it; the
+  host refuses with the wait word `chalice` (the guest asks again, as for `settle`) while +0xa88 is
+  still 0 (live ~1.5 s after the arrival) or not on the board; the guest never hands a dungeon room
+  without one to its game (`RoomLacksDungeon`: stays home, notice) and sets FrpgNetMan +0xb14 bit 0
+  for the call (the summon probe does the same for the bell path). A title joiner is refused into a
+  dungeon unless its `title_req` names the host's ChannelId (its own slot's). Last net:
+  `ChaliceEmptyWorldTick` - a guest in the session whose map stays unknown for 3 s while the
+  host's roster map is in area 29 leaves the session (home load) with a notice.
 * **No gather into a dungeon**: GatherGuest skips the gather while the host's map or lamp is in
   area 29 (it warped the guest to the host's dungeon lamp = its own slot's dungeon).
 * **The automatic flow**: host and guests are in the Hunter's Dream (B1 travel follows the host

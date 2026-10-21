@@ -195,7 +195,8 @@ plays the remo there as its own event would and sends it up.
 * Insight items: white-enabled (`phantom_limits.md` 1.1); they act on the guest's own record.
 * Bath Messengers (t210691/694/695/699 shops, t210698 Insight shop, t210697 dress-up): open to
   guests (guest_services.md 2.2), purchases on the guest's own echoes / Insight and own stock flags
-  (6000-8999 stay in the own pool).
+  (6000-8999 stay in the own pool; the one-time stock flags 70009xxx / 72101xxx are overlay groups:
+  the guest's shop shows its own pool's stock and its purchases go there, event_flags.md 3).
 
 ## 7. Catch-up of a guest behind the host
 
@@ -393,6 +394,18 @@ row chosen again leaves `+0xEC0` unchanged). A choice / gift line stays under th
 6 s, also when the NPC's answer line follows at once. While a game dialog is up (`+0x78`), the
 listener writes no subtitle request and draws no caption (live: both were drawn across the
 "Travel with the party?" text).
+
+**Only conversations (2026-10-20).** The workbench (t210692), the Bath Messengers' shops (t210691,
+t210698), storage and the headstones (t210000) are talk scripts with a talk menu but no talk line.
+Their choices went out with the talk id of that player's last conversation, so the others saw
+"[Hunter talking to the Doll]" (or Gehrman) at the workbench (2026-10-20 session logs: `choice from
+... npc 210692 (the Doll)`). A choice is now shared only when its NPC spoke this game's last talk
+line (`ChoiceInConversation`); the others are logged on the talker (`local choice: ... a menu
+without talk (workbench, shop, headstone), not shared`). Live 2026-10-20 (uifix, guest in the
+host's Dream, one session): the Doll's talk and "Channel Blood Echoes" showed the caption on the host
+(`choice shown: Hunter1 chose: Channel Blood Echoes`); the workbench's "Fortify Weapon" and the
+messenger's "Acquire Items" (a purchase) were logged as not shared on the guest, and the host logged
+no npc_talk line and showed no caption (screenshots while the guest's workbench menu was open).
 
 **Live (2026-10-14, npctalk2, 2 instances in the Hunter's Dream).** Lines: each shared line reached
 the listener 9-30 ms after the talker's line; ends: the talker's talk stop reached the listener 10-30
