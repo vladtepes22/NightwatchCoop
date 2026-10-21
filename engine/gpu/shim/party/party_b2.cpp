@@ -1418,6 +1418,10 @@ void ProbeTick(const GameSnapshot& s) {
     const bool loading = s.loading || !s.world_up;
     if (loading && !st.was_loading) {
         st.player_before = s.player;
+        // A4: a load began, so the join start did load; its SprjLuaEventMan does not outlive the
+        // load (live: the watchdog fired as a 15 s join load ended, flow still 2, and the stale
+        // object faulted at +0x1339920).
+        g_join_lua = 0;
         Log("load started: blobs %s", DescribeBlobs().c_str());
         Log("load started: local PlayerIns %#llx, role %d, flow %d; tasks:%s; presence %s", ull(s.player), Role(),
             Field<int>(Slot(kSlotFlow), 0x84, -1), DescribeTasks().c_str(), DescribePresence().c_str());
@@ -9227,7 +9231,8 @@ void Tick(const GameSnapshot& s) {
     // (GSM +0x16F8 +0x18) >= 2 and the own chr alive; otherwise it clears the summon type (+0x16F0)
     // and the join sits in flow 2 until the session times out (the 0.5 s bell timer stall,
     // join_timing.md). 1.5 s after that start, with the count at 2 now: the type back and the same
-    // Lua start once more (twice at most per join). BB_PARTY_JOIN_RESTART=0 off.
+    // Lua start once more (twice at most per join). A load since that start clears it (ProbeTick):
+    // the join loaded. BB_PARTY_JOIN_RESTART=0 off.
     {
         static const bool on = !EnvOff("BB_PARTY_JOIN_RESTART");
         static double handled = -1;
