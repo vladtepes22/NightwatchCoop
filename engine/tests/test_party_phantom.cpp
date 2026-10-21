@@ -57,20 +57,24 @@ static void test_skip_rules() {
     CHECK(!EmevdSkipMatches(any, 1, 2003, 13, 0));
 
     const std::vector<EmevdSkipRule> walls = ConfinementWallRules();
-    CHECK(walls.size() == 2);
+    CHECK(walls.size() == 4);
     CHECK(walls[0].event == 7600 && walls[0].bank == 2005 && walls[0].id == 3 && walls[0].index == 6 &&
           walls[0].needs_travel);
     CHECK(walls[1].event == 7600 && walls[1].bank == 2006 && walls[1].id == 2 && walls[1].index == 7 &&
           walls[1].needs_travel);
-    // Event 7600 as the data has it (common.emevd): only 6 and 7 are skipped.
+    CHECK(walls[2].event == 12907600 && walls[2].index == 6 && walls[3].event == 12907600 && walls[3].index == 7);
+    // Event 7600 as the data has it (common.emevd), and its Chalice Dungeon copy 12907600
+    // (m29.emevd, the same 12 instructions): only 6 and 7 are skipped.
     const int banks[12][2] = {{2000, 2}, {2005, 3}, {2006, 1}, {3, 6}, {3, 6}, {0, 0},
                               {2005, 3}, {2006, 2}, {3, 6}, {3, 6}, {0, 0}, {1000, 4}};
-    for (int i = 0; i < 12; ++i) {
-        bool skip = false;
-        for (const EmevdSkipRule& w : walls) {
-            skip = skip || EmevdSkipMatches(w, 7600, banks[i][0], banks[i][1], i);
+    for (const int event : {7600, 12907600}) {
+        for (int i = 0; i < 12; ++i) {
+            bool skip = false;
+            for (const EmevdSkipRule& w : walls) {
+                skip = skip || EmevdSkipMatches(w, event, banks[i][0], banks[i][1], i);
+            }
+            CHECK(skip == (i == 6 || i == 7));
         }
-        CHECK(skip == (i == 6 || i == 7));
     }
 
     CHECK(DescribeSkipRule(walls[0]) == "7600:2005:3@6 (with B1 travel)");

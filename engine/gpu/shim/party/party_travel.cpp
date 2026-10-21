@@ -1344,6 +1344,11 @@ bool PopHostTravel(TravelIntent* out) {
     return g_host_queue.Pop(out);
 }
 
+bool HostInOtherChalice() {
+    const std::uint64_t host = g_host_chalice.load();
+    return host != 0 && host != chalice::LocalChannel();
+}
+
 bool GuestSkipsChaliceTravel(const TravelIntent& t) {
     g_host_chalice = t.chalice_channel;
     // Chalice Dungeons: only into the dungeon this game has (docs/party/chalice.md).

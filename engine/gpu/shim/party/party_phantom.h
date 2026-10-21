@@ -70,7 +70,8 @@ std::size_t ParseEmevdSkipRules(const std::string& text, std::vector<EmevdSkipRu
 bool EmevdSkipMatches(const EmevdSkipRule& r, std::int32_t event, std::int32_t bank, std::int32_t id,
                       std::int32_t index);
 std::string DescribeSkipRule(const EmevdSkipRule& r);
-/// Common event 7600 instructions 6 (2005[3] object on) and 7 (2006[2] SFX on), needs_travel.
+/// Common event 7600 instructions 6 (2005[3] object on) and 7 (2006[2] SFX on), and the same two of
+/// its Chalice Dungeon copy 12907600 (m29.emevd), needs_travel.
 std::vector<EmevdSkipRule> ConfinementWallRules();
 
 // ---- EVENT "phantom" (host -> guests) ----

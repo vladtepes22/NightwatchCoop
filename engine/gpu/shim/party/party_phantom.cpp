@@ -142,9 +142,14 @@ std::string DescribeSkipRule(const EmevdSkipRule& r) {
 std::vector<EmevdSkipRule> ConfinementWallRules() {
     // common.emevd event 7600 (args X0 object, X1 SFX): 1 2005[3](X0, 0) off ... 5 wait for
     // multiplayer ... 6 2005[3](X0, 1) on, 7 2006[2](X1) SFX on ... 11 restart.
+    // m29.emevd event 12907600 is the Chalice Dungeons' own copy of it, instruction for
+    // instruction (the only one in the game's 2668 event scripts): without it the host's
+    // dungeon put a wall at the first doorway while a member stayed in its session (live, beta 6).
     EmevdSkipRule on{7600, 2005, 3, 6, true};
     EmevdSkipRule sfx{7600, 2006, 2, 7, true};
-    return {on, sfx};
+    EmevdSkipRule chalice_on{12907600, 2005, 3, 6, true};
+    EmevdSkipRule chalice_sfx{12907600, 2006, 2, 7, true};
+    return {on, sfx, chalice_on, chalice_sfx};
 }
 
 const char* PhantomEventKindName(PhantomEventKind k) {

@@ -446,7 +446,8 @@ std::atomic<EmevdRewriter> g_rewriter2{nullptr};
 std::atomic<EmevdRewriter> g_rewriter3{nullptr};
 
 // Rules "event:bank:id[@index]" (party_phantom.h). Built in: the confinement walls of common
-// event 7600 (index 6 / 7, only while B1 travel is on; BB_PARTY_OPEN_WORLD=0 drops them). The A6
+// event 7600 and its Chalice Dungeon copy 12907600 (index 6 / 7, only while B1 travel is on;
+// BB_PARTY_OPEN_WORLD=0 drops them). The A6
 // "send phantoms home" instructions are still to be identified with BB_PARTY_EMEVD_TRACE=1.
 std::vector<EmevdSkipRule> g_skips;
 bool g_emevd_observe = false; // party_phantom's boss-Insight observer
