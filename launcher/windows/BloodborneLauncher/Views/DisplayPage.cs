@@ -177,24 +177,29 @@ namespace BloodborneLauncher.Views
                 : WindowsHdr.AnySupported()
                     ? L.T("Turn on Use HDR in Windows' display settings first (Settings › System › Display)")
                     : L.T("This display shows no HDR");
-            IniToggle(SymbolRegular.Hdr24, L.T("HDR output"), hdrHint, "hdr");
+            // The HDR settings show only while HDR output is on.
+            var hdrRows = new StackPanel();
+            void ShowHdrRows() => hdrRows.Visibility = Ini.Flag("hdr") ? Visibility.Visible : Visibility.Collapsed;
+            IniToggle(SymbolRegular.Hdr24, L.T("HDR output"), hdrHint, "hdr", changed: ShowHdrRows);
+            Body.Children.Add(hdrRows);
+            ShowHdrRows();
             ComboRow(SymbolRegular.Lightbulb24, L.T("HDR source"),
                 L.T("Native: highlights as bright as they are in the game's scene. Expanded: the SDR picture's bright parts made brighter"),
-                Choices.HdrMode, () => Ini.Get("hdr_mode", "native"), v => Ini.Set("hdr_mode", v));
+                Choices.HdrMode, () => Ini.Get("hdr_mode", "native"), v => Ini.Set("hdr_mode", v), hdrRows);
             SliderRow(SymbolRegular.BrightnessHigh24, L.T("Paper white"), L.T("How bright the game's white is, in nits. Range: 10–500"),
                 10, 500, 1, () => ParseDouble(Ini.Get("hdr_paper_white", "200"), 200),
                 v => Ini.Set("hdr_paper_white", v.ToString("0", System.Globalization.CultureInfo.InvariantCulture)),
-                format: L.T("0' nits'"), valueWidth: 82);
+                format: L.T("0' nits'"), into: hdrRows, valueWidth: 82);
             ToggleRow(SymbolRegular.Desktop24, L.T("Peak brightness from the display"),
                 L.T("The peak Windows reports for the display the game is on (the Windows HDR Calibration app's, once it has run). Off: the value below"),
-                () => Ini.Get("hdr_peak_auto", "1") != "0", v => Ini.Set("hdr_peak_auto", v ? "1" : "0"));
+                () => Ini.Get("hdr_peak_auto", "1") != "0", v => Ini.Set("hdr_peak_auto", v ? "1" : "0"), hdrRows);
             SliderRow(SymbolRegular.WeatherSunny24, L.T("Peak brightness"), L.T("Your display's peak brightness, in nits, when it is not taken from the display. Range: 10–4000"),
                 10, 4000, 10, () => ParseDouble(Ini.Get("hdr_peak", "1000"), 1000),
                 v => Ini.Set("hdr_peak", v.ToString("0", System.Globalization.CultureInfo.InvariantCulture)),
-                format: L.T("0' nits'"), valueWidth: 82);
+                format: L.T("0' nits'"), into: hdrRows, valueWidth: 82);
             ComboRow(SymbolRegular.Sparkle24, L.T("Highlight boost"), L.T("Off keeps the game's own look; higher makes lamps, fire and the sky brighter"),
-                Choices.HdrBoost, () => Ini.Get("hdr_boost", "0.25"), v => Ini.Set("hdr_boost", v));
-            var hdrMore = Advanced();
+                Choices.HdrBoost, () => Ini.Get("hdr_boost", "0.25"), v => Ini.Set("hdr_boost", v), hdrRows);
+            var hdrMore = Advanced(into: hdrRows);
             ComboRow(SymbolRegular.TextFont24, L.T("UI brightness"), L.T("Native source only: how bright the HUD, menus and subtitles are, against paper white"),
                 Choices.HdrUiBrightness, () => Ini.Get("hdr_ui_brightness", "1"), v => Ini.Set("hdr_ui_brightness", v), hdrMore);
             ComboRow(SymbolRegular.Color24, L.T("UI colour"), L.T("Native source only: Vivid shows the HUD and menus with the colours a wide-gamut monitor gives SDR; Exact keeps sRGB's"),
