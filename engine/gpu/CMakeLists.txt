@@ -148,11 +148,15 @@ function(add_host_shader FILENAME SHADER_NAME)
     string(TOUPPER ${SHADER_NAME} SYMBOL)
     set(DEFINES ${ARGN})
     list(TRANSFORM DEFINES PREPEND "-D")
+    set(SOURCE ${SHADER_SRC}/${FILENAME})
+    if (IS_ABSOLUTE ${FILENAME}) # the port's own shaders (shim/map)
+        set(SOURCE ${FILENAME})
+    endif()
     add_custom_command(OUTPUT ${OUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_DIR}
-        COMMAND ${GLSLANG_COMPILER} --target-env vulkan1.3 -o ${OUT} --vn ${SYMBOL} ${DEFINES} ${SHADER_SRC}/${FILENAME}
+        COMMAND ${GLSLANG_COMPILER} --target-env vulkan1.3 -o ${OUT} --vn ${SYMBOL} ${DEFINES} ${SOURCE}
         COMMAND ${CMAKE_COMMAND} "-DHEADER_FILE=${OUT}" -P ${SHADER_SRC}/AddShaderHeaderInclude.cmake
-        DEPENDS ${SHADER_SRC}/${FILENAME} VERBATIM)
+        DEPENDS ${SOURCE} VERBATIM)
     set(SHADER_HEADERS ${SHADER_HEADERS} ${OUT} PARENT_SCOPE)
 endfunction()
 add_host_shader(color_to_ms_depth.frag color_to_ms_depth_frag)
@@ -193,6 +197,9 @@ foreach(BPP IN ITEMS 8 16 32 64 96 128)
     add_host_shader(tiling.comp tiling_micro_${BPP}_comp BITS_PER_PIXEL=${BPP} IS_MACRO_TILED=0)
     add_host_shader(tiling.comp tiling_macro_${BPP}_comp BITS_PER_PIXEL=${BPP} IS_MACRO_TILED=1)
 endforeach()
+# The in-game map (shim/map/map_vector.cpp).
+add_host_shader(${CMAKE_CURRENT_SOURCE_DIR}/shim/map/map_vector.vert map_vector_vert)
+add_host_shader(${CMAKE_CURRENT_SOURCE_DIR}/shim/map/map_vector.frag map_vector_frag)
 add_custom_target(host_shaders DEPENDS ${SHADER_HEADERS})
 
 file(GLOB_RECURSE VIDEO_CORE CONFIGURE_DEPENDS shadps4/video_core/*.cpp)
@@ -275,6 +282,10 @@ target_link_libraries(bbgpu PRIVATE ffx-vulkan::portable ffx-vulkan::fsr4-v07-vu
 target_link_libraries(bbgpu PUBLIC Vulkan::Headers fmt::fmt Boost::headers magic_enum::magic_enum
     tsl::robin_map GPUOpen::VulkanMemoryAllocator PkgConfig::XXHASH PkgConfig::SDL3 PkgConfig::FFMPEG miniz::miniz Zydis::Zydis sirit
     xbyak::xbyak)
+# The in-game map (shim/map): compiled maps are zlib streams checked by SHA-256.
+find_package(ZLIB REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+target_link_libraries(bbgpu PUBLIC ZLIB::ZLIB OpenSSL::Crypto)
 if (WIN32)
     # Windows headers: no min/max macros, no winsock 1 clash; Windows 10+ APIs (SetThreadDescription).
     target_compile_definitions(bbgpu PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
@@ -365,6 +376,19 @@ set_source_files_properties(../tests/test_taa_shader.cpp PROPERTIES
     COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
 target_link_libraries(taa-shader-test PRIVATE bbgpu)
 add_dependencies(taa-shader-test host_shaders)
+
+# The in-game map's renderer drawn offscreen (tests/map_render.cpp; needs a Vulkan device and baked maps).
+add_executable(bb-map-render EXCLUDE_FROM_ALL ../tests/map_render.cpp ../tests/test_gpu_runtime_stubs.cpp)
+target_include_directories(bb-map-render PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include
+    third_party/imgui third_party/imgui/backends)
+target_compile_options(bb-map-render PRIVATE -fPIC)
+target_compile_definitions(bb-map-render PRIVATE IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
+set_source_files_properties(../tests/map_render.cpp PROPERTIES
+    COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
+target_link_libraries(bb-map-render PRIVATE bbgpu)
+if (WIN32)
+    target_link_libraries(bb-map-render PRIVATE winmm ws2_32 psapi onecore)
+endif()
 
 add_executable(camera-motion-test EXCLUDE_FROM_ALL ../tests/test_camera_motion.cpp ../tests/test_gpu_runtime_stubs.cpp)
 target_include_directories(camera-motion-test PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include)
