@@ -70,6 +70,9 @@ unsigned long PoolRefused(std::uint64_t mib);
 /// The pool section made for `mib` MiB goes to bb-probe (BB_POOL_SECTION, an inherited handle); the
 /// others are closed.
 void PoolHandOff(std::uint64_t mib);
+/// Closes the pools made so far: the next start makes a new one, as a first start does (a crash
+/// restart got the crashed game's pool back, every page it had touched still committed and filled).
+void PoolRelease();
 
 /// bbport.ini as the scripts read it: key=value, # and ; comments.
 std::map<std::string, std::string> ReadSettings(const fs::path& path);

@@ -781,6 +781,15 @@ void *runtime_low_map(size_t size, int prot) {
             p=win_mem_private(low_next,low_next+size);
             low_next+=size+PAGE; /* reserved gap catches overruns */
         }
+    /* bbport: the callers (guest mutexes, stacks) fail quietly with ENOMEM and the game crashes
+     * later ("Mutex is not initialized"): the failure itself is logged (commit refusals no longer
+     * get here: win_mem_private waits them out or exits 76). */
+    static int low_reports;
+    if (!p && low_reports < 5) {
+        ++low_reports;
+        fprintf(stderr,"Runtime: no room for %zu KiB of host memory the game sees below %#" PRIx64
+                " (next %#" PRIx64 ")\n",size>>10,(uint64_t)USER_MIN,(uint64_t)low_next);
+    }
     write_unlock();
     return p;
 #else

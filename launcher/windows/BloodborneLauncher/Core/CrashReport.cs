@@ -92,6 +92,12 @@ namespace BloodborneLauncher.Core
             if (Has("the game's memory pool is full"))
                 return L.T("The game ran out of its memory pool: a patch from Mods → Third-party patches enlarges the game's memory ") +
                        L.T("(a resolution patch above 1080p, for example). Turn it off and choose the resolution in Display → Output resolution instead.");
+            // Windows refused the game memory for two minutes (win32_memory.c, exit 76), or an engine
+            // thread's allocation failed (bad_alloc): the PC's commit (RAM plus page file) ran out.
+            if (Has("Runtime: FATAL: Windows cannot commit") || Has("uncaught C++ exception St9bad_alloc"))
+                return L.T("Windows had no memory left for the game (RAM plus page file). Let Windows manage the page file size ") +
+                       L.T("(System › About › Advanced system settings › Performance › Advanced › Virtual memory) on a drive with 20 GB ") +
+                       L.T("free, close other programs, and on a graphics card with 8 GB or less turn off Highest model detail and frame generation.");
             // Out of video memory first: a device lost often follows it in the same log.
             if (Has("ErrorOutOfDeviceMemory") || Has("ErrorOutOfHostMemory"))
                 return L.T("The graphics card ran out of video memory. A lower output resolution or upscaler preset (Graphics), ") +

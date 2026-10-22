@@ -29,6 +29,19 @@ static void report(const char *what, uintptr_t a, uintptr_t b) {
     fprintf(stderr, "Runtime: %s [%#llx, %#llx) failed: Windows error %lu\n", what,
             (unsigned long long)a, (unsigned long long)b, GetLastError());
 }
+/* Windows refused memory for want of commit (RAM plus page file), not for a taken range. */
+static int commit_error(DWORD e) {
+    return e == ERROR_COMMITMENT_LIMIT || e == ERROR_PAGEFILE_QUOTA || e == ERROR_NOT_ENOUGH_MEMORY ||
+           e == ERROR_OUTOFMEMORY || e == ERROR_COMMITMENT_MINIMUM || e == ERROR_NO_SYSTEM_RESOURCES;
+}
+static unsigned long long env_number(const char *name, unsigned long long fallback) {
+    const char *v = getenv(name);
+    return v && *v ? strtoull(v, NULL, 10) : fallback;
+}
+static unsigned long long commit_free_mib(void) {
+    MEMORYSTATUSEX st = {.dwLength = sizeof(st)};
+    return GlobalMemoryStatusEx(&st) ? st.ullAvailPageFile >> 20 : 0;
+}
 int win_mem_space(uintptr_t start, uintptr_t end) {
     if (space_end) return 0;
     HMODULE kernel = GetModuleHandleW(L"kernelbase.dll");
@@ -169,7 +182,46 @@ void *win_mem_private(uintptr_t a, uintptr_t b) {
     for (uintptr_t at = a; at < b; at = (uintptr_t)info.BaseAddress + info.RegionSize)
         if (!VirtualQuery((void *)at, &info, sizeof(info)) || info.State != MEM_RESERVE) return NULL;
     if (make_placeholder(a, b)) return NULL;
-    return virtual_alloc2(GetCurrentProcess(), (void *)a, b - a, MEM_RESERVE | MEM_COMMIT | MEM_REPLACE_PLACEHOLDER,
-                          PAGE_READWRITE, NULL, 0);
+    /* bbport (visy e4dbb97d): NULL means "this range is taken" to the caller (runtime_low_map),
+     * which then tries the next range. A commit-limit refusal is not that: before, it walked the
+     * whole low range (every try refused the same way) and every later low allocation failed - a
+     * guest mutex's init then returned ENOMEM, which the game ignores, and its first lock was a
+     * Dantelion "Mutex is not initialized" panic. It is retried for BB_POOL_COMMIT_WAIT seconds,
+     * then the process exits (code 76) with the reason. BB_TEST_LOW_COMMIT_FAILURES=N simulates N
+     * refusals (tests). */
+    static unsigned long long test_failures = ~0ull;
+    if (test_failures == ~0ull) test_failures = env_number("BB_TEST_LOW_COMMIT_FAILURES", 0);
+    const unsigned long long wait_s = env_number("BB_POOL_COMMIT_WAIT", 120);
+    const ULONGLONG t0 = GetTickCount64();
+    for (unsigned attempt = 0;; ++attempt) {
+        void *p = NULL;
+        if (test_failures) { --test_failures; SetLastError(ERROR_COMMITMENT_LIMIT); }
+        else p = virtual_alloc2(GetCurrentProcess(), (void *)a, b - a, MEM_RESERVE | MEM_COMMIT | MEM_REPLACE_PLACEHOLDER,
+                                PAGE_READWRITE, NULL, 0);
+        if (p) {
+            if (attempt) fprintf(stderr, "Runtime: host memory for the game committed after %u retries (%llu s)\n",
+                                 attempt, (unsigned long long)((GetTickCount64() - t0) / 1000));
+            return p;
+        }
+        const DWORD error = GetLastError();
+        if (!commit_error(error)) return NULL; /* the range is taken: the caller tries the next one */
+        const unsigned long long waited = (GetTickCount64() - t0) / 1000;
+        if (waited >= wait_s) {
+            report("committing host memory for the game", a, b);
+            fprintf(stderr, "Runtime: FATAL: Windows cannot commit %llu KiB of memory for the game (%llu MiB of "
+                    "commit left; error %lu). The page file is too small: let Windows manage its size "
+                    "(System > About > Advanced system settings > Performance > Advanced > Virtual "
+                    "memory) or enlarge it, or close other programs. Exiting.\n",
+                    (unsigned long long)((b - a) >> 10), commit_free_mib(), error);
+            fflush(stdout);
+            fflush(stderr);
+            ExitProcess(76);
+        }
+        if (!attempt || attempt % 40 == 0)
+            fprintf(stderr, "Runtime: committing %llu KiB of host memory for the game failed (Windows error %lu, "
+                    "%llu MiB of commit left); retrying for up to %llu s\n", (unsigned long long)((b - a) >> 10),
+                    error, commit_free_mib(), wait_s);
+        Sleep(attempt < 8 ? 25 : 250);
+    }
 }
 #endif

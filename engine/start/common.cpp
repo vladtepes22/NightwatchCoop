@@ -200,6 +200,13 @@ void PoolHandOff(std::uint64_t mib) {
     }
 }
 
+void PoolRelease() {
+    for (auto& [size, answer] : PoolAnswers())
+        if (answer.section) CloseHandle(answer.section);
+    PoolAnswers().clear();
+    UnsetEnv("BB_POOL_SECTION");
+}
+
 void SetEnv(const char* name, std::string_view value) {
     SetEnvironmentVariableW(Wide(name).c_str(), Wide(value).c_str());
 }

@@ -64,6 +64,13 @@ class PartyLaunchTests(unittest.TestCase):
             self.assertEqual(run_loop(lambda: 23, env), 23)
             self.assertTrue(marker.exists())
 
+    def test_no_restart_after_windows_refused_memory(self):
+        starts = []
+        env = {'BB_PARTY': 'host', 'BB_PARTY_RESTART_MAX': '3'}
+        self.assertEqual(run_loop(lambda: starts.append(1) or 76, env, sleep=lambda _: None), 76)
+        self.assertEqual(len(starts), 1)
+        self.assertNotIn('BB_PARTY_RESTARTED', env)
+
     def test_off_mode_does_not_restart_a_failure(self):
         for mode in ['', '0', 'off', 'FALSE']:
             self.assertEqual(run_loop(lambda: 17, {'BB_PARTY': mode}), 17)

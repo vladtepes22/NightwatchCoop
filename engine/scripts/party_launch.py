@@ -49,6 +49,11 @@ def run_loop(start, env=os.environ, sleep=time.sleep, clock=time.monotonic):
             continue
         if not status or not party_enabled(env) or not party_switch_on(env, 'BB_PARTY_RESTART'):
             return status
+        if status == 76:
+            # Windows refused the game memory for BB_POOL_COMMIT_WAIT seconds (win32_memory.c):
+            # a restart now is refused the same way.
+            print('Party: no restart: Windows had no memory left for the game (exit 76)', flush=True)
+            return status
         if clock() - window > 300:
             attempts, window = 0, clock()
         attempts += 1

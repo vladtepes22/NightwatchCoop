@@ -157,6 +157,8 @@ int RunPartyLoop(const std::function<int()>& start) {
     auto window = std::chrono::steady_clock::now();
     for (;;) {
         const int status = start();
+        // The game has exited (Main waits for it): its pool goes, the next start makes a new one.
+        PoolRelease();
         if (status == 0 && PartyEnabled()) {
             std::error_code error;
             fs::remove(UserDir() / "party_state.json", error);
@@ -173,6 +175,12 @@ int RunPartyLoop(const std::function<int()>& start) {
             continue;
         }
         if (status == 0 || !PartyEnabled() || !PartySwitchOn("BB_PARTY_RESTART")) return status;
+        if (status == 76) {
+            // Windows refused the game memory for BB_POOL_COMMIT_WAIT seconds (win32_memory.c): a
+            // restart now is refused the same way.
+            Log("Party: no restart: Windows had no memory left for the game (exit 76)");
+            return status;
+        }
         const auto now = std::chrono::steady_clock::now();
         if (now - window > std::chrono::minutes(5)) {
             attempts = 0;

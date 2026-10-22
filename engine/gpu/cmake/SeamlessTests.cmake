@@ -475,6 +475,16 @@ set_target_properties(game-menu-rows-test PROPERTIES INTERPROCEDURAL_OPTIMIZATIO
 add_test(NAME game-menu-rows-test COMMAND game-menu-rows-test)
 add_dependencies(seamless-tests game-menu-rows-test)
 
+# Low host memory with Windows refusing commits (src/win32_memory.c).
+if (WIN32)
+    add_executable(win32-memory-test EXCLUDE_FROM_ALL ../tests/test_win32_memory.c ../src/win32_memory.c)
+    target_include_directories(win32-memory-test PRIVATE ../src)
+    target_compile_options(win32-memory-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+    set_target_properties(win32-memory-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+    add_test(NAME win32-memory-test COMMAND win32-memory-test)
+    add_dependencies(seamless-tests win32-memory-test)
+endif()
+
 # visy builds everything with WIN32_LEAN_AND_MEAN: without it <windows.h> brings in winsock, whose
 # h_addr macro breaks shim/net/party_route.cpp (Router::Client::h_addr, 0.7.1). The test targets
 # compiling it get the define here.
