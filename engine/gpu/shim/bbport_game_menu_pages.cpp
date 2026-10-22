@@ -1036,8 +1036,8 @@ void DefineAll() {
         "Вкл.: наши таблички над спутниками (не прячутся за стенами). Выкл.: игровые");
     // I2 pings (party_ping.h).
     own(&Values::party_pings, "Pings", "Метки",
-        "Hold the touchpad and press R3 (keyboard: V) to mark where you look; everyone sees it 10 s",
-        "Зажмите тачпад и нажмите R3 (клавиатура: V), чтобы отметить место; группа видит его 10 с");
+        "Touchpad + R3 or the Ping key (default B, Controls) marks where you look; everyone sees it 10 s",
+        "Тачпад + R3 или клавиша метки (по умолч. B, Управление) отмечает место; группа видит её 10 с");
     own(&Values::party_through_walls, "Show party through walls", "Группа сквозь стены",
         "A small marker with the distance on each companion on your map, also behind walls",
         "Маленькая метка с расстоянием на каждом спутнике на вашей карте, и за стенами");
