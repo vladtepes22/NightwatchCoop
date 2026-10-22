@@ -53,10 +53,12 @@ const std::vector<std::tuple<std::string, const char*, const char*>>& Effects() 
 }
 // model_lod: 0 the game's, 1 lower (visy 0.7.2). 2 applies the Lower patch: with the lowest level
 // the game draws nothing for a model without a third level of detail (the Lecture Building's
-// floor). -2 applies nothing: its bias reaches one of the game's three model draw paths only, and
-// many objects past their nearest level were not drawn at all (Central Yharnam's corpses).
-const std::map<std::string, std::string> kModelLod{{"1", "Model LOD 1 (Lower)"}, {"2", "Model LOD 1 (Lower)"}};
-// Every model LOD patch stays the engine's to set, so a patch file cannot turn -2 or 2 back on.
+// floor). -2 is an opt-in: its bias reaches one of the game's three model draw paths only, and many
+// objects past their nearest level were not drawn at all (Central Yharnam's corpses). A -2 saved
+// before settings_rev 2 applies nothing: the game turns it into 0 at its first start.
+const std::map<std::string, std::string> kModelLod{
+    {"-2", "Model LOD -2 (Highest)"}, {"1", "Model LOD 1 (Lower)"}, {"2", "Model LOD 1 (Lower)"}};
+// Every model LOD patch stays the engine's to set, so a patch file cannot turn -2 or 2 on.
 const char* const kModelLodPatches[] = {"Model LOD -2 (Highest)", "Model LOD 1 (Lower)", "Model LOD 2 (Lowest)"};
 const std::set<std::string> kDefaultOff{"effect_chromatic_aberration", "effect_dof", "effect_motion_blur", "effect_game_aa"};
 const std::set<std::string> kBloodborneIds{"CUSA00207", "CUSA00208", "CUSA00299", "CUSA00900", "CUSA01363",
@@ -440,7 +442,9 @@ std::vector<std::string> EffectPatches(const std::map<std::string, std::string>&
         const char* name = *value == "1" ? on : off;
         if (name) names.push_back(name);
     }
-    if (const auto lod = kModelLod.find(Setting(settings, "model_lod").value_or("0")); lod != kModelLod.end())
+    const std::string lod_value = Setting(settings, "model_lod").value_or("0");
+    const bool lod_migrated = std::atoi(Setting(settings, "settings_rev").value_or("0").c_str()) >= 2;
+    if (const auto lod = kModelLod.find(lod_value); lod != kModelLod.end() && (lod_value != "-2" || lod_migrated))
         names.push_back(lod->second);
     return names;
 }

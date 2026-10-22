@@ -351,10 +351,11 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         // 2 (the community patch "Model LOD 2 (Lowest)") is read as 1: the game draws nothing
         // for a model without a third detail level, and some floors have none (the Lecture
         // Building's floor showed the background through it). -2 (the community patch "Model
-        // LOD -2 (Highest)") is read as 0: its bias reaches only one of the game's three model draw
+        // LOD -2 (Highest)") is an opt-in: its bias reaches only one of the game's three model draw
         // paths, and many objects past their nearest detail distance (10-15 m) were then not drawn
         // at all, so Central Yharnam's corpses popped in close and vanished again further away.
-        v.model_lod = std::clamp(i, 0, 1);
+        // A -2 saved before settings_rev 2 is turned into 0 once (Load).
+        v.model_lod = i == -2 ? -2 : std::clamp(i, 0, 1);
     } else if (key == "fullscreen") {
         v.fullscreen = i != 0;
     } else if (key == "hdr") {
@@ -537,8 +538,9 @@ void Load() {
     } else if (v.settings_rev < kSettingsRev) {
         const int was = v.settings_rev.load();
         if (was < 1) v.party_rot = false;  // rev 1 (0.7.2): rot off by default, the old saved 1 was the old default
+        if (was < 2 && v.model_lod == -2) v.model_lod = 0;  // rev 2: Highest became an opt-in
         v.settings_rev = kSettingsRev;
-        std::printf("Settings: bbport.ini settings_rev %d -> %d (rot off by default: party_rot=0 once)\n", was,
+        std::printf("Settings: bbport.ini settings_rev %d -> %d (party_rot=0 and model_lod -2 -> 0 once)\n", was,
                     kSettingsRev);
         Save();  // Lantern's writer: its own keys (party_rot, settings_rev) rewritten, the rest kept
     }

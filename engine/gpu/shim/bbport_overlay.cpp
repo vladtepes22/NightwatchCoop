@@ -764,22 +764,30 @@ void Menu() {
     PictureSection();
     ImGui::SeparatorText(BbSettings::MenuText("Game effects (restart required)",
                                               "Эффекты игры (после перезапуска)"));
-    // visy 0.7.2: no Highest (-2: far objects not drawn) and no Lowest (2: floors missing).
-    const char* lods[] = {BbSettings::MenuText("Game default", "Как в игре"),
+    // No Lowest (2: floors missing). Highest (-2) is an opt-in: far objects can pop in.
+    const char* lods[] = {BbSettings::MenuText("Highest (-2)", "Максимум (-2)"),
+                          BbSettings::MenuText("Game default", "Как в игре"),
                           BbSettings::MenuText("Lower (1)", "Ниже (1)")};
-    static constexpr int lod_values[] = {0, 1};
-    int lod_index = 0;
-    for (int i = 0; i < 2; ++i) {
+    static constexpr int lod_values[] = {-2, 0, 1};
+    int lod_index = 1;
+    for (int i = 0; i < 3; ++i) {
         if (lod_values[i] == s.model_lod) lod_index = i;
     }
     if (ImGui::BeginCombo(BbSettings::MenuText("Model detail", "Детализация моделей"),
                           lods[lod_index])) {
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 3; ++i) {
             if (ImGui::Selectable(lods[i], i == lod_index)) {
                 Store(s.model_lod, lod_values[i], true);
             }
         }
         ImGui::EndCombo();
+    }
+    if (s.model_lod == -2) {
+        Hint(BbSettings::MenuText(
+            "Highest: objects can pop in or vanish past about 10-15 m (the patch reaches one of the "
+            "game's three model draw paths).",
+            "Максимум: объекты дальше 10-15 м могут появляться или исчезать (патч действует только "
+            "на один из трёх путей отрисовки моделей игры)."));
     }
     for (int e = 0; e < BbSettings::EffectCount; ++e) {
         const auto& effect = BbSettings::Effects[e];

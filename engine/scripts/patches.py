@@ -340,11 +340,12 @@ def intel_tonemap_fix(env=os.environ, cpuinfo='/proc/cpuinfo'):
 # model_lod: -2 highest, 0 the game's, 1 lower. 2 ("Model LOD 2 (Lowest)") applies the Lower patch:
 # with the lowest level the game draws nothing for a model that has no third level of detail, and
 # some map floors have none (the Lecture Building's floor showed the background through it).
-# -2 ("Model LOD -2 (Highest)") applies nothing: its bias reaches one of the game's three model draw
+# -2 ("Model LOD -2 (Highest)") is an opt-in: its bias reaches one of the game's three model draw
 # paths only, and many objects past their nearest level of detail are then not drawn at all
-# (Central Yharnam's corpses popped in close and vanished further away). visy 0.7.2.
-MODEL_LOD={'1':'Model LOD 1 (Lower)','2':'Model LOD 1 (Lower)'}
-# Every model LOD patch stays the engine's to set, so a patch file cannot turn -2 or 2 back on.
+# (Central Yharnam's corpses popped in close and vanished further away). A -2 saved before
+# settings_rev 2 applies nothing: the game turns it into 0 at its first start.
+MODEL_LOD={'-2':'Model LOD -2 (Highest)','1':'Model LOD 1 (Lower)','2':'Model LOD 1 (Lower)'}
+# Every model LOD patch stays the engine's to set, so a patch file cannot turn -2 or 2 on.
 MODEL_LOD_PATCHES=('Model LOD -2 (Highest)','Model LOD 1 (Lower)','Model LOD 2 (Lowest)')
 
 
@@ -372,8 +373,10 @@ def effect_patches(settings):
             continue
         name=on if settings[key]=='1' else off
         if name: names.append(name)
-    lod=MODEL_LOD.get(settings.get('model_lod','0'))
-    if lod: names.append(lod)
+    value=settings.get('model_lod','0')
+    rev=settings.get('settings_rev','0')
+    lod=MODEL_LOD.get(value)
+    if lod and (value!='-2' or (rev.isdigit() and int(rev)>=2)): names.append(lod)
     return names
 SCENE_WIDTH=0x02196A6B-EBOOT_BASE
 SCENE_HEIGHT=0x02196A7A-EBOOT_BASE

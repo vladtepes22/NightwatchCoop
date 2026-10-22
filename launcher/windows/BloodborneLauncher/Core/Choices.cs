@@ -106,16 +106,19 @@
             new("FPS++ retune", "fps++", "Kyo's 60 FPS++ camera: further back and slower to follow"),
         };
 
-        // visy 0.7.2: no Highest (-2: objects past their nearest detail level were not drawn) and no
-        // Lowest (2: models without a third level, some floors among them, were not drawn). The game
-        // reads a saved -2 as 0 and 2 as 1, and so does this list.
+        // No Lowest (2: models without a third level, some floors among them, were not drawn): the
+        // game reads a saved 2 as 1, and so does this list. Highest (-2) is an opt-in: its patch
+        // reaches one of the game's three model draw paths, so objects past their nearest detail
+        // level can pop in. A -2 saved before settings_rev 2 was turned into 0 (IniFile.MigrateRev).
         public static readonly Choice[] ModelLod =
         {
+            new(L.T("Highest (-2, objects can pop in)"), "-2",
+                L.T("Sharper models up close, but objects past about 10-15 m can pop in or vanish")),
             new(L.T("As in the game"), "0"),
             new(L.T("Lower (1)"), "1"),
         };
 
-        public static string ModelLodShown(string value) => value switch { "-2" => "0", "2" => "1", _ => value };
+        public static string ModelLodShown(string value) => value switch { "2" => "1", "-2" or "0" or "1" => value, _ => "0" };
 
         public static readonly Choice[] FpsModes =
         {

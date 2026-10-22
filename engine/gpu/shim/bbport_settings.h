@@ -292,7 +292,7 @@ struct Values {
     /// scales and a hue offset in degrees (ColorH); 1, 1, 1 and 0 leave the area's own.
     std::atomic<float> graphics_fog{1},graphics_brightness{1},graphics_contrast{1},graphics_hue{0};
     std::atomic<float> camera_fov_scale{1.0f}, camera_distance_scale{1.0f}, camera_height_scale{1.0f};
-    std::atomic<int> model_lod{0}; ///< 0 the game's, 1 lower (2 is read as 1, -2 as 0)
+    std::atomic<int> model_lod{0}; ///< -2 highest (opt-in), 0 the game's, 1 lower (2 is read as 1)
     std::atomic<int> output_res{OutputDefault}; ///< index into OutputWidths
     /// output_res = OutputCustom's size, from bbport.ini (fixed for the session).
     int custom_output_w = 1920, custom_output_h = 1080;
@@ -352,7 +352,9 @@ extern const PartySwitch PartySwitches[];
 ///   1 (0.7.2): party_rot = 0 once. Rot became off by default, and 0.6.0 - 0.7.1 games wrote their
 ///              default party_rot=1 at every settings save, chosen or not (coordinator decision
 ///              2026-10-22: turn it off once; a later explicit 1 stays).
-constexpr int kSettingsRev = 1;
+///   2 (0.2.1 beta 2): model_lod -2 -> 0 once. Highest came back as an opt-in; files saved before
+///              still hold the old -2 that 0.2.1 beta 1 read as 0, so it is not switched on silently.
+constexpr int kSettingsRev = 2;
 extern const int PartySwitchCount;
 /// party_guest_insight's ini / env values by index (parity, full, 0).
 const char* GuestInsightName(int mode);
