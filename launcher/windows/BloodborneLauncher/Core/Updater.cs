@@ -290,6 +290,7 @@ namespace BloodborneLauncher.Core
                             OldExeNames.Select(old => Directory.GetFiles(unpacked, old, SearchOption.AllDirectories).FirstOrDefault()).FirstOrDefault(f => f != null)) is { } found
                     ? Path.GetDirectoryName(found)
                     : throw new InvalidOperationException($"The package has no {ExeName}.");
+                SdlPad.Unload(); // the Controls tab's SDL3.dll keeps it and out\libiconv-2.dll open
                 CopyPackage(root!, folder, self, skipped);
             }
             else
@@ -328,9 +329,11 @@ namespace BloodborneLauncher.Core
             }
         }
 
+        // No inner exception: the update dialog shows GetBaseException(), which would drop the advice.
         private static Exception Blocked(string file, Exception e) => new InvalidOperationException(
-            $"{e.Message}\n\nAn antivirus is most likely holding or removing {Path.GetFileName(file)}. Allow it (or the " +
-            "Nightwatch Co-op folder) in the antivirus and update again.", e);
+            $"{e.Message}\n\nSomething is holding or removing {Path.GetFileName(file)}. Close the game and every " +
+            "Nightwatch Co-op window, start the launcher again and update. If it happens again, an antivirus is most " +
+            "likely the cause: allow the Nightwatch Co-op folder in it and update again.");
 
         private static void Extract(string zip, string to, List<string> skipped)
         {
@@ -355,17 +358,25 @@ namespace BloodborneLauncher.Core
             }
         }
 
-        /// <summary>Copies a new package over this one, leaving the player's own files alone.</summary>
+        /// <summary>Copies a new package over this one, leaving the player's own files alone. The
+        /// launcher and package.json (which says which engine is installed) go last: an update that
+        /// stops on a file it cannot replace leaves the old launcher and the old engine ID, so the
+        /// launcher still offers the update instead of calling a half-copied engine current.</summary>
         private static void CopyPackage(string from, string to, string self, List<string> skipped)
         {
-            foreach (var file in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+            var selfTarget = Path.GetFullPath(self);
+            var manifest = Path.GetFullPath(Path.Combine(to, "package.json"));
+            int Last(string file) => Path.GetFullPath(Path.Combine(to, Path.GetRelativePath(from, file))) is var t &&
+                string.Equals(t, selfTarget, StringComparison.OrdinalIgnoreCase) ? 2 :
+                string.Equals(t, manifest, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            foreach (var file in Directory.GetFiles(from, "*", SearchOption.AllDirectories).OrderBy(Last))
             {
                 var relative = Path.GetRelativePath(from, file);
                 var top = relative.Split(Path.DirectorySeparatorChar)[0];
                 if (Kept.Contains(top, StringComparer.OrdinalIgnoreCase)) continue;
 
                 var target = Path.Combine(to, relative);
-                if (string.Equals(Path.GetFullPath(target), Path.GetFullPath(self), StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(Path.GetFullPath(target), selfTarget, StringComparison.OrdinalIgnoreCase))
                 {
                     ReplaceSelf(self, file);
                     continue;

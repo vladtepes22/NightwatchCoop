@@ -34,6 +34,8 @@ namespace BloodborneLauncher.Core
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void CloseFn(IntPtr pad);
 
         private static bool _loaded, _failed, _initialised;
+        private static IntPtr _lib;
+        private static VoidFn? _quitAll;
         private static SetHintFn? _setHint;
         private static InitFn? _init;
         private static QuitFn? _quit;
@@ -58,8 +60,9 @@ namespace BloodborneLauncher.Core
             {
                 var dll = Path.Combine(Paths.BinariesDir, "SDL3.dll");
                 if (!File.Exists(dll)) { _failed = true; return false; }
-                var lib = NativeLibrary.Load(dll);
-                T Get<T>(string name) where T : Delegate => Marshal.GetDelegateForFunctionPointer<T>(NativeLibrary.GetExport(lib, name));
+                _lib = NativeLibrary.Load(dll);
+                T Get<T>(string name) where T : Delegate => Marshal.GetDelegateForFunctionPointer<T>(NativeLibrary.GetExport(_lib, name));
+                _quitAll = Get<VoidFn>("SDL_Quit");
                 _setHint = Get<SetHintFn>("SDL_SetHint");
                 _init = Get<InitFn>("SDL_InitSubSystem");
                 _quit = Get<QuitFn>("SDL_QuitSubSystem");
@@ -104,6 +107,19 @@ namespace BloodborneLauncher.Core
             Open.Clear();
             _quit!(InitGamepad);
             _initialised = false;
+        }
+
+        /// <summary>Lets go of SDL3.dll altogether. While it is loaded Windows keeps it, and the
+        /// libiconv-2.dll it loads from out\, open, so an update could not replace either ("being
+        /// used by another process"). The next controller check loads it again.</summary>
+        public static void Unload()
+        {
+            if (_lib == IntPtr.Zero) return;
+            Stop();
+            if (_loaded) _quitAll!(); // SDL's own threads end before its code is unmapped
+            NativeLibrary.Free(_lib);
+            _lib = IntPtr.Zero;
+            _loaded = _failed = false;
         }
 
         private static List<uint> Ids(ListFn list)

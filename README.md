@@ -51,7 +51,7 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 ## Install
 
-1. Download `NightwatchCoop-v0.2.0-beta.10-win64.zip` from
+1. Download `NightwatchCoop-v0.2.0-beta.10.1-win64.zip` from
    [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its
@@ -64,7 +64,10 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 ### Moving from an older version
 
-From beta 9.2 or later, the launcher's update button installs the new version. From an older
+From beta 9.2 or later, the launcher's update button installs the new version. **Close and
+start the launcher again right before you press Update**: launchers before beta 10.1 hold two
+engine files open once the Controls tab has been opened, and the update then fails with "being
+used by another process" (fixed in beta 10.1). From an older
 beta, download the zip: close the old launcher and the game, extract the new zip to a new
 folder, then copy these from the old `NightwatchCoop` folder into the new one (replace when asked):
 
