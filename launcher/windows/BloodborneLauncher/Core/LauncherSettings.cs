@@ -58,7 +58,6 @@ namespace BloodborneLauncher.Core
             ["cheat_vials_amount"] = 20,
             ["cheat_bullets_amount"] = 20,
             ["update_channel"] = "", // empty: beta builds follow beta, others stable
-            ["ui_layout"] = "modern",
             ["ui_theme"] = "default",
             ["ui_theme_colour"] = "#C41E3A",
             ["ui_background"] = "game", // game | custom | none
@@ -66,7 +65,6 @@ namespace BloodborneLauncher.Core
             ["ui_background_blur"] = "strong", // strong | light | off
             ["app_icon"] = "auto", // auto only (AppIcon)
             ["ui_window_buttons"] = "mac", // mac | windows
-            ["ui_window_buttons_side"] = "usual", // usual (mac left, windows right) | left | right
             ["fsr4_balanced"] = false,
             ["exp_vram_cleanup"] = true,
             // 0.9.37 beta 4: the dev setup, measured faster (PerfDefaults below switches older files once).

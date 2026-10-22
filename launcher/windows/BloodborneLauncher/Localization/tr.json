@@ -1456,5 +1456,12 @@
   "DLSS dynamic frame generation": "DLSS dinamik kare üretimi",
   "RTX 50: the driver picks 2x, 3x or 4x moment by moment to reach your refresh rate, up to the generated frames above. Fewer generated frames when the game is fast: less lag, fewer artifacts. Also in game, with a target FPS": "RTX 50: sürücü, ekran yenileme hızına ulaşmak için anlık olarak 2x, 3x veya 4x seçer (yukarıdaki üretilen kare sayısına kadar). Oyun hızlıyken daha az kare üretilir: daha az gecikme, daha az bozulma. Oyun içinde de hedef FPS ile",
   "Auto (per quality)": "Otomatik (kaliteye göre)",
-  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "NVIDIA'nın DLSS 4.5 eşleştirmesi: DLAA, Kalite ve Dengeli için K, Performans için M, Ultra Performans için L"
+  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "NVIDIA'nın DLSS 4.5 eşleştirmesi: DLAA, Kalite ve Dengeli için K, Performans için M, Ultra Performans için L",
+  "Automatic": "Otomatik",
+  "Automatic (by GPU)": "Otomatik (GPU'ya göre)",
+  "Automatic (per quality)": "Otomatik (kaliteye göre)",
+  "Launcher": "Başlatıcı",
+  "Progress": "İlerleme",
+  "Built-in patches": "Yerleşik yamalar",
+  "Method": "Yöntem"
 }

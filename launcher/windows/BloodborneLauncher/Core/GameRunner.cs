@@ -65,7 +65,7 @@ namespace BloodborneLauncher.Core
             {
                 var command = Paths.Expand(s.Str("custom_command").Trim());
                 if (command.Length == 0)
-                    return L.T("No custom command is set. Choose one in Settings › Launch.");
+                    return L.T("No custom command is set. Choose one in More › Engine › Launch.");
                 info = new ProcessStartInfo(command) { Arguments = s.Str("custom_args") };
             }
             else
@@ -73,7 +73,7 @@ namespace BloodborneLauncher.Core
                 // Linux (the Avalonia launcher): the package's out/bb-start, a script that runs the engine's
                 // run.sh with --game-dir and this same environment (engine/packaging/linux).
                 if (!Paths.IsPortDir(Paths.PortDir))
-                    return "The engine folder is not set. Choose it in Settings › Nightwatch Co-op.";
+                    return "The engine folder is not set. Choose it in More › Engine › Launch.";
                 if (!Writable(Path.Combine(Paths.EngineDir, "out")))
                     return $"Windows does not let the game write into its own folder ({Paths.PortDir}), which it needs for its " +
                            "prepared files, logs and saves. This happens under Program Files: move the Nightwatch Co-op folder " +

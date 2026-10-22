@@ -1456,5 +1456,12 @@
   "DLSS dynamic frame generation": "DLSS 動態畫格生成",
   "RTX 50: the driver picks 2x, 3x or 4x moment by moment to reach your refresh rate, up to the generated frames above. Fewer generated frames when the game is fast: less lag, fewer artifacts. Also in game, with a target FPS": "RTX 50：驅動程式會隨時選擇 2x、3x 或 4x 以達到更新率（不超過上方的生成畫格數）。遊戲較快時生成畫格更少：延遲更低、瑕疵更少。遊戲內也可設定目標 FPS",
   "Auto (per quality)": "自動（依品質）",
-  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "NVIDIA DLSS 4.5 的搭配：DLAA、品質與平衡用 K，效能用 M，超高效能用 L"
+  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "NVIDIA DLSS 4.5 的搭配：DLAA、品質與平衡用 K，效能用 M，超高效能用 L",
+  "Automatic": "自動",
+  "Automatic (by GPU)": "自動（依 GPU）",
+  "Automatic (per quality)": "自動（依品質）",
+  "Launcher": "啟動器",
+  "Progress": "進度",
+  "Built-in patches": "內建修補程式",
+  "Method": "方式"
 }

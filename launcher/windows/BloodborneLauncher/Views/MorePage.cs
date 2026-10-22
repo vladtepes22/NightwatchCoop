@@ -5,7 +5,7 @@ using BloodborneLauncher.Core;
 namespace BloodborneLauncher.Views
 {
     /// <summary>The less used pages behind one tab: mods, cheats, the engine's switches and the game's
-    /// log (Online and Settings have tabs of their own).</summary>
+    /// log (Co-op and Launcher have tabs of their own).</summary>
     public sealed class MorePage : LauncherPage
     {
         // Cheats only once the engine applies them.

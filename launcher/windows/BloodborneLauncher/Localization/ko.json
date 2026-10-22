@@ -1456,5 +1456,12 @@
   "DLSS dynamic frame generation": "DLSS 동적 프레임 생성",
   "RTX 50: the driver picks 2x, 3x or 4x moment by moment to reach your refresh rate, up to the generated frames above. Fewer generated frames when the game is fast: less lag, fewer artifacts. Also in game, with a target FPS": "RTX 50: 드라이버가 화면 주사율에 맞추도록 2x, 3x, 4x를 그때그때 고릅니다(위의 생성 프레임 수까지). 게임이 빠를 때는 생성 프레임이 줄어 지연과 아티팩트가 줄어듭니다. 게임 안에서도 목표 FPS와 함께 설정 가능",
   "Auto (per quality)": "자동(품질별)",
-  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "NVIDIA의 DLSS 4.5 조합: DLAA·품질·균형은 K, 성능은 M, 울트라 성능은 L"
+  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "NVIDIA의 DLSS 4.5 조합: DLAA·품질·균형은 K, 성능은 M, 울트라 성능은 L",
+  "Automatic": "자동",
+  "Automatic (by GPU)": "자동(GPU에 따라)",
+  "Automatic (per quality)": "자동(품질별)",
+  "Launcher": "런처",
+  "Progress": "진행 상황",
+  "Built-in patches": "내장 패치",
+  "Method": "방식"
 }

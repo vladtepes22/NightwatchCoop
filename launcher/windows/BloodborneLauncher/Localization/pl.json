@@ -1456,5 +1456,12 @@
   "DLSS dynamic frame generation": "DLSS: dynamiczne generowanie klatek",
   "RTX 50: the driver picks 2x, 3x or 4x moment by moment to reach your refresh rate, up to the generated frames above. Fewer generated frames when the game is fast: less lag, fewer artifacts. Also in game, with a target FPS": "RTX 50: sterownik na bieżąco wybiera 2x, 3x lub 4x, by osiągnąć odświeżanie ekranu, maksymalnie tyle klatek, ile ustawiono wyżej. Mniej generowanych klatek, gdy gra działa szybko: mniejsze opóźnienie i mniej artefaktów. Także w grze, z docelowym FPS",
   "Auto (per quality)": "Automatycznie (wg jakości)",
-  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "Dobór NVIDII dla DLSS 4.5: K dla DLAA, Jakości i Zrównoważonego, M dla Wydajności, L dla Ultra wydajności"
+  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "Dobór NVIDII dla DLSS 4.5: K dla DLAA, Jakości i Zrównoważonego, M dla Wydajności, L dla Ultra wydajności",
+  "Automatic": "Auto",
+  "Automatic (by GPU)": "Auto (wg GPU)",
+  "Automatic (per quality)": "Automatycznie (wg jakości)",
+  "Launcher": "Launcher",
+  "Progress": "Postęp",
+  "Built-in patches": "Wbudowane łatki",
+  "Method": "Metoda"
 }

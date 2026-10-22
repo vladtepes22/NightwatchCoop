@@ -139,7 +139,7 @@ namespace BloodborneLauncher.Core
             if (RegionPatchOnline is { } region) env["BB_REGION_PATCH_ONLINE"] = region;
             if (ResolutionPatchChoice is { } resolution) env["BB_RESOLUTION_PATCH"] = resolution;
             if (s.Str("present_mode").Length > 0) env["BB_PRESENT_MODE"] = s.Str("present_mode");
-            // Settings › Performance: empty is the engine's own choice (left unset).
+            // More › Engine › Performance: empty is the engine's own choice (left unset).
             if (s.Str("draw_pipe") is "0" or "1") env["BB_DRAW_PIPE"] = s.Str("draw_pipe");
             if (s.Str("readbacks") is "0" or "2") env["BB_READBACKS"] = s.Str("readbacks");
             if (s.Bool("frame_stats")) env["BB_FRAME_STATS"] = "1";
@@ -252,7 +252,7 @@ namespace BloodborneLauncher.Core
             return env;
         }
 
-        /// <summary>Settings › Diagnostics › Extra variables: NAME=value pairs separated by spaces.</summary>
+        /// <summary>More › Engine › Diagnostics › Extra variables: NAME=value pairs separated by spaces.</summary>
         public static IEnumerable<(string Name, string Value)> ExtraVariables(LauncherSettings s)
         {
             foreach (var item in s.Str("extra_env").Split(' ', StringSplitOptions.RemoveEmptyEntries))

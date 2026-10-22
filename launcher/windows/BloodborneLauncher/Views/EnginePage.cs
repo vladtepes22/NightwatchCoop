@@ -2,12 +2,15 @@
 using System.Windows.Controls;
 using BloodborneLauncher.Core;
 using Wpf.Ui.Controls;
+using MessageBoxButton = System.Windows.MessageBoxButton;
 using TextBlock = System.Windows.Controls.TextBlock;
 
 namespace BloodborneLauncher.Views
 {
     /// <summary>
-    /// The engine's user-facing environment switches as controls, built from Core/EngineSwitches.cs,
+    /// Where the engine is and how the game is started, then the engine's options: its preset and
+    /// features, the launcher's own engine settings (GPU pipeline, sound output, logs) and its
+    /// user-facing environment switches as controls, built from Core/EngineSwitches.cs,
     /// so nobody has to type BB_ variables. A switch left at its default is not passed to the game
     /// at all. Every row goes in with Add, so the settings search finds it (by title, description
     /// or variable name).
@@ -18,16 +21,36 @@ namespace BloodborneLauncher.Views
         private readonly TextBlock _changedHint;
         private readonly FrameworkElement _enginePreset;
         private readonly Dictionary<string, Wpf.Ui.Controls.ToggleSwitch> _features = new();
+        private readonly TextBlock _portHint;
+        private readonly StackPanel _customRows = new();
         private bool _syncing;
 
-        public EnginePage() : base(L.T("Engine"), L.T("The engine preset, its features and every engine switch, in one place."))
+        public EnginePage() : base(L.T("Engine"), L.T("Where the engine is, how the game starts, and every engine option in one place."))
         {
             var intro = Text(L.T("Each switch stays at the engine's default until you change it. Only changed ones are used."), "Faint");
             intro.ToolTip = L.T("Only the switches you change are passed to the game, when it starts; a start in safe mode (after a crash) ") +
-                            L.T("leaves them out. Settings › Diagnostics › Extra variables is still there for anything not listed, and wins over these.");
+                            L.T("leaves them out. Diagnostics › Extra variables (at the bottom) is there for anything not listed, and wins over these.");
             Body.Children.Add(intro);
             Add(Card(SymbolRegular.ArrowReset24, L.T("Changed switches"), L.T("Every switch on this page that is not at its default"),
                 SmallButton(L.T("Reset all"), SymbolRegular.ArrowUndo24, (_, _) => ResetAll()), out _changedHint));
+
+            Group(L.T("Launch"));
+            Add(Card(SymbolRegular.FolderLink24, L.T("Engine folder"), "", Row(
+                SmallButton(L.T("Browse"), SymbolRegular.FolderOpen24, (_, _) => ChoosePort()),
+                IconButton(SymbolRegular.Open24, L.T("Open in Explorer"), (_, _) => Paths.OpenFolder(Paths.PortDir)),
+                IconButton(SymbolRegular.ArrowUndo24, L.T("Detect automatically"), (_, _) =>
+                {
+                    S.Set("port_dir", "");
+                    Ws.ResolvePort();
+                    Ws.SaveSoon();
+                    ShowPort();
+                })), out _portHint));
+            SettingCombo(SymbolRegular.Rocket24, L.T("Start the game with"), null, Choices.LaunchMethods, "launch_method", changed: () => { ShowMethod(); Ws.SaveSoon(); });
+            TextRow(SymbolRegular.Code24, L.T("Command"), L.T("A program to run instead of Bloodborne.exe --run, with the settings as environment variables"),
+                @"C:\path\to\game.exe", () => S.Str("custom_command"), v => S.Set("custom_command", v), _customRows, 380);
+            TextRow(SymbolRegular.TextDescription24, L.T("Arguments"), null, L.T("Optional"),
+                () => S.Str("custom_args"), v => S.Set("custom_args", v), _customRows, 380);
+            Body.Children.Add(_customRows);
 
             // Engine features from 0.9.4, each with a switch of its own (were on the Graphics page).
             Group(L.T("Engine features"));
@@ -92,13 +115,76 @@ namespace BloodborneLauncher.Views
             foreach (var group in EngineSwitches.Groups.Where(g => EngineSwitches.All.Any(x => x.Group == g)))
             {
                 Group(L.T(group));
+                LauncherRows(group);
                 foreach (var item in EngineSwitches.All.Where(x => x.Group == group))
                     AddSwitch(item);
             }
+
+            Group(L.T("Diagnostics"));
+            SettingToggle(SymbolRegular.TextBulletListSquare24, L.T("Frame statistics in the log"), "BB_FRAME_STATS", "frame_stats");
+            SettingToggle(SymbolRegular.DeveloperBoard24, L.T("FSR 4 profile in the log"), "BB_FSR4_PROFILE", "fsr_profile");
+            SettingToggle(SymbolRegular.Speaker224, L.T("Audio statistics in the log"), "BB_AUDIO_STATS", "audio_stats");
+            SettingToggle(SymbolRegular.HourglassHalf24, L.T("Loading profile in the log"),
+                L.T("BB_SAMPLE_THREADS: where the game's main, render and file threads spend their time, every 5 seconds. For slow loading; costs a little speed"), "load_profile");
+            SettingToggle(SymbolRegular.Timer24, L.T("Render stage timings in the log"), L.T("BB_SECTIONS: where each frame's CPU time goes (with frame statistics). It costs FPS, so it applies to the next game only"), "section_stats");
+            SettingToggle(SymbolRegular.Camera24, L.T("Capture shaders"),
+                "BB_SHADER_CAPTURE: every shader the game uses is saved once to logs\\shaders (a few MB), for testing the new native shader compiler offline. Costs a little time the first time each shader is seen", "shader_capture");
+            TextRow(SymbolRegular.Code24, L.T("Extra variables"),
+                L.T("NAME=value pairs separated by spaces, passed to the game. For anything Engine switches doesn't list; a variable set here wins over its switch there"),
+                "BB_EXAMPLE=1", () => S.Str("extra_env"), v => S.Set("extra_env", v.Trim()), width: 300);
             ShowChanged();
+            Ws.PortChanged += ShowPort;
         }
 
-        public override void OnShown() => ShowChanged();
+        public override void OnShown()
+        {
+            ShowChanged();
+            ShowPort();
+            ShowMethod();
+        }
+
+        /// <summary>The launcher's own engine settings (settings.json, not BB_ switches), at the top of their group.</summary>
+        private void LauncherRows(string group)
+        {
+            if (group == EngineSwitches.Performance)
+            {
+                SettingCombo(SymbolRegular.Flow20, L.T("Two-stage GPU pipeline"), L.T("20–30% faster; turn off if the game is unstable"),
+                    Choices.DrawPipe, "draw_pipe");
+                SettingCombo(SymbolRegular.ArrowSwap24, L.T("CPU reads of GPU data"), L.T("Relaxed is the default"), Choices.Readbacks, "readbacks");
+            }
+            else if (group == EngineSwitches.Sound)
+            {
+                SettingCombo(SymbolRegular.Speaker224, L.T("Sound output"),
+                    L.T("If the sound jitters or crackles, try DirectSound. The larger buffer is steadier but the sound comes a little later"),
+                    Choices.SoundOutput, "sound_output");
+                SettingToggle(SymbolRegular.Speaker224, L.T("Sound threads first"),
+                    L.T("For CPUs with many slower cores (older Xeons and similar): the game's sound runs before its other threads, against late or stuttering sound. Off by default"),
+                    "audio_priority");
+            }
+        }
+
+        private void ShowPort() => SetHint(_portHint, Paths.IsPortDir(Paths.PortDir)
+            ? Paths.PortDir + (Paths.DetectPortDir() == Paths.PortDir ? L.T("  ·  the package this launcher is in") : "") + L.T("\nThe engine that runs your game: out\\bb-probe.exe, its scripts and Python. Your game files stay where they are")
+            : L.T("Not found. It is normally the folder this launcher is in (with bin\\bb-probe.exe and run.py)"));
+
+        private void ShowMethod() =>
+            _customRows.Visibility = GameRunner.Custom(S) ? Visibility.Visible : Visibility.Collapsed;
+
+        private void ChoosePort()
+        {
+            var path = PickFolder(L.T("Engine folder (with run.py and bin\\bb-probe.exe)"), Paths.PortDir);
+            if (path == null) return;
+            if (!Paths.IsPortDir(path))
+            {
+                System.Windows.MessageBox.Show(Application.Current.MainWindow!, L.T("That folder has no run.py with Bloodborne.exe or bin\\bb-probe.exe."),
+                    L.T("Engine folder"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            S.Set("port_dir", path);
+            Ws.ResolvePort();
+            Ws.SaveSoon();
+            ShowPort();
+        }
 
         /// <summary>A switch the engine preset sets: changing it by hand shows the preset it now matches.</summary>
         private void Feature(SymbolRegular icon, string title, string hint, string key, Panel into) =>

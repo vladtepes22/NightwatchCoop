@@ -36,10 +36,7 @@ namespace BloodborneLauncher
             PreviewMouseDown += Window_PreviewMouseDown;
             Deactivated += (_, _) => SearchResults.Visibility = Visibility.Collapsed;
 
-            // Layout, read once at start (Settings › Layout restarts the launcher to switch).
             var args = Environment.GetCommandLineArgs();
-            var forced = Array.IndexOf(args, "--layout") is var at and >= 0 && at + 1 < args.Length ? args[at + 1] : null;
-            SettingRow.Classic = (forced ?? ws.Settings.Str("ui_layout")) == "classic";
             if (Array.IndexOf(args, "--test-prompt") is var shot and >= 0 && shot + 1 < args.Length)
             {
                 Prompt.SnapshotPath = args[shot + 1];
@@ -55,11 +52,8 @@ namespace BloodborneLauncher
             _directPlay = args.Contains("--play");
             if (_directPlay)
                 WindowState = WindowState.Minimized;
-            Sidebar.Visibility = SettingRow.Classic ? Visibility.Visible : Visibility.Collapsed;
-            TabStrip.Visibility = SettingRow.Classic ? Visibility.Collapsed : Visibility.Visible;
-            if (!SettingRow.Classic)
-                ApplyGlass();
-            LauncherTheme.Apply(ws.Settings, glass: !SettingRow.Classic);
+            ApplyGlass();
+            LauncherTheme.Apply(ws.Settings, glass: true);
             ApplyWindowButtons();
             ApplyIcon();
 
@@ -84,7 +78,7 @@ namespace BloodborneLauncher
                 if (ws.Settings.Bool("check_updates"))
                     _ = ws.CheckForUpdatesAsync(quiet: true);
                 await Task.Yield();
-                (SettingRow.Classic ? ClassicPlay : PlayItem).IsChecked = true;
+                PlayItem.IsChecked = true;
                 UpdatePlayButton();
                 // --test-trophy: a sample notification, to check how it looks over the game.
                 if (Environment.GetCommandLineArgs().Contains("--test-trophy"))
@@ -96,7 +90,7 @@ namespace BloodborneLauncher
                             new Prompt.Field(L.T("Code"), SharedSettings.ToCode(SharedSettings.Take(ws.Ini, ws.Settings)), "", Multiline: true)),
                         System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                 else if (Prompt.SnapshotPath != null)
-                    Dispatcher.BeginInvoke(() => Prompt.Confirm(L.T("Switch layout"), L.T("The launcher restarts to change its layout."), L.T("Restart now")),
+                    Dispatcher.BeginInvoke(() => Prompt.Confirm(L.T("Change language"), L.T("Restart the launcher to apply the language."), L.T("Restart now")),
                         System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                 ws.Log(Paths.IsPortDir(Paths.PortDir)
                         ? L.F($"Nightwatch Co-op ready. Engine: {Paths.PortDir}")
@@ -255,14 +249,12 @@ namespace BloodborneLauncher
         }
 
         /// <summary>
-        /// The Modern layout's background (Settings › Appearance, live): the dump's sce_sys\pic1.png
+        /// The background (Launcher › Appearance, live): the dump's sce_sys\pic1.png
         /// (or pic0, else the bundled art), the player's own picture, or none; blurred strongly,
         /// lightly or not at all, under a dark wash tinted by the theme.
         /// </summary>
         public void ApplyBackdrop()
         {
-            if (SettingRow.Classic)
-                return;
             var s = Workspace.Current.Settings;
             var shade = LauncherTheme.ShadeColour(s);
             var wash = new LinearGradientBrush(new GradientStopCollection
@@ -335,19 +327,19 @@ namespace BloodborneLauncher
             BackdropImage.Visibility = image != null ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        /// <summary>The theme, again (Settings › Appearance › Theme, live).</summary>
+        /// <summary>The theme, again (Launcher › Appearance › Theme, live).</summary>
         public void ApplyTheme()
         {
-            LauncherTheme.Apply(Workspace.Current.Settings, glass: !SettingRow.Classic);
+            LauncherTheme.Apply(Workspace.Current.Settings, glass: true);
             ApplyBackdrop();
         }
 
         /// <summary>
-        /// The window buttons (Settings › Appearance, live): macOS traffic lights or Windows caption
+        /// The window buttons (Launcher › Appearance, live): macOS traffic lights or Windows caption
         /// buttons, on their usual side (macOS left, Windows right) or the other. Close stays on the
         /// outer edge; the title bar's own buttons move out of their way.
         /// </summary>
-        /// <summary>Settings › App icon: this window's, and the game window's from its next start.</summary>
+        /// <summary>Launcher › App icon: this window's, and the game window's from its next start.</summary>
         public void ApplyIcon()
         {
             var choice = Workspace.Current.Settings.Str("app_icon");
@@ -360,8 +352,7 @@ namespace BloodborneLauncher
         {
             var s = Workspace.Current.Settings;
             var windows = s.Str("ui_window_buttons") == "windows";
-            var side = s.Str("ui_window_buttons_side");
-            var right = side == "right" || (side != "left" && windows);
+            var right = windows; // macOS's on the left, Windows' on the right
             MacButtons.Visibility = windows ? Visibility.Collapsed : Visibility.Visible;
             WinButtons.Visibility = windows ? Visibility.Visible : Visibility.Collapsed;
 
@@ -488,25 +479,14 @@ namespace BloodborneLauncher
         /// <summary>Shows a page: a tab ("seamless": Co-op, "advanced": Settings), or one of More's ("output", "mods", "engine").</summary>
         public void Show(string page)
         {
-            var item = SettingRow.Classic
-                ? page switch
-                {
-                    "output" => ClassicOutput,
-                    "seamless" => ClassicSeamless,
-                    "advanced" => ClassicSettings,
-                    "mods" => ClassicMods,
-                    "engine" => ClassicEngine,
-                    "controls" => ClassicControls,
-                    _ => ClassicPlay,
-                }
-                : page switch
-                {
-                    "seamless" => CoopItem,
-                    "advanced" => SettingsItem,
-                    "output" or "mods" or "engine" => MoreItem,
-                    "controls" => ControlsItem,
-                    _ => PlayItem,
-                };
+            var item = page switch
+            {
+                "seamless" => CoopItem,
+                "advanced" => SettingsItem,
+                "output" or "mods" or "engine" or "cheats" => MoreItem,
+                "controls" => ControlsItem,
+                _ => PlayItem,
+            };
             if (item.IsChecked == true)
                 SidebarItem_Checked(item, new RoutedEventArgs());
             item.IsChecked = true;
@@ -531,15 +511,7 @@ namespace BloodborneLauncher
         /// </summary>
         private IEnumerable<SettingSearch.Place> SearchPlaces()
         {
-            // Classic lists Settings twice (top and bottom of the sidebar): the later entry is kept.
-            var items = new List<System.Windows.Controls.RadioButton>();
-            foreach (var item in SettingSearch.Descendants(SettingRow.Classic ? Sidebar : TabStrip).OfType<System.Windows.Controls.RadioButton>())
-            {
-                if (item.Tag is not Type) continue;
-                items.RemoveAll(i => Equals(i.Tag, item.Tag));
-                items.Add(item);
-            }
-            foreach (var item in items)
+            foreach (var item in SettingSearch.Descendants(TabStrip).OfType<System.Windows.Controls.RadioButton>().Where(i => i.Tag is Type))
             {
                 var name = ItemName(item) ?? "";
                 void Open() { if (item.IsChecked != true) item.IsChecked = true; }
@@ -614,7 +586,7 @@ namespace BloodborneLauncher
         /// pages: the first search then finds them ready instead of building them all in one go.</summary>
         private async Task MakeSearchPagesAsync()
         {
-            var items = SettingSearch.Descendants(SettingRow.Classic ? Sidebar : TabStrip)
+            var items = SettingSearch.Descendants(TabStrip)
                 .OfType<System.Windows.Controls.RadioButton>()
                 .Select(i => i.Tag).OfType<Type>().Distinct().ToList();
             foreach (var type in items)
@@ -755,7 +727,7 @@ namespace BloodborneLauncher
             await InstallAsync(release, package: true);
         }
 
-        /// <summary>A release the player picked in Settings › Updates › Version, older ones included.</summary>
+        /// <summary>A release the player picked in Launcher › Updates › Version, older ones included.</summary>
         public async Task InstallVersionAsync(Updater.Release release)
         {
             if (release.IsCurrent)

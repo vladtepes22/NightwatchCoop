@@ -83,16 +83,18 @@ namespace BloodborneLauncher.Views
 
             // ==================== Notifications ====================
             Group(L.T("Notification"));
+            var banner = new StackPanel();
+            void ShowBanner() => banner.Visibility = S.Bool("trophy_notifications") ? Visibility.Visible : Visibility.Collapsed;
             SettingToggle(SymbolRegular.Alert24, L.T("Show in game"), L.T("A small banner in a corner of the game's screen, without taking focus. In fullscreen it needs Display › Borderless fullscreen"),
-                "trophy_notifications");
+                "trophy_notifications", changed: ShowBanner);
             ComboRow(SymbolRegular.Pin24, L.T("Position"), null, new[]
             {
                 new Choice(L.T("Top right"), "top-right"), new Choice(L.T("Top left"), "top-left"),
                 new Choice(L.T("Bottom right"), "bottom-right"), new Choice(L.T("Bottom left"), "bottom-left"),
-            }, () => S.Str("trophy_position"), v => S.Set("trophy_position", v));
-            SettingToggle(SymbolRegular.Speaker224, L.T("Play a sound"), null, "trophy_sound");
+            }, () => S.Str("trophy_position"), v => S.Set("trophy_position", v), banner);
+            SettingToggle(SymbolRegular.Speaker224, L.T("Play a sound"), null, "trophy_sound", banner);
             SliderRow(SymbolRegular.Speaker124, L.T("Volume"), null, 0, 100, 5, () => S.Int("trophy_volume"),
-                v => S.Set("trophy_volume", (int)v), "0");
+                v => S.Set("trophy_volume", (int)v), "0", banner);
             Add(Card(SymbolRegular.MusicNote224, L.T("Sound file"), L.T("A sound of your own (WAV, MP3, MP4/M4A); empty uses the built-in chime"), Row(
                 SmallButton(L.T("Choose…"), SymbolRegular.FolderOpen24, (_, _) => ChooseSound()),
                 IconButton(SymbolRegular.ArrowUndo24, L.T("Use the built-in chime"), (_, _) =>
@@ -100,9 +102,13 @@ namespace BloodborneLauncher.Views
                     S.Set("trophy_sound_file", "");
                     Ws.SaveSoon();
                     Ws.Log(L.T("Trophy sound: built-in chime."), LogLevel.Step);
-                })), out _));
+                })), out _), banner);
             Add(Card(SymbolRegular.PlayCircle24, L.T("Try it"), L.T("Shows a sample notification and plays the sound"),
-                SmallButton(L.T("Test"), SymbolRegular.Trophy24, (_, _) => TrophyToast.Announce(TrophyTracker.ById[14])), out _));
+                SmallButton(L.T("Test"), SymbolRegular.Trophy24, (_, _) => TrophyToast.Announce(TrophyTracker.ById[14])), out _), banner);
+            Body.Children.Add(banner);
+            ShowBanner();
+
+            Group(L.T("Progress"));
             Add(Card(SymbolRegular.Folder24, L.T("Trophy log"), "", IconButton(SymbolRegular.Open24, L.T("Open the saves folder"),
                 (_, _) => Paths.OpenFolder(GameEnvironment.UserDir(S))), out _logHint));
             Add(Card(SymbolRegular.ArrowReset24, L.T("Reset trophy progress"), L.T("Starts trophies and completion over, for a fresh run. The old log is kept as a backup"),

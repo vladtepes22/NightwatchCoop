@@ -1456,5 +1456,12 @@
   "DLSS dynamic frame generation": "DLSS 動的フレーム生成",
   "RTX 50: the driver picks 2x, 3x or 4x moment by moment to reach your refresh rate, up to the generated frames above. Fewer generated frames when the game is fast: less lag, fewer artifacts. Also in game, with a target FPS": "RTX 50: ドライバーがリフレッシュレートに届くよう 2x・3x・4x をその都度選びます（上の生成フレーム数まで）。ゲームが速いときは生成フレームが減り、遅延とアーティファクトも減ります。ゲーム内でも目標 FPS 付きで設定可能",
   "Auto (per quality)": "自動（品質ごと）",
-  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "NVIDIA の DLSS 4.5 の組み合わせ: DLAA・品質・バランスは K、パフォーマンスは M、ウルトラパフォーマンスは L"
+  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "NVIDIA の DLSS 4.5 の組み合わせ: DLAA・品質・バランスは K、パフォーマンスは M、ウルトラパフォーマンスは L",
+  "Automatic": "自動",
+  "Automatic (by GPU)": "自動 (GPU に応じて)",
+  "Automatic (per quality)": "自動（品質ごと）",
+  "Launcher": "ランチャー",
+  "Progress": "進行状況",
+  "Built-in patches": "内蔵パッチ",
+  "Method": "方式"
 }

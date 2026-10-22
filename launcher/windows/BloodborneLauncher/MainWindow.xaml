@@ -56,7 +56,7 @@
             </Setter>
         </Style>
 
-        <!-- Windows-style caption buttons (Settings › Appearance › Window buttons). -->
+        <!-- Windows-style caption buttons (Launcher › Appearance › Window buttons). -->
         <Style x:Key="CaptionButton" TargetType="Button">
             <Setter Property="Width" Value="46" />
             <Setter Property="Focusable" Value="False" />
@@ -206,50 +206,6 @@
             </Setter>
         </Style>
 
-        <Style x:Key="SidebarHeader" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="9.5" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{DynamicResource SidebarHeaderBrush}" />
-            <Setter Property="Margin" Value="18,0,0,6" />
-        </Style>
-
-        <Style x:Key="SidebarItem" TargetType="RadioButton">
-            <Setter Property="GroupName" Value="Pages" />
-            <Setter Property="Height" Value="26" />
-            <Setter Property="Margin" Value="8,1" />
-            <Setter Property="Padding" Value="10,0" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Focusable" Value="False" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="Bg" Background="Transparent" CornerRadius="5" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource SidebarItemHoverBrush}" />
-                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource SidebarItemSelectedBrush}" />
-                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="SidebarIcon" TargetType="ui:SymbolIcon">
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="Width" Value="16" />
-            <Setter Property="Margin" Value="0,0,8,0" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" />
-        </Style>
         <!-- A top tab: a segment of the tab strip, filled when chosen. -->
         <Style x:Key="TabItem" TargetType="RadioButton">
             <Setter Property="GroupName" Value="Pages" />
@@ -375,7 +331,7 @@
             </Grid>
         </Border>
 
-        <!-- ==================== Tabs (Modern) or sidebar (Classic) + page ==================== -->
+        <!-- ==================== Tabs + page ==================== -->
         <Grid Grid.Row="1" Background="{DynamicResource ContentAreaBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -386,96 +342,7 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <!-- Classic: the source-list sidebar. -->
-            <Border x:Name="Sidebar" Grid.Column="0" Grid.RowSpan="2" Width="196" Visibility="Collapsed"
-                    Background="{DynamicResource WindowBaseBrush}"
-                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
-                <DockPanel Margin="0,16,0,10">
-                    <RadioButton DockPanel.Dock="Bottom" GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                 Tag="{x:Type views:SettingsPage}" Checked="SidebarItem_Checked">
-                        <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="Settings24" Style="{StaticResource SidebarIcon}" />
-                            <TextBlock Text="{loc:Tr &#x27;Settings&#x27;}" />
-                        </StackPanel>
-                    </RadioButton>
-                    <StackPanel>
-                        <TextBlock Text="{loc:Tr &#x27;GAME&#x27;}" Style="{StaticResource SidebarHeader}" />
-                        <RadioButton x:Name="ClassicPlay" GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                     Tag="{x:Type views:PlayPage}" Checked="SidebarItem_Checked">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Play24" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="{loc:Tr &#x27;Play&#x27;}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                     Tag="{x:Type views:DisplayPage}" Checked="SidebarItem_Checked">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Desktop24" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="{loc:Tr &#x27;Display&#x27;}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                     Tag="{x:Type views:GraphicsPage}" Checked="SidebarItem_Checked">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Sparkle24" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="{loc:Tr &#x27;Graphics&#x27;}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton x:Name="ClassicControls" GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                     Tag="{x:Type views:ControlsPage}" Checked="SidebarItem_Checked">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="XboxController24" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="{loc:Tr &#x27;Controls&#x27;}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                     Tag="{x:Type views:TrophiesPage}" Checked="SidebarItem_Checked">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Trophy24" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="{loc:Tr &#x27;Trophies&#x27;}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton x:Name="ClassicMods" GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                     Tag="{x:Type views:ModsPage}" Checked="SidebarItem_Checked">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="PuzzlePiece24" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="{loc:Tr &#x27;Mods &amp; patches&#x27;}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton x:Name="ClassicSeamless" GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                     Tag="{x:Type views:SeamlessPage}" Checked="SidebarItem_Checked">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="People24" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="{loc:Tr &#x27;Co-op&#x27;}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <TextBlock Text="{loc:Tr &#x27;SYSTEM&#x27;}" Style="{StaticResource SidebarHeader}" Margin="18,18,0,6" />
-                        <RadioButton x:Name="ClassicSettings" GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                     Tag="{x:Type views:SettingsPage}" Checked="SidebarItem_Checked">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Settings24" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="{loc:Tr &#x27;Settings&#x27;}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton x:Name="ClassicEngine" GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                     Tag="{x:Type views:EnginePage}" Checked="SidebarItem_Checked">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Wrench24" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="{loc:Tr &#x27;Engine switches&#x27;}" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton x:Name="ClassicOutput" GroupName="Classic" Style="{StaticResource SidebarItem}"
-                                     Tag="{x:Type views:OutputPage}" Checked="SidebarItem_Checked">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="WindowConsole20" Style="{StaticResource SidebarIcon}" />
-                                <TextBlock Text="{loc:Tr &#x27;Game output&#x27;}" />
-                            </StackPanel>
-                        </RadioButton>
-                    </StackPanel>
-                </DockPanel>
-            </Border>
-
-            <!-- Modern: tabs across the top. -->
+            <!-- Tabs across the top. -->
             <Border x:Name="TabStrip" Grid.Column="1" Grid.Row="0" HorizontalAlignment="Center" Margin="0,12,0,4" Padding="4" CornerRadius="20"
                     Background="{DynamicResource PillTrackBrush}" BorderBrush="{DynamicResource GlassPaneStrokeBrush}" BorderThickness="1">
                 <StackPanel Orientation="Horizontal">
@@ -491,7 +358,7 @@
                                  Tag="{x:Type views:TrophiesPage}" Checked="SidebarItem_Checked" />
                     <RadioButton x:Name="CoopItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Co-op&#x27;}"
                                  Tag="{x:Type views:SeamlessPage}" Checked="SidebarItem_Checked" />
-                    <RadioButton x:Name="SettingsItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Settings&#x27;}"
+                    <RadioButton x:Name="SettingsItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Launcher&#x27;}"
                                  Tag="{x:Type views:SettingsPage}" Checked="SidebarItem_Checked" />
                     <RadioButton x:Name="MoreItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;More&#x27;}"
                                  Tag="{x:Type views:MorePage}" Checked="SidebarItem_Checked" />

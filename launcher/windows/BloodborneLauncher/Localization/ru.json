@@ -1456,5 +1456,12 @@
   "DLSS dynamic frame generation": "DLSS: динамическая генерация кадров",
   "RTX 50: the driver picks 2x, 3x or 4x moment by moment to reach your refresh rate, up to the generated frames above. Fewer generated frames when the game is fast: less lag, fewer artifacts. Also in game, with a target FPS": "RTX 50: драйвер сам выбирает 2x, 3x или 4x, чтобы достичь частоты экрана, не больше числа кадров выше. Когда игра быстрая, кадров генерируется меньше: меньше задержка и артефактов. Также в игре, с целевым FPS",
   "Auto (per quality)": "Авто (по качеству)",
-  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "Сочетание NVIDIA для DLSS 4.5: K для DLAA, «Качества» и «Баланса», M для «Производительности», L для «Ультрапроизводительности»"
+  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "Сочетание NVIDIA для DLSS 4.5: K для DLAA, «Качества» и «Баланса», M для «Производительности», L для «Ультрапроизводительности»",
+  "Automatic": "Авто",
+  "Automatic (by GPU)": "Авто (по GPU)",
+  "Automatic (per quality)": "Авто (по качеству)",
+  "Launcher": "Лаунчер",
+  "Progress": "Прогресс",
+  "Built-in patches": "Встроенные патчи",
+  "Method": "Метод"
 }

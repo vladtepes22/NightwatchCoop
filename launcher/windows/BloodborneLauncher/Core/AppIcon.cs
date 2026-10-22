@@ -9,14 +9,14 @@ using System.Windows.Media.Imaging;
 namespace BloodborneLauncher.Core
 {
     /// <summary>
-    /// Settings › Appearance › App icon (app_icon): the launcher window's and the game window's
+    /// Launcher › Appearance › App icon (app_icon): the launcher window's and the game window's
     /// icon: the build's own (app.ico) whatever is chosen; the setting is kept for older settings files.
     /// </summary>
     public static class AppIcon
     {
         public static readonly Choice[] Choices =
         {
-            new(L.T("Auto"), "auto"),
+            new(L.T("Automatic"), "auto"),
         };
 
         private static string Resource(string choice) => "app.ico";

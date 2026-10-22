@@ -14,47 +14,60 @@ public sealed class SeamlessPage : LauncherPage
     private readonly TextBlock _codes;
     private readonly TextBlock _status;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
+    /// Rows and group headers shown only in some modes ("" single player, "host", "join").
+    private readonly List<(UIElement Element, Func<string, bool> When)> _byMode = new();
+    private static bool InParty(string mode) => mode.Length > 0;
+    private static bool Hosting(string mode) => mode == "host";
+    private static bool Joining(string mode) => mode == "join";
 
     public SeamlessPage() : base("Seamless co-op",
         "Play the campaign together with visy's seamless co-op. The host shares a party code; everyone uses the same build, gameplay mods and party size.")
     {
+        // Single player shows only Party saves; Join leaves out the host's rows, Host the guest's.
         Group("Party");
         SettingCombo(SymbolRegular.People24, "Mode", "Host starts the party; Join connects to the host.",
-            new[] { new Choice("Single player", ""), new Choice("Host", "host"), new Choice("Join", "join") }, "party_mode");
+            new[] { new Choice("Single player", ""), new Choice("Host", "host"), new Choice("Join", "join") }, "party_mode",
+            changed: ShowMode, buttons: true);
+        var party = Rows(InParty);
         TextRow(SymbolRegular.Person24, "Your name", "1–16 letters, numbers, underscores or hyphens.", "Hunter",
-            () => SeamlessSettings.Name(S), v => S.Set("party_name", v));
+            () => SeamlessSettings.Name(S), v => S.Set("party_name", v), party);
         TextRow(SymbolRegular.Link24, "Host code or address", "Paste the host's Internet code, LAN code or host:port.", "BBP3-…",
-            () => S.Str("party_code"), v => S.Set("party_code", v));
+            () => S.Str("party_code"), v => S.Set("party_code", v), Rows(Joining));
+        party = Rows(InParty);
         var password = new PasswordBox { Width = 300, Password = S.PartyPassword, PlaceholderText = "Optional party password", PlaceholderEnabled = true };
         password.PasswordChanged += (_, _) => { S.PartyPassword = password.Password; Ws.SaveSoon(); };
-        Add(Card(SymbolRegular.Password24, "Password", "Use the same password on every PC. Stored encrypted for your Windows user.", password, out _));
+        Add(Card(SymbolRegular.Password24, "Password", "Use the same password on every PC. Stored encrypted for your Windows user.", password, out _), party);
         ComboRow(SymbolRegular.People24, "Party size", "Host and guests use the same limit. Five players is experimental.",
             new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice("5 (experimental)", "5") },
-            () => S.Str("party_max") is { Length: > 0 } n ? n : "3", v => S.Set("party_max", v));
+            () => S.Str("party_max") is { Length: > 0 } n ? n : "3", v => S.Set("party_max", v), party);
 
-        Group("Connection");
-        TextRow(SymbolRegular.Router24, "Party port", "TCP and UDP. Default: 9307.", "9307", () => S.Str("party_port"), v => S.Set("party_port", v), width: 120);
-        ToggleRow(SymbolRegular.Router24, "UPnP", "Map the host's port automatically.", () => SeamlessSettings.Flag(S, "party_upnp"), v => S.Set("party_upnp", v));
+        _byMode.Add((Group("Connection"), InParty));
+        party = Rows(InParty);
+        TextRow(SymbolRegular.Router24, "Party port", "TCP and UDP. Default: 9307.", "9307", () => S.Str("party_port"), v => S.Set("party_port", v), party, width: 120);
+        ToggleRow(SymbolRegular.Router24, "UPnP", "Map the host's port automatically.", () => SeamlessSettings.Flag(S, "party_upnp"), v => S.Set("party_upnp", v), Rows(Hosting));
+        party = Rows(InParty);
         ToggleRow(SymbolRegular.Globe24, "DHT rendezvous", "Optional NAT traversal through the public BitTorrent DHT. Enable on every PC to use it.",
-            () => SeamlessSettings.Flag(S, "party_rendezvous", false), v => S.Set("party_rendezvous", v));
+            () => SeamlessSettings.Flag(S, "party_rendezvous", false), v => S.Set("party_rendezvous", v), party);
         // Kept in bbport.ini like the game's System > Party network rows, so both show the same value.
         ToggleRow(SymbolRegular.People24, "Relay for party members", "A member that cannot reach the host joins through you (party members only, capped upload).",
-            () => Ini.Get("party_member_relay", "1") == "1", v => Ini.Set("party_member_relay", v ? "1" : "0"));
+            () => Ini.Get("party_member_relay", "1") == "1", v => Ini.Set("party_member_relay", v ? "1" : "0"), party);
         ToggleRow(SymbolRegular.Globe24, "IPv6", "Try IPv6 when both PCs have it. A host without an open port then puts its IPv6 address into the party code.",
-            () => Ini.Get("party_ipv6", "0") == "1", v => Ini.Set("party_ipv6", v ? "1" : "0"));
+            () => Ini.Get("party_ipv6", "0") == "1", v => Ini.Set("party_ipv6", v ? "1" : "0"), party);
         TextRow(SymbolRegular.Server24, "STUN server", "Empty uses stun.l.google.com:19302. Use off to disable.", "Default",
-            () => S.Str("party_stun"), v => S.Set("party_stun", v));
+            () => S.Str("party_stun"), v => S.Set("party_stun", v), party);
+        var host = Rows(Hosting);
         TextRow(SymbolRegular.Globe24, "Host public address", "Optional host address override, including a VPN address.", "Automatic",
-            () => S.Str("party_public_addr"), v => S.Set("party_public_addr", v));
+            () => S.Str("party_public_addr"), v => S.Set("party_public_addr", v), host);
         _codes = Text("", "Faint");
         _codes.TextWrapping = TextWrapping.Wrap;
-        Body.Children.Add(_codes);
+        host.Children.Add(_codes);
         Add(Card(SymbolRegular.Copy24, "Share party codes", "Available after the host starts. Use the LAN code on the same router.",
-            SmallButton("Copy codes", SymbolRegular.Copy24, (_, _) => Clipboard.SetText(SeamlessSettings.Codes(S))), out _));
+            SmallButton("Copy codes", SymbolRegular.Copy24, (_, _) => Clipboard.SetText(SeamlessSettings.Codes(S))), out _), host);
 
+        party = Rows(InParty);
         _status = Text("Start the game to see party status.", "Faint");
         _status.TextWrapping = TextWrapping.Wrap;
-        Body.Children.Add(_status);
+        party.Children.Add(_status);
         foreach (var (title, action) in new[] { ("Leave party", "leave"), ("Rejoin party", "rejoin") })
         {
             var command = action;
@@ -62,8 +75,9 @@ public sealed class SeamlessPage : LauncherPage
                 SmallButton(title, SymbolRegular.People24, (_, _) => {
                     try { SeamlessSession.Command(S, command); }
                     catch (Exception e) { Prompt.Tell("Party", e.Message); }
-                }), out _));
+                }), out _), party);
         }
+        host = Rows(Hosting);
         Add(Card(SymbolRegular.People24, "Remove a member", "Host only. Enter the member's exact party name.",
             SmallButton("Choose member", SymbolRegular.People24, (_, _) => {
                 var status = SeamlessSession.Read(S);
@@ -75,14 +89,7 @@ public sealed class SeamlessPage : LauncherPage
                     try { SeamlessSession.Command(S, "kick", members[choice].name); }
                     catch (Exception e) { Prompt.Tell("Party", e.Message); }
                 }
-            }), out _));
-
-        Add(Card(SymbolRegular.Link24, "Guest connection code", "Guests can share this with a host when NAT prevents a direct connection.",
-            SmallButton("Copy guest code", SymbolRegular.Copy24, (_, _) => {
-                var code = SeamlessSession.Read(S)?.guest_code;
-                if (string.IsNullOrEmpty(code)) Prompt.Tell("Party", "No guest connection code is available yet.");
-                else Clipboard.SetText(code);
-            }), out _));
+            }), out _), host);
         Add(Card(SymbolRegular.Link24, "Connect a guest", "Host: copy the guest's BBG1 code first, then add it here.",
             SmallButton("Add copied guest code", SymbolRegular.Link24, (_, _) => {
                 try {
@@ -92,7 +99,15 @@ public sealed class SeamlessPage : LauncherPage
                         throw new InvalidOperationException("Host a party and copy the guest's BBG1 connection code first.");
                     SeamlessSession.Command(S, "add_guest_code", code);
                 } catch (Exception e) { Prompt.Tell("Party", e.Message); }
-            }), out _));
+            }), out _), host);
+
+        var join = Rows(Joining);
+        Add(Card(SymbolRegular.Link24, "Guest connection code", "Guests can share this with a host when NAT prevents a direct connection.",
+            SmallButton("Copy guest code", SymbolRegular.Copy24, (_, _) => {
+                var code = SeamlessSession.Read(S)?.guest_code;
+                if (string.IsNullOrEmpty(code)) Prompt.Tell("Party", "No guest connection code is available yet.");
+                else Clipboard.SetText(code);
+            }), out _), join);
         Add(Card(SymbolRegular.Link24, "Join through a member", "Guest: when the host cannot be reached but another member can, copy that member's guest code and add it here.",
             SmallButton("Add copied member code", SymbolRegular.Link24, (_, _) => {
                 try {
@@ -101,13 +116,14 @@ public sealed class SeamlessPage : LauncherPage
                         throw new InvalidOperationException("Join a party and copy another member's BBG1 guest code first.");
                     SeamlessSession.Command(S, "add_relay_code", code);
                 } catch (Exception e) { Prompt.Tell("Party", e.Message); }
-            }), out _));
+            }), out _), join);
 
         // Party settings as in the game's System > Party rules / My party pages (visy 0.7.3): the host's
         // rules for the whole party, then what each player chooses for itself.
-        Group("Party rules");
-        Body.Children.Add(Text("The host's rules for the whole party. When you join, the host's count and yours are kept for when you host (in the game: System > Party rules).", "Faint"));
-        IniToggles(
+        _byMode.Add((Group("Party rules"), Hosting));
+        host = Rows(Hosting);
+        host.Children.Add(Text("The host's rules for the whole party. When you join, the host's count and yours are kept for when you host (in the game: System > Party rules).", "Faint"));
+        IniToggles(host,
             ("party_kill_record", "Enemies stay dead", true), ("party_gather", "Host can gather the party", true),
             ("party_npc_mirror", "NPCs as in the host's world", true),
             ("party_covenant_per_player", "Covenant outcomes per player", true),
@@ -119,31 +135,32 @@ public sealed class SeamlessPage : LauncherPage
             ("party_rot", "Rot on death", false), ("party_rot_cleanse_boss", "Boss kill cleanses rot", true),
             ("party_rot_cleanse_killer", "Killing your killer cleanses its rot", true),
             ("party_rot_cleanse_echoes", "Retrieving Blood Echoes cleanses its rot", true));
-        IniNumbers(
+        IniNumbers(host,
             ("party_boss_hp", "Boss HP per guest (%)", 150), ("party_boss_damage", "Boss damage per guest (%)", 10),
             ("party_boss_poise", "Boss poise per guest (%)", 100), ("party_enemy_hp", "Enemy HP per guest (%)", 50),
             ("party_enemy_damage", "Enemy damage per guest (%)", 0), ("party_enemy_poise", "Enemy poise per guest (%)", 0));
 
-        Group("My party");
-        Body.Children.Add(Text("Your own party settings: your screen, what you get as a guest, story sync and start (in the game: System > My party).", "Faint"));
-        IniToggles(
+        _byMode.Add((Group("My party"), InParty));
+        party = Rows(InParty);
+        party.Children.Add(Text("Your own party settings: your screen, what you get as a guest, story sync and start (in the game: System > My party).", "Faint"));
+        IniToggles(party,
             ("party_hud", "Party HUD", true), ("party_name_tags", "Party name tags", true), ("party_pings", "Pings", true),
             ("party_through_walls", "Show party through walls", false),
             ("party_glow_off", "Companions without glow", true), ("party_toasts", "Join, leave and travel notices", true),
             ("party_npc_talk", "Share NPC dialogue", true), ("party_guest_lamps", "Guests use lamps", true),
             ("party_key_view", "Own key items as a guest", true), ("party_key_items_summoned", "Key items at once", true));
-        IniNumbers(("party_npc_talk_range", "NPC dialogue range (m)", 25), ("party_overhead", "Name tag detail (0–4)", 3));
+        IniNumbers(party, ("party_npc_talk_range", "NPC dialogue range (m)", 25), ("party_overhead", "Name tag detail (0–4)", 3));
         foreach (var option in SeamlessSettings.Switches)
         {
             var key = option.Key;
-            ToggleRow(SymbolRegular.People24, option.Label, null, () => SeamlessSettings.Flag(S, key), v => S.Set(key, v));
+            ToggleRow(SymbolRegular.People24, option.Label, null, () => SeamlessSettings.Flag(S, key), v => S.Set(key, v), party);
         }
         ComboRow(SymbolRegular.People24, "Insight for bosses", null,
             new[] { new Choice("Same as host", "parity"), new Choice("Full bonus", "full"), new Choice("Game's own", "0") },
-            () => S.Str("party_guest_insight") is { Length: > 0 } n ? n : "parity", v => S.Set("party_guest_insight", v));
+            () => S.Str("party_guest_insight") is { Length: > 0 } n ? n : "parity", v => S.Set("party_guest_insight", v), party);
         ComboRow(SymbolRegular.Play24, "Party starts", "Each new character normally completes its own prologue first. Keep it the same for everyone.",
             new[] { new Choice("After the prologue", "prologue_solo"), new Choice("Right away", "immediate") },
-            () => S.Str("party_start") == "immediate" ? "immediate" : "prologue_solo", v => S.Set("party_start", v));
+            () => S.Str("party_start") == "immediate" ? "immediate" : "prologue_solo", v => S.Set("party_start", v), party);
 
         Group("Party saves");
         Body.Children.Add(Text("Seamless play uses its own savedata_party folder. Automatic snapshots keep single-player and party progress recoverable.", "Faint"));
@@ -192,17 +209,32 @@ public sealed class SeamlessPage : LauncherPage
         };
         Loaded += (_, _) => { _codes.Text = SeamlessSettings.Codes(S); _timer.Start(); };
         Unloaded += (_, _) => _timer.Stop();
+        ShowMode();
+    }
+    /// A panel for the next rows, shown in the modes when accepts (ShowMode).
+    private StackPanel Rows(Func<string, bool> when)
+    {
+        var rows = new StackPanel();
+        Body.Children.Add(rows);
+        _byMode.Add((rows, when));
+        return rows;
+    }
+    private void ShowMode()
+    {
+        var mode = S.Str("party_mode");
+        foreach (var (element, when) in _byMode)
+            element.Visibility = when(mode) ? Visibility.Visible : Visibility.Collapsed;
     }
     /// Switches kept in bbport.ini like the game's party pages, so both show the same value.
-    private void IniToggles(params (string Key, string Label, bool Fallback)[] rows)
+    private void IniToggles(Panel into, params (string Key, string Label, bool Fallback)[] rows)
     {
         foreach (var (key, label, fallback) in rows)
-            ToggleRow(SymbolRegular.People24, label, null, () => Ini.Get(key, fallback ? "1" : "0") == "1", v => Ini.Set(key, v ? "1" : "0"));
+            ToggleRow(SymbolRegular.People24, label, null, () => Ini.Get(key, fallback ? "1" : "0") == "1", v => Ini.Set(key, v ? "1" : "0"), into);
     }
-    private void IniNumbers(params (string Key, string Label, int Value)[] rows)
+    private void IniNumbers(Panel into, params (string Key, string Label, int Value)[] rows)
     {
         foreach (var (key, label, value) in rows)
-            TextRow(SymbolRegular.Settings24, label, null, value.ToString(), () => Ini.Get(key, value.ToString()), v => Ini.Set(key, v), width: 120);
+            TextRow(SymbolRegular.Settings24, label, null, value.ToString(), () => Ini.Get(key, value.ToString()), v => Ini.Set(key, v), into, width: 120);
     }
     private sealed record EditorSave(string kind, int slot, string text, bool guest_written);
     private sealed record EditorPlan(string kind, int slot, string target, string[] notes);

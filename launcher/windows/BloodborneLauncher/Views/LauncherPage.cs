@@ -20,7 +20,7 @@ namespace BloodborneLauncher.Views
         public SymbolIcon Icon { get; }
         public TextBlock Hint { get; }
         public string Title { get; }
-        /// <summary>The description (the ⓘ tooltip, or the line under the title in Classic).</summary>
+        /// <summary>The description (the ⓘ tooltip).</summary>
         public string? Info { get; }
 
         /// <summary>A setting the settings search finds: set for rows a page puts in with LauncherPage.Add,
@@ -37,31 +37,23 @@ namespace BloodborneLauncher.Views
             set => Icon.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        /// <summary>Classic layout: one card per setting with its icon and description, as before 0.9.4.</summary>
-        public static bool Classic { get; set; }
-
         public SettingRow(SymbolRegular icon, string title, string? info, object? control, bool wide)
         {
             Title = title;
             Info = info;
-            Padding = Classic ? new Thickness(14, 9, 14, 9) : new Thickness(14, 7, 14, 7);
-            MinHeight = Classic ? 52 : 38;
-            BorderThickness = Classic ? new Thickness(1) : new Thickness(0, 1, 0, 0);
-            SetResourceReference(BorderBrushProperty, Classic ? "CardStrokeColorDefaultBrush" : "GlassDividerBrush");
-            if (Classic)
-            {
-                CornerRadius = new CornerRadius(6);
-                Margin = new Thickness(0, 0, 0, 3);
-            }
+            Padding = new Thickness(14, 7, 14, 7);
+            MinHeight = 38;
+            BorderThickness = new Thickness(0, 1, 0, 0);
+            SetResourceReference(BorderBrushProperty, "GlassDividerBrush");
             PlainBackground();
 
-            Icon = new SymbolIcon { Symbol = icon, FontSize = Classic ? 20 : 18, Margin = new Thickness(0, 0, Classic ? 16 : 12, 0), VerticalAlignment = VerticalAlignment.Center,
-                Visibility = Classic ? Visibility.Visible : Visibility.Collapsed };
+            Icon = new SymbolIcon { Symbol = icon, FontSize = 18, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center,
+                Visibility = Visibility.Collapsed };
 
             var name = new TextBlock { Text = title, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             var titleLine = new StackPanel { Orientation = Orientation.Horizontal };
             titleLine.Children.Add(name);
-            if (!string.IsNullOrWhiteSpace(info) && !Classic)
+            if (!string.IsNullOrWhiteSpace(info))
             {
                 var mark = new SymbolIcon { Symbol = SymbolRegular.Info16, FontSize = 12, Margin = new Thickness(6, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = info, Cursor = Cursors.Help };
                 mark.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "TextFillColorTertiaryBrush");
@@ -74,16 +66,6 @@ namespace BloodborneLauncher.Views
 
             var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             text.Children.Add(titleLine);
-            if (Classic && !string.IsNullOrWhiteSpace(info))
-            {
-                // Classic shows the description under the title instead of in a tooltip: its first
-                // sentence there, the whole text when the mouse is on it.
-                var brief = LauncherPage.Brief(info);
-                var description = new TextBlock { Text = brief, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 0),
-                    ToolTip = brief == info ? null : info };
-                description.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
-                text.Children.Add(description);
-            }
 
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -162,12 +144,8 @@ namespace BloodborneLauncher.Views
             }
         }
 
-        /// <summary>A card in Classic; nothing in Modern, where the group's glass box shows through.</summary>
-        private void PlainBackground()
-        {
-            if (Classic) SetResourceReference(BackgroundProperty, "CardBackgroundFillColorDefaultBrush");
-            else ClearValue(BackgroundProperty);
-        }
+        /// <summary>No background of its own: the group's glass box shows through.</summary>
+        private void PlainBackground() => ClearValue(BackgroundProperty);
 
         /// <summary>Lights the row up in the accent colour for a moment, then fades back: the settings
         /// search found it.</summary>
@@ -289,7 +267,7 @@ namespace BloodborneLauncher.Views
             var header = new Border
             {
                 Padding = new Thickness(14, 7, 14, 7),
-                BorderThickness = SettingRow.Classic ? new Thickness(0) : new Thickness(0, 1, 0, 0),
+                BorderThickness = new Thickness(0, 1, 0, 0),
                 Background = Brushes.Transparent,
                 Cursor = Cursors.Hand,
                 Focusable = true,
@@ -364,10 +342,9 @@ namespace BloodborneLauncher.Views
             Scroller = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = Body };
             Content = Scroller;
             PageScroll.Attach(Scroller);
-            if (SettingRow.Classic) Body.MaxWidth = double.PositiveInfinity;
             Loaded += (_, _) =>
             {
-                if (_sectioned || SettingRow.Classic) return;
+                if (_sectioned) return;
                 _sectioned = true;
                 Sectionize();
             };
@@ -403,6 +380,8 @@ namespace BloodborneLauncher.Views
                         frame.Clip = new RectangleGeometry(new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 16, 16);
                     frame.SetResourceReference(Border.BackgroundProperty, "GlassPaneBrush");
                     frame.SetResourceReference(Border.BorderBrushProperty, "GlassPaneStrokeBrush");
+                    // A hidden header hides its whole group (Co-op's groups per mode).
+                    frame.SetBinding(VisibilityProperty, new System.Windows.Data.Binding(nameof(Visibility)) { Source = child });
                     Body.Children.Add(frame);
                     continue;
                 }
@@ -410,7 +389,9 @@ namespace BloodborneLauncher.Views
                            (child is TextBlock && box != null);
                 if (box != null && fits)
                 {
-                    if (child is TextBlock caption) caption.Margin = new Thickness(14, 8, 14, 4);
+                    // A caption in the group, or in a panel of its rows (Co-op's rows per mode).
+                    var captions = child is StackPanel rows ? rows.Children.OfType<TextBlock>() : new[] { child }.OfType<TextBlock>();
+                    foreach (var caption in captions) caption.Margin = new Thickness(14, 8, 14, 4);
                     if (child is WrapPanel wrap) wrap.Margin = new Thickness(10, 4, 10, 10);
                     box.Children.Add(child);
                 }
@@ -582,11 +563,11 @@ namespace BloodborneLauncher.Views
 
         // ---------------------------------------------------------------- bound rows
 
-        /// <summary>A choice: segmented buttons for a few short options, a drop-down otherwise.
-        /// The chosen option's note shows under the row.</summary>
+        /// <summary>A choice: a drop-down, or with buttons segmented buttons (for a few short options that
+        /// change what the page shows, such as the co-op mode). The chosen option's note shows under the row.</summary>
         protected FrameworkElement ComboRow(SymbolRegular icon, string title, string? hint, IReadOnlyList<Choice> choices,
-            Func<string> get, Action<string> set, Panel? into = null, double width = 240, Action? changed = null,
-            Func<Choice, bool>? enabled = null)
+            Func<string> get, Action<string> set, Panel? into = null, double width = 280, Action? changed = null,
+            Func<Choice, bool>? enabled = null, bool buttons = false)
         {
             TextBlock note = null!;
             void ShowNote(int index)
@@ -606,7 +587,7 @@ namespace BloodborneLauncher.Views
 
             var options = string.Join(" · ", choices.Select(c => c.Label));
             var shortLabels = choices.Sum(c => Segmented.Short(c.Label).Length);
-            if (!SettingRow.Classic && choices.Count is >= 2 and <= 6 && shortLabels <= 72)
+            if (buttons && choices.Count is >= 2 and <= 6 && shortLabels <= 72)
             {
                 var segmented = new Segmented(choices, enabled);
                 var row = Add(Card(icon, title, hint, segmented, out note, wide: true), into);
@@ -632,8 +613,8 @@ namespace BloodborneLauncher.Views
         }
 
         protected FrameworkElement SettingCombo(SymbolRegular icon, string title, string? hint, IReadOnlyList<Choice> choices,
-            string key, Panel? into = null, Action? changed = null) =>
-            ComboRow(icon, title, hint, choices, () => S.Str(key), v => S.Set(key, v), into, changed: changed);
+            string key, Panel? into = null, Action? changed = null, bool buttons = false) =>
+            ComboRow(icon, title, hint, choices, () => S.Str(key), v => S.Set(key, v), into, changed: changed, buttons: buttons);
 
         protected FrameworkElement IniCombo(SymbolRegular icon, string title, string? hint, IReadOnlyList<Choice> choices,
             string key, Panel? into = null, Action? changed = null, Func<Choice, bool>? enabled = null) =>

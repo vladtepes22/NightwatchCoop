@@ -81,15 +81,15 @@ namespace BloodborneLauncher.Core
             new(env, group, title, hint, SwitchKind.Text, "") { Placeholder = placeholder };
 
         private static Choice[] Auto(string note, params string[] values) =>
-            new[] { new Choice(L.T("Auto"), "", note) }.Concat(values.Select(v => new Choice(v, v))).ToArray();
+            new[] { new Choice(L.T("Automatic"), "", note) }.Concat(values.Select(v => new Choice(v, v))).ToArray();
 
-        private static readonly Choice[] AutoOnOff = { new(L.T("Auto"), ""), new(L.T("On"), "1"), new(L.T("Off"), "0") };
+        private static readonly Choice[] AutoOnOff = { new(L.T("Automatic"), ""), new(L.T("On"), "1"), new(L.T("Off"), "0") };
 
         public static readonly IReadOnlyList<EngineSwitch> All = new[]
         {
             Pick("BB_GPU_ID", Graphics, L.T("Graphics card"),
                 L.T("For laptops and PCs with two graphics cards where the game picks the wrong one. Auto takes the faster one"), "",
-                new(L.T("Auto"), ""), new(L.T("First"), "0"), new(L.T("Second"), "1")),
+                new(L.T("Automatic"), ""), new(L.T("First"), "0"), new(L.T("Second"), "1")),
             Pick("BB_ANISO", Graphics, L.T("Texture filtering"),
                 L.T("Anisotropic filtering forced on the game's textures: ground and walls seen at an angle stay sharp. Lower ") +
                 L.T("values cost a little less GPU time; Game's own leaves the game's filtering as it is"), "16",

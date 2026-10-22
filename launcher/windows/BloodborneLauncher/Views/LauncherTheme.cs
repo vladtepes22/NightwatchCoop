@@ -6,7 +6,7 @@ using Wpf.Ui.Appearance;
 namespace BloodborneLauncher.Views
 {
     /// <summary>
-    /// Colour themes (Settings › Appearance › Theme, live): an accent for everything interactive and
+    /// Colour themes (Launcher › Appearance › Theme, live): an accent for everything interactive and
     /// a faint tint of it in the surfaces, merged over Charcoal.xaml / Glass.xaml as one more
     /// dictionary of the same brush keys. Default is no dictionary at all: the look as designed.
     /// </summary>

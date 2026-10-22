@@ -209,6 +209,9 @@ namespace BloodborneLauncher.Core
             "Skip Intro", "Restore Debug Camera", "Restore Debug Menu (READ NOTES)", "Increased Graphics Heap Sizes",
         };
 
+        /// <summary>One of the port's own optional patches (Bloodborne.xml, shipped and replaced by updates).</summary>
+        public static bool IsBuiltIn(Patch patch) => string.Equals(patch.File, "Bloodborne.xml", StringComparison.OrdinalIgnoreCase);
+
         public static List<Patch> Discover(string directory)
         {
             var found = new List<Patch>();

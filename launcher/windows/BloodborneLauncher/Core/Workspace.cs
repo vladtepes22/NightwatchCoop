@@ -234,7 +234,7 @@ namespace BloodborneLauncher.Core
                 else if (!_iniWarned)
                 {
                     _iniWarned = true;
-                    Log("bbport.ini not written: the engine folder is not set (Settings › Nightwatch Co-op).", LogLevel.Warn);
+                    Log("bbport.ini not written: the engine folder is not set (More › Engine › Launch).", LogLevel.Warn);
                 }
                 Saved?.Invoke();
             }

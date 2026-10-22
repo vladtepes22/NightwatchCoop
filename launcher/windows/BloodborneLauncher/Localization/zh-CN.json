@@ -1653,5 +1653,19 @@
   "Windows had no memory left for the game (RAM plus page file). Let Windows manage the page file size ": "Windows 已没有可供游戏使用的内存（内存加页面文件）。请让 Windows 自动管理页面文件大小",
   "(System › About › Advanced system settings › Performance › Advanced › Virtual memory) on a drive with 20 GB ": "（系统 › 关于 › 高级系统设置 › 性能 › 高级 › 虚拟内存），所在磁盘至少留出 20 GB ",
   "free, close other programs, and on a graphics card with 8 GB or less turn off Highest model detail and frame generation.": "空间，关闭其他程序；显存 8 GB 或以下的显卡请关闭“最高”模型细节和帧生成。",
-  "Cheats are off while hosting or joining a party.": "主持或加入队伍时，修改项会关闭。"
+  "Cheats are off while hosting or joining a party.": "主持或加入队伍时，修改项会关闭。",
+  "Automatic": "自动",
+  "Automatic (by GPU)": "自动（按显卡）",
+  "Automatic (per quality)": "自动（按画质）",
+  "No custom command is set. Choose one in More › Engine › Launch.": "尚未设置自定义命令。请在“更多 › 引擎 › 启动”中选择。",
+  "Where the engine is, how the game starts, and every engine option in one place.": "引擎所在位置、游戏的启动方式，以及所有引擎选项，都在这一页。",
+  "leaves them out. Diagnostics › Extra variables (at the bottom) is there for anything not listed, and wins over these.": "不会使用它们。未列出的内容可在页面底部的“诊断 › 额外变量”中设置，且优先于这里的开关。",
+  "Built-in patches": "内置补丁",
+  "Optional patches that come with the launcher (Bloodborne.xml), off until you switch them on. Frame rate, effects and resolution have their own settings.": "启动器自带的可选补丁（Bloodborne.xml），默认关闭，需手动开启。帧率、效果和分辨率有各自的设置。",
+  "shadPS4-format XML patches for version 01.09 that you put in the patches folder. Put each in a file of its own: Bloodborne.xml is replaced on every update.": "你放入补丁文件夹的 01.09 版 shadPS4 格式 XML 补丁。请将每个补丁放在单独的文件中：Bloodborne.xml 会在每次更新时被替换。",
+  "Launcher": "启动器",
+  "How the launcher looks, sharing settings, files and keeping the launcher up to date.": "启动器外观、分享设置、文件，以及保持启动器为最新版本。",
+  "Settings code copied. Paste it in Discord; others import it in Launcher › Share settings.": "设置代码已复制。将其粘贴到 Discord；其他人可在“启动器 › 分享设置”中导入。",
+  "Progress": "进度",
+  "Method": "方式"
 }

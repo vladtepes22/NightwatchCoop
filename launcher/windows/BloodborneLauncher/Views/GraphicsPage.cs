@@ -26,7 +26,7 @@ namespace BloodborneLauncher.Views
             // model it would fall back to (#22).
             var fsr411 = Fsr4VkFound() || Directory.Exists(Fsr411Dir());
             if (!fsr411 && Ini.Get("upscaler") == "fsr411") Ini.Set("upscaler", "fsr4");
-            IniCombo(SymbolRegular.Sparkle24, L.T("Upscaler"), null,
+            IniCombo(SymbolRegular.Sparkle24, L.T("Method"), null,
                 fsr411 ? Choices.Upscalers : Choices.Upscalers.Where(c => c.Value != "fsr411").ToArray(), "upscaler", changed: UpdateUpscaler);
             _upscalerHint = (TextBlock)((SettingRow)Body.Children[^1]).Tag;
 
@@ -67,7 +67,7 @@ namespace BloodborneLauncher.Views
             SettingCombo(SymbolRegular.Gauge24, L.T("Frame rate"), L.T("30, 60, 90, 120 and 144 are the game's frame-rate patches for that rate; Uncapped uses the community uncapped patch"), Choices.FpsModes, "fps_mode");
 
             Group(L.T("Frame generation"));
-            IniCombo(SymbolRegular.FastForward24, L.T("Frame generation"),
+            IniCombo(SymbolRegular.FastForward24, L.T("Method"),
                 L.T("Extra frames between the game's own: smoother motion, a little more input lag. Needs an upscaler. Off by default"),
                 Choices.FrameGeneration, "frame_gen", changed: UpdateUpscaler);
             _frameGenHint = (TextBlock)((SettingRow)Body.Children[^1]).Tag;

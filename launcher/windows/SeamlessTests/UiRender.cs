@@ -17,9 +17,10 @@ internal static class UiRender
                 Directory.CreateDirectory(directory);
                 var app = new BloodborneLauncher.App();
                 app.InitializeComponent();
-                foreach (var classic in new[] { false, true })
+                // Each mode shows its own rows: Host and Join their party rows, single player only the saves.
+                foreach (var (mode, name) in new[] { ("host", "host"), ("join", "join"), ("", "single") })
                 {
-                    SettingRow.Classic = classic;
+                    BloodborneLauncher.Core.Workspace.Current.Settings.Set("party_mode", mode);
                     var page = new SeamlessPage();
                     page.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
                     var scroll = (ScrollViewer)page.Content;
@@ -29,7 +30,7 @@ internal static class UiRender
                     surface.Measure(new Size(920, 760));
                     surface.Arrange(new Rect(0, 0, 920, 760));
                     surface.UpdateLayout();
-                    if (scroll.ExtentHeight <= scroll.ViewportHeight) throw new InvalidOperationException("Party settings did not lay out.");
+                    if (mode.Length > 0 && scroll.ExtentHeight <= scroll.ViewportHeight) throw new InvalidOperationException("Party settings did not lay out.");
                     foreach (var (label, fraction) in new[] { ("party", 0.0), ("rules", 0.5), ("saves", 1.0) })
                     {
                         scroll.ScrollToVerticalOffset(scroll.ScrollableHeight * fraction);
@@ -38,11 +39,39 @@ internal static class UiRender
                         image.Render(surface);
                         var encoder = new PngBitmapEncoder();
                         encoder.Frames.Add(BitmapFrame.Create(image));
-                        using var output = File.Create(Path.Combine(directory, $"seamless-{(classic ? "classic" : "compact")}-{label}.png"));
+                        using var output = File.Create(Path.Combine(directory, $"seamless-{name}-{label}.png"));
                         encoder.Save(output);
                     }
                 }
-                Console.WriteLine("PASS: seamless settings render in compact and classic layouts without showing a window");
+                Console.WriteLine("PASS: seamless settings render for host, join and single player without showing a window");
+
+                // The other settings pages build and lay out too (their first and last screen).
+                foreach (var type in new[] { typeof(DisplayPage), typeof(GraphicsPage), typeof(ControlsPage), typeof(TrophiesPage),
+                             typeof(SettingsPage), typeof(ModsPage), typeof(CheatsPage), typeof(EnginePage) })
+                {
+                    var page = (LauncherPage)Activator.CreateInstance(type)!;
+                    page.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+                    var content = (UIElement)page.Content;
+                    var scroll = FindScroll(content) ?? throw new InvalidOperationException($"{type.Name} has no scroller.");
+                    page.Content = null;
+                    var surface = new Border { Background = new SolidColorBrush(Color.FromRgb(24, 24, 28)), Child = content };
+                    surface.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
+                    surface.Measure(new Size(920, 760));
+                    surface.Arrange(new Rect(0, 0, 920, 760));
+                    surface.UpdateLayout();
+                    foreach (var (label, fraction) in new[] { ("top", 0.0), ("end", 1.0) })
+                    {
+                        scroll.ScrollToVerticalOffset(scroll.ScrollableHeight * fraction);
+                        surface.UpdateLayout();
+                        var image = new RenderTargetBitmap(920, 760, 96, 96, PixelFormats.Pbgra32);
+                        image.Render(surface);
+                        var encoder = new PngBitmapEncoder();
+                        encoder.Frames.Add(BitmapFrame.Create(image));
+                        using var output = File.Create(Path.Combine(directory, $"{type.Name}-{label}.png"));
+                        encoder.Save(output);
+                    }
+                }
+                Console.WriteLine("PASS: every settings page renders");
             }
             catch (Exception error) { failure = error; }
         });
@@ -51,4 +80,7 @@ internal static class UiRender
         thread.Join();
         if (failure != null) throw new InvalidOperationException("Launcher rendering failed", failure);
     }
+
+    private static ScrollViewer? FindScroll(object at) => at as ScrollViewer ??
+        (at is DependencyObject parent ? LogicalTreeHelper.GetChildren(parent).Cast<object>().Select(FindScroll).FirstOrDefault(s => s != null) : null);
 }

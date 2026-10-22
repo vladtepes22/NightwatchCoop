@@ -27,12 +27,12 @@ namespace BloodborneLauncher.Views
         public PlayPage() : base(L.T("Play"), L.T("Check the game folder, choose where saves go, and start Bloodborne."))
         {
             // ==================== Summary + Play ====================
-            // A glass pane in the Modern layout, a card in Classic.
+            // A glass pane.
             var summary = new Border
             {
                 Margin = new Thickness(0, 14, 0, 0),
                 Padding = new Thickness(18, 16, 18, 16),
-                CornerRadius = new CornerRadius(SettingRow.Classic ? 8 : 16),
+                CornerRadius = new CornerRadius(16),
                 BorderThickness = new Thickness(1),
             };
             summary.SetResourceReference(Border.BackgroundProperty, "GlassPaneBrush");

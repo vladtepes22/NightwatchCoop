@@ -154,7 +154,7 @@
         /// <summary>The DLSS model (BB_DLSS_PRESET): NVIDIA's render presets.</summary>
         public static readonly Choice[] DlssModels =
         {
-            new(L.T("Auto (per quality)"), "auto", L.T("NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance")),
+            new(L.T("Automatic (per quality)"), "auto", L.T("NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance")),
             new("Transformer (preset K)", "k", L.T("The newer model: steadier thin and moving objects (a weapon on the back, railings)")),
             new("Transformer 2 (preset M)", "m", L.T("DLSS 4.5's model for Performance: sharper, a little heavier")),
             new("Transformer 2 (preset L)", "l", L.T("DLSS 4.5's model for Ultra Performance")),
@@ -197,7 +197,7 @@
 
         public static readonly Choice[] DrawPipe =
         {
-            new(L.T("Auto"), "", L.T("On with 8 or more CPU threads")),
+            new(L.T("Automatic"), "", L.T("On with 8 or more CPU threads")),
             new(L.T("On"), "1"),
             new(L.T("Off"), "0", L.T("More stable, but slower")),
         };
@@ -269,7 +269,7 @@
 
         public static readonly Choice[] LiveResolution =
         {
-            new(L.T("Auto (by GPU)"), "auto"),
+            new(L.T("Automatic (by GPU)"), "auto"),
             new(L.T("Off (faster)"), "0"),
             new(L.T("On"), "1"),
         };
@@ -290,7 +290,7 @@
 
         public static readonly Choice[] LaunchMethods =
         {
-            new("Lantern Engine", "windows", L.T("Prepares mods and patches, then starts the engine (out\\bb-probe.exe)")),
+            new("Nightwatch Co-op", "windows", L.T("Prepares mods and patches, then starts the engine (out\\bb-probe.exe)")),
             new(L.T("Custom command"), "custom", L.T("Runs a program of your choice with the settings as environment variables")),
         };
 

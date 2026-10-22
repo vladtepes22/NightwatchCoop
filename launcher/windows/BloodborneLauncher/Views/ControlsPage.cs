@@ -70,15 +70,12 @@ namespace BloodborneLauncher.Views
             IniToggle(SymbolRegular.ArrowSortDown24, L.T("Invert vertical"), null, "mouse_invert_y", mouse);
             IniToggle(SymbolRegular.ArrowRotateClockwise24, L.T("Camera auto-rotation"), L.T("Let the camera turn by itself with movement, as with a gamepad"),
                 "mouse_auto_rotation", mouse);
-            ComboRow(SymbolRegular.KeyboardShift24, L.T("Button prompts"),
-                L.T("The button icons in the game's menus and prompts. Automatic shows your keys while the keyboard or mouse is in use, and the controller's buttons with a controller; also in-game under System › PC Controls"),
-                Choices.ButtonPrompts, () => Ini.Get("button_prompts", "auto"), v => Ini.Set("button_prompts", v), mouse);
-            Body.Children.Add(mouse);
             ToggleRow(SymbolRegular.CursorHoverOff24, L.T("Hide mouse cursor"), L.T("Hidden 2 seconds after the mouse stops moving; moving it brings it back"),
-                () => Ini.Get("hide_cursor", "1") != "0", v => Ini.Set("hide_cursor", v ? "1" : "0"));
-            void Enable() => mouse.IsEnabled = pc.IsChecked == true;
-            pc.Click += (_, _) => { Enable(); Rebuild(); };
-            Enable();
+                () => Ini.Get("hide_cursor", "1") != "0", v => Ini.Set("hide_cursor", v ? "1" : "0"), mouse);
+            Body.Children.Add(mouse);
+            void ShowMouse() => mouse.Visibility = pc.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            pc.Click += (_, _) => { ShowMouse(); Rebuild(); };
+            ShowMouse();
 
             // ==================== Profiles ====================
             Group(L.T("Profiles"));
@@ -104,6 +101,9 @@ namespace BloodborneLauncher.Views
                 L.T("The controller's buttons in the game's menus and prompts. Automatic shows PlayStation buttons with a PlayStation controller ") +
                 L.T("and Xbox buttons (A, B, X, Y, LB, RT…) with any other; rebound buttons show as bound. Also in-game under System › PC Controls"),
                 Choices.PadIcons, () => Ini.Get("pad_icons", "auto"), v => Ini.Set("pad_icons", v));
+            ComboRow(SymbolRegular.KeyboardShift24, L.T("Button prompts"),
+                L.T("The button icons in the game's menus and prompts. Automatic shows your keys while the keyboard or mouse is in use, and the controller's buttons with a controller; also in-game under System › PC Controls"),
+                Choices.ButtonPrompts, () => Ini.Get("button_prompts", "auto"), v => Ini.Set("button_prompts", v));
             IniToggle(SymbolRegular.ArrowSwap24, L.T("Swap sticks"), L.T("Move with the right stick and look with the left"), "pad_swap_sticks", changed: () => Rebuild());
             IniToggle(SymbolRegular.ArrowBidirectionalLeftRight24, L.T("Invert camera left / right"), L.T("The camera stick's horizontal direction"), "pad_invert_look_x");
             IniToggle(SymbolRegular.ArrowBidirectionalUpDown24, L.T("Invert camera up / down"), L.T("The camera stick's vertical direction"), "pad_invert_look_y");

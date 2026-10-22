@@ -1456,5 +1456,12 @@
   "DLSS dynamic frame generation": "DLSS: generazione dei fotogrammi dinamica",
   "RTX 50: the driver picks 2x, 3x or 4x moment by moment to reach your refresh rate, up to the generated frames above. Fewer generated frames when the game is fast: less lag, fewer artifacts. Also in game, with a target FPS": "RTX 50: il driver sceglie 2x, 3x o 4x momento per momento per raggiungere la frequenza di aggiornamento, fino ai fotogrammi generati sopra. Meno fotogrammi generati quando il gioco è veloce: meno latenza e meno artefatti. Anche in gioco, con FPS obiettivo",
   "Auto (per quality)": "Automatico (per qualità)",
-  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "L'abbinamento di NVIDIA per DLSS 4.5: K per DLAA, Qualità e Bilanciato, M per Prestazioni, L per Ultra prestazioni"
+  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "L'abbinamento di NVIDIA per DLSS 4.5: K per DLAA, Qualità e Bilanciato, M per Prestazioni, L per Ultra prestazioni",
+  "Automatic": "Auto",
+  "Automatic (by GPU)": "Auto (in base alla GPU)",
+  "Automatic (per quality)": "Automatico (per qualità)",
+  "Launcher": "Launcher",
+  "Progress": "Progressi",
+  "Built-in patches": "Patch integrate",
+  "Method": "Metodo"
 }
