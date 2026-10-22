@@ -24,6 +24,7 @@
 #include "engine_hooks.h"
 #include "engine_state.h"
 #include "bbport_settings.h"
+#include "../../party_env.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -566,13 +567,14 @@ void Disable(Extra& e, const char* why) {
     std::printf("Cheats: %s unavailable: %s\n", e.name, why);
 }
 
-// Online (BB_ONLINE=1, scripts/online.py): other players share the world, so no cheat runs. Off
-// for the whole session.
+// Other players share the world (Nightwatch: a party, host or join; BB_ONLINE=1), so no cheat
+// runs. Off for the whole session; single player keeps them.
 bool SharedWorld() {
     static const bool shared = [] {
         const char* online = std::getenv("BB_ONLINE");
-        const bool on = online && online[0] == '1';
-        if (on) std::printf("Cheats: off while playing online\n");
+        const bool party = bb_party_enabled();
+        const bool on = party || (online && online[0] == '1');
+        if (on) std::printf("Cheats: off while playing %s\n", party ? "in a party" : "online");
         return on;
     }();
     return shared;
@@ -976,6 +978,7 @@ bool Install(std::uint8_t* image, std::size_t size) {
 }
 
 const char* Unavailable(Which which) {
+    if (SharedWorld()) return "off while hosting or joining a party";
     if (which == Vials || which == Bullets) return g_cheats[which == Bullets ? 1 : 0].unavailable.load();
     if (which == Echoes) return g_echoes_unavailable.load();
     if (which >= WhichCount) return kNotVerified;

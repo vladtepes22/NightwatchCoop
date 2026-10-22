@@ -26,7 +26,7 @@ namespace BloodborneLauncher.Views
         private readonly InfoBar _engine;
 
         public CheatsPage() : base(L.T("Cheats"),
-            L.T("Set here for the next start. While playing, change them in the in-game menu (Insert or L3 + R3): they apply live. Turning a cheat off puts the game's values back; items you already have stay."))
+            L.T("Set here for the next start. While playing, change them in the in-game menu (Insert or L3 + R3): they apply live. Turning a cheat off puts the game's values back; items you already have stay.") + " " + L.T("Cheats are off while hosting or joining a party."))
         {
             _engine = new InfoBar
             {

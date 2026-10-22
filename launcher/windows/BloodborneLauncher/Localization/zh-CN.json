@@ -1652,5 +1652,6 @@
   "Resolution, window mode, FPS counter, HDR and menu language. Applied when the game starts.": "分辨率、窗口模式、帧率计数器、HDR 和菜单语言。启动游戏时生效。",
   "Windows had no memory left for the game (RAM plus page file). Let Windows manage the page file size ": "Windows 已没有可供游戏使用的内存（内存加页面文件）。请让 Windows 自动管理页面文件大小",
   "(System › About › Advanced system settings › Performance › Advanced › Virtual memory) on a drive with 20 GB ": "（系统 › 关于 › 高级系统设置 › 性能 › 高级 › 虚拟内存），所在磁盘至少留出 20 GB ",
-  "free, close other programs, and on a graphics card with 8 GB or less turn off Highest model detail and frame generation.": "空间，关闭其他程序；显存 8 GB 或以下的显卡请关闭“最高”模型细节和帧生成。"
+  "free, close other programs, and on a graphics card with 8 GB or less turn off Highest model detail and frame generation.": "空间，关闭其他程序；显存 8 GB 或以下的显卡请关闭“最高”模型细节和帧生成。",
+  "Cheats are off while hosting or joining a party.": "主持或加入队伍时，修改项会关闭。"
 }
