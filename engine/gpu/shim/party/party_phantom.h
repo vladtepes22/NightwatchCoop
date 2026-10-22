@@ -70,9 +70,15 @@ std::size_t ParseEmevdSkipRules(const std::string& text, std::vector<EmevdSkipRu
 bool EmevdSkipMatches(const EmevdSkipRule& r, std::int32_t event, std::int32_t bank, std::int32_t id,
                       std::int32_t index);
 std::string DescribeSkipRule(const EmevdSkipRule& r);
-/// Common event 7600 instructions 6 (2005[3] object on) and 7 (2006[2] SFX on), and the same two of
-/// its Chalice Dungeon copy 12907600 (m29.emevd), needs_travel.
+/// Every co-op wall event's wall-on (2005[3]) and SFX-on (2006[2]) instructions (bossfog::
+/// ConfinementWalls: common 7600, its Chalice Dungeon copy 12907600, m34 13400010 behind Ludwig),
+/// needs_travel (the open world).
 std::vector<EmevdSkipRule> ConfinementWallRules();
+/// Party mode, whatever the open world: a progress wall's "not in multiplayer" condition (13400010:
+/// down at Ludwig's death while the party stays) and, on a client, the re-fight events' client
+/// skip of the bosses whose first fight starts by the host's action (bossfog::FirstFights: the
+/// room stays open until the fight starts).
+std::vector<EmevdSkipRule> BossRoomRules();
 
 // ---- EVENT "phantom" (host -> guests) ----
 constexpr const char* kPhantomEventName = "phantom";

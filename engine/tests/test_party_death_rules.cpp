@@ -18,7 +18,25 @@ static int g_failures = 0;
         }                                                                        \
     } while (0)
 
+static void TestFallBackAndBeside() {
+    using namespace coop::deathrules;
+    // lamprule run 7: placed, never stood still, no safe spot: back beside the host.
+    CHECK(FallBackTarget(false, false, true) == FallBack::Host);
+    CHECK(FallBackTarget(false, false, false) == FallBack::None);
+    CHECK(FallBackTarget(true, true, true) == FallBack::GameSafe);
+    CHECK(FallBackTarget(false, true, true) == FallBack::Stable);
+    CHECK(FallBackTarget(true, false, true) == FallBack::GameSafe);
+    // The title join's move beside the host: not when already there; else only on loaded ground.
+    CHECK(PlanBesideMove(1.6f, false, false, 0.0) == BesideMove::Skip);  // run 7: 1.6 m from the target
+    CHECK(PlanBesideMove(20.0f, false, false, 0.5) == BesideMove::Wait);  // map "-": wait
+    CHECK(PlanBesideMove(20.0f, true, false, 2.0) == BesideMove::Wait);   // no ground under it yet
+    CHECK(PlanBesideMove(20.0f, true, true, 2.0) == BesideMove::Warp);
+    CHECK(PlanBesideMove(20.0f, false, false, 12.0) == BesideMove::Skip); // gave up: the game's placement
+    CHECK(PlanBesideMove(-1.0f, true, true, 1.0) == BesideMove::Warp);    // position unknown: on ground only
+}
+
 int main() {
+    TestFallBackAndBeside();
     // C5: the spectator's notice.
     CHECK(SpectateNotice("Hunter0", 1) == "Spectating Hunter0");
     CHECK(SpectateNotice("Hunter2", 2) == "Spectating Hunter2  -  Cross: next hunter");
@@ -499,6 +517,13 @@ int main() {
     CHECK(TestStepWaits(true, false, true, false));                  // guest_obj while dead
     CHECK(!TestStepWaits(true, true, true, false));
     CHECK(!TestStepWaits(false, false, true, false));                // a press may run while dead
+    // a die step whose chr was killed first (the boss): done, the chain goes on after the respawn
+    CHECK(TestDieStepLatches(true, false, true, false, false));
+    CHECK(!TestDieStepLatches(true, true, true, false, false));      // alive: the step kills it
+    CHECK(!TestDieStepLatches(false, false, true, false, false));    // not a die step: waits
+    CHECK(!TestDieStepLatches(true, false, true, true, false));      // in a re-join / load
+    CHECK(!TestDieStepLatches(true, false, false, false, false));
+    CHECK(!TestDieStepLatches(true, false, true, false, true));      // the previous die step's own death
     CHECK(TestStepWaits(false, true, true, true));                   // inside the last wipe's re-join
     CHECK(TestStepWaits(false, true, false, false));                 // not in the world
 
@@ -619,6 +644,54 @@ int main() {
     }
     // Issue #4 item 7: a guest's respawn at a lamp of the loaded map.
     // Fall state only (user decision): the distance no longer decides.
+    // fallcam: the fall-death camera latch is released by every revive / in-world warp that finds it
+    // set; the camera is reset behind the chr whenever it was moved or the latch was on.
+    {
+        const ReviveCamera djura = PlanReviveCamera(true, true);  // the report: latch 1, the lamp 158 m away
+        CHECK(djura.release_latch && djura.cam_reset);
+        const ReviveCamera lies = PlanReviveCamera(true, false);  // up where it lies after a fall (latch on)
+        CHECK(lies.release_latch && lies.cam_reset);
+        const ReviveCamera lamp = PlanReviveCamera(false, true);  // a normal death at its lamp (s1 / s3)
+        CHECK(!lamp.release_latch && lamp.cam_reset);
+        const ReviveCamera none = PlanReviveCamera(false, false); // an arena revive in place, no fall
+        CHECK(!none.release_latch && !none.cam_reset);
+    }
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    CHECK(JudgeReviveView(4.5, 0.1, false) == ReviveView::Ok);           // the follow camera behind it
+    CHECK(JudgeReviveView(1.0, nan, false) == ReviveView::Ok);           // a wall pushed it near; no matrix
+    CHECK(JudgeReviveView(4.5, 0.1, true) == ReviveView::FallCamera);    // the latch left on
+    CHECK(JudgeReviveView(158.0, 0.1, false) == ReviveView::CameraAway); // the report: the camera at the fall
+    CHECK(JudgeReviveView(kReviveCamNear + 0.1, 0.0, false) == ReviveView::CameraAway);
+    CHECK(JudgeReviveView(kReviveCamNear, 0.0, false) == ReviveView::Ok);
+    CHECK(JudgeReviveView(5.0, 158.0, false) == ReviveView::DrawnAway);  // drawn at the old spot
+    CHECK(JudgeReviveView(nan, 0.0, false) == ReviveView::NoCamera);     // headless without frames
+    CHECK(JudgeReviveView(nan, 0.0, true) == ReviveView::FallCamera);    // the latch is judged without frames
+    CHECK(JudgeReviveView(4.9, nan, false, -0.78) == ReviveView::Steep);   // fdj r3: the fall camera's pitch
+    CHECK(JudgeReviveView(5.1, nan, false, -0.98) == ReviveView::Steep);
+    CHECK(JudgeReviveView(4.0, nan, false, -0.00) == ReviveView::Ok);      // fl r1: the level follow view
+    CHECK(JudgeReviveView(4.0, nan, false, -0.3) == ReviveView::Ok);
+    CHECK(JudgeReviveView(4.0, nan, true, -0.9) == ReviveView::FallCamera);  // the latch first
+    CHECK(JudgeReviveView(158.0, nan, false, -0.9) == ReviveView::CameraAway);
+    CHECK(std::string(ReviveViewName(ReviveView::Steep)).rfind("BAD", 0) == 0);
+    // the level reset after a release, a warp, or a ChrCam still in its fall-die mode
+    CHECK(LevelCameraDue(true, true, 0));
+    CHECK(LevelCameraDue(true, false, 0));
+    CHECK(LevelCameraDue(false, true, 0));      // a normal death's lamp revive: level as after a load
+    CHECK(LevelCameraDue(false, false, kChrCamFallDieMode));
+    CHECK(!LevelCameraDue(false, false, 0));    // up where it lies, no fall: the camera as it is
+    CHECK(!LevelCameraDue(false, false, 1));
+    // fallcam 3: a ladder action state left on the chr is put back to none by the revive
+    CHECK(LadderLeftover(0));              // on a ladder (state 0 .. n)
+    CHECK(LadderLeftover(3));
+    CHECK(!LadderLeftover(kNoLadder));     // the constructor's 0xFF: no ladder
+    CHECK(!LadderLeftover(kLadderUnread)); // unreadable (no ChrCtrl)
+    CHECK(WalkedToward(0.0, 3.0, 0.0, 4.0));    // 3 m of a 4 m walk north
+    CHECK(WalkedToward(-2.0, 0.1, -4.0, 0.0));  // west
+    CHECK(!WalkedToward(0.0, 3.0, 4.0, 0.0));   // asked east, went north: stuck on one axis
+    CHECK(!WalkedToward(0.0, -0.5, 0.0, 4.0));  // backwards
+    CHECK(!WalkedToward(1.0, 1.0, 0.0, 0.0));   // no target
+    CHECK(std::string(ReviveViewName(ReviveView::Ok)) == "ok");
+    CHECK(std::string(ReviveViewName(ReviveView::FallCamera)).rfind("BAD", 0) == 0);
     CHECK(PlanGuestRevive(0.0, true, false) == GuestRevive::InPlace);        // a normal death
     CHECK(PlanGuestRevive(2.0, true, false) == GuestRevive::InPlace);        // a stumble is no fall
     CHECK(PlanGuestRevive(6.0, true, false) == GuestRevive::LoadFall);       // a fall
@@ -654,8 +727,13 @@ int main() {
     CHECK(!FallSample(4.0, 0.0, 1.5, false) && !FallSample(std::nan(""), 1.0, 1.5, false));
     // ... and the nets' decision: 6 s and a real fall's drop. The report: 27 m of the Mensis lift in
     // 6.5 s fired (warped to the lamp); a fall out of the world covers 100+ m in that time.
-    CHECK(!FallRecoveryDue(6.5, 27.0) && !FallRecoveryDue(15.0, 39.0));
-    CHECK(FallRecoveryDue(6.0, 150.0) && !FallRecoveryDue(5.9, 150.0));
+    CHECK(!FallRecoveryDue(6.5, 27.0, 30.0) && !FallRecoveryDue(15.0, 39.0, 30.0));
+    CHECK(FallRecoveryDue(6.0, 150.0, 30.0) && !FallRecoveryDue(5.9, 150.0, 30.0));
+    // liftfix: and only after a sample faster than any lift. A 60 m ride at ~5 m/s whose car the ride
+    // test misses (a Chalice Dungeon's generated lift) drops 40 m in 8 s: no fall; a free fall from the
+    // Great Bridge passes 10 m/s within a second (full smoke 0.7.1: a fall off the Mensis car, 11-23 m/s).
+    CHECK(!FallRecoveryDue(8.0, 40.0, 5.1) && !FallRecoveryDue(12.0, 60.0, 12.7));  // 12.7: Cainhurst's peak
+    CHECK(FallRecoveryDue(6.0, 150.0, 23.0) && FallRecoveryDue(6.0, 40.0, kLiftMaxRate));
     // The drop test around a death: the peak counts from the last sample on a moving object.
     {
         std::vector<HeightSample> ride = {{0.0, 1003.8, true}, {1.0, 999.8, true}, {2.0, 995.8, true}, {3.0, 991.8, true}};

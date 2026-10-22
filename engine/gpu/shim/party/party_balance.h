@@ -19,8 +19,10 @@
 //       a kind picked at random: max HP -10 % (the max-HP rate 0x17e46e0) or max stamina -10 %
 //       (the stamina rate 0x17e4a20); both prologues replaced, the local player's list only. A lamp / headstone use started by the
 //       player (party_travel SetLampUseObserver; not the respawn warp of a death) cleanses it.
-//       Kept in <user>/party_rot.txt across restarts, per save slot (character). Echoes are not touched (the bloodstain is
-//       the hostdeath work).
+//       Kept in <user>/party_rot.txt across restarts, per save slot (character). Off by default (0.7.2).
+//       0.7.2 (party_rot_rules.h): a boss's death cleanses all of it, the death of the enemy that killed
+//       this player (the kill log 0x1FEB2A0's attacker) that death's stack, the own bloodstain picked
+//       up the stack of the death that dropped it (host rules party_rot_cleanse_*).
 //   E2  This player's level, death count and rot stacks go out with the party HUD's VITALS.
 //
 // Env: BB_PARTY_BALANCE=0 turns all of it off (no hook, no param writes, no events);
@@ -55,6 +57,18 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool host);
 /// Any thread: a lamp's travel menu opened (direct lamp travel's warp menu, which is no generic
 /// dialog): counts as the lamp's menu (#21, a rest for the rot) on the next tick.
 void NoteLampMenuOpened();
+/// 0.7.2, what else cleanses rot (party_rot_rules.h; any thread, applied by the next tick under
+/// the rules in force). A boss died with this player in the host's world (party_phantom: the
+/// game's boss clear here, or the host's boss-kill notice; `entity` 0 when unknown).
+void NoteBossDefeated(std::uint32_t entity, const char* from);
+/// An enemy of the party died (the kill record: seen here, or a member's kill from the host).
+void NotePartyKill(std::uint32_t entity, const char* from);
+/// The kill record's state (party_progress_bridge, every tick): `follows_host_world` a guest's
+/// record follows the host's world (its own loads are then no new world); `new_world` the host's
+/// world was reset now (a rest, a wipe: every killer respawned).
+void NoteKillWorld(bool follows_host_world, bool new_world, const char* from);
+/// This player's own bloodstain was picked up (party_b2: its Blood Echoes came back).
+void NoteEchoesRetrieved(const char* from);
 /// Guest: the host's EVENT "balance" (any thread). False (and *error) when malformed.
 bool OnHostRules(const std::string& json, std::string* error = nullptr);
 /// The rules in force now.

@@ -9,9 +9,11 @@
 #include "party_death_rules.h"
 #include "party_director.h"
 #include "party_guestsvc.h"
+#include "party_ids.h"
 #include "party_link.h"
 #include "party_progress.h"
 #include "party_status.h"
+#include "party_stay_rules.h"
 #include "party_travel.h"
 #include "../bbport_game_menu_pages.h"
 
@@ -316,6 +318,22 @@ void Carry(const Pending& p, bool alone, const char* how) {
         }
         Log("lamp %u: travelling alone is not possible now; the party travels together", p.id);
     }
+    if (!alone && !p.mark &&
+        stayrules::PlanApartGuestYes(b2::MemberApart(0), ids::EntityMap(p.id), b2::MemberMap(0)) ==
+            stayrules::ApartYes::OwnTrip) {
+        // A guest in another area than the host (left in the Dream by the host's alone travel)
+        // chose a lamp of the block the host stands in: the host ignores such a request (it would
+        // only be moved inside its own map), so this guest goes there itself - a re-join at that
+        // lamp, one loading screen, the host does not move (party_stay_rules.h).
+        TravelIntent t;
+        if (b2::LampTravelIntent(p.id, &t) &&
+            b2::TravelAlone(t, p.id == 2102950 ? b2::AloneWhy::Lamp : b2::AloneWhy::Headstone)) {
+            Log("lamp %u (guest): the host is in another area and this lamp is in its map: this guest goes there "
+                "itself (a re-join, the host does not move)", p.id);
+            return;
+        }
+        Log("lamp %u: the guest's own trip into the host's map is not possible now; the party request instead", p.id);
+    }
     // With the party: a guest's Hunter's Mark takes the party to the host's last lamp.
     const u32 id = p.mark ? GuestDeathRedirectLamp() : p.id;
     if (p.mark && (id == kTravelNone || id == 0)) {
@@ -377,7 +395,10 @@ void NoteStoryWarp(std::uint32_t id) {
     g_story_at = Now();
 }
 
+std::atomic<double> g_warp_seen_at{-1};  // the last lamp warp this game ran (HeadstoneWarpTick)
+
 bool OnLampWarp(std::uint32_t id) {
+    g_warp_seen_at = Now();
     return Hold(id, false);
 }
 
@@ -519,6 +540,25 @@ void OnChoosingEvent(int slot, const std::string& who, const std::string& body) 
 
 void Tick(const GameSnapshot& s, party::PartyLink* link) {
     static double release_at = 0;  // a test / cancel press is a tap
+    {
+        // A guest's headstone choice whose warp event was used up (party_stay_rules.h: the host's
+        // warp to the same lamp ran this game's copy of event 12107000 already): the warp itself.
+        static double done_for = -1;
+        const double at = g_local_at.load();
+        const u32 lamp = stayrules::HeadstoneFlagLamp(g_local_id.load());
+        if (lamp && at >= 0 && at != done_for) {
+            const bool guest = PartyDirector::Get().Role() == PartyRole::Guest && SessionRole() == kRoleClient;
+            const bool dream = s.world_up && !s.loading && s.map_id != 0xffffffffu && (s.map_id >> 24) == 21;
+            if (stayrules::HeadstoneWarpFallback(guest, dream, Now() - at, g_warp_seen_at.load() >= at, false) &&
+                ids::ReturnPointKnown(lamp)) {
+                done_for = at;
+                Log("lamp %u (guest): headstone flag %u set %.1f s ago and no warp followed (the Dream's warp event for "
+                    "this lamp already ran here for another member's use): the warp runs now", lamp, g_local_id.load(),
+                    Now() - at);
+                RunLampWarp(lamp);
+            }
+        }
+    }
     {
         // Diagnostics (bug 20): every lamp flag, own or a peer's, once.
         static double local_seen = -1, remote_seen = -1;

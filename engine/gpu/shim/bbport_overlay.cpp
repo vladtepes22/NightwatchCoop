@@ -764,18 +764,17 @@ void Menu() {
     PictureSection();
     ImGui::SeparatorText(BbSettings::MenuText("Game effects (restart required)",
                                               "Эффекты игры (после перезапуска)"));
-    const char* lods[] = {BbSettings::MenuText("Highest (-2)", "Максимальная (-2)"),
-                          BbSettings::MenuText("Game default", "Как в игре"),
-                          BbSettings::MenuText("Lower (1)", "Ниже (1)"),
-                          BbSettings::MenuText("Lowest (2)", "Минимальная (2)")};
-    static constexpr int lod_values[] = {-2, 0, 1, 2};
-    int lod_index = 1;
-    for (int i = 0; i < 4; ++i) {
+    // visy 0.7.2: no Highest (-2: far objects not drawn) and no Lowest (2: floors missing).
+    const char* lods[] = {BbSettings::MenuText("Game default", "Как в игре"),
+                          BbSettings::MenuText("Lower (1)", "Ниже (1)")};
+    static constexpr int lod_values[] = {0, 1};
+    int lod_index = 0;
+    for (int i = 0; i < 2; ++i) {
         if (lod_values[i] == s.model_lod) lod_index = i;
     }
     if (ImGui::BeginCombo(BbSettings::MenuText("Model detail", "Детализация моделей"),
                           lods[lod_index])) {
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 2; ++i) {
             if (ImGui::Selectable(lods[i], i == lod_index)) {
                 Store(s.model_lod, lod_values[i], true);
             }

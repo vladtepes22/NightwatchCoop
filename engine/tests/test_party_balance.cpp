@@ -27,9 +27,9 @@ int main() {
     assert(!EnemyScalingActive(v));
     assert(Boss(v, 0) == Doping{} && Enemy(Rules{}, 0) == Doping{});
 
-    // The defaults: harder than vanilla (user decision 2026-10-11).
+    // The defaults: harder than vanilla (user decision 2026-10-11); rot off (2026-10-22).
     const Rules d;
-    assert(d.rot && d.boss_hp == 150 && d.boss_damage == 10 && d.enemy_hp == 50);
+    assert(!d.rot && d.boss_hp == 150 && d.boss_damage == 10 && d.enemy_hp == 50);
     const Doping b1 = Boss(d, 1), b2 = Boss(d, 2), e2 = Enemy(d, 2);
     assert(Near(b1.hp_rate, 1.75f) && Near(b2.hp_rate, 2.5f) && Near(b1.attack_rate, 1.1f) && b1.super_armor == 30);
     assert(Near(e2.hp_rate, 1.5f) && Near(e2.attack_rate, 1.0f) && e2.super_armor == 0);
@@ -71,9 +71,19 @@ int main() {
         assert(FromJson("{\"rot\":true,\"host_revive\":false}", &old) && old.kill_record && old.npc_mirror &&
                old.gather && !old.host_revive);
     }
+    // 0.7.2: Guests bring their lamps goes with the rules, off by default; a host from before it: off.
+    {
+        Rules g;
+        assert(!g.guests_bring_lamps && g.share_lamps);
+        g.guests_bring_lamps = true;
+        Rules gb;
+        assert(FromJson(ToJson(g), &gb) && gb == g && gb.guests_bring_lamps && gb != Rules{});
+        Rules old;
+        assert(FromJson("{\"share_lamps\":true}", &old) && !old.guests_bring_lamps);
+    }
     Rules c;
     assert(FromJson("{\"boss_hp\":100000,\"enemy_damage\":-5,\"rot\":7}", &c));
-    assert(c.boss_hp == 400 && c.enemy_damage == 0 && c.rot);
+    assert(c.boss_hp == 400 && c.enemy_damage == 0 && !c.rot);  // not a bool: the default (off)
     // A host still sending negative poise (an older build): 0 on the guest.
     assert(FromJson("{\"boss_poise\":-100,\"enemy_poise\":-25}", &c) && c.boss_poise == 0 && c.enemy_poise == 0);
     std::string err;

@@ -10,6 +10,8 @@
 #include "party_async_io.h"
 #include "party_balance.h"
 #include "party_director.h"
+#include "party_guestsvc.h"
+#include "../bbport_game_menu.h"
 #include "party_ids.h"
 #include "party_split.h"
 #include "seamless_rules.h"
@@ -45,7 +47,7 @@ constexpr u32 kMenuMask = 0xeffffb33u;
 constexpr u64 kLampWarp = 0x13cdf30;      // void (u32 ReturnPointParam id): lamp / headstone warp
 constexpr u64 kFlipperUpdate = 0x2034770; // main-thread tick (as party_director)
 constexpr u64 kMapObject = 0x13c9af0;     // (entity, u32* index) -> map object record (+0x240 3x4 rows)
-constexpr u32 kPadCross = 0x4000, kPadDown = 0x40, kPadRight = 0x20, kPadLeft = 0x80;
+constexpr u32 kPadCross = 0x4000, kPadDown = 0x40, kPadRight = 0x20, kPadLeft = 0x80, kPadCircle = 0x2000;
 
 
 void Log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -161,10 +163,11 @@ std::vector<Spot> LampSpots() {
 
 /// The lamp the player stands at (its return point; 0 unknown).
 u32 HereLamp(const GameSnapshot& s) {
-    float me[3];
-    if (!PlayerPos(s.player, me)) return 0;
+    float drawn[3], phys[3];
+    const bool phys_ok = s.player && balance::ChrPosition(s.player, phys);
+    if (!PlayerPos(s.player, drawn) && !phys_ok) return 0;
     static const std::vector<Spot> spots = LampSpots();
-    return NearestLamp(spots, s.map_id, me, 15.0f);
+    return NearestLamp(spots, s.map_id, StandingPos(phys_ok, phys, drawn), 15.0f);
 }
 
 bool Flag(u32 id) {
@@ -353,6 +356,12 @@ struct TestState {
     bool dream = false;
     u32 walked = 0;        // the lamp walked to
     int rewalks = 0;
+    bool list_only = false;   // listonly: once the warp menu is up, log its entries and close it (Circle)
+    bool listed = false;
+    int pose = 0;             // listonly: the stand spot tried (PlacePose)
+    double pose_at = 0;
+    bool lit_seen = false;
+    bool pose_pressed = false;
     bool setup_only = false;  // setuponly: done after continue / start= (no lamp walk, no warp menu)
     bool start_any = false;  // startany: the start= warp also when the save is in that map  // dream: Cross, Left (YES), Cross at the lamp; done when a load starts (#22)  // titleany: also in a party process whose host never answers (#22)
     u32 lamp = 0;          // lamp=ID (0: the nearest lit one)
@@ -360,7 +369,7 @@ struct TestState {
     u32 start = 0;         // start=ID: first a plain lamp warp there when the save is in another map
     bool started = false;
     enum Stage { Title, Settle, Walk, Press, Choose, Wait, Done } stage = Title;
-    double at = 0, steady_since = 0, release_at = 0, members_at = 0;
+    double at = 0, steady_since = 0, release_at = 0, members_at = 0, members_wait = 12.0;
     int presses = 0, downs = 0, want_downs = -1, confirms = 0;
     u32 target = 0;
 } g_t;
@@ -385,6 +394,7 @@ void TestParse() {
         else if (item == "dream") g_t.dream = true;
         else if (item == "startany") g_t.start_any = true;
         else if (item == "setuponly") g_t.setup_only = true;
+        else if (item == "listonly") g_t.list_only = true;
         else if (item == "members") g_t.members = true;
         else if (item.rfind("lamp=", 0) == 0) g_t.lamp = static_cast<u32>(std::strtoul(item.c_str() + 5, nullptr, 10));
         else if (item.rfind("start=", 0) == 0) g_t.start = static_cast<u32>(std::strtoul(item.c_str() + 6, nullptr, 10));
@@ -417,6 +427,33 @@ bool WalkTo(const GameSnapshot& s, u32 rp) {
     reinterpret_cast<void(BB_COOP_SYSV*)(u64, const float*, const float*, u64)>(fn)(s.player, pos, rot, 0);
     Log("test: standing 1 m in front of lamp %u (object %d at %.1f, %.1f, %.1f; was %.1f m away)", rp,
         static_cast<int>(rp - 1000), t[0], t[1], t[2], std::sqrt(h * h + (me[1] - t[1]) * (me[1] - t[1])));
+    return true;
+}
+
+/// listonly (an unlit lamp: lighting needs its action prompt): stand spot `k` for lamp `rp`: 0-3 the
+/// lamp's return spot (where the game puts a player at it) with its own yaw, then turned by 90
+/// degrees each; 4-7 1.2 m from the lamp object on each side, facing it. False: no such spot.
+bool PlacePose(const GameSnapshot& s, u32 rp, int k) {
+    alignas(16) float pos[4] = {0, 0, 0, 1.0f};
+    alignas(16) float rot[4] = {0, 0, 0, 0};
+    if (k < 4) {
+        float sp[4];
+        if (!ids::ReturnSpot(rp, sp)) return false;
+        pos[0] = sp[0], pos[1] = sp[1], pos[2] = sp[2];
+        rot[1] = sp[3] + 1.5707963f * static_cast<float>(k);
+    } else {
+        u32 idx = 0xffffffffu;
+        float m[12] = {};
+        const u64 rec = reinterpret_cast<u64(BB_COOP_SYSV*)(i32, u32*)>(Guest(kMapObject))(static_cast<i32>(rp - 1000), &idx);
+        if (!rec || !SafeRead(rec + 0x240, m, sizeof m)) return false;
+        const float a = 1.5707963f * static_cast<float>(k - 4);
+        pos[0] = m[3] + 1.2f * std::sin(a), pos[1] = m[7], pos[2] = m[11] + 1.2f * std::cos(a);
+        rot[1] = std::atan2(m[3] - pos[0], m[11] - pos[2]) + 3.14159265f;  // as WalkTo: facing the object
+    }
+    u64 vtbl = 0, fn = 0;
+    if (!SafeGet(s.player, &vtbl) || !SafeGet(vtbl + 0x5f8, &fn) || !fn) return false;
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64, const float*, const float*, u64)>(fn)(s.player, pos, rot, 0);
+    Log("test: listonly: spot %d at lamp %u: (%.1f, %.1f, %.1f) yaw %.2f", k, rp, pos[0], pos[1], pos[2], rot[1]);
     return true;
 }
 
@@ -465,16 +502,24 @@ void TestTick(const GameSnapshot& s, double now) {
             g_t.at = now + 4.0;  // the load starts first
             return;
         }
+        if (g_t.list_only && g_t.lamp && MapOf(g_t.lamp) != (s.map_id & 0xffff0000u)) {
+            g_t.members_at = 0;  // listonly: wait in the lamp's map (a joiner may land in the Dream first)
+            return;
+        }
         if (g_t.members) {
             if (now - g_t.at >= 1.0) {
                 g_t.at = now;
-                const int coop = ReadGameState(true).cooperators;
-                if (coop >= 1 && g_t.members_at == 0) {
+                const GameSnapshot full = ReadGameState(true);
+                const int coop = full.cooperators;
+                // A summoned guest (lamprule smoke): in the host's world counts as members too.
+                const bool summoned = full.session_role == RoleClient;
+                if ((coop >= 1 || summoned) && g_t.members_at == 0) {
                     g_t.members_at = now;
-                    Log("test: %d cooperator(s) in the world", coop);
+                    g_t.members_wait = summoned ? 4.0 : 12.0;  // summoned: the world is the host's already
+                    Log("test: %d cooperator(s) in the world%s", coop, summoned ? " (summoned: in the host's world)" : "");
                 }
             }
-            if (g_t.members_at == 0 || now - g_t.members_at < 12.0) return;
+            if (g_t.members_at == 0 || now - g_t.members_at < g_t.members_wait) return;
         } else if (now - g_t.steady_since < 5.0) {
             return;
         }
@@ -500,6 +545,19 @@ void TestTick(const GameSnapshot& s, double now) {
             }
         }
         g_t.walked = lamp;
+        if (g_t.list_only && lamp) {
+            g_t.pose = 0;
+            g_t.pose_at = now;
+            if (!PlacePose(s, lamp, 0)) {
+                Log("test: FAILED: lamp %u has no return spot", lamp);
+                g_t.stage = TestState::Done;
+                return;
+            }
+            g_t.stage = TestState::Press;
+            g_t.at = now + 1.0;
+            g_t.presses = 0;
+            return;
+        }
         if (!lamp || !WalkTo(s, lamp)) {
             Log("test: FAILED: no lit lamp to stand at in %s", MapName(s.map_id).c_str());
             g_t.stage = TestState::Done;
@@ -557,6 +615,20 @@ void TestTick(const GameSnapshot& s, double now) {
             open = g_p.open;
             list = g_p.list;
         }
+        if (open && g_t.list_only) {
+            if (!g_t.listed) {
+                std::string rps;
+                for (const Entry& e : list) rps += " " + std::to_string(e.return_point);
+                Log("test: warp menu up (listonly): %zu entries:%s; closing it in 3 s", list.size(), rps.c_str());
+                g_t.listed = true;
+                g_t.at = now + 3.0;  // on screen for the screenshots
+                return;
+            }
+            Log("test: listonly: warp menu closed (Circle)");
+            Press(kPadCircle, now);
+            g_t.stage = TestState::Done;
+            return;
+        }
         if (open) {
             u32 target = g_t.to;
             if (!target) {
@@ -582,6 +654,56 @@ void TestTick(const GameSnapshot& s, double now) {
             g_t.stage = TestState::Choose;
             g_t.at = now + 2.0;
             Log("test: warp menu up; choosing lamp %u (entry %d of %zu)", target, pos + 1, list.size());
+            return;
+        }
+        if (g_t.list_only) {
+            // Cross only while the lamp's action prompt is up ("Light lamp", then "Return to the
+            // Hunter's Dream" once lit); no prompt for 3 s (8 s after a press): the next spot.
+            Lamp l{};
+            const bool lit = LampOf(g_t.walked, &l) && Flag(LitFlag(l));
+            if (lit && !g_t.lit_seen) {
+                g_t.lit_seen = true;
+                Log("test: listonly: lamp %u is lit on this game after %d press(es)", g_t.walked, g_t.presses);
+            }
+            // The lamp's prompt by its text (lamprule run 4: "Light lamp" was on screen, its id is
+            // not one GuestSvcPromptUp knows): looked up since this spot / the last press.
+            const auto seen = [&](const char* t) {
+                const std::int64_t ms = BbGameMenu::TextSeenMs(t);
+                return ms > 0 && double(ms) / 1000.0 >= g_t.pose_at + 0.3;
+            };
+            const char* text = seen("light lamp") ? "Light lamp" : seen("return to the hunter") ? "Return to the Hunter's Dream" : nullptr;
+            u32 pid = 0;
+            if (text || GuestSvcPromptUp(&pid)) {
+                if (++g_t.presses > 10) {
+                    Log("test: FAILED: no warp menu after 10 Cross presses at the lamp's prompt");
+                    g_t.stage = TestState::Done;
+                    return;
+                }
+                const std::string what = text ? std::string("\"") + text + "\"" : "id " + std::to_string(pid);
+                Log("test: Cross at the lamp #%d (prompt %s, lamp %s)", g_t.presses, what.c_str(), lit ? "lit" : "unlit");
+                Press(kPadCross, now);
+                g_t.pose_at = now;
+                g_t.at = now + 2.5;
+                return;
+            }
+            if (!g_t.pose_pressed && g_t.presses == 0 && now - g_t.pose_at >= 2.0) {
+                // Fallback: no prompt text seen at this spot in 2 s: one Cross anyway.
+                g_t.pose_pressed = true;
+                Log("test: Cross at the lamp (spot %d, no prompt text seen; lamp %s)", g_t.pose, lit ? "lit" : "unlit");
+                Press(kPadCross, now);
+                g_t.at = now + 2.5;
+                return;
+            }
+            if (now - g_t.pose_at >= (g_t.presses > 0 || lit ? 8.0 : 4.5)) {
+                g_t.pose_pressed = false;
+                if (++g_t.pose >= 8 || !PlacePose(s, g_t.walked, g_t.pose)) {
+                    Log("test: FAILED: no action prompt at lamp %u from any spot (%d press(es))", g_t.walked, g_t.presses);
+                    g_t.stage = TestState::Done;
+                    return;
+                }
+                g_t.pose_at = now;
+            }
+            g_t.at = now + 0.25;
             return;
         }
         if (++g_t.presses > 6) {

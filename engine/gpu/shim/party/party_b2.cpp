@@ -6,6 +6,7 @@
 // is System V: every call into it goes through a BB_COOP_SYSV pointer at Guest(off).
 #include "party_b2.h"
 #include "party_async_io.h"
+#include "party_balance.h"
 #include "party_fourp.h"
 #include "party_link.h"
 #include "party_runtime.h"
@@ -32,9 +33,12 @@
 #include "party_spectate.h"
 #include "party_director.h"
 #include "party_death_rules.h"
+#include "party_bossfog_rules.h"
 #include "party_hud.h"
 #include "party_status.h"
 #include "party_guestvals_rules.h"
+#include "party_glow_rules.h"
+#include "party_stay_rules.h"
 #include "party_remote_show_rules.h"
 #include "party_ping.h"
 #include "party_flow.h"
@@ -450,6 +454,11 @@ std::atomic<bool> g_title_home_now{false};
 std::atomic<bool> g_chalice_bail{false};  // the guest left a host's dungeon it loaded without the dungeon
 std::atomic<bool> g_chalice_chosen{false};  // this guest's own choice took it away (NoteChosenApart)
 
+// Guest: when split travel last dropped OnLeave_Limit's send-home (the host travelled alone / is
+// apart). The Lua state that led there left the action-button hold on (party_stay_rules.h);
+// StayActionHoldTick lifts it until the next load. 0 = no.
+std::atomic<double> g_apart_hold_at{0};
+
 bool SendHomeVeto(u64 site) {
     const bool own_leave = SendHomeVetoForOwnLeave() || g_chalice_bail.exchange(false);
     // Split travel: OnLeave_Limit (0x138A51C: the room-gone / irregular-leave path) sent a guest
@@ -472,6 +481,7 @@ bool SendHomeVeto(u64 site) {
             Role(), Field<int>(Slot(kSlotFlow), 0x84, -1), double(Field<float>(Slot(kSlotFlow), 0xf4)),
             double(Field<float>(Slot(kSlotSession), 0x2e0)), double(Field<float>(Slot(kSlotSession), 0x2f0)),
             g_title_joined.load() ? "; a title-joined guest" : "");
+        g_apart_hold_at = Now();  // the leave state's action-button hold has no load to end it now
         return true;
     }
     // A title-joined guest has no own-world return data (no snapshot: its own world was never
@@ -660,7 +670,7 @@ void HostDeadLockTick(const GameSnapshot& s, double now) {
 // ended the guest's session although its own leave was dropped), so both are kept.
 std::atomic<double> g_k10_at{0};  // when K10 last kept the party (BossClearInvincibleTick)
 std::atomic<bool> g_k10_this_load{false};  // K10 ran since the last load (DeadAfterClearTick)
-std::atomic<double> g_k10_hold_at{0};  // guest: K10 ran in this session (K10ActionHoldTick; 0 = no)
+std::atomic<double> g_k10_hold_at{0};  // guest: K10 ran in this session (StayActionHoldTick; 0 = no)
 BB_COOP_SYSV u64 BossClearLeaveHook(u64 session) {
     const int role = Role();
     if (g_on.load() && (role == RoleClient || role == RoleHost)) {
@@ -2122,6 +2132,105 @@ bool LocalChrWarpImpl(u64 player, const float* p16, const float* r16, const char
     return true;
 }
 
+/// fallcam: the game's fall-death camera latch, WorldChrMan +0x68 (deathrules::PlanReviveCamera):
+/// while set, the ChrCam update 0x14368B0 stays in its fall-die mode 4 (the camera stops where the
+/// fall was). Only a load or the game's safe-spot revive 0x13CBAD0 clears it in vanilla.
+bool FallCameraLatched() {
+    return Field<u8>(Slot(kSlotWorldChrMan), 0x68) != 0;
+}
+/// Clears the latch when set (main thread); true: it was set.
+bool ReleaseFallCamera(const char* why) {
+    const u64 wcm = Slot(kSlotWorldChrMan);
+    const u8 was = Field<u8>(wcm, 0x68);
+    if (!wcm || !was) {
+        return false;
+    }
+    const u8 zero = 0;
+    SafeWrite(wcm + 0x68, &zero, 1);
+    Log("%s: the game's fall-death camera released (WorldChrMan +0x68 %u -> %u): the follow camera again", why,
+        unsigned(was), unsigned(Field<u8>(wcm, 0x68)));
+    return true;
+}
+/// The camera behind the local player at its spot: the Lua CamReset 0x132F5A0(ctx, 10000 = the local
+/// player, 1): the chr transform re-applied from its physics position (0x18C16A0, 0x18BCF30) and the
+/// camera reset request [[+0x3B0] +0x58] +0x28 +0xC = 1. Main thread.
+void CameraBehindPlayer() {
+    using CamReset = u64(BB_COOP_SYSV*)(u64, u32, u32);
+    reinterpret_cast<CamReset>(Guest(0x132f5a0))(0, 10000, 1);
+}
+/// fallcam 3: the chr's ladder action state (deathrules::LadderLeftover): the int8 at [ChrCtrl +0x38]
+/// +0x60, what the behavior's GetLadderActState / IsLadderAct read (0x1290E50); -1 none.
+int LadderActState(u64 chr) {
+    const u64 a = Field<u64>(Field<u64>(chr, 0x58), 0x38);
+    std::int8_t v = 0;
+    return a && SafeGet(a + 0x60, &v) ? int(v) : deathrules::kLadderUnread;
+}
+/// A ladder state left from a death on a ladder put back to none (the action ctrl constructor's
+/// 0xFF). Main thread; true: it was set.
+bool ReleaseLadder(u64 chr, const char* why) {
+    const int was = LadderActState(chr);
+    if (!deathrules::LadderLeftover(was)) {
+        return false;
+    }
+    const u64 a = Field<u64>(Field<u64>(chr, 0x58), 0x38);
+    const u8 none = 0xff;
+    SafeWrite(a + 0x60, &none, 1);
+    Log("%s: the chr's ladder state released (ChrCtrl +0x38 +0x60 %d -> %d; +0x74 %08x +0x78 %08x +0x7C %08x "
+        "+0xA0 %08x): free movement again", why, was, LadderActState(chr), Field<u32>(a, 0x74), Field<u32>(a, 0x78),
+        Field<u32>(a, 0x7c), Field<u32>(a, 0xa0));
+    return true;
+}
+
+/// fallcam 2: the follow camera's own level reset (deathrules::LevelCameraDue). The ChrCam
+/// (*0x553E860 +0x2830, vtable 0x536B700, built by 0x1435FC0): +0x84 its mode (4 = the fall-die
+/// camera), +0x88 the blend; +0x60 its follow camera (0x143AC60): +0x13C a reset request, +0x13D
+/// "take pitch / yaw from +0x148 / +0x14C" (the ChrCam's 4 -> 0 switch sets it with the fall
+/// camera's own steep direction), clear: pitch +0x140 = 0 and the yaw behind the chr, as a new chr
+/// after a load. A ChrCam still in mode 4 goes straight to 0 (as that switch writes: mode 0, blend 0)
+/// so the switch never hands its direction over. Main thread. False: no ChrCam (or another layout).
+constexpr u64 kSlotGameCamera = 0x553e860;
+constexpr u64 kChrCamVtable = 0x536b700;
+bool LevelFollowCamera(const char* why, bool released, bool warped) {
+    const u64 cc = Field<u64>(Slot(kSlotGameCamera), 0x2830);
+    if (!cc || Field<u64>(cc, 0) != Guest(kChrCamVtable)) {
+        static int logged = 0;
+        if (logged++ < 3) {
+            Log("%s: no ChrCam at *0x553e860 +0x2830 (%#llx): the camera's pitch left as it is", why, ull(cc));
+        }
+        return false;
+    }
+    const u64 fc = Field<u64>(cc, 0x60);
+    const int mode = Field<int>(cc, 0x84, -1);
+    if (!fc || !deathrules::LevelCameraDue(released, warped, mode)) {
+        return false;
+    }
+    const float pitch0 = Field<float>(fc, 0x140);
+    if (mode == deathrules::kChrCamFallDieMode) {
+        const u64 zero = 0;  // +0x84 mode 0, +0x88 blend 0
+        SafeWrite(cc + 0x84, &zero, 8);
+    }
+    const u8 one = 1, zero8 = 0;
+    SafeWrite(fc + 0x13d, &zero8, 1);
+    SafeWrite(fc + 0x13c, &one, 1);
+    Log("%s: the follow camera reset level behind the chr (ChrCam mode %d -> %d, pitch was %.2f)", why, mode,
+        Field<int>(cc, 0x84, -1), double(pitch0));
+    return true;
+}
+/// fallcam: what the player sees after an in-world revive / warp, judged 0.5 s and 3 s after it
+/// (ReviveViewTick, deathrules::JudgeReviveView): the render camera against the chr, the chr's drawn
+/// position (ChrCtrl's world matrix, [chr +0x58] +0xC0) against its physics position, the latch.
+struct ReviveViewWatch {
+    double at = 0;
+    int step = 0;
+    char what[64] = {};
+};
+ReviveViewWatch g_revive_view;
+void WatchReviveView(const char* what) {
+    g_revive_view.at = Now();
+    g_revive_view.step = 0;
+    std::snprintf(g_revive_view.what, sizeof g_revive_view.what, "%s", what);
+}
+
 /// The local player to a spot of the loaded block (LocalChrWarp: the game's own in-world warp, or
 /// the chr warp vfunc +0x5F8): same map, no load. Main thread.
 bool WarpLocal(const float pos[3], float yaw, const char* why) {
@@ -2136,11 +2245,18 @@ bool WarpLocal(const float pos[3], float yaw, const char* why) {
     if (!LocalChrWarpImpl(player, p16, r16, why)) {
         return false;
     }
+    // fallcam: a fall caught by the recovery net (or any warp after the game's fall-death camera
+    // took over) would keep that camera at the old spot: released first; a ladder state too.
+    const bool latched = ReleaseFallCamera(why);
+    ReleaseLadder(player, why);
     // The camera stayed where it was and swung through the walls after a long in-world warp
     // (live vis6: the host looked out of the geometry 3 s after a 68 m move): the Lua CamReset
-    // 0x132F5A0(ctx, 10000 = the local player, 1) puts it behind the player.
-    using CamReset = u64(BB_COOP_SYSV*)(u64, u32, u32);
-    reinterpret_cast<CamReset>(Guest(0x132f5a0))(0, 10000, 1);
+    // 0x132F5A0(ctx, 10000 = the local player, 1) puts it behind the player; level (fallcam 2).
+    CameraBehindPlayer();
+    LevelFollowCamera(why, latched, true);
+    if (latched) {
+        WatchReviveView(why);
+    }
     Log("in-world warp (%s): (%.1f, %.1f, %.1f) -> (%.1f, %.1f, %.1f) in %s, no load", why, before[0], before[1], before[2],
         pos[0], pos[1], pos[2], MapName(LocalMap()).c_str());
     return true;
@@ -2554,7 +2670,9 @@ void BesideHost(float pos[4], const float rot[4], int spot) {
 // key +0x20, buffer +0x28). Run 18 showed the overlay all zero after the B2 re-sent snapshot was
 // applied (9401 / 12410000 = 0 where the join's snapshot had 1), so the client replayed the
 // opening cutscene. The guest keeps a copy of the overlay it had in the host's world and, after
-// the new snapshot, restores every group that came back all zero.
+// the new snapshot, restores every group that came back all zero - except a map's fight-state
+// groups (bossfog::GuardRestores: T1 zones 4-6, the boss fog / fight flags): the host's load reset
+// them, and a restore brought a wiped boss fight back to the lamp (0.7.2 known issue 2).
 std::map<u32, std::vector<u8>> g_overlay_saved;
 
 template <class F>
@@ -2600,7 +2718,8 @@ void SaveOverlay() {
 }
 
 void RestoreZeroedOverlay() {
-    int zero = 0, restored = 0, total = 0;
+    int zero = 0, restored = 0, total = 0, reset = 0;
+    std::string reset_list;
     ForEachOverlayGroup([&](u32 key, u64 buf) {
         ++total;
         u8 v[125];
@@ -2623,12 +2742,21 @@ void RestoreZeroedOverlay() {
         for (u8 b : it->second) {
             saved_any = saved_any || b;
         }
+        const u32 block = coop::progress::BlockOfPoolKey(int(key));
+        if (saved_any && !bossfog::GuardRestores(block, true, true)) {
+            ++reset;  // the boss fight / enemy state the host's load reset: the snapshot's zero stands
+            if (reset_list.size() < 200) {
+                reset_list += " " + std::to_string(block);
+            }
+            return;
+        }
         if (saved_any && SafeWrite(buf, it->second.data(), it->second.size())) {
             ++restored;
         }
     });
-    Log("overlay guard: %d groups, %d all-zero after the new snapshot, %d restored from the saved overlay", total,
-        zero, restored);
+    Log("overlay guard: %d groups, %d all-zero after the new snapshot, %d restored from the saved overlay; %d "
+        "fight-state group(s) left as the host's (reset by its load)%s", total, zero, restored, reset,
+        reset_list.c_str());
 }
 
 /// The flags the opening cutscene depends on, as the store answers now (overlay in load mode 1).
@@ -3075,7 +3203,7 @@ bool PreRingSpacing(const GameSnapshot& s, u32 host_map) {
 
 /// Safety net: a client in the host's world (GSM+0x1592 == 0) never plays the opening cutscene
 /// (event 12410000's EMEVD 2002 remo): its flags come from the host's overlay, which may lack them.
-bool ClientIntroSkip(int event_id, int bank, int id) {
+bool ClientIntroSkip(int event_id, int bank, int id, std::uint64_t event, std::uint64_t instr) {
     // D10: on by default (BB_PARTY_STORY_DEDUPE=0 off): the guest's own copy of a mirrored event's
     // 2002 would play the scene a second time (soak run 5f).
     static const bool dedupe = StoryDedupeEnabled(std::getenv("BB_PARTY_STORY_DEDUPE"));
@@ -3084,6 +3212,13 @@ bool ClientIntroSkip(int event_id, int bank, int id) {
                         StoryMirroredEvent(static_cast<std::uint32_t>(event_id)))) {
         // The live mirror (party_story) already played this event's scene with the host.
         Log("client: event %d's 2002[%d] skipped: its cutscene already played as the live mirror", event_id, id);
+        return true;
+    }
+    // D10 race (player report 2026-10-22): this game's own copy of a boss intro the host plays
+    // (its event ran here at the same moment as the host's, before the host's EVENT "story" came)
+    // waits for the host's copy, which plays as the live mirror (party_story OwnSceneHold).
+    if (event_id > 0 && bank == 2002 && (id == 1 || id == 3) && Role() == RoleClient &&
+        StoryHoldClientOwnScene(static_cast<std::uint32_t>(event_id), id, event, instr)) {
         return true;
     }
     if (bank != 2002 || event_id != 12410000 || !g_on.load() || Role() != RoleClient ||
@@ -3106,10 +3241,17 @@ bool LocalRiding(u64 chr, const float p[3]) {
     }
     static double at = -1;  // the car scan at most every 0.25 s (the death-height tick runs every frame)
     static bool on_car = false;
+    static float last_y = 0;
     const double now = Now();
     if (now - at >= 0.25) {
+        // liftfix: no ride bit and dropping faster than any lift since the last scan: a fall down the
+        // shaft beside a moving car, not a ride (run 11, the report: a fall into the Research Hall lift's
+        // empty pit counted "on a moving object", its 37 m drop taken for 0.2 m)
+        const double dt = at < 0 ? 0.0 : now - at;
+        const bool falling = dt > 0.0 && dt < 1.0 && (double(last_y) - p[1]) / dt >= deathrules::kLiftMaxRate;
         at = now;
-        on_car = worldact::OnMovingLiftCar(p);
+        last_y = p[1];
+        on_car = !falling && worldact::OnMovingLiftCar(p);
     }
     return on_car;
 }
@@ -3137,7 +3279,7 @@ void RideNotice(const char* net, const float p[3], double dy, double dt) {
 /// own-world net warped the host to its lamp mid-ride on the Nightmare of Mensis' 60 m lift.
 void HostWorldFallTick(const GameSnapshot& s, double now) {
     static float stable[4] = {0, 0, 0, 0}, last_y = 0, from_y = 0;
-    static double last_t = 0, falling_since = 0, still_since = 0;
+    static double last_t = 0, falling_since = 0, still_since = 0, peak_rate = 0;
     static u64 last_player = 0;
     static bool have_stable = false;
     if (!s.world_up || s.loading || !s.player || Field<u8>(Slot(kSlotGsm), 0x1592) != 0) {
@@ -3181,27 +3323,43 @@ void HostWorldFallTick(const GameSnapshot& s, double now) {
     if (falling_since == 0) {
         falling_since = now;
         from_y = p[1] + dy;
+        peak_rate = dy / dt;
         return;
     }
-    if (!deathrules::FallRecoveryDue(now - falling_since, double(from_y) - p[1]) || !have_stable) {
+    peak_rate = std::max(peak_rate, double(dy) / dt);
+    if (!deathrules::FallRecoveryDue(now - falling_since, double(from_y) - p[1], peak_rate)) {
+        return;
+    }
+    // fallsafe: the game's own last safe ground spot (where it would put the bloodstain) when it has
+    // one near; the spot this tick saw it stand still on otherwise; lamprule run 7: a guest that never
+    // stood still (placed before the floor's collision loaded) goes back beside the host.
+    alignas(16) float safe[4], safe_rot[4];
+    const float none[3] = {std::numeric_limits<float>::quiet_NaN(), 0.0f, std::numeric_limits<float>::quiet_NaN()};
+    const bool game = deathrules::SafeSpotUsable(GameSafeSpot(s.player, safe, safe_rot), safe,
+                                                 have_stable ? stable : none);
+    const Where* hw = WhereOf(0);
+    const bool host_here = hw && hw->has_pos && Role() == RoleClient && (HostMap() >> 16) == (s.map_id >> 16);
+    const deathrules::FallBack fb = deathrules::FallBackTarget(game, have_stable, host_here);
+    if (fb == deathrules::FallBack::None) {
         return;
     }
     falling_since = 0;
     alignas(16) float to[4] = {stable[0], stable[1] + 0.3f, stable[2], 1.0f};
     alignas(16) float rot[4] = {0, 0, 0, 0};
     SafeRead(pm + 0x1d0, rot, 16);
-    // fallsafe: the game's own last safe ground spot (where it would put the bloodstain) when it has
-    // one near; the spot this tick saw it stand still on otherwise.
-    alignas(16) float safe[4], safe_rot[4];
-    const bool game = deathrules::SafeSpotUsable(GameSafeSpot(s.player, safe, safe_rot), safe, stable);
-    if (game) {
+    if (fb == deathrules::FallBack::GameSafe) {
         std::memcpy(to, safe, sizeof to);
         std::memcpy(rot, safe_rot, sizeof rot);
+    } else if (fb == deathrules::FallBack::Host) {
+        to[0] = hw->pos[0] + 1.5f, to[1] = hw->pos[1] + 0.3f, to[2] = hw->pos[2], to[3] = 1.0f;
     }
     using Warp = void(BB_COOP_SYSV*)(u64, const float*, const float*, u32);
     reinterpret_cast<Warp>(Field<u64>(Field<u64>(s.player, 0), 0x5f8))(s.player, to, rot, 1);
     Log("recovery: falling for 6 s in the host's world at (%.1f, %.1f, %.1f); back to (%.1f, %.1f, %.1f) %s",
-        p[0], p[1], p[2], to[0], to[1], to[2], game ? "on the game's last safe ground spot" : "where it last stood");
+        p[0], p[1], p[2], to[0], to[1], to[2],
+        fb == deathrules::FallBack::GameSafe ? "on the game's last safe ground spot"
+        : fb == deathrules::FallBack::Host   ? "beside the host (no safe spot yet)"
+                                             : "where it last stood");
 }
 
 /// Test aid BB_PARTY_FALL_RECOVERY=0 (fallsafe): both recovery nets off, so a fall out of the world
@@ -3217,7 +3375,7 @@ void FallRecoveryTick(const GameSnapshot& s, double now) {
     }
     HostWorldFallTick(s, now);
     static float last_y = 0, from_y = 0;
-    static double last_t = 0, falling_since = 0;
+    static double last_t = 0, falling_since = 0, peak_rate = 0;
     static u64 last_player = 0;
     if (!s.world_up || s.loading || !s.player || Field<u8>(Slot(kSlotGsm), 0x1592) != 1) {
         falling_since = 0;
@@ -3242,10 +3400,11 @@ void FallRecoveryTick(const GameSnapshot& s, double now) {
         RideNotice("own world", p, dy, dt);
     }
     if (deathrules::FallSample(dy, dt, 1.5, riding)) {
+        peak_rate = falling_since == 0 ? dy / dt : std::max(peak_rate, double(dy) / dt);
         if (falling_since == 0) {
             falling_since = now;
             from_y = p[1] + dy;
-        } else if (deathrules::FallRecoveryDue(now - falling_since, double(from_y) - p[1])) {
+        } else if (deathrules::FallRecoveryDue(now - falling_since, double(from_y) - p[1], peak_rate)) {
             falling_since = 0;
             // A stage request already pending (a death redirect's lamp warp): that one wins.
             if (Field<u8>(Slot(kSlotGsm), 8) != 0) {
@@ -3682,6 +3841,35 @@ bool LampIntent(u32 id, TravelIntent* t) {
 /// A lit lamp of the map the guest stands in (the host's world): the ReturnPointParam ids AAB295k
 /// of that map whose lamp flag 1AAB7800 + 20k (2009[5] registration, party_flags.inc) is set in
 /// the host-world overlay. The first one (lowest k); 0 if none.
+/// Lamp `rp` (ReturnPointParam AAB295n) is lit in the host's world: its lamp-lit flag 7AAB0200 + n
+/// or its headstone flag 1AAB7810 + 20n in the host's world image (the mirror; any thread). False
+/// when not known (no image yet) - callers then never pick it.
+bool LampLitInHostWorld(u32 rp) {
+    if (rp % 10000 / 10 != 295) {
+        return false;
+    }
+    const u32 aab = rp / 10000, n = rp % 10;
+    bool a = false, b = false;
+    progress::HostWorldFlag(70000000u + aab * 10000u + 200u + n, &a);
+    progress::HostWorldFlag(10000000u + aab * 10000u + 7810u + 20u * n, &b);
+    return a || b;
+}
+
+/// A guest's own last lamp `own` may be a load's destination: outside the host's area always (its
+/// own world); in the host's area only when the host's world has it lit (a lamp warp there would
+/// light it in the host's world, 0.7.2).
+bool OwnLampUsable(u32 own) {
+    const u32 host = HostMap();
+    if (own == 0 || own == kTravelNone || host == 0 || host == 0xffffffffu || AreaOf(host) != AreaOf(ids::EntityMap(own))) {
+        return true;
+    }
+    if (LampLitInHostWorld(own)) {
+        return true;
+    }
+    Log("guest: its own last lamp %u is not lit in the host's world: not used", own);
+    return false;
+}
+
 u32 LitLampInMap(u32 map) {
     const u64 man = Slot(0x553b100);
     if (!man) {
@@ -3699,7 +3887,7 @@ u32 LitLampInMap(u32 map) {
         // (party_progress world_groups) copies into the guest's overlay. (The 2009[5] registration
         // flags 1AAB7800 + 20k read 0 here: T1 zone 7 is not mirrored.)
         const u32 flag = 70000000u + id / 10000 * 10000 + 200 + (id % 10);
-        const u32 lit = reinterpret_cast<Get>(Guest(0x13cfd80))(man, flag, 1);
+        const u32 lit = reinterpret_cast<Get>(Guest(0x13cfd80))(man, flag, 1) || LampLitInHostWorld(id);
         seen += " " + std::to_string(id) + (lit ? ":lit" : ":-");
         if (lit) {
             Log("guest: lamps of %s:%s", MapName(map).c_str(), seen.c_str());
@@ -3709,10 +3897,11 @@ u32 LitLampInMap(u32 map) {
             first = id;
         }
     }
-    // None reads lit here (the host-world overlay may not carry these flags): a lamp of this map
-    // all the same - any ReturnPointParam row of the map is a valid respawn spot in it.
-    Log("guest: lamps of %s:%s; none read lit, using %u", MapName(map).c_str(), seen.c_str(), first);
-    return first;
+    // None reads lit here: no lamp (0.7.2: a respawn or arrival by a lamp warp lights its lamp in
+    // the host's world; never an unlit one). The caller takes its other path.
+    (void)first;
+    Log("guest: lamps of %s:%s; none lit in the host's world: no lamp", MapName(map).c_str(), seen.c_str());
+    return 0;
 }
 
 bool GuestDeadLoadAt(u32 lamp, double held_for, const char* which);
@@ -3820,33 +4009,62 @@ void K10ProbeTick(const GameSnapshot& s, double now) {
 /// write of 0 to +0x52 alone was back to 1 the next frame; pard3 lifted it only while the boss
 /// reward's item box was up). Once K10 kept the party, the flag and the hold are cleared. BB_PARTY_K10_HOLD=keep: the old behaviour; BB_PARTY_K10_HOLD_DELAY=S (test aid):
 /// lift it S s after the K10 instead of at once (an A/B in one run).
+/// Generalised in 0.7.2 (party_stay_rules.h): the same hold is left on by the leave states
+/// OnRoomDisappeared / OnIrregularLeaveSession_1 when the host travels alone (split travel drops
+/// their send-home), which locked a guest left in the host's Hunter's Dream out of every headstone.
+/// That lift lasts until the guest's next load.
 bool K10HoldLifted() {
-    return g_k10_hold_at.load() > 0 && Role() == RoleClient;
+    return Role() == RoleClient && (g_k10_hold_at.load() > 0 || g_apart_hold_at.load() > 0);
 }
-void K10ActionHoldTick(const GameSnapshot& s, double now) {
+void StayActionHoldTick(const GameSnapshot& s, double now) {
     static const bool keep = std::getenv("BB_PARTY_K10_HOLD") && std::strcmp(std::getenv("BB_PARTY_K10_HOLD"), "keep") == 0;
     static const double delay = std::getenv("BB_PARTY_K10_HOLD_DELAY") ? std::atof(std::getenv("BB_PARTY_K10_HOLD_DELAY")) : 0.0;
-    static double logged_for = 0;
-    const double at = g_k10_hold_at.load();
-    if (at > 0 && (!g_on.load() || Role() != RoleClient)) {
-        g_k10_hold_at = 0;  // the session ended: a new one starts without the lift
-        return;
-    }
-    if (keep || at <= 0 || now - at < delay || !s.world_up || s.loading || !s.player) {
-        return;
-    }
+    static double logged_for[2] = {0, 0};
     const u64 man = Slot(0x5540048), ctx = Field<u64>(Slot(0x553b0c8), 8);
-    const u8 wait = ctx ? Field<u8>(ctx, 0x8d) : 0, hold = man ? Field<u8>(man, 0x52) : 0;
-    if (wait != 1 && hold != 1) {
-        return;
-    }
-    const u8 zero = 0;
-    if (wait == 1) SafeWrite(ctx + 0x8d, &zero, 1);
-    if (hold == 1) SafeWrite(man + 0x52, &zero, 1);
-    if (logged_for != at) {
-        logged_for = at;
-        Log("K10: the boss-clear action-button hold lifted %.1f s after the clear (Lua load wait +0x8d %u, hold +0x52 "
-            "%u -> 0; the party stays: lamps, NPCs and pickups work again)", now - at, unsigned(wait), unsigned(hold));
+    const int wait = ctx ? int(Field<u8>(ctx, 0x8d)) : -1, hold = man ? int(Field<u8>(man, 0x52)) : -1;
+    const bool guest = g_on.load() && Role() == RoleClient;
+    const struct {
+        stayrules::Keep kept;
+        std::atomic<double>* at;
+    } keeps[2] = {{stayrules::Keep::BossClear, &g_k10_hold_at}, {stayrules::Keep::HostApart, &g_apart_hold_at}};
+    for (int i = 0; i < 2; ++i) {
+        const double at = keeps[i].at->load();
+        stayrules::HoldView v;
+        v.party_guest = guest;
+        v.kept = at > 0 ? keeps[i].kept : stayrules::Keep::None;
+        v.since_kept = now - at;
+        if (v.kept == stayrules::Keep::BossClear) {
+            v.delay = delay;
+            v.keep_env = keep;
+        }
+        v.world_up = s.world_up;
+        v.loading = s.loading;
+        v.player = s.player != 0;
+        v.load_wait = wait;
+        v.hold = hold;
+        const stayrules::HoldAction a = stayrules::PlanActionHold(v);
+        if (a == stayrules::HoldAction::End) {
+            *keeps[i].at = 0;  // the session ended / a load: a new one starts without the lift
+            continue;
+        }
+        if (a != stayrules::HoldAction::Lift) {
+            continue;
+        }
+        const u8 zero = 0;
+        const int w = Field<u8>(ctx, 0x8d), h = Field<u8>(man, 0x52);  // the other keep may have lifted it
+        if (w == 1) SafeWrite(ctx + 0x8d, &zero, 1);
+        if (h == 1) SafeWrite(man + 0x52, &zero, 1);
+        if (logged_for[i] != at) {
+            logged_for[i] = at;
+            if (v.kept == stayrules::Keep::BossClear) {
+                Log("K10: the boss-clear action-button hold lifted %.1f s after the clear (Lua load wait +0x8d %d, hold +0x52 "
+                    "%d -> 0; the party stays: lamps, NPCs and pickups work again)", now - at, wait, hold);
+            } else {
+                Log("guest: the leave state's action-button hold lifted %.1f s after its send-home was dropped (%s; Lua load "
+                    "wait +0x8d %d, hold +0x52 %d -> 0): headstones, lamps, NPCs and pickups work here until the next load",
+                    now - at, stayrules::KeepName(v.kept), wait, hold);
+            }
+        }
     }
 }
 
@@ -4992,13 +5210,24 @@ void ReviveLocal(const GameSnapshot& s, const LampSpot& sp, bool host) {
         const u64 wcm = Slot(kSlotWorldChrMan);
         const u64 m58 = Field<u64>(Field<u64>(Field<u64>(p, 0x3b0), 0x58), 0x28);
         const u8 w68 = Field<u8>(wcm, 0x68), c0 = Field<u8>(m58, 0xc), one = 1, zero = 0;
-        // Written only for a body brought back from far below (PendingReviveTick); read for every revive.
+        // +0x0C written only for a body brought back from far below (PendingReviveTick); read for every revive.
         const bool fell = g_pending_revive.resuming;
         if (fell && m58) SafeWrite(m58 + 0xc, &one, 1);
         if (fell && wcm && w68) SafeWrite(wcm + 0x68, &zero, 1);
         Log("%s revive: the game's safe-spot revive fields: WorldChrMan +0x68 %u, [[+0x3B0] +0x58] +0x28 +0xC %u%s",
             host ? "host" : "guest", unsigned(w68), unsigned(c0), fell ? " (set as 0x13CBAD0 does: 0, 1)" : "");
     }
+    // fallcam: WorldChrMan +0x68 is the game's fall-death camera latch; left set (any revive after
+    // a fall the game itself took as a fall death, not only a body moved up from far below), the
+    // camera stayed at the fall for good (the report: up at the host's lamp 158 m away, the view on
+    // the sky, the own chr never seen again). Released for every revive; the camera reset behind the
+    // chr once it stands on its spot (after the warp below).
+    const deathrules::ReviveCamera cam = deathrules::PlanReviveCamera(FallCameraLatched(), RecipeHas("warp") && sp.valid);
+    if (cam.release_latch) {
+        ReleaseFallCamera(host ? "host revive" : "guest revive");
+    }
+    // fallcam 3: a death on a ladder left the chr's ladder state (only forward movement after it).
+    ReleaseLadder(p, host ? "host revive" : "guest revive");
     if (RecipeHas("gsm")) {
         const u64 gsm = Slot(kSlotGsm);
         const u8 zero = 0;
@@ -5062,6 +5291,24 @@ void ReviveLocal(const GameSnapshot& s, const LampSpot& sp, bool host) {
         }
         LocalChrWarpImpl(p, pos, rot, sp.what ? sp.what : host ? "host revive at the lamp" : "guest revive at the lamp");
     }
+    if (cam.cam_reset) {
+        // As WarpLocal: the camera behind the chr at its new spot (the follow camera otherwise
+        // starts from where it was, at the death or the fall). CamReset re-applies the physics
+        // position, so only once the chr is there (the game's warp 0x154B110 moves it at once; the
+        // bare chr warp, BB_PARTY_WARP_REFRESH=0, a frame late).
+        float at[3] = {0, 0, 0};
+        const bool moved = RecipeHas("warp") && sp.valid;
+        const bool there = !moved || (ChrPos(p, at) && std::fabs(at[0] - sp.pos[0]) < 3.0f &&
+                                      std::fabs(at[1] - sp.pos[1]) < 3.0f && std::fabs(at[2] - sp.pos[2]) < 3.0f);
+        if (there) {
+            CameraBehindPlayer();
+            LevelFollowCamera(host ? "host revive" : "guest revive", cam.release_latch, moved);
+        } else {
+            Log("%s revive: not on its spot yet (%.1f, %.1f, %.1f): no camera reset", host ? "host" : "guest",
+                double(at[0]), double(at[1]), double(at[2]));
+        }
+    }
+    WatchReviveView(host ? "host revive" : "guest revive");
     if (sp.safe_floor) {
         g_safe_revive = SafeReviveWatch{Now(), sp.pos[1], host};
     }
@@ -5176,12 +5423,12 @@ void LocalDeathHeightTick(const GameSnapshot& s, double now) {
         g_local_safe.valid = deathrules::SafeSpotUsable(read, g_local_safe.pos, p);
         const double dx = double(g_local_safe.pos[0] - p[0]), dz = double(g_local_safe.pos[2] - p[2]);
         Log("local death: HP 0 at (%.1f, %.1f, %.1f), dropped %.1f m in the 3 s before%s%s; the game's last safe ground "
-            "spot (%.1f, %.1f, %.1f), %.1f m away (height %+.1f m)%s",
+            "spot (%.1f, %.1f, %.1f), %.1f m away (height %+.1f m)%s; ladder state %d",
             double(p[0]), double(p[1]), double(p[2]), d.peak - d.at_death, d.known ? "" : " (no height history)",
             d.riding ? " (on a moving object: a lift's car)" : "",
             double(g_local_safe.pos[0]), double(g_local_safe.pos[1]), double(g_local_safe.pos[2]),
             std::sqrt(dx * dx + dz * dz), double(g_local_safe.pos[1] - p[1]),
-            g_local_safe.valid ? "" : read ? " (not usable)" : " (none)");
+            g_local_safe.valid ? "" : read ? " (not usable)" : " (none)", LadderActState(s.player));
     }
     was_dead = dead;
 }
@@ -5326,6 +5573,60 @@ void PendingReviveTick(const GameSnapshot& s, double now) {
         SafeWrite(s.player + 0x1e1, &f, 4);
         r.inv_set = true;
         r.inv_until = now + 2.0;
+    }
+}
+
+/// fallcam (any role, main thread): a line 3 s after each in-world revive (and a warp that released
+/// the fall-death camera; also at 0.5 s when that one is not right): what the player sees (WatchReviveView). The latch found set again with the
+/// chr alive is released once more (the game's fall state re-armed it).
+void ReviveViewTick(const GameSnapshot& s, double now) {
+    ReviveViewWatch& w = g_revive_view;
+    if (w.at <= 0 || !s.world_up || s.loading || !s.player) {
+        return;
+    }
+    static const double marks[2] = {0.5, 3.0};
+    if (now - w.at < marks[w.step]) {
+        return;
+    }
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    float me[3] = {0, 0, 0}, drawn[4] = {0, 0, 0, 0};
+    const bool have = ChrPos(s.player, me);
+    const u64 ctrl = Field<u64>(s.player, 0x58);
+    const bool drawn_ok = ctrl && SafeRead(ctrl + 0xc0, drawn, 16) && std::isfinite(drawn[0]) &&
+                          std::isfinite(drawn[1]) && std::isfinite(drawn[2]);
+    const BbCamera::State cam = BbCamera::Latest(1000);
+    std::array<float, 3> c = {0, 0, 0};
+    double cam_dist = nan, drawn_off = nan;
+    if (cam.valid && have) {
+        c = BbCamera::Position(cam);
+        const double dx = c[0] - me[0], dy = c[1] - me[1], dz = c[2] - me[2];
+        cam_dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+    }
+    if (drawn_ok && have) {
+        const double dx = drawn[0] - me[0], dy = drawn[1] - me[1], dz = drawn[2] - me[2];
+        drawn_off = std::sqrt(dx * dx + dy * dy + dz * dz);
+    }
+    const bool latch = FallCameraLatched();
+    // ChrCtrl +0xC0 is logged only (fl run 1: it holds a rotation row, (1, 0, 0) / (-0.7, 0, 0.7), not
+    // the drawn position); the camera and the latch are what the view is judged by.
+    const deathrules::ReviveView v =
+        deathrules::JudgeReviveView(cam_dist, nan, latch, cam.valid ? double(cam.view[9]) : nan);
+    // Part of the revive's own lines: the 3 s line always, the 0.5 s one only when it is not right.
+    if (w.step == 1 || v != deathrules::ReviveView::Ok) {
+        Log("revive view (%s, %.1f s after): camera (%.1f, %.1f, %.1f) %.1f m from the chr (%.1f, %.1f, %.1f), looking "
+            "(%.2f, %.2f, %.2f); ChrCtrl +0xC0 (%.1f, %.1f, %.1f) %.2f m off (logged only); fall-death camera %u, "
+            "ladder state %d, hp %d: %s",
+            w.what, now - w.at, double(c[0]), double(c[1]), double(c[2]), cam_dist, double(me[0]), double(me[1]),
+            double(me[2]), double(cam.view[8]), double(cam.view[9]), double(cam.view[10]), double(drawn[0]),
+            double(drawn[1]), double(drawn[2]), drawn_off, unsigned(latch), LadderActState(s.player), ChrHp(s.player),
+            deathrules::ReviveViewName(v));
+    }
+    if (latch && ChrHp(s.player) > 0 && ReleaseFallCamera("revive view: the latch was set again")) {
+        CameraBehindPlayer();
+        LevelFollowCamera("revive view", true, false);
+    }
+    if (++w.step >= 2) {
+        w.at = 0;
     }
 }
 
@@ -5586,7 +5887,7 @@ bool GuestDeathAloneToOwnLamp(const GameSnapshot& s, u32 own) {
     // On by default since 2026-10-15 (live: Cathedral Ward re-join, Hemwick alone load); "0" off.
     static const bool on = !(std::getenv("BB_PARTY_GUEST_DEATH_ALONE") && std::getenv("BB_PARTY_GUEST_DEATH_ALONE")[0] == '0');
     TravelIntent lt;
-    if (!on || own == 0 || own == kTravelNone || !LampIntent(own, &lt)) {
+    if (!on || own == 0 || own == kTravelNone || !OwnLampUsable(own) || !LampIntent(own, &lt)) {
         return false;
     }
     LampSpot none;  // not valid: revived where it lies, no warp
@@ -5998,6 +6299,106 @@ void RemoteChrRenderWatch(const GameSnapshot& s, double now) {
     }
 }
 
+// ---- Companions without the phantom glow (party_glow_rules.h, 0.7.2) ----
+/// Main thread, every 0.2 s: this game's SpEffectVfxParam glow rows (272 / 276: the cooperator
+/// SpEffects' midst SFX) hold "no SFX" while the glow is off (setting party_glow_off, on by
+/// default; BB_PARTY_GLOW_OFF=0/1 for tests) and the game's ids otherwise. The chr's effect update
+/// reads the row every frame; a live switch also pauses the rows for a moment (Refresh) so the
+/// effect entries already made on the chrs end and come back from the new id. Display only: the
+/// SpEffect rows, the chr type and the team stay as the game set them.
+void GlowTick(double now) {
+    static double next = 0;
+    if (now < next) {
+        return;
+    }
+    next = now + 0.2;
+    static const char* const env = std::getenv("BB_PARTY_GLOW_OFF");
+    static coop::glow::Refresh refresh;
+    const bool off = coop::glow::GlowOff(BbSettings::Get().party_glow_off.load(), env, party::status::Enabled());
+    const u8 type = refresh.Update(off, now);
+    for (const coop::glow::GlowRow& r : coop::glow::kGlowRows) {
+        const u64 row = GameParamRow("SpEffectVfxParam", "SP_EFFECT_VFX_PARAM_ST", r.row);
+        if (!row) {
+            continue;
+        }
+        const u8 had = Field<u8>(row, 0x2a, 0xff);  // effectType
+        if (had != type && (had == coop::glow::kEffectSfx || had == coop::glow::kEffectPaused) &&
+            SafeWrite(row + 0x2a, &type, 1)) {
+            Log("glow: SpEffectVfxParam %u effectType %u -> %u (%s)", r.row, unsigned(had), unsigned(type),
+                type == coop::glow::kEffectPaused ? "a live switch: the chrs' glow entries end" : "plays again");
+        }
+        const std::int32_t cur = Field<std::int32_t>(row, 0, r.sfx);
+        const std::int32_t want = coop::glow::WantedSfx(cur, r.sfx, off);
+        if (want != cur && SafeWrite(row, &want, sizeof want)) {
+            Log("glow: SpEffectVfxParam %u midst SFX %d -> %d (%s)", r.row, cur, want,
+                off ? "companions without the phantom glow" : "the game's phantom glow");
+        } else if (want == cur && cur != r.sfx && cur != coop::glow::kNoSfx) {
+            static bool told = false;
+            if (!told) {
+                told = true;
+                Log("glow: SpEffectVfxParam %u midst SFX is %d (not the game's %d): left alone", r.row, cur, r.sfx);
+            }
+        }
+    }
+}
+
+/// Test aid (BB_PARTY_GLOW_TEST=N, off by default): the glow setting switched live in one session.
+/// 6 s after N remote player chrs are seen (1 if N is not a number), every 8 s: phase 0 the glow on (party_glow_off = 0),
+/// 1 off, 2 on, 3 off with the long Chalice notice (the centred alert), 4 done. Each phase logs the
+/// glow rows and the SpEffects of the local and every remote player chr (9006: the cooperator's).
+void GlowTestTick(const GameSnapshot& s, double now) {
+    static const int need = std::getenv("BB_PARTY_GLOW_TEST") ? std::max(1, std::atoi(std::getenv("BB_PARTY_GLOW_TEST"))) : 0;
+    static const bool on = need > 0 && std::getenv("BB_PARTY_GLOW_TEST")[0] != '0';
+    static double t0 = -1;
+    static int phase = -1;
+    if (!on || !s.world_up || s.loading || !s.player || phase >= 4) {
+        return;
+    }
+    const u64 wcm = Slot(kSlotWorldChrMan);
+    const int n = Field<int>(wcm, 0x30, 0);
+    const u64 entries = Field<u64>(wcm, 0x38);
+    std::vector<u64> chrs{s.player};
+    for (int i = 0; entries && n > 0 && n <= 8 && i < n; ++i) {
+        const u64 c = Field<u64>(entries + u64(i) * 0x38, 0);
+        if (c && c != s.player) chrs.push_back(c);
+    }
+    if (chrs.size() < 2 || (t0 < 0 && int(chrs.size()) - 1 < need)) {
+        return;
+    }
+    if (t0 < 0) {
+        t0 = now + 6.0;
+        Log("glow test: %zu remote player chr(s); phases in 6 s", chrs.size() - 1);
+    }
+    const int want = now < t0 ? -1 : std::min(4, int((now - t0) / 8.0));
+    if (want == phase) {
+        return;
+    }
+    phase = want;
+    static const char* const names[] = {"glow on", "glow off", "glow on again", "glow off again", "done"};
+    if (phase < 4) {
+        BbSettings::Get().party_glow_off = phase % 2 == 1;  // GlowTick applies it within 0.2 s
+    }
+    if (phase == 3) {
+        party::status::SetAlert(deathrules::ChaliceApartNotice());
+    }
+    std::string rows;
+    for (const coop::glow::GlowRow& r : coop::glow::kGlowRows) {
+        const u64 row = GameParamRow("SpEffectVfxParam", "SP_EFFECT_VFX_PARAM_ST", r.row);
+        rows += " " + std::to_string(r.row) + "=" + std::to_string(Field<std::int32_t>(row, 0, 0));
+    }
+    Log("glow test: phase %d %s (party_glow_off %d; vfx rows%s)", phase, names[phase],
+        int(BbSettings::Get().party_glow_off.load()), rows.c_str());
+    for (const u64 c : chrs) {
+        std::string sp;
+        u64 node = Field<u64>(Field<u64>(c, 0x1c8), 8);
+        for (int k = 0; node && k < 32; ++k, node = Field<u64>(node, 0x58)) {
+            sp += " " + std::to_string(Field<int>(node, 0x40));
+        }
+        Log("glow test: %s chr %#llx type %d team %d speffects%s", c == s.player ? "local" : "remote", ull(c),
+            Field<int>(c, 0x78, -1), Field<int>(c, 0x88, -1), sp.c_str());
+    }
+}
+
 /// Diagnostics (BB_PARTY_POS_SCAN=1): where the local player's position is kept besides the chr -
 /// GSM (*0x5556678, 0x2000 bytes), GameDataMan (*0x553B130, 0x400) and PlayerGameData (GameDataMan
 /// +8, 0x2000): every float triple within 1 m of the player's position, every 10 s while it changes.
@@ -6168,8 +6569,22 @@ void OwnStainLogTick(const GameSnapshot& s) {
 void OwnStainWatchTick(const GameSnapshot& s) {
     static int flag_was = -1, echoes_was = -1;
     static float pos_was[3] = {};
+    // 0.7.2 rot (cleansed by retrieving the Blood Echoes): a stain taken counts once its echoes came
+    // back (a load that drops the record's flag takes nothing; pard2 c10).
+    static int own_echoes_was = -1, taken_stain = 0, echoes_before = 0;
+    static double taken_at = -1;
     if (!g_on.load() || !s.world_up || s.loading || !s.player) {
         return;
+    }
+    if (taken_at > 0) {
+        if (s.echoes - echoes_before >= std::max(1, taken_stain / 2)) {
+            Log("own bloodstain taken and its Blood Echoes back (%d -> %d, the stain held %d): retrieved", echoes_before,
+                s.echoes, taken_stain);
+            balance::NoteEchoesRetrieved("the own bloodstain");
+            taken_at = -1;
+        } else if (Now() - taken_at > 5.0) {
+            taken_at = -1;  // the echoes never came: not a pickup
+        }
     }
     const u64 gdm = Slot(kSlotGameData);
     const u64 rec = Field<u64>(gdm, 0x30);
@@ -6182,10 +6597,16 @@ void OwnStainWatchTick(const GameSnapshot& s) {
     if (flag_was < 0) {
         flag_was = flag;
         echoes_was = echoes;
+        own_echoes_was = s.echoes;
         std::memcpy(pos_was, p, sizeof pos_was);
         return;
     }
     const deathrules::StainChange c = deathrules::PlanStainChange(flag_was, echoes_was, flag, echoes);
+    if (c == deathrules::StainChange::Taken && own_echoes_was >= 0) {
+        taken_at = Now();
+        taken_stain = echoes_was;
+        echoes_before = own_echoes_was;
+    }
     if (c != deathrules::StainChange::None) {
         // +0x18 is the chr's spot at the death; +0x00 the game's own stain spot (0x1904660, the last
         // safe spot of the chr's position history), where 0x1868A50 builds the live stain and its
@@ -6203,6 +6624,7 @@ void OwnStainWatchTick(const GameSnapshot& s) {
     }
     flag_was = flag;
     echoes_was = echoes;
+    own_echoes_was = s.echoes;
     std::memcpy(pos_was, p, sizeof pos_was);
 }
 
@@ -6360,6 +6782,7 @@ void GuestStainTick(const GameSnapshot& s) {
     char toast[96];
     std::snprintf(toast, sizeof toast, "Blood Echoes recovered: %d", p.s.echoes);
     party::status::SetLastEvent(toast);
+    balance::NoteEchoesRetrieved("the party stain in the host's world");
     p = PartyStain{};
     WriteStainLocked(slot);
     party::ping::SetStain({});
@@ -7378,27 +7801,53 @@ void CarryGameDataTick(const GameSnapshot& s, double now) {
     }
 }
 
-/// The lamp of the host's map nearest to where the host stands (its vitals position); without a
-/// position the host's last lamp when it lies in that map (GatherLampFor). 0: none.
+/// The host's map's lamps and where it stands: the arrival lamp of a guest's load into it
+/// (lampshare::ArrivalLamp): the host's last lamp when its world has it lit, else the lit lamp
+/// nearest the host, never an unlit one (a lamp warp's arrival lights its lamp: the 0.7.2 report,
+/// the A5 join arrived at Research Hall's unlit 3502950 and the host took it as its last lamp).
+/// 0: no lit lamp known there (the caller places the guest beside the host).
 u32 LampNearHost(u32 host_map) {
-    u32 lamp = GatherLampFor(GuestDeathRedirectLamp(), host_map);
     const Where* w = WhereOf(0);
-    if (w && w->has_pos) {
-        float best = 1e18f;
-        for (const std::uint32_t id : ids::kPartyReturnPoints) {
-            float sp[4];
-            if (ids::EntityMap(id) >> 16 != host_map >> 16 || id / 100000 == 29 || !ids::ReturnSpot(id, sp)) {
-                continue;
-            }
-            const float dx = sp[0] - w->pos[0], dy = sp[1] - w->pos[1], dz = sp[2] - w->pos[2];
-            const float d = dx * dx + dy * dy + dz * dz;
-            if (d < best) {
-                best = d;
-                lamp = id;
-            }
+    std::vector<lampshare::LampCandidate> c;
+    std::string seen;
+    for (const std::uint32_t id : ids::kPartyReturnPoints) {
+        float sp[4];
+        if (ids::EntityMap(id) >> 16 != host_map >> 16 || id / 100000 == 29 || id % 10000 / 10 != 295 ||
+            !ids::ReturnSpot(id, sp)) {
+            continue;
         }
+        lampshare::LampCandidate l;
+        l.rp = id;
+        l.lit = LampLitInHostWorld(id);
+        if (w && w->has_pos) {
+            const float dx = sp[0] - w->pos[0], dy = sp[1] - w->pos[1], dz = sp[2] - w->pos[2];
+            l.d2 = dx * dx + dy * dy + dz * dz;
+        }
+        c.push_back(l);
+        seen += " " + std::to_string(id) + (l.lit ? ":lit" : ":-");
     }
-    return lamp == kTravelNone ? 0u : lamp;
+    const u32 last = GuestDeathRedirectLamp();
+    const u32 lamp = lampshare::ArrivalLamp(last == kTravelNone ? 0u : last, c);
+    Log("arrival lamp in %s: %u (host's last lamp %u; lamps%s)", MapName(host_map).c_str(), lamp,
+        last == kTravelNone ? 0u : last, seen.c_str());
+    return lamp;
+}
+
+/// A guest's load into the host's map without a lit lamp there: a transform beside the host (its
+/// vitals position), no lamp warp, so no lamp lights by the arrival. False: the host's position is
+/// not known.
+bool BesideHostIntent(u32 host_map, TravelIntent* t) {
+    const Where* w = WhereOf(0);
+    if (!w || !w->has_pos) {
+        return false;
+    }
+    *t = TravelIntent{};
+    t->kind = TravelKind::Transform;
+    t->has_pos = true;
+    t->pos_map = host_map & 0xffff0000u;
+    t->packed_map = host_map & 0xffff0000u;
+    t->pos[0] = w->pos[0] + 1.5f, t->pos[1] = w->pos[1], t->pos[2] = w->pos[2], t->pos[3] = 1.0f;
+    return true;
 }
 
 void CarryArrivalTick(const GameSnapshot& s, double now) {
@@ -7437,8 +7886,9 @@ void CarryArrivalTick(const GameSnapshot& s, double now) {
     tried = now;
     const u32 lamp = LampNearHost(host);
     TravelIntent t;
-    if (lamp == 0 || !LampIntent(lamp, &t)) {
-        Log("A5: cross-map join: no lamp of the host's map %s known; waiting", MapName(host).c_str());
+    if (lamp == 0 ? !BesideHostIntent(host, &t) : !LampIntent(lamp, &t)) {
+        Log("A5: cross-map join: no lit lamp of the host's map %s and no host position known; waiting",
+            MapName(host).c_str());
         return;
     }
     const bool started = TravelAlone(t, AloneWhy::Join);
@@ -7446,9 +7896,11 @@ void CarryArrivalTick(const GameSnapshot& s, double now) {
     if (started) {
         g_carry_gd_at = now;
         g_carry_join_at = -1;
-        Log("A5: cross-map join: client in %s, the host in %s: one load into the host's map (lamp %u, then beside "
+        Log("A5: cross-map join: client in %s, the host in %s: one load into the host's map (%s, then beside "
             "the host) %.1f s after the join",
-            MapName(s.map_id).c_str(), MapName(host).c_str(), lamp, now - at);
+            MapName(s.map_id).c_str(), MapName(host).c_str(),
+            lamp ? ("lamp " + std::to_string(lamp)).c_str() : "no lit lamp there: a placement beside the host",
+            now - at);
     }
 }
 
@@ -8304,6 +8756,10 @@ struct TitleJoin {
     u32 own_map = 0;
     float own_pos[4] = {}, own_rot[4] = {};
     std::vector<u8> room;  // the host's reply: head + descriptor
+    bool beside_pending = false;  // TitleBesideTick: the move beside the host after the load
+    float beside_pos[4] = {};
+    float beside_yaw = 0;
+    double beside_at = 0;
     u32 stage = 0;
     float pos[4] = {}, rot[4] = {};
     int last_role = -2, last_state = -2;
@@ -9180,7 +9636,7 @@ void DirectSummonEvent(int from_slot, const std::string& body) {
         if (Role() == RoleHost) return;
         const dsummon::Busy b = dsummon::WaitOf(body);
         g_host_busy.store(static_cast<int>(b));
-        party::bridge::OnHostBusy(dsummon::BusyText(b, false));
+        party::bridge::OnHostBusy(dsummon::BusyText(b, false), b == dsummon::Busy::Cutscene, StoryMirrorPlaying());
         Log("A11: the host's hold: %s%s", dsummon::BusyWord(b), b == dsummon::Busy::None ? " (its bell rings again)" : "");
         return;
     }
@@ -9344,9 +9800,52 @@ void TitleFlowUpdate(double now) {
 }
 
 /// Guest, after Continue: the host-world load of a title join, then its arrival (flow 4).
+/// The title join's move beside the host after its load (deathrules::PlanBesideMove).
+void TitleBesideTick(const GameSnapshot& s, double now) {
+    TitleJoin& t = TJ();
+    float pos[4];
+    float yaw = 0;
+    double at = 0;
+    {
+        std::lock_guard<std::mutex> lk(t.mu);
+        if (!t.beside_pending) {
+            return;
+        }
+        std::memcpy(pos, t.beside_pos, sizeof pos);
+        yaw = t.beside_yaw;
+        at = t.beside_at;
+    }
+    if (!s.world_up || s.loading || !s.player) {
+        return;
+    }
+    float p[3] = {0, 0, 0};
+    const bool have = ChrPos(s.player, p);
+    const float dist = have ? std::sqrt((p[0] - pos[0]) * (p[0] - pos[0]) + (p[1] - pos[1]) * (p[1] - pos[1]) +
+                                        (p[2] - pos[2]) * (p[2] - pos[2]))
+                            : -1.0f;
+    alignas(16) float safe[4], safe_rot[4];
+    const bool grounded = have && deathrules::SafeSpotUsable(GameSafeSpot(s.player, safe, safe_rot), safe, p) &&
+                          std::fabs(safe[1] - p[1]) < 2.0f;
+    const deathrules::BesideMove m = deathrules::PlanBesideMove(dist, s.map_id != 0xffffffffu, grounded, now - at);
+    if (m == deathrules::BesideMove::Wait) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lk(t.mu);
+        t.beside_pending = false;
+    }
+    if (m == deathrules::BesideMove::Warp) {
+        WarpLocal(pos, yaw, "title join: beside the host (on loaded ground)");
+    } else {
+        Log("title join: no move beside the host (%.1f m from it, map %s, %s, %.1f s after the load)", double(dist),
+            MapName(s.map_id).c_str(), grounded ? "on ground" : "no ground known", now - at);
+    }
+}
+
 void TitleJoinGuestTick(const GameSnapshot& s, double now) {
     TitleJoin& t = TJ();
     TitlePhase phase;
+    TitleBesideTick(s, now);
     {
         std::lock_guard<std::mutex> lk(t.mu);
         phase = t.phase;
@@ -9603,7 +10102,14 @@ void TitleJoinGuestTick(const GameSnapshot& s, double now) {
             }
             if (Field<u32>(s.player, 0x3f8) == stage) {
                 BesideHost(pos, rot, g_local_slot.load() > 0 ? g_local_slot.load() : 1);
-                WarpLocal(pos, rot[1], "title join: beside the host");
+                // lamprule run 7: no warp at once (the map still "-", the floor's collision not loaded:
+                // the guest fell through it); TitleBesideTick moves it once it stands on loaded ground,
+                // or not at all when the game's placement already put it there.
+                std::lock_guard<std::mutex> lk(t.mu);
+                std::memcpy(t.beside_pos, pos, sizeof pos);
+                t.beside_yaw = rot[1];
+                t.beside_at = now;
+                t.beside_pending = true;
             }
         }
         Log("title join: in the world after %.1f s: map %s, flow %d, GSM+0x1592 %u, role %d, cooperators %d",
@@ -10435,6 +10941,7 @@ void Tick(const GameSnapshot& s) {
     FallStainTick(s, now);
     PendingReviveTick(s, now);
     SafeReviveWatchTick(s, now);
+    ReviveViewTick(s, now);
     OwnStainWatchTick(s);
     NgGuardTick(s);
     GuestStainTick(s);
@@ -10443,13 +10950,15 @@ void Tick(const GameSnapshot& s) {
     PinOwnSpotTick(s);
     PosScanTick(s, Now());
     RemoteChrRenderWatch(s, Now());
+    GlowTick(Now());
+    GlowTestTick(s, Now());
     MemberRevivedTick(s);
     AppearanceTick(s);
     ReviveRearmTick(s);
     BossClearInvincibleTick(s, now);
     DeadAfterClearTick(s, now);
     K10ProbeTick(s, now);
-    K10ActionHoldTick(s, now);
+    StayActionHoldTick(s, now);
     LocalDeathHeightTick(s, now);
     ReviveDiffTick(s, now);
     {
@@ -11135,8 +11644,8 @@ bool GatherTravelToHost() {
     }
     const u32 lamp = LampNearHost(host);
     TravelIntent t;
-    if (lamp == 0 || !LampIntent(lamp, &t)) {
-        Log("gather: no lamp of the host's map %s known", MapName(host).c_str());
+    if (lamp == 0 ? !BesideHostIntent(host, &t) : !LampIntent(lamp, &t)) {
+        Log("gather: no lit lamp of the host's map %s and no host position known", MapName(host).c_str());
         return false;
     }
     Log("gather: one load into the host's map %s (lamp %u, nearest the host), then beside the host", MapName(host).c_str(),
@@ -11146,6 +11655,16 @@ bool GatherTravelToHost() {
 
 void SetWhere(const std::vector<Where>& members) {
     g_where = members;
+}
+
+bool MemberWhere(int slot, Where* out) {
+    for (const Where& w : g_where) {
+        if (w.slot == slot) {
+            if (out) *out = w;
+            return true;
+        }
+    }
+    return false;
 }
 
 int MembersApart() {
@@ -11364,7 +11883,7 @@ bool TravelAlone(const TravelIntent& t, AloneWhy why, std::uint32_t rest_lamp, b
 bool RespawnAloneAtOwnLamp() {
     const u32 own = Field<u32>(Slot(kSlotGsm), 0x1528);
     TravelIntent t;
-    if (!g_on.load() || own == 0 || own == kTravelNone || !LampIntent(own, &t)) {
+    if (!g_on.load() || own == 0 || own == kTravelNone || !OwnLampUsable(own) || !LampIntent(own, &t)) {
         Log("guest: own-lamp respawn refused (own last lamp %u)", own);
         return false;
     }
@@ -11377,7 +11896,7 @@ bool ReloadAtHostLamp(const char* why) {
     // the boss's area restarted the fight there from the mirrored host-entered flag - a loop.
     const u32 host = GuestDeathRedirectLamp();
     const u32 own = Field<u32>(Slot(kSlotGsm), 0x1528);
-    const u32 lamp = host != 0 && host != kTravelNone ? host : own;
+    const u32 lamp = host != 0 && host != kTravelNone ? host : OwnLampUsable(own) ? own : 0u;
     TravelIntent t;
     if (!g_on.load() || lamp == 0 || lamp == kTravelNone || !LampIntent(lamp, &t)) {
         Log("guest: %s: no alone load (host's last lamp %u, own %u)", why, host, own);

@@ -119,6 +119,8 @@ struct Where {
 };
 /// Main thread (the director, every tick, before Tick).
 void SetWhere(const std::vector<Where>& members);
+/// Main thread: member `slot`'s last vitals (as SetWhere got them). False: not known.
+bool MemberWhere(int slot, Where* out);
 /// Why a member travels alone (logs; Death keeps the player's own respawn records).
 /// Join (A5): a cross-map direct summon joined the host's room from another map; the one load
 /// into the host's map (its lamp nearest the host; the own last lamp is not changed).

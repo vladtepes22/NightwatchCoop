@@ -85,6 +85,9 @@ struct Bridge {
     Clock::time_point first_tick{};
     Actions actions;
     bool actions_set = false;
+    // A guest's cutscene-wait notice held while the host's scene plays here as the live mirror.
+    BusyToastGate busy_gate;
+    bool mirror_playing = false;
 };
 
 Bridge& B() {
@@ -559,16 +562,53 @@ void OnRing() {
     PublishLocked(b);
 }
 
-void OnHostBusy(const std::string& text) {
+std::string BusyToastGate::OnBusy(const std::string& text, bool cutscene_wait, bool mirror_playing) {
+    if (!text.empty() && cutscene_wait && mirror_playing) {
+        held_ = text;  // the guest watches that scene with the host: no "waiting" over it
+        mirror_end_ = -1;
+        return {};
+    }
+    held_.clear();
+    return text;
+}
+
+std::string BusyToastGate::OnTick(const std::string& current, bool mirror_playing, double now_s) {
+    if (held_.empty()) {
+        return {};
+    }
+    if (current != held_) {
+        held_.clear();  // the hold ended (or changed) with the scene: nothing to say
+        return {};
+    }
+    if (mirror_playing) {
+        mirror_end_ = -1;
+        return {};
+    }
+    if (mirror_end_ < 0) {
+        mirror_end_ = now_s;
+    }
+    if (now_s - mirror_end_ < kGraceS) {
+        return {};
+    }
+    std::string t;
+    t.swap(held_);
+    return t;  // the host still holds after our scene ended: the wait outlasts it
+}
+
+void OnHostBusy(const std::string& text, bool cutscene_wait, bool mirror_now) {
     bool changed = false;
+    std::string toast;
     {
         Bridge& b = B();
         std::lock_guard<std::mutex> lk(b.mu);
         changed = b.f.host_busy != text;
         b.f.host_busy = text;
-        if (changed) PublishLocked(b);
+        if (changed) {
+            PublishLocked(b);
+            toast = b.busy_gate.OnBusy(text, cutscene_wait, b.mirror_playing || mirror_now);
+        }
     }
-    if (changed && !text.empty()) status::SetLastEvent(text);
+    if (!toast.empty()) status::SetLastEvent(toast);
 }
 
 void OnLeft(bool host) {
@@ -657,12 +697,16 @@ TickOut Tick(const TickIn& in) {
     Bridge& b = B();
     const auto now = Clock::now();
     bool roster_due = false, log_due = false;
+    std::string busy_toast;
     {
         std::lock_guard<std::mutex> lk(b.mu);
         if (!b.actions_set) {
             b.actions = DefaultActions();
             b.actions_set = true;
         }
+        b.mirror_playing = in.mirror_playing;
+        busy_toast = b.busy_gate.OnTick(b.f.host_busy, in.mirror_playing,
+                                        std::chrono::duration<double>(now.time_since_epoch()).count());
         // Only a few scalars per frame; the state is recomputed and published on a change.
         Facts& f = b.f;
         bool travelling = f.travelling, bell = f.bell_recent;
@@ -703,6 +747,7 @@ TickOut Tick(const TickIn& in) {
             log_due = true;
         }
     }
+    if (!busy_toast.empty()) status::SetLastEvent(busy_toast);  // the host's hold outlasted our mirror
     if (roster_due) OnRoster(in.link->roster(), in.link->max_players());
     RunScript(b, in.host, now);
     // The tab's commands (main thread: the runtime calls below only start background work).

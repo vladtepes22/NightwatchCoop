@@ -368,7 +368,7 @@ of every task; nothing extra to patch.
 | Host lamp id | host polls `+0x1528` (own world) once a second, EVENT `phantom {lamp}` on change or membership change; any TRAVEL's `last_lamp` updates it too | guest: `SetGuestDeathRedirect` |
 | Auto-rejoin | the director's Small Resonant Bell (idle in own world, link up) | no new code |
 | Refill | guest tick: `0x14DBB70()` then `0x14DACE0()` after a steady world (30 frames, no load / stage request / join) | triggers: EVENT `phantom {rested}` (host travel into the Dream, host death, host Mark), own redirected respawn; waits for the follow load (45 s cap) |
-| Confinement walls | built-in rules `7600:2005:3@6`, `7600:2006:2@7` | only while `TravelEnabled()`; `BB_PARTY_OPEN_WORLD=0` drops them |
+| Confinement walls | built-in rules from `bossfog::ConfinementWalls` (`tools/party/bossroom_tool.py scan` / `check`): `7600:2005:3@6`, `7600:2006:2@7`, the Chalice copy 12907600, m34 `13400010:2005:3@7` / `2006:2@8` (the wall behind Ludwig) | only while `TravelEnabled()`; `BB_PARTY_OPEN_WORLD=0` drops them. Always in party mode: `13400010:0:0@11` (its "not in multiplayer" take-down condition), so the wall goes at Ludwig's death while the party stays |
 | Rule syntax | `event:bank:id[@index]`, index = `event+0xA0` | `BB_PARTY_EMEVD_SKIP` |
 
 ## 7. Probes

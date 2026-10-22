@@ -20,7 +20,9 @@
 #include "party_link.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <vector>
 
 namespace party::hud {
 
@@ -176,6 +178,17 @@ constexpr float kAreaBannerTop = 0.80f;
 /// The bottom edge (pixels from the top) of a bottom-right performance HUD: `normal` (the corner)
 /// unless the banner may be up, then no lower than kAreaBannerTop * `height`.
 float PerfHudBottom(float normal, float height, bool banner);
+
+// ---- notice text layout (overlay; pure) ----
+/// A party notice / alert's lines inside a box `max_w` wide: the text's own '\n' breaks, then each
+/// paragraph wrapped at spaces (a word wider than the box keeps its own line, never split, so a
+/// UTF-8 / Cyrillic character is never cut). `measure` gives a line's width in the font drawn
+/// (ImGui::CalcTextSize there, a fixed advance in tests). Empty paragraphs stay empty lines.
+std::vector<std::string> WrapNoticeLines(const std::string& text, float max_w,
+                                         const std::function<float(const std::string&)>& measure);
+/// The left edge of a `line_w` wide line centred in a box from `left`, `box_w` wide (never left of
+/// `left` when the line is wider than the box).
+float CenteredLineX(float left, float box_w, float line_w);
 
 /// Set by party_hud_game's tick (game thread), read by the overlay: while the game's full-screen
 /// menu is up the party panel and the name tags hide and the party notices / NPC captions are held

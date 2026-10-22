@@ -106,13 +106,16 @@
             new("FPS++ retune", "fps++", "Kyo's 60 FPS++ camera: further back and slower to follow"),
         };
 
+        // visy 0.7.2: no Highest (-2: objects past their nearest detail level were not drawn) and no
+        // Lowest (2: models without a third level, some floors among them, were not drawn). The game
+        // reads a saved -2 as 0 and 2 as 1, and so does this list.
         public static readonly Choice[] ModelLod =
         {
             new(L.T("As in the game"), "0"),
-            new(L.T("Highest (-2)"), "-2"),
             new(L.T("Lower (1)"), "1"),
-            new(L.T("Lowest (2)"), "2"),
         };
+
+        public static string ModelLodShown(string value) => value switch { "-2" => "0", "2" => "1", _ => value };
 
         public static readonly Choice[] FpsModes =
         {

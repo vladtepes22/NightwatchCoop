@@ -6,6 +6,11 @@
   python tools/mp/shot.py --root DIR --out DIR --watch "regex=tag[@delay[,delay...]]" ...
       tails DIR\\inst*\\run.log and shoots every window when a line matches regex
       (after each delay in s; default 0), until --seconds pass.
+  python tools/mp/shot.py --root DIR --out DIR --burst "START => END" ...
+      a ride burst (liftfix): when a line matches START (in any instance's log), every window every
+      second (ride<N>_<t>s_inst<i>.png, N counting the rides from 1, t the seconds since START) until
+      2 s after every log that matched START has matched END (at most 90 s; a far game's copy ends at
+      once); another START meanwhile is the same ride.
   python tools/mp/shot.py --root DIR --out DIR --grey [--watch ...]
       also every 2 s: a window whose 3D view (the centre, without the HUD corners) is nearly
       uniform for over 3 s while its log says the world is up (no loading screen) is a grey
@@ -179,10 +184,16 @@ def main():
     ap.add_argument("--every", type=float, default=0,
                     help="also shoot every N seconds (a timed series: TAG_<elapsed>s)")
     ap.add_argument("--grey", action="store_true", help="also flag grey screens (see above)")
+    ap.add_argument("--burst", action="append", default=[], help='"START => END": a ride burst (see above)')
     a = ap.parse_args()
     out = Path(a.out)
     grey = GreyCheck(a.root, out) if a.grey else None
-    if not a.watch and not grey and not a.every:
+    bursts = []  # [start rx, end rx]
+    for b in a.burst:
+        st, _, en = b.partition(" => ")
+        bursts.append((re.compile(st), re.compile(en)))
+    ride = {"n": 0, "start": None, "next": None, "end": None}
+    if not a.watch and not grey and not a.every and not bursts:
         shoot(a.root, out, a.tag)
         return
     rules = []
@@ -224,21 +235,39 @@ def main():
             if grey:
                 m = re.search(r"inst(\d+)", str(p))
                 grey.note_log(int(m.group(1)) if m else -1, text)
+            for srx, erx in bursts:
+                m = srx.search(text)
+                if m and ride["start"] is None:
+                    ride.update(n=ride["n"] + 1, start=time.time(), next=time.time(), end=None, began=set(), ended=set())
+                if m and ride["start"] is not None and ride["end"] is None:
+                    ride["began"].add(p)
+                    text = text[m.end():]  # an end in the same chunk must come after the start
+                if ride["start"] is not None and ride["end"] is None and erx.search(text) and p in ride["began"]:
+                    # over once every game whose car rode has ended it (a far copy ends at once)
+                    ride["ended"].add(p)
+                    if ride["ended"] >= ride["began"]:
+                        ride["end"] = time.time()
             for rx, tag, delays in rules:
                 if tag not in fired and rx.search(text):
                     fired.add(tag)
                     for d in delays:
                         pending.append((time.time() + d, f"{tag}_{d:g}s"))
         now = time.time()
+        if ride["start"] is not None:
+            if now >= ride["next"]:
+                shoot(a.root, out, "ride%d_%ds" % (ride["n"], int(round(ride["next"] - ride["start"]))))
+                ride["next"] += 1.0
+            if (ride["end"] is not None and now >= ride["end"] + 2.0) or now - ride["start"] > 90:
+                ride.update(start=None, next=None, end=None)
         for item in sorted(pending):
             if item[0] <= now:
                 shoot(a.root, out, item[1])
                 pending.remove(item)
         if grey:
             grey.tick()
-        elif rules and len(fired) == len(rules) and not pending and not a.every:
+        elif rules and len(fired) == len(rules) and not pending and not a.every and not bursts:
             return
-        time.sleep(0.2)
+        time.sleep(0.1 if ride["start"] is not None else 0.2)
 
 
 if __name__ == "__main__":

@@ -388,6 +388,43 @@ target_compile_definitions(party-gestures-test PRIVATE BB_PARTY_GESTURES_NO_GAME
 target_compile_options(party-gestures-test PRIVATE -UNDEBUG -Wall -Wextra)
 target_include_directories(party-gestures-test PRIVATE shim)
 set_target_properties(party-gestures-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# Lifts in a party: the table and the decisions (party_lift_rules.h). ninja -C out/gpu party-lift-rules-test
+add_executable(party-lift-rules-test EXCLUDE_FROM_ALL ../tests/test_party_lift_rules.cpp)
+target_compile_options(party-lift-rules-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-lift-rules-test PRIVATE shim)
+set_target_properties(party-lift-rules-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# A guest the party keeps where it stands (party_stay_rules.h). ninja -C out/gpu party-stay-rules-test
+add_executable(party-stay-rules-test EXCLUDE_FROM_ALL ../tests/test_party_stay_rules.cpp)
+target_compile_options(party-stay-rules-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-stay-rules-test PRIVATE shim)
+set_target_properties(party-stay-rules-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# Companions without the phantom glow (party_glow_rules.h). ninja -C out/gpu party-glow-test
+add_executable(party-glow-test EXCLUDE_FROM_ALL ../tests/test_party_glow.cpp)
+target_compile_options(party-glow-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-glow-test PRIVATE shim)
+set_target_properties(party-glow-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# Boot watchdog (shim/bbport_boot_watch.h, BB_BOOT_WATCHDOG): the rules. ninja -C out/gpu boot-watch-test
+add_executable(boot-watch-test EXCLUDE_FROM_ALL ../tests/test_boot_watch.cpp)
+target_compile_options(boot-watch-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(boot-watch-test PRIVATE shim)
+set_target_properties(boot-watch-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# C4 rot cleanses (0.7.2, shim/party/party_rot_rules.h, header only) with the rules / party_rot.txt
+# fields of party_balance_rules. cmake --build out/gpu --target party-rot-test
+add_executable(party-rot-test EXCLUDE_FROM_ALL ../tests/test_party_rot.cpp shim/party/party_balance_rules.cpp
+    shim/net/json.cpp)
+target_compile_options(party-rot-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-rot-test PRIVATE shim)
+set_target_properties(party-rot-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# Boss fights after a party load (party_bossfog_rules.h), over every boss fog (party_worldact.cpp).
+# cmake --build out/gpu --target party-bossfog-rules-test
+add_executable(party-bossfog-rules-test EXCLUDE_FROM_ALL ../tests/test_party_bossfog_rules.cpp
+    shim/party/party_worldact.cpp shim/party/party_progress.cpp shim/net/json.cpp)
+target_compile_definitions(party-bossfog-rules-test PRIVATE BB_PARTY_WORLDACT_NO_GAME BB_PARTY_PROGRESS_NO_GAME
+    BB_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_compile_options(party-bossfog-rules-test PRIVATE -UNDEBUG -Wall -Wextra)
+target_include_directories(party-bossfog-rules-test PRIVATE shim)
+set_target_properties(party-bossfog-rules-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME boot-watch-test COMMAND boot-watch-test)
 get_property(all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 set(party_tests)
 foreach(target IN LISTS all_targets)
@@ -398,6 +435,7 @@ foreach(target IN LISTS all_targets)
     endif()
 endforeach()
 add_custom_target(seamless-tests DEPENDS ${party_tests} party-soak party-host-harness)
+add_dependencies(seamless-tests boot-watch-test)
 
 target_link_libraries(party-soak PRIVATE ws2_32 iphlpapi ole32 oleaut32 crypt32 synchronization winmm)
 target_link_libraries(party-host-harness PRIVATE ws2_32 iphlpapi ole32 oleaut32 crypt32 synchronization winmm)

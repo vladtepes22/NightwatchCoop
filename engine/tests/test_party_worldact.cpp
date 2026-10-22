@@ -204,8 +204,10 @@ int main() {
         assert(BossGateGuestStarts(amelia) && BossGateGuestStarts(gas) && BossGateGuestStarts(*BossGateByEvent(12304811)));
         assert(!BossGateGuestStarts(*BossGateByEvent(12424811)));  // Ebrietas: a hit starts her first fight
         assert(!BossGateGuestStarts(*BossGateByEvent(12424711)));  // Celestial Emissary: no first-fight event
-        // DLC (pard2): Ludwig, Laurence, Living Failures, the Orphan; Lady Maria stays host-first.
-        assert(BossGateGuestStarts(*BossGateByEvent(13404801)) && BossGateGuestStarts(*BossGateByEvent(13404851)));
+        // DLC (pard2): Ludwig, Living Failures, the Orphan; Lady Maria stays host-first, and so does
+        // Laurence (player report 2026-10-22: his first fight needs the host's skull at the altar).
+        assert(BossGateGuestStarts(*BossGateByEvent(13404801)) && !BossGateGuestStarts(*BossGateByEvent(13404851)));
+        assert(HostFogAction(*BossGateByEvent(13404851), true, false, false, false, 0x22000000u) == FogAction::none);
         assert(BossGateGuestStarts(*BossGateByEvent(13504851)) && BossGateGuestStarts(*BossGateByEvent(13604801)));
         assert(!BossGateGuestStarts(*BossGateByEvent(13504801)));  // Lady Maria: examined in her chair first
         // Rule "progress shared by everyone" (pard3): a lone guest's boss kill reaches the host.

@@ -119,6 +119,27 @@ namespace BloodborneLauncher.Core
             _changed.Add(key);
         }
 
+        /// <summary>bbport.ini's one-time changes done so far (the game's kSettingsRev,
+        /// bbport_settings.h: whichever starts first does them). 1 (visy 0.7.2): party_rot=0 once,
+        /// rot became off by default and older games saved their default 1 with every change.</summary>
+        public const int SettingsRev = 1;
+
+        /// <summary>Applies the one-time changes a bbport.ini below <see cref="SettingsRev"/> still
+        /// needs; a new file only gets the revision.</summary>
+        public void MigrateRev()
+        {
+            if (!int.TryParse(Get("settings_rev", "0"), out var rev)) rev = 0;
+            if (rev >= SettingsRev) return;
+            if (File.Exists(Paths.IniPath))
+            {
+                if (rev < 1) Set("party_rot", "0");
+                Set("settings_rev", SettingsRev.ToString());
+                Save();
+            }
+            else
+                Set("settings_rev", SettingsRev.ToString());
+        }
+
         /// <summary>Every key with a value (shared settings).</summary>
         public IEnumerable<KeyValuePair<string, string>> Values =>
             _values.Where(kv => kv.Value != null).Select(kv => new KeyValuePair<string, string>(kv.Key, kv.Value!));

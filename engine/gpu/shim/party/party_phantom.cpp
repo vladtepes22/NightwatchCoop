@@ -12,6 +12,7 @@
 #include "party_phantom.h"
 #include "party_async_io.h"
 #include "party_perf.h"
+#include "party_bossfog_rules.h"
 
 #include "../../party_env.h"
 
@@ -27,6 +28,7 @@
 #ifndef BB_PARTY_PHANTOM_NO_GAME
 #include "coop_hooks.h"
 #include "game_state.h"
+#include "party_balance.h"
 #include "party_director.h"
 #include "party_link.h"
 #include "party_guestvals_rules.h"
@@ -140,16 +142,44 @@ std::string DescribeSkipRule(const EmevdSkipRule& r) {
 }
 
 std::vector<EmevdSkipRule> ConfinementWallRules() {
-    // common.emevd event 7600 (args X0 object, X1 SFX): 1 2005[3](X0, 0) off ... 5 wait for
-    // multiplayer ... 6 2005[3](X0, 1) on, 7 2006[2](X1) SFX on ... 11 restart.
-    // m29.emevd event 12907600 is the Chalice Dungeons' own copy of it, instruction for
-    // instruction (the only one in the game's 2668 event scripts): without it the host's
-    // dungeon put a wall at the first doorway while a member stayed in its session (live, beta 6).
-    EmevdSkipRule on{7600, 2005, 3, 6, true};
-    EmevdSkipRule sfx{7600, 2006, 2, 7, true};
-    EmevdSkipRule chalice_on{12907600, 2005, 3, 6, true};
-    EmevdSkipRule chalice_sfx{12907600, 2006, 2, 7, true};
-    return {on, sfx, chalice_on, chalice_sfx};
+    // Every co-op wall event of the game (bossfog::ConfinementWalls, an EMEVD scan): common 7600
+    // (args X0 object, X1 SFX: 1 2005[3](X0, 0) off ... 5 wait for multiplayer ... 6 2005[3](X0, 1)
+    // on, 7 2006[2](X1) SFX on ... 11 restart), its Chalice Dungeons copy m29 12907600 (without it
+    // the host's dungeon put a wall at the first doorway while a member stayed in its session, live
+    // beta 6) and m34 13400010, the wall at the back of Ludwig's arena (7 / 8; player report
+    // 2026-10-22: it stood after his death until the guest left). The wall and its SFX, needs_travel.
+    std::vector<EmevdSkipRule> out;
+    std::size_t n = 0;
+    const coop::bossfog::ConfinementWall* walls = coop::bossfog::ConfinementWalls(&n);
+    for (std::size_t i = 0; i < n; ++i) {
+        out.push_back(EmevdSkipRule{walls[i].event, 2005, 3, walls[i].on_index, true});
+        out.push_back(EmevdSkipRule{walls[i].event, 2006, 2, walls[i].sfx_index, true});
+    }
+    return out;
+}
+
+std::vector<EmevdSkipRule> BossRoomRules() {
+    std::vector<EmevdSkipRule> out;
+    std::size_t n = 0;
+    // A wall that vanilla takes down at a boss kill only once the co-op is over (13400010: Ludwig
+    // dead AND not in multiplayer): the "not in multiplayer" condition is skipped (any role), so it
+    // goes at the kill while the party stays - with the open world off too.
+    const coop::bossfog::ConfinementWall* walls = coop::bossfog::ConfinementWalls(&n);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (walls[i].alone_index >= 0) {
+            out.push_back(EmevdSkipRule{walls[i].event, 0, 0, walls[i].alone_index, false});
+        }
+    }
+    // A boss whose first fight starts by the host's action in the room (Laurence, Ebrietas, Lady
+    // Maria): the guest's room stays open until the fight starts, as the host's (the re-fight
+    // event's `1003[5] skip 2 if client` skipped on a client, so its fog is off until then).
+    const coop::bossfog::FirstFight* ff = coop::bossfog::FirstFights(&n);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (ff[i].start == coop::bossfog::FirstStart::action) {
+            out.push_back(EmevdSkipRule{ff[i].refight_event, 1003, 5, ff[i].client_skip_index, false, true});
+        }
+    }
+    return out;
 }
 
 const char* PhantomEventKindName(PhantomEventKind k) {
@@ -700,6 +730,8 @@ BB_COOP_SYSV void BossBonusHook(u64 a0, u64 entity) {
     }
     g_native_clear_at = Now();
     g_native_clear_bonus = int(v);
+    // 0.7.2 rot: a boss's death cleanses it (and is a killer's death; party_rot_rules.h).
+    balance::NoteBossDefeated(u32(entity), "the boss defeat on this game");
     Log("boss clear on this game (BlockClear2): boss %u, clear bonus %d Blood Echoes", u32(entity), int(v));
     if (PartyDirector::Get().Role() == PartyRole::Host && v > 0.0f) {
         PhantomEvent e;
@@ -1293,6 +1325,8 @@ void PhantomOnEvent(const std::string& body) {
             break;
         }
         if (e.boss) {
+            // 0.7.2 rot: every member in the host's world, alive or dead in the fight.
+            balance::NoteBossDefeated(0, "the host's boss kill");
             // Finding 4: did the boss defeat run on this game too? (BossFallbackTick)
             g_boss_wait.active = true;
             g_boss_wait.at = now;
@@ -1325,6 +1359,8 @@ void PhantomOnEvent(const std::string& body) {
         g_host_bonus = e.bonus;
         g_host_bonus_at = now;
         Log("host boss clear bonus: %d Blood Echoes (boss %u)", e.bonus, e.source_event);
+        // 0.7.2 rot: the boss entity too (it may be this guest's killer); only in the host's world.
+        if (now - g_last_client.load() <= kParticipation) balance::NoteBossDefeated(e.source_event, "the host's boss clear");
         break;
     }
     case PhantomEventKind::Unknown:

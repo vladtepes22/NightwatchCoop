@@ -778,6 +778,51 @@ static void TestWorldMirror() {
     CHECK(gs.ReadVisible(72410060, &v) && v);  // kept
     CHECK(gm.Dirty() == 0 && gm.Apply(ov, guest.ops(), false, &r) && r.groups == 0);
 
+    // liftfix: a held flag (a lift's position flag while the guest's own copy rides) keeps the
+    // overlay's value through live and full applies and is no local change meanwhile; at the release
+    // the overlay's value stands (the copy's own end; the image may be stale) and only a later host
+    // change goes in
+    gm.Hold(72410202, true);
+    CHECK(gm.Held(72410202) && !gm.Held(72410203));
+    host.SetPoolBit(72410202, false);
+    host.SetPoolBit(72410203, true);
+    out = WorldImage{};
+    ht.Observe(host.pool.data(), &out);
+    gm.Receive(out);
+    CHECK(gm.Apply(ov, guest.ops(), false, &r) && r.bits == 1);
+    CHECK(gs.ReadVisible(72410202, &v) && v);   // held: the guest's copy reads its own end
+    CHECK(gs.ReadVisible(72410203, &v) && v);   // the rest of the group follows the host
+    for (const auto& [id, val] : gm.LocalChanges(ov, guest.ops(), 64)) {
+        CHECK(id != 72410202u && id != 72410203u);
+        (void)val;
+    }
+    CHECK(gm.Apply(ov, guest.ops(), true, &r));  // a full copy keeps it too
+    CHECK(gs.ReadVisible(72410202, &v) && v);
+    gm.Hold(72410202, false);
+    CHECK(gm.Dirty() == 0 && gm.Apply(ov, guest.ops(), false, &r) && r.bits == 0);
+    CHECK(gs.ReadVisible(72410202, &v) && v);   // released: the copy's own end stands
+    bool local = false;
+    for (const auto& [id, val] : gm.LocalChanges(ov, guest.ops(), 64)) {
+        local = local || (id == 72410202u && val);
+    }
+    CHECK(local);                                // ... and differs from the host's: the guest reports it
+    host.SetPoolBit(72410202, true);             // the host's next change goes in as usual
+    out = WorldImage{};
+    ht.Observe(host.pool.data(), &out);
+    gm.Receive(out);
+    CHECK(gm.Apply(ov, guest.ops(), false, &r) && gs.ReadVisible(72410202, &v) && v);
+    host.SetPoolBit(72410202, false);
+    out = WorldImage{};
+    ht.Observe(host.pool.data(), &out);
+    gm.Receive(out);
+    CHECK(gm.Apply(ov, guest.ops(), false, &r) && r.bits == 1 && gs.ReadVisible(72410202, &v) && !v);
+    host.SetPoolBit(72410203, false);  // back as it was for the checks below
+    host.SetPoolBit(72410202, true);
+    out = WorldImage{};
+    ht.Observe(host.pool.data(), &out);
+    gm.Receive(out);
+    CHECK(gm.Apply(ov, guest.ops(), false, &r) && gs.ReadVisible(72410202, &v) && v);
+
     // a rebuilt overlay (new buffers, zeroed): new identity, the full copy restores the host's world
     guest.Build(1);
     ovm.Build(guest);

@@ -349,8 +349,103 @@ and of the car's animation state on each game, `log_flag=` / `log_objanim=`):
   not move the car). l9: `lift 2401102 12400827=1(applied: the lift's block is not loaded here)`,
   then the host's init at the stream-in took anim 0 (the top), where the guest's car was. Lift table:
   `worldact::Lifts()` (21 lifts, from the EMEVD of every up / down event; liftfall added Cainhurst 12500074, the six Nightmare of Mensis lifts of its common up / down events 12601320 / 12601330, its library lift 12601253 and the Nightmare Frontier's 13300115).
-* Long lifts (liftfall): the report's 60 m ride (y 1003 -> 943) is the Nightmare of Mensis' library lift 2601260 (events 12601351 / 12601352, usable after Micolash; regions 2602241-44 from the MSB: in the car at the bottom / top at x 119.4, the call spots at x 117.7). The fall recovery nets took the ride for a fall out of the world (the host warped to its lamp mid-ride). Now a fall sample needs a drop faster than a lift's (10 m/s) unless no lift car plays a ride where the chr stands (`worldact::OnMovingLiftCar`; the +0x1E5 bit 0x02 ride flag is set only on remote chrs in a car, not on the local chr: live el1), and the nets fire only after 40 m in their 6 s (`deathrules::FallSample` / `FallRecoveryDue`); the fall-death drop test counts from the last ride sample (`PeakSinceRide`).
-* The library lift has NO network sync (no 2000[2]; its regions test entity 10000, the local player): each game's car moves only for its own player, and its position flag 12601253 (1: the car at the top; a state id, mirrored) flips when the rider has left the car at the far end, after the end animation (12601253 = 1: gate 2601261 anim 9, car anim 7; = 0: gate 7, car 9). A guest's car stayed where the guest last saw it while the mirror brought the host's flag: the copy then rode from the wrong end. `worldact::LiftReplayTick` (any role) plays the end animations (0x13CBFD0, what 2003[18] runs) on a game whose flag changed without its own ride; a mirror flip during the guest's own ride is put back until that copy ends (it reads the flag to pick its end). A guest's ride of it goes to the host as `lift_set` / `lift_clr` and the host applies it with the car loaded too, unless the host stands at the car (`occupied`). Smoke group `elevator` (phase el).
+* Long lifts (liftfall): the report's 60 m ride (y 1003 -> 943) is the Nightmare of Mensis' library lift 2601260 (events 12601351 / 12601352, usable after Micolash; regions 2602241-44 from the MSB: in the car at the bottom / top at x 119.4, the call spots at x 117.7). The fall recovery nets took the ride for a fall out of the world (the host warped to its lamp mid-ride). Now a fall sample needs a drop faster than a lift's (10 m/s) unless no lift car plays a ride where the chr stands (`worldact::OnMovingLiftCar`; the +0x1E5 bit 0x02 ride flag: not on the local chr in liftfall's el1 on 2601240, but on it for the whole library lift ride in liftfix's runs), and the nets fire only after 40 m in their 6 s (`deathrules::FallSample` / `FallRecoveryDue`); the fall-death drop test counts from the last ride sample (`PeakSinceRide`).
+* The library lift's car is a one-hunter birdcage (screenshots of the 0.7.1 full smoke: two hunters
+  in it overlap, weapons through the bars). Its position flag 12601253 (1: the car at the top; a state
+  id, mirrored) flips when the rider has left the car at the far end, after the end animation
+  (12601253 = 1: gate 2601261 anim 9, car anim 7; = 0: gate 7, car 9; init: car 2 / 4). It IS synced
+  like every lift (liftfix, EMEVD traces of 12601352 on both games): a step into the car on one game
+  starts every game's copy within ~0.05 s, both cars ride and arrive together.
+* **The ping-pong (liftfix, fixed):** the game's sync passes a wait of the event on every game once one
+  game's copy passes it. Every lift but two ends its ride when ALL players are out of the arrival region
+  (3[7]); Cainhurst's lift (12500076 / 12500077) and the library lift end it when the LOCAL player is out
+  (3[2] on 10000). In a party the copy of a player outside the car passed that at once, so every game's
+  ride ended at the arrival with the rider still in the car, the flag flipped, and the restarted copy saw
+  the rider in its start region: the car went straight back with it, back and forth until the rider
+  stepped out at the right moment (run 2: the guest's copy passed its "outside" wait 0.1 s after the
+  host's while it stood in the car, then its start wait in the same frame; 15 rides for 3; the 0.7.1
+  full smoke had 5-6 for 3). Their end checks become the all-players check on every game at the first
+  dispatch (`liftrules::LocalEndToAllPlayers`, `WorldactRewriter`: id 2 -> 7, the region to +4; start
+  checks stay the local player's). The id stays in the loaded script, but every run of the event copies
+  its argument bytes afresh (run 3: the second ride's 3[07] read 10000 as its region and never ended), so
+  the region is moved on every dispatch; the id and the log line once per instruction and map load
+  (run 4: four lines per game, eight later 3[07] dispatches). Installed with the party on only (the
+  worldact init, before any map loads, so no event runs yet); alone in a party session 3[7] sees one
+  player, as vanilla. `tools/party/lift_tool.py check GAME` lists the local-end rides of
+  the game data and compares them with `kLocalEndRideEvents`.
+* **The flag hold (liftfix, fixed):** a guest's copy reads the flag to pick its end once its player is
+  out of the car, so the host's flip must not reach it before. 0.7.1 put the flip back while the player
+  stood within a few m of the car, which also put back the copy's own end written in the same tick as the
+  host's flip (full smoke 0.7.1: "kept at 1 until its end" after the car's anim 9 had ended; the guest's
+  lift kept the old end until its next ride, the host refused its report as "occupied"). Now the world
+  mirror holds the flag (`GuestWorldMirror::Hold`, `liftrules::MirrorHold`) only while the guest's car
+  shows a ride animation or plays its end, and at the release the copy's own end stands (the image may be
+  older than the ride: applying it wrote the host's previous end back, run 2); a later host change goes in
+  as usual, a differing end goes up as the guest's ride report.
+* Ride reports (liftfix): a guest's second ride to an end it had reported once in a map never went up
+  (the `known` set): reports are per ride now (`liftrules::GuestLiftReport`).
+* The fall in the 0.7.1 full smoke's el ride 1 (the host 998 -> 943 at up to 23 m/s, also rerun 2's 11 m/s
+  over the last 15 m) was the test's: both hunters warped onto one spot of the one-hunter cage, the guest
+  first, the host 1.3 s later onto the car already moving; the chrs stayed 0.3-0.5 m apart all the ride
+  and the pushed one fell through the floor (guest rides alone in the same runs: no fall). The car itself
+  never moved without a rider (the host's copy started from the guest's step, as every game's does).
+* `worldact::LiftReplayTick` (any role) still plays the end animations (0x13CBFD0) on a game whose flag
+  changed without its own ride. A guest's ride goes to the host as `lift_set` / `lift_clr`; the host
+  applies it with the car loaded too, unless the host stands at the car or its own copy rides
+  (`occupied`). Smoke group `elevator` (phase el: a guest ride with the host's copy ending first, a host
+  ride with the guest's ending first, a guest who stays 2 s in the car; per ride both games' flag and car
+  end, the rider's ride bit all the way, vertical speed).
+* Riding together (liftfix, live run 4, smoke group `lifts_together`, phase lt): host and guest on
+  Central Yharnam's lift 2411320 (a platform; its end waits for every player), each placed on the car by
+  the game's own in-world warp (the host 0.75 m beside the trigger box, the guest into it once the host
+  stood there), down and back up: both rode the whole way (16-17 samples each with the ride bit, at the
+  far end on arrival), the same flags and car end on both games after each ride, no fall, no recovery.
+  Run 4: el 22/22, lf 16/16, lt 16/16.
+* Cainhurst's lift (liftfix, live run 6, smoke group `cainhurst_lift`, phase ch: the guest down, the guest
+  up staying 2 s in the car, the host down): every ride on both games within 0.06 s, flags (12500074 /
+  12505074) and car end equal after each, the rider on the car all the way (its peak 12.7 m/s: the lift
+  speed limit is 16 m/s now), the end check rewritten once per event on each game. Run 5 found the host
+  sitting 40 s in Cainhurst's first-arrival cutscene (the fixture now sets 12500000): its copies did not
+  follow the guest's ride and the host's world kept the car at the top ("loaded, its copy did not
+  follow"). Cainhurst's lift therefore replays like the library lift, and a ride refused while the host
+  stands in the car (within 1.2 m now; 4 m refused every ride seen from its landing) is applied once
+  the host is out (`HostLiftWaitTick`).
+* The lf approach (liftfix run 6): the bottom landing's floor collision is not there right after a long
+  warp (the guest fell through at two spots, runs 2-5); the move step's `:pin=4` holds the chr in front
+  of the bottom lever while it streams in ("Operate Device" shown), and the speed check runs from the
+  approach on.
+* Ride frames (liftfix runs 7 / 8): the smoke shoots every rendered window each second through every
+  ride (`shot.py --burst`, `ride<N>_<t>s_inst<i>.png` in each group's shots folder) and checks the
+  position samples on the car for a jump (over 2 m sideways, or faster up or down than a lift). All 12
+  rides: the riders on the car all the way, no jump, no fall. Seen in them: the library lift has a
+  second cage (2601261, so far called its "gate"; regions 2602243 / 2602244 are its trigger spots) that
+  moves the other way: it arrives beside a player waiting at the far end; Cainhurst's car is a wide
+  platform (the landing spots of phase ch, 2.5 m from its axis, are on it, so both hunters rode every
+  ch ride); in the narrow shafts (Cathedral Ward's, Cainhurst's) the camera goes into the rider's own
+  model for a few seconds. Run 9 (liftfix): the second cage is in the lift table (`Lift::gate_rides`:
+  the in-car and moving-car tests look at both cages; the event, flag, hold, end rewrite and replay are
+  shared) and ridden (el ride D: the host down in it, 39 samples in the cage, the same flag / end on
+  both games); Cainhurst's rides with one rider and the other player on a landing 1 m in front of a
+  call lever (3.2-3.4 m from the axis: off the platform, its height steady, no ride bit) pass too.
+* **The Research Hall lifts (liftfix, a player's report, fixed):** "riding an elevator I went through the
+  ground and died" (lift 3501105, HP 0 at y 1546.1). Live (runs 11-17, the host alone and in a party, 30 and
+  60 FPS, EMEVD traces of 13501112 / 13501113): the ride events of the Research Hall's 1F <-> 3F and 3F <->
+  5F lifts clear their busy flag in the frame their "every player out of the arrival box" check passes; the
+  other direction's start ("the player in that box") still reads the rider inside in that frame, so the car
+  left again at once, with the rider on its wide platform's edge or about to step back in, who then fell into
+  the 12 m pit under the car (y 1546, the report's spot). Every other lift clears busy after its end
+  animation (the Research Hall's altar lift waits 1 s). `liftrules::BusyDefer`: the clear (index 26) is
+  rewritten to keep busy on, and the event's end (index 30) clears it, after the end animation. Run 18
+  (smoke `research_solo` / `research_lift`, 60 FPS): alone down, out, the car stays, back in, up; in the
+  party down alone, up alone, down and up together: 4 ride starts only, every rider on the car all the way,
+  no fall, no death, the ride frames checked. The fall-death accounting no longer counts a chr falling faster
+  than any lift without its ride bit as riding (the report's 12 m fall was logged as 0.6 m).
+* The lf smoke's guest ride (lifts071) never was one: the guest was put on the car object's root, which
+  stays at the TOP while the car is at the bottom; it fell the 48 m shaft through the switch region, the
+  up event ran with nobody in the car and the guest died at the shaft's foot (god mode does not stop a
+  fall death; the verdict read flags only). It now steps in beside the car at the bottom.
+* Fall recovery (liftfix): the nets also need one sample faster than any lift (16 m/s; Cainhurst's car peaks at 12.7), so no lift ride
+  is a fall even where the ride test misses the car (the Chalice Dungeons' generated lifts).
 * Ladders: the shortcut ladder of Central Yharnam's start (2411204, lowered by lever 2411316, event
   12410285): a guest's pull lowers it on every game (l10: the host's game gets the guest's ObjAct kick
   natively, anim 1 -> 2 and 12410285 = 1 on all three games, screenshots). The raised ladders of the

@@ -446,7 +446,7 @@ std::atomic<EmevdRewriter> g_rewriter2{nullptr};
 std::atomic<EmevdRewriter> g_rewriter3{nullptr};
 
 // Rules "event:bank:id[@index]" (party_phantom.h). Built in: the confinement walls of common
-// event 7600 and its Chalice Dungeon copy 12907600 (index 6 / 7, only while B1 travel is on;
+// event 7600, its Chalice Dungeon copy 12907600 and m34 13400010 (only while B1 travel is on;
 // BB_PARTY_OPEN_WORLD=0 drops them). The A6
 // "send phantoms home" instructions are still to be identified with BB_PARTY_EMEVD_TRACE=1.
 std::vector<EmevdSkipRule> g_skips;
@@ -460,6 +460,12 @@ void ParseSkips() {
     for (const EmevdSkipRule& r : PhantomSkipRules()) {
         g_skips.push_back(r);
         Log("EMEVD rule (built in, confinement walls): skip %s", DescribeSkipRule(r).c_str());
+    }
+    if (bb_party_enabled()) {
+        for (const EmevdSkipRule& r : BossRoomRules()) {
+            g_skips.push_back(r);
+            Log("EMEVD rule (built in, boss rooms): skip %s", DescribeSkipRule(r).c_str());
+        }
     }
     for (const EmevdSkipRule& r : GuestServicesSkipRules()) {
         g_skips.push_back(r);
@@ -619,7 +625,7 @@ BB_COOP_SYSV u8 EmevdDispatch(u64 self, u64 event, float dt) {
     }
     if (!skip && instr) {
         if (const EmevdSkipPredicate pred = g_skip_pred.load(std::memory_order_relaxed)) {
-            skip = pred(event_id, bank, id);
+            skip = pred(event_id, bank, id, event, instr);
         }
     }
     if (instr && !skip && ((bank == 2007 && id == 2) || (bank == 2003 && (id == 12 || id == 15 || id == 53)))) {

@@ -51,8 +51,13 @@ const std::vector<std::tuple<std::string, const char*, const char*>>& Effects() 
     };
     return effects;
 }
-const std::map<std::string, std::string> kModelLod{
-    {"-2", "Model LOD -2 (Highest)"}, {"1", "Model LOD 1 (Lower)"}, {"2", "Model LOD 2 (Lowest)"}};
+// model_lod: 0 the game's, 1 lower (visy 0.7.2). 2 applies the Lower patch: with the lowest level
+// the game draws nothing for a model without a third level of detail (the Lecture Building's
+// floor). -2 applies nothing: its bias reaches one of the game's three model draw paths only, and
+// many objects past their nearest level were not drawn at all (Central Yharnam's corpses).
+const std::map<std::string, std::string> kModelLod{{"1", "Model LOD 1 (Lower)"}, {"2", "Model LOD 1 (Lower)"}};
+// Every model LOD patch stays the engine's to set, so a patch file cannot turn -2 or 2 back on.
+const char* const kModelLodPatches[] = {"Model LOD -2 (Highest)", "Model LOD 1 (Lower)", "Model LOD 2 (Lowest)"};
 const std::set<std::string> kDefaultOff{"effect_chromatic_aberration", "effect_dof", "effect_motion_blur", "effect_game_aa"};
 const std::set<std::string> kBloodborneIds{"CUSA00207", "CUSA00208", "CUSA00299", "CUSA00900", "CUSA01363",
                                            "CUSA03014", "CUSA03023", "CUSA03173", "CUSA03179"};
@@ -447,7 +452,7 @@ bool ManagedBuiltIn(const std::string& name) {
         if (name == n) return true;
     for (const auto& [_, off, on] : Effects())
         if ((off && name == off) || (on && name == on)) return true;
-    for (const auto& [_, n] : kModelLod)
+    for (const char* n : kModelLodPatches)
         if (name == n) return true;
     return StartsWith(name, "Resolution Patch");
 }

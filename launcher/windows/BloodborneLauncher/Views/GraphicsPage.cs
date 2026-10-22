@@ -166,7 +166,8 @@ namespace BloodborneLauncher.Views
 
             Group(L.T("Game effects"));
             Body.Children.Add(Text(L.T("Patches to the game, applied when it starts."), "Faint"));
-            IniCombo(SymbolRegular.Cube24, L.T("Model detail"), null, Choices.ModelLod, "model_lod");
+            ComboRow(SymbolRegular.Cube24, L.T("Model detail"), null, Choices.ModelLod,
+                () => Choices.ModelLodShown(Ini.Get("model_lod")), v => Ini.Set("model_lod", v));
             IniCombo(SymbolRegular.Camera24, L.T("Follow camera"), L.T("Original keeps the game's camera distance, angle and follow speed at 60 FPS and above"), Choices.CameraTuning, "camera_tuning");
             foreach (var effect in Choices.Effects)
             {

@@ -290,9 +290,11 @@ bool GuestServicesEnabledFromEnv(const char* v) {
 #include "party_balance.h"
 #include "party_guestvals_rules.h"
 #include "lamp_travel_rules.h"
+#include "party_ids.h"
 #include "bbport_game_menu.h"
 #include "bbport_settings.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -629,6 +631,8 @@ bool GuestRestRequestNow(std::uint32_t id) {
     return true;
 }
 
+void LogButtons();  // the registration probe (below)
+
 namespace {
 
 // Diagnostics (BB_PARTY_GUESTSVC_TEST "probe"): the character with `entity` the way the talk
@@ -905,6 +909,11 @@ struct LevelUpScript {
     int tries = 0, level0 = -1, echoes0 = -1;
     std::uint64_t seq0 = 0;
 } g_lvl;
+// The registration probe's last talk-type (13) button (diagnostics: a headstone's prompt never
+// showed as an action-button text or a type-13 registration in the da runs).
+std::atomic<double> g_talk_btn_at{0};
+std::atomic<int> g_talk_btn_id{0};
+std::atomic<std::uint64_t> g_btn_man{0};  // SprjActionButtonMan as the registration probe saw it
 
 constexpr std::uint32_t kPadCross = 0x4000, kPadCircle = 0x2000, kPadRight = 0x20, kPadLeft = 0x80, kPadUp = 0x10,
                         kPadDown = 0x40;
@@ -960,6 +969,7 @@ void Tap(std::uint32_t buttons, double now) {
     g_lvl.press_until = now + 0.12;
 }
 
+
 void LevelUpTick(const GameSnapshot& s, double now) {
     LevelUpScript& L = g_lvl;
     if (L.stage == LevelUpScript::Off || L.stage == LevelUpScript::Done) {
@@ -989,7 +999,23 @@ void LevelUpTick(const GameSnapshot& s, double now) {
         }
         if (L.approach > 0) {
             std::uint32_t prompt = 0;
-            const bool up = PromptUp(&prompt);
+            bool up = PromptUp(&prompt);
+            if (g.test.find("needprompt") != std::string::npos && L.tries == 0) {
+                // "needprompt" (headstone fixtures): the prompt's proof is a screenshot (the smoke's
+                // watch on this line), 1.5 s before Cross; the registrations seen meanwhile are logged.
+                if (since < 1.5) {
+                    break;
+                }
+                L.tries = 1;
+                LogButtons();
+                Log("test: levelup: before Cross at %.2f m (prompt screenshot; text %s)", dists[L.approach - 1],
+                    up ? std::to_string(prompt).c_str() : "not seen");
+                L.at = now;
+                break;
+            }
+            if (g.test.find("needprompt") != std::string::npos && since < 1.5) {
+                break;
+            }
             L.requests0 = g_menu_requests.load();
             Tap(kPadCross, now);
             Log("test: levelup: at %.2f m: action prompt %s%s; Cross", dists[L.approach - 1], up ? "text " : "not seen",
@@ -1445,7 +1471,7 @@ void GuestServicesInit() {
         return;
     }
     SetEmevdRewriter2(&DollRewriter);
-    if (g.test.find("buttonprobe") != std::string::npos) {
+    if (g.test.find("buttonprobe") != std::string::npos || g.test.find("needprompt") != std::string::npos) {
         HookPrologue(0x1CD91F0, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53, 0x48, 0x83,
                                  0xec, 0x58},
                      &ButtonEntry, "action-button registration (test probe)");
@@ -1502,6 +1528,9 @@ std::vector<EmevdSkipRule> GuestServicesSkipRules() {
 }
 
 std::mutex g_lit_mu;
+// Host: the lamp (return point) a guest's lamp_lit event lit here last, and when (the guard).
+std::atomic<std::uint32_t> g_guest_lit_rp{0};
+std::atomic<double> g_guest_lit_at{-1};
 std::deque<std::pair<int, std::vector<std::uint32_t>>> g_lit_in;  // host: from guests
 std::vector<std::uint32_t> g_lit_out;                             // guest: to send
 
@@ -1517,9 +1546,13 @@ bool GuestServicesOnLampLit(int slot, const std::string& body, std::string* why)
     if (!LampLitFromJsonText(body, &ids, why, &own)) {
         return false;
     }
-    if (own && !BbSettings::Get().party_share_lamps.load()) {
+    const lampshare::Rule rule{BbSettings::Get().party_share_lamps.load(),
+                               BbSettings::Get().party_guests_bring_lamps.load()};
+    if (!lampshare::HostTakes(own, rule)) {
         if (why) {
-            *why = "the guest's own lamps: shared lamps are off on the host";
+            *why = rule.share ? "the guest's own lamps: guests bring their lamps is off on the host (the host's "
+                                "world keeps its own lamps)"
+                              : "the guest's own lamps: shared lamps are off on the host";
         }
         return false;
     }
@@ -1530,11 +1563,14 @@ bool GuestServicesOnLampLit(int slot, const std::string& body, std::string* why)
     return true;
 }
 
-/// Statsaudit finding 5 (user decision 2026-10-15: lamps are shared by the whole party). Guest, in
-/// the host's world: the lamps lit in its OWN save that the host's world lacks go to the host
-/// (EVENT lamp_lit with "own"), once per join (again after 20 s, at most 3 times, while the host's
-/// mirror still lacks them). The host lights them in its world (its save), the world mirror shows
-/// them in the guest's travel lists, and C2 brings the host's lamps into every guest's own save.
+/// Statsaudit finding 5 (user decision 2026-10-15: lamps are shared by the whole party), narrowed
+/// for 0.7.2 (user decision 2026-10-21: "host state saves lamps, anybody can light them";
+/// lampshare::Decide). Guest, in the host's world, every 20 s: the host's world's lit lamps go into
+/// the OWN save (C2 carries the lamp-lit flag, this the headstone flags). The lamps lit in the own
+/// save that the host's world lacks stay out of it, unless the host's "Guests bring their lamps"
+/// rule is on: then they go to the host (EVENT lamp_lit with "own"), once per join (again after
+/// 20 s, at most 3 times, while the host's mirror still lacks them), and the host lights them in
+/// its world. A lamp the guest lights in the host's world is GuestLampLitTick's (always sent).
 /// The host's "Shared lamps" rule off: nothing is sent, and C2 leaves lamps out of the own save.
 std::vector<std::uint32_t> g_lit_own_out;  // under g_lit_mu
 
@@ -1545,11 +1581,12 @@ void GuestOwnLampsTick(const GameSnapshot& s) {
     balance::Rules hr;
     const bool known = balance::HostRules(&hr);
     const int share = known ? int(hr.share_lamps) : -1;
+    const lampshare::Rule rule{share == 1, known && hr.guests_bring_lamps};
     if (share >= 0 && share != share_was) {
         // C2: lamps into the own save only while the host shares them.
         progress::Policy p = progress::CurrentPolicy();
         p.mode[static_cast<int>(progress::Category::lamp_unlocked)] =
-            share ? progress::SyncMode::SetOnly : progress::SyncMode::Off;
+            lampshare::IntoOwnSave(rule) ? progress::SyncMode::SetOnly : progress::SyncMode::Off;
         progress::SetPolicy(p);
         Log("lamps: the host's rule: shared lamps %s (the host's lamps %s the own save)", share ? "on" : "off",
             share ? "go into" : "stay out of");
@@ -1582,10 +1619,15 @@ void GuestOwnLampsTick(const GameSnapshot& s) {
         bool v = false;
         return progress::HostWorldFlag(id, &v) && v;
     };
-    std::string held;
+    std::string held, kept;
+    const bool bring = lampshare::SendOwnLamps(rule);
     for (const lamptravel::Lamp& l : lamptravel::kLamps) {
         std::vector<std::uint32_t> add = lampshare::Missing(l.aab, l.n, mine, theirs);
         const std::uint32_t boss = lampshare::BlockBossFlag(l.aab);
+        if (!add.empty() && !bring) {
+            kept += " " + std::to_string(lamptravel::ReturnPoint(l));
+            add.clear();  // the host's world keeps its own lamps (0.7.2)
+        }
         if (!add.empty() && lampshare::HeldForBoss(l.n, mine(boss), theirs(boss))) {
             held += " " + std::to_string(lamptravel::ReturnPoint(l));
             add.clear();  // sent at a later join, once the host's world has beaten that boss too
@@ -1626,6 +1668,17 @@ void GuestOwnLampsTick(const GameSnapshot& s) {
         return;
     }
     ++tries;
+    if (!bring) {
+        tries = 3;  // once per join
+        if (kept.empty()) {
+            Log("lamps: every lamp of the own save is lit in the host's world too");
+        } else {
+            Log("lamps: the own save's lamps the host's world lacks stay out of it (the host's rule: guests bring "
+                "their lamps off; the host's world keeps its own): lamps%s",
+                kept.c_str());
+        }
+        return;
+    }
     if (ids.empty()) {
         tries = 3;  // nothing the host lacks
         Log("lamps: every lamp of the own save is lit in the host's world too");
@@ -1642,10 +1695,24 @@ void GuestOwnLampsTick(const GameSnapshot& s) {
 /// flags in the host-world overlay only (the game writes the visible tree; the own pool keeps
 /// its own lamps). The lamp flags its overlay has and the host's mirror image lacks go to the host
 /// as EVENT lamp_lit; the host sets them in its world and the mirror brings them back.
+/// 0.7.2: only a real lamp use counts (lampshare::CountsAsGuestLit): the guest at that lamp, no load
+/// within the last 20 s. A lamp its game shows lit right after a load (a lamp warp's arrival lights
+/// its lamp) or far from the guest is never sent for this map.
+std::uint32_t LampOfLitFlag(std::uint32_t id) {
+    if (id / 10000000 == 7) {
+        return (id - 70000000u) / 10000u * 10000u + 2950u + (id % 10000u - 200u);
+    }
+    const std::uint32_t k = id % 10000u;
+    return k >= 7810u ? (id - 10000000u) / 10000u * 10000u + 2950u + (k - 7810u) / 20u : 0u;
+}
+
 void GuestLampLitTick(const GameSnapshot& s) {
-    static double last = 0;
+    static double last = 0, unsteady_at = 0;
     static std::uint32_t map = 0;
     static std::vector<std::uint32_t> sent;
+    if (!s.world_up || s.loading) {
+        unsteady_at = Now();
+    }
     if (s.session_role != kSessionRoleClient || !s.world_up || s.loading || progress::FlagLoadMode() != 1 ||
         Now() - last < 1.0) {
         return;
@@ -1656,10 +1723,27 @@ void GuestLampLitTick(const GameSnapshot& s) {
         sent.clear();
     }
     std::vector<std::uint32_t> ids;
+    float me[3];
+    const bool have_pos = s.player && balance::ChrPosition(s.player, me);
+    const double since_load = Now() - unsteady_at;
     auto consider = [&](std::uint32_t id) {
         bool mine = false, host = false;
         if (LampLitFlagAllowed(id) && progress::ReadFlag(id, &mine) && mine && progress::HostWorldFlag(id, &host) &&
             !host && std::find(sent.begin(), sent.end(), id) == sent.end() && ids.size() < kMaxLampLitIds) {
+            const std::uint32_t rp = LampOfLitFlag(id);
+            float sp[4];
+            float dist = -1.0f;
+            if (have_pos && rp && ids::ReturnSpot(rp, sp)) {
+                dist = std::sqrt((me[0] - sp[0]) * (me[0] - sp[0]) + (me[1] - sp[1]) * (me[1] - sp[1]) +
+                                 (me[2] - sp[2]) * (me[2] - sp[2]));
+            }
+            if (!lampshare::CountsAsGuestLit(since_load, dist)) {
+                sent.push_back(id);  // never for this map: not a lamp this guest lit
+                Log("lamp: flag %u (lamp %u) shows lit here but not in the host's world: not sent (%.0f s after a "
+                    "load, %.1f m from the lamp: not this guest's lamp use)",
+                    id, rp, since_load, double(dist));
+                return;
+            }
             ids.push_back(id);
         }
     };
@@ -1800,9 +1884,12 @@ BB_COOP_SYSV void TalkManEntry(u64 man, u64, u64, u64, u64, u64) {
 // calls it each frame for each button in range), distinct (type, id) with counts.
 std::mutex g_btn_mu;
 std::map<std::uint64_t, std::uint32_t> g_btn_seen;
-std::atomic<std::uint64_t> g_btn_man{0};
 BB_COOP_SYSV void ButtonEntry(u64 man, u64 type, u64 id, u64 p5, u64 p6, u64 p7) {
     g_btn_man.store(man, std::memory_order_relaxed);
+    if ((type & 0xffu) == 13) {
+        g_talk_btn_at.store(Now(), std::memory_order_relaxed);
+        g_talk_btn_id.store(int(id & 0xffffffffu), std::memory_order_relaxed);
+    }
     std::lock_guard<std::mutex> lk(g_btn_mu);
     if (g_btn_seen.size() < 256) {
         // key: type (8 bits) | p5 | p6 | p7 flags | id
@@ -2225,17 +2312,34 @@ void LampTick(const GameSnapshot& s, party::PartyLink* link) {
             std::lock_guard<std::mutex> lk(g_lit_mu);
             lit.swap(g_lit_in);
         }
-        bool wrote_own = false;
+        bool wrote_own = false, wrote_lit = false;
         for (const auto& [tagged, ids] : lit) {
             const bool own = tagged < 0;
             const int slot = own ? -1 - tagged : tagged;
             std::string list;
-            for (std::uint32_t id : ids) {
+            std::vector<std::uint32_t> all = ids;
+            if (!own) {
+                // 0.7.2: the whole lamp at once (its object's base+10 / +11 come a second after the
+                // lamp-lit flag from the guest), so the save requested below holds all of it.
+                for (std::uint32_t id : ids) {
+                    for (std::uint32_t f : lampshare::LitFlagsOfLampLit(id)) {
+                        if (LampLitFlagAllowed(f) && std::find(all.begin(), all.end(), f) == all.end()) {
+                            all.push_back(f);
+                        }
+                    }
+                }
+            }
+            for (std::uint32_t id : all) {
                 bool before = false;
                 progress::ReadFlag(id, &before);
                 const bool ok = progress::WriteFlagOwnSave(id, true);  // the host's world (load mode 0)
                 list += " " + std::to_string(id) + (before ? "(was set)" : ok ? "" : "(NOT written)");
                 wrote_own = wrote_own || (own && ok && !before);
+                wrote_lit = wrote_lit || (!own && ok && !before);
+                if (!own && ok && LampOfLitFlag(id)) {
+                    g_guest_lit_rp = LampOfLitFlag(id);
+                    g_guest_lit_at = Now();
+                }
             }
             if (own) {
                 Log("lamps: slot %d's own save has lamps this world lacked (shared lamps): set%s", slot, list.c_str());
@@ -2245,6 +2349,10 @@ void LampTick(const GameSnapshot& s, party::PartyLink* link) {
         }
         if (wrote_own) {
             RequestGameSave("shared lamps from a guest's save");
+        }
+        if (wrote_lit) {
+            // 0.7.2: the host's world saves the lamps anyone lit there (as the host's own lamp would be).
+            RequestGameSave("a lamp a guest lit in the host's world");
         }
     }
     for (const auto& [slot, r] : in) {
@@ -2368,7 +2476,118 @@ double HeadstoneTestDelay() {
     return k == std::string::npos ? 20.0 : std::strtod(g.test.c_str() + k + 8, nullptr);
 }
 
+/// 0.7.2 last-lamp guard (lampshare::RestoreLastLamp; BB_PARTY_LAMP_RECORD_GUARD=0 off): any role,
+/// in a steady world. Watches this map's lamps' lit flags (the lamp-lit 7AAB02xx and the headstone
+/// flag base+10) and this game's last-lamp / respawn records (GSM +0x1528 / +0x1538 / +0x153C). A
+/// record move to a lamp lit by someone else just now is put back after 2.5 s unless a load came
+/// (a travel) or this player stands at that lamp (its own lighting or rest, an in-world travel).
+void LastLampGuardTick(const GameSnapshot& s) {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_PARTY_LAMP_RECORD_GUARD");
+        return !(v && v[0] == '0');
+    }();
+    struct Rec {
+        std::uint64_t lamp = 0, respawn = 0;
+        std::uint32_t mode = 0;
+    };
+    static Rec base, was;
+    static bool have = false, pending = false;
+    static double pending_at = 0, pending_lit_ago = -1;
+    static std::uint32_t map = 0;
+    static double next = 0;
+    static std::vector<std::pair<std::uint32_t, bool>> lit;  // return point, lit
+    static std::vector<std::pair<std::uint32_t, double>> rose;  // return point, when its flag rose
+    if (!on) {
+        return;
+    }
+    if (!s.world_up || s.loading || !s.player || s.map_id != map) {
+        if (pending) {
+            Log("lamp record guard: a load: the last lamp %u stands (a travel)", std::uint32_t(base.lamp));
+        }
+        have = pending = false;  // a load: the records are the travel's; baseline again after it
+        lit.clear();
+        rose.clear();
+        map = s.world_up && !s.loading ? s.map_id : 0;
+        return;
+    }
+    const double now = Now();
+    if (now < next) {
+        return;
+    }
+    next = now + 0.2;
+    for (const lamptravel::Lamp& l : lamptravel::kLamps) {
+        const std::uint32_t rp = lamptravel::ReturnPoint(l);
+        if (lamptravel::MapOf(rp) != (s.map_id & 0xffff0000u)) {
+            continue;
+        }
+        bool a = false, b = false;
+        progress::ReadFlag(lamptravel::LitFlag(l), &a);
+        progress::ReadFlag(70000000u + std::uint32_t(l.aab) * 10000u + 200u + l.n, &b);
+        const bool v = a || b;
+        auto it = std::find_if(lit.begin(), lit.end(), [&](const auto& e) { return e.first == rp; });
+        if (it == lit.end()) {
+            lit.emplace_back(rp, v);
+        } else {
+            if (v && !it->second) {
+                rose.erase(std::remove_if(rose.begin(), rose.end(), [&](const auto& e) { return e.first == rp; }),
+                           rose.end());
+                rose.emplace_back(rp, now);
+            }
+            it->second = v;
+        }
+    }
+    std::uint64_t gsm = 0;
+    Rec cur;
+    if (!SafeGet(Guest(0x5556678), &gsm) || !gsm || !SafeGet(gsm + 0x1528, &cur.lamp) ||
+        !SafeGet(gsm + 0x1538, &cur.mode) || !SafeGet(gsm + 0x153c, &cur.respawn)) {
+        return;
+    }
+    if (!have) {
+        base = cur;
+        have = true;
+        return;
+    }
+    const std::uint32_t now_rp = std::uint32_t(cur.lamp);
+    if (cur.lamp != base.lamp && !pending) {
+        pending = true;
+        pending_at = now;
+        was = base;
+        auto r = std::find_if(rose.begin(), rose.end(), [&](const auto& e) { return e.first == now_rp; });
+        pending_lit_ago = r == rose.end() ? -1.0 : now - r->second;
+    }
+    if (!pending) {
+        base = cur;
+        return;
+    }
+    float me[3], sp[4];
+    float dist = -1.0f;
+    if (balance::ChrPosition(s.player, me) && ids::ReturnSpot(now_rp, sp)) {
+        dist = std::sqrt((me[0] - sp[0]) * (me[0] - sp[0]) + (me[1] - sp[1]) * (me[1] - sp[1]) +
+                         (me[2] - sp[2]) * (me[2] - sp[2]));
+    }
+    const bool by_guest = g_guest_lit_rp.load() == now_rp && Now() - g_guest_lit_at.load() <= lampshare::kLitWindowS + 3.0;
+    const bool restore = lampshare::RestoreLastLamp(std::uint32_t(was.lamp), now_rp, pending_lit_ago, dist, false, by_guest);
+    if (!restore) {
+        pending = false;
+        base = cur;
+        return;
+    }
+    if (now - pending_at < 2.5) {
+        return;  // a travel's load may still start
+    }
+    pending = false;
+    SafeWrite(gsm + 0x1528, &was.lamp, 8);
+    SafeWrite(gsm + 0x1538, &was.mode, 4);
+    SafeWrite(gsm + 0x153c, &was.respawn, 8);
+    base = was;
+    Log("lamp record guard: the last lamp moved to %u, a lamp lit %.1f s before by someone else (this player "
+        "%.0f m from it): put back to %u (respawn %#llx, mode %u)",
+        now_rp, pending_lit_ago, double(dist), std::uint32_t(was.lamp), static_cast<unsigned long long>(was.respawn),
+        was.mode);
+}
+
 void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
+    LastLampGuardTick(s);
     LampTick(s, link);
     WatchTalkTick(s);
     // Live test "hostheadstone[;keys=...]": the HOST uses a Dream headstone (t210000) with a guest
@@ -2384,7 +2603,12 @@ void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
                                           g.test.find("hosttalk=") != std::string::npos
                                     ? 3
                                     : -1;
-        if (!started && role >= 0 && s.session_role == role &&
+        // "hsapart" (guestheadstone): the delay counts from the moment the host is in another area
+        // (a guest left in the Dream by the host's alone travel, party_stay_rules.h).
+        static const bool apart_only = g.test.find("hsapart") != std::string::npos;
+        if (!started && apart_only && !b2::MemberApart(0)) {
+            coop_at = 0;
+        } else if (!started && role >= 0 && s.session_role == role &&
             IsDreamMap(s.map_id) && s.world_up && !s.loading && (role != 3 || s.cooperators >= 1)) {
             if (coop_at == 0) {
                 coop_at = Now();

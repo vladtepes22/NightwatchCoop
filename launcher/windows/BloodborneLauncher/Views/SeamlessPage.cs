@@ -116,11 +116,15 @@ public sealed class SeamlessPage : LauncherPage
             ToggleRow(SymbolRegular.People24, option.Label, null, () => SeamlessSettings.Flag(S, key), v => S.Set(key, v));
         }
         foreach (var (key, label, fallback) in new[] {
-            ("party_rot", "Death rot", true), ("party_share_lamps", "Share lamps", true),
+            ("party_rot", "Death rot", false), ("party_rot_cleanse_boss", "Boss kill cleanses rot", true),
+            ("party_rot_cleanse_killer", "Killing your killer cleanses its rot", true),
+            ("party_rot_cleanse_echoes", "Retrieving Blood Echoes cleanses its rot", true),
+            ("party_share_lamps", "Share lamps", true), ("party_guests_bring_lamps", "Guests bring their lamps", false),
             ("party_guest_lamps", "Guests can use lamps", true), ("party_friendly_fire", "Friendly fire / PvP", false),
             ("party_npc_talk", "Share nearby NPC dialogue", true), ("party_pings", "Party pings", true),
             ("party_hud", "Party health display", true), ("party_name_tags", "Player name tags", true),
             ("party_toasts", "Join, leave and travel notices", true), ("party_through_walls", "Player outlines through walls", false),
+            ("party_glow_off", "Companions without the phantom glow", true),
             ("party_kill_record", "Enemies stay dead", true), ("party_npc_mirror", "NPCs as in the host's world", true),
             ("party_gather", "Host can gather the party", true), ("party_key_view", "Own key items as guest", true),
             ("party_key_items_summoned", "Key items given at once", true) })

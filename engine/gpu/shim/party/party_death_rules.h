@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <string>
 
@@ -470,24 +471,123 @@ inline double FallDrop(double peak_before, double y_at_death, double y_now) {
     return peak_before - std::min(y_at_death, y_now);
 }
 
+// ---- The camera after an in-world revive (fallcam) ----
+// A guest's fall death beside Djura's tower (an 18 m drop, the game's fall-death state on the chr),
+// revived at the host's lamp 158 m away with no load: up with full HP, but the camera stayed on the
+// sky and the own chr was never seen again ("perpetual spectate"; the host's death did not end it).
+// WorldChrMan +0x68 is the game's fall-death camera latch: the ChrCam update 0x14368B0 goes to its
+// mode 4 (the fall-die camera: it stops where the fall was and only turns after the body) while that
+// byte is set, and leaves mode 4 (back to the follow camera, reset behind the chr) only once it is 0.
+// Vanilla never revives after a fall death: the death load builds a new world with it 0, and the
+// game's own safe-spot warp-and-revive 0x13CBAD0 writes 0 for the local player. Our revive cleared
+// it only for a body moved up from far below; the lamp revive of an ordinary fall left it at 1
+// (the report: "WorldChrMan +0x68 1"). A fall out of the world (the kill plane, smoke fl) never sets it.
+// Every in-world revive or warp of the local player releases the latch and resets the camera behind
+// the chr (the Lua CamReset 0x132F5A0: chr transform re-applied, [[+0x3B0] +0x58] +0x28 +0xC = 1).
+struct ReviveCamera {
+    bool release_latch = false;  // WorldChrMan +0x68 -> 0
+    bool cam_reset = false;      // the camera behind the chr at its new spot
+};
+/// `latch_set`: WorldChrMan +0x68 is set; `warped`: the chr was put on a new spot (a lamp, a safe
+/// floor, the arena revive) rather than revived where it lies.
+inline ReviveCamera PlanReviveCamera(bool latch_set, bool warped) {
+    ReviveCamera c;
+    c.release_latch = latch_set;
+    c.cam_reset = latch_set || warped;
+    return c;
+}
+// The pitch (fallcam 2: after the release the camera kept the fall camera's steep downward look, an
+// almost top-down view): leaving its mode 4 the ChrCam update hands the follow camera the current
+// direction as its new angles (+0x13C reset request with +0x13D set: pitch / yaw from +0x148 /
+// +0x14C). A reset request with +0x13D clear is the follow camera's own level reset (pitch +0x140 =
+// 0, yaw behind the chr), what a new chr after a load starts with. LevelCameraDue: ask for that one
+// (ChrCam put straight from mode 4 to 0, as its own 4 -> 0 switch writes) after a release, a warp
+// or a ChrCam still in mode 4.
+constexpr int kChrCamFallDieMode = 4;
+inline bool LevelCameraDue(bool released, bool warped, int chrcam_mode) {
+    return released || warped || chrcam_mode == kChrCamFallDieMode;
+}
+// The follow camera looks down at the chr from a little above (fl run 1: view y -0.00); the fall
+// camera's leftover pitch read -0.78 .. -0.98 (fdj run r3). Steeper than this is not the level view.
+constexpr double kReviveLookDownMax = -0.4;
+// The ladder (fallcam 3, a player's report: "dying on a ladder makes it so you can only walk
+// forward"). The behavior script asks the chr's ladder action state (HKS env GetLadderActState
+// 0x1259850 -> 0x1290E50: the int8 at [ChrCtrl +0x38] +0x60; IsLadderAct 0x1259860: it is not -1)
+// and drives the chr as on a ladder while it is set. A death on a ladder leaves it; a vanilla death
+// load builds a new chr (its action ctrl's constructor 0x150A480 writes +0x60 = 0xFF). An in-world
+// revive keeps the chr: every revive / in-world warp of the local player puts it back to -1.
+constexpr int kNoLadder = -1;
+constexpr int kLadderUnread = -1000;  // no ChrCtrl / action ctrl to read
+inline bool LadderLeftover(int ladder_act) {
+    return ladder_act >= 0 && ladder_act <= 127;  // a ladder action's state index
+}
+// The walk check after it (smoke ld): a stick walk toward each of four points 4 m away must move the
+// chr at least kWalkMin m toward it (a chr stuck in the ladder's climbing axis moves one way only).
+constexpr double kWalkMin = 1.5;
+inline bool WalkedToward(double dx, double dz, double tx, double tz) {
+    const double len = std::sqrt(tx * tx + tz * tz);
+    return len > 0.0 && (dx * tx + dz * tz) / len >= kWalkMin;
+}
+// The check after a revive (logged; smoke fl / fd): the render camera follows the chr (within
+// kReviveCamNear m of its physics position: the follow camera sits 3-6 m behind, a wall pushes it
+// nearer), the latch is off, and the chr is drawn where it stands (ChrCtrl's world matrix within
+// kReviveDrawnOff m of the physics position; the fall-die camera looked from 150 m away).
+constexpr double kReviveCamNear = 12.0;
+constexpr double kReviveDrawnOff = 1.0;
+enum class ReviveView { Ok, FallCamera, CameraAway, DrawnAway, NoCamera, Steep };
+/// `cam_dist`: render camera to the chr's physics position (NaN: no camera frame); `drawn_off`:
+/// drawn position to physics position (NaN: unknown, not judged); `latch`: WorldChrMan +0x68;
+/// `look_y`: the camera's view direction, up component (NaN: not judged).
+inline ReviveView JudgeReviveView(double cam_dist, double drawn_off, bool latch,
+                                  double look_y = std::numeric_limits<double>::quiet_NaN()) {
+    if (latch) {
+        return ReviveView::FallCamera;
+    }
+    if (!std::isfinite(cam_dist)) {
+        return ReviveView::NoCamera;
+    }
+    if (cam_dist > kReviveCamNear) {
+        return ReviveView::CameraAway;
+    }
+    if (std::isfinite(drawn_off) && drawn_off > kReviveDrawnOff) {
+        return ReviveView::DrawnAway;
+    }
+    if (std::isfinite(look_y) && look_y < kReviveLookDownMax) {
+        return ReviveView::Steep;
+    }
+    return ReviveView::Ok;
+}
+inline const char* ReviveViewName(ReviveView v) {
+    switch (v) {
+    case ReviveView::Ok: return "ok";
+    case ReviveView::FallCamera: return "BAD: the fall-death camera is still on";
+    case ReviveView::CameraAway: return "BAD: the camera is away from the chr";
+    case ReviveView::DrawnAway: return "BAD: the chr is drawn away from where it stands";
+    case ReviveView::NoCamera: return "no camera frame (not judged)";
+    case ReviveView::Steep: return "BAD: the camera looks steeply down (the fall camera's pitch)";
+    }
+    return "?";
+}
+
 // ---- Lifts and moving platforms (liftfall) ----
 // A player's report (Nightmare of Mensis): the long lift 2601240 drops 60 m at ~4 m/s, and the fall
 // recovery nets (6 s of dropping more than 1.5 m/s) warped the host back to its lamp mid-ride and
 // put the summoned guest back on the top floor while the car went on down (then a fall down the
 // empty shaft). PlayerIns +0x1E5 bit 0x02 (the fifth byte of the +0x1E1 flags) is set on a REMOTE
 // chr standing in a lift car (the report: all 62 samples on lift rides, none elsewhere; off within a
-// second of leaving the car, on for a body lying in it); the local chr does not carry it (live,
-// Mensis lift 2601240: 0000005098 all the ride), so the game side also asks whether a lift car plays
-// a ride animation where the chr stands (worldact::OnMovingLiftCar), and the rate tests below hold
-// without either.
+// second of leaving the car, on for a body lying in it); the local chr carried it on the library lift
+// (liftfix: 0200085098 / 0200005098 the whole ride, cleared the moment the chr fell off), not in liftfall's
+// el1 on lift 2601240 (0000005098), so the game side also asks whether a lift car plays a ride animation
+// where the chr stands (worldact::OnMovingLiftCar), and the rate tests below hold without either.
 constexpr std::uint64_t kRideFlag1e1 = 0x0200000000ull;
 inline bool RidingObject(std::uint64_t f1e1) {
     return (f1e1 & kRideFlag1e1) != 0;
 }
-// A lift's car is steady and slow (every Bloodborne lift a few m/s); a fall out of the world is not
-// (the kill plane of m24_01, ~1470 m below the Great Bridge, in ~30 s: ~49 m/s on average). A drop
-// faster than this per sample is a fall even with the ride flag on (a stale flag never hides one).
-constexpr double kLiftMaxRate = 10.0;
+// A lift's car is steady and slow (most Bloodborne lifts ~5 m/s; Cainhurst Castle's, the fastest seen,
+// 12.7 m/s at its peak: liftfix run 5); a fall out of the world is not (the kill plane of m24_01, ~1470 m
+// below the Great Bridge, in ~30 s: ~49 m/s on average). A drop faster than this per sample is a fall
+// even with the ride flag on (a stale flag never hides one).
+constexpr double kLiftMaxRate = 16.0;
 /// One recovery sample: the chr dropped `dy` m in `dt` s. A fall sample: at least `min_rate` m/s
 /// down, and not a ride on a moving object at a lift's rate.
 inline bool FallSample(double dy, double dt, double min_rate, bool riding) {
@@ -499,10 +599,38 @@ inline bool FallSample(double dy, double dt, double min_rate, bool riding) {
 }
 // The nets fire after kFallRecoverySeconds of fall samples and only for a real fall's drop over that
 // time: a free fall covers well over 100 m in 6 s; a lift that never set the ride flag 25-30 m.
+// liftfix: and only once a sample of that fall went faster than any lift (`peak_rate`, m/s, the
+// fastest sample since the fall began): a free fall passes kLiftMaxRate within ~1.6 s, while a lift
+// never does, listed or not (the Chalice Dungeons' generated lifts, a 60 m ride whose car the ride
+// test missed: 0.7.1 still took 40 m of a 5 m/s ride in 8 s for a fall).
 constexpr double kFallRecoverySeconds = 6.0;
 constexpr double kFallRecoveryMinDrop = 40.0;
-inline bool FallRecoveryDue(double falling_for, double dropped_m) {
-    return falling_for >= kFallRecoverySeconds && dropped_m >= kFallRecoveryMinDrop;
+inline bool FallRecoveryDue(double falling_for, double dropped_m, double peak_rate) {
+    return falling_for >= kFallRecoverySeconds && dropped_m >= kFallRecoveryMinDrop && peak_rate >= kLiftMaxRate;
+}
+/// Where the host-world fall recovery puts a guest back (lamprule run 7: a title-joined guest placed
+/// beside the host before the floor's collision had loaded fell from y -38 to -1500 and died; it had
+/// never stood still, so there was no spot to go back to). The game's last safe ground spot near
+/// where it last stood, else where it last stood, else beside the host (its known position, same
+/// map), else nothing (the game's own fall death).
+enum class FallBack { GameSafe, Stable, Host, None };
+inline FallBack FallBackTarget(bool game_safe_usable, bool have_stable, bool have_host) {
+    if (have_stable) return game_safe_usable ? FallBack::GameSafe : FallBack::Stable;
+    if (game_safe_usable) return FallBack::GameSafe;
+    return have_host ? FallBack::Host : FallBack::None;
+}
+
+/// A title-joined guest's move beside the host after its load (the forced placement already put it
+/// at the host's spot): none when it already stands within kBesideSkipM of the target; otherwise
+/// only once the map is known and it stands on loaded ground (the game's safe spot set near it),
+/// at most kBesideWaitS after the load (then none: the game's own placement stands).
+constexpr float kBesideSkipM = 3.0f;
+constexpr double kBesideWaitS = 10.0;
+enum class BesideMove { Skip, Wait, Warp };
+inline BesideMove PlanBesideMove(float dist_m, bool map_known, bool grounded, double since_load_s) {
+    if (dist_m >= 0.0f && dist_m <= kBesideSkipM) return BesideMove::Skip;
+    if (map_known && grounded) return BesideMove::Warp;
+    return since_load_s >= kBesideWaitS ? BesideMove::Skip : BesideMove::Wait;
 }
 /// The drop test's top (PlanGuestRevive): the highest point since the chr last stood on a moving
 /// object. A ride down (12 m in the 3 s window at a lift's rate) is no fall; a fall off the car or
@@ -943,6 +1071,15 @@ inline bool TestStepWaits(bool acts_with_own_chr, bool own_alive, bool world_up,
         return true;
     }
     return acts_with_own_chr && !own_alive;
+}
+
+/// A die step (host_die / guest_die) whose own chr is at HP 0 already, from something else (an
+/// enemy, the boss) after the previous step: the death the step asks for happened - the step is
+/// taken as done, so the chain goes on after the respawn (it waited for life forever and stalled
+/// every later step: wipe_late when Gascoigne killed guest 1 first). Not after a die step (a second
+/// die step must not be taken by the first one's death) and not during a load / re-join.
+inline bool TestDieStepLatches(bool die_step, bool own_alive, bool world_up, bool rejoin_running, bool prev_was_die) {
+    return die_step && !own_alive && world_up && !rejoin_running && !prev_was_die;
 }
 
 // ---- Own bloodstain record (GameDataMan +0x28 flag, +0x30 record +0x38 echoes) ----

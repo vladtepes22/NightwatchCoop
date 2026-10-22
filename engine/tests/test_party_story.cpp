@@ -836,6 +836,185 @@ static void test_ending_question() {
     }
 }
 
+// D10 race (player report 2026-10-22, cwscene): the guest stood 2 m from the host at Gascoigne's
+// gate. Its own copy of event 12411802 ran 2002[3] (remo 24010010) at the moment the host's did,
+// before the host's EVENT "story" came, so the host's copy was dropped and the guest's own play
+// showed ~18 s late. The own play of a boss intro is now held for the host's copy.
+static void test_own_intro_held_for_host() {
+    // Which plays are held: a client's plain 2002[1]/[3] of a known remo from a first-fight intro.
+    CHECK(HoldOwnSceneForHost(true, true, 2002, 3, true, true));
+    CHECK(HoldOwnSceneForHost(true, true, 2002, 1, true, true));
+    CHECK(!HoldOwnSceneForHost(false, true, 2002, 3, true, true));  // the host plays its own
+    CHECK(!HoldOwnSceneForHost(true, false, 2002, 3, true, true));  // BB_PARTY_STORY_MIRROR=0
+    CHECK(!HoldOwnSceneForHost(true, true, 2003, 3, true, true));
+    CHECK(!HoldOwnSceneForHost(true, true, 2002, 2, true, true));   // a warp variant
+    CHECK(!HoldOwnSceneForHost(true, true, 2002, 6, true, true));   // G3 phase change: as before
+    CHECK(!HoldOwnSceneForHost(true, true, 2002, 7, true, true));   // time of day
+    CHECK(!HoldOwnSceneForHost(true, true, 2002, 3, false, true));  // not a boss intro: D10 as before
+    CHECK(!HoldOwnSceneForHost(true, true, 2002, 3, true, false));  // unknown remo
+    CHECK(kOwnIntroHold > kGuestIntroWait);  // the host's hold of a forwarded intro fits in it
+
+    OwnSceneHold::Item own;
+    own.event_id = 12411802;
+    own.remo = 24010010;
+    own.mode = 2;
+    own.instr = 3;
+    own.map = 0x18010000;
+
+    {  // The live race: the host's copy comes 0.2 s after the own play was held -> one live play.
+        OwnSceneHold h;
+        GuestStory g;
+        double t = 100;
+        own.at = t;
+        CHECK(h.Hold(own) && h.Holding(24010010) && h.Size() == 1);
+        t += 0.2;
+        StoryIntent host;
+        host.seq = 7;
+        host.kind = StoryKind::Cutscene;
+        host.id = 24010010;
+        host.instr = 3;
+        host.mode = 2;
+        host.event_id = 12411802;
+        host.map = 0x18010000;
+        CHECK(g.Offer(host, true, t) && g.MirrorPending());
+        const auto dropped = h.HostCopy(host.id);
+        CHECK(dropped && dropped->event_id == 12411802 && dropped->at == 100);
+        CHECK(h.Size() == 0 && !h.Holding(24010010));
+        StoryState ph = Phantom();
+        ph.map_id = 0x18010000;  // m24_01: both at the gate
+        const double sent = t;
+        auto a = Until(g, ph, t);
+        CHECK(a && a->kind == StoryAction::PlayRemo && a->id == 24010010 && a->mode == 2 && a->mirror);
+        CHECK(t - sent < 1.0);  // the guest's scene starts within 1 s of the host's copy
+        PlayToEnd(g, ph, t);
+        t += 1.0 / 60;
+        CHECK(!g.Step(ph, t));
+        CHECK(g.Seen(24010010) && !g.Running());
+        // Never a second copy: nothing held is due later, and the game's own copy was skipped.
+        CHECK(!h.Due(t + 1000));
+        CHECK(StoryDedupeSkip(true, 2002, 3, 12411802, true, true));
+    }
+    {  // The host's copy never comes: the own copy plays after kOwnIntroHold, once.
+        OwnSceneHold h;
+        own.at = 0;
+        CHECK(h.Hold(own));
+        CHECK(!h.Due(kOwnIntroHold - 0.1));
+        const auto due = h.Due(kOwnIntroHold);
+        CHECK(due && due->remo == 24010010 && due->mode == 2 && due->event_id == 12411802);
+        CHECK(h.Size() == 0 && !h.Due(1000));
+        CHECK(!h.HostCopy(24010010));  // a late host copy finds nothing held (RequestGuestStory drops it)
+    }
+    {  // The same scene twice is held once; another scene is not touched by the host's copy.
+        OwnSceneHold h;
+        own.at = 0;
+        CHECK(h.Hold(own));
+        OwnSceneHold::Item again = own;
+        again.at = 1;
+        CHECK(h.Hold(again) && h.Size() == 1);
+        OwnSceneHold::Item other = own;
+        other.event_id = 12601802;
+        other.remo = 26000010;  // Mergo's Wet Nurse
+        CHECK(h.Hold(other) && h.Size() == 2);
+        CHECK(h.HostCopy(24010010) && h.Size() == 1 && h.Holding(26000010));
+        // The sex variant of a scene counts as its base scene.
+        OwnSceneHold::Item grab = own;
+        grab.remo = 28000040;
+        CHECK(h.Hold(grab) && h.HostCopy(28001040) && !h.Holding(28000040));
+    }
+    {  // A hold that never got a steady world to play in is dropped, not played much later.
+        OwnSceneHold h;
+        own.at = 0;
+        CHECK(h.Hold(own));
+        CHECK(h.Prune(kOwnIntroMaxAge - 1) == 0 && h.Size() == 1);
+        CHECK(h.Prune(kOwnIntroMaxAge + 1) == 1 && h.Size() == 0);
+        for (std::size_t i = 0; i < OwnSceneHold::kMax; ++i) {
+            OwnSceneHold::Item it = own;
+            it.remo = 24010010 + static_cast<std::uint32_t>(i) * 100000;
+            CHECK(h.Hold(it));
+        }
+        OwnSceneHold::Item more = own;
+        more.remo = 26000010;
+        CHECK(!h.Hold(more));  // full: the game plays it as before
+    }
+}
+
+// Player report 2026-10-22 (cwscene.log 3149-3227): the guest stood 2-3 m behind the host at the
+// Cathedral Ward door. The host's scene 24000020 (event 12400750) is m24_00, the guest's current
+// block was m24_01: the mirror was dropped ("its map is not loaded here") and the scene came as a
+// replay once the guest walked into m24_00. The same area with the scene's block loaded, or the
+// host near, now plays it live; another area or a far guest in an unloaded block still does not.
+static void test_mirror_at_block_boundary() {
+    const std::uint32_t m24_00 = 0x18000000, m24_01 = 0x18010000, m28_00 = 0x1c000000;
+    CHECK(MapOfRemo(24000020) == m24_00 && MapOfRemo(24010010) == m24_01);
+    CHECK(MapOfEntity(2410800) == m24_01 && MapOfEntity(2400123) == m24_00 && MapOfEntity(3602805) == 0x24000000);
+    CHECK(MapOfEntity(10000) == 0 && MapOfEntity(0) == 0 && MapOfEntity(24000020) == 0);
+    // The door: m24_01, the scene's block m24_00 loaded, the host 2.5 m away.
+    CHECK(!MirrorMapOk(24000020, m24_01));
+    CHECK(MirrorSceneOk(24000020, m24_01, true, 2.5f));
+    CHECK(MirrorSceneOk(24000020, m24_01, false, 2.5f));   // block not seen loaded, the host right there
+    CHECK(MirrorSceneOk(24000020, m24_01, true, -1.0f));   // loaded, no host position
+    CHECK(MirrorSceneOk(24000020, m24_01, false, kMirrorNearHost));
+    // Far away in the same area with the scene's block not loaded: none (no scenery).
+    CHECK(!MirrorSceneOk(24000020, m24_01, false, 180.0f));
+    CHECK(!MirrorSceneOk(24000020, m24_01, false, -1.0f));
+    // Another area (the Gaol waking scene for guests in the Cathedral Ward): none, whatever is loaded.
+    CHECK(!MirrorSceneOk(28000010, m24_01, true, 2.0f));
+    CHECK(!MirrorSceneOk(24000020, m28_00, true, 2.0f));
+    CHECK(MirrorSceneOk(24000020, m24_00, false, -1.0f));  // its own block: as before
+    StoryState ph = Phantom();
+    ph.map_id = m24_01;
+    ph.loaded_blocks = {m24_01, m24_00};
+    CHECK(SceneBlockLoaded(ph, 24000020) && !SceneBlockLoaded(ph, 28000010));
+
+    StoryIntent s;
+    s.seq = 1;
+    s.kind = StoryKind::Cutscene;
+    s.id = 24000020;
+    s.instr = 6;
+    s.tod = 1;
+    s.event_id = 12400750;
+    s.map = m24_00;
+    {  // The door: the live mirror plays within 1 s, flagged as played outside its block; no replay.
+        GuestStory g;
+        double t = 100;
+        StoryState door = ph;
+        door.host_dist = 2.5f;
+        CHECK(g.Offer(s, true, t));
+        const double sent = t;
+        auto a = Until(g, door, t);
+        CHECK(a && a->kind == StoryAction::PlayRemo && a->id == 24000020 && a->mirror && t - sent < 1.0);
+        CHECK(g.TakeMirrorNearby() == 24000020 && g.TakeMirrorNearby() == 0);
+        CHECK(g.TakeMirrorOtherMap() == 0);
+        PlayToEnd(g, door, t);
+        t += 1.0 / 60;
+        CHECK(!g.Step(door, t));
+        CHECK(g.Seen(24000020));
+        // Its queued catch-up (a world phase change: tod 1) keeps the time of day, never the scene again.
+        StoryState in00 = door;
+        in00.map_id = m24_00;
+        in00.calm = true;
+        for (int i = 0; i < 400; ++i) {
+            t += 1.0 / 60;
+            if (auto b = g.Step(in00, t)) {
+                CHECK(b->kind != StoryAction::PlayRemo);
+                if (b->kind == StoryAction::PlayRemo) break;
+            }
+        }
+    }
+    {  // A far guest in m24_01 with m24_00 not loaded: dropped as before.
+        GuestStory g;
+        double t = 100;
+        StoryState far = Phantom();
+        far.map_id = m24_01;
+        far.loaded_blocks = {m24_01};
+        far.host_dist = 180.0f;
+        CHECK(g.Offer(s, true, t));
+        CHECK(!Until(g, far, t, 100));
+        std::uint32_t at = 0;
+        CHECK(g.TakeMirrorOtherMap(&at) == 24000020 && at == m24_01 && g.TakeMirrorNearby() == 0);
+    }
+}
+
 int main() {
     test_tables();
     test_guest_phase_change();
@@ -858,6 +1037,8 @@ int main() {
     test_own_world_scene_not_replayed();
     test_host_story_up_guard();
     test_guest_intro_once_on_host();
+    test_own_intro_held_for_host();
+    test_mirror_at_block_boundary();
     std::printf("party-story-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

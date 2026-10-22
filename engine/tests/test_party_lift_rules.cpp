@@ -1,0 +1,219 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Lifts in a party (gpu/shim/party/party_lift_rules.h): the table of every lift and the decisions.
+// cmake --build out/gpu --target party-lift-rules-test && out/party-lift-rules-test
+#include "party/party_lift_rules.h"
+
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <set>
+
+using namespace coop::liftrules;
+
+static int g_fail = 0;
+#define CHECK(x)                                                        \
+    do {                                                                \
+        if (!(x)) {                                                     \
+            std::printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #x);    \
+            ++g_fail;                                                   \
+        }                                                               \
+    } while (0)
+
+int main() {
+    // The table: every lift of the main game and the DLC (tools/party/lift_tool.py check: the up /
+    // down events of every map, named or not), one entry per car and per position flag.
+    struct Expect {
+        std::int32_t car;
+        std::uint32_t pos;
+    };
+    const Expect all[] = {
+        {2201210, 12200125}, {2401101, 12400150}, {2401102, 12400827}, {2411320, 12410350}, {2421250, 12420154},
+        {2501010, 12500074}, {2601210, 12601250}, {2601220, 12601251}, {2601230, 12601252}, {2601240, 12601256},
+        {2601280, 12601254}, {2601290, 12601255}, {2601260, 12601253}, {2701032, 12700134}, {2701042, 12700144},
+        {2801400, 12800610}, {3301000, 13300115}, {3501100, 13501106}, {3501105, 13501116}, {3501110, 13501126},
+        {3601100, 13601106},
+    };
+    CHECK(Lifts().size() == sizeof all / sizeof all[0]);
+    std::set<std::int32_t> cars;
+    std::set<std::uint32_t> flags;
+    for (const Expect& e : all) {
+        const Lift* l = LiftByCar(e.car);
+        CHECK(l && l->pos == e.pos && LiftByPosFlag(e.pos) == l);
+    }
+    for (const Lift& l : Lifts()) {
+        CHECK(cars.insert(l.car).second && flags.insert(l.pos).second);
+        CHECK(l.busy == 0 || (!LiftByPosFlag(l.busy) && flags.count(l.busy) == 0));
+        CHECK(l.pos / 100000u % 100u == std::uint32_t(l.car) / 100000u % 100u);  // flag and car of one area
+        // Replaying lifts: the library lift (no busy flag) and Cainhurst's (a copy that did not follow).
+        CHECK(l.Replays() == (l.car == 2601260 || l.car == 2501010));
+    }
+    CHECK(!LiftByPosFlag(0) && !LiftByPosFlag(12410351) && !LiftByCar(0) && !LiftByCar(2601261));
+
+    // The library lift (12601352): from the top (pos 1) car 6, 3; from the bottom 8, 5; its ends:
+    // pos 1 car 7 (init 2), pos 0 car 9 (init 4).
+    const Lift* lib = LiftByPosFlag(12601253);
+    CHECK(lib && lib->Replays() && lib->car == 2601260 && lib->gate == 2601261 && lib->gate_rides);
+    for (const Lift& l : Lifts()) {
+        CHECK(l.gate_rides == (&l == lib));  // only the library lift has a second cage
+    }
+    for (const int a : {6, 3, 8, 5}) {
+        CHECK(PhaseOf(*lib, a) == CarPhase::riding);
+    }
+    CHECK(PhaseOf(*lib, 7) == CarPhase::at_on && PhaseOf(*lib, 2) == CarPhase::at_on);
+    CHECK(PhaseOf(*lib, 9) == CarPhase::at_off && PhaseOf(*lib, 4) == CarPhase::at_off);
+    CHECK(PhaseOf(*lib, -1) == CarPhase::unknown && PhaseOf(*lib, 1) == CarPhase::unknown);
+    CHECK(CarAgreesWithFlag(*lib, true, 7) && CarAgreesWithFlag(*lib, true, 2) && CarAgreesWithFlag(*lib, false, 9) &&
+          CarAgreesWithFlag(*lib, false, 4));
+    CHECK(!CarAgreesWithFlag(*lib, true, 9) && !CarAgreesWithFlag(*lib, false, 7) && !CarAgreesWithFlag(*lib, true, 3));
+    const Lift* cy = LiftByPosFlag(12410350);  // Central Yharnam: a busy flag, network-synced, no replay
+    CHECK(cy && !cy->Replays() && PhaseOf(*cy, 6) == CarPhase::unknown && !HoldMirrorFlip(*cy, 6) &&
+          !MirrorHold(*cy, 6, true));
+
+    // Cainhurst's lift (live run 5: the host's copy did not follow, its intro cutscene ran): it replays; pos 1 = the car at
+    // the bottom (end 1), pos 0 = at the top (end 11); rides 0 (down) / 10 (up).
+    const Lift* ch = LiftByCar(2501010);
+    CHECK(ch && ch->Replays() && ch->busy == 12505074 && ch->gate == 0);
+    CHECK(PhaseOf(*ch, 0) == CarPhase::riding && PhaseOf(*ch, 10) == CarPhase::riding);
+    CHECK(CarAgreesWithFlag(*ch, true, 1) && CarAgreesWithFlag(*ch, false, 11) && !CarAgreesWithFlag(*ch, true, 11));
+    CHECK(LiftNeedsReplay(*ch, true, 11) && !LiftNeedsReplay(*ch, false, 11) && MirrorHold(*ch, 10, false));
+    CHECK(HostLiftSync(false, false, true, true, ch->Replays(), false) == LiftSync::apply);
+
+    // The flag hold (the 0.7.1 full smoke's el ride 5: both rode down; the host's copy ended first,
+    // and the host's flip reached the guest in the very tick the guest's own end animation 9 stopped:
+    // 0.7.1 held it - the guest stood in the car - and put the guest's own end back; its flag stayed 1
+    // with the car at the bottom until the next ride).
+    CHECK(HoldMirrorFlip(*lib, 3) && HoldMirrorFlip(*lib, 5));     // the ride, or the car arrived and
+    CHECK(HoldMirrorFlip(*lib, 6) && HoldMirrorFlip(*lib, 8));     // its player still in it: not read yet
+    CHECK(!HoldMirrorFlip(*lib, 9) && !HoldMirrorFlip(*lib, 7));   // the copy's end: it has read the flag
+    CHECK(!HoldMirrorFlip(*lib, 2) && !HoldMirrorFlip(*lib, 4) && !HoldMirrorFlip(*lib, -1));
+    CHECK(!LiftNeedsReplay(*lib, false, 9));                       // ... and its end needs no replay
+    // The mirror's hold: from the ride's start until the copy's end animation stops (it writes then).
+    CHECK(MirrorHold(*lib, 6, true) && MirrorHold(*lib, 3, true) && MirrorHold(*lib, 3, false));
+    CHECK(MirrorHold(*lib, 9, true) && MirrorHold(*lib, 7, true));
+    CHECK(!MirrorHold(*lib, 9, false) && !MirrorHold(*lib, 7, false) && !MirrorHold(*lib, 2, false) &&
+          !MirrorHold(*lib, -1, false));
+
+    // The replay: another game's ride (the car stands at the other end, or no pose yet).
+    CHECK(!LiftNeedsReplay(*lib, true, 7) && !LiftNeedsReplay(*lib, true, 2) && !LiftNeedsReplay(*lib, false, 4));
+    CHECK(LiftNeedsReplay(*lib, true, 9) && LiftNeedsReplay(*lib, false, 7) && LiftNeedsReplay(*lib, true, -1) &&
+          LiftNeedsReplay(*lib, false, 2));
+    CHECK(!LiftNeedsReplay(*cy, true, 0) && !LiftNeedsReplay(*cy, false, 30));  // network-synced: never
+
+    // The host's answer to a guest's finished ride.
+    CHECK(HostLiftSync(true, false, false, true) == LiftSync::same);
+    CHECK(HostLiftSync(false, false, true, false) == LiftSync::same);
+    CHECK(HostLiftSync(false, true, false, true) == LiftSync::busy);
+    CHECK(HostLiftSync(false, true, true, true) == LiftSync::busy);
+    CHECK(HostLiftSync(false, false, true, true) == LiftSync::loaded);
+    CHECK(HostLiftSync(false, false, false, true) == LiftSync::apply);
+    CHECK(HostLiftSync(true, false, false, false) == LiftSync::apply);
+    CHECK(HostLiftSync(false, false, true, true, true, false) == LiftSync::apply);
+    CHECK(HostLiftSync(false, false, true, true, true, true) == LiftSync::occupied);
+    CHECK(HostLiftSync(true, false, true, true, true, true) == LiftSync::same);
+    CHECK(GuestLiftRideDone(true, true, false) && GuestLiftRideDone(false, false, false));
+    CHECK(!GuestLiftRideDone(true, true, true) && !GuestLiftRideDone(false, true, false));
+
+    // The guest's report: every ride to an end the host's world lacks goes up once; again after the
+    // host's world had the guest's end in between (0.7.1: once per (flag, value) for the whole stay).
+    CHECK(GuestLiftReport(true, false, true, -1) == GuestReport::wait);   // the ride runs
+    CHECK(GuestLiftReport(true, false, false, -1) == GuestReport::send);  // over: up to the host
+    CHECK(GuestLiftReport(true, false, false, 1) == GuestReport::sent);   // not again
+    CHECK(GuestLiftReport(true, true, false, 1) == GuestReport::same);    // the host's world has it
+    CHECK(GuestLiftReport(false, true, false, 1) == GuestReport::send);   // the ride back down
+    CHECK(GuestLiftReport(true, false, false, 0) == GuestReport::send);   // and up again
+    CHECK(GuestLiftReport(false, false, false, -1) == GuestReport::same);
+
+    // The ride ends that wait for the local player alone (Cainhurst, the library lift) become the
+    // all-players check of every other lift: 3[2] (group, state, entity, region) -> 3[7] (group,
+    // state, region at +4). The library lift's end (12601352 [25]): group 5, outside, 10000, 2602241.
+    {
+        std::uint8_t a[12] = {0x05, 0x00, 0, 0, 0x10, 0x27, 0, 0, 0x01, 0xb5, 0x27, 0x00};
+        CHECK(LocalEndToAllPlayers(12601352, 3, 2, a, sizeof a));
+        std::int32_t region = 0, rest = -1;
+        std::memcpy(&region, a + 4, 4);
+        std::memcpy(&rest, a + 8, 4);
+        CHECK(a[0] == 5 && a[1] == 0 && region == 2602241 && rest == 0);
+        // its start checks (inside, OR groups -1 / -2) stay the local player's
+        std::uint8_t start[12] = {0xff, 0x01, 0, 0, 0x10, 0x27, 0, 0, 0x01, 0xb5, 0x27, 0x00};
+        CHECK(!LocalEndToAllPlayers(12601352, 3, 2, start, sizeof start) && start[4] == 0x10);
+        // Cainhurst's end (12500076 [12]: group 0, outside, 10000, 2502001)
+        std::uint8_t c[12] = {0x00, 0x00, 0, 0, 0x10, 0x27, 0, 0, 0x71, 0x2d, 0x26, 0x00};
+        CHECK(LocalEndToAllPlayers(12500076, 3, 2, c, sizeof c));
+        std::memcpy(&region, c + 4, 4);
+        CHECK(region == 2502001);
+        // not a listed event, not 3[2], another entity, already rewritten, short args: untouched
+        std::uint8_t o[12] = {0x05, 0x00, 0, 0, 0x10, 0x27, 0, 0, 0x01, 0xb5, 0x27, 0x00};
+        CHECK(!LocalEndToAllPlayers(12410322, 3, 2, o, sizeof o) && !LocalEndToAllPlayers(12601352, 3, 3, o, sizeof o));
+        CHECK(!LocalEndToAllPlayers(12601352, 3, 2, o, 8));
+        std::uint8_t e[12] = {0x05, 0x00, 0, 0, 0x11, 0x27, 0, 0, 0x01, 0xb5, 0x27, 0x00};  // entity 10001
+        CHECK(!LocalEndToAllPlayers(12601352, 3, 2, e, sizeof e));
+        CHECK(!LocalEndToAllPlayers(12601352, 3, 2, a, sizeof a));  // the rewritten bytes again: entity 2602241
+        CHECK(!LocalEndToAllPlayers(12601352, 3, 7, a, sizeof a));  // ... also once the id is 7
+        // a later run of the event: id 7 already, its argument bytes afresh from the script (live run 3)
+        std::uint8_t again[12] = {0x05, 0x00, 0, 0, 0x10, 0x27, 0, 0, 0x02, 0xb5, 0x27, 0x00};
+        CHECK(LocalEndToAllPlayers(12601352, 3, 7, again, sizeof again));
+        std::memcpy(&region, again + 4, 4);
+        CHECK(region == 2602242);
+        CHECK(LocalEndRideEvent(12500077) && !LocalEndRideEvent(12410323) && !LocalEndRideEvent(0));
+    }
+
+    // The rider guard: the report's ride (Research Hall lift 3501105, ~2.5 m/s down from 1583.2) and a
+    // drop through the car.
+    {
+        RiderTrack r;
+        float put[3] = {};
+        CHECK(RiderTick(r, false, true, 0.0, -344.6f, 1583.2f, -793.0f, put) == RiderStep::idle);
+        double t = 0;
+        float y = 1583.2f;
+        for (int k = 0; k < 30; ++k, t += 1.0 / 30, y -= 2.5f / 30) {
+            CHECK(RiderTick(r, true, true, t, -344.6f, y, -793.0f, put) == RiderStep::riding);
+        }
+        t -= 1.0 / 30, y += 2.5f / 30;  // the last sample
+        CHECK(std::fabs(r.vy + 2.5f) < 0.1f);
+        // the bit flickers for a frame in the car (a roll): no put-back
+        CHECK(RiderTick(r, true, false, t + 0.05, -344.7f, y - 0.15f, -793.0f, put) == RiderStep::riding);
+        // through the floor: the bit off, straight down at 9 m/s for 0.3 s
+        CHECK(RiderTick(r, true, false, t + 0.3, -344.6f, y - 2.8f, -792.9f, put) == RiderStep::through);
+        CHECK(std::fabs(put[0] + 344.6f) < 0.01f && std::fabs(put[2] + 793.0f) < 0.01f);
+        CHECK(put[1] > y - 1.0f && put[1] < y);  // the car's height then, 0.75 m lower, + 0.3
+        // back on the car: riding again
+        CHECK(RiderTick(r, true, true, t + 0.4, -344.6f, put[1] - 0.2f, -793.0f, put) == RiderStep::riding);
+        // walked off an open platform (sideways), or long gone: no put-back
+        RiderTrack w = r;
+        CHECK(RiderTick(w, true, false, t + 0.6, -342.0f, put[1] - 3.0f, -793.0f, put) == RiderStep::off && !w.riding);
+        RiderTrack g = r;
+        CHECK(RiderTick(g, true, false, t + 3.0, -344.6f, put[1] - 9.0f, -793.0f, put) == RiderStep::off);
+        // a jump in the car: up, no put-back; the ride's end: idle and reset
+        RiderTrack j = r;
+        CHECK(RiderTick(j, true, false, t + 0.5, -344.6f, put[1] + 0.8f, -793.0f, put) == RiderStep::riding);
+        CHECK(RiderTick(j, false, false, t + 0.6, -344.6f, put[1], -793.0f, put) == RiderStep::idle && !j.riding);
+        // never on the car (stood beside it): never a put-back
+        RiderTrack n;
+        CHECK(RiderTick(n, true, false, 0.0, -350.0f, 1583.0f, -793.0f, put) == RiderStep::idle);
+        CHECK(RiderTick(n, true, false, 0.5, -350.0f, 1570.0f, -793.0f, put) == RiderStep::idle);
+    }
+
+    // The Research Hall busy clear moved to the event's end (runs 11-15).
+    {
+        const BusyDefer* d = nullptr;
+        CHECK(BusyDeferStep(13501113, 2003, 2, 26, 13504110u, &d) == BusyStep::keep && d && d->busy == 13504110u);
+        CHECK(BusyDeferStep(13501112, 1000, 4, 30, 0, &d) == BusyStep::clear);
+        CHECK(BusyDeferStep(13501123, 2003, 2, 26, 13504120u, &d) == BusyStep::keep);
+        CHECK(BusyDeferStep(13501113, 2003, 2, 19, 13501116u, &d) == BusyStep::none);   // the position flag
+        CHECK(BusyDeferStep(13501113, 2003, 2, 26, 13501116u, &d) == BusyStep::none);   // not the busy flag
+        CHECK(BusyDeferStep(13501103, 2003, 2, 47, 13504100u, &d) == BusyStep::none);   // the altar lift waits 1 s
+        CHECK(BusyDeferStep(12410322, 1000, 4, 26, 0, &d) == BusyStep::none);
+        for (const BusyDefer& b : BusyDefers()) {
+            bool lift = false;
+            for (const Lift& l : Lifts()) lift = lift || l.busy == b.busy;
+            CHECK(lift);  // a lift of the table
+        }
+    }
+
+    if (g_fail) {
+        std::printf("%d check(s) failed\n", g_fail);
+        return 1;
+    }
+    std::printf("party-lift-rules-test: all checks passed\n");
+    return 0;
+}

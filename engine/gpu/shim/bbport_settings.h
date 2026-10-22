@@ -122,9 +122,13 @@ struct Values {
     /// party, host-led (ini party_guest_lamps; env BB_PARTY_GUEST_LAMPS overrides). On restart.
     std::atomic<bool> party_guest_lamps{true};
     /// Party rules (party_balance.h; the host's values are the party's, sent to every guest. Live).
-    /// C4: the death debuff "rot": each death stacks max HP -10 % (5 stacks), a lamp rest cleanses
-    /// it (ini party_rot; on by default, user decision 2026-10-11).
-    std::atomic<bool> party_rot{true};
+    /// C4: the death debuff "rot": each death stacks one of five penalties (5 stacks), a lamp rest
+    /// cleanses it (ini party_rot; env BB_PARTY_ROT=0/1 overrides at start). Off by default (user
+    /// decision 2026-10-22; on 0.6.0 - 0.7.1): only an unset key is off, a saved value stays.
+    std::atomic<bool> party_rot{false};
+    /// bbport.ini settings_rev: the one-time changes of saved settings done so far (kSettingsRev),
+    /// shared with the launcher (launcher.py migrate_ini_rev; whichever starts first does them).
+    std::atomic<int> settings_rev{0};
     /// D7: enemy scaling per extra hunter (coop::balance::Rules): HP / poise in % of Bloodborne's
     /// boss step (100 = vanilla), damage + % (ini party_boss_hp ... party_enemy_poise).
     std::atomic<int> party_boss_hp{150}, party_boss_damage{10}, party_boss_poise{100};
@@ -136,6 +140,11 @@ struct Values {
     /// (which hides behind any occluder); off = the game's own plate as in vanilla, ours not drawn
     /// (ini party_name_tags; env BB_PARTY_HUD_GAME_PLATE=1 keeps the game's plate for tests). Live.
     std::atomic<bool> party_name_tags{true};
+    /// Companions drawn as plain hunters: on (default) = the other players' characters on this
+    /// screen without the game's blue, glowing phantom look; off = that look as in vanilla
+    /// (ini party_glow_off; env BB_PARTY_GLOW_OFF=0/1 overrides). Display only: nothing about the
+    /// game's cooperator state changes. Live, local.
+    std::atomic<bool> party_glow_off{true};
     /// D8: a party member's NPC conversation (subtitles, voice, choices, gifts) is shared with the
     /// members near it (ini party_npc_talk; env BB_PARTY_NPC_TALK overrides). Live, local.
     std::atomic<bool> party_npc_talk{true};
@@ -159,6 +168,11 @@ struct Values {
     /// everyone, in each member's own save too). A party rule: the host's value counts. On by
     /// default (ini party_share_lamps; env BB_PARTY_SHARE_LAMPS=0/1 overrides at start).
     std::atomic<bool> party_share_lamps{true};
+    /// 0.7.2 (user decision 2026-10-21: "host state saves lamps, anybody can light them"): a guest's
+    /// lamps from its own world light up in the host's world when it joins (needs Shared lamps). A
+    /// party rule: the host's value counts. Off by default (ini party_guests_bring_lamps; env
+    /// BB_PARTY_GUESTS_BRING_LAMPS=0/1 overrides at start).
+    std::atomic<bool> party_guests_bring_lamps{false};
     /// ... within this many metres of the NPC (0 = anywhere on the same map; ini
     /// party_npc_talk_range; env BB_PARTY_NPC_TALK_RANGE overrides). Live, local.
     std::atomic<int> party_npc_talk_range{25};
@@ -184,6 +198,10 @@ struct Values {
     /// The host's own (its death; shown read-only to guests through party_balance's rules):
     std::atomic<bool> party_host_revive{true};       ///< the host gets up at its lamp without a load
     std::atomic<bool> party_host_limbo_revive{true}; ///< the host gets up in the arena after a boss kill
+    /// 0.7.2, what else cleanses rot (party_rot_rules.h; only while rot is on; read live):
+    std::atomic<bool> party_rot_cleanse_boss{true};   ///< a boss's death: all of it, for the whole party
+    std::atomic<bool> party_rot_cleanse_killer{true}; ///< your killer's death: that death's stack
+    std::atomic<bool> party_rot_cleanse_echoes{true}; ///< your bloodstain picked up: its death's stack
     /// Each player's own (applies while it is a guest, or to its own world):
     std::atomic<bool> party_guest_revive_inplace{true}; ///< a guest gets up at the lamp without a load
     std::atomic<bool> party_guest_respawn{true};  ///< a dead guest comes back at the host's lamp
@@ -274,7 +292,7 @@ struct Values {
     /// scales and a hue offset in degrees (ColorH); 1, 1, 1 and 0 leave the area's own.
     std::atomic<float> graphics_fog{1},graphics_brightness{1},graphics_contrast{1},graphics_hue{0};
     std::atomic<float> camera_fov_scale{1.0f}, camera_distance_scale{1.0f}, camera_height_scale{1.0f};
-    std::atomic<int> model_lod{0}; ///< -2 highest .. 2 lowest, 0 the game's
+    std::atomic<int> model_lod{0}; ///< 0 the game's, 1 lower (2 is read as 1, -2 as 0)
     std::atomic<int> output_res{OutputDefault}; ///< index into OutputWidths
     /// output_res = OutputCustom's size, from bbport.ini (fixed for the session).
     int custom_output_w = 1920, custom_output_h = 1080;
@@ -330,6 +348,11 @@ struct PartySwitch {
     bool env_export = true;
 };
 extern const PartySwitch PartySwitches[];
+/// bbport.ini settings_rev (the launcher's INI_SETTINGS_REV is the same number):
+///   1 (0.7.2): party_rot = 0 once. Rot became off by default, and 0.6.0 - 0.7.1 games wrote their
+///              default party_rot=1 at every settings save, chosen or not (coordinator decision
+///              2026-10-22: turn it off once; a later explicit 1 stays).
+constexpr int kSettingsRev = 1;
 extern const int PartySwitchCount;
 /// party_guest_insight's ini / env values by index (parity, full, 0).
 const char* GuestInsightName(int mode);

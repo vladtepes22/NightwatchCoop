@@ -423,3 +423,34 @@ Note (splittravel): in the vis2-vis4 runs the host's copy did get position updat
   meet sent 0. Without the reconciliation the host's world wins at the meet: the guest's census
   logs `RESPAWN without a load: 3 enemies alive again` right after the meet, and both players see
   the same living enemies. The switch stays off (default decided with this run).
+
+## 2026-10-22 (dreamstone, 0.7.2+): a guest left behind keeps its action buttons
+
+* **Report**: the host left the Hunter's Dream alone; the guest that stayed could not use any
+  headstone (no prompt), so it could not leave the Dream.
+* **Cause [C, eboot RE + the pard4 A3 / parab3 b3t1 logs]**: after the host's alone travel the guest's
+  game runs OnRoomDisappeared (0x138A590) / OnIrregularLeaveSession_1 (0x13840E0): flag 4047 (logged
+  `4047(never_sync)` right after the host left), SprjEventState = 2, the Lua event context's +0x8D load
+  wait = 1 (0x138A714 / 0x138412C) and timer 4046, whose end is OnLeave_Limit's send-home (0x138A51C).
+  `SendHomeVeto` drops that send-home (split), so no load rebuilds the context: +0x8D stays 1, the Lua
+  update 0x1339B50 copies it into SprjActionButtonMan +0x52 every frame (the same action-button hold as
+  issue #4 item 1 after a boss clear), and no action button registers until the next load. The
+  headstone scripts' own gates were already open for a guest in the Dream (MultiFilter, IsClientFilter;
+  chrs 2100950.. are not in kNpcMirrorIds).
+* **Fix** (`party_stay_rules.h`, unit `party-stay-rules-test`): the split drop records the keep
+  (`g_apart_hold_at`); `StayActionHoldTick` (the K10 lift generalised) clears +0x8D / +0x52 until the
+  guest's next load (log `the leave state's action-button hold lifted`). No switch (a fix).
+* **YES while apart**: a guest in another area that answers YES for a lamp of the block the host has
+  loaded used to send a request the host ignores (playtest 1 bug 10: no in-map yank), so nothing ran;
+  that guest now goes there itself (`TravelAlone`: a re-join at that lamp, the host does not move).
+  Other YES answers stay the host's party travel; NO stays the guest's alone trip (plus the rest
+  request, as before).
+* **Live (da2, 2026-10-22)**: guest `send-home at +0x138a51c (OnLeave_Limit) dropped: split travel` at
+  +51.3 s, then `the leave state's action-button hold lifted ... (Lua load wait +0x8d 1, hold +0x52 1 -> 0)`
+  (the cause seen live); the guest's Cross at headstone t210000 opened "Awaken Above Ground" in the
+  host's empty Dream (screenshot `smoke/da2/da/shots/dahs_3s_inst1.png`). But its choice, 1st Floor
+  Sickroom (flag 72102410, the host's destination), warped nowhere: the host's headstone flag had
+  already run the guest's own copy of event 12107000 for that lamp at +45.2 s (split dropped that warp
+  as "another member's lamp"), and the instance stays used up until the guest's next load. Fix:
+  `HeadstoneWarpTick` in split `Tick` (`stayrules::HeadstoneFlagLamp`, `HeadstoneWarpFallback`): a
+  guest's own headstone flag with no warp for 8 s runs the warp itself (the travel question follows).

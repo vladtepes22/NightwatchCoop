@@ -32,7 +32,15 @@ enum class Overhead : int { Off = 0, Name = 1, Level = 2, Health = 3, Deaths = 4
 
 /// The party's rules: the host's settings, sent to every guest (event "balance").
 struct Rules {
-    bool rot = true;       ///< C4: death debuff on (user decision 2026-10-11: on by default)
+    /// C4: the death debuff. Off by default (user decision 2026-10-22; on by default 0.6.0 - 0.7.1):
+    /// an unset bbport.ini party_rot is off, a saved value stays.
+    bool rot = false;
+    /// 0.7.2 (party_rot_rules.h): what cleanses part of the rot besides a rest - a boss's death (all
+    /// of it), your killer's death (that death's stack), your bloodstain picked up (the stack of the
+    /// death that dropped it). Only while rot is on. On by default; an older host sends none: off.
+    bool rot_cleanse_boss = true;
+    bool rot_cleanse_killer = true;
+    bool rot_cleanse_echoes = true;
     int boss_hp = 150;     ///< % of the vanilla boss HP step (+50 % per cooperator) per extra hunter
     int boss_damage = 10;  ///< + % damage per extra hunter (vanilla: 0)
     int boss_poise = 100;  ///< % of the vanilla poise step (+30 per cooperator)
@@ -45,6 +53,11 @@ struct Rules {
     /// Statsaudit finding 5 (user decision 2026-10-15): lamps are shared by the whole party - a lamp
     /// any member lit is lit for everyone (each member's own save too). On by default; the host's.
     bool share_lamps = true;
+    /// 0.7.2 (user decision 2026-10-21: "host state saves lamps, anybody can light them"): a guest's
+    /// lamps from its own save also light up in the host's world (with share_lamps; the 2026-10-15
+    /// union). Off by default: the host's world keeps its own lamps, anyone may light more there
+    /// (party_guestvals_rules.h lampshare::Decide). A host from before it sends none: off.
+    bool guests_bring_lamps = false;
     /// The host's deaths (party_b2; user decision 2026-10-21: in the game's menus): the host gets
     /// up at its lamp without a load, and in the arena after the guests kill the boss. The host's
     /// own settings; sent so a guest's menu shows them. On by default.
@@ -143,7 +156,7 @@ constexpr double kStaleRotPrologueS = 3.0;
 bool RotFromAnotherCharacter(int stacks, bool own_prologue, double prologue_s);
 
 /// Playtest 1 save audit S4: party_rot.txt, the rot of each character by save slot, one line per
-/// slot with rot: "slot S kinds H ST SC R D" (stacks per kind: health, stamina, stamina cost,
+/// slot with rot: "slot S kinds H ST SC R D [stain K]" (stacks per kind: health, stamina, stamina cost,
 /// rally, discovery). A file from before the slot key ("stacks N" + "kindK N" lines) cannot say
 /// whose rot it was: it is dropped (legacy_stacks says how much, for the log). Dropping a penalty
 /// costs nobody anything (a lamp would cleanse it anyway); giving it to the wrong character was
@@ -152,6 +165,10 @@ constexpr int kRotFileKinds = 5;
 struct SlotRot {
     int slot = -1;  ///< save slot 0-9, -1 unknown
     int kind[kRotFileKinds] = {};
+    /// 0.7.2: the kind of the stack the bloodstain's death added, while that stain lies there
+    /// (picking it up removes it: party_rot_rules.h); -1 none. " stain K" after the kinds (an
+    /// older build reads the five kinds and ignores it).
+    int stain = -1;
     int Stacks() const;
 };
 struct RotFile {
@@ -175,6 +192,9 @@ std::string DescribeRot(const int kind[kRotFileKinds], bool russian);
 /// and one effect ("max HP -20 %"; empty when that kind has no stacks).
 std::string DescribeRotHead(const int kind[kRotFileKinds], bool russian);
 std::string DescribeRotEffect(int k, int stacks, bool russian);
+/// The one-line short form for the party HUD while a boss bar is up ("Rot 2/5: HP, rally"; empty
+/// without rot): the full line can wrap to three lines and cover the boss's name.
+std::string DescribeRotShort(const int kind[kRotFileKinds], bool russian);
 
 /// Short value texts for the menu (help line): "150 % (+75 % HP per extra hunter)".
 std::string DescribeHp(int percent, bool russian);

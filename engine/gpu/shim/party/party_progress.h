@@ -389,11 +389,18 @@ public:
     /// F5 test aid (BB_PARTY_DESYNC_TEST, party_desync.h): flips one byte of the image (not the
     /// overlay) so the next digest differs. Returns the key, -1 without an image.
     int TestCorrupt();
+    /// liftfix: while flag `id` is held, Apply leaves its overlay bit as it is (a full copy too); at
+    /// the release the overlay's value stands and the image's value counts as applied (no write), so
+    /// only a later host change of it goes in. A lift's position flag while this game's own copy of
+    /// a ride has not written its end yet (liftrules::MirrorHold).
+    void Hold(u32 id, bool on);
+    bool Held(u32 id) const { return held_.count(id) != 0; }
 
 private:
     bool have_ = false;
     std::vector<GroupBytes> image_, applied_;
     std::set<int> dirty_;
+    std::set<u32> held_;
 };
 
 constexpr const char* kEventWorldGroups = "world_groups";
@@ -567,6 +574,9 @@ bool HostSnapshotFlag(u32 id, bool* value);
 /// Guest: the host's value of `id` in the host-world mirror image; false when unknown (no image, not
 /// a mirror group). Any thread.
 bool HostWorldFlag(u32 id, bool* value);
+/// Guest, liftfix: the world mirror holds flag `id` back (GuestWorldMirror::Hold): a host change
+/// of it waits until the release. A lift's position flag while this game's own copy rides.
+void SetMirrorHold(u32 id, bool hold);
 /// The flag store's load mode: 0 own world, 1 the host-world overlay, -1 no store.
 int FlagLoadMode();
 /// Guest, main thread, load mode 1: the flags the guest's own game changed in the host-world

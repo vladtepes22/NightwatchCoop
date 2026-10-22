@@ -209,10 +209,16 @@ void KillRecordTick(party::PartyLink* link, bool host, bool active, const std::m
     // at start): the host's own setting, a guest follows the host's (party_balance Rules). Live.
     const bool on = host ? BbSettings::Get().party_kill_record.load()
                          : party::status::HostRuleOn(party::status::HostRule::KillRecord);
-    if (!link) return;
+    if (!link) {
+        balance::NoteKillWorld(false, false, "no link");
+        return;
+    }
     KillRecordGame& k = KR();
     const double now = NowS();
+    // 0.7.2 rot (party_rot_rules.h): a killer's death and the world resets go to party_balance.
+    const auto new_world = [&](const char* why) { balance::NoteKillWorld(!host, true, why); };
     if (!on) {
+        balance::NoteKillWorld(false, false, "kill record off");
         // The host relays nothing while off. A guest keeps what came in: the host's record of a
         // new world can arrive just before its rules turn the switch on again (live: 40 ms).
         if (host) (void)desync::PopKillRecords();
@@ -229,6 +235,7 @@ void KillRecordTick(party::PartyLink* link, bool host, bool active, const std::m
         } else {
             k.rec.Reset(0);
         }
+        new_world("the kill record on again");
         BLog("kill record: on again: world %llu", static_cast<unsigned long long>(k.rec.epoch()));
     }
     k.on = true;
@@ -243,6 +250,7 @@ void KillRecordTick(party::PartyLink* link, bool host, bool active, const std::m
             std::vector<u32> fresh;
             for (u32 id : m.kills)
                 if (k.rec.AddRemote(id, now)) fresh.push_back(id);
+            for (u32 id : fresh) balance::NotePartyKill(id, "a member's kill");
             if (fresh.empty()) continue;
             k.remote += fresh.size();
             PostKills(link, party::kBroadcast, fresh);
@@ -254,10 +262,12 @@ void KillRecordTick(party::PartyLink* link, bool host, bool active, const std::m
             BLog("kill record: the host's world %u (was %llu): record cleared, %zu kill(s) in it", m.epoch,
                  static_cast<unsigned long long>(k.rec.epoch()), m.kills.size());
             k.rec.Reset(m.epoch);
+            new_world("the host's new world");
         }
         std::vector<u32> fresh;
         for (u32 id : m.kills)
             if (k.rec.AddRemote(id, now)) fresh.push_back(id);
+        for (u32 id : fresh) balance::NotePartyKill(id, "a party kill from the host");
         k.remote += fresh.size();
         if (!fresh.empty()) BLog("kill record: %zu party kill(s) from the host (%s)", fresh.size(), IdList(fresh).c_str());
     }
@@ -267,6 +277,7 @@ void KillRecordTick(party::PartyLink* link, bool host, bool active, const std::m
         if (host) {
             // A rest, a death, a travel: every enemy respawned, for the whole party.
             k.rec.Reset(k.rec.epoch() + 1);
+            new_world("the host's load");
             if (active) PostKills(link, party::kBroadcast, {});
             BLog("kill record: a load: world %llu, record cleared", static_cast<unsigned long long>(k.rec.epoch()));
         } else {
@@ -277,9 +288,11 @@ void KillRecordTick(party::PartyLink* link, bool host, bool active, const std::m
     if (host && active && !k.was_active && k.rec.size()) {
         // Alone in between (single-player rules): the world as the game left it.
         k.rec.Reset(k.rec.epoch() + 1);
+        new_world("a party again");
         BLog("kill record: a party again: world %llu, record cleared", static_cast<unsigned long long>(k.rec.epoch()));
     }
     k.was_active = active;
+    balance::NoteKillWorld(!host && k.rec.epoch() != 0, false, "");
     if (host) {
         for (auto it = k.members.begin(); it != k.members.end();) it = members.count(*it) ? std::next(it) : k.members.erase(it);
         for (const auto& [slot, name] : members) {
@@ -296,6 +309,7 @@ void KillRecordTick(party::PartyLink* link, bool host, bool active, const std::m
     for (const EnemyKillCandidate& e : balance::LoadedEnemies()) obs.push_back({e.entity, e.alive, e.chr, e.id});
     std::vector<u32> died;
     const std::vector<killrec::Action> acts = k.rec.Update(obs, now, &died);
+    for (u32 id : died) balance::NotePartyKill(id, "seen dead here");
     if (!died.empty() && (host || k.rec.epoch() != 0)) {
         k.sent += died.size();
         PostKills(link, host ? party::kBroadcast : party::kHostSlot, died);

@@ -156,12 +156,31 @@ stamina cost, rally and item discovery (see the table).
   "Rot 1/5: stamina costs +10 %" under the party HUD after the respawn (screenshots); the Party
   page row is unit-tested (game-menu-pages-test), not seen live.
 - Kept in `<user>/party_rot.txt` across restarts. Party mode only; host and guests alike; the
-  host's on/off is the party's. Setting: System > Deaths & revives > "Rot on death" (and the overlay's Party tab) (on by default,
-  user decision 2026-10-11).
-- Echoes / bloodstain: unchanged here. The user's decision is single-player behaviour for everyone
-  (echoes drop into a recoverable bloodstain); that is the hostdeath work. Rot only touches max HP,
-  so the two stack independently: a death drops echoes (bloodstain) and adds a rot stack; picking
-  up the bloodstain does not cleanse rot, a lamp rest does.
+  host's on/off is the party's. Setting: System > Rot > "Rot on death" (0.7.2: its own page; before on Deaths & revives) (and the overlay's Party tab, the
+  launcher's Party Rules & Sync). Off by default since 0.7.2 (user decision 2026-10-22; on 0.6.0 - 0.7.1): an unset
+  `party_rot` is off. The game's settings save (`BbSettings::Save`) wrote every key, so 0.6.0 - 0.7.1 left
+  `party_rot=1` in most bbport.ini files unchosen: bbport.ini `settings_rev` 1 (`kSettingsRev`, launcher
+  `INI_SETTINGS_REV`) sets `party_rot=0` once, in the game's settings load or the launcher's start, whichever comes
+  first (coordinator decision 2026-10-22); a later explicit 1 stays.
+- 0.7.2, what else cleanses it (`party_rot_rules.h`, unit test `party-rot-test`; three host rules on by default, rows
+  under "Rot on death" on System > Rot, ini `party_rot_cleanse_boss` / `_killer` / `_echoes`, an older host's rules: off). The
+  `Ledger` keeps one entry per death that added a stack: its kind, its killer (entity id / chr / census key) and
+  whether its killer still lives (this world) and its bloodstain is still there (the last death's only).
+  - boss: the game's boss clear here (`BossBonusHook`, 0x1335400 with the boss entity) or the host's boss notice
+    (phantom insight / boss_bonus events, the guest in the host's world): all stacks off, the ledger cleared.
+  - killer: the lethal hit's attacker from the game's kill log 0x1FEB2A0(victim, attacker, ...) (the damage step
+    0x1A2A600 calls it when a hit leaves the victim at HP 0 with an attacker; a trap object goes to 0x1FEBFF0
+    instead; falls and ForceDead call neither): a non-player chr within 3 s of the HP 0 tick. Matched by its
+    entity id in the kill record (a party kill seen here or relayed by the host) or its own chr seen at HP 0 here
+    (same census key, no load since). A host load, the kill record's new world (rest, wipe) or, without a kill
+    record that follows the host, any load drops the links; a guest's own load drops only the chr.
+    An enemy without a map entity id (0 / -1) is not in the kill record: its death counts only when this
+    player's own game sees that chr die (before its next load); a kill elsewhere in the party does not reach it.
+  - echoes: party_b2's own stain watch (flag 1 -> 0 and the echoes back within 5 s) or the party stain recovered
+    in the host's world: the stain's death's stack, once (not if its killer's death took it first).
+  - A rule off still uses up its link (the event happened); the death keeps its stack and the other cleanse can
+    still take it. `party_rot.txt` keeps the stain's kind (`slot S kinds ... stain K`; an older build ignores it).
+  - Notices: "Rot cleansed: boss defeated", "Rot -1: your killer is dead", "Rot -1: Blood Echoes retrieved".
 
 ## 4. E2: overhead display
 

@@ -311,7 +311,9 @@ warp's own target was used; with +0x1521 = 1 our +0x14C4/D0/E0 write gives the s
   12410000's 2002 (EMEVD skip predicate, `seamless_rules SetEmevdSkipPredicate`): logged
   `client: opening cutscene (event 12410000, 2002[3]) skipped in the host's world` and no remo.
   Overlay guard (save the host-world overlay at the travel event, restore every group the new
-  snapshot left all-zero): restored 7 of 11 non-zero groups, but 9401's group came back
+  snapshot left all-zero; never a map's fight-state group, T1 zones 4-6: the host's load reset
+  them, and restoring them restarted a wiped boss fight at the lamp - 0.7.2 known issue 2,
+  `party_bossfog_rules.h`): restored 7 of 11 non-zero groups, but 9401's group came back
   non-zero with the bit cleared - the re-sent snapshot itself carries different data. Root cause
   of the poor re-sent snapshot: **the apply 0x13BECA0 ran in load mode 1** (a join applies it in
   the guest's own world, mode 0). Run 20: host at the re-send 12410000=1 9401=1 12417810=1; guest
@@ -731,6 +733,14 @@ slots 0..2 and resets them to -1; counted while the handle resolves to a living 
   void deaths outside a fight: up once (no second death), no load, never the Dream (r12 / r13, then
   at the safe floor; the lamp rule's run: see ERSC_PARITY / the fallsafe report). Smoke group `fall`
   (phase fl).
+  The camera (fallcam 2026-10-22, a player's report: up at the host's lamp 158 m from an 18 m fall,
+  the view stuck on the sky): WorldChrMan +0x68 is the game's fall-death camera latch (ChrCam update
+  0x14368B0: mode 4, the fall-die camera, while it is set; only a load or 0x13CBAD0 clears it). Every
+  in-world revive (`ReviveLocal`) and `WarpLocal` releases it (`deathrules::PlanReviveCamera`) and
+  resets the camera behind the chr (Lua CamReset 0x132F5A0); `ReviveViewTick` logs `revive view` 0.5 s
+  and 3 s later (render camera to chr, drawn ChrCtrl matrix to physics position, the latch;
+  `deathrules::JudgeReviveView`). A kill-plane fall never sets the latch: smoke group `fall_deep`
+  (phase fd) drops a guest ~32 m onto the Great Bridge, its lamp ~95 m away.
 * Shared boss lamp (design decision, ERSC_PARITY @ 7552b38): every respawn after a boss fight goes to
   the same lamp - the host's last lamp (a guest's lone respawn already uses the host's last lamp, or
   a lit lamp of the loaded map, 6.10; the wipe and the host use the host's lamp).

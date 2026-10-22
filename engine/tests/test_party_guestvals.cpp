@@ -180,6 +180,66 @@ static void TestLampShare() {
     CHECK(!HeldForBoss(0, true, false));   // the block's first lamp: the way in
     CHECK(!HeldForBoss(1, true, true));    // beaten there too
     CHECK(!HeldForBoss(1, false, false));  // nobody beat it: the lamp is not past it
+    // A lamp-lit flag names its whole lamp (Central Yharnam's 241_1; Old Yharnam's 230_0).
+    const auto whole = LitFlagsOfLampLit(72410201u);
+    CHECK(whole.size() == 3 && whole[0] == 12417830u && whole[1] == 12417831u && whole[2] == 72410201u);
+    CHECK(LitFlagsOfLampLit(72300200u).size() == 3 && LitFlagsOfLampLit(72300200u)[0] == 12307810u);
+    // The last-lamp guard: a lamp another member lit (its flag just rose, this player far away)
+    // never becomes this player's last lamp; its own lighting / rest, a travel, an older lit lamp do.
+    CHECK(RestoreLastLamp(3402951u, 3502950u, 0.4, 40.0f, false));   // the report: the guest lit it
+    CHECK(!RestoreLastLamp(3402951u, 3502950u, 0.4, 2.0f, false));   // this player lit it (at the lamp)
+    CHECK(!RestoreLastLamp(3402951u, 3502950u, 0.4, 40.0f, true));   // a travel / load there
+    CHECK(!RestoreLastLamp(3402951u, 3502950u, -1.0, 40.0f, false)); // not a lamp lit just now
+    CHECK(!RestoreLastLamp(3402951u, 3502950u, 9.0, 40.0f, false));  // lit long ago: a rest / travel
+    CHECK(!RestoreLastLamp(3502950u, 3502950u, 0.4, 40.0f, false));  // unchanged
+    CHECK(RestoreLastLamp(3402951u, 3502950u, 0.4, -1.0f, false));   // position unknown: guarded
+    CHECK(RestoreLastLamp(3402951u, 3502950u, 0.4, 2.0f, false, true));  // host beside it, a guest lit it
+    CHECK(!RestoreLastLamp(3402951u, 3502950u, 0.4, 2.0f, true, true));   // a load: a travel
+    // Guest-lit only after a real use: at the lamp, not right after a load (a lamp warp's arrival).
+    CHECK(CountsAsGuestLit(45.0, 2.0f));
+    CHECK(!CountsAsGuestLit(3.0, 0.5f));    // the report: arrived by the lamp warp, flag rose at once
+    CHECK(!CountsAsGuestLit(45.0, 30.0f));  // far from it: a flag our sync or the game wrote
+    CHECK(!CountsAsGuestLit(45.0, -1.0f));  // position unknown
+    // The arrival lamp: the host's last lamp if lit there, else the lit lamp nearest the host, else none.
+    const std::vector<LampCandidate> m35 = {{3502950, false, 4.0f}, {3502951, true, 900.0f}, {3502952, true, 100.0f}};
+    CHECK(ArrivalLamp(0, m35) == 3502952);                                // the report: never 3502950
+    CHECK(ArrivalLamp(3502951, m35) == 3502951);                           // the host's last lamp, lit
+    CHECK(ArrivalLamp(3502950, m35) == 3502952);                           // its "last lamp" unlit there
+    CHECK(ArrivalLamp(3402951, {{3502950, false, 1.0f}}) == 0);            // nothing lit: beside the host
+    CHECK(ArrivalLamp(0, {{3502951, true, -1.0f}, {3502952, true, 5.0f}}) == 3502952);
+    CHECK(ArrivalLamp(0, {}) == 0);
+    CHECK(LitFlagsOfLampLit(12417830u).empty() && LitFlagsOfLampLit(72410101u).empty() &&
+          LitFlagsOfLampLit(72410230u).empty());
+}
+
+// 0.7.2 (user decision 2026-10-21): "host state saves lamps, anybody can light them".
+static void TestLampRule() {
+    using namespace coop::lampshare;
+    const Rule now{true, false};    // the defaults: Shared lamps on, Guests bring their lamps off
+    const Rule bring{true, true};   // the 2026-10-15 union
+    const Rule off{false, false};   // Shared lamps off
+    const Rule off_bring{false, true};
+    CHECK(!Rule{}.guests_bring && Rule{}.share);
+    // A guest's old lamp (its own save): stays out of the host's world unless the host lets guests
+    // bring them (and shares lamps at all).
+    CHECK(!Decide(Origin::GuestOwnSave, now).host_world && !Decide(Origin::GuestOwnSave, now).member_saves);
+    CHECK(!SendOwnLamps(now) && !HostTakes(true, now));
+    CHECK(Decide(Origin::GuestOwnSave, bring).host_world && Decide(Origin::GuestOwnSave, bring).member_saves);
+    CHECK(SendOwnLamps(bring) && HostTakes(true, bring));
+    CHECK(!SendOwnLamps(off) && !HostTakes(true, off));
+    CHECK(!SendOwnLamps(off_bring) && !HostTakes(true, off_bring));  // Shared lamps off wins
+    // A lamp a guest lit in the host's world: the host's world keeps it; every save gets it while shared.
+    for (const Rule& r : {now, bring}) {
+        CHECK(HostTakes(false, r));
+        CHECK(Decide(Origin::GuestInHostWorld, r).host_world && Decide(Origin::GuestInHostWorld, r).member_saves);
+    }
+    // Shared lamps off: still lit in the host's world (the world it was lit in), no member's save.
+    CHECK(HostTakes(false, off) && !Decide(Origin::GuestInHostWorld, off).member_saves);
+    CHECK(HostTakes(false, off_bring) && !Decide(Origin::GuestInHostWorld, off_bring).member_saves);
+    // A lamp lit by the host: into every guest's save while shared, the toggle does not matter.
+    CHECK(IntoOwnSave(now) && IntoOwnSave(bring));
+    CHECK(Decide(Origin::HostWorld, now).host_world);
+    CHECK(!IntoOwnSave(off) && !IntoOwnSave(off_bring));
 }
 
 static void TestBossFall() {
@@ -217,6 +277,7 @@ int main() {
     TestNgGuard();
     TestStain();
     TestLampShare();
+    TestLampRule();
     TestBossFall();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);

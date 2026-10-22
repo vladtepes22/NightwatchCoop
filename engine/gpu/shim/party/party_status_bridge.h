@@ -113,7 +113,28 @@ void OnMemberLeft(const std::string& name, bool slot_kept);
 void OnTravel(const std::string& what);
 void OnRing();
 /// A11: the host's boss fight / cutscene hold started (`text`, BusyText) or ended (empty).
-void OnHostBusy(const std::string& text);
+/// `cutscene_wait`: the host's hold is its cutscene (the guest's notice can wait for a live mirror);
+/// `mirror_now`: the caller's live read that the host's scene plays (or is about to) as our mirror.
+void OnHostBusy(const std::string& text, bool cutscene_wait = false, bool mirror_now = false);
+
+/// A guest's "Waiting: the host is watching a cutscene" notice while it plays that very scene as
+/// the live mirror (user decision 2026-10-22): the toast is held while the mirror plays and shown
+/// only when the host's hold outlasts the mirror by kGraceS (the host's own scene often ends a few
+/// seconds later: its warp / load). A guest's own scene, or one not mirrored, keeps the notice; the
+/// host's "Joiners wait" stays (it cannot know who mirrors). Not thread-safe (callers lock).
+class BusyToastGate {
+public:
+    static constexpr double kGraceS = 5.0;
+    /// The host's hold changed to `text`: the text to toast now ("" none).
+    std::string OnBusy(const std::string& text, bool cutscene_wait, bool mirror_playing);
+    /// Each tick: `current` the host's hold text now; the held text to toast now ("" none).
+    std::string OnTick(const std::string& current, bool mirror_playing, double now_s);
+    bool Holding() const { return !held_.empty(); }
+
+private:
+    std::string held_;
+    double mirror_end_ = -1;
+};
 /// Host crash recovery: the guest waits `seconds` for the host to come back (-1: not any more).
 void OnHostWait(int seconds);
 /// Leave / Rejoin done by the runtime (any thread).
@@ -130,6 +151,7 @@ struct TickIn {
     int max_players = 3;
     bool prologue = false;           // C1: this player is still in its prologue (not ready)
     const char* prologue_step = "";  // party_start.h StartStepName
+    bool mirror_playing = false;     // a live mirror of the host's cutscene plays here (BusyToastGate)
 };
 struct TickOut {
     bool ring_now = false;  // Rejoin while connected: the director's next bell goes up at once

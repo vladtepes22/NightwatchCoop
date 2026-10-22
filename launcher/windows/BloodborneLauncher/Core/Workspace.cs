@@ -132,6 +132,7 @@ namespace BloodborneLauncher.Core
             }
 
             Ini.Load();
+            Ini.MigrateRev();
             _iniWarned = false;
             PortChanged?.Invoke();
         }

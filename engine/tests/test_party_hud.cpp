@@ -385,7 +385,59 @@ static void AreaBanner() {
     assert(hud::PerfHudBottom(1068.0f, 1080.0f, true) < 0.82f * 1080.0f);
 }
 
+// Party notices / alerts: lines wrapped at spaces inside the box, each centred.
+static void NoticeLayout() {
+    // A fixed advance per character (UTF-8 aware: a Cyrillic letter is 2 bytes, one advance).
+    const auto measure = [](const std::string& s) {
+        float n = 0;
+        for (unsigned char c : s) n += (c & 0xC0) != 0x80 ? 10.0f : 0.0f;
+        return n;
+    };
+    using hud::WrapNoticeLines;
+    // Short: one line, unchanged.
+    std::vector<std::string> l = WrapNoticeLines("The host is in a Chalice Dungeon", 1000, measure);
+    assert(l.size() == 1 && l[0] == "The host is in a Chalice Dungeon");
+    // The box's own breaks stay; each paragraph wraps at spaces, never past the width.
+    l = WrapNoticeLines("Party: the host did not come back within 2 min\nYou play on alone in your own world.", 200,
+                        measure);
+    assert(l.size() >= 4);
+    for (const std::string& s : l) assert(measure(s) <= 200 && !s.empty() && s.front() != ' ' && s.back() != ' ');
+    assert(l[0] == "Party: the host did");
+    // No word is lost or split.
+    std::string joined;
+    for (const std::string& s : l) joined += (joined.empty() ? "" : " ") + s;
+    assert(joined == "Party: the host did not come back within 2 min You play on alone in your own world.");
+    // A word wider than the box keeps its own line (never cut).
+    l = WrapNoticeLines("a Supercalifragilistic b", 50, measure);
+    assert(l.size() == 3 && l[1] == "Supercalifragilistic");
+    // Russian: split only at spaces, so no UTF-8 sequence is cut; every line within the box.
+    const std::string ru = "\xD0\xA5\xD0\xBE\xD1\x81\xD1\x82 \xD0\xB2 \xD0\x9F\xD0\xBE\xD0\xB4\xD0\xB7\xD0\xB5\xD0\xBC"
+                           "\xD0\xB5\xD0\xBB\xD1\x8C\xD0\xB5 \xD0\xA7\xD0\xB0\xD1\x88\xD0\xB8";  // Хост в Подземелье Чаши
+    l = WrapNoticeLines(ru, 100, measure);
+    assert(l.size() == 3);
+    for (const std::string& s : l) {
+        assert(measure(s) <= 100 || s.find(' ') == std::string::npos);
+        assert((static_cast<unsigned char>(s[0]) & 0xC0) != 0x80);  // starts on a character
+    }
+    // Empty text: one empty line; an empty paragraph stays as a gap.
+    assert(WrapNoticeLines("", 100, measure).size() == 1);
+    l = WrapNoticeLines("a\n\nb", 100, measure);
+    assert(l.size() == 3 && l[1].empty());
+    // Centring: the middle of the box; a too-wide line starts at the box's left edge.
+    assert(Near(hud::CenteredLineX(10, 200, 100), 60));
+    assert(Near(hud::CenteredLineX(10, 200, 200), 10));
+    assert(Near(hud::CenteredLineX(10, 200, 260), 10));
+    // Every wrapped line of the long Chalice notice centres inside a 712 px box.
+    l = WrapNoticeLines("The host is in a Chalice Dungeon: Party > Rejoin to go back", 330, measure);
+    for (const std::string& s : l) {
+        const float x = hud::CenteredLineX(24, 330, measure(s));
+        assert(x >= 24 && x + measure(s) <= 24 + 330 + 0.01f);
+        assert(Near((x - 24) * 2 + measure(s), 330));  // equal margins
+    }
+}
+
 int main() {
+    NoticeLayout();
     AreaBanner();
     GameMenuRule();
     StaleChr();

@@ -7,6 +7,7 @@
 #include "party/party_phantom.h"
 
 #include <cstdio>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -57,12 +58,31 @@ static void test_skip_rules() {
     CHECK(!EmevdSkipMatches(any, 1, 2003, 13, 0));
 
     const std::vector<EmevdSkipRule> walls = ConfinementWallRules();
-    CHECK(walls.size() == 4);
+    CHECK(walls.size() == 6);
     CHECK(walls[0].event == 7600 && walls[0].bank == 2005 && walls[0].id == 3 && walls[0].index == 6 &&
           walls[0].needs_travel);
     CHECK(walls[1].event == 7600 && walls[1].bank == 2006 && walls[1].id == 2 && walls[1].index == 7 &&
           walls[1].needs_travel);
     CHECK(walls[2].event == 12907600 && walls[2].index == 6 && walls[3].event == 12907600 && walls[3].index == 7);
+    // m34 13400010, the wall behind Ludwig (player report 2026-10-22): wall 7, SFX 8, with the open world.
+    CHECK(walls[4].event == 13400010 && walls[4].bank == 2005 && walls[4].index == 7 && walls[4].needs_travel);
+    CHECK(walls[5].event == 13400010 && walls[5].bank == 2006 && walls[5].id == 2 && walls[5].index == 8);
+    {
+        // Party mode whatever the open world: 13400010's "not in multiplayer" condition [11]; on a
+        // client, the room-open skip of Ebrietas's, Laurence's and Lady Maria's re-fight events.
+        const std::vector<EmevdSkipRule> rooms = BossRoomRules();
+        CHECK(rooms.size() == 4);
+        CHECK(rooms[0].event == 13400010 && rooms[0].bank == 0 && rooms[0].id == 0 && rooms[0].index == 11 &&
+              !rooms[0].needs_travel && !rooms[0].client_only);
+        std::set<int> refights;
+        for (std::size_t i = 1; i < rooms.size(); ++i) {
+            CHECK(rooms[i].bank == 1003 && rooms[i].id == 5 && rooms[i].index == 2 && rooms[i].client_only &&
+                  !rooms[i].needs_travel);
+            refights.insert(rooms[i].event);
+        }
+        CHECK(refights == (std::set<int>{12424810, 13404850, 13504800}));
+        CHECK(DescribeSkipRule(rooms[1]) == "12424810:1003:5@2 (on a client)");
+    }
     // Event 7600 as the data has it (common.emevd), and its Chalice Dungeon copy 12907600
     // (m29.emevd, the same 12 instructions): only 6 and 7 are skipped.
     const int banks[12][2] = {{2000, 2}, {2005, 3}, {2006, 1}, {3, 6}, {3, 6}, {0, 0},

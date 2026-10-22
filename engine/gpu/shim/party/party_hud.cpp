@@ -317,6 +317,46 @@ float PerfHudBottom(float normal, float height, bool banner) {
     return normal < top ? normal : top;
 }
 
+std::vector<std::string> WrapNoticeLines(const std::string& text, float max_w,
+                                         const std::function<float(const std::string&)>& measure) {
+    std::vector<std::string> lines;
+    std::size_t at = 0;
+    while (at <= text.size()) {
+        std::size_t end = text.find('\n', at);
+        if (end == std::string::npos) end = text.size();
+        const std::string para = text.substr(at, end - at);
+        at = end + 1;
+        // Greedy at spaces: the line grows by whole words while it fits.
+        std::string line;
+        std::size_t w = 0;
+        bool any = false;
+        while (w < para.size()) {
+            while (w < para.size() && para[w] == ' ') ++w;
+            if (w >= para.size()) break;
+            std::size_t e = para.find(' ', w);
+            if (e == std::string::npos) e = para.size();
+            const std::string word = para.substr(w, e - w);
+            w = e;
+            if (line.empty()) {
+                line = word;
+            } else if (measure(line + " " + word) <= max_w) {
+                line += " " + word;
+            } else {
+                lines.push_back(line);
+                line = word;
+            }
+            any = true;
+        }
+        if (any || para.empty()) lines.push_back(line);
+        if (end == text.size()) break;
+    }
+    return lines;
+}
+
+float CenteredLineX(float left, float box_w, float line_w) {
+    return line_w >= box_w ? left : left + (box_w - line_w) * 0.5f;
+}
+
 void SetGameMenu(bool open) {
     g_game_menu.store(open, std::memory_order_relaxed);
 }

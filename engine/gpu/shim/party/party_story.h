@@ -158,6 +158,10 @@ struct StoryState {
     bool remo_playing = false;         ///< SprjRemo player +0x168 bit 0
     bool sex_variant = false;          ///< play the +1000 remo files
     std::uint32_t map_id = 0xffffffffu;
+    /// Map blocks (0xAABB0000) this game has loaded: a block counts when a loaded enemy's map entity
+    /// id (chr +0x1F0, AABNNNN) is of it (MapOfEntity). Filled only while a story item waits.
+    std::vector<std::uint32_t> loaded_blocks;
+    float host_dist = -1;              ///< m to the host's reported position (same area); -1 unknown
     int tod_value = 0;                 ///< 9800..9802 3-bit value of the own save (summoned: the pool)
     bool calm = true;                  ///< no HP lost lately (a summoned replay waits for it)
 };
@@ -192,6 +196,31 @@ const char* StoryActionName(StoryAction::Kind k);
 constexpr bool MirrorMapOk(std::uint32_t remo, std::uint32_t map_id) {
     return map_id == 0xffffffffu || ((remo / 1000000u) << 24 | (remo / 10000u % 100u) << 16) == (map_id & 0xffff0000u);
 }
+
+/// The map block (0xAABB0000) of a map entity id AABNNNN (7 digits: area AA, block B), 0 for any
+/// other id (players, generated ids).
+constexpr std::uint32_t MapOfEntity(std::uint32_t entity) {
+    return entity >= 1000000u && entity < 10000000u ? (entity / 100000u) << 24 | (entity / 10000u % 10u) << 16 : 0u;
+}
+/// The map block (0xAABB0000) a remo AABBnnnn plays in.
+constexpr std::uint32_t MapOfRemo(std::uint32_t remo) {
+    return (remo / 1000000u) << 24 | (remo / 10000u % 100u) << 16;
+}
+/// A live mirror stays near the host (player report 2026-10-22, the Cathedral Ward door): the
+/// guest stood 2-3 m behind the host at the m24_01 / m24_00 door, so its current block was m24_01
+/// while the host's scene 24000020 is m24_00; MirrorMapOk dropped it and the guest got the scene
+/// as a replay later. Besides the scene's own block, a guest in the scene's AREA plays the mirror
+/// when the scene's block is loaded on its game (`block_loaded`) or it stands within
+/// kMirrorNearHost m of the host (`host_dist`, -1 unknown). A guest in another area (the host's
+/// Gaol waking scene for guests in the Cathedral Ward) or far away in an unloaded block still gets none.
+constexpr float kMirrorNearHost = 30.0f;
+constexpr bool MirrorSceneOk(std::uint32_t remo, std::uint32_t map_id, bool block_loaded, float host_dist) {
+    return MirrorMapOk(remo, map_id) ||
+           ((map_id >> 24) == remo / 1000000u &&
+            (block_loaded || (host_dist >= 0.0f && host_dist <= kMirrorNearHost)));
+}
+/// `st`'s loaded blocks hold the block of `remo`.
+bool SceneBlockLoaded(const StoryState& st, std::uint32_t remo);
 
 class GuestStory {
 public:
@@ -232,6 +261,8 @@ public:
     std::size_t QueueSize() const { return queue_.size(); }
     bool MirrorPending() const { return mirror_.has_value(); }
     bool Running() const { return running_; }
+    /// A live mirror of the host's scene is the running item.
+    bool RunningMirror() const { return running_ && running_mirror_; }
     std::uint64_t LastSeq() const { return last_seq_; }
     /// User decision (2026-10-15): the host's ending asks each guest first. YES: `ending` (see
     /// GuestEndingType) replays in the own Dream (staff roll, NG+ in the own save) as before;
@@ -256,6 +287,13 @@ public:
     }
     /// The remo of a live mirror dropped because this guest stands in another map (MirrorMapOk;
     /// 0 = none) and that map, once.
+    /// The remo of a live mirror that plays outside its own block (MirrorSceneOk: loaded / near the
+    /// host; 0 = none), once.
+    std::uint32_t TakeMirrorNearby() {
+        const std::uint32_t r = mirror_nearby_;
+        mirror_nearby_ = 0;
+        return r;
+    }
     std::uint32_t TakeMirrorOtherMap(std::uint32_t* map = nullptr) {
         const std::uint32_t r = mirror_other_map_;
         if (map) *map = mirror_other_map_at_;
@@ -290,6 +328,7 @@ private:
     std::uint32_t mirror_cut_ = 0; ///< a live mirror stopped early (kMirrorMinSeen); TakeMirrorCut
     std::uint32_t mirror_other_map_ = 0;     ///< a mirror dropped for another map; TakeMirrorOtherMap
     std::uint32_t mirror_other_map_at_ = 0;  ///< the guest's map then
+    std::uint32_t mirror_nearby_ = 0;        ///< a mirror played outside its block; TakeMirrorNearby
     std::uint64_t last_seq_ = 0;
     int stable_mirror_ = 0, stable_own_ = 0;
     bool dirty_ = false;
@@ -346,6 +385,53 @@ inline bool HoldGuestIntroForHostEvent(bool first_fight_intro, double held_for) 
     return first_fight_intro && held_for < kGuestIntroWait;
 }
 
+/// D10 race (player report 2026-10-22, Gascoigne's intro 24010010 from event 12411802): a guest
+/// next to the host gets its own copy of a boss's first-fight intro event at the moment the host's
+/// event plays the intro; the game's own sync reaches the guest before the host's EVENT "story"
+/// does. That own 2002[3] went first, so the host's copy was dropped ("this player triggered and
+/// watched it itself"), and the guest's own play did not show for ~18 s: the guest saw the host
+/// frozen at the gate, walked on, and got its own scene later. The host always plays such an
+/// intro itself (its own event, P5's guest-first start, or the guest's forwarded copy after
+/// kGuestIntroWait), so the guest's own play of it is held instead (the instruction is skipped,
+/// as StoryDedupeSkip does) and the host's copy plays here as the live mirror. Only when the
+/// host's copy does not come in kOwnIntroHold s does the guest's own copy play.
+constexpr double kOwnIntroHold = 12.0;   ///< > kGuestIntroWait + a round trip
+constexpr double kOwnIntroMaxAge = 60.0; ///< a held play this old is dropped (never played)
+/// A client's own plain play (2002[1] / [3], no warp or time of day) of a known remo from a boss
+/// first-fight intro event, the live mirror on: held for the host's copy.
+inline bool HoldOwnSceneForHost(bool client, bool mirror_on, int bank, int id, bool first_fight_intro,
+                                bool remo_known) {
+    return client && mirror_on && bank == 2002 && (id == 1 || id == 3) && first_fight_intro && remo_known;
+}
+
+/// The guest's held own plays (HoldOwnSceneForHost). Not thread-safe (callers lock).
+class OwnSceneHold {
+public:
+    struct Item {
+        std::uint32_t event_id = 0;
+        std::uint32_t remo = 0;
+        std::uint32_t mode = 0;
+        std::uint32_t instr = 0;
+        std::uint32_t map = 0;
+        double at = 0;
+    };
+    static constexpr std::size_t kMax = 8;
+    /// Holds `it` (one per scene: a second play of the same scene keeps the first). False: not held.
+    bool Hold(const Item& it);
+    /// The host's copy of `remo` (either sex) was taken as the live mirror: its held play is
+    /// dropped (never played here) and returned; nullopt when none was held.
+    std::optional<Item> HostCopy(std::uint32_t remo);
+    /// The oldest held play `wait` s old or older, removed (this game plays its own copy now).
+    std::optional<Item> Due(double now, double wait = kOwnIntroHold);
+    /// Drops plays held longer than `max_age` s (this game never got steady to play them).
+    std::size_t Prune(double now, double max_age = kOwnIntroMaxAge);
+    bool Holding(std::uint32_t remo) const;
+    std::size_t Size() const { return items_.size(); }
+
+private:
+    std::vector<Item> items_;
+};
+
 // ---- Story notices (D10, pard3) ----
 /// A game dialog (EMEVD 2007[1]) that tells the story and that only the host's event shows (its
 /// client copy ends on 1003[6]): Yahar'gul's "Ritual secret broken. Seek the nightmare newborn."
@@ -383,6 +469,13 @@ void RequestGuestStory(const StoryIntent& s);
 /// Guest: the live mirror played the cutscene of EMEVD event `event_id` in the last 10 minutes
 /// (the client's own copy of that event's 2002 is then a duplicate).
 bool StoryMirroredEvent(std::uint32_t event_id);
+/// Guest: a live mirror of the host's cutscene is playing on this game right now (any thread).
+bool StoryMirrorPlaying();
+/// Guest, the EMEVD dispatch (party_b2 ClientIntroSkip): this game's own 2002[`id`] of event
+/// `event_id` (SprjEmkEventIns `event`, instruction record `instr`) is a boss intro the host plays
+/// (HoldOwnSceneForHost): true = skip it here; the host's copy plays as the live mirror (or this
+/// game's own copy after kOwnIntroHold s). The scene still goes up to the host (D10).
+bool StoryHoldClientOwnScene(std::uint32_t event_id, int id, std::uint64_t event, std::uint64_t instr);
 /// Main thread, once a frame (the coop tick): host polls, guest mirror / replay.
 void StoryTick();
 /// D10 (cutscenes play for the whole party): a story cutscene a GUEST's own events play in the

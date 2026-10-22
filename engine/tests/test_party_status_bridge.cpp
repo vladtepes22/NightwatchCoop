@@ -383,8 +383,66 @@ static int test_refusal() {
     return 0;
 }
 
+// User decision 2026-10-22: no "Waiting: the host is watching a cutscene" over the host's scene
+// while it plays here as the live mirror; shown only if the host's hold outlasts the mirror.
+static int test_busy_toast_gate() {
+    const std::string wait = "Waiting: the host is watching a cutscene";
+    const std::string boss = "Waiting: the host is in a boss fight";
+    {  // The live mirror: held, and the hold ends with the scene -> never shown.
+        bridge::BusyToastGate g;
+        CHECK(g.OnBusy(wait, true, true).empty() && g.Holding());
+        CHECK(g.OnTick(wait, true, 10.0).empty());
+        CHECK(g.OnTick(wait, false, 47.0).empty());   // our mirror ended; the host's scene a bit later
+        CHECK(g.OnTick(wait, false, 49.0).empty());   // within kGraceS
+        CHECK(g.OnBusy("", false, false).empty() && !g.Holding());  // the host's hold over
+        CHECK(g.OnTick("", false, 60.0).empty());
+    }
+    {  // The host still holds kGraceS after our mirror ended (a longer scene, a second one): shown once.
+        bridge::BusyToastGate g;
+        CHECK(g.OnBusy(wait, true, true).empty());
+        CHECK(g.OnTick(wait, false, 50.0).empty());
+        CHECK(g.OnTick(wait, false, 50.0 + bridge::BusyToastGate::kGraceS - 0.1).empty());
+        CHECK(g.OnTick(wait, false, 50.0 + bridge::BusyToastGate::kGraceS) == wait);
+        CHECK(!g.Holding() && g.OnTick(wait, false, 70.0).empty());
+    }
+    {  // The mirror plays again inside the grace: the clock restarts.
+        bridge::BusyToastGate g;
+        CHECK(g.OnBusy(wait, true, true).empty());
+        CHECK(g.OnTick(wait, false, 10.0).empty());
+        CHECK(g.OnTick(wait, true, 12.0).empty());
+        CHECK(g.OnTick(wait, false, 13.0).empty());
+        CHECK(g.OnTick(wait, false, 17.9).empty());
+        CHECK(g.OnTick(wait, false, 18.0) == wait);
+    }
+    {  // No mirror here (this guest's own scene, a scene not mirrored, another map): shown as today.
+        bridge::BusyToastGate g;
+        CHECK(g.OnBusy(wait, true, false) == wait && !g.Holding());
+        CHECK(g.OnTick(wait, false, 1.0).empty());
+    }
+    {  // Not a cutscene hold (a boss fight) while a mirror plays: shown as today.
+        bridge::BusyToastGate g;
+        CHECK(g.OnBusy(boss, false, true) == boss && !g.Holding());
+    }
+    {  // The hold turns into a boss fight while held: the new hold says so at once.
+        bridge::BusyToastGate g;
+        CHECK(g.OnBusy(wait, true, true).empty());
+        CHECK(g.OnBusy(boss, false, false) == boss && !g.Holding());
+    }
+    // Through the bridge: the board's last event stays empty while the mirror plays.
+    status::ResetForTest(true);
+    bridge::OnRuntimeStart(false, "Guest1");
+    const auto before = status::Snapshot().event_seq;
+    bridge::OnHostBusy(wait, true, true);
+    CHECK(status::Snapshot().event_seq == before && status::Snapshot().last_event != wait);
+    bridge::OnHostBusy("", false, false);
+    bridge::OnHostBusy(wait, true, false);  // not mirrored: the notice as before
+    CHECK(status::Snapshot().last_event == wait);
+    bridge::OnHostBusy("", false, false);
+    return 0;
+}
+
 int main() {
-    if (test_map_state() || test_members() || test_board_and_commands() || test_prologue() || test_host_busy() || test_refusal()) return 1;
+    if (test_map_state() || test_members() || test_board_and_commands() || test_prologue() || test_host_busy() || test_refusal() || test_busy_toast_gate()) return 1;
     std::printf("%d checks OK\n", g_checks);
     return 0;
 }

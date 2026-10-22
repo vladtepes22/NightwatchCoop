@@ -90,6 +90,18 @@ int main() {
     CHECK(NearestLamp(spots, 0x18010000u, p, 15.0f) == 2412951);
     CHECK(NearestLamp(spots, 0x18000000u, p, 15.0f) == 2402950);
     CHECK(NearestLamp(spots, 0x18010000u, p, 0.5f) == 0);
+    // lamprule run 5: at Central Yharnam's lamp object after an in-place warp, the drawn position still
+    // at the Great Bridge lamp: the physics position names the lamp the player stands at.
+    {
+        std::vector<Spot> real;
+        for (const Lamp& l : kLamps) {
+            float sp[4];
+            if (coop::ids::ReturnSpot(ReturnPoint(l), sp)) real.push_back({ReturnPoint(l), sp[0], sp[1], sp[2]});
+        }
+        const float phys[3] = {-196.8f, -28.6f, 66.6f}, drawn[3] = {-124.8f, -27.0f, 64.3f};
+        CHECK(NearestLamp(real, 0x18010000u, StandingPos(true, phys, drawn), 15.0f) == 2412951);
+        CHECK(NearestLamp(real, 0x18010000u, StandingPos(false, phys, drawn), 15.0f) == 2412952);
+    }
 
     // Switch and situation.
     CHECK(SwitchOn(nullptr) && SwitchOn("") && SwitchOn("1"));

@@ -42,8 +42,9 @@ void SeamlessRulesTick();
 /// is the SprjEmkEventIns, `instr` its instruction record; EmevdInstructionArgs finds the bytes.
 using EmevdRewriter = void (*)(int event_id, int bank, int id, std::uint64_t event, std::uint64_t instr);
 /// An extra skip predicate (party_b2: a client in the host's world never plays the opening
-/// cutscene): true = the instruction is skipped like a BB_PARTY_EMEVD_SKIP rule. One; nullptr removes.
-using EmevdSkipPredicate = bool (*)(int event_id, int bank, int id);
+/// cutscene): true = the instruction is skipped like a BB_PARTY_EMEVD_SKIP rule. `event` / `instr`
+/// as for EmevdRewriter (EmevdInstructionArgs finds the bytes). One; nullptr removes.
+using EmevdSkipPredicate = bool (*)(int event_id, int bank, int id, std::uint64_t event, std::uint64_t instr);
 void SetEmevdSkipPredicate(EmevdSkipPredicate fn);
 /// Sets the rewriter (one; nullptr removes it). Call before EnsureEmevdFilter.
 void SetEmevdRewriter(EmevdRewriter fn);

@@ -337,8 +337,15 @@ def intel_tonemap_fix(env=os.environ, cpuinfo='/proc/cpuinfo'):
     forced=env.get('BB_INTEL_TONEMAP_FIX')
     return forced=='1' if forced in ('0','1') else intel_cpu(cpuinfo)
 
-# model_lod: -2 highest, 0 the game's, 1 lower, 2 lowest.
-MODEL_LOD={'-2':'Model LOD -2 (Highest)','1':'Model LOD 1 (Lower)','2':'Model LOD 2 (Lowest)'}
+# model_lod: -2 highest, 0 the game's, 1 lower. 2 ("Model LOD 2 (Lowest)") applies the Lower patch:
+# with the lowest level the game draws nothing for a model that has no third level of detail, and
+# some map floors have none (the Lecture Building's floor showed the background through it).
+# -2 ("Model LOD -2 (Highest)") applies nothing: its bias reaches one of the game's three model draw
+# paths only, and many objects past their nearest level of detail are then not drawn at all
+# (Central Yharnam's corpses popped in close and vanished further away). visy 0.7.2.
+MODEL_LOD={'1':'Model LOD 1 (Lower)','2':'Model LOD 1 (Lower)'}
+# Every model LOD patch stays the engine's to set, so a patch file cannot turn -2 or 2 back on.
+MODEL_LOD_PATCHES=('Model LOD -2 (Highest)','Model LOD 1 (Lower)','Model LOD 2 (Lowest)')
 
 
 def validate_patch_requirements(names, game):
@@ -668,7 +675,7 @@ def external_patches(directory, app_version='01.09', exclude=Path(__file__).reso
 def managed_builtin(name):
     return (name in {n for names in FPS_PRESETS.values() for n in names} or name in (SCALED_BASE, '30 FPS++',
             '60FPS (no deltatime)', INTEL_TONEMAP, SFX_WORKAROUND) or
-            name in {n for pair in EFFECTS.values() for n in pair if n} or name in MODEL_LOD.values() or
+            name in {n for pair in EFFECTS.values() for n in pair if n} or name in MODEL_LOD_PATCHES or
             name.startswith('Resolution Patch'))
 
 
