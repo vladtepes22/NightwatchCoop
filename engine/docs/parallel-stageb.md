@@ -297,3 +297,39 @@ behind; raise nothing, it only loses the benefit).
 Environment: `BB_DRAWREC_WORKERS=1` (on; default off, 0 = today's behaviour; the value is a
 switch, there is one lookahead thread), `BB_DRAWREC_LOOKAHEAD=<packets>` (default 8, 1..256),
 `BB_DRAWREC_IDLE=1` (idle priority), experiment bit 16 of `BB_TOGGLE_FILE` (pause, for A/B).
+
+## 7. Approach B: build plan (2026-10-21)
+
+Measured before starting (`lantern-20261021_193312.log`, Cathedral Ward, RTX 5060, PC memory
+model on): stage B 3.83 us per packet, 84-91% busy at 1300-1600 draws per frame (80-98 FPS).
+Texture binding 0.71 (set 0.44: check 0.15, apply 0.20; full 0.16), buffers and `ObtainBuffer`
+0.61, vertex 0.32, dispatch 0.44, motion 0.22, begin render 0.20, the rest under 0.15 each.
+
+The texture binding helper (section 3A) showed what does not work: per-draw results handed
+between cores cost what they save. Each thread must own its structures for long stretches. Stages,
+each shippable on its own behind `BB_STAGEB_SPLIT=<n>` (default 0, today's single thread), each
+with a Check mode before the next starts:
+
+1. **One producer.** Everything stage B records (uploads, barriers, draw commands, ordered tasks)
+   goes through a single ordered command list owned by the thread that will become B2. B1 appends
+   its commands as data (copies, buffer barriers) instead of calling `scheduler.Record`. No second
+   thread yet; Check: the recorded command stream (a hash per submission) is identical on and off.
+2. **B2 thread with the recording tail.** Descriptors, dynamic state, `MarkPass`, the draw command
+   and the kick run on B2 from a per-draw record B1 fills. B1 never reads what B2 writes. Check:
+   submission hashes identical; `stage B busy` split between the two.
+3. **Image state on B2.** Layouts, `Transit`, binding flags, the render state and begin memos
+   move to B2. B1 reports which images a draw samples and targets (ids, ranges) without touching
+   their state. Check: image barrier list per draw identical to the single-thread path (a
+   recorded-barrier log compared in Check mode).
+4. **Texture cache on B2.** Lookups, the texture set memo and refreshes run on B2. A refresh that
+   needs buffer data asks B1 through an ordered request (the buffer cache stays B1's); storage
+   writes from B1 send invalidations to B2 in stream order. Check: per draw, the image views bound
+   match what the single thread would bind (both computed in Check mode, the second discarded).
+5. **Ordered tasks.** WriteData/DMA stores and deferred fences keep their single stream position:
+   B1 issues them only once B2 has recorded every earlier draw (a position handshake, as the
+   draw pipe's `Reached`).
+
+Expected after stage 4: B1 keeps decode, buffers, uploads and dispatches (~2.3 us), B2 textures,
+targets and recording (~1.5 us); the critical path falls to ~2.3 us, ~+60% FPS where stage B
+limits, until the GPU or the game's main thread does. Stages 1 and 2 alone change little (the
+recording tail is ~0.5 us) but build the hand-off everything else needs.

@@ -26,14 +26,17 @@ target_compile_definitions(bbnet PRIVATE BOOST_ASIO_STANDALONE NDEBUG
 target_compile_options(bbnet PRIVATE -Wno-deprecated-declarations -Wno-missing-field-initializers)
 target_link_libraries(bbnet PUBLIC Vulkan::Headers fmt::fmt Boost::headers magic_enum::magic_enum
     protobuf::libprotobuf nlohmann_json::nlohmann_json OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB)
+# miniupnpc, static (MSYS2's on Windows; packaging/linux/setup-ubuntu.sh builds it into /opt/deps).
+find_path(BBNET_MINIUPNPC_INCLUDE miniupnpc.h PATH_SUFFIXES miniupnpc REQUIRED)
+find_library(BBNET_MINIUPNPC_LIBRARY NAMES libminiupnpc.a miniupnpc REQUIRED)
+target_include_directories(bbnet PRIVATE ${BBNET_MINIUPNPC_INCLUDE})
+target_compile_definitions(bbnet PRIVATE MINIUPNP_STATICLIB)
+target_link_libraries(bbnet PUBLIC ${BBNET_MINIUPNPC_LIBRARY})
 if(WIN32)
     target_sources(bbnet PRIVATE third_party/wepoll/wepoll.c)
     target_include_directories(bbnet PRIVATE third_party/wepoll)
-    find_path(BBNET_MINIUPNPC_INCLUDE miniupnpc.h PATH_SUFFIXES miniupnpc REQUIRED)
-    find_library(BBNET_MINIUPNPC_LIBRARY NAMES libminiupnpc.a miniupnpc REQUIRED)
-    target_include_directories(bbnet PRIVATE ${BBNET_MINIUPNPC_INCLUDE})
-    target_compile_definitions(bbnet PRIVATE MINIUPNP_STATICLIB NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_compile_definitions(bbnet PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_compile_options(bbnet PRIVATE
         $<$<COMPILE_LANGUAGE:CXX>:-include ${CMAKE_CURRENT_SOURCE_DIR}/include/bb_win_compat.h>)
-    target_link_libraries(bbnet PUBLIC ${BBNET_MINIUPNPC_LIBRARY} ws2_32 iphlpapi bcrypt crypt32)
+    target_link_libraries(bbnet PUBLIC ws2_32 iphlpapi bcrypt crypt32)
 endif()

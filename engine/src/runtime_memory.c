@@ -832,6 +832,13 @@ static void *toggle_watcher(void *path) {
     }
     return NULL;
 }
+/* bbport: the second view of the pool and the size of its direct memory part, or NULL before the
+ * pool exists. On Windows the GPU library imports pieces of it (BbGuestMemory): direct memory
+ * phys lives at backing + phys in every mapping of it. */
+unsigned char *runtime_memory_backing(uint64_t *direct_size) {
+    *direct_size=backing_base ? POOL_SIZE : 0;
+    return backing_base;
+}
 /* bbport: the GPU library provides direct memory chunks (see CHUNK). */
 void runtime_memory_set_guest_chunk_whole(int whole) { whole_chunks=whole; }
 void runtime_memory_set_guest_chunk_allocator(int (*alloc)(uint64_t phys, uint64_t size)) {

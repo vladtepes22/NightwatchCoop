@@ -36,12 +36,14 @@ struct ExposureParams {
     u32 reset;
     float min_samples;
     float rate;
+    u32 groups_x;
+    float min_tile;
 };
 struct GainParams {
     float strength;
     float white;
     float knee;
-    float unused;
+    float rolloff;
 };
 
 /// SDR brightness (linear brightest channel) where native mode starts to brighten: everything
@@ -52,8 +54,16 @@ constexpr float Knee = 0.5f;
 /// frame's pixels in the midtones to measure it (a black or white-out frame keeps the last one).
 constexpr float ExposureRate = 0.1f;
 constexpr u32 MinSampleShare = 200;
-/// The Exposure struct of hdr_native.comp.
-constexpr vk::DeviceSize StateSize = 4 * sizeof(float);
+/// hdr_native.comp's state: the Exposure struct, the tone curve's bins and the tiles' exposures
+/// (a vec4 each).
+constexpr u32 CurveBins = 16;
+constexpr u32 Tiles = 8 * 6;
+constexpr vk::DeviceSize StateSize = (1 + CurveBins + Tiles) * 4 * sizeof(float);
+/// vec4s per STATS group in the partial sums: the exposure, then two curve bins per vec4.
+constexpr u32 PartialStride = 1 + CurveBins / 2;
+/// Highlights are kept as they are up to this share of the range from SDR white to the peak (in
+/// stops), then rolled off towards the peak (hdr_native.comp RollOff).
+constexpr float RollOffStart = 0.7f;
 
 constexpr vk::ImageSubresourceRange ColorRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 constexpr auto AllCommands = vk::PipelineStageFlagBits2::eAllCommands;
@@ -130,8 +140,8 @@ HdrNative::HdrNative(const Instance& instance_, Scheduler& scheduler_,
     : instance{instance_}, scheduler{scheduler_}, texture_cache{texture_cache_},
       runtime{runtime_} {
     CreatePipelines();
-    // The exposure state: four floats the EXPOSURE pass keeps across frames (cleared by the
-    // first pass that uses it).
+    // The exposure state: the exposure, the tone curve and the tiles, which the EXPOSURE pass
+    // keeps across frames (cleared by the first pass that uses it).
     const VkBufferCreateInfo buffer_ci{
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = StateSize,
@@ -345,7 +355,7 @@ void HdrNative::EnsureGainMap(std::unique_ptr<HdrGainMap>& map, u32 width, u32 h
 }
 
 void HdrNative::EnsurePartials(u32 groups) {
-    const vk::DeviceSize size = vk::DeviceSize(std::max(groups, 1u)) * 4 * sizeof(float);
+    const vk::DeviceSize size = vk::DeviceSize(std::max(groups, 1u)) * PartialStride * 4 * sizeof(float);
     if (partials.buffer && partials.size >= size) {
         return;
     }
@@ -432,11 +442,15 @@ void HdrNative::RecordExposure(const Source& frame, bool copy) {
     }
     const u32 groups_x = (frame.width + 15) / 16, groups_y = (frame.height + 15) / 16;
     EnsurePartials(groups_x * groups_y);
+    const u32 min_samples = std::max(1024u, frame.width * frame.height / MinSampleShare);
     const ExposureParams params{
         .count = groups_x * groups_y,
         .reset = measured_last_frame ? 0u : 1u,
-        .min_samples = float(std::max(1024u, frame.width * frame.height / MinSampleShare)),
+        .min_samples = float(min_samples),
         .rate = ExposureRate,
+        .groups_x = groups_x,
+        // A tile is a 48th of the frame: a quarter of its share of the frame's minimum.
+        .min_tile = float(std::max(64u, min_samples / Tiles / 4)),
     };
     const bool clear_state = !state_cleared;
     state_cleared = true;
@@ -482,8 +496,8 @@ void HdrNative::RecordExposure(const Source& frame, bool copy) {
             cmdbuf.pushConstants(stats_layout, vk::ShaderStageFlagBits::eCompute, 0,
                                  sizeof(params.reset), &params.reset);
             cmdbuf.dispatch(groups_x, groups_y, 1);
-            // The partial sums, added up by one group, which then updates the state the
-            // groups above read.
+            // The partial sums, added up by one group (the exposure and the curve) and one per
+            // tile, which then update the state the groups above read.
             const vk::MemoryBarrier2 summed{
                 .srcStageMask = Compute,
                 .srcAccessMask = vk::AccessFlagBits2::eShaderWrite,
@@ -498,7 +512,7 @@ void HdrNative::RecordExposure(const Source& frame, bool copy) {
                                         exposure_writes);
             cmdbuf.pushConstants(exposure_layout, vk::ShaderStageFlagBits::eCompute, 0,
                                  sizeof(params), &params);
-            cmdbuf.dispatch(1, 1, 1);
+            cmdbuf.dispatch(1 + Tiles, 1, 1);
             AfterCompute(cmdbuf);
         });
     if (resume) {
@@ -515,8 +529,7 @@ void HdrNative::RecordGain(const Source& frame, const Source& before_ui, const H
     const auto& s = BbSettings::Get();
     const float paper_white = std::clamp(s.hdr_paper_white.load(), BbSettings::HdrPaperWhiteMin,
                                          BbSettings::HdrPaperWhiteMax);
-    const float peak =
-        std::clamp(s.hdr_peak.load(), BbSettings::HdrPeakMin, BbSettings::HdrPeakMax);
+    const float peak = BbSettings::HdrPeakNits(s);
     // Boost in native mode: the share of the scene's highlight range shown, in log2. Its square
     // root, so the shared default (0.25, chosen for expand mode) shows half of it: a lamp the
     // scene has 10x brighter than SDR white comes out 3.2x.
@@ -524,7 +537,7 @@ void HdrNative::RecordGain(const Source& frame, const Source& before_ui, const H
         .strength = std::sqrt(std::clamp(s.hdr_boost.load(), 0.0f, 1.0f)),
         .white = peak / paper_white,
         .knee = Knee,
-        .unused = 0.0f,
+        .rolloff = RollOffStart,
     };
     scheduler.EndRendering();
     scheduler.RecordCrumb(

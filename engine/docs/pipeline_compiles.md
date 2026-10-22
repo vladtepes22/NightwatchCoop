@@ -113,3 +113,118 @@ and `(N/s slept)` in the `Draw pipe:` line. The `shader/pipeline compiles, ms` f
   behind it.
 - `ReplaceShader` (shader patching from the debug UI) destroys pipelines at once; a late bind
   still queued for one would use it after that.
+
+## Why pipelines were not compiled before play (0.9.37 beta 3, measured)
+
+The pop-in above only happens for a pipeline the start did not build. Measured on the dev
+install (`out\BloodbornePC`, RTX 5060) and the shipped catalog:
+
+- **The shipped shader catalog was refused on every PC since 0.9.34 beta 9.9.** Its
+  `profile.bin` is 64 bytes; beta 9.9 appended the engine's own compile switches to
+  `Shader::Profile` (`uniform_dword_layout` ... `flatbuf_storage`, 72 bytes), and `--seed-cache`
+  compared the whole file: `Shader catalog: made on another kind of GPU than this one; not used`,
+  and bb-start wrote `catalog-1990-6261149.applied` with exit code 5, so it never tried again. Its
+  specializations were also meta version 7 (beta 9.9 made it 8: `HwFragmentRuntimeInfo::
+  depth_first`), which `ReadShaderMetaSpec` rejects. Every player started with an empty cache and
+  compiled every pipeline of every area in play.
+- **A profile change empties the cache, shader states included.** `PipelineCache::WarmUp` clears
+  the folder when the profile differs (a new profile field, `BB_UBO_*`/`BB_EARLY_Z`, a driver or
+  GPU change). The dev cache was emptied at 17:37 on 21 Oct; 331 pipeline keys were then written
+  in play over the next five minutes (pop-in), and the catalog that should have refilled it was
+  refused (above).
+- **Geometry shaders could not be seeded.** A geometry shader and its copy shader carry the same
+  footer hash (62 pairs in the game's bundles; `BinaryInfo::type` 5 and 6). The lab's code index
+  kept the first program of a hash, so a GS could get its copy shader's code: the compiler crashed
+  on it and the GS and its keys were left out (3 GS, 28 keys in a fresh seed).
+- **Pipeline keys outlived their shaders.** A recompile that leaves a permutation out kept its
+  keys: 22 of 387 keys in the dev cache and 80 of 567 in the catalog named a stage without a
+  specialization (`Failed to open ... .meta` at every start, rejected by the warm-up). Worse, a
+  later permutation of that program takes the freed number and the old key would join it to the
+  old one's vertex inputs.
+- In play on a seeded cache (the last dev session) only 2 pipelines were compiled and no draw was
+  left out: what is in the cache is built at the start; what is missing is the catalog's coverage.
+
+## Fixes (bb-shader-lab, bb-start, the catalog)
+
+- `--seed-cache` compares only the GPU's part of the profile (the fields before
+  `uniform_constant_buffers`). A catalog made with other compile switches is still checked
+  permutation by permutation: `RecompileBatch` keeps one only if this compiler, with this cache's
+  switches, specializes it the same. Version 7 catalog records are read as version 8 (the new field
+  sat in padding the state carries alike).
+- The code index keeps copy shaders (type 6) apart: `Code(hash, copy_shader)`.
+- After every recompile (bb-start's, and the one after a seed) keys whose stages have no
+  specialization are removed; the `Shader cache:` line counts them. `--export-catalog` exports only
+  keys whose stages are all in the catalog and only states with their specialization.
+- The seed summary counts `records of another engine` (a catalog an engine change made unreadable:
+  it must be exported again), instead of skipping them silently.
+- The catalog records the GPU vendor it was made on (`gpu.txt`, from the driver cache header beside
+  the cache folder). On a first start (no cache folder yet, so no profile of this GPU) bb-start puts
+  the catalog's `profile.bin` there when a display adapter has that vendor, so the first session
+  is seeded too. A GPU of that vendor with another profile only loses the seeding time: the engine
+  starts the cache again.
+- The catalog lists its own files (`files.txt`): `--seed-cache` reads only those, so files of an
+  older catalog an update left beside it are not mixed in (the updater copies over the install;
+  it now replaces a catalog folder whole, as `build.ps1` does).
+- The shipped catalog (`package-template\engine\shader-catalog\CUSA03173`) was made again: the old
+  catalog seeded into the dev cache (127 permutations added, 544 there already, 15 left out), then
+  exported: 732 states, 531 pipeline keys (was 725 / 567, of which 0 usable).
+
+Seeded into an empty cache with this PC's profile (15 s):
+
+| catalog | permutations kept | pipeline keys built at the start |
+|---|---|---|
+| shipped before (any engine since beta 9.9) | 0 | 0 |
+| shipped before, with the fixed lab | 578 | 430 |
+| new | 627 | 510 |
+
+22 programs of the catalog are not in the game's shader bundles or the executable (another
+file holds them); their 21 keys are not seeded.
+
+## Remaining (not done)
+
+- **The catalog covers what the dev played.** Areas nobody captured still compile in play. Export
+  the catalog again after playing new areas (or from testers' caches: `--seed-cache` merges a
+  catalog into a cache, renumbering clashes, then `--export-catalog`).
+- **Export the catalog again after every change of `ShaderMetaVersion`, `CaptureVersion` or the
+  GPU part of `Shader::Profile`**: the seed line's `records of another engine` shows a stale one.
+- **The warm-up waits for every cached pipeline.** Since 2026-10-22 the driver builds them on
+  `BB_WARMUP_THREADS` threads (default the hardware threads less one, at most 8; 601 pipelines
+  with the driver cache cold: 13.9 s on one thread, 3.1 s on 8; `native_shader_compiler.md`,
+  "Compile speed and output quality"); their state is still rebuilt on the main thread. Letting
+  the game start at once (draws of a pipeline not ready yet behave as in play) would hide the
+  rest.
+- **A profile change still empties the cache.** Keeping the states and keys and seeding them like
+  a catalog would refill it at the next start.
+- The catalog is seeded only into `<serial>`, not `<serial>-scene-curve` (BB_HDR_SCENE_CURVE=1):
+  the lab's recompile does not turn the tone curve on for that folder.
+- Seeding needs the GPU vendor's catalog: AMD and Intel players get none until a catalog is made
+  on such a GPU.
+
+## Sharing catalogs between players (launcher, 0.9.37 beta 4)
+
+Settings › Shader catalog: "Export catalog" writes this cache as a catalog (`bb-shader-lab
+--export-catalog`, zipped: `CUSA03173/` with states, specializations, keys, `profile.bin`,
+`gpu.txt`, `files.txt`; no game code). "Add catalog" merges a catalog into the cache
+(`--seed-cache` with the game folder and `engine\out\eboot.elf`), so several players' catalogs
+add up and any engine version that reads them can use them; it needs a cache the engine has
+started once (its `profile.bin`) and a GPU of the same kind. A zip of an older launcher (a whole
+cache with `engine.txt`) still replaces the cache as before (`ShaderCacheShare.Import`).
+
+To grow the shipped catalog from players' files: seed each into a copy of the dev cache
+(`--seed-cache`), then `--export-catalog` the result into
+`package-template\engine\shader-catalog\CUSA03173` (replace the folder whole).
+
+## Players' CPU and GPU under-used (0.9.37 beta 3 logs, fixed in the launcher for beta 4)
+
+An i7-10700F with an RTX 4060 Ti held 46-69 FPS with the CPU at 32% and the GPU at 30%: one thread
+bound, not the hardware. His log against the dev's: 9,230 protect calls/s (141k pages/s) and
+1,800 write faults/s against ~170 protects/s, because the launcher's defaults switched off half of
+the engine's own speedups (`GameEnvironment`: `BB_GPU_THREAD_PRIORITY=0`, `BB_SLEEP_SPIN_US=600`,
+`BB_PRECISE_PACING=0` unless their experimental toggles were on) and the dev ran with the PC memory
+model (`BB_GUEST_IN_PLACE=1`), native draw calls (`BB_NATIVE_CALLS=1`), hot pages, fast loading
+and the native shader compiler. Beta 4's launcher makes that set the default
+(`LauncherSettings.PerfDefaults`, switched once over older files by `perf_defaults_b4`; every one
+stays a toggle in Graphics › Experimental engine features, and safe mode turns them off).
+The catalog seeds a legacy-compiler cache as fully as a native one (510 pipelines each).
+OptiScaler's compatibility mode sends every submission from one thread while its frame generation
+is on: players capped by it should try without OptiScaler's frame generation.

@@ -34,6 +34,7 @@ public:
     static constexpr u32 FlagNative = 4;  ///< `gain` is this frame's gain map (native mode)
     static constexpr u32 FlagDebug = 8;   ///< BB_HDR_DEBUG: the gain as a heat map
     static constexpr u32 FlagUiFrame = 16; ///< native mode, a frame without a scene: all UI
+    static constexpr u32 FlagCompare = 32; ///< the left half as SDR (the menu's comparison)
 
     /// `output_format`: the HDR swapchain's format.
     void Create(vk::Device device, vk::Format output_format);

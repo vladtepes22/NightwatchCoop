@@ -8,12 +8,13 @@ handler unprotects the page as the GPU tracker does.
 """
 from paths import ROOT
 import ctypes
+import hashlib
 import json
 import os
 import struct
 import unittest
 import xml.etree.ElementTree as ET
-from link_modules import LEA_DOWN, LEA_UP, protect_red_zones
+from link_modules import LEA_DOWN, LEA_UP, protect_red_zones, rewrite_red_zone_functions
 
 SENTINEL = 0x1122334455667788
 STORE = 30  # offset of the faulting store in leaf()
@@ -75,6 +76,53 @@ class SiteTable(unittest.TestCase):
         for offset, original, _ in self.sites:
             end = offset + len(original) // 2
             self.assertFalse(any(offset - 8 < p < end for p in patched), hex(offset))
+
+
+def red_zone_function():
+    """sub rsp,0x20; mov [rsp-0x40],rax; mov [rsp+0x70],rax; je +7; lea rax,[rip+0x10];
+    add rsp,0x20; ret, and its recipe (tools/redzone_functions.py's format)."""
+    code = bytes.fromhex('4883ec20' '48894424c0' '4889442470' '7407' '488d0510000000' '4883c420' 'c3')
+    insns = [[4, 4], [5, 1, 2, 4, 1], [5, 1, 2, 4, 1], [2, 3, 4, 23], [7, 2, 3], [4, 5], [1]]
+    return code, {'offset': 0, 'size': len(code), 'sha256': hashlib.sha256(code).hexdigest(), 'insns': insns}
+
+
+class WholeFunctions(unittest.TestCase):
+    """rewrite_red_zone_functions (BB_RED_ZONE_FUNCTIONS=1): the copy keeps nothing below rsp."""
+
+    def test_copy_runs_with_rsp_lower_and_operands_moved(self):
+        code, recipe = red_zone_function()
+        image = bytearray(code)
+        copy, applied = rewrite_red_zone_functions(image, [recipe], 0x100)
+        self.assertEqual(applied, 1)
+        self.assertEqual(image[:5], b'\xe9' + struct.pack('<i', 0x100 - 5))
+        expected = (bytes.fromhex('4883ec20') + LEA_DOWN +
+                    bytes.fromhex('4889442440') +            # -0x40 + 0x80, still disp8
+                    bytes.fromhex('48898424f0000000'))       # 0x70 + 0x80: disp32
+        self.assertEqual(copy[:len(expected)], expected)
+        at = len(expected)
+        self.assertEqual(copy[at:at + 2], b'\x0f\x84')    # je, as rel32
+        lea = at + 6
+        epilogue = lea + 7
+        self.assertEqual(struct.unpack_from('<i', copy, at + 2)[0], epilogue - (at + 6))
+        rip = struct.unpack_from('<i', copy, lea + 3)[0]
+        self.assertEqual(0x100 + lea + 7 + rip, 16 + 7 + 0x10)  # the old target
+        self.assertEqual(copy[epilogue:epilogue + len(LEA_UP) + 5], LEA_UP + bytes.fromhex('4883c420c3'))
+        self.assertEqual(len(copy) % 16, 0)
+
+    def test_changed_bytes_or_relocations_leave_the_function_alone(self):
+        code, recipe = red_zone_function()
+        changed = bytearray(code)
+        changed[8] = 0xb8
+        self.assertEqual(rewrite_red_zone_functions(changed, [recipe], 0x100), (b'', 0))
+        image = bytearray(code)
+        self.assertEqual(rewrite_red_zone_functions(image, [recipe], 0x100, skip=[16]), (b'', 0))
+        self.assertEqual(image, code)
+
+    def test_shipped_recipes_are_complete(self):
+        functions = json.loads((ROOT / 'patches' / 'redzone_functions.json').read_text())['functions']
+        self.assertEqual(sorted(f['offset'] for f in functions), [0x28ce7b0, 0x28ceec0])
+        for f in functions:
+            self.assertEqual(sum(i[0] for i in f['insns']), f['size'], hex(f['offset']))
 
 
 @unittest.skipUnless(os.name == 'nt', 'Windows exception dispatch')

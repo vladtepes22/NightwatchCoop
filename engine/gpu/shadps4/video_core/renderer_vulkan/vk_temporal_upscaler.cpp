@@ -20,6 +20,8 @@
 #include "bbport_toggles.h"
 #include "ffx_vk_portable.h"
 #include "video_core/host_shaders/upscale_merge_comp.h"
+#include "video_core/host_shaders/upscale_debug_comp.h"
+#include "video_core/host_shaders/upscale_debug_ldr_comp.h"
 #include "video_core/host_shaders/upscale_reactive_comp.h"
 #include "video_core/host_shaders/taa_comp.h"
 #include "video_core/host_shaders/taa_sharpen_comp.h"
@@ -279,7 +281,7 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
     // FSR 4's model, built in the background from the start (its first build compiles for
     // tens of seconds on some drivers), so it is usually ready when the game's first frame is.
     if (enabled && BbSettings::Get().upscaler == BbSettings::UpscalerFsr4) {
-        fsr4->Prewarm(BbSettings::RenderPreset(), target_width, target_height);
+        fsr4->Prewarm(BbSettings::ModelPreset(BbSettings::RenderPreset()), target_width, target_height);
     }
     // Scene depth copied into the output-size UI depth by a blit (depth aspect).
     const auto features = instance.GetPhysicalDevice()
@@ -317,10 +319,10 @@ bool TemporalUpscaler::Active() const {
 }
 
 bool TemporalUpscaler::ReactiveOn() const {
+    // FSR 3.1 takes it as its reactive mask, DLSS as its bias-current-colour mask (RecordFsr4).
     // FSR 4 takes no reactive mask itself: the mask blends its output afterwards
-    // (RecordFsr4Reactive).
-    return BbSettings::Get().upscaler != BbSettings::UpscalerDlss &&
-           BbSettings::Get().reactive && !BbToggle::Disabled(1u << 27) &&
+    // (RecordFsr4Reactive). TAA has no use for it.
+    return BbSettings::Get().reactive && !BbToggle::Disabled(1u << 27) &&
            BbSettings::Get().upscaler != BbSettings::UpscalerTaa;
 }
 
@@ -414,7 +416,10 @@ bool TemporalUpscaler::OnFrameStart() {
     // The guest's startup resolution patch remains in effect until restart. Keep the FSR
     // model at the applied preset while the menu saves the requested one for run.sh.
     const int preset = BbSettings::RenderPreset();
-    if (applied_preset != preset || settings.upscaler == BbSettings::UpscalerOff) failed = false;
+    // bbport: the Custom preset's ratio (render_scale) moves its render size like a preset change.
+    const float preset_scale = BbSettings::PresetScale(preset);
+    const bool scale_changed = applied_scale != preset_scale;
+    if (applied_preset != preset || scale_changed || settings.upscaler == BbSettings::UpscalerOff) failed = false;
     if (dispatch_failed.exchange(false, std::memory_order_relaxed)) {
         failed = true;
     }
@@ -430,7 +435,7 @@ bool TemporalUpscaler::OnFrameStart() {
         failed = false;
         fsr4_failed = false;
     }
-    const bool changed = output_changed || applied_preset != preset || active != last_active ||
+    const bool changed = output_changed || applied_preset != preset || scale_changed || active != last_active ||
                          jitter_on != last_jitter || applied_upscaler != upscaler;
     if (applied_upscaler != upscaler) {
         // A failed provider keeps a fatal flag internally; a user retry gets a fresh context.
@@ -460,8 +465,8 @@ bool TemporalUpscaler::OnFrameStart() {
             std::printf("Upscaler: the game renders %ux%u (a resolution patch): presets stay native; "
                         "set Output resolution in the launcher instead\n", game_size[0], game_size[1]);
         }
-        scene_targets.SetSize(SceneResolution::ForPreset(active && game_1080p ? preset : 0,
-                                                        {target_width, target_height}));
+        scene_targets.SetSize(SceneResolution::ForScale(active && game_1080p ? preset_scale : 1.0,
+                                                       {target_width, target_height}));
         render_width = scene_targets.Size().width;
         render_height = scene_targets.Size().height;
     }
@@ -481,6 +486,7 @@ bool TemporalUpscaler::OnFrameStart() {
     if (changed || !dispatched_last_frame) reset = true;
     if (changed) jitter_index = 0;
     applied_preset = preset;
+    applied_scale = preset_scale;
     applied_output = output;
     applied_upscaler = upscaler;
     last_active = active;
@@ -553,6 +559,7 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
     if (context) {
         ffxVkPortableUpscaleContextDestroy(context);
         context = nullptr;
+        fsr3_tuned = nullptr; // a new context may get the same address
     }
     width = w;
     height = h;
@@ -685,6 +692,9 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
     taa_next = 0;
     CreatePipelines();
     opaque_valid = false;
+    // bbport: a mask made earlier in this frame was in the image just replaced: the new one is
+    // unwritten (undefined layout), and DLSS took it as its bias mask (noise all over the frame).
+    mask_ready = false;
     reset = true;
     resources_ready = true;
     resources_fsr4 = use_fsr4;
@@ -779,6 +789,26 @@ void TemporalUpscaler::CreatePipelines() {
     taa_sharpen_pipeline = compute(TAA_SHARPEN_COMP, *taa_sharpen_pipeline_layout);
     taa_sharpen_ldr_pipeline = compute(TAA_SHARPEN_LDR_COMP, *taa_sharpen_pipeline_layout);
     storage_layout(1, fsr4_encode_desc_layout, fsr4_encode_pipeline_layout, sizeof(u32));
+    {
+        // Debug view: the target (storage), then the mask, motion and object motion (sampled).
+        std::array<vk::DescriptorSetLayoutBinding, 4> bindings{};
+        for (u32 i = 0; i < bindings.size(); ++i) {
+            bindings[i] = {.binding = i,
+                           .descriptorType = i == 0 ? vk::DescriptorType::eStorageImage
+                                                    : vk::DescriptorType::eSampledImage,
+                           .descriptorCount = 1,
+                           .stageFlags = vk::ShaderStageFlagBits::eCompute};
+        }
+        debug_desc_layout = Check(device.createDescriptorSetLayoutUnique({
+            .flags = vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR,
+            .bindingCount = u32(bindings.size()), .pBindings = bindings.data()}));
+        const vk::PushConstantRange push{vk::ShaderStageFlagBits::eCompute, 0, 3 * sizeof(u32)};
+        debug_pipeline_layout = Check(device.createPipelineLayoutUnique({
+            .setLayoutCount = 1, .pSetLayouts = &*debug_desc_layout,
+            .pushConstantRangeCount = 1, .pPushConstantRanges = &push}));
+        debug_pipeline = compute(UPSCALE_DEBUG_COMP, *debug_pipeline_layout);
+        debug_ldr_pipeline = compute(UPSCALE_DEBUG_LDR_COMP, *debug_pipeline_layout);
+    }
     fsr4_encode_pipeline = compute(FSR4_ENCODE_COMP, *fsr4_encode_pipeline_layout);
     {
         const std::array<vk::DescriptorSetLayoutBinding, 2> bindings{{
@@ -976,18 +1006,7 @@ void TemporalUpscaler::ExtraSharpen(vk::Image target, bool ldr, u32 w, u32 h) {
         extra_sharpen_width = w;
         extra_sharpen_height = h;
     }
-    vk::ImageView target_view = *output_view;
-    if (ldr) {
-        if (!ui_storage_view) {
-            // The UI image's own format may be sRGB; FSR 3 writes it through a UNORM view too.
-            ui_storage_view = Check(device.createImageViewUnique({
-                .image = target, .viewType = vk::ImageViewType::e2D,
-                .format = vk::Format::eR8G8B8A8Unorm,
-                .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-            }));
-        }
-        target_view = *ui_storage_view;
-    }
+    const vk::ImageView target_view = ldr ? UiStorageView(target) : *output_view;
     // bbport: the commands are recorded through the scheduler (a recording thread for FSR 3).
     scheduler.RecordCrumb({.name = "TAA extra sharpen"}, [target, copy = vk::Image(extra_sharpen_image),
                       copy_view = *extra_sharpen_view, target_view, extra, w, h,
@@ -1039,6 +1058,73 @@ void TemporalUpscaler::ExtraSharpen(vk::Image target, bool ldr, u32 w, u32 h) {
         image_barrier(target, vk::ImageLayout::eGeneral,
                       vk::PipelineStageFlagBits2::eComputeShader,
                       vk::AccessFlagBits2::eShaderStorageWrite, all, rw);
+    });
+}
+
+vk::ImageView TemporalUpscaler::UiStorageView(vk::Image target) {
+    if (!ui_storage_view) {
+        // The UI image's own format may be sRGB; FSR 3 writes it through a UNORM view too.
+        ui_storage_view = Check(instance.GetDevice().createImageViewUnique({
+            .image = target, .viewType = vk::ImageViewType::e2D,
+            .format = vk::Format::eR8G8B8A8Unorm,
+            .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
+        }));
+    }
+    return *ui_storage_view;
+}
+
+void TemporalUpscaler::DebugView(vk::Image target, bool ldr, u32 w, u32 h, u32 ow, u32 oh,
+                                 bool reactive) {
+    // As the 1080p path's merge (Run): the mask (menu or toggle 1 << 28) or the motion vectors.
+    const int debug_view = BbSettings::Get().debug_view;
+    const u32 mode = reactive && (debug_view == BbSettings::DebugReactive || BbToggle::Disabled(1u << 28))
+                         ? 1
+                     : debug_view == BbSettings::DebugMotion ? 2
+                                                             : 0;
+    if (mode == 0) {
+        return;
+    }
+    const vk::ImageView target_view = ldr ? UiStorageView(target) : *output_view;
+    const vk::ImageView objects = camera_motion.ObjectMotionView();
+    scheduler.RecordCrumb({.name = "TAA debug view"}, [target, target_view, mask = *reactive_view,
+                      motion = *motion_view, objects = objects ? objects : *motion_view,
+                      push = std::array<u32, 3>{mode, w, h}, ow, oh,
+                      pipeline = ldr ? *debug_ldr_pipeline : *debug_pipeline,
+                      layout = *debug_pipeline_layout](vk::CommandBuffer cmdbuf) {
+        constexpr auto all = vk::PipelineStageFlagBits2::eAllCommands;
+        const vk::ImageMemoryBarrier2 before{
+            .srcStageMask = all,
+            .srcAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
+            .dstStageMask = vk::PipelineStageFlagBits2::eComputeShader,
+            .dstAccessMask = vk::AccessFlagBits2::eShaderStorageRead |
+                             vk::AccessFlagBits2::eShaderStorageWrite,
+            .oldLayout = vk::ImageLayout::eGeneral, .newLayout = vk::ImageLayout::eGeneral,
+            .image = target, .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
+        cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &before});
+        const std::array<vk::DescriptorImageInfo, 4> infos{{
+            {.imageView = target_view, .imageLayout = vk::ImageLayout::eGeneral},
+            {.imageView = mask, .imageLayout = vk::ImageLayout::eGeneral},
+            {.imageView = motion, .imageLayout = vk::ImageLayout::eGeneral},
+            {.imageView = objects, .imageLayout = vk::ImageLayout::eGeneral}}};
+        std::array<vk::WriteDescriptorSet, 4> writes{};
+        for (u32 i = 0; i < writes.size(); ++i) {
+            writes[i] = {.dstBinding = i, .descriptorCount = 1,
+                         .descriptorType = i == 0 ? vk::DescriptorType::eStorageImage
+                                                  : vk::DescriptorType::eSampledImage,
+                         .pImageInfo = &infos[i]};
+        }
+        cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
+        cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, layout, 0, writes);
+        cmdbuf.pushConstants(layout, vk::ShaderStageFlagBits::eCompute, 0, sizeof(push), push.data());
+        cmdbuf.dispatch((ow + 7) / 8, (oh + 7) / 8, 1);
+        const vk::ImageMemoryBarrier2 after{
+            .srcStageMask = vk::PipelineStageFlagBits2::eComputeShader,
+            .srcAccessMask = vk::AccessFlagBits2::eShaderStorageWrite,
+            .dstStageMask = all,
+            .dstAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
+            .oldLayout = vk::ImageLayout::eGeneral, .newLayout = vk::ImageLayout::eGeneral,
+            .image = target, .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
+        cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &after});
     });
 }
 
@@ -1320,7 +1406,7 @@ void TemporalUpscaler::Run() {
     } else if (UseFsr4()) {
         dispatched = RecordFsr4(cmdbuf, {input_color, input_color_view, w, h, color.info.pixel_format},
                                 {input_depth, input_depth_view, w, h, depth_format}, w, h, ow, oh,
-                                frame_ms);
+                                frame_ms, has_reactive);
         if (dispatched && has_reactive && BbSettings::IsFsr4(BbSettings::Get().upscaler)) {
             RecordFsr4Reactive(cmdbuf, input_color_view, w, h, ow, oh);
         }
@@ -1372,6 +1458,7 @@ void TemporalUpscaler::Run() {
         info.enableSharpening = BbSettings::Get().sharpen ? VK_TRUE : VK_FALSE;
         info.reset = reset ? VK_TRUE : VK_FALSE;
         info.frameId = frame_id++;
+        ApplyFsr3Tuning();
     
         FfxVkPortableUpscaleCreateInfo create_info{};
         create_info.structSize = sizeof(create_info);
@@ -1536,13 +1623,48 @@ float TemporalUpscaler::SceneMipBias() const {
     const float scale_bias = render > 0.0f && render < output ? std::log2(render / output) : 0.0f;
     // DLSS (DLAA too) wants one more mip level of texture detail than the render/output ratio
     // (NVIDIA's DLSS programming guide). From AwesomeObserver/bloodborne_pc b3164c1
-    // (Evgeniy Doronin). BB_DLSS_MIP_BIAS=0: the ratio only, as before.
-    static const bool dlss_extra = [] {
-        const char* env = std::getenv("BB_DLSS_MIP_BIAS");
-        return !env || env[0] != '0';
-    }();
+    // (Evgeniy Doronin). dlss_mip_bias=0 (menu, BB_DLSS_MIP_BIAS=0): the ratio only, as before.
+    const bool dlss_extra = BbSettings::Get().dlss_mip_bias.load(std::memory_order_relaxed);
     const bool dlss_on = BbSettings::Get().upscaler == BbSettings::UpscalerDlss && UseFsr4();
-    return scale_bias - (dlss_extra && dlss_on ? 1.0f : 0.0f);
+    // bbport: mip_bias (menu, launcher), the player's own offset on top, as OptiScaler's override.
+    const float offset = std::clamp(BbSettings::Get().mip_bias.load(std::memory_order_relaxed),
+                                    BbSettings::MipBiasMin, BbSettings::MipBiasMax);
+    return scale_bias - (dlss_extra && dlss_on ? 1.0f : 0.0f) + offset;
+}
+
+void TemporalUpscaler::ApplyFsr3Tuning() {
+    if (!context) {
+        return;
+    }
+    const auto& s = BbSettings::Get();
+    const std::array<float, 5> wanted{
+        s.fsr3_velocity_factor.load(std::memory_order_relaxed),
+        s.fsr3_reactiveness_scale.load(std::memory_order_relaxed),
+        s.fsr3_shading_change_scale.load(std::memory_order_relaxed),
+        s.fsr3_accumulation.load(std::memory_order_relaxed),
+        s.fsr3_min_disocclusion.load(std::memory_order_relaxed),
+    };
+    if (fsr3_tuned == context && wanted == fsr3_tuning) {
+        return;
+    }
+    // The portable context serializes this with its dispatches (also on the recording threads).
+    const FfxVkPortableUpscaleTuning tuning{
+        .structSize = sizeof(FfxVkPortableUpscaleTuning),
+        .velocityFactor = wanted[0],
+        .reactivenessScale = wanted[1],
+        .shadingChangeScale = wanted[2],
+        .accumulationAddedPerFrame = wanted[3],
+        .minDisocclusionAccumulation = wanted[4],
+    };
+    if (ffxVkPortableUpscaleContextSetTuning(context, &tuning) == FFX_VK_PORTABLE_OK) {
+        if (fsr3_tuned == context) {
+            std::printf("Upscaler: FSR 3.1 tuning: velocity %.2f, reactiveness %.2f, shading %.2f, "
+                        "accumulation %.3f, disocclusion %.3f\n",
+                        wanted[0], wanted[1], wanted[2], wanted[3], wanted[4]);
+        }
+        fsr3_tuning = wanted;
+        fsr3_tuned = context;
+    }
 }
 
 bool TemporalUpscaler::Scaled() const {
@@ -1563,7 +1685,8 @@ void TemporalUpscaler::OnColorTarget(VideoCore::ImageId color) {
 }
 
 void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
-                              VideoCore::ImageId depth, bool native_viewport) {
+                              VideoCore::ImageId depth, bool native_viewport,
+                              bool widened_ui_viewport) {
     // bbport: frame generation: the game's finished frame before the first UI pixel (as for
     // native HDR below); the scaled presets copy the output-size UI image after the upscale.
     if (frame_gen && frame_gen->WantsHudless() && !Scaled() &&
@@ -1608,9 +1731,14 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
     // A UI movie's viewport marks a UI draw only while the scene is of another size: at the same
     // size every full-screen post pass has it too (Sharp UI with Native AA), and the UI then
     // starts with the game's Scaleform shaders instead.
+    // The widened UI viewport (a 4K UI over a scene near 1920x1080) still marks one: the post
+    // passes then have the 1920x1080 one, never the widened one (0.9.34 beta 9.8 to 0.9.37 beta 3:
+    // the title screen's movie drew its 4K layout into the scene target, a quarter of it shown).
     const bool movie = vs_hash == ui_trigger_vs || UiComposition::MovieShader(vs_hash) ||
                        (scaled_session && native_viewport &&
-                        !UiComposition::SceneHasUiViewportSize(render_width, render_height));
+                        !UiComposition::SceneHasUiViewportSize(render_width, render_height)) ||
+                       (scaled_session && widened_ui_viewport &&
+                        !UiComposition::SceneNearUiSize(render_width, render_height));
     const bool ui_draw = movie &&
         (image.info.pixel_format == vk::Format::eR8G8B8A8Unorm ||
          image.info.pixel_format == vk::Format::eR8G8B8A8Srgb) &&
@@ -1629,7 +1757,7 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
         // A failed FSR dispatch must not force UI text back to the scene resolution.
         [[fallthrough]];
     case UiComposition::Background::Copy:
-        RunUiOnly(color, depth);
+        RunUiOnly(color, depth, ldr_target && ldr_target == color);
         break;
     }
     if (ui_phase) {
@@ -1705,7 +1833,7 @@ void TemporalUpscaler::CaptureFrameGenInputs(vk::ImageView depth_view, u32 w, u3
     const float sign = BbToggle::Disabled(1u << 26) ? -1.0f : 1.0f;
     frame_gen->CaptureInputs(scheduler, depth_view, vk::Image(motion_image), w, h,
                              {sign * jitter[0], sign * jitter[1]}, camera_motion.Near(),
-                             camera_motion.VerticalFov());
+                             camera_motion.VerticalFov(), camera_motion.CameraMatrices());
 }
 
 void TemporalUpscaler::CaptureFrameGenHudless(VideoCore::ImageId id) {
@@ -1853,7 +1981,8 @@ void TemporalUpscaler::PrepareUiDepth(VideoCore::ImageId depth_id) {
     });
 }
 
-void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId depth_id) {
+void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId depth_id,
+                                 bool world) {
     if (auto* profiler = GpuProfiler::Get()) {
         profiler->Mark(0xF5A1'0000ull, [] { return std::string{"upscaler RunUiOnly"}; });
     }
@@ -1887,8 +2016,10 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
     // (title, loading and item screens) is the game's 16:9 stage in the middle; what lies beside it
     // in the game's target is not drawn and showed as grey bars (#18). Black there instead: only
     // the stage is copied, over a cleared image. UI the game draws past the stage still shows.
+    // A frame of the world is copied whole: with no upscaler every frame comes here, and the
+    // world's sides were cut to black bars (widescreen worked only with an upscaler on).
     s32 x0 = 0, y0 = 0, x1 = s32(ui_width), y1 = s32(ui_height);
-    if (const auto ui = UiComposition::UiSize(); ui[0] != 1920.0f || ui[1] != 1080.0f) {
+    if (const auto ui = UiComposition::UiSize(); !world && (ui[0] != 1920.0f || ui[1] != 1080.0f)) {
         const auto fit = UiComposition::Fit(ui_width, ui_height, ui);
         const float stage = UiComposition::StageScale(ui), w = 1920.0f * stage, h = 1080.0f * stage;
         x0 = std::clamp(s32(std::lround(fit.offset[0] + fit.scale[0] * (ui[0] - w) / 2)), 0, s32(ui_width));
@@ -2060,7 +2191,7 @@ void TemporalUpscaler::RunScaled() {
                              {color_image, color_view, source_width, source_height,
                               color.info.pixel_format},
                              {depth_image, depth_view, source_width, source_height, depth_format},
-                             w, h, ow, oh, frame_ms);
+                             w, h, ow, oh, frame_ms, mask_ready && ReactiveOn());
             } else {
             // bbport: FSR 4 treats its colour as linear light; this frame is the game's
             // tonemapped, sRGB-encoded one. Decoded first, the output encoded again below.
@@ -2164,6 +2295,7 @@ void TemporalUpscaler::RunScaled() {
             if (BbSettings::Get().upscaler != BbSettings::UpscalerTaa) {
                 ExtraSharpen(vk::Image(output_image), false, ow, oh);
             }
+            DebugView(vk::Image(output_image), false, w, h, ow, oh, mask_ready && ReactiveOn());
             barrier(vk::Image(output_image), vk::ImageAspectFlagBits::eColor,
                     vk::ImageLayout::eGeneral, all, rw, vk::ImageLayout::eGeneral,
                     vk::PipelineStageFlagBits2::eBlit, vk::AccessFlagBits2::eTransferRead);
@@ -2276,6 +2408,7 @@ void TemporalUpscaler::RunScaled() {
         PrintIssues("scaled dispatch", issues);
         failed = true;
     } else {
+        ApplyFsr3Tuning();
         // The context is only used here and destroyed after scheduler.Finish(); a dispatch
         // that fails sets `failed` at the next frame (the UI then draws over this one).
         scheduler.Record([this, ctx = context, info](vk::CommandBuffer cmdbuf) mutable {
@@ -2289,6 +2422,7 @@ void TemporalUpscaler::RunScaled() {
         reset = false;
         dispatched_last_frame = true;
         ExtraSharpen(vk::Image(ui_image), true, ow, oh);
+        DebugView(vk::Image(ui_image), true, w, h, ow, oh, mask_ready && ReactiveOn());
     }
     barrier(vk::Image(ui_image), vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eGeneral, all,
             rw, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eColorAttachmentOutput,
@@ -2498,7 +2632,7 @@ bool TemporalUpscaler::UseFsr4() const {
 
 bool TemporalUpscaler::RecordFsr4(vk::CommandBuffer cmdbuf, Fsr4Upscaler::Image color,
                                   Fsr4Upscaler::Image depth, u32 w, u32 h, u32 ow, u32 oh,
-                                  float frame_ms) {
+                                  float frame_ms, bool reactive) {
     const auto& settings = BbSettings::Get();
     // Same jitter convention as FSR 3; the menu (or toggle 1 << 26) flips it for tests.
     const float sign =
@@ -2513,7 +2647,7 @@ bool TemporalUpscaler::RecordFsr4(vk::CommandBuffer cmdbuf, Fsr4Upscaler::Image 
                    vk::Format::eR16G16B16A16Sfloat},
         .render_width = w,
         .render_height = h,
-        .preset = applied_preset,
+        .preset = BbSettings::ModelPreset(applied_preset), // Custom: the nearest preset's model
         .jitter = {sign * jitter[0], sign * jitter[1]},
         .frame_ms = frame_ms,
         .near_plane = camera_motion.Near(),
@@ -2523,6 +2657,10 @@ bool TemporalUpscaler::RecordFsr4(vk::CommandBuffer cmdbuf, Fsr4Upscaler::Image 
         .sharpen = settings.sharpen,
         .reset = reset,
         .auto_exposure = settings.fsr4_auto_exposure,
+        .reactive = reactive && use_dlss
+                        ? Fsr4Upscaler::Image{vk::Image(reactive_image), *reactive_view, w, h,
+                                              vk::Format::eR8Unorm}
+                        : Fsr4Upscaler::Image{},
     };
     const bool ok = use_dlss ? dlss->Record(frame) : fsr4->Record(frame);
     // The menu shows the reason; it outlives this frame (FSR 4 keeps its last message).

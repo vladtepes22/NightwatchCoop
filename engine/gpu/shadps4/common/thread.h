@@ -29,15 +29,6 @@ void SetThreadName(void* thread, const char* name);
 bool AccurateSleep(std::chrono::nanoseconds duration, std::chrono::nanoseconds* remaining,
                    bool interruptible);
 
-/// bbport: precise frame pacing (high-resolution timer sleeps plus a short spin, vblank ticks
-/// on a fixed schedule, a minimum gap between flips). On by default on Windows, off elsewhere;
-/// BB_PRECISE_PACING=0 / =1 overrides.
-bool PrecisePacingEnabled();
-
-/// bbport: the spin a precise wait needs after its timer sleep: how late the high-resolution
-/// timer has been waking (a running average of AccurateSleep's lateness) plus 100 us, at least
-/// 100 us and at most `cap`. A fixed spin either burns a core every wait or wakes late.
-std::chrono::nanoseconds PreciseSpin(std::chrono::nanoseconds cap);
 
 class AccurateTimer {
     std::chrono::nanoseconds target_interval{};

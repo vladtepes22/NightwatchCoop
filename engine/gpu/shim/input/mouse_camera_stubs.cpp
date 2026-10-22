@@ -8,9 +8,9 @@
 #include "mouse_camera_stubs.h"
 
 extern "C" {
-void* g_mouse_camera_host = nullptr;
-std::uint64_t g_mouse_camera_resume = 0;
-std::uint8_t bb_mouse_camera_free_now = 0;
+BB_STUB_DATA void* g_mouse_camera_host = nullptr;
+BB_STUB_DATA std::uint64_t g_mouse_camera_resume = 0;
+BB_STUB_DATA std::uint8_t bb_mouse_camera_free_now = 0;
 }
 
 // The two stores the hook displaced, then the host with every register the

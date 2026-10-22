@@ -104,6 +104,10 @@ layout (set = 0, binding = 2, scalar) uniform TilingInfo {
     uint num_slices;
     uint num_mips;
     MipInfo mips[16];
+    // Lantern Engine: when tiling, only texels inside the image's extent (mip 0 width and height,
+    // halved per mip) are written; the padding around them keeps what the output held. 0: all.
+    uint extent_width;
+    uint extent_height;
 } info;
 
 uint32_t ComputePixelIndexWithinMicroTile(uint32_t x, uint32_t y, uint32_t z) {
@@ -441,6 +445,10 @@ void main() {
 #endif
 
     if (IS_TILER != 0) {
+        if (info.extent_width != 0 && (x >= max(info.extent_width >> mip, 1u) ||
+                                       y >= max(info.extent_height >> mip, 1u))) {
+            return;
+        }
         tiled_data[tiled_offset / BYTES_PER_PIXEL] = linear_data[gl_GlobalInvocationID.x];
     } else {
         linear_data[gl_GlobalInvocationID.x] = tiled_data[tiled_offset / BYTES_PER_PIXEL];

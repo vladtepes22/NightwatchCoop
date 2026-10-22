@@ -286,6 +286,18 @@ def frame_rate_fixes(writes, fps, elf=None):
 # then renders at 1920x1080 / ratio and the port's temporal upscaler restores the output size.
 OUTPUT_SIZE=(1920,1080)
 PRESET_SCALES=[1.0,1.5,1.7,2.0,3.0]
+# Preset 5 (Custom): bbport.ini render_scale, 1.0-3.0.
+PRESET_CUSTOM=len(PRESET_SCALES)
+
+
+def preset_scale(settings):
+    preset=int(settings.get('preset','0') or 0)
+    if preset==PRESET_CUSTOM:
+        try:
+            return min(3.0,max(1.0,float(settings.get('render_scale','1.3') or 1.3)))
+        except ValueError:
+            return 1.3
+    return PRESET_SCALES[max(0,min(preset,len(PRESET_SCALES)-1))]
 # The community patch changes two independent consumers: the game render/window setup
 # and the UI movie viewport. Keep the latter at native size so glyph rasterisation and
 # vector tessellation do not inherit the scene's FSR resolution.
@@ -357,10 +369,16 @@ def validate_patch_requirements(names, game):
         missing = [name for name in ('DbgFont14h.ccm', 'DbgFont14h.tpf')
                    if not (font / name).is_file() or (font / name).stat().st_size == 0]
         if missing:
-            raise ValueError('Debug menu needs non-empty font files in '
-                             f'{font}: {", ".join(missing)}. Install the fonts from '
-                             'https://www.nexusmods.com/bloodborne/mods/253 first; '
-                             'or disable debug_menu in bbport.ini')
+            # The game folder here is the merged mod view (a new folder each start): the message
+            # names where the player puts the files. A font unpacked by WitchyBND does not count.
+            unpacked = (font / 'DbgFont14h-tpf-dcx').is_dir() or (font / 'DbgFont14h-tpf').is_dir()
+            raise ValueError('Debug menu needs the font files '
+                             f'{", ".join(missing)} in dvdroot_ps4/font, in the game folder or in an '
+                             'enabled mod (Mods page).'
+                             + (' The installed mod has the font unpacked (a DbgFont14h-tpf-dcx folder): '
+                                'repack it with WitchyBND, or use the packed files' if unpacked else '')
+                             + '. The fonts: https://www.nexusmods.com/bloodborne/mods/253; or turn the '
+                             'debug menu off (debug_menu in bbport.ini)')
 
 
 # A key bbport.ini doesn't have takes the engine's default (bbport_settings.h Effects): these start off.
@@ -399,8 +417,7 @@ def render_size(settings,override=''):
         w,h=(int(v) for v in override.lower().split('x'))
         return (w,h)
     if settings.get('upscaler','fsr3')=='off': return None
-    preset=int(settings.get('preset','0') or 0)
-    scale=PRESET_SCALES[max(0,min(preset,len(PRESET_SCALES)-1))]
+    scale=preset_scale(settings)
     if scale==1.0: return None
     # Even sizes (the game has half-resolution buffers).
     return tuple(max(2,round(v/scale/2)*2) for v in OUTPUT_SIZE)
@@ -427,8 +444,7 @@ def scaled_sizes(settings):
     if out==OUTPUT_SIZE or settings.get('upscaler')=='taa': return None
     scale=1.0
     if settings.get('upscaler','fsr3')!='off':
-        preset=int(settings.get('preset','0') or 0)
-        scale=PRESET_SCALES[max(0,min(preset,len(PRESET_SCALES)-1))]
+        scale=preset_scale(settings)
     # Multiples of 4: the game's render targets are padded to them, and a scene of 854 got a
     # 856-wide target whose last columns it never drew - a shimmering line at the right and
     # bottom edges once upscaled (1708x960, 856x536 at 1440p and 1600p).

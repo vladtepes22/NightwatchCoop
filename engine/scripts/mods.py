@@ -232,6 +232,17 @@ def remove_stale_overlays(out):
                 pass
 
 
+GAMEPLAY_FOLDERS = ('dvdroot_ps4/param/', 'dvdroot_ps4/event/', 'dvdroot_ps4/script/',
+                    'dvdroot_ps4/map/mapstudio/', 'dvdroot_ps4/action/')
+
+
+def changes_gameplay(key):
+    """A mod file the other players of a co-op session read too (parameters, map layouts, events,
+    AI and talk scripts, actions, character animations): different ones on each side desync enemies."""
+    return key.startswith(GAMEPLAY_FOLDERS) or (
+        key.startswith('dvdroot_ps4/chr/') and ('.anibnd' in key or '.behbnd' in key))
+
+
 def build_overlay(game, out, mods, update=None):
     game = Path(game).resolve(strict=True)
     out = overlay_base(game, out)
@@ -245,16 +256,22 @@ def build_overlay(game, out, mods, update=None):
             owners[relative.as_posix().casefold()] = Path(update).name
             replacements.append((relative, source))
         print(f'Game update: {Path(update).name}: {len(files)} files over the game', file=sys.stderr)
+    gameplay = 0
     for name, root in mods:
         count = 0
         for relative, source in mod_files(root):
             key = relative.as_posix().casefold()
+            gameplay += changes_gameplay(key)
             if key in owners:
                 print(f'Mods: {relative}: {owners[key]} -> {name}', file=sys.stderr)
             owners[key] = name
             replacements.append((relative, source))
             count += 1
         print(f'Mods: {name}: {count} files', file=sys.stderr)
+    if gameplay:
+        print(f'Mods: {gameplay} of these files change gameplay (parameters, map layouts, events, AI, '
+              'animations): co-op partners need the same files, or enemies and items desync between you',
+              file=sys.stderr)
     if not replacements:
         return game
     out = Path(out).resolve()

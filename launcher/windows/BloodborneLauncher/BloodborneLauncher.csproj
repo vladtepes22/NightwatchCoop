@@ -20,8 +20,7 @@
 
   <ItemGroup>
     <Resource Include="app.ico" />
-    <EmbeddedResource Include="Localization\zh-CN.json" LogicalName="BloodborneLauncher.Localization.zh-CN.json" />
-    <Resource Include="Assets\backdrop.jpg" />
+    <EmbeddedResource Include="Localization\*.json" LogicalName="BloodborneLauncher.Localization.%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="SeamlessTests" />

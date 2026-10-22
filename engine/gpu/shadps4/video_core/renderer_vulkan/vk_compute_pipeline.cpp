@@ -112,7 +112,9 @@ ComputePipeline::ComputePipeline(const Instance& instance, Scheduler& scheduler,
     };
     // bbport (BB_ASYNC_PIPELINES): as graphics pipelines (vk_graphics_pipeline.cpp); the stage
     // info only points at its subgroup size and the module, which outlives the pipeline.
-    if (!preloading && AsyncPipelinesEnabled() && subgroup_size_ci.pNext == nullptr &&
+    // bbport: the start's cached pipelines are created in parallel (WarmupJobs).
+    WarmupJobs* const warmup = preloading ? warmup_jobs : nullptr;
+    if (((!preloading && AsyncPipelinesEnabled()) || warmup) && subgroup_size_ci.pNext == nullptr &&
         shader_ci.pSpecializationInfo == nullptr) {
         struct Pending {
             vk::PipelineShaderStageRequiredSubgroupSizeCreateInfo subgroup_size;
@@ -123,6 +125,18 @@ ComputePipeline::ComputePipeline(const Instance& instance, Scheduler& scheduler,
         job->info = compute_pipeline_ci;
         job->info.stage.pNext = shader_ci.pNext ? &job->subgroup_size : nullptr;
         ready.store(false, std::memory_order_relaxed);
+        if (warmup) {
+            warmup->jobs.push_back([this, job, device, cache = pipeline_cache, name = debug_str] {
+                auto [result, created] = device.createComputePipelineUnique(cache, job->info);
+                if (result == vk::Result::eSuccess) {
+                    pipeline = std::move(created);
+                    SetObjectName(device, *pipeline, "Compute Pipeline {}", name);
+                }
+                MarkReady();
+                return result == vk::Result::eSuccess;
+            });
+            return;
+        }
         SubmitPipelineJob(this, [this, job, device, cache = pipeline_cache, name = debug_str] {
             auto [result, created] = device.createComputePipelineUnique(cache, job->info);
             ASSERT_MSG(result == vk::Result::eSuccess, "Failed to create compute pipeline: {}",

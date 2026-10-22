@@ -112,8 +112,16 @@ void Swapchain::Create(u32 width_, u32 height_) {
     }
     const auto format = needs_hdr ? SURFACE_FORMAT_HDR : hdr_output ? hdr_format : surface_format;
     view_format = format.format;
-    const vk::SwapchainCreateInfoKHR swapchain_info = {
+    // bbport: a swapchain the NVIDIA boost hint is set on (Instance::IsLowLatencyBoostEnabled).
+    const vk::SwapchainLatencyCreateInfoNV latency_info = {
         .pNext = FullScreenExclusiveDisallowed(full_screen_exclusive),
+        .latencyModeEnable = true,
+    };
+    const bool boost = instance.IsLowLatencyBoostEnabled() &&
+                       BbSettings::Get().reflex.load() != BbSettings::ReflexOff;
+    const vk::SwapchainCreateInfoKHR swapchain_info = {
+        .pNext = boost ? static_cast<const void*>(&latency_info)
+                       : FullScreenExclusiveDisallowed(full_screen_exclusive),
         .surface = surface,
         .minImageCount = image_count,
         .imageFormat = format.format,
@@ -142,6 +150,25 @@ void Swapchain::Create(u32 width_, u32 height_) {
         return;
     }
     swapchain = chain;
+    if (boost && VULKAN_HPP_DEFAULT_DISPATCHER.vkSetLatencySleepModeNV) {
+        // bbport (0.9.37 beta 6): the driver keeps the GPU's clocks up (Reflex Boost) instead of
+        // lowering them whenever the GPU waits for the engine: half the frame rate on an RTX 3070
+        // without it. Low latency mode itself (its sleep and markers) is Streamline's.
+        const VkLatencySleepModeInfoNV mode{
+            .sType = VK_STRUCTURE_TYPE_LATENCY_SLEEP_MODE_INFO_NV,
+            .lowLatencyMode = VK_FALSE,
+            .lowLatencyBoost = VK_TRUE,
+            .minimumIntervalUs = 0,
+        };
+        const VkResult result = VULKAN_HPP_DEFAULT_DISPATCHER.vkSetLatencySleepModeNV(
+            instance.GetDevice(), swapchain, &mode);
+        static bool logged = false;
+        if (!logged || result != VK_SUCCESS) {
+            logged = true;
+            std::printf("GPU: NVIDIA boost clocks %s (Reflex setting; BB_NV_BOOST=0: off)\n",
+                        result == VK_SUCCESS ? "on" : vk::to_string(vk::Result(result)).c_str());
+        }
+    }
 
     SetupImages();
     RefreshSemaphores();
@@ -288,6 +315,9 @@ bool Swapchain::Present() {
         surface_lost = result == vk::Result::eErrorSurfaceLostKHR;
         needs_recreation = true;
     } else {
+        if (result == vk::Result::eErrorDeviceLost) {
+            Breadcrumbs::ReportDeviceLost("present");
+        }
         ASSERT_MSG(result == vk::Result::eSuccess, "Swapchain presentation failed: {}",
                    vk::to_string(result));
     }
@@ -361,9 +391,13 @@ void Swapchain::FindPresentFormat() {
         hdr_format = {};
         return;
     }
-    std::printf("HDR output: %s, paper white %.0f nits, peak %.0f nits, highlight boost %.2f\n",
+    const float display_peak = settings.hdr_display_peak.load();
+    std::printf("HDR output: %s, paper white %.0f nits, peak %.0f nits (%s), highlight boost %.2f\n",
                 hdr_format == SURFACE_FORMAT_HDR ? "HDR10 PQ (BT.2020)" : "scRGB (FP16, linear BT.709)",
-                settings.hdr_paper_white.load(), settings.hdr_peak.load(),
+                settings.hdr_paper_white.load(), BbSettings::HdrPeakNits(settings),
+                !settings.hdr_peak_auto.load()           ? "set"
+                : display_peak >= BbSettings::HdrPeakMin ? "the display's"
+                                                         : "the display reports none: the set value",
                 settings.hdr_boost.load());
 }
 
@@ -473,6 +507,16 @@ void Swapchain::RecreateSurface() {
     surface = CreateSurface(instance.GetInstance(), window);
     surface_lost = false;
     std::printf("Display: the window's surface was lost; created again\n");
+    // bbport: on Wayland the compositor usually ended the game's connection with it, which no new
+    // surface brings back (0.9.37 beta 5 report: NVIDIA 615.78 with KDE Plasma; 580.178 ran clean).
+    static bool hinted = false;
+    if (!hinted && window.GetWindowInfo().type == Frontend::WindowSystemType::Wayland) {
+        hinted = true;
+        std::printf("Display: on Wayland a lost surface usually means the compositor closed the "
+                    "game's connection (a driver and compositor mismatch: NVIDIA 615 drivers on KDE "
+                    "Plasma did). Another NVIDIA driver (580 ran clean), or SDL_VIDEODRIVER=x11 "
+                    "(XWayland), avoids it\n");
+    }
 }
 
 void Swapchain::Destroy() {

@@ -80,6 +80,18 @@ struct Profile {
     /// bbport: the flattened user data stays a storage buffer in native shaders
     /// (BB_UBO_FLATBUF=0); it is a uniform buffer by default.
     bool flatbuf_storage{};
+    /// bbport: every float add, multiply and fma of a pixel shader keeps NoContraction, as GCN's
+    /// unfused v_mad_f32 computes it (BB_FS_CONTRACT=0). By default a pixel shader's are left to
+    /// the driver to fuse (NVIDIA: FFMA instead of FMUL and FADD, 10% less code over the game's
+    /// pixel shaders, docs/native_shader_compiler.md); results differ in the last bit at most, and
+    /// a shader that writes depth keeps them. False is the default so that caches made before
+    /// this field (its byte was padding, zero) keep their profile.
+    bool fragment_exact_fp{};
+    /// bbport: with needs_manual_interpolation, every pixel shader input is interpolated by
+    /// GCN's formula (BB_INTERP_HW=0). By default an input goes back to the hardware's
+    /// interpolation when no use of it needs the exact bits (ir/passes/
+    /// hardware_interpolation_pass.cpp). False is the default for the reason above.
+    bool manual_interpolation_all{};
 
     bool operator==(const Profile&) const = default;
 };

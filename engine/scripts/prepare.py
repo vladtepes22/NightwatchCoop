@@ -2,7 +2,7 @@
 """Inspect an already plaintext PS4 SELF; prepare a native entry-point probe.
 
 No decryption, patches to source files, third-party modules or Python dependencies.
-Format references are linked in README.md. All offsets are checked before use.
+Format references are linked in docs/history/bbport-README.md. All offsets are checked before use.
 """
 import argparse
 import base64

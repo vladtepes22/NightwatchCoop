@@ -352,11 +352,12 @@ static void DeduplicateSccs(std::vector<PhiScc>& sccs) {
 
     std::vector<SccGroup*> worklist;
     worklist.reserve(scc_groups.size());
-    for (auto it = scc_groups.begin(); it != scc_groups.end(); ++it) {
-        auto& group = it->second;
-        if (group.sccs.size() > 1) {
+    // In the SCCs' order, not the hash table's: the structure hashes include block addresses, so
+    // the table's order changed from run to run and so did the SPIR-V (upstream shadPS4 #5364).
+    for (const auto& scc : sccs) {
+        auto& group = scc_groups.at(scc.hash);
+        if (group.sccs.size() > 1 && !std::exchange(group.queued, true)) {
             worklist.push_back(&group);
-            group.queued = true;
         }
     }
 

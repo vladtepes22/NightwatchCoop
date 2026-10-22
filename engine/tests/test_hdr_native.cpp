@@ -418,9 +418,45 @@ Vk Init() {
     return vk;
 }
 
+// hdr_native.comp's state: the exposure, the tone curve's bins, the tiles' exposures.
+constexpr uint32_t CurveBins = 16, TilesX = 8, TilesY = 6, Tiles = TilesX * TilesY;
+constexpr uint32_t PartialStride = 1 + CurveBins / 2; // vec4s per STATS group
+constexpr float CurveLow = 0.5f, CurveHigh = 0.97f;
+constexpr float RollOffStart = 0.7f; // vk_hdr_native.cpp
 struct ExposureState {
     float log_scale, valid, samples, frames;
+    float curve[CurveBins][4]; // smoothed, confidence, weight, monotonic (log2)
+    float tiles[Tiles][4];     // smoothed log2(SDR / scene), confidence, samples
 };
+
+// The EXPOSURE pass's push constants; min_tile huge: no tile is measured.
+struct ExposureParams {
+    uint32_t count, reset;
+    float min_samples, rate;
+    uint32_t groups_x;
+    float min_tile;
+};
+struct GainParams {
+    float strength, white, knee, rolloff;
+};
+
+// hdr_native.comp's RollOff.
+float RollOff(float x, float limit) {
+    if (limit <= 1.0f) {
+        return std::min(x, limit);
+    }
+    const float top = std::log2(limit), start = RollOffStart * top, lx = std::log2(x);
+    if (lx <= start) {
+        return x;
+    }
+    const float room = top - start;
+    return std::exp2(start + room * (1.0f - std::exp(-(lx - start) / room)));
+}
+
+float Smoothstep(float edge0, float edge1, float x) {
+    const float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
 
 // --bench [width height]: GPU time of one frame's passes (luma, snapshot + statistics,
 // exposure, gain map; barriers between them as in the game) on noise-filled images.
@@ -435,7 +471,7 @@ void Bench(const Vk& vk, const Pass& luma, const Pass& snapshot, const Pass& exp
     const uint32_t groups_x = (width + 15) / 16, groups_y = (height + 15) / 16;
     // In video memory, as the game's (VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE).
     const Buffer partials =
-        MakeBuffer(vk, groups_x * groups_y * 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
+        MakeBuffer(vk, groups_x * groups_y * 16 * PartialStride, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
     const Buffer state = MakeBuffer(vk, sizeof(ExposureState),
                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                         VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -491,13 +527,9 @@ void Bench(const Vk& vk, const Pass& luma, const Pass& snapshot, const Pass& exp
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(vk.physical, &properties);
     const uint32_t reset = 0;
-    const struct {
-        uint32_t count, reset;
-        float min_samples, rate;
-    } exposure_params{groups_x * groups_y, 0, 1024.0f, 0.1f};
-    const struct {
-        float strength, white, knee, unused;
-    } gain_params{0.5f, 5.0f, Knee, 0.0f};
+    const ExposureParams exposure_params{groups_x * groups_y, 0, 1024.0f, 0.1f, groups_x,
+                                         float(std::max(64u, width * height / 200 / Tiles / 4))};
+    const GainParams gain_params{0.5f, 5.0f, Knee, RollOffStart};
     std::vector<double> times;
     for (int run = 0; run < 120; ++run) {
         Begin(vk);
@@ -505,7 +537,7 @@ void Bench(const Vk& vk, const Pass& luma, const Pass& snapshot, const Pass& exp
         vkCmdWriteTimestamp(vk.cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queries, 0);
         Dispatch(vk.cmd, luma, nullptr, 0, (luma_image.width + 7) / 8, (luma_image.height + 7) / 8);
         Dispatch(vk.cmd, snapshot, &reset, 4, groups_x, groups_y);
-        Dispatch(vk.cmd, exposure, &exposure_params, sizeof(exposure_params), 1, 1);
+        Dispatch(vk.cmd, exposure, &exposure_params, sizeof(exposure_params), 1 + Tiles, 1);
         Dispatch(vk.cmd, gain, &gain_params, sizeof(gain_params), (width + 7) / 8,
                  (height + 7) / 8);
         vkCmdWriteTimestamp(vk.cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, 1);
@@ -528,6 +560,7 @@ void Bench(const Vk& vk, const Pass& luma, const Pass& snapshot, const Pass& exp
 } // namespace
 
 int main(int argc, char** argv) {
+    std::setvbuf(stdout, nullptr, _IONBF, 0); // the lines before a failed assert too
     Vk vk = Init();
     VkDescriptorPool pool;
     const std::array<VkDescriptorPoolSize, 3> sizes{{
@@ -552,7 +585,7 @@ int main(int argc, char** argv) {
                                 HDR_NATIVE_STATS_COMP, sizeof(HDR_NATIVE_STATS_COMP));
     const Pass snapshot = MakePass(vk, pool, {Sampled, Sampled, Ssbo, Ssbo, Storage}, 4,
                                    HDR_NATIVE_SNAPSHOT_COMP, sizeof(HDR_NATIVE_SNAPSHOT_COMP));
-    const Pass exposure = MakePass(vk, pool, {Ssbo, Ssbo}, 16, HDR_NATIVE_EXPOSURE_COMP,
+    const Pass exposure = MakePass(vk, pool, {Ssbo, Ssbo}, sizeof(ExposureParams), HDR_NATIVE_EXPOSURE_COMP,
                                    sizeof(HDR_NATIVE_EXPOSURE_COMP));
     const Pass gain = MakePass(vk, pool, {Sampled, Sampled, Sampled, Ssbo, Storage}, 16,
                                HDR_NATIVE_GAIN_COMP, sizeof(HDR_NATIVE_GAIN_COMP));
@@ -570,7 +603,7 @@ int main(int argc, char** argv) {
     const Image copy = MakeImage(vk, VK_FORMAT_R8G8B8A8_UNORM, W, H, 4);
     const Image gain_map = MakeImage(vk, VK_FORMAT_R16_SFLOAT, W, H, 2);
     const uint32_t groups_x = (W + 15) / 16, groups_y = (H + 15) / 16;
-    const Buffer partials = MakeBuffer(vk, groups_x * groups_y * 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    const Buffer partials = MakeBuffer(vk, groups_x * groups_y * 16 * PartialStride, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     const Buffer state = MakeBuffer(vk, sizeof(ExposureState), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     const Buffer staging = MakeBuffer(vk, W * H * 8, VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                                           VK_BUFFER_USAGE_TRANSFER_DST_BIT);
@@ -689,13 +722,10 @@ int main(int argc, char** argv) {
         }
         Bind(vk, pass, resources);
         Bind(vk, exposure, {{nullptr, &partials}, {nullptr, &state}});
-        const struct {
-            uint32_t count, reset;
-            float min_samples, rate;
-        } params{groups_x * groups_y, reset, 64.0f, 0.1f};
+        const ExposureParams params{groups_x * groups_y, reset, 64.0f, 0.1f, groups_x, 1e9f};
         Begin(vk);
         Dispatch(vk.cmd, pass, &reset, 4, groups_x, groups_y);
-        Dispatch(vk.cmd, exposure, &params, sizeof(params), 1, 1);
+        Dispatch(vk.cmd, exposure, &params, sizeof(params), 1 + Tiles, 1);
         Submit(vk);
         ExposureState result;
         std::memcpy(&result, state.mapped, sizeof(result));
@@ -765,9 +795,7 @@ int main(int argc, char** argv) {
     Upload(vk, staging, target, finished.data());
     const float white = 1000.0f / 200.0f; // the default peak / paper white
     for (const float strength : {1.0f, 0.5f}) {
-        const struct {
-            float strength, white, knee, unused;
-        } params{strength, white, Knee, 0.0f};
+        const GainParams params{strength, white, Knee, RollOffStart};
         Bind(vk, gain, {{&target}, {&copy}, {&luma_image}, {nullptr, &state}, {&gain_map}});
         Begin(vk);
         Dispatch(vk.cmd, gain, &params, sizeof(params), (W + 7) / 8, (H + 7) / 8);
@@ -793,17 +821,10 @@ int main(int argc, char** argv) {
                 }
                 if (kinds[p] == Light && !on_ui && x > 41 && x < 46 && y > 9 && y < 14) {
                     // Inside the light (its 4x4 footprint in the luma is all light): the
-                    // scene's ratio to the SDR white, to the power of the strength, into the
-                    // peak (unchanged up to halfway, then towards the peak).
+                    // scene's ratio to the SDR white, to the power of the strength, rolled off
+                    // into the peak (in log2, above 70% of the stops to it).
                     const float ratio = scale * 8.0f / Exposure / sdr;
-                    float target_value = sdr * std::pow(ratio, strength);
-                    const float start = 0.5f * (1.0f + white);
-                    if (target_value > start) {
-                        target_value = start + (white - start) *
-                                                   (1.0f - std::exp(-(target_value - start) /
-                                                                    (white - start)));
-                    }
-                    const float expected = target_value / sdr;
+                    const float expected = RollOff(sdr * std::pow(ratio, strength), white) / sdr;
                     if (std::abs(g - expected) > expected * 0.01f) {
                         std::fprintf(stderr, "gain %.4f, expected %.4f at %u,%u\n", g, expected,
                                      x, y);
@@ -820,9 +841,7 @@ int main(int argc, char** argv) {
     {
         Upload(vk, staging, target, before_ui.data());
         measured = measure(target, true, 1);
-        const struct {
-            float strength, white, knee, unused;
-        } params{1.0f, white, Knee, 0.0f};
+        const GainParams params{1.0f, white, Knee, RollOffStart};
         Bind(vk, gain, {{&target}, {&copy}, {&luma_image}, {nullptr, &state}, {&gain_map}});
         Begin(vk);
         Dispatch(vk.cmd, gain, &params, sizeof(params), (W + 7) / 8, (H + 7) / 8);
@@ -841,6 +860,201 @@ int main(int argc, char** argv) {
         }
         assert(checked >= 40);
         std::printf("HDR native shaders: bloom (SDR brighter than the scene) keeps gain 1 PASS\n");
+    }
+    // The tone curve and the tiles, on a frame of 8x6 tiles (2x2 STATS groups each).
+    {
+        constexpr uint32_t W2 = 256, H2 = 192, LW2 = W2 / 2, LH2 = H2 / 2;
+        const Image scene2 = MakeImage(vk, VK_FORMAT_R16G16B16A16_SFLOAT, W2, H2, 8);
+        const Image luma2 = MakeImage(vk, VK_FORMAT_R16G16_SFLOAT, LW2, LH2, 4);
+        const Image target2 = MakeImage(vk, VK_FORMAT_R8G8B8A8_UNORM, W2, H2, 4);
+        const Image copy2 = MakeImage(vk, VK_FORMAT_R8G8B8A8_UNORM, W2, H2, 4);
+        const Image gain2 = MakeImage(vk, VK_FORMAT_R16_SFLOAT, W2, H2, 2);
+        const uint32_t gx = W2 / 16, gy = H2 / 16;
+        const Buffer partials2 =
+            MakeBuffer(vk, gx * gy * 16 * PartialStride, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        const Buffer state2 = MakeBuffer(vk, sizeof(ExposureState), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        const Buffer staging2 = MakeBuffer(vk, W2 * H2 * 8, VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                                                                VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        Begin(vk);
+        std::vector<VkImageMemoryBarrier> barriers;
+        for (const Image* image : {&scene2, &luma2, &target2, &copy2, &gain2}) {
+            barriers.push_back({.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                                .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
+                                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                                .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+                                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                .image = image->image,
+                                .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}});
+        }
+        vkCmdPipelineBarrier(vk.cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr,
+                             uint32_t(barriers.size()), barriers.data());
+        Submit(vk);
+        // The scene (one grey level per pixel) and the SDR frame the game makes of it.
+        std::vector<float> level2(W2 * H2);
+        std::vector<float> sdr2(W2 * H2);
+        const auto upload = [&] {
+            std::vector<uint16_t> half(W2 * H2 * 4);
+            std::vector<uint8_t> frame(W2 * H2 * 4);
+            for (uint32_t p = 0; p < W2 * H2; ++p) {
+                for (int c = 0; c < 3; ++c) {
+                    half[p * 4 + c] = ToHalf(level2[p]);
+                    frame[p * 4 + c] = Encode(sdr2[p]);
+                }
+                half[p * 4 + 3] = ToHalf(1.0f);
+                frame[p * 4 + 3] = 255;
+            }
+            Upload(vk, staging2, scene2, half.data());
+            Upload(vk, staging2, target2, frame.data());
+            Bind(vk, luma, {{&scene2}, {&luma2}});
+            Begin(vk);
+            Dispatch(vk.cmd, luma, nullptr, 0, (LW2 + 7) / 8, (LH2 + 7) / 8);
+            Submit(vk);
+        };
+        // Frames of the game at the first UI pass (snapshot, statistics, exposure, curve, tiles).
+        const auto run = [&](int frames, float min_tile) {
+            Bind(vk, snapshot, {{&target2}, {&luma2}, {nullptr, &partials2}, {nullptr, &state2},
+                                {&copy2}});
+            Bind(vk, exposure, {{nullptr, &partials2}, {nullptr, &state2}});
+            for (int frame = 0; frame < frames; ++frame) {
+                const uint32_t reset = frame == 0 ? 1u : 0u;
+                const ExposureParams params{gx * gy, reset, 64.0f, 0.1f, gx, min_tile};
+                Begin(vk);
+                Dispatch(vk.cmd, snapshot, &reset, 4, gx, gy);
+                Dispatch(vk.cmd, exposure, &params, sizeof(params), 1 + Tiles, 1);
+                Submit(vk);
+            }
+            ExposureState result;
+            std::memcpy(&result, state2.mapped, sizeof(result));
+            return result;
+        };
+        const auto gain_map = [&](const GainParams& params) {
+            Bind(vk, gain, {{&target2}, {&copy2}, {&luma2}, {nullptr, &state2}, {&gain2}});
+            Begin(vk);
+            Dispatch(vk.cmd, gain, &params, sizeof(params), (W2 + 7) / 8, (H2 + 7) / 8);
+            Submit(vk);
+            return Download<uint16_t>(vk, staging2, gain2);
+        };
+        const auto decoded = [](float linear) { return std::pow(Encode(linear) / 255.0f, 2.2f); };
+        // The synthetic curve's inverse (SDR -> the scene on the SDR scale).
+        const auto inverse = [](float sdr) {
+            return sdr <= 0.5f ? sdr : 0.5f - 0.5f * std::log(1.0f - (sdr - 0.5f) / 0.5f);
+        };
+
+        // 1. The curve: midtones (the exposure), a ramp through the shoulder, and a bloom halo
+        // (SDR 0.85 where the scene is dark).
+        std::memset(state2.mapped, 0, sizeof(ExposureState));
+        for (uint32_t y = 0; y < H2; ++y) {
+            for (uint32_t x = 0; x < W2; ++x) {
+                const uint32_t p = y * W2 + x;
+                const float t = float(x) / float(W2 - 1);
+                float on_sdr_scale = 0.03f + 0.37f * t; // midtones
+                float sdr = -1.0f;
+                if (y >= 96 && y < 160) {
+                    on_sdr_scale = 0.45f + 1.75f * t; // the shoulder
+                } else if (y >= 160 && x < 128) {
+                    on_sdr_scale = 0.02f; // the halo: bloom over a dark scene
+                    sdr = 0.85f;
+                }
+                level2[p] = on_sdr_scale / Exposure;
+                sdr2[p] = sdr >= 0.0f ? sdr : Curve(on_sdr_scale);
+            }
+        }
+        upload();
+        const ExposureState learned = run(60, 1e9f);
+        assert(std::abs(learned.log_scale - std::log2(Exposure)) < 0.03f);
+        uint32_t confident = 0;
+        float previous = -100.0f;
+        for (uint32_t b = 0; b < CurveBins; ++b) {
+            const float center = CurveLow + (float(b) + 0.5f) * (CurveHigh - CurveLow) / CurveBins;
+            const float* bin = learned.curve[b];
+            // Monotonic, never below the SDR value itself.
+            assert(bin[3] >= previous - 1e-6f && bin[3] >= std::log2(center) - 1e-4f);
+            previous = bin[3];
+            if (bin[1] < 1.0f) {
+                continue;
+            }
+            ++confident;
+            const float expected = std::log2(inverse(center));
+            if (std::abs(bin[3] - expected) > 0.12f) {
+                std::fprintf(stderr, "curve bin %u: %.3f, expected %.3f\n", b, bin[3], expected);
+            }
+            assert(std::abs(bin[3] - expected) <= 0.12f);
+        }
+        std::printf("HDR native shaders: tone curve (%u of %u bins learned, the halo left out) PASS\n",
+                    confident, CurveBins);
+        assert(confident >= 14);
+        // The halo now rises with the curve: its SDR value's place on the game's curve, to the
+        // power of the strength and the ramp; it kept gain 1 before.
+        {
+            const float white = 5.0f;
+            const auto map = gain_map({1.0f, white, Knee, RollOffStart});
+            const float sdr = decoded(0.85f);
+            const float ramp = Smoothstep(Knee, 1.0f, sdr);
+            const float expected = RollOff(sdr * std::pow(inverse(sdr) / sdr, ramp), white) / sdr;
+            float halo = 0.0f;
+            for (uint32_t y = 166; y < 186; ++y) {
+                for (uint32_t x = 8; x < 120; ++x) {
+                    const float g = FromHalf(map[y * W2 + x]);
+                    if (std::abs(g - expected) > expected * 0.04f) {
+                        std::fprintf(stderr, "halo gain %.4f, expected %.4f at %u,%u\n", g,
+                                     expected, x, y);
+                    }
+                    assert(std::abs(g - expected) <= expected * 0.04f);
+                    halo = g;
+                }
+            }
+            assert(halo > 1.15f);
+            std::printf("HDR native shaders: bloom halo lifted by the curve (x%.3f) PASS\n", halo);
+        }
+
+        // 2. The tiles: the right half's SDR midtones half a stop darker than its scene (a
+        // vignette); a light in the middle of a tile on each side, clipped in SDR. The right one
+        // keeps the vignette: it is the scene at the right side's exposure.
+        std::memset(state2.mapped, 0, sizeof(ExposureState));
+        const float vignette = std::exp2(-0.5f);
+        const auto light = [](uint32_t x, uint32_t y, uint32_t cx) {
+            return x + 4 >= cx && x < cx + 4 && y + 4 >= 80 && y < 84;
+        };
+        const uint32_t left_x = 1 * 32 + 16, right_x = 6 * 32 + 16; // tiles (1,2) and (6,2)
+        for (uint32_t y = 0; y < H2; ++y) {
+            for (uint32_t x = 0; x < W2; ++x) {
+                const uint32_t p = y * W2 + x;
+                const float on_sdr_scale = 0.03f + 0.37f * float((x * 7 + y * 3) % 64) / 63.0f;
+                level2[p] = on_sdr_scale / Exposure;
+                sdr2[p] = Curve(on_sdr_scale) * (x >= W2 / 2 ? vignette : 1.0f);
+                if (light(x, y, left_x) || light(x, y, right_x)) {
+                    level2[p] = 8.0f / Exposure;
+                    sdr2[p] = 1.0f;
+                }
+            }
+        }
+        upload();
+        const ExposureState tiled = run(40, 64.0f);
+        for (uint32_t t = 0; t < Tiles; ++t) {
+            const uint32_t tx = t % TilesX;
+            const float expected = std::log2(Exposure) + (tx >= TilesX / 2 ? -0.5f : 0.0f);
+            if (std::abs(tiled.tiles[t][0] - expected) > 0.06f || tiled.tiles[t][1] < 1.0f) {
+                std::fprintf(stderr, "tile %u: %.3f (confidence %.2f), expected %.3f\n", t,
+                             tiled.tiles[t][0], tiled.tiles[t][1], expected);
+            }
+            assert(std::abs(tiled.tiles[t][0] - expected) <= 0.06f && tiled.tiles[t][1] >= 1.0f);
+        }
+        {
+            const float white = 40.0f; // no roll-off below 13x
+            const auto map = gain_map({1.0f, white, Knee, RollOffStart});
+            const float left = FromHalf(map[80 * W2 + left_x]);
+            const float right = FromHalf(map[80 * W2 + right_x]);
+            const float global = std::exp2(tiled.log_scale) * 8.0f / Exposure;
+            std::printf("HDR native shaders: tiles: left light x%.3f, right x%.3f (one exposure: "
+                        "x%.3f)\n",
+                        left, right, global);
+            assert(std::abs(left - 8.0f) <= 8.0f * 0.03f);
+            assert(std::abs(right / left - vignette) <= 0.03f);
+            assert(right < global * 0.9f);
+            std::printf("HDR native shaders: local exposure (the vignette kept on highlights) PASS\n");
+        }
     }
     vkDeviceWaitIdle(vk.device);
     std::printf("HDR native shaders: PASS\n");

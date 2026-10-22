@@ -222,6 +222,9 @@ struct PushData {
     static constexpr u32 BufOffsetIndex = UdRegsIndex + NUM_USER_DATA_REGS / 4;
     static constexpr u32 MotionParamIndex = BufOffsetIndex + NUM_BUFFERS / 16 + 1;
     static constexpr u32 SceneSizeIndex = MotionParamIndex + 1;
+    /// bbport: a vec4 after the block (offset 128), declared only by modules that use the tone
+    /// curve extension (native/tone_curve.h, ToneCurvePush), pushed only for their pipelines.
+    static constexpr u32 ToneCurveIndex = SceneSizeIndex + 1;
 
     float xoffset;
     float yoffset;

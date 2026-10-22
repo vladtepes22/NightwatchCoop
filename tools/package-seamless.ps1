@@ -8,13 +8,13 @@
 # Shaders, upscaler assets and the shader catalog come from the official Lantern Engine release
 # this build is based on (-Base: its extracted BloodbornePC folder); the small start programs are
 # built here (launcher\windows\BloodbornePlay).
-#   tools\package-seamless.ps1 -Base work\downloads\lantern-0.9.36\x\BloodbornePC
+#   tools\package-seamless.ps1 -Base work\downloads\lantern-0.9.37-beta.7\x\BloodbornePC
 param(
     [Parameter(Mandatory)][string]$Base,
     [string]$Destination = '',
     [string]$Game = '',
     [string]$MsysRoot = 'C:\msys64',
-    [string]$Version = '0.2.1-beta.1',
+    [string]$Version = '0.2.2',
     # A package to publish: no first-run settings with this PC's folders (the launcher finds its own).
     [switch]$Release
 )
@@ -51,8 +51,14 @@ New-Item -ItemType Directory -Force -Path $destinationRoot | Out-Null
 Write-Json @{engine=$engineId; incomplete=$true} (Join-Path $destinationRoot 'package.json')
 
 # 1. The base package, without anything a player's start generated or the release's own identity.
-robocopy $base $destinationRoot /E /XF package.json 'Lantern Engine.exe' 'Bloodborne Launcher.exe' Bloodborne.exe /XD user logs mods network engine-assets /NFL /NDL /NJH /NJS /NP | Out-Null
+robocopy $base $destinationRoot /E /XF package.json 'Lantern Engine.exe' 'Bloodborne Launcher.exe' Bloodborne.exe lantern.default.ini /XD user logs mods network engine-assets /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Copying the base package failed (robocopy $LASTEXITCODE)." }
+# Since Lantern 0.9.37 beta 2 the base ships its settings as engine\lantern.default.ini: they are
+# this package's bbport.ini (the name the engine and launcher read; an update never replaces it).
+$shippedSettings = Join-Path $base 'engine\lantern.default.ini'
+if (Test-Path -LiteralPath $shippedSettings) {
+    Copy-Item -LiteralPath $shippedSettings -Destination (Join-Path $destinationRoot 'bbport.ini') -Force
+}
 if (!$keepCatalog) { Remove-Item -LiteralPath (Join-Path $destinationRoot 'engine\shader-catalog') -Recurse -Force -ErrorAction SilentlyContinue }
 
 # 2. This repo's engine programs; the MSYS2 DLLs they were linked with replace the base's.

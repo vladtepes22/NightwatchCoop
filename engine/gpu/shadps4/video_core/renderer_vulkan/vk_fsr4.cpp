@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <deque>
 #include <fstream>
@@ -43,15 +44,30 @@ bool ReadFile(const std::string& path, std::vector<u8>& data) {
 }
 
 FfxFsr4ModelPreset ModelPreset(int preset) {
-    // Bloodborne PC (after IFreemz/shadPS4-Bloodborne-DLSS-FSR 9b2766e): BB_FSR4_BALANCED=1 runs
-    // the balanced model for the 2x and 3x presets too; it leaves fewer trails behind moving
-    // characters than the performance models, at some GPU cost. The render size stays the preset's.
-    static const bool balanced_low = [] {
-        const char* v = std::getenv("BB_FSR4_BALANCED");
-        return v && v[0] == '1';
+    // Lantern Engine: BB_FSR4_MODEL=native|quality|balanced|performance|ultra runs at least that
+    // model (a smaller preset model is raised to it, a larger one stays); the render size stays
+    // the preset's. A larger model leaves fewer trails behind moving characters at the low
+    // presets, at some GPU cost.
+    static const int forced = [] {
+        const char* v = std::getenv("BB_FSR4_MODEL");
+        if (!v || !v[0]) {
+            return -1;
+        }
+        static constexpr const char* Names[] = {"native", "quality", "balanced", "performance",
+                                                "ultra"};
+        for (int i = 0; i < 5; ++i) {
+            if (std::strcmp(v, Names[i]) == 0) {
+                std::printf("FSR 4: at least the %s model (BB_FSR4_MODEL)\n", Names[i]);
+                return i;
+            }
+        }
+        std::printf("FSR 4: BB_FSR4_MODEL=%s is not one of native, quality, balanced, "
+                    "performance, ultra; ignored\n", v);
+        return -1;
     }();
-    if (balanced_low && preset >= 3)
-        return FFX_FSR4_MODEL_PRESET_BALANCED;
+    if (forced >= 0 && forced < preset) {
+        preset = forced;
+    }
     switch (preset) {
     case 0:
         return FFX_FSR4_MODEL_PRESET_NATIVE_AA;

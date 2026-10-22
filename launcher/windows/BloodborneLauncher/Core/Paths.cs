@@ -32,9 +32,18 @@ namespace BloodborneLauncher.Core
                 ? path
                 : Path.Combine(DataDir, "bbport.ini");
 
+        /// <summary>An engine program's file name: name.exe, or name alone in the Linux package
+        /// (the Avalonia launcher there).</summary>
+        public static string Program(string name) =>
+#if AVALONIA
+            OperatingSystem.IsWindows() ? name + ".exe" : name;
+#else
+            name + ".exe";
+#endif
+
         /// <summary>A package's engine folder: its engine\, or the package itself (older layout).</summary>
         public static string EngineDirOf(string dir) =>
-            File.Exists(Path.Combine(dir, "engine", "out", "bb-probe.exe")) ||
+            File.Exists(Path.Combine(dir, "engine", "out", Program("bb-probe"))) ||
             File.Exists(Path.Combine(dir, "engine", "scripts", "run_windows.py"))
                 ? Path.Combine(dir, "engine")
                 : dir;
@@ -45,19 +54,48 @@ namespace BloodborneLauncher.Core
         /// <summary>The engine and its DLLs.</summary>
         public static string BinariesDir => Path.Combine(EngineDir, "out");
 
+        /// <summary>NVIDIA's DLSS runtime beside the engine (nvngx_dlss.dll; on Linux
+        /// libnvidia-ngx-dlss.so.&lt;version&gt;), or null when the package has none.</summary>
+        public static string? DlssRuntime
+        {
+            get
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    var dll = Path.Combine(BinariesDir, "nvngx_dlss.dll");
+                    return File.Exists(dll) ? dll : null;
+                }
+                try
+                {
+                    return Directory.Exists(BinariesDir)
+                        ? Directory.GetFiles(BinariesDir, "libnvidia-ngx-dlss.so.*").OrderBy(f => f, StringComparer.Ordinal).LastOrDefault()
+                        : null;
+                }
+                catch (IOException)
+                {
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>The DLSS runtime's version: the DLL's file version, or the end of the .so's name.</summary>
+        public static string DlssVersion(string runtime) => OperatingSystem.IsWindows()
+            ? System.Diagnostics.FileVersionInfo.GetVersionInfo(runtime).FileVersion ?? ""
+            : Path.GetFileName(runtime)["libnvidia-ngx-dlss.so.".Length..];
+
         /// <summary>The Bloodborne PC engine: out\bb-probe.exe and what starts it (out\bb-start.exe, or
         /// scripts\run_windows.py before 0.9.32), in the folder or its engine\.</summary>
         public static bool IsPortDir(string? dir)
         {
             if (string.IsNullOrWhiteSpace(dir)) return false;
             var engine = EngineDirOf(dir);
-            return File.Exists(Path.Combine(engine, "out", "bb-probe.exe")) &&
-                   (File.Exists(Path.Combine(engine, "out", "bb-start.exe")) ||
+            return File.Exists(Path.Combine(engine, "out", Program("bb-probe"))) &&
+                   (File.Exists(Path.Combine(engine, "out", Program("bb-start"))) ||
                     File.Exists(Path.Combine(engine, "scripts", "run_windows.py")));
         }
 
         /// <summary>The native start (0.9.32 and later): the boot image, mods, patches, then the game.</summary>
-        public static string Start => Path.Combine(EngineDir, "out", "bb-start.exe");
+        public static string Start => Path.Combine(EngineDir, "out", Program("bb-start"));
 
         /// <summary>The Python an older engine started with (scripts\run_windows.py).</summary>
         public static string Python => Path.Combine(EngineDir, "tools", "python", "python.exe");
@@ -100,7 +138,7 @@ namespace BloodborneLauncher.Core
                 return Directory.GetDirectories(parent)
                     .Where(IsPortDir)
                     .OrderByDescending(dir => new[] { "bin", "out" }
-                        .Select(b => new FileInfo(Path.Combine(EngineDirOf(dir), b, "bb-probe.exe")))
+                        .Select(b => new FileInfo(Path.Combine(EngineDirOf(dir), b, Program("bb-probe"))))
                         .Where(f => f.Exists).Select(f => f.LastWriteTimeUtc).DefaultIfEmpty(DateTime.MinValue).Max())
                     .FirstOrDefault();
             }
@@ -133,6 +171,16 @@ namespace BloodborneLauncher.Core
             try
             {
                 Directory.CreateDirectory(path);
+#if AVALONIA
+                if (!OperatingSystem.IsWindows())
+                {
+                    // The desktop's file manager.
+                    var open = new System.Diagnostics.ProcessStartInfo("xdg-open") { UseShellExecute = false };
+                    open.ArgumentList.Add(path);
+                    System.Diagnostics.Process.Start(open)?.Dispose();
+                    return;
+                }
+#endif
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{path}\"")
                     { UseShellExecute = true });
             }

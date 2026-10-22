@@ -748,32 +748,63 @@ private:
     /// Stage A: the newest draw pipe packet that reads guest memory, hashed per granule: 256 bytes
     /// for bindings up to 4 KiB, 16 KiB up to 256 KiB, 1 MiB above (a note costs a few granules,
     /// a lookup checks all three). A collision only makes a write wait longer.
+    /// bbport: a note also goes into the coarser levels' rollups (rollups[0]: 16 KiB granules of
+    /// level 0 notes, rollups[1]: 1 MiB granules of level 0 and 1 notes). A lookup spanning more
+    /// than RollupAbove granules of a level reads the rollup instead, so a large range costs a few
+    /// slots, not one per 256 bytes (1 MiB was 4096 slots, ~5% of the GPU command thread). A
+    /// rollup only ever reads newer, so a write may wait longer, never too little.
     struct PendingReads {
         static constexpr u64 Shifts[3] = {8, 14, 20};
         static constexpr u64 Limits[2] = {4_KB, 256_KB};
         static constexpr u32 Bits = 16;
+        static constexpr u64 RollupAbove = 32;
         std::array<std::vector<u64>, 3> tables{std::vector<u64>(1u << Bits),
                                                std::vector<u64>(1u << Bits),
                                                std::vector<u64>(1u << Bits)};
+        std::array<std::vector<u64>, 2> rollups{std::vector<u64>(1u << Bits),
+                                                std::vector<u64>(1u << Bits)};
         static u64 Slot(u64 granule, u32 level) {
             return ((granule * 4 + level) * 0x9E3779B97F4A7C15ull) >> (64 - Bits);
         }
-        void Note(VAddr address, u64 size, u64 packet) {
-            const u32 level = size <= Limits[0] ? 0 : size <= Limits[1] ? 1 : 2;
-            auto& table = tables[level];
-            for (u64 g = address >> Shifts[level]; g <= (address + size - 1) >> Shifts[level];
-                 ++g) {
+        static void Raise(std::vector<u64>& table, u32 level, u32 shift, VAddr address, u64 size,
+                          u64 packet) {
+            for (u64 g = address >> shift; g <= (address + size - 1) >> shift; ++g) {
                 u64& slot = table[Slot(g, level)];
                 slot = std::max(slot, packet);
             }
         }
-        u64 Newest(VAddr address, u64 size) const {
+        static u64 Max(const std::vector<u64>& table, u32 level, u32 shift, VAddr address,
+                       u64 size) {
             u64 newest = 0;
-            for (u32 level = 0; level < 3; ++level) {
-                for (u64 g = address >> Shifts[level]; g <= (address + size - 1) >> Shifts[level];
-                     ++g) {
-                    newest = std::max(newest, tables[level][Slot(g, level)]);
-                }
+            for (u64 g = address >> shift; g <= (address + size - 1) >> shift; ++g) {
+                newest = std::max(newest, table[Slot(g, level)]);
+            }
+            return newest;
+        }
+        static u64 Granules(VAddr address, u64 size, u32 shift) {
+            return ((address + size - 1) >> shift) - (address >> shift) + 1;
+        }
+        void Note(VAddr address, u64 size, u64 packet) {
+            const u32 level = size <= Limits[0] ? 0 : size <= Limits[1] ? 1 : 2;
+            Raise(tables[level], level, Shifts[level], address, size, packet);
+            if (level == 0) {
+                Raise(rollups[0], 0, Shifts[1], address, size, packet);
+            }
+            if (level <= 1) {
+                Raise(rollups[1], 1, Shifts[2], address, size, packet);
+            }
+        }
+        u64 Newest(VAddr address, u64 size) const {
+            u64 newest = Max(tables[2], 2, Shifts[2], address, size);
+            // Level 1 notes: exact up to RollupAbove granules, else the 1 MiB rollup.
+            const bool coarse1 = Granules(address, size, Shifts[1]) > RollupAbove;
+            newest = std::max(newest, coarse1 ? Max(rollups[1], 1, Shifts[2], address, size)
+                                              : Max(tables[1], 1, Shifts[1], address, size));
+            // Level 0 notes: exact, the 16 KiB rollup, or (already read) the 1 MiB one.
+            if (Granules(address, size, Shifts[0]) <= RollupAbove) {
+                newest = std::max(newest, Max(tables[0], 0, Shifts[0], address, size));
+            } else if (!coarse1) {
+                newest = std::max(newest, Max(rollups[0], 0, Shifts[1], address, size));
             }
             return newest;
         }

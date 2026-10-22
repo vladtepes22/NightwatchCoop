@@ -191,6 +191,8 @@ public:
     const Profile& profile;
     HwStage hw_stage;
     SwStage sw_stage{};
+    /// bbport: float arithmetic without NoContraction (Profile::fragment_exact_fp).
+    bool fp_contraction{};
 
     Id last_label{};
 

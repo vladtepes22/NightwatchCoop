@@ -269,7 +269,10 @@ private:
     // BB_HOT_PAGES=2, measured: a page becomes hot only when the guest wrote it before nearly every
     // use - at least HotMinFaults faults in a HotWindow, and no more than HotUsesPerFault uses per
     // fault. Re-uploading it on each use then copies what the faults made it copy anyway, without
-    // the fault and the re-protect; a page written once and read many times stays protected. At
+    // the fault and the re-protect; a page written once and read many times stays protected.
+    // HotUsesPerFault was 2 until 0.9.37 beta 2: per-frame constants read by several draws never
+    // qualified (14-62 hot pages at 2800 write faults/s), and each fault cost stage B a re-protect
+    // (0.35 us per packet, ~7% of it); the uploads run on the copy threads. At
     // most HotMaxPages pages are hot at once (8 MiB), so a scene full of them cannot grow the set
     // as the =1 rule did.
     static int HotMode() {
@@ -281,7 +284,7 @@ private:
     }
     static bool HotPagesEnabled() { return HotMode() != 0; }
     static constexpr u8 HotMinFaults = 16;
-    static constexpr u32 HotUsesPerFault = 2;
+    static constexpr u32 HotUsesPerFault = 8;
     static constexpr auto HotWindow = std::chrono::seconds(2);
     static constexpr s64 HotMaxPages = 2048;
 

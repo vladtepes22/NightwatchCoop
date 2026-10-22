@@ -36,6 +36,7 @@ const uint FLAG_OVERLAY = 2u; // the menu layer has something drawn
 const uint FLAG_NATIVE = 4u;  // the gain map belongs to this frame
 const uint FLAG_DEBUG = 8u;   // BB_HDR_DEBUG: the gain as a heat map
 const uint FLAG_UI_FRAME = 16u; // native mode, a frame without a scene: all of it is UI
+const uint FLAG_COMPARE = 32u;  // the left half as SDR (at paper white), for comparison
 
 // Linear brightness (SDR white = 1) above which the highlights are expanded: high, so large
 // bright areas (fog, sky) stay near paper white and only lamps, fire and sparks reach the peak.
@@ -140,6 +141,17 @@ void main() {
             shown = (hdr.flags & FLAG_NATIVE) != 0u ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.5, 0.0);
         }
         linear = shown;
+    }
+    if ((hdr.flags & FLAG_COMPARE) != 0u && (hdr.flags & FLAG_DEBUG) == 0u) {
+        // The left half as an SDR display shows the game (at paper white, sRGB's colours), a
+        // thin grey line between the two.
+        const float middle = 0.5 * float(textureSize(game, 0).x);
+        if (gl_FragCoord.x < middle) {
+            linear = sdr_linear;
+        }
+        if (abs(gl_FragCoord.x - middle) < 1.5) {
+            linear = vec3(0.5);
+        }
     }
     if ((hdr.flags & FLAG_OVERLAY) != 0u) {
         // The menu over the frame as the SDR path draws it (blended in sRGB), at paper white:

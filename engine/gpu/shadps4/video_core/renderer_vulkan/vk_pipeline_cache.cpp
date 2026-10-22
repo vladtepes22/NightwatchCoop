@@ -508,6 +508,10 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
         profile.uniform_stage_skip = skip;
     }
     profile.flatbuf_storage = profile.uniform_constant_buffers && !switch_on("BB_UBO_FLATBUF");
+    // bbport: pixel shader arithmetic the driver may fuse; BB_FS_CONTRACT=0 keeps it unfused.
+    profile.fragment_exact_fp = !switch_on("BB_FS_CONTRACT");
+    // bbport: manual interpolation only where it matters; BB_INTERP_HW=0 for every input.
+    profile.manual_interpolation_all = profile.needs_manual_interpolation && !switch_on("BB_INTERP_HW");
     if (profile.uniform_constant_buffers) {
         std::printf("Native shaders: constant buffers as uniform buffers (BB_NATIVE_SHADERS=0: "
                     "legacy), %s, %s, stages: %s (BB_UBO_STAGES), user data in %s "
@@ -518,8 +522,15 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
                     ubo_stages ? ubo_stages : "all",
                     profile.flatbuf_storage ? "a storage buffer" : "a uniform buffer");
     }
-    std::printf("Early depth: DEPTH_BEFORE_SHADER %s (BB_EARLY_Z)\n",
-                profile.early_fragment_tests ? "honoured" : "ignored");
+    std::printf("Early depth: DEPTH_BEFORE_SHADER %s (BB_EARLY_Z); pixel shader float math %s "
+                "(BB_FS_CONTRACT)%s\n",
+                profile.early_fragment_tests ? "honoured" : "ignored",
+                profile.fragment_exact_fp ? "unfused, as GCN" : "fused by the driver",
+                !profile.needs_manual_interpolation ? ""
+                : profile.manual_interpolation_all
+                    ? "; inputs interpolated by GCN's formula (BB_INTERP_HW=0)"
+                    : "; inputs interpolated by the GPU unless a shader needs GCN's exact formula "
+                      "(BB_INTERP_HW)");
     CreateNativeCache();
     WarmUp();
     std::scoped_lock lock{Registry().mutex};
@@ -527,17 +538,22 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
 }
 
 
-// bbport: shader/pipeline compile time on the GPU thread, reported by BB_FRAME_STATS.
-std::atomic<u64> g_bb_compile_ns;
-std::atomic<u32> g_bb_compiles;
+// bbport: shader/pipeline compile time on the GPU thread, reported by BB_FRAME_STATS (reset every
+// stats window). The _total pair only grows: the stall lines and the overlay's "Building shaders"
+// note take differences of it.
+std::atomic<u64> g_bb_compile_ns, g_bb_compile_ns_total;
+std::atomic<u32> g_bb_compiles, g_bb_compiles_total;
 namespace {
 struct CompileTimer {
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
     ~CompileTimer() {
-        g_bb_compile_ns += u64(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                   std::chrono::steady_clock::now() - start)
-                                   .count());
+        const u64 ns = u64(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               std::chrono::steady_clock::now() - start)
+                               .count());
+        g_bb_compile_ns += ns;
+        g_bb_compile_ns_total += ns;
         ++g_bb_compiles;
+        ++g_bb_compiles_total;
     }
 };
 } // namespace

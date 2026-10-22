@@ -98,6 +98,21 @@ const struct {
 std::atomic<int> g_key[kBindCount];
 std::atomic<int> g_mouse[kBindCount];
 
+// bbport: more than a key and a mouse button, and combinations. Each action's key (g_key) may
+// need modifiers held with it (g_key_mods), and up to kMore further inputs follow (g_more): a key
+// or a mouse button, each with its modifiers - "E, Shift+Q, Mouse2, Ctrl+Mouse4". A chord packs
+// the scancode or mouse input (bits 0-9), whether it is the mouse (bit 10) and the modifiers.
+constexpr int kMore = 3;
+constexpr std::uint32_t kChordCode = 0x3ff, kChordMouse = 1u << 10, kModCtrl = 1u << 11,
+                        kModShift = 1u << 12, kModAlt = 1u << 13, kMods = kModCtrl | kModShift | kModAlt;
+std::atomic<std::uint32_t> g_key_mods[kBindCount];
+std::atomic<std::uint32_t> g_more[kBindCount][kMore];
+// The modifiers the keyboard held at its last read, for the mouse's combinations.
+std::atomic<std::uint32_t> g_mods_now{0};
+// A modifier pressed during a capture: bound alone when released first, or the modifier of the
+// next key or mouse button.
+std::atomic<int> g_capture_modifier{0};
+
 std::atomic<int> g_capture{-1};
 // The Debug Menu key: held per device (keyboard, mouse), since each device's
 // actions are read on their own, and a press queued for the pad read.
@@ -171,9 +186,95 @@ int action_named(const char* name) {
 // binding (host_bindings_serial).
 std::atomic<std::uint64_t> g_serial{1};
 
-// "E", "Mouse2", "X, Mouse2", "none": the whole binding.
+bool is_modifier(int sc) {
+#if defined(BBHOST_HAVE_SDL3)
+    return sc == SDL_SCANCODE_LCTRL || sc == SDL_SCANCODE_RCTRL || sc == SDL_SCANCODE_LSHIFT ||
+           sc == SDL_SCANCODE_RSHIFT || sc == SDL_SCANCODE_LALT || sc == SDL_SCANCODE_RALT;
+#else
+    (void)sc;
+    return false;
+#endif
+}
+
+// The modifiers held, from SDL's key state (either side's key).
+std::uint32_t mods_held(const bool* keys, int nkeys) {
+    std::uint32_t mods = 0;
+#if defined(BBHOST_HAVE_SDL3)
+    const auto down = [&](int sc) { return sc < nkeys && keys[sc]; };
+    if (down(SDL_SCANCODE_LCTRL) || down(SDL_SCANCODE_RCTRL)) mods |= kModCtrl;
+    if (down(SDL_SCANCODE_LSHIFT) || down(SDL_SCANCODE_RSHIFT)) mods |= kModShift;
+    if (down(SDL_SCANCODE_LALT) || down(SDL_SCANCODE_RALT)) mods |= kModAlt;
+#else
+    (void)keys;
+    (void)nkeys;
+#endif
+    return mods;
+}
+
+std::string mods_text(std::uint32_t chord) {
+    std::string text;
+    if (chord & kModCtrl) text += "Ctrl+";
+    if (chord & kModShift) text += "Shift+";
+    if (chord & kModAlt) text += "Alt+";
+    return text;
+}
+
+// A chord as bbport.ini writes it ("Shift+E", "Ctrl+Mouse2"), or "" when it names nothing.
+std::string chord_token(std::uint32_t chord) {
+    const int code = int(chord & kChordCode);
+    if (!code) return "";
+    if (chord & kChordMouse) return mods_text(chord) + mouse_token(code);
+    const char* n = scancode_name(code);
+    return n ? mods_text(chord) + n : "";
+}
+
+// "Shift+E", "Ctrl+Mouse2", "WheelUp": a chord; 0 when the key is not an SDL key name.
+std::uint32_t parse_chord(std::string tok) {
+    std::uint32_t mods = 0;
+    for (bool more = true; more;) {
+        more = false;
+        for (const auto& [prefix, bit] : {std::pair{"Ctrl+", kModCtrl}, {"Control+", kModCtrl},
+                                          {"Shift+", kModShift}, {"Alt+", kModAlt}}) {
+            const std::size_t n = std::strlen(prefix);
+            if (tok.size() > n && SDL_strncasecmp(tok.c_str(), prefix, n) == 0) {
+                mods |= bit;
+                tok = trim(tok.substr(n));
+                more = true;
+            }
+        }
+    }
+    if (tok.size() == 6 && tok.rfind("Mouse", 0) == 0 && tok[5] >= '1' && tok[5] <= '5') {
+        return mods | kChordMouse | std::uint32_t(tok[5] - '0');
+    }
+    if (tok == "WheelUp" || tok == "WheelDown") {
+        return mods | kChordMouse | (tok == "WheelUp" ? 6u : 7u);
+    }
+    const int sc = scancode_from_name(tok);
+    return sc > 0 && std::uint32_t(sc) <= kChordCode ? mods | std::uint32_t(sc) : 0;
+}
+
+// The action's inputs, in order: its key (with its modifiers), its mouse button, the others.
+int chords_of(int a, std::uint32_t out[2 + kMore]) {
+    int n = 0;
+    if (const int key = g_key[a].load(std::memory_order_relaxed)) {
+        out[n++] = std::uint32_t(key) | g_key_mods[a].load(std::memory_order_relaxed);
+    }
+    if (const int mouse = g_mouse[a].load(std::memory_order_relaxed)) {
+        out[n++] = kChordMouse | std::uint32_t(mouse);
+    }
+    for (int i = 0; i < kMore; ++i) {
+        if (const std::uint32_t chord = g_more[a][i].load(std::memory_order_relaxed)) out[n++] = chord;
+    }
+    return n;
+}
+
+// "E", "Mouse2", "X, Mouse2", "E, Shift+Q, Mouse2", "none": the whole binding. The first key is
+// the action's key and the first mouse button without modifiers its mouse button (what the in-game
+// Key Bindings page shows and rebinds); the rest, up to kMore, follow.
 void set_from_text(int a, const std::string& text, const char* where) {
     int key = 0, mouse = 0;
+    std::uint32_t key_mods = 0, more[kMore] = {};
+    int n_more = 0;
     std::size_t pos = 0;
     while (pos <= text.size()) {
         std::size_t end = text.find(',', pos);
@@ -181,24 +282,28 @@ void set_from_text(int a, const std::string& text, const char* where) {
         const std::string tok = trim(text.substr(pos, end - pos));
         pos = end + 1;
         if (tok.empty() || tok == "none") continue;
-        if (tok.size() == 6 && tok.rfind("Mouse", 0) == 0 && tok[5] >= '1' && tok[5] <= '5') {
-            mouse = tok[5] - '0';
-            continue;
-        }
-        if (tok == "WheelUp" || tok == "WheelDown") {
-            mouse = tok == "WheelUp" ? 6 : 7;
-            continue;
-        }
-        const int sc = scancode_from_name(tok);
-        if (!sc) {
+        const std::uint32_t chord = parse_chord(tok);
+        if (!chord) {
             host_log("keys: %s: %s = \"%s\" - \"%s\" is not an SDL key name", where, kInfo[a].key, text.c_str(),
                      tok.c_str());
             continue;
         }
-        key = sc;
+        if (!(chord & kChordMouse) && !key) {
+            key = int(chord & kChordCode);
+            key_mods = chord & kMods;
+        } else if ((chord & kChordMouse) && !(chord & kMods) && !mouse) {
+            mouse = int(chord & kChordCode);
+        } else if (n_more < kMore) {
+            more[n_more++] = chord;
+        } else {
+            host_log("keys: %s: %s has more than %d inputs; \"%s\" left out", where, kInfo[a].key, 2 + kMore,
+                     tok.c_str());
+        }
     }
     g_key[a].store(key, std::memory_order_relaxed);
+    g_key_mods[a].store(key_mods, std::memory_order_relaxed);
     g_mouse[a].store(mouse, std::memory_order_relaxed);
+    for (int i = 0; i < kMore; ++i) g_more[a][i].store(more[i], std::memory_order_relaxed);
     g_serial.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -211,7 +316,9 @@ const BindingInfo& host_binding_info(int action) { return kInfo[action < 0 || ac
 void host_bindings_load_defaults() {
     for (int a = 0; a < kBindCount; ++a) {
         g_key[a].store(kInfo[a].def_key ? scancode_from_name(kInfo[a].def_key) : 0, std::memory_order_relaxed);
+        g_key_mods[a].store(0, std::memory_order_relaxed);
         g_mouse[a].store(kInfo[a].def_mouse, std::memory_order_relaxed);
+        for (auto& more : g_more[a]) more.store(0, std::memory_order_relaxed);
     }
     g_serial.fetch_add(1,std::memory_order_relaxed);
 }
@@ -226,49 +333,62 @@ bool host_bindings_parse(const char* name, const char* value) {
 void host_bindings_save(std::FILE* f) {
 
     for (int a = 0; a < kBindCount; ++a) {
-        std::string v;
-        if (const char* n = scancode_name(g_key[a].load(std::memory_order_relaxed))) v = n;
-        if (const int m = g_mouse[a].load(std::memory_order_relaxed)) {
-            v += v.empty() ? "" : ", ";
-            v += mouse_token(m);
-        }
-        std::fprintf(f, "bind.%s=%s\n", kInfo[a].key, v.empty() ? "none" : v.c_str());
+        std::fprintf(f, "bind.%s=%s\n", kInfo[a].key, host_binding_ini_value(a).c_str());
     }
 }
 
 std::string host_binding_ini_value(int a) {
-    const char* key=scancode_name(g_key[a].load());
-    std::string value=key?key:"";
-    const int m=g_mouse[a].load();
-    if(m) {if(!value.empty())value+=", ";value+=m==6?"WheelUp":m==7?"WheelDown":"Mouse"+std::to_string(m);}
-    return value.empty()?"none":value;
+    std::uint32_t chords[2 + kMore];
+    std::string value;
+    for (int i = 0, n = chords_of(a, chords); i < n; ++i) {
+        const std::string token = chord_token(chords[i]);
+        if (token.empty()) continue;
+        if (!value.empty()) value += ", ";
+        value += token;
+    }
+    return value.empty() ? "none" : value;
 }
 int host_binding_key(int action) { return action >= 0 && action < kBindCount ? g_key[action].load() : 0; }
 int host_binding_mouse(int action) { return action >= 0 && action < kBindCount ? g_mouse[action].load() : 0; }
 
 void host_binding_describe(int action, char* out, std::size_t n) {
     if (!n) return;
-    const char* k = scancode_name(host_binding_key(action));
-    // A lone ` is a speck in the menu's font.
-    if (k && std::strcmp(k, "`") == 0) k = "` (backtick)";
-    const int m = host_binding_mouse(action);
-    const char* ms = m >= 1 && m <= kMouseInputs ? kMouseNames[m] : nullptr;
-    if (k && ms) {
-        std::snprintf(out, n, "%s  /  %s", k, ms);
-    } else {
-        std::snprintf(out, n, "%s", k ? k : ms ? ms : "Unbound");
+    if (action < 0 || action >= kBindCount) {
+        std::snprintf(out, n, "Unbound");
+        return;
     }
+    std::uint32_t chords[2 + kMore];
+    std::string text;
+    for (int i = 0, count = chords_of(action, chords); i < count; ++i) {
+        const int code = int(chords[i] & kChordCode);
+        const char* name = nullptr;
+        if (chords[i] & kChordMouse) {
+            name = code >= 1 && code <= kMouseInputs ? kMouseNames[code] : nullptr;
+        } else {
+            name = scancode_name(code);
+            // A lone ` is a speck in the menu's font.
+            if (name && std::strcmp(name, "`") == 0) name = "` (backtick)";
+        }
+        if (!name) continue;
+        if (!text.empty()) text += "  /  ";
+        text += mods_text(chords[i]) + name;
+    }
+    std::snprintf(out, n, "%s", text.empty() ? "Unbound" : text.c_str());
 }
 
 void host_binding_prompt(int action, char* out, std::size_t n) {
     if (!n) return;
     out[0] = '\0';
+    if (action < 0 || action >= kBindCount) return;
     const char* k = scancode_name(host_binding_key(action));
     const int m = host_binding_mouse(action);
     // The key first: a player who bound both reads the key in a sentence more
     // easily than "Left Button", and the prompt has room for one.
-    const char* what = k ? k : m >= 1 && m <= kMouseInputs ? kMouseShort[m] : nullptr;
-    if (what) std::snprintf(out, n, "%s", what);
+    if (k) {
+        std::snprintf(out, n, "%s%s", mods_text(g_key_mods[action].load(std::memory_order_relaxed)).c_str(), k);
+    } else if (m >= 1 && m <= kMouseInputs) {
+        std::snprintf(out, n, "%s", kMouseShort[m]);
+    }
 }
 
 namespace {
@@ -294,11 +414,44 @@ constexpr float kWalkPush = 0.6f;
 
 }  // namespace
 
-void host_bindings_keys_held(const bool* keys, int nkeys, bool held[kBindCount]) {
+namespace {
+// The actions whose keys (or, with `mouse`, mouse inputs) are held with their modifiers. A chord
+// held with more modifiers wins over one of the same key with fewer: with E on Interact and
+// Shift+E on another action, Shift+E is only the other one. Extra modifiers do not stop a chord
+// (E with Shift held for the strong attack still interacts).
+template <typename Down>
+void held_chords(bool mouse, Down down, std::uint32_t mods, bool held[kBindCount]) {
+    struct Held {
+        int action;
+        std::uint32_t code, mods;
+    };
+    Held found[kBindCount * (2 + kMore)];
+    int count = 0;
     for (int a = 0; a < kBindCount; ++a) {
-        const int sc = g_key[a].load(std::memory_order_relaxed);
-        held[a] = sc > 0 && sc < nkeys && keys[sc];
+        held[a] = false;
+        std::uint32_t chords[2 + kMore];
+        for (int i = 0, n = chords_of(a, chords); i < n; ++i) {
+            const std::uint32_t chord = chords[i];
+            if (((chord & kChordMouse) != 0) != mouse) continue;
+            const std::uint32_t code = chord & kChordCode, need = chord & kMods;
+            if (down(code) && (need & ~mods) == 0) found[count++] = {a, code, need};
+        }
     }
+    for (int i = 0; i < count; ++i) {
+        bool beaten = false;
+        for (int j = 0; j < count && !beaten; ++j) {
+            beaten = found[j].code == found[i].code && found[j].mods != found[i].mods &&
+                     (found[j].mods & found[i].mods) == found[i].mods;
+        }
+        if (!beaten) held[found[i].action] = true;
+    }
+}
+}  // namespace
+
+void host_bindings_keys_held(const bool* keys, int nkeys, bool held[kBindCount]) {
+    const std::uint32_t mods = mods_held(keys, nkeys);
+    g_mods_now.store(mods, std::memory_order_relaxed);
+    held_chords(false, [&](std::uint32_t sc) { return sc > 0 && int(sc) < nkeys && keys[sc]; }, mods, held);
     for (const auto& pair : kOpposites) {
         if (held[pair[0]] && held[pair[1]]) held[pair[0]] = held[pair[1]] = false;
     }
@@ -307,10 +460,9 @@ void host_bindings_keys_held(const bool* keys, int nkeys, bool held[kBindCount])
 }
 
 void host_bindings_mouse_held(std::uint32_t buttons, bool held[kBindCount]) {
-    for (int a = 0; a < kBindCount; ++a) {
-        const int m = g_mouse[a].load(std::memory_order_relaxed);
-        held[a] = m >= 1 && m <= kMouseInputs && (buttons & (1u << (m - 1)));
-    }
+    held_chords(
+        true, [&](std::uint32_t m) { return m >= 1 && m <= std::uint32_t(kMouseInputs) && (buttons & (1u << (m - 1))); },
+        g_mods_now.load(std::memory_order_relaxed), held);
     g_walk_on_mouse.store(held[kBindWalk], std::memory_order_relaxed);
     note_debug_key(1, held[kBindDebugMenu]);
 }
@@ -394,31 +546,81 @@ void finish(int a, const char* what) {
 }
 }  // namespace
 
-bool host_bind_capture_key(int scancode) {
+namespace {
+// One input, one action: whatever else had this chord gives it up, which is what a player
+// rebinding means. The same key with other modifiers is another input and stays.
+void take_chord(int a, std::uint32_t chord) {
+    for (int b = 0; b < kBindCount; ++b) {
+        if (b == a) continue;
+        bool gave = false;
+        if (!(chord & kChordMouse) && g_key[b].load(std::memory_order_relaxed) == int(chord & kChordCode) &&
+            g_key_mods[b].load(std::memory_order_relaxed) == (chord & kMods)) {
+            g_key[b].store(0, std::memory_order_relaxed);
+            g_key_mods[b].store(0, std::memory_order_relaxed);
+            gave = true;
+        }
+        if ((chord & kChordMouse) && !(chord & kMods) &&
+            g_mouse[b].load(std::memory_order_relaxed) == int(chord & kChordCode)) {
+            g_mouse[b].store(0, std::memory_order_relaxed);
+            gave = true;
+        }
+        for (auto& more : g_more[b]) {
+            if (more.load(std::memory_order_relaxed) == chord) {
+                more.store(0, std::memory_order_relaxed);
+                gave = true;
+            }
+        }
+        if (gave) host_log("keys: %s gives up %s", kInfo[b].key, chord_token(chord).c_str());
+    }
+}
+
+void bind_key(int a, int scancode, std::uint32_t mods) {
+    g_capture_modifier.store(0, std::memory_order_relaxed);
+    take_chord(a, std::uint32_t(scancode) | mods);
+    g_key[a].store(scancode, std::memory_order_relaxed);
+    g_key_mods[a].store(mods, std::memory_order_relaxed);
+    finish(a, "rebound");
+}
+}  // namespace
+
+bool host_bind_capture_key(int scancode, unsigned sdl_mods) {
     const int a = g_capture.load(std::memory_order_relaxed);
     if (a < 0) return false;
 #if defined(BBHOST_HAVE_SDL3)
     if (scancode == SDL_SCANCODE_ESCAPE) {
+        g_capture_modifier.store(0, std::memory_order_relaxed);
         finish(a, "unchanged");
         return true;
     }
     if (scancode == SDL_SCANCODE_DELETE) {
-        g_key[a].store(0, std::memory_order_relaxed);
-        g_mouse[a].store(0, std::memory_order_relaxed);
+        host_binding_clear(a);
+        g_capture_modifier.store(0, std::memory_order_relaxed);
         finish(a, "unbound");
         return true;
     }
 #endif
-    // One key, one action: whatever had it gives it up, which is what a
-    // player rebinding a key means.
-    for (int b = 0; b < kBindCount; ++b) {
-        if (b != a && g_key[b].load(std::memory_order_relaxed) == scancode) {
-            g_key[b].store(0, std::memory_order_relaxed);
-            host_log("keys: %s gives up that key", kInfo[b].key);
-        }
+    // A modifier waits: it is the modifier of the next key or button, or bound alone when it is
+    // let go first (host_bind_capture_key_up).
+    if (is_modifier(scancode)) {
+        g_capture_modifier.store(scancode, std::memory_order_relaxed);
+        return true;
     }
-    g_key[a].store(scancode, std::memory_order_relaxed);
-    finish(a, "rebound");
+    std::uint32_t mods = 0;
+#if defined(BBHOST_HAVE_SDL3)
+    if (sdl_mods & SDL_KMOD_CTRL) mods |= kModCtrl;
+    if (sdl_mods & SDL_KMOD_SHIFT) mods |= kModShift;
+    if (sdl_mods & SDL_KMOD_ALT) mods |= kModAlt;
+#else
+    (void)sdl_mods;
+#endif
+    bind_key(a, scancode, mods);
+    return true;
+}
+
+bool host_bind_capture_key_up(int scancode) {
+    const int a = g_capture.load(std::memory_order_relaxed);
+    if (a < 0 || !scancode || g_capture_modifier.load(std::memory_order_relaxed) != scancode) return false;
+    bind_key(a, scancode, 0);
     return true;
 }
 
@@ -434,13 +636,32 @@ bool host_bind_capture_mouse(int button) {
                  static_cast<int>(now_ms() - g_capture_ms.load(std::memory_order_relaxed)));
         return true;
     }
-    for (int b = 0; b < kBindCount; ++b) {
-        if (b != a && g_mouse[b].load(std::memory_order_relaxed) == button) {
-            g_mouse[b].store(0, std::memory_order_relaxed);
-            host_log("keys: %s gives up that button", kInfo[b].key);
+    std::uint32_t mods = 0;
+#if defined(BBHOST_HAVE_SDL3)
+    const SDL_Keymod held = SDL_GetModState();
+    if (held & SDL_KMOD_CTRL) mods |= kModCtrl;
+    if (held & SDL_KMOD_SHIFT) mods |= kModShift;
+    if (held & SDL_KMOD_ALT) mods |= kModAlt;
+#endif
+    g_capture_modifier.store(0, std::memory_order_relaxed);
+    const std::uint32_t chord = kChordMouse | std::uint32_t(button) | mods;
+    take_chord(a, chord);
+    if (!mods) {
+        g_mouse[a].store(button, std::memory_order_relaxed);
+    } else {
+        // A button with modifiers is one of the further inputs: the first free one, else the last.
+        bool placed = false;
+        for (auto& more : g_more[a]) {
+            if (more.load(std::memory_order_relaxed) == chord) placed = true;
         }
+        for (auto& more : g_more[a]) {
+            if (!placed && !more.load(std::memory_order_relaxed)) {
+                more.store(chord, std::memory_order_relaxed);
+                placed = true;
+            }
+        }
+        if (!placed) g_more[a][kMore - 1].store(chord, std::memory_order_relaxed);
     }
-    g_mouse[a].store(button, std::memory_order_relaxed);
     finish(a, "rebound");
     return true;
 }
@@ -467,7 +688,9 @@ bool host_bind_take_clear_key() {
 void host_binding_clear(int action) {
     if (action < 0 || action >= kBindCount) return;
     g_key[action].store(0, std::memory_order_relaxed);
+    g_key_mods[action].store(0, std::memory_order_relaxed);
     g_mouse[action].store(0, std::memory_order_relaxed);
+    for (auto& more : g_more[action]) more.store(0, std::memory_order_relaxed);
     g_serial.fetch_add(1, std::memory_order_relaxed);
     host_log("keys: %s cleared", kInfo[action].key);
 }

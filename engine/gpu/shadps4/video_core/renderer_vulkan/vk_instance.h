@@ -102,6 +102,10 @@ public:
     bool IsGuestMemoryExportSupported() const {
         return guest_memory_export;
     }
+    /// bbport: host memory can be imported (VK_EXT_external_memory_host; Windows PC memory model).
+    bool IsGuestMemoryImportSupported() const {
+        return guest_memory_import;
+    }
 
     TracyVkCtx GetProfilerContext() const {
         return profiler_context;
@@ -374,6 +378,11 @@ public:
         return hdr_metadata;
     }
 
+    /// bbport: VK_NV_low_latency2 is enabled for its boost hint (Swapchain), without Streamline.
+    bool IsLowLatencyBoostEnabled() const {
+        return low_latency_boost;
+    }
+
     /// Returns the vendor ID of the physical device
     u32 GetVendorID() const {
         return properties.vendorID;
@@ -630,6 +639,7 @@ private:
     vk::Queue graphics_queue;
     vk::Queue readback_queue;
     bool guest_memory_export{};
+    bool guest_memory_import{};
     u32 readback_family_index = NoFamily;
     std::vector<vk::PhysicalDevice> physical_devices;
     std::vector<std::string> available_extensions;
@@ -670,6 +680,7 @@ private:
     bool dlss_extensions{};         // bbport: VK_NVX_binary_import + VK_NVX_image_view_handle
     bool full_screen_exclusive{};   // bbport: VK_EXT_full_screen_exclusive (Windows)
     bool hdr_metadata{};            // bbport: VK_EXT_hdr_metadata
+    bool low_latency_boost{};       // bbport: VK_NV_low_latency2 (+ VK_KHR_present_id), boost hint
     bool cooperative_matrix{};      // bbport: VK_KHR_cooperative_matrix (FSR 4.1.1 FP8 variant)
     bool shader_float8{};           // bbport: VK_EXT_shader_float8 with FP8 matrices (RDNA4)
     bool supports_memory_budget{};

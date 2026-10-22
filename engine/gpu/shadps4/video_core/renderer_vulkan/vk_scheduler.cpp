@@ -150,8 +150,9 @@ Scheduler::Scheduler(const Instance& instance, bool threaded_recording)
             workers.push_back(std::move(worker));
         }
         for (u32 i = 0; i < count; ++i) {
-            workers[i]->thread =
-                std::jthread(std::bind_front(&Scheduler::RecorderThread, this), i);
+            // Lambdas, not std::bind_front: clang with libstdc++ (Linux) finds no stop_token call.
+            workers[i]->thread = std::jthread(
+                [this](std::stop_token stoken, u32 index) { RecorderThread(stoken, index); }, i);
         }
         std::printf("GPU: %u Vulkan recording thread%s, segments of %zu KiB\n", count,
                     count == 1 ? "" : "s", split_bytes / 1024);
@@ -164,15 +165,16 @@ Scheduler::Scheduler(const Instance& instance, bool threaded_recording)
     if (!workers.empty()) {
         const char* async = std::getenv("BB_ASYNC_SUBMIT");
         async_submit = !async || async[0] != '0';
-        // OptiScaler loaded: one thread submits (its submit hooks keep global state).
-        async_submit = async_submit && !OptiScaler::Part("BB_OPTISCALER_SYNC_SUBMIT");
+        // OptiScaler's frame generation on: one thread submits (its submit hooks keep global
+        // state). Upscaling alone keeps async submit (0.9.33 ran it so at full FPS); =1 forces it.
+        async_submit = async_submit && !OptiScaler::SyncSubmit();
         if (async_submit) {
             std::printf("GPU: submissions go out from the recording threads (BB_ASYNC_SUBMIT)\n");
         }
     }
     AllocateWorkerCommandBuffers();
     priority_pending_ops_thread =
-        std::jthread(std::bind_front(&Scheduler::PriorityPendingOpsThread, this));
+        std::jthread([this](std::stop_token stoken) { PriorityPendingOpsThread(stoken); });
 }
 
 Scheduler::~Scheduler() {

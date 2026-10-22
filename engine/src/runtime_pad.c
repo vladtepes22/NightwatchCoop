@@ -212,12 +212,12 @@ enum {
     IN_CROSS, IN_CIRCLE, IN_SQUARE, IN_TRIANGLE, IN_L1, IN_R1, IN_L2, IN_R2, IN_L3, IN_R3,
     IN_OPTIONS, IN_TOUCHPAD, IN_TOUCHPAD_RIGHT, IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT, IN_PING, IN_GATHER,
     IN_MOVE_UP, IN_MOVE_DOWN, IN_MOVE_LEFT, IN_MOVE_RIGHT, IN_LOOK_UP, IN_LOOK_DOWN, IN_LOOK_LEFT,
-    IN_LOOK_RIGHT, IN_COUNT
+    IN_LOOK_RIGHT, IN_MENU_CONFIRM, IN_MENU_BACK, IN_COUNT
 };
 static const char *const input_names[IN_COUNT]={
     "cross","circle","square","triangle","l1","r1","l2","r2","l3","r3","options","touchpad",
     "touchpad_right","up","down","left","right","ping","gather","move_up","move_down","move_left","move_right",
-    "look_up","look_down","look_left","look_right",
+    "look_up","look_down","look_left","look_right","menu_confirm","menu_back",
 };
 static const uint32_t input_buttons[IN_COUNT]={
     BTN_CROSS,BTN_CIRCLE,BTN_SQUARE,BTN_TRIANGLE,BTN_L1,BTN_R1,BTN_L2,BTN_R2,BTN_L3,BTN_R3,
@@ -292,7 +292,11 @@ static void load_bindings(void) {
         *eq=0;
         int input=-1;
         for (int i=0;i<IN_COUNT;++i) if (!strcmp(line+4,input_names[i])) input=i;
-        if (input<0 || (pad && input>=IN_MOVE_UP)) { printf("Runtime: controls: unknown input %s\n",line); continue; }
+        /* move_* and look_* are keyboard only, menu_confirm and menu_back gamepad only (the
+         * keyboard's are bind.confirm and bind.back, gpu/shim/input/bindings.cpp). */
+        if (input<0 || (pad && input>=IN_MOVE_UP && input<IN_MENU_CONFIRM) || (keyboard && input>=IN_MENU_CONFIRM)) {
+            printf("Runtime: controls: unknown input %s\n",line); continue;
+        }
         Binding *b=&bindings[input];
         if (keyboard) b->key_count=0; else b->pad_count=0;
         for (char *name=strtok(eq+1,",\r\n"); name; name=strtok(NULL,",\r\n")) {
@@ -316,11 +320,22 @@ static int key_down(const bool *k, int input) {
     for (int i=0;i<bindings[input].key_count;++i) if (k[bindings[input].keys[i]]) return 1;
     return 0;
 }
-/* The bound gamepad buttons' state; triggers as their analog value. */
-static int pad_value(SDL_Gamepad *g, int input) {
+/* bbport (0.9.37 beta 6): pad.menu_confirm / pad.menu_back: gamepad buttons that confirm and go
+ * back while a game menu has the screen, whatever they do in the world. A player who put Circle on
+ * L2 to sprint while steering the camera went back with L2 in every menu. In a menu those buttons
+ * give only that; unset (the default), menus get the buttons' world inputs as before. */
+static int menu_pad_button(int b) {
+    for (int m=IN_MENU_CONFIRM;m<=IN_MENU_BACK;++m)
+        for (int i=0;i<bindings[m].pad_count;++i) if (bindings[m].pad[i]==b) return 1;
+    return 0;
+}
+/* The bound gamepad buttons' state; triggers as their analog value. in_menu: the menu buttons
+ * (above) are left out. */
+static int pad_value(SDL_Gamepad *g, int input, int in_menu) {
     int value=0;
     for (int i=0;i<bindings[input].pad_count;++i) {
         const int b=bindings[input].pad[i];
+        if (in_menu && menu_pad_button(b)) continue;
         const int v=b==PAD_LEFT_TRIGGER ? trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFT_TRIGGER))
                   : b==PAD_RIGHT_TRIGGER ? trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))
                   : SDL_GetGamepadButton(g,(SDL_GamepadButton)b) ? 255 : 0;
@@ -365,21 +380,35 @@ static void sample_host(PadData *d) {
     if (ping_key && !ping_key_down && bbgpu_ping_combo_enabled()) bbgpu_ping_request();
     ping_key_down = ping_key;
     static int ping_pad_down;
-    const int ping_pad = g && pad_value(g,IN_PING)>30;
+    const int ping_pad = g && pad_value(g,IN_PING,0)>30;
     if (ping_pad && !ping_pad_down && bbgpu_ping_combo_enabled()) bbgpu_ping_request();
     ping_pad_down = ping_pad;
     static int gather_pad_down;
-    const int gather_pad = g && pad_value(g,IN_GATHER)>30;
+    const int gather_pad = g && pad_value(g,IN_GATHER,0)>30;
     if (gather_pad && !gather_pad_down && bbgpu_gather_combo_enabled()) bbgpu_gather_request("gather button");
     gather_pad_down = gather_pad;
     if (g) {
         int touch_right=0;
+        uint32_t menu_confirm=0, menu_back=0;
+        int in_menu=0, menu_down=0;
+        /* A menu button that closed its menu stays out of the world until it is let go of: Back
+         * held as the menu closed was a shot from the gun the button fires in the world. */
+        static int menu_held;
+        if (bindings[IN_MENU_CONFIRM].pad_count || bindings[IN_MENU_BACK].pad_count) {
+            in_menu=bbgpu_menu_buttons(&menu_confirm,&menu_back);
+            menu_down=(pad_value(g,IN_MENU_CONFIRM,0)>30 ? 1 : 0)|(pad_value(g,IN_MENU_BACK,0)>30 ? 2 : 0);
+            menu_held=in_menu ? menu_down : menu_held&menu_down;
+        }
         for (int i=IN_CROSS;i<=IN_RIGHT;++i) {
-            const int v=pad_value(g,i);
+            const int v=pad_value(g,i,in_menu || menu_held);
             if (i==IN_L2) d->l2=(uint8_t)v;
             if (i==IN_R2) d->r2=(uint8_t)v;
             if (i==IN_TOUCHPAD_RIGHT) touch_right=v>30;
             else if (v>30) d->buttons|=input_buttons[i];
+        }
+        if (in_menu) {
+            if (menu_down&1) d->buttons|=menu_confirm;
+            if (menu_down&2) d->buttons|=menu_back;
         }
         d->left_x=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTX)); d->left_y=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTY));
         d->right_x=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTX)); d->right_y=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTY));

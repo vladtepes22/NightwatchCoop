@@ -197,7 +197,7 @@ bool Install(std::uint8_t* image,std::size_t size) {
     g_watch=menu_steps_watch(7,u"LevelUp");
     if (g_watch<0) { runtime_file_unmount(guest.c_str());return false; }
     g_on=true;
-    host_log("rebirth: Altar of Despair uses bbhost's native respec with Yharnam Stone, refund and undo");
+    host_log("rebirth: Altar of Despair uses the native respec with Yharnam Stone, refund and undo");
     return true;
 }
 }

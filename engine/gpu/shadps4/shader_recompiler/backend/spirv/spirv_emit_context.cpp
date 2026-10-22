@@ -7,6 +7,7 @@
 #include "shader_recompiler/frontend/fetch_shader.h"
 #include "shader_recompiler/ir/attribute.h"
 #include "shader_recompiler/ir/microinstruction.h"
+#include "shader_recompiler/native/tone_curve.h"
 #include "shader_recompiler/runtime_info.h"
 
 #include <boost/container/static_vector.hpp>
@@ -71,7 +72,10 @@ void Name(EmitContext& ctx, Id object, std::string_view format_str, Args&&... ar
 EmitContext::EmitContext(const Profile& profile_, const RuntimeInfo& runtime_info_, Info& info_,
                          Bindings& binding_)
     : Sirit::Module(profile_.supported_spirv), info{info_}, runtime_info{runtime_info_},
-      profile{profile_}, hw_stage{info.hw_stage}, sw_stage{info.sw_stage}, binding{binding_} {
+      profile{profile_}, hw_stage{info.hw_stage}, sw_stage{info.sw_stage},
+      fp_contraction{info.hw_stage == HwStage::Fragment && !profile_.fragment_exact_fp &&
+                     !info.stores.Get(IR::Attribute::Depth)},
+      binding{binding_} {
     if (info.uses_dma || VertexMotion()) {
         SetMemoryModel(spv::AddressingModel::PhysicalStorageBuffer64, spv::MemoryModel::GLSL450);
     } else {
@@ -789,8 +793,14 @@ void EmitContext::DefineMotionAddressBlock() {
 
 void EmitContext::DefinePushDataBlock() {
     // Create push constants block for instance steps rates
-    const Id struct_type{Name(TypeStruct(F32[1], F32[1], F32[1], F32[1], U32[4], U32[4], U32[4],
-                                         U32[4], U32[4], U32[4], U32[2], U32[1], U32[1]),
+    // bbport: modules with the tone curve extension declare its parameters after the block.
+    const Id struct_type{Name(info.uses_tone_curve
+                                  ? TypeStruct(F32[1], F32[1], F32[1], F32[1], U32[4], U32[4],
+                                               U32[4], U32[4], U32[4], U32[4], U32[2], U32[1],
+                                               U32[1], F32[4])
+                                  : TypeStruct(F32[1], F32[1], F32[1], F32[1], U32[4], U32[4],
+                                               U32[4], U32[4], U32[4], U32[4], U32[2], U32[1],
+                                               U32[1]),
                               "AuxData")};
     Decorate(struct_type, spv::Decoration::Block);
     MemberName(struct_type, PushData::XOffsetIndex, "xoffset");
@@ -819,6 +829,11 @@ void EmitContext::DefinePushDataBlock() {
     MemberDecorate(struct_type, PushData::MotionParamIndex, spv::Decoration::Offset, 120U);
     MemberName(struct_type, PushData::SceneSizeIndex, "scene_size");
     MemberDecorate(struct_type, PushData::SceneSizeIndex, spv::Decoration::Offset, 124U);
+    if (info.uses_tone_curve) {
+        MemberName(struct_type, PushData::ToneCurveIndex, "tone_curve");
+        MemberDecorate(struct_type, PushData::ToneCurveIndex, spv::Decoration::Offset,
+                       Native::ToneCurvePushOffset);
+    }
     push_data_block = DefineVar(struct_type, spv::StorageClass::PushConstant);
     Name(push_data_block, "push_data");
     interfaces.push_back(push_data_block);

@@ -130,8 +130,8 @@ private:
 
     OwnImage luma;     ///< RG16F, half the scene's size: the brightest channel's 2x2 max, average
     OwnImage snapshot; ///< RGBA8, the tonemapped frame before the UI
-    Buffer partials;   ///< vec2 per STATS group
-    Buffer state;      ///< hdr_native.comp's Exposure, zero at start
+    Buffer partials;   ///< per STATS group: the exposure sums and the tone curve's bin sums
+    Buffer state;      ///< hdr_native.comp's state (exposure, tone curve, tiles), zero at start
     bool state_cleared = false;
     /// The exposure was measured in the last frame (else the next measurement replaces it).
     bool measured_last_frame = false;

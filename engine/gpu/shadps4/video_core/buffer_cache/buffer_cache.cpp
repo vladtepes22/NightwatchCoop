@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <chrono>
+#include <thread>
 #include <array>
 #include <map>
 #include <unordered_map>
@@ -411,6 +412,38 @@ bool GarlicInVram() {
     return on;
 }
 
+/// bbport BB_DYNAMIC_RETRY=<seconds> (default 10; 0: off, CPU-written blocks stay in place for
+/// good as before): the wait before a block moved in place for CPU writes gets a VRAM copy again,
+/// doubled each time it goes back in place (up to 32 times).
+static u32 DynamicRetrySeconds() {
+    static const u32 seconds = [] {
+        const char* env = std::getenv("BB_DYNAMIC_RETRY");
+        return env && env[0] ? u32(std::strtoul(env, nullptr, 10)) : 10u;
+    }();
+    return seconds;
+}
+
+/// bbport BB_DYNAMIC_RETRY_MB=<MiB a second> (default 8): blocks retried at most, so a retry of
+/// data the CPU does rewrite every frame (write faults, then a move back) comes a little at a time.
+static u64 DynamicRetryBytes() {
+    static const u64 bytes = [] {
+        const char* env = std::getenv("BB_DYNAMIC_RETRY_MB");
+        return (env && env[0] ? std::strtoull(env, nullptr, 10) : 8ull) << 20;
+    }();
+    return bytes;
+}
+
+/// bbport BB_EVACUATE_IN_USE=1: an evacuation (ProcessIdleBlocks) moves in place the blocks of its
+/// chunk the GPU reads now too, while VRAM has room, as before; they came back at their next binding
+/// (two sparse binds each, read over PCIe in between). Default 0: those stay in VRAM then.
+static bool EvacuateInUse() {
+    static const bool on = [] {
+        const char* env = std::getenv("BB_EVACUATE_IN_USE");
+        return env && env[0] == '1';
+    }();
+    return on;
+}
+
 void DisableGuestInPlace() {
     Detail::guest_in_place.store(2, std::memory_order_relaxed);
     Detail::write_tracking.store(0, std::memory_order_relaxed); // recomputed: now on
@@ -429,7 +462,21 @@ bool Detail::ComputeWriteTracking() {
 bool WriteVerify() {
     static const bool on = [] {
         const char* env = std::getenv("BB_WRITE_VERIFY");
-        return env && env[0] == '1';
+#ifdef _WIN32
+        // bbport: on by default on Windows. Pages read in place need no tracking (the GPU reads
+        // the bytes as they are), but VRAM copies and images do, and not every writer of theirs
+        // is hooked (the smoke test met two at the title). Protected, their writes are handled as
+        // with write tracking; the hot per-frame data the game rewrites stays unprotected.
+        // BB_WRITE_VERIFY=0: hooks alone.
+        const bool enabled = !(env && env[0] == '0');
+#else
+        const bool enabled = env && env[0] == '1';
+#endif
+        if (enabled && GuestInPlace()) {
+            std::printf("Guest memory: VRAM copies and images keep write protection; memory the GPU "
+                        "uses in place has none (BB_WRITE_VERIFY)\n");
+        }
+        return enabled;
     }();
     return on && !WriteTracking();
 }
@@ -496,6 +543,19 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     if (GuestInPlace()) {
         static BufferCache* hooked_cache = this;
         BbGuestHooks::Install([](u64 address, u64 size) { hooked_cache->NoteFreshRange(address, size); });
+        if (DynamicRetrySeconds() != 0) {
+            std::printf("Guest memory: blocks moved in place for CPU writes get a VRAM copy again "
+                        "after %u s, the wait doubled each time (%llu MiB/s at most; "
+                        "BB_DYNAMIC_RETRY=0: in place for good)\n",
+                        DynamicRetrySeconds(), (unsigned long long)(DynamicRetryBytes() >> 20));
+        } else {
+            std::printf("Guest memory: blocks moved in place for CPU writes stay there "
+                        "(BB_DYNAMIC_RETRY=0)\n");
+        }
+        if (EvacuateInUse()) {
+            std::printf("Guest memory: evacuations move blocks the GPU reads now too "
+                        "(BB_EVACUATE_IN_USE=1)\n");
+        }
     }
     // bbport BB_DEFER_PROTECT: an upload's write protection may wait for its copy only where every
     // upload is a CPU copy of whole pages (not the GPU reading guest chunks, not twins keeping
@@ -990,6 +1050,10 @@ std::pair<const Buffer*, u64> BufferCache::ObtainBuffer(VAddr device_addr, u32 s
             BbStats::bound_in_place_bytes.fetch_add(size, std::memory_order_relaxed);
             if (is_written) {
                 BbStats::bound_in_place_written_bytes.fetch_add(size, std::memory_order_relaxed);
+            }
+            bound_in_place_bytes.fetch_add(size, std::memory_order_relaxed);
+            if (dynamic_blocks.Overlaps(first_block, last_block + 1)) {
+                bound_dynamic_bytes.fetch_add(size, std::memory_order_relaxed);
             }
             if (is_texel_buffer && !is_written) {
                 SynchronizeMemoryFromImage(arena, device_addr, size);
@@ -1522,8 +1586,8 @@ std::pair<vk::DeviceMemory, u64> BufferCache::AllocateResidency(u64 bytes) {
             std::printf("Guest memory: no system memory either for %llu MiB of the game's data\n",
                         (unsigned long long)(size >> 20));
         }
-        if (spare_residency.valid()) {
-            if (const auto spare = spare_residency.get()) {
+        if (spare_residency) {
+            if (const auto spare = TakeSpareResidency()) {
                 instance.GetDevice().freeMemory(spare);
                 BbStats::residency_alloc_bytes.fetch_sub(64_MB, std::memory_order_relaxed);
                 BbStats::device_free_bytes.fetch_add(64_MB, std::memory_order_relaxed);
@@ -1551,8 +1615,8 @@ std::pair<vk::DeviceMemory, u64> BufferCache::AllocateResidency(u64 bytes) {
     if (residency_used + bytes > residency_size) {
         const u64 size = std::max(bytes, ResidencyBlock);
         vk::DeviceMemory spare{};
-        if (size == ResidencyBlock && spare_residency.valid()) {
-            spare = spare_residency.get(); // null when the background allocation failed
+        if (size == ResidencyBlock && spare_residency) {
+            spare = TakeSpareResidency(); // null when it failed or came late
         }
         residency_memory = spare ? spare : allocate(size);
         residency_size = size;
@@ -1562,10 +1626,27 @@ std::pair<vk::DeviceMemory, u64> BufferCache::AllocateResidency(u64 bytes) {
     const u64 offset = residency_used;
     residency_used += bytes;
     residency_chunks[static_cast<VkDeviceMemory>(residency_memory)].used += bytes;
-    if (!spare_residency.valid() && residency_used * 2 >= residency_size &&
+    if (!spare_residency && residency_used * 2 >= residency_size &&
         vram_level.load(std::memory_order_relaxed) == 0) {
-        spare_residency =
-            std::async(std::launch::async, try_allocate, ResidencyBlock, arena_memory_type_index);
+        auto spare = std::make_shared<SpareBlock>();
+        spare_residency = spare;
+        std::thread([this, spare, try_allocate, type = arena_memory_type_index] {
+            const vk::DeviceMemory memory = try_allocate(ResidencyBlock, type);
+            std::scoped_lock lk{spare->mutex};
+            if (spare->abandoned) {
+                // Stage B stopped waiting and allocated on its own.
+                if (memory) {
+                    instance.GetDevice().freeMemory(memory);
+                    BbStats::residency_alloc_bytes.fetch_sub(ResidencyBlock,
+                                                             std::memory_order_relaxed);
+                    BbStats::device_free_bytes.fetch_add(ResidencyBlock, std::memory_order_relaxed);
+                }
+                return;
+            }
+            spare->memory = memory;
+            spare->done = true;
+            spare->cv.notify_all();
+        }).detach();
     }
     NoteResidencyUnused();
     return {residency_memory, offset};
@@ -1614,9 +1695,27 @@ void BufferCache::UpdateVramLevel(u32 now) {
     }
 }
 
+vk::DeviceMemory BufferCache::TakeSpareResidency() {
+    const auto spare = std::move(spare_residency);
+    spare_residency.reset();
+    if (!spare) {
+        return {};
+    }
+    std::unique_lock lk{spare->mutex};
+    if (!spare->cv.wait_for(lk, std::chrono::milliseconds(50), [&] { return spare->done; })) {
+        spare->abandoned = true;
+        if (spare_residency_timeouts++ < 10) {
+            std::printf("Guest memory: the background 64 MiB block was not ready after 50 ms; "
+                        "allocated directly (it is freed when it comes)\n");
+        }
+        return {};
+    }
+    return spare->memory;
+}
+
 void BufferCache::NoteResidencyUnused() {
     const u64 unused = free_slot_count * block_size + (residency_size - residency_used) +
-                       (spare_residency.valid() ? 64_MB : 0);
+                       (spare_residency ? 64_MB : 0);
     BbStats::residency_unused_bytes.store(unused, std::memory_order_relaxed);
     BbStats::residency_chunk_count.store(residency_chunks.size(), std::memory_order_relaxed);
 }
@@ -1641,9 +1740,16 @@ void BufferCache::NoteUse(VAddr address, u64 size) {
             const u64 first = (group << USE_GROUP_BITS) >> block_shift;
             const u64 end = ((group + 1) << USE_GROUP_BITS) >> block_shift;
             idle_demoted.ForEachInRange(first, end, [&](const Interval& range) {
-                promote_candidates.Add({std::max(first, range.start), std::min(end, range.end)});
+                const u64 from = std::max(first, range.start), to = std::min(end, range.end);
+                promote_candidates.Add({from, to});
+                for (u64 block = from; block < to; ++block) {
+                    promote_source.emplace(block, evacuated_demoted.Contains(block)
+                                                      ? PromoteEvacuated
+                                                      : PromoteIdle);
+                }
             });
             idle_demoted.Subtract(first, end);
+            evacuated_demoted.Subtract(first, end);
         }
     }
 }
@@ -1698,6 +1804,10 @@ void BufferCache::ProcessIdleBlocks() {
     }
     idle_scan_second = now;
     UpdateVramLevel(now);
+    if (GuestInPlace()) {
+        ProcessDynamicRetries(now);
+        ReportResidency(now);
+    }
     if (VramIdleSeconds() == 0) {
         return;
     }
@@ -1755,6 +1865,12 @@ void BufferCache::ProcessIdleBlocks() {
                     continue;
                 }
                 for (u64 block = range.start; block < range.end; ++block) {
+                    // Read by the GPU in the last 10 s while VRAM has room: it stays (moved, it came
+                    // back at its next binding: two binds, read over PCIe in between).
+                    if (level == 0 && !EvacuateInUse() &&
+                        now - group_use[(block << block_shift) >> USE_GROUP_BITS] < 10) {
+                        continue;
+                    }
                     demotions_waiting.push_back({block, tick, false, true, true});
                 }
             }
@@ -1872,7 +1988,11 @@ bool BufferCache::VramEligible(u64 block, bool garlic_known) {
         vram_level.load(std::memory_order_relaxed) >= 2) {
         return false;
     }
-    if (!WriteTracking()) {
+    // bbport: VRAM copies kept write-protected (write tracking, or BB_WRITE_VERIFY with the PC
+    // memory model: Windows' default) see every CPU write: Garlic data may keep a copy, and what the
+    // CPU keeps rewriting moves in place (NoteCpuWrite). Without that protection only data whose
+    // writes we hear of may: in place, the GPU read 360 MiB over PCIe every frame (FPS 103 -> 75).
+    if (!WriteTracking() && !WriteVerify()) {
         // Every byte last written by a loader or by the GPU.
         bool known = true;
         asset_bytes.ForEachGap(block << block_shift, (block + 1) << block_shift,
@@ -1915,7 +2035,7 @@ void BufferCache::BindInPlace(u64 start, u64 end, std::vector<ResidentBind>& out
             int prot = 0, type = -1;
             uintptr_t vma_end = 0;
             if (!any_type && GarlicInVram() &&
-                (!WriteTracking() ||
+                ((!WriteTracking() && !WriteVerify()) ||
                  (runtime_memory_vma_info(address, &prot, &type, &vma_end) && type == 3))) {
                 for (u64 i = 1; i < run; ++i) {
                     if (VramEligible(block + i, true)) {
@@ -2000,6 +2120,9 @@ void BufferCache::ProcessDemotions() {
         }
         const VAddr address = block << block_shift;
         if (cpu_written) {
+            if (!dynamic_blocks.Contains(block)) {
+                NoteDynamic(block);
+            }
             dynamic_blocks.Add({block, block + 1}); // bound in place when it is next used
         }
         if (in_place_blocks.Contains(block) || !resident_ranges.Contains(block)) {
@@ -2070,7 +2193,14 @@ void BufferCache::ProcessDemotions() {
             BbStats::vram_idle_bytes.fetch_add(block_size, std::memory_order_relaxed);
             idle_demoted.Add({block, block + 1});
             group_demoted[address >> USE_GROUP_BITS] = 1;
+            if (force) {
+                evacuated_demoted.Add({block, block + 1});
+            }
         }
+        demoted_by[cpu_written ? DemoteCpuWritten
+                   : force     ? DemoteEvacuated
+                   : idle      ? DemoteIdle
+                               : DemoteHandedOut] += block_size;
         const u64 total = moved_bytes.fetch_add(block_size, std::memory_order_relaxed) + block_size;
         if (!idle && (total >> 20) != ((total - block_size) >> 20)) {
             std::printf("Guest memory: %llu MiB of CPU-written blocks moved in place from VRAM, "
@@ -2079,6 +2209,132 @@ void BufferCache::ProcessDemotions() {
         }
         return true;
     });
+}
+
+void BufferCache::NoteDynamic(u64 block) {
+    const u32 now = BbStats::coarse_second.load(std::memory_order_relaxed);
+    auto& retry = dynamic_retry[block];
+    // Long in VRAM since its last retry (four times its wait): what the CPU writes there now is
+    // new, and it starts over.
+    if (retry.strikes != 0 &&
+        now - retry.since > 4 * (DynamicRetrySeconds() << std::min<u32>(retry.strikes - 1, 5))) {
+        retry.strikes = 0;
+    }
+    retry.strikes = std::min<u32>(retry.strikes + 1, 16);
+    retry.since = now;
+}
+
+void BufferCache::ProcessDynamicRetries(u32 now) {
+    // Once a second: CPU-written blocks in place whose wait is over and whose 2 MiB the GPU bound
+    // in the last second get a VRAM copy (QueuePromotions), write-protected again: the game's code
+    // writing them in 3 frames of 60 moves them back (NoteCpuWrite). Not while VRAM is tight.
+    const u32 base = DynamicRetrySeconds();
+    if (base == 0 || dynamic_retry.empty() || vram_level.load(std::memory_order_relaxed) >= 1) {
+        return;
+    }
+    u64 budget = std::max<u64>(DynamicRetryBytes() >> block_shift, 1);
+    for (auto& [block, retry] : dynamic_retry) {
+        if (budget == 0) {
+            break;
+        }
+        if (now - retry.since < (base << std::min<u32>(retry.strikes - 1, 5))) {
+            continue;
+        }
+        const u64 group = std::min<u64>((block << block_shift) >> USE_GROUP_BITS, group_use.size() - 1);
+        if (now - group_use[group] > 1 || !in_place_blocks.Contains(block) ||
+            !resident_ranges.Contains(block) || !dynamic_blocks.Contains(block)) {
+            continue;
+        }
+        retry.since = now;
+        dynamic_blocks.Subtract(block, block + 1);
+        if (!VramEligible(block)) {
+            dynamic_blocks.Add({block, block + 1}); // not Garlic, or VRAM full: in place still
+            continue;
+        }
+        promote_candidates.Add({block, block + 1});
+        promote_source[block] = PromoteRetry;
+        --budget;
+        // Its write frames count from zero again: notes while in place (libc copies over pages
+        // images watch) could have taken them past 3, and only reaching 3 moves a block back.
+        std::scoped_lock lk{dynamic_mutex};
+        cpu_write_frames.erase(block);
+    }
+}
+
+void BufferCache::ProcessPromoteFills() {
+    if (promote_fills.empty()) {
+        return;
+    }
+    // Recorded after the submission that took the binds: uploaded into the new VRAM copy from the
+    // game's memory (all of it marked CPU-modified by QueuePromotions), then write-protected.
+    for (const u64 block : promote_fills) {
+        if (!resident_ranges.Contains(block) || in_place_blocks.Contains(block)) {
+            continue;
+        }
+        SynchronizeMemory(GetArena(block, block), block << block_shift, static_cast<u32>(block_size),
+                          false, false);
+    }
+    promote_fills.clear();
+}
+
+void BufferCache::ReportResidency(u32 now) {
+    const u64 frame = BbStats::frame_number.load(std::memory_order_relaxed);
+    if (residency_report_second == 0) {
+        residency_report_second = now;
+        residency_report_frame = frame;
+        return;
+    }
+    if (now - residency_report_second < 60) {
+        return;
+    }
+    const u32 seconds = now - residency_report_second;
+    const double frames = double(std::max<u64>(frame - residency_report_frame, 1));
+    residency_report_second = now;
+    residency_report_frame = frame;
+    u64 vram = 0, in_place = 0, dynamic_in_place = 0;
+    for (const auto& range : resident_ranges) {
+        if (residency_chunks.contains(static_cast<VkDeviceMemory>(range.memory))) {
+            vram += (range.end - range.start) << block_shift;
+        }
+    }
+    for (const auto& range : in_place_blocks) {
+        in_place += (range.end - range.start) << block_shift;
+    }
+    for (const auto& range : dynamic_blocks) {
+        in_place_blocks.ForEachInRange(range.start, range.end, [&](const Interval& iv) {
+            dynamic_in_place += (std::min(range.end, iv.end) - std::max(range.start, iv.start))
+                                << block_shift;
+        });
+    }
+    const auto mib = [](u64 bytes) { return static_cast<unsigned long long>(bytes >> 20); };
+    u64 promoted = 0, demoted = 0;
+    for (const u64 bytes : promoted_by) {
+        promoted += bytes;
+    }
+    for (const u64 bytes : demoted_by) {
+        demoted += bytes;
+    }
+    std::printf(
+        "Guest memory, last %u s: %llu MiB moved to VRAM (loaded %llu, GPU-written %llu, back "
+        "after idle %llu, back after an evacuation %llu, CPU-written retried %llu); %llu MiB moved "
+        "in place (CPU-written %llu, handed out again %llu, idle %llu, evacuated %llu, copied back "
+        "%llu); sparse binds before %llu submissions (%llu waited for the GPU, %llu ranges), %.1f ms "
+        "in vkQueueBindSparse (longest %.2f ms); now %llu MiB in VRAM copies, %llu MiB in place "
+        "(%llu MiB CPU-written); bound in place %.1f MB a frame (%.1f MB in CPU-written blocks)\n",
+        seconds, mib(promoted), mib(promoted_by[PromoteAsset]), mib(promoted_by[PromoteGpuWritten]),
+        mib(promoted_by[PromoteIdle]), mib(promoted_by[PromoteEvacuated]),
+        mib(promoted_by[PromoteRetry]), mib(demoted), mib(demoted_by[DemoteCpuWritten]),
+        mib(demoted_by[DemoteHandedOut]), mib(demoted_by[DemoteIdle]),
+        mib(demoted_by[DemoteEvacuated]), mib(demoted_by[DemoteCopiedBack]),
+        static_cast<unsigned long long>(bind_calls.exchange(0)),
+        static_cast<unsigned long long>(bind_waits.exchange(0)),
+        static_cast<unsigned long long>(bind_ranges.exchange(0)), bind_ns.exchange(0) / 1e6,
+        bind_max_ns.exchange(0) / 1e6, mib(vram), mib(in_place), mib(dynamic_in_place),
+        bound_in_place_bytes.exchange(0) / (frames * 1e6),
+        bound_dynamic_bytes.exchange(0) / (frames * 1e6));
+    std::fflush(stdout);
+    promoted_by = {};
+    demoted_by = {};
 }
 
 std::optional<std::pair<const Buffer*, u64>> BufferCache::GuestChunkSource(VAddr address, u64 size) {
@@ -2093,7 +2349,7 @@ std::optional<std::pair<const Buffer*, u64>> BufferCache::GuestChunkSource(VAddr
     auto& buffer = chunk_buffers[chunk->index % chunk_buffers.size()];
     if (!buffer) {
         buffer = std::make_unique<Buffer>(instance, chunk->size, chunk->memory,
-                                          fmt::format("bbport guest memory {:#x}", chunk->phys));
+                                          fmt::format("lantern guest memory {:#x}", chunk->phys));
     }
     return std::pair<const Buffer*, u64>{buffer.get(), phys - chunk->phys};
 }
@@ -2181,6 +2437,7 @@ void BufferCache::ProcessPendingAssets() {
             if (in_place_blocks.Contains(block) && resident_ranges.Contains(block) &&
                 VramEligible(block)) {
                 promote_candidates.Add({block, block + 1});
+                promote_source.emplace(block, PromoteAsset);
             }
         }
     }
@@ -2417,6 +2674,7 @@ void BufferCache::NoteGpuWrite(VAddr addr, u64 size) {
         if (in_place_blocks.Contains(block) && resident_ranges.Contains(block) &&
             VramEligible(block)) {
             promote_candidates.Add({block, block + 1});
+            promote_source.emplace(block, PromoteGpuWritten);
         }
     }
 }
@@ -2489,6 +2747,7 @@ void BufferCache::QueueCopyBacks(u64 submitted) {
         gpu_modified_ranges.Subtract(address, block_size);
         memory_tracker->MarkRegionAsCpuModified(address, block_size);
         BbStats::copied_back_blocks.fetch_add(1, std::memory_order_relaxed);
+        demoted_by[DemoteCopiedBack] += block_size;
         moved = true;
     }
     if (moved) {
@@ -2498,6 +2757,7 @@ void BufferCache::QueueCopyBacks(u64 submitted) {
 
 void BufferCache::QueuePromotions(u64 submitted) {
     if (promote_candidates.Empty()) {
+        promote_source.clear();
         return;
     }
     std::vector<u64> blocks;
@@ -2515,6 +2775,13 @@ void BufferCache::QueuePromotions(u64 submitted) {
             !VramEligible(block)) {
             continue;
         }
+        const auto source = promote_source.find(block);
+        const u8 why = source != promote_source.end() ? source->second : PromoteAsset;
+        promoted_by[why] += block_size;
+        // Uploaded whole at the next packet (ProcessPromoteFills): only the ranges later bindings
+        // name were, and a reused slot kept another block's bytes for the rest, read by shaders
+        // through the page table and by vertex fetch past a binding (as EnsureResident clears).
+        promote_fills.push_back(block);
         memory_tracker->UnmarkRegionAsGpuModified(address, block_size);
         gpu_modified_ranges.Subtract(address, block_size);
         const auto [memory, offset] = AllocateResidency(block_size);
@@ -2541,6 +2808,7 @@ void BufferCache::QueuePromotions(u64 submitted) {
         memory_tracker->MarkRegionAsCpuModified(address, block_size);
         moved += block_size;
     }
+    promote_source.clear();
     if (moved == 0) {
         return;
     }
@@ -2568,6 +2836,7 @@ void BufferCache::Maintain() {
     ProcessDemotions();
     ProcessPendingAssets();
     ProcessLateWrites();
+    ProcessPromoteFills();
 }
 
 void BufferCache::ProcessPendingUnmaps() {
@@ -2590,6 +2859,7 @@ void BufferCache::ProcessPendingUnmaps() {
         copy_back_blocks.Subtract(first, end);
         promote_candidates.Subtract(first, end);
         idle_demoted.Subtract(first, end);
+        evacuated_demoted.Subtract(first, end);
         in_place_blocks.ForEachInRange(first, end, [&](const Interval& iv) {
             unbind.Add({std::max(first, iv.start), std::min(end, iv.end)});
         });
@@ -3164,7 +3434,22 @@ void BufferCache::SubmitPendingArenaBinds(Vulkan::SubmitInfo& info) {
             .signalSemaphoreCount = 1u,
             .pSignalSemaphores = &signal_sema,
         };
+        const auto bind_start = std::chrono::steady_clock::now();
         auto submit_result = instance.GetGraphicsQueue().bindSparse(sparse_info);
+        const u64 ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                           std::chrono::steady_clock::now() - bind_start)
+                           .count();
+        u64 ranges = 0;
+        for (const auto& arena_binds : *binds) {
+            ranges += arena_binds.binds.size();
+        }
+        bind_calls.fetch_add(1, std::memory_order_relaxed);
+        bind_waits.fetch_add(wait_tick ? 1 : 0, std::memory_order_relaxed);
+        bind_ranges.fetch_add(ranges, std::memory_order_relaxed);
+        bind_ns.fetch_add(ns, std::memory_order_relaxed);
+        for (u64 longest = bind_max_ns.load(std::memory_order_relaxed);
+             ns > longest && !bind_max_ns.compare_exchange_weak(longest, ns);) {
+        }
         if (submit_result == vk::Result::eErrorDeviceLost) {
             Vulkan::Breadcrumbs::ReportDeviceLost("submit");
         }

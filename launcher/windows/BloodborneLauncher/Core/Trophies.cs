@@ -10,6 +10,10 @@ namespace BloodborneLauncher.Core
     {
         /// <summary>PlayStation trophy points, which weight the completion rate.</summary>
         public int Points => Grade switch { Grade.Platinum => 180, Grade.Gold => 90, Grade.Silver => 30, _ => 15 };
+
+        /// <summary>The grade's name in the launcher language.</summary>
+        public static string GradeName(Grade grade) =>
+            grade switch { Grade.Platinum => L.T("Platinum"), Grade.Gold => L.T("Gold"), Grade.Silver => L.T("Silver"), _ => L.T("Bronze") };
     }
 
     /// <summary>

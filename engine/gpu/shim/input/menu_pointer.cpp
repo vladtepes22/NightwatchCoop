@@ -508,6 +508,12 @@ bool direction_held() {
     if (p.buttons & 0xf0u) {
         return true;
     }
+    // bbport (0.9.37 beta 6): with "Move and look in menus" the left stick of a menu opened in the
+    // world is the character's (input.cpp free_move), not a direction given to the menu: walking
+    // with W held left the pointer unable to hover or click until the key was let go.
+    if (host_settings().menu_move && !front_end()) {
+        return false;
+    }
     const auto off = [](std::uint8_t v) { return v < 64 || v > 192; };
     return off(p.lx) || off(p.ly);
 }
@@ -842,6 +848,10 @@ void menu_pointer_click() {
 std::uint32_t menu_pointer_take_press() { return g_press.exchange(0); }
 
 std::uint64_t menu_pointer_tick() { return g_tick.load(std::memory_order_relaxed); }
+
+// bbport: the title screen and the menus before the world loads (input.cpp menu_move: there the
+// keys always navigate, as there is no character to move).
+bool menu_pointer_front_end() { return front_end(); }
 
 bool menu_pointer_in_menu() {
     // DS3 keeps the pointer while any UI state owns the screen. Here that is

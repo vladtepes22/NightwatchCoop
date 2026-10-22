@@ -207,6 +207,32 @@ void wake_wait(std::uint32_t gen, std::chrono::steady_clock::time_point until) {
 
 bool trace_now(int& count) { return Trace() || ++count <= 64; }
 
+// P2P datagrams in both directions, logged once a minute while they flow (the per-datagram trace
+// stops after 64): a co-op desync log then says whether datagrams were lost or failed to send.
+struct P2pCounts {
+    std::atomic<std::uint64_t> sent{0}, sent_bytes{0}, send_failed{0}, received{0}, received_bytes{0};
+};
+P2pCounts g_p2p_counts;
+
+void p2p_counts_log() {
+    using clock = std::chrono::steady_clock;
+    static clock::time_point last = clock::now();
+    static std::uint64_t was[5] = {};
+    const clock::time_point now = clock::now();
+    if (now - last < std::chrono::seconds(60)) return;
+    const std::uint64_t is[5] = {g_p2p_counts.sent.load(), g_p2p_counts.sent_bytes.load(),
+                                 g_p2p_counts.send_failed.load(), g_p2p_counts.received.load(),
+                                 g_p2p_counts.received_bytes.load()};
+    const double seconds = std::chrono::duration<double>(now - last).count();
+    last = now;
+    if (is[0] == was[0] && is[3] == was[3]) return;
+    Log("net: last %.0f s: sent %llu datagrams (%llu KiB, %llu failed), received %llu (%llu KiB)", seconds,
+        static_cast<unsigned long long>(is[0] - was[0]), static_cast<unsigned long long>((is[1] - was[1]) / 1024),
+        static_cast<unsigned long long>(is[2] - was[2]), static_cast<unsigned long long>(is[3] - was[3]),
+        static_cast<unsigned long long>((is[4] - was[4]) / 1024));
+    std::memcpy(was, is, sizeof(was));
+}
+
 // ---- STUN -------------------------------------------------------------------------------------------
 
 constexpr std::size_t kStunHeader = 20, kStunTxid = 16, kStunMaxRequest = kStunHeader + 16;
@@ -434,6 +460,7 @@ void p2p_reader(std::shared_ptr<UdpPort> port) {
     std::uint8_t buf[2048];
     int logs = 0;
     while (!port->stop.load(std::memory_order_relaxed)) {
+        p2p_counts_log();
         if (sock_poll(port->fd, POLLIN, 200) <= 0) continue;
         sockaddr_in sa{};
         socklen_type sl = sizeof(sa);
@@ -491,6 +518,8 @@ void p2p_reader(std::shared_ptr<UdpPort> port) {
         dg.addr = sa.sin_addr.s_addr;
         dg.port = sa.sin_port;
         dg.vport = src;
+        g_p2p_counts.received.fetch_add(1, std::memory_order_relaxed);
+        g_p2p_counts.received_bytes.fetch_add(dg.data.size(), std::memory_order_relaxed);
         if (trace_now(logs)) {
             char ip[32];
             write_ipv4(ip, sizeof(ip), sa.sin_addr.s_addr);
@@ -517,6 +546,14 @@ std::shared_ptr<UdpPort> p2p_port_open(std::uint16_t want) {
         if (!sock_ok(port->fd)) return nullptr;
 #ifdef _WIN32
         sock_setopt_int(port->fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, 1);
+        // An ICMP "port unreachable" (a punch probe to a peer's old or LAN address) would make the
+        // next recvfrom fail with WSAECONNRESET; the port keeps receiving instead.
+        {
+            BOOL report = FALSE;
+            DWORD bytes = 0;
+            ::WSAIoctl(port->fd, _WSAIOW(IOC_VENDOR, 12) /* SIO_UDP_CONNRESET */, &report, sizeof(report),
+                       nullptr, 0, &bytes, nullptr, nullptr);
+        }
 #endif
         sockaddr_in sa{};
         sa.sin_family = AF_INET;
@@ -662,6 +699,10 @@ int dgram_send(int s, const void* buf, std::uint64_t len, int flags, const SceSo
         if (n >= 0) n -= static_cast<ssize_type>(kRelayHeader);
     } else {
         n = sock_sendto(fd, pkt, hdr + static_cast<std::size_t>(len), dontwait, &sa);
+    }
+    if (sock.p2p) {
+        (n < 0 ? g_p2p_counts.send_failed : g_p2p_counts.sent).fetch_add(1, std::memory_order_relaxed);
+        if (n >= 0) g_p2p_counts.sent_bytes.fetch_add(len, std::memory_order_relaxed);
     }
     static int logs = 0;
     if (trace_now(logs)) {

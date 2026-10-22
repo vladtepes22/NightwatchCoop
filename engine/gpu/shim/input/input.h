@@ -23,6 +23,10 @@ typedef struct {
     struct { uint16_t x,y;uint8_t id; } touch[2];
 } BbPcPad;
 int bbgpu_pc_input(BbPcPad*,const bool* keys,int nkeys,int gamepad_present);
+/* bbport: whether a game menu has the screen now (menu_pointer_navigating: the front end, an open
+ * menu, a list with focus in the last few frames), and the game's confirm and back buttons in it
+ * (scePad bits; the game's region decides which is which). For pad.menu_confirm / pad.menu_back. */
+int bbgpu_menu_buttons(uint32_t* confirm,uint32_t* back);
 /* src/runtime_pad.c, for the game's button icons (engine/key_prompts.cpp): the gamepad in use's
  * SDL_GamepadType (SDL_GAMEPAD_TYPE_UNKNOWN without one), and the gamepad button bound to a PS4
  * button (its scePad bit; the touchpad's right side with right_side): an SDL_GamepadButton,

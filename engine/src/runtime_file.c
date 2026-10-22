@@ -122,15 +122,83 @@ void runtime_file_save_activity(uint64_t *generation,int *open_writes) {
 }
 const char *runtime_file_user_dir(void) { return user_root; }
 static void stream_configure(const char *app0);
+
+/* bbport: mod files read in place (BB_MOD_FILES, start/mods.cpp): on a drive without junctions
+ * bb-start lists "game path<TAB>host file" lines instead of a merged view, and a game path of /app0
+ * that is on the list opens the mod's file. Sorted by the folded game path. */
+typedef struct { char *key, *host; } ModFile;
+static ModFile *mod_files;
+static size_t mod_file_count;
+static void fold_path(char *s) {
+    for (; *s; ++s) *s=*s=='\\' ? '/' : (*s>='A' && *s<='Z') ? (char)(*s-'A'+'a') : *s;
+}
+static int mod_file_compare(const void *a,const void *b) {
+    return strcmp(((const ModFile *)a)->key,((const ModFile *)b)->key);
+}
+static void mod_files_load(void) {
+    const char *list=getenv("BB_MOD_FILES");
+    FILE *f=list && *list ? fopen(list,"rb") : NULL;
+    if (!f) return;
+    char line[2048];
+    size_t capacity=0;
+    while (fgets(line,sizeof(line),f)) {
+        line[strcspn(line,"\r\n")]=0;
+        char *tab=strchr(line,'\t');
+        if (!tab || tab==line || !tab[1]) continue;
+        *tab=0;
+        if (mod_file_count==capacity) {
+            capacity=capacity ? capacity*2 : 256;
+            ModFile *grown=realloc(mod_files,capacity*sizeof(*grown));
+            if (!grown) break;
+            mod_files=grown;
+        }
+        mod_files[mod_file_count].key=strdup(line);
+        mod_files[mod_file_count].host=strdup(tab+1);
+        if (!mod_files[mod_file_count].key || !mod_files[mod_file_count].host) break;
+        fold_path(mod_files[mod_file_count].key);
+        ++mod_file_count;
+    }
+    fclose(f);
+    qsort(mod_files,mod_file_count,sizeof(*mod_files),mod_file_compare);
+    printf("Runtime: %zu mod files read in place (%s)\n",mod_file_count,list);
+}
+/* The mod file for a guest path under /app0 or /hostapp, or NULL. */
+static const char *mod_file_for(const char *guest) {
+    if (!mod_file_count) return NULL;
+    const char *rest=!strncmp(guest,"/app0/",6) ? guest+6 : !strncmp(guest,"/hostapp/",9) ? guest+9 : NULL;
+    if (!rest || strlen(rest)>=1024) return NULL;
+    char key[1024];
+    snprintf(key,sizeof(key),"%s",rest);
+    fold_path(key);
+    const ModFile probe={key,NULL};
+    const ModFile *found=bsearch(&probe,mod_files,mod_file_count,sizeof(*mod_files),mod_file_compare);
+    return found ? found->host : NULL;
+}
 void runtime_file_configure(const char *app0,const char *user) {
     bbnet_configure(app0,user);
     char path[600];
     stream_configure(app0);
+    mod_files_load();
     snprintf(user_root,sizeof(user_root),"%s",user);
     runtime_file_mount("/app0",app0);
     runtime_file_mount("/hostapp",app0);
     const char *writable[]={"temp0","download0","data"};
     mkdir(user,0755);
+    /* bbport: a saves folder the engine cannot write in shows only as the game's "cannot create
+     * save file": said at the start, with the reason (read-only, synced, or Windows' Controlled
+     * folder access, which blocks the engine but not the launcher). */
+    snprintf(path,sizeof(path),"%s/.write-test",user);
+    FILE *probe=fopen(path,"wb");
+    if (probe) { fclose(probe); remove(path); }
+    else printf("Saves: the saves folder %s cannot be written (%s): the game cannot create or keep "
+                "saves. Pick another saves folder in the launcher%s\n",user,strerror(errno),
+#ifdef _WIN32
+                ", or allow bb-probe.exe in Windows Security > Ransomware protection > "
+                "Controlled folder access"
+#else
+                ""
+#endif
+                );
     for (int i=0;i<3;++i) {
         snprintf(path,sizeof(path),"%s/%s",user,writable[i]);
         mkdir(path,0755);
@@ -147,6 +215,8 @@ static int translate(const char *guest,char *out,size_t size) {
 
     for (const char *p=buffer;(p=strstr(p,".."));p+=2)
         if ((p==buffer || p[-1]=='/') && (p[2]==0 || p[2]=='/')) return EACCES;
+    const char *mod=mod_file_for(buffer);
+    if (mod) return (size_t)snprintf(out,size,"%s",mod)>=size ? ENAMETOOLONG : 0;
     host_lock(&lock);
     size_t best=0; const Mount *m=NULL;
     for (size_t i=0;i<mount_count;++i) {

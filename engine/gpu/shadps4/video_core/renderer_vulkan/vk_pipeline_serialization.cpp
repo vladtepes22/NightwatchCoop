@@ -1,15 +1,20 @@
 // SPDX-FileCopyrightText: Copyright 2025-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <atomic>
+#include <mutex>
+#include <thread>
 #include <unordered_set>
 #include "common/serdes.h"
 #include "common/hash.h"
 #include <algorithm>
 #include <stdexcept>
+#include "bbport_threads.h"
 #include "core/emulator_settings.h"
 #include "shader_recompiler/frontend/fetch_shader.h"
 #include "shader_recompiler/info.h"
@@ -315,6 +320,10 @@ bool PipelineCache::LoadGraphicsPipeline(Serialization::Archive& ar, bool legacy
         return false;
     }
 
+    warmup_mip_bindings = false;
+    // bbport: each stage's bindings start where the stages before it end (the fragment shader's
+    // first, as RefreshGraphicsStages compiles them and BuildDescSetLayout lays them out).
+    Shader::Backend::Bindings expected{};
     for (int stage_idx = 0; stage_idx < MaxShaderStages; ++stage_idx) {
         const auto& hash = sel.graphics_key.stage_hashes[stage_idx];
         if (!hash) {
@@ -334,6 +343,39 @@ bool PipelineCache::LoadGraphicsPipeline(Serialization::Archive& ar, bool legacy
             u32(sel.infos[stage_idx]->sw_stage) != stage_idx) {
             return false;
         }
+        // A key of a module compiled after another fragment shader (engines up to 0.9.37 beta 6
+        // reused those: StageSpecialization ignored the start of stages without guest resources)
+        // has a layout its shaders do not match, invalid Vulkan that AMD's driver ends the process
+        // on. Left out, it compiles again in play. So is one with an image bound per mip level:
+        // its binding count needs the draw's descriptor, which the warm-up does not have.
+        // The layout is built from the program's Info (the first permutation loaded): it must
+        // have the bindings of this permutation's own record.
+        const auto& layout_info = *sel.infos[stage_idx];
+        if (warmup_mip_bindings || warmup_start[stage_idx].unified != expected.unified ||
+            warmup_start[stage_idx].buffer != expected.buffer ||
+            layout_info.buffers.size() != warmup_count[stage_idx].buffer ||
+            layout_info.buffers.size() + layout_info.images.size() + layout_info.samplers.size() !=
+                warmup_count[stage_idx].unified) {
+            return false;
+        }
+        expected.unified += warmup_count[stage_idx].unified;
+        expected.buffer += warmup_count[stage_idx].buffer;
+    }
+    // Without dynamic vertex input (RX 400/500, Vega, older APUs on AMD's legacy driver) the
+    // vertex input is baked into the pipeline from the record: a record made where it was dynamic
+    // has none, and the vertex shader's attributes would read nothing (validation: Input-07904).
+    if (!instance.IsVertexInputDynamicState() && sel.fetch_shader &&
+        !sel.fetch_shader->attributes.empty() && sdata.vertex_attributes.empty()) {
+        return false;
+    }
+    // A fragment shader that reads the motion varyings needs a vertex shader that writes them
+    // (validation found keys pairing one with a vertex shader without them: undefined motion).
+    const auto& fs_runtime = sel.runtime_infos[u32(Shader::SwStage::Fragment)];
+    const auto& vs_runtime = sel.runtime_infos[u32(Shader::SwStage::Vertex)];
+    if (sel.graphics_key.stage_hashes[u32(Shader::SwStage::Fragment)] && fs_runtime.hw.fs.motion_vectors &&
+        !(sel.graphics_key.stage_hashes[u32(Shader::SwStage::Vertex)] &&
+          vs_runtime.hw_stage == Shader::HwStage::Vertex && vs_runtime.hw.vs.motion_vectors)) {
+        return false;
     }
 
     if (graphics_pipelines.contains(sel.graphics_key)) {
@@ -393,6 +435,18 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage, 
             throw Serialization::CorruptData{"cached SPIR-V rejected by the driver"};
         }
         module = compiled;
+    }
+    // bbport: where this permutation's bindings start and how many it has, from its own record
+    // (LoadGraphicsPipeline checks them against the stages before it).
+    if (stage < MaxShaderStages) {
+        const auto& own = program->info;
+        warmup_start[stage] = spec.start;
+        warmup_count[stage] = {};
+        warmup_count[stage].buffer = u32(own.buffers.size());
+        warmup_count[stage].unified = u32(own.buffers.size() + own.images.size() + own.samplers.size());
+        for (const auto& image : own.images) {
+            warmup_mip_bindings |= image.mip_fallback_mode == Shader::MipStorageFallbackMode::DynamicIndex;
+        }
     }
     // Rebind before moving: a temporary Program may have supplied this permutation's Info.
     // Never retain a pointer to that temporary in a cached StageSpecialization.
@@ -482,47 +536,120 @@ void PipelineCache::WarmUp() {
     const auto* regs = sel.regs;
     u32 damaged = 0;
     // bbport: a GPU driver that crashes building one cached pipeline (an AMD driver did, at every
-    // start) would end every start the same way. The pipeline being built is written to
-    // warmup.running (the OS keeps the write when the process dies); the next start leaves that
-    // pipeline out and builds the others. BB_WARMUP_GUARD=0: not used.
-    std::string crashed;
-    std::fstream guard;
+    // start) would end every start the same way. The pipelines being built are written to
+    // warmup.running, one a line (the OS keeps the write when the process dies); the next start
+    // leaves those pipelines out and builds the others. BB_WARMUP_GUARD=0: not used.
+    std::unordered_set<std::string> crashed;
+    std::filesystem::path guard_path;
     if (const auto folder = database.FolderPath(); !folder.empty()) {
         const char* guard_env = std::getenv("BB_WARMUP_GUARD");
         if (!(guard_env && guard_env[0] == '0')) {
-            const auto guard_path = folder / "warmup.running";
+            guard_path = folder / "warmup.running";
             if (std::ifstream last{guard_path}; last) {
-                std::getline(last, crashed);
-                while (!crashed.empty() && (crashed.back() == ' ' || crashed.back() == '\r')) {
-                    crashed.pop_back();
+                for (std::string line; std::getline(last, line);) {
+                    while (!line.empty() && (line.back() == ' ' || line.back() == '\r')) {
+                        line.pop_back();
+                    }
+                    if (!line.empty()) {
+                        crashed.insert(line);
+                    }
                 }
             }
-            if (!crashed.empty()) {
-                database.Remove(Storage::BlobType::PipelineKey, crashed);
+            for (const auto& name : crashed) {
+                database.Remove(Storage::BlobType::PipelineKey, name);
                 std::printf("GPU cache: the GPU driver crashed building cached pipeline %s at the last "
-                            "start; it is left out (it compiles again when a draw needs it)\n",
-                            crashed.c_str());
+                            "start (or one built beside it); it is left out (it compiles again when a "
+                            "draw needs it)\n",
+                            name.c_str());
             }
-            guard.open(guard_path, std::ios::out | std::ios::trunc);
         }
     }
-    // Sequential by design: selection, programs, SRT walker allocation and archive reads are
-    // shared. A worker pool needs isolated reconstruction state before it can be safe.
+    // bbport: a driver that crashes in the warm-up may do so on many cached pipelines: on an
+    // RX 9070 XT (0.9.37 beta 6, the first engine to read every record) each start ended in it,
+    // eight more pipelines left out each time. After one crash the warm-up stays off with this
+    // driver and engine build; the pipelines compile in play, as before beta 6. Another driver or
+    // engine build tries it again.
+    if (!guard_path.empty()) {
+        const auto off_path = guard_path.parent_path() / "warmup.off";
+        const std::string off_id = "driver " + std::to_string(instance.GetDriverVersion()) +
+                                   ", engine built " + __DATE__ + " " + __TIME__;
+        bool off = !crashed.empty();
+        if (off) {
+            std::ofstream{off_path, std::ios::trunc} << off_id << '\n';
+        } else if (std::ifstream last{off_path}; last) {
+            std::string line;
+            std::getline(last, line);
+            while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) {
+                line.pop_back();
+            }
+            off = line == off_id;
+            last.close();
+            if (!off) {
+                std::error_code ignored;
+                std::filesystem::remove(off_path, ignored);
+            }
+        }
+        if (off) {
+            std::error_code ignored;
+            std::filesystem::remove(guard_path, ignored);
+            {
+                std::scoped_lock lock{progress_mutex};
+                precache_progress.rejected = precache_progress.total;
+            }
+            std::printf("GPU cache: not built at the start: the GPU driver crashed in the start's "
+                        "warm-up (%s); pipelines compile in play until the driver or the engine "
+                        "changes (delete warmup.off in the cache folder to try again)\n",
+                        off_id.c_str());
+            std::fflush(stdout);
+            database.FinishPreload();
+            complete();
+            return;
+        }
+    }
+    std::mutex guard_mutex;
+    std::vector<std::string> building; // under guard_mutex once the driver's threads run
+    // Written over in place (spaces over what a longer list left; the reader skips blank lines).
+    std::fstream guard;
+    if (!guard_path.empty()) {
+        guard.open(guard_path, std::ios::out | std::ios::trunc);
+    }
+    size_t guard_size = 0;
+    const auto write_guard = [&] {
+        if (!guard.is_open()) {
+            return;
+        }
+        std::string text;
+        for (const auto& name : building) {
+            text += name;
+            text += '\n';
+        }
+        const size_t size = text.size();
+        text.resize(std::max(size, guard_size), ' ');
+        guard_size = size;
+        guard.seekp(0);
+        guard << text;
+        guard.flush();
+    };
+    // bbport (docs/pipeline_compiles.md): how long the start waits for the cached pipelines.
+    const auto warmup_start = std::chrono::steady_clock::now();
+    // The pipelines' state is rebuilt here, one after the other: selection, programs, SRT walker
+    // allocation and archive reads are shared. Their creation by the driver (100-300 ms each with
+    // its cache cold, after every compiler or driver change) is collected (WarmupJobs) and runs
+    // on BB_WARMUP_THREADS threads below; the game starts once all are there, as before.
+    WarmupJobs batch;
+    std::vector<const std::string*> job_names;
+    warmup_jobs = &batch;
     for (const auto& name : names) {
         bool loaded = false;
         sel = {.regs = regs}; // Clear partial state after rejection, including runtime/fetch.
-        if (name == crashed) {
+        if (crashed.contains(name)) {
             std::scoped_lock lock{progress_mutex};
             ++precache_progress.rejected;
             continue;
         }
-        if (guard.is_open()) {
-            std::string line = name;
-            line.resize(std::max<size_t>(line.size(), 120), ' ');
-            guard.seekp(0);
-            guard << line << '\n';
-            guard.flush();
-        }
+        building.assign(1, name);
+        write_guard();
+        const size_t jobs_before = batch.jobs.size();
         try {
             std::vector<u8> data;
             database.Load(Storage::BlobType::PipelineKey, name, data);
@@ -539,14 +666,59 @@ void PipelineCache::WarmUp() {
             ++damaged;
             LOG_WARNING(Render, "Skipping pipeline {}: {}", name, error.what());
         }
+        job_names.resize(batch.jobs.size(), &name);
+        if (batch.jobs.size() != jobs_before) {
+            continue; // counted when its job has run
+        }
         std::scoped_lock lock{progress_mutex};
         loaded ? ++precache_progress.loaded : ++precache_progress.rejected;
     }
+    warmup_jobs = nullptr;
+    const auto rebuilt_at = std::chrono::steady_clock::now();
+    u32 threads = std::clamp<u32>(BbThreads::Available() > 1 ? BbThreads::Available() - 1 : 1, 1, 8);
+    if (const char* env = std::getenv("BB_WARMUP_THREADS"); env && env[0]) {
+        threads = std::clamp(std::atoi(env), 1, 32);
+    }
+    threads = u32(std::min<size_t>(threads, std::max<size_t>(batch.jobs.size(), 1)));
+    std::atomic<size_t> next_job{0};
+    std::atomic<u32> refused{0};
+    const auto worker = [&] {
+        for (size_t i; (i = next_job.fetch_add(1)) < batch.jobs.size();) {
+            {
+                std::scoped_lock lock{guard_mutex};
+                building.push_back(*job_names[i]);
+                write_guard();
+            }
+            const bool created = batch.jobs[i]();
+            {
+                std::scoped_lock lock{guard_mutex};
+                building.erase(std::find(building.begin(), building.end(), *job_names[i]));
+                write_guard();
+            }
+            if (!created) {
+                refused.fetch_add(1);
+                LOG_WARNING(Render, "Skipping pipeline {}: the driver refused it", *job_names[i]);
+            }
+            std::scoped_lock lock{progress_mutex};
+            created ? ++precache_progress.loaded : ++precache_progress.rejected;
+        }
+    };
+    building.clear();
+    std::vector<std::thread> pool;
+    for (u32 t = 1; t < threads; ++t) {
+        pool.emplace_back(worker);
+    }
+    worker();
+    for (auto& thread : pool) {
+        thread.join();
+    }
+    // A pipeline the driver refuses is a damaged cache entry, as one whose record fails to load.
+    damaged += refused.load();
     sel = {.regs = regs};
     if (guard.is_open()) {
         guard.close();
         std::error_code ignored;
-        std::filesystem::remove(database.FolderPath() / "warmup.running", ignored);
+        std::filesystem::remove(guard_path, ignored);
     }
     if (damaged) {
         // A failed reconstruction may have inserted earlier stages of the damaged record.
@@ -573,6 +745,13 @@ void PipelineCache::WarmUp() {
     const auto status = GetPrecacheProgress();
     LOG_INFO(Render, "Preloaded {} of {} pipelines ({} rejected)", status.loaded, status.total,
              status.rejected);
+    std::printf("GPU cache: %u of %u cached pipelines built at the start in %.1f s (%u left out; "
+                "their state %.1f s, then the driver on %u threads, BB_WARMUP_THREADS)\n",
+                status.loaded, status.total,
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - warmup_start).count(),
+                status.rejected, std::chrono::duration<double>(rebuilt_at - warmup_start).count(),
+                threads);
+    std::fflush(stdout);
     database.FinishPreload();
     complete();
 }
@@ -591,12 +770,21 @@ void PipelineCache::Sync() {
 
 namespace Shader {
 
+// "TCX1": the module uses the tone curve extension's push data.
+static constexpr u32 ToneCurveTag = 0x31584354;
+
 void Info::Serialize(Serialization::Archive& ar) const {
     Serialization::Writer info{ar};
 
     info.Write(this, sizeof(InfoPersistent));
     info.Write(flattened_ud_buf);
     srt_info.Serialize(ar);
+    // bbport: last in the record, so records written before it still load (without a plan).
+    table_plan.Serialize(ar);
+    if (uses_tone_curve) {
+        Serialization::Writer tail{ar};
+        tail.Write(ToneCurveTag);
+    }
 }
 
 bool Info::Deserialize(Serialization::Archive& ar) {
@@ -605,12 +793,93 @@ bool Info::Deserialize(Serialization::Archive& ar) {
     info.Read(this, sizeof(Shader::InfoPersistent));
     info.Read(flattened_ud_buf);
 
-    return srt_info.Deserialize(ar);
+    if (!srt_info.Deserialize(ar)) {
+        return false;
+    }
+    // bbport: a record of an older engine ends here: its shader runs the walker. Then tagged
+    // parts: the table plan, the tone curve extension (native/tone_curve.h).
+    table_plan = {};
+    uses_tone_curve = false;
+    while (!ar.IsEoS()) {
+        // bbport: zero bytes to the end are room the writer left after a vertex shader's fetch
+        // shader data (up to 0.9.37 beta 5): not a part. Taken for one, they left every such shader
+        // out of the start's warm-up (308 of 387 pipelines on the dev cache compiled in play).
+        const u8* rest = ar.CurrPtr();
+        if (std::all_of(rest, rest + ar.Remaining(), [](u8 byte) { return byte == 0; })) {
+            break;
+        }
+        if (ar.Remaining() < sizeof(u32)) {
+            return false;
+        }
+        u32 tag{};
+        std::memcpy(&tag, ar.CurrPtr(), sizeof(tag));
+        if (tag == ToneCurveTag) {
+            ar.Advance(sizeof(tag));
+            uses_tone_curve = true;
+        } else if (!table_plan.Deserialize(ar)) {
+            return false;
+        }
+    }
+    return true;
 }
+
+namespace Native {
+
+// "TPL1": a table plan follows (native/table_plan.h).
+static constexpr u32 TablePlanMagic = 0x314C5054;
+
+void TablePlan::Serialize(Serialization::Archive& ar) const {
+    if (!valid) {
+        return;
+    }
+    Serialization::Writer plan{ar};
+    plan.Write(TablePlanMagic);
+    plan.Write(flat_dwords);
+    plan.Write(entries);
+    plan.Write(ops);
+    plan.Write(table_dwords);
+}
+
+bool TablePlan::Deserialize(Serialization::Archive& ar) {
+    Serialization::Reader plan{ar};
+    u32 magic{};
+    plan.Read(magic);
+    if (magic != TablePlanMagic) {
+        return false;
+    }
+    plan.Read(flat_dwords);
+    plan.Read(entries);
+    plan.Read(ops);
+    plan.Read(table_dwords);
+    // A plan that would read outside its own arrays is not run.
+    valid = flat_dwords >= FirstFlat && entries.size() == flat_dwords - FirstFlat &&
+            table_dwords.size() == flat_dwords;
+    for (size_t i = 0; valid && i < entries.size(); ++i) {
+        const Entry& entry = entries[i];
+        valid = entry.parent < FirstFlat + i &&
+                (entry.expr_len == 0 || size_t(entry.offset) + entry.expr_len <= ops.size());
+        // An expression reads flattened values before its own and keeps its stack in bounds.
+        u32 depth = 0;
+        for (u32 k = 0; valid && k < entry.expr_len; ++k) {
+            const ExprOp& op = ops[entry.offset + k];
+            const u32 pops = op.op == Op::Imm || op.op == Op::Flat ? 0
+                             : op.op == Op::Not                    ? 1
+                             : op.op == Op::Bfe                    ? 3
+                                                                   : 2;
+            valid = depth >= pops && (op.op != Op::Flat || op.value < FirstFlat + i) &&
+                    op.op <= Op::Bfe;
+            depth = depth - pops + 1;
+            valid = valid && depth <= MaxStack;
+        }
+        valid = valid && (entry.expr_len == 0 || depth == 1);
+    }
+    return true;
+}
+
+} // namespace Native
 
 void Gcn::FetchShaderData::Serialize(Serialization::Archive& ar) const {
     Serialization::Writer fetch{ar};
-    ar.Grow(6 + attributes.size() * sizeof(VertexAttribute));
 
     fetch.Write(size);
     fetch.Write(vertex_offset_sgpr);

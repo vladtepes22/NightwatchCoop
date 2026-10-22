@@ -1,6 +1,10 @@
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+#if AVALONIA
+using Avalonia.Input;
+#else
 using System.Windows.Input;
+#endif
 
 namespace BloodborneLauncher.Core
 {
@@ -41,8 +45,8 @@ namespace BloodborneLauncher.Core
             new("gestures", L.T("Gestures"), L.T("Menus"), "", "G", "Touchpad (left)"),
             new("personal_effects", L.T("Personal effects"), L.T("Menus"), "", "T", "Touchpad (right)"),
             new("menu", L.T("Menu"), L.T("Menus"), "", "Escape", "Options"),
-            new("confirm", L.T("Confirm in menus"), L.T("Menus"), "", "Return", null),
-            new("back", L.T("Back in menus"), L.T("Menus"), "", "Backspace", null),
+            new("confirm", L.T("Confirm in menus"), L.T("Menus"), "", "Return", "Menu confirm"),
+            new("back", L.T("Back in menus"), L.T("Menus"), "", "Backspace", "Menu back"),
             new("look_up", L.T("Look up"), L.T("Camera keys"), L.T("The camera without the mouse"), "I", "Right stick"),
             new("look_down", L.T("Look down"), L.T("Camera keys"), "", "K", "Right stick"),
             new("look_left", L.T("Look left"), L.T("Camera keys"), "", "J", "Right stick"),
@@ -59,10 +63,48 @@ namespace BloodborneLauncher.Core
 
         public static readonly string[] MouseTokens = { "Mouse1", "Mouse2", "Mouse3", "Mouse4", "Mouse5", "WheelUp", "WheelDown" };
 
-        public static bool IsMouse(string name) => MouseTokens.Contains(name, StringComparer.OrdinalIgnoreCase);
+        public static bool IsMouse(string name) => MouseTokens.Contains(Base(name), StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>A friendly name for a chip.</summary>
-        public static string Display(string name) => name.ToLowerInvariant() switch
+        private static readonly string[] ModifierPrefixes = { "Ctrl+", "Shift+", "Alt+" };
+
+        /// <summary>A combination's key or mouse input, without its "Ctrl+", "Shift+", "Alt+".</summary>
+        public static string Base(string name)
+        {
+            for (var stripped = true; stripped;)
+            {
+                stripped = false;
+                foreach (var prefix in ModifierPrefixes)
+                    if (name.Length > prefix.Length && name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        name = name[prefix.Length..].Trim();
+                        stripped = true;
+                    }
+            }
+            return name;
+        }
+
+        /// <summary>A key or mouse input with the modifiers held with it, as the engine reads it
+        /// (bindings.cpp): "Shift+E", "Ctrl+Alt+Mouse4". The modifier keys themselves stay alone.</summary>
+        public static string WithModifiers(string name, bool ctrl, bool shift, bool alt)
+        {
+            if (IsModifierName(name)) return name;
+            return (ctrl ? "Ctrl+" : "") + (shift ? "Shift+" : "") + (alt ? "Alt+" : "") + name;
+        }
+
+        public static bool IsModifierName(string name) =>
+            name is "Left Shift" or "Right Shift" or "Left Ctrl" or "Right Ctrl" or "Left Alt" or "Right Alt";
+
+        public static bool IsModifierKey(Key key) =>
+            key is Key.LeftShift or Key.RightShift or Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt;
+
+        /// <summary>A friendly name for a chip: a combination's modifiers, then its input.</summary>
+        public static string Display(string name)
+        {
+            var input = Base(name);
+            return name[..^input.Length].Replace("+", " + ") + DisplayInput(input);
+        }
+
+        private static string DisplayInput(string name) => name.ToLowerInvariant() switch
         {
             "mouse1" => L.T("Left click"),
             // SDL numbering, as the engine reads it (input.cpp): 2 is the middle button, 3 the right.
@@ -159,12 +201,21 @@ namespace BloodborneLauncher.Core
             return names;
         });
 
-        /// <summary>A key or mouse name in the engine's spelling, or null if it is not one.</summary>
+        /// <summary>A key or mouse name in the engine's spelling, with its modifiers ("Shift+E"), or
+        /// null if it is not one.</summary>
         public static string? Canonical(string name)
         {
             name = name.Trim();
-            if (MouseTokens.FirstOrDefault(t => t.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } mouse) return mouse;
-            return KeyNames.Value.FirstOrDefault(k => k.Equals(name, StringComparison.OrdinalIgnoreCase));
+            var input = Base(name);
+            var mods = name[..^input.Length];
+            var ctrl = mods.Contains("ctrl", StringComparison.OrdinalIgnoreCase);
+            var shift = mods.Contains("shift", StringComparison.OrdinalIgnoreCase);
+            var alt = mods.Contains("alt", StringComparison.OrdinalIgnoreCase);
+            if (MouseTokens.FirstOrDefault(t => t.Equals(input, StringComparison.OrdinalIgnoreCase)) is { } mouse)
+                return WithModifiers(mouse, ctrl, shift, alt);
+            return KeyNames.Value.FirstOrDefault(k => k.Equals(input, StringComparison.OrdinalIgnoreCase)) is { } key
+                ? WithModifiers(key, ctrl, shift, alt)
+                : null;
         }
     }
 
@@ -181,21 +232,33 @@ namespace BloodborneLauncher.Core
         private static bool Same(List<string> a, List<string> b) =>
             a.Count == b.Count && a.Zip(b).All(p => p.First.Equals(p.Second, StringComparison.OrdinalIgnoreCase));
 
-        /// <summary>One key and one mouse input at most, key first; written out explicitly ("none" unbinds).</summary>
+        /// <summary>The engine reads up to five inputs an action (bindings.cpp).</summary>
+        public const int MaxInputs = 5;
+
+        /// <summary>Up to five inputs, each once, in order; written out explicitly ("none" unbinds).</summary>
         public static void Set(IniFile ini, ControlDef c, IEnumerable<string> names)
         {
-            var list = names.ToList();
-            var key = list.LastOrDefault(n => !InputMap.IsMouse(n));
-            var mouse = list.LastOrDefault(InputMap.IsMouse);
-            var value = InputMap.Join(new[] { key, mouse }.Where(n => n != null)!);
+            var list = names.Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxInputs).ToList();
+            var value = InputMap.Join(list);
             ini.Set(IniKey(c), value.Length == 0 ? "none" : value);
         }
 
-        /// <summary>A new input for an action: replaces the one of the same kind (key or mouse), or all.</summary>
+        /// <summary>A new input for an action: replaces the ones of the same kind (keys or mouse), or all.</summary>
         public static void Assign(IniFile ini, ControlDef c, string name, bool keepOtherKind)
         {
             var current = keepOtherKind ? Get(ini, c).Where(n => InputMap.IsMouse(n) != InputMap.IsMouse(name)) : Enumerable.Empty<string>();
             Set(ini, c, current.Append(name));
+        }
+
+        /// <summary>One more input for an action (a second key, a combination); when it has five,
+        /// it replaces the last.</summary>
+        public static void Add(IniFile ini, ControlDef c, string name)
+        {
+            var current = Get(ini, c);
+            if (current.Contains(name, StringComparer.OrdinalIgnoreCase)) return;
+            if (current.Count >= MaxInputs) current.RemoveAt(current.Count - 1);
+            current.Add(name);
+            Set(ini, c, current);
         }
 
         public static void ResetAll(IniFile ini)
@@ -233,6 +296,9 @@ namespace BloodborneLauncher.Core
 
         public static List<Pad> Detect()
         {
+#if AVALONIA
+            if (!OperatingSystem.IsWindows()) return DetectLinux();
+#endif
             var pads = new List<Pad>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var path in HidPaths())
@@ -260,6 +326,34 @@ namespace BloodborneLauncher.Core
             return pads;
         }
 
+#if AVALONIA
+        /// <summary>Linux: the input devices with a joystick handler (js0…) in /proc/bus/input/devices,
+        /// named by their known model or their own name; bus 0005 is Bluetooth.</summary>
+        private static List<Pad> DetectLinux()
+        {
+            var pads = new List<Pad>();
+            try
+            {
+                var text = File.ReadAllText("/proc/bus/input/devices");
+                foreach (var block in text.Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (!Regex.IsMatch(block, @"^H: Handlers=.*\bjs\d+", RegexOptions.Multiline)) continue;
+                    var id = Regex.Match(block, @"^I: Bus=([0-9a-f]{4}) Vendor=([0-9a-f]{4}) Product=([0-9a-f]{4})", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+                    var own = Regex.Match(block, "^N: Name=\"(.*)\"", RegexOptions.Multiline).Groups[1].Value;
+                    var name = id.Success && Known.TryGetValue((Convert.ToInt32(id.Groups[2].Value, 16), Convert.ToInt32(id.Groups[3].Value, 16)), out var known)
+                        ? known
+                        : own.Length > 0 ? own : L.T("Game controller");
+                    pads.Add(new Pad(name, id.Success && id.Groups[1].Value == "0005"));
+                }
+            }
+            catch
+            {
+                // No /proc: nothing to show.
+            }
+            return pads;
+        }
+
+#endif
         // ---------------------------------------------------------------- HID
 
         [StructLayout(LayoutKind.Sequential)]

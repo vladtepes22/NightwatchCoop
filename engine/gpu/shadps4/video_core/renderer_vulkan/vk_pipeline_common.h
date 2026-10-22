@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <functional>
+#include <vector>
 
 #include "shader_recompiler/profile.h"
 #include "shader_recompiler/runtime_info.h"
@@ -39,6 +40,15 @@ void SubmitPipelineJob(const void* owner, std::function<void()> job);
 std::function<void()> TakePipelineJob(const void* owner);
 /// The number of compile threads.
 u32 PipelineCompileThreads();
+
+/// bbport: the start's cached pipelines are created on several threads (PipelineCache::WarmUp,
+/// BB_WARMUP_THREADS). While this is set on the thread that rebuilds them, a pipeline that would
+/// be created at once hands its creation over instead (its handle waits as for a compile
+/// thread's); a job returns false when the driver refuses the pipeline (a damaged cache entry).
+struct WarmupJobs {
+    std::vector<std::function<bool()>> jobs;
+};
+inline thread_local WarmupJobs* warmup_jobs = nullptr;
 
 /// bbport (docs/pipeline_compiles.md): what a draw does with a pipeline still compiling.
 /// Scene geometry is left out (BB_SKIP_UNCOMPILED=0: never) for at most this long
@@ -130,6 +140,8 @@ protected:
     vk::UniqueDescriptorSetLayout desc_layout;
     std::array<const Shader::Info*, Shader::MaxStageTypes> stages{};
     bool uses_push_descriptors{};
+    /// bbport: the fragment shader reads Shader::Native::ToneCurvePush after the push data.
+    bool uses_tone_curve{};
     bool is_compute;
 };
 

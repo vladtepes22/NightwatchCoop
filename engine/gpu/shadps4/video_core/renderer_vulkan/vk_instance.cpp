@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <cstdio>
+#include <cstring>
+#include <thread>
+#if defined(__x86_64__)
+#include <cpuid.h>
+#endif
 #include <boost/container/static_vector.hpp>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -15,8 +20,10 @@
 #include "bbport_toggles.h"
 #include "video_core/renderer_vulkan/vk_breadcrumbs.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
+#include "video_core/renderer_vulkan/vk_streamline.h"
 #include "video_core/renderer_vulkan/vk_fsr4vk.h"
 #include "video_core/renderer_vulkan/vk_occlusion.h"
+#include "video_core/renderer_vulkan/vk_optiscaler.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
 
 #include <vk_mem_alloc.h>
@@ -24,6 +31,34 @@
 namespace Vulkan {
 
 namespace {
+
+/// bbport: the CPU in the session log (crash reports came without it). XCR0 says which extended
+/// state Windows saves below rsp on a fault: the Intel effect crash (notes/intel-sfx-crash.md).
+void PrintCpu() {
+#if defined(__x86_64__)
+    unsigned a = 0, b = 0, c = 0, d = 0;
+    char brand[49] = {};
+    if (__get_cpuid(0x80000000, &a, &b, &c, &d) && a >= 0x80000004) {
+        for (unsigned leaf = 0; leaf < 3; ++leaf) {
+            unsigned r[4];
+            __get_cpuid(0x80000002 + leaf, &r[0], &r[1], &r[2], &r[3]);
+            std::memcpy(brand + leaf * 16, r, 16);
+        }
+    }
+    const char* name = brand;
+    while (*name == ' ') {
+        ++name;
+    }
+    unsigned long long xcr0 = 0;
+    if (__get_cpuid(1, &a, &b, &c, &d) && (c & (1u << 27))) { // OSXSAVE
+        unsigned lo = 0, hi = 0;
+        asm volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
+        xcr0 = (static_cast<unsigned long long>(hi) << 32) | lo;
+    }
+    std::printf("CPU: %s, %u hardware threads, XSAVE state 0x%llx\n", *name ? name : "(unknown)",
+                std::thread::hardware_concurrency(), xcr0);
+#endif
+}
 
 std::vector<vk::PhysicalDevice> EnumeratePhysicalDevices(vk::UniqueInstance& instance) {
     auto [devices_result, devices] = instance->enumeratePhysicalDevices();
@@ -45,6 +80,64 @@ std::vector<std::string> GetSupportedExtensions(vk::PhysicalDevice physical) {
         supported_extensions.emplace_back(extension.extensionName.data());
     }
     return supported_extensions;
+}
+
+// bbport: BB_VK_HIDE=<names or families, comma-separated>: those extensions are treated as missing,
+// so the paths of older GPUs run on this one (docs/COMPATIBILITY.md). The families are what
+// players' logs show their drivers lack (0.9.37: "Extension ... unavailable").
+static void HideExtensions(std::vector<std::string>& available) {
+    const char* env = std::getenv("BB_VK_HIDE");
+    if (!env || !*env) {
+        return;
+    }
+    static constexpr std::string_view amd_only[] = {
+        "VK_AMD_gcn_shader", "VK_AMD_mixed_attachment_samples",
+        "VK_AMD_shader_explicit_vertex_parameter", "VK_AMD_shader_image_load_store_lod",
+        "VK_AMD_shader_trinary_minmax"};
+    static constexpr std::string_view nvidia_only[] = {
+        "VK_NV_framebuffer_mixed_samples", "VK_NVX_binary_import", "VK_NVX_image_view_handle",
+        "VK_NV_low_latency2"};
+    const auto family = [](std::string_view name) -> std::vector<std::string_view> {
+        std::vector<std::string_view> set;
+        if (name == "nvidia" || name == "gtx10") { // RTX 20-50, GTX 16; GTX 10 and older below
+            set = {"VK_EXT_shader_stencil_export", "VK_EXT_shader_atomic_float2"};
+            set.insert(set.end(), std::begin(amd_only), std::end(amd_only));
+            if (name == "gtx10") {
+                set.insert(set.end(), {"VK_KHR_fragment_shader_barycentric",
+                                       "VK_KHR_compute_shader_derivatives", "VK_KHR_maintenance8"});
+            }
+        } else if (name == "rdna" || name == "polaris") { // RX 5000-9000; RX 400/500, Vega, old APUs
+            set = {"VK_EXT_attachment_feedback_loop_dynamic_state", "VK_EXT_shader_float8"};
+            set.insert(set.end(), std::begin(nvidia_only), std::end(nvidia_only));
+            if (name == "polaris") { // AMD's legacy driver (2.0.279)
+                set.insert(set.end(),
+                           {"VK_EXT_vertex_input_dynamic_state", "VK_EXT_image_2d_view_of_3d",
+                            "VK_KHR_maintenance5", "VK_KHR_maintenance8",
+                            "VK_KHR_compute_shader_derivatives", "VK_KHR_cooperative_matrix",
+                            "VK_EXT_shader_atomic_float2"});
+            }
+        }
+        return set;
+    };
+    std::vector<std::string> hidden;
+    for (std::string_view rest{env}; !rest.empty();) {
+        const auto comma = rest.find(',');
+        const auto name = rest.substr(0, comma);
+        rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
+        const auto set = family(name);
+        if (set.empty()) {
+            hidden.emplace_back(name);
+        }
+        for (const auto extension : set) {
+            hidden.emplace_back(extension);
+        }
+    }
+    const auto before = available.size();
+    std::erase_if(available, [&](const std::string& name) {
+        return std::ranges::find(hidden, name) != hidden.end();
+    });
+    std::printf("GPU: %zu Vulkan extensions hidden for testing (BB_VK_HIDE=%s)\n",
+                before - available.size(), env);
 }
 
 vk::FormatProperties3 GetFormatProperties(vk::PhysicalDevice physical, vk::Format format) {
@@ -173,6 +266,7 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
     }
 
     available_extensions = GetSupportedExtensions(physical_device);
+    HideExtensions(available_extensions);
     format_properties = GetFormatProperties(physical_device);
     properties = physical_device.getProperties();
     memory_properties = physical_device.getMemoryProperties();
@@ -192,6 +286,8 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
 }
 
 Instance::~Instance() {
+    // bbport: Streamline goes before the device (the presenter's swapchain went already).
+    Streamline::Shutdown();
     ImGui::Core::Shutdown(GetDevice());
     vmaDestroyAllocator(allocator);
 }
@@ -390,6 +486,11 @@ bool Instance::CreateDevice() {
     // bbport: guest direct memory allocated here and mapped by the runtime (BbGuestMemory).
     guest_memory_export = add_extension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME) &&
                           add_extension(VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME);
+    // bbport: on Windows the GPU imports the game's memory itself (BbGuestMemory, the PC memory
+    // model); only asked for with it, so the default path keeps the device as it was.
+    if (const char* env = std::getenv("BB_GUEST_IN_PLACE"); env && env[0] == '1') {
+        guest_memory_import = add_extension(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
+    }
     // bbport: FSR 4 v07 INT8 (vk_temporal_upscaler): quad derivatives in compute shaders.
     compute_shader_derivatives = add_extension(VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME);
     // bbport: FSR 4.1.1 passes (dot2 of halves accumulated in float, as vkd3d-proton translates them).
@@ -425,6 +526,18 @@ bool Instance::CreateDevice() {
         TRACY_GPU_ENABLED ? add_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) : false;
     // bbport: HDR output (vk_swapchain.cpp): the display's luminance for the HDR swapchain.
     hdr_metadata = add_extension(VK_EXT_HDR_METADATA_EXTENSION_NAME);
+    // bbport (0.9.37 beta 6): NVIDIA's low latency extension for its boost hint alone (Swapchain:
+    // GPU clocks held up while the engine leaves the GPU idle between its waits; an RTX 3070 ran
+    // 45-59 FPS without it and 106 with Reflex Boost through Streamline). Streamline adds and
+    // drives the extension itself when it is loaded, and OptiScaler hooks the device's creation
+    // (it may add Reflex's extensions too). BB_NV_BOOST=0: not used.
+    if (!Streamline::Loaded() && !OptiScaler::Detect().loaded &&
+        !(std::getenv("BB_NV_BOOST") && std::getenv("BB_NV_BOOST")[0] == '0') &&
+        std::ranges::find(available_extensions, std::string{VK_NV_LOW_LATENCY_2_EXTENSION_NAME}) !=
+            available_extensions.end()) {
+        low_latency_boost = add_extension(VK_KHR_PRESENT_ID_EXTENSION_NAME) &&
+                            add_extension(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
+    }
     // bbport (Windows): BB_EXCLUSIVE_FULLSCREEN=0 keeps the swapchain from ever becoming
     // exclusive fullscreen (vk_swapchain.cpp), so a driver cannot switch Windows HDR off for an
     // SDR image. Off by default: the driver's exclusive mode has the lowest latency and keeps
@@ -775,14 +888,22 @@ bool Instance::CreateDevice() {
         device_chain.unlink<vk::PhysicalDeviceDescriptorBufferFeaturesEXT>();
     }
 
-    auto [device_result, dev] = physical_device.createDeviceUnique(device_chain.get());
+    // bbport: with OptiScaler loaded, on a thread of its own (OptiScaler::OnCleanThread).
+    auto [device_result, dev] = OptiScaler::OnCleanThread([&] {
+        auto created = physical_device.createDeviceUnique(device_chain.get());
+        if (created.result == vk::Result::eSuccess) {
+            VULKAN_HPP_DEFAULT_DISPATCHER.init(*created.value);
+        }
+        return created;
+    });
     if (device_result != vk::Result::eSuccess) {
         LOG_CRITICAL(Render_Vulkan, "Failed to create device: {}", vk::to_string(device_result));
         return false;
     }
     device = std::move(dev);
-
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(*device);
+    // bbport: created through Streamline's proxy when it is loaded: DLSS Frame Generation's
+    // support on this GPU (vk_streamline.h).
+    Streamline::OnDeviceCreated(physical_device);
 
     graphics_queue = device->getQueue(queue_family_index, 0);
     present_queue = device->getQueue(queue_family_index, 0);
@@ -904,6 +1025,7 @@ void Instance::CollectDeviceParameters() {
     const std::string api_version = GetReadableVersion(properties.apiVersion);
     const std::string extensions = fmt::format("{}", fmt::join(available_extensions, ", "));
 
+    PrintCpu();
     std::printf("GPU: %s%s, driver %s (%s), Vulkan %s\n", model_name.c_str(),
                 IsIntegrated() ? " (integrated)" : "", driver_version.c_str(), vendor_name.c_str(),
                 api_version.c_str());

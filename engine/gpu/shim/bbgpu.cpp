@@ -33,6 +33,7 @@
 #include "../bbgpu.h"
 #include "../bbnet.h"
 #include "common/elf_info.h"
+#include "shader_recompiler/native/table_plan.h"
 
 extern "C" void bbgpu_request_quit(void) {
     SDL_Event quit{};
@@ -149,6 +150,10 @@ public:
 
 void MemoryManager::SetRasterizer(Vulkan::Rasterizer* rasterizer_) {
     rasterizer = rasterizer_;
+    // bbport: resource table plans (BB_NATIVE_TABLES) read only mapped guest memory.
+    Shader::Native::TablePlan::guest_readable = [](u64 address, u64 bytes) {
+        return Memory::Instance()->ClampRangeSize(address, bytes) >= bytes;
+    };
     // Existing guest mappings are replayed by the runtime when hooks are installed.
     runtime_memory_set_gpu_hooks(
         [](uintptr_t address, uint64_t size) {

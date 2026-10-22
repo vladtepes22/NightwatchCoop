@@ -90,8 +90,11 @@ private:
 struct Writer {
     template <typename T>
     void Write(const T* ptr, size_t size) {
-        if (ar.offset + size >= ar.container.size()) {
-            ar.Grow(size);
+        // bbport: grown by what is missing only. Growing by `size` past room an earlier Grow left
+        // kept that room as zero bytes after the record (a vertex shader's, after its fetch shader
+        // data), which the reader took for one more part of it.
+        if (ar.offset + size > ar.container.size()) {
+            ar.Grow(ar.offset + size - ar.container.size());
         }
         std::memcpy(ar.CurrPtr(), reinterpret_cast<const void*>(ptr), size);
         ar.Advance(size);

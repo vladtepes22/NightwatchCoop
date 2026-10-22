@@ -161,6 +161,13 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
     }
     frame_gen = std::make_unique<FrameGenerator>(instance, draw_scheduler);
     rasterizer->GetUpscaler().SetFrameGenerator(frame_gen.get());
+    // bbport: DLSS Frame Generation (vk_streamline.h): a slot and a HUD-less frame per
+    // presentation frame (images made at their first use).
+    dlss_fg = std::make_unique<DlssFrameGen>(instance, num_images);
+    dlss_hudless_frames.resize(num_images);
+    for (u32 i = 0; i < num_images; ++i) {
+        dlss_hudless_frames[i].id = u8(num_images + NumGeneratedFrames + i);
+    }
 
     fsr_settings.enable = EmulatorSettings.IsFsrEnabled();
     fsr_settings.use_rcas = EmulatorSettings.IsRcasEnabled();
@@ -264,6 +271,13 @@ Presenter::~Presenter() {
             device.destroyImageView(frame.image_view);
         }
         device.destroyFence(frame.present_done);
+    }
+    dlss_fg.reset();
+    for (auto& frame : dlss_hudless_frames) {
+        if (frame.image) {
+            vmaDestroyImage(instance.GetAllocator(), frame.image, frame.allocation);
+            device.destroyImageView(frame.image_view);
+        }
     }
     DestroyHdrTarget(hdr_game);
     DestroyHdrTarget(hdr_overlay);
@@ -449,8 +463,7 @@ void Presenter::PresentHdr(vk::CommandBuffer cmdbuf, Frame* frame, vk::Extent2D 
     const HostPasses::HdrOutputPass::Settings hdr{
         .paper_white = std::clamp(settings.hdr_paper_white.load(), BbSettings::HdrPaperWhiteMin,
                                   BbSettings::HdrPaperWhiteMax),
-        .peak = std::clamp(settings.hdr_peak.load(), BbSettings::HdrPeakMin,
-                           BbSettings::HdrPeakMax),
+        .peak = BbSettings::HdrPeakNits(settings),
         .boost = mode == BbSettings::HdrModeNative && !native
                      ? 0.0f
                      : std::clamp(settings.hdr_boost.load(), 0.0f, 1.0f),
@@ -458,7 +471,8 @@ void Presenter::PresentHdr(vk::CommandBuffer cmdbuf, Frame* frame, vk::Extent2D 
                  (overlay ? HostPasses::HdrOutputPass::FlagOverlay : 0u) |
                  (native ? HostPasses::HdrOutputPass::FlagNative : 0u) |
                  (debug ? HostPasses::HdrOutputPass::FlagDebug : 0u) |
-                 (mode == BbSettings::HdrModeNative && !native ? HostPasses::HdrOutputPass::FlagUiFrame : 0u),
+                 (mode == BbSettings::HdrModeNative && !native ? HostPasses::HdrOutputPass::FlagUiFrame : 0u) |
+                 (settings.hdr_compare.load(std::memory_order_relaxed) ? HostPasses::HdrOutputPass::FlagCompare : 0u),
         .gain_offset = {float(fit.offset.x), float(fit.offset.y)},
         .gain_scale = {1.0f / float(std::max(fit.extent.width, 1u)),
                        1.0f / float(std::max(fit.extent.height, 1u))},
@@ -790,6 +804,32 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
         }
     }
 
+    // bbport: DLSS Frame Generation: this game frame's number (its Reflex markers) and, with a
+    // DLSS job, its inputs: the captures into the frame's slot and the frame without its UI
+    // through the same post process as the frame (vk_streamline.h).
+    frame->dlss = {};
+    frame->dlss.index = dlss_fg->CurrentFrame();
+    Frame* dlss_hudless = nullptr;
+    if (gen_job && gen_job->dlss && dlss_fg->Available()) {
+        dlss_hudless = &dlss_hudless_frames[frame->id];
+        if (dlss_hudless->width != frame->width || dlss_hudless->height != frame->height ||
+            dlss_hudless->is_hdr != frame->is_hdr || !dlss_hudless->image) {
+            RecreateFrame(dlss_hudless, frame->width, frame->height);
+        }
+        dlss_fg->EnsureSlot(frame->id, gen_job->render_width, gen_job->render_height);
+        frame->dlss.inputs = true;
+        frame->dlss.slot = frame->id;
+        frame->dlss.render_width = gen_job->render_width;
+        frame->dlss.render_height = gen_job->render_height;
+        frame->dlss.jitter = gen_job->jitter;
+        frame->dlss.near_plane = gen_job->near_plane;
+        frame->dlss.vertical_fov = gen_job->vertical_fov;
+        frame->dlss.reset = gen_job->reset;
+        frame->dlss.camera = gen_job->camera;
+    }
+    const bool dlss_srgb = view_info.format == vk::Format::eR8G8B8A8Srgb ||
+                           view_info.format == vk::Format::eB8G8R8A8Srgb;
+
     // Numbered here, in command order; marked where the commands are recorded.
     const u32 stream = draw_scheduler.CrumbStream();
     const bool crumbs = Breadcrumbs::Enabled();
@@ -797,7 +837,8 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     const u32 pp_crumb = crumbs ? Breadcrumbs::Note(stream, {.name = "presenter post process"}) : 0;
     draw_scheduler.Record([this, frame, image_view, image_size, frame_subresources, stream,
                            fsr_crumb, pp_crumb, fsr = fsr_settings, pp = pp_settings, generated,
-                           gen_job](vk::CommandBuffer cmdbuf) {
+                           gen_job, dlss_hudless, dlss_srgb, dlss = dlss_fg.get(),
+                           fg = frame_gen.get()](vk::CommandBuffer cmdbuf) {
         // Frames of different submissions may be recorded on two threads at once.
         std::scoped_lock lock{passes_mutex};
         const auto pre_barrier = vk::ImageMemoryBarrier2{
@@ -827,6 +868,42 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
         pp_pass.Render(cmdbuf, input, image_size, *frame, pp);
         if (pp_crumb) {
             Breadcrumbs::Mark(cmdbuf, stream, pp_crumb, true);
+        }
+        // bbport: DLSS Frame Generation's inputs for this frame: copies of the captures, and the
+        // frame without its UI through the same post process (its capture stays in General).
+        if (dlss_hudless) {
+            dlss->RecordInputs(cmdbuf, frame->id, fg->DepthImage(), fg->MotionImage(),
+                               gen_job->render_width, gen_job->render_height);
+            const auto hudless_barrier = [&](vk::ImageLayout from, vk::ImageLayout to) {
+                const vk::ImageMemoryBarrier2 barrier{
+                    .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+                    .srcAccessMask = vk::AccessFlagBits2::eMemoryWrite,
+                    .dstStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+                    .dstAccessMask = vk::AccessFlagBits2::eMemoryRead |
+                                     vk::AccessFlagBits2::eMemoryWrite,
+                    .oldLayout = from,
+                    .newLayout = to,
+                    .image = fg->HudlessImage(),
+                    .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
+                };
+                cmdbuf.pipelineBarrier2(
+                    {.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier});
+            };
+            const auto to_target = vk::ImageMemoryBarrier2{
+                .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+                .srcAccessMask = vk::AccessFlagBits2::eMemoryRead,
+                .dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
+                .oldLayout = vk::ImageLayout::eUndefined,
+                .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
+                .image = dlss_hudless->image,
+                .subresourceRange{frame_subresources},
+            };
+            cmdbuf.pipelineBarrier2(
+                vk::DependencyInfo{.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &to_target});
+            hudless_barrier(vk::ImageLayout::eGeneral, vk::ImageLayout::eShaderReadOnlyOptimal);
+            pp_pass.Render(cmdbuf, fg->HudlessView(dlss_srgb), image_size, *dlss_hudless, pp);
+            hudless_barrier(vk::ImageLayout::eShaderReadOnlyOptimal, vk::ImageLayout::eGeneral);
         }
         // bbport: frame generation: interpolated and composed, then the same post process
         // into the generated frame's image.
@@ -863,6 +940,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     SubmitInfo info{};
     draw_scheduler.Flush(info);
     BbTimeline::Note(BbTimeline::PipeTask, 5, frame->ready_tick);
+    dlss_fg->OnFrameSubmitted(); // bbport: Reflex: this frame's render submit ended
 
     // bbport: the GPU command thread runs at most BB_FRAMES_AHEAD (default 1) guest frames
     // ahead of the GPU: it waits here for the frame that many flips back. When the GPU is the
@@ -1026,6 +1104,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     if (real_game_frame) {
         if (swapchain.SetExtraImages(frame_gen->WantsExtraImage() ? 1 : 0) &&
             window.GetWidth() != 0 && window.GetHeight() != 0) {
+            dlss_fg->BeforeSwapchainChange();
             swapchain.Recreate(window.GetWidth(), window.GetHeight());
             std::printf("Frame generation: swapchain of %u images\n", swapchain.GetImageCount());
         }
@@ -1067,6 +1146,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     // Recreate the swapchain if the window was resized (or was minimised at the last try).
     if (window.GetWidth() != swapchain.GetWidth() || window.GetHeight() != swapchain.GetHeight() ||
         !swapchain.IsPresentable()) {
+        dlss_fg->BeforeSwapchainChange();
         swapchain.Recreate(window.GetWidth(), window.GetHeight());
         if (!swapchain.IsPresentable()) {
             free_frame();
@@ -1075,6 +1155,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     }
 
     if (!swapchain.AcquireNextImage()) {
+        dlss_fg->BeforeSwapchainChange();
         swapchain.Recreate(window.GetWidth(), window.GetHeight());
         if (!swapchain.AcquireNextImage()) {
             // User resizes the window too fast and GPU can't keep up. Skip this frame.
@@ -1225,6 +1306,14 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
                                    vk::PipelineStageFlagBits::eBottomOfPipe,
                                    vk::DependencyFlagBits::eByRegion, {}, {}, to_present);
         }
+        // bbport: DLSS Frame Generation: the frame without its UI at the back buffer's size and
+        // the UI alpha image, from the finished back buffer (vk_streamline.h).
+        if (real_game_frame && frame->dlss.inputs) {
+            const Frame& hudless = dlss_hudless_frames[frame->id];
+            dlss_fg->RecordPresent(cmdbuf, frame->dlss, hudless.image, hudless.image_view,
+                                   {frame->width, frame->height}, swapchain_image,
+                                   swapchain.GetSurfaceFormat().format, extent, fit);
+        }
     }
     if (EmulatorSettings.IsVkHostMarkersEnabled()) {
         cmdbuf.endDebugUtilsLabelEXT();
@@ -1244,14 +1333,19 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     info.AddSignal(frame->present_done);
     scheduler.Flush(info);
 
-    // Present to swapchain.
+    // Present to swapchain. bbport: DLSS Frame Generation's constants, tags and markers for
+    // this frame go out right before (none for a frame shown again).
+    const DlssFrameInfo* dlss_info = real_game_frame ? &frame->dlss : nullptr;
+    dlss_fg->BeforePresent(dlss_info, BbOverlay::MenuOpen(), hdr_output);
     bool presented;
     {
         std::scoped_lock submit_lock{Scheduler::submit_mutex};
         presented = swapchain.Present();
     }
+    dlss_fg->AfterPresent(dlss_info);
     // bbport: recreated after the lock: its device wait takes it (Swapchain::WaitIdle).
     if (!presented) {
+        dlss_fg->BeforeSwapchainChange();
         swapchain.Recreate(window.GetWidth(), window.GetHeight());
     }
 

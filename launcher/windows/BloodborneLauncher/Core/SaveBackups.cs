@@ -88,7 +88,7 @@ namespace BloodborneLauncher.Core
             Path.GetRelativePath(from, path).Split(Path.DirectorySeparatorChar)
                 .Any(part => part.EndsWith(".importing", StringComparison.OrdinalIgnoreCase));
 
-        private static void Copy(string from, string to)
+        internal static void Copy(string from, string to)
         {
             Directory.CreateDirectory(to);
             foreach (var dir in Directory.GetDirectories(from, "*", SearchOption.AllDirectories).Where(d => !Staging(from, d)))
@@ -98,7 +98,7 @@ namespace BloodborneLauncher.Core
         }
 
         /// <summary>Names, sizes and times of the files: equal when nothing was saved since.</summary>
-        private static string Fingerprint(string dir)
+        internal static string Fingerprint(string dir)
         {
             var text = new StringBuilder();
             foreach (var file in Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Where(f => !Staging(dir, f)).OrderBy(f => f, StringComparer.Ordinal))

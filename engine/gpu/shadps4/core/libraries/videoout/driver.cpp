@@ -17,6 +17,7 @@
 #endif
 #include "common/assert.h"
 #include "bbport_platform.h"
+#include "lantern_pacing.h"
 #include "bbport_toggles.h"
 #include "bbport_heap_sites.h"
 #include "bbport_wait_trace.h"
@@ -54,8 +55,8 @@ extern std::unique_ptr<Vulkan::Presenter> presenter;
 extern std::unique_ptr<AmdGpu::Liverpool> liverpool;
 
 namespace Vulkan {
-extern std::atomic<u64> g_bb_compile_ns;
-extern std::atomic<u32> g_bb_compiles;
+extern std::atomic<u64> g_bb_compile_ns, g_bb_compile_ns_total;
+extern std::atomic<u32> g_bb_compiles, g_bb_compiles_total;
 } // namespace Vulkan
 
 namespace AmdGpu {
@@ -581,11 +582,23 @@ void VideoOutDriver::Flip(const Request& req) {
         const u64 images = BbStats::images_registered.load();
         const u64 image_bytes = BbStats::image_upload_bytes.load();
         const u64 buffer_bytes = BbStats::buffer_upload_bytes.load();
+        // bbport: whether a long frame built pipelines (a first visit) or loaded (uploads, no
+        // compiles): the first thing a hitch report needs (Linux report, 0.9.37 beta 6).
+        static u64 last_compile_ns_total;
+        static u32 last_compiles_total;
+        const u64 compile_ns_total = Vulkan::g_bb_compile_ns_total.load();
+        const u32 compiles_total = Vulkan::g_bb_compiles_total.load();
         if (frame_ms > 40.0 && last_gpu_ns != 0) {
-            std::printf("Stall: %.1f ms frame; GPU thread on CPU %.1f ms; %llu images registered, "
-                        "%.1f MB image uploads, %.1f MB buffer uploads\n",
-                        frame_ms, (gpu_ns - last_gpu_ns) / 1e6,
-                        static_cast<unsigned long long>(images - last_images),
+            const double frame_compile_ms = (compile_ns_total - last_compile_ns_total) / 1e6;
+            std::printf("Stall: %.1f ms frame (%s); GPU thread on CPU %.1f ms; %u pipelines "
+                        "built, %.1f ms; %llu images registered, %.1f MB image uploads, %.1f MB "
+                        "buffer uploads\n",
+                        frame_ms,
+                        frame_compile_ms >= frame_ms * 0.5 ? "pipelines built"
+                        : frame_compile_ms > 0.0           ? "pipelines built, loading"
+                                                           : "loading or other work",
+                        (gpu_ns - last_gpu_ns) / 1e6, compiles_total - last_compiles_total,
+                        frame_compile_ms, static_cast<unsigned long long>(images - last_images),
                         (image_bytes - last_image_bytes) / 1e6,
                         (buffer_bytes - last_buffer_bytes) / 1e6);
             std::printf("       %llu draws, %llu dispatches, %llu submissions; GPU thread user %.1f ms, "
@@ -708,6 +721,8 @@ void VideoOutDriver::Flip(const Request& req) {
         last_images = images;
         last_image_bytes = image_bytes;
         last_buffer_bytes = buffer_bytes;
+        last_compile_ns_total = compile_ns_total;
+        last_compiles_total = compiles_total;
         ++frames;
         const double window = std::chrono::duration<double>(now - window_start).count();
         if (window >= 5.0) {
@@ -1088,24 +1103,34 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     // a faster game replaces generated frames before they are shown). Applied while generated
     // frames are shown (BbSettings::frame_gen_active), back to the limit above otherwise.
     const u32 base_limit = frame_limit;
-    const u32 half_refresh = Frontend::DisplayRefreshHz() / 2;
     // The frame limit caps the frames shown, generated ones included: the game runs at half of
-    // it (a 120 FPS limit is 60 + 60 generated, not 120 + 120).
+    // it (a 120 FPS limit is 60 + 60 generated, not 120 + 120). bbport: DLSS Frame Generation
+    // shows frame_gen_multiplier frames per game frame (up to 6): the limit and the cap divide by
+    // that. Only with the uncapped preset: the others (30, 60, 90, 120, 144) are fixed-timestep
+    // patches whose game speed follows the flip rate, and a halved limit ran the game in slow
+    // motion with twice the input lag (DLSS-G test, 60 FPS preset at 30).
+    static const bool variable_timestep = [] {
+        const char* fps = std::getenv("BB_FPS");
+        return fps && std::string_view{fps} == "uncap";
+    }();
     const auto effective_limit = [&] {
         const auto& s = BbSettings::Get();
-        if (!s.frame_gen_active.load(std::memory_order_relaxed)) {
+        if (!variable_timestep || !s.frame_gen_active.load(std::memory_order_relaxed)) {
             return base_limit;
         }
-        u32 limit = base_limit / 2;
-        if (half_refresh >= 20 && s.frame_gen_cap.load(std::memory_order_relaxed)) {
-            limit = limit == 0 ? half_refresh : std::min(limit, half_refresh);
+        const u32 shown = u32(std::clamp(s.frame_gen_multiplier.load(std::memory_order_relaxed), 2,
+                                         BbSettings::FrameGenFramesMax + 1));
+        u32 limit = base_limit / shown;
+        const u32 refresh_share = Frontend::DisplayRefreshHz() / shown;
+        if (refresh_share >= 20 && s.frame_gen_cap.load(std::memory_order_relaxed)) {
+            limit = limit == 0 ? refresh_share : std::min(limit, refresh_share);
         }
         return limit == 0 ? base_limit : limit;
     };
     auto next_flip = std::chrono::steady_clock::now();
     std::printf("VideoOut: vblank %u Hz, frame limit %u FPS, precise pacing %s\n",
                 EmulatorSettings.GetVblankFrequency(), frame_limit,
-                Common::PrecisePacingEnabled() ? "on" : "off");
+                LanternPacing::Enabled() ? "on" : "off");
 
     const auto receive_request = [this] -> Request {
         std::scoped_lock lk{mutex};
@@ -1146,24 +1171,19 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         main_port.vblank_cv.notify_all();
     };
 
-    // bbport: precise pacing for immediate flips (Common::PrecisePacingEnabled: on by default on
-    // Windows, BB_PRECISE_PACING=0 turns it off; off on Linux unless =1). Adapted from
-    // IFreemz/shadPS4-Bloodborne-DLSS-FSR (6c69c55, "Even flip pacing for G-Sync, precise
-    // vblank ticks"), GPL-2.0-or-later.
-    // - Vblank ticks run on a fixed schedule (next = previous + period), re-anchored to now only
-    //   after a stall of more than a period; waits sleep on a high-resolution timer and spin the
-    //   last stretch, so ticks neither drift nor jitter by the OS timer granularity.
-    // - Flips keep an even rhythm of one pace period (the frame limit's period, or the vblank
-    //   period without a limit), and two flips are never closer than 7/8 of it: a late frame is
-    //   not followed by a catch-up flip right after it. With G-Sync/FreeSync the display
-    //   refreshes on every flip, so uneven flips are refresh rate swings (judder, flicker).
+    // Lantern Engine pacing for immediate flips (lantern_pacing.h; BB_PRECISE_PACING, on by
+    // default on Windows). Vblank ticks and flips each follow a cadence of their own: ticks one
+    // vblank period apart, flips one pace period apart (the frame limit's, or the vblank period
+    // without one). A flip may take its slot a sixteenth of a period early; one that comes more
+    // than a quarter period late restarts the flip cadence at itself instead of being followed by
+    // a quick catch-up flip, which on a variable refresh display is a visible refresh swing.
     // Flips on vblank ticks without a frame limit keep the AccurateTimer path below.
-    if (immediate_flips && Common::PrecisePacingEnabled()) {
-        using Clock = std::chrono::steady_clock;
-        std::chrono::nanoseconds pace = frame_limit ? frame_period : vblank_period;
-        std::chrono::nanoseconds min_gap = pace * 7 / 8;
-        std::chrono::nanoseconds slack = pace - min_gap;
-        // bbport: the pace follows frame generation's cap (effective_limit) when it changes.
+    if (immediate_flips && LanternPacing::Enabled()) {
+        using Clock = LanternPacing::Clock;
+        const auto pace_of = [&] { return frame_limit ? frame_period : vblank_period; };
+        LanternPacing::Cadence ticks{vblank_period, Clock::now() + vblank_period};
+        LanternPacing::Cadence flips{pace_of()};
+        // The pace follows frame generation's cap (effective_limit) when it changes.
         const auto update_pace = [&] {
             const u32 limit = effective_limit();
             if (limit == frame_limit) {
@@ -1174,63 +1194,32 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             frame_limit = limit;
             frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
                                        : std::chrono::nanoseconds(0);
-            pace = frame_limit ? frame_period : vblank_period;
-            min_gap = pace * 7 / 8;
-            slack = pace - min_gap;
+            flips.SetPeriod(pace_of());
         };
-        // OS sleeps wake up late: sleep most of the way, spin the rest. The spin follows how late
-        // the timer actually wakes (Common::PreciseSpin; at most 1.5 ms and 1/8 of the vblank
-        // period), and only flips get it when there is a frame limit: vblank ticks then only
-        // count time, and spinning before each of 480 a second kept a core busy, taken from the
-        // game's own threads on 6-8 core CPUs.
-        const std::chrono::nanoseconds spin_cap = std::min<std::chrono::nanoseconds>(
-            std::chrono::microseconds(1500), vblank_period / 8);
-        const auto wait_until = [&](Clock::time_point deadline, bool exact) {
-            const auto spin = exact ? Common::PreciseSpin(spin_cap) : std::chrono::nanoseconds(0);
-            const auto left = deadline - Clock::now();
-            if (left > spin) {
-                Common::AccurateSleep(
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(left - spin), nullptr,
-                    false);
-            }
-            while (Clock::now() < deadline) {
-                std::this_thread::yield();
-            }
-        };
-        const std::chrono::nanoseconds spin = Common::PreciseSpin(spin_cap);
-
-        Clock::time_point next_tick = Clock::now();
-        next_flip = next_tick;
-        Clock::time_point last_flip = next_tick - min_gap;
+        // Flips are timed exactly (a spin of at most an eighth of the vblank period). Ticks only
+        // spin without a frame limit: with one they just count time, and a spin before each of
+        // 480 ticks a second took a core from the game's threads on 6-8 core CPUs.
+        const auto max_spin = std::min<std::chrono::nanoseconds>(std::chrono::microseconds(1500),
+                                                                 vblank_period / 8);
         const auto take_flip = [&](const Request& request, Clock::time_point now) {
-            next_flip = std::max<Clock::time_point>(next_flip + pace, now + min_gap);
-            last_flip = now;
+            flips.Taken(now);
             Flip(request);
             FRAME_END;
-        };
-        const auto end_tick = [&](Clock::time_point tick_deadline) {
-            wait_until(tick_deadline, !frame_limit);
-            // Fixed schedule; after a long stall (a breakpoint, a hitch) start again from now.
-            const auto now = Clock::now();
-            next_tick = now - tick_deadline > vblank_period ? now : tick_deadline;
         };
 
         while (!token.stop_requested()) {
             update_pace();
-            const Clock::time_point tick_deadline = next_tick + vblank_period;
+            const Clock::time_point tick_deadline = ticks.Slot(); // the next tick
 
             if (DebugState.IsGuestThreadsPaused()) {
                 DrawLastFrame();
-                end_tick(tick_deadline);
+                LanternPacing::WaitUntil(tick_deadline, !frame_limit, max_spin);
+                ticks.Tick(Clock::now());
                 continue;
             }
 
-            // Check if it's time to take a request. On a tick, a flip up to `slack` before its
-            // slot is fine (ticks and flips run on separate schedules), as long as it keeps the
-            // minimum gap.
             const auto now = Clock::now();
-            const bool flip_slot = now + slack >= next_flip && now >= last_flip + min_gap;
-            if (flip_slot && main_port.vblank_status.count % (main_port.flip_rate + 1) == 0) {
+            if (flips.Ready(now) && main_port.vblank_status.count % (main_port.flip_rate + 1) == 0) {
                 const auto request = receive_request();
                 if (!request) {
                     if (!main_port.is_open) {
@@ -1245,26 +1234,25 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
 
             signal_vblank();
 
-            // Until the next vblank: take flip requests as they arrive (not with a flip rate,
-            // which asks for flips on vblank ticks).
+            // Until the next tick: flips as they arrive (a flip rate asks for flips on ticks).
             while (main_port.flip_rate == 0 && !token.stop_requested()) {
                 {
                     std::unique_lock lk{mutex};
-                    if (!request_cv.wait_until(lk, tick_deadline - spin,
+                    if (!request_cv.wait_until(lk, tick_deadline - max_spin,
                                                [this] { return !requests.empty(); })) {
-                        break; // next vblank
+                        break;
                     }
                 }
-                if (next_flip >= tick_deadline) {
-                    break; // its slot is at (or after) the next vblank
+                if (flips.Slot() - flips.Period() / 16 >= tick_deadline) {
+                    break; // its slot is at the next tick or later
                 }
-                wait_until(next_flip, true);
-                const auto request = receive_request();
-                if (request) {
+                LanternPacing::WaitUntil(flips.Slot() - flips.Period() / 16, true, max_spin);
+                if (const auto request = receive_request()) {
                     take_flip(request, Clock::now());
                 }
             }
-            end_tick(tick_deadline);
+            LanternPacing::WaitUntil(tick_deadline, !frame_limit, max_spin);
+            ticks.Tick(Clock::now());
         }
         return;
     }

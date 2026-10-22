@@ -194,7 +194,7 @@ bool Install(std::uint8_t* image,std::size_t size) {
         const auto target=reinterpret_cast<std::uint64_t>(fog);std::memcpy(p,&target,8);p+=8;*p++=0x41;*p++=0xff;*p=0xe3;
         const std::int32_t to_padding=static_cast<std::int32_t>(padding-(jump+5));std::memcpy(image+jump+1,&to_padding,4);
     }
-    host_log("bbhost live graphics enabled (Picture tuning %s, live): AA, SSAO, AO strength, shadow distance, bloom, "
+    host_log("live graphics enabled (Picture tuning %s, live): AA, SSAO, AO strength, shadow distance, bloom, "
              "saturation, vignette, brightness, contrast, hue%s",On() ? "on" : "off",
              fog ? " and fog" : " (fog: engine bytes differ, left alone)");
     return true;

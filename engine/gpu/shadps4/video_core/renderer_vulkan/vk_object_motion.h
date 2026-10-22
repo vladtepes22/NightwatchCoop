@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// bbport: object motion vectors for temporal upscaling (docs/ROADMAP.md, step 1).
+// bbport: object motion vectors for temporal upscaling (docs/history/ROADMAP_2026-09.md, plan step 1).
 //
 // G-buffer shaders preserve clip positions for the exact indexed range of each draw.
 // Matching includes vertex streams, index contents and base offsets. A missing match falls

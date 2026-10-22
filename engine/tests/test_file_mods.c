@@ -28,7 +28,20 @@ int main(void) {
     assert(!mkdir(game,0755));
     FILE *f=fopen(source,"w"); assert(f); assert(fputs("modded",f)>=0); assert(!fclose(f));
     assert(!symlink(source,link));
+    /* A mod file read in place (BB_MOD_FILES): no link on a drive without them. */
+    char added[512],list[512];
+    snprintf(added,sizeof(added),"%s/added.bin",root);
+    snprintf(list,sizeof(list),"%s/mod-files.txt",root);
+    f=fopen(added,"w"); assert(f); assert(fputs("in place",f)>=0); assert(!fclose(f));
+    f=fopen(list,"w"); assert(f); assert(fprintf(f,"dvdroot_ps4/Param/Added.bin\t%s\n",added)>0); assert(!fclose(f));
+    setenv("BB_MOD_FILES",list,1);
     runtime_file_configure(game,user);
+    {
+        int fd=(int)do_open("/app0/dvdroot_ps4/param/ADDED.bin",0,0); assert(fd>=3);
+        char content[16]={0}; assert(do_read(fd,content,8)==8 && !strcmp(content,"in place"));
+        assert(!do_close(fd));
+        assert(!unlink(added) && !unlink(list));
+    }
     for (int i=0;i<3;++i) {
         const char *path=i==0 ? "/app0/asset.dcx" : i==1 ? "/hostapp/asset.dcx" : "asset.dcx";
         int fd=(int)do_open(path,0,0); assert(fd>=3);

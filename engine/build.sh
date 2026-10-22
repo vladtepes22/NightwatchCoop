@@ -28,7 +28,9 @@ read -r -a libraries <<< "$(pkg-config --libs vulkan sdl3)"
 # stay below 1 TiB).
 windows=
 case $(uname -s) in MINGW*|MSYS*|CYGWIN*) windows=1 ;; esac
-cstd=(-std=c11)
+# GNU C11: glibc's POSIX declarations (pthread_rwlock_t in src/host_sync.h, which every runtime
+# file includes) are hidden by strict -std=c11 in the files that do not define _GNU_SOURCE.
+cstd=(-std=gnu11)
 threads=(-pthread)
 if [[ -n $windows ]]; then
     threads=()

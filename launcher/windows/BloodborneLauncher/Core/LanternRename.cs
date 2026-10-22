@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.IO;
+#if !AVALONIA
 using System.Windows;
 using System.Windows.Controls;
+#endif
 
 namespace BloodborneLauncher.Core
 {
@@ -22,6 +24,10 @@ namespace BloodborneLauncher.Core
         /// <summary>Returns true when this process should end now (it started the renamed launcher).</summary>
         public static bool Run(string[] args)
         {
+#if AVALONIA
+            // Only Windows packages ever had the old name.
+            if (!OperatingSystem.IsWindows()) return false;
+#endif
             try
             {
                 var self = Environment.ProcessPath;
@@ -86,6 +92,13 @@ namespace BloodborneLauncher.Core
 
         private static void Show(List<(string Text, Action Work)> steps)
         {
+#if AVALONIA
+            foreach (var (_, work) in steps)
+            {
+                try { work(); } catch (Exception) { /* the next step still runs */ }
+            }
+            return;
+#else
             if (steps.Count == 0) return;
             var status = new TextBlock { Margin = new Thickness(0, 10, 0, 0), Opacity = 0.8 };
             var bar = new ProgressBar { Height = 6, Minimum = 0, Maximum = steps.Count, Margin = new Thickness(0, 12, 0, 0) };
@@ -134,9 +147,13 @@ namespace BloodborneLauncher.Core
             Application.Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             window.ShowDialog();
             Application.Current.ShutdownMode = mode;
+#endif
         }
 
         /// <summary>Shortcuts (.lnk) on the desktop, in the Start menu and pinned to the taskbar.</summary>
+#if AVALONIA
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+#endif
         private static class Shortcuts
         {
             private static IEnumerable<string> Folders()

@@ -39,4 +39,15 @@ int main() {
     // The SRT walker must check its full size before registering executable code.
     rejects([](Writer& w) { w.Write(u8{1}); },
             [](Reader& r) { r.ar.Require(2); });
+
+    // bbport (0.9.37 beta 6): writes past room an earlier Grow left add only what is missing. The
+    // fetch shader data grew the archive first and every later write added its full size on top:
+    // vertex shader records ended in zero bytes the reader took for one more part, and their
+    // pipelines were left out of the start's warm-up.
+    Archive grown;
+    Writer grown_writer{grown};
+    grown.Grow(6);
+    grown_writer.Write(u32{1});
+    grown_writer.Write(u64{2});
+    assert(grown.TakeOff().size() == 12);
 }

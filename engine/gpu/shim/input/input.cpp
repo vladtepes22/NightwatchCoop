@@ -40,7 +40,7 @@ bool input_prologue_hook(ElfImage* i,uint64_t at,const uint8_t* bytes,size_t n,B
         i->mem.size,at-i->mem.slide,std::span<const uint8_t>(bytes,n),fn))return false;
     BbEngine::Commit(std::span<BbEngine::Hook>(&hook,1));return true;
 }
-HostSettings host_settings() {return {BbSettings::Get().mouse_menu.load()};}
+HostSettings host_settings() {return {BbSettings::Get().mouse_menu.load(),BbSettings::Get().menu_move.load()};}
 std::uint32_t input_delivered_buttons() {return host_pad_state().buttons;}
 InputDevice host_input_device() {return device.load();}
 PadState host_pad_state() {std::lock_guard lock(state_lock);return snapshot;}
@@ -92,7 +92,7 @@ bool Install(uint8_t* base,size_t size) {
     saved_serial=host_bindings_serial();
     mouse_camera_install(&image);menu_pointer_install(&image);
     active=true;
-    host_log("bbhost keyboard/mouse controls enabled, camera hook %s",mouse_camera_installed()?"ready":"unavailable");
+    host_log("keyboard/mouse controls enabled, camera hook %s",mouse_camera_installed()?"ready":"unavailable");
     return true;
 }
 void Tick() {
@@ -108,8 +108,9 @@ void Event(const SDL_Event& e,bool blocked) {
     if(e.type==SDL_EVENT_WINDOW_MOUSE_ENTER)in_window=true;
     if(e.type==SDL_EVENT_GAMEPAD_BUTTON_DOWN || (e.type==SDL_EVENT_GAMEPAD_AXIS_MOTION && std::abs(e.gaxis.value)>8000))device=InputDevice::Pad;
     if(blocked)return;
-    if(e.type==SDL_EVENT_KEY_DOWN){device=InputDevice::KeyboardMouse;host_bind_capture_key(e.key.scancode);
+    if(e.type==SDL_EVENT_KEY_DOWN){device=InputDevice::KeyboardMouse;host_bind_capture_key(e.key.scancode,e.key.mod);
         if(e.key.scancode==SDL_SCANCODE_DELETE)host_bind_note_clear_key();}
+    if(e.type==SDL_EVENT_KEY_UP)host_bind_capture_key_up(e.key.scancode); // bbport: a modifier bound alone
     if(e.type==SDL_EVENT_MOUSE_MOTION){
         device=InputDevice::KeyboardMouse;std::lock_guard lock(state_lock);mouse_x=e.motion.x;mouse_y=e.motion.y;
         if(relative && focused)mouse_camera::add(mouse_camera::g_counts,e.motion.xrel,e.motion.yrel);
@@ -128,6 +129,8 @@ void Event(const SDL_Event& e,bool blocked) {
 }
 void Pump(SDL_Window* w,bool editing) {
     text_open=editing;if(!active)return;
+    // bbport: focus back without its event (another screen used, then the game again).
+    if(!focused && (SDL_GetWindowFlags(w)&SDL_WINDOW_INPUT_FOCUS))focused=true;
     int ww,hh;SDL_GetWindowSize(w,&ww,&hh);
     {std::lock_guard lock(state_lock);window_w=ww;window_h=hh;}
     const bool want=wanted_relative && BbSettings::Get().pc_controls && !editing && !BbOverlay::CapturesInput() && focused;
@@ -139,6 +142,12 @@ void Pump(SDL_Window* w,bool editing) {
 }
 }
 
+extern "C" int bbgpu_menu_buttons(uint32_t* confirm,uint32_t* back) {
+    if(!active)return 0;
+    *confirm=menu_confirm_button();*back=menu_back_button();
+    return menu_pointer_navigating()?1:0;
+}
+
 extern "C" int bbgpu_pc_input(BbPcPad* d,const bool* keys,int nkeys,int gamepad_present) {
     if(!active || !BbSettings::Get().pc_controls){wanted_relative=false;return 0;}
     auto& s=BbSettings::Get();
@@ -148,7 +157,12 @@ extern "C" int bbgpu_pc_input(BbPcPad* d,const bool* keys,int nkeys,int gamepad_
     p.touch_count=std::min<uint8_t>(d->touch_count,2);
     for(int i=0;i<p.touch_count;i++)p.touch[i]={d->touch[i].x,d->touch[i].y,d->touch[i].id,true};
     const bool menu=menu_pointer_in_menu();
-    const bool camera=s.mouse_camera && mouse_camera_installed() && !menu && !host_text_entry_open() && focused;
+    // bbport: "Move and look in menus" (menu_move): a menu open in the world leaves the movement
+    // and look keys to the character, and the mouse to the camera while it is not the menu's
+    // pointer; the arrow keys, Enter and Backspace navigate the menu. The front end always navigates.
+    const bool free_move=menu && s.menu_move && !menu_pointer_front_end();
+    const bool camera=s.mouse_camera && mouse_camera_installed() && (!menu || (free_move && !s.mouse_menu)) &&
+                      !host_text_entry_open() && focused;
     wanted_relative=camera && device==InputDevice::KeyboardMouse;
     mouse_camera_publish(s.mouse_sensitivity,s.mouse_invert_x,s.mouse_invert_y,
         camera && device==InputDevice::KeyboardMouse && !s.mouse_auto_rotation);
@@ -170,7 +184,7 @@ extern "C" int bbgpu_pc_input(BbPcPad* d,const bool* keys,int nkeys,int gamepad_
         // the left stick: the menu state lags the closing, so a quick tap of W right after a
         // prompt was a d-pad up in the world. A menu still open reads the stick the same way.
         static uint64_t settle_until=0;
-        const bool navigating=menu && menu_pointer_navigating() && SDL_GetTicks()>=settle_until;
+        const bool navigating=menu && !free_move && menu_pointer_navigating() && SDL_GetTicks()>=settle_until;
         // bbport: a direction held when a menu or prompt is confirmed or closed is no d-pad until
         // it is let go of: the menu state lags the closing by a few frames, and W held through a
         // prompt was a d-pad up in the world (HP turned into Quicksilver Bullets).
@@ -179,25 +193,42 @@ extern "C" int bbgpu_pc_input(BbPcPad* d,const bool* keys,int nkeys,int gamepad_
         if(menu){ping_held=held[kBindPing];gather_held=held[kBindGather];}
         uint32_t dpad_held=0;
         if(keys) {
-            if(keys[SDL_SCANCODE_UP]||held[kBindMoveF])dpad_held|=0x10;
-            if(keys[SDL_SCANCODE_DOWN]||held[kBindMoveB])dpad_held|=0x40;
-            if(keys[SDL_SCANCODE_LEFT]||held[kBindMoveL])dpad_held|=0x80;
-            if(keys[SDL_SCANCODE_RIGHT]||held[kBindMoveR])dpad_held|=0x20;
+            // menu_move: only the arrow keys are the menu's d-pad.
+            if(keys[SDL_SCANCODE_UP]||(held[kBindMoveF]&&!free_move))dpad_held|=0x10;
+            if(keys[SDL_SCANCODE_DOWN]||(held[kBindMoveB]&&!free_move))dpad_held|=0x40;
+            if(keys[SDL_SCANCODE_LEFT]||(held[kBindMoveL]&&!free_move))dpad_held|=0x80;
+            if(keys[SDL_SCANCODE_RIGHT]||(held[kBindMoveR]&&!free_move))dpad_held|=0x20;
         }
         dpad_blocked&=dpad_held;
-        if(navigating && keys) {
-            for(int i=kBindLookU;i<=kBindLookR;i++)held[i]=false;
+        // bbport: the Dodge / Sprint key let go while running diagonally (sprint stopping when
+        // a side key joins Back, reported 2026-10-21). Many keyboards cannot hold Space with S+A
+        // or S+D: the log tells that apart from the game stopping the sprint itself.
+        if(keys && !menu) {
+            static bool was_sprinting=false;static int reports=0;
+            const bool sprinting=held[kBindRoll];
+            const int moves=held[kBindMoveF]+held[kBindMoveB]+held[kBindMoveL]+held[kBindMoveR];
+            if(was_sprinting && !sprinting && moves>=2 && reports<20) {
+                ++reports;
+                host_log("Input: Dodge / Sprint key read as let go while moving %s%s%s%s (if you were "
+                         "still holding it, the keyboard drops that key combination)",
+                         held[kBindMoveF]?"F":"",held[kBindMoveB]?"B":"",held[kBindMoveL]?"L":"",
+                         held[kBindMoveR]?"R":"");
+            }
+            was_sprinting=sprinting;
+        }
+        if((navigating || free_move) && keys) {
+            if(!free_move)for(int i=kBindLookU;i<=kBindLookR;i++)held[i]=false;
             p.buttons|=dpad_held&~dpad_blocked;
             if(keys[SDL_SCANCODE_RETURN])p.buttons|=menu_confirm_button();
             if(keys[SDL_SCANCODE_BACKSPACE])p.buttons|=menu_back_button();
-            for(int i=kBindMoveF;i<=kBindMoveR;i++)held[i]=false;
+            if(!free_move)for(int i=kBindMoveF;i<=kBindMoveR;i++)held[i]=false;
         }
         host_bindings_apply(held,held[kBindStrongMod],p);
         if(menu) {
             if(s.mouse_menu){
                 if(edges&1)menu_pointer_click();
                 if(edges&SDL_BUTTON_RMASK)p.buttons|=menu_back_button();
-                if(navigating && scroll>0)p.buttons|=0x10;if(navigating && scroll<0)p.buttons|=0x40;
+                if((navigating||free_move) && scroll>0)p.buttons|=0x10;if((navigating||free_move) && scroll<0)p.buttons|=0x40;
                 p.buttons|=menu_pointer_take_press();
             }
             const uint32_t closing=menu_confirm_button()|menu_back_button();
@@ -213,9 +244,10 @@ extern "C" int bbgpu_pc_input(BbPcPad* d,const bool* keys,int nkeys,int gamepad_
             const bool gather=held[kBindGather]||mh[kBindGather];
             if(gather && !gather_held && coop::gather::HotkeyAvailable())coop::gather::RequestFromHotkey("Gather key");
             gather_held=gather;
-            float x,y;if(camera && mouse_camera_flick(x,y)){
-                p.rx=uint8_t(std::clamp(127+int(127*x),0,254));p.ry=uint8_t(std::clamp(127+int(127*y),0,254));}
         }
+        // The camera is off in menus unless menu_move leaves it the mouse (see camera above).
+        float x,y;if(camera && mouse_camera_flick(x,y)){
+            p.rx=uint8_t(std::clamp(127+int(127*x),0,254));p.ry=uint8_t(std::clamp(127+int(127*y),0,254));}
         last_buttons=p.buttons;
     }
     {std::lock_guard lock(state_lock);snapshot=p;}

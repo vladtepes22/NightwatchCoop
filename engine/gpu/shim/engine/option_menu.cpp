@@ -731,7 +731,7 @@ std::int32_t pad_icons=0,last_pad_icons=0;
 const Choice pad_icon_choices[]={{BbSettings::PadIconsAuto,118013},{BbSettings::PadIconsPlayStation,118014},{BbSettings::PadIconsXbox,118015}};
 GUEST_ABI void ControlsHandler(void* dialog,void*) {
     alignas(16) std::uint8_t scratch[0x100]{};hle_call_guest<std::int64_t>(guest_fn(kScratchInit),&scratch);
-    auto& s=BbSettings::Get();sensitivity=last_sensitivity=s.mouse_sensitivity;
+    auto& s=BbSettings::Get();sensitivity=last_sensitivity=std::uint8_t(std::clamp<int>(s.mouse_sensitivity,0,10)); // the menu slider is 0..10; the launcher goes past it
     for(auto& t:controls){t.value=t.last=t.setting->load()?1:0;}
     add_toggle_row(dialog,&controls[0].value,118000,1);
     add_slider_row(dialog,&sensitivity,118001,5);

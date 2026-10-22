@@ -452,11 +452,10 @@ private:
     /// Copies image memory back to CPU.
     void DownloadImageMemory(ImageId image_id, bool sync = false);
 
-    /// bbport (image write-back GC): synchronously writes a GPU-modified tiled image back to
-    /// guest memory, re-tiled, so the collector can free it. False (nothing freed, guest memory
-    /// untouched or the image still the only complete copy) when the write-back is unsupported
-    /// for this image or could not be completed.
-    bool WriteBackTiledImage(ImageId image_id);
+    /// Lantern Engine: stores a GPU-written tiled image into guest memory in its tiled layout,
+    /// synchronously, so the collector may free it. False when this image cannot be stored (its
+    /// layout, other GPU data over it, a mapping lost meanwhile): it then stays resident.
+    bool StoreTiledImage(ImageId image_id);
 
     /// Thread function for copying downloaded images out to CPU memory.
     void DownloadedImagesThread(const std::stop_token& token);

@@ -221,6 +221,19 @@ void CreateJunction(const fs::path& target, const fs::path& link) {
     }
 }
 
+/// Whether junctions can be made in `folder` (NTFS; not exFAT or FAT32).
+bool JunctionsWork(const fs::path& folder) {
+    const fs::path probe = folder / L"mod-junction-test";
+    RemoveDirectoryW(probe.c_str());
+    try {
+        CreateJunction(folder, probe);
+    } catch (const Error&) {
+        return false;
+    }
+    RemoveDirectoryW(probe.c_str());
+    return true;
+}
+
 /// `path` refers to `target` without copying the game: a junction, a hard link, else a copy.
 void Link(const fs::path& path, const fs::path& target) {
     if (IsDir(target)) {
@@ -301,6 +314,17 @@ fs::path MakeTemporary(const fs::path& out) {
     throw Error("cannot create a mod overlay in " + Utf8(out));
 }
 
+// A mod file the other players of a co-op session read too: parameters, map layouts, events, AI
+// and talk scripts, actions and character animations. With different ones on each side, enemies
+// and items desync (killed for one player, alive for the other).
+bool ChangesGameplay(const std::wstring& key) {
+    for (const wchar_t* folder : {L"dvdroot_ps4/param/", L"dvdroot_ps4/event/", L"dvdroot_ps4/script/",
+                                  L"dvdroot_ps4/map/mapstudio/", L"dvdroot_ps4/action/"})
+        if (key.rfind(folder, 0) == 0) return true;
+    return key.rfind(L"dvdroot_ps4/chr/", 0) == 0 &&
+           (key.find(L".anibnd") != std::wstring::npos || key.find(L".behbnd") != std::wstring::npos);
+}
+
 fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector<std::pair<std::wstring, fs::path>>& mods,
                       const std::optional<fs::path>& update) {
     game = fs::canonical(game);
@@ -318,10 +342,12 @@ fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector
         }
         Log("Game update: %s: %zu files over the game", Utf8(update->filename()).c_str(), files.size());
     }
+    std::size_t gameplay = 0;
     for (const auto& [name, root] : mods) {
         std::size_t count = 0;
         for (const auto& [relative, source] : ModFiles(root)) {
             const std::wstring key = Fold(relative.generic_wstring());
+            gameplay += ChangesGameplay(key);
             if (const auto it = owners.find(key); it != owners.end())
                 Log("Mods: %s: %s -> %s", Utf8(relative).c_str(), Utf8(it->second).c_str(), Utf8(name).c_str());
             owners[key] = name;
@@ -330,9 +356,31 @@ fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector
         }
         Log("Mods: %s: %zu files", Utf8(name).c_str(), count);
     }
+    if (gameplay)
+        Log("Mods: %zu of these files change gameplay (parameters, map layouts, events, AI, animations): "
+            "co-op partners need the same files, or enemies and items desync between you",
+            gameplay);
+    UnsetEnv("BB_MOD_FILES");
     if (replacements.empty()) return game;
     fs::create_directories(out);
     out = fs::canonical(out);
+    // bbport: a drive without junctions (exFAT, FAT32; "cannot link ... dvdroot_ps4", 0.9.35) keeps
+    // no merged view. The files are listed instead and the engine opens the mod's file where the
+    // game asks for one of them (runtime_file.c, BB_MOD_FILES); no link or copy is made.
+    if (!JunctionsWork(out)) {
+        const fs::path list = out / L"mod-files.txt";
+        std::string text;
+        std::set<std::wstring> seen;
+        for (auto it = replacements.rbegin(); it != replacements.rend(); ++it) {  // the last layer wins
+            if (!seen.insert(Fold(it->first.generic_wstring())).second) continue;
+            text += Utf8(it->first.generic_wstring()) + "\t" + Utf8(fs::absolute(it->second)) + "\n";
+        }
+        WriteText(list, text);
+        SetEnv("BB_MOD_FILES", Utf8(list));
+        Log("Mods: %s cannot hold links (an exFAT or FAT32 drive?): the engine reads the %zu mod files in place",
+            Utf8(out.root_path()).c_str(), seen.size());
+        return game;
+    }
     const fs::path overlay = MakeTemporary(out);
     try {
         for (const fs::path& entry : Entries(game)) Link(overlay / entry.filename(), entry);

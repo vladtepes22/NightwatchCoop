@@ -685,7 +685,8 @@ void Rasterizer::NotifyUiDraw(const GraphicsPipeline* pipeline) {
     }
     const auto& viewport = regs.viewports[0];
     upscaler->OnDraw(vs_hash, color, db_desc.first,
-                     UiComposition::NativeViewport(viewport.xscale * 2, viewport.yscale * 2));
+                     UiComposition::NativeViewport(viewport.xscale * 2, viewport.yscale * 2),
+                     UiComposition::WidenedUiViewport(viewport.xscale * 2, viewport.yscale * 2));
 }
 
 static std::pair<u32, u32> GetDrawOffsets(
@@ -1017,6 +1018,7 @@ void Rasterizer::PostDraw(const Pipeline* pipeline, const PreparedDraw* used_pre
             }
             ring.clear();
             if (constant_ring && !BbToggle::Disabled(BbToggle::ConstantRing)) {
+                BbSections::ScopeA ring_scope{BbSections::ARing};
                 CollectRingBindings(*stage, used_prepared, ring);
             } else {
                 untracked_reads_packet = draw_pipe->NextPacket(); // bindings not listed
@@ -1052,6 +1054,7 @@ void Rasterizer::PostDraw(const Pipeline* pipeline, const PreparedDraw* used_pre
     // the index buffer are still read there: a DumpConstRam over them waits for this packet.
     thread_local boost::container::static_vector<AmdGpu::Buffer, Shader::NUM_BUFFERS> vsharps;
     vsharps.clear();
+    BbSections::ScopeA inputs_scope{BbSections::AInputs};
     if (pipeline && !pipeline->IsCompute()) {
         const auto* graphics = static_cast<const GraphicsPipeline*>(pipeline);
         if (const auto& fetch = graphics->GetFetchShader();
@@ -1081,6 +1084,7 @@ void Rasterizer::PostDraw(const Pipeline* pipeline, const PreparedDraw* used_pre
             NotePendingRead(index_address, index_bytes);
         }
     }
+    inputs_scope.End();
     size += AlignPacket(u32(vsharps.size() * sizeof(AmdGpu::Buffer)));
     const u32 interval = VerifyInterval();
     const bool verify = interval && (draw_pipe->packets % interval) == 0;
@@ -1088,6 +1092,7 @@ void Rasterizer::PostDraw(const Pipeline* pipeline, const PreparedDraw* used_pre
         size += sizeof(AmdGpu::Regs);
     }
 
+    BbSections::ScopeA packet_scope{BbSections::APacket};
     u8* out = draw_pipe->Begin(size);
     u8* const start = out;
     auto& packet = *reinterpret_cast<DrawPacket*>(out);
@@ -1154,6 +1159,7 @@ void Rasterizer::PostDraw(const Pipeline* pipeline, const PreparedDraw* used_pre
     }
     dirty.Clear();
     draw_pipe->Commit(static_cast<u32>(out - start));
+    packet_scope.End();
     PrintPipeStats();
 }
 
@@ -1303,22 +1309,36 @@ void Rasterizer::RunDrawPacket(void* context, const u8* data, u32 size) {
         for (u32 i = 0; i < packet.num_stages && flat_reports < 32; ++i) {
             const auto& snapshot = Shader::Info::ud_snapshots[i];
             const auto& srt = snapshot.info->srt_info;
+            const auto& plan = snapshot.info->table_plan;
+            // bbport: the tables are read again the way RefreshFlatBuf read them (BB_NATIVE_TABLES).
+            const bool by_plan = Shader::Native::TablePlan::GetMode() !=
+                                     Shader::Native::TablePlan::Mode::Walker &&
+                                 plan.valid && Shader::Native::TablePlan::guest_readable;
             // Stages the pipeline selection did not refresh (no user data) keep their tables.
-            if (!srt.walker_func || snapshot.flat_size == 0 || snapshot.user_data_size == 0) {
+            if ((!srt.walker_func && !by_plan) || snapshot.flat_size == 0 ||
+                snapshot.user_data_size == 0) {
                 continue;
             }
             std::vector<u32> flat(snapshot.flat_size);
             std::memcpy(flat.data(), snapshot.user_data,
                         std::min(snapshot.user_data_size, snapshot.flat_size) * sizeof(u32));
-            // Pointers in the tables may be stale by now: a fault only skips the check.
-            BbRecoverBuf recover;
-            if (BB_RECOVER_SET(recover)) {
+            if (by_plan && plan.flat_dwords == snapshot.flat_size) {
+                // Every read checked: stale pointers read as zeros, nothing to recover from.
+                plan.Run(snapshot.user_data, flat.data(), Shader::Native::TablePlan::guest_readable);
+            } else {
+                if (!srt.walker_func) {
+                    continue;
+                }
+                // Pointers in the tables may be stale by now: a fault only skips the check.
+                BbRecoverBuf recover;
+                if (BB_RECOVER_SET(recover)) {
+                    runtime_fault_recover = nullptr;
+                    continue;
+                }
+                runtime_fault_recover = &recover;
+                srt.walker_func(snapshot.user_data, flat.data());
                 runtime_fault_recover = nullptr;
-                continue;
             }
-            runtime_fault_recover = &recover;
-            srt.walker_func(snapshot.user_data, flat.data());
-            runtime_fault_recover = nullptr;
             if (std::memcmp(flat.data(), snapshot.flat, snapshot.flat_size * sizeof(u32)) != 0) {
                 u32 first = 0, count = 0;
                 for (u32 w = 0; w < snapshot.flat_size; ++w) {
@@ -1678,6 +1698,20 @@ void Rasterizer::PrintPipeStats() {
             }
             last_sections[s] = now_cycles;
         }
+        static std::array<u64, BbSections::ACount> last_a{};
+        static u64 last_a_draws = 0;
+        const u64 a_draws = BbSections::a_draws.load(std::memory_order_relaxed);
+        if (a_draws > last_a_draws) {
+            std::printf("\n  stage A us per draw:");
+            for (u32 s = 0; s < BbSections::ACount; ++s) {
+                const u64 now_cycles = BbSections::a_cycles[s].load(std::memory_order_relaxed);
+                std::printf(" %s %.2f", BbSections::ANames[s],
+                            1e6 * double(now_cycles - last_a[s]) / tsc_hz /
+                                double(a_draws - last_a_draws));
+                last_a[s] = now_cycles;
+            }
+        }
+        last_a_draws = a_draws;
         // bbport: the slow paths by shader (program hash): total ms in this window, calls, per call.
         const auto print_top = [&](const char* title, BbSections::ByKey& table) {
             std::printf("\n  %s:", title);
@@ -1780,6 +1814,10 @@ bool Rasterizer::FilterDrawPasses() const {
 void Rasterizer::Draw(bool is_indexed, u32 index_offset, const PreparedDraw* prepared) {
     if (BbHeadless::On()) return;
     RENDERER_TRACE;
+    BbSections::ScopeA draw_scope{BbSections::ADraw};
+    if (BbSections::Enabled()) {
+        BbSections::a_draws.fetch_add(1, std::memory_order_relaxed);
+    }
     BbStats::draws.fetch_add(1, std::memory_order_relaxed);
     if (occlusion) {
         occlusion->NoteIssued(); // before anything may drop the draw (vk_occlusion.h)
@@ -1824,7 +1862,9 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset, const PreparedDraw* pre
         }
     }
     const u32 srt_faults = Shader::Info::srt_walk_faults;
+    BbSections::ScopeA pipeline_scope{BbSections::APipeline};
     const GraphicsPipeline* pipeline = pipeline_cache.GetGraphicsPipeline({}, prepared);
+    pipeline_scope.End();
     const PreparedDraw* used_prepared = pipeline_cache.UsedPrepared();
     if (prepared) {
         draw_prep->Count(pipeline != nullptr &&

@@ -23,7 +23,7 @@ public:
 
     ConstantRing(const Instance& instance, Scheduler& scheduler_)
         : scheduler{scheduler_},
-          buffer{instance, 0, Capacity, VideoCore::MemoryType::Stream, "bbport constant ring"} {
+          buffer{instance, 0, Capacity, VideoCore::MemoryType::Stream, "lantern constant ring"} {
         ASSERT(!buffer.mapped_data.empty());
     }
 

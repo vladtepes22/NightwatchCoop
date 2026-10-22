@@ -23,7 +23,9 @@
 #include "common/path_util.h"
 #include "core/emulator_settings.h"
 #include "sdl_window.h"
+#include "video_core/renderer_vulkan/vk_optiscaler.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
+#include "video_core/renderer_vulkan/vk_streamline_loader.h"
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -286,8 +288,13 @@ vk::UniqueInstance CreateInstance(Frontend::WindowSystemType window_type, bool e
 #endif
 
     static vk::detail::DynamicLoader dl;
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(
-        dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr"));
+    // bbport: DLSS Frame Generation (frame_gen=dlss at start): NVIDIA Streamline's loader for the
+    // whole engine (vk_streamline.h); vulkan-1.dll as before when it is not wanted or not there.
+    PFN_vkGetInstanceProcAddr get_instance_proc_addr = Streamline::LoadBeforeVulkan();
+    if (!get_instance_proc_addr) {
+        get_instance_proc_addr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
+    }
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(get_instance_proc_addr);
 
     const auto [available_version_result, available_version] =
         VULKAN_HPP_DEFAULT_DISPATCHER.vkEnumerateInstanceVersion
@@ -429,11 +436,16 @@ vk::UniqueInstance CreateInstance(Frontend::WindowSystemType window_type, bool e
         },
     };
 
-    auto [instance_result, instance] = vk::createInstanceUnique(instance_ci_chain.get());
+    // bbport: with OptiScaler loaded, on a thread of its own (OptiScaler::OnCleanThread).
+    auto [instance_result, instance] = OptiScaler::OnCleanThread([&] {
+        auto created = vk::createInstanceUnique(instance_ci_chain.get());
+        if (created.result == vk::Result::eSuccess) {
+            VULKAN_HPP_DEFAULT_DISPATCHER.init(*created.value);
+        }
+        return created;
+    });
     ASSERT_MSG(instance_result == vk::Result::eSuccess, "Failed to create instance: {}",
                vk::to_string(instance_result));
-
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(*instance);
 
     return std::move(instance);
 }

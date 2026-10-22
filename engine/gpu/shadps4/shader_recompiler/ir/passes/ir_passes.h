@@ -25,6 +25,9 @@ void LowerPhisToRegsPass(IR::Program& program);
 void DeadCodeEliminationPass(IR::Program& program);
 /// bbport: exact integers from interpolated float varyings on GPUs without manual interpolation.
 void InterpolatedIntegerPass(IR::Program& program);
+/// bbport: inputs read with GCN's manual interpolation go back to the hardware's where no use
+/// needs the exact bits (Profile::manual_interpolation_all).
+void HardwareInterpolationPass(IR::Program& program, const RuntimeInfo& runtime_info);
 void ConstantPropagationPass(IR::BlockList& program);
 void FlattenExtendedUserdataPass(IR::Program& program);
 void ReadLaneEliminationPass(IR::Program& program);

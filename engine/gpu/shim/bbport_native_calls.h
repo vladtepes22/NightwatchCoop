@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// bbport: direct calls, stage 2 (docs/EMULATION_REMOVAL_PLAN.ru.md): the game's libGnm draw
+// bbport: direct calls, stage 2 (docs/EMULATION_REMOVAL_PLAN.md): the game's libGnm draw
 // functions dcb.drawIndexAuto (0x10741b0), dcb.drawIndex (0x1074360) and dcb.drawIndexOffset
 // (0x1074420) hand the GPU thread a record of the call instead of the PM4 it would be decoded from.
 //

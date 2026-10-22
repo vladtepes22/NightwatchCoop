@@ -40,7 +40,7 @@ struct PadState {
     uint32_t menu_buttons=0;
 };
 enum class InputDevice { KeyboardMouse,Pad };
-struct HostSettings {bool mouse_menu;};
+struct HostSettings {bool mouse_menu; bool menu_move;};
 HostSettings host_settings();
 InputDevice host_input_device();
 PadState host_pad_state();
@@ -58,6 +58,7 @@ uint32_t menu_pointer_take_press();
 uint64_t menu_pointer_tick();
 bool menu_pointer_in_menu();
 bool menu_pointer_navigating();
+bool menu_pointer_front_end();
 uint32_t menu_region_confirm_button();
 uint32_t menu_confirm_button();
 uint32_t menu_back_button();

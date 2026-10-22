@@ -72,6 +72,18 @@ public:
     [[nodiscard]] float Near() const noexcept;
     // Current projection, previous projection, and row Z of previous-view * inverse-view.
     [[nodiscard]] std::array<std::array<float, 4>, 3> TaaDepthParameters() const noexcept;
+    /// bbport: this frame's camera and the previous one, as the motion pass uses them (3x4 rows,
+    /// world to view and back; projection x/y/z scale and z offset, the x/y scales signed by the
+    /// G-buffer viewport: ndc +y down). DLSS Frame Generation's constants (vk_streamline.cpp).
+    struct Matrices {
+        std::array<float, 12> view{}, inv_view{}, prev_view{};
+        std::array<float, 4> proj{}, prev_proj{};
+        bool valid = false;
+    };
+    [[nodiscard]] Matrices CameraMatrices() const noexcept {
+        return {current.view, current.inv_view, previous.view, current.proj, previous.proj,
+                current.valid && previous.valid};
+    }
     /// bbport: the matrices and jitter of the motion of this frame, printed with an upscaler dump
     /// (BB_DUMP_TRIGGER) for offline checks of the vectors.
     void PrintState(int frame) const;

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include "shader_recompiler/native/tone_curve.h"
 #include <condition_variable>
 #include <cstdlib>
 #include <deque>
@@ -151,10 +152,17 @@ GraphicsPipeline::GraphicsPipeline(
     BuildDescSetLayout(preloading);
     const auto debug_str = GetDebugString();
 
+    // bbport: a composite with the tone curve extension reads its parameters after the push
+    // data (native/tone_curve.h).
+    uses_tone_curve = std::ranges::any_of(stages, [](const Shader::Info* info) {
+        return info && info->uses_tone_curve;
+    });
     const vk::PushConstantRange push_constants = {
         .stageFlags = AllGraphicsStageBits,
         .offset = 0,
-        .size = sizeof(Shader::PushData),
+        .size = u32(uses_tone_curve ? Shader::Native::ToneCurvePushOffset +
+                                          sizeof(Shader::Native::ToneCurvePush)
+                                    : sizeof(Shader::PushData)),
     };
 
     std::array<vk::DescriptorSetLayout, 2> set_layouts{*desc_layout, {}};
@@ -539,7 +547,9 @@ GraphicsPipeline::GraphicsPipeline(
     // thread; the draw recording thread waits for it only when it records the bind (Handle).
     // Meanwhile the GPU command thread decodes on and starts the next new pipelines, so a burst
     // of compiles (area loads: 50-90 at once, 0.5-1.3 s on one thread) runs in parallel.
-    if (!preloading && AsyncPipelinesEnabled()) {
+    // bbport: the start's cached pipelines are created in parallel (WarmupJobs).
+    WarmupJobs* const warmup = preloading ? warmup_jobs : nullptr;
+    if ((!preloading && AsyncPipelinesEnabled()) || warmup) {
         auto job = std::make_shared<PendingPipeline>();
         auto& j = *job;
         bool ok = true;
@@ -620,6 +630,19 @@ GraphicsPipeline::GraphicsPipeline(
         j.info.pColorBlendState = &j.color_blend;
         j.info.pDynamicState = &j.dynamic;
         // Anything this copy does not know how to own (a chain added later): created here.
+        if (ok && warmup) {
+            ready.store(false, std::memory_order_relaxed);
+            warmup->jobs.push_back([this, job, device, cache = pipeline_cache, name = debug_str] {
+                auto [result, created] = device.createGraphicsPipelineUnique(cache, job->info);
+                if (result == vk::Result::eSuccess) {
+                    pipeline = std::move(created);
+                    SetObjectName(device, *pipeline, "Graphics Pipeline {}", name);
+                }
+                MarkReady();
+                return result == vk::Result::eSuccess;
+            });
+            return;
+        }
         if (ok) {
             ready.store(false, std::memory_order_relaxed);
             SubmitPipelineJob(this, [this, job, device, cache = pipeline_cache, name = debug_str] {

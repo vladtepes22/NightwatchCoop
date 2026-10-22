@@ -1,6 +1,10 @@
 using System.IO;
+#if AVALONIA
+using Window = Avalonia.Controls.Window;
+#else
 using System.Windows;
 using System.Windows.Media.Imaging;
+#endif
 
 namespace BloodborneLauncher.Core
 {
@@ -22,7 +26,11 @@ namespace BloodborneLauncher.Core
         {
             try
             {
+#if AVALONIA
+                using var source = typeof(AppIcon).Assembly.GetManifestResourceStream(Resource(choice));
+#else
                 using var source = Application.GetResourceStream(new Uri($"pack://application:,,,/{Resource(choice)}"))?.Stream;
+#endif
                 if (source == null) return null;
                 using var memory = new MemoryStream();
                 source.CopyTo(memory);
@@ -40,7 +48,12 @@ namespace BloodborneLauncher.Core
             if (window == null) return;
             try
             {
+#if AVALONIA
+                if (Bytes(choice) is { } bytes)
+                    window.Icon = new Avalonia.Controls.WindowIcon(new MemoryStream(bytes));
+#else
                 window.Icon = BitmapFrame.Create(new Uri($"pack://application:,,,/{Resource(choice)}"));
+#endif
             }
             catch (Exception)
             {

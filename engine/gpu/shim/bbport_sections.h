@@ -138,6 +138,40 @@ struct ByKey {
 };
 inline ByKey tex_full_by_shader, dispatch_by_shader;
 
+/// Stage A (the GPU command thread): its part of each draw, printed per draw as "stage A us per
+/// draw" with the stage B line. Only Rasterizer::Draw and PostDraw open these scopes, and both
+/// run on that thread alone.
+enum AId : std::uint32_t {
+    ADraw,     ///< Rasterizer::Draw, whole
+    APipeline, ///< GetGraphicsPipeline (the prepared key, or the full lookup)
+    ARing,     ///< CollectRingBindings: constants copied into the ring
+    AInputs,   ///< vertex V#s and index range: read, pending reads noted
+    APacket,   ///< the packet written into the draw pipe (Begin to Commit)
+    ACount,
+};
+inline constexpr const char* ANames[ACount] = {"draw", "pipeline", "constants", "inputs",
+                                               "packet"};
+inline std::array<std::atomic<std::uint64_t>, ACount> a_cycles{};
+inline std::atomic<std::uint64_t> a_draws{0};
+struct ScopeA {
+    explicit ScopeA(AId id_) : id{id_} {
+        if (enabled) [[unlikely]] {
+            start = __rdtsc();
+        }
+    }
+    ~ScopeA() {
+        End();
+    }
+    void End() {
+        if (start) [[unlikely]] {
+            a_cycles[id].fetch_add(__rdtsc() - start, std::memory_order_relaxed);
+            start = 0;
+        }
+    }
+    AId id;
+    std::uint64_t start = 0;
+};
+
 /// Times its block into `table` under `key` (BB_SECTIONS=1, draw recording thread).
 struct KeyScope {
     KeyScope(ByKey& table_, std::uint64_t key_) : table{table_}, key{key_} {

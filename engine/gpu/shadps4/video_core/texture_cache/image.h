@@ -165,8 +165,10 @@ public:
     /// bbport: counts accesses that may write the image (Runtime::Transit with a write access,
     /// backing swaps): unchanged, the image holds what it held (BB_IMAGE_TILE_MEMO).
     u64 write_seq = 0;
-    /// bbport (image write-back GC): gc tick before which a failed write-back is not retried.
-    u64 writeback_retry_tick = 0;
+    /// Lantern Engine (StoreTiledImage): the collector does not try storing this image again
+    /// before this tick; each failure doubles the wait (store_failures).
+    u64 store_retry_tick = 0;
+    u8 store_failures = 0;
     ImageId depth_id{};
     u64 depth_uid{};
     u64 image_uid{};

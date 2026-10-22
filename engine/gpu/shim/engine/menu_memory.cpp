@@ -21,7 +21,7 @@ bool Install(std::uint8_t* image,std::size_t size) {
     const std::uint32_t b=stock_block+(32<<20),p=stock_page+(64<<20);
     const std::uint64_t m=stock_menu+(96<<20);
     std::memcpy(image+block+1,&b,4); std::memcpy(image+page+1,&p,4); std::memcpy(image+menu,&m,8);
-    std::puts("Engine: Scaleform menu heaps 50/98 MiB, MENU 178 MiB (bbhost native option pages)");
+    std::puts("Engine: Scaleform menu heaps 50/98 MiB, MENU 178 MiB (native option pages)");
     return true;
 }
 }

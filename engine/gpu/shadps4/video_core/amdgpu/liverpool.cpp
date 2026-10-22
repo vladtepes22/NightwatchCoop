@@ -91,6 +91,26 @@ static std::span<const u32> NextPacket(std::span<const u32> span, size_t offset)
     return span.subspan(offset);
 }
 
+// bbport: dwords the parser cannot read as a packet (a non-zero type-0 register write or a type-1
+// packet, which the game never writes) mean the packet before had the wrong size or the buffer
+// changed while it was read. They are stepped over up to the next dword that reads as a padding
+// packet or a type-3 packet that fits in the buffer, instead of stopping the engine (0.9.36 on an
+// RX 6600: "Unimplemented PM4 type 0" after a NOP whose size swallowed the packets behind it).
+static size_t UnreadableDwords(std::span<const u32> span) {
+    for (size_t i = 1; i < span.size(); ++i) {
+        const auto& header = *reinterpret_cast<const PM4Header*>(&span[i]);
+        if (header.type == 2) {
+            return i;
+        }
+        // Bits 2-7 of a type-3 header are reserved (zero).
+        if (header.type == 3 && (header.raw & 0xfc) == 0 &&
+            header.type3.NumWords() < span.size() - i) {
+            return i;
+        }
+    }
+    return span.size();
+}
+
 namespace {
 bool ZpassInOrder(); // bbport: BB_ZPASS_IN_ORDER (RunZpassDump)
 } // namespace
@@ -101,7 +121,8 @@ Liverpool::Liverpool() : guest_markers_enabled{EmulatorSettings.IsVkGuestMarkers
                 ZpassInOrder() ? "the stand-in counts are written in order with the DMA that "
                                  "clears each query (BB_ZPASS_IN_ORDER=0: at decode, as before)"
                                : "written at decode (BB_ZPASS_IN_ORDER=0)");
-    process_thread = std::jthread{std::bind_front(&Liverpool::Process, this)};
+    // A lambda, not std::bind_front: clang with libstdc++ (Linux) finds no stop_token call on it.
+    process_thread = std::jthread{[this](std::stop_token stoken) { Process(stoken); }};
 }
 
 Liverpool::~Liverpool() {
@@ -1189,6 +1210,17 @@ void ReportBadPacket(uintptr_t base, std::size_t dwords, const u32* at, u64 seq,
     std::fflush(stderr);
 }
 
+void SkipUnreadable(std::span<const u32>& span, uintptr_t base, std::size_t dwords, u64 seq,
+                    int depth) {
+    static std::atomic<int> reported{0};
+    const size_t skip = UnreadableDwords(span);
+    if (reported.fetch_add(1, std::memory_order_relaxed) < 4) {
+        ReportBadPacket(base, dwords, span.data(), seq, depth);
+        std::fprintf(stderr, "PM4: %zu unreadable dwords stepped over to the next packet\n", skip);
+    }
+    span = NextPacket(span, skip);
+}
+
 static_assert(PM4CmdNop::PayloadType::BbNativeDrawTag == BbNativeCalls::TagMagic);
 
 // bbport BB_NATIVE_CALLS=verify (bbport_native_calls.h): the record the hooked call noted for the
@@ -1306,9 +1338,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
 
         switch (type) {
         default:
-            ReportBadPacket(base_addr, dcb_dwords, dcb.data(), seq, dcb_depth);
-            UNREACHABLE_MSG("Wrong PM4 type {}", type);
-            break;
+            SkipUnreadable(dcb, base_addr, dcb_dwords, seq, dcb_depth);
+            continue;
         case 0: {
             // bbport: a zero dword (type 0, register 0: no game writes one) is zeroed memory in the
             // buffer; stepped over as padding instead of stopping the engine ("PM4 type 0" crash).
@@ -1321,10 +1352,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 dcb = NextPacket(dcb, 1);
                 continue;
             }
-            ReportBadPacket(base_addr, dcb_dwords, dcb.data(), seq, dcb_depth);
-            UNREACHABLE_MSG("Unimplemented PM4 type 0, base reg: {}, size: {}",
-                            header->type0.base.Value(), header->type0.NumWords());
-            break;
+            SkipUnreadable(dcb, base_addr, dcb_dwords, seq, dcb_depth);
+            continue;
         }
         case 2:
             // Type-2 packet are used for padding purposes

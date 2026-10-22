@@ -196,3 +196,14 @@ class ModTests(unittest.TestCase):
         self.assertEqual(mounted['content'], 'mod')
         self.assertFalse(Path(mounted['path']).exists())
         self.assertEqual((self.assets/'a.dcx').read_bytes(), b'original')
+
+
+class GameplayFiles(unittest.TestCase):
+    def test_files_both_players_read_are_gameplay(self):
+        for key in ('dvdroot_ps4/param/gameparam/gameparam.parambnd.dcx',
+                    'dvdroot_ps4/map/mapstudio/m24_00_00_00.msb.dcx', 'dvdroot_ps4/event/m24_00_00_00.emevd.dcx',
+                    'dvdroot_ps4/script/aicommon.luabnd.dcx', 'dvdroot_ps4/chr/c2500.anibnd.dcx'):
+            self.assertTrue(mods.changes_gameplay(key), key)
+        for key in ('dvdroot_ps4/chr/c2500.chrbnd.dcx', 'dvdroot_ps4/parts/wp_a_6010.partsbnd.dcx',
+                    'dvdroot_ps4/sfx/frpg_sfxbnd_m24.ffxbnd.dcx', 'dvdroot_ps4/map/m24/m24_9999.tpf.dcx'):
+            self.assertFalse(mods.changes_gameplay(key), key)

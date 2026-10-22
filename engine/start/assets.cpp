@@ -124,7 +124,7 @@ Bytes MirrorLayout(const Bytes& raw) {
     const std::int64_t size = end - old;
     for (int i = target; i < source; ++i) Store<std::int64_t>(b.data() + table + 8 * std::size_t(i + 1), parts[std::size_t(i)] + size);
     Store<std::int64_t>(b.data() + table + 8 * std::size_t(target), start);
-    if (Sha256Hex(b) != kOutputSha) throw Error("Mirror layout does not match the verified bbhost result");
+    if (Sha256Hex(b) != kOutputSha) throw Error("Mirror layout does not match the verified result");
     return b;
 }
 

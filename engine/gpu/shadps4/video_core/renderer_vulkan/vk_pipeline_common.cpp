@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <span>
@@ -11,6 +12,8 @@
 #include <boost/container/small_vector.hpp>
 #include <boost/container/static_vector.hpp>
 
+#include "bbport_settings.h"
+#include "shader_recompiler/native/tone_curve.h"
 #include "shader_recompiler/resource.h"
 #include "video_core/renderer_vulkan/pipeline_compile_queue.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
@@ -33,7 +36,7 @@ Pipeline::~Pipeline() {
 
 // bbport: time render threads waited for pipelines created on compile threads; reported with
 // the compile time of the GPU thread (BB_FRAME_STATS "shader/pipeline compiles, ... ms").
-extern std::atomic<u64> g_bb_compile_ns;
+extern std::atomic<u64> g_bb_compile_ns, g_bb_compile_ns_total;
 
 void Pipeline::WaitReady() const noexcept {
     if (ready.load(std::memory_order_acquire)) {
@@ -53,6 +56,7 @@ void Pipeline::WaitReady() const noexcept {
                                std::chrono::steady_clock::now() - start)
                                .count());
     g_bb_compile_ns += waited;
+    g_bb_compile_ns_total += waited;
     pipeline_compile_stats.NoteWait(waited);
 }
 
@@ -120,6 +124,30 @@ void Pipeline::MarkReady() noexcept {
 }
 
 
+namespace {
+/// bbport: the tone curve extension's parameters for this draw (native/tone_curve.h), from the
+/// HDR settings: on only with an HDR output. BB_HDR_SCENE_KNEE (0.75): the curve's output where
+/// the extension starts.
+Shader::Native::ToneCurvePush ToneCurveParams() {
+    static const float knee = [] {
+        const char* env = std::getenv("BB_HDR_SCENE_KNEE");
+        const float value = env ? float(std::atof(env)) : 0.75f;
+        return value > 0.0f && value < 1.0f ? value : 0.75f;
+    }();
+    const auto& settings = BbSettings::Get();
+    const float paper = std::clamp(settings.hdr_paper_white.load(std::memory_order_relaxed),
+                                   BbSettings::HdrPaperWhiteMin, BbSettings::HdrPaperWhiteMax);
+    const bool hdr = settings.hdr_output.load(std::memory_order_relaxed) != BbSettings::HdrOutputOff;
+    return {
+        .knee = knee,
+        .peak = BbSettings::HdrPeakNits(settings) / paper,
+        // As native mode: boost is the share of the scene's range above white, sqrt in log2.
+        .strength = std::sqrt(std::clamp(settings.hdr_boost.load(std::memory_order_relaxed), 0.0f, 1.0f)),
+        .enabled = hdr ? 1.0f : 0.0f,
+    };
+}
+} // namespace
+
 void Pipeline::BindResources(DescriptorWrites& set_writes, const Shader::PushData& push_data,
                              std::span<const vk::DescriptorImageInfo> image_infos,
                              std::span<const vk::DescriptorBufferInfo> buffer_infos) const {
@@ -130,6 +158,13 @@ void Pipeline::BindResources(DescriptorWrites& set_writes, const Shader::PushDat
     scheduler.Record([layout, stage_flags, push_data](vk::CommandBuffer cmdbuf) {
         cmdbuf.pushConstants(layout, stage_flags, 0u, sizeof(push_data), &push_data);
     });
+    if (uses_tone_curve) {
+        const Shader::Native::ToneCurvePush tone = ToneCurveParams();
+        scheduler.Record([layout, stage_flags, tone](vk::CommandBuffer cmdbuf) {
+            cmdbuf.pushConstants(layout, stage_flags, Shader::Native::ToneCurvePushOffset,
+                                 sizeof(tone), &tone);
+        });
+    }
 
     // Bind descriptor set.
     if (set_writes.empty()) {

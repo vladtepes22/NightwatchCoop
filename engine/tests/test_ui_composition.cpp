@@ -16,6 +16,14 @@ int main() {
     assert(Choose(false, true, true, true) == Background::None);
     assert(NativeViewport(1920, -1080));
     assert(!NativeViewport(960, -540));
+    // A 4K UI over a scene near 1920x1080 (0.9.37 beta 4): the widened viewport is a UI movie's
+    // (the title screen), the stage's one is ambiguous with the post passes.
+    constexpr std::array<float, 2> ui4k{3840.0f, 2160.0f};
+    assert(WidenedUiViewport(3840, -2160, ui4k));
+    assert(!WidenedUiViewport(1920, -1080, ui4k));
+    assert(!WidenedUiViewport(1920, -1080)); // no widened UI: the stage's size
+    assert(SceneHasUiViewportSize(1916, 1076, ui4k) && !SceneNearUiSize(1916, 1076, ui4k));
+    assert(SceneNearUiSize(3840, 2160, ui4k)); // Sharp UI with Native AA: still ambiguous
     assert(MovieShader(0x34e8a281) && MovieShader(0x24042a9b));
     assert(!MovieShader(0x0b0acf50)); // fullscreen post/tonemap also has a native viewport
     assert(!MovieShader(0x6c62a79f)); // shadow geometry

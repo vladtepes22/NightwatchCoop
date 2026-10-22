@@ -10,16 +10,7 @@
 #include "bbport_free_check.h"
 #include "bbport_heap_sites.h"
 
-namespace BbGuestMemory {
-bool Usable(const Vulkan::Instance&) { return false; }
-bool PcModelGpu(const Vulkan::Instance&) { return false; }
-void Install(const Vulkan::Instance&) {
-    if (const char* mode = std::getenv("BB_PC_MODEL"); mode && mode[0] == '1')
-        std::printf("GPU: experimental Linux memory model unavailable on Windows; using section-backed memory\n");
-}
-const Chunk* Find(std::uint64_t) { return nullptr; }
-}
-namespace BbGuestHooks { void Install(RangeCallback) {} }
+// BbGuestMemory and BbGuestHooks: bbport_guest_memory_win.cpp and bbport_guest_hooks_win.cpp.
 namespace BbFreeCheck {
 bool Enabled() { return false; }
 void Check(std::uint64_t, std::uint64_t, const void*, Source, std::uint64_t) {}

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <unordered_map>
 #include <boost/container/small_vector.hpp>
 
 #include "shader_recompiler/ir/basic_block.h"
@@ -31,19 +33,27 @@ static bool IsIdenticalInst(const IR::Inst* a, const IR::Inst* b) {
 }
 
 static void RunLocalCSE(IR::Block* block) {
-    boost::container::small_vector<IR::Inst*, 8> inst_list;
+    // bbport: found by hash, not by a scan of every earlier one: a GCN register holds bits, so a
+    // block has hundreds of bit casts, and the scan made this pass 10% of a shader's translation
+    // (docs/native_shader_compiler.md). The first identical instruction still wins.
+    std::unordered_multimap<u64, IR::Inst*> seen;
     auto it = std::ranges::find_if_not(*block, IR::IsPhi);
     for (; it != block->end(); ++it) {
         IR::Inst& inst{*it};
         if (!IsAllowedInst(inst)) {
             continue;
         }
-        const auto it = std::ranges::find_if(
-            inst_list, [&](const IR::Inst* b) { return IsIdenticalInst(&inst, b); });
-        if (it != inst_list.end()) {
-            inst.ReplaceUsesWithAndRemove(IR::Value{*it});
+        u64 key = static_cast<u64>(inst.GetOpcode());
+        for (size_t i = 0; i < inst.NumArgs(); i++) {
+            key = key * 0x9E3779B97F4A7C15ull ^ inst.Arg(i).Hash();
+        }
+        const auto [first, last] = seen.equal_range(key);
+        const auto found = std::find_if(
+            first, last, [&](const auto& entry) { return IsIdenticalInst(&inst, entry.second); });
+        if (found != last) {
+            inst.ReplaceUsesWithAndRemove(IR::Value{found->second});
         } else {
-            inst_list.emplace_back(&inst);
+            seen.emplace(key, &inst);
         }
     }
 }

@@ -81,6 +81,18 @@ inline bool SceneHasUiViewportSize(uint32_t scene_width, uint32_t scene_height,
     return near({1920.0f, 1080.0f}) || near(ui);
 }
 
+// A UI viewport widened past the 1920x1080 stage (Widescreen, or Sharp UI at the output's size).
+inline bool WidenedUiViewport(float width, float height, std::array<float, 2> ui = UiSize()) {
+    return !ViewportIs(ui[0], ui[1], {1920.0f, 1080.0f}) && ViewportIs(width, height, ui);
+}
+
+// The scene at the widened UI viewport's size (Sharp UI with Native AA): its post passes then
+// have that viewport too.
+inline bool SceneNearUiSize(uint32_t scene_width, uint32_t scene_height,
+                            std::array<float, 2> ui = UiSize()) {
+    return std::abs(float(scene_width) - ui[0]) < 8.0f && std::abs(float(scene_height) - ui[1]) < 8.0f;
+}
+
 // Scaleform draws, including the first stencil/movie pass. A native-size viewport
 // alone also matches every fullscreen post pass when guest targets stay at 1080p.
 constexpr bool MovieShader(uint64_t hash) {

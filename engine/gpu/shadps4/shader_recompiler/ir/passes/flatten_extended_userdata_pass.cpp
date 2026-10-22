@@ -632,6 +632,20 @@ static void VisitPointer(const IR::Value& off_dw, IR::Inst* subtree, PassInfo& p
     PassInfo::PtrUserList* use_list = pass_info.GetUsesAsPointer(subtree);
     ASSERT(use_list);
 
+    // bbport: a null table pointer (below 64 KiB: no guest memory is mapped there). The PS4's GPU
+    // reads zeros there, so this table and every table below it are zeros: empty buffers and
+    // images (bound as null descriptors), and the draw or dispatch runs as on the console, its
+    // other resources included. Checked here, not left to fault: each faulting read was a
+    // Windows exception, and Ebrietas' particle draws made tens of thousands a frame (90 FPS to
+    // 25), and the draws they skipped left her particles behind. The values below this table
+    // take the contiguous flattened range [first_dw, dst_off_dw after the visit). The code
+    // touches only registers and that range: walkers are restored from the pipeline cache into
+    // another place (no absolute addresses).
+    Xbyak::Label null_table, visited;
+    const u32 first_dw = pass_info.dst_off_dw;
+    c.cmp(rdi, 0x10000);
+    c.jb(null_table, Xbyak::CodeGenerator::T_NEAR);
+
     // First copy all the src data from this tree level
     // That way, all data that was contiguous in the guest SRT is also contiguous in the
     // flattened buffer.
@@ -662,6 +676,20 @@ static void VisitPointer(const IR::Value& off_dw, IR::Inst* subtree, PassInfo& p
         }
     }
 
+    c.jmp(visited, Xbyak::CodeGenerator::T_NEAR);
+    c.L(null_table);
+    if (const u32 count = pass_info.dst_off_dw - first_dw; count > 0) {
+        c.xor_(r10d, r10d);
+        c.lea(rdx, ptr[rsi + (first_dw << 2)]);
+        c.mov(ecx, count);
+        Xbyak::Label zero;
+        c.L(zero);
+        c.mov(dword[rdx], r10d);
+        c.add(rdx, 4);
+        c.dec(ecx);
+        c.jnz(zero);
+    }
+    c.L(visited);
     PopPtr(c);
 }
 

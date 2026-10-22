@@ -6,6 +6,7 @@
 #include "common/polyfill_thread.h"
 #include "common/thread.h"
 #include "core/emulator_settings.h"
+#include "shader_recompiler/native/tone_curve.h"
 
 #include "video_core/cache_storage.h"
 #include "video_core/cache_file.h"
@@ -90,6 +91,10 @@ void DataBase::Open() {
     }
 
     const auto& game_info = Common::ElfInfo::Instance();
+    // bbport: shaders compiled with the tone curve extension (BB_HDR_SCENE_CURVE=1) are kept in a
+    // cache of their own: turning it on or off never mixes modules with and without it.
+    const std::string serial = std::string{game_info.GameSerial()} +
+                               (Shader::Native::ToneCurveEnabled() ? "-scene-curve" : "");
 
     using namespace Common::FS;
     if (EmulatorSettings.IsPipelineCacheArchived()) {
@@ -98,7 +103,7 @@ void DataBase::Open() {
         mz_zip_zero_struct(&zip_ar);
 
         cache_path = GetUserPath(PathType::CacheDir) /
-                     std::filesystem::path{game_info.GameSerial()}.replace_extension(".zip");
+                     std::filesystem::path{serial}.replace_extension(".zip");
 
         if (!mz_zip_reader_init_file(&zip_ar, cache_path.string().c_str(),
                                      MZ_ZIP_FLAG_READ_ALLOW_WRITING) ||
@@ -120,7 +125,7 @@ void DataBase::Open() {
             }
         }
     } else {
-        cache_path = GetUserPath(PathType::CacheDir) / game_info.GameSerial();
+        cache_path = GetUserPath(PathType::CacheDir) / serial;
         if (!std::filesystem::exists(cache_path)) {
             std::filesystem::create_directories(cache_path);
         }

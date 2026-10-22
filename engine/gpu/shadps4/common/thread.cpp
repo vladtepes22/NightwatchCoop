@@ -14,6 +14,7 @@
 #include "common/error.h"
 #include "common/logging/log.h"
 #include "common/thread.h"
+#include "lantern_pacing.h"
 // bbport: common/ntapi.h (ntdll entry points) is not used by the vendored code.
 #ifdef __APPLE__
 #include <mach/mach.h>
@@ -38,40 +39,9 @@
 #define cpu_set_t cpuset_t
 #endif
 
-#if defined(_WIN32) && !defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
-// Older MinGW headers (or _WIN32_WINNT < 0x0600) lack it; Windows 10 1803+ understands it.
-#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
-#endif
 
 namespace Common {
 
-namespace {
-// Lateness of AccurateSleep's timer wakeups (ns), averaged over the last ~16 precise sleeps.
-std::atomic<s64> g_timer_late_ns{300'000};
-} // namespace
-
-std::chrono::nanoseconds PreciseSpin(std::chrono::nanoseconds cap) {
-    const auto spin = std::chrono::nanoseconds(g_timer_late_ns.load(std::memory_order_relaxed) +
-                                               100'000);
-    return std::clamp<std::chrono::nanoseconds>(spin, std::chrono::microseconds(100),
-                                                std::max<std::chrono::nanoseconds>(
-                                                    cap, std::chrono::microseconds(100)));
-}
-
-bool PrecisePacingEnabled() {
-    static const bool value = [] {
-        const char* v = std::getenv("BB_PRECISE_PACING");
-        if (v && v[0] != '\0') {
-            return v[0] != '0' && v[0] != 'n' && v[0] != 'N' && v[0] != 'f' && v[0] != 'F';
-        }
-#ifdef _WIN32
-        return true;
-#else
-        return false; // Linux keeps its original pacing unless asked.
-#endif
-    }();
-    return value;
-}
 
 #ifdef __APPLE__
 
@@ -145,55 +115,17 @@ void SetCurrentThreadPriority(ThreadPriority new_priority) {
 
 bool AccurateSleep(const std::chrono::nanoseconds duration, std::chrono::nanoseconds* remaining,
                    const bool interruptible) {
-    if (PrecisePacingEnabled()) {
-        // Adapted from IFreemz/shadPS4-Bloodborne-DLSS-FSR (f296a02, src/common/thread.cpp),
-        // GPL-2.0-or-later. Same approach as host_sleep_until_ns in src/runtime_host.c.
+    if (LanternPacing::Enabled()) {
+        // Lantern Engine pacing: the thread's high resolution timer (lantern_pacing.cpp).
         const auto begin = std::chrono::steady_clock::now();
-        DWORD ret = WAIT_OBJECT_0;
-        if (duration.count() <= 0) {
-            // A zero sleep is a yield.
-            SwitchToThread();
-        } else {
-            // One timer per thread, high resolution where available (Windows 10 1803+): a plain
-            // waitable timer rounds up to the system timer period (1 ms at best), and creating
-            // one per call costs two more system calls. The handle lives as long as the process
-            // (one per thread that sleeps here; only the present thread does).
-            thread_local HANDLE timer = [] {
-                HANDLE handle = CreateWaitableTimerExW(
-                    nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
-                if (!handle) {
-                    handle = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
-                }
-                return handle;
-            }();
-            LARGE_INTEGER interval{
-                .QuadPart = -std::max<LONGLONG>(1, (duration.count() + 99) / 100),
-            };
-            if (timer && SetWaitableTimer(timer, &interval, 0, nullptr, nullptr, FALSE)) {
-                ret = WaitForSingleObjectEx(timer, INFINITE, interruptible ? TRUE : FALSE);
-            } else {
-                ret = SleepEx(static_cast<DWORD>((duration.count() + 999'999) / 1'000'000),
-                              interruptible ? TRUE : FALSE) == 0
-                          ? WAIT_OBJECT_0
-                          : WAIT_IO_COMPLETION;
-            }
-        }
-        if (duration.count() > 0 && ret == WAIT_OBJECT_0) {
-            // How late the timer woke (for PreciseSpin): a running average, outliers clamped.
-            const auto late = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                  std::chrono::steady_clock::now() - begin - duration)
-                                  .count();
-            const s64 sample = std::clamp<s64>(late, 0, 2'000'000);
-            const s64 old = g_timer_late_ns.load(std::memory_order_relaxed);
-            g_timer_late_ns.store(old + (sample - old) / 16, std::memory_order_relaxed);
-        }
+        const bool done = LanternPacing::Sleep(duration, interruptible);
         if (remaining) {
             const auto slept = std::chrono::steady_clock::now() - begin;
             *remaining = duration > slept
                              ? std::chrono::duration_cast<std::chrono::nanoseconds>(duration - slept)
                              : std::chrono::nanoseconds(0);
         }
-        return ret == WAIT_OBJECT_0;
+        return done;
     }
 
     // The original sleep (a new waitable timer per call); BB_PRECISE_PACING=0.
@@ -318,21 +250,13 @@ AccurateTimer::AccurateTimer(std::chrono::nanoseconds target_interval)
 void AccurateTimer::Start() {
     const auto begin_sleep = std::chrono::high_resolution_clock::now();
     if (total_wait.count() > 0) {
-        if (PrecisePacingEnabled()) {
-            // Adapted from IFreemz/shadPS4-Bloodborne-DLSS-FSR (1f75c63), GPL-2.0-or-later.
-            // OS timers wake up late. This timer paces vblank and therefore the frames a
-            // variable refresh rate display shows, so sleep most of the wait and spin the rest
-            // to keep every interval even (at most 1.5 ms, and 1/8 of the interval).
-            const std::chrono::nanoseconds spin = PreciseSpin(
+        if (LanternPacing::Enabled()) {
+            // Lantern Engine pacing: this timer paces vblank, so it lands on time (a spin of at
+            // most 1.5 ms and an eighth of the interval after the timer sleep).
+            LanternPacing::WaitUntil(
+                std::chrono::steady_clock::now() + total_wait, true,
                 std::min<std::chrono::nanoseconds>(std::chrono::microseconds(1500),
                                                    target_interval / 8));
-            if (total_wait > spin) {
-                AccurateSleep(total_wait - spin, nullptr, false);
-            }
-            const auto deadline = begin_sleep + total_wait;
-            while (std::chrono::high_resolution_clock::now() < deadline) {
-                std::this_thread::yield();
-            }
         } else {
             AccurateSleep(total_wait, nullptr, false);
         }

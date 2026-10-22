@@ -82,7 +82,7 @@ bool Install(std::uint8_t* image,std::size_t size) {
     for(const auto& s:stage){std::uint8_t code[9]={0xb8,0,0,0,0,0x0f,0x1f,0x40,0};if(s.cx)code[0]=0xb9;
         std::memcpy(code+1,&s.value,4);std::memcpy(base+s.at,code,9);}
     Commit(std::span<Hook>(&hook,1));installed=true;Tick();
-    std::puts("Engine: bbhost widescreen enabled: native camera aspect and 15 Scaleform stage pins");return true;
+    std::puts("Engine: widescreen enabled: native camera aspect and 15 Scaleform stage pins");return true;
 }
 void Tick() {
     if(!installed)return;

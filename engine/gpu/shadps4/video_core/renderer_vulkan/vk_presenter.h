@@ -17,6 +17,7 @@
 #include "video_core/renderer_vulkan/host_passes/hdr_pass.h"
 #include "video_core/renderer_vulkan/host_passes/pp_pass.h"
 #include "video_core/renderer_vulkan/vk_frame_generation.h"
+#include "video_core/renderer_vulkan/vk_streamline.h"
 #include "video_core/renderer_vulkan/vk_hdr_native.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
@@ -55,6 +56,8 @@ struct Frame {
     /// recording thread, read on the swap thread after the submission went out).
     Frame* generated{nullptr};
     bool generated_ok{false};
+    /// bbport: DLSS Frame Generation (vk_streamline.h): this game frame's index and inputs.
+    DlssFrameInfo dlss{};
 };
 
 enum SchedulerType {
@@ -204,6 +207,10 @@ private:
     static constexpr size_t NumGeneratedFrames = 4;
     std::array<Frame, NumGeneratedFrames> generated_frames{};
     std::array<std::atomic<bool>, NumGeneratedFrames> generated_busy{};
+    /// bbport: DLSS Frame Generation (vk_streamline.h), and each presentation frame's frame
+    /// without its UI through the post process (by Frame::id).
+    std::unique_ptr<DlssFrameGen> dlss_fg;
+    std::vector<Frame> dlss_hudless_frames;
 };
 
 } // namespace Vulkan

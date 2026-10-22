@@ -46,14 +46,11 @@ public:
                          Vulkan::Runtime& runtime, StreamBuffer& stream_buffer);
     ~TileManager();
 
+    /// Tiles `in_image` into `out_buffer` (its guest surface layout). `extent_only` (Lantern
+    /// Engine): only texels inside the image's extent are written; the padding keeps what
+    /// `out_buffer` held (StoreTiledImage fills it with the guest bytes first).
     void TileImage(Image& in_image, std::span<vk::BufferImageCopy> buffer_copies,
-                   const VideoCore::Buffer* out_buffer, u64 out_offset);
-
-    /// bbport (image write-back GC): tiles a tiled image into `out_buffer`, which holds the guest
-    /// surface (info.guest_size bytes at out_offset): bytes outside the image's extent keep the
-    /// value they had there. `buffer_copies`: one per mip, offsets relative to the linear layout.
-    void TileImageOver(Image& in_image, std::span<vk::BufferImageCopy> buffer_copies,
-                       const VideoCore::Buffer* out_buffer, u64 out_offset);
+                   const VideoCore::Buffer* out_buffer, u64 out_offset, bool extent_only = false);
 
     std::pair<const Buffer*, u64> DetileImage(const VideoCore::Buffer* in_buffer, u64 in_offset,
                                               const ImageInfo& info);

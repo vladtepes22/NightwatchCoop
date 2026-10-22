@@ -15,6 +15,7 @@
 #include "shader_recompiler/ir/passes/srt.h"
 #include "shader_recompiler/ir/reg.h"
 #include "shader_recompiler/ir/type.h"
+#include "shader_recompiler/native/table_plan.h"
 #include "shader_recompiler/params.h"
 #include "shader_recompiler/resource.h"
 #include "shader_recompiler/runtime_info.h"
@@ -120,6 +121,12 @@ struct Info : InfoPersistent {
     std::span<const u32> user_data;
     std::vector<u32> flattened_ud_buf;
     PersistentSrtInfo srt_info;
+    /// bbport: the walker's walk as data (native/table_plan.h), run instead of it with
+    /// BB_NATIVE_TABLES; invalid for a cache record of an older engine.
+    Native::TablePlan table_plan;
+    /// bbport: set while the program is translated, between FlattenExtendedUserdataPass and the
+    /// plan's build (recompiler.cpp): the pass's own RefreshFlatBuf then waits for the plan.
+    bool tables_pending{};
 
     AttributeFlags loads{};
     AttributeFlags stores{};
@@ -137,6 +144,9 @@ struct Info : InfoPersistent {
     bool uses_buffer_atomic_float_min_max{};
     bool uses_image_atomic_float_min_max{};
     bool uses_lane_id{};
+    /// bbport: the composite's tone curve is extended (native/tone_curve.h): the module reads
+    /// ToneCurvePush after the push data. Kept in the cache record's tail.
+    bool uses_tone_curve{};
     bool uses_shader_clock{};
     bool uses_group_quad{};
     bool uses_group_shuffle{};
@@ -238,7 +248,13 @@ struct Info : InfoPersistent {
 
     void AddBindings(Backend::Bindings& bnd) const {
         bnd.buffer += buffers.size();
-        bnd.unified += buffers.size() + images.size() + samplers.size();
+        // bbport: an image with a binding per mip level (MipStorageFallbackMode::DynamicIndex)
+        // takes as many as the SPIR-V emitter and the pipeline layout give it, not one.
+        u32 image_bindings = 0;
+        for (const auto& image : images) {
+            image_bindings += image.NumBindings(*this);
+        }
+        bnd.unified += buffers.size() + image_bindings + samplers.size();
         bnd.user_data += ud_mask.NumRegs();
     }
 
@@ -251,6 +267,22 @@ struct Info : InfoPersistent {
         ASSERT(user_data.size() <= NUM_USER_DATA_REGS);
         std::memcpy(flattened_ud_buf.data(), user_data.data(), user_data.size_bytes());
         if (lab_flat) { std::memcpy(flattened_ud_buf.data(), lab_flat, (lab_flat_size < flattened_ud_buf.size() ? lab_flat_size : flattened_ud_buf.size()) * sizeof(u32)); return; } // lab_flat: bb-shader-lab's captured tables
+        if (tables_pending) {
+            return;
+        }
+        // bbport: the table plan reads the tables with every read of guest memory checked (no
+        // fault, no skipped draw); the walker only when BB_NATIVE_TABLES leaves it on.
+        const auto mode = Native::TablePlan::GetMode();
+        if (mode != Native::TablePlan::Mode::Walker && table_plan.valid &&
+            Native::TablePlan::guest_readable) {
+            table_plan.Run(user_data.data(), flattened_ud_buf.data(),
+                           Native::TablePlan::guest_readable);
+            if (mode == Native::TablePlan::Mode::Verify && srt_info.walker_func) {
+                table_plan.CompareWithWalker(reinterpret_cast<const void*>(srt_info.walker_func),
+                                             user_data.data(), flattened_ud_buf.data(), pgm_hash);
+            }
+            return;
+        }
         if (srt_info.walker_func) {
             srt_info.walker_func(user_data.data(), flattened_ud_buf.data());
         }

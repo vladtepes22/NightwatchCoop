@@ -24,6 +24,7 @@ namespace BloodborneLauncher.Core
             ("live_resolution", "0"),
             ("frame_gen", "off"),
             ("frame_gen_cap", "1"),
+            ("dlss_preset", "k"),
             ("fps_position", "0"),
             ("fps_scale", "1.00"),
             ("fps_text_color", "#FFFFFF"),

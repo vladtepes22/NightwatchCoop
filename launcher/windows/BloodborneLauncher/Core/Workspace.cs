@@ -1,5 +1,9 @@
 ﻿using System.IO;
+#if AVALONIA
+using Avalonia.Threading;
+#else
 using System.Windows.Threading;
+#endif
 
 namespace BloodborneLauncher.Core
 {
@@ -87,6 +91,7 @@ namespace BloodborneLauncher.Core
                     Log(restored == 1 ? L.T("Windows HDR was switched off during the game; turned it back on.")
                                       : L.F($"Windows HDR was switched off on {restored} displays during the game; turned it back on."), LogLevel.Info);
                 _hdrBefore = new();
+                SecureSaves();
                 var stopped = _stopping;
                 _stopping = false;
                 if (Session is { } session)
@@ -133,6 +138,14 @@ namespace BloodborneLauncher.Core
 
             Ini.Load();
             Ini.MigrateRev();
+            // The DLSS model moved from the launcher's settings to bbport.ini (dlss_preset), where the
+            // in-game menu changes it live: an older launcher's choice is carried over once.
+            if (Paths.IsPortDir(Paths.PortDir) && Settings.Str("dlss_preset") is { Length: > 0 } dlss && dlss != "k")
+            {
+                Ini.Set("dlss_preset", dlss);
+                Settings.Set("dlss_preset", "k");
+                SaveSoon();
+            }
             _iniWarned = false;
             PortChanged?.Invoke();
         }
@@ -188,7 +201,7 @@ namespace BloodborneLauncher.Core
             foreach (var id in ids)
             {
                 if (!TrophyTracker.ById.TryGetValue(id, out var trophy)) continue;
-                Log(L.F($"Trophy unlocked: {trophy.Name} ({trophy.Grade})"), LogLevel.Good);
+                Log(L.F($"Trophy unlocked: {trophy.Name} ({Trophy.GradeName(trophy.Grade)})"), LogLevel.Good);
                 if (Settings.Bool("trophy_notifications"))
                     Views.TrophyToast.Announce(trophy);
             }
@@ -234,11 +247,24 @@ namespace BloodborneLauncher.Core
         /// <summary>Windows' HDR state per display when the game started (restored after it exits).</summary>
         private List<WindowsHdr.Display> _hdrBefore = new();
 
+        /// <summary>A safety copy of every profile's saves outside the saves folder (SaveGuard), on a
+        /// worker thread: at each start and when the game exits, whatever Save backups says.</summary>
+        public void SecureSaves()
+        {
+            var root = GameEnvironment.SavesRoot(Settings);
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                if (SaveGuard.Secure(root) > 0)
+                    Log(L.F($"Saves: safety copy made in {SaveGuard.VaultDir}."), LogLevel.Info);
+            });
+        }
+
         public string? StartGame()
         {
             SaveNow();
             OutputLines.Clear();
             OutputCleared?.Invoke();
+            SecureSaves();
             if (Settings.Bool("save_backups"))
             {
                 // Copied on a worker thread: the game takes ~20 s to reach its first save, and a
@@ -320,11 +346,18 @@ namespace BloodborneLauncher.Core
 
         private static void Dispatch(Action action)
         {
+#if AVALONIA
+            if (Dispatcher.UIThread.CheckAccess())
+                action();
+            else
+                Dispatcher.UIThread.Post(action);
+#else
             var dispatcher = System.Windows.Application.Current?.Dispatcher;
             if (dispatcher == null || dispatcher.CheckAccess())
                 action();
             else
                 dispatcher.BeginInvoke(action);
+#endif
         }
     }
 }

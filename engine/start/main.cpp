@@ -86,6 +86,27 @@ bool RecompileGpuCache(const fs::path& cache, const fs::path& recompiler) {
 // and draw states, no code): once per catalog, into a cache made on a GPU with the catalog's
 // profile (its first start makes it), the code taken from this PC's game files. Its shaders are
 // then compiled before the start instead of in play. BB_SHADER_CATALOG=0: not used.
+// bbport: whether a display adapter of this PC is of the vendor in a catalog's gpu.txt ("vendor
+// 10DE device 2D05", written by bb-shader-lab --export-catalog).
+bool HasCatalogGpuVendor(const fs::path& gpu_txt) {
+    std::string text;
+    try {
+        text = ReadText(gpu_txt);
+    } catch (const Error&) {
+        return false;
+    }
+    unsigned vendor = 0;
+    if (std::sscanf(text.c_str(), "vendor %x", &vendor) != 1 || vendor == 0) return false;
+    char wanted[16];
+    std::snprintf(wanted, sizeof(wanted), "VEN_%04X", vendor);
+    DISPLAY_DEVICEW device{};
+    device.cb = sizeof(device);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &device, 0); ++i) {
+        if (Lower(Utf8(device.DeviceID)).find(Lower(wanted)) != std::string::npos) return true;
+    }
+    return false;
+}
+
 void SeedGpuCache(const fs::path& cache, const fs::path& catalogs, const fs::path& game, const fs::path& eboot,
                   const fs::path& recompiler) {
     std::error_code error;
@@ -93,6 +114,18 @@ void SeedGpuCache(const fs::path& cache, const fs::path& catalogs, const fs::pat
     for (const auto& entry : fs::directory_iterator(catalogs, error)) {
         std::error_code e;
         const fs::path target = cache / entry.path().filename();
+        // bbport (docs/pipeline_compiles.md): the first start has no cache yet, so no profile of
+        // this GPU (the engine writes it): the catalog's own is put there when a display adapter
+        // is of the catalog's GPU vendor, so the first session has the catalog's pipelines too.
+        // Another kind of GPU of that vendor gets its cache started again by the engine
+        // (PipelineCache::WarmUp: another profile), which costs only this seeding's time.
+        if (entry.is_directory(e) && !fs::exists(target, e) && fs::is_regular_file(entry.path() / "profile.bin", e) &&
+            HasCatalogGpuVendor(entry.path() / "gpu.txt")) {
+            fs::create_directories(target, e);
+            fs::copy_file(entry.path() / "profile.bin", target / "profile.bin", e);
+            Log("GPU cache %s: first start; the shader catalog's GPU profile used until the engine checks it",
+                Utf8(entry.path().filename()).c_str());
+        }
         if (!entry.is_directory(e) || !fs::is_regular_file(target / "profile.bin", e)) continue;
         // The catalog's identity: its files' count and size, as shipped.
         std::uint64_t files = 0, bytes = 0;
@@ -262,6 +295,14 @@ int Main(std::vector<std::wstring> arguments) {
     } catch (const std::exception&) {
     }
     fs::create_directories(out);
+    // bbport: a package in a OneDrive folder (the Desktop and Documents usually are) has every log,
+    // shader cache and capture file the game writes synced while it plays: CPU and disk the game's
+    // threads then miss (seen with 0.9.37 beta 3 on a Desktop in OneDrive: the CPU busier and
+    // draw preparation falling behind more often than in a session from E:\, not proven to be it).
+    if (Lower(Utf8(folders.package)).find("onedrive") != std::string::npos)
+        Log("Performance: this folder is synced by OneDrive (%s); OneDrive uploads its logs and "
+            "shader cache while you play. A folder outside OneDrive (C:\\Games, for example) avoids that",
+            Utf8(folders.package).c_str());
     if (!Env("BB_CONFIG")) SetEnv("BB_CONFIG", Utf8(data / "bbport.ini"));
     const fs::path config = Path(*Env("BB_CONFIG"));
     const auto settings = ReadSettings(config);

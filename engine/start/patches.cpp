@@ -388,6 +388,17 @@ double PresetScale(const std::map<std::string, std::string>& settings) {
     } catch (const std::exception&) {
         throw Error("invalid preset");
     }
+    // bbport: preset 5 (Custom): render_scale, 1.0-3.0 (BbSettings::PresetScale).
+    if (preset == int(std::size(kPresetScales))) {
+        double scale = 1.3;
+        try {
+            const std::string value = Setting(settings, "render_scale").value_or("1.3");
+            scale = value.empty() ? 1.3 : std::stod(value);
+        } catch (const std::exception&) {
+            scale = 1.3;
+        }
+        return std::clamp(std::isfinite(scale) ? scale : 1.3, 1.0, 3.0);
+    }
     return kPresetScales[std::clamp(preset, 0, int(std::size(kPresetScales)) - 1)];
 }
 
@@ -777,10 +788,20 @@ PatchResult CompilePatches(const PatchRequest& request) {
         for (const char* n : {"DbgFont14h.ccm", "DbgFont14h.tpf"})
             if (!fs::is_regular_file(font / n, error) || fs::file_size(font / n, error) == 0)
                 missing += (missing.empty() ? "" : ", ") + std::string(n);
+        // bbport: request.game is the merged mod view (a new mod-game-* folder each start): the
+        // message names where the player puts them, not that folder. Mods that carry the font
+        // unpacked (a DbgFont14h-tpf-dcx folder from WitchyBND) do not count: the game reads the
+        // packed .tpf and .ccm.
+        const bool unpacked = fs::is_directory(font / "DbgFont14h-tpf-dcx", error) ||
+                              fs::is_directory(font / "DbgFont14h-tpf", error);
         if (!missing.empty())
-            throw Error("Debug menu needs non-empty font files in " + Utf8(font) + ": " + missing +
-                        ". Install the fonts from https://www.nexusmods.com/bloodborne/mods/253 first; or disable "
-                        "debug_menu in bbport.ini");
+            throw Error("Debug menu needs the font files " + missing +
+                        " in dvdroot_ps4\\font, in the game folder or in an enabled mod (Mods page)." +
+                        (unpacked ? std::string(" The installed mod has the font unpacked (a DbgFont14h-tpf-dcx "
+                                                "folder): repack it with WitchyBND, or use the packed files")
+                                  : std::string()) +
+                        ". The fonts: https://www.nexusmods.com/bloodborne/mods/253; or turn the debug menu off "
+                        "(debug_menu in bbport.ini)");
     }
 
     const Bytes elf = ReadFile(request.out / "eboot.elf");
@@ -873,17 +894,26 @@ PatchResult CompilePatches(const PatchRequest& request) {
     // The game sizes its two graphics heaps for the PS4: 2287 and 886 MiB. A scene above 1080p,
     // highest model detail or screen space reflections outgrow them, and a model that no longer
     // fits is not drawn (ladders, ground, the Astral Clocktower's clock missing). The engine gives
-    // them 3952 and 2560 MiB and direct memory to match (main.cpp: 9152 MiB, its pages committed
-    // only as the game uses them). Kept at the PS4 size, unless the scene is above 1080p (which
-    // needs them): BB_GAME_HEAPS=0, BB_DMEM_MB under 9152, or a commit limit (RAM plus page file)
-    // under 16 GiB.
+    // them 3952 and 2560 MiB and direct memory to match (main.cpp: 9152 MiB) when the scene needs
+    // them: above 1080p, highest model detail or screen space reflections. Kept at the PS4 size
+    // otherwise, and with BB_GAME_HEAPS=0, BB_DMEM_MB under 9152 or a commit limit (RAM plus page
+    // file) under 16 GiB unless the scene is above 1080p.
     {
         const bool large_scene = size && std::int64_t(size->w) * size->h > std::int64_t(kOutput.w) * kOutput.h;
+        // Lantern Engine: only what outgrows the PS4 heaps enlarges them. Every heap page the
+        // game touches stays in RAM for the session (its allocators spread over the whole heap),
+        // so larger heaps meant up to 3.3 GB more RAM: 7 GB of game memory and Windows swapping
+        // on 16 GB PCs (the multi-second hangs of 2026-10-21). BB_GAME_HEAPS=1 enlarges anyway.
+        const bool needs = large_scene || std::find(names.begin(), names.end(), "Model LOD -2 (Highest)") != names.end() ||
+                           std::find(names.begin(), names.end(), "Enable Screen Space Reflections (READ NOTE)") != names.end();
         const std::uint64_t commit = CommitLimitMb();
         const auto dmem = Env("BB_DMEM_MB");
         std::string keep;
-        if (Env("BB_GAME_HEAPS", "1") == "0")
+        if (Env("BB_GAME_HEAPS", "") == "0")
             keep = "BB_GAME_HEAPS=0";
+        else if (!needs && Env("BB_GAME_HEAPS", "") != "1")
+            keep = "a 1080p or smaller scene without highest model detail or screen space reflections fits them; "
+                   "BB_GAME_HEAPS=1 enlarges them";
         else if (dmem && std::strtoull(dmem->c_str(), nullptr, 10) < 9152)
             keep = "BB_DMEM_MB=" + *dmem;
         else if (commit && commit < 16384)
@@ -898,7 +928,7 @@ PatchResult CompilePatches(const PatchRequest& request) {
                 refused = true;
             }
         }
-        if (!keep.empty() && (!large_scene || refused)) {
+        if (!keep.empty() && (!needs || refused || Env("BB_GAME_HEAPS", "") == "0")) {
             Log("Patches: the game's graphics heaps at their PS4 size (%s)", keep.c_str());
         } else if (OriginalBytes(elf, kHeapSizes, 8) == Le<std::uint64_t>(0x8ef00000) &&
                    OriginalBytes(elf, kHeapSizes + 8, 8) == Le<std::uint64_t>(0x37600000)) {

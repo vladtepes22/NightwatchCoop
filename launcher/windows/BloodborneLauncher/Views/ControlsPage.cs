@@ -36,6 +36,11 @@ namespace BloodborneLauncher.Views
         private string? _padState;
         private DateTime? _padSeen;
         private ControlDef? _target;
+        /// <summary>The capture adds an input (a second key, a combination) instead of replacing one.</summary>
+        private bool _addMode;
+        /// <summary>A modifier pressed during the capture: the modifier of the next key or click, or
+        /// bound alone when it is let go first.</summary>
+        private string? _pendingModifier;
 
         // Profiles
         private readonly ComboBox _profileBox;
@@ -56,7 +61,10 @@ namespace BloodborneLauncher.Views
                 () => Ini.Get("mouse_camera", "1") != "0", v => Ini.Set("mouse_camera", v ? "1" : "0"), mouse);
             ToggleRow(SymbolRegular.CursorHover24, L.T("Mouse in menus"), L.T("The mouse becomes a pointer in the game's menus: hover and click items"),
                 () => Ini.Get("mouse_menu", "1") != "0", v => Ini.Set("mouse_menu", v ? "1" : "0"), mouse);
-            SliderRow(SymbolRegular.Gauge24, L.T("Mouse sensitivity"), L.T("5 is the default"), 0, 10, 1,
+            ToggleRow(SymbolRegular.Run24, L.T("Move and look in menus"),
+                L.T("With a menu open in the world, the movement and look keys stay your character's and the arrow keys move through the menu. The mouse turns the camera while Mouse in menus is off. Whether the character can walk then is up to the game. Applied at the next start"),
+                () => Ini.Get("menu_move", "0") == "1", v => Ini.Set("menu_move", v ? "1" : "0"), mouse);
+            SliderRow(SymbolRegular.Gauge24, L.T("Mouse sensitivity"), L.T("5 is the default; below 0 for high-DPI mice (each step 20% slower)"), -10, 20, 1,
                 () => ParseDouble(Ini.Get("mouse_sensitivity", "5"), 5), v => Ini.Set("mouse_sensitivity", ((int)v).ToString()), "0", mouse);
             IniToggle(SymbolRegular.ArrowSwap24, L.T("Invert horizontal"), null, "mouse_invert_x", mouse);
             IniToggle(SymbolRegular.ArrowSortDown24, L.T("Invert vertical"), null, "mouse_invert_y", mouse);
@@ -161,7 +169,7 @@ namespace BloodborneLauncher.Views
             capturePad.PreviewMouseDown += (_, e) =>
             {
                 e.Handled = true;
-                if (_padInput == null && InputMap.MouseToken(e.ChangedButton) is { } name) Commit(name);
+                if (_padInput == null && InputMap.MouseToken(e.ChangedButton) is { } name) Commit(WithHeldModifiers(name));
             };
             capturePad.PreviewMouseWheel += (_, e) =>
             {
@@ -215,6 +223,7 @@ namespace BloodborneLauncher.Views
             root.Children.Add(_overlay);
             Content = root;
             PreviewKeyDown += Page_PreviewKeyDown;
+            PreviewKeyUp += Page_PreviewKeyUp;
 
             var status = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
             status.Tick += (_, _) => { if (IsVisible) UpdatePadStatus(); };
@@ -438,6 +447,26 @@ namespace BloodborneLauncher.Views
                 chips.Children.Add(chip);
             }
 
+            // Another input for the action: a second key, a combination (Shift+E), a mouse button.
+            if (names.Count < Bindings.MaxInputs)
+            {
+                var add = new System.Windows.Controls.Button
+                {
+                    Content = new SymbolIcon { Symbol = SymbolRegular.Add16, FontSize = 11 },
+                    Margin = new Thickness(2, 0, 4, 0),
+                    Padding = new Thickness(4, 2, 4, 2),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    ToolTip = L.T("Add another key, mouse button or combination (hold Ctrl, Shift or Alt)"),
+                };
+                add.SetResourceReference(StyleProperty, "BareButton");
+                add.Click += (_, e) =>
+                {
+                    e.Handled = true;
+                    BeginCapture(control, add: true);
+                };
+                chips.Children.Add(add);
+            }
+
             if (names.Count == 0)
             {
                 var none = Text(L.T("Not bound"), "Faint");
@@ -488,9 +517,10 @@ namespace BloodborneLauncher.Views
             // A chip like the keyboard ones: click and press the button on the pad (a drop-down here
             // opened under the pointer and picked whatever the release landed on).
             var current = PadMap.Main(Ini, input);
+            var menu = PadMap.IsMenu(input);
             var chip = new Wpf.Ui.Controls.Button
             {
-                Content = current.Length > 0 ? PadMap.Label(current) : input is "ping" or "gather" ? control.Pad : L.T("Not bound"),
+                Content = current.Length > 0 ? PadMap.Label(current) : input is "ping" or "gather" ? control.Pad : menu ? L.T("As in the world") : L.T("Not bound"),
                 Icon = Icon(SymbolRegular.XboxController24),
                 Padding = new Thickness(8, 3, 10, 3),
                 FontSize = 12.5,
@@ -500,6 +530,8 @@ namespace BloodborneLauncher.Views
                     ? L.T("A controller button of its own for Ping (Touchpad + R3 always works too). Click, then press a button on the pad.")
                     : input == "gather"
                     ? L.T("A controller button of its own for Gather the party (Touchpad + L3 always works too). Click, then press a button on the pad.")
+                    : menu
+                    ? L.T("The controller button that does this in the game's menus, whatever it does in the world (Circle moved to L2 for sprinting still goes back here). Not set: menus use the buttons as in the world. Click, then press a button on the pad.")
                     : L.F($"The controller button for this action (the game's {control.Pad}). Click, then press a button on the pad."),
             };
             if (!PadMap.IsDefault(Ini, input)) chip.FontWeight = FontWeights.SemiBold;
@@ -522,12 +554,14 @@ namespace BloodborneLauncher.Views
 
         // ---------------------------------------------------------------- capture
 
-        private void BeginCapture(ControlDef control)
+        private void BeginCapture(ControlDef control, bool add = false)
         {
             _target = control;
             _padInput = null;
-            _captureTitle.Text = L.F($"Bind {control.Label}");
-            _captureHelp.Text = L.T("Press a key, or click / scroll inside the box. Esc cancels.");
+            _addMode = add;
+            _pendingModifier = null;
+            _captureTitle.Text = add ? L.F($"Add an input to {control.Label}") : L.F($"Bind {control.Label}");
+            _captureHelp.Text = L.T("Press a key or a combination (hold Ctrl, Shift or Alt, then a key or click), or click / scroll inside the box. Esc cancels.");
             _captureBoxText.Text = L.T("Click or scroll here");
             _padChoices.Visibility = Visibility.Collapsed;
             _captureFeedback.Text = "";
@@ -540,6 +574,8 @@ namespace BloodborneLauncher.Views
         {
             _overlay.Visibility = Visibility.Collapsed;
             _target = null;
+            _addMode = false;
+            _pendingModifier = null;
             _padInput = null;
             _padControl = null;
             _padTimer.Stop();
@@ -598,6 +634,8 @@ namespace BloodborneLauncher.Views
             EndCapture();
             if (name == null)
                 Bindings.Set(Ini, control, new List<string>());
+            else if (_addMode)
+                Bindings.Add(Ini, control, name);
             else
                 Bindings.Assign(Ini, control, name, keepOtherKind: true);
             Changed();
@@ -625,8 +663,28 @@ namespace BloodborneLauncher.Views
                 _captureFeedback.Text = L.F($"{key} cannot be bound; try another key.");
                 return;
             }
-            Commit(name);
+            // A modifier waits for the key or click it goes with; let go alone, it is bound by itself.
+            if (InputMap.IsModifierKey(key))
+            {
+                _pendingModifier = name;
+                _captureFeedback.Text = L.F($"{InputMap.Display(name)} + … : press a key or click, or let go to bind {InputMap.Display(name)} alone.");
+                return;
+            }
+            Commit(WithHeldModifiers(name));
         }
+
+        private void Page_PreviewKeyUp(object sender, KeyEventArgs e)
+        {
+            if (_target == null || _pendingModifier == null) return;
+            e.Handled = true;
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (InputMap.SdlKeyName(key) == _pendingModifier) Commit(_pendingModifier);
+        }
+
+        /// <summary>A key or click with the modifiers held as it was pressed ("Shift+E").</summary>
+        private static string WithHeldModifiers(string name) =>
+            InputMap.WithModifiers(name, Keyboard.Modifiers.HasFlag(ModifierKeys.Control),
+                                   Keyboard.Modifiers.HasFlag(ModifierKeys.Shift), Keyboard.Modifiers.HasFlag(ModifierKeys.Alt));
 
         // ---------------------------------------------------------------- profiles
 

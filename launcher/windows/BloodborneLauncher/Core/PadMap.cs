@@ -35,6 +35,7 @@ namespace BloodborneLauncher.Core
             ["Options"] = "options", ["Touchpad (left)"] = "touchpad", ["Touchpad (right)"] = "touchpad_right",
             ["D-pad up"] = "up", ["D-pad down"] = "down", ["D-pad left"] = "left", ["D-pad right"] = "right",
             ["Touchpad + R3"] = "ping", ["Touchpad + L3"] = "gather",
+            ["Menu confirm"] = "menu_confirm", ["Menu back"] = "menu_back",
         };
 
         /// <summary>The engine's defaults (runtime_pad.c bind_defaults).</summary>
@@ -49,9 +50,17 @@ namespace BloodborneLauncher.Core
             ["ping"] = "",
             // The same for Gather the party (host); Touchpad + L3 always works too.
             ["gather"] = "",
+            ["menu_confirm"] = "", ["menu_back"] = "",
         };
 
         public static IEnumerable<string> Inputs => Defaults.Keys;
+
+        /// <summary>
+        /// The buttons that confirm and go back while a game menu is open, whatever they do in the
+        /// world (pad.menu_confirm / pad.menu_back, runtime_pad.c). Unset: menus get the buttons'
+        /// world inputs. They swap only with each other: a button is both a world and a menu input.
+        /// </summary>
+        public static bool IsMenu(string input) => input.StartsWith("menu_", StringComparison.Ordinal);
 
         public static string? InputFor(ControlDef control) =>
             control.Pad != null && InputOfLabel.TryGetValue(control.Pad, out var input) ? input : null;
@@ -75,7 +84,7 @@ namespace BloodborneLauncher.Core
         {
             var old = Main(ini, input);
             if (button.Length > 0)
-                foreach (var other in Inputs.Where(i => i != input))
+                foreach (var other in Inputs.Where(i => i != input && IsMenu(i) == IsMenu(input)))
                 {
                     var buttons = Get(ini, other);
                     if (!buttons.Remove(button)) continue;

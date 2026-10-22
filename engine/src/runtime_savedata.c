@@ -183,7 +183,14 @@ static int32_t mount(int32_t user, const char *title, const DirName *dir, uint32
         if (!slots[i].used && slot<0) slot=i;
     }
     if (slot<0) { host_unlock(&lock); return ERR_MOUNT_FULL; }
-    if (!exists && (make_dirs(host) || make_dirs(meta))) { host_unlock(&lock); return ERR_INTERNAL; }
+    if (!exists && (make_dirs(host) || make_dirs(meta))) {
+        /* bbport: the game only says it cannot create the save; the log says where and why
+         * (a read-only or synced folder, an antivirus' controlled folder access...). */
+        const int error=errno;
+        host_unlock(&lock);
+        printf("Runtime: save data '%s' cannot be created in %s: %s\n",dir->data,base,strerror(error));
+        return ERR_INTERNAL;
+    }
     if (!exists) { Param empty={0}; write_param(meta,&empty); }
     slots[slot].used=1;
     snprintf(slots[slot].host,sizeof(slots[slot].host),"%s",host);
@@ -334,7 +341,10 @@ static ABI int32_t memory_setup(int32_t user, uint64_t size, const Param *param)
     char base[600], dir[640];
     root(user,NULL,base,sizeof(base));
     snprintf(dir,sizeof(dir),"%s.memory",base);
-    if (make_dirs(dir)) return ERR_INTERNAL;
+    if (make_dirs(dir)) {
+        printf("Runtime: save data memory cannot be created in %s: %s\n",dir,strerror(errno));
+        return ERR_INTERNAL;
+    }
     host_lock(&lock);
     snprintf(memory_path,sizeof(memory_path),"%s/memory.dat",dir);
     FILE *f=fopen(memory_path,"r+b");
@@ -348,8 +358,10 @@ static ABI int32_t memory_setup(int32_t user, uint64_t size, const Param *param)
         fclose(f);
     }
     if (!r && param) write_param(dir,param);
+    const int error=errno;
     host_unlock(&lock);
     if (!r) printf("Runtime: save data memory ready (%llu bytes)\n",(unsigned long long)size);
+    else printf("Runtime: save data memory cannot be written in %s: %s\n",dir,strerror(error));
     return r;
 }
 static int32_t memory_io(void *buffer, uint64_t size, int64_t offset, int write) {

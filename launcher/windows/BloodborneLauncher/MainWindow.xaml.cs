@@ -105,6 +105,12 @@ namespace BloodborneLauncher
                 // Once: the settings that suit this PC, shown before anything changes.
                 if (_directPlay)
                     _ = Dispatcher.BeginInvoke(async () => await PlayDirectAsync(), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                // The setup guide: with --setup, or once on a first start whose game folder is not
+                // ready (a game already set up never sees it). The settings for this PC follow it.
+                else if (Prompt.SnapshotPath == null && (Environment.GetCommandLineArgs().Contains("--setup") ||
+                         (!ws.Settings.Bool("setup_shown") && Paths.IsPortDir(Paths.PortDir) &&
+                          await Task.Run(() => GameCheck.Inspect(GameEnvironment.GameDir(ws.Settings)).Health) != Health.Good)))
+                    _ = Dispatcher.BeginInvoke(() => SetupGuide.Open(firstRun: true), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                 else if (!ws.Settings.Bool("hardware_offered") && Prompt.SnapshotPath == null && Paths.IsPortDir(Paths.PortDir))
                     _ = Dispatcher.BeginInvoke(() => OfferBestSettings(firstRun: true), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                 // Once, after updating from an older launcher (a new install starts on New): the
@@ -307,13 +313,13 @@ namespace BloodborneLauncher
                         : new[] { "pic1.png", "pic0.png" }
                             .Select(n => System.IO.Path.Combine(game, "sce_sys", n))
                             .FirstOrDefault(System.IO.File.Exists);
+                    // No picture of our own: without the game's art the background stays plain.
+                    if (art == null) return null;
                     var bitmap = new System.Windows.Media.Imaging.BitmapImage();
                     bitmap.BeginInit();
                     bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
                     bitmap.DecodePixelWidth = width;
-                    bitmap.UriSource = art != null
-                        ? new Uri(art, UriKind.Absolute)
-                        : new Uri("pack://application:,,,/Assets/backdrop.jpg", UriKind.Absolute);
+                    bitmap.UriSource = new Uri(art, UriKind.Absolute);
                     bitmap.EndInit();
                     bitmap.Freeze(); // decoded here, usable on the UI thread
                     return bitmap;
@@ -882,6 +888,20 @@ namespace BloodborneLauncher
                 }
             }
 
+            // No game folder with eboot.bin: the engine would only log "No eboot.bin". The setup
+            // guide says what is missing instead.
+            if (!GameRunner.Custom(s) && !System.IO.File.Exists(System.IO.Path.Combine(GameEnvironment.GameDir(s), "eboot.bin")))
+            {
+                if (Prompt.Choose(L.T("The game is not set up yet"),
+                        L.T("The launcher has no game folder with eboot.bin in it, so the game cannot start. The setup guide shows where your Bloodborne files go and checks them."),
+                        L.T("Cancel"), L.T("Open the setup guide")) == 1)
+                {
+                    ShowLauncher();
+                    SetupGuide.Open();
+                }
+                return;
+            }
+
             GameEnvironment.RegionPatchOnline = null;
 
             // A third-party resolution patch while the output resolution sets the game's resolution
@@ -975,6 +995,25 @@ namespace BloodborneLauncher
                 var choice = Prompt.Choose(L.T("Windows may run out of memory"), memory, L.T("Cancel"), L.T("Don't ask again"), L.T("Start anyway"));
                 if (choice <= 0) return;
                 if (choice == 1) s.Set("memory_check_off", true);
+            }
+
+            // bbport: the current profile has no saves, but saves were found elsewhere (a folder used
+            // before, or SaveGuard's safety copies): asked before the game starts a new one.
+            var savesRoot = GameEnvironment.SavesRoot(s);
+            var savesProfile = PlayerProfiles.Current(s);
+            var packageSaves = System.IO.Path.Combine(Paths.DataDir, "user");
+            var lost = await System.Threading.Tasks.Task.Run(() => SaveGuard.Elsewhere(savesRoot, savesProfile, new[] { packageSaves }));
+            if (lost.FirstOrDefault() is { } foundSaves)
+            {
+                var (start, changed) = SaveGuard.Ask(s, foundSaves, Prompt.Choose, Prompt.Tell);
+                if (changed)
+                {
+                    ws.SaveNow();
+                    ws.Log(foundSaves.Copy == null ? L.F($"Saves folder: {foundSaves.Root}")
+                                                   : L.T("Saves restored from the safety copy."), LogLevel.Good);
+                    ReloadPages();
+                }
+                if (!start) return;
             }
 
             var error = ws.StartGame();

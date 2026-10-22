@@ -14,6 +14,7 @@
 
 #include "bbport_settings.h"
 #include "common/thread.h"
+#include "lantern_pacing.h"
 #include "core/emulator_settings.h"
 #include "ffx_vk_fsr3_3_1_5_bridge.h"
 #include "video_core/host_shaders/frame_gen_compose_comp.h"
@@ -84,6 +85,12 @@ bool FrameGenerator::Enabled() const {
                    .count() >= until;
 }
 
+bool FrameGenerator::DlssWanted() {
+    const auto& s = BbSettings::Get();
+    return s.frame_gen.load(std::memory_order_relaxed) == BbSettings::FrameGenDlss &&
+           s.dlss_fg_supported.load(std::memory_order_relaxed);
+}
+
 void FrameGenerator::OnFrameStart() {
     // The display pass of the frame just finished: its inputs go to its PrepareFrame (the flip
     // that follows in the command stream).
@@ -95,20 +102,22 @@ void FrameGenerator::OnFrameStart() {
 
 void FrameGenerator::CaptureInputs(Scheduler& scheduler, vk::ImageView source_depth,
                                    vk::Image motion, u32 w, u32 h, std::array<float, 2> jitter,
-                                   float near_plane, float vertical_fov) {
-    if (!Enabled()) {
+                                   float near_plane, float vertical_fov,
+                                   const CameraMotion::Matrices& camera) {
+    if (!Capturing()) {
         return;
     }
     // The render size the resources are made for (Prepare makes them again on a change): this
     // frame then has none, the next one does.
     input_width = w;
     input_height = h;
-    if (!context || w != render_width || h != render_height || !source_depth || !motion) {
+    if (render_width == 0 || w != render_width || h != render_height || !source_depth || !motion) {
         return;
     }
     input_jitter = jitter;
     input_near = near_plane;
     input_fov = vertical_fov;
+    input_camera = camera;
     inputs_frame = true;
     scheduler.Record([source_depth, motion, w, h, target_depth = *depth_view,
                       target_motion = vk::Image(motion_image), sampler = *sampler,
@@ -180,10 +189,13 @@ std::optional<FrameGenerator::Job> FrameGenerator::Prepare(vk::Extent2D display,
                                                            vk::Format view_format, bool hdr,
                                                            bool other_scaler, u64 tick) {
     const int setting = BbSettings::Get().frame_gen.load(std::memory_order_relaxed);
+    const bool dlss = setting == BbSettings::FrameGenDlss;
     if (setting != last_setting) {
         if (last_setting >= 0 || setting != BbSettings::FrameGenOff) {
             std::printf("Frame generation: %s\n",
-                        setting == BbSettings::FrameGenFsr3 ? "FSR 3.1 selected" : "off");
+                        setting == BbSettings::FrameGenFsr3 ? "FSR 3.1 selected"
+                        : dlss                              ? "DLSS selected"
+                                                            : "off");
         }
         last_setting = setting;
         need_reset = true;
@@ -204,12 +216,16 @@ std::optional<FrameGenerator::Job> FrameGenerator::Prepare(vk::Extent2D display,
     last_prepare = now;
     const bool inputs = inputs_ready, hudless = hudless_ready;
     inputs_ready = hudless_ready = false;
-    if (setting != BbSettings::FrameGenFsr3 || failed) {
+    if ((setting != BbSettings::FrameGenFsr3 && !dlss) || (!dlss && failed)) {
         need_reset = true;
         return std::nullopt;
     }
     const char* why = nullptr;
-    if (!Enabled()) {
+    if (dlss && !DlssWanted()) {
+        // bbport: Streamline not loaded at start, or DLSS-G not supported here (the menu says why).
+        const char* problem = BbSettings::Get().dlss_fg_problem.load(std::memory_order_relaxed);
+        why = problem ? problem : "DLSS Frame Generation is not loaded (restart with it selected)";
+    } else if (!dlss && !Enabled()) {
         why = "paused (presenting could not keep up)";
     } else if (hdr) {
         why = "HDR output is on (not supported yet)";
@@ -221,14 +237,15 @@ std::optional<FrameGenerator::Job> FrameGenerator::Prepare(vk::Extent2D display,
                view_format != vk::Format::eB8G8R8A8Srgb) {
         why = "the display buffer is not 8 bits per channel";
     } else if (input_width != 0 &&
-               (!context || display.width != width || display.height != height ||
+               ((dlss ? resources_fsr || render_width == 0 : !context) ||
+                display.width != width || display.height != height ||
                 input_width != render_width || input_height != render_height)) {
-        // New sizes (or the first upscaled frame): made again once the GPU is idle; generation
-        // starts over from the next frame.
+        // New sizes (or the first upscaled frame, or the other kind of frame generation): made
+        // again once the GPU is idle; generation starts over from the next frame.
         const u32 rw = input_width, rh = input_height;
         input_width = input_height = 0;
         need_reset = true;
-        if (!EnsureResources(display.width, display.height, rw, rh)) {
+        if (!EnsureResources(display.width, display.height, rw, rh, !dlss) && !dlss) {
             failed = true;
             std::printf("Frame generation: off for this session: FSR 3.1 frame interpolation "
                         "could not be created (%ux%u from %ux%u)\n",
@@ -263,21 +280,30 @@ std::optional<FrameGenerator::Job> FrameGenerator::Prepare(vk::Extent2D display,
     job.vertical_fov = input_fov > 0.01f && input_fov < 3.1f ? input_fov : 1.0f;
     job.frame_ms = frame_ms;
     job.view_format = view_format;
+    job.dlss = dlss;
+    job.camera = input_camera;
+    if (dlss) {
+        job.present = false; // DLSS-G presents its own frames: no generated presentation frame
+    }
     if (!running) {
         running = true;
         idle_reason = nullptr;
         if (!started_logged) {
             started_logged = true;
-            std::printf("Frame generation: FSR 3.1, 2x, %ux%u interpolated from %ux%u motion and "
+            std::printf("Frame generation: %s, %ux%u interpolated from %ux%u motion and "
                         "depth, UI from the real frame (HUD-less copy), present mode %s\n",
-                        width, height, render_width, render_height,
-                        std::string(EmulatorSettings.GetPresentMode()).c_str());
+                        dlss ? "DLSS (Streamline)" : "FSR 3.1, 2x", width, height, render_width,
+                        render_height, std::string(EmulatorSettings.GetPresentMode()).c_str());
         } else {
             std::printf("Frame generation: running again\n");
         }
         std::fflush(stdout);
     }
-    BbSettings::Get().frame_gen_active.store(true, std::memory_order_relaxed);
+    // DLSS-G says itself when its frames are shown (DlssFrameGen::AfterPresent).
+    if (!dlss) {
+        BbSettings::Get().frame_gen_multiplier.store(2, std::memory_order_relaxed);
+        BbSettings::Get().frame_gen_active.store(true, std::memory_order_relaxed);
+    }
     return job;
 }
 
@@ -293,6 +319,9 @@ void FrameGenerator::Retire(u64 completed_tick) {
 }
 
 bool FrameGenerator::Record(vk::CommandBuffer cmdbuf, const Job& job, vk::ImageView real) {
+    if (job.dlss) {
+        return false; // the presenter hands DLSS-G its inputs (vk_streamline.h)
+    }
     std::scoped_lock lock{record_mutex};
     // Frames of different submissions may be recorded on two threads: one recorded after a
     // later one is skipped (the interpolation keeps its history in call order).
@@ -493,9 +522,10 @@ void FrameGenerator::DestroyResources() {
     depth_image = VideoCore::UniqueImage();
     motion_image = VideoCore::UniqueImage();
     width = height = render_width = render_height = 0;
+    resources_fsr = false;
 }
 
-bool FrameGenerator::EnsureResources(u32 w, u32 h, u32 rw, u32 rh) {
+bool FrameGenerator::EnsureResources(u32 w, u32 h, u32 rw, u32 rh, bool fsr) {
     // Recorded commands of earlier frames use the old ones.
     draw_scheduler.Finish();
     DestroyResources();
@@ -541,6 +571,18 @@ bool FrameGenerator::EnsureResources(u32 w, u32 h, u32 rw, u32 rh) {
     composed_view = view(composed_image, vk::Format::eR16G16B16A16Sfloat, false);
     depth_view = view(depth_image, vk::Format::eR32Sfloat, false);
 
+    resources_fsr = fsr;
+    if (!fsr) {
+        // bbport: DLSS Frame Generation: the captures only.
+        width = w;
+        height = h;
+        render_width = rw;
+        render_height = rh;
+        ToGeneral();
+        std::printf("Frame generation: DLSS inputs %ux%u (render %ux%u)\n", w, h, rw, rh);
+        return true;
+    }
+
     FfxVkFsr3_3_1_6FrameGenerationCreateInfo create{};
     create.physicalDevice = instance.GetPhysicalDevice();
     create.device = device;
@@ -564,6 +606,17 @@ bool FrameGenerator::EnsureResources(u32 w, u32 h, u32 rw, u32 rh) {
     height = h;
     render_width = rw;
     render_height = rh;
+    ToGeneral();
+    FfxVkFsr3_3_1_6FrameGenerationMemoryUsage usage{};
+    if (ffxVkFsr3_3_1_6FrameGenerationContextGetMemoryUsage(context, &usage) ==
+        FFX_VK_FSR3_3_1_6_FRAMEGEN_OK) {
+        std::printf("Frame generation: FSR 3.1 context %ux%u (render %ux%u), %llu MiB\n", w, h, rw,
+                    rh, static_cast<unsigned long long>(usage.totalUsageInBytes >> 20));
+    }
+    return true;
+}
+
+void FrameGenerator::ToGeneral() {
     // The images live in General from here on.
     draw_scheduler.Record([images = std::array<vk::Image, 5>{
                                vk::Image(hudless_image), vk::Image(generated_image),
@@ -586,13 +639,6 @@ bool FrameGenerator::EnsureResources(u32 w, u32 h, u32 rw, u32 rh) {
         cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = u32(barriers.size()),
                                  .pImageMemoryBarriers = barriers.data()});
     });
-    FfxVkFsr3_3_1_6FrameGenerationMemoryUsage usage{};
-    if (ffxVkFsr3_3_1_6FrameGenerationContextGetMemoryUsage(context, &usage) ==
-        FFX_VK_FSR3_3_1_6_FRAMEGEN_OK) {
-        std::printf("Frame generation: FSR 3.1 context %ux%u (render %ux%u), %llu MiB\n", w, h, rw,
-                    rh, static_cast<unsigned long long>(usage.totalUsageInBytes >> 20));
-    }
-    return true;
 }
 
 bool FrameGenerator::ShouldPresentGenerated() {
@@ -611,15 +657,7 @@ void FrameGenerator::WaitForRealSlot(Clock::time_point shown) {
     const auto half = std::chrono::duration_cast<Clock::duration>(
         std::chrono::duration<double, std::milli>(std::min(interval_ms, 50.0) * 0.5));
     const auto deadline = shown + half;
-    // Sleep until about 1.5 ms before the slot (OS sleeps wake up late), then spin.
-    const auto spin = std::chrono::microseconds(1500);
-    if (const auto left = deadline - Clock::now(); left > spin) {
-        Common::AccurateSleep(std::chrono::duration_cast<std::chrono::nanoseconds>(left - spin),
-                              nullptr, false);
-    }
-    while (Clock::now() < deadline) {
-        std::this_thread::yield();
-    }
+    LanternPacing::WaitUntil(deadline, true);
 }
 
 void FrameGenerator::OnRealPresented(Clock::time_point start, bool generated_shown,

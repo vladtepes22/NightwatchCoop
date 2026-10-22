@@ -16,8 +16,9 @@
 #include <cstring>
 
 // The free camera ran in this camera update: the stick's step or its fast
-// turn. The hooks' asm stubs set it too (engine/mouse_camera.cpp).
-extern "C" std::uint8_t bb_mouse_camera_free_now;
+// turn. The hooks' asm stubs set it too (engine/mouse_camera.cpp):
+// bb_mouse_camera_free_now, declared there.
+#include "mouse_camera_stubs.h"
 
 namespace mouse_camera {
 
@@ -44,10 +45,17 @@ inline void add(std::atomic<std::uint64_t>& to, float x, float y) {
 }
 
 // DS3's degrees a count at a sensitivity of 0..10: 0.2 * (s * 0.15 + 0.5),
-// as its pad object computes it.
+// as its pad object computes it. bbport: -10..20 for high-DPI mice and fast
+// turns: below 0 each step is 20% slower than the one above it, above 10 the
+// same line goes on.
 inline float degrees_per_count(int sensitivity) {
-    const float s = static_cast<float>(sensitivity < 0 ? 0 : sensitivity > 10 ? 10 : sensitivity);
-    return ((s * 0.1f) * 1.5f + 0.5f) * 0.2f;
+    const int s = sensitivity < -10 ? -10 : sensitivity > 20 ? 20 : sensitivity;
+    if (s < 0) {
+        float degrees = 0.1f;
+        for (int i = s; i < 0; ++i) degrees *= 0.8f;
+        return degrees;
+    }
+    return ((static_cast<float>(s) * 0.1f) * 1.5f + 0.5f) * 0.2f;
 }
 
 // The window's relative motion while the mouse turns the camera, since the

@@ -6,6 +6,7 @@
 #include "bbport_copy.h"
 
 #include <deque>
+#include <condition_variable>
 #include <future>
 #include <map>
 #include <mutex>
@@ -457,7 +458,17 @@ private:
     u32 system_residency_reports = 0;
     vk::DeviceMemory residency_memory{}; ///< bbport: the 64 MiB block arena residency comes from
     u64 residency_size = 0, residency_used = 0;
-    std::future<vk::DeviceMemory> spare_residency; ///< the next block, allocated in the background
+    /// bbport: the next block, allocated in the background. Stage B waits for it at most 50 ms
+    /// (TakeSpareResidency): a std::future here once never became ready and froze the game.
+    struct SpareBlock {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool done = false, abandoned = false;
+        vk::DeviceMemory memory{};
+    };
+    std::shared_ptr<SpareBlock> spare_residency;
+    u32 spare_residency_timeouts = 0;
+    vk::DeviceMemory TakeSpareResidency();
     /// bbport: VRAM blocks no longer needed. Per 2 MiB of guest addresses, the second
     /// (BbStats::coarse_second) it was last bound: blocks in VRAM unused for BB_VRAM_IDLE_SECONDS
     /// (60, 0: never) go back to the game's memory, and residency chunks left without blocks
@@ -468,6 +479,52 @@ private:
     /// VRAM copy again (QueuePromotions). Else the GPU kept reading them over PCIe (FPS 90 -> 55).
     std::vector<u8> group_demoted;
     IntervalList<> idle_demoted;
+    IntervalList<> evacuated_demoted; ///< the part of idle_demoted an evacuation moved, idle or not
+    /// bbport BB_DYNAMIC_RETRY: blocks moved in place for CPU writes (dynamic_blocks) get a VRAM copy
+    /// again once their wait is over and the GPU still reads them (ProcessDynamicRetries); moved in
+    /// place again, they wait twice as long. Without it they stayed in place for good: a block the
+    /// game's code wrote in 3 frames, once, was read over PCIe for the rest of the session (1.1 GiB
+    /// of them after five minutes, FPS 90 -> 55, RX 9070 XT, 2026-10-21).
+    struct DynamicRetry {
+        u32 since = 0;   ///< the coarse second it went in place (or was last retried)
+        u32 strikes = 0; ///< times it went in place for CPU writes
+    };
+    std::unordered_map<u64, DynamicRetry> dynamic_retry;
+    void NoteDynamic(u64 block);
+    void ProcessDynamicRetries(u32 now);
+    /// Blocks QueuePromotions gave a VRAM copy: uploaded whole at the next packet. Their slot may
+    /// hold another block's bytes, and vertex buffers are bound without a size and shaders read
+    /// through the page table (EnsureResident clears reused slots for the same reason).
+    std::vector<u64> promote_fills;
+    void ProcessPromoteFills();
+    /// bbport: what moved between VRAM and the game's memory and why, reported once a minute with
+    /// the PC memory model (ReportResidency).
+    enum PromoteSource : u8 {
+        PromoteAsset,
+        PromoteGpuWritten,
+        PromoteIdle,
+        PromoteEvacuated,
+        PromoteRetry,
+        PromoteSources,
+    };
+    enum DemoteReason : u8 {
+        DemoteCpuWritten,
+        DemoteHandedOut,
+        DemoteIdle,
+        DemoteEvacuated,
+        DemoteCopiedBack,
+        DemoteReasons,
+    };
+    std::unordered_map<u64, u8> promote_source; ///< why each of promote_candidates is there
+    std::array<u64, PromoteSources> promoted_by{};
+    std::array<u64, DemoteReasons> demoted_by{};
+    std::atomic<u64> bound_in_place_bytes{0}, bound_dynamic_bytes{0};
+    /// Sparse binds before submissions (recording threads): calls, calls that waited for a
+    /// submission to finish on the GPU, ranges, nanoseconds in vkQueueBindSparse and the longest.
+    std::atomic<u64> bind_calls{0}, bind_waits{0}, bind_ranges{0}, bind_ns{0}, bind_max_ns{0};
+    u32 residency_report_second = 0;
+    u64 residency_report_frame = 0;
+    void ReportResidency(u32 now);
     struct ResidencyChunk {
         u64 size;
         u64 used;         ///< bytes handed out and not returned

@@ -446,6 +446,11 @@ void ReportDeviceLost(const char* where) {
         std::printf("Device lost with OptiScaler loaded (as %s, compatibility mode %s): it hooks "
                     "submissions and runs DLSS itself; to rule it out, remove %s and try again\n",
                     opti.module.c_str(), OptiScaler::Compat() ? "on" : "off", opti.module.c_str());
+        if (!opti.frame_generation.empty()) {
+            std::printf("OptiScaler's frame generation was on (FGOutput=%s): it runs through a D3D12 "
+                        "bridge on Vulkan; set it to none in OptiScaler's menu first\n",
+                        opti.frame_generation.c_str());
+        }
         std::fflush(stdout);
     }
 }

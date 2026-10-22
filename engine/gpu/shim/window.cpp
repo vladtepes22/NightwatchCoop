@@ -1,12 +1,14 @@
 #include "bbport_headless.h"
 // bbport: SDL3 window for the Vulkan swapchain (X11, Wayland or Win32).
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <SDL3/SDL.h>
 #ifdef _WIN32
 #include <windows.h>
+#include <dxgi1_6.h>
 #endif
 #include "common/assert.h"
 #include "common/logging/log.h"
@@ -67,6 +69,51 @@ void UpdateDisplayRefresh(SDL_Window* window) {
     }
 }
 } // namespace
+
+// bbport: the peak brightness Windows reports for the window's display (HDR output's peak when
+// hdr_peak_auto is on): DXGI's MaxLuminance of the output on the window's monitor, which is the
+// Windows HDR Calibration app's value once it has run, else the display's own (EDID). dxgi.dll is
+// loaded here, not linked. Window thread; 0 when unknown (not Windows, no such output).
+static void UpdateDisplayPeak(SDL_Window* window) {
+    float peak = 0.0f;
+#ifdef _WIN32
+    const HWND hwnd = static_cast<HWND>(
+        SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+    const HMONITOR monitor = hwnd ? MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) : nullptr;
+    static const HMODULE dxgi = LoadLibraryW(L"dxgi.dll");
+    using CreateFactory = HRESULT(WINAPI*)(REFIID, void**);
+    const auto create = dxgi ? reinterpret_cast<CreateFactory>(
+                                   reinterpret_cast<void*>(GetProcAddress(dxgi, "CreateDXGIFactory1")))
+                             : nullptr;
+    IDXGIFactory1* factory = nullptr;
+    if (monitor && create && SUCCEEDED(create(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&factory)))) {
+        IDXGIAdapter1* adapter = nullptr;
+        for (UINT a = 0; peak == 0.0f && factory->EnumAdapters1(a, &adapter) != DXGI_ERROR_NOT_FOUND; ++a) {
+            IDXGIOutput* output = nullptr;
+            for (UINT o = 0; peak == 0.0f && adapter->EnumOutputs(o, &output) != DXGI_ERROR_NOT_FOUND; ++o) {
+                IDXGIOutput6* output6 = nullptr;
+                DXGI_OUTPUT_DESC1 desc{};
+                if (SUCCEEDED(output->QueryInterface(__uuidof(IDXGIOutput6), reinterpret_cast<void**>(&output6)))) {
+                    if (SUCCEEDED(output6->GetDesc1(&desc)) && desc.Monitor == monitor) {
+                        peak = desc.MaxLuminance;
+                    }
+                    output6->Release();
+                }
+                output->Release();
+            }
+            adapter->Release();
+        }
+        factory->Release();
+    }
+#else
+    (void)window;
+#endif
+    auto& settings = BbSettings::Get();
+    if (peak != settings.hdr_display_peak.exchange(peak, std::memory_order_relaxed) && peak > 0.0f) {
+        std::printf("HDR output: the display reports a peak of %.0f nits%s\n", peak,
+                    settings.hdr_peak_auto.load() ? " (used: peak from the display)" : "");
+    }
+}
 
 u32 DisplayRefreshHz() {
     return display_refresh_hz.load(std::memory_order_relaxed);
@@ -148,6 +195,12 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
         window_info.type = WindowSystemType::Wayland;
         window_info.display_connection = SDL_GetPointerProperty(wp, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, nullptr);
         window_info.render_surface = SDL_GetPointerProperty(wp, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, nullptr);
+        // bbport: the compositor's first configure before Vulkan attaches a buffer to the surface
+        // ("xdg_surface: attached a buffer before configure event" ended the connection with
+        // NVIDIA 615 drivers on KDE Plasma, 0.9.37 beta 5).
+        if (!SDL_SyncWindow(window)) {
+            std::printf("Display: the Wayland compositor has not configured the window yet: %s\n", SDL_GetError());
+        }
     } else {
         UNREACHABLE_MSG("Unsupported SDL video driver {}", driver ? driver : "(none)");
     }
@@ -156,6 +209,7 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     width = w;
     height = h;
     UpdateDisplayRefresh(window);
+    UpdateDisplayPeak(window);
     LOG_INFO(Frontend, "Window {}x{} on {}", w, h, driver);
 }
 
@@ -331,6 +385,7 @@ bool WindowSDL::PollEvents() {
         case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
         case SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED:
             UpdateDisplayRefresh(window);
+            UpdateDisplayPeak(window);
             break;
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
         case SDL_EVENT_WINDOW_RESIZED: {
@@ -353,6 +408,23 @@ bool WindowSDL::PollEvents() {
         default:
             break;
         }
+    }
+    // bbport: the background state read from the window too: a focus or restore event the window
+    // never got (another screen used, then the game again) kept the game at the background FPS
+    // until a restart (0.9.37 beta 4).
+    {
+        const SDL_WindowFlags flags = SDL_GetWindowFlags(window);
+        bool unfocused = !(flags & SDL_WINDOW_INPUT_FOCUS);
+        bool minimized = (flags & SDL_WINDOW_MINIMIZED) != 0;
+#ifdef _WIN32
+        if (const auto hwnd = static_cast<HWND>(SDL_GetPointerProperty(
+                SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr))) {
+            unfocused = GetForegroundWindow() != hwnd;
+            minimized = IsIconic(hwnd) != FALSE;
+        }
+#endif
+        window_unfocused.store(unfocused, std::memory_order_relaxed);
+        window_minimized.store(minimized, std::memory_order_relaxed);
     }
     BbInput::Pump(window,text_active);
     UpdateCursor();

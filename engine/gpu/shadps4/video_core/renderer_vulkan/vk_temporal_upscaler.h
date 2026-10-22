@@ -106,7 +106,7 @@ public:
     /// After identifying this draw's targets, before drawing any UI pixels. Menus use
     /// spatial background copy and native UI, without needing scene depth or FSR history.
     void OnDraw(u64 vs_hash, VideoCore::ImageId color, VideoCore::ImageId depth,
-                bool native_viewport);
+                bool native_viewport, bool widened_ui_viewport = false);
 
     /// A pass's first color target: the last render-size RGBA8 target before the UI is the
     /// game's finished frame.
@@ -162,7 +162,8 @@ private:
 
     void Run();
     void RunScaled();
-    void RunUiOnly(VideoCore::ImageId color, VideoCore::ImageId depth);
+    /// world: this frame drew the 3D world into `color` (its whole image is copied).
+    void RunUiOnly(VideoCore::ImageId color, VideoCore::ImageId depth, bool world);
     void EnsureUiResources(u32 width, u32 height, vk::Format color, vk::Format depth);
     void PrepareUiDepth(VideoCore::ImageId depth);
     /// Render size below the scaled-preset output size (the resolution patch is on).
@@ -198,12 +199,19 @@ private:
     bool RecordReactive(vk::ImageView color_view);
     /// FSR 4 is selected, possible in this session (not BB_RENDER_RES) and has not failed.
     [[nodiscard]] bool UseFsr4() const;
-    /// Records FSR 4 into output_image; on a permanent failure FSR 3 takes over.
+    /// Records FSR 4 into output_image; on a permanent failure FSR 3 takes over. `reactive`: this
+    /// frame's reactive mask is ready, given to DLSS as its bias-current-colour mask.
     bool RecordFsr4(vk::CommandBuffer cmdbuf, Fsr4Upscaler::Image color, Fsr4Upscaler::Image depth,
-                    u32 w, u32 h, u32 ow, u32 oh, float frame_ms);
+                    u32 w, u32 h, u32 ow, u32 oh, float frame_ms, bool reactive = false);
     void RecordTaa(vk::CommandBuffer cmdbuf, vk::ImageView color, vk::ImageView depth);
     /// Additional RCAS sharpening; DLSS applies the whole requested range here.
     void ExtraSharpen(vk::Image target, bool ldr, u32 w, u32 h);
+    /// bbport: the menu's mask / motion debug view over the scaled path's output (ldr: the 8-bit
+    /// UI image), in place; upscale_merge.comp draws it on the 1080p path. `reactive`: a mask
+    /// was made this frame.
+    void DebugView(vk::Image target, bool ldr, u32 w, u32 h, u32 ow, u32 oh, bool reactive);
+    /// The UI image as a UNORM storage view (its own format may be sRGB).
+    vk::ImageView UiStorageView(vk::Image target);
 
     const Instance& instance;
     Scheduler& scheduler;
@@ -216,6 +224,7 @@ private:
     /// bbport: native HDR output: the game's UI target this frame's UI-free copy came from.
     VideoCore::ImageId hdr_ui_target{};
     int applied_preset = -1;
+    float applied_scale = 0.0f; ///< bbport: PresetScale of applied_preset (the Custom ratio moves)
     int applied_upscaler = -1;
     bool dispatched_last_frame = false;
     bool last_active = false, last_jitter = false;
@@ -279,6 +288,12 @@ private:
     int present_dump_remaining = 0, present_dump_index = 0;
     std::unordered_map<VAddr, DisplayImage> displays;
     FfxVkPortableUpscaleContext* context = nullptr;
+    /// bbport: FSR 3.1's tuning constants last given to `fsr3_tuned` (ApplyFsr3Tuning).
+    std::array<float, 5> fsr3_tuning{};
+    FfxVkPortableUpscaleContext* fsr3_tuned = nullptr;
+    /// The menu's FSR 3.1 tuning (fsr3_* settings) given to the context when they changed or the
+    /// context is new; kept by it for the dispatches that follow.
+    void ApplyFsr3Tuning();
     bool resources_ready = false; ///< images below match width/height/out size
     bool resources_fsr4 = false;  ///< made for FSR 4 (no FSR 3 context)
     bool resources_taa = false;
@@ -311,6 +326,9 @@ private:
     vk::UniquePipelineLayout taa_sharpen_pipeline_layout;
     vk::UniquePipeline taa_sharpen_pipeline;
     vk::UniquePipeline taa_sharpen_ldr_pipeline;
+    vk::UniqueDescriptorSetLayout debug_desc_layout;
+    vk::UniquePipelineLayout debug_pipeline_layout;
+    vk::UniquePipeline debug_pipeline, debug_ldr_pipeline;
     // bbport: FSR 4 in linear light on the scaled presets (fsr4_color.comp): the decoded input
     // and the passes that decode it and encode the output again.
     VideoCore::UniqueImage fsr4_linear_image;

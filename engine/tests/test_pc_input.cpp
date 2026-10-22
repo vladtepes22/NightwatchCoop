@@ -35,7 +35,39 @@ int main(){
     host_bind_capture_begin(kBindAttack);host_bind_capture_key(SDL_SCANCODE_ESCAPE);
     assert(host_binding_key(kBindAttack)==SDL_SCANCODE_F);host_bind_capture_note_held(false);
     host_binding_clear(kBindAttack);assert(host_binding_ini_value(kBindAttack)=="none");
+    // More inputs and combinations: written back as read, the combination winning over the plain key.
+    host_bindings_load_defaults();
+    assert(host_bindings_parse("use_item","F, Shift+E, Ctrl+Mouse4"));
+    assert(host_binding_ini_value(kBindUseItem)=="F, Shift+E, Ctrl+Mouse4");
+    assert(host_bindings_parse("interact","E, Mouse5"));
+    {
+        bool keys[SDL_SCANCODE_COUNT]={},held[kBindCount]={};
+        keys[SDL_SCANCODE_E]=true;host_bindings_keys_held(keys,SDL_SCANCODE_COUNT,held);
+        assert(held[kBindInteract] && !held[kBindUseItem]);
+        keys[SDL_SCANCODE_LSHIFT]=true;host_bindings_keys_held(keys,SDL_SCANCODE_COUNT,held);
+        assert(!held[kBindInteract] && held[kBindUseItem] && held[kBindStrongMod]);
+        keys[SDL_SCANCODE_E]=false;keys[SDL_SCANCODE_LSHIFT]=false;keys[SDL_SCANCODE_LCTRL]=true;
+        host_bindings_keys_held(keys,SDL_SCANCODE_COUNT,held);
+        host_bindings_mouse_held(1u<<3,held);assert(held[kBindUseItem]);       // Ctrl+Mouse4
+        keys[SDL_SCANCODE_LCTRL]=false;host_bindings_keys_held(keys,SDL_SCANCODE_COUNT,held);
+        host_bindings_mouse_held(1u<<3,held);assert(!held[kBindUseItem]);
+    }
+    // A capture: Shift then Q is Shift+Q; Shift pressed and let go alone is Shift.
+    host_bind_capture_note_held(false);
+    host_bind_capture_begin(kBindLockOn);
+    assert(host_bind_capture_key(SDL_SCANCODE_LSHIFT,SDL_KMOD_LSHIFT) && host_bind_capturing()==kBindLockOn);
+    assert(host_bind_capture_key(SDL_SCANCODE_Q,SDL_KMOD_LSHIFT) && host_bind_capturing()<0);
+    assert(host_binding_ini_value(kBindLockOn)=="Shift+Q");
+    host_bind_capture_note_held(false);
+    host_bind_capture_begin(kBindLockOn);host_bind_capture_key(SDL_SCANCODE_RSHIFT,SDL_KMOD_RSHIFT);
+    assert(host_bind_capture_key_up(SDL_SCANCODE_RSHIFT) && host_binding_ini_value(kBindLockOn)=="Right Shift");
+    host_bind_capture_note_held(false);
+    host_bindings_load_defaults();
     float sensitivity=mouse_camera::degrees_per_count(5);assert(std::abs(sensitivity-.25f)<1e-6);
+    // Below 0 each step 20% slower, past 10 the same line, clamped to -10..20.
+    assert(std::abs(mouse_camera::degrees_per_count(0)-.1f)<1e-6 && std::abs(mouse_camera::degrees_per_count(-1)-.08f)<1e-6);
+    assert(std::abs(mouse_camera::degrees_per_count(20)-.7f)<1e-6 && mouse_camera::degrees_per_count(99)==mouse_camera::degrees_per_count(20));
+    assert(mouse_camera::degrees_per_count(-99)==mouse_camera::degrees_per_count(-10) && mouse_camera::degrees_per_count(-10)>0.f);
     uint32_t bits;std::memcpy(&bits,&sensitivity,4);mouse_camera::g_degrees_per_count=bits;
     auto turn=[](int frames){
         float pitch=0,yaw=0;
@@ -53,5 +85,5 @@ int main(){
     assert(mouse_camera::turn(0,0,pitch,yaw,-1,1) && pitch<0 && yaw<0);
     mouse_camera::g_frame={10000,10000};mouse_camera::turn(0,0,pitch,yaw,-.5,.5);
     assert(pitch==-.5f && yaw>=-3.141593f && yaw<=3.141593f);
-    std::puts("PC input: PASS (walk/sprint axes, remapping, capture, triggers, 30/60/90 camera, invert/limits)");
+    std::puts("PC input: PASS (walk/sprint axes, remapping, capture, combinations, triggers, 30/60/90 camera, invert/limits)");
 }

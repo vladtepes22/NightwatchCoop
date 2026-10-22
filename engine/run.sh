@@ -14,9 +14,10 @@ fi
 # BB_PREBUILT=1 (packaged builds, the AppImage): out/bb-probe and its GPU library are installed
 # next to this script; nothing is built and no nix-shell is needed.
 # BB_DATA_DIR: writable directory for the generated files (out/), saves (user/) and bbport.ini;
-# by default this directory.
+# by default this directory. BB_OUT_DIR: the generated files elsewhere (the Linux package keeps
+# them in engine/out beside its programs, as on Windows; packaging/linux/bb-start).
 data=${BB_DATA_DIR:-.}
-out=$data/out
+out=${BB_OUT_DIR:-$data/out}
 mkdir -p "$out"
 export BB_CONFIG=${BB_CONFIG:-$data/bbport.ini}
 # FSR 4.1.1 assets (tools/fsr4cap/build_assets.sh): next to run.sh or in the data directory.
@@ -111,6 +112,13 @@ elif [[ -n ${scaled_output:-} ]]; then
 fi
 "$PYTHON" scripts/patches.py --out "$out" --fps "$fps" --extra "${BB_PATCHES:-}" --settings "$BB_CONFIG" --game-dir "$game" --render-res "${BB_RENDER_RES:-}" --output-res "${BB_OUTPUT_RES:-}" \
     --patches-dir "${BB_PATCHES_DIR:-$data/patches}" --patches-config "${BB_PATCHES_CONFIG:-$data/patches.json}"
+# The GPU cache as bb-start.exe keeps it on Windows: recompiled by bb-shader-lab when the shader
+# compiler changed, then the shipped shader catalog seeded, so pipelines are built at the start
+# instead of in play. Packages only (packaging/linux/bb-start sets BB_GPU_USER_DIR).
+if [[ -n ${BB_PREBUILT:-} && -n ${BB_GPU_USER_DIR:-} ]]; then
+    "$PYTHON" scripts/gpu_cache.py --cache "$BB_GPU_USER_DIR/cache" --engine . --out "$out" \
+        --package "$data/package.json" --game "$game" || echo 'GPU cache: not prepared (scripts/gpu_cache.py failed)' >&2
+fi
 # Background upload of the game's GPU memory into VRAM ahead of use (BufferCache::Preupload):
 # 1 = only memory already in VRAM that the game rewrote (no new VRAM), 2 = all of it (~3 GB more
 # VRAM), 0 = off. BB_GUEST_GPU_MEMORY=1 puts guest direct memory in GPU-visible dma-buf chunks

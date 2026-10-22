@@ -89,7 +89,7 @@ bool Install(std::uint8_t* image, std::size_t size) {
     std::memcpy(image+clamp,lifted,sizeof lifted);
     slide=reinterpret_cast<std::uint64_t>(image);
     active=true;
-    std::puts(controls ? "Engine: bbhost camera adjustments enabled (distance, height and FOV)"
+    std::puts(controls ? "Engine: camera adjustments enabled (distance, height and FOV)"
                        : "Engine: camera FOV hook for a screen narrower than 16:9 (Vert+)");
     return true;
 }

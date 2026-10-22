@@ -1,6 +1,8 @@
 using System.IO;
+#if !AVALONIA
 using System.Windows;
 using System.Windows.Controls;
+#endif
 
 namespace BloodborneLauncher.Core
 {
@@ -88,6 +90,14 @@ namespace BloodborneLauncher.Core
             var leftovers = Leftovers(package);
             var failed = new List<string>();
             if (leftovers.Count == 0) return failed;
+#if AVALONIA
+            foreach (var path in leftovers)
+            {
+                try { Remove(path); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { failed.Add(path); }
+            }
+            return failed;
+#else
 
             var bar = new ProgressBar { Height = 6, Minimum = 0, Maximum = leftovers.Count, Margin = new Thickness(0, 14, 0, 0) };
             var window = new Window
@@ -138,6 +148,7 @@ namespace BloodborneLauncher.Core
             window.ShowDialog();
             Application.Current.ShutdownMode = mode;
             return failed;
+#endif
         }
     }
 }

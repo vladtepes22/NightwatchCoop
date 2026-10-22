@@ -14,7 +14,10 @@
 //
 // Defaults are overridden by bind.<action> records in bbport.ini, which both
 // the WPF launcher and the native Key Bindings page write. A value names
-// the whole binding: E, Mouse2, X, Mouse2, or none. Mouse1..Mouse5 are the
+// the whole binding: E, Mouse2, X, Mouse2, or none. bbport: up to five inputs,
+// each a key or mouse input with Ctrl+, Shift+ or Alt+ before it: E, Shift+Q,
+// Mouse2, Ctrl+Mouse4. The first key and the first plain mouse input are what
+// the Key Bindings page shows first and rebinds. Mouse1..Mouse5 are the
 // left, middle and right buttons (SDL's numbering) and the two
 // side buttons; WheelUp and WheelDown the wheel, each notch a short press.
 
@@ -92,7 +95,10 @@ void host_bindings_mouse_held(std::uint32_t buttons, bool held[kBindCount]);
 void host_bind_capture_begin(int action);
 int host_bind_capturing();  // the action being captured, or -1
 // From the event pump. True when the event was the capture's.
-bool host_bind_capture_key(int scancode);
+bool host_bind_capture_key(int scancode, unsigned sdl_mods = 0);
+// A key let go during a capture: a modifier pressed and released alone (Left Shift) is bound by
+// itself; held while another key or button is pressed, it is that input's modifier ("Shift+E").
+bool host_bind_capture_key_up(int scancode);
 bool host_bind_capture_mouse(int button);  // 1..5, or 6 and 7 for the wheel up and down
 // The action whose capture ended since the last call, or -1. Its binding, and
 // any it took a key or button from, changed.

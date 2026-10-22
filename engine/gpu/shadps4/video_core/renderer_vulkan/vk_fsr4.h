@@ -40,6 +40,9 @@ public:
         float frame_ms, near_plane, far_plane, vertical_fov;
         float sharpness;
         bool sharpen, reset, auto_exposure;
+        /// bbport: the R8 reactive mask at render size, or none (view null). DLSS takes it as its
+        /// bias-current-colour mask; FSR 4 does not read it (RecordFsr4Reactive blends after).
+        Image reactive{};
     };
 
     /// Records FSR 4 into `frame.cmdbuf`; the output stays in General. False when FSR 4

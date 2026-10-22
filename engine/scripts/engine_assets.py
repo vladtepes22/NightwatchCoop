@@ -116,7 +116,7 @@ def mirror_layout(raw):
         struct.pack_into('<q', b, table + 8 * (i + 1), parts[i] + size)
     struct.pack_into('<q', b, table + 8 * target, start)
     if sha(b) != OUTPUT_SHA:
-        raise ValueError('Mirror layout does not match the verified bbhost result')
+        raise ValueError('Mirror layout does not match the verified result')
     return bytes(b)
 
 

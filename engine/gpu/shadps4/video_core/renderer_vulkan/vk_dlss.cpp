@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cctype>
@@ -19,6 +20,7 @@
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_optiscaler.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/vk_streamline.h"
 #include "bbport_settings.h"
 
 namespace Vulkan {
@@ -125,19 +127,9 @@ void SetF(NgxParameter* p, const char* name, float v) {
 void SetP(NgxParameter* p, const char* name, void* v) {
     Slot<void (*)(NgxParameter*, const char*, void*)>(p, SetVoid)(p, name, v);
 }
-/// bbport: NVSDK_NGX_DLSS_Hint_Render_Preset (0 the DLL's default, 1 A ... 11 K) from
-/// BB_DLSS_PRESET ("k" when unset).
-unsigned DlssPreset() {
-    static const unsigned preset = [] {
-        const char* env = std::getenv("BB_DLSS_PRESET");
-        if (env && std::strcmp(env, "default") == 0) {
-            return 0u;
-        }
-        const char letter = env && env[0] ? char(std::tolower(static_cast<unsigned char>(env[0]))) : 'k';
-        return letter >= 'a' && letter <= 'z' ? unsigned(letter - 'a' + 1) : 11u;
-    }();
-    return preset;
-}
+/// bbport: NVSDK_NGX_DLSS_Hint_Render_Preset (0 the DLL's default, 1 A ... 11 K): dlss_preset in
+/// bbport.ini, BB_DLSS_PRESET overrides it ("k" when neither); live from the menu.
+unsigned DlssPreset(int quality);
 /// The same preset for every quality mode: the feature is created again when the mode changes.
 void SetPreset(NgxParameter* p, unsigned preset) {
     for (const char* name : {"DLSS.Hint.Render.Preset.DLAA", "DLSS.Hint.Render.Preset.Quality",
@@ -189,6 +181,18 @@ int Quality(int preset) {
     }
 }
 
+/// The preset for a quality mode: dlss_preset, or with "auto" the model NVIDIA's DLSS 4.5 pairs
+/// with the mode (M for Performance, L for Ultra Performance, K for the others).
+unsigned DlssPreset(int quality) {
+    const int preset = BbSettings::Get().dlss_preset.load(std::memory_order_relaxed);
+    if (preset == BbSettings::DlssPresetAuto) {
+        return unsigned(quality == MaxPerf            ? BbSettings::DlssPresetM
+                        : quality == UltraPerformance ? BbSettings::DlssPresetL
+                                                      : BbSettings::DlssPresetK);
+    }
+    return unsigned(std::clamp(preset, BbSettings::DlssPresetDefault, BbSettings::DlssPresetMax));
+}
+
 ResourceVk Resource(const Fsr4Upscaler::Image& image, vk::ImageAspectFlags aspect, bool rw) {
     ResourceVk r{};
     r.resource.image_view_info = {
@@ -236,6 +240,8 @@ struct DlssUpscaler::Impl {
         u32 render_width, render_height, out_width, out_height;
         int quality;
         bool hdr;
+        unsigned preset; ///< the one asked for (a refused one stays the key: not retried each frame)
+        bool auto_exposure; ///< bbport: dlss_auto_exposure (HDR inputs have it regardless)
         bool operator==(const Key&) const = default;
     } key{};
 
@@ -435,11 +441,19 @@ struct DlssUpscaler::Impl {
         }
         // bbport: a scene at the output size (a native scene) is DLAA, whatever the preset.
         const bool native = f.render_width == f.output.width && f.render_height == f.output.height;
+        const int quality = native ? int(Dlaa) : Quality(f.preset);
         const Key wanted{f.render_width, f.render_height, f.output.width, f.output.height,
-                         native ? int(Dlaa) : Quality(f.preset), IsFloatFormat(f.color.format)};
+                         quality, IsFloatFormat(f.color.format),
+                         DlssPreset(quality),
+                         BbSettings::Get().dlss_auto_exposure.load(std::memory_order_relaxed)};
         if (!feature || !(wanted == key)) {
             if (feature) {
-                scheduler.Finish(); // the feature's resources may still be in use
+                // bbport: the earlier submissions may still use the feature's resources; the open
+                // command buffer (f.cmdbuf, recorded into below) does not yet. Finish() submitted
+                // f.cmdbuf, and the new feature was then created and evaluated into a pending
+                // command buffer: the driver faulted on the next preset change (player report,
+                // K -> M with OptiScaler's NGX hook in between).
+                scheduler.WaitSubmittedWork();
                 const auto lock = QueueLock();
                 release_feature(feature);
                 feature = nullptr;
@@ -455,14 +469,16 @@ struct DlssUpscaler::Impl {
             int flags = FlagMvLowRes;
             if (wanted.hdr) {
                 flags |= FlagIsHdr | FlagAutoExposure;
+            } else if (wanted.auto_exposure) {
+                flags |= FlagAutoExposure; // bbport: the menu's DLSS auto exposure, LDR input too
             }
             SetI(params, "DLSS.Feature.Create.Flags", flags);
             SetI(params, "DLSS.Enable.Output.Subrects", 0);
             // bbport: the model is chosen, not left to the DLL's default per mode: preset K (the
             // transformer model) keeps thin moving objects - a weapon on the back, railings -
-            // steadier than the CNN presets. BB_DLSS_PRESET: a letter (e: the last CNN model) or
-            // "default". A preset the DLL refuses is retried with its default.
-            const unsigned preset = DlssPreset();
+            // steadier than the CNN presets. dlss_preset / BB_DLSS_PRESET: a letter (e: the last CNN
+            // model) or "default". A preset the DLL refuses is retried with its default.
+            const unsigned preset = wanted.preset;
             SetPreset(params, preset);
             const auto lock = QueueLock();
             NgxResult r = create_feature(VkDevice(instance.GetDevice()), VkCommandBuffer(f.cmdbuf),
@@ -483,6 +499,7 @@ struct DlssUpscaler::Impl {
                 return false;
             }
             key = wanted;
+            BbSettings::Get().dlss_applied_preset = int(applied_preset);
             std::printf("DLSS: %ux%u -> %ux%u, quality mode %d, %s input, preset %s",
                         key.render_width, key.render_height, key.out_width, key.out_height,
                         key.quality, key.hdr ? "HDR" : "LDR",
@@ -497,6 +514,15 @@ struct DlssUpscaler::Impl {
         SetP(params, "Depth", &depth);
         SetP(params, "MotionVectors", &motion);
         SetP(params, "Output", &output);
+        // bbport: the reactive mask (menu) as DLSS's bias towards the current colour: 1 trusts this
+        // frame alone where blended effects changed it. Null clears the previous frame's.
+        ResourceVk bias{};
+        if (f.reactive.view) {
+            bias = Resource(f.reactive, vk::ImageAspectFlagBits::eColor, false);
+        }
+        SetP(params, "DLSS.Input.Bias.Current.Color.Mask", f.reactive.view ? &bias : nullptr);
+        SetUI(params, "DLSS.Input.Bias.Current.Color.Subrect.Base.X", 0);
+        SetUI(params, "DLSS.Input.Bias.Current.Color.Subrect.Base.Y", 0);
         SetF(params, "Jitter.Offset.X", f.jitter[0]);
         SetF(params, "Jitter.Offset.Y", f.jitter[1]);
         SetF(params, "Sharpness", 0.0f);
@@ -533,7 +559,11 @@ struct DlssUpscaler::Impl {
         if (capabilities) {
             destroy_parameters(capabilities);
         }
-        shutdown(VkDevice(instance.GetDevice()));
+        // bbport: with Streamline loaded its DLSS Frame Generation shares NGX on this device and
+        // shuts it down itself (slShutdown, after this).
+        if (!Streamline::Loaded()) {
+            shutdown(VkDevice(instance.GetDevice()));
+        }
     }
 };
 

@@ -91,12 +91,6 @@ if (WIN32)
             add_library(miniz::miniz ALIAS miniz)
         endif()
     endif()
-    find_package(xbyak QUIET)
-    if (NOT TARGET xbyak::xbyak)
-        FetchContent_Declare(xbyak GIT_REPOSITORY https://github.com/herumi/xbyak.git
-            GIT_TAG v7.24.2 GIT_SHALLOW TRUE)
-        FetchContent_MakeAvailable(xbyak)
-    endif()
     find_package(VulkanMemoryAllocator CONFIG QUIET)
     if (NOT TARGET GPUOpen::VulkanMemoryAllocator)
         find_path(VMA_INCLUDE_DIR vk_mem_alloc.h PATH_SUFFIXES vma REQUIRED)
@@ -109,6 +103,14 @@ else()
     find_package(VulkanMemoryAllocator CONFIG REQUIRED)
     pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
     find_package(miniz REQUIRED)
+endif()
+# xbyak (header-only; the shader recompiler's flatten pass), fetched when not installed.
+find_package(xbyak QUIET)
+if (NOT TARGET xbyak::xbyak)
+    include(FetchContent)
+    FetchContent_Declare(xbyak GIT_REPOSITORY https://github.com/herumi/xbyak.git
+        GIT_TAG v7.24.2 GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(xbyak)
 endif()
 find_program(GLSLANG_COMPILER NAMES glslang glslangValidator REQUIRED)
 
@@ -169,6 +171,8 @@ add_host_shader(hdr_native.comp hdr_native_exposure_comp EXPOSURE=1)
 add_host_shader(hdr_native.comp hdr_native_gain_comp GAIN=1)
 add_host_shader(camera_motion.comp camera_motion_comp)
 add_host_shader(upscale_merge.comp upscale_merge_comp)
+add_host_shader(upscale_debug.comp upscale_debug_comp)
+add_host_shader(upscale_debug.comp upscale_debug_ldr_comp LDR_OUTPUT=1)
 add_host_shader(upscale_reactive.comp upscale_reactive_comp)
 add_host_shader(taa.comp taa_comp)
 add_host_shader(taa_sharpen.comp taa_sharpen_comp)
@@ -178,6 +182,7 @@ add_host_shader(fsr4_color.comp fsr4_encode_comp ENCODE=1)
 add_host_shader(fsr4_reactive.comp fsr4_reactive_comp)
 add_host_shader(frame_gen_compose.comp frame_gen_compose_comp)
 add_host_shader(frame_gen_depth.comp frame_gen_depth_comp)
+add_host_shader(dlss_ui_alpha.comp dlss_ui_alpha_comp)
 add_host_shader(buffer_multi_copy.comp buffer_multi_copy_comp)
 add_host_shader(depth_resample.frag depth_resample_frag)
 add_host_shader(depth_resample.frag depth_stencil_resample_frag HAS_STENCIL=1)
@@ -206,8 +211,11 @@ if (WIN32)
     # hooks, bbport_gnm_hooks.cpp, are inline patches and build on Windows too). Keep the
     # section-backed Win32 memory and its vectored crash diagnostics; do not emulate dma-buf.
     list(FILTER SHIM_SOURCES EXCLUDE REGEX "/bbport_(guest_memory|guest_hooks|free_check|heap_sites)\\.cpp$")
+    # The PC memory model has Windows files of its own (_win.cpp: host memory import, a vectored
+    # exception handler for the guest hooks).
     set(BBGPU_LIBRARY_TYPE STATIC)
 else()
+    list(FILTER SHIM_SOURCES EXCLUDE REGEX "_win\\.cpp$")
     set(BBGPU_LIBRARY_TYPE SHARED)
 endif()
 add_library(bbgpu ${BBGPU_LIBRARY_TYPE} ${VIDEO_CORE} ${RECOMPILER} ${COMMON} ${SHIM_SOURCES}
@@ -248,21 +256,27 @@ set_source_files_properties(shim/bbport_overlay.cpp PROPERTIES
 set_source_files_properties(shim/engine/keycap_art.cpp PROPERTIES
     OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/misc/fonts/Roboto-Medium.ttf)
 target_include_directories(bbgpu PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include third_party/half/include)
+# bbport: NVIDIA Streamline SDK headers (MIT), for DLSS Frame Generation (vk_streamline.cpp).
+target_include_directories(bbgpu PRIVATE third_party/streamline/include)
 target_compile_definitions(bbgpu PRIVATE BOOST_ASIO_STANDALONE NDEBUG)
 target_compile_options(bbgpu PRIVATE -Wno-deprecated-declarations -Wno-missing-field-initializers)
 # The Linux shared library is loaded at process startup; Windows links it statically.
 if(NOT WIN32)
     target_compile_options(bbgpu PRIVATE -ftls-model=initial-exec)
     target_link_options(bbgpu PRIVATE -Wl,--allow-shlib-undefined)
+    # A static FFmpeg (the Linux package's, packaging/linux/setup-ubuntu.sh): its assembly reaches
+    # its tables PC-relative, which lld refuses for symbols the library exports. They stay inside.
+    target_link_options(bbgpu PRIVATE
+        -Wl,--exclude-libs,libavcodec.a:libavformat.a:libavutil.a:libswscale.a:libswresample.a)
 endif()
 target_link_libraries(bbgpu PRIVATE ffx-vulkan::portable ffx-vulkan::fsr4-v07-vulkan
     ffx-vulkan::fsr3-vk-framegeneration-3.1.6) # bbport: frame generation (vk_frame_generation.cpp)
 target_link_libraries(bbgpu PUBLIC Vulkan::Headers fmt::fmt Boost::headers magic_enum::magic_enum
-    tsl::robin_map GPUOpen::VulkanMemoryAllocator PkgConfig::XXHASH PkgConfig::SDL3 PkgConfig::FFMPEG miniz::miniz Zydis::Zydis sirit)
+    tsl::robin_map GPUOpen::VulkanMemoryAllocator PkgConfig::XXHASH PkgConfig::SDL3 PkgConfig::FFMPEG miniz::miniz Zydis::Zydis sirit
+    xbyak::xbyak)
 if (WIN32)
     # Windows headers: no min/max macros, no winsock 1 clash; Windows 10+ APIs (SetThreadDescription).
     target_compile_definitions(bbgpu PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
-    target_link_libraries(bbgpu PUBLIC xbyak::xbyak)
     if (BB_PGO STREQUAL "generate")
         # bbport: the instrumented static library needs the profile runtime in bb-probe.exe's
         # link (add_link_options does not reach it): written into bbgpu_link.txt below.
@@ -363,6 +377,13 @@ target_include_directories(hdr-native-shader-test PRIVATE ${SHADER_INCLUDE})
 target_compile_options(hdr-native-shader-test PRIVATE -UNDEBUG -Wall -Werror)
 target_link_libraries(hdr-native-shader-test PRIVATE Vulkan::Vulkan)
 add_dependencies(hdr-native-shader-test host_shaders)
+# The composite tone curve extension on the GPU (docs/hdr-scene-path.md): the ramp modules of
+# bb-shader-lab --ramp-modules, the game's curve against the extended one.
+add_executable(tone-curve-shader-test EXCLUDE_FROM_ALL ../tests/test_tone_curve.cpp)
+target_include_directories(tone-curve-shader-test PRIVATE ${SHADER_INCLUDE})
+target_compile_options(tone-curve-shader-test PRIVATE -UNDEBUG -Wall -Werror)
+target_link_libraries(tone-curve-shader-test PRIVATE Vulkan::Vulkan)
+add_dependencies(tone-curve-shader-test host_shaders)
 
 # bbport: FSR 4 benchmark outside the game (tools/fsr4_bench.cpp): ninja -C out/gpu fsr4-bench.
 add_executable(upscaler-support-test EXCLUDE_FROM_ALL ../tests/test_upscaler_support.cpp
