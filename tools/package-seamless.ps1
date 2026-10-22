@@ -103,7 +103,7 @@ Copy-Item -LiteralPath (Join-Path $engine 'gpu\third_party\monocypher\LICENCE.md
 $seamless = Join-Path $destinationRoot 'seamless'
 $scripts = Join-Path $seamless 'scripts'
 New-Item -ItemType Directory -Force -Path $scripts | Out-Null
-foreach ($file in 'party_save_tool.py', 'party_session.py', 'party_saves.py', 'party_env.py') {
+foreach ($file in 'party_save_tool.py', 'party_session.py', 'party_saves.py', 'party_env.py', 'save_editor.py') {
     Copy-Item -LiteralPath (Join-Path $engine "scripts\$file") -Destination $scripts -Force
 }
 $pythonVersion = '3.12.10'
