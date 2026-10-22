@@ -62,6 +62,10 @@ namespace BloodborneLauncher.Views
                 () => Ini.Get("dlss_mip_bias", "1") != "0", v => Ini.Set("dlss_mip_bias", v ? "1" : "0"), dlssMore);
             Add(Card(SymbolRegular.DeveloperBoard24, "DLSS", "", null, out _dlssHint), dlssMore);
 
+            // Moved here from the Display page: the frame rate sits beside frame generation.
+            Group(L.T("Frame rate"));
+            SettingCombo(SymbolRegular.Gauge24, L.T("Frame rate"), L.T("30, 60, 90, 120 and 144 are the game's frame-rate patches for that rate; Uncapped uses the community uncapped patch"), Choices.FpsModes, "fps_mode");
+
             Group(L.T("Frame generation"));
             IniCombo(SymbolRegular.FastForward24, L.T("Frame generation"),
                 L.T("Extra frames between the game's own: smoother motion, a little more input lag. Needs an upscaler. Off by default"),
@@ -87,15 +91,17 @@ namespace BloodborneLauncher.Views
             var picture = new StackPanel();
             IniToggle(SymbolRegular.Color24, L.T("Picture tuning"), L.T("Turns the settings below on, live. Also in the game's System menu (PC Graphics, PC Effects, PC Colour) and the Insert menu"), "graphics_controls");
             IniToggle(SymbolRegular.CircleHalfFill24, L.T("Vignette"), null, "graphics_vignette", picture);
-            IniSlider(SymbolRegular.DarkTheme24, L.T("Ambient occlusion strength"), 0, 3, "graphics_ao_strength", picture);
-            IniSlider(SymbolRegular.WeatherSunny24, L.T("Shadow distance"), 0.5, 4, "graphics_shadow_scale", picture);
-            IniSlider(SymbolRegular.Lightbulb24, L.T("Bloom"), 0, 3, "graphics_bloom", picture);
-            IniSlider(SymbolRegular.Color24, L.T("Saturation"), 0, 3, "graphics_saturation", picture);
-            IniSlider(SymbolRegular.BrightnessHigh24, L.T("Brightness"), 0, 3, "graphics_brightness", picture);
-            IniSlider(SymbolRegular.DarkTheme24, L.T("Contrast"), 0.8, 1.2, "graphics_contrast", picture, step: 0.01);
-            IniSlider(SymbolRegular.Color24, L.T("Hue"), -180, 180, "graphics_hue", picture, step: 1, fallback: 0);
-            IniSlider(SymbolRegular.WeatherFog24, L.T("Fog"), 0, 3, "graphics_fog", picture);
             Body.Children.Add(picture);
+            // The sliders, folded until opened.
+            var adjustments = Advanced(L.T("Picture adjustments"));
+            IniSlider(SymbolRegular.DarkTheme24, L.T("Ambient occlusion strength"), 0, 3, "graphics_ao_strength", adjustments);
+            IniSlider(SymbolRegular.WeatherSunny24, L.T("Shadow distance"), 0.5, 4, "graphics_shadow_scale", adjustments);
+            IniSlider(SymbolRegular.Lightbulb24, L.T("Bloom"), 0, 3, "graphics_bloom", adjustments);
+            IniSlider(SymbolRegular.Color24, L.T("Saturation"), 0, 3, "graphics_saturation", adjustments);
+            IniSlider(SymbolRegular.BrightnessHigh24, L.T("Brightness"), 0, 3, "graphics_brightness", adjustments);
+            IniSlider(SymbolRegular.DarkTheme24, L.T("Contrast"), 0.8, 1.2, "graphics_contrast", adjustments, step: 0.01);
+            IniSlider(SymbolRegular.Color24, L.T("Hue"), -180, 180, "graphics_hue", adjustments, step: 1, fallback: 0);
+            IniSlider(SymbolRegular.WeatherFog24, L.T("Fog"), 0, 3, "graphics_fog", adjustments);
 
             Group(L.T("Camera"));
             IniToggle(SymbolRegular.Camera24, L.T("Camera tuning"), L.T("Turns the three settings below on"), "camera_controls");
@@ -103,7 +109,7 @@ namespace BloodborneLauncher.Views
             IniSlider(SymbolRegular.ArrowMaximize24, L.T("Distance"), 0.5, 1.5, "camera_distance_scale");
             IniSlider(SymbolRegular.ArrowBidirectionalUpDown24, L.T("Height"), 0.5, 1.5, "camera_height_scale");
 
-            Group(L.T("Game effects"));
+            Group(L.T("Patches"));
             Body.Children.Add(Text(L.T("Patches to the game, applied when it starts."), "Faint"));
             ComboRow(SymbolRegular.Cube24, L.T("Model detail"), null, Choices.ModelLod,
                 () => Choices.ModelLodShown(Ini.Get("model_lod")), v => Ini.Set("model_lod", v));
@@ -172,12 +178,14 @@ namespace BloodborneLauncher.Views
             _sharpnessCard.IsEnabled = value != "off";
             _mipBiasCard.IsEnabled = value != "off";
 
-            // Frame generation: DLSS's own rows only with DLSS chosen.
+            // Frame generation: only the rows that apply to the chosen kind (DLSS's own with DLSS,
+            // even pacing with either, nothing when it is off).
             var frameGen = Ini.Get("frame_gen", "off");
-            _frameGenFramesCard.IsEnabled = frameGen == "dlss";
-            _frameGenDynamicCard.IsEnabled = frameGen == "dlss";
-            _reflexCard.IsEnabled = frameGen == "dlss";
-            _frameGenCapCard.IsEnabled = frameGen != "off";
+            static System.Windows.Visibility Shown(bool on) => on ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+            _frameGenFramesCard.Visibility = Shown(frameGen == "dlss");
+            _frameGenDynamicCard.Visibility = Shown(frameGen == "dlss");
+            _reflexCard.Visibility = Shown(frameGen == "dlss");
+            _frameGenCapCard.Visibility = Shown(frameGen != "off");
             SetHint(_frameGenHint, frameGen switch
             {
                 "dlss" when !StreamlineFound() => L.T("NVIDIA Streamline (sl.interposer.dll, sl.dlss_g.dll) is missing from the engine folder: the game uses no frame generation"),

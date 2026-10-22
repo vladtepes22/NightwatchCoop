@@ -5,7 +5,7 @@ using System.Windows.Controls;
 
 namespace BloodborneLauncher.Views
 {
-    /// <summary>Screen, frame rate and the language of the port's in-game menu.</summary>
+    /// <summary>Screen, FPS counter, HDR and the language of the port's in-game menu.</summary>
     public sealed class DisplayPage : LauncherPage
     {
         private readonly ComboBox _monitor = new() { Width = 360, VerticalAlignment = VerticalAlignment.Center };
@@ -91,7 +91,7 @@ namespace BloodborneLauncher.Views
             double step = 0.05, double fallback = 1.0) =>
             SliderRow(icon, title, null, min, max, step, () => ParseDouble(Ini.Get(key, Fmt(fallback)), fallback), v => Ini.Set(key, Fmt(v)), into: into);
 
-        public DisplayPage() : base(L.T("Display"), L.T("Resolution, window mode, frame rate and menu language. Applied when the game starts."))
+        public DisplayPage() : base(L.T("Display"), L.T("Resolution, window mode, FPS counter, HDR and menu language. Applied when the game starts."))
         {
             _monitor.SetResourceReference(StyleProperty, "DefaultComboBoxStyle");
             ComboSearch.Attach(_monitor);
@@ -110,10 +110,20 @@ namespace BloodborneLauncher.Views
             SettingToggle(SymbolRegular.TextFont24, L.T("Sharp UI"),
                 L.T("Menus, HUD and text drawn at the output resolution instead of 1080p stretched up: much sharper at 1440p and 4K. New: on by default in betas while it is tested. Applied on the next launch"),
                 "exp_sharp_ui");
-            IniToggle(SymbolRegular.FullScreenMaximize24, L.T("Fullscreen"), L.T("The game covers the whole screen"), "fullscreen");
-            SettingToggle(SymbolRegular.WindowNew24, L.T("Borderless fullscreen"),
-                L.T("Keeps fullscreen a borderless window, so trophy notifications and other windows show on top. Off: the driver may switch to exclusive fullscreen (lowest latency, G-SYNC fullscreen-only mode), which hides them"),
-                "borderless_fullscreen");
+            // One choice for the window: fullscreen (bbport.ini) and borderless (launcher setting)
+            // as they were, so older settings show as the mode they meant.
+            ComboRow(SymbolRegular.FullScreenMaximize24, L.T("Display mode"), null, new Choice[]
+                {
+                    new(L.T("Windowed"), "windowed", L.T("The game in a window you can move and resize")),
+                    new(L.T("Borderless"), "borderless", L.T("Fullscreen as a borderless window: trophy notifications and other windows show on top")),
+                    new(L.T("Fullscreen"), "fullscreen", L.T("The driver may switch to exclusive fullscreen: lowest latency and G-SYNC's fullscreen-only mode, but windows on top are hidden")),
+                },
+                () => !Ini.Flag("fullscreen") ? "windowed" : S.Bool("borderless_fullscreen") ? "borderless" : "fullscreen",
+                v =>
+                {
+                    Ini.Set("fullscreen", v == "windowed" ? "0" : "1");
+                    if (v != "windowed") S.Set("borderless_fullscreen", v == "borderless");
+                });
             ToggleRow(SymbolRegular.RatioOneToOne24, L.T("Widescreen"), L.T("Outputs that are not 16:9 (21:9, 32:9, 16:10, 5:4) with the right field of view and the UI kept in shape"),
                 () => Ini.Get("widescreen", "1") != "0", v => Ini.Set("widescreen", v ? "1" : "0"));
             var screenMore = Advanced();
@@ -121,31 +131,30 @@ namespace BloodborneLauncher.Views
                 L.T("Change the resolution in the game menu without restarting. Off is faster; turn on only if you switch resolutions in game"), Choices.LiveResolution, "live_resolution", into: screenMore);
             SettingCombo(SymbolRegular.Image24, L.T("Presentation mode"), null, Choices.PresentModes, "present_mode", into: screenMore);
 
-            Group(L.T("Frame rate"));
-            SettingCombo(SymbolRegular.Gauge24, L.T("Frame rate"), L.T("30, 60, 90, 120 and 144 are the game's frame-rate patches for that rate; Uncapped uses the community uncapped patch"), Choices.FpsModes, "fps_mode");
-
             // bbport: the FPS counter (was on the Graphics page among the upscaler settings).
             Group(L.T("FPS counter"));
             IniToggle(SymbolRegular.DataUsage24, L.T("Show FPS"), L.T("Also in game: Insert or L3 + R3"), "show_fps");
+            // Its look and contents, folded until opened.
+            var fpsLook = Advanced(L.T("FPS counter settings"));
             IniCombo(SymbolRegular.PositionToFront24, L.T("FPS counter position"), null, new Choice[]
             {
                 new(L.T("Top right"), "0"), new(L.T("Top left"), "1"), new(L.T("Bottom right"), "2"), new(L.T("Bottom left"), "3"), new(L.T("Top centre"), "4"),
-            }, "fps_position");
-            IniSlider(SymbolRegular.TextFontSize24, L.T("FPS counter size"), 0.75, 2.0, "fps_scale");
+            }, "fps_position", fpsLook);
+            IniSlider(SymbolRegular.TextFontSize24, L.T("FPS counter size"), 0.75, 2.0, "fps_scale", fpsLook);
             IniCombo(SymbolRegular.Color24, L.T("FPS counter text colour"), L.T("Any colour in game: Insert or L3 + R3 › Other"), new Choice[]
             {
                 new(L.T("White"), "#FFFFFF"), new(L.T("Yellow"), "#FFD54A"), new(L.T("Green"), "#7CFC8A"), new(L.T("Cyan"), "#6FE3FF"),
                 new(L.T("Red"), "#FF5A5A"), new(L.T("Orange"), "#FFA040"), new(L.T("Pink"), "#FF8AD8"), new(L.T("Black"), "#000000"),
-            }, "fps_text_color");
-            IniSlider(SymbolRegular.Eye24, L.T("FPS counter text opacity"), 0.1, 1.0, "fps_text_opacity", fallback: 1.0);
+            }, "fps_text_color", fpsLook);
+            IniSlider(SymbolRegular.Eye24, L.T("FPS counter text opacity"), 0.1, 1.0, "fps_text_opacity", fpsLook, fallback: 1.0);
             IniCombo(SymbolRegular.ColorBackground24, L.T("FPS counter background"), null, new Choice[]
             {
                 new(L.T("Dark grey"), "#0F0F0F"), new(L.T("Black"), "#000000"), new(L.T("Dark red"), "#3A0A0A"), new(L.T("Dark blue"), "#0A1A3A"), new(L.T("White"), "#FFFFFF"),
-            }, "fps_bg_color");
-            IniSlider(SymbolRegular.Blur24, L.T("FPS counter background opacity"), 0.0, 1.0, "fps_bg_opacity", fallback: 0.5);
-            IniToggle(SymbolRegular.BorderAll24, L.T("FPS counter border"), null, "fps_border");
-            // What the counter shows (on unless turned off), folded under the switch.
-            var fpsParts = Advanced(L.T("What the FPS counter shows"));
+            }, "fps_bg_color", fpsLook);
+            IniSlider(SymbolRegular.Blur24, L.T("FPS counter background opacity"), 0.0, 1.0, "fps_bg_opacity", fpsLook, fallback: 0.5);
+            IniToggle(SymbolRegular.BorderAll24, L.T("FPS counter border"), null, "fps_border", fpsLook);
+            // What the counter shows (on unless turned off), folded again inside.
+            var fpsParts = Advanced(L.T("What the FPS counter shows"), fpsLook);
             foreach (var (icon, key, title) in new[]
                      {
                          (SymbolRegular.TopSpeed24, "show_fps_rate", L.T("Frame rate")),

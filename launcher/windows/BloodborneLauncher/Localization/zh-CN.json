@@ -1639,5 +1639,15 @@
   "DLSS dynamic frame generation": "DLSS 动态帧生成",
   "RTX 50: the driver picks 2x, 3x or 4x moment by moment to reach your refresh rate, up to the generated frames above. Fewer generated frames when the game is fast: less lag, fewer artifacts. Also in game, with a target FPS": "RTX 50：驱动会随时选择 2x、3x 或 4x 以达到刷新率（不超过上方的生成帧数）。游戏较快时生成帧更少：延迟更低、伪影更少。游戏内也可设置目标帧率",
   "Auto (per quality)": "自动（按质量）",
-  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "NVIDIA DLSS 4.5 的搭配：DLAA、质量和平衡用 K，性能用 M，超级性能用 L"
+  "NVIDIA's DLSS 4.5 pairing: K for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance": "NVIDIA DLSS 4.5 的搭配：DLAA、质量和平衡用 K，性能用 M，超级性能用 L",
+  "Display mode": "显示模式",
+  "Windowed": "窗口化",
+  "Borderless": "无边框",
+  "The game in a window you can move and resize": "游戏在可移动、可调整大小的窗口中运行",
+  "Fullscreen as a borderless window: trophy notifications and other windows show on top": "以无边框窗口全屏：奖杯通知和其他窗口会显示在上层",
+  "The driver may switch to exclusive fullscreen: lowest latency and G-SYNC's fullscreen-only mode, but windows on top are hidden": "驱动可能切换为独占全屏：延迟最低，并支持 G-SYNC 仅全屏模式，但上层窗口会被隐藏",
+  "FPS counter settings": "帧率计数器设置",
+  "Picture adjustments": "画面调整",
+  "Patches": "补丁",
+  "Resolution, window mode, FPS counter, HDR and menu language. Applied when the game starts.": "分辨率、窗口模式、帧率计数器、HDR 和菜单语言。启动游戏时生效。"
 }

@@ -122,14 +122,6 @@ namespace BloodborneLauncher.Views
                 Ws.SaveSoon();
                 Refresh();
             });
-            ToggleRow(SymbolRegular.PuzzlePiece24, L.T("The Old Hunters (DLC)"),
-                L.T("Off: the game starts without its DLC. The Game of the Year edition (CUSA03173) always has it"),
-                () => S.Bool("dlc_enabled"), v =>
-                {
-                    S.Set("dlc_enabled", v);
-                    Ws.SaveSoon();
-                    Refresh();
-                });
             Add(Card(SymbolRegular.FolderOpen24, L.T("DLC folder"), "", Row(
                 SmallButton(L.T("Browse"), SymbolRegular.FolderOpen24, (_, _) => ChooseDlc()),
                 IconButton(SymbolRegular.Open24, L.T("Open in Explorer"), (_, _) => Paths.OpenFolder(GameEnvironment.DlcDir(S))),

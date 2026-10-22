@@ -598,14 +598,13 @@ namespace BloodborneLauncher.Views
             var check = ++_checks;
             var game = GameEnvironment.GameDir(S);
             var dlc = S.Str("dlc_dir") is { Length: > 0 } chosen ? Paths.Expand(chosen) : "";
-            var enabled = S.Bool("dlc_enabled");
             _report = null;
             Render();
             SetStatus(L.T("Checking…"));
             SetupReport report;
             try
             {
-                report = await Task.Run(() => GameSetup.Check(game, dlc, enabled));
+                report = await Task.Run(() => GameSetup.Check(game, dlc, dlcEnabled: true));
             }
             catch (Exception e)
             {

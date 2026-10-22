@@ -132,9 +132,10 @@ namespace BloodborneLauncher.Core
                 ["BB_VBLANK_HZ"] = fps switch { "90" => "90", "30" or "60" => "60", _ => "0" },
                 ["PYTHONUNBUFFERED"] = "1",
             };
-            // The Play page's DLC switch: off, the game is told no add-ons are installed.
-            env["BB_DLC"] = s.Bool("dlc_enabled") ? "1" : "0";
-            if (s.Bool("dlc_enabled") && DlcDir(s) is { Length: > 0 } dlc) env["BB_DLC_DIR"] = dlc;
+            // The Old Hunters always load when they are there: there is no DLC switch (an old
+            // settings file's dlc_enabled=false is ignored, so no party member runs without it).
+            env["BB_DLC"] = "1";
+            if (DlcDir(s) is { Length: > 0 } dlc) env["BB_DLC_DIR"] = dlc;
             if (RegionPatchOnline is { } region) env["BB_REGION_PATCH_ONLINE"] = region;
             if (ResolutionPatchChoice is { } resolution) env["BB_RESOLUTION_PATCH"] = resolution;
             if (s.Str("present_mode").Length > 0) env["BB_PRESENT_MODE"] = s.Str("present_mode");
