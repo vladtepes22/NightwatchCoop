@@ -242,6 +242,14 @@ std::vector<EmevdSkipRule> LampSkipRules() {
     return out;
 }
 
+std::vector<EmevdSkipRule> ChaliceLampSkipRules() {
+    std::vector<EmevdSkipRule> out;
+    // m29 event 12907020 (one instance per dungeon lamp): 1003[6] end if client, the menu's flag
+    // 72900100 + n, the kneel, 2003[49] to the Dream's altar spot (live-checked data: chalicelamp).
+    ParseEmevdSkipRules("12907020:1003:6@0", &out);
+    return out;
+}
+
 std::vector<EmevdSkipRule> DollPlacementRules() {
     std::vector<EmevdSkipRule> out;
     ParseEmevdSkipRules("12100110:2003:22@25,12100110:2003:17@26", &out);
@@ -257,7 +265,13 @@ bool DollLevelUpCharTypeTest(int event_id, int bank, int id, int entity, int typ
 }
 
 bool PerPlayerMessengerEvent(std::uint32_t event_id) {
-    return event_id == 12105040;
+    // 0.7.3: the Dream's gift messengers too - right / left starting weapons 12101020 / 12101021,
+    // Notebook 12101022, Beckoning Bell 12101024, Old Hunter Bell 12101026, Eye 12101028. Each
+    // ends on each player's own pick / personal flag; another game's end of its copy reached this
+    // game's copy (live r4: the guest's copy ended, 57 ms later the host's set 12101020 with none of
+    // the host's own stock flags: its messengers sank before it picked).
+    return event_id == 12105040 || event_id == 12101020 || event_id == 12101021 || event_id == 12101022 ||
+           event_id == 12101024 || event_id == 12101026 || event_id == 12101028;
 }
 
 bool GuestLampsEnabledFromEnv(const char* v, bool fallback) {
@@ -285,6 +299,7 @@ bool GuestServicesEnabledFromEnv(const char* v) {
 #include "party_progress.h"
 #include "party_worldact.h"
 #include "party_split.h"
+#include "party_vote.h"
 #include "party_b2.h"
 #include "party_items.h"
 #include "party_balance.h"
@@ -1378,8 +1393,8 @@ BB_COOP_SYSV u64 EventSyncRead(u64 man, u64 peer, u64 type, u64 buf, u64 size) {
         }
         // Main thread (the EMEVD update); the next packet, if any, is read in the same call.
         if (g_messenger_drops.fetch_add(1) < 8) {
-            Log("Bath Messengers: event %d's state from another player not applied (their talk flag is per "
-                "player: each game animates its messengers from its own player's shop use)", event);
+            Log("Messengers: event %d's state from another player not applied (per player: each game runs its "
+                "messengers from its own player's talk, pick and flags)", event);
         }
     }
 }
@@ -1522,6 +1537,11 @@ std::vector<EmevdSkipRule> GuestServicesSkipRules() {
     if (GuestLampsOn()) {
         for (const EmevdSkipRule& r : LampSkipRules()) {
             out.push_back(r);
+        }
+        if (ChaliceLampsOn()) {
+            for (const EmevdSkipRule& r : ChaliceLampSkipRules()) {
+                out.push_back(r);
+            }
         }
     }
     return out;
@@ -1698,6 +1718,21 @@ void GuestOwnLampsTick(const GameSnapshot& s) {
 /// 0.7.2: only a real lamp use counts (lampshare::CountsAsGuestLit): the guest at that lamp, no load
 /// within the last 20 s. A lamp its game shows lit right after a load (a lamp warp's arrival lights
 /// its lamp) or far from the guest is never sent for this map.
+// chalicelamp: where lamp `rp` stands in the loaded map, for the "stands at the lamp" distance
+// tests: the party's spot table, or in a Chalice Dungeon (its layout generated, no table spot) the
+// lamp object 2901950 + n itself (lamp 2902950 + n; chalice.md section 8).
+bool LampSpotNow(std::uint32_t rp, float sp[4]) {
+    if (rp / 100000 == 29) {
+        float at[3];
+        if (!worldact::ObjectPoint(static_cast<std::int32_t>(rp - 1000u), 0.0f, 0.0f, at)) {
+            return false;
+        }
+        sp[0] = at[0], sp[1] = at[1], sp[2] = at[2], sp[3] = 0.0f;
+        return true;
+    }
+    return ids::ReturnSpot(rp, sp);
+}
+
 std::uint32_t LampOfLitFlag(std::uint32_t id) {
     if (id / 10000000 == 7) {
         return (id - 70000000u) / 10000u * 10000u + 2950u + (id % 10000u - 200u);
@@ -1733,7 +1768,7 @@ void GuestLampLitTick(const GameSnapshot& s) {
             const std::uint32_t rp = LampOfLitFlag(id);
             float sp[4];
             float dist = -1.0f;
-            if (have_pos && rp && ids::ReturnSpot(rp, sp)) {
+            if (have_pos && rp && LampSpotNow(rp, sp)) {
                 dist = std::sqrt((me[0] - sp[0]) * (me[0] - sp[0]) + (me[1] - sp[1]) * (me[1] - sp[1]) +
                                  (me[2] - sp[2]) * (me[2] - sp[2]));
             }
@@ -2382,9 +2417,18 @@ void LampTick(const GameSnapshot& s, party::PartyLink* link) {
             continue;
         }
         split::NoteMemberRequestRun(r.id);
-        Log("lamp: slot %d used a lamp / headstone: the host warps to %u, the party follows", slot, r.id);
-        // Another map (the split question is the guest's, already answered): the party travel.
-        RunLampWarpDecided(r.id, false);
+        const std::uint32_t id = r.id;
+        const int from = slot;
+        const auto run = [id, from] {
+            split::NoteMemberRequestRun(id);
+            Log("lamp: slot %d used a lamp / headstone: the host warps to %u, the party follows", from, id);
+            // Another map (the split question is the guest's, already answered): the party travel.
+            RunLampWarpDecided(id, false);
+        };
+        // 0.7.3 lamp travel voting (party_vote.h): with the host's rule on, the others vote first.
+        if (!vote::HostBegin(id, slot, run, "a guest's lamp / headstone")) {
+            run();
+        }
     }
 }
 
@@ -2561,7 +2605,7 @@ void LastLampGuardTick(const GameSnapshot& s) {
     }
     float me[3], sp[4];
     float dist = -1.0f;
-    if (balance::ChrPosition(s.player, me) && ids::ReturnSpot(now_rp, sp)) {
+    if (balance::ChrPosition(s.player, me) && LampSpotNow(now_rp, sp)) {
         dist = std::sqrt((me[0] - sp[0]) * (me[0] - sp[0]) + (me[1] - sp[1]) * (me[1] - sp[1]) +
                          (me[2] - sp[2]) * (me[2] - sp[2]));
     }

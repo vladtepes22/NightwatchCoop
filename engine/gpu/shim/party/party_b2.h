@@ -84,6 +84,9 @@ void DirectSummonName(int slot, const std::string& name);
 /// Host, A11: its boss fight / cutscene hold started, ended or is re-announced: the party status
 /// line on both sides ("Waiting: the host is in a boss fight") and a dsum_busy event to the guests.
 void HostBusyChanged(bool boss_bar_up, bool cutscene_playing);
+/// Test aid (guest_die:kidnap): what a guest's copy of the Snatcher's grab event does at the grab
+/// (party_kidnap_rules.h SkipTrigger: the host is asked for the party's kidnap); the death follows.
+void TestGuestKidnapGrab();
 /// An event to send (the director's tick drains it): slot -1 = to the host / broadcast.
 bool PopOutgoing(int* slot, std::string* body);
 
@@ -161,8 +164,19 @@ bool HostPartyWarpNoLoad(std::uint32_t id);
 bool HostChrHere(float* distance_m);
 /// I5 gather (guest, main thread): an in-world warp beside the host's chr (BesideHost: the B2
 /// spacing by party slot, the host's facing), no load. False: the host's chr is not here (HostChrHere)
-/// or this guest is dead.
-bool GatherBesideHost(const char* why);
+/// or this guest is dead. `spot` (with `spot_yaw`): beside that spot instead of the host's chr (the
+/// ground the host asked from, gather::SpotFor). `test_lift_m`: test aid, that much higher. `dest`:
+/// where the guest was put; `from` (x, y, z, yaw): where it stood before.
+bool GatherBesideHost(const char* why, const float* spot = nullptr, float spot_yaw = 0.0f, float test_lift_m = 0.0f,
+                      float* dest = nullptr, float* from = nullptr);
+/// I5 gather (guest, main thread): the host's chr position in this world (HostChrHere). False: not here.
+bool HostChrPos(float pos[3]);
+/// Main thread: the local chr's facing (its rotation's yaw), 0 unknown.
+float OwnYaw();
+/// Main thread: the local chr's ladder action state (-1 none, >= 0 on a ladder, below -1 unread).
+int OwnLadderState();
+/// I5 gather (guest, main thread): back to `pos` (where it stood before the gather), in-world, no load.
+bool GatherWarpBack(const float pos[3], float yaw, const char* why);
 /// I5 gather (guest, main thread): the party's one-load travel into the host's map (TravelAlone,
 /// AloneWhy::Gather, to the lamp of the host's map nearest the host: a re-join with the host's
 /// snapshot). The caller puts the guest beside the host once it has arrived. False: not possible now.

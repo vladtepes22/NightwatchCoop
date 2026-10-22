@@ -22,6 +22,7 @@
 #include "party_progress.h"
 #include "party_split.h"
 #include "party_gather.h"
+#include "party_vote.h"
 #include "party_desync.h"
 #include "party_travel.h"
 #include "party_worldact.h"
@@ -1244,6 +1245,10 @@ LinkCallbacks make_callbacks(bool host) {
                 coop::gather::OnEvent(slot, body);
                 return;
             }
+            if (name == coop::vote::kEventName) {  // a guest's travel vote (0.7.3, party_vote.h)
+                coop::vote::OnEvent(slot, body);
+                return;
+            }
             if (name == coop::worldact::kEventName) {  // a guest's lever / door / NPC talk (D3, D8)
                 std::string err;
                 if (!coop::worldact::OnHostEvent(slot, body, &err)) plog("world_action from slot %d refused: %s", slot, err.c_str());
@@ -1395,6 +1400,10 @@ LinkCallbacks make_callbacks(bool host) {
             }
             if (name == coop::gather::kEventName) {  // the host gathers the party (I5, party_gather.h)
                 coop::gather::OnEvent(slot, body);
+                return;
+            }
+            if (name == coop::vote::kEventName) {  // the host's travel vote: ask / end (0.7.3, party_vote.h)
+                coop::vote::OnEvent(slot, body);
                 return;
             }
             if (name == coop::kPhantomEventName) {  // host lamp / rested / boss Insight
@@ -2693,6 +2702,15 @@ void startup_main() {
     cfg.build_id = bbport_build_id();
     cfg.check_build = !(env("BB_PARTY_CHECK_BUILD") && !env_on("BB_PARTY_CHECK_BUILD"));
     cfg.params_sha256 = params_hash();
+    // The hook set only once the image's hooks are in (a fast boot started the link 0.1 s before).
+    {
+        const auto w0 = std::chrono::steady_clock::now();
+        const bool done = coop::WaitImageHooksDone(30000);
+        const double waited = std::chrono::duration<double>(std::chrono::steady_clock::now() - w0).count();
+        if (!done || waited > 0.05)
+            plog("version check: %s the game's hooks for %.2f s", done ? "waited for" : "NOT done after waiting for",
+                 waited);
+    }
     hook_identity(cfg);
     plog("%s %s, port %u, up to %d players; version check: eboot %s..., patches %s..., mods %s... (%s)%s",
          host ? "host" : "guest", cfg.name.c_str(), cfg.port, cfg.max_players, hex_prefix(cfg.eboot_sha256).c_str(),

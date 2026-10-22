@@ -366,4 +366,74 @@ inline GuestReport GuestLiftReport(bool pos_now, bool host_pos, bool busy, int l
     return last_sent == (pos_now ? 1 : 0) ? GuestReport::sent : GuestReport::send;
 }
 
+// ---- Chalice Dungeon lifts (chalicelamp) ----
+// A guest's report ("I died on the elevator"): on a Pthumeru Chalice floor lift (21 m, 10.5 -> -10.5) the
+// guest's chr ended 5 m under the car with the game's fall-death state, its drop taken as 18.9 m: the
+// table above has no Chalice Dungeon lift (their layouts are generated), so neither the on-a-moving-car
+// test nor the rider guard knew the car. The dungeons' lift events are m29's (one copy per layout slot,
+// started from each layout's script); every ride plays the car's animation with 2003[18] on the car
+// entity (2901001.. of the layout). The game side learns the cars from those instructions as they run.
+/// m29's lift events that animate a car (2003[18]): the altar lift (祭壇エレベーター 12900245 down /
+/// 12900250 up), the cage lift (籠牢 12900323 / 12900331), the floor lifts (フロア移動 21 m 12900351 /
+/// 12900354, 42 m 12900353 / 12900356), the two balance lifts (天秤 12900361..12900375, two cars each).
+constexpr std::int32_t kChaliceLiftEvents[] = {12900245, 12900250, 12900323, 12900331, 12900351, 12900353,
+                                               12900354, 12900356, 12900361, 12900363, 12900365, 12900367,
+                                               12900369, 12900371, 12900373, 12900375};
+inline bool ChaliceLiftEvent(std::int32_t event_id) {
+    for (const std::int32_t e : kChaliceLiftEvents) {
+        if (e == event_id) {
+            return true;
+        }
+    }
+    return false;
+}
+/// The car of a Chalice Dungeon lift instruction: 2003[18] (s32 entity, s32 anim, ...) of one of the
+/// events above, its entity a map object of the dungeon (29xxxxx). 0: not one.
+inline std::int32_t ChaliceLiftCar(std::int32_t event_id, std::int32_t bank, std::int32_t id, std::int32_t entity) {
+    return bank == 2003 && id == 18 && ChaliceLiftEvent(event_id) && entity / 100000 == 29 ? entity : 0;
+}
+/// The local chr counts as on a learned Chalice car (the on-a-moving-car test) only within this height
+/// of the car object (a lift's other animated objects, gates and doors, stay at their end).
+constexpr float kChaliceCarBand = 3.0f;
+/// The rider guard for a car the chr's ride bit says nothing about (the dungeon cars; the local chr's bit
+/// is not known to be set there): the chr's height against the car object's own height (ObjectPoint).
+/// At the ride's first sample the chr stands within kChaliceCarBand of the car: its offset to the car is
+/// kept. A drop through the car: the chr falls (lower than its last sample) to more than kRiderSlip under
+/// car + offset while within kRiderSideways of its last sample on the car, and the car has moved since
+/// the ride began (an object that never moves, a gate, never puts anyone anywhere).
+struct CarRider {
+    bool on = false;
+    float off = 0, car_y0 = 0, x = 0, y = 0, z = 0;
+};
+inline RiderStep CarRiderTick(CarRider& r, bool car_playing, float car_y, float x, float y, float z, float put[3]) {
+    if (!car_playing) {
+        r = CarRider{};
+        return RiderStep::idle;
+    }
+    if (!r.on) {
+        if (std::fabs(y - car_y) > kChaliceCarBand) {
+            return RiderStep::idle;  // not on this car when its ride began (on a landing, under it)
+        }
+        r.on = true;
+        r.off = y - car_y, r.car_y0 = car_y;
+        r.x = x, r.y = y, r.z = z;
+        return RiderStep::riding;
+    }
+    if (std::hypot(x - r.x, z - r.z) > kRiderSideways) {
+        r = CarRider{};
+        return RiderStep::off;  // stepped (or rolled) off
+    }
+    const float floor = car_y + r.off;
+    const bool moved = std::fabs(car_y - r.car_y0) > 0.3f;
+    if (y >= floor - kRiderSlip || y >= r.y || !moved) {
+        if (y >= floor - kRiderSlip) {
+            r.x = x, r.y = y, r.z = z;
+        }
+        return RiderStep::riding;
+    }
+    put[0] = r.x, put[1] = floor + 0.3f, put[2] = r.z;
+    r.y = floor + 0.3f;
+    return RiderStep::through;
+}
+
 }  // namespace coop::liftrules

@@ -1035,6 +1035,122 @@ static void TestBbpf(const char* source_dir) {
     CHECK(text.find("\n12401800\n") != std::string::npos && text.find("\n2200\n") == std::string::npos);
 }
 
+// 0.7.3 (user decision 2026-10-22): covenant outcomes are per player (flag_tool.py COVENANT_ROWS).
+static void TestCovenantOutcomes() {
+    // The classification: Annalise, Alfred and Valtr's quest state, their events and talk blocks.
+    for (u32 id : {1040u, 1041u, 1042u, 1059u, 1340u, 1347u, 1348u, 1350u, 1359u, 1790u, 1791u, 1800u, 1809u, 9770u,
+                   12400590u, 12400595u, 12420500u, 12500010u, 12500015u, 12500020u, 12500021u, 12500050u,
+                   12500054u, 12700901u, 12700903u, 12700905u, 12700910u, 72400461u, 72400465u, 72400479u,
+                   72500304u, 72500326u, 72500328u, 72500339u, 72500357u, 72500359u, 72700304u, 72700320u,
+                   72700321u, 72700322u, 72700330u}) {
+        if (CategoryOf(id) != Category::covenant_outcome) {
+            std::fprintf(stderr, "  %u: %s\n", id, CategoryName(CategoryOf(id)));
+        }
+        CHECK(CategoryOf(id) == Category::covenant_outcome);
+        CHECK(CategoryOf(id) == CategoryOfLinear(id));
+        CHECK(BaseCategoryOf(id) != Category::covenant_outcome);
+    }
+    // What they were before (and are again while the host's rule is off).
+    CHECK(BaseCategoryOf(1042) == Category::npc_quest && BaseCategoryOf(1350) == Category::npc_quest);
+    CHECK(BaseCategoryOf(1790) == Category::npc_quest && BaseCategoryOf(9770) == Category::npc_quest);
+    CHECK(BaseCategoryOf(12420500) == Category::cutscene_seen);
+    CHECK(BaseCategoryOf(12500020) == Category::world_state);
+    CHECK(BaseCategoryOf(12500050) == Category::npc_quest && BaseCategoryOf(12700901) == Category::npc_quest);
+    CHECK(BaseCategoryOf(72500328) == Category::npc_quest && BaseCategoryOf(72700321) == Category::npc_quest);
+    CHECK(BaseCategoryOf(12401800) == CategoryOf(12401800));  // every other id: the same
+    CHECK(EffectiveCategory(1042, true) == Category::covenant_outcome);
+    CHECK(EffectiveCategory(1042, false) == Category::npc_quest);
+    CHECK(EffectiveCategory(12401800, true) == Category::boss_defeated);
+    // Neighbours stay shared: the other NPC state machines (Eileen 1360, the priest 1780), the
+    // gatekeeper / Arianna talk blocks, other Cainhurst / Forbidden Woods flags.
+    for (u32 id : {1039u, 1060u, 1339u, 1360u, 1379u, 1780u, 1789u, 1810u, 9769u, 9771u, 72400459u, 72400480u,
+                   72500340u, 72700340u, 72700361u, 12500022u, 12500049u}) {
+        CHECK(CategoryOf(id) != Category::covenant_outcome);
+    }
+    CHECK(CategoryOf(12501800) == Category::boss_defeated);   // Martyr Logarius: shared
+    CHECK(CategoryOf(12700902) == Category::item_lot_picked); // Valtr's successor award: C3
+    CHECK(CategoryOf(12700906) == Category::item_lot_picked); // the rune award event: C3 / own gift
+    CHECK(CategoryOf(9440) == Category::never_sync && CategoryOf(9451) == Category::never_sync);  // runes
+    CHECK(!HostCandidate(6676) && !HostCandidate(6813) && CategoryOf(6676) != Category::covenant_outcome);  // personal
+    CHECK(std::string(CategoryName(Category::covenant_outcome)) == "covenant_outcome");
+    Category back = Category::never_sync;
+    CHECK(CategoryFromName("covenant_outcome", &back) && back == Category::covenant_outcome);
+
+    // Policy: per player while the rule is on, the base category's mode while it is off.
+    Policy on = Policy::FromEnv(), off = Policy::FromEnv();
+    off.covenant_per_player = false;
+    CHECK(on.covenant_per_player && on != off);
+    CHECK(ModeFor(on, 1042) == SyncMode::Off && ModeFor(on, 72500328) == SyncMode::Off);
+    CHECK(ModeFor(on, 12420500) == SyncMode::Off && ModeFor(on, 12500020) == SyncMode::Off);
+    CHECK(ModeFor(off, 1042) == SyncMode::Follow && ModeFor(off, 72500328) == SyncMode::Follow);
+    CHECK(ModeFor(off, 12420500) == SyncMode::SetOnly && ModeFor(off, 12500020) == SyncMode::SetOnly);
+    CHECK(ModeFor(on, 1141) == SyncMode::Follow && ModeFor(on, 12401800) == SyncMode::SetOnly);  // the rest: shared
+    // The host keeps tracking them (a guest of a host with the rule off still gets them).
+    CHECK(HostCandidate(1042) && HostCandidate(72700321) && HostCandidate(12420500));
+    CHECK(CandidateMask(1) && GetBit(CandidateMask(1)->data(), 42));
+
+    // The fixture of the live check (smoke cv): Alfred killed the queen in the host's world (1042
+    // the flesh, Alfred 1348 in the castle, Valtr dead 1790), a boss the guest has not killed; the
+    // guest's save has Annalise alive (1040), Alfred at the chapel (1344), Valtr's first state (1800).
+    FakeStore host;
+    host.Build(0);
+    for (u32 id : {1042u, 1348u, 1790u, 72500328u, 12401800u, 1143u}) host.SetPoolBit(id, true);
+    FlagStore hs = host.view();
+    HostTracker tr(31);
+    Scan(tr, hs);
+    FlagSnapshot wire;
+    std::string err;
+    CHECK(SnapshotFromJson(SnapshotToJson(tr.Snapshot(0)), &wire, &err));
+    for (const bool rule : {true, false}) {
+        const Policy p = rule ? on : off;
+        FakeStore guest;
+        guest.Build(1);
+        for (u32 id : {1040u, 1344u, 1800u, 1141u}) guest.SetPoolBit(id, true);
+        FlagStore gs = guest.view();
+        GuestApplier ap;
+        ap.QueueSnapshot(wire, GuestApplier::PlanSnapshot(wire, p));
+        CHECK(ap.Apply(gs, p, false) > 0);
+        CHECK(guest.PoolBit(12401800) && guest.PoolBit(1143) && !guest.PoolBit(1141));  // shared progress
+        if (rule) {
+            CHECK(guest.PoolBit(1040) && !guest.PoolBit(1042));   // Annalise alive in the guest's save
+            CHECK(guest.PoolBit(1344) && !guest.PoolBit(1348));   // its Alfred never went to the castle
+            CHECK(guest.PoolBit(1800) && !guest.PoolBit(1790));   // its Valtr alive
+            CHECK(!guest.PoolBit(72500328));
+        } else {
+            CHECK(!guest.PoolBit(1040) && guest.PoolBit(1042));   // as before 0.7.3: the host's copied
+            CHECK(!guest.PoolBit(1344) && guest.PoolBit(1348));
+            // (1790 and 1800 sit in two 20-flag groups of NpcStateGroup: the host's 1790 does not clear
+            // the guest's 1800, as before)
+            CHECK(guest.PoolBit(1790) && guest.PoolBit(72500328));
+        }
+        // Live changes: the host's Valtr turns hostile (1790 off, 1805 on): per player with the rule.
+        ap.QueueChanges(31, {{1790, false, Category::covenant_outcome, wire.seq + 1},
+                             {1805, true, Category::covenant_outcome, wire.seq + 2},
+                             {12411700, true, Category::boss_defeated, wire.seq + 3}});
+        ap.Apply(gs, p, false);
+        CHECK(guest.PoolBit(12411700));
+        CHECK(guest.PoolBit(1805) == !rule);
+        // The rule switched after the snapshot was planned: Apply re-plans with the policy in force.
+        FakeStore g2;
+        g2.Build(1);
+        g2.SetPoolBit(1040, true);
+        FlagStore v2 = g2.view();
+        GuestApplier a2;
+        a2.QueueSnapshot(wire, GuestApplier::PlanSnapshot(wire, rule ? off : on));
+        a2.Apply(v2, p, false);
+        CHECK(g2.PoolBit(1042) == !rule && g2.PoolBit(1040) == rule);
+    }
+    // JSON: the category name travels.
+    std::vector<FlagChange> ch{{1042, true, Category::covenant_outcome, 3}}, ch2;
+    u64 ep = 0;
+    CHECK(ChangesFromJson(ChangesToJson(5, ch), &ep, &ch2, &err) && ch2 == ch);
+    // The rule's global (the party glue sets it each tick; default on).
+    CHECK(CovenantPerPlayer());
+    SetCovenantPerPlayer(false);
+    CHECK(!CovenantPerPlayer());
+    SetCovenantPerPlayer(true);
+}
+
 int main(int argc, char** argv) {
     const char* source_dir = argc > 1 ? argv[1] : BB_SOURCE_DIR;
     TestKeys();
@@ -1048,6 +1164,7 @@ int main(int argc, char** argv) {
     TestNpcFollow();
     TestWorldMirror();
     TestShopStock();
+    TestCovenantOutcomes();
     TestBbpf(source_dir);
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

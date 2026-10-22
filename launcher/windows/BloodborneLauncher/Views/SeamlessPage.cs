@@ -103,44 +103,47 @@ public sealed class SeamlessPage : LauncherPage
                 } catch (Exception e) { Prompt.Tell("Party", e.Message); }
             }), out _));
 
-        Group("Campaign rules");
-        ComboRow(SymbolRegular.Play24, "First join", "Each new character normally completes its own prologue first.",
-            new[] { new Choice("After prologue", "prologue_solo"), new Choice("Immediately", "immediate") },
-            () => S.Str("party_start") == "immediate" ? "immediate" : "prologue_solo", v => S.Set("party_start", v));
-        ComboRow(SymbolRegular.People24, "Guest Insight", null,
-            new[] { new Choice("Same as host", "parity"), new Choice("Full bonus", "full"), new Choice("Game's own", "0") },
-            () => S.Str("party_guest_insight") is { Length: > 0 } n ? n : "parity", v => S.Set("party_guest_insight", v));
+        // Party settings as in the game's System > Party rules / My party pages (visy 0.7.3): the host's
+        // rules for the whole party, then what each player chooses for itself.
+        Group("Party rules");
+        Body.Children.Add(Text("The host's rules for the whole party. When you join, the host's count and yours are kept for when you host (in the game: System > Party rules).", "Faint"));
+        IniToggles(
+            ("party_kill_record", "Enemies stay dead", true), ("party_gather", "Host can gather the party", true),
+            ("party_npc_mirror", "NPCs as in the host's world", true),
+            ("party_covenant_per_player", "Covenant outcomes per player", true),
+            ("party_travel_vote", "Party votes on travel", false),
+            ("party_npc_fights", "NPC hunters fight the whole party", true),
+            ("party_any_kidnap", "Anyone can be abducted", true),
+            ("party_friendly_fire", "Friendly fire / PvP", false), ("party_share_lamps", "Shared lamps", true),
+            ("party_guests_bring_lamps", "Guests bring their lamps", false),
+            ("party_rot", "Rot on death", false), ("party_rot_cleanse_boss", "Boss kill cleanses rot", true),
+            ("party_rot_cleanse_killer", "Killing your killer cleanses its rot", true),
+            ("party_rot_cleanse_echoes", "Retrieving Blood Echoes cleanses its rot", true));
+        IniNumbers(
+            ("party_boss_hp", "Boss HP per guest (%)", 150), ("party_boss_damage", "Boss damage per guest (%)", 10),
+            ("party_boss_poise", "Boss poise per guest (%)", 100), ("party_enemy_hp", "Enemy HP per guest (%)", 50),
+            ("party_enemy_damage", "Enemy damage per guest (%)", 0), ("party_enemy_poise", "Enemy poise per guest (%)", 0));
+
+        Group("My party");
+        Body.Children.Add(Text("Your own party settings: your screen, what you get as a guest, story sync and start (in the game: System > My party).", "Faint"));
+        IniToggles(
+            ("party_hud", "Party HUD", true), ("party_name_tags", "Party name tags", true), ("party_pings", "Pings", true),
+            ("party_through_walls", "Show party through walls", false),
+            ("party_glow_off", "Companions without glow", true), ("party_toasts", "Join, leave and travel notices", true),
+            ("party_npc_talk", "Share NPC dialogue", true), ("party_guest_lamps", "Guests use lamps", true),
+            ("party_key_view", "Own key items as a guest", true), ("party_key_items_summoned", "Key items at once", true));
+        IniNumbers(("party_npc_talk_range", "NPC dialogue range (m)", 25), ("party_overhead", "Name tag detail (0–4)", 3));
         foreach (var option in SeamlessSettings.Switches)
         {
             var key = option.Key;
             ToggleRow(SymbolRegular.People24, option.Label, null, () => SeamlessSettings.Flag(S, key), v => S.Set(key, v));
         }
-        foreach (var (key, label, fallback) in new[] {
-            ("party_rot", "Death rot", false), ("party_rot_cleanse_boss", "Boss kill cleanses rot", true),
-            ("party_rot_cleanse_killer", "Killing your killer cleanses its rot", true),
-            ("party_rot_cleanse_echoes", "Retrieving Blood Echoes cleanses its rot", true),
-            ("party_share_lamps", "Share lamps", true), ("party_guests_bring_lamps", "Guests bring their lamps", false),
-            ("party_guest_lamps", "Guests can use lamps", true), ("party_friendly_fire", "Friendly fire / PvP", false),
-            ("party_npc_talk", "Share nearby NPC dialogue", true), ("party_pings", "Party pings", true),
-            ("party_hud", "Party health display", true), ("party_name_tags", "Player name tags", true),
-            ("party_toasts", "Join, leave and travel notices", true), ("party_through_walls", "Player outlines through walls", false),
-            ("party_glow_off", "Companions without the phantom glow", true),
-            ("party_kill_record", "Enemies stay dead", true), ("party_npc_mirror", "NPCs as in the host's world", true),
-            ("party_gather", "Host can gather the party", true), ("party_key_view", "Own key items as guest", true),
-            ("party_key_items_summoned", "Key items given at once", true) })
-        {
-            var field = key;
-            ToggleRow(SymbolRegular.People24, label, null, () => Ini.Get(field, fallback ? "1" : "0") == "1", v => Ini.Set(field, v ? "1" : "0"));
-        }
-        foreach (var (key, label, value) in new[] {
-            ("party_boss_hp", "Boss HP per guest (%)", 150), ("party_boss_damage", "Boss damage per guest (%)", 10),
-            ("party_boss_poise", "Boss poise per guest (%)", 100), ("party_enemy_hp", "Enemy HP per guest (%)", 50),
-            ("party_enemy_damage", "Enemy damage per guest (%)", 0), ("party_enemy_poise", "Enemy poise per guest (%)", 0),
-            ("party_npc_talk_range", "NPC dialogue range (m)", 25), ("party_overhead", "Name tag detail (0–4)", 3) })
-        {
-            var field = key;
-            TextRow(SymbolRegular.Settings24, label, null, value.ToString(), () => Ini.Get(field, value.ToString()), v => Ini.Set(field, v), width: 120);
-        }
+        ComboRow(SymbolRegular.People24, "Insight for bosses", null,
+            new[] { new Choice("Same as host", "parity"), new Choice("Full bonus", "full"), new Choice("Game's own", "0") },
+            () => S.Str("party_guest_insight") is { Length: > 0 } n ? n : "parity", v => S.Set("party_guest_insight", v));
+        ComboRow(SymbolRegular.Play24, "Party starts", "Each new character normally completes its own prologue first. Keep it the same for everyone.",
+            new[] { new Choice("After the prologue", "prologue_solo"), new Choice("Right away", "immediate") },
+            () => S.Str("party_start") == "immediate" ? "immediate" : "prologue_solo", v => S.Set("party_start", v));
 
         Group("Party saves");
         Body.Children.Add(Text("Seamless play uses its own savedata_party folder. Automatic snapshots keep single-player and party progress recoverable.", "Faint"));
@@ -169,6 +172,12 @@ public sealed class SeamlessPage : LauncherPage
             }), out _));
         Add(Card(SymbolRegular.Save24, "Check party saves", "Checks save structure and compares progress with the last session snapshot.",
             SmallButton("Check", SymbolRegular.Save24, async (_, _) => await SaveAction("check")), out _));
+        // visy 0.7.3 (scripts/save_editor.py): a save last written as a guest in another world lacks the own
+        // world's state that save editors look for; the export adds it and the import takes it out again.
+        Add(Card(SymbolRegular.ArrowExport24, "Export for save editor", "A copy of one character save that save editors can open. Your save is not changed.",
+            SmallButton("Export", SymbolRegular.ArrowExport24, async (_, _) => await ExportForEditor()), out _));
+        Add(Card(SymbolRegular.ArrowImport24, "Import from save editor", "Puts an edited export back into its slot. Your saves are backed up first.",
+            SmallButton("Import", SymbolRegular.ArrowImport24, async (_, _) => await ImportFromEditor()), out _));
         ComboRow(SymbolRegular.Document24, "Party log detail", "Verbose and trace logging add overhead.",
             new[] { new Choice("Normal", ""), new Choice("Verbose", "verbose"), new Choice("Trace", "trace") },
             () => S.Str("party_log"), v => S.Set("party_log", v));
@@ -183,6 +192,52 @@ public sealed class SeamlessPage : LauncherPage
         };
         Loaded += (_, _) => { _codes.Text = SeamlessSettings.Codes(S); _timer.Start(); };
         Unloaded += (_, _) => _timer.Stop();
+    }
+    /// Switches kept in bbport.ini like the game's party pages, so both show the same value.
+    private void IniToggles(params (string Key, string Label, bool Fallback)[] rows)
+    {
+        foreach (var (key, label, fallback) in rows)
+            ToggleRow(SymbolRegular.People24, label, null, () => Ini.Get(key, fallback ? "1" : "0") == "1", v => Ini.Set(key, v ? "1" : "0"));
+    }
+    private void IniNumbers(params (string Key, string Label, int Value)[] rows)
+    {
+        foreach (var (key, label, value) in rows)
+            TextRow(SymbolRegular.Settings24, label, null, value.ToString(), () => Ini.Get(key, value.ToString()), v => Ini.Set(key, v), width: 120);
+    }
+    private sealed record EditorSave(string kind, int slot, string text, bool guest_written);
+    private sealed record EditorPlan(string kind, int slot, string target, string[] notes);
+
+    private async Task ExportForEditor()
+    {
+        try
+        {
+            var saves = System.Text.Json.JsonSerializer.Deserialize<EditorSave[]>(await SeamlessSession.SaveTool(S, "editor-list")) ?? [];
+            if (saves.Length == 0) { Prompt.Tell("Export for save editor", "There is no character save yet."); return; }
+            var choice = Prompt.Choose("Export for save editor", "Which character?", saves.Select(s => s.text).ToArray());
+            if (choice < 0) return;
+            var folder = new Microsoft.Win32.OpenFolderDialog { Title = "Folder for the save editor's copy (an empty folder is best)" };
+            if (folder.ShowDialog() != true) return;
+            var save = saves[choice];
+            Prompt.Tell("Export for save editor", await SeamlessSession.SaveTool(S, "editor-export", save.kind, save.slot.ToString(), folder.FolderName) +
+                (save.guest_written ? " The copy was fixed up for the editor (it was last saved as a guest in another world)." : ""));
+        }
+        catch (Exception e) { Prompt.Tell("Export for save editor", e.Message); }
+    }
+    private async Task ImportFromEditor()
+    {
+        try
+        {
+            var file = new Microsoft.Win32.OpenFileDialog { Title = "The edited save (exported by the launcher)", Filter = "Character save|userdata000*|All files|*" };
+            if (file.ShowDialog() != true) return;
+            var plan = System.Text.Json.JsonSerializer.Deserialize<EditorPlan>(await SeamlessSession.SaveTool(S, "editor-check", file.FileName))!;
+            var kind = plan.kind == "party" ? "party save" : "single-player save";
+            var notes = string.Concat(plan.notes.Select(n => "\n- " + n));
+            if (!Prompt.Confirm("Import from save editor",
+                    $"Replace slot {plan.slot + 1} of your {kind} ({plan.target}) with the edited file?{notes}\n\nYour current saves are copied to user\\save_backups first.", "Import"))
+                return;
+            Prompt.Tell("Import from save editor", await SeamlessSession.SaveTool(S, "editor-import", file.FileName));
+        }
+        catch (Exception e) { Prompt.Tell("Import from save editor", e.Message); }
     }
     private async Task SaveAction(string action)
     {

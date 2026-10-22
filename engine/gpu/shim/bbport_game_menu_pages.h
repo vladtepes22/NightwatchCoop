@@ -65,6 +65,10 @@ u32 StoryNoticeText(u32 game_message);
 u32 EndingQuestionText();
 /// I5: the question a guest gets when the host gathers the party (party_gather.cpp).
 u32 GatherQuestionText();
+/// 0.7.3: the travel vote's question (party_vote.cpp), a run-time text: SetTravelVoteQuestion
+/// writes who wants the party to travel where (UTF-8 name, the lamp's game text) before it opens.
+u32 TravelVoteQuestionText();
+void SetTravelVoteQuestion(const std::string& who, const std::u16string& lamp);
 const std::vector<Page>& All();
 int FieldCount();
 

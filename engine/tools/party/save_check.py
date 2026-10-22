@@ -20,6 +20,11 @@ Checks, per guest:
           skipped as already given on the guest at least once.
   echoes  From the guest's log: the own Echoes / level the game reported never go down across a
           crash-restart except through a death (a lost save would show as a drop after "Boot").
+  saves   The guest's character saves (user/savedata_party or user/savedata, userdata0000..0009): a save
+          written in the host's world has an empty world-state section (docs/party/save_safety.md 5), which
+          save editors cannot read; the launcher's Export for save editor (scripts/save_editor.py) must
+          turn every save into one Noxde's editor reads (editor_check.py) and its import must give the
+          same bytes back: EDITOR when not.
 
 Exit status 0 = consistent, 1 = something lost or doubled, 2 = nothing to compare (no dumps / logs).
 The report names each missing flag with its category and each lot with the log line numbers.
@@ -29,6 +34,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flag_tool as ft  # noqa: E402
+import save_decode as sd  # noqa: E402
+import editor_check as ec  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+import save_editor as se  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 MUST = ("boss_defeated", "lamp_unlocked", "shortcut_door", "key_event", "cutscene_seen")
@@ -153,6 +162,41 @@ def check_echoes(guest_lines):
     return {"status": "ok" if not drops else "LOST", "restarts": boots, "drops": drops}
 
 
+def check_saves(folder):
+    """Every character save of the folder's game (user/savedata_party, else user/savedata): the export for
+    a save editor reads in the editor (editor_check) and its import gives the same bytes back."""
+    folder = Path(folder)
+    files = []
+    for d in ("savedata_party", "savedata"):
+        files = sorted((folder / "user" / d).glob("**/userdata000[0-9]"))
+        if files:
+            break
+    checked, guest, bad = 0, [], []
+    for f in files:
+        try:
+            data = f.read_bytes()
+        except OSError:
+            continue
+        if len(data) < 0x54 or not any(data[:16]):
+            continue  # an empty slot
+        checked += 1
+        try:
+            empty = se.world_empty(data)
+            out, changed = se.editor_copy(data)
+            back = se.restore_from_editor(out, changed)
+        except ValueError as ex:
+            bad.append(f"{f.name}: {ex}")
+            continue
+        if empty:
+            guest.append(f.name)
+        probs = ec.parse(out)["problems"]
+        if probs or back != data:
+            bad.append(f"{f.name}: " + ("; ".join(probs) if probs else "the import does not give the save back"))
+    if not checked:
+        return {"status": "no saves"}
+    return {"status": "EDITOR" if bad else "ok", "checked": checked, "guest_written": guest, "bad": bad}
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -179,7 +223,8 @@ def main():
         gs, gl = snapshots(folder), log_lines(folder)
         r = {"flags": check_flags(hs, gs, rows) if hs and gs else {"status": "no dumps (BB_PARTY_FLAG_DUMP=1)"},
              "items": check_items(hl, gl) if gl else {"status": "no log"},
-             "echoes": check_echoes(gl) if gl else {"status": "no log"}}
+             "echoes": check_echoes(gl) if gl else {"status": "no log"},
+             "saves": check_saves(folder) if folder.is_dir() else {"status": "no saves"}}
         report[folder.name] = r
         print(f"== {folder.name}")
         f = r["flags"]
@@ -212,7 +257,16 @@ def main():
                 print(f"  Echoes {before} (line {n0}) -> {after} (line {n1}) without a death")
         else:
             print(f"echoes: {e['status']}")
-        bad = bad or any(x.get("status") in ("LOST", "DOUBLED") for x in r.values())
+        sv = r["saves"]
+        if "checked" in sv:
+            compared = True
+            print(f"saves:  {sv['status']}: {sv['checked']} character save(s), {len(sv['guest_written'])} written in "
+                  f"the host's world (editors need the launcher's export)")
+            for line in sv["bad"]:
+                print("  " + line)
+        else:
+            print(f"saves:  {sv['status']}")
+        bad = bad or any(x.get("status") in ("LOST", "DOUBLED", "EDITOR") for x in r.values())
     if a.json:
         Path(a.json).write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
     if not compared:

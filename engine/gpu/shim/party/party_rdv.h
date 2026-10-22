@@ -16,7 +16,7 @@
 //
 // What this exposes: DHT nodes see the guest's IP and the host's lookups under an opaque hash
 // (like any torrent client). Only when needed (guest: TCP failed; host: no open port), and off
-// unless the player opts in (BB_PARTY_RENDEZVOUS=1 / System > Party members, on both PCs). A forged
+// unless the player opts in (BB_PARTY_RENDEZVOUS=1 / System > Party network, on both PCs). A forged
 // peer can only make the host send a few punch datagrams (the link still needs the party key);
 // punching is limited per endpoint.
 //

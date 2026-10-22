@@ -165,9 +165,7 @@ std::vector<std::uint32_t> StoryFlagsForRemo(std::uint32_t remo_id) {
     return out;
 }
 
-bool GuestSkipsScene(std::uint32_t remo_id) {
-    // The Gaol waking scene (common 9422) is the kidnapped host's own; a guest that arrives in the
-    // cell with the party keeps its flags (9423) but not the scene (user decision 2026-10-21).
+bool ReplayIgnoresCalm(std::uint32_t remo_id) {
     return BaseRemo(remo_id) == 28000010;
 }
 
@@ -536,6 +534,7 @@ void GuestStory::Build(const StoryIntent& s, bool mirror, bool summoned) {
     running_mirror_ = mirror;
     running_summoned_ = summoned && !mirror;
     op_started_ = false;
+    host_ended_ = end_mirror_ = false;
     auto push = [this](Op op) { ops_.push_back(std::move(op)); };
     if (mirror) {
         push({Op::Play, s.id, 2});
@@ -545,7 +544,10 @@ void GuestStory::Build(const StoryIntent& s, bool mirror, bool summoned) {
     }
     switch (s.kind) {
     case StoryKind::Cutscene: {
-        if ((!Seen(s.id) && !GuestSkipsScene(s.id)) || s.force) {
+        // The Gaol waking scene 28000010 too (user decision 2026-10-22, kidnapall: every member sees
+        // it, whoever was grabbed; it replaced 0.7.2's "guests skip it"): the guest's loading screen
+        // holds through the host's copy, then it plays here in the cell.
+        if (!Seen(s.id) || s.force) {
             // Summoned: the phantom path (mode 2) the live mirror uses; no warp variant.
             push({Op::Play, s.id, summoned ? 2u : 0u});
             push({Op::WaitRemoStart});
@@ -652,6 +654,7 @@ void GuestStory::Finish(bool ok) {
     running_ = false;
     running_mirror_ = false;
     running_summoned_ = false;
+    host_ended_ = end_mirror_ = false;
     ops_.clear();
     dirty_ = true;
 }
@@ -702,7 +705,7 @@ std::optional<StoryAction> GuestStory::RunOps(const StoryState& st, double now) 
             return std::nullopt;
         case Op::WaitRemoEnd:
             if (!st.remo_playing || now - op_since_ > kRemoTimeout) {
-                const bool cut = running_mirror_ && !st.remo_playing && now - op_since_ < kMirrorMinSeen;
+                const bool cut = running_mirror_ && !host_ended_ && !st.remo_playing && now - op_since_ < kMirrorMinSeen;
                 if (cut) {
                     mirror_cut_ = BaseRemo(cur_.id);
                 }
@@ -883,10 +886,16 @@ std::optional<StoryAction> GuestStory::Step(const StoryState& st, double now) {
     // leaves the host's world by the lamp warp to its own Hunter's Dream (a client's warp loads
     // its own world, as every B1 travel follow does) and the ending program runs there - the
     // native ending step, staff roll, NG+. The director rings no bell while it runs (Busy).
-    if (!queue_.empty() && summoned_replay && !st.own_world && stable_mirror_ >= kStableTicks && st.calm &&
-        !st.remo_playing) {
+    const bool waking_queued = std::any_of(queue_.begin(), queue_.end(), [](const StoryIntent& q) {
+        return q.kind == StoryKind::Cutscene && ReplayIgnoresCalm(q.id);
+    });
+    if (!queue_.empty() && summoned_replay && !st.own_world && stable_mirror_ >= kStableTicks &&
+        (st.calm || waking_queued) && !st.remo_playing) {
         for (auto it = queue_.begin(); it != queue_.end(); ++it) {
             if (it->kind == StoryKind::Ending) {
+                continue;
+            }
+            if (!st.calm && !(it->kind == StoryKind::Cutscene && ReplayIgnoresCalm(it->id))) {
                 continue;
             }
             // A scene of another map waits (for its map, or for the own world as before): played
@@ -1073,6 +1082,7 @@ double Now() {
 std::atomic<bool> g_story_on{false};
 std::atomic<double> g_last_ending_at{0};
 std::atomic<u64> g_seq{0};
+std::atomic<u32> g_last_remo{0};  // the last remo a 2002 play / our play asked for (the test aid's log)
 u64 NextSeq() {
     u64 cur = g_seq.load();
     if (cur == 0) {
@@ -1211,6 +1221,11 @@ BB_COOP_SYSV void RemoHandlerEntry(u64, u64 event, u64, u64, u64, u64) {
             SafeGet(event + 0x28, &gev);
             SafeGet(event + 0x68, &gmap);
             Log("guest: EMEVD 2002[%d] (remo) from event %u, map %08x, own world %d", gid, gev, gmap, int(OwnWorld()));
+            {
+                u64 a0 = 0;
+                u32 r0 = 0;
+                if (SafeGet(event + 0xb8, &a0) && a0 && SafeGet(a0, &r0) && r0) g_last_remo.store(r0);
+            }
             // A scene of the guest's own world (e.g. its own first Dream): a later catch-up replay
             // of the host's copy keeps the flags but does not play it again.
             u64 own_args = 0;
@@ -1308,6 +1323,7 @@ BB_COOP_SYSV void RemoHandlerEntry(u64, u64 event, u64, u64, u64, u64) {
     s.instr = static_cast<u32>(id);
     s.id = rd32(0);
     s.mode = rd32(4);
+    g_last_remo.store(s.id);
     SafeGet(event + 0x28, &s.event_id);
     SafeGet(event + 0x68, &s.map);
     switch (id) {
@@ -1410,6 +1426,7 @@ bool Calm(double now) {
 void Run(const StoryAction& a) {
     switch (a.kind) {
     case StoryAction::PlayRemo: {
+        g_last_remo.store(a.id);
         const u64 ok = reinterpret_cast<PlayRemoFn>(Guest(kPlayRemo))(0, a.id, a.mode, 0xffffffffu, 0xffffffffu,
                                                                        static_cast<u32>(g_player_arg));
         Log("%s: remo %u mode %u player %d -> %s", a.why.c_str(), a.id, a.mode, g_player_arg,
@@ -1991,6 +2008,14 @@ static void GuestHeldSceneTick(const GameSnapshot& g, const StoryState& st, doub
     g_mirrored[due->event_id] = now;  // the event's 2002 again (a rerun) is a duplicate too
 }
 
+void StoryHostSceneEnded() {
+    if (!g_story_on.load() || Role() != PartyRole::Guest) {
+        return;
+    }
+    std::lock_guard<std::mutex> lk(g_guest_mu);
+    g_guest.HostSceneEnded();
+}
+
 bool StoryMirrorPlaying() {
     return g_mirror_playing.load(std::memory_order_relaxed);
 }
@@ -2096,6 +2121,36 @@ void StoryTick() {
             }
         }
         g_tick.remo_was_playing = st.remo_playing;
+    }
+    bool end_mirror;
+    {
+        std::lock_guard<std::mutex> lk(g_guest_mu);
+        end_mirror = g_guest.TakeEndMirror();
+    }
+    if (end_mirror && st.remo_playing) {
+        // The host's scene is over (its end or its skip): the mirror of it ends here too, as the
+        // game's skip ends a scene (its end actions run); it counts as seen.
+        bool skippable = false;
+        const bool ok = EndRemoNow(&skippable);
+        Log("the host's cutscene ended: the live mirror of remo %u ends here too after %.1f s (%s, skippable bit %d)",
+            g_last_remo.load(), now - g_tick.remo_since, ok ? "ended" : "NOT possible", skippable ? 1 : 0);
+    }
+    // Test aid (BB_TEST_REMO_SKIP_AFTER=S, off by default): every remo on this game is skipped
+    // after S s of it, the game's own skip / end path (a faster smoke: the scene played, its end
+    // actions still run).
+    static const double skip_after = [] {
+        const char* v = std::getenv("BB_TEST_REMO_SKIP_AFTER");
+        return v && *v ? std::atof(v) : 0.0;
+    }();
+    static double skip_tried_at = 0;
+    if (skip_after > 0 && st.remo_playing && now - g_tick.remo_since >= skip_after &&
+        now - skip_tried_at >= 1.0) {
+        const bool first = skip_tried_at < g_tick.remo_since;
+        skip_tried_at = now;
+        bool skippable = false;
+        const bool ok = EndRemoNow(&skippable);
+        Log("test: remo %u skipped after %.0f s%s (%s, skippable bit %d)", g_last_remo.load(), skip_after,
+            first ? "" : " (again: still playing)", ok ? "the game's skip / end" : "NOT possible", skippable ? 1 : 0);
     }
     HostPlayGuestStory(g, st);  // D10: a guest's cutscene, for everyone
     if (role == PartyRole::Guest) {

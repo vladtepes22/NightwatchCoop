@@ -108,9 +108,11 @@ std::vector<std::uint32_t> StoryFlagsForRemo(std::uint32_t remo_id);
 /// The scene changes the guest's world or is a story scene it must see even if it missed the
 /// live mirror (boss intros etc. are mirror-only).
 bool ReplayWorthy(const StoryIntent& s);
-/// A scene a guest's replay skips while keeping its flags / time of day: the kidnapped host's
-/// Gaol waking scene 28000010 (the guests were not kidnapped).
-bool GuestSkipsScene(std::uint32_t remo_id);
+/// A summoned replay that does not wait for `calm` (no HP lost lately): the Gaol waking scene
+/// 28000010 (kidnapall): a grabbed guest arrives in the cell from its own death (its HP back on
+/// the load), and the cell holds no enemy; it plays as soon as the guest stands there (live run 1:
+/// the calm wait left the grabbed guest 9 s in the cell before its scene).
+bool ReplayIgnoresCalm(std::uint32_t remo_id);
 /// A remo id the game has: remo/sAA_BB_NNNN.remobnd.dcx or an EMEVD 2002 play (party_ids.h,
 /// generated from the game data by tools/party/ids_tool.py). Anything else would make the
 /// guest's game look for a file that is not there.
@@ -263,6 +265,21 @@ public:
     bool Running() const { return running_; }
     /// A live mirror of the host's scene is the running item.
     bool RunningMirror() const { return running_ && running_mirror_; }
+    /// The host's own scene ended (its cutscene hold, A11, is over: a natural end or a skip): a
+    /// running live mirror ends here too (TakeEndMirror) and counts as seen even when that cut it
+    /// before kMirrorMinSeen (the host skipped it: no catch-up replay of it later).
+    void HostSceneEnded() {
+        if (running_ && running_mirror_) {
+            host_ended_ = true;
+            end_mirror_ = true;
+        }
+    }
+    /// Once: the running live mirror should end now (HostSceneEnded).
+    bool TakeEndMirror() {
+        const bool e = end_mirror_ && running_ && running_mirror_;
+        end_mirror_ = false;
+        return e;
+    }
     std::uint64_t LastSeq() const { return last_seq_; }
     /// User decision (2026-10-15): the host's ending asks each guest first. YES: `ending` (see
     /// GuestEndingType) replays in the own Dream (staff roll, NG+ in the own save) as before;
@@ -334,6 +351,7 @@ private:
     bool dirty_ = false;
 
     bool running_ = false, running_mirror_ = false, running_summoned_ = false;
+    bool host_ended_ = false, end_mirror_ = false;  ///< HostSceneEnded
     StoryIntent cur_{};
     std::deque<Op> ops_;
     double op_since_ = 0;
@@ -471,6 +489,8 @@ void RequestGuestStory(const StoryIntent& s);
 bool StoryMirroredEvent(std::uint32_t event_id);
 /// Guest: a live mirror of the host's cutscene is playing on this game right now (any thread).
 bool StoryMirrorPlaying();
+/// Guest (any thread): the host's cutscene hold ended (A11 left "cutscene"): a live mirror ends too.
+void StoryHostSceneEnded();
 /// Guest, the EMEVD dispatch (party_b2 ClientIntroSkip): this game's own 2002[`id`] of event
 /// `event_id` (SprjEmkEventIns `event`, instruction record `instr`) is a boss intro the host plays
 /// (HoldOwnSceneForHost): true = skip it here; the host's copy plays as the live mirror (or this

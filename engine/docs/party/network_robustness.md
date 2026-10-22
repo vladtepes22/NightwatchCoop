@@ -213,7 +213,7 @@ on 127.0.0.1.
   `party_rdv.h`, `party_traversal.h`). Without any server of ours, the guest's public UDP endpoint
   reaches the host through the public BitTorrent DHT (BEP 5 "mainline", as any torrent client
   uses). **Off by default** (user decision 2026-10-14: it posts the guest's IP on public DHT
-  nodes): launcher *Party* tab *Find each other through the public DHT* or *System > Party members*
+  nodes): launcher *Party* tab *Find each other through the public DHT* or *System > Party network*
   (`BB_PARTY_RENDEZVOUS=1/0`, which wins over bbport.ini `party_rendezvous`; unset = the ini,
   default 0). Host **and** guest need it on. Off, the host's *Network* line says "with their guest
   code (Add a guest code; automatic punching is off: turn on the DHT option on both PCs ...)" and

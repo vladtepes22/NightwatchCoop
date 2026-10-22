@@ -269,17 +269,27 @@ inline FallReviveStep PlanFallReviveStep(bool death_taken, bool body_far_below, 
 /// respawn load after a death out of the world lands in the Hunter's Dream, as single player does):
 /// with neither lamp in the loaded map, its last safe floor. `inplace_on` off (a guest's System >
 /// Deaths & revives) or no fall: the respawn as before.
-enum class FallRespawn { OwnLamp, HostLamp, SafeFloor, Respawn };
+/// chalicelamp (a guest's report, "I died on the elevator, got teleported above the dungeon"): in a
+/// Chalice Dungeon the lamps' spots are not in the party's table (LampTableSpotTrusted: the layout is
+/// generated; the template's spot for lamp 2902954 was 180 m off, in the air) and the last safe floor
+/// may be a lift car that has since moved on (the report's first death: the car's top stop). There a
+/// guest's fall gets up beside the nearest living member (`dungeon_member`: in a dungeon outside a
+/// boss fight, party_chalice_rejoin on, a living member here), a spot a living chr stands on.
+enum class FallRespawn { OwnLamp, HostLamp, SafeFloor, Respawn, BesideMember };
 inline const char* FallRespawnName(FallRespawn f) {
-    return f == FallRespawn::OwnLamp    ? "its own last lamp"
-           : f == FallRespawn::HostLamp ? "the host's last lamp"
-           : f == FallRespawn::SafeFloor ? "its last safe floor (no lamp in the loaded map)"
-                                         : "the respawn as before";
+    return f == FallRespawn::OwnLamp        ? "its own last lamp"
+           : f == FallRespawn::HostLamp     ? "the host's last lamp"
+           : f == FallRespawn::SafeFloor    ? "its last safe floor (no lamp in the loaded map)"
+           : f == FallRespawn::BesideMember ? "beside the nearest living member (Chalice Dungeon)"
+                                            : "the respawn as before";
 }
 inline FallRespawn PlanFallRespawn(bool fall_death, bool inplace_on, bool own_lamp_here, bool host_lamp_here, bool safe_ok,
-                                   bool host_role) {
+                                   bool host_role, bool dungeon_member = false) {
     if (!fall_death || !inplace_on) {
         return FallRespawn::Respawn;
+    }
+    if (dungeon_member && !host_role) {
+        return FallRespawn::BesideMember;
     }
     if (own_lamp_here) {
         return FallRespawn::OwnLamp;
@@ -917,9 +927,12 @@ inline GuestLamp PlanGuestLamp(bool guest_in_host_world, bool at_lamp_spot, bool
 /// live E2): a guest's lamp of the map the party stands in (its own loading screen, `same_map_solo`)
 /// is a rest too - before, its reload brought the host's kills back to life on the guest's screen
 /// only (guest census 327 alive, host 325) while the host's world kept them dead.
-inline bool GuestAloneRestsHostWorld(bool alone, bool same_map_solo) {
+/// 0.7.3 (user decision 2026-10-22: "only the host's own rest resets the world"): a guest that
+/// leaves the Hunter's Dream alone (`from_dream`: a headstone, NO) never rests the host's world;
+/// its trip is a plain travel for the guest (the dreamstone da run gave the host a rest load).
+inline bool GuestAloneRestsHostWorld(bool alone, bool same_map_solo, bool from_dream) {
     (void)same_map_solo;
-    return alone;
+    return alone && !from_dream;
 }
 
 // ---- The host runs a rest load for a guest's rest ----
@@ -1082,6 +1095,38 @@ inline bool TestDieStepLatches(bool die_step, bool own_alive, bool world_up, boo
     return die_step && !own_alive && world_up && !rejoin_running && !prev_was_die;
 }
 
+/// Test aid BB_PARTY_TEST_GUARD=1 (smoke rt, testinfra 0.7.3): after each death of this player, once
+/// it is up again, its chr is kept invincible until the chain's next step that asks for a death (a
+/// die step, or a chr step: stand at an enemy to be killed by it). A frail guest revived next to the
+/// enemy that killed it (the stain test warps it onto its stain) was killed again by the same enemy
+/// before the host's kill step, which shifted every later death (rel2 0.7.2: death 2 by 2410202).
+struct TestGuard {
+    bool died = false;  // seen at HP 0 since the last step that asks for a death
+    bool on = false;    // up again after that death: invincible
+};
+/// One tick: hp = the own chr's HP (-1: no chr). True while the chr is to be invincible.
+inline bool TestGuardTick(TestGuard& g, int hp, bool world_up) {
+    if (!world_up || hp < 0) return false;
+    if (hp == 0) {
+        g.died = true;
+        g.on = false;
+        return false;
+    }
+    if (g.died) {
+        g.died = false;
+        g.on = true;
+    }
+    return g.on;
+}
+/// A step of the chain runs: a die / chr step ends the guard. True when it was on (clear the bit).
+inline bool TestGuardStepRan(TestGuard& g, bool death_step) {
+    if (!death_step) return false;
+    const bool was = g.on;
+    g.on = false;
+    g.died = false;
+    return was;
+}
+
 // ---- Own bloodstain record (GameDataMan +0x28 flag, +0x30 record +0x38 echoes) ----
 enum class StainChange { None, Recorded, Taken, Replaced };
 inline const char* StainChangeName(StainChange c);
@@ -1098,6 +1143,57 @@ inline StainChange PlanStainChange(int flag_was, int echoes_was, int flag_now, i
         return StainChange::Replaced;
     }
     return StainChange::None;
+}
+
+// ---- Blood Echoes an enemy took (echodup, player report for 0.7.3) ----
+// Vanilla: the stain object (SprjEventMan +0x80 [+8]) is given to a living enemy near it while the
+// player is away (0x18686D0, every few s and at each load: enemy vfunc 0x18E75A0 sets the stain
+// object's +0xC0 "held", the chr's +0x1E5 bit 0x20 and SpEffect 5100, the glowing eyes; the live
+// stain goes). That enemy's death (0x18C59D0 from the death path 0x18BD9D0) clears the hold and the
+// record's flag (GameDataMan +0x28) and pays the record (0x130AB80: +0x38 into the echoes, then
+// +0x38 = -1). The party stain (a guest's stain in the host's world, the marker) copies the record,
+// and the game builds that stain on the guest's game too, so the enemy took it there: the kill paid
+// the echoes and the party stain paid them again. One recovery only:
+enum class StainHold { Free, Held, Void };
+/// `record_is_stain`: the game's record holds this party stain's echoes; `hold_flag`: the
+/// stain object's +0xC0; `holder_alive`: a living loaded enemy with the holder bit;
+/// `holder_gone_for`: seconds since one was last seen (the hold may outlive it for a moment while
+/// its death runs). Held: the enemy has the echoes (no marker on the ground, no pickup there: kill
+/// it). Void: the hold outlived its enemy (unloaded, or a death the game did not pay): the party
+/// stain is recoverable again, once.
+inline StainHold PlanStainHold(bool record_is_stain, int hold_flag, bool holder_alive, double holder_gone_for,
+                               double grace = 10.0) {
+    if (!record_is_stain || hold_flag == 0) {
+        return StainHold::Free;
+    }
+    if (holder_alive || holder_gone_for < grace) {
+        return StainHold::Held;
+    }
+    return StainHold::Void;
+}
+/// The game paid the record (an enemy's kill, or its own stain picked up; both 0x130AB80, which
+/// leaves the record's echoes -1): the record held this stain's echoes the last frame
+/// (`was_stain`), now other echoes, and the echoes came back (`gain` within a few s, at least half).
+/// The record's flag is not used: a summoned load drops it (pard2 c10) while the hold and its kill
+/// payment go on. The party stain then goes: no second payment.
+inline bool StainTakenByGame(bool was_stain, int record_echoes_now, int stain_echoes, int gain) {
+    if (!was_stain || stain_echoes <= 0) {
+        return false;
+    }
+    return record_echoes_now != stain_echoes && gain >= std::max(1, stain_echoes / 2);
+}
+/// The stain object's hold reads 0 (live eh2: 2 s after the take; the stain stood on the ground
+/// again) while a living enemy still has the holder bit and the glowing eyes (its kill pays the
+/// record): the hold is put back, so the echoes have one place again (that enemy), as in vanilla.
+inline bool RestoreHold(bool record_is_stain, int hold_flag, bool holder_alive) {
+    return record_is_stain && hold_flag == 0 && holder_alive;
+}
+/// A new death's record while an enemy still holds the old echoes (a no-load revive keeps that
+/// enemy alive): the old hold is released first (vanilla: the old echoes are lost, and the death's
+/// load brings that enemy back without them); else the new stain is never built (0x1868A50 builds
+/// none while held) and the old holder's kill would pay the new echoes.
+inline bool ReleaseHoldAtDeath(bool death_record, int hold_flag) {
+    return death_record && hold_flag != 0;
 }
 
 /// Verification replay (playtest 1, 2026-10-14): a guest's own body comes out of a B2 host-world

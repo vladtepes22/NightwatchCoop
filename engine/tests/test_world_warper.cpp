@@ -22,7 +22,7 @@ static int g_failures = 0;
 
 static bool Spot(std::uint32_t rp) {
     float sp[4];
-    return coop::ids::ReturnSpot(rp, sp);
+    return coop::ids::TemplateReturnSpot(rp, sp);
 }
 
 int main() {

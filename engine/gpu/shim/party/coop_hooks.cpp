@@ -4,6 +4,9 @@
 #include "coop_hooks.h"
 
 #include <array>
+#include <chrono>
+#include <condition_variable>
+#include <thread>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -243,7 +246,22 @@ bool PrologueOk(u64 off, std::initializer_list<u8> prologue, const char* name) {
 
 } // namespace
 
+namespace {
+std::mutex g_done_mu;
+std::condition_variable g_done_cv;
+bool g_done = false;
+std::thread::id g_patch_thread;
+bool g_patch_thread_set = false;
+} // namespace
+
 bool HooksInit(unsigned char* image, u64 size) {
+    {
+        std::lock_guard<std::mutex> dl(g_done_mu);
+        if (!g_patch_thread_set) {
+            g_patch_thread = std::this_thread::get_id();  // the image patching thread (WaitImageHooksDone)
+            g_patch_thread_set = true;
+        }
+    }
     std::lock_guard<std::mutex> lk(g_mu);
     if (!image || !size) {
         return false;
@@ -287,6 +305,21 @@ void NoteInstalled(u64 off, const char* name) {
 std::vector<std::string> InstalledHooks() {
     std::lock_guard<std::mutex> lk(g_mu);
     return g_installed;
+}
+
+void MarkImageHooksDone() {
+    {
+        std::lock_guard<std::mutex> lk(g_done_mu);
+        g_done = true;
+    }
+    g_done_cv.notify_all();
+}
+
+bool WaitImageHooksDone(int ms) {
+    std::unique_lock<std::mutex> lk(g_done_mu);
+    if (g_done) return true;
+    if (g_patch_thread_set && g_patch_thread == std::this_thread::get_id()) return false;
+    return g_done_cv.wait_for(lk, std::chrono::milliseconds(ms), [] { return g_done; });
 }
 
 bool MatchesOriginal(u64 off, const u8* bytes, std::size_t n) {

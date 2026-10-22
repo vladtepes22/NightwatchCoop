@@ -11,8 +11,11 @@ Addresses are our offsets (raw ELF VA of `out/eboot.elf`, 1.09).
 The host's settings are the party's: `balance::Tick` (director tick, party mode) posts EVENT
 `balance` `{"rot":true,"boss_hp":150,...}` to every guest on change and every 15 s (late joiners);
 the guest's runtime hands it to `balance::OnHostRules` (JSON parsed with limits, every value clamped
-to the menu's range). A guest uses its own settings until the first event arrives. The menu's help
-lines say "(host decides)" on a guest. `BB_PARTY_BALANCE=0`: nothing (no hook, no param write, no
+to the menu's range). The host also sends it at once when a guest connects (0.7.3), so a guest
+uses its own settings only until that first event arrives. On a guest every rule is a read-only line
+with the host's value (System > Party rules: Enemies: "The host's setting: ...", from
+`party_status::HostScaling`; the overlay's Party tab: notes); the guest's own `bbport.ini` values
+are never changed by the host's and count again when it hosts. `BB_PARTY_BALANCE=0`: nothing (no hook, no param write, no
 event).
 
 ## 2. D7: enemy scaling
@@ -41,7 +44,7 @@ the code (docs/party/four_players.md section 4):
 
 ### 2.2 Settings
 
-System > Enemy scaling: six sliders (boss / enemy health, damage, poise; the help line shows the
+System > Party rules: Enemies: six sliders (boss / enemy health, damage, poise; the help line shows the
 value), also in the overlay's Party tab and bbport.ini. The page layout the port uses
 ("ControllSetting") has six rows; the System list itself scrolls, and the port's page cap
 (MaxPages, one factory per page: our own constant, not the game's) is now 16. Live 2026-10-11
@@ -156,14 +159,14 @@ stamina cost, rally and item discovery (see the table).
   "Rot 1/5: stamina costs +10 %" under the party HUD after the respawn (screenshots); the Party
   page row is unit-tested (game-menu-pages-test), not seen live.
 - Kept in `<user>/party_rot.txt` across restarts. Party mode only; host and guests alike; the
-  host's on/off is the party's. Setting: System > Rot > "Rot on death" (0.7.2: its own page; before on Deaths & revives) (and the overlay's Party tab, the
-  launcher's Party Rules & Sync). Off by default since 0.7.2 (user decision 2026-10-22; on 0.6.0 - 0.7.1): an unset
+  host's on/off is the party's. Setting: System > Party rules: Rot > "Rot on death" (0.7.2: its own page; before on Deaths & revives) (and the overlay's Party tab, the
+  launcher's Party Rules tab). Off by default since 0.7.2 (user decision 2026-10-22; on 0.6.0 - 0.7.1): an unset
   `party_rot` is off. The game's settings save (`BbSettings::Save`) wrote every key, so 0.6.0 - 0.7.1 left
   `party_rot=1` in most bbport.ini files unchosen: bbport.ini `settings_rev` 1 (`kSettingsRev`, launcher
   `INI_SETTINGS_REV`) sets `party_rot=0` once, in the game's settings load or the launcher's start, whichever comes
   first (coordinator decision 2026-10-22); a later explicit 1 stays.
 - 0.7.2, what else cleanses it (`party_rot_rules.h`, unit test `party-rot-test`; three host rules on by default, rows
-  under "Rot on death" on System > Rot, ini `party_rot_cleanse_boss` / `_killer` / `_echoes`, an older host's rules: off). The
+  under "Rot on death" on System > Party rules: Rot, ini `party_rot_cleanse_boss` / `_killer` / `_echoes`, an older host's rules: off). The
   `Ledger` keeps one entry per death that added a stack: its kind, its killer (entity id / chr / census key) and
   whether its killer still lives (this world) and its bloodstain is still there (the last death's only).
   - boss: the game's boss clear here (`BossBonusHook`, 0x1335400 with the boss entity) or the host's boss notice
@@ -186,7 +189,7 @@ stamina cost, rally and item discovery (see the table).
 
 ERSC `overhead_player_display`: normal / none / ping / level / death count. Ours: the party HUD's
 name tags (projected with the game camera above each companion in view, 1-80 m), now a setting of
-their own, independent of the HUD panel: System > Party display > "Above companions": Nothing / Name
+their own, independent of the HUD panel: System > My party: Display > "Above companions": Nothing / Name
 / Name and level ("Hunter1  Lv 37") / Name and health (default, the HP bar as before) / Name and
 deaths ("Hunter0  deaths 1, rot 1"). Local only. Bloodborne itself draws a phantom plate
 (FrpgMenuDlgFloatingPCGauge: blue role line, name, thin HP bar), but hides it whenever anything is

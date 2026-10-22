@@ -12,6 +12,7 @@
 #include "party_ids.h"
 #include "party_stick_args.h"
 #include "party_balance.h"
+#include "party_npcfight.h"
 #include "party_async_io.h"
 
 #include "coop_hooks.h"
@@ -33,6 +34,7 @@
 #include "party_guestsvc.h"
 #include "party_split.h"
 #include "party_gather.h"
+#include "party_vote.h"
 #include "lamp_travel.h"
 #include "party_phantom.h"
 #include "party_start.h"
@@ -206,6 +208,7 @@ struct TravelStep {
     int min_coop = 0;     // "^N" (host): not before the host's game has N cooperators; S counts from then
     int coop_rise = 0;    // "^N*K": ... and only once the count has risen to N for the K-th time
     bool alive = false;   // "!" on a press step: waits as a step with the own chr (alive, world up)
+    bool out_ok = false;  // "&" on a %MAP step: also runs out of the party (after a Leave: the own world)
     // "?FLAG=V" at the end (liftfall): not before event flag FLAG reads V on this game; S counts from
     // then (e.g. a lift's position flag at the end of its ride: no fixed wait for the ride's length)
     std::uint32_t wait_flag = 0;
@@ -347,7 +350,7 @@ struct Test {
     alignas(16) float pin_pos[4] = {0, 0, 0, 1}, pin_rot[4] = {0, 0, 0, 0};
     std::size_t obj_seen_step = ~std::size_t(0);  // "?obj=": the step whose ANIM was seen playing
     // liftfix: a step's "?FLAG=V" / "?near=" / "?obj=" condition that never comes true: after
-    // kCondTimeout s the chain jumps to its last step (conditions skipped), so the run ends on its
+    // kCondTimeout s (BB_PARTY_TEST_COND_TIMEOUT, default 240) the chain jumps to its last step (conditions skipped), so the run ends on its
     // marker instead of idling; logged "condition timed out".
     std::size_t cond_step = ~std::size_t(0);
     Clock::time_point cond_since{};
@@ -363,6 +366,8 @@ struct Test {
     // after the world was steady again with a cooperator, counted from here.
     Clock::time_point steady_at{};
     bool steady = false;
+    Clock::time_point world_at{};  // the own world up and not loading since ("&" steps out of the party)
+    bool world = false;
     // The game's cutscenes (a step ending in "~" counts from the end of one).
     bool scene_on = false;
     Clock::time_point scene_end_at{};
@@ -437,6 +442,7 @@ struct State {
     bool start_prologue = false;
     bool left_first_dream = false; // seen out of the Dream with both weapons (party_start.h)
     bool granted = false; // bells granted (or found owned) in this world
+    bool weapons_checked = false; // StartWeaponFlagsToClear ran in this world (own world only)
     Clock::time_point last_hosting{}; // host: when its session role last was host (3): travel audience
     // Title "Continue" (AutoContinue).
     bool continue_done = false, continue_held = false;
@@ -725,10 +731,27 @@ void UpdateStart(State& st, const GameSnapshot& s, StartMode mode) {
     }
     if (in_world) {
         TestPrologueTick(s);
+        if (!st.weapons_checked && progress::FlagLoadMode() == 0 &&
+            (s.session_role == RoleIdle || s.session_role == RoleHost)) {
+            // Only the own save in view (load mode 0): leaving a host's world, the overlay is still
+            // loaded for a moment (session role 7) and a write there is gone after the home load.
+            // 0.7.3: a starting weapon pick synced in from another player's save (12101020 / 21
+            // were npc_quest before): done without a pick of its own hides this player's
+            // messengers for good. Cleared in the own save, the messengers offer the weapons at
+            // the next Dream load.
+            st.weapons_checked = true;
+            for (const std::uint32_t id : StartWeaponFlagsToClear(&ReadEventFlag)) {
+                const bool ok = WriteEventFlag(id, false);
+                Log("start: starting weapon flag %u was set without a pick of this player's own (another "
+                    "player's pick, synced by an older build): %s; the Dream's messengers offer the weapon again",
+                    id, ok ? "cleared" : "NOT cleared");
+            }
+        }
         st.cs = ReadStartFlags();
     } else if (!s.world_up) {
         st.cs = StartFlags{};
         st.granted = false;
+        st.weapons_checked = false;
         if (!s.loading) {
             st.left_first_dream = false;  // the title: another save may come next
             st.start_prologue = false;
@@ -1569,7 +1592,16 @@ void RunTravelScript(State& st, const GameSnapshot& s, Clock::time_point now) {
 /// id chr +0x3B8, HP +0xF8; PickEnemyKillTarget), so it is loaded and alive here. The kill: Lua
 /// ForceDead by entity id (`by_id`: a boss's own defeat path), then, if HP is still above 0, the
 /// death path 0x18BF9A0 on the chr itself, then HP 0 (the game's own death follows).
-void KillLoadedEnemyForTest(const char* what, std::uint32_t want, bool by_id, bool hp_only = false) {
+/// The HP a ':hp' step writes: 0 (a lethal hit), or with ':hpNN' NN % of the chr's max HP (D11
+/// proof: an NPC hunter's HP below its event's ratio, e.g. Alfred's 90 % in 12500053, as a fight
+/// leaves it; the chr lives on).
+int TestHpValue(std::uint64_t data, int pct) {
+    int max = 0;
+    if (pct <= 0 || !data || !SafeGet(data + 0xfc, &max) || max <= 0) return 0;
+    return std::max(1, int(std::int64_t(max) * std::min(pct, 99) / 100));
+}
+
+void KillLoadedEnemyForTest(const char* what, std::uint32_t want, bool by_id, bool hp_only = false, int hp_pct = 0) {
     const auto list = balance::LoadedEnemies();
     float me[3] = {};
     const std::uint64_t player = LocalPlayer();
@@ -1577,20 +1609,24 @@ void KillLoadedEnemyForTest(const char* what, std::uint32_t want, bool by_id, bo
     int alive = 0;
     for (const auto& e : list) alive += e.alive ? 1 : 0;
     const int k = have_me || want ? PickEnemyKillTarget(list, want, me, 500.0f) : -1;
-    if (k < 0 && want && EnemyIsBossEntity(want) && hp_only) {
+    if (k < 0 && want && hp_only) {
         // ':hp' on a boss outside the census: its chr by entity id (0x13C97A0, as the boss clear
         // bonus 0x1335400 finds it) and HP 0 only: the game's own death and defeat path (a "real
-        // kill" without ForceDead; statsaudit finding 4).
+        // kill" without ForceDead; statsaudit finding 4). The same for an NPC hunter (D11: not team
+        // 23, so not in the census: Henryk, Eileen, the DLC hunters).
         const std::uint64_t chr =
             reinterpret_cast<std::uint64_t(BB_COOP_SYSV*)(std::int32_t, std::uint64_t, std::uint64_t)>(Guest(0x13c97a0))(
                 std::int32_t(want), 0, 0);
         std::uint64_t ins = 0, d = 0;
         const int hp0 = chr ? balance::EnemyHp(chr) : -1;
-        const int zero = 0;
-        if (chr && SafeGet(chr + 0x3b0, &ins) && ins && SafeGet(ins + 0x20, &d) && d) SafeWrite(d + 0xf8, &zero, 4);
-        Log("test: %s: boss entity %u (chr %#llx, not in the census list): HP %d -> %d (HP 0 only: the game's own death "
-            "follows)",
-            what, want, static_cast<unsigned long long>(chr), hp0, chr ? balance::EnemyHp(chr) : -1);
+        if (chr && SafeGet(chr + 0x3b0, &ins) && ins && SafeGet(ins + 0x20, &d) && d) {
+            const int v = TestHpValue(d, hp_pct);
+            SafeWrite(d + 0xf8, &v, 4);
+        }
+        Log("test: %s: %s entity %u (chr %#llx, not in the census list): HP %d -> %d (%s)", what,
+            EnemyIsBossEntity(want) ? "boss" : "NPC", want, static_cast<unsigned long long>(chr), hp0,
+            chr ? balance::EnemyHp(chr) : -1,
+            hp_pct > 0 ? "HP set only: the chr lives on" : "HP 0 only: the game's own death follows");
         return;
     }
     if (k < 0 && want && by_id && EnemyIsBossEntity(want)) {
@@ -1630,11 +1666,13 @@ void KillLoadedEnemyForTest(const char* what, std::uint32_t want, bool by_id, bo
     const char* how = "none";
     if (hp_only) {
         // ':hp': only HP 0, the state a lethal hit leaves: the chr's own update runs its death.
-        const int zero = 0;
         std::uint64_t ins = 0, d = 0;
-        if (SafeGet(t.chr + 0x3b0, &ins) && ins && SafeGet(ins + 0x20, &d) && d) SafeWrite(d + 0xf8, &zero, 4);
-        Log("test: %s: entity %u HP %d -> %d (HP 0 only: the game's own death follows)", what, t.entity, hp0,
-            balance::EnemyHp(t.chr));
+        if (SafeGet(t.chr + 0x3b0, &ins) && ins && SafeGet(ins + 0x20, &d) && d) {
+            const int v = TestHpValue(d, hp_pct);
+            SafeWrite(d + 0xf8, &v, 4);
+        }
+        Log("test: %s: entity %u HP %d -> %d (%s)", what, t.entity, hp0, balance::EnemyHp(t.chr),
+            hp_pct > 0 ? "HP set only: the chr lives on" : "HP 0 only: the game's own death follows");
         return;
     }
     if (by_id && t.entity) {
@@ -1824,6 +1862,17 @@ void TargetAnimTick(Test& t, Clock::time_point now) {
 void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::time_point now) {
     Test& t = st.test;
     TargetAnimTick(t, now);
+    // BB_PARTY_TEST_GUARD=1 (test aid, smoke rt): invincible from each revive until the next die /
+    // chr step (deathrules::TestGuard); set every tick (the revive and the stain warp reset it).
+    static const bool guard_env = std::getenv("BB_PARTY_TEST_GUARD") && std::getenv("BB_PARTY_TEST_GUARD")[0] == '1';
+    static deathrules::TestGuard guard;
+    if (guard_env) {
+        const bool was = guard.on;
+        if (deathrules::TestGuardTick(guard, b2::LocalHp(), s.world_up && !s.loading)) {
+            SetTestInvincible(true);
+            if (!was) Log("test: guard (BB_PARTY_TEST_GUARD): up again after a death: invincible until the next die / chr step");
+        }
+    }
     if (t.pin_until != Clock::time_point{}) {
         // ":pin=S": the chr kept at the move's spot every frame until the floor's collision is in.
         const std::uint64_t player = LocalPlayer();
@@ -1901,6 +1950,10 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
     // Steady world with the party (HostKill's clock): restarts at every load / leave.
     // Split travel: members apart (no cooperator here) still count as the party being together.
     const bool steady = (joined || b2::MembersApart() > 0) && s.world_up && !s.loading;
+    if (const bool world = s.world_up && !s.loading; world != t.world) {
+        t.world = world;
+        t.world_at = now;
+    }
     if (steady != t.steady) {
         t.steady = steady;
         t.steady_at = now;
@@ -1989,7 +2042,13 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
     if (t.next_step < t.steps.size() &&
         (t.steps[t.next_step].wait_flag || t.steps[t.next_step].wait_near || t.steps[t.next_step].wait_obj) &&
         !t.cond_skip) {
-        constexpr double kCondTimeout = 45.0;
+        // BB_PARTY_TEST_COND_TIMEOUT (s, default 240: above every smoke phase's longest wait, e.g. a
+        // boss scene and fight; liftfix's rh / rs set 45).
+        static const double kCondTimeout = [] {
+            const char* e = std::getenv("BB_PARTY_TEST_COND_TIMEOUT");
+            const double v = e ? std::atof(e) : 0.0;
+            return v > 0.0 ? v : 240.0;
+        }();
         if (t.cond_step != t.next_step) {
             t.cond_step = t.next_step;
             t.cond_since = now;
@@ -2073,12 +2132,14 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
          next_kind == TravelStep::GuestStick || next_kind == TravelStep::HostStick ||
          next_kind == TravelStep::HostRoute || next_kind == TravelStep::GuestRoute ||
          next_kind == TravelStep::HostMark || next_kind == TravelStep::GuestMark || !t.steps[t.next_step].map.empty())) {
-        if (!steady || (!t.ran && !t.armed) || t.joins < t.steps[t.next_step].min_join) {
+        const bool out = !steady && t.steps[t.next_step].out_ok && t.ran && t.world;
+        if ((!steady && !out) || (!t.ran && !t.armed) || t.joins < t.steps[t.next_step].min_join) {
             return; // as the first step of a chain it still waits for the join
         }
         // S s after the later of: the last load (steady again), the previous step (or the join).
         const Clock::time_point prev = t.ran ? t.step_at : t.joined_at;
         Clock::time_point from = t.steady_at > prev ? t.steady_at : prev;
+        if (out && t.world_at > from) from = t.world_at;
         if (t.coop_since > from) from = t.coop_since;
         if (t.flag_since > from) from = t.flag_since;
         if (t.near_since > from) from = t.near_since;
@@ -2194,6 +2255,12 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
     t.step_at = now;
     t.ran = true;
     t.last_kind = step.kind;
+    if (guard_env &&
+        deathrules::TestGuardStepRan(guard, step.kind == TravelStep::HostDie || step.kind == TravelStep::GuestDie ||
+                                                step.kind == TravelStep::HostChr || step.kind == TravelStep::GuestChr)) {
+        SetTestInvincible(false);
+        Log("test: guard (BB_PARTY_TEST_GUARD): off for %s", TravelStepName(step.kind));
+    }
     Log("test: travel step %zu/%zu: %s%s%u (%s)", t.next_step, t.steps.size(), TravelStepName(step.kind),
         step.kind == TravelStep::HostWarp ? " to lamp " : step.kind == TravelStep::HostKill ? " entity " : "",
         step.kind == TravelStep::HostWarp || step.kind == TravelStep::HostKill ? step.id : 0u, Describe(s).c_str());
@@ -2346,6 +2413,24 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
                                                    (me[2] - at[2]) * (me[2] - at[2])))
                                 : -1.0);
                 target = b;
+            }
+            if (target.empty()) {
+                // An NPC hunter (D11) is not in the census list: its chr by entity id (0x13C97A0).
+                const std::uint64_t chr =
+                    reinterpret_cast<std::uint64_t(BB_COOP_SYSV*)(std::int32_t, std::uint64_t, std::uint64_t)>(
+                        Guest(0x13c97a0))(std::int32_t(t.chr_target), 0, 0);
+                if (chr) {
+                    char b[160];
+                    const bool d = player && balance::ChrPosition(player, me) && balance::ChrPosition(chr, at);
+                    std::int32_t team = -1;
+                    SafeGet(chr + 0x88, &team);
+                    std::snprintf(b, sizeof b, "; target %u (NPC, team %d) HP %d, %.1f m", t.chr_target, team,
+                                  balance::EnemyHp(chr),
+                                  d ? double(std::sqrt((me[0] - at[0]) * (me[0] - at[0]) + (me[1] - at[1]) * (me[1] - at[1]) +
+                                                       (me[2] - at[2]) * (me[2] - at[2])))
+                                    : -1.0);
+                    target = b;
+                }
             }
         }
         {
@@ -2599,13 +2684,20 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
         // guest_kill=ENTITY@S%MAP (0: the nearest living enemy within 500 m): a kill on the guest's
         // own copy (split travel: an enemy killed while the players are apart).
         // guest_kill=ENTITY:hp on a boss: its HP 0 on the guest's game (a lone guest's boss kill).
-        KillLoadedEnemyForTest("guest_kill", step.id, false, step.args == "hp");
+        KillLoadedEnemyForTest("guest_kill", step.id, false, step.args.rfind("hp", 0) == 0,
+                               std::atoi(step.args.c_str() + (step.args.rfind("hp", 0) == 0 ? 2 : 0)));
     } else if (step.kind == TravelStep::HostKill) {
         // A boss (or any enemy) killed as the game's own death path: ForceDead on its entity id; the
         // boss-defeat EMEVD (4[00] death state -> 2003[12]) and the Lua boss clear follow.
         // host_kill=0: the nearest living regular enemy within 500 m (echoes for everyone).
-        KillLoadedEnemyForTest("host_kill", step.id, true, step.args == "hp");
+        KillLoadedEnemyForTest("host_kill", step.id, true, step.args.rfind("hp", 0) == 0,
+                               std::atoi(step.args.c_str() + (step.args.rfind("hp", 0) == 0 ? 2 : 0)));
     } else {
+        if (step.kind == TravelStep::GuestDie && step.args == "kidnap") {
+            // kidnapall: what the guest's copy of 12400780 does at a Snatcher's grab (its 9420 write
+            // skipped, the host asked for the party's kidnap), then the grab's death.
+            b2::TestGuestKidnapGrab();
+        }
         DieForTest();
     }
     std::uint8_t after = 0;
@@ -3854,6 +3946,9 @@ void PartyDirector::ConfigureFromEnv() {
                 }
                 if ((step.kind == TravelStep::HostKill || step.kind == TravelStep::GuestKill) && item.find(":hp") != std::string::npos) {
                     step.args = "hp";  // host_kill=ID:hp@S: HP 0 only (the game's own death path)
+                    // host_kill=ID:hpNN@S: HP set to NN % of its max (a fight's damage; the chr lives)
+                    const int pct = std::atoi(item.c_str() + item.find(":hp") + 3);
+                    if (pct > 0) step.args += std::to_string(pct);
                 }
                 if (step.kind == TravelStep::HostLamp) {
                     step.id = static_cast<std::uint32_t>(std::strtoul(item.c_str() + 10, nullptr, 10));
@@ -3876,6 +3971,9 @@ void PartyDirector::ConfigureFromEnv() {
                 if ((step.kind == TravelStep::HostDie || step.kind == TravelStep::GuestDie) &&
                     item.find(":ladder") != std::string::npos) {
                     step.args = "ladder";  // host_die:ladder@S%MAP: only while on a ladder (fallcam 3)
+                }
+                if (step.kind == TravelStep::GuestDie && item.find(":kidnap") != std::string::npos) {
+                    step.args = "kidnap";  // guest_die:kidnap@S%MAP: a Snatcher's grab-death (kidnapall)
                 }
                 if ((step.kind == TravelStep::HostDie || step.kind == TravelStep::GuestDie) && item.find('%') != std::string::npos) {
                     // host_die@S%MAP: S s after the last load / previous step, in that map (no re-join)
@@ -3903,6 +4001,12 @@ void PartyDirector::ConfigureFromEnv() {
                     // Any step with %MAP runs on the steady-world clock (S s after the last load or
                     // the previous step, in that map): chains of warps / kills without re-joins.
                     step.map = item.substr(item.find('%') + 1);
+                }
+                if (item.find('&') != std::string::npos && !step.map.empty()) {
+                    // "...%MAP&": also out of the party (guest_leave, then a step in the own world),
+                    // S s after the own world is up again or the previous step, in that map.
+                    step.out_ok = true;
+                    step.map.erase(step.map.find('&') == std::string::npos ? step.map.size() : step.map.find('&'));
                 }
                 if (step.kind == TravelStep::HostMove || step.kind == TravelStep::GuestMove) {
                     // host_move=X:Y:Z@S[%MAP] (':' separates: ',' separates the list items)
@@ -4316,6 +4420,7 @@ void PartyDirector::Tick() {
         perf::Scope z(perf::Zone::Balance);
         balance::Tick(s, link, role == PartyRole::Host);
     }
+    if (role != PartyRole::None) npcfight::Tick(s, role == PartyRole::Host);  // D11: the assassins on a guest
     // I1 friendly fire / PvP (party_pvp.h): the party rule on this game's team tables.
     if (role != PartyRole::None) {
         perf::Scope z(perf::Zone::Pvp);
@@ -4501,6 +4606,7 @@ void PartyDirector::Tick() {
     split::Tick(s, link);  // split travel: the lamp choice dialog (party_split.h)
     if (role != PartyRole::None) {
         gather::Tick(s, link, role == PartyRole::Host);  // I5 Gather the party (party_gather.h)
+        vote::Tick(s, link, role == PartyRole::Host);    // 0.7.3 lamp travel voting (party_vote.h)
     }
     if (role == PartyRole::Host) {
         AltarAutopilotTick(s);  // "Enter the party's dungeon" in one press
@@ -5005,6 +5111,7 @@ void PartyInit(unsigned char* image, std::uint64_t size) {
     worldact::Init();       // guest world actions, instanced treasure pickups (byte-verified)
     GuestServicesInit();    // guest Doll / shops / workshop in the host's Dream (byte-verified)
     balance::Init();        // C4 rot hook, D7 scaling (party_balance.h)
+    npcfight::Init();       // D11: NPC hunter fights with the whole party (party_npcfight.h)
     g_tick_installed = BbEngine::FrameTickInstalled();
     if (!g_tick_installed) {
         Log("no main-thread tick: the director and Lua events are off");

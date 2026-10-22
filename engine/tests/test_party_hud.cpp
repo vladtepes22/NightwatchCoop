@@ -436,7 +436,89 @@ static void NoticeLayout() {
     }
 }
 
+// The party panel and the notices keep clear of the game's boss health bar (bbport_overlay.cpp
+// PartyHud / PartyToast: the same steps with the overlay's sizes) at every output we support.
+static void BossBarLayout() {
+    using hud::HudRect;
+    // Measured (relWL s1 shot, 833 x 469, Father Gascoigne): name from y 385, bar to y 411,
+    // x 142 .. 697. The area holds it with a margin.
+    {
+        const HudRect stage = hud::HudStage(833, 469, 16.0f / 9.0f);
+        assert(Near(stage.x0, 0) && Near(stage.x1, 833) && Near(stage.y1 - stage.y0, 833 * 9.0f / 16.0f, 0.01f));
+        const HudRect a = hud::BossBarArea(stage, 1);
+        assert(a.x0 < 142 && a.x1 > 697 && a.y0 < 385 && a.y1 > 411);
+        assert(a.x0 > 120 && a.y0 > 365);  // not much more: the corner stays free
+        // Three bars stack higher; never above the stage.
+        const HudRect a3 = hud::BossBarArea(stage, 3);
+        assert(a3.y0 < a.y0 - 50 && Near(a3.y1, a.y1) && a3.y0 > 0);
+        assert(hud::BossBarArea(stage, 40).y0 >= stage.y0);
+    }
+    // 21:9: the HUD stage is the 16:9 middle at full height; the bar starts right of the old corner.
+    {
+        const HudRect stage = hud::HudStage(2560, 1080, 2560.0f / 1080.0f);
+        assert(Near(stage.x0, 320) && Near(stage.x1, 2240) && Near(stage.y0, 0) && Near(stage.y1, 1080));
+    }
+    // 16:10 display, a 16:9 frame letterboxed: the stage is the frame (bars above and below).
+    {
+        const HudRect stage = hud::HudStage(1920, 1200, 16.0f / 9.0f);
+        assert(Near(stage.x0, 0) && Near(stage.y0, 60) && Near(stage.y1, 1140));
+        // A 21:9 frame in a 16:9 window: letterboxed, the stage its 16:9 middle.
+        const HudRect st2 = hud::HudStage(1920, 1080, 21.0f / 9.0f);
+        assert(st2.y0 > 0 && Near(st2.y1 - st2.y0, 1920 * 9.0f / 21.0f, 0.01f) &&
+               Near((st2.x1 - st2.x0) / (st2.y1 - st2.y0), 16.0f / 9.0f, 1e-3f));
+    }
+    // BottomClearOf: unchanged when clear, else just above the area.
+    {
+        const HudRect avoid{100, 800, 900, 900};
+        assert(Near(hud::BottomClearOf(0, 90, 1000, 300, avoid, 6), 1000));    // left of it
+        assert(Near(hud::BottomClearOf(0, 150, 1000, 50, avoid, 6), 1000));    // below it
+        assert(Near(hud::BottomClearOf(0, 150, 1000, 150, avoid, 6), 794));   // reaches into it
+        assert(Near(hud::BottomClearOf(0, 150, 790, 100, avoid, 6), 790));     // above it already
+    }
+    // Every output, 1-3 members, with and without the rot line, short and long notices, 1-3 bars:
+    // the panel and the notice never touch the bar area, each other or the screen's top.
+    struct Display {
+        float w, h, frame_aspect;
+    };
+    const Display displays[] = {
+        {833, 469, 16.0f / 9.0f},     {1280, 720, 16.0f / 9.0f},   {1920, 1080, 16.0f / 9.0f},
+        {2560, 1440, 16.0f / 9.0f},   {3840, 2160, 16.0f / 9.0f},  {1680, 1050, 16.0f / 9.0f},
+        {1920, 1200, 16.0f / 9.0f},   {2560, 1600, 16.0f / 9.0f},  {2560, 1080, 2560.0f / 1080.0f},
+        {3440, 1440, 3440.0f / 1440.0f}, {3840, 1600, 3840.0f / 1600.0f}, {5120, 2160, 5120.0f / 2160.0f},
+        {3840, 1080, 3840.0f / 1080.0f}, {1920, 1080, 2560.0f / 1080.0f},
+    };
+    int moved = 0, kept = 0;
+    for (const Display& d : displays) {
+        const float s = d.h / 1080.0f > 0.75f ? d.h / 1080.0f : 0.75f;  // the overlay's base_scale
+        const HudRect stage = hud::HudStage(d.w, d.h, d.frame_aspect);
+        for (int rows = 1; rows <= 3; ++rows) {
+            const HudRect boss = hud::BossBarArea(stage, rows);
+            for (int members = 1; members <= 3; ++members) {
+                for (int rot = 0; rot < 2; ++rot) {
+                    for (int chars : {20, 40, 70}) {  // "Joiners wait: you are in a boss fight" is 37
+                        const float pad = 12 * s, gap = 6 * s;
+                        // The panel: 210 wide + padding, ~30 per member, the short rot line.
+                        const float pw = 230 * s, ph = members * 30 * s + 14 * s + rot * 20 * s;
+                        float pb = hud::BottomClearOf(pad, pad + pw, d.h - pad, ph, boss, gap);
+                        const HudRect panel{pad, pb - ph, pad + pw, pb};
+                        assert(!hud::Overlaps(panel, boss) && panel.y0 >= 0);
+                        (pb < d.h - pad ? moved : kept)++;
+                        // The notice above the panel (19 px serif: ~10 px a character, 24 a line).
+                        const float tw = chars * 10 * s + 32 * s, th = 24 * s + 24 * s;
+                        const float tb = hud::BottomClearOf(pad, pad + tw, panel.y0 - gap, th, boss, gap);
+                        const HudRect toast{pad, tb - th, pad + tw, tb};
+                        assert(!hud::Overlaps(toast, boss) && !hud::Overlaps(toast, panel) && toast.y0 >= 0);
+                    }
+                }
+            }
+        }
+    }
+    // Small windows move the panel up; 1080p+ 16:9 and 21:9 mostly keep the corner.
+    assert(moved > 0 && kept > moved);
+}
+
 int main() {
+    BossBarLayout();
     NoticeLayout();
     AreaBanner();
     GameMenuRule();

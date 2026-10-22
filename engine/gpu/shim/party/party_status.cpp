@@ -210,13 +210,25 @@ bool ShareLamps() {
 }
 namespace {
 // Rot off by default (0.7.2), guests bring lamps off, the rest on (the party tick sets them all).
-std::atomic<bool> g_host_rules[int(HostRule::Count)] = {false, true, true, true, true, true, false, true, true, true};
+std::atomic<bool> g_host_rules[int(HostRule::Count)] = {false, true, true, true, true, true, false,
+                                                     true,  true, true, true, false, true};
 }  // namespace
 void SetHostRule(HostRule rule, bool on) {
     if (rule < HostRule::Count) g_host_rules[int(rule)].store(on);
 }
 bool HostRuleOn(HostRule rule) {
     return rule < HostRule::Count && g_host_rules[int(rule)].load();
+}
+
+namespace {
+// The Rules defaults (party_balance_rules.h): boss HP, damage, poise, enemy HP, damage, poise.
+std::atomic<int> g_host_scaling[kScalingValues] = {150, 10, 100, 50, 0, 0};
+}  // namespace
+void SetHostScaling(const int value[kScalingValues]) {
+    for (int k = 0; k < kScalingValues; ++k) g_host_scaling[k].store(value[k]);
+}
+void HostScaling(int value[kScalingValues]) {
+    for (int k = 0; k < kScalingValues; ++k) value[k] = g_host_scaling[k].load();
 }
 
 namespace {

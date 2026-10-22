@@ -681,6 +681,24 @@ bool RequestRemoSkip(bool* skippable) {
     return true;
 }
 
+bool EndRemoNow(bool* skippable) {
+    const std::uint64_t player = Field<std::uint64_t>(Slot(kSprjRemo), 8, 0);
+    const std::uint8_t bits = Field<std::uint8_t>(player, 0x168, 0);
+    if (skippable) {
+        *skippable = (bits & 2) != 0;
+    }
+    if (!player || !(bits & 1) || !RemoSkipOk()) {
+        return false;
+    }
+    RequestRemoSkip();
+    const std::uint8_t now = Field<std::uint8_t>(player, 0x168, 0);
+    if (now & 1) {
+        const std::uint8_t set = static_cast<std::uint8_t>(now | 0x20);
+        SafeWrite(player + 0x168, &set, 1);
+    }
+    return true;
+}
+
 namespace {
 std::atomic<bool> g_save_pending{false};
 std::mutex g_save_mu;

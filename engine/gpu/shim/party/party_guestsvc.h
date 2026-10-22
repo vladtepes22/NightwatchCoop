@@ -143,6 +143,13 @@ private:
 
 /// The built-in EMEVD rules of the lamp part: 7200:1003:6@0 (world lamp -> Dream: the client end).
 std::vector<EmevdSkipRule> LampSkipRules();
+/// chalicelamp (a guest's report: "guests in chalice dungeons can't use lamps"): a dungeon lamp's
+/// "Return to the Hunter's Dream" sets 72900100 + n on the guest too, but m29's event 12907020 starts
+/// with 1003[6] "end the event on a client" (state 1), exactly as the world lamps' 7200, so the guest's
+/// warp never came (the report: the flag set three times at lamp 2902954, nothing else). 12907020:1003:6@0
+/// skips that end, so its 2003[49] warp runs and becomes the guest's lamp travel (split question / the
+/// party's travel), as a world lamp's does. Applied with the guest lamps and the dungeon lamps on.
+std::vector<EmevdSkipRule> ChaliceLampSkipRules();
 
 /// The Doll stands where the host's Doll stands (client-only rules): m21_00 event 12100110
 /// (人形のヒロイン_立ち位置制御, every Dream load, no client guard) clears and re-rolls the stand-spot
@@ -172,6 +179,8 @@ bool DollLevelUpCharTypeTest(int event_id, int bank, int id, int entity, int typ
 /// are dropped: each game animates them from its own player's talk. The Insight messenger's
 /// 12105043 is not one: it ends on a client (1003[101]) and the host's copy drives every game's
 /// (one rise when the host opens the shop, one sink when it closes; its talk clears 12105044).
+/// 0.7.3: also the gift messengers' events 12101020-12101028 (starting weapons, Notebook, bells, Eye):
+/// another game's end of its copy ended this game's (the host's messengers sank on a guest's pick).
 bool PerPlayerMessengerEvent(std::uint32_t event_id);
 
 /// The local character's record (PlayerGameData +0x90 level, +0x94 echoes, +0x84 Insight).

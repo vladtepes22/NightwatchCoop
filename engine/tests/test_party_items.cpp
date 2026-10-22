@@ -83,8 +83,17 @@ static void test_deny() {
     // guest (chr type 0 only), so the host's copy is replayed (quest_audit.md).
     CHECK(!ItemLotDenied(10040, 50000100));
     CHECK(ClassifyAward(10040, true) && ClassifyAward(10040, true)->flag == 50000100);
-    CHECK(ItemLotDenied(10050, 6670));
+    // 0.7.3: the Old Hunter Bell (lot 10050, personal flag 6670) is replayed from the host: its
+    // Messenger event 12101026 never awards on a client, and the flag is each player's own.
+    CHECK(!ItemLotDenied(10050, 6670));
+    CHECK(ClassifyAward(10050, true) && ClassifyAward(10050, true)->flag == 6670);
+    CHECK(ClassifyFlag(6670, {}) && ClassifyFlag(6670, {})->lot == 10050);
+    CHECK(ItemLotDenied(10000, 6620));       // the Notebook: still each player's own
+    CHECK(ItemLotDenied(10011, 6622));
     CHECK(ItemLotDenied(43120, 6676));       // DLC NPC gift with a personal flag
+    // 0.7.3: Valtr's gifts are each player's own (never replayed; a guest gives them to itself).
+    CHECK(OwnTalkGiftLotId(43120) && OwnTalkGiftLotId(43130) && !OwnTalkGiftLotId(17000));
+    CHECK(ItemLotFlag(43120) == 6676 && ItemLotFlag(43130) == 6678 && ItemLotDenied(43130, 6678));
     CHECK(!ItemLotDenied(3401800, 6674));    // Ludwig's reward: exception
     CHECK(!ItemLotDenied(3401850, 6673));    // Laurence's reward: exception
     CHECK(ItemLotDenied(100500, kItemNone)); // rune use
@@ -663,6 +672,14 @@ static void test_gift_up() {
     CHECK(!GuestGiftShareable(17000, kItemNone));      // flagless: the host could not dedupe
     CHECK(!GuestGiftShareable(31000, kItemNone));      // ledger lot (host-only award)
     CHECK(!GuestGiftShareable(10010, 6622));           // Messenger gift: per player
+    // 0.7.3: Iosefka's Blood Vial (a repeatable talk gift, ledger 5) goes up with its ledger bit.
+    CHECK(SharedRepeatGiftLot(23000) && !SharedRepeatGiftLot(28000) && !SharedRepeatGiftLot(31000));
+    CHECK(GuestGiftShareable(23000, 60009005));
+    CHECK(!GuestGiftShareable(23000, 60009006));       // another ledger bit
+    CHECK(!GuestGiftShareable(23000, kItemNone));
+    CHECK(!GuestGiftShareable(23000, 9046));           // its common 9040 done flag is not the key
+    CHECK(!GuestGiftShareable(28000, kItemNone));      // Blood of Arianna: each talk is the talker's
+    CHECK(!GuestGiftShareable(31000, 60009025));       // other ledger lots never come from a guest
     CHECK(GuestGiftShareable(10040, 50000100));        // the Eye: replayed to everyone (quest_audit.md)
     CHECK(!GuestGiftShareable(2410290, 52410290));     // map treasure: instanced per player (D4)
     CHECK(GuestGiftShareable(2400450, 52400450));      // ... except a progression key (Hunter Chief Emblem)
@@ -674,6 +691,8 @@ static void test_gift_up() {
     std::string err;
     CHECK(GiftUpFromJsonText(body, &lot, &flag, &err) && lot == 17000 && flag == 50000200);
     CHECK(!GiftUpFromJsonText(GiftUpToJsonText(2410290, 52410290), &lot, &flag, &err));
+    CHECK(GiftUpFromJsonText(GiftUpToJsonText(23000, 60009005), &lot, &flag, &err) && lot == 23000 &&
+          flag == 60009005);
     CHECK(!GiftUpFromJsonText("{\"lot\":17000}", &lot, &flag, &err));
     CHECK(!GiftUpFromJsonText("{\"lot\":17000.5,\"flag\":50000200}", &lot, &flag, &err));
     CHECK(!GiftUpFromJsonText("{\"lot\":1e300,\"flag\":50000200}", &lot, &flag, &err));
@@ -1107,7 +1126,8 @@ static void test_chalice_award() {
 static void test_messenger_own() {
     CHECK(MessengerGiftLot(10050) && MessengerGiftLot(10010) && MessengerGiftLot(10000));
     CHECK(!MessengerGiftLot(10011) && !MessengerGiftLot(31000));
-    CHECK(ItemLotDenied(10050, ItemLotFlag(10050)));
+    CHECK(!ItemLotDenied(10050, ItemLotFlag(10050)));  // 0.7.3: also replayed from the host
+    CHECK(ItemLotDenied(10010, ItemLotFlag(10010)));
     CHECK(std::string(ItemSourceName(ItemSource::Own)) == "own");
     CHECK(ItemSourceFromName("own") == ItemSource::Own);
     ItemGrant own;

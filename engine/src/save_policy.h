@@ -75,6 +75,23 @@ int runtime_savepolicy_adopt(const char *user, const char *dir, int user_id, con
  * save_folder: the folder with userdata0000..0009. Returns a bit per slot that changed. */
 int runtime_savepolicy_side_files(const char *user, const char *save_folder);
 
+/* ---- a character save written in another player's world ----
+ * A save holds the own world's state of its maps (the header's +0x3C/+0x40 section: the blocks "CHR ",
+ * "OBJ ", "DECL", each {u32 size, data}). Written in another player's world the game takes them from
+ * the snapshot its summon made of the own world (GSM +0x1690/+0x16B0/+0x16D0); a party join makes
+ * none, so the save got three empty blocks: the own world's state was gone and save editors that look
+ * for the blocks (e.g. the "LCED" marker before the position) could not read the file.
+ * runtime_savepolicy_world_state: the number of blocks with data (0..3), -1 not a character save /
+ * the layout does not line up. runtime_savepolicy_world_fix: a save with three empty blocks gets the
+ * blocks of old (the save it replaces, same character, not newer) and the rest of its data moved behind
+ * them (the bytes after the data's end are the game's unused buffer), the header updated; size stays SLOT_SIZE. 1 done (*kept: the bytes taken), 0 nothing to do, -1 not a
+ * character save, -2 another character or a newer one in old, -3 no room. runtime_savepolicy_world_fix_file:
+ * runtime_file.c's commit of a party session's userdata0000..0009 (temp: the new file, target: the
+ * file it replaces, else backupNNNN beside it); BB_SAVE_GUEST_WORLD_FIX=0 turns it off. */
+int runtime_savepolicy_world_state(const unsigned char *save, size_t size);
+int runtime_savepolicy_world_fix(unsigned char *save, size_t size, const unsigned char *old, size_t old_size, uint32_t *kept);
+int runtime_savepolicy_world_fix_file(const char *temp, const char *target);
+
 /* runtime_file.c: save activity. generation changes with every write, rename or removal under
  * /savedataN; open_writes counts save files open for writing. */
 void runtime_file_save_activity(uint64_t *generation, int *open_writes);

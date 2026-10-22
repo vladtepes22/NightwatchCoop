@@ -317,6 +317,47 @@ float PerfHudBottom(float normal, float height, bool banner) {
     return normal < top ? normal : top;
 }
 
+bool Overlaps(const HudRect& a, const HudRect& b) {
+    return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+}
+
+HudRect HudStage(float w, float h, float frame_aspect) {
+    HudRect r;
+    if (w <= 0.0f || h <= 0.0f) return r;
+    if (!(frame_aspect > 0.0f)) frame_aspect = 16.0f / 9.0f;
+    // The game frame letterboxed in the display, then 16:9 inside the frame (never wider than it).
+    float fw = w, fh = w / frame_aspect;
+    if (fh > h) {
+        fh = h;
+        fw = h * frame_aspect;
+    }
+    float sw = fw, sh = fw * 9.0f / 16.0f;
+    if (sh > fh) {
+        sh = fh;
+        sw = fh * 16.0f / 9.0f;
+    }
+    r.x0 = (w - sw) * 0.5f;
+    r.y0 = (h - sh) * 0.5f;
+    r.x1 = r.x0 + sw;
+    r.y1 = r.y0 + sh;
+    return r;
+}
+
+HudRect BossBarArea(const HudRect& stage, int rows) {
+    if (rows < 1) rows = 1;
+    const float sw = stage.x1 - stage.x0, sh = stage.y1 - stage.y0;
+    float top = kBossBarTop - float(rows - 1) * kBossBarRowPitch;
+    if (top < 0.0f) top = 0.0f;
+    return HudRect{stage.x0 + kBossBarLeft * sw, stage.y0 + top * sh, stage.x0 + kBossBarRight * sw,
+                   stage.y0 + kBossBarBottom * sh};
+}
+
+float BottomClearOf(float x0, float x1, float bottom, float box_h, const HudRect& avoid, float gap) {
+    const HudRect box{x0, bottom - box_h, x1, bottom};
+    if (!Overlaps(box, avoid)) return bottom;
+    return avoid.y0 - gap;
+}
+
 std::vector<std::string> WrapNoticeLines(const std::string& text, float max_w,
                                          const std::function<float(const std::string&)>& measure) {
     std::vector<std::string> lines;

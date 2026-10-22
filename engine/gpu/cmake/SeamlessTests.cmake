@@ -132,6 +132,21 @@ add_executable(party-npc-mirror-test EXCLUDE_FROM_ALL ../tests/test_party_npc_mi
 target_compile_options(party-npc-mirror-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(party-npc-mirror-test PRIVATE shim)
 set_target_properties(party-npc-mirror-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# 0.7.3 lamp travel voting (party_vote_rules.h). ninja -C out/gpu party-vote-test
+add_executable(party-vote-test EXCLUDE_FROM_ALL ../tests/test_party_vote.cpp)
+target_compile_options(party-vote-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-vote-test PRIVATE shim)
+set_target_properties(party-vote-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# NPC hunter fights with the whole party (party_npcfight_rules.h, header only). ninja -C out/gpu party-npcfight-test
+add_executable(party-npcfight-test EXCLUDE_FROM_ALL ../tests/test_party_npcfight.cpp)
+target_compile_options(party-npcfight-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-npcfight-test PRIVATE shim)
+set_target_properties(party-npcfight-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# 0.7.3 "Anyone can be abducted" (party_kidnap_rules.h, header only). ninja -C out/gpu party-kidnap-test
+add_executable(party-kidnap-test EXCLUDE_FROM_ALL ../tests/test_party_kidnap.cpp)
+target_compile_options(party-kidnap-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-kidnap-test PRIVATE shim)
+set_target_properties(party-kidnap-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
 add_executable(party-death-rules-test EXCLUDE_FROM_ALL ../tests/test_party_death_rules.cpp)
 

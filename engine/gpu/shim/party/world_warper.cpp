@@ -263,7 +263,7 @@ bool PlacePlayer(u64 player, const float pos3[3], float yaw) {
 /// Back to the row's spot (its revive point), facing its yaw.
 void BackToSpot(u64 player, u32 rp) {
     float sp[4];
-    if (ids::ReturnSpot(rp, sp)) PlacePlayer(player, sp, sp[3]);
+    if (ids::TemplateReturnSpot(rp, sp)) PlacePlayer(player, sp, sp[3]);
 }
 
 /// Keeps the player alive: HP back to its maximum (PlayerIns +0x3B0 -> +0x20: HP +0xF8, max +0xFC).
@@ -396,7 +396,7 @@ void BeginPhase(double now) {
     g.c_phase = Counters::Now();
     auto spot = [](u32 rp) {
         float sp[4];
-        return ids::ReturnSpot(rp, sp);
+        return ids::TemplateReturnSpot(rp, sp);
     };
     if (ph == Phase::Tour) {
         g.route = BuildRoute(AllRows(), spot, g.opt);
@@ -507,7 +507,7 @@ void PutOnGear(std::size_t n) {
 /// regular enemy within 60 m once (its death in this area's light).
 bool PickEnemy(u32 rp, EnemyTarget* out, float* dist, bool* boss, u32* kind) {
     float sp[4];
-    if (!ids::ReturnSpot(rp, sp)) return false;
+    if (!ids::TemplateReturnSpot(rp, sp)) return false;
     const auto list = balance::LoadedEnemies();
     float best = kEnemyRange * kEnemyRange, near_best = kEnemyRange * kEnemyRange;
     const EnemyKillCandidate* pick = nullptr;

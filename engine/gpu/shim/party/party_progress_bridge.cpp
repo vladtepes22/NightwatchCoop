@@ -205,7 +205,7 @@ void PostKills(party::PartyLink* link, int slot, const std::vector<u32>& ids) {
 /// Every frame in a party session (host: a member connected; guest: in the host's world): the
 /// party's kill record. `members`: the host's connected member slots (a new one gets the record).
 void KillRecordTick(party::PartyLink* link, bool host, bool active, const std::map<int, std::string>& members) {
-    // The host's rule (System > Shared world, bbport.ini party_kill_record, BB_PARTY_KILL_RECORD
+    // The host's rule (System > Party rules: World, bbport.ini party_kill_record, BB_PARTY_KILL_RECORD
     // at start): the host's own setting, a guest follows the host's (party_balance Rules). Live.
     const bool on = host ? BbSettings::Get().party_kill_record.load()
                          : party::status::HostRuleOn(party::status::HostRule::KillRecord);
@@ -222,7 +222,7 @@ void KillRecordTick(party::PartyLink* link, bool host, bool active, const std::m
         // The host relays nothing while off. A guest keeps what came in: the host's record of a
         // new world can arrive just before its rules turn the switch on again (live: 40 ms).
         if (host) (void)desync::PopKillRecords();
-        if (k.on) BLog("kill record: off (%s)", host ? "System > Shared world" : "the host's rule");
+        if (k.on) BLog("kill record: off (%s)", host ? "System > Party rules: World" : "the host's rule");
         k.on = false;
         return;
     }
@@ -620,6 +620,20 @@ void GuestSide(Bridge& b, const GameSnapshot& s) {
 void DirectorTick(const GameSnapshot& s, party::PartyLink* link) {
     if (!Enabled()) {
         return;
+    }
+    {
+        // 0.7.3: "Covenant outcomes per player" (System > Party rules: World, bbport.ini
+        // party_covenant_per_player): the host's setting; a guest follows the host's party rules.
+        const bool on = CurrentRole() == Role::Guest
+                            ? party::status::HostRuleOn(party::status::HostRule::CovenantPerPlayer)
+                            : BbSettings::Get().party_covenant_per_player.load();
+        static bool logged = false;  // the first value, then every change
+        if (!logged || on != CovenantPerPlayer()) {
+            logged = true;
+            BLog("covenant outcomes per player: %s (%s)", on ? "on" : "off",
+                 CurrentRole() == Role::Guest ? "the host's rule" : "this game's setting");
+        }
+        SetCovenantPerPlayer(on);
     }
     Tick(s);
     perf::Scope z(perf::Zone::ProgressBridge);

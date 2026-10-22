@@ -563,6 +563,7 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbGameMenu::PatchImage(image, size);
     coop::lamptravel::Install(image, size);
     if (coop::PartyRequested()) { coop::PartyInit(image, size); bbnet_start(); }
+    coop::MarkImageHooksDone();  // the party version check hashes the installed hooks after this
 }
 
 extern "C" unsigned bbgpu_symbol_count(void) {

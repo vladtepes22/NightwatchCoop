@@ -102,6 +102,13 @@ int main() {
         CHECK(NearestLamp(real, 0x18010000u, StandingPos(true, phys, drawn), 15.0f) == 2412951);
         CHECK(NearestLamp(real, 0x18010000u, StandingPos(false, phys, drawn), 15.0f) == 2412952);
     }
+    // chalicelamp: no table spot for a Chalice Dungeon lamp (the generated layout puts it elsewhere: the
+    // template's 2902954 at (52.8, -1.0, 21.9) was the guest's revive in the air); world lamps keep theirs.
+    {
+        float sp[4];
+        for (std::uint32_t rp = 2902950; rp <= 2902959; ++rp) CHECK(!coop::ids::ReturnSpot(rp, sp));
+        CHECK(coop::ids::ReturnSpot(2412951, sp) && coop::ids::ReturnSpot(2102950, sp));
+    }
 
     // Switch and situation.
     CHECK(SwitchOn(nullptr) && SwitchOn("") && SwitchOn("1"));

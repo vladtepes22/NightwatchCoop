@@ -218,6 +218,11 @@ inline std::atomic<std::uint64_t> vram_idle_bytes{0}, vram_unmapped_bytes{0}, vr
 inline std::atomic<std::uint64_t> residency_chunk_count{0}, evacuations{0}, evac_kept_gpu{0}, evac_kept_other{0};
 /// Images the collector passed over (GPU-written, not evictable without memory pressure).
 inline std::atomic<std::uint64_t> gc_kept_images{0};
+/// The collector's work since the start (BB_FRAME_LOG: per frame): bytes of the images it freed,
+/// GPU-written images it wrote back (a GPU wait each), wall time it took (ns), its last level
+/// (GcPolicy::Level).
+inline std::atomic<std::uint64_t> gc_freed_bytes_total{0}, gc_write_backs_total{0}, gc_ns_total{0};
+inline std::atomic<std::uint32_t> gc_level{0};
 struct WaitTimer {
     std::atomic<std::uint64_t>& total;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();

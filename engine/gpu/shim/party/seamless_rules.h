@@ -46,6 +46,8 @@ using EmevdRewriter = void (*)(int event_id, int bank, int id, std::uint64_t eve
 /// as for EmevdRewriter (EmevdInstructionArgs finds the bytes). One; nullptr removes.
 using EmevdSkipPredicate = bool (*)(int event_id, int bank, int id, std::uint64_t event, std::uint64_t instr);
 void SetEmevdSkipPredicate(EmevdSkipPredicate fn);
+/// A second predicate slot (party_npcfight: a guest copy's progress writes, D11), asked after the first.
+void SetEmevdSkipPredicate2(EmevdSkipPredicate fn);
 /// Sets the rewriter (one; nullptr removes it). Call before EnsureEmevdFilter.
 void SetEmevdRewriter(EmevdRewriter fn);
 /// A second, independent rewriter slot (party_guestsvc), run after the first.
@@ -58,6 +60,9 @@ bool EnsureEmevdFilter();
 /// A11: a boss health bar is up (EMEVD 2003[11] seen with "on" and not yet "off"; a load resets
 /// it): the host is in a boss fight.
 bool BossBarShown();
+/// The boss health bars stacked on screen (0 while none is up; 1 + the highest bar slot shown since
+/// the bar came up): the party HUD keeps clear of them.
+int BossBarRows();
 /// Seconds since this game's last text banner (EMEVD 2007[2], e.g. PREY SLAUGHTERED) or boss
 /// defeat instruction (2003[12/15/53]); large when none ran.
 double BannerAgeSeconds();

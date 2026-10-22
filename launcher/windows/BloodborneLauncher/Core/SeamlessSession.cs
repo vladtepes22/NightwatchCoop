@@ -33,18 +33,18 @@ public static class SeamlessSession
         File.Move(path + ".tmp", path, true);
     }
 
-    public static async Task<string> SaveTool(LauncherSettings settings, string action)
+    public static async Task<string> SaveTool(LauncherSettings settings, string action, params string[] extra)
     {
         var games = ProcessTree.GamesIn(Paths.PortDir);
         var running = games.Length > 0;
         foreach (var game in games) game.Dispose();
         if (Workspace.Current.Game.Running || running)
             throw new InvalidOperationException("Stop the game before checking or changing saves.");
-        return await RunSaveTool(GameEnvironment.UserDir(settings), action);
+        return await RunSaveTool(GameEnvironment.UserDir(settings), action, extra);
     }
 
     /// <summary>Runs party_save_tool.py `action` on the user folder `user` (the game must not run).</summary>
-    internal static async Task<string> RunSaveTool(string user, string action)
+    internal static async Task<string> RunSaveTool(string user, string action, params string[] extra)
     {
         var start = new ProcessStartInfo(Paths.SeamlessPython)
         {
@@ -56,6 +56,7 @@ public static class SeamlessSession
         start.ArgumentList.Add(Path.Combine(Paths.SeamlessScripts, "party_save_tool.py"));
         start.ArgumentList.Add(action);
         start.ArgumentList.Add(user);
+        foreach (var argument in extra) start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new IOException("Could not start the save tool.");
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();

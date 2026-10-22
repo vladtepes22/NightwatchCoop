@@ -76,6 +76,16 @@ bool NpcGiftTrigger(std::uint32_t id);
 /// clears the trigger as 9100 would. -1: not such a trigger.
 std::int32_t RepeatGiftLot(std::uint32_t trigger);
 
+/// 0.7.3: NPC gifts a talk hands over through a map EMEVD award, not common 9040 (m27 event 12700906:
+/// ends when the lot's personal flag is set, tests the player's character type 4[3](10000, 0), waits
+/// for the trigger, then the host-only award 2003[4]): Valtr's 72700321 -> 43120 Impurity rune (flag 6676), 72700322 ->
+/// 43130 League Staff (flag 6678). A guest who joins the League in the host's world sets the trigger
+/// only in the host-world overlay (discarded) and its own copy of the event never awards, so the
+/// guest gives the lot to itself (party_items OfferOwnGift: own inventory, own personal flag). The
+/// trigger is never a world action (as one, the HOST's 12700906 gave the host the guest's rune).
+/// -1: not such a trigger.
+std::int32_t OwnTalkGiftLot(std::uint32_t trigger);
+
 constexpr std::size_t kMaxKicks = 4, kMaxFog = 2, kMaxStory = 2, kMaxLift = 4;
 
 /// D3 (lifts071): lifts (elevators), their table and the party's decisions about them: the rules

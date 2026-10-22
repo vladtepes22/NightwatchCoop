@@ -365,6 +365,9 @@ void RunLampWarpNotRest(std::uint32_t id, const char* why);
 /// interceptor is not asked again. On the host `alone` marks the captured travel
 /// (TravelIntent::alone: the guests stay).
 void RunLampWarpDecided(std::uint32_t id, bool alone);
+/// Host: the party's travel to `id` (decided, never alone) that is no lamp use (no rest): the
+/// Snatcher's kidnap of a guest takes the party to the Gaol (party_kidnap_rules.h). `why` a literal.
+void RunLampWarpPartyNotRest(std::uint32_t id, const char* why);
 /// Host: the next travel the funnel captures is alone (split travel; cleared by the capture).
 void SetNextHostTravelAlone(bool alone);
 /// Host: every captured host death (TravelKind::HostDeath) is an alone travel (the guests play

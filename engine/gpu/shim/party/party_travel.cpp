@@ -1652,6 +1652,12 @@ void RunLampWarpDecided(std::uint32_t id, bool alone) {
     g_next_alone = false;  // a warp the funnel did not capture: nothing carries over
 }
 
+void RunLampWarpPartyNotRest(std::uint32_t id, const char* why) {
+    g_warp_not_rest = why ? why : "not a rest";
+    RunLampWarpDecided(id, false);
+    g_warp_not_rest = nullptr;
+}
+
 void SetSameMapWarp(SameMapWarpFn fn) {
     g_same_map = fn;
 }

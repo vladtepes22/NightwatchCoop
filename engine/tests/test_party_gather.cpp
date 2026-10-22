@@ -147,8 +147,74 @@ static void Rounds() {
     CHECK(Summary({}) == "Gather: nobody answered");
 }
 
+// A player's report (Old Yharnam): the host gathered half way up a ladder; the guest was put in the
+// open shaft beside it and dropped 3 m. Guests are put on ground only.
+static void Standing() {
+    CHECK(HostStanding(-1, 0.0f));                  // no ladder, still
+    CHECK(HostStanding(-1000, 0.0f));               // ladder state unread: by the height alone
+    CHECK(HostStanding(-1, 3.0f));                  // stairs at a run
+    CHECK(!HostStanding(0, 0.0f));                  // holding still on a ladder (the report)
+    CHECK(!HostStanding(3, 1.2f));                  // climbing
+    CHECK(!HostStanding(-1, -8.0f));                // falling
+    CHECK(!HostStanding(-1, 4.5f));                 // a jump
+    HostView v = ReadyHost();
+    v.standing = false;
+    CHECK(HostRefusal(v) == Refusal::NotStanding);
+    CHECK(HostRefusalText(Refusal::NotStanding, 0) == "Gather the party: not on a ladder or in the air");
+    // a boss fight is still named first; the cooldown after it
+    { HostView w = v; w.boss_fight = true; CHECK(HostRefusal(w) == Refusal::BossFight); }
+    { HostView w = v; w.last_gather_at = w.now - 1; CHECK(HostRefusal(w) == Refusal::NotStanding); }
+    CHECK(RefusalFromWord(RefusalWord(Refusal::NotStanding)) == Refusal::NotStanding);
+    CHECK(RefusalFromWord("failed") == Refusal::Failed);
+}
+
+static void Spots() {
+    // the host asked from the ground: its chr still about there -> beside the chr
+    CHECK(SpotFor(true, -75.8f, -75.8f) == Spot::Live);
+    CHECK(SpotFor(true, -74.6f, -75.8f) == Spot::Live);   // stairs / a slope
+    // its chr climbed a ladder (the report: 21 m up) or dropped since: beside the spot it asked from
+    CHECK(SpotFor(true, -54.3f, -75.8f) == Spot::Asked);
+    CHECK(SpotFor(true, -90.0f, -75.8f) == Spot::Asked);
+    // an older host (no "stand"): as before, beside the chr
+    CHECK(SpotFor(false, -54.3f, -75.8f) == Spot::Live);
+}
+
+static void Landings() {
+    // standing on the spot: watched for 4 s, then landed
+    CHECK(LandingCheck(0.5, -91.6f, -91.6f, -1) == Landing::Wait);
+    CHECK(LandingCheck(kLandWatchS, -91.6f, -91.7f, -1) == Landing::Landed);
+    // a step down / a 3 m drop to a floor (the report's ladder shaft) is not a fall
+    CHECK(LandingCheck(1.0, -75.8f, -78.8f, -1) == Landing::Wait);
+    CHECK(LandingCheck(4.5, -75.8f, -78.8f, -1) == Landing::Landed);
+    // no ground there: 4 m below the spot
+    CHECK(LandingCheck(0.9, -75.8f, -79.8f, -1) == Landing::Fell);
+    CHECK(LandingCheck(0.9, -67.8f, -76.0f, -1) == Landing::Fell);   // the test aid's 8 m lift
+    // it caught a ladder: stands on it
+    CHECK(LandingCheck(0.9, -75.8f, -80.0f, 2) == Landing::Landed);
+}
+
+static void WireStand() {
+    Ask a;
+    a.round = 1;
+    a.map = 0x17000000u;
+    a.pos[1] = -75.8f;
+    a.yaw = 1.25f;
+    a.standing = true;
+    Ask b;
+    CHECK(DecodeAsk(EncodeAsk(a), &b) && b.standing && std::fabs(b.yaw - 1.25f) < 1e-3f);
+    a.standing = false;
+    CHECK(DecodeAsk(EncodeAsk(a), &b) && !b.standing);
+    // an older host's ask: no "stand" -> not checked
+    CHECK(DecodeAsk("{\"op\":\"ask\",\"round\":2,\"map\":385875968,\"pos\":[3.1,-75.8,-63.2],\"yaw\":0.0000,\"t\":5}", &b) &&
+          !b.standing && b.round == 2);
+}
+
 int main() {
     HostRules();
+    Standing();
+    Spots();
+    Landings();
+    WireStand();
     GuestRules();
     Routes();
     Wire();

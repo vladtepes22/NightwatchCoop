@@ -179,6 +179,26 @@ constexpr float kAreaBannerTop = 0.80f;
 /// unless the banner may be up, then no lower than kAreaBannerTop * `height`.
 float PerfHudBottom(float normal, float height, bool banner);
 
+// ---- clear of the boss health bar (overlay; pure) ----
+/// A screen rectangle in pixels (x1 / y1 exclusive).
+struct HudRect {
+    float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+};
+bool Overlaps(const HudRect& a, const HudRect& b);
+/// The game's HUD stage on the display (`w` x `h`): the game frame (`frame_aspect`, e.g. 21:9 for
+/// an ultrawide output) fitted in the display (letterboxed), then the centred 16:9 area of it (the
+/// game draws its HUD there at every aspect ratio).
+HudRect HudStage(float w, float h, float frame_aspect);
+/// The game's boss health bars on the HUD stage, with a margin: the boss's name and its bar at the
+/// bottom middle (measured: name from ~0.82, bar to ~0.88 of the height, ~0.17 .. 0.84 of the
+/// width), each further bar (`rows`, Shadows of Yharnam: 3) stacked kBossBarRowPitch higher.
+constexpr float kBossBarTop = 0.795f, kBossBarBottom = 0.895f, kBossBarLeft = 0.155f, kBossBarRight = 0.855f;
+constexpr float kBossBarRowPitch = 0.065f;
+HudRect BossBarArea(const HudRect& stage, int rows);
+/// The bottom edge for a bottom-anchored box `x0` .. `x1` wide, `box_h` high, that would sit with
+/// its bottom at `bottom`: unchanged when it stays clear of `avoid`, else `gap` above `avoid`.
+float BottomClearOf(float x0, float x1, float bottom, float box_h, const HudRect& avoid, float gap);
+
 // ---- notice text layout (overlay; pure) ----
 /// A party notice / alert's lines inside a box `max_w` wide: the text's own '\n' breaks, then each
 /// paragraph wrapped at spaces (a word wider than the box keeps its own line, never split, so a

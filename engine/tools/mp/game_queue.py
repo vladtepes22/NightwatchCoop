@@ -103,9 +103,15 @@ def _prune(state):
 def game_slots(count: int, root: str, pool: str = "game", label: str = ""):
     """Hold `count` slots of `pool` for the duration of the block (waits its turn); yields the
     slot numbers held."""
-    me = {"id": f"{os.getpid()}-{time.time():.0f}", "pid": os.getpid(), "count": count, "root": str(root), "label": label,
-          "t": time.time(),
-          "since": time.strftime("%H:%M:%S")}
+    # root absolute (the reaper matches game exe paths against it); "parent": the harness that
+    # started this job (BB_MP_PARENT_PID, smoke_party.py): the reaper ends the run once it is gone.
+    try:
+        parent = int(os.environ.get("BB_MP_PARENT_PID") or 0)
+    except ValueError:
+        parent = 0
+    me = {"id": f"{os.getpid()}-{time.time():.0f}", "pid": os.getpid(), "count": count,
+          "root": str(Path(root).resolve()), "label": label, "t": time.time(),
+          "since": time.strftime("%H:%M:%S"), **({"parent": parent} if parent > 0 else {})}
     with _locked(pool) as st:
         _prune(st)
         if count > max(st["max_clients"], st.get("max_solo", 0)):
@@ -160,6 +166,9 @@ def game_slots(count: int, root: str, pool: str = "game", label: str = ""):
                 pos = next((i for i, e in enumerate(order) if e["id"] == me["id"]), -1)
                 busy = ", ".join(f"{e['root']} ({e['count']})" for e in st["holders"])
                 limit = st["max_clients"]
+            if parent > 0 and not _alive(parent):
+                # The harness that wanted these slots is gone: leave the queue (finally below).
+                raise SystemExit(f"{pool} queue: the parent process {parent} (BB_MP_PARENT_PID) ended; not waiting")
             if time.time() - last_note > 30:
                 print(f"{pool} queue: waiting (position {pos + 1}, {used}/{limit} in use: {busy})", flush=True)
                 last_note = time.time()

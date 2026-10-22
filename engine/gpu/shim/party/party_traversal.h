@@ -6,7 +6,7 @@
 // Env: BB_PARTY_STUN2 (second STUN server, default stun.cloudflare.com:3478; "off" skips the
 // type check), BB_PARTY_RENDEZVOUS=1 (the DHT rendezvous: OPT-IN, off unless set to 1 / on / yes /
 // true; it posts the guest's address on the public DHT, so the player decides: launcher Party tab,
-// System > Party members, bbport.ini party_rendezvous; the env wins over the ini),
+// System > Party network, bbport.ini party_rendezvous; the env wins over the ini),
 // BB_PARTY_DHT_BOOTSTRAP (comma list host:port; loopback tests only use the DHT with it, against
 // a fake node: tools/mp/fake_dht.py).
 #pragma once

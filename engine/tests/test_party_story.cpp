@@ -5,6 +5,7 @@
 // Build and run: ninja -C out/gpu party-story-test && out/gpu/party-story-test.exe
 #include "party/party_story.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -251,12 +252,57 @@ static void test_mirror_then_replay() {
 // kidnap071 (a player report): the host's Gaol waking scene (28000010, m28) reached guests that
 // were still in the Cathedral Ward (m24_00) and played there without the cell's scenery. A live
 // mirror plays only in its own map; on a guest in another map it is dropped (TakeMirrorOtherMap).
-// User decision 2026-10-21: guests that arrive in the Gaol with the kidnapped host skip its waking
-// scene; the replay keeps the scene's flags (9423).
-static void test_guest_skips_gaol_scene() {
-    CHECK(GuestSkipsScene(28000010));
-    CHECK(!GuestSkipsScene(24010010));  // a boss intro still plays
-    CHECK(!GuestSkipsScene(21000000));
+// kidnapall (user decision 2026-10-22, replaces 0.7.2's "guests skip it"): every member sees the
+// waking scene, whoever was grabbed. The guest that arrives in the cell after the host's copy (its
+// loading screen held through it) plays it as its summoned replay, then the scene's flag 9423.
+static void test_guest_replays_gaol_scene() {
+    GuestStory g;
+    double t = 100;
+    StoryIntent s;
+    s.seq = 1;
+    s.kind = StoryKind::Cutscene;
+    s.id = 28000010;
+    s.instr = 3;
+    s.flags = {9423};
+    CHECK(g.Offer(s, false, t));  // missed live (loading): the replay queue
+    StoryState ph = Phantom();
+    ph.map_id = 0x18000000;  // still in the Cathedral Ward: it waits for the cell
+    CHECK(!Until(g, ph, t, 200) && g.QueueSize() == 1);
+    ph.map_id = 0x1c000000;  // m28_00: arrived with the party
+    auto a = Until(g, ph, t, 200);
+    CHECK(a && a->kind == StoryAction::PlayRemo && a->id == 28000010 && a->mode == 2 && !a->mirror);
+    PlayToEnd(g, ph, t);
+    a = Until(g, ph, t);
+    CHECK(a && a->kind == StoryAction::SetFlags && a->on &&
+          std::find(a->flags.begin(), a->flags.end(), 9423u) != a->flags.end());
+    // The grabbed guest arrives from its own death (not calm): the waking scene does not wait for
+    // calm (live run 1: 9 s in the cell first); any other replay still does.
+    CHECK(ReplayIgnoresCalm(28000010) && !ReplayIgnoresCalm(32000000) && !ReplayIgnoresCalm(28000040));
+    {
+        GuestStory h;
+        double th = 200;
+        StoryState hurt = Phantom();
+        hurt.map_id = 0x1c000000;
+        hurt.calm = false;
+        StoryIntent o = s;
+        o.seq = 5;
+        o.id = 28000040;  // another m28 scene: waits for calm
+        o.flags = {};
+        o.tod = 1;
+        CHECK(h.Offer(o, false, th));
+        CHECK(!Until(h, hurt, th, 120));
+        StoryIntent w = s;
+        w.seq = 6;
+        CHECK(h.Offer(w, false, th));
+        auto b = Until(h, hurt, th, 120);
+        CHECK(b && b->kind == StoryAction::PlayRemo && b->id == 28000010);
+    }
+    // A guest that watched it live (Seen) keeps only the flags.
+    GuestStory w;
+    w.NoteSeen(28000010);
+    CHECK(w.Offer(s, false, t));
+    a = Until(w, ph, t, 200);
+    CHECK(a && a->kind == StoryAction::SetFlags);
 }
 
 static void test_mirror_needs_its_map() {
@@ -1015,6 +1061,58 @@ static void test_mirror_at_block_boundary() {
     }
 }
 
+// The host's scene ended or was skipped (its A11 cutscene hold is over): the guest's live mirror of
+// it ends too and counts as seen even when that is before kMirrorMinSeen (no catch-up replay).
+static void test_host_scene_end_ends_mirror() {
+    StoryIntent s;
+    s.seq = 1;
+    s.kind = StoryKind::Cutscene;
+    s.id = 32000000;
+    s.instr = 3;
+    StoryState ph = Phantom();
+    {  // A host skip 2 s in: the mirror ends here, seen, no replay of it.
+        GuestStory g;
+        double t = 100;
+        g.HostSceneEnded();  // nothing running: no effect
+        CHECK(!g.TakeEndMirror());
+        CHECK(g.Offer(s, true, t));
+        auto a = Until(g, ph, t);
+        CHECK(a && a->kind == StoryAction::PlayRemo && a->mirror && g.RunningMirror());
+        StoryState on = ph;
+        on.remo_playing = true;
+        for (int i = 0; i < 120; ++i) {  // 2 s of the scene
+            t += 1.0 / 60;
+            CHECK(!g.Step(on, t));
+        }
+        g.HostSceneEnded();
+        CHECK(g.TakeEndMirror() && !g.TakeEndMirror());  // once
+        t += 0.2;
+        CHECK(!g.Step(ph, t));  // the remo fell (our end)
+        CHECK(!g.Running() && g.Seen(32000000) && g.TakeMirrorCut() == 0);
+        // Its queued replay (a story scene) keeps only its flags: never the scene again.
+        StoryState home = OwnWorld();
+        for (int i = 0; i < 400; ++i) {
+            t += 1.0 / 60;
+            if (auto b = g.Step(home, t)) {
+                CHECK(b->kind != StoryAction::PlayRemo);
+            }
+        }
+    }
+    {  // Cut by this guest's own load (no host end): not seen, replayed later as before.
+        GuestStory g;
+        double t = 100;
+        CHECK(g.Offer(s, true, t));
+        CHECK(Until(g, ph, t));
+        StoryState on = ph;
+        on.remo_playing = true;
+        t += 1.0 / 60;
+        g.Step(on, t);
+        t += 1.0;
+        CHECK(!g.Step(ph, t));
+        CHECK(!g.Seen(32000000) && g.TakeMirrorCut() == 32000000);
+    }
+}
+
 int main() {
     test_tables();
     test_guest_phase_change();
@@ -1022,7 +1120,7 @@ int main() {
     test_host_queue();
     test_mirror_then_replay();
     test_mirror_needs_its_map();
-    test_guest_skips_gaol_scene();
+    test_guest_replays_gaol_scene();
     test_cut_mirror_replayed();
     test_replay_waits_home_when_summoned_off();
     test_missed_scene_replayed_while_summoned();
@@ -1039,6 +1137,7 @@ int main() {
     test_guest_intro_once_on_host();
     test_own_intro_held_for_host();
     test_mirror_at_block_boundary();
+    test_host_scene_end_ends_mirror();
     std::printf("party-story-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

@@ -172,6 +172,7 @@ u32 split_text[1] = {0};
 u32 notice_text[1] = {0};
 u32 ending_text[1] = {0};
 u32 gather_text[1] = {0};
+u32 vote_text[1] = {0};  // 0.7.3: the travel vote's question (run-time: who, where)
 
 /// A confirmed button's help line: the row's own help, or "press again to confirm" while armed
 /// (a run-time text of its own wrapping the row's).
@@ -256,6 +257,8 @@ struct HdrTexts {
 } hdr_texts;
 struct BalanceTexts {
     u32 scale_help[6]{};
+    /// guestrules (0.7.3): a guest's read-only lines with the host's scaling (value, help).
+    u32 guest_scale_value[6]{}, guest_scale_help[6]{};
     u32 npc_range_help = 0;
 } balance;
 /// A host's rule on a guest: the read-only line's value and help, from the rule in force.
@@ -722,8 +725,8 @@ void DefineAll() {
            });
 
     // ---- Party members: one row each (state, ping); the host kicks with two presses. ----
-    AddPage("Party members", "Участники группы", "The hunters in the party, their state and ping; notices, DHT (bbport)",
-            "Охотники группы, их состояние и пинг; уведомления, DHT (bbport)");
+    AddPage("Party members", "Участники группы", "The hunters in the party, their state and ping, the last event (bbport)",
+            "Охотники группы, их состояние и пинг, последнее событие (bbport)");
     for (int k = 0; k < MaxMembers; ++k) {
         party.member_name[k] = AddDynamic(MaxNameLength);
         party.member_value[k] = AddDynamic(MaxValueLength);
@@ -734,28 +737,23 @@ void DefineAll() {
                party.member_name[k], party.member_help[k], {party.member_value[k]}, Kind::Button,
                [k] { return k < member_rows; });
     }
-    // One row per member (kMaxPartyPlayers = 4), then the switches, within the page's six rows:
-    // a full party of four shows the notices and the DHT switch, two or fewer also the last event.
-    // (Party HUD and Guests use lamps: Party display / World & PvP since 2026-10-21.)
-    AddRow(Flag(&Values::party_toasts), "Join/leave notices", "Уведомления",
-           "A short notice in a top corner when a hunter joins or leaves",
-           "Короткое уведомление в углу, когда охотник входит или выходит", toggle, Kind::Toggle);
+    // One row per member (kMaxPartyPlayers = 4) and the last event: five rows at most. (0.7.3: the
+    // join/leave notices are on My party: Look & notices, the DHT switch on Party network.)
+    party.event_value = AddDynamic(MaxValueLength);
+    party.event_help = AddDynamic(MaxHelpLength);
+    AddRow(Info(), AddText("Last event", "Последнее"), party.event_help, {party.event_value}, Kind::Button);
+
+    // ---- Party network (F2, 0.7.1, party_netroute.h): the link's path, the member relay, IPv6 ----
+    AddPage("Party network", "Сеть группы", "The link's path, the public DHT, relaying for members, IPv6 (bbport)",
+            "Путь связи, публичный DHT, ретрансляция для участников, IPv6 (bbport)");
+    party.net_value = AddDynamic(MaxValueLength);
+    party.net_help = AddDynamic(MaxHelpLength);
+    AddRow(Info(), AddText("Network", "Сеть"), party.net_help, {party.net_value}, Kind::Button);
     // F2: the DHT rendezvous (party_rdv.h), opt-in: it posts this PC's IP on the public BitTorrent DHT.
     AddRow(Flag(&Values::party_rendezvous), AddText("Find via public DHT", "Поиск через DHT"),
            AddText("Auto hole punching via the public BitTorrent DHT (shares your IP). Both PCs; next party start",
                    "Пробивка NAT через публичный DHT BitTorrent (виден ваш IP). На обоих ПК; со следующей группы"),
            toggle, Kind::Toggle);
-    party.event_value = AddDynamic(MaxValueLength);
-    party.event_help = AddDynamic(MaxHelpLength);
-    AddRow(Info(), AddText("Last event", "Последнее"), party.event_help, {party.event_value}, Kind::Button,
-           [] { return member_rows <= 3; });  // four members: the six rows are full
-
-    // ---- Party network (F2, 0.7.1, party_netroute.h): the link's path, the member relay, IPv6 ----
-    AddPage("Party network", "Сеть группы", "The link's path, relaying for members, IPv6 (bbport)",
-            "Путь связи, ретрансляция для участников, IPv6 (bbport)");
-    party.net_value = AddDynamic(MaxValueLength);
-    party.net_help = AddDynamic(MaxHelpLength);
-    AddRow(Info(), AddText("Network", "Сеть"), party.net_help, {party.net_value}, Kind::Button);
     AddRow(Flag(&Values::party_member_relay), AddText("Relay for members", "Ретранслятор"),
            AddText("Relays a party member that cannot reach the host (or you through one). Party members only",
                    "Ретрансляция для участника, не достающего до хоста (или вас через него). Только группа"),
@@ -783,6 +781,9 @@ void DefineAll() {
                              "Тайна ритуала раскрыта. Ищите новорождённого кошмара.");
 
     // I5: the host gathers the party (party_gather.cpp): each guest is asked first.
+    // 0.7.3: lamp travel voting (party_vote.cpp): who wants to travel where, set before it opens.
+    vote_text[0] = AddDynamic(DynamicCapacity - 1);
+
     gather_text[0] = AddText("The host gathers the party.\nYES: go to the host now.  NO: stay where you are.",
                              "Хозяин собирает группу.\nДА: перейти к хозяину сейчас.  НЕТ: остаться здесь.");
 
@@ -812,12 +813,103 @@ void DefineAll() {
     };
     namespace ps = party::status;
 
-    // ---- Deaths & revives (party_b2, party_balance, party_phantom) ----
-    AddPage("Deaths & revives", "Смерти и подъём", "Getting up without a loading screen, respawns (bbport)",
-            "Подъём без экрана загрузки, возрождение (bbport)");
-    own(&Values::party_guest_revive_inplace, "Guest gets up, no load", "Гость встаёт сразу",
-        "While you are a guest: you get up at the host's lamp without a loading screen. Off: the respawn load",
-        "Пока вы гость: вы встаёте у фонаря хоста без экрана загрузки. Выкл.: загрузка возрождения");
+    // ---- 0.7.3 (user request): the party's settings in two groups of pages, named as the launcher's
+    // tabs. "Party rules: ..." holds what the HOST decides for the party (party_balance Rules, sent to
+    // every guest; a guest sees read-only lines with the host's values); "My party: ..." what each
+    // player chooses for itself. New rows: a host rule (host_rule) on a Party rules page, a player's
+    // own (own) on a My party page; at most six rows a page. ----
+
+    // ---- Party rules: World (0.7.1: party_kill_record, party_npc_mirror, party_gather; 0.7.3:
+    // covenants, party_travel_vote, party_npc_fights) ----
+    AddPage("Party rules: World", "Правила: мир",
+            "Host's rules: enemies stay dead, gathering, NPCs as in the host's world, covenants, votes, NPC hunters",
+            "Правила хоста: враги не оживают, сбор, NPC как у хоста, ковенанты, голосование, охотники-NPC");
+    host_rule(&Values::party_kill_record, "Enemies stay dead", "Враги не оживают",
+              AddText("A party kill is dead for everyone, also as maps stream in again, until a rest. Party rule",
+                      "Убитый группой враг мёртв у всех, и при новой подгрузке карты, до отдыха. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::KillRecord); },
+              {"The host's rule: an enemy the party killed stays dead for you too, until a rest",
+               "Правило хоста: убитый группой враг мёртв и у вас, до отдыха"},
+              {"The host decides; off: an enemy killed out of your sight may stand again here",
+               "Решает хост; выкл.: враг, убитый не у вас на глазах, может стоять у вас"});
+    host_rule(&Values::party_gather, "Host can gather", "Хост собирает группу",
+              AddText("Party > Gather the party brings every guest to you (each is asked). Party rule",
+                      "Группа > Собрать группу переносит гостей к вам (каждого спросят). Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::Gather); },
+              {"The host may gather the party: you are asked each time and may say no",
+               "Хост может собрать группу: вас каждый раз спросят, можно отказаться"},
+              {"The host turned gathering off: you are never moved to the host",
+               "Хост выключил сбор группы: вас не переносят к нему"});
+    host_rule(&Values::party_npc_mirror, "NPCs as in host's world", "NPC как в мире хоста",
+              AddText("An NPC gone from your world is gone for the guests too (the clinic's door). Party rule",
+                      "NPC, которого нет в вашем мире, нет и у гостей (дверь клиники). Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::NpcMirror); },
+              {"The host's rule: an NPC gone from the host's world is gone here too",
+               "Правило хоста: NPC, которого нет в мире хоста, нет и у вас"},
+              {"The host decides; off: you may see NPCs the host's world no longer has",
+               "Решает хост; выкл.: вы можете видеть NPC, которых нет в мире хоста"});
+    // 0.7.3 (user decision 2026-10-22): covenant outcomes (party_progress covenant_outcome).
+    host_rule(&Values::party_covenant_per_player, "Covenants per player", "Ковенанты у каждого свои",
+              AddText("Annalise's, Alfred's and Valtr's quest outcomes stay in each player's own save. Party rule",
+                      "Исходы квестов Аннализы, Альфреда и Валтора у каждого в своём сохранении. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::CovenantPerPlayer); },
+              {"The host's rule: covenant outcomes in the host's world stay out of your save",
+               "Правило хоста: исходы ковенантов в мире хоста не попадают в ваше сохранение"},
+              {"The host shares covenant outcomes: they reach your save like other quests",
+               "Хост делит исходы ковенантов: они попадают в ваше сохранение, как другие квесты"});
+    // 0.7.3 (user: "everybody has to vote yes"): a party travel waits for every member's YES.
+    host_rule(&Values::party_travel_vote, "Party votes on travel", "Голосование за путь",
+              AddText("A party lamp, headstone or Mark travel needs every member's YES; one NO cancels it. Party rule",
+                      "Путь группы через фонарь, надгробие или Метку - только если все за; одно НЕТ отменяет. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::TravelVote); },
+              {"The host's rule: the party travels only when everyone votes YES",
+               "Правило хоста: группа идёт, только если все проголосовали ДА"},
+              {"The host decides; off: the one who travels takes the party along",
+               "Решает хост; выкл.: кто путешествует, ведёт за собой группу"});
+    // 0.7.3 (D11, party_npcfight_rules.h): a scripted NPC hunter fight is the whole party's.
+    host_rule(&Values::party_npc_fights, "NPC hunters fight all", "Охотники-NPC против всех",
+              AddText("A hunter NPC turning hostile does so for the guests too: all can fight it. Party rule",
+                      "Охотник-NPC становится врагом и у гостей: сражаться могут все. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::NpcFights); },
+              {"The host's rule: NPC hunters (Alfred, Eileen, Valtr, Brador ...) fight you too",
+               "Правило хоста: охотники-NPC (Альфред, Эйлин, Валтор, Брадор ...) сражаются и с вами"},
+              {"The host decides; off: a hunter that turns on the host may stay friendly here",
+               "Решает хост; выкл.: охотник, напавший на хоста, может остаться у вас мирным"});
+
+
+    // ---- Party rules: PvP & lamps (party_pvp, party_balance) ----
+    AddPage("Party rules: PvP & lamps", "Правила: PvP и фонари",
+            "Host's rules: friendly fire, shared lamps, guests' lamps in the host's world (bbport)",
+            "Правила хоста: огонь по своим, общие фонари, фонари гостей в мире хоста (bbport)");
+    host_rule(&Values::party_friendly_fire, "Friendly fire / PvP", "Огонь по своим / PvP",
+              AddText("Party members can hurt each other (both ways); a party kill is a normal death. Party rule",
+                      "Члены группы могут ранить друг друга; убийство в группе - обычная смерть. Правило группы"),
+              [] { return ps::FriendlyFire(); },
+              {"The host turned friendly fire on: party members can hurt each other",
+               "Хост включил огонь по своим: члены группы могут ранить друг друга"},
+              {"The host decides; off: party members cannot hurt each other",
+               "Решает хост; выкл.: члены группы не могут ранить друг друга"});
+    host_rule(&Values::party_share_lamps, "Shared lamps", "Общие фонари",
+              AddText("A lamp any party member lights is lit for everyone, in each save. Party rule",
+                      "Фонарь, зажжённый любым членом группы, горит у всех, в каждом сохранении. Правило группы"),
+              [] { return ps::ShareLamps(); },
+              {"The host shares lamps: every lamp lit in the party is lit for you too",
+               "Хост делит фонари: каждый фонарь группы горит и у вас"},
+              {"The host turned shared lamps off: your own lamps stay yours",
+               "Хост выключил общие фонари: ваши фонари остаются вашими"});
+    // 0.7.2 (user decision 2026-10-21): the host's world keeps its own lamps unless this is on.
+    host_rule(&Values::party_guests_bring_lamps, "Guests bring their lamps", "Фонари гостей",
+              AddText("A joining guest's own lamps light up in your world too (needs Shared lamps). Party rule",
+                      "Фонари из мира гостя загораются и в вашем мире (нужны общие фонари). Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::GuestsBringLamps); },
+              {"The host lets guests bring their lamps: yours light up in the host's world",
+               "Хост принимает фонари гостей: ваши фонари горят и в его мире"},
+              {"The host's world keeps its own lamps; any lamp you light there is saved for all",
+               "Мир хоста хранит свои фонари; зажжённый вами там фонарь сохраняется у всех"});
+
+    // ---- Party rules: Deaths (party_b2): the host's deaths ----
+    AddPage("Party rules: Deaths", "Правила: смерти", "Host's rules: getting up without a loading screen (bbport)",
+            "Правила хоста: подъём без экрана загрузки (bbport)");
     host_rule(&Values::party_host_revive, "Host gets up, no load", "Хост встаёт сразу",
               AddText("You get up at your lamp without a loading screen for the party. Off: the respawn load. Host's",
                       "Вы встаёте у своего фонаря без экрана загрузки для группы. Выкл.: загрузка. Решает хост"),
@@ -834,17 +926,20 @@ void DefineAll() {
                "Погибли в бою, а другие убили босса: вы встаёте на арене без загрузки (решает хост)"},
               {"The host decides; off: a boss kill after a death brings the respawn load / the host's lamp",
                "Решает хост; выкл.: после победы над боссом - загрузка возрождения / фонарь хоста"});
-    own(&Values::party_guest_respawn, "Respawn at host's lamp", "Возврат к фонарю хоста",
-        "While you are a guest: a death brings you back at the host's lamp, not home. Next start",
-        "Пока вы гость: после смерти вы у фонаря хоста, а не дома. Со следующего запуска");
-    own(&Values::party_guest_refill, "Refill vials, bullets", "Пополнять склянки, пули",
-        "While you are a guest: vials and bullets refill when the host rests, dies or travels. Next start",
-        "Пока вы гость: склянки и пули пополняются, когда хост отдыхает, гибнет или уходит. Со след. запуска");
+    // 0.7.3 (kidnapall, party_kidnap_rules.h): a Snatcher's grab of a guest takes the party to the Gaol.
+    host_rule(&Values::party_any_kidnap, "Anyone can be abducted", "Похитить могут любого",
+              AddText("A Snatcher grabbing a guest takes the whole party to the Hypogean Gaol, as the host. Party rule",
+                      "Похититель, схвативший гостя, уносит всю группу в Подземную тюрьму, как хоста. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::AnyKidnap); },
+              {"The host's rule: a Snatcher grabbing you takes the whole party to the Hypogean Gaol",
+               "Правило хоста: если вас схватит похититель, вся группа окажется в Подземной тюрьме"},
+              {"The host decides; off: only the host's grab takes the party there, a grabbed guest just dies",
+               "Решает хост; выкл.: группу уносит только схваченный хост, схваченный гость просто гибнет"});
 
-    // ---- Rot (party_balance, party_rot_rules.h; 0.7.2: its own page, the six rows of Deaths &
-    // revives were full): the death debuff and what else cleanses it, the host's rules. ----
-    AddPage("Rot", "Гниль", "Rot on death and what cleanses it: a boss, your killer, your Blood Echoes (bbport)",
-            "Гниль при смерти и что её снимает: босс, ваш убийца, ваши отголоски крови (bbport)");
+    // ---- Party rules: Rot (party_balance, party_rot_rules.h): the death debuff and what else cleanses it ----
+    AddPage("Party rules: Rot", "Правила: гниль",
+            "Host's rules: rot on death and what cleanses it: a boss, your killer, your Blood Echoes (bbport)",
+            "Правила хоста: гниль при смерти и что её снимает: босс, убийца, отголоски крови (bbport)");
     host_rule(&Values::party_rot, "Rot on death", "Гниль при смерти",
               AddText("Each death stacks a penalty (up to 5), a lamp rest cleanses it. Off by default. Party rule",
                       "Каждая смерть - штраф (до 5 раз), отдых у фонаря снимает. По умолч. выкл. Правило группы"),
@@ -878,34 +973,52 @@ void DefineAll() {
               {"The host's rule: off, picking up your Blood Echoes leaves the rot",
                "Правило хоста: выкл., подобранные отголоски гниль не снимают"});
 
-    // ---- World & PvP (party_pvp, party_balance, party_guestsvc, seamless_rules, party_phantom) ----
-    AddPage("World & PvP", "Мир и PvP", "Friendly fire, shared lamps, lamps and Hunter's Mark for guests, open world (bbport)",
-            "Огонь по своим, общие фонари, фонари и Метка охотника гостям, открытый мир (bbport)");
-    host_rule(&Values::party_friendly_fire, "Friendly fire / PvP", "Огонь по своим / PvP",
-              AddText("Party members can hurt each other (both ways); a party kill is a normal death. Party rule",
-                      "Члены группы могут ранить друг друга; убийство в группе - обычная смерть. Правило группы"),
-              [] { return ps::FriendlyFire(); },
-              {"The host turned friendly fire on: party members can hurt each other",
-               "Хост включил огонь по своим: члены группы могут ранить друг друга"},
-              {"The host decides; off: party members cannot hurt each other",
-               "Решает хост; выкл.: члены группы не могут ранить друг друга"});
-    host_rule(&Values::party_share_lamps, "Shared lamps", "Общие фонари",
-              AddText("A lamp any party member lights is lit for everyone, in each save. Party rule",
-                      "Фонарь, зажжённый любым членом группы, горит у всех, в каждом сохранении. Правило группы"),
-              [] { return ps::ShareLamps(); },
-              {"The host shares lamps: every lamp lit in the party is lit for you too",
-               "Хост делит фонари: каждый фонарь группы горит и у вас"},
-              {"The host turned shared lamps off: your own lamps stay yours",
-               "Хост выключил общие фонари: ваши фонари остаются вашими"});
-    // 0.7.2 (user decision 2026-10-21): the host's world keeps its own lamps unless this is on.
-    host_rule(&Values::party_guests_bring_lamps, "Guests bring their lamps", "Фонари гостей",
-              AddText("A joining guest's own lamps light up in your world too (needs Shared lamps). Party rule",
-                      "Фонари из мира гостя загораются и в вашем мире (нужны общие фонари). Правило группы"),
-              [] { return ps::HostRuleOn(ps::HostRule::GuestsBringLamps); },
-              {"The host lets guests bring their lamps: yours light up in the host's world",
-               "Хост принимает фонари гостей: ваши фонари горят и в его мире"},
-              {"The host's world keeps its own lamps; any lamp you light there is saved for all",
-               "Мир хоста хранит свои фонари; зажжённый вами там фонарь сохраняется у всех"});
+
+    // ---- Party rules: Enemies (party_balance.h): per extra hunter, the host's values count. ----
+    AddPage("Party rules: Enemies", "Правила: сила врагов",
+            "Host's rules: boss and enemy health, damage and poise per extra hunter (bbport)",
+            "Правила хоста: здоровье, урон и стойкость боссов и врагов за каждого охотника (bbport)");
+    const auto scale_row = [&](std::atomic<int> Values::*member, const int* table, const char* en, const char* ru,
+                               int index) {
+        balance.scale_help[index] = AddDynamic(MaxHelpLength);
+        AddRow(Setting(
+                   Kind::Slider,
+                   [member, table](const Values& v) { return coop::balance::Position(table, (v.*member).load()); },
+                   [member, table](int i) { (BbSettings::Get().*member) = coop::balance::AtPosition(table, i); }),
+               AddText(en, ru), balance.scale_help[index], {}, Kind::Slider, [is_guest] { return !is_guest(); });
+        // guestrules (0.7.3): a guest's read-only line with the host's value
+        balance.guest_scale_value[index] = AddDynamic(MaxValueLength);
+        balance.guest_scale_help[index] = AddDynamic(MaxHelpLength);
+        AddRow(Info(), AddText(en, ru), balance.guest_scale_help[index], {balance.guest_scale_value[index]},
+               Kind::Button, is_guest);
+    };
+    using namespace coop::balance;
+    // Health and damage first (changed most), poise last.
+    scale_row(&Values::party_boss_hp, kHpTable, "Boss health", "Здоровье боссов", 0);
+    scale_row(&Values::party_boss_damage, kDamageTable, "Boss damage", "Урон боссов", 1);
+    scale_row(&Values::party_enemy_hp, kHpTable, "Enemy health", "Здоровье врагов", 3);
+    scale_row(&Values::party_enemy_damage, kDamageTable, "Enemy damage", "Урон врагов", 4);
+    scale_row(&Values::party_boss_poise, kPoiseTable, "Boss poise", "Стойкость боссов", 2);
+    scale_row(&Values::party_enemy_poise, kPoiseTable, "Enemy poise", "Стойкость врагов", 5);
+
+
+    // ---- My party: Deaths (party_b2, party_phantom): while you are a guest ----
+    AddPage("My party: Deaths", "Моя группа: смерти", "Yours: getting up and respawning while you are a guest (bbport)",
+            "Ваше: подъём и возрождение, пока вы гость (bbport)");
+    own(&Values::party_guest_revive_inplace, "Guest gets up, no load", "Гость встаёт сразу",
+        "While you are a guest: you get up at the host's lamp without a loading screen. Off: the respawn load",
+        "Пока вы гость: вы встаёте у фонаря хоста без экрана загрузки. Выкл.: загрузка возрождения");
+    own(&Values::party_guest_respawn, "Respawn at host's lamp", "Возврат к фонарю хоста",
+        "While you are a guest: a death brings you back at the host's lamp, not home. Next start",
+        "Пока вы гость: после смерти вы у фонаря хоста, а не дома. Со следующего запуска");
+    own(&Values::party_guest_refill, "Refill vials, bullets", "Пополнять склянки, пули",
+        "While you are a guest: vials and bullets refill when the host rests, dies or travels. Next start",
+        "Пока вы гость: склянки и пули пополняются, когда хост отдыхает, гибнет или уходит. Со след. запуска");
+
+
+    // ---- My party: World (party_guestsvc, seamless_rules, party_b2; docs/party/chalice.md) ----
+    AddPage("My party: World", "Моя группа: мир", "Yours: lamps and Hunter's Mark for guests, open world, Chalice Dungeons (bbport)",
+            "Ваше: фонари и Метка охотника гостям, открытый мир, Подземелья Чаши (bbport)");
     // Guests use lamps and headstones (party_guestsvc; read at the next start).
     own(&Values::party_guest_lamps, "Guests use lamps", "Фонари гостям",
         "Guests may use lamps and headstones; the whole party travels (after a restart)",
@@ -917,37 +1030,13 @@ void DefineAll() {
         "No co-op walls on area borders: the party walks anywhere. Keep it the same for everyone. Next start",
         "Без стен совместной игры на границах зон: группа ходит везде. Одинаково у всех. Со следующего запуска");
 
-    // ---- Shared world (0.7.1: party_kill_record, party_npc_mirror, party_gather): the host's ----
-    AddPage("Shared world", "Общий мир", "Enemies stay dead, gathering the party, NPCs as in the host's world (bbport)",
-            "Враги не оживают, сбор группы, NPC как в мире хоста (bbport)");
-    host_rule(&Values::party_kill_record, "Enemies stay dead", "Враги не оживают",
-              AddText("A party kill is dead for everyone, also as maps stream in again, until a rest. Party rule",
-                      "Убитый группой враг мёртв у всех, и при новой подгрузке карты, до отдыха. Правило группы"),
-              [] { return ps::HostRuleOn(ps::HostRule::KillRecord); },
-              {"The host's rule: an enemy the party killed stays dead for you too, until a rest",
-               "Правило хоста: убитый группой враг мёртв и у вас, до отдыха"},
-              {"The host decides; off: an enemy killed out of your sight may stand again here",
-               "Решает хост; выкл.: враг, убитый не у вас на глазах, может стоять у вас"});
-    host_rule(&Values::party_gather, "Host can gather", "Хост собирает группу",
-              AddText("Party > Gather the party brings every guest to you (each is asked). Party rule",
-                      "Группа > Собрать группу переносит гостей к вам (каждого спросят). Правило группы"),
-              [] { return ps::HostRuleOn(ps::HostRule::Gather); },
-              {"The host may gather the party: you are asked each time and may say no",
-               "Хост может собрать группу: вас каждый раз спросят, можно отказаться"},
-              {"The host turned gathering off: you are never moved to the host",
-               "Хост выключил сбор группы: вас не переносят к нему"});
-    host_rule(&Values::party_npc_mirror, "NPCs as in host's world", "NPC как в мире хоста",
-              AddText("An NPC gone from your world is gone for the guests too (the clinic's door). Party rule",
-                      "NPC, которого нет в вашем мире, нет и у гостей (дверь клиники). Правило группы"),
-              [] { return ps::HostRuleOn(ps::HostRule::NpcMirror); },
-              {"The host's rule: an NPC gone from the host's world is gone here too",
-               "Правило хоста: NPC, которого нет в мире хоста, нет и у вас"},
-              {"The host decides; off: you may see NPCs the host's world no longer has",
-               "Решает хост; выкл.: вы можете видеть NPC, которых нет в мире хоста"});
+    own(&Values::party_chalice_rejoin, "Stay in Chalice Dungeons", "Остаться в Чаше",
+        "Guest: out of the host's dungeon by a death or forced trip, you are summoned back. Left by choice: Rejoin",
+        "Гость: вне подземелья хоста после смерти или переноса - призыв вернёт. Ушли сами: Вернуться");
 
-    // ---- Story & dialogue (party_npctalk, party_progress, party_story) ----
-    AddPage("Story & dialogue", "Сюжет и диалоги", "Shared NPC dialogue, story progress, NPC quests, cutscenes (bbport)",
-            "Общие диалоги NPC, прогресс сюжета, квесты NPC, ролики (bbport)");
+    // ---- My party: Story (party_npctalk, party_progress, party_story) ----
+    AddPage("My party: Story", "Моя группа: сюжет", "Yours: shared NPC dialogue, story progress, NPC quests, cutscenes (bbport)",
+            "Ваше: общие диалоги NPC, прогресс сюжета, квесты NPC, ролики (bbport)");
     // Shared NPC dialogue (party_npctalk.h): a companion's NPC conversation near you, and how near.
     own(&Values::party_npc_talk, "Share NPC dialogue", "Общие диалоги NPC",
         "See and hear the NPC conversations of companions near you (subtitles, choices, gifts)",
@@ -971,9 +1060,10 @@ void DefineAll() {
         "A guest in the host's world watches a cutscene with the host. Off: later, in its own world. Next start",
         "Гость в мире хоста смотрит ролик вместе с ним. Выкл.: позже, в своём мире. Со следующего запуска");
 
-    // ---- Party rewards (party_items, party_director, party_phantom) ----
-    AddPage("Party rewards", "Награды группы", "Echoes and drops, item rewards, bells, key items, Insight for guests (bbport)",
-            "Отголоски и добыча, предметы, колокольчики, ключи, озарение гостям (bbport)");
+
+    // ---- My party: Rewards (party_items, party_director, party_phantom) ----
+    AddPage("My party: Rewards", "Моя группа: награды", "Yours: echoes and drops, item rewards, bells, key items, Insight as a guest (bbport)",
+            "Ваше: отголоски и добыча, предметы, колокольчики, ключи, озарение гостю (bbport)");
     own(&Values::party_full_rewards, "Full rewards for guests", "Полные награды гостям",
         "While you are a guest: full Blood Echoes and enemy drops, like the host. Off: the game's co-op. Next start",
         "Пока вы гость: полные отголоски крови и добыча, как у хоста. Выкл.: как в игре. Со следующего запуска");
@@ -1001,30 +1091,10 @@ void DefineAll() {
             AddText("Game's own (+1)", "Как в игре (+1)")},
            Kind::List);
 
-    // ---- Enemy scaling (party_balance.h): per extra hunter, the host's values count. ----
-    AddPage("Enemy scaling", "Сила врагов", "Boss and enemy health, damage and poise per extra hunter (bbport)",
-            "Здоровье, урон и стойкость боссов и врагов за каждого охотника (bbport)");
-    const auto scale_row = [&](std::atomic<int> Values::*member, const int* table, const char* en, const char* ru,
-                               int index) {
-        balance.scale_help[index] = AddDynamic(MaxHelpLength);
-        AddRow(Setting(
-                   Kind::Slider,
-                   [member, table](const Values& v) { return coop::balance::Position(table, (v.*member).load()); },
-                   [member, table](int i) { (BbSettings::Get().*member) = coop::balance::AtPosition(table, i); }),
-               AddText(en, ru), balance.scale_help[index], {}, Kind::Slider);
-    };
-    using namespace coop::balance;
-    // Health and damage first (changed most), poise last.
-    scale_row(&Values::party_boss_hp, kHpTable, "Boss health", "Здоровье боссов", 0);
-    scale_row(&Values::party_boss_damage, kDamageTable, "Boss damage", "Урон боссов", 1);
-    scale_row(&Values::party_enemy_hp, kHpTable, "Enemy health", "Здоровье врагов", 3);
-    scale_row(&Values::party_enemy_damage, kDamageTable, "Enemy damage", "Урон врагов", 4);
-    scale_row(&Values::party_boss_poise, kPoiseTable, "Boss poise", "Стойкость боссов", 2);
-    scale_row(&Values::party_enemy_poise, kPoiseTable, "Enemy poise", "Стойкость врагов", 5);
 
-    // ---- Party display: what this player sees of the party (local) ----
-    AddPage("Party display", "Отображение группы", "Party HUD, name tags, pings, markers, what shows above companions (bbport)",
-            "Панель группы, имена, метки, маркеры, что видно над спутниками (bbport)");
+    // ---- My party: Display: what this player sees of the party (local) ----
+    AddPage("My party: Display", "Моя группа: отображение", "Yours: party HUD, name tags, pings, markers, what shows above companions (bbport)",
+            "Ваше: панель группы, имена, метки, маркеры, что видно над спутниками (bbport)");
     // Party HUD (party_hud.h): party mode only.
     AddRow(Flag(&Values::party_hud), AddText("Party HUD", "Панель группы"),
            AddText("Companions' names, health and where they are, in the bottom left corner",
@@ -1057,28 +1127,24 @@ void DefineAll() {
             AddText("Name and ping", "Имя и пинг")},
            Kind::List);
 
-    // ---- Party look: how companions are drawn on this screen (local; Party display is full) ----
-    AddPage("Party look", "Вид группы", "How the other hunters of the party look on your screen (bbport)",
-            "Как другие охотники группы выглядят на вашем экране (bbport)");
+
+    // ---- My party: Look & notices: how companions are drawn on this screen, the join / leave notices ----
+    AddPage("My party: Look & notices", "Моя группа: вид, оповещ.", "Yours: how the other hunters look on your screen, join/leave notices (bbport)",
+            "Ваше: как другие охотники выглядят у вас, уведомления о входе и выходе (bbport)");
     // party_glow.h: the other players' chrs without the phantom glow (display only).
-    own(&Values::party_glow_off, "Companions without glow", "Спутники без свечения",
+    own(&Values::party_glow_off, "No companion glow", "Спутники без свечения",
         "On: the other hunters look like normal hunters on your screen. Off: the game's blue phantom glow",
         "Вкл.: другие охотники выглядят как обычные. Выкл.: синее свечение фантомов, как в игре");
 
-    // ---- Chalice Dungeons (party_guestsvc, party_b2; docs/party/chalice.md): each player's own, read live ----
-    AddPage("Chalice Dungeons", "Подземелья Чаши", "Deaths and getting back in, in a party's Chalice Dungeon (bbport)",
-            "Смерти и возвращение в Подземелье Чаши группы (bbport)");
-    own(&Values::party_chalice_rejoin, "Stay in Chalice Dungeons", "Остаться в Чаше",
-        "Guest: out of the host's dungeon by a death or forced trip, you are summoned back. Left by choice: Rejoin",
-        "Гость: вне подземелья хоста после смерти или переноса - призыв вернёт. Ушли сами: Вернуться");
+    AddRow(Flag(&Values::party_toasts), "Join/leave notices", "Уведомления",
+           "A short notice in a top corner when a hunter joins or leaves",
+           "Короткое уведомление в углу, когда охотник входит или выходит", toggle, Kind::Toggle);
 }
 
 /// The party rules' help lines: the current value, and on a guest that the host's rules count.
 void RefreshBalance() {
     if (!balance.npc_range_help) return;
     const auto& v = BbSettings::Get();
-    const bool guest = party::status::Snapshot().role == party::status::Role::Guest;
-    const std::string g_en = guest ? " (host decides)" : "", g_ru = guest ? " (решает хост)" : "";
     {
         const int r = coop::npctalk::RangeAtPosition(coop::npctalk::RangePosition(v.party_npc_talk_range.load()));
         SetDynamic(balance.npc_range_help, "Companions' NPC dialogue reaches you " + coop::npctalk::DescribeRange(r),
@@ -1103,7 +1169,23 @@ void RefreshBalance() {
         const char* ref_en = k < 3 ? "; 100 % = Bloodborne" : "; vanilla 0";
         const char* ref_ru = k < 3 ? "; 100 % = как в игре" : "; в игре 0";
         if (!balance.scale_help[k]) continue;  // poise: overlay Party tab / bbport.ini only
-        SetDynamic(balance.scale_help[k], en + (kind == 1 ? "" : ref_en) + g_en, ru + (kind == 1 ? "" : ref_ru) + g_ru);
+        SetDynamic(balance.scale_help[k], en + (kind == 1 ? "" : ref_en), ru + (kind == 1 ? "" : ref_ru));
+    }
+    // A guest's read-only lines: the host's values in force (party_status HostScaling).
+    int host[party::status::kScalingValues];
+    party::status::HostScaling(host);
+    for (int k = 0; k < 6; ++k) {
+        if (!balance.guest_scale_value[k]) continue;
+        const int kind = k % 3;
+        const int value = host[k];
+        char shown[16];
+        std::snprintf(shown, sizeof shown, kind == 1 ? "+%d %%" : "%d %%", value);
+        SetDynamic(balance.guest_scale_value[k], shown, shown);
+        const std::string en = kind == 0 ? DescribeHp(value, false)
+                               : kind == 1 ? DescribeDamage(value, false) : DescribePoise(value, false);
+        const std::string ru = kind == 0 ? DescribeHp(value, true)
+                               : kind == 1 ? DescribeDamage(value, true) : DescribePoise(value, true);
+        SetDynamic(balance.guest_scale_help[k], "The host's setting: " + en, "Настройка хоста: " + ru);
     }
 }
 
@@ -1117,6 +1199,18 @@ u32 EndingQuestionText() {
 u32 GatherQuestionText() {
     Define();
     return gather_text[0];
+}
+
+u32 TravelVoteQuestionText() {
+    Define();
+    return vote_text[0];
+}
+
+void SetTravelVoteQuestion(const std::string& who, const std::u16string& lamp) {
+    Define();
+    const std::u16string w = Utf16(who.c_str());
+    SetDynamic16(vote_text[0], w + u" wants the party to travel to " + lamp + u".\nYES: travel together.  NO: the party stays.",
+                 w + u" хочет вести группу: " + lamp + u".\nДА: идти вместе.  НЕТ: группа остаётся.");
 }
 
 u32 StoryNoticeText(u32 game_message) {

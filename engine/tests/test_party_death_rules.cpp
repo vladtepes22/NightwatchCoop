@@ -256,6 +256,15 @@ int main() {
         CHECK(PlanFallRespawn(true, true, false, false, false, false) == FallRespawn::Respawn);
         CHECK(PlanFallRespawn(true, false, true, true, true, false) == FallRespawn::Respawn);    // in-place revive off
         CHECK(PlanFallRespawn(false, true, true, true, true, false) == FallRespawn::Respawn);   // no fall: as before
+        // chalicelamp: a guest's fall in the host's Chalice Dungeon (a living member there): beside it,
+        // never a lamp's table spot nor a safe floor that was a lift car's stop; the host as before.
+        CHECK(PlanFallRespawn(true, true, false, false, true, false, true) == FallRespawn::BesideMember);
+        CHECK(PlanFallRespawn(true, true, true, true, true, false, true) == FallRespawn::BesideMember);
+        CHECK(PlanFallRespawn(true, true, false, false, false, false, true) == FallRespawn::BesideMember);
+        CHECK(PlanFallRespawn(true, true, false, false, true, true, true) == FallRespawn::SafeFloor);  // host role
+        CHECK(PlanFallRespawn(true, false, false, false, true, false, true) == FallRespawn::Respawn);  // in-place off
+        CHECK(PlanFallRespawn(false, true, false, false, true, false, true) == FallRespawn::Respawn);  // no fall
+        CHECK(PlanFallRespawn(true, true, false, false, true, false, false) == FallRespawn::SafeFloor); // nobody alive
         {
             // The sequence of a death out of the world: HP 0 (the game's death plays), the death taken
             // (held), the body moved up, a settle, the revive in place - and no load.
@@ -416,9 +425,13 @@ int main() {
     CHECK(PlanGuestLamp(true, true, true, true) == GuestLamp::SoloLoad);   // a Mark to the lamp here
     CHECK(PlanGuestLamp(true, false, false, false) == GuestLamp::Ask);
     CHECK(PlanGuestLamp(true, false, false, true) == GuestLamp::Ask);
-    CHECK(GuestAloneRestsHostWorld(true, false));
-    CHECK(!GuestAloneRestsHostWorld(false, false));  // YES: the party travel is the rest
-    CHECK(GuestAloneRestsHostWorld(true, true));  // D9 (pard4): a lamp of the loaded map rests too
+    CHECK(GuestAloneRestsHostWorld(true, false, false));
+    CHECK(!GuestAloneRestsHostWorld(false, false, false));  // YES: the party travel is the rest
+    CHECK(GuestAloneRestsHostWorld(true, true, false));  // D9 (pard4): a lamp of the loaded map rests too
+    // 0.7.3: a guest leaving the Hunter's Dream alone (headstone, NO) is a plain travel: no rest load
+    CHECK(!GuestAloneRestsHostWorld(true, false, true));
+    CHECK(!GuestAloneRestsHostWorld(true, true, true));
+    CHECK(!GuestAloneRestsHostWorld(false, false, true));
 
     // The host's rest load for a guest's rest (bug 3).
     RestView r;
@@ -526,6 +539,24 @@ int main() {
     CHECK(!TestDieStepLatches(true, false, true, false, true));      // the previous die step's own death
     CHECK(TestStepWaits(false, true, true, true));                   // inside the last wipe's re-join
     CHECK(TestStepWaits(false, true, false, false));                 // not in the world
+    // BB_PARTY_TEST_GUARD: invincible from the revive after a death until the next die / chr step
+    {
+        TestGuard g;
+        CHECK(!TestGuardTick(g, 600, true));                         // never died: no guard
+        CHECK(!TestGuardTick(g, 0, true));                           // killed by the enemy
+        CHECK(!TestGuardTick(g, -1, false));                         // the respawn load
+        CHECK(TestGuardTick(g, 600, true));                          // up again: invincible
+        CHECK(TestGuardTick(g, 600, true));
+        CHECK(!TestGuardStepRan(g, false));                          // a press / move: stays on
+        CHECK(TestGuardTick(g, 600, true));
+        CHECK(TestGuardStepRan(g, true));                            // the scripted death: off (clear)
+        CHECK(!TestGuardTick(g, 600, true));
+        CHECK(!TestGuardTick(g, 0, true));                           // that death
+        CHECK(TestGuardTick(g, 600, true));                          // up again: on until the next one
+        CHECK(TestGuardStepRan(g, true));                            // guest_chr: be killed again
+        CHECK(!TestGuardStepRan(g, true));                           // nothing to clear twice
+        CHECK(!TestGuardTick(g, 600, true));
+    }
 
     // Own bloodstain record changes (bug 13 logging).
     CHECK(PlanStainChange(0, -1, 1, 4843) == StainChange::Recorded);
@@ -534,6 +565,29 @@ int main() {
     CHECK(PlanStainChange(1, 4843, 1, 2341) == StainChange::Replaced);  // a second death overwrote it
     CHECK(PlanStainChange(1, 4843, 1, 4843) == StainChange::None);
     CHECK(PlanStainChange(0, -1, 0, -1) == StainChange::None);
+
+    // echodup (player report: 15k from the glowing-eyed enemy and 15k again from the stain).
+    CHECK(PlanStainHold(true, 0, false, 99.0) == StainHold::Free);     // on the ground: the party stain pays
+    CHECK(PlanStainHold(true, 1, true, 0.0) == StainHold::Held);       // an enemy took it: kill it
+    CHECK(PlanStainHold(true, 1, false, 3.0) == StainHold::Held);      // its death still running
+    CHECK(PlanStainHold(true, 1, false, 11.0) == StainHold::Void);     // hold without its enemy: recoverable
+    CHECK(PlanStainHold(false, 1, true, 0.0) == StainHold::Free);      // another record (not this stain)
+    // The holder's kill paid the record (0x130AB80: flag 0, +0x38 -1, echoes +15000): the party
+    // stain goes, its touch no longer pays.
+    CHECK(StainTakenByGame(true, -1, 15000, 15000));
+    CHECK(StainTakenByGame(true, -1, 15000, 14990));                  // a kill's echoes on top, or rot
+    CHECK(!StainTakenByGame(true, 15000, 15000, 15000));               // record unchanged: someone else's kill
+    CHECK(!StainTakenByGame(true, -1, 15000, 120));                    // only a kill's own echoes came
+    CHECK(!StainTakenByGame(false, -1, 15000, 15000));                 // the record was not this stain
+    CHECK(!StainTakenByGame(true, -1, 0, 0));
+    CHECK(RestoreHold(true, 0, true));                                 // eh2: the hold dropped, the enemy still glows
+    CHECK(!RestoreHold(true, 1, true));
+    CHECK(!RestoreHold(true, 0, false));                               // nobody has them: the ground stain stays
+    CHECK(!RestoreHold(false, 0, true));                               // another record
+    // A second death before recovery: the old holder lets go (the old echoes are lost).
+    CHECK(ReleaseHoldAtDeath(true, 1));
+    CHECK(!ReleaseHoldAtDeath(true, 0));
+    CHECK(!ReleaseHoldAtDeath(false, 1));                              // a respawn load's record call
 
     // Bug 22: nobody to travel with = single player (no in-world lamp move, no redirect).
     CHECK(PartyTravelActive(true, false, true, false));              // guest in the host's world

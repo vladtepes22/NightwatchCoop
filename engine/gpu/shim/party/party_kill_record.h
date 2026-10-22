@@ -18,7 +18,7 @@
 //    silently when it streams it in only later (it was not there).
 //
 // Pure logic (unit test: tests/test_party_enemy_census.cpp); the game side is in
-// party_progress_bridge.cpp (the host's rule: System > Shared world, party_kill_record, BB_PARTY_KILL_RECORD). Regular named enemies only: no boss
+// party_progress_bridge.cpp (the host's rule: System > Party rules: World, party_kill_record, BB_PARTY_KILL_RECORD). Regular named enemies only: no boss
 // (their defeat has its own path), no enemy without a map entity id (no id the same on every game).
 #pragma once
 

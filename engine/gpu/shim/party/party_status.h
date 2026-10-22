@@ -97,9 +97,15 @@ bool ShareLamps();
 /// The host's other rules in force (party_balance; the host's values on a guest once its rules
 /// arrived, else this player's own), for the menus' read-only lines on a guest.
 enum class HostRule { Rot, HostRevive, HostLimboRevive, KillRecord, NpcMirror, Gather, GuestsBringLamps,
-                      RotCleanseBoss, RotCleanseKiller, RotCleanseEchoes, Count };
+                      RotCleanseBoss, RotCleanseKiller, RotCleanseEchoes, CovenantPerPlayer, TravelVote, NpcFights, AnyKidnap, Count };
 void SetHostRule(HostRule rule, bool on);
 bool HostRuleOn(HostRule rule);
+/// D7 enemy scaling in force (party_balance; the host's values on a guest once its rules arrived,
+/// else this player's own), for the menus' read-only lines on a guest: boss HP, damage, poise,
+/// enemy HP, damage, poise (party_balance_rules.h Rules). Cheap (atomics); set by the party tick.
+constexpr int kScalingValues = 6;
+void SetHostScaling(const int value[kScalingValues]);
+void HostScaling(int value[kScalingValues]);
 /// C4: this player's rot stacks per kind (party_balance; health, stamina, stamina cost, rally,
 /// discovery; all 0 while rot is not in force), for System > Party and the party HUD. Cheap
 /// (atomics); set by the party tick.

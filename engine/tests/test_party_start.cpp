@@ -5,6 +5,7 @@
 #include "party/party_start.h"
 
 #include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -389,6 +390,45 @@ static void test_saved_prologue() {
     CHECK(NoteSavedPrologueFor(u, -1, true) && u.slots.empty() && u.last == 1);
 }
 
+// 0.7.3: a starting weapon done flag without a pick of the player's own (another player's pick,
+// synced in by older builds) is cleared; a real pick, or an unreadable flag, is left alone.
+static std::map<std::uint32_t, bool> g_wflags;
+static bool g_wreadable = true;
+static bool WeaponFlag(std::uint32_t id, bool* on) {
+    if (!g_wreadable) {
+        return false;
+    }
+    const auto it = g_wflags.find(id);
+    *on = it != g_wflags.end() && it->second;
+    return true;
+}
+static void test_weapon_repair() {
+    CHECK(StartWeaponFlagsToClear(nullptr).empty());
+    g_wflags.clear();
+    CHECK(StartWeaponFlagsToClear(&WeaponFlag).empty());  // nothing taken: nothing to clear
+    g_wflags = {{12101020, true}, {12101021, true}};       // both done, no pick: the synced case
+    {
+        const std::vector<std::uint32_t> v = StartWeaponFlagsToClear(&WeaponFlag);
+        CHECK(v.size() == 2 && v[0] == 12101020 && v[1] == 12101021);
+    }
+    g_wflags = {{12101020, true}, {72101001, true}, {12101021, true}, {72101010, true}};  // own picks
+    CHECK(StartWeaponFlagsToClear(&WeaponFlag).empty());
+    g_wflags = {{12101020, true}, {72101002, true}, {12101021, true}};  // left side: synced only
+    {
+        const std::vector<std::uint32_t> v = StartWeaponFlagsToClear(&WeaponFlag);
+        CHECK(v.size() == 1 && v[0] == 12101021);
+    }
+    g_wflags = {{72101000, true}, {72101011, true}};  // the test aid's choices without the done flags
+    CHECK(StartWeaponFlagsToClear(&WeaponFlag).empty());
+    g_wflags = {{12101020, true}, {12101021, true}};
+    g_wreadable = false;
+    CHECK(StartWeaponFlagsToClear(&WeaponFlag).empty());
+    g_wreadable = true;
+    // The choice flags are the messengers' ShopLineupParam stock flags (rows 2000-2002, 2010-2011).
+    CHECK(sizeof(kWeaponChoiceRight) / sizeof(kWeaponChoiceRight[0]) == 3 && kWeaponChoiceRight[0] == 72101000);
+    CHECK(sizeof(kWeaponChoiceLeft) / sizeof(kWeaponChoiceLeft[0]) == 2 && kWeaponChoiceLeft[1] == 72101011);
+}
+
 int main() {
     CHECK(!ShouldAutoContinue(-1, false));
     CHECK(ShouldAutoContinue(-1, true));
@@ -396,6 +436,7 @@ int main() {
     CHECK(!ShouldAutoContinue(0, true));
     CHECK(ShouldAutoContinue(1, false));
     CHECK(ShouldAutoContinue(1, true));
+    test_weapon_repair();
     test_saved_prologue();
     test_travel_audience();
     test_mode();

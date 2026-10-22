@@ -171,6 +171,19 @@ Before this work the party answered `word_search` / `random_join` with `{"ResKin
   written under the current slot: the slot records are not part of the load-mode-1 storage, and a
   copy written there replaced the member's own slot-1 dungeon in its save after a summoned save
   (live test); only the quick-joined slot's own record is carried.
+* **The in-game "current dungeon" read too** (0.7.3): the in-game step 0x193ac10 writes FrpgNetMan
+  +0xa88 (the ChannelId signs, messages and summon messages carry, read e.g. by 0x145a250) every
+  frame from the current slot's record (online, not 9f6/9f8/a50, area-29 map:
+  `GetEventFlagValue(9020, 7)` at 0x1941B05 -> 0x1ab2a40), and the map load step 0x1937570 sets
+  FrpgNetMan +0xb14 bit 1 from the current slot helper's channel object (+0x1d8 +0x10c bit 0; read
+  at 0x1937E7B). After the map load retarget a summoned member with its own slot 1.. stood in the
+  host's dungeon with its OWN ChannelId in +0xa88. Both reads are retargeted the same way
+  (`InDungeonSlotHook`, only while the host's dungeon is carried; logged once per change: `in the
+  host's dungeon: the game's current dungeon (FrpgNetMan +0xa88) is the quick-joined slot 0's`).
+  No flag is written; a load mode 0 load ends it and +0xa88 follows the own current slot again on
+  the next frame. Not retargeted: 0x13d2910 (GameDataMan +0x30, the saved position's slot),
+  InGameStart 0x193a3e0 (compares that record's slot with the current one), the ritual helper
+  steps (0x1aa9500, 0x1b038b0).
 * So what the party needs is that **get_details_info finds the host's dungeon**: the host's game
   uploads it when it performs the ritual / resumes it online (helper steps 5-6, ChannelUpload), and
   the board keeps it. **Our rule** (FromApi::sign_get): a host whose sign query is in area 29 gets
@@ -475,7 +488,7 @@ died was sent to the Hunter's Dream and could not get back in until the host res
 * **A guest's death (C, live)**: outside a boss fight a dead guest went to its OWN last lamp (the Dream:
   an alone load) and stayed apart; a dungeon is entered only by the summon, its game's send-home is dropped
   while apart, and the host's travels into the dungeon are "not followed", so nothing brought it back. Now
-  (bbport.ini `party_chalice_rejoin`, System > Chalice Dungeons, launcher; default on) it gets up beside the
+  (bbport.ini `party_chalice_rejoin`, System > My party: World, launcher; default on) it gets up beside the
   nearest living member, no load (`guest: died in the host's Chalice Dungeon ...: up again beside the nearest
   living member`); and `ChaliceApartTick`: a guest still in the session but apart in a map outside area 29
   while the host's roster map is in area 29. **User decision (option b)**, `deathrules::PlanChaliceApart`:
@@ -496,6 +509,29 @@ died was sent to the Hunter's Dream and could not get back in until the host res
   Dream (both in m21_00, party travel), `host_lamp=2902952` from the Dream (the altar's warp: host in alone,
   the guest apart -> home -> summoned back, both in m29 at the lamp). Not run live: a guest's own use of a
   dungeon lamp (its talk answers 0, `t290112 asks IsClientPlayer (Chalice Dungeon lamp: answered 0)`).
+* **chalicelamp (0.7.3, two guest reports, derivative-build logs)**:
+  - **A guest's own dungeon lamp use** (cause confirmed from the data): the lamp menu's "Return to the Hunter's
+    Dream" set 72900104 three times on the guest and nothing followed. m29's 12907020 starts with `1003[6]` (end
+    the event on a client, state 1), the same guard as the world lamps' 7200; `ChaliceLampSkipRules`
+    (`12907020:1003:6@0`, with the guest lamps and the dungeon lamps on) skips it as `LampSkipRules` does for
+    7200, so the guest's 2003[49] runs and goes through `GuestLampIntercept` (split question / lamp request).
+  - **The fall revive "above the dungeon"** (confirmed from the log): `GuestFallSafeRevive` ran before the
+    dungeon rule and took the host's last lamp 2902954 from party_ids' table: the m29 template's spot (52.8,
+    -1.0, 21.9), 180 m from that lamp's object (2901954 at (-132.7, 17.4, -15.5)) and in the air; the guest
+    fell 54 m and died again, twice. `ids::ReturnSpot` now has no spot for area 29 (as documented), the fall
+    rule gets `FallRespawn::BesideMember` in a dungeon (party_chalice_rejoin, a living member here, not a
+    boss fight), and the guest-lamp distance tests use the lamp object 2901950 + n (`LampSpotNow`).
+  - **Dungeon lifts** (cause inferred: the guest's chr ended 5 m under the car at the 21 m lift's bottom with
+    the game's fall-death state; no ride sample in its height history): the lift table has no m29 lift. The
+    game side learns the cars from the rides' `2003[18]` in m29's lift events (`liftrules::ChaliceLiftCar`,
+    `kChaliceLiftEvents`), cleared at every load; the on-a-moving-car test takes a learned car within 4 m
+    and 3 m of height, and `liftrules::CarRiderTick` (the chr's height against the car object's, no ride
+    bit needed) puts a rider that drops through a moving car back on it.
+  - **Smoke `clg`** (`--only chalice_guest`, host `chalice_pthumeru_inside`, guest `chalice_hintertomb_ritual`;
+    r3 16/16): the guest's 31 m fall in the boss room -> up beside the host (no second death); both ride lift
+    2901004 down, the guest's game learns the car, no fall; the guest lights lamp 2901953 (the host's last lamp
+    follows), uses it -> 72900103, the warp request 2102955 -> both in the Dream together. Not reproduced live:
+    a drop through a dungeon car (the rider guard is unit-tested only) and the report's own lift death.
 * **A boss paid once (0.7.1, cl9)**: cl6 / cl8 showed every re-summon into the cleared dungeon paying the
   layer boss again (`boss clear on this game (BlockClear2): boss 2900100, clear bonus 1995`, Insight 6 -> 7).
   Cause (verified): `ChaliceLeaveSession` used a bare BeginLeave, so an apart guest stayed in its

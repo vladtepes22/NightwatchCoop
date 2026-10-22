@@ -21,6 +21,9 @@
 //              cutscene_seen, world_state
 //   state:     elevators / toggling gates (both 0 and 1 follow the host)
 //   follow:    npc_quest (shared quest choices; BB_PARTY_PROGRESS_NPC=0 turns it off)
+//   per player: covenant_outcome (0.7.3: Annalise, Alfred, Valtr) while the host's rule
+//              "Covenant outcomes per player" is on (Policy::covenant_per_player); off: its base
+//              category's mode
 //   off:       item_lot_picked (always: C3, party_items, owns item pickups - the host side hands
 //              every item-pickup flag it sees set to the SetItemFlagObserver), boss_area,
 //              session_runtime, time_of_day (C4 cutscene replay only), never_sync (incl. the area
@@ -85,6 +88,12 @@ enum class Category : u8 {
     world_state,
     session_runtime,
     time_of_day,  ///< 9800-9802: only through the cutscene replay path (C4), never silently
+    /// 0.7.3 (user decision 2026-10-22): the quest state of the covenant leaders and of the NPC whose
+    /// quest ends a covenant (Annalise, Alfred, Valtr; flag_tool.py COVENANT_ROWS). Per player while
+    /// the host's rule "Covenant outcomes per player" is on (CovenantPerPlayer): never copied into
+    /// another player's save, never a guest's world action; the world mirror still shows the host's
+    /// state in the host's world. Off: the base category (BaseCategoryOf) as before.
+    covenant_outcome,
     kCount
 };
 constexpr int kCategoryCount = static_cast<int>(Category::kCount);
@@ -101,6 +110,19 @@ const std::vector<CategoryRange>& CategoryRanges();
 Category CategoryOf(u32 id);
 /// The first-match linear scan of the raw table (reference for tests).
 Category CategoryOfLinear(u32 id);
+/// The category of `id` without the covenant_outcome rows (what such an id was before 0.7.3 and is
+/// again while the rule is off); CategoryOf for every other id.
+Category BaseCategoryOf(u32 id);
+/// The rule "Covenant outcomes per player" in force (the host's setting; a guest follows the host's
+/// party rules). Default on. Any thread (atomic); the party glue sets it every tick.
+void SetCovenantPerPlayer(bool on);
+bool CovenantPerPlayer();
+/// The category that decides what happens to `id` now: covenant_outcome while the rule is on, the
+/// base category of a covenant id while it is off.
+inline Category EffectiveCategory(u32 id, bool covenant_per_player) {
+    const Category c = CategoryOf(id);
+    return c == Category::covenant_outcome && !covenant_per_player ? BaseCategoryOf(id) : c;
+}
 
 // ---- flag ids, group keys, bits ----
 
@@ -138,10 +160,15 @@ enum class SyncMode : u8 { Off = 0, SetOnly = 1, State = 2, Follow = 3 };
 struct Policy {
     std::array<SyncMode, kCategoryCount> mode{};
     bool mirror_overlay = false;
+    /// The host's rule "Covenant outcomes per player": covenant_outcome ids are Off; false: they
+    /// follow their base category's mode.
+    bool covenant_per_player = true;
     static Policy Defaults();
     /// Defaults plus BB_PARTY_PROGRESS_NPC / _MIRROR. item_lot_picked stays Off (C3 owns items).
     static Policy FromEnv();
-    bool operator==(const Policy& o) const { return mode == o.mode && mirror_overlay == o.mirror_overlay; }
+    bool operator==(const Policy& o) const {
+        return mode == o.mode && mirror_overlay == o.mirror_overlay && covenant_per_player == o.covenant_per_player;
+    }
     bool operator!=(const Policy& o) const { return !(*this == o); }
 };
 /// What the guest does with `id` (category, the state list, the exclusions, NeverWritable).

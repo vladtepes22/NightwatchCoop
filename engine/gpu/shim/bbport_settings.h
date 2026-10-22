@@ -216,7 +216,7 @@ struct Values {
     /// carry the PC's IPv6 address). ini party_ipv6; env BB_PARTY_IPV6 overrides at start. Read when
     /// the party starts.
     std::atomic<bool> party_ipv6{false};
-    /// Party gameplay switches (the launcher's Party Rules & Sync, the game's party rules pages in
+    /// Party gameplay switches (the launcher's Party Rules / My Party tabs, the game's party pages in
     /// System; PartySwitches below): ini key = the member's name, env BB_PARTY_* = 0/1 wins at start.
     /// On by default. Load puts each value into the process environment when its variable is unset,
     /// so the party modules that read their switch once at start see the ini's value (the rows of
@@ -248,6 +248,14 @@ struct Values {
     std::atomic<bool> party_kill_record{true};  ///< enemies stay dead for the party (party_kill_record.h)
     std::atomic<bool> party_npc_mirror{true};   ///< an NPC gone from the host's world is gone on guests
     std::atomic<bool> party_gather{true};       ///< I5: the host may gather the party (party_gather.h)
+    /// 0.7.3 (user decision 2026-10-22): covenant outcomes (Annalise, Alfred, Valtr) stay in each
+    /// player's own save (party_progress Category::covenant_outcome). The host's; on by default.
+    std::atomic<bool> party_covenant_per_player{true};
+    /// 0.7.3: a party travel by lamp, headstone or Hunter's Mark runs only once every member voted
+    /// YES (party_vote.h). The host's rule; OFF by default.
+    std::atomic<bool> party_travel_vote{false};
+    std::atomic<bool> party_npc_fights{true};   ///< D11 (0.7.3): NPC hunters fight the whole party (party_npcfight_rules.h)
+    std::atomic<bool> party_any_kidnap{true};   ///< 0.7.3: a Snatcher grabbing a guest takes the party to the Gaol (party_kidnap_rules.h)
     /// Each player's own (while it is a guest; party_items):
     std::atomic<bool> party_key_view{true};     ///< the own key items while summoned (next start)
     std::atomic<bool> party_key_items_summoned{true}; ///< a host-world key item given at once (needs key_view)

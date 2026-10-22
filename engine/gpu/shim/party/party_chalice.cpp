@@ -328,7 +328,40 @@ BB_COOP_SYSV std::uint32_t MapLoadSlotBits(u64 man, std::uint32_t flag, std::uin
     std::printf("Party: chalice: map load: the quick-joined slot %d's dungeon, not the current slot %d's\n", joined,
                 SlotFromBits(own));
     std::fflush(stdout);
-    return 1u << (kSlots - 1 - joined);
+    return InDungeonSlotBits(own, joined);
+}
+
+// The game's other reads of "the dungeon I am in" (GetEventFlagValue(9020, 7), only in area 29):
+// the in-game step 0x193ac10 sets FrpgNetMan +0xa88 (the ChannelId signs, messages and summon
+// messages carry) from the current slot's record every frame (call 0x1941b05), and the map load
+// step 0x1937570 sets FrpgNetMan +0xb14 bit 1 from the current slot's channel object (0x1937e7b).
+// A summoned member whose own ritual dungeon is selected (slot 1..) stood in the host's dungeon
+// with its own dungeon's ChannelId there: its signs and messages went to its own dungeon. While the
+// host's dungeon is carried (load mode 1, the quick-joined slot) these reads answer that slot; the
+// event flags themselves are never changed, and a load mode 0 load (home) ends it, so +0xa88 is
+// the member's own dungeon again on the next frame there. Logged once per change.
+namespace {
+constexpr std::uint64_t kNetChannelSlotCall = 0x1941b05;  // 0x193ac10: -> FrpgNetMan +0xa88
+constexpr std::uint64_t kNetChannelObjCall = 0x1937e7b;   // 0x1937570: -> FrpgNetMan +0xb14 bit 1
+std::atomic<int> g_in_dungeon_logged{-2};
+} // namespace
+
+BB_COOP_SYSV std::uint32_t InDungeonSlotHook(u64 man, std::uint32_t flag, std::uint32_t bits) {
+    const std::uint32_t own = reinterpret_cast<FlagGet>(Guest(0x13cfd80))(man, flag, bits);
+    const int joined = flag == kSlotFlag && bits == static_cast<std::uint32_t>(kSlots) ? JoinedSlot(man) : -1;
+    const std::uint32_t out = InDungeonSlotBits(own, joined);
+    const int key = out != own ? joined : -1;
+    if (g_in_dungeon_logged.exchange(key) != key) {
+        if (key >= 0) {
+            std::printf("Party: chalice: in the host's dungeon: the game's current dungeon (FrpgNetMan +0xa88) is the "
+                        "quick-joined slot %d's (dungeon %llu), not the own slot %d's\n",
+                        joined, static_cast<unsigned long long>(g_carried.load()), SlotFromBits(own));
+        } else {
+            std::printf("Party: chalice: the game's current dungeon is the own current slot %d's\n", SlotFromBits(own));
+        }
+        std::fflush(stdout);
+    }
+    return out;
 }
 
 void InstallProbes() {
@@ -347,6 +380,10 @@ void InstallProbes() {
                     &g_set_load_mode, "chalice: carry the slot record into load mode 1");
     HookCallSite(kMapLoadSlotCall, 0x13cfd80, reinterpret_cast<const void*>(&MapLoadSlotBits),
                  "chalice: the map load reads the quick-joined slot");
+    HookCallSite(kNetChannelSlotCall, 0x13cfd80, reinterpret_cast<const void*>(&InDungeonSlotHook),
+                 "chalice: the in-game ChannelId (FrpgNetMan +0xa88) reads the quick-joined slot");
+    HookCallSite(kNetChannelObjCall, 0x13cfd80, reinterpret_cast<const void*>(&InDungeonSlotHook),
+                 "chalice: the map load's channel object (FrpgNetMan +0xb14) reads the quick-joined slot");
 }
 
 namespace {
@@ -498,7 +535,12 @@ void Tick(bool host) {
         const std::uint64_t at = Guest(0x553b120);
         if (at && SafeGet(at, &net) && net && SafeGet(net + 0xa88, &ch) && ch != last_net_channel) {
             last_net_channel = ch;
-            std::printf("Party: chalice: FrpgNetMan ChannelId 0x%llx\n", static_cast<unsigned long long>(ch));
+            // Compared with the carried host's dungeon only in a dungeon (area 29): elsewhere the
+            // game leaves +0xa88 as the last map load set it.
+            const std::uint64_t carried = (g.map_id >> 24) == 29 ? g_carried.load() : 0;
+            std::printf("Party: chalice: FrpgNetMan ChannelId 0x%llx (%llu)%s\n", static_cast<unsigned long long>(ch),
+                        static_cast<unsigned long long>(ch),
+                        carried && ch == carried ? ", the host's dungeon" : carried ? ", NOT the host's dungeon" : "");
             std::fflush(stdout);
         }
     }

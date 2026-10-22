@@ -103,6 +103,18 @@ struct BellGrant {
 /// Nothing when the counts are unknown (< 0) or the flags unreadable.
 BellGrant PlanBellGrant(const StartFlags& f);
 
+/// 0.7.3: the starting weapon messengers' picks. m21 event 12101020 (right hand) waits for one of
+/// the stock flags 72101000-72101002 (ShopLineupParam 2000-2002: the weapon this player took) and
+/// only then sets 12101020, which hides the messengers for good; 12101021 likewise with
+/// 72101010-72101011 (2010-2011). Before 0.7.3 the done flags were npc_quest and the host's pick
+/// reached every guest's save: done without a pick of its own, no weapon, messengers gone.
+constexpr std::uint32_t kWeaponChoiceRight[] = {72101000, 72101001, 72101002};
+constexpr std::uint32_t kWeaponChoiceLeft[] = {72101010, 72101011};
+/// The done flags to clear in this player's own save: a done flag that is set while none of its
+/// own choice flags is (vanilla never sets one without a pick). `flag(id, &on)` reads the save
+/// (false: unreadable, nothing is cleared for that side).
+std::vector<std::uint32_t> StartWeaponFlagsToClear(bool (*flag)(std::uint32_t id, bool* on));
+
 /// The roster state of a player idle in its own world: Home once ready, else Prologue.
 party::MemberState OwnWorldState(bool ready);
 /// A party member (not the host) waits for the host's bell: connected and Home or Joining

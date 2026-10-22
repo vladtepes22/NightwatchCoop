@@ -70,6 +70,18 @@ struct Rules {
     bool kill_record = true;
     bool npc_mirror = true;
     bool gather = true;
+    /// 0.7.3 (user decision 2026-10-22): covenant outcomes per player (party_progress
+    /// covenant_outcome). The host's; on by default (a host from before it sends none: on).
+    bool covenant_per_player = true;
+    /// 0.7.3 lamp travel voting (party_vote.h): every member votes on a party travel. The host's;
+    /// off by default (a host from before it sends none: off).
+    bool travel_vote = false;
+    /// D11 (0.7.3, party_npcfight_rules.h): NPC hunters fight the whole party (a guest's copy of the
+    /// host-only NPC transitions runs). The host's; on by default (a host from before it sends none: on).
+    bool npc_fights = true;
+    /// 0.7.3 (party_kidnap_rules.h): a Snatcher grabbing a guest takes the whole party to the Hypogean
+    /// Gaol, as the host's own grab. The host's; on by default (a host from before it sends none: on).
+    bool any_kidnap = true;
     bool operator==(const Rules& o) const;
     bool operator!=(const Rules& o) const { return !(*this == o); }
 };

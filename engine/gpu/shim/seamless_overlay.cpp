@@ -8,6 +8,8 @@
 #include "party/party_ping.h"
 #include "party/party_status.h"
 #include "party/world_warper.h"
+#include "party/seamless_rules.h"
+#include "video_core/renderer_vulkan/ui_composition.h"
 #include "imgui.h"
 #include <algorithm>
 #include <atomic>
@@ -40,6 +42,23 @@ bool perf_hud_banner = false;         // this frame: the game's area-name banner
 bool perf_hud_bottom_left = false;    // this frame: the performance HUD's window ...
 float perf_hud_top = 0.0f;            // ... and its top edge
 float party_hud_top = -1.0f;          // this frame: the panel's top edge (-1: not drawn)
+ImVec2 party_hud_size{0.0f, 0.0f};    // the panel's size last frame (its placement clear of the boss bar)
+
+/// While a boss health bar is up: the screen area of the game's boss bars (name and bar, every
+/// stacked one), which the party panel and the notices keep clear of (party_hud.h BossBarArea).
+/// False while no bar is up.
+bool BossBarArea(const ImGuiViewport* viewport, party::hud::HudRect* out) {
+    const int rows = coop::BossBarRows();
+    if (rows <= 0) return false;
+    const auto ui = Vulkan::UiComposition::UiSize();
+    party::hud::HudRect stage = party::hud::HudStage(viewport->Size.x, viewport->Size.y, ui[0] / ui[1]);
+    stage.x0 += viewport->Pos.x;
+    stage.x1 += viewport->Pos.x;
+    stage.y0 += viewport->Pos.y;
+    stage.y1 += viewport->Pos.y;
+    *out = party::hud::BossBarArea(stage, rows);
+    return true;
+}
 const bool party_tags_on = [] {
     const char* v = std::getenv("BB_PARTY_HUD_TAGS");
     return !(v && v[0] == '0');
@@ -237,9 +256,18 @@ void PartyHud() {
     const float s = base_scale;
     if (panel) {
     const float pad = 12.0f * s;
-    const float bottom = perf_hud_bottom_left ? perf_hud_top - 6.0f * s
-                                              : viewport->WorkPos.y + viewport->WorkSize.y - pad;
+    float bottom = perf_hud_bottom_left ? perf_hud_top - 6.0f * s
+                                        : viewport->WorkPos.y + viewport->WorkSize.y - pad;
     const float width = 210.0f * s;
+    // In a boss fight above the game's boss bar when it would cover the boss's name or bar (small
+    // windows, 16:10 letterboxing, a tall panel; 21:9 keeps the corner: the bar is in the 16:9 middle).
+    party::hud::HudRect boss;
+    if (BossBarArea(viewport, &boss)) {
+        const float x0 = viewport->WorkPos.x + pad;
+        const float w = std::max(party_hud_size.x, width + 20.0f * s);
+        const float h = party_hud_size.y > 0.0f ? party_hud_size.y : float(b.count) * 30.0f * s + 14.0f * s;
+        bottom = party::hud::BottomClearOf(x0, x0 + w, bottom, h, boss, 6.0f * s);
+    }
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + pad, bottom), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
     ImGui::SetNextWindowBgAlpha(0.42f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -307,6 +335,7 @@ void PartyHud() {
         ImGui::Dummy(ImVec2(width, used + 1.0f * s));
     }
     party_hud_top = ImGui::GetWindowPos().y;
+    party_hud_size = ImGui::GetWindowSize();
     ImGui::End();
     ImGui::PopStyleVar(3);
     }
@@ -717,14 +746,23 @@ void PartyToast() {
     const float pad = 12.0f * base_scale;
     // Bottom left above the party HUD panel when that is drawn (the panel stacks above the
     // performance HUD instead, and the toast then keeps the bottom right).
-    const float bottom = !right && party_hud_top > 0.0f ? party_hud_top - 6.0f * base_scale
-                                                         : viewport->WorkPos.y + viewport->WorkSize.y - pad;
+    float bottom = !right && party_hud_top > 0.0f ? party_hud_top - 6.0f * base_scale
+                                                   : viewport->WorkPos.y + viewport->WorkSize.y - pad;
+    ImGui::PushFont(game_font, 19.0f);
+    // In a boss fight above the game's boss bar when it would cover the boss's name or bar.
+    party::hud::HudRect boss;
+    if (BossBarArea(viewport, &boss)) {
+        const ImVec2 text = ImGui::CalcTextSize(toast_text.c_str());
+        const float box_w = text.x + 32.0f * base_scale;
+        const float box_h = text.y + 20.0f * base_scale;
+        const float x0 = right ? viewport->WorkPos.x + viewport->WorkSize.x - pad - box_w : viewport->WorkPos.x + pad;
+        bottom = party::hud::BottomClearOf(x0, x0 + box_w, bottom, box_h, boss, 6.0f * base_scale);
+    }
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + (right ? viewport->WorkSize.x - pad : pad), bottom),
                             ImGuiCond_Always, ImVec2(right ? 1.0f : 0.0f, 1.0f));
     ImGui::SetNextWindowBgAlpha(0.6f * alpha);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f * base_scale, 8.0f * base_scale));
-    ImGui::PushFont(game_font, 19.0f);
     ImGui::Begin("##party_toast", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                      ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |

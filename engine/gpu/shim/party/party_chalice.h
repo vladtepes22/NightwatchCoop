@@ -42,6 +42,16 @@ constexpr int SlotFromBits(std::uint32_t bits7) {
     const int slot = kSlots - len;
     return slot >= 0 && slot < kSlots ? slot : -1;
 }
+/// The GetEventFlagValue(9020, 7) bits that select `slot` (0 for no slot).
+constexpr std::uint32_t BitsForSlot(int slot) {
+    return slot >= 0 && slot < kSlots ? 1u << (kSlots - 1 - slot) : 0u;
+}
+/// A current-slot read while a summoned member stands in the host's dungeon: the quick-joined
+/// slot's bits (`joined` >= 0) instead of the own current slot's, so the game's "dungeon I am in"
+/// (FrpgNetMan +0xa88, the ChannelId signs and messages carry) is the host's. `own` otherwise.
+constexpr std::uint32_t InDungeonSlotBits(std::uint32_t own, int joined) {
+    return joined >= 0 && joined < kSlots && SlotFromBits(own) != joined ? BitsForSlot(joined) : own;
+}
 /// The ChannelId of two dwords; 0 when it is the game's "none" (top bit set) or 0.
 constexpr std::uint64_t ChannelFromDwords(std::uint32_t lo, std::uint32_t hi) {
     return (hi & 0x80000000u) ? 0 : (static_cast<std::uint64_t>(hi) << 32 | lo);

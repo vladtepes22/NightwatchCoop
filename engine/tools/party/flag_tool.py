@@ -648,7 +648,57 @@ OVERRIDE_ROWS = (
         (72100110, 72100110, "never_sync", "per-player: Doll talk t210304 state (set as the talk opens)"),
         (72100113, 72100113, "never_sync", "per-player: Doll talk t210304 state after a level-up"),
         (72100202, 72100202, "never_sync", "per-player: the Dream mirror t210696 one-time note ('Wear clothing to change appearance.')"),
+        # 0.7.3 (items for every player): the starting weapon messengers' done flags. m21 events
+        # 12101020 / 12101021 hide the messengers once their flag is set (1003[101] -> label 0)
+        # and set it only after the player's own pick (ShopLineupParam 2000-2002 / 2010-2011,
+        # stock flags 72101000-72101002 / 72101010-72101011, per player). As npc_quest the host's
+        # pick reached every guest's save: its messengers were gone with no weapon taken.
+        (12101020, 12101021, "never_sync", "per-player: starting weapon messengers done (m21 events 12101020 / 12101021; the pick is each player's own)"),
     ])
+
+# covenant_outcome (0.7.3, user decision 2026-10-22: covenant outcomes are per player): the quest
+# state of the covenant leaders and of the NPC whose quest ends a covenant. Emitted FIRST (before the
+# overrides): the game side treats these as their base category (the first row that is not one of
+# these) only while the host's rule "Covenant outcomes per player" is off. Evidence: EMEVD writers
+# and readers (EMELD names, `flag_tool.py emevd`), the NPC state machines 1000-1999 (20 flags per NPC,
+# reset by common 50) and the talk blocks of the T7 map groups:
+#   Annalise (穢れた血族の女王, Vilebloods): state 1040-1059 (1040 on the throne, 1041 hostile, 1042
+#     the flesh: dead, killed by the player or by Alfred - m25 12500010 sets it when Alfred 1348 is in
+#     the castle); m25 events 12500010-12500021 (init, kneel, offer / give blood, damage, the flesh
+#     12500020 -> 9043); m25 T7 72500300-72500339 (damage count 304-309, kneel count 317-319, 326 the
+#     revival trigger, 328 revived, 329-339 talk / animation state); the revival with the Queenly
+#     Flesh, m24_02 12420500 (remo 24020000).
+#   Alfred (血族狩り): state 1340-1359 (1347 handed the Cainhurst summons, 1348 in the castle,
+#     1349 / 1341 / 1345 hostile, 1342 / 1346 / 1350 dead, 1351 talked to after the queen); m24_00 events
+#     12400590-12400595, m25 events 12500050-12500054; m24 T7 72400460-72400479 (461 met, 465 the
+#     invitation, 471, 475-476 attack counts), m25 T7 72500350-72500359; common 9770 (moved out of the
+#     castle, sets 72500359).
+#   Valtr (連盟の長, the League): state 1790-1809 (1790 dead, 1791 the successor, 1800 / 1801 / 1792
+#     talk states, 1805 hostile; 1780-1789 are the Fishing Hamlet priest's); m27 events 12700901
+#     (init), 12700903-12700905 (death, attack count, hostile), 12700910 (after his death); m27 T7
+#     72700300-72700339 (304 / 306 init reads, 320 attack count, 321 / 322 the Impurity rune and League
+#     Staff triggers of 12700906, 330 the helmet on his death).
+# Not here (unchanged): the covenant rune flags 9440-9451 (never_sync), the oath itself (the equipped
+# rune, the player's record), the personal block 6000-8999 (6676 / 6678 the Valtr gifts, 6813 League
+# successor: never_sync), the item awards of these NPCs (item_lot_picked: C3, party_items) and Eileen
+# (1360-1379: her quest stays shared).
+COVENANT_ROWS = [
+    (1040, 1059, "covenant_outcome", "Annalise (Vilebloods): alive / hostile / the flesh"),
+    (1340, 1359, "covenant_outcome", "Alfred: the Cainhurst quest (in the castle, the queen's death, hostile, dead)"),
+    (1790, 1809, "covenant_outcome", "Valtr (the League): talk states, successor, hostile, dead"),
+    (9770, 9770, "covenant_outcome", "Alfred moved out of Cainhurst (common 9770)"),
+    (12400590, 12400595, "covenant_outcome", "Alfred's events (m24_00): init, invitation, hostile, death"),
+    (12420500, 12420500, "covenant_outcome", "Annalise's revival with the Queenly Flesh (m24_02, remo 24020000)"),
+    (12500010, 12500021, "covenant_outcome", "Annalise's events (m25): init, kneel, blood, damage, the flesh"),
+    (12500050, 12500054, "covenant_outcome", "Alfred's events (m25): init, talked to, hostile, death"),
+    (12700901, 12700901, "covenant_outcome", "Valtr's init (m27)"),
+    (12700903, 12700905, "covenant_outcome", "Valtr's death / attack count / hostile (m27)"),
+    (12700910, 12700910, "covenant_outcome", "the League after Valtr's death (m27)"),
+    (72400460, 72400479, "covenant_outcome", "Alfred's talk block (m24 T7)"),
+    (72500300, 72500339, "covenant_outcome", "Annalise's talk / kneel / blood / revival block (m25 T7)"),
+    (72500350, 72500359, "covenant_outcome", "Alfred in Cainhurst (m25 T7)"),
+    (72700300, 72700339, "covenant_outcome", "Valtr's talk block, rune / staff triggers (m27 T7)"),
+]
 
 # per map, per type / zone default (zone = 4th digit from the right of TAABZnnn)
 ZONE_DEFAULT = {
@@ -823,9 +873,13 @@ def cmd_gen_inc(a):
         "// Categories: boss_defeated boss_area lamp_unlocked shortcut_door npc_quest",
         "// item_lot_picked key_event cutscene_seen world_state session_runtime never_sync",
         "// time_of_day (9800-9802: applied only through the cutscene replay path, never silently).",
+        "// covenant_outcome (per player while the host's rule is on; else the next row's category).",
         "// Ids no row covers: treat as never_sync.",
-        f"// ---- {len(OVERRIDE_ROWS)} override rows (area gates, endings, cutscene/time-of-day flags)",
+        f"// ---- {len(COVENANT_ROWS)} covenant outcome rows (per player: Annalise, Alfred, Valtr)",
     ]
+    for lo, hi, cat, note in COVENANT_ROWS:
+        out.append(f'{{{lo}u, {hi}u, Category::{cat}, "{esc(note)}"}},')
+    out.append(f"// ---- {len(OVERRIDE_ROWS)} override rows (area gates, endings, cutscene/time-of-day flags)")
     for lo, hi, cat, note in OVERRIDE_ROWS:
         out.append(f'{{{lo}u, {hi}u, Category::{cat}, "{esc(note)}"}},')
     out.append(f"// ---- {len(spec_rows)} specific rows")

@@ -110,6 +110,29 @@ std::string DescribeStart(const StartFlags& f, bool in_world) {
     return text;
 }
 
+std::vector<std::uint32_t> StartWeaponFlagsToClear(bool (*flag)(std::uint32_t id, bool* on)) {
+    std::vector<std::uint32_t> out;
+    if (!flag) {
+        return out;
+    }
+    auto side = [&](std::uint32_t done_id, const std::uint32_t* choice, std::size_t n) {
+        bool done = false;
+        if (!flag(done_id, &done) || !done) {
+            return;
+        }
+        for (std::size_t i = 0; i < n; ++i) {
+            bool on = false;
+            if (!flag(choice[i], &on) || on) {
+                return;  // picked (or unreadable): leave it
+            }
+        }
+        out.push_back(done_id);
+    };
+    side(kFlagWeaponRight, kWeaponChoiceRight, sizeof(kWeaponChoiceRight) / sizeof(kWeaponChoiceRight[0]));
+    side(kFlagWeaponLeft, kWeaponChoiceLeft, sizeof(kWeaponChoiceLeft) / sizeof(kWeaponChoiceLeft[0]));
+    return out;
+}
+
 BellGrant PlanBellGrant(const StartFlags& f) {
     BellGrant g;
     if (!f.flags_ok) {

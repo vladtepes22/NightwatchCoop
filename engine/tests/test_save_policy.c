@@ -77,6 +77,30 @@ static void sleep_1s(void) {
 #endif
 }
 
+
+/* A character save with the world-state section (header +0x3C..+0x50, runtime_savepolicy.c): name,
+ * play time, world blocks of the given sizes (0: empty), then a 0x50-byte position block, a 0x200-byte
+ * block, the {u16, u16, u32 size} + 0x40-byte block and 27 bytes, filled with `tag` so moved data can be
+ * recognized; the rest of the file 0x99 (the game's unused buffer). */
+static unsigned char *world_save(const char *name,unsigned play,const unsigned *blocks,unsigned char tag) {
+    static const unsigned char magic[3][4]={{0x20,0x52,0x48,0x43},{0x20,0x4a,0x42,0x4f},{0x4c,0x43,0x45,0x44}};
+    unsigned char *b=calloc(1,SLOT); b[0]=0x41; memcpy(b+8,&play,4);
+    for (int i=0;name[i];++i) b[0x100+2*i]=(unsigned char)name[i];
+    unsigned a=0x1000, at=a;
+    for (int i=0;i<3;++i) {
+        memcpy(b+at,&blocks[i],4); at+=4;
+        if (blocks[i]) { memcpy(b+at,magic[i],4); memset(b+at+4,0x60+i,blocks[i]-4); at+=blocks[i]; }
+    }
+    unsigned an=at-a, pos=at, span=an+0x50, c=pos+0x50, cn=0x200, dn=0x40, end=c+cn+8+dn+27;
+    memset(b+pos,tag,0x50); memset(b+c,tag+1,cn);
+    b[c+cn]=1; memcpy(b+c+cn+4,&dn,4); memset(b+c+cn+8,tag+2,dn+27);
+    memset(b+end,0x99,SLOT-end); /* the game's unused buffer */
+    memcpy(b+0x3c,&a,4); memcpy(b+0x40,&an,4); memcpy(b+0x44,&pos,4); memcpy(b+0x48,&span,4);
+    memcpy(b+0x4c,&c,4); memcpy(b+0x50,&cn,4);
+    return b;
+}
+static unsigned u32at(const unsigned char *b,unsigned o) { unsigned v; memcpy(&v,b+o,4); return v; }
+
 int main(void) {
 #ifdef _WIN32
     char tmp[MAX_PATH]; GetTempPathA(sizeof(tmp),tmp);
@@ -320,6 +344,63 @@ int main(void) {
         #undef CHARACTER
         remove_tree(user); mkdirs(user);
         puts("PASS: party side files of a replaced character");
+    }
+
+    /* A guest's save written in the host's world: the own world's state kept from the save it replaces. */
+    {
+        static const unsigned full[3]={0x24,0x2e,0x14}, none[3]={0,0,0};
+        unsigned char *home=world_save("Alfred",3600000,full,0x11), *away=world_save("Alfred",3700000,none,0x22);
+        assert(runtime_savepolicy_world_state(home,SLOT)==3 && runtime_savepolicy_world_state(away,SLOT)==0);
+        unsigned char *copy=malloc(SLOT); memcpy(copy,away,SLOT);
+        uint32_t kept=0;
+        assert(runtime_savepolicy_world_fix(copy,SLOT,home,SLOT,&kept)==1 && kept==0x72);
+        assert(runtime_savepolicy_world_state(copy,SLOT)==3);
+        assert(u32at(copy,0x3c)==0x1000 && u32at(copy,0x40)==0x72 && u32at(copy,0x44)==0x1072 &&
+               u32at(copy,0x48)==0x72+0x50 && u32at(copy,0x4c)==0x10c2 && u32at(copy,0x50)==0x200);
+        assert(!memcmp(copy+0x1000,home+0x1000,0x72));            /* the own world's blocks */
+        assert(!memcmp(copy+0x1072,away+0x100c,0x50+0x200+8+0x40+27)); /* the new save's position, the rest */
+        assert(!memcmp(copy,away,0x3c) && !memcmp(copy+0x54,away+0x54,0x1000-0x54)); /* character data as written */
+        assert(copy[0x1072+0x50+0x200+8+0x40+27]==0x99);
+        /* again (the fixed save replaced by the next one written away): the same blocks again */
+        unsigned char *next=world_save("Alfred",3800000,none,0x33);
+        assert(runtime_savepolicy_world_fix(next,SLOT,copy,SLOT,&kept)==1 && !memcmp(next+0x1000,home+0x1000,0x72));
+        /* nothing to do: a save with its world state, or nothing in the old one */
+        memcpy(copy,home,SLOT); assert(runtime_savepolicy_world_fix(copy,SLOT,away,SLOT,NULL)==0 && !memcmp(copy,home,SLOT));
+        memcpy(copy,away,SLOT); assert(runtime_savepolicy_world_fix(copy,SLOT,away,SLOT,NULL)==0 && !memcmp(copy,away,SLOT));
+        assert(runtime_savepolicy_world_fix(copy,SLOT,NULL,0,NULL)==0);
+        /* another character in the old file, or a newer save of the same one: refused, untouched */
+        unsigned char *other=world_save("Djura",100,full,0x44), *newer=world_save("Alfred",9999999,full,0x55);
+        assert(runtime_savepolicy_world_fix(copy,SLOT,other,SLOT,NULL)==-2 && !memcmp(copy,away,SLOT));
+        assert(runtime_savepolicy_world_fix(copy,SLOT,newer,SLOT,NULL)==-2 && !memcmp(copy,away,SLOT));
+        /* no room at the end of the file, a broken header: refused */
+        { unsigned big=SLOT-0x1000-12-0x50-0x200-8-27-0x40; memcpy(copy+0x100c+0x50+0x200+4,&big,4);
+          assert(runtime_savepolicy_world_fix(copy,SLOT,home,SLOT,NULL)==-3);
+          big+=0x80; memcpy(copy+0x100c+0x50+0x200+4,&big,4); assert(runtime_savepolicy_world_fix(copy,SLOT,home,SLOT,NULL)==-1);
+          memcpy(copy,away,SLOT); }
+        copy[0x40]=0x13; assert(runtime_savepolicy_world_fix(copy,SLOT,home,SLOT,NULL)==-1 && runtime_savepolicy_world_state(copy,SLOT)==-1);
+        /* the file form: only in a party session, only character slots; the old file or its backup */
+        char folder[1024]; snprintf(folder,sizeof(folder),"%s/savedata_party/1/CUSA00207/SPRJ0005",user); mkdirs(folder);
+        char tmp[1100], target[1100], backup[1100], sys10[1100];
+        snprintf(tmp,sizeof(tmp),"%s/userdata0000.1.bbtmp",folder); snprintf(target,sizeof(target),"%s/userdata0000",folder);
+        snprintf(backup,sizeof(backup),"%s/backup0000",folder); snprintf(sys10,sizeof(sys10),"%s/userdata0010",folder);
+        #define WRITE(path,data) do { FILE *f=fopen(path,"wb"); assert(f); fwrite(data,1,SLOT,f); fclose(f); } while (0)
+        #define READ(path,data) do { FILE *f=fopen(path,"rb"); assert(f); assert(fread(data,1,SLOT,f)==SLOT); fclose(f); } while (0)
+        WRITE(tmp,away); WRITE(target,home);
+        set_env("BB_PARTY",NULL); runtime_savepolicy_reset();
+        assert(runtime_savepolicy_world_fix_file(tmp,target)==0); READ(tmp,copy); assert(!memcmp(copy,away,SLOT));
+        set_env("BB_PARTY","join"); runtime_savepolicy_reset();
+        assert(runtime_savepolicy_world_fix_file(tmp,sys10)==0);
+        set_env("BB_SAVE_GUEST_WORLD_FIX","0"); assert(runtime_savepolicy_world_fix_file(tmp,target)==0); set_env("BB_SAVE_GUEST_WORLD_FIX",NULL);
+        assert(runtime_savepolicy_world_fix_file(tmp,target)==1); READ(tmp,copy);
+        assert(runtime_savepolicy_world_state(copy,SLOT)==3 && !memcmp(copy+0x1000,home+0x1000,0x72));
+        remove(target); WRITE(tmp,away); WRITE(backup,home);   /* the game renamed the old one to its backup */
+        assert(runtime_savepolicy_world_fix_file(tmp,target)==1); READ(tmp,copy); assert(runtime_savepolicy_world_state(copy,SLOT)==3);
+        #undef WRITE
+        #undef READ
+        set_env("BB_PARTY",NULL); runtime_savepolicy_reset();
+        free(home); free(away); free(copy); free(next); free(other); free(newer);
+        remove_tree(user); mkdirs(user);
+        puts("PASS: a guest's save written in the host's world keeps the own world's state");
     }
 
     /* Nothing to back up. */

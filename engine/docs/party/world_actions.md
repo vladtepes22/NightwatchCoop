@@ -69,6 +69,7 @@ guest; C2 puts it into every guest's save.
 | npc_quest | yes | yes | shared NPC quests; a quest step clears the old state flag and sets the new one (Iosefka live: 1141 off, 1143 on) |
 | key_event | yes | no | world progression |
 | cutscene_seen | yes | no | D10: a scene a guest's event played counts as seen in the host's world |
+| covenant_outcome | no | no | 0.7.3: Annalise / Alfred / Valtr's quest state (event_flags.md 7): per player while the host's rule *Covenants per player* is on; kept in the guest's overlay ("kept local"), not in its own save. Off: as its base category |
 | anything else | no | no | boss_defeated, boss_area, lamp_unlocked (EVENT lamp_lit), cutscene_seen, item_lot_picked (instanced, 4), session_runtime, time_of_day, never_sync |
 
 Also required: a mirror group and mirror-mask bit (`WorldMirrorKey`, `WorldMirrorMask`: never

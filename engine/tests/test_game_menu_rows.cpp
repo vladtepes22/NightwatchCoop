@@ -125,10 +125,12 @@ static void EveryState() {
         ps::ResetForTest(true);
         ps::SetRole(role);
         P::Load();
-        const auto world = Names(PageNamed("Shared world"));
-        assert(world.size() == 3 && Has(world, "Enemies stay dead") && Has(world, "Host can gather") &&
-               Has(world, "NPCs as in host's world"));
-        const auto rewards = Names(PageNamed("Party rewards"));
+        const auto world = Names(PageNamed("Party rules: World"));
+        assert(world.size() == 6 && Has(world, "Enemies stay dead") && Has(world, "Host can gather") &&
+               Has(world, "NPCs as in host's world") && Has(world, "Covenants per player") &&
+               Has(world, "Party votes on travel") &&
+               Has(world, "NPC hunters fight all"));  // 0.7.3
+        const auto rewards = Names(PageNamed("My party: Rewards"));
         assert(rewards.size() == P::RowsPerPage && Has(rewards, "Own key items as guest") &&
                Has(rewards, "Key items at once") && rewards.back() == "Insight for bosses");
     }

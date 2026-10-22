@@ -331,6 +331,14 @@ int main() {
         assert(pg::CategoryOf(id) == pg::Category::never_sync);
         assert(!WorldActionAllowed(id, false, dream) && !WorldActionAllowed(id, true, dream));
     }
+    // 0.7.3: the starting weapon messengers' done flags are each player's own pick (the host's pick
+    // hid every guest's messengers in its own Dream); the stock flags were per player already.
+    for (std::uint32_t id : {12101020u, 12101021u, 72101000u, 72101002u, 72101010u, 72101011u}) {
+        assert(pg::CategoryOf(id) == pg::Category::never_sync);
+        assert(!WorldActionAllowed(id, false, dream) && !WorldActionAllowed(id, true, dream));
+        assert(pg::ModeFor(pg::Policy::Defaults(), id) == pg::SyncMode::Off);
+    }
+    assert(pg::CategoryOf(12101022u) == pg::Category::item_lot_picked);  // the Notebook messenger: unchanged
     assert(pg::CategoryOf(72100114u) == pg::Category::npc_quest);  // the Doll's key-item gift: unchanged
     assert(pg::CategoryOf(12100110u) == pg::Category::npc_quest);  // the Doll's stand spot: unchanged
     // Playtest 1 bugs 11 / 17: talk NPCs stay solid for guests (NpcParam isChangeWanderGhost).
@@ -381,6 +389,31 @@ int main() {
     }
     assert(!NpcGiftTrigger(9043));
     assert(pg::CategoryOf(72400489u) == pg::Category::npc_quest);  // what made it a world action before
+
+    // 0.7.3: covenant outcomes are per player. With the host's rule on (the default) a guest's change
+    // of them in the host's world is never a world action; off: the base category's rules (npc_quest).
+    const std::uint32_t m2500 = 0x19000000u, m2700 = 0x1b000000u;
+    assert(pg::CovenantPerPlayer());
+    for (std::uint32_t id : {1042u, 1348u, 1790u, 72500328u, 72400465u, 12500015u}) {
+        const std::uint32_t map = id / 100000u % 100u == 25 || id == 72500328u ? m2500 : m2400;
+        assert(!WorldActionAllowed(id, false, map) && !WorldActionAllowed(id, true, map));
+    }
+    pg::SetCovenantPerPlayer(false);
+    assert(WorldActionAllowed(1042, false, m2500) && WorldActionAllowed(1042, true, m2500));  // npc_quest: both
+    assert(WorldActionAllowed(72500328, false, m2500) && !WorldActionAllowed(72500328, false, m2400));
+    assert(WorldActionAllowed(12500015, false, m2500));  // world_state of the host's area
+    assert(!WorldActionAllowed(12420500, true, m2400));  // a cutscene flag: set only, as before
+    pg::SetCovenantPerPlayer(true);
+    assert(WorldActionAllowed(1141, false, m2400) && WorldActionAllowed(12410200, false, m2401));  // the rest: shared
+    // Valtr's rune / League Staff triggers (m27 12700906): the guest's own gift, never the host's,
+    // whatever the rule.
+    assert(OwnTalkGiftLot(72700321) == 43120 && OwnTalkGiftLot(72700322) == 43130);
+    assert(OwnTalkGiftLot(72700320) < 0 && OwnTalkGiftLot(9042) < 0 && OwnTalkGiftLot(0) < 0);
+    for (const bool rule : {true, false}) {
+        pg::SetCovenantPerPlayer(rule);
+        assert(!WorldActionAllowed(72700321, false, m2700) && !WorldActionAllowed(72700322, false, m2700));
+    }
+    pg::SetCovenantPerPlayer(true);
 
     // D3 (lifts071): lifts. Every position / busy / host-state flag is a C2 state id (the mirror
     // carries the host's values), never a plain world action; a finished ride goes up as lift_set /

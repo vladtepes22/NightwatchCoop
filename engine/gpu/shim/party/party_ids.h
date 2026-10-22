@@ -47,10 +47,9 @@ inline bool EntityKnown(std::uint32_t id) {
 inline bool WarpPointKnown(std::uint32_t packed_map, std::uint32_t point) {
     return EntityKnown(point) && EntityMap(point) == (packed_map & 0xffff0000u);
 }
-/// Where the lamp / headstone warp of ReturnPointParam row `id` puts the player in its map: x, y,
-/// z and the yaw (radians) of the MSB region its revive event names. False: no spot (a Chalice
-/// Dungeon point, whose layout is generated, or no revive event).
-inline bool ReturnSpot(std::uint32_t id, float out[4]) {
+/// The table's spot as it is, the m29 template MSB's for a Chalice Dungeon point (the world warper's
+/// opt-in tour of the template map; nothing in a party).
+inline bool TemplateReturnSpot(std::uint32_t id, float out[4]) {
     const auto* b = std::begin(kPartyReturnSpotIds);
     const auto* e = std::end(kPartyReturnSpotIds);
     const auto* it = std::lower_bound(b, e, id);
@@ -62,6 +61,18 @@ inline bool ReturnSpot(std::uint32_t id, float out[4]) {
         out[k] = kPartyReturnSpots[i + static_cast<std::size_t>(k)];
     }
     return true;
+}
+/// Where the lamp / headstone warp of ReturnPointParam row `id` puts the player in its map: x, y,
+/// z and the yaw (radians) of the MSB region its revive event names. False: no spot (a Chalice
+/// Dungeon point, whose layout is generated, or no revive event).
+inline bool ReturnSpot(std::uint32_t id, float out[4]) {
+    // chalicelamp: the table holds the m29 template MSB's spots for 2902950.., but a dungeon's layout is
+    // generated and its lamps stand elsewhere (a guest's report: the template's spot of 2902954 was
+    // 180 m from that lamp, in the air above the dungeon). No spot for them, as documented above.
+    if (id / 100000 == 29) {
+        return false;
+    }
+    return TemplateReturnSpot(id, out);
 }
 /// Where a stage warp's warp point `id` (EMEVD 2003[14] / Lua WarpNextStage, GSM +0x10) puts the
 /// player: x, y, z, yaw (radians) of the MSB region with that entity id. False: not in a block MSB.

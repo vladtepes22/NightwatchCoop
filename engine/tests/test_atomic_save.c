@@ -7,6 +7,8 @@ int runtime_memory_guest_writable(uintptr_t address,uint64_t size) { (void)addre
 int32_t *runtime_errno(void) { return &guest_errno; }
 int32_t runtime_guest_errno(int error) { return error; }
 void runtime_memory_note_write(uintptr_t address,uint64_t size) { (void)address; (void)size; }
+/* The guest-save world-state fix (runtime_savepolicy.c): nothing to fix in these test saves. */
+int runtime_savepolicy_world_fix_file(const char *temp,const char *target) { (void)temp; (void)target; return 0; }
 /* Lantern's streaming statistics and prefetch (runtime_file.c): no loader threads here, and no
  * prefetch thread is ever started. */
 int runtime_thread_is_loader(void) { return 0; }

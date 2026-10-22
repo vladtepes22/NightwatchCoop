@@ -12,7 +12,7 @@ import argparse, json, re, subprocess, sys, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from game_queue import _locked, _prune, QUEUE_FILE  # noqa: E402
+from game_queue import _alive, _locked, _prune, QUEUE_FILE  # noqa: E402
 
 g_QUEUE_DIR = QUEUE_FILE.parent
 
@@ -114,26 +114,90 @@ def tile_windows():
 
 
 
-def stop_unqueued(holders, state, now):
-    ps = (r"Get-CimInstance Win32_Process -Filter \"Name='bbport.exe'\" | "
-          r"ForEach-Object { $_.ProcessId.ToString() + '|' + $_.ExecutablePath }")
+AGENTS_PREFIX = "e:\\games\\bbport\\agents\\"  # test games only: never the user's own game
+
+
+def _holder_prefixes(holders):
+    """Path prefixes of the roots holding game slots, lower case with a trailing backslash. A root
+    stored relative (an older game_queue.py copy, run from the agent's folder) matches as a path
+    component anywhere, so its games are never taken for unqueued ones."""
+    out = []
+    for e in holders:
+        r = str(e.get("root", "")).replace("/", "\\").rstrip("\\").lower()
+        if not r:
+            continue
+        out.append((r + "\\", (len(r) > 2 and r[1] == ":") or r.startswith("\\\\")))
+    return out
+
+
+def plan_unqueued(procs, holders, state, now, grace=30.0):
+    r"""The test games running outside the shared game queue, and what to end for each.
+
+    procs: {pid: (name, ppid, exe_path, cmdline)} of bbport.exe and cmd.exe processes. A bbport.exe
+    under E:\games\bbport\agents\ whose path is under no root holding game slots is unqueued (a
+    harness that died: its instances.py's slot was pruned); after `grace` s it is ended together
+    with its run.bat shell (the parent cmd.exe running run.bat): ending the game alone let run.bat's
+    party crash restart (BB_PARTY_RESTART, up to 5 in 10 min) boot it again, and every restart got a
+    new 30 s grace. Returns [(pid, path, [shell pids])]; `state` keeps "unq:PID" first-seen times."""
+    prefixes = _holder_prefixes(holders)
+    kills = []
+    seen = set()
+    for pid, (name, ppid, path, _cmd) in procs.items():
+        if name.lower() != "bbport.exe":
+            continue
+        low = (path or "").replace("/", "\\").lower()
+        if not low.startswith(AGENTS_PREFIX):
+            continue  # never the user's own game (nor one whose path cannot be read)
+        key = "unq:%s" % pid
+        seen.add(key)
+        if any(low.startswith(r) if absolute else ("\\" + r) in low for r, absolute in prefixes):
+            state.pop(key, None)
+            continue
+        first = state.setdefault(key, now)
+        if now - first <= grace:
+            continue
+        shells = []
+        parent = procs.get(ppid)
+        if parent and parent[0].lower() == "cmd.exe" and "run.bat" in (parent[3] or "").lower():
+            shells.append(ppid)
+        kills.append((pid, path, shells))
+        state.pop(key, None)
+    for key in [k for k in state if k.startswith("unq:") and k not in seen]:
+        del state[key]  # gone by itself
+    return kills
+
+
+def list_test_procs():
+    """{pid: (name, ppid, exe_path, cmdline)} of every bbport.exe and cmd.exe."""
+    ps = (r"Get-CimInstance Win32_Process -Filter \"Name='bbport.exe' or Name='cmd.exe'\" | "
+          r"ForEach-Object { $_.ProcessId.ToString() + '|' + $_.ParentProcessId + '|' + $_.Name + '|' + "
+          r"$_.ExecutablePath + '|' + $_.CommandLine }")
     out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True).stdout
-    roots = [e["root"].replace("/", "\\").rstrip("\\").lower() + "\\" for e in holders]
+    procs = {}
     for line in out.splitlines():
-        if "|" not in line:
+        parts = line.split("|", 4)
+        if len(parts) < 5 or not parts[0].strip().isdigit():
             continue
-        pid, path = line.split("|", 1)
-        low = path.lower()
-        if not low.startswith("e:\\games\\bbport\\agents\\"):
-            continue  # never the user's own game
-        if any(low.startswith(r) for r in roots):
-            state.pop("unq:" + pid, None)
-            continue
-        first = state.setdefault("unq:" + pid, now)
-        if now - first > 30:
-            subprocess.run(["taskkill", "/PID", pid, "/F", "/T"], capture_output=True)
-            print(time.strftime("%H:%M:%S"), f"unqueued game ended: {path}", flush=True)
-            state.pop("unq:" + pid, None)
+        pid, ppid, name, path, cmd = parts
+        procs[int(pid)] = (name, int(ppid) if ppid.strip().isdigit() else 0, path, cmd)
+    return procs
+
+
+def stop_unqueued(holders, state, now):
+    for pid, path, shells in plan_unqueued(list_test_procs(), holders, state, now):
+        for sh in shells:  # the run.bat shell first: no crash restart of the game
+            subprocess.run(["taskkill", "/PID", str(sh), "/F"], capture_output=True)
+        subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"], capture_output=True)
+        print(time.strftime("%H:%M:%S"), f"unqueued game ended: {path}"
+              + (f" (and its run.bat shell {shells[0]})" if shells else ""), flush=True)
+
+
+def orphaned_holders(holders, alive):
+    """Slot holders whose harness died: a holder entry naming a "parent" pid (BB_MP_PARENT_PID, set
+    by smoke_party.py for its instances.py) that is no longer alive. Its instances.py would keep
+    the games running to their --seconds cap (up to 10 min) with the slot held."""
+    return [e for e in holders if int(e.get("parent") or 0) > 0 and not alive(int(e["parent"]))]
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -182,6 +246,13 @@ def main():
                 subprocess.run(["taskkill", "/PID", str(e["pid"]), "/T", "/F"], capture_output=True)
                 print(time.strftime("%H:%M:%S"), "blocked: stopped", e.get("label") or e["root"], flush=True)
                 holders.remove(e)
+        # Harness gone (smoke_party.py killed): its instances.py still holds the slots and runs
+        # the games to their cap. End them now (instances.py also watches BB_MP_PARENT_PID itself).
+        for e in orphaned_holders(holders, _alive):
+            end_run(Path(e["root"]))
+            subprocess.run(["taskkill", "/PID", str(e["pid"]), "/T", "/F"], capture_output=True)
+            print(time.strftime("%H:%M:%S"), "harness gone: stopped", e.get("label") or e["root"], flush=True)
+            holders.remove(e)
         # Gate: while agents/gate.txt exists only priority roots (priority.txt) may hold game slots;
         # end anything else (agents on an older queue that doesn't know the gate).
         qdir = g_QUEUE_DIR

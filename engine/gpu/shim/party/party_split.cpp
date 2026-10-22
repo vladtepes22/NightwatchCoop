@@ -15,6 +15,7 @@
 #include "party_status.h"
 #include "party_stay_rules.h"
 #include "party_travel.h"
+#include "party_vote.h"
 #include "../bbport_game_menu_pages.h"
 
 #include <atomic>
@@ -91,6 +92,7 @@ struct Pending {
     double free_since = -1;  // Queued: since when no dialog / menu is up (the settle before opening)
     double test_at = 0;
     bool after_scene = false;  // a story warp: ask once its cutscene is over (kAskAfterSceneDelay)
+    bool voted = false;  // 0.7.3: the party's vote is over (party_vote): the party move itself
 };
 std::mutex g_mu;
 std::atomic<double> g_story_at{-1};  // NoteStoryWarp
@@ -104,6 +106,11 @@ bool SceneRunning() {
            SafeGet(player + 0x168, &bits) && (bits & 1);
 }
 int g_asked = 0;  // questions opened (BB_PARTY_SPLIT_TEST answers them in order)
+std::atomic<u32> g_map_now{0xffffffffu};  // this game's map at the last Tick (steady world), Carry's "from the Dream"
+bool InDreamNow() {
+    const u32 m = g_map_now.load();
+    return m != 0xffffffffu && (m >> 24) == 21;
+}
 Pending g_p;  // under g_mu (OnLampWarp: game thread; Tick: main thread - the same thread in practice)
 
 // ---- Whose lamp (playtest 1 bug 20) ----
@@ -272,6 +279,17 @@ void Carry(const Pending& p, bool alone, const char* how) {
         // until Party > Rejoin, instead of being sent home for the summon.
         b2::NoteChosenApart(p.mark ? "its own Hunter's Mark, alone" : "a lamp / headstone, alone");
     }
+    if (p.host && !alone && !p.voted && !p.after_scene) {
+        // 0.7.3 lamp travel voting (party_vote.h): with the host's rule on the party travels only
+        // once every member said YES; the vote runs the party move below (nothing on a NO). Not
+        // for a story warp (its scene's own move, after_scene).
+        Pending q = p;
+        q.voted = true;
+        if (vote::HostBegin(p.id, 0, [q] { Carry(q, false, "everyone voted YES"); },
+                            p.mark ? "the host's Hunter's Mark" : "the host's lamp / headstone")) {
+            return;
+        }
+    }
     if (p.host) {
         // Inside the loaded map: no load for anyone (the chr warp; guests of this map beside).
         if (alone ? b2::WarpToLampNoLoad(p.id, false) : b2::HostPartyWarpNoLoad(p.id)) {
@@ -289,9 +307,12 @@ void Carry(const Pending& p, bool alone, const char* how) {
     if (alone && inworld && b2::WarpToLampNoLoad(p.id, false)) {
         return;
     }
+    // 0.7.3: a guest leaving the Hunter's Dream alone never rests the host's world (only the host's
+    // own rest resets it): a plain travel for the guest.
+    const bool from_dream = InDreamNow();
     if (alone && p.solo_load) {
         // D9 (pard4): a lamp use in the loaded map is a rest too (not a Hunter's Mark).
-        const bool rest = deathrules::GuestAloneRestsHostWorld(!p.mark, true);
+        const bool rest = deathrules::GuestAloneRestsHostWorld(!p.mark, true, from_dream);
         bool carried = false;
         if (b2::GuestSoloLampLoad(p.id, p.mark, rest, &carried)) {
             if (rest && !carried) {
@@ -306,8 +327,13 @@ void Carry(const Pending& p, bool alone, const char* how) {
         TravelIntent t;
         const b2::AloneWhy why = p.mark ? b2::AloneWhy::HuntersMark
                                  : p.id == 2102950 ? b2::AloneWhy::Lamp : b2::AloneWhy::Headstone;
-        // A rest at a lamp resets the world the guest leaves (the host's) for everyone there.
-        const bool rest = deathrules::GuestAloneRestsHostWorld(!p.mark, false);
+        // A rest at a lamp resets the world the guest leaves (the host's) for everyone there; a trip
+        // out of the Dream is no rest.
+        const bool rest = deathrules::GuestAloneRestsHostWorld(!p.mark, false, from_dream);
+        if (!p.mark && from_dream) {
+            Log("lamp %u (guest): leaves the Hunter's Dream alone: a plain travel, no rest load for the host's world",
+                p.id);
+        }
         bool carried = false;
         if (b2::LampTravelIntent(p.id, &t) && b2::TravelAlone(t, why, rest ? p.id : 0, &carried)) {
             // Back into the host's area the rest rode on the re-join (one load); else the request.
@@ -540,6 +566,9 @@ void OnChoosingEvent(int slot, const std::string& who, const std::string& body) 
 
 void Tick(const GameSnapshot& s, party::PartyLink* link) {
     static double release_at = 0;  // a test / cancel press is a tap
+    if (s.world_up && !s.loading && s.map_id != 0xffffffffu) {
+        g_map_now = s.map_id;
+    }
     {
         // A guest's headstone choice whose warp event was used up (party_stay_rules.h: the host's
         // warp to the same lamp ran this game's copy of event 12107000 already): the warp itself.

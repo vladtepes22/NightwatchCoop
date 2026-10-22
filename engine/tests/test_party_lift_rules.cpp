@@ -210,6 +210,46 @@ int main() {
         }
     }
 
+    // chalicelamp: the Chalice Dungeons' lift cars are learned from their rides' 2003[18].
+    {
+        CHECK(ChaliceLiftCar(12900354, 2003, 18, 2901010) == 2901010);  // 21 m floor lift down (the report's)
+        CHECK(ChaliceLiftCar(12900351, 2003, 18, 2901004) == 2901004);
+        CHECK(ChaliceLiftCar(12900365, 2003, 18, 2901300) == 2901300);  // a balance lift's car
+        CHECK(ChaliceLiftCar(12900354, 2003, 2, 2901010) == 0);          // not the animation
+        CHECK(ChaliceLiftCar(12900347, 2003, 18, 2901010) == 0);         // the init (no ride)
+        CHECK(ChaliceLiftCar(12410350, 2003, 18, 2411320) == 0);         // a main game lift: the table's
+        CHECK(ChaliceLiftCar(12900354, 2003, 18, 10000) == 0);           // never the player
+        for (const Lift& l : Lifts()) CHECK(!ChaliceLiftEvent(std::int32_t(l.pos)));
+    }
+    // The dungeon rider guard (the report: the guest 5 m under the car at the shaft's bottom).
+    {
+        float put[3];
+        CarRider r;
+        CHECK(CarRiderTick(r, false, 10.5f, -128, 10.5f, 13, put) == RiderStep::idle);
+        CHECK(CarRiderTick(r, true, 10.0f, -128, 10.5f, 13, put) == RiderStep::riding);  // on the car: offset 0.5
+        CHECK(CarRiderTick(r, true, 5.0f, -128, 5.5f, 13, put) == RiderStep::riding);
+        CHECK(CarRiderTick(r, true, 4.8f, -128.2f, 5.4f, 13, put) == RiderStep::riding);   // a frame's lag
+        CHECK(CarRiderTick(r, true, 4.0f, -128.2f, 2.0f, 13, put) == RiderStep::through);  // through the floor
+        CHECK(std::fabs(put[1] - 4.8f) < 0.01f && std::fabs(put[0] + 128.2f) < 0.01f);
+        CHECK(CarRiderTick(r, true, 3.8f, -128.2f, 4.3f, 13, put) == RiderStep::riding);   // back on it
+        CHECK(CarRiderTick(r, true, 3.6f, -126.0f, 4.1f, 13, put) == RiderStep::off);      // stepped off
+        CHECK(CarRiderTick(r, true, 3.0f, -126.0f, -5.0f, 13, put) == RiderStep::idle);    // under it: not tracked
+        // A gate or door that plays at the top and never moves: nobody is put back up to it.
+        CarRider g;
+        CHECK(CarRiderTick(g, true, 10.5f, -128, 10.5f, 13, put) == RiderStep::riding);
+        CHECK(CarRiderTick(g, true, 10.5f, -128, 6.0f, 13, put) == RiderStep::riding);
+        CHECK(CarRiderTick(g, true, 10.5f, -128, 1.0f, 13, put) == RiderStep::riding);
+        // On a landing beside a car coming up from below: never tracked (not on it at the start).
+        CarRider l;
+        CHECK(CarRiderTick(l, true, -10.5f, -126, 10.5f, 13, put) == RiderStep::idle);
+        CHECK(CarRiderTick(l, true, 9.0f, -126, 10.5f, 13, put) == RiderStep::riding);   // the car arrives
+        CHECK(CarRiderTick(l, true, 9.5f, -126, 10.5f, 13, put) == RiderStep::riding);   // standing still: never
+        // A car going up with the rider: always riding.
+        CarRider u;
+        CHECK(CarRiderTick(u, true, -10.5f, -128, -10.0f, 13, put) == RiderStep::riding);
+        for (float y = -10.0f; y < 10.0f; y += 0.4f) CHECK(CarRiderTick(u, true, y - 0.5f, -128, y, 13, put) == RiderStep::riding);
+    }
+
     if (g_fail) {
         std::printf("%d check(s) failed\n", g_fail);
         return 1;

@@ -16,8 +16,8 @@
 //          the lamp nearest the host, a re-join with the host's snapshot), then beside the host;
 //          in its own world the Rejoin (the bell; the summon brings it to the host).
 //
-// The host's rule (0.7.1): System > Shared world "Host can gather", bbport.ini party_gather,
-// the launcher's Party Rules & Sync; BB_PARTY_GATHER=0/1 wins at start. Off: the host's press is
+// The host's rule (0.7.1): System > Party rules: World "Host can gather", bbport.ini party_gather,
+// the launcher's Party Rules tab; BB_PARTY_GATHER=0/1 wins at start. Off: the host's press is
 // refused ("Gather the party is off"); a guest follows the host's rule (party_balance Rules).
 // Test aid: BB_PARTY_GATHER_TEST=yes,no,menu,... answers this guest's questions in order (yes / no:
 // the dialog with the in-process pad, YES = Cross, NO = Right then Cross; menu: the in-game menu is

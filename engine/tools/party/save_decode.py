@@ -22,6 +22,18 @@ docs/party/event_flags.md):
   Bit (nnn) = data[nnn >> 3] & (0x80 >> (nnn & 7)).
   Inventory entries {u32 handle (0xb... goods), u32 item id (category << 28 | id), u32 count, u32 index};
   the key-item list (goodsType 1) is a u32 count + 64 entries; character name UTF-16, stats before it.
+  The inventory is written by 0x1AC5D10 as three lists (docs/party/items.md 10.7): u32 count + 1984
+  entries (the normal section), u32 count + 64 entries (the key section the character keeps), u32
+  count + 64 entries (the summoned key section, which the game empties and shows at every summoned
+  load). An empty entry is {0, 0xffffffff, 0, 0}. A key item in both key sections (or twice in one)
+  is a duplicate stack: --check-dup exits 1 then.
+  World state (the writer 0x156AA50): header +0x3C offset / +0x40 size of the own world's state, the blocks
+  "CHR " (WorldChrMan), "OBJ ", "DECL" (WorldDecalMan; its "LCED" bytes are what save editors look for), each
+  {u32 size, data}; +0x44 the position block, +0x48 its end counted from +0x3C, +0x4C / +0x50 the next block.
+  A save written in another player's world takes the blocks from the game's summon snapshot, which a party
+  join never fills: three empty blocks (12 zero bytes), no "LCED", and save editors that look for it read
+  the wrong bytes (docs/party/save_safety.md 5; the launcher's Export for save editor, scripts/save_editor.py,
+  makes an editor-readable copy). --check-world exits 1 for such a save.
 """
 import argparse, re, struct, sys
 from pathlib import Path
@@ -118,6 +130,82 @@ class Save:
                 out.append((i, iid & 0xfffffff, n))
         return out
 
+    def _entries(self, off, n):
+        """The used {id, count} of n entries at off, or None when one is neither used nor empty."""
+        out = []
+        for k in range(n):
+            h, iid, cnt, _ = struct.unpack_from("<IIII", self.d, off + 16 * k)
+            if h == 0 and iid == 0xffffffff:
+                continue
+            if h >> 28 == 0xb and iid >> 28 == 4 and h & 0xfffffff == iid & 0xfffffff and 0 < cnt < 10000:
+                out.append((iid & 0xfffffff, cnt))
+            else:
+                return None
+        return out
+
+    def _list_at(self, p):
+        """The used entries of a u32 count + 64 entries list at p, or None."""
+        if p + 4 + 64 * 16 > len(self.d):
+            return None
+        c = struct.unpack_from("<I", self.d, p)[0]
+        if c > 64:
+            return None
+        h, iid = struct.unpack_from("<II", self.d, p + 4)
+        if not ((h == 0 and iid == 0xffffffff) or (h >> 28 == 0xb and iid >> 28 == 4)):
+            return None
+        e = self._entries(p + 4, 64)
+        return e if e is not None and len(e) == c else None
+
+    def key_sections(self):
+        """(saved, summoned) key sections of the inventory: lists of (goods id, count); None when not found.
+        The empty tail of the normal section also reads as such lists (an empty entry's last u32 is a
+        count of 0), so of a run of lists 1 count + 64 entries apart the last two are the key sections."""
+        size = 4 + 64 * 16
+        for p in range(0, len(self.d) - 2 * size, 4):
+            if self._list_at(p) is None or self._list_at(p + size) is None:
+                continue
+            while self._list_at(p + 2 * size) is not None:
+                p += size
+            return self._list_at(p), self._list_at(p + size)
+        return None
+
+    def duplicate_keys(self):
+        """Goods ids with more than one stack over both key sections (None: no key sections found)."""
+        ks = self.key_sections()
+        if ks is None:
+            return None
+        seen = {}
+        for i, _ in ks[0] + ks[1]:
+            seen[i] = seen.get(i, 0) + 1
+        return sorted(i for i, n in seen.items() if n > 1)
+
+    WORLD_MAGIC = (b" RHC", b" JBO", b"LCED")
+
+    def world(self):
+        """The world-state section: {"offset", "size", "blocks": [size of CHR, OBJ, DECL]}, or None when the
+        header's entries do not line up (not this save version's layout)."""
+        if self.version != 0x41 or len(self.d) < 0x54:
+            return None
+        a, an, b, bspan, c, cn = struct.unpack_from("<6I", self.d, 0x3c)
+        if a < 0x54 or an < 12 or a + an != b or bspan < an or b + bspan - an != c or c + cn > len(self.d):
+            return None
+        at, blocks = a, []
+        for magic in self.WORLD_MAGIC:
+            if at + 4 > a + an:
+                return None
+            n = struct.unpack_from("<I", self.d, at)[0]
+            at += 4
+            if at + n > a + an or (n and self.d[at:at + 4] != magic):
+                return None
+            blocks.append(n)
+            at += n
+        return {"offset": a, "size": an, "blocks": blocks} if at == a + an else None
+
+    def world_empty(self):
+        """True: the save has none of the own world's state (three empty blocks); None: layout unknown."""
+        w = self.world()
+        return None if w is None else not any(w["blocks"])
+
     def character(self):
         m = re.search(rb"(?:[A-Za-z\xc0-\xff]\x00){4,16}\x00\x00", self.d[:0x40000])
         if not m:
@@ -145,6 +233,9 @@ def main():
     ap.add_argument("save")
     ap.add_argument("--flags", default="")
     ap.add_argument("--dump", action="store_true")
+    ap.add_argument("--check-dup", action="store_true", help="exit 1 when a key item has two stacks")
+    ap.add_argument("--check-world", action="store_true",
+                    help="exit 1 when the save has no world state (written in another player's world)")
     ap.add_argument("--inc", default=str(Path(__file__).resolve().parents[2] / "gpu/shim/party/party_flags.inc"))
     ap.add_argument("--host-log", action="append", default=[])
     a = ap.parse_args()
@@ -152,6 +243,14 @@ def main():
     print(f"version {s.version:#x}, map {s.map_id >> 24}_{(s.map_id >> 16) & 0xff:02d}, play time "
           f"{s.play_ms / 3.6e6:.2f} h, flag store at {s.pool:#x}, revive-wait {s.revive_wait()}")
     print("character:", s.character())
+    w = s.world()
+    if w is None:
+        print("world state: layout unknown")
+    elif not any(w["blocks"]):
+        print("world state: EMPTY (written in another player's world; save editors need the launcher's Export for "
+              "save editor)")
+    else:
+        print("world state: " + ", ".join(f"{m.decode()[::-1].strip()} {n} bytes" for m, n in zip(s.WORLD_MAGIC, w["blocks"])))
     keys = [(i, n) for _, i, n in s.goods() if 4000 <= i < 5000]
     print("key items:", ", ".join(f"{i} {KEY_ITEMS.get(i, '')} x{n}".replace("  ", " ") for i, n in keys) or "none")
     for f in filter(None, a.flags.split(",")):
@@ -173,6 +272,10 @@ def main():
                 diff += 1
                 print(f"differs: {fid} host {v} save {int(bool(s.flag(fid)))} ({cat}; {name}:{ln})")
         print(f"{len(last)} host flags compared, {diff} differ")
+    if a.check_dup and (dup is None or dup):
+        sys.exit(1)
+    if a.check_world and s.world_empty() is not False:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -33,11 +33,11 @@ Enemy, NPC and boss rows are never touched; the log names any non-player chr sha
 was not isolated; both are opened, so attacks and their effects (bleed, poison, bullets) behave
 as against an invader.
 
-- **The rule**: the host's setting (`party_friendly_fire`, System > World & PvP, the overlay's
+- **The rule**: the host's setting (`party_friendly_fire`, System > Party rules: PvP & lamps, the overlay's
   Party tab, the launcher Party tab's host-only checkbox, env `BB_PARTY_FRIENDLY_FIRE=0/1`). It
   travels in the host's `balance` rules (on change at once, every 15 s for late joiners); a guest
   uses only the host's value (its own setting never counts; before the host's rules arrive: off).
-  Guests see the host's value read-only (System > World & PvP shows "On"/"Off" with "the host
+  Guests see the host's value read-only (System > Party rules: PvP & lamps shows "On"/"Off" with "the host
   decides"; the overlay shows a note instead of the switch). Hosts without the field (older
   builds) mean off.
 - **Toast** on every member when it changes: "Friendly fire ON: party members can hurt each

@@ -15,11 +15,13 @@
 #include "../bbport_game_menu_pages.h"
 #include "../bbport_settings.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <cstring>
 #include <deque>
 #include <mutex>
@@ -39,6 +41,7 @@ using u64 = std::uint64_t;
 constexpr u32 kPadCross = 0x4000, kPadRight = 0x20, kPadCircle = 0x2000, kPadOptions = 0x8;
 constexpr double kLateAnswerS = 60.0;   // a YES this late (the question left open) no longer moves
 constexpr double kArrivalWaitS = 120.0; // after the travel: beside the host once it is in
+constexpr float kTestLiftM = 8.0f;      // test aid "yesdrop": the spot this much higher (no ground under it)
 
 void Log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 void Log(const char* fmt, ...) {
@@ -68,6 +71,10 @@ std::deque<std::pair<int, std::string>> g_in;  // under g_mu
 
 // ---- host ----
 struct HostState {
+    // the own height over the last half second (HostStanding: a jump or a fall)
+    double y_at[8] = {};
+    float y[8] = {};
+    int y_n = 0;
     double last_gather_at = -1e9;
     u32 next_round = 0;
     bool open = false;
@@ -89,6 +96,14 @@ struct GuestState {
     bool arriving = false;
     double arriving_since = 0;
     u32 arriving_map = 0;
+    // after the in-world warp beside the host: watched until it stands (LandingCheck)
+    bool landing = false;
+    bool landing_arrival = false;  // the warp after the travel (no second travel on a fall)
+    double landing_since = 0;
+    float landing_dest[3] = {};
+    float landing_from[4] = {};    // where it stood before (x, y, z, yaw)
+    float landing_low = 0;         // the lowest height seen
+    float test_lift = 0;           // test aid: this YES's lift (BB_PARTY_GATHER_TEST "yesdrop")
     // test aid
     std::vector<std::string> test;
     std::size_t test_next = 0;
@@ -108,9 +123,30 @@ std::string RosterName(party::PartyLink* link, int slot) {
     return "slot " + std::to_string(slot);
 }
 
+/// The own vertical speed (m/s) over the last ~0.3 s; 0 while not enough is known.
+float VerticalSpeed(HostState& h, const GameSnapshot& s, double now) {
+    float p[3];
+    if (!s.world_up || s.loading || !OwnPos(s.player, p)) {
+        h.y_n = 0;
+        return 0.0f;
+    }
+    if (h.y_n == 0 || now - h.y_at[(h.y_n - 1) % 8] >= 0.05) {
+        h.y_at[h.y_n % 8] = now;
+        h.y[h.y_n % 8] = p[1];
+        ++h.y_n;
+    }
+    // the oldest sample 0.25 .. 0.6 s ago
+    for (int k = std::max(0, h.y_n - 8); k < h.y_n; ++k) {
+        const double dt = now - h.y_at[k % 8];
+        if (dt >= 0.25 && dt <= 0.6) return float((p[1] - h.y[k % 8]) / dt);
+    }
+    return 0.0f;
+}
+
 void HostTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<std::pair<int, std::string>>& in) {
     HostState& h = g_host;
     const double now = Now();
+    const float vmps = VerticalSpeed(h, s, now);
     for (const auto& [slot, body] : in) {
         Answer a;
         if (!DecodeAnswer(body, &a)) {
@@ -155,6 +191,8 @@ void HostTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<s
     v.boss_fight = BossBarShown();
     v.cutscene = CutscenePlaying();
     v.travelling = b2::HostRejoinRunning() || b2::RejoinRunning();
+    const int ladder = b2::OwnLadderState();
+    v.standing = HostStanding(ladder, vmps);
     v.now = now;
     v.last_gather_at = h.last_gather_at;
     int wait = 0;
@@ -162,13 +200,16 @@ void HostTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<s
     if (r != Refusal::None) {
         const std::string text = HostRefusalText(r, wait);
         party::status::SetLastEvent(text);
-        Log("Gather the party refused: %s (%s)", RefusalReason(r), text.c_str());
+        Log("Gather the party refused: %s (%s; ladder state %d, %.1f m/s up)", RefusalReason(r), text.c_str(), ladder,
+            double(vmps));
         return;
     }
     Ask a;
     a.round = ++h.next_round;
     a.map = s.map_id;
     OwnPos(s.player, a.pos);
+    a.yaw = b2::OwnYaw();
+    a.standing = true;  // HostRefusal: standing (not on a ladder, not in the air)
     a.t = link->host_clock_ms();
     h.last_gather_at = now;
     h.open = true;
@@ -188,6 +229,11 @@ void HostTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<s
                                 (h.slots.size() == 1 ? " guest" : " guests"));
     Log("round %u: Gather the party: %zu guest(s) asked; the host in %s at (%.1f, %.1f, %.1f)", a.round, h.slots.size(),
         MapName(a.map).c_str(), double(a.pos[0]), double(a.pos[1]), double(a.pos[2]));
+}
+
+/// Test answers YES: "yes", or "yesdrop" (the spot kTestLiftM higher: the landing watch's fall).
+bool TestYes(const std::string& w) {
+    return w == "yes" || w == "yesdrop";
 }
 
 void Press(u32 buttons, double now, GuestState& g) {
@@ -228,6 +274,72 @@ void Refuse(party::PartyLink* link, const Ask& ask, Refusal why) {
     Log("guest: round %u refused: %s", ask.round, RefusalReason(why));
 }
 
+/// The in-world warp beside the host (SpotFor: its chr, or the ground it asked from when its chr
+/// has climbed or dropped since), then watched until the guest stands (LandingCheck).
+bool PutBeside(const Ask& ask, const char* why, bool arrival) {
+    GuestState& g = g_guest;
+    float live[3];
+    const Spot spot = b2::HostChrPos(live) ? SpotFor(ask.standing, live[1], ask.pos[1]) : Spot::Live;
+    if (spot == Spot::Asked) {
+        Log("guest: the host's chr is %.1f m %s the spot it asked from (a ladder, a jump, a drop): beside that spot",
+            double(std::fabs(live[1] - ask.pos[1])), live[1] > ask.pos[1] ? "above" : "below");
+    }
+    float dest[3] = {}, from[4] = {};
+    if (!b2::GatherBesideHost(why, spot == Spot::Asked ? ask.pos : nullptr, ask.yaw, g.test_lift, dest, from)) {
+        return false;
+    }
+    g.landing = true;
+    g.landing_arrival = arrival;
+    g.landing_since = Now();
+    std::memcpy(g.landing_dest, dest, sizeof dest);
+    std::memcpy(g.landing_from, from, sizeof from);
+    g.landing_low = dest[1];
+    return true;
+}
+
+/// After PutBeside: the guest stands, or it fell (no ground there): back where it stood, then the
+/// travel (one loading screen) - or, after the travel already, it stays where the load put it.
+void LandingTick(const GameSnapshot& s) {
+    GuestState& g = g_guest;
+    if (!g.landing) return;
+    const double now = Now();
+    float p[3];
+    if (!s.world_up || s.loading || b2::LocalHp() <= 0 || !OwnPos(s.player, p)) {
+        g.landing = false;
+        Log("guest: landing watch ended (%s)", b2::LocalHp() <= 0 ? "dead" : "no world");
+        return;
+    }
+    g.landing_low = std::min(g.landing_low, p[1]);
+    const Landing l = LandingCheck(now - g.landing_since, g.landing_dest[1], p[1], b2::OwnLadderState());
+    if (l == Landing::Wait) return;
+    g.landing = false;
+    if (l == Landing::Landed) {
+        Log("guest: stands beside the host %.1f s after the warp (%.1f m below the spot at most)", now - g.landing_since,
+            double(g.landing_dest[1] - g.landing_low));
+        return;
+    }
+    Log("guest: FELL %.1f m %.1f s after the warp beside the host (no ground there): back where it stood (%.1f, %.1f, "
+        "%.1f)%s", double(g.landing_dest[1] - p[1]), now - g.landing_since, double(g.landing_from[0]),
+        double(g.landing_from[1]), double(g.landing_from[2]),
+        g.landing_arrival ? "" : ", then the travel to the host (one loading screen)");
+    if (!b2::GatherWarpBack(g.landing_from, g.landing_from[3], "gather: no ground beside the host, back")) {
+        Log("guest: the warp back did not run");
+    }
+    if (g.landing_arrival) {
+        party::status::SetLastEvent("Gathered: near the host (no ground beside it)");
+        return;
+    }
+    g.test_lift = 0;  // test aid: the arrival is not lifted again
+    if (b2::GatherTravelToHost()) {
+        g.arriving = true;
+        g.arriving_since = now;
+        g.arriving_map = g.ask.map;
+        party::status::SetLastEvent("Gathering: travelling to the host");
+    } else {
+        party::status::SetLastEvent("Gathering: could not reach the host");
+    }
+}
+
 /// YES: come to the host by RouteFor. False: could not move (the answer says Failed).
 bool Come(const GameSnapshot& s, const Ask& ask, Route* route) {
     Place p;
@@ -245,7 +357,7 @@ bool Come(const GameSnapshot& s, const Ask& ask, Route* route) {
         party::status::SetLastEvent("Gathering: you are already with the host");
         return true;
     case Route::InWorld:
-        if (b2::GatherBesideHost("gather")) {
+        if (PutBeside(ask, "gather", false)) {
             party::status::SetLastEvent("Gathered: beside the host");
             return true;
         }
@@ -272,6 +384,7 @@ bool Come(const GameSnapshot& s, const Ask& ask, Route* route) {
 void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<std::pair<int, std::string>>& in) {
     GuestState& g = g_guest;
     const double now = Now();
+    LandingTick(s);
     if (g.release_at > 0 && now >= g.release_at) {
         runtime_pad_director_press(0);
         g.release_at = 0;
@@ -344,9 +457,9 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
         }
         const int r = split::QuestionResult(g.dialog);
         // Test answer: YES = Cross; NO = Right, then Cross (the cursor starts on YES).
-        if (r == -1 && g.test_next < g.test.size() && (g.test[g.test_next] == "yes" || g.test[g.test_next] == "no") &&
+        if (r == -1 && g.test_next < g.test.size() && (TestYes(g.test[g.test_next]) || g.test[g.test_next] == "no") &&
             now - g.test_at > 1.5 && g.release_at == 0 && g.test_step < 6) {
-            const bool yes = g.test[g.test_next] == "yes";
+            const bool yes = TestYes(g.test[g.test_next]);
             const u32 b = yes || g.test_step % 2 == 1 ? kPadCross : kPadRight;
             Press(b, now, g);
             g.test_at = now;
@@ -357,7 +470,9 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
             return;
         }
         g.active = false;
-        if (g.test_next < g.test.size() && (g.test[g.test_next] == "yes" || g.test[g.test_next] == "no")) {
+        g.test_lift = 0;
+        if (g.test_next < g.test.size() && (TestYes(g.test[g.test_next]) || g.test[g.test_next] == "no")) {
+            if (g.test[g.test_next] == "yesdrop") g.test_lift = kTestLiftM;
             ++g.test_next;
         }
         Answer a;
@@ -411,7 +526,8 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
         g.arriving = false;
         g.test_at = now;
         if (d > kBesideM) {
-            b2::GatherBesideHost("gather arrival");
+            g.test_lift = 0;
+            PutBeside(g.ask, "gather arrival", true);
         }
         party::status::SetLastEvent("Gathered: beside the host");
         Log("guest: arrived in the host's map %s %.1f s after the YES; the host %.1f m away%s", MapName(s.map_id).c_str(),

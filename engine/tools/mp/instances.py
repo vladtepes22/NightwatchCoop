@@ -674,7 +674,23 @@ def run(a):
     until_quiet = float(os.environ.get("BB_MP_UNTIL_QUIET", "60"))
     settled_at, last_crash = None, 0.0
     net_seen, net_check = {}, 0.0
+    # BB_MP_PARENT_PID (smoke_party.py): the harness that started this run. Once it is gone (killed),
+    # nobody reads this run's verdict: end the games now instead of at the --seconds cap.
+    try:
+        parent_pid = int(os.environ.get("BB_MP_PARENT_PID") or 0)
+    except ValueError:
+        parent_pid = 0
+    parent_check = 0.0
     while any(p.poll() is None for _, p, _ in procs) and time.time() - t0 < a.seconds + 90:
+        if parent_pid > 0 and time.time() - parent_check > 2:
+            parent_check = time.time()
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            from game_queue import _alive
+            if not _alive(parent_pid):
+                verdict = verdict or ("HARNESS GONE: the parent process %d (BB_MP_PARENT_PID) ended; games stopped "
+                                      "at %.0f s" % (parent_pid, time.time() - t0))
+                print(verdict, flush=True)
+                break
         if real_net and time.time() - net_check > 2:
             net_check = time.time()
             for i in range(a.count):  # each new address / path line once, as it appears
@@ -781,14 +797,20 @@ def run(a):
         time.sleep(1)
     if until or verdict:
         print("verdict:", verdict or "TIMED OUT waiting for --until markers", flush=True)
-    for i, p, log in procs:
-        if p.poll() is None:
-            subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)
-        code = p.wait()
-        if a.timestamps:
-            time.sleep(0.5)  # the copier thread drains the pipe
+    # Teardown: every instance's taskkill at once, then the waits (one after the other, each game's
+    # exit and its taskkill took ~1-2 s; testinfra 0.7.3) and one pipe drain for all.
+    t_down = time.time()
+    killers = [subprocess.Popen(["taskkill", "/PID", str(p.pid), "/T", "/F"], stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL) for _, p, _ in procs if p.poll() is None]
+    for k in killers:
+        k.wait()
+    codes = [p.wait() for _, p, _ in procs]
+    if a.timestamps:
+        time.sleep(0.5)  # the copier threads drain the pipes
+    for (i, p, log), code in zip(procs, codes):
         log.close()
         print(f"instance {i}: exit {code}")
+    print("[harness] teardown %.1f s" % (time.time() - t_down), flush=True)
     if real_net:
         report = real_net_report([log_text(i, starts[i]) for i in range(a.count)])
         print(report, flush=True)

@@ -166,11 +166,22 @@ bool ItemLotDenied(std::int32_t lot, std::int32_t flag);
 /// The Doll / Messenger gifts every player gets once in the own Hunter's Dream (Beckoning Bell
 /// 10010, Small Resonant Bell 10000, Old Hunter Bell 10050). Their talk awards them hostOnly, which
 /// a summoned guest's game refuses (items.md 3): the guest gives the lot to itself instead
-/// (ItemSource::Own), with its own flag (playtest 1: the Old Hunter Bell was lost).
+/// (ItemSource::Own), with its own flag (playtest 1: the Old Hunter Bell was lost). The Old Hunter
+/// Bell is also replayed from the host (0.7.3, not ItemLotDenied): its flag 6670 is each player's
+/// own, so every member gets it once, whoever talked.
 bool MessengerGiftLot(std::int32_t lot);
 /// P2: the repeatable NPC gifts of common 9100 (Blood of Arianna 28000, Blood of Adella 32020,
 /// Iosefka's Blood Vial 23000, Blue Elixir 24060, Queenly Flesh 17010).
 bool RepeatGiftLotId(std::int32_t lot);
+/// 0.7.3: the repeatable gifts that also go to the whole party: Iosefka's Blood Vial 23000 (her
+/// talk sets 72410301 "given", shared with the host's world, so after one player's talk nobody
+/// else got one). A guest's talk reports it up (gift_up with the lot's ledger bit); the host's
+/// world awards it once (its own ledger bit) and C3 gives it to every member (ledger 5).
+bool SharedRepeatGiftLot(std::int32_t lot);
+/// 0.7.3: Valtr's gifts of m27 event 12700906 (43120 Impurity rune, flag 6676; 43130 League Staff,
+/// flag 6678; party_worldact OwnTalkGiftLot): per player (personal flags), never replayed, given by
+/// a guest to itself when its talk asked for them in the host's world.
+bool OwnTalkGiftLotId(std::int32_t lot);
 /// Keys of repeatable gifts: kRepeatKeyBase + n, far above every flag and ledger bit.
 constexpr std::int64_t kRepeatKeyBase = std::int64_t(1) << 40;
 /// The guest's own grant of repeatable gift `lot`, the `n`th this session (no flag, no ledger bit:
@@ -233,7 +244,8 @@ std::vector<ItemGrant> FilterPeerItems(const std::vector<ItemGrant>& in, std::si
 constexpr const char* kGiftUpEventName = "gift_up";
 /// May a guest's own award of `lot` (flag `flag`) in the host's world go up: a flagged lot the
 /// tables know with exactly that flag, not denied (per-player / repeatable), not a map treasure
-/// (5AABZnnn, area > 0: instanced per player, D4).
+/// (5AABZnnn, area > 0: instanced per player, D4); or a SharedRepeatGiftLot with its ledger bit
+/// (60009000 + its ledger index) as the flag.
 bool GuestGiftShareable(std::int32_t lot, std::int32_t flag);
 std::string GiftUpToJsonText(std::int32_t lot, std::int32_t flag);
 /// Parses and validates (GuestGiftShareable) one report.
@@ -552,6 +564,10 @@ void ItemsTick();
 /// world: queued as its own grant (given while summoned like any grant). False: not such a lot or
 /// items off.
 bool OfferRepeatGift(std::int32_t lot);
+/// Guest (main thread): an own talk gift (OwnTalkGiftLotId) its talk asked for in the host's world:
+/// queued as its own grant (ItemSource::Own, the lot's personal flag: once per player). False: not
+/// such a lot, items off, or already queued.
+bool OfferOwnGift(std::int32_t lot);
 /// Test aid (main thread): the game's own item-lot award (AwardItemLot) for this player only: a
 /// guest's award in the host's world is not reported up as an NPC gift (D5), so the host does not
 /// receive it too (BB_PARTY_GUESTSVC_TEST `lot=N`).

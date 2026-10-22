@@ -360,6 +360,14 @@ static void test_chalice_state() {
     CHECK(SlotFromBits(0x40) == 0);  // flag 9020 (the first of 7, the value's bit 6)
     CHECK(SlotFromBits(0x01) == 6);  // flag 9026
     CHECK(SlotFromBits(0x04) == 4);
+    // The current-slot read while summoned into the host's dungeon (quick-joined slot 0, own slot 1).
+    for (int k = 0; k < kSlots; ++k) CHECK(SlotFromBits(BitsForSlot(k)) == k);
+    CHECK(BitsForSlot(-1) == 0 && BitsForSlot(7) == 0);
+    CHECK(InDungeonSlotBits(0x20, 0) == 0x40);   // own slot 1 -> the joined slot 0 (the host's dungeon)
+    CHECK(InDungeonSlotBits(0x40, 0) == 0x40);   // already the joined slot
+    CHECK(InDungeonSlotBits(0x20, -1) == 0x20);  // no quick join carried (home, the host): own slot
+    CHECK(InDungeonSlotBits(0, -1) == 0 && InDungeonSlotBits(0, 0) == 0x40);
+    CHECK(InDungeonSlotBits(0x20, 9) == 0x20);
     CHECK(ChannelFromDwords(0, 0x80000000u) == 0);  // the game's "never uploaded"
     CHECK(ChannelFromDwords(0x12345678u, 0x9u) == 0x912345678ull);
     CHECK(IsChaliceGoods(6109) && IsChaliceGoods(6539) && !IsChaliceGoods(7000) && !IsChaliceGoods(200));

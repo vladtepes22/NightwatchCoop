@@ -159,6 +159,12 @@ bool LampWarp(std::uint32_t return_point);
 /// its fade), in multiplayer it sets the scene's own skip vote (+0x13D). Main thread. False when
 /// the code differs or there is no remo object; *skippable reports bit 1.
 bool RequestRemoSkip(bool* skippable = nullptr);
+/// Ends the playing remo as the solo skip does: the skip request above, plus remo player +0x168
+/// |= 0x20 (what 0x1CF9D40 sets for a solo skip; in a session the request is only this player's
+/// vote, and an unskippable mode-2 scene ignores the request): the player then ends the scene with
+/// its fade and runs its end actions (time of day, warp) as at a natural end. Main thread. False
+/// when no remo plays or the code differs; *skippable reports bit 1.
+bool EndRemoNow(bool* skippable = nullptr);
 /// A cutscene (remo) is playing: SprjRemo 0x5540058 +8 -> player +0x168 bit 0 (as party_story).
 bool CutscenePlaying();
 

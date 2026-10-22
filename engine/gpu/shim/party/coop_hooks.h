@@ -27,6 +27,14 @@ using u64 = std::uint64_t;
 /// Every install so far ("<name> @+0x<off>", in order; failed ones are not listed). The party
 /// version check (A9, party_runtime) hashes the non-diagnostic ones: peers must run the same set.
 std::vector<std::string> InstalledHooks();
+/// bbgpu_patch_image calls this once every install at image patch time is done. The party version
+/// check (A9) waits for it before hashing InstalledHooks(): a host whose party link started while
+/// the hooks were still being installed sent an empty hook set and refused every guest (testinfra
+/// 0.7.3: "party patches 000000000000... (0 hooks)" 0.1 s before the first install).
+void MarkImageHooksDone();
+/// Waits up to `ms` for MarkImageHooksDone; true once done. Never waits on the thread that patches
+/// the image (it would only time out there).
+bool WaitImageHooksDone(int ms);
 
 /// Binds the hook helper to the loaded image (bbgpu_patch_image). Idempotent; false without an image.
 bool HooksInit(unsigned char* image, u64 size);

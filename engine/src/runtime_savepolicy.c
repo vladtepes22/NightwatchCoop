@@ -14,6 +14,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <direct.h>
+#include <io.h>
 #else
 #include <unistd.h>
 #endif
@@ -843,4 +844,98 @@ int runtime_savepolicy_side_files(const char *user,const char *save_folder) {
     write_all(list,out,(size_t)len);
     fflush(stdout);
     return gone;
+}
+
+/* ---- a character save written in another player's world (save_policy.h) ---- */
+#define WORLD_EMPTY 12 /* three blocks of size 0 */
+typedef struct { uint32_t a, an, b, bspan, c, cn; } WorldLayout;
+/* The header's world-state entries (+0x3C offset, +0x40 size, +0x44 the position block, +0x48 its end
+ * counted from +0x3C, +0x4C / +0x50 the next block: the writer 0x156AA50) and that they line up. */
+static int world_layout(const unsigned char *d,size_t size,WorldLayout *w) {
+    if (size!=SLOT_SIZE || le32(d)!=0x41) return 0;
+    w->a=le32(d+0x3c); w->an=le32(d+0x40); w->b=le32(d+0x44); w->bspan=le32(d+0x48); w->c=le32(d+0x4c); w->cn=le32(d+0x50);
+    return w->a>=0x54 && w->an>=WORLD_EMPTY && w->an<size && w->a<=size-w->an && w->a+w->an==w->b &&
+           w->bspan>=w->an && w->b+(w->bspan-w->an)==w->c && w->c<=size && w->cn<=size-w->c;
+}
+/* The blocks {u32 size, data} "CHR ", "OBJ ", "DECL" fill the section exactly; *filled: those with data. */
+static int world_blocks(const unsigned char *d,const WorldLayout *w,int *filled) {
+    static const uint32_t magic[3]={0x43485220u,0x4f424a20u,0x4445434cu};
+    uint32_t at=w->a, end=w->a+w->an;
+    *filled=0;
+    for (int i=0;i<3;++i) {
+        if (end-at<4) return 0;
+        uint32_t n=le32(d+at); at+=4;
+        if (n>end-at || (n && (n<8 || le32(d+at)!=magic[i]))) return 0;
+        if (n) ++*filled;
+        at+=n;
+    }
+    return at==end;
+}
+int runtime_savepolicy_world_fix(unsigned char *save,size_t size,const unsigned char *old,size_t old_size,uint32_t *kept) {
+    WorldLayout w, o; int filled=0, old_filled=0;
+    if (kept) *kept=0;
+    if (!world_layout(save,size,&w) || !world_blocks(save,&w,&filled)) return -1;
+    if (filled || w.an!=WORLD_EMPTY) return 0;                 /* the game wrote its world state */
+    if (!old || !world_layout(old,old_size,&o) || !world_blocks(old,&o,&old_filled) || !old_filled) return 0;
+    SlotCharacter now=slot_character(save,size), was=slot_character(old,old_size);
+    if (!now.name || now.name!=was.name || now.play_ms<was.play_ms) return -2; /* another character, or an older save */
+    /* The end of the data: after the next block one more {u16, u16, u32 size, data} (0x175A4E0) and 27
+     * bytes (save version 0x41); the rest of the file is whatever the game's buffer held (0x1569740
+     * writes all 0x140000 bytes of an uninitialized one). */
+    uint32_t d=w.c+w.cn, delta=o.an-w.an;
+    if (size-d<8 || le32(save+d+4)>size-d-8-27) return -1;
+    uint32_t end=d+8+le32(save+d+4)+27;
+    if (delta>size-end) return -3; /* the rest would not fit */
+    memmove(save+w.a+o.an,save+w.a+w.an,end-(w.a+w.an));
+    memcpy(save+w.a,old+o.a,o.an);
+    put32(save+0x40,o.an); put32(save+0x44,w.b+delta); put32(save+0x48,w.bspan+delta); put32(save+0x4c,w.c+delta);
+    if (kept) *kept=o.an;
+    return 1;
+}
+int runtime_savepolicy_world_state(const unsigned char *save,size_t size) {
+    WorldLayout w; int filled=0;
+    if (!world_layout(save,size,&w) || !world_blocks(save,&w,&filled)) return -1;
+    return filled;
+}
+int runtime_savepolicy_world_fix_file(const char *temp,const char *target) {
+    const char *env=getenv("BB_SAVE_GUEST_WORLD_FIX");
+    if ((env && env[0]=='0') || !party_session()) return 0;
+    const char *name=base_name(target), *back=strrchr(name,'\\');
+    if (back) name=back+1;
+    int userdata=0, n=save_number(name,&userdata);
+    if (n<0 || n>9 || !userdata) return 0;
+    unsigned char *save=NULL, *old=NULL; size_t size=0, old_size=0;
+    if (read_all(temp,&save,&size)) return 0;
+    int r=0; uint32_t kept=0;
+    if (runtime_savepolicy_world_state(save,size)==0) {
+        /* The file it replaces; the game may have renamed that to backupNNNN first. */
+        char other[1100];
+        snprintf(other,sizeof(other),"%.*sbackup%04d",(int)(name-target),target,n);
+        const char *from=target;
+        r=read_all(target,&old,&old_size) ? 0 : runtime_savepolicy_world_fix(save,size,old,old_size,&kept);
+        if (r==0) {
+            free(old); old=NULL; from=other;
+            r=read_all(other,&old,&old_size) ? 0 : runtime_savepolicy_world_fix(save,size,old,old_size,&kept);
+        }
+        if (r==1) {
+            FILE *f=fopen(temp,"r+b");
+            int ok=f && fwrite(save,1,size,f)==size && !fflush(f);
+#ifdef _WIN32
+            ok=ok && !_commit(_fileno(f));
+#else
+            ok=ok && !fsync(fileno(f));
+#endif
+            if (f && fclose(f)) ok=0;
+            if (ok) printf("Saves: %s was written in another player's world without the own world's state (the game "
+                           "keeps none on a party join): the %u bytes of %s kept in it, as a save made at home has them\n",
+                           name,(unsigned)kept,base_name(from));
+            else { printf("Saves: %s: could not keep the own world's state in it (%s)\n",name,strerror(errno)); r=-4; }
+        } else if (r<0) {
+            printf("Saves: %s was written in another player's world without the own world's state; not taken from "
+                   "the previous save (%s)\n",name,r==-2 ? "another character or an older save there" : r==-3 ? "no room" : "not a character save");
+        }
+        fflush(stdout);
+    }
+    free(save); free(old);
+    return r;
 }
