@@ -212,10 +212,14 @@ DrawPreparation::DrawPreparation(PipelineCache& pipeline_cache_)
     : pipeline_cache{pipeline_cache_} {
     worker_count = DefaultWorkerCount();
     if (worker_count) {
-        scanner = std::jthread([this](std::stop_token stop) { ScannerLoop(stop); });
+        scanner = std::jthread([this](std::stop_token stop) {
+            BbThreads::LogEscaping("bb:DrawScan", [&] { ScannerLoop(stop); });
+        });
     }
     for (u32 i = 0; i < worker_count; ++i) {
-        workers.emplace_back([this, i](std::stop_token stop) { WorkerLoop(stop, i); });
+        workers.emplace_back([this, i](std::stop_token stop) {
+            BbThreads::LogEscaping("bb:DrawPrep", [&] { WorkerLoop(stop, i); });
+        });
     }
     std::printf("GPU: draw preparation workers: %u (+1 scanner, %u hardware threads)\n",
                 worker_count, BbThreads::Available());

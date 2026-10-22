@@ -37,7 +37,8 @@ public:
 
     DrawPipe(Handler handler_, void* context_) : handler{handler_}, context{context_} {
         ring = std::make_unique<u8[]>(Capacity);
-        thread = std::jthread([this](std::stop_token stop) { Run(stop); });
+        thread = std::jthread(
+            [this](std::stop_token stop) { BbThreads::LogEscaping("bb:DrawRec", [&] { Run(stop); }); });
     }
 
     ~DrawPipe() {

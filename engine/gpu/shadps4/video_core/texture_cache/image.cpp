@@ -160,6 +160,22 @@ void UniqueImage::Create(const vk::ImageCreateInfo& image_ci) {
     VmaAllocationInfo alloc_info{};
     VkResult result = vmaCreateImage(allocator, &image_ci_unsafe, &alloc_ci, &unsafe_image,
                                      &allocation, &alloc_info);
+    // bbport: over budget in every heap (an integrated GPU sharing a nearly full PC's RAM, exit 23
+    // of 2026-10-22) is not out of memory: Windows pages what does not fit. Allocated past the
+    // budget then (the texture collector's pressure frees images again); only the driver's own
+    // refusal stops the game.
+    if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY) {
+        VmaAllocationCreateInfo over_budget = alloc_ci;
+        over_budget.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+        result = vmaCreateImage(allocator, &image_ci_unsafe, &over_budget, &unsafe_image, &allocation,
+                                &alloc_info);
+        static std::atomic<int> reports{0};
+        if (reports.fetch_add(1, std::memory_order_relaxed) < 10) {
+            std::printf("Texture cache: image of %ux%u over the GPU memory budget: %s\n", image_ci.extent.width,
+                        image_ci.extent.height,
+                        result == VK_SUCCESS ? "allocated anyway" : "refused by the driver too");
+        }
+    }
     ASSERT_MSG(result == VK_SUCCESS, "Failed allocating image with error {}",
                vk::to_string(vk::Result{result}));
     image = vk::Image{unsafe_image};

@@ -403,6 +403,19 @@ static void LogRam() {
                 mib(m.total_phys), mib(m.commit_left), mib(BbStats::vk_image_bytes.load()),
                 mib(BbStats::live_image_bytes.load()),
                 static_cast<unsigned long long>(BbStats::live_images.load()));
+#ifdef _WIN32
+    // bbport: what holds the GPU's memory (PrintMemory's numbers, which are Linux-only): an 8 GB
+    // card full of something other than images showed only "GPU images 1 GB" here before.
+    {
+        u64 vma_blocks = 0, vma_used = 0;
+        Vulkan::VmaDeviceUsage(vma_blocks, vma_used);
+        std::printf("GPU memory: Vulkan %llu MiB allocated (VMA blocks %llu MiB, %llu MiB of them used); the "
+                    "game's data in VRAM %llu MiB (%llu MiB unused)\n",
+                    mib(BbStats::device_alloc_bytes.load() - BbStats::device_free_bytes.load()), mib(vma_blocks),
+                    mib(vma_used), mib(BbStats::residency_alloc_bytes.load()),
+                    mib(BbStats::residency_unused_bytes.load()));
+    }
+#endif
     // Where that RAM is: on the first report, then every five minutes. Listing every resident page
     // takes a while, so not on this (the presenting) thread.
     static int reports = 0;
