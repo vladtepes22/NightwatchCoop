@@ -167,6 +167,13 @@ if [[ -n $windows ]] && [[ ! -f out/bb-start.exe || -n $(find start -newer out/b
         -municode -static start/*.cpp -lz -lexpat -lbcrypt -o out/bb-start.exe
     echo "Built $PWD/out/bb-start.exe"
 fi
+# The map baker (Windows): the launcher runs it once to compile the player's generated maps.
+if [[ -n $windows ]] && [[ ! -f out/bb-map-bake.exe ||
+      -n $(find tools/map gpu/shim/map -newer out/bb-map-bake.exe -print -quit) ]]; then
+    "${CXX:-clang++}" -std=c++23 -O2 -Wall -Wextra -Werror -Igpu/shim/map -static tools/map/bake_map.cpp \
+        -lz -lcrypto -lws2_32 -lcrypt32 -o out/bb-map-bake.exe
+    echo "Built $PWD/out/bb-map-bake.exe"
+fi
 if [[ ${1:-} == --test ]]; then
     "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_pad.c "${libraries[@]}" -o out/pad-test
     out/pad-test
