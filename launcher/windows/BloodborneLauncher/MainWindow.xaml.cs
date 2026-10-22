@@ -446,7 +446,7 @@ namespace BloodborneLauncher
                 await Workspace.Current.StopGameAsync();
                 // Queued, not called: a game that exited while the question was open makes the stop
                 // finish at once, and Close() inside this closing event throws.
-                Dispatcher.BeginInvoke(Close);
+                _ = Dispatcher.BeginInvoke(Close);
             }
         }
 
