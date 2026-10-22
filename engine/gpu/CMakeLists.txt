@@ -233,7 +233,7 @@ endforeach()
 string(SHA256 BB_SEAMLESS_SOURCE_ID "${BB_ID_CONTENT}")
 string(SUBSTRING "${BB_SEAMLESS_SOURCE_ID}" 0 16 BB_SEAMLESS_SOURCE_ID)
 set_source_files_properties(shim/seamless_build.cpp PROPERTIES
-    COMPILE_DEFINITIONS "BB_SEAMLESS_BUILD_ID=\"nightwatch-coop-0.2.1-${BB_SEAMLESS_SOURCE_ID}\"")
+    COMPILE_DEFINITIONS "BB_SEAMLESS_BUILD_ID=\"nightwatch-coop-0.2.2-${BB_SEAMLESS_SOURCE_ID}\"")
 if(WIN32)
     target_link_libraries(bbgpu PUBLIC ole32 oleaut32 crypt32 synchronization iphlpapi)
 endif()
