@@ -4,8 +4,11 @@
 walls: deaths, boss kills and lamp travel don't end the session, and everyone's save keeps the
 progress. Up to 4 hunters. Free and open source.
 
-Built on the open-source **Lantern Engine 0.9.36** (Bloodborne running natively on Windows, with
-upscalers and PC controls) and **visy's seamless co-op v0.7.2**.
+Built on the open-source **Lantern Engine 0.9.37 beta 8** (Bloodborne running natively on Windows,
+with upscalers and PC controls) and **visy's seamless co-op v0.7.3**.
+
+**See it in action:** [Nightwatch Co-op on YouTube](https://www.youtube.com/watch?v=bYavrI0ca94)
+(thanks to Zarok for helping make it).
 
 > **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22. It is not made, supported or
 > endorsed by Awaken / Lantern Engine, The Hunter's Dream, FromSoftware or Sony. Please don't
@@ -51,7 +54,7 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 ## Install
 
-1. Download `NightwatchCoop-v0.2.1-beta.1-win64.zip` from
+1. Download `NightwatchCoop-v0.2.2-beta.1-win64.zip` from
    [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its
@@ -244,7 +247,7 @@ Write down what happened and when, then send `logs\last_session.log` from **ever
 | | |
 |---|---|
 | **Lantern Engine** | by **Awaken** (not involved in this project): the launcher, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, fixes) |
-| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.2 |
+| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.3 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
 | VRAM cleanup and frame pacing | adapted from [IFreemz/shadPS4-Bloodborne-DLSS-FSR](https://github.com/IFreemz/shadPS4-Bloodborne-DLSS-FSR) |
@@ -259,6 +262,8 @@ Write down what happened and when, then send `logs\last_session.log` from **ever
 | Controller mappings | [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) |
 | Trophy list | [pyL1nx/bloodborne_pc](https://github.com/pyL1nx/bloodborne_pc) |
 | UI library | [WPF-UI](https://github.com/lepoco/wpfui) |
+| Playtesting | yorochi, Mal1216, Zarok, Banana U Pidžami and visy: thank you! |
+| Video | Zarok, for helping make the [YouTube video](https://www.youtube.com/watch?v=bYavrI0ca94) |
 
 ## License
 
