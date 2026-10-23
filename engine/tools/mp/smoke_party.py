@@ -432,7 +432,7 @@ def phase_rules(only):
     # Friendly fire back off once the guest has seen it (the guest starts 22 s later)
     # from the last page back up to Party rules: PvP & lamps
     up = "/".join(["up"] * (len(RULES_PAGES) - 1 - [pg[0] for pg in RULES_PAGES].index("Party rules: PvP & lamps")))
-    host += "/" + "/".join(["wait"] * 12) + "/circle/" + up + "/cross/left/mark=rules_h_ffoff/circle/circle/circle"
+    host += "/circle/" + up + "/cross/left/mark=rules_h_ffoff/circle/circle/circle"
     guest += "/circle/circle/circle"
     watch = []
     n = len(RULES_PAGES)
@@ -508,7 +508,7 @@ def _s3_enemy():
 def phase_s3(only):
     host = ",".join([
         "echoes=5000",
-        "host_warp=2412953@20",                                    # the Tomb of Oedon lamp (party travel)
+        "host_warp=2412953@8^2",                                   # the Tomb of Oedon lamp (party travel)
         # two kills before the deaths, of this map's own enemies (m24_01, 130 m away: the nearest ones
         # belong to the Cathedral Ward map m24_00, whose enemies come back on a game that streams that
         # map out and in again, any load or none: hostcheck run respawnE)
@@ -528,7 +528,7 @@ def phase_s3(only):
         "host_press=0@14%m24_01!", "host_press=0@12%m24_01!",
     ] + _s3_enemy() + [
         "host_lastlamp=2402950@1%m24_01", "host_die@2%m24_01",     # last lamp in the Cathedral Ward: a lone load
-        "host_press=0@30%m24_00",                                  # its census, then the end
+        "host_press=0@15%m24_00",                                  # its census (every 15 s), then the end
     ])
     # guest 1 kills one too; both guests then stand in the arena, off the host's walk to its stain
     g1 = "god,guest_kill=2410261@10%m24_01,guest_move=-49.9:-40.82:73.3@2%m24_01"
@@ -559,7 +559,7 @@ SK_UNTIL = r"0:travel step (\d+)/\1: "
 def phase_sk(only):
     host = ",".join([
         "god",
-        "host_warp=2412953@20",                                    # the Tomb of Oedon lamp (party travel)
+        "host_warp=2412953@8^2",                                   # the Tomb of Oedon lamp (party travel)
         "host_kill=%s:hp@8%%m24_01" % SK_ENEMY,                     # the neighbour map's enemy, 28 m away
         "host_move=%s@3%%m24_01" % SK_FAR,                         # away before any census
         "host_press=0@14%m24_01!",                                 # there: m24_00 streams out
@@ -660,18 +660,18 @@ GA_UNTIL = [r"0:travel step (\d+)/\1: ", r"1:travel step (\d+)/\1: ", r"2:travel
 def phase_ga(only):
     host = ",".join([
         "god",
-        "host_warp=2412953@15",          # party lamp travel: the Tomb of Oedon (everyone in m24_01)
-        "host_press=0x100002@45%m24_01",  # round 1: the hotkey, touchpad + L3 (runtime_pad.c ping_combo)
+        "host_warp=2412953@8^2",         # party lamp travel: the Tomb of Oedon (everyone in m24_01)
+        "host_press=0x100002@15%m24_01",  # round 1: the hotkey, touchpad + L3 (runtime_pad.c ping_combo)
         "host_gather@5%m24_01",          # refused: the cooldown
         "host_gather@28%m24_01",         # round 2
         "host_gather@45%m24_01",         # round 3
         "host_press=0@15%m24_01!",
     ])
     # guest 2's alone lamp (a rest) gives the host a rest load that guest 1 follows: guest 1 walks
-    # off after it (60 s), and to the Dream after round 2
-    g1 = ",".join(["god", "guest_move=%s@60%%m24_01" % GA_FAR,   # far away in the same map
+    # off after it (30 s, ~9 s after round 1's gather), and to the Dream after round 2
+    g1 = ",".join(["god", "guest_move=%s@30%%m24_01" % GA_FAR,   # far away in the same map (after round 1)
                    "guest_lamp=2102950@75%m24_01"])              # after round 2: alone to the Dream
-    g2 = ",".join(["god", "guest_lamp=2102950@35%m24_01"])       # alone to the Dream (another map)
+    g2 = ",".join(["god", "guest_lamp=2102950@20%m24_01"])       # alone to the Dream (another map)
     watch = ["--grey"]
     for rx, tag in ((r"round \d+: Gather the party: \d+ guest", "gather"), (r"gather: put beside the host", "beside"),
                     (GA_ARRIVED, "arrived"), (r"round 2 refused: in a menu", "menu")):
@@ -698,13 +698,13 @@ def phase_ga(only):
 # must catch the fall (FELL, 4 m below the spot), put it back where it stood (no load) and send it by
 # the travel (one loading screen), then beside the host once arrived, standing. Then the host takes the
 # ladder (Cross) and gathers on it: refused (on a ladder), no question on the guest.
-GL_UNTIL = [r"0:travel step (\d+)/\1: ", r"1:travel step (\d+)/\1: "]
+GL_UNTIL = [r"0:travel step (\d+)/\1: "]  # the host's chain (the guest's 120 s press only keeps it there)
 
 
 def phase_gl(only):
     host = ",".join([
         "god", "log_pos=0.5",
-        "host_warp=2402950@15",                     # the party to the Cathedral Ward lamp
+        "host_warp=2402950@8^1",                    # the party to the Cathedral Ward lamp
         "host_obj=2401024:1.0:180@10%m24_00",       # the ladder's foot, ~75 m from the lamp
         "host_gather@3%m24_00",                     # round 1: on ground (the guest: yesdrop)
         "host_press=0x4000@45%m24_00!",             # Cross: onto the ladder (after the guest's travel)
@@ -1076,7 +1076,7 @@ FL_HOST_UNTIL = r"0:travel step (\d+)/\1: host_press"
 
 def phase_fl(only):
     # the host's own fall after the guest's (its god aid only for the guest's part: none here)
-    host = ",".join(["log_pos", "echoes=3000", "host_warp=2412952@15",
+    host = ",".join(["log_pos", "echoes=3000", "host_warp=2412952@8^1",
                      "host_stick=-128.0:61.0:0.7:20@80%m24_01!",   # after the guest is up again
                      "host_press=0@2%m24_01!",
                      "host_move=-131.0:-27.9:58.0@1%m24_01",       # under the floor: out of the world
@@ -1106,7 +1106,7 @@ FD_UNTIL = r"1:travel step (\d+)/\1: guest_stick"
 
 
 def phase_fd(only):
-    host = ",".join(["log_pos", "echoes=3000", "host_warp=2412952@15"])
+    host = ",".join(["log_pos", "echoes=3000", "host_warp=2412952@8^1"])
     g1 = ",".join(["log_pos=0.5", "echoes=4000",
                    "guest_lastlamp=2412953@8%m24_01",             # its own last lamp: ~95 m from the bridge
                    "guest_stick=-127.0:62.0:0.7:20@2%m24_01!",    # onto the bridge: the safe ground
@@ -1134,7 +1134,7 @@ FDJ_TOP = "3.7:-53.3:-63.2"
 
 
 def phase_fdj(only):
-    host = ",".join(["log_pos", "echoes=3000", "host_warp=2302950@15"])
+    host = ",".join(["log_pos", "echoes=3000", "host_warp=2302950@8^1"])
     g1 = ["log_pos=0.5", "echoes=4000"]
     first = True
     for tx, tz in ((-0.3, -63.2), (7.7, -63.2), (3.7, -59.2), (3.7, -67.2)):
@@ -1180,7 +1180,7 @@ def ld_climb(who, first):
 
 def phase_ld(only):
     common = "log_pos=0.5,watch_text=Ladder"
-    host = ",".join([common, "host_warp=2402950@15"] + ld_climb("host", 10) + ld_walks("host"))
+    host = ",".join([common, "host_warp=2402950@8^1"] + ld_climb("host", 10) + ld_walks("host"))
     g1 = ",".join([common, "guest_press=0@10%m24_00!", "guest_press=0@10%m24_00!", "guest_press=0@10%m24_00!",
                    "guest_press=0@10%m24_00!"]                  # the host's turn first
                   + ld_climb("guest", 2) + ld_walks("guest"))
@@ -1226,11 +1226,11 @@ MK_OFF_LAMP = "13.3:105.1:1.2:25"  # a walk 5 m off the Cathedral Ward lamp's sp
 def _mk_to_dream():
     """Guest 1 alone to the Dream (a rest: the host's world reloads; guest 2 follows), its last lamp the
     Cathedral Ward's again once there (25 s: everyone is back from the host's rest load)."""
-    return ["guest_lamp=%s@20%%m24_00" % MK_DREAM, "guest_lastlamp=%s@25%%m21_00" % MK_LAMP]
+    return ["guest_lamp=%s@12%%m24_00" % MK_DREAM, "guest_lastlamp=%s@25%%m21_00" % MK_LAMP]
 
 
 def phase_mk(only):
-    host = ",".join(["god", "host_warp=%s@15" % MK_LAMP,
+    host = ",".join(["god", "host_warp=%s@8^2" % MK_LAMP,
                      "host_lastlamp=%s@3%%m24_00^2" % MK_LAMP,             # both guests in
                      "host_stick=%s@1%%m24_00!" % MK_OFF_LAMP,             # off the lamp, walked
                      "host_use=1400@2%m24_00",                             # (h1) YES
@@ -1247,7 +1247,7 @@ def phase_mk(only):
                    ] + _mk_to_dream() + ["guest_use=100@2%m21_00"]   # (2) the Hunter's Mark from the Dream
                   + _mk_to_dream() + ["guest_use=1400@2%m21_00"]     # (3) the Bold Mark from the Dream
                   + _mk_to_dream() + ["guest_lamp=%s@2%%m21_00" % MK_LAMP,  # (4) the lamp from the Dream
-                                      "guest_press=0@25%m24_00!"])  # back in the host's world: the end
+                                      "guest_press=0@8%m24_00!"])  # back in the host's world: the end
     return dict(
         name="mk", seconds=600, pad=True,
         env=[],
@@ -1285,13 +1285,13 @@ KD_READ = "9420,9421,9423"
 
 
 def phase_kd(only):
-    host = ",".join(["host_warp=%s@15" % KD_LAMP,
+    host = ",".join(["host_warp=%s@8^2" % KD_LAMP,
                      # in the cell after guest 1's grab, every scene over: the kidnap undone (test) for the
                      # host's grab next (a flag step keeps the chain armed; a press would wait for a join)
-                     "host_flag=9423:0@45%m28_00",
+                     "host_flag=9423:0@30%m28_00",
                      "host_flag=9421:0@1",
                      "host_warp=%s@3" % KD_LAMP,          # the party back to the Cathedral Ward
-                     "host_flag=9420@30%m24_00",          # the grab-death's trigger
+                     "host_flag=9420@20%m24_00",          # the grab-death's trigger
                      "host_die@1%m24_00",
                      "host_press=0@25%m28_00!"])          # awake in the cell: the end
     g1 = ",".join(["guest_flag=9420@12%m24_00", "guest_die@1%m24_00",  # 9420 on a guest: a plain death
@@ -1321,11 +1321,11 @@ KW_UNTIL = r"1:travel step (\d+)/\1: "  # guest 1's last step (in the Lecture Bu
 
 
 def phase_kw(only):
-    host = ",".join(["god", "host_warp=2402950@25",            # the Cathedral Ward (m24_00)
-                     "host_lamp=3402959:story@15",             # the DLC grab's warp
+    host = ",".join(["god", "host_warp=2402950@18",            # the Cathedral Ward (m24_00)
+                     "host_lamp=3402959:story@10",             # the DLC grab's warp
                      "host_warp=2802950@25"])                  # Yahar'gul (m28_00)
     g1 = ",".join(["god", "guest_lamp=3202958:story@15%m28_00",  # the Tonsil Stone grab's warp
-                   "guest_press=0@20%m32_00!"])
+                   "guest_press=0@10%m32_00!"])
     return dict(
         name="kw", seconds=480,
         env=["BB_PARTY_TRAVEL_CHOICE=party", "BB_PARTY_STORY_TEST_DELAY=8"],
@@ -1602,7 +1602,7 @@ def _rt_killed_by(entity):
 def phase_rt(only):
     host = ",".join([
         "god",
-        "host_warp=2412953@20",                                     # the Tomb of Oedon lamp (party travel)
+        "host_warp=2412953@8^1",                                    # the Tomb of Oedon lamp (party travel)
         # 1's neighbours 2410249 / 2410250 off first (full smoke 0.7.2: they killed the frail guest instead
         # of 2410247 / 2410202, then again at each stain the stain test warped it back onto: a death loop)
         "host_kill=2410249@3%m24_01", "host_kill=2410250@1%m24_01",
@@ -1991,7 +1991,7 @@ EH_UNTIL = r"1:travel step (\d+)/\1: guest_move"
 def phase_eh(only):
     host = ",".join([
         "god",
-        "host_warp=2412953@20",                                     # the Tomb of Oedon lamp (party travel)
+        "host_warp=2412953@8^1",                                    # the Tomb of Oedon lamp (party travel)
         # its neighbours (rt: a death loop; eh1: 2410202 killed the guest instead and took the echoes)
         "host_kill=2410249@3%m24_01", "host_kill=2410250@1%m24_01", "host_kill=2410202@1%m24_01",
     ] + ["host_press=0@20%m24_01!"] * 12)
@@ -2043,7 +2043,7 @@ def check_eh(v, L):
 # goes to the Dream.
 CLG_LAMP_OBJ2 = "2901953"   # the lift's bottom floor lamp object (return point 2902953)
 CLG_UNTIL = r"0:map .* -> m21_00"
-CLG_UNTIL_G = r"1:travel step (\d+)/\1: "  # guest 1's last step: 40 s in the Dream (r2: its earlier m21 ended the run)
+CLG_UNTIL_G = r"1:travel step (\d+)/\1: "  # guest 1's last step: 15 s in the Dream (r2: its earlier m21 ended the run)
 
 
 def phase_clg(only):
@@ -2062,7 +2062,7 @@ def phase_clg(only):
                    "guest_obj=%s:1.2:0@9%%m29!" % CLG_LAMP_OBJ2,   # use it: the Dream question (r1: at the
                    "guest_press=0x4000@4%m29!",                    # first Cross), YES (it opens on NO), OK
                    "guest_press=0x80@3%m29!", "guest_press=0x4000@2%m29!",
-                   "guest_press=0@40%m21!"])
+                   "guest_press=0@15%m21!"])
     watch = []
     for rx, tag in ((r"died from a fall", "gfall"), (r"up again beside the nearest living member", "gup"),
                     (r"Chalice Dungeon lift car", "car"), (r"lamp flag 729001", "dream"), (r"map .* -> m21_00", "m21")):

@@ -5,7 +5,7 @@ walls: deaths, boss kills and lamp travel don't end the session, and everyone's 
 progress. Up to 4 hunters. Free and open source.
 
 Built on the open-source **Lantern Engine 0.9.37 beta 9** (Bloodborne running natively on Windows,
-with upscalers and PC controls) and **visy's seamless co-op v0.7.3**.
+with upscalers and PC controls) and **visy's seamless co-op v0.7.4**.
 
 **See it in action:** [Nightwatch Co-op on YouTube](https://www.youtube.com/watch?v=bYavrI0ca94)
 (thanks to Zarok for helping make it).
@@ -91,13 +91,28 @@ Single-player uses your normal saves; co-op never touches them.
 
 ## The map
 
-In the game, **hold Options / Start** (a tap still opens the game's menu) or press **M** to see
-the area you are in, centred on you. Esc, Circle or the map button again closes it; the mouse
-wheel or L2 / R2 zooms. Change the button under **Controls** (the undo arrow puts it back).
+Turn it on in the launcher: **Display › Map › In-game map** (off by default). The first time, the
+launcher makes the maps from your own game files (a few minutes; the Play page shows the progress).
+You can play meanwhile: the map turns on in the game by itself when it is ready, no restart needed.
 
-The maps are made once from your own game files the first time the launcher starts (a few
-minutes; the Play page shows the progress). You can play meanwhile: the map turns on in the game
-by itself when it is ready, no restart needed. Chalice Dungeons have no map.
+In the game, **hold Options / Start** (a tap still opens the game's menu) or press **M**. The map
+shows where you stand and which way you face, the place you are in, lit lamps, ladders, gates, the
+NPCs that are there now and your party.
+
+| | Controller | Keyboard and mouse |
+| --- | --- | --- |
+| Pan | Right stick | Drag, arrow keys |
+| Zoom | L2 / R2 | Wheel, - / + |
+| Look at your lit lamps (any area) | L1 / R1 | Q / E |
+| Back to you | Triangle | C |
+| Height shading | Square | H |
+| Point at an icon for its name | Left stick | Mouse |
+| Close | Circle, Options / Start | Esc, M |
+
+Optional, under Display › Map: **pickups** still lying in the world (Blood Vials, Insight items,
+weapons and attire, Coldblood) and **boss reveal** (an area's map stays hidden until its boss is
+dead). Change the map button under **Controls** (the undo arrow puts it back). Chalice Dungeons
+have no map, and the map has no fast travel.
 
 ## Host a game
 
@@ -257,8 +272,8 @@ Write down what happened and when, then send `logs\last_session.log` from **ever
 | | |
 |---|---|
 | **Lantern Engine** | by **Awaken** (not involved in this project): the launcher, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, fixes) |
-| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.3 |
-| The map: its generator, drawing and parchment | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
+| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.4 |
+| The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
 | VRAM cleanup and frame pacing | adapted from [IFreemz/shadPS4-Bloodborne-DLSS-FSR](https://github.com/IFreemz/shadPS4-Bloodborne-DLSS-FSR) |
