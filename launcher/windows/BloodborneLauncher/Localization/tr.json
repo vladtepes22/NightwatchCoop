@@ -1485,5 +1485,6 @@
   "None chosen yet: the build's own lantern shows": "Henüz seçilmedi: bu sürümün feneri gösterilir",
   "{0} could not be read as a picture.": "{0} görsel olarak okunamadı.",
   "{0} is available": "{0} kullanılabilir",
-  "Portuguese (Brazil)": "Portekizce (Brezilya)"
+  "Portuguese (Brazil)": "Portekizce (Brezilya)",
+  "Could not open the folder: ": "Klasör açılamadı: "
 }

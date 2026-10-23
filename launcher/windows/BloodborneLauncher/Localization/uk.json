@@ -1485,5 +1485,6 @@
   "None chosen yet: the build's own lantern shows": "Ще нічого не вибрано: показується ліхтар цієї збірки",
   "{0} could not be read as a picture.": "Не вдалося прочитати {0} як зображення.",
   "{0} is available": "Доступна версія {0}",
-  "Portuguese (Brazil)": "Португальська (Бразилія)"
+  "Portuguese (Brazil)": "Португальська (Бразилія)",
+  "Could not open the folder: ": "Не вдалося відкрити теку: "
 }

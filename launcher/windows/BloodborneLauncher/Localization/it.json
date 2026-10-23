@@ -1485,5 +1485,6 @@
   "None chosen yet: the build's own lantern shows": "Ancora nessuna scelta: viene mostrata la lanterna di questa build",
   "{0} could not be read as a picture.": "Impossibile leggere {0} come immagine.",
   "{0} is available": "{0} è disponibile",
-  "Portuguese (Brazil)": "Portoghese (Brasile)"
+  "Portuguese (Brazil)": "Portoghese (Brasile)",
+  "Could not open the folder: ": "Impossibile aprire la cartella: "
 }

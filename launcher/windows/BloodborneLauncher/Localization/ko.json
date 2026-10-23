@@ -1485,5 +1485,6 @@
   "None chosen yet: the build's own lantern shows": "아직 선택하지 않음: 이 빌드의 랜턴이 표시됩니다",
   "{0} could not be read as a picture.": "{0}을(를) 그림으로 읽을 수 없습니다.",
   "{0} is available": "{0} 사용 가능",
-  "Portuguese (Brazil)": "포르투갈어(브라질)"
+  "Portuguese (Brazil)": "포르투갈어(브라질)",
+  "Could not open the folder: ": "폴더를 열 수 없습니다: "
 }

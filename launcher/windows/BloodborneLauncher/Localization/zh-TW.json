@@ -1485,5 +1485,6 @@
   "None chosen yet: the build's own lantern shows": "尚未選擇：顯示此版本內建的提燈",
   "{0} could not be read as a picture.": "無法將 {0} 讀取為圖片。",
   "{0} is available": "{0} 可用",
-  "Portuguese (Brazil)": "葡萄牙語（巴西）"
+  "Portuguese (Brazil)": "葡萄牙語（巴西）",
+  "Could not open the folder: ": "無法開啟資料夾："
 }

@@ -1485,5 +1485,6 @@
   "None chosen yet: the build's own lantern shows": "Пока не выбрано: показывается фонарь этой сборки",
   "{0} could not be read as a picture.": "Не удалось прочитать {0} как изображение.",
   "{0} is available": "Доступна версия {0}",
-  "Portuguese (Brazil)": "Португальский (Бразилия)"
+  "Portuguese (Brazil)": "Португальский (Бразилия)",
+  "Could not open the folder: ": "Не удалось открыть папку: "
 }

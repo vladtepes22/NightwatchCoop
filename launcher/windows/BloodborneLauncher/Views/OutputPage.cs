@@ -25,6 +25,8 @@ namespace BloodborneLauncher.Views
             var buttons = Row(
                 SmallButton(L.T("Copy"), SymbolRegular.Copy24, (_, _) => Copy()),
                 SmallButton(L.T("Export…"), SymbolRegular.Save24, (_, _) => Export()),
+                // The logs folder: last / previous session and the earlier ones in logs\sessions.
+                SmallButton(L.T("Open"), SymbolRegular.FolderOpen24, (_, _) => OpenLogs()),
                 SmallButton(L.T("Clear"), SymbolRegular.Broom24, (_, _) => Ws.ClearOutput()));
             Grid.SetColumn(buttons, 1);
             bar.Children.Add(buttons);
@@ -90,6 +92,20 @@ namespace BloodborneLauncher.Views
                 Ws.Log(L.T("Game output copied."), LogLevel.Good);
             else
                 Ws.Log(L.T("Could not copy: another program is using the clipboard. Try again, or use Export."), LogLevel.Warn);
+        }
+
+        private void OpenLogs()
+        {
+            try
+            {
+                var folder = Path.GetDirectoryName(GameRunner.SessionLog)!;
+                Directory.CreateDirectory(folder);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
+            }
+            catch (Exception e)
+            {
+                Ws.Log(L.T("Could not open the folder: ") + e.Message, LogLevel.Warn);
+            }
         }
 
         private void Export()
