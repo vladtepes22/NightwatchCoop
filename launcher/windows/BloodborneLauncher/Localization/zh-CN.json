@@ -1653,7 +1653,6 @@
   "Windows had no memory left for the game (RAM plus page file). Let Windows manage the page file size ": "Windows 已没有可供游戏使用的内存（内存加页面文件）。请让 Windows 自动管理页面文件大小",
   "(System › About › Advanced system settings › Performance › Advanced › Virtual memory) on a drive with 20 GB ": "（系统 › 关于 › 高级系统设置 › 性能 › 高级 › 虚拟内存），所在磁盘至少留出 20 GB ",
   "free, close other programs, and on a graphics card with 8 GB or less turn off Highest model detail and frame generation.": "空间，关闭其他程序；显存 8 GB 或以下的显卡请关闭“最高”模型细节和帧生成。",
-  "Cheats are off while hosting or joining a party.": "主持或加入队伍时，修改项会关闭。",
   "Automatic": "自动",
   "Automatic (by GPU)": "自动（按显卡）",
   "Automatic (per quality)": "自动（按画质）",
@@ -1777,5 +1776,6 @@
   "Nightwatch Co-op is a modified version of Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine), ": "Nightwatch Co-op 是 Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine) 的修改版本，",
   "with visy's seamless co-op and its own changes. It is not an official Lantern Engine release, and Awaken is not involved in it. ": "加入了 visy 的无缝联机及自身的修改。它不是 Lantern Engine 的官方版本，Awaken 也未参与其中。",
   "Free software under the GNU GPL v3 or later with additional terms: see NOTICE in the game's folder.": "以 GNU GPL v3 或更高版本及附加条款发布的自由软件：请参阅游戏文件夹中的 NOTICE。",
-  "In-game map (experimental)": "游戏内地图（实验性）"
+  "In-game map (experimental)": "游戏内地图（实验性）",
+  "In a party, items and insight you add can affect everyone's game: only use them with players who agree.": "在队伍中，你添加的物品和启示可能影响所有人的游戏：请只在其他玩家同意时使用。"
 }
