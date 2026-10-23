@@ -654,7 +654,7 @@ def run(a):
     last_lease_check = 0.0
     # Idle stop: once a party run has done something and then no NEW kind of party log line appears
     # for --idle seconds (periodic status lines don't count), the run has what it can get: end it.
-    idle_rx = re.compile(r"^(Party|Net): ")
+    idle_rx = re.compile(r"^(?:\[coop\] )?(Party|Net): ")
     idle_limit = a.idle
     last_party_count, last_party_change = -1, time.time()
     # Unplanned crash in a scripted run (--until): run.bat restarts the game, but a restarted game takes
@@ -753,8 +753,8 @@ def run(a):
             # the same text and don't count as progress.
             n = len({re.sub(r"0x[0-9a-fA-F]+|\d[\d.:]*", "#", l) for i in range(a.count)
                      for l in log_text(i, starts[i]).splitlines() if idle_rx.match(l)})
-            in_world = all((re.findall(r"^Party: (?:\[[^\]]*\] )?(world up|world down)\b", log_text(i), re.M) or ["-"])[-1]
-                           == "world up" and (re.findall(r"^Party: (?:\[[^\]]*\] )?loading screen (up|gone)\b", log_text(i), re.M)
+            in_world = all((re.findall(r"^(?:\[coop\] )?Party: (?:\[[^\]]*\] )?(world up|world down)\b", log_text(i), re.M) or ["-"])[-1]
+                           == "world up" and (re.findall(r"^(?:\[coop\] )?Party: (?:\[[^\]]*\] )?loading screen (up|gone)\b", log_text(i), re.M)
                                               or ["gone"])[-1] == "gone" for i in range(a.count))
             if n != last_party_count or not in_world:  # boots, titles and loads never count as idle
                 last_party_count, last_party_change = n, time.time()

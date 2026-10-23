@@ -317,7 +317,7 @@ void Log(const char* fmt, ...) {
     va_start(ap, fmt);
     std::vsnprintf(line, sizeof line, fmt, ap);
     va_end(ap);
-    std::printf("Party: npc_talk: %s\n", line);
+    std::printf("[coop] Party: npc_talk: %s\n", line);
     std::fflush(stdout);
 }
 

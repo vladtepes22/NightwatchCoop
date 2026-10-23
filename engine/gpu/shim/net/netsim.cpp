@@ -429,7 +429,7 @@ void outage_now(double ms_len) {
     Sim& s = sim();
     std::lock_guard<std::mutex> lk(s.mu);
     if (s.queue) s.queue->blackout(now, until);
-    std::printf("Net: simulated outage for %.0f ms%s\n", ms_len, s.queue ? "" : " (simulator off: no effect)");
+    std::printf("[coop] Net: simulated outage for %.0f ms%s\n", ms_len, s.queue ? "" : " (simulator off: no effect)");
 }
 
 // Test aid BB_NET_SIM_OUTAGE_FILE=<path>: an outage_now(MS) whenever that file's text ("MS", or
@@ -452,7 +452,7 @@ void outage_file_watch(std::string path) {
             if (!first && !text.empty() && text != last) {
                 const double ms = std::atof(text.c_str());
                 if (ms > 0 && ms <= 600000) {
-                    std::printf("Net: outage file %s: %s\n", path.c_str(), text.c_str());
+                    std::printf("[coop] Net: outage file %s: %s\n", path.c_str(), text.c_str());
                     outage_now(ms);
                 }
             }
@@ -473,7 +473,7 @@ void configure(const Config& c) {
         s.cfg = c;
         s.epoch = Clock::now();
         s.queue->set_epoch(s.epoch);
-        std::printf("Net: network simulator on (%s)%s\n", describe(c).c_str(),
+        std::printf("[coop] Net: network simulator on (%s)%s\n", describe(c).c_str(),
                     c.any_addr ? "" : " (loopback peers only)");
     }
     if (const char* f = std::getenv("BB_NET_SIM_OUTAGE_FILE"); f && f[0]) outage_file_watch(f);
@@ -487,7 +487,7 @@ void reconfigure_for_tests(const Config& c) {
     s.cfg = c;
     s.epoch = Clock::now();
     s.queue->set_epoch(s.epoch);
-    std::printf("Net: network simulator reconfigured (%s)\n", describe(c).c_str());
+    std::printf("[coop] Net: network simulator reconfigured (%s)\n", describe(c).c_str());
 }
 
 Config config() {

@@ -42,7 +42,7 @@ bool LuaEventsInit() {
                                      0x48, 0x81, 0xec, 0xd8, 0x05, 0x00, 0x00, 0x49, 0x89, 0xf4, 0x48, 0x89, 0xfb}) &&
            Matches(0x13398a1, {0x4c, 0x8d, 0x35, 0x20, 0x18, 0x20, 0x04});
     if (!g_ok) {
-        std::printf("Party: Lua events: guest +0x%llx is not LuaEvent_DispatchByName; events off\n",
+        std::printf("[coop] Party: Lua events: guest +0x%llx is not LuaEvent_DispatchByName; events off\n",
                     static_cast<unsigned long long>(kDispatchByName));
     }
     return g_ok;

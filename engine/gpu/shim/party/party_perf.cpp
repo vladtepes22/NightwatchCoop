@@ -145,7 +145,7 @@ void ReportSections(double secs) {
         if (!calls || double(ns) / 1e6 < 0.5 * secs) {
             continue; // under 0.05 ms per second of game time: not interesting
         }
-        std::printf("Party perf:   section %-48.48s total %8.2f ms, %7llu calls, avg %8.2f us, max %8.2f us\n", s.name,
+        std::printf("[coop] Party perf:   section %-48.48s total %8.2f ms, %7llu calls, avg %8.2f us, max %8.2f us\n", s.name,
                     double(ns) / 1e6, static_cast<unsigned long long>(calls), double(ns) / 1e3 / double(calls),
                     double(mx) / 1e3);
     }
@@ -154,7 +154,7 @@ void ReportSections(double secs) {
 void Report(double secs) {
     Taken fi;
     fi.From(g_frame_interval);
-    std::printf("Party perf: %.1f s, %llu frames on the coop tick (frame time p50 %.2f ms, p99 %.2f ms, max %.2f ms; "
+    std::printf("[coop] Party perf: %.1f s, %llu frames on the coop tick (frame time p50 %.2f ms, p99 %.2f ms, max %.2f ms; "
                 ">2 ms party work in %llu frames)\n",
                 secs, static_cast<unsigned long long>(fi.n), fi.Quantile(0.5) / 1e6, fi.Quantile(0.99) / 1e6,
                 double(fi.max) / 1e6, static_cast<unsigned long long>(g_z[0].frame.over2ms.load()));
@@ -168,7 +168,7 @@ void Report(double secs) {
         if (!c.n) {
             continue;
         }
-        std::printf("Party perf:   %-21s per frame p50 %7.4f p99 %7.4f max %7.3f ms (%llu > 0.2 ms, %llu > 2 ms) | "
+        std::printf("[coop] Party perf:   %-21s per frame p50 %7.4f p99 %7.4f max %7.3f ms (%llu > 0.2 ms, %llu > 2 ms) | "
                     "%8llu calls (max %llu/frame, %llu off the tick thread) p50 %7.2f p99 %8.2f max %9.2f us, "
                     "total %.2f ms\n",
                     kNames[z], f.Quantile(0.5) / 1e6, f.Quantile(0.99) / 1e6, double(f.max) / 1e6,
@@ -226,7 +226,7 @@ bool Init() {
             g_period_s = std::atoi(p);
         }
         g_on = true;
-        std::printf("Party perf: on (BB_PARTY_PERF=1), report every %d s\n", g_period_s);
+        std::printf("[coop] Party perf: on (BB_PARTY_PERF=1), report every %d s\n", g_period_s);
         std::fflush(stdout);
         std::thread(ReporterMain).detach();
     });

@@ -64,7 +64,7 @@ __attribute__((noinline)) BB_COOP_SYSV void DropOfflineHook(u64 mgr, int msg) {
         fp = next;
     }
     chain[n] = 0;
-    std::printf("Party online: the FROM client drops offline: msg 0x%x (%s) from +0x%llx, API 0x%x, result 0x%llx; "
+    std::printf("[coop] Party online: the FROM client drops offline: msg 0x%x (%s) from +0x%llx, API 0x%x, result 0x%llx; "
                 "callers%s\n",
                 msg, Why(ret_off, msg), static_cast<unsigned long long>(ret_off), api,
                 static_cast<unsigned long long>(result), chain);

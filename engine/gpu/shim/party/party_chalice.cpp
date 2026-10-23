@@ -116,7 +116,7 @@ const char* PartyGlyph(std::uint32_t max_length) {
     if (!seen || now - seen > 20000) {
         return nullptr;
     }
-    std::printf("Party: chalice: the altar's glyph box gets the party dungeon's glyph %s\n", g_party_glyph);
+    std::printf("[coop] Party: chalice: the altar's glyph box gets the party dungeon's glyph %s\n", g_party_glyph);
     std::fflush(stdout);
     g_altar_auto.store(true, std::memory_order_release);
     return g_party_glyph;
@@ -154,7 +154,7 @@ BB_COOP_SYSV void SummonMessageProbe(u64, u64, u64 wrapper, u64, u64, u64) {
             std::snprintf(hex + i * 2, 3, "%02x", head[i]);
         }
     }
-    std::printf("Party: chalice: summon message type %u, host map 0x%08x, ChannelId 0x%llx, room data %u bytes (head %s)\n",
+    std::printf("[coop] Party: chalice: summon message type %u, host map 0x%08x, ChannelId 0x%llx, room data %u bytes (head %s)\n",
                 type, map, static_cast<unsigned long long>(channel), size, hex);
     // A summon into a dungeon: the handler takes the ChannelId only with FrpgNetMan +0xb14 bit 0
     // (the chalice wait, SpEffect 9900). Without it the quick join is skipped and the guest loads
@@ -166,7 +166,7 @@ BB_COOP_SYSV void SummonMessageProbe(u64, u64, u64 wrapper, u64, u64, u64) {
         SafeGet(net + 0xb14, &wait) && !(wait & 1)) {
         const std::uint8_t set = static_cast<std::uint8_t>(wait | 1);
         SafeWrite(net + 0xb14, &set, 1);
-        std::printf("Party: chalice: chalice wait bit (FrpgNetMan +0xb14 bit 0) was clear: set for this summon's quick join\n");
+        std::printf("[coop] Party: chalice: chalice wait bit (FrpgNetMan +0xb14 bit 0) was clear: set for this summon's quick join\n");
     }
     std::fflush(stdout);
 }
@@ -215,7 +215,7 @@ void LogHelperStep(const char* what, u64 helper) {
     if (ch) SafeGet(ch + 0x10, &id);
     std::uint32_t bits = 0;
     ReadEventFlagValue(9020, 7, &bits);
-    std::printf("Party: chalice: helper %s: slot %u (current slots 0x%x), state %u, busy %u, channel object %s (id 0x%llx)\n",
+    std::printf("[coop] Party: chalice: helper %s: slot %u (current slots 0x%x), state %u, busy %u, channel object %s (id 0x%llx)\n",
                 what, slot, bits, state, busy, ch ? "set" : "none", static_cast<unsigned long long>(id));
     std::fflush(stdout);
 }
@@ -232,7 +232,7 @@ BB_COOP_SYSV void QuickJoinRequestProbe(u64 helper, u64 channel_at, u64, u64, u6
         SafeGet(net + 0x9f8, &b9f8);
         SafeGet(net + 0xa50, &ba50);
     }
-    std::printf("Party: chalice: quick join request for 0x%llx (net online %u, 9f6 %u, 9f8 %u, a50 %u)\n",
+    std::printf("[coop] Party: chalice: quick join request for 0x%llx (net online %u, 9f6 %u, 9f8 %u, a50 %u)\n",
                 static_cast<unsigned long long>(want), on, b9f6, b9f8, ba50);
     LogHelperStep("quick join request", helper);
 }
@@ -286,7 +286,7 @@ BB_COOP_SYSV void SetLoadModeHook(u64 man, u64 mode) {
         // An own-world load: a quick join that never reached load mode 1 (a failed join) no longer
         // redirects the map load (the member's own dungeon within the 180 s would load the host's).
         if (joined > 0 && JoinedSlot(man) >= 0) {
-            std::printf("Party: chalice: load mode 0: the quick join of %.0f s ago never loaded; its slot no longer read\n",
+            std::printf("[coop] Party: chalice: load mode 0: the quick join of %.0f s ago never loaded; its slot no longer read\n",
                         Seconds() - joined);
             std::fflush(stdout);
         }
@@ -299,7 +299,7 @@ BB_COOP_SYSV void SetLoadModeHook(u64 man, u64 mode) {
     }
     g_quick_join_at.store(0);
     if ((rec[3] & 0xff000000u) != 0x1d000000u) {
-        std::printf("Party: chalice: load mode 1: slot %d's record holds no dungeon (map 0x%08x): not carried\n", from, rec[3]);
+        std::printf("[coop] Party: chalice: load mode 1: slot %d's record holds no dungeon (map 0x%08x): not carried\n", from, rec[3]);
         std::fflush(stdout);
         return;
     }
@@ -310,7 +310,7 @@ BB_COOP_SYSV void SetLoadModeHook(u64 man, u64 mode) {
     const std::uint32_t after = get(man, RecordBase(from) + 96, 32);
     const std::uint64_t channel = ChannelFromDwords(rec[1], rec[2]);
     g_carried.store(channel);
-    std::printf("Party: chalice: load mode 1: slot %d's record (dungeon %llu, map 0x%08x) carried over%s (map read 0x%08x -> 0x%08x)\n",
+    std::printf("[coop] Party: chalice: load mode 1: slot %d's record (dungeon %llu, map 0x%08x) carried over%s (map read 0x%08x -> 0x%08x)\n",
                 from, static_cast<unsigned long long>(channel), rec[3],
                 slot >= 0 && slot != from ? (", the map loads read it, not the current slot " + std::to_string(slot) + "'s").c_str() : "",
                 before, after);
@@ -325,7 +325,7 @@ BB_COOP_SYSV std::uint32_t MapLoadSlotBits(u64 man, std::uint32_t flag, std::uin
     if (joined < 0 || SlotFromBits(own) == joined) {
         return own;
     }
-    std::printf("Party: chalice: map load: the quick-joined slot %d's dungeon, not the current slot %d's\n", joined,
+    std::printf("[coop] Party: chalice: map load: the quick-joined slot %d's dungeon, not the current slot %d's\n", joined,
                 SlotFromBits(own));
     std::fflush(stdout);
     return InDungeonSlotBits(own, joined);
@@ -353,11 +353,11 @@ BB_COOP_SYSV std::uint32_t InDungeonSlotHook(u64 man, std::uint32_t flag, std::u
     const int key = out != own ? joined : -1;
     if (g_in_dungeon_logged.exchange(key) != key) {
         if (key >= 0) {
-            std::printf("Party: chalice: in the host's dungeon: the game's current dungeon (FrpgNetMan +0xa88) is the "
+            std::printf("[coop] Party: chalice: in the host's dungeon: the game's current dungeon (FrpgNetMan +0xa88) is the "
                         "quick-joined slot %d's (dungeon %llu), not the own slot %d's\n",
                         joined, static_cast<unsigned long long>(g_carried.load()), SlotFromBits(own));
         } else {
-            std::printf("Party: chalice: the game's current dungeon is the own current slot %d's\n", SlotFromBits(own));
+            std::printf("[coop] Party: chalice: the game's current dungeon is the own current slot %d's\n", SlotFromBits(own));
         }
         std::fflush(stdout);
     }
@@ -538,7 +538,7 @@ void Tick(bool host) {
             // Compared with the carried host's dungeon only in a dungeon (area 29): elsewhere the
             // game leaves +0xa88 as the last map load set it.
             const std::uint64_t carried = (g.map_id >> 24) == 29 ? g_carried.load() : 0;
-            std::printf("Party: chalice: FrpgNetMan ChannelId 0x%llx (%llu)%s\n", static_cast<unsigned long long>(ch),
+            std::printf("[coop] Party: chalice: FrpgNetMan ChannelId 0x%llx (%llu)%s\n", static_cast<unsigned long long>(ch),
                         static_cast<unsigned long long>(ch),
                         carried && ch == carried ? ", the host's dungeon" : carried ? ", NOT the host's dungeon" : "");
             std::fflush(stdout);
@@ -568,7 +568,7 @@ void Tick(bool host) {
                         "Enter the Chalice Dungeon " + member + " made (glyph " + c.glyph + ") with the party.");
                 g_party_dungeon.store(true, std::memory_order_release);
             }
-            std::printf("Party: chalice: party dungeon at the altar: %s\n",
+            std::printf("[coop] Party: chalice: party dungeon at the altar: %s\n",
                         any ? (std::to_string(c.id) + " by " + member + ", glyph " + c.glyph).c_str() : "none");
             std::fflush(stdout);
         }
@@ -588,7 +588,7 @@ void Tick(bool host) {
                 std::lock_guard<std::mutex> lk(g_mu);
                 g_form_pending = "{" + std::string("\"id\":\"") + std::to_string(s.channel) + "\",\"form\":\"" + b64 + "\"}";
                 if (sent_for != s.channel) {
-                    std::printf("Party: chalice: dungeon %llu: FormData of slot %d (%zu bytes) for the host's board\n",
+                    std::printf("[coop] Party: chalice: dungeon %llu: FormData of slot %d (%zu bytes) for the host's board\n",
                                 static_cast<unsigned long long>(s.channel), s.slot, fd.size());
                     std::fflush(stdout);
                 }
@@ -621,7 +621,7 @@ void Tick(bool host) {
                 const std::string b64 = fd.empty() ? "" : bbnet::party::b64_encode(fd.data(), fd.size());
                 if (!b64.empty() && board.form_data(s.channel).empty()) {
                     const bool ok = board.set_form_data(s.channel, b64);
-                    std::printf("Party: chalice: dungeon %llu: FormData from slot %d's record (%zu bytes) %s\n",
+                    std::printf("[coop] Party: chalice: dungeon %llu: FormData from slot %d's record (%zu bytes) %s\n",
                                 static_cast<unsigned long long>(s.channel), s.slot, fd.size(),
                                 ok ? "on the board" : "NOT taken");
                     std::fflush(stdout);
@@ -642,7 +642,7 @@ void Tick(bool host) {
         std::lock_guard<std::mutex> lk(g_mu);
         if (own != g_host_goods || now - g_host_sent_at >= 60.0) {
             if (own != g_host_goods) {
-                std::printf("Party: chalice: the %s owns %zu chalice(s)\n", host ? "host" : "guest", own.size());
+                std::printf("[coop] Party: chalice: the %s owns %zu chalice(s)\n", host ? "host" : "guest", own.size());
                 std::fflush(stdout);
             }
             g_host_goods = own;
@@ -664,7 +664,7 @@ void Tick(bool host) {
         for (std::uint32_t id : want) {
             if (IsChaliceGoods(id) && GoodsCount(id) == 0) {
                 const bool ok = GiveGoods(id, 1);
-                std::printf("Party: chalice: a party member's chalice %u %s\n", id, ok ? "given" : "NOT given");
+                std::printf("[coop] Party: chalice: a party member's chalice %u %s\n", id, ok ? "given" : "NOT given");
                 std::fflush(stdout);
             }
         }
@@ -704,15 +704,15 @@ void Tick(bool host) {
             }
             if (now_seen != last_seen) {
                 last_seen = now_seen;
-                std::printf("Party: chalice: summon requests:%s\n", now_seen.empty() ? " none" : now_seen.c_str());
+                std::printf("[coop] Party: chalice: summon requests:%s\n", now_seen.empty() ? " none" : now_seen.c_str());
                 std::fflush(stdout);
             }
         }
     }
     if (s.slot != last.slot || s.channel != last.channel || s.load_mode != last.load_mode) {
-        std::printf("Party: chalice: slot %d, dungeon %llu, load mode %d (map %s)\n", s.slot,
+        std::printf("[coop] Party: chalice: slot %d, dungeon %llu, load mode %d (map %s)\n", s.slot,
                     static_cast<unsigned long long>(s.channel), s.load_mode, MapName(g.map_id).c_str());
-        std::printf("Party: chalice: slot %d helper: %s\n", s.slot, HelperDump(s.slot).c_str());
+        std::printf("[coop] Party: chalice: slot %d helper: %s\n", s.slot, HelperDump(s.slot).c_str());
         std::fflush(stdout);
         last = s;
     }
@@ -745,7 +745,7 @@ void OnGuestForm(int slot, const std::string& member, const std::string& body) {
     if (!json::parse(body, v, err) || v.type != json::Value::Type::Object || !(id = v.find("id")) ||
         id->type != json::Value::Type::String || !(form = v.find("form")) || form->type != json::Value::Type::String ||
         form->string.size() > 4096) {
-        std::printf("Party: chalice: FormData event from slot %d refused (malformed)\n", slot);
+        std::printf("[coop] Party: chalice: FormData event from slot %d refused (malformed)\n", slot);
         std::fflush(stdout);
         return;
     }
@@ -770,7 +770,7 @@ void OnGuestForm(int slot, const std::string& member, const std::string& body) {
     const std::string line = std::to_string(channel) + "/" + member + "/" + what;
     if (line != last) {
         last = line;
-        std::printf("Party: chalice: dungeon %llu of %s (slot %d): FormData %s\n", static_cast<unsigned long long>(channel),
+        std::printf("[coop] Party: chalice: dungeon %llu of %s (slot %d): FormData %s\n", static_cast<unsigned long long>(channel),
                     member.c_str(), slot, what);
         std::fflush(stdout);
     }

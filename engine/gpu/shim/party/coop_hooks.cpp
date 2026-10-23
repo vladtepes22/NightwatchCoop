@@ -215,13 +215,13 @@ bool WriteBranch(u64 off, u8 opcode, u64 stub, std::size_t pad) {
 
 bool Ready(const char* name) {
     if (!g_image) {
-        std::printf("Coop hooks: %s: no image; not installed\n", name);
+        std::printf("[coop] Coop hooks: %s: no image; not installed\n", name);
         return false;
     }
     if (!g_stub_page) {
         g_stub_page = MapNear(kStubPageSize);
         if (!g_stub_page) {
-            std::printf("Coop hooks: %s: no memory near the image for stubs; not installed\n", name);
+            std::printf("[coop] Coop hooks: %s: no memory near the image for stubs; not installed\n", name);
             return false;
         }
         StubWritable(false);
@@ -231,12 +231,12 @@ bool Ready(const char* name) {
 
 bool PrologueOk(u64 off, std::initializer_list<u8> prologue, const char* name) {
     if (prologue.size() < 5 || prologue.size() > 32) {
-        std::printf("Coop hooks: %s: a %zu-byte prologue cannot be relocated; not installed\n", name,
+        std::printf("[coop] Coop hooks: %s: a %zu-byte prologue cannot be relocated; not installed\n", name,
                     prologue.size());
         return false;
     }
     if (!Matches(off, prologue)) {
-        std::printf("Coop hooks: %s: guest +0x%llx is not the expected code (another game version or a patch); "
+        std::printf("[coop] Coop hooks: %s: guest +0x%llx is not the expected code (another game version or a patch); "
                     "not installed\n",
                     name, ull(off));
         return false;
@@ -362,12 +362,12 @@ bool HookPrologue(u64 off, std::initializer_list<u8> prologue, PreHandler handle
     e.JmpTo(reinterpret_cast<u64>(g_image) + off + prologue.size());
     const u64 stub = PlaceStub(e);
     if (!stub || !WriteBranch(off, 0xe9, stub, prologue.size() - 5)) {
-        std::printf("Coop hooks: %s: the stub at guest +0x%llx could not be placed; not installed\n", name, ull(off));
+        std::printf("[coop] Coop hooks: %s: the stub at guest +0x%llx could not be placed; not installed\n", name, ull(off));
         return false;
     }
     NoteReplaced(off, prologue);
     NoteInstalled(off, name);
-    std::printf("Coop hooks: %s: entry hook at guest +0x%llx\n", name, ull(off));
+    std::printf("[coop] Coop hooks: %s: entry hook at guest +0x%llx\n", name, ull(off));
     return true;
 }
 
@@ -385,19 +385,19 @@ bool ReplacePrologue(u64 off, std::initializer_list<u8> prologue, const void* ha
     j.JmpAbs(handler);
     const u64 jump = PlaceStub(j);
     if (!trampoline || !jump) {
-        std::printf("Coop hooks: %s: stub memory is full; not installed\n", name);
+        std::printf("[coop] Coop hooks: %s: stub memory is full; not installed\n", name);
         return false;
     }
     if (original) {
         *original = reinterpret_cast<void*>(trampoline);
     }
     if (!WriteBranch(off, 0xe9, jump, prologue.size() - 5)) {
-        std::printf("Coop hooks: %s: guest +0x%llx out of reach; not installed\n", name, ull(off));
+        std::printf("[coop] Coop hooks: %s: guest +0x%llx out of reach; not installed\n", name, ull(off));
         return false;
     }
     NoteReplaced(off, prologue);
     NoteInstalled(off, name);
-    std::printf("Coop hooks: %s: replaced guest +0x%llx\n", name, ull(off));
+    std::printf("[coop] Coop hooks: %s: replaced guest +0x%llx\n", name, ull(off));
     return true;
 }
 
@@ -407,18 +407,18 @@ bool HookCallSite(u64 off, u64 target, const void* handler, const char* name) {
         return false;
     }
     if (!CallsTo(off, target)) {
-        std::printf("Coop hooks: %s: guest +0x%llx is not a call to +0x%llx; not installed\n", name, ull(off),
+        std::printf("[coop] Coop hooks: %s: guest +0x%llx is not a call to +0x%llx; not installed\n", name, ull(off),
                     ull(target));
         return false;
     }
     Emitter e = NewStub();
     e.JmpAbs(handler);
     if (!WriteBranch(off, 0xe8, PlaceStub(e), 0)) {
-        std::printf("Coop hooks: %s: the stub for guest +0x%llx could not be placed; not installed\n", name, ull(off));
+        std::printf("[coop] Coop hooks: %s: the stub for guest +0x%llx could not be placed; not installed\n", name, ull(off));
         return false;
     }
     NoteInstalled(off, name);
-    std::printf("Coop hooks: %s: call site guest +0x%llx -> handler\n", name, ull(off));
+    std::printf("[coop] Coop hooks: %s: call site guest +0x%llx -> handler\n", name, ull(off));
     return true;
 }
 
@@ -434,18 +434,18 @@ bool HookTailJump(u64 off, u64 target, const void* handler, const char* name) {
         jumps = off + 5 + std::int64_t(rel) == target;
     }
     if (!jumps) {
-        std::printf("Coop hooks: %s: guest +0x%llx is not a jmp to +0x%llx; not installed\n", name, ull(off),
+        std::printf("[coop] Coop hooks: %s: guest +0x%llx is not a jmp to +0x%llx; not installed\n", name, ull(off),
                     ull(target));
         return false;
     }
     Emitter e = NewStub();
     e.JmpAbs(handler);
     if (!WriteBranch(off, 0xe9, PlaceStub(e), 0)) {
-        std::printf("Coop hooks: %s: the stub for guest +0x%llx could not be placed; not installed\n", name, ull(off));
+        std::printf("[coop] Coop hooks: %s: the stub for guest +0x%llx could not be placed; not installed\n", name, ull(off));
         return false;
     }
     NoteInstalled(off, name);
-    std::printf("Coop hooks: %s: tail jump guest +0x%llx -> handler\n", name, ull(off));
+    std::printf("[coop] Coop hooks: %s: tail jump guest +0x%llx -> handler\n", name, ull(off));
     return true;
 }
 
@@ -456,7 +456,7 @@ bool HookValueFilter(u64 off, std::initializer_list<u8> original, std::initializ
         return false;
     }
     if (!fn || resume >= g_image_size) {
-        std::printf("Coop hooks: %s: no filter or a bad resume offset; not installed\n", name);
+        std::printf("[coop] Coop hooks: %s: no filter or a bad resume offset; not installed\n", name);
         return false;
     }
     Emitter e = NewStub();
@@ -470,28 +470,28 @@ bool HookValueFilter(u64 off, std::initializer_list<u8> original, std::initializ
     e.BackRedZone();
     e.JmpTo(reinterpret_cast<u64>(g_image + resume));
     if (!WriteBranch(off, 0xe9, PlaceStub(e), original.size() - 5)) {
-        std::printf("Coop hooks: %s: the stub for guest +0x%llx could not be placed; not installed\n", name, ull(off));
+        std::printf("[coop] Coop hooks: %s: the stub for guest +0x%llx could not be placed; not installed\n", name, ull(off));
         return false;
     }
     NoteInstalled(off, name);
-    std::printf("Coop hooks: %s: value filter at guest +0x%llx (resume +0x%llx)\n", name, ull(off), ull(resume));
+    std::printf("[coop] Coop hooks: %s: value filter at guest +0x%llx (resume +0x%llx)\n", name, ull(off), ull(resume));
     return true;
 }
 
 bool PatchBytes(u64 off, std::initializer_list<u8> original, std::initializer_list<u8> patched, const char* name) {
     std::lock_guard<std::mutex> lk(g_mu);
     if (!g_image || original.size() != patched.size() || !patched.size()) {
-        std::printf("Coop hooks: %s: no image or bad patch; not written\n", name);
+        std::printf("[coop] Coop hooks: %s: no image or bad patch; not written\n", name);
         return false;
     }
     const std::size_t n = patched.size();
     if (Matches(off, patched.begin(), n)) {
         NoteInstalled(off, name);
-        std::printf("Coop hooks: %s: guest +0x%llx already patched\n", name, ull(off));
+        std::printf("[coop] Coop hooks: %s: guest +0x%llx already patched\n", name, ull(off));
         return true;
     }
     if (!Matches(off, original.begin(), n)) {
-        std::printf("Coop hooks: %s: guest +0x%llx is not the expected code (another game version or a patch); "
+        std::printf("[coop] Coop hooks: %s: guest +0x%llx is not the expected code (another game version or a patch); "
                     "not written\n",
                     name, ull(off));
         return false;
@@ -499,7 +499,7 @@ bool PatchBytes(u64 off, std::initializer_list<u8> original, std::initializer_li
 #ifdef _WIN32
     DWORD old = 0;
     if (!VirtualProtect(g_image + off, n, PAGE_EXECUTE_READWRITE, &old)) {
-        std::printf("Coop hooks: %s: guest +0x%llx not writable; not written\n", name, ull(off));
+        std::printf("[coop] Coop hooks: %s: guest +0x%llx not writable; not written\n", name, ull(off));
         return false;
     }
     std::memcpy(g_image + off, patched.begin(), n);
@@ -510,7 +510,7 @@ bool PatchBytes(u64 off, std::initializer_list<u8> original, std::initializer_li
     std::memcpy(g_image + off, patched.begin(), n);
 #endif
     NoteInstalled(off, name);
-    std::printf("Coop hooks: %s: patched %zu bytes at guest +0x%llx\n", name, n, ull(off));
+    std::printf("[coop] Coop hooks: %s: patched %zu bytes at guest +0x%llx\n", name, n, ull(off));
     return true;
 }
 

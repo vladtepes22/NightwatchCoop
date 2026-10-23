@@ -5,6 +5,15 @@ What to turn on so a co-op bug can be followed on every PC, and what to send. Co
 `gpu/shim/party/party_log_game.{h,cpp}` (snapshots, area events, link trace),
 `scripts/support_bundle.py` (the zip; `tests/test_support_bundle.py`).
 
+## Log line prefix (0.7.5)
+
+Every line the co-op code writes to the game log starts with `[coop] ` (then the family, e.g.
+`[coop] Party B2: ...`, `[coop] Net: ...`, `[coop] Party progress: ...`; the harness's `[+ 12.345]` time
+comes before it). The base port's lines (GPU, Boot, Runtime, Patches, Overlay) have none. The prefix is added in
+one place for the party's queued log (`coop::asyncio::Print`, `party_async_io.cpp`) and written by hand at the
+few direct `printf` sites (`Coop hooks`, `Party chalice`, `Net`, ...). Line examples elsewhere in these docs are
+shown without it; tools match both forms (`(?:\[coop\] )?Party: `). Logs from before 0.7.5 have no prefix.
+
 ## For players
 
 1. Launcher → *Advanced / Debug* → *Party logging*: **Verbose** on every PC (the same level

@@ -11,6 +11,9 @@
 
 namespace coop::asyncio {
 
+/// Start of every co-op log line (Print adds it; direct printf sites write it themselves).
+inline const std::string kLogPrefix = "[coop] ";
+
 /// Replaces `path` with `data` the way the callers did on the main thread: writes `path`.tmp, then
 /// removes `path` and renames the .tmp over it. A later Replace of the same path while this one
 /// still waits supersedes it.

@@ -47,7 +47,7 @@ GAVE_RX = re.compile(r"\bgave #\d+ lot (\d+)\b")
 SKIP_RX = re.compile(r"\bskip #\d+ lot (\d+)\b.*already given")
 AWARD_RX = re.compile(r"\baward lot (\d+) \(hostOnly (\d), flag (-?\d+)\)")
 JOIN_RX = re.compile(r"cooperators (-?\d+) -> (-?\d+)")
-BOOT_RX = re.compile(r"\bBoot: launching\b|^\[\+ *[\d.]+\] (?:Party: )?(?:\[[^\]]*\] )?boot\b|BB_PARTY_RESTART|restart \d+ of \d+")
+BOOT_RX = re.compile(r"\bBoot: launching\b|^\[\+ *[\d.]+\] (?:\[coop\] )?(?:Party: )?(?:\[[^\]]*\] )?boot\b|BB_PARTY_RESTART|restart \d+ of \d+")
 ECHO_RX = re.compile(r"\bEchoes (\d+)\b")
 DEATH_RX = re.compile(r"\bdied\b|\bdeath\b|\bdown\b|bloodstain", re.I)
 

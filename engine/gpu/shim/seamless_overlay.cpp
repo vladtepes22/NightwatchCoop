@@ -213,7 +213,7 @@ void PartyHudDiag() {
         static std::int64_t next_log = 0;
         if (const std::int64_t now = SteadyMs(); now >= next_log) {
             next_log = now + 5000;
-            std::printf("Party HUD: overlay: party %d, setting %d, shown %d, menu/loading %d, camera %d, fps %d\n",
+            std::printf("[coop] Party HUD: overlay: party %d, setting %d, shown %d, menu/loading %d, camera %d, fps %d\n",
                         int(party::status::Enabled()), int(BbSettings::Get().party_hud.load()),
                         int(party::hud::Shown()), int(BbFrameState::IsMenuOrLoading()),
                         int(BbCamera::Latest().valid), int(BbSettings::Get().show_fps.load()));
@@ -226,7 +226,7 @@ void PartyHudDiag() {
                 float u = -1, v = -1, depth = -1;
                 const bool in_front = c.have_pos &&
                                       party::hud::Project(cam.view.data(), cam.proj.data(), head, &u, &v, &depth);
-                std::printf("Party HUD: overlay: %s %s u %.2f v %.2f depth %.1f\n", c.name,
+                std::printf("[coop] Party HUD: overlay: %s %s u %.2f v %.2f depth %.1f\n", c.name,
                             in_front ? "in front" : "behind", u, v, depth);
             }
         }
@@ -368,8 +368,8 @@ void PartyHud() {
             const int slot = c.slot >= 0 && c.slot < party::kMaxVitals ? c.slot : 0;
             if (std::strncmp(last_why[slot], why, sizeof last_why[slot]) != 0) {
                 std::snprintf(last_why[slot], sizeof last_why[slot], "%s", why);
-                if (why[0]) std::printf("Party HUD: tag %s hidden: %s\n", c.name, why);
-                else std::printf("Party HUD: tag %s shown\n", c.name);
+                if (why[0]) std::printf("[coop] Party HUD: tag %s hidden: %s\n", c.name, why);
+                else std::printf("[coop] Party HUD: tag %s shown\n", c.name);
             }
         }
         if (!show) {
@@ -404,7 +404,7 @@ void PartyHud() {
             static bool behind_logged[party::kMaxVitals];
             if (behind_logged[slot] != (cover <= 0.0f)) {
                 behind_logged[slot] = cover <= 0.0f;
-                std::printf("Party HUD: tag %s %s (its box x %.0f..%.0f depth %.1f, ours x %.0f..%.0f depth %.1f)\n",
+                std::printf("[coop] Party HUD: tag %s %s (its box x %.0f..%.0f depth %.1f, ours x %.0f..%.0f depth %.1f)\n",
                             c.name,
                             cover <= 0.0f ? "hidden: behind this player's own character" : "out from behind this player",
                             member_box.x0, member_box.x1, member_box.depth, me_box.x0, me_box.x1, me_box.depth);
@@ -419,7 +419,7 @@ void PartyHud() {
             static std::int64_t last_log[party::kMaxVitals] = {};
             if (taglog && (every_frame || party::hud::NowMs() - last_log[slot] >= 1000)) {
                 last_log[slot] = party::hud::NowMs();
-                std::printf("Party HUD: tagdiag %s d=%.2f depth=%.2f x=%.1f y=%.1f display=%.0fx%.0f t=%lld "
+                std::printf("[coop] Party HUD: tagdiag %s d=%.2f depth=%.2f x=%.1f y=%.1f display=%.0fx%.0f t=%lld "
                             "chr=(%.3f %.3f %.3f) %s board=(%.3f %.3f %.3f) cam_age=%lld cover_alpha=%.2f "
                             "box=(%.0f..%.0f, %.0f..%.0f) own=(%.0f..%.0f, %.0f..%.0f)\n",
                             c.name, d, sp.depth, sp.x, sp.y, display.x, display.y,
@@ -477,7 +477,7 @@ void PartyHud() {
             const float cap = g ? g->Y1 - g->Y0 : 0.0f;  // cap height in px at ImGui size 100
             ImGui::PopFont();
             size_per_em = cap > 1.0f ? 100.0f * party::hud::kPlateCapToFont / cap : 1.0f;
-            std::printf("Party HUD: plate font size per em %.3f\n", size_per_em);
+            std::printf("[coop] Party HUD: plate font size per em %.3f\n", size_per_em);
         }
         ImGui::PushFont(game_font, pl.font * size_per_em);
         const float ascent = ImGui::GetFontBaked()->Ascent;

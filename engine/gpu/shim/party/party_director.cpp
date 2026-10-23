@@ -44,6 +44,7 @@
 #include "seamless_rules.h"
 #include "test_newgame.h"
 #include "../bbport_game_menu.h"
+#include "party_heapwatch.h"
 #include "party_online.h"
 #include "party_perf.h"
 #include "party_watchdog.h"
@@ -4286,6 +4287,7 @@ void PartyDirector::Tick() {
     }
     ++st.ticks;
     BbBootWatchState::Tick(); // BB_BOOT_WATCHDOG: the main loop moves
+    HeapWatchTick();          // BB_HEAP_WATCH_LOG: live bytes per call site in a game heap
     // The cheap reads every frame; the game's cooperator count twice a second.
     const bool full = Seconds(st.last_full, now) >= 0.5;
     if (full) {

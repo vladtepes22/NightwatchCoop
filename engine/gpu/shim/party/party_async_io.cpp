@@ -131,6 +131,8 @@ void Print(std::string text) {
     if (LineTagger tag = g_tagger.load(std::memory_order_relaxed)) {
         text = tag(text);
     }
+    // Every co-op line starts with kLogPrefix, so forks and readers tell it from the base port's lines.
+    if (text.compare(0, kLogPrefix.size(), kLogPrefix) != 0) text.insert(0, kLogPrefix);
     Job j;
     j.print = true;
     j.data = std::make_shared<std::string>(std::move(text));

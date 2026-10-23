@@ -68,13 +68,13 @@ Settings* load_settings() {
     if (const char* port = env("BB_PARTY_PORT")) {
         const long v = std::strtol(port, nullptr, 10);
         if (v > 0 && v < 65536) s->party_port = static_cast<std::uint16_t>(v);
-        else std::printf("Net: BB_PARTY_PORT '%s' is not a port; using %u\n", port, s->party_port);
+        else std::printf("[coop] Net: BB_PARTY_PORT '%s' is not a port; using %u\n", port, s->party_port);
     }
     const char* name = env("BB_PARTY_NAME");
     if (name && valid_party_name(name)) {
         s->online_id = name;
     } else {
-        if (name) std::printf("Net: BB_PARTY_NAME '%s' is not 1-16 of [A-Za-z0-9_-]; using the user name\n", name);
+        if (name) std::printf("[coop] Net: BB_PARTY_NAME '%s' is not 1-16 of [A-Za-z0-9_-]; using the user name\n", name);
         s->online_id = online_id_from_user_name(env("BB_USER_NAME") ? env("BB_USER_NAME") : "Hunter");
     }
     if (const char* cb = env("BB_NP_STATE_CB")) s->np_state_callback = cb[0] != '0';
@@ -82,11 +82,11 @@ Settings* load_settings() {
         netsim::Config sim;
         std::string error;
         if (!netsim::parse(env("BB_NET_SIM"), &sim, &error)) {
-            std::printf("Net: BB_NET_SIM ignored: %s\n", error.c_str());
+            std::printf("[coop] Net: BB_NET_SIM ignored: %s\n", error.c_str());
         } else {
             netsim::configure(sim);
         }
-        std::printf("Net: party networking on (%s, as %s, port %u)\n", s->host ? "host" : "guest", s->online_id.c_str(),
+        std::printf("[coop] Net: party networking on (%s, as %s, port %u)\n", s->host ? "host" : "guest", s->online_id.c_str(),
                     s->party_port);
     }
     return s;
@@ -179,7 +179,7 @@ void log(const char* fmt, ...) {
     va_start(ap, fmt);
     std::vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    std::printf("Net: %s\n", buf);
+    std::printf("[coop] Net: %s\n", buf);
     std::fflush(stdout);
 }
 

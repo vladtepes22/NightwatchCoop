@@ -1319,13 +1319,13 @@ void Install(unsigned char* image, std::uint64_t size) {
     g.opt = ParseOptions(env);
     if (g.opt.mode == Mode::Off) return;
     if (PartyRequested()) {
-        std::printf("World warper: off: party mode is on (the warper runs solo only)\n");
+        std::printf("[coop] World warper: off: party mode is on (the warper runs solo only)\n");
         return;
     }
     if (!HooksInit(image, size)) return;
     if (!MatchesOriginal(kLampWarp, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x53}) ||
         !MatchesOriginal(kForceDead, {0x55, 0x48, 0x89, 0xe5})) {
-        std::printf("World warper: NOT installed: the code differs from 1.09\n");
+        std::printf("[coop] World warper: NOT installed: the code differs from 1.09\n");
         return;
     }
     if (const char* p = std::getenv("BB_WORLD_WARPER_STATE"); p && p[0]) {
@@ -1352,7 +1352,7 @@ void Install(unsigned char* image, std::uint64_t size) {
     g.on = true;
     g_active = true;
     SetStatus("World warper\nStarting...\n");
-    std::printf("World warper: on (%s; actions %s, enemies %s, gear %s, cutscenes %s, time of day %s, chalice %s; "
+    std::printf("[coop] World warper: on (%s; actions %s, enemies %s, gear %s, cutscenes %s, time of day %s, chalice %s; "
                 "progress file %s)\n", env, g.opt.act ? "on" : "off", g.opt.enemies ? "on" : "off",
                 g.opt.gear ? "on" : "off", g.opt.remo ? "on" : "off", g.opt.tod ? "on" : "off",
                 g.opt.chalice ? "on" : "off",

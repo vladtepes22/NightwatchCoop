@@ -78,7 +78,7 @@ def sample(a):
             time.sleep(a.every)
 
 
-PERF = re.compile(r"^(?:\[\+ *([\d.]+)\] )?Party perf: ([\d.]+) s, (\d+) frames on the coop tick \(frame time p50 "
+PERF = re.compile(r"^(?:\[\+ *([\d.]+)\] )?(?:\[coop\] )?Party perf: ([\d.]+) s, (\d+) frames on the coop tick \(frame time p50 "
                   r"([\d.]+) ms, p99 ([\d.]+) ms, max ([\d.]+) ms")
 
 

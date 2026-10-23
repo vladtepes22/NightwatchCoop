@@ -549,7 +549,7 @@ void Log(const char* fmt, ...) {
     va_start(ap, fmt);
     std::vsnprintf(line, sizeof line, fmt, ap);
     va_end(ap);
-    std::printf("Party guest services: %s\n", line);
+    std::printf("[coop] Party guest services: %s\n", line);
     std::fflush(stdout);
 }
 

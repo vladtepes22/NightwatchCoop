@@ -813,7 +813,7 @@ void TestTick(const GameSnapshot& s, double now) {
 
 void Install(unsigned char* image, std::uint64_t size) {
     if (!SwitchOn(std::getenv("BB_LAMP_TRAVEL"))) {
-        std::printf("Lamp travel: off (BB_LAMP_TRAVEL=0): lamps only return to the Hunter's Dream\n");
+        std::printf("[coop] Lamp travel: off (BB_LAMP_TRAVEL=0): lamps only return to the Hunter's Dream\n");
         return;
     }
     if (!HooksInit(image, size)) return;

@@ -251,7 +251,7 @@ void PlateTunePoll() {
     PlateParams p;
     const int keys = ParsePlateTune(buf, &p);
     g_tune = p;
-    std::printf("Party HUD: tune file read (%d keys)\n", keys);
+    std::printf("[coop] Party HUD: tune file read (%d keys)\n", keys);
 }
 
 float TagTextTop(float anchor_y, float text_h, bool with_bar, float bar_h, float gap) {

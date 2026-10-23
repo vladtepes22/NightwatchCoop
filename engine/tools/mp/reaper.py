@@ -16,7 +16,7 @@ from game_queue import _alive, _locked, _prune, QUEUE_FILE  # noqa: E402
 
 g_QUEUE_DIR = QUEUE_FILE.parent
 
-PARTY = re.compile(r"^(?:\[\+ *[\d.]+\] )?(Party|Net): ")
+PARTY = re.compile(r"^(?:\[\+ *[\d.]+\] )?(?:\[coop\] )?(Party|Net): ")
 NUM = re.compile(r"0x[0-9a-fA-F]+|\d[\d.:]*")
 
 
@@ -44,8 +44,8 @@ def all_in_world(root: Path) -> bool:
             text = log.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return False
-        worlds = re.findall(r"^(?:\[\+ *[\d.]+\] )?Party: (?:\[[^\]]*\] )?(world up|world down)\b", text, re.M)
-        loads = re.findall(r"^(?:\[\+ *[\d.]+\] )?Party: (?:\[[^\]]*\] )?loading screen (up|gone)\b", text, re.M)
+        worlds = re.findall(r"^(?:\[\+ *[\d.]+\] )?(?:\[coop\] )?Party: (?:\[[^\]]*\] )?(world up|world down)\b", text, re.M)
+        loads = re.findall(r"^(?:\[\+ *[\d.]+\] )?(?:\[coop\] )?Party: (?:\[[^\]]*\] )?loading screen (up|gone)\b", text, re.M)
         if not worlds or worlds[-1] != "world up" or (loads and loads[-1] == "up"):
             return False
     return True
