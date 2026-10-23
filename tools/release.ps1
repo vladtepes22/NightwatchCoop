@@ -49,7 +49,9 @@ if ($dirty.Count) { $problems.Add("uncommitted changes: $($dirty[0]) (+$($dirty.
 
 # Tag not used yet, locally or on the remote.
 if (git -C $repo tag -l $tag) { $problems.Add("tag $tag already exists locally") }
-if (git -C $repo ls-remote --tags $remote "refs/tags/$tag") { $problems.Add("tag $tag already exists on $remote") }
+$remoteTag = git -C $repo ls-remote --tags $remote "refs/tags/$tag"
+if ($LASTEXITCODE -ne 0) { $problems.Add("cannot reach $remote to check its tags") }
+elseif ($remoteTag) { $problems.Add("tag $tag already exists on $remote") }
 
 # README names this release's zip.
 if (-not (Select-String -LiteralPath (Join-Path $repo 'README.md') -SimpleMatch "NightwatchCoop-$tag-win64.zip" -Quiet)) {
