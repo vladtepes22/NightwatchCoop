@@ -35,6 +35,23 @@ namespace BloodborneLauncher.Core
         /// <summary>This package can make maps (an older or custom package has no generator).</summary>
         public static bool Supported => File.Exists(Generator) && File.Exists(Baker) && File.Exists(Parchment);
 
+        /// <summary>The player turned the in-game map on (launcher Display › Map; off by default).</summary>
+        public static bool Enabled(LauncherSettings s) => Supported && s.Bool("map_enabled");
+
+        /// <summary>The Display page's switch: on makes the maps (when missing), off stops making them;
+        /// the game gets or loses its map at its next start.</summary>
+        public static void SetEnabled(LauncherSettings s, bool on)
+        {
+            s.Set("map_enabled", on);
+            if (on)
+            {
+                Start(s);
+                return;
+            }
+            Stop();
+            Set(Phase.Off, 0, "");
+        }
+
         /// <summary>One set for all player profiles: the maps are the game's, not a player's.</summary>
         public static string Root(LauncherSettings s) => Path.Combine(GameEnvironment.SavesRoot(s), "maps");
         private static string Atlas(LauncherSettings s) => Path.Combine(Root(s), "atlas");
@@ -52,7 +69,7 @@ namespace BloodborneLauncher.Core
         /// <summary>The engine's map variables: the folder the maps go to, also before they are there.</summary>
         public static void AddEnvironment(LauncherSettings s, IDictionary<string, string> env)
         {
-            if (!Supported || GameEnvironment.GameDir(s).Length == 0) return;
+            if (!Enabled(s) || GameEnvironment.GameDir(s).Length == 0) return;
             env["BB_MAP_DIR"] = Baked(s);
             env["BB_MAP_PARCHMENT"] = Parchment;
         }
@@ -60,7 +77,7 @@ namespace BloodborneLauncher.Core
         /// <summary>Starts making the maps when they are missing (game folder checked good first).</summary>
         public static void Start(LauncherSettings s)
         {
-            if (!Supported || _task is { IsCompleted: false }) return;
+            if (!Enabled(s) || _task is { IsCompleted: false }) return;
             if (IsReady(s))
             {
                 Set(Phase.Ready, 100, "");
@@ -146,6 +163,7 @@ namespace BloodborneLauncher.Core
             }
             catch (Exception e)
             {
+                if (State == Phase.Off) return;  // turned off while it was making them
                 if (Error.Length == 0) Error = e.Message;
                 Set(Phase.Failed, 0, "");
                 ws.Log(L.T("Map: the maps could not be made: ") + Error, LogLevel.Warn);

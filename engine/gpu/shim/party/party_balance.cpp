@@ -1299,6 +1299,29 @@ void ChrDumpTick(const GameSnapshot& s) {
     for (const std::string& l : lines) Log("chr dump: %s", l.c_str());
 }
 
+std::vector<int> PresentEntities() {
+    std::vector<int> out;
+    const u64 wcm = Slot(kSlotWorldChrMan);
+    if (!wcm) return out;
+    const int sets = std::min(Field<int>(Field<u64>(wcm, 8), 0x18, -2) + 2, kMaxSets);
+    for (int set = 0; set < sets; ++set) {
+        const u64 tab = Field<u64>(wcm, 0x850 + u64(set) * 8);
+        const int count = Field<int>(tab, 0, 0);
+        const u64 entries = Field<u64>(tab, 8);
+        if (!tab || !entries || count <= 0 || count > kMaxPerSet) continue;
+        for (int i = 0; i < count; ++i) {
+            const u64 chr = Field<u64>(entries + u64(i) * 0x38, 0);
+            if (!chr || IsPlayer(wcm, chr)) continue;
+            const int entity = Field<int>(chr, 0x1f0, -1);
+            const int hp = Field<int>(Field<u64>(Field<u64>(chr, 0x3b0), 0x20), 0xf8, -1);
+            const bool off = (Field<u8>(Field<u64>(chr, 0x18), 0x20) & 1) || (Field<std::uint16_t>(Field<u64>(chr, 0x58), 0x114) & 0x40);
+            if (entity > 0 && hp > 0 && !off) out.push_back(entity);
+        }
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
 // ---- NPC presence mirror (party_npc_mirror.h) ----
 bool ChrOff(u64 chr) {
     return (Field<u8>(Field<u64>(chr, 0x18), 0x20) & 1) || (Field<std::uint16_t>(Field<u64>(chr, 0x58), 0x114) & 0x40);

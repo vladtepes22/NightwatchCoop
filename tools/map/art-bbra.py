@@ -1,9 +1,10 @@
-"""The map's parchment texture for the engine: a PNG to BBRA ("BBRA", u32 LE width and height, RGBA).
+"""The map's pictures for the engine: a PNG to BBRA ("BBRA", u32 LE width and height, RGBA).
 
-The in-game map (engine/gpu/shim/map/map_vector.cpp) reads BBRA, so the engine needs no PNG
-decoder. The picture is Hunter's Atlas's source/art/parchment.png (GPL-2.0-or-later).
+The in-game map (engine/gpu/shim/map/map_vector.cpp, map_art.cpp) reads BBRA, so the engine needs
+no PNG decoder. The pictures in art/ (parchment, icons, background) are Hunter's Atlas's
+source/art (GPL-2.0-or-later).
 
-    python parchment-bbra.py <parchment.png> <out.bbra>
+    python art-bbra.py <picture.png> <out.bbra>
 """
 import struct
 import sys
@@ -31,4 +32,4 @@ if __name__ == "__main__":
     if len(sys.argv) != 3:
         sys.exit(__doc__)
     width, height = convert(Path(sys.argv[1]), Path(sys.argv[2]))
-    print(f"parchment: {width}x{height} -> {sys.argv[2]}")
+    print(f"{Path(sys.argv[1]).name}: {width}x{height} -> {sys.argv[2]}")

@@ -1,5 +1,5 @@
 # Builds the package's map-generator folder: Hunter's Atlas's map generator (tools\map\generator,
-# GPL-2.0-or-later) frozen with PyInstaller, the map's parchment texture, and the notices and source
+# GPL-2.0-or-later) frozen with PyInstaller, the map's pictures, and the notices and source
 # the frozen libraries need beside them. package-seamless.ps1 -MapGenerator <this output> ships it;
 # the launcher runs it once on each player's PC (Core\MapPrep.cs). No game file goes in.
 #   tools\map\build-generator.ps1 -Python <venv>\Scripts\python.exe
@@ -24,9 +24,12 @@ $exe = Join-Path $Destination 'generate_atlas_lite.exe'
 & $exe --self-test-imports | Out-Null
 if ($LASTEXITCODE) { throw "The frozen generator's import self-test failed ($LASTEXITCODE)" }
 
-# 2. The parchment the map is drawn on (Hunter's Atlas's art), as the engine reads it.
-& $Python (Join-Path $here 'parchment-bbra.py') (Join-Path $here 'art\parchment.png') (Join-Path $Destination 'parchment.bbra')
-if ($LASTEXITCODE) { throw "parchment-bbra.py failed ($LASTEXITCODE)" }
+# 2. The map's pictures (Hunter's Atlas's art: the parchment it is drawn on, its icons and its
+#    frame), as the engine reads them; the engine finds them beside parchment.bbra.
+foreach ($picture in 'parchment', 'icons', 'background') {
+    & $Python (Join-Path $here 'art-bbra.py') (Join-Path $here "art\$picture.png") (Join-Path $Destination "$picture.bbra")
+    if ($LASTEXITCODE) { throw "art-bbra.py failed for $picture ($LASTEXITCODE)" }
+}
 
 # 3. Notices: every bundled library's licence, and Soulstruct's source (GPL-3.0-or-later; its exact
 #    PyPI source distribution, checked against the receipt's hash).

@@ -1760,5 +1760,18 @@
   "Map: the maps could not be made: ": "地图：无法制作地图：",
   "{0} stopped with code {1}. {2}": "{0} 已停止，代码 {1}。{2}",
   "Heads up: the map is still being made ({0}%). Play on: the game shows a note and turns the map on by itself when it is ready, no restart needed.": "提示：地图仍在制作中（{0}%）。可以继续游玩：准备好后游戏会显示提示并自动开启地图，无需重启。",
-  "The map is still being made ({0}%). Closing the launcher stops it; it starts over the next time. Close anyway?": "地图仍在制作中（{0}%）。关闭启动器会停止制作，下次启动时重新开始。仍要关闭吗？"
+  "The map is still being made ({0}%). Closing the launcher stops it; it starts over the next time. Close anyway?": "地图仍在制作中（{0}%）。关闭启动器会停止制作，下次启动时重新开始。仍要关闭吗？",
+  "Pickups on the map": "地图上的可拾取物品",
+  "Items still lying in the world, as coloured dots. Collected ones disappear; enemy drops and hidden items are not shown": "以彩色圆点显示世界中尚未拾取的物品。拾取后消失；敌人掉落物和隐藏物品不显示",
+  "Blood Vials (red)": "采血瓶（红色）",
+  "Insight items (purple)": "启蒙物品（紫色）",
+  "Weapons and attire (blue)": "武器和服装（蓝色）",
+  "Coldblood (gold)": "冷血（金色）",
+  "Boss reveal": "击败首领后显示",
+  "An area's map stays hidden until its boss is dead (lamps you have lit always show)": "区域地图在其首领被击败前保持隐藏（已点亮的提灯始终显示）",
+  "NPC conversation sites": "NPC 对话地点",
+  "New dialogue only covers a few early conversations so far (Gilbert, Eileen's first ones)": "“仅新对话”目前只涵盖少数早期对话（吉尔伯特、艾琳的最初对话）",
+  "New dialogue only": "仅新对话",
+  "In-game map": "游戏内地图",
+  "Hold Options / Start or press M in the game. The first time, the launcher makes the map from your game files (a few minutes, in the background)": "在游戏中按住 Options / Start 或按 M。首次开启时，启动器会根据你的游戏文件制作地图（需要几分钟，在后台进行）"
 }

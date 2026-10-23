@@ -28,6 +28,8 @@ int Select(const std::string& region, float x, float y, float z, bool valid, boo
 /// The floor with the largest footprint; -1 while loading.
 int Primary(const std::string& region);
 int Floors(const std::string& region);
+/// A floor's height (its anchor, lowest and highest point); false while loading or invalid.
+bool FloorHeights(const std::string& region, int floor, float* anchor, float* low, float* high);
 /// -1: floors follow the player.
 void SetManualFloor(int floor);
 int ManualFloor();

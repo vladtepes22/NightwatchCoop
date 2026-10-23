@@ -658,6 +658,15 @@ int Floors(const std::string& region) {
     return Load(region) ? int(area->layers.size()) : 0;
 }
 
+bool FloorHeights(const std::string& region, int floor, float* anchor, float* low, float* high) {
+    if (!Load(region) || floor < 0 || floor >= int(area->layers.size())) return false;
+    const Layer& l = area->layers[floor];
+    *anchor = l.anchor;
+    *low = l.low;
+    *high = l.high;
+    return true;
+}
+
 void SetManualFloor(int floor) {
     manual = area && floor >= 0 && floor < int(area->layers.size()) ? floor : -1;
     previous = -1;

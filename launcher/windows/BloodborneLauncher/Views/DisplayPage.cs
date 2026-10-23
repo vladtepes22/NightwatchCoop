@@ -174,6 +174,37 @@ namespace BloodborneLauncher.Views
             }
 
 
+            // The in-game map's extras (bbport.ini map_*; also in game: Insert or L3 + R3 › Other), off
+            // unless chosen, as in Hunter's Atlas.
+            Group(L.T("Map"));
+            ToggleRow(SymbolRegular.Map24, L.T("In-game map"),
+                L.T("Hold Options / Start or press M in the game. The first time, the launcher makes the map from your game files (a few minutes, in the background)"),
+                () => S.Bool("map_enabled"), v => MapPrep.SetEnabled(S, v));
+            var pickupKinds = new StackPanel();
+            void ShowPickupKinds() => pickupKinds.Visibility = Ini.Flag("map_pickups") ? Visibility.Visible : Visibility.Collapsed;
+            IniToggle(SymbolRegular.Box24, L.T("Pickups on the map"),
+                L.T("Items still lying in the world, as coloured dots. Collected ones disappear; enemy drops and hidden items are not shown"),
+                "map_pickups", changed: ShowPickupKinds);
+            Body.Children.Add(pickupKinds);
+            foreach (var (key, title) in new[]
+                     {
+                         ("map_pickups_healing", L.T("Blood Vials (red)")),
+                         ("map_pickups_insight", L.T("Insight items (purple)")),
+                         ("map_pickups_equipment", L.T("Weapons and attire (blue)")),
+                         ("map_pickups_coldblood", L.T("Coldblood (gold)")),
+                     })
+            {
+                ToggleRow(SymbolRegular.Circle24, title, null, () => Ini.Get(key, "1") == "1", v => Ini.Set(key, v ? "1" : "0"), pickupKinds);
+                ((System.Windows.FrameworkElement)pickupKinds.Children[^1]).Margin = new System.Windows.Thickness(24, 0, 0, 0);
+            }
+            ShowPickupKinds();
+            IniToggle(SymbolRegular.EyeOff24, L.T("Boss reveal"),
+                L.T("An area's map stays hidden until its boss is dead (lamps you have lit always show)"), "map_boss_reveal");
+            ComboRow(SymbolRegular.ChatMultiple24, L.T("NPC conversation sites"),
+                L.T("New dialogue only covers a few early conversations so far (Gilbert, Eileen's first ones)"),
+                new Choice[] { new(L.T("All"), "all"), new(L.T("New dialogue only"), "new_dialogue"), new(L.T("None"), "none") },
+                () => Ini.Get("map_npcs", "all"), v => Ini.Set("map_npcs", v));
+
             Group("HDR");
             var hdrHint = WindowsHdr.AnyOn()
                 ? L.T("The game's picture on an HDR screen, with brighter highlights. Applied when the game starts")

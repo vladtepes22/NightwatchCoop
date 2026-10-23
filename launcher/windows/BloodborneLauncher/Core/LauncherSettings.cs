@@ -97,6 +97,7 @@ namespace BloodborneLauncher.Core
             ["dlss_preset"] = "k",
             ["legacy_shaders"] = false, // beta 9.8 made legacy the default; beta 4 the native one again (PerfDefaults)
             ["trophy_notifications"] = true,
+            ["map_enabled"] = false,  // the in-game map: the player turns it on (Display › Map)
             ["trophy_sound"] = true,
             ["trophy_volume"] = 70,
             ["trophy_position"] = "top-right",

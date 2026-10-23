@@ -17,6 +17,10 @@ if (args.Length == 4 && args[0] == "--map-prep")
     if (!MapPrep.Supported) throw new InvalidOperationException("No map generator in " + args[1]);
     var mapEnv = new Dictionary<string, string>();
     MapPrep.AddEnvironment(prep, mapEnv);
+    // Off by default: no map for the game, nothing made.
+    if (mapEnv.Count != 0) throw new InvalidOperationException("The map is on without the player turning it on");
+    prep.Set("map_enabled", true);
+    MapPrep.AddEnvironment(prep, mapEnv);
     Console.WriteLine($"BB_MAP_DIR={mapEnv["BB_MAP_DIR"]} (exists: {Directory.Exists(mapEnv["BB_MAP_DIR"])})");
     var last = "";
     MapPrep.Changed += () =>

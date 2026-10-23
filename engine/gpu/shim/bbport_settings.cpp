@@ -305,6 +305,20 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.fps_border = i != 0;
     } else if (key == "hide_cursor") {
         v.hide_cursor = i != 0;
+    } else if (key == "map_pickups") {
+        v.map_pickups = i != 0;
+    } else if (key == "map_pickups_healing") {
+        v.map_pickups_healing = i != 0;
+    } else if (key == "map_pickups_insight") {
+        v.map_pickups_insight = i != 0;
+    } else if (key == "map_pickups_equipment") {
+        v.map_pickups_equipment = i != 0;
+    } else if (key == "map_pickups_coldblood") {
+        v.map_pickups_coldblood = i != 0;
+    } else if (key == "map_boss_reveal") {
+        v.map_boss_reveal = i != 0;
+    } else if (key == "map_npcs") {
+        v.map_npcs = value == "new_dialogue" ? 1 : value == "none" ? 2 : 0;
     } else if (key == "menu_pos") {
         float x = -1.0f, y = -1.0f;
         if (std::sscanf(value.c_str(), "%f,%f", &x, &y) == 2 && x >= 0.0f && x <= 1.0f && y >= 0.0f &&
@@ -818,6 +832,13 @@ void Save() {
     put("fps_text_opacity", fixed(v.fps_text_opacity, 2));
     put("fps_border", flag(v.fps_border));
     put("hide_cursor", flag(v.hide_cursor));
+    put("map_pickups", flag(v.map_pickups));
+    put("map_pickups_healing", flag(v.map_pickups_healing));
+    put("map_pickups_insight", flag(v.map_pickups_insight));
+    put("map_pickups_equipment", flag(v.map_pickups_equipment));
+    put("map_pickups_coldblood", flag(v.map_pickups_coldblood));
+    put("map_boss_reveal", flag(v.map_boss_reveal));
+    put("map_npcs", v.map_npcs == 1 ? "new_dialogue" : v.map_npcs == 2 ? "none" : "all");
     put("fsr4_auto_exposure", flag(v.fsr4_auto_exposure));
     put("fsr4_invert_jitter", flag(v.fsr4_invert_jitter));
     put("dlss_preset", DlssPresetText(v.dlss_preset));

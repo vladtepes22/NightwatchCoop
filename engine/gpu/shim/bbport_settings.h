@@ -327,6 +327,14 @@ struct Values {
     std::atomic<float> fps_bg_opacity{0.5f};
     std::atomic<float> fps_text_opacity{1.0f};
     std::atomic<bool> fps_border{true};
+    /// The map's extras (map_* in bbport.ini; live; map/map_page.cpp), off as in Hunter's Atlas: the
+    /// pickups still lying there and which kinds, areas hidden until their boss is dead, and the NPC
+    /// conversation sites (MapNpcs: all, new dialogue only, none).
+    std::atomic<bool> map_pickups{false};
+    std::atomic<bool> map_pickups_healing{true}, map_pickups_insight{true}, map_pickups_equipment{true},
+        map_pickups_coldblood{true};
+    std::atomic<bool> map_boss_reveal{false};
+    std::atomic<int> map_npcs{0};
     /// The mouse cursor hidden over the game 2 s after the mouse last moved (window.cpp).
     std::atomic<bool> hide_cursor{true};
     /// The settings menu's position (fraction of the screen), -1 until it is moved.

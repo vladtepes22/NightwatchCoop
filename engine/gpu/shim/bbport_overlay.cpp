@@ -153,6 +153,11 @@ ImGuiKey KeyFromSdl(SDL_Keycode key) {
     case SDLK_RETURN: return ImGuiKey_Enter;
     case SDLK_KP_ENTER: return ImGuiKey_KeypadEnter;
     case SDLK_ESCAPE: return ImGuiKey_Escape;
+    case SDLK_MINUS: return ImGuiKey_Minus;
+    case SDLK_EQUALS: return ImGuiKey_Equal;
+    case SDLK_PLUS: return ImGuiKey_Equal;  // the + key of German and other layouts
+    case SDLK_KP_MINUS: return ImGuiKey_KeypadSubtract;
+    case SDLK_KP_PLUS: return ImGuiKey_KeypadAdd;
     case SDLK_LCTRL: return ImGuiKey_LeftCtrl;
     case SDLK_RCTRL: return ImGuiKey_RightCtrl;
     case SDLK_LSHIFT: return ImGuiKey_LeftShift;
@@ -1506,6 +1511,63 @@ void CheatsSection() {
     }
 }
 
+// The map's extras (map/map_page.cpp reads them live); only with the map on.
+void MapSection() {
+    if (!BbMapPage::Available()) {
+        return;
+    }
+    auto& s = BbSettings::Get();
+    Section("Map", "Карта");
+    if (const char* label = Item("Pickups on the map", "Предметы на карте")) {
+        Checkbox(label, s.map_pickups);
+        Hint(BbSettings::MenuText(
+            "Items still lying in the world, as coloured dots: red Blood Vials, purple Insight items, "
+            "blue weapons and attire, gold Coldblood. Collected ones disappear. Enemy drops and hidden "
+            "items are not shown.",
+            "Предметы, которые ещё лежат в мире, цветными точками: красные флаконы крови, фиолетовые "
+            "предметы озарения, синие оружие и одежда, золотые отголоски крови. Подобранные исчезают. "
+            "Добыча с врагов и скрытые предметы не показываются."));
+    }
+    if (s.map_pickups || Searching()) {
+        const struct {
+            const char *en, *ru;
+            std::atomic<bool>* value;
+        } kinds[] = {
+            {"Blood Vials", "Флаконы крови", &s.map_pickups_healing},
+            {"Insight items", "Предметы озарения", &s.map_pickups_insight},
+            {"Weapons and attire", "Оружие и одежда", &s.map_pickups_equipment},
+            {"Coldblood", "Отголоски крови", &s.map_pickups_coldblood},
+        };
+        for (const auto& [en, ru, value] : kinds) {
+            if (const char* label = Item(en, ru)) {
+                ImGui::Indent();
+                Checkbox(label, *value);
+                ImGui::Unindent();
+            }
+        }
+    }
+    if (const char* label = Item("Boss reveal", "Открытие после босса")) {
+        Checkbox(label, s.map_boss_reveal);
+        Hint(BbSettings::MenuText(
+            "An area's map stays hidden until its boss is dead (lamps you have lit always show).",
+            "Карта области скрыта, пока её босс жив (зажжённые фонари видны всегда)."));
+    }
+    if (const char* label = Item("NPC conversation sites", "Места разговоров с NPC")) {
+        const char* modes[] = {BbSettings::MenuText("All", "Все"),
+                               BbSettings::MenuText("New dialogue only", "Только новые разговоры"),
+                               BbSettings::MenuText("None", "Нет")};
+        int mode = std::clamp(s.map_npcs.load(), 0, 2);
+        if (ImGui::Combo(label, &mode, modes, 3)) {
+            Store(s.map_npcs, mode, true);
+        }
+        Hint(BbSettings::MenuText(
+            "New dialogue only covers a few early conversations so far (Gilbert, Eileen's first ones); the "
+            "others are hidden in that mode.",
+            "«Только новые» пока знает лишь несколько ранних разговоров (Гилберт, первые разговоры Эйлин); "
+            "остальные в этом режиме скрыты."));
+    }
+}
+
 void MouseSection();
 
 void FpsSection() {
@@ -1649,6 +1711,7 @@ void DrawTab(int tab) {
         break;
     default:
         FpsSection();
+        MapSection();
         break;
     }
     section_title = nullptr;
@@ -2021,25 +2084,6 @@ void FpsCounter() {
     ImGui::PopStyleColor(2);
 }
 
-// The map view: most of the screen, the map centred on the player (map/map_page.h).
-void MapView() {
-    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
-                                   viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
-                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.86f, viewport->WorkSize.y * 0.86f), ImGuiCond_Always);
-    ImGui::Begin("##mapview", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
-    if (ImGui::BeginChild("##mapcanvas", ImVec2(0.0f, -ImGui::GetTextLineHeightWithSpacing()))) {
-        BbMapPage::Draw(base_scale, true);
-    }
-    ImGui::EndChild();
-    ImGui::TextDisabled("%s", BbSettings::MenuText("Close: the map button again, Esc or Circle",
-                                                   "Закрыть: снова кнопка карты, Esc или Circle"));
-    ImGui::End();
-}
-
 void TextPrompt() {
     std::string title, text;
     {
@@ -2201,8 +2245,8 @@ bool HandleEvent(const SDL_Event& event) {
             SetOpen(event.key.key == SDLK_INSERT ? !is_open : false);
             return true;
         }
-        if (!is_open) {
-            return map_shown;
+        if (!is_open && !map_shown) {
+            return false;
         }
         io.AddKeyEvent(ImGuiMod_Ctrl, (event.key.mod & SDL_KMOD_CTRL) != 0);
         io.AddKeyEvent(ImGuiMod_Shift, (event.key.mod & SDL_KMOD_SHIFT) != 0);
@@ -2231,6 +2275,8 @@ bool HandleEvent(const SDL_Event& event) {
             if (down && (BbMapPage::OpensWithPad(button) || button == SDL_GAMEPAD_BUTTON_EAST ||
                          button == SDL_GAMEPAD_BUTTON_START)) {
                 map_open = false;
+            } else if (const ImGuiKey key = KeyFromGamepad(button); key != ImGuiKey_None) {
+                io.AddKeyEvent(key, down);  // its pan, zoom, lamps, floors, recentre, shading
             }
             return true;
         }
@@ -2252,6 +2298,21 @@ bool HandleEvent(const SDL_Event& event) {
             const float value = std::clamp(float(event.gaxis.value) / 32767.0f, 0.0f, 1.0f);
             io.AddKeyAnalogEvent(axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER ? ImGuiKey_GamepadL2 : ImGuiKey_GamepadR2,
                                  value > 0.5f, value);
+        } else if (map_shown) {
+            // The sticks: each direction its own analog key (the map reads them with a dead zone).
+            const float value = std::clamp(float(event.gaxis.value) / 32767.0f, -1.0f, 1.0f);
+            ImGuiKey negative = ImGuiKey_None, positive = ImGuiKey_None;
+            switch (axis) {
+            case SDL_GAMEPAD_AXIS_LEFTX: negative = ImGuiKey_GamepadLStickLeft; positive = ImGuiKey_GamepadLStickRight; break;
+            case SDL_GAMEPAD_AXIS_LEFTY: negative = ImGuiKey_GamepadLStickUp; positive = ImGuiKey_GamepadLStickDown; break;
+            case SDL_GAMEPAD_AXIS_RIGHTX: negative = ImGuiKey_GamepadRStickLeft; positive = ImGuiKey_GamepadRStickRight; break;
+            case SDL_GAMEPAD_AXIS_RIGHTY: negative = ImGuiKey_GamepadRStickUp; positive = ImGuiKey_GamepadRStickDown; break;
+            default: break;
+            }
+            if (negative != ImGuiKey_None) {
+                io.AddKeyAnalogEvent(negative, value < -0.18f, std::max(0.0f, -value));
+                io.AddKeyAnalogEvent(positive, value > 0.18f, std::max(0.0f, value));
+            }
         }
         return true;
     }
@@ -2363,8 +2424,13 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     if (!menu_open && CompileNoteActive()) {
         CompileNote();
     }
-    if (map_open && !menu_open) {
-        MapView();
+    // The map view: recentred each time it opens (whichever input opened it).
+    static bool map_was_shown = false;
+    const bool map_shown_now = map_open && !menu_open;
+    if (map_shown_now && !map_was_shown) BbMapPage::Opened();
+    map_was_shown = map_shown_now;
+    if (map_shown_now && !BbMapPage::DrawView()) {
+        map_open = false;  // its Back was clicked
     }
     if (const char* note = BbMapPage::NoteText(); note && !menu_open && !map_open) {
         MapNote(note);
