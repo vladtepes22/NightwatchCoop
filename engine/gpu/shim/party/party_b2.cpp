@@ -1920,10 +1920,11 @@ std::string SplitMemberName(int slot) {
     }
     return slot == party::kHostSlot ? "The host" : "";
 }
+double g_split_own_area_at = -1e9;  // when our own area last changed (SplitTick)
 void SplitNoticeAway(int slot, u32 map, double now) {
     g_split_told_away.insert(slot);
     if (!splitnotice::MayNotify(&g_split_notice_at[slot], now)) return;
-    const std::string text = splitnotice::WentOn(SplitMemberName(slot), map);
+    const std::string text = splitnotice::Apart(SplitMemberName(slot), map, now - g_split_own_area_at < splitnotice::kMoverWindowS);
     party::status::SetLastEvent(text);
     Log("split: notice: %s", text.c_str());
 }
@@ -1948,6 +1949,11 @@ void SplitTick(const GameSnapshot& s, double now) {
     const u32 mine = AreaOf(s.map_id);
     if (mine == 0) {
         return;  // our own map not known yet (right after a load)
+    }
+    static u32 last_own_area = 0;
+    if (last_own_area != mine) {
+        if (last_own_area != 0) g_split_own_area_at = now;
+        last_own_area = mine;
     }
     int apart = 0;
     bool meet = false;

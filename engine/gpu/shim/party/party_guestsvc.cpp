@@ -1339,6 +1339,24 @@ bool RunTestFixture(const GameSnapshot& s, int step) {
         float d[4] = {}, r[4] = {};
         SafeRead(doll + 0xc0, d, sizeof d);
         SafeRead(doll + 0xd0, r, sizeof r);
+        // +0xC0 / +0xD0 keep her MSB spot by the lamp; event 12100110 short-warps her to one of three
+        // stand spots each Dream load (2102301 lamp / 2102302 workshop / 2102303 lower garden), so the
+        // live spot is the physics one (+0x58 -> +8 -> +0x3B0 -> +0x68: +0x1E0 position, +0x1D0
+        // rotation). Release smoke full1 sj: she stood elsewhere, the guest talked to the empty lamp spot.
+        {
+            std::uint64_t ph = 0;
+            float pp[4] = {}, pr[4] = {};
+            if (SafeGet(doll + 0x58, &ph) && ph && SafeGet(ph + 8, &ph) && ph && SafeGet(ph + 0x3b0, &ph) && ph &&
+                SafeGet(ph + 0x68, &ph) && ph && SafeRead(ph + 0x1e0, pp, sizeof pp) && SafeRead(ph + 0x1d0, pr, sizeof pr) &&
+                (pp[0] != 0.0f || pp[2] != 0.0f)) {
+                if (std::fabs(pp[0] - d[0]) + std::fabs(pp[2] - d[2]) > 0.5f) {
+                    Log("test: the Doll was moved to her stand spot (%.2f, %.2f, %.2f) yaw %.3f (her MSB spot (%.2f, %.2f, %.2f))",
+                        pp[0], pp[1], pp[2], pr[1], d[0], d[1], d[2]);
+                }
+                std::memcpy(d, pp, sizeof d);
+                r[1] = pr[1];
+            }
+        }
         const float yaw = r[1];
         pos[0] = d[0] - 1.2f * std::sin(yaw);
         pos[1] = d[1];

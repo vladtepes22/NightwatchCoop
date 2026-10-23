@@ -5,8 +5,11 @@
 using namespace coop::splitnotice;
 int main() {
     assert(WentOn("Hunter1", 0x1b000000u) ==
-           "Hunter1 went on to the Forbidden Woods: you'll see them again when you follow.");
-    assert(WentOn("", 0x63000000u) == "A party member went on to another area: you'll see them again when you follow.");
+           "Hunter1 went on to the Forbidden Woods. You'll see them again while in the same area.");
+    assert(WentOn("", 0x63000000u) == "A party member went on to another area. You'll see them again while in the same area.");
+    assert(Apart("Hunter0", 0x18000000u, true) ==
+           "Hunter0 stayed behind in the Cathedral Ward. You'll see them again while in the same area.");
+    assert(Apart("Hunter1", 0x1b000000u, false) == WentOn("Hunter1", 0x1b000000u));
     assert(HereAgain("Hunter1") == "Hunter1 is here again.");
     assert(std::string(AreaNameOf(0x18000000u)) == "the Cathedral Ward");
     double last = 0;

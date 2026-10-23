@@ -32,7 +32,17 @@ inline const char* AreaNameOf(std::uint32_t map) {
 inline std::string WentOn(const std::string& name, std::uint32_t map) {
     const std::string who = name.empty() ? "A party member" : name;
     const std::string area = AreaNameOf(map)[0] ? AreaNameOf(map) : "another area";
-    return who + " went on to " + area + ": you'll see them again when you follow.";
+    return who + " went on to " + area + ". You'll see them again while in the same area.";
+}
+
+/// The member's chr is gone because WE changed map (`we_moved`: our own area changed within kMoverWindowS)
+/// - then it stayed behind - or because it did.
+constexpr double kMoverWindowS = 15.0;
+inline std::string Apart(const std::string& name, std::uint32_t map, bool we_moved) {
+    if (!we_moved) return WentOn(name, map);
+    const std::string who = name.empty() ? "A party member" : name;
+    const std::string area = AreaNameOf(map)[0] ? AreaNameOf(map) : "another area";
+    return who + " stayed behind in " + area + ". You'll see them again while in the same area.";
 }
 
 inline std::string HereAgain(const std::string& name) {
