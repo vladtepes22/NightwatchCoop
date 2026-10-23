@@ -92,7 +92,7 @@ Single-player uses your normal saves; co-op never touches them.
 
 ## The map
 
-Turn it on in the launcher: **Display › Map › In-game map** (off by default). The first time, the
+**Experimental.** Turn it on in the launcher: **Display › Map › In-game map (experimental)** (off by default). The first time, the
 launcher makes the maps from your own game files (a few minutes; the Play page shows the progress).
 You can play meanwhile: the map turns on in the game by itself when it is ready, no restart needed.
 
@@ -272,22 +272,19 @@ Write down what happened and when, then send `logs\last_session.log` from **ever
 
 | | |
 |---|---|
-| **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | not involved in this project: the launcher, the built-in game patches, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, fixes) |
-| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.4 |
+| **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | not involved in this project: the launcher, the built-in game patches, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, cheats, occlusion culling, trophies, fixes) |
+| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.4 and his later heap watch and log changes |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
-| VRAM cleanup and frame pacing | adapted from [IFreemz/shadPS4-Bloodborne-DLSS-FSR](https://github.com/IFreemz/shadPS4-Bloodborne-DLSS-FSR) |
-| Crash and controller fixes | adapted from [AwesomeObserver](https://github.com/AwesomeObserver/bloodborne_pc), [Supermedo](https://github.com/Supermedo/bloodborne_pc) and [deadinside28](https://github.com/deadinside28/bloodborne_pc) |
-| Cheats, online sign-in, occlusion culling and trophy research | [droogie/bbhost](https://github.com/droogie/bbhost) |
+| Renderer crash fixes | adapted from [AwesomeObserver](https://github.com/AwesomeObserver/bloodborne_pc) and [deadinside28](https://github.com/deadinside28/bloodborne_pc) |
+| Online backend (in the engine, not used: this build plays offline) | [droogie/bbhost](https://github.com/droogie/bbhost) |
 | FSR 3.1 and FSR 4 on Vulkan | [FireBurn/FSR-Vulkan](https://github.com/FireBurn/FSR-Vulkan) and the AMD FidelityFX SDK |
 | FSR 4.1.1 | [fsr4vk](https://github.com/dvj5411/fsr4vk), with the AMD driver fix from [0xCydral](https://github.com/0xCydral/bloodborne_pc) |
 | DLSS | NVIDIA DLSS SDK |
-| Game patches | Kyo, Lance McDonald, auser1337, illusion, emoose and other community members |
 | Sound | [LibAtrac9](https://github.com/Thealexbarney/LibAtrac9) |
 | In-game menu | [Dear ImGui](https://github.com/ocornut/imgui) |
 | Controller mappings | [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) |
-| Trophy list | [pyL1nx/bloodborne_pc](https://github.com/pyL1nx/bloodborne_pc) |
 | UI library | [WPF-UI](https://github.com/lepoco/wpfui) |
 | Playtesting | yorochi, Mal1216, Zarok, Banana U Pidžami and visy: thank you! |
 | Video | Zarok, for helping make the [YouTube video](https://www.youtube.com/watch?v=bYavrI0ca94) |
