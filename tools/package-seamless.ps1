@@ -15,7 +15,7 @@ param(
     [string]$Destination = '',
     [string]$Game = '',
     [string]$MsysRoot = 'C:\msys64',
-    [string]$Version = '0.2.3-beta.1',
+    [string]$Version = '',
     # tools\map\build-generator.ps1's output: the launcher makes the in-game map with it. Required
     # for a release; without it the package has no map.
     [string]$MapGenerator = '',
@@ -23,6 +23,8 @@ param(
     [switch]$Release
 )
 $ErrorActionPreference = 'Stop'
+# The release version: the repo's VERSION file unless -Version is given.
+if (-not $Version) { $Version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\VERSION') -Raw).Trim() }
 # JSON without a byte-order mark (Windows PowerShell's -Encoding utf8 writes one).
 function Write-Json($value, $path) { [IO.File]::WriteAllText($path, ($value | ConvertTo-Json), [Text.UTF8Encoding]::new($false)) }
 $engineId = "nightwatch-coop-$Version"

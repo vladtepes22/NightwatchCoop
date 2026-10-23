@@ -1,0 +1,8 @@
+# Known benign privacy-scan hits: pattern, TAB, file glob (package-relative, posix slashes).
+# Add a line only after checking the hit is our own text or third-party boilerplate.
+# onedrive: Windows API names in SDL/GLib DLLs, and our own OneDrive warning text and README advice.
+onedrive	engine/out/SDL3.dll
+onedrive	engine/out/libgio-2.0-0.dll
+onedrive	engine/out/libglib-2.0-0.dll
+onedrive	engine/out/bb-start.exe
+onedrive	README.md
