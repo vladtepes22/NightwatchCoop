@@ -1772,10 +1772,10 @@
   "NPC conversation sites": "NPC 对话地点",
   "New dialogue only covers a few early conversations so far (Gilbert, Eileen's first ones)": "“仅新对话”目前只涵盖少数早期对话（吉尔伯特、艾琳的最初对话）",
   "New dialogue only": "仅新对话",
-  "In-game map": "游戏内地图",
   "Hold Options / Start or press M in the game. The first time, the launcher makes the map from your game files (a few minutes, in the background)": "在游戏中按住 Options / Start 或按 M。首次开启时，启动器会根据你的游戏文件制作地图（需要几分钟，在后台进行）",
   "About": "关于",
   "Nightwatch Co-op is a modified version of Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine), ": "Nightwatch Co-op 是 Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine) 的修改版本，",
   "with visy's seamless co-op and its own changes. It is not an official Lantern Engine release, and Awaken is not involved in it. ": "加入了 visy 的无缝联机及自身的修改。它不是 Lantern Engine 的官方版本，Awaken 也未参与其中。",
-  "Free software under the GNU GPL v3 or later with additional terms: see NOTICE in the game's folder.": "以 GNU GPL v3 或更高版本及附加条款发布的自由软件：请参阅游戏文件夹中的 NOTICE。"
+  "Free software under the GNU GPL v3 or later with additional terms: see NOTICE in the game's folder.": "以 GNU GPL v3 或更高版本及附加条款发布的自由软件：请参阅游戏文件夹中的 NOTICE。",
+  "In-game map (experimental)": "游戏内地图（实验性）"
 }
