@@ -64,7 +64,6 @@ namespace BloodborneLauncher.Core
             ["ui_background_image"] = "",
             ["ui_background_blur"] = "strong", // strong | light | off
             ["app_icon"] = "auto", // auto only (AppIcon)
-            ["ui_window_buttons"] = "mac", // mac | windows
             ["fsr4_balanced"] = false,
             ["exp_vram_cleanup"] = true,
             // 0.9.37 beta 4: the dev setup, measured faster (PerfDefaults below switches older files once).

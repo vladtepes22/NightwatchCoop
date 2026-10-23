@@ -54,7 +54,6 @@ namespace BloodborneLauncher
                 WindowState = WindowState.Minimized;
             ApplyGlass();
             LauncherTheme.Apply(ws.Settings, glass: true);
-            ApplyWindowButtons();
             ApplyIcon();
 
             var version = typeof(MainWindow).Assembly.GetName().Version;
@@ -334,11 +333,6 @@ namespace BloodborneLauncher
             ApplyBackdrop();
         }
 
-        /// <summary>
-        /// The window buttons (Launcher › Appearance, live): macOS traffic lights or Windows caption
-        /// buttons, on their usual side (macOS left, Windows right) or the other. Close stays on the
-        /// outer edge; the title bar's own buttons move out of their way.
-        /// </summary>
         /// <summary>Launcher › App icon: this window's, and the game window's from its next start.</summary>
         public void ApplyIcon()
         {
@@ -346,49 +340,6 @@ namespace BloodborneLauncher
             AppIcon.Apply(this, choice);
             if (Paths.DetectPortDir() is { } package)
                 AppIcon.SyncGameWindow(package, choice);
-        }
-
-        public void ApplyWindowButtons()
-        {
-            var s = Workspace.Current.Settings;
-            var windows = s.Str("ui_window_buttons") == "windows";
-            var right = windows; // macOS's on the left, Windows' on the right
-            MacButtons.Visibility = windows ? Visibility.Collapsed : Visibility.Visible;
-            WinButtons.Visibility = windows ? Visibility.Visible : Visibility.Collapsed;
-
-            static void Order(System.Windows.Controls.Panel panel, params UIElement[] order)
-            {
-                panel.Children.Clear();
-                foreach (var child in order) panel.Children.Add(child);
-            }
-            var mac = MacButtons.Children.OfType<System.Windows.Controls.Button>().ToList();
-            var close = mac.First(b => (string)b.ToolTip == L.T("Close"));
-            var minimize = mac.First(b => (string)b.ToolTip == L.T("Minimize"));
-            var maximize = mac.First(b => (string)b.ToolTip == L.T("Maximize"));
-            if (right)
-            {
-                Order(MacButtons, minimize, maximize, close);
-                Order(WinButtons, WinMinimize, WinMaximize, WinClose);
-            }
-            else
-            {
-                Order(MacButtons, close, minimize, maximize);
-                Order(WinButtons, WinClose, WinMaximize, WinMinimize);
-            }
-            foreach (var b in MacButtons.Children.OfType<FrameworkElement>())
-                b.Margin = right ? new Thickness(8, 0, 0, 0) : new Thickness(0, 0, 8, 0);
-            MacButtons.HorizontalAlignment = right ? HorizontalAlignment.Right : HorizontalAlignment.Left;
-            MacButtons.Margin = right ? new Thickness(0, 0, 14, 0) : new Thickness(14, 0, 0, 0);
-            WinButtons.HorizontalAlignment = right ? HorizontalAlignment.Right : HorizontalAlignment.Left;
-            // The traffic lights take 3 x 20 px plus their margin; the caption buttons 3 x 46.
-            var taken = !right ? 0 : windows ? 3 * 46 : 14 + 3 * 20;
-            TitleTools.Margin = new Thickness(0, 0, 10 + taken, 0);
-            // The settings search on the left, after the buttons when they are on that side; a little
-            // narrower beside the wider caption buttons, so it stays clear of the centred title.
-            var left = right ? 12 : windows ? 3 * 46 + 10 : 14 + 3 * 20 + 4;
-            SearchArea.Margin = new Thickness(left, 0, 0, 0);
-            SearchArea.Width = !right && windows ? 168 : 200;
-            SearchResults.Margin = new Thickness(left, 2, 0, 0);
         }
 
         /// <summary>A wider resize border than FluentWindow's 4px, and the top strip handed back

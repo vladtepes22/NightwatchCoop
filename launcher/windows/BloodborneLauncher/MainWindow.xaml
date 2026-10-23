@@ -28,35 +28,7 @@
     -->
 
     <ui:FluentWindow.Resources>
-        <Style x:Key="TrafficLight" TargetType="Button">
-            <Setter Property="Width" Value="12" />
-            <Setter Property="Height" Value="12" />
-            <Setter Property="Margin" Value="0,0,8,0" />
-            <Setter Property="Focusable" Value="False" />
-            <Setter Property="Cursor" Value="Arrow" />
-            <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Grid>
-                            <Ellipse Fill="{TemplateBinding Background}" Stroke="#26000000" StrokeThickness="0.5" />
-                            <Path x:Name="Glyph" Data="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"
-                                  Stroke="#99000000" StrokeThickness="1.1" Stretch="None" Opacity="0" />
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=StackPanel}}" Value="True">
-                                <Setter TargetName="Glyph" Property="Opacity" Value="1" />
-                            </DataTrigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Opacity" Value="0.75" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Windows-style caption buttons (Launcher › Appearance › Window buttons). -->
+        <!-- Windows-style caption buttons. -->
         <Style x:Key="CaptionButton" TargetType="Button">
             <Setter Property="Width" Value="46" />
             <Setter Property="Focusable" Value="False" />
@@ -265,18 +237,8 @@
         <!-- ==================== Title bar ==================== -->
         <Border Grid.Row="0" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
             <Grid>
-                <StackPanel x:Name="MacButtons" Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Left"
-                            Background="Transparent" shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                    <Button Style="{StaticResource TrafficLight}" Background="#FFFF5F57" ToolTip="{loc:Tr &#x27;Close&#x27;}"
-                            Tag="M 3.5,3.5 L 8.5,8.5 M 8.5,3.5 L 3.5,8.5" Click="CloseWindow_Click" />
-                    <Button Style="{StaticResource TrafficLight}" Background="#FFFEBC2E" ToolTip="{loc:Tr &#x27;Minimize&#x27;}"
-                            Tag="M 3,6 L 9,6" Click="MinimizeWindow_Click" />
-                    <Button Style="{StaticResource TrafficLight}" Background="#FF28C840" ToolTip="{loc:Tr &#x27;Maximize&#x27;}"
-                            Tag="M 3,6 L 9,6 M 6,3 L 6,9" Click="MaximizeWindow_Click" />
-                </StackPanel>
-
                 <StackPanel x:Name="WinButtons" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,1"
-                            Visibility="Collapsed" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True">
                     <Button x:Name="WinMinimize" Style="{StaticResource CaptionButton}" ToolTip="{loc:Tr &#x27;Minimize&#x27;}"
                             Tag="M 0,0.5 L 10,0.5" Click="MinimizeWindow_Click" />
                     <Button x:Name="WinMaximize" Style="{StaticResource CaptionButton}" ToolTip="{loc:Tr &#x27;Maximize&#x27;}"
@@ -285,9 +247,8 @@
                             Tag="M 0,0 L 10,10 M 10,0 L 0,10" Click="CloseWindow_Click" />
                 </StackPanel>
 
-                <!-- Settings search (Ctrl+F): on the left, after the window buttons when they are there
-                     (ApplyWindowButtons places it); the results open under it. -->
-                <Grid x:Name="SearchArea" HorizontalAlignment="Left" VerticalAlignment="Center" Width="200"
+                <!-- Settings search (Ctrl+F): on the left; the results open under it. -->
+                <Grid x:Name="SearchArea" HorizontalAlignment="Left" VerticalAlignment="Center" Width="200" Margin="12,0,0,0"
                       shell:WindowChrome.IsHitTestVisibleInChrome="True">
                     <TextBox x:Name="SearchBox" Style="{StaticResource TitleSearch}"
                              TextChanged="SearchBox_TextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown"
@@ -301,7 +262,7 @@
                     <Run x:Name="TitlePage" Text="" Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                 </TextBlock>
 
-                <StackPanel x:Name="TitleTools" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0">
+                <StackPanel x:Name="TitleTools" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,148,0">
                     <Button x:Name="TitleUpdate" Style="{StaticResource TitleIcon}" Click="TitleUpdate_Click" Margin="0,0,6,0"
                             Visibility="Collapsed" BorderBrush="{DynamicResource GoodTextBrush}" BorderThickness="1"
                             ToolTip="{loc:Tr &#x27;A new launcher version is available&#x27;}">
@@ -439,7 +400,7 @@
         </Border>
 
         <!-- ==================== Settings search results (over everything, under the search box) ==================== -->
-        <Border x:Name="SearchResults" Grid.Row="1" Grid.RowSpan="3" HorizontalAlignment="Left" VerticalAlignment="Top"
+        <Border x:Name="SearchResults" Grid.Row="1" Grid.RowSpan="3" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12,2,0,0"
                 Width="420" Padding="4" CornerRadius="10" BorderThickness="1" Visibility="Collapsed" Panel.ZIndex="10"
                 Background="{DynamicResource DialogBackgroundBrush}" BorderBrush="{DynamicResource DialogStrokeBrush}">
             <!-- No drop shadow: an effect renders the results' text as a soft bitmap. -->

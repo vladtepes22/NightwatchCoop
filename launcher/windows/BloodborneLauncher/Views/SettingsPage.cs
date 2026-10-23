@@ -95,9 +95,6 @@ namespace BloodborneLauncher.Views
             SettingCombo(SymbolRegular.Blur24, L.T("Background blur"), null,
                 new[] { new Choice(L.T("Strong"), "strong"), new Choice(L.T("Light"), "light"), new Choice(L.T("Off"), "off") },
                 "ui_background_blur", changed: () => MainWindow.Instance?.ApplyBackdrop());
-            SettingCombo(SymbolRegular.Window24, L.T("Window buttons"), L.T("macOS: the red, yellow and green dots. Windows: – □ ✕"),
-                new[] { new Choice("macOS", "mac"), new Choice("Windows", "windows") },
-                "ui_window_buttons", changed: () => MainWindow.Instance?.ApplyWindowButtons());
             ShowAppearance();
 
             Group(L.T("Files"));
