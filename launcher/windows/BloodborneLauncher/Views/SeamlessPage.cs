@@ -47,7 +47,7 @@ public sealed class SeamlessPage : LauncherPage
         ToggleRow(SymbolRegular.Router24, "UPnP", "Map the host's port automatically.", () => SeamlessSettings.Flag(S, "party_upnp"), v => S.Set("party_upnp", v), Rows(Hosting));
         party = Rows(InParty);
         ToggleRow(SymbolRegular.Globe24, "DHT rendezvous", "Optional NAT traversal through the public BitTorrent DHT. Enable on every PC to use it.",
-            () => SeamlessSettings.Flag(S, "party_rendezvous", false), v => S.Set("party_rendezvous", v), party);
+            () => Ini.Get("party_rendezvous", "0") == "1", v => Ini.Set("party_rendezvous", v ? "1" : "0"), party);
         // Kept in bbport.ini like the game's System > Party network rows, so both show the same value.
         ToggleRow(SymbolRegular.People24, "Relay for party members", "A member that cannot reach the host joins through you (party members only, capped upload).",
             () => Ini.Get("party_member_relay", "1") == "1", v => Ini.Set("party_member_relay", v ? "1" : "0"), party);

@@ -31,8 +31,8 @@ public static partial class SeamlessSettings
         ("party_story_mirror", "Cutscenes for every player"),
     };
 
-    /// <summary>Carries an older launcher's choices for <see cref="GameSwitches"/> and the guest
-    /// Insight mode from settings.json into bbport.ini, once (only keys the ini doesn't have yet).
+    /// <summary>Carries an older launcher's choices for <see cref="GameSwitches"/>, the DHT rendezvous
+    /// and the guest Insight mode from settings.json into bbport.ini, once (only keys the ini doesn't have yet).
     /// True when something moved.</summary>
     public static bool MoveToIni(LauncherSettings s, IniFile ini)
     {
@@ -41,6 +41,12 @@ public static partial class SeamlessSettings
         {
             if (ini.Raw(key) != null || !s.All.Any(item => item.Key == key)) continue;
             ini.Set(key, s.Bool(key) ? "1" : "0");
+            moved = true;
+        }
+        // The DHT rendezvous (System > Party network "Find via public DHT"), off by default.
+        if (ini.Raw("party_rendezvous") == null && s.All.Any(item => item.Key == "party_rendezvous"))
+        {
+            ini.Set("party_rendezvous", s.Bool("party_rendezvous") ? "1" : "0");
             moved = true;
         }
         if (ini.Raw("party_guest_insight") == null && s.Str("party_guest_insight") is "full" or "0")
@@ -95,7 +101,6 @@ public static partial class SeamlessSettings
         env["BB_PARTY_PASSWORD"] = s.PartyPassword;
         env["BB_PARTY_MAX"] = s.Str("party_max") is "2" or "3" or "4" or "5" ? s.Str("party_max") : "3";
         env["BB_PARTY_UPNP"] = Flag(s, "party_upnp") ? "1" : "0";
-        env["BB_PARTY_RENDEZVOUS"] = Flag(s, "party_rendezvous", false) ? "1" : "0";
         env["BB_PARTY_STUN"] = s.Str("party_stun");
         env["BB_PARTY_PUBLIC_ADDR"] = s.Str("party_mode") == "host" ? s.Str("party_public_addr") : "";
         env["BB_PARTY_SAVE"] = "separate";

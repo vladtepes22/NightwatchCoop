@@ -26,16 +26,17 @@ Check(env["BB_ONLINE"] == "0" && env["BB_PARTY_SAVE"] == "separate", "Network ow
 Check(env["BB_UPSCALER"] == "dlss" && env["BB_HDR"] == "1" && env["BB_DRAW_AHEAD"] == "2", "Base renderer options changed");
 // The game's co-op switches come from bbport.ini (where the in-game menu changes them): a launcher
 // variable would undo an in-game change at the next start. Only the launcher's own switches go out.
-Check(!env.ContainsKey("BB_PARTY_ITEMS") && !env.ContainsKey("BB_PARTY_PROGRESS") && !env.ContainsKey("BB_PARTY_GUEST_INSIGHT")
+Check(!env.ContainsKey("BB_PARTY_ITEMS") && !env.ContainsKey("BB_PARTY_PROGRESS") && !env.ContainsKey("BB_PARTY_GUEST_INSIGHT") && !env.ContainsKey("BB_PARTY_RENDEZVOUS")
       && env["BB_PARTY_RESTART"] == "1", "The game's co-op switches were passed as variables, or the restart switch is missing");
 var moveSettings = new LauncherSettings();
 moveSettings.Set("party_items", false);
 moveSettings.Set("party_story", true);
 moveSettings.Set("party_guest_insight", "full");
+moveSettings.Set("party_rendezvous", true);
 var moveIni = new IniFile();
 moveIni.Set("party_story", "0");  // changed in the game already: kept
 Check(SeamlessSettings.MoveToIni(moveSettings, moveIni) && moveIni.Raw("party_items") == "0" && moveIni.Raw("party_story") == "0"
-      && moveIni.Raw("party_guest_insight") == "full" && moveIni.Raw("party_progress") == null,
+      && moveIni.Raw("party_guest_insight") == "full" && moveIni.Raw("party_rendezvous") == "1" && moveIni.Raw("party_progress") == null,
       "An older launcher's co-op switches did not move to bbport.ini as they were");
 Check(!SeamlessSettings.MoveToIni(moveSettings, moveIni), "The co-op switches moved to bbport.ini a second time");
 Check(env["BB_PARTY_AUTOCONTINUE"] == "0" && env["BB_PARTY_RESTARTED"] == "0", "Manual launch inherited automated Continue");
