@@ -85,11 +85,11 @@ namespace BloodborneLauncher
                 // --test-prompt <png>: a picture of a sample dialog over the launcher, drawn off-screen.
                 // --test-import: the import dialog with a long pasted code instead.
                 if (Prompt.SnapshotPath != null && Environment.GetCommandLineArgs().Contains("--test-import"))
-                    Dispatcher.BeginInvoke(() => Prompt.Ask(L.T("Import settings"), L.F($"Paste the code someone shared (it starts with {SharedSettings.CodePrefix})."),
+                    _ = Dispatcher.BeginInvoke(() => Prompt.Ask(L.T("Import settings"), L.F($"Paste the code someone shared (it starts with {SharedSettings.CodePrefix})."),
                             new Prompt.Field(L.T("Code"), SharedSettings.ToCode(SharedSettings.Take(ws.Ini, ws.Settings)), "", Multiline: true)),
                         System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                 else if (Prompt.SnapshotPath != null)
-                    Dispatcher.BeginInvoke(() => Prompt.Confirm(L.T("Change language"), L.T("Restart the launcher to apply the language."), L.T("Restart now")),
+                    _ = Dispatcher.BeginInvoke(() => Prompt.Confirm(L.T("Change language"), L.T("Restart the launcher to apply the language."), L.T("Restart now")),
                         System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                 ws.Log(Paths.IsPortDir(Paths.PortDir)
                         ? L.F($"Nightwatch Co-op ready. Engine: {Paths.PortDir}")

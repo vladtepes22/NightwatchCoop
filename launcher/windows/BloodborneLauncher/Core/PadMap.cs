@@ -71,7 +71,7 @@ namespace BloodborneLauncher.Core
             Split(ini.Raw(Key(input)) ?? Defaults[input]);
 
         /// <summary>The first (main) button of an input, "" when unbound.</summary>
-        public static string Main(IniFile ini, string input) => Get(ini, input).FirstOrDefault() ?? "";
+        public static string First(IniFile ini, string input) => Get(ini, input).FirstOrDefault() ?? "";
 
         public static bool IsDefault(IniFile ini, string input) =>
             Get(ini, input).SequenceEqual(Split(Defaults[input]));
@@ -82,7 +82,7 @@ namespace BloodborneLauncher.Core
         /// <summary>Puts <paramref name="button"/> on <paramref name="input"/>; the input that had it gets this one's old button.</summary>
         public static void Assign(IniFile ini, string input, string button)
         {
-            var old = Main(ini, input);
+            var old = First(ini, input);
             if (button.Length > 0)
                 foreach (var other in Inputs.Where(i => i != input && IsMenu(i) == IsMenu(input)))
                 {

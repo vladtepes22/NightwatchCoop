@@ -516,7 +516,7 @@ namespace BloodborneLauncher.Views
             }
             // A chip like the keyboard ones: click and press the button on the pad (a drop-down here
             // opened under the pointer and picked whatever the release landed on).
-            var current = PadMap.Main(Ini, input);
+            var current = PadMap.First(Ini, input);
             var menu = PadMap.IsMenu(input);
             var chip = new Wpf.Ui.Controls.Button
             {
