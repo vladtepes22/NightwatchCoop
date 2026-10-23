@@ -62,6 +62,9 @@ int main() {
         assert(Decide(e, 30, 2004, 2, true, true) == Act::foe_team && Decide(e, 30, 2004, 2, false, false) == Act::restore_team);
         assert(Decide(e, 0, 4, 3, true, true) == Act::none && Decide(e, 5, 2003, 22, true, true) == Act::none);
     }
+    // Eileen turned hostile by the host's attack (12400658 [11]: 2400900 team 27): a guest can hit her
+    assert(Decide(12400658, 11, 2004, 2, true, true) == Act::foe_team && TeamFor(Act::foe_team, kHostileTeam) == kGuestFoeTeam);
+    assert(Decide(12400590, 46, 2004, 2, true, true) == Act::foe_team);  // Alfred hostile at a load
     assert(!TeamEvent(12410811) && Decide(12410811, 3, 2004, 2, true, true) == Act::none);  // Eileen's ally (28)
     assert(Decide(12500053, 7, 2004, 8, true, true) == Act::none);                           // not a team switch
     // the relation: the host's body (19) and a phantom (20) both treat 23 as an enemy (pvp.md);
