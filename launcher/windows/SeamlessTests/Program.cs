@@ -5,6 +5,34 @@ if (args.Length == 2 && args[0] == "--render-ui")
     UiRender.Check(args[1]);
     return;
 }
+// --map-prep <package> <game> <user folder>: the launcher's map preparation (MapPrep) end to end
+// with a package's generator and baker, as on a tester's first start; no window, no game.
+if (args.Length == 4 && args[0] == "--map-prep")
+{
+    Paths.PortDir = args[1];
+    var prep = new LauncherSettings();
+    prep.Set("game_dir", args[2]);
+    prep.Set("user_dir", args[3]);
+    if (!MapPrep.Supported) throw new InvalidOperationException("No map generator in " + args[1]);
+    var mapEnv = new Dictionary<string, string>();
+    MapPrep.AddEnvironment(prep, mapEnv);
+    Console.WriteLine($"BB_MAP_DIR={mapEnv["BB_MAP_DIR"]} (exists: {Directory.Exists(mapEnv["BB_MAP_DIR"])})");
+    var last = "";
+    MapPrep.Changed += () =>
+    {
+        var line = $"{MapPrep.State} {MapPrep.Percent}% {MapPrep.Step}";
+        if (line != last) Console.WriteLine($"{DateTime.Now:HH:mm:ss} {line}");
+        last = line;
+    };
+    var watch = System.Diagnostics.Stopwatch.StartNew();
+    MapPrep.Start(prep);
+    while (MapPrep.State == MapPrep.Phase.Preparing) Thread.Sleep(200);
+    Console.WriteLine($"{MapPrep.State} after {watch.Elapsed.TotalSeconds:0} s {MapPrep.Error}");
+    Console.WriteLine($"ready: {MapPrep.IsReady(prep)}, index: {File.Exists(Path.Combine(mapEnv["BB_MAP_DIR"], "atlas2-index.json"))}");
+    MapPrep.Start(prep);  // already made: nothing runs again
+    Console.WriteLine($"second start: {MapPrep.State}");
+    Environment.Exit(MapPrep.IsReady(prep) ? 0 : 1);
+}
 
 static void Check(bool condition, string message)
 {
@@ -40,6 +68,19 @@ Check(SeamlessSettings.MoveToIni(moveSettings, moveIni) && moveIni.Raw("party_it
       "An older launcher's co-op switches did not move to bbport.ini as they were");
 Check(!SeamlessSettings.MoveToIni(moveSettings, moveIni), "The co-op switches moved to bbport.ini a second time");
 Check(env["BB_PARTY_AUTOCONTINUE"] == "0" && env["BB_PARTY_RESTARTED"] == "0", "Manual launch inherited automated Continue");
+// The map button shares Options / Start on purpose (held: the map): moving either never swaps the
+// other, and Restore puts the map back on Start.
+var padIni = new IniFile();
+Check(PadMap.First(padIni, "map") == "start" && PadMap.MapButtonShared(padIni), "The map is not on a held Options / Start by default");
+PadMap.Assign(padIni, "map", "paddle1");
+Check(PadMap.First(padIni, "options") == "start" && !PadMap.MapButtonShared(padIni), "Moving the map changed Options, or a button of its own reads as shared");
+PadMap.Assign(padIni, "map", "back");
+Check(PadMap.Get(padIni, "touchpad").Contains("back") && PadMap.MapButtonShared(padIni), "The map took Back from the touchpad");
+PadMap.Assign(padIni, "options", "y");
+Check(PadMap.First(padIni, "map") == "back" && PadMap.First(padIni, "triangle") == "start", "Moving Options moved the map");
+PadMap.Reset(padIni, "map");
+Check(padIni.Raw("pad.map") == null && PadMap.First(padIni, "map") == "start", "Restoring the map button left it off Start");
+Check(InputMap.Controls.Single(c => c.Name == "map").Default == "M", "The map's key is not M by default");
 var commands = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "seamless-stop-" + Guid.NewGuid());
 System.IO.Directory.CreateDirectory(commands);
 try

@@ -34,7 +34,7 @@ namespace BloodborneLauncher.Core
             ["L1"] = "l1", ["R1"] = "r1", ["L2"] = "l2", ["R2"] = "r2", ["L3"] = "l3", ["R3"] = "r3",
             ["Options"] = "options", ["Touchpad (left)"] = "touchpad", ["Touchpad (right)"] = "touchpad_right",
             ["D-pad up"] = "up", ["D-pad down"] = "down", ["D-pad left"] = "left", ["D-pad right"] = "right",
-            ["Touchpad + R3"] = "ping", ["Touchpad + L3"] = "gather",
+            ["Touchpad + R3"] = "ping", ["Touchpad + L3"] = "gather", ["Hold Options"] = "map",
             ["Menu confirm"] = "menu_confirm", ["Menu back"] = "menu_back",
         };
 
@@ -51,6 +51,8 @@ namespace BloodborneLauncher.Core
             // The same for Gather the party (host); Touchpad + L3 always works too.
             ["gather"] = "",
             ["menu_confirm"] = "", ["menu_back"] = "",
+            // The map: held when the button is the game's too (Options here), else a press.
+            ["map"] = "start",
         };
 
         public static IEnumerable<string> Inputs => Defaults.Keys;
@@ -61,6 +63,17 @@ namespace BloodborneLauncher.Core
         /// world inputs. They swap only with each other: a button is both a world and a menu input.
         /// </summary>
         public static bool IsMenu(string input) => input.StartsWith("menu_", StringComparison.Ordinal);
+
+        /// <summary>The map shares its button on purpose (held: the map, a tap: the game's): it never
+        /// swaps with the game's inputs.</summary>
+        public static bool IsMap(string input) => input == "map";
+
+        /// <summary>The map's button is also one of the game's inputs: it opens the map when held.</summary>
+        public static bool MapButtonShared(IniFile ini)
+        {
+            var map = Get(ini, "map");
+            return Inputs.Any(i => !IsMap(i) && !IsMenu(i) && i is not ("ping" or "gather") && Get(ini, i).Intersect(map).Any());
+        }
 
         public static string? InputFor(ControlDef control) =>
             control.Pad != null && InputOfLabel.TryGetValue(control.Pad, out var input) ? input : null;
@@ -84,7 +97,7 @@ namespace BloodborneLauncher.Core
         {
             var old = First(ini, input);
             if (button.Length > 0)
-                foreach (var other in Inputs.Where(i => i != input && IsMenu(i) == IsMenu(input)))
+                foreach (var other in Inputs.Where(i => i != input && IsMenu(i) == IsMenu(input) && !IsMap(i) && !IsMap(input)))
                 {
                     var buttons = Get(ini, other);
                     if (!buttons.Remove(button)) continue;

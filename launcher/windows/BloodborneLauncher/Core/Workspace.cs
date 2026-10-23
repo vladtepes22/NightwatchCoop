@@ -347,7 +347,7 @@ namespace BloodborneLauncher.Core
             GameOutput?.Invoke(batch);
         }
 
-        private static void Dispatch(Action action)
+        internal static void Dispatch(Action action)
         {
 #if AVALONIA
             if (Dispatcher.UIThread.CheckAccess())

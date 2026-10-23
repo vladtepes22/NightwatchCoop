@@ -518,9 +518,13 @@ namespace BloodborneLauncher.Views
             // opened under the pointer and picked whatever the release landed on).
             var current = PadMap.First(Ini, input);
             var menu = PadMap.IsMenu(input);
+            // The map: "Hold ..." while its button is the game's too (a tap stays the game's).
+            var shown = current.Length == 0 ? null
+                : PadMap.IsMap(input) && PadMap.MapButtonShared(Ini) ? L.F($"Hold {PadMap.Label(current)}")
+                : PadMap.Label(current);
             var chip = new Wpf.Ui.Controls.Button
             {
-                Content = current.Length > 0 ? PadMap.Label(current) : input is "ping" or "gather" ? control.Pad : menu ? L.T("As in the world") : L.T("Not bound"),
+                Content = shown ?? (input is "ping" or "gather" ? control.Pad : menu ? L.T("As in the world") : L.T("Not bound")),
                 Icon = Icon(SymbolRegular.XboxController24),
                 Padding = new Thickness(8, 3, 10, 3),
                 FontSize = 12.5,
@@ -530,6 +534,8 @@ namespace BloodborneLauncher.Views
                     ? L.T("A controller button of its own for Ping (Touchpad + R3 always works too). Click, then press a button on the pad.")
                     : input == "gather"
                     ? L.T("A controller button of its own for Gather the party (Touchpad + L3 always works too). Click, then press a button on the pad.")
+                    : PadMap.IsMap(input)
+                    ? L.T("The controller button for the map. On a button the game uses too (Options by default), hold it: a tap still does the game's action. On a button of its own, a press opens the map. Click, then press a button on the pad; the undo arrow puts it back on Options.")
                     : menu
                     ? L.T("The controller button that does this in the game's menus, whatever it does in the world (Circle moved to L2 for sprinting still goes back here). Not set: menus use the buttons as in the world. Click, then press a button on the pad.")
                     : L.F($"The controller button for this action (the game's {control.Pad}). Click, then press a button on the pad."),

@@ -13,7 +13,9 @@ namespace BloodborneLauncher.Views
     /// <summary>Home: the game folder and its check, saves, language, a summary and the Play button.</summary>
     public sealed class PlayPage : LauncherPage
     {
-        private readonly InfoBar _problem;
+        private readonly InfoBar _problem, _map;
+        private readonly ProgressBar _mapProgress;
+        private readonly Button _mapRetry;
         private readonly SettingRow _engineCard;
         private readonly Button _profileButton;
         private readonly TextBlock _profileHint, _backupHint;
@@ -77,6 +79,17 @@ namespace BloodborneLauncher.Views
                 Content = SmallButton(L.T("Open the setup guide"), SymbolRegular.Lightbulb24, (_, _) => SetupGuide.Open()),
             };
             Body.Children.Add(_problem);
+
+            // The in-game map, made once from this game (MapPrep): what it is doing, and that the
+            // game can be played meanwhile.
+            _mapProgress = new ProgressBar { Minimum = 0, Maximum = 100, Height = 4, Margin = new Thickness(0, 8, 0, 4), MinWidth = 320 };
+            _mapRetry = SmallButton(L.T("Try again"), SymbolRegular.ArrowClockwise24, (_, _) => MapPrep.Start(S));
+            var mapContent = new StackPanel();
+            mapContent.Children.Add(_mapProgress);
+            mapContent.Children.Add(_mapRetry);
+            _map = new InfoBar { IsClosable = false, IsOpen = false, Margin = new Thickness(0, 12, 0, 0), Content = mapContent };
+            Body.Children.Add(_map);
+            MapPrep.Changed += ShowMap;
 
             // A package from before this launcher's engine (it updated itself, the engine did not).
             _engineCard = Card(SymbolRegular.ArrowDownload24, L.T("Engine update available"),
@@ -266,6 +279,48 @@ namespace BloodborneLauncher.Views
 
             _statGame.Text = status.Health == Health.Bad ? L.T("Not found") : $"{status.TitleId} {status.Version}".Trim();
             UpdateRunning();
+            if (status.Health != Health.Bad) MapPrep.Start(S);
+            ShowMap();
+        }
+
+        private bool _mapWasPreparing, _mapSawRunning;
+
+        /// <summary>The map's card: shown while the maps are made, when that failed, and once when they
+        /// became ready in this launcher session.</summary>
+        private void ShowMap()
+        {
+            _mapProgress.Visibility = MapPrep.State == MapPrep.Phase.Preparing ? Visibility.Visible : Visibility.Collapsed;
+            _mapRetry.Visibility = MapPrep.State == MapPrep.Phase.Failed ? Visibility.Visible : Visibility.Collapsed;
+            switch (MapPrep.State)
+            {
+                case MapPrep.Phase.Preparing:
+                    _mapWasPreparing = true;
+                    _map.Severity = InfoBarSeverity.Informational;
+                    _map.Title = L.F($"Making the map: {MapPrep.Percent}%");
+                    _map.Message = MapPrep.Step + "\n" + (Ws.Game.Running
+                        ? L.T("The game is running: the map turns on in it by itself when this is done, no restart needed.")
+                        : L.T("Once, from your game files, a few minutes. You can play meanwhile: the map turns on in the game by itself when it is ready, no restart needed."));
+                    _mapProgress.Value = MapPrep.Percent;
+                    _map.IsOpen = true;
+                    break;
+                case MapPrep.Phase.Failed:
+                    _map.Severity = InfoBarSeverity.Warning;
+                    _map.Title = L.T("The map could not be made");
+                    _map.Message = MapPrep.Error + "\n" + L.T("The game plays as usual without it.");
+                    _map.IsOpen = true;
+                    break;
+                case MapPrep.Phase.Ready when _mapWasPreparing:
+                    _map.Severity = InfoBarSeverity.Success;
+                    _map.Title = L.T("Map ready");
+                    _map.Message = Ws.Game.Running
+                        ? L.T("It is on in the running game now (no restart): hold Options / Start or press M. Change the button under Controls.")
+                        : L.T("In the game, hold Options / Start or press M. Change the button under Controls.");
+                    _map.IsOpen = true;
+                    break;
+                default:
+                    _map.IsOpen = false;
+                    break;
+            }
         }
 
         private void RefreshSummary()
@@ -283,6 +338,11 @@ namespace BloodborneLauncher.Views
         public void UpdateRunning()
         {
             var game = Ws.Game;
+            if (game.Running != _mapSawRunning)
+            {
+                _mapSawRunning = game.Running;
+                ShowMap();  // its text says whether the game is running
+            }
             _play.Content = game.Running ? L.T("Stop") : L.T("Play");
             _play.Icon = Icon(game.Running ? SymbolRegular.Stop24 : SymbolRegular.Play24);
             _play.Appearance = game.Running ? ControlAppearance.Danger : ControlAppearance.Primary;

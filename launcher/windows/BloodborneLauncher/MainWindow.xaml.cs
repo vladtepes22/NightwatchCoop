@@ -113,6 +113,7 @@ namespace BloodborneLauncher
                     _ = Dispatcher.BeginInvoke(AskEnginePreset, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             };
             Closing += OnClosing;
+            Closed += (_, _) => MapPrep.Stop();
         }
 
         private bool _directPlay, _directKeepOpen;
@@ -137,6 +138,17 @@ namespace BloodborneLauncher
                 _directPlay = false;
                 if (_directKeepOpen)
                     ShowLauncher();
+                else if (MapPrep.State == MapPrep.Phase.Preparing)
+                {
+                    // Out of sight until the map is made, then gone, as after any --play.
+                    void Finished()
+                    {
+                        if (MapPrep.State == MapPrep.Phase.Preparing) return;
+                        MapPrep.Changed -= Finished;
+                        Close();
+                    }
+                    MapPrep.Changed += Finished;
+                }
                 else
                     Close();
             };
@@ -370,6 +382,15 @@ namespace BloodborneLauncher
         {
             Workspace.Current.SaveNow();
             DiscordPresence.Stop();
+            // Closing stops making the map (it starts over at the next start).
+            if (!_closing && MapPrep.State == MapPrep.Phase.Preparing &&
+                System.Windows.MessageBox.Show(this,
+                    L.F($"The map is still being made ({MapPrep.Percent}%). Closing the launcher stops it; it starts over the next time. Close anyway?"),
+                    "Nightwatch Co-op", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            {
+                e.Cancel = true;
+                return;
+            }
             if (_closing || !Workspace.Current.Game.Running)
                 return;
 
@@ -945,6 +966,9 @@ namespace BloodborneLauncher
                 System.Windows.MessageBox.Show(this, error, L.T("Could not start the game"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
+            // The map is still being made: play now, the game says so and turns the map on by itself.
+            if (MapPrep.State == MapPrep.Phase.Preparing)
+                ws.Log(L.F($"Heads up: the map is still being made ({MapPrep.Percent}%). Play on: the game shows a note and turns the map on by itself when it is ready, no restart needed."), LogLevel.Warn);
             if (s.Bool("switch_to_output"))
                 Show("output");
         }

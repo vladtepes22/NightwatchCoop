@@ -53,6 +53,9 @@ namespace BloodborneLauncher.Core
             new("look_right", L.T("Look right"), L.T("Camera keys"), "", "L", "Right stick"),
             new("ping", L.T("Ping"), L.T("Co-op"), L.T("Mark the spot you look at for the party"), "B", "Touchpad + R3"),
             new("gather", L.T("Gather the party"), L.T("Co-op"), L.T("Host: bring every guest to you (each is asked first)"), "H", "Touchpad + L3"),
+            // The in-game map (MapPrep): read by the engine's overlay (bind.map) and pad reader
+            // (pad.map), not a game action. On a button the game uses too, held.
+            new("map", L.T("Map"), L.T("Menus"), L.T("Open and close the map"), "M", "Hold Options"),
         };
 
         /// <summary>Keys the port itself uses while the game runs.</summary>
