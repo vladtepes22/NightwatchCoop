@@ -56,7 +56,7 @@ public sealed class SeamlessPage : LauncherPage
         TextRow(SymbolRegular.Server24, "STUN server", "Empty uses stun.l.google.com:19302. Use off to disable.", "Default",
             () => S.Str("party_stun"), v => S.Set("party_stun", v), party);
         var host = Rows(Hosting);
-        TextRow(SymbolRegular.Globe24, "Host public address", "Optional host address override, including a VPN address.", "Automatic",
+        TextRow(SymbolRegular.Globe24, "Host public address", "Leave on Automatic unless guests reach you another way: your VPN address (Radmin VPN, Tailscale, ZeroTier), or your public IP or DNS name when you forwarded the port yourself (host or host:port). The party code then carries it.", "Automatic",
             () => S.Str("party_public_addr"), v => S.Set("party_public_addr", v), host);
         _codes = Text("", "Faint");
         _codes.TextWrapping = TextWrapping.Wrap;
