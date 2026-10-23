@@ -71,8 +71,10 @@ if (!$keepCatalog) { Remove-Item -LiteralPath (Join-Path $destinationRoot 'engin
 
 # 2. This repo's engine programs; the MSYS2 DLLs they were linked with replace the base's.
 $out = Join-Path $destinationRoot 'engine\out'
-Get-ChildItem -LiteralPath $out -File | Where-Object { $_.Extension -eq '.dll' -and $_.Name -ne 'nvngx_dlss.dll' } |
-    Remove-Item -Force -Confirm:$false
+# NVIDIA's DLLs stay: DLSS (nvngx_dlss), DLSS frame generation (nvngx_dlssg + Streamline's sl.*) and Reflex.
+Get-ChildItem -LiteralPath $out -File | Where-Object {
+    $_.Extension -eq '.dll' -and $_.Name -notlike 'nvngx_*.dll' -and $_.Name -notlike 'sl.*.dll' -and $_.Name -ne 'NvLowLatencyVk.dll'
+} | Remove-Item -Force -Confirm:$false
 foreach ($file in $programs + 'gpu-cache.id', 'gpu-cache.legacy.id') {
     Copy-Item -LiteralPath (Join-Path $engine "out\$file") -Destination $out -Force
 }
