@@ -721,6 +721,12 @@ void Tick() {
         }
         flags = std::move(read);
         present = std::make_shared<const std::vector<int>>(world ? coop::balance::PresentEntities() : std::vector<int>{});
+        static const bool npc_log = [] { const char* e = std::getenv("BB_MAP_NPC_LOG"); return e && *e == '1'; }();
+        static std::int64_t npc_logged = 0;
+        if (npc_log && world && now - npc_logged > 10000) {
+            npc_logged = now;
+            coop::balance::LogPresentChrs();
+        }
     }
     std::lock_guard<std::mutex> lk(g_mu);
     if (publish) {

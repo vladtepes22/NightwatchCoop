@@ -1299,6 +1299,8 @@ void ChrDumpTick(const GameSnapshot& s) {
     for (const std::string& l : lines) Log("chr dump: %s", l.c_str());
 }
 
+bool ChrOff(u64 chr);
+
 std::vector<int> PresentEntities() {
     std::vector<int> out;
     const u64 wcm = Slot(kSlotWorldChrMan);
@@ -1315,11 +1317,46 @@ std::vector<int> PresentEntities() {
             const int entity = Field<int>(chr, 0x1f0, -1);
             const int hp = Field<int>(Field<u64>(Field<u64>(chr, 0x3b0), 0x20), 0xf8, -1);
             const bool off = (Field<u8>(Field<u64>(chr, 0x18), 0x20) & 1) || (Field<std::uint16_t>(Field<u64>(chr, 0x58), 0x114) & 0x40);
-            if (entity > 0 && hp > 0 && !off) out.push_back(entity);
+            // ChrIns +0x1E1 bit 0x08: set for the NPCs that stand there; clear for the ones the
+            // game keeps loaded and enabled but hidden (live, 23 Oct, Oedon Chapel: the Dweller,
+            // Arianna and Eileen there had it, the absent Elderly Woman, Adella, beggar and
+            // Skeptical Man did not; the lamp's talk chr has it). Its meaning is not known.
+            const bool shown = Field<u8>(chr, 0x1e1, 0) & 0x08;
+            if (entity > 0 && hp > 0 && !off && shown) out.push_back(entity);
         }
     }
     std::sort(out.begin(), out.end());
     return out;
+}
+
+void LogPresentChrs() {
+    const u64 wcm = Slot(kSlotWorldChrMan);
+    if (!wcm) return;
+    const int sets = std::min(Field<int>(Field<u64>(wcm, 8), 0x18, -2) + 2, kMaxSets);
+    for (int set = 0; set < sets; ++set) {
+        const u64 tab = Field<u64>(wcm, 0x850 + u64(set) * 8);
+        const int count = Field<int>(tab, 0, 0);
+        const u64 entries = Field<u64>(tab, 8);
+        if (!tab || !entries || count <= 0 || count > kMaxPerSet) continue;
+        for (int i = 0; i < count; ++i) {
+            const u64 chr = Field<u64>(entries + u64(i) * 0x38, 0);
+            const int entity = Field<int>(chr, 0x1f0, -1);
+            if (!chr || IsPlayer(wcm, chr) || entity < 1000000 || entity > 99999999) continue;
+            float p[3] = {};
+            ChrPosition(chr, p);
+            char raw[200];
+            int n = 0;
+            const u64 a = Field<u64>(chr, 0x18), b = Field<u64>(chr, 0x58);
+            for (int k = 0; k < 16; ++k) n += std::snprintf(raw + n, sizeof raw - n, "%02x", Field<u8>(a, 0x18 + k, 0));
+            n += std::snprintf(raw + n, sizeof raw - n, " ");
+            for (int k = 0; k < 16; ++k) n += std::snprintf(raw + n, sizeof raw - n, "%02x", Field<u8>(b, 0x108 + k, 0));
+            n += std::snprintf(raw + n, sizeof raw - n, " ");
+            for (int k = 0; k < 16; ++k) n += std::snprintf(raw + n, sizeof raw - n, "%02x", Field<u8>(chr, 0x1e0 + k, 0));
+            Log("map npc: entity %d set %d HP %d off %d at (%.1f, %.1f, %.1f) [+18>18 %s]", entity, set,
+                Field<int>(Field<u64>(Field<u64>(chr, 0x3b0), 0x20), 0xf8, -1), ChrOff(chr) ? 1 : 0, double(p[0]),
+                double(p[1]), double(p[2]), raw);
+        }
+    }
 }
 
 // ---- NPC presence mirror (party_npc_mirror.h) ----

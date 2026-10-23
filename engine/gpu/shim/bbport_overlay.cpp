@@ -91,8 +91,13 @@ namespace {
 std::mutex imgui_mutex; // the ImGui context: window thread (input) and present thread
 bool initialized = false;
 std::atomic<bool> menu_open{false};
-// The map view (ToggleMap): the map over the game, apart from the settings menu.
-std::atomic<bool> map_open{false};
+// The map view (ToggleMap): the map over the game, apart from the settings menu. Opened and closed
+// only through SetMapOpen: an opened one recentres in its first frame (map_opened).
+std::atomic<bool> map_open{false}, map_opened{false};
+void SetMapOpen(bool open) {
+    if (open && !map_open) map_opened = true;
+    map_open = open;
+}
 bool l3_down = false, r3_down = false;
 bool dirty = false; // settings changed while open: saved on close
 float base_scale = 1.0f;
@@ -111,7 +116,7 @@ float PixelDensity(SDL_WindowID id);
 
 void SetOpen(bool value) {
     if (value) {
-        map_open = false;  // the menu replaces the map view
+        SetMapOpen(false);  // the menu replaces the map view
     }
     if (menu_open.exchange(value) == value) {
         return;
@@ -2235,7 +2240,7 @@ bool HandleEvent(const SDL_Event& event) {
         const bool down = event.type == SDL_EVENT_KEY_DOWN;
         if (down && !event.key.repeat && !is_open && !prompt_active &&
             (BbMapPage::OpensWithKey(int(event.key.scancode)) || (map_shown && event.key.key == SDLK_ESCAPE))) {
-            map_open = !map_shown;
+            SetMapOpen(!map_shown);
             return true;
         }
         if (down && !event.key.repeat &&
@@ -2274,7 +2279,7 @@ bool HandleEvent(const SDL_Event& event) {
             // of the map button closes, as do Circle / B and Options / Start.
             if (down && (BbMapPage::OpensWithPad(button) || button == SDL_GAMEPAD_BUTTON_EAST ||
                          button == SDL_GAMEPAD_BUTTON_START)) {
-                map_open = false;
+                SetMapOpen(false);
             } else if (const ImGuiKey key = KeyFromGamepad(button); key != ImGuiKey_None) {
                 io.AddKeyEvent(key, down);  // its pan, zoom, lamps, floors, recentre, shading
             }
@@ -2337,7 +2342,7 @@ bool HandleEvent(const SDL_Event& event) {
     case SDL_EVENT_MOUSE_BUTTON_UP: {
         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && !is_open && !prompt_active &&
             BbMapPage::OpensWithMouse(event.button.button)) {
-            map_open = !map_shown;
+            SetMapOpen(!map_shown);
             return true;
         }
         if (!is_open && !map_shown) {
@@ -2385,7 +2390,7 @@ void ToggleMap() {
     if (!BbMapPage::Available() || menu_open || prompt_active) {
         return;
     }
-    map_open = !map_open;
+    SetMapOpen(!map_open);
 }
 
 void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
@@ -2424,13 +2429,9 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     if (!menu_open && CompileNoteActive()) {
         CompileNote();
     }
-    // The map view: recentred each time it opens (whichever input opened it).
-    static bool map_was_shown = false;
-    const bool map_shown_now = map_open && !menu_open;
-    if (map_shown_now && !map_was_shown) BbMapPage::Opened();
-    map_was_shown = map_shown_now;
-    if (map_shown_now && !BbMapPage::DrawView()) {
-        map_open = false;  // its Back was clicked
+    if (map_open && !menu_open) {
+        if (map_opened.exchange(false)) BbMapPage::Opened();  // recentred each time it opens
+        if (!BbMapPage::DrawView()) SetMapOpen(false);  // its Back was clicked
     }
     if (const char* note = BbMapPage::NoteText(); note && !menu_open && !map_open) {
         MapNote(note);
