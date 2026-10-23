@@ -3,6 +3,7 @@
 #             Lantern Engine.exe forwarder: beta 9.2 is a fresh download for everyone)
 #   <package>\engine\out      this repo's bb-start, bb-probe, bb-shader-lab, ... and their DLLs
 #   <package>\engine\patches  this repo's patches (with the Party: patches)
+#   <package>\map-generator   the in-game map's generator (tools\map\build-generator.ps1, -MapGenerator)
 #   <package>\seamless        the party save tools and their own Python (the launcher removes
 #                             engine\scripts and engine\tools once the engine starts natively)
 # Shaders, upscaler assets and the shader catalog come from the official Lantern Engine release
@@ -14,7 +15,10 @@ param(
     [string]$Destination = '',
     [string]$Game = '',
     [string]$MsysRoot = 'C:\msys64',
-    [string]$Version = '0.2.2-beta.2',
+    [string]$Version = '0.2.3-beta.1',
+    # tools\map\build-generator.ps1's output: the launcher makes the in-game map with it. Required
+    # for a release; without it the package has no map.
+    [string]$MapGenerator = '',
     # A package to publish: no first-run settings with this PC's folders (the launcher finds its own).
     [switch]$Release
 )
@@ -29,7 +33,9 @@ $base = (Resolve-Path -LiteralPath $Base).Path
 if (!$Destination) { $Destination = Join-Path $repo 'work\package\NightwatchCoop' }
 $destinationRoot = [IO.Path]::GetFullPath($Destination)
 
-$programs = 'bb-start.exe', 'bb-probe.exe', 'bb-shader-lab.exe', 'bb-engine-assets.exe', 'bb-gpu-capabilities.exe'
+$programs = 'bb-start.exe', 'bb-probe.exe', 'bb-shader-lab.exe', 'bb-engine-assets.exe', 'bb-gpu-capabilities.exe', 'bb-map-bake.exe'
+if ($MapGenerator -and !(Test-Path -LiteralPath (Join-Path $MapGenerator 'generate_atlas_lite.exe'))) { throw "Not a built map generator: $MapGenerator" }
+if ($Release -and !$MapGenerator) { throw "A release needs the map generator: tools\map\build-generator.ps1, then -MapGenerator." }
 foreach ($file in $programs + 'gpu-cache.id', 'gpu-cache.legacy.id') {
     if (!(Test-Path -LiteralPath (Join-Path $engine "out\$file"))) { throw "Build the engine first (engine\build.sh): out\$file is missing." }
 }
@@ -149,6 +155,10 @@ try {
 # The game window's icon until the launcher writes the chosen one (AppIcon.SyncGameWindow).
 Copy-Item -LiteralPath (Join-Path $repo 'launcher\windows\BloodborneLauncher\app.ico') -Destination (Join-Path $destinationRoot 'engine\out\bloodborne.ico') -Force
 Copy-Item -LiteralPath (Join-Path $repo 'README.md') -Destination (Join-Path $destinationRoot 'README.md') -Force
+# The in-game map's generator (run by the launcher on the player's PC; no maps are shipped).
+$mapTarget = Join-Path $destinationRoot 'map-generator'
+Remove-Item -LiteralPath $mapTarget -Recurse -Force -ErrorAction SilentlyContinue
+if ($MapGenerator) { Copy-Item -Path $MapGenerator -Destination $mapTarget -Recurse }
 # Local co-op tests on one PC: test packages only; a release's folder holds what players start.
 if (!$Release) {
     Copy-Item -LiteralPath (Join-Path $engine 'docs\SEAMLESS_TESTING.md') -Destination (Join-Path $destinationRoot 'TESTING.md') -Force

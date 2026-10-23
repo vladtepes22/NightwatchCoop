@@ -46,7 +46,7 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 **Discord:** [discord.gg/sBK9FKKeup](https://discord.gg/sBK9FKKeup): help, finding players, bug reports.
 
-**Guides:** [Install](#install) · [Single player](#play-single-player) · [Host a game](#host-a-game) ·
+**Guides:** [Install](#install) · [Single player](#play-single-player) · [The map](#the-map) · [Host a game](#host-a-game) ·
 [Join a game](#join-a-friends-game) · [Play on the same network](#play-on-the-same-network-lan) ·
 [If friends can't connect](#if-friends-cant-connect) · [Host without an open port (Radmin VPN)](#host-without-an-open-port-radmin-vpn) ·
 [Saves](#where-the-saves-are) · [How co-op works](#how-co-op-works) · [Known issues](#known-issues) · [Reporting a bug](#reporting-a-bug) ·
@@ -54,7 +54,7 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 ## Install
 
-1. Download `NightwatchCoop-v0.2.2-beta.2-win64.zip` from
+1. Download `NightwatchCoop-v0.2.3-beta.1-win64.zip` from
    [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its
@@ -88,6 +88,16 @@ old folder.
 2. Press **Play** on the main page.
 
 Single-player uses your normal saves; co-op never touches them.
+
+## The map
+
+In the game, **hold Options / Start** (a tap still opens the game's menu) or press **M** to see
+the area you are in, centred on you. Esc, Circle or the map button again closes it; the mouse
+wheel or L2 / R2 zooms. Change the button under **Controls** (the undo arrow puts it back).
+
+The maps are made once from your own game files the first time the launcher starts (a few
+minutes; the Play page shows the progress). You can play meanwhile: the map turns on in the game
+by itself when it is ready, no restart needed. Chalice Dungeons have no map.
 
 ## Host a game
 
@@ -248,6 +258,7 @@ Write down what happened and when, then send `logs\last_session.log` from **ever
 |---|---|
 | **Lantern Engine** | by **Awaken** (not involved in this project): the launcher, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, fixes) |
 | Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.3 |
+| The map: its generator, drawing and parchment | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
 | VRAM cleanup and frame pacing | adapted from [IFreemz/shadPS4-Bloodborne-DLSS-FSR](https://github.com/IFreemz/shadPS4-Bloodborne-DLSS-FSR) |

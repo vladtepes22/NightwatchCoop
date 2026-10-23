@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "package": "soulstruct",
+  "version": "2.3.2",
+  "license_expression": "GPL-3.0-or-later",
+  "license_declaration_source": "Exact PyPI 2.3.2 source distribution PKG-INFO",
+  "pypi_project_json_url": "https://pypi.org/pypi/soulstruct/2.3.2/json",
+  "pypi_source_distribution_url": "https://files.pythonhosted.org/packages/9f/77/131b6993eb20cc630a76f0a69e3a486bc1de96d1c5d3169a958c5a33ee9b/soulstruct-2.3.2.tar.gz",
+  "source_distribution_sha256": "fce867076698c7af98fc8558745b35d8e45d0fa164c53d2aefcdc735cc0b8dab",
+  "expected_pypi_sha256": "fce867076698c7af98fc8558745b35d8e45d0fa164c53d2aefcdc735cc0b8dab",
+  "source_distribution_size": 4363974,
+  "source_distribution_contains_project_license_file": false,
+  "source_revision": "Not declared in PyPI distribution metadata; no exact upstream commit claimed.",
+  "source_metadata_file": "notices/soulstruct/PKG-INFO",
+  "source_metadata_sha256": "43616ca379f031f346a29cb3460e3f597b731b2c23fd14fafa3b70c761be2951",
+  "source_metadata_license_expression": "GPL-3.0-or-later",
+  "canonical_license_text": "notices/soulstruct/COPYING",
+  "canonical_license_text_sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+  "canonical_license_source_url": "https://www.gnu.org/licenses/gpl-3.0.txt",
+  "note": "The exact source distribution contains no license file. COPYING is the canonical GNU GPL version 3 text and is included to satisfy the declared GPL-3.0-or-later notice; the sdist and METADATA are preserved as the package-specific evidence.",
+  "source_only_sanitization": "One upstream example path in soulstruct/base/events/_generate_emedf_json.py was changed from a machine-specific Windows user path to a Path.home()-relative Downloads path; package code and metadata are otherwise source-filtered as described."
+}

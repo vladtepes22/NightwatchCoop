@@ -233,7 +233,7 @@ add_library(bbgpu ${BBGPU_LIBRARY_TYPE} ${VIDEO_CORE} ${RECOMPILER} ${COMMON} ${
     shadps4/core/libraries/videodec/video_utils.cpp)
 target_sources(bbgpu PRIVATE third_party/monocypher/monocypher.c)
 file(GLOB_RECURSE BB_ID_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*.h ../src/*.c ../src/*.h)
-set(BB_ID_CONTENT "nightwatch-coop-0.2.2-lantern-0.9.37-beta.9-visy-0.7.3")
+set(BB_ID_CONTENT "nightwatch-coop-0.2.3-lantern-0.9.37-beta.9-visy-0.7.3")
 foreach(source IN LISTS BB_ID_SOURCES)
     file(SHA256 "${source}" source_hash)
     string(APPEND BB_ID_CONTENT "${source_hash}")
