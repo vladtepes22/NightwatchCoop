@@ -330,6 +330,15 @@ int Main(std::vector<std::wstring> arguments) {
         // A command the launcher posted while the previous game was closing belongs to that game.
         fs::remove(Path(Env("BB_GPU_USER_DIR", "")) / "party_command.json", error);
     }
+    // Which build this log is from (regressions: the co-op version and the exact commit).
+    try {
+        const auto package = nlohmann::json::parse(ReadText(folders.package / "package.json"));
+        Log("Nightwatch Co-op %s: co-op %s, base %s, source %s", package.value("version", "?").c_str(),
+            package.value("seamless", "?").c_str(), package.value("base", "?").c_str(),
+            package.value("source", "?").substr(0, 12).c_str());
+    } catch (const std::exception&) {
+        Log("Nightwatch Co-op: development build (no package.json beside the engine)");
+    }
     try {
         const auto package = nlohmann::json::parse(ReadText(folders.package / "package.json"));
         const std::string engine = package.value("engine", "");
