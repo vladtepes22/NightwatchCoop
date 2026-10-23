@@ -155,6 +155,10 @@ try {
 # The game window's icon until the launcher writes the chosen one (AppIcon.SyncGameWindow).
 Copy-Item -LiteralPath (Join-Path $repo 'launcher\windows\BloodborneLauncher\app.ico') -Destination (Join-Path $destinationRoot 'engine\out\bloodborne.ico') -Force
 Copy-Item -LiteralPath (Join-Path $repo 'README.md') -Destination (Join-Path $destinationRoot 'README.md') -Force
+# The licence and Lantern Engine's NOTICE (its GPL-3.0 section 7 terms: the attribution ships with every copy).
+foreach ($file in 'LICENSE', 'NOTICE') {
+    Copy-Item -LiteralPath (Join-Path $repo $file) -Destination (Join-Path $destinationRoot $file) -Force
+}
 # The in-game map's generator (run by the launcher on the player's PC; no maps are shipped).
 $mapTarget = Join-Path $destinationRoot 'map-generator'
 Remove-Item -LiteralPath $mapTarget -Recurse -Force -ErrorAction SilentlyContinue

@@ -93,8 +93,8 @@ BB_GAME_DIR=/path/to/CUSA03173 BB_MODS_ENABLED=0 bash run.sh
 (`patches/Bloodborne.xml`): при пересечении побеждает сторонний. Из терминала:
 `BB_PATCHES_DIR=/путь BB_PATCHES_CONFIG=/путь/patches.json bash run.sh`.
 
-Патчи, которые заменяют указатели в таблицах (как `60 FPS++` и `90 FPS++`), загрузчик
-переносит на реальный адрес образа. Раньше такие патчи останавливали запуск ошибкой
+Patches that write pointers into the game's tables are moved by the loader to the image's real
+address. Such patches used to stop the start with the error
 `patch overlaps a relocation`.
 
 # Резкость TAA

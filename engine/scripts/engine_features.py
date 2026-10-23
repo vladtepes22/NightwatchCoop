@@ -8,7 +8,7 @@ beta 8, no Linux start had any of them: the mouse did nothing and key bindings w
 
 Prints its messages as they are and `env:KEY=VALUE` for each variable run.sh exports.
 
-    engine_features.py <game> --out <out> --data <data dir> --config <lantern.ini>
+    engine_features.py <game> --out <out> --data <data dir> --config <bbport.ini>
 """
 import argparse
 import os
@@ -35,7 +35,6 @@ def prepare(game, out, data, config):
     try:
         env['BB_ENGINE_IMAGE_SHA256'] = verify_executable(out / 'eboot.elf')
         if settings_value(config, 'change_appearance') == '1':
-            # A modded Hunter's Dream layout only costs the mirror, not the PC menus below.
             try:
                 asset = prepare_mirror(game, out / 'eboot.elf', data / 'engine-assets')
                 env['BB_DREAM_MIRROR_ASSET'] = str(asset)
@@ -57,8 +56,6 @@ def prepare(game, out, data, config):
                 print(f'Engine: native PC menus disabled: {error}', flush=True)
     except (OSError, ValueError, IndexError, struct.error, zlib.error) as error:
         print(f'Engine: enhancement preparation skipped: {error}', flush=True)
-    # Ebrietas' trail effect replaced as Nexus mod 41 does (start/main.cpp; BB_EFFECT_FIXES=0
-    # keeps the game's); the runtime mounts the files (BB_FILE_FIXES).
     if os.environ.get('BB_EFFECT_FIXES', '') != '0':
         try:
             fixed = prepare_effect_fixes(game, data / 'engine-assets',

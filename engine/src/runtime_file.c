@@ -1,8 +1,3 @@
-/* Guest file system: PS4 mount points mapped onto host directories.
- *   /app0, /hostapp  -> game package root (read-only by convention)
- *   /temp0, /download0, /data, and mounts added by SaveData -> user directory
- * Guest descriptors are small integers in our own table; stdio 0-2 pass through.
- * Paths containing ".." components are rejected rather than normalized. */
 #define _GNU_SOURCE
 #include "runtime.h"
 #include "../gpu/bbnet.h"
@@ -20,7 +15,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #ifdef _WIN32
-/* 64-bit sizes and times; directories have no host descriptor (open() rejects them). */
 typedef struct _stat64 HostStat;
 #define host_stat _stat64
 #define host_fstat _fstat64
@@ -32,7 +26,7 @@ typedef struct stat HostStat;
 #endif
 #define ERR(n) ((int32_t)(UINT32_C(0x80020000)|(n)))
 #define MAX_FILES 1024
-#define MAX_MOUNTS 64 /* exact local menu-language files plus existing game/save mounts */
+#define MAX_MOUNTS 64
 
 typedef struct { int64_t sec, nsec; } GuestTimespec;
 typedef struct {
@@ -124,9 +118,6 @@ void runtime_file_save_activity(uint64_t *generation,int *open_writes) {
 const char *runtime_file_user_dir(void) { return user_root; }
 static void stream_configure(const char *app0);
 
-/* bbport: mod files read in place (BB_MOD_FILES, start/mods.cpp): on a drive without junctions
- * bb-start lists "game path<TAB>host file" lines instead of a merged view, and a game path of /app0
- * that is on the list opens the mod's file. Sorted by the folded game path. */
 typedef struct { char *key, *host; } ModFile;
 static ModFile *mod_files;
 static size_t mod_file_count;
@@ -163,7 +154,6 @@ static void mod_files_load(void) {
     qsort(mod_files,mod_file_count,sizeof(*mod_files),mod_file_compare);
     printf("Runtime: %zu mod files read in place (%s)\n",mod_file_count,list);
 }
-/* The mod file for a guest path under /app0 or /hostapp, or NULL. */
 static const char *mod_file_for(const char *guest) {
     if (!mod_file_count) return NULL;
     const char *rest=!strncmp(guest,"/app0/",6) ? guest+6 : !strncmp(guest,"/hostapp/",9) ? guest+9 : NULL;
@@ -175,9 +165,6 @@ static const char *mod_file_for(const char *guest) {
     const ModFile *found=bsearch(&probe,mod_files,mod_file_count,sizeof(*mod_files),mod_file_compare);
     return found ? found->host : NULL;
 }
-/* bbport: game files bb-start rebuilt from the player's own (start/assets.cpp PrepareEffectFixes:
- * Ebrietas' trail effect), "game path<TAB>host file" lines in BB_FILE_FIXES, each mounted over its
- * /app0 path. Only made from the 1.09 files; a mod file for the path (BB_MOD_FILES) still wins. */
 static void file_fixes_load(void) {
     const char *list=getenv("BB_FILE_FIXES");
     FILE *f=list && *list ? fopen(list,"rb") : NULL;
@@ -207,9 +194,6 @@ void runtime_file_configure(const char *app0,const char *user) {
     file_fixes_load();
     const char *writable[]={"temp0","download0","data"};
     mkdir(user,0755);
-    /* bbport: a saves folder the engine cannot write in shows only as the game's "cannot create
-     * save file": said at the start, with the reason (read-only, synced, or Windows' Controlled
-     * folder access, which blocks the engine but not the launcher). */
     snprintf(path,sizeof(path),"%s/.write-test",user);
     FILE *probe=fopen(path,"wb");
     if (probe) { fclose(probe); remove(path); }
@@ -229,7 +213,6 @@ void runtime_file_configure(const char *app0,const char *user) {
         runtime_file_mount(guest,path);
     }
 }
-/* Resolve a guest path to a host path; returns 0 or a host errno. */
 static int translate(const char *guest,char *out,size_t size) {
     if (!guest || !*guest) return ENOENT;
     char buffer[1024];
@@ -288,7 +271,6 @@ static Listing *list_directory(const char *path) {
         memcpy(l->names+bytes,e->d_name,n);
         l->offsets[l->count]=bytes;
 #ifdef _WIN32
-        /* MinGW's dirent has no entry types. */
         char child[1300]; HostStat entry;
         snprintf(child,sizeof(child),"%s/%s",path,e->d_name);
         l->types[l->count]=host_stat(child,&entry) ? 0 : S_ISDIR(entry.st_mode) ? 4 : S_ISREG(entry.st_mode) ? 8 : 0;
@@ -312,7 +294,6 @@ static void convert_stat(const HostStat *s,GuestStat *g) {
     g->nlink=(uint16_t)s->st_nlink;
     g->size=s->st_size;
 #ifdef _WIN32
-    /* FreeBSD type bits match POSIX; Windows reports owner bits only. */
     g->mode=(uint16_t)((S_ISDIR(s->st_mode) ? 0040000 : 0100000) | ((s->st_mode & 0700) * 0111 & 0777));
     g->blocks=(s->st_size+511)/512; g->blksize=65536;
     g->atime=(GuestTimespec){s->st_atime,0};
@@ -331,9 +312,7 @@ static File *get(int fd) {
     if (fd<3 || fd>=MAX_FILES || !files[fd].used) return NULL;
     return &files[fd];
 }
-/* BB_AUDIO_TRACE=1: sound file opens and failed reads (missing game sounds). */
 static int audio_trace(void) { static int v=-1; if (v<0) { const char *e=getenv("BB_AUDIO_TRACE"); v=e && e[0]=='1'; } return v; }
-/* Game mounts (including linked mod overlays) are read-only. Saves use other mounts. */
 static int game_path(const char *p) {
     if (!p || !*p) return 0;
     if (*p!='/') return 1;
@@ -466,8 +445,6 @@ static uint64_t env_mb(const char *name,uint64_t fallback) {
     const char *e=getenv(name);
     return (e && *e ? strtoull(e,NULL,10) : fallback)<<20;
 }
-/* IOCTL_STORAGE_QUERY_PROPERTY, StorageDeviceSeekPenaltyProperty (7), standard query: declared
- * here so older MinGW headers do not matter. */
 typedef struct { DWORD property, query; BYTE extra[4]; } SeekPenaltyQuery;
 typedef struct { DWORD version, size; BOOLEAN incurs_seek_penalty; } SeekPenaltyAnswer;
 static int seek_penalty(const char *path) {
@@ -475,8 +452,8 @@ static int seek_penalty(const char *path) {
     if (!GetVolumePathNameA(path,volume,sizeof(volume))) return -1;
     size_t n=strlen(volume);
     if (n && (volume[n-1]=='\\' || volume[n-1]=='/')) volume[--n]=0;
-    if (n!=2 || volume[1]!=':') return -1; /* a mounted folder or network path: not asked */
-    const char device[]={'\\','\\','.','\\',volume[0],':',0}; /* \\.\E: */
+    if (n!=2 || volume[1]!=':') return -1;
+    const char device[]={'\\','\\','.','\\',volume[0],':',0};
     HANDLE h=CreateFileA(device,0,FILE_SHARE_READ|FILE_SHARE_WRITE,NULL,OPEN_EXISTING,0,NULL);
     if (h==INVALID_HANDLE_VALUE) return -1;
     SeekPenaltyQuery query={7,0,{0}};
@@ -498,11 +475,10 @@ static void prefetch_dir(const char *dir,unsigned char *buffer) {
     char pattern[600];
     snprintf(pattern,sizeof(pattern),"%s\\*",dir);
     WIN32_FIND_DATAA e;
-    HANDLE find=FindFirstFileA(pattern,&e); /* NTFS lists in name order */
+    HANDLE find=FindFirstFileA(pattern,&e);
     if (find==INVALID_HANDLE_VALUE) return;
     uint64_t total=0;
-    /* Folders, and placeholders whose data is not on this disk (a cloud-synced folder). */
-    const DWORD skip=FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_OFFLINE|0x00400000 /* RECALL_ON_DATA_ACCESS */;
+    const DWORD skip=FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_OFFLINE|0x00400000  ;
     do {
         if (e.dwFileAttributes & skip) continue;
         const uint64_t size=((uint64_t)e.nFileSizeHigh<<32)|e.nFileSizeLow;
@@ -514,7 +490,6 @@ static void prefetch_dir(const char *dir,unsigned char *buffer) {
                              OPEN_EXISTING,FILE_FLAG_SEQUENTIAL_SCAN,NULL);
         if (f==INVALID_HANDLE_VALUE) continue;
         for (;;) {
-            /* The game's reads first: a little wait while a loader read is in flight. */
             for (int i=0;i<4 && __atomic_load_n(&st_inflight,__ATOMIC_RELAXED);++i) Sleep(1);
             DWORD n=0;
             if (!ReadFile(f,buffer,PF_CHUNK,&n,NULL) || !n) break;
@@ -532,8 +507,6 @@ static void *prefetch_main(void *unused) {
     (void)unused;
     runtime_win_set_thread_name("bb:Prefetch");
     SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_BELOW_NORMAL);
-    /* Low memory priority (ThreadMemoryPriority = 0, MEMORY_PRIORITY_LOW = 2): what it reads
-     * leaves the file cache before the game's other cached pages. */
     typedef BOOL (WINAPI *SetInfo)(HANDLE,int,LPVOID,DWORD);
     SetInfo set_info=(SetInfo)(void *)GetProcAddress(GetModuleHandleA("kernel32.dll"),"SetThreadInformation");
     if (set_info) { ULONG priority=2; set_info(GetCurrentThread(),0,&priority,sizeof(priority)); }
@@ -550,10 +523,9 @@ static void *prefetch_main(void *unused) {
     }
     return NULL;
 }
-/* A loader opened `host` (guest path `guest`): its folder is queued once if it is a map area's. */
 static void prefetch_note(const char *guest,const char *host) {
     const char *m=strstr(guest,"/map/m");
-    if (!m || !strchr(m+5,'/')) return; /* map/mXX.../file only */
+    if (!m || !strchr(m+5,'/')) return;
     const char *slash=strrchr(host,'/'), *back=strrchr(host,'\\');
     if (back>slash) slash=back;
     if (!slash || (size_t)(slash-host)>=sizeof(pf_queue[0])) return;
@@ -624,7 +596,6 @@ void runtime_file_stream_report(void) {
            (unsigned long long)__atomic_load_n(&pf_dirs,__ATOMIC_RELAXED),
            stream_hdd==1 ? "; game on a hard disk" : "");
 }
-/* Around a host read on a game file descriptor: in-flight count for the prefetcher, times. */
 static uint64_t stream_read_begin(int loader) {
     if (!loader) return 0;
     __atomic_add_fetch(&st_inflight,1,__ATOMIC_RELAXED);
@@ -642,7 +613,6 @@ static void stream_read_end(int loader,uint64_t start,int64_t n) {
 }
 static int fd_is_loader(int fd) { File *f=get(fd); return f && f->loader; }
 
-/* All operations return >=0 or -(host errno); wrappers adapt the convention. */
 static int64_t do_open(const char *guest,int flags,int mode) {
     if (game_path(guest) && (flags & (3|0x8|0x200|0x400|0x800))) return -EROFS;
     char path[1024];
@@ -763,10 +733,6 @@ static void touch_for_write(void *buffer,uint64_t size) {
         *b=*b;
     }
 }
-/* bbport: the kernel's copy into guest memory the guest may write failed: the GPU thread
- * protected a page again between touch_for_write and the copy (EFAULT; Windows: ERROR_NOACCESS).
- * The data goes through a host buffer and memcpy, whose faults the handler resolves as for guest
- * code. offset<0: from the descriptor's position (a failed read leaves it where it was). */
 static ssize_t read_bounced(int h,void *buffer,uint64_t size,int64_t offset) {
     enum { BOUNCE=1<<20 };
     unsigned char *bounce=malloc(size<BOUNCE ? size : BOUNCE);
@@ -790,8 +756,6 @@ static ssize_t read_bounced(int h,void *buffer,uint64_t size,int64_t offset) {
         printf("Runtime: a file read into guest memory failed (a page protected again); read through a host buffer\n");
     return (ssize_t)done;
 }
-/* A failed read of a game file is logged (the first 16): the game panics on it (Dantelion2
- * FileTransferTask) without saying which file, and the log is all a player can send. */
 static void note_read_failure(int fd,uint64_t size,int64_t offset,int error) {
     static unsigned noted;
     if (__atomic_fetch_add(&noted,1,__ATOMIC_RELAXED)>=16) return;
@@ -810,7 +774,7 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
     if (n<0 && size && runtime_memory_guest_writable((uintptr_t)buffer,size)) n=read_bounced(h,buffer,size,-1);
     stream_read_end(loader,start,n);
     if (n<0) { int e=errno; note_read_failure(fd,size,-1,e); return -e; }
-    if (n>0) runtime_memory_note_write((uintptr_t)buffer,(uint64_t)n); /* and once the data is there */
+    if (n>0) runtime_memory_note_write((uintptr_t)buffer,(uint64_t)n);
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
 }
@@ -825,7 +789,7 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     if (n<0 && size && offset>=0 && runtime_memory_guest_writable((uintptr_t)buffer,size)) n=read_bounced(h,buffer,size,offset);
     stream_read_end(loader,start,n);
     if (n<0) { int e=errno; note_read_failure(fd,size,offset,e); return -e; }
-    if (n>0) runtime_memory_note_write((uintptr_t)buffer,(uint64_t)n); /* and once the data is there */
+    if (n>0) runtime_memory_note_write((uintptr_t)buffer,(uint64_t)n);
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
 }
@@ -848,7 +812,6 @@ static int64_t do_lseek(int fd,int64_t offset,int whence) {
     if (!f) return -EBADF;
     if (whence<0 || whence>2) return -EINVAL;
     if (f->dir) {
-        /* Directory offsets are entry indices for getdirentries. */
         if (whence==0 && offset>=0) { f->position=(size_t)offset; return offset; }
         return -EINVAL;
     }
@@ -860,7 +823,7 @@ static int64_t do_fstat(int fd,GuestStat *out) {
     int h=host_fd(fd);
     if (h<0) {
         File *f=get(fd);
-        return f && f->dir ? do_stat(f->path,out) : -EBADF; /* Windows directory descriptor */
+        return f && f->dir ? do_stat(f->path,out) : -EBADF;
     }
     if (!out) return -EFAULT;
     HostStat s;
@@ -944,13 +907,12 @@ static int64_t do_access(const char *guest,int mode) {
     if (e) return -e;
     if (save_path(guest)) { current_copy(path,sizeof(path),0); }
 #ifdef _WIN32
-    return access(path,mode&6) ? -errno : 0; /* no execute bit to test */
+    return access(path,mode&6) ? -errno : 0;
 #else
     return access(path,mode&7) ? -errno : 0;
 #endif
 }
 
-/* Convention adapters: sceKernel* -> Orbis error codes, POSIX -> -1 + errno. */
 static int64_t sce(int64_t r) { return r<0 ? ERR(runtime_guest_errno((int)-r)) : r; }
 static int64_t posix(int64_t r) { if (r<0) { *runtime_errno()=runtime_guest_errno((int)-r); return -1; } return r; }
 #define PAIR(name,params,args) \
@@ -1002,7 +964,6 @@ static const RuntimeExport exports[]={
     {"sceKernelUnlink",sce_unlink}, {"unlink",posix_unlink},
 };
 uintptr_t runtime_file_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
-/* Host-side helpers for other modules (e.g. SaveData, Fios). */
 int64_t runtime_file_open(const char *p,int f,int m) { return do_open(p,f,m); }
 int64_t runtime_file_close(int fd) { return do_close(fd); }
 int64_t runtime_file_read(int fd,void *b,uint64_t n) { return do_read(fd,b,n); }

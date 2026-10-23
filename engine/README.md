@@ -68,15 +68,28 @@ when it works on one PC.
 
 ## Credits and licenses
 
-Nightwatch Co-op is licensed under the **GNU GPL v3 or later** ([LICENSE](LICENSE)) — it contains code
-from shadPS4 (GPL-2.0-or-later). Third-party components keep their licenses:
-[shadPS4](https://github.com/shadps4-emu/shadPS4) video core and shader recompiler (GPL-2.0+),
+Nightwatch Co-op is a modified version of Lantern Engine by Awaken
+(https://github.com/Awakenchan/LanternEngine), not an official Lantern Engine release; Awaken is not
+involved in it. Lantern Engine builds are distributed under the **GNU GPL v3 or later** (`licenses/GPL-3.0.txt`):
+they combine GPL-2.0-or-later code (shadPS4, bbport, bloodborne_pc) with the online backend for
+The Hunter's Dream from [droogie/bbhost](https://github.com/droogie/bbhost) (GPL-3.0-or-later,
+`licenses/BBHOST-PORTS.md`). Copyright in each part stays with its authors.
+
+Lantern Engine's own code, the launcher and the built-in game patches are © Awaken, under the
+GNU GPL v3 or later with additional terms (GPL-3.0 section 7, see `NOTICE`): anything that uses
+or ships them must keep the credit "Lantern Engine by Awaken" in its source, its about or
+credits screen and its readme or release notes; changed versions must say they are changed and
+must not pass as an official Lantern Engine release; and the name "Lantern Engine" is not
+licensed for other projects.
+
+Also in the engine, under their own licenses: [shadPS4](https://github.com/shadps4-emu/shadPS4)'s
+video core and shader recompiler (GPL-2.0+), shadNet's client (`licenses/SHADNET-PORT.md`),
 [sirit](https://github.com/shadps4-emu/sirit), [half](https://half.sourceforge.net/),
 [FSR-Vulkan](https://github.com/FireBurn/FSR-Vulkan) and the AMD FidelityFX SDK (MIT),
 [LibAtrac9](https://github.com/Thealexbarney/LibAtrac9) (MIT), [Dear ImGui](https://github.com/ocornut/imgui)
 (MIT), NVIDIA Streamline (headers; DLSS and Reflex), cpp-httplib (MIT), wepoll (BSD), DejaVu
-fonts and Lantern Menu SC (a Noto Sans SC subset, SIL OFL 1.1). Game patches by Kyo, Lance
-McDonald, auser1337, illusion, emoose and other community members (`patches/Bloodborne.xml`).
-VRAM cleanup and frame pacing were adapted from IFreemz's shadPS4 fork, crash and controller
-fixes from AwesomeObserver, Supermedo and deadinside28. AMD's FSR 4 DLLs and NVIDIA's DLSS
-files are not distributed here.
+fonts and Lantern Menu SC (a Noto Sans SC subset, SIL OFL 1.1). The built-in game patches
+(`patches/Bloodborne.xml`) are Lantern Engine's own, built from the eboot by `tools/re/game_patches.py`.
+Renderer fixes from AwesomeObserver's and deadinside28's bloodborne_pc forks and 0xCydral's FSR 4
+Vulkan path keep their GPL-2.0-or-later notices. AMD's FSR 4 DLLs and NVIDIA's DLSS files are not
+distributed here.

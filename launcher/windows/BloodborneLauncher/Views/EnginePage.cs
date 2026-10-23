@@ -132,6 +132,12 @@ namespace BloodborneLauncher.Views
             TextRow(SymbolRegular.Code24, L.T("Extra variables"),
                 L.T("NAME=value pairs separated by spaces, passed to the game. For anything Engine switches doesn't list; a variable set here wins over its switch there"),
                 "BB_EXAMPLE=1", () => S.Str("extra_env"), v => S.Set("extra_env", v.Trim()), width: 300);
+            Group(L.T("About"));
+            // Lantern Engine's NOTICE (GPL-3.0 section 7 terms 1 and 2): its attribution, intact, in the
+            // program's about screen, and this build marked as a modified version, not Lantern's own.
+            Body.Children.Add(Text(L.T("Nightwatch Co-op is a modified version of Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine), ") +
+                                   L.T("with visy's seamless co-op and its own changes. It is not an official Lantern Engine release, and Awaken is not involved in it. ") +
+                                   L.T("Free software under the GNU GPL v3 or later with additional terms: see NOTICE in the game's folder."), "Faint"));
             ShowChanged();
             Ws.PortChanged += ShowPort;
         }

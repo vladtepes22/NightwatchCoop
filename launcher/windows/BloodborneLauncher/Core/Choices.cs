@@ -124,7 +124,6 @@
         public static readonly Choice[] CameraTuning =
         {
             new(L.T("Original (the game's camera)"), "original", L.T("As the game has it, at any frame rate")),
-            new(L.T("FPS++ retune"), "fps++", L.T("Kyo's 60 FPS++ camera: further back and slower to follow")),
         };
 
         // No Lowest (2: models without a third level, some floors among them, were not drawn): the

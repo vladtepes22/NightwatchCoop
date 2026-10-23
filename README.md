@@ -4,8 +4,9 @@
 walls: deaths, boss kills and lamp travel don't end the session, and everyone's save keeps the
 progress. Up to 4 hunters. Free and open source.
 
-Built on the open-source **Lantern Engine 0.9.37 beta 9** (Bloodborne running natively on Windows,
-with upscalers and PC controls) and **visy's seamless co-op v0.7.4**.
+A modified version of **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)**,
+0.9.37 (Bloodborne running natively on Windows, with upscalers and PC controls), with **visy's
+seamless co-op v0.7.4**.
 
 **See it in action:** [Nightwatch Co-op on YouTube](https://www.youtube.com/watch?v=bYavrI0ca94)
 (thanks to Zarok for helping make it).
@@ -271,7 +272,7 @@ Write down what happened and when, then send `logs\last_session.log` from **ever
 
 | | |
 |---|---|
-| **Lantern Engine** | by **Awaken** (not involved in this project): the launcher, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, fixes) |
+| **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | not involved in this project: the launcher, the built-in game patches, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, fixes) |
 | Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.4 |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
@@ -293,7 +294,11 @@ Write down what happened and when, then send `logs\last_session.log` from **ever
 
 ## License
 
-The combined package is GPL-3.0-or-later (see [LICENSE](LICENSE)). Lantern Engine's engine and
-visy's co-op are GPL-3.0-or-later; the launcher and the base engine retain their GPL-2.0-or-later
-notices, a copy of that license is in [engine/licenses/GPL-2.0.txt](engine/licenses/GPL-2.0.txt).
-Third-party components retain their own licenses in the package's `licenses/` folder.
+The combined package is GPL-3.0-or-later (see [LICENSE](LICENSE)). Lantern Engine's own code (its
+engine code, launcher and built-in game patches) is under the GPL v3 or later with additional terms
+(GPL-3.0 section 7, see [NOTICE](NOTICE)): its attribution "Lantern Engine by Awaken
+(https://github.com/Awakenchan/LanternEngine)" stays with every copy, and Nightwatch Co-op is a
+modified version of it, not an official Lantern Engine release. visy's co-op is GPL-3.0-or-later;
+code from shadPS4, bbport and bloodborne_pc keeps its GPL-2.0-or-later notices (a copy of that
+license is in [engine/licenses/GPL-2.0.txt](engine/licenses/GPL-2.0.txt)). Third-party components
+retain their own licenses in the package's `licenses/` folder.

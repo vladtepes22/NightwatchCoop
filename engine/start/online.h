@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
-// The online profile (was scripts/online.py): always offline in Nightwatch Co-op, whose co-op runs
-// through the party's own network layer.
+// SPDX-License-Identifier: GPL-3.0-or-later
+// The online profile (was scripts/online.py): The Hunter's Dream's server for the engine's thd
+// backend, the host overrides the game's requests follow, or offline.
 #pragma once
 #include "common.h"
 
