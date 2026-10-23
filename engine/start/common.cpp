@@ -158,6 +158,7 @@ struct PoolAnswer {
     unsigned long error = 0;
     HANDLE section = nullptr;
     std::uint64_t bytes = 0;
+    bool reserved = false;
 };
 std::map<std::uint64_t, PoolAnswer>& PoolAnswers() {
     static std::map<std::uint64_t, PoolAnswer> answers;
@@ -171,18 +172,36 @@ unsigned long PoolRefused(std::uint64_t mib) {
     const std::uint64_t size = (mib + 1024) << 20;
     SECURITY_ATTRIBUTES inherit{sizeof inherit, nullptr, TRUE};
     const bool lazy = Env("BB_POOL_LAZY", "") == "1";
-    HANDLE section = CreateFileMappingW(INVALID_HANDLE_VALUE, &inherit,
+    // BB_TEST_POOL_FAILURES=1 simulates Windows refusing the full commit (tests).
+    const bool simulated = !lazy && Env("BB_TEST_POOL_FAILURES", "0") != "0";
+    HANDLE section = simulated ? nullptr : CreateFileMappingW(INVALID_HANDLE_VALUE, &inherit,
                                         PAGE_EXECUTE_READWRITE | (lazy ? SEC_RESERVE : SEC_COMMIT),
                                         DWORD(size >> 32), DWORD(size), nullptr);
     PoolAnswer& answer = answers[mib];
-    answer.error = section ? 0 : GetLastError();
+    answer.error = section ? 0 : simulated ? ERROR_COMMITMENT_LIMIT : GetLastError();
     answer.section = section;
     answer.bytes = size;
+    answer.reserved = section && lazy;
     return answer.error;
 }
 
+/* A pool Windows refused to commit at once (visy 47cc3e1c) is handed off reserved: bb-probe commits
+ * each range as the game maps it (BB_POOL_RESERVED=1), and the game maps far less than the pool.
+ * PoolRefused keeps answering for the full commit, so heap sizes are still chosen on it. */
 void PoolHandOff(std::uint64_t mib) {
     UnsetEnv("BB_POOL_SECTION");
+    UnsetEnv("BB_POOL_RESERVED");
+    if (mib) {
+        if (auto it = PoolAnswers().find(mib); it != PoolAnswers().end() && !it->second.section) {
+            SECURITY_ATTRIBUTES inherit{sizeof inherit, nullptr, TRUE};
+            const std::uint64_t size = it->second.bytes;
+            it->second.section = CreateFileMappingW(INVALID_HANDLE_VALUE, &inherit, PAGE_EXECUTE_READWRITE | SEC_RESERVE,
+                                                    DWORD(size >> 32), DWORD(size), nullptr);
+            it->second.reserved = it->second.section != nullptr;
+            if (it->second.reserved)
+                Log("Memory: the %llu MiB pool is reserved and committed as the game maps it", (unsigned long long)mib);
+        }
+    }
     for (auto& [size, answer] : PoolAnswers()) {
         if (!answer.section) continue;
         if (size == mib) {
@@ -190,6 +209,7 @@ void PoolHandOff(std::uint64_t mib) {
             std::snprintf(text, sizeof text, "%llu:%llu", (unsigned long long)(std::uintptr_t)answer.section,
                           (unsigned long long)answer.bytes);
             SetEnv("BB_POOL_SECTION", text);
+            if (answer.reserved) SetEnv("BB_POOL_RESERVED", "1");
         } else {
             CloseHandle(answer.section);
             answer.section = nullptr;
@@ -202,6 +222,7 @@ void PoolRelease() {
         if (answer.section) CloseHandle(answer.section);
     PoolAnswers().clear();
     UnsetEnv("BB_POOL_SECTION");
+    UnsetEnv("BB_POOL_RESERVED");
 }
 
 void SetEnv(const char* name, std::string_view value) {

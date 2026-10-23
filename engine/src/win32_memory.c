@@ -70,6 +70,7 @@ int win_mem_section(uint64_t size, void **backing) {
             section = (HANDLE)(uintptr_t)handle;
             *backing = MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, size);
             pool_view = *backing;
+            if (getenv("BB_POOL_RESERVED") && getenv("BB_POOL_RESERVED")[0] == '1') lazy = 1;
             if (*backing) return 0;
             fprintf(stderr, "Runtime: the pool bb-start made cannot be mapped (Windows error %lu); making one\n",
                     GetLastError());
@@ -78,15 +79,37 @@ int win_mem_section(uint64_t size, void **backing) {
                     (unsigned long long)size);
         }
         section = NULL;
+        lazy = lazy_env && lazy_env[0] == '1';
     }
-    section = CreateFileMappingW(INVALID_HANDLE_VALUE, NULL,
-                                 PAGE_EXECUTE_READWRITE | (lazy ? SEC_RESERVE : SEC_COMMIT),
-                                 (DWORD)(size >> 32), (DWORD)size, NULL);
+    /* BB_TEST_POOL_FAILURES=1 simulates Windows refusing the full commit (tests). */
+    const int simulated = !lazy && env_number("BB_TEST_POOL_FAILURES", 0) > 0;
+    section = simulated ? NULL
+                        : CreateFileMappingW(INVALID_HANDLE_VALUE, NULL,
+                                             PAGE_EXECUTE_READWRITE | (lazy ? SEC_RESERVE : SEC_COMMIT),
+                                             (DWORD)(size >> 32), (DWORD)size, NULL);
+    if (!section && !lazy) {
+        /* visy 47cc3e1c: the full pool does not fit Windows' commit limit at once; reserve it and
+         * commit each range as the game maps it (win_mem_commit). */
+        const DWORD error = simulated ? ERROR_COMMITMENT_LIMIT : GetLastError();
+        if (commit_error(error)) {
+            section = CreateFileMappingW(INVALID_HANDLE_VALUE, NULL, PAGE_EXECUTE_READWRITE | SEC_RESERVE,
+                                         (DWORD)(size >> 32), (DWORD)size, NULL);
+            if (section) {
+                lazy = 1;
+                fprintf(stderr, "Runtime: the %llu MiB game memory pool does not fit Windows' commit limit at once "
+                                "(error %lu, %llu MiB of commit left): committed as the game maps it\n",
+                        (unsigned long long)(size >> 20), error, commit_free_mib());
+                lazy_env = NULL;
+            }
+        } else {
+            SetLastError(error);
+        }
+    }
     if (!section) { report("creating the memory pool section", 0, size); return -1; }
     *backing = MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, size);
     if (!*backing) { report("mapping the memory pool", 0, size); return -1; }
     pool_view = *backing;
-    if (lazy) {
+    if (lazy && lazy_env && lazy_env[0] == '1') {
         fprintf(stderr, "Runtime: the game's memory (%llu MiB) is committed as it is mapped "
                         "(BB_POOL_LAZY=1)\n", (unsigned long long)(size >> 20));
     }
