@@ -235,7 +235,7 @@ target_sources(bbgpu PRIVATE third_party/monocypher/monocypher.c)
 file(GLOB_RECURSE BB_ID_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*.h ../src/*.c ../src/*.h)
 # The co-op mod's version: in the party build id (host and guests must match) and in the log.
 set(BB_COOP_VERSION "0.2.3")
-set(BB_ID_CONTENT "nightwatch-coop-${BB_COOP_VERSION}-lantern-0.9.37-beta.9-visy-0.7.4-91ab5b96")
+set(BB_ID_CONTENT "nightwatch-coop-${BB_COOP_VERSION}-lantern-0.9.37-visy-0.7.4-91ab5b96")
 foreach(source IN LISTS BB_ID_SOURCES)
     file(SHA256 "${source}" source_hash)
     string(APPEND BB_ID_CONTENT "${source_hash}")
