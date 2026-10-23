@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// The map page's pure rules (tests/test_map_page.cpp): which baked area a game map shows, and the
-// zoom range.
+// The map page's pure rules (tests/test_map_page.cpp): which baked area a game map shows, the
+// zoom range, and the inputs that open the map.
 #pragma once
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 namespace BbMapPage {
 
@@ -35,6 +37,33 @@ inline float WheelZoom(float zoom, float wheel) {
         wheel = 0;
     }
     return std::clamp(zoom * std::pow(1.15f, wheel), kMinZoom, kMaxZoom);
+}
+
+/// The inputs of a bbport.ini binding value (bind.map, pad.map: "M, Ctrl+Mouse4"), as their base
+/// names: the map opens on the key or button alone, so a combination's modifiers are dropped.
+inline std::vector<std::string> InputNames(const std::string& value) {
+    std::vector<std::string> names;
+    std::size_t at = 0;
+    while (at <= value.size()) {
+        std::size_t end = value.find(',', at);
+        if (end == std::string::npos) end = value.size();
+        std::string name = value.substr(at, end - at);
+        at = end + 1;
+        for (bool stripped = true; stripped;) {
+            stripped = false;
+            while (!name.empty() && std::isspace(static_cast<unsigned char>(name.front()))) name.erase(0, 1);
+            while (!name.empty() && std::isspace(static_cast<unsigned char>(name.back()))) name.pop_back();
+            for (const char* prefix : {"Ctrl+", "Shift+", "Alt+"}) {
+                const std::size_t n = std::char_traits<char>::length(prefix);
+                if (name.size() > n && name.compare(0, n, prefix) == 0) {
+                    name.erase(0, n);
+                    stripped = true;
+                }
+            }
+        }
+        if (!name.empty()) names.push_back(name);
+    }
+    return names;
 }
 
 } // namespace BbMapPage

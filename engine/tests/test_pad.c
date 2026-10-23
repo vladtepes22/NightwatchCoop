@@ -33,6 +33,10 @@ uint64_t host_monotonic_ns(void) {
     return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec;
 }
 int bbgpu_overlay_captures_input(void) { return capture; }
+// The map (bbgpu): on only where the test says, counting the map button's toggles.
+static int map_on, map_toggles;
+int bbgpu_map_available(void) { return map_on; }
+void bbgpu_map_toggle(void) { ++map_toggles; }
 int bbgpu_pc_input(BbPcPad* p,const bool* keys,int n,int gamepad) {
     (void)p;(void)keys;(void)n;(void)gamepad;return 0;
 }
@@ -68,7 +72,7 @@ int main(void) {
     for (size_t i=0;i<sizeof launcher_buttons/sizeof *launcher_buttons;++i)
         assert(pad_button_from_name(launcher_buttons[i])>=0);
     static const char *const launcher_inputs[]={"cross","circle","square","triangle","l1","r1","l2","r2","l3","r3",
-        "options","touchpad","touchpad_right","up","down","left","right","ping","gather","menu_confirm","menu_back"};
+        "options","touchpad","touchpad_right","up","down","left","right","ping","gather","menu_confirm","menu_back","map"};
     for (size_t i=0;i<sizeof launcher_inputs/sizeof *launcher_inputs;++i) {
         int found=-1;
         for (int k=0;k<IN_COUNT;++k) if (!strcmp(launcher_inputs[i],input_names[k])) found=k;
@@ -162,6 +166,61 @@ int main(void) {
     SDL_UpdateJoysticks();
     SDL_UpdateGamepads();
     assert(pad_read_state(1,&data)==0 && data.buttons==0);
+
+    /* The map button (pad.map, default start, shared with Options). Map off: Start is Options at once. */
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_START,true));
+    SDL_UpdateJoysticks();
+    SDL_UpdateGamepads();
+    assert(pad_read_state(1,&data)==0 && data.buttons==BTN_OPTIONS);
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_START,false));
+    SDL_UpdateJoysticks();
+    SDL_UpdateGamepads();
+    assert(pad_read_state(1,&data)==0 && data.buttons==0);
+    /* Map on, a tap: held back while down, the game's Options when let go of (for a moment). */
+    map_on=1;
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_START,true));
+    SDL_UpdateJoysticks();
+    SDL_UpdateGamepads();
+    assert(pad_read_state(1,&data)==0 && data.buttons==0);
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_START,false));
+    SDL_UpdateJoysticks();
+    SDL_UpdateGamepads();
+    assert(pad_read_state(1,&data)==0 && data.buttons==BTN_OPTIONS && map_toggles==0);
+    usleep(PAD_HOLD_TAP_US+20000);
+    assert(pad_read_state(1,&data)==0 && data.buttons==0);
+    /* A hold: the map, once, and never Options, also when let go of. */
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_START,true));
+    SDL_UpdateJoysticks();
+    SDL_UpdateGamepads();
+    assert(pad_read_state(1,&data)==0 && data.buttons==0);
+    usleep(MAP_HOLD_US+20000);
+    assert(pad_read_state(1,&data)==0 && data.buttons==0 && map_toggles==1);
+    assert(pad_read_state(1,&data)==0 && data.buttons==0 && map_toggles==1);
+    /* The map view holds the game's input; Start still down when it closes is no new press. */
+    capture=1;
+    assert(pad_read_state(1,&data)==0 && data.buttons==0);
+    capture=0;
+    usleep(MAP_HOLD_US+20000);
+    assert(pad_read_state(1,&data)==0 && data.buttons==0 && map_toggles==1);
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_START,false));
+    SDL_UpdateJoysticks();
+    SDL_UpdateGamepads();
+    assert(pad_read_state(1,&data)==0 && data.buttons==0);
+    usleep(PAD_HOLD_TAP_US+20000);
+    assert(pad_read_state(1,&data)==0 && data.buttons==0 && map_toggles==1);
+    /* A button of its own (paddle1, nothing in the game): a press opens the map at once. */
+    pad_hold_reset(&map_hold,0);
+    bindings[IN_MAP].pad[0]=SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1;
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1,true));
+    SDL_UpdateJoysticks();
+    SDL_UpdateGamepads();
+    assert(pad_read_state(1,&data)==0 && data.buttons==0 && map_toggles==2);
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1,false));
+    SDL_UpdateJoysticks();
+    SDL_UpdateGamepads();
+    assert(pad_read_state(1,&data)==0 && data.buttons==0 && map_toggles==2);
+    map_on=0;
+
     static const struct { const char *name; int button; } physical[]={
         {"a",SDL_GAMEPAD_BUTTON_SOUTH}, {"b",SDL_GAMEPAD_BUTTON_EAST}, {"x",SDL_GAMEPAD_BUTTON_WEST},
         {"y",SDL_GAMEPAD_BUTTON_NORTH}, {"leftshoulder",SDL_GAMEPAD_BUTTON_LEFT_SHOULDER},

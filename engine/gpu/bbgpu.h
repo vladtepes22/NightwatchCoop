@@ -33,8 +33,12 @@ void bbgpu_dump_guest_writes(void *ucontext);
  * no window exists; poll returns 0 typing, 1 confirmed, 2 cancelled (UTF-8 text). */
 int bbgpu_text_input_begin(const char *initial_utf8, const char *prompt_utf8);
 int bbgpu_text_input_poll(char *out_utf8, uint64_t size);
-/* 1 while the in-game settings menu is open: the game's pad input is held neutral. */
+/* 1 while the in-game settings menu or the map is open: the game's pad input is held neutral. */
 int bbgpu_overlay_captures_input(void);
+/* The map (gpu/shim/map/map_page.h): 1 when baked maps are there; toggle opens or closes the map
+ * view (the pad reader, on the map button). */
+int bbgpu_map_available(void);
+void bbgpu_map_toggle(void);
 /* Patches the loaded image before the game runs (image still writable): libGnm entry hooks. */
 void bbgpu_patch_image(unsigned char *image, uint64_t size);
 /* Number of symbols registered by the vendored libraries (diagnostics). */

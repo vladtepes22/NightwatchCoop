@@ -28,6 +28,12 @@ int main() {
     CHECK(WheelZoom(24.0f, 10) == kMaxZoom && WheelZoom(0.2f, -10) == kMinZoom);
     CHECK(WheelZoom(-1.0f, 0) == kDefaultZoom && WheelZoom(NAN, 0) == kDefaultZoom);
     CHECK(WheelZoom(4.0f, NAN) == 4.0f);
+    // bind.map / pad.map values: base names, modifiers dropped, blanks skipped.
+    CHECK(InputNames("M") == std::vector<std::string>{"M"});
+    CHECK((InputNames(" M, Ctrl+Shift+Mouse4 ,,Left Ctrl\r\n") ==
+           std::vector<std::string>{"M", "Mouse4", "Left Ctrl"}));
+    CHECK(InputNames("").empty() && InputNames(" , ").empty());
+    CHECK(InputNames("Ctrl+") == std::vector<std::string>{"Ctrl+"});  // a key named so, not a modifier
     std::printf(failures ? "map-page-test: %d failures\n" : "map-page-test: ok\n", failures);
     return failures ? 1 : 0;
 }

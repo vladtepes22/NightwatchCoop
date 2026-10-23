@@ -2,6 +2,7 @@
 #include "bbport_gnm_hooks.h"
 // bbport: glue between the C loader and the vendored shadPS4 video core.
 #include "bbport_overlay.h"
+#include "map/map_page.h"
 #include "bbport_settings.h"
 #include "bbport_copy.h"
 #ifndef _WIN32
@@ -625,6 +626,14 @@ ScreenshotRequests ConsumeScreenshotRequests() { return {}; }
 
 extern "C" int bbgpu_overlay_captures_input(void) {
     return BbOverlay::CapturesInput() ? 1 : 0;
+}
+
+extern "C" int bbgpu_map_available(void) {
+    return BbMapPage::Available() ? 1 : 0;
+}
+
+extern "C" void bbgpu_map_toggle(void) {
+    BbOverlay::ToggleMap();
 }
 
 extern "C" int bbgpu_text_input_begin(const char* initial, const char* prompt) {

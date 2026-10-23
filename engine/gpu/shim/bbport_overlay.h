@@ -32,8 +32,12 @@ bool Visible();
 /// Present thread: draws into `view` (layout ColorAttachmentOptimal).
 void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent);
 
-/// The menu or the text dialog is open: the game's input is held neutral.
+/// The menu, the map view or the text dialog is open: the game's input is held neutral.
 bool CapturesInput();
+
+/// Opens or closes the map view (the pad reader on the map button; the window thread does it for
+/// the keyboard). Nothing while the map is off or the menu or text dialog is open.
+void ToggleMap();
 
 /// The settings menu is open: the window shows the system cursor over it.
 bool MenuOpen();

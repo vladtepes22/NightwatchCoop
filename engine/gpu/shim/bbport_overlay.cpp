@@ -91,6 +91,8 @@ namespace {
 std::mutex imgui_mutex; // the ImGui context: window thread (input) and present thread
 bool initialized = false;
 std::atomic<bool> menu_open{false};
+// The map view (ToggleMap): the map over the game, apart from the settings menu.
+std::atomic<bool> map_open{false};
 bool l3_down = false, r3_down = false;
 bool dirty = false; // settings changed while open: saved on close
 float base_scale = 1.0f;
@@ -108,6 +110,9 @@ float frame_ms_avg = 0.0f;
 float PixelDensity(SDL_WindowID id);
 
 void SetOpen(bool value) {
+    if (value) {
+        map_open = false;  // the menu replaces the map view
+    }
     if (menu_open.exchange(value) == value) {
         return;
     }
@@ -1886,6 +1891,21 @@ bool CompileNoteActive() {
            now - compile_note_last < std::chrono::milliseconds(1500);
 }
 
+// The map's note (map/map_page.h NoteText): the maps still being made, or ready. Top centre, where
+// the game's HUD has nothing.
+void MapNote(const char* text) {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                                   viewport->WorkPos.y + 12.0f * base_scale),
+                            ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.7f);
+    ImGui::Begin("##map_note", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+                     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
+    ImGui::TextUnformatted(text);
+    ImGui::End();
+}
+
 void CompileNote() {
     u32 burst;
     {
@@ -1999,6 +2019,25 @@ void FpsCounter() {
     ImGui::End();
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(2);
+}
+
+// The map view: most of the screen, the map centred on the player (map/map_page.h).
+void MapView() {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                                   viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
+                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.86f, viewport->WorkSize.y * 0.86f), ImGuiCond_Always);
+    ImGui::Begin("##mapview", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
+    if (ImGui::BeginChild("##mapcanvas", ImVec2(0.0f, -ImGui::GetTextLineHeightWithSpacing()))) {
+        BbMapPage::Draw(base_scale, true);
+    }
+    ImGui::EndChild();
+    ImGui::TextDisabled("%s", BbSettings::MenuText("Close: the map button again, Esc or Circle",
+                                                   "Закрыть: снова кнопка карты, Esc или Circle"));
+    ImGui::End();
 }
 
 void TextPrompt() {
@@ -2144,10 +2183,17 @@ bool HandleEvent(const SDL_Event& event) {
     }
     ImGuiIO& io = ImGui::GetIO();
     const bool is_open = menu_open;
+    // The map view: its key or button, or Esc / Circle, closes it; the game gets nothing meanwhile.
+    const bool map_shown = map_open && !is_open;
     switch (event.type) {
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
         const bool down = event.type == SDL_EVENT_KEY_DOWN;
+        if (down && !event.key.repeat && !is_open && !prompt_active &&
+            (BbMapPage::OpensWithKey(int(event.key.scancode)) || (map_shown && event.key.key == SDLK_ESCAPE))) {
+            map_open = !map_shown;
+            return true;
+        }
         if (down && !event.key.repeat &&
             ((event.key.key == SDLK_INSERT && (is_open || MenuKeys() != OverlayKeys::Off)) ||
              // Esc in a text field (the search, a typed value) is the field's: it clears, or leaves.
@@ -2156,7 +2202,7 @@ bool HandleEvent(const SDL_Event& event) {
             return true;
         }
         if (!is_open) {
-            return false;
+            return map_shown;
         }
         io.AddKeyEvent(ImGuiMod_Ctrl, (event.key.mod & SDL_KMOD_CTRL) != 0);
         io.AddKeyEvent(ImGuiMod_Shift, (event.key.mod & SDL_KMOD_SHIFT) != 0);
@@ -2179,6 +2225,15 @@ bool HandleEvent(const SDL_Event& event) {
             SetOpen(!is_open);
             return true;
         }
+        if (map_shown) {
+            // Opening is the pad reader's (a hold of a shared button, runtime_pad.c); any press
+            // of the map button closes, as do Circle / B and Options / Start.
+            if (down && (BbMapPage::OpensWithPad(button) || button == SDL_GAMEPAD_BUTTON_EAST ||
+                         button == SDL_GAMEPAD_BUTTON_START)) {
+                map_open = false;
+            }
+            return true;
+        }
         if (!is_open) {
             return false;
         }
@@ -2188,8 +2243,8 @@ bool HandleEvent(const SDL_Event& event) {
         return true;
     }
     case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
-        // The triggers switch the tabs (L2 / R2), pressed past half way.
-        if (!is_open) {
+        // The triggers switch the tabs (L2 / R2), pressed past half way; in the map view they zoom.
+        if (!is_open && !map_shown) {
             return false;
         }
         const u8 axis = event.gaxis.axis;
@@ -2210,7 +2265,7 @@ bool HandleEvent(const SDL_Event& event) {
         return true;
     }
     case SDL_EVENT_MOUSE_MOTION: {
-        if (!is_open) {
+        if (!is_open && !map_shown) {
             return false;
         }
         const float density = PixelDensity(event.motion.windowID);
@@ -2219,7 +2274,12 @@ bool HandleEvent(const SDL_Event& event) {
     }
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP: {
-        if (!is_open) {
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && !is_open && !prompt_active &&
+            BbMapPage::OpensWithMouse(event.button.button)) {
+            map_open = !map_shown;
+            return true;
+        }
+        if (!is_open && !map_shown) {
             return false;
         }
         const int button = event.button.button == SDL_BUTTON_LEFT    ? 0
@@ -2232,7 +2292,7 @@ bool HandleEvent(const SDL_Event& event) {
         return true;
     }
     case SDL_EVENT_MOUSE_WHEEL:
-        if (!is_open) {
+        if (!is_open && !map_shown) {
             return false;
         }
         io.AddMouseWheelEvent(event.wheel.x, event.wheel.y);
@@ -2243,7 +2303,11 @@ bool HandleEvent(const SDL_Event& event) {
 }
 
 bool Visible() {
-    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps || CompileNoteActive() ||
+    // Present thread, every frame (the presenter asks before drawing anything): maps made while
+    // the game runs turn the map on, no restart.
+    BbMapPage::Poll();
+    return initialized && (menu_open || map_open || prompt_active || BbSettings::Get().show_fps || CompileNoteActive() ||
+                           BbMapPage::NoteText() ||
                            SeamlessOverlay::Visible());
 }
 
@@ -2253,7 +2317,14 @@ bool MenuOpen() {
 
 bool CapturesInput() {
     // The text dialog too: keys typed into it (Backspace is the touchpad) stay out of the game.
-    return menu_open || prompt_active;
+    return menu_open || map_open || prompt_active;
+}
+
+void ToggleMap() {
+    if (!BbMapPage::Available() || menu_open || prompt_active) {
+        return;
+    }
+    map_open = !map_open;
 }
 
 void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
@@ -2291,6 +2362,12 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     }
     if (!menu_open && CompileNoteActive()) {
         CompileNote();
+    }
+    if (map_open && !menu_open) {
+        MapView();
+    }
+    if (const char* note = BbMapPage::NoteText(); note && !menu_open && !map_open) {
+        MapNote(note);
     }
     if (prompt_active && !menu_open) {
         TextPrompt();

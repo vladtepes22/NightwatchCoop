@@ -15,6 +15,7 @@
 #include <time.h>
 #include <SDL3/SDL.h>
 #include "../gpu/shim/input/input.h"
+#include "pad_hold.h"
 #include <sys/stat.h>
 
 #define ERR_INVALID_ARG ((int32_t)0x80920001)
@@ -204,7 +205,8 @@ static void report_guest_heap(void) {
  * replace an input's binding (empty: unbound). Inputs: the buttons (cross ... right, touchpad =
  * a left-side click, touchpad_right), ping and gather (co-op, gamepad buttons of their own; no PS4
  * button: the touchpad + R3 combo always pings too, the touchpad + L3 gathers the party on the
- * host), and on the keyboard the sticks: move_* (left), look_* (right). Gamepad names as SDL's: a b x y back
+ * host), map (gamepad only: held opens the map, a tap stays the shared button's; the keyboard's is
+ * bind.map, bbport_overlay.cpp), and on the keyboard the sticks: move_* (left), look_* (right). Gamepad names as SDL's: a b x y back
  * start leftstick rightstick leftshoulder rightshoulder dpup dpdown dpleft dpright touchpad misc1 paddle1-4, plus lefttrigger and
  * righttrigger. The keyboard works next to a gamepad (the Steam Deck always has one): its buttons
  * add to the gamepad's, a held move/look key moves the stick all the way. */
@@ -212,12 +214,12 @@ enum {
     IN_CROSS, IN_CIRCLE, IN_SQUARE, IN_TRIANGLE, IN_L1, IN_R1, IN_L2, IN_R2, IN_L3, IN_R3,
     IN_OPTIONS, IN_TOUCHPAD, IN_TOUCHPAD_RIGHT, IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT, IN_PING, IN_GATHER,
     IN_MOVE_UP, IN_MOVE_DOWN, IN_MOVE_LEFT, IN_MOVE_RIGHT, IN_LOOK_UP, IN_LOOK_DOWN, IN_LOOK_LEFT,
-    IN_LOOK_RIGHT, IN_MENU_CONFIRM, IN_MENU_BACK, IN_COUNT
+    IN_LOOK_RIGHT, IN_MENU_CONFIRM, IN_MENU_BACK, IN_MAP, IN_COUNT
 };
 static const char *const input_names[IN_COUNT]={
     "cross","circle","square","triangle","l1","r1","l2","r2","l3","r3","options","touchpad",
     "touchpad_right","up","down","left","right","ping","gather","move_up","move_down","move_left","move_right",
-    "look_up","look_down","look_left","look_right","menu_confirm","menu_back",
+    "look_up","look_down","look_left","look_right","menu_confirm","menu_back","map",
 };
 static const uint32_t input_buttons[IN_COUNT]={
     BTN_CROSS,BTN_CIRCLE,BTN_SQUARE,BTN_TRIANGLE,BTN_L1,BTN_R1,BTN_L2,BTN_R2,BTN_L3,BTN_R3,
@@ -255,6 +257,7 @@ static void bind_defaults(void) {
         {IN_TOUCHPAD,SDL_GAMEPAD_BUTTON_BACK}, {IN_TOUCHPAD,SDL_GAMEPAD_BUTTON_TOUCHPAD},
         {IN_UP,SDL_GAMEPAD_BUTTON_DPAD_UP}, {IN_DOWN,SDL_GAMEPAD_BUTTON_DPAD_DOWN},
         {IN_LEFT,SDL_GAMEPAD_BUTTON_DPAD_LEFT}, {IN_RIGHT,SDL_GAMEPAD_BUTTON_DPAD_RIGHT},
+        {IN_MAP,SDL_GAMEPAD_BUTTON_START},
     };
     memset(bindings,0,sizeof bindings);
     for (size_t i=0;i<sizeof(keys)/sizeof(*keys);++i) {
@@ -292,8 +295,8 @@ static void load_bindings(void) {
         *eq=0;
         int input=-1;
         for (int i=0;i<IN_COUNT;++i) if (!strcmp(line+4,input_names[i])) input=i;
-        /* move_* and look_* are keyboard only, menu_confirm and menu_back gamepad only (the
-         * keyboard's are bind.confirm and bind.back, gpu/shim/input/bindings.cpp). */
+        /* move_* and look_* are keyboard only, menu_confirm, menu_back and map gamepad only (the
+         * keyboard's are bind.confirm, bind.back and bind.map). */
         if (input<0 || (pad && input>=IN_MOVE_UP && input<IN_MENU_CONFIRM) || (keyboard && input>=IN_MENU_CONFIRM)) {
             printf("Runtime: controls: unknown input %s\n",line); continue;
         }
@@ -331,6 +334,20 @@ static int menu_pad_button(int b) {
 }
 /* The bound gamepad buttons' state; triggers as their analog value. in_menu: the menu buttons
  * (above) are left out. */
+/* The game's buttons the map button also drives (Options for the default Start): its press is
+ * theirs on a tap and the map's on a hold. None: the button is the map's alone, a press opens it. */
+static uint32_t map_shared_buttons(void) {
+    uint32_t shared=0;
+    for (int i=IN_CROSS;i<=IN_RIGHT;++i)
+        for (int a=0;a<bindings[i].pad_count;++a)
+            for (int m=0;m<bindings[IN_MAP].pad_count;++m)
+                if (bindings[i].pad[a]==bindings[IN_MAP].pad[m]) shared|=input_buttons[i];
+    return shared;
+}
+#define MAP_HOLD_US 500000u
+static PadHold map_hold;
+static int map_hold_reset_due;
+
 static int pad_value(SDL_Gamepad *g, int input, int in_menu) {
     int value=0;
     for (int i=0;i<bindings[input].pad_count;++i) {
@@ -373,7 +390,7 @@ static void sample_host(PadData *d) {
     if (headless) return;
     SDL_Gamepad *g=current_gamepad();
     if (!bindings_ready) { load_bindings(); bindings_ready=1; }
-    if (bbgpu_overlay_captures_input()) return; /* settings menu open: neutral input */
+    if (bbgpu_overlay_captures_input()) { map_hold_reset_due=1; return; } /* settings menu or map open: neutral input */
     const bool *k=SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetKeyboardState(NULL) : NULL;
     static int ping_pad_down;
     const int ping_pad = g && pad_value(g,IN_PING,0)>30;
@@ -430,6 +447,18 @@ static void sample_host(PadData *d) {
                 }
             }
         }
+        /* The map button (pad.map): held, the map (bbgpu_map_toggle); a tap, the game's. Only with
+         * the map on, else the button is the game's as ever. */
+        const int map_down=bbgpu_map_available() && pad_value(g,IN_MAP,0)>30;
+        if (map_hold_reset_due) { pad_hold_reset(&map_hold,map_down); map_hold_reset_due=0; }
+        const uint32_t shared=map_shared_buttons();
+        int game;
+        if (pad_hold_step(&map_hold,map_down,now_us(),shared ? MAP_HOLD_US : 0,&game)) {
+            puts("Runtime: map (map button held)");
+            bbgpu_map_toggle();
+        }
+        if (game==PAD_GAME_HIDE) d->buttons&=~shared;
+        else if (game==PAD_GAME_PRESS) d->buttons|=shared;
         // Back/Select on pads without a touch surface is a left-side click.
         if ((d->buttons & BTN_TOUCHPAD) && !d->touch_count) touch_click(d,0);
         if (touch_right) touch_click(d,1);
