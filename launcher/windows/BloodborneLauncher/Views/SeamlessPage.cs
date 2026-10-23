@@ -150,6 +150,7 @@ public sealed class SeamlessPage : LauncherPage
             ("party_npc_talk", "Share NPC dialogue", true), ("party_guest_lamps", "Guests use lamps", true),
             ("party_key_view", "Own key items as a guest", true), ("party_key_items_summoned", "Key items at once", true));
         IniNumbers(party, ("party_npc_talk_range", "NPC dialogue range (m)", 25), ("party_overhead", "Name tag detail (0–4)", 3));
+        IniToggles(party, SeamlessSettings.GameSwitches.Select(o => (o.Key, o.Label, true)).ToArray());
         foreach (var option in SeamlessSettings.Switches)
         {
             var key = option.Key;
@@ -157,7 +158,8 @@ public sealed class SeamlessPage : LauncherPage
         }
         ComboRow(SymbolRegular.People24, "Insight for bosses", null,
             new[] { new Choice("Same as host", "parity"), new Choice("Full bonus", "full"), new Choice("Game's own", "0") },
-            () => S.Str("party_guest_insight") is { Length: > 0 } n ? n : "parity", v => S.Set("party_guest_insight", v), party);
+            () => Ini.Get("party_guest_insight", "parity") is "full" or "0" ? Ini.Get("party_guest_insight") : "parity",
+            v => Ini.Set("party_guest_insight", v), party);
         ComboRow(SymbolRegular.Play24, "Party starts", "Each new character normally completes its own prologue first. Keep it the same for everyone.",
             new[] { new Choice("After the prologue", "prologue_solo"), new Choice("Right away", "immediate") },
             () => S.Str("party_start") == "immediate" ? "immediate" : "prologue_solo", v => S.Set("party_start", v), party);

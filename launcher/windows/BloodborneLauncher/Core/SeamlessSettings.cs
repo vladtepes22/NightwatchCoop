@@ -5,22 +5,51 @@ namespace BloodborneLauncher.Core;
 
 public static partial class SeamlessSettings
 {
+    /// <summary>The launcher's own co-op switches (settings.json; bb-start reads them, not the game).</summary>
     public static readonly (string Key, string Environment, string Label)[] Switches =
     {
-        ("party_grant_bells", "BB_PARTY_GRANT_BELLS", "Grant co-op bells"),
-        ("party_open_world", "BB_PARTY_OPEN_WORLD", "Remove multiplayer barriers"),
-        ("party_guest_respawn", "BB_PARTY_GUEST_RESPAWN", "Guest respawn"),
-        ("party_guest_refill", "BB_PARTY_GUEST_REFILL", "Refill guest supplies"),
-        ("party_chalice_rejoin", "BB_PARTY_CHALICE_REJOIN", "Stay in Chalice Dungeons"),
-        ("party_guest_mark", "BB_PARTY_GUEST_MARK", "Guests can use Hunter's Mark"),
-        ("party_full_rewards", "BB_PARTY_FULL_REWARDS", "Full Blood Echo rewards"),
-        ("party_items", "BB_PARTY_ITEMS", "Items for every player"),
-        ("party_progress", "BB_PARTY_PROGRESS", "Shared progression"),
-        ("party_progress_npc", "BB_PARTY_PROGRESS_NPC", "Shared NPC quest choices"),
-        ("party_story", "BB_PARTY_STORY", "Shared story and endings"),
-        ("party_story_mirror", "BB_PARTY_STORY_MIRROR", "Cutscenes for every player"),
         ("party_restart", "BB_PARTY_RESTART", "Restart and rejoin after a crash"),
     };
+
+    /// <summary>The game's co-op switches. They live in bbport.ini, where the game's own menu
+    /// (System > Party rules / My party) changes them too, and the game reads them from there. Until
+    /// 0.2.2 beta 2 the launcher kept them in settings.json and passed them as BB_PARTY_* variables,
+    /// which win over the ini: a change made in the game was undone at the next start.</summary>
+    public static readonly (string Key, string Label)[] GameSwitches =
+    {
+        ("party_grant_bells", "Grant co-op bells"),
+        ("party_open_world", "Remove multiplayer barriers"),
+        ("party_guest_respawn", "Guest respawn"),
+        ("party_guest_refill", "Refill guest supplies"),
+        ("party_chalice_rejoin", "Stay in Chalice Dungeons"),
+        ("party_guest_mark", "Guests can use Hunter's Mark"),
+        ("party_full_rewards", "Full Blood Echo rewards"),
+        ("party_items", "Items for every player"),
+        ("party_progress", "Shared progression"),
+        ("party_progress_npc", "Shared NPC quest choices"),
+        ("party_story", "Shared story and endings"),
+        ("party_story_mirror", "Cutscenes for every player"),
+    };
+
+    /// <summary>Carries an older launcher's choices for <see cref="GameSwitches"/> and the guest
+    /// Insight mode from settings.json into bbport.ini, once (only keys the ini doesn't have yet).
+    /// True when something moved.</summary>
+    public static bool MoveToIni(LauncherSettings s, IniFile ini)
+    {
+        var moved = false;
+        foreach (var (key, _) in GameSwitches)
+        {
+            if (ini.Raw(key) != null || !s.All.Any(item => item.Key == key)) continue;
+            ini.Set(key, s.Bool(key) ? "1" : "0");
+            moved = true;
+        }
+        if (ini.Raw("party_guest_insight") == null && s.Str("party_guest_insight") is "full" or "0")
+        {
+            ini.Set("party_guest_insight", s.Str("party_guest_insight"));
+            moved = true;
+        }
+        return moved;
+    }
 
     public static bool Enabled(LauncherSettings s) => s.Str("party_mode") is "host" or "join";
     public static bool Flag(LauncherSettings s, string key, bool fallback = true) =>
@@ -71,7 +100,6 @@ public static partial class SeamlessSettings
         env["BB_PARTY_PUBLIC_ADDR"] = s.Str("party_mode") == "host" ? s.Str("party_public_addr") : "";
         env["BB_PARTY_SAVE"] = "separate";
         env["BB_PARTY_START"] = s.Str("party_start") == "immediate" ? "immediate" : "prologue_solo";
-        env["BB_PARTY_GUEST_INSIGHT"] = s.Str("party_guest_insight") is "full" or "0" ? s.Str("party_guest_insight") : "parity";
         env["BB_SAVE_BACKUP_MINUTES"] = s.Str("party_backup_minutes") is { Length: > 0 } minutes ? minutes : "10";
         env["BB_SAVE_BACKUP_KEEP"] = s.Str("party_backup_keep") is { Length: > 0 } keep ? keep : "10";
         env["BB_PARTY_SEAMLESS"] = "1";

@@ -146,6 +146,9 @@ namespace BloodborneLauncher.Core
                 Settings.Set("dlss_preset", "k");
                 SaveSoon();
             }
+            // The game's co-op switches moved to bbport.ini too (SeamlessSettings.GameSwitches).
+            if (Paths.IsPortDir(Paths.PortDir) && SeamlessSettings.MoveToIni(Settings, Ini))
+                SaveSoon();
             _iniWarned = false;
             PortChanged?.Invoke();
         }

@@ -24,7 +24,20 @@ Check(env["BB_PARTY"] == "host" && env["BB_PARTY_MAX"] == "4", "Host setup missi
 Check(env["BB_PARTY_PASSWORD"] == "test secret", "Password did not reach runtime");
 Check(env["BB_ONLINE"] == "0" && env["BB_PARTY_SAVE"] == "separate", "Network ownership or save isolation missing");
 Check(env["BB_UPSCALER"] == "dlss" && env["BB_HDR"] == "1" && env["BB_DRAW_AHEAD"] == "2", "Base renderer options changed");
-Check(env["BB_PARTY_ITEMS"] == "1" && env["BB_PARTY_PROGRESS"] == "1", "Seamless defaults missing");
+// The game's co-op switches come from bbport.ini (where the in-game menu changes them): a launcher
+// variable would undo an in-game change at the next start. Only the launcher's own switches go out.
+Check(!env.ContainsKey("BB_PARTY_ITEMS") && !env.ContainsKey("BB_PARTY_PROGRESS") && !env.ContainsKey("BB_PARTY_GUEST_INSIGHT")
+      && env["BB_PARTY_RESTART"] == "1", "The game's co-op switches were passed as variables, or the restart switch is missing");
+var moveSettings = new LauncherSettings();
+moveSettings.Set("party_items", false);
+moveSettings.Set("party_story", true);
+moveSettings.Set("party_guest_insight", "full");
+var moveIni = new IniFile();
+moveIni.Set("party_story", "0");  // changed in the game already: kept
+Check(SeamlessSettings.MoveToIni(moveSettings, moveIni) && moveIni.Raw("party_items") == "0" && moveIni.Raw("party_story") == "0"
+      && moveIni.Raw("party_guest_insight") == "full" && moveIni.Raw("party_progress") == null,
+      "An older launcher's co-op switches did not move to bbport.ini as they were");
+Check(!SeamlessSettings.MoveToIni(moveSettings, moveIni), "The co-op switches moved to bbport.ini a second time");
 Check(env["BB_PARTY_AUTOCONTINUE"] == "0" && env["BB_PARTY_RESTARTED"] == "0", "Manual launch inherited automated Continue");
 var commands = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "seamless-stop-" + Guid.NewGuid());
 System.IO.Directory.CreateDirectory(commands);
@@ -36,9 +49,9 @@ try
     Check(!System.IO.File.Exists(System.IO.Path.Combine(commands, "party_command.json.tmp")), "Stop command was not committed");
 }
 finally { System.IO.Directory.Delete(commands, true); }
-settings.Set("party_items", false);
+settings.Set("party_restart", false);
 SeamlessSettings.Apply(settings, env);
-Check(env["BB_PARTY_ITEMS"] == "0", "Disabled rule ignored");
+Check(env["BB_PARTY_RESTART"] == "0", "Disabled launcher switch ignored");
 settings.Set("party_mode", "join");
 Check(SeamlessSettings.Validate(settings) != null, "Empty join target accepted");
 settings.Set("party_code", "127.0.0.1:47890");
