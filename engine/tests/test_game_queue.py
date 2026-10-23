@@ -57,6 +57,14 @@ class QueueFileTests(unittest.TestCase):
         self.assertEqual(json.loads(self.qf.read_text()), {"max_clients": 2})
         self.assertEqual(list(Path(self.tmp.name).glob("*.tmp")), [])
 
+    def test_corrupt_or_missing_file_is_empty_state(self):
+        if self.qf.exists():
+            self.qf.unlink()
+        self.assertEqual(gq._read_state(self.qf), {})
+
+        self.qf.write_text("not json {")
+        self.assertEqual(gq._read_state(self.qf), {})
+
     def test_busy_read_is_not_an_empty_queue(self):
         self.qf.write_text(json.dumps({"max_clients": 2, "holders": [{"pid": 1}], "queue": []}))
         real = Path.read_text
