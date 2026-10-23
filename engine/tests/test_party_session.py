@@ -168,6 +168,17 @@ class PartySessionTests(unittest.TestCase):
         self.assertIn("slot 1: the character that was there before the session is gone",
                       "\n".join(m for _, m in ps.check(self.user)))
 
+    def test_check_zero_game_data_from_before_is_not_damage(self):
+        # A game quit at the title before its first save: userdata0010 was zeros at the session
+        # start and still is (the false "damaged" after such a session).
+        save = self.user / "savedata_party" / SAVE
+        write(save / "userdata0010", bytes(ps.SYSTEM_SIZE))
+        self.start_session()
+        self.assertNotIn("game data file is damaged", "\n".join(m for _, m in ps.check(self.user)))
+        # The wrong size is still damage.
+        write(save / "userdata0010", bytes(ps.SYSTEM_SIZE - 1))
+        self.assertIn("game data file is damaged", "\n".join(m for _, m in ps.check(self.user)))
+
     def test_check_ng_cycle(self):
         self.start_session()
         save = self.user / "savedata_party" / SAVE / "userdata0000"

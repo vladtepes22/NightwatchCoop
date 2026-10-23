@@ -305,7 +305,10 @@ def check(user, session=None, progress=None) -> list:
         if not p.is_file() or p.name.endswith(".bbtmp"):
             continue
         size = p.stat().st_size
-        if p.name == "userdata0010" and (size != SYSTEM_SIZE or not p.read_bytes().strip(b"\0")):
+        if p.name == "userdata0010" and (size != SYSTEM_SIZE or
+                                         (not p.read_bytes().strip(b"\0") and _had_data(session, folder, p))):
+            # All zeros is only damage when the session started with real data there: a game quit
+            # at the title before its first save leaves the file as it was, zeros (a false alarm).
             problems.append(("error", f"{p.name}: the game data file is damaged ({size} bytes)"))
         elif p.name == "param.bin" and size != PARAM_SIZE:
             problems.append(("error", f"the save description (param.bin) is damaged ({size} bytes)"))
