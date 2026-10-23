@@ -53,7 +53,27 @@ SeamlessSettings.Apply(settings, env);
 Check(env["BB_PARTY"] == "off", "Single-player mode still enables party code");
 // Updater: a package file it cannot replace stops the update before the launcher and
 // package.json (the installed engine ID) are touched, so a half-copied engine is never called current.
-var copyPackage = typeof(Updater).GetMethod("CopyPackage", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+// Session logs: each start archives the last one to logs\sessions (newest 10 kept); a crash's log
+// no longer disappears after two more starts.
+var logsDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "seamless-logs-" + Guid.NewGuid());
+System.IO.Directory.CreateDirectory(logsDir);
+var lastLog = System.IO.Path.Combine(logsDir, "last_session.log");
+var firstEnd = new DateTime(2026, 10, 23, 2, 0, 0);
+for (var i = 0; i < 12; i++)
+{
+    System.IO.File.WriteAllText(lastLog, "session " + i);
+    System.IO.File.SetLastWriteTime(lastLog, firstEnd.AddMinutes(i));
+    GameRunner.ArchiveSessionLog(lastLog, GameRunner.KeptSessionLogs);
+}
+System.IO.File.WriteAllText(lastLog, "same second");
+System.IO.File.SetLastWriteTime(lastLog, firstEnd.AddMinutes(11));
+GameRunner.ArchiveSessionLog(lastLog, 20);
+var archived = System.IO.Directory.GetFiles(System.IO.Path.Combine(logsDir, "sessions")).Select(System.IO.Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+Check(archived.Length == 11 && archived[0] == "session-20261023-020200.log", "Session log archive kept the wrong logs: " + string.Join(", ", archived));
+Check(archived.Contains("session-20261023-021100-2.log") && System.IO.File.ReadAllText(System.IO.Path.Combine(logsDir, "sessions", "session-20261023-021100.log")) == "session 11",
+    "Two sessions ending in the same second overwrote each other");
+System.IO.Directory.Delete(logsDir, true);
+var copyPackage =typeof(Updater).GetMethod("CopyPackage", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
 var update = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "seamless-update-" + Guid.NewGuid());
 var newPackage = System.IO.Path.Combine(update, "new");
 var installed = System.IO.Path.Combine(update, "installed");

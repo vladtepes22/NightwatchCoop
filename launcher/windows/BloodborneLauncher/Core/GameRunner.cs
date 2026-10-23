@@ -156,6 +156,29 @@ namespace BloodborneLauncher.Core
             }
         }
 
+        /// <summary>How many earlier session logs logs\sessions keeps.</summary>
+        public const int KeptSessionLogs = 10;
+
+        /// <summary>Copies a finished session log to logs\sessions\session-&lt;when it ended&gt;.log and
+        /// keeps only the newest <paramref name="keep"/> there. last_session.log and
+        /// previous_session.log alone lost a crash's log as soon as the game was started twice
+        /// (a crash restart and the next start).</summary>
+        public static void ArchiveSessionLog(string log, int keep)
+        {
+            var dir = Path.Combine(Path.GetDirectoryName(log)!, "sessions");
+            Directory.CreateDirectory(dir);
+            var ended = File.GetLastWriteTime(log);
+            var name = $"session-{ended:yyyyMMdd-HHmmss}.log";
+            for (var n = 2; File.Exists(Path.Combine(dir, name)); n++)
+                name = $"session-{ended:yyyyMMdd-HHmmss}-{n}.log";
+            File.Copy(log, Path.Combine(dir, name));
+            foreach (var old in new DirectoryInfo(dir).GetFiles("session-*.log")
+                         .OrderByDescending(f => f.Name, StringComparer.Ordinal).Skip(keep))
+            {
+                try { old.Delete(); } catch (IOException) { /* open in an editor: next time */ }
+            }
+        }
+
         private void OpenLog()
         {
             try
@@ -165,7 +188,10 @@ namespace BloodborneLauncher.Core
                 try
                 {
                     if (File.Exists(SessionLog))
+                    {
+                        ArchiveSessionLog(SessionLog, KeptSessionLogs);
                         File.Copy(SessionLog, Path.Combine(Path.GetDirectoryName(SessionLog)!, "previous_session.log"), overwrite: true);
+                    }
                 }
                 catch (IOException) { /* still open elsewhere: only this session's is kept */ }
                 var stream = new FileStream(SessionLog, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
