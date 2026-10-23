@@ -72,10 +72,10 @@ static const std::uint8_t* udp_probe() { return bbnet::udp::kProbe; }
 // ---- the router's outside address ----
 
 // The router's outside address against what the internet sees (beta 8 report: UPnP "mapped" behind
-// CGNAT was taken for an open port). Addresses from that report's log.
+// CGNAT was taken for an open port). Documentation addresses (RFC 5737) and a CGNAT example.
 static void test_outside() {
     using namespace nat;
-    CHECK(classify_outside("100.64.5.37", "200.81.52.37") == Outside::ProviderNat);
+    CHECK(classify_outside("100.64.10.1", "198.51.100.20") == Outside::ProviderNat);
     CHECK(classify_outside("100.127.255.1", "") == Outside::ProviderNat);
     CHECK(classify_outside("100.128.0.1", "100.128.0.1") == Outside::Public);  // just past 100.64.0.0/10
     CHECK(classify_outside("192.168.0.10", "203.0.113.4") == Outside::PrivateNat);
@@ -89,8 +89,8 @@ static void test_outside() {
     CHECK(classify_outside("0.0.0.0", "") == Outside::Unknown);
     CHECK(classify_outside("not an ip", "") == Outside::Unknown);
     CHECK(classify_outside("1.2.3.4.5", "") == Outside::Unknown);
-    const std::string cg = outside_advice(Outside::ProviderNat, "100.64.5.37", "200.81.52.37", 9307);
-    CHECK(cg.find("CGNAT") != std::string::npos && cg.find("200.81.52.37") != std::string::npos &&
+    const std::string cg = outside_advice(Outside::ProviderNat, "100.64.10.1", "198.51.100.20", 9307);
+    CHECK(cg.find("CGNAT") != std::string::npos && cg.find("198.51.100.20") != std::string::npos &&
           cg.find("VPN") != std::string::npos && cg.find(":9307") != std::string::npos);
     CHECK(outside_advice(Outside::Public, "203.0.113.4", "203.0.113.4", 9307).empty());
     std::printf("  %s\n", cg.c_str());
