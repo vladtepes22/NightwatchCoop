@@ -96,6 +96,7 @@ struct View {
     bool shading = true;
     float pu = .5f, pv = .5f;  // the controller pointer, in the canvas
     bool controller = false;   // the last input was a controller's (pointer, button names)
+    int since_open = 0;        // frames drawn since it opened
 };
 View g_view;
 
@@ -119,6 +120,8 @@ enum class Note { None, Waiting, Ready };
 Note g_note = Note::None;
 Clock::time_point g_note_until{};
 constexpr auto kNoteTime = std::chrono::seconds(12);
+
+constexpr int kSettleFrames = 3;  // the map view's first frames take no presses (View::since_open)
 
 const ImU32 kPaper = IM_COL32(223, 214, 187, 255), kMuted = IM_COL32(185, 180, 161, 255),
             kRule = IM_COL32(152, 146, 128, 125);
@@ -355,7 +358,10 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         v.follow = false;
     }
     if (io.MouseDelta.x != 0 || io.MouseDelta.y != 0) v.controller = false;
-    if (pad) {
+    // Its first frames take no presses: a key or button from before it opened (the one that opened
+    // it, one still queued) is not one of its controls.
+    const bool settled = ++v.since_open > kSettleFrames;
+    if (pad && settled) {
         const float lx = Stick(ImGuiKey_GamepadLStickLeft, ImGuiKey_GamepadLStickRight),
                     ly = Stick(ImGuiKey_GamepadLStickUp, ImGuiKey_GamepadLStickDown),
                     rx = Stick(ImGuiKey_GamepadRStickLeft, ImGuiKey_GamepadRStickRight),
@@ -406,8 +412,9 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
     if (lamp_step && !lamps.empty()) {
         v.lamp = CycleLamp(int(lamps.size()), v.lamp, lamp_step);
         const LampRef& l = lamps[v.lamp];
-        std::printf("Map: showing lamp %s (%s, %s)\n", l.lamp->name.c_str(), l.area->id.c_str(),
-                    footer_action == 1 ? "footer" : ImGui::IsKeyDown(ImGuiKey_GamepadL1) || ImGui::IsKeyDown(ImGuiKey_GamepadR1) ? "L1 / R1" : "Q / E");
+        std::printf("Map: showing lamp %s (%s, %s, frame %d after opening)\n", l.lamp->name.c_str(), l.area->id.c_str(),
+                    footer_action == 1 ? "footer" : ImGui::IsKeyDown(ImGuiKey_GamepadL1) || ImGui::IsKeyDown(ImGuiKey_GamepadR1) ? "L1 / R1" : "Q / E",
+                    v.since_open);
         v.preview = true;
         v.follow = false;
         v.region = l.area->id;
@@ -763,6 +770,7 @@ void Draw(float scale) {
 void Opened() {
     ImGui::GetIO().ClearInputKeys();
     View& v = g_view;
+    v.since_open = 0;
     v.follow = true;
     v.preview = false;
     v.lamp = -1;
