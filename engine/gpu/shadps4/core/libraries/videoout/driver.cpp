@@ -672,14 +672,15 @@ void VideoOutDriver::Flip(const Request& req) {
                                    "images,image_mb,buffer_mb,protect_ms,resident_ms,create_ms,"
                                    "refresh_ms,write_fault_ms,read_faults,guest_copy_mb,draws,"
                                    "dispatches,submissions,compiles,preupload_mb,kernel_ms,alloc_mb,"
-                                   "free_mb\n");
+                                   "free_mb,gc_evicted,gc_evicted_mb,gc_write_backs,gc_ms,gc_level,"
+                                   "gc_used_mb\n");
             }
             return file;
         }();
         if (frame_log) {
             static const auto log_start = now;
             static u64 log_twf, log_tick, log_present, log_compiles, log_rf, log_preupload;
-            static u64 log_alloc, log_free;
+            static u64 log_alloc, log_free, log_gc_n, log_gc_b, log_gc_wb, log_gc_ns;
             const u64 tick = BbStats::tick_wait_ns.load(), present = BbStats::present_wait_ns.load();
             const u64 compiles_now = Vulkan::g_bb_compiles.load();
             // tick_wait_ns and the compile count are reset every stats window.
@@ -690,7 +691,8 @@ void VideoOutDriver::Flip(const Request& req) {
             };
             std::fprintf(frame_log,
                          "%.4f,%.2f,%.2f,%.2f,%.2f,%llu,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%llu,"
-                         "%.2f,%llu,%llu,%llu,%llu,%.2f,%.2f,%.1f,%.1f\n",
+                         "%.2f,%llu,%llu,%llu,%llu,%.2f,%.2f,%.1f,%.1f,%llu,%.1f,%llu,%.2f,%u,"
+                         "%llu\n",
                          std::chrono::duration<double>(now - log_start).count(), frame_ms,
                          delta(present, log_present) / 1e6, delta(tick, log_tick) / 1e6,
                          last_gpu_ns ? (gpu_ns - last_gpu_ns) / 1e6 : 0.0,
@@ -708,7 +710,15 @@ void VideoOutDriver::Flip(const Request& req) {
                          delta(BbStats::preupload_bytes.load(), log_preupload) / 1e6,
                          last_gpu_ns ? (sys_us - last_sys) / 1e3 : 0.0,
                          delta(BbStats::device_alloc_bytes.load(), log_alloc) / 1e6,
-                         delta(BbStats::device_free_bytes.load(), log_free) / 1e6);
+                         delta(BbStats::device_free_bytes.load(), log_free) / 1e6,
+                         static_cast<unsigned long long>(
+                             delta(BbStats::gc_freed_total.load(), log_gc_n)),
+                         delta(BbStats::gc_freed_bytes_total.load(), log_gc_b) / 1e6,
+                         static_cast<unsigned long long>(
+                             delta(BbStats::gc_write_backs_total.load(), log_gc_wb)),
+                         delta(BbStats::gc_ns_total.load(), log_gc_ns) / 1e6,
+                         BbStats::gc_level.load(),
+                         static_cast<unsigned long long>(BbStats::gc_used_bytes.load() >> 20));
             static u32 unflushed = 0;
             if (++unflushed >= 120) {
                 std::fflush(frame_log);

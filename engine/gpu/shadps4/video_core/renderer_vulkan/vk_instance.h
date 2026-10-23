@@ -584,9 +584,18 @@ public:
     /// (VK_EXT_memory_budget: what this process can use now, other processes included).
     [[nodiscard]] u64 GetDeviceMemoryBudgetNow() const;
 
+    /// bbport: free space inside our shared VMA blocks of those heaps (counted in the usage, but
+    /// a new image of that size or smaller can take it; the texture collector's freed holes).
+    [[nodiscard]] u64 GetDeviceBlockSlack() const;
+
     /// Returns the total memory budget available to the device.
     [[nodiscard]] u64 GetTotalMemoryBudget() const {
         return total_memory_budget;
+    }
+
+    /// bbport (visy 90a18103): the physical device-local memory size (dedicated VRAM).
+    [[nodiscard]] u64 GetDeviceLocalMemory() const {
+        return total_local_memory;
     }
 
     /// Determines if a format is supported for a set of feature flags.
@@ -686,6 +695,7 @@ private:
     bool supports_memory_budget{};
     bool supports_block_texel_view{};
     u64 total_memory_budget{};
+    u64 total_local_memory{};
     std::vector<size_t> valid_heaps;
 };
 

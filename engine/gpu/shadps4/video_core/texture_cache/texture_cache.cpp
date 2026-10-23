@@ -158,34 +158,9 @@ TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler&
         std::max<u64>(std::min(device_local_memory - min_vacancy_critical, min_spacing_critical),
                       DEFAULT_CRITICAL_GC_MEMORY));
     trigger_gc_memory = static_cast<u64>((device_local_memory - mem_threshold) / 2);
-    static_pressure_gc_memory = pressure_gc_memory;
-    static_critical_gc_memory = critical_gc_memory;
 }
 
 namespace {
-/// bbport: discrete GPUs: the pressure mark as a share of the driver's current budget
-/// (BB_GC_PRESSURE_PERCENT, default 80; the critical mark 10 points higher). 0: shadPS4's
-/// marks only. Those keep 60% of an up to 8 GB budget vacant: on an 8 GB card the pressure
-/// mark is ~2.5 GB while the game's VRAM sits at 3.4-4.3 GB (RTX 5060, Central Yharnam), so
-/// the collector stayed in pressure mode, evicted hundreds of textures still in use (age 80
-/// submissions, about one frame), uploaded them again and waited for the GPU to write tiled
-/// render targets back. The marks never go below shadPS4's.
-u64 DiscretePressurePercent() {
-    static const u64 percent = [] {
-        const char* env = std::getenv("BB_GC_PRESSURE_PERCENT");
-        return env && env[0] ? std::min<u64>(std::strtoull(env, nullptr, 10), 85) : 80;
-    }();
-    return percent;
-}
-/// bbport: under pressure (below the critical mark) an image goes only once unused for this
-/// many seconds (BB_GC_PRESSURE_SECONDS, default 1; 0: 80 submissions as before).
-u64 PressureIdleSeconds() {
-    static const u64 seconds = [] {
-        const char* env = std::getenv("BB_GC_PRESSURE_SECONDS");
-        return std::min<u64>(env && env[0] ? std::strtoull(env, nullptr, 10) : 1, 10);
-    }();
-    return seconds;
-}
 /// bbport (GPU hang guard): the collector never frees, nor writes back, an image used in the
 /// last this many collector passes, one per guest submission and several a frame
 /// (BB_GC_RECENT_FRAMES, default 48; 0: off). The memo hits that bind most
@@ -210,6 +185,14 @@ u64 ImageFreeDelayFrames() {
         return std::min<u64>(env && env[0] ? std::strtoull(env, nullptr, 10) : 32, 240);
     }();
     return frames;
+}
+/// bbport: the device memory of all of an image's backings (gc_pending_free_bytes).
+u64 BackingBytes(const Image& image) {
+    u64 bytes = 0;
+    for (const auto& backing : image.backing_images) {
+        bytes += backing.image.size_bytes;
+    }
+    return bytes;
 }
 } // namespace
 
@@ -1600,87 +1583,141 @@ void TextureCache::UntrackImageTail(ImageId image_id) {
 }
 
 void TextureCache::GarbageCollectImages() {
+    // bbport (visy 90a18103 + a816985a, docs/TEXTURE_GC_BACKPORT.md): marks a fixed reserve under
+    // the driver's budget, the usage less what a new image can reuse, least-recently-used
+    // eviction a few images per frame, GPU-written images written back only past the budget
+    // (GcPolicy). Before, the marks were a share of the budget (BB_GC_PRESSURE_PERCENT) and the
+    // usage counted freed images and block holes: on 4-8 GB cards it stayed over the pressure
+    // mark, every pass evicted tens of textures (uploaded again next frame) and wrote render
+    // targets back with a GPU wait each.
+    const auto t0 = std::chrono::steady_clock::now();
+    SCOPE_EXIT {
+        BbStats::gc_ns_total.fetch_add(u64(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                               std::chrono::steady_clock::now() - t0)
+                                               .count()),
+                                       std::memory_order_relaxed);
+    };
+    const u32 frame = BbStats::frame_number.load(std::memory_order_relaxed);
+    gc_frame_ticks.Note(frame, gc_tick);
+    // gc_tick (one per guest submission, hundreds a second) at each of the last 64 seconds, for
+    // ages in seconds.
     const u64 second = u64(std::chrono::duration_cast<std::chrono::seconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
                                .count());
-    if (instance.CanReportMemoryUsage()) {
-        total_used_memory = instance.GetDeviceMemoryUsage();
-        // bbport: on integrated GPUs (Steam Deck) the usage covers system-memory heaps holding
-        // much more than images (buffers backing guest memory), and the startup budget left
-        // ~1 GB after its 8 GB system reserve: usage stayed above the critical mark, so the
-        // collector evicted images used two or three frames ago on every submission and wrote
-        // GPU-written ones back. Compare with the driver's current budget instead.
-        // BB_GC_BUDGET_MB=N: this rule with a fixed budget on any GPU (tests on a desktop).
-        static const u64 forced_budget = [] {
-            const char* env = std::getenv("BB_GC_BUDGET_MB");
-            return env ? std::strtoull(env, nullptr, 10) << 20 : 0;
-        }();
-        if (instance.IsIntegrated() || forced_budget) {
-            const u64 budget = forced_budget ? forced_budget : instance.GetDeviceMemoryBudgetNow();
-            if (budget != 0) {
-                trigger_gc_memory = budget / 10 * 7;
-                pressure_gc_memory = budget / 100 * 85;
-                critical_gc_memory = budget / 100 * 95;
-            }
-        } else if (const u64 percent = DiscretePressurePercent();
-                   percent != 0 && second != gc_budget_second) {
-            // bbport: discrete GPUs (see DiscretePressurePercent); the budget once a second.
-            gc_budget_second = second;
-            if (const u64 budget = instance.GetDeviceMemoryBudgetNow(); budget != 0) {
-                pressure_gc_memory = std::max(static_pressure_gc_memory, budget / 100 * percent);
-                critical_gc_memory =
-                    std::max({static_critical_gc_memory, budget / 100 * (percent + 10),
-                              pressure_gc_memory});
-            }
-        }
-    }
-    BbStats::gc_used_bytes.store(total_used_memory, std::memory_order_relaxed);
-    BbStats::gc_trigger_bytes.store(trigger_gc_memory, std::memory_order_relaxed);
-    // bbport: gc_tick (one per guest submission, hundreds a second) at each of the last 64
-    // seconds, for ages in seconds. The usage compared is all of our VRAM, not only images: on a
-    // discrete GPU it stays over the trigger, where an age of 16 ticks (~3 frames) evicted every
-    // texture briefly off screen and uploaded it again. Below the pressure mark an image goes
-    // once unused for BB_GC_IDLE_SECONDS (20): the textures of an area left behind.
     if (second != gc_second) {
         gc_second = second;
         BbStats::coarse_second.store(u32(second), std::memory_order_relaxed);
         gc_tick_at_second[second % gc_tick_at_second.size()] = gc_tick;
     }
+    // The usage once a frame (and every 64 submissions while no frame is shown): two driver
+    // queries at each of the tens of submissions a frame cost more than they told. In between,
+    // images registered and unregistered move it by their size.
+    if (instance.CanReportMemoryUsage() &&
+        (frame != gc_measured_frame || gc_tick - gc_measured_tick >= 64)) {
+        gc_measured_frame = frame;
+        gc_measured_tick = gc_tick;
+        // BB_GC_BUDGET_MB=N: the marks from a fixed budget on any GPU (tests: the pressure of a
+        // smaller card on a desktop one).
+        static const u64 forced = [] {
+            const char* env = std::getenv("BB_GC_BUDGET_MB");
+            const u64 mib = env ? std::strtoull(env, nullptr, 10) : 0;
+            if (mib != 0) {
+                std::printf("Texture cache: collector budget %llu MiB (BB_GC_BUDGET_MB)\n",
+                            (unsigned long long)mib);
+            }
+            return mib << 20;
+        }();
+        const u64 usage = instance.GetDeviceMemoryUsage();
+        const u64 driver_budget = forced ? forced : instance.GetDeviceMemoryBudgetNow();
+        const u64 local_mem = instance.GetDeviceLocalMemory();
+        if (driver_budget != 0 || local_mem != 0) {
+            // Cards up to 4 GB: from the VRAM heap (their budget leaves out what the system holds
+            // already). On integrated GPUs the usage covers system-memory heaps holding much more
+            // than images: the driver's current budget (Steam Deck).
+            const bool is_low_vram = (local_mem > 0 && local_mem <= 4096ULL << 20) ||
+                                     (driver_budget > 0 && driver_budget <= 4096ULL << 20);
+            const u64 base = !forced && is_low_vram && local_mem > 0 && !instance.IsIntegrated()
+                                 ? local_mem
+                                 : driver_budget;
+            gc_marks = GcPolicy::MarksFor(
+                GcPolicy::BudgetFor(base, forced || instance.IsIntegrated() ? 0 : local_mem));
+            // BB_GC_TRIGGER / BB_GC_PRESSURE / BB_GC_CRITICAL (percent of the budget): the
+            // trigger, soft and hard marks fixed instead (tests).
+            static const auto percent = [](const char* name) -> u64 {
+                const char* env = std::getenv(name);
+                return env && *env ? std::strtoull(env, nullptr, 10) : 0;
+            };
+            static const u64 trig_pct = percent("BB_GC_TRIGGER");
+            static const u64 soft_pct = percent("BB_GC_PRESSURE");
+            static const u64 hard_pct = percent("BB_GC_CRITICAL");
+            if (trig_pct != 0) {
+                gc_marks.trigger = gc_marks.budget / 100 * trig_pct;
+            }
+            if (soft_pct != 0) {
+                gc_marks.soft = gc_marks.budget / 100 * soft_pct;
+            }
+            if (hard_pct != 0) {
+                gc_marks.hard = gc_marks.budget / 100 * hard_pct;
+            }
+            trigger_gc_memory = gc_marks.trigger;
+            pressure_gc_memory = gc_marks.soft;
+            critical_gc_memory = gc_marks.hard;
+        }
+        total_used_memory = GcPolicy::EffectiveUsage(
+            usage, instance.GetDeviceBlockSlack(),
+            gc_pending_free_bytes.load(std::memory_order_relaxed));
+    } else if (!instance.CanReportMemoryUsage() && gc_marks.budget == 0) {
+        // No usage from the driver: the image bytes against shadPS4's fixed marks.
+        gc_marks.soft = pressure_gc_memory;
+        gc_marks.hard = critical_gc_memory;
+        gc_marks.budget = critical_gc_memory + critical_gc_memory / 16;
+    }
+    BbStats::gc_used_bytes.store(total_used_memory, std::memory_order_relaxed);
+    BbStats::gc_trigger_bytes.store(gc_marks.trigger, std::memory_order_relaxed);
     if (BbToggle::Disabled(BbToggle::TextureCollector)) {
         return;
     }
-
-    if (total_used_memory < trigger_gc_memory) {
+    const GcPolicy::Level level = GcPolicy::LevelFor(total_used_memory, gc_marks);
+    BbStats::gc_level.store(u32(level), std::memory_order_relaxed);
+    if (level == GcPolicy::Level::None) {
         return;
     }
-    static const u64 idle_seconds = [] {
+    static const u32 idle_seconds = [] {
         const char* env = std::getenv("BB_GC_IDLE_SECONDS");
-        return std::clamp<u64>(env ? std::strtoull(env, nullptr, 10) : 20, 1, 63);
+        return u32(std::clamp<u64>(env ? std::strtoull(env, nullptr, 10) : 20, 1, 63));
     }();
-    // The tick at the start of that second (an older one where no submission came then).
-    const u64 idle_tick =
-        gc_tick_at_second[(second - idle_seconds) % gc_tick_at_second.size()];
+    static const u32 pressure_seconds = [] {
+        const char* env = std::getenv("BB_GC_PRESSURE_IDLE_SECONDS");
+        return u32(std::clamp<u64>(env ? std::strtoull(env, nullptr, 10) : 5, 1, 63));
+    }();
+    const GcPolicy::Rule rule = GcPolicy::RuleFor(level, idle_seconds, pressure_seconds);
+    gc_quota.Begin(frame, gc_tick);
+    if (!gc_quota.Left(rule)) {
+        return;
+    }
+    // Unused for the rule's seconds (the tick at the start of that second; 0 while the game has
+    // not run that long: nothing that old) and not used in its last frames, whichever is older.
+    const u64 seconds_tick =
+        rule.idle_seconds == 0
+            ? gc_tick
+            : gc_tick_at_second[(second - rule.idle_seconds) % gc_tick_at_second.size()];
+    const u64 below_tick =
+        std::min(seconds_tick, gc_frame_ticks.TickFramesAgo(rule.protect_frames));
+    if (below_tick == 0) {
+        return;
+    }
+
     std::scoped_lock lock{mutex};
-    bool pressured = false;
-    bool aggresive = false;
-    u64 below_tick = 0;
-    size_t num_deletions = 0;
-    u32 visited = 0;
     // Lantern Engine: GPU-written tiled images are stored into guest memory (StoreTiledImage)
-    // and freed under pressure. BB_IMAGE_WRITEBACK_GC=0: kept resident instead.
+    // before they are freed. BB_IMAGE_WRITEBACK_GC=0: kept resident instead.
     static const bool store_tiled = [] {
         const char* env = std::getenv("BB_IMAGE_WRITEBACK_GC");
         return !(env && env[0] == '0');
     }();
-    // Each store waits for the GPU (scheduler.Finish): at most this many a pass. An image that
-    // could not be stored waits 60 ticks before the next try, twice as long after each further
-    // failure (up to 1920): one that failed by chance comes back soon, one that never fits stops
-    // costing GPU waits.
-    static constexpr size_t MaxStoresPerPass = 4;
-    size_t stores = 0;
     // bbport (GPU hang guard): the submission tick GcRecentFrames() frames ago; images accessed
     // at or after it are in use. 0: the guard is off. Until that many frames have passed, every
-    // image counts as recent.
+    // image counts as recent. The LRU alone misses them: the memo hits that bind most images do
+    // not touch it.
     const u64 recent_frames = GcRecentFrames();
     const u64 recent_tick =
         recent_frames == 0
@@ -1690,117 +1727,99 @@ void TextureCache::GarbageCollectImages() {
                                                     sched_tick_at_gc.size()],
                                    1)
                    : ~0ull);
-
-    const auto configure = [&](bool allow_aggressive) {
-        pressured = total_used_memory >= pressure_gc_memory;
-        aggresive = allow_aggressive && total_used_memory >= critical_gc_memory;
-        const u64 ticks_to_destroy = std::min<u64>(aggresive ? 160 : pressured ? 80 : 16, gc_tick);
-        below_tick = gc_tick - ticks_to_destroy;
-        if (!pressured && !aggresive) {
-            below_tick = std::min(below_tick, idle_tick);
-        } else if (!aggresive && PressureIdleSeconds() != 0) {
-            below_tick = std::min(below_tick, gc_tick_at_second[(second - PressureIdleSeconds()) %
-                                                                gc_tick_at_second.size()]);
-        }
-        num_deletions = aggresive ? 40 : pressured ? 20 : 10;
-        visited = 0;
-    };
-
-    const auto clean_up = [&](ImageId image_id) {
-        if (num_deletions == 0 || ++visited > 256) {
+    u32 visited = 0;
+    lru_cache.ForEachItemBelow(below_tick, [&](ImageId image_id) {
+        // Images that cannot go now (bound, in use, GPU-written) are passed over but still count
+        // here.
+        if (!gc_quota.Left(rule) || ++visited > 512) {
             return true;
         }
         auto& image = slot_images[image_id];
-        const bool download = image.SafeToDownload();
-        const bool tiled = image.info.IsTiled();
-        // bbport: images that cannot go now (GPU-written: their contents exist only here, and
-        // tiled ones only through a write-back that succeeded) neither use up the deletions nor
-        // stay first in line. The oldest ten being such render targets stopped the collector for
-        // good, and VRAM grew with every area visited up to the pressure mark (~10 GB on 16 GB).
         const auto keep = [&] {
             lru_cache.Touch(image.lru_id, gc_tick);
             BbStats::gc_kept_images.fetch_add(1, std::memory_order_relaxed);
             return false;
         };
-        if (download && !pressured) {
+        // Bound to the draw being recorded, a render/depth target of it, or a presented surface
+        // (from Mrsuss60/bloodborne_pc_windows_port 89f05218 by Mrsuss60), or used in the last
+        // frames or by GPU work not finished yet (GPU hang guard): never evicted.
+        if (image.binding.is_bound || image.binding.is_target || image.usage.vo_surface) {
             return keep();
         }
-        // bbport (GPU hang guard): in use in the last frames (see GcRecentFrames), or by GPU
-        // work not finished yet: kept, whatever its LRU age says.
         if (recent_tick != 0 && (image.tick_accessed_last >= recent_tick ||
                                  !scheduler.IsFree(image.tick_accessed_last))) {
             ++gc_recent_kept;
             return keep();
         }
-        bool written_back = false;
-        if (tiled && download) {
-            // Freed only once its contents are in guest memory, tiled (StoreTiledImage).
-            if (!store_tiled || gc_tick < image.store_retry_tick) {
-                ++gc_tiled_kept;
+        // Depth/stencil targets and shadow maps are GPU-only and never read back by the CPU: they
+        // go without a write-back (from Mrsuss60/bloodborne_pc_windows_port PR #89 by ALuaNegra).
+        if (image.SafeToDownload() && !image.info.props.is_depth) {
+            // GPU-written: their contents exist only here, and a write-back waits for the GPU
+            // (the frame stalls). They stay until the usage is past the budget itself; then one a
+            // frame is written back and goes.
+            if (!rule.write_back || gc_quota.write_backs != 0) {
+                ++gc_kept_gpu;
                 return keep();
             }
-            if (stores >= MaxStoresPerPass) {
-                return false; // each waits for the GPU: the next pass, still first in line
+            if (image.info.IsTiled()) {
+                // Freed only once its contents are in guest memory, tiled (StoreTiledImage). One
+                // that could not be stored waits 60 ticks before the next try, twice as long
+                // after each further failure (up to 1920).
+                if (!store_tiled || gc_tick < image.store_retry_tick) {
+                    ++gc_kept_gpu;
+                    return keep();
+                }
+                ++gc_quota.write_backs;
+                if (!StoreTiledImage(image_id)) {
+                    image.store_retry_tick =
+                        gc_tick + (u64{60} << std::min<u8>(image.store_failures, 5));
+                    image.store_failures = static_cast<u8>(std::min(image.store_failures + 1, 255));
+                    ++gc_kept_gpu;
+                    return keep();
+                }
+                image.store_failures = 0;
+                ++gc_tiled_written;
+            } else {
+                // Synchronously, while the image still protects its pages. A deferred write-back
+                // landed after FreeImage had unprotected them, over whatever the game had
+                // meanwhile stored there (e.g. its heap after unloading an area).
+                DownloadImageMemory(image_id, true);
+                ++gc_quota.write_backs;
+                ++gc_downloads;
             }
-            ++stores;
-            if (!StoreTiledImage(image_id)) {
-                image.store_retry_tick = gc_tick + (u64{60} << std::min<u8>(image.store_failures, 5));
-                image.store_failures = static_cast<u8>(std::min(image.store_failures + 1, 255));
-                ++gc_tiled_kept;
-                return keep();
-            }
-            image.store_failures = 0;
-            written_back = true;
-            ++gc_tiled_written;
+            BbStats::gc_write_backs_total.fetch_add(1, std::memory_order_relaxed);
         }
-        --num_deletions;
-        if (download && !written_back) {
-            // bbport: synchronously, while the image still protects its pages. A deferred
-            // write-back landed after FreeImage had unprotected them, over whatever the game
-            // had meanwhile stored there (e.g. its heap after unloading an area).
-            DownloadImageMemory(image_id, true);
-            ++gc_downloads;
-        }
+        const u64 bytes = image.backing ? image.GetHostImageSize() : 0;
+        gc_quota.Take(bytes);
         ++gc_evictions;
+        gc_freed_bytes += bytes;
         BbStats::gc_freed_images.fetch_add(1, std::memory_order_relaxed);
+        BbStats::gc_freed_total.fetch_add(1, std::memory_order_relaxed);
+        BbStats::gc_freed_bytes_total.fetch_add(bytes, std::memory_order_relaxed);
         FreeImage(image_id);
-
-        if (total_used_memory < critical_gc_memory) {
-            if (aggresive) {
-                num_deletions >>= 2;
-                aggresive = false;
-                return false;
-            }
-            if (pressured && total_used_memory < pressure_gc_memory) {
-                num_deletions >>= 1;
-                pressured = false;
-            }
-        }
-        return false;
-    };
-
-    configure(false);
-    lru_cache.ForEachItemBelow(below_tick, clean_up);
-
-    if (total_used_memory >= critical_gc_memory) {
-        configure(true);
-        lru_cache.ForEachItemBelow(below_tick, clean_up);
-    }
+        // Below the mark this rule started at: the rest waits for the next pass and its rule.
+        return level >= GcPolicy::Level::Soft &&
+               GcPolicy::LevelFor(total_used_memory, gc_marks) < level;
+    });
     // bbport: evictions under memory pressure, at most every 5 s (BB_FRAME_STATS or not).
-    if (pressured || gc_downloads != 0 || gc_tiled_written != 0) {
+    if (level >= GcPolicy::Level::Soft || gc_downloads != 0 || gc_tiled_written != 0) {
         const auto now = std::chrono::steady_clock::now();
         if (now - gc_report_time >= std::chrono::seconds(5)) {
-            std::printf("Texture cache: memory pressure, %llu of %llu MiB (critical %llu): "
-                        "%llu images evicted, %llu written back, %llu tiled written back, "
-                        "%llu tiled kept, %llu in use kept since the last report\n",
+            std::printf("Texture cache: memory pressure, %llu of %llu MiB budget (gradual from "
+                        "%llu, hard %llu): %llu images evicted (%llu MiB), %llu written back, "
+                        "%llu tiled written back, %llu GPU-written kept, %llu in use kept since "
+                        "the last report\n",
                         (unsigned long long)(total_used_memory >> 20),
-                        (unsigned long long)(pressure_gc_memory >> 20),
-                        (unsigned long long)(critical_gc_memory >> 20),
-                        (unsigned long long)gc_evictions, (unsigned long long)gc_downloads,
-                        (unsigned long long)gc_tiled_written, (unsigned long long)gc_tiled_kept,
-                        (unsigned long long)gc_recent_kept);
+                        (unsigned long long)(gc_marks.budget >> 20),
+                        (unsigned long long)(gc_marks.soft >> 20),
+                        (unsigned long long)(gc_marks.hard >> 20),
+                        (unsigned long long)gc_evictions,
+                        (unsigned long long)(gc_freed_bytes >> 20),
+                        (unsigned long long)gc_downloads, (unsigned long long)gc_tiled_written,
+                        (unsigned long long)gc_kept_gpu, (unsigned long long)gc_recent_kept);
             gc_report_time = now;
-            gc_evictions = gc_downloads = gc_tiled_written = gc_tiled_kept = gc_recent_kept = 0;
+            gc_evictions = gc_downloads = gc_tiled_written = gc_kept_gpu = gc_recent_kept =
+                gc_freed_bytes = 0;
         }
     }
 }
@@ -1891,6 +1910,10 @@ void TextureCache::DeleteImage(ImageId image_id) {
         }
     }
 
+    // bbport (visy 90a18103): its memory counts as free for the collector until it is destroyed
+    // (ReclaimImage's deferred erase), so freed images do not keep the usage over a mark.
+    gc_pending_free_bytes.fetch_add(BackingBytes(image), std::memory_order_relaxed);
+
     // bbport (GPU hang guard): kept for ImageFreeDelayFrames() frames first (FlushImageGraveyard).
     if (ImageFreeDelayFrames() != 0) {
         std::scoped_lock lk{graveyard_mutex};
@@ -1904,6 +1927,7 @@ void TextureCache::ReclaimImage(ImageId image_id) {
     // Reclaim image and any image views it references.
     scheduler.DeferOperation([this, image_id] {
         Image& image = slot_images[image_id];
+        gc_pending_free_bytes.fetch_sub(BackingBytes(image), std::memory_order_relaxed);
         for (auto& backing : image.backing_images) {
             for (const ImageViewId image_view_id : backing.image_view_ids) {
                 slot_image_views.erase(image_view_id);

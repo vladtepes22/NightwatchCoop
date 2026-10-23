@@ -1069,6 +1069,7 @@ void Instance::CollectPhysicalMemoryInfo() {
         // If memory budget is not supported, use the size of the heap as the budget.
         total_memory_budget += memory_props.memoryHeaps[i].size;
     }
+    total_local_memory = local_memory;
     if (!IsIntegrated()) {
         // We reserve some memory for the system.
         const u64 system_memory = std::min<u64>(total_memory_budget / 8, 1_GB);
@@ -1164,6 +1165,21 @@ u64 Instance::GetDeviceMemoryBudgetNow() const {
         total_budget += memory_budget_props.heapBudget[heap];
     }
     return total_budget;
+}
+
+u64 Instance::GetDeviceBlockSlack() const {
+    if (!allocator) {
+        return 0;
+    }
+    std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> budgets{};
+    vmaGetHeapBudgets(allocator, budgets.data());
+    u64 slack = 0;
+    for (const size_t heap : valid_heaps) {
+        const auto& stats = budgets[heap].statistics;
+        slack += stats.blockBytes > stats.allocationBytes ? stats.blockBytes - stats.allocationBytes
+                                                          : 0;
+    }
+    return slack;
 }
 
 vk::FormatFeatureFlags2 Instance::GetFormatFeatureFlags(vk::Format format) const {

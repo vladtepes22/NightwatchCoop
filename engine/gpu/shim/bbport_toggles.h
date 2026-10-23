@@ -151,6 +151,7 @@ inline std::atomic<std::uint64_t> gc_kept_images{0};
 /// The collector's work since the start (BB_FRAME_LOG: per frame): bytes of the images it freed,
 /// GPU-written images it wrote back (a GPU wait each), wall time it took (ns), its last level
 /// (GcPolicy::Level).
+inline std::atomic<std::uint64_t> gc_freed_total{0};
 inline std::atomic<std::uint64_t> gc_freed_bytes_total{0}, gc_write_backs_total{0}, gc_ns_total{0};
 inline std::atomic<std::uint32_t> gc_level{0};
 struct WaitTimer {

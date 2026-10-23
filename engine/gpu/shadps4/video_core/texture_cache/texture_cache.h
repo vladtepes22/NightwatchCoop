@@ -22,6 +22,7 @@
 #include "shader_recompiler/resource.h"
 #include "video_core/multi_level_page_table.h"
 #include "video_core/texture_cache/blit_helper.h"
+#include "video_core/texture_cache/gc_policy.h"
 #include "video_core/texture_cache/image.h"
 #include "video_core/texture_cache/image_view.h"
 #include "video_core/texture_cache/sampler.h"
@@ -531,21 +532,27 @@ private:
     std::unordered_set<ImageId> download_images;
     u64 total_used_memory = 0;
     u64 gc_evictions = 0, gc_downloads = 0; ///< bbport: pressure report
-    /// bbport (image write-back GC): tiled images written back / kept (write-back refused or
-    /// failed) since the last pressure report.
-    u64 gc_tiled_written = 0, gc_tiled_kept = 0;
+    /// bbport (image write-back GC): tiled images written back / GPU-written images kept (below
+    /// the budget, write-back refused or failed) since the last pressure report.
+    u64 gc_tiled_written = 0, gc_kept_gpu = 0;
     std::chrono::steady_clock::time_point gc_report_time{};
     /// bbport: gc_tick at each of the last 64 seconds (GarbageCollectImages).
     std::array<u64, 64> gc_tick_at_second{};
     u64 gc_second = 0;
+    /// bbport (visy 90a18103, docs/TEXTURE_GC_BACKPORT.md): the collector's marks
+    /// (GcPolicy::MarksFor), the gc tick at each recent frame, what this frame may still evict,
+    /// the effective usage last measured (once a frame), and bytes of images deleted but not
+    /// destroyed yet (DeleteImage to ReclaimImage's deferred erase).
+    GcPolicy::Marks gc_marks{};
+    GcPolicy::FrameTicks<> gc_frame_ticks{};
+    GcPolicy::FrameQuota gc_quota{};
+    u32 gc_measured_frame = ~0u;
+    u64 gc_measured_tick = 0;
+    u64 gc_freed_bytes = 0; ///< pressure report
+    std::atomic<u64> gc_pending_free_bytes{0};
     u64 trigger_gc_memory = 0;
     u64 pressure_gc_memory = 0;
     u64 critical_gc_memory = 0;
-    /// bbport: shadPS4's marks from the startup budget, the floor of the discrete-GPU rule
-    /// (GarbageCollectImages), and the second the driver's budget was last asked for.
-    u64 static_pressure_gc_memory = 0;
-    u64 static_critical_gc_memory = 0;
-    u64 gc_budget_second = ~0ull;
     u64 total_used_samplers = 0;
     u64 sampler_generation = 0; ///< bbport: samplers freed so far (SamplerGeneration)
     u64 trigger_gc_samplers = 0;

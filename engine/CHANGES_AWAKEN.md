@@ -8,9 +8,9 @@ at tag `v0.4.0-darkizuku-preview.1`.
 | Change | Switch |
 |---|---|
 | 120 / 144 / uncapped FPS on Windows | `BB_FPS_LIMIT`, `BB_VBLANK_HZ` |
-| VRAM cleanup: GPU-drawn textures written back and freed under memory pressure | `BB_IMAGE_WRITEBACK_GC=0` off |
+| VRAM cleanup: GPU-drawn textures written back and freed past the VRAM budget (one a frame) | `BB_IMAGE_WRITEBACK_GC=0` off |
 | GPU hang guard: textures in use are never freed, deleted ones kept a little longer | `BB_GC_RECENT_FRAMES=0`, `BB_IMAGE_FREE_DELAY_FRAMES=0` off |
-| Texture memory sized to the GPU (80% of its budget on discrete cards) | `BB_GC_PRESSURE_PERCENT=0` off |
+| Texture collector from visy (90a18103, a816985a): marks a fixed reserve under the driver's VRAM budget, oldest textures a few per frame, depth targets freed without a write-back | `BB_GC_BUDGET_MB=N` test budget; frame log `gc_*` columns |
 | Precise frame pacing | `BB_PRECISE_PACING=0` off |
 | Render threads at above-normal priority | `BB_GPU_THREAD_PRIORITY=0` off |
 | Shorter spin at the end of the game's sleeps | `BB_SLEEP_SPIN_US=600` off |

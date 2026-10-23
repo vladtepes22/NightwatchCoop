@@ -534,3 +534,10 @@ target_include_directories(map-page-test PRIVATE shim)
 target_compile_options(map-page-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME map-page-test COMMAND map-page-test)
 add_dependencies(seamless-tests map-page-test)
+
+# The texture collector's marks, levels and per-frame quota (texture_cache/gc_policy.h; visy 90a18103).
+add_executable(gc-policy-test EXCLUDE_FROM_ALL ../tests/test_gc_policy.cpp)
+target_include_directories(gc-policy-test PRIVATE ..)
+target_compile_options(gc-policy-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME gc-policy-test COMMAND gc-policy-test)
+add_dependencies(seamless-tests gc-policy-test)
