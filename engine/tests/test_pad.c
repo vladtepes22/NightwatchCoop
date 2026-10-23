@@ -3,6 +3,28 @@
 #include <unistd.h>
 #include "../src/runtime_pad.c"
 
+/* A failed check names its line on stdout (MinGW's assert reports elsewhere, if at all). */
+#undef assert
+#define assert(e) ((e) ? (void)0 : (printf("FAIL: test_pad.c:%d: %s\n", __LINE__, #e), abort()))
+
+#ifdef _WIN32
+/* MinGW has no setenv; getenv in runtime_pad.c reads what _putenv_s sets. */
+static int setenv(const char *name, const char *value, int overwrite) {
+    (void)overwrite;
+    return _putenv_s(name, value);
+}
+#endif
+
+/* A file of its own in the temp folder (TEMP on Windows, /tmp elsewhere), written whole. */
+static void temp_file(char *out, size_t size, const char *name, const char *text) {
+    const char *dir = getenv("TEMP");
+    snprintf(out, size, "%s/bbport-%s-%d", dir && *dir ? dir : "/tmp", name, (int)getpid());
+    FILE *f = fopen(out, "w");
+    assert(f);
+    fputs(text, f);
+    fclose(f);
+}
+
 static int capture, menu;
 // The runtime clock (src/runtime_host.c), not linked into this test.
 uint64_t host_monotonic_ns(void) {
@@ -15,6 +37,11 @@ int bbgpu_pc_input(BbPcPad* p,const bool* keys,int n,int gamepad) {
     (void)p;(void)keys;(void)n;(void)gamepad;return 0;
 }
 int bbgpu_menu_buttons(uint32_t* confirm,uint32_t* back) { *confirm=BTN_CROSS; *back=BTN_CIRCLE; return menu; }
+// Co-op ping / gather (the party's, bbgpu): no party in this test.
+int bbgpu_ping_combo_enabled(void) { return 0; }
+void bbgpu_ping_request(void) {}
+int bbgpu_gather_combo_enabled(void) { return 0; }
+void bbgpu_gather_request(const char *source) { (void)source; }
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *name) {
     (void)table; (void)count; (void)name;
     return 0;
@@ -29,19 +56,29 @@ static void inject(const char *path, const char *tokens) {
 }
 
 int main(void) {
-    char path[]="/tmp/bbport-pad-test-XXXXXX";
-    int fd=mkstemp(path);
-    assert(fd>=0);
-    close(fd);
+    setvbuf(stdout,NULL,_IONBF,0);  /* the lines before a failed assert reach the log */
+    char path[512];
+    temp_file(path,sizeof path,"pad-test","");
     setenv("BB_PAD_FILE",path,1);
+    /* Every gamepad button and input the launcher's controller page can write (Core/PadMap.cs:
+     * Buttons, Defaults) is one this parser knows: a launcher binding never falls back silently. */
+    static const char *const launcher_buttons[]={"a","b","x","y","leftshoulder","rightshoulder","lefttrigger",
+        "righttrigger","leftstick","rightstick","dpup","dpdown","dpleft","dpright","start","back","touchpad",
+        "misc1","paddle1","paddle2","paddle3","paddle4"};
+    for (size_t i=0;i<sizeof launcher_buttons/sizeof *launcher_buttons;++i)
+        assert(pad_button_from_name(launcher_buttons[i])>=0);
+    static const char *const launcher_inputs[]={"cross","circle","square","triangle","l1","r1","l2","r2","l3","r3",
+        "options","touchpad","touchpad_right","up","down","left","right","ping","gather","menu_confirm","menu_back"};
+    for (size_t i=0;i<sizeof launcher_inputs/sizeof *launcher_inputs;++i) {
+        int found=-1;
+        for (int k=0;k<IN_COUNT;++k) if (!strcmp(launcher_inputs[i],input_names[k])) found=k;
+        assert(found>=0 && !(found>=IN_MOVE_UP && found<IN_MENU_CONFIRM));  /* a pad input, not keyboard-only */
+    }
     /* bbport.ini controls: buttons moved, a trigger as a button and a button as a trigger. */
-    char config[]="/tmp/bbport-pad-config-XXXXXX";
-    int config_fd=mkstemp(config);
-    assert(config_fd>=0);
-    const char controls[]="upscaler=fsr3\npad.cross=b\npad.circle=a\npad.r2=rightshoulder\n"
-                          "pad.r1=righttrigger\nkey.cross=X, Space\npad.bogus=a\npad.menu_back=b\n";
-    assert(write(config_fd,controls,sizeof(controls)-1)==(ssize_t)(sizeof(controls)-1));
-    close(config_fd);
+    char config[512];
+    temp_file(config,sizeof config,"pad-config",
+              "upscaler=fsr3\npad.cross=b\npad.circle=a\npad.r2=rightshoulder\n"
+              "pad.r1=righttrigger\nkey.cross=X, Space\npad.bogus=a\npad.menu_back=b\n");
     setenv("BB_CONFIG",config,1);
     setenv("SDL_VIDEODRIVER","dummy",1);
     /* Only the virtual test controller is a gamepad, whatever is plugged in. */
@@ -115,6 +152,59 @@ int main(void) {
     assert(pad_read_state(1,&data)==0 && !(data.buttons & (BTN_CROSS|BTN_CIRCLE)));
     assert(bindings[IN_CROSS].key_count==2 && bindings[IN_CROSS].keys[0]==SDL_SCANCODE_X &&
            bindings[IN_CROSS].keys[1]==SDL_SCANCODE_SPACE);
+
+    /* Every PS4 button remapped at once: each input moved to the next physical button (triggers
+     * included), as the launcher's controller page writes them. Each physical button then gives
+     * exactly its new input and nothing else. */
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_EAST,false));
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,false));
+    assert(SDL_SetJoystickVirtualAxis(joystick,SDL_GAMEPAD_AXIS_RIGHT_TRIGGER,SDL_JOYSTICK_AXIS_MIN));
+    SDL_UpdateJoysticks();
+    SDL_UpdateGamepads();
+    assert(pad_read_state(1,&data)==0 && data.buttons==0);
+    static const struct { const char *name; int button; } physical[]={
+        {"a",SDL_GAMEPAD_BUTTON_SOUTH}, {"b",SDL_GAMEPAD_BUTTON_EAST}, {"x",SDL_GAMEPAD_BUTTON_WEST},
+        {"y",SDL_GAMEPAD_BUTTON_NORTH}, {"leftshoulder",SDL_GAMEPAD_BUTTON_LEFT_SHOULDER},
+        {"rightshoulder",SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER}, {"lefttrigger",PAD_LEFT_TRIGGER},
+        {"righttrigger",PAD_RIGHT_TRIGGER}, {"leftstick",SDL_GAMEPAD_BUTTON_LEFT_STICK},
+        {"rightstick",SDL_GAMEPAD_BUTTON_RIGHT_STICK}, {"start",SDL_GAMEPAD_BUTTON_START},
+        {"back",SDL_GAMEPAD_BUTTON_BACK}, {"dpup",SDL_GAMEPAD_BUTTON_DPAD_UP},
+        {"dpdown",SDL_GAMEPAD_BUTTON_DPAD_DOWN}, {"dpleft",SDL_GAMEPAD_BUTTON_DPAD_LEFT},
+        {"dpright",SDL_GAMEPAD_BUTTON_DPAD_RIGHT},
+    };
+    static const int remapped[]={IN_CROSS,IN_CIRCLE,IN_SQUARE,IN_TRIANGLE,IN_L1,IN_R1,IN_L2,IN_R2,IN_L3,IN_R3,
+                                 IN_OPTIONS,IN_TOUCHPAD,IN_UP,IN_DOWN,IN_LEFT,IN_RIGHT};
+    enum { N=sizeof remapped/sizeof *remapped };
+    _Static_assert(sizeof physical/sizeof *physical==N, "one physical button per input");
+    char rotated[1024]="";
+    for (int i=0;i<N;++i) {
+        char line[64];
+        snprintf(line,sizeof line,"pad.%s=%s\n",input_names[remapped[i]],physical[(i+1)%N].name);
+        strcat(rotated,line);
+    }
+    char rotated_path[512];
+    temp_file(rotated_path,sizeof rotated_path,"pad-rotated",rotated);
+    setenv("BB_CONFIG",rotated_path,1);
+    load_bindings();
+    for (int i=0;i<N;++i) {
+        const int p=(i+1)%N, b=physical[p].button;
+        const int axis=b==PAD_LEFT_TRIGGER ? SDL_GAMEPAD_AXIS_LEFT_TRIGGER : b==PAD_RIGHT_TRIGGER ? SDL_GAMEPAD_AXIS_RIGHT_TRIGGER : -1;
+        if (axis>=0) assert(SDL_SetJoystickVirtualAxis(joystick,axis,32767));
+        else assert(SDL_SetJoystickVirtualButton(joystick,b,true));
+        SDL_UpdateJoysticks();
+        SDL_UpdateGamepads();
+        assert(pad_read_state(1,&data)==0);
+        if (data.buttons!=input_buttons[remapped[i]])
+            printf("pad remap: %s on %s gave buttons 0x%x, wanted 0x%x\n",input_names[remapped[i]],physical[p].name,
+                   (unsigned)data.buttons,(unsigned)input_buttons[remapped[i]]);
+        assert(data.buttons==input_buttons[remapped[i]]);
+        if (axis>=0) assert(SDL_SetJoystickVirtualAxis(joystick,axis,SDL_JOYSTICK_AXIS_MIN));  /* released: the axis minimum */
+        else assert(SDL_SetJoystickVirtualButton(joystick,b,false));
+        SDL_UpdateJoysticks();
+        SDL_UpdateGamepads();
+        assert(pad_read_state(1,&data)==0 && data.buttons==0);
+    }
+    unlink(rotated_path);
     SDL_CloseJoystick(joystick);
     if (gamepad) SDL_CloseGamepad(gamepad);
     gamepad=NULL;
@@ -122,5 +212,5 @@ int main(void) {
     SDL_Quit();
     unlink(path);
     unlink(config);
-    puts("PASS: pad ABI, debug camera chord, left/right clicks, SDL touch coordinates, overlay capture, controls, menu buttons");
+    puts("PASS: pad ABI, debug camera chord, left/right clicks, SDL touch coordinates, overlay capture, controls, menu buttons, every button remapped at once");
 }

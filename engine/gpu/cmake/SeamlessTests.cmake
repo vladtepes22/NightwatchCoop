@@ -500,6 +500,17 @@ if (WIN32)
     add_dependencies(seamless-tests win32-memory-test)
 endif()
 
+# Controller input and remapping (src/runtime_pad.c, pad.<input>= in bbport.ini) through SDL's
+# virtual controller: every launcher button and input known, every PS4 button remapped at once.
+# build.sh --test builds the same file; this one runs on Windows too.
+add_executable(pad-test EXCLUDE_FROM_ALL ../tests/test_pad.c)
+target_include_directories(pad-test PRIVATE .. ../src)
+target_link_libraries(pad-test PRIVATE PkgConfig::SDL3 Threads::Threads)
+target_compile_options(pad-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+set_target_properties(pad-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME pad-test COMMAND pad-test)
+add_dependencies(seamless-tests pad-test)
+
 # visy builds everything with WIN32_LEAN_AND_MEAN: without it <windows.h> brings in winsock, whose
 # h_addr macro breaks shim/net/party_route.cpp (Router::Client::h_addr, 0.7.1). The test targets
 # compiling it get the define here.
