@@ -705,6 +705,34 @@ inline bool LampTriggerFlag(std::uint32_t id) {
     const std::uint32_t area = id / 100000 % 100, block = id / 10000 % 10;
     return area >= 21 && !(area == 21 && block == 0);
 }
+/// The lamp warp events: world lamp 7200, Dream headstone 12107000, common 7300 (the Dream side of
+/// a headstone warp).
+inline bool LampWarpEvent(std::uint32_t id) {
+    return id == 7200 || id == 7300 || id == 12107000;
+}
+/// A peer's packet that would run this game's copy of a lamp warp event: packet 0x0f (a peer's
+/// CompleteEvent flag, 4 bytes) with a lamp / headstone flag, or 0x0e (a peer's replicated EMEVD
+/// event state, 0x14 bytes, `words` its 5 words) naming a lamp warp event. Its warp here would
+/// only be dropped as "another member's lamp", and running it uses the event up: a lamp's event
+/// (7200, rest 0) waits for its flag once per area load, so this player's own Dream choice at that
+/// lamp later set the flag and nothing warped (live, 0.2.2 b1: a guest's lone Dream trip, then
+/// the host at the same lamp). Such packets are dropped before the game reads them.
+inline bool PeerLampPacket(std::uint32_t type, std::uint32_t size, const std::uint32_t* words) {
+    if (!words) {
+        return false;
+    }
+    if (type == 0xf && size == 4) {
+        return LampTriggerFlag(words[0]);
+    }
+    if (type == 0xe && size == 0x14) {
+        for (int i = 0; i < 5; ++i) {
+            if (LampWarpEvent(words[i])) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
 /// The other 7AAB01xx flags: per-player talk state (the Dream's 721001xx, 700001xx), set and
 /// cleared by each game's own talk scripts and events; kept out of the host-world mirror like the
 /// lamp flags (a mirrored host 0 would undo a guest's Doll handshake mid level-up).

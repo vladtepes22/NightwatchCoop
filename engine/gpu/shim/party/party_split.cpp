@@ -115,21 +115,19 @@ Pending g_p;  // under g_mu (OnLampWarp: game thread; Tick: main thread - the sa
 
 // ---- Whose lamp (playtest 1 bug 20) ----
 // The lamp / headstone "used" flags (deathrules::LampTriggerFlag) this game set itself (game
-// thread: the progress SetEventFlag / CompleteEvent hooks) and the ones a peer sent (packet 0x0f,
-// drained by 0x1339B50 on the main thread: the read call sites below).
-std::atomic<double> g_local_at{-1}, g_remote_at{-1};
-std::atomic<u32> g_local_id{0}, g_remote_id{0};
+// thread: the progress SetEventFlag / CompleteEvent hooks). A peer's (packet 0x0f, or its lamp
+// warp event's state in 0x0e, drained by 0x1339B50 on the main thread: the read call sites below)
+// is dropped before the game reads it (deathrules::PeerLampPacket), so it never runs or uses up
+// this game's own warp event; g_dropped_* only remembers it for the log.
+std::atomic<double> g_local_at{-1}, g_dropped_at{-1};
+std::atomic<u32> g_local_id{0}, g_dropped_id{0}, g_dropped_n{0};
 constexpr u64 kPacketRead = 0x1789200;  // int (net man, peer, packet type, buffer, size)
 // 0x1339B50 (SprjLuaEventMan update) drains packet 0x0e (network-synced EMEVD event state, 0x14
 // bytes) at 0x1339C02 / 0x1339D0E and packet 0x0f (a peer's CompleteEvent flag, 4 bytes) at
 // 0x1339D8E / 0x1339F2E.
 constexpr u64 kPacketSites[] = {0x1339c02, 0x1339d0e, 0x1339d8e, 0x1339f2e};
-// The lamp warp events (deathrules::LampTriggerFlag): world lamp 7200, Dream headstone 12107000,
-// common 7300 (the Dream side of a headstone warp).
-bool LampWarpEvent(u32 id) {
-    return id == 7200 || id == 7300 || id == 12107000;
-}
-std::atomic<u32> g_ev_packets{0}, g_ev_any{0}, g_ev_last[5];  // 0x0e packets: of the lamp events, any; the last one
+using deathrules::LampWarpEvent;
+std::atomic<u32> g_ev_any{0}, g_ev_last[5];  // 0x0e packets kept: how many, the last one
 std::atomic<bool> g_ev_dump{false};
 
 void OnLocalFlagSet(u32 id) {
@@ -146,29 +144,32 @@ BB_COOP_SYSV u64 FlagPacketRead(u64 man, u64 peer, u64 type, u64 buf, u64 size) 
         return r;
     }
     u32 v[5] = {};
-    if (u32(type) == 0xf && u32(size) == 4 && SafeGet(buf, &v[0]) && deathrules::LampTriggerFlag(v[0])) {
-        g_remote_id = v[0];
-        g_remote_at = Now();
-    } else if (u32(type) == 0xe && u32(size) == 0x14 && SafeRead(buf, v, sizeof v)) {
-        // A peer's lamp warp event ran (its state replicated here): the same warp follows on
-        // this game a moment later (playtest 1 bug 20, live splitq run 1: the guest asked 0.04 s
-        // after the host's headstone, no 0x0f flag).
-        u32 ev = 0;
+    const bool read = u32(type) == 0xf && u32(size) == 4 ? SafeGet(buf, &v[0])
+                      : u32(type) == 0xe && u32(size) == 0x14 ? SafeRead(buf, v, sizeof v)
+                                                               : false;
+    if (read && deathrules::PeerLampPacket(u32(type), u32(size), v)) {
+        // Dropped: "no packet from this peer". The 0x0f loop reads its buffer after the last peer
+        // (0x1339D9B / 0x1339F3B: -1 = none, preset at 0x1339D20), so it is set back to -1; the
+        // 0x0e loop only processes a non-zero return (0x1339C0D).
+        if (u32(type) == 0xf) {
+            const u32 none = 0xffffffffu;
+            SafeWrite(buf, &none, sizeof none);
+        }
+        u32 id = v[0];
         for (u32 x : v) {
-            ev = ev ? ev : LampWarpEvent(x) ? x : 0;
+            id = u32(type) == 0xe && LampWarpEvent(x) ? x : id;
         }
-        const u32 n = g_ev_any.fetch_add(1);
-        if (n < 12 || ev) {
-            for (int i = 0; i < 5; ++i) {
-                g_ev_last[i] = v[i];
-            }
-            g_ev_dump = true;
+        g_dropped_id = id;
+        g_dropped_n.fetch_add(1);
+        g_dropped_at = Now();
+        return 0;
+    }
+    if (read && u32(type) == 0xe && g_ev_any.fetch_add(1) < 12) {
+        // The first 0x0e packets for the log (what replicated event state looks like).
+        for (int i = 0; i < 5; ++i) {
+            g_ev_last[i] = v[i];
         }
-        if (ev) {
-            g_ev_packets.fetch_add(1);
-            g_remote_id = ev;
-            g_remote_at = Now();
-        }
+        g_ev_dump = true;
     }
     return r;
 }
@@ -478,20 +479,16 @@ bool Hold(std::uint32_t id, bool mark) {
         return false;
     }
     if (!mark) {
-        // Bug 20: another member's lamp / headstone flag (packet 0x0f) runs the same warp event
-        // here. Only the member who used it is asked; here the warp is dropped (its outcome comes
-        // as the party travel, or nothing).
-        const double now = Now(), own = Age(g_local_at, now), peer = Age(g_remote_at, now);
-        if (deathrules::PlanLampOrigin(own, peer, progress::LocalFlagSetHooked()) == deathrules::LampOrigin::Other) {
+        // Bug 20: a lamp warp with no lamp / headstone flag of this game's own is another
+        // member's: only the member who used it is asked; here the warp is dropped (its outcome
+        // comes as the party travel, or nothing). A peer's lamp packets are dropped before they
+        // run anything here (FlagPacketRead), so they never count against this game's own use.
+        const double now = Now(), own = Age(g_local_at, now), peer = Age(g_dropped_at, now);
+        if (deathrules::PlanLampOrigin(own, -1, progress::LocalFlagSetHooked()) == deathrules::LampOrigin::Other) {
             char why[96];
-            if (own >= 0 && own <= deathrules::kLampOriginWindow) {
-                std::snprintf(why, sizeof why, "a member's lamp flag / event %u came %.1f s after this game's own %u",
-                              g_remote_id.load(), own - peer, g_local_id.load());
-            } else {
-                std::snprintf(why, sizeof why, "this game set no lamp / headstone flag in the last %.0f s%s",
-                              deathrules::kLampOriginWindow, peer >= 0 && peer <= deathrules::kLampOriginWindow
-                                                                 ? "; a member's came just before" : "");
-            }
+            std::snprintf(why, sizeof why, "this game set no lamp / headstone flag in the last %.0f s%s",
+                          deathrules::kLampOriginWindow, peer >= 0 && peer <= deathrules::kLampOriginWindow
+                                                             ? "; a member's was dropped just before" : "");
             Log("lamp %u (%s): not this player's use (%s): the same warp event of another member's lamp / headstone; "
                 "no question here, the warp is dropped (that member chooses)",
                 id, host ? "host" : "guest", why);
@@ -590,25 +587,23 @@ void Tick(const GameSnapshot& s, party::PartyLink* link) {
     }
     {
         // Diagnostics (bug 20): every lamp flag, own or a peer's, once.
-        static double local_seen = -1, remote_seen = -1;
-        const double l = g_local_at.load(), r = g_remote_at.load();
+        static double local_seen = -1, dropped_seen = -1;
+        const double l = g_local_at.load(), r = g_dropped_at.load();
         if (l != local_seen) {
             local_seen = l;
             Log("lamp flag %u set by this game (this player's lamp / headstone use)", g_local_id.load());
         }
         if (g_ev_dump.exchange(false)) {
-            Log("packet 0x0e #%u (lamp events %u): %u %u %u %u %u", g_ev_any.load(), g_ev_packets.load(),
-                g_ev_last[0].load(), g_ev_last[1].load(), g_ev_last[2].load(), g_ev_last[3].load(), g_ev_last[4].load());
+            Log("packet 0x0e #%u: %u %u %u %u %u", g_ev_any.load(), g_ev_last[0].load(), g_ev_last[1].load(),
+                g_ev_last[2].load(), g_ev_last[3].load(), g_ev_last[4].load());
         }
-        if (r != remote_seen) {
-            remote_seen = r;
-            if (LampWarpEvent(g_remote_id.load())) {
-                Log("lamp warp event %u from a party member (packet 0x0e #%u: %u %u %u %u %u): their lamp / headstone use",
-                    g_remote_id.load(), g_ev_packets.load(), g_ev_last[0].load(), g_ev_last[1].load(),
-                    g_ev_last[2].load(), g_ev_last[3].load(), g_ev_last[4].load());
-            } else {
-                Log("lamp flag %u from a party member (packet 0x0f): their lamp / headstone use", g_remote_id.load());
-            }
+        if (r != dropped_seen) {
+            dropped_seen = r;
+            const u32 id = g_dropped_id.load();
+            Log("%s %u from a party member dropped (packet %s, %u so far): their lamp / headstone use, not run "
+                "here, so this game's own warp event for that lamp stays ready",
+                LampWarpEvent(id) ? "lamp warp event" : "lamp flag", id, LampWarpEvent(id) ? "0x0e" : "0x0f",
+                g_dropped_n.load());
         }
         Choosing c;
         {

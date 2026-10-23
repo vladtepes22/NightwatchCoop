@@ -417,6 +417,28 @@ int main() {
     CHECK(PlanLampOrigin(3.5, 12) == LampOrigin::Own);      // a stale peer flag
     CHECK(PlanLampOrigin(3.5, 8) == LampOrigin::Own);       // own use after the peer's
     CHECK(PlanLampOrigin(8, 3.4) == LampOrigin::Other);     // the peer's after an old own one
+    {
+        // A peer's lamp packets are dropped (live 0.2.2 b1: a guest's lone Dream trip used up the
+        // host's event 7200 for that lamp; the host's own Dream choice there then did nothing).
+        const std::uint32_t dream_flag[5] = {72400100};     // Cathedral Ward lamp -> Dream (0x0f)
+        const std::uint32_t headstone[5] = {72102950};      // a Dream headstone
+        const std::uint32_t quest_flag[5] = {72400480};     // an NPC quest flag: not a lamp's
+        const std::uint32_t talk_flag[5] = {72100100};      // the Dream's talk state: not a lamp's
+        CHECK(PeerLampPacket(0xf, 4, dream_flag));
+        CHECK(PeerLampPacket(0xf, 4, headstone));
+        CHECK(!PeerLampPacket(0xf, 4, quest_flag));
+        CHECK(!PeerLampPacket(0xf, 4, talk_flag));
+        CHECK(!PeerLampPacket(0xf, 8, dream_flag));          // not the 4-byte flag packet
+        const std::uint32_t lamp_event[5] = {10, 7200, 72400100, 2401950, 2102950};
+        const std::uint32_t headstone_event[5] = {0, 12107000, 0, 0, 0};
+        const std::uint32_t other_event[5] = {10, 7600, 2401999, 2403999, 0};
+        CHECK(PeerLampPacket(0xe, 0x14, lamp_event));
+        CHECK(PeerLampPacket(0xe, 0x14, headstone_event));
+        CHECK(!PeerLampPacket(0xe, 0x14, other_event));
+        CHECK(!PeerLampPacket(0xe, 4, lamp_event));          // wrong size: left alone
+        CHECK(!PeerLampPacket(0x10, 4, dream_flag));         // other packet types: left alone
+        CHECK(!PeerLampPacket(0xf, 4, nullptr));
+    }
 
     // A guest's lamp (bug 10, bug 3).
     CHECK(PlanGuestLamp(false, false, true, false) == GuestLamp::Plain);
