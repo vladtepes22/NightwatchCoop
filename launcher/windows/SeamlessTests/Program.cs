@@ -1,4 +1,5 @@
 using BloodborneLauncher.Core;
+using System.IO;
 
 if (args.Length == 2 && args[0] == "--render-ui")
 {

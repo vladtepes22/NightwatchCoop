@@ -10,6 +10,7 @@
                 <ui:ControlsDictionary />
                 <ResourceDictionary Source="Themes/Charcoal.xaml" />
                 <ResourceDictionary Source="Themes/Styles.xaml" />
+                <ResourceDictionary Source="Themes/ScrollBar.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>
