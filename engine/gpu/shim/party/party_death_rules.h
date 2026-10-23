@@ -930,9 +930,12 @@ inline GuestLamp PlanGuestLamp(bool guest_in_host_world, bool at_lamp_spot, bool
 /// 0.7.3 (user decision 2026-10-22: "only the host's own rest resets the world"): a guest that
 /// leaves the Hunter's Dream alone (`from_dream`: a headstone, NO) never rests the host's world;
 /// its trip is a plain travel for the guest (the dreamstone da run gave the host a rest load).
+/// Nightwatch (playtest 23 Oct, the same decision): a guest that travels away alone (to the Dream or
+/// another lamp) never rests the host's world either: the host no longer reloads where it stands.
+/// Only a lamp of the map the party stands in stays a rest (`same_map_solo`): the guest reloads that
+/// map itself, and without the host's rest load the host's kills would live again on its screen only.
 inline bool GuestAloneRestsHostWorld(bool alone, bool same_map_solo, bool from_dream) {
-    (void)same_map_solo;
-    return alone && !from_dream;
+    return alone && same_map_solo && !from_dream;
 }
 
 // ---- The host runs a rest load for a guest's rest ----

@@ -425,7 +425,7 @@ int main() {
     CHECK(PlanGuestLamp(true, true, true, true) == GuestLamp::SoloLoad);   // a Mark to the lamp here
     CHECK(PlanGuestLamp(true, false, false, false) == GuestLamp::Ask);
     CHECK(PlanGuestLamp(true, false, false, true) == GuestLamp::Ask);
-    CHECK(GuestAloneRestsHostWorld(true, false, false));
+    CHECK(!GuestAloneRestsHostWorld(true, false, false));  // travels away alone: no host reload (Nightwatch)
     CHECK(!GuestAloneRestsHostWorld(false, false, false));  // YES: the party travel is the rest
     CHECK(GuestAloneRestsHostWorld(true, true, false));  // D9 (pard4): a lamp of the loaded map rests too
     // 0.7.3: a guest leaving the Hunter's Dream alone (headstone, NO) is a plain travel: no rest load

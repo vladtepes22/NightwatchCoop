@@ -770,10 +770,10 @@ void DefineAll() {
 
     // The split-travel question (party_split.cpp): a game dialog with YES / NO after a lamp,
     // headstone or Hunter's Mark in a party (docs/party/split_travel.md).
-    split_text[0] = AddText("Travel with the party?\nYES: everyone travels together.  NO: you travel alone.\n"
-                            "A rest at a lamp resets the world for the party.",
-                            "Путешествовать всей группой?\nДА: вся группа вместе.  НЕТ: только вы.\n"
-                            "Отдых у лампы сбрасывает мир для всей группы.");
+    split_text[0] = AddText("Travel with the party?\nYES: everyone travels together and the world resets.\n"
+                            "NO: you travel alone; the others stay where they are.",
+                            "Путешествовать всей группой?\nДА: вся группа вместе, мир сбрасывается.\n"
+                            "НЕТ: только вы; остальные остаются на месте.");
 
     // D10 story notices a guest's own game never shows (party_story StoryNoticeMessage): the
     // game's EventText 10012014, as its English / Russian text.
