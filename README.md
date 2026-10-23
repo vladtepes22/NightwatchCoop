@@ -4,7 +4,7 @@
 walls: deaths, boss kills and lamp travel don't end the session, and everyone's save keeps the
 progress. Up to 4 hunters. Free and open source.
 
-Built on the open-source **Lantern Engine 0.9.37 beta 8** (Bloodborne running natively on Windows,
+Built on the open-source **Lantern Engine 0.9.37 beta 9** (Bloodborne running natively on Windows,
 with upscalers and PC controls) and **visy's seamless co-op v0.7.3**.
 
 **See it in action:** [Nightwatch Co-op on YouTube](https://www.youtube.com/watch?v=bYavrI0ca94)

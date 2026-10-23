@@ -66,7 +66,7 @@ Require(Localization.F($"Unknown format {value:0.0}") == "Unknown format 12,5", 
 Require(Localization.F($"There is already a profile called {"测试玩家"}.").Contains("测试玩家"), "Dynamic Unicode text was lost");
 
 Require(Choices.MenuLanguages.Count(c => c.Value == "zh_CN") == 1, "Chinese menu code missing or duplicated");
-Require(Choices.GameLanguages.Select(c => c.Value).SequenceEqual(new[] { "1", "8", "0", "2", "3", "4", "5" }), "Game language values changed");
+Require(Choices.GameLanguages.Select(c => c.Value).SequenceEqual(new[] { "1", "8", "0", "2", "3", "4", "5", "17" }), "Game language values changed");
 Require(InputMap.SdlKeyName(Key.Left) == "Left" && InputMap.SdlKeyName(Key.Return) == "Return", "Keyboard protocol names were translated");
 Require(InputMap.Controls.Single(c => c.Name == "switch_right").Default == "Right", "Default keyboard binding was translated");
 Require(PadMap.InputFor(InputMap.Controls.Single(c => c.Name == "switch_item")) == "down", "Controller lookup labels changed");
