@@ -15,6 +15,7 @@
 #include <limits>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace coop::deathrules {
 
@@ -132,12 +133,31 @@ struct DownView {
     bool scripted_warp = false;  ///< as HostDeathView::scripted_warp (a death in a fight: after the limbo)
     double down_for = 0;       ///< s since the death was taken
     double delay = 1.0;        ///< BB_PARTY_B2_HOST_REVIVE_DELAY
+    /// The limbo's fight (LimboFightView): members in the fight when the host died, and how many of
+    /// them are out of it now (down, or gone: Hunter's Mark, lamp, Leave, disconnect).
+    int fighters = -1;         ///< -1: not tracked (no limbo)
+    int fighters_out = 0;
+    /// A member that left by a load into this world (a Mark to the host's lamp) is still loading:
+    /// the wipe waits for its arrival (one load after the other, not two at once).
+    bool fighter_settling = false;
 };
+/// The host's boss-fight limbo has nobody left fighting (player report 2026-10-22, host_limbo_mark:
+/// the last living guest used the Hunter's Mark, the host spectated its own corpse until the guest
+/// lamped to the Dream): every member that was in the fight is down or gone from it.
+inline bool LimboFightEmpty(int fighters, int out) {
+    return fighters >= 0 && out >= fighters;
+}
 inline DownTick PlanDownTick(const DownView& v) {
     // Recounted every frame: a member whose death arrives a moment after the host's turns the
     // host's lone death into a wipe (playtest 1 bug 18: "0 down" counted 0.3 s too early).
     if (Wiped(v.members, v.down_reported, v.down_seen)) {
         return DownTick::Wipe;
+    }
+    // 0.7.4 (user decision): the last living member leaving the fight by any way (Hunter's Mark,
+    // Bold Hunter's Mark, a lamp, its death, Leave, a disconnect) counts as a wipe: everyone
+    // respawns as in one. Only while the boss still fights (its kill: the arena revive / load below).
+    if (v.limbo && v.boss_active && !v.boss_killed && LimboFightEmpty(v.fighters, v.fighters_out)) {
+        return v.fighter_settling ? DownTick::Wait : DownTick::Wipe;
     }
     if (v.down_for < v.delay) {
         return DownTick::Wait;
@@ -424,6 +444,75 @@ private:
         double alive_since = -1.0;
     };
     std::map<int, Entry> e_;
+};
+/// The host's boss-fight limbo: who was fighting when the host died and who has left the fight
+/// since (DownView fighters / fighters_out / fighter_settling). Host, under g_dead_mu.
+class LimboFight {
+public:
+    /// The limbo starts: the members in the roster now (MembersNow, the host excluded).
+    template <class Container>
+    void Begin(const Container& members) {
+        on_ = true;
+        in_.clear();
+        left_.clear();
+        for (const MemberNow& m : members) {
+            if (m.in_roster && m.slot > 0) in_.push_back(m.slot);
+        }
+    }
+    void End() {
+        on_ = false;
+        in_.clear();
+        left_.clear();
+    }
+    bool On() const { return on_; }
+    /// A fighter left the fight (Hunter's Mark, a lamp, Leave). `settle_until`: a load into this world
+    /// still running until then (its "arrived" ends it sooner); 0 when it went elsewhere. True: newly.
+    bool Left(int slot, double settle_until) {
+        if (!on_ || !Has(slot)) return false;
+        const bool fresh = left_.count(slot) == 0;
+        left_[slot] = settle_until;
+        return fresh;
+    }
+    /// Its load into this world is over ("arrived" at `now`): settled kLimboArriveGrace s later (still
+    /// out of the fight). The guest sends "arrived" a moment before its re-join ends, and a host
+    /// travel that reaches it before that end is dropped (live bl1: the wipe's load 13 ms after it).
+    static constexpr double kLimboArriveGrace = 2.5;
+    void Arrived(int slot, double now) {
+        auto it = left_.find(slot);
+        if (it != left_.end()) it->second = now + kLimboArriveGrace;
+    }
+    int Fighters() const { return on_ ? int(in_.size()) : -1; }
+    /// Fighters out: left, gone from the roster, or `down(slot)` (reported down).
+    template <class Container, class DownFn>
+    int Out(const Container& members, DownFn down) const {
+        int n = 0;
+        for (int slot : in_) {
+            bool here = false;
+            for (const MemberNow& m : members) {
+                if (m.slot == slot && m.in_roster) here = true;
+            }
+            n += (!here || left_.count(slot) || down(slot)) ? 1 : 0;
+        }
+        return n;
+    }
+    /// A fighter that left by a load into this world has not arrived yet (and `now` is before its cap).
+    bool Settling(double now) const {
+        for (const auto& kv : left_) {
+            if (kv.second > now) return true;
+        }
+        return false;
+    }
+
+private:
+    bool Has(int slot) const {
+        for (int s : in_) {
+            if (s == slot) return true;
+        }
+        return false;
+    }
+    bool on_ = false;
+    std::vector<int> in_;
+    std::map<int, double> left_;
 };
 /// Members seen at HP 0 right now (their own fresh vitals): HostDeathView / DownView down_seen.
 template <class Container>

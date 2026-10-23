@@ -156,6 +156,12 @@ target_include_directories(party-death-rules-test PRIVATE shim)
 
 set_target_properties(party-death-rules-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
+# Split travel notice text + rate limit (party_split_notice.h; visy 0.7.4).
+add_executable(party-split-notice-test EXCLUDE_FROM_ALL ../tests/test_party_split_notice.cpp)
+target_compile_options(party-split-notice-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-split-notice-test PRIVATE shim)
+set_target_properties(party-split-notice-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
 add_executable(party-guestvals-test EXCLUDE_FROM_ALL ../tests/test_party_guestvals.cpp)
 
 target_compile_options(party-guestvals-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)

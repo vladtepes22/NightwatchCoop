@@ -492,7 +492,21 @@ void DollRewriter(int event_id, int bank, int id, std::uint64_t event, std::uint
         !DollLevelUpCharTypeTest(event_id, bank, id, entity, type)) {
         return;
     }
-    const std::int8_t want = LocalSessionRole() == kSessionRoleClient ? 1 : 0;
+    // The test compares the LOCAL chr's type (PlayerIns +0x78) at this moment. After a B2 load into
+    // the Dream (a party travel, a re-join) a guest's body is an own-world one (type 0) for ~0.3 s
+    // until GuestChrTypeTick makes it a white phantom (1) again; these events run their first test
+    // right at the load, so "1" then ended them for the rest of the stay: no kneel, no gesture, no
+    // LevelUp menu (live sj8: the Doll's lines, then nothing - a player report: "the Doll randomly
+    // doesn't work for guests"). The test now asks for the type the chr has when it runs.
+    std::int8_t want = LocalSessionRole() == kSessionRoleClient ? 1 : 0;
+    {
+        std::uint64_t wcm = 0, me = 0;
+        std::int32_t now_type = -1;
+        if (want == 1 && SafeGet(Guest(0x553e878), &wcm) && wcm && SafeGet(wcm + 0x60, &me) && me &&
+            SafeGet(me + 0x78, &now_type) && (now_type == 0 || now_type == 1)) {
+            want = static_cast<std::int8_t>(now_type);
+        }
+    }
     if (type != want && SafeWrite(args + 8, &want, 1)) {
         g_doll_rewrites.fetch_add(1, std::memory_order_relaxed);
     }

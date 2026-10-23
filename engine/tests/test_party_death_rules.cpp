@@ -154,6 +154,63 @@ int main() {
         CHECK(ScriptedDeathWarp(true, false) && ScriptedDeathWarp(false, true) && !ScriptedDeathWarp(false, false));
     }
 
+    {
+        // 0.7.4 host_limbo_mark: the host in its boss-fight limbo, the last living member leaves the
+        // fight (Hunter's Mark, lamp, Leave, disconnect): a wipe, not a limbo until a rest.
+        std::vector<MemberNow> roster(2);
+        roster[0].slot = 1;
+        roster[1].slot = 2;
+        LimboFight f;
+        CHECK(f.Fighters() == -1 && !LimboFightEmpty(f.Fighters(), 0));
+        f.Begin(roster);
+        CHECK(f.Fighters() == 2);
+        auto none = [](int) { return false; };
+        CHECK(f.Out(roster, none) == 0);
+        CHECK(f.Left(1, 100.0));                 // slot 1: Hunter's Mark into this world, loading until 100
+        CHECK(!f.Left(1, 100.0));                // once
+        CHECK(!f.Left(5, 0.0));                  // not a fighter
+        CHECK(f.Out(roster, none) == 1);
+        CHECK(f.Settling(50.0) && !f.Settling(100.0));
+        f.Arrived(1, 50.0);
+        CHECK(f.Settling(51.0) && !f.Settling(53.0));  // a moment for its re-join to end
+        CHECK(!LimboFightEmpty(f.Fighters(), f.Out(roster, none)));  // slot 2 fights on
+        CHECK(f.Out(roster, [](int s) { return s == 2; }) == 2);       // ... until it is down
+        std::vector<MemberNow> gone(1, roster[0]);
+        CHECK(f.Out(gone, none) == 2);           // slot 2 left the party (Leave / disconnect)
+        f.End();
+        CHECK(f.Fighters() == -1);
+        CHECK(!f.Left(1, 0.0));                  // no limbo: nothing recorded
+
+        DownView v;
+        v.members = 1;
+        v.down_for = 5;
+        v.limbo = true;
+        v.boss_active = true;
+        v.fighters = 1;
+        v.fighters_out = 0;
+        CHECK(PlanDownTick(v) == DownTick::Wait);       // the guest fights on: the limbo
+        v.fighters_out = 1;
+        v.fighter_settling = true;
+        CHECK(PlanDownTick(v) == DownTick::Wait);       // its Mark's load into this world still runs
+        v.fighter_settling = false;
+        CHECK(PlanDownTick(v) == DownTick::Wipe);       // arrived: everyone respawns as in a wipe
+        v.down_for = 0.1;
+        CHECK(PlanDownTick(v) == DownTick::Wipe);       // also within the revive delay
+        v.down_for = 5;
+        v.fighters = 0;
+        v.fighters_out = 0;
+        CHECK(PlanDownTick(v) == DownTick::Wipe);       // nobody was fighting (all left before the death was taken)
+        v.fighters = -1;
+        CHECK(PlanDownTick(v) == DownTick::Wait);       // not tracked: as before
+        v.fighters = 1;
+        v.fighters_out = 1;
+        v.boss_active = false;                           // the boss was killed meanwhile: not a wipe
+        v.boss_killed = true;
+        v.arena_revive_on = true;
+        v.member_here = true;
+        CHECK(PlanDownTick(v) == DownTick::ArenaRevive);
+    }
+
     // While the host is down: recount at every frame (bug 18).
     DownView d;
     d.members = 1;

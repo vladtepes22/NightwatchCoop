@@ -49,6 +49,46 @@ def _alive(pid: int) -> bool:
         return False
 
 
+# Windows: a reader (status, the reaper, an editor, a virus scanner) holding the file open makes
+# os.replace / open fail for a moment with WinError 32 (sharing violation) or 5 (access denied).
+# Retry a bounded number of times with a short growing backoff (about 3 s in all) before giving up.
+RETRY_DELAYS = (0.02, 0.05, 0.1, 0.1, 0.2, 0.2, 0.3, 0.5, 0.5, 0.5, 0.5)
+
+
+def _retry(fn, delays=RETRY_DELAYS):
+    for d in delays:
+        try:
+            return fn()
+        except PermissionError:  # WinError 5 / 32 (and 33, a lock) all arrive as PermissionError
+            time.sleep(d)
+    return fn()  # last try: its error goes to the caller
+
+
+def _read_state(qf: Path) -> dict:
+    """The pool's state; {} when the file is missing or not JSON. A file that is only busy is
+    retried, never taken for empty (that would drop every holder and waiter)."""
+    try:
+        return json.loads(_retry(lambda: qf.read_text(encoding="utf-8")))
+    except FileNotFoundError:
+        return {}
+    except ValueError:
+        return {}
+
+
+def _write_atomic(qf: Path, text: str):
+    """Write next to qf (a per-process temp name, so two writers never share it) and rename over
+    qf: readers see the old or the new file, never half of one. The rename is retried."""
+    tmp = qf.with_name(f"{qf.stem}.{os.getpid()}.tmp")
+    try:
+        _retry(lambda: tmp.write_text(text, encoding="utf-8"))
+        _retry(lambda: os.replace(tmp, qf))
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
 @contextlib.contextmanager
 def _locked(pool: str = "game"):
     qf = pool_file(pool)
@@ -73,10 +113,7 @@ def _locked(pool: str = "game"):
                 raise SystemExit(f"{pool} queue: cannot lock {lock}")
             time.sleep(0.1)
     try:
-        try:
-            state = json.loads(qf.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            state = {}
+        state = _read_state(qf)
         state.setdefault("max_clients", POOL_DEFAULTS.get(pool, 2))
         # A job bigger than max_clients (e.g. a 4-player test) may still run, but only alone:
         # max_solo is the largest such job (game pool: 4; 4 games at once starve the CPU otherwise).
@@ -84,9 +121,7 @@ def _locked(pool: str = "game"):
         state.setdefault("holders", [])
         state.setdefault("queue", [])
         yield state
-        tmp = qf.with_suffix(".tmp")
-        tmp.write_text(json.dumps(state, indent=1), encoding="utf-8")
-        os.replace(tmp, qf)
+        _write_atomic(qf, json.dumps(state, indent=1))
     finally:
         try:
             lock.unlink()

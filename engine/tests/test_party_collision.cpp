@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// Build and run: ninja -C out/gpu party-collision-test && out/gpu/party-collision-test.exe
 #include "party/party_collision.h"
 
 #include <array>
