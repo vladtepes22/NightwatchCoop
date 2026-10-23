@@ -521,3 +521,10 @@ foreach(_target IN LISTS _seamless_targets)
         target_compile_definitions(${_target} PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
     endif()
 endforeach()
+
+# The in-game map page's rules (area per game map, zoom): gpu/shim/map/map_page_rules.h.
+add_executable(map-page-test EXCLUDE_FROM_ALL ../tests/test_map_page.cpp)
+target_include_directories(map-page-test PRIVATE shim)
+target_compile_options(map-page-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME map-page-test COMMAND map-page-test)
+add_dependencies(seamless-tests map-page-test)

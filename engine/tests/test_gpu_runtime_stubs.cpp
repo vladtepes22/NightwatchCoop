@@ -67,10 +67,11 @@ void runtime_pad_director_press(uint32_t) {}
 void runtime_pad_director_sticks(int, int, int, int) {}
 uint32_t runtime_pad_last_buttons(void) { return 0; }
 uint32_t runtime_pad_last_left(void) { return 0x8080u; }
-int runtime_pad_type(void) { return 0; }
-int runtime_pad_button(uint32_t, int) { return 0; }
-void runtime_blocked_report(void) {}
-[[noreturn]] void runtime_thread_exit(void*) { std::abort(); }
+// Weak: bb-shader-lab (Lantern 0.9.37 beta 9) defines these four itself.
+__attribute__((weak)) int runtime_pad_type(void) { return 0; }
+__attribute__((weak)) int runtime_pad_button(uint32_t, int) { return 0; }
+__attribute__((weak)) void runtime_blocked_report(void) {}
+[[noreturn]] __attribute__((weak)) void runtime_thread_exit(void*) { std::abort(); }
 void runtime_relaunch(int) { std::abort(); }
 int runtime_savedata_mount_count(void) { return 0; }
 struct SavePolicyCheck;

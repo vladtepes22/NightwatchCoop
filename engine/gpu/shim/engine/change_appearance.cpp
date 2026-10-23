@@ -19,6 +19,7 @@
 #include "effect_timing.h"
 #include "online_fixes.h"
 #include "trophy_sync.h"
+#include "../map/map_page.h"
 #include "bbport_settings.h"
 #include "bbport_platform.h"
 #include <atomic>
@@ -176,6 +177,7 @@ std::int64_t __attribute__((sysv_abi)) FrameHook(std::uint64_t, const std::uint6
     Widescreen::Tick();
     Cheats::Tick();
     TrophySync::Tick();
+    BbMapPage::Tick();  // the map's player position (only while the map is on)
     return 0; // The established FPS++ implementation still runs, byte for byte.
 }
 } // namespace

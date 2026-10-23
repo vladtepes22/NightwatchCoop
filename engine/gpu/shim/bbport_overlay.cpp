@@ -23,6 +23,7 @@
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_optiscaler.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "map/map_page.h"
 
 // DejaVu Sans (Latin with Latin Extended, Greek, Cyrillic), embedded (third_party/fonts, Bitstream
 // Vera license).
@@ -1753,6 +1754,15 @@ void Menu() {
                     ImGui::EndTabItem();
                 }
             }
+            // The map (step 4b): only with baked maps (BB_MAP_DIR); not in L2 / R2 cycling or search.
+            if (BbMapPage::Available() &&
+                ImGui::BeginTabItem((std::string(BbSettings::MenuText("Map", "Карта")) + "###tabmap").c_str())) {
+                if (ImGui::BeginChild("##map", page)) {
+                    BbMapPage::Draw(base_scale);
+                }
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
             ImGui::EndTabBar();
         }
         pending_tab = -1;
@@ -2106,6 +2116,7 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
         return;
     }
     initialized = true;
+    BbMapPage::Init(info.Device, info.PhysicalDevice, color_format);  // off without BB_MAP_DIR
     std::printf("Overlay: menu ready (%s)\n", MenuKeys() == OverlayKeys::Both     ? "Insert or L3+R3"
                                              : MenuKeys() == OverlayKeys::Insert ? "Insert; L3+R3 off"
                                                                                  : "shortcuts off");
