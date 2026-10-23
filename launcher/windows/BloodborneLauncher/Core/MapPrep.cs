@@ -147,7 +147,7 @@ namespace BloodborneLauncher.Core
                 var baker = new ProcessStartInfo(Baker) { WorkingDirectory = Paths.BinariesDir };
                 baker.ArgumentList.Add(Path.Combine(atlas, "maps"));
                 baker.ArgumentList.Add(baked);
-                baker.ArgumentList.Add("4");
+                baker.ArgumentList.Add(Workers().ToString());
                 await Run(baker, line =>
                 {
                     if (line.StartsWith("MAP_AREA_READY", StringComparison.Ordinal))
