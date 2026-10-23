@@ -475,6 +475,8 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
     draw->PushClipRect(origin, ImVec2(origin.x + size.x, origin.y + size.y), true);
     std::vector<bool> shown;
     if (fog && area) shown = RegionVisibility(*area, flag);
+    if (fog && area && std::none_of(shown.begin(), shown.end(), [](bool b) { return b; }))
+        r.note = BbSettings::MenuText("Revealed when this area's boss is defeated", "Откроется после победы над боссом этой области");
     BbMapVector::Draw(draw, v.region, floor, center, v.cx, v.cz, z, 1.0f, v.shading, s, fog && area ? &shown : nullptr);
 
     std::vector<Tip> tips;
