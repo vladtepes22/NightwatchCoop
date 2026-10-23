@@ -128,6 +128,10 @@ TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler&
       tile_manager{instance, scheduler, runtime, buffer_cache.GetStreamBuffer()},
       readback_linear_images{EmulatorSettings.IsReadbackLinearImagesEnabled()} {
 
+    SetImageAllocRelief(
+        [](void* owner, int round) { return static_cast<TextureCache*>(owner)->ReliefForImageAlloc(round); },
+        this);
+
     u32 max_samplers = instance.GetMaxSamplerAllocationCount();
     trigger_gc_samplers = max_samplers * 3 / 4;
     pressure_gc_samplers = max_samplers * 7 / 8;
@@ -209,7 +213,53 @@ u64 ImageFreeDelayFrames() {
 }
 } // namespace
 
-TextureCache::~TextureCache() = default;
+TextureCache::~TextureCache() {
+    SetImageAllocRelief(nullptr, nullptr);
+}
+
+/// bbport (visy f4dafbcc, TEXTURE_GC_BACKPORT.md Part 2): called from UniqueImage::Create with the
+/// cache's mutex held (an image is being made), when the driver refused the allocation. Round 0
+/// only lets the GPU finish and reclaims what was already deleted; rounds 1 and 2 also evict up to
+/// 64 images unused for 600 / 16 ticks (GPU-written ones and those in recent use stay). The
+/// scheduler is drained after each round so the memory is back before the retry.
+bool TextureCache::ReliefForImageAlloc(int round) {
+    if (round > 0) {
+        const u64 age = round == 1 ? 600 : 16;
+        const u64 recent = GcRecentFrames();
+        const u64 recent_tick =
+            recent == 0 ? 0
+                        : (gc_tick >= recent ? std::max<u64>(sched_tick_at_gc[(gc_tick - recent) %
+                                                                              sched_tick_at_gc.size()], 1)
+                                             : ~0ull);
+        u32 left = 64;
+        lru_cache.ForEachItemBelow(gc_tick > age ? gc_tick - age : 0, [&](ImageId image_id) {
+            if (left == 0) {
+                return true;
+            }
+            auto& image = slot_images[image_id];
+            if (image.SafeToDownload() ||
+                (recent_tick != 0 && (image.tick_accessed_last >= recent_tick ||
+                                      !scheduler.IsFree(image.tick_accessed_last)))) {
+                lru_cache.Touch(image.lru_id, gc_tick);
+                return false;
+            }
+            --left;
+            BbStats::gc_freed_images.fetch_add(1, std::memory_order_relaxed);
+            FreeImage(image_id);
+            return false;
+        });
+    }
+    scheduler.Finish();
+    {
+        std::scoped_lock lk{graveyard_mutex};
+        for (const auto& grave : image_graveyard) {
+            ReclaimImage(grave.image_id);
+        }
+        image_graveyard.clear();
+    }
+    scheduler.PopPendingOperations();
+    return true;
+}
 
 /// bbport BB_REFRESH_TRACE=1 (diagnostics): for images of 4 MiB and up, the writes that mark one
 /// dirty (and their kind, InvalidateReason) and its refreshes, with the flags they found and what

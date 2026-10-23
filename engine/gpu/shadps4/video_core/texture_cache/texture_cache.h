@@ -512,6 +512,8 @@ private:
     }
 
     void GarbageCollectImages();
+    /// bbport (visy f4dafbcc): the driver refused a new image; frees unused textures (SetImageAllocRelief).
+    bool ReliefForImageAlloc(int round);
     void GarbageCollectSamplers();
 
 private:

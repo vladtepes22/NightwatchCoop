@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
+#include <cstdio>
 #include <numeric>
 
 #include "common/alignment.h"
@@ -101,6 +103,21 @@ void UniqueBuffer::Create(vk::BufferCreateInfo& buffer_ci, MemoryType mem_type,
         VkBuffer unsafe_buffer{};
         VkResult result = vmaCreateBuffer(allocator, &buffer_ci_unsafe, &alloc_ci, &unsafe_buffer,
                                           &allocation, out_alloc_info);
+        // bbport (visy 4c4bb35a, TEXTURE_GC_BACKPORT.md Part 2): past the VRAM budget is not out of
+        // memory (images do the same, image.cpp): allocated anyway, only the driver's own refusal
+        // stops the game.
+        if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY) {
+            VmaAllocationCreateInfo over_budget = alloc_ci;
+            over_budget.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+            result = vmaCreateBuffer(allocator, &buffer_ci_unsafe, &over_budget, &unsafe_buffer,
+                                     &allocation, out_alloc_info);
+            static std::atomic<int> reports{0};
+            if (reports.fetch_add(1, std::memory_order_relaxed) < 10) {
+                std::printf("Buffer cache: buffer of %llu KiB over the GPU memory budget: %s\n",
+                            static_cast<unsigned long long>(buffer_ci.size >> 10),
+                            result == VK_SUCCESS ? "allocated anyway" : "refused by the driver too");
+            }
+        }
         ASSERT_MSG(result == VK_SUCCESS, "Failed allocating buffer with error {}",
                    vk::to_string(vk::Result{result}));
         buffer = vk::Buffer{unsafe_buffer};

@@ -37,6 +37,11 @@ enum ImageFlagBits : u32 {
 };
 DECLARE_ENUM_FLAG_OPERATORS(ImageFlagBits)
 
+/// bbport (visy f4dafbcc): called when the driver refused an image even past the budget; frees
+/// what it can (round 0, 1, 2: more each time) and returns true if it may be worth retrying.
+using ImageAllocRelief = bool (*)(void* owner, int round);
+void SetImageAllocRelief(ImageAllocRelief relief, void* owner);
+
 struct UniqueImage {
     explicit UniqueImage() = default;
     explicit UniqueImage(vk::Device device, VmaAllocator allocator)

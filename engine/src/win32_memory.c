@@ -101,14 +101,24 @@ int win_mem_commit(uint64_t phys, uint64_t size) {
             (unsigned long long)(size >> 20), (unsigned long long)phys, GetLastError());
     return -1;
 }
+/* bbport (visy's win_mem_punch, TEXTURE_GC_BACKPORT.md Part 2): released memory is dropped, not
+ * written. A memset faulted in every page of a range that was never touched (RAM went resident on
+ * each release, e.g. during the Continue load). visy uses VirtualAlloc(MEM_RESET); measured on a
+ * pagefile section view that is a no-op (pages stay resident and keep their data), so this uses
+ * DiscardVirtualMemory: it frees the pages and they read as zero again through every view of the
+ * section, which keeps the "zero on reuse" the guest gets on Linux (hole punch). memset remains the
+ * fallback if Windows refuses. */
+static void clear(uint64_t at, uint64_t size) {
+    if (DiscardVirtualMemory(pool_view + at, size) != ERROR_SUCCESS) memset(pool_view + at, 0, size);
+}
 void win_mem_zero(uint64_t phys, uint64_t size) {
-    if (!lazy) { memset(pool_view + phys, 0, size); return; }
+    if (!lazy) { clear(phys, size); return; }
     MEMORY_BASIC_INFORMATION info;
     for (uint64_t at = phys, end = phys + size; at < end;) {
         if (!VirtualQuery(pool_view + at, &info, sizeof(info))) return;
         uint64_t next = (uint64_t)((unsigned char *)info.BaseAddress + info.RegionSize - pool_view);
         if (next > end) next = end;
-        if (info.State == MEM_COMMIT) memset(pool_view + at, 0, next - at);
+        if (info.State == MEM_COMMIT) clear(at, next - at);
         at = next;
     }
 }

@@ -119,6 +119,16 @@ UniqueImage::~UniqueImage() {
     }
 }
 
+namespace {
+ImageAllocRelief image_alloc_relief{};
+void* image_alloc_relief_owner{};
+} // namespace
+
+void SetImageAllocRelief(ImageAllocRelief relief, void* owner) {
+    image_alloc_relief = relief;
+    image_alloc_relief_owner = owner;
+}
+
 void UniqueImage::Destroy() {
     if (image) {
         BbStats::vk_image_bytes.fetch_sub(size_bytes, std::memory_order_relaxed);
@@ -175,6 +185,20 @@ void UniqueImage::Create(const vk::ImageCreateInfo& image_ci) {
                         image_ci.extent.height,
                         result == VK_SUCCESS ? "allocated anyway" : "refused by the driver too");
         }
+    }
+    // bbport (visy f4dafbcc, TEXTURE_GC_BACKPORT.md Part 2): the driver refused even past the budget.
+    // Free unused textures in rounds (each frees more) and retry before giving up.
+    for (int round = 0; round < 3 && result == VK_ERROR_OUT_OF_DEVICE_MEMORY && image_alloc_relief;
+         ++round) {
+        image_alloc_relief(image_alloc_relief_owner, round);
+        VmaAllocationCreateInfo retry = alloc_ci;
+        retry.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+        result = vmaCreateImage(allocator, &image_ci_unsafe, &retry, &unsafe_image, &allocation,
+                                &alloc_info);
+        std::printf("Texture cache: image of %ux%u refused by the driver; freed unused textures "
+                    "(round %d): %s\n",
+                    image_ci.extent.width, image_ci.extent.height, round + 1,
+                    result == VK_SUCCESS ? "allocated" : "still refused");
     }
     ASSERT_MSG(result == VK_SUCCESS, "Failed allocating image with error {}",
                vk::to_string(vk::Result{result}));
