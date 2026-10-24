@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -801,7 +801,7 @@ namespace BloodborneLauncher
             var ini = ws.Ini;
             if (SeamlessSettings.Validate(s) is { } partyProblem)
             {
-                Prompt.Tell("Seamless co-op", partyProblem);
+                Prompt.Tell(L.T("Co-op"), partyProblem);
                 Show("seamless");
                 return;
             }

@@ -20,193 +20,193 @@ public sealed class SeamlessPage : LauncherPage
     private static bool Hosting(string mode) => mode == "host";
     private static bool Joining(string mode) => mode == "join";
 
-    public SeamlessPage() : base("Seamless co-op",
-        "Play the campaign together with visy's seamless co-op. The host shares a party code; everyone uses the same build, gameplay mods and party size.")
+    public SeamlessPage() : base(L.T("Co-op"),
+        L.T("Play the campaign together with visy's seamless co-op. The host shares a party code; everyone uses the same build, gameplay mods and party size."))
     {
         // Single player shows only Party saves; Join leaves out the host's rows, Host the guest's.
-        Group("Party");
-        SettingCombo(SymbolRegular.People24, "Mode", "Host starts the party; Join connects to the host.",
-            new[] { new Choice("Single player", ""), new Choice("Host", "host"), new Choice("Join", "join") }, "party_mode",
+        Group(L.T("Party"));
+        SettingCombo(SymbolRegular.People24, L.T("Mode"), L.T("Host starts the party; Join connects to the host."),
+            new[] { new Choice(L.T("Single player"), ""), new Choice(L.T("Host"), "host"), new Choice(L.T("Join"), "join") }, "party_mode",
             changed: ShowMode, buttons: true);
         var party = Rows(InParty);
-        TextRow(SymbolRegular.Person24, "Your name", "1–16 letters, numbers, underscores or hyphens.", "Hunter",
+        TextRow(SymbolRegular.Person24, L.T("Your name"), L.T("1–16 letters, numbers, underscores or hyphens."), L.T("Hunter"),
             () => SeamlessSettings.Name(S), v => S.Set("party_name", v), party);
-        TextRow(SymbolRegular.Link24, "Host code or address", "Paste the host's Internet code, LAN code or host:port.", "BBP3-…",
+        TextRow(SymbolRegular.Link24, L.T("Host code or address"), L.T("Paste the host's Internet code, LAN code or host:port."), "BBP3-…",
             () => S.Str("party_code"), v => S.Set("party_code", v), Rows(Joining));
         party = Rows(InParty);
-        var password = new PasswordBox { Width = 300, Password = S.PartyPassword, PlaceholderText = "Optional party password", PlaceholderEnabled = true };
+        var password = new PasswordBox { Width = 300, Password = S.PartyPassword, PlaceholderText = L.T("Optional party password"), PlaceholderEnabled = true };
         password.PasswordChanged += (_, _) => { S.PartyPassword = password.Password; Ws.SaveSoon(); };
-        Add(Card(SymbolRegular.Password24, "Password", "Use the same password on every PC. Stored encrypted for your Windows user.", password, out _), party);
-        ComboRow(SymbolRegular.People24, "Party size", "Host and guests use the same limit. Five players is experimental.",
-            new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice("5 (experimental)", "5") },
+        Add(Card(SymbolRegular.Password24, L.T("Password"), L.T("Use the same password on every PC. Stored encrypted for your Windows user."), password, out _), party);
+        ComboRow(SymbolRegular.People24, L.T("Party size"), L.T("Host and guests use the same limit. Five players is experimental."),
+            new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice(L.T("5 (experimental)"), "5") },
             () => S.Str("party_max") is { Length: > 0 } n ? n : "3", v => S.Set("party_max", v), party);
 
-        _byMode.Add((Group("Connection"), InParty));
+        _byMode.Add((Group(L.T("Connection")), InParty));
         party = Rows(InParty);
-        TextRow(SymbolRegular.Router24, "Party port", "TCP and UDP. Default: 9307.", "9307", () => S.Str("party_port"), v => S.Set("party_port", v), party, width: 120);
-        ToggleRow(SymbolRegular.Router24, "UPnP", "Map the host's port automatically.", () => SeamlessSettings.Flag(S, "party_upnp"), v => S.Set("party_upnp", v), Rows(Hosting));
+        TextRow(SymbolRegular.Router24, L.T("Party port"), L.T("TCP and UDP. Default: 9307."), "9307", () => S.Str("party_port"), v => S.Set("party_port", v), party, width: 120);
+        ToggleRow(SymbolRegular.Router24, L.T("UPnP"), L.T("Map the host's port automatically."), () => SeamlessSettings.Flag(S, "party_upnp"), v => S.Set("party_upnp", v), Rows(Hosting));
         party = Rows(InParty);
-        ToggleRow(SymbolRegular.Globe24, "DHT rendezvous", "Optional NAT traversal through the public BitTorrent DHT. Enable on every PC to use it.",
+        ToggleRow(SymbolRegular.Globe24, L.T("DHT rendezvous"), L.T("Optional NAT traversal through the public BitTorrent DHT. Enable on every PC to use it."),
             () => Ini.Get("party_rendezvous", "0") == "1", v => Ini.Set("party_rendezvous", v ? "1" : "0"), party);
         // Kept in bbport.ini like the game's System > Party network rows, so both show the same value.
-        ToggleRow(SymbolRegular.People24, "Relay for party members", "A member that cannot reach the host joins through you (party members only, capped upload).",
+        ToggleRow(SymbolRegular.People24, L.T("Relay for party members"), L.T("A member that cannot reach the host joins through you (party members only, capped upload)."),
             () => Ini.Get("party_member_relay", "1") == "1", v => Ini.Set("party_member_relay", v ? "1" : "0"), party);
-        ToggleRow(SymbolRegular.Globe24, "IPv6", "Try IPv6 when both PCs have it. A host without an open port then puts its IPv6 address into the party code.",
+        ToggleRow(SymbolRegular.Globe24, L.T("IPv6"), L.T("Try IPv6 when both PCs have it. A host without an open port then puts its IPv6 address into the party code."),
             () => Ini.Get("party_ipv6", "0") == "1", v => Ini.Set("party_ipv6", v ? "1" : "0"), party);
-        TextRow(SymbolRegular.Server24, "STUN server", "Empty uses stun.l.google.com:19302. Use off to disable.", "Default",
+        TextRow(SymbolRegular.Server24, L.T("STUN server"), L.T("Empty uses stun.l.google.com:19302. Use off to disable."), L.T("Default"),
             () => S.Str("party_stun"), v => S.Set("party_stun", v), party);
         var host = Rows(Hosting);
-        TextRow(SymbolRegular.Globe24, "Host public address", "Leave on Automatic unless guests reach you another way: your VPN address (Radmin VPN, Tailscale, ZeroTier), or your public IP or DNS name when you forwarded the port yourself (host or host:port). The party code then carries it.", "Automatic",
+        TextRow(SymbolRegular.Globe24, L.T("Host public address"), L.T("Leave on Automatic unless guests reach you another way: your VPN address (Radmin VPN, Tailscale, ZeroTier), or your public IP or DNS name when you forwarded the port yourself (host or host:port). The party code then carries it."), L.T("Automatic"),
             () => S.Str("party_public_addr"), v => S.Set("party_public_addr", v), host);
         _codes = Text("", "Faint");
         _codes.TextWrapping = TextWrapping.Wrap;
         host.Children.Add(_codes);
-        Add(Card(SymbolRegular.Copy24, "Share party codes", "Available after the host starts. Use the LAN code on the same router.",
-            SmallButton("Copy codes", SymbolRegular.Copy24, (_, _) => Clipboard.SetText(SeamlessSettings.Codes(S))), out _), host);
+        Add(Card(SymbolRegular.Copy24, L.T("Share party codes"), L.T("Available after the host starts. Use the LAN code on the same router."),
+            SmallButton(L.T("Copy codes"), SymbolRegular.Copy24, (_, _) => Clipboard.SetText(SeamlessSettings.Codes(S))), out _), host);
 
         party = Rows(InParty);
-        _status = Text("Start the game to see party status.", "Faint");
+        _status = Text(L.T("Start the game to see party status."), "Faint");
         _status.TextWrapping = TextWrapping.Wrap;
         party.Children.Add(_status);
-        foreach (var (title, action) in new[] { ("Leave party", "leave"), ("Rejoin party", "rejoin") })
+        foreach (var (title, action) in new[] { (L.T("Leave party"), "leave"), (L.T("Rejoin party"), "rejoin") })
         {
             var command = action;
             Add(Card(SymbolRegular.People24, title, null,
                 SmallButton(title, SymbolRegular.People24, (_, _) => {
                     try { SeamlessSession.Command(S, command); }
-                    catch (Exception e) { Prompt.Tell("Party", e.Message); }
+                    catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
                 }), out _), party);
         }
         host = Rows(Hosting);
-        Add(Card(SymbolRegular.People24, "Remove a member", "Host only. Enter the member's exact party name.",
-            SmallButton("Choose member", SymbolRegular.People24, (_, _) => {
+        Add(Card(SymbolRegular.People24, L.T("Remove a member"), L.T("Host only. Enter the member's exact party name."),
+            SmallButton(L.T("Choose member"), SymbolRegular.People24, (_, _) => {
                 var status = SeamlessSession.Read(S);
-                if (status?.role != "host") { Prompt.Tell("Party", "Only the host can remove members."); return; }
+                if (status?.role != "host") { Prompt.Tell(L.T("Party"), L.T("Only the host can remove members.")); return; }
                 var members = status.members.Where(m => !m.local).ToArray();
-                if (members.Length == 0) { Prompt.Tell("Party", "No remote members to remove."); return; }
-                var choice = Prompt.Choose("Remove member", "Choose a member to disconnect.", members.Select(m => m.name).ToArray());
+                if (members.Length == 0) { Prompt.Tell(L.T("Party"), L.T("No remote members to remove.")); return; }
+                var choice = Prompt.Choose(L.T("Remove member"), L.T("Choose a member to disconnect."), members.Select(m => m.name).ToArray());
                 if (choice >= 0) {
                     try { SeamlessSession.Command(S, "kick", members[choice].name); }
-                    catch (Exception e) { Prompt.Tell("Party", e.Message); }
+                    catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
                 }
             }), out _), host);
-        Add(Card(SymbolRegular.Link24, "Connect a guest", "Host: copy the guest's BBG1 code first, then add it here.",
-            SmallButton("Add copied guest code", SymbolRegular.Link24, (_, _) => {
+        Add(Card(SymbolRegular.Link24, L.T("Connect a guest"), L.T("Host: copy the guest's BBG1 code first, then add it here."),
+            SmallButton(L.T("Add copied guest code"), SymbolRegular.Link24, (_, _) => {
                 try {
                     var code = Clipboard.GetText();
                     if (SeamlessSession.Read(S)?.role != "host" || code.Length > 3500 ||
                         !(code.Contains("BBG1", StringComparison.OrdinalIgnoreCase) || code.Contains("BBG6", StringComparison.OrdinalIgnoreCase)))
-                        throw new InvalidOperationException("Host a party and copy the guest's BBG1 connection code first.");
+                        throw new InvalidOperationException(L.T("Host a party and copy the guest's BBG1 connection code first."));
                     SeamlessSession.Command(S, "add_guest_code", code);
-                } catch (Exception e) { Prompt.Tell("Party", e.Message); }
+                } catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
             }), out _), host);
 
         var join = Rows(Joining);
-        Add(Card(SymbolRegular.Link24, "Guest connection code", "Guests can share this with a host when NAT prevents a direct connection.",
-            SmallButton("Copy guest code", SymbolRegular.Copy24, (_, _) => {
+        Add(Card(SymbolRegular.Link24, L.T("Guest connection code"), L.T("Guests can share this with a host when NAT prevents a direct connection."),
+            SmallButton(L.T("Copy guest code"), SymbolRegular.Copy24, (_, _) => {
                 var code = SeamlessSession.Read(S)?.guest_code;
-                if (string.IsNullOrEmpty(code)) Prompt.Tell("Party", "No guest connection code is available yet.");
+                if (string.IsNullOrEmpty(code)) Prompt.Tell(L.T("Party"), L.T("No guest connection code is available yet."));
                 else Clipboard.SetText(code);
             }), out _), join);
-        Add(Card(SymbolRegular.Link24, "Join through a member", "Guest: when the host cannot be reached but another member can, copy that member's guest code and add it here.",
-            SmallButton("Add copied member code", SymbolRegular.Link24, (_, _) => {
+        Add(Card(SymbolRegular.Link24, L.T("Join through a member"), L.T("Guest: when the host cannot be reached but another member can, copy that member's guest code and add it here."),
+            SmallButton(L.T("Add copied member code"), SymbolRegular.Link24, (_, _) => {
                 try {
                     var code = Clipboard.GetText();
                     if (SeamlessSession.Read(S)?.role != "guest" || code.Length > 3500 || !code.Contains("BBG1", StringComparison.OrdinalIgnoreCase))
-                        throw new InvalidOperationException("Join a party and copy another member's BBG1 guest code first.");
+                        throw new InvalidOperationException(L.T("Join a party and copy another member's BBG1 guest code first."));
                     SeamlessSession.Command(S, "add_relay_code", code);
-                } catch (Exception e) { Prompt.Tell("Party", e.Message); }
+                } catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
             }), out _), join);
 
         // Party settings as in the game's System > Party rules / My party pages (visy 0.7.3): the host's
         // rules for the whole party, then what each player chooses for itself.
-        _byMode.Add((Group("Party rules"), Hosting));
+        _byMode.Add((Group(L.T("Party rules")), Hosting));
         host = Rows(Hosting);
-        host.Children.Add(Text("The host's rules for the whole party. When you join, the host's count and yours are kept for when you host (in the game: System > Party rules).", "Faint"));
+        host.Children.Add(Text(L.T("The host's rules for the whole party. When you join, the host's count and yours are kept for when you host (in the game: System > Party rules)."), "Faint"));
         IniToggles(host,
-            ("party_kill_record", "Enemies stay dead", true), ("party_gather", "Host can gather the party", true),
-            ("party_npc_mirror", "NPCs as in the host's world", true),
-            ("party_covenant_per_player", "Covenant outcomes per player", true),
-            ("party_travel_vote", "Party votes on travel", false),
-            ("party_npc_fights", "NPC hunters fight the whole party", true),
-            ("party_any_kidnap", "Anyone can be abducted", true),
-            ("party_friendly_fire", "Friendly fire / PvP", false), ("party_share_lamps", "Shared lamps", true),
-            ("party_guests_bring_lamps", "Guests bring their lamps", false),
-            ("party_rot", "Rot on death", false), ("party_rot_cleanse_boss", "Boss kill cleanses rot", true),
-            ("party_rot_cleanse_killer", "Killing your killer cleanses its rot", true),
-            ("party_rot_cleanse_echoes", "Retrieving Blood Echoes cleanses its rot", true));
+            ("party_kill_record", L.T("Enemies stay dead"), true), ("party_gather", L.T("Host can gather the party"), true),
+            ("party_npc_mirror", L.T("NPCs as in the host's world"), true),
+            ("party_covenant_per_player", L.T("Covenant outcomes per player"), true),
+            ("party_travel_vote", L.T("Party votes on travel"), false),
+            ("party_npc_fights", L.T("NPC hunters fight the whole party"), true),
+            ("party_any_kidnap", L.T("Anyone can be abducted"), true),
+            ("party_friendly_fire", L.T("Friendly fire / PvP"), false), ("party_share_lamps", L.T("Shared lamps"), true),
+            ("party_guests_bring_lamps", L.T("Guests bring their lamps"), false),
+            ("party_rot", L.T("Rot on death"), false), ("party_rot_cleanse_boss", L.T("Boss kill cleanses rot"), true),
+            ("party_rot_cleanse_killer", L.T("Killing your killer cleanses its rot"), true),
+            ("party_rot_cleanse_echoes", L.T("Retrieving Blood Echoes cleanses its rot"), true));
         IniNumbers(host,
-            ("party_boss_hp", "Boss HP per guest (%)", 150), ("party_boss_damage", "Boss damage per guest (%)", 10),
-            ("party_boss_poise", "Boss poise per guest (%)", 100), ("party_enemy_hp", "Enemy HP per guest (%)", 50),
-            ("party_enemy_damage", "Enemy damage per guest (%)", 0), ("party_enemy_poise", "Enemy poise per guest (%)", 0));
+            ("party_boss_hp", L.T("Boss HP per guest (%)"), 150), ("party_boss_damage", L.T("Boss damage per guest (%)"), 10),
+            ("party_boss_poise", L.T("Boss poise per guest (%)"), 100), ("party_enemy_hp", L.T("Enemy HP per guest (%)"), 50),
+            ("party_enemy_damage", L.T("Enemy damage per guest (%)"), 0), ("party_enemy_poise", L.T("Enemy poise per guest (%)"), 0));
 
-        _byMode.Add((Group("My party"), InParty));
+        _byMode.Add((Group(L.T("My party")), InParty));
         party = Rows(InParty);
-        party.Children.Add(Text("Your own party settings: your screen, what you get as a guest, story sync and start (in the game: System > My party).", "Faint"));
+        party.Children.Add(Text(L.T("Your own party settings: your screen, what you get as a guest, story sync and start (in the game: System > My party)."), "Faint"));
         IniToggles(party,
-            ("party_hud", "Party HUD", true), ("party_name_tags", "Party name tags", true), ("party_pings", "Pings", true),
-            ("party_through_walls", "Show party through walls", false),
-            ("party_glow_off", "Companions without glow", true), ("party_toasts", "Join, leave and travel notices", true),
-            ("party_npc_talk", "Share NPC dialogue", true), ("party_guest_lamps", "Guests use lamps", true),
-            ("party_key_view", "Own key items as a guest", true), ("party_key_items_summoned", "Key items at once", true));
-        IniNumbers(party, ("party_npc_talk_range", "NPC dialogue range (m)", 25), ("party_overhead", "Name tag detail (0–4)", 3));
+            ("party_hud", L.T("Party HUD"), true), ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
+            ("party_through_walls", L.T("Show party through walls"), false),
+            ("party_glow_off", L.T("Companions without glow"), true), ("party_toasts", L.T("Join, leave and travel notices"), true),
+            ("party_npc_talk", L.T("Share NPC dialogue"), true), ("party_guest_lamps", L.T("Guests use lamps"), true),
+            ("party_key_view", L.T("Own key items as a guest"), true), ("party_key_items_summoned", L.T("Key items at once"), true));
+        IniNumbers(party, ("party_npc_talk_range", L.T("NPC dialogue range (m)"), 25), ("party_overhead", L.T("Name tag detail (0–4)"), 3));
         IniToggles(party, SeamlessSettings.GameSwitches.Select(o => (o.Key, o.Label, true)).ToArray());
         foreach (var option in SeamlessSettings.Switches)
         {
             var key = option.Key;
             ToggleRow(SymbolRegular.People24, option.Label, PartyInfo(key), () => SeamlessSettings.Flag(S, key), v => S.Set(key, v), party);
         }
-        ComboRow(SymbolRegular.People24, "Insight for bosses", PartyInfo("party_guest_insight"),
-            new[] { new Choice("Same as host", "parity"), new Choice("Full bonus", "full"), new Choice("Game's own", "0") },
+        ComboRow(SymbolRegular.People24, L.T("Insight for bosses"), PartyInfo("party_guest_insight"),
+            new[] { new Choice(L.T("Same as host"), "parity"), new Choice(L.T("Full bonus"), "full"), new Choice(L.T("Game's own"), "0") },
             () => Ini.Get("party_guest_insight", "parity") is "full" or "0" ? Ini.Get("party_guest_insight") : "parity",
             v => Ini.Set("party_guest_insight", v), party);
-        ComboRow(SymbolRegular.Play24, "Party starts", PartyInfo("party_start"),
-            new[] { new Choice("After the prologue", "prologue_solo"), new Choice("Right away", "immediate") },
+        ComboRow(SymbolRegular.Play24, L.T("Party starts"), PartyInfo("party_start"),
+            new[] { new Choice(L.T("After the prologue"), "prologue_solo"), new Choice(L.T("Right away"), "immediate") },
             () => S.Str("party_start") == "immediate" ? "immediate" : "prologue_solo", v => S.Set("party_start", v), party);
 
-        Group("Party saves");
-        Body.Children.Add(Text("Seamless play uses its own savedata_party folder. Automatic snapshots keep single-player and party progress recoverable.", "Faint"));
-        ComboRow(SymbolRegular.Timer24, "Backup interval", "Minutes; session-start snapshots are always kept.",
-            new[] { new Choice("5 min", "5"), new Choice("10 min", "10"), new Choice("30 min", "30"), new Choice("At start", "0") },
+        Group(L.T("Party saves"));
+        Body.Children.Add(Text(L.T("Seamless play uses its own savedata_party folder. Automatic snapshots keep single-player and party progress recoverable."), "Faint"));
+        ComboRow(SymbolRegular.Timer24, L.T("Backup interval"), L.T("Minutes; session-start snapshots are always kept."),
+            new[] { new Choice(L.T("5 min"), "5"), new Choice(L.T("10 min"), "10"), new Choice(L.T("30 min"), "30"), new Choice(L.T("At start"), "0") },
             () => S.Str("party_backup_minutes") is { Length: > 0 } n ? n : "10", v => S.Set("party_backup_minutes", v));
-        ComboRow(SymbolRegular.Save24, "Backups to keep", null,
+        ComboRow(SymbolRegular.Save24, L.T("Backups to keep"), null,
             new[] { new Choice("10", "10"), new Choice("20", "20"), new Choice("50", "50"), new Choice("100", "100") },
             () => S.Str("party_backup_keep") is { Length: > 0 } n ? n : "10", v => S.Set("party_backup_keep", v));
-        Add(Card(SymbolRegular.Folder24, "Save and backup folder", null,
-            SmallButton("Open", SymbolRegular.Folder24, (_, _) => {
+        Add(Card(SymbolRegular.Folder24, L.T("Save and backup folder"), null,
+            SmallButton(L.T("Open"), SymbolRegular.Folder24, (_, _) => {
                 var folder = GameEnvironment.UserDir(S); Directory.CreateDirectory(folder);
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
             }), out _));
-        Add(Card(SymbolRegular.Copy24, "Copy single-player progress into party saves", "Existing party saves are backed up before replacement.",
-            SmallButton("Copy progress", SymbolRegular.Copy24, async (_, _) => {
-                if (!Prompt.Confirm("Copy progress", "Copy this profile's single-player saves into its party save folder? Existing party progress will be backed up.", "Copy")) return;
+        Add(Card(SymbolRegular.Copy24, L.T("Copy single-player progress into party saves"), L.T("Existing party saves are backed up before replacement."),
+            SmallButton(L.T("Copy progress"), SymbolRegular.Copy24, async (_, _) => {
+                if (!Prompt.Confirm(L.T("Copy progress"), L.T("Copy this profile's single-player saves into its party save folder? Existing party progress will be backed up."), L.T("Copy"))) return;
                 await SaveAction("copy");
             }), out _));
-        Add(Card(SymbolRegular.Save24, "Undo last party session", "Restores both save folders and first backs up their current contents.",
-            SmallButton("Review restore", SymbolRegular.Save24, async (_, _) => {
+        Add(Card(SymbolRegular.Save24, L.T("Undo last party session"), L.T("Restores both save folders and first backs up their current contents."),
+            SmallButton(L.T("Review restore"), SymbolRegular.Save24, async (_, _) => {
                 try {
                     var description = await SeamlessSession.SaveTool(S, "describe");
-                    if (Prompt.Confirm("Undo party session", description, "Restore")) await SaveAction("undo");
-                } catch (Exception e) { Prompt.Tell("Party saves", e.Message); }
+                    if (Prompt.Confirm(L.T("Undo party session"), description, L.T("Restore"))) await SaveAction("undo");
+                } catch (Exception e) { Prompt.Tell(L.T("Party saves"), e.Message); }
             }), out _));
-        Add(Card(SymbolRegular.Save24, "Check party saves", "Checks save structure and compares progress with the last session snapshot.",
-            SmallButton("Check", SymbolRegular.Save24, async (_, _) => await SaveAction("check")), out _));
+        Add(Card(SymbolRegular.Save24, L.T("Check party saves"), L.T("Checks save structure and compares progress with the last session snapshot."),
+            SmallButton(L.T("Check"), SymbolRegular.Save24, async (_, _) => await SaveAction("check")), out _));
         // visy 0.7.3 (scripts/save_editor.py): a save last written as a guest in another world lacks the own
         // world's state that save editors look for; the export adds it and the import takes it out again.
-        Add(Card(SymbolRegular.ArrowExport24, "Export for save editor", "A copy of one character save that save editors can open. Your save is not changed.",
-            SmallButton("Export", SymbolRegular.ArrowExport24, async (_, _) => await ExportForEditor()), out _));
-        Add(Card(SymbolRegular.ArrowImport24, "Import from save editor", "Puts an edited export back into its slot. Your saves are backed up first.",
-            SmallButton("Import", SymbolRegular.ArrowImport24, async (_, _) => await ImportFromEditor()), out _));
-        ComboRow(SymbolRegular.Document24, "Party log detail", "Verbose and trace logging add overhead.",
-            new[] { new Choice("Normal", ""), new Choice("Verbose", "verbose"), new Choice("Trace", "trace") },
+        Add(Card(SymbolRegular.ArrowExport24, L.T("Export for save editor"), L.T("A copy of one character save that save editors can open. Your save is not changed."),
+            SmallButton(L.T("Export"), SymbolRegular.ArrowExport24, async (_, _) => await ExportForEditor()), out _));
+        Add(Card(SymbolRegular.ArrowImport24, L.T("Import from save editor"), L.T("Puts an edited export back into its slot. Your saves are backed up first."),
+            SmallButton(L.T("Import"), SymbolRegular.ArrowImport24, async (_, _) => await ImportFromEditor()), out _));
+        ComboRow(SymbolRegular.Document24, L.T("Party log detail"), L.T("Verbose and trace logging add overhead."),
+            new[] { new Choice(L.T("Normal"), ""), new Choice(L.T("Verbose"), "verbose"), new Choice(L.T("Trace"), "trace") },
             () => S.Str("party_log"), v => S.Set("party_log", v));
 
         _timer.Tick += (_, _) => {
             _codes.Text = SeamlessSettings.Codes(S);
             var status = SeamlessSession.Read(S);
-            _status.Text = status == null ? (Ws.Game.Running ? "Waiting for party status…" : "Game stopped.") :
-                $"{status.role}: {status.state}  {status.detail}\n{status.network}\n" +
-                string.Join("\n", status.members.Select(m => $"{m.name}: {(m.in_world ? "in host world" : m.connected ? "connected" : "disconnected")}  {(m.ping_ms < 0 ? "" : m.ping_ms + " ms")}  {m.area}")) +
+            _status.Text = status == null ? (Ws.Game.Running ? L.T("Waiting for party status…") : L.T("Game stopped.")) :
+                $"{PartyRole(status.role)}：{PartyState(status.state)}  {status.detail}\n{status.network}\n" +
+                string.Join("\n", status.members.Select(m => $"{m.name}：{(m.in_world ? L.T("in host world") : m.connected ? L.T("connected") : L.T("disconnected"))}  {(m.ping_ms < 0 ? "" : m.ping_ms + " ms")}  {m.area}")) +
                 $"\n{status.@event}\n{status.alert}";
         };
         Loaded += (_, _) => { _codes.Text = SeamlessSettings.Codes(S); _timer.Start(); };
@@ -281,6 +281,30 @@ public sealed class SeamlessPage : LauncherPage
         _ => null,
     };
 
+    /// The party role and state the game writes to party_status.json (party_status.cpp RoleName /
+    /// StateName, stored for logs): their labels. The free-text detail, network and event lines stay
+    /// as the game writes them, which is English.
+    private static string PartyRole(string role) => role switch
+    {
+        "host" => L.T("Host"),
+        "guest" => L.T("Guest"),
+        _ => L.T("Not in a party"),
+    };
+
+    private static string PartyState(string state) => state switch
+    {
+        "starting" => L.T("Starting"),
+        "hosting" => L.T("Waiting for hunters"),
+        "connecting" => L.T("Connecting"),
+        "waiting_for_world" => L.T("Loading the world"),
+        "ringing_bell" => L.T("Ringing the bell"),
+        "joined" => L.T("Together"),
+        "travelling" => L.T("Travelling"),
+        "reconnecting" => L.T("Reconnecting"),
+        "error" => L.T("Error"),
+        _ => L.T("Not in a party"),
+    };
+
     /// Switches kept in bbport.ini like the game's party pages, so both show the same value.
     private void IniToggles(Panel into, params (string Key, string Label, bool Fallback)[] rows)
     {
@@ -300,36 +324,36 @@ public sealed class SeamlessPage : LauncherPage
         try
         {
             var saves = System.Text.Json.JsonSerializer.Deserialize<EditorSave[]>(await SeamlessSession.SaveTool(S, "editor-list")) ?? [];
-            if (saves.Length == 0) { Prompt.Tell("Export for save editor", "There is no character save yet."); return; }
-            var choice = Prompt.Choose("Export for save editor", "Which character?", saves.Select(s => s.text).ToArray());
+            if (saves.Length == 0) { Prompt.Tell(L.T("Export for save editor"), L.T("There is no character save yet.")); return; }
+            var choice = Prompt.Choose(L.T("Export for save editor"), L.T("Which character?"), saves.Select(s => s.text).ToArray());
             if (choice < 0) return;
-            var folder = new Microsoft.Win32.OpenFolderDialog { Title = "Folder for the save editor's copy (an empty folder is best)" };
+            var folder = new Microsoft.Win32.OpenFolderDialog { Title = L.T("A folder for the save editor's copy (an empty folder is best)") };
             if (folder.ShowDialog() != true) return;
             var save = saves[choice];
-            Prompt.Tell("Export for save editor", await SeamlessSession.SaveTool(S, "editor-export", save.kind, save.slot.ToString(), folder.FolderName) +
-                (save.guest_written ? " The copy was fixed up for the editor (it was last saved as a guest in another world)." : ""));
+            Prompt.Tell(L.T("Export for save editor"), await SeamlessSession.SaveTool(S, "editor-export", save.kind, save.slot.ToString(), folder.FolderName) +
+                (save.guest_written ? L.T(" The copy was fixed up for the editor (it was last saved as a guest in another world).") : ""));
         }
-        catch (Exception e) { Prompt.Tell("Export for save editor", e.Message); }
+        catch (Exception e) { Prompt.Tell(L.T("Export for save editor"), e.Message); }
     }
     private async Task ImportFromEditor()
     {
         try
         {
-            var file = new Microsoft.Win32.OpenFileDialog { Title = "The edited save (exported by the launcher)", Filter = "Character save|userdata000*|All files|*" };
+            var file = new Microsoft.Win32.OpenFileDialog { Title = L.T("The edited save (exported by the launcher)"), Filter = L.T("Character save|userdata000*|All files|*") };
             if (file.ShowDialog() != true) return;
             var plan = System.Text.Json.JsonSerializer.Deserialize<EditorPlan>(await SeamlessSession.SaveTool(S, "editor-check", file.FileName))!;
-            var kind = plan.kind == "party" ? "party save" : "single-player save";
+            var kind = plan.kind == "party" ? L.T("party save") : L.T("single-player save");
             var notes = string.Concat(plan.notes.Select(n => "\n- " + n));
-            if (!Prompt.Confirm("Import from save editor",
-                    $"Replace slot {plan.slot + 1} of your {kind} ({plan.target}) with the edited file?{notes}\n\nYour current saves are copied to user\\save_backups first.", "Import"))
+            if (!Prompt.Confirm(L.T("Import from save editor"),
+                    L.F($"Replace slot {plan.slot + 1} of your {kind} ({plan.target}) with the edited file?{notes}\n\nYour current saves are copied to user\\save_backups first."), L.T("Import")))
                 return;
-            Prompt.Tell("Import from save editor", await SeamlessSession.SaveTool(S, "editor-import", file.FileName));
+            Prompt.Tell(L.T("Import from save editor"), await SeamlessSession.SaveTool(S, "editor-import", file.FileName));
         }
-        catch (Exception e) { Prompt.Tell("Import from save editor", e.Message); }
+        catch (Exception e) { Prompt.Tell(L.T("Import from save editor"), e.Message); }
     }
     private async Task SaveAction(string action)
     {
-        try { Prompt.Tell("Party saves", await SeamlessSession.SaveTool(S, action)); }
-        catch (Exception e) { Prompt.Tell("Party saves", e.Message); }
+        try { Prompt.Tell(L.T("Party saves"), await SeamlessSession.SaveTool(S, action)); }
+        catch (Exception e) { Prompt.Tell(L.T("Party saves"), e.Message); }
     }
 }

@@ -1,8 +1,11 @@
 using BloodborneLauncher.Core;
 using System.IO;
 
-if (args.Length == 2 && args[0] == "--render-ui")
+// --render-ui <folder> [language]: the pages as they lay out, in a language of Localization.Languages
+// (no language: English, as the renderer has always drawn them).
+if ((args.Length == 2 || args.Length == 3) && args[0] == "--render-ui")
 {
+    if (args.Length == 3) Localization.Initialize(args[2]);
     UiRender.Check(args[1]);
     return;
 }

@@ -8,7 +8,7 @@ public static partial class SeamlessSettings
     /// <summary>The launcher's own co-op switches (settings.json; bb-start reads them, not the game).</summary>
     public static readonly (string Key, string Environment, string Label)[] Switches =
     {
-        ("party_restart", "BB_PARTY_RESTART", "Restart and rejoin after a crash"),
+        ("party_restart", "BB_PARTY_RESTART", L.T("Restart and rejoin after a crash")),
     };
 
     /// <summary>The game's co-op switches. They live in bbport.ini, where the game's own menu
@@ -17,18 +17,18 @@ public static partial class SeamlessSettings
     /// which win over the ini: a change made in the game was undone at the next start.</summary>
     public static readonly (string Key, string Label)[] GameSwitches =
     {
-        ("party_grant_bells", "Grant co-op bells"),
-        ("party_open_world", "Remove multiplayer barriers"),
-        ("party_guest_respawn", "Guest respawn"),
-        ("party_guest_refill", "Refill guest supplies"),
-        ("party_chalice_rejoin", "Stay in Chalice Dungeons"),
-        ("party_guest_mark", "Guests can use Hunter's Mark"),
-        ("party_full_rewards", "Full Blood Echo rewards"),
-        ("party_items", "Items for every player"),
-        ("party_progress", "Shared progression"),
-        ("party_progress_npc", "Shared NPC quest choices"),
-        ("party_story", "Shared story and endings"),
-        ("party_story_mirror", "Cutscenes for every player"),
+        ("party_grant_bells", L.T("Grant co-op bells")),
+        ("party_open_world", L.T("Remove multiplayer barriers")),
+        ("party_guest_respawn", L.T("Guest respawn")),
+        ("party_guest_refill", L.T("Refill guest supplies")),
+        ("party_chalice_rejoin", L.T("Stay in Chalice Dungeons")),
+        ("party_guest_mark", L.T("Guests can use Hunter's Mark")),
+        ("party_full_rewards", L.T("Full Blood Echo rewards")),
+        ("party_items", L.T("Items for every player")),
+        ("party_progress", L.T("Shared progression")),
+        ("party_progress_npc", L.T("Shared NPC quest choices")),
+        ("party_story", L.T("Shared story and endings")),
+        ("party_story_mirror", L.T("Cutscenes for every player")),
     };
 
     /// <summary>Carries an older launcher's choices for <see cref="GameSwitches"/>, the DHT rendezvous
@@ -76,15 +76,15 @@ public static partial class SeamlessSettings
     {
         if (!Enabled(s)) return null;
         if (!Regex.IsMatch(Name(s), "^[A-Za-z0-9_-]{1,16}$"))
-            return "Party name must contain 1–16 letters, numbers, underscores or hyphens.";
+            return L.T("Party name must contain 1–16 letters, numbers, underscores or hyphens.");
         if (s.Str("party_port").Length > 0 &&
             (!int.TryParse(s.Str("party_port"), out var port) || port is < 1 or > 65535))
-            return "Party port must be between 1 and 65535.";
+            return L.T("Party port must be between 1 and 65535.");
         if (s.Str("party_mode") == "join" && s.Str("party_code").Trim().Length == 0)
-            return "Enter the host's party code or address before joining.";
+            return L.T("Enter the host's party code or address before joining.");
         var code = s.Str("party_code");
         if (code.Any(char.IsControl) || code.Length > 512)
-            return "The party code or address contains invalid characters.";
+            return L.T("The party code or address contains invalid characters.");
         return null;
     }
 
@@ -118,7 +118,7 @@ public static partial class SeamlessSettings
     public static string Codes(LauncherSettings s)
     {
         var path = Path.Combine(GameEnvironment.UserDir(s), "party_code.txt");
-        try { return File.Exists(path) ? File.ReadAllText(path).Trim() : "Start hosting to generate your party codes."; }
-        catch (IOException) { return "Party codes are being updated."; }
+        try { return File.Exists(path) ? File.ReadAllText(path).Trim() : L.T("Start hosting to generate your party codes."); }
+        catch (IOException) { return L.T("Party codes are being updated."); }
     }
 }
