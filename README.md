@@ -51,7 +51,7 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 [Join a game](#join-a-friends-game) · [Play on the same network](#play-on-the-same-network-lan) ·
 [If friends can't connect](#if-friends-cant-connect) · [Host without an open port (Radmin VPN)](#host-without-an-open-port-radmin-vpn) ·
 [Saves](#where-the-saves-are) · [How co-op works](#how-co-op-works) · [Known issues](#known-issues) · [Reporting a bug](#reporting-a-bug) ·
-[Credits](#credits)
+[My party settings](engine/docs/party/my_party_settings.md) · [Credits](#credits)
 
 ## Install
 
