@@ -154,13 +154,13 @@ public sealed class SeamlessPage : LauncherPage
         foreach (var option in SeamlessSettings.Switches)
         {
             var key = option.Key;
-            ToggleRow(SymbolRegular.People24, option.Label, MyPartyInfo(key), () => SeamlessSettings.Flag(S, key), v => S.Set(key, v), party);
+            ToggleRow(SymbolRegular.People24, option.Label, PartyInfo(key), () => SeamlessSettings.Flag(S, key), v => S.Set(key, v), party);
         }
-        ComboRow(SymbolRegular.People24, "Insight for bosses", MyPartyInfo("party_guest_insight"),
+        ComboRow(SymbolRegular.People24, "Insight for bosses", PartyInfo("party_guest_insight"),
             new[] { new Choice("Same as host", "parity"), new Choice("Full bonus", "full"), new Choice("Game's own", "0") },
             () => Ini.Get("party_guest_insight", "parity") is "full" or "0" ? Ini.Get("party_guest_insight") : "parity",
             v => Ini.Set("party_guest_insight", v), party);
-        ComboRow(SymbolRegular.Play24, "Party starts", MyPartyInfo("party_start"),
+        ComboRow(SymbolRegular.Play24, "Party starts", PartyInfo("party_start"),
             new[] { new Choice("After the prologue", "prologue_solo"), new Choice("Right away", "immediate") },
             () => S.Str("party_start") == "immediate" ? "immediate" : "prologue_solo", v => S.Set("party_start", v), party);
 
@@ -227,9 +227,30 @@ public sealed class SeamlessPage : LauncherPage
         foreach (var (element, when) in _byMode)
             element.Visibility = when(mode) ? Visibility.Visible : Visibility.Collapsed;
     }
-    // Descriptions from engine/docs/party/my_party_settings.md, plus the remaining My party rows.
-    private static string? MyPartyInfo(string key) => key switch
+    // Party rules from engine/gpu/shim/bbport_game_menu_pages.cpp; My party descriptions from
+    // engine/docs/party/my_party_settings.md, plus the remaining My party rows.
+    private static string? PartyInfo(string key) => key switch
     {
+        "party_kill_record" => L.T("A party kill stays dead for everyone, even when maps reload, until a rest."),
+        "party_gather" => L.T("Party > Gather the party brings every guest to you; each guest is asked first."),
+        "party_npc_mirror" => L.T("An NPC gone from your world is gone for guests too."),
+        "party_covenant_per_player" => L.T("Annalise's, Alfred's and Valtr's quest outcomes stay in each player's own save."),
+        "party_travel_vote" => L.T("Party travel by lamp, headstone or Hunter's Mark needs every member's approval; one refusal cancels it."),
+        "party_npc_fights" => L.T("A hunter NPC that turns hostile is hostile to guests too, so everyone can fight it."),
+        "party_any_kidnap" => L.T("A Snatcher grabbing a guest takes the whole party to the Hypogean Gaol, just as when it grabs the host."),
+        "party_friendly_fire" => L.T("Party members can hurt each other; being killed by a party member counts as a normal death."),
+        "party_share_lamps" => L.T("A lamp any party member lights is lit for everyone, in each save."),
+        "party_guests_bring_lamps" => L.T("A joining guest's own lamps light up in your world too. Requires Shared lamps."),
+        "party_rot" => L.T("Each death adds a penalty, stacking up to five times; resting at a lamp removes it."),
+        "party_rot_cleanse_boss" => L.T("A boss's death removes all rot from everyone in the host's world. Requires Rot on death."),
+        "party_rot_cleanse_killer" => L.T("When the enemy that killed you dies, the rot from that death is removed. Requires Rot on death."),
+        "party_rot_cleanse_echoes" => L.T("Retrieving your Blood Echoes removes the rot from the death that dropped them. Requires Rot on death."),
+        "party_boss_hp" => L.T("Controls how much boss health scales for each additional guest."),
+        "party_boss_damage" => L.T("Controls how much boss damage scales for each additional guest."),
+        "party_boss_poise" => L.T("Controls how much boss poise scales for each additional guest."),
+        "party_enemy_hp" => L.T("Controls how much enemy health scales for each additional guest."),
+        "party_enemy_damage" => L.T("Controls how much enemy damage scales for each additional guest."),
+        "party_enemy_poise" => L.T("Controls how much enemy poise scales for each additional guest."),
         "party_hud" => L.T("Shows companions' names, health and where they are, in the bottom left corner. Party mode only."),
         "party_name_tags" => L.T("On: our name plates above companions, never hidden by walls. Off: the game's own plate."),
         "party_pings" => L.T("Touchpad + R3, or the Ping key (default B, under Controls), marks where you look. Everyone sees the mark for 10 s."),
@@ -264,12 +285,12 @@ public sealed class SeamlessPage : LauncherPage
     private void IniToggles(Panel into, params (string Key, string Label, bool Fallback)[] rows)
     {
         foreach (var (key, label, fallback) in rows)
-            ToggleRow(SymbolRegular.People24, label, MyPartyInfo(key), () => Ini.Get(key, fallback ? "1" : "0") == "1", v => Ini.Set(key, v ? "1" : "0"), into);
+            ToggleRow(SymbolRegular.People24, label, PartyInfo(key), () => Ini.Get(key, fallback ? "1" : "0") == "1", v => Ini.Set(key, v ? "1" : "0"), into);
     }
     private void IniNumbers(Panel into, params (string Key, string Label, int Value)[] rows)
     {
         foreach (var (key, label, value) in rows)
-            TextRow(SymbolRegular.Settings24, label, MyPartyInfo(key), value.ToString(), () => Ini.Get(key, value.ToString()), v => Ini.Set(key, v), into, width: 120);
+            TextRow(SymbolRegular.Settings24, label, PartyInfo(key), value.ToString(), () => Ini.Get(key, value.ToString()), v => Ini.Set(key, v), into, width: 120);
     }
     private sealed record EditorSave(string kind, int slot, string text, bool guest_written);
     private sealed record EditorPlan(string kind, int slot, string target, string[] notes);
