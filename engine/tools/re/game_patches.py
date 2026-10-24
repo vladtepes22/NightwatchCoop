@@ -108,8 +108,8 @@ class Eboot:
 
 
 class Patch:
-    def __init__(self, name, note):
-        self.name, self.note, self.writes = name, note, []
+    def __init__(self, name, note, party=None):
+        self.name, self.note, self.writes, self.party = name, note, [], party
 
     def write(self, at, was, now):
         if len(was) != len(now):
@@ -842,7 +842,8 @@ def debug_flags(b):
 
 
 def corpse_physics(b, name, note, weight, flags):
-    p = Patch(name, note)
+    # Only corpse movement changes, on this machine: not a gameplay patch for the party check.
+    p = Patch(name, note, party='cosmetic')
     b.site(p, 0x1bf9439, f32(5.0), f32(weight))
     b.site(p, 0x1bf9463, u32(0x101), u32(flags))
     return p
@@ -1095,9 +1096,10 @@ def render(patches):
     lines += [f'        <ID>{i}</ID>' for i in TITLE_IDS]
     lines.append('    </TitleID>')
     for patch in patches:
+        party = f' Party="{patch.party}"' if patch.party else ''
         lines.append(f'    <Metadata Title="Bloodborne" Name="{escape(patch.name, {chr(34): "&quot;"})}" '
                      f'Note="{escape(patch.note, {chr(34): "&quot;"})}" Author="{AUTHOR}" PatchVer="1.0" '
-                     'AppVer="01.09" AppElf="eboot.bin" isEnabled="false">')
+                     f'AppVer="01.09" AppElf="eboot.bin" isEnabled="false"{party}>')
         lines.append('        <PatchList>')
         for at, _, now in patch.writes:
             lines.append(f'            <Line Type="bytes" Address="{at:#010x}" Value="{now.hex()}"/>')
