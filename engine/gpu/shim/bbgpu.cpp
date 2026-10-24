@@ -56,6 +56,7 @@ extern "C" void bbgpu_request_quit(void) {
 #include "core/signals.h"
 #include "sdl_window.h"
 #include "video_core/renderer_vulkan/vk_presenter.h"
+#include "video_core/renderer_vulkan/vk_streamline_loader.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 
 extern "C" {
@@ -372,6 +373,7 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             SDL_WaitEventTimeout(nullptr, 2);
         }
         LOG_INFO(Frontend, "Window closed by user");
+        Vulkan::Streamline::NoteExit();
         const auto exit_started = std::chrono::steady_clock::now();
         const long watchdog_ms = EnvMs("BB_EXIT_WATCHDOG_MS", 4000);
         std::thread([watchdog_ms] {

@@ -94,7 +94,12 @@ const char* ResultName(sl::Result r) {
     }
 }
 
+std::atomic<bool> exiting{false};
+
 void Log(sl::LogType type, const char* message) {
+    if (exiting.load(std::memory_order_relaxed)) {
+        return;
+    }
     // Streamline's own lines; warnings and errors always, the rest with BB_STREAMLINE_LOG=1.
     static const bool verbose = [] {
         const char* env = std::getenv("BB_STREAMLINE_LOG");
@@ -252,6 +257,10 @@ sl::Resource Image(vk::Image image, vk::ImageView view, vk::Format format, u32 w
 } // namespace
 
 namespace Streamline {
+
+void NoteExit() {
+    exiting.store(true, std::memory_order_relaxed);
+}
 
 PFN_vkGetInstanceProcAddr LoadBeforeVulkan() {
     if (BbSettings::Get().startup_frame_gen != BbSettings::FrameGenDlss) {

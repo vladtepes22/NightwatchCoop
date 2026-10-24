@@ -19,5 +19,8 @@ PFN_vkGetInstanceProcAddr LoadBeforeVulkan();
 void OnDeviceCreated(vk::PhysicalDevice physical);
 /// Before the device is destroyed.
 void Shutdown();
+/// The window is closing: Streamline's present errors from here on are the closing window's
+/// (an out-of-date swapchain) and are not logged.
+void NoteExit();
 
 } // namespace Vulkan::Streamline
