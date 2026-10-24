@@ -46,6 +46,8 @@ struct Companion {
     bool same_map = false;     // in this world, both on one map with positions: distance / direction mean
                                // something (never across worlds: own worlds on one map are not "0.0 m")
     float pos[3] = {0, 0, 0};
+    bool have_yaw = false;     // facing from its chr here (local_read): the map draws it as our arrow
+    float yaw = 0;             // forward = (sin, 0, cos)
     std::uint32_t age_ms = 0;  // VITALS age (0 for a local read)
     bool local_dead = false;   // its chr here reads HP 0 (a corpse left behind, a held death)
     bool spectating = false;   // dead in a boss fight, spectating (C5, kVitalsSpectating): pos is its
@@ -81,6 +83,8 @@ struct LocalChr {
     int stamina = 0, max_stamina = 0;
     bool have_pos = false;
     float pos[3] = {0, 0, 0};
+    bool have_yaw = false;
+    float yaw = 0;
     std::uint64_t chr = 0;  // the PlayerIns (guest address)
 };
 

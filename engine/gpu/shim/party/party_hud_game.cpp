@@ -78,6 +78,7 @@ struct ChrRead {
     int hp = 0, max_hp = 0, stamina = 0, max_stamina = 0;
     bool have_pos = false;
     float pos[3] = {0, 0, 0};
+    bool have_yaw = false;
     float yaw = 0;
 };
 
@@ -121,7 +122,10 @@ ChrRead ReadChr(u64 chr) {
     float rot[4] = {};
     if (ReadPhysPos(phys, r.pos)) {
         r.have_pos = true;
-        if (SafeRead(phys + 0x1d0, rot, sizeof rot) && std::isfinite(rot[1])) r.yaw = rot[1];
+        if (SafeRead(phys + 0x1d0, rot, sizeof rot) && std::isfinite(rot[1])) {
+            r.yaw = rot[1];
+            r.have_yaw = true;
+        }
     }
     return r;
 }
@@ -431,6 +435,8 @@ void PartyHudTick(const GameSnapshot& s, party::PartyLink* link, party::MemberSt
             l.max_stamina = r.max_stamina;
             l.have_pos = r.have_pos;
             std::memcpy(l.pos, r.pos, sizeof l.pos);
+            l.have_yaw = r.have_yaw;
+            l.yaw = r.yaw;
             l.chr = chr;
         }
     }

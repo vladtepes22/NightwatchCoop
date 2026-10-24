@@ -115,6 +115,8 @@ void Compose(const ComposeIn& in, Board* out) {
                 if (std::strncmp(l.name, c.name, kNameBytes) != 0) continue;
                 c.local_read = true;
                 c.chr = l.chr;
+                c.have_yaw = l.have_yaw;
+                c.yaw = l.yaw;
                 c.age_ms = 0;
                 c.local_dead = l.have_hp && l.hp <= 0;
                 if (l.have_hp && !c.have_hp) {  // VITALS first: the remote data module lags

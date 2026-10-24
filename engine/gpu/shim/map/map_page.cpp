@@ -290,6 +290,33 @@ void Ornament(ImDrawList* draw, ImVec2 p, float r, ImU32 colour, float scale) {
                   .7f * scale);
 }
 
+// Our own symbol colour: neutral, so no member's list colour (party_hud MemberColour) is ours.
+const ImU32 kSelfBase = IM_COL32(236, 236, 230, 255);
+
+ImU32 WithAlpha(ImU32 colour, int alpha) { return (colour & ~IM_COL32_A_MASK) | (ImU32(alpha) << IM_COL32_A_SHIFT); }
+
+// A member's colour as the bottom-left list shows it; grey once dead.
+ImU32 MemberBase(const party::hud::Companion& c) {
+    if (!c.alive) return IM_COL32(120, 120, 120, 255);
+    float rgb[3];
+    party::hud::MemberColour(c.slot, rgb);
+    return IM_COL32(int(rgb[0] * 255 + .5f), int(rgb[1] * 255 + .5f), int(rgb[2] * 255 + .5f), 255);
+}
+
+// The player's symbol, shared by us and every companion: the map's "player" icon turned to its
+// facing (forward = (sin, -cos) on the map) in a dark disc with a halo, tinted `base`.
+void PlayerSymbol(ImDrawList* draw, bool art, ImVec2 p, float s, float yaw, ImU32 base) {
+    const ImU32 tint = WithAlpha(base, 230), ring = WithAlpha(base, 120), halo = WithAlpha(base, 27);
+    draw->AddCircleFilled(p, 18.5f * s, halo, 32);
+    draw->AddCircleFilled(p, 16.0f * s, IM_COL32(20, 29, 29, 210), 32);
+    draw->AddCircle(p, 17.0f * s, ring, 32, .8f * s);
+    if (!(art && BbMapArt::DrawIcon(draw, "player", p, BbAtlasStyle::Layout::player_size * s, yaw, tint))) {
+        const ImVec2 d(std::sin(yaw), -std::cos(yaw));
+        draw->AddTriangleFilled(ImVec2(p.x + d.x * 11 * s, p.y + d.y * 11 * s), ImVec2(p.x - d.y * 6 * s - d.x * 6 * s, p.y + d.x * 6 * s - d.y * 6 * s),
+                                ImVec2(p.x + d.y * 6 * s - d.x * 6 * s, p.y - d.x * 6 * s - d.y * 6 * s), tint);
+    }
+}
+
 // Input of this frame (render thread; the overlay feeds the map view's pad and keys to ImGui).
 float Stick(ImGuiKey negative, ImGuiKey positive) {
     const float v = ImGui::GetKeyData(positive)->AnalogValue - ImGui::GetKeyData(negative)->AnalogValue;
@@ -541,24 +568,14 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
             if (!c.same_world || !c.have_pos || Region(c.map_id) != v.region) continue;
             const ImVec2 p = project(c.pos[0], c.pos[2]);
             if (!on_canvas(p, 0)) continue;
-            draw->AddCircleFilled(p, 7 * s, IM_COL32(20, 29, 29, 220), 20);
-            draw->AddCircleFilled(p, 5 * s, c.alive ? IM_COL32(120, 190, 230, 255) : IM_COL32(120, 120, 120, 255), 20);
-            draw->AddText(ImGui::GetFont(), 14 * s, ImVec2(p.x + 9 * s, p.y - 8 * s), kPaper, c.name);
-            tips.push_back({p, 10 * s, c.name});
+            const ImU32 base = MemberBase(c);
+            PlayerSymbol(draw, art, p, s, c.have_yaw ? c.yaw : 0.0f, base);
+            draw->AddText(ImGui::GetFont(), 14 * s, ImVec2(p.x + 22 * s, p.y - 8 * s), base, c.name);
+            tips.push_back({p, 18 * s, c.name});
         }
     }
     // The player, facing their way (the character's yaw: forward = (sin, 0, cos)).
-    if (here) {
-        const ImVec2 p = project(w.x, w.z);
-        draw->AddCircleFilled(p, 18.5f * s, IM_COL32(96, 139, 138, 27), 32);
-        draw->AddCircleFilled(p, 16.0f * s, IM_COL32(20, 29, 29, 210), 32);
-        draw->AddCircle(p, 17.0f * s, IM_COL32(125, 160, 155, 120), 32, .8f * s);
-        if (!(art && BbMapArt::DrawIcon(draw, "player", p, BbAtlasStyle::Layout::player_size * s, w.yaw, IM_COL32(178, 206, 200, 230)))) {
-            const ImVec2 d(std::sin(w.yaw), -std::cos(w.yaw));
-            draw->AddTriangleFilled(ImVec2(p.x + d.x * 11 * s, p.y + d.y * 11 * s), ImVec2(p.x - d.y * 6 * s - d.x * 6 * s, p.y + d.x * 6 * s - d.y * 6 * s),
-                                    ImVec2(p.x + d.y * 6 * s - d.x * 6 * s, p.y - d.x * 6 * s - d.y * 6 * s), IM_COL32(178, 206, 200, 230));
-        }
-    }
+    if (here) PlayerSymbol(draw, art, project(w.x, w.z), s, w.yaw, kSelfBase);
     // The controller's pointer.
     const ImVec2 pointer = pad && v.controller ? ImVec2(origin.x + size.x * v.pu, origin.y + size.y * v.pv) : io.MousePos;
     if (pad && v.controller) {
