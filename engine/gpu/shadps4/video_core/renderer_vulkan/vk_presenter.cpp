@@ -1157,7 +1157,9 @@ bool Presenter::PresentGenerated(Frame* frame, Frame* generated) {
 void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame) {
     if (!is_reusing_frame && is_game_frame) {
         BbFrameState::OnPresent();
-        if (BbPresentHold::Active()) {
+        // Not with frame generation: a dropped real frame would skip its Streamline present
+        // calls (DLSS) or leave its generated frame unshown (FSR).
+        if (BbPresentHold::Active() && !frame_gen->Capturing()) {
             if (held_frame) {
                 last_submit_frame = held_frame;
                 if (Frame* again = PrepareLastFrame()) Present(again, true, false);
