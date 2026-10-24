@@ -115,27 +115,35 @@ namespace BloodborneLauncher.Core
                     if (Directory.Exists(atlas)) Directory.Delete(atlas, recursive: true);
                     File.Delete(stamp + ".generated");
                     var generator = new ProcessStartInfo(Generator) { WorkingDirectory = GeneratorDir };
+                    var input = PrepareInput(game, root);
                     generator.ArgumentList.Add("--game-dir");
-                    generator.ArgumentList.Add(game);
+                    generator.ArgumentList.Add(input);
                     generator.ArgumentList.Add("--output-dir");
                     generator.ArgumentList.Add(atlas);
                     generator.Environment["ATLAS_WORKERS"] = Workers().ToString();
-                    await Run(generator, line =>
+                    try
                     {
-                        // {"progress": 34, "stage": "Reading collision maps (5/16)", ...}
-                        if (!line.StartsWith('{')) return;
-                        try
+                        await Run(generator, line =>
                         {
-                            using var doc = JsonDocument.Parse(line);
-                            var e = doc.RootElement;
-                            if (e.TryGetProperty("stage", out var stage) && e.TryGetProperty("message", out var message) &&
-                                stage.GetString() == "error")
-                                Error = message.GetString() ?? "";
-                            else if (e.TryGetProperty("progress", out var p) && stage.ValueKind == JsonValueKind.String)
-                                Set(Phase.Preparing, p.GetInt32() * 70 / 100, stage.GetString() ?? "");
-                        }
-                        catch (JsonException) { /* not a progress line */ }
-                    });
+                            // {"progress": 34, "stage": "Reading collision maps (5/16)", ...}
+                            if (!line.StartsWith('{')) return;
+                            try
+                            {
+                                using var doc = JsonDocument.Parse(line);
+                                var e = doc.RootElement;
+                                if (e.TryGetProperty("stage", out var stage) && e.TryGetProperty("message", out var message) &&
+                                    stage.GetString() == "error")
+                                    Error = message.GetString() ?? "";
+                                else if (e.TryGetProperty("progress", out var p) && stage.ValueKind == JsonValueKind.String)
+                                    Set(Phase.Preparing, p.GetInt32() * 70 / 100, stage.GetString() ?? "");
+                            }
+                            catch (JsonException) { /* not a progress line */ }
+                        });
+                    }
+                    finally
+                    {
+                        RemoveInput(input);
+                    }
                     File.WriteAllText(stamp + ".generated", game);
                     // The generator's own scratch space, not needed after a run.
                     try { Directory.Delete(Path.Combine(atlas, ".generation-staging"), recursive: true); } catch { /* none */ }
@@ -172,6 +180,45 @@ namespace BloodborneLauncher.Core
 
         /// <summary>Runs a step at low priority (the game may be playing), its output lines to
         /// <paramref name="line"/>; throws when it fails.</summary>
+        /// <summary>The folder the generator reads. With the 1.09 update beside the game (GameCheck finds
+        /// it, as the engine lays it over the game at start), it is a view of both: the update's eboot.bin
+        /// and sce_sys, the game's dvdroot_ps4 linked. The game folder itself is never written. Without an
+        /// update it is the game folder.</summary>
+        public static string PrepareInput(string game, string root)
+        {
+            var update = GameCheck.UpdateFolder(game);
+            if (update == null) return game;
+            var input = Path.Combine(root, "input");
+            RemoveInput(input);
+            Directory.CreateDirectory(Path.Combine(input, "sce_sys"));
+            LinkFolder(Path.Combine(game, "dvdroot_ps4"), Path.Combine(input, "dvdroot_ps4"));
+            File.Copy(Path.Combine(update, "eboot.bin"), Path.Combine(input, "eboot.bin"), overwrite: true);
+            var sfo = File.Exists(Path.Combine(update, "sce_sys", "param.sfo"))
+                ? Path.Combine(update, "sce_sys", "param.sfo")
+                : Path.Combine(game, "sce_sys", "param.sfo");
+            File.Copy(sfo, Path.Combine(input, "sce_sys", "param.sfo"), overwrite: true);
+            return input;
+        }
+
+        /// <summary>Removes the view made by PrepareInput. Its dvdroot_ps4 is a junction: the link goes,
+        /// the game's folder under it stays.</summary>
+        public static void RemoveInput(string input)
+        {
+            if (!Directory.Exists(input)) return;
+            var link = Path.Combine(input, "dvdroot_ps4");
+            if (Directory.Exists(link)) Directory.Delete(link, recursive: false);
+            Directory.Delete(input, recursive: true);
+        }
+
+        private static void LinkFolder(string target, string link)
+        {
+            var mklink = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true };
+            foreach (var arg in new[] { "/c", "mklink", "/J", link, target }) mklink.ArgumentList.Add(arg);
+            using var process = Process.Start(mklink) ?? throw new IOException("Cannot start mklink for the map");
+            process.WaitForExit();
+            if (process.ExitCode != 0) throw new IOException("Cannot link the game's dvdroot_ps4 for the map");
+        }
+
         private static async Task Run(ProcessStartInfo info, Action<string> line)
         {
             info.UseShellExecute = false;

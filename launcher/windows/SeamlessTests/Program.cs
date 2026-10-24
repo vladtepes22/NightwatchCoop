@@ -183,7 +183,39 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     System.IO.Directory.Delete(sdlDir, true);
 }
 
-Console.WriteLine("PASS: host/join validation, password, save isolation, rule settings, base renderer options and package updates");
+// The map's input with the 1.09 update beside a 1.0 game: the update's eboot and sce_sys, the game's
+// dvdroot through a junction, and the game folder left as it was. A path with a space on purpose.
+{
+    var maps = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "seamless map " + Guid.NewGuid());
+    var game = System.IO.Path.Combine(maps, "CUSA03173");
+    var upd = System.IO.Path.Combine(maps, "CUSA03173-patch");
+    var root = System.IO.Path.Combine(maps, "root");
+    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(game, "dvdroot_ps4", "event"));
+    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(game, "sce_sys"));
+    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(upd, "sce_sys"));
+    System.IO.Directory.CreateDirectory(root);
+    System.IO.File.WriteAllText(System.IO.Path.Combine(game, "eboot.bin"), "1.00");
+    System.IO.File.WriteAllText(System.IO.Path.Combine(game, "sce_sys", "param.sfo"), "1.00");
+    System.IO.File.WriteAllText(System.IO.Path.Combine(game, "dvdroot_ps4", "event", "m.dcx"), "map");
+    System.IO.File.WriteAllText(System.IO.Path.Combine(upd, "eboot.bin"), "1.09");
+    System.IO.File.WriteAllText(System.IO.Path.Combine(upd, "sce_sys", "param.sfo"), "1.09");
+    var input = MapPrep.PrepareInput(game, root);
+    Check(input != game, "Map did not use the update beside the 1.0 game");
+    Check(System.IO.File.ReadAllText(System.IO.Path.Combine(input, "eboot.bin")) == "1.09", "Map input has the 1.0 eboot");
+    Check(System.IO.File.ReadAllText(System.IO.Path.Combine(input, "sce_sys", "param.sfo")) == "1.09", "Map input has the 1.0 param.sfo");
+    Check(System.IO.File.Exists(System.IO.Path.Combine(input, "dvdroot_ps4", "event", "m.dcx")), "Map input lost the game's dvdroot");
+    MapPrep.RemoveInput(input);
+    Check(!System.IO.Directory.Exists(input), "Map input was not removed");
+    Check(System.IO.File.Exists(System.IO.Path.Combine(game, "dvdroot_ps4", "event", "m.dcx")), "Removing the map input deleted the game's dvdroot");
+    Check(System.IO.File.ReadAllText(System.IO.Path.Combine(game, "eboot.bin")) == "1.00", "The game folder's eboot was changed");
+    System.IO.Directory.Delete(maps, true);
+    var plain = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "seamless map plain " + Guid.NewGuid());
+    System.IO.Directory.CreateDirectory(plain);
+    Check(MapPrep.PrepareInput(plain, root) == plain, "Without an update the map reads the game folder itself");
+    System.IO.Directory.Delete(plain, true);
+}
+
+Console.WriteLine("PASS: host/join validation, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 
 [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
 [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.U1)]
