@@ -855,7 +855,10 @@ PatchResult CompilePatches(const PatchRequest& request) {
     }
     {
         const bool large_scene = size && std::int64_t(size->w) * size->h > std::int64_t(kOutput.w) * kOutput.h;
-        const bool needs = large_scene || std::find(names.begin(), names.end(), "Model LOD -2 (Highest)") != names.end() ||
+        // The UI's render targets come from the same heap: a 720p scene with a 2560x1440 UI ran it
+        // out in the Forbidden Woods (a texture the game then used as null, guest +0xebc0cb).
+        const bool large_ui = std::int64_t(ui.w) * ui.h > std::int64_t(kOutput.w) * kOutput.h;
+        const bool needs = large_scene || large_ui || std::find(names.begin(), names.end(), "Model LOD -2 (Highest)") != names.end() ||
                            std::find(names.begin(), names.end(), "Enable Screen Space Reflections (READ NOTE)") != names.end();
         const std::uint64_t commit = CommitLimitMb();
         const auto dmem = Env("BB_DMEM_MB");
@@ -863,7 +866,7 @@ PatchResult CompilePatches(const PatchRequest& request) {
         if (Env("BB_GAME_HEAPS", "") == "0")
             keep = "BB_GAME_HEAPS=0";
         else if (!needs && Env("BB_GAME_HEAPS", "") != "1")
-            keep = "a 1080p or smaller scene without highest model detail or screen space reflections fits them; "
+            keep = "a 1080p or smaller scene and UI without highest model detail or screen space reflections fit them; "
                    "BB_GAME_HEAPS=1 enlarges them";
         else if (dmem && std::strtoull(dmem->c_str(), nullptr, 10) < 9152)
             keep = "BB_DMEM_MB=" + *dmem;
