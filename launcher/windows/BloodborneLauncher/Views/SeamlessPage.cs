@@ -154,13 +154,13 @@ public sealed class SeamlessPage : LauncherPage
         foreach (var option in SeamlessSettings.Switches)
         {
             var key = option.Key;
-            ToggleRow(SymbolRegular.People24, option.Label, null, () => SeamlessSettings.Flag(S, key), v => S.Set(key, v), party);
+            ToggleRow(SymbolRegular.People24, option.Label, MyPartyInfo(key), () => SeamlessSettings.Flag(S, key), v => S.Set(key, v), party);
         }
-        ComboRow(SymbolRegular.People24, "Insight for bosses", null,
+        ComboRow(SymbolRegular.People24, "Insight for bosses", MyPartyInfo("party_guest_insight"),
             new[] { new Choice("Same as host", "parity"), new Choice("Full bonus", "full"), new Choice("Game's own", "0") },
             () => Ini.Get("party_guest_insight", "parity") is "full" or "0" ? Ini.Get("party_guest_insight") : "parity",
             v => Ini.Set("party_guest_insight", v), party);
-        ComboRow(SymbolRegular.Play24, "Party starts", "Each new character normally completes its own prologue first. Keep it the same for everyone.",
+        ComboRow(SymbolRegular.Play24, "Party starts", MyPartyInfo("party_start"),
             new[] { new Choice("After the prologue", "prologue_solo"), new Choice("Right away", "immediate") },
             () => S.Str("party_start") == "immediate" ? "immediate" : "prologue_solo", v => S.Set("party_start", v), party);
 
@@ -227,16 +227,49 @@ public sealed class SeamlessPage : LauncherPage
         foreach (var (element, when) in _byMode)
             element.Visibility = when(mode) ? Visibility.Visible : Visibility.Collapsed;
     }
+    // Descriptions from engine/docs/party/my_party_settings.md, plus the remaining My party rows.
+    private static string? MyPartyInfo(string key) => key switch
+    {
+        "party_hud" => L.T("Shows companions' names, health and where they are, in the bottom left corner. Party mode only."),
+        "party_name_tags" => L.T("On: our name plates above companions, never hidden by walls. Off: the game's own plate."),
+        "party_pings" => L.T("Touchpad + R3, or the Ping key (default B, under Controls), marks where you look. Everyone sees the mark for 10 s."),
+        "party_through_walls" => L.T("A small marker with the distance on each companion on your map, also behind walls."),
+        "party_glow_off" => L.T("On: other hunters look like normal hunters on your screen. Off: the game's blue phantom glow."),
+        "party_toasts" => L.T("A short notice in a top corner when a hunter joins, leaves or travels."),
+        "party_npc_talk" => L.T("See and hear the NPC conversations of companions near you (subtitles, choices, gifts)."),
+        "party_guest_lamps" => L.T("Guests may use lamps and headstones; the whole party travels with them. Needs a restart."),
+        "party_key_view" => L.T("While you are a guest, your own keys and badges show in Key Items; off shows the game's empty list. Takes effect on the next game start."),
+        "party_key_items_summoned" => L.T("While you are a guest, a key the host's world gives you is yours at once (needs Own key items as a guest). Off: the key waits until you are back in your own world."),
+        "party_npc_talk_range" => L.T("How close a companion has to be for you to see their NPC conversation."),
+        "party_overhead" => L.T("What shows above companions in view, only for you: nothing, name, name and level, name and health, name and deaths, or name and ping."),
+        "party_grant_bells" => L.T("Gives the Beckoning Bell and Small Resonant Bell after the prologue, for ringing by hand. Takes effect on the next game start."),
+        "party_open_world" => L.T("Removes co-op walls on area borders so the party can walk anywhere; keep it the same for everyone. Takes effect on the next game start."),
+        "party_guest_respawn" => L.T("While you are a guest, a death brings you back at the host's lamp, not at home. Takes effect on the next game start."),
+        "party_guest_refill" => L.T("While you are a guest, vials and bullets refill when the host rests, dies or travels. Takes effect on the next game start."),
+        "party_chalice_rejoin" => L.T("As a guest, if a death or forced trip takes you out of the host's dungeon, you are summoned back. Leaving by choice: use Rejoin."),
+        "party_guest_mark" => L.T("A guest's Hunter's Mark asks whether to travel alone or with the party; off uses the game's own behavior. Takes effect on the next game start."),
+        "party_full_rewards" => L.T("While you are a guest, receive full Blood Echoes and enemy drops like the host; off uses the game's co-op amounts. Takes effect on the next game start."),
+        "party_items" => L.T("Boss drops, key items and gifts the host gets are given to each guest too, once. Takes effect on the next game start."),
+        "party_progress" => L.T("Bosses, lamps, shortcuts and key events are copied into every guest's save. Applies to host and guests on the next game start."),
+        "party_progress_npc" => L.T("The first NPC quest choice anyone makes applies to every save (needs Shared progression). Takes effect on the next game start."),
+        "party_story" => L.T("Guests see the host's cutscenes, time of day and ending. Applies to host and guests on the next game start."),
+        "party_story_mirror" => L.T("A guest in the host's world watches cutscenes with the host; off lets the guest watch them later in their own world. Takes effect on the next game start."),
+        "party_restart" => L.T("Automatically restarts the game after a crash and rejoins the party."),
+        "party_guest_insight" => L.T("Controls the Insight you receive as a guest when the host kills a boss. Takes effect on the next game start."),
+        "party_start" => L.T("Each new character normally completes its own prologue first. Keep it the same for everyone."),
+        _ => null,
+    };
+
     /// Switches kept in bbport.ini like the game's party pages, so both show the same value.
     private void IniToggles(Panel into, params (string Key, string Label, bool Fallback)[] rows)
     {
         foreach (var (key, label, fallback) in rows)
-            ToggleRow(SymbolRegular.People24, label, null, () => Ini.Get(key, fallback ? "1" : "0") == "1", v => Ini.Set(key, v ? "1" : "0"), into);
+            ToggleRow(SymbolRegular.People24, label, MyPartyInfo(key), () => Ini.Get(key, fallback ? "1" : "0") == "1", v => Ini.Set(key, v ? "1" : "0"), into);
     }
     private void IniNumbers(Panel into, params (string Key, string Label, int Value)[] rows)
     {
         foreach (var (key, label, value) in rows)
-            TextRow(SymbolRegular.Settings24, label, null, value.ToString(), () => Ini.Get(key, value.ToString()), v => Ini.Set(key, v), into, width: 120);
+            TextRow(SymbolRegular.Settings24, label, MyPartyInfo(key), value.ToString(), () => Ini.Get(key, value.ToString()), v => Ini.Set(key, v), into, width: 120);
     }
     private sealed record EditorSave(string kind, int slot, string text, bool guest_written);
     private sealed record EditorPlan(string kind, int slot, string target, string[] notes);
