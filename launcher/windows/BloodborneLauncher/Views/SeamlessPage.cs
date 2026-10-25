@@ -38,7 +38,16 @@ public sealed class SeamlessPage : LauncherPage
         var party = Rows(InParty);
         TextRow(SymbolRegular.Person24, L.T("Your name"), L.T("1–16 letters, numbers, underscores or hyphens."), L.T("Hunter"),
             () => SeamlessSettings.Name(S), v => S.Set("party_name", v), party);
-        TextRow(SymbolRegular.Link24, L.T("Host code or address"), L.T("Paste the host's Internet code, LAN code or host:port."), "BBP3-…",
+        // The Join list: parties announced on the VPN or local network (party discovery, UDP 9308). The listener runs
+        // on its own thread while this tab is open in Join mode; the timer only reads its snapshot.
+        var found = Rows(Joining);
+        Add(Card(SymbolRegular.People24, L.T("Parties on your network"),
+            L.T("Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Choose one to fill in its address. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed."),
+            SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24, (_, _) => { _book.Clear(); RefreshRoute(); StartListener(restart: true); RefreshParties(); }),
+            out _partiesHint), found);
+        _partyList = new StackPanel();
+        found.Children.Add(_partyList);
+        _codeBox = TextRow(SymbolRegular.Link24, L.T("Host code or address"), L.T("Paste the host's Internet code, LAN code or host:port."), "BBP3-…",
             () => S.Str("party_code"), v => S.Set("party_code", v), Rows(Joining));
         party = Rows(InParty);
         var password = new PasswordBox { Width = 300, Password = S.PartyPassword, PlaceholderText = L.T("Optional party password"), PlaceholderEnabled = true };
@@ -229,16 +238,66 @@ public sealed class SeamlessPage : LauncherPage
             _codes.Text = SeamlessSettings.Codes(S);
             UpdateStartupWarning();
             if (++_ticks % 5 == 0) RefreshRoute();
+            RefreshParties();
             var status = SeamlessSession.Read(S);
             _status.Text = status == null ? (Ws.Game.Running ? L.T("Waiting for party status…") : L.T("Game stopped.")) :
                 $"{PartyRole(status.role)}：{PartyState(status.state)}  {status.detail}\n{status.network}\n" +
                 string.Join("\n", status.members.Select(m => $"{m.name}：{(m.in_world ? L.T("in host world") : m.connected ? L.T("connected") : L.T("disconnected"))}  {(m.ping_ms < 0 ? "" : m.ping_ms + " ms")}  {m.area}")) +
                 $"\n{status.@event}\n{status.alert}";
         };
-        Loaded += (_, _) => { _codes.Text = SeamlessSettings.Codes(S); _timer.Start(); RefreshRoute(); };
-        Unloaded += (_, _) => _timer.Stop();
+        Loaded += (_, _) => { _codes.Text = SeamlessSettings.Codes(S); _timer.Start(); RefreshRoute(); StartListener(); };
+        Unloaded += (_, _) => { _timer.Stop(); _listener?.Dispose(); _listener = null; };
         ShowMode();
     }
+    private PartyDiscovery.Book _book = new();
+    private PartyDiscovery.Listener? _listener;
+    private StackPanel _partyList = null!;
+    private TextBlock _partiesHint = null!;
+    private Wpf.Ui.Controls.TextBox _codeBox = null!;
+    private string _partySignature = "\0";
+
+    /// <summary>Listens while the page is shown in Join mode; stops otherwise (the thread ends within half a second).</summary>
+    private void StartListener(bool restart = false)
+    {
+        var wanted = IsLoaded && S.Str("party_mode") == "join";
+        if (_listener != null && (!wanted || restart)) { _listener.Dispose(); _listener = null; }
+        if (!wanted || _listener != null) return;
+        var own = _adapters.Select(a => a.IpText);
+        _book = new PartyDiscovery.Book(Environment.GetEnvironmentVariable("BB_PARTY_DISCOVERY_SELF") == "1" ? null : own);
+        _listener = new PartyDiscovery.Listener(_book, () => _adapters);
+        _partySignature = "\0";
+    }
+
+    /// <summary>Redraws the list from the listener's snapshot, only when it changed.</summary>
+    private void RefreshParties()
+    {
+        if (_listener == null) return;
+        var parties = _book.Snapshot(PartyDiscovery.NowMs);
+        var prefix = PartyDiscovery.BuildPrefix(Updater.Current);
+        var signature = _listener.Error + "|" + string.Join(";", parties.Select(p => $"{p.Info.Id}/{p.Ip}/{p.Info.Players}/{p.Info.Level}/{p.Info.Area}/{p.Info.Name}"));
+        if (signature == _partySignature) return;
+        _partySignature = signature;
+        _partyList.Children.Clear();
+        SetHint(_partiesHint, _listener.Error.Length > 0 ? L.T("Could not listen for parties: ") + _listener.Error + L.T(". Paste the host's code below instead.") :
+            parties.Count == 0 ? L.T("No party found yet. The host needs Show my party to friends on, and you need to be on the same VPN or network.") : "");
+        foreach (var party in parties)
+        {
+            var info = party.Info;
+            var full = info.Players >= info.Max;
+            var same = PartyDiscovery.BuildMatches(info.Build, prefix);
+            var text = L.T("Level ") + (info.Level > 0 ? info.Level.ToString() : "?") + " · " + info.Players + " / " + info.Max +
+                       (info.Area.Length > 0 ? " · " + info.Area : "") + (info.Password ? " · " + L.T("password") : "");
+            if (full) text += "\n" + L.T("This party is full.");
+            if (!same) text += "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.");
+            var address = party.Address;
+            var use = SmallButton(L.T("Use address"), SymbolRegular.Link24, (_, _) => _codeBox.Text = address);
+            use.IsEnabled = !full && same;
+            var row = Card(SymbolRegular.People24, info.Name, null, use, out var hint);
+            SetHint(hint, text);
+            _partyList.Children.Add(row);
+        }
+    }
+
     private readonly Wpf.Ui.Controls.Button _copyAddress;
     private readonly TextBlock _routeHint;
     private IReadOnlyList<NetAdapter> _adapters = Array.Empty<NetAdapter>();
@@ -344,6 +403,7 @@ public sealed class SeamlessPage : LauncherPage
         foreach (var (element, when) in _byMode)
             element.Visibility = when(mode) ? Visibility.Visible : Visibility.Collapsed;
         UpdateRoute();
+        StartListener();
     }
     // Party rules from engine/gpu/shim/bbport_game_menu_pages.cpp; My party descriptions from
     // engine/docs/party/my_party_settings.md, plus the remaining My party rows.

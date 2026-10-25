@@ -2040,4 +2040,16 @@
   "No local address to share: use the party code from the Share party codes row.": "没有可分享的本地地址：请使用“分享队伍代码”一行中的队伍代码。",
   "No password over ": "未设置密码，通过 ",
   ": anyone in that network can join you. Set a Password.": " 开房：该网络中的任何人都可以加入你。请设置密码。"
+,
+  "Parties on your network": "网络中的队伍",
+  "Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Choose one to fill in its address. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed.": "你的 VPN（Radmin VPN、Hamachi、ZeroTier）或本地网络中，开启了“向朋友显示我的队伍”的房主。选择一个即可填入其地址。名称、等级和人数来自房主的公告。关闭此标签页时不会列出任何队伍。",
+  "Refresh": "刷新",
+  "Could not listen for parties: ": "无法监听队伍：",
+  ". Paste the host's code below instead.": "。请改为在下方粘贴房主的代码。",
+  "No party found yet. The host needs Show my party to friends on, and you need to be on the same VPN or network.": "尚未找到队伍。房主需要开启“向朋友显示我的队伍”，并且你们需要处于同一个 VPN 或网络中。",
+  "Level ": "等级 ",
+  "password": "有密码",
+  "This party is full.": "该队伍已满。",
+  "This host runs another version of the co-op: update the launcher or ask the host to.": "该房主使用的联机版本不同：请更新启动器，或请房主更新。",
+  "Use address": "使用地址"
 }

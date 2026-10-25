@@ -286,7 +286,82 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     Check(NetworkRoute.Enumerate() != null, "Enumerate failed");
 }
 
-Console.WriteLine("PASS: host/join validation, start-up rules, VPN route, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
+// Party discovery (party_discovery.h): the launcher's parser rejects what the game's parse() rejects.
+{
+    byte[] Packet(string build = "nightwatch-coop-0.2.4-0123456789abcdef", string name = "Hunter-1a2b", string area = "Central City",
+        int players = 1, int max = 3, int port = 9307, int level = 42, int flags = 1, uint id = 0xdeadbeef, int version = 1)
+    {
+        var bytes = new List<byte> { 0xfa, (byte)'A', (byte)version, (byte)flags, (byte)(id >> 24), (byte)(id >> 16), (byte)(id >> 8), (byte)id,
+            (byte)(port >> 8), (byte)port, (byte)(level >> 8), (byte)level, (byte)players, (byte)max };
+        foreach (var s in new[] { build, name, area }) { bytes.Add((byte)s.Length); bytes.AddRange(System.Text.Encoding.Latin1.GetBytes(s)); }
+        return bytes.ToArray();
+    }
+    var good = PartyDiscovery.Parse(Packet());
+    Check(good is { Id: 0xdeadbeef, Port: 9307, Level: 42, Players: 1, Max: 3, Password: true, Name: "Hunter-1a2b", Area: "Central City" } &&
+          good.Build == "nightwatch-coop-0.2.4-0123456789abcdef", "A valid announcement was not parsed");
+    Check(PartyDiscovery.Parse(Packet(flags: 0))?.Password == false && PartyDiscovery.Parse(Packet(area: ""))?.Area == "", "No password flag or an empty area");
+    Check(PartyDiscovery.Parse(Packet(build: new string('b', 64))) != null && PartyDiscovery.Parse(Packet(name: new string('n', 16), area: new string('a', 32))) != null, "The longest strings were refused");
+    Check(PartyDiscovery.Parse(Packet(players: 3, max: 3)) != null && PartyDiscovery.Parse(Packet(max: 8)) != null, "A full party or 8 slots was refused");
+    var bad = new Dictionary<string, byte[]>
+    {
+        ["empty"] = Array.Empty<byte>(), ["short"] = Packet()[..16], ["long"] = Packet(area: new string('a', 32)).Concat(new byte[100]).ToArray(),
+        ["magic"] = new byte[] { 0xfb }.Concat(Packet().Skip(1)).ToArray(), ["version"] = Packet(version: 2), ["flags"] = Packet(flags: 2),
+        ["port 0"] = Packet(port: 0), ["max 0"] = Packet(players: 0, max: 0), ["max 9"] = Packet(players: 1, max: 9), ["players > max"] = Packet(players: 4, max: 3),
+        ["empty name"] = Packet(name: ""), ["build 65"] = Packet(build: new string('b', 65)), ["name 17"] = Packet(name: new string('n', 17)),
+        ["area 33"] = Packet(area: new string('a', 33)), ["control"] = Packet(name: "Hunter"), ["del"] = Packet(name: "Hunter"),
+        ["high byte"] = Packet(name: "Hunéter"), ["trailing"] = Packet().Concat(new byte[] { 0 }).ToArray(),
+        ["overrun"] = Packet()[..^3], ["no area"] = Packet()[..^(1 + "Central City".Length)],
+    };
+    foreach (var (why, data) in bad)
+        Check(PartyDiscovery.Parse(data) == null, "A bad announcement was taken: " + why);
+    var overrun = Packet(); overrun[14 + 1 + "nightwatch-coop-0.2.4-0123456789abcdef".Length] = 200;   // the name's length byte runs past the end
+    Check(PartyDiscovery.Parse(overrun) == null, "A length that overruns was taken");
+
+    Check(PartyDiscovery.BuildMatches("nightwatch-coop-0.2.4-0123456789abcdef", PartyDiscovery.BuildPrefix(new Version(0, 2, 4, 7))) &&
+          !PartyDiscovery.BuildMatches("nightwatch-coop-0.2.3-0123456789abcdef", PartyDiscovery.BuildPrefix(new Version(0, 2, 4))) &&
+          !PartyDiscovery.BuildMatches("nightwatch-coop-0.2.40-abc", PartyDiscovery.BuildPrefix(new Version(0, 2, 4))) &&
+          !PartyDiscovery.BuildMatches("0.7.5 (abc)", PartyDiscovery.BuildPrefix(new Version(0, 2, 4))), "Build match");
+
+    var book = new PartyDiscovery.Book(new[] { "192.168.1.20" });
+    Check(!book.Feed(Packet(), "192.168.1.20", 0), "The PC's own announcement was listed");
+    Check(book.Feed(Packet(), "26.1.1.1", 0) && book.Feed(Packet(players: 2), "192.168.1.9", 100), "Valid announcements not taken");
+    Check(book.Snapshot(200) is [{ Info.Players: 2, Ip: "192.168.1.9" }], "A game announcing on two adapters is listed twice or not updated");
+    Check(book.Feed(Packet(id: 7, name: "Alpha"), "26.1.1.2", 300) && book.Snapshot(300).Select(p => p.Info.Name).SequenceEqual(new[] { "Alpha", "Hunter-1a2b" }), "Parties are not sorted by name");
+    Check(book.Snapshot(300 + PartyDiscovery.TtlMs + 1).Count == 0, "Old announcements were kept");
+    Check(!book.Feed(new byte[] { 1, 2, 3 }, "26.1.1.3", 400), "Garbage was taken");
+    var flood = new PartyDiscovery.Book();
+    var taken = Enumerable.Range(0, 60).Count(i => flood.Feed(Packet(id: (uint)i), "26.1.1.4", 5000 + i));
+    Check(taken == PartyDiscovery.MaxPerSecond, "Rate limit per source: took " + taken);
+    Check(flood.Feed(Packet(id: 1000), "26.1.1.4", 6500), "A source stayed limited in the next second");
+    var many = new PartyDiscovery.Book();
+    for (var i = 0; i < 100; i++) many.Feed(Packet(id: (uint)i), $"26.2.{i / 10}.{i % 10}", 10_000);
+    Check(many.Snapshot(10_000).Count == PartyDiscovery.MaxEntries, "The list is not capped: " + many.Snapshot(10_000).Count);
+
+    // The listener on a spare port: a datagram from this PC (loopback, so any source) reaches the list.
+    var heard = new PartyDiscovery.Book();
+    using (var listener = new PartyDiscovery.Listener(heard, () => Array.Empty<NetAdapter>(), 39308, anySource: true))
+    using (var sender = new System.Net.Sockets.UdpClient())
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline && heard.Snapshot(PartyDiscovery.NowMs).Count == 0)
+        {
+            var packet = Packet(id: 99, name: "Loop");
+            sender.Send(packet, packet.Length, "127.0.0.1", 39308);
+            Thread.Sleep(100);
+        }
+        Check(listener.Error == "" && heard.Snapshot(PartyDiscovery.NowMs) is [{ Info.Name: "Loop", Ip: "127.0.0.1" }], "The listener did not hear the announcement: " + listener.Error);
+    }
+    // Without anySource the same datagram is dropped (127.0.0.1 is on no allowed adapter).
+    var strict = new PartyDiscovery.Book();
+    using (var listener = new PartyDiscovery.Listener(strict, () => new[] { new NetAdapter("Ethernet / Realtek", NetworkRoute.Parse("192.168.1.20"), NetworkRoute.Parse("255.255.255.0")) }, 39309))
+    using (var sender = new System.Net.Sockets.UdpClient())
+    {
+        for (var i = 0; i < 10; i++) { var packet = Packet(); sender.Send(packet, packet.Length, "127.0.0.1", 39309); Thread.Sleep(50); }
+        Check(strict.Snapshot(PartyDiscovery.NowMs).Count == 0, "A datagram from outside the allowed subnets was listed");
+    }
+}
+
+Console.WriteLine("PASS: host/join validation, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 
 [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
 [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.U1)]
