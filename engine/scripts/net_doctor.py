@@ -354,7 +354,8 @@ def diagnose(logs, show_ips):
     starts = [_minutes(*l.started) for l in logs if l.started]
     ends = [l.ended for l in logs if getattr(l, "ended", None)]
     if len(starts) > 1:
-        apart = (ends and max(starts) > min(ends) + 1) or max(starts) - min(starts) > 20
+        # a Nightwatch log knows when it was closed: overlapping logs are one session however long it ran
+        apart = max(starts) > min(ends) + 1 if ends else max(starts) - min(starts) > 20
         if apart:
             txt = ", ".join(f"{l.name or l.path.name} {l.started[1] // 60:02d}:{l.started[1] % 60:02d}"
                             for l in logs if l.started)
@@ -634,6 +635,39 @@ def player_line(l, show_ips):
     return " | ".join(parts)
 
 
+def one_log_per_player(logs):
+    """Keep one log per player (last_session + previous_session from the same guest are two sessions): the
+    one whose session fits the host's (started before the host's log was closed, the latest such), else the
+    newest. Returns (kept logs, notes for the reader)."""
+    host = next((l for l in logs if l.role == "host"), None)
+    h_start = _minutes(*host.started) if host and host.started else None
+    h_end = getattr(host, "ended", None) if host else None
+    groups = {}
+    for l in logs:
+        groups.setdefault((l.role, l.name) if l.name else id(l), []).append(l)
+    kept, notes = [], []
+    for key, ls in groups.items():
+        if len(ls) == 1:
+            kept.append(ls[0])
+            continue
+        timed = [l for l in ls if l.started]
+        start = lambda l: _minutes(*l.started)
+        pick = None
+        if timed and h_end is not None:
+            fit = [l for l in timed if start(l) <= h_end + 1]
+            pick = max(fit, key=start) if fit else None
+        if pick is None and timed and h_start is not None and ls[0] is not host:
+            pick = min(timed, key=lambda l: abs(start(l) - h_start))
+        if pick is None:
+            pick = max(timed, key=start) if timed else ls[-1]
+        kept.append(pick)
+        hm = lambda l: f"{l.started[1] // 60:02d}:{l.started[1] % 60:02d}" if l.started else l.path.name
+        why = "the one that fits the host's session" if host and pick is not host else "the newest"
+        notes.append(f"*{ls[0].name} sent {len(ls)} logs (games started {', '.join(hm(l) for l in ls)}): "
+                     f"used {hm(pick)}, {why}.*")
+    return [l for l in logs if l in kept], notes
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Explain co-op connection problems from party logs.")
     ap.add_argument("logs", nargs="+", help="log files (host and guests)")
@@ -655,11 +689,13 @@ def main(argv=None):
     if not logs:
         print("No co-op logs found. Give the logs of a party session (host and guests).")
         return 1
+    logs, picked = one_log_per_player(logs)
 
     issues = diagnose(logs, True)
     out = ["**Co-op connection check**"]
     for l in logs:
         out.append("- " + player_line(l, True))
+    out.extend(picked)
     if not any(l.role == "host" for l in logs):
         out.append("_No host log given: the host's log shows much more (who reached it, why summons failed)._")
     out.append("")

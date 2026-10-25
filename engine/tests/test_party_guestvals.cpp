@@ -229,6 +229,11 @@ static void TestLampShare() {
     CHECK(RestoreLastLamp(3402951u, 3502950u, 0.4, -1.0f, false));   // position unknown: guarded
     CHECK(RestoreLastLamp(3402951u, 3502950u, 0.4, 2.0f, false, true));  // host beside it, a guest lit it
     CHECK(!RestoreLastLamp(3402951u, 3502950u, 0.4, 2.0f, true, true));   // a load: a travel
+    // mensislamp: the last lamp was only the map's scripted arrival spot: the first lamp lit there counts
+    CHECK(!RestoreLastLamp(2602959u, 2602950u, 0.4, 40.0f, false));
+    CHECK(!RestoreLastLamp(2602959u, 2602950u, 0.4, 2.0f, false, true));  // a guest lit it, the host stands by it
+    CHECK(RestoreLastLamp(2502950u, 2602950u, 0.4, 40.0f, false));       // another map's lamp stays guarded
+    CHECK(RestoreLastLamp(2602950u, 2602953u, 0.4, 40.0f, false));       // a real lamp is still protected
     // Guest-lit only after a real use: at the lamp, not right after a load (a lamp warp's arrival).
     CHECK(CountsAsGuestLit(45.0, 2.0f));
     CHECK(!CountsAsGuestLit(3.0, 0.5f));    // the report: arrived by the lamp warp, flag rose at once

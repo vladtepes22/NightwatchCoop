@@ -17,6 +17,7 @@
 #include "net_stun.h"
 #include "netsim.h"
 #include "nr_outage.h"
+#include "nr_rxgap.h"
 #include "party_route.h"
 #include "party_udp.h"
 
@@ -631,6 +632,34 @@ const bool g_outage_replay = [] {
     const char* e = std::getenv("BB_PARTY_OUTAGE_REPLAY");
     return !(e && e[0] == '0');
 }();
+// 0.7.6 diagnostics BB_NET_RXGAP_LOG=1 (nr_rxgap.h): was it the peer that went quiet, or this PC's
+// reader thread that did not run? One line per silence of 2 s or more when it ends, one line a minute.
+const bool g_rxgap_log = [] {
+    const char* e = std::getenv("BB_NET_RXGAP_LOG");
+    return e && e[0] == '1';
+}();
+// When the game last took a datagram out of a P2P inbox (steady clock, ns); 0: never.
+std::atomic<std::int64_t> g_game_read_ns{0};
+// Test aid with BB_NET_RXGAP_LOG: BB_NET_RXGAP_TEST_STALL=<ms>@<s> makes the reader thread sleep <ms> once,
+// <s> seconds after it started, to show the log telling a stalled reader from a quiet peer.
+struct RxStallTest {
+    int ms = 0, at_s = 0;
+    bool done = false;
+};
+RxStallTest rx_stall_test_from_env() {
+    RxStallTest t;
+    if (const char* e = std::getenv("BB_NET_RXGAP_TEST_STALL")) {
+        int ms = 0, s = 0;
+        if (std::sscanf(e, "%d@%d", &ms, &s) == 2 && ms > 0) {
+            t.ms = ms;
+            t.at_s = s;
+        }
+    }
+    return t;
+}
+std::int64_t steady_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
+}
 int dgram_send(int s, const void* buf, std::uint64_t len, int flags, const SceSockaddrIn* to);
 std::mutex g_gap_hook_mu;
 std::function<void(std::uint32_t, std::uint16_t, double)> g_gap_hook;
@@ -722,6 +751,9 @@ void p2p_reader(std::shared_ptr<P2pPort> port) {
     std::vector<std::string> notes;
     std::vector<udp::Wire> rout;
     std::vector<std::uint8_t> inner;
+    nr::RxGapMonitor rxgap;
+    RxStallTest rx_stall = g_rxgap_log ? rx_stall_test_from_env() : RxStallTest{};
+    const auto reader_started = Clock::now();
     while (!port->stop.load(std::memory_order_relaxed)) {
         if (settings().host && Clock::now() - last_expire > std::chrono::seconds(60)) {
             last_expire = Clock::now();
@@ -757,10 +789,35 @@ void p2p_reader(std::shared_ptr<P2pPort> port) {
                         if (pv.v6) router().route_v6(pv.addr, pv.port, pv.via6);
             }
             flush_route_notes();
+            if (rx_stall.ms > 0 && !rx_stall.done && last_tick - reader_started >= std::chrono::seconds(rx_stall.at_s)) {
+                rx_stall.done = true;
+                log("rx watch test: the reader sleeps %d ms now (BB_NET_RXGAP_TEST_STALL)", rx_stall.ms);
+                std::this_thread::sleep_for(std::chrono::milliseconds(rx_stall.ms));
+            }
+            nr::RxGapMonitor::Summary sum;
+            if (g_rxgap_log && rxgap.summary(last_tick, &sum)) {
+                std::string peers;
+                for (const auto& [k, p] : sum.by_peer) {
+                    char ip[32], b[96];
+                    write_ipv4(ip, sizeof(ip), static_cast<std::uint32_t>(k & 0xffffffffu));
+                    std::snprintf(b, sizeof(b), " %s:%u %llu dgrams, longest silence %.1f s;", ip,
+                                  bswap16(static_cast<std::uint16_t>(k >> 32)),
+                                  static_cast<unsigned long long>(p.datagrams), p.longest_s);
+                    peers += b;
+                }
+                log("rx watch 60 s: %llu game datagrams from %d source(s), %d silence(s) of 2 s or more (%d not "
+                    "logged singly); reader: %llu waits, %llu idle, worst stall %.0f ms%s%s;%s",
+                    static_cast<unsigned long long>(sum.datagrams), sum.peers, sum.gaps, sum.suppressed,
+                    static_cast<unsigned long long>(sum.polls), static_cast<unsigned long long>(sum.timeouts),
+                    sum.worst_stall_ms, sum.worst_stall_ms > 0 ? " in its " : "", sum.stall_kind, peers.c_str());
+            }
         }
         bool r4 = false, r6 = false;
         const sockfd_t fd6 = port->fd6.load();
-        if (poll2(port->fd, fd6, 200, &r4, &r6) <= 0) continue;
+        if (g_rxgap_log) rxgap.poll_begin(Clock::now());
+        const int polled = poll2(port->fd, fd6, 200, &r4, &r6);
+        if (g_rxgap_log) rxgap.poll_end(Clock::now(), polled == 0, 200);
+        if (polled <= 0) continue;
         sockaddr_in sa{};
         udp::Wire from;
         ssize_type n = -1;
@@ -925,6 +982,28 @@ void p2p_reader(std::shared_ptr<P2pPort> port) {
         if (PacketTraceFn tf = g_packet_trace.load(std::memory_order_relaxed))
             tf(false, src, dst, dg.data.data(), dg.data.size());
         hex_trace(false, src, dst, dg.data.data(), dg.data.size());
+        if (g_rxgap_log) {
+            nr::RxGapMonitor::Gap gap;
+            if (rxgap.heard(source_key(dg.addr, dg.port), Clock::now(), &gap)) {
+                char ip[32];
+                write_ipv4(ip, sizeof(ip), dg.addr);
+                std::size_t inbox = 0;
+                {
+                    std::lock_guard<std::mutex> lk(q->mu);
+                    inbox = q->q.size();
+                }
+                const std::int64_t gr = g_game_read_ns.load(std::memory_order_relaxed);
+                char read[48];
+                if (gr) std::snprintf(read, sizeof(read), "%lld ms ago", static_cast<long long>((steady_ns() - gr) / 1000000));
+                else std::snprintf(read, sizeof(read), "never");
+                log("rx gap: %s:%u was silent %.1f s; %llu datagram(s) from the other %d source(s) meanwhile, %d of them "
+                    "silent now too; this reader's worst stall in that time %.0f ms%s%s; the game took from the inbox %s "
+                    "(%zu queued)",
+                    ip, bswap16(dg.port), gap.silent_s, static_cast<unsigned long long>(gap.others), gap.peers - 1,
+                    gap.silent_peers, gap.worst_stall_ms, gap.worst_stall_ms > 0 ? " in its " : "", gap.stall_kind, read,
+                    inbox);
+            }
+        }
         if (trace_now(logs)) {
             char ip[32];
             write_ipv4(ip, sizeof(ip), sa.sin_addr.s_addr);
@@ -1179,6 +1258,7 @@ int sock_recv(int s, void* buf, std::uint64_t len, int flags, SceSockaddrIn* fro
                 }
                 if (q.q.empty()) return net_err(bsd::kEINTR);
             }
+            if (g_rxgap_log) g_game_read_ns.store(steady_ns(), std::memory_order_relaxed);
             if (peek) {
                 dg = q.q.front();
             } else {

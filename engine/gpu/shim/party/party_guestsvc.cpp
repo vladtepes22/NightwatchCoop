@@ -9,11 +9,13 @@
 //   0x203BA78 41 0f b6 47 25   movzx eax, byte [r15+0x25]
 //   0x203BA7D e9 4d 34 00 00   jmp 0x203EECF   ([r12+8] = 2 int, [r12] = eax)
 #include "party_guestsvc.h"
+#include "party_bossfog_rules.h"
 #include "party_npctalk.h"
 #include "party_log_game.h"
 
 #include "net/json.h"
 
+#include <set>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1450,6 +1452,21 @@ bool LampSyncFilterOn() {
     }();
     return on;
 }
+/// BB_PARTY_BOSS_PHASE_SYNC=1 (testing): a guest's boss phase event state is applied on the host again.
+bool BossPhaseSyncFilterOn() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_PARTY_BOSS_PHASE_SYNC");
+        return !(v && v[0] == '1');
+    }();
+    return on;
+}
+bool EventSyncLogOn() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_PARTY_EVENT_SYNC_LOG");
+        return v && v[0] == '1';
+    }();
+    return on;
+}
 bool MessengerSyncFilterOn() {
     static const bool on = [] {
         const char* v = std::getenv("BB_PARTY_MESSENGER_SYNC");
@@ -1463,10 +1480,36 @@ BB_COOP_SYSV u64 EventSyncRead(u64 man, u64 peer, u64 type, u64 buf, u64 size) {
         const u64 r = reinterpret_cast<Fn>(Guest(kPacketRead))(man, peer, type, buf, size);
         std::uint16_t kind = 1;
         std::int32_t event = 0;
+        if (EventSyncLogOn() && std::int32_t(r) > 0 && buf && SafeGet(buf, &kind) && SafeGet(buf + 8, &event)) {
+            // BB_PARTY_EVENT_SYNC_LOG=1: which network-synced EMEVD events a peer's state arrives for
+            // (at most 600 lines).
+            static int logged = 0;
+            std::int16_t slot = 0;
+            std::int32_t state = 0;
+            SafeGet(buf + 0xc, &slot);
+            SafeGet(buf + 0x10, &state);
+            if (logged < 600) {
+                ++logged;
+                Log("event sync: a peer's packet 0x31 kind %u: event %d slot %d state %d", unsigned(kind), event, int(slot), state);
+            }
+            kind = 1;
+            event = 0;
+        }
         if (std::int32_t(r) <= 0 || !buf || !SafeGet(buf, &kind) || kind != 0 || !SafeGet(buf + 8, &event) ||
             !((MessengerSyncFilterOn() && PerPlayerMessengerEvent(std::uint32_t(event))) ||
-              (LampSyncFilterOn() && deathrules::LampWarpEvent(std::uint32_t(event))))) {
+              (LampSyncFilterOn() && deathrules::LampWarpEvent(std::uint32_t(event))) ||
+              (BossPhaseSyncFilterOn() && bossfog::HostOnlyBossEvent(std::uint32_t(event)) &&
+               PartyDirector::Get().Role() == PartyRole::Host))) {
             return r;
+        }
+        if (bossfog::HostOnlyBossEvent(std::uint32_t(event))) {
+            // Main thread. A guest's copy of a boss's phase event finished on its own chr: not the host's call.
+            static std::atomic<int> boss_drops{0};
+            if (boss_drops.fetch_add(1) < 8) {
+                Log("Boss phase: event %d's state from a guest not applied (the host's own boss chr decides when "
+                    "the phase scene plays)", event);
+            }
+            continue;
         }
         // Main thread (the EMEVD update); the next packet, if any, is read in the same call.
         if (g_messenger_drops.fetch_add(1) < 8) {
@@ -2732,7 +2775,13 @@ void LastLampGuardTick(const GameSnapshot& s) {
                          (me[2] - sp[2]) * (me[2] - sp[2]));
     }
     const bool by_guest = g_guest_lit_rp.load() == now_rp && Now() - g_guest_lit_at.load() <= lampshare::kLitWindowS + 3.0;
-    const bool restore = lampshare::RestoreLastLamp(std::uint32_t(was.lamp), now_rp, pending_lit_ago, dist, false, by_guest);
+    // BB_PARTY_LAMP_ARRIVAL_COUNTS=0: the 0.7.2 guard as it was (test A/B of the mensislamp fix).
+    static const bool arrival_counts = [] {
+        const char* v = std::getenv("BB_PARTY_LAMP_ARRIVAL_COUNTS");
+        return !(v && v[0] == '0');
+    }();
+    const bool restore =
+        lampshare::RestoreLastLamp(std::uint32_t(was.lamp), now_rp, pending_lit_ago, dist, false, by_guest, arrival_counts);
     if (!restore) {
         pending = false;
         base = cur;

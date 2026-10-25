@@ -7,6 +7,7 @@
 #include "net_stun.h"
 #include "netsim.h"
 #include "nr_outage.h"
+#include "nr_rxgap.h"
 #include "party_discovery.h"
 #include "party_udp.h"
 #include "party_util.h"
@@ -1215,6 +1216,71 @@ static void test_nr_outage() {
     CHECK(ordered && total == records && prev == static_cast<std::uint16_t>(seq - 1));
 }
 
+// 0.7.6 diagnostics (nr_rxgap.h): a quiet peer with a reader that ran on time vs. a stalled reader.
+static void test_nr_rxgap() {
+    using namespace bbnet::nr;
+    using std::chrono::milliseconds;
+    const RxGapMonitor::Clock::time_point t0 = RxGapMonitor::Clock::now();
+    auto at = [&](int ms) { return t0 + milliseconds(ms); };
+    // Two peers; the reader polls every 200 ms. Peer A goes quiet for 4 s while B keeps talking.
+    {
+        RxGapMonitor m;
+        RxGapMonitor::Gap g;
+        int t = 0;
+        CHECK(!m.heard(1, at(t), &g) && !m.heard(2, at(t), &g));
+        for (; t < 4000; t += 200) {
+            m.poll_begin(at(t));
+            m.poll_end(at(t + 200), true, 200);  // on time
+            if (t % 600 == 0) CHECK(!m.heard(2, at(t + 200), &g));
+        }
+        CHECK(m.heard(1, at(4200), &g));
+        CHECK(g.key == 1 && g.silent_s > 4.1 && g.silent_s < 4.3);
+        CHECK(g.worst_stall_ms == 0);  // the reader was fine: the peer was quiet
+        CHECK(g.others >= 6);          // the other source arrived meanwhile
+        CHECK(g.silent_peers == 0 && g.peers == 2);
+    }
+    // Both peers go quiet while the reader's wait overruns by 3.8 s: a stalled reader.
+    {
+        RxGapMonitor m;
+        RxGapMonitor::Gap g;
+        CHECK(!m.heard(2, at(0), &g) && !m.heard(1, at(0), &g));
+        m.poll_begin(at(100));
+        m.poll_end(at(4100), true, 200);  // a 200 ms wait that took 4 s
+        CHECK(m.heard(1, at(4110), &g));
+        CHECK(g.worst_stall_ms > 3700 && g.worst_stall_ms < 3900 && std::string(g.stall_kind) == "poll");
+        CHECK(g.others == 0 && g.silent_peers == 1);  // the other one is silent too
+    }
+    // Long work between two waits is a stall of its own kind.
+    {
+        RxGapMonitor m;
+        RxGapMonitor::Gap g;
+        CHECK(!m.heard(7, at(0), &g));
+        m.poll_begin(at(0));
+        m.poll_end(at(10), false, 200);
+        m.poll_begin(at(2600));  // 2.59 s of work after the wait returned
+        m.poll_end(at(2610), false, 200);
+        CHECK(m.heard(7, at(2620), &g) && g.worst_stall_ms > 2500 && std::string(g.stall_kind) == "work");
+    }
+    // At most 20 gap lines a minute; the rest are counted. The summary reports the minute.
+    {
+        RxGapMonitor m;
+        RxGapMonitor::Gap g;
+        int lines = 0, t = 0;
+        CHECK(!m.heard(3, at(t), &g));
+        for (int i = 0; i < 25; ++i) {
+            t += 2100;
+            if (m.heard(3, at(t), &g)) ++lines;
+        }
+        CHECK(lines == 20);
+        RxGapMonitor::Summary s;
+        CHECK(!m.summary(at(t), &s));
+        CHECK(m.summary(at(t + 60000), &s) || m.summary(at(t + 120000), &s));
+        CHECK(s.gaps == 25 && s.suppressed == 5 && s.datagrams == 26);
+        CHECK(s.by_peer.count(3) && s.by_peer[3].longest_s > 2.0);
+    }
+    std::printf("nr_rxgap: ok\n");
+}
+
 int main() {
     // Loopback-only sockets: no Windows Firewall prompt for a test program (party_sock.h).
     if (!std::getenv("BB_PARTY_LOOPBACK")) {
@@ -1241,6 +1307,7 @@ int main() {
     test_stun();
     test_netsim();
     test_nr_outage();
+    test_nr_rxgap();
     test_peer_paths();
     test_peer_paths_gaps();
     test_netsim_block();

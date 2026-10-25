@@ -841,6 +841,22 @@ inline bool TalkStateFlag(std::uint32_t id) {
 inline bool LampTableSpotTrusted(std::uint32_t lamp) {
     return lamp / 100000 != 29;
 }
+/// mensislamp (0.7.6 report, Nightmare of Mensis): the ReturnPoints xx2958 / xx2959 are the game's scripted
+/// arrival spots (Lecture Building door -> 2602959, Hemwick carriage 2502959, the Dream's Amygdala..):
+/// a place to get up, with no lamp object. A player who has not lit a lamp there yet has one as its
+/// last lamp, as in the vanilla game; in a party the guest's own save then holds the host's lit lamps
+/// without having used any of them, so it gets up at the host's last lamp when that is a real lamp of
+/// the same map (`arrival` / `host`: ReturnPoint ids). Never for a Chalice Dungeon (area 29).
+inline bool ScriptedArrivalSpot(std::uint32_t rp) {
+    return rp / 100000 != 29 && (rp % 100 == 58 || rp % 100 == 59);
+}
+inline std::uint32_t GuestArrivalLamp(std::uint32_t arrival, std::uint32_t host) {
+    if (!ScriptedArrivalSpot(arrival) || host == 0 || host == 0xffffffffu || ScriptedArrivalSpot(host) ||
+        host / 100000 == 29 || host / 100000 != arrival / 100000) {
+        return arrival;
+    }
+    return host;
+}
 /// A guest still in the host's session but apart from it, in a map outside the Chalice Dungeon the host
 /// is in (user decision 2026-10-21, option b). Only the summon's quick join enters a dungeon, so:
 /// after a death or a forced trip (a death respawn, a scripted warp or kidnap, a host travel it could

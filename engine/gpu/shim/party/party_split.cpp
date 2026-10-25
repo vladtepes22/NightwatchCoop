@@ -148,6 +148,15 @@ BB_COOP_SYSV u64 FlagPacketRead(u64 man, u64 peer, u64 type, u64 buf, u64 size) 
     const bool read = u32(type) == 0xf && u32(size) == 4 ? SafeGet(buf, &v[0])
                       : u32(type) == 0xe && u32(size) == 0x14 ? SafeRead(buf, v, sizeof v)
                                                                : false;
+    if (read) {
+        // BB_PARTY_EVENT_SYNC_LOG=1: the peers' flag (0x0f) and event-state (0x0e) packets, at most 600 lines.
+        static const bool log_on = [] { const char* e = std::getenv("BB_PARTY_EVENT_SYNC_LOG"); return e && e[0] == '1'; }();
+        static std::atomic<int> logged{0};
+        if (log_on && logged.fetch_add(1) < 600) {
+            Log("event sync: a peer's packet 0x%x: %u %u %u %u %u (peer %llx)", unsigned(type), v[0], v[1], v[2], v[3], v[4],
+                static_cast<unsigned long long>(peer));
+        }
+    }
     if (read && deathrules::PeerLampPacket(u32(type), u32(size), v)) {
         // Dropped: "no packet from this peer". The 0x0f loop reads its buffer after the last peer
         // (0x1339D9B / 0x1339F3B: -1 = none, preset at 0x1339D20), so it is set back to -1; the

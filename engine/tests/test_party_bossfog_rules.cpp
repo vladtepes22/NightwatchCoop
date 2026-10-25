@@ -262,6 +262,13 @@ int main() {
         CHECK(!M34WallAfterKill(false, false, false) && !M34WallAfterKill(true, false, false));  // alone
     }
 
+    {
+        // The host takes no peer's state for a boss's HP-driven phase events (Ludwig's latter-half scene 13404825)
+        CHECK(HostOnlyBossEvent(13404824) && HostOnlyBossEvent(13404825) && HostOnlyBossEvent(12404807));
+        CHECK(!HostOnlyBossEvent(13404802) && !HostOnlyBossEvent(13404801) && !HostOnlyBossEvent(13401802));
+        CHECK(!HostOnlyBossEvent(7200) && !HostOnlyBossEvent(12107000) && !HostOnlyBossEvent(0));
+    }
+
     if (g_fail) {
         std::printf("%d check(s) failed\n", g_fail);
         return 1;

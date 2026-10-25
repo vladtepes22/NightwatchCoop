@@ -56,6 +56,9 @@ bool Requested();
 /// OnIrregularLeaveSession sites: its send queue past 1000 messages 0x178980d, the receive stall
 /// 0x1789cb4).
 bool TakeHostIrregularLeave();
+/// bbgpu_patch_image after HooksInit, in EVERY mode (offline too; BB_PARTY_OWNTYPE_FIX=0 off): clears a
+/// summoned guest's remembered chr type before an own-world load builds the chr. Once.
+void InstallOwnWorldTypeGuard();
 /// PartyInit, after InstallTravelPatches (bbgpu_patch_image, game not running yet).
 void Init();
 bool Enabled();

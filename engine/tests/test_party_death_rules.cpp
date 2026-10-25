@@ -442,6 +442,14 @@ int main() {
     // A Chalice Dungeon's lamps stand where the generated layout puts them, not at the table's spot.
     CHECK(LampTableSpotTrusted(2412952) && LampTableSpotTrusted(2102950) && LampTableSpotTrusted(3602952));
     CHECK(!LampTableSpotTrusted(2902950) && !LampTableSpotTrusted(2902952) && !LampTableSpotTrusted(2902959));
+    // mensislamp: a guest whose own last lamp is a scripted arrival spot gets up at the host's real lamp of that map
+    CHECK(ScriptedArrivalSpot(2602959) && ScriptedArrivalSpot(2802958) && !ScriptedArrivalSpot(2602950));
+    CHECK(!ScriptedArrivalSpot(2902959) && !ScriptedArrivalSpot(2102961));
+    CHECK(GuestArrivalLamp(2602959, 2602950) == 2602950);
+    CHECK(GuestArrivalLamp(2602959, 2602959) == 2602959);   // the host is at the arrival too
+    CHECK(GuestArrivalLamp(2602959, 2502950) == 2602959);   // the host's lamp is in another map
+    CHECK(GuestArrivalLamp(2602950, 2602953) == 2602950);   // a real own lamp stays
+    CHECK(GuestArrivalLamp(2602959, 0xffffffffu) == 2602959 && GuestArrivalLamp(2602959, 0) == 2602959);
     // Option b (2026-10-21): death / forced -> home and summoned; chosen -> stays; rule off -> stays.
     CHECK(PlanChaliceApart(true, false, 2.0) == ChaliceApart::Wait);
     CHECK(PlanChaliceApart(true, false, kChaliceApartWait) == ChaliceApart::SendHome);

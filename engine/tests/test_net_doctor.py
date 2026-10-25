@@ -121,3 +121,19 @@ def test_no_open_port_warning_on_vpn_host(tmp_path, capsys):
                           "cone (no open port); x"), encoding="utf-8")
     assert nd.main([str(h)]) == 0
     assert "has no open port" not in capsys.readouterr().out
+
+
+def test_one_log_per_player(tmp_path, capsys):
+    """A guest's last_session + previous_session are two sessions of one player: one line, the log that fits the
+    host's (Nightwatch name = close time), and no 'different sessions' warning for overlapping logs."""
+    h = tmp_path / "nightwatch-20261025_185810.log"
+    h.write_text(HOST.replace("engine x", "engine x, 2026-10-25 17:49:00"), encoding="utf-8")
+    early, late = tmp_path / "a" / "previous_session.log", tmp_path / "b" / "last_session.log"
+    for p, t in ((early, "18:53:10"), (late, "19:08:30")):
+        p.parent.mkdir()
+        p.write_text(GUEST.replace("engine x", f"engine x, 2026-10-25 {t}"), encoding="utf-8")
+    assert nd.main(["--redactnames", str(h), str(late), str(early)]) == 0
+    out = capsys.readouterr().out
+    assert out.count("(guest)") == 1
+    assert "Guest 1 sent 2 logs" in out and "used 18:53" in out
+    assert "different sessions" not in out

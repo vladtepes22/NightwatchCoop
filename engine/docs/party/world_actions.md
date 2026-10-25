@@ -562,3 +562,20 @@ read as 0, the menu resolved on the first per-frame wait command). Voice: `voice
 The dialog rule live: no subtitle request on the host while its dialog was up (screenshot: the dialog alone). The 6 s choice line was added after the run (unit-free, not re-run). Not seen live: the far notice (the host found no prompt at Gehrman in this save), a gift. Open: the
 caption (and the party name tags) draw over the listener's own full-screen menus (e.g. its level-up
 screen: no "game menu open" signal yet; the game's own subtitle is dimmed under the menu).
+
+## 2026-10-25 (simonwipe): a guest's boss phase event no longer starts the host's scene
+
+Player report (Nightwatch 0.7.4 / 0.7.5): a party wipe at Ludwig (Hunter's Nightmare), then the Holy Blade scene
+(34000030, event 13404825, warp 3402807) played at the host's respawn and the host stood alone in the second
+half. Host log: guests dead in the arena for minutes (the host's wipe load runs while they still hold the fight),
+the host's flag 13401802 turning on at the load (a peer's state of Ludwig's "corpse flinches" event), then the scene
+~16 s after the load. Ludwig's events are network-synced (packet 0x31, `BB_PARTY_EVENT_SYNC_LOG=1` lists them);
+a guest's copy of the heat-up event 13404824 (Ludwig's HP ratio in (0, 0.5), `4[2]`) finishing on the guest's own
+chr tells every peer, and the host's 13404825 (waits on 13404824) plays the scene and warps into the arena.
+Reproduced on loopback (smoke phase lw, group `ludwig_wipe`): after the wipe's respawn load the guest's own
+Ludwig copy is set to 40 % (`guest_kill=3400800:hp40`): the host logged the scene and the second bar 0.1 s later.
+Fix: `bossfog::HostOnlyBossEvent` (every `..ヒートアップ..` event of the EMEVD scan, Ludwig 13404820-25): the host
+drops a peer's 0x31 state for them (`EventSyncRead`, log `Boss phase: event N's state from a guest not applied`);
+guests still take the host's. `BB_PARTY_BOSS_PHASE_SYNC=1` restores the old behaviour (test A/B). What is not
+proven: why a real guest's copy fell below half (the stale doping row 7502 against the reloaded host chr's HP is the
+likely source); the filter does not depend on it.

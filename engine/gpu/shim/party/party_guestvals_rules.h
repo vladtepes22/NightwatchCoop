@@ -21,6 +21,8 @@
 #include <string>
 #include <vector>
 
+#include "party_death_rules.h"
+
 namespace coop::ngguard {
 
 /// What the guard does this tick.
@@ -275,8 +277,16 @@ constexpr double kLitWindowS = 5.0;
 constexpr float kNearM = 8.0f;
 /// `by_guest`: the host lit that lamp for a guest's lamp_lit event (it knows; then the distance does
 /// not matter: a host standing at the lamp did not use it).
+/// mensislamp (0.7.6 report, Nightmare of Mensis): a last lamp that is only the area's scripted arrival
+/// spot (xx2958 / xx2959, no lamp object: deathrules::ScriptedArrivalSpot) is no lamp to lose: the
+/// first real lamp of that map lit by anyone becomes the last lamp (as the game does by itself), so
+/// the party gets up at a lamp that stands there, not at the arrival 140 m away.
 inline bool RestoreLastLamp(std::uint32_t was_rp, std::uint32_t now_rp, double lit_ago, float dist_m, bool loading,
-                            bool by_guest = false) {
+                            bool by_guest = false, bool arrival_counts = true) {
+    if (arrival_counts && deathrules::ScriptedArrivalSpot(was_rp) && !deathrules::ScriptedArrivalSpot(now_rp) &&
+        was_rp / 100000 == now_rp / 100000 && now_rp / 100000 != 29) {
+        return false;
+    }
     return now_rp != was_rp && now_rp != 0 && !loading && lit_ago >= 0.0 && lit_ago <= kLitWindowS &&
            (by_guest || !(dist_m >= 0.0f && dist_m <= kNearM));
 }

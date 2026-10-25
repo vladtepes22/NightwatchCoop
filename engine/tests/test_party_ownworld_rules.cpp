@@ -20,6 +20,7 @@ int main() {
     CHECK(ClearRememberedType(0, 1, -1));
     CHECK(ClearRememberedType(0, 2, -1));
     CHECK(ClearRememberedType(4, 1, -1));  // any non-summon flow state
+    CHECK(ClearRememberedType(-1, 1, -1));  // offline: no network flow object (unreadable -> -1)
     // A summoned load keeps the guest's type (the host's world is built for a phantom).
     CHECK(!ClearRememberedType(kSummonFlow, 1, -1));
     // Already a normal character: nothing to do.
