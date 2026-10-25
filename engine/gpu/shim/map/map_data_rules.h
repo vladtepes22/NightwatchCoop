@@ -27,8 +27,19 @@ using Json = nlohmann::json;
 /// An event flag's value: 1 on, 0 off, -1 unknown (not read yet, no save loaded).
 using FlagFn = std::function<int(std::uint32_t)>;
 
-/// The game the generator's data was made from (update 1.09's eboot), as features.json records it.
-inline constexpr const char* kEbootSha256 = "d65f0b4f01d59166aed16f8604196d8b7dd805abbf0758b356e8f1354c9429f9";
+/// The game the generator's data was made from, as features.json records it: the SHA-256 of the
+/// 1.09 executable's loaded image (game_image_sha256), the same for every dump of the game.
+inline constexpr const char* kGameImageSha256 = "071df19c8880086d97182dbc057bc8cb37badaca57d9112683836b24a0444c0a";
+/// What generators before 0.2.5 recorded instead (game_eboot_sha256): the hash of one dump's
+/// eboot.bin, the only one they accepted. Still valid data (docs/party/version_check.md,
+/// "Game identity").
+inline constexpr const char* kLegacyEbootSha256 = "d65f0b4f01d59166aed16f8604196d8b7dd805abbf0758b356e8f1354c9429f9";
+
+/// Whether features.json was made from Bloodborne 1.09.
+inline bool FeaturesMatchGame(const Json& features) {
+    return features.value("game_image_sha256", "") == kGameImageSha256 ||
+           features.value("game_eboot_sha256", "") == kLegacyEbootSha256;
+}
 
 struct Tri {
     float v[6];  // x0 z0 x1 z1 x2 z2
@@ -153,7 +164,7 @@ inline const Area* Find(const std::vector<Area>& areas, const std::string& id) {
 /// features.json: lamps, pickups, reveal regions, NPC rules. Throws when it was made from another
 /// game version.
 inline void ApplyFeatures(const Json& features, std::vector<Area>& areas) {
-    if (features.at("schema") != 1 || features.at("game_eboot_sha256") != kEbootSha256)
+    if (features.at("schema") != 1 || !FeaturesMatchGame(features))
         throw std::runtime_error("map data: features.json is for another game version");
     for (auto it = features.at("areas").begin(); it != features.at("areas").end(); ++it) {
         Area* a = Find(areas, it.key());

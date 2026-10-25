@@ -59,6 +59,28 @@ class GameCheckTests(unittest.TestCase):
         with mock.patch.object(game_check, 'SUPPORTED_IMAGE', game_check.image_sha256(game)):
             self.assertIsNone(game_check.problem(game))
 
+    def test_another_dump_of_the_same_code_passes(self):
+        # Dump tools write different SELF headers around the same code: the file hashes differ,
+        # the image (the identity bb-start, the party and the map generator use) does not.
+        first = self.game('CUSA03173', '01.09')
+        image = game_check.image_sha256(first)
+        other = fixture()
+        other[0x1f0:0x200] = b'\xaa' * 16  # header padding outside every segment
+        second = Path(self.tmp.name) / 'second'
+        second.mkdir()
+        (second / 'sce_sys').mkdir()
+        (second / 'sce_sys/param.sfo').write_bytes((first / 'sce_sys/param.sfo').read_bytes())
+        (second / 'eboot.bin').write_bytes(other)
+        self.assertNotEqual((first / 'eboot.bin').read_bytes(), (second / 'eboot.bin').read_bytes())
+        self.assertEqual(game_check.image_sha256(second), image)
+        with mock.patch.object(game_check, 'SUPPORTED_IMAGE', image):
+            self.assertIsNone(game_check.check(first))
+            self.assertIsNone(game_check.check(second))
+
+    def test_check_reports_unreadable_and_wrong_files(self):
+        self.assertEqual(game_check.check(self.game('CUSA03173', '01.09', b'junk'))[0], 'unreadable')
+        self.assertEqual(game_check.check(self.game('CUSA03173', '01.09'))[0], 'wrong_eboot')
+
     def test_skip_switch(self):
         os.environ['BB_SKIP_GAME_CHECK'] = '1'
         self.assertIsNone(game_check.problem(self.game('CUSA03173', '01.00')))

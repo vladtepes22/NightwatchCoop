@@ -282,24 +282,38 @@ std::string user_dir() {
     return data_dir() + "/user";
 }
 
-// The game's eboot.bin: app0 (bbnet_configure) or BB_GAME_DIR. Zeros (with a warning) when it
-// cannot be read: then only players who also could not read theirs match.
+bool unhex(const std::string& t, std::uint8_t* out, std::size_t n) {
+    if (t.size() != 2 * n) return false;
+    auto v = [](char c) {
+        return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+    };
+    for (std::size_t i = 0; i < n; ++i) {
+        const int hi = v(t[2 * i]), lo = v(t[2 * i + 1]);
+        if (hi < 0 || lo < 0) return false;
+        out[i] = static_cast<std::uint8_t>(hi << 4 | lo);
+    }
+    return true;
+}
+
+// The game's version identity: out/game-image.txt from bb-start, the SHA-256 of eboot.bin's loaded
+// image. Never a hash of eboot.bin itself: two clean 1.09 dumps made with different tools differ
+// in their SELF headers, which used to refuse such players as "another game version"
+// (docs/party/version_check.md, "Game identity"). Zeros (with a warning) when the file is
+// missing or malformed: then only players whose file is also missing match.
 std::array<std::uint8_t, 32> eboot_hash() {
     std::array<std::uint8_t, 32> h{};
-    std::string dir = bbnet::settings().app0;
-    if (dir.empty() && env("BB_GAME_DIR")) dir = env("BB_GAME_DIR");
-    if (dir.empty()) {
-        plog("warning: no game directory (BB_GAME_DIR) to hash eboot.bin from");
+    const fs::path p = out_dir() / "game-image.txt";
+    std::string text;
+    if (!read_file(p, &text)) {
+        plog("warning: no %s (bb-start writes it) for the game version check", p.string().c_str());
         return h;
     }
-    const auto t0 = Clock::now();
-    const fs::path p = fs::path(dir) / "eboot.bin";
-    if (!sha256_file(p, &h)) {
-        plog("warning: cannot read %s for the game version check", p.string().c_str());
-        return h;
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.pop_back();
+    if (!unhex(text, h.data(), h.size())) {
+        plog("warning: %s is not a SHA-256 for the game version check", p.string().c_str());
+        return {};
     }
-    plog("eboot.bin sha256 %s... (%.0f ms)", hex_prefix(h).c_str(),
-         std::chrono::duration<double, std::milli>(Clock::now() - t0).count());
+    plog("game image sha256 %s...", hex_prefix(h).c_str());
     return h;
 }
 
@@ -512,19 +526,6 @@ std::string hex_of(const std::uint8_t* p, std::size_t n) {
         s += d[p[i] & 15];
     }
     return s;
-}
-
-bool unhex(const std::string& t, std::uint8_t* out, std::size_t n) {
-    if (t.size() != 2 * n) return false;
-    auto v = [](char c) {
-        return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
-    };
-    for (std::size_t i = 0; i < n; ++i) {
-        const int hi = v(t[2 * i]), lo = v(t[2 * i + 1]);
-        if (hi < 0 || lo < 0) return false;
-        out[i] = static_cast<std::uint8_t>(hi << 4 | lo);
-    }
-    return true;
 }
 
 // The crash marker <user>/party_state.json: pid, role, name, start time and, on the host, the

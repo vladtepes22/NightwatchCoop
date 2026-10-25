@@ -500,7 +500,7 @@ static void test_party() {
         CHECK(bad.wait_state(LinkState::Rejected, 5000));
         CHECK(bad.reject_code() == RejectCode::Mismatch);
         const std::string why = bad.reject_reason();
-        CHECK(why.find("eboot.bin differs") != std::string::npos);
+        CHECK(why.find("game executable differs") != std::string::npos);
         CHECK(why.find("host only: Party: Bells anywhere") != std::string::npos);
         CHECK(why.find("yours only: Player No Dead (Read note)") != std::string::npos);
         CHECK(why.find("mods") == std::string::npos);
@@ -896,7 +896,7 @@ static void test_identity() {
     CHECK(identity_mismatch(host, guest).empty());
     guest.eboot_sha256[31] = 2;
     std::string why = identity_mismatch(host, guest);
-    CHECK(why.find("eboot.bin differs") != std::string::npos);
+    CHECK(why.find("game executable differs") != std::string::npos);
     CHECK(why.find("patches") == std::string::npos && why.find("mods") == std::string::npos);
     guest.eboot_sha256 = host.eboot_sha256;
     // Start-up session rules (party_balance JoinRulesTag): "; join: A=on; B=Right away", host's must match.

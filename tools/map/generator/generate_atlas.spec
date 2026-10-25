@@ -3,7 +3,11 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata
 
 root = Path(SPECPATH)
-datas = collect_data_files("soulstruct", excludes=["**/*.dll", "**/*.exe", "**/*.pyi"])
+# The engine's game check (game_identity.py): game_check.py and prepare.py, and beside them the
+# 1.09 image's chunk hashes it reads (patched 1.09 eboots).
+engine_scripts = root.parents[2] / "engine" / "scripts"
+datas = [(str(engine_scripts / "image_109_hashes.txt"), ".")]
+datas += collect_data_files("soulstruct", excludes=["**/*.dll", "**/*.exe", "**/*.pyi"])
 datas += copy_metadata("soulstruct")
 datas += copy_metadata("constrata")
 binaries = []
@@ -19,7 +23,7 @@ hiddenimports += zstd_hiddenimports
 
 a = Analysis(
     [str(root / "src" / "generate_atlas_lite.py")],
-    pathex=[str(root / "src")],
+    pathex=[str(root / "src"), str(engine_scripts)],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

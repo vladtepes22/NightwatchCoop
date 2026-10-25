@@ -213,7 +213,7 @@ struct LinkConfig {
     // The version check: players must match in all three hashes. The names only explain a
     // mismatch (the host lists what each side has); party_runtime fills them from
     // out/party_patch_hash.txt (scripts/patches.py) and out/party_mods.txt (scripts/mods.py).
-    std::array<std::uint8_t, 32> eboot_sha256{};
+    std::array<std::uint8_t, 32> eboot_sha256{};  // the loaded game image (out/game-image.txt), not eboot.bin's bytes
     std::array<std::uint8_t, 32> patches_hash{};  // gameplay patches (zeros: none / not compared)
     std::array<std::uint8_t, 32> mods_hash{};     // gameplay mods (zeros: none)
     std::vector<std::string> patch_names, mod_names;

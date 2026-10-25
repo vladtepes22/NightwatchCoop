@@ -32,7 +32,7 @@ static void DataRules() {
         {"id": "m21_00_00_00", "name": "Hunter's Dream", "bounds": [0, 0, 0, 1]}]})");
     auto areas = ParseAtlas(atlas);
     CHECK(areas.size() == 1 && areas[0].name == "Cathedral Ward");  // bad id and empty bounds dropped
-    const Json features = Json::parse(std::string(R"({"schema": 1, "game_eboot_sha256": ")") + kEbootSha256 + R"(",
+    const Json features = Json::parse(std::string(R"({"schema": 1, "game_image_sha256": ")") + kGameImageSha256 + R"(",
       "areas": {"m24_00_00_00": {
         "lamps": [{"name": "Cathedral Ward", "pos": [1, 2, 3], "unlock_flag": 100, "return_point": 2402950},
                   {"name": "Dream", "pos": [0, 0, 0], "available_on": [101]}],
@@ -49,10 +49,19 @@ static void DataRules() {
     const Area& a = areas[0];
     CHECK(a.lamps.size() == 2 && a.pickups.size() == 2 && a.reveals.size() == 2 && a.npc_rules.size() == 1);
     CHECK(a.lamps[0].return_point == 2402950 && a.lamps[1].return_point == 0);  // where map travel goes; 0: none given
+    // The game identity: the 1.09 image hash, or the one eboot.bin pre-0.2.5 generators recorded.
+    CHECK(FeaturesMatchGame(features));
+    Json legacy = features;
+    legacy.erase("game_image_sha256");
+    legacy["game_eboot_sha256"] = kLegacyEbootSha256;
+    CHECK(FeaturesMatchGame(legacy));  // a map made before 0.2.5 stays valid
+    Json unnamed = features;
+    unnamed.erase("game_image_sha256");
+    CHECK(!FeaturesMatchGame(unnamed));
     bool threw = false;
     try {
         Json other = features;
-        other["game_eboot_sha256"] = "00";
+        other["game_image_sha256"] = "00";
         ApplyFeatures(other, areas);
     } catch (const std::exception&) {
         threw = true;

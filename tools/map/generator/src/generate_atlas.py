@@ -2,7 +2,7 @@
 import argparse,hashlib,json,math,os,platform,shutil,struct,sys,time,traceback,uuid
 from pathlib import Path
 import pipeline_context as ctx
-SUPPORTED_EBOOT='d65f0b4f01d59166aed16f8604196d8b7dd805abbf0758b356e8f1354c9429f9'
+import game_identity
 VERSION='1.0.0'
 def sha(path):
     h=hashlib.sha256()
@@ -100,8 +100,8 @@ def main():
     if stage==game or game in stage.parents or stage in game.parents:raise ValueError('Staging must be separate from game files.')
     if stage.exists() and any(stage.iterdir()):raise ValueError('Staging directory must be empty; choose a new directory.')
     if (output/'maps/generated-assets.json').exists() and not args.replace:raise ValueError('Generated assets already exist. Use --replace to repair/regenerate with a staged backup.')
+    game_identity.require_supported(game)
     protected={p.relative_to(game).as_posix():sha(p) for p in [game/'eboot.bin',game/'sce_sys/param.sfo']}
-    if protected['eboot.bin']!=SUPPORTED_EBOOT:raise ValueError('Unsupported executable fingerprint. This generator supports only the tested Bloodborne 1.09 executable; no game files were changed.')
     sfo=read_sfo(game/'sce_sys/param.sfo');emit('preflight',generator_version=VERSION,game_version=sfo.get('APP_VER'),title_id=sfo.get('TITLE_ID'),game_eboot_sha256=protected['eboot.bin'])
     emit_progress('collision',0,16,0,30,'Reading collision maps (0/16)')
     output.mkdir(parents=True,exist_ok=True);ctx.configure(game,stage)
@@ -159,7 +159,7 @@ def main():
     for relative,digest in protected.items():assert sha(game/relative)==digest,'Protected game input changed during generation'
     emit_progress('verify',1,1,97,99,'Checking generated maps')
     sources={'maps/'+source.name:source for source in sorted(generated.glob('*.json'))};sources['art/native-font.ttf']=font
-    manifest={'schema':1,'version':1,'generator_version':VERSION,'game_eboot_sha256':protected['eboot.bin'],'game_version':sfo.get('APP_VER'),'title_id':sfo.get('TITLE_ID'),'protected_inputs':protected,'counts':counts,'geometry_semantics':'16 ordinary collision-derived maps; static markers, no live gate/quest state','local_only':True}
+    manifest={'schema':1,'version':1,'generator_version':VERSION,'game_image_sha256':game_identity.GAME_IMAGE_SHA256,'game_eboot_sha256':protected['eboot.bin'],'game_version':sfo.get('APP_VER'),'title_id':sfo.get('TITLE_ID'),'protected_inputs':protected,'counts':counts,'geometry_semantics':'16 ordinary collision-derived maps; static markers, no live gate/quest state','local_only':True}
     commit_generated(output,stage,sources,manifest)
     emit_progress('complete',1,1,99,100,'Atlas maps ready')
     emit('complete',manifest='maps/generated-assets.json',seconds=round(time.monotonic()-start,2),counts=counts)

@@ -498,8 +498,9 @@ std::string identity_mismatch(const LinkConfig& host, const LinkConfig& guest) {
                         ", yours " + (guest.build_id.empty() ? std::string("unknown: an older build") : guest.build_id) +
                         "): install the same bbport release as the host");
     if (host.eboot_sha256 != guest.eboot_sha256)
-        parts.push_back("eboot.bin differs (host " + short_hex(host.eboot_sha256) + ", yours " +
-                        short_hex(guest.eboot_sha256) + ": another game version or dump; the port needs 1.09)");
+        parts.push_back("game executable differs (host " + short_hex(host.eboot_sha256) + ", yours " +
+                        short_hex(guest.eboot_sha256) +
+                        ": another game version or a patched eboot.bin; both need the clean 1.09 eboot.bin)");
     if (host.params_sha256 != guest.params_sha256)
         parts.push_back("game params differ (gameparam.parambnd.dcx: host " + short_hex(host.params_sha256) +
                         ", yours " + short_hex(guest.params_sha256) +

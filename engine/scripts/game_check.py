@@ -10,6 +10,10 @@ An image that differs from 1.09's in a few places only (a 1.09 eboot with byte p
 the 60 FPS packages) starts with a warning: image_109_hashes.txt holds a hash of each 64 KiB of the
 1.09 image, and every engine hook and patch checks its own bytes before it writes. More than
 PATCHED_CHUNKS pieces differing is another version or a bad dump.
+
+Never compare a hash of eboot.bin itself: the map generator did, and refused clean 1.09 dumps made
+with another tool (docs/party/version_check.md, "Game identity"). It now calls check() here, and
+bb-start (C++, start/prepare.cpp) applies the same rule.
 """
 import hashlib
 import os
@@ -36,15 +40,29 @@ def differing_chunks(image):
                for i, want in enumerate(expected))
 
 
-def image_sha256(game):
-    """The SHA-256 of eboot.bin's loaded image (its loadable segments at their addresses)."""
+def loaded_image(game):
+    """eboot.bin's loaded image: its loadable segments at their addresses."""
     from prepare import parse_self, span
     elf, header, ph, _segments, _missing = parse_self((Path(game) / 'eboot.bin').read_bytes())
     loads = [p for p in ph if p['type'] in (1, 0x61000010)]
     image = bytearray(max(p['vaddr'] + p['memsz'] for p in loads))
     for p in loads:
         image[p['vaddr']:p['vaddr'] + p['filesz']] = span(elf, p['offset'], p['filesz'])
-    return hashlib.sha256(image).hexdigest()
+    return image
+
+
+def image_sha256(game):
+    """The SHA-256 of eboot.bin's loaded image: the game's identity, the same for every dump."""
+    return hashlib.sha256(loaded_image(game)).hexdigest()
+
+
+def check(game):
+    """problem() for a game folder, reading eboot.bin once (the map generator's check)."""
+    try:
+        image = loaded_image(game)
+    except (OSError, ValueError, IndexError, StopIteration, KeyError):
+        return problem(game)  # reports it as unreadable
+    return problem(game, hashlib.sha256(image).hexdigest(), image)
 
 
 def problem(game, image_hash=None, image=None):

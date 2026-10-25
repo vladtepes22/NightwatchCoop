@@ -73,6 +73,10 @@ def _self_test_imports() -> int:
         import generate_map_v13
         import extract_native_map_font
         import extract_atlas_features
+        import game_identity
+        # The engine's game check reads the 1.09 chunk hashes beside it (patched eboots).
+        if not Path(game_identity.game_check.__file__).with_name("image_109_hashes.txt").is_file():
+            raise RuntimeError("image_109_hashes.txt is not bundled beside game_check")
         import numpy
         from PIL import Image, ImageDraw
         import scipy

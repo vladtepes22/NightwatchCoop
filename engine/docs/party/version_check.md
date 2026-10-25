@@ -18,7 +18,7 @@ when a newer release is out (below), so players can update before they meet.
 |---|---|---|
 | PartyLink protocol (`kLinkProtocolVersion`) | compiled in | "different party protocol version ...: update the port" (Version REJECT, checked first) |
 | bbport build | `bbport_build_id()`: `"<VERSION> (<git describe --always --dirty>)"`, generated at build time by `gpu/cmake/bbport_build_id.cmake` (only that file recompiles after a commit) | "bbport build differs (host X, yours Y): install the same bbport release as the host" |
-| eboot.bin | sha256 of `<game>/eboot.bin` | "another game version or dump; the port needs 1.09" |
+| Game executable | `out/game-image.txt` from bb-start: sha256 of eboot.bin's loaded image (see Game identity below) | "game executable differs ...: another game version or a patched eboot.bin; both need the clean 1.09 eboot.bin" |
 | Game params | sha256 of `<game>/dvdroot_ps4/param/gameparam/gameparam.parambnd.dcx` | "game params differ ...: use the same game dump (1.09) as the host" |
 | Gameplay patches | `out/party_patch_hash.txt` (scripts/patches.py) | names only one side has: "turn on the same patches as the host (launcher Patches tab)" |
 | Gameplay mods | `out/party_mods.txt` (scripts/mods.py) | names: "enable the same mods as the host (launcher Mods tab)" |
@@ -38,6 +38,45 @@ protocol number stays 2: the Version REJECT already covers older layouts.
 Overrides (host side, where the comparison runs): `BB_PARTY_CHECK_BUILD=0` skips the build id (two
 builds of the same party code from different commits); `BB_PARTY_HASH_PATCHES=0` skips the gameplay
 patches (as before). Params, eboot, mods and party patches are always compared.
+
+## Game identity (0.2.5)
+
+The game is identified by one value everywhere: the **SHA-256 of eboot.bin's loaded image**, its
+loadable segments copied to their addresses. For Bloodborne CUSA03173 1.09 it is
+`071df19c8880086d97182dbc057bc8cb37badaca57d9112683836b24a0444c0a`.
+
+**Never hash eboot.bin itself.** eboot.bin is a SELF: the executable wrapped in headers. Dump tools
+write different headers (and padding) around the same 1.09 code, so two clean dumps of the same
+game have different file hashes. Before 0.2.5 three places compared the file hash and refused
+players with a correct game:
+
+| Where | Symptom |
+|---|---|
+| Map generator (`tools/map/generator`, from Hunter's Atlas) | Play page: "The map could not be made. Unsupported executable fingerprint ..." (it accepted one dump's file, `d65f0b4f...`) |
+| In-game map reader (`gpu/shim/map/map_data_rules.h`) | would refuse features.json for the same reason |
+| Party version check (this page) | "eboot.bin differs (... another game version or dump ...)" between two 1.09 players |
+
+Who uses the image hash since 0.2.5:
+
+- **bb-start** (`start/prepare.cpp` `CheckGame`) already checked the image, never the file: the
+  exact hash passes, a 1.09 image with at most 32 changed 64 KiB pieces (patched eboots, chunk
+  hashes in `data/image_109_hashes.txt`) passes with a warning. It now also writes the hash to
+  `out/game-image.txt` (one of the prepared files: a missing one prepares the image again).
+- **Party**: `eboot_hash()` (`party_runtime.cpp`) reads `out/game-image.txt` (BB_OUT_DIR). The
+  HELLO field keeps its name (`eboot_sha256`) and layout; only the value changed, and every
+  release changes the build ID anyway, so mixed old/new players never meet. A patched eboot still
+  differs from a clean one: different code, refused on purpose.
+- **Map generator**: `game_identity.py` calls the engine's own `scripts/game_check.py` `check()`
+  (the same rule as bb-start, the same explanations of what to do) instead of keeping its own hash.
+  The frozen exe bundles game_check.py, prepare.py and image_109_hashes.txt
+  (`generate_atlas.spec`; `--self-test-imports` checks the list is there). features.json records
+  `game_image_sha256` (the 1.09 image) instead of a file hash.
+- **Map reader**: `FeaturesMatchGame` accepts `game_image_sha256` == the 1.09 image, or the old
+  `game_eboot_sha256` == `d65f0b4f...`, so maps generated before 0.2.5 stay valid.
+
+Rule for new code: a game check takes the image hash from `out/game-image.txt` (runtime), from
+`game_check.image_sha256` / `check` (Python), or from `CheckGame` (bb-start). Game data files
+under dvdroot_ps4 (gameparam, EMEVD, MSB) are not wrapped and can be hashed as files.
 
 `<user dir>/party_identity.txt` (written at link start) holds this game's whole identity (no password
 or secret). `tools/party/simguest.py --identity FILE` sends it, so a simulated member passes a real

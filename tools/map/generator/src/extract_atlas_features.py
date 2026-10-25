@@ -13,8 +13,9 @@ import struct
 import zlib
 from pathlib import Path
 
+import game_identity
+
 SCHEMA = 1
-SUPPORTED_EBOOT = 'd65f0b4f01d59166aed16f8604196d8b7dd805abbf0758b356e8f1354c9429f9'
 AREA_BOSSES = {
     'm22_00_00_00': [12201800], 'm23_00_00_00': [12301800],
     'm24_00_00_00': [12401800], 'm24_01_00_00': [12411800],
@@ -377,8 +378,7 @@ def extract(game, maps):
     game, maps = Path(game).resolve(), Path(maps).resolve()
     if not (game / 'dvdroot_ps4').is_dir():
         game = game / 'Image0'
-    if sha(game / 'eboot.bin') != SUPPORTED_EBOOT:
-        raise ValueError('Unsupported executable for Atlas features')
+    game_identity.require_supported(game)
     if game == maps or game in maps.parents or maps in game.parents:
         raise ValueError('Feature output must be outside game files')
     root = game / 'dvdroot_ps4'
@@ -399,7 +399,7 @@ def extract(game, maps):
             entry, label, required = map(constant, args)
             if isinstance(label, int) and 70000000 <= label < 70100000 and isinstance(required, int) and 12000000 <= required < 14000000:
                 menu_lamps[required] = dict(text_id=label, name=event_text.get(label, 'Lamp'), script=name)
-    result = dict(schema=SCHEMA, game_eboot_sha256=SUPPORTED_EBOOT, areas={}, coverage={})
+    result = dict(schema=SCHEMA, game_image_sha256=game_identity.GAME_IMAGE_SHA256, areas={}, coverage={})
     atlas = json.loads((maps / 'atlas.json').read_text(encoding='utf-8'))
     catalog = json.loads((maps / 'catalog.json').read_text(encoding='utf-8'))
     for entry in atlas['maps']:

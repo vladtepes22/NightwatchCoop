@@ -44,9 +44,14 @@ std::optional<std::size_t> DifferingChunks(const Bytes& image, const fs::path& e
 }
 
 bool checked_code_109 = false, game_check_skipped = false;
+// SHA-256 of the loaded executable image (the eboot's loadable segments at their addresses), written
+// to game-image.txt. It is the game's identity for the party version check: unlike a hash of
+// eboot.bin itself it does not depend on the tool that dumped the game (the SELF headers differ).
+std::string game_image_sha;
 
 void CheckGame(const fs::path& game, const Bytes& image, const fs::path& engine) {
     checked_code_109 = false;
+    game_image_sha = Sha256Hex(image);
     game_check_skipped = Env("BB_SKIP_GAME_CHECK", "") == "1";
     if (game_check_skipped) return;
     std::string title = "?", version = "?";
@@ -56,7 +61,7 @@ void CheckGame(const fs::path& game, const Bytes& image, const fs::path& engine)
         version = SfoText(sfo, "APP_VER");
     } catch (const Error&) {
     }
-    if (Sha256Hex(image) == kSupportedImage) {
+    if (game_image_sha == kSupportedImage) {
         checked_code_109 = true;
         return;
     }
@@ -747,7 +752,7 @@ void ContentProfile(const fs::path& game, const fs::path& out, const std::string
         params[0], params[1], params[2], params[3]);
 }
 
-const char* const kPrepared[] = {"boot-linked.bin", "eboot.elf", "content.bin", "game-code.txt"};
+const char* const kPrepared[] = {"boot-linked.bin", "eboot.elf", "content.bin", "game-code.txt", "game-image.txt"};
 
 std::string PrepareKey(const fs::path& game, const std::string& sku, const fs::path& engine) {
     Sha256Stream digest;
@@ -805,6 +810,7 @@ void PrepareImage(const fs::path& game, const fs::path& out, const fs::path& eng
     WriteFile(out / "eboot.elf", main.exe.elf);
     Boot boot = PrepareBoot(game, main, engine);
     WriteText(out / "game-code.txt", checked_code_109 ? "1.09\n" : game_check_skipped ? "unchecked\n" : "other\n");
+    WriteText(out / "game-image.txt", game_image_sha + "\n");
     LinkModules(game, out, main, std::move(boot), engine);
     ContentProfile(game, out, sku);
     WriteText(stamp, nlohmann::json{{"key", key}}.dump() + "\n");
