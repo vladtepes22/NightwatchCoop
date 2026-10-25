@@ -2066,5 +2066,17 @@
   "Type the host's party password.": "输入房主的队伍密码。",
   "No password": "没有密码",
   "Every party has a password: ask the host for it.": "每个队伍都有密码：请向房主索取。",
-  "Enter the host's party password before joining.": "加入前请输入房主的队伍密码。"
+  "Enter the host's party password before joining.": "加入前请输入房主的队伍密码。",
+  "Network and troubleshooting": "网络与故障排除",
+  "Ports, NAT traversal and connection codes: only needed when the party does not connect.": "端口、NAT 穿透和连接代码：仅在队伍无法连接时需要。",
+  "Session": "会话",
+  "Leave goes back to your own world; Rejoin connects to the party again.": "离开会回到你自己的世界；重新加入会再次连接队伍。",
+  "World and story": "世界与剧情",
+  "Guests": "访客",
+  "Enemy and boss scaling": "敌人与首领强度",
+  "How much tougher enemies and bosses get for each guest.": "每多一名访客，敌人和首领增强的幅度。",
+  "Start-up rules": "启动规则",
+  "Read when the game starts. A guest with other values is refused and takes the host's.": "游戏启动时读取。设置不同的访客会被拒绝，并改用房主的设置。",
+  "Progress and items": "进度与物品",
+  "What reaches your own save. Takes effect on the next game start.": "会写入你自己存档的内容。下次启动游戏时生效。"
 }
