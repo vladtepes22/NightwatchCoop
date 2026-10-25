@@ -48,7 +48,7 @@ def main():
                             text = re.sub(r"[^\x20-\x7e]", ".", text)
                             print(f"{rel} [{p}/{enc}]: {text}")
                     at = low.find(needle, at + 1)
-    print(f"privacy scan: {new} new hit(s), {known} known hit(s) suppressed", file=sys.stderr)
+    print(f"privacy scan: {new} new hit(s), {known} known hit(s) suppressed")
     sys.exit(1 if new else 0)
 
 
