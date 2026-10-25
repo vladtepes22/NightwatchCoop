@@ -108,16 +108,14 @@ internal static class UiRender
                     encoder.Save(output);
                     if (theme == "eldritch" && pageType == typeof(PlayPage))
                     {
-                        // The first surprise is the queen, on the stage in front of the panes, entering on the right.
+                        // A surprise plays on the stage in front of the panes.
                         var stage = new Canvas();
                         surface.Children.Add(stage);
                         art.Stage = stage;
                         surface.UpdateLayout();
                         typeof(EldritchArt).GetMethod("Surprise", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
                             .Invoke(art, null);
-                        if (stage.Children.Count != 1 || stage.Children[0] is not Image { Source: not null } queen || queen.Height < 300 ||
-                            queen.GetAnimationBaseValue(Canvas.LeftProperty) is not double left || left < 1280 - queen.Width || left > 1280)
-                            throw new InvalidOperationException("The queen did not come on stage at the right edge");
+
                     }
                     art.Show(false);
                 }

@@ -11,8 +11,8 @@ namespace BloodborneLauncher.Views
     /// <summary>
     /// The Eldritch theme's living backdrop. Painted layers (Themes/Eldritch, built into the exe) placed by
     /// window size: the city, the moon, two fog bands drifting apart, and every half minute to a minute and
-    /// a half one surprise on the Stage in front of the panes: a queen floating in prayer, a crow across the
-    /// moon, the moon opening an eye, a hand reaching up, or a grinning head on spider legs peeking up.
+    /// a half one surprise on the Stage in front of the panes: a crow across the moon, the moon opening an
+    /// eye, or a hand reaching up.
     /// Only transforms, opacity and frame swaps move, at 30 frames a second, and all of it sleeps while
     /// the window is inactive or minimized (Awake), so the game keeps the GPU. A missing picture leaves
     /// its element out.
@@ -51,9 +51,8 @@ namespace BloodborneLauncher.Views
         private ImageBrush? _fogBack, _fogFront;
         private bool _built, _shown, _awake = true;
         private DateTime _nextSurprise;
-        // Each surprise once per round, in a shuffled order; the queen opens the first round.
+        // Each surprise once per round, in a shuffled order.
         private readonly List<int> _bag = new();
-        private bool _firstRound = true;
 
         public EldritchArt()
         {
@@ -210,18 +209,12 @@ namespace BloodborneLauncher.Views
         private void Surprise()
         {
             var options = new List<(int Id, Action Run)>();
-            if (Picture("queen.png", 768) is { } queen) options.Add((0, () => Queen(queen)));
             if (Picture("crow-1.png", 256) is { } up && Picture("crow-2.png", 256) is { } down) options.Add((1, () => Crow(up, down)));
             if (_moonEye != null) options.Add((2, MoonEye));
             if (Picture("hand.png", 512) is { } hand) options.Add((3, () => Rise(hand, 0.30, 1200, 1400, _random.Next(2) == 0)));
-            if (Picture("spider.png", 768) is { } spider) options.Add((4, () => Rise(spider, 0.26, 900, 2800, right: true)));
             if (options.Count == 0) return;
             if (_bag.Count == 0)
-            {
                 _bag.AddRange(options.Select(o => o.Id).OrderBy(_ => _random.Next()));
-                if (_firstRound && _bag.Remove(0)) _bag.Insert(0, 0);
-                _firstRound = false;
-            }
             var id = _bag[0];
             _bag.RemoveAt(0);
             options.FirstOrDefault(o => o.Id == id).Run?.Invoke();
@@ -240,35 +233,6 @@ namespace BloodborneLauncher.Views
         {
             var stage = Front;
             last.Completed += (_, _) => stage.Children.Remove(image);
-        }
-
-        /// <summary>A queen in prayer floats across from the right edge to the left, bobbing slowly, fading
-        /// in as she enters and out as she leaves.</summary>
-        private void Queen(BitmapSource picture)
-        {
-            double w = ActualWidth, h = ActualHeight;
-            var image = Sprite(picture, 0.42 * h);
-            Canvas.SetTop(image, 0.22 * h);
-            var span = TimeSpan.FromSeconds(16);
-            var glide = new DoubleAnimation(w - 0.4 * image.Width, -0.6 * image.Width, span);
-            var seen = new DoubleAnimationUsingKeyFrames();
-            seen.KeyFrames.Add(new EasingDoubleKeyFrame(0, TimeSpan.Zero));
-            seen.KeyFrames.Add(new EasingDoubleKeyFrame(0.85, TimeSpan.FromSeconds(2.5), new SineEase()));
-            seen.KeyFrames.Add(new EasingDoubleKeyFrame(0.85, TimeSpan.FromSeconds(13.5)));
-            seen.KeyFrames.Add(new EasingDoubleKeyFrame(0, span, new SineEase()));
-            var hover = new DoubleAnimation(0, -0.03 * h, TimeSpan.FromSeconds(3)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever,
-                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut } };
-            var move = new TranslateTransform();
-            image.RenderTransform = move;
-            image.Opacity = 0;
-            Timeline.SetDesiredFrameRate(seen, 30);
-            Timeline.SetDesiredFrameRate(hover, 30);
-            Timeline.SetDesiredFrameRate(glide, 30);
-            Canvas.SetLeft(image, w);
-            Remove(image, seen);
-            image.BeginAnimation(Canvas.LeftProperty, glide);
-            image.BeginAnimation(OpacityProperty, seen);
-            move.BeginAnimation(TranslateTransform.YProperty, hover);
         }
 
         /// <summary>A crow crosses in front of the moon, flapping.</summary>
