@@ -261,6 +261,8 @@ struct Test {
     // the peers rebuild this chr from its new record (the mirror's path). Distinct-looking players
     // for the visual tests (all instances share one test save).
     std::uint32_t armor = 0;
+    // weapon=ID[:ID...]: gives the weapon id(s) once (test saves; base id + 100 * level), 4 s after the world is up.
+    std::vector<std::uint32_t> weapons;
     // approach=X:Z:R[:BUTTON]: walk (pad file sticks, camera-relative, closed loop on the position)
     // until within R m of (X, Z), facing it; then BUTTON (cross / triangle / square / circle) once.
     bool approach = false, approach_done = false, ap_faced = false;
@@ -3309,6 +3311,14 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
         t.armor = 0;
         if (ok > 0) b2::NoteOwnAppearanceChanged();
     }
+    if (!t.weapons.empty() && Seconds(st.world_at, now) >= 4.0 && s.world_up && !s.loading && s.session_role == 0) {  // own world only: a summoned guest's gives are not kept
+        for (const std::uint32_t id : t.weapons) {
+            const int before = ItemCount(kItemWeapon, id);
+            const bool ok = before > 0 || GiveItem(kItemWeapon, id, 1);
+            Log("test: weapon %u: held %d -> %d (%s)", id, before, ItemCount(kItemWeapon, id), ok ? "ok" : "failed");
+        }
+        t.weapons.clear();
+    }
     if (!t.goods.empty() && !t.goods_done && Seconds(st.world_at, now) >= 8.0 && s.world_up && !s.loading) {
         t.goods_done = true;
         for (const auto& [id, n] : t.goods) {
@@ -3972,6 +3982,16 @@ void PartyDirector::ConfigureFromEnv() {
                 }
             } else if (item.rfind("echoes=", 0) == 0) {
                 st.test.echoes = std::atoi(item.c_str() + 7);
+            } else if (item.rfind("weapon=", 0) == 0) {
+                for (const char* p = item.c_str() + 7; *p;) {
+                    char* end = nullptr;
+                    const unsigned long id = std::strtoul(p, &end, 10);
+                    if (end == p) {
+                        break;
+                    }
+                    st.test.weapons.push_back(static_cast<std::uint32_t>(id));
+                    p = *end ? end + 1 : end;
+                }
             } else if (item.rfind("armor=", 0) == 0) {
                 st.test.armor = static_cast<std::uint32_t>(std::strtoul(item.c_str() + 6, nullptr, 10));
             } else if (item.rfind("bell_guest@", 0) == 0) {

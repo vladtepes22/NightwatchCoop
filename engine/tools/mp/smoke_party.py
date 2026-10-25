@@ -3083,6 +3083,72 @@ def check_pos(v, L):
     check_common(v, L, "pos")
 
 
+# Phase sg (shop gate repair, 0.7.6, ~2 min, 1 player, group `shop_repair`): a save that carries the
+# 0.7.4-era leftovers (all 22 "owns the Uncanny / Lost weapon" flags 5500-5521 set) and owns one of those weapons
+# (Uncanny Beast Cutter +7, 24010700, flag 5502; Uncanny Saw Cleaver +3, 7010300, pickup flag 5100; 5160 and 5281 set without the weapon): in its own world the repair clears the 21 flags without the
+# weapon, keeps 5502, and marks the save (60009998). BB_SG_SHOP=1 also opens the Bath Messenger's weapon list.
+SG_UNTIL = r"0:shop gate repair: \d+ 'owns the weapon'"
+
+
+def phase_sg(only):
+    flags = ",".join(str(f) for f in list(range(5500, 5522)) + [5100, 5160, 5281])
+    gs = ("ownworld;ownsolo;warp=talk:210691;open=15000140;keys=" + os.environ.get("BB_SG_KEYS", "right,right,right," + ",".join(["down"] * 8))) if os.environ.get("BB_SG_SHOP") else ""
+    ienv = ["0:BB_PARTY_DIRECTOR_TEST=god,weapon=24010700:7010300,log_flag=5500/5502/5503/5521"]
+    if gs:
+        ienv.append("0:BB_PARTY_GUESTSVC_TEST=" + gs)
+    return dict(
+        name="sg", seconds=200 if gs else 120, count=1, headless=0,
+        env=["BB_PARTY_PROGRESS_TEST_SET=" + flags, "BB_PARTY_PROGRESS_TEST_CLEAR=60009998"],
+        ienv=ienv,
+        watch=(["--watch", r"levelup: key down=sgshop@0.3,2", "--watch", r"levelup: keys done=sgshopend@0.3"] if gs else []),
+        crash=[], until=[SG_UNTIL], until_hold=(70 if gs else 6),
+    )
+
+
+def check_sg(v, L):
+    need(v, L, "sg fixture: the 22 gate flags set in the own save", 0, r"test: set in the own save .*5500:\d->1.*5521:\d->1,5100:\d->1,5160:\d->1,5281:\d->1")
+    need(v, L, "sg fixture: the Uncanny Beast Cutter +7 is held", 0, r"test: weapon 24010700: held \d -> 1 ")
+    rep = L.find(0, r"shop gate repair: 23 'owns the weapon' flags set without the weapon cleared: 5160\(8010000\),5281\(8020000\),5500\(23010000\)")
+    v.step("sg repair: 23 flags cleared, one log line", rep, rep[1][:260] if rep else "missing")
+    v.step("sg repair: the owned weapon's flag 5502 stays",
+           rep and "still set (weapon owned): 5100,5502;" in rep[1] and "5502(" not in rep[1], rep[1][-120:] if rep else "")
+    n = len(L.all(0, r"shop gate repair: \d+ 'owns the weapon'"))
+    v.step("sg repair: runs once", n == 1, "%d runs" % n)
+    check_common(v, L, "sg")
+
+
+# Phase sg2 (0.7.6, group `shop_repair`, 2 players, ~4 min): the guest's save carries the leftovers (set while
+# summoned, the fixture writes the own pool), the guest goes home (own Leave), the repair runs there, the guest
+# rejoins and opens the Bath Messenger's weapon list while summoned: ShopGateTick shows the own save's cleaned
+# values, only the owned weapons' Uncanny rows are there (screenshot sg2shop).
+SG2_UNTIL = r"1:test: levelup: keys done"
+
+
+def phase_sg2(only):
+    flags = ",".join(str(f) for f in list(range(5500, 5522)) + [5100, 5160, 5281])
+    keys = os.environ.get("BB_SG_KEYS", "right,right,right," + ",".join(["down"] * 8))
+    return dict(
+        name="sg2", seconds=420, count=2, headless=0,
+        env=["BB_PARTY_START=immediate"],
+        ienv=["0:BB_PARTY_DIRECTOR_TEST=god",
+              "1:BB_PARTY_DIRECTOR_TEST=god,weapon=24010700:7010300,guest_leave@10,guest_rejoin@50",
+              "1:BB_PARTY_PROGRESS_TEST_SET=" + flags, "1:BB_PARTY_PROGRESS_TEST_CLEAR=60009998",
+              "1:BB_PARTY_GUESTSVC_TEST=gate=2;warp=talk:210691;open=15000140;keys=" + keys],
+        watch=["--watch", r"1:.*levelup: key down=sg2shop@0.3,2", "--watch", r"levelup: keys done=sg2shopend@0.3"],
+        crash=[], until=[SG2_UNTIL], until_hold=6,
+    )
+
+
+def check_sg2(v, L):
+    j = need(v, L, "sg2 join: the guest is in", 0, r"cooperators 0 -> 1")
+    need(v, L, "sg2 fixture: the gate flags set in the guest's own save", 1, r"test: set in the own save .*5500:\d->1")
+    rep = L.find(1, r"shop gate repair: 23 'owns the weapon' flags set without the weapon cleared")
+    v.step("sg2 repair: runs in the guest's own world (after its Leave)", rep, rep[1][:200] if rep else "missing")
+    need(v, L, "sg2 rejoin: the guest is summoned again", 1, r"load mode 1", rep[0] if rep else 0)
+    need(v, L, "sg2 shop: the overlay shows the own save's cleaned gates", 1, r"shop gates while summoned: .*5500=0", rep[0] if rep else 0)
+    check_common(v, L, "sg2")
+
+
 # ---- Phase ou (0.7.6, guestmesh): short outages keep the session ----
 # A phone hotspot or a Hamachi relay freezes the link for 4-10 s now and then (player report
 # 2026-10-24: the guest's game ended the session and went home, rejoined, and again). Two players;
@@ -3276,14 +3342,14 @@ def check_fp(v, L):
 
 
 PHASES = {"s1": phase_s1, "s2": phase_s2, "rules": phase_rules, "sc": phase_sc, "summonfail": phase_summonfail,
-          "s3": phase_s3, "sk": phase_sk, "ga": phase_ga, "gl": phase_gl, "lf": phase_lf, "mk": phase_mk, "kd": phase_kd, "kw": phase_kw, "fl": phase_fl, "fd": phase_fd, "fdj": phase_fdj, "cd": phase_cd, "iw": phase_iw, "ld": phase_ld, "cl": phase_cl, "clg": phase_clg, "clw": phase_clw, "cpr": phase_cpr, "cpa": phase_cpa, "el": phase_el, "lt": phase_lt, "bf": phase_bf, "ch": phase_ch, "rh": phase_rh, "rs": phase_rs, "fw": phase_fw, "fwg": phase_fwg, "fwb": phase_fwb, "fwe": phase_fwe, "fh": phase_fh, "lp": phase_lp, "gd": phase_gd, "gh": phase_gh, "gm": phase_gm, "hs": phase_hs, "ngj": phase_ngj, "nl": phase_nl, "rt": phase_rt, "br": phase_br, "rf": phase_rf, "sm": phase_sm, "ef": phase_ef, "da": phase_da, "cv": phase_cv, "ie": phase_ie, "il": phase_il, "tv": phase_tv, "nf": phase_nf, "nfa": phase_nfa, "npa": phase_npa, "npd": phase_npd, "pvd": phase_pvd, "eh": phase_eh, "bl": phase_bl, "sj": phase_sj, "ou": phase_ou, "mesh": phase_mesh, "fp": phase_fp, "po": phase_po, "pos": phase_pos, "ba": phase_ba, "la": phase_la, "lb": phase_lb, "lc": phase_lc}
+          "s3": phase_s3, "sk": phase_sk, "ga": phase_ga, "gl": phase_gl, "lf": phase_lf, "mk": phase_mk, "kd": phase_kd, "kw": phase_kw, "fl": phase_fl, "fd": phase_fd, "fdj": phase_fdj, "cd": phase_cd, "iw": phase_iw, "ld": phase_ld, "cl": phase_cl, "clg": phase_clg, "clw": phase_clw, "cpr": phase_cpr, "cpa": phase_cpa, "el": phase_el, "lt": phase_lt, "bf": phase_bf, "ch": phase_ch, "rh": phase_rh, "rs": phase_rs, "fw": phase_fw, "fwg": phase_fwg, "fwb": phase_fwb, "fwe": phase_fwe, "fh": phase_fh, "lp": phase_lp, "gd": phase_gd, "gh": phase_gh, "gm": phase_gm, "hs": phase_hs, "ngj": phase_ngj, "nl": phase_nl, "rt": phase_rt, "br": phase_br, "rf": phase_rf, "sm": phase_sm, "ef": phase_ef, "da": phase_da, "cv": phase_cv, "ie": phase_ie, "il": phase_il, "tv": phase_tv, "nf": phase_nf, "nfa": phase_nfa, "npa": phase_npa, "npd": phase_npd, "pvd": phase_pvd, "eh": phase_eh, "bl": phase_bl, "sj": phase_sj, "ou": phase_ou, "mesh": phase_mesh, "fp": phase_fp, "po": phase_po, "pos": phase_pos, "sg": phase_sg, "sg2": phase_sg2, "ba": phase_ba, "la": phase_la, "lb": phase_lb, "lc": phase_lc}
 # --only groups (a smaller run for repeat cycles): the phase each needs and the verdict rows it keeps
 GROUPS = {"join": "s1", "leave": "s1", "death": "s1", "travel": "s1", "boss": "s1", "host_death": "s1",
           "wipe": "s1", "wipe_late": "s1", "kill": "s2", "arena": "s2", "itembox": "s2", "rejoin_kill": "s2", "c6": "s2", "host_crash": "s2",
           "host_leave": "s2", "keyitems": "s2", "rules": "rules", "savecopy": "sc", "summonfail": "summonfail",
           "host_revive": "s3", "streamkill": "sk", "gather": "ga", "gather_ground": "gl", "lifts": "lf", "ladder": "lf,ld", "mark": "mk", "kidnap": "kd", "story_warp": "kw", "fall": "fl", "fall_deep": "fd,fdj", "host_fall_lamp": "cd", "cainhurst_scene": "iw", "chalamp": "cl", "chalice_guest": "clg", "chalice_progress": "cpr", "chalice_altar": "cpa", "chalice_wipe": "clw", "elevator": "el", "lifts_together": "lt", "fight_load": "bf", "cainhurst_lift": "ch", "research_lift": "rh", "research_solo": "rs", "forbidden_lift": "fw", "forbidden_lift_guest": "fwg", "forbidden_lift_both": "fwb", "forbidden_lift_edge": "fwe", "hemwick_lift": "fh", "lamps": "lp", "guest_dream": "gd", "guest_dream_host": "gh", "guest_lamp": "gm", "headstone_split": "hs", "ngplus_rejoin": "ngj", "npc_lamp": "nl",
           "rot": "rt", "boss_rooms": "br", "rom_fog": "rf", "scene_mirror": "sm", "ending_flow": "ef", "dream_apart": "da", "covenant": "cv",
-          "valtr_rune": "cv", "items_every": "ie", "items_leak": "il", "shop_sync": "il", "travel_vote": "tv", "npc_fights": "nf,nfa", "npc_alfred": "nfa", "npc_attack": "npa", "npc_doll": "npd", "pvp_revive": "pvd", "echo_hold": "eh", "limbo_leave": "bl", "seam_rejoin": "sj", "outage_short": "ou", "guest_mesh": "mesh", "fourp_nat": "fp", "phantom_own": "po", "phantom_save": "pos", "boss_ai": "ba", "lone_ai": "la,lc"}
+          "valtr_rune": "cv", "items_every": "ie", "items_leak": "il", "shop_sync": "il", "travel_vote": "tv", "npc_fights": "nf,nfa", "npc_alfred": "nfa", "npc_attack": "npa", "npc_doll": "npd", "pvp_revive": "pvd", "echo_hold": "eh", "limbo_leave": "bl", "seam_rejoin": "sj", "outage_short": "ou", "guest_mesh": "mesh", "fourp_nat": "fp", "phantom_own": "po", "phantom_save": "pos", "shop_repair": "sg", "shop_repair2": "sg2", "boss_ai": "ba", "lone_ai": "la,lc"}
 GROUP_ROWS = {"join": r"join", "leave": r"s1 (Leave|Rejoin)", "death": r"guest death|bloodstain|revived",
               "travel": r"travel", "boss": r"Gascoigne|intro", "host_death": r"host death|limbo",
               "wipe": r"wipe", "wipe_late": r"late wipe", "kill": r"s2 boss kill|party stays", "arena": r"arena", "itembox": r"item box|reward on the summoned",
@@ -3294,7 +3360,7 @@ GROUP_ROWS = {"join": r"join", "leave": r"s1 (Leave|Rejoin)", "death": r"guest d
               "lifts": r"^lf (join|lift|guest's lift|host)", "ladder": r"^lf (join|ladder)|^ld ", "mark": r"^mk ", "kidnap": r"^kd ", "story_warp": r"^kw ", "fall": r"^fl ", "fall_deep": r"^fd ", "host_fall_lamp": r"^cd ", "cainhurst_scene": r"^iw ", "chalamp": r"^cl ", "chalice_guest": r"^clg ", "chalice_progress": r"^cpr ", "chalice_altar": r"^cpa ", "chalice_wipe": r"^clw ", "elevator": r"^el ", "lifts_together": r"^lt ", "fight_load": r"^bf ", "cainhurst_lift": r"^ch ", "research_lift": r"^rh ", "forbidden_lift": r"^fw ", "forbidden_lift_guest": r"^fwg ", "forbidden_lift_both": r"^fwb ", "forbidden_lift_edge": r"^fwe ", "hemwick_lift": r"^fh ", "research_solo": r"^rs ", "lamps": r"^lp ", "guest_dream": r"^gd ", "guest_dream_host": r"^gh ", "guest_lamp": r"^gm ", "headstone_split": r"^hs ", "ngplus_rejoin": r"^ngj ", "npc_lamp": r"^nl ",
               "rot": r"^rt ", "boss_rooms": r"^br ", "rom_fog": r"^rf ", "scene_mirror": r"^sm ", "ending_flow": r"^ef ", "dream_apart": r"^da ",
               "covenant": r"^cv(:| join| host's fixture| rule| covenant| shared| host's save| guest's save)",
-              "valtr_rune": r"^cv(:| join| rule| rune)", "items_every": r"^ie ", "items_leak": r"^il ", "shop_sync": r"^il (join|sync)", "travel_vote": r"^tv ", "npc_fights": r"^nfa? ", "npc_alfred": r"^nfa ", "npc_attack": r"^npa ", "npc_doll": r"^npd ", "pvp_revive": r"^pvd ", "echo_hold": r"^eh ", "limbo_leave": r"^bl ", "seam_rejoin": r"^sj ", "outage_short": r"^ou ", "guest_mesh": r"^mesh ", "fourp_nat": r"^fp ", "phantom_own": r"^po ", "phantom_save": r"^pos ", "boss_ai": r"^ba ", "lone_ai": r"^la |^lc "}
+              "valtr_rune": r"^cv(:| join| rule| rune)", "items_every": r"^ie ", "items_leak": r"^il ", "shop_sync": r"^il (join|sync)", "travel_vote": r"^tv ", "npc_fights": r"^nfa? ", "npc_alfred": r"^nfa ", "npc_attack": r"^npa ", "npc_doll": r"^npd ", "pvp_revive": r"^pvd ", "echo_hold": r"^eh ", "limbo_leave": r"^bl ", "seam_rejoin": r"^sj ", "outage_short": r"^ou ", "guest_mesh": r"^mesh ", "fourp_nat": r"^fp ", "phantom_own": r"^po ", "phantom_save": r"^pos ", "shop_repair": r"^sg ", "shop_repair2": r"^sg2 ", "boss_ai": r"^ba ", "lone_ai": r"^la |^lc "}
 
 
 # --only: the log lines that end each group's checks (instances.py --until "I:RX"); a phase with
@@ -3378,6 +3444,8 @@ GROUP_UNTIL = {
     "guest_mesh": [r"1:the block= ports are cut[\s\S]*direct again \(probes answered\)", r"2:the block= ports are cut[\s\S]*direct again \(probes answered\)"],
     "phantom_own": PO_UNTIL,
     "phantom_save": [r"0:test: levelup: (LEVEL UP on the guest|FAILED)"],
+    "shop_repair": [SG_UNTIL],
+    "shop_repair2": [SG2_UNTIL],
     "outage_short": [r"0:outage file .*: %d o%d" % (OU_LENGTHS[-1], len(OU_LENGTHS))],
 }
 # --only: seconds the run goes on after the group's lines (screenshots of the state they reach)
@@ -5830,7 +5898,7 @@ CHECKS = {"s1": lambda v, L, d: check_s1(v, L), "s2": check_s2, "rules": lambda 
           "fl": lambda v, L, d: check_fl(v, L), "fd": lambda v, L, d: check_fd(v, L), "fdj": lambda v, L, d: check_fdj(v, L), "cd": lambda v, L, d: check_cd(v, L), "iw": lambda v, L, d: check_iw(v, L), "ld": lambda v, L, d: check_ld(v, L),
           "cl": lambda v, L, d: check_cl(v, L), "clg": lambda v, L, d: check_clg(v, L), "cpr": lambda v, L, d: check_cpr(v, L), "cpa": lambda v, L, d: check_common(v, L, "cpa"), "clw": lambda v, L, d: check_clw(v, L), "bf": lambda v, L, d: check_bf(v, L), "lp": check_lp, "gd": check_gd, "gh": lambda v, L, d: check_gh(v, L), "gm": check_gm, "hs": lambda v, L, d: check_hs(v, L), "ngj": lambda v, L, d: check_ngj(v, L), "nl": lambda v, L, d: check_nl(v, L), "br": lambda v, L, d: check_br(v, L), "rf": lambda v, L, d: check_rf(v, L), "sm": lambda v, L, d: check_sm(v, L), "ef": lambda v, L, d: check_ef(v, L), "da": lambda v, L, d: check_da(v, L), "cv": check_cv, "ie": lambda v, L, d: check_ie(v, L), "il": check_il, "nf": lambda v, L, d: check_nf(v, L), "nfa": lambda v, L, d: check_nfa(v, L), "npa": lambda v, L, d: check_npa(v, L), "npd": lambda v, L, d: check_npd(v, L), "pvd": lambda v, L, d: check_pvd(v, L), "sj": lambda v, L, d: check_sj(v, L), "bl": lambda v, L, d: check_bl(v, L), "ba": lambda v, L, d: check_ba(v, L), "la": lambda v, L, d: check_la(v, L), "lb": lambda v, L, d: check_common(v, L, "lb"), "lc": lambda v, L, d: check_lc(v, L),
           "rt": lambda v, L, d: check_rt(v, L), "tv": lambda v, L, d: check_tv(v, L),
-          "eh": lambda v, L, d: check_eh(v, L), "ou": lambda v, L, d: check_ou(v, L), "mesh": lambda v, L, d: check_mesh(v, L), "fp": lambda v, L, d: check_fp(v, L), "po": lambda v, L, d: check_po(v, L), "pos": lambda v, L, d: check_pos(v, L)}
+          "eh": lambda v, L, d: check_eh(v, L), "ou": lambda v, L, d: check_ou(v, L), "mesh": lambda v, L, d: check_mesh(v, L), "fp": lambda v, L, d: check_fp(v, L), "po": lambda v, L, d: check_po(v, L), "pos": lambda v, L, d: check_pos(v, L), "sg": lambda v, L, d: check_sg(v, L), "sg2": lambda v, L, d: check_sg2(v, L)}
 
 
 def main():
@@ -5859,7 +5927,7 @@ def main():
         sys.exit("unknown --only group(s): " + ",".join(sorted(bad)))
     if only:
         a.phase = ",".join(p for p in ("s1", "s2", "rules", "sc", "summonfail", "s3", "sk", "ga", "gl", "lf", "mk", "kd", "kw", "fl", "fd", "fdj", "cd", "iw", "ld", "cl", "clg", "clw", "cpr", "cpa", "el", "lt", "bf", "ch",
-                                     "lp", "gd", "gh", "gm", "hs", "ngj", "nl", "rt", "br", "rf", "sm", "ef", "da", "cv", "ie", "il", "rh", "rs", "fw", "fwg", "fwb", "fwe", "fh", "tv", "nf", "nfa", "npa", "npd", "pvd", "eh", "bl", "sj", "ou", "mesh", "fp", "po", "pos", "ba", "la", "lb", "lc")
+                                     "lp", "gd", "gh", "gm", "hs", "ngj", "nl", "rt", "br", "rf", "sm", "ef", "da", "cv", "ie", "il", "rh", "rs", "fw", "fwg", "fwb", "fwe", "fh", "tv", "nf", "nfa", "npa", "npd", "pvd", "eh", "bl", "sj", "ou", "mesh", "fp", "po", "pos", "sg", "sg2", "ba", "la", "lb", "lc")
                            if p in {n for g in only for n in GROUPS[g].split(",")})
     if Path(a.game).resolve() == Path(r"E:\games\bloodborne").resolve():
         sys.exit("never the user's game folder as the test game (agents/RULES_062.txt)")

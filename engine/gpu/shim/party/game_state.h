@@ -105,6 +105,8 @@ constexpr std::uint32_t kItemWeapon = 0x00000000u, kItemProtector = 0x10000000u,
                         kItemGoods = 0x40000000u;
 /// How many of item `id` (type bits above) the local player holds: 0 none, -1 unknown.
 int ItemCount(std::uint32_t type_bits, std::uint32_t id);
+/// The same for the storage box (the list the give list overflows into): 0 none, -1 unknown.
+int StorageItemCount(std::uint32_t type_bits, std::uint32_t id);
 /// How many inventory entries (stacks) hold item `id`: 1 normally; 2 or more is a duplicated stack
 /// (a unique key item given while one was held: the save then lists it twice), the key section out
 /// of view counted too (the save writes both; items.md 10.7). -1 unknown.

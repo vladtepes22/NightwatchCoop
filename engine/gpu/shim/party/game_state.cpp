@@ -335,12 +335,13 @@ int GoodsCount(std::uint32_t goods_id) {
     return ItemCount(kTypeGoods, goods_id);
 }
 
-int ItemCount(std::uint32_t type_bits, std::uint32_t id) {
-    const std::uint64_t rec = Field<std::uint64_t>(Slot(kGameDataMan), 8, 0);
-    if (!rec || !FindOk()) {
+namespace {
+/// Entry count of item (type_bits | id) in an item list laid out like the inventory (the inventory at
+/// GameDataMan rec + 0x328, the storage box at player data + 0x5b0: 0x14D9A80 reads both the same way).
+int CountInList(std::uint64_t list, std::uint32_t type_bits, std::uint32_t id) {
+    if (!list || !FindOk()) {
         return -1;
     }
-    const std::uint64_t list = rec + kRecInventory;
     // The lookup reads [list+0x68] (bucket table) and [list+0x78] (chain); both must exist.
     if (!Field<std::uint64_t>(list, 0x68, 0) || !Field<std::uint64_t>(list, 0x78, 0)) {
         return -1;
@@ -363,6 +364,24 @@ int ItemCount(std::uint32_t type_bits, std::uint32_t id) {
         return -1;
     }
     return handle == 0 ? 0 : count;
+}
+} // namespace
+
+int ItemCount(std::uint32_t type_bits, std::uint32_t id) {
+    const std::uint64_t rec = Field<std::uint64_t>(Slot(kGameDataMan), 8, 0);
+    return rec ? CountInList(rec + kRecInventory, type_bits, id) : -1;
+}
+
+int StorageItemCount(std::uint32_t type_bits, std::uint32_t id) {
+    // The storage box: player (WorldChrMan +0x60) vtable +0x1c8 -> player data, +0x5b0 (as StorageRoom).
+    const std::uint64_t player = Field<std::uint64_t>(Slot(kWorldChrMan), 0x60, 0);
+    std::uint64_t vt = 0, fn = 0;
+    if (!player || !SafeGet(player, &vt) || !SafeGet(vt + 0x1c8, &fn) || !fn) {
+        return -1;
+    }
+    const std::uint64_t data = reinterpret_cast<std::uint64_t(BB_COOP_SYSV*)(std::uint64_t)>(fn)(player);
+    const std::uint64_t st = data ? Field<std::uint64_t>(data, 0x5b0, 0) : 0;
+    return CountInList(st, type_bits, id);
 }
 
 std::vector<std::pair<std::uint32_t, int>> KeySectionItems() {

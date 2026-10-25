@@ -50,6 +50,9 @@ constexpr std::int32_t kItemLedgerSize = 1000;
 /// Set once the ledger was seeded from a save's own history (SeedLedgerFromOwnSave); the last bit of
 /// the ledger range, never a lot's index.
 constexpr std::uint32_t kItemLedgerSeeded = kItemLedgerBase + kItemLedgerSize - 1;
+/// Set once a save's shop-gate flags 5500-5521 were checked against the weapons it owns
+/// (RepairShopGatesTick); the second to last bit of the ledger range, never a lot's index.
+constexpr std::uint32_t kShopGatesRepaired = kItemLedgerBase + kItemLedgerSize - 2;
 
 enum class ItemSource : std::uint8_t {
     Unknown = 0,
@@ -147,6 +150,21 @@ std::vector<std::int32_t> ItemAwardSpotFlags(std::int32_t lot);
 /// bits to set - one per ledger lot whose done flag is set and whose bit is not - or nothing when
 /// the save already carries the kItemLedgerSeeded marker.
 std::vector<std::uint32_t> LedgerBitsToSeed(const std::function<bool(std::uint32_t)>& is_set);
+/// Shop-gate repair (0.7.6): the messenger shop's Uncanny / Lost weapon rows are gated by flags
+/// 5500-5521 ("this player owns weapon X", docs/party/shop_gates.md). 0.7.4-era sessions wrote all
+/// 22 into the own save of a summoned guest. `owns(weapon base id)` is 1 when the inventory or the
+/// storage box holds the weapon at any upgrade level (id + 100 * level), 0 when not, -1 unknown.
+struct ShopGateRepair {
+    std::vector<std::int32_t> clear; ///< flags set without the weapon: to clear
+    bool complete = true;            ///< every set flag was decided (false: ask again later, do not mark)
+    bool done = false;               ///< the save carries the marker: nothing to do
+};
+ShopGateRepair ShopGatesToRepair(const std::function<bool(std::uint32_t)>& is_set,
+                                 const std::function<int(std::int32_t)>& owns);
+/// The weapon (base id) behind gate flag 5500..5521, 0 for any other flag.
+std::int32_t ShopGateWeapon(std::int32_t flag);
+/// Highest upgrade level the repair looks for (weapon id + 100 * level).
+constexpr int kShopWeaponMaxLevel = 15;
 /// Key-item catch-up (playtest 1 save audit, docs/party/playtest1_save_audit.md): the ledger lots
 /// this save says were given (ledger bit set) for a boss this save has beaten (done flag set,
 /// `boss_flag(done)` true), in table order without duplicates. The playtest guest's save had the
