@@ -200,6 +200,9 @@ namespace BloodborneLauncher.Views
             ShowPickupKinds();
             IniToggle(SymbolRegular.EyeOff24, L.T("Boss reveal"),
                 L.T("An area's map stays hidden until its boss is dead (lamps you have lit always show)"), "map_boss_reveal");
+            ToggleRow(SymbolRegular.Location24, L.T("Map travel"),
+                L.T("Select a lit lamp on the map and press again to travel there (not in boss fights, Chalice Dungeons or cutscenes)"),
+                () => Ini.Get("map_travel", "1") == "1", v => Ini.Set("map_travel", v ? "1" : "0"));
             ComboRow(SymbolRegular.ChatMultiple24, L.T("NPC conversation sites"),
                 L.T("New dialogue only covers a few early conversations so far (Gilbert, Eileen's first ones)"),
                 new Choice[] { new(L.T("All"), "all"), new(L.T("New dialogue only"), "new_dialogue"), new(L.T("None"), "none") },

@@ -1768,6 +1768,8 @@
   "Coldblood (gold)": "冷血（金色）",
   "Boss reveal": "击败首领后显示",
   "An area's map stays hidden until its boss is dead (lamps you have lit always show)": "区域地图在其首领被击败前保持隐藏（已点亮的提灯始终显示）",
+  "Map travel": "地图传送",
+  "Select a lit lamp on the map and press again to travel there (not in boss fights, Chalice Dungeons or cutscenes)": "在地图上选择一盏已点亮的提灯，再按一次即可传送过去（首领战、圣杯地牢和过场动画中不可用）",
   "NPC conversation sites": "NPC 对话地点",
   "New dialogue only covers a few early conversations so far (Gilbert, Eileen's first ones)": "“仅新对话”目前只涵盖少数早期对话（吉尔伯特、艾琳的最初对话）",
   "New dialogue only": "仅新对话",
