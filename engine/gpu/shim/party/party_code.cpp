@@ -495,7 +495,24 @@ static bool contains_ci(const wchar_t* hay, const wchar_t* needle) {
     return h.find(n) != std::wstring::npos;
 }
 
+static LocalIpv4Provider g_local_ipv4_provider = nullptr;
+
+void set_local_ipv4_provider(LocalIpv4Provider fn) { g_local_ipv4_provider = fn; }
+
 bool best_local_ipv4(std::array<std::uint8_t, 4>* out) {
+    // The net layer's choice (BB_PARTY_LOCAL_IP, then the VPN pick, then the best adapter) wins
+    // when it is wired in; the adapter scan below is the fallback (and the unit tests' default).
+    if (LocalIpv4Provider fn = g_local_ipv4_provider) {
+        std::array<std::uint8_t, 4> v{};
+        if (fn(&v)) {
+            *out = v;
+            return true;
+        }
+    }
+    return adapter_best_local_ipv4(out);
+}
+
+bool adapter_best_local_ipv4(std::array<std::uint8_t, 4>* out) {
     ULONG size = 16 * 1024;
     std::vector<std::uint8_t> buf;
     ULONG rc = ERROR_BUFFER_OVERFLOW;
@@ -536,7 +553,17 @@ bool best_local_ipv4(std::array<std::uint8_t, 4>* out) {
 
 #else
 
-bool best_local_ipv4(std::array<std::uint8_t, 4>*) { return false; }  // stub: not needed off Windows yet
+static LocalIpv4Provider g_local_ipv4_provider = nullptr;
+void set_local_ipv4_provider(LocalIpv4Provider fn) { g_local_ipv4_provider = fn; }
+bool adapter_best_local_ipv4(std::array<std::uint8_t, 4>*) { return false; }  // stub: not needed off Windows yet
+bool best_local_ipv4(std::array<std::uint8_t, 4>* out) {
+    std::array<std::uint8_t, 4> v{};
+    if (g_local_ipv4_provider && g_local_ipv4_provider(&v)) {
+        *out = v;
+        return true;
+    }
+    return false;
+}
 
 #endif
 

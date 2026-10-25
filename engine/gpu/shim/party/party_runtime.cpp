@@ -97,6 +97,16 @@ void plog(const char* fmt, ...) {
     coop::asyncio::Print(std::string("Party: ") + coop::PartyLogStamp() + buf + "\n"); // never blocks the caller (party_async_io.h)
 }
 
+// The LAN code, the discovery reply and the UPnP mapping carry the address the game uses
+// (BB_PARTY_LOCAL_IP, else the VPN pick, else the best adapter), not a separate adapter scan.
+bool net_local_ipv4(std::array<std::uint8_t, 4>* out) {
+    const std::uint32_t ip = bbnet::local_ipv4();
+    if (!ip) return false;
+    std::memcpy(out->data(), &ip, 4);
+    return true;
+}
+[[maybe_unused]] const bool g_local_ipv4_wired = (set_local_ipv4_provider(&net_local_ipv4), true);
+
 const char* env(const char* name) {
     const char* v = std::getenv(name);
     return v && *v ? v : nullptr;

@@ -164,9 +164,9 @@ std::string advice(Type self, bool host, bool port_open, Rendezvous rendezvous, 
     switch (self) {
     case Type::Open: return "public address, no NAT: any host is reachable";
     case Type::Symmetric:
-        return "symmetric NAT (mobile / carrier NAT): hole punching cannot reach you. Join a host with an "
-               "open port (UPnP or port forward), host yourself only with a forwarded port, or use a VPN "
-               "(Tailscale, ZeroTier)";
+        return "strict NAT (a strict router or your ISP's carrier NAT): hole punching cannot reach you. Turn on "
+               "UPnP in the router or forward UDP+TCP 9307; if your router's WAN IP differs from your public "
+               "IP, it is carrier NAT: join a host with an open port or use a VPN (Tailscale, ZeroTier)";
     case Type::Unknown: return "no STUN answer: UDP to the internet may be blocked; a host with an open port still works";
     default:
         return std::string(type_name(self)) + " NAT: hole punching works" +

@@ -2649,7 +2649,8 @@ void p2p_punch(const char* label, std::uint32_t addr, std::uint16_t port_host, s
             char pip[32], lip[32];
             write_ipv4(pip, sizeof(pip), targets[0].sin_addr.s_addr);
             write_ipv4(lip, sizeof(lip), targets[1].sin_addr.s_addr);
-            if (udp::punch_choice(primary_heard, local_heard, true) == 1) {
+            const bool primary_on_net = self_guard_on() && udp::on_own_subnet(targets[0].sin_addr.s_addr, own_ifaces());
+            if (udp::punch_choice(primary_heard, local_heard, true, primary_on_net) == 1) {
                 aliases().set(targets[0].sin_addr.s_addr, targets[0].sin_port, targets[1].sin_addr.s_addr,
                               targets[1].sin_port);
                 log("punch %s: using its local address %s:%u (heard%s; %s:%u stays its game address)", name.c_str(),

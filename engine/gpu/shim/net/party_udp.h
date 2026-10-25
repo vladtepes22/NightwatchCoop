@@ -268,12 +268,17 @@ private:
 // The punch's choice between the primary (advertised) address and the "+local" candidate: the
 // local one wins whenever it was heard (a LAN path beats a hairpinned or dropped public one).
 // 0 = keep the primary, 1 = use the local candidate.
-int punch_choice(bool primary_heard, bool local_heard, bool have_local);
+// Except when the primary itself was heard and sits inside one of our own subnets
+// (primary_on_our_net, see on_own_subnet): then the path it answers on stays the one we use.
+int punch_choice(bool primary_heard, bool local_heard, bool have_local, bool primary_on_our_net = false);
 
 // One IPv4 address of this machine with its netmask (network order; mask 0 = unknown).
 struct OwnIf {
     std::uint32_t ip = 0, mask = 0;
 };
+
+// Whether `ip` lies in the subnet of one of our adapters (and is not our own address).
+bool on_own_subnet(std::uint32_t ip, const std::vector<OwnIf>& own);
 
 // Whether `ip:port` (network order, port as the socket reports it) is this very socket: one of
 // our own addresses with our own party port. A datagram "from" it is our own probe looping back.

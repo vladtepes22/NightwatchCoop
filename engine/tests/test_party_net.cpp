@@ -232,6 +232,24 @@ static void test_aliases() {
     CHECK(bbnet::udp::punch_choice(false, true, true) == 1);
     CHECK(bbnet::udp::punch_choice(true, false, true) == 0);
     CHECK(bbnet::udp::punch_choice(false, false, false) == 0);
+    // Heard on a VPN/LAN address inside our subnet: that path stays, whatever "local" address
+    // the peer also reports (2026-10-25: guest home address picked over the Radmin one).
+    CHECK(bbnet::udp::punch_choice(true, true, true, true) == 0);
+    CHECK(bbnet::udp::punch_choice(false, true, true, true) == 1);
+    {
+        using bbnet::udp::OwnIf;
+        const std::vector<OwnIf> own = {{ip_parse("26.121.14.68"), ip_parse("255.0.0.0")},
+                                        {ip_parse("192.168.50.4"), ip_parse("255.255.255.0")}};
+        CHECK(bbnet::udp::on_own_subnet(ip_parse("26.76.171.64"), own));
+        CHECK(!bbnet::udp::on_own_subnet(ip_parse("26.121.14.68"), own));  // ourselves
+        CHECK(!bbnet::udp::on_own_subnet(ip_parse("192.168.2.21"), own));
+        CHECK(!bbnet::udp::on_own_subnet(ip_parse("66.231.158.8"), own));
+        // A peer that reports our own VPN address as its local one: never usable.
+        CHECK(!bbnet::udp::local_candidate_usable(ip_parse("26.121.14.68"), htons(9307), htons(9307), own, 0, 0));
+        // Its home address (not on our networks, different public IP): not usable either.
+        CHECK(!bbnet::udp::local_candidate_usable(ip_parse("192.168.2.21"), htons(9307), htons(9307), own,
+                                                  ip_parse("66.231.158.8"), ip_parse("203.0.113.9")));
+    }
     using bbnet::party::ip_is_private;
     CHECK(ip_is_private(ip_parse("192.168.1.112")) && ip_is_private(ip_parse("10.1.2.3")) &&
           ip_is_private(ip_parse("172.20.0.1")) && ip_is_private(ip_parse("100.100.1.1")));

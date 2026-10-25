@@ -544,9 +544,21 @@ std::size_t EndpointAliases::size() const {
     return out_.size();
 }
 
-int punch_choice(bool primary_heard, bool local_heard, bool have_local) {
-    (void)primary_heard;
-    return have_local && local_heard ? 1 : 0;
+int punch_choice(bool primary_heard, bool local_heard, bool have_local, bool primary_on_our_net) {
+    if (!have_local || !local_heard) return 0;
+    // A peer already answering on an address inside one of our own subnets (a VPN such as Radmin /
+    // Hamachi, or our LAN) is reached through the path its packets arrive on: its other "local"
+    // address is some far-away LAN's number that only looked heard (2026-10-25: a guest's home
+    // address 192.168.x was picked over the Radmin address, our replies left by the default route).
+    if (primary_heard && primary_on_our_net) return 0;
+    return 1;
+}
+
+bool on_own_subnet(std::uint32_t ip, const std::vector<OwnIf>& own) {
+    if (!ip) return false;
+    for (const OwnIf& o : own)
+        if (o.mask && o.ip != ip && (o.ip & o.mask) == (ip & o.mask)) return true;
+    return false;
 }
 
 bool is_own_endpoint(std::uint32_t ip, std::uint16_t port, std::uint16_t own_port, const std::vector<OwnIf>& own) {

@@ -467,7 +467,8 @@ UdpFallbackSocket udp_fallback_socket(bool external_transport, double heard_on_p
 std::string auth_reject_reason(bool host_has_password) {
     if (host_has_password)
         return "wrong password, or a party code from another hosting session";
-    return "party code from another hosting session: ask the host for the current one (no password needed)";
+    return "this host has no password: join with its party code (or the host sets a password to allow plain "
+           "addresses); a code from another hosting session is refused too, so ask the host for the current one";
 }
 
 // 0.7.4: LinkConfig::rules is "max N players, 4p:...", then "; join: A=on; B=Right away" (party_balance

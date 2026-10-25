@@ -101,7 +101,15 @@ void fill_lan_prefix(PartyCode* code, const std::array<std::uint8_t, 4>& local);
 // The best local IPv4 for a LAN code (network order bytes in out): an up, non-loopback adapter,
 // preferring one with a default gateway and skipping virtual/tunnel adapters (Hyper-V, VPN,
 // VirtualBox, VMware, WSL) when a physical one exists. False when none.
+// The LAN code, the LAN-discovery reply and the UPnP mapping all go through this, so they carry
+// the address the game itself uses: the net layer installs a provider (set_local_ipv4_provider)
+// that answers BB_PARTY_LOCAL_IP, then the chosen VPN adapter, then the best adapter. Without a
+// provider (unit tests, tools) it is adapter_best_local_ipv4().
 bool best_local_ipv4(std::array<std::uint8_t, 4>* out);
+using LocalIpv4Provider = bool (*)(std::array<std::uint8_t, 4>* out);
+void set_local_ipv4_provider(LocalIpv4Provider fn);
+// The plain adapter scan best_local_ipv4() falls back to (no override, no VPN choice).
+bool adapter_best_local_ipv4(std::array<std::uint8_t, 4>* out);
 
 // Codes for the host: the Internet code carries the public address (STUN / UPnP / override,
 // see party_addr.h), the LAN code the best local address with kCodeFlagLan.
