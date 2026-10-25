@@ -144,7 +144,10 @@ public sealed class SeamlessPage : LauncherPage
             ("party_open_world", L.T("Remove multiplayer barriers"), true), ("party_story_mirror", L.T("Cutscenes for every player"), true),
             ("party_guest_respawn", L.T("Guest respawn"), true), ("party_guest_revive_inplace", L.T("Get up without a loading screen"), true),
             ("party_guest_refill", L.T("Refill guest supplies"), true), ("party_chalice_rejoin", L.T("Stay in Chalice Dungeons"), true));
+        IniToggles(host,
+            ("party_level_sync", L.T("Level sync"), true), ("party_phantom_hp", L.T("Phantom health cut"), true));
         StartupRows(host);
+        IniToggles(host, ("party_skip_prologue", L.T("Skip the prologue (new characters)"), false));
 
         // Joining: the rules above are the host's and reach you on connect. Only the start-up rules need your own
         // values to match, so they stay here (and are never changed by the launcher).
@@ -322,6 +325,9 @@ public sealed class SeamlessPage : LauncherPage
         "party_story" => L.T("Guests see the host's cutscenes, time of day and ending. Applies to host and guests on the next game start."),
         "party_story_mirror" => L.T("A guest in the host's world watches cutscenes with the host; off lets the guest watch them later in their own world. The host's rule: guests follow it."),
         "party_guest_revive_inplace" => L.T("A guest who dies gets up at the host's lamp right away, with no loading screen (after a fall: the respawn load). Off: every death takes the respawn loading screen. The host's rule: guests follow it."),
+        "party_level_sync" => L.T("As in the game's own co-op: a hunter whose level is above the host's range is scaled down while it plays in the host's world (less maximum health and stamina, less defence and resistance) and gets a blue icon by its name. Anyone can still join at any level. Off: everyone keeps full stats. The host's rule: guests follow it."),
+        "party_phantom_hp" => L.T("As in the game's own co-op: hunters who join a party have 30 % less maximum health. Off: full maximum health for everyone. The host's rule: guests follow it."),
+        "party_skip_prologue" => L.T("A new character (one that has not finished the prologue) skips the clinic and the first dream visit: the prologue's story flags are set, the starting weapons are given and the hunter appears at the first lamp in the city, ready for the party. Characters past the prologue are never touched. Off: the prologue is played as in the game. The host's rule, read when the character starts."),
         "party_restart" => L.T("Automatically restarts the game after a crash and rejoins the party."),
         "party_guest_insight" => L.T("Controls the Insight you receive as a guest when the host kills a boss. Takes effect on the next game start."),
         "party_start" => L.T("Each new character normally completes its own prologue first; Right away starts the party at once. The host's rule, read at game start: a guest must have the same value, or the host refuses the join."),

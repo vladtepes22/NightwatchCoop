@@ -2015,4 +2015,11 @@
   "A guest in the host's world watches cutscenes with the host; off lets the guest watch them later in their own world. The host's rule: guests follow it.": "访客在房主的世界中与房主一同观看过场动画；关闭则让访客稍后在自己的世界中观看。房主规则：访客遵循。",
   "A guest who dies gets up at the host's lamp right away, with no loading screen (after a fall: the respawn load). Off: every death takes the respawn loading screen. The host's rule: guests follow it.": "死亡的访客会立即在房主的提灯处起身，没有读取画面（坠落后：重生读取）。关闭：每次死亡都会出现重生读取画面。房主规则：访客遵循。",
   "Each new character normally completes its own prologue first; Right away starts the party at once. The host's rule, read at game start: a guest must have the same value, or the host refuses the join.": "新角色通常先完成自己的序章；“立即开始”则让联机马上开始。房主规则，游戏启动时读取：访客必须使用相同的值，否则房主会拒绝其加入。"
+,
+  "Level sync": "等级同步",
+  "Phantom health cut": "幻影生命值削减",
+  "Skip the prologue (new characters)": "跳过序章（新角色）",
+  "As in the game's own co-op: a hunter whose level is above the host's range is scaled down while it plays in the host's world (less maximum health and stamina, less defence and resistance) and gets a blue icon by its name. Anyone can still join at any level. Off: everyone keeps full stats. The host's rule: guests follow it.": "与游戏自带的联机一致：等级高于房主范围的猎人在房主的世界中会被削弱（最大生命值和耐力降低，防御和抗性降低），名字旁会显示蓝色图标。任何等级的玩家仍可加入。关闭：所有人保持完整属性。房主规则：访客遵循。",
+  "As in the game's own co-op: hunters who join a party have 30 % less maximum health. Off: full maximum health for everyone. The host's rule: guests follow it.": "与游戏自带的联机一致：加入队伍的猎人最大生命值减少 30 %。关闭：所有人保持完整的最大生命值。房主规则：访客遵循。",
+  "A new character (one that has not finished the prologue) skips the clinic and the first dream visit: the prologue's story flags are set, the starting weapons are given and the hunter appears at the first lamp in the city, ready for the party. Characters past the prologue are never touched. Off: the prologue is played as in the game. The host's rule, read when the character starts.": "新角色（尚未完成序章的角色）会跳过诊所和第一次梦境之行：序章的剧情标记会被设置，发放初始武器，猎人会出现在城中的第一盏提灯处，为联机做好准备。已经过了序章的角色不受影响。关闭：按游戏原样进行序章。房主规则，在角色开始时读取。"
 }
