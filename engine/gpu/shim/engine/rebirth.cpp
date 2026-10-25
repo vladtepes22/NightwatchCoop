@@ -149,7 +149,7 @@ bool Install(std::uint8_t* image, std::size_t size) {
         return false;
     }
     g_on = true;
-    host_log("rebirth: the Altar of Despair offers Rebirth (with the Yharnam Stone), its refund and an undo");
+    host_log("rebirth: the Altar of Despair offers Rebirth, its refund and an undo");
     return true;
 }
 

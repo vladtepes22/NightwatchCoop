@@ -6,7 +6,7 @@
 
 namespace {
 constexpr const char* kGameScript = "e56163a1bb8f46ae59368160e522e11f970e2268f6d356b823e4d72a7c969ff1";
-constexpr const char* kOurScript = "94a2a6be1e92ba835be681f77f58ead254f65ca74c346b8a34993899838c63c9";
+constexpr const char* kOurScript = "00d4e0d1bce14f112eed356c29f11c6af2f327b7f8d66fe51237cfd0d3cb92ac";
 constexpr std::int64_t kFillList = 2147483640, kTalk = 2147483641;
 constexpr std::int64_t kListEnd = 3;
 constexpr std::int64_t kChoice = 1, kEnd = 6;
@@ -36,9 +36,9 @@ bool rebirth_script(std::vector<std::uint8_t>& bytes, std::string* why) {
 
     s.SetStateList(list_end, 1, s.NewCommands({Cmd(19, {3, kTextOption, -1})}, s.Commands(s.StateList(list_end, 1))));
 
-    enum { kChosen = 7, kNoStone, kReset, kFailed, kLevelUp, kAcceptUndo, kUndo };
+    enum { kReset = 7, kFailed, kLevelUp, kAcceptUndo, kUndo };
     esd::Ref st[kUndo + 1]{};
-    for (int id = kChosen; id <= kUndo; ++id) st[id] = s.NewState(kTalk, id);
+    for (int id = kReset; id <= kUndo; ++id) st[id] = s.NewState(kTalk, id);
     const auto conds = [&](esd::Ref state, std::vector<std::pair<esd::Ref, esd::Bytes>> to) {
         std::vector<esd::Ref> list;
         for (auto& [target, expression] : to) list.push_back(s.NewCondition(target, expression));
@@ -48,9 +48,6 @@ bool rebirth_script(std::vector<std::uint8_t>& bytes, std::string* why) {
     const auto waits = [&](esd::Ref state) { s.SetStateList(state, 3, s.NewCommands({Wait()})); };
     const esd::Bytes box_closed = esd::Equals(esd::Call(58, {0}), 0);
 
-    conds(st[kChosen], {{st[kReset], esd::Equals(esd::Call(47, {3, kStone, 5, 0, 0}), 1)}, {st[kNoStone], esd::True()}});
-    entry(st[kNoStone], {Message(kTextNoStone)});
-    conds(st[kNoStone], {{end, box_closed}});
     entry(st[kReset], {Cmd(11, {kFail, 0}), Cmd(11, {kReqReset, 1})});
     waits(st[kReset]);
     conds(st[kReset], {{st[kFailed], Flag(kFail, 1)}, {st[kLevelUp], Flag(kReqReset, 0)}});
@@ -69,7 +66,7 @@ bool rebirth_script(std::vector<std::uint8_t>& bytes, std::string* why) {
 
     std::vector<esd::Ref> choices = s.Conditions(s.StateList(choice, 0));
     if (choices.empty()) return fail("the altar's choice has no conditions");
-    choices.insert(choices.begin() + 1, s.NewCondition(st[kChosen], esd::Equals(esd::Register0(), 3)));
+    choices.insert(choices.begin() + 1, s.NewCondition(st[kReset],esd::Equals(esd::Register0(), 3)));
     s.SetStateList(choice, 0, s.NewConditions(choices));
 
     std::vector<std::uint8_t> out = s.Write();
