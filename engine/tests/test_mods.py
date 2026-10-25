@@ -41,7 +41,8 @@ class ModTests(unittest.TestCase):
         (update / 'sce_sys' / 'param.sfo').write_bytes(b'1.09 sfo')
         (update / 'dvdroot_ps4' / 'chr' / 'a.dcx').write_bytes(b'updated')
         (update / 'dvdroot_ps4' / 'chr' / 'b.dcx').write_bytes(b'updated b')
-        self.assertEqual(mods.update_folder(self.game), update)
+        # samefile: MinGW Python's iterdir joins with '\' while '/' builds the expected path
+        self.assertTrue(mods.update_folder(self.game).samefile(update))
         a = self.mod('A')
         result = mods.build_overlay(self.game, self.root / 'out', [('A', a)], mods.update_folder(self.game))
         self.assertEqual((result / 'eboot.bin').read_bytes(), b'1.09 executable')
