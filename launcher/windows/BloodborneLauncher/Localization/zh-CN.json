@@ -2025,4 +2025,19 @@
 ,
   "Key items for every player": "每位玩家都获得关键物品",
   "Key items and unique items the host picks up or is given (a key, a badge, a gift that exists only once) are given to each guest too, once, in their own world. Ordinary pickups such as vials, bullets and materials are not copied. Takes effect on the next game start.": "房主拾取或获得的关键物品和独特物品（钥匙、徽章、仅有一件的礼物）也会在各访客自己的世界中发放一次。血瓶、子弹、素材等普通拾取物不会被复制。下次启动游戏时生效。"
+,
+  "Your connection": "你的连接",
+  "How the party reaches you: your VPN (Radmin VPN, Hamachi, ZeroTier, Tailscale) when one is found, else your local network. Friends on the same VPN or network can join with the address shown here. It is only shown on this screen.": "队伍如何连接到你：找到 VPN（Radmin VPN、Hamachi、ZeroTier、Tailscale）时使用 VPN，否则使用本地网络。处于同一 VPN 或网络的朋友可使用此处显示的地址加入。该地址只在此界面显示。",
+  "Host over a VPN": "通过 VPN 开房",
+  "Auto picks your Radmin VPN, Hamachi, ZeroTier or Tailscale adapter when you have one, so friends in that network join with the address above. Off uses your network and Internet address. Read when the game starts.": "自动：若有 Radmin VPN、Hamachi、ZeroTier 或 Tailscale 适配器则使用它，该网络中的朋友可用上方的地址加入。关闭：使用你的网络和互联网地址。游戏启动时读取。",
+  "Show my party to friends": "向朋友显示我的队伍",
+  "While you host, the game announces the party's name, level and players on your VPN and local network, so friends see it under Parties on your network when they join. Never the password or your address. Takes effect at once.": "开房期间，游戏会在你的 VPN 和本地网络上公布队伍的名称、等级和人数，朋友加入时可在“网络中的队伍”下看到。绝不公布密码或你的地址。立即生效。",
+  "Local network": "本地网络",
+  "Internet": "互联网",
+  "Connected": "已连接",
+  "Not connected": "未连接",
+  "Address to share: ": "可分享的地址：",
+  "No local address to share: use the party code from the Share party codes row.": "没有可分享的本地地址：请使用“分享队伍代码”一行中的队伍代码。",
+  "No password over ": "未设置密码，通过 ",
+  ": anyone in that network can join you. Set a Password.": " 开房：该网络中的任何人都可以加入你。请设置密码。"
 }

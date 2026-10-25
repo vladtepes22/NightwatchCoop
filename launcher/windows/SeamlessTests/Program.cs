@@ -236,7 +236,57 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     Check(SeamlessSettings.StartupValue("party_guest_insight", "0") == "0" && SeamlessSettings.StartupDifferences(ReadRule).Contains("party_guest_insight"), "Insight 0 (the game's own) is not a difference");
 }
 
-Console.WriteLine("PASS: host/join validation, start-up rules, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
+// Host over a VPN (0.7.5 party_vpn) and the discovery adapter rule: the launcher repeats the game's adapter choice.
+{
+    NetAdapter Nic(string name, string ip, string mask = "255.255.255.0", bool gateway = false, bool physical = false) =>
+        new(name, NetworkRoute.Parse(ip), NetworkRoute.Parse(mask), Gateway: gateway, Physical: physical);
+    var lan = Nic("Ethernet / Realtek PCIe GbE", "192.168.1.20", gateway: true, physical: true);
+    var radmin = Nic("Radmin VPN / Radmin VPN Ethernet Adapter", "26.10.20.30", "255.0.0.0");
+    var hamachi = Nic("Hamachi / LogMeIn Hamachi Virtual Ethernet Adapter", "25.4.5.6", "255.0.0.0");
+    var tailscale = Nic("Tailscale / Tailscale Tunnel", "100.101.102.103", "255.192.0.0");
+    var zerotier = Nic("ZeroTier One / ZeroTier Virtual Port", "10.147.17.5", "255.255.255.0");
+    var nord = Nic("NordLynx / NordLynx Tunnel", "10.5.0.2", "255.255.0.0");
+    var hyperv = Nic("vEthernet (Default Switch) / Hyper-V Virtual Ethernet Adapter", "172.20.0.1", "255.255.240.0");
+    var pub = Nic("Ethernet / Realtek PCIe GbE", "84.20.5.9", gateway: true, physical: true);
+    Check(NetworkRoute.KindOf(radmin) == VpnKind.Radmin && NetworkRoute.KindOf(tailscale) == VpnKind.Tailscale && NetworkRoute.KindOf(nord) == VpnKind.Other && NetworkRoute.KindOf(lan) == VpnKind.None, "VPN kinds");
+    // A virtual adapter whose name says nothing is told by its address range.
+    Check(NetworkRoute.KindOf(Nic("Local Area Connection 3 / TAP-Windows Adapter V9", "26.1.1.1", "255.0.0.0")) == VpnKind.Radmin, "A TAP adapter in 26/8 is Radmin");
+    var all = new[] { lan, zerotier, hamachi, nord, tailscale, radmin, hyperv };
+    Check(NetworkRoute.SelectVpn(all, "auto") == radmin && NetworkRoute.SelectVpn(all, "") == radmin, "Auto should take Radmin first");
+    Check(NetworkRoute.SelectVpn(new[] { lan, nord, hamachi, tailscale }, "auto") == hamachi, "Hamachi comes before Tailscale");
+    Check(NetworkRoute.SelectVpn(new[] { lan, tailscale, zerotier }, "auto") == tailscale, "Tailscale comes before ZeroTier");
+    Check(NetworkRoute.SelectVpn(new[] { lan, nord }, "auto") == null, "A commercial VPN was taken without being asked");
+    Check(NetworkRoute.SelectVpn(all, "off") == null && NetworkRoute.SelectVpn(all, " Off ") == null, "Off still chose a VPN");
+    Check(NetworkRoute.SelectVpn(all, "zerotier") == zerotier && NetworkRoute.SelectVpn(all, "nordlynx") == nord, "A named adapter was not taken");
+    Check(NetworkRoute.SelectVpn(all, "nothing like it") == null, "An unknown name chose an adapter");
+    var route = NetworkRoute.Choose(all, "auto", 47890);
+    Check(route is { Label: "Radmin VPN", Connected: true, Address: "26.10.20.30:47890", Vpn: true }, "VPN route: " + route);
+    Check(NetworkRoute.Choose(all, "auto", 0).Address == "26.10.20.30:9307", "A missing port should be the default port");
+    route = NetworkRoute.Choose(all, "off", 9307);
+    Check(route is { Label: "LAN", Address: "192.168.1.20:9307", Vpn: false }, "LAN route (VPN off): " + route);
+    route = NetworkRoute.Choose(new[] { hyperv, pub }, "auto", 9307);
+    Check(route is { Label: "Internet", Connected: true, Address: "" }, "A public address is the Internet route, no address to share: " + route);
+    Check(!NetworkRoute.Choose(Array.Empty<NetAdapter>(), "auto", 9307).Connected, "No adapter is connected");
+    Check(NetworkRoute.OpenNetworkWarning("host", " ", NetworkRoute.Choose(all, "auto", 9307)) &&
+          !NetworkRoute.OpenNetworkWarning("host", "pw", NetworkRoute.Choose(all, "auto", 9307)) &&
+          !NetworkRoute.OpenNetworkWarning("join", "", NetworkRoute.Choose(all, "auto", 9307)) &&
+          !NetworkRoute.OpenNetworkWarning("host", "", NetworkRoute.Choose(new[] { lan }, "auto", 9307)), "Open network warning");
+
+    // Discovery (party_discovery.h adapter_discovery_ok): private LAN on a real adapter, Radmin, Hamachi, ZeroTier.
+    Check(NetworkRoute.DiscoveryOk(lan) && NetworkRoute.DiscoveryOk(radmin) && NetworkRoute.DiscoveryOk(hamachi) && NetworkRoute.DiscoveryOk(zerotier), "Allowed adapters refused");
+    Check(!NetworkRoute.DiscoveryOk(tailscale) && !NetworkRoute.DiscoveryOk(nord) && !NetworkRoute.DiscoveryOk(hyperv) && !NetworkRoute.DiscoveryOk(pub), "Tailscale, a commercial VPN, a virtual switch or a public address was allowed");
+    Check(!NetworkRoute.DiscoveryOk(lan with { Loopback = true }) && !NetworkRoute.DiscoveryOk(lan with { Tunnel = true }) && !NetworkRoute.DiscoveryOk(lan with { Ip = 0 }), "Loopback, tunnel or no address allowed");
+    Check(NetworkRoute.DiscoveryOk(Nic("Radmin VPN / Radmin VPN Ethernet Adapter", "192.168.9.9")), "Radmin with a private address");
+    Check(!NetworkRoute.DiscoveryOk(Nic("Radmin VPN / Radmin VPN Ethernet Adapter", "84.1.1.1")), "Radmin with a public address");
+    var allowed = new[] { lan, radmin, tailscale, pub };
+    Check(NetworkRoute.SourceAllowed(NetworkRoute.Parse("192.168.1.77"), allowed) && NetworkRoute.SourceAllowed(NetworkRoute.Parse("26.200.1.1"), allowed), "A host on an allowed subnet was dropped");
+    Check(!NetworkRoute.SourceAllowed(NetworkRoute.Parse("192.168.2.77"), allowed) && !NetworkRoute.SourceAllowed(NetworkRoute.Parse("100.101.5.5"), allowed) &&
+          !NetworkRoute.SourceAllowed(NetworkRoute.Parse("84.20.5.77"), allowed) && !NetworkRoute.SourceAllowed(NetworkRoute.Parse("8.8.8.8"), allowed), "A source outside the allowed subnets was taken");
+    Check(NetworkRoute.Normalize(null) == "auto" && NetworkRoute.Normalize(" 0 ") == "off" && NetworkRoute.Normalize("Radmin") == "Radmin", "party_vpn normalisation");
+    Check(NetworkRoute.Enumerate() != null, "Enumerate failed");
+}
+
+Console.WriteLine("PASS: host/join validation, start-up rules, VPN route, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 
 [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
 [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.U1)]

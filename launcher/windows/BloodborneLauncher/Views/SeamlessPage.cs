@@ -24,7 +24,14 @@ public sealed class SeamlessPage : LauncherPage
         L.T("Play the campaign together with visy's seamless co-op. The host shares a party code; everyone uses the same build, gameplay mods and party size."))
     {
         // Single player shows only Party saves; Join leaves out the host's rows, Host the guest's.
+        // The connection card (Host and Join): the route the party uses, its state and the address to give friends. The
+        // adapters are read off the UI thread (RefreshRoute); the address is shown on this screen only.
         Group(L.T("Party"));
+        var routeRows = Rows(InParty);
+        _copyAddress = SmallButton(L.T("Copy"), SymbolRegular.Copy24, (_, _) => { if (_route.Address.Length > 0) Clipboard.SetText(_route.Address); });
+        Add(Card(SymbolRegular.Router24, L.T("Your connection"),
+            L.T("How the party reaches you: your VPN (Radmin VPN, Hamachi, ZeroTier, Tailscale) when one is found, else your local network. Friends on the same VPN or network can join with the address shown here. It is only shown on this screen."),
+            _copyAddress, out _routeHint, wide: true), routeRows);
         SettingCombo(SymbolRegular.People24, L.T("Mode"), L.T("Host starts the party; Join connects to the host."),
             new[] { new Choice(L.T("Single player"), ""), new Choice(L.T("Host"), "host"), new Choice(L.T("Join"), "join") }, "party_mode",
             changed: ShowMode, buttons: true);
@@ -58,6 +65,10 @@ public sealed class SeamlessPage : LauncherPage
         var host = Rows(Hosting);
         TextRow(SymbolRegular.Globe24, L.T("Host public address"), L.T("Leave on Automatic unless guests reach you another way: your VPN address (Radmin VPN, Tailscale, ZeroTier), or your public IP or DNS name when you forwarded the port yourself (host or host:port). The party code then carries it."), L.T("Automatic"),
             () => S.Str("party_public_addr"), v => S.Set("party_public_addr", v), host);
+        ComboRow(SymbolRegular.Router24, L.T("Host over a VPN"), L.T("Auto picks your Radmin VPN, Hamachi, ZeroTier or Tailscale adapter when you have one, so friends in that network join with the address above. Off uses your network and Internet address. Read when the game starts."),
+            VpnChoices(), VpnCurrent, v => Ini.Set("party_vpn", v), host, changed: UpdateRoute);
+        ToggleRow(SymbolRegular.People24, L.T("Show my party to friends"), L.T("While you host, the game announces the party's name, level and players on your VPN and local network, so friends see it under Parties on your network when they join. Never the password or your address. Takes effect at once."),
+            () => Ini.Get("party_discovery", "1") == "1", v => Ini.Set("party_discovery", v ? "1" : "0"), host);
         _codes = Text("", "Faint");
         _codes.TextWrapping = TextWrapping.Wrap;
         host.Children.Add(_codes);
@@ -217,16 +228,73 @@ public sealed class SeamlessPage : LauncherPage
         _timer.Tick += (_, _) => {
             _codes.Text = SeamlessSettings.Codes(S);
             UpdateStartupWarning();
+            if (++_ticks % 5 == 0) RefreshRoute();
             var status = SeamlessSession.Read(S);
             _status.Text = status == null ? (Ws.Game.Running ? L.T("Waiting for party status…") : L.T("Game stopped.")) :
                 $"{PartyRole(status.role)}：{PartyState(status.state)}  {status.detail}\n{status.network}\n" +
                 string.Join("\n", status.members.Select(m => $"{m.name}：{(m.in_world ? L.T("in host world") : m.connected ? L.T("connected") : L.T("disconnected"))}  {(m.ping_ms < 0 ? "" : m.ping_ms + " ms")}  {m.area}")) +
                 $"\n{status.@event}\n{status.alert}";
         };
-        Loaded += (_, _) => { _codes.Text = SeamlessSettings.Codes(S); _timer.Start(); };
+        Loaded += (_, _) => { _codes.Text = SeamlessSettings.Codes(S); _timer.Start(); RefreshRoute(); };
         Unloaded += (_, _) => _timer.Stop();
         ShowMode();
     }
+    private readonly Wpf.Ui.Controls.Button _copyAddress;
+    private readonly TextBlock _routeHint;
+    private IReadOnlyList<NetAdapter> _adapters = Array.Empty<NetAdapter>();
+    private Route _route = Route.None;
+    private bool _adaptersBusy;
+    private int _ticks;
+
+    private static Choice[] VpnChoices()
+    {
+        var choices = new List<Choice>
+        {
+            new(L.T("Auto"), "auto"), new(L.T("Off"), "off"), new("Radmin VPN", "Radmin VPN"), new("Hamachi", "Hamachi"),
+            new("ZeroTier", "ZeroTier"), new("Tailscale", "Tailscale"),
+        };
+        var current = NetworkRoute.Normalize(Ini.Get("party_vpn", "auto"));
+        if (!choices.Any(c => c.Value.Equals(current, StringComparison.OrdinalIgnoreCase))) choices.Add(new Choice(current, current));
+        return choices.ToArray();
+    }
+
+    private static string VpnCurrent()
+    {
+        var current = NetworkRoute.Normalize(Ini.Get("party_vpn", "auto"));
+        return VpnChoices().First(c => c.Value.Equals(current, StringComparison.OrdinalIgnoreCase)).Value;
+    }
+
+    /// <summary>Reads the adapters off the UI thread (the system call can take a moment), then redraws the card.</summary>
+    private async void RefreshRoute()
+    {
+        if (_adaptersBusy) return;
+        _adaptersBusy = true;
+        try
+        {
+            _adapters = await Task.Run(NetworkRoute.Enumerate).ConfigureAwait(false);
+            await Dispatcher.InvokeAsync(UpdateRoute);
+        }
+        catch (Exception e) when (e is InvalidOperationException or TaskCanceledException) { }
+        finally { _adaptersBusy = false; }
+    }
+
+    private void UpdateRoute()
+    {
+        var port = int.TryParse(S.Str("party_port"), out var p) ? p : NetworkRoute.DefaultPort;
+        _route = NetworkRoute.Choose(_adapters, Ini.Get("party_vpn", "auto"), port);
+        var label = _route.Label switch { "LAN" => L.T("Local network"), "Internet" => L.T("Internet"), var other => other };
+        var lines = new List<string>
+        {
+            _route.Connected ? label + " · " + L.T("Connected") : L.T("Not connected"),
+        };
+        if (_route.Address.Length > 0) lines.Add(L.T("Address to share: ") + _route.Address);
+        else if (_route.Connected) lines.Add(L.T("No local address to share: use the party code from the Share party codes row."));
+        if (NetworkRoute.OpenNetworkWarning(S.Str("party_mode"), S.PartyPassword, _route))
+            lines.Add(L.T("No password over ") + _route.Label + L.T(": anyone in that network can join you. Set a Password."));
+        SetHint(_routeHint, string.Join("\n", lines));
+        _copyAddress.IsEnabled = _route.Address.Length > 0;
+    }
+
     private TextBlock _startupWarning = null!;
 
     /// <summary>The host's start-up rules (the game reads them once; a guest must have the host's values).</summary>
@@ -275,6 +343,7 @@ public sealed class SeamlessPage : LauncherPage
         var mode = S.Str("party_mode");
         foreach (var (element, when) in _byMode)
             element.Visibility = when(mode) ? Visibility.Visible : Visibility.Collapsed;
+        UpdateRoute();
     }
     // Party rules from engine/gpu/shim/bbport_game_menu_pages.cpp; My party descriptions from
     // engine/docs/party/my_party_settings.md, plus the remaining My party rows.
