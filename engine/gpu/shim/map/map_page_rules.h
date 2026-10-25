@@ -101,6 +101,16 @@ inline int StepFloor(const std::vector<float>& heights, int current, int step) {
     return order[((at + (step > 0 ? 1 : -1)) % count + count) % count];
 }
 
+/// How a party member shows on the shown area (`region`): its map id (0 / all ones unknown), whether
+/// it has a position (its chr here or its VITALS) and is connected, and whether it is in this
+/// player's world. A member in its own world on the same map shows too (the same place in its own
+/// copy of the area), drawn faded and named so.
+enum class MemberDot { Hidden, Here, OwnWorld };
+inline MemberDot MemberOnMap(bool connected, bool have_pos, bool same_world, std::uint32_t map_id, const std::string& region) {
+    if (!connected || !have_pos || map_id == 0 || region.empty() || Region(map_id) != region) return MemberDot::Hidden;
+    return same_world ? MemberDot::Here : MemberDot::OwnWorld;
+}
+
 /// What Cross / Enter / a click on the map does. `under`: the lamp under the pointer (-1 none);
 /// `selected`: the lamp being shown (-1 none); `travel`: map travel can start now; `click`: a mouse
 /// click (it acts only on the lamp under it; Cross and Enter also travel to the selected lamp with

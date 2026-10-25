@@ -626,19 +626,31 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         icon("lamp", p, 32, l.available ? IM_COL32_WHITE : IM_COL32(100, 100, 100, 125));
         tips.push_back({p, 20 * s, l.lamp->name, i});
     }
-    // The party: companions in this world on this map.
+    // The party: members on this map, in this world (their facing when their chr is here) or in
+    // their own world (faded, no facing: VITALS give a position only), each named in its list colour.
     party::hud::Board board;
     party::hud::Read(&board);
     if (board.active) {
         for (int i = 0; i < board.count; ++i) {
             const auto& c = board.c[i];
-            if (!c.same_world || !c.have_pos || Region(c.map_id) != v.region) continue;
+            const MemberDot dot = MemberOnMap(c.connected, c.have_pos, c.same_world, c.map_id, v.region);
+            if (dot == MemberDot::Hidden) continue;
             const ImVec2 p = project(c.pos[0], c.pos[2]);
             if (!on_canvas(p, 0)) continue;
             const ImU32 base = MemberBase(c);
-            PlayerSymbol(draw, art, p, s, c.have_yaw ? c.yaw : 0.0f, base);
-            draw->AddText(ImGui::GetFont(), 14 * s, ImVec2(p.x + 22 * s, p.y - 8 * s), base, c.name);
-            tips.push_back({p, 18 * s, c.name});
+            std::string label = c.name;
+            if (dot == MemberDot::Here) {
+                PlayerSymbol(draw, art, p, s, c.have_yaw ? c.yaw : 0.0f, base);
+            } else {
+                draw->AddCircleFilled(p, 12.0f * s, IM_COL32(20, 29, 29, 150), 24);
+                draw->AddCircle(p, 12.0f * s, WithAlpha(base, 150), 24, 1.2f * s);
+                draw->AddCircleFilled(p, 5.0f * s, WithAlpha(base, 170), 16);
+                label += BbSettings::MenuText(" (own world)", " (свой мир)");
+            }
+            if (c.spectating) label += BbSettings::MenuText(" (spectating)", " (наблюдает)");
+            draw->AddText(ImGui::GetFont(), 14 * s, ImVec2(p.x + 22 * s, p.y - 8 * s), dot == MemberDot::Here ? base : WithAlpha(base, 170),
+                          label.c_str());
+            tips.push_back({p, 18 * s, label});
         }
     }
     // The player, facing their way (the character's yaw: forward = (sin, 0, cos)).

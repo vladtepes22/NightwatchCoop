@@ -214,6 +214,15 @@ int main(int argc, char** argv) {
     CHECK(StepFloor(heights, -1, 1) == 1 && StepFloor(heights, -1, -1) == 0);  // none drawn: lowest / highest
     CHECK(StepFloor({0, 0, 0}, 0, 1) == 1 && StepFloor({0, 0, 0}, 2, 1) == 0);  // equal heights: floor order
     CHECK(StepFloor({2, NAN}, 0, 1) == 1 && StepFloor({2}, 0, 1) == -1 && StepFloor(heights, 1, 0) == -1);
+    // Party members on the map: in this world, in their own world on the same map, or not shown.
+    CHECK(MemberOnMap(true, true, true, 0x18000000u, "m24_00_00_00") == MemberDot::Here);
+    CHECK(MemberOnMap(true, true, false, 0x18000000u, "m24_00_00_00") == MemberDot::OwnWorld);
+    CHECK(MemberOnMap(true, true, true, 0x18010000u, "m24_00_00_00") == MemberDot::Hidden);  // another area
+    CHECK(MemberOnMap(false, true, true, 0x18000000u, "m24_00_00_00") == MemberDot::Hidden);  // lost
+    CHECK(MemberOnMap(true, false, true, 0x18000000u, "m24_00_00_00") == MemberDot::Hidden);  // no position
+    CHECK(MemberOnMap(true, true, true, 0, "m24_00_00_00") == MemberDot::Hidden);             // map unknown
+    CHECK(MemberOnMap(true, true, true, 0xffffffffu, "") == MemberDot::Hidden);
+    CHECK(MemberOnMap(true, true, false, 0x1d000000u, "") == MemberDot::Hidden);              // a Chalice Dungeon
     // Cross / Enter / click: the first press selects a lamp, the second on it travels.
     CHECK(OnConfirm(2, -1, true, false) == Confirm::Select && OnConfirm(2, 1, true, true) == Confirm::Select);
     CHECK(OnConfirm(2, 2, true, false) == Confirm::Travel && OnConfirm(2, 2, true, true) == Confirm::Travel);
