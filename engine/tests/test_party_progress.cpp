@@ -254,6 +254,13 @@ static void TestPolicy() {
     CHECK(ModeFor(p, 12101800) == SyncMode::SetOnly);  // boss_defeated
     CHECK(ModeFor(p, 12101802) == SyncMode::SetOnly);  // cutscene_seen
     CHECK(ModeFor(p, 21) == SyncMode::Off);            // ending: player-owned
+    // 0.7.6: the Insight shop's Chalice boss unlocks (5090 Bone Ash, 5091 Madman; no item lot carries them)
+    // are shared progress: before, the item-lot range 5000-5299 left them with the host (C3 has no lot to replay)
+    CHECK(CategoryOf(5090) == Category::world_state && ModeFor(p, 5090) == SyncMode::SetOnly);
+    CHECK(CategoryOf(5091) == Category::world_state && ModeFor(p, 5091) == SyncMode::SetOnly);
+    CHECK(CategoryOf(5100) == Category::item_lot_picked && ModeFor(p, 5100) == SyncMode::Off);  // a lot's pickup flag: C3
+    CHECK(CategoryOf(5053) == Category::item_lot_picked);                                       // a shop gate WITH a lot: per player
+    CHECK(ModeFor(p, 5500) == SyncMode::Off && ModeFor(p, 6000) == SyncMode::Off);              // owns-the-weapon / personal block
     CHECK(ModeFor(p, 9802) == SyncMode::Off);          // time of day: C4 only
     CHECK(!HostCandidate(9800) && !HostCandidate(2410) && !HostCandidate(3601));
     CHECK(ModeFor(p, 12100180) == SyncMode::Off);      // ending event

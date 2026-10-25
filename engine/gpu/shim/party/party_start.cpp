@@ -54,6 +54,10 @@ const char* StartStepName(StartStep s) {
     return "?";
 }
 
+bool WeaponsDone(const StartFlags& f) {
+    return f.ng_plus || (f.weapon_right && f.weapon_left);
+}
+
 StartStep ClassifyStart(const StartFlags& f, bool in_world) {
     if (!in_world) {
         return StartStep::NoWorld;
@@ -67,7 +71,7 @@ StartStep ClassifyStart(const StartFlags& f, bool in_world) {
     if (!f.first_dream) {
         return StartStep::Clinic;
     }
-    if (!f.weapon_right || !f.weapon_left || !LeftFirstDream(f)) {
+    if (!WeaponsDone(f) || !LeftFirstDream(f)) {
         return StartStep::FirstDream;
     }
     return StartStep::Ready;
@@ -106,7 +110,7 @@ std::string DescribeStart(const StartFlags& f, bool in_world) {
                   StartStepName(ClassifyStart(f, in_world)), f.opening_done, f.cutscene, f.first_death, f.first_dream,
                   f.weapon_right, f.weapon_left, f.doll_awake, f.beckoning_lot, f.resonant_shop, f.beckoning_count,
                   f.resonant_count,
-                  f.weapon_right && f.weapon_left && !LeftFirstDream(f)
+                  WeaponsDone(f) && !LeftFirstDream(f)
                       ? (f.map_id == 0 || f.map_id == 0xffffffffu ? "; map not known yet"
                                                                   : "; first Dream visit: the headstone to Yharnam ends the prologue")
                       : "");

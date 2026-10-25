@@ -272,7 +272,15 @@ static void TestFirstEncounter() {
     CHECK(!Grant(0, false));
 }
 
+static void TestMixedNgNotice() {
+    using namespace coop::ngguard;
+    CHECK(MixedNgNotice(1, 1).empty() && MixedNgNotice(-1, 1).empty() && MixedNgNotice(1, -1).empty());
+    const std::string n = MixedNgNotice(1, 2);
+    CHECK(n.find("NG+2") != std::string::npos && n.find("NG+1") != std::string::npos);
+}
+
 int main() {
+    TestMixedNgNotice();
     TestFirstEncounter();
     TestNgGuard();
     TestStain();

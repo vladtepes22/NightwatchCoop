@@ -188,6 +188,8 @@ struct StoryAction {
     int ending = 0;
     bool mirror = false;    ///< part of a live mirror
     std::string why;        ///< log text
+    std::uint64_t seq = 0;  ///< NgCycle: the ending story's seq (GuestStory::EndingNgTarget)
+    std::uint32_t ending_id = 0;
 };
 const char* StoryActionName(StoryAction::Kind k);
 
@@ -257,6 +259,17 @@ public:
     /// The item running now is a summoned replay (mode-2 play, own-pool writes).
     bool RunningSummoned() const { return running_ && running_summoned_; }
     bool Seen(std::uint32_t remo_id) const;
+    /// 0.7.6: one party ending advances the own save exactly one NG cycle. The cycle value the
+    /// ending replay's NG step writes (`current` = the live cycle): the first time for story `seq`
+    /// min(current + 1, 7), remembered (and saved in the sidecar); a replay of the same ending
+    /// (the game closed in the staff roll, the replay resumed from the sidecar) writes the same
+    /// target again, never one more. Also notes the ending as just played (dedupe window).
+    std::uint32_t EndingNgTarget(std::uint64_t seq, std::uint32_t ending, std::uint32_t current, double now);
+    /// An offered ending of this id that duplicates the one running, queued or played a moment ago.
+    bool DuplicateEnding(std::uint32_t ending, double now) const;
+    /// After an ending's cycle step, another offer of the same type inside this span is the same
+    /// ending (the host's event report and its flag poll, a resend): 15 minutes.
+    static constexpr double kEndingDedupeSeconds = 900.0;
     /// The guest watched this scene in its own world (its own event played it): a later catch-up
     /// replay of the host's copy skips the scene and keeps only its flags / time of day.
     void NoteSeen(std::uint32_t remo_id);
@@ -347,6 +360,10 @@ private:
     std::uint32_t mirror_other_map_at_ = 0;  ///< the guest's map then
     std::uint32_t mirror_nearby_ = 0;        ///< a mirror played outside its block; TakeMirrorNearby
     std::uint64_t last_seq_ = 0;
+    std::uint64_t ng_seq_ = 0;     ///< the ending story whose cycle step ran (saved)
+    std::uint32_t ng_target_ = 0;  ///< the cycle it wrote (saved)
+    std::uint32_t ended_id_ = 0;   ///< the ending type played last (this process)
+    double ended_at_ = -1e9;
     int stable_mirror_ = 0, stable_own_ = 0;
     bool dirty_ = false;
 

@@ -1122,6 +1122,39 @@ static void test_host_scene_end_ends_mirror() {
     }
 }
 
+// 0.7.6: one party ending = one NG cycle in a guest's save (a guest was one cycle ahead of the party).
+static void test_ending_one_cycle() {
+    GuestStory g;
+    double t = 100;
+    // First run of the ending's cycle step: +1; the same ending again (the replay resumed from the
+    // sidecar after the game closed in the staff roll) writes the same target, never one more.
+    CHECK(g.EndingNgTarget(65, 3, 1, t) == 2);
+    CHECK(g.EndingNgTarget(65, 3, 2, t + 5) == 2);   // already there: unchanged
+    CHECK(g.EndingNgTarget(65, 3, 1, t + 9) == 2);   // save reverted to the old cycle: brought to 2, not 3
+    CHECK(g.EndingNgTarget(65, 3, 7, t + 9) == 7);   // never turned back
+    GuestStory h;
+    CHECK(h.FromJson(g.ToJson()));                    // survives a restart through the sidecar
+    CHECK(h.EndingNgTarget(65, 3, 2, 500) == 2);
+    CHECK(h.EndingNgTarget(90, 3, 2, 600) == 3);      // a later, different ending counts
+    CHECK(h.EndingNgTarget(91, 1, 7, 700) == 7);      // capped at 7
+    // A resend of the same ending type soon after is a duplicate; another type or much later is not.
+    GuestStory d;
+    CHECK(d.EndingNgTarget(10, 3, 0, 1000) == 1);
+    StoryIntent e;
+    e.kind = StoryKind::Ending;
+    e.id = 3;
+    e.seq = 11;
+    CHECK(d.DuplicateEnding(3, 1010) && !d.DuplicateEnding(2, 1010));
+    CHECK(d.Offer(e, false, 1010) && d.QueueSize() == 0);   // dropped, not queued
+    CHECK(!d.DuplicateEnding(3, 1000 + GuestStory::kEndingDedupeSeconds + 1));
+    // The running ending is not queued a second time either.
+    GuestStory r;
+    e.seq = 20;
+    CHECK(r.Offer(e, false, 10) && r.QueueSize() == 1);
+    e.seq = 21;
+    CHECK(r.Offer(e, false, 11) && r.QueueSize() == 1);
+}
+
 int main() {
     test_tables();
     test_guest_phase_change();
@@ -1147,6 +1180,7 @@ int main() {
     test_own_intro_held_for_host();
     test_mirror_at_block_boundary();
     test_host_scene_end_ends_mirror();
+    test_ending_one_cycle();
     std::printf("party-story-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

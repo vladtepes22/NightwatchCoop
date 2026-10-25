@@ -95,6 +95,20 @@ static void test_steps() {
         CHECK(StartReady(StartMode::PrologueSolo, f, true));
         CHECK(InHuntersDream(0x15000000u) && !InHuntersDream(0x18010000u) && !InHuntersDream(0xffffffffu));
     }
+    // 0.7.6 NG+: the new cycle resets the weapon flags, the player skips the picks and leaves the
+    // Dream: the log showed 'first-dream ... 12101020 0, 12101021 0' forever in Central Yharnam.
+    {
+        StartFlags f = Flags(true, true, false, false);  // m24_01, no picks
+        CHECK(ClassifyStart(f, true) == StartStep::FirstDream);  // a first playthrough still needs them
+        f.ng_plus = true;
+        CHECK(ClassifyStart(f, true) == StartStep::Ready);
+        CHECK(StartReady(StartMode::PrologueSolo, f, true));
+        f.map_id = 0x15000000u;  // still in the Dream: the first Dream visit is not over
+        CHECK(ClassifyStart(f, true) == StartStep::FirstDream);
+        f.first_dream = false;   // the NG+ opening/clinic replays first
+        CHECK(ClassifyStart(f, true) == StartStep::Clinic);
+        CHECK(WeaponsDone(f) && !WeaponsDone(Flags(true, true, true, false)));
+    }
     CHECK(std::string(StartStepName(StartStep::Clinic)) == "clinic");
 }
 

@@ -363,12 +363,18 @@ def find_emedf(game_event_dir):
     raise FileNotFoundError("common.emedf(.dcx) not found in the event folder")
 
 
-def expand_all(event_dir, emedf, only=None):
-    """{file stem: records}; common.emevd last, with the map files' calls into it resolved."""
+def expand_all(event_dir, emedf, only=None, cross_map=False):
+    """{file stem: records}; common.emevd last, with the map files' calls into it resolved.
+
+    cross_map: also resolve the calls a map file (m29_20_90_00) makes into an event another file defines
+    (m29.emevd's area-wide events such as 12906824 "set a dedicated flag on a boss defeat"): without it
+    those instances keep unresolved parameters and the flags they set show as 0."""
     files = list(event_files(event_dir))
     allrec, external = {}, {}
     common = [f for f in files if f[0] == "common"]
     common_ids = {e["id"] for e in Emevd(read_maybe_dcx(common[0][1])).events} if common else set()
+    own_ids = {stem: {e["id"] for e in Emevd(read_maybe_dcx(p)).events} for stem, p, _eld in files} if cross_map else {}
+    ext_by_file = {}
     for stem, p, eld in files:
         if stem == "common":
             continue
@@ -378,8 +384,17 @@ def expand_all(event_dir, emedf, only=None):
             for slot, target, pbuf in r["calls"]:
                 if target in common_ids and target not in own:
                     external.setdefault(target, []).append((slot, pbuf, f"{stem}:{r['event']}"))
+                elif cross_map and target not in own:
+                    for ostem, ids in own_ids.items():
+                        if ostem not in ("common", stem) and target in ids:
+                            ext_by_file.setdefault(ostem, {}).setdefault(target, []).append((slot, pbuf, f"{stem}:{r['event']}"))
         if not only or stem == only:
             allrec[stem] = recs
+    for ostem, ext in ext_by_file.items():  # re-expand the files that received cross-map calls
+        if only and ostem != only:
+            continue
+        _s, p, eld = next(f for f in files if f[0] == ostem)
+        allrec[ostem] = expand_file(p, emedf, eld, ext)
     for stem, p, eld in common:
         if not only or stem == only:
             allrec[stem] = expand_file(p, emedf, eld, external)
@@ -486,6 +501,8 @@ def param_flags(parambnd, paramdefbnd):
     for r in P["ShopLineupParam"]:
         if r.get("eventFlag", 0) > 0:
             res.append((r["eventFlag"], "ShopLineupParam.eventFlag", r["id"], f"qty {r.get('sellQuantity')}"))
+        if r.get("qwcId", 0) > 0:
+            res.append((r["qwcId"], "ShopLineupParam.qwcId", r["id"], "shop row gate"))
     for r in P["ObjActParam"]:
         if r.get("spQualifiedPassEventFlag", 0) > 0:
             res.append((r["spQualifiedPassEventFlag"], "ObjActParam.spQualifiedPassEventFlag", r["id"], ""))
@@ -726,6 +743,9 @@ def esc(s):
     return s.replace("\\", "\\\\").replace('"', "'")
 
 
+SHOP_OWN_RANGE = (5500, 5521)  # common event 5500+slot "the player owns weapon X": per player
+
+
 def gen_specific(allrec, pflags):
     """{flag id: (category, note, priority)} from the data."""
     spec = {}
@@ -799,8 +819,25 @@ def gen_specific(allrec, pflags):
     for f, src, rid, _n in pflags:
         if src.startswith("ItemLotParam") and src != "ItemLotParam.cumulateNumFlagId":
             put(f, "item_lot_picked", f"{src} row {rid}", 2)
-        elif src.startswith("ShopLineupParam"):
+        elif src.startswith("ShopLineupParam") and not src.endswith("qwcId"):
             put(f, "never_sync", f"shop stock row {rid} (per-player purchase)", 2)
+    # Messenger shop gates (ShopLineupParam.qwcId) that are story / boss progress: the guest must get them
+    # from the party (C2 world_state, set-only), or its shop never lists the row (0.7.6: Bone Ash / Madman
+    # sets, flags 5090 / 5091, were in the item-lot range 5000-5299, which only C3's lot replay delivers, and
+    # no lot carries them). Per-player gates stay per player: pickup flags of a lot, "owns the weapon" 5500-5521,
+    # the personal block 6000-8999, the chalice runtime groups (type 9).
+    lot_flags = {f for f, src, _r, _n in pflags if src.startswith("ItemLotParam")}
+    static = structural_rows()
+    for f, src, rid, _n in pflags:
+        if src != "ShopLineupParam.qwcId" or f in lot_flags or SHOP_OWN_RANGE[0] <= f <= SHOP_OWN_RANGE[1]                 or 6000 <= f <= 8999 or f >= 90000000:
+            continue
+        old = spec.get(f)
+        if old is not None:
+            have = old[0]
+        else:
+            have = next((c for lo, hi, c, _x in static if lo <= f <= hi), "never_sync")
+        if have in ("item_lot_picked", "never_sync", "session_runtime"):
+            put(f, "world_state", f"shop gate (ShopLineupParam {rid}): progress without an item lot, shared set-only", 10)
     return spec
 
 

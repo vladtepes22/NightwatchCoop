@@ -555,6 +555,10 @@ StartFlags ReadStartFlags() {
             break;
         }
     }
+    {
+        const std::uint32_t ng = Field<std::uint32_t>(Slot(kGameDataMan), 0x68, 0u);  // GameDataMan +0x68: NG cycle
+        f.ng_plus = ng > 0 && ng <= 7;
+    }
     f.beckoning_count = GoodsCount(kGoodsBeckoning);
     f.resonant_count = GoodsCount(kGoodsSmallResonant);
     return f;

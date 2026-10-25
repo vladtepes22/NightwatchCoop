@@ -359,6 +359,7 @@ std::atomic<bool> g_headstones{false};
 std::atomic<int> g_session_role{-1};       // the tick's last read (the interceptor's thread)
 std::atomic<std::uint32_t> g_multi_overrides{0};
 std::atomic<std::uint32_t> g_lamp_talk_overrides{0};
+std::atomic<std::uint32_t> g_lamp_talk_held{0};  // a guest's lamp kept closed during / right after an NPC talk
 // Diagnostics: the talk scripts that asked IsMultiplayerInProgress (logged by the tick, once each).
 std::atomic<std::uint32_t> g_multi_talks[16];
 std::atomic<std::uint32_t> g_client_talks[16];  // ... and IsClientPlayer (any map)
@@ -432,6 +433,22 @@ void NoteEnv(std::uint64_t env) {
     }
 }
 
+double Now();
+
+// 0.7.6: seconds since the guest's own NPC conversation was last on: its talk playing, or the item-get
+// box a conversation's gift opens (MessageUI +0x130; its OK press is the one that fell through to a lamp
+// in reach). 0 while either is up. Main thread. BB_PARTY_LAMP_TALK_GRACE=0 (tests only) turns the hold off.
+double ConversationIdleSeconds() {
+    static double last_box = -1e9;
+    const double now = Now();
+    std::uint64_t ui = 0;
+    std::uint32_t up = 0;
+    if (SafeGet(Guest(0x5562878), &ui) && ui && SafeGet(ui + 0x130, &up) && up != 0) {
+        last_box = now;
+    }
+    return std::min(npctalk::LocalTalkIdleSeconds(), now - last_box);
+}
+
 // The same filter, outside the Dream gate: a guest's world lamp (BB_PARTY_GUEST_LAMPS) answers 0 so
 // its menu opens; its warp becomes a lamp request to the host (GuestLampIntercept).
 std::uint64_t LampClientAnswer(std::uint64_t env, std::uint64_t value) {
@@ -439,6 +456,13 @@ std::uint64_t LampClientAnswer(std::uint64_t env, std::uint64_t value) {
     const bool lamp = LampTalk(talk) || (ChaliceLampTalk(talk) && ChaliceLampsOn());
     if (!lamp || HeadstoneTalk(talk) || !g_lamps.load(std::memory_order_relaxed) ||
         g_session_role.load(std::memory_order_relaxed) != kSessionRoleClient) {
+        return value;
+    }
+    // 0.7.6: not while the local game's NPC talk plays or just stopped (the talk's Cross press fell
+    // through to a lamp in reach: a guest at a window resident sat down at the lamp and got its list).
+    static const bool hold = !(std::getenv("BB_PARTY_LAMP_TALK_GRACE") && std::getenv("BB_PARTY_LAMP_TALK_GRACE")[0] == '0');
+    if (hold && !lamptravel::GuestLampMayOpen(ConversationIdleSeconds())) {
+        g_lamp_talk_held.fetch_add(1, std::memory_order_relaxed);
         return value;
     }
     g_lamp_talk_overrides.fetch_add(1, std::memory_order_relaxed);
@@ -2234,6 +2258,14 @@ void LogLampTalks() {
     if (const std::uint32_t m = g_lamp_talk_overrides.exchange(0, std::memory_order_relaxed); m && !g.test.empty()) {
         Log("guest lamp talk asked IsClientPlayer %u times (answered 0)", m);
     }
+    if (const std::uint32_t m = g_lamp_talk_held.exchange(0, std::memory_order_relaxed); m) {
+        // A lamp kept closed during / right after the guest's NPC talk: one line a minute at most.
+        static double last_held = -1e9;
+        if (Now() - last_held >= 60.0 || !g.test.empty()) {
+            last_held = Now();
+            Log("guest lamp kept closed while an NPC talk plays or just stopped (%u IsClientPlayer answers left as before)", m);
+        }
+    }
     static std::uint32_t client_logged[16] = {};
     for (int i = 0; i < 16; ++i) {
         const std::uint32_t t = g_client_talks[i].load(std::memory_order_relaxed);
@@ -2289,6 +2321,21 @@ void LampTick(const GameSnapshot& s, party::PartyLink* link) {
                 Log("test: entprobe %d: no map object here (map %s)", ent, MapName(s.map_id).c_str());
             }
             }
+        }
+    }
+    if (g.test.find("promptlog") != std::string::npos && s.world_up && !s.loading) {
+        // "promptlog" (with buttonprobe): once a second the prompt on screen, the action-button registrations
+        // of that second and where the player stands (the NPC / lamp action-target tests).
+        static double last_prompt = 0;
+        if (Now() - last_prompt >= 1.0) {
+            last_prompt = Now();
+            float me[4] = {};
+            if (s.player) SafeRead(s.player + 0xc0, me, sizeof me);
+            std::uint32_t prompt = 0;
+            const bool up = PromptUp(&prompt);
+            Log("test: promptlog: map %s at (%.1f, %.1f, %.1f): prompt %s %u, conversation idle %.1f s", MapName(s.map_id).c_str(),
+                me[0], me[1], me[2], up ? "up" : "not seen", prompt, std::min(ConversationIdleSeconds(), 999.0));
+            if (g.test.find("buttonprobe") != std::string::npos) LogButtons();
         }
     }
     if (!g.test.empty()) {

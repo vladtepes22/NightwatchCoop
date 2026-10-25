@@ -62,6 +62,18 @@ inline int LiveNg(const View& v) {
     return v.host;
 }
 
+/// The note shown to a guest summoned into a host at another NG cycle (0.7.6: before it was a log line
+/// only, and a player whose save had run ahead of the party never learned why the worlds differed).
+/// Empty when the cycles match or one is unknown.
+inline std::string MixedNgNotice(int host, int own) {
+    if (host < 0 || own < 0 || host == own) return std::string();
+    char t[200];
+    std::snprintf(t, sizeof t,
+                  "Your save is in NG+%d, the host's world is NG+%d: you play the host's world at its NG+%d; "
+                  "your own save keeps NG+%d", own, host, host, own);
+    return t;
+}
+
 /// While in the host's world: the restore value / flag must hold the own cycle (so the save and the
 /// next own-world load keep it) - checked also during a load, after the MoveMapStep ctor re-saved
 /// the live value.

@@ -424,6 +424,9 @@ bool GuestStory::Offer(const StoryIntent& s, bool in_host_world, double now) {
     }
     if (s.kind == StoryKind::Ending) {
         mirror_.reset(); // the ending is replayed as a whole in the own world
+        if (DuplicateEnding(s.id, now)) {
+            return true; // 0.7.6: one party ending = one cycle (a resend after the cycle step)
+        }
         for (const StoryIntent& q : queue_) {
             if (q.kind == StoryKind::Ending && q.id == s.id) {
                 return true; // the event and the flag poll both report it
@@ -437,6 +440,25 @@ bool GuestStory::Offer(const StoryIntent& s, bool in_host_world, double now) {
         queue_.push_back(s);
     }
     return true;
+}
+
+std::uint32_t GuestStory::EndingNgTarget(std::uint64_t seq, std::uint32_t ending, std::uint32_t current, double now) {
+    ended_id_ = ending;
+    ended_at_ = now;
+    if (seq != 0 && seq == ng_seq_) {
+        return current > ng_target_ ? current : ng_target_;  // the same ending again: never one more
+    }
+    ng_seq_ = seq;
+    ng_target_ = current + 1 > 7 ? 7 : current + 1;
+    dirty_ = true;
+    return ng_target_;
+}
+
+bool GuestStory::DuplicateEnding(std::uint32_t ending, double now) const {
+    if (running_ && !running_mirror_ && cur_.kind == StoryKind::Ending && cur_.id == ending) {
+        return true;
+    }
+    return ended_id_ == ending && now - ended_at_ < kEndingDedupeSeconds;
 }
 
 bool GuestStory::Busy() const {
@@ -756,6 +778,8 @@ std::optional<StoryAction> GuestStory::RunOps(const StoryState& st, double now) 
             op_started_ = false;
             StoryAction a;
             a.kind = StoryAction::NgCycle;
+            a.seq = cur_.seq;
+            a.ending_id = cur_.id;
             a.why = "ending";
             return a;
         }
@@ -930,6 +954,8 @@ std::optional<StoryAction> GuestStory::Step(const StoryState& st, double now) {
 json::Value GuestStory::ToJson() const {
     json::Value v = json::Value::make_object();
     v.set("last_seq", json::hex(last_seq_));
+    v.set("ng_seq", json::hex(ng_seq_));
+    v.set("ng_target", static_cast<unsigned>(ng_target_));
     json::Value q = json::Value::make_array();
     // An item under way is kept (replayed again after a restart: its steps are idempotent).
     if (running_ && !running_mirror_) {
@@ -966,6 +992,10 @@ bool GuestStory::FromJson(const json::Value& v, std::string* error) {
             seen.insert(static_cast<std::uint32_t>(json::as_u64(id, "seen")));
         }
         last_seq_ = std::max(last_seq_, json::u64(v, "last_seq"));
+        if (v.find("ng_seq")) {
+            ng_seq_ = json::u64(v, "ng_seq");
+            ng_target_ = static_cast<std::uint32_t>(json::u64(v, "ng_target"));
+        }
         queue_ = std::move(q);
         seen_ = std::move(seen);
         return true;
@@ -1476,9 +1506,13 @@ void Run(const StoryAction& a) {
         const u64 gdm = Slot(kGameDataMan);
         u32 ng = Field<u32>(gdm, 0x68, 0xffffffffu);
         if (ng != 0xffffffffu) {
-            const u32 next = ng + 1 > 7 ? 7 : ng + 1;
-            SafeWrite(gdm + 0x68, &next, 4);
-            Log("NG cycle %u -> %u", ng, next);
+            u32 next;
+            {
+                std::lock_guard<std::mutex> lk(g_guest_mu);
+                next = g_guest.EndingNgTarget(a.seq, a.ending_id, ng, Now());
+            }
+            if (next != ng) SafeWrite(gdm + 0x68, &next, 4);
+            Log("NG cycle %u -> %u%s", ng, next, next == ng ? " (this ending already counted: not one more)" : "");
         }
         break;
     }

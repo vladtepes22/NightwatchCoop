@@ -773,7 +773,7 @@ void UpdateStart(State& st, const GameSnapshot& s, StartMode mode) {
     }
     // #19: the first Dream visit lasts until the headstone takes the player out of the Dream.
     st.cs.map_id = in_world ? s.map_id : 0xffffffffu;
-    if (in_world && st.cs.flags_ok && st.cs.weapon_right && st.cs.weapon_left && st.cs.first_dream &&
+    if (in_world && st.cs.flags_ok && WeaponsDone(st.cs) && st.cs.first_dream &&
         !st.left_first_dream && s.map_id != 0 && s.map_id != 0xffffffffu && !InHuntersDream(s.map_id)) {
         st.left_first_dream = true;
         Log("start: out of the first Hunter's Dream visit (%s): the prologue is over for this player",

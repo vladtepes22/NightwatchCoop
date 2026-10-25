@@ -69,10 +69,17 @@ struct StartFlags {
     /// visit ends with the headstone (#19). Not flags of the save, filled in by the caller.
     std::uint32_t map_id = 0xffffffffu;
     bool left_first_dream = false;
+    /// NG+ (GameDataMan +0x68 > 0): the weapon flags are reset by the new cycle and the Dream's
+    /// messengers offer the weapons again, but the player has been through the prologue story: out
+    /// of the first Dream visit counts without the picks (0.7.6: the host stuck 'in prologue').
+    bool ng_plus = false;
 };
 
 /// The Hunter's Dream (m21_00; the Abandoned Old Workshop m21_01 is not it). Unknown -> false.
 bool InHuntersDream(std::uint32_t map_id);
+
+/// Both starting weapons taken, or NG+ (the flags are reset there; see StartFlags::ng_plus).
+bool WeaponsDone(const StartFlags& f);
 /// Out of the first Dream visit: the latch, the Doll awake (Insight: well past the prologue) or a
 /// known map that is not the Dream. An unknown map (the first ticks after a load) is not.
 bool LeftFirstDream(const StartFlags& f);

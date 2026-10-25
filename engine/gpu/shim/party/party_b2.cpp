@@ -7603,6 +7603,8 @@ void NgGuardTick(const GameSnapshot& s) {
             logged_host = host;
             Log("NG guard: summoned into NG cycle %d (own %d%s)", host, own,
                 host != own ? ": mixed NG cycles, the own save keeps its own" : "");
+            const std::string note = ngguard::MixedNgNotice(host, own);
+            if (!note.empty()) party::status::SetAlert(note);
         }
     }
     const ngguard::Act act = ngguard::Plan(v);

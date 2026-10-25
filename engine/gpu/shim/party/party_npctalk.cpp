@@ -863,6 +863,13 @@ void OnEvent(int slot, const std::string& body) {
     if (g_in.size() < 128) g_in.emplace_back(slot, body);
 }
 
+double LocalTalkIdleSeconds() {
+    static double last_playing = -1e9;  // main thread only
+    const double now = Now();
+    if (LocalTalkPlaying()) last_playing = now;
+    return now - last_playing;
+}
+
 void Tick(const GameSnapshot& s, PartyLink* link) {
     const bool enabled = Enabled();
     g_on.store(enabled && g_installed);

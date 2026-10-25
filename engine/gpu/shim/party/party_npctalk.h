@@ -170,6 +170,9 @@ private:
 // ---- game side ----
 /// Hooks (observers: they only read). Before the game runs (PartyInit).
 void Init();
+/// Main thread: seconds since the local game's own NPC talk last played (0 while one plays, a huge
+/// number when none did). A guest's lamp waits for it (lamp_travel_rules.h GuestLampMayOpen).
+double LocalTalkIdleSeconds();
 /// Main thread, once a frame (the director's tick).
 void Tick(const GameSnapshot& s, party::PartyLink* link);
 /// Link thread: EVENT npc_talk from `slot` (host: a guest's; guest: the host's / relayed).
