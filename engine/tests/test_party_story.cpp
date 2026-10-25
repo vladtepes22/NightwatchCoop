@@ -673,7 +673,7 @@ static void test_endings() {
         g.Offer(e, false, t);
         StoryState dream = OwnWorld();
         dream.map_id = 0x15000000;
-        std::vector<StoryAction::Kind> kinds;
+        std::vector<int> kinds;
         for (int i = 0; i < 6; ++i) {
             auto a = Until(g, dream, t);
             CHECK(a.has_value());
@@ -824,8 +824,10 @@ static void test_guest_intro_once_on_host() {
 // User decision (2026-10-15): the host's ending asks the guest first (pard3).
 static void test_ending_question() {
     CHECK(GuestEndingType(1, false) == 1 && GuestEndingType(1, true) == 1);  // the host submitted: A
-    CHECK(GuestEndingType(2, false) == 2 && GuestEndingType(2, true) == 3);  // refused: the guest's cords
-    CHECK(GuestEndingType(3, false) == 2 && GuestEndingType(3, true) == 3);
+    // 0.7.6: always the host's ending, whatever the guest's own cords (the ng_plus_coop session: the host
+    // played Childhood's Beginning, a guest without the cords got Honoring Wishes).
+    CHECK(GuestEndingType(2, false) == 2 && GuestEndingType(2, true) == 2);
+    CHECK(GuestEndingType(3, false) == 3 && GuestEndingType(3, true) == 3);
     auto ending = [](std::uint64_t seq) {
         StoryIntent e;
         e.seq = seq;
@@ -853,6 +855,54 @@ static void test_ending_question() {
         a = Until(g, dream, t);
         CHECK(a && a->kind == StoryAction::SetFlags &&
               a->flags == (std::vector<std::uint32_t>{12101800, 12101850, 9180}));  // C, the guest's own
+    }
+    {  // 0.7.6: the host's ending 3 (Childhood's Beginning), a guest without the cords: the whole
+       // sequence is the host's - cutscene 21000030, then the NG cycle once, then the credits flag 23.
+        double t = 0;
+        StoryIntent e3 = ending(9);
+        e3.id = 3;
+        GuestStory h;
+        CHECK(h.Offer(e3, true, t));
+        StoryState ph = Phantom();
+        auto a = Until(h, ph, t);
+        CHECK(a && a->kind == StoryAction::AskEnding && a->ending == 3);
+        h.AnswerEnding(true, GuestEndingType(3, false));
+        a = Until(h, ph, t);
+        CHECK(a && a->kind == StoryAction::TravelDream);
+        StoryState load = ph;
+        load.loading = true;
+        load.world_up = false;
+        CHECK(!Until(h, load, t, 5));
+        StoryState dream = OwnWorld();
+        dream.map_id = 0x15000000;
+        std::vector<int> kinds;
+        std::vector<std::uint32_t> remos;
+        int ng = 0;
+        for (int i = 0; i < 4000; ++i) {
+            t += 0.1;
+            const StoryState& st = dream;
+            auto b = h.Step(st, t);
+            if (!b) {
+                continue;
+            }
+            kinds.push_back(b->kind);
+            if (b->kind == StoryAction::PlayRemo) {
+                remos.push_back(b->id);
+            }
+            ng += b->kind == StoryAction::NgCycle;
+        }
+        CHECK(remos.size() == 1 && remos[0] == 21000030);  // never Honoring Wishes (21000020)
+        CHECK(ng == 1);                                    // the next cycle once
+        // order: cutscene before the NG cycle before the credits flag
+        auto idx = [&](int k) {
+            for (std::size_t i = 0; i < kinds.size(); ++i) {
+                if (kinds[i] == k) {
+                    return static_cast<int>(i);
+                }
+            }
+            return -1;
+        };
+        CHECK(idx(StoryAction::PlayRemo) >= 0 && idx(StoryAction::PlayRemo) < idx(StoryAction::NgCycle));
     }
     {  // NOT NOW: home to the own Dream only, no flags, no NG cycle
         GuestStory g;

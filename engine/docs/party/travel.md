@@ -568,3 +568,16 @@ Open:
 
 * Headstone menu: three Cross presses after the row (row, then the confirmation dialog); the menu
   text ids were not identified (the script waits for fresh text lookups).
+
+## Audit: the ng_plus_coop session's "a few wrong teleports" (0.7.6)
+
+Host log vs the two logs of one guest (consecutive sessions), every `host travel #seq ... lamp/map` against the
+guest's `replay now #seq`: 26 travels (lamp warps and host deaths) replayed with the same lamp id, map and
+respawn record, none missing inside the guest's log windows, none with another destination; the post-ending
+travels (#982/#983, NG+) were held by the prologue rule (#19). Arrival placements ("placed beside the host",
+join arrival 15-27 m -> put beside) are the Dream's spawn spot or the host's spot. The `guest death
+redirect: host's last lamp 2102961 (was 2102950/2402950)` lines are the host's own respawn record after its
+death (the Dream's second lamp, same map), not a mismatch. No wrong destination found: what players saw as
+wrong teleports matches the guest-to-guest link outages (the other guest `no chr`, rebuilt by the next teleport),
+tracked separately. One departure by design: a guest that accepts the ending leaves the host's world for its
+own Hunter's Dream.

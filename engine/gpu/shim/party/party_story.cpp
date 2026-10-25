@@ -666,10 +666,11 @@ void GuestStory::AnswerEnding(bool yes, int ending) {
 }
 
 int GuestEndingType(int host_ending, bool own_three_cords) {
-    if (host_ending == 1) {
-        return 1;
-    }
-    return own_three_cords ? 3 : 2;
+    // 0.7.6: the guest plays the host's ending (cutscene and credits). Until 0.7.5 a refusal/Moon
+    // Presence ending followed the guest's own three-cords flag (9900) and a guest without the cords
+    // got Honoring Wishes after the host's Childhood's Beginning.
+    (void)own_three_cords;
+    return host_ending >= 1 && host_ending <= 3 ? host_ending : 1;
 }
 
 void GuestStory::Finish(bool ok) {
@@ -2277,6 +2278,13 @@ void StoryTick() {
             Log("NG cycle %u%s (map %s, %s)", ng,
                 g_tick.last_ng == 0xffffffffu || ng == g_tick.last_ng ? " at world-up" : " (changed)",
                 MapName(g.map_id).c_str(), Describe(g).c_str());
+            if (g_tick.last_ng != 0xffffffffu && ng != g_tick.last_ng) {
+                // A new cycle: the endings of the last one are over. Without this a second ending in the
+                // same process (NG+) was never announced. Re-baseline so a flag 21/22/23 that stays ON
+                // across the cycle is not news.
+                std::memset(g_tick.ending_sent, 0, sizeof g_tick.ending_sent);
+                g_tick.host_baseline = false;
+            }
             g_tick.last_ng = ng;
             g_tick.ng_logged_for = g_tick.world_since;
         }
@@ -2318,7 +2326,7 @@ void StoryTick() {
                     g_guest.AnswerEnding(yes, type);
                 }
                 Log("ending %d: answer %s (result %d)%s", g_tick.ask_ending, yes ? "YES: play it now" : "NOT NOW", r,
-                    yes ? (type != g_tick.ask_ending ? " - its own ending (three cords: Childhood's Beginning)"
+                    yes ? (type != g_tick.ask_ending ? " - an ending other than the host's (unexpected)"
                                                      : " - the host's ending")
                         : ": home to the own Dream, the save keeps its cycle");
                 if (yes) {
