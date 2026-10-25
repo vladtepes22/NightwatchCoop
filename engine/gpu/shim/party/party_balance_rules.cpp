@@ -26,7 +26,7 @@ bool Rules::operator==(const Rules& o) const {
            guests_bring_lamps == o.guests_bring_lamps && host_revive == o.host_revive &&
            host_limbo_revive == o.host_limbo_revive && kill_record == o.kill_record && npc_mirror == o.npc_mirror &&
            gather == o.gather && covenant_per_player == o.covenant_per_player &&
-           npc_fights == o.npc_fights && any_kidnap == o.any_kidnap &&
+           npc_fights == o.npc_fights && any_kidnap == o.any_kidnap && level_sync == o.level_sync && phantom_hp == o.phantom_hp &&
            rot_cleanse_boss == o.rot_cleanse_boss && rot_cleanse_killer == o.rot_cleanse_killer &&
            rot_cleanse_echoes == o.rot_cleanse_echoes && travel_vote == o.travel_vote;
 }
@@ -95,6 +95,8 @@ std::string ToJson(const Rules& r) {
     v.set("travel_vote", r.travel_vote);
     v.set("npc_fights", r.npc_fights);
     v.set("any_kidnap", r.any_kidnap);
+    v.set("level_sync", r.level_sync);
+    v.set("phantom_hp", r.phantom_hp);
     return json::dump(v, 0);
 }
 
@@ -125,7 +127,8 @@ bool FromJson(const std::string& text, Rules* out, std::string* error) {
     for (auto [key, to] : {std::pair<const char*, bool*>{"kill_record", &r.kill_record},
                            {"npc_mirror", &r.npc_mirror}, {"gather", &r.gather},
                            {"covenant_per_player", &r.covenant_per_player}, {"travel_vote", &r.travel_vote},
-                           {"npc_fights", &r.npc_fights}, {"any_kidnap", &r.any_kidnap}})
+                           {"npc_fights", &r.npc_fights}, {"any_kidnap", &r.any_kidnap},
+                           {"level_sync", &r.level_sync}, {"phantom_hp", &r.phantom_hp}})
         if (const json::Value* m = v.find(key); m && m->type == json::Value::Type::Bool) *to = m->boolean;
     const auto num = [&](const char* key, int* to) {
         const json::Value* m = v.find(key);

@@ -95,6 +95,17 @@ int main() {
         Rules old;
         assert(FromJson("{\"rot\":false}", &old) && old.any_kidnap);
     }
+    // 0.7.5 (levelsync): Level sync and Phantom health go with the rules, on by default; a host from before them: on.
+    {
+        Rules k;
+        k.level_sync = false;
+        assert(FromJson(ToJson(k), &back) && !back.level_sync && back.phantom_hp && back == k && back != Rules{});
+        Rules h;
+        h.phantom_hp = false;
+        assert(FromJson(ToJson(h), &back) && back.level_sync && !back.phantom_hp && back == h && back != Rules{});
+        Rules old;
+        assert(FromJson("{\"rot\":false}", &old) && old.level_sync && old.phantom_hp);
+    }
     // 0.7.2: Guests bring their lamps goes with the rules, off by default; a host from before it: off.
     {
         Rules g;

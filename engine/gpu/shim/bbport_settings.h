@@ -208,6 +208,11 @@ struct Values {
     std::atomic<bool> party_travel_vote{false};
     std::atomic<bool> party_npc_fights{true};   ///< D11 (0.7.3): NPC hunters fight the whole party (party_npcfight_rules.h)
     std::atomic<bool> party_any_kidnap{true};   ///< 0.7.3: a Snatcher grabbing a guest takes the party to the Gaol (party_kidnap_rules.h)
+    /// 0.7.5 (levelsync, party_levelsync_rules.h): the host's rules, both ON = Bloodborne's own co-op.
+    /// Level sync: a hunter above the host's level is scaled down (max HP, stamina, defence, resistances)
+    /// as in password co-op; phantom health: a hunter joining a party has 30 % less max HP.
+    std::atomic<bool> party_level_sync{true};
+    std::atomic<bool> party_phantom_hp{true};
     /// Each player's own (while it is a guest; party_items):
     std::atomic<bool> party_key_view{true};     ///< the own key items while summoned (next start)
     std::atomic<bool> party_key_items_summoned{true}; ///< a host-world key item given at once (needs key_view)

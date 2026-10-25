@@ -82,6 +82,11 @@ struct Rules {
     /// 0.7.3 (party_kidnap_rules.h): a Snatcher grabbing a guest takes the whole party to the Hypogean
     /// Gaol, as the host's own grab. The host's; on by default (a host from before it sends none: on).
     bool any_kidnap = true;
+    /// 0.7.5 (levelsync, party_levelsync_rules.h): Bloodborne's level sync (a hunter above the host's level is
+    /// scaled down: max HP, stamina, defence, resistances) and the phantom health cut (30 % less max HP
+    /// for a joined hunter). The host's; on by default = vanilla (a host from before sends none: on).
+    bool level_sync = true;
+    bool phantom_hp = true;
     bool operator==(const Rules& o) const;
     bool operator!=(const Rules& o) const { return !(*this == o); }
 };

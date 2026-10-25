@@ -249,6 +249,8 @@ struct Test {
     bool a11_bar_seen = false;
     bool log_state = false;
     int insight = -1;
+    int level = -1; // level=N: writes the player's level once (0.7.5 level sync A/B; test saves)
+    bool level_done = false;
     int echoes = -1; // echoes=N: writes the player's Blood Echoes once (test saves)
     // armor=SET: puts on armor set SET (EquipParamProtector SET, +1000, +2000, +3000: head, chest,
     // arms, legs) once, 3 s into the first steady world, as the equipment menu does; in a session
@@ -3123,6 +3125,12 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
         const bool ok = WritePlayerInsight(t.insight);
         Log("test: Insight %d -> %d %s", before, t.insight, ok ? "written" : "NOT written (no player record)");
     }
+    if (t.level > 0 && !t.level_done && Seconds(st.world_at, now) >= 2.0 && !s.loading) {
+        t.level_done = true;
+        const int before = s.level;
+        const bool ok = WritePlayerLevel(t.level);
+        Log("test: level %d -> %d %s", before, t.level, ok ? "written" : "NOT written (no player record)");
+    }
     // god: this player's chr stays invincible (chr +0x1E1 bit 14, as a11_move), e.g. a scripted
     // event walk through an area full of enemies (B6 live triggers).
     if (t.god && s.world_up && !s.loading && s.player) {
@@ -3949,6 +3957,8 @@ void PartyDirector::ConfigureFromEnv() {
                 st.test.bell = kHostBell;
             } else if (item == "bell_guest") {
                 st.test.bell = kGuestBell;
+            } else if (item.rfind("level=", 0) == 0) {
+                st.test.level = std::atoi(item.c_str() + 6);
             } else if (item.rfind("insight=", 0) == 0) {
                 st.test.insight = std::atoi(item.c_str() + 8);
             } else if (item.rfind("host_warp=", 0) == 0 || item.rfind("host_die", 0) == 0 ||

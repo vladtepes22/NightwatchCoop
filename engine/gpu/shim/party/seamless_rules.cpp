@@ -20,6 +20,8 @@
 #include "party_npcghost.h"
 #include "party_death_rules.h"
 #include "party_phantom.h"
+#include "party_levelsync_rules.h"
+#include "party_status.h"
 #include "party_split.h"
 #include "party_travel.h"
 #include "party_story.h"
@@ -313,10 +315,8 @@ struct ParamRule {
 };
 
 const ParamRule kFixedParamRules[] = {
-    {"full HP for cooperators (SpEffect 9006 maxHpRate)", "SpEffectParam", "SP_EFFECT_PARAM_ST", 0x210, 9006, 0x10, 4,
-     0.7f, 1.0f, "BB_PARTY_FULL_HP"},
-    {"full HP for invader phantoms (SpEffect 9026 maxHpRate)", "SpEffectParam", "SP_EFFECT_PARAM_ST", 0x210, 9026,
-     0x10, 4, 0.7f, 1.0f, "BB_PARTY_FULL_HP"},
+    // 0.7.5: the cooperator / invader phantom max-HP cut (SpEffect 9006 / 9026 maxHpRate 0.7) is a host rule
+    // now (party_phantom_hp, PhantomHpTick below), no longer always lifted.
     {"Beckoning Bell without Insight (EquipParamGoods 200 consumeHeroPoint)", "EquipParamGoods",
      "EQUIP_PARAM_GOODS_ST", 0x6c, 200, 0x38, 1, 1.0f, 0.0f, "BB_PARTY_BELL_NO_INSIGHT"},
     // Hunter's Mark for guests (phantom_limits.md 1.1 / 3.2): byte 0x44 |= enable_white (bit 2) |
@@ -917,6 +917,44 @@ std::uint64_t EmevdInstructionArgs(std::uint64_t event, std::uint64_t instr, std
     return args;
 }
 
+/// 0.7.5 "Phantom health" (party_phantom_hp, the host's rule; both ON = the game's 0.7): SpEffect 9006
+/// (cooperator) and 9026 (invader phantom) maxHpRate follows the rule on every peer. A row holding neither
+/// 0.7 nor 1.0 is left alone (logged once). Returns true once both rows hold what the rule says.
+bool ApplyPhantomHp() {
+    static int logged_rule = -1;
+    static bool refused = false;
+    if (refused) return true;
+    const bool on = party::status::HostRuleOn(party::status::HostRule::PhantomHp);
+    const float want = levelsync::PhantomHpRate(on);
+    ParamTable t;
+    if (!FindParam("SpEffectParam", "SP_EFFECT_PARAM_ST", &t)) return false;
+    bool all = true;
+    for (const u32 id : {9006u, 9026u}) {
+        const u64 row = Row(t, id);
+        float v = 0;
+        if (RowSize(t) != 0x210 || !row || !ReadField(row + 0x10, 4, &v)) {
+            all = false;
+            continue;
+        }
+        if (v == want) continue;
+        if (v != 0.7f && v != 1.0f) {
+            Log("phantom health: SpEffect %u maxHpRate is %g, neither 0.7 nor 1.0; left alone", id, double(v));
+            refused = true;
+            return true;
+        }
+        if (!WriteField(row + 0x10, 4, want)) {
+            all = false;
+            continue;
+        }
+        if (logged_rule != int(on)) {
+            Log("phantom health: %s (SpEffect %u maxHpRate %g -> %g)", on ? "on, the game's 30 % cut" : "off, full health",
+                id, double(v), double(want));
+        }
+    }
+    if (all) logged_rule = int(on);
+    return all;
+}
+
 void SeamlessRulesTick() {
     State& st = S();
     if (!st.init) {
@@ -928,6 +966,7 @@ void SeamlessRulesTick() {
         st.last_param = now;
         perf::Scope z(perf::Zone::SeamlessParams);
         const bool done = ApplyParamRules();
+        ApplyPhantomHp();
         if (done && !st.params_done) {
             Log("param rules hold (%.1f s after start)", Seconds(st.start, now));
         }

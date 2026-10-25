@@ -430,6 +430,11 @@ add_executable(party-glow-test EXCLUDE_FROM_ALL ../tests/test_party_glow.cpp)
 target_compile_options(party-glow-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(party-glow-test PRIVATE shim)
 set_target_properties(party-glow-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# Level sync and phantom health (party_levelsync_rules.h). ninja -C out/gpu party-levelsync-test
+add_executable(party-levelsync-test EXCLUDE_FROM_ALL ../tests/test_party_levelsync.cpp)
+target_compile_options(party-levelsync-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-levelsync-test PRIVATE shim)
+set_target_properties(party-levelsync-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 # Boot watchdog (shim/bbport_boot_watch.h, BB_BOOT_WATCHDOG): the rules. ninja -C out/gpu boot-watch-test
 add_executable(boot-watch-test EXCLUDE_FROM_ALL ../tests/test_boot_watch.cpp)
 target_compile_options(boot-watch-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)

@@ -211,7 +211,7 @@ bool ShareLamps() {
 namespace {
 // Rot off by default (0.7.2), guests bring lamps off, the rest on (the party tick sets them all).
 std::atomic<bool> g_host_rules[int(HostRule::Count)] = {false, true, true, true, true, true, false,
-                                                     true,  true, true, true, false, true};
+                                                     true,  true, true, true, false, true, false, true, true};
 }  // namespace
 void SetHostRule(HostRule rule, bool on) {
     if (rule < HostRule::Count) g_host_rules[int(rule)].store(on);

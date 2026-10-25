@@ -53,6 +53,9 @@ const PartySwitch PartySwitches[] = {
     {"party_travel_vote", "BB_PARTY_TRAVEL_VOTE", &Values::party_travel_vote, false},
     {"party_npc_fights", "BB_PARTY_NPC_FIGHTS", &Values::party_npc_fights, false},  // 0.7.3, D11
     {"party_any_kidnap", "BB_PARTY_ANY_KIDNAP", &Values::party_any_kidnap, false},  // 0.7.3, kidnapall
+    // 0.7.5 (levelsync): the host's rules for what a joined hunter keeps of its stats
+    {"party_level_sync", "BB_PARTY_LEVEL_SYNC", &Values::party_level_sync, false},
+    {"party_phantom_hp", "BB_PARTY_PHANTOM_HP", &Values::party_phantom_hp, false},
     {"party_key_view", "BB_PARTY_KEY_VIEW", &Values::party_key_view, false},
     {"party_key_items_summoned", "BB_PARTY_KEY_ITEMS_SUMMONED", &Values::party_key_items_summoned, false},
     // 0.7.2: the rot cleanses (party_balance reads them live; host's rules).

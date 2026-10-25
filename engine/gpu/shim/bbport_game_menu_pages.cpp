@@ -1002,6 +1002,29 @@ void DefineAll() {
     scale_row(&Values::party_enemy_poise, kPoiseTable, "Enemy poise", "Стойкость врагов", 5);
 
 
+    // ---- Party rules: Phantoms (0.7.5, levelsync, party_levelsync_rules.h): what a hunter keeps of its
+    // stats when it joins a party. Both ON = Bloodborne's own co-op. ----
+    AddPage("Party rules: Phantoms", "Правила: призраки",
+            "Host's rules: level sync and the phantom health cut, as in the game's own co-op (bbport)",
+            "Правила хоста: уравнивание уровней и штраф к здоровью призрака, как в кооперативе самой игры (bbport)");
+    host_rule(&Values::party_level_sync, "Level sync", "Уравнивание уровней",
+              AddText("A hunter far above the host's level is scaled down, as in the game. Off: full stats. Party rule",
+                      "Охотник намного выше уровнем хоста ослабляется, как в игре. Выкл.: полные характеристики. "
+                      "Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::LevelSync); },
+              {"The host's rule: a hunter above the host's level is scaled down (a blue icon by its name)",
+               "Правило хоста: охотник выше уровнем, чем хост, ослабляется (синий значок у имени)"},
+              {"The host decides; off: every hunter keeps its full stats whatever its level",
+               "Решает хост; выкл.: у каждого охотника полные характеристики, каким бы ни был уровень"});
+    host_rule(&Values::party_phantom_hp, "Phantom health cut", "Штраф здоровья призрака",
+              AddText("Joining hunters get 30 % less maximum health, as in the game. Off: full health. Party rule",
+                      "Присоединившиеся охотники теряют 30 % макс. здоровья, как в игре. Выкл.: полное. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::PhantomHp); },
+              {"The host's rule: hunters who join the party have 30 % less maximum health",
+               "Правило хоста: у присоединившихся охотников на 30 % меньше максимального здоровья"},
+              {"The host decides; off: hunters who join keep their full maximum health",
+               "Решает хост; выкл.: присоединившиеся охотники сохраняют полное максимальное здоровье"});
+
     // ---- My party: Deaths (party_b2, party_phantom): while you are a guest ----
     AddPage("My party: Deaths", "Моя группа: смерти", "Yours: getting up and respawning while you are a guest (bbport)",
             "Ваше: подъём и возрождение, пока вы гость (bbport)");

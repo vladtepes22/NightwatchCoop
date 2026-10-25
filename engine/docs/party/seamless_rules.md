@@ -127,8 +127,7 @@ below were read from the 1.09 gameparam offline.
 
 | Rule | Row | Field | 1.09 | Set | Off switch |
 |---|---|---|---|---|---|
-| Full HP, cooperator | SpEffectParam 9006 | maxHpRate +0x10 (f32) | 0.7 | 1.0 | `BB_PARTY_FULL_HP=0` |
-| Full HP, invader phantom | SpEffectParam 9026 | maxHpRate +0x10 (f32) | 0.7 | 1.0 | `BB_PARTY_FULL_HP=0` |
+| Phantom health, cooperator / invader phantom | SpEffectParam 9006 / 9026 | maxHpRate +0x10 (f32) | 0.7 | 0.7 on (default), 1.0 off: the host's rule `party_phantom_hp` (0.7.5; before it always 1.0, `BB_PARTY_FULL_HP`) | `BB_PARTY_PHANTOM_HP=0` |
 | Bells without Insight | EquipParamGoods 200 (Beckoning Bell) | consumeHeroPoint +0x38 (u8) | 1 | 0 | `BB_PARTY_BELL_NO_INSIGHT=0` |
 
 Polled every 0.5 s until the params exist, then re-checked every 2 s (a reload restores them; a
@@ -171,7 +170,7 @@ EVD base `*(*(event+0xA8)+8)` + `*(base+0x78)` + offset). Replaced with `Replace
 - Map reload retarget: the guest's summoned map reload keeps the room (no Session Lost); the
   remaining stop at 0x13809BC (OnMatchingCheck) is expected on real disconnects.
 - SOS timeout: the guest's sign disappears after 30 s and the director's re-ring recreates it.
-- Full HP: a summoned phantom's max HP equals its own world max HP (both instances apply it).
+- Full HP (0.6 - 0.7.4, always): a summoned phantom's max HP equalled its own world max HP. Since 0.7.5 it is the host's rule `party_phantom_hp` (default on = the game's 0.7); see balance.md section 5.
 - Insight: the host with 0 Insight can ring (inventory and director) and keeps its Insight.
 - EMEVD: trace a boss kill with a phantom, pick the instructions that send phantoms home.
 - Online title skip: the game reaches the main menu online through the party NP layer.

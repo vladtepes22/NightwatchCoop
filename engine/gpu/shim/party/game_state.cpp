@@ -281,6 +281,15 @@ bool WritePlayerInsight(int insight) {
     return SafeWrite(rec + kRecInsight, &v, 4);
 }
 
+bool WritePlayerLevel(int level) {
+    const std::uint64_t rec = Field<std::uint64_t>(Slot(kGameDataMan), 8, 0);
+    if (!rec || level < 1) {
+        return false;
+    }
+    const std::int32_t v = level;
+    return SafeWrite(rec + kRecLevel, &v, 4);
+}
+
 bool WritePlayerEchoes(int echoes) {
     const std::uint64_t rec = Field<std::uint64_t>(Slot(kGameDataMan), 8, 0);
     if (!rec || echoes < 0) {

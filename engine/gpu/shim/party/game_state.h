@@ -70,6 +70,8 @@ std::string MapName(std::uint32_t map_id);
 std::string Describe(const GameSnapshot& s);
 /// Writes the local player's Insight (PlayerGameData +0x84); false when there is no record.
 bool WritePlayerInsight(int insight);
+/// Test aid (director level=N): the local PlayerGameData level (+0x90), the value level sync compares.
+bool WritePlayerLevel(int level);
 /// Writes the local player's Blood Echoes (PlayerGameData +0x94; test fixtures).
 bool WritePlayerEchoes(int echoes);
 

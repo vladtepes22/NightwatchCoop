@@ -225,10 +225,66 @@ Level, deaths and rot stacks travel in a VITALS trailer: after the entries, `u8 
 trailer reads as zeros (unknown: the tag shows the name only). The guest's single-entry VITALS
 must say count 1 now.
 
-## 5. Tests
+## 5. Level sync and phantom health (0.7.5, levelsync)
+
+Rules `level_sync` / `phantom_hp` (host's, default on = vanilla; System > Party rules: Phantoms; ini
+`party_level_sync` / `party_phantom_hp`; party_levelsync_rules.h).
+
+**What the game does (Ghidra, 1.09).**
+- A per-frame ChrIns step `0x15077c0` (it also keeps the phantom SpEffects: kind by invade type 7 -> 9006,
+  8 -> 9026, 0x15 / 0x16 / 0x17 -> 9036 / 9046 / 9056) takes the chr's PlayerGameData (chr vfunc +0x1c8) and the
+  first game-data record with `+0x10 == 1` (the host: the local record, the four session records stride
+  0x6a0 of GameDataMan 0x553b130 +0x10, then the 40 pointers at +0x20). For a record of kind 2..0x7ffc (a
+  non-host player) it tests `(float)host_level * mult + add < (float)level` and puts SpEffect **9200**
+  (0x23f0, row 9200: iconId 8817 = the blue icon, no stat fields) on the chr or takes it off, caching the
+  result at step +0x2c. `mult = pct / 100 + 1`, `add` = SprjNetworkClientMan (0x5540288) +0x18: +0x8e4 /
+  +0x8e0 (the serializer 0x1eb65e0 defaults both to 20; the code's own fallback is 20 % / 20 too).
+- The SpEffect list's rate getters multiply by `curve(host * mult + add) / curve(own level)` (0x1582940,
+  CalcCorrectGraph rows, piecewise on levels) while 9200 is on: **max HP** 0x17e46e0 (row 120),
+  **max stamina** 0x17e4a20 (124), **defence rates** 0x17e76b0 (121: physics / magic / fire / thunder) and
+  the poison / blood resistances 0x17e8110 (122 / 123). Nothing else reads 9200 but the name plate
+  (0x16439b0: the icon) and the party list (0x1bfb2a0). **There is no attack-power term**: a downscaled
+  hunter hits as hard as before; the "damage penalty" is the defence rate (it takes more damage) plus the
+  lower HP. It is inseparable from the sync (one SpEffect id), so it has no toggle of its own: "Level sync"
+  covers it.
+- Phantom health: SpEffect 9006 / 9026 carry only `maxHpRate 0.7` (every other field default).
+
+**Before 0.7.5 in our party joins.** Records, kinds and levels are right on every peer (a guest of level 37
+with a host of level 10: both games see 37 / 10, kinds 2 / 1), but `ClientMan +0x18` holds an unlimited
+placeholder (+0 %, +1000 levels: there is no matching server), so nobody was ever above the range and 9200
+never came on. And 9006 / 9026 were always rewritten to 1.0 (seamless_rules.cpp, since the A6 agent's
+seamless rules: guests at full health, no reason recorded beyond Seamless-Co-op-like play).
+
+**How it is done.** Level sync on: `LevelSyncTick` (party_balance.cpp, every 0.5 s on every peer, the host's
+rule) writes the game's normal range (+20 % +20) into ClientMan +0x18 (the original placeholder is put back
+when the rule goes off), and keeps 9200 on exactly the non-host players above `host * 1.2 + 20` (the game's
+own step adds it; ours does when the step's cache says it already did and the effect is not there, e.g. after
+the rule was off; a second 9200 is removed). Off: 9200 is removed. Phantom health: `ApplyPhantomHp`
+(seamless_rules.cpp) writes 0.7 / 1.0 into rows 9006 / 9026 (rewritten after a param reload).
+
+**Measured** (live 2026-10-24, two rendered instances, test save: base max HP 719 / stamina 100 solo; the
+guest's own chr, `BB_PARTY_LEVELSYNC_LOG`, host rules flipped inside one session):
+
+| host / guest level | level sync | phantom health | max HP | max stamina | defence rate |
+|---|---|---|---|---|---|
+| solo | - | - | 719 | 100 | 1.000 |
+| 10 / 37 | off | off | 719 | 100 | |
+| 10 / 37 | off | on | 503 (0.7) | 100 | |
+| 10 / 37 | on | off | 677 | 98 | |
+| 10 / 37 | on | on | 474 | 98 | |
+| 1 / 100 | off | on | 503 | 100 | 1.000 |
+| 1 / 100 | on | on | 245 | 82 | 0.208 |
+
+The icon: with the game's own name plate (System > My party: Display > Party name tags off) the blue icon
+sits left of "Co-operator Hunter1" with the sync on and is gone with it off (screenshots). Our own name tag
+(default) replaces the game's plate and does not draw the icon.
+
+## 6. Tests
 
 - `party-balance-test`: vanilla rules reproduce rows 7500-7502, defaults, poise below zero, JSON
   round trip / clamping / malformed input, rot factors, slider tables.
+- `party-levelsync-test` (0.7.5): the game's range test, the 9200 decisions for both rule values, phantom HP rates;
+  `party-balance-test` also round-trips `level_sync` / `phantom_hp`.
 - `party-link-test` (vitals): level / deaths / rot relayed guest -> host -> other guest.
 - `game-menu-pages-test`: the new page keeps the menu's limits (12 pages = MaxPages).
 - Live: see the ERSC_PARITY rows C4 / D7 / E2 for the runs.
