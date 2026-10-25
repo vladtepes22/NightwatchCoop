@@ -147,6 +147,46 @@ int main() {
         CHECK(calls_a == 1);
     }
 
+    // Map travel: which situations refuse it, in order of what the player is told.
+    {
+        MapTravelSituation m;
+        m.on = m.world_up = true;
+        m.map = 0x18000000u;  // Cathedral Ward
+        m.hp = 500;
+        CHECK(MapTravelState(m) == MapTravel::Ready);
+        MapTravelSituation t = m;
+        t.map = 0x15000000u;  // the Hunter's Dream: its headstones run the same warp
+        CHECK(MapTravelState(t) == MapTravel::Ready);
+        t = m, t.on = false;
+        CHECK(MapTravelState(t) == MapTravel::Off);
+        t = m, t.loading = true;
+        CHECK(MapTravelState(t) == MapTravel::NotInWorld);
+        t = m, t.map = 0xffffffffu;
+        CHECK(MapTravelState(t) == MapTravel::NotInWorld);
+        t = m, t.cutscene = true, t.boss = true;
+        CHECK(MapTravelState(t) == MapTravel::Cutscene);
+        t = m, t.map = 0x1d0a5a00u;  // a Chalice Dungeon
+        CHECK(MapTravelState(t) == MapTravel::Chalice);
+        t = m, t.hp = 0, t.boss = true;
+        CHECK(MapTravelState(t) == MapTravel::Dead);
+        t = m, t.hp = -1;  // no chr
+        CHECK(MapTravelState(t) == MapTravel::Dead);
+        t = m, t.spectating = true;
+        CHECK(MapTravelState(t) == MapTravel::Dead);
+        t = m, t.boss = true;
+        CHECK(MapTravelState(t) == MapTravel::Boss);
+        t = m, t.busy = true;
+        CHECK(MapTravelState(t) == MapTravel::Busy);
+        // Targets: lit lamps of the table, not blocked, known; never the Hunter's Dream.
+        CHECK(MapTravelTarget(2412950, flag, all));                                       // Central Yharnam, lit
+        CHECK(MapTravelTarget(ReturnPoint({220, 0, Frontier}), flag, all));
+        CHECK(!MapTravelTarget(ReturnPoint({240, 1, Yharnam}), flag, all));               // blocked
+        CHECK(!MapTravelTarget(ReturnPoint({270, 0, Frontier}), flag, all));              // not lit
+        CHECK(!MapTravelTarget(kDreamReturnPoint, [](std::uint32_t) { return true; }, all));
+        CHECK(!MapTravelTarget(1234567, [](std::uint32_t) { return true; }, all));        // not a lamp
+        CHECK(!MapTravelTarget(2412950, flag, [](std::uint32_t) { return false; }));      // no param row
+    }
+
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

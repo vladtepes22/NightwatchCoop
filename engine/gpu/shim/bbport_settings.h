@@ -283,6 +283,8 @@ struct Values {
     std::atomic<bool> map_pickups_healing{true}, map_pickups_insight{true}, map_pickups_equipment{true},
         map_pickups_coldblood{true};
     std::atomic<bool> map_boss_reveal{false};
+    /// Travel to a lamp selected on the map view (map_travel; needs direct lamp travel on).
+    std::atomic<bool> map_travel{true};
     std::atomic<int> map_npcs{0};
     /// The mouse cursor hidden over the game 2 s after the mouse last moved (window.cpp).
     std::atomic<bool> hide_cursor{true};

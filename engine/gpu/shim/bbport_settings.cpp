@@ -342,6 +342,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.map_pickups_equipment = i != 0;
     } else if (key == "map_pickups_coldblood") {
         v.map_pickups_coldblood = i != 0;
+    } else if (key == "map_travel") {
+        v.map_travel = i != 0;
     } else if (key == "map_boss_reveal") {
         v.map_boss_reveal = i != 0;
     } else if (key == "map_npcs") {
@@ -859,6 +861,7 @@ void Save() {
     put("map_pickups_equipment", flag(v.map_pickups_equipment));
     put("map_pickups_coldblood", flag(v.map_pickups_coldblood));
     put("map_boss_reveal", flag(v.map_boss_reveal));
+    put("map_travel", flag(v.map_travel));
     put("map_npcs", v.map_npcs == 1 ? "new_dialogue" : v.map_npcs == 2 ? "none" : "all");
     put("fsr4_auto_exposure", flag(v.fsr4_auto_exposure));
     put("fsr4_invert_jitter", flag(v.fsr4_invert_jitter));

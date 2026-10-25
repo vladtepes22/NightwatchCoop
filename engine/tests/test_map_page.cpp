@@ -34,7 +34,7 @@ static void DataRules() {
     CHECK(areas.size() == 1 && areas[0].name == "Cathedral Ward");  // bad id and empty bounds dropped
     const Json features = Json::parse(std::string(R"({"schema": 1, "game_eboot_sha256": ")") + kEbootSha256 + R"(",
       "areas": {"m24_00_00_00": {
-        "lamps": [{"name": "Cathedral Ward", "pos": [1, 2, 3], "unlock_flag": 100},
+        "lamps": [{"name": "Cathedral Ward", "pos": [1, 2, 3], "unlock_flag": 100, "return_point": 2402950},
                   {"name": "Dream", "pos": [0, 0, 0], "available_on": [101]}],
         "pickups": [{"pos": [10, 0, 10], "contents": [
                         {"name": "Blood Vial", "category": "healing", "quantity": 2, "collected_flag": 200},
@@ -48,6 +48,7 @@ static void DataRules() {
     ApplyFeatures(features, areas);
     const Area& a = areas[0];
     CHECK(a.lamps.size() == 2 && a.pickups.size() == 2 && a.reveals.size() == 2 && a.npc_rules.size() == 1);
+    CHECK(a.lamps[0].return_point == 2402950 && a.lamps[1].return_point == 0);  // where map travel goes; 0: none given
     bool threw = false;
     try {
         Json other = features;

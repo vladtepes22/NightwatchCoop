@@ -546,6 +546,13 @@ target_compile_options(map-page-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME map-page-test COMMAND map-page-test)
 add_dependencies(seamless-tests map-page-test)
 
+# Direct lamp travel's and the map's travel rules: gpu/shim/party/lamp_travel_rules.h.
+add_executable(lamp-travel-test EXCLUDE_FROM_ALL ../tests/test_lamp_travel.cpp)
+target_include_directories(lamp-travel-test PRIVATE shim)
+target_compile_options(lamp-travel-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME lamp-travel-test COMMAND lamp-travel-test)
+add_dependencies(seamless-tests lamp-travel-test)
+
 # The texture collector's marks, levels and per-frame quota (texture_cache/gc_policy.h; visy 90a18103).
 add_executable(gc-policy-test EXCLUDE_FROM_ALL ../tests/test_gc_policy.cpp)
 target_include_directories(gc-policy-test PRIVATE ..)

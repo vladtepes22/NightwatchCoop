@@ -38,6 +38,7 @@ struct Lamp {
     std::string name;
     float x = 0, y = 0, z = 0;
     std::uint32_t unlock = 0;  // lit flag; 0: none (the Hunter's Dream: its conditions decide)
+    std::uint32_t return_point = 0;  // ReturnPointParam row the lamp warp goes to (map travel); 0: none
     std::vector<std::uint32_t> on, off;
 };
 
@@ -163,6 +164,7 @@ inline void ApplyFeatures(const Json& features, std::vector<Area>& areas) {
             lamp.name = l.at("name").get<std::string>();
             Point3(l.at("pos"), &lamp.x, &lamp.y, &lamp.z);
             lamp.unlock = l.value("unlock_flag", 0u);
+            lamp.return_point = l.value("return_point", 0u);
             lamp.on = Flags(l, "available_on");
             lamp.off = Flags(l, "available_off");
             a->lamps.push_back(std::move(lamp));

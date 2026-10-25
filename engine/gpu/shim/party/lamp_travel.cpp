@@ -8,6 +8,7 @@
 #include "lamp_travel_rules.h"
 #include "mirror_frame.h"
 #include "party_async_io.h"
+#include "party_b2.h"
 #include "party_balance.h"
 #include "party_director.h"
 #include "party_guestsvc.h"
@@ -119,6 +120,7 @@ using CmdFn = u64(BB_COOP_SYSV*)(u64, u64, u64, u64, u64, u64);
 void* g_cmd_orig = nullptr;
 std::atomic<bool> g_on{false};
 bool g_own_tick = false;  // our own main-thread tick hook is in (solo)
+bool g_boss_watch = false;  // solo with the map: we installed the boss bar's EMEVD filter
 std::atomic<bool> g_inside{false};
 std::atomic<u32> g_cmd_counts[96];  // talk commands seen per id (the test's log)
 std::atomic<bool> g_t_on{false};     // BB_LAMP_TRAVEL_TEST set
@@ -140,6 +142,15 @@ struct Arrival {
     double at = 0;
     bool load_seen = false;
 } g_arrival;  // main thread
+std::atomic<bool> g_arriving{false};  // g_arrival.id set (read by the map's travel state)
+void ClearArrival() {
+    g_arrival = Arrival{};
+    g_arriving = false;
+}
+
+// The map's travel (RequestMapTravel): the lamp asked for, run by the main-thread tick.
+std::atomic<u32> g_map_request{0};
+std::atomic<double> g_map_request_at{0};
 
 u32 MenuFlags() {
     return reinterpret_cast<u32(BB_COOP_SYSV*)()>(Guest(kMenuFlags))();
@@ -384,6 +395,30 @@ void Act(u32 here, u32 id) {
         reinterpret_cast<void(BB_COOP_SYSV*)(u32)>(Guest(kLampWarp))(id);
     }
     g_arrival = Arrival{id, Now(), false};
+    g_arriving = true;
+}
+
+/// The map travel situation now (game or main thread: reads only).
+MapTravelSituation MapSituation(const GameSnapshot& s) {
+    MapTravelSituation m;
+    m.on = g_on.load(std::memory_order_relaxed);
+    m.world_up = s.world_up;
+    m.loading = s.loading;
+    m.map = s.map_id;
+    m.cutscene = CutscenePlaying();
+    m.boss = BossBarShown();
+    m.hp = b2::LocalHp();
+    m.spectating = b2::Spectating();
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        m.busy = g_p.open;
+    }
+    m.busy = m.busy || g_arriving.load(std::memory_order_relaxed) || g_map_request.load(std::memory_order_relaxed) != 0;
+    return m;
+}
+
+bool KnownReturnPoint(u32 rp) {
+    return ids::ReturnPointKnown(rp);
 }
 
 BB_COOP_SYSV void OwnTickEntry(u64, u64, u64, u64, u64, u64) {
@@ -838,6 +873,13 @@ void Install(unsigned char* image, std::uint64_t size) {
     }
     Log("%s: a lamp offers the headstones' travel list (the Hunter's Dream and every lit lamp)%s",
         g_on ? "on" : "NOT installed", g_on ? "" : " - the code differs from 1.09");
+    // Map travel refuses boss fights: alone, nothing else watches the boss health bar (a party's
+    // seamless rules do), so the map installs the EMEVD filter that does (BossBarShown).
+    const char* map_dir = std::getenv("BB_MAP_DIR");
+    if (g_on && map_dir && *map_dir && !PartyRequested()) {
+        g_boss_watch = EnsureEmevdFilter();
+        Log("map travel: boss fights %s", g_boss_watch ? "watched (EMEVD filter)" : "NOT watched (the filter did not install)");
+    }
 }
 
 bool AddTalkCommandObserver(TalkCommandObserver fn) {
@@ -848,6 +890,24 @@ bool OwnsTick() {
     return g_own_tick;
 }
 
+MapTravel MapTravelNow() {
+    return MapTravelState(MapSituation(ReadGameState(false)));
+}
+
+bool MapTravelAllowedTo(std::uint32_t return_point) {
+    return MapTravelTarget(return_point, &Flag, &KnownReturnPoint);
+}
+
+bool RequestMapTravel(std::uint32_t return_point) {
+    // No game reads here (the map view's render thread): the main-thread tick checks it all.
+    if (!return_point || !g_on.load(std::memory_order_relaxed)) return false;
+    u32 none = 0;
+    if (!g_map_request.compare_exchange_strong(none, return_point)) return false;
+    g_map_request_at = Now();
+    Log("map travel to lamp %u asked from the map", return_point);
+    return true;
+}
+
 void Tick() {
     warper::Tick();  // the world warper (solo; nothing while it is off)
     mirror::Tick();  // the Dream mirror's editor frame (solo and party)
@@ -855,6 +915,7 @@ void Tick() {
     const double now = Now();
     const GameSnapshot s = ReadGameState(false);
     TestTick(s, now);
+    if (g_boss_watch && (!s.world_up || s.loading)) BossBarReset();  // a load ends a boss fight (as the party director)
     if (g_t.on) {
         static double last = 0;
         if (now - last >= 5.0) {
@@ -885,7 +946,7 @@ void Tick() {
                 const bool party_wait = g_t.on && g_t.members;
                 Log("arrived: lamp %u, map %s, %.1f m from its spot%s", g_arrival.id, MapName(s.map_id).c_str(), d,
                     !g_t.on ? "" : party_wait ? " (test: waiting for the party)" : " (test: done)");
-                g_arrival = Arrival{};
+                ClearArrival();
                 steady = 0;
                 if (g_t.on) {
                     g_t.stage = party_wait ? TestState::Wait : TestState::Done;
@@ -895,7 +956,34 @@ void Tick() {
             }
         } else if (!g_arrival.load_seen && now - g_arrival.at > 60.0) {
             Log("no load within 60 s after the warp to %u (held or refused: see the party log)", g_arrival.id);
-            g_arrival = Arrival{};
+            ClearArrival();
+        }
+    }
+    // The map's travel: checked again here (the map view asked on its own thread); it waits while
+    // a menu is up (the map view closing), at most 5 s.
+    if (const u32 want = g_map_request.load()) {
+        MapTravelSituation sit = MapSituation(s);
+        sit.busy = g_arriving.load();
+        {
+            std::lock_guard<std::mutex> lk(g_mu);
+            sit.busy = sit.busy || g_p.open;
+        }
+        const MapTravel state = MapTravelState(sit);
+        const bool target = MapTravelTarget(want, &Flag, &KnownReturnPoint);
+        const u32 menus = state == MapTravel::Ready && target ? MenuFlags() : 0;
+        if (state != MapTravel::Ready || !target) {
+            Log("map travel to lamp %u refused (state %d%s)", want, int(state), target ? "" : ", not a lit lamp to travel to");
+            g_map_request = 0;
+        } else if (menus & kMenuMask) {
+            if (now - g_map_request_at.load() > 5.0) {
+                Log("map travel to lamp %u dropped: a menu stayed up (0x%x)", want, menus);
+                g_map_request = 0;
+            }
+        } else {
+            g_map_request = 0;
+            const u32 here = HereLamp(s);
+            Log("map travel: lamp %u (%s) chosen on the map, from %s", want, MapName(MapOf(want)).c_str(), MapName(s.map_id).c_str());
+            Act(here, want);
         }
     }
     u32 act_here = 0, act_id = 0;

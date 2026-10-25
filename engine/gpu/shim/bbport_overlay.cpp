@@ -1492,6 +1492,12 @@ void MapSection() {
             "An area's map stays hidden until its boss is dead (lamps you have lit always show).",
             "Карта области скрыта, пока её босс жив (зажжённые фонари видны всегда)."));
     }
+    if (const char* label = Item("Map travel", "Перемещение по карте")) {
+        Checkbox(label, s.map_travel);
+        Hint(BbSettings::MenuText(
+            "Select a lit lamp on the map and press again to travel there (needs Direct lamp travel; not in boss fights, Chalice Dungeons or cutscenes).",
+            "Выберите зажжённый фонарь на карте и нажмите ещё раз, чтобы переместиться (нужно прямое перемещение между фонарями; не в бою с боссом, подземельях Чаши и роликах)."));
+    }
     if (const char* label = Item("NPC conversation sites", "Места разговоров с NPC")) {
         const char* modes[] = {BbSettings::MenuText("All", "Все"),
                                BbSettings::MenuText("New dialogue only", "Только новые разговоры"),

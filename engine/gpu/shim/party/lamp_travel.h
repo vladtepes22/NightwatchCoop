@@ -28,6 +28,8 @@
 // the lamp - the vanilla Dream box - done once a load starts).
 #pragma once
 
+#include "lamp_travel_rules.h"
+
 #include <cstdint>
 
 namespace coop::lamptravel {
@@ -47,5 +49,20 @@ using TalkCommandObserver = void(__attribute__((sysv_abi)) *)(std::uint64_t env,
                                      std::uint64_t a4, std::uint64_t a5);
 /// True: lamp travel owns the switch and calls `fn` from now on (before the game runs).
 bool AddTalkCommandObserver(TalkCommandObserver fn);
+
+// ---- Map travel (map/map_page.cpp: a lamp selected on the map view) ----
+// The same lamp warp 0x13CDF30 as a choice in a world lamp's list (Act), from wherever the player
+// stands: in a party this player's own lamp use, so the party travel rules apply unchanged. Needs
+// lamp travel on; refused in a Chalice Dungeon, a cutscene, a boss fight, while dead or loading
+// (lamp_travel_rules.h MapTravelState). The Hunter's Dream is not a map target.
+
+/// Whether map travel can start now (game thread: reads game state and event flags).
+MapTravel MapTravelNow();
+/// Lamp `return_point` is lit and may be travelled to (MapTravelTarget; game thread).
+bool MapTravelAllowedTo(std::uint32_t return_point);
+/// Asks for map travel to `return_point` (any thread; reads nothing of the game); the main-thread
+/// tick checks it all again and runs the warp once no menu is up. False: lamp travel is off or
+/// another request is pending.
+bool RequestMapTravel(std::uint32_t return_point);
 
 } // namespace coop::lamptravel

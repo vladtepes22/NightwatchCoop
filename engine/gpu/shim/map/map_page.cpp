@@ -8,6 +8,8 @@
 // party, the player's facing; optionally the pickups still lying there and boss reveal
 // (map_data_rules.h, bbport.ini map_*). The view and controls follow Hunter's Atlas
 // source/compact/bbport_map.cpp (MikeTat1988, GPL-2.0-or-later). Pure rules: map_page_rules.h.
+// Map travel (bbport.ini map_travel): a second press on the selected lamp travels there through
+// direct lamp travel's warp (party/lamp_travel.h), the one a world lamp's list runs.
 #include "map_page.h"
 
 #include "bbport_atlas_style.h"
@@ -16,6 +18,7 @@
 #include "map_vector.h"
 #include "../bbport_settings.h"
 #include "../party/game_state.h"
+#include "../party/lamp_travel.h"
 #include "../party/party_b2.h"
 #include "../party/party_balance.h"
 #include "../party/party_hud.h"
@@ -65,6 +68,10 @@ std::shared_ptr<const std::vector<std::uint32_t>> g_flag_ids;         // under g
 std::shared_ptr<const std::unordered_map<std::uint32_t, int>> g_flags;  // under g_mu: Tick's last read
 std::shared_ptr<const std::vector<int>> g_present;                    // under g_mu: NPC entities here now
 std::string g_present_region;                                         // under g_mu: the area they are in
+// Map travel (lamp_travel.h), read by Tick with the flags: whether it can start now, and the lamps
+// (return points, sorted) it may go to.
+coop::lamptravel::MapTravel g_travel = coop::lamptravel::MapTravel::Off;  // under g_mu
+std::shared_ptr<const std::vector<std::uint32_t>> g_travel_to;         // under g_mu
 std::atomic<std::int64_t> g_drawn_ms{-100000};                        // the map was last drawn (ms)
 
 std::int64_t NowMs() {
@@ -98,6 +105,7 @@ struct View {
     float pu = .5f, pv = .5f;  // the controller pointer, in the canvas
     bool controller = false;   // the last input was a controller's (pointer, button names)
     int since_open = 0;        // frames drawn since it opened
+    bool travel = false;       // the selected lamp can be travelled to (the footer says Travel)
 };
 View g_view;
 
@@ -350,8 +358,29 @@ struct CanvasResult {
     int floor = -1, floors = 0;
     bool any_lamp = false;
     bool selected = false;  // a lamp is selected (shown)
+    bool travel = false;    // Cross / Enter / a click on it travels there
+    std::string hint;       // under the map: what travel does now, or why not
     bool back = false;
 };
+
+// The line under the map while a lamp is selected and map travel is on.
+std::string TravelHint(coop::lamptravel::MapTravel state, bool target, bool controller) {
+    using coop::lamptravel::MapTravel;
+    switch (state) {
+    case MapTravel::Ready:
+        if (!target) return BbSettings::MenuText("This lamp cannot be travelled to now", "К этому фонарю сейчас нельзя переместиться");
+        return controller ? BbSettings::MenuText("Cross again: travel to this lamp", "Крест ещё раз: переместиться к фонарю")
+                          : BbSettings::MenuText("Enter or click it again: travel to this lamp", "Enter или щелчок ещё раз: переместиться к фонарю");
+    case MapTravel::NotInWorld: return BbSettings::MenuText("No travel while loading", "Нельзя перемещаться во время загрузки");
+    case MapTravel::Cutscene: return BbSettings::MenuText("No travel during a cutscene", "Нельзя перемещаться во время ролика");
+    case MapTravel::Boss: return BbSettings::MenuText("No travel during a boss fight", "Нельзя перемещаться во время боя с боссом");
+    case MapTravel::Chalice: return BbSettings::MenuText("No travel from a Chalice Dungeon", "Нельзя перемещаться из подземелья Чаши");
+    case MapTravel::Dead: return BbSettings::MenuText("No travel while dead", "Нельзя перемещаться после смерти");
+    case MapTravel::Busy: return BbSettings::MenuText("Another travel is under way", "Перемещение уже идёт");
+    case MapTravel::Off: break;
+    }
+    return {};
+}
 
 // Shows (selects) lit lamp `i`: centred, its area and floor, the pointer on it. `how`: for the log.
 void ShowLamp(const std::vector<LampRef>& lamps, int i, const char* how) {
@@ -377,11 +406,15 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
     Where w;
     std::shared_ptr<const std::vector<int>> present;
     std::string present_region;
+    coop::lamptravel::MapTravel travel;
+    std::shared_ptr<const std::vector<std::uint32_t>> travel_to;
     {
         std::lock_guard<std::mutex> lk(g_mu);
         w = g_where;
         present = g_present;
         present_region = g_present_region;
+        travel = g_travel;
+        travel_to = g_travel_to;
     }
     const FlagFn flag = Flags();
     const bool fog = settings.map_boss_reveal;
@@ -620,13 +653,29 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         if (pad && v.controller) ImGui::SetNextWindowPos(ImVec2(pointer.x + 22 * s, pointer.y + 18 * s));
         ImGui::SetTooltip("%s", tips[nearest].text.c_str());
     }
+    r.selected = v.preview && v.lamp >= 0 && v.lamp < int(lamps.size());
+    // Map travel to the selected lamp (a second press on it): lamp travel's warp, checked again on
+    // the game's main thread (lamp_travel.h). The hint says what a press does or why it cannot.
+    const LampRef* chosen = r.selected ? &lamps[v.lamp] : nullptr;
+    const bool travel_on = pad && settings.map_travel && travel != coop::lamptravel::MapTravel::Off;
+    const bool target = chosen && chosen->available && chosen->lamp->return_point && travel_to &&
+                        std::binary_search(travel_to->begin(), travel_to->end(), chosen->lamp->return_point);
+    r.travel = travel_on && travel == coop::lamptravel::MapTravel::Ready && target;
+    if (chosen && travel_on) r.hint = TravelHint(travel, target, v.controller);
     if (pad && settled && (confirm || click)) {
         const int under = nearest >= 0 ? tips[nearest].lamp : -1;
-        const int selected = v.preview ? v.lamp : -1;
-        if (OnConfirm(under, selected, false, click && !confirm) == Confirm::Select)
-            ShowLamp(lamps, under, click && !confirm ? "click" : "Cross / Enter");
+        const int selected = r.selected ? v.lamp : -1;
+        switch (OnConfirm(under, selected, r.travel, click && !confirm)) {
+        case Confirm::Select: ShowLamp(lamps, under, click && !confirm ? "click" : "Cross / Enter"); break;
+        case Confirm::Travel:
+            if (coop::lamptravel::RequestMapTravel(chosen->lamp->return_point)) {
+                std::printf("Map: travel to %s (%u) asked; the map closes\n", chosen->lamp->name.c_str(), chosen->lamp->return_point);
+                r.back = true;
+            }
+            break;
+        case Confirm::None: break;
+        }
     }
-    r.selected = v.preview && v.lamp >= 0 && v.lamp < int(lamps.size());
 
     // The title: the lamp being shown, else where the player stands, else the area.
     if (area) {
@@ -760,6 +809,8 @@ void Tick() {
     }
     std::shared_ptr<const std::unordered_map<std::uint32_t, int>> flags;
     std::shared_ptr<const std::vector<int>> present;
+    coop::lamptravel::MapTravel travel = coop::lamptravel::MapTravel::Off;
+    std::shared_ptr<const std::vector<std::uint32_t>> travel_to;
     bool publish = false;
     if (ids && now - g_drawn_ms.load(std::memory_order_relaxed) < 1000 && now - last_read >= 250) {
         last_read = now;
@@ -774,6 +825,18 @@ void Tick() {
         }
         flags = std::move(read);
         present = std::make_shared<const std::vector<int>>(world ? coop::balance::PresentEntities() : std::vector<int>{});
+        if (BbSettings::Get().map_travel) {
+            travel = coop::lamptravel::MapTravelNow();
+            auto to = std::make_shared<std::vector<std::uint32_t>>();
+            if (travel == coop::lamptravel::MapTravel::Ready) {
+                for (const auto& l : coop::lamptravel::kLamps) {
+                    const std::uint32_t rp = coop::lamptravel::ReturnPoint(l);
+                    if (coop::lamptravel::MapTravelAllowedTo(rp)) to->push_back(rp);
+                }
+                std::sort(to->begin(), to->end());
+            }
+            travel_to = std::move(to);
+        }
         static const bool npc_log = [] { const char* e = std::getenv("BB_MAP_NPC_LOG"); return e && *e == '1'; }();
         static std::int64_t npc_logged = 0;
         if (npc_log && world && now - npc_logged > 10000) {
@@ -786,6 +849,8 @@ void Tick() {
         g_flags = std::move(flags);
         g_present = std::move(present);
         g_present_region = w.region;
+        g_travel = travel;
+        g_travel_to = std::move(travel_to);
     }
     g_where = std::move(w);
 }
@@ -820,6 +885,7 @@ void Opened() {
     v.follow = true;
     v.preview = false;
     v.lamp = -1;
+    v.travel = false;
     v.pu = v.pv = .5f;
     BbMapVector::SetManualFloor(-1);
 }
@@ -870,7 +936,9 @@ bool DrawView() {
     const bool any_lamp = !LitLamps(Flags()).empty();
     if (any_lamp)  // only once one is lit
         controls.push_back({BbSettings::MenuText("Lamps", "Фонари"), controller ? "L1/R1" : "Q/E", 1});
-    if (any_lamp) controls.push_back({BbSettings::MenuText("Select", "Выбрать"), controller ? "Cross" : "Enter", 8});
+    if (any_lamp)
+        controls.push_back({v.travel ? BbSettings::MenuText("Travel", "Переместиться") : BbSettings::MenuText("Select", "Выбрать"),
+                            controller ? "Cross" : "Enter", 8});
     if (controller) controls.push_back({BbSettings::MenuText("Pointer", "Указатель"), "L3", 0});
     controls.push_back({BbSettings::MenuText("Pan", "Сдвиг"), controller ? "R3" : BbSettings::MenuText("Drag", "Тянуть"), 0});
     controls.push_back({BbSettings::MenuText("Zoom", "Масштаб"), controller ? "L2/R2" : "-/+", 2});
@@ -902,6 +970,14 @@ bool DrawView() {
     if (art) BbMapArt::DrawBackgroundFade(draw, screen, ImVec2(screen.x + full.x, screen.y + full.y), origin,
                                           ImVec2(origin.x + size.x, origin.y + size.y), L::edge_fade * s);
     if (!r.note.empty()) Centered(draw, r.note, origin.x + size.x * .5f, origin.y + size.y * .5f - 10 * s, 20 * s, 14 * s, size.x, kMuted);
+    v.travel = r.travel;  // the footer's label next frame
+    if (!r.hint.empty()) {
+        const float top = origin.y + size.y - 30 * s;
+        const ImVec2 e = ImGui::GetFont()->CalcTextSizeA(16 * s, FLT_MAX, 0, r.hint.c_str());
+        draw->AddRectFilled(ImVec2(origin.x + (size.x - e.x) * .5f - 10 * s, top - 4 * s), ImVec2(origin.x + (size.x + e.x) * .5f + 10 * s, top + e.y + 4 * s),
+                            IM_COL32(20, 22, 20, 190), 3 * s);
+        Centered(draw, r.hint, origin.x + size.x * .5f, top, 16 * s, 12 * s, size.x, r.travel ? kPaper : kMuted);
+    }
 
     // Title and subtitle.
     Centered(draw, r.title.empty() ? std::string(BbSettings::MenuText("Map", "Карта")) : r.title, at(640, 0).x,
