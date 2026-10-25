@@ -1176,6 +1176,9 @@ void DefineAll() {
         "On: the other hunters look like normal hunters on your screen. Off: the game's blue phantom glow",
         "Вкл.: другие охотники выглядят как обычные. Выкл.: синее свечение фантомов, как в игре");
 
+    own(&Values::party_hud_ping, "Ping in the party list", "Пинг в списке группы",
+        "Each companion's connection delay in ms after the name in the bottom left list",
+        "Задержка связи каждого спутника в мс после имени в списке слева внизу");
     AddRow(Flag(&Values::party_toasts), "Join/leave notices", "Уведомления",
            "A short notice in a top corner when a hunter joins or leaves",
            "Короткое уведомление в углу, когда охотник входит или выходит", toggle, Kind::Toggle);

@@ -529,7 +529,26 @@ static void BossBarLayout() {
     assert(moved > 0 && kept > moved);
 }
 
+void PingFormat() {
+    char b[24];
+    assert(party::hud::FormatPing(0, false, b, sizeof b) == 0 && b[0] == 0);
+    party::hud::FormatPing(11, false, b, sizeof b);
+    assert(std::strcmp(b, "11 ms") == 0);
+    party::hud::FormatPing(250, true, b, sizeof b);
+    {
+        const unsigned char want[] = {0x32, 0x35, 0x30, 0x20, 0xd0, 0xbc, 0xd1, 0x81, 0};
+        assert(std::strcmp(b, reinterpret_cast<const char*>(want)) == 0);
+    }
+    char tiny[4];
+    party::hud::FormatPing(1234, false, tiny, sizeof tiny);
+    assert(std::strlen(tiny) == 3);
+    assert(party::hud::PingQuality(1) == 0 && party::hud::PingQuality(79) == 0);
+    assert(party::hud::PingQuality(80) == 1 && party::hud::PingQuality(159) == 1);
+    assert(party::hud::PingQuality(160) == 2 && party::hud::PingQuality(900) == 2);
+}
+
 int main() {
+    PingFormat();
     BossBarLayout();
     NoticeLayout();
     AreaBanner();

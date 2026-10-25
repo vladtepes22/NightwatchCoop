@@ -1495,7 +1495,8 @@ struct PartyLink::Impl {
             const std::int64_t now = now_ms();
             if (r.ok && t <= static_cast<std::uint64_t>(now)) {
                 const std::int64_t rtt_ms = now - static_cast<std::int64_t>(t);
-                if (rtt_ms <= 3600000) m.ping_ms = static_cast<std::uint32_t>(rtt_ms);
+                // at least 1: 0 means "not measured yet" to the party list / name tags (a loopback echo is under 1 ms)
+                if (rtt_ms <= 3600000) m.ping_ms = static_cast<std::uint32_t>(std::max<std::int64_t>(rtt_ms, 1));
             }
             break;
         }

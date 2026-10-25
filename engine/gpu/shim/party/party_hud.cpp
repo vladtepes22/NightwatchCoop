@@ -421,6 +421,15 @@ bool GameDialog() {
     return g_game_dialog.load(std::memory_order_relaxed);
 }
 
+int FormatPing(std::uint32_t ms, bool ru, char* out, std::size_t cap) {
+    if (cap == 0) return 0;
+    out[0] = 0;
+    if (ms == 0) return 0;
+    return std::snprintf(out, cap, ru ? "%u мс" : "%u ms", ms);
+}
+
+int PingQuality(std::uint32_t ms) { return ms < 80 ? 0 : ms < 160 ? 1 : 2; }
+
 float Distance(const float a[3], const float b[3]) {
     const float dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
     return std::sqrt(dx * dx + dy * dy + dz * dz);

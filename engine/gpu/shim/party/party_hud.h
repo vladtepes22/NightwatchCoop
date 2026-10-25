@@ -229,6 +229,11 @@ void SetGameDialog(bool open);
 bool GameDialog();
 
 // ---- geometry (overlay; pure) ----
+/// The party list's ping text: "<ms> ms" ("<ms> мс" with `ru`); empty for an unknown ping (0).
+/// Returns the length written (snprintf semantics, at most cap-1 chars stored).
+int FormatPing(std::uint32_t ms, bool ru, char* out, std::size_t cap);
+/// The ping's quality colour for the list: 0 green (< 80 ms), 1 yellow (< 160), 2 red.
+int PingQuality(std::uint32_t ms);
 /// The distance (3D, metres) from `a` to `b`.
 float Distance(const float a[3], const float b[3]);
 /// The direction to `to` from `from`, radians in [-pi, pi]: 0 straight ahead along the forward

@@ -294,8 +294,21 @@ void PartyHud() {
         party::hud::MemberColour(c.slot, mc);  // the same colour as the member's tag (and I2's pings)
         ImGui::TextColored(here ? ImVec4(mc[0], mc[1], mc[2], 1.0f) : ImVec4(0.62f, 0.60f, 0.57f, alpha), "%s",
                            c.name);
-        const float name_h = ImGui::GetItemRectSize().y;
+        const float name_h = ImGui::GetItemRectSize().y, name_w = ImGui::GetItemRectSize().x;
         ImGui::PopFont();
+        if (BbSettings::Get().party_hud_ping.load() && c.connected && c.ping_ms > 0) {
+            // visy 0.7.5 (5cc114dd): the link's round trip after the name, green / yellow / red by quality.
+            char ping[24];
+            party::hud::FormatPing(c.ping_ms, BbSettings::MenuText("en", "ru")[0] == 'r', ping, sizeof ping);
+            static const ImVec4 kQ[3] = {ImVec4(0.52f, 0.80f, 0.46f, 1.0f), ImVec4(0.92f, 0.78f, 0.34f, 1.0f),
+                                         ImVec4(0.90f, 0.35f, 0.30f, 1.0f)};
+            const ImVec4 q = kQ[party::hud::PingQuality(c.ping_ms)];
+            ImGui::PushFont(game_font, 13.0f);
+            const ImVec2 ps = ImGui::CalcTextSize(ping);
+            draw->AddText(ImVec2(row.x + name_w + 8.0f * s, row.y + (name_h - ps.y) * 0.5f),
+                          Rgba(q.x, q.y, q.z, 0.95f * alpha), ping);
+            ImGui::PopFont();
+        }
         float right_edge = row.x + width;
         if (c.spectating && here) {
             // C5: dead in the boss fight, its camera following a member (its chr is carried along:

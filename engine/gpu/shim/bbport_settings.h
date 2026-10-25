@@ -138,6 +138,9 @@ struct Values {
     /// 2026-10-20); the bloodstain and its echoes are there either way (ini party_stain_marker; env
     /// BB_PARTY_STAIN_MARKER overrides). Live, local.
     std::atomic<bool> party_stain_marker{false};
+    /// The party HUD board shows each member's round-trip time in ms after the name, green / yellow / red
+    /// by quality (ini party_hud_ping, default on). Live, local.
+    std::atomic<bool> party_hud_ping{true};
     /// I1: friendly fire / PvP - party members can hurt each other (party_pvp.h). A party rule: the
     /// host's value is sent to every guest, a guest's own value never counts. Off by default (ini
     /// party_friendly_fire; env BB_PARTY_FRIENDLY_FIRE=0/1 overrides at start). Live.
