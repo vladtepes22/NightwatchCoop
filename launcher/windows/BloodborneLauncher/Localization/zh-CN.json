@@ -2057,6 +2057,7 @@
   "Internet (party code)": "互联网（队伍代码）",
   "More than one VPN is up: the one friends are in.": "有多个 VPN 在运行：选择好友所在的那个。",
   "No VPN is up: start Radmin VPN, Hamachi, ZeroTier or Tailscale.": "没有运行中的 VPN：请启动 Radmin VPN、Hamachi、ZeroTier 或 Tailscale。",
+  " installed but offline (connect it in its app): the usual address is used.": " 已安装但处于离线状态（请在其应用中连接）：将使用通常的地址。",
   "Party password": "队伍密码",
   "Restart the game to join ": "重启游戏以加入 ",
   "Set a party password first: the host and every guest use the same one.": "请先设置队伍密码：房主和每位访客使用同一个密码。",

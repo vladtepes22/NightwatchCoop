@@ -464,6 +464,9 @@ public sealed class SeamlessPage : LauncherPage
             HostOver.Internet => L.T("Friends join with the Internet code under Share party codes. Port forwarding (TCP and UDP, the party port) is only needed for a strict NAT."),
             _ => vpns.Count == 0 ? L.T("No VPN is up: start Radmin VPN, Hamachi, ZeroTier or Tailscale.") : L.T("VPN: ") + (_route.Vpn ? _route.Label : pref),
         };
+        var offline = NetworkRoute.OfflineVpnLabels(_adapters, pref);
+        if (!_route.Vpn && offline.Count > 0)
+            _hostOverNote.Text = string.Join(", ", offline) + L.T(" installed but offline (connect it in its app): the usual address is used.");
         _vpnPickRow.Visibility = over == HostOver.Vpn && vpns.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
         _syncingVpn = true;
         if (!_vpnPick.Items.Cast<string>().SequenceEqual(vpns))

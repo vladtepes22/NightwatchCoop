@@ -324,6 +324,65 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     Check(route is { Label: "Internet", Connected: true, Address: "" }, "A public address is the Internet route, no address to share: " + route);
     Check(!NetworkRoute.Choose(Array.Empty<NetAdapter>(), "auto", 9307).Connected, "No adapter is connected");
 
+    // 0.7.6 vpnstate: an Up adapter with an address may still belong to an offline VPN app.
+    var log = "2026.10.23 19:58:26.453\tINFO\tConnected to server (17)\n" +
+        "2026.10.23 19:59:19.382\tINFO\tConnected to 154680149/'x' via TcpRelay/outgoing\n" +
+        "2026.10.23 21:37:57.218\tINFO\tSwitched Off\n" +
+        "2026.10.23 21:37:57.219\tINFO\tDisconnected from server(code:4)\n";
+    Check(NetworkRoute.VpnStateFromRadminLog(log) == "offline", "Radmin disconnect was not offline");
+    Check(NetworkRoute.VpnStateFromRadminLog(log + "t\tINFO\tConnected to server (3)\n") == "online", "Last Radmin server event must win");
+    Check(NetworkRoute.VpnStateFromRadminLog("t\tINFO\tConnected to 1/'x' via TcpRelay\n") == "" &&
+        NetworkRoute.VpnStateFromRadminLog("") == "", "A peer event or empty Radmin log is not server status");
+    Check(NetworkRoute.VpnStateFromRadminLog("Connected to server\nSwitched Off\n") == "offline" &&
+        NetworkRoute.VpnStateFromRadminLog("Connected to server\nService starting\n") == "offline", "Radmin off/start events must clear online status");
+    Check(NetworkRoute.VpnStateFromTailscaleJson("{\"BackendState\": \"Running\"}") == "online", "Tailscale Running");
+    foreach (var state in new[] { "Stopped", "NeedsLogin", "NeedsMachineAuth", "NoState" })
+        Check(NetworkRoute.VpnStateFromTailscaleJson("{\"BackendState\":\"" + state + "\"}") == "offline", "Tailscale " + state);
+    Check(NetworkRoute.VpnStateFromTailscaleJson("{\"BackendState\":\"Starting\"}") == "" &&
+        NetworkRoute.VpnStateFromTailscaleJson("not json") == "", "Unknown Tailscale output must give no evidence");
+    Check(NetworkRoute.VpnStateFromZerotierInfo("200 info 8056c2e21c 1.12.2 ONLINE") == "online" &&
+        NetworkRoute.VpnStateFromZerotierInfo("200 info 8056c2e21c 1.12.2 TUNNELED") == "online", "ZeroTier online/tunneled");
+    Check(NetworkRoute.VpnStateFromZerotierInfo("200 info 8056c2e21c 1.12.2 OFFLINE") == "offline", "ZeroTier offline");
+    Check(NetworkRoute.VpnStateFromZerotierInfo("missing authtoken") == "" &&
+        NetworkRoute.VpnStateFromZerotierInfo("ONLINE") == "" &&
+        NetworkRoute.VpnStateFromZerotierInfo("200 info unknown") == "", "Unknown ZeroTier output must give no evidence");
+    long[] still = { 1380, 23, 0 };
+    Check(NetworkRoute.VpnDecideOnline("online", still, still), "Vendor online must beat quiet counters");
+    Check(!NetworkRoute.VpnDecideOnline("offline", still, new long[] { 1500, 24, 1 }), "Vendor offline must beat rising counters");
+    Check(!NetworkRoute.VpnDecideOnline("", still, still), "Quiet counters should be offline in Automatic");
+    Check(!NetworkRoute.VpnDecideOnline("", still, new long[] { 1, 1, 0 }), "Counters that decrease did not rise");
+    foreach (var rising in new[] { new long[] { 1500, 23, 0 }, new long[] { 1380, 24, 0 }, new long[] { 1380, 23, 1 } })
+        Check(NetworkRoute.VpnDecideOnline("", still, rising), "Each receive counter can prove online");
+    Check(NetworkRoute.VpnDecideOnline("", null, null) && NetworkRoute.VpnDecideOnline("", still, null) &&
+        NetworkRoute.VpnDecideOnline("", null, still), "Missing counters must be trusted");
+    Check(NetworkRoute.VpnDecideOnline("", still, still, countersTrusted: false), "Named adapters trust quiet counters");
+    var offRadmin = radmin with { Vendor = "offline", Rx1 = still, Rx2 = still };
+    var onRadmin = radmin with { Vendor = "online" };
+    var quiet = hamachi with { Rx1 = still, Rx2 = still };
+    var busy = hamachi with { Rx1 = still, Rx2 = new long[] { 1500, 24, 0 } };
+    Check(NetworkRoute.SelectVpn(new[] { lan, offRadmin }, "auto") == null &&
+        NetworkRoute.SelectVpn(new[] { lan, offRadmin }, "radmin") == null, "Offline Radmin was selected");
+    Check(NetworkRoute.SelectVpn(new[] { lan, onRadmin }, "auto") == onRadmin, "Online Radmin was skipped");
+    Check(NetworkRoute.SelectVpn(new[] { lan, quiet }, "auto") == null &&
+        NetworkRoute.SelectVpn(new[] { lan, busy }, "auto") == busy, "Counter evidence did not select Hamachi");
+    Check(NetworkRoute.SelectVpn(new[] { lan, quiet }, "hamachi") == quiet &&
+        NetworkRoute.SelectVpn(new[] { lan, hamachi }, "auto") == hamachi, "Quiet named adapter or unknown status was skipped");
+    Check(!NetworkRoute.AdapterOffline(lan) && NetworkRoute.AdapterOffline(offRadmin) &&
+        !NetworkRoute.AdapterOffline(nord with { Vendor = "offline", Rx1 = still, Rx2 = still }), "Offline evidence applies only to overlay VPNs");
+    foreach (var pref in new[] { "auto", "radmin" })
+    {
+        Check(NetworkRoute.Choose(new[] { lan, offRadmin }, pref, 9307) is
+            { Label: "LAN", Address: "192.168.1.20:9307", Vpn: false }, "Offline VPN must fall back to LAN");
+        Check(NetworkRoute.Choose(new[] { pub, offRadmin }, pref, 9307) is
+            { Label: "Internet", Address: "", Vpn: false }, "Offline VPN must fall back to Internet");
+    }
+    Check(NetworkRoute.OfflineVpnLabels(new[] { lan, offRadmin }, "auto").SequenceEqual(new[] { "Radmin VPN" }) &&
+        NetworkRoute.OfflineVpnLabels(new[] { offRadmin }, " RADMIN ").SequenceEqual(new[] { "Radmin VPN" }), "Offline notice labels");
+    Check(NetworkRoute.OfflineVpnLabels(new[] { offRadmin }, "off").Count == 0 &&
+        NetworkRoute.OfflineVpnLabels(new[] { offRadmin }, "hamachi").Count == 0 &&
+        NetworkRoute.OfflineVpnLabels(new[] { offRadmin with { Ip = 0 } }, "auto").Count == 0 &&
+        NetworkRoute.OfflineVpnLabels(new[] { quiet }, "hamachi").Count == 0, "Offline notice must match a usable, skipped adapter and preference");
+
     // Discovery (party_discovery.h adapter_discovery_ok): private LAN on a real adapter, Radmin, Hamachi, ZeroTier.
     Check(NetworkRoute.DiscoveryOk(lan) && NetworkRoute.DiscoveryOk(radmin) && NetworkRoute.DiscoveryOk(hamachi) && NetworkRoute.DiscoveryOk(zerotier), "Allowed adapters refused");
     Check(!NetworkRoute.DiscoveryOk(tailscale) && !NetworkRoute.DiscoveryOk(nord) && !NetworkRoute.DiscoveryOk(hyperv) && !NetworkRoute.DiscoveryOk(pub), "Tailscale, a commercial VPN, a virtual switch or a public address was allowed");
