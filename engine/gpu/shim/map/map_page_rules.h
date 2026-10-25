@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // The map page's pure rules (tests/test_map_page.cpp): which baked area a game map shows, the
-// zoom range, and the inputs that open the map.
+// zoom range, the inputs that open the map, and the map view's pointer, panning, floors and
+// lamp selection.
 #pragma once
 
 #include <algorithm>
@@ -37,6 +38,70 @@ inline float WheelZoom(float zoom, float wheel) {
         wheel = 0;
     }
     return std::clamp(zoom * std::pow(1.15f, wheel), kMinZoom, kMaxZoom);
+}
+
+/// The controller pointer (left stick), in the canvas as 0..1 of its width / height: `sx`, `sy`
+/// the stick (-1..1), `speed` pixels a second, `w` x `h` the canvas in pixels. Stays inside.
+inline void MovePointer(float* u, float* v, float sx, float sy, float dt, float speed, float w, float h) {
+    if (!std::isfinite(*u) || !std::isfinite(*v)) *u = *v = .5f;
+    if (!std::isfinite(sx) || !std::isfinite(sy) || !std::isfinite(dt)) return;
+    *u = std::clamp(*u + sx * speed * dt / std::max(1.0f, w), 0.0f, 1.0f);
+    *v = std::clamp(*v + sy * speed * dt / std::max(1.0f, h), 0.0f, 1.0f);
+}
+
+/// Panning: the map centre (world x, z) after the right stick / arrows moved it `dx`, `dy`
+/// (-1..1) for `dt` seconds at `speed` screen pixels a second; `zoom` pixels per world unit. Screen
+/// down is world -z (the map's north is up).
+inline void Pan(float* cx, float* cz, float dx, float dy, float dt, float speed, float zoom) {
+    if (!(zoom > 0) || !std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(dt)) return;
+    *cx += dx * speed * dt / zoom;
+    *cz -= dy * speed * dt / zoom;
+}
+
+/// A mouse drag of `mx`, `my` screen pixels: the map follows the pointer.
+inline void Drag(float* cx, float* cz, float mx, float my, float zoom) {
+    if (!(zoom > 0) || !std::isfinite(mx) || !std::isfinite(my)) return;
+    *cx -= mx / zoom;
+    *cz += my / zoom;
+}
+
+/// A shown icon on the canvas (screen position, pick radius).
+struct Hit {
+    float x = 0, y = 0, radius = 0;
+};
+/// The icon nearest the pointer within its radius; -1 none.
+inline int Nearest(const std::vector<Hit>& hits, float px, float py) {
+    int best = -1;
+    float best_d = 0;
+    for (int i = 0; i < int(hits.size()); ++i) {
+        const float d = std::hypot(px - hits[i].x, py - hits[i].y);
+        if (d < hits[i].radius && (best < 0 || d < best_d)) {
+            best = i;
+            best_d = d;
+        }
+    }
+    return best;
+}
+
+/// The floor shown after a floor step (D-pad up / down, Page Up / Page Down): `count` floors,
+/// `current` the floor drawn now (-1 none). Wraps around; -1 when the area has one floor or none.
+inline int StepFloor(int count, int current, int step) {
+    if (count <= 1 || step == 0) return -1;
+    if (current < 0 || current >= count) return step > 0 ? 0 : count - 1;
+    return ((current + step) % count + count) % count;
+}
+
+/// What Cross / Enter / a click on the map does. `under`: the lamp under the pointer (-1 none);
+/// `selected`: the lamp being shown (-1 none); `travel`: map travel can start now; `click`: a mouse
+/// click (it acts only on the lamp under it; Cross and Enter also travel to the selected lamp with
+/// nothing under the pointer). The first press on a lamp selects it (centres it and its floor), a
+/// second press on the same one travels.
+enum class Confirm { None, Select, Travel };
+inline Confirm OnConfirm(int under, int selected, bool travel, bool click) {
+    if (under >= 0 && under != selected) return Confirm::Select;
+    if (selected < 0 || !travel) return Confirm::None;
+    if (under == selected || (!click && under < 0)) return Confirm::Travel;
+    return Confirm::None;
 }
 
 /// The inputs of a bbport.ini binding value (bind.map, pad.map: "M, Ctrl+Mouse4"), as their base

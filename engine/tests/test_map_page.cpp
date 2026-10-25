@@ -181,6 +181,40 @@ int main(int argc, char** argv) {
            std::vector<std::string>{"M", "Mouse4", "Left Ctrl"}));
     CHECK(InputNames("").empty() && InputNames(" , ").empty());
     CHECK(InputNames("Ctrl+") == std::vector<std::string>{"Ctrl+"});  // a key named so, not a modifier
+
+    // The controller pointer: speed in pixels a second, kept inside the canvas; bad input resets.
+    float u = .5f, v = .5f;
+    MovePointer(&u, &v, 1, 0, .5f, 500, 1000, 500);
+    CHECK(std::abs(u - .75f) < 1e-5f && v == .5f);
+    MovePointer(&u, &v, 1, -1, 10, 500, 1000, 500);
+    CHECK(u == 1.0f && v == 0.0f);
+    MovePointer(&u, &v, NAN, 0, .1f, 500, 1000, 500);
+    CHECK(u == 1.0f && v == 0.0f);  // a bad stick moves nothing
+    u = NAN;
+    MovePointer(&u, &v, 0, 0, .1f, 500, 0, 0);
+    CHECK(u == .5f && v == .5f);
+    // Panning: right moves the centre east (+x), down moves it south (-z); a drag follows the pointer.
+    float cx = 10, cz = 20;
+    Pan(&cx, &cz, 1, 1, .5f, 400, 4);
+    CHECK(cx == 60 && cz == -30);
+    Pan(&cx, &cz, 1, 1, .5f, 400, 0);
+    CHECK(cx == 60 && cz == -30);  // no zoom: no move
+    Drag(&cx, &cz, 40, -40, 4);
+    CHECK(cx == 50 && cz == -40);
+    // The icon under the pointer: the nearest within its radius.
+    const std::vector<Hit> hits = {{0, 0, 10}, {8, 0, 10}, {100, 100, 5}};
+    CHECK(Nearest(hits, 5, 0) == 1 && Nearest(hits, 3, 0) == 0 && Nearest(hits, 50, 50) == -1);
+    CHECK(Nearest(hits, 103, 100) == 2 && Nearest(hits, 106, 100) == -1 && Nearest({}, 0, 0) == -1);
+    // Floors: wraps; one floor has nothing to step to.
+    CHECK(StepFloor(3, 0, 1) == 1 && StepFloor(3, 2, 1) == 0 && StepFloor(3, 0, -1) == 2);
+    CHECK(StepFloor(3, -1, 1) == 0 && StepFloor(3, -1, -1) == 2 && StepFloor(1, 0, 1) == -1 && StepFloor(3, 1, 0) == -1);
+    // Cross / Enter / click: the first press selects a lamp, the second on it travels.
+    CHECK(OnConfirm(2, -1, true, false) == Confirm::Select && OnConfirm(2, 1, true, true) == Confirm::Select);
+    CHECK(OnConfirm(2, 2, true, false) == Confirm::Travel && OnConfirm(2, 2, true, true) == Confirm::Travel);
+    CHECK(OnConfirm(-1, 2, true, false) == Confirm::Travel);  // Cross with the lamp shown, pointer elsewhere
+    CHECK(OnConfirm(-1, 2, true, true) == Confirm::None);     // a click on empty map never travels
+    CHECK(OnConfirm(2, 2, false, false) == Confirm::None && OnConfirm(-1, -1, true, false) == Confirm::None);
+    CHECK(OnConfirm(3, 2, false, true) == Confirm::Select);   // selecting works with travel off
     std::printf(failures ? "map-page-test: %d failures\n" : "map-page-test: ok\n", failures);
     return failures ? 1 : 0;
 }

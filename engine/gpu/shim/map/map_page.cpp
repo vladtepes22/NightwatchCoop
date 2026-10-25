@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // The in-game map (map_page.h): the map view (full screen, Hunter's Atlas's frame and controls) and
 // the overlay menu's Map tab. The map follows the player; it pans (right stick, drag, arrows), zooms
-// (L2 / R2, wheel, - / +), browses the lit lamps of every area (L1 / R1, Q / E), recentres
-// (Triangle, C) and toggles height shading (Square, H); its floor follows the player. Icons:
-// lit lamps, ladders, gates, NPCs that are there now, the party, the player's facing; optionally the
-// pickups still lying there and boss reveal (map_data_rules.h, bbport.ini map_*). The view and
-// controls follow Hunter's Atlas source/compact/bbport_map.cpp (MikeTat1988, GPL-2.0-or-later).
-// Map travel is deliberately not here.
+// (L2 / R2, wheel, - / +), browses the lit lamps of every area (L1 / R1, Q / E), selects the lamp
+// under the pointer (Cross, Enter, a click), steps through an area's floors (D-pad up / down, Page Up
+// / Page Down; else its floor follows the player or the shown lamp), recentres (Triangle, C) and
+// toggles height shading (Square, H). Icons: lit lamps, ladders, gates, NPCs that are there now, the
+// party, the player's facing; optionally the pickups still lying there and boss reveal
+// (map_data_rules.h, bbport.ini map_*). The view and controls follow Hunter's Atlas
+// source/compact/bbport_map.cpp (MikeTat1988, GPL-2.0-or-later). Pure rules: map_page_rules.h.
 #include "map_page.h"
 
 #include "bbport_atlas_style.h"
@@ -338,6 +339,7 @@ struct Tip {
     ImVec2 at;
     float radius;
     std::string text;
+    int lamp = -1;  // index into the lit lamps (a lamp's icon)
 };
 
 // The map itself in `[origin, origin + size]`: input, floors, icons, tooltips. `pad`: the map
@@ -345,10 +347,27 @@ struct Tip {
 // title and subtitle for the frame.
 struct CanvasResult {
     std::string title, subtitle, note;
-    int floor = -1;
+    int floor = -1, floors = 0;
     bool any_lamp = false;
+    bool selected = false;  // a lamp is selected (shown)
     bool back = false;
 };
+
+// Shows (selects) lit lamp `i`: centred, its area and floor, the pointer on it. `how`: for the log.
+void ShowLamp(const std::vector<LampRef>& lamps, int i, const char* how) {
+    View& v = g_view;
+    if (i < 0 || i >= int(lamps.size())) return;
+    const LampRef& l = lamps[i];
+    std::printf("Map: showing lamp %s (%s, %s, frame %d after opening)\n", l.lamp->name.c_str(), l.area->id.c_str(), how, v.since_open);
+    v.lamp = i;
+    v.preview = true;
+    v.follow = false;
+    v.region = l.area->id;
+    v.cx = l.lamp->x;
+    v.cz = l.lamp->z;
+    v.pu = v.pv = .5f;
+    BbMapVector::SetManualFloor(-1);
+}
 
 CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool pad, int footer_action, float footer_side) {
     CanvasResult r;
@@ -379,11 +398,14 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
     bool recentre = false;
     if (hovered) zoom_steps += io.MouseWheel;
     if (hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-        const float z = v.zoom * s;
-        v.cx -= io.MouseDelta.x / z;
-        v.cz += io.MouseDelta.y / z;
+        Drag(&v.cx, &v.cz, io.MouseDelta.x, io.MouseDelta.y, v.zoom * s);
         v.follow = false;
     }
+    // A click (a press and release without a drag) selects the lamp under it (map view only).
+    const bool click = pad && hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+                       io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < io.MouseDragThreshold * io.MouseDragThreshold;
+    bool confirm = false;  // Cross / Enter
+    int floor_step = 0;
     if (io.MouseDelta.x != 0 || io.MouseDelta.y != 0) v.controller = false;
     // Its first frames take no presses: a key or button from before it opened (the one that opened
     // it, one still queued) is not one of its controls.
@@ -396,13 +418,10 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         float kx = float(ImGui::IsKeyDown(ImGuiKey_RightArrow)) - float(ImGui::IsKeyDown(ImGuiKey_LeftArrow));
         float ky = float(ImGui::IsKeyDown(ImGuiKey_DownArrow)) - float(ImGui::IsKeyDown(ImGuiKey_UpArrow));
         if (lx || ly || rx || ry) v.controller = true;
-        v.pu = std::clamp(v.pu + lx * 500 * dt / std::max(1.0f, size.x), 0.0f, 1.0f);
-        v.pv = std::clamp(v.pv + ly * 500 * dt / std::max(1.0f, size.y), 0.0f, 1.0f);
+        MovePointer(&v.pu, &v.pv, lx, ly, dt, 500, size.x, size.y);
         const float pan_x = rx + kx, pan_y = ry + ky;
         if (pan_x || pan_y) {
-            const float z = v.zoom * s;
-            v.cx += pan_x * 350 * s * dt / z;
-            v.cz -= pan_y * 350 * s * dt / z;
+            Pan(&v.cx, &v.cz, pan_x, pan_y, dt, 350 * s, v.zoom * s);
             v.follow = false;
         }
         // Held triggers: about six wheel steps a second.
@@ -414,9 +433,14 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         if (Pressed(ImGuiKey_GamepadR1) || Pressed(ImGuiKey_E)) lamp_step = 1;
         if (Pressed(ImGuiKey_GamepadFaceUp) || Pressed(ImGuiKey_C)) recentre = true;
         if (Pressed(ImGuiKey_GamepadFaceLeft) || Pressed(ImGuiKey_H)) v.shading = !v.shading;
-        for (ImGuiKey k : {ImGuiKey_GamepadL1, ImGuiKey_GamepadR1, ImGuiKey_GamepadFaceUp, ImGuiKey_GamepadFaceLeft, ImGuiKey_GamepadL2, ImGuiKey_GamepadR2})
+        if (Pressed(ImGuiKey_GamepadDpadUp) || Pressed(ImGuiKey_PageUp)) floor_step = 1;
+        if (Pressed(ImGuiKey_GamepadDpadDown) || Pressed(ImGuiKey_PageDown)) floor_step = -1;
+        if (Pressed(ImGuiKey_GamepadFaceDown) || Pressed(ImGuiKey_Enter) || Pressed(ImGuiKey_KeypadEnter)) confirm = true;
+        for (ImGuiKey k : {ImGuiKey_GamepadL1, ImGuiKey_GamepadR1, ImGuiKey_GamepadFaceUp, ImGuiKey_GamepadFaceLeft, ImGuiKey_GamepadL2, ImGuiKey_GamepadR2,
+                           ImGuiKey_GamepadFaceDown, ImGuiKey_GamepadDpadUp, ImGuiKey_GamepadDpadDown})
             if (ImGui::IsKeyDown(k)) v.controller = true;
-        for (ImGuiKey k : {ImGuiKey_Q, ImGuiKey_E, ImGuiKey_H, ImGuiKey_C, ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_UpArrow, ImGuiKey_DownArrow})
+        for (ImGuiKey k : {ImGuiKey_Q, ImGuiKey_E, ImGuiKey_H, ImGuiKey_C, ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_UpArrow, ImGuiKey_DownArrow,
+                           ImGuiKey_PageUp, ImGuiKey_PageDown, ImGuiKey_Enter})
             if (ImGui::IsKeyDown(k)) v.controller = false;
     }
     // The footer's buttons (mouse): left / right half for the two-way ones.
@@ -426,6 +450,8 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
     case 3: recentre = true; break;
     case 5: v.shading = !v.shading; break;
     case 6: r.back = true; break;
+    case 7: floor_step = footer_side > 0 ? 1 : -1; break;
+    case 8: confirm = true; break;
     default: break;
     }
     if (zoom_steps != 0) v.zoom = WheelZoom(v.zoom, zoom_steps);
@@ -436,20 +462,9 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         v.lamp = -1;
         BbMapVector::SetManualFloor(-1);
     }
-    if (lamp_step && !lamps.empty()) {
-        v.lamp = CycleLamp(int(lamps.size()), v.lamp, lamp_step);
-        const LampRef& l = lamps[v.lamp];
-        std::printf("Map: showing lamp %s (%s, %s, frame %d after opening)\n", l.lamp->name.c_str(), l.area->id.c_str(),
-                    footer_action == 1 ? "footer" : ImGui::IsKeyDown(ImGuiKey_GamepadL1) || ImGui::IsKeyDown(ImGuiKey_GamepadR1) ? "L1 / R1" : "Q / E",
-                    v.since_open);
-        v.preview = true;
-        v.follow = false;
-        v.region = l.area->id;
-        v.cx = l.lamp->x;
-        v.cz = l.lamp->z;
-        v.pu = v.pv = .5f;
-        BbMapVector::SetManualFloor(-1);
-    }
+    if (lamp_step && !lamps.empty())
+        ShowLamp(lamps, CycleLamp(int(lamps.size()), v.lamp, lamp_step),
+                 footer_action == 1 ? "footer" : ImGui::IsKeyDown(ImGuiKey_GamepadL1) || ImGui::IsKeyDown(ImGuiKey_GamepadR1) ? "L1 / R1" : "Q / E");
     if (v.preview && (v.lamp < 0 || v.lamp >= int(lamps.size()))) v.preview = false;  // a lamp went out (new save)
     if (!v.preview) {
         if (v.region != w.region) {
@@ -477,9 +492,12 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         return r;
     }
 
-    // The floor: the player's, the lamp's, else the largest.
+    // The floor: one stepped to (D-pad up / down, Page Up / Down), else the player's, the lamp's,
+    // else the largest.
     int floor;
-    if (here) {
+    if (BbMapVector::ManualFloor() >= 0 && BbMapVector::ManualFloor() < BbMapVector::Floors(v.region)) {
+        floor = BbMapVector::ManualFloor();
+    } else if (here) {
         floor = BbMapVector::Select(v.region, w.x, w.y, w.z, true);
     } else if (v.preview) {
         const Lamp* l = lamps[v.lamp].lamp;
@@ -487,7 +505,15 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
     } else {
         floor = BbMapVector::Primary(v.region);
     }
+    if (floor_step) {
+        if (const int stepped = StepFloor(BbMapVector::Floors(v.region), floor, floor_step); stepped >= 0) {
+            floor = stepped;
+            BbMapVector::SetManualFloor(stepped);
+            std::printf("Map: floor %d of %d (%s)\n", stepped + 1, BbMapVector::Floors(v.region), v.region.c_str());
+        }
+    }
     r.floor = floor;
+    r.floors = BbMapVector::Floors(v.region);
     float anchor = 0, low = 0, high = 0;
     const bool heights = BbMapVector::FloorHeights(v.region, floor, &anchor, &low, &high);
     const auto near_floor = [&](float y, float margin) { return !heights || (y >= low - margin && y <= high + margin) || std::abs(y - anchor) <= margin; };
@@ -557,7 +583,7 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         if (!on_canvas(p, 22 * s)) continue;
         if (v.preview && v.lamp == i) draw->AddCircle(p, 20 * s, IM_COL32(233, 206, 143, 220), 32, 1.5f * s);
         icon("lamp", p, 32, l.available ? IM_COL32_WHITE : IM_COL32(100, 100, 100, 125));
-        tips.push_back({p, 20 * s, l.lamp->name});
+        tips.push_back({p, 20 * s, l.lamp->name, i});
     }
     // The party: companions in this world on this map.
     party::hud::Board board;
@@ -584,22 +610,23 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         draw->AddLine(ImVec2(pointer.x, pointer.y - 13 * s), ImVec2(pointer.x, pointer.y + 13 * s), kPaper, .7f * s);
     }
     draw->PopClipRect();
-    // A tooltip for the icon nearest the pointer.
-    if ((pad && v.controller) || hovered) {
-        const Tip* best = nullptr;
-        float best_d = 1e9f;
-        for (const auto& t : tips) {
-            const float d = std::hypot(pointer.x - t.at.x, pointer.y - t.at.y);
-            if (d < t.radius && d < best_d) {
-                best = &t;
-                best_d = d;
-            }
-        }
-        if (best) {
-            if (pad && v.controller) ImGui::SetNextWindowPos(ImVec2(pointer.x + 22 * s, pointer.y + 18 * s));
-            ImGui::SetTooltip("%s", best->text.c_str());
-        }
+    // A tooltip for the icon nearest the pointer; Cross / Enter / a click on a lamp selects it.
+    std::vector<Hit> hits;
+    hits.reserve(tips.size());
+    for (const auto& t : tips) hits.push_back({t.at.x, t.at.y, t.radius});
+    const bool pointing = (pad && v.controller) || hovered;
+    const int nearest = pointing ? Nearest(hits, pointer.x, pointer.y) : -1;
+    if (nearest >= 0) {
+        if (pad && v.controller) ImGui::SetNextWindowPos(ImVec2(pointer.x + 22 * s, pointer.y + 18 * s));
+        ImGui::SetTooltip("%s", tips[nearest].text.c_str());
     }
+    if (pad && settled && (confirm || click)) {
+        const int under = nearest >= 0 ? tips[nearest].lamp : -1;
+        const int selected = v.preview ? v.lamp : -1;
+        if (OnConfirm(under, selected, false, click && !confirm) == Confirm::Select)
+            ShowLamp(lamps, under, click && !confirm ? "click" : "Cross / Enter");
+    }
+    r.selected = v.preview && v.lamp >= 0 && v.lamp < int(lamps.size());
 
     // The title: the lamp being shown, else where the player stands, else the area.
     if (area) {
@@ -840,11 +867,15 @@ bool DrawView() {
     // The footer's controls (decided before the canvas so a click there acts this frame).
     const bool controller = v.controller;
     std::vector<Control> controls;
-    if (!LitLamps(Flags()).empty())  // only once one is lit
+    const bool any_lamp = !LitLamps(Flags()).empty();
+    if (any_lamp)  // only once one is lit
         controls.push_back({BbSettings::MenuText("Lamps", "Фонари"), controller ? "L1/R1" : "Q/E", 1});
+    if (any_lamp) controls.push_back({BbSettings::MenuText("Select", "Выбрать"), controller ? "Cross" : "Enter", 8});
     if (controller) controls.push_back({BbSettings::MenuText("Pointer", "Указатель"), "L3", 0});
     controls.push_back({BbSettings::MenuText("Pan", "Сдвиг"), controller ? "R3" : BbSettings::MenuText("Drag", "Тянуть"), 0});
     controls.push_back({BbSettings::MenuText("Zoom", "Масштаб"), controller ? "L2/R2" : "-/+", 2});
+    if (!v.region.empty() && BbMapVector::Floors(v.region) > 1)
+        controls.push_back({BbSettings::MenuText("Floor", "Этаж"), controller ? "Up/Down" : "PgUp/PgDn", 7});
     controls.push_back({BbSettings::MenuText("Recentre", "К себе"), controller ? "Triangle" : "C", 3});
     controls.push_back({BbSettings::MenuText("Shading", "Высоты"), controller ? "Square" : "H", 5});
     controls.push_back({BbSettings::MenuText("Back", "Назад"), controller ? "Circle" : "Esc", 6});
@@ -944,8 +975,16 @@ bool DrawView() {
     for (int i = 0; i < int(controls.size()); ++i) {
         const auto& c = controls[i];
         const auto box = slot(i);
-        const float label_size = 16 * s, key_size = 12 * s;
-        const ImVec2 text = font->CalcTextSizeA(label_size, FLT_MAX, 0, c.label), key = font->CalcTextSizeA(key_size, FLT_MAX, 0, c.key);
+        float label_size = 16 * s, key_size = 12 * s;
+        ImVec2 text = font->CalcTextSizeA(label_size, FLT_MAX, 0, c.label), key = font->CalcTextSizeA(key_size, FLT_MAX, 0, c.key);
+        // Many controls (a pad, several floors): the slot's text shrinks to fit it.
+        if (const float need = key.x + 16 * s + text.x, room = box.w - 10 * s; need > room && need > 0) {
+            const float fit = std::max(.6f, room / need);
+            label_size *= fit;
+            key_size *= fit;
+            text = font->CalcTextSizeA(label_size, FLT_MAX, 0, c.label);
+            key = font->CalcTextSizeA(key_size, FLT_MAX, 0, c.key);
+        }
         const float glyph = key.x + 10 * s;
         const float px = box.x + (box.w - glyph - 6 * s - text.x) * .5f;
         if (i) draw->AddLine(ImVec2(box.x, box.y + 5 * s), ImVec2(box.x, box.y + 28 * s), kRule, .7f * s);
