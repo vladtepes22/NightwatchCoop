@@ -185,13 +185,22 @@ unsigned long PoolRefused(std::uint64_t mib) {
     return answer.error;
 }
 
-/* A pool Windows refused to commit at once (visy 47cc3e1c) is handed off reserved: bb-probe commits
- * each range as the game maps it (BB_POOL_RESERVED=1), and the game maps far less than the pool.
+/* The pool is handed off reserved (visy 47cc3e1c as a fallback, 4b208faa as the default): bb-probe
+ * commits each range as the game maps it (BB_POOL_RESERVED=1), and the game maps far less than the
+ * pool. BB_GUEST_COMMIT_ON_MAP=0 hands a pool Windows committed whole over as it is.
  * PoolRefused keeps answering for the full commit, so heap sizes are still chosen on it. */
 void PoolHandOff(std::uint64_t mib) {
     UnsetEnv("BB_POOL_SECTION");
     UnsetEnv("BB_POOL_RESERVED");
     if (mib) {
+        // visy 4b208faa (0.7.5): commit on map is the default, the full commit above only chose the
+        // heap sizes. BB_GUEST_COMMIT_ON_MAP=0 hands the committed pool over (the old default).
+        const bool commit_all = Env("BB_GUEST_COMMIT_ON_MAP", "") == "0";
+        if (auto it = PoolAnswers().find(mib); !commit_all && it != PoolAnswers().end() && it->second.section &&
+                                               !it->second.reserved) {
+            CloseHandle(it->second.section);
+            it->second.section = nullptr;
+        }
         if (auto it = PoolAnswers().find(mib); it != PoolAnswers().end() && !it->second.section) {
             SECURITY_ATTRIBUTES inherit{sizeof inherit, nullptr, TRUE};
             const std::uint64_t size = it->second.bytes;

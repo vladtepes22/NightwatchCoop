@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
+#include <exception>
 
 #include "bbport_native_calls.h"
 #include "bbport_threads.h"
@@ -394,6 +396,22 @@ void DrawPreparation::ScannerLoop(std::stop_token stop) {
     }
 }
 
+/// bbport (visy 4b208faa): an exception while preparing one draw: that draw is drawn the ordinary way (Unavailable). The
+/// log line is rate-limited to one per 10 s plus a running count.
+static void ReportWorkerException(const char* what) {
+    static std::atomic<u64> count{0};
+    static std::atomic<s64> last_ms{-100000};
+    const u64 n = ++count;
+    const s64 now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch()).count();
+    s64 prev = last_ms.load(std::memory_order_relaxed);
+    if (now - prev >= 10000 && last_ms.compare_exchange_strong(prev, now)) {
+        std::printf("Draw preparation: a worker caught an exception (%s); that draw is drawn "
+                    "without preparation (%llu so far)\n", what, static_cast<unsigned long long>(n));
+        std::fflush(stdout);
+    }
+}
+
 void DrawPreparation::WorkerLoop(std::stop_token stop, u32 index) {
     Common::SetCurrentThreadName(("bb:DrawPrep" + std::to_string(index)).c_str());
     BbThreads::MakeBackground();
@@ -478,7 +496,10 @@ void DrawPreparation::WorkerLoop(std::stop_token stop, u32 index) {
                 prep_worker.stages.clear();
                 prep_worker.failed = false;
                 sel.draw_indirect_params = {};
-                if (pipeline_cache.PrepareGraphicsPipeline(sel)) {
+                bool prepared = false;  // bbport (visy 4b208faa): a throw here draws this draw unprepared
+                try {
+                prepared = pipeline_cache.PrepareGraphicsPipeline(sel);
+                if (prepared) {
                     draw.reg_checksum = checksum;
                     draw.key = sel.graphics_key;
                     draw.num_stages = static_cast<u32>(prep_worker.stages.size());
@@ -501,7 +522,15 @@ void DrawPreparation::WorkerLoop(std::stop_token stop, u32 index) {
                         PrepareVertexInputs(*vs, *sel.fetch_shader, *regs, draw.vertex, arena);
                     }
                     draw.state.store(PreparedDraw::Ready, std::memory_order_release);
-                } else {
+                }
+                } catch (const std::exception& e) {
+                    ReportWorkerException(e.what());
+                    prepared = false;
+                } catch (...) {
+                    ReportWorkerException("unknown exception");
+                    prepared = false;
+                }
+                if (!prepared) {
                     draw.state.store(PreparedDraw::Unavailable, std::memory_order_release);
                 }
                 runtime_fault_recover = nullptr;

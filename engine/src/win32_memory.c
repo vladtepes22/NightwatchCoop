@@ -57,9 +57,18 @@ int win_mem_space(uintptr_t start, uintptr_t end) {
     space_start = start; space_end = end;
     return 0;
 }
+/* visy 4b208faa (0.7.5): the pool is reserved and committed as the game maps it by default, so the
+ * commit charge follows what the game maps (about half the pool in the Dream) instead of the whole
+ * pool at once. BB_GUEST_COMMIT_ON_MAP=0 commits the whole pool at once (the old default, which
+ * still falls back to commit on map when Windows refuses); BB_POOL_LAZY=1 forces commit on map. */
+static int commit_on_map(const char *lazy_env) {
+    const char *v = getenv("BB_GUEST_COMMIT_ON_MAP");
+    return (lazy_env && lazy_env[0] == '1') || !(v && v[0] == '0');
+}
 int win_mem_section(uint64_t size, void **backing) {
     const char *lazy_env = getenv("BB_POOL_LAZY");
-    lazy = lazy_env && lazy_env[0] == '1';
+    int refused = 0;
+    lazy = commit_on_map(lazy_env);
     pool_bytes = size;
     const char *given = getenv("BB_POOL_SECTION");
     if (given && *given) {
@@ -70,7 +79,8 @@ int win_mem_section(uint64_t size, void **backing) {
             section = (HANDLE)(uintptr_t)handle;
             *backing = MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, size);
             pool_view = *backing;
-            if (getenv("BB_POOL_RESERVED") && getenv("BB_POOL_RESERVED")[0] == '1') lazy = 1;
+            /* bb-start's pool: reserved (commit on map) or committed whole (BB_GUEST_COMMIT_ON_MAP=0). */
+            lazy = getenv("BB_POOL_RESERVED") && getenv("BB_POOL_RESERVED")[0] == '1';
             if (*backing) return 0;
             fprintf(stderr, "Runtime: the pool bb-start made cannot be mapped (Windows error %lu); making one\n",
                     GetLastError());
@@ -79,7 +89,7 @@ int win_mem_section(uint64_t size, void **backing) {
                     (unsigned long long)size);
         }
         section = NULL;
-        lazy = lazy_env && lazy_env[0] == '1';
+        lazy = commit_on_map(lazy_env);
     }
     /* BB_TEST_POOL_FAILURES=1 simulates Windows refusing the full commit (tests). */
     const int simulated = !lazy && env_number("BB_TEST_POOL_FAILURES", 0) > 0;
@@ -99,7 +109,7 @@ int win_mem_section(uint64_t size, void **backing) {
                 fprintf(stderr, "Runtime: the %llu MiB game memory pool does not fit Windows' commit limit at once "
                                 "(error %lu, %llu MiB of commit left): committed as the game maps it\n",
                         (unsigned long long)(size >> 20), error, commit_free_mib());
-                lazy_env = NULL;
+                refused = 1;
             }
         } else {
             SetLastError(error);
@@ -109,9 +119,10 @@ int win_mem_section(uint64_t size, void **backing) {
     *backing = MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, size);
     if (!*backing) { report("mapping the memory pool", 0, size); return -1; }
     pool_view = *backing;
-    if (lazy && lazy_env && lazy_env[0] == '1') {
-        fprintf(stderr, "Runtime: the game's memory (%llu MiB) is committed as it is mapped "
-                        "(BB_POOL_LAZY=1)\n", (unsigned long long)(size >> 20));
+    if (lazy && !refused) {
+        fprintf(stderr, "Runtime: the game's memory (%llu MiB) is reserved and committed as it is mapped "
+                        "(BB_GUEST_COMMIT_ON_MAP=0: all at once; %llu MiB of commit left)\n",
+                (unsigned long long)(size >> 20), commit_free_mib());
     }
     return 0;
 }
