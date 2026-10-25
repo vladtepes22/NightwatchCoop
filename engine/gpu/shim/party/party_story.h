@@ -370,6 +370,17 @@ int GuestEndingType(int host_ending, bool own_three_cords);
 /// live mirror played the same scene (campaign soak run 5f: Mergo 26000010, Gehrman 21000040), so
 /// the guest saw it twice. Skip that 2002[1..7] when the event's scene was mirrored. On by default
 /// (BB_PARTY_STORY_DEDUPE=0 turns it off). Skipping only the remo keeps the event chain running.
+/// Guest: events whose scene the host plays and whose own copy, after it, waits for a condition only
+/// the triggering player meets (12500810, Cainhurst's castle display event: Logarius dead + the player
+/// in region 2502806 + equipment 250000). The guest's copy then never reached its enable step: the
+/// Queen's Chamber's map parts stayed disabled (the illusory wall closed, Annalise missing, no floor)
+/// until a load (player reports illusion_wall / annalise_missing). Once the host's scene was mirrored
+/// and has ended, the copy's wait for its conditions (0[0], instruction 89: the trace stops there) and its
+/// end-by-condition (1000[2], instruction 91: the phantom check) are passed. BB_PARTY_SCENE_PASS_WAIT=0: off.
+inline bool StoryScenePassWait(bool enabled, int bank, int id, int event_id, bool client, bool mirrored,
+                               bool mirror_playing) {
+    return enabled && client && mirrored && !mirror_playing && ((bank == 0 && id == 0) || (bank == 1000 && id == 2)) && event_id == 12500810;
+}
 inline bool StoryDedupeSkip(bool enabled, int bank, int id, int event_id, bool client, bool mirrored) {
     return enabled && client && bank == 2002 && id >= 1 && id <= 7 && event_id > 0 && mirrored;
 }

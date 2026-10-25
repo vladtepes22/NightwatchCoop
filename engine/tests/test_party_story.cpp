@@ -735,6 +735,15 @@ static void test_dedupe_skip() {
     CHECK(StoryDedupeEnabled("1"));
     CHECK(!StoryDedupeEnabled("0"));
     // A client's own 2002 of a mirrored event is skipped; nothing else is.
+    // illusion_wall / annalise_missing: the guest's wait of the castle display event passes once mirrored
+    CHECK(StoryScenePassWait(true, 1000, 2, 12500810, true, true, false));
+    CHECK(!StoryScenePassWait(false, 1000, 2, 12500810, true, true, false));  // switch off
+    CHECK(!StoryScenePassWait(true, 1000, 2, 12500810, false, true, false));  // host
+    CHECK(!StoryScenePassWait(true, 1000, 2, 12500810, true, false, false));  // not mirrored
+    CHECK(!StoryScenePassWait(true, 1000, 2, 12500810, true, true, true));    // the scene still plays
+    CHECK(!StoryScenePassWait(true, 1000, 2, 12601802, true, true, false));   // another event
+    CHECK(StoryScenePassWait(true, 0, 0, 12500810, true, true, false));        // the condition wait
+    CHECK(!StoryScenePassWait(true, 1001, 1, 12500810, true, true, false));   // another instruction
     CHECK(StoryDedupeSkip(true, 2002, 3, 12601802, true, true));
     CHECK(!StoryDedupeSkip(false, 2002, 3, 12601802, true, true));
     CHECK(!StoryDedupeSkip(true, 2002, 3, 12601802, false, true));  // host

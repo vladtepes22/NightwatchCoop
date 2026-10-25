@@ -2021,6 +2021,14 @@ bool StoryMirrorPlaying() {
 }
 
 bool StoryMirroredEvent(std::uint32_t event_id) {
+    // Test aid BB_PARTY_TEST_MIRRORED=ID: that event counts as mirrored from the start (smoke iw).
+    static const std::uint32_t test_id = [] {
+        const char* v = std::getenv("BB_PARTY_TEST_MIRRORED");
+        return v && *v ? static_cast<std::uint32_t>(std::strtoul(v, nullptr, 10)) : 0u;
+    }();
+    if (test_id && test_id == event_id) {
+        return true;
+    }
     std::lock_guard<std::mutex> lk(g_mirrored_mu);
     const auto it = g_mirrored.find(event_id);
     return it != g_mirrored.end() && Now() - it->second < kMirrorDedupeSeconds;

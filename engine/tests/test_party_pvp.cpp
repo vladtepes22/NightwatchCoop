@@ -95,6 +95,11 @@ int main() {
         assert(a != b);
     }
 
+    // pvpfix: dead hit bodies on a living chr.
+    assert(coop::pvp::DeadHitBodiesOnLiving(719, 0x01000036));
+    assert(!coop::pvp::DeadHitBodiesOnLiving(719, 0x01000008));
+    assert(!coop::pvp::DeadHitBodiesOnLiving(0, 0x01000036));  // really dead
+
     std::puts("party-pvp-test: ok");
     return 0;
 }

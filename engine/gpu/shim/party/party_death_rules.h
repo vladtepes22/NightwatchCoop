@@ -547,6 +547,12 @@ constexpr std::uint16_t kDeathBitsHp200 = 0x7800;
 inline bool FallDeathState(std::uint64_t f1e1, std::uint16_t /*hp200*/) {
     return (f1e1 & kFallFlags1e1) != 0;
 }
+/// [ChrCtrl +0x38] +0x48 on a revive: the game's own revive (0x13CBAD0) does `& 0xFC`. Bit 0 is the death
+/// bit; bit 1 is set by a fall death and, left set, killed the revived chr again a frame later (player
+/// report cainhurst_death_loop). `both` false = the old bit-0-only clear (BB_PARTY_REVIVE_BIT1=0).
+inline std::uint8_t ReviveCtrl38Clear(std::uint8_t v, bool both = true) {
+    return std::uint8_t(v & ~(both ? 3u : 1u));
+}
 enum class GuestRevive { InPlace, LoadFall, LoadFallState };
 inline const char* GuestReviveName(GuestRevive g) {
     return g == GuestRevive::InPlace    ? "in place"
@@ -1307,6 +1313,18 @@ inline bool StainTakenByGame(bool was_stain, int record_echoes_now, int stain_ec
 /// record): the hold is put back, so the echoes have one place again (that enemy), as in vanilla.
 inline bool RestoreHold(bool record_is_stain, int hold_flag, bool holder_alive) {
     return record_is_stain && hold_flag == 0 && holder_alive;
+}
+/// echohold (smoke eh, live 2026-10-24): 1.6-4.7 s after the take the game itself lets the holder go
+/// (0x18E76C0: the stain object's +0xC0, the chr's +0x1E5 bit 0x20 and the glowing eyes all clear in one
+/// frame; the holder alive, unmoved, record intact), so the stain stood on the ground again and the
+/// enemy's kill paid nothing. The holder seen `seen_ago` s ago with the hold (<= kRetakeWindow), alive
+/// now, the hold gone while the party stain is the record, and not let go by us (`released_by_us`: a
+/// new death, the pickup): it takes the echoes again (0x18E75A0), as in vanilla where it keeps them.
+constexpr double kRetakeWindow = 3.0;
+inline bool RetakeHold(bool record_is_stain, int hold_flag, bool holder_alive_now, double seen_ago,
+                       bool released_by_us) {
+    return record_is_stain && hold_flag == 0 && holder_alive_now && !released_by_us && seen_ago >= 0 &&
+           seen_ago <= kRetakeWindow;
 }
 /// A new death's record while an enemy still holds the old echoes (a no-load revive keeps that
 /// enemy alive): the old hold is released first (vanilla: the old echoes are lost, and the death's

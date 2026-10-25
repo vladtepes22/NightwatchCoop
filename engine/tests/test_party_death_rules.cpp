@@ -663,6 +663,13 @@ int main() {
     CHECK(!RestoreHold(true, 1, true));
     CHECK(!RestoreHold(true, 0, false));                               // nobody has them: the ground stain stays
     CHECK(!RestoreHold(false, 0, true));                               // another record
+    CHECK(RetakeHold(true, 0, true, 0.4, false));                       // echohold: the game let it go, it is alive
+    CHECK(!RetakeHold(true, 1, true, 0.4, false));                      // still held
+    CHECK(!RetakeHold(true, 0, false, 0.4, false));                     // the holder died / unloaded
+    CHECK(!RetakeHold(true, 0, true, 5.0, false));                      // seen long ago (a new holder is the game's)
+    CHECK(!RetakeHold(true, 0, true, -1.0, false));                     // never seen holding
+    CHECK(!RetakeHold(true, 0, true, 0.4, true));                       // we let it go (death, pickup)
+    CHECK(!RetakeHold(false, 0, true, 0.4, false));                     // another record
     // A second death before recovery: the old holder lets go (the old echoes are lost).
     CHECK(ReleaseHoldAtDeath(true, 1));
     CHECK(!ReleaseHoldAtDeath(true, 0));
@@ -777,6 +784,11 @@ int main() {
     }
     // Issue #4 item 7: a guest's respawn at a lamp of the loaded map.
     // Fall state only (user decision): the distance no longer decides.
+    // cainhurst_death_loop: a fall death's ChrCtrl bit 1 is cleared by the revive too (03 -> 00, not 02)
+    CHECK(ReviveCtrl38Clear(0x03) == 0x00);
+    CHECK(ReviveCtrl38Clear(0x01) == 0x00);
+    CHECK(ReviveCtrl38Clear(0x03, false) == 0x02);  // the old clear, the failure
+    CHECK(ReviveCtrl38Clear(0x84) == 0x84);
     // fallcam: the fall-death camera latch is released by every revive / in-world warp that finds it
     // set; the camera is reset behind the chr whenever it was moved or the latch was on.
     {

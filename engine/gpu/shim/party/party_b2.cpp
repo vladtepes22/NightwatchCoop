@@ -33,6 +33,7 @@
 #include "party_status_bridge.h"
 #include "party_spectate.h"
 #include "party_director.h"
+#include "party_pvp_rules.h"
 #include "party_death_rules.h"
 #include "party_split_notice.h"
 #include "party_kidnap_rules.h"
@@ -3435,6 +3436,19 @@ bool ClientIntroSkip(int event_id, int bank, int id, std::uint64_t event, std::u
         Log("client: event %d's 2002[%d] skipped: its cutscene already played as the live mirror", event_id, id);
         return true;
     }
+    // illusion_wall / annalise_missing: the guest's copy of a display event waits for a condition only the
+    // triggering player meets; once the host's scene was mirrored it passes the wait (party_story.h).
+    static const bool pass_wait = !EnvOff("BB_PARTY_SCENE_PASS_WAIT");
+    if (event_id > 0 && (bank == 1000 || bank == 0) &&
+        StoryScenePassWait(pass_wait, bank, id, event_id, Role() == RoleClient,
+                           StoryMirroredEvent(static_cast<std::uint32_t>(event_id)), StoryMirrorPlaying())) {
+        static std::atomic<int> logged{0};
+        if (logged.fetch_add(1) < 3) {
+            Log("client: event %d's wait passed: the host's scene already played here as the live mirror (its "
+                "map parts / display step runs now)", event_id);
+        }
+        return true;
+    }
     // D10 race (player report 2026-10-22): this game's own copy of a boss intro the host plays
     // (its event ran here at the same moment as the host's, before the host's EVENT "story" came)
     // waits for the host's copy, which plays as the live mirror (party_story OwnSceneHold).
@@ -3650,7 +3664,14 @@ void FallRecoveryTick(const GameSnapshot& s, double now) {
             }
             const u32 own = Field<u32>(Slot(kSlotGsm), 0x1528);
             const u32 host = GuestDeathRedirectLamp();
-            const bool use_host = bb_party_enabled() && host != kTravelNone && host != 0;
+            // chaliceloop: only inside a live party session, and never a Chalice Dungeon lamp (m29: this
+            // game has no such dungeon). A guest that left the session from the host's dungeon without it
+            // (idle, falling in the void) used to warp to the host's chalice lamp again and again: an
+            // endless gray loading loop. It goes to its own last lamp instead. BB_PARTY_CHALICE_FALL_LOOP=0
+            // restores the old choice.
+            static const bool loop_guard = !EnvOff("BB_PARTY_CHALICE_FALL_LOOP");
+            const bool host_ok = !loop_guard || (SessionUp() && host / 100000 != 29);
+            const bool use_host = bb_party_enabled() && host != kTravelNone && host != 0 && host_ok;
             const u32 lamp = use_host ? host : own;
             Log("recovery: falling for 6 s at (%.1f, %.1f, %.1f); warping to %s last lamp %u", p[0], p[1], p[2],
                 use_host ? "the host's" : "the own", lamp);
@@ -3957,7 +3978,14 @@ u64 EchoHolder(bool* alive, float pos[3], u32* entity) {
 }
 /// Every loaded holder lets go of the echoes (0x18E76C0 per chr: the hold, the holder bit and the
 /// glowing eyes), and the stain object's hold is cleared. The number of chrs released.
+constexpr double kHoldTrackWindow = 6.0;
+double g_hold_released_at = -100;  // main thread: when we last let a holder go (echohold: not a game release)
+bool RetakeHoldOn() {
+    static const bool on = !EnvOff("BB_PARTY_STAIN_RETAKE");
+    return on;
+}
 int ReleaseEchoHolders(const char* why) {
+    g_hold_released_at = Now();
     static const bool code_ok = MatchesOriginal(0x18e76c0, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x56, 0x53});
     const u64 obj = StainObject();
     if (!obj) {
@@ -5502,7 +5530,12 @@ void ReviveLocal(const GameSnapshot& s, const LampSpot& sp, bool host) {
         SafeWrite(ctrl + 0x114, &c, 4);
         g_ctrl_cleared_for = p;
         if (const u64 c38 = Field<u64>(ctrl, 0x38)) {
-            const u8 b = u8(Field<u8>(c38, 0x48) & ~1u);
+            // The game's own revive (0x13CBAD0, Lua) clears bits 0 AND 1 (`& 0xFC`). Bit 1 is set by a fall
+            // death (ctrl38+0x48 03 at HP 0, 02 after our old bit-0-only clear) and left set it killed the
+            // revived chr again a frame later, at its lamp, for good (player report cainhurst_death_loop,
+            // live repro: smoke phase cd). BB_PARTY_REVIVE_BIT1=0 restores the old clear (test switch).
+            static const bool bit1 = !EnvOff("BB_PARTY_REVIVE_BIT1");
+            const u8 b = deathrules::ReviveCtrl38Clear(Field<u8>(c38, 0x48), bit1);
             SafeWrite(c38 + 0x48, &b, 1);
         }
     }
@@ -7197,6 +7230,69 @@ void GuestStainTick(const GameSnapshot& s) {
             }
         }
     }
+    // echohold: the game lets the holder go 2-4 s after the take (see deathrules::RetakeHold): it takes the
+    // echoes again, so its kill pays them as in vanilla.
+    {
+        static u64 trk_chr = 0;
+        static double trk_seen = -100;
+        static int retakes = 0;
+        if (hold && is_stain) {
+            if (trk_chr) trk_seen = Now();
+        } else if (trk_chr && StainHoldRulesOn() && RetakeHoldOn()) {
+            bool alive = false;
+            for (const auto& e : balance::LoadedEnemies()) {
+                if (e.chr == trk_chr) alive = e.alive;
+            }
+            const bool released_by_us = Now() - g_hold_released_at < 5.0;
+            if (deathrules::RetakeHold(is_stain, hold, alive, Now() - trk_seen, released_by_us)) {
+                static const bool code_ok = MatchesOriginal(0x18e75a0, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x56, 0x53});
+                const u64 obj = StainObject();
+                if (code_ok && obj && !ChrHoldsEchoes(trk_chr)) {
+                    reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(Guest(0x18e75a0))(trk_chr);
+                    hold = StainHoldFlag();
+                    if (++retakes <= 5 || retakes % 50 == 0) {
+                        Log("party stain: the game let the holder go; it takes the Blood Echoes again "
+                            "(retake %d, hold now %d)", retakes, hold);
+                    }
+                    trk_seen = Now();
+                }
+            } else if (Now() - trk_seen > kHoldTrackWindow) {
+                trk_chr = 0;
+            }
+        }
+        if (hold && is_stain && Now() >= next_scan) {
+            bool al = false; float ps[3] = {}; u32 en = 0;
+            if (const u64 c = EchoHolder(&al, ps, &en)) { trk_chr = c; trk_seen = Now(); }
+        }
+    }
+    {
+        static u64 diag_chr = 0;
+        static u64 diag_flags = 0;
+        static int diag_hp = -9, diag_hold = -1;
+        static double diag_t0 = 0;
+        if (std::getenv("BB_PARTY_STAIN_LOG")) {
+            if (hold && is_stain && !diag_chr) {
+                bool al = false; float ps[3] = {}; u32 en = 0;
+                diag_chr = EchoHolder(&al, ps, &en);
+                diag_t0 = Now();
+                diag_flags = 0; diag_hp = -9; diag_hold = -1;
+            }
+            if (diag_chr) {
+                u64 fl = 0;
+                SafeRead(diag_chr + 0x1e1, &fl, 5);
+                const int hp = balance::EnemyHp(diag_chr);
+                float cp[3] = {};
+                const bool have = ChrPos(diag_chr, cp);
+                if (fl != diag_flags || hp != diag_hp || hold != diag_hold) {
+                    Log("party stain: holder trace +%.2f s: flags %010llx hp %d hold %d at (%.1f, %.1f, %.1f) anim-state %08x", Now() - diag_t0,
+                        (unsigned long long)fl, hp, hold, have ? double(cp[0]) : 0.0, have ? double(cp[1]) : 0.0,
+                        have ? double(cp[2]) : 0.0, Field<u32>(Field<u64>(diag_chr, 0x58), 0x10));
+                    diag_flags = fl; diag_hp = hp; diag_hold = hold;
+                }
+                if (Now() - diag_t0 > 8.0) diag_chr = 0;
+            }
+        }
+    }
     if (hold && is_stain) {
         if (Now() >= next_scan) {
             next_scan = Now() + 0.5;
@@ -7209,7 +7305,9 @@ void GuestStainTick(const GameSnapshot& s) {
                 std::memcpy(holder_pos, pos, sizeof holder_pos);
                 holder_entity = ent;
             }
-            (void)any;
+            if (std::getenv("BB_PARTY_STAIN_LOG")) {
+                Log("party stain: hold scan: holder found %d alive %d entity %u", any ? 1 : 0, alive ? 1 : 0, ent);
+            }
         }
         if (holder_alive || hold_seen_at < 0) {
             hold_seen_at = Now();
@@ -7220,9 +7318,11 @@ void GuestStainTick(const GameSnapshot& s) {
     }
     const deathrules::StainHold hs =
         deathrules::PlanStainHold(is_stain, hold, holder_alive, hold_seen_at < 0 ? 0.0 : Now() - hold_seen_at);
+    static u64 held_obj = 0;
     if (hs != hold_was) {
         hold_was = hs;
         if (hs == deathrules::StainHold::Held) {
+            held_obj = StainObject();
             static int takes = 0;
             Log("party stain: an enemy took its %d Blood Echoes (entity %u at (%.1f, %.1f, %.1f), glowing eyes; take %d): "
                 "kill it to get them back; nothing to pick up on the ground", p.s.echoes, holder_entity,
@@ -7232,6 +7332,16 @@ void GuestStainTick(const GameSnapshot& s) {
                 "ground again");
         } else {
             const u64 so = StainObject();
+            if (std::getenv("BB_PARTY_STAIN_LOG")) {
+                int bits = 0, chrs = 0;
+                u32 first = 0;
+                for (const auto& e : balance::LoadedEnemies()) {
+                    ++chrs;
+                    if (ChrHoldsEchoes(e.chr)) { ++bits; if (!first) first = e.entity; }
+                }
+                Log("party stain: hold diag: stain object %#llx (at the take %#llx), %d loaded enemies, %d with the holder bit (first %u), "
+                    "record flag %d", (unsigned long long)so, (unsigned long long)held_obj, chrs, bits, first, own_flag);
+            }
             Log("party stain: no enemy holds its Blood Echoes (hold %d, record %d echoes flag %d, stain object %s, "
                 "%.1f s after the last hold)", hold, own_echoes, own_flag, so && Field<u64>(so, 0x88) ? "built" : "none",
                 hold_seen_at < 0 ? -1.0 : Now() - hold_seen_at);
@@ -8461,8 +8571,13 @@ void HostRevivedTick(const GameSnapshot& s) {
                 const u64 chr = PlayerForPeer(t.task + kTaskPeer);
                 DeathFields d;
                 ReadDeathFields(chr, &d);
-                Log("guest: revived host chr watch: %s, %s", chr ? DescribeChr(chr).c_str() : "none",
-                    DescribeDeathFields(d).c_str());
+                const u32 filt = Field<u32>(Field<u64>(Field<u64>(chr, 0x58), 0x20), 0xa8);
+                Log("guest: revived host chr watch: %s, %s, hit filter %08x", chr ? DescribeChr(chr).c_str() : "none",
+                    DescribeDeathFields(d).c_str(), filt);
+                // pvpfix: the host's copy here kept its dead hit bodies (layer 0x36), which attacks do not
+                // collide with: a guest's blows passed through the revived host (party PvP "invincible").
+                if (chr && coop::pvp::DeadHitBodiesOnLiving(ChrHp(chr), filt) && ReviveHitBodyOn())
+                    RestoreHitBodies(chr, false);
             }
         }
         if (now >= watch_until) {
@@ -8472,7 +8587,7 @@ void HostRevivedTick(const GameSnapshot& s) {
     if (!g_host_revived_note.load() || !s.world_up || s.loading) {
         return;
     }
-    watch_until = now + 6.0;
+    watch_until = now + 10.0;
     next_watch = now + 1.0;
     g_host_revived_note = false;
     if (Role() != RoleClient) {

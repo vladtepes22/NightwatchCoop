@@ -62,6 +62,13 @@ inline std::vector<std::pair<int, int>> TeamPairs(const std::vector<int>& teams)
     return out;
 }
 
+/// A living player's chr whose hit bodies still carry a dead chr's collision layer 0x36 (filter low
+/// 6 bits): attacks and bullets pass through it. A guest's copy of a host revived in place kept them
+/// (party PvP "the host is invincible after a few deaths"); they go back to the alive layer 8.
+inline bool DeadHitBodiesOnLiving(int hp, std::uint32_t filter) {
+    return hp > 0 && (filter & 0x3f) == 0x36;
+}
+
 /// The toast on every member when the rule changes (and once on join when it is on).
 inline const char* ToastText(bool on) {
     return on ? "Friendly fire ON: party members can hurt each other" : "Friendly fire OFF";
