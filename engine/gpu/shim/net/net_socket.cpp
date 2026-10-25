@@ -1848,6 +1848,15 @@ BBNET_ABI int net_resolver_aton(int id, const void* addr, char* hostname, int le
 
 // ---- libSceNetCtl ------------------------------------------------------------------------------
 
+namespace {
+std::mutex g_vpn_mu;
+std::string g_vpn_in_use;       // "label|ip"
+void set_vpn_in_use(const std::string& v) {
+    std::lock_guard<std::mutex> lk(g_vpn_mu);
+    g_vpn_in_use = v;
+}
+}  // namespace
+
 struct LocalNet {
     std::uint32_t ip = 0, mask = 0, gateway = 0, dns1 = 0, dns2 = 0;  // network order
     std::uint8_t mac[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
@@ -1862,6 +1871,7 @@ LocalNet query_local_net(std::string* how) {
     LocalNet out;
     std::string source;
     const std::uint32_t want = forced_local_ipv4(&source);
+    const std::string pref = vpn_preference();
     std::string candidates;
     LanAdapter chosen{};
     char text[32];
@@ -1919,6 +1929,9 @@ LocalNet query_local_net(std::string* how) {
             if (u->Address.lpSockaddr->sa_family != AF_INET) continue;
             info.ip = reinterpret_cast<sockaddr_in*>(u->Address.lpSockaddr)->sin_addr.s_addr;
             int score = lan_adapter_score(info);
+            if (score >= 0 && !want) {
+                if (const int v = vpn_adapter_score(info, pref); v >= 0) score = v;
+            }
             note(info, score);
             if (want) score = info.ip == want ? 1 : -1;
             if (score < 0) continue;
@@ -1954,6 +1967,9 @@ LocalNet query_local_net(std::string* how) {
             info.physical = info.name.rfind("en", 0) == 0 || info.name.rfind("eth", 0) == 0 ||
                             info.name.rfind("wl", 0) == 0;
             int score = lan_adapter_score(info);
+            if (score >= 0 && !want) {
+                if (const int v = vpn_adapter_score(info, pref); v >= 0) score = v;
+            }
             note(info, score);
             if (want) score = info.ip == want ? 1 : -1;
             if (score <= best) continue;
@@ -1991,9 +2007,11 @@ LocalNet query_local_net(std::string* how) {
             write_ipv4(gw, sizeof(gw), out.gateway);
             tag(std::string("gateway ") + gw);
         }
-        if (adapter_is_virtual(chosen.name)) tag("virtual adapter: no better one");
+        if (vpn_adapter_score(chosen, pref) >= 0) tag("hosting over " + vpn_label(chosen) + ", party_vpn=" + pref);
+        else if (adapter_is_virtual(chosen.name)) tag("virtual adapter: no better one");
         if (!tags.empty()) line += " [" + tags + "]";
         line += "; candidates: " + candidates + "; BB_PARTY_LOCAL_IP overrides";
+        set_vpn_in_use(vpn_adapter_score(chosen, pref) >= 0 ? vpn_label(chosen) + "|" + text : std::string());
     } else {
         line = "none (no usable IPv4 adapter" + (candidates.empty() ? std::string() : ": " + candidates) + ")";
     }
@@ -2124,6 +2142,94 @@ int lan_adapter_score(const LanAdapter& a) {
     if (a.gateway) score += 4;
     if (a.physical) score += 2;
     return score;
+}
+
+namespace {
+std::string lower_text(const std::string& s) {
+    std::string n;
+    for (char c : s) n += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return n;
+}
+}  // namespace
+
+VpnKind vpn_kind(const LanAdapter& a) {
+    const std::string n = lower_text(a.name);
+    auto has = [&](const char* m) { return n.find(m) != std::string::npos; };
+    if (has("radmin")) return VpnKind::Radmin;
+    if (has("hamachi")) return VpnKind::Hamachi;
+    if (has("zerotier")) return VpnKind::ZeroTier;
+    if (has("tailscale")) return VpnKind::Tailscale;
+    if (!adapter_is_virtual(a.name)) return VpnKind::None;
+    const std::uint32_t host = bswap32(a.ip);
+    if ((host >> 24) == 26) return VpnKind::Radmin;
+    if ((host >> 24) == 25) return VpnKind::Hamachi;
+    if ((host >> 22) == (0x64400000u >> 22)) return VpnKind::Tailscale;  // 100.64.0.0/10
+    if (has("vpn") || has("tap") || has("wintun") || has("wireguard") || has("nordlynx") || has("anyconnect") ||
+        has("fortinet") || has("pangp"))
+        return VpnKind::Other;
+    return VpnKind::None;
+}
+
+std::string vpn_label(const LanAdapter& a) {
+    switch (vpn_kind(a)) {
+        case VpnKind::Radmin: return "Radmin VPN";
+        case VpnKind::Hamachi: return "Hamachi";
+        case VpnKind::ZeroTier: return "ZeroTier";
+        case VpnKind::Tailscale: return "Tailscale";
+        default: break;
+    }
+    const std::size_t slash = a.name.find(" / ");
+    return slash == std::string::npos ? a.name : a.name.substr(0, slash);
+}
+
+std::string vpn_pref_normalize(const std::string& pref) {
+    std::size_t b = 0, e = pref.size();
+    while (b < e && std::isspace(static_cast<unsigned char>(pref[b]))) ++b;
+    while (e > b && std::isspace(static_cast<unsigned char>(pref[e - 1]))) --e;
+    const std::string t = pref.substr(b, e - b);
+    const std::string l = lower_text(t);
+    if (t.empty() || l == "auto" || l == "on" || l == "1") return "auto";
+    if (l == "off" || l == "0" || l == "none" || l == "no") return "off";
+    return t;
+}
+
+int vpn_adapter_score(const LanAdapter& a, const std::string& pref_in) {
+    const std::string pref = vpn_pref_normalize(pref_in);
+    if (pref == "off" || lan_adapter_score(a) < 0) return -1;
+    const VpnKind k = vpn_kind(a);
+    if (pref == "auto") {
+        switch (k) {
+            case VpnKind::Radmin: return 1004;
+            case VpnKind::Hamachi: return 1003;
+            case VpnKind::Tailscale: return 1002;
+            case VpnKind::ZeroTier: return 1001;
+            default: return -1;
+        }
+    }
+    return lower_text(a.name).find(lower_text(pref)) != std::string::npos ? 1000 : -1;
+}
+
+int select_vpn_adapter(const std::vector<LanAdapter>& adapters, const std::string& pref) {
+    int best = -1, best_score = -1;
+    for (std::size_t i = 0; i < adapters.size(); ++i) {
+        const int s = vpn_adapter_score(adapters[i], pref);
+        if (s > best_score) {
+            best_score = s;
+            best = static_cast<int>(i);
+        }
+    }
+    return best;
+}
+
+std::string vpn_preference() {
+    const char* e = std::getenv("BB_PARTY_VPN");
+    return vpn_pref_normalize(e ? e : "");
+}
+
+std::string vpn_in_use() {
+    local_net();  // chosen once; the cache holds g_vpn_in_use
+    std::lock_guard<std::mutex> lk(g_vpn_mu);
+    return g_vpn_in_use;
 }
 
 std::uint32_t query_local_ipv4(std::string* how) {

@@ -72,6 +72,22 @@ const char* GuestInsightName(int mode) {
 
 namespace {
 
+std::mutex g_vpn_mu;
+std::string g_vpn_name;  // party_vpn when it names an adapter
+
+// party_vpn's value: "auto" (empty too), "off", else an adapter name (net_socket vpn_pref_normalize).
+std::string VpnPref(const std::string& value) {
+    std::size_t b = 0, e = value.size();
+    while (b < e && std::isspace(static_cast<unsigned char>(value[b]))) ++b;
+    while (e > b && std::isspace(static_cast<unsigned char>(value[e - 1]))) --e;
+    const std::string t = value.substr(b, e - b);
+    std::string l;
+    for (char c : t) l += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (l.empty() || l == "auto" || l == "on" || l == "1") return "auto";
+    if (l == "off" || l == "0" || l == "none" || l == "no") return "off";
+    return t;
+}
+
 int ParseGuestInsight(const std::string& value) {
     return value == "full" ? 1 : value == "0" || value == "off" ? 2 : 0;
 }
@@ -158,6 +174,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_toasts = i != 0;
     } else if (key == "party_hud") {
         v.party_hud = i != 0;
+    } else if (key == "party_discovery") {
+        v.party_discovery = i != 0;
     } else if (key == "party_guest_lamps") {
         v.party_guest_lamps = i != 0;
     } else if (key == "party_rot") {
@@ -200,6 +218,15 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_member_relay = party::traversal::rendezvous_switch(value.c_str(), true);
     } else if (key == "party_ipv6") {
         v.party_ipv6 = party::traversal::rendezvous_switch(value.c_str(), false);
+    } else if (key == "party_vpn") {
+        const std::string pref = VpnPref(value);
+        v.party_vpn = pref == "auto" ? 0 : pref == "off" ? 1 : 2;
+        {
+            std::lock_guard<std::mutex> lk(g_vpn_mu);
+            g_vpn_name = v.party_vpn == 2 ? pref : std::string();
+        }
+        // The network library reads BB_PARTY_VPN (an explicit variable wins: it is not replaced).
+        if (!std::getenv("BB_PARTY_VPN")) PutEnv("BB_PARTY_VPN", pref.c_str());
     } else if (key == "party_npc_talk_range") {
         v.party_npc_talk_range = std::clamp(i, 0, 500);
     } else if (key == "party_guest_insight") {
@@ -614,6 +641,7 @@ void Load() {
         }
     }
     const std::pair<const char*, const char*> env_keys[] = {
+        {"BB_PARTY_VPN", "party_vpn"},  {"BB_PARTY_DISCOVERY", "party_discovery"},  // visy 0.7.5 (2179ec17, 51fb67e9)
         {"BB_FSR_SHARPNESS", "sharpness"},        {"BB_JITTER", "jitter"},
         {"BB_REACTIVE", "reactive"},              {"BB_REACTIVE_SCALE", "reactive_scale"},
         {"BB_REACTIVE_THRESHOLD", "reactive_threshold"}, {"BB_REACTIVE_MAX", "reactive_max"},
@@ -749,6 +777,7 @@ void Save() {
     put("menu_language", MenuLanguageCodes[int(v.menu_language.load())]);
     put("party_toasts", flag(v.party_toasts));
     put("party_hud", flag(v.party_hud));
+    put("party_discovery", flag(v.party_discovery));
     put("party_name_tags", flag(v.party_name_tags));
     put("party_glow_off", flag(v.party_glow_off));
     put("party_npc_talk", flag(v.party_npc_talk));
@@ -761,6 +790,10 @@ void Save() {
     put("party_rendezvous", flag(v.party_rendezvous));
     put("party_member_relay", flag(v.party_member_relay));
     put("party_ipv6", flag(v.party_ipv6));
+    {
+        std::lock_guard<std::mutex> lk(g_vpn_mu);
+        put("party_vpn", v.party_vpn == 0 ? "auto" : v.party_vpn == 1 ? "off" : g_vpn_name);
+    }
     for (const PartySwitch& sw : PartySwitches) put(sw.key, flag(v.*(sw.member)));
     put("party_guest_insight", GuestInsightName(v.party_guest_insight));
     put("party_npc_talk_range", std::to_string(v.party_npc_talk_range.load()));

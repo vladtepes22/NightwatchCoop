@@ -9,6 +9,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <vector>
 
 #define BBNET_ABI __attribute__((sysv_abi))
 
@@ -164,6 +165,7 @@ struct LanAdapter {
     bool default_route = false;  // the interface the system routes the Internet through
     bool physical = false;    // Ethernet or Wi-Fi interface type
     std::uint32_t metric = 0;    // IPv4 interface metric (lower first), a tie breaker
+    std::uint32_t mask = 0;      // network order; 0 unknown (party discovery's directed broadcast)
 };
 // Hyper-V / WSL / Docker switches, VirtualBox / VMware host-only adapters, VPN and overlay
 // adapters (TAP, Wintun, WireGuard, Tailscale, ZeroTier, Hamachi, Radmin ...): by name.
@@ -171,6 +173,29 @@ bool adapter_is_virtual(const std::string& name);
 // < 0: never chosen (loopback, tunnel, 169.254/16, no address). Otherwise higher wins: a
 // non-virtual adapter always beats a virtual one; then default route, gateway, physical type.
 int lan_adapter_score(const LanAdapter& a);
+// --- Host over a VPN (0.7.5, party_vpn / BB_PARTY_VPN) ---
+// The overlay VPNs players use to play together: by adapter name, else (a virtual adapter only) by
+// the address range: Radmin 26/8, Hamachi 25/8, Tailscale 100.64/10.
+enum class VpnKind { None, Radmin, Hamachi, ZeroTier, Tailscale, Other };
+VpnKind vpn_kind(const LanAdapter& a);
+// "Radmin VPN", "Hamachi", "ZeroTier", "Tailscale"; Other: the adapter's friendly name.
+std::string vpn_label(const LanAdapter& a);
+// The preference: "auto" (default, also empty), "off", or an adapter name (case-insensitive part of
+// the adapter's name). Anything else is read as a name.
+std::string vpn_pref_normalize(const std::string& pref);
+// Score of an adapter as the VPN to host over: < 0 not chosen, else 1000 + a rank (higher wins).
+// auto: a usable Radmin / Hamachi / ZeroTier / Tailscale adapter (a commercial VPN that carries all
+// the PC's traffic is never taken unasked); a name: any usable adapter whose name contains it.
+int vpn_adapter_score(const LanAdapter& a, const std::string& pref);
+// Index of the adapter to host over, -1 for none (off, or nothing matches). Reusable by LAN/VPN
+// discovery: the list is whatever the platform enumerated (up adapters).
+int select_vpn_adapter(const std::vector<LanAdapter>& adapters, const std::string& pref);
+// The current preference: BB_PARTY_VPN (bbport.ini party_vpn puts it there at start); read when the
+// local address is first needed (the game start / hosting start).
+std::string vpn_preference();
+// This PC's chosen VPN, for the log and the launcher: "name|ip" of the adapter local_ipv4() sits on, or "".
+std::string vpn_in_use();
+
 // Queries the adapters now (not cached) and returns the address local_ipv4() would pick;
 // `how` describes the choice (the log line).
 std::uint32_t query_local_ipv4(std::string* how = nullptr);

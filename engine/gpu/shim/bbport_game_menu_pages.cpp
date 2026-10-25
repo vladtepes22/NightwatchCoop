@@ -767,6 +767,15 @@ void DefineAll() {
                    "Гость: скопируйте гостевой код участника (BBG1-...) и нажмите: его ретранслятор, если хост недоступен"),
            {AddText("Paste", "Вставить")}, Kind::Button,
            [] { return party::status::Snapshot().role == party::status::Role::Guest; });
+    // 0.7.5: host over a VPN. A list opens a pop-up over the rows below it: last on the page.
+    AddRow(Setting(
+               Kind::List, [](const Values& v) { return std::clamp(v.party_vpn.load(), 0, 2); },
+               [](int i) { BbSettings::Get().party_vpn = std::clamp(i, 0, 2); }),
+           AddText("Host over a VPN", "Хост через VPN"),
+           AddText("Radmin, Hamachi, ZeroTier, Tailscale: your code holds the VPN address. Auto: if one is up. Next start",
+                   "Radmin, Hamachi, ZeroTier, Tailscale: в код попадёт адрес VPN. Авто: если он есть. Со след. запуска"),
+           {AddText("Auto", "Авто"), AddText("Off", "Выкл."), AddText("Named adapter", "Адаптер по имени")},
+           Kind::List);
 
     // The split-travel question (party_split.cpp): a game dialog with YES / NO after a lamp,
     // headstone or Hunter's Mark in a party (docs/party/split_travel.md).
@@ -1170,6 +1179,10 @@ void DefineAll() {
     AddRow(Flag(&Values::party_toasts), "Join/leave notices", "Уведомления",
            "A short notice in a top corner when a hunter joins or leaves",
            "Короткое уведомление в углу, когда охотник входит или выходит", toggle, Kind::Toggle);
+    // 0.7.5: party discovery (net/party_discovery.h; the Join list is in the launcher).
+    AddRow(Flag(&Values::party_discovery), "Party discovery", "Поиск групп",
+           "Host: announce the party on your VPN / LAN (never the Internet) for the launcher's Join list",
+           "Хост: объявлять группу в VPN и LAN (не в Интернет) для списка лаунчера", toggle, Kind::Toggle);
 }
 
 /// The party rules' help lines: the current value, and on a guest that the host's rules count.

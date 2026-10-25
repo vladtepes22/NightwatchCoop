@@ -44,6 +44,9 @@
 #include "../net/from_api.h"
 #include "../net/party_host_service.h"
 #include "../net/party_route.h"
+#include "../net/party_discovery.h"
+#include "../bbport_settings.h"
+#include "party_split_notice.h"
 #include "../net/party_transport.h"
 #include "../net/party_util.h"
 #include "../../bbnet.h"
@@ -1723,6 +1726,31 @@ void start_host(LinkConfig cfg) {
         r.cfg = cfg;
         r.have_cfg = true;
     }
+    // 0.7.5: party discovery - announce on the VPN / LAN adapters while the setting is on (live).
+    bbnet::disc::start([](bbnet::disc::Announce* out) {
+        if (!BbSettings::Get().party_discovery) return false;
+        Runtime& rr = R();
+        PartyLink* l;
+        bbnet::disc::Announce a;
+        {
+            std::lock_guard<std::mutex> lk(rr.mu);
+            if (!rr.link || rr.stopping || rr.left) return false;
+            l = rr.link;
+            a.name = rr.cfg.name;
+            a.port = rr.cfg.port;
+            a.password = !rr.cfg.password.empty();  // only whether one is set
+            a.build = rr.cfg.build_id;
+        }
+        int players = 0;
+        for (const RosterEntry& e : l->roster()) players += e.connected ? 1 : 0;
+        a.max_players = static_cast<std::uint8_t>(std::clamp(l->max_players(), 1, 8));
+        a.players = static_cast<std::uint8_t>(std::clamp(players, 1, static_cast<int>(a.max_players)));
+        const coop::GameSnapshot gs = coop::ReadGameState(false);
+        a.level = static_cast<std::uint16_t>(std::clamp(gs.level, 0, 999));
+        a.area = gs.world_up ? coop::splitnotice::AreaNameOf(gs.map_id) : "";
+        *out = a;
+        return true;
+    });
     if (!kept.empty()) link->restore_members(kept);
     // The party port answers STUN and hands out relay ports only to PartyLink members' addresses
     // (it is on the internet; STUN is a reflector and the relay forwards to members).
@@ -2754,6 +2782,7 @@ void startup_main() {
 
 void do_shutdown() {
     Runtime& r = R();
+    bbnet::disc::stop();
     PartyLink* link;
     std::unique_ptr<UpnpMapper> upnp;
     std::vector<std::shared_ptr<Pump>> pumps;
