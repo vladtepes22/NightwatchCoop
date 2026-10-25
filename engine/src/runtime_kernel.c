@@ -177,10 +177,24 @@ static ABI __attribute__((noreturn)) void hard_exit(int status) {
     fflush(stdout);
     _exit(status);
 }
+/* libc's _Assert(message, function) raises 0xa0020007 on release mode first, then prints the
+ * message to stderr and raises it again: the first one returns (no debugger), so the assertion's
+ * text reaches the log before the stop. The stop uses _exit like hard_exit: exit() would run the
+ * host's teardown under a guest that is still running, which hung and then failed a GPU
+ * assertion (GameSerial) until the window watchdog ended the process with code 0. */
 static ABI __attribute__((noreturn)) void raise_exception(uint32_t code,uint64_t argument) {
     fprintf(stderr,"STOP: guest raised debug exception code=0x%x argument=0x%llx\n",code,(unsigned long long)argument);
     runtime_report();
-    exit(23);
+    fflush(stdout);
+    fflush(stderr);
+    _exit(23);
+}
+static ABI void raise_exception_release(uint32_t code,uint64_t argument) {
+    if (code==0xa0020007) {
+        fputs("Runtime: guest assertion failed; its message follows\n",stderr);
+        return;
+    }
+    raise_exception(code,argument);
 }
 static ABI int32_t print_backtrace(void) {
     fputs("Runtime: guest requested a backtrace (not available)\n",stderr);
@@ -325,7 +339,7 @@ static const RuntimeExport exports[]={
     {"getpagesize",get_pagesize}, {"getpid",get_pid}, {"sched_yield",yield},
     {"_exit",hard_exit},
     {"sceKernelDebugRaiseException",raise_exception},
-    {"sceKernelDebugRaiseExceptionOnReleaseMode",raise_exception},
+    {"sceKernelDebugRaiseExceptionOnReleaseMode",raise_exception_release},
     {"sceKernelPrintBacktraceWithModuleInfo",print_backtrace},
     {"signal",guest_signal}, {"sigprocmask",guest_sigprocmask}, {"_sigprocmask",guest_sigprocmask},
     {"sigfillset",guest_sigfillset}, {"sigemptyset",guest_sigemptyset},
