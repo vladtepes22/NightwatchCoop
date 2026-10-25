@@ -96,6 +96,64 @@ static void Routes() {
     CHECK(SameBlock(0x18010000, 0x18010001) && !SameBlock(0x18010000, 0x18000000) && !SameBlock(0, 0));
 }
 
+static void ChaliceRoutes() {
+    const std::uint32_t m29 = 0x1d000000, m24_01 = 0x18010000, dream = 0x15000000;
+    Place p;
+    p.client = true;
+    p.host_dungeon = true;
+    p.host_map = m29;
+    p.own_map = m29;
+    p.host_chr_here = true;
+    p.distance = 40;
+    CHECK(RouteFor(p) == Route::InWorld);   // the same loaded dungeon: moved in place, no load
+    p.distance = 1;
+    CHECK(RouteFor(p) == Route::Here);
+    p.host_chr_here = false;
+    CHECK(RouteFor(p) == Route::Rejoin);    // m29 without the host's chr (not this dungeon): the summon, never a load
+    p.distance = 40;
+    p.own_map = m24_01;
+    CHECK(RouteFor(p) == Route::Rejoin);    // apart in another map
+    p.own_map = dream;
+    CHECK(RouteFor(p) == Route::Rejoin);
+    p.own_map = 0xffffffffu;
+    CHECK(RouteFor(p) == Route::Rejoin);
+    p.client = false;
+    CHECK(RouteFor(p) == Route::Rejoin);
+    // No dungeon: unchanged (a load).
+    p.client = true;
+    p.host_dungeon = false;
+    p.host_map = m24_01;
+    p.own_map = dream;
+    CHECK(RouteFor(p) == Route::Travel);
+}
+
+static void SpotRules() {
+    CHECK(SpotAcceptable(10.0f, 10.0f) && SpotAcceptable(10.0f, 11.5f) && SpotAcceptable(10.0f, 8.5f));
+    CHECK(!SpotAcceptable(10.0f, 11.6f) && !SpotAcceptable(10.0f, 8.4f));
+    CHECK(NextTry(0) == 1 && NextTry(1) == 2 && NextTry(2) == kHostSpot && NextTry(kHostSpot) == -1);
+    // Standing on the host's floor with ground: landed once the safe ground is in (kGroundSettleS).
+    CHECK(LandingVerdict(0.5, 10, 10, 10, 0.1f, true, true, -1) == Verdict::Wait);
+    CHECK(LandingVerdict(1.0, 10, 10, 10, 0.1f, true, true, -1) == Verdict::Landed);
+    // On a roof 6 m up (random layout above the host): bad at once, not after the watch.
+    CHECK(LandingVerdict(0.4, 10, 10, 16, 0.2f, true, true, -1) == Verdict::Bad);
+    // 1.4 m up is a step, not a roof.
+    CHECK(LandingVerdict(1.0, 10, 10, 11.4f, 0.2f, true, true, -1) == Verdict::Landed);
+    // Shoved 5 m away by the geometry.
+    CHECK(LandingVerdict(0.4, 10, 10, 10, 5.0f, true, true, -1) == Verdict::Bad);
+    // No safe ground: wait, then bad.
+    CHECK(LandingVerdict(1.5, 10, 10, 10, 0.1f, true, false, -1) == Verdict::Wait);
+    CHECK(LandingVerdict(kGroundGiveUpS, 10, 10, 10, 0.1f, true, false, -1) == Verdict::Bad);
+    // Safe ground unreadable: the old watch (kLandWatchS).
+    CHECK(LandingVerdict(2.0, 10, 10, 10, 0.1f, false, false, -1) == Verdict::Wait);
+    CHECK(LandingVerdict(kLandWatchS, 10, 10, 10, 0.1f, false, false, -1) == Verdict::Landed);
+    // A fall is still the fall (back and travel / stay).
+    CHECK(LandingVerdict(0.9, 10, 10, 5.5f, 0.1f, true, false, -1) == Verdict::Fell);
+    // A ladder is standing.
+    CHECK(LandingVerdict(0.5, 10, 10, 14, 0.1f, true, false, 2) == Verdict::Landed);
+    CHECK(std::string(BadWhy(6, 0, true, true)).find("above") != std::string::npos);
+    CHECK(std::string(BadWhy(0, 0, true, false)).find("no ground") != std::string::npos);
+}
+
 static void Wire() {
     Ask a;
     a.round = 3;
@@ -214,6 +272,8 @@ int main() {
     Standing();
     Spots();
     Landings();
+    ChaliceRoutes();
+    SpotRules();
     WireStand();
     GuestRules();
     Routes();

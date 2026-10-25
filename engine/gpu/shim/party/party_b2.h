@@ -168,7 +168,11 @@ bool HostChrHere(float* distance_m);
 /// ground the host asked from, gather::SpotFor). `test_lift_m`: test aid, that much higher. `dest`:
 /// where the guest was put; `from` (x, y, z, yaw): where it stood before.
 bool GatherBesideHost(const char* why, const float* spot = nullptr, float spot_yaw = 0.0f, float test_lift_m = 0.0f,
-                      float* dest = nullptr, float* from = nullptr);
+                      float* dest = nullptr, float* from = nullptr, int attempt = 0, float* host_y = nullptr);
+/// The game's last safe ground spot of the own chr (PlayerIns +0x400 -> +0x30); false: not readable.
+bool OwnSafeGround(float v[3]);
+/// The own chr's position; false: not readable.
+bool OwnWorldPos(float p[3]);
 /// I5 gather (guest, main thread): the host's chr position in this world (HostChrHere). False: not here.
 bool HostChrPos(float pos[3]);
 /// Main thread: the local chr's facing (its rotation's yaw), 0 unknown.

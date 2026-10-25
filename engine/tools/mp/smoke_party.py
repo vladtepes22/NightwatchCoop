@@ -731,7 +731,7 @@ def phase_gl(only):
         name="gl", seconds=300, count=2, headless=0,
         env=[], watch=watch,
         ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=" + g1,
-              "1:BB_PARTY_GATHER_TEST=yesdrop"],
+              "1:BB_PARTY_GATHER_TEST=yesdropbad"],
         crash=[], until=GL_UNTIL,
     )
 
@@ -3478,15 +3478,15 @@ def check_gl(v, L):
     if yes is not None:
         put = need(v, L, "gl guest: put beside the host (test: 8 m too high)", 1, r"gather: put beside the host .*test: lifted",
                    yes)
-        fell = need(v, L, "gl guest: the landing watch sees the fall", 1, r"guest: FELL ([4-9]|1\d)\.\d m", yes, yes + 6)
-        if fell is not None:
-            need(v, L, "gl guest: back where it stood (in-world, no load)", 1,
-                 r"in-world warp \(gather: no ground beside the host, back\)", fell, fell + 1)
-            need(v, L, "gl guest: then the travel (one loading screen)", 1, r"guest: travels alone \(gather\)", fell, fell + 3)
-            arr = need(v, L, "gl guest: arrived in the host's map", 1, r"guest: arrived in the host's map", fell, fell + 60)
-            if arr is not None:
-                need(v, L, "gl guest: stands beside the host after the travel", 1,
-                     r"guest: stands beside the host [\d.]+ s after the warp \([0-3]\.\d m below", arr, arr + 8)
+        # 0.7.6: the lifted spot is a bad landing (above the host's floor): the next side; the test aid
+        # (yesdropbad) makes the next two sides bad too: the host's own ground position is the last try.
+        need(v, L, "gl guest: try 0 (8 m too high) is a bad landing", 1, r"guest: bad landing on try 0 \(above the host's floor", yes, yes + 6)
+        need(v, L, "gl guest: try 1 bad (test aid) -> next side", 1, r"guest: bad landing on try 1 .*the next side", yes, yes + 12)
+        need(v, L, "gl guest: try 2 bad (test aid) -> the host's own ground position", 1,
+             r"guest: bad landing on try 2 .*the host's own ground position", yes, yes + 20)
+        need(v, L, "gl guest: stands at the host's own position (try 3)", 1,
+             r"guest: stands beside the host [\d.]+ s after the warp \([0-9.]+ m below the spot at most, try 3\)", yes, yes + 30)
+        none_of(v, L, "gl guest: no map load for the gather", r"guest: travels alone \(gather\)", yes, yes + 40, (1,))
         none_of(v, L, "gl guest: no death", r"local death: HP 0", r1, 1e9, (1,))
     lad = need(v, L, "gl host on the ladder: gather refused", 0, r"Gather the party refused: on a ladder or in the air .*ladder state [0-9]",
                r1 + 30)

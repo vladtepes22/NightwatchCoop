@@ -7,6 +7,7 @@
 #include "game_state.h"
 #include "party_async_io.h"
 #include "party_b2.h"
+#include "party_dsummon.h"
 #include "party_hud.h"
 #include "party_link.h"
 #include "party_split.h"
@@ -103,6 +104,10 @@ struct GuestState {
     float landing_dest[3] = {};
     float landing_from[4] = {};    // where it stood before (x, y, z, yaw)
     float landing_low = 0;         // the lowest height seen
+    int landing_try = 0;           // the side tried (SpotForTry), kHostSpot = the host's own ground position
+    float landing_ref_y = 0;       // the host's floor height
+    Ask landing_ask;               // the question this landing answers (the next side's warp)
+    int test_bad = 0;              // test aid: this many landings count as bad (the next sides)
     float test_lift = 0;           // test aid: this YES's lift (BB_PARTY_GATHER_TEST "yesdrop")
     // test aid
     std::vector<std::string> test;
@@ -231,9 +236,10 @@ void HostTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<s
         MapName(a.map).c_str(), double(a.pos[0]), double(a.pos[1]), double(a.pos[2]));
 }
 
-/// Test answers YES: "yes", or "yesdrop" (the spot kTestLiftM higher: the landing watch's fall).
+/// Test answers YES: "yes", "yesdrop" (the spot kTestLiftM higher: a bad landing, above the floor) or "yesdropbad" (that, and
+/// the next two landings count as bad too: all sides are tried, the host's own spot is the last).
 bool TestYes(const std::string& w) {
-    return w == "yes" || w == "yesdrop";
+    return w == "yes" || w == "yesdrop" || w == "yesdropbad";
 }
 
 void Press(u32 buttons, double now, GuestState& g) {
@@ -276,23 +282,29 @@ void Refuse(party::PartyLink* link, const Ask& ask, Refusal why) {
 
 /// The in-world warp beside the host (SpotFor: its chr, or the ground it asked from when its chr
 /// has climbed or dropped since), then watched until the guest stands (LandingCheck).
-bool PutBeside(const Ask& ask, const char* why, bool arrival) {
+bool PutBeside(const Ask& ask, const char* why, bool arrival, int attempt = 0) {
     GuestState& g = g_guest;
     float live[3];
     const Spot spot = b2::HostChrPos(live) ? SpotFor(ask.standing, live[1], ask.pos[1]) : Spot::Live;
-    if (spot == Spot::Asked) {
+    if (spot == Spot::Asked && attempt == 0) {
         Log("guest: the host's chr is %.1f m %s the spot it asked from (a ladder, a jump, a drop): beside that spot",
             double(std::fabs(live[1] - ask.pos[1])), live[1] > ask.pos[1] ? "above" : "below");
     }
-    float dest[3] = {}, from[4] = {};
-    if (!b2::GatherBesideHost(why, spot == Spot::Asked ? ask.pos : nullptr, ask.yaw, g.test_lift, dest, from)) {
+    float dest[3] = {}, from[4] = {}, floor_y = 0;
+    if (!b2::GatherBesideHost(why, spot == Spot::Asked ? ask.pos : nullptr, ask.yaw, attempt == 0 ? g.test_lift : 0.0f, dest,
+                              attempt == 0 ? from : nullptr, attempt, &floor_y)) {
         return false;
+    }
+    if (attempt == 0) {
+        std::memcpy(g.landing_from, from, sizeof from);
+        g.landing_ask = ask;
     }
     g.landing = true;
     g.landing_arrival = arrival;
     g.landing_since = Now();
+    g.landing_try = attempt;
+    g.landing_ref_y = floor_y;
     std::memcpy(g.landing_dest, dest, sizeof dest);
-    std::memcpy(g.landing_from, from, sizeof from);
     g.landing_low = dest[1];
     return true;
 }
@@ -310,12 +322,37 @@ void LandingTick(const GameSnapshot& s) {
         return;
     }
     g.landing_low = std::min(g.landing_low, p[1]);
-    const Landing l = LandingCheck(now - g.landing_since, g.landing_dest[1], p[1], b2::OwnLadderState());
-    if (l == Landing::Wait) return;
+    const float shove = std::hypot(p[0] - g.landing_dest[0], p[2] - g.landing_dest[2]);
+    float sg[3] = {};
+    const bool ground_known = b2::OwnSafeGround(sg);
+    const bool ground = ground_known && std::fabs(sg[1] - p[1]) <= kSpotLevelM &&
+                        std::hypot(sg[0] - p[0], sg[2] - p[2]) <= kSpotShoveM;
+    const double since = now - g.landing_since;
+    // The game's safe-ground spot is positive evidence only: it did not follow the member within 3 s of a
+    // warp in the live run (stale spot from before), so a missing match is not "no ground"; no ground
+    // shows as a fall, caught by the watch (below the host's floor, or LandingCheck's drop).
+    Verdict v = LandingVerdict(since, g.landing_ref_y, g.landing_dest[1], p[1], shove, ground, ground,
+                                     b2::OwnLadderState());
+    if (v == Verdict::Fell && g.landing_try < kHostSpot) v = Verdict::Bad;  // another side first
+    if (v == Verdict::Wait) return;
+    if (v == Verdict::Landed && g.test_bad > 0) {
+        --g.test_bad;
+        v = Verdict::Bad;  // test aid: a landing counted as bad
+    }
+    if (v == Verdict::Bad) {
+        const int next = NextTry(g.landing_try);
+        Log("guest: bad landing on try %d (%s; %.1f m above the host's floor, %.1f m from the spot): %s", g.landing_try,
+            BadWhy(p[1] - g.landing_ref_y, shove, ground, ground), double(p[1] - g.landing_ref_y), double(shove),
+            next < 0 ? "no side left, it stays" : next == kHostSpot ? "the host's own ground position" : "the next side");
+        g.landing = false;
+        if (next >= 0 && PutBeside(g.landing_ask, "gather: bad landing, next spot", g.landing_arrival, next)) return;
+        party::status::SetLastEvent("Gathered: near the host");
+        return;
+    }
     g.landing = false;
-    if (l == Landing::Landed) {
-        Log("guest: stands beside the host %.1f s after the warp (%.1f m below the spot at most)", now - g.landing_since,
-            double(g.landing_dest[1] - g.landing_low));
+    if (v == Verdict::Landed) {
+        Log("guest: stands beside the host %.1f s after the warp (%.1f m below the spot at most, try %d)", since,
+            double(g.landing_dest[1] - g.landing_low), g.landing_try);
         return;
     }
     Log("guest: FELL %.1f m %.1f s after the warp beside the host (no ground there): back where it stood (%.1f, %.1f, "
@@ -330,6 +367,13 @@ void LandingTick(const GameSnapshot& s) {
         return;
     }
     g.test_lift = 0;  // test aid: the arrival is not lifted again
+    if (dsummon::ChaliceMap(g.ask.map)) {
+        // A map load into m29 has no dungeon: the member stays where it stood (in the dungeon, or in the
+        // Rejoin's reach); the next gather or Party > Rejoin brings it.
+        Log("guest: a Chalice Dungeon: no map load (it would come without the dungeon)");
+        party::status::SetLastEvent("Gathering: no safe spot beside the host in its Chalice Dungeon");
+        return;
+    }
     if (b2::GatherTravelToHost()) {
         g.arriving = true;
         g.arriving_since = now;
@@ -349,6 +393,7 @@ bool Come(const GameSnapshot& s, const Ask& ask, Route* route) {
     float d = 1e9f;
     p.host_chr_here = p.client && b2::HostChrHere(&d);
     p.distance = d;
+    p.host_dungeon = dsummon::ChaliceMap(ask.map);
     *route = RouteFor(p);
     Log("guest: YES: route %s (own %s, the host's %s, the host's chr %s, %.1f m)", RouteWord(*route),
         MapName(p.own_map).c_str(), MapName(p.host_map).c_str(), p.host_chr_here ? "here" : "not here", double(d));
@@ -359,6 +404,13 @@ bool Come(const GameSnapshot& s, const Ask& ask, Route* route) {
     case Route::InWorld:
         if (PutBeside(ask, "gather", false)) {
             party::status::SetLastEvent("Gathered: beside the host");
+            return true;
+        }
+        if (dsummon::ChaliceMap(ask.map)) {
+            Log("guest: the in-world warp did not run in the host's Chalice Dungeon; the Rejoin (summon) instead");
+            *route = Route::Rejoin;
+            party::status::RequestRejoin();
+            party::status::SetLastEvent("Gathering: rejoining the host's Chalice Dungeon");
             return true;
         }
         Log("guest: the in-world warp did not run; the travel instead");
@@ -472,7 +524,8 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
         g.active = false;
         g.test_lift = 0;
         if (g.test_next < g.test.size() && (TestYes(g.test[g.test_next]) || g.test[g.test_next] == "no")) {
-            if (g.test[g.test_next] == "yesdrop") g.test_lift = kTestLiftM;
+            if (g.test[g.test_next] == "yesdrop" || g.test[g.test_next] == "yesdropbad") g.test_lift = kTestLiftM;
+            g.test_bad = g.test[g.test_next] == "yesdropbad" ? 2 : 0;
             ++g.test_next;
         }
         Answer a;

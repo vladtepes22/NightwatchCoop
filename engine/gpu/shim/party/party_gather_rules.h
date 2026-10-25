@@ -210,6 +210,7 @@ struct Place {
     std::uint32_t host_map = 0;
     bool host_chr_here = false;   // the host's chr stands in this world, placed where it reports itself
     float distance = 1e9f;        // to that chr (m)
+    bool host_dungeon = false;    // the host stands in a Chalice Dungeon (m29): a map load there has no dungeon
 };
 
 constexpr bool MapKnown(std::uint32_t m) { return m != 0 && m != 0xffffffffu; }
@@ -241,12 +242,57 @@ inline Landing LandingCheck(double since_s, float dest_y, float now_y, int ladde
     return since_s >= kLandWatchS ? Landing::Landed : Landing::Wait;
 }
 
+/// A map load into m29 builds the map without the dungeon (the guest is sent back to its own world,
+/// "loaded the host's Chalice Dungeon without the dungeon"): in a host's Chalice Dungeon a member is
+/// moved in place when it is in the same loaded dungeon, else it comes by the Rejoin (its own world,
+/// the bell's summon with the ChannelId); never by a plain map load.
 inline Route RouteFor(const Place& p) {
     if (!p.client) return Route::Rejoin;
     if (SameBlock(p.own_map, p.host_map) && p.host_chr_here) {
         return p.distance <= kBesideM ? Route::Here : Route::InWorld;
     }
-    return Route::Travel;
+    return p.host_dungeon ? Route::Rejoin : Route::Travel;
+}
+
+// ---- where exactly beside the host (guest) ----
+/// A spot beside the host is taken only at the host's height: the member then stands on the same
+/// floor, not on a roof or under a ceiling of a stacked layout (player report: above the ceiling of a
+/// Chalice Dungeon). The sides are tried in order (SpotForTry: own, mirrored, third), the last
+/// resort is the host's own ground position (kHostSpot).
+constexpr float kSpotLevelM = 1.5f;     // |spot - host| in height
+constexpr float kSpotShoveM = 3.0f;     // a member found further than this from its spot was shoved (a wall, a roof)
+constexpr int kSideTries = 3;           // sides tried; try kSideTries = the host's ground position
+constexpr int kHostSpot = kSideTries;
+constexpr double kGroundSettleS = 1.0;  // the game's safe-ground spot needs this long after a warp
+constexpr double kGroundGiveUpS = 2.5;  // no safe ground under it by then: a bad landing
+inline bool SpotAcceptable(float host_y, float spot_y) { return std::fabs(spot_y - host_y) <= kSpotLevelM; }
+/// The next try after a bad landing (kHostSpot is the last; -1 none).
+inline int NextTry(int attempt) { return attempt < kHostSpot ? attempt + 1 : -1; }
+
+enum class Verdict { Wait, Landed, Fell, Bad };
+inline const char* BadWhy(float dy, float shove_m, bool ground_known, bool ground) {
+    if (dy > kSpotLevelM) return "above the host's floor";
+    if (dy < -kSpotLevelM) return "below the host's floor";
+    if (shove_m > kSpotShoveM) return "shoved away from the spot";
+    if (ground_known && !ground) return "no ground under it";
+    return "";
+}
+/// After the warp to a spot (host floor `ref_y`, the spot at `dest_y`): `now_y` the member's height,
+/// `shove_m` its horizontal distance from the spot, `ground_known` the game's safe-ground spot could
+/// be read, `ground` it lies within kSpotLevelM of the member and kSpotShoveM of its position.
+/// Fell (>= kLandDropM below the spot) is LandingCheck's: back and travel. Bad: next side.
+inline Verdict LandingVerdict(double since_s, float ref_y, float dest_y, float now_y, float shove_m, bool ground_known,
+                              bool ground, int ladder_state) {
+    if (ladder_state >= 0) return Verdict::Landed;
+    if (dest_y - now_y >= kLandDropM) return Verdict::Fell;
+    if (since_s < 0.3) return Verdict::Wait;
+    const float dy = now_y - ref_y;
+    if (dy > kSpotLevelM || shove_m > kSpotShoveM) return Verdict::Bad;  // on a roof: at once
+    if (since_s < kGroundSettleS) return Verdict::Wait;
+    if (std::fabs(dy) > kSpotLevelM) return Verdict::Bad;
+    if (!ground_known) return since_s >= kLandWatchS ? Verdict::Landed : Verdict::Wait;
+    if (ground) return Verdict::Landed;
+    return since_s >= kGroundGiveUpS ? Verdict::Bad : Verdict::Wait;
 }
 
 // ---- wire ----

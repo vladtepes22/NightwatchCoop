@@ -9,6 +9,7 @@
 #include "party_async_io.h"
 #include "party_balance.h"
 #include "party_fourp.h"
+#include "party_gather_rules.h"
 #include "party_link.h"
 #include "party_runtime.h"
 #include "party_perf.h"
@@ -12434,7 +12435,24 @@ bool HostChrHere(float* distance_m) {
     return true;
 }
 
-bool GatherBesideHost(const char* why, const float* spot, float spot_yaw, float test_lift_m, float* dest, float* from) {
+bool OwnSafeGround(float v[3]) {
+    const u64 player = Field<u64>(Slot(kSlotWorldChrMan), 0x60);
+    u64 q = 0;
+    return player && SafeGet(player + 0x400, &q) && q && SafeRead(q + 0x30, v, 12);
+}
+
+bool OwnWorldPos(float p[3]) {
+    const u64 player = Field<u64>(Slot(kSlotWorldChrMan), 0x60);
+    alignas(16) float mp[4] = {}, mr[4] = {};
+    if (!player || !ChrTransform(player, mp, mr)) return false;
+    p[0] = mp[0];
+    p[1] = mp[1];
+    p[2] = mp[2];
+    return true;
+}
+
+bool GatherBesideHost(const char* why, const float* spot, float spot_yaw, float test_lift_m, float* dest, float* from,
+                      int attempt, float* host_y) {
     alignas(16) float hp[4], hr[4];
     if (LocalHp() <= 0 || !HostChrTransform(hp, hr)) {
         return false;
@@ -12461,7 +12479,16 @@ bool GatherBesideHost(const char* why, const float* spot, float spot_yaw, float 
         pos[2] = spot[2];
         rot[1] = spot_yaw;
     }
-    BesideHost(pos, rot, g_local_slot.load());
+    // The spot must be on the host's floor (gather::SpotAcceptable); the sides are tried in order
+    // (SpotForTry), the last try is the host's own ground position (always valid).
+    const float floor_y = pos[1];
+    if (host_y) *host_y = floor_y;
+    if (attempt < coop::gather::kHostSpot) {
+        BesideHost(pos, rot, coop::fourp::SpotForTry(g_local_slot.load(), attempt));
+    }
+    if (!coop::gather::SpotAcceptable(floor_y, pos[1])) {
+        pos[1] = floor_y;  // never happens with a flat offset; kept as the rule's guard
+    }
     pos[1] += test_lift_m;  // test aid (BB_PARTY_GATHER_TEST "yesdrop"): a spot with no ground under it
     pos[3] = 1.0f;
     char b[96];
@@ -12474,9 +12501,9 @@ bool GatherBesideHost(const char* why, const float* spot, float spot_yaw, float 
         dest[1] = pos[1];
         dest[2] = pos[2];
     }
-    Log("gather: put beside %s (%.1f, %.1f, %.1f), the host at (%.1f, %.1f, %.1f)%s, no load",
+    Log("gather: put beside %s (%.1f, %.1f, %.1f), the host at (%.1f, %.1f, %.1f)%s, no load (try %d)",
         spot ? "the spot the host asked from" : "the host", double(pos[0]), double(pos[1]), double(pos[2]), double(hp[0]),
-        double(hp[1]), double(hp[2]), test_lift_m != 0.0f ? " (test: lifted)" : "");
+        double(hp[1]), double(hp[2]), test_lift_m != 0.0f ? " (test: lifted)" : "", attempt);
     return true;
 }
 
@@ -12512,6 +12539,11 @@ bool Spectating() {
 
 bool GatherTravelToHost() {
     const u32 host = HostMap();
+    if (dsummon::ChaliceMap(host)) {
+        Log("gather: no map load into the host's Chalice Dungeon (%s): it would come without the dungeon",
+            MapName(host).c_str());
+        return false;
+    }
     if (!g_on.load() || Role() != RoleClient || host == 0 || host == 0xffffffffu) {
         Log("gather: no travel to the host (role %d, host map %#x)", Role(), host);
         return false;
