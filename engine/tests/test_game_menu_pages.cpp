@@ -493,7 +493,7 @@ static void RulesPages() {
     const V save = {u"Share story progress", u"Share NPC quests", u"Share cutscenes, endings"};
     const V shared = {u"Enemies stay dead", u"Host can gather", u"NPCs as in host's world", u"Covenants per player",
                       u"Party votes on travel", u"NPC hunters fight all"};
-    const V rewards = {u"Full rewards for guests", u"Insight for bosses"};
+    const V rewards = {u"Full rewards for guests", u"Boss drops for guests", u"Insight for bosses"};
     const V items = {u"Host's item rewards", u"Give the bells", u"Own key items as guest", u"Key items at once"};
     const V display = {u"Party HUD", u"Party name tags", u"Pings", u"Show party through walls", u"Bloodstain marker",
                        u"Above companions"};
@@ -645,6 +645,8 @@ static void RulesPages() {
                      &BbSettings::Values::party_phantom_hp},
           std::tuple{u"Party rules: PvP & lamps", u"Full health in PvP", "party_pvp_full_hp",
                      &BbSettings::Values::party_pvp_full_hp},
+          std::tuple{u"Party rules: Rewards", u"Boss drops for guests", "party_boss_drops",
+                     &BbSettings::Values::party_boss_drops},
           std::tuple{u"My party: Your items", u"Own key items as guest", "party_key_view", &BbSettings::Values::party_key_view},
           std::tuple{u"My party: Your items", u"Key items at once", "party_key_items_summoned",
                      &BbSettings::Values::party_key_items_summoned}}) {

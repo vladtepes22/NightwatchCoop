@@ -122,7 +122,7 @@ int main() {
         Rules old;
         assert(FromJson("{\"rot\":false}", &old) && old.level_sync && old.phantom_hp);
         // 0.7.6 (pvphp): Full health in PvP goes with the rules, on by default; a host from before it: on.
-        assert(old.pvp_full_hp && Rules{}.pvp_full_hp);
+        assert(old.pvp_full_hp && Rules{}.pvp_full_hp && old.boss_drops);
         Rules p;
         p.pvp_full_hp = false;
         assert(FromJson(ToJson(p), &back) && !back.pvp_full_hp && back.phantom_hp && back == p && back != Rules{});

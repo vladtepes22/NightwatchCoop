@@ -187,7 +187,7 @@ public sealed class SeamlessPage : LauncherPage
         IniToggles(Fold(L.T("Guests"), Hosting),
             ("party_guest_revive_inplace", L.T("Get up without a loading screen"), true),
             ("party_guest_refill", L.T("Refill guest supplies"), true), ("party_chalice_rejoin", L.T("Stay in Chalice Dungeons"), true),
-            ("party_phantom_hp", L.T("Phantom health cut"), true));
+            ("party_phantom_hp", L.T("Phantom health cut"), true), ("party_boss_drops", L.T("Boss drops for guests"), true));
         IniNumbers(Fold(L.T("Enemy and boss scaling"), Hosting, L.T("How much tougher enemies and bosses get for each guest.")),
             ("party_boss_hp", L.T("Boss HP per guest (%)"), 150), ("party_boss_damage", L.T("Boss damage per guest (%)"), 10),
             ("party_boss_poise", L.T("Boss poise per guest (%)"), 100), ("party_enemy_hp", L.T("Enemy HP per guest (%)"), 50),
@@ -535,6 +535,7 @@ public sealed class SeamlessPage : LauncherPage
         "party_npc_fights" => L.T("A hunter NPC that turns hostile is hostile to guests too, so everyone can fight it."),
         "party_any_kidnap" => L.T("A Snatcher grabbing a guest takes the whole party to the Hypogean Gaol, just as when it grabs the host."),
         "party_friendly_fire" => L.T("Party members can hurt each other; being killed by a party member counts as a normal death."),
+        "party_boss_drops" => L.T("The item a world boss drops for you also goes to every guest who is there when it dies, once, in their own save. Key and unique items already reach every guest and are not given twice."),
         "party_pvp_full_hp" => L.T("While friendly fire is on, hunters who joined keep their full maximum health (no phantom health cut), so a duel is fair. Switching keeps each hunter's health at the same fraction. Off: the phantom health cut applies in PvP too. The host's rule: guests follow it."),
         "party_share_lamps" => L.T("A lamp any party member lights is lit for everyone, in each save."),
         "party_guests_bring_lamps" => L.T("A joining guest's own lamps light up in your world too. Requires Shared lamps."),

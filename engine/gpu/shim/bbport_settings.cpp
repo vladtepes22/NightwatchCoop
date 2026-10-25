@@ -58,6 +58,7 @@ const PartySwitch PartySwitches[] = {
     {"party_level_sync", "BB_PARTY_LEVEL_SYNC", &Values::party_level_sync, false},
     {"party_phantom_hp", "BB_PARTY_PHANTOM_HP", &Values::party_phantom_hp, false},
     {"party_pvp_full_hp", "BB_PARTY_PVP_FULL_HP", &Values::party_pvp_full_hp, false},  // 0.7.6, pvphp
+    {"party_boss_drops", "BB_PARTY_BOSS_DROPS", &Values::party_boss_drops, false},  // 0.7.6, bossdrops
     {"party_key_view", "BB_PARTY_KEY_VIEW", &Values::party_key_view, false},
     {"party_key_items_summoned", "BB_PARTY_KEY_ITEMS_SUMMONED", &Values::party_key_items_summoned, false},
     // 0.7.2: the rot cleanses (party_balance reads them live; host's rules).

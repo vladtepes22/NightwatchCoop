@@ -65,6 +65,8 @@ enum class ItemSource : std::uint8_t {
     Repeat, ///< guest-local: a repeatable NPC gift (common 9100) its talk asked for in the host's world
     Chalice, ///< host: a Chalice Dungeon award (boss rewards, area 29): no flag, once per kill, for the
              ///< guests summoned in the dungeon at that moment (G1; docs/party/chalice.md 5)
+    BossDrop, ///< host: a world boss's host-only item lot (ITEM_BOSS_DROP) the game keeps for the host: no flag,
+              ///< once per kill, for the guests summoned in the boss's map area (0.7.6, party rule boss_drops)
 };
 const char* ItemSourceName(ItemSource s);
 ItemSource ItemSourceFromName(const std::string& name);
@@ -123,7 +125,9 @@ struct ItemGrant {
     std::int64_t DoneFlag() const;
     /// De-duplication key (one grant per flag / ledger bit; a repeatable gift: its own key).
     std::int64_t Key() const {
-        return source == ItemSource::Repeat || source == ItemSource::Chalice ? repeat_key : DoneFlag();
+        return source == ItemSource::Repeat || source == ItemSource::Chalice || source == ItemSource::BossDrop
+                   ? repeat_key
+                   : DoneFlag();
     }
 };
 std::string DescribeItem(const ItemGrant& g);
@@ -220,6 +224,18 @@ std::optional<ItemGrant> MakeChaliceGrant(std::int32_t lot, const std::vector<Gr
 /// Guest: take a Chalice award only while it is a summoned phantom (load mode 1) in a Chalice
 /// Dungeon (map area 29): the guests at the kill. At home / elsewhere it is not this player's.
 bool ChaliceGrantAccepted(bool summoned, std::uint32_t map_id);
+
+/// Keys of world boss drops (one per kill): kBossDropKeyBase + n.
+constexpr std::int64_t kBossDropKeyBase = std::int64_t(1) << 42;
+/// The map area (MSB m<area>) of a world boss's host-only item lot (ITEM_BOSS_DROP, generated from the
+/// boss defeat events), else -1.
+int BossDropArea(std::int32_t lot);
+/// The host's boss drop `n` of this session: what its roll gave (`items`, required), no flag, no ledger.
+/// nullopt for a lot that is not a world boss's.
+std::optional<ItemGrant> MakeBossDropGrant(std::int32_t lot, const std::vector<GrantItem>& items, std::uint64_t n);
+/// Guest: take a boss drop only while it is a summoned phantom (load mode 1) in the boss's map area
+/// (present at the kill). At home / elsewhere it is not this player's.
+bool BossDropAccepted(bool summoned, std::uint32_t map_id, std::int32_t lot);
 
 /// Host hook: the grant for an award of `lot` (no seq yet), or nothing (client lots, denied,
 /// flagless lots outside the ledger).

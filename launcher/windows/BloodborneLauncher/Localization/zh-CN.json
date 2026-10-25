@@ -2100,5 +2100,7 @@
   "Start-up rules": "启动规则",
   "Read when the game starts. A guest with other values is refused and takes the host's.": "游戏启动时读取。设置不同的访客会被拒绝，并改用房主的设置。",
   "Progress and items": "进度与物品",
-  "What reaches your own save. Takes effect on the next game start.": "会写入你自己存档的内容。下次启动游戏时生效。"
+  "What reaches your own save. Takes effect on the next game start.": "会写入你自己存档的内容。下次启动游戏时生效。",
+  "Boss drops for guests": "首领掉落给访客",
+  "The item a world boss drops for you also goes to every guest who is there when it dies, once, in their own save. Key and unique items already reach every guest and are not given twice.": "世界首领为你掉落的物品，也会给予首领死亡时在场的每位访客，每人一次，存入其自己的存档。钥匙和唯一物品本来就会给予每位访客，不会重复给予。"
 }

@@ -232,6 +232,8 @@ struct Values {
     std::atomic<bool> party_phantom_hp{true};
     /// 0.7.6 (pvphp): the host's rule "Full health in PvP": no phantom health cut while friendly fire is on.
     std::atomic<bool> party_pvp_full_hp{true};
+    /// 0.7.6 (bossdrops): the host's rule: a world boss's item drop also goes to the guests present at the kill.
+    std::atomic<bool> party_boss_drops{true};
     /// Each player's own (while it is a guest; party_items):
     std::atomic<bool> party_key_view{true};     ///< the own key items while summoned (next start)
     std::atomic<bool> party_key_items_summoned{true}; ///< a host-world key item given at once (needs key_view)

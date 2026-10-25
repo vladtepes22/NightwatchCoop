@@ -1051,6 +1051,15 @@ void DefineAll() {
                "Правило хоста: вы получаете полные отголоски крови и добычу, как хост"},
               {"The host decides; off: the game's co-op rewards (half echoes, only vials and bullets drop)",
                "Решает хост; выкл.: награды как в игре (половина отголосков, падают только склянки и пули)"});
+    // 0.7.6 (bossdrops, owner's decision 2026-10-25): a boss's item drop reaches the guests present at the kill.
+    host_rule(&Values::party_boss_drops, "Boss drops for guests", "Добыча с боссов гостям",
+              AddText("An item a world boss drops for you also goes to each guest present at the kill, once. Party rule",
+                      "Предмет, выпавший с босса, получает и каждый гость, бывший при убийстве, один раз. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::BossDrops); },
+              {"The host's rule: the item a boss drops for the host is yours too if you are there at the kill",
+               "Правило хоста: предмет с босса достаётся и вам, если вы были при убийстве"},
+              {"The host decides; off: you get only what the game gives a guest from a boss",
+               "Решает хост; выкл.: вы получаете с босса только то, что даёт игра гостю"});
     {   // A list opens a pop-up over the rows below it: last on the page (after the guest's line). A guest's line shows its own
         // value: the join check makes it the host's.
         GuestRule g{AddDynamic(MaxValueLength), AddDynamic(MaxHelpLength), [] { return true; },

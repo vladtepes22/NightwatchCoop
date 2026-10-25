@@ -102,6 +102,7 @@ enum class HostRule { Rot, HostRevive, HostLimboRevive, KillRecord, NpcMirror, G
                       OpenWorld, GuestReviveInplace, GuestRespawn, GuestRefill, ChaliceRejoin, StoryMirror, GuestLamps,
                       GuestMark, FullRewards,
                       PvpFullHp,  // 0.7.6 (pvphp): no phantom health cut while friendly fire is on
+                      BossDrops,  // 0.7.6 (bossdrops): a world boss's item drop reaches every guest at the kill
                       Count };
 void SetHostRule(HostRule rule, bool on);
 bool HostRuleOn(HostRule rule);

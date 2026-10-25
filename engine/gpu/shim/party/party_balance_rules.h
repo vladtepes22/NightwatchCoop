@@ -95,6 +95,10 @@ struct Rules {
     /// their full maximum health (the phantom cut is lifted; each hunter's HP fraction is kept across the
     /// switch, party_levelsync_rules.h). The host's; on by default (a host from before sends none: on).
     bool pvp_full_hp = true;
+    /// 0.7.6 (bossdrops, owner's decision 2026-10-25): a world boss's item drop (the host-only reward lot, e.g.
+    /// Rom's Kin Coldblood) is also given to every guest present at the kill, once per kill. The host's;
+    /// on by default (a host from before sends none: off, it never gave them).
+    bool boss_drops = true;
     /// 0.7.4 (partyrules, user spec 2026-10-23): the session rules that were each player's own until
     /// 0.7.3 and now come from the host, so the party plays one way ("HOST DECIDES"; what reaches a
     /// guest's own save stays the guest's). Read live on every peer (party_status HostRuleOn):
