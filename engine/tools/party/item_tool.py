@@ -15,6 +15,17 @@ Game data (read-only, untrusted; run with python -I). GAME = .../dvdroot_ps4.
       the host's save keeps once the award ran. The index is the guest's ledger bit
       60009000 + idx, so it is stable: an existing --out file's indices are kept and new lots
       appended.
+      ITEM_AWARD_SPOT(lot, spot flag, note): the flagged lots a map's EMEVD 2003[4] (host-only) award
+      gives at an item spot (an altar, a corpse event) whose completion flag (event id + slot) is an
+      item_lot_picked flag of party_flags.inc: that flag, not the lot's, hides the spot. A guest
+      that receives the lot from the host also gets the spot flag in its own save (the spot is
+      then gone for it, after loads too). Flagless lots keep their ledger bit only.
+      ITEM_SHARED_TREASURE(lot, catchup, note): the map-treasure lots (pickup flag area != 0, not a
+      Chalice) with a key item (EquipParamGoods.goodsType 1) plus SHARED_QUEST_LOTS (the daughter
+      questline, goods that are not goodsType 1). The host's pickup goes to every member (C3)
+      instead of staying per player (InstancedTreasureFlag). catchup 1 = SHARED_CATCHUP_LOTS, the
+      progression keys / workshop tools a guest whose save has the flag but not the item is given
+      again (KeyCatchupLots); the quest items may be handed in, so they are never re-given.
   python -I tools/party/item_tool.py check-ledger GAME [--first 60009000 --last 60009999]
       Scans every EMEVD, the param bnd, the talk ESD and the Lua bnds (decoded flag operands plus
       every u32 / f32 / f64 at any byte offset) for an id in the range; exit 1 on a hit.
@@ -42,17 +53,69 @@ DENY_LOTS = {
 }
 
 
+# Not goodsType 1 but questline items the guests must have (Gascoigne's daughter: White / Red
+# Messenger Ribbon, Red Jeweled Brooch; a guest never reached the sewer spots in the host's world).
+SHARED_QUEST_LOTS = {2410900, 2410910, 2410920}
+# Progression keys / workshop tools of 0.7.0 (quest_audit.md F2): re-given by the key catch-up.
+SHARED_CATCHUP_LOTS = {2400450, 2800290, 2600550, 2600610, 3200720, 3500800, 2200360, 2411000}
+
+
 def is_chalice(lot, flag):
     return lot >= 100_000_000 or (flag > 0 and (flag // 100_000) % 100 == 29 and flag // 10_000_000 in (1, 5))
+
+
+def shared_treasure(rows, goods):
+    """[(lot, catchup, note)] for the shared map-treasure lots (see the module doc)."""
+    out = []
+    for lot, r in sorted(rows.items()):
+        f = r["getItemFlagId"]
+        if is_chalice(lot, f) or not (50_000_000 <= f < 60_000_000 and f // 100_000 % 100 != 0):
+            continue
+        keys = [r[f"lotItemId0{k}"] for k in range(1, 9)
+                if r[f"lotItemCategory0{k}"] == 4 and r[f"lotItemId0{k}"] > 0
+                and goods.get(r[f"lotItemId0{k}"], {}).get("goodsType") == 1]
+        if keys or lot in SHARED_QUEST_LOTS:
+            ids = keys or [r[f"lotItemId0{k}"] for k in range(1, 9) if r[f"lotItemCategory0{k}"] == 4]
+            out.append((lot, int(lot in SHARED_CATCHUP_LOTS), "goods " + "+".join(str(i) for i in ids if i > 0)))
+    return out
+
+
+def slot_items(row):
+    """[(category, id)] of the slots of one ItemLotParam row that give something."""
+    return [(row[f"lotItemCategory0{k}"], row[f"lotItemId0{k}"]) for k in range(1, 9)
+            if row[f"lotItemId0{k}"] > 0 and row[f"lotItemCategory0{k}"] > 0]
+
+
+def share_item(cat, item_id, goods):
+    """Party policy (0.7.5): only key items and unique items are shared: goods of goodsType 1 or
+    maxNum 1, and weapons / armor / rings. Consumables and repeatable stacks (Pebble, Numbing
+    Mist, Blood Vials, Madman's Knowledge...), blood gems and anything else are per player."""
+    if cat in (0, 1, 2):
+        return True
+    if cat == 4:
+        g = goods.get(item_id, {})
+        return g.get("goodsType") == 1 or g.get("maxNum") == 1
+    return False
+
+
+def lot_shareable(rows, goods, lot):
+    """True when the lot, or a continuation row (lot + 1, +2 ... while rows exist: one award rolls
+    them all), gives a shareable item."""
+    n = lot
+    while n in rows and n - lot < 8:
+        if any(share_item(c, i, goods) for c, i in slot_items(rows[n])):
+            return True
+        n += 1
+    return False
 
 
 def load(game):
     game = Path(game)
     P = ft.load_params(game / "param" / "gameparam" / "gameparam.parambnd.dcx",
-                       game / "paramdef" / "paramdef.paramdefbnd.dcx", ["ItemLotParam"])
+                       game / "paramdef" / "paramdef.paramdefbnd.dcx", ["ItemLotParam", "EquipParamGoods"])
     rows = {r["id"]: r for r in P["ItemLotParam"]}
     emedf = ft.load_emedf(ft.find_emedf(game / "event"))
-    return rows, ft.expand_all(game / "event", emedf)
+    return rows, ft.expand_all(game / "event", emedf), {r["id"]: r for r in P["EquipParamGoods"]}
 
 
 def ledger_candidates(rows, allrec):
@@ -81,20 +144,65 @@ def ledger_candidates(rows, allrec):
     return out
 
 
+def award_spots(rows, allrec, flags_inc):
+    """[(lot, spot flag, note)] for flagged host-only map awards whose event flag is an item spot's."""
+    cats = ft.load_inc(flags_inc)
+
+    def cat(f):
+        for lo, hi, c, _n in cats:
+            if lo <= f <= hi:
+                return c
+        return None
+
+    out = set()
+    for stem, recs in allrec.items():
+        if not stem.startswith("m") or stem.startswith("m29"):
+            continue
+        for r in recs:
+            if r["rest"] != 0:
+                continue  # restarts on reload: its flag is not a "taken" state
+            for m in r["markers"]:
+                if m["m"] != "item_lot":
+                    continue
+                vals = m["v"]
+                lot = vals[0] if isinstance(vals, (list, tuple)) else vals
+                row = rows.get(lot) if isinstance(lot, int) else None
+                if row is None or row["getItemFlagId"] <= 0 or is_chalice(lot, row["getItemFlagId"]):
+                    continue
+                if 6000 <= row["getItemFlagId"] <= 8999:
+                    continue  # per-player lots (Messenger gifts, costumes): never replayed
+                done = r["event"] + r["slot"]
+                if done // 10_000_000 != 1 or cat(done) != "item_lot_picked":
+                    continue
+                out.add((lot, done, f"{stem} ev {r['event']} slot {r['slot']}"))
+    return sorted(out)
+
+
 INC_LEDGER = re.compile(r"ITEM_LEDGER\(\s*(\d+)\s*,\s*(\d+)\s*,")
+INC_RETIRED = re.compile(r"retired ledger lot (\d+) \(index (\d+)")
 
 
 def cmd_gen_inc(a):
-    rows, allrec = load(a.game)
+    rows, allrec, goods = load(a.game)
+    shared = shared_treasure(rows, goods)
     flagged = sorted((lot, r["getItemFlagId"]) for lot, r in rows.items()
                      if r["getItemFlagId"] > 0 and not is_chalice(lot, r["getItemFlagId"]))
-    cand = ledger_candidates(rows, allrec)
+    cand_all = ledger_candidates(rows, allrec)
+    shared_lots = {t[0] for t in shared}
+    # Party policy: a lot that gives no key / unique item is not shared (ITEM_UNSHARED), whether it
+    # has a pickup flag or is a flagless host-only award. Its ledger index stays reserved.
+    unshared = sorted({lot for lot in list(cand_all) + [f[0] for f in flagged]
+                       if lot not in shared_lots and not lot_shareable(rows, goods, lot)})
+    unshared_set = set(unshared)
+    cand = {lot: v for lot, v in cand_all.items() if lot not in unshared_set}
     # Keep the indices an existing table already gave out.
     keep = {}
     outp = Path(a.out)
     if outp.exists():
         for m in INC_LEDGER.finditer(outp.read_text(encoding="utf-8")):
             keep[int(m.group(2))] = int(m.group(1))
+        for m in INC_RETIRED.finditer(outp.read_text(encoding="utf-8")):
+            keep.setdefault(int(m.group(1)), int(m.group(2)))
     order = sorted(cand, key=lambda lot: (keep.get(lot, 1 << 30), lot))
     used = set(keep.values())
     nxt = 0
@@ -111,7 +219,10 @@ def cmd_gen_inc(a):
             raise ValueError("ledger full")
         ledger.append((idx, lot) + cand[lot])
     dropped = sorted(set(keep) - set(cand))
+    unshared_set |= set(dropped)
+    unshared = sorted(unshared_set)
     ledger.sort()
+    spots = award_spots(rows, allrec, Path(__file__).resolve().parents[2] / "gpu/shim/party/party_flags.inc")
     out = [
         "// Generated by tools/party/item_tool.py gen-inc from ItemLotParam and the EMEVD scripts",
         "// (Bloodborne 1.09). Do not edit by hand: change the tool's rules and regenerate.",
@@ -119,6 +230,12 @@ def cmd_gen_inc(a):
         "// excluded). A lot award also rolls lot+1, +2... while rows exist (docs/party/items.md 2.1).",
         "// ITEM_LEDGER(idx, lot, done flag, note): flagless host-only awards; the guest keeps",
         f"// \"given\" in flag {LEDGER_BASE} + idx. Indices are stable (append only).",
+        "// ITEM_AWARD_SPOT(lot, spot flag, note): flagged host-only map awards whose item spot is",
+        "// hidden by the awarding event's own item_lot_picked flag (a guest given the lot gets it too).",
+        "// ITEM_SHARED_TREASURE(lot, catchup, note): key-item / questline map treasure the host's pickup",
+        "// gives to every member (not per player); catchup 1: the key catch-up re-gives it.",
+        "// ITEM_UNSHARED(lot): lots that give no key / unique item (party policy 0.7.5: consumables and",
+        "// repeatable stacks are per player): never broadcast, replayed or taken from the host.",
         f"// ---- {len(flagged)} flagged lots",
         "#ifdef ITEM_LOT_FLAG",
     ]
@@ -128,11 +245,23 @@ def cmd_gen_inc(a):
     for idx, lot, done, note in ledger:
         out.append(f'ITEM_LEDGER({idx}, {lot}, {done}, "{note}")')
     out.append("#endif")
+    out += [f"// ---- {len(spots)} award spots", "#ifdef ITEM_AWARD_SPOT"]
+    for lot, done, note in spots:
+        out.append(f'ITEM_AWARD_SPOT({lot}, {done}, "{note}")')
+    out.append("#endif")
+    out += [f"// ---- {len(unshared)} unshared lots", "#ifdef ITEM_UNSHARED"]
+    for lot in unshared:
+        out.append(f"ITEM_UNSHARED({lot})")
+    out.append("#endif")
+    out += [f"// ---- {len(shared)} shared treasure lots", "#ifdef ITEM_SHARED_TREASURE"]
+    for lot, catchup, note in shared:
+        out.append(f'ITEM_SHARED_TREASURE({lot}, {catchup}, "{note}")')
+    out.append("#endif")
     for lot in dropped:
         out.append(f"// retired ledger lot {lot} (index {keep[lot]} stays reserved)")
     outp.parent.mkdir(parents=True, exist_ok=True)
     outp.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
-    print(f"wrote {outp}: {len(flagged)} flagged lots, {len(ledger)} ledger lots")
+    print(f"wrote {outp}: {len(flagged)} flagged lots, {len(ledger)} ledger lots, {len(spots)} award spots, {len(shared)} shared treasure lots")
 
 
 def cmd_check_ledger(a):

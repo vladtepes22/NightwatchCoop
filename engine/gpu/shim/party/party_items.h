@@ -163,6 +163,9 @@ std::size_t ItemLedgerCount();
 
 /// Per-player or repeatable lots that are never replayed (docs/party/items.md 6.1 item 3).
 bool ItemLotDenied(std::int32_t lot, std::int32_t flag);
+/// Party policy (0.7.5, generated table ITEM_UNSHARED): the lot gives no key item and no unique item
+/// (goodsType 1, maxNum 1, weapons / armor / rings), so it is per player. ItemLotDenied includes it.
+bool ItemLotUnshared(std::int32_t lot);
 /// The Doll / Messenger gifts every player gets once in the own Hunter's Dream (Beckoning Bell
 /// 10010, Small Resonant Bell 10000, Old Hunter Bell 10050). Their talk awards them hostOnly, which
 /// a summoned guest's game refuses (items.md 3): the guest gives the lot to itself instead
@@ -209,13 +212,14 @@ std::optional<ItemGrant> ClassifyFlag(std::int32_t flag, const std::map<std::int
 /// Per-player world treasure (D4, `instanced`: guests pick up their own copy): a map treasure's
 /// pickup flag (5AABZnnn, area > 0) the host set by picking it up (no award hook `captured` it)
 /// is not handed to the party - every player takes the treasure in the own world. Except the
-/// progression keys and workshop tools of SharedKeyTreasureLot: those go to everyone.
+/// key items of SharedKeyTreasureLot: those go to everyone.
 bool InstancedTreasureFlag(std::int32_t flag, bool instanced, bool captured);
-/// Map treasure lots that hold a progression key or a Hunter's Dream workshop tool (unique goods,
-/// maxNum 1; docs/party/quest_audit.md): when the host picks one up, every member gets it (C3), so
-/// a guest who did not walk to the corpse is not locked out of a door or the Memory Altar in its
-/// own world. Hunter Chief Emblem, Upper Cathedral Key, Iron Door Key (x2), Lecture Theatre Key,
-/// Underground Cell Key, Rune Workshop Tool, Blood Gem Workshop Tool.
+/// Map treasure lots that hold a key item (EquipParamGoods.goodsType 1: unique, maxNum 1) or are
+/// on the questline list (Gascoigne's daughter: ribbons, brooch): generated ITEM_SHARED_TREASURE
+/// rows (item_tool.py). When the host picks one up, every member gets it (C3), so a guest who did
+/// not walk to the corpse is not locked out of a door, the Memory Altar or a questline. A guest
+/// that holds the item or has the lot's flag already gets nothing twice (docs/party/items.md 6.2).
+/// BB_PARTY_SHARED_TREASURE=0 (testing): nothing is shared, every treasure is per player.
 bool SharedKeyTreasureLot(std::int32_t lot);
 
 // ---- PartyLink EVENT "items" / "items_full" payload ----
@@ -514,8 +518,12 @@ public:
     ItemApplyMode LastMode() const { return last_mode_; }
     /// Why the last Step held a grant that was due (ItemPopupHold), else nullptr.
     const char* LastHold() const { return last_hold_; }
+    /// The grant Step returned last is a quiet one (a host catch-up grant while summoned: no spacing,
+    /// no popup; the caller shows one summary notice for the batch).
+    bool LastQuiet() const { return last_quiet_; }
     std::size_t HomeOnly() const { return home_only_.size(); }
-    /// The grant Step returned was really awarded (a popup opened): the next waits kSpacing.
+    /// The grant Step returned was really awarded (a popup opened): the next waits kSpacing (not
+    /// after a quiet one, LastQuiet).
     /// Skips (flag already set, item held) take no time, so a long catch-up list goes fast.
     void Awarded(double now) { last_apply_ = now; }
     std::size_t Pending() const { return q_.size(); }
@@ -528,6 +536,7 @@ private:
     std::set<std::int64_t> home_only_;   // deferred while summoned
     ItemApplyMode stable_mode_ = ItemApplyMode::None, last_mode_ = ItemApplyMode::None;
     const char* last_hold_ = nullptr;
+    bool last_quiet_ = false;
     int stable_ = 0;
     double last_apply_ = -1e9;
 };

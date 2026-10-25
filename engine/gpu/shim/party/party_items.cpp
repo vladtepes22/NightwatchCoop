@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <random>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <unordered_map>
@@ -70,6 +71,12 @@ using gamedata::SharedTreasure;
 inline const gamedata::Tables& Tab() {
     return gamedata::Get();
 }
+
+// Generated (item_tool.py gen-inc), sorted: lots with no key / unique item (party policy 0.7.5).
+constexpr std::int32_t kUnsharedLots[] = {
+#define ITEM_UNSHARED(lot) lot,
+#undef ITEM_UNSHARED
+};
 
 struct SourceName {
     ItemSource source;

@@ -28,7 +28,7 @@ static int g_checks = 0;
 
 static void test_tables() {
     CHECK(ItemLotFlagCount() > 1000);
-    CHECK(ItemLedgerCount() >= 40);
+    CHECK(ItemLedgerCount() >= 10);  // consumables / repeatable lots are retired (kept indices, no rows)
     // Treasure: flag = 50,000,000 + lot (docs/party/items.md 2.1; probe I2's Hunter Chief Emblem).
     CHECK(ItemLotFlag(2400450) == 52400450);
     CHECK(ItemLotForFlag(52400450) == 2400450);
@@ -56,7 +56,15 @@ static void test_tables() {
     CHECK(ItemLedgerIndex(50000001) == 35);        // Gold Pendant, Cleric Beast
     CHECK(ItemLedgerDoneFlag(35) == 12401800);
     CHECK(ItemLedgerIndex(14000) == 0);
-    CHECK(ItemLedgerIndex(22000) >= 0 && ItemLedgerDoneFlag(ItemLedgerIndex(22000)) == 9045); // common 9040 slot 5
+    // Party policy 0.7.5: consumables are not in the ledger any more (indices stay reserved).
+    for (const std::int32_t lot : {22000, 24000, 26000, 27010, 32000, 35000, 15005, 21002950, 75002400, 25700000}) {
+        CHECK(ItemLedgerIndex(lot) == kItemNone);
+        CHECK(ItemLotUnshared(lot));
+        CHECK(ItemLotDenied(lot, kItemNone));
+    }
+    CHECK(ItemLedgerIndex(23000) >= 0);  // Iosefka's Blood Vial: unique goods (maxNum 1), kept
+    CHECK(ItemLedgerIndex(30000) >= 0 && ItemLedgerIndex(39000) >= 0);  // Tiny Music Box, Tonsil Stone
+    CHECK(!ItemLotUnshared(31000) && !ItemLotUnshared(2400450) && !ItemLotUnshared(50000001));
     CHECK(ItemLedgerIndex(17010) == kItemNone);    // repeatable (common 9100)
     CHECK(ItemLedgerIndex(43000) == kItemNone);    // repeatable (13501940)
     CHECK(ItemLedgerIndex(2400450) == kItemNone);  // flagged
@@ -68,12 +76,17 @@ static void test_tables() {
     CHECK(ItemAwardSpotFlags(80000000).empty());  // boss reward: the event is a boss defeat
     CHECK(ItemAwardSpotFlags(75002400).empty());  // flagless (ledger) lots keep their ledger bit only
     CHECK(ItemAwardSpotFlags(10010).empty());     // per-player Messenger gift
-    for (std::size_t i = 0; i < ItemLedgerCount(); ++i) {
-        const int lot = ItemLedgerLot(static_cast<std::int32_t>(i));
-        CHECK(lot > 0);
+    std::size_t live = 0;
+    for (std::int32_t i = 0; i < 64; ++i) {
+        const int lot = ItemLedgerLot(i);
+        if (lot <= 0) {
+            continue;  // a retired index
+        }
+        ++live;
         CHECK(ItemLotFlag(lot) == kItemNone);
         CHECK(!ItemLotDenied(lot, kItemNone));
     }
+    CHECK(live == ItemLedgerCount());
 }
 
 static void test_deny() {
@@ -143,8 +156,28 @@ static void test_classify() {
         CHECK(k && k->lot == lot);
         CHECK(GuestGiftShareable(lot, 50000000 + lot));
     }
-    CHECK(!SharedKeyTreasureLot(2410290));            // Saw Hunter Badge: a shop unlock, per player
-    CHECK(InstancedTreasureFlag(52410290, true, false));
+    // Every other key item and the daughter questline (0.7.5): shared too, ordinary treasure not.
+    for (const std::int32_t lot : {2410290, 2410900, 2410910, 2410920, 2420900, 3502000, 3501850, 2500920}) {
+        CHECK(SharedKeyTreasureLot(lot));
+        CHECK(!InstancedTreasureFlag(ItemLotFlag(lot), true, false));
+        CHECK(ClassifyFlag(ItemLotFlag(lot), captured));
+        CHECK(GuestGiftShareable(lot, ItemLotFlag(lot)));
+        // a guest accepts the host's row
+        ItemGrant g;
+        g.lot = lot;
+        g.flag = ItemLotFlag(lot);
+        g.source = ItemSource::Flag;
+        CHECK(ItemGrantFromPeerAllowed(g));
+    }
+    CHECK(!SharedKeyTreasureLot(2410140));            // an ordinary corpse: per player
+    CHECK(InstancedTreasureFlag(52410140, true, false));
+    // the key catch-up re-gives only the progression keys, never a handed-in quest item
+    {
+        const auto lots = KeyCatchupLots([](std::uint32_t f) { return f == 52410920 || f == 52400450; },
+                                         [](std::uint32_t) { return false; });
+        CHECK(std::find(lots.begin(), lots.end(), 2400450) != lots.end());
+        CHECK(std::find(lots.begin(), lots.end(), 2410920) == lots.end());
+    }
     CHECK(!SharedKeyTreasureLot(31000));              // Oedon Tomb Key: a boss award (ledger), not treasure
     captured[50001700] = 33010; // the hook saw the NG variant
     f = ClassifyFlag(50001700, captured);
@@ -233,6 +266,57 @@ static void test_gate() {
     s = Home();
     s.world_up = false;
     CHECK(!ItemApplyAllowedNow(s));
+}
+
+// 0.7.5: a host catch-up grant while summoned is quiet (no spacing, no popup hold); a live grant is not.
+static ItemApplyState Summoned();
+static void test_quiet_catchup() {
+    GuestItems q;
+    std::vector<ItemGrant> in;
+    for (std::int32_t k = 0; k < 6; ++k) {
+        // Shared treasure lots (key items / workshop tools): the policy keeps them.
+        static const std::int32_t lots[6] = {2400450, 2800290, 2600550, 2600610, 3200720, 3500800};
+        in.push_back({static_cast<std::uint64_t>(k + 1), lots[k], 50000000 + lots[k], kItemNone, ItemSource::Full});
+    }
+    CHECK(q.Offer(in) == 6);
+    ItemApplyState sm = Summoned();
+    double t = 100.0;
+    int got = 0;
+    for (int i = 0; i < GuestItems::kStableTicks + 20; ++i, t += 0.016) {
+        if (std::optional<ItemGrant> g = q.Step(sm, t)) {
+            CHECK(q.LastQuiet());
+            q.Done(g->Key());  // no Awarded(): nothing popped up
+            ++got;
+        }
+    }
+    CHECK(got == 6);  // one per frame, far under 6 x kSpacing
+    // The same grants at home keep the popup spacing.
+    GuestItems h;
+    CHECK(h.Offer(in) == 6);
+    int home_got = 0;
+    t = 200.0;
+    for (int i = 0; i < GuestItems::kStableTicks + 20; ++i, t += 0.016) {
+        if (std::optional<ItemGrant> g = h.Step(Home(), t)) {
+            CHECK(!h.LastQuiet());
+            h.Done(g->Key());
+            h.Awarded(t);
+            ++home_got;
+        }
+    }
+    CHECK(home_got == 1);
+    // A live (non-catch-up) grant while summoned is not quiet.
+    GuestItems l;
+    CHECK(l.Offer({{1, 2400450, 52400450, kItemNone, ItemSource::Flag}}) == 1);
+    std::optional<ItemGrant> g;
+    t = 300.0;
+    for (int i = 0; i < GuestItems::kStableTicks + 2 && !g; ++i, t += 0.016) {
+        g = l.Step(sm, t);
+    }
+    CHECK(g && !l.LastQuiet());
+    // An older host's consumable grants (Pebble 22000 flagless, Beast Blood Pellets 27010) are refused.
+    GuestItems c;
+    CHECK(c.Offer({{1, 22000, kItemNone, 4, ItemSource::Full}, {2, 27010, kItemNone, 17, ItemSource::Award},
+                   {3, 2400450, 52400450, kItemNone, ItemSource::Flag}}) == 1);
 }
 
 static void test_guest() {
@@ -372,25 +456,27 @@ static void test_ledger_seed() {
     const std::vector<std::uint32_t> bits = LedgerBitsToSeed(is_set);
     const std::set<std::uint32_t> got(bits.begin(), bits.end());
     CHECK(got.size() == bits.size()); // no duplicates
-    for (std::int32_t idx = 0; idx < std::int32_t(ItemLedgerCount()); ++idx) {
+    for (std::int32_t idx = 0; idx < 64; ++idx) {
+        if (ItemLedgerLot(idx) <= 0) {
+            continue;
+        }
         const bool want = save.count(std::uint32_t(ItemLedgerDoneFlag(idx))) != 0;
         CHECK(got.count(kItemLedgerBase + std::uint32_t(idx)) == (want ? 1u : 0u));
     }
-    for (std::int32_t lot : {29000, 30000, 31000, 50000001, 50000010}) {
+    for (std::int32_t lot : {30000, 31000, 50000001, 50000010}) {
         const std::int32_t idx = ItemLedgerIndex(lot);
         CHECK(idx >= 0);
         CHECK(got.count(kItemLedgerBase + std::uint32_t(idx)) == 1);
         ItemGrant g{1, lot, kItemNone, idx, ItemSource::Full};
         CHECK(g.DoneFlag() == std::int64_t(kItemLedgerBase) + idx);
     }
-    // m22's boss (12201800, lot 21002950) was not beaten here: no bit, the replay gives it even
-    // after C2 has synced 12201800 into this save.
-    CHECK(got.count(kItemLedgerBase + std::uint32_t(ItemLedgerIndex(21002950))) == 0);
-    save.insert(kItemLedgerBase + std::uint32_t(ItemLedgerIndex(29000)));
+    // m22's boss (12201800) gave the Bloodshot Eyeball (lot 21002950, retired: not shared) and has no ledger row.
+    save.insert(kItemLedgerBase + std::uint32_t(ItemLedgerIndex(30000)));
     CHECK(LedgerBitsToSeed(is_set).size() == bits.size() - 1);
     save.insert(kItemLedgerSeeded);
     CHECK(LedgerBitsToSeed(is_set).empty());
     CHECK(ItemLedgerCount() < std::size_t(kItemLedgerSize - 1));
+    CHECK(bits.size() >= 2);
     CHECK(kItemLedgerSeeded == kItemLedgerBase + kItemLedgerSize - 1);
 }
 
@@ -681,7 +767,7 @@ static void test_gift_up() {
     CHECK(!GuestGiftShareable(28000, kItemNone));      // Blood of Arianna: each talk is the talker's
     CHECK(!GuestGiftShareable(31000, 60009025));       // other ledger lots never come from a guest
     CHECK(GuestGiftShareable(10040, 50000100));        // the Eye: replayed to everyone (quest_audit.md)
-    CHECK(!GuestGiftShareable(2410290, 52410290));     // map treasure: instanced per player (D4)
+    CHECK(!GuestGiftShareable(2410140, 52410140));     // ordinary map treasure: instanced per player (D4)
     CHECK(GuestGiftShareable(2400450, 52400450));      // ... except a progression key (Hunter Chief Emblem)
     CHECK(!GuestGiftShareable(2300090, 52300090));
     CHECK(!GuestGiftShareable(123456789, 50000200));   // unknown lot
@@ -690,7 +776,7 @@ static void test_gift_up() {
     std::int32_t lot = 0, flag = 0;
     std::string err;
     CHECK(GiftUpFromJsonText(body, &lot, &flag, &err) && lot == 17000 && flag == 50000200);
-    CHECK(!GiftUpFromJsonText(GiftUpToJsonText(2410290, 52410290), &lot, &flag, &err));
+    CHECK(!GiftUpFromJsonText(GiftUpToJsonText(2410140, 52410140), &lot, &flag, &err));
     CHECK(GiftUpFromJsonText(GiftUpToJsonText(23000, 60009005), &lot, &flag, &err) && lot == 23000 &&
           flag == 60009005);
     CHECK(!GiftUpFromJsonText("{\"lot\":17000}", &lot, &flag, &err));
@@ -1207,6 +1293,7 @@ int main() {
     test_host();
     test_gate();
     test_guest();
+    test_quiet_catchup();
     test_summoned_gate();
     test_plan();
     test_items_json();
