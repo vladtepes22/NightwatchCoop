@@ -4,6 +4,7 @@
 // Every site was disassembled from the 1.09 eboot (capstone + Ghidra) and is compared byte for
 // byte by coop_hooks before anything is written. Offsets are ours (raw ELF VA). The game's code
 // is System V: every call into it goes through a BB_COOP_SYSV pointer at Guest(off).
+#include "party_npchit_rules.h"
 #include "party_b2.h"
 #include "party_async_io.h"
 #include "party_balance.h"
@@ -913,6 +914,35 @@ BB_COOP_SYSV void ChrPreStepHook(u64 chr, u64, u64, u64, u64, u64) {  // rdi = t
     if (collision::ClearStaleHits(chr, RemotePlayerChr, HitLive)) {
         g_stale_hits.fetch_add(1, std::memory_order_relaxed);
     }
+}
+
+// 0.7.5 "a guest's blows turn a friendly NPC hostile": the damage step 0x1A2A600 -> 0x1A2A770 writes
+// each hit's damage record (victim, attacker, amount) into SprjEventMan +0x38 through 0x13D5190(list,
+// victim chr, attacker chr, hit record); the EMEVD damage conditions (3[23], Alfred's 12500052 three
+// hits, Eileen, Ebrietas ...) read that list for "attacker entity 10000", the host's own player. A
+// guest's phantom is another entity, so its blows hurt but were never counted. On the host a blow of
+// a remote player on anything but a player is recorded as the host's own (only the record: the hit
+// itself is unchanged). BB_PARTY_NPC_HOSTILE=0 switches it off, BB_PARTY_NPC_HOSTILE_LOG=1 logs it.
+void* g_dmgrec_orig = nullptr;
+std::atomic<int> g_dmgrec_credited{0};
+BB_COOP_SYSV u64 DamageRecordHook(u64 list, u64 victim, u64 attacker, u64 rec) {
+    u64 who = attacker;
+    if (attacker && victim && g_on.load() && Role() == RoleHost) {
+        const u64 wcm = *reinterpret_cast<const u64*>(Guest(kSlotWorldChrMan));
+        const u64 local = wcm ? *reinterpret_cast<const u64*>(wcm + 0x60) : 0;
+        who = npchit::RecordedAttacker(true, attacker, RemotePlayerChr(attacker), victim,
+                                       victim == local || RemotePlayerChr(victim), local);
+        if (who != attacker) {
+            const int n = g_dmgrec_credited.fetch_add(1, std::memory_order_relaxed) + 1;
+            static const bool log = [] {
+                const char* v = std::getenv("BB_PARTY_NPC_HOSTILE_LOG");
+                return v && v[0] == '1';
+            }();
+            if (log && n <= 40)
+                Log("guest blow recorded as the host's: victim chr %llx, %d so far", (unsigned long long)victim, n);
+        }
+    }
+    return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64, u64, u64)>(g_dmgrec_orig)(list, victim, who, rec);
 }
 
 // BeginLeaveSession entry (ReplacePrologue: jumped to, so the return address is the caller's):
@@ -11068,6 +11098,16 @@ void Init() {
                                   0xec, 0xf8, 0x07, 0x00, 0x00},
                       &ChrPreStepHook, "remote chr stale map hit guard (0x18CB0E0)")) {
         Log("remote chr stale map hit guard: NOT installed (bytes differ)");
+    }
+    {
+        const char* off = std::getenv("BB_PARTY_NPC_HOSTILE");
+        if (!(off && off[0] == '0') &&
+            !ReplacePrologue(0x13d5190, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56},
+                             reinterpret_cast<const void*>(&DamageRecordHook), &g_dmgrec_orig,
+                             "guest blows in the host's damage records (0x13D5190)")) {
+            g_dmgrec_orig = nullptr;
+            Log("guest blows in the host's damage records: NOT installed (bytes differ)");
+        }
     }
     // The stale boss clear on a summoned guest (BlockClear2's entry: push rbp; mov rbp, rsp; push r15).
     if (!ReplacePrologue(0x13849a0, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, reinterpret_cast<const void*>(&BlockClear2Hook),

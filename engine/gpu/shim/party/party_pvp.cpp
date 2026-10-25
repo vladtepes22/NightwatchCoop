@@ -129,6 +129,70 @@ State& S() {
     return s;
 }
 
+// ---- guests hit NPCs as the host does (0.7.5, "NPC attacks beyond #13") ----
+//
+// The SpEffect target table (an attack's effects, damage included) has 1 for the host's body (row
+// 19) against the friendly NPC teams 8, 12, 26, 28 and the hostile 9, 27; a cooperator (row 20) has
+// 0 there (read from the 1.09 ELF), so a guest's blow passes through a friendly NPC while the host's
+// hurts it (and turns it hostile). The relation table (lock-on) has the same gap at 9 and 27. A
+// party session opens row 20 wherever row 19 is 1 (columns 19 / 20, the party's own teams, are left
+// to friendly fire), so a guest is a full player against the host world's NPCs. BB_PARTY_NPC_HIT=0
+// turns it off (test aid).
+u64 RelationTable();
+struct NpcCells {
+    std::vector<Cell> cells;
+};
+NpcCells& N() {
+    static NpcCells n;
+    return n;
+}
+
+bool NpcHitDisabled() {
+    static const bool off = [] {
+        const char* v = std::getenv("BB_PARTY_NPC_HIT");
+        return v && v[0] == '0';
+    }();
+    return off;
+}
+
+void NpcRestore(const char* why) {
+    NpcCells& n = N();
+    int restored = 0;
+    for (const Cell& c : n.cells) {
+        u8 now = 0;
+        if (SafeGet(c.addr, &now) && now == 1 && now != c.orig && WriteByte(c.addr, c.orig)) ++restored;
+    }
+    if (!n.cells.empty()) Log("npc hit: closed %d table cell(s) (%s)", restored, why);
+    n.cells.clear();
+}
+
+void NpcApply() {
+    NpcCells& n = N();
+    if (!n.cells.empty()) return;  // opened for this session
+    const u64 rel = RelationTable(), eff = Guest(kEffectTable);
+    if (!rel || !eff) return;
+    std::string opened;
+    for (int t = 0; t < 2; ++t) {
+        const u64 base = t == 0 ? rel : eff;
+        for (int b = 0; b < kTeams; ++b) {
+            const bool party_team = b == kHostTeam || b == kGuestTeam;
+            u8 host_row = 0, guest_row = 0;
+            if (party_team || !SafeGet(base + u64(kHostTeam) * kTeams + u64(b), &host_row) ||
+                !SafeGet(base + u64(kGuestTeam) * kTeams + u64(b), &guest_row) || host_row != 1 || guest_row == 1)
+                continue;
+            Cell c;
+            c.addr = base + u64(kGuestTeam) * kTeams + u64(b);
+            c.orig = guest_row, c.a = kGuestTeam, c.b = b, c.table = t == 0 ? "relation" : "effect";
+            if (!WriteByte(c.addr, 1)) continue;
+            n.cells.push_back(c);
+            char b2[40];
+            std::snprintf(b2, sizeof b2, " %s[%d][%d]", c.table, kGuestTeam, b);
+            opened += b2;
+        }
+    }
+    Log("npc hit: a guest hits what the host hits: opened%s", opened.empty() ? " nothing" : opened.c_str());
+}
+
 std::atomic<bool> g_rule{false};
 std::atomic<bool> g_active{false};
 
@@ -391,6 +455,8 @@ void Tick(const GameSnapshot& s, bool host) {
     const bool session = PartySession(s.session_role, s.cooperators);
     const bool in_world = s.world_up && !s.loading && s.player;
     TestTick(st, s, session, host);
+    if (!NpcHitDisabled() && session && in_world) NpcApply();
+    else if (!N().cells.empty()) NpcRestore(NpcHitDisabled() ? "BB_PARTY_NPC_HIT=0" : !session ? "no party session" : "loading");
     if (Disabled()) return;
 
     if (!rule || !session || !in_world) {

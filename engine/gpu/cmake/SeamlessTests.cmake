@@ -147,6 +147,12 @@ add_executable(party-kidnap-test EXCLUDE_FROM_ALL ../tests/test_party_kidnap.cpp
 target_compile_options(party-kidnap-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(party-kidnap-test PRIVATE shim)
 set_target_properties(party-kidnap-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# 0.7.5 guests' blows in the host's damage records (party_npchit_rules.h, header only).
+# ninja -C out/gpu party-npchit-test
+add_executable(party-npchit-test EXCLUDE_FROM_ALL ../tests/test_party_npchit.cpp)
+target_compile_options(party-npchit-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-npchit-test PRIVATE shim)
+set_target_properties(party-npchit-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
 add_executable(party-death-rules-test EXCLUDE_FROM_ALL ../tests/test_party_death_rules.cpp)
 

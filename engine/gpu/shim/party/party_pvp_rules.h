@@ -27,6 +27,8 @@
 namespace coop::pvp {
 
 constexpr int kTeams = 32;             ///< the tables are kTeams x kTeams bytes
+constexpr int kHostTeam = 19;          ///< the host's body (measured live)
+constexpr int kGuestTeam = 20;         ///< a cooperator / white phantom (measured live)
 constexpr int kSessionRoleHost = 3;    ///< game_state.h RoleHost
 constexpr int kSessionRoleClient = 6;  ///< game_state.h RoleClient
 
