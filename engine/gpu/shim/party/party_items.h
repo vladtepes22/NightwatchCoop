@@ -221,6 +221,14 @@ bool InstancedTreasureFlag(std::int32_t flag, bool instanced, bool captured);
 /// that holds the item or has the lot's flag already gets nothing twice (docs/party/items.md 6.2).
 /// BB_PARTY_SHARED_TREASURE=0 (testing): nothing is shared, every treasure is per player.
 bool SharedKeyTreasureLot(std::int32_t lot);
+/// A shared key treasure given to a member who stands in the host's world (summoned guest): the item
+/// lying on the ground in that game's copy of the world must go too, else the member can pick it up
+/// again (a duplicate key). The game side registers the remover (worldact: it takes the treasure
+/// record with that pickup flag out of MapItemMan); returns true when a record was removed.
+using TreasureHider = bool (*)(std::uint32_t flag);
+void SetTreasureHider(TreasureHider h);
+/// The pickup flag of the treasure a shared key lot lies as on the ground (50,000,000 + lot); 0: the lot is not one.
+std::uint32_t TreasureFlagToHide(std::int32_t lot);
 
 // ---- PartyLink EVENT "items" / "items_full" payload ----
 constexpr const char* kItemsEventName = "items";

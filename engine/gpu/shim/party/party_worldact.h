@@ -177,12 +177,20 @@ struct BossGate {
     /// cutscene) has run. It stays a condition, so a FIRST fight still starts with the host; 0 none.
     std::uint32_t intro_flag = 0;
     std::int32_t fog_entity = 0;  ///< the fog's map object (the event's action-button target)
+    /// A separate event that sets guest_flag (Rom: the guest-entry event only walks the player in;
+    /// 13204821 `ゲストが着地` sets 13204801 once the guest stands in the arena, behind a 3[0] on
+    /// host_flag too, and gives it 5 s of invincibility): its host-entered condition is skipped
+    /// like the entry event's. 0: the entry event sets guest_flag itself.
+    std::uint32_t landing_event = 0;
 };
 const std::vector<BossGate>& BossGates();
 const BossGate* BossGateByEvent(std::int32_t guest_event);
+/// The gate whose landing_event is `event_id` (Rom), else null.
+const BossGate* BossGateByLandingEvent(std::int32_t event_id);
 const BossGate* BossGateByGuestFlag(std::uint32_t guest_flag);
 /// Guest: skip condition instruction bank:id (3[0] IfEventFlag on `flag`) of event `event_id`?
-/// Only the host-entered condition of a guest-entry event; the boss-alive and intro-seen checks stay.
+/// Only the host-entered condition of a guest-entry event (or of a gate's landing event); the
+/// boss-alive and intro-seen checks stay.
 bool BossGateSkipCondition(std::int32_t event_id, int bank, int id, std::uint32_t flag);
 /// Host: open the boss fight for a guest who went through the fog first (set host_flag)? The boss
 /// lives, a guest is in, the host's own flag is not yet set and the host stands in the boss's area

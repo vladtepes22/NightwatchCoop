@@ -267,6 +267,16 @@ static void WireStand() {
           !b.standing && b.round == 2);
 }
 
+static void QuestionStates() {
+    using namespace coop::gather;
+    CHECK(QuestionState(1, true, 0.1, 0.1) == Question::Answered);
+    CHECK(QuestionState(2, false, 0.1, 0.1) == Question::Answered);
+    CHECK(QuestionState(-1, true, 5, 5) == Question::Open);
+    CHECK(QuestionState(-1, false, 0.5, 0.6) == Question::Open);       // the box is still opening
+    CHECK(QuestionState(-1, false, 3.0, 3.1) == Question::Dismissed);  // gone without a result: a NO
+    CHECK(QuestionState(-1, true, 95, 96) == Question::Expired);
+}
+
 int main() {
     HostRules();
     Standing();
@@ -279,6 +289,7 @@ int main() {
     Routes();
     Wire();
     Rounds();
+    QuestionStates();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

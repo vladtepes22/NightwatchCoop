@@ -65,6 +65,11 @@ static void test_tables() {
     CHECK(ItemLedgerIndex(23000) >= 0);  // Iosefka's Blood Vial: unique goods (maxNum 1), kept
     CHECK(ItemLedgerIndex(30000) >= 0 && ItemLedgerIndex(39000) >= 0);  // Tiny Music Box, Tonsil Stone
     CHECK(!ItemLotUnshared(31000) && !ItemLotUnshared(2400450) && !ItemLotUnshared(50000001));
+    // 0.7.6: a Caryll rune an NPC gives (34020 / 34040 / 43020) is a unique reward: every member gets it.
+    for (const std::int32_t lot : {34020, 34040, 43020}) {
+        CHECK(!ItemLotUnshared(lot));
+    }
+    CHECK(!ItemLotDenied(34020, 50001820) && !ItemLotDenied(43020, 50002260));
     CHECK(ItemLedgerIndex(17010) == kItemNone);    // repeatable (common 9100)
     CHECK(ItemLedgerIndex(43000) == kItemNone);    // repeatable (13501940)
     CHECK(ItemLedgerIndex(2400450) == kItemNone);  // flagged

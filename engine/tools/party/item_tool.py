@@ -92,6 +92,8 @@ def share_item(cat, item_id, goods):
     Mist, Blood Vials, Madman's Knowledge...), blood gems and anything else are per player."""
     if cat in (0, 1, 2):
         return True
+    if cat == 8 and 200000 <= item_id < 300000:
+        return True  # a Caryll rune (an NPC's reward: Eileen, Patches ...): unique, every member gets it (0.7.6)
     if cat == 4:
         g = goods.get(item_id, {})
         return g.get("goodsType") == 1 or g.get("maxNum") == 1

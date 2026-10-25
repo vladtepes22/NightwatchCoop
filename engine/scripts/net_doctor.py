@@ -44,6 +44,9 @@ R = {
     "guest_joined": re.compile(r"Party: link: (\S+) (joined|rejoined) \(slot (\d+), from (\S+?):\d+\)"),
     "lost": re.compile(r"Party: link: lost (\S+) \(slot \d+\): (.+?);"),
     "outage": re.compile(r"Net: outage resume: (\S+?):\d+ heard again after ([\d.]+) s"),
+    "host_stun_silent": re.compile(r"stun: no answer from (\S+?):\d+; the host gets our LAN address only"),
+    "guest_public": re.compile(r"Party: guest code \S+ \(UDP (\S+?):\d+, stun"),
+    "host_udp_back": re.compile(r"summon: UDP to the host works again"),
     "no_public_udp": re.compile(r"summon: UDP to (\S+) is blocked: its game has only the LAN address"),
     "not_heard": re.compile(r"direct summon: slot \d+ \((\S+)\) reports a failure: its UDP is not heard"),
     "summon_refused": re.compile(r"direct summon: slot \d+ \((\S+)\) refused \(([^;)]+)"),
@@ -114,6 +117,9 @@ class Log:
         self.outages = []
         self.not_heard = Counter()
         self.no_public_udp = Counter()
+        self.host_stun_silent = 0
+        self.guest_public = None
+        self.host_udp_back = False
         self.summon_refused = Counter()
         self.punch_local = []
         self.punching = 0
@@ -229,6 +235,14 @@ def parse(path):
             if m:
                 lg.outages.append((m.group(1), float(m.group(2))))
                 lg.note("outage", n, line)
+            if R["host_stun_silent"].search(line):
+                lg.host_stun_silent += 1
+                lg.note("host_stun_silent", n, line)
+            m = R["guest_public"].search(line)
+            if m:
+                lg.guest_public = m.group(1)
+            if R["host_udp_back"].search(line):
+                lg.host_udp_back = True
             m = R["no_public_udp"].search(line)
             if m:
                 lg.no_public_udp[m.group(1)] += 1
@@ -376,7 +390,7 @@ def diagnose(logs, show_ips):
                    f"many users, so nobody can connect in directly, and the connection drops often.",
                 f"Host from a home internet connection if anyone can. Otherwise everyone uses a VPN "
                 f"(Tailscale, Radmin or Hamachi) and the host's VPN address.")
-        if host.nat and "no open port" in host.nat and not host.upnp_ok and not host.local_forced:
+        if host.nat and "no open port" in host.nat and not host.upnp_ok and not host.local_forced                 and not (host.local and is_vpn_ip(host.local)):  # over a VPN the open port does not matter
             add(2, f"**{hn} has no open port** (UPnP not available on the router). Guests can only get in by "
                    f"hole punching, which fails if a guest's router is strict.",
                 f"{hn}: turn on UPnP in the router, or forward UDP + TCP 9307 to the PC, or use a VPN.")
@@ -443,10 +457,21 @@ def diagnose(logs, show_ips):
         for g, cnt in host.no_public_udp.items():
             if host.in_world.get(g):
                 continue
+            gl = by_name.get(g)
+            if gl and gl.host_stun_silent and gl.guest_public:
+                # the guest's UDP reaches the internet (its own STUN worked) but not the host's party port
+                hn = host.name or "the host"
+                back = " It started answering later in the session." if gl.host_udp_back else ""
+                add(1, f"**{hn}'s party port does not answer {g}'s UDP** ({g}'s own internet UDP works). "
+                       f"The party link (TCP) gets through, the game traffic (UDP) does not, so {g} is never "
+                       f"summoned.{back}",
+                    f"{hn}: allow the game in Windows Firewall for INBOUND UDP + TCP 9307 (and in any antivirus "
+                    f"firewall); the router mapping alone is not enough. Then restart the launcher and host again.")
+                continue
             add(1, f"**{g}'s game cannot send UDP to the internet**: it only knows its home address, so the host "
                    f"cannot summon it ({cnt}x). {g} is in the party (that part uses TCP) but stays in its own world; "
                    f"the in-game 'still in the prologue' / 'no public UDP' notices come from this.",
-                f"{g}: allow the game in Windows Firewall for UDP + TCP 9307 (and in any antivirus with its own "
+                f"{g} (or the host, for incoming UDP): allow the game in Windows Firewall for UDP + TCP 9307 (and in any antivirus with its own "
                 f"firewall), check the router does not block outgoing UDP, then restart the launcher. Or both of you "
                 f"use a VPN (Radmin / Tailscale) and set BB_PARTY_LOCAL_IP to your own VPN address.")
 

@@ -2855,7 +2855,20 @@ void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
     if (const std::size_t gn = g.test.find("gate="); gn != std::string::npos) {
         gate_n = std::atoi(g.test.c_str() + gn + 5);
     }
-    if (g.open && !g.test.empty() && !g.test_done && doll_ready && g.opens >= gate_n && now - g.open_at >= 5.0 &&
+    // "ownworld" (0.7.6 phantomsave): the same fixture in the player's OWN world after it left a party
+    // (the guest must be able to talk to the Doll there; the kicked / left guest report). "ownsolo": also
+    // without ever having been summoned (a save that carries a stuck state).
+    static double own_since = 0;
+    const bool own_test = g.test.find("ownworld") != std::string::npos;
+    const bool own_world = own_test && s.session_role == 0 && s.world_up && !s.loading && IsDreamMap(s.map_id) &&
+                           (g.opens >= gate_n || g.test.find("ownsolo") != std::string::npos);
+    if (!own_world) {
+        own_since = 0;
+    } else if (own_since == 0) {
+        own_since = now;
+    }
+    if (((g.open && !own_test) || own_world) && !g.test.empty() && !g.test_done && doll_ready &&
+        (own_world || (g.opens >= gate_n && now - g.open_at >= 5.0)) && (!own_world || now - own_since >= 8.0) &&
         now >= g.test_next) {
         if (!RunTestFixture(s, g.test_step)) {
             g.test_done = true;
@@ -2887,7 +2900,7 @@ void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
         g.test_next = now + 8.0;
         g.rec = RecordOf(ReadGameState(false)); // the fixture's echoes are not a purchase
     }
-    if (g.open) {
+    if (g.open || own_world) {
         LevelUpTick(s, now);
     }
     if (g.test_done && !g.test_chain.empty() &&

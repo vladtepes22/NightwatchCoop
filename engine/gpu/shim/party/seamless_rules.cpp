@@ -556,7 +556,9 @@ std::atomic<std::uint32_t> g_fog_first_logged{0};
 // Guest (role 6): the host-entered condition (3[0] IfEventFlag, u32 flag at +4) of a guest-entry
 // event is passed, so the fog's action prompt works before the host has gone through.
 bool FogFirstSkip(u64 event, u64 instr, i32 event_id, i32 bank, i32 id) {
-    if (!g_fog_first || bank != 3 || id != 0 || !worldact::BossGateByEvent(event_id) || LocalSessionRole() != 6) {
+    if (!g_fog_first || bank != 3 || id != 0 ||
+        (!worldact::BossGateByEvent(event_id) && !worldact::BossGateByLandingEvent(event_id)) ||
+        LocalSessionRole() != 6) {
         return false;
     }
     u8 args[8] = {};

@@ -92,6 +92,7 @@ struct GuestState {
     Ask ask;
     double since = 0;
     u64 dialog = 0;
+    double dialog_at = 0;  // when the box was opened
     double open_until = 0; // the dialog must be up by then
     // after a travel: beside the host once it has arrived
     bool arriving = false;
@@ -500,6 +501,7 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
             g.dialog = split::AskYesNo(BbGameMenu::Pages::GatherQuestionText());
             if (g.dialog) {
                 Log("guest: round %u: question open (dialog %#llx)", g.ask.round, static_cast<unsigned long long>(g.dialog));
+                g.dialog_at = now;
                 g.test_at = now;
             } else if (now > g.open_until) {
                 g.active = false;
@@ -518,8 +520,13 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
             ++g.test_step;
             Log("test: answer %s: press %#x (step %d)", yes ? "yes" : "no", b, g.test_step);
         }
+        int res = r;
         if (r == -1) {
-            return;
+            const Question qs = QuestionState(r, split::DialogUp(), now - g.dialog_at, now - g.since);
+            if (qs == Question::Open) return;
+            Log("guest: round %u: the question %s without a result: counts as NO", g.ask.round,
+                qs == Question::Dismissed ? "box is gone" : "stayed open too long");
+            res = 2;
         }
         g.active = false;
         g.test_lift = 0;
@@ -530,11 +537,11 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
         }
         Answer a;
         a.round = g.ask.round;
-        if (r != 1) {
+        if (res != 1) {
             a.reply = Reply::No;
             SendAnswer(link, a);
             party::status::SetLastEvent("Gathering: you stay where you are");
-            Log("guest: round %u: NO (result %d)", a.round, r);
+            Log("guest: round %u: NO (result %d)", a.round, res);
             return;
         }
         if (now - g.since > kLateAnswerS) {

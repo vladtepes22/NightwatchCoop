@@ -186,6 +186,22 @@ inline std::string GuestRefusalText(Refusal r) {
     return std::string("The host gathers the party: not now (") + RefusalReason(r) + ")";
 }
 
+// A player's report: after one NO the host's later gather questions never came back until a restart. The
+// game's dialog result stayed unread (-1) although the box was gone, so the guest's question state
+// stayed "active" and every later ask was refused as "answering another question".
+constexpr double kBoxGoneS = 2.5;       // the box must have been up this long (it opens over a frame or two)
+constexpr double kQuestionMaxS = 90.0;  // an unanswered question is closed by then (the YES-late limit is 60 s)
+enum class Question { Open, Answered, Dismissed, Expired };
+/// The state of a guest's open question. `result`: the dialog's result (-1 none yet), `box_up`: a game
+/// dialog is up, `open_s`: seconds since the box opened, `ask_s`: since the ask came. A result is an
+/// answer; no result with the box gone, or far too long, ends the question (a NO, so the next one is asked).
+inline Question QuestionState(int result, bool box_up, double open_s, double ask_s) {
+    if (result != -1) return Question::Answered;
+    if (!box_up && open_s >= kBoxGoneS) return Question::Dismissed;
+    if (ask_s >= kQuestionMaxS) return Question::Expired;
+    return Question::Open;
+}
+
 /// How a guest that said YES comes.
 enum class Route {
     Here,     // already beside the host (within kBesideM, same map): nothing to do

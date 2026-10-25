@@ -69,9 +69,9 @@ static void test_skip_rules() {
     CHECK(walls[5].event == 13400010 && walls[5].bank == 2006 && walls[5].id == 2 && walls[5].index == 8);
     {
         // Party mode whatever the open world: 13400010's "not in multiplayer" condition [11]; on a
-        // client, the room-open skip of Ebrietas's, Laurence's and Lady Maria's re-fight events.
+        // client, the room-open skip of the Ebrietas, Rom, Laurence and Lady Maria re-fight events.
         const std::vector<EmevdSkipRule> rooms = BossRoomRules();
-        CHECK(rooms.size() == 4);
+        CHECK(rooms.size() == 5);
         CHECK(rooms[0].event == 13400010 && rooms[0].bank == 0 && rooms[0].id == 0 && rooms[0].index == 11 &&
               !rooms[0].needs_travel && !rooms[0].client_only);
         std::set<int> refights;
@@ -80,7 +80,7 @@ static void test_skip_rules() {
                   !rooms[i].needs_travel);
             refights.insert(rooms[i].event);
         }
-        CHECK(refights == (std::set<int>{12424810, 13404850, 13504800}));
+        CHECK(refights == (std::set<int>{12424810, 13204830, 13404850, 13504800}));
         CHECK(DescribeSkipRule(rooms[1]) == "12424810:1003:5@2 (on a client)");
     }
     // Event 7600 as the data has it (common.emevd), and its Chalice Dungeon copy 12907600

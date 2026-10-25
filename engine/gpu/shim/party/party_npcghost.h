@@ -9,7 +9,7 @@
 // leaves them vanilla); only clients read the bit, so the host and solo play see no change.
 //
 // Rows (Bloodborne 1.09 gameparam NpcParam, tools/party/flag_tool.py load_params): every row with
-// the bit that a talk NPC uses. Enemies with the bit (109100, 111010-111012, 252100, the other
+// the bit that a talk NPC uses. Enemies with the bit (109100, 111010, 111011, 252100, the other
 // 402xxx / 409xxx rows, the chalice rows ...) keep it.
 // P3 (quest_audit.md, 2026-10-14): the enemy-family rows a talk NPC uses were checked against every
 // MSB part (all maps, chalice layouts included): 504020 (the suspicious beggar, Cathedral Ward
@@ -20,6 +20,8 @@
 // Ludwig's arena, talk 340540) and 451100 (Ludwig's head): no part uses them except these talk NPCs,
 // so clearing the bit changes nothing else. A hostile one (the beggar once he turns) is then a
 // solid enemy on the guest's screen, as every other enemy is, instead of an untouchable ghost.
+// 0.7.6: 111012 is Patches in the Nightmare Frontier (m33 entity 3300710, model 6200, the only part
+// with that row in any map; his push event 13300200 is named for him): a guest saw a ghost it could not hit.
 #pragma once
 
 #include <cstddef>
@@ -76,6 +78,7 @@ inline constexpr GhostRow kTalkNpcRows[] = {
     {8122, 0x80, "talk NPC 8122"},
     {8123, 0x80, "talk NPC 8123"},
     {8125, 0x80, "talk NPC 8125"},
+    {111012, 0xc4, "Patches (Nightmare Frontier)"},
     {113010, 0xc0, "the Oedon Chapel Dweller"},
     {402080, 0x80, "a Research Hall patient (talks)"},
     {402090, 0x80, "a Research Hall patient (talks, 2)"},

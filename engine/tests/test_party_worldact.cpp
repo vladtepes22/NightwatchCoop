@@ -146,7 +146,25 @@ int main() {
     assert(!BossGateSkipCondition(12414731, 1003, 2, 12414700));
     assert(!BossGateSkipCondition(12414702, 3, 0, 12414700));  // the boss-start event itself
     assert(!BossGateSkipCondition(12414730, 3, 0, 12414700));  // the host's own entry
-    assert(!BossGateSkipCondition(13204831, 3, 0, 13204800));  // Amygdala: left out
+    // Rom (m32_00, 2026-10-25 report: only the host could go in): her fog is a gate like the others.
+    assert(BossGateSkipCondition(13204831, 3, 0, 13204800));   // the host-entered condition
+    assert(!BossGateSkipCondition(13204831, 3, 0, 13201802));  // her fight having started stays
+    assert(!BossGateSkipCondition(13204831, 3, 0, 13201800));  // alive stays
+    assert(!BossGateSkipCondition(13204831, 1003, 2, 13204800));
+    // her landing event sets the guest's flag behind the same host-entered condition
+    assert(BossGateSkipCondition(13204821, 3, 0, 13204800));
+    assert(!BossGateSkipCondition(13204821, 3, 0, 13204801));
+    assert(!BossGateSkipCondition(13204820, 3, 0, 13204800));  // the host's own landing event
+    assert(BossGateByLandingEvent(13204821) == BossGateByEvent(13204831) && !BossGateByLandingEvent(13204831));
+    assert(BossGateByGuestFlag(13204801) == BossGateByEvent(13204831));
+    {
+        const BossGate& rom = *BossGateByEvent(13204831);
+        assert(rom.fog_entity == 3201800 && rom.intro_flag == 13201802 && !BossGateGuestStarts(rom));
+        const std::uint32_t lake = 0x20000000u;  // m32_00_00_00
+        assert(BossGateHostOpens(rom, true, false, false, lake));   // a guest in first: the host opens it
+        assert(!BossGateHostOpens(rom, true, false, true, lake));   // Rom dead
+        assert(GuestFogOpenWhileHostAt(rom, lake) && !GuestFogOpenWhileHostAt(rom, 0x18000000u));
+    }
     const BossGate& cb = *BossGateByEvent(12414731);
     assert(BossGateHostOpens(cb, true, false, false, m2401));
     assert(!BossGateHostOpens(cb, false, false, false, m2401));  // no guest in
@@ -344,7 +362,7 @@ int main() {
     // Playtest 1 bugs 11 / 17: talk NPCs stay solid for guests (NpcParam isChangeWanderGhost).
     {
         namespace ng = coop::npcghost;
-        for (std::uint32_t row : {803000u, 804000u, 6060u, 6070u, 6151u, 6155u, 6160u, 113010u, 6113u, 8125u}) {
+        for (std::uint32_t row : {803000u, 804000u, 6060u, 6070u, 6151u, 6155u, 6160u, 113010u, 6113u, 8125u, 111012u}) {
             assert(ng::FindTalkNpcRow(row));
         }
         // P3: enemy-family rows used only by talk NPCs (every MSB checked): the beggar, Willem, the

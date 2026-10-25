@@ -104,7 +104,7 @@ int main() {
     // Every boss fog of the game (flag_tool emevd, every `ゲストがボス部屋入場` event): its host- and
     // guest-entered flags are fight state (the host's load resets them; never restored), its boss
     // and first-fight (intro) flags are not (saved: the guard and the mirror keep them).
-    CHECK(wa::BossGates().size() == 19);
+    CHECK(wa::BossGates().size() == 20);
     for (const wa::BossGate& g : wa::BossGates()) {
         CHECK(FightStateFlag(g.host_flag) && FightStateFlag(g.guest_flag));
         CHECK(g.host_flag / 1000 == g.guest_flag / 1000);
@@ -216,8 +216,10 @@ int main() {
             }
         }
         (void)rows;
-        // Ebrietas (the host's hit), Laurence (the skull at the altar), Lady Maria (examined).
-        CHECK(action == (std::set<std::uint32_t>{12424811, 13404851, 13504801}));
+        // Ebrietas (the host's hit), Rom (anyone's hit), Laurence (the skull at the altar), Lady Maria
+        // (examined).
+        CHECK(action == (std::set<std::uint32_t>{12424811, 13204831, 13404851, 13504801}));
+        CHECK(!GuestMayStartFirstFight(13204831) && GuestRoomOpenSkip(13204830, 1003, 5, 2));
         CHECK(!GuestMayStartFirstFight(13404851) && GuestMayStartFirstFight(13404801) &&
               GuestMayStartFirstFight(12404841) && !GuestMayStartFirstFight(12424711) &&
               !GuestMayStartFirstFight(1));

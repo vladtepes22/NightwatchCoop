@@ -190,6 +190,9 @@ struct TravelStep {
         // host_rejoin / guest_rejoin run S s after this player went out of the party (or after the
         // previous step, the later), while it is out (repeat cycles: tools/mp/smoke_party.py).
         HostLeave, GuestLeave, HostRejoin, GuestRejoin,
+        // host_kick=NAME@S: the host kicks that member from the Party page (party_status KickMember); the
+        // guest's own world is checked afterwards (smoke group phantom_own).
+        HostKick,
         // I5: the Party page's Gather the party as the host presses it (party_status RequestGather).
         HostGather
     } kind = HostWarp;
@@ -1341,6 +1344,7 @@ const char* TravelStepName(TravelStep::Kind k) {
     case TravelStep::GuestUse: return "guest_use";
     case TravelStep::GuestFixture: return "guest_fixture";
     case TravelStep::GuestHome: return "guest_home";
+    case TravelStep::HostKick: return "host_kick";
     case TravelStep::HostLeave: return "host_leave";
     case TravelStep::GuestLeave: return "guest_leave";
     case TravelStep::HostRejoin: return "host_rejoin";
@@ -2548,6 +2552,10 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
     } else if (step.kind == TravelStep::HostGather) {
         const bool queued = ::party::status::RequestGather();
         Log("test: host_gather: Party > Gather the party pressed%s (%s)", queued ? "" : " - NOT queued (not the host)",
+            Describe(s).c_str());
+    } else if (step.kind == TravelStep::HostKick) {
+        const bool ok = ::party::status::KickMember(step.args);
+        Log("test: host_kick: Party > Kick %s %s (%s)", step.args.c_str(), ok ? "pressed" : "refused by the board",
             Describe(s).c_str());
     } else if (step.kind == TravelStep::HostLeave || step.kind == TravelStep::GuestLeave) {
         ::party::status::RequestLeave();
@@ -3990,7 +3998,7 @@ void PartyDirector::ConfigureFromEnv() {
                        item.rfind("host_poise=", 0) == 0 || item.rfind("host_spfx=", 0) == 0 ||
                        item.rfind("host_gfx=", 0) == 0 ||
                        item.rfind("host_rule=", 0) == 0 ||
-                       item.rfind("guest_home", 0) == 0 || item.rfind("host_leave", 0) == 0 ||
+                       item.rfind("guest_home", 0) == 0 || item.rfind("host_leave", 0) == 0 || item.rfind("host_kick=", 0) == 0 ||
                        item.rfind("guest_leave", 0) == 0 || item.rfind("host_rejoin", 0) == 0 ||
                        item.rfind("guest_rejoin", 0) == 0 || item.rfind("host_gather", 0) == 0) {
                 TravelStep step;
@@ -4011,6 +4019,7 @@ void PartyDirector::ConfigureFromEnv() {
                             : item.rfind("host_alone=", 0) == 0  ? TravelStep::HostAlone
                             : item.rfind("guest_kill=", 0) == 0  ? TravelStep::GuestKill
                             : item.rfind("guest_home", 0) == 0   ? TravelStep::GuestHome
+                            : item.rfind("host_kick=", 0) == 0   ? TravelStep::HostKick
                             : item.rfind("host_leave", 0) == 0   ? TravelStep::HostLeave
                             : item.rfind("guest_leave", 0) == 0  ? TravelStep::GuestLeave
                             : item.rfind("host_rejoin", 0) == 0  ? TravelStep::HostRejoin
@@ -4058,6 +4067,9 @@ void PartyDirector::ConfigureFromEnv() {
                 if ((step.kind == TravelStep::HostDie || step.kind == TravelStep::GuestDie) && item.find('%') != std::string::npos) {
                     // host_die@S%MAP: S s after the last load / previous step, in that map (no re-join)
                     step.map = item.substr(item.find('%') + 1);
+                }
+                if (step.kind == TravelStep::HostKick) {
+                    step.args = item.substr(item.find('=') + 1, item.find_first_of("@%") - item.find('=') - 1);
                 }
                 if (step.kind == TravelStep::HostOutage || step.kind == TravelStep::GuestOutage) {
                     step.buttons = static_cast<std::uint32_t>(std::strtoul(item.c_str() + item.find('=') + 1, nullptr, 10));

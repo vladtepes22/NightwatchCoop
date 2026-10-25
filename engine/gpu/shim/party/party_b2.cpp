@@ -44,6 +44,7 @@
 #include "party_guestvals_rules.h"
 #include "party_glow_rules.h"
 #include "party_stay_rules.h"
+#include "party_ownworld_rules.h"
 #include "party_remote_show_rules.h"
 #include "party_ping.h"
 #include "party_flow.h"
@@ -504,6 +505,32 @@ void UndoLeaveState(const char* why) {
     Log("guest: the leave state undone (%s): SprjEventState %d -> 0, GSM +0x1520 %u -> 0, +0x0C %#x%s, flag 4047 %d -> 0",
         why, ev, unsigned(forced), sel, sel != 0xffffffffu && sel == pre ? " -> none (the pre-summon map)" : " kept",
         int(f4047));
+}
+
+/// MoveMapStep's per-frame step (0x1939470) builds the local PlayerIns with PlayerGameData +0xA4 as its chr
+/// type. A summoned guest's is 1; a save written, or a game closed, while summoned keeps it, and a leave
+/// path that never runs the game's own reset (a kick, a host lost) leaves it too: the next own-world load
+/// then built a phantom in the player's own Hunter's Dream (no talk, headstone, lamp or pickup; 0.7.5
+/// reports, party_ownworld_rules.h). Before the step reads it, an own-world load (flow state not 3) with no
+/// pending type from the game gets 0, and the repair is logged.
+BB_COOP_SYSV void OwnWorldTypeHook(u64, u64, u64, u64, u64, u64) {
+    static const bool off = std::getenv("BB_PARTY_OWNTYPE_FIX") && std::getenv("BB_PARTY_OWNTYPE_FIX")[0] == '0';
+    if (off) {
+        return;
+    }
+    const u64 gdm = Slot(kSlotGameData);
+    const u64 pgd = Field<u64>(gdm, 8);
+    if (!pgd) {
+        return;
+    }
+    const int flow = Field<int>(Slot(kSlotFlow), 0x84, -1), rem = Field<int>(pgd, 0xa4, 0), pending = Field<int>(gdm, 0x8c, -1);
+    if (!ownworld::ClearRememberedType(flow, rem, pending)) {
+        return;
+    }
+    const int zero = 0;
+    SafeWrite(pgd + 0xa4, &zero, 4);
+    Log("own world: the character kept a summoned guest's chr type (%d) from its save or a leave that never reset it; "
+        "set to 0 before this load builds the chr (flow %d)", rem, flow);
 }
 
 bool SendHomeVeto(u64 site) {
@@ -1454,7 +1481,9 @@ std::string DescribePlayerNumbers() {
     const u64 gdm = Slot(kSlotGameData);
     const u64 own = Field<u64>(gdm, 8), rows = Field<u64>(gdm, 0x10), occ = Field<u64>(gdm, 0x18);
     char b[96];
-    std::snprintf(b, sizeof b, "own %d (type %d)", own ? Field<int>(own, 0x10, -1) : -1, own ? Field<int>(own, 0xa4, -1) : -1);
+    const u64 pc = Field<u64>(Slot(kSlotWorldChrMan), 0x60);  // the local PlayerIns: its live chr type is +0x78
+    std::snprintf(b, sizeof b, "own %d (type %d, chr type %d)", own ? Field<int>(own, 0x10, -1) : -1,
+                  own ? Field<int>(own, 0xa4, -1) : -1, pc ? Field<int>(pc, 0x78, -9) : -9);
     std::string out = b;
     for (int i = 0; rows && i < 4; ++i) {
         const u64 r = rows + u64(i) * 0x6a0;
@@ -11282,6 +11311,11 @@ void Init() {
     InstallCall(kLockSessionCall, kLockSession, reinterpret_cast<const void*>(&LockSessionHook), "B2 K10d boss-clear session lock");
     InstallCall(kFarewellCall, kLuaEventSchedule, reinterpret_cast<const void*>(&BossFarewellHook),
                 "B2 K10c boss-clear farewell message (guest)");
+    if (!HookPrologue(0x1939470, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53, 0x48, 0x83,
+                                  0xec, 0x18, 0x49, 0x89, 0xfe},
+                      &OwnWorldTypeHook, "own-world chr type (MoveMapStep step 0x1939470)")) {
+        Log("own-world chr type guard: NOT installed (bytes differ)");
+    }
     // Not B2-specific (B1 bell joins stream too): installed whenever B2 is.
     if (!HookPrologue(0x18cb0e0, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53, 0x48, 0x81,
                                   0xec, 0xf8, 0x07, 0x00, 0x00},
