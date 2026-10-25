@@ -283,6 +283,9 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     Check(!NetworkRoute.SourceAllowed(NetworkRoute.Parse("192.168.2.77"), allowed) && !NetworkRoute.SourceAllowed(NetworkRoute.Parse("100.101.5.5"), allowed) &&
           !NetworkRoute.SourceAllowed(NetworkRoute.Parse("84.20.5.77"), allowed) && !NetworkRoute.SourceAllowed(NetworkRoute.Parse("8.8.8.8"), allowed), "A source outside the allowed subnets was taken");
     Check(NetworkRoute.Normalize(null) == "auto" && NetworkRoute.Normalize(" 0 ") == "off" && NetworkRoute.Normalize("Radmin") == "Radmin", "party_vpn normalisation");
+    var heard = PartyDiscovery.Networks(new[] { lan, radmin, tailscale, lan with { Name = "Wi-Fi / Intel", Ip = NetworkRoute.Parse("192.168.5.2") } });
+    Check(heard.Networks.SequenceEqual(new[] { "LAN", "Radmin VPN" }) && heard.Tailscale, "Join list networks or the Tailscale note");
+    Check(PartyDiscovery.Networks(new[] { lan }) is { Tailscale: false, Networks: ["LAN"] }, "A LAN-only PC's join list networks");
     Check(NetworkRoute.Enumerate() != null, "Enumerate failed");
 }
 
@@ -321,6 +324,15 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
           !PartyDiscovery.BuildMatches("nightwatch-coop-0.2.3-0123456789abcdef", PartyDiscovery.BuildPrefix(new Version(0, 2, 4))) &&
           !PartyDiscovery.BuildMatches("nightwatch-coop-0.2.40-abc", PartyDiscovery.BuildPrefix(new Version(0, 2, 4))) &&
           !PartyDiscovery.BuildMatches("0.7.5 (abc)", PartyDiscovery.BuildPrefix(new Version(0, 2, 4))), "Build match");
+
+    // The Join list's rows: button state, the selected party, the Party size a Join sets.
+    var prefix = PartyDiscovery.BuildPrefix(new Version(0, 2, 4));
+    Check(PartyDiscovery.StateOf(good!, prefix) == PartyDiscovery.RowState.Join &&
+          PartyDiscovery.StateOf(good! with { Players = 3 }, prefix) == PartyDiscovery.RowState.Full &&
+          PartyDiscovery.StateOf(good! with { Players = 3, Build = "nightwatch-coop-0.2.3-ab" }, prefix) == PartyDiscovery.RowState.OtherBuild, "Join row state");
+    var listed = new FoundParty(good!, "26.1.1.1", 0);
+    Check(PartyDiscovery.Selected(listed, " 26.1.1.1:9307 ") && !PartyDiscovery.Selected(listed, "26.1.1.1:9308") && !PartyDiscovery.Selected(listed, ""), "Selected party");
+    Check(PartyDiscovery.PartySize(3) == "3" && PartyDiscovery.PartySize(5) == "5" && PartyDiscovery.PartySize(8) == null && PartyDiscovery.PartySize(1) == null, "Party size from the announcement");
 
     var book = new PartyDiscovery.Book(new[] { "192.168.1.20" });
     Check(!book.Feed(Packet(), "192.168.1.20", 0), "The PC's own announcement was listed");

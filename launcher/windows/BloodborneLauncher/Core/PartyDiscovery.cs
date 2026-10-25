@@ -70,6 +70,29 @@ public static class PartyDiscovery
     /// <summary>This launcher's build id prefix: "nightwatch-coop-0.2.4-".</summary>
     public static string BuildPrefix(Version v) => $"nightwatch-coop-{v.Major}.{v.Minor}.{Math.Max(0, v.Build)}-";
 
+    public enum RowState { Join, Full, OtherBuild }
+
+    /// <summary>What a listed party's Join button does: join, or show why not (full, another co-op version).</summary>
+    public static RowState StateOf(PartyAnnounce info, string prefix) =>
+        !BuildMatches(info.Build, prefix) ? RowState.OtherBuild : info.Players >= info.Max ? RowState.Full : RowState.Join;
+
+    /// <summary>Is this the party the saved host code or address points at?</summary>
+    public static bool Selected(FoundParty party, string savedCode) =>
+        savedCode.Trim().Equals(party.Address, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The launcher's Party size choice for a host's announced limit; null when it has no such choice (keep yours).</summary>
+    public static string? PartySize(int max) => max is >= 2 and <= 5 ? max.ToString() : null;
+
+    /// <summary>The networks the list hears parties on ("LAN" for a plain local network), and whether a Tailscale
+    /// adapter is up (its parties never show: discovery skips Tailscale, NetworkRoute.DiscoveryOk).</summary>
+    public static (List<string> Networks, bool Tailscale) Networks(IEnumerable<NetAdapter> adapters)
+    {
+        var list = adapters.ToList();
+        var nets = list.Where(NetworkRoute.DiscoveryOk)
+            .Select(a => NetworkRoute.KindOf(a) == VpnKind.None ? "LAN" : NetworkRoute.Label(a)).Distinct().ToList();
+        return (nets, list.Any(a => a.Ip != 0 && NetworkRoute.KindOf(a) == VpnKind.Tailscale));
+    }
+
     /// <summary>The announcements heard. One entry per game (the id), so a host announcing on several adapters is listed
     /// once; expires after <see cref="TtlMs"/>; at most <see cref="MaxEntries"/>; at most <see cref="MaxPerSecond"/> packets
     /// per source a second. Thread safe: the listener thread feeds it, the page reads snapshots.</summary>

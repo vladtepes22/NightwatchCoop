@@ -24,10 +24,11 @@ public sealed class SeamlessPage : LauncherPage
         L.T("Play the campaign together with visy's seamless co-op. The host shares a party code; everyone uses the same build, gameplay mods and party size."))
     {
         // Single player shows only Party saves; Join leaves out the host's rows, Host the guest's.
-        // The connection card (Host and Join): the route the party uses, its state and the address to give friends. The
-        // adapters are read off the UI thread (RefreshRoute); the address is shown on this screen only.
+        // The connection card (Host only): the route the party uses, its state and the address to give friends. The
+        // adapters are read off the UI thread (RefreshRoute); the address is shown on this screen only. Join mode
+        // says which networks the party list hears instead (ListenLine).
         Group(L.T("Party"));
-        var routeRows = Rows(InParty);
+        var routeRows = Rows(Hosting);
         _copyAddress = SmallButton(L.T("Copy"), SymbolRegular.Copy24, (_, _) => { if (_route.Address.Length > 0) Clipboard.SetText(_route.Address); });
         Add(Card(SymbolRegular.Router24, L.T("Your connection"),
             L.T("How the party reaches you: your VPN (Radmin VPN, Hamachi, ZeroTier, Tailscale) when one is found, else your local network. Friends on the same VPN or network can join with the address shown here. It is only shown on this screen."),
@@ -42,20 +43,22 @@ public sealed class SeamlessPage : LauncherPage
         // on its own thread while this tab is open in Join mode; the timer only reads its snapshot.
         var found = Rows(Joining);
         Add(Card(SymbolRegular.People24, L.T("Parties on your network"),
-            L.T("Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Choose one to fill in its address. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed."),
+            L.T("Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Join fills in the host's address and party size. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed."),
             SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24, (_, _) => { _book.Clear(); RefreshRoute(); StartListener(restart: true); RefreshParties(); }),
             out _partiesHint), found);
         _partyList = new StackPanel();
         found.Children.Add(_partyList);
+        // Joining by hand, folded under the list: it opens when nothing is listed, and at the password when a
+        // listed party has one. The password and party size are the same settings as the host's rows below.
+        _manual = new AdvancedSection(L.T("Join by code or address"), L.T("For a party that is not listed: paste the host's code or address."));
+        Rows(Joining).Children.Add(_manual);
         _codeBox = TextRow(SymbolRegular.Link24, L.T("Host code or address"), L.T("Paste the host's Internet code, LAN code or host:port."), "BBP3-…",
-            () => S.Str("party_code"), v => S.Set("party_code", v), Rows(Joining));
-        party = Rows(InParty);
-        var password = new PasswordBox { Width = 300, Password = S.PartyPassword, PlaceholderText = L.T("Optional party password"), PlaceholderEnabled = true };
-        password.PasswordChanged += (_, _) => { S.PartyPassword = password.Password; Ws.SaveSoon(); };
-        Add(Card(SymbolRegular.Password24, L.T("Password"), L.T("Use the same password on every PC. Stored encrypted for your Windows user."), password, out _), party);
-        ComboRow(SymbolRegular.People24, L.T("Party size"), L.T("Host and guests use the same limit. Five players is experimental."),
-            new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice(L.T("5 (experimental)"), "5") },
-            () => S.Str("party_max") is { Length: > 0 } n ? n : "3", v => S.Set("party_max", v), party);
+            () => S.Str("party_code"), v => S.Set("party_code", v), _manual.Rows);
+        _joinPassword = PasswordRow(_manual.Rows, out _joinPasswordHint);
+        _joinSize = PartySizeRow(_manual.Rows, L.T("Must be the host's party size. Join in the list above sets it."));
+        party = Rows(Hosting);
+        _hostPassword = PasswordRow(party, out _);
+        _hostSize = PartySizeRow(party, L.T("Host and guests use the same limit. Five players is experimental."));
 
         _byMode.Add((Group(L.T("Connection")), InParty));
         party = Rows(InParty);
@@ -254,7 +257,59 @@ public sealed class SeamlessPage : LauncherPage
     private StackPanel _partyList = null!;
     private TextBlock _partiesHint = null!;
     private Wpf.Ui.Controls.TextBox _codeBox = null!;
+    private AdvancedSection _manual = null!;
+    private PasswordBox _joinPassword = null!, _hostPassword = null!;
+    private TextBlock _joinPasswordHint = null!;
+    private System.Windows.Controls.ComboBox _joinSize = null!, _hostSize = null!;
     private string _partySignature = "\0";
+    private long _listenSinceMs;
+    private const int ListenGraceMs = 4000;  // a host announces every 1.5 s: an empty list before this is not yet news
+
+    private PasswordBox PasswordRow(Panel into, out TextBlock hint)
+    {
+        var box = new PasswordBox { Width = 300, Password = S.PartyPassword, PlaceholderText = L.T("Optional party password"), PlaceholderEnabled = true };
+        box.PasswordChanged += (_, _) => { S.PartyPassword = box.Password; Ws.SaveSoon(); };
+        Add(Card(SymbolRegular.Password24, L.T("Password"), L.T("Use the same password on every PC. Stored encrypted for your Windows user."), box, out hint), into);
+        return box;
+    }
+
+    private System.Windows.Controls.ComboBox PartySizeRow(Panel into, string hint) =>
+        (System.Windows.Controls.ComboBox)ComboRow(SymbolRegular.People24, L.T("Party size"), hint, PartySizes(), PartySize, v => S.Set("party_max", v), into);
+
+    private static Choice[] PartySizes() =>
+        new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice(L.T("5 (experimental)"), "5") };
+    private static string PartySize() => S.Str("party_max") is { Length: > 0 } n ? n : "3";
+
+    /// <summary>The password and party size each have a Host row and a Join row: show the stored value in both.</summary>
+    private void SyncSharedRows()
+    {
+        foreach (var box in new[] { _joinPassword, _hostPassword })
+            if (box.Password != S.PartyPassword) box.Password = S.PartyPassword;
+        var index = Choices.IndexOf(PartySizes(), PartySize());
+        foreach (var box in new[] { _joinSize, _hostSize })
+            if (box.SelectedIndex != index) box.SelectedIndex = index;
+    }
+
+    /// <summary>Join in the list: the host's address and party size; a party with a password opens the fold at it.</summary>
+    private void JoinParty(FoundParty party)
+    {
+        _codeBox.Text = party.Address;  // saved by the row
+        if (PartyDiscovery.PartySize(party.Info.Max) is { } size) { S.Set("party_max", size); Ws.SaveSoon(); }
+        SyncSharedRows();
+        SetHint(_joinPasswordHint, party.Info.Password ? L.T("This party has a password: type the host's password here.") : "");
+        if (party.Info.Password) { _manual.IsOpen = true; _joinPassword.Focus(); }
+        _partySignature = "\0";
+        RefreshParties();
+    }
+
+    /// <summary>The networks the list hears parties on, for the list's status line.</summary>
+    private string ListenLine()
+    {
+        var (nets, tailscale) = PartyDiscovery.Networks(_adapters);
+        var line = nets.Count > 0 ? L.T("Listening on ") + string.Join(", ", nets.Select(n => n == "LAN" ? L.T("Local network") : n))
+                                  : L.T("No VPN or local network to listen on.");
+        return tailscale ? line + "\n" + L.T("Parties on Tailscale are not listed: paste the host's address under Join by code or address.") : line;
+    }
 
     /// <summary>Listens while the page is shown in Join mode; stops otherwise (the thread ends within half a second).</summary>
     private void StartListener(bool restart = false)
@@ -265,6 +320,7 @@ public sealed class SeamlessPage : LauncherPage
         var own = _adapters.Select(a => a.IpText);
         _book = new PartyDiscovery.Book(Environment.GetEnvironmentVariable("BB_PARTY_DISCOVERY_SELF") == "1" ? null : own);
         _listener = new PartyDiscovery.Listener(_book, () => _adapters);
+        _listenSinceMs = PartyDiscovery.NowMs;
         _partySignature = "\0";
     }
 
@@ -272,27 +328,44 @@ public sealed class SeamlessPage : LauncherPage
     private void RefreshParties()
     {
         if (_listener == null) return;
-        var parties = _book.Snapshot(PartyDiscovery.NowMs);
+        var now = PartyDiscovery.NowMs;
+        var parties = _book.Snapshot(now);
         var prefix = PartyDiscovery.BuildPrefix(Updater.Current);
-        var signature = _listener.Error + "|" + string.Join(";", parties.Select(p => $"{p.Info.Id}/{p.Ip}/{p.Info.Players}/{p.Info.Level}/{p.Info.Area}/{p.Info.Name}"));
+        var waited = now - _listenSinceMs > ListenGraceMs;
+        var saved = S.Str("party_code");
+        var listen = ListenLine();
+        var signature = _listener.Error + "|" + waited + "|" + saved + "|" + listen + "|" +
+                        string.Join(";", parties.Select(p => $"{p.Info.Id}/{p.Ip}/{p.Info.Players}/{p.Info.Max}/{p.Info.Level}/{p.Info.Area}/{p.Info.Name}/{p.Info.Password}"));
         if (signature == _partySignature) return;
         _partySignature = signature;
         _partyList.Children.Clear();
-        SetHint(_partiesHint, _listener.Error.Length > 0 ? L.T("Could not listen for parties: ") + _listener.Error + L.T(". Paste the host's code below instead.") :
-            parties.Count == 0 ? L.T("No party found yet. The host needs Show my party to friends on, and you need to be on the same VPN or network.") : "");
+        // Nothing to pick from: open the fold for a code (only opens it; closing stays the player's choice).
+        if (_listener.Error.Length > 0 || (parties.Count == 0 && waited)) _manual.IsOpen = true;
+        SetHint(_partiesHint, listen + "\n" + (
+            _listener.Error.Length > 0 ? L.T("Could not listen for parties: ") + _listener.Error + L.T(". Paste the host's code below instead.") :
+            parties.Count > 0 ? "" :
+            !waited ? L.T("Looking for parties…") :
+            L.T("No party found yet. Check that:") + "\n• " + L.T("the host has Show my party to friends on and has started the game") +
+            "\n• " + L.T("you are both on the same VPN or local network") + "\n• " + L.T("Windows Firewall lets the launcher receive UDP port 9308")).TrimEnd('\n'));
         foreach (var party in parties)
         {
             var info = party.Info;
-            var full = info.Players >= info.Max;
-            var same = PartyDiscovery.BuildMatches(info.Build, prefix);
-            var text = L.T("Level ") + (info.Level > 0 ? info.Level.ToString() : "?") + " · " + info.Players + " / " + info.Max +
-                       (info.Area.Length > 0 ? " · " + info.Area : "") + (info.Password ? " · " + L.T("password") : "");
-            if (full) text += "\n" + L.T("This party is full.");
-            if (!same) text += "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.");
-            var address = party.Address;
-            var use = SmallButton(L.T("Use address"), SymbolRegular.Link24, (_, _) => _codeBox.Text = address);
-            use.IsEnabled = !full && same;
-            var row = Card(SymbolRegular.People24, info.Name, null, use, out var hint);
+            var state = PartyDiscovery.StateOf(info, prefix);
+            var selected = PartyDiscovery.Selected(party, saved);
+            var text = (selected ? L.T("Selected") + " · " : "") + L.T("Level ") + (info.Level > 0 ? info.Level.ToString() : "?") + " · " +
+                       info.Players + " / " + info.Max + (info.Area.Length > 0 ? " · " + info.Area : "") + (info.Password ? " · " + L.T("password") : "");
+            if (state == PartyDiscovery.RowState.OtherBuild) text += "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.");
+            var picked = party;
+            var join = SmallButton(state switch
+                {
+                    PartyDiscovery.RowState.Join => L.T("Join"),
+                    PartyDiscovery.RowState.Full => L.T("Full"),
+                    _ => L.T("Update needed"),
+                }, selected ? SymbolRegular.Checkmark24 : SymbolRegular.Link24, (_, _) => JoinParty(picked),
+                selected ? ControlAppearance.Primary : ControlAppearance.Secondary);
+            join.IsEnabled = state == PartyDiscovery.RowState.Join;
+            var row = Card(info.Password ? SymbolRegular.LockClosed24 : SymbolRegular.People24, info.Name, null, join, out var hint);
+            if (state != PartyDiscovery.RowState.Join) row.Opacity = 0.6;
             SetHint(hint, text);
             _partyList.Children.Add(row);
         }
@@ -402,6 +475,7 @@ public sealed class SeamlessPage : LauncherPage
         var mode = S.Str("party_mode");
         foreach (var (element, when) in _byMode)
             element.Visibility = when(mode) ? Visibility.Visible : Visibility.Collapsed;
+        SyncSharedRows();
         UpdateRoute();
         StartListener();
     }

@@ -257,7 +257,7 @@ namespace BloodborneLauncher.Views
         private readonly TextBlock _label;
         private readonly string _title;
 
-        public AdvancedSection(string title)
+        public AdvancedSection(string title, string? tip = null)
         {
             _title = title;
             _chevron = new SymbolIcon { Symbol = SymbolRegular.ChevronRight16, FontSize = 12, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -271,7 +271,7 @@ namespace BloodborneLauncher.Views
                 Background = Brushes.Transparent,
                 Cursor = Cursors.Hand,
                 Focusable = true,
-                ToolTip = L.T("Settings most players never need to change"),
+                ToolTip = tip ?? L.T("Settings most players never need to change"),
                 Child = LauncherPage.Row(_chevron, _label),
             };
             header.SetResourceReference(Border.BorderBrushProperty, "GlassDividerBrush");
