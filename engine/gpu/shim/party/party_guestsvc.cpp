@@ -701,6 +701,9 @@ namespace {
 // bits 0..13 = index; block < WorldChrMan+0x20: entry = [WorldChrMan+0x28] + block * 0x160 ->
 // +0xC0 array (stride 0x38), else (block == [[WorldChrMan+8]+0x18]) WorldChrMan+0x38 array;
 // [entry] = ChrIns*.
+int g_find_pick = 0;        // a Chalice Dungeon talk (29xxxx): which of the Bath Messengers, nearest first
+std::size_t g_find_count = 0;  // how many there were at the last look
+
 std::uint64_t FindChr(std::uint32_t entity, std::string* diag = nullptr) {
     const std::uint64_t wcm = ReadGameState(false).world_chr_man;
     std::int32_t sets = 0;
@@ -713,6 +716,7 @@ std::uint64_t FindChr(std::uint32_t entity, std::string* diag = nullptr) {
     if (!got || sets <= 0 || sets > 4096) {
         return 0;
     }
+    std::vector<std::pair<float, std::uint64_t>> found;
     for (std::int32_t i = 0; i < sets; ++i) {
         std::uint64_t set = 0, arr = 0;
         std::int32_t n = 0;
@@ -755,10 +759,25 @@ std::uint64_t FindChr(std::uint32_t entity, std::string* diag = nullptr) {
             if (entry) {
                 SafeGet(entry, &chr);
             }
-            return chr;
+            if (entity / 10000 != 29 || !chr) {
+                return chr;
+            }
+            // A Chalice Dungeon holds one Bath Messenger (t290300) per layer: the one nearest this player.
+            float me[3] = {}, at[3] = {};
+            float d2 = 1e30f;
+            if (balance::ChrPosition(ReadGameState(false).player, me) && balance::ChrPosition(chr, at)) {
+                d2 = (me[0] - at[0]) * (me[0] - at[0]) + (me[1] - at[1]) * (me[1] - at[1]) + (me[2] - at[2]) * (me[2] - at[2]);
+            }
+            found.emplace_back(d2, chr);
         }
     }
-    return 0;
+    g_find_count = found.size();
+    if (found.empty()) {
+        return 0;
+    }
+    std::sort(found.begin(), found.end(),
+              [](const auto& a, const auto& b) { return a.second < b.second; });  // a stable order while the player moves
+    return found[std::min<std::size_t>(std::size_t(std::max(g_find_pick, 0)), found.size() - 1)].second;
 }
 
 // Live tests: the save's Doll progress (campaign_start.md 1.3): 12100105 awake, 9401 first Dream,
@@ -1084,9 +1103,15 @@ void LevelUpTick(const GameSnapshot& s, double now) {
             break;
         }
         const bool ok = StandAt(s, FindChr(L.target), dists[0], 0);
-        Log("test: levelup: standing %.2f m in front of t%u%s", dists[0], L.target, ok ? "" : " - warp failed");
+        float cpos[3] = {};
+        const bool have_c = balance::ChrPosition(FindChr(L.target), cpos);
+        Log("test: levelup: standing %.2f m in front of t%u%s (candidate %d of %zu, at %.1f %.1f %.1f)", dists[0], L.target,
+            ok ? "" : " - warp failed", g_find_pick, g_find_count, have_c ? double(cpos[0]) : 0.0, have_c ? double(cpos[1]) : 0.0,
+            have_c ? double(cpos[2]) : 0.0);
         L.approach = 1;
-        L.at = now;
+        // A Chalice Dungeon's Bath Messenger can stand far from where the world is loaded: the floor streams in
+        // after the warp, press Cross only then (the player falls through it otherwise).
+        L.at = L.target / 10000 == 29 ? now + 9.0 : now;
         break;
     }
     case LevelUpScript::Greeting:
@@ -1111,6 +1136,15 @@ void LevelUpTick(const GameSnapshot& s, double now) {
                     L.stage = LevelUpScript::WaitPlaced;
                     L.at = now;
                     L.tries = 0;
+                    break;
+                }
+                if (L.target / 10000 == 29 && std::size_t(g_find_pick) + 1 < g_find_count) {
+                    ++g_find_pick;  // the next Bath Messenger of the dungeon
+                    L.approach = 0;
+                    L.stage = LevelUpScript::WaitPlaced;
+                    L.at = now;
+                    L.tries = 0;
+                    Log("test: levelup: no talk menu here: the next Bath Messenger (candidate %d)", g_find_pick);
                     break;
                 }
                 go(LevelUpScript::Done, "FAILED: no talk menu at any distance");
@@ -1208,8 +1242,9 @@ void LevelUpTick(const GameSnapshot& s, double now) {
         break;
     case LevelUpScript::WaitLevel:
         if (L.shop && L.echoes0 >= 0 && (s.echoes != L.echoes0 || s.insight != L.insight0)) {
-            Log("test: levelup: PURCHASE on the guest: echoes %d -> %d, Insight %d -> %d", L.echoes0, s.echoes, L.insight0,
-                s.insight);
+            Log("test: levelup: PURCHASE on the guest: echoes %d -> %d, Insight %d -> %d (Sinister Root Chalices held: Lower "
+                "Pthumeru 6302 x%d, Hintertomb 6312 x%d, Isz 6532 x%d)",
+                L.echoes0, s.echoes, L.insight0, s.insight, GoodsCount(6302), GoodsCount(6312), GoodsCount(6532));
             go(LevelUpScript::BackOut, "backing out (Circle)");
         } else if (L.shop && since >= 4.0) {
             Log("test: levelup: FAILED: no purchase (echoes %d, Insight %d)", s.echoes, s.insight);
@@ -2600,7 +2635,11 @@ void LampTick(const GameSnapshot& s, party::PartyLink* link) {
 /// "hosttalk=N": the talk the host's fixture uses (default: headstone t210000).
 std::uint32_t HostTalkTarget() {
     const std::size_t k = g.test.find("hosttalk=");
-    return k == std::string::npos ? 210000 : std::uint32_t(std::strtoul(g.test.c_str() + k + 9, nullptr, 10));
+    if (k == std::string::npos) {
+        const std::size_t q = g.test.find("guesttalk=");
+        return q == std::string::npos ? 210000 : std::uint32_t(std::strtoul(g.test.c_str() + q + 10, nullptr, 10));
+    }
+    return std::uint32_t(std::strtoul(g.test.c_str() + k + 9, nullptr, 10));
 }
 
 /// Live test "watchtalk=N[:M[:A]][@D]" (either role): D s (default 8) into a steady Dream with
@@ -2813,7 +2852,11 @@ void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
         // "guestheadstone[;keys=...]": the same on the GUEST (a client in the host's Dream; needs
         // the headstones allowed for guests, BB_PARTY_GUEST_LAMPS=1).
         // "hosttalk=N[;open=TEXT][;keys=...]": the HOST uses talk N instead (a Bath Messenger's shop).
-        static const int role = g.test.find("guestheadstone") != std::string::npos ? kSessionRoleClient
+        // "guesttalk=N[;open=TEXT][;keys=...]" (0.7.6 chaliceshop): the same on the GUEST for talk N in the Dream or in
+        // a Chalice Dungeon (the dungeon Bath Messenger is t290300).
+        static const int role = g.test.find("guestheadstone") != std::string::npos ||
+                                        g.test.find("guesttalk=") != std::string::npos
+                                    ? kSessionRoleClient
                                 : g.test.find("hostheadstone") != std::string::npos ||
                                           g.test.find("hosttalk=") != std::string::npos
                                     ? 3
@@ -2826,7 +2869,9 @@ void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
         if (!started && apart_only && !b2::MemberApart(0)) {
             coop_at = 0;
         } else if (!started && role >= 0 && s.session_role == role &&
-            IsDreamMap(s.map_id) && s.world_up && !s.loading && (role != 3 || no_coop || s.cooperators >= 1)) {
+            ((HostTalkTarget() / 10000 == 29 ? (s.map_id >> 24) == 29 : IsDreamMap(s.map_id)) &&
+             (HostTalkTarget() / 10000 != 29 || g.test.find("guesttalk=") != std::string::npos)) &&
+            s.world_up && !s.loading && (role != 3 || no_coop || s.cooperators >= 1)) {
             if (coop_at == 0) {
                 coop_at = Now();
             } else if (Now() - coop_at >= HeadstoneTestDelay() && FindChr(HostTalkTarget())) {
@@ -2935,6 +2980,7 @@ void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
         own_since = now;
     }
     if (((g.open && !own_test) || own_world) && !g.test.empty() && !g.test_done && doll_ready &&
+        g.test.find("guesttalk=") == std::string::npos &&
         (own_world || (g.opens >= gate_n && now - g.open_at >= 5.0)) && (!own_world || now - own_since >= 8.0) &&
         now >= g.test_next) {
         if (!RunTestFixture(s, g.test_step)) {

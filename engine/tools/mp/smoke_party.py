@@ -3666,6 +3666,84 @@ def check_sg2(v, L):
     check_common(v, L, "sg2")
 
 
+# Phase csh (0.7.6 chaliceshop, group `chalice_shop`, 2 players, ~5 min): the Bath Messenger of a host's Chalice
+# Dungeon (t290300) sells the Sinister Root Chalices (ShopLineupParam rows 5N0011..5N0015) gated by the dungeon's
+# own feature flags 92905385..89 (case flag 92905300 + DungeonFeatureParam.eventflagId; the Isz Chalice 6539 sets
+# 92905389). The host Continues from chalice_isz_ritual (the dungeon in its slot 1) and enters it by the altar's
+# awaken warp with the guest in the party; the guest (default save, 30000 echoes) walks to the messenger, opens its
+# shop and buys the Sinister Isz Root Chalice (screenshots: the Chalices tab lists it; its own echoes pay).
+# Phase csh2 (group `chalice_shop`, ~3 min): the same with a guest that has a Chalice Dungeon of its own in slot 1
+# (chalice_hintertomb_ritual: the current slot is 1, the host's dungeon is the quick-joined slot 0): its game used to
+# read ITS dungeon's feature flags (310 / 378, no 389) in the host's dungeon, so the row was missing for exactly the
+# guests who have done rituals (player report 2026-10-25, Lower Pthumeru). Checks the flags it reads (log), not the
+# shop (this guest's region events do not fire after a warp: no talk prompt; see docs/party/chalice.md 9).
+CSH_FIXTURE = Path("E:/games/bbport/test_saves/chalice_isz_ritual/savedata")
+CSH_UNTIL = r"1:test: levelup: PURCHASE on the guest"
+CSH2_UNTIL = r"1:chalice case flags \(role 6, load mode 1"
+
+
+def prep_csh(root: Path):
+    if not CSH_FIXTURE.is_dir():
+        sys.exit("csh: the fixture %s is missing (docs/party/test_saves.md)" % CSH_FIXTURE)
+    _cl_saves(root, CSH_FIXTURE)
+    _cl_saves(root, CL_DEFAULT, 1)
+
+
+def prep_csh2(root: Path):
+    prep_csh(root)
+    if CL_GUEST_FIXTURE.is_dir():
+        _cl_saves(root, CL_GUEST_FIXTURE, 1)
+    else:
+        sys.exit("csh2: the fixture %s is missing" % CL_GUEST_FIXTURE)
+
+
+def phase_csh(only):
+    keys = os.environ.get("BB_CSH_KEYS", "cross,left,wait,wait,buy,wait")
+    host = ",".join(["log_pos", "host_lamp=%s@25%%m21" % CL_OWN_ENTRY, "host_press=0@150%m29!"])
+    return dict(
+        name="csh", seconds=300, count=2, headless=0, prep=prep_csh, post=post_chalamp,
+        env=["BB_PARTY_TRAVEL_CHOICE=party", "BB_PARTY_SHOP_GATE_LOG=1"],
+        ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=log_pos,echoes=30000,guest_press=0@150%m29!",
+              "1:BB_PARTY_GUESTSVC_TEST=guesttalk=290300;keys=" + keys + ";hsdelay=8"],
+        watch=["--watch", r"1:.*levelup: key left=cshtab@0.5,2", "--watch", r"1:.*levelup: PURCHASE on the guest=cshbuy@0.5,2"],
+        crash=[], until=[CSH_UNTIL], until_hold=6,
+    )
+
+
+def phase_csh2(only):
+    host = ",".join(["log_pos", "host_lamp=%s@25%%m21" % CL_OWN_ENTRY, "host_press=0@60%m29!"])
+    return dict(
+        name="csh2", seconds=200, count=2, headless=0, prep=prep_csh2, post=post_chalamp,
+        env=["BB_PARTY_TRAVEL_CHOICE=party", "BB_PARTY_SHOP_GATE_LOG=1"],
+        ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=guest_press=0@60%m29!"],
+        crash=[], until=[CSH2_UNTIL], until_hold=12,
+    )
+
+
+def check_csh(v, L):
+    need(v, L, "csh join: the guest is in the host's dungeon", 1, r"map - -> m29_00_00_00")
+    need(v, L, "csh host: the Isz dungeon's case flags include 92905389", 0, r"chalice case flags .*92905389")
+    need(v, L, "csh guest: the same flags incl. 92905389 in the host's dungeon", 1,
+         r"chalice case flags \(role 6, load mode 1.*: 92905300,92905302,92905345,92905378,92905389;")
+    need(v, L, "csh guest: the messenger menu opened", 1, r"test: levelup: key ")
+    need(v, L, "csh guest: bought the Sinister Isz Root Chalice (20000 echoes), it holds it", 1,
+         r"PURCHASE on the guest: echoes 30000 -> 10000.*Isz 6532 x1\)")
+    check_common(v, L, "csh")
+
+
+def check_csh2(v, L):
+    need(v, L, "csh2 join: the guest is in the host's dungeon", 1, r"map - -> m29_00_00_00")
+    need(v, L, "csh2 guest: its current slot is its own (1), the host's dungeon the quick-joined slot 0", 1,
+         r"chalice: in the host's dungeon: the game's current dungeon \(FrpgNetMan \+0xa88\) is the quick-joined slot 0's")
+    need(v, L, "csh2 guest: the dungeon's feature flags are read from the quick-joined slot", 1,
+         r"chalice: the dungeon's feature flags \(type 9, 92900000..92999999\) are read from the quick-joined slot 0's group")
+    need(v, L, "csh2 guest: sees the host's flags incl. 92905389, not its own Hintertomb's (310)", 1,
+         r"chalice case flags \(role 6, load mode 1.*: 92905300,92905302,92905345,92905378,92905389;")
+    none_of(v, L, "csh2 guest: never its own dungeon's flags (92905310) in the host's dungeon",
+            r"chalice case flags \(role 6, load mode 1.*: 92905301,92905310", insts=(1,))
+    check_common(v, L, "csh2")
+
+
 # ---- Phase ou (0.7.6, guestmesh): short outages keep the session ----
 # A phone hotspot or a Hamachi relay freezes the link for 4-10 s now and then (player report
 # 2026-10-24: the guest's game ended the session and went home, rejoined, and again). Two players;
@@ -3859,14 +3937,14 @@ def check_fp(v, L):
 
 
 PHASES = {"s1": phase_s1, "s2": phase_s2, "rules": phase_rules, "sc": phase_sc, "summonfail": phase_summonfail,
-          "s3": phase_s3, "sk": phase_sk, "ga": phase_ga, "gl": phase_gl, "lf": phase_lf, "mk": phase_mk, "kd": phase_kd, "kw": phase_kw, "fl": phase_fl, "fd": phase_fd, "fdj": phase_fdj, "cd": phase_cd, "iw": phase_iw, "iwn": phase_iwn, "an": phase_an, "ld": phase_ld, "cl": phase_cl, "clg": phase_clg, "clw": phase_clw, "cpr": phase_cpr, "cpa": phase_cpa, "el": phase_el, "lt": phase_lt, "bf": phase_bf, "ch": phase_ch, "rh": phase_rh, "rs": phase_rs, "fw": phase_fw, "fwg": phase_fwg, "fwb": phase_fwb, "fwe": phase_fwe, "fh": phase_fh, "lp": phase_lp, "gd": phase_gd, "gh": phase_gh, "gm": phase_gm, "jl": phase_jl, "ml": phase_ml, "mg": phase_mg, "hs": phase_hs, "ngj": phase_ngj, "nl": phase_nl, "ff": phase_ff, "lk": phase_lk, "lkc": phase_lkc, "rt": phase_rt, "br": phase_br, "rf": phase_rf, "bd": phase_bd, "bdo": phase_bdo, "sm": phase_sm, "ef": phase_ef, "da": phase_da, "cv": phase_cv, "ie": phase_ie, "il": phase_il, "tv": phase_tv, "nf": phase_nf, "nfa": phase_nfa, "npa": phase_npa, "npd": phase_npd, "pvd": phase_pvd, "pvh": phase_pvh, "eh": phase_eh, "bl": phase_bl, "sj": phase_sj, "ou": phase_ou, "mesh": phase_mesh, "fp": phase_fp, "po": phase_po, "pos": phase_pos, "sg": phase_sg, "sg2": phase_sg2, "ba": phase_ba, "hg": phase_hg, "lw": phase_lw, "la": phase_la, "lb": phase_lb, "lc": phase_lc}
+          "s3": phase_s3, "sk": phase_sk, "ga": phase_ga, "gl": phase_gl, "lf": phase_lf, "mk": phase_mk, "kd": phase_kd, "kw": phase_kw, "fl": phase_fl, "fd": phase_fd, "fdj": phase_fdj, "cd": phase_cd, "iw": phase_iw, "iwn": phase_iwn, "an": phase_an, "ld": phase_ld, "cl": phase_cl, "clg": phase_clg, "clw": phase_clw, "cpr": phase_cpr, "cpa": phase_cpa, "el": phase_el, "lt": phase_lt, "bf": phase_bf, "ch": phase_ch, "rh": phase_rh, "rs": phase_rs, "fw": phase_fw, "fwg": phase_fwg, "fwb": phase_fwb, "fwe": phase_fwe, "fh": phase_fh, "lp": phase_lp, "gd": phase_gd, "gh": phase_gh, "gm": phase_gm, "jl": phase_jl, "ml": phase_ml, "mg": phase_mg, "hs": phase_hs, "ngj": phase_ngj, "nl": phase_nl, "ff": phase_ff, "lk": phase_lk, "lkc": phase_lkc, "rt": phase_rt, "br": phase_br, "rf": phase_rf, "bd": phase_bd, "bdo": phase_bdo, "sm": phase_sm, "ef": phase_ef, "da": phase_da, "cv": phase_cv, "ie": phase_ie, "il": phase_il, "tv": phase_tv, "nf": phase_nf, "nfa": phase_nfa, "npa": phase_npa, "npd": phase_npd, "pvd": phase_pvd, "pvh": phase_pvh, "eh": phase_eh, "bl": phase_bl, "sj": phase_sj, "ou": phase_ou, "mesh": phase_mesh, "fp": phase_fp, "po": phase_po, "pos": phase_pos, "sg": phase_sg, "sg2": phase_sg2, "csh": phase_csh, "csh2": phase_csh2, "ba": phase_ba, "hg": phase_hg, "lw": phase_lw, "la": phase_la, "lb": phase_lb, "lc": phase_lc}
 # --only groups (a smaller run for repeat cycles): the phase each needs and the verdict rows it keeps
 GROUPS = {"join": "s1", "leave": "s1", "death": "s1", "travel": "s1", "boss": "s1", "host_death": "s1",
           "wipe": "s1", "wipe_late": "s1", "kill": "s2", "arena": "s2", "itembox": "s2", "rejoin_kill": "s2", "c6": "s2", "host_crash": "s2",
           "host_leave": "s2", "keyitems": "s2", "rules": "rules", "savecopy": "sc", "summonfail": "summonfail",
           "host_revive": "s3", "streamkill": "sk", "gather": "ga", "gather_ground": "gl", "lifts": "lf", "ladder": "lf,ld", "mark": "mk", "kidnap": "kd", "story_warp": "kw", "fall": "fl", "fall_deep": "fd,fdj", "host_fall_lamp": "cd", "cainhurst_scene": "iw,iwn", "cainhurst_annalise": "an", "chalamp": "cl", "chalice_guest": "clg", "chalice_progress": "cpr", "chalice_altar": "cpa", "chalice_wipe": "clw", "elevator": "el", "lifts_together": "lt", "fight_load": "bf", "cainhurst_lift": "ch", "research_lift": "rh", "research_solo": "rs", "forbidden_lift": "fw", "forbidden_lift_guest": "fwg", "forbidden_lift_both": "fwb", "forbidden_lift_edge": "fwe", "hemwick_lift": "fh", "lamps": "lp", "guest_dream": "gd", "guest_dream_host": "gh", "guest_lamp": "gm", "join_lamp": "jl", "mensis_lamp": "ml", "mensis_lamp_guest": "mg", "headstone_split": "hs", "ngplus_rejoin": "ngj", "npc_lamp": "nl", "frontier_fall": "ff", "lunarium_key": "lk,lkc",
           "rot": "rt", "boss_rooms": "br", "rom_fog": "rf", "boss_drops": "bd", "boss_drops_off": "bdo", "scene_mirror": "sm", "ending_flow": "ef", "dream_apart": "da", "covenant": "cv",
-          "valtr_rune": "cv", "items_every": "ie", "items_leak": "il", "shop_sync": "il", "travel_vote": "tv", "npc_fights": "nf,nfa", "npc_alfred": "nfa", "npc_attack": "npa", "npc_doll": "npd", "pvp_revive": "pvd", "pvp_full_hp": "pvh", "echo_hold": "eh", "limbo_leave": "bl", "seam_rejoin": "sj", "outage_short": "ou", "guest_mesh": "mesh", "fourp_nat": "fp", "phantom_own": "po", "phantom_save": "pos", "shop_repair": "sg", "shop_repair2": "sg2", "boss_ai": "ba", "boss_late": "hg", "ludwig_wipe": "lw", "lone_ai": "la,lc"}
+          "valtr_rune": "cv", "items_every": "ie", "items_leak": "il", "shop_sync": "il", "travel_vote": "tv", "npc_fights": "nf,nfa", "npc_alfred": "nfa", "npc_attack": "npa", "npc_doll": "npd", "pvp_revive": "pvd", "pvp_full_hp": "pvh", "echo_hold": "eh", "limbo_leave": "bl", "seam_rejoin": "sj", "outage_short": "ou", "guest_mesh": "mesh", "fourp_nat": "fp", "phantom_own": "po", "phantom_save": "pos", "shop_repair": "sg", "shop_repair2": "sg2", "chalice_shop": "csh,csh2", "boss_ai": "ba", "boss_late": "hg", "ludwig_wipe": "lw", "lone_ai": "la,lc"}
 GROUP_ROWS = {"join": r"join", "leave": r"s1 (Leave|Rejoin)", "death": r"guest death|bloodstain|revived",
               "travel": r"travel", "boss": r"Gascoigne|intro", "host_death": r"host death|limbo",
               "wipe": r"wipe", "wipe_late": r"late wipe", "kill": r"s2 boss kill|party stays", "arena": r"arena", "itembox": r"item box|reward on the summoned",
@@ -3877,7 +3955,7 @@ GROUP_ROWS = {"join": r"join", "leave": r"s1 (Leave|Rejoin)", "death": r"guest d
               "lifts": r"^lf (join|lift|guest's lift|host)", "ladder": r"^lf (join|ladder)|^ld ", "mark": r"^mk ", "kidnap": r"^kd ", "story_warp": r"^kw ", "fall": r"^fl ", "fall_deep": r"^fd ", "host_fall_lamp": r"^cd ", "cainhurst_scene": r"^iwn? ", "cainhurst_annalise": r"^an ", "chalamp": r"^cl ", "chalice_guest": r"^clg ", "chalice_progress": r"^cpr ", "chalice_altar": r"^cpa ", "chalice_wipe": r"^clw ", "elevator": r"^el ", "lifts_together": r"^lt ", "fight_load": r"^bf ", "cainhurst_lift": r"^ch ", "research_lift": r"^rh ", "forbidden_lift": r"^fw ", "forbidden_lift_guest": r"^fwg ", "forbidden_lift_both": r"^fwb ", "forbidden_lift_edge": r"^fwe ", "hemwick_lift": r"^fh ", "research_solo": r"^rs ", "lamps": r"^lp ", "guest_dream": r"^gd ", "guest_dream_host": r"^gh ", "guest_lamp": r"^gm ", "join_lamp": r"^jl ", "mensis_lamp": r"^ml ", "mensis_lamp_guest": r"^mg ", "headstone_split": r"^hs ", "ngplus_rejoin": r"^ngj ", "npc_lamp": r"^nl ", "frontier_fall": r"^ff ", "lunarium_key": r"^lkc? ",
               "rot": r"^rt ", "boss_rooms": r"^br ", "rom_fog": r"^rf ", "boss_drops": r"^bd ", "boss_drops_off": r"^bdo ", "scene_mirror": r"^sm ", "ending_flow": r"^ef ", "dream_apart": r"^da ",
               "covenant": r"^cv(:| join| host's fixture| rule| covenant| shared| host's save| guest's save)",
-              "valtr_rune": r"^cv(:| join| rule| rune)", "items_every": r"^ie ", "items_leak": r"^il ", "shop_sync": r"^il (join|sync)", "travel_vote": r"^tv ", "npc_fights": r"^nfa? ", "npc_alfred": r"^nfa ", "npc_attack": r"^npa ", "npc_doll": r"^npd ", "pvp_revive": r"^pvd ", "pvp_full_hp": r"^pvh ", "echo_hold": r"^eh ", "limbo_leave": r"^bl ", "seam_rejoin": r"^sj ", "outage_short": r"^ou ", "guest_mesh": r"^mesh ", "fourp_nat": r"^fp ", "phantom_own": r"^po ", "phantom_save": r"^pos ", "shop_repair": r"^sg ", "shop_repair2": r"^sg2 ", "boss_ai": r"^ba ", "boss_late": r"^hg ", "ludwig_wipe": r"^lw ", "lone_ai": r"^la |^lc "}
+              "valtr_rune": r"^cv(:| join| rule| rune)", "items_every": r"^ie ", "items_leak": r"^il ", "shop_sync": r"^il (join|sync)", "travel_vote": r"^tv ", "npc_fights": r"^nfa? ", "npc_alfred": r"^nfa ", "npc_attack": r"^npa ", "npc_doll": r"^npd ", "pvp_revive": r"^pvd ", "pvp_full_hp": r"^pvh ", "echo_hold": r"^eh ", "limbo_leave": r"^bl ", "seam_rejoin": r"^sj ", "outage_short": r"^ou ", "guest_mesh": r"^mesh ", "fourp_nat": r"^fp ", "phantom_own": r"^po ", "phantom_save": r"^pos ", "shop_repair": r"^sg ", "shop_repair2": r"^sg2 ", "chalice_shop": r"^csh2? ", "boss_ai": r"^ba ", "boss_late": r"^hg ", "ludwig_wipe": r"^lw ", "lone_ai": r"^la |^lc "}
 
 
 # --only: the log lines that end each group's checks (instances.py --until "I:RX"); a phase with
@@ -3975,6 +4053,7 @@ GROUP_UNTIL = {
     "phantom_save": [r"0:test: levelup: (LEVEL UP on the guest|FAILED)"],
     "shop_repair": [SG_UNTIL],
     "shop_repair2": [SG2_UNTIL],
+    "chalice_shop": [CSH_UNTIL, CSH2_UNTIL],
     "outage_short": [r"0:outage file .*: %d o%d" % (OU_LENGTHS[-1], len(OU_LENGTHS))],
 }
 # --only: seconds the run goes on after the group's lines (screenshots of the state they reach)
@@ -6507,7 +6586,7 @@ CHECKS = {"s1": lambda v, L, d: check_s1(v, L), "s2": check_s2, "rules": lambda 
           "fl": lambda v, L, d: check_fl(v, L), "fd": lambda v, L, d: check_fd(v, L), "fdj": lambda v, L, d: check_fdj(v, L), "cd": lambda v, L, d: check_cd(v, L), "iw": lambda v, L, d: check_iw(v, L), "iwn": lambda v, L, d: check_iwn(v, L), "an": lambda v, L, d: check_an(v, L), "ld": lambda v, L, d: check_ld(v, L),
           "cl": lambda v, L, d: check_cl(v, L), "clg": lambda v, L, d: check_clg(v, L), "cpr": lambda v, L, d: check_cpr(v, L), "cpa": lambda v, L, d: check_common(v, L, "cpa"), "clw": lambda v, L, d: check_clw(v, L), "bf": lambda v, L, d: check_bf(v, L), "lp": check_lp, "gd": check_gd, "gh": lambda v, L, d: check_gh(v, L), "gm": check_gm, "jl": check_jl, "ml": lambda v, L, d: check_ml(v, L), "mg": lambda v, L, d: check_mg(v, L), "hs": lambda v, L, d: check_hs(v, L), "ngj": lambda v, L, d: check_ngj(v, L), "nl": lambda v, L, d: check_nl(v, L), "ff": lambda v, L, d: check_ff(v, L), "lk": lambda v, L, d: check_lk(v, L), "lkc": lambda v, L, d: check_lkc(v, L), "br": lambda v, L, d: check_br(v, L), "rf": lambda v, L, d: check_rf(v, L), "bd": lambda v, L, d: check_bd(v, L), "bdo": lambda v, L, d: check_bd(v, L, True), "sm": lambda v, L, d: check_sm(v, L), "ef": lambda v, L, d: check_ef(v, L), "da": lambda v, L, d: check_da(v, L), "cv": check_cv, "ie": lambda v, L, d: check_ie(v, L), "il": check_il, "nf": lambda v, L, d: check_nf(v, L), "nfa": lambda v, L, d: check_nfa(v, L), "npa": lambda v, L, d: check_npa(v, L), "npd": lambda v, L, d: check_npd(v, L), "pvd": lambda v, L, d: check_pvd(v, L), "pvh": lambda v, L, d: check_pvh(v, L), "sj": lambda v, L, d: check_sj(v, L), "bl": lambda v, L, d: check_bl(v, L), "ba": lambda v, L, d: check_ba(v, L), "hg": lambda v, L, d: check_hg(v, L), "lw": lambda v, L, d: check_lw(v, L), "la": lambda v, L, d: check_la(v, L), "lb": lambda v, L, d: check_common(v, L, "lb"), "lc": lambda v, L, d: check_lc(v, L),
           "rt": lambda v, L, d: check_rt(v, L), "tv": lambda v, L, d: check_tv(v, L),
-          "eh": lambda v, L, d: check_eh(v, L), "ou": lambda v, L, d: check_ou(v, L), "mesh": lambda v, L, d: check_mesh(v, L), "fp": lambda v, L, d: check_fp(v, L), "po": lambda v, L, d: check_po(v, L), "pos": lambda v, L, d: check_pos(v, L), "sg": lambda v, L, d: check_sg(v, L), "sg2": lambda v, L, d: check_sg2(v, L)}
+          "eh": lambda v, L, d: check_eh(v, L), "ou": lambda v, L, d: check_ou(v, L), "mesh": lambda v, L, d: check_mesh(v, L), "fp": lambda v, L, d: check_fp(v, L), "po": lambda v, L, d: check_po(v, L), "pos": lambda v, L, d: check_pos(v, L), "sg": lambda v, L, d: check_sg(v, L), "sg2": lambda v, L, d: check_sg2(v, L), "csh": lambda v, L, d: check_csh(v, L), "csh2": lambda v, L, d: check_csh2(v, L)}
 
 
 def main():
@@ -6536,7 +6615,7 @@ def main():
         sys.exit("unknown --only group(s): " + ",".join(sorted(bad)))
     if only:
         a.phase = ",".join(p for p in ("s1", "s2", "rules", "sc", "summonfail", "s3", "sk", "ga", "gl", "lf", "mk", "kd", "kw", "fl", "fd", "fdj", "cd", "iw", "iwn", "an", "ld", "cl", "clg", "clw", "cpr", "cpa", "el", "lt", "bf", "ch",
-                                     "lp", "gd", "gh", "gm", "jl", "ml", "mg", "hs", "ngj", "nl", "ff", "lk", "lkc", "rt", "br", "rf", "bd", "bdo", "sm", "ef", "da", "cv", "ie", "il", "rh", "rs", "fw", "fwg", "fwb", "fwe", "fh", "tv", "nf", "nfa", "npa", "npd", "pvd", "pvh", "eh", "bl", "sj", "ou", "mesh", "fp", "po", "pos", "sg", "sg2", "ba", "hg", "lw", "la", "lb", "lc")
+                                     "lp", "gd", "gh", "gm", "jl", "ml", "mg", "hs", "ngj", "nl", "ff", "lk", "lkc", "rt", "br", "rf", "bd", "bdo", "sm", "ef", "da", "cv", "ie", "il", "rh", "rs", "fw", "fwg", "fwb", "fwe", "fh", "tv", "nf", "nfa", "npa", "npd", "pvd", "pvh", "eh", "bl", "sj", "ou", "mesh", "fp", "po", "pos", "sg", "sg2", "csh", "csh2", "ba", "hg", "lw", "la", "lb", "lc")
                            if p in {n for g in only for n in GROUPS[g].split(",")})
     if Path(a.game).resolve() == Path(r"E:\games\bloodborne").resolve():
         sys.exit("never the user's game folder as the test game (agents/RULES_062.txt)")

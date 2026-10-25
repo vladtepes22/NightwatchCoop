@@ -63,6 +63,8 @@ bool GoodsFromJsonText(const std::string& text, std::vector<std::uint32_t>* out,
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <cstring>
 #include <cstring>
 #include <mutex>
@@ -504,6 +506,49 @@ BB_COOP_SYSV std::uint32_t InDungeonSlotHook(u64 man, std::uint32_t flag, std::u
     return out;
 }
 
+// 0.7.6 (chaliceshop): the dungeon's type-9 flags (ids 9 29 b zzz nnn = 92900000..92999999: the feature "case" flags
+// 92905300 + DungeonFeatureParam.eventflagId, which the EMEVD boss lots and the Bath Messenger's Sinister Root Chalice
+// rows 92905385-92905389 test) are not in the load-mode-1 overlay: they live in the member's own pool, in the group of
+// the CURRENT slot (the remap 0x13b89b0 reads 9020..9026). The quick join writes the host's dungeon's flags into the
+// quick-joined slot's group (slot 0), so a member whose own ritual dungeon is the current slot (1..) read ITS OWN dungeon's
+// features there: the host sold the Sinister Lower Pthumeru Root Chalice (feature 85, a Lower Pthumeru Chalice dungeon) and
+// the guest's Bath Messenger did not list it (player report 2026-10-25). While the host's dungeon is carried the reads of
+// those ids are redirected to the quick-joined slot's group (area 40 + slot, same block / zone / index). Nothing is
+// written; BB_PARTY_CHALICE_CASEFLAGS=0 turns it off (tests).
+namespace {
+using IsFlagOrig = std::uint8_t(BB_COOP_SYSV*)(u64, std::uint32_t, std::uint8_t*);
+void* g_orig_is_flag = nullptr;
+void* g_orig_get_value = nullptr;
+std::atomic<int> g_case_logged{-2};
+
+std::uint32_t CaseFlagRedirect(u64 man, std::uint32_t id) {
+    static const bool off = std::getenv("BB_PARTY_CHALICE_CASEFLAGS") && std::string(std::getenv("BB_PARTY_CHALICE_CASEFLAGS")) == "0";
+    if (off || id < 92900000u || id > 92999999u) {
+        return id;
+    }
+    // JoinedSlot: the slot a quick join wrote within the last 180 s (the map load itself and the EMEVD init events
+    // run in load mode 0) or while its dungeon is carried in load mode 1.
+    const int slot = JoinedSlot(man);
+    if (slot < 0) {
+        return id;
+    }
+    if (g_case_logged.exchange(slot) != slot) {
+        std::printf("[coop] Party: chalice: the dungeon's feature flags (type 9, 92900000..92999999) are read from the quick-joined "
+                    "slot %d's group (the host's dungeon), not the current slot's\n", slot);
+        std::fflush(stdout);
+    }
+    return 94000000u + static_cast<std::uint32_t>(slot) * kRecordStride + (id - 92900000u);
+}
+
+BB_COOP_SYSV std::uint8_t IsFlagHook(u64 man, std::uint32_t id, std::uint8_t* exists) {
+    return reinterpret_cast<IsFlagOrig>(g_orig_is_flag)(man, CaseFlagRedirect(man, id), exists);
+}
+
+BB_COOP_SYSV std::uint32_t GetValueHook(u64 man, std::uint32_t id, std::uint32_t bits) {
+    return reinterpret_cast<FlagGet>(g_orig_get_value)(man, CaseFlagRedirect(man, id), bits);
+}
+} // namespace
+
 void InstallProbes() {
     static bool done = false;
     if (done) {
@@ -524,6 +569,10 @@ void InstallProbes() {
                  "chalice: the in-game ChannelId (FrpgNetMan +0xa88) reads the quick-joined slot");
     HookCallSite(kNetChannelObjCall, 0x13cfd80, reinterpret_cast<const void*>(&InDungeonSlotHook),
                  "chalice: the map load's channel object (FrpgNetMan +0xb14) reads the quick-joined slot");
+    ReplacePrologue(0x13cfc00, {0x53, 0x49, 0x89, 0xd0, 0x8b, 0x4f, 0x1c}, reinterpret_cast<const void*>(&IsFlagHook),
+                    &g_orig_is_flag, "chalice: the dungeon's feature flags (IsEventFlag) read the quick-joined slot");
+    ReplacePrologue(0x13cfd80, {0x55, 0x41, 0x57, 0x41, 0x56, 0x53}, reinterpret_cast<const void*>(&GetValueHook),
+                    &g_orig_get_value, "chalice: the dungeon's feature flags (GetEventFlagValue) read the quick-joined slot");
 }
 
 namespace {

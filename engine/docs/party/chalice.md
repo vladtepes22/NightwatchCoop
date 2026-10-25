@@ -618,3 +618,17 @@ Hintertomb dungeon in slot 1; the host's lands in slot 2, once, over several re-
 Not proven: a title-joined guest whose own slot already holds the same dungeon (no quick join, so no carry: its
 progress is not merged); a guest killed / crashed in the host's world (no mode 0 switch before the crash); all six
 slots full (unit only); layers deeper than 1 (only lamp 2902952 reached in the fixture).
+
+## 10. The dungeon's feature flags for a guest with its own dungeon (chaliceshop, 0.7.6)
+
+The feature "case" flags 92905300 + n (type 9, area 29: which sub-features the dungeon has; the EMEVD boss lots and the Bath
+Messenger's Sinister Root Chalice rows 92905385-92905389 test them) live in the member's own pool, in the group of the
+current slot. The quick join writes the host's dungeon's into the quick-joined slot's group (slot 0), so a guest whose
+own dungeon is the current slot (1..6) read its own dungeon's flags in the host's dungeon (live: guest Hintertomb 301, 310,
+345, 378 against the host's Isz 300, 302, 345, 378, 389; the guest without a dungeon read the host's). While the host's
+dungeon is quick-joined or carried the game's reads of 92900000-92999999 (IsEventFlag 0x13cfc00, GetEventFlagValue
+0x13cfd80, replaced prologues) are redirected to `94000000 + slot * 100000 + id % 100000`; nothing is written
+(`CaseFlagRedirect`, log `the dungeon's feature flags ... are read from the quick-joined slot N's group`,
+`BB_PARTY_CHALICE_CASEFLAGS=0` off). Details, the shop rows and the smoke (`chalice_shop`: csh, csh2): docs/party/items.md
+11.1. Open: a guest with its own dungeon got no talk prompt at the dungeon's Bath Messenger after a test warp (its region
+event flags 129072xx stay silent; the guest without a dungeon sets 12907224 there): not analysed, not seen in a player report.
