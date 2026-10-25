@@ -484,6 +484,29 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     }
 }
 
+// The log button: newest five, previous_session.log's archive copy not twice, missing files skipped, addresses hidden.
+var copyDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "seamless-logcopy-" + Guid.NewGuid());
+System.IO.Directory.CreateDirectory(System.IO.Path.Combine(copyDir, "sessions"));
+try
+{
+    Check(LogCopy.NewestLogs(copyDir).Count == 0, "Logs listed in an empty folder");
+    File.WriteAllText(System.IO.Path.Combine(copyDir, "last_session.log"), "now");
+    File.WriteAllText(System.IO.Path.Combine(copyDir, "previous_session.log"), "s9");
+    for (var i = 1; i <= 9; i++)
+        File.WriteAllText(System.IO.Path.Combine(copyDir, "sessions", $"session-2026102{i}-120000.log"), "s" + i);
+    var newest = LogCopy.NewestLogs(copyDir).Select(System.IO.Path.GetFileName).ToArray();
+    Check(newest.SequenceEqual(new[] { "last_session.log", "previous_session.log", "session-20261028-120000.log", "session-20261027-120000.log", "session-20261026-120000.log" }),
+        "Wrong logs or order: " + string.Join(", ", newest));
+    File.Delete(System.IO.Path.Combine(copyDir, "last_session.log"));
+    Check(LogCopy.NewestLogs(copyDir, 2).Select(System.IO.Path.GetFileName).SequenceEqual(new[] { "previous_session.log", "session-20261028-120000.log" }),
+        "A missing last_session.log was not skipped");
+}
+finally { System.IO.Directory.Delete(copyDir, true); }
+var redacted = LogCopy.Redact("Net: local address 26.12.34.56 on (adapter Radmin); Party: public address 81.2.69.160:3074; LAN 192.168.1.20; " + @"C:\Users\someone\x");
+Check(redacted == "Net: local address <your Radmin IP> on (adapter Radmin); Party: public address <public IP>:3074; LAN 192.x.x.x; " + @"C:\Users\<user>\x",
+    "Addresses not hidden: " + redacted);
+Check(!LogCopy.IsPublic("100.100.1.1") && !LogCopy.IsPublic("25.1.2.3") && LogCopy.IsPublic("8.8.8.8"), "VPN ranges read as public");
+
 Console.WriteLine("PASS: host/join validation, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 
 [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]

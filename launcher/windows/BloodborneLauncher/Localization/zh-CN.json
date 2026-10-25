@@ -2071,5 +2071,16 @@
   "Type the host's party password.": "输入房主的队伍密码。",
   "No password": "没有密码",
   "Every party has a password: ask the host for it.": "每个队伍都有密码：请向房主索取。",
-  "Enter the host's party password before joining.": "加入前请输入房主的队伍密码。"
+  "Enter the host's party password before joining.": "加入前请输入房主的队伍密码。",
+  "Copy logs or the last crash report, for a bug report": "复制日志或最近一次崩溃报告，用于提交问题",
+  "Logs": "日志",
+  "Copy last {0} logs": "复制最近 {0} 份日志",
+  "Copy last crash report": "复制最近一次崩溃报告",
+  "No session logs yet: they are written when the game runs.": "还没有会话日志：游戏运行时才会写入。",
+  "Could not copy the logs: another program is using the clipboard.": "无法复制日志：另一个程序正在使用剪贴板。",
+  "{0} logs copied (IP addresses hidden): paste them into Discord.": "已复制 {0} 份日志（IP 地址已隐藏）：粘贴到 Discord 即可。",
+  "Could not copy the logs: ": "无法复制日志：",
+  "No crash report: the game has not crashed since this was added.": "没有崩溃报告：自此功能加入以来游戏尚未崩溃。",
+  "Crash report copied to the clipboard (IP addresses hidden).": "崩溃报告已复制到剪贴板（IP 地址已隐藏）。",
+  "Could not keep the crash report: ": "无法保存崩溃报告："
 }

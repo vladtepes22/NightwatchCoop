@@ -273,6 +273,15 @@
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                         </StackPanel>
                     </Button>
+                    <Button x:Name="TitleLogs" Style="{StaticResource TitleIcon}" Click="TitleLogs_Click" Margin="0,0,6,0"
+                            ToolTip="{loc:Tr &#x27;Copy logs or the last crash report, for a bug report&#x27;}">
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="DocumentCopy24" FontSize="13" Margin="0,0,5,0"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                            <TextBlock Text="{loc:Tr &#x27;Logs&#x27;}" FontSize="11.5" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                        </StackPanel>
+                    </Button>
                     <Button x:Name="TitlePlay" Style="{StaticResource TitleIcon}" Click="TitlePlay_Click" Margin="0,0,6,0"
                             Background="{DynamicResource ControlFillColorSecondaryBrush}"
                             BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"

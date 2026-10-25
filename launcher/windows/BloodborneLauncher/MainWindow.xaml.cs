@@ -237,6 +237,8 @@ namespace BloodborneLauncher
         private void OnGameCrashed(int code, SessionStats session)
         {
             var ws = Workspace.Current;
+            try { LogCopy.SaveCrashReport(CrashReport.Build(ws.Settings, ws.Ini, code)); }
+            catch (Exception e) { ws.Log(L.T("Could not keep the crash report: ") + e.Message, LogLevel.Warn); }
             var choice = Prompt.Choose(L.T("The game crashed"),
                 L.F($"{CrashReport.Explain(code)} It ran for {SessionStats.Duration(session.Length)}.\n\n") +
                 L.T("Safe mode starts the next run with the experimental engine options and mods off. ") +
@@ -695,6 +697,52 @@ namespace BloodborneLauncher
         private async void TitlePlay_Click(object sender, RoutedEventArgs e) => await PlayOrStopAsync();
 
         private async void TitleUpdate_Click(object sender, RoutedEventArgs e) => await InstallUpdateAsync();
+
+        /// <summary>The log button: a small menu to copy the newest session logs (as files) or the last crash
+        /// report (as text), IP addresses hidden in both.</summary>
+        private void TitleLogs_Click(object sender, RoutedEventArgs e)
+        {
+            var menu = new System.Windows.Controls.ContextMenu
+            {
+                PlacementTarget = TitleLogs, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+            };
+            var logs = new System.Windows.Controls.MenuItem { Header = L.F($"Copy last {LogCopy.Count} logs") };
+            logs.Click += (_, _) => CopyLogs();
+            var crash = new System.Windows.Controls.MenuItem { Header = L.T("Copy last crash report") };
+            crash.Click += (_, _) => CopyCrashReport();
+            menu.Items.Add(logs);
+            menu.Items.Add(crash);
+            menu.IsOpen = true;
+        }
+
+        private static void CopyLogs()
+        {
+            var ws = Workspace.Current;
+            try
+            {
+                switch (LogCopy.CopyLogs())
+                {
+                    case 0: ws.Log(L.T("No session logs yet: they are written when the game runs."), LogLevel.Warn); break;
+                    case null: ws.Log(L.T("Could not copy the logs: another program is using the clipboard."), LogLevel.Warn); break;
+                    case { } n: ws.Log(L.F($"{n} logs copied (IP addresses hidden): paste them into Discord."), LogLevel.Good); break;
+                }
+            }
+            catch (Exception e)
+            {
+                ws.Log(L.T("Could not copy the logs: ") + e.Message, LogLevel.Warn);
+            }
+        }
+
+        private static void CopyCrashReport()
+        {
+            var ws = Workspace.Current;
+            switch (LogCopy.CopyCrashReport())
+            {
+                case null: ws.Log(L.T("No crash report: the game has not crashed since this was added."), LogLevel.Step); break;
+                case true: ws.Log(L.T("Crash report copied to the clipboard (IP addresses hidden)."), LogLevel.Good); break;
+                case false: ws.Log(L.T("Could not copy the report: another program is using the clipboard."), LogLevel.Warn); break;
+            }
+        }
 
         /// <summary>Asks, downloads the newer launcher, swaps it in and restarts.</summary>
         public async Task InstallUpdateAsync()
