@@ -196,6 +196,17 @@ public:
         int fallback_ms = 2500;  // never answered: relay after this long
         int lost_ms = 2500;      // answered before: relay after this long without an ack (5 probes)
         bool force = false;      // BB_PARTY_FORCE_RELAY
+        // 0.7.6 (guestmesh): a pair on the relay stays there `hold_ms` at least and goes back to the
+        // direct path only after its probes were answered without a break for `stable_ms` (0 / 0:
+        // back at the first answer, as before); a flapping direct path (a 6 s hole every half
+        // minute, player report 2026-10-25) otherwise swaps paths under the game on every hole.
+        int hold_ms = 0;
+        int stable_ms = 0;
+        // Game traffic gaps (note_gap): `gaps_to_relay` of them within `gap_window_ms` put the pair
+        // on the relay even though its tiny probes still pass (a path that drops the game's
+        // datagrams but not the probes). 0 = off.
+        int gaps_to_relay = 0;
+        int gap_window_ms = 120000;
     };
     struct PeerView {
         std::uint32_t addr = 0;        // network order
@@ -217,6 +228,11 @@ public:
     void remove(std::uint32_t addr, std::uint16_t port_nbo);
     // A probe ack from addr:port.
     void on_ack(std::uint32_t addr, std::uint16_t port_nbo, Clock::time_point now);
+    // The game heard addr:port again after a stretch of silence in which it had sent reliable data
+    // (an outage as the game sees it). The pair goes through the relay after `gaps_to_relay` of
+    // them within `gap_window_ms` (true, `note` says why). A gap while the pair is on the relay for
+    // gaps means the relay did not help: back to direct, and no gap relay again for 5 min.
+    bool note_gap(std::uint32_t addr, std::uint16_t port_nbo, Clock::time_point now, std::string* note = nullptr);
     // F2 (0.7.1): the peer also has an IPv6 candidate (probed too: IPv4 first, then IPv6, then the
     // relay), and an ack that came over IPv6.
     void set_v6(std::uint32_t addr, std::uint16_t port_nbo, bool has, Clock::time_point now);
@@ -236,6 +252,9 @@ private:
     struct Peer {
         PeerView v;
         Clock::time_point added, last_ack, next_probe, last_ack6, next_probe6;
+        Clock::time_point relay_since{}, stable_since{}, gap_off_until{};
+        std::vector<Clock::time_point> gaps;
+        bool by_gaps = false;
     };
     static std::uint64_t key(std::uint32_t a, std::uint16_t p) { return a | (static_cast<std::uint64_t>(p) << 32); }
     mutable std::mutex mu_;

@@ -285,6 +285,12 @@ Set them in the environment before `run.bat` (or with `tools/mp/instances.py run
 | `BB_NET_HEX` | `N` (1-64): RE aid: logs the first N bytes of every game P2P datagram both ways (`hex in` / `hex out`) | off | `gpu/shim/net/net_socket.cpp` |
 | `BB_NET_SIM` | Network simulator on the game's UDP and the party link's TCP: `lat=80,jit=20,loss=2,dup=0.5,reorder=1,seed=7` (one-way ms / %), `outage=MS,every=MS` or `outage=MS,at=MS` (one-shot after start), `any=1` also for non-loopback peers (default: loopback only), or a preset `lan`, `wifi`, `dsl`, `mobile`, `bad`; director steps `host_outage=MS@S` / `guest_outage=MS@S`; docs/party/network_robustness.md | off | `gpu/shim/net/netsim.h`, `gpu/shim/net/bbnet_glue.cpp` |
 | `BB_NET_SIM_OUTAGE_FILE` | Test aid: `outage_now(MS)` whenever that file's text (`MS` or `MS tag`) changes; one file shared by all local instances = a symmetric total outage at one moment (needs `BB_NET_SIM`) |
+| `BB_NET_SIM` `block=PORT+PORT,block_at=MS,block_for=MS` | Test aid (0.7.6): datagrams to those party ports are dropped (one pair of players on one PC) |
+| `BB_NET_SIM_BLOCK_FILE` | Test aid: that file's text `1` cuts the `block=` ports, `0` opens them (replaces `block_at` / `block_for`) |
+| `BB_PARTY_PEER_GAP_RELAY` | `0`: a guest pair whose game traffic falls silent twice within 2 min is not moved to the host relay (0.7.6) |
+| `BB_PARTY_PEER_RELAY_HOLD_MS` / `_STABLE_MS` | A relayed guest pair stays on the relay this long (45000) and returns to direct after this long of unbroken probe answers (8000) |
+| `BB_PARTY_HEARTBEAT_TIMEOUT_S` | The host room drops a member without a heartbeat after this many seconds (40; was 15) |
+| `BB_PARTY_PLACEHOLDER_HEAL` | `0`: a member's chr stuck at the world origin is not rebuilt after 6 s (0.7.6) |
 | `BB_PARTY_OUTAGE_HOLD_MS` | Guest: how long a silent party link (an outage) keeps the host's world before going home (default 125000 since parlast, was 45000; 0 = the old 2 s grace; with the link's 10 s lost timeout an outage of up to ~135 s is waited out) |
 | `BB_PARTY_SLOT_KEEP_MS` | Host: how long a silent (lost) member's slot and its events are kept for a resume (default 130000 since parlast, was 60000; 1000..600000) |
 | `BB_PARTY_OUTAGE_KEEPALIVE` | `0`: no replay of a silent peer's last reliable data record (its keepalive) to the game during an outage (default on; F5, network_robustness.md 7 / 7b) |

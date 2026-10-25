@@ -501,6 +501,15 @@ udp::PeerPaths& paths() {
     static udp::PeerPaths* p = [] {
         udp::PeerPaths::Config c;
         c.force = udp::force_relay_from_env();
+        // 0.7.6: a pair on the host relay stays there 45 s and goes back to direct only after 8 s of
+        // unbroken probe answers; two game traffic gaps within 2 min put a pair on the relay
+        // (BB_PARTY_PEER_GAP_RELAY=0 off; the hold and stable times are for tests).
+        const char* g = std::getenv("BB_PARTY_PEER_GAP_RELAY");
+        c.gaps_to_relay = g && g[0] == '0' ? 0 : 2;
+        if (const char* h = std::getenv("BB_PARTY_PEER_RELAY_HOLD_MS")) c.hold_ms = std::max(0, std::atoi(h));
+        else c.hold_ms = 45000;
+        if (const char* s = std::getenv("BB_PARTY_PEER_RELAY_STABLE_MS")) c.stable_ms = std::max(0, std::atoi(s));
+        else c.stable_ms = 8000;
         return new udp::PeerPaths(c);
     }();
     return *p;
@@ -622,6 +631,8 @@ const bool g_outage_replay = [] {
     return !(e && e[0] == '0');
 }();
 int dgram_send(int s, const void* buf, std::uint64_t len, int flags, const SceSockaddrIn* to);
+std::mutex g_gap_hook_mu;
+std::function<void(std::uint32_t, std::uint16_t, double)> g_gap_hook;
 // Sends the kept records again (nr_outage.h), off the reader thread, a few at a time.
 void resume_replay(int sock, SceSockaddrIn to, std::vector<std::vector<std::uint8_t>> dgs, std::size_t records,
                    double silent_s) {
@@ -940,6 +951,20 @@ void p2p_reader(std::shared_ptr<P2pPort> port) {
                 auto dgs = r->second.on_heard(now, prev, &records);
                 auto to = q->replay_to.find(key);
                 if (!dgs.empty() && to != q->replay_to.end()) {
+                    // A guest-to-guest pair that goes silent again and again moves to the host relay.
+                    if (!settings().host) {
+                        std::string why;
+                        paths().note_gap(dg.addr, dg.port, now, &why);
+                        if (!why.empty()) log("%s", why.c_str());
+                    }
+                    {
+                        std::function<void(std::uint32_t, std::uint16_t, double)> hook;
+                        {
+                            std::lock_guard<std::mutex> hl(g_gap_hook_mu);
+                            hook = g_gap_hook;
+                        }
+                        if (hook) hook(dg.addr, dg.port, std::chrono::duration<double>(now - prev).count());
+                    }
                     resume_replay(q->sock, to->second, std::move(dgs), records,
                                   std::chrono::duration<double>(now - prev).count());
                     q->strip_until[key] = now + std::chrono::seconds(3);
@@ -2778,6 +2803,11 @@ void p2p_outage_keepalive(bool on) {
     if (g_outage_keepalive.exchange(on) == on) return;
     log("outage keepalive %s", on ? "on: the game hears silent peers' last keepalive every 2 s" : "off");
     if (on && !g_outage_keepalive_thread.exchange(true)) std::thread(outage_keepalive_main).detach();
+}
+
+void p2p_set_gap_hook(std::function<void(std::uint32_t, std::uint16_t, double)> fn) {
+    std::lock_guard<std::mutex> lk(g_gap_hook_mu);
+    g_gap_hook = std::move(fn);
 }
 
 std::int64_t p2p_game_rx_age_ms() {

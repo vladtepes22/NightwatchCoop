@@ -87,6 +87,21 @@ bool parse(const char* spec, Config* out, std::string* error) {
             out->nat = true;
             continue;
         }
+        if (key == "block") {  // block=15822+15823: destination ports (host order) cut off
+            std::size_t p = 0;
+            while (p < value.size()) {
+                std::size_t q = value.find('+', p);
+                if (q == std::string::npos) q = value.size();
+                const long port = std::strtol(value.substr(p, q - p).c_str(), nullptr, 10);
+                if (port <= 0 || port > 65535) {
+                    if (error) *error = "netsim: bad port in block: '" + value + "'";
+                    return false;
+                }
+                out->block_ports.push_back(static_cast<std::uint16_t>(port));
+                p = q + 1;
+            }
+            continue;
+        }
         char* rest = nullptr;
         const double v = std::strtod(value.c_str(), &rest);
         if (value.empty() || (rest && *rest) || v < 0) {
@@ -104,6 +119,8 @@ bool parse(const char* spec, Config* out, std::string* error) {
         else if (key == "seed") out->seed = static_cast<std::uint64_t>(v);
         else if (key == "outage") out->outage_ms = v;
         else if (key == "every") out->outage_every_ms = v;
+        else if (key == "block_at") out->block_at_ms = v;
+        else if (key == "block_for") out->block_for_ms = v;
         else {
             if (error) *error = "netsim: unknown key '" + key + "'";
             return false;
@@ -125,6 +142,12 @@ std::string describe(const Config& c) {
     }
     if (c.outage_ms > 0 && c.outage_at_ms > 0) {
         std::snprintf(buf, sizeof(buf), ",outage=%g,at=%g", c.outage_ms, c.outage_at_ms);
+        s += buf;
+    }
+    if (!c.block_ports.empty()) {
+        s += ",block=";
+        for (std::size_t i = 0; i < c.block_ports.size(); ++i) s += (i ? "+" : "") + std::to_string(c.block_ports[i]);
+        std::snprintf(buf, sizeof(buf), ",block_at=%g,block_for=%g", c.block_at_ms, c.block_for_ms);
         s += buf;
     }
     if (c.any_addr) s += ",any=1";
@@ -155,6 +178,48 @@ bool outage_at(const Config& c, Clock::time_point epoch, Clock::time_point first
         }
     }
     return false;
+}
+
+namespace {
+// Test aid BB_NET_SIM_BLOCK_FILE=<path>: the file's text "1" cuts the block= ports now, "0" (or no
+// file) lets them through; it replaces block_at / block_for. One file per instance (or shared).
+std::atomic<int> g_block_file{-1};  // -1: no file in use
+void block_file_watch(std::string path) {
+    g_block_file = 0;
+    std::thread([path] {
+        int last = 0;
+        for (;;) {
+            int v = 0;
+            if (std::FILE* f = std::fopen(path.c_str(), "rb")) {
+                char buf[16] = {};
+                const std::size_t n = std::fread(buf, 1, sizeof buf - 1, f);
+                std::fclose(f);
+                v = n && buf[0] == '1' ? 1 : 0;
+            }
+            if (v != last) {
+                std::printf("[coop] Net: block file %s: the block= ports are %s\n", path.c_str(), v ? "cut" : "open");
+                last = v;
+                g_block_file = v;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }).detach();
+}
+}  // namespace
+
+bool blocked_at(const Config& c, Clock::time_point epoch, Clock::time_point now, std::uint16_t port_nbo) {
+    if (c.block_ports.empty()) return false;
+    if (g_block_file.load() >= 0) {
+        if (!g_block_file.load()) return false;
+        const std::uint16_t hp = static_cast<std::uint16_t>((port_nbo >> 8) | (port_nbo << 8));
+        return std::find(c.block_ports.begin(), c.block_ports.end(), hp) != c.block_ports.end();
+    }
+    const std::uint16_t port = static_cast<std::uint16_t>((port_nbo >> 8) | (port_nbo << 8));
+    if (std::find(c.block_ports.begin(), c.block_ports.end(), port) == c.block_ports.end()) return false;
+    using ms = std::chrono::duration<double, std::milli>;
+    const double since = ms(now - epoch).count();
+    if (since < c.block_at_ms) return false;
+    return c.block_for_ms <= 0 || since < c.block_at_ms + c.block_for_ms;
 }
 
 bool applies_to(const Config& c, std::uint32_t addr_net_order) {
@@ -219,6 +284,10 @@ bool Queue::in_outage(Clock::time_point now) {
 int Queue::submit(Clock::time_point now, std::uintptr_t fd, std::uint32_t addr, std::uint16_t port, const void* data,
                   std::size_t len) {
     ++stats_.submitted;
+    if (has_epoch_ && blocked_at(cfg_, epoch_, now, port)) {
+        ++stats_.dropped;
+        return 0;
+    }
     if (in_outage(now)) {
         ++stats_.dropped;
         ++stats_.blacked_out;
@@ -477,6 +546,7 @@ void configure(const Config& c) {
                     c.any_addr ? "" : " (loopback peers only)");
     }
     if (const char* f = std::getenv("BB_NET_SIM_OUTAGE_FILE"); f && f[0]) outage_file_watch(f);
+    if (const char* f = std::getenv("BB_NET_SIM_BLOCK_FILE"); f && f[0] && !c.block_ports.empty()) block_file_watch(f);
 }
 
 void reconfigure_for_tests(const Config& c) {

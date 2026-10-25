@@ -2091,6 +2091,37 @@ void SplitTick(const GameSnapshot& s, double now) {
         const int n = RewindRemoteTasks("split meet");
         Log("split: meet: %d task(s) rewound to STEP_Create", n);
     }
+    // (2b) 0.7.6, a placeholder chr: a member's chr that exists but never got its member's data (it
+    // stands at the world origin with 1 HP, the state of a chr built right after a load or a link
+    // outage before the first position arrived) while that member reports a position in our area
+    // for 6 s: the other guest is invisible to us until the next load rebuilds it (player report
+    // 2026-10-25: "a teleport fixes it"). Removed, then the meet path above exchanges the records
+    // over the party link (reliable) and builds it again; at most one every 15 s.
+    static std::map<u64, double> ph_since;
+    static double last_ph = 0;
+    static const bool ph_heal = !(std::getenv("BB_PARTY_PLACEHOLDER_HEAL") && std::getenv("BB_PARTY_PLACEHOLDER_HEAL")[0] == '0');
+    if (ph_heal && !g_meet_rewind_at) {
+        for (const TaskInfo& t : Tasks(false)) {
+            const u64 c = (t.mode == 1 || t.mode == 2) ? PlayerForPeer(t.task + kTaskPeer) : 0;
+            float p[3];
+            if (!c || !ChrPos(c, p)) {
+                ph_since.erase(t.task);
+                continue;
+            }
+            const bool at_origin = std::fabs(p[0]) < 2.0f && std::fabs(p[2]) < 2.0f && std::fabs(p[1]) < 3.0f;
+            if (!(at_origin && meet)) {
+                ph_since.erase(t.task);
+                continue;
+            }
+            const double since = ph_since.try_emplace(t.task, now).first->second;
+            if (now - since >= 6.0 && now - last_ph >= 15.0) {
+                last_ph = now;
+                ph_since.erase(t.task);
+                RemoveRemoteChr(c, "a placeholder chr at the origin while its member is here: rebuilt");
+                last_meet = 0;
+            }
+        }
+    }
     // Self-heal: a remote chr standing > 4 m from every member's reported position for 3 s,
     // while all of them report positions in our area, is a stale one: removed, the meet builds it
     // again (with fresh records).

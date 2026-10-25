@@ -907,6 +907,8 @@ void on_state(LinkState s, const std::string& detail) {
                      "network to come back",
                      detail.c_str(), double(game_quiet) / 1000.0, grace / 1000);
                 if (outage_keepalive_on()) bbnet::p2p_outage_keepalive(true);
+                if (connwarn_on()) status::SetLastEvent("Connection to the host unstable");
+                plog("connection to the host unstable (the session is kept)");
                 outage_watch(epoch);
             }
             std::thread([gen, grace, detail, epoch] {
@@ -1814,6 +1816,15 @@ void start_host(LinkConfig cfg) {
     netroute::HostStart(lb, cfg.password, cfg.secret);  // F2 (0.7.1): IPv6, guests relayed by a member
 
     bbnet::party::PartyHostService& svc = bbnet::party::PartyHostService::instance();
+    // 0.7.6: a guest's room membership survives 40 s without a heartbeat (was 15 s). Its heartbeat is
+    // an RPC every 5 s that fails while the link is frozen and then waits its own cadence: a 10 s
+    // freeze (phone hotspot, Hamachi relay) put the next heartbeat past 15 s, the host dropped the
+    // member the moment its link was back and the guest's game left its session (live, run ou1).
+    // A guest that is really gone is found by its link (10 s) and its game connection.
+    {
+        const char* hb = env("BB_PARTY_HEARTBEAT_TIMEOUT_S");
+        svc.set_heartbeat_timeout_ms(std::max(5, hb && hb[0] ? std::atoi(hb) : 40) * 1000);
+    }
     svc.set_loading_query([](const std::string& id) {
         PartyLink* l = R().link;
         if (!l) return false;
@@ -2979,6 +2990,26 @@ void runtime_start() {
         if (!bbnet::settings().party) return;
         connwarn::SetEnabledProvider(&connwarn_on);
         connwarn::SetLogger(&connwarn_log);
+        // 0.7.6: the game heard a player again after a 4+ s silence: a short notice naming them (at
+        // most one per player every 20 s; the connection warnings switch). The session itself is
+        // kept: outages up to 2 minutes are carried (docs/party/network_robustness.md 7b / 9).
+        bbnet::p2p_set_gap_hook([](std::uint32_t addr, std::uint16_t port, double gap_s) {
+            std::string who;
+            for (const bbnet::session::Peer& p : bbnet::session::peers_all())
+                if (p.addr == addr && static_cast<std::uint16_t>((port >> 8) | (port << 8)) == p.port) who = p.online_id;
+            if (who.empty()) who = "a player";
+            static std::mutex mu;
+            static std::map<std::string, std::chrono::steady_clock::time_point> last;
+            {
+                std::lock_guard<std::mutex> lk(mu);
+                const auto now = std::chrono::steady_clock::now();
+                auto it = last.find(who);
+                if (it != last.end() && now - it->second < std::chrono::seconds(20)) return;
+                last[who] = now;
+            }
+            plog("connection to %s unstable (no game traffic for %.1f s; kept)", who.c_str(), gap_s);
+            if (connwarn_on()) status::SetLastEvent("Connection to " + who + " unstable");
+        });
         std::thread([] {
             startup_main();
             Runtime& r = R();

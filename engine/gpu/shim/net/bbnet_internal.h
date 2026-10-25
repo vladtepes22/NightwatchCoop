@@ -267,5 +267,9 @@ std::int64_t p2p_game_rx_age_ms();
 // last small datagram for a source that never sent one) - a network outage the party link knows
 // to be temporary.
 void p2p_outage_keepalive(bool on);
+// 0.7.6: called (off the reader thread's locks) when the game hears a peer again after a silence of
+// at least 4 s in which it had sent reliable data: the peer's address (network order), port (network
+// order) and the silence in seconds. The party shows "connection to X unstable".
+void p2p_set_gap_hook(std::function<void(std::uint32_t, std::uint16_t, double)> fn);
 
 }  // namespace bbnet

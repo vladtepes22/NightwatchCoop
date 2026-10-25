@@ -906,6 +906,33 @@ static json::Value remote(PartyHostService& s, const char* who, const char* kind
     return reply;
 }
 
+// 0.7.6: with the runtime's 40 s heartbeat timeout a member that missed heartbeats for 30 s (a frozen
+// link, then its 5 s cadence) is still in its room; 45 s of silence removes it.
+static void test_heartbeat_outage() {
+    PartyHostService s;
+    std::int64_t now = 7000000;
+    s.set_clock([&] { return now; });
+    s.set_heartbeat_timeout_ms(40000);
+    for (const char* id : {"Host", "GuestB"})
+        call(s, id, "context_start", obj({{"OnlineId", id}, {"SignalingAddr", "192.168.1.10"}, {"SignalingPort", 9307}}));
+    const json::Value c = call(s, "Host", "create_room", obj({{"OnlineId", "Host"}, {"MaxMembers", 4}}));
+    const long long room = int_of(c, "RoomId", 0);
+    CHECK(room != 0);
+    const std::string sid = str_of(c, "SessionId");
+    const json::Value j = call(s, "GuestB", "join_room", obj({{"OnlineId", "GuestB"}, {"RoomId", room}}));
+    CHECK(int_of(j, "ResKind", -1) == 0);
+    now += 30000;
+    call(s, "Host", "heartbeat", obj({{"SessionId", sid}, {"MemberId", 1}}));
+    s.tick();
+    PartyHostService::RoomView rv;
+    CHECK(s.room(static_cast<std::uint64_t>(room), &rv) && rv.members.size() == 2);
+    now += 15000;
+    call(s, "Host", "heartbeat", obj({{"SessionId", sid}, {"MemberId", 1}}));
+    s.tick();
+    CHECK(s.room(static_cast<std::uint64_t>(room), &rv) && rv.members.size() == 1);
+    std::printf("heartbeat outage: ok\n");
+}
+
 static void test_impersonation() {
     PartyHostService s;
     std::int64_t now = 5000000;
@@ -1299,6 +1326,7 @@ int main() {
     test_chalice_channels();
     test_matching2_leave_and_join();
     test_impersonation();
+    test_heartbeat_outage();
     test_unusable_endpoint();
     }
 

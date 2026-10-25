@@ -401,6 +401,40 @@ void PeerPaths::on_ack(std::uint32_t addr, std::uint16_t port_nbo, Clock::time_p
     it->second.v.answered = true;
 }
 
+bool PeerPaths::note_gap(std::uint32_t addr, std::uint16_t port_nbo, Clock::time_point now, std::string* note) {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (cfg_.gaps_to_relay <= 0 || cfg_.force) return false;
+    auto it = peers_.find(key(addr, port_nbo));
+    if (it == peers_.end() || !it->second.v.relay_port) return false;
+    Peer& p = it->second;
+    if (p.v.relayed && p.by_gaps) {
+        // The gaps go on over the relay: the direct path was not the cause.
+        p.by_gaps = false;
+        p.v.relayed = false;
+        ++p.v.switches;
+        p.gaps.clear();
+        p.gap_off_until = now + std::chrono::minutes(5);
+        if (note) *note = "path to " + addr_text(addr, port_nbo) + ": game traffic gaps over the relay too, direct again";
+        return false;
+    }
+    if (p.v.relayed || now < p.gap_off_until) return false;
+    const auto window = std::chrono::milliseconds(cfg_.gap_window_ms);
+    p.gaps.erase(std::remove_if(p.gaps.begin(), p.gaps.end(), [&](Clock::time_point t) { return now - t > window; }),
+                 p.gaps.end());
+    p.gaps.push_back(now);
+    if (static_cast<int>(p.gaps.size()) < cfg_.gaps_to_relay) return false;
+    p.gaps.clear();
+    p.v.relayed = true;
+    p.by_gaps = true;
+    p.relay_since = now;
+    p.stable_since = Clock::time_point{};
+    ++p.v.switches;
+    if (note)
+        *note = "path to " + addr_text(addr, port_nbo) + ": repeated game traffic gaps, through the host relay (port " +
+                std::to_string(p.v.relay_port) + ")";
+    return true;
+}
+
 void PeerPaths::set_v6(std::uint32_t addr, std::uint16_t port_nbo, bool has, Clock::time_point now) {
     std::lock_guard<std::mutex> lk(mu_);
     auto it = peers_.find(key(addr, port_nbo));
@@ -452,10 +486,17 @@ void PeerPaths::tick(Clock::time_point now, std::vector<std::pair<std::uint32_t,
         const bool any_answered = p.v.answered || p.v.answered6;
         const Clock::time_point last_any = std::max(p.last_ack, p.v.answered6 ? p.last_ack6 : p.last_ack);
         const bool fresh_ack = fresh4 || fresh6;
+        if (!fresh_ack) p.stable_since = Clock::time_point{};
+        else if (p.stable_since == Clock::time_point{}) p.stable_since = now;
         const bool lost = !any_answered ? now - p.added > ms(cfg_.fallback_ms) : now - last_any > ms(cfg_.lost_ms);
-        const bool want = p.v.relayed ? !fresh_ack : lost;
+        // Back to direct: answered, for stable_ms without a break, once held for hold_ms.
+        const bool back = fresh_ack && now - p.relay_since >= ms(cfg_.hold_ms) &&
+                          now - p.stable_since >= ms(cfg_.stable_ms);
+        const bool want = p.v.relayed ? !back : lost;
         if (want != p.v.relayed) {
             p.v.relayed = want;
+            p.by_gaps = false;
+            if (want) p.relay_since = now;
             ++p.v.switches;
             if (notes) {
                 notes->push_back("path to " + addr_text(p.v.addr, p.v.port) +

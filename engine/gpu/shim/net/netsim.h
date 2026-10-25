@@ -53,7 +53,15 @@ struct Config {
     // would report (nat_advertised_port). Only meaningful with `nat`.
     NatKind nat_kind = NatKind::PortRestricted;
     std::uint64_t seed = 1;
+    // Per-peer block (0.7.6, test aid): every UDP datagram sent to one of these destination ports
+    // (host order, on a simulated address) is dropped, from `block_at_ms` after the epoch for
+    // `block_for_ms` (0 = for good). "block=15822+15823,block_at=20000,block_for=30000". With one PC
+    // running several instances (one port each) this cuts one pair of players only.
+    std::vector<std::uint16_t> block_ports;
+    double block_at_ms = 0, block_for_ms = 0;
 };
+// True when a datagram to `port_nbo` sent at `now` falls in the config's per-peer block window.
+bool blocked_at(const Config& c, Clock::time_point epoch, Clock::time_point now, std::uint16_t port_nbo);
 
 // The outage covering `now` (periodic `every` from `first`, or the one-shot `at` from `epoch`);
 // false when there is none. `end` = when it is over.

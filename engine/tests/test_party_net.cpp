@@ -199,6 +199,121 @@ static void test_peer_paths() {
     std::printf("peer paths: ok\n");
 }
 
+// 0.7.6 (guestmesh): the guest-to-guest path chooser with hysteresis and game traffic gaps.
+static void test_peer_paths_gaps() {
+    using bbnet::udp::PeerPaths;
+    using C = std::chrono::steady_clock;
+    const auto t0 = C::now();
+    auto at = [&](int ms) { return t0 + std::chrono::milliseconds(ms); };
+    const std::uint32_t a = htonl(0x0a000002), b = htonl(0x0a000003);
+    const std::uint16_t pa = htons(9307), pb = htons(9308);
+    PeerPaths::Config cfg{500, 2500, 2500, false};
+    cfg.hold_ms = 10000;
+    cfg.stable_ms = 4000;
+    cfg.gaps_to_relay = 2;
+    cfg.gap_window_ms = 60000;
+    PeerPaths paths(cfg);
+    paths.add(a, pa, 50010, at(0));
+    paths.add(b, pb, 0, at(0));  // no relay port: nothing to fall back to
+    std::vector<std::pair<std::uint32_t, std::uint16_t>> probes;
+    std::vector<std::string> notes;
+    std::uint16_t rp = 0;
+    int t = 0;
+    auto run = [&](int until, bool acks) {
+        for (; t <= until; t += 100) {
+            if (acks && t % 500 == 0) {
+                paths.on_ack(a, pa, at(t));
+                paths.on_ack(b, pb, at(t));
+            }
+            paths.tick(at(t), &probes, &notes);
+        }
+    };
+    run(3000, true);
+    CHECK(!paths.relayed(a, pa, &rp));
+    // One gap is nothing; the second within the window moves the pair to the relay (probes pass).
+    std::string note;
+    CHECK(!paths.note_gap(a, pa, at(3000), &note));
+    CHECK(!paths.relayed(a, pa, &rp));
+    CHECK(paths.note_gap(a, pa, at(9000), &note) && !note.empty());
+    CHECK(paths.relayed(a, pa, &rp) && rp == 50010);
+    CHECK(!paths.note_gap(b, pb, at(9000), &note) && !paths.relayed(b, pb, &rp));  // no relay port
+    // Held: probes keep being answered, the pair stays on the relay for hold_ms.
+    t = 9100;
+    run(18000, true);
+    CHECK(paths.relayed(a, pa, &rp));
+    run(19500, true);  // held 10 s, stable for far more than 4 s: direct again
+    CHECK(!paths.relayed(a, pa, &rp));
+    // An old gap leaves the window: a gap 70 s later is a first gap again.
+    CHECK(!paths.note_gap(a, pa, at(90000), &note));
+    CHECK(!paths.relayed(a, pa, &rp));
+    // A flapping direct path: relayed for loss, back only after 4 s of unbroken answers + the hold.
+    PeerPaths flap(cfg);
+    flap.add(a, pa, 50010, at(0));
+    t = 0;
+    for (; t <= 4000; t += 100) {
+        if (t <= 1000 && t % 500 == 0) flap.on_ack(a, pa, at(t));
+        flap.tick(at(t), &probes, &notes);
+    }
+    CHECK(flap.relayed(a, pa, &rp));  // 2.5 s without an answer
+    int back_at = -1;
+    for (; t <= 40000 && back_at < 0; t += 100) {
+        // answers in bursts of 3 s with a 1 s break: never 4 s unbroken
+        const bool answer = (t / 500) % 8 < 6;
+        if (answer && t % 500 == 0) flap.on_ack(a, pa, at(t));
+        flap.tick(at(t), &probes, &notes);
+        if (!flap.relayed(a, pa, &rp)) back_at = t;
+    }
+    CHECK(back_at < 0);  // flapping: stays on the relay
+    int stable_from = t;
+    for (; t <= stable_from + 12000 && back_at < 0; t += 100) {
+        if (t % 500 == 0) flap.on_ack(a, pa, at(t));
+        flap.tick(at(t), &probes, &notes);
+        if (!flap.relayed(a, pa, &rp)) back_at = t;
+    }
+    CHECK(back_at >= stable_from + 3500 && back_at <= stable_from + 6000);  // ~4 s of answers
+    // Gaps that go on over the relay: the relay did not help, direct again and no gap relay for 5 min.
+    PeerPaths g2(cfg);
+    g2.add(a, pa, 50010, at(0));
+    for (t = 0; t <= 1000; t += 100) {
+        if (t % 500 == 0) g2.on_ack(a, pa, at(t));
+        g2.tick(at(t), &probes, &notes);
+    }
+    g2.note_gap(a, pa, at(1000), &note);
+    CHECK(g2.note_gap(a, pa, at(2000), &note) && g2.relayed(a, pa, &rp));
+    CHECK(!g2.note_gap(a, pa, at(5000), &note) && !g2.relayed(a, pa, &rp));
+    CHECK(!g2.note_gap(a, pa, at(6000), &note) && !g2.note_gap(a, pa, at(7000), &note) && !g2.relayed(a, pa, &rp));
+    // Off by default (gaps_to_relay 0).
+    PeerPaths off(PeerPaths::Config{500, 2500, 2500, false});
+    off.add(a, pa, 50010, at(0));
+    CHECK(!off.note_gap(a, pa, at(1), &note) && !off.note_gap(a, pa, at(2), &note) && !off.relayed(a, pa, &rp));
+    std::printf("peer paths gaps: ok\n");
+}
+
+// netsim per-peer block (BB_NET_SIM block=PORT+PORT,block_at,block_for): only datagrams to those
+// ports, only in the window.
+static void test_netsim_block() {
+    using namespace bbnet::netsim;
+    Config c;
+    std::string err;
+    CHECK(parse("lat=0,block=15822+15823,block_at=1000,block_for=2000", &c, &err));
+    CHECK(c.block_ports.size() == 2 && c.block_ports[0] == 15822 && c.block_at_ms == 1000 && c.block_for_ms == 2000);
+    CHECK(!parse("block=0", &c, &err) && !parse("block=70000", &c, &err));
+    CHECK(parse("lat=0,block=15822+15823,block_at=1000,block_for=2000", &c, &err));
+    const auto t0 = Clock::now();
+    auto at = [&](int ms) { return t0 + std::chrono::milliseconds(ms); };
+    CHECK(!blocked_at(c, t0, at(500), htons(15822)));
+    CHECK(blocked_at(c, t0, at(1500), htons(15822)) && blocked_at(c, t0, at(1500), htons(15823)));
+    CHECK(!blocked_at(c, t0, at(1500), htons(9307)));   // the host's port stays open
+    CHECK(!blocked_at(c, t0, at(3500), htons(15822)));  // the window is over
+    CHECK(parse("lat=0,block=15822", &c, &err) && blocked_at(c, t0, at(999999), htons(15822)));  // for good
+    Queue q(c);
+    q.set_epoch(t0);
+    const std::uint32_t v = 1;
+    CHECK(q.submit(at(10), 1, 0x0100007f, htons(15822), &v, 4) == 0);
+    CHECK(q.submit(at(10), 1, 0x0100007f, htons(9307), &v, 4) == 1);
+    std::printf("netsim block: ok\n");
+}
+
 // EndpointAliases / punch_choice (party_udp.h): a peer heard on its LAN address keeps its public
 // address in the game; the local punch candidate wins when heard.
 static void test_aliases() {
@@ -1065,6 +1180,8 @@ int main() {
     test_netsim();
     test_nr_outage();
     test_peer_paths();
+    test_peer_paths_gaps();
+    test_netsim_block();
     test_aliases();
     test_same_lan_address();
     test_routing();
