@@ -603,7 +603,7 @@ flag is set: the host's world syncs only some of them), the switch runs, and the
    slot holding a dungeon is never written;
 2. `Added`: the 43 record dwords are written with `SetEventFlagValue` at `94000000 + k * 100000`;
 3. every reached flag is set in slot k's groups with `SetEventFlag(SlotFlagId(id, k))` if not set (OR; never cleared).
-Item pickups, boss kills and chest flags are not copied (Chalice weapon pickups and shop gates stay per player, and a
+Boss-defeat flags (category boss_defeated of area 29 block 0, e.g. 12901686 for the layer 1 boss) are copied too (2026-10-25 decision; no loot is given, the guest already got its drop in the host's world). Item pickups and chest flags are not copied (Chalice weapon pickups and shop gates stay per player, and a
 boss the guest has not killed pays its own loot). Gate: the host's **Shared lamps** rule (`party::status::ShareLamps`,
 guests follow the host); no toggle of its own. Log: `chalice: progress home: dungeon N added to the altar in slot K,
 M of M lamp / shortcut flags set`, `... already in slot K ...`, `... not added (why)`.

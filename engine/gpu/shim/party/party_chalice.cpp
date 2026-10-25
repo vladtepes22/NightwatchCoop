@@ -269,7 +269,8 @@ const std::vector<std::uint32_t>& ProgressIdList() {
     static const std::vector<std::uint32_t> ids = [] {
         std::vector<IdRange> ranges;
         for (const progress::CategoryRange& r : progress::CategoryRanges()) {
-            if (r.cat == progress::Category::lamp_unlocked || r.cat == progress::Category::shortcut_door) {
+            if (r.cat == progress::Category::lamp_unlocked || r.cat == progress::Category::shortcut_door ||
+                r.cat == progress::Category::boss_defeated) {
                 ranges.push_back({r.first, r.last});
             }
         }

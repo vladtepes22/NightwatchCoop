@@ -136,6 +136,15 @@ static void test_ids() {
     CHECK(std::find(got.begin(), got.end(), 72900202u) != got.end());
     CHECK(std::find(got.begin(), got.end(), 72900208u) != got.end());
     CHECK(std::find(got.begin(), got.end(), 72900201u) == got.end());
+    // boss-defeat flags of the dungeon (party_flags.inc boss_defeated rows) map into slot k like the rest
+    const std::vector<IdRange> boss = {{12900166, 12900166}, {12900951, 12900951}, {12901588, 12901591}, {12901686, 12901686},
+                                       {12901690, 12901690}, {12901692, 12901692}, {12901723, 12901723}, {12901725, 12901725}};
+    const std::vector<std::uint32_t> bids = ProgressIds(boss);
+    CHECK(std::find(bids.begin(), bids.end(), 12901686u) != bids.end());
+    CHECK(std::find(bids.begin(), bids.end(), 12901589u) != bids.end());
+    CHECK(std::find(bids.begin(), bids.end(), 12901592u) == bids.end());
+    CHECK(SlotFlagId(12901686, 1) == 14101686);   // the layer 1 boss flag seen in the fixture's slot 1
+    CHECK(SlotFlagId(12901686, 2) == 14201686);
 }
 
 int main() {
