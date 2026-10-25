@@ -796,6 +796,21 @@ PatchResult CompilePatches(const PatchRequest& request) {
         names = kept;
     }
     names = CheckedPatches(xml, names, app_version, segments, elf, preset);
+    // The 120/144 preset's 90 FPS++ can be refused (an executable whose frame pacer differs from 1.09's).
+    // 60 FPS++ is the next best: the game at 60, and frame generation still shows up to 120. It goes
+    // through the same site check; without it the game stays at the native 30.
+    std::string fps_key = request.fps;
+    if (scaled_fps.count(fps_key) && !has(kScaledBase)) {
+        if (!has("60 FPS++")) names.push_back("60 FPS++");
+        names = CheckedPatches(xml, names, app_version, segments, elf, {"60 FPS++"});
+        if (has("60 FPS++")) {
+            fps_key = "60";
+            Log("Patches: %s FPS: 90 FPS++ left out, so 60 FPS++ is used: the game at 60, frame generation shows up to %s",
+                request.fps.c_str(), request.fps.c_str());
+        }
+    }
+    const bool fell_back = fps_key != request.fps;
+    const std::string lead = fell_back ? std::string("60 FPS++") : preset.empty() ? std::string() : preset[0];
     {
         std::vector<std::string> kept;
         for (const std::string& n : names) {
@@ -816,15 +831,15 @@ PatchResult CompilePatches(const PatchRequest& request) {
     std::vector<PartyPatch> party_patches;
     for (const std::string& n : names)
         party_patches.push_back({n, PartyMark(xml.Meta(n, app_version)), xml.Compile({n}, app_version, segments)});
-    if (scaled_fps.count(request.fps) && has(kScaledBase)) {
-        writes = RateScaled(writes, scaled_fps.at(request.fps));
-        Log("Patches: %s FPS: %s with its frame-rate values for %s", request.fps.c_str(), kScaledBase, request.fps.c_str());
+    if (scaled_fps.count(fps_key) && has(kScaledBase)) {
+        writes = RateScaled(writes, scaled_fps.at(fps_key));
+        Log("Patches: %s FPS: %s with its frame-rate values for %s", fps_key.c_str(), kScaledBase, fps_key.c_str());
     }
-    if (!preset.empty() && has(preset[0])) {
+    if (!lead.empty() && has(lead)) {
         std::optional<int> fps;
-        if (request.fps == "60") fps = 60;
-        else if (request.fps == "90") fps = 90;
-        else if (scaled_fps.count(request.fps)) fps = scaled_fps.at(request.fps);
+        if (fps_key == "60") fps = 60;
+        else if (fps_key == "90") fps = 90;
+        else if (scaled_fps.count(fps_key)) fps = scaled_fps.at(fps_key);
         const std::string tuning = Lower(Env("BB_CAMERA_TUNING", Setting(settings, "camera_tuning").value_or("original")));
         writes = CorrectFrameRate(writes, fps, elf, tuning != "fps++");
         if (fps) Log("Patches: follow camera %s", tuning != "fps++" ? "as the game has it, its eases converted from 30 FPS"
