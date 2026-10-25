@@ -72,6 +72,43 @@ internal static class UiRender
                     }
                 }
                 Console.WriteLine("PASS: every settings page renders");
+
+                // The Eldritch theme over the Modern layout's glass, with its art behind the Co-op page.
+                Application.Current.Resources.MergedDictionaries.Add(new ResourceDictionary
+                {
+                    Source = new Uri("pack://application:,,,/Nightwatch Co-op;component/Themes/Glass.xaml", UriKind.Absolute),
+                });
+                var settings = BloodborneLauncher.Core.Workspace.Current.Settings;
+                settings.Set("party_mode", "host");
+                foreach (var theme in new[] { "default", "eldritch" })
+                {
+                    settings.Set("ui_theme", theme);
+                    LauncherTheme.Apply(settings, glass: true);
+                    var art = new EldritchArt();
+                    art.Show(LauncherTheme.Eldritch(settings));
+                    var page = new SeamlessPage();
+                    page.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+                    var content = (UIElement)page.Content;
+                    page.Content = null;
+                    var surface = new Grid();
+                    surface.SetResourceReference(Panel.BackgroundProperty, "WindowBaseBrush");
+                    surface.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
+                    surface.SetResourceReference(System.Windows.Documents.TextElement.FontFamilyProperty, "UiFont");
+                    surface.Children.Add(art);
+                    surface.Children.Add(new Border { Margin = new Thickness(0, 60, 0, 0), Child = content });
+                    surface.Measure(new Size(1280, 800));
+                    surface.Arrange(new Rect(0, 0, 1280, 800));
+                    surface.UpdateLayout();
+                    var image = new RenderTargetBitmap(1280, 800, 96, 96, PixelFormats.Pbgra32);
+                    image.Render(surface);
+                    var encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(image));
+                    using var output = File.Create(Path.Combine(directory, $"theme-{theme}.png"));
+                    encoder.Save(output);
+                    art.Show(false);
+                }
+                settings.Set("ui_theme", "default");
+                Console.WriteLine("PASS: the Eldritch theme renders with its art");
             }
             catch (Exception error) { failure = error; }
         });

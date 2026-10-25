@@ -2082,5 +2082,8 @@
   "Could not copy the logs: ": "无法复制日志：",
   "No crash report: the game has not crashed since this was added.": "没有崩溃报告：自此功能加入以来游戏尚未崩溃。",
   "Crash report copied to the clipboard (IP addresses hidden).": "崩溃报告已复制到剪贴板（IP 地址已隐藏）。",
-  "Could not keep the crash report: ": "无法保存崩溃报告："
+  "Could not keep the crash report: ": "无法保存崩溃报告：",
+  "Eldritch": "诡秘",
+  "Gothic, with a blood moon and things watching (Halloween)": "哥特风格，血月高悬，暗处有物窥视（万圣节）",
+  "The night watches back.": "黑夜也在凝视着你。"
 }

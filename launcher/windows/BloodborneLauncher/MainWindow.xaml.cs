@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using BloodborneLauncher.Core;
 using BloodborneLauncher.Views;
 using Wpf.Ui.Controls;
@@ -71,6 +72,8 @@ namespace BloodborneLauncher
                 WindowState = WindowState.Minimized;
             ApplyGlass();
             LauncherTheme.Apply(ws.Settings, glass: true);
+            Art.Show(LauncherTheme.Eldritch(ws.Settings));
+            PreviewMouseMove += (_, e) => Art.Look(e.GetPosition(Art));
             ApplyIcon();
 
             var version = typeof(MainWindow).Assembly.GetName().Version;
@@ -363,6 +366,7 @@ namespace BloodborneLauncher
         {
             LauncherTheme.Apply(Workspace.Current.Settings, glass: true);
             ApplyBackdrop();
+            Art.Show(LauncherTheme.Eldritch(Workspace.Current.Settings));
         }
 
         /// <summary>Launcher › App icon: this window's, and the game window's from its next start.</summary>
@@ -439,6 +443,50 @@ namespace BloodborneLauncher
         private void MinimizeWindow_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
         private void MaximizeWindow_Click(object sender, RoutedEventArgs e) =>
             WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+        /// <summary>The title takes clicks for the easter egg, so it does the caption's work too: drag on one
+        /// click, maximize on two; three show the watcher.</summary>
+        private void TitleName_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            if (e.ClickCount >= 3) ShowWatcher();
+            else if (e.ClickCount == 2) MaximizeWindow_Click(sender, e);
+            else
+            {
+                try { DragMove(); } catch (InvalidOperationException) { /* the button was already up */ }
+            }
+        }
+
+        /// <summary>The easter egg: an eye opens over the launcher, looks round, its pupil narrows on you, and it
+        /// shuts again, about three and a half seconds in all. Clicks go on through it.</summary>
+        private void ShowWatcher()
+        {
+            if (Watcher.Visibility == Visibility.Visible) return;
+            static DoubleAnimationUsingKeyFrames Keys(params (double Value, int Ms)[] keys)
+            {
+                var animation = new DoubleAnimationUsingKeyFrames();
+                foreach (var (value, ms) in keys)
+                    animation.KeyFrames.Add(new EasingDoubleKeyFrame(value, TimeSpan.FromMilliseconds(ms), new SineEase { EasingMode = EasingMode.EaseInOut }));
+                return animation;
+            }
+            var side = Random.Shared.Next(2) == 0 ? -1 : 1;
+            var fade = Keys((0, 0), (1, 350), (1, 3150), (0, 3550));
+            fade.Completed += (_, _) =>
+            {
+                Watcher.Visibility = Visibility.Collapsed;
+                Watcher.BeginAnimation(OpacityProperty, null);
+                WatcherText.BeginAnimation(OpacityProperty, null);
+                WatcherLid.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                WatcherGaze.BeginAnimation(TranslateTransform.XProperty, null);
+                WatcherPupil.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            };
+            Watcher.Visibility = Visibility.Visible;
+            Watcher.BeginAnimation(OpacityProperty, fade);
+            WatcherLid.BeginAnimation(ScaleTransform.ScaleYProperty, Keys((0, 0), (0, 250), (1, 950), (1, 3000), (0, 3160)));
+            WatcherGaze.BeginAnimation(TranslateTransform.XProperty, Keys((side * 40, 0), (side * 40, 500), (-side * 18, 1000), (0, 1300)));
+            WatcherPupil.BeginAnimation(ScaleTransform.ScaleXProperty, Keys((1, 0), (1, 1250), (0.22, 1650)));
+            WatcherText.BeginAnimation(OpacityProperty, Keys((0, 0), (0, 1400), (1, 2000)));
+        }
 
         // ---------------------------------------------------------------- navigation
 

@@ -20,6 +20,7 @@ namespace BloodborneLauncher.Views
             new(L.T("Amber"), "amber", L.T("Lamplight gold")),
             new(L.T("Nightmare"), "nightmare", L.T("Arcane violet")),
             new(L.T("Verdant"), "verdant", L.T("Forbidden Woods green")),
+            new(L.T("Eldritch"), "eldritch", L.T("Gothic, with a blood moon and things watching (Halloween)")),
             new(L.T("Custom"), "custom", L.T("Your own colour, below")),
         };
 
@@ -30,6 +31,7 @@ namespace BloodborneLauncher.Views
             ["amber"] = Color.FromRgb(0xD9, 0x9A, 0x2B),
             ["nightmare"] = Color.FromRgb(0x8E, 0x63, 0xD6),
             ["verdant"] = Color.FromRgb(0x3F, 0xA8, 0x6B),
+            ["eldritch"] = Color.FromRgb(0x8E, 0x2A, 0x22),
         };
 
         public const string DefaultCustomColour = "#C41E3A";
@@ -80,6 +82,14 @@ namespace BloodborneLauncher.Views
             }
             ApplicationAccentColorManager.Apply(a, ApplicationTheme.Dark);
 
+            if (Eldritch(s))
+            {
+                // A whole palette of its own (and a serif), not a tint: Themes/Eldritch.xaml.
+                _overlay = new ResourceDictionary { Source = new Uri("pack://application:,,,/Nightwatch Co-op;component/Themes/Eldritch.xaml", UriKind.Absolute) };
+                resources.MergedDictionaries.Add(_overlay);
+                return;
+            }
+
             var d = new ResourceDictionary();
             void Solid(string key, Color c) => d[key] = Freeze(new SolidColorBrush(c));
             Solid("AccentTextFillColorPrimaryBrush", Mix(a, Colors.White, 0.25));
@@ -107,9 +117,13 @@ namespace BloodborneLauncher.Views
             _overlay = d;
         }
 
+        /// <summary>The Eldritch theme: its own palette, font and art layer (MainWindow shows the art).</summary>
+        public static bool Eldritch(LauncherSettings s) => s.Str("ui_theme") == "eldritch";
+
         /// <summary>The backdrop shade's colour (the dark wash over the background picture).</summary>
         public static Color ShadeColour(LauncherSettings s) =>
-            Accent(s) is { } a ? Mix(Color.FromRgb(0x0A, 0x0B, 0x0E), a, 0.12) : Color.FromRgb(0x0A, 0x0B, 0x0E);
+            Eldritch(s) ? Color.FromRgb(0x0E, 0x08, 0x07)
+            : Accent(s) is { } a ? Mix(Color.FromRgb(0x0A, 0x0B, 0x0E), a, 0.12) : Color.FromRgb(0x0A, 0x0B, 0x0E);
 
         public static Color Mix(Color from, Color to, double amount) => Color.FromRgb(
             (byte)Math.Round(from.R + (to.R - from.R) * amount),
