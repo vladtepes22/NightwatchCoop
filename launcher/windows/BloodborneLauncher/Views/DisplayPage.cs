@@ -177,7 +177,7 @@ namespace BloodborneLauncher.Views
             // The in-game map's extras (bbport.ini map_*; also in game: Insert or L3 + R3 › Other), off
             // unless chosen, as in Hunter's Atlas.
             Group(L.T("Map"));
-            ToggleRow(SymbolRegular.Map24, L.T("In-game map (experimental)"),
+            ToggleRow(SymbolRegular.Map24, L.T("In-game map"),
                 L.T("Hold Options / Start or press M in the game. The first time, the launcher makes the map from your game files (a few minutes, in the background)"),
                 () => S.Bool("map_enabled"), v => MapPrep.SetEnabled(S, v));
             var pickupKinds = new StackPanel();

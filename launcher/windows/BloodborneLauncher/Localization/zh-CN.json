@@ -1778,7 +1778,7 @@
   "Nightwatch Co-op is a modified version of Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine), ": "Nightwatch Co-op 是 Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine) 的修改版本，",
   "with visy's seamless co-op and its own changes. It is not an official Lantern Engine release, and Awaken is not involved in it. ": "加入了 visy 的无缝联机及自身的修改。它不是 Lantern Engine 的官方版本，Awaken 也未参与其中。",
   "Free software under the GNU GPL v3 or later with additional terms: see NOTICE in the game's folder.": "以 GNU GPL v3 或更高版本及附加条款发布的自由软件：请参阅游戏文件夹中的 NOTICE。",
-  "In-game map (experimental)": "游戏内地图（实验性）",
+  "In-game map": "游戏内地图",
   "In a party, items and insight you add can affect everyone's game: only use them with players who agree.": "在队伍中，你添加的物品和启示可能影响所有人的游戏：请只在其他玩家同意时使用。",
   "Shows companions' names, health and where they are, in the bottom left corner. Party mode only.": "在左下角显示同伴的姓名、生命值和所在位置。仅在队伍模式下显示。",
   "On: our name plates above companions, never hidden by walls. Off: the game's own plate.": "开启：在同伴头顶显示我们的名牌，墙壁也不会遮挡。关闭：使用游戏原有的名牌。",

@@ -35,7 +35,7 @@ namespace BloodborneLauncher.Core
         /// <summary>This package can make maps (an older or custom package has no generator).</summary>
         public static bool Supported => File.Exists(Generator) && File.Exists(Baker) && File.Exists(Parchment);
 
-        /// <summary>The player turned the in-game map on (launcher Display › Map; off by default).</summary>
+        /// <summary>The player turned the in-game map on (launcher Display › Map; on by default since 0.2.4).</summary>
         public static bool Enabled(LauncherSettings s) => Supported && s.Bool("map_enabled");
 
         /// <summary>The Display page's switch: on makes the maps (when missing), off stops making them;

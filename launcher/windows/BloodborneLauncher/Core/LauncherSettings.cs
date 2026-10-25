@@ -98,7 +98,7 @@ namespace BloodborneLauncher.Core
             ["dlss_preset"] = "k",
             ["legacy_shaders"] = false, // beta 9.8 made legacy the default; beta 4 the native one again (PerfDefaults)
             ["trophy_notifications"] = true,
-            ["map_enabled"] = false,  // the in-game map: the player turns it on (Display › Map)
+            ["map_enabled"] = true,  // the in-game map (Display › Map); on by default since 0.2.4 (MapOnMarker)
             ["trophy_sound"] = true,
             ["trophy_volume"] = 70,
             ["trophy_position"] = "top-right",
@@ -136,6 +136,10 @@ namespace BloodborneLauncher.Core
                         _data["frame_stats"] = true;
                     // Beta 9.9: occlusion culling off once (9.8 switched it on for everyone; floors
                     // and objects appeared late or flickered). On again only by choice.
+                    // 0.2.4: the in-game map is on by default, switched on once for older files
+                    // (they saved the old default, off). Off again only by choice.
+                    if (!saved.ContainsKey(MapOnMarker))
+                        _data["map_enabled"] = true;
                     if (!saved.ContainsKey("occlusion_off_99"))
                         _data["exp_occlusion"] = false;
                     // Beta 9.8: the legacy shader compiler is the default again (the native one
@@ -171,10 +175,12 @@ namespace BloodborneLauncher.Core
             }
             _data["legacy_shaders_default_98"] = true;
             _data["occlusion_off_99"] = true;
+            _data[MapOnMarker] = true;
             _data[PerfDefaultsMarker] = true;
         }
 
         private const string PerfDefaultsMarker = "perf_defaults_b4";
+        private const string MapOnMarker = "map_on_024";
 
         /// <summary>0.9.37 beta 4's defaults that older settings files are switched to once.</summary>
         private static readonly (string Key, bool Value)[] PerfDefaults =
