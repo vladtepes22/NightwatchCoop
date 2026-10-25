@@ -3,6 +3,7 @@
 // cmake --build out/gpu --target party-lift-rules-test && out/party-lift-rules-test
 #include "party/party_lift_rules.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -191,6 +192,76 @@ int main() {
         RiderTrack n;
         CHECK(RiderTick(n, true, false, 0.0, -350.0f, 1583.0f, -793.0f, put) == RiderStep::idle);
         CHECK(RiderTick(n, true, false, 0.5, -350.0f, 1570.0f, -793.0f, put) == RiderStep::idle);
+    }
+
+    // lifts2: the Forbidden Woods report. The ride up (anim 6, +5 m/s), its arrival (anim 7) and the
+    // ride down (anim 2) can follow without a frame between them in which the car stops playing; the
+    // rider's bit went off at the top. 0.7.4 kept +5 m/s and every put-back climbed over the last.
+    {
+        auto ride_up = [](RiderTrack& r, double& t, float& y, std::int32_t anim) {
+            float put[3];
+            for (int k = 0; k < 30; ++k, t += 1.0 / 30, y += 5.0f / 30) {
+                CHECK(RiderTick(r, true, true, t, -216.6f, y, 279.4f, put, anim) == RiderStep::riding);
+            }
+            t -= 1.0 / 30, y -= 5.0f / 30;
+        };
+        float put[3] = {};
+        // (a) the report: up at +5 m/s, the bit off, the car turns (anim 2) and goes down, the chr after it
+        {
+            RiderTrack r;
+            double t = 0;
+            float y = -82.9f;
+            ride_up(r, t, y, 6);
+            CHECK(r.vy > 4.5f);
+            int puts = 0;
+            for (int k = 1; k < 120; ++k) {
+                const RiderStep st = RiderTick(r, true, false, t + k / 60.0, -216.6f, y - k * 0.08f, 279.4f, put, 2);
+                puts += st == RiderStep::through;
+                if (st == RiderStep::off) break;
+            }
+            CHECK(puts == 0);  // no speed known for the turned car: no put-back, never higher
+        }
+        // (b) a drop through the floor within one animation still gets its put-back, at this ride's speed
+        {
+            RiderTrack r;
+            double t = 0;
+            float y = -82.9f;
+            ride_up(r, t, y, 6);
+            CHECK(RiderTick(r, true, false, t + 0.3, -216.6f, y - 1.5f, 279.4f, put, 6) == RiderStep::through);
+            CHECK(std::fabs(put[1] - (y + 1.5f + 0.3f)) < 0.1f && r.after_put && r.puts == 1);
+            // landed on the car again: that first sample gives no speed (the warp is not the car's motion)
+            const float vy = r.vy;
+            CHECK(RiderTick(r, true, true, t + 0.32, -216.6f, put[1] - 0.1f, 279.4f, put, 6) == RiderStep::riding);
+            CHECK(r.vy == vy && !r.after_put);
+        }
+        // (c) put-backs are bounded per ride (0.7.4: each one re-armed the track, no end while the car played)
+        {
+            RiderTrack r;
+            double t = 0;
+            float y = -82.9f;
+            ride_up(r, t, y, 6);
+            int puts = 0;
+            for (int k = 1; k < 60; ++k) {
+                puts += RiderTick(r, true, false, t + k * 0.1, -216.6f, -120.0f, 279.4f, put, 6) == RiderStep::through;
+            }
+            CHECK(puts == kRiderMaxPuts);
+        }
+        // (d) the same car animation: speed measured as before; a turn starts the speed afresh
+        {
+            RiderTrack r;
+            double t = 0;
+            float y = 0;
+            ride_up(r, t, y, -1);
+            CHECK(r.vy > 4.5f);
+            CHECK(RiderTick(r, true, true, t + 1.0 / 30, -216.6f, y, 279.4f, put, 2) == RiderStep::riding && r.vy == 0.0f);
+        }
+    }
+
+    // A duplicate forward of one ride (two guests send the same end): the host's world has it after the
+    // first, so the second is `same` (nothing written, no kick).
+    {
+        CHECK(HostLiftSync(false, false, true, false, false, false) == LiftSync::same);
+        CHECK(HostLiftSync(true, true, true, false, false, false) == LiftSync::busy);
     }
 
     // The Research Hall busy clear moved to the event's end (runs 11-15).

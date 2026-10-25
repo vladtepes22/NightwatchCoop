@@ -145,34 +145,54 @@ inline bool LocalEndToAllPlayers(std::int32_t event_id, std::int32_t bank, std::
 /// step past the chr's ground probe on a long frame: the log shows render stalls there). The rider is
 /// put back on the car: where it last rode, at the car's height now (that sample's height carried on
 /// at the car's speed) plus a little, so it lands on the car's floor again.
+///
+/// lifts2 (a player's report, the Forbidden Woods lift 2701032, 3 players: the host rose "a foot at a
+/// time" to ~30 m over the car while it went down, then fell and died): riders who stay in the car at
+/// the top start the ride down in the frame the ride up ends (the ride starts on a step into the car),
+/// so the car never stops playing in between and the track kept the ride up's speed (+5 m/s). The car
+/// went down, the chr's ride bit went off, and the guess "the car's height now" climbed at +5 m/s: every
+/// put-back went higher (32 in the log, each 1.5 m over the last), and each put-back re-armed the
+/// track, so it never ended while the car played. Now: the speed only from ride samples of this car
+/// animation (`anim`: the arrival, the turn and the ride down are other animations, so no speed is
+/// carried across them, and no put-back before a ride sample in the new one), never from the first
+/// sample after a put-back; and at most kRiderMaxPuts
+/// put-backs a ride (then the fall recovery has it). The car object's own matrix does not follow the
+/// ride (live: 2701032 reads its top height with the car at the bottom), so the height stays a guess.
 struct RiderTrack {
     bool riding = false;
     double t = 0;
     float x = 0, y = 0, z = 0, vy = 0;  // the last sample on the car, the car's vertical speed (m/s)
+    std::int32_t anim = -1;             // lifts2: the car animation of the last ride sample
+    bool after_put = false;             // lifts2: the next ride sample follows a put-back (no speed from it)
+    int puts = 0;                       // lifts2: put-backs this ride
 };
 constexpr float kRiderSlip = 1.0f;      // m below the car's height before it counts as a drop through it
 constexpr float kRiderSideways = 1.0f;  // m sideways from the last ride sample: stepped off (no put-back)
 constexpr double kRiderWindow = 2.0;    // s after the last ride sample: no longer this ride
+constexpr int kRiderMaxPuts = 3;        // lifts2: put-backs a ride at most
 enum class RiderStep { idle, riding, through, off };
 /// One sample of the local chr while `car_playing` (a lift car within reach plays a ride animation).
-/// `put` gets the spot to put it back at for `through`.
+/// `put` gets the spot to put it back at for `through`. `anim`: the car's animation (-1: not known).
 inline RiderStep RiderTick(RiderTrack& r, bool car_playing, bool ride_bit, double t, float x, float y, float z,
-                           float put[3]) {
+                           float put[3], std::int32_t anim = -1) {
     if (!car_playing) {
         r = RiderTrack{};
         return RiderStep::idle;
     }
     if (ride_bit) {
         const double dt = t - r.t;
-        if (r.riding && dt > 0.0 && dt < 0.5) {
+        const bool same_segment = r.riding && anim == r.anim;
+        if (same_segment && !r.after_put && dt > 0.0 && dt < 0.5) {
             const float v = float((y - r.y) / dt);
             if (std::fabs(v) < 16.0f) {  // a lift's speed (deathrules::kLiftMaxRate)
                 r.vy = v;
             }
-        } else if (!r.riding) {
-            r.vy = 0;
+        } else if (!same_segment) {
+            r.vy = 0;  // a new ride, or the car turned (another animation): measured afresh
         }
         r.riding = true;
+        r.after_put = false;
+        r.anim = anim;
         r.t = t, r.x = x, r.y = y, r.z = z;
         return RiderStep::riding;
     }
@@ -181,16 +201,23 @@ inline RiderStep RiderTick(RiderTrack& r, bool car_playing, bool ride_bit, doubl
     }
     const double dt = t - r.t;
     const float side = std::hypot(x - r.x, z - r.z);
-    if (dt > kRiderWindow || side > kRiderSideways) {
+    if (dt > kRiderWindow || side > kRiderSideways || r.puts >= kRiderMaxPuts) {
         r = RiderTrack{};
         return RiderStep::off;
     }
-    const float car = r.y + r.vy * float(dt);
+    if (anim != r.anim) {
+        // the car turned or arrived (another animation) since the last ride sample: its speed is not
+        // known, so no guess and no put-back (a real fall is the fall recovery's)
+        return RiderStep::riding;
+    }
+    const float car = r.y + r.vy * float(dt);  // the car's height now at this animation's speed
     if (y >= car - kRiderSlip) {
         return RiderStep::riding;  // the bit flickers (a roll, a jump in the car): still on it
     }
     put[0] = r.x, put[1] = car + 0.3f, put[2] = r.z;
     r.t = t, r.y = car;  // the next sample measures from here
+    r.after_put = true;
+    ++r.puts;
     return RiderStep::through;
 }
 
