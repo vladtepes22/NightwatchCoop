@@ -206,6 +206,9 @@ struct Values {
     /// 0.7.3: a party travel by lamp, headstone or Hunter's Mark runs only once every member voted
     /// YES (party_vote.h). The host's rule; OFF by default.
     std::atomic<bool> party_travel_vote{false};
+    /// 0.7.5: Party starts = skip the prologue (party_start.h StartMode::SkipPrologue): a NEW character
+    /// begins as after the prologue. The host's rule; OFF by default.
+    std::atomic<bool> party_skip_prologue{false};
     std::atomic<bool> party_npc_fights{true};   ///< D11 (0.7.3): NPC hunters fight the whole party (party_npcfight_rules.h)
     std::atomic<bool> party_any_kidnap{true};   ///< 0.7.3: a Snatcher grabbing a guest takes the party to the Gaol (party_kidnap_rules.h)
     /// 0.7.5 (levelsync, party_levelsync_rules.h): the host's rules, both ON = Bloodborne's own co-op.

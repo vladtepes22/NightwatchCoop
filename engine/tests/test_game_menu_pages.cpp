@@ -634,6 +634,7 @@ static void RulesPages() {
           std::tuple{u"Party rules: World", u"NPC hunters fight all", "party_npc_fights", &BbSettings::Values::party_npc_fights},
           std::tuple{u"Party rules: Deaths", u"Anyone can be abducted", "party_any_kidnap",
                      &BbSettings::Values::party_any_kidnap},
+          std::tuple{u"Party rules: Phantoms", u"Skip the prologue", "party_skip_prologue", &BbSettings::Values::party_skip_prologue},
           std::tuple{u"Party rules: Phantoms", u"Level sync", "party_level_sync", &BbSettings::Values::party_level_sync},
           std::tuple{u"Party rules: Phantoms", u"Phantom health cut", "party_phantom_hp",
                      &BbSettings::Values::party_phantom_hp},

@@ -1024,6 +1024,14 @@ void DefineAll() {
                "Правило хоста: у присоединившихся охотников на 30 % меньше максимального здоровья"},
               {"The host decides; off: hunters who join keep their full maximum health",
                "Решает хост; выкл.: присоединившиеся охотники сохраняют полное максимальное здоровье"});
+    host_rule(&Values::party_skip_prologue, "Skip the prologue", "Пропустить пролог",
+              AddText("A NEW character skips the clinic and first Dream visit: weapons, the first lamp. Party rule",
+                      "НОВЫЙ персонаж пропускает клинику и первый Сон: оружие, первый фонарь. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::SkipPrologue); },
+              {"The host's rule: a new character skips the prologue (the starting weapons, the first lamp in the city)",
+               "Правило хоста: новый персонаж пропускает пролог (начальное оружие, первый фонарь в городе)"},
+              {"The host decides; off: every new character plays the prologue. A character past it is never touched",
+               "Решает хост; выкл.: каждый новый персонаж проходит пролог. Прошедшего пролог это не затрагивает"});
 
     // ---- My party: Deaths (party_b2, party_phantom): while you are a guest ----
     AddPage("My party: Deaths", "Моя группа: смерти", "Yours: getting up and respawning while you are a guest (bbport)",

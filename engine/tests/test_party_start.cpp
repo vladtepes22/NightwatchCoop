@@ -44,6 +44,16 @@ static void test_mode() {
     CHECK(ParseStartMode("Immediate", &known) == StartMode::Immediate && known);
     CHECK(ParseStartMode("clinic", &known) == StartMode::Immediate && known);
     CHECK(ParseStartMode("bogus", &known) == StartMode::PrologueSolo && !known);
+    CHECK(ParseStartMode("Skip_Prologue", &known) == StartMode::SkipPrologue && known);
+    CHECK(ParseStartMode("skip", &known) == StartMode::SkipPrologue && known);
+    CHECK(std::string(StartModeName(StartMode::SkipPrologue)) == "skip_prologue");
+    {   // ready as prologue_solo: only at step Ready
+        StartFlags f;
+        f.flags_ok = f.opening_done = f.first_dream = f.weapon_right = f.weapon_left = f.doll_awake = true;
+        CHECK(StartReady(StartMode::SkipPrologue, f, true));
+        f.first_dream = false;
+        CHECK(!StartReady(StartMode::SkipPrologue, f, true));
+    }
     CHECK(std::string(StartModeName(StartMode::Immediate)) == "immediate");
     CHECK(std::string(StartModeName(StartMode::PrologueSolo)) == "prologue_solo");
 }
@@ -347,6 +357,59 @@ static void test_catchup() {
     }
 }
 
+static void test_self_skip() {
+    // Skip the prologue: a NEW character (clinic) applies on its own, with no host at all.
+    Catchup c;
+    CatchupInput in;
+    in.self_skip = true;
+    in.in_world = in.own_idle = true;
+    in.flags = Fresh();
+    in.t = 10;
+    CHECK(c.Step(in).kind == CatchupAction::None);
+    in.t = 13.1;
+    CatchupAction a = c.Step(in);
+    CHECK(a.kind == CatchupAction::ApplyStart && c.Busy());
+    in.t = 14.2;
+    CHECK(c.Step(in).kind == CatchupAction::Warp);
+    in.in_world = false;
+    in.t = 15;
+    CHECK(c.Step(in).kind == CatchupAction::None);
+    in.in_world = true;
+    in.flags.first_dream = true;
+    in.t = 20;
+    CHECK(c.Step(in).kind == CatchupAction::None);
+    in.t = 24;
+    CHECK(c.Step(in).kind == CatchupAction::Finished && c.Applied());
+    // Never an existing playthrough: first Dream visit (9401 ON, weapons not taken) or past the prologue.
+    for (int past = 0; past < 2; ++past) {
+        Catchup e;
+        CatchupInput x;
+        x.self_skip = x.in_world = x.own_idle = true;
+        x.flags = Fresh();
+        x.flags.first_dream = true;
+        if (past) x.flags.weapon_right = x.flags.weapon_left = x.flags.doll_awake = true;
+        for (int i = 0; i < 20; ++i) {
+            x.t = i;
+            const CatchupAction r = e.Step(x);
+            CHECK(r.kind != CatchupAction::ApplyStart && r.kind != CatchupAction::Warp && r.kind != CatchupAction::SkipOpening);
+        }
+        CHECK(e.phase() == Catchup::Phase::Done && !e.Applied());
+    }
+    // The opening cutscene of a new character is skipped (the game's own skip), then it applies.
+    Catchup o;
+    CatchupInput y;
+    y.self_skip = y.in_world = y.own_idle = y.remo_playing = true;
+    y.flags.flags_ok = true;  // 12410000 OFF
+    y.t = 5;
+    CHECK(o.Step(y).kind == CatchupAction::SkipOpening);
+    // Without the option and without a host nothing happens (the old rule).
+    Catchup n;
+    y.self_skip = false;
+    y.t = 30;
+    CHECK(n.Step(y).kind == CatchupAction::None);
+    // The flag set a skipped prologue writes is the whole campaign start.
+}
+
 static void test_travel_audience() {
     using MS = party::MemberState;
     // Both in their prologues (the 2-PC bug: the host's prologue death sent the guest home).
@@ -445,6 +508,7 @@ int main() {
     test_grants();
     test_lobby();
     test_catchup();
+    test_self_skip();
     std::printf("party-start-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

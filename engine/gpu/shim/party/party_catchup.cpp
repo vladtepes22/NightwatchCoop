@@ -23,6 +23,8 @@ namespace coop {
 namespace {
 
 constexpr std::uint64_t kSprjRemo = 0x5540058; // *(+8) remo player; +0x168 bit 0 playing
+constexpr std::uint32_t kYharnamLamp = 2412951; // skip prologue: Central Yharnam lamp (the sickroom lamp is 2412950)
+constexpr std::uint32_t kGoodsIosefkaVial = 23000; // Iosefka's Blood Vial (her talk gives it; common 9100)
 constexpr std::uint32_t kDreamLamp = 2102961;  // fallback gather point (the Hunter's Dream lamp)
 
 void Log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -58,7 +60,7 @@ State& S() {
     return s;
 }
 
-void ApplyStart() {
+void ApplyStart(bool skip_mode) {
     int ok = 0, n = 0;
     std::string list;
     for (const FlagWrite& w : PrologueSkipFlags()) {
@@ -85,7 +87,20 @@ void ApplyStart() {
                 before > 0 ? "already owned" : "inventory unreadable; not given");
         }
     }
-    RequestGameSave("late joiner catch-up");
+    if (skip_mode) {
+        // The clinic door talk gives one vial (once); a character that skips it still gets it.
+        const int vials = ItemCount(kItemGoods, kGoodsIosefkaVial);
+        if (vials == 0) {
+            const bool given = GiveItem(kItemGoods, kGoodsIosefkaVial, 1);
+            if (given) {
+                ShowItemGet(kItemGoods, kGoodsIosefkaVial, 1);
+            }
+            Log("Iosefka's Blood Vial: %s (now x%d)", given ? "given" : "NOT given", ItemCount(kItemGoods, kGoodsIosefkaVial));
+        } else {
+            Log("Iosefka's Blood Vial: %s", vials > 0 ? "already owned" : "inventory unreadable; not given");
+        }
+    }
+    RequestGameSave(skip_mode ? "skip prologue" : "late joiner catch-up");
 }
 
 } // namespace
@@ -131,7 +146,7 @@ void TimeOfDayCatchup(const GameSnapshot& s, bool guest_connected, double now) {
     RequestGameSave("catch-up time of day");
 }
 
-void CatchupTick(const GameSnapshot& s, bool guest_connected, double now, std::uint32_t host_map) {
+void CatchupTick(const GameSnapshot& s, bool guest_connected, double now, std::uint32_t host_map, bool skip_mode) {
     State& st = S();
     TimeOfDayCatchup(s, guest_connected, now);
     // Playtest 1 #19 (user rule: correct over seamless): a guest plays its own prologue; the late
@@ -141,7 +156,11 @@ void CatchupTick(const GameSnapshot& s, bool guest_connected, double now, std::u
         const char* e = std::getenv("BB_PARTY_CATCHUP");
         return e && e[0] == '1';
     }();
-    if (!on) {
+    if (!s.world_up && st.c.phase() == Catchup::Phase::Done) {
+        st.c = Catchup{};  // the title: another character may come next
+        st.logged_wait = false;
+    }
+    if (!on && !skip_mode) {
         if (guest_connected && !st.logged_wait && s.world_up && !s.loading) {
             st.logged_wait = true;
             Log("off (BB_PARTY_CATCHUP=1 turns it on): this guest plays its own prologue; summons start once "
@@ -171,9 +190,10 @@ void CatchupTick(const GameSnapshot& s, bool guest_connected, double now, std::u
     in.in_world = in_world;
     in.own_idle = in_world && s.session_role == RoleIdle && progress::FlagLoadMode() == 0;
     in.remo_playing = in_world && RemoPlaying();
+    in.self_skip = skip_mode;
     in.flags = st.flags;
     in.t = now;
-    if (guest_connected && in.host_known && !in.host_ready && !st.logged_wait) {
+    if (!skip_mode && guest_connected && in.host_known && !in.host_ready && !st.logged_wait) {
         st.logged_wait = true;
         Log("the host's own save is in its prologue (12410000 %d, 9401 %d): nothing to catch up to", opening ? 1 : 0,
             first_dream ? 1 : 0);
@@ -197,13 +217,13 @@ void CatchupTick(const GameSnapshot& s, bool guest_connected, double now, std::u
     }
     case CatchupAction::ApplyStart:
         Log("%s; before: %s", a.why.c_str(), DescribeStart(st.flags, in_world).c_str());
-        ApplyStart();
+        ApplyStart(skip_mode);
         break;
     case CatchupAction::Warp: {
-        const std::uint32_t lamp = GatherLampFor(GuestDeathRedirectLamp(), host_map);
-        const std::uint32_t to = lamp != kTravelNone && lamp != 0 ? lamp : kDreamLamp;
+        const std::uint32_t lamp = skip_mode ? 0 : GatherLampFor(GuestDeathRedirectLamp(), host_map);
+        const std::uint32_t to = skip_mode ? kYharnamLamp : lamp != kTravelNone && lamp != 0 ? lamp : kDreamLamp;
         const bool ok = LampWarp(to);
-        Log("%s: lamp warp to %u%s: %s", a.why.c_str(), to, to == lamp ? " (the host's last lamp)" : " (host lamp unknown: the Dream)",
+        Log("%s: lamp warp to %u%s: %s", a.why.c_str(), to, skip_mode ? " (Central Yharnam)" : to == lamp ? " (the host's last lamp)" : " (host lamp unknown: the Dream)",
             ok ? "called" : "NOT called (code differs / no player)");
         break;
     }

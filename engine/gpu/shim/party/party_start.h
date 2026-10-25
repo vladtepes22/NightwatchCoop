@@ -13,6 +13,11 @@
 //   roster state is Prologue (not Home), so nobody rings for it, it rings nothing itself, and no
 //   party sync (flags, items, cutscenes, gathers, catch-up, rot) touches its world. Summons start
 //   only once EVERY connected member is ready (AnyMemberInPrologue), whoever finishes first.
+// BB_PARTY_START=skip_prologue (0.7.5; also the host rule party_skip_prologue, System > Party rules:
+//   Start): as prologue_solo for the readiness, but a NEW character (opening not seen / 9401 OFF -
+//   never one past the clinic) skips the prologue: the opening cutscene is skipped, the campaign-start
+//   flags (test_newgame.h PrologueSkipFlags) and the starting weapons, Iosefka's Blood Vial are given,
+//   and the hunter is warped to the Central Yharnam lamp (Catchup with CatchupInput::self_skip).
 // BB_PARTY_START=immediate (experimental, §4.5): ready as soon as 12410000 is ON and 9180 OFF
 //   (summons in the clinic, with the `Bells anywhere` patches; guests are unarmed).
 #pragma once
@@ -30,9 +35,9 @@ namespace coop {
 /// party identity alone never authorizes input; configured 0 keeps manual control.
 bool ShouldAutoContinue(int configured, bool supervised_restart);
 
-enum class StartMode { PrologueSolo, Immediate };
+enum class StartMode { PrologueSolo, Immediate, SkipPrologue };
 
-/// "prologue_solo" / "immediate" (case-insensitive; also "solo", "prologue", "clinic"); empty or
+/// "prologue_solo" / "immediate" / "skip_prologue" (case-insensitive; also "skip"; also "solo", "prologue", "clinic"); empty or
 /// unknown -> PrologueSolo (*known = false for an unknown non-empty value).
 StartMode ParseStartMode(const char* text, bool* known = nullptr);
 const char* StartModeName(StartMode m);
@@ -164,6 +169,10 @@ struct CatchupInput {
     bool in_world = false;    ///< world up, not loading
     bool own_idle = false;    ///< own world, session role idle (0), flag store mode 0
     bool remo_playing = false;
+    /// 0.7.5 Party starts "skip the prologue": the own character skips its prologue whatever the host
+    /// (also a host, or a guest of a host in its own prologue). Only a NEW character: step Opening /
+    /// Clinic (9401 OFF); any later step (first Dream visit, past the prologue) is left alone.
+    bool self_skip = false;
     StartFlags flags;         ///< the guest's own
     double t = 0;             ///< seconds, monotonic
 };

@@ -711,6 +711,12 @@ void TestPrologueTick(const GameSnapshot& s) {
     }
 }
 
+/// 0.7.5 Party starts "skip the prologue": BB_PARTY_START=skip_prologue, or the host's rule
+/// (party_skip_prologue; on a guest the host's once it arrived, else its own).
+static bool SkipPrologueOn(StartMode env_mode) {
+    return env_mode == StartMode::SkipPrologue || ::party::status::HostRuleOn(::party::status::HostRule::SkipPrologue);
+}
+
 /// The start flags (full ticks): logs step and readiness changes.
 void UpdateStart(State& st, const GameSnapshot& s, StartMode mode) {
     if (s.world_up && s.loading) {
@@ -4192,7 +4198,7 @@ void PartyDirector::ConfigureFromEnv() {
     bool known = true;
     st.start_mode = ParseStartMode(std::getenv("BB_PARTY_START"), &known);
     if (!known) {
-        Log("BB_PARTY_START='%s' is not prologue_solo or immediate; using prologue_solo", std::getenv("BB_PARTY_START"));
+        Log("BB_PARTY_START='%s' is not prologue_solo, skip_prologue or immediate; using prologue_solo", std::getenv("BB_PARTY_START"));
     }
     if (const char* g = std::getenv("BB_PARTY_GRANT_BELLS"); g && g[0] == '0') {
         st.grant_bells = false;
@@ -4397,12 +4403,12 @@ void PartyDirector::Tick() {
             }
         }
         CatchupTick(s, role == PartyRole::Guest && link && link->state() == party::LinkState::Connected,
-                    Seconds(st.start, now), host_map);
+                    Seconds(st.start, now), host_map, SkipPrologueOn(start_mode));
     }
     // C1: the campaign start (readiness, bells).
     if (full || !st.start_logged) {
         perf::Scope z(perf::Zone::DirStart);
-        UpdateStart(st, s, start_mode);
+        UpdateStart(st, s, SkipPrologueOn(start_mode) ? StartMode::SkipPrologue : start_mode);
         if (((grant_bells && role != PartyRole::None) || st.test.grant_bells) && st.world_seen &&
             Seconds(st.world_at, now) >= std::min(5.0, st.ring_delay) && !PrologueSkipBusy() && !CatchupBusy()) {
             GrantBells(st, s);

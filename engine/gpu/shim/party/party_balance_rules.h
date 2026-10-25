@@ -79,6 +79,9 @@ struct Rules {
     /// D11 (0.7.3, party_npcfight_rules.h): NPC hunters fight the whole party (a guest's copy of the
     /// host-only NPC transitions runs). The host's; on by default (a host from before it sends none: on).
     bool npc_fights = true;
+    /// 0.7.5 Party starts "skip the prologue" (party_start.h): a new character starts as after the
+    /// prologue. The host's; off by default (a host from before sends none: off).
+    bool skip_prologue = false;
     /// 0.7.3 (party_kidnap_rules.h): a Snatcher grabbing a guest takes the whole party to the Hypogean
     /// Gaol, as the host's own grab. The host's; on by default (a host from before it sends none: on).
     bool any_kidnap = true;
