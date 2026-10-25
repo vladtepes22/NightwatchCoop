@@ -2022,4 +2022,7 @@
   "As in the game's own co-op: a hunter whose level is above the host's range is scaled down while it plays in the host's world (less maximum health and stamina, less defence and resistance) and gets a blue icon by its name. Anyone can still join at any level. Off: everyone keeps full stats. The host's rule: guests follow it.": "与游戏自带的联机一致：等级高于房主范围的猎人在房主的世界中会被削弱（最大生命值和耐力降低，防御和抗性降低），名字旁会显示蓝色图标。任何等级的玩家仍可加入。关闭：所有人保持完整属性。房主规则：访客遵循。",
   "As in the game's own co-op: hunters who join a party have 30 % less maximum health. Off: full maximum health for everyone. The host's rule: guests follow it.": "与游戏自带的联机一致：加入队伍的猎人最大生命值减少 30 %。关闭：所有人保持完整的最大生命值。房主规则：访客遵循。",
   "A new character (one that has not finished the prologue) skips the clinic and the first dream visit: the prologue's story flags are set, the starting weapons are given and the hunter appears at the first lamp in the city, ready for the party. Characters past the prologue are never touched. Off: the prologue is played as in the game. The host's rule, read when the character starts.": "新角色（尚未完成序章的角色）会跳过诊所和第一次梦境之行：序章的剧情标记会被设置，发放初始武器，猎人会出现在城中的第一盏提灯处，为联机做好准备。已经过了序章的角色不受影响。关闭：按游戏原样进行序章。房主规则，在角色开始时读取。"
+,
+  "Key items for every player": "每位玩家都获得关键物品",
+  "Key items and unique items the host picks up or is given (a key, a badge, a gift that exists only once) are given to each guest too, once, in their own world. Ordinary pickups such as vials, bullets and materials are not copied. Takes effect on the next game start.": "房主拾取或获得的关键物品和独特物品（钥匙、徽章、仅有一件的礼物）也会在各访客自己的世界中发放一次。血瓶、子弹、素材等普通拾取物不会被复制。下次启动游戏时生效。"
 }

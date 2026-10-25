@@ -24,7 +24,7 @@ public static partial class SeamlessSettings
         ("party_chalice_rejoin", L.T("Stay in Chalice Dungeons")),
         ("party_guest_mark", L.T("Guests can use Hunter's Mark")),
         ("party_full_rewards", L.T("Full Blood Echo rewards")),
-        ("party_items", L.T("Items for every player")),
+        ("party_items", L.T("Key items for every player")),
         ("party_progress", L.T("Shared progression")),
         ("party_progress_npc", L.T("Shared NPC quest choices")),
         ("party_story", L.T("Shared story and endings")),
