@@ -208,6 +208,8 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     Check(!System.IO.Directory.Exists(input), "Map input was not removed");
     Check(System.IO.File.Exists(System.IO.Path.Combine(game, "dvdroot_ps4", "event", "m.dcx")), "Removing the map input deleted the game's dvdroot");
     Check(System.IO.File.ReadAllText(System.IO.Path.Combine(game, "eboot.bin")) == "1.00", "The game folder's eboot was changed");
+    MapPrep.RemoveInput(game);
+    Check(System.IO.File.Exists(System.IO.Path.Combine(game, "dvdroot_ps4", "event", "m.dcx")), "Removing a map input deleted a game folder");
     System.IO.Directory.Delete(maps, true);
     var plain = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "seamless map plain " + Guid.NewGuid());
     System.IO.Directory.CreateDirectory(plain);

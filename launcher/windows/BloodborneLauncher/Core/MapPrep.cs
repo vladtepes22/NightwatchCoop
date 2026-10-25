@@ -142,7 +142,8 @@ namespace BloodborneLauncher.Core
                     }
                     finally
                     {
-                        RemoveInput(input);
+                        // Without an update the input is the game folder itself: never removed.
+                        if (input != game) RemoveInput(input);
                     }
                     File.WriteAllText(stamp + ".generated", game);
                     // The generator's own scratch space, not needed after a run.
@@ -201,12 +202,14 @@ namespace BloodborneLauncher.Core
         }
 
         /// <summary>Removes the view made by PrepareInput. Its dvdroot_ps4 is a junction: the link goes,
-        /// the game's folder under it stays.</summary>
+        /// the game's folder under it stays. A folder whose dvdroot_ps4 is a real folder (the game
+        /// itself) is left alone.</summary>
         public static void RemoveInput(string input)
         {
             if (!Directory.Exists(input)) return;
-            var link = Path.Combine(input, "dvdroot_ps4");
-            if (Directory.Exists(link)) Directory.Delete(link, recursive: false);
+            var link = new DirectoryInfo(Path.Combine(input, "dvdroot_ps4"));
+            if (link.Exists && !link.Attributes.HasFlag(FileAttributes.ReparsePoint)) return;
+            if (link.Exists) link.Delete(recursive: false);
             Directory.Delete(input, recursive: true);
         }
 
