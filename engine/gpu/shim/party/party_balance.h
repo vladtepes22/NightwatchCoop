@@ -90,6 +90,8 @@ float RotDropDiscovery(float own);
 std::vector<EnemyKillCandidate> LoadedEnemies();
 /// A chr's HP (+0xF8 of its data module; -1 unreadable) and physics position.
 int EnemyHp(std::uint64_t chr);
+/// The chr carries SpEffect 9200 (the Level sync rule's downscale; the blue icon on the game's plate).
+bool ChrHasLevelSync(std::uint64_t chr);
 bool ChrPosition(std::uint64_t chr, float out[3]);
 /// Main thread: the entity ids of the chrs the loaded world has now, players left out, alive, not
 /// disabled and not kept hidden (the map's NPC sites show only where their NPC is; map/map_page.cpp).

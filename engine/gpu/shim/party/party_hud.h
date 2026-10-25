@@ -57,6 +57,8 @@ struct Companion {
     int rot = 0;
     std::uint32_t ping_ms = 0; // the link's round trip to this member (E2 "name and ping"; 0 unknown):
                                // the host's measure; a guest's view of the host shows its own link's
+    bool level_sync = false;   // its chr here carries SpEffect 9200 (downscaled by the Level sync rule):
+                               // the tag draws the game plate's blue level-sync marker (0.7.5)
     std::uint64_t chr = 0;     // its PlayerIns here (local_read): the overlay re-reads its position
                                // every frame (coop::PartyHudChrPos), the board's is the 10 Hz tick's
 };
@@ -85,6 +87,7 @@ struct LocalChr {
     float pos[3] = {0, 0, 0};
     bool have_yaw = false;
     float yaw = 0;
+    bool level_sync = false;  // carries SpEffect 9200
     std::uint64_t chr = 0;  // the PlayerIns (guest address)
 };
 
@@ -276,6 +279,14 @@ void MemberColour(int slot, float rgb[3]);
 /// `why` names the reason ("stale", "dead", "not here", ...).
 constexpr std::int64_t kTagFreshMs = 500;
 bool TagVisible(const Companion& c, std::int64_t board_age_ms, const char** why);
+/// Whether our overhead health bar is drawn for a member (party_overhead "Name and health"): with
+/// the data. `pvp_active` (party PvP in force: every member is an opponent) only changes its
+/// colour (OverheadBarRed): the bar stays, red (0.7.5, user spec for the PvP double bar).
+bool OverheadBarShown(int overhead, bool have_hp, int max_hp);
+bool OverheadBarRed(bool pvp_active);
+/// Whether the game's own enemy HP bar over a chr is hidden: our bar was drawn over it within the
+/// last 300 ms (`drawn_ms` 0: never). Name tags off / no bar of ours: the game's bar stays.
+bool GameEnemyBarHidden(long long now_ms, long long drawn_ms);
 /// The game's own phantom plate (FrpgMenuDlgFloatingPCGauge: role line, name, thin HP bar) is
 /// turned off in party mode (party_hud_game.cpp: its per-entry visible flag, written by
 /// FUN_0176cfa0 into MenuMan+0x900+i*0x90+0xc, is stored as 0) and ours, drawn in its style,
@@ -359,6 +370,9 @@ void PartyHudSpectating(bool on, const float body[3]);
 /// Any thread: the party member's name the last HUD tick matched to the remote PlayerIns `chr`
 /// (empty when none; C5 spectate notice).
 std::string PartyHudChrName(std::uint64_t chr);
+/// The overlay (present thread): our overhead health bar was drawn over the remote PlayerIns `chr`
+/// this frame; the game's own enemy bar over it is hidden for the next 300 ms (0.7.5 PvP double bar).
+void PartyHudNoteBarDrawn(std::uint64_t chr);
 /// The overlay (present thread), once a frame, for the performance HUD: whether the game's
 /// full-screen menu is up (the party tick's GameMenu() while it runs, else the same read here:
 /// solo play has no party tick) and whether the area-name banner may be up (AreaBannerWatch).

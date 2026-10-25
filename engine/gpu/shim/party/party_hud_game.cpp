@@ -215,6 +215,79 @@ static void GamePlateOff(bool off) {
 }
 
 namespace {
+// The game's own red enemy HP bar over a PvP opponent (0.7.5: a second bar next to our red one).
+// FUN_01644cf0 (once a frame) fills MenuMan+0x10f8+i*0x98 (8 entries: +0 the chr handle, +0x94 the
+// "visible" byte) for the chrs the game shows an enemy bar for - hostile phantoms in PvP too - and
+// FrpgMenuDlgFEEnemyGauge ("enemy_HP") draws them. The `mov byte [rbx+0x94],1` at 0x1645310 gets a
+// filter: when our overlay drew a bar over that very chr in the last 300 ms, the byte stays 0.
+// Name tags off (or no bar of ours): the game's bar stays. Other enemies are never touched.
+constexpr u64 kEnemyBarSet = 0x1645310, kEnemyBarResume = 0x1645327;
+struct BarStamp {
+    std::uint64_t chr = 0;
+    long long ms = 0;
+};
+std::mutex g_bar_mu;
+BarStamp g_bar_stamps[8];
+
+long long NowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+std::uint64_t ChrOfHandle(std::uint32_t h) {
+    if (h == 0xffffffffu) return 0;
+    const u64 wcm = Slot(kSlotWorldChrMan);
+    if (!wcm) return 0;
+    const u64 mgr = Field<u64>(wcm, 8, 0);
+    const u32 grp = (h >> 14) & 0x3f;
+    if (!mgr || int(grp) >= Field<int>(mgr, 0x18, 0) + 2) return 0;
+    const u64 arr = Field<u64>(wcm, 0x850 + grp * 8, 0);
+    if (!arr || int(h & 0x3fff) >= Field<int>(arr, 0, 0)) return 0;
+    const u64 ents = Field<u64>(arr, 8, 0);
+    return ents ? Field<u64>(ents, u64(h & 0x3fff) * 0x38, 0) : 0;
+}
+
+u64 BB_COOP_SYSV EnemyBarFilter(u64 entry, u64) {
+    u32 h = 0;
+    if (!entry || !SafeGet(entry, &h)) return 0;
+    const std::uint64_t chr = ChrOfHandle(h);
+    if (!chr) return 0;
+    long long drawn = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_bar_mu);
+        for (const BarStamp& b : g_bar_stamps) {
+            if (b.chr == chr) drawn = b.ms;
+        }
+    }
+    if (party::hud::GameEnemyBarHidden(NowMs(), drawn)) {
+        const u8 zero = 0;
+        SafeWrite(entry + 0x94, &zero, 1);
+    }
+    return 0;
+}
+
+void InstallEnemyBarFilter() {
+    static bool tried = false;
+    if (tried) return;
+    tried = true;
+    HookValueFilter(kEnemyBarSet, {0xc6, 0x83, 0x94, 0x00, 0x00, 0x00, 0x01}, {0x48, 0x89, 0xdf}, &EnemyBarFilter, kEnemyBarResume,
+                    "game enemy bar filter");
+}
+}  // namespace
+
+void PartyHudNoteBarDrawn(std::uint64_t chr) {
+    if (!chr) return;
+    const long long now = NowMs();
+    std::lock_guard<std::mutex> lk(g_bar_mu);
+    BarStamp* slot = &g_bar_stamps[0];
+    for (BarStamp& b : g_bar_stamps) {
+        if (b.chr == chr) { slot = &b; break; }
+        if (b.ms < slot->ms) slot = &b;
+    }
+    slot->chr = chr;
+    slot->ms = now;
+}
+
+namespace {
 std::mutex g_chr_names_mu;
 std::vector<std::pair<std::uint64_t, std::string>> g_chr_names;  // the last tick's chr -> member name
 }  // namespace
@@ -355,6 +428,7 @@ void PartyHudTick(const GameSnapshot& s, party::PartyLink* link, party::MemberSt
     GameMenuTick(link != nullptr && s.world_up);
     profile.Next(perf::Zone::HudPlate);
     GamePlateOff(link != nullptr && BbSettings::Get().party_name_tags);  // off: the game's plate, vanilla
+    if (link != nullptr) InstallEnemyBarFilter();
     profile.Next(perf::Zone::HudVitals);
     if (!st.log_init) {
         st.log_init = true;
@@ -438,6 +512,7 @@ void PartyHudTick(const GameSnapshot& s, party::PartyLink* link, party::MemberSt
             l.have_yaw = r.have_yaw;
             l.yaw = r.yaw;
             l.chr = chr;
+            l.level_sync = balance::ChrHasLevelSync(chr);
         }
     }
     party::MemberVitals vit[party::kMaxVitals];

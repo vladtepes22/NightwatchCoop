@@ -6,6 +6,7 @@
 #include "party/party_hud.h"
 #include "party/party_npctalk.h"
 #include "party/party_ping.h"
+#include "party/party_pvp.h"
 #include "party/party_status.h"
 #include "party/world_warper.h"
 #include "party/seamless_rules.h"
@@ -466,7 +467,9 @@ void PartyHud() {
         const party::hud::PlateParams& pp = party::hud::CurrentPlateParams();
         const party::hud::PlateLayout pl =
             party::hud::LayoutPlate(sp.x + shift * display.x, sp.y, display.x, display.y, sp.depth, pp);
-        const bool with_bar = overhead == 3 && c.have_hp && c.max_hp > 0;
+        const bool with_bar = party::hud::OverheadBarShown(overhead, c.have_hp, c.max_hp);
+        const bool red = party::hud::OverheadBarRed(coop::pvp::Active());  // visy 0.7.5 f2e88358
+        if (with_bar) coop::PartyHudNoteBarDrawn(c.chr);  // the game's own enemy bar stays hidden under it (e3e5f99f)
         // pl.font is the em size (as the plate was measured); ImGui sizes a font by its line
         // height (ascent - descent), smaller per em: convert through the cap height of 'H' (live
         // 2026-10-12: without this our name came out at 0.6 of the game's).
@@ -489,6 +492,16 @@ void PartyHud() {
         }
         bg->AddText(ImVec2(at.x + o, at.y + o), Rgba(0.02f, 0.03f, 0.03f, 0.9f * alpha), label);  // drop shadow
         bg->AddText(at, Rgba(pp.name_rgb[0], pp.name_rgb[1], pp.name_rgb[2], alpha), label);  // the plate's blue
+        if (c.level_sync) {
+            // The game plate's level-sync marker (SpEffect 9200, visy 0.7.5 4e99adff): a small blue ring
+            // with a dot just after the name, vertically on the name's x-height.
+            const float tw = ImGui::CalcTextSize(label).x, r = std::max(2.5f, pl.font * 0.32f);
+            const ImVec2 mc(at.x + tw + r * 1.6f, at.y + (ascent - r * 0.2f) * 0.62f);
+            bg->AddCircleFilled(ImVec2(mc.x + 0.7f, mc.y + 0.7f), r, Rgba(0.02f, 0.03f, 0.03f, 0.8f * alpha), 16);
+            bg->AddCircleFilled(mc, r, Rgba(0.20f, 0.55f, 0.95f, alpha), 16);
+            bg->AddCircle(mc, r, Rgba(0.75f, 0.90f, 1.0f, alpha), 16, std::max(1.0f, r * 0.3f));
+            bg->AddCircleFilled(mc, r * 0.35f, Rgba(0.9f, 0.97f, 1.0f, alpha), 12);
+        }
         ImGui::PopFont();
         if (with_bar) {
             // The plate's thin bar: red over burnt orange, the empty part dark, a dark rim, light end caps.
@@ -500,8 +513,9 @@ void PartyHud() {
             }
             bg->AddRectFilled(p0, p1, Rgba(0.16f, 0.09f, 0.09f, 0.85f * alpha));
             if (frac > 0.0f) {
-                const ImU32 top = Rgba(pp.bar_top[0], pp.bar_top[1], pp.bar_top[2], alpha),
-                            bottom = Rgba(pp.bar_bottom[0], pp.bar_bottom[1], pp.bar_bottom[2], alpha);
+                // A PvP opponent (friendly fire in force): a plain bright red bar.
+                const ImU32 top = red ? Rgba(0.90f, 0.10f, 0.10f, alpha) : Rgba(pp.bar_top[0], pp.bar_top[1], pp.bar_top[2], alpha),
+                            bottom = red ? Rgba(0.60f, 0.03f, 0.05f, alpha) : Rgba(pp.bar_bottom[0], pp.bar_bottom[1], pp.bar_bottom[2], alpha);
                 bg->AddRectFilledMultiColor(p0, ImVec2(p0.x + (p1.x - p0.x) * frac, p1.y), top, top, bottom, bottom);
             }
             const ImU32 cap = Rgba(pp.cap_rgb[0], pp.cap_rgb[1], pp.cap_rgb[2], alpha),
