@@ -444,6 +444,8 @@ struct TestState {
     u32 lamp = 0;          // lamp=ID (0: the nearest lit one)
     u32 to = 0;            // to=ID (0: "other": the first lamp of another map)
     u32 start = 0;         // start=ID: first a plain lamp warp there when the save is in another map
+    bool map = false;      // map=ID|any: a map travel request (RequestMapTravel) instead of the lamp walk
+    u32 map_to = 0;        // its lamp; 0 (any): the first lamp map travel may go to
     bool started = false;
     double wait = 0;       // wait=S: S s more in the first steady world before the setup (another fixture first)
     enum Stage { Title, Settle, Walk, Press, Choose, Wait, Done } stage = Title;
@@ -474,6 +476,12 @@ void TestParse() {
         else if (item == "setuponly") g_t.setup_only = true;
         else if (item == "listonly") g_t.list_only = true;
         else if (item == "members") g_t.members = true;
+        else if (item.rfind("map=", 0) == 0) {
+            // The host's (or a solo game's) only: the joiner of a smoke-coop run shares the variable.
+            const char* role = std::getenv("BB_PARTY");
+            g_t.map = !role || !*role || std::strcmp(role, "host") == 0;
+            g_t.map_to = item == "map=any" ? 0 : static_cast<u32>(std::strtoul(item.c_str() + 4, nullptr, 10));
+        }
         else if (item.rfind("lamp=", 0) == 0) g_t.lamp = static_cast<u32>(std::strtoul(item.c_str() + 5, nullptr, 10));
         else if (item.rfind("wait=", 0) == 0) g_t.wait = std::strtod(item.c_str() + 5, nullptr);
         else if (item.rfind("start=", 0) == 0) g_t.start = static_cast<u32>(std::strtoul(item.c_str() + 6, nullptr, 10));
@@ -600,6 +608,18 @@ void TestTick(const GameSnapshot& s, double now) {
             }
             if (g_t.members_at == 0 || now - g_t.members_at < g_t.members_wait) return;
         } else if (now - g_t.steady_since < 5.0) {
+            return;
+        }
+        if (g_t.map) {
+            u32 to = g_t.map_to;
+            for (const Lamp& l : kLamps) {
+                if (to) break;
+                if (MapTravelAllowedTo(ReturnPoint(l))) to = ReturnPoint(l);
+            }
+            const MapTravel state = MapTravelNow();
+            const bool asked = to && RequestMapTravel(to);
+            Log("test: map travel to %u from %s: state %d, %s", to, MapName(s.map_id).c_str(), int(state), asked ? "asked" : "NOT asked");
+            g_t.stage = TestState::Done;  // the arrival (Act) logs and moves the stage on
             return;
         }
         if (g_t.setup_only) {

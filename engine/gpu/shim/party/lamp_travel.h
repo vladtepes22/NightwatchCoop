@@ -25,7 +25,8 @@
 // other = the first lamp of another map), "start=ID" (first a plain lamp warp there when the save is in
 // another map; "startany": also in the same map), "titleany" (title presses also in a party process
 // whose host never answers: Right = CANCEL on the server error, Cross), "dream" (Cross / Left / Cross at
-// the lamp - the vanilla Dream box - done once a load starts).
+// the lamp - the vanilla Dream box - done once a load starts), "map=ID|any" (the host or a solo
+// game, instead of the lamp walk: a map travel request to that lamp, any = the first one allowed).
 #pragma once
 
 #include "lamp_travel_rules.h"
