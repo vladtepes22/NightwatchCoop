@@ -368,18 +368,7 @@ namespace BloodborneLauncher.Views
                 {
                     Body.Children.Add(child);
                     box = new StackPanel { Margin = new Thickness(0, -1, 0, 0) };
-                    var frame = new Border
-                    {
-                        CornerRadius = new CornerRadius(16),
-                        BorderThickness = new Thickness(1),
-                        Child = box,
-                    };
-                    // Clip to the rounded shape (ClipToBounds is a plain rectangle, which let the
-                    // first row's divider run across the rounded corners).
-                    frame.SizeChanged += (_, e) =>
-                        frame.Clip = new RectangleGeometry(new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 16, 16);
-                    frame.SetResourceReference(Border.BackgroundProperty, "GlassPaneBrush");
-                    frame.SetResourceReference(Border.BorderBrushProperty, "GlassPaneStrokeBrush");
+                    var frame = Pane(box);
                     // A hidden header hides its whole group (Co-op's groups per mode).
                     frame.SetBinding(VisibilityProperty, new System.Windows.Data.Binding(nameof(Visibility)) { Source = child });
                     Body.Children.Add(frame);
@@ -404,6 +393,19 @@ namespace BloodborneLauncher.Views
         }
 
         // ---------------------------------------------------------------- building blocks
+
+        /// <summary>The rounded glass pane a group's rows sit in.</summary>
+        protected static Border Pane(UIElement child)
+        {
+            var frame = new Border { CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(1), Child = child };
+            // Clip to the rounded shape (ClipToBounds is a plain rectangle, which let the
+            // first row's divider run across the rounded corners).
+            frame.SizeChanged += (_, e) =>
+                frame.Clip = new RectangleGeometry(new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 16, 16);
+            frame.SetResourceReference(Border.BackgroundProperty, "GlassPaneBrush");
+            frame.SetResourceReference(Border.BorderBrushProperty, "GlassPaneStrokeBrush");
+            return frame;
+        }
 
         public static TextBlock Text(string text, string style)
         {

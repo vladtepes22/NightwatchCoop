@@ -34,7 +34,7 @@
             <Setter Property="Focusable" Value="False" />
             <Setter Property="Cursor" Value="Arrow" />
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Background" Value="{DynamicResource TitleButtonBrush}" />
             <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
             <Setter Property="Template">
                 <Setter.Value>
@@ -70,7 +70,7 @@
             <Setter Property="MinWidth" Value="26" />
             <Setter Property="Focusable" Value="False" />
             <!-- WPF-UI's implicit button style paints a light fill; these sit on the dark title bar. -->
-            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Background" Value="{DynamicResource TitleButtonBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
@@ -232,7 +232,7 @@
                     </LinearGradientBrush>
                 </Rectangle.Fill>
             </Rectangle>
-            <!-- Eldritch theme: its moon, arches and eyes (hidden in the other themes). -->
+            <!-- Eldritch theme: its city, moon and fog (hidden in the other themes). -->
             <views:EldritchArt x:Name="Art" Visibility="Collapsed" />
         </Grid>
 
@@ -259,8 +259,7 @@
                             VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Clear (Esc)" Click="SearchClear_Click" />
                 </Grid>
 
-                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12"
-                           shell:WindowChrome.IsHitTestVisibleInChrome="True" MouseLeftButtonDown="TitleName_MouseLeftButtonDown">
+                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" IsHitTestVisible="False">
                     <Run Text="Nightwatch Co-op" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                     <Run x:Name="TitlePage" Text="" Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                 </TextBlock>
@@ -286,7 +285,7 @@
                         </StackPanel>
                     </Button>
                     <Button x:Name="TitlePlay" Style="{StaticResource TitleIcon}" Click="TitlePlay_Click" Margin="0,0,6,0"
-                            Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                            Background="{DynamicResource TitlePlayBrush}"
                             BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                             ToolTip="{loc:Tr &#x27;Start the game&#x27;}">
                         <StackPanel Orientation="Horizontal">
@@ -330,7 +329,8 @@
                     <RadioButton Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Trophies&#x27;}"
                                  Tag="{x:Type views:TrophiesPage}" Checked="SidebarItem_Checked" />
                     <RadioButton x:Name="CoopItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Co-op&#x27;}"
-                                 Tag="{x:Type views:SeamlessPage}" Checked="SidebarItem_Checked" />
+                                 Tag="{x:Type views:SeamlessPage}" Checked="SidebarItem_Checked"
+                                 PreviewMouseLeftButtonDown="CoopItem_PreviewMouseLeftButtonDown" />
                     <RadioButton x:Name="SettingsItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Launcher&#x27;}"
                                  Tag="{x:Type views:SettingsPage}" Checked="SidebarItem_Checked" />
                     <RadioButton x:Name="MoreItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;More&#x27;}"
@@ -419,42 +419,19 @@
             <StackPanel x:Name="SearchList" />
         </Border>
 
-        <!-- Three clicks on the title: the night looks back (MainWindow.ShowWatcher). -->
+        <!-- Eldritch theme: its surprises pass in front of the panes; clicks go through. -->
+        <Canvas x:Name="ArtStage" Grid.RowSpan="4" IsHitTestVisible="False" ClipToBounds="True" />
+
+        <!-- Three clicks on the Co-op tab: the night looks back (MainWindow.ShowWatcher). -->
         <Grid x:Name="Watcher" Grid.RowSpan="4" Visibility="Collapsed" IsHitTestVisible="False" Opacity="0">
-            <Rectangle Fill="#C8050303" />
+            <Rectangle x:Name="WatcherScrim" Fill="#D8050303" />
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Canvas Width="240" Height="110" RenderTransformOrigin="0.5,0.5">
-                    <Canvas.RenderTransform>
-                        <ScaleTransform x:Name="WatcherLid" ScaleY="0" />
-                    </Canvas.RenderTransform>
-                    <Canvas.Clip>
-                        <PathGeometry Figures="M 0,55 Q 120,-25 240,55 Q 120,135 0,55 Z" />
-                    </Canvas.Clip>
-                    <Path Data="M 0,55 Q 120,-25 240,55 Q 120,135 0,55 Z" Fill="#FF1A0F0C" />
-                    <Path Stroke="#557A2A22" StrokeThickness="0.8"
-                          Data="M 6,55 C 30,50 48,58 70,52 M 234,55 C 214,61 196,52 172,58 M 40,40 C 56,46 66,42 82,48 M 200,72 C 186,66 174,70 160,64" />
-                    <Canvas Canvas.Left="82" Canvas.Top="17">
-                        <Canvas.RenderTransform>
-                            <TranslateTransform x:Name="WatcherGaze" />
-                        </Canvas.RenderTransform>
-                        <Ellipse Width="76" Height="76">
-                            <Ellipse.Fill>
-                                <RadialGradientBrush>
-                                    <GradientStop Color="#FFD07A62" Offset="0" />
-                                    <GradientStop Color="#FF9A3326" Offset="0.55" />
-                                    <GradientStop Color="#FF3A0F0B" Offset="1" />
-                                </RadialGradientBrush>
-                            </Ellipse.Fill>
-                        </Ellipse>
-                        <Ellipse Canvas.Left="23" Canvas.Top="7" Width="30" Height="62" Fill="#FF050303" RenderTransformOrigin="0.5,0.5">
-                            <Ellipse.RenderTransform>
-                                <ScaleTransform x:Name="WatcherPupil" />
-                            </Ellipse.RenderTransform>
-                        </Ellipse>
-                        <Ellipse Canvas.Left="46" Canvas.Top="16" Width="7" Height="5" Fill="#669FB1BC" />
-                    </Canvas>
-                    <Path Data="M 0,55 Q 120,-25 240,55 Q 120,135 0,55 Z" Stroke="#FF8E2A22" StrokeThickness="2" />
-                </Canvas>
+                <Image x:Name="WatcherEye" Width="900" Stretch="Uniform" RenderTransformOrigin="0.5,0.5"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                    <Image.RenderTransform>
+                        <ScaleTransform x:Name="WatcherZoom" />
+                    </Image.RenderTransform>
+                </Image>
                 <TextBlock x:Name="WatcherText" Margin="0,22,0,0" HorizontalAlignment="Center" FontFamily="Constantia, Georgia"
                            FontStyle="Italic" FontSize="20" Foreground="#FFE8DFCF" Opacity="0"
                            Text="{loc:Tr &#x27;The night watches back.&#x27;}" />

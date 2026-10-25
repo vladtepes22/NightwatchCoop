@@ -4,24 +4,33 @@
     <!--
         Eldritch (Launcher › Appearance › Theme): gothic Victorian, with something wrong underneath.
         Warm near-black instead of blue-black, dried blood as the one accent, bone for text, ochre
-        for warnings. The art (moon, silhouette, arches, eyes) is Views/EldritchArt.xaml.
+        for warnings. The art (city, moon, fog, surprises) is Views/EldritchArt.xaml.
         Merged over Glass.xaml by LauncherTheme; solid fills only, no glow and no button gradients.
     -->
 
     <FontFamily x:Key="UiFont">Constantia, Palatino Linotype, Georgia, Segoe UI</FontFamily>
 
     <SolidColorBrush x:Key="WindowBaseBrush" Color="#FF0E0A09" />
-    <SolidColorBrush x:Key="GlassPaneBrush" Color="#18E8DCC8" />
+    <SolidColorBrush x:Key="GlassPaneBrush" Color="#C0130E0C" />
     <SolidColorBrush x:Key="GlassPaneStrokeBrush" Color="#3A8A6A55" />
     <SolidColorBrush x:Key="GlassDividerBrush" Color="#228A6A55" />
-    <SolidColorBrush x:Key="PillTrackBrush" Color="#59000000" />
+    <SolidColorBrush x:Key="PillTrackBrush" Color="#B0080505" />
     <SolidColorBrush x:Key="SegmentSelectedBrush" Color="#FF5A1915" />
 
-    <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="#1AE8DCC8" />
-    <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#12E8DCC8" />
+    <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="#C8130E0C" />
+    <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#B8130E0C" />
     <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#339C7B62" />
+    <!-- WPF-UI's Card (the Trophies page's completion box) has brushes of its own. -->
+    <SolidColorBrush x:Key="CardBackground" Color="#C8130E0C" />
+    <SolidColorBrush x:Key="CardBackgroundPointerOver" Color="#D01A1310" />
+    <SolidColorBrush x:Key="CardBackgroundPressed" Color="#C0100B09" />
+    <SolidColorBrush x:Key="CardFooterBackground" Color="#B0100B09" />
+    <SolidColorBrush x:Key="CardBorderBrush" Color="#339C7B62" />
     <SolidColorBrush x:Key="ControlFillColorDefaultBrush" Color="#1FE8DCC8" />
     <SolidColorBrush x:Key="ControlFillColorSecondaryBrush" Color="#2BE8DCC8" />
+    <!-- Solid, so the art never shows through the title bar's buttons. -->
+    <SolidColorBrush x:Key="TitlePlayBrush" Color="#FF2C211D" />
+    <SolidColorBrush x:Key="TitleButtonBrush" Color="#FF2C211D" />
     <SolidColorBrush x:Key="ControlFillColorTertiaryBrush" Color="#14E8DCC8" />
     <SolidColorBrush x:Key="ControlFillColorInputActiveBrush" Color="#59000000" />
     <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush" Color="#2E9C7B62" />

@@ -3,80 +3,28 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              IsHitTestVisible="False" ClipToBounds="True">
     <!--
-        The Eldritch theme's art, behind the glass panes. All of it drawn here as vector paths (no
-        pictures, nothing taken from the game): a pale blood moon with something too thin inside it,
-        a many-limbed shape half behind the arches, arch tracery with a few eyes in it, ink bleeding
-        from the header, paper grain. Kept faint: things to notice on a second look.
+        The Eldritch theme behind the glass panes: painted layers (Themes/Eldritch/*) that the code moves.
+        Back to front: the city, the moon, the fog (the surprises play on MainWindow's ArtStage, in front).
+        Placement and motion are in EldritchArt.xaml.cs; nothing here takes clicks.
     -->
     <Grid>
-        <!-- Paper grain: generated noise (EldritchArt.xaml.cs), warm and very faint. -->
-        <Rectangle x:Name="Grain" />
-
-        <!-- The moon, top right, larger than the window wants it to be. -->
-        <Canvas Width="420" Height="420" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-96,-72,0" Opacity="0.36">
-            <Ellipse Width="420" Height="420">
-                <Ellipse.Fill>
-                    <RadialGradientBrush GradientOrigin="0.42,0.4" Center="0.5,0.5" RadiusX="0.5" RadiusY="0.5">
-                        <GradientStop Color="#FFD9A493" Offset="0" />
-                        <GradientStop Color="#FFB25C4C" Offset="0.62" />
-                        <GradientStop Color="#FF7A2A22" Offset="0.94" />
-                        <GradientStop Color="#007A2A22" Offset="1" />
-                    </RadialGradientBrush>
-                </Ellipse.Fill>
-            </Ellipse>
-            <Ellipse Canvas.Left="84" Canvas.Top="104" Width="124" Height="92" Fill="#1A3A0C08" />
-            <Ellipse Canvas.Left="232" Canvas.Top="206" Width="82" Height="70" Fill="#163A0C08" />
-            <Ellipse Canvas.Left="146" Canvas.Top="262" Width="64" Height="48" Fill="#123A0C08" />
-            <Ellipse Canvas.Left="268" Canvas.Top="96" Width="40" Height="34" Fill="#103A0C08" />
-            <!-- Inside it, the thin one: a figure all arms, its ribbons trailing off. -->
-            <Ellipse Canvas.Left="206" Canvas.Top="139" Width="13" Height="18" Fill="#3A1A0807" />
-            <Path Stroke="#381E0907" StrokeThickness="1.1" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                  Data="M 213,158 C 211,200 216,242 213,300
-                        M 213,176 C 190,171 171,151 151,121 L 129,96 C 121,85 111,71 97,57
-                        M 213,176 C 236,169 255,149 276,123 L 301,93 C 309,81 319,68 333,59
-                        M 213,300 C 199,331 180,346 159,354 C 150,357 141,363 136,374
-                        M 213,300 C 229,333 249,349 273,351 C 284,353 291,360 296,371
-                        M 213,232 C 195,251 171,256 149,250
-                        M 213,232 C 233,253 257,257 279,249" />
-            <Path Stroke="#3A9FB1BC" StrokeThickness="0.8" Data="M 97,57 L 88,49 M 333,59 L 343,52" />
-        </Canvas>
-
-        <!-- Behind the arches, top left: a tall thing holding on, never shown whole. -->
-        <Canvas Width="340" Height="520" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-36,-70,0,0" Opacity="0.55">
-            <Path Fill="#F0060403"
-                  Data="M 150,0 C 120,40 110,90 125,140 C 135,176 150,200 165,206 C 182,200 196,176 204,140 C 218,90 210,40 182,0 Z" />
-            <Path Stroke="#F0060403" StrokeThickness="4" StrokeLineJoin="Round" StrokeEndLineCap="Round"
-                  Data="M 130,120 L 80,151 L 41,232 L 20,322 M 20,322 L 9,343 M 20,322 L 23,345 M 20,322 L 34,338
-                        M 135,152 L 94,202 L 70,292 L 64,402 M 64,402 L 52,420 M 64,402 L 67,424
-                        M 150,190 L 131,261 L 128,362 L 110,472
-                        M 195,120 L 246,146 L 291,216 L 319,302 M 319,302 L 331,322 M 319,302 L 315,325
-                        M 192,152 L 233,206 L 256,302 L 262,412
-                        M 178,196 L 201,266 L 205,372 L 226,482" />
-            <!-- Two of its eyes, barely lit. -->
-            <Ellipse Canvas.Left="152" Canvas.Top="96" Width="5" Height="3" Fill="#4A9FB1BC" />
-            <Ellipse Canvas.Left="171" Canvas.Top="118" Width="4" Height="3" Fill="#389FB1BC" />
-        </Canvas>
-
-        <!-- Ink bleeding down from the header, left. -->
-        <Path HorizontalAlignment="Left" VerticalAlignment="Top" Margin="180,30,0,0" Fill="#55060303"
-              Data="M 0,4 C 18,0 40,6 64,3 C 80,1 98,5 112,4 L 112,8 C 96,10 84,9 72,12 C 70,22 71,34 68,41 C 66,45 63,44 62,39
-                    C 61,30 62,21 58,14 C 46,13 36,15 30,14 C 29,20 30,27 27,29 C 25,30 24,27 24,23 C 24,19 24,15 21,13 C 13,12 6,11 0,10 Z" />
-
-        <!-- Arch tracery under the header, five bays; the eyes sit in two of them, not the same way. -->
-        <Grid VerticalAlignment="Top" Height="118" Margin="0,34,0,0">
-            <Path Stretch="Fill" Stroke="#3A8A6A55" StrokeThickness="1"
-                  Data="M 0,118 L 0,55 C 0,24 54,8 95,2 C 136,8 190,22 190,50 L 190,118
-                        M 190,50 C 191,20 254,5 301,0 C 349,6 410,23 410,54 L 410,118
-                        M 410,54 C 410,27 456,10 499,4 C 542,9 590,24 590,49 L 590,118
-                        M 590,49 C 592,19 654,6 706,1 C 758,7 820,21 820,53 L 820,118
-                        M 820,53 C 819,26 866,9 911,3 C 954,10 1000,25 1000,56 L 1000,118" />
-            <Path Stretch="Fill" Stroke="#1F8A6A55" StrokeThickness="1" Margin="14,12,14,0"
-                  Data="M 0,106 L 0,50 C 1,22 52,8 90,2 C 128,8 176,21 176,47 L 176,96
-                        M 214,47 C 214,19 266,6 309,0 C 352,7 396,22 397,50 L 397,106
-                        M 424,51 C 424,26 464,10 502,4 C 541,9 576,23 577,47 L 577,90
-                        M 604,46 C 605,18 660,6 709,1 C 757,8 806,21 807,51 L 807,106
-                        M 834,52 C 834,26 876,10 916,4 C 956,11 996,25 997,54 L 997,100" />
-            <UniformGrid x:Name="EyeBays" Columns="5" />
+        <Image x:Name="Backdrop" Stretch="UniformToFill" HorizontalAlignment="Left" VerticalAlignment="Top"
+               RenderOptions.BitmapScalingMode="HighQuality" />
+        <!-- A wash over the city, darker towards the bottom where the settings are read. -->
+        <Rectangle>
+            <Rectangle.Fill>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#590E0A09" Offset="0" />
+                    <GradientStop Color="#8C0E0A09" Offset="0.45" />
+                    <GradientStop Color="#C00E0A09" Offset="1" />
+                </LinearGradientBrush>
+            </Rectangle.Fill>
+        </Rectangle>
+        <Canvas x:Name="Sky" />
+        <Grid x:Name="FogBand" VerticalAlignment="Bottom">
+            <Rectangle x:Name="FogBack" Opacity="0.4" Height="512" VerticalAlignment="Bottom" />
+            <Rectangle x:Name="FogFront" Opacity="0.5" Height="384" VerticalAlignment="Bottom" Margin="0,0,0,-40" />
         </Grid>
+        <Canvas x:Name="Surprises" />
     </Grid>
 </UserControl>

@@ -79,7 +79,7 @@ namespace BloodborneLauncher.Views
             Grid.SetColumn(filter, 1);
             header.Children.Add(filter);
             Body.Children.Add(header);
-            Body.Children.Add(_list);
+            Body.Children.Add(Pane(_list));
 
             // ==================== Notifications ====================
             Group(L.T("Notification"));

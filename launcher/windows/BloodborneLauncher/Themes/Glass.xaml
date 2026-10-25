@@ -29,6 +29,9 @@
     <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#26FFFFFF" />
     <SolidColorBrush x:Key="ControlFillColorDefaultBrush" Color="#22FFFFFF" />
     <SolidColorBrush x:Key="ControlFillColorSecondaryBrush" Color="#2EFFFFFF" />
+    <!-- The title bar's buttons: the Play button stands out, the rest sit flat on the bar. -->
+    <SolidColorBrush x:Key="TitlePlayBrush" Color="#2EFFFFFF" />
+    <SolidColorBrush x:Key="TitleButtonBrush" Color="Transparent" />
     <SolidColorBrush x:Key="ControlFillColorTertiaryBrush" Color="#18FFFFFF" />
     <SolidColorBrush x:Key="ControlFillColorInputActiveBrush" Color="#40000000" />
     <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush" Color="#2AFFFFFF" />

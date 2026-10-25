@@ -1,133 +1,312 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
 using System.Windows.Threading;
 
 namespace BloodborneLauncher.Views
 {
     /// <summary>
-    /// The Eldritch theme's art layer: the eyes in the arches blink now and then and turn a little
-    /// towards the pointer; the grain is generated once. Hidden and stopped in every other theme.
+    /// The Eldritch theme's living backdrop. Painted layers (Themes/Eldritch, built into the exe) placed by
+    /// window size: the city, the moon, two fog bands drifting apart, and every half minute to a minute and
+    /// a half one surprise on the Stage in front of the panes: a queen floating in prayer, a crow across the
+    /// moon, the moon opening an eye, a hand reaching up, or a grinning head on spider legs peeking up.
+    /// Only transforms, opacity and frame swaps move, at 30 frames a second, and all of it sleeps while
+    /// the window is inactive or minimized (Awake), so the game keeps the GPU. A missing picture leaves
+    /// its element out.
     /// </summary>
     public partial class EldritchArt : UserControl
     {
-        // (bay, offset from the bay's middle, how far down): two bays out of five, set off-centre.
-        private static readonly (int Bay, double X, double Y)[] EyePlaces = { (1, 18, 30), (4, -26, 38), (4, 6, 52) };
+        private const string Folder = "pack://application:,,,/Nightwatch Co-op;component/Themes/Eldritch/";
+        private static readonly Dictionary<string, BitmapSource?> Cache = new();
 
-        private readonly List<(Canvas Eye, TranslateTransform Iris)> _eyes = new();
-        private readonly DispatcherTimer _blink = new() { Interval = TimeSpan.FromSeconds(1) };
+        /// <summary>A picture of the theme, decoded once at no more than <paramref name="width"/> pixels;
+        /// null when it is not in this build.</summary>
+        public static BitmapSource? Picture(string name, int width = 0)
+        {
+            var key = name + "@" + width;
+            if (Cache.TryGetValue(key, out var cached)) return cached;
+            BitmapSource? image = null;
+            try
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = new Uri(Folder + name, UriKind.Absolute);
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                if (width > 0) bitmap.DecodePixelWidth = width;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                image = bitmap;
+            }
+            catch (Exception e) when (e is IOException or NotSupportedException or InvalidOperationException) { }
+            return Cache[key] = image;
+        }
+
+        private readonly List<Storyboard> _ambient = new();
+        private readonly DispatcherTimer _tick = new() { Interval = TimeSpan.FromSeconds(1) };
         private readonly Random _random = new();
+        private Image? _moon, _moonEye;
+        private ImageBrush? _fogBack, _fogFront;
+        private bool _built, _shown, _awake = true;
+        private DateTime _nextSurprise;
+        private int _lastSurprise = -1;
 
         public EldritchArt()
         {
             InitializeComponent();
-            Grain.Fill = PaperGrain();
-            var bays = new Grid[5];
-            for (int i = 0; i < bays.Length; i++) EyeBays.Children.Add(bays[i] = new Grid());
-            foreach (var (bay, x, y) in EyePlaces)
-            {
-                var (eye, iris) = Eye();
-                eye.HorizontalAlignment = HorizontalAlignment.Center;
-                eye.VerticalAlignment = VerticalAlignment.Top;
-                eye.Margin = new Thickness(x * 2, y, 0, 0);
-                bays[bay].Children.Add(eye);
-                _eyes.Add((eye, iris));
-            }
-            _blink.Tick += (_, _) =>
-            {
-                // About one blink every eight seconds across all of them, never in step.
-                if (_random.NextDouble() < 0.12) Blink(_eyes[_random.Next(_eyes.Count)].Eye);
-            };
+            SizeChanged += (_, _) => Layout();
+            _tick.Tick += (_, _) => Tick();
         }
+
+        /// <summary>Where the surprises appear: a click-through canvas over the whole window, in front of
+        /// the panes (the panes would hide them). Without one they stay behind, on this control.</summary>
+        public Panel? Stage { get; set; }
+
+        private Panel Front => Stage ?? Surprises;
 
         public void Show(bool on)
         {
+            _shown = on;
             Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-            if (on) _blink.Start(); else _blink.Stop();
+            if (!on) Front.Children.Clear();
+            if (on && !_built) Build();
+            Run();
         }
 
-        /// <summary>The irises lean towards the pointer (window coordinates), a couple of pixels at most.</summary>
-        public void Look(Point pointer)
+        /// <summary>The launcher is in front (active, not minimized): only then does anything move.</summary>
+        public void Awake(bool awake)
         {
-            if (Visibility != Visibility.Visible) return;
-            foreach (var (eye, iris) in _eyes)
+            _awake = awake;
+            Run();
+        }
+
+        private void Run()
+        {
+            var on = _shown && _awake && _built;
+            foreach (var story in _ambient)
+                if (on) story.Resume(this); else story.Pause(this);
+            if (on) _tick.Start(); else _tick.Stop();
+        }
+
+        /// <summary>Launcher › Background blur on the painted city (0 = sharp). The picture never changes, so
+        /// the blur is worked out once, not per frame.</summary>
+        public void Blur(double radius)
+        {
+            Backdrop.Effect = radius <= 0 ? null : new System.Windows.Media.Effects.BlurEffect
             {
-                if (!eye.IsLoaded) continue;
-                var centre = eye.TranslatePoint(new Point(13, 6), this);
-                var dx = pointer.X - centre.X;
-                var dy = pointer.Y - centre.Y;
-                var length = Math.Max(1, Math.Sqrt(dx * dx + dy * dy));
-                iris.X = 3.5 * dx / length;
-                iris.Y = 1.2 * dy / length;
+                Radius = radius, KernelType = System.Windows.Media.Effects.KernelType.Gaussian,
+                RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance,
+            };
+            // Bigger than the window, so the blur's soft edge stays outside it.
+            Backdrop.Margin = new Thickness(radius <= 0 ? 0 : -radius * 1.5);
+            Backdrop.CacheMode = radius <= 0 ? null : new BitmapCache();
+        }
+
+        // ---------------------------------------------------------------- building
+
+        private void Build()
+        {
+            _built = true;
+            Backdrop.Source = Picture("backdrop.jpg", 2560);
+
+            if (Picture("moon.png", 1200) is { } moon)
+            {
+                _moon = Add(Sky, moon);
+                if (Picture("moon-eye.png", 1200) is { } eye)
+                {
+                    _moonEye = Add(Sky, eye);
+                    _moonEye.Opacity = 0;
+                }
+            }
+
+            if (Picture("fog.png", 2048) is { } fog)
+            {
+                _fogBack = FogBrush(fog, 1.0);
+                _fogFront = FogBrush(fog, 0.75);
+                FogBack.Fill = _fogBack;
+                FogFront.Fill = _fogFront;
+                Drift(_fogBack, 2048, 140);
+                Drift(_fogFront, -2048 * 0.75, 95);
+            }
+
+            _nextSurprise = DateTime.Now.AddSeconds(19 + _random.Next(12));
+            Layout();
+        }
+
+        private static Image Add(Panel layer, BitmapSource source)
+        {
+            var image = new Image { Source = source, Stretch = Stretch.Uniform };
+            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+            layer.Children.Add(image);
+            return image;
+        }
+
+        private static ImageBrush FogBrush(BitmapSource fog, double scale) => new(fog)
+        {
+            TileMode = TileMode.Tile, Stretch = Stretch.Fill, ViewportUnits = BrushMappingMode.Absolute,
+            Viewport = new Rect(0, 0, 2048 * scale, 512 * scale), AlignmentY = AlignmentY.Bottom,
+            Transform = new TranslateTransform(),
+        };
+
+        private void Drift(ImageBrush brush, double distance, double seconds) =>
+            Ambient(new DoubleAnimation(0, distance, TimeSpan.FromSeconds(seconds)) { RepeatBehavior = RepeatBehavior.Forever },
+                (TranslateTransform)brush.Transform, TranslateTransform.XProperty);
+
+        private void Ambient(DoubleAnimation animation, DependencyObject target, DependencyProperty property)
+        {
+            var story = new Storyboard();
+            Timeline.SetDesiredFrameRate(story, 30);
+            Storyboard.SetTarget(animation, target);
+            Storyboard.SetTargetProperty(animation, new PropertyPath(property));
+            story.Children.Add(animation);
+            story.Begin(this, true);
+            _ambient.Add(story);
+        }
+
+        // ---------------------------------------------------------------- placing
+
+        private void Layout()
+        {
+            double w = ActualWidth, h = ActualHeight;
+            if (!_built || w < 10 || h < 10 || _moon == null) return;
+            var size = Math.Min(0.32 * w, 0.75 * h);
+            foreach (var image in new[] { _moon, _moonEye })
+            {
+                if (image == null) continue;
+                image.Width = image.Height = size;
+                Canvas.SetLeft(image, w - 0.16 * w - size / 2);
+                Canvas.SetTop(image, 0.16 * h - size / 2 + 0.08 * size);
             }
         }
 
-        private static (Canvas, TranslateTransform) Eye()
+        // ---------------------------------------------------------------- life
+
+        private void Tick()
         {
-            var eye = new Canvas
+            var now = DateTime.Now;
+            if (now < _nextSurprise) return;
+            _nextSurprise = now.AddSeconds(35 + _random.Next(58));
+            Surprise();
+        }
+
+        /// <summary>Swaps an image through frames, <paramref name="stepMs"/> apart, ending on the last.</summary>
+        public static void Frames(Image image, IReadOnlyList<ImageSource> frames, int stepMs, int delayMs)
+        {
+            var animation = new ObjectAnimationUsingKeyFrames { BeginTime = TimeSpan.FromMilliseconds(delayMs) };
+            for (int i = 0; i < frames.Count; i++)
+                animation.KeyFrames.Add(new DiscreteObjectKeyFrame(frames[i], TimeSpan.FromMilliseconds(i * stepMs)));
+            animation.Completed += (_, _) =>
             {
-                Width = 26, Height = 12, Opacity = 0.4,
-                RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1),
+                image.BeginAnimation(Image.SourceProperty, null);
+                image.Source = frames[^1];
             };
-            var almond = Geometry.Parse("M 0,6 Q 13,-3 26,6 Q 13,15 0,6 Z");
-            eye.Children.Add(new Path { Data = almond, Fill = Brush(0x60, 0x0A, 0x06, 0x06), Stroke = Brush(0x88, 0x9F, 0xB1, 0xBC), StrokeThickness = 0.8 });
-            var iris = new TranslateTransform();
-            var pupil = new Canvas { RenderTransform = iris };
-            pupil.Children.Add(Placed(new Ellipse { Width = 7, Height = 7, Fill = Brush(0xB0, 0x9F, 0xB1, 0xBC) }, 9.5, 2.5));
-            pupil.Children.Add(Placed(new Ellipse { Width = 2, Height = 5, Fill = Brush(0xFF, 0x0A, 0x06, 0x06) }, 12, 3.5));
-            eye.Children.Add(pupil);
-            eye.Clip = almond;
-            return (eye, iris);
+            image.BeginAnimation(Image.SourceProperty, animation);
         }
 
-        private static void Blink(Canvas eye)
+        private void Surprise()
         {
-            var close = new DoubleAnimation(1, 0.06, TimeSpan.FromMilliseconds(110)) { AutoReverse = true, EasingFunction = new SineEase() };
-            ((ScaleTransform)eye.RenderTransform).BeginAnimation(ScaleTransform.ScaleYProperty, close);
+            var options = new List<(int Id, Action Run)>();
+            if (Picture("queen.png", 768) is { } queen) options.Add((0, () => Queen(queen)));
+            if (Picture("crow-1.png", 256) is { } up && Picture("crow-2.png", 256) is { } down) options.Add((1, () => Crow(up, down)));
+            if (_moonEye != null) options.Add((2, MoonEye));
+            if (Picture("hand.png", 512) is { } hand) options.Add((3, () => Rise(hand, 0.30, 1200, 1400, _random.Next(2) == 0)));
+            if (Picture("spider.png", 768) is { } spider) options.Add((4, () => Rise(spider, 0.30, 900, 2800, right: true)));
+            options.RemoveAll(o => o.Id == _lastSurprise && options.Count > 1);
+            if (options.Count == 0) return;
+            var pick = options[_random.Next(options.Count)];
+            _lastSurprise = pick.Id;
+            pick.Run();
         }
 
-        private static UIElement Placed(UIElement element, double left, double top)
+        private Image Sprite(BitmapSource source, double height)
         {
-            Canvas.SetLeft(element, left);
-            Canvas.SetTop(element, top);
-            return element;
+            var image = Add(Front, source);
+            image.IsHitTestVisible = false;
+            image.Height = height;
+            image.Width = height * source.PixelWidth / source.PixelHeight;
+            return image;
         }
 
-        private static SolidColorBrush Brush(byte a, byte r, byte g, byte b)
+        private void Remove(Image image, Timeline last)
         {
-            var brush = new SolidColorBrush(Color.FromArgb(a, r, g, b));
-            brush.Freeze();
-            return brush;
+            var stage = Front;
+            last.Completed += (_, _) => stage.Children.Remove(image);
         }
 
-        /// <summary>Uneven warm specks, tiled: an old page rather than a flat fill.</summary>
-        private static ImageBrush PaperGrain()
+        /// <summary>A queen in prayer fades in on the right, floating, drifts up and down slowly, and fades away.</summary>
+        private void Queen(BitmapSource picture)
         {
-            const int size = 160;
-            var pixels = new byte[size * size * 4];
-            var random = new Random(1888);
-            for (int i = 0; i < pixels.Length; i += 4)
-            {
-                var speck = random.NextDouble();
-                byte alpha = (byte)(speck > 0.985 ? 34 : speck * 12);
-                // Premultiplied BGRA, a brown close to dried ink.
-                pixels[i] = (byte)(0x14 * alpha / 255);
-                pixels[i + 1] = (byte)(0x22 * alpha / 255);
-                pixels[i + 2] = (byte)(0x3A * alpha / 255);
-                pixels[i + 3] = alpha;
-            }
-            var bitmap = BitmapSource.Create(size, size, 96, 96, PixelFormats.Pbgra32, null, pixels, size * 4);
-            bitmap.Freeze();
-            var brush = new ImageBrush(bitmap)
-            {
-                TileMode = TileMode.Tile, Stretch = Stretch.None,
-                Viewport = new Rect(0, 0, size, size), ViewportUnits = BrushMappingMode.Absolute,
-            };
-            brush.Freeze();
-            return brush;
+            double w = ActualWidth, h = ActualHeight;
+            var image = Sprite(picture, 0.42 * h);
+            Canvas.SetLeft(image, w - image.Width - 0.04 * w);
+            Canvas.SetTop(image, 0.24 * h);
+            var seen = new DoubleAnimationUsingKeyFrames();
+            seen.KeyFrames.Add(new EasingDoubleKeyFrame(0, TimeSpan.Zero));
+            seen.KeyFrames.Add(new EasingDoubleKeyFrame(0.85, TimeSpan.FromSeconds(2.5), new SineEase()));
+            seen.KeyFrames.Add(new EasingDoubleKeyFrame(0.85, TimeSpan.FromSeconds(8)));
+            seen.KeyFrames.Add(new EasingDoubleKeyFrame(0, TimeSpan.FromSeconds(10.5), new SineEase()));
+            var hover = new DoubleAnimation(0, -0.03 * h, TimeSpan.FromSeconds(3)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut } };
+            var move = new TranslateTransform();
+            image.RenderTransform = move;
+            image.Opacity = 0;
+            Timeline.SetDesiredFrameRate(seen, 30);
+            Timeline.SetDesiredFrameRate(hover, 30);
+            Remove(image, seen);
+            image.BeginAnimation(OpacityProperty, seen);
+            move.BeginAnimation(TranslateTransform.YProperty, hover);
+        }
+
+        /// <summary>A crow crosses in front of the moon, flapping.</summary>
+        private void Crow(BitmapSource up, BitmapSource down)
+        {
+            double w = ActualWidth, h = ActualHeight;
+            var image = Sprite(up, 0.09 * h);
+            Canvas.SetTop(image, 0.06 * h + _random.NextDouble() * 0.12 * h);
+            var fly = new DoubleAnimation(w + 10, w * 0.45, TimeSpan.FromSeconds(5.5));
+            var drop = new DoubleAnimation(0, 0.05 * h, TimeSpan.FromSeconds(5.5));
+            var flap = new ObjectAnimationUsingKeyFrames { RepeatBehavior = RepeatBehavior.Forever, Duration = TimeSpan.FromMilliseconds(260) };
+            flap.KeyFrames.Add(new DiscreteObjectKeyFrame(up, TimeSpan.Zero));
+            flap.KeyFrames.Add(new DiscreteObjectKeyFrame(down, TimeSpan.FromMilliseconds(130)));
+            var fade = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(1.2)) { BeginTime = TimeSpan.FromSeconds(4.3) };
+            var move = new TranslateTransform();
+            image.RenderTransform = move;
+            Remove(image, fly);
+            image.BeginAnimation(Canvas.LeftProperty, fly);
+            move.BeginAnimation(TranslateTransform.YProperty, drop);
+            image.BeginAnimation(Image.SourceProperty, flap);
+            image.BeginAnimation(OpacityProperty, fade);
+        }
+
+        /// <summary>The moon opens an eye for a few seconds.</summary>
+        private void MoonEye()
+        {
+            var look = new DoubleAnimationUsingKeyFrames();
+            look.KeyFrames.Add(new EasingDoubleKeyFrame(0, TimeSpan.Zero));
+            look.KeyFrames.Add(new EasingDoubleKeyFrame(1, TimeSpan.FromSeconds(1.6), new SineEase()));
+            look.KeyFrames.Add(new EasingDoubleKeyFrame(1, TimeSpan.FromSeconds(4.2)));
+            look.KeyFrames.Add(new EasingDoubleKeyFrame(0, TimeSpan.FromSeconds(5.0), new SineEase()));
+            _moonEye!.BeginAnimation(OpacityProperty, look);
+        }
+
+        /// <summary>Something rises from the bottom edge near one side, stays, and sinks back.</summary>
+        private void Rise(BitmapSource picture, double heightFraction, int riseMs, int stayMs, bool right)
+        {
+            double w = ActualWidth, h = ActualHeight;
+            var image = Sprite(picture, heightFraction * h);
+            Canvas.SetLeft(image, right ? w - image.Width - 0.04 * w : 0.04 * w);
+            var top = h - image.Height;
+            var rise = new DoubleAnimationUsingKeyFrames();
+            rise.KeyFrames.Add(new EasingDoubleKeyFrame(h, TimeSpan.Zero));
+            rise.KeyFrames.Add(new EasingDoubleKeyFrame(top, TimeSpan.FromMilliseconds(riseMs), new SineEase { EasingMode = EasingMode.EaseOut }));
+            rise.KeyFrames.Add(new EasingDoubleKeyFrame(top, TimeSpan.FromMilliseconds(riseMs + stayMs)));
+            rise.KeyFrames.Add(new EasingDoubleKeyFrame(h, TimeSpan.FromMilliseconds(riseMs * 2 + stayMs), new SineEase { EasingMode = EasingMode.EaseIn }));
+            Timeline.SetDesiredFrameRate(rise, 30);
+            Canvas.SetTop(image, h);
+            Remove(image, rise);
+            image.BeginAnimation(Canvas.TopProperty, rise);
         }
     }
 }

@@ -73,7 +73,12 @@ namespace BloodborneLauncher
             ApplyGlass();
             LauncherTheme.Apply(ws.Settings, glass: true);
             Art.Show(LauncherTheme.Eldritch(ws.Settings));
-            PreviewMouseMove += (_, e) => Art.Look(e.GetPosition(Art));
+            Art.Stage = ArtStage;
+            // The art moves only while the launcher is in front: a game or anything else gets the GPU.
+            void Wake() => Art.Awake(IsActive && WindowState != WindowState.Minimized);
+            Activated += (_, _) => Wake();
+            Deactivated += (_, _) => Wake();
+            StateChanged += (_, _) => Wake();
             ApplyIcon();
 
             var version = typeof(MainWindow).Assembly.GetName().Version;
@@ -299,7 +304,9 @@ namespace BloodborneLauncher
             }, 90);
             wash.Freeze(); // never changes: frozen brushes skip change tracking
             BackdropShade.Fill = wash;
-            var mode = s.Str("ui_background");
+            var mode = LauncherTheme.Eldritch(s) ? "none" : s.Str("ui_background");
+            var blurSetting = s.Str("ui_background_blur");
+            Art.Blur(blurSetting == "off" ? 0 : blurSetting == "light" ? 6 : 16);
             if (mode == "none")
             {
                 _backdropLoad++; // a picture still loading is not shown
@@ -444,24 +451,21 @@ namespace BloodborneLauncher
         private void MaximizeWindow_Click(object sender, RoutedEventArgs e) =>
             WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
-        /// <summary>The title takes clicks for the easter egg, so it does the caption's work too: drag on one
-        /// click, maximize on two; three show the watcher.</summary>
-        private void TitleName_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        /// <summary>Three quick clicks on the Co-op tab show the watcher; one click still opens the tab.</summary>
+        private void CoopItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            e.Handled = true;
-            if (e.ClickCount >= 3) ShowWatcher();
-            else if (e.ClickCount == 2) MaximizeWindow_Click(sender, e);
-            else
-            {
-                try { DragMove(); } catch (InvalidOperationException) { /* the button was already up */ }
-            }
+            if (e.ClickCount == 3) ShowWatcher();
         }
 
-        /// <summary>The easter egg: an eye opens over the launcher, looks round, its pupil narrows on you, and it
-        /// shuts again, about three and a half seconds in all. Clicks go on through it.</summary>
+        /// <summary>The easter egg: a huge eye in a wound of flesh, ringed by tentacles, opens over the launcher,
+        /// fixes its pupil on you and shuts again (under three seconds). Clicks go on through it. Plain frame swaps
+        /// and one slow zoom on a dark scrim: no effects, nothing re-rendered underneath.</summary>
         private void ShowWatcher()
         {
             if (Watcher.Visibility == Visibility.Visible) return;
+            var frames = new[] { "closed", "half", "open", "focus" }
+                .Select(f => (ImageSource?)EldritchArt.Picture($"watcher-{f}.png", 1536)).ToArray();
+            if (frames.Any(f => f == null)) return; // not in this build
             static DoubleAnimationUsingKeyFrames Keys(params (double Value, int Ms)[] keys)
             {
                 var animation = new DoubleAnimationUsingKeyFrames();
@@ -469,23 +473,28 @@ namespace BloodborneLauncher
                     animation.KeyFrames.Add(new EasingDoubleKeyFrame(value, TimeSpan.FromMilliseconds(ms), new SineEase { EasingMode = EasingMode.EaseInOut }));
                 return animation;
             }
-            var side = Random.Shared.Next(2) == 0 ? -1 : 1;
-            var fade = Keys((0, 0), (1, 350), (1, 3150), (0, 3550));
+            WatcherEye.Width = Math.Min(ActualWidth * 0.8, 1100);
+            WatcherEye.Source = frames[0];
+            var fade = Keys((0, 0), (1, 256), (1, 2496), (0, 2816));
             fade.Completed += (_, _) =>
             {
                 Watcher.Visibility = Visibility.Collapsed;
-                Watcher.BeginAnimation(OpacityProperty, null);
-                WatcherText.BeginAnimation(OpacityProperty, null);
-                WatcherLid.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-                WatcherGaze.BeginAnimation(TranslateTransform.XProperty, null);
-                WatcherPupil.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                foreach (var (target, property) in new (System.Windows.Media.Animation.IAnimatable, DependencyProperty)[]
+                         { (Watcher, OpacityProperty), (WatcherText, OpacityProperty), (WatcherZoom, ScaleTransform.ScaleXProperty),
+                           (WatcherZoom, ScaleTransform.ScaleYProperty), (WatcherEye, System.Windows.Controls.Image.SourceProperty) })
+                    target.BeginAnimation(property, null);
             };
             Watcher.Visibility = Visibility.Visible;
             Watcher.BeginAnimation(OpacityProperty, fade);
-            WatcherLid.BeginAnimation(ScaleTransform.ScaleYProperty, Keys((0, 0), (0, 250), (1, 950), (1, 3000), (0, 3160)));
-            WatcherGaze.BeginAnimation(TranslateTransform.XProperty, Keys((side * 40, 0), (side * 40, 500), (-side * 18, 1000), (0, 1300)));
-            WatcherPupil.BeginAnimation(ScaleTransform.ScaleXProperty, Keys((1, 0), (1, 1250), (0.22, 1650)));
-            WatcherText.BeginAnimation(OpacityProperty, Keys((0, 0), (0, 1400), (1, 2000)));
+            // closed, a flicker, open, then the pupil narrows on you; it holds, half-closes, shuts.
+            var lids = new ObjectAnimationUsingKeyFrames();
+            foreach (var (frame, ms) in new[] { (0, 0), (1, 288), (0, 358), (1, 448), (2, 525), (3, 1216), (2, 2144), (1, 2272), (0, 2368) })
+                lids.KeyFrames.Add(new DiscreteObjectKeyFrame(frames[frame], TimeSpan.FromMilliseconds(ms)));
+            WatcherEye.BeginAnimation(System.Windows.Controls.Image.SourceProperty, lids);
+            var zoom = Keys((0.9, 0), (1.06, 2368));
+            WatcherZoom.BeginAnimation(ScaleTransform.ScaleXProperty, zoom);
+            WatcherZoom.BeginAnimation(ScaleTransform.ScaleYProperty, zoom);
+            WatcherText.BeginAnimation(OpacityProperty, Keys((0, 0), (0, 1216), (1, 1600), (1, 2176), (0, 2432)));
         }
 
         // ---------------------------------------------------------------- navigation

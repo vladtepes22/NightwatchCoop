@@ -80,13 +80,14 @@ internal static class UiRender
                 });
                 var settings = BloodborneLauncher.Core.Workspace.Current.Settings;
                 settings.Set("party_mode", "host");
-                foreach (var theme in new[] { "default", "eldritch" })
+                foreach (var (theme, pageType) in new[] { ("default", typeof(SeamlessPage)), ("eldritch", typeof(SeamlessPage)),
+                             ("eldritch", typeof(PlayPage)), ("eldritch", typeof(TrophiesPage)) })
                 {
                     settings.Set("ui_theme", theme);
                     LauncherTheme.Apply(settings, glass: true);
                     var art = new EldritchArt();
                     art.Show(LauncherTheme.Eldritch(settings));
-                    var page = new SeamlessPage();
+                    var page = (LauncherPage)Activator.CreateInstance(pageType)!;
                     page.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
                     var content = (UIElement)page.Content;
                     page.Content = null;
@@ -103,7 +104,7 @@ internal static class UiRender
                     image.Render(surface);
                     var encoder = new PngBitmapEncoder();
                     encoder.Frames.Add(BitmapFrame.Create(image));
-                    using var output = File.Create(Path.Combine(directory, $"theme-{theme}.png"));
+                    using var output = File.Create(Path.Combine(directory, $"theme-{theme}-{pageType.Name}.png"));
                     encoder.Save(output);
                     art.Show(false);
                 }

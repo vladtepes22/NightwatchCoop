@@ -58,7 +58,7 @@ namespace BloodborneLauncher.Core
             ["cheat_vials_amount"] = 20,
             ["cheat_bullets_amount"] = 20,
             ["update_channel"] = "", // empty: beta builds follow beta, others stable
-            ["ui_theme"] = "default",
+            ["ui_theme"] = "eldritch", // since 0.2.5 (EldritchMarker); "default" is the plain look
             ["ui_theme_colour"] = "#C41E3A",
             ["ui_background"] = "game", // game | custom | none
             ["ui_background_image"] = "",
@@ -140,6 +140,10 @@ namespace BloodborneLauncher.Core
                     // (they saved the old default, off). Off again only by choice.
                     if (!saved.ContainsKey(MapOnMarker))
                         _data["map_enabled"] = true;
+                    // 0.2.5: the Eldritch theme is the default, switched on once for older files that
+                    // kept the old default look; a colour theme the player chose stays.
+                    if (!saved.ContainsKey(EldritchMarker) && Str("ui_theme") == "default")
+                        _data["ui_theme"] = "eldritch";
                     if (!saved.ContainsKey("occlusion_off_99"))
                         _data["exp_occlusion"] = false;
                     // Beta 9.8: the legacy shader compiler is the default again (the native one
@@ -176,11 +180,13 @@ namespace BloodborneLauncher.Core
             _data["legacy_shaders_default_98"] = true;
             _data["occlusion_off_99"] = true;
             _data[MapOnMarker] = true;
+            _data[EldritchMarker] = true;
             _data[PerfDefaultsMarker] = true;
         }
 
         private const string PerfDefaultsMarker = "perf_defaults_b4";
         private const string MapOnMarker = "map_on_024";
+        private const string EldritchMarker = "theme_eldritch_025";
 
         /// <summary>0.9.37 beta 4's defaults that older settings files are switched to once.</summary>
         private static readonly (string Key, bool Value)[] PerfDefaults =

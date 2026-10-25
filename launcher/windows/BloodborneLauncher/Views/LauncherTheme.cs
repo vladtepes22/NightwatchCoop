@@ -14,7 +14,7 @@ namespace BloodborneLauncher.Views
     {
         public static readonly Choice[] Themes =
         {
-            new(L.T("Default"), "default"),
+            new(L.T("Classic"), "default", L.T("The plain look, no art")),
             new(L.T("Crimson"), "crimson", L.T("The blood moon: deep red")),
             new(L.T("Moonlight"), "moon", L.T("Pale blue, like the Moonlight Greatsword")),
             new(L.T("Amber"), "amber", L.T("Lamplight gold")),
