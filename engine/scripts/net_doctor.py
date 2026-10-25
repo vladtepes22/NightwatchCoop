@@ -128,6 +128,7 @@ class Log:
         self.evidence = {}
         self.started = None
         self.coop = None
+        self.vpn_probe = {}  # adapter label -> "online" / "offline" (0.7.6 builds log it)
 
     def note(self, key, lineno, line):
         self.evidence.setdefault(key, []).append((lineno, line.strip()[:220]))
@@ -185,9 +186,12 @@ def parse(path):
                 lg.local_forced = m.group(2) == "from BB_PARTY_LOCAL_IP"
                 lg.local_adapter = m.group(3)
                 lg.tether = lg.tether or "Remote NDIS" in line
-                for cand in re.findall(r"(\d+\.\d+\.\d+\.\d+) ([^/;]+?) /", line):
-                    if any(v.lower() in cand[1].lower() for v in VPN_NAMES) and cand[0] != lg.local:
-                        lg.vpn_candidates.append((cand[0], cand[1].strip()))
+                for seg in line.split(";"):
+                    cand = re.search(r"(\d+\.\d+\.\d+\.\d+) ([^/;]+?) /", seg)
+                    if not cand or "offline VPN" in seg:  # 0.7.6: an offline VPN is listed but skipped
+                        continue
+                    if any(v.lower() in cand.group(2).lower() for v in VPN_NAMES) and cand.group(1) != lg.local:
+                        lg.vpn_candidates.append((cand.group(1), cand.group(2).strip()))
                 lg.note("local", n, line)
             m = R["public"].search(line)
             if m:
@@ -251,6 +255,9 @@ def parse(path):
                 lg.lan_fallback_fail = True
             if "Remote NDIS" in line and "Net:" in line:
                 lg.tether = True
+            m = re.search(r"vpn adapter if\d+ \(([^)]+)\): (online|OFFLINE)", line)
+            if m:
+                lg.vpn_probe[m.group(1)] = m.group(2).lower()
             if R["discovery"].search(line):
                 lg.discovery_probes += 1
             m = R["roster"].search(line)
@@ -398,6 +405,12 @@ def diagnose(logs, show_ips):
             kind = vpn_kind(ip)
             prio = 1 if vpn_in_use else 3
             flagged.add(("vpn_unused", who))
+            known_online = any(v == "online" and kind.lower() in k.lower() for k, v in l.vpn_probe.items())
+            if not known_online and not vpn_in_use:
+                # older builds cannot tell an offline VPN from an online one: do not claim it is in use
+                add(4, f"{who} has {kind} installed ({ip}); the game used the home network address. Fine if you "
+                       f"do not play over {kind}; if you do, set BB_PARTY_LOCAL_IP to the {kind} address.", None)
+                continue
             add(prio, f"**{who} has {kind} running, but the game uses the home network address** "
                       f"({hide(l.local, show_ips)}) instead of the {kind} one ({ip}).",
                 setx_steps(who, "BB_PARTY_LOCAL_IP", ip, f"make the game use {kind}: ") +
@@ -569,7 +582,7 @@ def refusal_fix(reason):
 
 def version_text(l):
     if l.build:
-        return f"{l.build} (co-op {l.coop or '?'})"
+        return f"{l.build} (co-op {l.coop or 'older than 0.7.2'})"
     if l.coop:
         return f"bbport {l.coop}"
     return "version ?"

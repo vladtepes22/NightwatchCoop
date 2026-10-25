@@ -11,6 +11,7 @@
 #include "party_ids.h"
 #include "party_stick_args.h"
 #include "party_balance.h"
+#include "party_enemyai.h"
 #include "party_npcfight.h"
 #include "party_async_io.h"
 
@@ -1848,6 +1849,18 @@ void TargetAnimTick(Test& t, Clock::time_point now) {
     if (!chr || !SafeGet(chr + 0x3b0, &cm) || !cm || !SafeGet(cm + 0x18, &ta) || !ta || !SafeGet(ta + 0xc0, &idx) ||
         idx < 0 || idx >= 10) {
         return;
+    }
+    {
+        // once a second: the target's distance to this player (a boss that walks to the guest or stands at a corpse)
+        static Clock::time_point next_pos{};
+        float me[3], at[3];
+        const std::uint64_t player = LocalPlayer();
+        if (now >= next_pos && player && balance::ChrPosition(player, me) && balance::ChrPosition(chr, at)) {
+            next_pos = now + std::chrono::seconds(1);
+            Log("test: target pos: entity %u at (%.1f, %.1f, %.1f), %.1f m from this player", entity, double(at[0]),
+                double(at[1]), double(at[2]),
+                double(std::sqrt((at[0] - me[0]) * (at[0] - me[0]) + (at[2] - me[2]) * (at[2] - me[2]))));
+        }
     }
     SafeGet(cm + 0x20, &dm);
     std::int32_t hp = -1, mhp = -1;
@@ -4489,6 +4502,7 @@ void PartyDirector::Tick() {
     // C4 rot, D7 enemy scaling, E2 extras: the host's rules for the party (party_balance.h).
     if (role != PartyRole::None) balance::Tick(s, link, role == PartyRole::Host);
     if (role != PartyRole::None) npcfight::Tick(s, role == PartyRole::Host);  // D11: the assassins on a guest
+    if (role != PartyRole::None) enemyai::Tick(s, role == PartyRole::Guest);  // a lone guest's enemies' AI
     // I1 friendly fire / PvP (party_pvp.h): the party rule on this game's team tables.
     if (role != PartyRole::None) pvp::Tick(s, role == PartyRole::Host);
     // B1: the host's warps go to every guest (reliable: replayed to a member who reconnects).
@@ -5176,6 +5190,7 @@ void PartyInit(unsigned char* image, std::uint64_t size) {
     worldact::Init();       // guest world actions, instanced treasure pickups (byte-verified)
     GuestServicesInit();    // guest Doll / shops / workshop in the host's Dream (byte-verified)
     balance::Init();        // C4 rot hook, D7 scaling (party_balance.h)
+    enemyai::Init();        // C2 / split travel: a lone guest's enemies run on its own AI (party_enemyai.h)
     npcfight::Init();       // D11: NPC hunter fights with the whole party (party_npcfight.h)
     g_tick_installed = HookPrologue(kFlipperUpdate,
                                     {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53, 0x48,

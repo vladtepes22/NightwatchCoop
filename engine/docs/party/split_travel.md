@@ -61,7 +61,7 @@ guest only (the B2 re-join, with the host's fresh snapshot).
 | What | Rule |
 |---|---|
 | World flags (doors, lamps, bosses, NPC state) | The host's world: the mirror keeps every player's overlay current. A flag a guest sets in a map the host is not in stays in that guest's overlay only (D3: guest flag routing, as `lamp_lit` does for lamps, is the next step) |
-| Ordinary enemies | Simulated by each player's own game in the map it loaded; they respawn on every load as in single-player |
+| Ordinary enemies | Simulated by each player's own game in the map it loaded; they respawn on every load as in single-player. 0.7.6: while the host is in another area the guest's game also runs their AI (they stood still on the guest's net manipulator, nobody drove them; docs/party/enemy_ai.md) |
 | Bosses / unique enemies | Their defeat flags are the host's (K10 / D1); a guest's lone kill in a map the host is not in is not sent to the host yet (open, D3) |
 | Item pickups | Vanilla client rules in host-world mode; the shared-world items are the host's (C3 grants) |
 | Meeting again | The member whose world is older loads once (the B2 re-join, the host's snapshot) unless both are in the Hunter's Dream (no enemies: the chrs are just built again) |
@@ -479,3 +479,19 @@ NO dialog (split::AskYesNo, the run-time text "NAME wants the party to travel to
 20 s without an answer ends it ({"op":"end"} with the notice for every screen), all YES runs the
 move. Travel alone, the guest's own trips inside the host's map and story warps are never voted on.
 Smoke group `travel_vote` (phase tv).
+
+## 2026-10-25 (enemyai, 0.7.6): a lone guest's enemies run on its own AI
+
+Player report (Nightwatch dev, 0.2.4-beta.1 = 0.7.5): the guest travelled alone into Cathedral Ward, still a
+client (role 6), the host stayed in the Dream; the Ward's enemies stood still until the host loaded that map.
+Root cause and the measured chooser are in docs/party/enemy_ai.md: `NpcIns::SetManipulator` 0x18E6540 puts a
+client's enemies on the NetAIManipulator (the owner's AI replayed) and the host's game never had the map.
+Fix: `party_enemyai.cpp`, option (a): the guest's game keeps the local ComManipulator on its enemies while the
+host is in another area (hook forces `force_local`, a tick switches the loaded ones, hand back when the host is
+in the guest's area again). Live (smoke phase `la`, one PC, 2 players): an awake Ward enemy beside the lone guest
+played 6 animation changes (3011, 2603 hit reaction, 3011, 3008) and took the frail guest from 340 HP to 1; with
+`BB_PARTY_LONE_AI=0` the same enemy shows 2 animation changes (0, 3011) and never hurts the guest. The guest's
+R1 hurt it (182 -> 84 HP). Left as it was: bosses (fog stays closed for a lone guest), enemy reconciliation
+between games (off, the host's world wins at the meet), two lone guests in one map.
+Option (b), "block / warn on a lone trip into a map the host has not loaded", was not needed and would have
+broken the binding decision that every player may travel alone, so there is no new rule or toggle.

@@ -166,6 +166,7 @@ struct LanAdapter {
     bool physical = false;    // Ethernet or Wi-Fi interface type
     std::uint32_t metric = 0;    // IPv4 interface metric (lower first), a tie breaker
     std::uint32_t mask = 0;      // network order; 0 unknown (party discovery's directed broadcast)
+    bool vpn_offline = false;    // a VPN adapter the evidence says is not connected (0.7.6): never chosen
 };
 // Hyper-V / WSL / Docker switches, VirtualBox / VMware host-only adapters, VPN and overlay
 // adapters (TAP, Wintun, WireGuard, Tailscale, ZeroTier, Hamachi, Radmin ...): by name.
@@ -187,6 +188,29 @@ std::string vpn_pref_normalize(const std::string& pref);
 // auto: a usable Radmin / Hamachi / ZeroTier / Tailscale adapter (a commercial VPN that carries all
 // the PC's traffic is never taken unasked); a name: any usable adapter whose name contains it.
 int vpn_adapter_score(const LanAdapter& a, const std::string& pref);
+// --- Is the VPN really online? (0.7.6) --- Windows keeps an overlay VPN's adapter Up with its address
+// while the VPN app is switched off, so the adapter state proves nothing. The evidence: the vendor's
+// own local status (Radmin's service.log, `tailscale status --json`, `zerotier-cli info`; no network
+// call), else the adapter's receive counters rising over a short window (an online overlay hears its
+// peers and keepalives; an offline one hears nothing).
+enum class VpnState { Unknown, Online, Offline };
+VpnState vpn_state_from_radmin_log(const std::string& log_tail);        // last "Connected to server" etc.
+VpnState vpn_state_from_tailscale_json(const std::string& json);        // BackendState
+VpnState vpn_state_from_zerotier_info(const std::string& text);         // "200 info <id> <ver> ONLINE"
+struct IfCounters {
+    bool valid = false;
+    std::uint64_t in_octets = 0, in_ucast = 0, in_nucast = 0;
+};
+// true when anything arrived on the adapter between the two samples.
+bool vpn_counters_rising(const IfCounters& before, const IfCounters& after);
+// The decision: a vendor verdict wins; else the counters (both samples valid); else Online (no evidence:
+// trust the adapter). `counters_trusted` false (the user named the adapter) ignores a counters-only
+// "offline". `why` (optional) names the evidence.
+bool vpn_decide_online(VpnState vendor, const IfCounters& before, const IfCounters& after, bool counters_trusted,
+                       std::string* why = nullptr);
+// The probe of the adapter with this interface index (Windows; cached a few seconds, logged once per
+// change); true when it is online or cannot be told. Other platforms: true.
+bool vpn_adapter_online(unsigned if_index, VpnKind kind, const std::string& pref, std::string* why = nullptr);
 // Index of the adapter to host over, -1 for none (off, or nothing matches). Reusable by LAN/VPN
 // discovery: the list is whatever the platform enumerated (up adapters).
 int select_vpn_adapter(const std::vector<LanAdapter>& adapters, const std::string& pref);

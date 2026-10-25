@@ -470,6 +470,12 @@ target_compile_options(party-bossfog-rules-test PRIVATE -UNDEBUG -Wall -Wextra)
 target_include_directories(party-bossfog-rules-test PRIVATE shim)
 set_target_properties(party-bossfog-rules-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 add_test(NAME boot-watch-test COMMAND boot-watch-test)
+# Who runs an enemy's AI on a guest's game, the limbo boss target (party_enemyai_rules.h). ninja -C out/gpu party-enemyai-rules-test
+add_executable(party-enemyai-rules-test EXCLUDE_FROM_ALL ../tests/test_party_enemyai_rules.cpp)
+target_compile_options(party-enemyai-rules-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-enemyai-rules-test PRIVATE shim)
+set_target_properties(party-enemyai-rules-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
 get_property(all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 set(party_tests)
 foreach(target IN LISTS all_targets)

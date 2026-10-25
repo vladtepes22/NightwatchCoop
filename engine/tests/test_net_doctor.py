@@ -81,3 +81,21 @@ def test_guest_without_public_udp(tmp_path, capsys):
                  encoding="utf-8")
     assert nd.main([str(h)]) == 0
     assert "GuestB's game cannot send UDP to the internet" in capsys.readouterr().out
+
+
+def test_vpn_installed_not_claimed_running(tmp_path, capsys):
+    # host has Radmin as a candidate but nobody plays over a VPN: a note, not 'running but unused'
+    h = tmp_path / "host.log"
+    h.write_text(HOST.replace("[coop] Party: link: GuestB joined (slot 1, from 26.76.171.64:59920)\n", "")
+                     .replace("its UDP is not heard", "x"), encoding="utf-8")
+    assert nd.main([str(h)]) == 0
+    out = capsys.readouterr().out
+    assert "running, but the game uses" not in out and "installed" in out
+
+
+def test_offline_vpn_candidate_ignored(tmp_path, capsys):
+    h = tmp_path / "host.log"
+    h.write_text(HOST.replace("(score 6);", "(score 6) (offline VPN, skipped);"), encoding="utf-8")
+    assert nd.main([str(h)]) == 0
+    out = capsys.readouterr().out
+    assert "Radmin" not in out.split("**What")[1] if "**What" in out else True

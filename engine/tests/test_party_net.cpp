@@ -999,6 +999,67 @@ static void test_vpn_selection() {
     std::printf("vpn selection: ok\n");
 }
 
+static void test_vpn_online() {
+    using bbnet::IfCounters;
+    using bbnet::VpnState;
+    const std::string off_log =
+        "2026.10.23 19:58:20.265\tINFO\tService starting...\n"
+        "2026.10.23 19:58:26.453\tINFO\tConnected to server (17)\n"
+        "2026.10.23 19:59:19.382\tINFO\tConnected to 154680149/'friend' via TcpRelay/outgoing\n"
+        "2026.10.23 21:37:57.218\tINFO\tSwitched Off\n"
+        "2026.10.23 21:37:57.219\tINFO\tDisconnected from server(code:4)\n"
+        "2026.10.25 13:46:46.742\tINFO\tVirtual network adapter opened\n";
+    CHECK(bbnet::vpn_state_from_radmin_log(off_log) == VpnState::Offline);
+    // a friend line alone ("Connected to 123/'x'") is not the server
+    CHECK(bbnet::vpn_state_from_radmin_log("x\tINFO\tConnected to 154680149/'friend' via TcpRelay/outgoing\n") == VpnState::Unknown);
+    CHECK(bbnet::vpn_state_from_radmin_log(off_log + "t\tINFO\tConnected to server (3)\n") == VpnState::Online);
+    CHECK(bbnet::vpn_state_from_radmin_log(off_log + "t\tINFO\tService starting...\n") == VpnState::Offline);
+    CHECK(bbnet::vpn_state_from_radmin_log("") == VpnState::Unknown);
+    CHECK(bbnet::vpn_state_from_tailscale_json("{\"Version\":\"1\",\"BackendState\": \"Running\",\"Self\":{}}") == VpnState::Online);
+    CHECK(bbnet::vpn_state_from_tailscale_json("{\"BackendState\":\"Stopped\"}") == VpnState::Offline);
+    CHECK(bbnet::vpn_state_from_tailscale_json("{\"BackendState\":\"NeedsLogin\"}") == VpnState::Offline);
+    CHECK(bbnet::vpn_state_from_tailscale_json("{\"BackendState\":\"Starting\"}") == VpnState::Unknown);
+    CHECK(bbnet::vpn_state_from_tailscale_json("failed to connect to local tailscaled") == VpnState::Unknown);
+    CHECK(bbnet::vpn_state_from_zerotier_info("200 info 8056c2e21c 1.12.2 ONLINE\n") == VpnState::Online);
+    CHECK(bbnet::vpn_state_from_zerotier_info("200 info 8056c2e21c 1.12.2 OFFLINE\n") == VpnState::Offline);
+    CHECK(bbnet::vpn_state_from_zerotier_info("zerotier-cli: missing authentication token") == VpnState::Unknown);
+    IfCounters a, b;
+    a.valid = b.valid = true;
+    a.in_octets = b.in_octets = 1380;
+    a.in_ucast = b.in_ucast = 23;
+    std::string why;
+    // measured on an offline Radmin: nothing in, the rest of the stack only sends
+    CHECK(!bbnet::vpn_counters_rising(a, b));
+    CHECK(!bbnet::vpn_decide_online(VpnState::Unknown, a, b, true, &why) && !why.empty());
+    b.in_nucast = 2;
+    CHECK(bbnet::vpn_counters_rising(a, b) && bbnet::vpn_decide_online(VpnState::Unknown, a, b, true));
+    b.in_nucast = 0;
+    b.in_octets = 1500;
+    CHECK(bbnet::vpn_decide_online(VpnState::Unknown, a, b, true));
+    b.in_octets = 1380;
+    // the vendor wins over the counters either way
+    CHECK(bbnet::vpn_decide_online(VpnState::Online, a, b, true));
+    b.in_octets = 9999;
+    CHECK(!bbnet::vpn_decide_online(VpnState::Offline, a, b, true));
+    // no evidence: trust the adapter; a named adapter is trusted on quiet counters
+    CHECK(bbnet::vpn_decide_online(VpnState::Unknown, IfCounters{}, IfCounters{}, true));
+    b.in_octets = 1380;
+    CHECK(bbnet::vpn_decide_online(VpnState::Unknown, a, b, false));
+    // an offline VPN adapter is never chosen: the real adapter wins, and alone it gives none
+    bbnet::LanAdapter lan, radmin;
+    lan.name = "Ethernet / Realtek";
+    lan.ip = ipv4("192.168.1.20");
+    lan.gateway = lan.default_route = lan.physical = true;
+    radmin.name = "Radmin VPN / Famatech Radmin VPN Ethernet Adapter";
+    radmin.ip = ipv4("26.41.7.9");
+    CHECK(bbnet::select_vpn_adapter({lan, radmin}, "auto") == 1);
+    radmin.vpn_offline = true;
+    CHECK(bbnet::select_vpn_adapter({lan, radmin}, "auto") == -1);
+    CHECK(bbnet::select_vpn_adapter({lan, radmin}, "radmin") == -1);
+    CHECK(bbnet::lan_adapter_score(radmin) < 0 && bbnet::lan_adapter_score(lan) >= 0);
+    std::printf("vpn online: ok\n");
+}
+
 static void test_local_address() {
     using bbnet::LanAdapter;
     auto adapter = [](const char* name, const char* ip, bool gw, bool def, bool phys) {
@@ -1174,6 +1235,7 @@ int main() {
     test_local_address();
 
     test_vpn_selection();
+    test_vpn_online();
     test_discovery();
     set_env("BB_PARTY_LOOPBACK", "1");  // back to loopback-only sockets for the tests below
     test_stun();

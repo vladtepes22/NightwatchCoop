@@ -38,6 +38,7 @@
 #include <unistd.h>
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cerrno>
@@ -1904,7 +1905,8 @@ LocalNet query_local_net(std::string* how) {
         if (want) return;
         write_ipv4(text, sizeof(text), info.ip);
         candidates += std::string(candidates.empty() ? "" : "; ") + text + " " + info.name +
-                      (score < 0 ? " (unusable)" : " (score " + std::to_string(score) + ")");
+                      (info.vpn_offline ? " (offline VPN, skipped)"
+                       : score < 0 ? " (unusable)" : " (score " + std::to_string(score) + ")");
     };
 #if defined(_WIN32)
     ULONG size = 32 * 1024;
@@ -1943,6 +1945,18 @@ LocalNet query_local_net(std::string* how) {
         info.physical = a->IfType == IF_TYPE_ETHERNET_CSMACD || a->IfType == IF_TYPE_IEEE80211;
         info.default_route = default_if && a->IfIndex == default_if;
         info.metric = a->Ipv4Metric;
+        if (!want) {
+            // An overlay VPN's adapter stays Up with its address while the VPN app is off (0.7.6).
+            for (auto* u = a->FirstUnicastAddress; u && !info.ip; u = u->Next) {
+                if (u->Address.lpSockaddr->sa_family == AF_INET)
+                    info.ip = reinterpret_cast<sockaddr_in*>(u->Address.lpSockaddr)->sin_addr.s_addr;
+            }
+            const VpnKind vk = vpn_kind(info);
+            if (vk != VpnKind::None && vk != VpnKind::Other) {
+                std::string why;
+                if (!vpn_adapter_online(a->IfIndex, vk, pref, &why)) info.vpn_offline = true;
+            }
+        }
         std::uint32_t gateway = 0;
         for (auto* g = a->FirstGatewayAddress; g; g = g->Next) {
             if (g->Address.lpSockaddr->sa_family != AF_INET) continue;
@@ -2159,7 +2173,7 @@ bool adapter_is_virtual(const std::string& name) {
 }
 
 int lan_adapter_score(const LanAdapter& a) {
-    if (!a.ip || a.loopback || a.tunnel) return -1;
+    if (!a.ip || a.loopback || a.tunnel || a.vpn_offline) return -1;
     const std::uint32_t host = bswap32(a.ip);
     if ((host >> 24) == 127 || (host >> 16) == 0xa9feu) return -1;  // loopback; 169.254/16: no DHCP answer
     int score = adapter_is_virtual(a.name) ? 0 : 100;
@@ -2233,6 +2247,250 @@ int vpn_adapter_score(const LanAdapter& a, const std::string& pref_in) {
     }
     return lower_text(a.name).find(lower_text(pref)) != std::string::npos ? 1000 : -1;
 }
+
+// ---- Is the VPN really online? (0.7.6) --------------------------------------------------------
+VpnState vpn_state_from_radmin_log(const std::string& text) {
+    // Lines like "2026.10.23 19:58:26.453<TAB>INFO<TAB>Connected to server (17)". The last of these wins.
+    VpnState st = VpnState::Unknown;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        std::size_t eol = text.find('\n', pos);
+        if (eol == std::string::npos) eol = text.size();
+        const std::string line = text.substr(pos, eol - pos);
+        pos = eol + 1;
+        if (line.find("Connected to server") != std::string::npos) {
+            st = VpnState::Online;
+        } else if (line.find("Disconnected from server") != std::string::npos ||
+                   line.find("Switched Off") != std::string::npos || line.find("Service starting") != std::string::npos) {
+            st = VpnState::Offline;
+        }
+    }
+    return st;
+}
+
+VpnState vpn_state_from_tailscale_json(const std::string& json) {
+    const std::size_t k = json.find("\"BackendState\"");
+    if (k == std::string::npos) return VpnState::Unknown;
+    const std::size_t colon = json.find(':', k);
+    if (colon == std::string::npos) return VpnState::Unknown;
+    const std::size_t q1 = json.find('"', colon + 1);
+    if (q1 == std::string::npos) return VpnState::Unknown;
+    const std::size_t q2 = json.find('"', q1 + 1);
+    if (q2 == std::string::npos) return VpnState::Unknown;
+    const std::string v = json.substr(q1 + 1, q2 - q1 - 1);
+    if (v == "Running") return VpnState::Online;
+    if (v == "Stopped" || v == "NeedsLogin" || v == "NeedsMachineAuth" || v == "NoState") return VpnState::Offline;
+    return VpnState::Unknown;  // Starting: no verdict
+}
+
+VpnState vpn_state_from_zerotier_info(const std::string& text) {
+    if (text.find("200 info") == std::string::npos) return VpnState::Unknown;
+    if (text.find("OFFLINE") != std::string::npos) return VpnState::Offline;
+    if (text.find("ONLINE") != std::string::npos || text.find("TUNNELED") != std::string::npos) return VpnState::Online;
+    return VpnState::Unknown;
+}
+
+bool vpn_counters_rising(const IfCounters& a, const IfCounters& b) {
+    if (!a.valid || !b.valid) return false;
+    return b.in_octets > a.in_octets || b.in_ucast > a.in_ucast || b.in_nucast > a.in_nucast;
+}
+
+bool vpn_decide_online(VpnState vendor, const IfCounters& before, const IfCounters& after, bool counters_trusted,
+                       std::string* why) {
+    auto say = [&](const char* t) {
+        if (why) *why = t;
+    };
+    if (vendor == VpnState::Online) {
+        say("the VPN app reports it connected");
+        return true;
+    }
+    if (vendor == VpnState::Offline) {
+        say("the VPN app reports it not connected");
+        return false;
+    }
+    if (!before.valid || !after.valid) {
+        say("no evidence, adapter trusted");
+        return true;
+    }
+    if (vpn_counters_rising(before, after)) {
+        say("traffic arrives on the adapter");
+        return true;
+    }
+    if (!counters_trusted) {
+        say("no traffic on the adapter, but it was named in party_vpn: trusted");
+        return true;
+    }
+    say("nothing arrives on the adapter");
+    return false;
+}
+
+#if defined(_WIN32)
+namespace {
+IfCounters read_counters(unsigned if_index) {
+    IfCounters c;
+    MIB_IF_ROW2 row{};
+    row.InterfaceIndex = if_index;
+    if (::GetIfEntry2(&row) == NO_ERROR) {
+        c.valid = true;
+        c.in_octets = row.InOctets;
+        c.in_ucast = row.InUcastPkts;
+        c.in_nucast = row.InNUcastPkts;
+    }
+    return c;
+}
+
+std::string env_text(const char* name) {
+    const char* e = std::getenv(name);
+    return e ? e : "";
+}
+
+// Runs a command line without a window, returns its output ("" on failure or after timeout_ms).
+std::string run_capture(const std::string& cmdline, unsigned timeout_ms) {
+    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+    HANDLE rd = nullptr, wr = nullptr;
+    if (!::CreatePipe(&rd, &wr, &sa, 0)) return {};
+    ::SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.hStdOutput = wr;
+    si.hStdError = wr;
+    si.hStdInput = ::GetStdHandle(STD_INPUT_HANDLE);
+    PROCESS_INFORMATION pi{};
+    std::string cmd = cmdline;
+    const BOOL ok = ::CreateProcessA(nullptr, &cmd[0], nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    ::CloseHandle(wr);
+    std::string out;
+    if (ok) {
+        // The output is small (a status line or one JSON page): the pipe's buffer holds it while we wait.
+        const bool done = ::WaitForSingleObject(pi.hProcess, timeout_ms) == WAIT_OBJECT_0;
+        if (!done) ::TerminateProcess(pi.hProcess, 1);
+        char buf[4096];
+        DWORD n = 0;
+        while (done && out.size() < (1u << 20) && ::ReadFile(rd, buf, sizeof(buf), &n, nullptr) && n) out.append(buf, n);
+        ::CloseHandle(pi.hThread);
+        ::CloseHandle(pi.hProcess);
+    }
+    ::CloseHandle(rd);
+    return out;
+}
+
+bool file_exists(const std::string& p) {
+    const DWORD a = ::GetFileAttributesA(p.c_str());
+    return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+std::string read_file_tail(const std::string& path, std::size_t max_bytes) {
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return {};
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    const long from = size > static_cast<long>(max_bytes) ? size - static_cast<long>(max_bytes) : 0;
+    std::fseek(f, from, SEEK_SET);
+    std::string s(static_cast<std::size_t>(size - from), '\0');
+    const std::size_t n = std::fread(&s[0], 1, s.size(), f);
+    std::fclose(f);
+    s.resize(n);
+    // Radmin's log is UTF-16: dropping the zero bytes keeps the ASCII event names, wherever the read began.
+    s.erase(std::remove(s.begin(), s.end(), '\0'), s.end());
+    return s;
+}
+
+// Everything here is local: a file, or the vendor's CLI talking to its own daemon.
+VpnState vendor_state(VpnKind kind, std::string* via) {
+    switch (kind) {
+        case VpnKind::Radmin: {
+            const std::string pd = env_text("ProgramData");
+            if (pd.empty()) return VpnState::Unknown;
+            if (via) *via = "Radmin service.log";
+            return vpn_state_from_radmin_log(read_file_tail(pd + "\\Famatech\\Radmin VPN\\service.log", 64 * 1024));
+        }
+        case VpnKind::Tailscale: {
+            const std::string pf = env_text("ProgramFiles");
+            const std::string exe = pf + "\\Tailscale\\tailscale.exe";
+            if (pf.empty() || !file_exists(exe)) return VpnState::Unknown;
+            if (via) *via = "tailscale status";
+            return vpn_state_from_tailscale_json(run_capture("\"" + exe + "\" status --json", 4000));
+        }
+        case VpnKind::ZeroTier: {
+            std::string pf = env_text("ProgramFiles(x86)");
+            if (pf.empty()) pf = env_text("ProgramFiles");
+            const std::string bat = pf + "\\ZeroTier\\One\\zerotier-cli.bat";
+            if (pf.empty() || !file_exists(bat)) return VpnState::Unknown;
+            if (via) *via = "zerotier-cli info";
+            return vpn_state_from_zerotier_info(run_capture("cmd.exe /c \"\"" + bat + "\" info\"", 4000));
+        }
+        default: break;
+    }
+    return VpnState::Unknown;
+}
+
+struct ProbeEntry {
+    std::chrono::steady_clock::time_point at{};
+    bool online = true;
+    bool logged = false;
+    bool last_logged_online = true;
+    std::string why;
+};
+std::mutex g_probe_mu;
+std::map<unsigned, ProbeEntry> g_probe;
+}  // namespace
+
+bool vpn_adapter_online(unsigned if_index, VpnKind kind, const std::string& pref, std::string* why) {
+    if (kind != VpnKind::Radmin && kind != VpnKind::Hamachi && kind != VpnKind::ZeroTier && kind != VpnKind::Tailscale) {
+        if (why) *why = "not an overlay VPN";
+        return true;
+    }
+    if (const char* off = std::getenv("BB_PARTY_VPN_PROBE"); off && off[0] == '0') {
+        if (why) *why = "probe off (BB_PARTY_VPN_PROBE=0)";
+        return true;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lk(g_probe_mu);
+        auto it = g_probe.find(if_index);
+        if (it != g_probe.end() && now - it->second.at < std::chrono::seconds(5)) {
+            if (why) *why = it->second.why;
+            return it->second.online;
+        }
+    }
+    std::string via;
+    const VpnState vendor = vendor_state(kind, &via);
+    IfCounters a, b;
+    if (vendor == VpnState::Unknown) {
+        a = read_counters(if_index);
+        if (a.valid) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+            b = read_counters(if_index);
+        }
+    }
+    std::string reason;
+    const bool online = vpn_decide_online(vendor, a, b, vpn_pref_normalize(pref) == "auto", &reason);
+    if (!via.empty() && vendor != VpnState::Unknown) reason = via + ": " + reason;
+    const char* label = kind == VpnKind::Radmin ? "Radmin VPN"
+                        : kind == VpnKind::Hamachi ? "Hamachi"
+                        : kind == VpnKind::ZeroTier ? "ZeroTier"
+                                                    : "Tailscale";
+    std::lock_guard<std::mutex> lk(g_probe_mu);
+    ProbeEntry& e = g_probe[if_index];
+    e.at = now;
+    e.online = online;
+    e.why = reason;
+    if (!e.logged || e.last_logged_online != online) {
+        log("vpn adapter if%u (%s): %s (%s)", if_index, label, online ? "online" : "OFFLINE, not used", reason.c_str());
+        e.logged = true;
+        e.last_logged_online = online;
+    }
+    if (why) *why = reason;
+    return online;
+}
+#else
+bool vpn_adapter_online(unsigned, VpnKind, const std::string&, std::string* why) {
+    if (why) *why = "not checked on this platform";
+    return true;
+}
+#endif
 
 int select_vpn_adapter(const std::vector<LanAdapter>& adapters, const std::string& pref) {
     int best = -1, best_score = -1;
