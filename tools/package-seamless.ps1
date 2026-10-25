@@ -113,9 +113,11 @@ Copy-Item -LiteralPath (Join-Path $engine 'gpu\third_party\monocypher\LICENCE.md
 $seamless = Join-Path $destinationRoot 'seamless'
 $scripts = Join-Path $seamless 'scripts'
 New-Item -ItemType Directory -Force -Path $scripts | Out-Null
-foreach ($file in 'party_save_tool.py', 'party_session.py', 'party_saves.py', 'party_env.py', 'save_editor.py') {
+foreach ($file in 'party_save_tool.py', 'party_session.py', 'party_saves.py', 'party_env.py', 'save_editor.py', 'net_doctor.py') {
     Copy-Item -LiteralPath (Join-Path $engine "scripts\$file") -Destination $scripts -Force
 }
+# The connection doctor's launcher: next to scripts\ and python\ (it finds both relative to itself).
+Copy-Item -LiteralPath (Join-Path $engine 'net_doctor.bat') -Destination $seamless -Force
 $pythonVersion = '3.12.10'
 $downloads = Join-Path $repo 'work\downloads'
 New-Item -ItemType Directory -Force -Path $downloads | Out-Null

@@ -105,6 +105,9 @@ public sealed class SeamlessPage : LauncherPage
         host.Children.Add(_codes);
         Add(Card(SymbolRegular.Copy24, L.T("Share party codes"), L.T("Available after the host starts. Use the LAN code on the same router."),
             SmallButton(L.T("Copy codes"), SymbolRegular.Copy24, (_, _) => Clipboard.SetText(SeamlessSettings.Codes(S))), out _), host);
+        Add(Card(SymbolRegular.Info24, L.T("Check my connection"),
+            L.T("Explains this PC's last session problems from its logs. Names and IPs are hidden; the reply is copied to the clipboard."),
+            SmallButton(L.T("Check"), SymbolRegular.Info24, (_, _) => CheckConnection()), out _), host);
 
         party = Rows(InParty);
         _status = Text(L.T("Start the game to see party status."), "Faint");
@@ -291,6 +294,18 @@ public sealed class SeamlessPage : LauncherPage
     private static Choice[] PartySizes() =>
         new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice(L.T("5 (experimental)"), "5") };
     private static string PartySize() => S.Str("party_max") is { Length: > 0 } n ? n : "3";
+
+    /// <summary>Runs the connection doctor on this PC's last and previous session logs (names and IPs hidden).
+    /// With no log yet the script prints its own usage.</summary>
+    private static void CheckConnection()
+    {
+        var bat = Paths.NetDoctorBat;
+        var logs = new[] { GameRunner.SessionLog, Path.Combine(Path.GetDirectoryName(GameRunner.SessionLog)!, "previous_session.log") }
+            .Where(File.Exists);
+        var args = string.Join(" ", new[] { "--redactnames", "--redactips" }.Concat(logs.Select(log => $"\"{log}\"")));
+        var info = new System.Diagnostics.ProcessStartInfo(bat, args) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(bat)! };
+        System.Diagnostics.Process.Start(info)?.Dispose();
+    }
 
     /// <summary>The password and party size each have a Host row and a Join row: show the stored values (the Join
     /// row's password is the one remembered for the code or address typed there).</summary>

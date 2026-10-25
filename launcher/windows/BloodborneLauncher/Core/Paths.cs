@@ -113,6 +113,12 @@ namespace BloodborneLauncher.Core
                 ? Path.Combine(PortDir, "seamless", "python", "python.exe")
                 : File.Exists(Python) ? Python : "py";
 
+        /// <summary>The co-op connection doctor (net_doctor.bat): seamless\ in a package, the engine's folder in a source checkout.</summary>
+        public static string NetDoctorBat =>
+            File.Exists(Path.Combine(PortDir, "seamless", "net_doctor.bat"))
+                ? Path.Combine(PortDir, "seamless", "net_doctor.bat")
+                : Path.Combine(EngineDir, "net_doctor.bat");
+
         /// <summary>The port next to the game folder (its usual layout: &lt;port&gt;\CUSA03173).</summary>
         public static string? PortBesideGame(string gameDir)
         {

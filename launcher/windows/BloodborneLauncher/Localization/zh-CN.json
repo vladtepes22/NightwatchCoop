@@ -1907,6 +1907,8 @@
   "Your own party settings: your screen, what you get as a guest, story sync and start (in the game: System > My party).": "你自己的队伍设置：画面、作为访客的收益、剧情同步与开场（游戏内：系统 > 我的队伍）。",
   "Party HUD": "队伍状态栏",
   "Connection warnings": "连接提示",
+  "Check my connection": "检查我的连接",
+  "Explains this PC's last session problems from its logs. Names and IPs are hidden; the reply is copied to the clipboard.": "根据本机的日志解释上一次游戏的连接问题。名字和 IP 会被隐藏；结果会复制到剪贴板。",
   "A notice with the fix when the Windows Firewall, the router or a wrong address keeps the party from working. Each at most once per session. Your own setting, not a host rule.": "当 Windows 防火墙、路由器或错误地址导致队伍无法连通时，显示带解决办法的提示。每个问题每次游戏最多提示一次。这是你自己的设置，不是房主的规则。",
   "Party name tags": "队伍名牌",
   "Pings": "标记",
