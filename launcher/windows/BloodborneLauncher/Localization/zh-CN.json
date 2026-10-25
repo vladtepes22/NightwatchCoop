@@ -2052,4 +2052,7 @@
   "This party is full.": "该队伍已满。",
   "This host runs another version of the co-op: update the launcher or ask the host to.": "该房主使用的联机版本不同：请更新启动器，或请房主更新。",
   "Use address": "使用地址"
+,
+  "Online memory watch (crash)": "联机内存监视（崩溃）",
+  "BB_HEAP_WATCH_LOG: every 20 seconds, which parts of the game hold the memory its online code uses (server requests, the other players' character sync), and each request that fails. For reports of a crash with the game's own \"Transaction failed\" panic. Off by default": "BB_HEAP_WATCH_LOG：每 20 秒记录游戏联机代码所用内存由游戏的哪些部分占用（服务器请求、其他玩家的角色同步），以及每个失败的请求。用于报告游戏自带的“Transaction failed”提示框崩溃。默认关闭"
 }
