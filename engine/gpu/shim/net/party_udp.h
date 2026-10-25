@@ -28,6 +28,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <vector>
 #include <string>
 
 namespace bbnet::udp {
@@ -268,6 +269,23 @@ private:
 // local one wins whenever it was heard (a LAN path beats a hairpinned or dropped public one).
 // 0 = keep the primary, 1 = use the local candidate.
 int punch_choice(bool primary_heard, bool local_heard, bool have_local);
+
+// One IPv4 address of this machine with its netmask (network order; mask 0 = unknown).
+struct OwnIf {
+    std::uint32_t ip = 0, mask = 0;
+};
+
+// Whether `ip:port` (network order, port as the socket reports it) is this very socket: one of
+// our own addresses with our own party port. A datagram "from" it is our own probe looping back.
+bool is_own_endpoint(std::uint32_t ip, std::uint16_t port, std::uint16_t own_port, const std::vector<OwnIf>& own);
+
+// Whether a peer's reported local address can really be a path to it. Never when it is our own
+// endpoint (two homes with the same router-assigned address, 2026-10-23: the probe landed on our
+// own socket and rerouted the peer's traffic to ourselves). Else loopback (same-machine tests),
+// the same public address as ours (same NAT), or an address inside one of our subnets; with no
+// adapter list known, accepted.
+bool local_candidate_usable(std::uint32_t cand_ip, std::uint16_t cand_port, std::uint16_t own_port,
+                            const std::vector<OwnIf>& own, std::uint32_t own_public, std::uint32_t peer_public);
 
 // BB_PARTY_FORCE_RELAY=1: a guest sends its game traffic for other guests through the host
 // relay even when the direct path would work (tests, strict NATs). Traffic to the host goes to

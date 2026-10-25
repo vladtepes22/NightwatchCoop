@@ -394,6 +394,68 @@ struct P2pPort {
 constexpr std::size_t kMaxInbox = 1024;     // datagrams queued for one game socket
 constexpr std::size_t kMaxHeard = 4096;     // sources remembered
 constexpr std::size_t kSmallDgram = 96;     // F5: a keepalive-sized datagram (replayed in an outage)
+// Every IPv4 address of this machine (all adapters, loopback included, plus the forced
+// BB_PARTY_LOCAL_IP / chosen LAN address) with its mask, cached for 10 s. Used to recognise our
+// own endpoint: a peer in another home can report the very same LAN address as ours.
+// BB_PARTY_SELF_GUARD=0 turns the self-endpoint checks off (tests only).
+bool self_guard_on() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_PARTY_SELF_GUARD");
+        return !(v && v[0] == '0');
+    }();
+    return on;
+}
+std::vector<udp::OwnIf> own_ifaces() {
+    static std::mutex mu;
+    static std::vector<udp::OwnIf> cache;
+    static Clock::time_point at{};
+    std::lock_guard<std::mutex> lk(mu);
+    if (!cache.empty() && Clock::now() - at < std::chrono::seconds(10)) return cache;
+    std::vector<udp::OwnIf> out;
+#if defined(_WIN32)
+    ULONG size = 16 * 1024;
+    std::vector<std::uint8_t> buf;
+    ULONG rc = ERROR_BUFFER_OVERFLOW;
+    for (int tries = 0; tries < 4 && rc == ERROR_BUFFER_OVERFLOW; ++tries) {
+        buf.resize(size);
+        rc = ::GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+                                    nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data()), &size);
+    }
+    if (rc == NO_ERROR) {
+        for (auto* a = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data()); a; a = a->Next) {
+            if (a->OperStatus != IfOperStatusUp) continue;
+            for (auto* u = a->FirstUnicastAddress; u; u = u->Next) {
+                if (!u->Address.lpSockaddr || u->Address.lpSockaddr->sa_family != AF_INET) continue;
+                udp::OwnIf o;
+                o.ip = reinterpret_cast<sockaddr_in*>(u->Address.lpSockaddr)->sin_addr.s_addr;
+                const ULONG bits = u->OnLinkPrefixLength;
+                o.mask = bits ? bswap32(bits >= 32 ? 0xffffffffu : ~(0xffffffffu >> bits)) : 0;
+                out.push_back(o);
+            }
+        }
+    }
+#else
+    ifaddrs* list = nullptr;
+    if (::getifaddrs(&list) == 0) {
+        for (ifaddrs* i = list; i; i = i->ifa_next) {
+            if (!i->ifa_addr || i->ifa_addr->sa_family != AF_INET || !(i->ifa_flags & IFF_UP)) continue;
+            udp::OwnIf o;
+            o.ip = reinterpret_cast<sockaddr_in*>(i->ifa_addr)->sin_addr.s_addr;
+            o.mask = i->ifa_netmask ? reinterpret_cast<sockaddr_in*>(i->ifa_netmask)->sin_addr.s_addr : 0;
+            out.push_back(o);
+        }
+        ::freeifaddrs(list);
+    }
+#endif
+    if (const std::uint32_t l = local_ipv4()) {
+        bool have = false;
+        for (const udp::OwnIf& o : out) have = have || o.ip == l;
+        if (!have) out.push_back({l, 0});
+    }
+    cache = out;
+    at = Clock::now();
+    return out;
+}
 void note_heard_locked(P2pPort& port, std::uint64_t key) {
     const auto now = Clock::now();
     if (port.heard.size() >= kMaxHeard && !port.heard.count(key)) {
@@ -711,6 +773,12 @@ void p2p_reader(std::shared_ptr<P2pPort> port) {
             from.port = s6.sin6_port;
         }
         if (n < 0) continue;  // Windows: an ICMP port unreachable surfaces as WSAECONNRESET
+        // Our own hole-punch probe looped back (a peer in another home with the same LAN address as ours,
+        // probed at that address): never a datagram from a peer, never "heard".
+        if (!from.v6 && self_guard_on() && from.port == bswap16(port->port) &&
+            udp::is_probe(buf, static_cast<std::size_t>(n)) &&
+            udp::is_own_endpoint(from.addr, from.port, bswap16(port->port), own_ifaces()))
+            continue;
         // The route table (party_route.h): an IPv6 source becomes its IPv4 key, member relay frames
         // are answered, forwarded or unwrapped; what is left reaches the layers below as before.
         from.data.assign(buf, buf + n);
@@ -2414,7 +2482,23 @@ void p2p_punch(const char* label, std::uint32_t addr, std::uint16_t port_host, s
     a.sin_addr.s_addr = addr;
     a.sin_port = bswap16(port_host);
     targets.push_back(a);
-    if (local_addr && local_port && (local_addr != addr || local_port != port_host)) {
+    bool local_ok = local_addr && local_port && (local_addr != addr || local_port != port_host);
+    if (local_ok && self_guard_on()) {
+        std::uint32_t own_public = 0;
+        {
+            std::lock_guard<std::mutex> lk(port->mu);
+            own_public = port->stun_addr;
+        }
+        if (!udp::local_candidate_usable(local_addr, bswap16(local_port), bswap16(port->port), own_ifaces(), own_public,
+                                         addr)) {
+            char lip[32];
+            write_ipv4(lip, sizeof(lip), local_addr);
+            log("punch %s: ignoring its local address %s:%u (our own address, or not on our network)",
+                label ? label : "peer", lip, local_port);
+            local_ok = false;
+        }
+    }
+    if (local_ok) {
         sockaddr_in b{};
         b.sin_family = AF_INET;
         b.sin_addr.s_addr = local_addr;

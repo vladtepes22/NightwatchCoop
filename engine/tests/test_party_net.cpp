@@ -239,6 +239,40 @@ static void test_aliases() {
     std::printf("endpoint aliases: ok\n");
 }
 
+// Two homes with the same router-assigned LAN address (Radmin / Hamachi players, 2026-10-23): the
+// peer's local candidate is our own endpoint and must never be probed or counted as heard.
+static void test_same_lan_address() {
+    using bbnet::party::ip_parse;
+    using bbnet::udp::OwnIf;
+    using bbnet::udp::is_own_endpoint;
+    using bbnet::udp::local_candidate_usable;
+    const std::uint32_t mask = ip_parse("255.255.255.0");
+    const std::vector<OwnIf> own = {{ip_parse("192.168.1.50"), mask}, {ip_parse("127.0.0.1"), ip_parse("255.0.0.0")}};
+    const std::uint16_t port = htons(9307);
+    const std::uint32_t pub_a = ip_parse("203.0.113.5"), pub_b = ip_parse("198.51.100.7");
+    // Same local IP and port on both sides, different public IPs: dropped.
+    CHECK(!local_candidate_usable(ip_parse("192.168.1.50"), port, port, own, pub_a, pub_b));
+    CHECK(!local_candidate_usable(ip_parse("192.168.1.50"), port, port, own, 0, 0));
+    CHECK(!local_candidate_usable(ip_parse("192.168.1.50"), port, port, own, pub_a, pub_a));
+    // Same public IP, different local IPs (two PCs in one home): the local address stays.
+    CHECK(local_candidate_usable(ip_parse("192.168.1.20"), port, port, own, pub_a, pub_a));
+    CHECK(local_candidate_usable(ip_parse("10.0.5.9"), port, port, own, pub_a, pub_a));
+    // Different public IP but inside our subnet: kept.
+    CHECK(local_candidate_usable(ip_parse("192.168.1.20"), port, port, own, pub_a, pub_b));
+    // Another subnet and another public IP: not our network.
+    CHECK(!local_candidate_usable(ip_parse("192.168.7.20"), port, port, own, pub_a, pub_b));
+    // Same machine, another port (two instances): kept. No adapter list: kept.
+    CHECK(local_candidate_usable(ip_parse("127.0.0.1"), htons(9308), port, own, 0, 0));
+    CHECK(local_candidate_usable(ip_parse("192.168.1.50"), htons(9308), port, own, pub_a, pub_a));
+    CHECK(local_candidate_usable(ip_parse("192.168.9.9"), port, port, {}, 0, 0));
+    // A datagram from our own endpoint is ours; from a peer with another port or address, not.
+    CHECK(is_own_endpoint(ip_parse("192.168.1.50"), port, port, own));
+    CHECK(!is_own_endpoint(ip_parse("192.168.1.50"), htons(9308), port, own));
+    CHECK(!is_own_endpoint(ip_parse("192.168.1.14"), port, port, own));
+    CHECK(!is_own_endpoint(ip_parse("203.0.113.9"), port, port, own));
+    std::printf("same LAN address: ok\n");
+}
+
 static void test_netsim() {
     using namespace bbnet::netsim;
     Config c;
@@ -875,6 +909,7 @@ int main() {
     test_nr_outage();
     test_peer_paths();
     test_aliases();
+    test_same_lan_address();
     test_routing();
     test_np();
     test_dispatcher();

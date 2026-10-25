@@ -549,6 +549,25 @@ int punch_choice(bool primary_heard, bool local_heard, bool have_local) {
     return have_local && local_heard ? 1 : 0;
 }
 
+bool is_own_endpoint(std::uint32_t ip, std::uint16_t port, std::uint16_t own_port, const std::vector<OwnIf>& own) {
+    if (!ip || port != own_port) return false;
+    for (const OwnIf& o : own)
+        if (o.ip == ip) return true;
+    return false;
+}
+
+bool local_candidate_usable(std::uint32_t cand_ip, std::uint16_t cand_port, std::uint16_t own_port,
+                            const std::vector<OwnIf>& own, std::uint32_t own_public, std::uint32_t peer_public) {
+    if (!cand_ip) return false;
+    if (is_own_endpoint(cand_ip, cand_port, own_port, own)) return false;
+    if ((cand_ip & 0xff) == 127) return true;
+    if (own_public && own_public == peer_public) return true;
+    if (own.empty()) return true;
+    for (const OwnIf& o : own)
+        if (o.mask && (o.ip & o.mask) == (cand_ip & o.mask)) return true;
+    return false;
+}
+
 bool force_relay_from_env() {
     const char* v = std::getenv("BB_PARTY_FORCE_RELAY");
     return v && *v && v[0] != '0';
