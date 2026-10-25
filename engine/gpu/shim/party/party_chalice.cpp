@@ -51,11 +51,15 @@ bool GoodsFromJsonText(const std::string& text, std::vector<std::uint32_t>* out,
 #ifndef BB_PARTY_CHALICE_NO_GAME
 #include "coop_hooks.h"
 #include "game_state.h"
+#include "party_chalice_merge.h"
+#include "party_progress.h"
+#include "party_status.h"
 
 #include "../bbport_game_menu.h"
 #include "../net/from_api.h"
 #include "../net/party_util.h"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -179,6 +183,9 @@ std::atomic<double> g_quick_join_at{0};
 std::atomic<int> g_quick_join_slot{-1};      // the helper slot the quick join wrote (slot 0)
 std::atomic<std::uint64_t> g_carried{0};     // the host's dungeon carried into load mode 1
 void* g_set_load_mode = nullptr;
+// The host's dungeon record a quick join carried into load mode 1 (what a guest brings home), 0.7.6.
+SlotRecord g_carried_rec;
+std::atomic<bool> g_carried_rec_valid{false};
 
 using FlagGet = std::uint32_t(BB_COOP_SYSV*)(u64, std::uint32_t, std::uint32_t);
 using FlagSet = void(BB_COOP_SYSV*)(u64, std::uint32_t, std::uint32_t, std::uint32_t);
@@ -250,6 +257,86 @@ BB_COOP_SYSV void CancelStepProbe(u64 helper, u64, u64, u64, u64, u64) {
     LogHelperStep("STEP_Exec_forCancel", helper);
 }
 
+// ---- 0.7.6: the dungeon and its progress come home with the guest (docs/party/chalice.md 9) ----
+// A guest played the host's dungeon in the host's world (load mode 1: the overlay holds the host's
+// flags, the guest's lamps / shortcuts there included). Back in its own world (load mode 0) the
+// dungeon goes into a free altar slot 1..6 of the guest's own flag store and the lamps / shortcuts
+// the party reached are set in that slot's groups (area 40 + slot ids). A dungeon the guest already
+// has only gets the progress (OR, nothing is ever cleared); a slot holding a dungeon is never
+// overwritten. Gated by the host's "Shared lamps" rule (party::status::ShareLamps); no toggle of its own.
+namespace {
+const std::vector<std::uint32_t>& ProgressIdList() {
+    static const std::vector<std::uint32_t> ids = [] {
+        std::vector<IdRange> ranges;
+        for (const progress::CategoryRange& r : progress::CategoryRanges()) {
+            if (r.cat == progress::Category::lamp_unlocked || r.cat == progress::Category::shortcut_door) {
+                ranges.push_back({r.first, r.last});
+            }
+        }
+        return ProgressIds(ranges);
+    }();
+    return ids;
+}
+
+std::vector<std::uint32_t> ReadReached(u64 man) {
+    std::vector<std::uint32_t> out;
+    const FlagGet get = reinterpret_cast<FlagGet>(Guest(0x13cfd80));
+    for (std::uint32_t id : ProgressIdList()) {
+        if (get(man, id, 1)) out.push_back(id);
+    }
+    ExpandLamps(&out);
+    return out;
+}
+
+void BringDungeonHome(u64 man, const SlotRecord& brought, const std::vector<std::uint32_t>& reached) {
+    if (!party::status::ShareLamps()) {
+        std::printf("[coop] Party: chalice: progress home: Shared lamps is off, the host's dungeon stays the host's\n");
+        std::fflush(stdout);
+        return;
+    }
+    const FlagGet get = reinterpret_cast<FlagGet>(Guest(0x13cfd80));
+    const FlagSet set = reinterpret_cast<FlagSet>(Guest(0x13d0060));
+    using SetOne = void(BB_COOP_SYSV*)(u64, std::uint32_t, std::uint32_t);
+    const SetOne set_one = reinterpret_cast<SetOne>(Guest(0x13cfcc0));
+    std::array<SlotRecord, 7> own;
+    for (int k = 0; k < kSlots; ++k) {
+        for (int i = 0; i < kRecordDwords; ++i) {
+            own[static_cast<std::size_t>(k)].w[static_cast<std::size_t>(i)] = get(man, RecordBase(k) + 32u * static_cast<std::uint32_t>(i), 32);
+        }
+    }
+    const MergePlan plan = PlanMerge(own, brought);
+    const unsigned long long ch = RecordChannel(brought);
+    if (plan.kind == MergeKind::None) {
+        std::printf("[coop] Party: chalice: progress home: dungeon %llu not added (%s)\n", ch, plan.why);
+        std::fflush(stdout);
+        return;
+    }
+    if (plan.kind == MergeKind::Added) {
+        for (int i = 0; i < kRecordDwords; ++i) {
+            set(man, RecordBase(plan.slot) + 32u * static_cast<std::uint32_t>(i), 32, brought.w[static_cast<std::size_t>(i)]);
+        }
+    }
+    int newly = 0;
+    for (std::uint32_t id : reached) {
+        const std::uint32_t dst = SlotFlagId(id, plan.slot);
+        if (dst && !get(man, dst, 1)) {
+            set_one(man, dst, 1);
+            ++newly;
+        }
+    }
+    std::string ids;
+    for (std::size_t i = 0; i < reached.size() && i < 12; ++i) ids += (i ? "," : "") + std::to_string(reached[i]);
+    std::printf("[coop] Party: chalice: progress home: reached in the host's world: %s%s\n", ids.c_str(),
+                reached.size() > 12 ? ",..." : "");
+    std::uint32_t check = 0;
+    for (int i = 1; i < 3; ++i) check |= get(man, RecordBase(plan.slot) + 32u * static_cast<std::uint32_t>(i), 32);
+    std::printf("[coop] Party: chalice: progress home: dungeon %llu %s slot %d, %d of %zu lamp / shortcut flags set "
+                "(record reads back 0x%x)\n",
+                ch, plan.kind == MergeKind::Added ? "added to the altar in" : "already in", plan.slot, newly, reached.size(), check);
+    std::fflush(stdout);
+}
+} // namespace
+
 // A summoned member's game quick-joins the host's dungeon into its slot record (0x1aa81d0), then
 // the session load switches its event flags to load mode 1 (SetLoadMode 0x13bb590: the flag groups
 // move onto other storage, only the slot bit 9020+k is carried over). The map load (0x1928680) then
@@ -310,6 +397,16 @@ BB_COOP_SYSV void SetLoadModeHook(u64 man, u64 mode) {
             }
         }
     }
+    // 0.7.6: a guest leaving the host's world with the host's dungeon carried takes its progress home.
+    std::vector<std::uint32_t> reached;
+    SlotRecord brought;
+    bool bring = false;
+    if (static_cast<std::uint32_t>(mode) == 0 && man && SafeGet(man + kLoadModeOff, &cur) && cur == 1 &&
+        g_carried_rec_valid.exchange(false)) {
+        brought = g_carried_rec;
+        bring = true;
+        reached = ReadReached(man);
+    }
     if (static_cast<std::uint32_t>(mode) == 0) {
         if (keep) {
             std::printf("[coop] Party: chalice: load mode 0 inside a re-join in the host's dungeon: its dungeon stays carried\n");
@@ -328,6 +425,9 @@ BB_COOP_SYSV void SetLoadModeHook(u64 man, u64 mode) {
         }
     }
     reinterpret_cast<Fn>(g_set_load_mode)(man, mode);
+    if (bring) {
+        BringDungeonHome(man, brought, reached);
+    }
     if (!carry || from < 0) {
         return;
     }
@@ -345,6 +445,8 @@ BB_COOP_SYSV void SetLoadModeHook(u64 man, u64 mode) {
     const std::uint32_t after = get(man, RecordBase(from) + 96, 32);
     const std::uint64_t channel = ChannelFromDwords(rec[1], rec[2]);
     g_carried.store(channel);
+    for (int i = 0; i < kRecordDwords; ++i) g_carried_rec.w[static_cast<std::size_t>(i)] = rec[i];
+    g_carried_rec_valid.store(true);
     std::memcpy(g_rec_cache, rec, sizeof rec);
     g_rec_from = from;
     std::printf("[coop] Party: chalice: load mode 1: slot %d's record (dungeon %llu, map 0x%08x) carried over%s%s (map read 0x%08x -> 0x%08x)\n",

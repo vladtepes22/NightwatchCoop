@@ -239,6 +239,12 @@ target_compile_options(party-connwarn-test PRIVATE -UNDEBUG -Wall -Wextra -Werro
 target_include_directories(party-connwarn-test PRIVATE shim)
 set_target_properties(party-connwarn-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
+# Chalice Dungeon progress brought home (party_chalice_merge.h). ninja -C out/gpu party-chalice-merge-test
+add_executable(party-chalice-merge-test EXCLUDE_FROM_ALL ../tests/test_party_chalice_merge.cpp)
+target_compile_options(party-chalice-merge-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-chalice-merge-test PRIVATE shim)
+set_target_properties(party-chalice-merge-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
 add_executable(party-soak EXCLUDE_FROM_ALL ../tests/party_soak.cpp ${PARTY_NET_SOURCES} ${PARTY_LINK_SOURCES}
     third_party/monocypher/monocypher.c)
 

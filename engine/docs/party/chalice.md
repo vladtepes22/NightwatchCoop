@@ -568,3 +568,53 @@ guest staying dead until the host went back to the Dream.
   `chalice_wipe` (clw: guest down, host down, the respawn load into the host's dungeon).
 - A death in a boss fight stays the ERSC rule (limbo, spectating, until the boss is gone, a wipe or a rest;
   ERSC_PARITY C5): not changed.
+
+## 9. Progress comes home with the guest (0.7.6)
+
+Player report: a guest that played the host's dungeons had all the chalices (section 5) but, in its own
+world, the dungeons were not made at the altar and the layer lamps / shortcuts were missing.
+
+**Where a save keeps a Chalice Dungeon** (C, decoded from the fixtures with `tools/party/save_decode.py`):
+only in the event flag pool (150,000 bytes of the save), nothing else. Slot k (0..6) = area 40 + k groups
+(pool group index: area 40 is the same group as area 29, areas 41..46 are their own, keys in
+`resolve_group_key`):
+* the record: T9 ids `94000000 + k * 100000 + bit` (section 1): ChannelId `+32/+64`, the map `+96` (`0x1d......`,
+  all ones = empty), layout `+160..`; an empty slot reads `{0, 0x80000000, 0xffffffff, 0xffffffff}`;
+* the dungeon's progress: the area-29 ids (`1 29 0 Znnn` events, `7 29 0 02nn` lamp-lit) while it is the current
+  slot, stored in slot k's own groups (`1 4k 0 Znnn`, `7 4k 0 02nn`: `SlotFlagId`). In the Pthumeru fixture slot 1
+  holds e.g. 14101555..566, 14107000..007 (events), no lamps lit;
+* **a lamp n (return point 2902950 + n, n 0..8)** is four flags: the object's registration `12907800 + 20n`, lit
+  `+10` and `+11`, and lamp-lit `72900200 + n` (the layout of every map's lamps, `lampshare::LitFlags` with block 290).
+  Lit 2902952 gives 14107840 / 14107850 / 14107851 / 74100202 in slot 1 (live, `cpr`);
+* the slot selector `9020..9026` (one-hot); the altar lists the dungeon of a slot whose record holds a map even when
+  slot 0 is selected (live: the guest's altar read "Pthumerian Labyrinth: Chamber of the Seal, Layer One: Heart").
+
+**Root of the report**: a summoned guest plays in load mode 1 (the host's flags in an overlay, discarded on the way
+home) and the quick join writes only the transient network slot 0; its own slots 1..6 never learn the dungeon, and the
+flags the party reached were in the overlay.
+
+**The change** (`party_chalice.cpp` `BringDungeonHome`, pure rules in `party_chalice_merge.h`): the quick-joined slot
+record is kept when the carry happens (`g_carried_rec`); on the load-mode 1 -> 0 switch (the guest leaving the host's
+world, any path) the lamp / shortcut flags that read set in the overlay are collected (`ReadReached`: the lamp
+categories and shortcut doors of area 29 block 0 from `party_flags.inc`, plus the four flags of every lamp whose lit
+flag is set: the host's world syncs only some of them), the switch runs, and then in the guest's own store:
+1. `PlanMerge`: the dungeon already in slots 1..6 (same ChannelId) -> `Existing`: nothing is added; else the first free
+   slot 1..6 (record holds no map) -> `Added`; none free or no ChannelId -> nothing. Slot 0 is never a target and a
+   slot holding a dungeon is never written;
+2. `Added`: the 43 record dwords are written with `SetEventFlagValue` at `94000000 + k * 100000`;
+3. every reached flag is set in slot k's groups with `SetEventFlag(SlotFlagId(id, k))` if not set (OR; never cleared).
+Item pickups, boss kills and chest flags are not copied (Chalice weapon pickups and shop gates stay per player, and a
+boss the guest has not killed pays its own loot). Gate: the host's **Shared lamps** rule (`party::status::ShareLamps`,
+guests follow the host); no toggle of its own. Log: `chalice: progress home: dungeon N added to the altar in slot K,
+M of M lamp / shortcut flags set`, `... already in slot K ...`, `... not added (why)`.
+Both ways: the host's own copy of a dungeon a guest made is the host's slot (the game's join), so host progress in a
+guest's dungeon merges into the guest's slot the same way (`Existing`).
+
+**Evidence**: unit `party-chalice-merge-test` (free slot, dedupe, own dungeons kept, all slots full, ids). Live smoke
+`chalice_progress` (cpr: host `chalice_pthumeru_inside` lights lamp 2901952, guest with no dungeon leaves; its saved
+file holds the record in slot 1 and the four lamp flags, lamp 2902950 unlit), `chalamp` (cl: the guest owns a
+Hintertomb dungeon in slot 1; the host's lands in slot 2, once, over several re-summons and the final leave) and
+`chalice_altar` (cpa: the fixture `chalice_guest_brought`, screenshots of the altar's list).
+Not proven: a title-joined guest whose own slot already holds the same dungeon (no quick join, so no carry: its
+progress is not merged); a guest killed / crashed in the host's world (no mode 0 switch before the crash); all six
+slots full (unit only); layers deeper than 1 (only lamp 2902952 reached in the fixture).
