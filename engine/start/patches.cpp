@@ -486,6 +486,10 @@ void SkipForOnline(const std::string& key) {
         key.c_str());
 }
 
+// A patch whose sites differ from the standard 1.09 is left out, never written over the other
+// code. Reports of the FPS preset left out "at 8 of its 180 spots (first: image offset 0x203487e)"
+// come from an eboot.bin with its own SprjFlipper::Update pacer changes (ours matches all 180):
+// the player needs an unmodified dump; not worked around here.
 std::vector<std::string> CheckedPatches(const PatchFile& xml, const std::vector<std::string>& names,
                                         const std::string& app_version, const Segments& segments, const Bytes& elf,
                                         const std::vector<std::string>& group) {
