@@ -1,3 +1,4 @@
+#include "video_core/renderer_vulkan/vk_hdr_channel.h"
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -156,7 +157,7 @@ void Pipeline::BindResources(DescriptorWrites& set_writes, const Shader::PushDat
     const auto stage_flags = IsCompute() ? vk::ShaderStageFlagBits::eCompute : AllGraphicsStageBits;
     const vk::PipelineLayout layout = *pipeline_layout;
     scheduler.Record([layout, stage_flags, push_data](vk::CommandBuffer cmdbuf) {
-        cmdbuf.pushConstants(layout, stage_flags, 0u, sizeof(push_data), &push_data);
+        cmdbuf.pushConstants(layout, stage_flags, 0u, HdrChannel::PushConstantSize(), &push_data);
     });
     if (uses_tone_curve) {
         const Shader::Native::ToneCurvePush tone = ToneCurveParams();

@@ -17,7 +17,7 @@ class HdrOutputPass {
 public:
     /// Push constants of hdr_output.frag.
     struct Settings {
-        float paper_white = 200.0f; ///< nits of SDR white
+        float paper_white = 203.0f; ///< nits of SDR white
         float peak = 1000.0f;       ///< nits the display reaches
         float boost = 0.5f;         ///< highlight expansion, 0..1 (expand mode and fallback)
         u32 flags = 0;              ///< FlagScRgb | FlagOverlay | FlagNative | FlagDebug
@@ -28,13 +28,22 @@ public:
         /// Native mode: the UI's white (times paper white) and colours (0 sRGB .. 1 DCI-P3).
         float ui_white = 1.0f;
         float ui_vivid = 0.0f;
+        float black_floor = 0.0f;
+        u32 compare = 0, tonemapper = 3;
     };
+    static_assert(sizeof(Settings) == 52);
+    static constexpr u32 FlagPsycho = 32, FlagEncoded = 64, FlagSnapshot = 128;
+    /// PsychoV30: the in-game menu's 16-bit probe 6, magenta where a channel arrives below 0.
+    static constexpr u32 FlagNegativeProbe = 256;
+    /// PsychoV30: the snapshot's alpha is the HUD's mask (hdr_ui_mask.comp), not to be guessed.
+    static constexpr u32 FlagUiMask = 512;
     static constexpr u32 FlagScRgb = 1;   ///< scRGB (linear BT.709) output, else HDR10 PQ
     static constexpr u32 FlagOverlay = 2; ///< the menu layer is drawn
     static constexpr u32 FlagNative = 4;  ///< `gain` is this frame's gain map (native mode)
     static constexpr u32 FlagDebug = 8;   ///< BB_HDR_DEBUG: the gain as a heat map
     static constexpr u32 FlagUiFrame = 16; ///< native mode, a frame without a scene: all UI
-    static constexpr u32 FlagCompare = 32; ///< the left half as SDR (the menu's comparison)
+    /// The left half as SDR (the menu's comparison, Native and Expand); 32 is FlagPsycho.
+    static constexpr u32 FlagCompare = 1024;
 
     /// `output_format`: the HDR swapchain's format.
     void Create(vk::Device device, vk::Format output_format);
@@ -48,7 +57,7 @@ public:
     /// in `gain_layout`) is filtered.
     void Render(vk::CommandBuffer cmdbuf, vk::ImageView game, vk::ImageView overlay,
                 vk::ImageView gain, vk::ImageLayout gain_layout, vk::ImageView output,
-                vk::Extent2D extent, const Settings& settings);
+                vk::Extent2D extent, const Settings& settings, vk::ImageView snapshot = {});
 
 private:
     vk::UniquePipeline pipeline{};

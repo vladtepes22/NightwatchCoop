@@ -1,3 +1,4 @@
+#include "video_core/renderer_vulkan/vk_hdr_channel.h"
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -73,7 +74,7 @@ ComputePipeline::ComputePipeline(const Instance& instance, Scheduler& scheduler,
     const vk::PushConstantRange push_constants = {
         .stageFlags = vk::ShaderStageFlagBits::eCompute,
         .offset = 0,
-        .size = sizeof(Shader::PushData),
+        .size = HdrChannel::PushConstantSize(),
     };
 
     uses_push_descriptors = binding < instance.MaxPushDescriptors();

@@ -21,6 +21,7 @@
 #include "video_core/cache_storage.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
+#include "video_core/renderer_vulkan/vk_hdr_channel.h"
 #include "video_core/renderer_vulkan/vk_shader_util.h"
 
 namespace Serialization {
@@ -419,6 +420,15 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage, 
     }
 
     auto it = program_cache.find(program->info.pgm_hash);
+    // Cached composites need the same companion preparation as freshly translated shaders, and the
+    // chain passes HDR16's replacements: the cache holds the game's own shaders (CompileModule).
+    if (HdrChannel::Native16() && program->info.sw_stage == Shader::SwStage::Fragment) {
+        HdrChannel::NoteGameShader(program->info.pgm_hash, spv);
+        if (auto replacement = HdrChannel::ChainReplacement(program->info.pgm_hash, spv);
+            !replacement.empty()) {
+            spv = std::move(replacement);
+        }
+    }
     Program* target = it == program_cache.end() ? program.get() : it->second.get();
     vk::ShaderModule module;
     if (perm_idx < target->modules.size() && target->modules[perm_idx].module) {

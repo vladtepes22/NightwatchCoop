@@ -1,3 +1,4 @@
+#include "video_core/renderer_vulkan/vk_hdr_channel.h"
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -153,16 +154,21 @@ GraphicsPipeline::GraphicsPipeline(
     const auto debug_str = GetDebugString();
 
     // bbport: a composite with the tone curve extension reads its parameters after the push
-    // data (native/tone_curve.h).
+    // data (native/tone_curve.h); HDR16 (mode 5) has its own after it (HdrChannel). The two never
+    // run together (HDR16 turns native shaders off), the larger size covers both.
     uses_tone_curve = std::ranges::any_of(stages, [](const Shader::Info* info) {
         return info && info->uses_tone_curve;
     });
+    const auto* hdr_fs = stages[u32(Shader::SwStage::Fragment)];
+    const bool hdr_composite = hdr_fs && HdrChannel::Native16() &&
+        bool(HdrChannel::CompositeModule(instance, hdr_fs->pgm_hash));
+    const u32 tone_curve_size = uses_tone_curve ? u32(Shader::Native::ToneCurvePushOffset +
+                                                      sizeof(Shader::Native::ToneCurvePush))
+                                                : 0u;
     const vk::PushConstantRange push_constants = {
         .stageFlags = AllGraphicsStageBits,
         .offset = 0,
-        .size = u32(uses_tone_curve ? Shader::Native::ToneCurvePushOffset +
-                                          sizeof(Shader::Native::ToneCurvePush)
-                                    : sizeof(Shader::PushData)),
+        .size = std::max(HdrChannel::PushConstantSize(), tone_curve_size),
     };
 
     std::array<vk::DescriptorSetLayout, 2> set_layouts{*desc_layout, {}};
@@ -511,6 +517,15 @@ GraphicsPipeline::GraphicsPipeline(
                                                      ? vk::BlendFactor::eOne
                                                      : vk::BlendFactor::eZero; // 1-A
         }
+        const auto* fs = stages[u32(Shader::SwStage::Fragment)];
+        if (i == 0 && control.enable && fs && fs->pgm_hash == HdrChannel::GlowAddHash &&
+            HdrChannel::Native16() && attachments[i].colorBlendOp == vk::BlendOp::eAdd &&
+            attachments[i].dstColorBlendFactor == vk::BlendFactor::eOne &&
+            (attachments[i].srcColorBlendFactor == vk::BlendFactor::eSrcAlpha ||
+             attachments[i].srcColorBlendFactor == vk::BlendFactor::eOne)) {
+            attachments[i].srcColorBlendFactor = vk::BlendFactor::eConstantColor;
+            scaled_glow = true;
+        }
     }
 
     const vk::PipelineColorBlendStateCreateInfo color_blending = {
@@ -547,9 +562,10 @@ GraphicsPipeline::GraphicsPipeline(
     // thread; the draw recording thread waits for it only when it records the bind (Handle).
     // Meanwhile the GPU command thread decodes on and starts the next new pipelines, so a burst
     // of compiles (area loads: 50-90 at once, 0.5-1.3 s on one thread) runs in parallel.
-    // bbport: the start's cached pipelines are created in parallel (WarmupJobs).
-    WarmupJobs* const warmup = preloading ? warmup_jobs : nullptr;
-    if ((!preloading && AsyncPipelinesEnabled()) || warmup) {
+    // bbport: the start's cached pipelines are created in parallel (WarmupJobs). A composite with
+    // an HDR16 companion compiles with it, synchronously.
+    WarmupJobs* const warmup = preloading && !hdr_composite ? warmup_jobs : nullptr;
+    if ((!preloading && !hdr_composite && AsyncPipelinesEnabled()) || warmup) {
         auto job = std::make_shared<PendingPipeline>();
         auto& j = *job;
         bool ok = true;
@@ -669,6 +685,74 @@ GraphicsPipeline::GraphicsPipeline(
                vk::to_string(pipeline_result));
     pipeline = std::move(pipe);
     SetObjectName(device, *pipeline, "Graphics Pipeline {}", debug_str);
+    // bbport HDR: the side channel's copy of Bloodborne's tonemap pipeline (vk_hdr_channel.h):
+    // same layout, vertex input, dynamic state and vertex shader; the HDR fragment shader and an
+    // RGBA16F attachment without blending. For bbport's replacement of the tonemap shader
+    // (BB_HDR_TONEMAP=3), whose interface the HDR shader shares, or for any composite variant
+    // whose HDR shader the generic pass built with its interface (BB_HDR_TONEMAP=4).
+    const auto* fs_stage = stages[u32(Shader::SwStage::Fragment)];
+    vk::ShaderModule hdr_module{};
+    if (fs_stage && HdrChannel::Enabled() && key.num_color_attachments == 1 &&
+        key.z_format == AmdGpu::DepthBuffer::ZFormat::Invalid &&
+        key.stencil_format == AmdGpu::DepthBuffer::StencilFormat::Invalid) {
+        if (HdrChannel::Generic()) {
+            hdr_module = HdrChannel::CompositeModule(instance, fs_stage->pgm_hash);
+        }
+    }
+    if (hdr_module) {
+        auto hdr_stages = shader_stages;
+        for (auto& hdr_stage : hdr_stages) {
+            if (hdr_stage.stage == vk::ShaderStageFlagBits::eFragment) {
+                hdr_stage.module = hdr_module;
+            }
+        }
+        // Two targets: the gains and reference, and the effect ratios (vk_hdr_channel.h).
+        // Mode 5 (16-bit chain): the game's own target instead, the HDR part added to it.
+        const bool delta = HdrChannel::Native16();
+        const std::array hdr_formats{vk::Format::eR16G16B16A16Sfloat,
+                                     vk::Format::eR16G16B16A16Sfloat};
+        auto hdr_rendering = pipeline_rendering_ci;
+        hdr_rendering.pNext = nullptr;
+        if (!delta) {
+            hdr_rendering.colorAttachmentCount = 2;
+            hdr_rendering.pColorAttachmentFormats = hdr_formats.data();
+        }
+        const vk::PipelineColorBlendAttachmentState hdr_attachment{
+            .blendEnable = false,
+            .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+                              vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA,
+        };
+        const vk::PipelineColorBlendAttachmentState delta_attachment{
+            .blendEnable = true,
+            .srcColorBlendFactor = vk::BlendFactor::eOne,
+            .dstColorBlendFactor = vk::BlendFactor::eOne,
+            .colorBlendOp = vk::BlendOp::eAdd,
+            .srcAlphaBlendFactor = vk::BlendFactor::eZero,
+            .dstAlphaBlendFactor = vk::BlendFactor::eOne,
+            .alphaBlendOp = vk::BlendOp::eAdd,
+            .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+                              vk::ColorComponentFlagBits::eB,
+        };
+        const std::array hdr_attachments{hdr_attachment, hdr_attachment};
+        auto hdr_blending = color_blending;
+        hdr_blending.logicOpEnable = false;
+        hdr_blending.attachmentCount = delta ? 1 : 2;
+        hdr_blending.pAttachments = delta ? &delta_attachment : hdr_attachments.data();
+        auto hdr_info = pipeline_info;
+        hdr_info.pNext = &hdr_rendering;
+        hdr_info.stageCount = static_cast<u32>(hdr_stages.size());
+        hdr_info.pStages = hdr_stages.data();
+        hdr_info.pColorBlendState = &hdr_blending;
+        auto [hdr_result, hdr_pipe] = device.createGraphicsPipelineUnique(pipeline_cache, hdr_info);
+        if (hdr_result == vk::Result::eSuccess) {
+            hdr_pipeline = std::move(hdr_pipe);
+            LOG_INFO(Render_Vulkan, "HDR channel: pipeline for the tonemap draw {} (ps {:08x})",
+                     debug_str, u32(fs_stage->pgm_hash));
+        } else {
+            LOG_WARNING(Render_Vulkan, "HDR channel: cannot build the tonemap pipeline: {}",
+                        vk::to_string(hdr_result));
+        }
+    }
 }
 
 GraphicsPipeline::~GraphicsPipeline() {

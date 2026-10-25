@@ -347,7 +347,7 @@ def main():
         if scaled_output:
             live = os.environ.get('BB_LIVE_RES') or settings_value(config, 'live_resolution') or '0'
             if live == 'auto':
-                caps = out / 'bb-gpu-capabilities.exe'
+                caps = ROOT / 'out/bb-gpu-capabilities.exe'
                 live = run([caps, '--live-resolution'], capture=True, check=False) or '0'
             live = '1' if live == '1' else '0'
         if live == '1':
@@ -377,7 +377,7 @@ def main():
         if heaps and 'BB_DMEM_MB' not in os.environ:
             os.environ['BB_DMEM_MB'] = '9152'
             print("Patches: the game's heaps are enlarged; direct memory 9152 MiB", flush=True)
-        probe = ROOT / os.environ.get('BB_PROBE', out / 'bb-probe.exe')
+        probe = Path(os.environ.get('BB_PROBE', ROOT / 'out/bb-probe.exe'))
         command = [probe, out / 'boot-linked.bin', '--content-profile', out / 'content.bin',
                    '--patches', out / 'patches.bin', '--app0', merged,
                    '--user', os.environ.get('BB_USER_DIR', data / 'user'),

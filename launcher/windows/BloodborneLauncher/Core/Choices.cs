@@ -245,6 +245,20 @@
         public static readonly Choice[] HdrMode =
         {
             new(L.T("Native (default)"), "native"), new(L.T("Expanded"), "expand"),
+            new("HDR16 (16-bit, restart)", "psychov30",
+                "HDR16 by LRF17 (github.com/LRF17/LanternEngine-HDR16). Tone mappers: Vanilla+ by souperman9 (from his RenoDX Bloodborne mod); PsychoV-30 from RenoDX (© 2026 Carlos Lopez, MIT License, github.com/clshortfuse/renodx)."),
+        };
+
+        /// <summary>hdr_tonemapper with HDR16 (hdr_mode=psychov30): 5 Vanilla+ (souperman9's, from his RenoDX Bloodborne mod; the engine's default), 4 PsychoV-30 (as RenoDX's mods), 2 Vanilla.</summary>
+        public static readonly Choice[] HdrToneMapper =
+        {
+            new("Vanilla+ (by souperman9, default)", "5"), new("PsychoV-30 (as RenoDX's mods)", "4"), new("Vanilla (the game's own look)", "2"),
+        };
+
+        /// <summary>hdr_gamut: the color volume PsychoV-30 fits the picture into.</summary>
+        public static readonly Choice[] HdrGamut =
+        {
+            new("BT.2020 (default)", "bt2020"), new("BT.709", "bt709"),
         };
 
         public static readonly Choice[] HdrBoost =

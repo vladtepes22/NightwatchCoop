@@ -1,6 +1,7 @@
 #include "bbport_headless.h"
 #include "bbport_frame_state.h"
 #include "bbport_present_hold.h"
+#include "video_core/renderer_vulkan/vk_hdr_channel.h"
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -19,6 +20,7 @@
 #include "bbport_settings.h"
 #include "bbport_timeline.h"
 #include "video_core/renderer_vulkan/vk_temporal_upscaler.h"
+#include "video_core/renderer_vulkan/vk_gpu_profiler.h"
 #include "video_core/renderer_vulkan/vk_presenter.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/texture_cache/image.h"
@@ -47,6 +49,74 @@
 #include <vk_mem_alloc.h>
 
 namespace Vulkan {
+
+namespace {
+// bbport: BB_GPU_PROFILE=1: the GPU time of the presenter's own submission (the final HDR pass,
+// DLSS-G's HUD-less frame, the menu layer), which the draw scheduler's profile counts as idle.
+// Two timestamps per present in a ring of eight, read seven presents later without waiting.
+class PresentTimer {
+public:
+    void Begin(const Instance& instance, vk::CommandBuffer cmdbuf) {
+        if (!enabled) {
+            return;
+        }
+        const auto device = instance.GetDevice();
+        if (!pool) {
+            pool = Check<"create present timestamp pool">(device.createQueryPoolUnique(
+                {.queryType = vk::QueryType::eTimestamp, .queryCount = Slots * 2}));
+            device.resetQueryPool(*pool, 0, Slots * 2);
+            period_ns = instance.GetPhysicalDevice().getProperties().limits.timestampPeriod;
+        }
+        // The slot written Slots presents ago: read, then written again.
+        if (written[slot]) {
+            std::array<u64, 2> stamps{};
+            if (device.getQueryPoolResults(*pool, slot * 2, 2, sizeof(stamps), stamps.data(),
+                                           sizeof(u64), vk::QueryResultFlagBits::e64) ==
+                vk::Result::eSuccess) {
+                total_ms += double(stamps[1] - stamps[0]) * period_ns / 1e6;
+                ++count;
+            }
+            written[slot] = false;
+        }
+        cmdbuf.resetQueryPool(*pool, slot * 2, 2);
+        cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands, *pool, slot * 2);
+        open = true;
+    }
+    void End(vk::CommandBuffer cmdbuf) {
+        if (!open) {
+            return;
+        }
+        cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands, *pool, slot * 2 + 1);
+        written[slot] = true;
+        open = false;
+        slot = (slot + 1) % Slots;
+        const auto now = std::chrono::steady_clock::now();
+        if (now - window >= std::chrono::seconds(5) && count > 0) {
+            std::printf("GPU profile: presenter %.3f ms/present over %llu presents\n",
+                        total_ms / double(count), static_cast<unsigned long long>(count));
+            window = now;
+            total_ms = 0;
+            count = 0;
+        }
+    }
+
+private:
+    static constexpr u32 Slots = 8;
+    const bool enabled = [] {
+        const char* env = std::getenv("BB_GPU_PROFILE");
+        return env && env[0] == '1';
+    }();
+    vk::UniqueQueryPool pool;
+    double period_ns = 1.0;
+    std::array<bool, Slots> written{};
+    u32 slot = 0;
+    bool open = false;
+    double total_ms = 0;
+    u64 count = 0;
+    std::chrono::steady_clock::time_point window = std::chrono::steady_clock::now();
+};
+PresentTimer present_timer;
+} // namespace
 
 bool CanBlitToSwapchain(const vk::PhysicalDevice physical_device, vk::Format format) {
     const vk::FormatProperties props{physical_device.getFormatProperties(format)};
@@ -175,7 +245,7 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
         static_cast<float>(EmulatorSettings.GetRcasAttenuation() / 1000.f);
 
     fsr_pass.Create(device, instance.GetAllocator(), num_images);
-    pp_pass.Create(device, swapchain.GetSurfaceFormat().format);
+    pp_pass.Create(device, HdrChannel::Native16() ? HdrChannel::Native16Format : swapchain.GetSurfaceFormat().format);
     // bbport: + 2: frame generation presents up to twice per game frame, and adds a swapchain
     // image; the menu's vertex buffers rotate over this many.
     BbOverlay::Init(instance, swapchain.GetSurfaceFormat().format, num_images + 2);
@@ -294,7 +364,11 @@ void Presenter::CreateHdrTarget(HdrTarget& target, vk::Extent2D extent, const ch
     const bool sdr = format == vk::Format::eUndefined;
     const vk::ImageCreateInfo image_info = {
         .imageType = vk::ImageType::e2D,
-        .format = sdr ? swapchain.GetSurfaceFormat().format : format,
+        // HDR16: the composite keeps the 16-bit chain's values above white.
+        .format = !sdr ? format
+                  : HdrChannel::Native16() && std::strcmp(name, "composite") == 0
+                      ? HdrChannel::Native16Format
+                      : swapchain.GetSurfaceFormat().format,
         .extent = {extent.width, extent.height, 1},
         .mipLevels = 1,
         .arrayLayers = 1,
@@ -365,7 +439,9 @@ void Presenter::EnsureDlssHdrTargets(vk::Extent2D extent) {
                 DestroyHdrTarget(hudless);
             });
     }
-    CreateHdrTarget(dlss_hdr_composite, extent, "DLSS-G HUD-less composite");
+    // HDR16: the 16-bit chain's frame without its UI, as the back buffer's composite.
+    CreateHdrTarget(dlss_hdr_composite, extent, "DLSS-G HUD-less composite",
+                    HdrChannel::Native16() ? HdrChannel::Native16Format : vk::Format::eUndefined);
     CreateHdrTarget(dlss_hdr_hudless, extent, "DLSS-G HUD-less", swapchain.GetHdrFormat().format);
     dlss_hdr_extent = extent;
 }
@@ -477,7 +553,10 @@ void Presenter::PresentHdr(vk::CommandBuffer cmdbuf, Frame* frame, vk::Extent2D 
     // real frame's it was interpolated towards (PresentGenerated), or every other frame would
     // fall back to plain SDR.
     const Frame* gain = hdr_gain_source ? hdr_gain_source : frame;
-    const bool native = mode == BbSettings::HdrModeNative && gain->hdr_native && gain->hdr_gain;
+    const bool psycho = HdrChannel::Native16() && frame->psycho_frame;
+    BbSettings::Get().hdr_native16_live.store(psycho, std::memory_order_relaxed); // menu status
+    const bool native = !HdrChannel::Native16() && mode == BbSettings::HdrModeNative &&
+                        gain->hdr_native && gain->hdr_gain;
     LogHdrState(scrgb, mode, native);
     // BB_HDR_DEBUG=1: the gain as a heat map over a grey picture (hdr_output.frag).
     static const bool debug = [] {
@@ -491,30 +570,46 @@ void Presenter::PresentHdr(vk::CommandBuffer cmdbuf, Frame* frame, vk::Extent2D 
         .paper_white = std::clamp(settings.hdr_paper_white.load(), BbSettings::HdrPaperWhiteMin,
                                   BbSettings::HdrPaperWhiteMax),
         .peak = BbSettings::HdrPeakNits(settings),
-        .boost = mode == BbSettings::HdrModeNative && !native
+        .boost = HdrChannel::Native16() || (mode == BbSettings::HdrModeNative && !native)
                      ? 0.0f
                      : std::clamp(settings.hdr_boost.load(), 0.0f, 1.0f),
         .flags = (scrgb ? HostPasses::HdrOutputPass::FlagScRgb : 0u) |
                  (overlay ? HostPasses::HdrOutputPass::FlagOverlay : 0u) |
                  (native ? HostPasses::HdrOutputPass::FlagNative : 0u) |
-                 (debug ? HostPasses::HdrOutputPass::FlagDebug : 0u) |
+                 (psycho ? HostPasses::HdrOutputPass::FlagPsycho : 0u) |
+                 (psycho && frame->psycho_encoded ? HostPasses::HdrOutputPass::FlagEncoded : 0u) |
+                 (psycho && frame->psycho_snapshot ? HostPasses::HdrOutputPass::FlagSnapshot : 0u) |
+                 (psycho && settings.hdr_native16_probe == 6 ? HostPasses::HdrOutputPass::FlagNegativeProbe : 0u) |
+                 (psycho && frame->psycho_snapshot && frame->psycho_snapshot->ui_mask ? HostPasses::HdrOutputPass::FlagUiMask : 0u) |
+                 // PsychoV30: the 16-bit probe 7, the pixels taken as the HUD in red.
+                 (debug || (psycho && settings.hdr_native16_probe == 7) ? HostPasses::HdrOutputPass::FlagDebug : 0u) |
                  (mode == BbSettings::HdrModeNative && !native ? HostPasses::HdrOutputPass::FlagUiFrame : 0u) |
-                 (settings.hdr_compare.load(std::memory_order_relaxed) ? HostPasses::HdrOutputPass::FlagCompare : 0u),
+                 // The split comparison (Native / Expand); HDR16 has its own (hdr16_compare).
+                 (!psycho && settings.hdr_compare.load(std::memory_order_relaxed) ? HostPasses::HdrOutputPass::FlagCompare : 0u),
         .gain_offset = {float(fit.offset.x), float(fit.offset.y)},
         .gain_scale = {1.0f / float(std::max(fit.extent.width, 1u)),
                        1.0f / float(std::max(fit.extent.height, 1u))},
-        .ui_white = mode == BbSettings::HdrModeNative
-                        ? std::clamp(settings.hdr_ui_brightness.load(), BbSettings::HdrUiBrightnessMin,
-                                     BbSettings::HdrUiBrightnessMax)
+        .ui_white = (mode == BbSettings::HdrModeNative || psycho)
+                        // UI Brightness in nits, as a factor of the paper white the pass gets.
+                        ? std::clamp(settings.hdr_ui_nits.load(), BbSettings::HdrUiNitsMin,
+                                     BbSettings::HdrUiNitsMax) /
+                              std::clamp(settings.hdr_paper_white.load(), BbSettings::HdrPaperWhiteMin,
+                                         BbSettings::HdrPaperWhiteMax)
                         : 1.0f,
         .ui_vivid = mode == BbSettings::HdrModeNative ? std::clamp(settings.hdr_ui_color.load(), 0.0f, 1.0f) : 0.0f,
+        // The menu's HDR preset Off is the game's own look: no black floor either.
+        .black_floor = settings.hdr_preset == 0
+                           ? 0.0f
+                           : settings.hdr_black_floor.load() / std::max(settings.hdr_paper_white.load(), 1.0f),
+        .compare = u32(settings.hdr16_compare.load()),
+        .tonemapper = HdrChannel::Tonemapper(),
     };
     // bbport: MaxCLL, the brightest the content gets: native mode's highlights reach the peak;
     // expand mode's SDR white goes to boost's share of it. It changes with the settings, not
     // per frame: a display re-mapping its tone curve on every fallback would pump.
     const float expand_white =
         std::max(1.0f + (hdr.peak / hdr.paper_white - 1.0f) * hdr.boost, 1.0f);
-    const float content_peak = mode == BbSettings::HdrModeNative
+    const float content_peak = HdrChannel::Native16() || mode == BbSettings::HdrModeNative
                                    ? hdr.peak
                                    : std::min(hdr.peak, hdr.paper_white * expand_white);
     swapchain.SetHdrMetadata(hdr.peak, content_peak, hdr.paper_white);
@@ -530,7 +625,7 @@ void Presenter::PresentHdr(vk::CommandBuffer cmdbuf, Frame* frame, vk::Extent2D 
     hdr_pass.Render(cmdbuf, hdr_game.view, overlay ? hdr_overlay.view : hdr_game.view,
                     native ? *gain->hdr_gain->view : hdr_game.view,
                     native ? Layout::eGeneral : Layout::eShaderReadOnlyOptimal,
-                    swapchain.ImageView(), extent, hdr);
+                    swapchain.ImageView(), extent, hdr, psycho && frame->psycho_snapshot ? *frame->psycho_snapshot->view : hdr_game.view);
 
     const std::array to_present{
         barrier(swapchain_image, Layout::eColorAttachmentOptimal, Layout::ePresentSrcKHR,
@@ -578,7 +673,10 @@ void Presenter::PresentHdr(vk::CommandBuffer cmdbuf, Frame* frame, vk::Extent2D 
     };
     barriers(to_encode);
     auto hudless_hdr = hdr;
-    hudless_hdr.flags &= ~HostPasses::HdrOutputPass::FlagOverlay;
+    // Without the menu layer; HDR16: no UI to tell from the scene in it (no pre-UI snapshot).
+    hudless_hdr.flags &= ~(HostPasses::HdrOutputPass::FlagOverlay |
+                           HostPasses::HdrOutputPass::FlagSnapshot |
+                           HostPasses::HdrOutputPass::FlagUiMask);
     hdr_pass.Render(cmdbuf, dlss_hdr_composite.view, dlss_hdr_composite.view,
                     native ? *frame->hdr_gain->view : dlss_hdr_composite.view,
                     native ? Layout::eGeneral : Layout::eShaderReadOnlyOptimal,
@@ -600,7 +698,9 @@ void Presenter::LogHdrState(bool scrgb, int mode, bool native_frame) {
         hdr_native_state = hdr_logged_native = -1;
         std::printf("HDR output: %s, mode %s (%s)\n",
                     scrgb ? "scRGB (FP16)" : "HDR10 (PQ, BT.2020)", BbSettings::HdrModeNames[mode],
-                    mode == BbSettings::HdrModeNative
+                    HdrChannel::Native16()
+                        ? "HDR16, tone mapped on the game's scene, 16-bit chain"
+                    : mode == BbSettings::HdrModeNative
                         ? "highlights from the game's HDR scene, plain SDR where a frame has none"
                         : "highlights expanded from the SDR picture");
     }
@@ -642,7 +742,7 @@ void Presenter::RecreateFrame(Frame* frame, u32 width, u32 height) {
         vmaDestroyImage(instance.GetAllocator(), frame->image, frame->allocation);
     }
 
-    const vk::Format format = swapchain.GetSurfaceFormat().format;
+    const vk::Format format = HdrChannel::Native16() ? HdrChannel::Native16Format : swapchain.GetSurfaceFormat().format;
     const vk::ImageCreateInfo image_info = {
         .flags = vk::ImageCreateFlagBits::eMutableFormat,
         .imageType = vk::ImageType::e2D,
@@ -778,6 +878,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     // bbport: scaled upscaler presets: the output-size display buffer drawn by the port.
     TemporalUpscaler::Display display{};
     const bool upscaled = rasterizer->GetUpscaler().DisplayOverride(cpu_address, display);
+    const bool psycho_frame = HdrChannel::Native16() && upscaled && display.format == HdrChannel::Native16Format;
     VideoCore::ImageId image_id{};
     if (!upscaled) {
         auto desc = VideoCore::TextureCache::ImageDesc{attribute, cpu_address};
@@ -786,6 +887,13 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     }
 
     Frame* frame = GetRenderFrame();
+    frame->psycho_frame = psycho_frame;
+    frame->psycho_encoded = attribute.attrib.pixel_format == Libraries::VideoOut::PixelFormat::A2R10G10B10Srgb ||
+        GetFrameViewFormat(attribute.attrib.pixel_format) == vk::Format::eB8G8R8A8Srgb ||
+        GetFrameViewFormat(attribute.attrib.pixel_format) == vk::Format::eR8G8B8A8Srgb;
+    if (psycho_frame) rasterizer->GetUpscaler().TakePsychoSnapshot(cpu_address, frame->psycho_snapshot);
+    else frame->psycho_snapshot.reset();
+
     // bbport: native HDR output: the gain map made at this display buffer's display pass (for
     // the frame it holds, a frame earlier in the command stream) goes with the frame to the
     // present thread; the frame's old one, presented (its fence was waited above), goes back.
@@ -816,9 +924,15 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
         image_view = Check(device.createImageView({
             .image = display.image,
             .viewType = vk::ImageViewType::e2D,
-            .format = view_info.format,
-            .components = {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-                           vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eOne},
+            .format = psycho_frame ? display.format : view_info.format,
+            .components = {psycho_frame &&
+                ((view_info.format == vk::Format::eB8G8R8A8Srgb || view_info.format == vk::Format::eB8G8R8A8Unorm) !=
+                 (display.guest_format == vk::Format::eB8G8R8A8Srgb || display.guest_format == vk::Format::eB8G8R8A8Unorm)) ? vk::ComponentSwizzle::eB : vk::ComponentSwizzle::eIdentity,
+                vk::ComponentSwizzle::eIdentity,
+                psycho_frame &&
+                ((view_info.format == vk::Format::eB8G8R8A8Srgb || view_info.format == vk::Format::eB8G8R8A8Unorm) !=
+                 (display.guest_format == vk::Format::eB8G8R8A8Srgb || display.guest_format == vk::Format::eB8G8R8A8Unorm)) ? vk::ComponentSwizzle::eR : vk::ComponentSwizzle::eIdentity,
+                vk::ComponentSwizzle::eOne},
             .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
         }));
         draw_scheduler.DeferOperation([device, image_view] { device.destroyImageView(image_view); });
@@ -860,15 +974,18 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     pp_settings.srgb_input =
         attribute.attrib.pixel_format == Libraries::VideoOut::PixelFormat::A2R10G10B10Srgb;
 
+    // Keep the gamma-encoded HDR values above one through the post-process target.
+    pp_settings.hdr = psycho_frame;
     // bbport: frame generation: this frame's generated one, shown before it. Without a free
     // generated frame the interpolation still runs (its history stays whole) but none is shown.
     frame->generated = nullptr;
     std::optional<FrameGenerator::Job> gen_job;
     Frame* generated = nullptr;
     {
+        // HDR16's frames are HDR too (16-bit): FSR 3.1 interpolates them as they are.
         const bool hdr = BbSettings::Get().hdr_output.load(std::memory_order_relaxed) !=
                              BbSettings::HdrOutputOff ||
-                         frame->is_hdr;
+                         frame->is_hdr || psycho_frame;
         gen_job = frame_gen->Prepare(image_size, view_info.format, hdr, fsr_settings.enable,
                                      draw_scheduler.CurrentTick());
         if (gen_job && gen_job->present) {
@@ -916,6 +1033,9 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     const bool crumbs = Breadcrumbs::Enabled();
     const u32 fsr_crumb = crumbs ? Breadcrumbs::Note(stream, {.name = "presenter FSR"}) : 0;
     const u32 pp_crumb = crumbs ? Breadcrumbs::Note(stream, {.name = "presenter post process"}) : 0;
+    if (auto* profiler = GpuProfiler::Get(); profiler && profiler->Records(&draw_scheduler)) {
+        profiler->Mark(0xF5A2'0000ull, [] { return std::string{"presenter display pass"}; });
+    }
     draw_scheduler.Record([this, frame, image_view, image_size, frame_subresources, stream,
                            fsr_crumb, pp_crumb, fsr = fsr_settings, pp = pp_settings, generated,
                            gen_job, dlss_hudless, dlss_srgb, dlss = dlss_fg.get(),
@@ -941,7 +1061,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
         }
         const vk::ImageView input = fsr_pass.Render(cmdbuf, image_view, image_size,
                                                     {frame->width, frame->height}, fsr,
-                                                    frame->is_hdr);
+                                                    frame->is_hdr || frame->psycho_frame);
         if (fsr_crumb) {
             Breadcrumbs::Mark(cmdbuf, stream, fsr_crumb, true);
             Breadcrumbs::Mark(cmdbuf, stream, pp_crumb, false);
@@ -1016,6 +1136,13 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
         generated->ready_semaphore = frame->ready_semaphore;
         generated->ready_tick = frame->ready_tick;
         generated->hdr_native = false;
+        // HDR16 (FSR 3.1 frame generation): the generated frame is the chain's 16-bit image
+        // like the real one, encoded alike by the final pass; without the real frame's pre-HUD
+        // snapshot (the scene moved since: what moved would be taken for HUD), so its HUD is
+        // shown as the scene's white.
+        generated->psycho_frame = frame->psycho_frame;
+        generated->psycho_encoded = frame->psycho_encoded;
+        generated->psycho_snapshot.reset();
         frame->generated = generated;
     }
     SubmitInfo info{};
@@ -1261,6 +1388,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     const vk::Image swapchain_image = swapchain.Image();
     auto& scheduler = present_scheduler;
     const auto cmdbuf = scheduler.CommandBuffer();
+    present_timer.Begin(instance, cmdbuf);
     DumpFinalFrameIfDue(instance, scheduler, cmdbuf, frame->image, frame->width, frame->height,
                         swapchain.GetSurfaceFormat().format);
 
@@ -1403,6 +1531,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     if (EmulatorSettings.IsVkHostMarkersEnabled()) {
         cmdbuf.endDebugUtilsLabelEXT();
     }
+    present_timer.End(cmdbuf);
 
     // Flush vulkan commands.
 
