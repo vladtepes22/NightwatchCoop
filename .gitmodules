@@ -1,6 +1,7 @@
 [submodule "engine/gpu/third_party/fsr-vulkan"]
 	path = engine/gpu/third_party/fsr-vulkan
-	url = https://github.com/FireBurn/FSR-Vulkan.git
+	url = https://github.com/vladtepes22/FSR-Vulkan.git
+	branch = nightwatch
 [submodule "engine/gpu/third_party/imgui"]
 	path = engine/gpu/third_party/imgui
 	url = https://github.com/ocornut/imgui.git
