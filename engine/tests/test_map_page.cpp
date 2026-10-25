@@ -207,8 +207,13 @@ int main(int argc, char** argv) {
     CHECK(Nearest(hits, 5, 0) == 1 && Nearest(hits, 3, 0) == 0 && Nearest(hits, 50, 50) == -1);
     CHECK(Nearest(hits, 103, 100) == 2 && Nearest(hits, 106, 100) == -1 && Nearest({}, 0, 0) == -1);
     // Floors: wraps; one floor has nothing to step to.
-    CHECK(StepFloor(3, 0, 1) == 1 && StepFloor(3, 2, 1) == 0 && StepFloor(3, 0, -1) == 2);
-    CHECK(StepFloor(3, -1, 1) == 0 && StepFloor(3, -1, -1) == 2 && StepFloor(1, 0, 1) == -1 && StepFloor(3, 1, 0) == -1);
+    // Floors by height: up is the next higher one (floor 1 lowest, then 2, 0), wrapping.
+    const std::vector<float> heights = {5, -3, 1};
+    CHECK(StepFloor(heights, 1, 1) == 2 && StepFloor(heights, 2, 1) == 0 && StepFloor(heights, 0, 1) == 1);
+    CHECK(StepFloor(heights, 0, -1) == 2 && StepFloor(heights, 1, -1) == 0);
+    CHECK(StepFloor(heights, -1, 1) == 1 && StepFloor(heights, -1, -1) == 0);  // none drawn: lowest / highest
+    CHECK(StepFloor({0, 0, 0}, 0, 1) == 1 && StepFloor({0, 0, 0}, 2, 1) == 0);  // equal heights: floor order
+    CHECK(StepFloor({2, NAN}, 0, 1) == 1 && StepFloor({2}, 0, 1) == -1 && StepFloor(heights, 1, 0) == -1);
     // Cross / Enter / click: the first press selects a lamp, the second on it travels.
     CHECK(OnConfirm(2, -1, true, false) == Confirm::Select && OnConfirm(2, 1, true, true) == Confirm::Select);
     CHECK(OnConfirm(2, 2, true, false) == Confirm::Travel && OnConfirm(2, 2, true, true) == Confirm::Travel);

@@ -83,12 +83,22 @@ inline int Nearest(const std::vector<Hit>& hits, float px, float py) {
     return best;
 }
 
-/// The floor shown after a floor step (D-pad up / down, Page Up / Page Down): `count` floors,
-/// `current` the floor drawn now (-1 none). Wraps around; -1 when the area has one floor or none.
-inline int StepFloor(int count, int current, int step) {
+/// The floor shown after a floor step (D-pad up / down, Page Up / Page Down): up is the next
+/// higher floor, down the next lower one (`heights[i]`: floor i's height; equal heights in floor
+/// order), wrapping from the highest to the lowest. `current`: the floor drawn now (-1 none: up
+/// starts at the lowest, down at the highest). -1 when the area has one floor or none.
+inline int StepFloor(const std::vector<float>& heights, int current, int step) {
+    const int count = int(heights.size());
     if (count <= 1 || step == 0) return -1;
-    if (current < 0 || current >= count) return step > 0 ? 0 : count - 1;
-    return ((current + step) % count + count) % count;
+    std::vector<int> order(count);
+    for (int i = 0; i < count; ++i) order[i] = i;
+    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+        const float ha = std::isfinite(heights[a]) ? heights[a] : 0.0f, hb = std::isfinite(heights[b]) ? heights[b] : 0.0f;
+        return ha < hb;
+    });
+    if (current < 0 || current >= count) return step > 0 ? order.front() : order.back();
+    const int at = int(std::find(order.begin(), order.end(), current) - order.begin());
+    return order[((at + (step > 0 ? 1 : -1)) % count + count) % count];
 }
 
 /// What Cross / Enter / a click on the map does. `under`: the lamp under the pointer (-1 none);

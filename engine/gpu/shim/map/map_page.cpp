@@ -364,10 +364,12 @@ struct CanvasResult {
 };
 
 // The line under the map while a lamp is selected and map travel is on.
-std::string TravelHint(coop::lamptravel::MapTravel state, bool target, bool controller) {
+std::string TravelHint(coop::lamptravel::MapTravel state, bool target, bool dream, bool controller) {
     using coop::lamptravel::MapTravel;
     switch (state) {
     case MapTravel::Ready:
+        if (!target && dream)
+            return BbSettings::MenuText("The Hunter's Dream: any lamp in the world takes you there", "Сон Охотника: туда ведёт любой фонарь в мире");
         if (!target) return BbSettings::MenuText("This lamp cannot be travelled to now", "К этому фонарю сейчас нельзя переместиться");
         return controller ? BbSettings::MenuText("Cross again: travel to this lamp", "Крест ещё раз: переместиться к фонарю")
                           : BbSettings::MenuText("Enter or click it again: travel to this lamp", "Enter или щелчок ещё раз: переместиться к фонарю");
@@ -539,10 +541,16 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         floor = BbMapVector::Primary(v.region);
     }
     if (floor_step) {
-        if (const int stepped = StepFloor(BbMapVector::Floors(v.region), floor, floor_step); stepped >= 0) {
+        std::vector<float> heights(std::max(0, BbMapVector::Floors(v.region)), 0.0f);
+        for (int f = 0; f < int(heights.size()); ++f) {
+            float low = 0, high = 0;
+            BbMapVector::FloorHeights(v.region, f, &heights[f], &low, &high);
+        }
+        if (const int stepped = StepFloor(heights, floor, floor_step); stepped >= 0) {
             floor = stepped;
             BbMapVector::SetManualFloor(stepped);
-            std::printf("Map: floor %d of %d (%s)\n", stepped + 1, BbMapVector::Floors(v.region), v.region.c_str());
+            std::printf("Map: floor %d of %d (%s, height %.1f)\n", stepped + 1, int(heights.size()), v.region.c_str(),
+                        double(heights[stepped]));
         }
     }
     r.floor = floor;
@@ -661,7 +669,8 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
     const bool target = chosen && chosen->available && chosen->lamp->return_point && travel_to &&
                         std::binary_search(travel_to->begin(), travel_to->end(), chosen->lamp->return_point);
     r.travel = travel_on && travel == coop::lamptravel::MapTravel::Ready && target;
-    if (chosen && travel_on) r.hint = TravelHint(travel, target, v.controller);
+    if (chosen && travel_on)
+        r.hint = TravelHint(travel, target, chosen->lamp->return_point == coop::lamptravel::kDreamReturnPoint, v.controller);
     if (pad && settled && (confirm || click)) {
         const int under = nearest >= 0 ? tips[nearest].lamp : -1;
         const int selected = r.selected ? v.lamp : -1;
