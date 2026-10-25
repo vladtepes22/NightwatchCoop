@@ -56,6 +56,11 @@ settings.PartyPassword = "test secret";
 var env = new Dictionary<string, string> { ["BB_UPSCALER"] = "dlss", ["BB_HDR"] = "1", ["BB_DRAW_AHEAD"] = "2", ["BB_ONLINE"] = "1", ["BB_PARTY_RESTARTED"] = "1", ["BB_PARTY_AUTOCONTINUE"] = "1" };
 SeamlessSettings.Apply(settings, env);
 Check(SeamlessSettings.Validate(settings) == null, "Valid host rejected");
+settings.PartyPassword = "";
+Check(SeamlessSettings.Validate(settings) != null, "Host without a password accepted");
+settings.PartyPassword = " \t ";
+Check(SeamlessSettings.Validate(settings) != null, "Host with a whitespace password accepted");
+settings.PartyPassword = "test secret";
 Check(env["BB_PARTY"] == "host" && env["BB_PARTY_MAX"] == "4", "Host setup missing");
 Check(env["BB_PARTY_PASSWORD"] == "test secret", "Password did not reach runtime");
 Check(env["BB_ONLINE"] == "0" && env["BB_PARTY_SAVE"] == "separate", "Network ownership or save isolation missing");
@@ -106,12 +111,18 @@ settings.Set("party_mode", "join");
 Check(SeamlessSettings.Validate(settings) != null, "Empty join target accepted");
 settings.Set("party_code", "127.0.0.1:47890");
 Check(SeamlessSettings.Validate(settings) == null, "Valid join target rejected");
+settings.PartyPassword = "";
+Check(SeamlessSettings.Validate(settings) != null, "Join without a password accepted");
+settings.PartyPassword = "test secret";
 settings.Set("party_port", "65536");
 Check(SeamlessSettings.Validate(settings) != null, "Invalid port accepted");
 settings.Set("party_port", "47890");
 settings.Set("party_name", "bad name");
 Check(SeamlessSettings.Validate(settings) != null, "Invalid name accepted");
 settings.Set("party_mode", "");
+settings.PartyPassword = "";
+Check(SeamlessSettings.Validate(settings) == null, "Single player without a password rejected");
+settings.PartyPassword = "test secret";
 SeamlessSettings.Apply(settings, env);
 Check(env["BB_PARTY"] == "off", "Single-player mode still enables party code");
 // Updater: a package file it cannot replace stops the update before the launcher and
@@ -220,20 +231,45 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     System.IO.Directory.Delete(plain, true);
 }
 
-// Start-up rules (0.7.5): the host refuses a guest whose values differ from its own, so the launcher names
-// what is not the default and never treats an unset or unknown value as a difference.
+// Start-up rules (0.7.5): the host refuses a guest whose values differ from its own and names its values; the
+// launcher reads them back from the refusal (exact engine strings, JoinRulesTag) and takes them.
 {
-    var stored = new Dictionary<string, string?>();
-    string? ReadRule(string key) => stored.TryGetValue(key, out var v) ? v : null;
-    Check(SeamlessSettings.StartupDifferences(ReadRule).Count == 0, "Unset start-up rules differ from the defaults");
-    stored["party_guest_lamps"] = "1"; stored["party_guest_insight"] = "parity"; stored["party_start"] = "prologue_solo";
-    stored["party_full_rewards"] = "bogus";
-    Check(SeamlessSettings.StartupDifferences(ReadRule).Count == 0, "Default and unknown values count as a difference");
-    stored["party_guest_lamps"] = "0"; stored["party_guest_insight"] = "full"; stored["party_start"] = "immediate";
-    var differs = SeamlessSettings.StartupDifferences(ReadRule);
-    Check(differs.SequenceEqual(new[] { "party_guest_lamps", "party_guest_insight", "party_start" }), "Differing start-up rules not named: " + string.Join(",", differs));
-    stored["party_guest_insight"] = "0";
-    Check(SeamlessSettings.StartupValue("party_guest_insight", "0") == "0" && SeamlessSettings.StartupDifferences(ReadRule).Contains("party_guest_insight"), "Insight 0 (the game's own) is not a difference");
+    Check(SeamlessSettings.StartupValue("party_guest_insight", "0") == "0" && SeamlessSettings.StartupValue("party_full_rewards", "bogus") == "1",
+          "Start-up rule values not as the host compares them");
+    var refusal = SeamlessSettings.StartupRulesFromRefusal("host refused: set \"Guests use lamps\" like the host (host: off, yours: on), " +
+        "set \"Guests can use Hunter's Mark\" like the host (host: off, yours: on), set \"Full rewards for guests\" like the host (host: off, yours: on), " +
+        "set \"Insight for bosses\" like the host (host: Full bonus, yours: Same as the host), set \"Party starts\" like the host (host: Right away, yours: After the prologue)");
+    Check(refusal.Count == 5 && refusal["party_guest_lamps"] == "0" && refusal["party_guest_mark"] == "0" && refusal["party_full_rewards"] == "0"
+          && refusal["party_guest_insight"] == "full" && refusal["party_start"] == "immediate", "Host refusal start-up rules not parsed");
+    var example = SeamlessSettings.StartupRulesFromRefusal("host refused: version mismatch with the host (...): set \"Guests use lamps\" like the host (host: off, yours: on), " +
+        "set \"Insight for bosses\" like the host (host: Full bonus, yours: Same as the host): the launcher's Party Rules tab or System > Party rules in the game, then restart the game");
+    Check(example.Count == 2 && example["party_guest_lamps"] == "0" && example["party_guest_insight"] == "full", "Host refusal example not parsed");
+    var defaults = SeamlessSettings.StartupRulesFromRefusal("set \"Guests use lamps\" like the host (host: on, yours: off), " +
+        "set \"Guests can use Hunter's Mark\" like the host (host: on, yours: off), set \"Full rewards for guests\" like the host (host: on, yours: off), " +
+        "set \"Insight for bosses\" like the host (host: Same as the host, yours: Full bonus), set \"Party starts\" like the host (host: After the prologue, yours: Right away)");
+    Check(defaults.Count == 5 && SeamlessSettings.StartupRules.All(r => defaults[r.Key] == r.Default), "Default host rule values not parsed");
+    var insight = SeamlessSettings.StartupRulesFromRefusal("set \"Insight for bosses\" like the host (host: Game's own (+1), yours: Full bonus)");
+    Check(insight.Count == 1 && insight["party_guest_insight"] == "0", "Game's own Insight not parsed");
+    Check(SeamlessSettings.StartupRulesFromRefusal("set \"Unknown rule\" like the host (host: on, yours: off), " +
+        "set \"Guests use lamps\" like the host (host: unknown, yours: on)").Count == 0, "Unknown host rule or value accepted");
+    Check(SeamlessSettings.StartupRulesFromRefusal(null).Count == 0 && SeamlessSettings.StartupRulesFromRefusal("").Count == 0
+          && SeamlessSettings.StartupRulesFromRefusal("host refused: different version").Count == 0, "Rules found without refusal clauses");
+    Check(refusal.Concat(example).Concat(defaults).Concat(insight).All(r => SeamlessSettings.StartupValue(r.Key, r.Value) == r.Value),
+        "Parsed host rules do not round-trip through StartupValue");
+
+    var guest = new LauncherSettings();
+    guest.Set("party_mode", "join");
+    var guestIni = new IniFile();
+    var refused = new SeamlessSession.Status("guest", "error", "host refused: version mismatch with the host (yours 1): " +
+        "set \"Guests use lamps\" like the host (host: off, yours: on), set \"Party starts\" like the host (host: Right away, yours: After the prologue)" +
+        ": the launcher's Party Rules tab or System > Party rules in the game, then restart the game", "", "", "", "", Array.Empty<SeamlessSession.Member>());
+    Check(SeamlessSettings.TakeHostStartupRules(guest, guestIni, refused) && guestIni.Raw("party_guest_lamps") == "0" && guest.Str("party_start") == "immediate",
+          "The host's start-up rules were not taken from its refusal");
+    Check(!SeamlessSettings.TakeHostStartupRules(guest, guestIni, refused), "Taking the host's start-up rules again counted as a change");
+    Check(!SeamlessSettings.TakeHostStartupRules(guest, guestIni, refused with { role = "host" }) &&
+          !SeamlessSettings.TakeHostStartupRules(guest, guestIni, null), "Start-up rules taken outside a refused guest");
+    guest.Set("party_mode", "host");
+    Check(!SeamlessSettings.TakeHostStartupRules(guest, new IniFile(), refused), "Start-up rules taken in Host mode");
 }
 
 // Host over a VPN (0.7.5 party_vpn) and the discovery adapter rule: the launcher repeats the game's adapter choice.
@@ -259,6 +295,18 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     Check(NetworkRoute.SelectVpn(all, "off") == null && NetworkRoute.SelectVpn(all, " Off ") == null, "Off still chose a VPN");
     Check(NetworkRoute.SelectVpn(all, "zerotier") == zerotier && NetworkRoute.SelectVpn(all, "nordlynx") == nord, "A named adapter was not taken");
     Check(NetworkRoute.SelectVpn(all, "nothing like it") == null, "An unknown name chose an adapter");
+    Check(NetworkRoute.HostOverOf("auto") == HostOver.Automatic && NetworkRoute.HostOverOf("") == HostOver.Automatic
+          && NetworkRoute.HostOverOf(null) == HostOver.Automatic && NetworkRoute.HostOverOf("off") == HostOver.Internet
+          && NetworkRoute.HostOverOf(" Off ") == HostOver.Internet && NetworkRoute.HostOverOf("Radmin VPN") == HostOver.Vpn, "Host-over segments");
+    Check(NetworkRoute.VpnLabels(all).SequenceEqual(new[] { "Radmin VPN", "Hamachi", "Tailscale", "ZeroTier" }), "VPN labels order or exclusions");
+    Check(NetworkRoute.VpnLabels(all.Concat(new[] { radmin, hamachi })).Count == 4, "Duplicate VPN labels");
+    Check(NetworkRoute.VpnLabels(new[] { radmin with { Ip = 0 }, hamachi with { Loopback = true }, tailscale with { Tunnel = true },
+        zerotier with { Ip = NetworkRoute.Parse("169.254.1.2") } }).Count == 0, "Unusable VPN labels accepted");
+    Check(NetworkRoute.PrefFor(HostOver.Automatic, all, "ZeroTier") == "auto" && NetworkRoute.PrefFor(HostOver.Internet, all, "ZeroTier") == "off",
+        "Automatic or Internet segment preference");
+    Check(NetworkRoute.PrefFor(HostOver.Vpn, all, "ZeroTier") == "ZeroTier" && NetworkRoute.PrefFor(HostOver.Vpn, all, "auto") == "Radmin VPN"
+          && NetworkRoute.PrefFor(HostOver.Vpn, new[] { lan, tailscale }, "off") == "Tailscale", "VPN segment did not keep the preference or choose the best VPN");
+    Check(NetworkRoute.PrefFor(HostOver.Vpn, new[] { lan }, null) == "Radmin VPN", "VPN segment fallback without an up VPN");
     var route = NetworkRoute.Choose(all, "auto", 47890);
     Check(route is { Label: "Radmin VPN", Connected: true, Address: "26.10.20.30:47890", Vpn: true }, "VPN route: " + route);
     Check(NetworkRoute.Choose(all, "auto", 0).Address == "26.10.20.30:9307", "A missing port should be the default port");
@@ -267,10 +315,6 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     route = NetworkRoute.Choose(new[] { hyperv, pub }, "auto", 9307);
     Check(route is { Label: "Internet", Connected: true, Address: "" }, "A public address is the Internet route, no address to share: " + route);
     Check(!NetworkRoute.Choose(Array.Empty<NetAdapter>(), "auto", 9307).Connected, "No adapter is connected");
-    Check(NetworkRoute.OpenNetworkWarning("host", " ", NetworkRoute.Choose(all, "auto", 9307)) &&
-          !NetworkRoute.OpenNetworkWarning("host", "pw", NetworkRoute.Choose(all, "auto", 9307)) &&
-          !NetworkRoute.OpenNetworkWarning("join", "", NetworkRoute.Choose(all, "auto", 9307)) &&
-          !NetworkRoute.OpenNetworkWarning("host", "", NetworkRoute.Choose(new[] { lan }, "auto", 9307)), "Open network warning");
 
     // Discovery (party_discovery.h adapter_discovery_ok): private LAN on a real adapter, Radmin, Hamachi, ZeroTier.
     Check(NetworkRoute.DiscoveryOk(lan) && NetworkRoute.DiscoveryOk(radmin) && NetworkRoute.DiscoveryOk(hamachi) && NetworkRoute.DiscoveryOk(zerotier), "Allowed adapters refused");

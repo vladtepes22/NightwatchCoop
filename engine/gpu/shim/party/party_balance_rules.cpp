@@ -70,6 +70,9 @@ Rules Vanilla() {
     return r;
 }
 
+// The names and values below reach a refused guest's launcher in the refusal text
+// (identity_mismatch): the launcher's SeamlessSettings.StartupRulesFromRefusal parses them back, so change
+// both together.
 std::string JoinRulesTag(const StartupRules& r) {
     const auto on = [](bool b) { return b ? "on" : "off"; };
     static const char* insight[] = {"Same as the host", "Full bonus", "Game's own (+1)"};

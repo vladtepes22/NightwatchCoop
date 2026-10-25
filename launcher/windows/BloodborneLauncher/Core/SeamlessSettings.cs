@@ -40,13 +40,61 @@ public static partial class SeamlessSettings
     };
 
     /// <summary>The start-up rules the host compares with every guest's: the game reads them once at start, and the
-    /// host refuses a guest whose values differ ("set X like the host"). The launcher never changes them by itself.
+    /// host refuses a guest whose values differ ("set X like the host"); a refused guest takes the host's (TakeHostStartupRules).
     /// Key, default; party_start is the launcher's own variable (BB_PARTY_START), the others live in bbport.ini.</summary>
     public static readonly (string Key, string Default)[] StartupRules =
     {
         ("party_guest_lamps", "1"), ("party_guest_mark", "1"), ("party_full_rewards", "1"),
         ("party_guest_insight", "parity"), ("party_start", "prologue_solo"),
     };
+
+    /// <summary>The host's start-up rules named in its refusal text (identity_mismatch in party_link.cpp, names and values
+    /// from JoinRulesTag in party_balance_rules.cpp: change both together): key -> value as stored. Empty when none.</summary>
+    public static Dictionary<string, string> StartupRulesFromRefusal(string? text)
+    {
+        var rules = new Dictionary<string, string>();
+        foreach (Match match in Regex.Matches(text ?? "", "set \"([^\"]+)\" like the host \\(host: (.+?), yours: "))
+        {
+            var key = match.Groups[1].Value switch
+            {
+                "Guests use lamps" => "party_guest_lamps",
+                "Guests can use Hunter's Mark" => "party_guest_mark",
+                "Full rewards for guests" => "party_full_rewards",
+                "Insight for bosses" => "party_guest_insight",
+                "Party starts" => "party_start",
+                _ => "",
+            };
+            var value = (key, match.Groups[2].Value) switch
+            {
+                ("party_guest_lamps" or "party_guest_mark" or "party_full_rewards", "on") => "1",
+                ("party_guest_lamps" or "party_guest_mark" or "party_full_rewards", "off") => "0",
+                ("party_guest_insight", "Same as the host") => "parity",
+                ("party_guest_insight", "Full bonus") => "full",
+                ("party_guest_insight", "Game's own (+1)") => "0",
+                ("party_start", "Right away") => "immediate",
+                ("party_start", "After the prologue") => "prologue_solo",
+                _ => "",
+            };
+            if (value.Length > 0) rules[key] = value;
+        }
+        return rules;
+    }
+
+    /// <summary>A guest the host refused for its start-up rules: stores the host's values named in the refusal (party
+    /// status detail and alert). True when one changed, so the game has to restart to join.</summary>
+    public static bool TakeHostStartupRules(LauncherSettings s, IniFile ini, SeamlessSession.Status? status)
+    {
+        if (status is not { role: "guest" } || s.Str("party_mode") != "join") return false;
+        var changed = false;
+        foreach (var (key, value) in StartupRulesFromRefusal(status.detail + "\n" + status.alert))
+        {
+            if (StartupValue(key, key == "party_start" ? s.Str(key) : ini.Get(key, "")) == value) continue;
+            if (key == "party_start") s.Set(key, value);
+            else ini.Set(key, value);
+            changed = true;
+        }
+        return changed;
+    }
 
     /// <summary>One start-up rule's value as the host compares it: a switch is "1" or "0", Insight "parity", "full" or
     /// "0", the party start "prologue_solo" or "immediate"; anything else counts as the default.</summary>
@@ -60,11 +108,6 @@ public static partial class SeamlessSettings
             _ => value is "0" or "false" or "off" ? "0" : "1",
         };
     }
-
-    /// <summary>The start-up rules whose value is not the default: a guest with one of these is refused by a host that
-    /// has the default. <paramref name="read"/> gives a key's stored value (null when unset).</summary>
-    public static List<string> StartupDifferences(Func<string, string?> read) =>
-        StartupRules.Where(r => StartupValue(r.Key, read(r.Key)) != r.Default).Select(r => r.Key).ToList();
 
     /// <summary>Carries an older launcher's choices for <see cref="GameSwitches"/>, the DHT rendezvous
     /// and the guest Insight mode from settings.json into bbport.ini, once (only keys the ini doesn't have yet).
@@ -112,6 +155,8 @@ public static partial class SeamlessSettings
         if (!Enabled(s)) return null;
         if (!Regex.IsMatch(Name(s), "^[A-Za-z0-9_-]{1,16}$"))
             return L.T("Party name must contain 1–16 letters, numbers, underscores or hyphens.");
+        if (s.PartyPassword.Trim().Length == 0)
+            return L.T("Set a party password first: the host and every guest use the same one.");
         if (s.Str("party_port").Length > 0 &&
             (!int.TryParse(s.Str("party_port"), out var port) || port is < 1 or > 65535))
             return L.T("Party port must be between 1 and 65535.");

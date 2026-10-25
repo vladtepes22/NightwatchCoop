@@ -48,13 +48,19 @@ public sealed class SeamlessPage : LauncherPage
             out _partiesHint), found);
         _partyList = new StackPanel();
         found.Children.Add(_partyList);
-        // Joining by hand, folded under the list: it opens when nothing is listed, and at the password when a
-        // listed party has one. The password and party size are the same settings as the host's rows below.
+        // Joining by hand, folded under the list: it opens only when the player opens it, or at the password when
+        // Join is pressed on a listed party with the password still empty. The password and party size are the same settings as the host's rows below.
         _manual = new AdvancedSection(L.T("Join by code or address"), L.T("For a party that is not listed: paste the host's code or address."));
         Rows(Joining).Children.Add(_manual);
         _codeBox = TextRow(SymbolRegular.Link24, L.T("Host code or address"), L.T("Paste the host's Internet code, LAN code or host:port."), "BBP3-…",
             () => S.Str("party_code"), v => S.Set("party_code", v), _manual.Rows);
         _joinPassword = PasswordRow(_manual.Rows, out _joinPasswordHint);
+        _joinPassword.KeyDown += async (_, e) => {
+            if (e.Key != System.Windows.Input.Key.Enter || !_passwordWait || S.PartyPassword.Trim().Length == 0 || Ws.Game.Running) return;
+            _passwordWait = false;
+            SetHint(_joinPasswordHint, "");
+            await MainWindow.Instance!.PlayOrStopAsync();
+        };
         _joinSize = PartySizeRow(_manual.Rows, L.T("Must be the host's party size. Join in the list above sets it."));
         party = Rows(Hosting);
         _hostPassword = PasswordRow(party, out _);
@@ -77,8 +83,25 @@ public sealed class SeamlessPage : LauncherPage
         var host = Rows(Hosting);
         TextRow(SymbolRegular.Globe24, L.T("Host public address"), L.T("Leave on Automatic unless guests reach you another way: your VPN address (Radmin VPN, Tailscale, ZeroTier), or your public IP or DNS name when you forwarded the port yourself (host or host:port). The party code then carries it."), L.T("Automatic"),
             () => S.Str("party_public_addr"), v => S.Set("party_public_addr", v), host);
-        ComboRow(SymbolRegular.Router24, L.T("Host over a VPN"), L.T("Auto picks your Radmin VPN, Hamachi, ZeroTier or Tailscale adapter when you have one, so friends in that network join with the address above. Off uses your network and Internet address. Read when the game starts."),
-            VpnChoices(), VpnCurrent, v => Ini.Set("party_vpn", v), host, changed: UpdateRoute);
+        // party_vpn in bbport.ini (auto / an adapter name / off), the same value as the game's System > Party network row.
+        ComboRow(SymbolRegular.Router24, L.T("Host over"), L.T("Automatic takes your Radmin VPN, Hamachi, Tailscale or ZeroTier when one is up, else your local network. VPN: friends in that VPN join with the address above. Internet: friends join with the Internet party code. Read when the game starts."),
+            new[] { new Choice(L.T("Automatic"), "auto"), new Choice(L.T("VPN"), "vpn"), new Choice(L.T("Internet (party code)"), "off") },
+            () => NetworkRoute.HostOverOf(Ini.Get("party_vpn", "auto")) switch { HostOver.Automatic => "auto", HostOver.Internet => "off", _ => "vpn" },
+            v => Ini.Set("party_vpn", NetworkRoute.PrefFor(v switch { "auto" => HostOver.Automatic, "off" => HostOver.Internet, _ => HostOver.Vpn },
+                _adapters, Ini.Get("party_vpn", "auto"))),
+            host, changed: UpdateRoute, buttons: true);
+        _hostOverNote = Text("", "Faint");
+        _hostOverNote.TextWrapping = TextWrapping.Wrap;
+        host.Children.Add(_hostOverNote);
+        // The VPN to host over, shown only when more than one is up (with one, VPN takes it).
+        _vpnPick = new System.Windows.Controls.ComboBox { Width = 280, VerticalAlignment = VerticalAlignment.Center };
+        _vpnPick.SelectionChanged += (_, _) => {
+            if (_syncingVpn || _vpnPick.SelectedItem is not string label) return;
+            Ini.Set("party_vpn", label);
+            Ws.SaveSoon();
+            UpdateRoute();
+        };
+        _vpnPickRow = Add(Card(SymbolRegular.Router24, L.T("VPN"), L.T("More than one VPN is up: the one friends are in."), _vpnPick, out _), host);
         ToggleRow(SymbolRegular.People24, L.T("Show my party to friends"), L.T("While you host, the game announces the party's name, level and players on your VPN and local network, so friends see it under Parties on your network when they join. Never the password or your address. Takes effect at once."),
             () => Ini.Get("party_discovery", "1") == "1", v => Ini.Set("party_discovery", v ? "1" : "0"), host);
         _codes = Text("", "Faint");
@@ -172,15 +195,8 @@ public sealed class SeamlessPage : LauncherPage
         StartupRows(host);
         IniToggles(host, ("party_skip_prologue", L.T("Skip the prologue (new characters)"), false));
 
-        // Joining: the rules above are the host's and reach you on connect. Only the start-up rules need your own
-        // values to match, so they stay here (and are never changed by the launcher).
-        _byMode.Add((Group(L.T("Start-up rules")), Joining));
-        var rules = Rows(Joining);
-        rules.Children.Add(Text(L.T("The host refuses a guest whose start-up rules differ from its own. Leave them as they are unless the host changed them; if it did, set the same values here."), "Faint"));
-        StartupRows(rules);
-        _startupWarning = Text("", "Faint");
-        _startupWarning.TextWrapping = TextWrapping.Wrap;
-        rules.Children.Add(_startupWarning);
+        // Joining: the rules above are the host's and reach you on connect. The start-up rules a guest must match are
+        // taken from the host's refusal by the main window (SeamlessSettings.TakeHostStartupRules), which restarts the game.
 
         _byMode.Add((Group(L.T("My party")), InParty));
         party = Rows(InParty);
@@ -239,7 +255,6 @@ public sealed class SeamlessPage : LauncherPage
 
         _timer.Tick += (_, _) => {
             _codes.Text = SeamlessSettings.Codes(S);
-            UpdateStartupWarning();
             if (++_ticks % 5 == 0) RefreshRoute();
             RefreshParties();
             var status = SeamlessSession.Read(S);
@@ -262,12 +277,14 @@ public sealed class SeamlessPage : LauncherPage
     private TextBlock _joinPasswordHint = null!;
     private System.Windows.Controls.ComboBox _joinSize = null!, _hostSize = null!;
     private string _partySignature = "\0";
+    private string _joinNote = "";  // the list's status line after Join: "Restart the game to join ..."
+    private bool _passwordWait;     // Join was pressed with the password empty: Enter in it starts the game
     private long _listenSinceMs;
     private const int ListenGraceMs = 4000;  // a host announces every 1.5 s: an empty list before this is not yet news
 
     private PasswordBox PasswordRow(Panel into, out TextBlock hint)
     {
-        var box = new PasswordBox { Width = 300, Password = S.PartyPassword, PlaceholderText = L.T("Optional party password"), PlaceholderEnabled = true };
+        var box = new PasswordBox { Width = 300, Password = S.PartyPassword, PlaceholderText = L.T("Party password"), PlaceholderEnabled = true };
         box.PasswordChanged += (_, _) => { S.PartyPassword = box.Password; Ws.SaveSoon(); };
         Add(Card(SymbolRegular.Password24, L.T("Password"), L.T("Use the same password on every PC. Stored encrypted for your Windows user."), box, out hint), into);
         return box;
@@ -290,16 +307,27 @@ public sealed class SeamlessPage : LauncherPage
             if (box.SelectedIndex != index) box.SelectedIndex = index;
     }
 
-    /// <summary>Join in the list: the host's address and party size; a party with a password opens the fold at it.</summary>
-    private void JoinParty(FoundParty party)
+    /// <summary>Join in the list: the host's address and party size, then the game starts as Play starts it. With the
+    /// password still empty the fold opens at it (Join again or Enter starts); a running game is never stopped.</summary>
+    private async void JoinParty(FoundParty party)
     {
         _codeBox.Text = party.Address;  // saved by the row
         if (PartyDiscovery.PartySize(party.Info.Max) is { } size) { S.Set("party_max", size); Ws.SaveSoon(); }
         SyncSharedRows();
-        SetHint(_joinPasswordHint, party.Info.Password ? L.T("This party has a password: type the host's password here.") : "");
-        if (party.Info.Password) { _manual.IsOpen = true; _joinPassword.Focus(); }
+        _joinNote = "";
+        _passwordWait = false;
+        SetHint(_joinPasswordHint, "");
+        if (Ws.Game.Running) _joinNote = L.T("Restart the game to join ") + party.Info.Name + ".";
+        else if (S.PartyPassword.Trim().Length == 0)
+        {
+            _passwordWait = true;
+            SetHint(_joinPasswordHint, L.T("Type the host's party password, then press Join again or Enter."));
+            _manual.IsOpen = true;
+            _joinPassword.Focus();
+        }
         _partySignature = "\0";
         RefreshParties();
+        if (!Ws.Game.Running && !_passwordWait) await MainWindow.Instance!.PlayOrStopAsync();
     }
 
     /// <summary>The networks the list hears parties on, for the list's status line.</summary>
@@ -334,26 +362,24 @@ public sealed class SeamlessPage : LauncherPage
         var waited = now - _listenSinceMs > ListenGraceMs;
         var saved = S.Str("party_code");
         var listen = ListenLine();
-        var signature = _listener.Error + "|" + waited + "|" + saved + "|" + listen + "|" +
+        var signature = _joinNote + "|" + _listener.Error + "|" + waited + "|" + saved + "|" + listen + "|" +
                         string.Join(";", parties.Select(p => $"{p.Info.Id}/{p.Ip}/{p.Info.Players}/{p.Info.Max}/{p.Info.Level}/{p.Info.Area}/{p.Info.Name}/{p.Info.Password}"));
         if (signature == _partySignature) return;
         _partySignature = signature;
         _partyList.Children.Clear();
-        // Nothing to pick from: open the fold for a code (only opens it; closing stays the player's choice).
-        if (_listener.Error.Length > 0 || (parties.Count == 0 && waited)) _manual.IsOpen = true;
-        SetHint(_partiesHint, listen + "\n" + (
+        SetHint(_partiesHint, listen + (_joinNote.Length > 0 ? "\n" + _joinNote : "") + "\n" + (
             _listener.Error.Length > 0 ? L.T("Could not listen for parties: ") + _listener.Error + L.T(". Paste the host's code below instead.") :
             parties.Count > 0 ? "" :
             !waited ? L.T("Looking for parties…") :
             L.T("No party found yet. Check that:") + "\n• " + L.T("the host has Show my party to friends on and has started the game") +
-            "\n• " + L.T("you are both on the same VPN or local network") + "\n• " + L.T("Windows Firewall lets the launcher receive UDP port 9308")).TrimEnd('\n'));
+            "\n• " + L.T("you are both on the same VPN or local network") + "\n• " + L.T("Windows Firewall allows Nightwatch Co-op on Public networks too (VPN adapters often count as Public)")).TrimEnd('\n'));
         foreach (var party in parties)
         {
             var info = party.Info;
             var state = PartyDiscovery.StateOf(info, prefix);
             var selected = PartyDiscovery.Selected(party, saved);
             var text = (selected ? L.T("Selected") + " · " : "") + L.T("Level ") + (info.Level > 0 ? info.Level.ToString() : "?") + " · " +
-                       info.Players + " / " + info.Max + (info.Area.Length > 0 ? " · " + info.Area : "") + (info.Password ? " · " + L.T("password") : "");
+                       info.Players + " / " + info.Max + (info.Area.Length > 0 ? " · " + info.Area : "");
             if (state == PartyDiscovery.RowState.OtherBuild) text += "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.");
             var picked = party;
             var join = SmallButton(state switch
@@ -364,7 +390,7 @@ public sealed class SeamlessPage : LauncherPage
                 }, selected ? SymbolRegular.Checkmark24 : SymbolRegular.Link24, (_, _) => JoinParty(picked),
                 selected ? ControlAppearance.Primary : ControlAppearance.Secondary);
             join.IsEnabled = state == PartyDiscovery.RowState.Join;
-            var row = Card(info.Password ? SymbolRegular.LockClosed24 : SymbolRegular.People24, info.Name, null, join, out var hint);
+            var row = Card(SymbolRegular.People24, info.Name, null, join, out var hint);
             if (state != PartyDiscovery.RowState.Join) row.Opacity = 0.6;
             SetHint(hint, text);
             _partyList.Children.Add(row);
@@ -372,29 +398,15 @@ public sealed class SeamlessPage : LauncherPage
     }
 
     private readonly Wpf.Ui.Controls.Button _copyAddress;
+    private readonly TextBlock _hostOverNote;
+    private readonly System.Windows.Controls.ComboBox _vpnPick;
+    private readonly FrameworkElement _vpnPickRow;
+    private bool _syncingVpn;
     private readonly TextBlock _routeHint;
     private IReadOnlyList<NetAdapter> _adapters = Array.Empty<NetAdapter>();
     private Route _route = Route.None;
     private bool _adaptersBusy;
     private int _ticks;
-
-    private static Choice[] VpnChoices()
-    {
-        var choices = new List<Choice>
-        {
-            new(L.T("Auto"), "auto"), new(L.T("Off"), "off"), new("Radmin VPN", "Radmin VPN"), new("Hamachi", "Hamachi"),
-            new("ZeroTier", "ZeroTier"), new("Tailscale", "Tailscale"),
-        };
-        var current = NetworkRoute.Normalize(Ini.Get("party_vpn", "auto"));
-        if (!choices.Any(c => c.Value.Equals(current, StringComparison.OrdinalIgnoreCase))) choices.Add(new Choice(current, current));
-        return choices.ToArray();
-    }
-
-    private static string VpnCurrent()
-    {
-        var current = NetworkRoute.Normalize(Ini.Get("party_vpn", "auto"));
-        return VpnChoices().First(c => c.Value.Equals(current, StringComparison.OrdinalIgnoreCase)).Value;
-    }
 
     /// <summary>Reads the adapters off the UI thread (the system call can take a moment), then redraws the card.</summary>
     private async void RefreshRoute()
@@ -421,13 +433,29 @@ public sealed class SeamlessPage : LauncherPage
         };
         if (_route.Address.Length > 0) lines.Add(L.T("Address to share: ") + _route.Address);
         else if (_route.Connected) lines.Add(L.T("No local address to share: use the party code from the Share party codes row."));
-        if (NetworkRoute.OpenNetworkWarning(S.Str("party_mode"), S.PartyPassword, _route))
-            lines.Add(L.T("No password over ") + _route.Label + L.T(": anyone in that network can join you. Set a Password."));
         SetHint(_routeHint, string.Join("\n", lines));
         _copyAddress.IsEnabled = _route.Address.Length > 0;
-    }
 
-    private TextBlock _startupWarning = null!;
+        var pref = Ini.Get("party_vpn", "auto");
+        var over = NetworkRoute.HostOverOf(pref);
+        var vpns = NetworkRoute.VpnLabels(_adapters);
+        _hostOverNote.Text = over switch
+        {
+            HostOver.Automatic => L.T("Automatic: ") + (!_route.Connected ? L.T("Not connected") : _route.Vpn ? _route.Label :
+                _route.Label == "LAN" ? L.T("local network") : L.T("Internet (party code)")),
+            HostOver.Internet => L.T("Friends join with the Internet code under Share party codes. Port forwarding (TCP and UDP, the party port) is only needed for a strict NAT."),
+            _ => vpns.Count == 0 ? L.T("No VPN is up: start Radmin VPN, Hamachi, ZeroTier or Tailscale.") : L.T("VPN: ") + (_route.Vpn ? _route.Label : pref),
+        };
+        _vpnPickRow.Visibility = over == HostOver.Vpn && vpns.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        _syncingVpn = true;
+        if (!_vpnPick.Items.Cast<string>().SequenceEqual(vpns))
+        {
+            _vpnPick.Items.Clear();
+            foreach (var vpn in vpns) _vpnPick.Items.Add(vpn);
+        }
+        _vpnPick.SelectedItem = vpns.FirstOrDefault(l => l.Contains(pref, StringComparison.OrdinalIgnoreCase) || pref.Contains(l, StringComparison.OrdinalIgnoreCase));
+        _syncingVpn = false;
+    }
 
     /// <summary>The host's start-up rules (the game reads them once; a guest must have the host's values).</summary>
     private void StartupRows(Panel into)
@@ -442,24 +470,6 @@ public sealed class SeamlessPage : LauncherPage
         ComboRow(SymbolRegular.Play24, L.T("Party starts"), PartyInfo("party_start"),
             new[] { new Choice(L.T("After the prologue"), "prologue_solo"), new Choice(L.T("Right away"), "immediate") },
             () => SeamlessSettings.StartupValue("party_start", S.Str("party_start")), v => S.Set("party_start", v), into);
-    }
-
-    private static string StartupLabel(string key) => key switch
-    {
-        "party_guest_lamps" => L.T("Guests may use lamps and headstones; the whole party travels with them. The host's rule, read at game start: a guest must have the same value, or the host refuses the join."),
-        "party_guest_mark" => L.T("A guest's Hunter's Mark asks whether to travel alone or with the party; off uses the game's own behavior. The host's rule, read at game start: a guest must have the same value, or the host refuses the join."),
-        "party_full_rewards" => L.T("Guests receive full Blood Echoes and enemy drops like the host; off uses the game's co-op amounts. The host's rule, read at game start: a guest must have the same value, or the host refuses the join."),
-        "party_guest_insight" => L.T("Controls the Insight a guest receives when the host kills a boss. The host's rule, read at game start: a guest must have the same value, or the host refuses the join."),
-        _ => L.T("Party starts"),
-    };
-
-    /// <summary>On the Join side: names the start-up rules that differ from the defaults, since a host with the defaults
-    /// refuses this guest. Nothing is changed here.</summary>
-    private void UpdateStartupWarning()
-    {
-        var differs = SeamlessSettings.StartupDifferences(key => key == "party_start" ? S.Str(key) : Ini.Get(key, ""));
-        _startupWarning.Text = differs.Count == 0 ? "" :
-            L.T("Not the defaults: ") + string.Join(", ", differs.Select(StartupLabel)) + L.T(". A host that kept its defaults will refuse you until these match.");
     }
 
     /// A panel for the next rows, shown in the modes when accepts (ShowMode).

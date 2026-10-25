@@ -32,6 +32,23 @@ namespace BloodborneLauncher
             ws.GameStateChanged += UpdateDiscord;
             ws.GameCrashed += OnGameCrashed;
             ws.Initialise();
+            // A guest the host refused for its start-up rules takes the host's values and restarts the game to join
+            // (SeamlessSettings.TakeHostStartupRules), whichever page is open.
+            var hostRules = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            hostRules.Tick += async (_, _) =>
+            {
+                if (_restarting || !ws.Game.Running ||
+                    !SeamlessSettings.TakeHostStartupRules(ws.Settings, ws.Ini, SeamlessSession.Read(ws.Settings))) return;
+                ws.Log(L.T("Took the host's start-up rules: restarting the game to join."), LogLevel.Step);
+                _restarting = true;
+                try
+                {
+                    await PlayOrStopAsync();
+                    if (!ws.Game.Running) await PlayOrStopAsync();
+                }
+                finally { _restarting = false; }
+            };
+            hostRules.Start();
             KeyDown += Window_KeyDown;
             PreviewMouseDown += Window_PreviewMouseDown;
             Deactivated += (_, _) => SearchResults.Visibility = Visibility.Collapsed;
@@ -117,6 +134,7 @@ namespace BloodborneLauncher
         }
 
         private bool _directPlay, _directKeepOpen;
+        private bool _restarting;  // the start-up rules restart: the game stops on purpose and starts again
 
         /// <summary>--play: starts the game; the launcher closes when it ends normally, and opens when
         /// the start did not happen or the game crashed (the crash dialog first).</summary>
@@ -134,7 +152,7 @@ namespace BloodborneLauncher
             ws.GameCrashed += (_, _) => _directKeepOpen = true;
             ws.GameStateChanged += () =>
             {
-                if (!_directPlay || ws.Game.Running) return;
+                if (!_directPlay || ws.Game.Running || _restarting) return;
                 _directPlay = false;
                 if (_directKeepOpen)
                     ShowLauncher();

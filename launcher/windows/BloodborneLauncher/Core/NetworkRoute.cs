@@ -14,6 +14,7 @@ public sealed record NetAdapter(string Name, uint Ip, uint Mask = 0, bool Loopba
 }
 
 public enum VpnKind { None, Radmin, Hamachi, ZeroTier, Tailscale, Other }
+public enum HostOver { Automatic, Vpn, Internet }
 
 /// <summary>What the Co-op page shows as the party connection: the route (a VPN, the LAN or the Internet), its state and
 /// the address to give friends. Addresses are shown on the user's own screen only; nothing here logs or sends them.</summary>
@@ -87,6 +88,28 @@ public static class NetworkRoute
         return t;
     }
 
+    /// <summary>party_vpn -> segment: auto -> Automatic, off -> Internet, an adapter name -> Vpn.</summary>
+    public static HostOver HostOverOf(string? pref) => Normalize(pref) switch
+    {
+        "auto" => HostOver.Automatic,
+        "off" => HostOver.Internet,
+        _ => HostOver.Vpn,
+    };
+
+    /// <summary>Usable VPN labels, distinct and best first as in Auto: Radmin, Hamachi, Tailscale, ZeroTier.</summary>
+    public static List<string> VpnLabels(IEnumerable<NetAdapter> adapters) =>
+        adapters.Where(Usable).Where(a => KindOf(a) is VpnKind.Radmin or VpnKind.Hamachi or VpnKind.Tailscale or VpnKind.ZeroTier)
+            .OrderByDescending(a => KindOf(a) switch { VpnKind.Radmin => 4, VpnKind.Hamachi => 3, VpnKind.Tailscale => 2, _ => 1 })
+            .Select(Label).Distinct().ToList();
+
+    /// <summary>The segment's party_vpn value: auto, off, or the current adapter name, best VPN, then Radmin VPN.</summary>
+    public static string PrefFor(HostOver choice, IEnumerable<NetAdapter> adapters, string? currentPref) => choice switch
+    {
+        HostOver.Automatic => "auto",
+        HostOver.Internet => "off",
+        _ => HostOverOf(currentPref) == HostOver.Vpn ? currentPref! : VpnLabels(adapters).FirstOrDefault() ?? "Radmin VPN",
+    };
+
     /// <summary>A usable address: not loopback, a tunnel (Teredo, 6to4), 127/8 or 169.254/16.</summary>
     private static bool Usable(NetAdapter a) =>
         a.Ip != 0 && !a.Loopback && !a.Tunnel && a.Ip >> 24 != 127 && a.Ip >> 16 != 0xa9fe;
@@ -130,11 +153,6 @@ public static class NetworkRoute
                 : new Route("Internet", true, "", false);
         return Route.None;
     }
-
-    /// <summary>Hosting without a password over a network that strangers can be in (Radmin VPN and Hamachi networks may be
-    /// public): the party is open to all of them. Empty for anything else.</summary>
-    public static bool OpenNetworkWarning(string mode, string password, Route route) =>
-        mode == "host" && password.Trim().Length == 0 && route is { Vpn: true, Label: "Radmin VPN" or "Hamachi" };
 
     /// <summary>May a party be announced or heard on this adapter (gpu/shim/net/party_discovery.h adapter_discovery_ok)? A
     /// private LAN address on a real adapter, or a Radmin (26/8) / Hamachi (25/8) / ZeroTier address. Never the Internet,
