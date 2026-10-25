@@ -485,7 +485,7 @@ static void RulesPages() {
                       u"Guest gets up, no load", u"Respawn at host's lamp", u"Refill vials, bullets"};
     // 0.7.2: rot and what else cleanses it, the host's rules, on a page of their own.
     const V rot = {u"Rot on death", u"Rot: boss kill cleanses", u"Rot: kill your killer", u"Rot: echoes back"};
-    const V world = {u"Friendly fire / PvP", u"Shared lamps", u"Guests bring their lamps"};
+    const V world = {u"Friendly fire / PvP", u"Full health in PvP", u"Shared lamps", u"Guests bring their lamps"};
     const V travel = {u"Guests use lamps", u"Guests use Hunter's Mark", u"Open world", u"Stay in Chalice Dungeons",
                       u"Cutscenes live with host"};
     const V look = {u"No companion glow", u"Ping in the party list", u"Join/leave notices", u"Share NPC dialogue",
@@ -643,6 +643,8 @@ static void RulesPages() {
           std::tuple{u"Party rules: Phantoms", u"Level sync", "party_level_sync", &BbSettings::Values::party_level_sync},
           std::tuple{u"Party rules: Phantoms", u"Phantom health cut", "party_phantom_hp",
                      &BbSettings::Values::party_phantom_hp},
+          std::tuple{u"Party rules: PvP & lamps", u"Full health in PvP", "party_pvp_full_hp",
+                     &BbSettings::Values::party_pvp_full_hp},
           std::tuple{u"My party: Your items", u"Own key items as guest", "party_key_view", &BbSettings::Values::party_key_view},
           std::tuple{u"My party: Your items", u"Key items at once", "party_key_items_summoned",
                      &BbSettings::Values::party_key_items_summoned}}) {

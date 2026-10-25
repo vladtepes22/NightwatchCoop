@@ -34,7 +34,7 @@
             <Setter Property="Focusable" Value="False" />
             <Setter Property="Cursor" Value="Arrow" />
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-            <Setter Property="Background" Value="{DynamicResource TitleButtonBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
             <Setter Property="Template">
                 <Setter.Value>

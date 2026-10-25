@@ -255,6 +255,10 @@ placeholder (+0 %, +1000 levels: there is no matching server), so nobody was eve
 never came on. And 9006 / 9026 were always rewritten to 1.0 (seamless_rules.cpp, since the A6 agent's
 seamless rules: guests at full health, no reason recorded beyond Seamless-Co-op-like play).
 
+**0.7.6 Full health in PvP** (pvphp): while the host's *Friendly fire / PvP* is on, the host rule `pvp_full_hp`
+(default on) lifts the cut (`levelsync::PhantomCutOn`), and every peer keeps its own hunter's HP fraction across
+the max change (`HpRatioKeeper`, `HpAtRatio`): see pvp.md "Full health in PvP".
+
 **How it is done.** Level sync on: `LevelSyncTick` (party_balance.cpp, every 0.5 s on every peer, the host's
 rule) writes the game's normal range (+20 % +20) into ClientMan +0x18 (the original placeholder is put back
 when the rule goes off), and keeps 9200 on exactly the non-host players above `host * 1.2 + 20` (the game's

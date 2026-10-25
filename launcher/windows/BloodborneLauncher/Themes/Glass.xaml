@@ -32,6 +32,9 @@
     <!-- The title bar's buttons: the Play button stands out, the rest sit flat on the bar. -->
     <SolidColorBrush x:Key="TitlePlayBrush" Color="#2EFFFFFF" />
     <SolidColorBrush x:Key="TitleButtonBrush" Color="Transparent" />
+    <!-- The trophy list: plain here, in a pane in Eldritch (where the art would show through it). -->
+    <SolidColorBrush x:Key="TrophyListBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="TrophyListStrokeBrush" Color="Transparent" />
     <SolidColorBrush x:Key="ControlFillColorTertiaryBrush" Color="#18FFFFFF" />
     <SolidColorBrush x:Key="ControlFillColorInputActiveBrush" Color="#40000000" />
     <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush" Color="#2AFFFFFF" />

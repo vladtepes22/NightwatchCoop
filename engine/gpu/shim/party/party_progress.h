@@ -593,6 +593,8 @@ Policy CurrentPolicy();
 // Flag access (main thread; the live game store).
 bool ReadFlag(u32 id, bool* value);
 bool WriteFlagOwnSave(u32 id, bool value);
+/// The game's visible flag tree (in load mode 1 the host-world overlay): what the world's objects read.
+bool WriteFlagVisible(u32 id, bool value);
 /// The own save's value (the pool; in load mode 1 not what the host-world overlay shows).
 bool ReadFlagOwnSave(u32 id, bool* value);
 /// Guest: the host's value of `id` in its last full snapshot (EVENT flag_snapshot); false when

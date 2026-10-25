@@ -33,7 +33,7 @@ int main() {
     {
         // The keys from visy 0.7.5: defaults first, then each one read from and written to bbport.ini.
         auto& d = BbSettings::Get();
-        assert(d.party_level_sync && d.party_phantom_hp && !d.party_skip_prologue && d.party_vpn == 0 &&
+        assert(d.party_level_sync && d.party_phantom_hp && d.party_pvp_full_hp && !d.party_skip_prologue && d.party_vpn == 0 &&
                d.party_discovery && d.party_hud_ping);
         { std::ofstream file(path); file << "party_level_sync=0\nparty_phantom_hp=0\nparty_skip_prologue=1\n"
                                              "party_vpn=Radmin VPN\nparty_discovery=0\nparty_hud_ping=0\n"; }

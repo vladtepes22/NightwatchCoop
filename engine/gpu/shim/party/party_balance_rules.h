@@ -91,6 +91,10 @@ struct Rules {
     /// for a joined hunter). The host's; on by default = vanilla (a host from before sends none: on).
     bool level_sync = true;
     bool phantom_hp = true;
+    /// 0.7.6 (pvphp, owner's decision): "Full health in PvP": while friendly fire is on, joined hunters keep
+    /// their full maximum health (the phantom cut is lifted; each hunter's HP fraction is kept across the
+    /// switch, party_levelsync_rules.h). The host's; on by default (a host from before sends none: on).
+    bool pvp_full_hp = true;
     /// 0.7.4 (partyrules, user spec 2026-10-23): the session rules that were each player's own until
     /// 0.7.3 and now come from the host, so the party plays one way ("HOST DECIDES"; what reaches a
     /// guest's own save stays the guest's). Read live on every peer (party_status HostRuleOn):

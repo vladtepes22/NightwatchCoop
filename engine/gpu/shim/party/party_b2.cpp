@@ -3487,6 +3487,38 @@ void KidnapAskHost(std::int32_t event_id, const char* how) {
     party::status::SetLastEvent("Grabbed by a Snatcher: the party goes to the Hypogean Gaol");
 }
 
+/// BB_PARTY_TEST_FORCE_WAIT=S (test aid, the host; smoke iwn): the castle display event's wait (12500810: Logarius dead,
+/// region 2502806, the Crown on) counts as met S s after the event first ran in the world, so the host's real scene plays
+/// (the test save has no Crown trigger): the conditions' nodes are forced true. The waiting event is never dispatched
+/// again, so this runs before the interpreter's per-event step (0x12ECDC0). Layout: event+0x38 list of condition groups
+/// (linked +0x20, id byte +8, nodes +0x10 linked +8; node +0x18 bits 0/1 = forced / forced value).
+BB_COOP_SYSV void EventStepPre(u64 event, u64, u64, u64, u64, u64) {
+    if (!event || *reinterpret_cast<const volatile int*>(event + 0x28) != 12500810 || Role() != RoleHost) {
+        return;
+    }
+    static const double after = [] {
+        const char* v = std::getenv("BB_PARTY_TEST_FORCE_WAIT");
+        return v && *v ? std::atof(v) : 0.0;
+    }();
+    static double first = 0;
+    static u64 first_event = 0;
+    if (after <= 0) return;
+    if (first_event != event) {
+        first_event = event;
+        first = Now();
+    }
+    if (Now() - first < after) return;
+    u64 g = Field<u64>(event, 0x38);
+    for (int gi = 0; g && gi < 32; ++gi, g = Field<u64>(g, 0x20)) {
+        if (Field<std::int8_t>(g, 8) != 1) continue;
+        u64 n = Field<u64>(g, 0x10);
+        for (int ni = 0; n && ni < 64; ++ni, n = Field<u64>(n, 8)) {
+            const u8 ov = Field<u8>(n, 0x18) | 3;
+            SafeWrite(n + 0x18, &ov, 1);
+        }
+    }
+}
+
 bool ClientIntroSkip(int event_id, int bank, int id, std::uint64_t event, std::uint64_t instr) {
     if (kidnap::KidnapEvent(event_id) && KidnapInstr(event_id, bank, id, event, instr)) {
         return true;
@@ -11366,6 +11398,11 @@ void Init() {
     }
     InstallEmptyStainSkip();
     SetEmevdSkipPredicate(&ClientIntroSkip);
+    if (std::getenv("BB_PARTY_TEST_FORCE_WAIT") &&
+        !HookPrologue(0x12ecdc0, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53}, &EventStepPre,
+                      "EMEVD event step (test aid BB_PARTY_TEST_FORCE_WAIT)")) {
+        Log("EMEVD event step hook: NOT installed (bytes differ)");
+    }
     SetSameMapWarp(&SameMapLampWarp);
     SetSameMapStage(&SameMapStageWarp);
     EnsureEmevdFilter();

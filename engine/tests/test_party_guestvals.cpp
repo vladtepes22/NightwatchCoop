@@ -199,6 +199,15 @@ static void TestLampShare() {
     // Only the lamp-lit flag without the headstone flag: not a lit lamp.
     auto half = [](std::uint32_t id) { return id == 72410201u; };
     CHECK(Missing(241, 1, half, none).empty());
+    // The host's lamps into the own save: lit by base+10 or by the lamp-lit flag alone (0.7.6 report).
+    auto only7 = [](std::uint32_t id) { return id == 72700200u; };
+    auto only10 = [](std::uint32_t id) { return id == 12707810u; };
+    const auto t7 = MissingFromLit(270, 0, only7, none);
+    CHECK(t7.size() == 3 && t7[0] == 12707810u && t7[1] == 12707811u && t7[2] == 72700200u);
+    const auto t10 = MissingFromLit(270, 0, only10, only7);  // the own save has the lamp-lit flag only
+    CHECK(t10.size() == 2 && t10[0] == 12707810u && t10[1] == 12707811u);
+    CHECK(MissingFromLit(270, 0, only7, all).empty());      // nothing missing
+    CHECK(MissingFromLit(270, 1, only7, none).empty());     // another lamp: not lit in the source
     // Lamps past a boss the other world has not beaten stay out of it.
     CHECK(BlockBossFlag(240) == 12401800u && BlockBossFlag(320) == 13201800u);
     CHECK(HeldForBoss(1, true, false));    // the Grand Cathedral, Amelia alive in the host's world

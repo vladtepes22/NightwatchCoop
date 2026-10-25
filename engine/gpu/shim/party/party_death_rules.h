@@ -915,6 +915,19 @@ inline bool StoryWarpEvent(std::int32_t event, bool host) {
         return false;
     }
 }
+/// frontierfall (0.7.6 report): the Lecture Building door's story warp is held for the "Travel with the
+/// party?" question (and the host's travel after it); the players free-fell from the door through the
+/// ground until the load. While a story warp's question is pending, and for kStoryHoldGrace s after it
+/// (a dropped duplicate question waits for the host's travel), the chr is held at its spot every frame.
+/// Released by any load, and never longer than kStoryHoldMax s (a question closes after 30 s).
+constexpr double kStoryHoldGrace = 10.0;
+constexpr double kStoryHoldMax = 40.0;
+inline bool StoryWarpHold(double since_story_s, bool question_pending, bool loading, bool world_up) {
+    if (since_story_s < 0 || loading || !world_up || since_story_s > kStoryHoldMax) {
+        return false;
+    }
+    return question_pending || since_story_s <= kStoryHoldGrace;
+}
 /// After a story warp's cutscene the travel question waits this long once the scene is over (live
 /// parg re-run: opened in the frame the Blood Moon scene ended, the box never showed and six Cross
 /// presses did nothing).

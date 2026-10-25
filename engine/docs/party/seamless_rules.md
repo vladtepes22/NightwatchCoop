@@ -127,7 +127,7 @@ below were read from the 1.09 gameparam offline.
 
 | Rule | Row | Field | 1.09 | Set | Off switch |
 |---|---|---|---|---|---|
-| Phantom health, cooperator / invader phantom | SpEffectParam 9006 / 9026 | maxHpRate +0x10 (f32) | 0.7 | 0.7 on (default), 1.0 off: the host's rule `party_phantom_hp` (0.7.5; before it always 1.0, `BB_PARTY_FULL_HP`) | `BB_PARTY_PHANTOM_HP=0` |
+| Phantom health, cooperator / invader phantom | SpEffectParam 9006 / 9026 | maxHpRate +0x10 (f32) | 0.7 | 0.7 on (default), 1.0 off: the host's rule `party_phantom_hp` (0.7.5; before it always 1.0, `BB_PARTY_FULL_HP`); 0.7.6: 1.0 also while friendly fire is on with the host's rule `party_pvp_full_hp` (default on), the local hunter's HP kept at its fraction (pvp.md) | `BB_PARTY_PHANTOM_HP=0`, `BB_PARTY_PVP_FULL_HP=0` |
 | Bells without Insight | EquipParamGoods 200 (Beckoning Bell) | consumeHeroPoint +0x38 (u8) | 1 | 0 | `BB_PARTY_BELL_NO_INSIGHT=0` |
 
 Polled every 0.5 s until the params exist, then re-checked every 2 s (a reload restores them; a

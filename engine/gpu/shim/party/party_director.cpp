@@ -261,6 +261,9 @@ struct Test {
     // the peers rebuild this chr from its new record (the mirror's path). Distinct-looking players
     // for the visual tests (all instances share one test save).
     std::uint32_t armor = 0;
+    // armor=SET:keep (0.7.6, Crown of Illusions on the roof): put on again in every later world (a map load)
+    std::uint32_t armor_keep = 0;
+    Clock::time_point armor_world{};
     // weapon=ID[:ID...]: gives the weapon id(s) once (test saves; base id + 100 * level), 4 s after the world is up.
     std::vector<std::uint32_t> weapons;
     // approach=X:Z:R[:BUTTON]: walk (pad file sticks, camera-relative, closed loop on the position)
@@ -2448,6 +2451,12 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
             (BbSettings::Get().*(sw.member)).store(on);
             Log("test: host_rule: %s %d -> %d", sw.key, was ? 1 : 0, on ? 1 : 0);
         }
+        if (!found && key == "party_friendly_fire") {  // 0.7.6 (pvphp): the PvP switch is not in PartySwitches
+            found = true;
+            const bool was = BbSettings::Get().party_friendly_fire.load();
+            BbSettings::Get().party_friendly_fire.store(on);
+            Log("test: host_rule: %s %d -> %d", key.c_str(), was ? 1 : 0, on ? 1 : 0);
+        }
         if (!found) Log("test: host_rule: no party switch %s", key.c_str());
     } else if (step.kind == TravelStep::HostPoise) {
         // D7 stagger A/B in one session: the host's Enemy poise setting, live (not saved); the
@@ -3299,6 +3308,10 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
         Log("test: Blood Echoes -> %d %s", t.echoes, ok ? "written" : "NOT written (no player record)");
         t.echoes = -1;
     }
+    if (!t.armor && t.armor_keep && st.world_at != t.armor_world && Seconds(st.world_at, now) >= 3.0 && s.world_up &&
+        !s.loading) {
+        t.armor = t.armor_keep;  // a new world: the set goes on again
+    }
     if (t.armor && Seconds(st.world_at, now) >= 3.0 && s.world_up && !s.loading) {
         int ok = 0, all = 0;
         for (int k = 0; k < 4; ++k) {
@@ -3308,6 +3321,7 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
             ok += EquipSlotItem(8 + k, kItemProtector, piece) ? 1 : 0;  // head .. legs (slots 8..11)
         }
         Log("test: armor set %u put on: %d of %d pieces", t.armor, ok, all);
+        t.armor_world = st.world_at;
         t.armor = 0;
         if (ok > 0) b2::NoteOwnAppearanceChanged();
     }
@@ -3994,6 +4008,7 @@ void PartyDirector::ConfigureFromEnv() {
                 }
             } else if (item.rfind("armor=", 0) == 0) {
                 st.test.armor = static_cast<std::uint32_t>(std::strtoul(item.c_str() + 6, nullptr, 10));
+                if (item.find(":keep") != std::string::npos) st.test.armor_keep = st.test.armor;
             } else if (item.rfind("bell_guest@", 0) == 0) {
                 st.test.bell = kGuestBell;
                 st.test.bell_area = std::atoi(item.c_str() + 11);

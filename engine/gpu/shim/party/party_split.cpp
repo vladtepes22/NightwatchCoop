@@ -96,6 +96,7 @@ struct Pending {
 };
 std::mutex g_mu;
 std::atomic<double> g_story_at{-1};  // NoteStoryWarp
+std::atomic<double> g_hold_at{-1};   // NoteStoryWarp: the story warp's hold (frontierfall), cleared by a load
 double g_remo_seen_at = -1;          // main thread: last tick a cutscene (remo) was playing
 
 /// SprjRemo player +0x168 bit 0 (party_catchup's RemoPlaying).
@@ -420,6 +421,7 @@ void NoteLocalUse(std::uint32_t id) {
 void NoteStoryWarp(std::uint32_t id) {
     NoteLocalUse(id);
     g_story_at = Now();
+    g_hold_at = Now();
 }
 
 std::atomic<double> g_warp_seen_at{-1};  // the last lamp warp this game ran (HeadstoneWarpTick)
@@ -574,6 +576,44 @@ void Tick(const GameSnapshot& s, party::PartyLink* link) {
     static double release_at = 0;  // a test / cancel press is a tap
     if (s.world_up && !s.loading && s.map_id != 0xffffffffu) {
         g_map_now = s.map_id;
+    }
+    {
+        // frontierfall: hold the chr at its spot while a story warp waits for its question (and the
+        // host's travel): the players used to free-fall through the Lecture Building's floor.
+        static bool held = false, have_pos = false;
+        static float pos[4], rot[4];
+        const double at = g_hold_at.load();
+        bool pending;
+        {
+            std::lock_guard<std::mutex> lk(g_mu);
+            pending = g_p.state != Ask::None && g_p.after_scene;
+        }
+        if (at >= 0 && s.loading) {
+            g_hold_at = -1;
+        }
+        static const bool hold_on = !(std::getenv("BB_PARTY_STORY_HOLD") && std::getenv("BB_PARTY_STORY_HOLD")[0] == '0');
+        const bool want = hold_on && at >= 0 && s.player && deathrules::StoryWarpHold(Now() - at, pending, s.loading, s.world_up);
+        if (want) {
+            const u64 pm = Field<u64>(Field<u64>(Field<u64>(Field<u64>(s.player, 0x58), 8), 0x3b0), 0x68);
+            if (!held) {
+                have_pos = pm && SafeRead(pm + 0x1e0, pos, 16) && SafeRead(pm + 0x1d0, rot, 16);
+                held = true;
+                Log("story warp hold: the chr is held at (%.1f, %.1f, %.1f) until the question and the move are over",
+                    have_pos ? double(pos[0]) : 0.0, have_pos ? double(pos[1]) : 0.0, have_pos ? double(pos[2]) : 0.0);
+            }
+            u64 vt = 0, fn = 0;
+            if (have_pos && SafeGet(s.player, &vt) && vt && SafeGet(vt + 0x5f8, &fn) && fn) {
+                alignas(16) float to[4] = {pos[0], pos[1], pos[2], 1.0f};
+                alignas(16) float r[4] = {rot[0], rot[1], rot[2], rot[3]};
+                reinterpret_cast<void(BB_COOP_SYSV*)(u64, const float*, const float*, u32)>(fn)(s.player, to, r, 1);
+            }
+        } else if (held) {
+            held = false;
+            if (at >= 0 && !s.loading) {
+                g_hold_at = -1;
+            }
+            Log("story warp hold: released (%s)", s.loading ? "a load" : "over");
+        }
     }
     {
         // A party member's headstone choice whose warp event was used up (party_stay_rules.h: another member's

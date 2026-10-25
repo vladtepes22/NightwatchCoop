@@ -79,7 +79,10 @@ namespace BloodborneLauncher.Views
             Grid.SetColumn(filter, 1);
             header.Children.Add(filter);
             Body.Children.Add(header);
-            Body.Children.Add(Pane(_list));
+            var pane = Pane(_list);
+            pane.SetResourceReference(Border.BackgroundProperty, "TrophyListBrush");
+            pane.SetResourceReference(Border.BorderBrushProperty, "TrophyListStrokeBrush");
+            Body.Children.Add(pane);
 
             // ==================== Notifications ====================
             Group(L.T("Notification"));

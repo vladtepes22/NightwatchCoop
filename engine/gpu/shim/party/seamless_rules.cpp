@@ -921,18 +921,74 @@ std::uint64_t EmevdInstructionArgs(std::uint64_t event, std::uint64_t instr, std
     return args;
 }
 
+// 0.7.6 (pvphp): the local hunter's HP across a phantom-rate change. The game recomputes the max HP from
+// the SpEffect rows (0x17e46e0) within a frame and adds the max difference to the HP when the max grows
+// (a guest at 245/490 stands at 455/700 the moment PvP lifts the cut; live: 260/503 -> 476/719) but keeps
+// the points when it shrinks (700/700 is clamped to 490/490, 350/700 stays 350/490). The keeper (pure:
+// party_levelsync_rules.h HpRatioKeeper) remembers the HP before the write and, once the max moved, writes
+// the HP at the same fraction (245/490 -> 350/700 and back). Local chr only: a remote hunter's HP is its own
+// game's, sent over the game's own player sync. BB_PARTY_PVP_HP_KEEP=0 leaves the points as the game has
+// them (test aid).
+levelsync::HpRatioKeeper g_hp_keep;
+bool HpKeepDisabled() {
+    static const bool off = [] {
+        const char* v = std::getenv("BB_PARTY_PVP_HP_KEEP");
+        return v && v[0] == '0';
+    }();
+    return off;
+}
+/// The local player's data module (PlayerIns +0x3b0 -> +0x20: HP +0xf8, max +0xfc; party_hud_game).
+u64 LocalDataModule() {
+    constexpr u64 kSlotWorldChrMan = 0x553e878;  // +0x60 the local player chr
+    u64 wcm = 0, chr = 0, a = 0, dm = 0;
+    if (!SafeGet(Guest(kSlotWorldChrMan), &wcm) || !wcm || !SafeGet(wcm + 0x60, &chr) || !chr) return 0;
+    if (!SafeGet(chr + 0x3b0, &a) || !a || !SafeGet(a + 0x20, &dm)) return 0;
+    return dm;
+}
+bool LocalHp(int* hp, int* max) {
+    const u64 dm = LocalDataModule();
+    return dm && SafeGet(dm + 0xf8, hp) && SafeGet(dm + 0xfc, max);
+}
+double Now() {
+    return std::chrono::duration<double>(Clock::now().time_since_epoch()).count();
+}
+/// Once a frame: the keeper's watch (nothing while it is not armed).
+void PhantomHpKeepTick() {
+    if (!g_hp_keep.armed) return;
+    int hp = 0, max = 0;
+    if (!LocalHp(&hp, &max)) hp = max = 0;
+    const int before_hp = g_hp_keep.hp, before_max = g_hp_keep.max;
+    const int want = g_hp_keep.Track(hp, max, Now());
+    if (want < 0) return;
+    if (want == hp) {
+        Log("phantom health: HP %d/%d -> %d/%d, the fraction is kept already", before_hp, before_max, hp, max);
+        return;
+    }
+    const u64 dm = LocalDataModule();
+    const bool ok = dm && SafeWrite(dm + 0xf8, &want, sizeof want);
+    Log("phantom health: HP kept at its fraction: %d/%d -> %d/%d (the game had %d/%d)%s", before_hp, before_max, want, max,
+        hp, max, ok ? "" : " WRITE FAILED");
+}
+
 /// 0.7.5 "Phantom health" (party_phantom_hp, the host's rule; both ON = the game's 0.7): SpEffect 9006
-/// (cooperator) and 9026 (invader phantom) maxHpRate follows the rule on every peer. A row holding neither
-/// 0.7 nor 1.0 is left alone (logged once). Returns true once both rows hold what the rule says.
+/// (cooperator) and 9026 (invader phantom) maxHpRate follows the rule on every peer. 0.7.6 "Full health in
+/// PvP" (party_pvp_full_hp, the host's rule, default on): while friendly fire is on the cut is lifted
+/// (levelsync::PhantomCutOn), and the local hunter's HP fraction is kept across the change (the keeper above).
+/// A row holding neither 0.7 nor 1.0 is left alone (logged once). Returns true once both rows hold what the
+/// rules say.
 bool ApplyPhantomHp() {
     static int logged_rule = -1;
     static bool refused = false;
     if (refused) return true;
-    const bool on = party::status::HostRuleOn(party::status::HostRule::PhantomHp);
+    const bool rule = party::status::HostRuleOn(party::status::HostRule::PhantomHp);
+    const bool pvp = party::status::FriendlyFire();
+    const bool pvp_full = party::status::HostRuleOn(party::status::HostRule::PvpFullHp);
+    const bool on = levelsync::PhantomCutOn(rule, pvp, pvp_full);
+    const int state = on ? 1 : pvp && pvp_full && rule ? 2 : 0;  // for the log: 2 = lifted by PvP
     const float want = levelsync::PhantomHpRate(on);
     ParamTable t;
     if (!FindParam("SpEffectParam", "SP_EFFECT_PARAM_ST", &t)) return false;
-    bool all = true;
+    bool all = true, armed = false;
     for (const u32 id : {9006u, 9026u}) {
         const u64 row = Row(t, id);
         float v = 0;
@@ -946,16 +1002,22 @@ bool ApplyPhantomHp() {
             refused = true;
             return true;
         }
+        if (!armed && !HpKeepDisabled()) {  // the HP before the rate changes (the max follows within a frame)
+            armed = true;
+            int hp = 0, max = 0;
+            if (LocalHp(&hp, &max)) g_hp_keep.Arm(hp, max, Now());
+        }
         if (!WriteField(row + 0x10, 4, want)) {
             all = false;
             continue;
         }
-        if (logged_rule != int(on)) {
-            Log("phantom health: %s (SpEffect %u maxHpRate %g -> %g)", on ? "on, the game's 30 % cut" : "off, full health",
-                id, double(v), double(want));
+        if (logged_rule != state) {
+            Log("phantom health: %s (SpEffect %u maxHpRate %g -> %g)",
+                state == 1 ? "on, the game's 30 % cut" : state == 2 ? "lifted: full health in PvP" : "off, full health", id,
+                double(v), double(want));
         }
     }
-    if (all) logged_rule = int(on);
+    if (all) logged_rule = state;
     return all;
 }
 
@@ -965,6 +1027,7 @@ void SeamlessRulesTick() {
         return;
     }
     const auto now = Clock::now();
+    PhantomHpKeepTick();
     // Params: every 0.5 s until they are written, then every 2 s (a reload restores them).
     if (Seconds(st.last_param, now) >= (st.params_done ? 2.0 : 0.5)) {
         st.last_param = now;

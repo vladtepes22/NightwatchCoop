@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // 0.7.5 level sync and phantom health (the pure part, tests/test_party_levelsync.cpp; the game side is
-// party_balance.cpp LevelSyncTick and seamless_rules.cpp PhantomHpTick; docs/party/balance.md section 5).
+// party_balance.cpp LevelSyncTick and seamless_rules.cpp ApplyPhantomHp; docs/party/balance.md section 5).
+// 0.7.6 "Full health in PvP" (PhantomCutOn, HpRatioKeeper; docs/party/pvp.md).
 //
 // Bloodborne's own rules for a hunter who joins another's world:
 //  - Level sync. A per-frame ChrIns step (0x15077c0) puts SpEffect 9200 (0x23f0, the blue icon by the
@@ -53,5 +54,57 @@ inline Action Decide(bool rule_on, bool eligible, bool above, int count) {
 constexpr std::uint32_t kPartyRangePercent = 20, kPartyRangeAdd = 20;
 
 inline float PhantomHpRate(bool rule_on) { return rule_on ? 0.7f : 1.0f; }
+
+/// 0.7.6 (pvphp, owner's decision): the host's rule "Full health in PvP" (pvp_full_hp, default on). While
+/// friendly fire / PvP is on, a joined hunter keeps its full maximum health: a 70 % hunter against a 100 %
+/// host is no duel. The cut in force on every peer: the Phantom health rule, unless PvP is on and this is.
+inline bool PhantomCutOn(bool phantom_hp, bool friendly_fire, bool pvp_full_hp) {
+    return phantom_hp && !(friendly_fire && pvp_full_hp);
+}
+
+/// The HP that is the same fraction of `new_max` as `hp` of `max`, to the nearest point (half up): a hunter
+/// at 245/490 goes to 350/700 and back, full stays full (490/490 -> 700/700, no 490/700), 0 stays 0 (no
+/// free heal for a dead hunter). A `max` of 0 or less, or `hp` above it, counts as full.
+inline int HpAtRatio(int hp, int max, int new_max) {
+    if (new_max <= 0 || hp <= 0) return 0;
+    if (max <= 0 || hp >= max) return new_max;
+    const long long scaled = (static_cast<long long>(hp) * new_max * 2 + max) / (2LL * max);
+    return static_cast<int>(scaled > new_max ? new_max : scaled);
+}
+
+/// Keeps the local hunter's HP fraction across the max-HP change a maxHpRate write brings. The game itself
+/// adds the max difference when the max grows (245/490 becomes 455/700, 65 %; live 2026-10-25: 260/503 ->
+/// 476/719) and keeps the points when it shrinks (700/700 is clamped to 490/490, 350/700 stays 350/490, 70 %):
+/// a switch would heal or hurt. Arm with the HP before the write; Track with the HP
+/// every frame after it: when the max changes, Track gives the HP to write (the last HP seen with the old
+/// max, at the same fraction of the new one) and disarms; a max that never changes (the host's own chr has
+/// no phantom effect; a reload) disarms after `kWindow` s. Pure (tests/test_party_levelsync.cpp).
+struct HpRatioKeeper {
+    static constexpr double kWindow = 5.0;
+    bool armed = false;
+    int hp = -1, max = -1;
+    double since = 0.0;
+    void Arm(int cur_hp, int cur_max, double now) {
+        armed = cur_max > 0;
+        hp = cur_hp;
+        max = cur_max;
+        since = now;
+    }
+    /// -1: nothing to write (not armed, no change yet, the window passed); else the HP for the new max.
+    int Track(int cur_hp, int cur_max, double now) {
+        if (!armed) return -1;
+        if (now - since > kWindow) {
+            armed = false;
+            return -1;
+        }
+        if (cur_max <= 0) return -1;
+        if (cur_max != max) {
+            armed = false;
+            return HpAtRatio(hp, max, cur_max);
+        }
+        hp = cur_hp;
+        return -1;
+    }
+};
 
 }  // namespace coop::levelsync

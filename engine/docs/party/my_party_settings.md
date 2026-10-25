@@ -30,6 +30,7 @@ Notes that apply to several rows:
 | Stay in Chalice Dungeons | `party_chalice_rejoin` | on | live | A guest taken out of the host's dungeon by a death or forced trip is summoned back. Leaving by choice: use Rejoin. |
 | Level sync | `party_level_sync` | on | live | A hunter above the host's level range is scaled down in the host's world (less health, stamina, defence, resistance) and gets a blue icon by its name. Off: full stats. |
 | Phantom health cut | `party_phantom_hp` | on | live | Hunters who join have 30 % less maximum health. Off: full maximum health. |
+| Full health in PvP | `party_pvp_full_hp` | on | live | While friendly fire is on, joined hunters keep full maximum health (no phantom cut); the switch keeps each hunter's health fraction. Off: the cut applies in PvP too. |
 | Skip the prologue (new characters) | `party_skip_prologue` | off | new character | A character that has not finished the prologue skips it: story flags set, starting weapons given, appears at the first lamp in the city. Characters past the prologue are never touched. |
 | Guests use lamps | `party_guest_lamps` | on | next start, join check | Guests may use lamps and headstones; the whole party travels with them. |
 | Guests can use Hunter's Mark | `party_guest_mark` | on | next start, join check | A guest's Hunter's Mark asks: travel alone or with the party. Off: as in the game. |

@@ -31,6 +31,8 @@
     <!-- Solid, so the art never shows through the title bar's buttons. -->
     <SolidColorBrush x:Key="TitlePlayBrush" Color="#FF2C211D" />
     <SolidColorBrush x:Key="TitleButtonBrush" Color="#FF2C211D" />
+    <SolidColorBrush x:Key="TrophyListBrush" Color="#C0130E0C" />
+    <SolidColorBrush x:Key="TrophyListStrokeBrush" Color="#3A8A6A55" />
     <SolidColorBrush x:Key="ControlFillColorTertiaryBrush" Color="#14E8DCC8" />
     <SolidColorBrush x:Key="ControlFillColorInputActiveBrush" Color="#59000000" />
     <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush" Color="#2E9C7B62" />

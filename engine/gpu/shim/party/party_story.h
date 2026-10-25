@@ -396,7 +396,12 @@ int GuestEndingType(int host_ending, bool own_three_cords);
 /// end-by-condition (1000[2], instruction 91: the phantom check) are passed. BB_PARTY_SCENE_PASS_WAIT=0: off.
 inline bool StoryScenePassWait(bool enabled, int bank, int id, int event_id, bool client, bool mirrored,
                                bool mirror_playing) {
-    return enabled && client && mirrored && !mirror_playing && ((bank == 0 && id == 0) || (bank == 1000 && id == 2)) && event_id == 12500810;
+    // 0.7.6 (smoke iwn): a guest that stands where the host does passes the wait by itself a few ms before the host's
+    // scene arrives, and the phantom check right after it (1000[2]) then ended its copy for good: that check is
+    // always passed on a client (the copy's scene is held for / dropped by the live mirror anyway).
+    if (!(enabled && client && event_id == 12500810)) return false;
+    if (bank == 1000 && id == 2) return true;
+    return mirrored && !mirror_playing && bank == 0 && id == 0;
 }
 inline bool StoryDedupeSkip(bool enabled, int bank, int id, int event_id, bool client, bool mirrored) {
     return enabled && client && bank == 2002 && id >= 1 && id <= 7 && event_id > 0 && mirrored;

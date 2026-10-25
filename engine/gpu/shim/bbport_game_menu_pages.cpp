@@ -899,8 +899,8 @@ void DefineAll() {
 
     // ---- Party rules: PvP & lamps (party_pvp, party_balance) ----
     AddPage("Party rules: PvP & lamps", "Правила: PvP и фонари",
-            "Host's rules: friendly fire, shared lamps, guests' lamps in the host's world (bbport)",
-            "Правила хоста: огонь по своим, общие фонари, фонари гостей в мире хоста (bbport)");
+            "Host's rules: friendly fire, full health in PvP, shared lamps, guests' lamps in the host's world (bbport)",
+            "Правила хоста: огонь по своим, полное здоровье в PvP, общие фонари, фонари гостей (bbport)");
     host_rule(&Values::party_friendly_fire, "Friendly fire / PvP", "Огонь по своим / PvP",
               AddText("Party members can hurt each other (both ways); a party kill is a normal death. Party rule",
                       "Члены группы могут ранить друг друга; убийство в группе - обычная смерть. Правило группы"),
@@ -909,6 +909,15 @@ void DefineAll() {
                "Хост включил огонь по своим: члены группы могут ранить друг друга"},
               {"The host decides; off: party members cannot hurt each other",
                "Решает хост; выкл.: члены группы не могут ранить друг друга"});
+    // 0.7.6 (pvphp, owner's decision): a 70 % hunter against a 100 % host is no duel.
+    host_rule(&Values::party_pvp_full_hp, "Full health in PvP", "Полное здоровье в PvP",
+              AddText("While friendly fire is on, joined hunters keep full maximum health (no phantom cut). Party rule",
+                      "При огне по своим присоединившиеся охотники сохраняют полное макс. здоровье. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::PvpFullHp); },
+              {"The host's rule: with friendly fire on, hunters who joined keep their full maximum health",
+               "Правило хоста: при огне по своим присоединившиеся охотники сохраняют полное максимальное здоровье"},
+              {"The host decides; off: the phantom health cut stays in PvP too",
+               "Решает хост; выкл.: штраф здоровья призрака действует и в PvP"});
     host_rule(&Values::party_share_lamps, "Shared lamps", "Общие фонари",
               AddText("A lamp any party member lights is lit for everyone, in each save. Party rule",
                       "Фонарь, зажжённый любым членом группы, горит у всех, в каждом сохранении. Правило группы"),

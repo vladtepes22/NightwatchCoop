@@ -454,10 +454,10 @@ namespace BloodborneLauncher
         /// <summary>Three quick clicks on the Co-op tab show the watcher; one click still opens the tab.</summary>
         private void CoopItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (e.ClickCount == 3) ShowWatcher();
+            if (e.ClickCount == 3 && LauncherTheme.Eldritch(Workspace.Current.Settings)) ShowWatcher();
         }
 
-        /// <summary>The easter egg: a huge eye in a wound of flesh, ringed by tentacles, opens over the launcher,
+        /// <summary>The easter egg: a huge eye in a wound of flesh, ringed by tentacles, opens over the launcher (Eldritch theme only),
         /// fixes its pupil on you and shuts again (under three seconds). Clicks go on through it. Plain frame swaps
         /// and one slow zoom on a dark scrim: no effects, nothing re-rendered underneath.</summary>
         private void ShowWatcher()

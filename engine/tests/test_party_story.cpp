@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -739,8 +740,10 @@ static void test_dedupe_skip() {
     CHECK(StoryScenePassWait(true, 1000, 2, 12500810, true, true, false));
     CHECK(!StoryScenePassWait(false, 1000, 2, 12500810, true, true, false));  // switch off
     CHECK(!StoryScenePassWait(true, 1000, 2, 12500810, false, true, false));  // host
-    CHECK(!StoryScenePassWait(true, 1000, 2, 12500810, true, false, false));  // not mirrored
-    CHECK(!StoryScenePassWait(true, 1000, 2, 12500810, true, true, true));    // the scene still plays
+    CHECK(StoryScenePassWait(true, 1000, 2, 12500810, true, false, false));   // the phantom check: always on a client
+    CHECK(!StoryScenePassWait(true, 0, 0, 12500810, true, false, false));     // the wait: only once mirrored
+    CHECK(StoryScenePassWait(true, 1000, 2, 12500810, true, true, true));     // the phantom check also while it plays
+    CHECK(!StoryScenePassWait(true, 0, 0, 12500810, true, true, true));       // the wait: not while the scene plays
     CHECK(!StoryScenePassWait(true, 1000, 2, 12601802, true, true, false));   // another event
     CHECK(StoryScenePassWait(true, 0, 0, 12500810, true, true, false));        // the condition wait
     CHECK(!StoryScenePassWait(true, 1001, 1, 12500810, true, true, false));   // another instruction

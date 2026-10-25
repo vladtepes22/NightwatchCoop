@@ -2012,6 +2012,8 @@
   "Each new character normally completes its own prologue first; Right away starts the party at once. The host's rule, read at game start: a guest must have the same value, or the host refuses the join.": "新角色通常先完成自己的序章；“立即开始”则让联机马上开始。房主规则，游戏启动时读取：访客必须使用相同的值，否则房主会拒绝其加入。",
   "Level sync": "等级同步",
   "Phantom health cut": "幻影生命值削减",
+  "Full health in PvP": "PvP 中满生命值",
+  "While friendly fire is on, hunters who joined keep their full maximum health (no phantom health cut), so a duel is fair. Switching keeps each hunter's health at the same fraction. Off: the phantom health cut applies in PvP too. The host's rule: guests follow it.": "开启友军伤害时，加入的猎人保留完整的最大生命值（不削减幻影生命值），对决更公平。切换时每位猎人的生命值比例保持不变。关闭：PvP 中同样削减幻影生命值。主机的规则：客人遵循。",
   "Skip the prologue (new characters)": "跳过序章（新角色）",
   "As in the game's own co-op: a hunter whose level is above the host's range is scaled down while it plays in the host's world (less maximum health and stamina, less defence and resistance) and gets a blue icon by its name. Anyone can still join at any level. Off: everyone keeps full stats. The host's rule: guests follow it.": "与游戏自带的联机一致：等级高于房主范围的猎人在房主的世界中会被削弱（最大生命值和耐力降低，防御和抗性降低），名字旁会显示蓝色图标。任何等级的玩家仍可加入。关闭：所有人保持完整属性。房主规则：访客遵循。",
   "As in the game's own co-op: hunters who join a party have 30 % less maximum health. Off: full maximum health for everyone. The host's rule: guests follow it.": "与游戏自带的联机一致：加入队伍的猎人最大生命值减少 30 %。关闭：所有人保持完整的最大生命值。房主规则：访客遵循。",

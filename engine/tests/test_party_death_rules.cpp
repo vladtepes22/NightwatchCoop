@@ -879,6 +879,11 @@ int main() {
     // Great Bridge passes 10 m/s within a second (full smoke 0.7.1: a fall off the Mensis car, 11-23 m/s).
     CHECK(!FallRecoveryDue(8.0, 40.0, 5.1) && !FallRecoveryDue(12.0, 60.0, 12.7));  // 12.7: Cainhurst's peak
     CHECK(FallRecoveryDue(6.0, 150.0, 23.0) && FallRecoveryDue(6.0, 40.0, kLiftMaxRate));
+    // frontierfall: a story warp's chr is held while its question is pending and for the grace after it.
+    CHECK(StoryWarpHold(0.0, true, false, true) && StoryWarpHold(25.0, true, false, true));
+    CHECK(StoryWarpHold(5.0, false, false, true) && !StoryWarpHold(kStoryHoldGrace + 1.0, false, false, true));
+    CHECK(!StoryWarpHold(-1.0, true, false, true) && !StoryWarpHold(3.0, true, true, true));   // none yet / a load
+    CHECK(!StoryWarpHold(3.0, true, false, false) && !StoryWarpHold(kStoryHoldMax + 1.0, true, false, true));
     // The drop test around a death: the peak counts from the last sample on a moving object.
     {
         std::vector<HeightSample> ride = {{0.0, 1003.8, true}, {1.0, 999.8, true}, {2.0, 995.8, true}, {3.0, 991.8, true}};

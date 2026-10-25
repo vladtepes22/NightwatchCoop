@@ -333,6 +333,26 @@ std::vector<std::uint32_t> Missing(std::uint32_t aab, std::uint32_t n, MineFn mi
     return out;
 }
 
+/// The host's lamps into the own save (0.7.6 report: a guest joined at the host's lamp, which its own
+/// save lacked, and lighting it did nothing). A lamp counts as lit in `src` when its headstone flag
+/// base+10 OR its lamp-lit flag 7AAB02xx is set (a host world can hold only the second: C2 and a
+/// guest's lamp_lit event write 7AAB02xx on their own). Then EVERY one of its three flags `dst` lacks
+/// is returned: with only 7AAB02xx in the own save the lamp is neither listed nor lit by its action.
+template <class SrcFn, class DstFn>
+std::vector<std::uint32_t> MissingFromLit(std::uint32_t aab, std::uint32_t n, SrcFn src, DstFn dst) {
+    std::vector<std::uint32_t> out;
+    const std::vector<std::uint32_t> f = LitFlags(aab, n);
+    if (!src(f[0]) && !src(f[2])) {
+        return out;
+    }
+    for (std::uint32_t id : f) {
+        if (!dst(id)) {
+            out.push_back(id);
+        }
+    }
+    return out;
+}
+
 /// The main boss defeat flag of map block AAB (1AAB1800: 12401800 Vicar Amelia, 12301800 the
 /// Blood-starved Beast, 13201800 Rom, ...).
 constexpr std::uint32_t BlockBossFlag(std::uint32_t aab) { return 10000000u + aab * 10000u + 1800u; }

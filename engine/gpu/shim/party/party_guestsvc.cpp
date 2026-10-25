@@ -1741,10 +1741,10 @@ void GuestOwnLampsTick(const GameSnapshot& s) {
                 ids.push_back(id);
             }
         }
-        // The other way: the host's lamps into the own save. C2 carries the lamp-lit flag 7AAB02xx,
+        // The other way: the host's lamps into the own save (MissingFromLit). C2 carries the lamp-lit flag 7AAB02xx,
         // but the lamp object's base+10 / base+11 (the headstone list's flag) are runtime-category
         // flags it never writes: without them the own save's headstones would not list the lamp.
-        const std::vector<std::uint32_t> take = lampshare::Missing(l.aab, l.n, theirs, mine);
+        const std::vector<std::uint32_t> take = lampshare::MissingFromLit(l.aab, l.n, theirs, mine);
         bool any = false;
         for (std::uint32_t id : take) {
             if (progress::WriteFlagOwnSave(id, true)) {
@@ -1755,6 +1755,24 @@ void GuestOwnLampsTick(const GameSnapshot& s) {
         if (any) {
             into_own += " " + std::to_string(lamptravel::ReturnPoint(l));
         }
+    }
+    // The lamp as the host's world shows it to this guest (0.7.6 report): a lamp whose lamp-lit flag the
+    // visible tree has (the mirror brings 7AAB02xx) but not its headstone flag base+10 reads as "not
+    // kindled" to its object and as lit to its kindle event, so lighting it does nothing. Set the two
+    // list flags in the visible tree too.
+    std::string shown;
+    for (const lamptravel::Lamp& l : lamptravel::kLamps) {
+        const std::vector<std::uint32_t> f = lampshare::LitFlags(l.aab, l.n);
+        bool lit7 = false, lit10 = true;
+        if (progress::ReadFlag(f[2], &lit7) && lit7 && progress::ReadFlag(f[0], &lit10) && !lit10 &&
+            progress::WriteFlagVisible(f[0], true)) {
+            progress::WriteFlagVisible(f[1], true);
+            shown += " " + std::to_string(lamptravel::ReturnPoint(l));
+        }
+    }
+    if (!shown.empty()) {
+        Log("lamps: the host's lit lamps shown lit here too (lamp-lit flag set, headstone flags were not): lamps%s",
+            shown.c_str());
     }
     if (written > 0) {
         Log("lamps: %d flag(s) of the host's lit lamps written into the own save (shared lamps; lamps%s)", written,

@@ -79,3 +79,20 @@ report: ask for `BB_PARTY_AI_LOG=1` and `BB_PARTY_TARGET_ANIM=1` logs of both ga
   index of 2400421, 2400899, 2400422, 2400203 keeps advancing, manipulator Com).
 * Hand back is not exercised live: when the host reaches the guest's area the B2 re-join loads the older
   world (fresh chrs); the unit test covers the take / keep / hand-back steps.
+
+## Late guest in a boss fight (smoke phase hg, 0.7.6, player reports "the boss only fights the host")
+
+Not reproduced on loopback, and a player's host log (Nightwatch 0.2.4-beta.1) shows the same. Phase `hg`
+(group `boss_late`, 2 players, Gascoigne, `BB_PARTY_TARGET_ANIM` / `BB_PARTY_AI_LOG`):
+
+* The host owns the boss's AI on both orders (host game: manip Com, owner table 1; guest game: NetAI, owner table 0).
+* Host walks in first, the guest 12 s later (and 0 s later, during the intro): the guest's fog walk reaches the host
+  ("boss fog: slot 1 went in"), the guest's R1 hits take the boss's HP down identically on both games (3555 -> 1130),
+  Gascoigne's phase 2 (anims 1000000+, the beast) fires on both games at ~55 % and the boss is killed.
+* Boss target: with the host passive 16 m away and the guest beside the boss, the boss stays at the guest (host-first
+  and guest-first alike); with the host beside the boss and the guest 12 m away it stays at the host: it takes
+  the nearest player, both are in its target list. Mirror cases of the two reports.
+* The host log of the report: both Gascoigne attempts have the guest's hits (boss HP keeps falling after the host's
+  death, "boss targets the living member (ChangeTarget ok)"), the host died at 53 % both times (the phase-2 start)
+  and the second attempt ended with the guest killing the boss 103.8 s after the host's death.
+* `BB_HG_ORDER=guest` (guest goes in first), `BB_HG_DELAY`, `BB_HG_HP`, `BB_HG_HOSTDIST` vary the phase.
