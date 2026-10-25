@@ -212,6 +212,21 @@ namespace BloodborneLauncher.Core
                 Secret.Protect(value) is { Length: > 0 } encrypted ? encrypted : value);
         }
 
+        /// <summary>The password last used to join a host, by its code or address as joined (encrypted like
+        /// PartyPassword, which stays the hosting password).</summary>
+        public string JoinPassword(string host) =>
+            Map("party_join_passwords").TryGetValue(host.Trim(), out var p) ? Secret.Unprotect(p) : "";
+
+        public void SetJoinPassword(string host, string value)
+        {
+            var key = host.Trim();
+            if (key.Length == 0) return;
+            var map = Map("party_join_passwords");
+            if (value.Length == 0) map.Remove(key);
+            else map[key] = Secret.Protect(value) is { Length: > 0 } encrypted ? encrypted : value;
+            SetMap("party_join_passwords", map);
+        }
+
         public string Str(string key)
         {
             var node = _data[key];

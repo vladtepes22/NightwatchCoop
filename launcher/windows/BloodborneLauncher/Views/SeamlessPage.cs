@@ -48,22 +48,18 @@ public sealed class SeamlessPage : LauncherPage
             out _partiesHint), found);
         _partyList = new StackPanel();
         found.Children.Add(_partyList);
-        // Joining by hand, folded under the list: it opens only when the player opens it, or at the password when
-        // Join is pressed on a listed party with the password still empty. The password and party size are the same settings as the host's rows below.
+        // Joining by hand, folded under the list. Its password is the one remembered for the code or address typed
+        // here (Join in the list asks for it); the party size is the same setting as the host's row below.
         _manual = new AdvancedSection(L.T("Join by code or address"), L.T("For a party that is not listed: paste the host's code or address."));
         Rows(Joining).Children.Add(_manual);
         _codeBox = TextRow(SymbolRegular.Link24, L.T("Host code or address"), L.T("Paste the host's Internet code, LAN code or host:port."), "BBP3-…",
-            () => S.Str("party_code"), v => S.Set("party_code", v), _manual.Rows);
-        _joinPassword = PasswordRow(_manual.Rows, out _joinPasswordHint);
-        _joinPassword.KeyDown += async (_, e) => {
-            if (e.Key != System.Windows.Input.Key.Enter || !_passwordWait || S.PartyPassword.Trim().Length == 0 || Ws.Game.Running) return;
-            _passwordWait = false;
-            SetHint(_joinPasswordHint, "");
-            await MainWindow.Instance!.PlayOrStopAsync();
-        };
+            () => S.Str("party_code"), v => { S.Set("party_code", v); SyncSharedRows(); }, _manual.Rows);
+        _joinPassword = PasswordRow(_manual.Rows, () => S.JoinPassword(S.Str("party_code")), v => S.SetJoinPassword(S.Str("party_code"), v),
+            L.T("The host's party password. Remembered for this code or address, encrypted for your Windows user."));
         _joinSize = PartySizeRow(_manual.Rows, L.T("Must be the host's party size. Join in the list above sets it."));
         party = Rows(Hosting);
-        _hostPassword = PasswordRow(party, out _);
+        _hostPassword = PasswordRow(party, () => S.PartyPassword, v => S.PartyPassword = v,
+            L.T("Use the same password on every PC. Stored encrypted for your Windows user."));
         _hostSize = PartySizeRow(party, L.T("Host and guests use the same limit. Five players is experimental."));
 
         _byMode.Add((Group(L.T("Connection")), InParty));
@@ -274,19 +270,17 @@ public sealed class SeamlessPage : LauncherPage
     private Wpf.Ui.Controls.TextBox _codeBox = null!;
     private AdvancedSection _manual = null!;
     private PasswordBox _joinPassword = null!, _hostPassword = null!;
-    private TextBlock _joinPasswordHint = null!;
     private System.Windows.Controls.ComboBox _joinSize = null!, _hostSize = null!;
     private string _partySignature = "\0";
     private string _joinNote = "";  // the list's status line after Join: "Restart the game to join ..."
-    private bool _passwordWait;     // Join was pressed with the password empty: Enter in it starts the game
     private long _listenSinceMs;
     private const int ListenGraceMs = 4000;  // a host announces every 1.5 s: an empty list before this is not yet news
 
-    private PasswordBox PasswordRow(Panel into, out TextBlock hint)
+    private PasswordBox PasswordRow(Panel into, Func<string> get, Action<string> set, string hint)
     {
-        var box = new PasswordBox { Width = 300, Password = S.PartyPassword, PlaceholderText = L.T("Party password"), PlaceholderEnabled = true };
-        box.PasswordChanged += (_, _) => { S.PartyPassword = box.Password; Ws.SaveSoon(); };
-        Add(Card(SymbolRegular.Password24, L.T("Password"), L.T("Use the same password on every PC. Stored encrypted for your Windows user."), box, out hint), into);
+        var box = new PasswordBox { Width = 300, Password = get(), PlaceholderText = L.T("Party password"), PlaceholderEnabled = true };
+        box.PasswordChanged += (_, _) => { if (box.Password != get()) { set(box.Password); Ws.SaveSoon(); } };
+        Add(Card(SymbolRegular.Password24, L.T("Password"), hint, box, out _), into);
         return box;
     }
 
@@ -297,37 +291,45 @@ public sealed class SeamlessPage : LauncherPage
         new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice(L.T("5 (experimental)"), "5") };
     private static string PartySize() => S.Str("party_max") is { Length: > 0 } n ? n : "3";
 
-    /// <summary>The password and party size each have a Host row and a Join row: show the stored value in both.</summary>
+    /// <summary>The password and party size each have a Host row and a Join row: show the stored values (the Join
+    /// row's password is the one remembered for the code or address typed there).</summary>
     private void SyncSharedRows()
     {
-        foreach (var box in new[] { _joinPassword, _hostPassword })
-            if (box.Password != S.PartyPassword) box.Password = S.PartyPassword;
+        foreach (var (box, password) in new[] { (_joinPassword, S.JoinPassword(S.Str("party_code"))), (_hostPassword, S.PartyPassword) })
+            if (box.Password != password) box.Password = password;
         var index = Choices.IndexOf(PartySizes(), PartySize());
         foreach (var box in new[] { _joinSize, _hostSize })
             if (box.SelectedIndex != index) box.SelectedIndex = index;
     }
 
-    /// <summary>Join in the list: the host's address and party size, then the game starts as Play starts it. With the
-    /// password still empty the fold opens at it (Join again or Enter starts); a running game is never stopped.</summary>
+    /// <summary>Join in the list: asks for the host's password (filled with the one last used for that host), then
+    /// sets the host's address and party size and starts the game as Play starts it. A running game is never stopped.</summary>
     private async void JoinParty(FoundParty party)
     {
-        _codeBox.Text = party.Address;  // saved by the row
-        if (PartyDiscovery.PartySize(party.Info.Max) is { } size) { S.Set("party_max", size); Ws.SaveSoon(); }
-        SyncSharedRows();
         _joinNote = "";
-        _passwordWait = false;
-        SetHint(_joinPasswordHint, "");
-        if (Ws.Game.Running) _joinNote = L.T("Restart the game to join ") + party.Info.Name + ".";
-        else if (S.PartyPassword.Trim().Length == 0)
+        if (Ws.Game.Running)
         {
-            _passwordWait = true;
-            SetHint(_joinPasswordHint, L.T("Type the host's party password, then press Join again or Enter."));
-            _manual.IsOpen = true;
-            _joinPassword.Focus();
+            _joinNote = L.T("Restart the game to join ") + party.Info.Name + ".";
+            _partySignature = "\0";
+            RefreshParties();
+            return;
         }
+        var password = Prompt.Secret(L.T("Join ") + party.Info.Name, L.T("Type the host's party password."),
+            new Prompt.Field(L.T("Password"), S.JoinPassword(party.Address), L.T("Party password")), L.T("Join"));
+        if (password == null) return;
+        if (password.Trim().Length == 0)
+        {
+            Prompt.Tell(L.T("No password"), L.T("Every party has a password: ask the host for it."));
+            return;
+        }
+        S.SetJoinPassword(party.Address, password);
+        _codeBox.Text = party.Address;  // saved by the row
+        if (PartyDiscovery.PartySize(party.Info.Max) is { } size) S.Set("party_max", size);
+        Ws.SaveSoon();
+        SyncSharedRows();
         _partySignature = "\0";
         RefreshParties();
-        if (!Ws.Game.Running && !_passwordWait) await MainWindow.Instance!.PlayOrStopAsync();
+        await MainWindow.Instance!.PlayOrStopAsync();
     }
 
     /// <summary>The networks the list hears parties on, for the list's status line.</summary>

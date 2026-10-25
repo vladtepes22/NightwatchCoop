@@ -155,8 +155,9 @@ public static partial class SeamlessSettings
         if (!Enabled(s)) return null;
         if (!Regex.IsMatch(Name(s), "^[A-Za-z0-9_-]{1,16}$"))
             return L.T("Party name must contain 1–16 letters, numbers, underscores or hyphens.");
-        if (s.PartyPassword.Trim().Length == 0)
-            return L.T("Set a party password first: the host and every guest use the same one.");
+        if (Password(s).Trim().Length == 0)
+            return s.Str("party_mode") == "join" ? L.T("Enter the host's party password before joining.")
+                                                 : L.T("Set a party password first: the host and every guest use the same one.");
         if (s.Str("party_port").Length > 0 &&
             (!int.TryParse(s.Str("party_port"), out var port) || port is < 1 or > 65535))
             return L.T("Party port must be between 1 and 65535.");
@@ -168,6 +169,10 @@ public static partial class SeamlessSettings
         return null;
     }
 
+    /// <summary>The password the game gets: a guest's is the one remembered for the host it joins.</summary>
+    public static string Password(LauncherSettings s) =>
+        s.Str("party_mode") == "join" ? s.JoinPassword(s.Str("party_code")) : s.PartyPassword;
+
     public static void Apply(LauncherSettings s, Dictionary<string, string> env)
     {
         env["BB_PARTY"] = Enabled(s) ? s.Str("party_mode") : "off";
@@ -178,7 +183,7 @@ public static partial class SeamlessSettings
         env["BB_PARTY_NAME"] = Name(s);
         env["BB_PARTY_PORT"] = s.Str("party_port") is { Length: > 0 } port ? port : "9307";
         env["BB_PARTY_CODE"] = s.Str("party_code").Trim();
-        env["BB_PARTY_PASSWORD"] = s.PartyPassword;
+        env["BB_PARTY_PASSWORD"] = Password(s);
         env["BB_PARTY_MAX"] = s.Str("party_max") is "2" or "3" or "4" or "5" ? s.Str("party_max") : "3";
         env["BB_PARTY_UPNP"] = Flag(s, "party_upnp") ? "1" : "0";
         env["BB_PARTY_STUN"] = s.Str("party_stun");

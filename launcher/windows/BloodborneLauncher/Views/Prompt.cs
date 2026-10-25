@@ -8,6 +8,7 @@ using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using Wpf.Ui.Controls;
 using Button = Wpf.Ui.Controls.Button;
+using PasswordBox = Wpf.Ui.Controls.PasswordBox;
 using TextBlock = System.Windows.Controls.TextBlock;
 using TextBox = Wpf.Ui.Controls.TextBox;
 
@@ -16,7 +17,7 @@ namespace BloodborneLauncher.Views
     /// <summary>A small modal dialog in the launcher's style: a title, text, optional fields, and two buttons.</summary>
     public sealed class Prompt : Window
     {
-        public sealed record Field(string Label, string Value = "", string Placeholder = "", bool Multiline = false);
+        public sealed record Field(string Label, string Value = "", string Placeholder = "", bool Multiline = false, bool Secret = false);
 
         private readonly List<TextBox> _boxes = new();
 
@@ -61,11 +62,10 @@ namespace BloodborneLauncher.Views
                 var label = LauncherPage.Text(field.Label, "StatLabel");
                 label.Margin = new Thickness(0, 12, 0, 4);
                 stack.Children.Add(label);
-                var box = new TextBox
+                // A secret is masked (WPF-UI's PasswordBox is one of its TextBoxes; its value is Password).
+                TextBox box = field.Secret ? new PasswordBox { Password = field.Value } : new TextBox
                 {
                     Text = field.Value,
-                    PlaceholderText = field.Placeholder,
-                    PlaceholderEnabled = true,
                     AcceptsReturn = field.Multiline,
                     TextWrapping = field.Multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
                     MinHeight = field.Multiline ? 70 : 0,
@@ -74,6 +74,8 @@ namespace BloodborneLauncher.Views
                     MaxHeight = field.Multiline ? 160 : double.PositiveInfinity,
                     VerticalScrollBarVisibility = field.Multiline ? ScrollBarVisibility.Auto : ScrollBarVisibility.Hidden,
                 };
+                box.PlaceholderText = field.Placeholder;
+                box.PlaceholderEnabled = true;
                 _boxes.Add(box);
                 stack.Children.Add(box);
             }
@@ -213,8 +215,17 @@ namespace BloodborneLauncher.Views
         public static string[]? Ask(string title, string? message, params Field[] fields)
         {
             var dialog = new Prompt(title, message, fields, L.T("OK"), showCancel: true);
-            return dialog.ShowDialog() == true ? dialog._boxes.Select(b => b.Text).ToArray() : null;
+            return dialog.ShowDialog() == true ? dialog.Values() : null;
         }
+
+        /// <summary>One masked field with its own action button: the value, or null if cancelled.</summary>
+        public static string? Secret(string title, string? message, Field field, string ok)
+        {
+            var dialog = new Prompt(title, message, new[] { field with { Secret = true } }, ok, showCancel: true);
+            return dialog.ShowDialog() == true ? dialog.Values()[0] : null;
+        }
+
+        private string[] Values() => _boxes.Select(b => b is PasswordBox p ? p.Password : b.Text).ToArray();
 
         public static bool Confirm(string title, string message, string ok) =>
             new Prompt(title, message, Array.Empty<Field>(), ok, showCancel: true).ShowDialog() == true;

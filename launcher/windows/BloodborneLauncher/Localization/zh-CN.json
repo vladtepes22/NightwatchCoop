@@ -1995,8 +1995,7 @@
   "The party code or address contains invalid characters.": "队伍代码或地址含有无效字符。",
   "Start hosting to generate your party codes.": "开始作为房主即可生成你的队伍代码。",
   "Party codes are being updated.": "队伍代码正在更新。",
-  "Remove member": "移除队员"
-,
+  "Remove member": "移除队员",
   "Get up without a loading screen": "无需读取画面即可起身",
   "Your own party settings: your screen, what you get as a guest, story sync (in the game: System > My party).": "你自己的联机设置：你的画面、作为访客获得的内容、剧情同步（游戏内：系统 > 我的队伍）。",
   "Ping in the party list": "队伍列表中显示延迟",
@@ -2006,18 +2005,15 @@
   "If a death or forced trip takes a guest out of the host's dungeon, the guest is summoned back. Leaving by choice: use Rejoin. The host's rule.": "如果死亡或被迫传送使访客离开房主的地下城，访客会被重新召唤回来。主动离开请使用“重新加入”。房主规则。",
   "A guest in the host's world watches cutscenes with the host; off lets the guest watch them later in their own world. The host's rule: guests follow it.": "访客在房主的世界中与房主一同观看过场动画；关闭则让访客稍后在自己的世界中观看。房主规则：访客遵循。",
   "A guest who dies gets up at the host's lamp right away, with no loading screen (after a fall: the respawn load). Off: every death takes the respawn loading screen. The host's rule: guests follow it.": "死亡的访客会立即在房主的提灯处起身，没有读取画面（坠落后：重生读取）。关闭：每次死亡都会出现重生读取画面。房主规则：访客遵循。",
-  "Each new character normally completes its own prologue first; Right away starts the party at once. The host's rule, read at game start: a guest must have the same value, or the host refuses the join.": "新角色通常先完成自己的序章；“立即开始”则让联机马上开始。房主规则，游戏启动时读取：访客必须使用相同的值，否则房主会拒绝其加入。"
-,
+  "Each new character normally completes its own prologue first; Right away starts the party at once. The host's rule, read at game start: a guest must have the same value, or the host refuses the join.": "新角色通常先完成自己的序章；“立即开始”则让联机马上开始。房主规则，游戏启动时读取：访客必须使用相同的值，否则房主会拒绝其加入。",
   "Level sync": "等级同步",
   "Phantom health cut": "幻影生命值削减",
   "Skip the prologue (new characters)": "跳过序章（新角色）",
   "As in the game's own co-op: a hunter whose level is above the host's range is scaled down while it plays in the host's world (less maximum health and stamina, less defence and resistance) and gets a blue icon by its name. Anyone can still join at any level. Off: everyone keeps full stats. The host's rule: guests follow it.": "与游戏自带的联机一致：等级高于房主范围的猎人在房主的世界中会被削弱（最大生命值和耐力降低，防御和抗性降低），名字旁会显示蓝色图标。任何等级的玩家仍可加入。关闭：所有人保持完整属性。房主规则：访客遵循。",
   "As in the game's own co-op: hunters who join a party have 30 % less maximum health. Off: full maximum health for everyone. The host's rule: guests follow it.": "与游戏自带的联机一致：加入队伍的猎人最大生命值减少 30 %。关闭：所有人保持完整的最大生命值。房主规则：访客遵循。",
-  "A new character (one that has not finished the prologue) skips the clinic and the first dream visit: the prologue's story flags are set, the starting weapons are given and the hunter appears at the first lamp in the city, ready for the party. Characters past the prologue are never touched. Off: the prologue is played as in the game. The host's rule, read when the character starts.": "新角色（尚未完成序章的角色）会跳过诊所和第一次梦境之行：序章的剧情标记会被设置，发放初始武器，猎人会出现在城中的第一盏提灯处，为联机做好准备。已经过了序章的角色不受影响。关闭：按游戏原样进行序章。房主规则，在角色开始时读取。"
-,
+  "A new character (one that has not finished the prologue) skips the clinic and the first dream visit: the prologue's story flags are set, the starting weapons are given and the hunter appears at the first lamp in the city, ready for the party. Characters past the prologue are never touched. Off: the prologue is played as in the game. The host's rule, read when the character starts.": "新角色（尚未完成序章的角色）会跳过诊所和第一次梦境之行：序章的剧情标记会被设置，发放初始武器，猎人会出现在城中的第一盏提灯处，为联机做好准备。已经过了序章的角色不受影响。关闭：按游戏原样进行序章。房主规则，在角色开始时读取。",
   "Key items for every player": "每位玩家都获得关键物品",
-  "Key items and unique items the host picks up or is given (a key, a badge, a gift that exists only once) are given to each guest too, once, in their own world. Ordinary pickups such as vials, bullets and materials are not copied. Takes effect on the next game start.": "房主拾取或获得的关键物品和独特物品（钥匙、徽章、仅有一件的礼物）也会在各访客自己的世界中发放一次。血瓶、子弹、素材等普通拾取物不会被复制。下次启动游戏时生效。"
-,
+  "Key items and unique items the host picks up or is given (a key, a badge, a gift that exists only once) are given to each guest too, once, in their own world. Ordinary pickups such as vials, bullets and materials are not copied. Takes effect on the next game start.": "房主拾取或获得的关键物品和独特物品（钥匙、徽章、仅有一件的礼物）也会在各访客自己的世界中发放一次。血瓶、子弹、素材等普通拾取物不会被复制。下次启动游戏时生效。",
   "Your connection": "你的连接",
   "How the party reaches you: your VPN (Radmin VPN, Hamachi, ZeroTier, Tailscale) when one is found, else your local network. Friends on the same VPN or network can join with the address shown here. It is only shown on this screen.": "队伍如何连接到你：找到 VPN（Radmin VPN、Hamachi、ZeroTier、Tailscale）时使用 VPN，否则使用本地网络。处于同一 VPN 或网络的朋友可使用此处显示的地址加入。该地址只在此界面显示。",
   "Show my party to friends": "向朋友显示我的队伍",
@@ -2061,9 +2057,14 @@
   "Restart the game to join ": "重启游戏以加入 ",
   "Set a party password first: the host and every guest use the same one.": "请先设置队伍密码：房主和每位访客使用同一个密码。",
   "Took the host's start-up rules: restarting the game to join.": "已采用房主的启动规则：正在重启游戏以加入。",
-  "Type the host's party password, then press Join again or Enter.": "输入房主的队伍密码，然后再按一次“加入”或按 Enter。",
   "VPN": "VPN",
   "VPN: ": "VPN：",
   "Windows Firewall allows Nightwatch Co-op on Public networks too (VPN adapters often count as Public)": "Windows 防火墙也允许 Nightwatch Co-op 使用公用网络（VPN 适配器通常算作公用网络）",
-  "local network": "本地网络"
+  "local network": "本地网络",
+  "The host's party password. Remembered for this code or address, encrypted for your Windows user.": "房主的队伍密码。会针对此代码或地址记住，并为你的 Windows 用户加密保存。",
+  "Join ": "加入 ",
+  "Type the host's party password.": "输入房主的队伍密码。",
+  "No password": "没有密码",
+  "Every party has a password: ask the host for it.": "每个队伍都有密码：请向房主索取。",
+  "Enter the host's party password before joining.": "加入前请输入房主的队伍密码。"
 }
