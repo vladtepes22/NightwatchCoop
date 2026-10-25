@@ -543,3 +543,28 @@ died was sent to the Hunter's Dream and could not get back in until the host res
   BlockClear2 (0x13849A0) returns at once on a summoned guest within 15 s of its arrival
   (`deathrules::StaleBossClear`; a guest never arrives into a running boss fight), log `boss clear of boss N
   skipped on this guest`; it did not need to fire in cl9.
+
+## 9. A guest's echoes and the party's respawn in the host's dungeon (chaliceechoes, 0.7.6)
+
+Two reports (flagless logs, 2026-10-24): a guest's Blood Echoes lost in the host's dungeon, and the dead
+guest staying dead until the host went back to the Dream.
+
+- **The party stain knows its dungeon.** `gueststain::Stain.dungeon` is the game's current ChannelId
+  (FrpgNetMan +0xa88: a summoned guest's is the host's, `chalice::CurrentDungeon`) when the guest dies in a
+  dungeon map; party_stain.txt keeps it as a `#<id>` token after the echoes. `gueststain::InMap` (area 29)
+  matches the area and the dungeon id, not the block: the same ChannelId is the same layout, so the spot is
+  valid in every visit of the party to that dungeon. Until then the stain waits (`Fate::Keep`); the next death
+  of the guest replaces it (the vanilla rule for a lost stain: the guest's own death elsewhere, not a party
+  flow). A stain from before 0.7.6 (area 29, no id) cannot be placed: it is paid back at once
+  (`Fate::Refund`, log `given back`). Both the walk onto it and the enemy hold (echodup / echohold) work
+  as in the normal world (`GuestStainTick`).
+- **A host travel inside the dungeon the guest stands in is followed.** `GuestDungeon()` (party_travel.cpp)
+  is the game's current dungeon while the guest's map is area 29 (the host's when summoned in), else its own
+  slot's. The respawn after a wipe (`host_death` to a dungeon lamp) used to be "not followed: this game has
+  <own slot>", so a guest dead in a boss fight's limbo waited for the host's Dream trip. The replay is a B2
+  re-join whose K11 step sets load mode 0 and 1 again; `chalice::KeepDungeonCarry` keeps the carried
+  quick-join record through it (else the map load read the guest's own slot and built the guest's own dungeon
+  under the host's lamp: clw run 2). Smoke: `chalice_guest` (clg: fall death, party stain, walk onto it),
+  `chalice_wipe` (clw: guest down, host down, the respawn load into the host's dungeon).
+- A death in a boss fight stays the ERSC rule (limbo, spectating, until the boss is gone, a wipe or a rest;
+  ERSC_PARITY C5): not changed.

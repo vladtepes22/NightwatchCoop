@@ -125,7 +125,32 @@ static void TestStain() {
     CHECK(!InMap(s, 0xffffffffu));
     Stain c = s;
     c.map = 0x1d000000;
-    CHECK(!InMap(c, 0x1d000000));         // Chalice Dungeons: not ours
+    CHECK(!InMap(c, 0x1d000000));         // a Chalice stain with no dungeon id: matches nothing
+    CHECK(!InMap(c, 0x1d000000, 99));
+    // 0.7.6: a Chalice stain is recoverable in the dungeon it lies in (ChannelId), and only there.
+    c.dungeon = 1400726657961348ull;
+    CHECK(InMap(c, 0x1d000000, 1400726657961348ull));
+    CHECK(InMap(c, 0x1d145a00, 1400726657961348ull));   // any piece of the same dungeon (same map block)
+    CHECK(!InMap(c, 0x1d000000, 1400726657961349ull));  // another dungeon
+    CHECK(!InMap(c, 0x1d000000, 0));                    // unknown dungeon
+    CHECK(!InMap(c, 0x18010000, 1400726657961348ull));  // not a dungeon map
+    CHECK(FateOf(c, 0x1d000000, 1400726657961348ull) == Fate::Show);
+    CHECK(FateOf(c, 0x15000000, 0) == Fate::Keep);       // in the Dream: it waits
+    CHECK(FateOf(c, 0x1d000000, 5) == Fate::Keep);       // in another dungeon: it waits
+    Stain old = c;
+    old.dungeon = 0;
+    CHECK(FateOf(old, 0x15000000, 0) == Fate::Refund);   // from before 0.7.6: given back, never lost silently
+    CHECK(FateOf(s, 0x15000000, 0) == Fate::Keep);       // a normal-world stain elsewhere: kept
+    CHECK(FateOf(s, 0x18010000, 0) == Fate::Show);
+    {
+        const std::string cl = Format(c) + " 00ff10";
+        Stain r2;
+        std::string rest2;
+        CHECK(Parse(cl, &r2, &rest2) && r2.dungeon == 1400726657961348ull && rest2 == "00ff10");
+        CHECK(Parse(Format(c), &r2, &rest2) && r2.dungeon == c.dungeon && rest2.empty());
+        CHECK(Parse(Format(s), &r2, &rest2) && r2.dungeon == 0);   // no token: 0
+        CHECK(Parse("2 486539264 1 2 3 5 d0ff10", &r2, &rest2) && r2.dungeon == 0 && rest2 == "d0ff10");  // old line + hex
+    }
     c = s;
     c.echoes = 0;
     CHECK(!InMap(c, 0x18010000));

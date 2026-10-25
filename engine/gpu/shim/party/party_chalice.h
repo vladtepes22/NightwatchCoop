@@ -52,6 +52,12 @@ constexpr std::uint32_t BitsForSlot(int slot) {
 constexpr std::uint32_t InDungeonSlotBits(std::uint32_t own, int joined) {
     return joined >= 0 && joined < kSlots && SlotFromBits(own) != joined ? BitsForSlot(joined) : own;
 }
+/// The dungeon the local member is in, for decisions about the party's dungeon: inside a dungeon map
+/// the game's current ChannelId (`game_current`: the host's when summoned in), else the own slot's
+/// (`local`). 0 unknown.
+constexpr std::uint64_t DungeonHere(bool in_dungeon_map, std::uint64_t game_current, std::uint64_t local) {
+    return in_dungeon_map && game_current != 0 ? game_current : local;
+}
 /// The ChannelId of two dwords; 0 when it is the game's "none" (top bit set) or 0.
 constexpr std::uint64_t ChannelFromDwords(std::uint32_t lo, std::uint32_t hi) {
     return (hi & 0x80000000u) ? 0 : (static_cast<std::uint64_t>(hi) << 32 | lo);
@@ -113,6 +119,14 @@ void SetHostName(const std::string& name);
 /// The dungeon the local game has in its current slot while it is in its own world (load mode
 /// 0); 0 when none or unknown. Any thread (the last Tick's value).
 std::uint64_t LocalChannel();
+/// The ChannelId the game itself has as "the dungeon I am in" (FrpgNetMan +0xa88): in a dungeon map
+/// a summoned member's is the host's (InDungeonSlotHook), at home its own slot's. Only meaningful
+/// while the map is a Chalice Dungeon (elsewhere the game leaves the last load's value). 0 none.
+std::uint64_t CurrentDungeon();
+/// A B2 re-join of a guest inside the host's dungeon is about to set load mode 0 and 1 again (the flag
+/// snapshot's K11 step): the carried dungeon stays and is carried into the next load mode 1 (60 s).
+/// No-op when no dungeon is carried.
+void KeepDungeonCarry();
 #endif
 
 } // namespace coop::chalice

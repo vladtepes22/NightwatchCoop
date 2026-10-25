@@ -137,13 +137,38 @@ struct Stain {
     std::uint32_t map = 0;   ///< packed map 0xAABB0000
     float pos[3] = {0, 0, 0};
     int echoes = 0;
+    /// A Chalice Dungeon stain (map area 29): the ChannelId of the dungeon it lies in (the layout is
+    /// generated from it, so the same id is the same dungeon); 0 unknown (a file from before 0.7.6).
+    std::uint64_t dungeon = 0;
 };
 
-/// The stain counts in this map: live, with echoes, the same map (block), not a Chalice Dungeon
-/// (area 29: the layout is per dungeon, the game drops such a stain on its own).
-inline bool InMap(const Stain& s, std::uint32_t map) {
-    return s.live && s.echoes > 0 && (s.map & 0xffff0000u) == (map & 0xffff0000u) && (map >> 24) != 29 &&
-           map != 0xffffffffu;
+/// The stain counts in this map: live, with echoes, the same map (block). A Chalice Dungeon stain
+/// (area 29) only in the same dungeon (`dungeon`, the game's current ChannelId there; 0 unknown
+/// never matches): another dungeon has another layout, so the spot means nothing there.
+inline bool InMap(const Stain& s, std::uint32_t map, std::uint64_t dungeon = 0) {
+    if (!s.live || s.echoes <= 0 || map == 0xffffffffu) {
+        return false;
+    }
+    if ((map >> 24) != 29) {
+        return (s.map & 0xffff0000u) == (map & 0xffff0000u);
+    }
+    // A dungeon's pieces are blocks of one layout: the area and the dungeon id decide, not the block.
+    return (s.map >> 24) == 29 && s.dungeon != 0 && s.dungeon == dungeon;
+}
+
+/// What the guest does with its party stain in the world it is in (`map`, `dungeon` as for InMap).
+///  Show:   it lies here (recoverable by walking onto it).
+///  Keep:   it lies elsewhere (another map, or another / no dungeon): kept as it is. A Chalice
+///          stain waits for its own dungeon (the party back in that id); a death of the guest in
+///          another place replaces it, the vanilla rule for a lost stain.
+///  Refund: a Chalice stain from before 0.7.6 (no dungeon id: the spot cannot be matched to any
+///          dungeon) is paid back at once instead of being lost silently.
+enum class Fate : std::uint8_t { Show, Keep, Refund };
+inline Fate FateOf(const Stain& s, std::uint32_t map, std::uint64_t dungeon) {
+    if (s.live && s.echoes > 0 && (s.map >> 24) == 29 && s.dungeon == 0) {
+        return Fate::Refund;
+    }
+    return InMap(s, map, dungeon) ? Fate::Show : Fate::Keep;
 }
 
 inline float Horizontal(const float a[3], const float b[3]) {
@@ -163,13 +188,17 @@ inline bool Arms(const float me[3], const float at[3]) {
 
 /// One line per stain: "slot map x y z echoes" (party_stain.txt; one stain per character).
 inline std::string Format(const Stain& s) {
-    char b[128];
+    char b[160];
     std::snprintf(b, sizeof b, "%d %u %.3f %.3f %.3f %d", s.slot, unsigned(s.map), double(s.pos[0]), double(s.pos[1]),
                   double(s.pos[2]), s.echoes);
-    return b;
+    std::string out = b;
+    if (s.dungeon) {
+        out += " #" + std::to_string(static_cast<unsigned long long>(s.dungeon));  // '#': hex bytes may start with any letter
+    }
+    return out;
 }
 
-/// `rest`: what follows the six fields (the game's raw record, hex), trimmed.
+/// `rest`: what follows the six fields (and the "#dungeon" token): the game's raw record, hex, trimmed.
 inline bool Parse(const std::string& line, Stain* out, std::string* rest = nullptr) {
     Stain s;
     unsigned map = 0;
@@ -178,14 +207,27 @@ inline bool Parse(const std::string& line, Stain* out, std::string* rest = nullp
     if (std::sscanf(line.c_str(), "%d %u %lf %lf %lf %d%n", &s.slot, &map, &x, &y, &z, &s.echoes, &used) != 6) {
         return false;
     }
-    if (rest) {
-        std::size_t a = std::size_t(used), b = line.size();
+    std::size_t a = std::size_t(used), b = line.size();
+    while (a < b && static_cast<unsigned char>(line[a]) <= ' ') {
+        ++a;
+    }
+    while (b > a && static_cast<unsigned char>(line[b - 1]) <= ' ') {
+        --b;
+    }
+    if (a < b && line[a] == '#') {
+        std::size_t e = a + 1;
+        unsigned long long d = 0;
+        while (e < b && line[e] >= '0' && line[e] <= '9') {
+            d = d * 10 + static_cast<unsigned>(line[e] - '0');
+            ++e;
+        }
+        s.dungeon = d;
+        a = e;
         while (a < b && static_cast<unsigned char>(line[a]) <= ' ') {
             ++a;
         }
-        while (b > a && static_cast<unsigned char>(line[b - 1]) <= ' ') {
-            --b;
-        }
+    }
+    if (rest) {
         *rest = line.substr(a, b - a);
     }
     if (s.slot < 0 || s.slot > 99 || s.echoes <= 0 || s.echoes > 999999999 || !std::isfinite(x) || !std::isfinite(y) ||

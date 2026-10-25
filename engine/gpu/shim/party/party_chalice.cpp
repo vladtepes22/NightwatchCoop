@@ -60,6 +60,7 @@ bool GoodsFromJsonText(const std::string& text, std::vector<std::uint32_t>* out,
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <cstring>
 #include <mutex>
 
 namespace coop::chalice {
@@ -265,39 +266,73 @@ BB_COOP_SYSV void CancelStepProbe(u64 helper, u64, u64, u64, u64, u64) {
 // save (live: its own slot-1 dungeon replaced by the host's after a summoned save), so only the
 // quick-joined slot's own record is written.
 
+// 0.7.6 (chaliceechoes): a B2 re-join of a guest that already stands in the host's dungeon (the respawn
+// after a wipe in it, a lamp warp between its lamps) goes through the flag snapshot's K11 step, which sets
+// load mode 0 and later mode 1 again. That is not a trip home: the carried dungeon survives it
+// (KeepDungeonCarry), and the next mode-1 carry re-writes the cached record, else the load read the
+// guest's own slot and built another dungeon (smoke clw: the own Hintertomb layout under the host's).
+namespace {
+std::atomic<double> g_keep_at{0};            // KeepDungeonCarry(): when; 0 none
+std::uint32_t g_rec_cache[kRecordBits / 32]; // the last carried record (game thread only)
+int g_rec_from = -1;
+bool KeepActive() {
+    const double at = g_keep_at.load();
+    return at > 0 && Seconds() - at < 60.0 && g_carried.load() != 0 && g_rec_from >= 0;
+}
+} // namespace
+
+void KeepDungeonCarry() {
+    if (g_carried.load() != 0 && g_rec_from >= 0) {
+        g_keep_at.store(Seconds());
+    }
+}
+
 BB_COOP_SYSV void SetLoadModeHook(u64 man, u64 mode) {
     using Fn = void(BB_COOP_SYSV*)(u64, u64);
     std::int32_t cur = -1;
     const double joined = g_quick_join_at.load();
+    const bool keep = KeepActive();
     const bool carry = static_cast<std::uint32_t>(mode) == 1 && man && SafeGet(man + kLoadModeOff, &cur) && cur == 0 &&
-                       joined > 0 && Seconds() - joined < 180;
+                       ((joined > 0 && Seconds() - joined < 180) || keep);
     std::uint32_t rec[kRecordBits / 32] = {};
     int slot = -1, from = -1;
     if (carry) {
         const FlagGet get = reinterpret_cast<FlagGet>(Guest(0x13cfd80));
         slot = SlotFromBits(get(man, kSlotFlag, kSlots));
-        from = JoinedSlot(man);
-        if (from < 0) from = slot;
-        if (from >= 0) {
-            for (std::uint32_t i = 0; i < kRecordBits / 32; ++i) rec[i] = get(man, RecordBase(from) + 32 * i, 32);
+        if (keep) {
+            from = g_rec_from;
+            std::memcpy(rec, g_rec_cache, sizeof rec);
+        } else {
+            from = JoinedSlot(man);
+            if (from < 0) from = slot;
+            if (from >= 0) {
+                for (std::uint32_t i = 0; i < kRecordBits / 32; ++i) rec[i] = get(man, RecordBase(from) + 32 * i, 32);
+            }
         }
     }
     if (static_cast<std::uint32_t>(mode) == 0) {
-        // An own-world load: a quick join that never reached load mode 1 (a failed join) no longer
-        // redirects the map load (the member's own dungeon within the 180 s would load the host's).
-        if (joined > 0 && JoinedSlot(man) >= 0) {
-            std::printf("[coop] Party: chalice: load mode 0: the quick join of %.0f s ago never loaded; its slot no longer read\n",
-                        Seconds() - joined);
+        if (keep) {
+            std::printf("[coop] Party: chalice: load mode 0 inside a re-join in the host's dungeon: its dungeon stays carried\n");
             std::fflush(stdout);
+        } else {
+            // An own-world load: a quick join that never reached load mode 1 (a failed join) no longer
+            // redirects the map load (the member's own dungeon within the 180 s would load the host's).
+            if (joined > 0 && JoinedSlot(man) >= 0) {
+                std::printf("[coop] Party: chalice: load mode 0: the quick join of %.0f s ago never loaded; its slot no longer read\n",
+                            Seconds() - joined);
+                std::fflush(stdout);
+            }
+            g_quick_join_at.store(0);
+            g_carried.store(0);
+            g_keep_at.store(0);
         }
-        g_quick_join_at.store(0);
-        g_carried.store(0);
     }
     reinterpret_cast<Fn>(g_set_load_mode)(man, mode);
     if (!carry || from < 0) {
         return;
     }
     g_quick_join_at.store(0);
+    g_keep_at.store(0);
     if ((rec[3] & 0xff000000u) != 0x1d000000u) {
         std::printf("[coop] Party: chalice: load mode 1: slot %d's record holds no dungeon (map 0x%08x): not carried\n", from, rec[3]);
         std::fflush(stdout);
@@ -310,8 +345,10 @@ BB_COOP_SYSV void SetLoadModeHook(u64 man, u64 mode) {
     const std::uint32_t after = get(man, RecordBase(from) + 96, 32);
     const std::uint64_t channel = ChannelFromDwords(rec[1], rec[2]);
     g_carried.store(channel);
-    std::printf("[coop] Party: chalice: load mode 1: slot %d's record (dungeon %llu, map 0x%08x) carried over%s (map read 0x%08x -> 0x%08x)\n",
-                from, static_cast<unsigned long long>(channel), rec[3],
+    std::memcpy(g_rec_cache, rec, sizeof rec);
+    g_rec_from = from;
+    std::printf("[coop] Party: chalice: load mode 1: slot %d's record (dungeon %llu, map 0x%08x) carried over%s%s (map read 0x%08x -> 0x%08x)\n",
+                from, static_cast<unsigned long long>(channel), rec[3], keep ? " again (a re-join inside the dungeon)" : "",
                 slot >= 0 && slot != from ? (", the map loads read it, not the current slot " + std::to_string(slot) + "'s").c_str() : "",
                 before, after);
     std::fflush(stdout);
@@ -778,6 +815,15 @@ void OnGuestForm(int slot, const std::string& member, const std::string& body) {
 
 std::uint64_t LocalChannel() {
     return g_local.load();
+}
+
+std::uint64_t CurrentDungeon() {
+    std::uint64_t net = 0, ch = 0;
+    const std::uint64_t at = Guest(0x553b120);
+    if (at && SafeGet(at, &net) && net && SafeGet(net + 0xa88, &ch)) {
+        return ChannelFromDwords(static_cast<std::uint32_t>(ch), static_cast<std::uint32_t>(ch >> 32));
+    }
+    return 0;
 }
 
 bool PopHostGoods(std::vector<std::uint32_t>* out) {

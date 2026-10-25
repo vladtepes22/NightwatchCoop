@@ -324,6 +324,20 @@ static void test_chalice() {
     CHECK(!ChaliceReplayAllowed(t, 0) && !ChaliceReplayAllowed(t, 77));
     t.chalice_channel = 77;
     CHECK(ChaliceReplayAllowed(t, 77) && !ChaliceReplayAllowed(t, 78) && !ChaliceReplayAllowed(t, 0));
+    // 0.7.6: a guest summoned into the host's dungeon is in it (the game's current ChannelId, the host's),
+    // whatever its own slot holds: the host's respawn after a wipe in it is followed.
+    {
+        using coop::chalice::DungeonHere;
+        TravelIntent d;
+        d.kind = TravelKind::HostDeath;
+        d.last_lamp = 2902953;  // a dungeon lamp
+        d.chalice_channel = 77;
+        CHECK(TravelIntoChalice(d));
+        CHECK(DungeonHere(true, 77, 5) == 77 && ChaliceReplayAllowed(d, DungeonHere(true, 77, 5)));
+        CHECK(!ChaliceReplayAllowed(d, DungeonHere(true, 78, 5)));     // standing in another dungeon
+        CHECK(!ChaliceReplayAllowed(d, DungeonHere(false, 77, 5)));    // outside a dungeon map: the own slot's
+        CHECK(DungeonHere(true, 0, 5) == 5 && DungeonHere(false, 77, 5) == 5);
+    }
     // The channel travels in the event (hex) and is optional.
     TravelIntent back;
     CHECK(TravelFromJsonText(TravelToJsonText(t), &back) && back.chalice_channel == 77);

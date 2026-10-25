@@ -982,6 +982,9 @@ BB_COOP_SYSV u64 FlagApplyHook(u64 man, u64 blob) {
     using Mode = void(BB_COOP_SYSV*)(u64, u32);
     const int mode = Field<int>(man, 0x80, -1);
     if (g_on.load() && g_rejoin.load() && Role() == RoleClient && mode == 1) {
+        if ((ReadGameState(false).map_id >> 24) == 29) {
+            chalice::KeepDungeonCarry();  // inside the host's dungeon: not a trip home (chaliceechoes)
+        }
         reinterpret_cast<Mode>(Guest(0x13bb590))(man, 0);
         const u64 r = reinterpret_cast<Apply>(Guest(0x13beca0))(man, blob);
         Log("K11: host flag snapshot applied in load mode 0 (was 1) -> %llu", ull(r));
@@ -3894,8 +3897,9 @@ void LoadStainLocked(int slot) {
                 }
                 g_pstain.have_raw = true;
             }
-            Log("party stain: %d Blood Echoes at (%.1f, %.1f, %.1f) map %#x (save slot %d, from party_stain.txt)",
-                o.echoes, double(o.pos[0]), double(o.pos[1]), double(o.pos[2]), o.map, slot);
+            Log("party stain: %d Blood Echoes at (%.1f, %.1f, %.1f) map %#x dungeon %llu (save slot %d, from party_stain.txt)",
+                o.echoes, double(o.pos[0]), double(o.pos[1]), double(o.pos[2]), o.map,
+                static_cast<unsigned long long>(o.dungeon), slot);
         }
     }
 }
@@ -3927,8 +3931,17 @@ void StainFromRecordLocked(int slot, const char* why) {
     if (p.s.echoes <= 0) {
         return;
     }
+    if ((p.s.map >> 24) == 29) {
+        // chaliceechoes: a Chalice stain belongs to the dungeon (ChannelId) it lies in: the host's when
+        // the guest died summoned in it. Only while the guest stands in a dungeon map (elsewhere the
+        // game's current ChannelId is the last load's): else 0, a stain the next session refunds.
+        const GameSnapshot g = ReadGameState(false);
+        if ((g.map_id >> 24) == 29) {
+            p.s.dungeon = chalice::CurrentDungeon();
+        }
+    }
     const bool same = g_pstain.s.live && g_pstain.s.echoes == p.s.echoes && g_pstain.s.map == p.s.map &&
-                      gueststain::Horizontal(g_pstain.s.pos, p.s.pos) < 0.05f;
+                      g_pstain.s.dungeon == p.s.dungeon && gueststain::Horizontal(g_pstain.s.pos, p.s.pos) < 0.05f;
     if (same) {
         return;
     }
@@ -3937,8 +3950,10 @@ void StainFromRecordLocked(int slot, const char* why) {
             g_pstain.s.echoes, double(g_pstain.s.pos[0]), double(g_pstain.s.pos[1]), double(g_pstain.s.pos[2]));
     }
     g_pstain = p;
-    Log("party stain (%s): %d Blood Echoes at (%.1f, %.1f, %.1f) map %#x (save slot %d)", why, p.s.echoes,
-        double(p.s.pos[0]), double(p.s.pos[1]), double(p.s.pos[2]), p.s.map, slot);
+    Log("party stain (%s): %d Blood Echoes at (%.1f, %.1f, %.1f) map %#x%s (save slot %d)", why, p.s.echoes,
+        double(p.s.pos[0]), double(p.s.pos[1]), double(p.s.pos[2]), p.s.map,
+        p.s.dungeon ? (" in Chalice Dungeon " + std::to_string(static_cast<unsigned long long>(p.s.dungeon))).c_str() : "",
+        slot);
     WriteStainLocked(slot);
 }
 
@@ -7201,7 +7216,60 @@ void GuestStainTick(const GameSnapshot& s) {
     }
     was_stain = is_stain;
     echoes_was = s.echoes;
-    if (!client || Field<u8>(gsm, 0x1592) != 0 || !gueststain::InMap(p.s, s.map_id)) {
+    // chaliceechoes: the dungeon the guest stands in (the host's when summoned in): a Chalice stain is
+    // recoverable in the dungeon it lies in only.
+    const std::uint64_t dungeon_here = (s.map_id >> 24) == 29 ? chalice::CurrentDungeon() : 0;
+    // The pay-out of the party stain (walking onto it, or the refund of a stain no dungeon can be matched to).
+    auto pay = [&](const char* where, const float* me3) {
+        const u64 pgd = Field<u64>(gdm, 8);
+        const int before = Field<int>(pgd, 0x94, -1);
+        const u64 add = Field<u64>(Field<u64>(s.player, 0), 0x3d0);
+        if (!add || before < 0) {
+            return;
+        }
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, int, int, int)>(add)(s.player, p.s.echoes, 0, 1);
+        const int after = Field<int>(pgd, 0x94, -1);
+        // The own record is this stain: taken (no second payment at home).
+        bool own_cleared = false;
+        if (own_echoes == p.s.echoes) {
+            // The record's echoes too: a later load re-flags the old record (0x13D2910 with record 0
+            // builds the stain again; live ngB paid it twice before this), and a 0-echo record is
+            // dropped (EmptyStainTick).
+            const u8 zero = 0;
+            const int none = 0;
+            SafeWrite(gdm + 0x28, &zero, 1);
+            SafeWrite(rec + 0x38, &none, 4);
+            if (StainHoldRulesOn() && StainHoldFlag()) {
+                // echodup: a hold that outlived its enemy (Void): whoever still has the bit pays nothing
+                // now (0x130AB80 pays only a record with echoes), and its glowing eyes go.
+                ReleaseEchoHolders("the party stain picked up");
+            }
+            const u64 stains = Field<u64>(Field<u64>(Slot(0x553b108), 0x80), 8);
+            if (stains) {
+                reinterpret_cast<void(BB_COOP_SYSV*)(u64, u32)>(Guest(0x1868a50))(stains, 0);
+            }
+            own_cleared = true;
+        }
+        Log("party stain: recovered %d Blood Echoes %s at (%.1f, %.1f, %.1f): echoes %d -> %d%s", p.s.echoes, where,
+            me3 ? double(me3[0]) : 0.0, me3 ? double(me3[1]) : 0.0, me3 ? double(me3[2]) : 0.0, before, after,
+            own_cleared ? "; the own record taken too" : "");
+        char toast[96];
+        std::snprintf(toast, sizeof toast, "Blood Echoes recovered: %d", p.s.echoes);
+        party::status::SetLastEvent(toast);
+        balance::NoteEchoesRetrieved("the party stain in the host's world");
+        p = PartyStain{};
+        WriteStainLocked(slot);
+        party::ping::SetStain({});
+        RequestGameSave("guest bloodstain recovered");
+    };
+    if (client && gueststain::FateOf(p.s, s.map_id, dungeon_here) == gueststain::Fate::Refund) {
+        // A Chalice stain from before 0.7.6 (no dungeon id): no dungeon can be matched to its spot, so
+        // the echoes are given back rather than lost with the next death.
+        Log("party stain: %d Blood Echoes from a Chalice Dungeon of an earlier version (no dungeon id): given back", p.s.echoes);
+        pay("(refund)", nullptr);
+        return;
+    }
+    if (!client || Field<u8>(gsm, 0x1592) != 0 || !gueststain::InMap(p.s, s.map_id, dungeon_here)) {
         party::ping::SetStain({});
         return;
     }
@@ -7403,45 +7471,7 @@ void GuestStainTick(const GameSnapshot& s) {
     if (!p.armed || !gueststain::Touching(me, p.s.pos)) {
         return;
     }
-    const u64 pgd = Field<u64>(gdm, 8);
-    const int before = Field<int>(pgd, 0x94, -1);
-    const u64 add = Field<u64>(Field<u64>(s.player, 0), 0x3d0);
-    if (!add || before < 0) {
-        return;
-    }
-    reinterpret_cast<void(BB_COOP_SYSV*)(u64, int, int, int)>(add)(s.player, p.s.echoes, 0, 1);
-    const int after = Field<int>(pgd, 0x94, -1);
-    // The own record is this stain: taken (no second payment at home).
-    bool own_cleared = false;
-    if (own_echoes == p.s.echoes) {
-        // The record's echoes too: a later load re-flags the old record (0x13D2910 with record 0
-        // builds the stain again; live ngB paid it twice before this), and a 0-echo record is
-        // dropped (EmptyStainTick).
-        const u8 zero = 0;
-        const int none = 0;
-        SafeWrite(gdm + 0x28, &zero, 1);
-        SafeWrite(rec + 0x38, &none, 4);
-        if (StainHoldRulesOn() && StainHoldFlag()) {
-            // echodup: a hold that outlived its enemy (Void): whoever still has the bit pays nothing
-            // now (0x130AB80 pays only a record with echoes), and its glowing eyes go.
-            ReleaseEchoHolders("the party stain picked up");
-        }
-        const u64 stains = Field<u64>(Field<u64>(Slot(0x553b108), 0x80), 8);
-        if (stains) {
-            reinterpret_cast<void(BB_COOP_SYSV*)(u64, u32)>(Guest(0x1868a50))(stains, 0);
-        }
-        own_cleared = true;
-    }
-    Log("party stain: recovered %d Blood Echoes in the host's world at (%.1f, %.1f, %.1f): echoes %d -> %d%s", p.s.echoes,
-        double(me[0]), double(me[1]), double(me[2]), before, after, own_cleared ? "; the own record taken too" : "");
-    char toast[96];
-    std::snprintf(toast, sizeof toast, "Blood Echoes recovered: %d", p.s.echoes);
-    party::status::SetLastEvent(toast);
-    balance::NoteEchoesRetrieved("the party stain in the host's world");
-    p = PartyStain{};
-    WriteStainLocked(slot);
-    party::ping::SetStain({});
-    RequestGameSave("guest bloodstain recovered");
+    pay("in the host's world", me);
 }
 
 // ---- Finding 3 (statsaudit): the guest's own NG cycle ----

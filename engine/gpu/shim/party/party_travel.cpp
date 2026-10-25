@@ -643,14 +643,25 @@ TravelFollow FollowNow(int session_role, double at) {
     return GuestFollowsHostTravel(f);
 }
 
+/// The dungeon this guest is in: standing in a dungeon map it is the game's current one (the host's
+/// when summoned in by the quick join), else the own current slot's (party_chalice.h DungeonHere).
+/// 0.7.6: a host travel inside the dungeon the guest stands in (the respawn after a wipe, a lamp
+/// warp between the dungeon's lamps) was "not followed" because the guest's own slot holds another
+/// dungeon: a dead guest waited in limbo until the host's Dream trip.
+std::uint64_t GuestDungeon() {
+    const u32 here = g_guest_map.load();
+    const bool in_map = here && (here >> 24) == 29;
+    return chalice::DungeonHere(in_map, in_map ? chalice::CurrentDungeon() : 0, chalice::LocalChannel());
+}
+
 /// A host lamp a guest may be sent to: one in a Chalice Dungeon only when the guest's own game
-/// has the host's dungeon in its current slot (party_chalice.h).
+/// has the host's dungeon in its current slot (party_chalice.h), or stands in it.
 bool LampUsable(u32 lamp) {
     if (lamp == kTravelNone || lamp / 100000 != 29) {
         return true;
     }
     const std::uint64_t host = g_host_chalice.load();
-    return host != 0 && host == chalice::LocalChannel();
+    return host != 0 && host == GuestDungeon();
 }
 std::atomic<GuestRedirectFn> g_redirect_cb{nullptr};
 std::atomic<bool> g_death_redirect_on{true};
@@ -1352,11 +1363,12 @@ bool HostInOtherChalice() {
 bool GuestSkipsChaliceTravel(const TravelIntent& t) {
     g_host_chalice = t.chalice_channel;
     // Chalice Dungeons: only into the dungeon this game has (docs/party/chalice.md).
-    if (!ChaliceReplayAllowed(t, chalice::LocalChannel())) {
+    const std::uint64_t mine = GuestDungeon();
+    if (!ChaliceReplayAllowed(t, mine)) {
         Log("guest travel %s not followed: the host enters chalice dungeon %llu, this game has %llu "
             "(the summon brings it in: quick join by ChannelId)",
             DescribeTravel(t).c_str(), static_cast<unsigned long long>(t.chalice_channel),
-            static_cast<unsigned long long>(chalice::LocalChannel()));
+            static_cast<unsigned long long>(mine));
         return true;
     }
     // Into a dungeon from outside: its own copy would only be left again for the summon (two loads,
