@@ -358,3 +358,10 @@ once-a-second RIP samples) at no measurable fps cost, since imports keep their d
 (`out/imports_<time>.log`, `[IMPORT CALL]` lines, the main thread's recent imports in hang
 dumps): every import then goes through a logging thunk, about 70% slower (102 -> 31 fps), so use
 it only to find which import a hang or crash is in. `src/probe.c`.
+| `BB_PARTY_SELF_GUARD` | `0`: no own-endpoint checks (a peer's local address equal to ours is used, our own looped-back probe counts as heard; tests only, visy 0.7.5) | on | `gpu/shim/net/net_socket.cpp` |
+| `BB_PARTY_NPC_HIT` | `0`: a guest's blows pass through the host world's friendly NPCs again (the cooperator row of the SpEffect / relation tables stays closed) | on | `gpu/shim/party/party_pvp.cpp` |
+| `BB_PARTY_NPC_HOSTILE` | `0`: a guest's blows are not written into the host's damage records (Alfred and the other three-hit NPCs never turn hostile from them); `BB_PARTY_NPC_HOSTILE_LOG=1` logs each credited blow (40 at most) | on | `gpu/shim/party/party_b2.cpp` |
+| `BB_PARTY_LAMP_EVENT_FALLBACK` | `0`: no warp of our own when a world lamp's Dream flag stays set with no warp (the used-up lamp event repro) | on | `gpu/shim/party/party_split.cpp` |
+| `BB_PARTY_VPN` | Host over a VPN: `auto`, `off` or an adapter name; wins over bbport.ini `party_vpn` | `auto` | `gpu/shim/net/net_socket.cpp`, `gpu/shim/bbport_settings.cpp` |
+| `BB_PARTY_DISCOVERY` | `0`: no party announce on the LAN / VPN adapters; wins over bbport.ini `party_discovery`. `BB_PARTY_DISCOVERY_LOOPBACK=1` also announces to 127.0.0.1 (tests) | on | `gpu/shim/net/party_discovery.cpp` |
+| `BB_GUEST_COMMIT_ON_MAP` | `0`: the game's memory pool is committed whole at once (the old default; still falls back to commit on map when Windows refuses). `BB_POOL_LAZY=1` forces commit on map | commit on map | `src/win32_memory.c`, `start/common.cpp` |
