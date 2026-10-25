@@ -160,7 +160,11 @@ int main() {
     CHECK(!HeadstoneWarpFallback(true, true, 25.0, false, false));
     CHECK(!HeadstoneWarpFallback(true, true, 8.5, true, false));   // the event warped
     CHECK(!HeadstoneWarpFallback(true, true, 8.5, false, true));   // already run
-    CHECK(!HeadstoneWarpFallback(false, true, 8.5, false, false)); // the host: its own events
+    // 0.7.6 (lone guest split report): the HOST's headstone too - a guest's lone trip from headstone 72102401 ran the
+    // host's copy of event 12107000 (dropped as not its use); the host's later pick of it set the flag and nothing warped.
+    CHECK(HeadstoneFlagLamp(72102401) == 2402951);
+    CHECK(HeadstoneWarpFallback(true, true, 8.5, false, false));   // a party member, host or guest
+    CHECK(!HeadstoneWarpFallback(false, true, 8.5, false, false)); // not in a party: the game's own events
     CHECK(!HeadstoneWarpFallback(true, false, 8.5, false, false)); // left the Dream
 
 

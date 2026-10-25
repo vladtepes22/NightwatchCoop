@@ -44,6 +44,7 @@ R = {
     "guest_joined": re.compile(r"Party: link: (\S+) (joined|rejoined) \(slot (\d+), from (\S+?):\d+\)"),
     "lost": re.compile(r"Party: link: lost (\S+) \(slot \d+\): (.+?);"),
     "outage": re.compile(r"Net: outage resume: (\S+?):\d+ heard again after ([\d.]+) s"),
+    "no_public_udp": re.compile(r"summon: UDP to (\S+) is blocked: its game has only the LAN address"),
     "not_heard": re.compile(r"direct summon: slot \d+ \((\S+)\) reports a failure: its UDP is not heard"),
     "summon_refused": re.compile(r"direct summon: slot \d+ \((\S+)\) refused \(([^;)]+)"),
     "punch_local": re.compile(r"Net: punch (\S+): using its local address (\S+?):\d+ \(heard.*?; (\S+?):\d+ stays its game address\)"),
@@ -112,6 +113,7 @@ class Log:
         self.lost = Counter()
         self.outages = []
         self.not_heard = Counter()
+        self.no_public_udp = Counter()
         self.summon_refused = Counter()
         self.punch_local = []
         self.punching = 0
@@ -223,6 +225,10 @@ def parse(path):
             if m:
                 lg.outages.append((m.group(1), float(m.group(2))))
                 lg.note("outage", n, line)
+            m = R["no_public_udp"].search(line)
+            if m:
+                lg.no_public_udp[m.group(1)] += 1
+                lg.note("no_public_udp", n, line)
             m = R["not_heard"].search(line)
             if m:
                 lg.not_heard[m.group(1)] += 1
@@ -419,6 +425,18 @@ def diagnose(logs, show_ips):
                     f"`setx BB_PARTY_LOCAL_IP <own VPN address>`, close the window) and fully restart the launcher.")
                 break
 
+    # A guest whose game never got a public UDP address (its STUN on the party port got no answer)
+    if host:
+        for g, cnt in host.no_public_udp.items():
+            if host.in_world.get(g):
+                continue
+            add(1, f"**{g}'s game cannot send UDP to the internet**: it only knows its home address, so the host "
+                   f"cannot summon it ({cnt}x). {g} is in the party (that part uses TCP) but stays in its own world; "
+                   f"the in-game 'still in the prologue' / 'no public UDP' notices come from this.",
+                f"{g}: allow the game in Windows Firewall for UDP + TCP 9307 (and in any antivirus with its own "
+                f"firewall), check the router does not block outgoing UDP, then restart the launcher. Or both of you "
+                f"use a VPN (Radmin / Tailscale) and set BB_PARTY_LOCAL_IP to your own VPN address.")
+
     # Game traffic not arriving after the party link is up
     if host:
         for g, cnt in host.not_heard.items():
@@ -500,7 +518,7 @@ def diagnose(logs, show_ips):
                    f"happen. After an ending (NG+) this is a known bug, fixed in co-op 0.7.6.",
                 setx_steps(l.prologue_last[0], "BB_PARTY_START", "immediate",
                            "until co-op 0.7.6, skip the prologue check: ") +
-                "\n   In a first playthrough, finish the first hub visit (take a weapon) instead.")
+                "\n   In a first playthrough, finish the first Hunter's Dream visit (take a weapon) instead.")
             break
     ngs = {l.name or l.path.name: l.ng for l in logs if l.ng is not None}
     if len(set(ngs.values())) > 1:

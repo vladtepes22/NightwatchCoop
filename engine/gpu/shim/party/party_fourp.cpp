@@ -511,6 +511,18 @@ BB_COOP_SYSV u64 QueuePop(u64 entry, u64 type, u64 buf, u64 size) {
             r = reinterpret_cast<Fn>(Guest(kPopFn))(entry, type, buf, size);  // the next one, if any
         }
     }
+    {
+        // BB_PARTY_PKT_PROBE=1 (diagnostic, off by default, 700 lines at most): every popped packet but the chr
+        // updates (type 6) with its first words, to find what reaches a lamp / headstone event from a peer.
+        static const bool probe = [] { const char* v = std::getenv("BB_PARTY_PKT_PROBE"); return v && v[0] == '1'; }();
+        static std::atomic<int> logged{0};
+        if (probe && u32(r) > 0 && buf && u32(type) != 6 && u32(type) < 0x44 && logged.fetch_add(1) < 700) {
+            u32 w[5] = {};
+            for (u32 i = 0; i < std::min<u32>(u32(r), sizeof w) / 4; ++i) SafeGet(buf + 4 * i, &w[i]);
+            Log("packet probe: type 0x%02X (%u bytes): %08x %08x %08x %08x %08x", u32(type), u32(r), w[0], w[1], w[2],
+                w[3], w[4]);
+        }
+    }
     QLeave(slot);
     return r;
 }

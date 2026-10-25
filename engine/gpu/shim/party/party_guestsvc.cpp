@@ -306,6 +306,7 @@ bool GuestServicesEnabledFromEnv(const char* v) {
 #include "party_guestvals_rules.h"
 #include "lamp_travel_rules.h"
 #include "party_ids.h"
+#include "party_death_rules.h"
 #include "bbport_game_menu.h"
 #include "bbport_settings.h"
 
@@ -1441,6 +1442,21 @@ BB_COOP_SYSV void ButtonEntry(u64, u64 type, u64 id, u64, u64, u64);  // test pr
 // messengers' animation event is dropped here (PerPlayerMessengerEvent).
 constexpr u64 kEventSyncRead = 0x12f1744, kPacketRead = 0x1789200;
 std::atomic<std::uint32_t> g_messenger_drops{0};
+/// BB_PARTY_LAMP_EVENT_SYNC=1 (testing): a peer's lamp / headstone warp event state is applied again.
+bool LampSyncFilterOn() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_PARTY_LAMP_EVENT_SYNC");
+        return !(v && v[0] == '1');
+    }();
+    return on;
+}
+bool MessengerSyncFilterOn() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_PARTY_MESSENGER_SYNC");
+        return !(v && v[0] == '1' && !v[1]);
+    }();
+    return on;
+}
 BB_COOP_SYSV u64 EventSyncRead(u64 man, u64 peer, u64 type, u64 buf, u64 size) {
     using Fn = u64(BB_COOP_SYSV*)(u64, u64, u64, u64, u64);
     for (;;) {
@@ -1448,20 +1464,25 @@ BB_COOP_SYSV u64 EventSyncRead(u64 man, u64 peer, u64 type, u64 buf, u64 size) {
         std::uint16_t kind = 1;
         std::int32_t event = 0;
         if (std::int32_t(r) <= 0 || !buf || !SafeGet(buf, &kind) || kind != 0 || !SafeGet(buf + 8, &event) ||
-            !PerPlayerMessengerEvent(std::uint32_t(event))) {
+            !((MessengerSyncFilterOn() && PerPlayerMessengerEvent(std::uint32_t(event))) ||
+              (LampSyncFilterOn() && deathrules::LampWarpEvent(std::uint32_t(event))))) {
             return r;
         }
         // Main thread (the EMEVD update); the next packet, if any, is read in the same call.
         if (g_messenger_drops.fetch_add(1) < 8) {
-            Log("Messengers: event %d's state from another player not applied (per player: each game runs its "
-                "messengers from its own player's talk, pick and flags)", event);
+            Log("%s: event %d's state from another player not applied (%s)",
+                deathrules::LampWarpEvent(std::uint32_t(event)) ? "Lamp warp" : "Messengers", event,
+                deathrules::LampWarpEvent(std::uint32_t(event))
+                    ? "a lamp / headstone warp event runs from its own player's choice only, or a peer's pick would "
+                      "use up this game's copy"
+                    : "per player: each game runs its messengers from its own player's talk, pick and flags");
         }
     }
 }
 
 void InstallMessengerSyncFilter() {
     const char* v = std::getenv("BB_PARTY_MESSENGER_SYNC");
-    if (v && v[0] == '1' && !v[1]) {
+    if (v && v[0] == '1' && !v[1] && !LampSyncFilterOn()) {  // both old behaviours asked for: no hook
         Log("Bath Messengers: the animation events stay network-synced (BB_PARTY_MESSENGER_SYNC=1: the old "
             "behaviour: they rise and sink every 2 s while another player uses their shop)");
         return;
@@ -2733,10 +2754,12 @@ void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
         // "hsapart" (guestheadstone): the delay counts from the moment the host is in another area
         // (a guest left in the Dream by the host's alone travel, party_stay_rules.h).
         static const bool apart_only = g.test.find("hsapart") != std::string::npos;
+        // "hsalone" (hostheadstone): no guest needed in the Dream (the host picks after a guest left alone).
+        static const bool no_coop = g.test.find("hsalone") != std::string::npos;
         if (!started && apart_only && !b2::MemberApart(0)) {
             coop_at = 0;
         } else if (!started && role >= 0 && s.session_role == role &&
-            IsDreamMap(s.map_id) && s.world_up && !s.loading && (role != 3 || s.cooperators >= 1)) {
+            IsDreamMap(s.map_id) && s.world_up && !s.loading && (role != 3 || no_coop || s.cooperators >= 1)) {
             if (coop_at == 0) {
                 coop_at = Now();
             } else if (Now() - coop_at >= HeadstoneTestDelay() && FindChr(HostTalkTarget())) {

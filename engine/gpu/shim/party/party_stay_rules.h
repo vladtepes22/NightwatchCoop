@@ -131,8 +131,10 @@ inline std::uint32_t HeadstoneFlagLamp(std::uint32_t flag) {
 /// The event's own warp comes about 4 s after the choice (the kneel; live host 41.2 -> 45.2 s).
 constexpr double kHeadstoneWarpWait = 8.0;
 constexpr double kHeadstoneWarpGiveUp = 9.5;  // inside split travel's own-use window (kLampOriginWindow 10 s)
-inline bool HeadstoneWarpFallback(bool guest_client, bool in_dream, double since_flag, bool warp_since_flag, bool done) {
-    return guest_client && in_dream && !warp_since_flag && !done && since_flag >= kHeadstoneWarpWait &&
+/// 0.7.6: for the host too (`in_party` = host or guest of a session): a guest's lone trip from a headstone ran the
+/// host's copy of the event the same way (report: the host's later pick of that headstone did nothing).
+inline bool HeadstoneWarpFallback(bool in_party, bool in_dream, double since_flag, bool warp_since_flag, bool done) {
+    return in_party && in_dream && !warp_since_flag && !done && since_flag >= kHeadstoneWarpWait &&
            since_flag < kHeadstoneWarpGiveUp;
 }
 

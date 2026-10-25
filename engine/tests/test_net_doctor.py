@@ -72,3 +72,12 @@ def test_not_heard_then_joined(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "never reaches the host" not in out
     assert "then GuestB got into the host's world" in out
+
+
+def test_guest_without_public_udp(tmp_path, capsys):
+    h = tmp_path / "host.log"
+    h.write_text(HOST + "[coop] Party: summon: UDP to GuestB is blocked: its game has only the LAN address "
+                 "10.0.0.102:9307 (no public UDP endpoint: the STUN on our party port gave it no answer)\n",
+                 encoding="utf-8")
+    assert nd.main([str(h)]) == 0
+    assert "GuestB's game cannot send UDP to the internet" in capsys.readouterr().out

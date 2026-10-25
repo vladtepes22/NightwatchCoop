@@ -576,20 +576,24 @@ void Tick(const GameSnapshot& s, party::PartyLink* link) {
         g_map_now = s.map_id;
     }
     {
-        // A guest's headstone choice whose warp event was used up (party_stay_rules.h: the host's
-        // warp to the same lamp ran this game's copy of event 12107000 already): the warp itself.
+        // A party member's headstone choice whose warp event was used up (party_stay_rules.h: another member's
+        // choice of the same headstone ran this game's copy of event 12107000 already - a guest's after the
+        // host's trip, the host's after a guest's lone trip, live 0.7.5 report): the warp itself.
         static double done_for = -1;
         const double at = g_local_at.load();
         const u32 lamp = stayrules::HeadstoneFlagLamp(g_local_id.load());
         if (lamp && at >= 0 && at != done_for) {
             const bool guest = PartyDirector::Get().Role() == PartyRole::Guest && SessionRole() == kRoleClient;
+            const bool host = PartyDirector::Get().Role() == PartyRole::Host && SessionRole() == kRoleHost;
             const bool dream = s.world_up && !s.loading && s.map_id != 0xffffffffu && (s.map_id >> 24) == 21;
-            if (stayrules::HeadstoneWarpFallback(guest, dream, Now() - at, g_warp_seen_at.load() >= at, false) &&
-                ids::ReturnPointKnown(lamp)) {
+            if (stayrules::HeadstoneWarpFallback(guest || host, dream, Now() - at, g_warp_seen_at.load() >= at, false) &&
+                ids::ReturnPointKnown(lamp) && LampEventFallbackOn()) {
                 done_for = at;
-                Log("lamp %u (guest): headstone flag %u set %.1f s ago and no warp followed (the Dream's warp event for "
-                    "this lamp already ran here for another member's use): the warp runs now", lamp, g_local_id.load(),
-                    Now() - at);
+                Log("lamp %u (%s): headstone flag %u set %.1f s ago and no warp followed (the Dream's warp event for "
+                    "this lamp already ran here for another member's use): flag cleared, the warp runs now", lamp,
+                    host ? "host" : "guest", g_local_id.load(), Now() - at);
+                // The event clears its flag itself when it runs; a flag left set would warp at the next area load.
+                WriteEventFlag(g_local_id.load(), false);
                 RunLampWarp(lamp);
             }
         }
