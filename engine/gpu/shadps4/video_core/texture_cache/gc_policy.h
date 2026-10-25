@@ -68,6 +68,20 @@ constexpr u64 EffectiveUsage(u64 usage, u64 block_slack, u64 pending_free) {
     return usage > reusable ? usage - reusable : 0;
 }
 
+/// The guest memory's VRAM level (BufferCache::UpdateVramLevel) on the same marks: 1 (copies of
+/// the game's memory unused for a while go back in place) only once evicting textures from the
+/// soft mark on did not keep the usage under the hard mark, 2 (no new copies) halfway from there
+/// to the budget.
+/// Before, it was 85 / 90 % of the driver's budget while the collector's marks sat higher (on 4 GB
+/// cards at the VRAM heap, over the budget): the game's data went in place first, textures
+/// stayed, and the GPU read GBs a frame over PCIe (1-3 FPS on a GTX 1650).
+constexpr int GuestLevelFor(u64 used, const Marks& m) {
+    if (m.budget == 0) {
+        return 0;
+    }
+    return used >= m.hard + (m.budget - m.hard) / 2 ? 2 : used >= m.hard ? 1 : 0;
+}
+
 enum class Level : u32 { None = 0, Idle = 1, Soft = 2, Hard = 3, Over = 4 };
 
 constexpr Level LevelFor(u64 used, const Marks& m) {

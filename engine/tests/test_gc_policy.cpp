@@ -44,6 +44,20 @@ int main() {
     assert(BudgetFor(0, 8192 * MiB) == 8192 * MiB);
     assert(BudgetFor(3000 * MiB, 0) == 3000 * MiB);
 
+    // The GTX 1650 report: 4149 MiB heap, the driver's budget lower. The marks come from the
+    // budget, and the game's data leaves VRAM only past the texture hard mark (textures go first
+    // from the soft mark on), no new copies halfway from the hard mark to the budget.
+    {
+        const Marks m = MarksFor(BudgetFor(3500 * MiB, 4149 * MiB));
+        assert(m.budget == 3500 * MiB && m.soft < 3200 * MiB);
+        assert(GuestLevelFor(m.soft, m) == 0);
+        assert(GuestLevelFor(m.hard - 1, m) == 0);
+        assert(GuestLevelFor(m.hard, m) == 1);
+        assert(GuestLevelFor(m.hard + (m.budget - m.hard) / 2 - 1, m) == 1);
+        assert(GuestLevelFor(3771 * MiB, m) == 2);
+        assert(GuestLevelFor(3771 * MiB, MarksFor(0)) == 0);
+    }
+
     // Holes in shared blocks and images not destroyed yet count as free.
     assert(EffectiveUsage(5000 * MiB, 300 * MiB, 200 * MiB) == 4500 * MiB);
     assert(EffectiveUsage(100 * MiB, 300 * MiB, 0) == 0);
