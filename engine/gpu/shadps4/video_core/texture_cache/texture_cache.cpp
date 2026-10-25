@@ -1631,16 +1631,13 @@ void TextureCache::GarbageCollectImages() {
         const u64 driver_budget = forced ? forced : instance.GetDeviceMemoryBudgetNow();
         const u64 local_mem = instance.GetDeviceLocalMemory();
         if (driver_budget != 0 || local_mem != 0) {
-            // Cards up to 4 GB: from the VRAM heap (their budget leaves out what the system holds
-            // already). On integrated GPUs the usage covers system-memory heaps holding much more
-            // than images: the driver's current budget (Steam Deck).
-            const bool is_low_vram = (local_mem > 0 && local_mem <= 4096ULL << 20) ||
-                                     (driver_budget > 0 && driver_budget <= 4096ULL << 20);
-            const u64 base = !forced && is_low_vram && local_mem > 0 && !instance.IsIntegrated()
-                                 ? local_mem
-                                 : driver_budget;
-            gc_marks = GcPolicy::MarksFor(
-                GcPolicy::BudgetFor(base, forced || instance.IsIntegrated() ? 0 : local_mem));
+            // bbport: the driver's budget on every card, as the guest memory's VRAM level
+            // (BufferCache::UpdateVramLevel). Cards up to 4 GB took the VRAM heap instead (4149
+            // MiB on a GTX 1650, over what the driver gives with the desktop's share): textures
+            // stayed while the game's data went in place, 1-3 FPS. On integrated GPUs the usage
+            // covers system-memory heaps holding much more than images: the driver's budget only.
+            gc_marks = GcPolicy::MarksFor(GcPolicy::BudgetFor(
+                driver_budget, forced || instance.IsIntegrated() ? 0 : local_mem));
             // BB_GC_TRIGGER / BB_GC_PRESSURE / BB_GC_CRITICAL (percent of the budget): the
             // trigger, soft and hard marks fixed instead (tests).
             static const auto percent = [](const char* name) -> u64 {

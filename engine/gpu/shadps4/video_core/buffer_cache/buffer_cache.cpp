@@ -24,6 +24,7 @@
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/buffer_cache/memory_tracker.h"
+#include "video_core/texture_cache/gc_policy.h"
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
@@ -1696,17 +1697,25 @@ std::pair<vk::DeviceMemory, u64> BufferCache::AllocateResidency(u64 bytes) {
 }
 
 void BufferCache::UpdateVramLevel(u32 now) {
+    // bbport: by default the texture collector's marks (GcPolicy::GuestLevelFor): textures leave
+    // VRAM before the game's data does. BB_VRAM_PRESSURE_PERCENT=N: the old N / N+5 % of the
+    // driver's budget instead (0: off).
     static const u64 percent = [] {
         const char* env = std::getenv("BB_VRAM_PRESSURE_PERCENT");
-        return std::min<u64>(env ? std::strtoull(env, nullptr, 10) : 85, 95);
+        return env && *env ? std::min<u64>(std::strtoull(env, nullptr, 10), 95) : ~u64{0};
     }();
     int level = 0;
     u64 used = 0, budget = 0;
     if (percent != 0 && instance.CanReportMemoryUsage()) {
         used = instance.GetDeviceMemoryUsage();
-        budget = instance.GetDeviceMemoryBudgetNow();
+        budget = GcPolicy::BudgetFor(instance.GetDeviceMemoryBudgetNow(),
+                                     instance.IsIntegrated() ? 0 : instance.GetDeviceLocalMemory());
         if (budget != 0) {
-            level = used * 100 >= budget * (percent + 5) ? 2 : used * 100 >= budget * percent ? 1 : 0;
+            level = percent == ~u64{0}
+                        ? GcPolicy::GuestLevelFor(used, GcPolicy::MarksFor(budget))
+                        : used * 100 >= budget * (percent + 5) ? 2
+                        : used * 100 >= budget * percent       ? 1
+                                                               : 0;
         }
     }
     if (now < vram_full_until) {

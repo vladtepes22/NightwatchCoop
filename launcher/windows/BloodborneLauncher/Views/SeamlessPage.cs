@@ -23,62 +23,27 @@ public sealed class SeamlessPage : LauncherPage
     public SeamlessPage() : base(L.T("Co-op"),
         L.T("Play the campaign together with visy's seamless co-op. The host shares a party code; everyone uses the same build, gameplay mods and party size."))
     {
-        // Single player shows only Party saves; Join leaves out the host's rows, Host the guest's.
-        // The connection card (Host only): the route the party uses, its state and the address to give friends. The
-        // adapters are read off the UI thread (RefreshRoute); the address is shown on this screen only. Join mode
-        // says which networks the party list hears instead (ListenLine).
+        // Single player shows only Party saves. Each mode shows what it needs first and folds the rest: a guest sees
+        // the mode, a name, the party list and its own settings; network troubleshooting and the host's finer rules
+        // are folded (the settings search still finds and opens them).
         Group(L.T("Party"));
-        var routeRows = Rows(Hosting);
-        _copyAddress = SmallButton(L.T("Copy"), SymbolRegular.Copy24, (_, _) => { if (_route.Address.Length > 0) Clipboard.SetText(_route.Address); });
-        Add(Card(SymbolRegular.Router24, L.T("Your connection"),
-            L.T("How the party reaches you: your VPN (Radmin VPN, Hamachi, ZeroTier, Tailscale) when one is found, else your local network. Friends on the same VPN or network can join with the address shown here. It is only shown on this screen."),
-            _copyAddress, out _routeHint, wide: true), routeRows);
         SettingCombo(SymbolRegular.People24, L.T("Mode"), L.T("Host starts the party; Join connects to the host."),
             new[] { new Choice(L.T("Single player"), ""), new Choice(L.T("Host"), "host"), new Choice(L.T("Join"), "join") }, "party_mode",
             changed: ShowMode, buttons: true);
         var party = Rows(InParty);
         TextRow(SymbolRegular.Person24, L.T("Your name"), L.T("1–16 letters, numbers, underscores or hyphens."), L.T("Hunter"),
             () => SeamlessSettings.Name(S), v => S.Set("party_name", v), party);
-        // The Join list: parties announced on the VPN or local network (party discovery, UDP 9308). The listener runs
-        // on its own thread while this tab is open in Join mode; the timer only reads its snapshot.
-        var found = Rows(Joining);
-        Add(Card(SymbolRegular.People24, L.T("Parties on your network"),
-            L.T("Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Join fills in the host's address and party size. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed."),
-            SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24, (_, _) => { _book.Clear(); RefreshRoute(); StartListener(restart: true); RefreshParties(); }),
-            out _partiesHint), found);
-        _partyList = new StackPanel();
-        found.Children.Add(_partyList);
-        // Joining by hand, folded under the list. Its password is the one remembered for the code or address typed
-        // here (Join in the list asks for it); the party size is the same setting as the host's row below.
-        _manual = new AdvancedSection(L.T("Join by code or address"), L.T("For a party that is not listed: paste the host's code or address."));
-        Rows(Joining).Children.Add(_manual);
-        _codeBox = TextRow(SymbolRegular.Link24, L.T("Host code or address"), L.T("Paste the host's Internet code, LAN code or host:port."), "BBP3-…",
-            () => S.Str("party_code"), v => { S.Set("party_code", v); SyncSharedRows(); }, _manual.Rows);
-        _joinPassword = PasswordRow(_manual.Rows, () => S.JoinPassword(S.Str("party_code")), v => S.SetJoinPassword(S.Str("party_code"), v),
-            L.T("The host's party password. Remembered for this code or address, encrypted for your Windows user."));
-        _joinSize = PartySizeRow(_manual.Rows, L.T("Must be the host's party size. Join in the list above sets it."));
-        party = Rows(Hosting);
-        _hostPassword = PasswordRow(party, () => S.PartyPassword, v => S.PartyPassword = v,
-            L.T("Use the same password on every PC. Stored encrypted for your Windows user."));
-        _hostSize = PartySizeRow(party, L.T("Host and guests use the same limit. Five players is experimental."));
-
-        _byMode.Add((Group(L.T("Connection")), InParty));
-        party = Rows(InParty);
-        TextRow(SymbolRegular.Router24, L.T("Party port"), L.T("TCP and UDP. Default: 9307."), "9307", () => S.Str("party_port"), v => S.Set("party_port", v), party, width: 120);
-        ToggleRow(SymbolRegular.Router24, L.T("UPnP"), L.T("Map the host's port automatically."), () => SeamlessSettings.Flag(S, "party_upnp"), v => S.Set("party_upnp", v), Rows(Hosting));
-        party = Rows(InParty);
-        ToggleRow(SymbolRegular.Globe24, L.T("DHT rendezvous"), L.T("Optional NAT traversal through the public BitTorrent DHT. Enable on every PC to use it."),
-            () => Ini.Get("party_rendezvous", "0") == "1", v => Ini.Set("party_rendezvous", v ? "1" : "0"), party);
-        // Kept in bbport.ini like the game's System > Party network rows, so both show the same value.
-        ToggleRow(SymbolRegular.People24, L.T("Relay for party members"), L.T("A member that cannot reach the host joins through you (party members only, capped upload)."),
-            () => Ini.Get("party_member_relay", "1") == "1", v => Ini.Set("party_member_relay", v ? "1" : "0"), party);
-        ToggleRow(SymbolRegular.Globe24, L.T("IPv6"), L.T("Try IPv6 when both PCs have it. A host without an open port then puts its IPv6 address into the party code."),
-            () => Ini.Get("party_ipv6", "0") == "1", v => Ini.Set("party_ipv6", v ? "1" : "0"), party);
-        TextRow(SymbolRegular.Server24, L.T("STUN server"), L.T("Empty uses stun.l.google.com:19302. Use off to disable."), L.T("Default"),
-            () => S.Str("party_stun"), v => S.Set("party_stun", v), party);
+        // The connection card (Host only): the route the party uses, its state and the address to give friends. The
+        // adapters are read off the UI thread (RefreshRoute); the address is shown on this screen only. Join mode
+        // says which networks the party list hears instead (ListenLine).
         var host = Rows(Hosting);
-        TextRow(SymbolRegular.Globe24, L.T("Host public address"), L.T("Leave on Automatic unless guests reach you another way: your VPN address (Radmin VPN, Tailscale, ZeroTier), or your public IP or DNS name when you forwarded the port yourself (host or host:port). The party code then carries it."), L.T("Automatic"),
-            () => S.Str("party_public_addr"), v => S.Set("party_public_addr", v), host);
+        _copyAddress = SmallButton(L.T("Copy"), SymbolRegular.Copy24, (_, _) => { if (_route.Address.Length > 0) Clipboard.SetText(_route.Address); });
+        Add(Card(SymbolRegular.Router24, L.T("Your connection"),
+            L.T("How the party reaches you: your VPN (Radmin VPN, Hamachi, ZeroTier, Tailscale) when one is found, else your local network. Friends on the same VPN or network can join with the address shown here. It is only shown on this screen."),
+            _copyAddress, out _routeHint, wide: true), host);
+        _hostPassword = PasswordRow(host, () => S.PartyPassword, v => S.PartyPassword = v,
+            L.T("Use the same password on every PC. Stored encrypted for your Windows user."));
+        _hostSize = PartySizeRow(host, L.T("Host and guests use the same limit. Five players is experimental."));
         // party_vpn in bbport.ini (auto / an adapter name / off), the same value as the game's System > Party network row.
         ComboRow(SymbolRegular.Router24, L.T("Host over"), L.T("Automatic takes your Radmin VPN, Hamachi, Tailscale or ZeroTier when one is up, else your local network. VPN: friends in that VPN join with the address above. Internet: friends join with the Internet party code. Read when the game starts."),
             new[] { new Choice(L.T("Automatic"), "auto"), new Choice(L.T("VPN"), "vpn"), new Choice(L.T("Internet (party code)"), "off") },
@@ -100,41 +65,48 @@ public sealed class SeamlessPage : LauncherPage
         _vpnPickRow = Add(Card(SymbolRegular.Router24, L.T("VPN"), L.T("More than one VPN is up: the one friends are in."), _vpnPick, out _), host);
         ToggleRow(SymbolRegular.People24, L.T("Show my party to friends"), L.T("While you host, the game announces the party's name, level and players on your VPN and local network, so friends see it under Parties on your network when they join. Never the password or your address. Takes effect at once."),
             () => Ini.Get("party_discovery", "1") == "1", v => Ini.Set("party_discovery", v ? "1" : "0"), host);
-        _codes = Text("", "Faint");
-        _codes.TextWrapping = TextWrapping.Wrap;
-        host.Children.Add(_codes);
         Add(Card(SymbolRegular.Copy24, L.T("Share party codes"), L.T("Available after the host starts. Use the LAN code on the same router."),
-            SmallButton(L.T("Copy codes"), SymbolRegular.Copy24, (_, _) => Clipboard.SetText(SeamlessSettings.Codes(S))), out _), host);
+            SmallButton(L.T("Copy codes"), SymbolRegular.Copy24, (_, _) => Clipboard.SetText(SeamlessSettings.Codes(S))), out _codes), host);
         Add(Card(SymbolRegular.Info24, L.T("Check my connection"),
             L.T("Explains this PC's last session problems from its logs. Names and IPs are hidden; the reply is copied to the clipboard."),
             SmallButton(L.T("Check"), SymbolRegular.Info24, (_, _) => CheckConnection()), out _), host);
+        // The Join list: parties announced on the VPN or local network (party discovery, UDP 9308). The listener runs
+        // on its own thread while this tab is open in Join mode; the timer only reads its snapshot.
+        var found = Rows(Joining);
+        Add(Card(SymbolRegular.People24, L.T("Parties on your network"),
+            L.T("Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Join fills in the host's address and party size. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed."),
+            SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24, (_, _) => { _book.Clear(); RefreshRoute(); StartListener(restart: true); RefreshParties(); }),
+            out _partiesHint), found);
+        _partyList = new StackPanel();
+        found.Children.Add(_partyList);
+        // Joining by hand, folded under the list. Its password is the one remembered for the code or address typed
+        // here (Join in the list asks for it); the party size is the same setting as the host's row.
+        _manual = new AdvancedSection(L.T("Join by code or address"), L.T("For a party that is not listed: paste the host's code or address."));
+        found.Children.Add(_manual);
+        _codeBox = TextRow(SymbolRegular.Link24, L.T("Host code or address"), L.T("Paste the host's Internet code, LAN code or host:port."), "BBP3-…",
+            () => S.Str("party_code"), v => { S.Set("party_code", v); SyncSharedRows(); }, _manual.Rows);
+        _joinPassword = PasswordRow(_manual.Rows, () => S.JoinPassword(S.Str("party_code")), v => S.SetJoinPassword(S.Str("party_code"), v),
+            L.T("The host's party password. Remembered for this code or address, encrypted for your Windows user."));
+        _joinSize = PartySizeRow(_manual.Rows, L.T("Must be the host's party size. Join in the list above sets it."));
 
-        party = Rows(InParty);
-        _status = Text(L.T("Start the game to see party status."), "Faint");
-        _status.TextWrapping = TextWrapping.Wrap;
-        party.Children.Add(_status);
-        foreach (var (title, action) in new[] { (L.T("Leave party"), "leave"), (L.T("Rejoin party"), "rejoin") })
-        {
-            var command = action;
-            Add(Card(SymbolRegular.People24, title, null,
-                SmallButton(title, SymbolRegular.People24, (_, _) => {
-                    try { SeamlessSession.Command(S, command); }
-                    catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
-                }), out _), party);
-        }
-        host = Rows(Hosting);
-        Add(Card(SymbolRegular.People24, L.T("Remove a member"), L.T("Host only. Enter the member's exact party name."),
-            SmallButton(L.T("Choose member"), SymbolRegular.People24, (_, _) => {
-                var status = SeamlessSession.Read(S);
-                if (status?.role != "host") { Prompt.Tell(L.T("Party"), L.T("Only the host can remove members.")); return; }
-                var members = status.members.Where(m => !m.local).ToArray();
-                if (members.Length == 0) { Prompt.Tell(L.T("Party"), L.T("No remote members to remove.")); return; }
-                var choice = Prompt.Choose(L.T("Remove member"), L.T("Choose a member to disconnect."), members.Select(m => m.name).ToArray());
-                if (choice >= 0) {
-                    try { SeamlessSession.Command(S, "kick", members[choice].name); }
-                    catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
-                }
-            }), out _), host);
+        // Network settings only matter when the party does not connect: folded, with the mode's own rows.
+        var network = Fold(L.T("Network and troubleshooting"), InParty, L.T("Ports, NAT traversal and connection codes: only needed when the party does not connect."));
+        party = Rows(InParty, network);
+        TextRow(SymbolRegular.Router24, L.T("Party port"), L.T("TCP and UDP. Default: 9307."), "9307", () => S.Str("party_port"), v => S.Set("party_port", v), party, width: 120);
+        ToggleRow(SymbolRegular.Router24, L.T("UPnP"), L.T("Map the host's port automatically."), () => SeamlessSettings.Flag(S, "party_upnp"), v => S.Set("party_upnp", v), Rows(Hosting, network));
+        party = Rows(InParty, network);
+        ToggleRow(SymbolRegular.Globe24, L.T("DHT rendezvous"), L.T("Optional NAT traversal through the public BitTorrent DHT. Enable on every PC to use it."),
+            () => Ini.Get("party_rendezvous", "0") == "1", v => Ini.Set("party_rendezvous", v ? "1" : "0"), party);
+        // Kept in bbport.ini like the game's System > Party network rows, so both show the same value.
+        ToggleRow(SymbolRegular.People24, L.T("Relay for party members"), L.T("A member that cannot reach the host joins through you (party members only, capped upload)."),
+            () => Ini.Get("party_member_relay", "1") == "1", v => Ini.Set("party_member_relay", v ? "1" : "0"), party);
+        ToggleRow(SymbolRegular.Globe24, L.T("IPv6"), L.T("Try IPv6 when both PCs have it. A host without an open port then puts its IPv6 address into the party code."),
+            () => Ini.Get("party_ipv6", "0") == "1", v => Ini.Set("party_ipv6", v ? "1" : "0"), party);
+        TextRow(SymbolRegular.Server24, L.T("STUN server"), L.T("Empty uses stun.l.google.com:19302. Use off to disable."), L.T("Default"),
+            () => S.Str("party_stun"), v => S.Set("party_stun", v), party);
+        host = Rows(Hosting, network);
+        TextRow(SymbolRegular.Globe24, L.T("Host public address"), L.T("Leave on Automatic unless guests reach you another way: your VPN address (Radmin VPN, Tailscale, ZeroTier), or your public IP or DNS name when you forwarded the port yourself (host or host:port). The party code then carries it."), L.T("Automatic"),
+            () => S.Str("party_public_addr"), v => S.Set("party_public_addr", v), host);
         Add(Card(SymbolRegular.Link24, L.T("Connect a guest"), L.T("Host: copy the guest's BBG1 code first, then add it here."),
             SmallButton(L.T("Add copied guest code"), SymbolRegular.Link24, (_, _) => {
                 try {
@@ -145,8 +117,7 @@ public sealed class SeamlessPage : LauncherPage
                     SeamlessSession.Command(S, "add_guest_code", code);
                 } catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
             }), out _), host);
-
-        var join = Rows(Joining);
+        var join = Rows(Joining, network);
         Add(Card(SymbolRegular.Link24, L.T("Guest connection code"), L.T("Guests can share this with a host when NAT prevents a direct connection."),
             SmallButton(L.T("Copy guest code"), SymbolRegular.Copy24, (_, _) => {
                 var code = SeamlessSession.Read(S)?.guest_code;
@@ -163,59 +134,93 @@ public sealed class SeamlessPage : LauncherPage
                 } catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
             }), out _), join);
 
+        // The running session: its state, then Leave / Rejoin side by side, and the host's Remove.
+        _byMode.Add((Group(L.T("Session")), InParty));
+        party = Rows(InParty);
+        _status = Text(L.T("Start the game to see party status."), "Faint");
+        _status.TextWrapping = TextWrapping.Wrap;
+        party.Children.Add(_status);
+        var commands = new List<UIElement>();
+        foreach (var (title, action, icon) in new[] { (L.T("Leave party"), "leave", SymbolRegular.ArrowExit20), (L.T("Rejoin party"), "rejoin", SymbolRegular.ArrowSync24) })
+        {
+            var command = action;
+            var button = SmallButton(title, icon, (_, _) => {
+                try { SeamlessSession.Command(S, command); }
+                catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
+            });
+            button.Margin = new Thickness(commands.Count > 0 ? 8 : 0, 0, 0, 0);
+            commands.Add(button);
+        }
+        Add(Card(SymbolRegular.People24, L.T("Party"), L.T("Leave goes back to your own world; Rejoin connects to the party again."), Row(commands.ToArray()), out _), party);
+        Add(Card(SymbolRegular.People24, L.T("Remove a member"), L.T("Host only. Enter the member's exact party name."),
+            SmallButton(L.T("Choose member"), SymbolRegular.People24, (_, _) => {
+                var status = SeamlessSession.Read(S);
+                if (status?.role != "host") { Prompt.Tell(L.T("Party"), L.T("Only the host can remove members.")); return; }
+                var members = status.members.Where(m => !m.local).ToArray();
+                if (members.Length == 0) { Prompt.Tell(L.T("Party"), L.T("No remote members to remove.")); return; }
+                var choice = Prompt.Choose(L.T("Remove member"), L.T("Choose a member to disconnect."), members.Select(m => m.name).ToArray());
+                if (choice >= 0) {
+                    try { SeamlessSession.Command(S, "kick", members[choice].name); }
+                    catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
+                }
+            }), out _), Rows(Hosting));
+
         // Party settings as in the game's System > Party rules / My party pages (visy 0.7.3): the host's
-        // rules for the whole party, then what each player chooses for itself.
+        // rules for the whole party (the ones most hosts change shown, the rest folded by topic), then what each
+        // player chooses for itself. Joining: the rules are the host's and reach you on connect; the start-up rules
+        // a guest must match are taken from the host's refusal by the main window (SeamlessSettings.TakeHostStartupRules).
         _byMode.Add((Group(L.T("Party rules")), Hosting));
         host = Rows(Hosting);
         host.Children.Add(Text(L.T("The host's rules for the whole party. When you join, the host's count and yours are kept for when you host (in the game: System > Party rules)."), "Faint"));
         IniToggles(host,
-            ("party_kill_record", L.T("Enemies stay dead"), true), ("party_gather", L.T("Host can gather the party"), true),
-            ("party_npc_mirror", L.T("NPCs as in the host's world"), true),
+            ("party_kill_record", L.T("Enemies stay dead"), true), ("party_open_world", L.T("Remove multiplayer barriers"), true),
+            ("party_share_lamps", L.T("Shared lamps"), true), ("party_gather", L.T("Host can gather the party"), true),
+            ("party_guest_respawn", L.T("Guest respawn"), true), ("party_level_sync", L.T("Level sync"), true),
+            ("party_friendly_fire", L.T("Friendly fire / PvP"), false), ("party_pvp_full_hp", L.T("Full health in PvP"), true));
+        IniToggles(Fold(L.T("World and story"), Hosting),
+            ("party_story_mirror", L.T("Cutscenes for every player"), true), ("party_npc_mirror", L.T("NPCs as in the host's world"), true),
             ("party_covenant_per_player", L.T("Covenant outcomes per player"), true),
-            ("party_travel_vote", L.T("Party votes on travel"), false),
             ("party_npc_fights", L.T("NPC hunters fight the whole party"), true),
             ("party_any_kidnap", L.T("Anyone can be abducted"), true),
-            ("party_friendly_fire", L.T("Friendly fire / PvP"), false), ("party_pvp_full_hp", L.T("Full health in PvP"), true),
-            ("party_share_lamps", L.T("Shared lamps"), true),
-            ("party_guests_bring_lamps", L.T("Guests bring their lamps"), false),
-            ("party_rot", L.T("Rot on death"), false), ("party_rot_cleanse_boss", L.T("Boss kill cleanses rot"), true),
-            ("party_rot_cleanse_killer", L.T("Killing your killer cleanses its rot"), true),
-            ("party_rot_cleanse_echoes", L.T("Retrieving Blood Echoes cleanses its rot"), true));
-        IniNumbers(host,
+            ("party_travel_vote", L.T("Party votes on travel"), false),
+            ("party_guests_bring_lamps", L.T("Guests bring their lamps"), false));
+        IniToggles(Fold(L.T("Guests"), Hosting),
+            ("party_guest_revive_inplace", L.T("Get up without a loading screen"), true),
+            ("party_guest_refill", L.T("Refill guest supplies"), true), ("party_chalice_rejoin", L.T("Stay in Chalice Dungeons"), true),
+            ("party_phantom_hp", L.T("Phantom health cut"), true));
+        IniNumbers(Fold(L.T("Enemy and boss scaling"), Hosting, L.T("How much tougher enemies and bosses get for each guest.")),
             ("party_boss_hp", L.T("Boss HP per guest (%)"), 150), ("party_boss_damage", L.T("Boss damage per guest (%)"), 10),
             ("party_boss_poise", L.T("Boss poise per guest (%)"), 100), ("party_enemy_hp", L.T("Enemy HP per guest (%)"), 50),
             ("party_enemy_damage", L.T("Enemy damage per guest (%)"), 0), ("party_enemy_poise", L.T("Enemy poise per guest (%)"), 0));
-        // Session rules the host decides (0.7.5): live ones first, then the start-up rules a guest has to match.
-        IniToggles(host,
-            ("party_open_world", L.T("Remove multiplayer barriers"), true), ("party_story_mirror", L.T("Cutscenes for every player"), true),
-            ("party_guest_respawn", L.T("Guest respawn"), true), ("party_guest_revive_inplace", L.T("Get up without a loading screen"), true),
-            ("party_guest_refill", L.T("Refill guest supplies"), true), ("party_chalice_rejoin", L.T("Stay in Chalice Dungeons"), true));
-        IniToggles(host,
-            ("party_level_sync", L.T("Level sync"), true), ("party_phantom_hp", L.T("Phantom health cut"), true));
+        IniToggles(Fold(L.T("Rot on death"), Hosting),
+            ("party_rot", L.T("Rot on death"), false), ("party_rot_cleanse_boss", L.T("Boss kill cleanses rot"), true),
+            ("party_rot_cleanse_killer", L.T("Killing your killer cleanses its rot"), true),
+            ("party_rot_cleanse_echoes", L.T("Retrieving Blood Echoes cleanses its rot"), true));
+        host = Fold(L.T("Start-up rules"), Hosting, L.T("Read when the game starts. A guest with other values is refused and takes the host's."));
         StartupRows(host);
         IniToggles(host, ("party_skip_prologue", L.T("Skip the prologue (new characters)"), false));
-
-        // Joining: the rules above are the host's and reach you on connect. The start-up rules a guest must match are
-        // taken from the host's refusal by the main window (SeamlessSettings.TakeHostStartupRules), which restarts the game.
 
         _byMode.Add((Group(L.T("My party")), InParty));
         party = Rows(InParty);
         party.Children.Add(Text(L.T("Your own party settings: your screen, what you get as a guest, story sync (in the game: System > My party)."), "Faint"));
         IniToggles(party,
-            ("party_hud", L.T("Party HUD"), true), ("party_hud_ping", L.T("Ping in the party list"), true),
-            ("party_conn_warnings", L.T("Connection warnings"), true),
-            ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
-            ("party_through_walls", L.T("Show party through walls"), false),
-            ("party_glow_off", L.T("Companions without glow"), true), ("party_toasts", L.T("Join, leave and travel notices"), true),
-            ("party_npc_talk", L.T("Share NPC dialogue"), true),
-            ("party_key_view", L.T("Own key items as a guest"), true), ("party_key_items_summoned", L.T("Key items at once"), true));
-        IniNumbers(party, ("party_npc_talk_range", L.T("NPC dialogue range (m)"), 25), ("party_overhead", L.T("Name tag detail (0–4)"), 3));
-        IniToggles(party, SeamlessSettings.GameSwitches.Where(o => SeamlessSettings.OwnSwitches.Contains(o.Key)).Select(o => (o.Key, o.Label, true)).ToArray());
+            ("party_hud", L.T("Party HUD"), true), ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
+            ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_npc_talk", L.T("Share NPC dialogue"), true));
         foreach (var option in SeamlessSettings.Switches)
         {
             var key = option.Key;
             ToggleRow(SymbolRegular.People24, option.Label, PartyInfo(key), () => SeamlessSettings.Flag(S, key), v => S.Set(key, v), party);
         }
+        party = Fold(L.T("Display"), InParty);
+        IniToggles(party,
+            ("party_hud_ping", L.T("Ping in the party list"), true),
+            ("party_conn_warnings", L.T("Connection warnings"), true), ("party_through_walls", L.T("Show party through walls"), false),
+            ("party_glow_off", L.T("Companions without glow"), true));
+        IniNumbers(party, ("party_overhead", L.T("Name tag detail (0–4)"), 3), ("party_npc_talk_range", L.T("NPC dialogue range (m)"), 25));
+        party = Fold(L.T("Progress and items"), InParty, L.T("What reaches your own save. Takes effect on the next game start."));
+        IniToggles(party, SeamlessSettings.GameSwitches.Where(o => SeamlessSettings.OwnSwitches.Contains(o.Key)).Select(o => (o.Key, o.Label, true)).ToArray());
+        IniToggles(party,
+            ("party_key_view", L.T("Own key items as a guest"), true), ("party_key_items_summoned", L.T("Key items at once"), true));
 
         Group(L.T("Party saves"));
         Body.Children.Add(Text(L.T("Seamless play uses its own savedata_party folder. Automatic snapshots keep single-player and party progress recoverable."), "Faint"));
@@ -246,8 +251,8 @@ public sealed class SeamlessPage : LauncherPage
             SmallButton(L.T("Check"), SymbolRegular.Save24, async (_, _) => await SaveAction("check")), out _));
         // visy 0.7.3 (scripts/save_editor.py): a save last written as a guest in another world lacks the own
         // world's state that save editors look for; the export adds it and the import takes it out again.
-        Add(Card(SymbolRegular.ArrowExport24, L.T("Export for save editor"), L.T("A copy of one character save that save editors can open. Your save is not changed."),
-            SmallButton(L.T("Export"), SymbolRegular.ArrowExport24, async (_, _) => await ExportForEditor()), out _));
+        Add(Card(SymbolRegular.ArrowExportUp24, L.T("Export for save editor"), L.T("A copy of one character save that save editors can open. Your save is not changed."),
+            SmallButton(L.T("Export"), SymbolRegular.ArrowExportUp24, async (_, _) => await ExportForEditor()), out _));
         Add(Card(SymbolRegular.ArrowImport24, L.T("Import from save editor"), L.T("Puts an edited export back into its slot. Your saves are backed up first."),
             SmallButton(L.T("Import"), SymbolRegular.ArrowImport24, async (_, _) => await ImportFromEditor()), out _));
         ComboRow(SymbolRegular.Document24, L.T("Party log detail"), L.T("Verbose and trace logging add overhead."),
@@ -255,7 +260,7 @@ public sealed class SeamlessPage : LauncherPage
             () => S.Str("party_log"), v => S.Set("party_log", v));
 
         _timer.Tick += (_, _) => {
-            _codes.Text = SeamlessSettings.Codes(S);
+            SetHint(_codes, SeamlessSettings.Codes(S));
             if (++_ticks % 5 == 0) RefreshRoute();
             RefreshParties();
             var status = SeamlessSession.Read(S);
@@ -264,7 +269,7 @@ public sealed class SeamlessPage : LauncherPage
                 string.Join("\n", status.members.Select(m => $"{m.name}：{(m.in_world ? L.T("in host world") : m.connected ? L.T("connected") : L.T("disconnected"))}  {(m.ping_ms < 0 ? "" : m.ping_ms + " ms")}  {m.area}")) +
                 $"\n{status.@event}\n{status.alert}";
         };
-        Loaded += (_, _) => { _codes.Text = SeamlessSettings.Codes(S); _timer.Start(); RefreshRoute(); StartListener(); };
+        Loaded += (_, _) => { SetHint(_codes, SeamlessSettings.Codes(S)); _timer.Start(); RefreshRoute(); StartListener(); };
         Unloaded += (_, _) => { _timer.Stop(); _listener?.Dispose(); _listener = null; };
         ShowMode();
     }
@@ -494,13 +499,20 @@ public sealed class SeamlessPage : LauncherPage
             () => SeamlessSettings.StartupValue("party_start", S.Str("party_start")), v => S.Set("party_start", v), into);
     }
 
-    /// A panel for the next rows, shown in the modes when accepts (ShowMode).
-    private StackPanel Rows(Func<string, bool> when)
+    /// A panel for the next rows (in the page, or in a fold), shown in the modes when accepts (ShowMode).
+    private StackPanel Rows(Func<string, bool> when, Panel? into = null)
     {
         var rows = new StackPanel();
-        Body.Children.Add(rows);
+        (into ?? Body).Children.Add(rows);
         _byMode.Add((rows, when));
         return rows;
+    }
+    /// A folded part of the current group, shown in the modes when accepts; its rows go in the panel returned.
+    private StackPanel Fold(string title, Func<string, bool> when, string? tip = null)
+    {
+        var section = new AdvancedSection(title, tip);
+        Rows(when).Children.Add(section);
+        return section.Rows;
     }
     private void ShowMode()
     {
