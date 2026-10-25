@@ -37,6 +37,7 @@
 #include "party_lan.h"
 #include "party_traversal.h"
 #include "party_netroute.h"
+#include "party_connwarn.h"
 
 #include "../net/bbnet_internal.h"
 #include "../net/np_hle.h"
@@ -95,6 +96,14 @@ void plog(const char* fmt, ...) {
     std::vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     coop::asyncio::Print(std::string("Party: ") + coop::PartyLogStamp() + buf + "\n"); // never blocks the caller (party_async_io.h)
+}
+
+// Connection warnings (party_connwarn.h): the player's switch and the party log line.
+void connwarn_log(const char* line) {
+    plog("%s", line);
+}
+bool connwarn_on() {
+    return BbSettings::Get().party_conn_warnings.load();
 }
 
 // The LAN code, the discovery reply and the UPnP mapping carry the address the game uses
@@ -818,6 +827,15 @@ void on_state(LinkState s, const std::string& detail) {
     }
     if (!link) return;
     if (!host) netroute::GuestLinkState(s);  // F2 (0.7.1): the next attempt's path
+    if (!host && s == LinkState::Connected) connwarn::GuestHostConnected();
+    if (!host && s == LinkState::Reconnecting) {
+        std::string addr;
+        {
+            std::lock_guard<std::mutex> lk(r.mu);
+            addr = r.st.host_address;
+        }
+        connwarn::GuestHostLost(addr);  // 3+ losses without ever connecting: the notice (party_connwarn.h)
+    }
     std::string reason = link->reject_reason();
     if (!host && s == LinkState::Rejected && link->reject_code() == RejectCode::Auth) {
         std::lock_guard<std::mutex> lk(r.mu);
@@ -1948,6 +1966,23 @@ void start_host(LinkConfig cfg) {
         plog("NAT: %s (%s); %s", nat::type_name(host_nat),
              port_open ? "port open" : !blocked.empty() ? nat::outside_name(outside) : "no open port", adv.c_str());
         if (has_code6) plog("IPv6: the Internet code carries this PC's IPv6 address (the IPv4 port is not open)");
+        if (!lb) {
+            // Connection warnings: the firewall, and nobody reaching a host with no open port.
+            const bool vpn = !bbnet::vpn_in_use().empty() || env("BB_PARTY_LOCAL_IP") != nullptr;
+            connwarn::HostStarted(port_open, vpn);
+            connwarn::HostCheckFirewall(port);
+            std::thread([port] {
+                while (!stopping()) {
+                    std::this_thread::sleep_for(std::chrono::seconds(5));
+                    PartyLink* l = runtime_link();
+                    if (l) {
+                        for (const RosterEntry& e : l->roster())
+                            if (e.slot > 0 && e.connected) connwarn::HostGuestOnLink();
+                    }
+                    connwarn::HostTick(port);
+                }
+            }).detach();
+        }
         {
             std::lock_guard<std::mutex> lk(r.mu);
             r.st.network = adv;
@@ -2942,6 +2977,8 @@ void runtime_start() {
     static std::once_flag once;
     std::call_once(once, [] {
         if (!bbnet::settings().party) return;
+        connwarn::SetEnabledProvider(&connwarn_on);
+        connwarn::SetLogger(&connwarn_log);
         std::thread([] {
             startup_main();
             Runtime& r = R();

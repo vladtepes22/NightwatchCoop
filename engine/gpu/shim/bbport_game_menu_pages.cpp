@@ -745,6 +745,11 @@ void DefineAll() {
     party.event_value = AddDynamic(MaxValueLength);
     party.event_help = AddDynamic(MaxHelpLength);
     AddRow(Info(), AddText("Last event", "Последнее"), party.event_help, {party.event_value}, Kind::Button);
+    // 0.7.6: connection warnings (party/party_connwarn.h): the firewall / router / address hints (a player's
+    // own switch; Look & notices has no free slot).
+    AddRow(Flag(&Values::party_conn_warnings), "Connection warnings", "Предупреждения о связи",
+           "A notice with the fix when the firewall, router or address keeps the party from working",
+           "Уведомление с решением, когда брандмауэр, роутер или адрес мешают группе", toggle, Kind::Toggle);
 
     // ---- Party network (F2, 0.7.1, party_netroute.h): the link's path, the member relay, IPv6 ----
     AddPage("Party network", "Сеть группы", "The link's path, the public DHT, relaying for members, IPv6 (bbport)",

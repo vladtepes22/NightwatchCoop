@@ -199,6 +199,7 @@ public sealed class SeamlessPage : LauncherPage
         party.Children.Add(Text(L.T("Your own party settings: your screen, what you get as a guest, story sync (in the game: System > My party)."), "Faint"));
         IniToggles(party,
             ("party_hud", L.T("Party HUD"), true), ("party_hud_ping", L.T("Ping in the party list"), true),
+            ("party_conn_warnings", L.T("Connection warnings"), true),
             ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
             ("party_through_walls", L.T("Show party through walls"), false),
             ("party_glow_off", L.T("Companions without glow"), true), ("party_toasts", L.T("Join, leave and travel notices"), true),
@@ -516,6 +517,7 @@ public sealed class SeamlessPage : LauncherPage
         "party_enemy_damage" => L.T("Controls how much enemy damage scales for each additional guest."),
         "party_enemy_poise" => L.T("Controls how much enemy poise scales for each additional guest."),
         "party_hud" => L.T("Shows companions' names, health and where they are, in the bottom left corner. Party mode only."),
+        "party_conn_warnings" => L.T("A notice with the fix when the Windows Firewall, the router or a wrong address keeps the party from working. Each at most once per session. Your own setting, not a host rule."),
         "party_name_tags" => L.T("On: our name plates above companions, never hidden by walls. Off: the game's own plate."),
         "party_pings" => L.T("Touchpad + R3, or the Ping key (default B, under Controls), marks where you look. Everyone sees the mark for 10 s."),
         "party_through_walls" => L.T("A small marker with the distance on each companion on your map, also behind walls."),

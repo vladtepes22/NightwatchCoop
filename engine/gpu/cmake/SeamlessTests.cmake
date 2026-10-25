@@ -232,6 +232,13 @@ target_include_directories(party-status-test PRIVATE shim)
 
 set_target_properties(party-status-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
+# Connection warnings (shim/party/party_connwarn.cpp): firewall rule classification, thresholds, seam.
+add_executable(party-connwarn-test EXCLUDE_FROM_ALL ../tests/test_party_connwarn.cpp shim/party/party_connwarn.cpp
+    shim/party/party_status.cpp)
+target_compile_options(party-connwarn-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-connwarn-test PRIVATE shim)
+set_target_properties(party-connwarn-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
 add_executable(party-soak EXCLUDE_FROM_ALL ../tests/party_soak.cpp ${PARTY_NET_SOURCES} ${PARTY_LINK_SOURCES}
     third_party/monocypher/monocypher.c)
 

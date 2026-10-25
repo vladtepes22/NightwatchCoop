@@ -179,6 +179,9 @@ struct Values {
     /// 0.7.5: party discovery (net/party_discovery.h): the host announces itself on the VPN and LAN adapters
     /// only; the launcher's Join page lists what it hears. ini party_discovery, env BB_PARTY_DISCOVERY. Live.
     std::atomic<bool> party_discovery{true};
+    /// 0.7.6: connection warnings (party/party_connwarn.h): an on-screen notice when the firewall, the router or a
+    /// wrong address keeps the party from working. Per player. ini party_conn_warnings. Live.
+    std::atomic<bool> party_conn_warnings{true};
     /// Party gameplay switches (the launcher's Party Rules / My Party tabs, the game's party pages in
     /// System; PartySwitches below): ini key = the member's name, env BB_PARTY_* = 0/1 wins at start.
     /// On by default. Load puts each value into the process environment when its variable is unset,

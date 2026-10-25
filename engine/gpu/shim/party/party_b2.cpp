@@ -51,6 +51,7 @@
 #include "../bbport_camera.h"
 #include "../bbport_frame_state.h"
 #include "../bbport_settings.h"
+#include "party_connwarn.h"
 #include "../bbport_toggles.h"
 
 #include <algorithm>
@@ -10152,6 +10153,7 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
         Send(0, dsummon::EncodeDone(ok));
         if (ok) {
             Log("direct summon: joined the host's room (%.1f s after the request)", now - asked_at);
+            party::connwarn::GuestOwnSummonJoined();
             if (!dsummon::SameMap(room.area, s.map_id) && ((room.area >> 24) & 0xff) != 29) {
                 g_carry_join_at = Now();  // A5: the arrival load into the host's map (CarryArrivalTick)
                 Log("A5: joined from another map (own %s, the host's room in %s): the arrival load follows",
@@ -10159,6 +10161,8 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
                 g_carry_hold = true;  // K6 holds the game's own summon load until the arrival starts
             }
         } else {
+            // Connection warnings: delivered but never joined = the host's session cannot hear this game.
+            if (std::strncmp(fail_why, "delivered", 9) == 0) party::connwarn::GuestOwnSummonFailed(bbnet::settings().party_port);
             Log("direct summon: FAILED (%s; %.1f s after the request): %s", fail_why, now - asked_at,
                 gather ? "the bell goes down; gather to the host's area first (loading screen), then ring again"
                        : "the bell sign path takes over");
@@ -10373,6 +10377,11 @@ void DirectSummonEvent(int from_slot, const std::string& body) {
             bbnet::party::FromApi::instance().hold_signs(name, ok ? 3000 : 1);
             bbnet::party::FromApi::instance().hide_unreachable(name, ok || heard_now ? 0 : 35000);
             if (!ok) bbnet::party::FromApi::instance().renew_signs(name);
+        }
+        if (!name.empty()) {
+            // Connection warnings: a guest on the link whose game UDP is not heard, again and again.
+            if (ok || heard_now) party::connwarn::HostGuestUdpFine(name);
+            else party::connwarn::HostGuestUdpUnheard(name, bbnet::settings().party_port);
         }
         Log("direct summon: slot %d (%s) reports %s", from_slot, name.c_str(),
             ok         ? "it joined"
