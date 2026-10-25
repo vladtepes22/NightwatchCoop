@@ -94,6 +94,22 @@ int main() {
         assert(FromJson(ToJson(k), &back) && !back.any_kidnap && back == k && back != Rules{});
         Rules old;
         assert(FromJson("{\"rot\":false}", &old) && old.any_kidnap);
+        // 0.7.5 partyrules: the session rules travel in the JSON and default on for a host from before them.
+        Rules sr;
+        sr.open_world = false;
+        sr.guest_refill = false;
+        sr.full_rewards = false;
+        Rules sback;
+        assert(FromJson(ToJson(sr), &sback) && !sback.open_world && !sback.guest_refill && !sback.full_rewards &&
+               sback.guest_respawn && sback == sr && sback != Rules{});
+        assert(old.open_world && old.guest_lamps && old.story_mirror);
+        StartupRules st;
+        st.guest_lamps = false;
+        st.guest_insight = 1;
+        st.start_immediate = true;
+        const std::string tag = JoinRulesTag(st);
+        assert(tag.find("Guests use lamps=off") != std::string::npos && tag.find("Insight for bosses=Full bonus") != std::string::npos &&
+               tag.find("Party starts=Right away") != std::string::npos);
     }
     // 0.7.5 (levelsync): Level sync and Phantom health go with the rules, on by default; a host from before them: on.
     {

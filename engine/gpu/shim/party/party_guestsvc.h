@@ -197,6 +197,9 @@ std::string DescribeRecordChange(const PlayerRecord& before, const PlayerRecord&
 /// "BB_PARTY_GUEST_LAMPS" value: "0" off, "1" on, anything else -> `fallback` (the Party page
 /// setting party_guest_lamps, on by default).
 bool GuestLampsEnabledFromEnv(const char* value, bool fallback = true);
+/// Guests use lamps as this game took it at start (env over bbport.ini party_guest_lamps; read
+/// once): the lamp hooks and EMEVD rules follow it, and so does the party's join check (0.7.4).
+bool GuestLampsAtStart();
 /// "BB_PARTY_GUEST_SERVICES" value -> on/off (unset / "" / anything but "0" = on).
 bool GuestServicesEnabledFromEnv(const char* value);
 

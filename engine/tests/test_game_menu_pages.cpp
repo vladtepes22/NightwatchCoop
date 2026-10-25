@@ -370,7 +370,7 @@ static void Party() {
     assert(hud.visible && hud.visible());
     RowNamed(PageNamed(u"Party network"), u"Find via public DHT");
     RowNamed(PageNamed(u"My party: Look & notices"), u"Join/leave notices");
-    RowNamed(PageNamed(u"My party: World"), u"Guests use lamps");
+    RowNamed(PageNamed(u"Party rules: Travel"), u"Guests use lamps");
     assert(std::u16string(P::Text(members.rows[0].name, false)) == u"Hunter0 (host) (you)");
     assert(std::u16string(P::Text(members.rows[1].choices[0], false)) == u"In world, 42 ms");
     assert(std::u16string(P::Text(members.rows[2].choices[0], true)) == u"Связь потеряна");
@@ -479,20 +479,21 @@ static void RulesPages() {
     };
     using V = std::vector<std::u16string>;
     // 0.7.3: the host's rules (Party rules: ...) and each player's own (My party: ...) apart.
-    const V deaths = {u"Host gets up, no load", u"Up after boss kill", u"Anyone can be abducted"};
-    const V my_deaths = {u"Guest gets up, no load", u"Respawn at host's lamp", u"Refill vials, bullets"};
+    // 0.7.5 partyrules: every session rule is the host's (also the guests' deaths, travel and rewards).
+    const V deaths = {u"Host gets up, no load", u"Up after boss kill", u"Anyone can be abducted",
+                      u"Guest gets up, no load", u"Respawn at host's lamp", u"Refill vials, bullets"};
     // 0.7.2: rot and what else cleanses it, the host's rules, on a page of their own.
     const V rot = {u"Rot on death", u"Rot: boss kill cleanses", u"Rot: kill your killer", u"Rot: echoes back"};
     const V world = {u"Friendly fire / PvP", u"Shared lamps", u"Guests bring their lamps"};
-    const V my_world = {u"Guests use lamps", u"Guests use Hunter's Mark", u"Open world", u"Stay in Chalice Dungeons"};
-    const V look = {u"No companion glow", u"Join/leave notices", u"Party discovery"};
-    const V look = {u"No companion glow", u"Ping in the party list", u"Join/leave notices"};
-    const V story = {u"Share NPC dialogue", u"NPC dialogue range", u"Share story progress", u"Share NPC quests",
-                     u"Share cutscenes, endings", u"Cutscenes live with host"};
+    const V travel = {u"Guests use lamps", u"Guests use Hunter's Mark", u"Open world", u"Stay in Chalice Dungeons",
+                      u"Cutscenes live with host"};
+    const V look = {u"No companion glow", u"Ping in the party list", u"Join/leave notices", u"Share NPC dialogue",
+                    u"NPC dialogue range", u"Party discovery"};
+    const V save = {u"Share story progress", u"Share NPC quests", u"Share cutscenes, endings"};
     const V shared = {u"Enemies stay dead", u"Host can gather", u"NPCs as in host's world", u"Covenants per player",
                       u"Party votes on travel", u"NPC hunters fight all"};
-    const V rewards = {u"Full rewards for guests", u"Host's item rewards", u"Give the bells", u"Own key items as guest",
-                       u"Key items at once", u"Insight for bosses"};
+    const V rewards = {u"Full rewards for guests", u"Insight for bosses"};
+    const V items = {u"Host's item rewards", u"Give the bells", u"Own key items as guest", u"Key items at once"};
     const V display = {u"Party HUD", u"Party name tags", u"Pings", u"Show party through walls", u"Bloodstain marker",
                        u"Above companions"};
     for (const ps::Role role : {ps::Role::Host, ps::Role::Guest}) {
@@ -523,10 +524,10 @@ static void RulesPages() {
         assert(names(u"Party rules: Deaths") == deaths);
         assert(names(u"Party rules: Rot") == rot);
         assert(names(u"Party rules: Enemies").size() == 6);
-        assert(names(u"My party: Deaths") == my_deaths);
-        assert(names(u"My party: World") == my_world);
-        assert(names(u"My party: Story") == story);
-        assert(names(u"My party: Rewards") == rewards);
+        assert(names(u"Party rules: Travel") == travel);
+        assert(names(u"My party: Your save") == save);
+        assert(names(u"My party: Your items") == items);
+        assert(names(u"Party rules: Rewards") == rewards);
         assert(names(u"My party: Display") == display);
         assert(names(u"My party: Look & notices") == look);
         const bool guest = role == ps::Role::Guest;
@@ -556,12 +557,14 @@ static void RulesPages() {
         }
         const P::Kind host_kind = guest ? P::Kind::Button : P::Kind::Toggle;
         for (const char16_t* page : {u"Party rules: World", u"Party rules: PvP & lamps", u"Party rules: Deaths",
-                                     u"Party rules: Rot"})
+                                     u"Party rules: Rot", u"Party rules: Travel"})
             for (const P::Kind kind : kinds(page)) assert(kind == host_kind);
-        for (const char16_t* page : {u"My party: Deaths", u"My party: World", u"My party: Story", u"My party: Rewards",
-                                     u"My party: Display", u"My party: Look & notices"})
+        for (const char16_t* page : {u"My party: Your save", u"My party: Your items", u"My party: Display",
+                                     u"My party: Look & notices"})
             for (const P::Kind kind : kinds(page)) assert(kind != P::Kind::Button);
-        assert(kinds(u"My party: Rewards").back() == P::Kind::List && kinds(u"My party: Display").back() == P::Kind::List);
+        for (const P::Kind kind : kinds(u"Party rules: Rewards")) assert(kind == host_kind || kind == P::Kind::List);
+        assert(kinds(u"Party rules: Rewards").back() == (guest ? P::Kind::Button : P::Kind::List) &&
+               kinds(u"My party: Display").back() == P::Kind::List);
         // The group's pages follow each other in the System menu: Party rules, then My party.
         {
             std::vector<std::u16string> order;
@@ -569,9 +572,9 @@ static void RulesPages() {
             const auto at = [&](const char16_t* n) { return std::find(order.begin(), order.end(), n) - order.begin(); };
             const auto first = at(u"Party rules: World");
             const char16_t* group[] = {u"Party rules: World", u"Party rules: PvP & lamps", u"Party rules: Deaths",
-                                       u"Party rules: Rot", u"Party rules: Enemies", u"Party rules: Phantoms", u"My party: Deaths",
-                                       u"My party: World", u"My party: Story", u"My party: Rewards",
-                                       u"My party: Display", u"My party: Look & notices"};
+                                       u"Party rules: Travel", u"Party rules: Rewards", u"Party rules: Rot",
+                                       u"Party rules: Enemies", u"Party rules: Phantoms", u"My party: Your save",
+                                       u"My party: Your items", u"My party: Display", u"My party: Look & notices"};
             for (std::size_t i = 0; i < std::size(group); ++i) assert(at(group[i]) == first + long(i));
         }
         const std::string shared_line = P::ShownSummary(PageNamed(u"Party rules: World"));
@@ -588,7 +591,7 @@ static void RulesPages() {
         for (const P::Page& page : P::All()) assert(P::ShownSummary(page).find("(CUT)") == std::string::npos);
         const std::string deaths_line = P::ShownSummary(PageNamed(u"Party rules: Deaths"));
         assert(deaths_line.find("Host gets up, no load=" + std::string(guest ? "Off" : "On")) != std::string::npos);
-        assert(P::ShownSummary(PageNamed(u"My party: Rewards")).find("Insight for bosses=") != std::string::npos);
+        assert(P::ShownSummary(PageNamed(u"Party rules: Rewards")).find("Insight for bosses=") != std::string::npos);
         if (guest) {
             const auto shown = P::ShownRows(PageNamed(u"Party rules: Deaths"));
             assert(std::u16string(P::Text(shown[0]->choices[0], false)) == u"Off");
@@ -639,8 +642,8 @@ static void RulesPages() {
           std::tuple{u"Party rules: Phantoms", u"Level sync", "party_level_sync", &BbSettings::Values::party_level_sync},
           std::tuple{u"Party rules: Phantoms", u"Phantom health cut", "party_phantom_hp",
                      &BbSettings::Values::party_phantom_hp},
-          std::tuple{u"My party: Rewards", u"Own key items as guest", "party_key_view", &BbSettings::Values::party_key_view},
-          std::tuple{u"My party: Rewards", u"Key items at once", "party_key_items_summoned",
+          std::tuple{u"My party: Your items", u"Own key items as guest", "party_key_view", &BbSettings::Values::party_key_view},
+          std::tuple{u"My party: Your items", u"Key items at once", "party_key_items_summoned",
                      &BbSettings::Values::party_key_items_summoned}}) {
         s.*member = true;
         P::Load();
@@ -653,7 +656,11 @@ static void RulesPages() {
         Advance(16);
         assert((s.*member) && ReadIni()[key] == "1");
     }
-    const P::Row& insight = RowNamed(PageNamed(u"My party: Rewards"), u"Insight for bosses");
+    const P::Row* insight_row = nullptr;  // the host's list (the guest's read-only line has the same name)
+    for (const P::Row& row : PageNamed(u"Party rules: Rewards").rows)
+        if (row.kind == P::Kind::List) insight_row = &row;
+    assert(insight_row);
+    const P::Row& insight = *insight_row;
     *P::Value(insight.field) = 2;
     Advance(16);
     assert(ReadIni()["party_guest_insight"] == "0");

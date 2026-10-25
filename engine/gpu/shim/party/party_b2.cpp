@@ -4680,8 +4680,9 @@ void HeldDeathTick(const GameSnapshot& s, double now) {
         // in the Dream and could not get back in): a dungeon is entered only by the summon's quick
         // join, and its lamps are not in the party's spot table (LampTableSpotTrusted), so the guest
         // gets up beside the nearest living member, no load; never to its own lamp outside.
-        // bbport.ini party_chalice_rejoin (BB_PARTY_CHALICE_REJOIN=0: the own-lamp rule as elsewhere).
-        const bool dungeon = (s.map_id >> 24) == 29 && BbSettings::Get().party_chalice_rejoin.load();
+        // The host's bbport.ini party_chalice_rejoin (0.7.4: the host's rule; BB_PARTY_CHALICE_REJOIN=0 on
+        // the host: the own-lamp rule as elsewhere).
+        const bool dungeon = (s.map_id >> 24) == 29 && party::status::HostRuleOn(party::status::HostRule::ChaliceRejoin);
         if (dungeon && !boss) {
             if (GuestChaliceRevive(s)) {
                 return;
@@ -6078,9 +6079,9 @@ bool GuestReviveInPlace(const GameSnapshot& s, u32 lamp, const char* why) {
         // "hitbody" step puts them back (RestoreHitBodies, live A/B revivehit ab3). On by default
         // again since revivecheck (2026-10-21 live, after the revive: hits taken, lock-on, rally,
         // Blood Vial, menu, lamp prompt and its menu, a treasure pickup with its item box, a party
-        // lamp travel). Off (bbport.ini party_guest_revive_inplace=0, System > My party: Deaths;
-        // BB_PARTY_GUEST_REVIVE_INPLACE=0): every death takes the respawn load. Live.
-        const bool inplace = BbSettings::Get().party_guest_revive_inplace.load();
+        // lamp travel). Off (the host's bbport.ini party_guest_revive_inplace=0, System > Party rules:
+        // Deaths, 0.7.4: the host's rule; BB_PARTY_GUEST_REVIVE_INPLACE=0): every death takes the respawn load. Live.
+        const bool inplace = party::status::HostRuleOn(party::status::HostRule::GuestReviveInplace);
         static const bool always = deathrules::OptIn(std::getenv("BB_PARTY_GUEST_REVIVE_FAR"));
         float p[3] = {0, 0, 0};
         double dist = std::numeric_limits<double>::quiet_NaN(), fell = 0;
@@ -6226,10 +6227,10 @@ bool GuestFallSafeRevive(const GameSnapshot& s, bool boss) {
     };
     const u32 own = Field<u32>(Slot(kSlotGsm), 0x1528), host = GuestDeathRedirectLamp();
     float own_rs[4] = {}, host_rs[4] = {};
-    const bool dungeon_member = !boss && (s.map_id >> 24) == 29 && BbSettings::Get().party_chalice_rejoin.load() &&
+    const bool dungeon_member = !boss && (s.map_id >> 24) == 29 && party::status::HostRuleOn(party::status::HostRule::ChaliceRejoin) &&
                                 LivingMemberHere(s.player);
     const deathrules::FallRespawn f = deathrules::PlanFallRespawn(
-        fell, BbSettings::Get().party_guest_revive_inplace.load(), here(own, own_rs), here(host, host_rs), g_local_safe.valid,
+        fell, party::status::HostRuleOn(party::status::HostRule::GuestReviveInplace), here(own, own_rs), here(host, host_rs), g_local_safe.valid,
         false, dungeon_member);
     if (f == deathrules::FallRespawn::Respawn) {
         return false;
@@ -10259,7 +10260,7 @@ void ChaliceApartTick(const GameSnapshot& s, double now) {
         return;
     }
     if (since == 0) since = now;
-    const deathrules::ChaliceApart plan = deathrules::PlanChaliceApart(BbSettings::Get().party_chalice_rejoin.load(),
+    const deathrules::ChaliceApart plan = deathrules::PlanChaliceApart(party::status::HostRuleOn(party::status::HostRule::ChaliceRejoin),
                                                                        g_chalice_chosen.load(), now - since);
     if (plan == deathrules::ChaliceApart::Stay) {
         if (!noticed && g_chalice_chosen.load()) {

@@ -62,6 +62,9 @@ struct EmevdSkipRule {
     std::int32_t index = -1; ///< instruction index in the event (+0xA0); -1: any
     bool needs_travel = false; ///< only while B1 travel is on (built-in open-world rules)
     bool client_only = false;  ///< only while the local player is a client (session role 6)
+    /// 0.7.4: only while the party's "Open world" rule is on (the host's, read live: party_status
+    /// HostRuleOn(OpenWorld)); the confinement walls.
+    bool open_world = false;
 };
 /// Parses `text`; good items go to *out, each bad item adds a message to *errors (when given).
 /// Returns the number of rules added.

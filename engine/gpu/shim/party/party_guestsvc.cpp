@@ -333,6 +333,10 @@ bool ChaliceLampsOn() {
 bool GuestLampsOn() {
     return GuestLampsEnabledFromEnv(std::getenv("BB_PARTY_GUEST_LAMPS"), BbSettings::Get().party_guest_lamps.load());
 }
+bool GuestLampsAtStart() {
+    static const bool on = GuestLampsOn();
+    return on;
+}
 namespace {
 
 constexpr u64 kIsClientLoad = 0x203BA78;   // movzx eax, byte [r15+0x25]
@@ -1479,7 +1483,7 @@ void GuestServicesInit() {
     if (const char* e = std::getenv("BB_PARTY_GUEST_SERVICES_TALK")) {
         g.extra = e;
     }
-    g_lamps = GuestLampsOn();
+    g_lamps = GuestLampsAtStart();
     {
         const char* wt = std::getenv("BB_PARTY_GUEST_TALK");
         g_world_talk = !(wt && wt[0] == '0');
@@ -1566,7 +1570,7 @@ std::vector<EmevdSkipRule> GuestServicesSkipRules() {
         return {};
     }
     std::vector<EmevdSkipRule> out = DollPlacementRules();
-    if (GuestLampsOn()) {
+    if (GuestLampsAtStart()) {
         for (const EmevdSkipRule& r : LampSkipRules()) {
             out.push_back(r);
         }

@@ -30,6 +30,39 @@ int main() {
     setenv("BB_CONFIG", path, 1);
 #endif
 
+    {
+        // The keys from visy 0.7.5: defaults first, then each one read from and written to bbport.ini.
+        auto& d = BbSettings::Get();
+        assert(d.party_level_sync && d.party_phantom_hp && !d.party_skip_prologue && d.party_vpn == 0 &&
+               d.party_discovery && d.party_hud_ping);
+        { std::ofstream file(path); file << "party_level_sync=0\nparty_phantom_hp=0\nparty_skip_prologue=1\n"
+                                             "party_vpn=Radmin VPN\nparty_discovery=0\nparty_hud_ping=0\n"; }
+        BbSettings::Load();
+        assert(!d.party_level_sync && !d.party_phantom_hp && d.party_skip_prologue && d.party_vpn == 2 &&
+               !d.party_discovery && !d.party_hud_ping);
+        BbSettings::Save();
+        const std::string text = Read(path);
+        for (const char* line : {"party_level_sync=0\n", "party_phantom_hp=0\n", "party_skip_prologue=1\n",
+                                 "party_vpn=Radmin VPN\n", "party_discovery=0\n", "party_hud_ping=0\n"})
+            assert(text.find(line) != std::string::npos);
+        // Load put the value into BB_PARTY_VPN for the network library; an explicit variable wins.
+        assert(std::getenv("BB_PARTY_VPN") && std::string(std::getenv("BB_PARTY_VPN")) == "Radmin VPN");
+#ifdef _WIN32
+        _putenv_s("BB_PARTY_VPN", "");
+#else
+        unsetenv("BB_PARTY_VPN");
+#endif
+        { std::ofstream file(path); file << "party_vpn=OFF\n"; }
+        BbSettings::Load();
+        assert(d.party_vpn == 1);
+        d.party_level_sync = true;
+        d.party_phantom_hp = true;
+        d.party_skip_prologue = false;
+        d.party_vpn = 0;
+        d.party_discovery = true;
+        d.party_hud_ping = true;
+        { std::ofstream file(path); file << ini; assert(file.good()); }
+    }
     BbSettings::Load();
     auto& s = BbSettings::Get();
     assert(s.upscaler == BbSettings::UpscalerFsr3 && !s.show_fps && s.menu_x < 0.0f);

@@ -23,6 +23,7 @@
 #include "party_levelsync_rules.h"
 #include "party_status.h"
 #include "party_split.h"
+#include "party_status.h"
 #include "party_travel.h"
 #include "party_story.h"
 #include "party_worldact.h"
@@ -446,8 +447,8 @@ std::atomic<EmevdRewriter> g_rewriter2{nullptr};
 std::atomic<EmevdRewriter> g_rewriter3{nullptr};
 
 // Rules "event:bank:id[@index]" (party_phantom.h). Built in: the confinement walls of common
-// event 7600, its Chalice Dungeon copy 12907600 and m34 13400010 (only while B1 travel is on;
-// BB_PARTY_OPEN_WORLD=0 drops them). The A6
+// event 7600, its Chalice Dungeon copy 12907600 and m34 13400010 (only while B1 travel is on and
+// the party's Open world rule, the host's since 0.7.4, is on). The A6
 // "send phantoms home" instructions are still to be identified with BB_PARTY_EMEVD_TRACE=1.
 std::vector<EmevdSkipRule> g_skips;
 bool g_emevd_observe = false; // party_phantom's boss-Insight observer
@@ -618,7 +619,8 @@ BB_COOP_SYSV u8 EmevdDispatch(u64 self, u64 event, float dt) {
         SafeGet(event + 0xa0, &index);
         for (const EmevdSkipRule& r : g_skips) {
             if (EmevdSkipMatches(r, event_id, bank, id, index) && (!r.needs_travel || TravelEnabled()) &&
-                (!r.client_only || LocalSessionRole() == 6)) {
+                (!r.client_only || LocalSessionRole() == 6) &&
+                (!r.open_world || party::status::HostRuleOn(party::status::HostRule::OpenWorld))) {
                 skip = true;
                 break;
             }

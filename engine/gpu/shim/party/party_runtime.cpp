@@ -2726,6 +2726,9 @@ void startup_main() {
     mod_identity(cfg, &what);
     // Max players and the 4-player rule set (party_fourp.h): the same for every player.
     cfg.rules = "max " + std::to_string(cfg.max_players) + " players, " + coop::fourp::FourpRulesTag();
+    // 0.7.4: the host's session rules its modules read only at start (party_balance StartupRules):
+    // a guest must start with the host's ("set X like the host", party_link identity_mismatch).
+    cfg.rules += "; " + coop::balance::JoinRulesTag(coop::balance::StartupSessionRules());
     // A9 build / patch-set fingerprint (party_link.h identity_mismatch).
     cfg.build_id = bbport_build_id();
     cfg.check_build = !(env("BB_PARTY_CHECK_BUILD") && !env_on("BB_PARTY_CHECK_BUILD"));

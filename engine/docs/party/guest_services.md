@@ -345,7 +345,7 @@ whoever uses a lamp or headstone, **the whole party travels**, led by the host (
       (`lamp: slot 1 lit a lamp in the host's world: set 72410201`) and the mirror carries the rest.
       The guest's own save never changes; the host's world is lit for the whole party.
 * **Default on (2026-10-11)**: guest lamps / headstones are on in party mode; `BB_PARTY_GUEST_LAMPS=0`
-  (or the switch "Guests use lamps" on the My party: World page / the overlay's party section, ini
+  (or the switch "Guests use lamps" on the Party rules: Travel page / the overlay's party section, ini
   `party_guest_lamps`; read at start) turns them off. With them on, live: the guest's Doll level up
   still works (`LEVEL UP on the guest: level 37 -> 38`), the guest's headstone travel works (above).
 * **Rest via a guest's lamp [R]**: the guest's lamp use is a request; the host makes the warp, so

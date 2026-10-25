@@ -33,6 +33,7 @@
 #include "party_link.h"
 #include "party_guestvals_rules.h"
 #include "party_progress.h"
+#include "party_status.h"
 
 #include <atomic>
 #include <chrono>
@@ -136,8 +137,8 @@ std::string DescribeSkipRule(const EmevdSkipRule& r) {
     if (r.index >= 0) {
         std::snprintf(idx, sizeof idx, "@%d", r.index);
     }
-    std::snprintf(text, sizeof text, "%s:%d:%d%s%s%s", ev, r.bank, r.id, idx, r.needs_travel ? " (with B1 travel)" : "",
-                  r.client_only ? " (on a client)" : "");
+    std::snprintf(text, sizeof text, "%s:%d:%d%s%s%s%s", ev, r.bank, r.id, idx, r.needs_travel ? " (with B1 travel)" : "",
+                  r.client_only ? " (on a client)" : "", r.open_world ? " (open world rule)" : "");
     return text;
 }
 
@@ -562,6 +563,13 @@ struct Config {
     bool probe_host4680 = false; // live G2 check: synthetic direct SpEffect 4680 (chalice events)
 };
 Config g_cfg;
+// 0.7.4: the host's session rules, live (party_balance Tick sets them: the host's on a guest).
+bool RespawnOn() {
+    return g_cfg.init && party::status::HostRuleOn(party::status::HostRule::GuestRespawn);
+}
+bool RefillOn() {
+    return g_cfg.init && party::status::HostRuleOn(party::status::HostRule::GuestRefill);
+}
 
 std::atomic<u64> g_seq{0};
 u64 NextSeq() {
@@ -842,7 +850,7 @@ void BossFallbackTick(const GameSnapshot& g, double now) {
 void OnGuestRedirect(TravelKind kind, GuestRedirect how, std::uint32_t lamp) {
     Log("guest %s redirected to %s (lamp %d); the bell brings it back", TravelKindName(kind), GuestRedirectName(how),
         static_cast<int>(lamp));
-    if (g_cfg.refill) {
+    if (RefillOn()) {
         std::lock_guard<std::mutex> lk(g_guest_mu);
         g_refill.Request(RefillReason::GuestRespawn, true, Now());
     }
@@ -973,7 +981,7 @@ void FlushDirectInsight(double now) {
 
 void HostTick(party::PartyLink* link, double now) {
     FlushDirectInsight(now);
-    if (g_cfg.respawn && link && now - g_last_lamp_read >= 1.0) {
+    if (RespawnOn() && link && now - g_last_lamp_read >= 1.0) {
         g_last_lamp_read = now;
         const u32 lamp = OwnLastLamp();
         if (g_lamp_announcer.ShouldSend(lamp, MembersKey(link))) {
@@ -1105,6 +1113,9 @@ void PhantomInit() {
         return;
     }
     g_cfg.init = true;
+    // 0.7.4: respawn, refill and open world are the host's session rules (party_status HostRuleOn:
+    // the host's values on a guest, this game's own bbport.ini on a host), read live; these are only
+    // the start values for the log.
     g_cfg.respawn = !EnvOff("BB_PARTY_GUEST_RESPAWN");
     g_cfg.refill = !EnvOff("BB_PARTY_GUEST_REFILL");
     g_cfg.open_world = !EnvOff("BB_PARTY_OPEN_WORLD");
@@ -1131,10 +1142,13 @@ bool PhantomWantsEmevd() {
 }
 
 std::vector<EmevdSkipRule> PhantomSkipRules() {
-    if (!PartyMode() || EnvOff("BB_PARTY_OPEN_WORLD") || EnvOff("BB_PARTY_TRAVEL")) {
+    // 0.7.4: always in a party; each rule applies while the party's Open world rule is on (the host's).
+    if (!PartyMode() || EnvOff("BB_PARTY_TRAVEL")) {
         return {};
     }
-    return ConfinementWallRules();
+    std::vector<EmevdSkipRule> rules = ConfinementWallRules();
+    for (EmevdSkipRule& r : rules) r.open_world = true;
+    return rules;
 }
 
 void PhantomEmevdInstruction(std::int32_t event, std::int32_t bank, std::int32_t id, const std::uint8_t* args,
@@ -1233,7 +1247,7 @@ void PhantomEmevdInstruction(std::int32_t event, std::int32_t bank, std::int32_t
 }
 
 void PhantomNoteHostTravel(const TravelIntent& t) {
-    if (!g_cfg.init || !g_cfg.refill || !RestedFromTravel(t)) {
+    if (!RefillOn() || !RestedFromTravel(t)) {
         return;
     }
     PhantomEvent e;
@@ -1248,6 +1262,17 @@ void PhantomTick(party::PartyLink* link) {
     }
     const PartyRole role = PartyDirector::Get().Role();
     const double now = Now();
+    {   // 0.7.4: the host's respawn / refill rules in force (a guest follows the host's).
+        static int last = -1;
+        const int now_rules = (RespawnOn() ? 1 : 0) | (RefillOn() ? 2 : 0);
+        if (now_rules != last) {
+            if (last >= 0 || now_rules != 3)
+                Log("party rules: guest death -> host lamp %s, refill %s (%s)", (now_rules & 1) ? "on" : "off",
+                    (now_rules & 2) ? "on" : "off", role == PartyRole::Guest ? "the host's" : "own");
+            last = now_rules;
+            SetGuestDeathRedirectEnabled((now_rules & 1) != 0);
+        }
+    }
     const GameSnapshot g = ReadGameState(false);
     if (role == PartyRole::Host) {
         if (g_cfg.probe_host9350) {
@@ -1280,12 +1305,12 @@ void PhantomOnEvent(const std::string& body) {
             Log("host %s; ignored", err.c_str());
             break;
         }
-        if (g_cfg.respawn) {
+        if (RespawnOn()) {
             SetGuestDeathRedirect(e.lamp);
         }
         break;
     case PhantomEventKind::Rested: {
-        if (!g_cfg.refill) {
+        if (!RefillOn()) {
             break;
         }
         std::lock_guard<std::mutex> lk(g_guest_mu);

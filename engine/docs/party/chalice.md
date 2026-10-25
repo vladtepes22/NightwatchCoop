@@ -488,7 +488,7 @@ died was sent to the Hunter's Dream and could not get back in until the host res
 * **A guest's death (C, live)**: outside a boss fight a dead guest went to its OWN last lamp (the Dream:
   an alone load) and stayed apart; a dungeon is entered only by the summon, its game's send-home is dropped
   while apart, and the host's travels into the dungeon are "not followed", so nothing brought it back. Now
-  (bbport.ini `party_chalice_rejoin`, System > My party: World, launcher; default on) it gets up beside the
+  (bbport.ini `party_chalice_rejoin`, System > Party rules: Travel, launcher; default on) it gets up beside the
   nearest living member, no load (`guest: died in the host's Chalice Dungeon ...: up again beside the nearest
   living member`); and `ChaliceApartTick`: a guest still in the session but apart in a map outside area 29
   while the host's roster map is in area 29. **User decision (option b)**, `deathrules::PlanChaliceApart`:

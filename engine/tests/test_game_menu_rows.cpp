@@ -130,9 +130,11 @@ static void EveryState() {
                Has(world, "NPCs as in host's world") && Has(world, "Covenants per player") &&
                Has(world, "Party votes on travel") &&
                Has(world, "NPC hunters fight all"));  // 0.7.3
-        const auto rewards = Names(PageNamed("My party: Rewards"));
-        assert(rewards.size() == P::RowsPerPage && Has(rewards, "Own key items as guest") &&
-               Has(rewards, "Key items at once") && rewards.back() == "Insight for bosses");
+        // 0.7.5 partyrules: the item rows stay each player's own; the Insight list is the host's rule
+        const auto items = Names(PageNamed("My party: Your items"));
+        assert(Has(items, "Own key items as guest") && Has(items, "Key items at once"));
+        const auto rewards = Names(PageNamed("Party rules: Rewards"));
+        assert(Has(rewards, "Full rewards for guests") && rewards.back() == "Insight for bosses");
     }
 }
 

@@ -266,6 +266,9 @@ struct GuestRule {
     u32 value = 0, help = 0;
     std::function<bool()> on;
     Texts on_help, off_help;
+    /// 0.7.4: a rule with more than on / off (Insight for bosses): its value text (`on` then
+    /// picks the help line only).
+    std::function<Texts()> value_text;
 };
 std::vector<GuestRule> guest_rules;
 std::string member_names[MaxMembers]; // the member row k stands for (kick)
@@ -812,7 +815,7 @@ void DefineAll() {
                                std::function<bool()> in_force, Texts guest_on, Texts guest_off) {
         AddRow(Flag(member), AddText(en, ru), help, toggle, Kind::Toggle, [is_guest] { return !is_guest(); });
         GuestRule g{AddDynamic(MaxValueLength), AddDynamic(MaxHelpLength), std::move(in_force),
-                    std::move(guest_on), std::move(guest_off)};
+                    std::move(guest_on), std::move(guest_off), {}};
         AddRow(Info(), AddText(en, ru), g.help, {g.value}, Kind::Button, is_guest);
         guest_rules.push_back(std::move(g));
     };
@@ -826,7 +829,10 @@ void DefineAll() {
     // tabs. "Party rules: ..." holds what the HOST decides for the party (party_balance Rules, sent to
     // every guest; a guest sees read-only lines with the host's values); "My party: ..." what each
     // player chooses for itself. New rows: a host rule (host_rule) on a Party rules page, a player's
-    // own (own) on a My party page; at most six rows a page. ----
+    // own (own) on a My party page; at most six rows a page. 0.7.4 (partyrules, user spec): every
+    // setting about how the session plays is a Party rule (the guests' deaths, travel, rewards); My
+    // party keeps what a party brings into this player's own save (Your save, Your items) and what
+    // only this screen shows (Display, Look & notices). ----
 
     // ---- Party rules: World (0.7.1: party_kill_record, party_npc_mirror, party_gather; 0.7.3:
     // covenants, party_travel_vote, party_npc_fights) ----
@@ -917,8 +923,9 @@ void DefineAll() {
                "Мир хоста хранит свои фонари; зажжённый вами там фонарь сохраняется у всех"});
 
     // ---- Party rules: Deaths (party_b2): the host's deaths ----
-    AddPage("Party rules: Deaths", "Правила: смерти", "Host's rules: getting up without a loading screen (bbport)",
-            "Правила хоста: подъём без экрана загрузки (bbport)");
+    AddPage("Party rules: Deaths", "Правила: смерти",
+            "Host's rules: the party's deaths: getting up without a load, guests' respawn and refill (bbport)",
+            "Правила хоста: смерти в группе: подъём без загрузки, возврат и пополнение гостей (bbport)");
     host_rule(&Values::party_host_revive, "Host gets up, no load", "Хост встаёт сразу",
               AddText("You get up at your lamp without a loading screen for the party. Off: the respawn load. Host's",
                       "Вы встаёте у своего фонаря без экрана загрузки для группы. Выкл.: загрузка. Решает хост"),
@@ -944,6 +951,115 @@ void DefineAll() {
                "Правило хоста: если вас схватит похититель, вся группа окажется в Подземной тюрьме"},
               {"The host decides; off: only the host's grab takes the party there, a grabbed guest just dies",
                "Решает хост; выкл.: группу уносит только схваченный хост, схваченный гость просто гибнет"});
+    // 0.7.4 (partyrules): the guests' deaths, the host's session rules (were My party: Deaths).
+    host_rule(&Values::party_guest_revive_inplace, "Guest gets up, no load", "Гость встаёт сразу",
+              AddText("A dead guest gets up at your lamp without a loading screen. Off: the respawn load. Party rule",
+                      "Погибший гость встаёт у вашего фонаря без экрана загрузки. Выкл.: загрузка. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::GuestReviveInplace); },
+              {"The host's rule: you get up at the host's lamp without a loading screen",
+               "Правило хоста: вы встаёте у фонаря хоста без экрана загрузки"},
+              {"The host decides; off: every death of yours takes the respawn loading screen",
+               "Решает хост; выкл.: каждая ваша смерть - экран загрузки возрождения"});
+    host_rule(&Values::party_guest_respawn, "Respawn at host's lamp", "Возврат к фонарю хоста",
+              AddText("A dead guest comes back at your lamp and is summoned again, not sent home. Party rule",
+                      "Погибший гость возвращается к вашему фонарю и снова призван, а не домой. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::GuestRespawn); },
+              {"The host's rule: a death brings you back at the host's lamp, still in the party",
+               "Правило хоста: после смерти вы у фонаря хоста, всё ещё в группе"},
+              {"The host decides; off: a death sends you home to your own world, as in the game",
+               "Решает хост; выкл.: после смерти вы дома, в своём мире, как в игре"});
+    host_rule(&Values::party_guest_refill, "Refill vials, bullets", "Пополнять склянки, пули",
+              AddText("Guests' vials and bullets refill when you rest, die or travel to the Dream. Party rule",
+                      "Склянки и пули гостей пополняются, когда вы отдыхаете, гибнете или уходите во Сон. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::GuestRefill); },
+              {"The host's rule: your vials and bullets refill when the host rests, dies or travels",
+               "Правило хоста: ваши склянки и пули пополняются, когда хост отдыхает, гибнет или уходит"},
+              {"The host decides; off: your vials and bullets refill only as in the game",
+               "Решает хост; выкл.: склянки и пули пополняются только как в игре"});
+
+    // ---- Party rules: Travel (0.7.4, partyrules; were My party: World / Story): how the guests move
+    // through the host's world. Lamps and the Mark are read at start: a guest must start with the
+    // host's (the join check says "set ... like the host"). ----
+    AddPage("Party rules: Travel", "Правила: пути",
+            "Host's rules: guests' lamps and Hunter's Mark, open world, Chalice Dungeons, cutscenes live (bbport)",
+            "Правила хоста: фонари и Метка гостям, открытый мир, Подземелья Чаши, ролики вместе (bbport)");
+    host_rule(&Values::party_guest_lamps, "Guests use lamps", "Фонари гостям",
+              AddText("Guests may use lamps and headstones; the party travels. Everyone the same. Next start",
+                      "Гости пользуются фонарями и надгробиями; группа идёт вместе. У всех одинаково. Со след. запуска"),
+              [] { return ps::HostRuleOn(ps::HostRule::GuestLamps); },
+              {"The host's rule: you may use lamps and headstones; the whole party travels",
+               "Правило хоста: вы можете пользоваться фонарями и надгробиями; группа идёт вместе"},
+              {"The host decides; off: only the host uses lamps and headstones",
+               "Решает хост; выкл.: фонарями и надгробиями пользуется только хост"});
+    host_rule(&Values::party_guest_mark, "Guests use Hunter's Mark", "Метка охотника гостям",
+              AddText("A guest's Hunter's Mark asks: alone or with the party. Everyone the same. Next start",
+                      "Метка охотника гостя: одному или всей группой. У всех одинаково. Со следующего запуска"),
+              [] { return ps::HostRuleOn(ps::HostRule::GuestMark); },
+              {"The host's rule: your Hunter's Mark asks: travel alone or with the party",
+               "Правило хоста: ваша Метка охотника спрашивает: одному или всей группой"},
+              {"The host decides; off: guests cannot use the Hunter's Mark, as in the game",
+               "Решает хост; выкл.: гости не могут пользоваться Меткой охотника, как в игре"});
+    host_rule(&Values::party_open_world, "Open world", "Открытый мир",
+              AddText("No co-op walls on area borders: the party walks anywhere you can. Party rule",
+                      "Без стен совместной игры на границах зон: группа ходит везде, где вы. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::OpenWorld); },
+              {"The host's rule: no co-op walls on area borders, the party walks anywhere",
+               "Правило хоста: без стен на границах зон, группа ходит везде"},
+              {"The host decides; off: the game's co-op walls stay on area borders",
+               "Решает хост; выкл.: стены совместной игры на границах зон остаются"});
+    host_rule(&Values::party_chalice_rejoin, "Stay in Chalice Dungeons", "Остаться в Чаше",
+              AddText("A guest out of your dungeon by a death or forced trip is summoned back. Party rule",
+                      "Гость вне вашего подземелья после смерти или переноса призывается обратно. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::ChaliceRejoin); },
+              {"The host's rule: out of the host's dungeon by a death or forced trip, you are summoned back",
+               "Правило хоста: вне подземелья хоста после смерти или переноса - вас призовут обратно"},
+              {"The host decides; off: a death in the host's dungeon takes you to your own lamp",
+               "Решает хост; выкл.: смерть в подземелье хоста ведёт к вашему фонарю"});
+    host_rule(&Values::party_story_mirror, "Cutscenes live with host", "Ролики вместе с хостом",
+              AddText("A guest in your world watches a cutscene with you. Off: later, in its own world. Party rule",
+                      "Гость в вашем мире смотрит ролик вместе с вами. Выкл.: позже, в своём мире. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::StoryMirror); },
+              {"The host's rule: in the host's world you watch its cutscenes with it",
+               "Правило хоста: в мире хоста вы смотрите его ролики вместе с ним"},
+              {"The host decides; off: you see the host's cutscenes later, in your own world",
+               "Решает хост; выкл.: ролики хоста вы увидите позже, в своём мире"});
+
+    // ---- Party rules: Rewards (0.7.4, partyrules; were My party: Rewards): what guests earn in the
+    // host's world, the same balance for every player. Read at start: the join check. ----
+    AddPage("Party rules: Rewards", "Правила: награды",
+            "Host's rules: guests' Blood Echoes, drops and boss Insight (bbport)",
+            "Правила хоста: отголоски крови, добыча и озарение за боссов у гостей (bbport)");
+    host_rule(&Values::party_full_rewards, "Full rewards for guests", "Полные награды гостям",
+              AddText("Guests get full Blood Echoes and enemy drops, like you. Everyone the same. Next start",
+                      "Гости получают полные отголоски и добычу, как вы. У всех одинаково. Со следующего запуска"),
+              [] { return ps::HostRuleOn(ps::HostRule::FullRewards); },
+              {"The host's rule: you get full Blood Echoes and enemy drops, like the host",
+               "Правило хоста: вы получаете полные отголоски крови и добычу, как хост"},
+              {"The host decides; off: the game's co-op rewards (half echoes, only vials and bullets drop)",
+               "Решает хост; выкл.: награды как в игре (половина отголосков, падают только склянки и пули)"});
+    {   // A list opens a pop-up over the rows below it: last on the page (after the guest's line). A guest's line shows its own
+        // value: the join check makes it the host's.
+        GuestRule g{AddDynamic(MaxValueLength), AddDynamic(MaxHelpLength), [] { return true; },
+                    {"The host's rule: the Insight you get when the host kills a boss",
+                     "Правило хоста: озарение, которое вы получаете, когда хост убивает босса"},
+                    {}, [] {
+                        static const Texts names[3] = {{"Same as the host", "Как у хоста"},
+                                                       {"Full bonus", "Полный бонус"},
+                                                       {"Game's own (+1)", "Как в игре (+1)"}};
+                        return names[std::clamp(BbSettings::Get().party_guest_insight.load(), 0, 2)];
+                    }};
+        AddRow(Info(), AddText("Insight for bosses", "Озарение за боссов"), g.help, {g.value}, Kind::Button, is_guest);
+        guest_rules.push_back(std::move(g));
+        AddRow(Setting(
+                   Kind::List, [](const Values& v) { return std::clamp(v.party_guest_insight.load(), 0, 2); },
+                   [](int i) { BbSettings::Get().party_guest_insight = std::clamp(i, 0, 2); }),
+               AddText("Insight for bosses", "Озарение за боссов"),
+               AddText("Insight a guest gets when you kill a boss. Everyone the same. Next start",
+                       "Озарение гостю, когда вы убиваете босса. У всех одинаково. Со следующего запуска"),
+               {AddText("Same as the host", "Как у хоста"), AddText("Full bonus", "Полный бонус"),
+                AddText("Game's own (+1)", "Как в игре (+1)")},
+               Kind::List, [is_guest] { return !is_guest(); });
+    }
 
     // ---- Party rules: Rot (party_balance, party_rot_rules.h): the death debuff and what else cleanses it ----
     AddPage("Party rules: Rot", "Правила: гниль",
@@ -1042,74 +1158,27 @@ void DefineAll() {
               {"The host decides; off: every new character plays the prologue. A character past it is never touched",
                "Решает хост; выкл.: каждый новый персонаж проходит пролог. Прошедшего пролог это не затрагивает"});
 
-    // ---- My party: Deaths (party_b2, party_phantom): while you are a guest ----
-    AddPage("My party: Deaths", "Моя группа: смерти", "Yours: getting up and respawning while you are a guest (bbport)",
-            "Ваше: подъём и возрождение, пока вы гость (bbport)");
-    own(&Values::party_guest_revive_inplace, "Guest gets up, no load", "Гость встаёт сразу",
-        "While you are a guest: you get up at the host's lamp without a loading screen. Off: the respawn load",
-        "Пока вы гость: вы встаёте у фонаря хоста без экрана загрузки. Выкл.: загрузка возрождения");
-    own(&Values::party_guest_respawn, "Respawn at host's lamp", "Возврат к фонарю хоста",
-        "While you are a guest: a death brings you back at the host's lamp, not home. Next start",
-        "Пока вы гость: после смерти вы у фонаря хоста, а не дома. Со следующего запуска");
-    own(&Values::party_guest_refill, "Refill vials, bullets", "Пополнять склянки, пули",
-        "While you are a guest: vials and bullets refill when the host rests, dies or travels. Next start",
-        "Пока вы гость: склянки и пули пополняются, когда хост отдыхает, гибнет или уходит. Со след. запуска");
-
-
-    // ---- My party: World (party_guestsvc, seamless_rules, party_b2; docs/party/chalice.md) ----
-    AddPage("My party: World", "Моя группа: мир", "Yours: lamps and Hunter's Mark for guests, open world, Chalice Dungeons (bbport)",
-            "Ваше: фонари и Метка охотника гостям, открытый мир, Подземелья Чаши (bbport)");
-    // Guests use lamps and headstones (party_guestsvc; read at the next start).
-    own(&Values::party_guest_lamps, "Guests use lamps", "Фонари гостям",
-        "Guests may use lamps and headstones; the whole party travels (after a restart)",
-        "Гости могут пользоваться фонарями и надгробиями; группа идёт вместе (после перезапуска)");
-    own(&Values::party_guest_mark, "Guests use Hunter's Mark", "Метка охотника гостям",
-        "A guest's Hunter's Mark asks: travel alone or with the party. Off: as in the game. Next start",
-        "Метка охотника гостя спрашивает: одному или всей группой. Выкл.: как в игре. Со следующего запуска");
-    own(&Values::party_open_world, "Open world", "Открытый мир",
-        "No co-op walls on area borders: the party walks anywhere. Keep it the same for everyone. Next start",
-        "Без стен совместной игры на границах зон: группа ходит везде. Одинаково у всех. Со следующего запуска");
-
-    own(&Values::party_chalice_rejoin, "Stay in Chalice Dungeons", "Остаться в Чаше",
-        "Guest: out of the host's dungeon by a death or forced trip, you are summoned back. Left by choice: Rejoin",
-        "Гость: вне подземелья хоста после смерти или переноса - призыв вернёт. Ушли сами: Вернуться");
-
-    // ---- My party: Story (party_npctalk, party_progress, party_story) ----
-    AddPage("My party: Story", "Моя группа: сюжет", "Yours: shared NPC dialogue, story progress, NPC quests, cutscenes (bbport)",
-            "Ваше: общие диалоги NPC, прогресс сюжета, квесты NPC, ролики (bbport)");
-    // Shared NPC dialogue (party_npctalk.h): a companion's NPC conversation near you, and how near.
-    own(&Values::party_npc_talk, "Share NPC dialogue", "Общие диалоги NPC",
-        "See and hear the NPC conversations of companions near you (subtitles, choices, gifts)",
-        "Видеть и слышать разговоры спутников с NPC рядом с вами (субтитры, выбор, подарки)");
-    balance.npc_range_help = AddDynamic(MaxHelpLength);
-    AddRow(Setting(
-               Kind::Slider,
-               [](const Values& v) { return coop::npctalk::RangePosition(v.party_npc_talk_range.load()); },
-               [](int i) { BbSettings::Get().party_npc_talk_range = coop::npctalk::RangeAtPosition(i); }),
-           AddText("NPC dialogue range", "Дальность диалогов NPC"), balance.npc_range_help, {}, Kind::Slider);
+    // ---- My party: Your save (0.7.4, partyrules): what a party brings into this player's own save
+    // (its character): each player's own choice, also as a guest. ----
+    AddPage("My party: Your save", "Моя группа: ваше сохр.",
+            "Yours: what the party brings into your own save: story progress, NPC quests, cutscenes, endings (bbport)",
+            "Ваше: что группа приносит в ваше сохранение: прогресс сюжета, квесты NPC, ролики и концовки (bbport)");
     own(&Values::party_progress, "Share story progress", "Общий прогресс сюжета",
-        "Bosses, lamps, shortcuts and key events copied into every guest's save. Host and guests. Next start",
-        "Боссы, фонари, срезки и события копируются в сохранение каждого гостя. Хост и гости. Со след. запуска");
+        "Bosses, lamps, shortcuts and key events copied into your save. Host and guests. Next start",
+        "Боссы, фонари, срезки и события копируются в ваше сохранение. Хост и гости. Со след. запуска");
     own(&Values::party_progress_npc, "Share NPC quests", "Общие квесты NPC",
-        "The first NPC quest choice anyone makes applies to every save (needs story progress). Next start",
-        "Первый выбор в квесте NPC действует во всех сохранениях (нужен общий прогресс). Со след. запуска");
+        "The first NPC quest choice anyone makes applies to your save too (needs story progress). Next start",
+        "Первый выбор в квесте NPC действует и в вашем сохранении (нужен общий прогресс). Со след. запуска");
     own(&Values::party_story, "Share cutscenes, endings", "Общие ролики и концовки",
-        "Guests see the host's cutscenes, time of day and ending. Host and guests. Next start",
-        "Гости видят ролики хоста, время суток и концовку. Хост и гости. Со следующего запуска");
-    own(&Values::party_story_mirror, "Cutscenes live with host", "Ролики вместе с хостом",
-        "A guest in the host's world watches a cutscene with the host. Off: later, in its own world. Next start",
-        "Гость в мире хоста смотрит ролик вместе с ним. Выкл.: позже, в своём мире. Со следующего запуска");
+        "The host's cutscenes, time of day and ending reach your save too. Host and guests. Next start",
+        "Ролики хоста, время суток и концовка попадают и в ваше сохранение. Хост и гости. Со след. запуска");
 
-
-    // ---- My party: Rewards (party_items, party_director, party_phantom) ----
-    AddPage("My party: Rewards", "Моя группа: награды", "Yours: echoes and drops, item rewards, bells, key items, Insight as a guest (bbport)",
-            "Ваше: отголоски и добыча, предметы, колокольчики, ключи, озарение гостю (bbport)");
-    own(&Values::party_full_rewards, "Full rewards for guests", "Полные награды гостям",
-        "While you are a guest: full Blood Echoes and enemy drops, like the host. Off: the game's co-op. Next start",
-        "Пока вы гость: полные отголоски крови и добыча, как у хоста. Выкл.: как в игре. Со следующего запуска");
+    AddPage("My party: Your items", "Моя группа: предметы",
+            "Yours: what the party brings into your own save: the host's item rewards, bells, key items (bbport)",
+            "Ваше: что группа приносит в ваше сохранение: предметы хоста, колокольчики, ключи (bbport)");
     own(&Values::party_items, "Host's item rewards", "Предметы хоста гостям",
-        "Boss drops, key items and gifts the host gets are given to each guest too, once. Next start",
-        "Добыча с боссов, ключевые предметы и подарки хоста выдаются и каждому гостю, один раз. Со след. запуска");
+        "Boss drops, key items and gifts the host gets are given to you too, once. Next start",
+        "Добыча с боссов, ключевые предметы и подарки хоста выдаются и вам, один раз. Со след. запуска");
     own(&Values::party_grant_bells, "Give the bells", "Выдать колокольчики",
         "The Beckoning Bell and Small Resonant Bell after the prologue (for ringing by hand). Next start",
         "Колокол призыва и Малый резонирующий колокол после пролога (звонить вручную). Со следующего запуска");
@@ -1120,16 +1189,6 @@ void DefineAll() {
     own(&Values::party_key_items_summoned, "Key items at once", "Ключи сразу",
         "While you are a guest: a key the host's world gives you is yours at once (needs own key items). Off: at home",
         "Пока вы гость: ключ из мира хоста ваш сразу (нужны свои ключи). Выкл.: дома, в своём мире");
-    // A list opens a pop-up over the rows below it: last on the page.
-    AddRow(Setting(
-               Kind::List, [](const Values& v) { return std::clamp(v.party_guest_insight.load(), 0, 2); },
-               [](int i) { BbSettings::Get().party_guest_insight = std::clamp(i, 0, 2); }),
-           AddText("Insight for bosses", "Озарение за боссов"),
-           AddText("While you are a guest: Insight when the host kills a boss. Next start",
-                   "Пока вы гость: озарение, когда хост убивает босса. Со следующего запуска"),
-           {AddText("Same as the host", "Как у хоста"), AddText("Full bonus", "Полный бонус"),
-            AddText("Game's own (+1)", "Как в игре (+1)")},
-           Kind::List);
 
 
     // ---- My party: Display: what this player sees of the party (local) ----
@@ -1169,8 +1228,8 @@ void DefineAll() {
 
 
     // ---- My party: Look & notices: how companions are drawn on this screen, the join / leave notices ----
-    AddPage("My party: Look & notices", "Моя группа: вид, оповещ.", "Yours: how the other hunters look on your screen, join/leave notices (bbport)",
-            "Ваше: как другие охотники выглядят у вас, уведомления о входе и выходе (bbport)");
+    AddPage("My party: Look & notices", "Моя группа: вид, оповещ.", "Yours: how the other hunters look on your screen, join/leave notices, NPC dialogue (bbport)",
+            "Ваше: как другие охотники выглядят у вас, уведомления о входе и выходе, диалоги NPC (bbport)");
     // party_glow.h: the other players' chrs without the phantom glow (display only).
     own(&Values::party_glow_off, "No companion glow", "Спутники без свечения",
         "On: the other hunters look like normal hunters on your screen. Off: the game's blue phantom glow",
@@ -1182,6 +1241,17 @@ void DefineAll() {
     AddRow(Flag(&Values::party_toasts), "Join/leave notices", "Уведомления",
            "A short notice in a top corner when a hunter joins or leaves",
            "Короткое уведомление в углу, когда охотник входит или выходит", toggle, Kind::Toggle);
+    // Shared NPC dialogue (party_npctalk.h): a companion's NPC conversation near you, and how near
+    // (0.7.4: from My party: Story; only what you see and hear, nothing of it reaches your save).
+    own(&Values::party_npc_talk, "Share NPC dialogue", "Общие диалоги NPC",
+        "See and hear the NPC conversations of companions near you (subtitles, choices, gifts)",
+        "Видеть и слышать разговоры спутников с NPC рядом с вами (субтитры, выбор, подарки)");
+    balance.npc_range_help = AddDynamic(MaxHelpLength);
+    AddRow(Setting(
+               Kind::Slider,
+               [](const Values& v) { return coop::npctalk::RangePosition(v.party_npc_talk_range.load()); },
+               [](int i) { BbSettings::Get().party_npc_talk_range = coop::npctalk::RangeAtPosition(i); }),
+           AddText("NPC dialogue range", "Дальность диалогов NPC"), balance.npc_range_help, {}, Kind::Slider);
     // 0.7.5: party discovery (net/party_discovery.h; the Join list is in the launcher).
     AddRow(Flag(&Values::party_discovery), "Party discovery", "Поиск групп",
            "Host: announce the party on your VPN / LAN (never the Internet) for the launcher's Join list",
@@ -1200,7 +1270,12 @@ void RefreshBalance() {
     }
     for (const GuestRule& g : guest_rules) {
         const bool on = g.on();
-        SetDynamic(g.value, on ? "On" : "Off", on ? "Вкл" : "Выкл");
+        if (g.value_text) {
+            const Texts t = g.value_text();
+            SetDynamic(g.value, t.en, t.ru);
+        } else {
+            SetDynamic(g.value, on ? "On" : "Off", on ? "Вкл" : "Выкл");
+        }
         const Texts& t = on ? g.on_help : g.off_help;
         SetDynamic(g.help, t.en, t.ru);
     }

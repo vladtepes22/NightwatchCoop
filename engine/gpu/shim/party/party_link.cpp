@@ -470,6 +470,25 @@ std::string auth_reject_reason(bool host_has_password) {
     return "party code from another hosting session: ask the host for the current one (no password needed)";
 }
 
+// 0.7.4: LinkConfig::rules is "max N players, 4p:...", then "; join: A=on; B=Right away" (party_balance
+// JoinRulesTag: the host's session rules read only at start). The base text and the join entries.
+using RuleEntries = std::vector<std::pair<std::string, std::string>>;
+static std::string split_rules(const std::string& rules, RuleEntries* join) {
+    static const std::string kJoin = "; join: ";
+    const std::size_t at = rules.find(kJoin);
+    if (at == std::string::npos) return rules;
+    std::size_t p = at + kJoin.size();
+    while (p <= rules.size()) {
+        std::size_t end = rules.find("; ", p);
+        if (end == std::string::npos) end = rules.size();
+        const std::string item = rules.substr(p, end - p);
+        const std::size_t eq = item.rfind('=');
+        if (eq != std::string::npos) join->push_back({item.substr(0, eq), item.substr(eq + 1)});
+        p = end + 2;
+    }
+    return rules.substr(0, at);
+}
+
 std::string identity_mismatch(const LinkConfig& host, const LinkConfig& guest) {
     std::vector<std::string> parts;
     // Each clause: what differs (host's / yours) and what to do about it.
@@ -495,10 +514,30 @@ std::string identity_mismatch(const LinkConfig& host, const LinkConfig& guest) {
         parts.push_back(set_clause("party patches", host.hooks_hash, host.hook_names, guest.hooks_hash,
                                    guest.hook_names) +
                         ": use the same bbport build and party options (BB_PARTY_* switches) as the host");
-    if (host.rules != guest.rules)
-        parts.push_back("party rules differ (host " + (host.rules.empty() ? std::string("none") : host.rules) +
-                        "; yours " + (guest.rules.empty() ? std::string("none: an older build") : guest.rules) +
+    RuleEntries host_join, guest_join;
+    const std::string host_base = split_rules(host.rules, &host_join);
+    const std::string guest_base = split_rules(guest.rules, &guest_join);
+    if (host_base != guest_base)
+        parts.push_back("party rules differ (host " + (host_base.empty() ? std::string("none") : host_base) +
+                        "; yours " + (guest_base.empty() ? std::string("none: an older build") : guest_base) +
                         "): every player needs the same Max players setting (BB_PARTY_MAX) and BB_PARTY_FOURP*");
+    // 0.7.4: the host's session rules its game reads only at start: each one the guest has otherwise.
+    if (host_join != guest_join) {
+        std::string set;
+        for (const auto& [name, value] : host_join) {
+            const auto mine = std::find_if(guest_join.begin(), guest_join.end(),
+                                           [&](const auto& e) { return e.first == name; });
+            if (mine != guest_join.end() && mine->second == value) continue;
+            set += (set.empty() ? "" : ", ") + std::string("set \"") + name + "\" like the host (host: " + value +
+                   ", yours: " + (mine == guest_join.end() ? std::string("unknown") : mine->second) + ")";
+        }
+        if (!set.empty())
+            parts.push_back(set + ": the launcher's Party Rules tab or System > Party rules in the game, then "
+                                  "restart the game");
+        else if (host_join.empty())
+            parts.push_back("party rules differ: the host's build has no start-up party rules; install the same "
+                            "bbport release as the host");
+    }
     if (parts.empty()) return {};
     // Both versions up front (the build clause already names them when the builds differ).
     std::string s = "version mismatch with the host";

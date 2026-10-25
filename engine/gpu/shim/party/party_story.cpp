@@ -27,6 +27,7 @@
 #include "party_split.h"
 #include "party_worldact.h"
 #include "party_balance.h"
+#include "party_status.h"
 #include "../bbport_game_menu_pages.h"
 
 #include <atomic>
@@ -2067,6 +2068,16 @@ void StoryTick() {
         HostPoll(g);
     } else if (role == PartyRole::Guest) {
         GuestNoticeTick(g, now);
+    }
+    if (role != PartyRole::None) {
+        // 0.7.4: "Cutscenes live with the host" is the host's session rule (party_status HostRuleOn).
+        const bool mirror = party::status::HostRuleOn(party::status::HostRule::StoryMirror);
+        std::lock_guard<std::mutex> lk(g_guest_mu);
+        if (g_guest.mirror_enabled != mirror) {
+            g_guest.mirror_enabled = mirror;
+            Log("party rules: cutscenes live with the host %s (%s)", mirror ? "on" : "off",
+                role == PartyRole::Guest ? "the host's" : "own");
+        }
     }
     StoryState st;
     st.world_up = g.world_up;

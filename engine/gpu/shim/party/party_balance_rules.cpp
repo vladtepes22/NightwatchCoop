@@ -28,7 +28,29 @@ bool Rules::operator==(const Rules& o) const {
            gather == o.gather && covenant_per_player == o.covenant_per_player &&
            npc_fights == o.npc_fights && skip_prologue == o.skip_prologue && any_kidnap == o.any_kidnap && level_sync == o.level_sync && phantom_hp == o.phantom_hp &&
            rot_cleanse_boss == o.rot_cleanse_boss && rot_cleanse_killer == o.rot_cleanse_killer &&
-           rot_cleanse_echoes == o.rot_cleanse_echoes && travel_vote == o.travel_vote;
+           rot_cleanse_echoes == o.rot_cleanse_echoes && travel_vote == o.travel_vote &&
+           open_world == o.open_world && guest_revive_inplace == o.guest_revive_inplace &&
+           guest_respawn == o.guest_respawn && guest_refill == o.guest_refill && chalice_rejoin == o.chalice_rejoin &&
+           story_mirror == o.story_mirror && guest_lamps == o.guest_lamps && guest_mark == o.guest_mark &&
+           full_rewards == o.full_rewards;
+}
+
+namespace {
+template <class R, class B>
+std::vector<std::pair<const char*, B*>> Fields(R& r) {
+    return {{"open_world", &r.open_world},       {"guest_revive_inplace", &r.guest_revive_inplace},
+            {"guest_respawn", &r.guest_respawn}, {"guest_refill", &r.guest_refill},
+            {"chalice_rejoin", &r.chalice_rejoin}, {"story_mirror", &r.story_mirror},
+            {"guest_lamps", &r.guest_lamps},     {"guest_mark", &r.guest_mark},
+            {"full_rewards", &r.full_rewards}};
+}
+}  // namespace
+
+std::vector<std::pair<const char*, const bool*>> SessionRuleFields(const Rules& r) {
+    return Fields<const Rules, const bool>(r);
+}
+std::vector<std::pair<const char*, bool*>> SessionRuleFields(Rules& r) {
+    return Fields<Rules, bool>(r);
 }
 
 bool Doping::operator==(const Doping& o) const {
@@ -46,6 +68,18 @@ Rules Vanilla() {
     r.enemy_damage = 0;
     r.enemy_poise = 0;
     return r;
+}
+
+std::string JoinRulesTag(const StartupRules& r) {
+    const auto on = [](bool b) { return b ? "on" : "off"; };
+    static const char* insight[] = {"Same as the host", "Full bonus", "Game's own (+1)"};
+    std::string t = kJoinRulesPrefix;
+    t += std::string("Guests use lamps=") + on(r.guest_lamps);
+    t += std::string("; Guests can use Hunter's Mark=") + on(r.guest_mark);
+    t += std::string("; Full rewards for guests=") + on(r.full_rewards);
+    t += std::string("; Insight for bosses=") + insight[std::clamp(r.guest_insight, 0, 2)];
+    t += std::string("; Party starts=") + (r.start_immediate ? "Right away" : "After the prologue");
+    return t;
 }
 
 int Position(const int* table, int value) {
@@ -96,6 +130,7 @@ std::string ToJson(const Rules& r) {
     v.set("npc_fights", r.npc_fights);
     v.set("skip_prologue", r.skip_prologue);
     v.set("any_kidnap", r.any_kidnap);
+    for (auto [key, from] : SessionRuleFields(r)) v.set(key, *from);
     v.set("level_sync", r.level_sync);
     v.set("phantom_hp", r.phantom_hp);
     return json::dump(v, 0);
@@ -130,6 +165,8 @@ bool FromJson(const std::string& text, Rules* out, std::string* error) {
                            {"covenant_per_player", &r.covenant_per_player}, {"travel_vote", &r.travel_vote},
                            {"npc_fights", &r.npc_fights}, {"skip_prologue", &r.skip_prologue}, {"any_kidnap", &r.any_kidnap},
                            {"level_sync", &r.level_sync}, {"phantom_hp", &r.phantom_hp}})
+        if (const json::Value* m = v.find(key); m && m->type == json::Value::Type::Bool) *to = m->boolean;
+    for (auto [key, to] : SessionRuleFields(r))
         if (const json::Value* m = v.find(key); m && m->type == json::Value::Type::Bool) *to = m->boolean;
     const auto num = [&](const char* key, int* to) {
         const json::Value* m = v.find(key);

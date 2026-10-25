@@ -97,7 +97,10 @@ bool ShareLamps();
 /// The host's other rules in force (party_balance; the host's values on a guest once its rules
 /// arrived, else this player's own), for the menus' read-only lines on a guest.
 enum class HostRule { Rot, HostRevive, HostLimboRevive, KillRecord, NpcMirror, Gather, GuestsBringLamps,
-                      RotCleanseBoss, RotCleanseKiller, RotCleanseEchoes, CovenantPerPlayer, TravelVote, NpcFights, AnyKidnap, LevelSync, PhantomHp, SkipPrologue, Count };
+                      RotCleanseBoss, RotCleanseKiller, RotCleanseEchoes, CovenantPerPlayer, TravelVote, NpcFights, AnyKidnap, LevelSync, PhantomHp, SkipPrologue,
+                      // 0.7.5 (partyrules): the session rules a guest takes from the host (party_balance_rules.h)
+                      OpenWorld, GuestReviveInplace, GuestRespawn, GuestRefill, ChaliceRejoin, StoryMirror, GuestLamps,
+                      GuestMark, FullRewards, Count };
 void SetHostRule(HostRule rule, bool on);
 bool HostRuleOn(HostRule rule);
 /// D7 enemy scaling in force (party_balance; the host's values on a guest once its rules arrived,

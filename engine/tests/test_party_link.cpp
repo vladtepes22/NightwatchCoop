@@ -899,6 +899,16 @@ static void test_identity() {
     CHECK(why.find("eboot.bin differs") != std::string::npos);
     CHECK(why.find("patches") == std::string::npos && why.find("mods") == std::string::npos);
     guest.eboot_sha256 = host.eboot_sha256;
+    // Start-up session rules (party_balance JoinRulesTag): "; join: A=on; B=Right away", host's must match.
+    host.rules = "max 4 players; join: Guests use lamps=on; Full rewards for guests=on";
+    guest.rules = host.rules;
+    CHECK(identity_mismatch(host, guest).empty());
+    guest.rules = "max 4 players; join: Guests use lamps=off; Full rewards for guests=on";
+    why = identity_mismatch(host, guest);
+    CHECK(why.find("set \"Guests use lamps\" like the host (host: on, yours: off)") != std::string::npos);
+    CHECK(why.find("Full rewards") == std::string::npos && why.find("party rules differ") == std::string::npos);
+    host.rules.clear();
+    guest.rules.clear();
     // Patches: names only on one side, then the same names with other bytes.
     host.patch_names = {"A", "B", "C"};
     host.patches_hash.fill(3);

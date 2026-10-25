@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace coop::balance {
@@ -90,11 +91,50 @@ struct Rules {
     /// for a joined hunter). The host's; on by default = vanilla (a host from before sends none: on).
     bool level_sync = true;
     bool phantom_hp = true;
+    /// 0.7.4 (partyrules, user spec 2026-10-23): the session rules that were each player's own until
+    /// 0.7.3 and now come from the host, so the party plays one way ("HOST DECIDES"; what reaches a
+    /// guest's own save stays the guest's). Read live on every peer (party_status HostRuleOn):
+    /// open_world (co-op area walls), guest_revive_inplace (a guest gets up without a load),
+    /// guest_respawn (a dead guest comes back at the host's lamp), guest_refill (vials and bullets
+    /// with the host's), chalice_rejoin (a guest stays in the host's Chalice Dungeon), story_mirror
+    /// (cutscenes live with the host). Read once at start, so also in the join check (party_link
+    /// identity_mismatch: "set X like the host"; sent for the guests' read-only rows): guest_lamps,
+    /// guest_mark (Hunter's Mark for guests), full_rewards (full echoes and drops for guests). On by
+    /// default (a host from before them sends none: on, their default).
+    bool open_world = true;
+    bool guest_revive_inplace = true;
+    bool guest_respawn = true;
+    bool guest_refill = true;
+    bool chalice_rejoin = true;
+    bool story_mirror = true;
+    bool guest_lamps = true;
+    bool guest_mark = true;
+    bool full_rewards = true;
     bool operator==(const Rules& o) const;
     bool operator!=(const Rules& o) const { return !(*this == o); }
 };
 /// Bloodborne's own behaviour (all scaling as in 1.09, no rot).
 Rules Vanilla();
+/// 0.7.4: the session rules' JSON keys (= their bbport.ini keys without "party_") and members.
+std::vector<std::pair<const char*, const bool*>> SessionRuleFields(const Rules& r);
+std::vector<std::pair<const char*, bool*>> SessionRuleFields(Rules& r);
+
+/// 0.7.4: the host's session rules its modules read only once, at start (a guest cannot take the
+/// host's value later): every player must start with the host's, or the host refuses the join with
+/// "set X like the host" (party_link identity_mismatch). guest_insight: bbport.ini
+/// party_guest_insight's index (0 parity "Same as the host", 1 full, 2 the game's own +1);
+/// start_immediate: BB_PARTY_START=immediate (the launcher's "Party starts: Right away").
+struct StartupRules {
+    bool guest_lamps = true;
+    bool guest_mark = true;
+    bool full_rewards = true;
+    int guest_insight = 0;
+    bool start_immediate = false;
+};
+/// The join check's part of the party link's rules text: "join: Guests use lamps=on; ...", each
+/// entry "<the setting's menu name>=<its value as the menu shows it>".
+constexpr const char* kJoinRulesPrefix = "join: ";
+std::string JoinRulesTag(const StartupRules& r);
 
 /// The menu sliders' 11 positions (0..10) for each kind of value.
 extern const int kHpTable[11];      ///< % of the HP step: 0 .. 400

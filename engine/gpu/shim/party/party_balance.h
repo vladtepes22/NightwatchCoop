@@ -75,6 +75,9 @@ bool OnHostRules(const std::string& json, std::string* error = nullptr);
 Rules InForce();
 /// The local settings as rules.
 Rules FromSettings();
+/// 0.7.4: this game's startup-only session rules as its modules read them at start (the env the
+/// settings exported; party_guestsvc's lamps) - the join check's values (JoinRulesTag).
+StartupRules StartupSessionRules();
 /// Guest: the host's rules once received (EVENT "balance"); false before (a guest's own settings
 /// never count for the party rules such as I1 friendly fire).
 bool HostRules(Rules* out);
