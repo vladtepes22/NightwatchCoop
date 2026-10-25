@@ -220,7 +220,23 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     System.IO.Directory.Delete(plain, true);
 }
 
-Console.WriteLine("PASS: host/join validation, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
+// Start-up rules (0.7.5): the host refuses a guest whose values differ from its own, so the launcher names
+// what is not the default and never treats an unset or unknown value as a difference.
+{
+    var stored = new Dictionary<string, string?>();
+    string? ReadRule(string key) => stored.TryGetValue(key, out var v) ? v : null;
+    Check(SeamlessSettings.StartupDifferences(ReadRule).Count == 0, "Unset start-up rules differ from the defaults");
+    stored["party_guest_lamps"] = "1"; stored["party_guest_insight"] = "parity"; stored["party_start"] = "prologue_solo";
+    stored["party_full_rewards"] = "bogus";
+    Check(SeamlessSettings.StartupDifferences(ReadRule).Count == 0, "Default and unknown values count as a difference");
+    stored["party_guest_lamps"] = "0"; stored["party_guest_insight"] = "full"; stored["party_start"] = "immediate";
+    var differs = SeamlessSettings.StartupDifferences(ReadRule);
+    Check(differs.SequenceEqual(new[] { "party_guest_lamps", "party_guest_insight", "party_start" }), "Differing start-up rules not named: " + string.Join(",", differs));
+    stored["party_guest_insight"] = "0";
+    Check(SeamlessSettings.StartupValue("party_guest_insight", "0") == "0" && SeamlessSettings.StartupDifferences(ReadRule).Contains("party_guest_insight"), "Insight 0 (the game's own) is not a difference");
+}
+
+Console.WriteLine("PASS: host/join validation, start-up rules, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 
 [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
 [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.U1)]

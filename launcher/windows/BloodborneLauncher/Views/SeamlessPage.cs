@@ -139,30 +139,40 @@ public sealed class SeamlessPage : LauncherPage
             ("party_boss_hp", L.T("Boss HP per guest (%)"), 150), ("party_boss_damage", L.T("Boss damage per guest (%)"), 10),
             ("party_boss_poise", L.T("Boss poise per guest (%)"), 100), ("party_enemy_hp", L.T("Enemy HP per guest (%)"), 50),
             ("party_enemy_damage", L.T("Enemy damage per guest (%)"), 0), ("party_enemy_poise", L.T("Enemy poise per guest (%)"), 0));
+        // Session rules the host decides (0.7.5): live ones first, then the start-up rules a guest has to match.
+        IniToggles(host,
+            ("party_open_world", L.T("Remove multiplayer barriers"), true), ("party_story_mirror", L.T("Cutscenes for every player"), true),
+            ("party_guest_respawn", L.T("Guest respawn"), true), ("party_guest_revive_inplace", L.T("Get up without a loading screen"), true),
+            ("party_guest_refill", L.T("Refill guest supplies"), true), ("party_chalice_rejoin", L.T("Stay in Chalice Dungeons"), true));
+        StartupRows(host);
+
+        // Joining: the rules above are the host's and reach you on connect. Only the start-up rules need your own
+        // values to match, so they stay here (and are never changed by the launcher).
+        _byMode.Add((Group(L.T("Start-up rules")), Joining));
+        var rules = Rows(Joining);
+        rules.Children.Add(Text(L.T("The host refuses a guest whose start-up rules differ from its own. Leave them as they are unless the host changed them; if it did, set the same values here."), "Faint"));
+        StartupRows(rules);
+        _startupWarning = Text("", "Faint");
+        _startupWarning.TextWrapping = TextWrapping.Wrap;
+        rules.Children.Add(_startupWarning);
 
         _byMode.Add((Group(L.T("My party")), InParty));
         party = Rows(InParty);
-        party.Children.Add(Text(L.T("Your own party settings: your screen, what you get as a guest, story sync and start (in the game: System > My party)."), "Faint"));
+        party.Children.Add(Text(L.T("Your own party settings: your screen, what you get as a guest, story sync (in the game: System > My party)."), "Faint"));
         IniToggles(party,
-            ("party_hud", L.T("Party HUD"), true), ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
+            ("party_hud", L.T("Party HUD"), true), ("party_hud_ping", L.T("Ping in the party list"), true),
+            ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
             ("party_through_walls", L.T("Show party through walls"), false),
             ("party_glow_off", L.T("Companions without glow"), true), ("party_toasts", L.T("Join, leave and travel notices"), true),
-            ("party_npc_talk", L.T("Share NPC dialogue"), true), ("party_guest_lamps", L.T("Guests use lamps"), true),
+            ("party_npc_talk", L.T("Share NPC dialogue"), true),
             ("party_key_view", L.T("Own key items as a guest"), true), ("party_key_items_summoned", L.T("Key items at once"), true));
         IniNumbers(party, ("party_npc_talk_range", L.T("NPC dialogue range (m)"), 25), ("party_overhead", L.T("Name tag detail (0–4)"), 3));
-        IniToggles(party, SeamlessSettings.GameSwitches.Select(o => (o.Key, o.Label, true)).ToArray());
+        IniToggles(party, SeamlessSettings.GameSwitches.Where(o => SeamlessSettings.OwnSwitches.Contains(o.Key)).Select(o => (o.Key, o.Label, true)).ToArray());
         foreach (var option in SeamlessSettings.Switches)
         {
             var key = option.Key;
             ToggleRow(SymbolRegular.People24, option.Label, PartyInfo(key), () => SeamlessSettings.Flag(S, key), v => S.Set(key, v), party);
         }
-        ComboRow(SymbolRegular.People24, L.T("Insight for bosses"), PartyInfo("party_guest_insight"),
-            new[] { new Choice(L.T("Same as host"), "parity"), new Choice(L.T("Full bonus"), "full"), new Choice(L.T("Game's own"), "0") },
-            () => Ini.Get("party_guest_insight", "parity") is "full" or "0" ? Ini.Get("party_guest_insight") : "parity",
-            v => Ini.Set("party_guest_insight", v), party);
-        ComboRow(SymbolRegular.Play24, L.T("Party starts"), PartyInfo("party_start"),
-            new[] { new Choice(L.T("After the prologue"), "prologue_solo"), new Choice(L.T("Right away"), "immediate") },
-            () => S.Str("party_start") == "immediate" ? "immediate" : "prologue_solo", v => S.Set("party_start", v), party);
 
         Group(L.T("Party saves"));
         Body.Children.Add(Text(L.T("Seamless play uses its own savedata_party folder. Automatic snapshots keep single-player and party progress recoverable."), "Faint"));
@@ -203,6 +213,7 @@ public sealed class SeamlessPage : LauncherPage
 
         _timer.Tick += (_, _) => {
             _codes.Text = SeamlessSettings.Codes(S);
+            UpdateStartupWarning();
             var status = SeamlessSession.Read(S);
             _status.Text = status == null ? (Ws.Game.Running ? L.T("Waiting for party status…") : L.T("Game stopped.")) :
                 $"{PartyRole(status.role)}：{PartyState(status.state)}  {status.detail}\n{status.network}\n" +
@@ -213,6 +224,41 @@ public sealed class SeamlessPage : LauncherPage
         Unloaded += (_, _) => _timer.Stop();
         ShowMode();
     }
+    private TextBlock _startupWarning = null!;
+
+    /// <summary>The host's start-up rules (the game reads them once; a guest must have the host's values).</summary>
+    private void StartupRows(Panel into)
+    {
+        IniToggles(into,
+            ("party_guest_lamps", L.T("Guests use lamps"), true), ("party_guest_mark", L.T("Guests can use Hunter's Mark"), true),
+            ("party_full_rewards", L.T("Full Blood Echo rewards"), true));
+        ComboRow(SymbolRegular.People24, L.T("Insight for bosses"), PartyInfo("party_guest_insight"),
+            new[] { new Choice(L.T("Same as host"), "parity"), new Choice(L.T("Full bonus"), "full"), new Choice(L.T("Game's own"), "0") },
+            () => SeamlessSettings.StartupValue("party_guest_insight", Ini.Get("party_guest_insight", "parity")),
+            v => Ini.Set("party_guest_insight", v), into);
+        ComboRow(SymbolRegular.Play24, L.T("Party starts"), PartyInfo("party_start"),
+            new[] { new Choice(L.T("After the prologue"), "prologue_solo"), new Choice(L.T("Right away"), "immediate") },
+            () => SeamlessSettings.StartupValue("party_start", S.Str("party_start")), v => S.Set("party_start", v), into);
+    }
+
+    private static string StartupLabel(string key) => key switch
+    {
+        "party_guest_lamps" => L.T("Guests may use lamps and headstones; the whole party travels with them. The host's rule, read at game start: a guest must have the same value, or the host refuses the join."),
+        "party_guest_mark" => L.T("A guest's Hunter's Mark asks whether to travel alone or with the party; off uses the game's own behavior. The host's rule, read at game start: a guest must have the same value, or the host refuses the join."),
+        "party_full_rewards" => L.T("Guests receive full Blood Echoes and enemy drops like the host; off uses the game's co-op amounts. The host's rule, read at game start: a guest must have the same value, or the host refuses the join."),
+        "party_guest_insight" => L.T("Controls the Insight a guest receives when the host kills a boss. The host's rule, read at game start: a guest must have the same value, or the host refuses the join."),
+        _ => L.T("Party starts"),
+    };
+
+    /// <summary>On the Join side: names the start-up rules that differ from the defaults, since a host with the defaults
+    /// refuses this guest. Nothing is changed here.</summary>
+    private void UpdateStartupWarning()
+    {
+        var differs = SeamlessSettings.StartupDifferences(key => key == "party_start" ? S.Str(key) : Ini.Get(key, ""));
+        _startupWarning.Text = differs.Count == 0 ? "" :
+            L.T("Not the defaults: ") + string.Join(", ", differs.Select(StartupLabel)) + L.T(". A host that kept its defaults will refuse you until these match.");
+    }
+
     /// A panel for the next rows, shown in the modes when accepts (ShowMode).
     private StackPanel Rows(Func<string, bool> when)
     {
@@ -264,20 +310,21 @@ public sealed class SeamlessPage : LauncherPage
         "party_npc_talk_range" => L.T("How close a companion has to be for you to see their NPC conversation."),
         "party_overhead" => L.T("What shows above companions in view, only for you: nothing, name, name and level, name and health, name and deaths, or name and ping."),
         "party_grant_bells" => L.T("Gives the Beckoning Bell and Small Resonant Bell after the prologue, for ringing by hand. Takes effect on the next game start."),
-        "party_open_world" => L.T("Removes co-op walls on area borders so the party can walk anywhere; keep it the same for everyone. Takes effect on the next game start."),
-        "party_guest_respawn" => L.T("While you are a guest, a death brings you back at the host's lamp, not at home. Takes effect on the next game start."),
-        "party_guest_refill" => L.T("While you are a guest, vials and bullets refill when the host rests, dies or travels. Takes effect on the next game start."),
-        "party_chalice_rejoin" => L.T("As a guest, if a death or forced trip takes you out of the host's dungeon, you are summoned back. Leaving by choice: use Rejoin."),
+        "party_open_world" => L.T("Removes co-op walls on area borders so the party can walk anywhere. The host's rule: guests follow it."),
+        "party_guest_respawn" => L.T("A guest who dies comes back at the host's last lamp and is summoned again, instead of being sent home. The host's rule: guests follow it."),
+        "party_guest_refill" => L.T("Guests' Blood Vials and Quicksilver Bullets refill when the host rests, dies or travels. The host's rule: guests follow it."),
+        "party_chalice_rejoin" => L.T("If a death or forced trip takes a guest out of the host's dungeon, the guest is summoned back. Leaving by choice: use Rejoin. The host's rule."),
         "party_guest_mark" => L.T("A guest's Hunter's Mark asks whether to travel alone or with the party; off uses the game's own behavior. Takes effect on the next game start."),
         "party_full_rewards" => L.T("While you are a guest, receive full Blood Echoes and enemy drops like the host; off uses the game's co-op amounts. Takes effect on the next game start."),
         "party_items" => L.T("Boss drops, key items and gifts the host gets are given to each guest too, once. Takes effect on the next game start."),
         "party_progress" => L.T("Bosses, lamps, shortcuts and key events are copied into every guest's save. Applies to host and guests on the next game start."),
         "party_progress_npc" => L.T("The first NPC quest choice anyone makes applies to every save (needs Shared progression). Takes effect on the next game start."),
         "party_story" => L.T("Guests see the host's cutscenes, time of day and ending. Applies to host and guests on the next game start."),
-        "party_story_mirror" => L.T("A guest in the host's world watches cutscenes with the host; off lets the guest watch them later in their own world. Takes effect on the next game start."),
+        "party_story_mirror" => L.T("A guest in the host's world watches cutscenes with the host; off lets the guest watch them later in their own world. The host's rule: guests follow it."),
+        "party_guest_revive_inplace" => L.T("A guest who dies gets up at the host's lamp right away, with no loading screen (after a fall: the respawn load). Off: every death takes the respawn loading screen. The host's rule: guests follow it."),
         "party_restart" => L.T("Automatically restarts the game after a crash and rejoins the party."),
         "party_guest_insight" => L.T("Controls the Insight you receive as a guest when the host kills a boss. Takes effect on the next game start."),
-        "party_start" => L.T("Each new character normally completes its own prologue first. Keep it the same for everyone."),
+        "party_start" => L.T("Each new character normally completes its own prologue first; Right away starts the party at once. The host's rule, read at game start: a guest must have the same value, or the host refuses the join."),
         _ => null,
     };
 

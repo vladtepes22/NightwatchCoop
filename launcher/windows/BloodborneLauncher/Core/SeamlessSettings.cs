@@ -31,6 +31,41 @@ public static partial class SeamlessSettings
         ("party_story_mirror", L.T("Cutscenes for every player")),
     };
 
+    /// <summary>The game's own switches that stay each player's own choice (bbport.ini): what reaches your own
+    /// save or items. The rest of <see cref="GameSwitches"/> are the host's rules (session rules the host decides
+    /// for the party, 0.7.5); a guest follows the host's values, sent on connect.</summary>
+    public static readonly string[] OwnSwitches =
+    {
+        "party_grant_bells", "party_items", "party_progress", "party_progress_npc", "party_story",
+    };
+
+    /// <summary>The start-up rules the host compares with every guest's: the game reads them once at start, and the
+    /// host refuses a guest whose values differ ("set X like the host"). The launcher never changes them by itself.
+    /// Key, default; party_start is the launcher's own variable (BB_PARTY_START), the others live in bbport.ini.</summary>
+    public static readonly (string Key, string Default)[] StartupRules =
+    {
+        ("party_guest_lamps", "1"), ("party_guest_mark", "1"), ("party_full_rewards", "1"),
+        ("party_guest_insight", "parity"), ("party_start", "prologue_solo"),
+    };
+
+    /// <summary>One start-up rule's value as the host compares it: a switch is "1" or "0", Insight "parity", "full" or
+    /// "0", the party start "prologue_solo" or "immediate"; anything else counts as the default.</summary>
+    public static string StartupValue(string key, string? raw)
+    {
+        var value = (raw ?? "").Trim();
+        return key switch
+        {
+            "party_guest_insight" => value is "full" or "0" ? value : "parity",
+            "party_start" => value == "immediate" ? "immediate" : "prologue_solo",
+            _ => value is "0" or "false" or "off" ? "0" : "1",
+        };
+    }
+
+    /// <summary>The start-up rules whose value is not the default: a guest with one of these is refused by a host that
+    /// has the default. <paramref name="read"/> gives a key's stored value (null when unset).</summary>
+    public static List<string> StartupDifferences(Func<string, string?> read) =>
+        StartupRules.Where(r => StartupValue(r.Key, read(r.Key)) != r.Default).Select(r => r.Key).ToList();
+
     /// <summary>Carries an older launcher's choices for <see cref="GameSwitches"/>, the DHT rendezvous
     /// and the guest Insight mode from settings.json into bbport.ini, once (only keys the ini doesn't have yet).
     /// True when something moved.</summary>
