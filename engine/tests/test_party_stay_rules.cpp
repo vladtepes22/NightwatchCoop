@@ -2,6 +2,7 @@
 // A guest the party keeps where it stands (gpu/shim/party/party_stay_rules.h).
 // cmake --build out/gpu --target party-stay-rules-test && out/gpu/party-stay-rules-test
 #include "party/party_stay_rules.h"
+#include "party/party_death_rules.h"
 
 #include <cstdio>
 
@@ -45,6 +46,30 @@ int main() {
         v.hold = -1;
         CHECK(PlanActionHold(v) == HoldAction::None);  // unreadable: nothing written
     }
+    // 0.7.5 guest Dream report: a world lamp's Dream flag -> that lamp's event warp point; a guest's flag still
+    // set 1.5 s later with no warp = the lamp's event 7200 is used up.
+    CHECK(WorldLampDreamPoint(72200100) == 2102951);  // Hemwick
+    CHECK(WorldLampDreamPoint(72200101) == 2102951);
+    CHECK(WorldLampDreamPoint(72410100) == 2102950);  // 1st Floor Sickroom
+    CHECK(WorldLampDreamPoint(72410103) == 2102950);
+    CHECK(WorldLampDreamPoint(72500102) == 2102952);  // Nightmare Frontier lamps (common.emevd: 2102952)
+    CHECK(WorldLampDreamPoint(72600103) == 2102953);
+    CHECK(WorldLampDreamPoint(72800102) == 2102952);
+    CHECK(WorldLampDreamPoint(72800103) == 2102953);
+    CHECK(WorldLampDreamPoint(73200101) == 2102953);
+    CHECK(WorldLampDreamPoint(73200102) == 2102951);
+    CHECK(WorldLampDreamPoint(72102410) == 0);  // a headstone flag
+    CHECK(WorldLampDreamPoint(72100100) == 0);  // the Dream's talk state
+    CHECK(WorldLampDreamPoint(2202951) == 0);   // a lamp id, not a flag
+    CHECK(WorldLampDreamPoint(72200110) == 0);
+    CHECK(WorldLampWarpFallback(true, true, 1.6, false, true, false));
+    CHECK(!WorldLampWarpFallback(true, true, 1.0, false, true, false));   // the event may still clear it
+    CHECK(!WorldLampWarpFallback(true, true, 2.0, false, false, false));  // cleared: the event runs
+    CHECK(!WorldLampWarpFallback(true, true, 2.0, true, true, false));    // a warp followed
+    CHECK(!WorldLampWarpFallback(false, true, 2.0, false, true, false));  // not in a party (a guest or the host)
+    CHECK(!WorldLampWarpFallback(true, false, 2.0, false, true, false));  // in the Dream: headstones
+    CHECK(!WorldLampWarpFallback(true, true, 2.0, false, true, true));    // once
+    CHECK(!WorldLampWarpFallback(true, true, 9.6, false, true, false));   // past the own-use window
     // Never without a keep: the game's own hold (a guest on its way home, a boss clear before K10).
     {
         HoldView v = Held(Keep::None);
@@ -137,6 +162,31 @@ int main() {
     CHECK(!HeadstoneWarpFallback(true, true, 8.5, false, true));   // already run
     CHECK(!HeadstoneWarpFallback(false, true, 8.5, false, false)); // the host: its own events
     CHECK(!HeadstoneWarpFallback(true, false, 8.5, false, false)); // left the Dream
+
+
+    // The two lamp fixes together (W1 slice 5). 1) A peer's lamp flag packet (0x0f) or lamp event
+    // state (0x0e) is dropped before the game reads it (deathrules::PeerLampPacket, our df59c37e):
+    // this game's event 7200 for that lamp stays ready, so the other player's later Dream choice
+    // there warps through the event (the fallback sees the warp and stays quiet). 2) If the event was
+    // used up anyway (a path the drop does not see), the player's own flag is still set 1.5 s later
+    // with no warp: WorldLampWarpFallback (visy 64686779 / 30a6ff7e) clears it and warps, host or guest.
+    // Every flag the fallback watches is one the drop covers:
+    for (std::uint32_t aab : {220u, 230u, 240u, 241u, 242u, 250u, 260u, 270u, 280u, 320u, 330u, 340u, 350u, 360u}) {
+        for (std::uint32_t n = 0; n < 10; ++n) {
+            const std::uint32_t flag = 70000100u + aab * 10000u + n;
+            if (WorldLampDreamPoint(flag)) {
+                CHECK(coop::deathrules::LampTriggerFlag(flag));
+                const std::uint32_t pkt[1] = {flag};
+                CHECK(coop::deathrules::PeerLampPacket(0xf, 4, pkt));
+            }
+        }
+    }
+    // Guest at a lamp after the host's trip from it (or the host after a guest's): the host's packet
+    // was dropped, the guest's own choice runs the event, a warp follows: no fallback.
+    CHECK(!WorldLampWarpFallback(true, true, 2.0, true, false, false));
+    // The same lamp with its event used up: the flag stays set, nothing warped: the fallback warps.
+    CHECK(WorldLampWarpFallback(true, true, 2.0, false, true, false));
+    CHECK(!WorldLampWarpFallback(true, true, 1.0, false, true, false));  // the event still has time
 
     if (g_fail) {
         std::printf("party-stay-rules-test: %d failure(s)\n", g_fail);

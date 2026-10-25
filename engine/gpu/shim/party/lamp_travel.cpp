@@ -546,7 +546,7 @@ void TestTick(const GameSnapshot& s, double now) {
             g_t.at = now + 4.0;  // the load starts first
             return;
         }
-        if (g_t.list_only && g_t.lamp && MapOf(g_t.lamp) != (s.map_id & 0xffff0000u)) {
+        if (g_t.lamp && (g_t.list_only || g_t.members) && MapOf(g_t.lamp) != (s.map_id & 0xffff0000u)) {
             g_t.members_at = 0;  // listonly: wait in the lamp's map (a joiner may land in the Dream first)
             return;
         }

@@ -136,4 +136,37 @@ inline bool HeadstoneWarpFallback(bool guest_client, bool in_dream, double since
            since_flag < kHeadstoneWarpGiveUp;
 }
 
+/// A world lamp's "Return to the Hunter's Dream" flag (common event 7200, one instance per lamp, flag
+/// 7AAB010n = 70000100 + AAB * 10000 + n) -> the Dream point that lamp's event warps to (its third
+/// argument in common.emevd: 2102950 Yharnam, 2102951 Hemwick / Forbidden Woods / Byrgenwerth's first
+/// lamp, 2102952 Cainhurst / Yahar'gul, 2102953 the Nightmares and the Old Hunters). 0 for any other flag.
+inline std::uint32_t WorldLampDreamPoint(std::uint32_t flag) {
+    if (flag < 70000100u || flag >= 80000000u || flag % 10000 < 100 || flag % 10000 > 109) {
+        return 0;
+    }
+    const std::uint32_t aab = (flag - 70000100u) / 10000 % 1000, n = flag % 10;
+    switch (aab) {
+    case 220: case 270: return 2102951;
+    case 230: case 240: case 241: case 242: return 2102950;
+    case 250: return 2102952;
+    case 260: case 330: case 340: case 350: case 360: return 2102953;
+    case 280: return n == 3 ? 2102953 : 2102952;
+    case 320: return n == 1 || n == 3 ? 2102953 : 2102951;
+    default: return 0;
+    }
+}
+
+/// Live (0.7.5 report, repro `gd`): after the host's Dream trip from a lamp (alone: the guests stay) the
+/// guest's own copy of that lamp's event 7200 ran from the host's flag and ended (split travel dropped its
+/// warp as "another member's lamp"); the guest's later "Hunter's Dream" choice at that lamp set the flag
+/// again and nothing warped, until a load. The same for the host after a guest's trip (live gh). The event clears its flag in its first instructions, so a
+/// guest's own lamp flag still set kWorldLampFlagWait s later means no event is waiting: the warp runs here.
+constexpr double kWorldLampFlagWait = 1.5;
+constexpr double kWorldLampGiveUp = 9.5;  // inside split travel's own-use window (kLampOriginWindow 10 s)
+inline bool WorldLampWarpFallback(bool party_member, bool in_world, double since_flag, bool warp_since_flag,
+                                  bool flag_still_set, bool done) {
+    return party_member && in_world && flag_still_set && !warp_since_flag && !done &&
+           since_flag >= kWorldLampFlagWait && since_flag < kWorldLampGiveUp;
+}
+
 }  // namespace coop::stayrules
