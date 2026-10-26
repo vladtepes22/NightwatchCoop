@@ -70,6 +70,12 @@ saves), gives each its own chain and judges **log lines, in order, per role**. T
   not evidence: rerun it (`--only coop --scenario X` a few times) and say how many passed.
 - visy's own `engine/tools/mp/smoke_party.py` has many more phases, but it drives his single-exe build
   (`bbport.exe`); its phases are the source for our rows (same director steps, same log markers).
+- **Scope (decided 26 Oct): our rows check our port, not visy's co-op logic.** visy runs his full suite
+  (19 phases, ~1 h) after every merge to his master, so what reaches us has already passed it. What his runs
+  can't see is our tree: Lantern's engine, our launcher and `bbport.ini`, his overlay rows placed by hand,
+  the conflicts we resolved. The basic loop (`join`, `core`, `deaths`, `boss`: ~8 min) catches a port that
+  broke that. Don't port all his phases or rerun his suite on our side; port one phase as a row only when we
+  change that co-op behaviour ourselves (the "every co-op fix adds a row" rule above).
 
 Test switches are for tests only. Player-facing behaviour is never controlled by them.
 
@@ -130,7 +136,9 @@ What visy has not run live is not claimed as tested here either: it goes on the 
 1. Freeze: everything planned is merged, or moved to the next version. Nothing half-merged.
 2. `cmake out/gpu` (re-hashes the party build ID), then `python tools/qa.py run --level release` on the
    final commit. Triage every failure: regression (fix, rerun), flake (rerun once, write it down), stale
-   check (fix the check).
+   check (fix the check). To keep the co-op rows (~8 min) off the critical path: once the release build
+   and the `smoke` layer are done, start `python tools/qa.py run --only coop` in the background and do
+   steps 3-5 meanwhile; the release waits only for its PASS (the rows run every release, never skipped).
 3. Package into a **fresh** folder (`tools/package-seamless.ps1 ... -Release`), never one a game ran from;
    rerun the `privacy` layer on it (`--only privacy --package <dir>`).
 4. `tools/release.ps1 -Package <dir> -Notes <notes> -DryRun`.
