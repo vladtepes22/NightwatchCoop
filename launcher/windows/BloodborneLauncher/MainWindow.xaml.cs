@@ -1089,6 +1089,15 @@ namespace BloodborneLauncher
                 System.Windows.MessageBox.Show(this, error, L.T("Could not start the game"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
+            // Boot splash over a minimized launcher (the direct --play launcher is already hidden).
+            // If the game ends before its window shows, the launcher comes back.
+            if (!_directPlay) WindowState = WindowState.Minimized;
+            var splash = SplashWindow.Open(() => ws.Game.Running, s.Bool("splash_off"));
+            if (splash != null)
+                splash.Finished += gameEnded =>
+                {
+                    if (gameEnded && !_directPlay) ShowLauncher();
+                };
             // The map is still being made: play now, the game says so and turns the map on by itself.
             if (MapPrep.State == MapPrep.Phase.Preparing)
                 ws.Log(L.F($"Heads up: the map is still being made ({MapPrep.Percent}%). Play on: the game shows a note and turns the map on by itself when it is ready, no restart needed."), LogLevel.Warn);
