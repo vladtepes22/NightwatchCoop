@@ -2,7 +2,12 @@
 
 **Play the whole of Bloodborne together with friends, on PC.** No bells, no summon signs, no fog
 walls: deaths, boss kills and lamp travel don't end the session, and everyone's save keeps the
-progress. Up to 4 hunters. Free and open source.
+progress. Up to 4 hunters. Free and open source. Needs your own game dump (update 1.09); no game
+files included.
+
+[Download a release](https://github.com/vladtepes22/NightwatchCoop/releases) · [Install](#install) ·
+[Watch gameplay](https://www.youtube.com/watch?v=bYavrI0ca94) · [Report a problem](#reporting-a-bug) ·
+[Discord](https://discord.gg/sBK9FKKeup)
 
 A modified version of **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)**,
 0.9.37 (Bloodborne running natively on Windows, with upscalers and PC controls), with **visy's
@@ -10,6 +15,9 @@ seamless co-op v0.7.5+8d2822f3 (0.7.6 work)**.
 
 **See it in action:** [Nightwatch Co-op on YouTube](https://www.youtube.com/watch?v=bYavrI0ca94)
 (thanks to Zarok for helping make it).
+
+<!-- Media placeholder: launcher Host/Join screenshot and 10–15-second party travel/rejoin clip.
+Caption each with build and demonstrated behaviour; hide names, codes and IPs; avoid spoilers. -->
 
 > **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22. It is not made, supported or
 > endorsed by Awaken / Lantern Engine, The Hunter's Dream, FromSoftware or Sony. Please don't
@@ -23,8 +31,8 @@ seamless co-op v0.7.5+8d2822f3 (0.7.6 work)**.
 
 ## What you need
 
-- **Windows 10 or 11, 64-bit**, and a graphics card with **Vulkan 1.3** (any recent NVIDIA, AMD or
-  Intel GPU with current drivers).
+- **Windows 10 or 11, 64-bit**, and a GPU supporting **Vulkan 1.3**, with current drivers.
+  Vulkan support alone does not guarantee playable performance.
 - **Your own decrypted Bloodborne dump**: the `CUSA03173` folder (or another retail release) with
   **update 1.09 copied over the base game**. No game files are included; the base game alone
   (1.00) does not start.
@@ -36,7 +44,7 @@ seamless co-op v0.7.5+8d2822f3 (0.7.6 work)**.
   line warns about it after the first start ([Stuck at 30 FPS](#stuck-at-30-fps)).
 - For co-op: **everyone on the same Nightwatch release** and the same mods.
 
-> **Beta.** It is very playable, but back up your saves (the launcher also keeps automatic
+> **Beta.** Back up your saves (the launcher also keeps automatic
 > backups of the co-op saves). See [Known issues](#known-issues).
 
 ## Co-op in four steps
@@ -51,7 +59,7 @@ seamless co-op v0.7.5+8d2822f3 (0.7.6 work)**.
 Can't connect? The host's **Network line** (Co-op tab) says why: see
 [If friends can't connect](#if-friends-cant-connect).
 
-**Discord:** [discord.gg/sBK9FKKeup](https://discord.gg/sBK9FKKeup): help, finding players, bug reports.
+**Need help?** [Report a problem](#reporting-a-bug) or find players on [Discord](https://discord.gg/sBK9FKKeup).
 
 **Guides:** [Install](#install) · [Single player](#play-single-player) · [The map](#the-map) · [Host a game](#host-a-game) ·
 [Join a game](#join-a-friends-game) · [Play on the same network](#play-on-the-same-network-lan) ·
@@ -63,14 +71,25 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 1. Download `NightwatchCoop-v0.2.5-beta.3-win64.zip` from
    [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
+   Read the selected release's requirements and known issues; choose its zip asset, not the
+   source-code archive. Everyone in your party must install the same release.
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive: the game writes about 100 MB of generated files into its
    folder on every start.
 3. Open the extracted `NightwatchCoop` folder and run **`Nightwatch Co-op.exe`**.
    If Windows shows "Windows protected your PC", click **More info → Run anyway** (the files are
-   not code-signed). (`Bloodborne.exe` starts the game straight away with your launcher settings,
-   e.g. from Steam.)
+   not code-signed; only run a zip from this repository's Releases page). (`Bloodborne.exe` starts
+   the game straight away with your launcher settings, e.g. from Steam.)
 4. Choose your game folder: the one with `eboot.bin` in it.
+
+### Quick FAQ
+
+- **Does this include the game?** No. Supply your own decrypted dump with update 1.09.
+- **Does it use official servers?** No. Co-op connects players' PCs.
+- **Can I keep my solo character?** Solo and co-op saves are separate; read [Saves](#where-the-saves-are) before copying characters.
+- **Why haven't we joined yet?** New characters finish their own prologue first; see [Host a game](#host-a-game).
+- **Why can't we connect?** Check matching builds and gameplay mods, then [connection troubleshooting](#if-friends-cant-connect).
+- **Why am I limited to 30 FPS?** See [Stuck at 30 FPS](#stuck-at-30-fps).
 
 ### Moving from an older version
 
@@ -288,10 +307,17 @@ In co-op, check every player: one pre-patched eboot is enough to hold the party 
 
 ## Reporting a bug
 
-Write down what happened and when, then send `logs\last_session.log` from **every** player's
-`NightwatchCoop` folder (the previous session is in `logs\previous_session.log`). Post them on the
-[Discord](https://discord.gg/sBK9FKKeup) or open an
-[issue](https://github.com/vladtepes22/NightwatchCoop/issues).
+[Open a bug report on GitHub](https://github.com/vladtepes22/NightwatchCoop/issues/new/choose)
+(choose **Bug report** if offered). Include your release, hardware, host/guest role, connection
+type, reproduction steps and approximate event time.
+
+Include reviewed, redacted copies of **both** `logs\last_session.log` and
+`logs\previous_session.log` from each affected player who agrees to share them. After an automatic
+restart, the crash may be in the previous log. If logs are unavailable, explain why.
+
+The launcher's title-bar logs menu (**Copy last ... logs**) hides some personal information; review them
+before posting. Remove remaining addresses, player names, passwords and connection codes.
+Never attach saves or game files. For setup help, use [Discord](https://discord.gg/sBK9FKKeup).
 
 ## Credits
 
