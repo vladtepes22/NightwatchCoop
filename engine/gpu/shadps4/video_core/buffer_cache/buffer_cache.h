@@ -309,6 +309,9 @@ private:
     std::pair<vk::DeviceMemory, u64> AllocateResidency(u64 bytes);
     /// bbport: BbStats::residency_unused_bytes after the free list or the current block changed.
     void NoteResidencyUnused();
+    /// bbport: free slots of the VRAM chunks and the rest of the current one: room the next VRAM
+    /// copies take without new VRAM (UpdateVramLevel).
+    u64 VramResidencyUnused() const;
     /// bbport: idle VRAM blocks (see group_use).
     void NoteUse(VAddr address, u64 size);
     void ProcessIdleBlocks();
@@ -577,6 +580,7 @@ private:
         u64 empty_tick;   ///< the submission then being recorded (it carries the rebinds)
         std::vector<u64> free_offsets; ///< slots of blocks that left (byte offsets)
         u32 evacuated_second = 0;      ///< when its blocks were last sent away (ProcessIdleBlocks)
+        bool system = false;           ///< system memory (system_memory_type_index), not VRAM
     };
     std::unordered_map<VkDeviceMemory, ResidencyChunk> residency_chunks;
     u32 idle_scan_second = 0;

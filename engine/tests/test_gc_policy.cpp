@@ -62,6 +62,29 @@ int main() {
     assert(EffectiveUsage(5000 * MiB, 300 * MiB, 200 * MiB) == 4500 * MiB);
     assert(EffectiveUsage(100 * MiB, 300 * MiB, 0) == 0);
 
+    // The game's data: the collector's usage less its own free VRAM slots, never above the
+    // collector's, so it leaves VRAM only while textures are past their hard mark too.
+    assert(GuestUsage(5000 * MiB, 300 * MiB, 200 * MiB, 500 * MiB) == 4000 * MiB);
+    assert(GuestUsage(5000 * MiB, 300 * MiB, 200 * MiB, 9000 * MiB) == 0);
+    {
+        // The GTX 1650 log of 0.2.5 beta 2: budget 3391 MiB, ~3336 MiB raw, ~180 MiB of VMA block
+        // slack, 624 MiB of free slots in the game's chunks. On the raw usage it stayed full for
+        // good (1-3 FPS) while the collector saw 3156 MiB, under its hard mark, and freed nothing.
+        const Marks m = MarksFor(3391 * MiB);
+        const u64 raw = 3336 * MiB, slack = 180 * MiB, slots = 624 * MiB;
+        assert(GuestLevelFor(raw, m) == 2);
+        assert(LevelFor(EffectiveUsage(raw, slack, 0), m) < Level::Hard);
+        assert(GuestLevelFor(GuestUsage(raw, slack, 0, slots), m) == 0);
+        // Whenever the game's data is under pressure, the collector is at its hard mark or past.
+        for (u64 used = 2000 * MiB; used <= 4000 * MiB; used += 16 * MiB) {
+            for (u64 free_slots = 0; free_slots <= 800 * MiB; free_slots += 200 * MiB) {
+                if (GuestLevelFor(GuestUsage(used, slack, 0, free_slots), m) >= 1) {
+                    assert(LevelFor(EffectiveUsage(used, slack, 0), m) >= Level::Hard);
+                }
+            }
+        }
+    }
+
     // Levels.
     {
         const Marks m = MarksFor(5835 * MiB);

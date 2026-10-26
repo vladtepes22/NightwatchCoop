@@ -68,6 +68,17 @@ constexpr u64 EffectiveUsage(u64 usage, u64 block_slack, u64 pending_free) {
     return usage > reusable ? usage - reusable : 0;
 }
 
+/// The usage the game's data is measured by (BufferCache::UpdateVramLevel): the collector's own
+/// (EffectiveUsage), less the free slots of the game's VRAM chunks, which its next copies take
+/// without new VRAM. It is never above the collector's, so the game's data leaves VRAM only while
+/// the collector is past its hard mark too. On the raw usage before, a GTX 1650 stayed at level 2
+/// for good (VMA block slack and 624 MiB of free slots counted) while the collector, under its
+/// hard mark by its own measure, freed nothing: 2-3 GB a frame read over PCIe, 1-3 FPS.
+constexpr u64 GuestUsage(u64 usage, u64 block_slack, u64 pending_free, u64 residency_unused) {
+    const u64 effective = EffectiveUsage(usage, block_slack, pending_free);
+    return effective > residency_unused ? effective - residency_unused : 0;
+}
+
 /// The guest memory's VRAM level (BufferCache::UpdateVramLevel) on the same marks: 1 (copies of
 /// the game's memory unused for a while go back in place) only once evicting textures from the
 /// soft mark on did not keep the usage under the hard mark, 2 (no new copies) halfway from there
