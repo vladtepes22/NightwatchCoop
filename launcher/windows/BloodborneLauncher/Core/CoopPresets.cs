@@ -18,8 +18,8 @@ namespace BloodborneLauncher.Core
         /// <summary>The values the engine uses when the ini has no entry (visy's, as shipped).</summary>
         private static readonly Dictionary<string, string> Shipped = new()
         {
-            ["party_phantom_hp"] = "1", ["party_guest_respawn"] = "1", ["party_guest_refill"] = "1", ["party_kill_record"] = "1",
-            ["party_boss_hp"] = "150", ["party_boss_damage"] = "10", ["party_enemy_hp"] = "50", ["party_enemy_damage"] = "0",
+            ["party_phantom_hp"] = "1", ["party_level_sync"] = "1", ["party_boss_drops"] = "1", ["party_travel_vote"] = "0",
+            ["party_friendly_fire"] = "0", ["party_boss_hp"] = "150", ["party_boss_damage"] = "10", ["party_enemy_hp"] = "50", ["party_enemy_damage"] = "0",
             ["party_rot"] = "0",
         };
 
@@ -31,21 +31,6 @@ namespace BloodborneLauncher.Core
             {
                 new Choice(L.T("Cut by 30 %"), L.T("As in the game's own co-op: hunters who join have 30 % less maximum health."), On("party_phantom_hp", true)),
                 new Choice(L.T("Full health"), L.T("Guests keep their full maximum health."), On("party_phantom_hp", false)),
-            }),
-            new Page(L.T("Guest respawn"), L.T("What happens to a guest who dies."), new[]
-            {
-                new Choice(L.T("Comes back"), L.T("A guest who dies comes back at the host's last lamp and is summoned again."), On("party_guest_respawn", true)),
-                new Choice(L.T("Sent home"), L.T("A guest who dies is sent home and has to be summoned again."), On("party_guest_respawn", false)),
-            }),
-            new Page(L.T("Guest supplies"), L.T("Whether guests' Blood Vials and Quicksilver Bullets come back."), new[]
-            {
-                new Choice(L.T("Refilled"), L.T("They refill when the host rests, dies or travels."), On("party_guest_refill", true)),
-                new Choice(L.T("Not refilled"), L.T("Guests' supplies are not refilled for them."), On("party_guest_refill", false)),
-            }),
-            new Page(L.T("Enemies stay dead"), L.T("Whether a kill counts for the rest of the party's visit."), new[]
-            {
-                new Choice(L.T("Stay dead"), L.T("A party kill stays dead for everyone, even when maps reload, until a rest."), On("party_kill_record", true)),
-                new Choice(L.T("Come back"), L.T("Killed enemies come back when a map reloads."), On("party_kill_record", false)),
             }),
             new Page(L.T("Scaling presets"), L.T("How much tougher enemies and bosses get for each guest."), new[]
             {
@@ -63,6 +48,26 @@ namespace BloodborneLauncher.Core
             {
                 new Choice(L.T("Off"), L.T("No penalty for dying."), On("party_rot", false)),
                 new Choice(L.T("On"), L.T("Each death adds a penalty, stacking up to five times; resting at a lamp removes it."), On("party_rot", true)),
+            }),
+            new Page(L.T("Level sync"), L.T("What happens when a guest's level is far above the host's."), new[]
+            {
+                new Choice(L.T("On"), L.T("As in the game's own co-op: a hunter whose level is above the host's range is scaled down while it plays in the host's world."), On("party_level_sync", true)),
+                new Choice(L.T("Off"), L.T("Everyone keeps full stats."), On("party_level_sync", false)),
+            }),
+            new Page(L.T("Boss drops for guests"), L.T("Who gets what a world boss drops."), new[]
+            {
+                new Choice(L.T("On"), L.T("The item a world boss drops for the host also goes to every guest who is there, once, in their own save."), On("party_boss_drops", true)),
+                new Choice(L.T("Off"), L.T("Only the host gets the drop."), On("party_boss_drops", false)),
+            }),
+            new Page(L.T("Travel by vote"), L.T("Who decides when the party travels by lamp, headstone or Hunter's Mark."), new[]
+            {
+                new Choice(L.T("Off"), L.T("Whoever travels takes the party along."), On("party_travel_vote", false)),
+                new Choice(L.T("On"), L.T("Travel needs every member's approval; one refusal cancels it."), On("party_travel_vote", true)),
+            }),
+            new Page(L.T("Friendly fire / PvP"), L.T("Whether party members can hurt each other."), new[]
+            {
+                new Choice(L.T("Off"), L.T("Party members cannot hurt each other."), On("party_friendly_fire", false)),
+                new Choice(L.T("On"), L.T("Party members can hurt each other; being killed by a party member counts as a normal death."), On("party_friendly_fire", true)),
             }),
         };
 
