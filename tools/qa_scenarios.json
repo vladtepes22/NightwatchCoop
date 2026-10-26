@@ -137,5 +137,30 @@
         "a wipe; the"
       ]
     ]
+  },
+  "three": {
+    "about": "A host and two guests in one session (0.7.6 guest mesh): the host counts both, each guest arrives in the host's world.",
+    "seconds": 240,
+    "guests": 2,
+    "host": "",
+    "guest": "",
+    "expect": [
+      [
+        "host",
+        "cooperators 0 -> 1"
+      ],
+      [
+        "host",
+        "cooperators 1 -> 2"
+      ],
+      [
+        "guest",
+        "party networking on \\(guest"
+      ],
+      [
+        "guest2",
+        "party networking on \\(guest"
+      ]
+    ]
   }
 }

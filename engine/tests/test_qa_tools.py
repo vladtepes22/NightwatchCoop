@@ -81,8 +81,26 @@ class Expects(unittest.TestCase):
 
     def test_expect_argument(self):
         self.assertEqual(coop.parse_expect('host:a:b'), ('host', 'a:b'))
+        self.assertEqual(coop.parse_expect('guest2:x'), ('guest2', 'x'))
         with self.assertRaises(Exception):
             coop.parse_expect('spectator:x')
+
+
+class Party(unittest.TestCase):
+    def status(self, *remote):
+        return {'state': 'joined', 'members': [{'local': True, 'connected': True, 'in_world': True}] +
+                [{'connected': True, 'in_world': w} for w in remote]}
+
+    def test_host_waits_for_every_guest(self):
+        self.assertTrue(coop.joined(self.status(True, True), 2))
+        self.assertFalse(coop.joined(self.status(True, False), 2))
+        self.assertTrue(coop.joined(self.status(True, False)))
+        self.assertFalse(coop.joined({'state': 'hosting', 'members': []}))
+
+    def test_guest_roles(self):
+        self.assertEqual(coop.guest_roles(1), ['guest'])
+        self.assertEqual(coop.guest_roles(3), ['guest', 'guest2', 'guest3'])
+        self.assertTrue(set(coop.guest_roles(3)) < set(coop.ROLES))
 
 
 class CrashLines(unittest.TestCase):
@@ -108,10 +126,11 @@ class Scenarios(unittest.TestCase):
         for name, row in rows.items():
             self.assertTrue(row.get('about'), name)
             self.assertTrue(row['expect'], name)
+            roles = ['host'] + coop.guest_roles(row.get('guests', 1))
             for role, pattern in row['expect']:
-                self.assertIn(role, ('host', 'guest'), name)
+                self.assertIn(role, roles, name)
                 re.compile(pattern)
-            for role in ('host', 'guest'):
+            for role in roles:
                 self.assertIsInstance(row.get(role, ''), str)
 
     def test_release_rows_exist(self):

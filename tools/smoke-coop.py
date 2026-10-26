@@ -1,4 +1,4 @@
-"""Two bounded, headless, muted game instances with isolated copies of smoke-test saves."""
+"""Bounded, headless, muted game instances (a host and one to three guests) with isolated copies of smoke-test saves."""
 import argparse
 from datetime import datetime
 import json
@@ -23,10 +23,19 @@ def read_status(path):
         return {}
 
 
-def joined(status):
-    return status.get('state') == 'joined' and any(
-        not member.get('local') and member.get('connected') and member.get('in_world')
-        for member in status.get('members', []))
+def joined(status, need=1):
+    """In the session with at least `need` remote players connected and in the world."""
+    return status.get('state') == 'joined' and sum(
+        1 for member in status.get('members', [])
+        if not member.get('local') and member.get('connected') and member.get('in_world')) >= need
+
+
+# Roles: the host, then guest, guest2, guest3 (a party of up to four).
+ROLES = ('host', 'guest', 'guest2', 'guest3')
+
+
+def guest_roles(count):
+    return ['guest'] + [f'guest{n}' for n in range(2, count + 1)]
 
 
 def load_scenario(name):
@@ -64,8 +73,8 @@ def read_logs(paths):
 
 def parse_expect(value):
     role, sep, pattern = value.partition(':')
-    if not sep or role not in ('host', 'guest'):
-        raise argparse.ArgumentTypeError('--expect takes host:REGEX or guest:REGEX')
+    if not sep or role not in ROLES:
+        raise argparse.ArgumentTypeError('--expect takes ROLE:REGEX, ROLE one of ' + ', '.join(ROLES))
     return role, pattern
 
 
@@ -84,10 +93,15 @@ def main():
     parser.add_argument('--seed-host', default='host', help='Existing smoke-game save fixture name.')
     parser.add_argument('--seed-guest', default='guest', help='Existing smoke-game save fixture name.')
     parser.add_argument('--game', help='Game folder (CUSA03173), passed to smoke-game.py.')
+    parser.add_argument('--guests', type=int, choices=[1, 2, 3],
+                        help='Guests to run (default: the scenario\'s "guests", else 1); all copy --seed-guest.')
     args = parser.parse_args()
     scenario = load_scenario(args.scenario) if args.scenario else {}
+    guests = guest_roles(args.guests or scenario.get('guests', 1))
     steps = {'host': args.host_steps if args.host_steps is not None else scenario.get('host', args.steps),
              'guest': args.guest_steps if args.guest_steps is not None else scenario.get('guest', args.steps)}
+    for role in guests[1:]:  # extra guests: their own row key, else no director chain
+        steps[role] = scenario.get(role, '')
     expects = [tuple(e) for e in scenario.get('expect', [])] + args.expect
     args.seconds = args.seconds or scenario.get('seconds', 240)
     run = f'coop-{args.label}-{datetime.now():%Y%m%d-%H%M%S}'
@@ -103,7 +117,8 @@ def main():
                BB_PARTY_TEST_INVINCIBLE='1')
     env.update(scenario.get('env', {}))  # a row's own switches (e.g. a progress clear for a boss fight)
     try:
-        for role, seed, port in [('host', 'host', 47912), ('join', 'guest', 47913)]:
+        players = [('host', 'host', 47912)] + [('join', seed, 47913 + i) for i, seed in enumerate(guests)]
+        for role, seed, port in players:
             name = f'{run}-{seed}'
             user = REPO / 'work' / f'smoke-{name}' / 'user'
             fixture_name = args.seed_host if role == 'host' else args.seed_guest
@@ -121,7 +136,9 @@ def main():
             output = (artifacts / f'{seed}-harness.log').open('w', encoding='utf-8')
             logs.append(output)
             command = [sys.executable, '-u', str(REPO / 'tools/smoke-game.py'), '--name', name,
-                       '--role', role, '--port', str(port), '--code-file', str(code), '--seconds', str(args.seconds)]
+                       '--role', role, '--port', str(port), '--code-file', str(code), '--seconds', str(args.seconds),
+                       '--party-max', str(len(players)),
+                       '--party-name', 'HostSmoke' if role == 'host' else 'GuestSmoke' + seed[len('guest'):]]
             if args.game:
                 command += ['--game', args.game]
             if args.probe:
@@ -136,7 +153,12 @@ def main():
                     time.sleep(0.5)
                 if not code.exists():
                     raise RuntimeError('The host did not publish a connection code.')
-        print(f'Two headless, muted instances running; evidence: {artifacts}', flush=True)
+            elif seed != guests[-1]:
+                # The next guest waits for this one's party tick: starts share engine/out (patches.bin).
+                deadline = time.monotonic() + 90
+                while not states[seed].exists() and child.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.5)
+        print(f'{len(players)} headless, muted instances running; evidence: {artifacts}', flush=True)
         was_joined = False
         stable_joined_at = None
         stable_seconds = 0
@@ -158,10 +180,11 @@ def main():
                         boundary_at = time.monotonic()
                         print('Streaming stage boundary observed with the session active.', flush=True)
             snapshot = {seed: read_status(path) for seed, path in states.items()}
-            both_joined = all(joined(status) for status in snapshot.values())
+            # The host must see every guest; a guest needs the host (guest-to-guest shows in the logs).
+            both_joined = all(joined(status, len(guests) if seed == 'host' else 1) for seed, status in snapshot.items())
             if both_joined != was_joined:
                 evidence.append({'time': datetime.now().isoformat(), 'joined': both_joined, **snapshot})
-                print(f'Both instances in the same multiplayer session: {both_joined}', flush=True)
+                print(f'Every instance in the same multiplayer session: {both_joined}', flush=True)
                 was_joined = both_joined
             if both_joined:
                 if stable_joined_at is None:

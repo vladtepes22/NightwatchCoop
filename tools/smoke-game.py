@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--role', choices=['host', 'join'], default='host')
     parser.add_argument('--port', type=int, default=47892)
     parser.add_argument('--code-file', type=Path)
+    parser.add_argument('--party-name', help='Player name (default HostSmoke / GuestSmoke).')
+    parser.add_argument('--party-max', type=int, default=2, help='Party size the host allows (BB_PARTY_MAX).')
     parser.add_argument('--engine', type=Path, default=REPO / 'engine')
     parser.add_argument('--probe', type=Path, help='Use a specific native binary for before/after comparisons.')
     parser.add_argument('--native-log', action='store_true', help='Exercise separate native output capture used by GUI launches.')
@@ -48,8 +50,9 @@ def main():
     env = dict(os.environ)
     env.update(BB_HEADLESS='1', BB_AUDIO='none', BB_PREBUILT='1', BB_DATA_DIR=str(data), BB_CONFIG=str(config), BB_USER_DIR=str(user),
                BB_GAME_DIR=args.game, BB_PROBE=str(probe),
-               BB_PARTY=args.role, BB_PARTY_NAME='HostSmoke' if args.role=='host' else 'GuestSmoke',
-               BB_PARTY_MAX='2', BB_PARTY_PORT=str(args.port),
+               BB_PARTY=args.role,
+               BB_PARTY_NAME=args.party_name or ('HostSmoke' if args.role == 'host' else 'GuestSmoke'),
+               BB_PARTY_MAX=str(args.party_max), BB_PARTY_PORT=str(args.port),
                BB_PARTY_UPNP='0', BB_PARTY_STUN='off', BB_PARTY_LOOPBACK='1', BB_PARTY_LOCAL_IP='127.0.0.1',
                BB_PARTY_RESTART='0', BB_FULLSCREEN='0', BB_FPS='60', BB_GPU_CACHE_DIR=str(user / 'gpu-cache'),
                BB_LOG_FILE=str(artifacts / 'session.log'), BB_CAPTURE_DIR=str(artifacts), BB_DUMP_DIR=str(artifacts),
