@@ -507,6 +507,22 @@ Check(redacted == "Net: local address <your Radmin IP> on (adapter Radmin); Part
     "Addresses not hidden: " + redacted);
 Check(!LogCopy.IsPublic("100.100.1.1") && !LogCopy.IsPublic("25.1.2.3") && LogCopy.IsPublic("8.8.8.8"), "VPN ranges read as public");
 
+// Co-op wizard: a fresh ini is the first choice of every page, a preset's values match it, a mix is "keep mine".
+{
+    var pages = CoopPresets.Pages();
+    foreach (var page in pages)
+    {
+        Check(CoopPresets.Match(page, _ => null) == 0, $"{page.Title}: a fresh ini must match the first choice");
+        for (var i = 0; i < page.Choices.Length; i++)
+        {
+            var values = page.Choices[i].Values.ToDictionary(v => v.Key, v => v.Value);
+            Check(CoopPresets.Match(page, k => values.GetValueOrDefault(k)) == i, $"{page.Title}: choice {i} must match its own values");
+        }
+    }
+    var scaling = pages.Single(p => p.Choices[0].Values.Any(v => v.Key == "party_boss_hp"));
+    Check(CoopPresets.Match(scaling, k => k == "party_boss_hp" ? "175" : null) == -1, "scaling matching neither preset must be keep mine");
+}
+
 Console.WriteLine("PASS: host/join validation, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 
 [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]

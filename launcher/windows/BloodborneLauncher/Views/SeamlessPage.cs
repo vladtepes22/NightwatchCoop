@@ -172,6 +172,9 @@ public sealed class SeamlessPage : LauncherPage
         _byMode.Add((Group(L.T("Party rules")), Hosting));
         host = Rows(Hosting);
         host.Children.Add(Text(L.T("The host's rules for the whole party. When you join, the host's count and yours are kept for when you host (in the game: System > Party rules)."), "Faint"));
+        host.Children.Add(Card(SymbolRegular.Settings24, L.T("Co-op setup"),
+            L.T("A few questions that set the difficulty rules below: guest health, dying, supplies, scaling and rot."),
+            SmallButton(L.T("Run setup again"), SymbolRegular.Play24, (_, _) => CoopWizard.Open()), out _));
         IniToggles(host,
             ("party_kill_record", L.T("Enemies stay dead"), true), ("party_open_world", L.T("Remove multiplayer barriers"), true),
             ("party_share_lamps", L.T("Shared lamps"), true), ("party_gather", L.T("Host can gather the party"), true),
@@ -272,6 +275,14 @@ public sealed class SeamlessPage : LauncherPage
         Loaded += (_, _) => { SetHint(_codes, SeamlessSettings.Codes(S)); _timer.Start(); RefreshRoute(); StartListener(); };
         Unloaded += (_, _) => { _timer.Stop(); _listener?.Dispose(); _listener = null; };
         ShowMode();
+    }
+
+    /// <summary>The first time this tab is shown, the co-op setup wizard (after the page is on screen).</summary>
+    public override void OnShown()
+    {
+        if (S.Bool(CoopPresets.DoneKey)) return;
+        S.Set(CoopPresets.DoneKey, true);
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, CoopWizard.Open);
     }
     private PartyDiscovery.Book _book = new();
     private PartyDiscovery.Listener? _listener;
