@@ -2102,5 +2102,7 @@
   "Progress and items": "进度与物品",
   "What reaches your own save. Takes effect on the next game start.": "会写入你自己存档的内容。下次启动游戏时生效。",
   "Boss drops for guests": "首领掉落给访客",
-  "The item a world boss drops for you also goes to every guest who is there when it dies, once, in their own save. Key and unique items already reach every guest and are not given twice.": "世界首领为你掉落的物品，也会给予首领死亡时在场的每位访客，每人一次，存入其自己的存档。钥匙和唯一物品本来就会给予每位访客，不会重复给予。"
+  "The item a world boss drops for you also goes to every guest who is there when it dies, once, in their own save. Key and unique items already reach every guest and are not given twice.": "世界首领为你掉落的物品，也会给予首领死亡时在场的每位访客，每人一次，存入其自己的存档。钥匙和唯一物品本来就会给予每位访客，不会重复给予。",
+  "Network receive gap log (co-op outages)": "网络接收间隙日志（联机断线）",
+  "BB_NET_RXGAP_LOG: for reports of \"connection unstable\" or outage lines in a party: when a player's game traffic was silent for 2 s or more, whether this PC's receive thread ran on time meanwhile and whether the other players kept arriving, plus a summary once a minute. At most 20 lines a minute": "BB_NET_RXGAP_LOG：用于排查队伍中的“连接不稳定”或断线记录：当某位玩家的游戏流量静默 2 秒或更久时，记录本机的接收线程是否按时运行、其他玩家的数据是否仍在到达，并每分钟输出一次汇总。每分钟最多 20 行"
 }

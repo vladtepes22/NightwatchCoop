@@ -126,6 +126,8 @@ namespace BloodborneLauncher.Views
             SettingToggle(SymbolRegular.Speaker224, L.T("Audio statistics in the log"), "BB_AUDIO_STATS", "audio_stats");
             SettingToggle(SymbolRegular.DeveloperBoard24, L.T("Online memory watch (crash)"),
                 L.T("BB_HEAP_WATCH_LOG: every 20 seconds, which parts of the game hold the memory its online code uses (server requests, the other players' character sync), and each request that fails. For reports of a crash with the game's own \"Transaction failed\" panic. Off by default"), "heap_watch_log");
+            SettingToggle(SymbolRegular.TextBulletListSquare24, L.T("Network receive gap log (co-op outages)"),
+                L.T("BB_NET_RXGAP_LOG: for reports of \"connection unstable\" or outage lines in a party: when a player's game traffic was silent for 2 s or more, whether this PC's receive thread ran on time meanwhile and whether the other players kept arriving, plus a summary once a minute. At most 20 lines a minute"), "net_rxgap_log");
             SettingToggle(SymbolRegular.HourglassHalf24, L.T("Loading profile in the log"),
                 L.T("BB_SAMPLE_THREADS: where the game's main, render and file threads spend their time, every 5 seconds. For slow loading; costs a little speed"), "load_profile");
             SettingToggle(SymbolRegular.Timer24, L.T("Render stage timings in the log"), L.T("BB_SECTIONS: where each frame's CPU time goes (with frame statistics). It costs FPS, so it applies to the next game only"), "section_stats");
