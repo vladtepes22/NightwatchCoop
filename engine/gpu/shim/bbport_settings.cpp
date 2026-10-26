@@ -636,10 +636,11 @@ void Load() {
         const int was = v.settings_rev.load();
         if (was < 1) v.party_rot = false;  // rev 1 (0.7.2): rot off by default, the old saved 1 was the old default
         if (was < 2 && v.model_lod == -2) v.model_lod = 0;  // rev 2: Highest became an opt-in
+        if (was < 3) v.change_appearance = v.rebirth = true;  // rev 3 (0.2.5): mirror and Rebirth on by default
         v.settings_rev = kSettingsRev;
-        std::printf("Settings: bbport.ini settings_rev %d -> %d (party_rot=0 and model_lod -2 -> 0 once)\n", was,
+        std::printf("Settings: bbport.ini settings_rev %d -> %d (the one-time changes up to rev 3)\n", was,
                     kSettingsRev);
-        Save();  // Lantern's writer: its own keys (party_rot, settings_rev) rewritten, the rest kept
+        Save();  // Lantern's writer: its own keys (party_rot, change_appearance, rebirth, settings_rev) rewritten, the rest kept
     }
     // Environment overrides (scripts, A/B tests).
     if (const char* env = std::getenv("BB_UPSCALER")) {

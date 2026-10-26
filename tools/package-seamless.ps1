@@ -66,6 +66,10 @@ if ($LASTEXITCODE -ge 8) { throw "Copying the base package failed (robocopy $LAS
 $shippedSettings = Join-Path $base 'engine\lantern.default.ini'
 if (Test-Path -LiteralPath $shippedSettings) {
     Copy-Item -LiteralPath $shippedSettings -Destination (Join-Path $destinationRoot 'bbport.ini') -Force
+    # The Dream mirror and Rebirth at the Altar of Despair are on by default here (settings_rev 3).
+    $ini = Join-Path $destinationRoot 'bbport.ini'
+    $text = [IO.File]::ReadAllText($ini) -replace '(?m)^change_appearance=0', 'change_appearance=1' -replace '(?m)^rebirth=0', 'rebirth=1'
+    [IO.File]::WriteAllText($ini, $text)
 }
 if (!$keepCatalog) { Remove-Item -LiteralPath (Join-Path $destinationRoot 'engine\shader-catalog') -Recurse -Force -ErrorAction SilentlyContinue }
 

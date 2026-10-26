@@ -321,6 +321,47 @@ int main() {
         for (float y = -10.0f; y < 10.0f; y += 0.4f) CHECK(CarRiderTick(u, true, y - 0.5f, -128, y, 13, put) == RiderStep::riding);
     }
 
+    // liftcar: the Frontier report at 60 FPS (car 3301000 down from 1492.71 at ~4 m/s, the rider carried
+    // at ~9 m/s with its ride bit on, then the bit off and a fall). With the car's measured height every
+    // put-back lands on the car's floor (car + 0.27), not lower each time.
+    {
+        RiderTrack r;
+        float put[3] = {};
+        CHECK(RiderTick(r, true, true, 0.0, 10.5f, 1492.98f, -36.0f, put, 330100002, 1492.71f) == RiderStep::riding);
+        double t = 0;
+        float car = 1492.71f, y = 1492.98f;
+        for (int i = 0; i < 10; ++i) {  // 1 s: the car 4 m down, the rider 9 m, the bit on
+            t += 0.1, car -= 0.4f, y -= 0.9f;
+            const RiderStep s = RiderTick(r, true, true, t, 10.5f, y, -36.0f, put, 330100002, car);
+            CHECK(s == RiderStep::riding || s == RiderStep::through);
+            if (s == RiderStep::through) {
+                CHECK(std::fabs(put[1] - (car + 0.27f + 0.3f)) < 0.01f);
+                y = put[1];
+            }
+        }
+        CHECK(y > car);  // still on the car
+        // the bit off and a fall: back on the car's floor, not the old speed guess
+        t += 0.1, car -= 0.4f;
+        CHECK(RiderTick(r, true, false, t, 10.5f, car - 3.0f, -36.0f, put, 330100002, car) == RiderStep::through);
+        CHECK(std::fabs(put[1] - (car + 0.57f)) < 0.01f && put[0] == 10.5f && put[2] == -36.0f);
+        // stepping off the car sideways at the bottom: off, no put-back
+        CHECK(RiderTick(r, true, false, t + 0.1, 12.5f, car + 0.27f, -36.0f, put, 330100002, car) == RiderStep::off);
+        // a chr not on the car when it starts (standing at the bottom landing, the car 20 m up): idle
+        RiderTrack w;
+        CHECK(RiderTick(w, true, false, 0.0, 10.5f, 1471.0f, -36.0f, put, 330100002, 1492.0f) == RiderStep::idle);
+        CHECK(RiderTick(w, true, true, 0.1, 10.5f, 1471.0f, -36.0f, put, 330100002, 1492.0f) == RiderStep::idle);
+        // the put-backs a ride are capped: then the fall recovery has it
+        RiderTrack c;
+        CHECK(RiderTick(c, true, true, 0.0, 0, 10.27f, 0, put, 1, 10.0f) == RiderStep::riding);
+        int puts = 0;
+        for (int i = 1; i < 40; ++i) puts += RiderTick(c, true, true, 0.1 * i, 0, 0.0f, 0, put, 1, 10.0f) == RiderStep::through;
+        CHECK(puts == kRiderMaxPutsMeasured);
+        // car height not readable: the old speed guess is unchanged (NaN default)
+        RiderTrack n;
+        CHECK(RiderTick(n, true, true, 0.0, 0, 5.0f, 0, put, 1) == RiderStep::riding);
+        CHECK(!n.has_off);
+    }
+
     if (g_fail) {
         std::printf("%d check(s) failed\n", g_fail);
         return 1;

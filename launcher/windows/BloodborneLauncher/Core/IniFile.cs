@@ -125,8 +125,9 @@ namespace BloodborneLauncher.Core
         /// bbport_settings.h: whichever starts first does them). 1 (visy 0.7.2): party_rot=0 once,
         /// rot became off by default and older games saved their default 1 with every change.
         /// 2: model_lod -2 -> 0 once, Highest came back as an opt-in and older files still hold the
-        /// -2 that 0.2.1 beta 1 read as 0.</summary>
-        public const int SettingsRev = 2;
+        /// -2 that 0.2.1 beta 1 read as 0. 3 (0.2.5): change_appearance=1 and rebirth=1 once, the Dream
+        /// mirror and Rebirth at the Altar of Despair became on by default.</summary>
+        public const int SettingsRev = 3;
 
         /// <summary>Applies the one-time changes a bbport.ini below <see cref="SettingsRev"/> still
         /// needs; a new file only gets the revision.</summary>
@@ -138,6 +139,7 @@ namespace BloodborneLauncher.Core
             {
                 if (rev < 1) Set("party_rot", "0");
                 if (rev < 2 && Get("model_lod", "0") == "-2") Set("model_lod", "0");
+                if (rev < 3) { Set("change_appearance", "1"); Set("rebirth", "1"); }
                 Set("settings_rev", SettingsRev.ToString());
                 Save();
             }

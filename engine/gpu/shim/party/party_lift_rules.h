@@ -15,6 +15,7 @@
 #pragma once
 
 #include <cmath>
+#include <limits>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -165,19 +166,59 @@ struct RiderTrack {
     std::int32_t anim = -1;             // lifts2: the car animation of the last ride sample
     bool after_put = false;             // lifts2: the next ride sample follows a put-back (no speed from it)
     int puts = 0;                       // lifts2: put-backs this ride
+    float off = 0;                      // liftcar: the chr's height over the measured car on the ride
+    bool has_off = false;
 };
 constexpr float kRiderSlip = 1.0f;      // m below the car's height before it counts as a drop through it
 constexpr float kRiderSideways = 1.0f;  // m sideways from the last ride sample: stepped off (no put-back)
 constexpr double kRiderWindow = 2.0;    // s after the last ride sample: no longer this ride
 constexpr int kRiderMaxPuts = 3;        // lifts2: put-backs a ride at most
+constexpr int kRiderMaxPutsMeasured = 12;  // liftcar: with the car's real height a put-back lands on its floor
 enum class RiderStep { idle, riding, through, off };
+/// liftcar (the Nightmare Frontier report, 26 Oct 2026): at 60 FPS the game can carry a rider on the
+/// Frontier car faster than the car itself (7.8-9.5 m/s against the car's ~4, the ride bit on), so the
+/// speed guess above took the rider's speed, every put-back landed lower and the rider died in the pit.
+/// `car_y` is the car's live height when the caller can read it (the car's hit object: at rest it equals
+/// the car's placement): the chr's offset to it is kept from the ride's first sample, and a chr more than
+/// kRiderSlip under car + offset is put back on the floor whether its ride bit is on or not.
+inline RiderStep RiderTickMeasured(RiderTrack& r, bool ride_bit, double t, float x, float y, float z, float car_y,
+                                   float put[3]) {
+    if (!r.riding) {
+        if (!ride_bit || std::fabs(y - car_y) > kRiderSideways * 3.0f) {
+            return RiderStep::idle;  // not on this car when its ride began
+        }
+        r.riding = true, r.has_off = true, r.off = y - car_y;
+        r.t = t, r.x = x, r.y = y, r.z = z;
+        return RiderStep::riding;
+    }
+    const float side = std::hypot(x - r.x, z - r.z);
+    if (side > kRiderSideways || r.puts >= kRiderMaxPutsMeasured || (!ride_bit && t - r.t > kRiderWindow)) {
+        r = RiderTrack{};
+        return RiderStep::off;
+    }
+    const float floor = car_y + r.off;
+    if (y >= floor - kRiderSlip) {
+        if (ride_bit) r.t = t;
+        r.x = x, r.y = y, r.z = z;
+        return RiderStep::riding;
+    }
+    put[0] = r.x, put[1] = floor + 0.3f, put[2] = r.z;
+    r.t = t, r.y = floor + 0.3f;
+    ++r.puts;
+    return RiderStep::through;
+}
+
 /// One sample of the local chr while `car_playing` (a lift car within reach plays a ride animation).
 /// `put` gets the spot to put it back at for `through`. `anim`: the car's animation (-1: not known).
+/// `car_y`: the car's live height (NaN: not known, the speed guess below).
 inline RiderStep RiderTick(RiderTrack& r, bool car_playing, bool ride_bit, double t, float x, float y, float z,
-                           float put[3], std::int32_t anim = -1) {
+                           float put[3], std::int32_t anim = -1, float car_y = std::numeric_limits<float>::quiet_NaN()) {
     if (!car_playing) {
         r = RiderTrack{};
         return RiderStep::idle;
+    }
+    if (std::isfinite(car_y) && (r.has_off || !r.riding)) {
+        return RiderTickMeasured(r, ride_bit, t, x, y, z, car_y, put);
     }
     if (ride_bit) {
         const double dt = t - r.t;

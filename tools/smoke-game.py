@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--name', default='host')
     parser.add_argument('--game', default=r'E:\games\bloodborne seamless\gamedir\CUSA03173')
     parser.add_argument('--new-game', action='store_true')
+    parser.add_argument('--fps', default='60', help='Frame-rate preset (BB_FPS): 30, 60, 90 or uncap.')
     parser.add_argument('--manual-title', action='store_true')
     parser.add_argument('--role', choices=['host', 'join'], default='host')
     parser.add_argument('--port', type=int, default=47892)
@@ -54,7 +55,7 @@ def main():
                BB_PARTY_NAME=args.party_name or ('HostSmoke' if args.role == 'host' else 'GuestSmoke'),
                BB_PARTY_MAX=str(args.party_max), BB_PARTY_PORT=str(args.port),
                BB_PARTY_UPNP='0', BB_PARTY_STUN='off', BB_PARTY_LOOPBACK='1', BB_PARTY_LOCAL_IP='127.0.0.1',
-               BB_PARTY_RESTART='0', BB_FULLSCREEN='0', BB_FPS='60', BB_GPU_CACHE_DIR=str(user / 'gpu-cache'),
+               BB_PARTY_RESTART='0', BB_FULLSCREEN='0', BB_FPS=args.fps, BB_GPU_CACHE_DIR=str(user / 'gpu-cache'),
                BB_LOG_FILE=str(artifacts / 'session.log'), BB_CAPTURE_DIR=str(artifacts), BB_DUMP_DIR=str(artifacts),
                BB_FINAL_DUMP_TRIGGER=str(artifacts / 'capture.trigger'), BB_LOG_CXX_EXCEPTIONS='1', PYTHONUTF8='1')
     if args.without_development_runtime:

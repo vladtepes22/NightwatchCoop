@@ -456,6 +456,128 @@ and of the car's animation state on each game, `log_flag=` / `log_objanim=`):
 
 Smoke: `python tools/mp/smoke_party.py --only lifts,ladder` (phase lf).
 
+### 10.1.1 Guarded in 0.2.5: a rider drops through its moving car (the Nightmare Frontier report, 2026-10-26)
+
+**Why lifts are still buggy.** The fixes above each closed one mechanism that the EMEVD traces explained:
+the desync (D3), the ping-pong, the flag hold, the Research Hall's early busy clear, and the Forbidden Woods
+runaway put-backs. One class has never had its cause found: **the game itself stops carrying a rider while
+the car moves** (the chr's ride bit, PlayerIns +0x1E5 bit 0x02, goes off and the chr falls through the
+car's floor). Nothing in the party code makes that happen. What exists is a symptom net, the rider guard
+(`liftrules::RiderTick`, `worldact::LiftRiderTick`), and it has three weak points:
+1. It guesses the car's height (the last ride sample plus that animation's speed) because the car object's
+   matrix does not follow the ride (2701032 reads its top height with the car at the bottom). If the
+   floor is not where the guess says, a put-back cannot hold.
+2. Its put-backs were only seen live with `BB_TEST_LIFT_RIDEBIT_OFF`, which fakes the bit off while the
+   chr still stands on a working car floor. A real drop-through, where the floor does not hold the chr,
+   was never reproduced.
+3. Since lifts2 it stops after `kRiderMaxPuts` (3) put-backs a ride, a bound added for the Forbidden
+   Woods runaway. After that the fall recovery is the only net, and it needs 6 s and 40 m
+   (`deathrules::FallRecoveryDue`). A lift shaft kills the player sooner.
+
+The smokes ride the lifts of Central Yharnam, Cathedral Ward, Cainhurst, Hemwick, the Forbidden Woods and the
+Research Hall, plus the library lift and the first shortcut lift of the Nightmare of Mensis. The other lifts of the table, including the Nightmare Frontier's
+(3301000, flags 13300115 / 13300116, added in liftfall from the EMEVD only), were never ridden in a smoke.
+
+**The report (a player's log, 2026-10-26, a build with the lifts2 guard).** The player was **alone in
+their own world**: the party link never reached a host, so the replay, the mirror hold and the guest ride
+reports did not run. No event of this lift is rewritten (only the Research Hall's `BusyDefer` and the
+local-end rides of Cainhurst and the library lift are). Only the generic paths ran: the rider guard, the
+fall-death accounting and the fall recovery. Nightmare Frontier lift 3301000, top about y 1493, bottom
+about y 1446 (47 m):
+* Ride 1: on the car at (10.9, 1493.0, -36.3), the recovery logged the ride (0.1 m/s down: "no fall").
+  It rode 18 m normally. At y 1475.2 the bit went off and the chr dropped 1.1 m under the car. The guard
+  put it back 3 times (1476.6, 1475.3, 1474.0); each time it dropped again 1.0-1.1 m under, about 1.3 m
+  lower than the time before. Then the guard gave up. HP 0 at y 1445.8, "dropped 23.9 m in the 3 s
+  before", killed by nobody (a fall).
+* Ride 2 (after the bloodstain was taken back): the same pattern at the same spot (drops at 1475.8, 1475.2,
+  1474.3; HP 0 at 1445.8, the shaft's foot).
+* Frame time: 60.5 FPS steady (worst frame 24 ms, p99 22 ms, no frame over 1.5x the median), and no stall
+  line before the drops. The liftfix explanation (the car's step past the chr's ground probe on a long
+  frame) does not cover this one.
+
+**Reproduced (headless, 2026-10-26).** Alone, a new game with the start lamp 3302950, 13300111 set (the
+lift's one-time unlock: the bottom region 3302702 visited), the host put into the top in-car region
+3302700 (10.5, 1492.75, -36.0); `log_pos=0.25`, `log_objanim=3301000`, the EMEVD trace of 13300112. The
+same ride under both frame-rate presets (`tools/smoke-game.py --fps`); both headless runs step about 20
+frames a second (the event's 10-frame wait took 0.51 s in each), so the game advances at the same rate in
+both and only the preset differs:
+* **30 FPS preset: clean.** The car's ride animation (anim 2) plays 7.1 s, the rider's ride bit stays on
+  all the way, its speed follows the car (peak ~4 m/s wall), and it stops on the car at y 1471.17, the
+  bottom in-car region 3302701 (y 1470.95). The ride is 21.8 m, not 47 m: the shaft goes on 25 m under the
+  bottom stop (a pit, y ~1446).
+* **60 FPS preset: the report.** The car plays the same anim 2 for the same 7.2 s (the car is not
+  faster). The rider is not: it keeps up with the car for the first second, then descends faster than the
+  car, 1.1x, 1.3x, then **2x the car's speed** 1.9 s into the ride (7.8 m/s against the car's ~4 m/s),
+  **with the ride bit still on**. It sinks into the car's floor, the bit goes off at y 1484.4, and it falls
+  through the floor at the car's pace or faster. The guard fired only at y 1470.1, under the bottom stop.
+  Its 3 put-backs did not hold, it gave up, and HP 0 came at y 1445.7, the pit, as in the player's log.
+
+**Why lifts are still buggy (the cause, as far as proven).** Under Lantern's `60 FPS++` the game
+carries a character standing on a moving car faster than the car moves; at the 30 FPS preset it does
+not. The party code does not cause it (the report and the repro are both alone in their own world), and
+visy's lift code only reacts to it. On the Frontier's car the overshoot grows with the car's speed
+until the rider is under the floor. It may also explain the earlier reports (unproven: none rerun at
+30 FPS): the Research Hall rider "through the ground" at 60 FPS, the Forbidden Woods rider rising "a
+foot at a time", the fall off Hemwick's car edge. Each fix so far handled the consequence (the event
+timing, the guard, the recovery), never the carry itself.
+
+Bisect of `60 FPS++` (158 lines; a variant writes chosen lines back to the executable's own bytes, so
+the start's 1.09 check still accepts it; one headless ride each, `pos` sampled every 0.25 s):
+
+| variant (lines restored to 30 FPS values) | ride |
+| --- | --- |
+| none (the full patch), 3 runs | drop 2 (bit off at y 1484 / 1468, guard 3x / 1x), clean 1 (h0, peak 4.7 m/s) |
+| 26-65 (40 of the `1/30 -> 1/60` step constants) | clean |
+| 66-104 (the other `1/30 -> 1/60` constants) | drop |
+| 132-157 (code pointed at new constants, 0.1 values) | drop |
+| 26-35, 26-30, 31-35 | clean each |
+| 105-131 (`30 -> 60`), 36-65 in tens | not ridden (the headless new game's opening skip failed) |
+| 30 FPS preset, 3 runs | clean all |
+
+The full patch also rode clean once (h0), so **the drop does not happen on every ride** and one ride
+per variant cannot clear a line: the clean rows above may be luck. The rider's peak speed with its bit
+on varies from ride to ride under the same patch (4.7-9.5 m/s at 60, 5.1-6.6 at 30; the car's ~4 m/s).
+The headless game steps about 20 frames a second, not 60, so the drop may depend on the real frame time
+against the patch's fixed 1/60 steps; the player's report was at a steady 60.5 FPS, so this is not the
+whole story. Lines 27-35 are `movl $1/30` into an update message (vtable 0x52efd30, its step at +8) or an
+object's step field, in nine different functions (image offsets 0x63fc3c, 0xeb5452, 0xeb55b3,
+0xf734ed, 0x12efe59, 0x17f9b71, 0x180ca97, 0x19aa658); line 26 is a branch at 0xbbc40f.
+
+Why the guard cannot catch it: it measures the car's speed from the rider's own ride samples, and the
+rider is already moving at the overshot speed while its bit is on, so its car height guess sinks with
+the rider. It sees nothing until the rider is 1 m under that wrong guess, then puts the chr where the car
+is NOT (below the real floor), three times, and stops.
+
+**Fix plan:**
+1. Root (engine, a `work/LANTERN_DIVERGENCE.md` row): finish the bisect above (full-patch repeats,
+   then lines 26-35 one by one), read what the guilty step feeds (the character's ride on a moving
+   hit, or the car's own motion), and correct its value per preset in the frame-rate
+   corrections (`scripts/patches.py` `corrected_frame_rate`, checked by `tools/re/fps_corrections.py`)
+   so every preset carries a rider exactly with its floor. Proof: the headless ride above at 60 / 90 /
+   uncapped matches the 30 FPS trace (ride bit on, the rider's y with the car's within 0.1 m, the stop at
+   1471.17).
+2. Guard (visy's code, after 1): measure the car, not the rider. The car's map matrix does not follow
+   the ride (3301000 stays at y 1492.71 all the way), so the guard needs the live object's transform;
+   until then its speed must come from samples where the rider is not faster than any earlier sample
+   by more than a lift can accelerate, and a put-back must clear the chr's fall speed.
+3. Smoke: this ride as a QA row (alone, 60 FPS: no drop, no death, the stop at the bottom region), and
+   every lift of the table ridden once (about half never were).
+
+**Status (0.2.5):** step 2 is done; step 1 (the 60 FPS root) stays open.
+- The drop is intermittent (full `60 FPS++` patch: 2 drops in 3 headless runs), so the bisect stopped;
+  the exact constant is unproven.
+- The car's live height: the car's hit object, `*(entry+0x288)+0xac` of its ObjAnimState entry
+  (found with a temporary pointer scan, not shipped). It stayed 0.27 m under the rider through every
+  ride at 30 and 60 FPS, and at rest at the top it equals the car's placement (1492.71).
+  `LiftCarHeight` reads it (NaN when unreadable or more than 80 m from the placement).
+- `liftrules::RiderTickMeasured` (via `RiderTick`'s `car_y`): the rider's offset to the car is kept
+  from the ride's first sample; a rider more than kRiderSlip under car + offset is put back on the
+  floor, with its ride bit on (carried ahead of the car) or off (falling), at most
+  kRiderMaxPutsMeasured times a ride. Without a readable height the old speed guess runs unchanged.
+  Unit cases in `test_party_lift_rules.cpp` (the report's ride, stepping off, a chr at the landing,
+  the cap, the NaN fallback).
+- Still open: the root in the frame-rate corrections, and every lift of the table ridden once.
+
 ## 11. Interface (for split travel and other callers)
 
 * Wire format: EVENT `world_action` (`worldact::kEventName`), guest -> host, body

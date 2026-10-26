@@ -308,7 +308,7 @@ struct Values {
     std::atomic<int> mouse_sensitivity{5};
     std::atomic<int> button_prompts{PromptsAuto};
     std::atomic<int> pad_icons{PadIconsAuto};
-    std::atomic<bool> change_appearance{false}, rebirth{false};
+    std::atomic<bool> change_appearance{true}, rebirth{true};  // on by default since 0.2.5 (settings_rev 3)
     std::atomic<bool> graphics_controls{false}, graphics_vignette{true};
     std::atomic<float> graphics_ao_strength{1},graphics_shadow_scale{1},graphics_bloom{1},graphics_saturation{1};
     std::atomic<float> graphics_fog{1},graphics_brightness{1},graphics_contrast{1},graphics_hue{0};
@@ -374,7 +374,7 @@ extern const PartySwitch PartySwitches[];
 ///              2026-10-22: turn it off once; a later explicit 1 stays).
 ///   2 (0.2.1 beta 2): model_lod -2 -> 0 once. Highest came back as an opt-in; files saved before
 ///              still hold the old -2 that 0.2.1 beta 1 read as 0, so it is not switched on silently.
-constexpr int kSettingsRev = 2;
+constexpr int kSettingsRev = 3;
 extern const int PartySwitchCount;
 /// party_guest_insight's ini / env values by index (parity, full, 0).
 const char* GuestInsightName(int mode);

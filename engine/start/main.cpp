@@ -418,9 +418,11 @@ int Main(std::vector<std::wstring> arguments) {
     if (other_edition) SetEnv("BB_OTHER_EDITION", "1");
     else UnsetEnv("BB_OTHER_EDITION");
     const auto is_on = [&](const char* key) { return Setting(settings, key) == "1"; };
+    // on by default (settings_rev 3): only an explicit 0 turns them off
+    const auto default_on = [&](const char* key) { return Setting(settings, key) != "0"; };
     try {
         SetEnv("BB_ENGINE_IMAGE_SHA256", VerifyExecutable(out / "eboot.elf"));
-        if (is_on("change_appearance")) {
+        if (default_on("change_appearance")) {
             try {
                 const fs::path asset = PrepareMirror(merged, out / "eboot.elf", data / "engine-assets");
                 SetEnv("BB_DREAM_MIRROR_ASSET", Utf8(asset));
@@ -429,14 +431,14 @@ int Main(std::vector<std::wstring> arguments) {
                 Log("Engine: Dream mirror skipped: %s", e.what());
             }
         }
-        if (is_on("change_appearance") || is_on("camera_controls") || is_on("rebirth") || is_on("graphics_controls") ||
+        if (default_on("change_appearance") || is_on("camera_controls") || default_on("rebirth") || is_on("graphics_controls") ||
             Setting(settings, "pc_controls") != "0" || Setting(settings, "widescreen") != "0") {
             try {
                 const fs::path menus = PrepareMenuAssets(merged, out / "eboot.elf", data / "engine-assets",
-                                                         out / "bb-engine-assets.exe", is_on("rebirth"));
+                                                         out / "bb-engine-assets.exe", default_on("rebirth"));
                 SetEnv("BB_PC_MENU_ASSETS", Utf8(menus));
                 Log("Engine: native PC menus prepared locally: %s", Utf8(menus).c_str());
-                if (is_on("rebirth"))
+                if (default_on("rebirth"))
                     SetEnv("BB_REBIRTH_ASSET", Utf8(menus / Path("dvdroot_ps4/script/talk/m24_02_00_00.talkesdbnd.dcx")));
             } catch (const std::exception& e) {
                 Log("Engine: native PC menus disabled: %s", e.what());
