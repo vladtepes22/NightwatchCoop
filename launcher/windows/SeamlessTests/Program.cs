@@ -507,20 +507,18 @@ Check(redacted == "Net: local address <your Radmin IP> on (adapter Radmin); Part
     "Addresses not hidden: " + redacted);
 Check(!LogCopy.IsPublic("100.100.1.1") && !LogCopy.IsPublic("25.1.2.3") && LogCopy.IsPublic("8.8.8.8"), "VPN ranges read as public");
 
-// Co-op wizard: a fresh ini is the first choice of every page, a preset's values match it, a mix is "keep mine".
+// Co-op presets: each preset matches its own values, a fresh ini (shipped defaults) matches none (keep mine), a mix matches none.
 {
-    var pages = CoopPresets.Pages();
-    foreach (var page in pages)
+    var presets = CoopPresets.Presets();
+    Check(presets.Length == 3, "three co-op presets");
+    Check(CoopPresets.Match(presets, _ => null) == -1, "a fresh ini matches no preset");
+    for (var i = 0; i < presets.Length; i++)
     {
-        Check(CoopPresets.Match(page, _ => null) == 0, $"{page.Title}: a fresh ini must match the first choice");
-        for (var i = 0; i < page.Choices.Length; i++)
-        {
-            var values = page.Choices[i].Values.ToDictionary(v => v.Key, v => v.Value);
-            Check(CoopPresets.Match(page, k => values.GetValueOrDefault(k)) == i, $"{page.Title}: choice {i} must match its own values");
-        }
+        var values = presets[i].Values.ToDictionary(v => v.Key, v => v.Value);
+        Check(CoopPresets.Match(presets, k => values.GetValueOrDefault(k)) == i, $"preset {i} must match its own values");
+        Check(CoopPresets.Match(presets, k => k == "party_boss_hp" ? "175" : values.GetValueOrDefault(k)) == -1, $"preset {i} with a changed rule must be keep mine");
     }
-    var scaling = pages.Single(p => p.Choices[0].Values.Any(v => v.Key == "party_boss_hp"));
-    Check(CoopPresets.Match(scaling, k => k == "party_boss_hp" ? "175" : null) == -1, "scaling matching neither preset must be keep mine");
+    Check(presets.Select(p => p.Values.Length).Distinct().Count() == 1, "every preset sets the same keys");
 }
 
 Console.WriteLine("PASS: host/join validation, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
