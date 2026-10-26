@@ -20,12 +20,12 @@ jobs:
         run: |
           if [ -z "$WEBHOOK" ]; then echo "No webhook secret for this channel"; exit 0; fi
           jq -n --arg title "$TITLE" --arg url "$URL" --arg body "$BODY" --arg pre "$PRERELEASE" '{
-            username: "Bloodborne PC",
+            username: "Nightwatch Co-op",
             embeds: [{
               title: $title,
               url: $url,
               description: (($body | .[0:3800]) + "\n\n[Download](" + $url + ")"),
               color: (if $pre == "true" then 15105570 else 10038562 end),
-              footer: { text: (if $pre == "true" then "Beta: not tested yet" else "Stable release" end) }
+              footer: { text: (if $pre == "true" then "Beta: see the known issues" else "Stable release" end) }
             }]
           }' | curl -sSf -H "Content-Type: application/json" -d @- "$WEBHOOK"
