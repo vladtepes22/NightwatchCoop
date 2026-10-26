@@ -497,7 +497,12 @@ try
     var newest = LogCopy.NewestLogs(copyDir).Select(System.IO.Path.GetFileName).ToArray();
     Check(newest.SequenceEqual(new[] { "last_session.log", "previous_session.log", "session-20261028-120000.log", "session-20261027-120000.log", "session-20261026-120000.log" }),
         "Wrong logs or order: " + string.Join(", ", newest));
+    File.WriteAllText(System.IO.Path.Combine(copyDir, "previous_session.log"), "now");
+    Check(LogCopy.NewestLogs(copyDir, 2, archives: false, distinct: false).Select(System.IO.Path.GetFileName)
+        .SequenceEqual(new[] { "last_session.log", "previous_session.log" }), "Report skipped identical session logs");
+    File.WriteAllText(System.IO.Path.Combine(copyDir, "previous_session.log"), "s9");
     File.Delete(System.IO.Path.Combine(copyDir, "last_session.log"));
+    Check(LogCopy.NewestLogs(copyDir, 2, archives: false, distinct: false).Count == 1, "Report picked an archived session");
     Check(LogCopy.NewestLogs(copyDir, 2).Select(System.IO.Path.GetFileName).SequenceEqual(new[] { "previous_session.log", "session-20261028-120000.log" }),
         "A missing last_session.log was not skipped");
 }
@@ -523,6 +528,48 @@ Check(!LogCopy.IsPublic("100.100.1.1") && !LogCopy.IsPublic("25.1.2.3") && LogCo
     Check(scaling.Choices[1].Values.All(v => v.Key.StartsWith("party_boss") || v.Key.StartsWith("party_enemy")), "scaling presets set only scaling");
     Check(CoopPresets.Match(scaling, k => k == "party_boss_hp" ? "175" : null) == -1, "a changed scaling value must be keep mine");
 }
+foreach (var ip in new[] { "2001:db8::1234", "::1", "::", "fe80::abcd%12", "fe80::abcd%Ethernet", "::ffff:192.168.1.20", "2001:0db8:0000:0000:0000:ff00:0042:8329" })
+    Check(LogCopy.Redact($"address [{ip}]:47890, {ip}.") == "address [<IP>]:47890, <IP>.", "IPv6 not hidden: " + ip);
+Check(LogCopy.Redact(@"c:\users\Some Person\logs D:\Users\Other Person\file") == @"c:\users\<user>\logs D:\Users\<user>\file", "User folders with spaces or mixed case not hidden");
+Check(LogCopy.Redact("12:34:56 frame 123 version 0.2.6") == "12:34:56 frame 123 version 0.2.6", "Scrubber damaged diagnostic text");
+Check(LogCopy.Redact("Test Player CODE-26.1.2.3 secret.* TEST PLAYER", "Test Player", new[] { "CODE-26.1.2.3", "secret.*", "" })
+      == "<player> <secret> <secret> <player>", "Names or literal secrets not hidden");
+Check(LogCopy.Redact("", "", new[] { "" }) == "", "Empty values broke redaction");
+var shortName = LogCopy.Redact(@"C:\Users\Some Person\file 2001:db8::abcd 192.168.1.20", "a");
+Check(!shortName.Contains("Some Person") && !shortName.Contains("db8") && !shortName.Contains("168"), "A short player name bypassed address or folder scrubbing");
+var reportSettings = new LauncherSettings();
+reportSettings.Set("party_name", "PrivatePlayer");
+reportSettings.PartyPassword = "PrivatePassword";
+reportSettings.Set("party_code", "PrivateCode");
+reportSettings.SetJoinPassword("RememberedHost", "RememberedPassword");
+Check(LogCopy.Redact("PrivatePlayer PrivatePassword PrivateCode RememberedHost RememberedPassword", reportSettings)
+      == "<player> <secret> <secret> <secret> <secret>", "Settings-held secrets not hidden");
+reportSettings.Set("party_mode", "join");
+reportSettings.Set("fps_mode", "120");
+reportSettings.Set("fullscreen", true);
+reportSettings.Set("extra_env", "PRIVATE_ENV=secret");
+reportSettings.Set("discord_status", "PrivateDiscord");
+reportSettings.Set("game_dir", @"C:\private-game");
+reportSettings.Set("user_dir", @"C:\private-saves");
+reportSettings.Set("future_private_setting", "PrivateFuture");
+var reportIni = new IniFile();
+reportIni.Set("upscaler", "dlss");
+reportIni.Set("output_res", "2560x1440");
+reportIni.Set("party_guest_respawn", "1");
+reportIni.Set("party_password", "PrivateIniPassword");
+reportIni.Set("discord_secret", "PrivateIniDiscord");
+reportIni.Set("unknown_key", "PrivateIniFuture");
+var summary = ProblemReport.SettingsSummary(reportSettings, reportIni);
+Check(summary.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')).SequenceEqual(new[]
+    { "role=guest", "fps_mode=120", "fullscreen=true", "upscaler=dlss", "output_res=2560x1440", "party_guest_respawn=1" }),
+    "Report allowlist included private settings or lost graphics / co-op values: " + summary);
+reportSettings.Set("party_mode", "host");
+Check(ProblemReport.SettingsSummary(reportSettings, reportIni).StartsWith("role=host"), "Host role missing");
+reportSettings.Set("party_mode", "PrivateRole");
+reportIni.Set("upscaler", "dlss\npassword=PrivateInjected");
+Check(!ProblemReport.SettingsSummary(reportSettings, reportIni).Contains("Private"), "Report allowed an injected setting or role");
+Check(ProblemReport.IssueUrl("0.2.6 beta+1&body=private") == "https://github.com/vladtepes22/NightwatchCoop/issues/new?template=bug_report.yml&version=0.2.6%20beta%2B1%26body%3Dprivate",
+    "Issue URL added fields beyond the encoded version");
 
 Console.WriteLine("PASS: host/join validation, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 

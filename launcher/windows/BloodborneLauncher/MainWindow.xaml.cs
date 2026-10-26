@@ -769,7 +769,45 @@ namespace BloodborneLauncher
             crash.Click += (_, _) => CopyCrashReport();
             menu.Items.Add(logs);
             menu.Items.Add(crash);
+            var report = new System.Windows.Controls.MenuItem { Header = L.T("Report a problem") };
+            report.Click += (_, _) => ReportProblem();
+            menu.Items.Add(report);
             menu.IsOpen = true;
+        }
+
+        /// <summary>A ZIP of both session logs and a settings summary (scrubbed), then the bug report form.</summary>
+        private static async void ReportProblem()
+        {
+            var ws = Workspace.Current;
+            try
+            {
+                var report = await Task.Run(() => ProblemReport.Create(ws.Settings, ws.Ini));
+                var message = L.T("Attach the ZIP to the issue. Look through it first before sharing it.");
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{report.Zip}\"") { UseShellExecute = true });
+                }
+                catch (Exception)
+                {
+                    message += "\n" + L.T("Could not open Explorer. The ZIP is here: ") + report.Zip;
+                }
+                var url = ProblemReport.IssueUrl(Updater.CurrentLabel);
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+                }
+                catch (Exception)
+                {
+                    message += "\n" + (ClipboardText.Set(url + "\n\n" + report.Text)
+                        ? L.T("Could not open the browser. The issue URL and report text were copied to the clipboard.")
+                        : L.T("Could not open the browser or copy to the clipboard. Open this URL and use report.txt in the ZIP: ") + url);
+                }
+                Prompt.Tell(L.T("Report a problem"), message);
+            }
+            catch (Exception ex)
+            {
+                Prompt.Tell(L.T("Report a problem"), L.T("Could not create the report: ") + ex.Message);
+            }
         }
 
         private static void CopyLogs()

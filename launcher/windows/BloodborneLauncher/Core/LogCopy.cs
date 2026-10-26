@@ -23,11 +23,11 @@ namespace BloodborneLauncher.Core
         /// <summary>The newest <paramref name="count"/> session logs in <paramref name="logDir"/>: last_session.log,
         /// previous_session.log, then logs\sessions newest first. previous_session.log is normally a copy of the
         /// newest archived one, so a file with the same contents as one already taken is skipped.</summary>
-        public static List<string> NewestLogs(string logDir, int count = Count)
+        public static List<string> NewestLogs(string logDir, int count = Count, bool archives = true, bool distinct = true)
         {
             var candidates = new List<string> { Path.Combine(logDir, "last_session.log"), Path.Combine(logDir, "previous_session.log") };
             var archive = Path.Combine(logDir, "sessions");
-            if (Directory.Exists(archive))
+            if (archives && Directory.Exists(archive))
                 candidates.AddRange(new DirectoryInfo(archive).GetFiles("session-*.log")
                     .OrderByDescending(f => f.Name, StringComparer.Ordinal).Select(f => f.FullName));
             var taken = new List<string>();
@@ -35,7 +35,7 @@ namespace BloodborneLauncher.Core
             foreach (var path in candidates)
             {
                 if (taken.Count >= count) break;
-                if (Read(path) is not { } text || !seen.Add(text)) continue;
+                if (Read(path) is not { } text || distinct && !seen.Add(text)) continue;
                 taken.Add(path);
             }
             return taken;
@@ -43,15 +43,51 @@ namespace BloodborneLauncher.Core
 
         private static readonly Regex Ip = new(@"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b", RegexOptions.Compiled);
         private static readonly Regex OwnAddress = new(@"(setx BB_PARTY_LOCAL_IP |local address |to `|print `)(\d+\.\d+\.\d+\.\d+)", RegexOptions.Compiled);
-        private static readonly Regex UserFolder = new(@"([A-Za-z]:\\Users\\)[^\\\s]+", RegexOptions.Compiled);
+        private static readonly Regex UserFolder = new(@"([A-Za-z]:\\Users\\)[^\\\r\n]+(?=\\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         /// <summary>net_doctor.py's redact(ips=True): this PC's VPN address named by its kind, a public address
         /// replaced whole, any other keeps only its first number. Plus the user folder (it holds the Windows name).</summary>
-        public static string Redact(string text)
+        public static string Redact(string text, string player = "", IEnumerable<string>? secrets = null)
+        {
+            text = RedactAddresses(text);
+            var replacements = (secrets ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(s => (Value: s, Replacement: "<secret>"))
+                // A very short name would also hit ordinary words in the log.
+                .Concat(player.Trim().Length < 3 ? Array.Empty<(string Value, string Replacement)>() : new[] { (Value: player, Replacement: "<player>") })
+                .SelectMany(s => new[] { s, (Value: RedactAddresses(s.Value), s.Replacement) })
+                .OrderByDescending(s => s.Value.Length).ToArray();
+            if (replacements.Length > 0)
+                text = Regex.Replace(text, string.Join("|", replacements.Select(s => Regex.Escape(s.Value))),
+                    m => replacements.First(s => string.Equals(s.Value, m.Value, StringComparison.OrdinalIgnoreCase)).Replacement,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            return text;
+        }
+
+        private static string RedactAddresses(string text)
         {
             text = UserFolder.Replace(text, m => m.Groups[1].Value + "<user>");
+            text = IpV6.Replace(text, m =>
+            {
+                var candidate = m.Value.TrimEnd('.');
+                var addressText = candidate.Split('%')[0];
+                return IPAddress.TryParse(addressText, out var address) && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                    ? "<IP>" + m.Value[candidate.Length..] : m.Value;
+            });
             text = OwnAddress.Replace(text, m => m.Groups[1].Value + $"<your {VpnKind(m.Groups[2].Value)} IP>");
             return Ip.Replace(text, m => IsPublic(m.Value) ? "<public IP>" : m.Groups[1].Value + ".x.x.x");
+        }
+
+        private static readonly Regex IpV6 = new(@"(?<![\w:])(?:[0-9a-f]*:){2,}[0-9a-f:.]*(?:%[\w.-]+)?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static string Redact(string text, LauncherSettings settings)
+        {
+            var secrets = new List<string> { settings.PartyPassword, settings.OnlinePassword, settings.Str("party_code").Trim(), settings.Str("party_public_addr").Trim() };
+            foreach (var host in settings.Map("party_join_passwords").Keys)
+            {
+                secrets.Add(host);
+                secrets.Add(settings.JoinPassword(host));
+            }
+            return Redact(text, settings.Str("party_name"), secrets);
         }
 
         private static string VpnKind(string ip) =>
@@ -89,7 +125,7 @@ namespace BloodborneLauncher.Core
             foreach (var log in logs)
             {
                 var copy = Path.Combine(dir, Path.GetFileName(log));
-                File.WriteAllText(copy, Redact(Read(log) ?? ""));
+                File.WriteAllText(copy, Redact(Read(log) ?? "", Workspace.Current.Settings));
                 files.Add(copy);
             }
             return SetClipboard(() => Clipboard.SetFileDropList(files)) ? files.Count : null;
@@ -98,7 +134,7 @@ namespace BloodborneLauncher.Core
         /// <summary>Keeps the crash's report (addresses hidden) for the log button.</summary>
         public static void SaveCrashReport(string report)
         {
-            try { File.WriteAllText(CrashReportFile, Redact(report)); }
+            try { File.WriteAllText(CrashReportFile, Redact(report, Workspace.Current.Settings)); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* read-only folder: nothing kept */ }
         }
 
@@ -126,7 +162,7 @@ namespace BloodborneLauncher.Core
             return false;
         }
 
-        private static string? Read(string path)
+        internal static string? Read(string path)
         {
             try
             {

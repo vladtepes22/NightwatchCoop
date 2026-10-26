@@ -94,15 +94,17 @@ namespace BloodborneLauncher.Views
         {
             // The whole session log, not the last lines this page keeps (same source as Export). Read
             // off the UI thread so a big log doesn't freeze the launcher.
+            // Addresses, user folder, player name and passwords hidden, as in the logs menu's copies.
             string text;
+            var settings = S;
             try
             {
                 text = await Task.Run(() =>
                 {
-                    if (!File.Exists(GameRunner.SessionLog)) return _output.Dispatcher.Invoke(() => _output.Text);
+                    if (!File.Exists(GameRunner.SessionLog)) return LogCopy.Redact(_output.Dispatcher.Invoke(() => _output.Text), settings);
                     using var from = new FileStream(GameRunner.SessionLog, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                     using var reader = new StreamReader(from);
-                    return reader.ReadToEnd();
+                    return LogCopy.Redact(reader.ReadToEnd(), settings);
                 });
             }
             catch (Exception e)

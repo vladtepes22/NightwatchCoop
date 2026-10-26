@@ -193,11 +193,13 @@ namespace BloodborneLauncher.Core
                    L.F($"PC {b.Groups[4].Value} of {b.Groups[5].Value} MiB free, {b.Groups[6].Value} MiB commit left");
         }
 
+        public static string VersionLine => $"Nightwatch Co-op {Updater.CurrentLabel}, engine {Updater.LocalEngine() ?? "unknown"}";
+
         public static string Build(LauncherSettings s, IniFile ini, int code, int logLines = 150)
         {
             var hw = Hardware.Detect();
             var text = new StringBuilder();
-            text.AppendLine($"Nightwatch Co-op {Updater.CurrentLabel}, engine {Updater.LocalEngine() ?? "unknown"}");
+            text.AppendLine(VersionLine);
             var tail = Tail(GameRunner.SessionLog, 120).ToList();
             text.AppendLine(L.F($"Exit code 0x{EngineCode(tail, code):X}: {Explain(code)}"));
             text.AppendLine(L.F($"{hw.Summary}, {hw.RamBytes >> 30} GB RAM, Windows {Environment.OSVersion.Version}"));

@@ -1,4 +1,11 @@
 {
+  "Report a problem": "报告问题",
+  "Attach the ZIP to the issue. Look through it first before sharing it.": "请将 ZIP 文件附加到问题报告中。分享前请先检查其中的内容。",
+  "Could not open Explorer. The ZIP is here: ": "无法打开资源管理器。ZIP 文件位于：",
+  "Could not open the browser. The issue URL and report text were copied to the clipboard.": "无法打开浏览器。问题报告网址和报告文本已复制到剪贴板。",
+  "Could not open the browser or copy to the clipboard. Open this URL and use report.txt in the ZIP: ": "无法打开浏览器或复制到剪贴板。请打开此网址，并使用 ZIP 中的 report.txt：",
+  "Could not create the report: ": "无法创建报告：",
+  "A session log could not be read. Try again.": "无法读取会话日志。请重试。",
   "{0}\n\nLogged to:\n{1}": "{0}\n\n日志位置：\n{1}",
   "Unexpected error": "发生意外错误",
   "(no exception object)": "（无异常对象）",
