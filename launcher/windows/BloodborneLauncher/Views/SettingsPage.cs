@@ -133,7 +133,8 @@ namespace BloodborneLauncher.Views
                 var mode = S.Str("discord_status");
                 discordCustom.Visibility = mode == "custom" ? Visibility.Visible : Visibility.Collapsed;
                 discordLink.Visibility = S.Str("discord_picture") == "url" ? Visibility.Visible : Visibility.Collapsed;
-                discordOwn.Visibility = S.Str("discord_app") == "own" ? Visibility.Visible : Visibility.Collapsed;
+                // The Name combo has one entry (own app) and never fires a change, so "discord_app" is never saved: always show the ID rows.
+                discordOwn.Visibility = Visibility.Visible;
                 discordPreview.Show(DiscordPresence.LookOf(S));
                 Ws.SaveSoon();
                 MainWindow.Instance?.UpdateDiscord();
