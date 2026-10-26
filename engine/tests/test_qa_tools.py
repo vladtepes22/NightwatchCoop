@@ -111,6 +111,7 @@ class CrashLines(unittest.TestCase):
                      'Party: Session lost', '[WATCHDOG] Boot stalled for 20 s']:
             self.assertTrue(re.search(coop.CRASH_RX, line), line)
             self.assertTrue(re.search(qa.CRASH_RX, line), line)
+            self.assertTrue(coop.CRASH_BYTES_RX.search(b'x\n' + line.encode() + b'\n'), line)  # the live early stop
 
     def test_benign_lines_pass(self):
         for line in ["[coop] Party: host gone: waiting for it to come back (its crash restart) up to 180 s",
@@ -153,6 +154,15 @@ class FailureNote(unittest.TestCase):
         rows = coop.check_expects([('guest', 'x')], {'host': '', 'guest': ''})
         note = coop.failure_note(rows, {'guest': ''}, {}, 60, {'guest': 'a\nThe host did not publish a code.\n'})
         self.assertEqual(note[-1], '  The host did not publish a code.')
+
+    def test_repeats_collapse(self):
+        lines = ['[coop] Party: [13:16:50.741] roster: A', 'x', '[coop] Party: [13:16:55.002] roster: A', 'y', 'y', 'z']
+        self.assertEqual(coop.last_distinct(lines, 3), ['[coop] Party: roster: A (x2)', 'y (x2)', 'z'])
+        self.assertEqual(coop.last_distinct(lines, 2), ['y (x2)', 'z'])
+
+    def test_how_the_run_ended_comes_first(self):
+        rows = coop.check_expects([('host', 'nope')], self.LOGS)
+        self.assertEqual(coop.failure_note(rows, self.LOGS, {}, 60, {}, 'the deadline')[0], 'run ended: the deadline')
 
     def test_qa_pick_caps_lines(self):
         self.assertEqual(qa.pick('FAIL: a\nok\nFAIL: b\nFAIL: c\n', '^FAIL', 2), ['FAIL: a', 'FAIL: b'])

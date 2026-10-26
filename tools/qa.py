@@ -40,7 +40,9 @@ LEVELS = {
     'merge': ['native', 'python', 'launcher'],
     'release': ['build', 'native', 'python', 'launcher', 'smoke', 'coop', 'privacy'],
 }
-RELEASE_SCENARIOS = ['join', 'core', 'deaths', 'boss']
+# `join` (the quick default row for a change) is not here: `core` starts with the same two lines and
+# the same 15 s joined, so a release saves one boot of two games.
+RELEASE_SCENARIOS = ['core', 'deaths', 'boss']
 # Touched path -> layers; the first matching rule wins (a party-only change needs the co-op rows, not the solo
 # smoke). The order of LAYERS decides the run order.
 RULES = [
@@ -72,6 +74,13 @@ def parse_ctest(out):
 def pick(out, pattern, limit=12):
     """The first `limit` lines of `out` matching `pattern`, trimmed: a failure note, not a log."""
     return [l.strip()[:200] for l in out.splitlines() if re.search(pattern, l)][:limit]
+
+
+def running_games():
+    """Pids of every bb-probe.exe on this PC (another session's test, the user's own game)."""
+    out = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq bb-probe.exe', '/FO', 'CSV', '/NH'],
+                         capture_output=True, encoding='oem', errors='replace').stdout  # localized "no tasks" line
+    return re.findall(r'^"bb-probe\.exe","(\d+)"', out, re.M)
 
 
 def git(*args):
@@ -154,6 +163,20 @@ class Run:
             print('\n'.join('    ' + l for l in self.notes[layer][:30]), flush=True)
         return passed
 
+    def game_slot(self, what):
+        """Waits (up to --wait-games minutes) until no other game runs: two more ~9 GB games beside them
+        starve each other and turn a run into noise. False when the PC stayed busy."""
+        started = time.monotonic()
+        pids, told = running_games(), False
+        while pids and time.monotonic() < started + self.args.wait_games * 60:
+            # The previous row's games are gone a few seconds after it ends: say nothing about those.
+            if not told and time.monotonic() > started + 20:
+                print(f'  {what}: waiting for {len(pids)} other game(s) to exit (pids {", ".join(pids)})', flush=True)
+                told = True
+            time.sleep(2)
+            pids = running_games()
+        return not pids
+
     # Layers ---------------------------------------------------------------------------------------
     def build(self):
         t = time.monotonic()
@@ -200,6 +223,8 @@ class Run:
 
     def smoke(self):
         t = time.monotonic()
+        if not self.game_slot('smoke'):
+            return self.done('smoke', False, f'not run: other games still running after {self.args.wait_games} min', t)
         name = f'qa-{self.name}'
         code, out = self.sh('smoke', [str(PYTHON), str(REPO / 'tools' / 'smoke-game.py'), '--seconds', str(self.args.smoke_seconds),
                                       '--name', name, '--new-game', '--game', self.args.game], env=self.game_env())
@@ -229,6 +254,8 @@ class Run:
 
     def coop_row(self, scenario):
         """One smoke-coop.py run of a row: (passed, summary, note lines: its failure.txt on a failure)."""
+        if not self.game_slot(f'coop {scenario}'):
+            return False, f'not run: other games still running after {self.args.wait_games} min', []
         code, out = self.sh('coop', [str(PYTHON), str(REPO / 'tools' / 'smoke-coop.py'), '--label', f'qa-{scenario}',
                                      '--scenario', scenario, '--game', self.args.game], env=self.game_env())
         m = re.search(r'evidence: (.+)$', out, re.M)
@@ -326,6 +353,8 @@ def main():
     parser.add_argument('--package', type=Path, help='Package folder for the privacy layer.')
     parser.add_argument('--game', default=os.environ.get('BB_QA_GAME', r'C:\Games\CUSA03173'))
     parser.add_argument('--smoke-seconds', type=int, default=240)
+    parser.add_argument('--wait-games', type=int, default=30,
+                        help='smoke / coop: minutes to wait for games already running on this PC (default 30).')
     parser.add_argument('--repeat', type=int, default=1, help='coop: run each row N times (timing-sensitive rows: 3).')
     parser.add_argument('--label', help='Name part of the run folder.')
     args = parser.parse_args()

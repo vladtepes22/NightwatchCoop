@@ -44,7 +44,12 @@ role's first missing line, the last line that did match, the party lines after i
 tables or periodic dumps) and any crash lines, about 2 KB instead of two ~450 KB session logs. Open a
 session log only for a line the note quotes (`grep -n`, then a line range). A timing-sensitive row:
 `--repeat 3` (the summary says `N/3 runs passed`; only the first failure's note is printed). A new co-op
-check is a new row in `tools/qa_scenarios.json`, run once with `--only coop --scenario <row>`.
+check is a new row in `tools/qa_scenarios.json`, run once with `--only coop --scenario <row>`. Game layers
+first wait (up to `--wait-games`, 30 min) for games already running on the PC (another session's test, the
+user's game): a `not run: other games still running` row is a busy PC, not a failure to triage. A failing
+row stops 5 s after a crash line, and at its deadline the harness stops every game at once, so the note's
+first line says how the run ended. The release rows are `core`, `deaths`, `boss` (~7 min); `join` is
+inside `core`.
 
 ## 2. Co-op rows: the game plays itself
 
