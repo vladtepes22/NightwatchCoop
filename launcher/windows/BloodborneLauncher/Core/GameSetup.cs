@@ -162,6 +162,8 @@ namespace BloodborneLauncher.Core
                 Add(Health.Bad, L.F($"The update beside the game ({Path.GetFileName(r.UpdateDir)}) is version {r.UpdateVersion}, not 1.09. Dump the 1.09 update and use that one instead."));
             else
                 Add(Health.Bad, L.F($"Version {Shown(r.Version)}: the 1.09 update is missing. The engine and its patches are made for 1.09, so it will not start without it. Dump the update from your PS4 as well, then press \"Choose update folder\"."));
+            if (GameCheck.PatchedEboot(r.GameDir))
+                Add(Health.Warning, GameCheck.PatchedEbootText);
         }
 
         /// <summary>Whether <paramref name="update"/> is the 1.09 update for the game <paramref name="title"/>:

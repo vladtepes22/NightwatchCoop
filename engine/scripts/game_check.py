@@ -83,9 +83,10 @@ def problem(game, image_hash=None, image=None):
     except (OSError, ValueError, IndexError, StopIteration, KeyError):
         return 'unreadable', title, version
     if image is not None and (n := differing_chunks(image)) is not None and n <= PATCHED_CHUNKS:
-        print(f'Game check: eboot.bin is 1.09 with {n} of {(len(image) + CHUNK - 1) // CHUNK} '
-              '64 KiB pieces changed (a patched eboot, e.g. a 60 FPS package); starting anyway. '
-              'If the game crashes, use the clean eboot.bin from the dumped 1.09 update.')
+        print(f'Game check: eboot.bin is a pre-patched 1.09 ({n} of {(len(image) + CHUNK - 1) // CHUNK} '
+              '64 KiB pieces changed, e.g. a 60 FPS package). Not supported: Nightwatch patches the '
+              'clean 1.09 itself, and its patches are left out where this one differs (30 FPS, and a '
+              'co-op party held at 30 FPS). Copy the clean eboot.bin from the dumped 1.09 update over it.')
         return None
     if title != SUPPORTED_TITLE:
         return 'other_title', title, version

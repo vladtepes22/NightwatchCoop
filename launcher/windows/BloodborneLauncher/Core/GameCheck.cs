@@ -1,5 +1,7 @@
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace BloodborneLauncher.Core
 {
@@ -46,6 +48,8 @@ namespace BloodborneLauncher.Core
                     L.F($"Update 1.09 is needed: put the dumped 1.09 update beside the game as {Path.GetFileName(Path.TrimEndingDirectorySeparator(gameDir))}-UPDATE, or copy it into the game folder (found {version})"), title, version);
             if (title == "?")
                 return new GameStatus(Health.Warning, L.T("sce_sys/param.sfo is missing or unreadable; the game may not start"), title, version);
+            if (PatchedEboot(gameDir))
+                return new GameStatus(Health.Warning, PatchedEbootText, title, version);
 
             return new GameStatus(Health.Good, update != null
                 ? L.F($"Bloodborne {title}, version {version} (update from {Path.GetFileName(update)})")
@@ -68,6 +72,28 @@ namespace BloodborneLauncher.Core
             catch (Exception)
             {
                 return null;
+            }
+        }
+
+        public static string PatchedEbootText => L.T("eboot.bin is a pre-patched 1.09 (for example a 60 FPS package). It is not supported: the game plays at 30 FPS and holds a co-op party at 30. Copy the clean eboot.bin from your dumped 1.09 update over it; Nightwatch makes the 60 FPS itself.");
+
+        /// <summary>Whether the eboot.bin this game folder starts with (the update's beside it, else its own)
+        /// is the pre-patched 1.09 the engine found at its last start: bb-start's game check notes one in
+        /// engine\out\prepared.json with that file's hash (start/prepare.cpp patched_note). Only known after
+        /// one start; the engine's own check needs the eboot's loaded image, which this does not parse.</summary>
+        public static bool PatchedEboot(string gameDir)
+        {
+            try
+            {
+                using var stamp = JsonDocument.Parse(File.ReadAllText(Path.Combine(Paths.BinariesDir, "prepared.json")));
+                if (!stamp.RootElement.TryGetProperty("eboot_sha256", out var noted)) return false;
+                var eboot = Path.Combine(UpdateFolder(gameDir) ?? gameDir, "eboot.bin");
+                using var file = File.OpenRead(eboot);
+                return string.Equals(Convert.ToHexString(SHA256.HashData(file)), noted.GetString(), StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception)
+            {
+                return false;  // never started, or unreadable: nothing to say
             }
         }
 

@@ -28,6 +28,12 @@ seamless co-op v0.7.5+8d2822f3 (0.7.6 work)**.
 - **Your own decrypted Bloodborne dump**: the `CUSA03173` folder (or another retail release) with
   **update 1.09 copied over the base game**. No game files are included; the base game alone
   (1.00) does not start.
+- **The clean `eboot.bin` from that 1.09 update**, exactly as dumped. **Pre-patched eboots are not
+  supported** (a "60 FPS" / "1080p 60 FPS" package, or any eboot.bin already patched by another
+  tool): Nightwatch makes the 60 FPS, the resolution and every co-op change itself, and each of
+  them is made for the clean 1.09 bytes. On a pre-patched eboot they are left out where it
+  differs: the game runs at **30 FPS** and a co-op party is held at 30. The launcher's game folder
+  line warns about it after the first start ([Stuck at 30 FPS](#stuck-at-30-fps)).
 - For co-op: **everyone on the same Nightwatch release** and the same mods.
 
 > **Beta.** It is very playable, but back up your saves (the launcher also keeps automatic
@@ -50,7 +56,7 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 **Guides:** [Install](#install) · [Single player](#play-single-player) · [The map](#the-map) · [Host a game](#host-a-game) ·
 [Join a game](#join-a-friends-game) · [Play on the same network](#play-on-the-same-network-lan) ·
 [If friends can't connect](#if-friends-cant-connect) · [Host without an open port (Radmin VPN)](#host-without-an-open-port-radmin-vpn) ·
-[Saves](#where-the-saves-are) · [How co-op works](#how-co-op-works) · [Known issues](#known-issues) · [Reporting a bug](#reporting-a-bug) ·
+[Saves](#where-the-saves-are) · [How co-op works](#how-co-op-works) · [Known issues](#known-issues) · [Stuck at 30 FPS](#stuck-at-30-fps) · [Reporting a bug](#reporting-a-bug) ·
 [My party settings](engine/docs/party/my_party_settings.md) · [Credits](#credits)
 
 ## Install
@@ -260,6 +266,23 @@ Good to know:
   elevators and moving platforms skip, and players can float or fall through floors.
 - A guest whose build, game files, patches or mods differ from the host's is refused; the message
   says what differs.
+
+### Stuck at 30 FPS
+
+The game runs at 30 FPS (alone, or the whole party as soon as someone joins) although the frame
+rate is set to 60: the `eboot.bin` is a pre-patched one (a 60 FPS package or similar), not the
+clean 1.09. The log says so near the top:
+
+```
+Game check: eboot.bin is a pre-patched 1.09 (12 of 1390 64 KiB pieces changed, e.g. a 60 FPS package). ...
+Patches: "60 FPS++" left out: this game executable is not the standard 1.09 ...
+```
+
+(Older releases word the first line `eboot.bin is 1.09 with 12 of 1390 64 KiB pieces changed ...
+starting anyway`, and say it only on the first start after the eboot changed.) Fix: close the game,
+copy `eboot.bin` from your dumped **1.09 update** (for example `CUSA03173-patch`) over the one in
+the game folder, and start again; set the frame rate in the launcher, not with a patched eboot.
+In co-op, check every player: one pre-patched eboot is enough to hold the party at 30.
 
 ## Reporting a bug
 

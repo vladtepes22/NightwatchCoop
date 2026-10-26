@@ -48,9 +48,13 @@ bool checked_code_109 = false, game_check_skipped = false;
 // to game-image.txt. It is the game's identity for the party version check: unlike a hash of
 // eboot.bin itself it does not depend on the tool that dumped the game (the SELF headers differ).
 std::string game_image_sha;
+// A pre-patched 1.09 eboot.bin (a 60 FPS package...): what CheckGame said about it, kept in
+// prepared.json so a reused boot image says it again and the launcher can show it (Core/GameCheck.cs).
+std::string patched_note;
 
 void CheckGame(const fs::path& game, const Bytes& image, const fs::path& engine) {
     checked_code_109 = false;
+    patched_note.clear();
     game_image_sha = Sha256Hex(image);
     game_check_skipped = Env("BB_SKIP_GAME_CHECK", "") == "1";
     if (game_check_skipped) return;
@@ -67,9 +71,14 @@ void CheckGame(const fs::path& game, const Bytes& image, const fs::path& engine)
     }
     if (const auto n = DifferingChunks(image, engine); n && *n <= kPatchedChunks) {
         checked_code_109 = true;
-        Log("Game check: eboot.bin is 1.09 with %zu of %zu 64 KiB pieces changed (a patched eboot, e.g. a 60 FPS "
-            "package); starting anyway. If the game crashes, use the clean eboot.bin from the dumped 1.09 update.",
-            *n, std::size_t((image.size() + kChunk - 1) / kChunk));
+        // It starts, but every engine and co-op patch checks the bytes it replaces, so the ones at the
+        // changed spots are left out: a 60 FPS package's eboot plays at 30 FPS and holds a party there.
+        patched_note = "Game check: eboot.bin is a pre-patched 1.09 (" + std::to_string(*n) + " of " +
+                       std::to_string((image.size() + kChunk - 1) / kChunk) +
+                       " 64 KiB pieces changed, e.g. a 60 FPS package). Not supported: Nightwatch patches the "
+                       "clean 1.09 itself, and its patches are left out where this one differs (30 FPS, and a "
+                       "co-op party held at 30 FPS). Copy the clean eboot.bin from the dumped 1.09 update over it.";
+        Log("%s", patched_note.c_str());
         return;
     }
     const std::string found = "Found " + title + " version " + version + " (sce_sys/param.sfo).";
@@ -802,6 +811,11 @@ void PrepareImage(const fs::path& game, const fs::path& out, const fs::path& eng
     if (reusable && std::all_of(std::begin(kPrepared), std::end(kPrepared),
                                 [&](const char* name) { return fs::is_regular_file(out / name, error); })) {
         Log("Boot image unchanged: reused (%.1f s)", elapsed());
+        try {
+            const std::string note = nlohmann::json::parse(ReadText(stamp)).value("patched_eboot", "");
+            if (!note.empty()) Log("%s", note.c_str());
+        } catch (const std::exception&) {
+        }
         return;
     }
     fs::remove(stamp, error);
@@ -813,7 +827,13 @@ void PrepareImage(const fs::path& game, const fs::path& out, const fs::path& eng
     WriteText(out / "game-image.txt", game_image_sha + "\n");
     LinkModules(game, out, main, std::move(boot), engine);
     ContentProfile(game, out, sku);
-    WriteText(stamp, nlohmann::json{{"key", key}}.dump() + "\n");
+    nlohmann::json stamped{{"key", key}};
+    if (!patched_note.empty()) {
+        // The launcher compares this with the eboot.bin it would start before it shows the note.
+        stamped["patched_eboot"] = patched_note;
+        stamped["eboot_sha256"] = Sha256Hex(ReadFile(game / "eboot.bin"));
+    }
+    WriteText(stamp, stamped.dump() + "\n");
     Log("Boot image prepared in %.1f s (reused on later launches)", elapsed());
 }
 
