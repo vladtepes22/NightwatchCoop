@@ -210,6 +210,13 @@ the party is started again from the title screen's *Party* page.
   guests to get in, the guest for the host's replies. The game never changes your firewall; since
   0.7.6 it checks the rules at start and shows a **connection warning** with the shortest fix if
   there is no rule or it is blocked.
+  **Fix firewall issues** (launcher, Co-op tab) adds the rules for you: it first shows the exact
+  PowerShell lines, then you choose *Yes* (runs them in an administrator PowerShell; Windows asks
+  for permission) or *No* (copies them so you can paste them into an administrator PowerShell
+  yourself). The rules allow inbound TCP and UDP on the party port (9307 unless you changed it) and
+  UDP 9308 (party discovery) on every network type, which also covers VPN adapters Windows counts
+  as Public. Running it again replaces the same rules; remove them in *Windows Defender Firewall
+  with Advanced Security > Inbound Rules* (names start with `Nightwatch Co-op`).
 - **Public address**: normally found automatically (STUN server `stun.l.google.com:19302`, or
   UPnP). For a fixed IP, a DNS name or a VPN address, enter it in *Public address* (host only).
   *STUN server* `off` turns the lookup off (LAN / VPN only).

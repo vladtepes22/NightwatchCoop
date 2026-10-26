@@ -6,6 +6,8 @@ using BloodborneLauncher.Core;
 using Wpf.Ui.Controls;
 using TextBlock = System.Windows.Controls.TextBlock;
 using PasswordBox = Wpf.Ui.Controls.PasswordBox;
+using MessageBoxButton = System.Windows.MessageBoxButton;
+using MessageBoxResult = System.Windows.MessageBoxResult;
 
 namespace BloodborneLauncher.Views;
 
@@ -70,6 +72,9 @@ public sealed class SeamlessPage : LauncherPage
         Add(Card(SymbolRegular.Info24, L.T("Check my connection"),
             L.T("Explains this PC's last session problems from its logs. Names and IPs are hidden; the reply is copied to the clipboard."),
             SmallButton(L.T("Check"), SymbolRegular.Info24, (_, _) => CheckConnection()), out _), host);
+        Add(Card(SymbolRegular.Router24, L.T("Fix firewall issues"),
+            L.T("Allows the party port (TCP and UDP) and party discovery through the Windows Firewall on every network type. Shows you the commands first."),
+            SmallButton(L.T("Fix"), SymbolRegular.Wrench24, (_, _) => FixFirewall()), out _), host);
         // The Join list: parties announced on the VPN or local network (party discovery, UDP 9308). The listener runs
         // on its own thread while this tab is open in Join mode; the timer only reads its snapshot.
         var found = Rows(Joining);
@@ -300,6 +305,20 @@ public sealed class SeamlessPage : LauncherPage
     private static Choice[] PartySizes() =>
         new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice(L.T("5 (experimental)"), "5") };
     private static string PartySize() => S.Str("party_max") is { Length: > 0 } n ? n : "3";
+
+    /// <summary>Shows the firewall commands. Yes runs them in an administrator PowerShell, No copies them to paste by hand.</summary>
+    private static void FixFirewall()
+    {
+        var port = int.TryParse(S.Str("party_port"), out var p) && p is >= 1 and <= 65535 ? p : NetworkRoute.DefaultPort;
+        var script = FirewallFix.Script(port);
+        var answer = System.Windows.MessageBox.Show(
+            L.T("These lines add Windows Firewall rules that let friends reach your party. Nothing else is changed:") + "\n\n" + script + "\n\n" +
+            L.T("Yes: run them now (Windows asks for administrator permission).") + "\n" +
+            L.T("No: copy them, then paste them into PowerShell opened as administrator yourself."),
+            L.T("Fix firewall issues"), MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+        if (answer == MessageBoxResult.No) Clipboard.SetText(script);
+        else if (answer == MessageBoxResult.Yes) FirewallFix.RunElevated(port);
+    }
 
     /// <summary>Runs the connection doctor on this PC's last and previous session logs (names and IPs hidden).
     /// With no log yet the script prints its own usage.</summary>
