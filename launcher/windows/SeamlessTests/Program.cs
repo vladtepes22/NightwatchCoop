@@ -507,18 +507,21 @@ Check(redacted == "Net: local address <your Radmin IP> on (adapter Radmin); Part
     "Addresses not hidden: " + redacted);
 Check(!LogCopy.IsPublic("100.100.1.1") && !LogCopy.IsPublic("25.1.2.3") && LogCopy.IsPublic("8.8.8.8"), "VPN ranges read as public");
 
-// Co-op presets: each preset matches its own values, a fresh ini (shipped defaults) matches none (keep mine), a mix matches none.
+// Co-op wizard: every choice matches its own values, a fresh ini matches the shipped one, a changed rule is "keep mine".
 {
-    var presets = CoopPresets.Presets();
-    Check(presets.Length == 3, "three co-op presets");
-    Check(CoopPresets.Match(presets, _ => null) == -1, "a fresh ini matches no preset");
-    for (var i = 0; i < presets.Length; i++)
+    var pages = CoopPresets.Pages();
+    foreach (var page in pages)
     {
-        var values = presets[i].Values.ToDictionary(v => v.Key, v => v.Value);
-        Check(CoopPresets.Match(presets, k => values.GetValueOrDefault(k)) == i, $"preset {i} must match its own values");
-        Check(CoopPresets.Match(presets, k => k == "party_boss_hp" ? "175" : values.GetValueOrDefault(k)) == -1, $"preset {i} with a changed rule must be keep mine");
+        Check(page.Choices.Count(c => CoopPresets.Match(new CoopPresets.Page("", "", new[] { c }), _ => null) == 0) == 1, $"{page.Title}: exactly one choice is the shipped default");
+        for (var i = 0; i < page.Choices.Length; i++)
+        {
+            var values = page.Choices[i].Values.ToDictionary(v => v.Key, v => v.Value);
+            Check(CoopPresets.Match(page, k => values.GetValueOrDefault(k)) == i, $"{page.Title}: choice {i} must match its own values");
+        }
     }
-    Check(presets.Select(p => p.Values.Length).Distinct().Count() == 1, "every preset sets the same keys");
+    var scaling = pages.Single(p => p.Choices.Length == 3);
+    Check(scaling.Choices[1].Values.All(v => v.Key.StartsWith("party_boss") || v.Key.StartsWith("party_enemy")), "scaling presets set only scaling");
+    Check(CoopPresets.Match(scaling, k => k == "party_boss_hp" ? "175" : null) == -1, "a changed scaling value must be keep mine");
 }
 
 Console.WriteLine("PASS: host/join validation, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
