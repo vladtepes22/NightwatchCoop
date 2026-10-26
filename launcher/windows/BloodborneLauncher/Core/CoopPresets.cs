@@ -19,7 +19,7 @@ namespace BloodborneLauncher.Core
         private static readonly Dictionary<string, string> Shipped = new()
         {
             ["party_phantom_hp"] = "1", ["party_level_sync"] = "1", ["party_boss_drops"] = "1", ["party_travel_vote"] = "0",
-            ["party_friendly_fire"] = "0", ["party_boss_hp"] = "150", ["party_boss_damage"] = "10", ["party_enemy_hp"] = "50", ["party_enemy_damage"] = "0",
+            ["party_boss_hp"] = "150", ["party_boss_damage"] = "10", ["party_enemy_hp"] = "50", ["party_enemy_damage"] = "0",
             ["party_rot"] = "0",
         };
 
@@ -63,11 +63,6 @@ namespace BloodborneLauncher.Core
             {
                 new Choice(L.T("Off"), L.T("Whoever travels takes the party along."), On("party_travel_vote", false)),
                 new Choice(L.T("On"), L.T("Travel needs every member's approval; one refusal cancels it."), On("party_travel_vote", true)),
-            }),
-            new Page(L.T("Friendly fire / PvP"), L.T("Whether party members can hurt each other."), new[]
-            {
-                new Choice(L.T("Off"), L.T("Party members cannot hurt each other."), On("party_friendly_fire", false)),
-                new Choice(L.T("On"), L.T("Party members can hurt each other; being killed by a party member counts as a normal death."), On("party_friendly_fire", true)),
             }),
         };
 
