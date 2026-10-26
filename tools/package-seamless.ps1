@@ -38,6 +38,18 @@ $destinationRoot = [IO.Path]::GetFullPath($Destination)
 $programs = 'bb-start.exe', 'bb-probe.exe', 'bb-shader-lab.exe', 'bb-engine-assets.exe', 'bb-gpu-capabilities.exe', 'bb-map-bake.exe'
 if ($MapGenerator -and !(Test-Path -LiteralPath (Join-Path $MapGenerator 'generate_atlas_lite.exe'))) { throw "Not a built map generator: $MapGenerator" }
 if ($Release -and !$MapGenerator) { throw "A release needs the map generator: tools\map\build-generator.ps1, then -MapGenerator." }
+if ($MapGenerator) {
+    # The frozen exe bundles its sources and the engine's game check: one built before they last
+    # changed still has the old rules (beta 2 shipped one that refused other dumps of 1.09).
+    $repoRoot = Split-Path $PSScriptRoot -Parent
+    $generatorBuilt = (Get-Item -LiteralPath (Join-Path $MapGenerator 'generate_atlas_lite.exe')).LastWriteTimeUtc
+    $generatorSources = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tools\map\generator\src') -Recurse -File -Filter *.py) +
+        (Get-Item (Join-Path $repoRoot 'tools\map\generator\generate_atlas.spec')) +
+        (Get-ChildItem -LiteralPath (Join-Path $repoRoot 'engine\scripts') -File -Include 'game_check.py', 'prepare.py') +
+        (Get-Item (Join-Path $repoRoot 'engine\scripts\image_109_hashes.txt'))
+    $stale = $generatorSources | Where-Object { $_.LastWriteTimeUtc -gt $generatorBuilt } | Select-Object -First 1
+    if ($stale) { throw "The map generator at $MapGenerator is older than $($stale.Name): rebuild it with tools\map\build-generator.ps1." }
+}
 foreach ($file in $programs + 'gpu-cache.id', 'gpu-cache.legacy.id') {
     if (!(Test-Path -LiteralPath (Join-Path $engine "out\$file"))) { throw "Build the engine first (engine\build.sh): out\$file is missing." }
 }
