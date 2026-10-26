@@ -1,0 +1,141 @@
+{
+  "join": {
+    "about": "Host and guest in one session for 15 s; the guest arrives in the host's world.",
+    "seconds": 180,
+    "host": "",
+    "guest": "",
+    "expect": [
+      [
+        "host",
+        "cooperators 0 -> 1"
+      ],
+      [
+        "guest",
+        "party networking on \\(guest"
+      ]
+    ]
+  },
+  "core": {
+    "about": "visy's s1 rows for two players: Party > Leave and Rejoin, a guest death with its bloodstain and respawn, then a party lamp travel (Tomb of Oedon) that the guest follows.",
+    "seconds": 300,
+    "host": "host_warp=2412953@25^1*2",
+    "guest": "echoes=5000,guest_leave@10,guest_rejoin@5,guest_die@12",
+    "expect": [
+      [
+        "host",
+        "cooperators 0 -> 1"
+      ],
+      [
+        "guest",
+        "guest_leave: Party > Leave pressed"
+      ],
+      [
+        "host",
+        "cooperators 1 -> 0"
+      ],
+      [
+        "guest",
+        "guest_rejoin: Party > Rejoin pressed"
+      ],
+      [
+        "host",
+        "cooperators 0 -> 1"
+      ],
+      [
+        "guest",
+        "travel step \\d+/\\d+: guest_die"
+      ],
+      [
+        "guest",
+        "guest: bloodstain recorded"
+      ],
+      [
+        "guest",
+        "guest: respawned at the host's lamp|guest: died alone: revived|revived at"
+      ],
+      [
+        "host",
+        "travel step \\d+/\\d+: host_warp to lamp 2412953"
+      ],
+      [
+        "guest",
+        "the host moved to lamp 2412953|party move, lamp 2412953|map .*-> m24_01"
+      ]
+    ]
+  },
+  "deaths": {
+    "about": "Deaths outside a boss fight (no limbo there): the host dies and is revived at its lamp with its bloodstain while the guest stays in the session, then the guest dies and is revived. A wipe and the host's spectate need a boss arena (visy's s1 Gascoigne phase), which these fixtures don't reach.",
+    "seconds": 240,
+    "host": "host_die@20",
+    "guest": "guest_die@40",
+    "expect": [
+      [
+        "host",
+        "cooperators 0 -> 1"
+      ],
+      [
+        "host",
+        "travel step \\d+/\\d+: host_die"
+      ],
+      [
+        "host",
+        "host death taken: .*revive at lamp"
+      ],
+      [
+        "host",
+        "own bloodstain recorded"
+      ],
+      [
+        "host",
+        "in-world warp \\(host revive at the lamp\\)"
+      ],
+      [
+        "guest",
+        "travel step \\d+/\\d+: guest_die"
+      ],
+      [
+        "guest",
+        "guest: respawned at the host's lamp|guest: died alone: revived|revived at"
+      ]
+    ]
+  },
+  "boss": {
+    "about": "visy's s1 boss rows for two players: party lamp travel to the Tomb of Oedon, the guest walks into Gascoigne's fog first (the intro plays for the host too), the host dies in the fight (limbo: spectates the guest), then the guest dies: one wipe, the party respawns together.",
+    "seconds": 360,
+    "env": {
+      "BB_PARTY_PROGRESS_TEST_CLEAR": "12411800,12411802,12411803,12414800,12414801,12414802,12414223,2412,9457,2410"
+    },
+    "host": "host_warp=2412953@8^1,host_die@6%m24_01~",
+    "guest": "guest_obj=2411810@20%m24_01,guest_press=0x4000@2%m24_01!,guest_press=0x4000@2%m24_01!,guest_die@20%m24_01~",
+    "expect": [
+      [
+        "host",
+        "travel step \\d+/\\d+: host_warp to lamp 2412953"
+      ],
+      [
+        "guest",
+        "travel step \\d+/\\d+: guest_obj"
+      ],
+      [
+        "host",
+        "24010010"
+      ],
+      [
+        "host",
+        "travel step \\d+/\\d+: host_die|travel step \\d+ \\(host_die\\) waits: the own chr is dead"
+      ],
+      [
+        "host",
+        "spectating: following"
+      ],
+      [
+        "guest",
+        "travel step \\d+/\\d+: guest_die"
+      ],
+      [
+        "host",
+        "a wipe; the"
+      ]
+    ]
+  }
+}

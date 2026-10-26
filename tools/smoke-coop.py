@@ -29,17 +29,67 @@ def joined(status):
         for member in status.get('members', []))
 
 
+def load_scenario(name):
+    """A named row from tools/qa_scenarios.json: per-role director steps, the log lines each role must
+    show (in order) and optional extra environment switches for both games."""
+    scenarios = json.loads((REPO / 'tools' / 'qa_scenarios.json').read_text(encoding='utf-8'))
+    if name not in scenarios:
+        raise SystemExit(f'Unknown scenario {name}; known: {", ".join(sorted(scenarios))}')
+    return scenarios[name]
+
+
+def check_expects(expects, text):
+    """Each (role, regex) must match that role's log after the previous match of the same role."""
+    results, cursor = [], {}
+    for role, pattern in expects:
+        found = re.compile(pattern).search(text.get(role, ''), cursor.get(role, 0))
+        if found:
+            cursor[role] = found.end()
+            line_start = text[role].rfind('\n', 0, found.start()) + 1
+            line = text[role][line_start:text[role].find('\n', found.end())].strip()
+        results.append({'role': role, 'expect': pattern, 'passed': bool(found), 'line': line[:200] if found else None})
+    return results
+
+
+# The engine's own fault / stop lines (probe.c, runtime_kernel.c), Vulkan errors and visy's common smoke
+# negatives (smoke_party.py check_common: Session lost, boot stall); not the party's
+# benign "host gone ... its crash restart" notice.
+CRASH_RX = r'(?i)(?:guest|host) fault|uncaught C\+\+ exception|C\+\+ exception, thread|VK_ERROR|STOP: guest raised|assertion failed|EXCEPTION_ACCESS|fatal error|Session lost|\[WATCHDOG\] Boot stalled'
+
+
+def read_logs(paths):
+    return {seed: path.read_text(encoding='utf-8', errors='replace') if path.exists() else ''
+            for seed, path in paths.items()}
+
+
+def parse_expect(value):
+    role, sep, pattern = value.partition(':')
+    if not sep or role not in ('host', 'guest'):
+        raise argparse.ArgumentTypeError('--expect takes host:REGEX or guest:REGEX')
+    return role, pattern
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--label', required=True)
     parser.add_argument('--probe', type=Path)
-    parser.add_argument('--seconds', type=int, default=240)
-    parser.add_argument('--steps', default='')
+    parser.add_argument('--seconds', type=int)
+    parser.add_argument('--steps', default='', help='Director chain for both games (BB_PARTY_DIRECTOR_TEST).')
+    parser.add_argument('--host-steps', help='Director chain for the host only (overrides --steps).')
+    parser.add_argument('--guest-steps', help='Director chain for the guest only (overrides --steps).')
+    parser.add_argument('--expect', type=parse_expect, action='append', default=[],
+                        help='host:REGEX or guest:REGEX that role\'s log must show, in order; repeatable.')
+    parser.add_argument('--scenario', help='A named row from tools/qa_scenarios.json (steps, expects, seconds).')
     parser.add_argument('--require-boundary', action='store_true')
     parser.add_argument('--seed-host', default='host', help='Existing smoke-game save fixture name.')
     parser.add_argument('--seed-guest', default='guest', help='Existing smoke-game save fixture name.')
     parser.add_argument('--game', help='Game folder (CUSA03173), passed to smoke-game.py.')
     args = parser.parse_args()
+    scenario = load_scenario(args.scenario) if args.scenario else {}
+    steps = {'host': args.host_steps if args.host_steps is not None else scenario.get('host', args.steps),
+             'guest': args.guest_steps if args.guest_steps is not None else scenario.get('guest', args.steps)}
+    expects = [tuple(e) for e in scenario.get('expect', [])] + args.expect
+    args.seconds = args.seconds or scenario.get('seconds', 240)
     run = f'coop-{args.label}-{datetime.now():%Y%m%d-%H%M%S}'
     artifacts = ARTIFACTS / run
     artifacts.mkdir(parents=True)
@@ -50,7 +100,8 @@ def main():
     offsets = {}
     evidence = []
     env = dict(os.environ, BB_PARTY_AUTOCONTINUE='1', BB_PARTY_PERF='1', BB_PARTY_PERF_SECONDS='5',
-               BB_PARTY_TEST_INVINCIBLE='1', BB_PARTY_DIRECTOR_TEST=args.steps)
+               BB_PARTY_TEST_INVINCIBLE='1')
+    env.update(scenario.get('env', {}))  # a row's own switches (e.g. a progress clear for a boss fight)
     try:
         for role, seed, port in [('host', 'host', 47912), ('join', 'guest', 47913)]:
             name = f'{run}-{seed}'
@@ -75,7 +126,7 @@ def main():
                 command += ['--game', args.game]
             if args.probe:
                 command += ['--probe', str(args.probe.resolve())]
-            child_env = dict(env, BB_PAD_FILE=str(artifacts / f'{seed}-pad.txt'))
+            child_env = dict(env, BB_PAD_FILE=str(artifacts / f'{seed}-pad.txt'), BB_PARTY_DIRECTOR_TEST=steps[seed])
             child = subprocess.Popen(command, env=child_env, cwd=REPO, stdout=output, stderr=output,
                                      creationflags=subprocess.CREATE_NO_WINDOW)
             children.append(child)
@@ -93,6 +144,8 @@ def main():
         joined_after_boundary_at = None
         joined_after_boundary_seconds = 0
         positions = {seed: 0 for seed in offsets}
+        stopped_early = False
+        next_expect_check = 0
         deadline = time.monotonic() + args.seconds + 20
         while time.monotonic() < deadline and any(child.poll() is None for child in children):
             for seed, path in offsets.items():
@@ -121,14 +174,32 @@ def main():
             else:
                 stable_joined_at = None
                 joined_after_boundary_at = None
+            # A scenario ends as soon as every expected line is there (no idle time to the deadline).
+            if expects and stable_seconds >= 15 and not args.require_boundary and time.monotonic() >= next_expect_check:
+                next_expect_check = time.monotonic() + 5
+                if all(r['passed'] for r in check_expects(expects, read_logs(offsets))):
+                    print('Every expected line seen: ending the run.', flush=True)
+                    stopped_early = True
+                    break
             time.sleep(0.5)
+        if stopped_early:
+            for child in children:
+                subprocess.run(['taskkill', '/PID', str(child.pid), '/T', '/F'], capture_output=True)
         exits = [child.wait(timeout=15) for child in children]
-        text = {seed: path.read_text(encoding='utf-8', errors='replace') for seed, path in offsets.items()}
+        text = read_logs(offsets)
         boundary = any(re.search(r'K3: stage-record change with a session[^\n]*, [1-4] member chr', log) for log in text.values())
         cleared = {seed: log.count('stale map hit cleared') for seed, log in text.items()}
-        success = (all(code == 0 for code in exits) and stable_seconds >= 15 and
+        rows = check_expects(expects, text)
+        for row in rows:
+            print(f"{'PASS' if row['passed'] else 'FAIL'} {row['role']}: {row['expect']}", flush=True)
+        crashes = {seed: len(re.findall(CRASH_RX, log))
+                   for seed, log in text.items()}
+        success = ((stopped_early or all(code == 0 for code in exits)) and stable_seconds >= 15 and
+                   all(r['passed'] for r in rows) and not any(crashes.values()) and
                    (not args.require_boundary or boundary and joined_after_boundary_seconds >= 15))
-        result = {'passed': success, 'exits': exits, 'longest_continuous_join_seconds': stable_seconds,
+        result = {'passed': success, 'scenario': args.scenario, 'steps': steps, 'expects': rows,
+                  'crash_lines': crashes, 'stopped_early': stopped_early,
+                  'exits': exits, 'longest_continuous_join_seconds': stable_seconds,
                   'boundary_observed': boundary, 'stale_collision_clear_reports': cleared,
                   'longest_join_after_boundary_seconds': joined_after_boundary_seconds,
                   'logs': {seed: str(path) for seed, path in offsets.items()}, 'sessions': evidence}
