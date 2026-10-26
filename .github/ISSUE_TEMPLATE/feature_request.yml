@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest an improvement to Nightwatch Co-op.
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe a concrete situation and who it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested behaviour
+      description: Describe the simplest useful outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Current workaround and alternatives
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: "Optional examples or screenshots. Remove personal information; do not upload game files or saves."

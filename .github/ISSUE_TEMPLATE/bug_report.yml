@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible Nightwatch Co-op problem.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "Reports are public. Search existing issues first. Share no game files, saves, passwords, connection codes or personal addresses."
+  - type: input
+    id: version
+    attributes:
+      label: Release and build
+      description: "Exact release for every affected player; party build ID if available."
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Your role
+      options: ["Host", "Guest", "Single player", "Launcher only"]
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware and software
+      description: "CPU, GPU, VRAM, RAM, Windows version, GPU driver, resolution and frame-rate setting. Include affected peers if known."
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection type
+      options: ["Internet - direct", "LAN", "VPN - name it below", "Unknown", "Not applicable"]
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Game and party setup
+      description: "Game ID/update, mods, changed settings, party size, Ethernet/Wi-Fi, VPN name and known NAT/port-forwarding setup. No IPs or codes."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps, expected result and actual result
+      description: "Number the steps. State frequency, approximate event time, last working release if known, and whether the game restarted."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Reviewed logs
+      description: 'Attach redacted logs\last_session.log AND logs\previous_session.log, or a ZIP containing both. Include consenting affected peers; label host/guest. Review all files before upload. If unavailable, explain why.'
+    validations:
+      required: true
