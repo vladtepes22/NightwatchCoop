@@ -136,5 +136,6 @@ What visy has not run live is not claimed as tested here either: it goes on the 
 4. `tools/release.ps1 -Package <dir> -Notes <notes> -DryRun`.
 5. Notes in player language (Added / Changed / Fixed / Known issues / Not played live yet), the Lantern
    attribution line first, "update together" when the party build ID changed.
-6. Pre-release to testers first; publishing (tag, push, GitHub release) is a separate, explicit decision.
+6. Pre-release to testers first (`python tools/gofile-upload.py <zip>` prints the download page for the
+   Discord post); publishing (tag, push, GitHub release) is a separate, explicit decision.
 7. One numbered visible checklist for the batch, after the headless layers are green.
