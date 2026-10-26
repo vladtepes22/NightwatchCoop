@@ -234,6 +234,10 @@ static void TestLampShare() {
     CHECK(!RestoreLastLamp(2602959u, 2602950u, 0.4, 2.0f, false, true));  // a guest lit it, the host stands by it
     CHECK(RestoreLastLamp(2502950u, 2602950u, 0.4, 40.0f, false));       // another map's lamp stays guarded
     CHECK(RestoreLastLamp(2602950u, 2602953u, 0.4, 40.0f, false));       // a real lamp is still protected
+    // the Yahar'gul variant: the Rom story warp arrives at 2802958; a guest lighting 2802950 must not put the host's last lamp back
+    CHECK(!RestoreLastLamp(2802958u, 2802950u, 0.4, 2.0f, false, true));
+    CHECK(!RestoreLastLamp(2802959u, 2802950u, 0.4, 40.0f, false));
+    CHECK(RestoreLastLamp(2802950u, 2802951u, 0.4, 40.0f, false));
     // Guest-lit only after a real use: at the lamp, not right after a load (a lamp warp's arrival).
     CHECK(CountsAsGuestLit(45.0, 2.0f));
     CHECK(!CountsAsGuestLit(3.0, 0.5f));    // the report: arrived by the lamp warp, flag rose at once

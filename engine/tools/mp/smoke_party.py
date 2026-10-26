@@ -389,7 +389,7 @@ RULES_PAGES = [
                              "Cutscenes live with host"],
      ("Open world", "down/down/", "left", "Off", "right", "party_open_world=0", "party_open_world=1",
       '"open_world":false')),
-    ("Party rules: Rewards", ["Full rewards for guests", "Insight for bosses"],
+    ("Party rules: Rewards", ["Full rewards for guests", "Boss drops for guests", "Insight for bosses"],
      ("Full rewards for guests", "", "left", "Off", "right", "party_full_rewards=0", "party_full_rewards=1", None)),
     # 0.7.2: rot (off by default: the change turns it on and back off) and its three cleanses (on)
     ("Party rules: Rot", ["Rot on death", "Rot: boss kill cleanses", "Rot: kill your killer", "Rot: echoes back"],
@@ -1325,6 +1325,8 @@ def check_cd(v, L):
 # enable step (the 2012[1] instructions of 12500810) without a load.
 IW_HALL = "63.4:112.2:-372.7:0:native:pin=3"
 IW_UNTIL = [r"0:travel step (\d+)/\1: host_press", r"1:travel step (\d+)/\1: guest_press"]
+# iwn: the scene plays 45 s after the wait starts (BB_PARTY_TEST_FORCE_WAIT), long after the presses: wait for its lines
+IWN_UNTIL = [r"0:12500810=1", r"1:EMEVD event 12500810 \[(9[7-9]|1[0-7]\d)\]"]
 
 
 def phase_iw(only):
@@ -1363,7 +1365,7 @@ def phase_iwn(only):
              "BB_PARTY_PROGRESS_TEST_CLEAR=12500810", "BB_PARTY_PROGRESS_TEST_READ=12500810",
              "BB_PARTY_EMEVD_TRACE=1", "BB_PARTY_EMEVD_TRACE_ALL=12500810"],
         ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=" + g1, "0:BB_PARTY_TEST_FORCE_WAIT=45"],
-        watch=[], crash=[], until=IW_UNTIL, until_hold=5,
+        watch=[], crash=[], until=IWN_UNTIL, until_hold=5,
     )
 
 
@@ -3945,7 +3947,7 @@ GROUPS = {"join": "s1", "leave": "s1", "death": "s1", "travel": "s1", "boss": "s
           "host_revive": "s3", "streamkill": "sk", "gather": "ga", "gather_ground": "gl", "lifts": "lf", "ladder": "lf,ld", "mark": "mk", "kidnap": "kd", "story_warp": "kw", "fall": "fl", "fall_deep": "fd,fdj", "host_fall_lamp": "cd", "cainhurst_scene": "iw,iwn", "cainhurst_annalise": "an", "chalamp": "cl", "chalice_guest": "clg", "chalice_progress": "cpr", "chalice_altar": "cpa", "chalice_wipe": "clw", "elevator": "el", "lifts_together": "lt", "fight_load": "bf", "cainhurst_lift": "ch", "research_lift": "rh", "research_solo": "rs", "forbidden_lift": "fw", "forbidden_lift_guest": "fwg", "forbidden_lift_both": "fwb", "forbidden_lift_edge": "fwe", "hemwick_lift": "fh", "lamps": "lp", "guest_dream": "gd", "guest_dream_host": "gh", "guest_lamp": "gm", "join_lamp": "jl", "mensis_lamp": "ml", "mensis_lamp_guest": "mg", "headstone_split": "hs", "ngplus_rejoin": "ngj", "npc_lamp": "nl", "frontier_fall": "ff", "lunarium_key": "lk,lkc",
           "rot": "rt", "boss_rooms": "br", "rom_fog": "rf", "boss_drops": "bd", "boss_drops_off": "bdo", "scene_mirror": "sm", "ending_flow": "ef", "dream_apart": "da", "covenant": "cv",
           "valtr_rune": "cv", "items_every": "ie", "items_leak": "il", "shop_sync": "il", "travel_vote": "tv", "npc_fights": "nf,nfa", "npc_alfred": "nfa", "npc_attack": "npa", "npc_doll": "npd", "pvp_revive": "pvd", "pvp_full_hp": "pvh", "echo_hold": "eh", "limbo_leave": "bl", "seam_rejoin": "sj", "outage_short": "ou", "guest_mesh": "mesh", "fourp_nat": "fp", "phantom_own": "po", "phantom_save": "pos", "shop_repair": "sg", "shop_repair2": "sg2", "chalice_shop": "csh,csh2", "boss_ai": "ba", "boss_late": "hg", "ludwig_wipe": "lw", "lone_ai": "la,lc"}
-GROUP_ROWS = {"join": r"join", "leave": r"s1 (Leave|Rejoin)", "death": r"guest death|bloodstain|revived",
+GROUP_ROWS = {"join": r"^s1 join", "leave": r"s1 (Leave|Rejoin)", "death": r"guest death|bloodstain|revived",
               "travel": r"travel", "boss": r"Gascoigne|intro", "host_death": r"host death|limbo",
               "wipe": r"wipe", "wipe_late": r"late wipe", "kill": r"s2 boss kill|party stays", "arena": r"arena", "itembox": r"item box|reward on the summoned",
               "rejoin_kill": r"s2 (Leave after|Rejoin|no kick)", "c6": r"guest crash",
@@ -3962,7 +3964,8 @@ GROUP_ROWS = {"join": r"join", "leave": r"s1 (Leave|Rejoin)", "death": r"guest d
 # --only ends once the chosen groups' lines are all seen, so the steps after them never run.
 GROUP_UNTIL = {
     "join": ["0:cooperators [01] -> 2"],
-    "leave": ["1:guest_rejoin: Party > Rejoin pressed", "0:cooperators 1 -> 2"],
+    # the host's second "cooperators 1 -> 2": the first is guest 2's first join, the second the rejoin
+    "leave": ["1:guest_rejoin: Party > Rejoin pressed", r"0:cooperators 1 -> 2[\s\S]*cooperators 1 -> 2"],
     "death": ["1:guest: respawned at the host's lamp|guest: died alone: revived|revived at"],
     "travel": ["1:map - -> m24_01", "2:map - -> m24_01"],
     "boss": ["1:cutscene 24010010"],
@@ -4064,6 +4067,8 @@ NEEDS_CRASH = {"c6", "host_crash", "host_leave"}  # s2 groups that need the cras
 def narrow_phase(ph, only):
     """--only: end the phase on the chosen groups' lines; drop the s2 crash plan nobody asked for."""
     mine = [g for g in only if ph["name"] in GROUPS[g].split(",")]
+    if ph["name"] == "iwn":  # its own until (the scene lines); the group marker is iw's
+        return ph
     if not mine or NEEDS_CRASH & set(mine):
         return ph
     ph = dict(ph, until=[u for g in mine for u in GROUP_UNTIL.get(g, [])] or ph["until"], crash=[])

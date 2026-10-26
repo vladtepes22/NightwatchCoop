@@ -445,6 +445,8 @@ int main() {
     // mensislamp: a guest whose own last lamp is a scripted arrival spot gets up at the host's real lamp of that map
     CHECK(ScriptedArrivalSpot(2602959) && ScriptedArrivalSpot(2802958) && !ScriptedArrivalSpot(2602950));
     CHECK(!ScriptedArrivalSpot(2902959) && !ScriptedArrivalSpot(2102961));
+    CHECK(ScriptedArrivalSpot(2802959) && !ScriptedArrivalSpot(2802950) && !ScriptedArrivalSpot(2802951));  // Yahar'gul
+    CHECK(GuestArrivalLamp(2802958, 2802950) == 2802950);
     CHECK(GuestArrivalLamp(2602959, 2602950) == 2602950);
     CHECK(GuestArrivalLamp(2602959, 2602959) == 2602959);   // the host is at the arrival too
     CHECK(GuestArrivalLamp(2602959, 2502950) == 2602959);   // the host's lamp is in another map
