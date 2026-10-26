@@ -2113,5 +2113,5 @@
   "Seamless": "无缝",
   "The normal seamless experience: no phantom health cut and visy's scaling. Easy for veterans, still enjoyable.": "标准的无缝联机体验：无幻影生命值削减，采用 visy 的强度缩放。对老手来说较轻松，但依然有趣。",
   "Nightwatch (recommended)": "夜巡（推荐）",
-  "The recommended experience: phantom health cut, harder scaling, no guest respawn or refills, enemies come back, rot on death.": "推荐的体验：幻影生命值削减、更高的强度缩放、访客无复活与补给、敌人会复活、死亡腐化。"
+  "The recommended experience: phantom health cut, harder scaling, a guest who dies is sent home, enemies come back, rot on death.": "推荐的体验：幻影生命值削减、更高的强度缩放、死亡的访客会被送回、敌人会复活、死亡腐化。"
 }

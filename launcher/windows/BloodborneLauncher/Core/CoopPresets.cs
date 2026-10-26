@@ -32,8 +32,8 @@ namespace BloodborneLauncher.Core
                 L.T("The normal seamless experience: no phantom health cut and visy's scaling. Easy for veterans, still enjoyable."),
                 With(("party_phantom_hp", "0"))),
             new Preset(L.T("Nightwatch (recommended)"),
-                L.T("The recommended experience: phantom health cut, harder scaling, no guest respawn or refills, enemies come back, rot on death."),
-                With(("party_guest_respawn", "0"), ("party_guest_refill", "0"), ("party_kill_record", "0"),
+                L.T("The recommended experience: phantom health cut, harder scaling, a guest who dies is sent home, enemies come back, rot on death."),
+                With(("party_guest_respawn", "0"), ("party_kill_record", "0"),
                     ("party_boss_hp", "200"), ("party_boss_damage", "20"), ("party_enemy_hp", "100"), ("party_enemy_damage", "10"),
                     ("party_rot", "1"))),
         };
