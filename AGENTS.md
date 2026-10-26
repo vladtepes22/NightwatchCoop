@@ -9,5 +9,6 @@
 
 - Read [QA_TESTING.md](QA_TESTING.md) once. Before committing, run `python tools/qa.py plan --level change` and then `run` (CLANG64 Python: `C:\msys64\clang64\bin\python.exe`). Paste its `work/qa/<run>/report.md` table into your report, plus what stayed unproven.
 - Co-op behaviour change: add or extend a row in `tools/qa_scenarios.json` (director steps per role + the log lines each role must show, in order) and run it with `python tools/qa.py run --only coop --scenario <row>`. A row that passed once on a timing-sensitive path is not proof: rerun it.
+- Keep it cheap: read only `qa.py`'s stdout. On a FAIL its note (also `work/qa/<run>/failures.txt`) names the failed tests or the missing co-op line with the party lines before it; open a session log only for a line the note quotes, by line range. Flake check: `--repeat 3`, not a hand-written loop.
 - Release: `python tools/qa.py run --level release --package <fresh package dir>` from a `subst` drive mapped to the tree. Headless layers draw nothing: anything visual goes on one numbered checklist for the user.
 - When no D: drive exists, captures and smoke logs fall back to `work/artifacts` in the tree (git-ignored).
