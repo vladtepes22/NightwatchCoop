@@ -16,6 +16,8 @@ Layers (QA_TESTING.md has the why of each):
   privacy   tools/privacy-scan.py on the package + no game-derived files in it
 
 Every run writes work/qa/<run>/report.md, report.json and one log per layer. Exit 1 when a layer fails.
+A failing layer also prints a short note (failures.txt: failed tests, first errors, a co-op row's missing
+line with the party lines before it): read that, not the layer logs or the games' session logs.
 Native builds run from a subst drive mapped to this tree (exes built under C:\\Users embed the user name);
 `release` refuses to build without one.
 """
@@ -67,6 +69,11 @@ def parse_ctest(out):
     return True, f'ctest {total - bad}/{total}' + (': ' + ', '.join(failed[:5]) if bad else '')
 
 
+def pick(out, pattern, limit=12):
+    """The first `limit` lines of `out` matching `pattern`, trimmed: a failure note, not a log."""
+    return [l.strip()[:200] for l in out.splitlines() if re.search(pattern, l)][:limit]
+
+
 def git(*args):
     return subprocess.run(['git', '-C', str(REPO), *args], capture_output=True, text=True).stdout
 
@@ -110,6 +117,7 @@ class Run:
         self.dir = REPO / 'work' / 'qa' / self.name
         self.drive = subst_drive()
         self.results = {}
+        self.notes = {}
 
     def tree(self):
         """This tree as the MSYS2 shell sees it, through the subst drive when there is one."""
@@ -137,10 +145,13 @@ class Run:
                     f'(exit {code}, {time.monotonic() - started:.0f} s)\n{out}\n')
         return code, out
 
-    def done(self, layer, passed, summary, started):
+    def done(self, layer, passed, summary, started, note=()):
         self.results[layer] = {'status': 'PASS' if passed else 'FAIL', 'summary': summary,
                                'seconds': round(time.monotonic() - started)}
         print(f"  {self.results[layer]['status']} {layer}: {summary}", flush=True)
+        if not passed and note:
+            self.notes[layer] = list(note)
+            print('\n'.join('    ' + l for l in self.notes[layer][:30]), flush=True)
         return passed
 
     # Layers ---------------------------------------------------------------------------------------
@@ -152,35 +163,40 @@ class Run:
         code, out = self.sh('build', f'cd {self.tree()}/engine && cmake out/gpu >/dev/null && BB_JOBS={jobs} bash build.sh',
                             shell_bash=True)
         tail = [l for l in out.splitlines() if 'error' in l.lower()][:1]
-        return self.done('build', code == 0, 'build.sh exit 0' if code == 0 else f'exit {code}: {tail[0][:120] if tail else "see build.log"}', t)
+        return self.done('build', code == 0, 'build.sh exit 0' if code == 0 else f'exit {code}: {tail[0][:120] if tail else "see build.log"}', t,
+                         pick(out, r'(?i)error|FAILED:'))
 
     def native(self):
         t = time.monotonic()
         code, out = self.sh('native', f'cd {self.tree()}/engine && ninja -C out/gpu seamless-tests', shell_bash=True)
         if code != 0:
             err = next((l for l in out.splitlines() if 'error:' in l), 'see native.log')
-            return self.done('native', False, f'test build failed: {err[:140]}', t)
+            return self.done('native', False, f'test build failed: {err[:140]}', t, pick(out, r'error:'))
         code, out = self.sh('native', f'cd {self.tree()}/engine/out/gpu && ctest -j8 --output-on-failure', shell_bash=True)
         found, summary = parse_ctest(out)
-        return self.done('native', code == 0 and found, summary, t)
+        return self.done('native', code == 0 and found, summary, t,
+                         pick(out, r'(?i)\*\*\*Failed|\(Failed\)|\(Timeout\)|assert|FAIL|error', 20))
 
     def python(self):
         t = time.monotonic()
         code, out = self.sh('python', [str(PYTHON), '-m', 'unittest', 'discover', '-s', 'tests'], cwd=REPO / 'engine')
         ran = re.search(r'Ran (\d+) tests?', out)
         verdict = re.findall(r'^(OK.*|FAILED.*)$', out, re.M)
-        return self.done('python', code == 0, f'{ran.group(1) if ran else "?"} tests, {verdict[-1] if verdict else "no verdict"}', t)
+        return self.done('python', code == 0, f'{ran.group(1) if ran else "?"} tests, {verdict[-1] if verdict else "no verdict"}', t,
+                         pick(out, r'^(FAIL|ERROR): |^\w*(Error|Exception): ', 20))
 
     def launcher(self):
         t = time.monotonic()
         base = REPO / 'launcher' / 'windows'
-        parts, ok = [], True
+        parts, ok, note = [], True, []
         for project in ['SeamlessTests', 'tests/LocalizationChecks', 'tests/DisplayChecks']:
             code, out = self.sh('launcher', ['dotnet', 'run', '--project', project], cwd=base)
             ok &= code == 0
+            if code != 0:
+                note += [f'{project}:'] + pick(out, r'(?i)fail|error|missing|expected', 10)
             zh = re.search(r'zh-CN (\d+/\d+)', out)
             parts.append(f"{project.split('/')[-1]} {'ok' if code == 0 else f'exit {code}'}{f' (zh-CN {zh.group(1)})' if zh else ''}")
-        return self.done('launcher', ok, ', '.join(parts), t)
+        return self.done('launcher', ok, ', '.join(parts), t, note)
 
     def smoke(self):
         t = time.monotonic()
@@ -190,28 +206,48 @@ class Run:
         tick = 'party tick seen: True' in out
         progressed = 'New-game progression verified: True' in out
         log = artifact_root() / f'smoke-{name}' / 'session.log'
-        crashes = len(re.findall(CRASH_RX, log.read_text(encoding='utf-8', errors='replace'))) if log.exists() else -1
+        text = log.read_text(encoding='utf-8', errors='replace') if log.exists() else ''
+        crashes = len(re.findall(CRASH_RX, text)) if log.exists() else -1
         summary = f'tick {tick}, new-game progression {progressed}, crash lines {crashes} ({self.args.smoke_seconds} s)'
-        return self.done('smoke', code == 0 and tick and progressed and crashes == 0, summary, t)
+        note = pick(text, CRASH_RX, 8) + [f'harness: {l}' for l in out.strip().splitlines()[-6:]] + [f'session log: {log}']
+        return self.done('smoke', code == 0 and tick and progressed and crashes == 0, summary, t, note)
 
     def coop(self):
         t = time.monotonic()
-        parts, ok = [], True
+        parts, ok, note = [], True, []
         for scenario in self.scenarios:
-            code, out = self.sh('coop', [str(PYTHON), str(REPO / 'tools' / 'smoke-coop.py'), '--label', f'qa-{scenario}',
-                                         '--scenario', scenario, '--game', self.args.game], env=self.game_env())
-            m = re.search(r'evidence: (.+)$', out, re.M)
-            result = {}
-            if m and (Path(m.group(1).strip()) / 'result.json').exists():
-                result = json.loads((Path(m.group(1).strip()) / 'result.json').read_text(encoding='utf-8'))
-            rows = result.get('expects', [])
-            passed = code == 0 and result.get('passed') is True
-            ok &= passed
-            miss = next((r['role'] + ': ' + r['expect'] for r in rows if not r['passed']), '')
-            parts.append(f"{scenario} {sum(r['passed'] for r in rows)}/{len(rows)} rows, "
-                         f"joined {result.get('longest_continuous_join_seconds', 0):.0f} s" + (f' [missing {miss[:80]}]' if miss else '')
-                         + ('' if passed else ' FAIL'))
-        return self.done('coop', ok, '; '.join(parts), t)
+            # A timing-sensitive row is judged over several runs (--repeat); the summary shows the first failure.
+            # Only the first failing run's note is kept in full; later failures add their folder.
+            runs = [self.coop_row(scenario) for _ in range(self.args.repeat)]
+            ok &= all(passed for passed, _, _ in runs)
+            failed = [(summary, lines) for passed, summary, lines in runs if not passed]
+            if failed:
+                note += failed[0][1] + [f'  also failed: {lines[0]}' for _, lines in failed[1:]]
+            shown = failed[0][0] if failed else runs[-1][1]
+            parts.append(f'{scenario} ' + (f'{len(runs) - len(failed)}/{len(runs)} runs passed, ' if len(runs) > 1 else '') + shown)
+        return self.done('coop', ok, '; '.join(parts), t, note)
+
+    def coop_row(self, scenario):
+        """One smoke-coop.py run of a row: (passed, summary, note lines: its failure.txt on a failure)."""
+        code, out = self.sh('coop', [str(PYTHON), str(REPO / 'tools' / 'smoke-coop.py'), '--label', f'qa-{scenario}',
+                                     '--scenario', scenario, '--game', self.args.game], env=self.game_env())
+        m = re.search(r'evidence: (.+)$', out, re.M)
+        evidence = Path(m.group(1).strip()) if m else None
+        result = {}
+        if evidence and (evidence / 'result.json').exists():
+            result = json.loads((evidence / 'result.json').read_text(encoding='utf-8'))
+        rows = result.get('expects', [])
+        passed = code == 0 and result.get('passed') is True
+        miss = next((r['role'] + ': ' + r['expect'] for r in rows if not r['passed']), '')
+        note = []
+        if not passed:
+            failure = evidence / 'failure.txt' if evidence else None
+            note = [f'{scenario} ({evidence or "no evidence folder"}):']
+            note += (failure.read_text(encoding='utf-8').splitlines() if failure and failure.exists()
+                     else pick(out, r'(?i)error|Traceback|FAIL', 8))
+        return passed, (f"{sum(r['passed'] for r in rows)}/{len(rows)} rows, "
+                        f"joined {result.get('longest_continuous_join_seconds', 0):.0f} s" + (f' [missing {miss[:80]}]' if miss else '')
+                        + ('' if passed else ' FAIL')), note
 
     def privacy(self):
         t = time.monotonic()
@@ -263,11 +299,17 @@ class Run:
                 'seconds': round(seconds), 'results': self.results,
                 'dirty': bool(git('status', '--porcelain', '--untracked-files=no').strip())}
         (self.dir / 'report.json').write_text(json.dumps(data, indent=2), encoding='utf-8')
+        if self.notes:
+            (self.dir / 'failures.txt').write_text(''.join(f'# {layer}\n' + '\n'.join(lines) + '\n\n'
+                                                           for layer, lines in self.notes.items()),
+                                                   encoding='utf-8', newline='\n')
         lines = [f'# QA {self.name}: {verdict}', '', f'Commit `{head}`' + (' (uncommitted changes)' if data['dirty'] else ''),
                  f'Level {self.args.level or "-"}, {round(seconds / 60)} min', '', '| Layer | Result | Time | Summary |', '|---|---|---|---|']
         for layer in layers:
             r = self.results.get(layer, {'status': 'SKIP', 'summary': '', 'seconds': 0})
             lines.append(f"| {layer} | {r['status']} | {r['seconds']} s | {r['summary']} |")
+        if self.notes:
+            lines += ['', f'Failure notes: `failures.txt` ({", ".join(self.notes)}).']
         lines += ['', 'Not covered by these layers: anything a player sees (headless runs draw nothing), real networks,',
                   'more than two players, long sessions. Those go on the visible / playtest checklist.']
         (self.dir / 'report.md').write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
@@ -284,6 +326,7 @@ def main():
     parser.add_argument('--package', type=Path, help='Package folder for the privacy layer.')
     parser.add_argument('--game', default=os.environ.get('BB_QA_GAME', r'C:\Games\CUSA03173'))
     parser.add_argument('--smoke-seconds', type=int, default=240)
+    parser.add_argument('--repeat', type=int, default=1, help='coop: run each row N times (timing-sensitive rows: 3).')
     parser.add_argument('--label', help='Name part of the run folder.')
     args = parser.parse_args()
     if not args.level and not args.only:
