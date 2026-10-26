@@ -12,6 +12,7 @@ namespace BloodborneLauncher.Views
     {
         private readonly TextBox _output;
         private readonly ToggleSwitch _follow;
+        private readonly Wpf.Ui.Controls.Button _copy;
 
         public OutputPage() : base(L.T("Game output"), L.T("What run.py and the game print. Copy or export it when reporting a problem."))
         {
@@ -22,8 +23,12 @@ namespace BloodborneLauncher.Views
             _follow = new ToggleSwitch { IsChecked = true, Content = L.T("Follow new output"), VerticalAlignment = VerticalAlignment.Center };
             bar.Children.Add(_follow);
 
+            // The log keeps growing while the game runs: Copy waits for the session to end.
+            _copy = SmallButton(L.T("Copy"), SymbolRegular.Copy24, (_, _) => Copy());
+            _copy.IsEnabled = !Ws.Game.Running;
+            Ws.GameStateChanged += () => _copy.IsEnabled = !Ws.Game.Running;
             var buttons = Row(
-                SmallButton(L.T("Copy"), SymbolRegular.Copy24, (_, _) => Copy()),
+                _copy,
                 SmallButton(L.T("Export…"), SymbolRegular.Save24, (_, _) => Export()),
                 // The logs folder: last / previous session and the earlier ones in logs\sessions.
                 SmallButton(L.T("Open"), SymbolRegular.FolderOpen24, (_, _) => OpenLogs()),
@@ -85,10 +90,28 @@ namespace BloodborneLauncher.Views
                 _output.ScrollToEnd();
         }
 
-        private void Copy()
+        private async void Copy()
         {
-            if (_output.Text.Length == 0) return;
-            if (ClipboardText.Set(_output.Text))
+            // The whole session log, not the last lines this page keeps (same source as Export). Read
+            // off the UI thread so a big log doesn't freeze the launcher.
+            string text;
+            try
+            {
+                text = await Task.Run(() =>
+                {
+                    if (!File.Exists(GameRunner.SessionLog)) return _output.Dispatcher.Invoke(() => _output.Text);
+                    using var from = new FileStream(GameRunner.SessionLog, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    using var reader = new StreamReader(from);
+                    return reader.ReadToEnd();
+                });
+            }
+            catch (Exception e)
+            {
+                Ws.Log(L.T("Could not read the log: ") + e.Message, LogLevel.Warn);
+                return;
+            }
+            if (text.Length == 0) return;
+            if (ClipboardText.Set(text))
                 Ws.Log(L.T("Game output copied."), LogLevel.Good);
             else
                 Ws.Log(L.T("Could not copy: another program is using the clipboard. Try again, or use Export."), LogLevel.Warn);

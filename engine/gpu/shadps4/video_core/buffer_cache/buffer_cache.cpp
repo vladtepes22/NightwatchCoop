@@ -1602,7 +1602,8 @@ std::pair<vk::DeviceMemory, u64> BufferCache::AllocateResidency(u64 bytes) {
     // duplicate the game's own) or once an allocation failed (full for 30 s), system memory.
     // Without that, the empty chunks go back to the driver and VRAM is tried once more; only a
     // failure then stops, as before.
-    const auto allocate = [this, &try_allocate](u64 size) {
+    bool in_system = false;
+    const auto allocate = [this, &try_allocate, &in_system](u64 size) {
         const u32 now = BbStats::coarse_second.load(std::memory_order_relaxed);
         const bool tight = !GuestInPlace() && vram_level.load(std::memory_order_relaxed) >= 1;
         if (!tight || !system_memory_type_index) {
@@ -1616,6 +1617,7 @@ std::pair<vk::DeviceMemory, u64> BufferCache::AllocateResidency(u64 bytes) {
         }
         if (system_memory_type_index) {
             if (const auto memory = try_allocate(size, *system_memory_type_index)) {
+                in_system = true;
                 system_residency_bytes += size;
                 if (system_residency_reports < 20 &&
                     (system_residency_bytes == size ||
@@ -1665,7 +1667,8 @@ std::pair<vk::DeviceMemory, u64> BufferCache::AllocateResidency(u64 bytes) {
         residency_memory = spare ? spare : allocate(size);
         residency_size = size;
         residency_used = 0;
-        residency_chunks[static_cast<VkDeviceMemory>(residency_memory)] = {size, 0, 0, 0};
+        residency_chunks[static_cast<VkDeviceMemory>(residency_memory)] = {
+            .size = size, .used = 0, .empty_second = 0, .empty_tick = 0, .system = in_system};
     }
     const u64 offset = residency_used;
     residency_used += bytes;
@@ -1698,8 +1701,9 @@ std::pair<vk::DeviceMemory, u64> BufferCache::AllocateResidency(u64 bytes) {
 
 void BufferCache::UpdateVramLevel(u32 now) {
     // bbport: by default the texture collector's marks (GcPolicy::GuestLevelFor): textures leave
-    // VRAM before the game's data does. BB_VRAM_PRESSURE_PERCENT=N: the old N / N+5 % of the
-    // driver's budget instead (0: off).
+    // VRAM before the game's data does, on the collector's usage less our free VRAM slots
+    // (GcPolicy::GuestUsage). BB_VRAM_PRESSURE_PERCENT=N: the old N / N+5 % of the driver's
+    // budget on the raw usage instead (0: off).
     static const u64 percent = [] {
         const char* env = std::getenv("BB_VRAM_PRESSURE_PERCENT");
         return env && *env ? std::min<u64>(std::strtoull(env, nullptr, 10), 95) : ~u64{0};
@@ -1710,12 +1714,14 @@ void BufferCache::UpdateVramLevel(u32 now) {
         used = instance.GetDeviceMemoryUsage();
         budget = GcPolicy::BudgetFor(instance.GetDeviceMemoryBudgetNow(),
                                      instance.IsIntegrated() ? 0 : instance.GetDeviceLocalMemory());
-        if (budget != 0) {
-            level = percent == ~u64{0}
-                        ? GcPolicy::GuestLevelFor(used, GcPolicy::MarksFor(budget))
-                        : used * 100 >= budget * (percent + 5) ? 2
-                        : used * 100 >= budget * percent       ? 1
-                                                               : 0;
+        if (budget != 0 && percent == ~u64{0}) {
+            used = GcPolicy::GuestUsage(used, instance.GetDeviceBlockSlack(),
+                                        texture_cache.PendingFreeBytes(), VramResidencyUnused());
+            level = GcPolicy::GuestLevelFor(used, GcPolicy::MarksFor(budget));
+        } else if (budget != 0) {
+            level = used * 100 >= budget * (percent + 5) ? 2
+                    : used * 100 >= budget * percent     ? 1
+                                                         : 0;
         }
     }
     if (now < vram_full_until) {
@@ -1770,6 +1776,22 @@ void BufferCache::NoteResidencyUnused() {
                        (spare_residency ? 64_MB : 0);
     BbStats::residency_unused_bytes.store(unused, std::memory_order_relaxed);
     BbStats::residency_chunk_count.store(residency_chunks.size(), std::memory_order_relaxed);
+}
+
+u64 BufferCache::VramResidencyUnused() const {
+    // Not the tails left behind when a request did not fit (no later block takes them), not the
+    // spare block (maybe not allocated yet).
+    u64 unused = 0;
+    for (const auto& [memory, chunk] : residency_chunks) {
+        if (chunk.system) {
+            continue;
+        }
+        unused += chunk.free_offsets.size() * block_size;
+        if (memory == static_cast<VkDeviceMemory>(residency_memory)) {
+            unused += residency_size - residency_used;
+        }
+    }
+    return unused;
 }
 
 u32 BufferCache::VramIdleSeconds() {

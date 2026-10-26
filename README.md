@@ -130,6 +130,8 @@ have no map, and the map has no fast travel.
    - **Password:** optional; it keeps strangers out and makes the code shorter
    - Leave **UPnP** on: it asks your router to open the party port (9307) for you
 2. Press **Play** on the main page. Allow the Windows Firewall prompt the first time.
+   If friends still cannot connect, press **Fix firewall issues** on the Co-op tab: it shows the
+   PowerShell lines first, then runs them as administrator or copies them for you to paste.
 3. In the game, start a **New Game** (your first party character) or continue one.
 4. Copy your code: **Copy codes** on the launcher's Co-op tab, or in the game
    **System → Party → Copy Internet code**.

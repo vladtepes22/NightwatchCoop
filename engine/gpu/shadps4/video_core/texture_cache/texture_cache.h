@@ -106,6 +106,11 @@ public:
                  PageManager& tracker);
     ~TextureCache();
 
+    /// bbport: device memory of images freed but not destroyed yet (GcPolicy::EffectiveUsage).
+    u64 PendingFreeBytes() const {
+        return gc_pending_free_bytes.load(std::memory_order_relaxed);
+    }
+
     /// bbport (diagnostics): the images over [addr, addr + size), described briefly.
     std::string DescribeImagesIn(VAddr addr, u64 size);
 

@@ -1737,6 +1737,7 @@
   "Extra button 4 (Elite paddle, 8BitDo back button)": "附加按键 4（Elite 拨片、8BitDo 背键）",
   "Portuguese (Brazil)": "葡萄牙语（巴西）",
   "Could not open the folder: ": "无法打开文件夹：",
+  "Could not read the log: ": "无法读取日志：",
   "Map": "地图",
   "Open and close the map": "打开和关闭地图",
   "Hold {0}": "按住 {0}",
@@ -2133,5 +2134,11 @@
   "Travel by vote": "传送投票",
   "Who decides when the party travels by lamp, headstone or Hunter's Mark.": "通过灯、墓碑或猎人标记传送时，由谁决定。",
   "Whoever travels takes the party along.": "传送者带领整个队伍。",
-  "Travel needs every member's approval; one refusal cancels it.": "传送需要每位成员同意；有一人拒绝即取消。"
+  "Travel needs every member's approval; one refusal cancels it.": "传送需要每位成员同意；有一人拒绝即取消。",
+  "Fix firewall issues": "修复防火墙问题",
+  "Allows the party port (TCP and UDP) and party discovery through the Windows Firewall on every network type. Shows you the commands first.": "在所有网络类型上允许队伍端口（TCP 和 UDP）及队伍发现通过 Windows 防火墙。会先显示将要执行的命令。",
+  "Fix": "修复",
+  "These lines add Windows Firewall rules that let friends reach your party. Nothing else is changed:": "以下命令会添加 Windows 防火墙规则，让好友能连到你的队伍。不会更改其他任何内容：",
+  "Yes: run them now (Windows asks for administrator permission).": "是：立即运行（Windows 会请求管理员权限）。",
+  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "否：复制命令，然后自己粘贴到以管理员身份打开的 PowerShell 中。"
 }
