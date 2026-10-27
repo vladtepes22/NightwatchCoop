@@ -1956,6 +1956,8 @@ constexpr Entry kChinese[] = {
     {"Changes apply live. Infinite: kept full at the normal carry limit, even from none. Custom: the count is refilled to the amount and never lowered. Off restores the game's item data and keeps the counts you have. While a cheat is on, the counts it gives are saved with your character. Do not play online with cheats on.", "修改即时生效。无限：保持正常携带上限，即使原本没有该物品也会补满。自定义：补足至设定数量，已有数量更高时不减少。关闭：恢复物品原始数据并保留当前数量。修改器提供的物品数量会随角色存档保存。请勿开启修改器进行联机游戏。"},
     {"Infinite stamina", "无限精力"},
     {"Your stamina stays full (enemies are not affected). Off: nothing to restore.", "精力始终保持全满，不影响敌人。关闭后停止生效。"},
+    {"Free stamina out of combat", "战斗外免精力消耗"},
+    {"Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health. Off: nothing to restore.", "精力不消耗，但按下 R1、R2、L1 或 L2 或损失生命后的 8 秒内除外。关闭后停止生效。"},
     {"Stealth", "隐身"},
     {"Enemies neither see nor hear you: the game's debug flags Player Hide and Player Silence. Off puts the flags back as they were.", "敌人无法看见或听见你，使用游戏的 Player Hide 和 Player Silence 调试标记。关闭后恢复原始标记。"},
     {"Firearm range", "枪械射程"},

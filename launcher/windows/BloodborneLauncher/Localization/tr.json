@@ -2140,5 +2140,7 @@
   "Fix": "Düzelt",
   "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "Bu satırlar, arkadaşlarınızın partinize ulaşmasını sağlayan Windows Güvenlik Duvarı kurallarını ekler ve oyunu engelleyen kuralları kaldırır. Başka hiçbir şey değişmez:",
   "Yes: run them now (Windows asks for administrator permission).": "Evet: şimdi çalıştır (Windows yönetici izni ister).",
-  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "Hayır: kopyala, sonra yönetici olarak açtığınız PowerShell'e kendiniz yapıştırın."
+  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "Hayır: kopyala, sonra yönetici olarak açtığınız PowerShell'e kendiniz yapıştırın.",
+  "Free stamina out of combat": "Savaş dışında bedava dayanıklılık",
+  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "Dayanıklılık harcanmaz; R1, R2, L1 veya L2'ye bastıktan ya da can kaybettikten sonraki 8 saniye hariç"
 }

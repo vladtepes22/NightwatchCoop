@@ -2140,5 +2140,7 @@
   "Fix": "修正",
   "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "以下のコマンドで、フレンドがパーティーに接続できるよう Windows ファイアウォールのルールを追加し、ゲームをブロックしているルールを削除します。他の設定は変更しません:",
   "Yes: run them now (Windows asks for administrator permission).": "はい: 今すぐ実行します (Windows が管理者権限を求めます)。",
-  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "いいえ: コピーして、自分で管理者として開いた PowerShell に貼り付けてください。"
+  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "いいえ: コピーして、自分で管理者として開いた PowerShell に貼り付けてください。",
+  "Free stamina out of combat": "戦闘外でスタミナ無消費",
+  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "R1、R2、L1、L2 を押した後や HP が減った後の 8 秒間を除き、スタミナを消費しません"
 }

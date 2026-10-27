@@ -2140,5 +2140,7 @@
   "Fix": "해결",
   "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "다음 줄은 친구가 내 파티에 연결할 수 있도록 Windows 방화벽 규칙을 추가하고 게임을 차단하는 규칙을 제거합니다. 다른 것은 바꾸지 않습니다:",
   "Yes: run them now (Windows asks for administrator permission).": "예: 지금 실행 (Windows가 관리자 권한을 요청합니다).",
-  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "아니요: 복사한 뒤 관리자 권한으로 연 PowerShell에 직접 붙여 넣습니다."
+  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "아니요: 복사한 뒤 관리자 권한으로 연 PowerShell에 직접 붙여 넣습니다.",
+  "Free stamina out of combat": "전투 외 스태미나 무소모",
+  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "R1, R2, L1, L2를 누르거나 체력을 잃은 뒤 8초 동안을 제외하면 스태미나가 소모되지 않습니다"
 }

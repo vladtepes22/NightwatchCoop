@@ -317,7 +317,7 @@ struct Values {
     std::atomic<int> output_res{OutputDefault};
     int custom_output_w = 1920, custom_output_h = 1080;
     std::atomic<int> cheat_vials{CheatOff}, cheat_bullets{CheatOff};
-    std::atomic<bool> cheat_stamina{false}, cheat_stealth{false}, cheat_keep_echoes{false},
+    std::atomic<bool> cheat_stamina{false}, cheat_stamina_idle{false}, cheat_stealth{false}, cheat_keep_echoes{false},
         cheat_no_durability{false}, cheat_consumables{false};
     std::atomic<int> cheat_gun_range{0}, cheat_echo_multiplier{1};
     std::atomic<bool> fullscreen{false};

@@ -2140,5 +2140,7 @@
   "Fix": "Napraw",
   "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "Te polecenia dodają reguły Zapory Windows umożliwiające znajomym połączenie z twoją drużyną i usuwają reguły blokujące grę. Nic innego się nie zmieni:",
   "Yes: run them now (Windows asks for administrator permission).": "Tak: uruchom je teraz (Windows poprosi o uprawnienia administratora).",
-  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "Nie: skopiuj je, a następnie samodzielnie wklej do PowerShell uruchomionego jako administrator."
+  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "Nie: skopiuj je, a następnie samodzielnie wklej do PowerShell uruchomionego jako administrator.",
+  "Free stamina out of combat": "Darmowa wytrzymałość poza walką",
+  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "Wytrzymałość nic nie kosztuje, z wyjątkiem 8 sekund po naciśnięciu R1, R2, L1 lub L2 albo utracie zdrowia"
 }

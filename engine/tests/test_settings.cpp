@@ -145,24 +145,24 @@ int main() {
     assert(Read(path).find("cheat_stamina=0\n") != std::string::npos);
     {
         std::ofstream file(path);
-        file << "cheat_stamina=1\ncheat_stealth=1\ncheat_gun_range=200\ncheat_keep_echoes=1\n"
+        file << "cheat_stamina=1\ncheat_stamina_idle=1\ncheat_stealth=1\ncheat_gun_range=200\ncheat_keep_echoes=1\n"
                 "cheat_echo_multiplier=5\ncheat_no_durability=1\ncheat_consumables=1\n";
     }
     BbSettings::Load();
-    assert(s.cheat_stamina && s.cheat_stealth && s.cheat_keep_echoes && s.cheat_no_durability && s.cheat_consumables);
+    assert(s.cheat_stamina && s.cheat_stamina_idle && s.cheat_stealth && s.cheat_keep_echoes && s.cheat_no_durability && s.cheat_consumables);
     assert(s.cheat_gun_range == 200 && s.cheat_echo_multiplier == 5);
     BbSettings::Save();
-    for (const char* line : {"cheat_stamina=1\n", "cheat_stealth=1\n", "cheat_gun_range=200\n", "cheat_keep_echoes=1\n",
+    for (const char* line : {"cheat_stamina=1\n", "cheat_stamina_idle=1\n", "cheat_stealth=1\n", "cheat_gun_range=200\n", "cheat_keep_echoes=1\n",
                              "cheat_echo_multiplier=5\n", "cheat_no_durability=1\n", "cheat_consumables=1\n"}) {
         assert(Read(path).find(line) != std::string::npos);
     }
     {
         std::ofstream file(path);
-        file << "cheat_stamina=0\ncheat_stealth=0\ncheat_gun_range=250\ncheat_keep_echoes=0\n"
+        file << "cheat_stamina=0\ncheat_stamina_idle=0\ncheat_stealth=0\ncheat_gun_range=250\ncheat_keep_echoes=0\n"
                 "cheat_echo_multiplier=3\ncheat_no_durability=0\ncheat_consumables=0\n";
     }
     BbSettings::Load();
-    assert(!s.cheat_stamina && !s.cheat_stealth && !s.cheat_keep_echoes && !s.cheat_no_durability && !s.cheat_consumables);
+    assert(!s.cheat_stamina && !s.cheat_stamina_idle && !s.cheat_stealth && !s.cheat_keep_echoes && !s.cheat_no_durability && !s.cheat_consumables);
     assert(s.cheat_gun_range == 0 && s.cheat_echo_multiplier == 1);
     { std::ofstream file(path); file << "cheat_gun_range=300\ncheat_echo_multiplier=10\n"; }
     BbSettings::Load();

@@ -400,6 +400,8 @@
   "Character": "角色",
   "Infinite stamina": "精力不减",
   "Your stamina stays full": "精力始终保持满值",
+  "Free stamina out of combat": "战斗外免精力消耗",
+  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "精力不消耗，但按下 R1、R2、L1 或 L2 或损失生命后的 8 秒内除外",
   "Stealth": "隐身",
   "Enemies don't notice you and your steps make no noise": "敌人不会发现你，移动时也不会发出脚步声",
   "No weapon wear": "武器耐久不减",

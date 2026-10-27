@@ -1388,6 +1388,14 @@ void CheatsSection() {
                                          "Ваша выносливость всегда полная (на врагов не действует). Выкл.: "
                                          "восстанавливать нечего."));
     }
+    if (const char* label = Item("Free stamina out of combat", "Свободная выносливость вне боя")) {
+        CheatToggle(label, s.cheat_stamina_idle, BbEngine::Cheats::Stamina,
+                    BbSettings::MenuText("Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose "
+                                         "health. Off: nothing to restore.",
+                                         "Выносливость не тратится, кроме 8 секунд после нажатия R1, R2, L1 или L2 "
+                                         "или потери здоровья. Выкл.: "
+                                         "восстанавливать нечего."));
+    }
     if (const char* label = Item("Stealth", "Скрытность")) {
         CheatToggle(label, s.cheat_stealth, BbEngine::Cheats::Stealth,
                     BbSettings::MenuText("Enemies neither see nor hear you: the game's debug flags Player Hide and "

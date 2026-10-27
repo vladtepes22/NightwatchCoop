@@ -495,6 +495,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.cheat_bullets = CheatValue(key, value);
     } else if (key == "cheat_stamina") {
         v.cheat_stamina = i != 0;
+    } else if (key == "cheat_stamina_idle") {
+        v.cheat_stamina_idle = i != 0;
     } else if (key == "cheat_stealth") {
         v.cheat_stealth = i != 0;
     } else if (key == "cheat_keep_echoes") {
@@ -922,6 +924,7 @@ void Save() {
     put("cheat_vials", CheatText(v.cheat_vials));
     put("cheat_bullets", CheatText(v.cheat_bullets));
     put("cheat_stamina", flag(v.cheat_stamina));
+    put("cheat_stamina_idle", flag(v.cheat_stamina_idle));
     put("cheat_stealth", flag(v.cheat_stealth));
     put("cheat_gun_range", v.cheat_gun_range == 0 ? "off" : std::to_string(v.cheat_gun_range.load()));
     put("cheat_keep_echoes", flag(v.cheat_keep_echoes));

@@ -2140,5 +2140,7 @@
   "Fix": "Исправить",
   "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "Эти строки добавляют правила брандмауэра Windows, через которые друзья смогут подключиться к вашей группе, и удаляют правила, блокирующие игру. Больше ничего не меняется:",
   "Yes: run them now (Windows asks for administrator permission).": "Да: выполнить сейчас (Windows запросит разрешение администратора).",
-  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "Нет: скопировать их и вставить самостоятельно в PowerShell, открытый от имени администратора."
+  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "Нет: скопировать их и вставить самостоятельно в PowerShell, открытый от имени администратора.",
+  "Free stamina out of combat": "Свободная выносливость вне боя",
+  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "Выносливость не тратится, кроме 8 секунд после нажатия R1, R2, L1 или L2 или потери здоровья"
 }

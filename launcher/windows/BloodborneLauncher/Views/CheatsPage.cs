@@ -41,6 +41,8 @@ namespace BloodborneLauncher.Views
 
             Group(L.T("Character"));
             IniToggle(SymbolRegular.Run24, L.T("Infinite stamina"), L.T("Your stamina stays full"), "cheat_stamina");
+            IniToggle(SymbolRegular.Run24, L.T("Free stamina out of combat"),
+                L.T("Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health"), "cheat_stamina_idle");
             IniToggle(SymbolRegular.EyeOff24, L.T("Stealth"), L.T("Enemies don't notice you and your steps make no noise"), "cheat_stealth");
             IniToggle(SymbolRegular.Shield24, L.T("No weapon wear"), L.T("Equipped weapons are kept at full durability, so no repairs"), "cheat_no_durability");
             ComboRow(SymbolRegular.Target24, L.T("Firearm range"), L.T("How far firearm bullets travel (pistols, rifles, blunderbuss, cannons)"),

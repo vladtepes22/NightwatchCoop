@@ -3,6 +3,8 @@
 #include "engine_hooks.h"
 #include "engine_state.h"
 #include "bbport_settings.h"
+#include "../input/input.h"
+#include "../input/pad.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -473,7 +475,7 @@ bool SharedWorld() {
 
 int SettingOf(const Extra& e, const BbSettings::Values& s) {
     switch (e.which) {
-    case Stamina: return s.cheat_stamina.load(std::memory_order_relaxed);
+    case Stamina: return s.cheat_stamina.load(std::memory_order_relaxed) || s.cheat_stamina_idle.load(std::memory_order_relaxed);
     case Stealth: return s.cheat_stealth.load(std::memory_order_relaxed);
     case KeepEchoes: return s.cheat_keep_echoes.load(std::memory_order_relaxed);
     case NoDurability: return s.cheat_no_durability.load(std::memory_order_relaxed);
@@ -700,6 +702,26 @@ void RefillStamina() {
     std::memcpy(reinterpret_cast<void*>(data + kStamina), &value[1], 4);
 }
 
+// "Free stamina out of combat" (cheat_stamina_idle): the refill runs only once kIdleBeforeFree has passed
+// without a combat button (L1/R1/L2/R2, the weapon and firearm buttons) or an HP loss. HP: data module +0xf8.
+constexpr auto kIdleBeforeFree = std::chrono::seconds(8);
+constexpr std::uint64_t kHp = 0xf8;
+Clock::time_point g_last_combat{};
+std::int32_t g_last_hp = -1;
+
+bool CombatRecently(Clock::time_point now) {
+    const PadState pad = BbInput::LastPad();
+    constexpr std::uint32_t mask = PadBits::kL1 | PadBits::kR1 | PadBits::kL2 | PadBits::kR2;
+    if ((pad.buttons & mask) || pad.l2 > 30 || pad.r2 > 30) g_last_combat = now;
+    std::int32_t hp = 0;
+    const std::uint64_t data = DataModule();
+    if (data && Read(data + kHp, &hp)) {
+        if (g_last_hp >= 0 && hp < g_last_hp) g_last_combat = now;
+        g_last_hp = hp;
+    }
+    return g_last_combat != Clock::time_point{} && now - g_last_combat < kIdleBeforeFree;
+}
+
 ParamTable g_weapons;
 std::vector<std::pair<std::uint32_t, std::uint16_t>> g_durability;
 bool LoadDurability() {
@@ -896,7 +918,10 @@ void Tick() {
         if (e.pending != e.active && now - e.pending_since >= kDebounce) Switch(e, e.pending);
     }
     Extra& stamina = ExtraOf(Stamina);
-    if (g_settled && !stamina.disabled && stamina.active) RefillStamina();
+    if (g_settled && !stamina.disabled && stamina.active) {
+        const bool combat = CombatRecently(now);
+        if (s.cheat_stamina.load(std::memory_order_relaxed) || !combat) RefillStamina();
+    }
     if (now < g_check) return;
     g_check = now + kInterval;
     const std::uint64_t record = player_record();
