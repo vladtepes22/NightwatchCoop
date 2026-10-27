@@ -9,13 +9,13 @@ using System.Windows;
 namespace BloodborneLauncher.Core
 {
     /// <summary>
-    /// The header's log button: the newest session logs as files on the clipboard (pasting into Discord
+    /// The header's log button: last_session.log and previous_session.log as files on the clipboard (pasting into Discord
     /// attaches them) and the last crash report as text. Both have IP addresses hidden the way the connection
     /// doctor's --redactips hides them, and the Windows user folder replaced, since they go to public channels.
     /// </summary>
     public static class LogCopy
     {
-        public const int Count = 5;
+        public const int Count = 2;
 
         /// <summary>Written when the game crashes, so the report can still be copied after the next start.</summary>
         public static string CrashReportFile => Path.Combine(Path.GetDirectoryName(GameRunner.SessionLog)!, "last_crash_report.txt");
@@ -114,7 +114,7 @@ namespace BloodborneLauncher.Core
         /// clipboard. Returns how many went, or null when another program holds the clipboard.</summary>
         public static int? CopyLogs()
         {
-            var logs = NewestLogs(Path.GetDirectoryName(GameRunner.SessionLog)!);
+            var logs = NewestLogs(Path.GetDirectoryName(GameRunner.SessionLog)!, archives: false, distinct: false);
             if (logs.Count == 0) return 0;
             var dir = Path.Combine(Path.GetTempPath(), "NightwatchCoop-logs");
             if (Directory.Exists(dir))

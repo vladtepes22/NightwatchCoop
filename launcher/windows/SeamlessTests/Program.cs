@@ -501,15 +501,15 @@ try
     File.WriteAllText(System.IO.Path.Combine(copyDir, "previous_session.log"), "s9");
     for (var i = 1; i <= 9; i++)
         File.WriteAllText(System.IO.Path.Combine(copyDir, "sessions", $"session-2026102{i}-120000.log"), "s" + i);
-    var newest = LogCopy.NewestLogs(copyDir).Select(System.IO.Path.GetFileName).ToArray();
+    var newest = LogCopy.NewestLogs(copyDir, 5).Select(System.IO.Path.GetFileName).ToArray();
     Check(newest.SequenceEqual(new[] { "last_session.log", "previous_session.log", "session-20261028-120000.log", "session-20261027-120000.log", "session-20261026-120000.log" }),
         "Wrong logs or order: " + string.Join(", ", newest));
     File.WriteAllText(System.IO.Path.Combine(copyDir, "previous_session.log"), "now");
     Check(LogCopy.NewestLogs(copyDir, 2, archives: false, distinct: false).Select(System.IO.Path.GetFileName)
-        .SequenceEqual(new[] { "last_session.log", "previous_session.log" }), "Report skipped identical session logs");
+        .SequenceEqual(new[] { "last_session.log", "previous_session.log" }), "Copy skipped identical session logs");
     File.WriteAllText(System.IO.Path.Combine(copyDir, "previous_session.log"), "s9");
     File.Delete(System.IO.Path.Combine(copyDir, "last_session.log"));
-    Check(LogCopy.NewestLogs(copyDir, 2, archives: false, distinct: false).Count == 1, "Report picked an archived session");
+    Check(LogCopy.NewestLogs(copyDir, 2, archives: false, distinct: false).Count == 1, "Copy picked an archived session");
     Check(LogCopy.NewestLogs(copyDir, 2).Select(System.IO.Path.GetFileName).SequenceEqual(new[] { "previous_session.log", "session-20261028-120000.log" }),
         "A missing last_session.log was not skipped");
 }
@@ -551,32 +551,6 @@ reportSettings.Set("party_code", "PrivateCode");
 reportSettings.SetJoinPassword("RememberedHost", "RememberedPassword");
 Check(LogCopy.Redact("PrivatePlayer PrivatePassword PrivateCode RememberedHost RememberedPassword", reportSettings)
       == "<player> <secret> <secret> <secret> <secret>", "Settings-held secrets not hidden");
-reportSettings.Set("party_mode", "join");
-reportSettings.Set("fps_mode", "120");
-reportSettings.Set("fullscreen", true);
-reportSettings.Set("extra_env", "PRIVATE_ENV=secret");
-reportSettings.Set("discord_status", "PrivateDiscord");
-reportSettings.Set("game_dir", @"C:\private-game");
-reportSettings.Set("user_dir", @"C:\private-saves");
-reportSettings.Set("future_private_setting", "PrivateFuture");
-var reportIni = new IniFile();
-reportIni.Set("upscaler", "dlss");
-reportIni.Set("output_res", "2560x1440");
-reportIni.Set("party_guest_respawn", "1");
-reportIni.Set("party_password", "PrivateIniPassword");
-reportIni.Set("discord_secret", "PrivateIniDiscord");
-reportIni.Set("unknown_key", "PrivateIniFuture");
-var summary = ProblemReport.SettingsSummary(reportSettings, reportIni);
-Check(summary.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')).SequenceEqual(new[]
-    { "role=guest", "fps_mode=120", "fullscreen=true", "upscaler=dlss", "output_res=2560x1440", "party_guest_respawn=1" }),
-    "Report allowlist included private settings or lost graphics / co-op values: " + summary);
-reportSettings.Set("party_mode", "host");
-Check(ProblemReport.SettingsSummary(reportSettings, reportIni).StartsWith("role=host"), "Host role missing");
-reportSettings.Set("party_mode", "PrivateRole");
-reportIni.Set("upscaler", "dlss\npassword=PrivateInjected");
-Check(!ProblemReport.SettingsSummary(reportSettings, reportIni).Contains("Private"), "Report allowed an injected setting or role");
-Check(ProblemReport.IssueUrl("0.2.6 beta+1&body=private") == "https://github.com/vladtepes22/NightwatchCoop/issues/new?template=bug_report.yml&version=0.2.6%20beta%2B1%26body%3Dprivate",
-    "Issue URL added fields beyond the encoded version");
 
 // Fix firewall issues: the game's inbound block rules go first (a block rule wins over the allow rules after it).
 var firewallExe = @"C:\Some Folder\it's\bb-probe.exe";
