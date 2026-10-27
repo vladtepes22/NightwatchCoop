@@ -2145,7 +2145,7 @@
   "Fix firewall issues": "Исправить проблемы брандмауэра",
   "Allows the party port (TCP and UDP) and party discovery through the Windows Firewall on every network type. Shows you the commands first.": "Разрешает порт группы (TCP и UDP) и поиск групп через брандмауэр Windows во всех типах сетей. Сначала покажет команды.",
   "Fix": "Исправить",
-  "These lines add Windows Firewall rules that let friends reach your party. Nothing else is changed:": "Эти строки добавляют правила брандмауэра Windows, через которые друзья смогут подключиться к вашей группе. Больше ничего не меняется:",
+  "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "Эти строки добавляют правила брандмауэра Windows, через которые друзья смогут подключиться к вашей группе, и удаляют правила, блокирующие игру. Больше ничего не меняется:",
   "Yes: run them now (Windows asks for administrator permission).": "Да: выполнить сейчас (Windows запросит разрешение администратора).",
   "No: copy them, then paste them into PowerShell opened as administrator yourself.": "Нет: скопировать их и вставить самостоятельно в PowerShell, открытый от имени администратора."
 }

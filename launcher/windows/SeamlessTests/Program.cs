@@ -42,6 +42,13 @@ if (args.Length == 4 && args[0] == "--map-prep")
     Environment.Exit(MapPrep.IsReady(prep) ? 0 : 1);
 }
 
+// --firewall-script <port> <exe>: prints FirewallFix's script for that exe (tools/firewall-block-check.ps1 runs it).
+if (args.Length == 3 && args[0] == "--firewall-script")
+{
+    Console.Write(FirewallFix.Script(int.Parse(args[1]), args[2]));
+    return;
+}
+
 static void Check(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
@@ -570,6 +577,17 @@ reportIni.Set("upscaler", "dlss\npassword=PrivateInjected");
 Check(!ProblemReport.SettingsSummary(reportSettings, reportIni).Contains("Private"), "Report allowed an injected setting or role");
 Check(ProblemReport.IssueUrl("0.2.6 beta+1&body=private") == "https://github.com/vladtepes22/NightwatchCoop/issues/new?template=bug_report.yml&version=0.2.6%20beta%2B1%26body%3Dprivate",
     "Issue URL added fields beyond the encoded version");
+
+// Fix firewall issues: the game's inbound block rules go first (a block rule wins over the allow rules after it).
+var firewallExe = @"C:\Some Folder\it's\bb-probe.exe";
+var firewallLines = FirewallFix.Script(47890, firewallExe).Split('\n');
+Check(firewallLines[0] == FirewallFix.UnblockLine(firewallExe), "Firewall script does not start with the unblock line");
+Check(firewallLines[0].Contains(@"'C:\Some Folder\it''s\bb-probe.exe'") && firewallLines[0].Contains("'Block'")
+    && firewallLines[0].Contains("'Inbound'") && firewallLines[0].EndsWith("Remove-NetFirewallRule"), "Unblock line wrong: " + firewallLines[0]);
+Check(firewallLines.Length == 4 && firewallLines.Skip(1).All(l => l.Contains("-Action Allow") && !l.Contains("Block")),
+    "Firewall allow rules missing or changed");
+Check(firewallLines[1].Contains("-Protocol TCP -LocalPort 47890") && firewallLines[2].Contains("-Protocol UDP -LocalPort 47890")
+    && firewallLines[3].Contains($"-LocalPort {PartyDiscovery.Port}"), "Firewall rules on the wrong ports");
 
 Console.WriteLine("PASS: host/join validation, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 

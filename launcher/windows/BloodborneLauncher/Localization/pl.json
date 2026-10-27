@@ -2145,7 +2145,7 @@
   "Fix firewall issues": "Napraw problemy z zaporą",
   "Allows the party port (TCP and UDP) and party discovery through the Windows Firewall on every network type. Shows you the commands first.": "Zezwala na port drużyny (TCP i UDP) i wykrywanie drużyn przez Zaporę Windows we wszystkich typach sieci. Najpierw pokazuje polecenia.",
   "Fix": "Napraw",
-  "These lines add Windows Firewall rules that let friends reach your party. Nothing else is changed:": "Te polecenia dodają reguły Zapory Windows umożliwiające znajomym połączenie z twoją drużyną. Nic innego się nie zmieni:",
+  "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "Te polecenia dodają reguły Zapory Windows umożliwiające znajomym połączenie z twoją drużyną i usuwają reguły blokujące grę. Nic innego się nie zmieni:",
   "Yes: run them now (Windows asks for administrator permission).": "Tak: uruchom je teraz (Windows poprosi o uprawnienia administratora).",
   "No: copy them, then paste them into PowerShell opened as administrator yourself.": "Nie: skopiuj je, a następnie samodzielnie wklej do PowerShell uruchomionego jako administrator."
 }

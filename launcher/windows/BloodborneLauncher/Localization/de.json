@@ -2145,7 +2145,7 @@
   "Fix firewall issues": "Firewall-Probleme beheben",
   "Allows the party port (TCP and UDP) and party discovery through the Windows Firewall on every network type. Shows you the commands first.": "Gibt den Gruppenport (TCP und UDP) und die Gruppensuche in der Windows-Firewall für alle Netzwerktypen frei. Zeigt Ihnen zuerst die Befehle.",
   "Fix": "Beheben",
-  "These lines add Windows Firewall rules that let friends reach your party. Nothing else is changed:": "Diese Befehle fügen Windows-Firewallregeln hinzu, damit Freunde Ihre Gruppe erreichen können. Sonst wird nichts geändert:",
+  "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "Diese Befehle fügen Windows-Firewallregeln hinzu, damit Freunde Ihre Gruppe erreichen können, und entfernen Regeln, die das Spiel blockieren. Sonst wird nichts geändert:",
   "Yes: run them now (Windows asks for administrator permission).": "Ja: Jetzt ausführen (Windows fragt nach Administratorrechten).",
   "No: copy them, then paste them into PowerShell opened as administrator yourself.": "Nein: Kopieren und selbst in eine als Administrator geöffnete PowerShell einfügen."
 }

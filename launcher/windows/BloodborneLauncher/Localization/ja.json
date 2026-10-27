@@ -2145,7 +2145,7 @@
   "Fix firewall issues": "ファイアウォールの問題を修正",
   "Allows the party port (TCP and UDP) and party discovery through the Windows Firewall on every network type. Shows you the commands first.": "Windows ファイアウォールですべてのネットワーク種別に対し、パーティーポート (TCP と UDP) とパーティー検出を許可します。実行前にコマンドを表示します。",
   "Fix": "修正",
-  "These lines add Windows Firewall rules that let friends reach your party. Nothing else is changed:": "以下のコマンドで、フレンドがパーティーに接続できるよう Windows ファイアウォールのルールを追加します。他の設定は変更しません:",
+  "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "以下のコマンドで、フレンドがパーティーに接続できるよう Windows ファイアウォールのルールを追加し、ゲームをブロックしているルールを削除します。他の設定は変更しません:",
   "Yes: run them now (Windows asks for administrator permission).": "はい: 今すぐ実行します (Windows が管理者権限を求めます)。",
   "No: copy them, then paste them into PowerShell opened as administrator yourself.": "いいえ: コピーして、自分で管理者として開いた PowerShell に貼り付けてください。"
 }

@@ -13,9 +13,12 @@ public static class FirewallFix
     private const string Name = "Nightwatch Co-op";
 
     /// <summary>The exact lines that run. Existing rules of the same name are replaced, so running it twice is harmless.</summary>
-    public static string Script(int port) => string.Join("\n", new[]
+    public static string Script(int port) => Script(port, Path.Combine(Paths.BinariesDir, Paths.Program("bb-probe")));
+
+    /// <summary>The same lines for a given game exe (the tests and the elevated QA check pass a dummy path).</summary>
+    public static string Script(int port, string exe) => string.Join("\n", new[]
     {
-        UnblockGame(),
+        UnblockLine(exe),
         Rule("party (TCP)", "TCP", port),
         Rule("party (UDP)", "UDP", port),
         Rule("party discovery (UDP)", "UDP", PartyDiscovery.Port),
@@ -28,9 +31,10 @@ public static class FirewallFix
                $"New-NetFirewallRule -DisplayName '{name}' -Direction Inbound -Protocol {protocol} -LocalPort {port} -Profile Any -Action Allow | Out-Null";
     }
 
-    private static string UnblockGame()
+    /// <summary>Removes every inbound block rule whose program is exe.</summary>
+    public static string UnblockLine(string exe)
     {
-        var exe = Path.Combine(Paths.BinariesDir, Paths.Program("bb-probe")).Replace("'", "''");
+        exe = exe.Replace("'", "''");
         return $"Get-NetFirewallApplicationFilter | Where-Object Program -eq '{exe}' | Get-NetFirewallRule | " +
                "Where-Object { $_.Direction -eq 'Inbound' -and $_.Action -eq 'Block' } | Remove-NetFirewallRule";
     }

@@ -2145,7 +2145,7 @@
   "Fix firewall issues": "修正防火牆問題",
   "Allows the party port (TCP and UDP) and party discovery through the Windows Firewall on every network type. Shows you the commands first.": "在所有網路類型中，允許 Windows 防火牆通過隊伍連接埠（TCP 與 UDP）與隊伍探索。會先向你顯示指令。",
   "Fix": "修正",
-  "These lines add Windows Firewall rules that let friends reach your party. Nothing else is changed:": "以下指令會新增 Windows 防火牆規則，讓朋友能連到你的隊伍。不會更改其他任何內容：",
+  "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "以下指令會新增 Windows 防火牆規則，讓朋友能連到你的隊伍，並刪除封鎖遊戲的規則。不會更改其他任何內容：",
   "Yes: run them now (Windows asks for administrator permission).": "是：立即執行（Windows 會要求系統管理員權限）。",
   "No: copy them, then paste them into PowerShell opened as administrator yourself.": "否：請複製它們，然後自行貼到以系統管理員身分開啟的 PowerShell 中。"
 }

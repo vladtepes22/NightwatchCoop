@@ -2145,7 +2145,7 @@
   "Fix firewall issues": "방화벽 문제 해결",
   "Allows the party port (TCP and UDP) and party discovery through the Windows Firewall on every network type. Shows you the commands first.": "모든 네트워크 유형에서 Windows 방화벽을 통해 파티 포트(TCP와 UDP)와 파티 검색을 허용합니다. 먼저 명령을 보여 줍니다.",
   "Fix": "해결",
-  "These lines add Windows Firewall rules that let friends reach your party. Nothing else is changed:": "다음 줄은 친구가 내 파티에 연결할 수 있도록 Windows 방화벽 규칙을 추가합니다. 다른 것은 바꾸지 않습니다:",
+  "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "다음 줄은 친구가 내 파티에 연결할 수 있도록 Windows 방화벽 규칙을 추가하고 게임을 차단하는 규칙을 제거합니다. 다른 것은 바꾸지 않습니다:",
   "Yes: run them now (Windows asks for administrator permission).": "예: 지금 실행 (Windows가 관리자 권한을 요청합니다).",
   "No: copy them, then paste them into PowerShell opened as administrator yourself.": "아니요: 복사한 뒤 관리자 권한으로 연 PowerShell에 직접 붙여 넣습니다."
 }

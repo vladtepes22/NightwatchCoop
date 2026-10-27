@@ -180,7 +180,31 @@ class Run:
             ok &= code == 0
             zh = re.search(r'zh-CN (\d+/\d+)', out)
             parts.append(f"{project.split('/')[-1]} {'ok' if code == 0 else f'exit {code}'}{f' (zh-CN {zh.group(1)})' if zh else ''}")
+        fw_ok, fw = self.firewall(base)
+        ok &= fw_ok
+        parts.append(fw)
         return self.done('launcher', ok, ', '.join(parts), t)
+
+    def firewall(self, base):
+        """Fix firewall issues on the real firewall: a block rule for a dummy exe goes, the allow rules come.
+        Needs an elevated shell; otherwise a skip with a note (not a failure)."""
+        exe, port = r'C:\NightwatchQA\firewall-check\bb-probe.exe', '47977'
+        code, out = self.sh('launcher', ['dotnet', 'run', '--project', 'SeamlessTests', '--', '--firewall-script', port, exe], cwd=base)
+        if code != 0:
+            return False, f'firewall script exit {code}'
+        script = self.dir / 'firewall-script.ps1'
+        lines = out.splitlines()
+        first = next((i for i, l in enumerate(lines) if l.startswith('Get-NetFirewallApplicationFilter')), None)
+        if first is None:
+            return False, 'firewall script: no unblock line first'
+        script.write_text('\n'.join(lines[first:first + 4]) + '\n', encoding='utf-8')
+        code, out = self.sh('launcher', ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                                         str(REPO / 'tools' / 'firewall-block-check.ps1'),
+                                         '-ScriptFile', str(script), '-Exe', exe, '-Port', port])
+        line = (out.strip().splitlines() or ['no output'])[-1]
+        if code == 2:
+            return True, 'firewall block-rule check SKIPPED (not elevated)'
+        return code == 0, f"firewall block-rule check {'ok' if code == 0 else 'FAILED: ' + line[:100]}"
 
     def smoke(self):
         t = time.monotonic()
