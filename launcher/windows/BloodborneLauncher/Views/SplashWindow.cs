@@ -3,20 +3,25 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace BloodborneLauncher.Views;
 
-/// <summary>The boot splash: a blood moon over a lit lamp while the game starts. The launcher is
-/// minimized meanwhile; the splash fades out when the game's window shows (or the game ends).</summary>
+/// <summary>The boot splash: the blood moon GIF (moon turns red, a lamp lights) while the game starts.
+/// The launcher is minimized meanwhile; the splash fades out when the game's window shows (or the game ends).</summary>
 internal sealed class SplashWindow : Window
 {
+    // The GIF plays once (66 frames, 3.3 s) and holds on the lit lamp before the fade.
     private static readonly TimeSpan MinShown = TimeSpan.FromSeconds(3.7);
     private static readonly TimeSpan MaxShown = TimeSpan.FromSeconds(90);
+    private static readonly Uri GifUri = new("pack://application:,,,/Assets/red_moon_splash.gif");
 
     private readonly Func<bool> _gameRunning;
     private readonly DateTime _opened = DateTime.UtcNow;
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    private readonly ScaleTransform _scale = new(1, 1);
     private bool _closing;
 
     /// <summary>Raised once when the splash is gone; the argument is true when the game ended first.</summary>
@@ -32,12 +37,18 @@ internal sealed class SplashWindow : Window
         ShowInTaskbar = false;
         Topmost = true;
         ShowActivated = false;
-        Width = 360;
-        Height = 440;
+        SizeToContent = SizeToContent.WidthAndHeight;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Content = Build();
+        var gif = new Image { Width = 316, Height = 316, Stretch = Stretch.Uniform };
+        RenderOptions.SetBitmapScalingMode(gif, BitmapScalingMode.HighQuality);
+        Content = Build(gif);
         Opacity = 0;
-        Loaded += (_, _) => BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(500)));
+        Loaded += (_, _) =>
+        {
+            // Start the GIF with the fade-in so its first frame is the one people see.
+            Play(gif);
+            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(500)));
+        };
         _poll.Tick += (_, _) => Check();
         _poll.Start();
     }
@@ -51,29 +62,36 @@ internal sealed class SplashWindow : Window
         return splash;
     }
 
-    private static UIElement Build()
+    private UIElement Build(Image gif)
     {
-        var gold = new SolidColorBrush(Color.FromRgb(0xED, 0xE3, 0xCF));
-        var moon = new MoonView(190);
+        var shape = new CornerRadius(14);
+        // The glow sits on its own layer behind the card: an effect on the card itself would re-render
+        // the animated GIF through it every frame. The window margin keeps the glow from being clipped.
+        var glow = new Border
+        {
+            CornerRadius = shape,
+            Background = new SolidColorBrush(Color.FromRgb(0x0E, 0x0E, 0x14)),
+            Effect = new DropShadowEffect { BlurRadius = 60, ShadowDepth = 0, Color = Color.FromRgb(0xC8, 0x23, 0x1B), Opacity = 0.45 },
+        };
         var card = new Border
         {
-            Margin = new Thickness(24),
-            CornerRadius = new CornerRadius(14),
+            Width = 360,
+            Padding = new Thickness(22, 22, 22, 18),
+            CornerRadius = shape,
             Background = new SolidColorBrush(Color.FromRgb(0x0E, 0x0E, 0x14)),
             BorderBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x14, 0x16)),
             BorderThickness = new Thickness(1),
-            Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 50, ShadowDepth = 0, Color = Color.FromRgb(0xC8, 0x23, 0x1B), Opacity = 0.35 },
             Child = new StackPanel
             {
-                VerticalAlignment = VerticalAlignment.Center,
                 Children =
                 {
-                    moon,
+                    gif,
                     new TextBlock
                     {
-                        Text = "Nightwatch", FontFamily = new FontFamily("Palatino Linotype, Georgia"), FontSize = 28, FontWeight = FontWeights.Bold,
-                        Foreground = gold, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 22, 0, 2),
-                        Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 14, ShadowDepth = 0, Color = Color.FromRgb(0xC8, 0x23, 0x1B) },
+                        Text = "Nightwatch", FontFamily = new FontFamily("Palatino Linotype, Georgia"), FontSize = 26, FontWeight = FontWeights.Bold,
+                        Foreground = new SolidColorBrush(Color.FromRgb(0xED, 0xE3, 0xCF)), HorizontalAlignment = HorizontalAlignment.Center,
+                        Margin = new Thickness(0, 14, 0, 2),
+                        Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 0, Color = Color.FromRgb(0xC8, 0x23, 0x1B), Opacity = 0.7 },
                     },
                     new TextBlock
                     {
@@ -83,45 +101,49 @@ internal sealed class SplashWindow : Window
                 },
             },
         };
-        return card;
+        return new Grid
+        {
+            Margin = new Thickness(48),
+            RenderTransformOrigin = new Point(0.5, 0.5),
+            RenderTransform = _scale,
+            Children = { glow, card },
+        };
     }
 
-    /// <summary>The moon: a red disc that rises into place, then breathes, with a small lit lamp below.</summary>
-    private sealed class MoonView : Grid
+    /// <summary>Plays the GIF once and holds its last frame. Every frame of this GIF redraws the
+    /// same box (disposal "restore background"), so each one is drawn on its own at its offset.</summary>
+    private static void Play(Image target)
     {
-        public MoonView(double size)
+        BitmapDecoder decoder;
+        try { decoder = BitmapDecoder.Create(GifUri, BitmapCreateOptions.None, BitmapCacheOption.OnLoad); }
+        catch { return; } // a missing asset only costs the picture, never the start
+        var size = new Rect(0, 0, decoder.Frames[0].PixelWidth, decoder.Frames[0].PixelHeight);
+        if (decoder.Metadata is BitmapMetadata gifMeta)
         {
-            Width = Height = size;
-            ClipToBounds = false;
-            var halo = new System.Windows.Shapes.Ellipse
-            {
-                Width = size * 1.5, Height = size * 1.5,
-                Fill = new RadialGradientBrush(Color.FromArgb(0x70, 0xC8, 0x23, 0x1B), Colors.Transparent),
-            };
-            var disc = new System.Windows.Shapes.Ellipse
-            {
-                Width = size * 0.78, Height = size * 0.78,
-                Fill = new RadialGradientBrush { GradientOrigin = new Point(0.4, 0.35), GradientStops =
-                {
-                    new GradientStop(Color.FromRgb(0xE8, 0x5A, 0x3C), 0), new GradientStop(Color.FromRgb(0xB4, 0x1A, 0x16), 0.6), new GradientStop(Color.FromRgb(0x5A, 0x0A, 0x0C), 1),
-                } },
-                RenderTransform = new TranslateTransform(0, 40),
-            };
-            var lamp = new System.Windows.Shapes.Ellipse
-            {
-                Width = 9, Height = 9, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, -8),
-                Fill = new SolidColorBrush(Color.FromRgb(0xFF, 0xC8, 0x6B)), Opacity = 0,
-                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 0, Color = Color.FromRgb(0xFF, 0xA0, 0x40) },
-            };
-            Children.Add(halo);
-            Children.Add(disc);
-            Children.Add(lamp);
-
-            var rise = new DoubleAnimation(40, 0, TimeSpan.FromSeconds(2.2)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-            ((TranslateTransform)disc.RenderTransform).BeginAnimation(TranslateTransform.YProperty, rise);
-            lamp.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.8)) { BeginTime = TimeSpan.FromSeconds(2.4) });
-            halo.BeginAnimation(OpacityProperty, new DoubleAnimation(0.55, 1, TimeSpan.FromSeconds(1.8)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
+            if (gifMeta.GetQuery("/logscrdesc/Width") is ushort w) size.Width = w;
+            if (gifMeta.GetQuery("/logscrdesc/Height") is ushort h) size.Height = h;
         }
+        var frames = new ObjectAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd };
+        var at = TimeSpan.Zero;
+        foreach (var frame in decoder.Frames)
+        {
+            var meta = frame.Metadata as BitmapMetadata;
+            double left = meta?.GetQuery("/imgdesc/Left") is ushort l ? l : 0;
+            double top = meta?.GetQuery("/imgdesc/Top") is ushort t ? t : 0;
+            var delay = meta?.GetQuery("/grctlext/Delay") is ushort d && d > 0 ? d * 10 : 50;
+            // An empty rectangle the size of the whole GIF keeps every frame at its place in the canvas.
+            var drawing = new DrawingGroup();
+            drawing.Children.Add(new GeometryDrawing(Brushes.Transparent, null, new RectangleGeometry(size)));
+            drawing.Children.Add(new ImageDrawing(frame, new Rect(left, top, frame.PixelWidth, frame.PixelHeight)));
+            drawing.Freeze();
+            var image = new DrawingImage(drawing);
+            image.Freeze();
+            frames.KeyFrames.Add(new DiscreteObjectKeyFrame(image, KeyTime.FromTimeSpan(at)));
+            at += TimeSpan.FromMilliseconds(delay);
+        }
+        if (frames.KeyFrames.Count == 0) return;
+        target.Source = (ImageSource)frames.KeyFrames[0].Value;
+        target.BeginAnimation(Image.SourceProperty, frames);
     }
 
     private void Check()
@@ -152,12 +174,15 @@ internal sealed class SplashWindow : Window
         if (_closing) return;
         _closing = true;
         _poll.Stop();
-        var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(600));
+        var time = TimeSpan.FromMilliseconds(600);
+        var fade = new DoubleAnimation(0, time);
         fade.Completed += (_, _) =>
         {
             Close();
             Finished?.Invoke(gameEnded);
         };
+        _scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.96, time));
+        _scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.96, time));
         BeginAnimation(OpacityProperty, fade);
     }
 }
