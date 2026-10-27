@@ -89,6 +89,7 @@ static void test_firewall_notice() {
     miss.state = FwState::Missing;
     const std::string s = t.FirewallVerdict(miss, 9307, 10);
     assert(s.find("Windows Firewall may block your party") == 0 && s.find("9307") != std::string::npos);
+    assert(s.find("Fix firewall issues") != std::string::npos);  // points at the launcher's button
     assert(t.FirewallVerdict(miss, 9307, 11).empty());  // once per session
     assert(t.FirewallVerdict(miss, 9307, 10 + 1799).empty());
     assert(!t.FirewallVerdict(miss, 9307, 10 + 1800).empty());  // still true after the long time

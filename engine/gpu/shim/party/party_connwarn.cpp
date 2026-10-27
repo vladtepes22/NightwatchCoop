@@ -137,30 +137,30 @@ std::string FirewallText(FwState s, int port) {
     const std::string p = std::to_string(port);
     const char* why = s == FwState::Blocked ? "Windows Firewall blocks your party" : "Windows Firewall may block your party";
     return std::string(why) +
-           "\nGuests cannot join until the game is allowed: Windows Security > Firewall > Allow an app through firewall, "
-           "tick the game for Private and Public (UDP and TCP " + p + "), or accept the Windows prompt when it asks.";
+           "\nGuests cannot join until the game is allowed. In the launcher, open the Co-op tab and press Fix firewall "
+           "issues (it opens UDP and TCP " + p + " and removes rules that block the game).";
 }
 std::string NoGuestsText(int port) {
     const std::string p = std::to_string(port);
     return "Nobody has reached your party yet\nGuests probably cannot reach this PC: your router has no open port. Turn UPnP "
-           "on in the router, or forward UDP and TCP " + p + " to this PC, or play over a VPN (Radmin, ZeroTier). Also check "
-           "that Windows Firewall allows the game.";
+           "on in the router, or forward UDP and TCP " + p + " to this PC, or play over a VPN (Radmin, ZeroTier). Also press "
+           "Fix firewall issues on the launcher's Co-op tab.";
 }
 std::string GuestUdpText(const std::string& guest, int port) {
     const std::string p = std::to_string(port);
     return (guest.empty() ? std::string("A guest") : guest) +
-           " is in the party but its game is not heard\nAllow the game in Windows Firewall on both PCs (UDP and TCP " + p +
-           "). On a VPN both players set BB_PARTY_LOCAL_IP to their own VPN address.";
+           " is in the party but its game is not heard\nOn both PCs, press Fix firewall issues on the launcher's Co-op "
+           "tab (UDP and TCP " + p + "). On a VPN both players set BB_PARTY_LOCAL_IP to their own VPN address.";
 }
 std::string HostGoneText(const std::string& host_addr) {
     return "Cannot reach the host" + (host_addr.empty() ? std::string() : " at " + host_addr) +
-           "\nCheck that the host is hosting, that you are on the same VPN network, and that the host's firewall lets the "
-           "game through.";
+           "\nCheck that the host is hosting, that you are on the same VPN network, and that the host has pressed Fix "
+           "firewall issues on the launcher's Co-op tab.";
 }
 std::string OwnSummonText(int port) {
     const std::string p = std::to_string(port);
-    return "The host cannot hear your game\nAllow the game in Windows Firewall on both PCs (UDP and TCP " + p +
-           "). On a VPN both players set BB_PARTY_LOCAL_IP to their own VPN address.";
+    return "The host cannot hear your game\nOn both PCs, press Fix firewall issues on the launcher's Co-op tab (UDP and "
+           "TCP " + p + "). On a VPN both players set BB_PARTY_LOCAL_IP to their own VPN address.";
 }
 
 // ---- tracker ----

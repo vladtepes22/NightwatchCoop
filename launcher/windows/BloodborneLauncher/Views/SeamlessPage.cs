@@ -323,7 +323,7 @@ public sealed class SeamlessPage : LauncherPage
         var port = int.TryParse(S.Str("party_port"), out var p) && p is >= 1 and <= 65535 ? p : NetworkRoute.DefaultPort;
         var script = FirewallFix.Script(port);
         var answer = System.Windows.MessageBox.Show(
-            L.T("These lines add Windows Firewall rules that let friends reach your party. Nothing else is changed:") + "\n\n" + script + "\n\n" +
+            L.T("These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:") + "\n\n" + script + "\n\n" +
             L.T("Yes: run them now (Windows asks for administrator permission).") + "\n" +
             L.T("No: copy them, then paste them into PowerShell opened as administrator yourself."),
             L.T("Fix firewall issues"), MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
