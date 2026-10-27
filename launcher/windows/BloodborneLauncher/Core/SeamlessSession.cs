@@ -35,7 +35,7 @@ public static class SeamlessSession
 
     public static async Task<string> SaveTool(LauncherSettings settings, string action, params string[] extra)
     {
-        var games = ProcessTree.GamesIn(Paths.PortDir);
+        var games = ProcessTree.GamesIn(Paths.EngineDir);
         var running = games.Length > 0;
         foreach (var game in games) game.Dispose();
         if (Workspace.Current.Game.Running || running)

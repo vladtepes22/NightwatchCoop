@@ -871,8 +871,11 @@ namespace BloodborneLauncher
             await InstallAsync(release, await Updater.SwitchNeedsPackageAsync(release), chosen: true);
         }
 
+        private bool _updating;
+
         private async Task InstallAsync(Updater.Release release, bool package, bool chosen = false)
         {
+            if (_updating) return;
             var ws = Workspace.Current;
             if (release.FreshDownload)
             {
@@ -910,6 +913,8 @@ namespace BloodborneLauncher
 
             TitleUpdate.Visibility = Visibility.Visible;
             TitleUpdate.IsEnabled = false;
+            _updating = true;
+            UpdatePlayButton();
             var progress = new Progress<double>(p => TitleUpdateText.Text = L.F($"Downloading {p:P0}"));
             try
             {
@@ -925,6 +930,8 @@ namespace BloodborneLauncher
             }
             catch (Exception ex)
             {
+                _updating = false;
+                UpdatePlayButton();
                 TitleUpdate.IsEnabled = true;
                 TitleUpdateText.Text = L.F($"Update {release.Tag}");
                 ws.Log(L.T("Update failed: ") + ex.GetBaseException().Message, LogLevel.Bad);
@@ -935,6 +942,7 @@ namespace BloodborneLauncher
         /// <summary>The one place the game is started from, so the title bar and the Play page agree.</summary>
         public async Task PlayOrStopAsync()
         {
+            if (_updating) return;
             var ws = Workspace.Current;
             if (ws.Game.Running)
             {
@@ -1074,7 +1082,7 @@ namespace BloodborneLauncher
 
             // A game left running in the background (an earlier start that never ended, or another
             // launcher's) keeps its whole memory pool, and a new start fails (Windows error 1450).
-            var leftovers = ProcessTree.GamesIn(Paths.PortDir);
+            var leftovers = ProcessTree.GamesIn(Paths.EngineDir);
             if (leftovers.Length > 0)
             {
                 var choice = Prompt.Choose(L.T("The game is still running in the background"),
@@ -1121,6 +1129,7 @@ namespace BloodborneLauncher
                 if (!start) return;
             }
 
+            if (_updating) return;
             var error = ws.StartGame();
             if (error != null)
             {
@@ -1145,6 +1154,7 @@ namespace BloodborneLauncher
 
         private void UpdatePlayButton()
         {
+            TitlePlay.IsEnabled = !_updating;
             var running = Workspace.Current.Game.Running;
             TitlePlayText.Text = running ? L.T("Stop") : L.T("Play");
             TitlePlayIcon.Symbol = running ? SymbolRegular.Stop24 : SymbolRegular.Play24;

@@ -77,7 +77,10 @@ namespace BloodborneLauncher.Core
             var mine = _changed.ToDictionary(k => k, k => _values.TryGetValue(k, out var v) ? v : null, StringComparer.Ordinal);
             Load();
             foreach (var (key, value) in mine)
+            {
                 _values[key] = value;
+                _changed.Add(key); // Load() cleared it; stays pending until the write below succeeds
+            }
             var written = new HashSet<string>(StringComparer.Ordinal);
             var output = new List<string>();
             foreach (var line in _lines)
@@ -103,8 +106,10 @@ namespace BloodborneLauncher.Core
                     output.Add($"{key}={value}");
 
             Directory.CreateDirectory(Path.GetDirectoryName(Paths.IniPath)!);
-            File.WriteAllText(Paths.IniPath, string.Join("\n", output) + "\n");
+            File.WriteAllText(Paths.IniPath + ".tmp", string.Join("\n", output) + "\n");
+            File.Move(Paths.IniPath + ".tmp", Paths.IniPath, true);
             _lines = output;
+            _changed.Clear();
         }
 
         /// <summary>The value, or null when the key is absent (e.g. a binding left at its default).</summary>

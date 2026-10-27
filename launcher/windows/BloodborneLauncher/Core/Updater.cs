@@ -270,7 +270,14 @@ namespace BloodborneLauncher.Core
             if (Directory.Exists(parent))
             {
                 foreach (var old in Directory.GetDirectories(parent).Append(parent))
-                    try { if (old != parent) Directory.Delete(old, recursive: true); } catch (Exception) { }
+                    try
+                    {
+                        // An interrupted update or a blocked rollback may still need its originals.
+                        if (old != parent && !Directory.EnumerateDirectories(old, "*.backup", SearchOption.AllDirectories)
+                                .Any(d => Directory.EnumerateFiles(d, "*", SearchOption.AllDirectories).Any()))
+                            Directory.Delete(old, recursive: true);
+                    }
+                    catch (Exception) { }
                 foreach (var old in Directory.GetFiles(parent))
                     try { File.Delete(old); } catch (Exception) { }
             }
@@ -290,6 +297,8 @@ namespace BloodborneLauncher.Core
                             OldExeNames.Select(old => Directory.GetFiles(unpacked, old, SearchOption.AllDirectories).FirstOrDefault()).FirstOrDefault(f => f != null)) is { } found
                     ? Path.GetDirectoryName(found)
                     : throw new InvalidOperationException($"The package has no {ExeName}.");
+                if (Process.GetProcessesByName("bb-probe").Length > 0)
+                    throw new InvalidOperationException("Close the game first: the update replaces the engine.");
                 SdlPad.Unload(); // the Controls tab's SDL3.dll keeps it and out\libiconv-2.dll open
                 CopyPackage(root!, folder, self, skipped);
             }
@@ -359,36 +368,87 @@ namespace BloodborneLauncher.Core
         }
 
         /// <summary>Copies a new package over this one, leaving the player's own files alone. The
-        /// launcher and package.json (which says which engine is installed) go last: an update that
-        /// stops on a file it cannot replace leaves the old launcher and the old engine ID, so the
-        /// launcher still offers the update instead of calling a half-copied engine current.</summary>
+        /// launcher and package.json (which says which engine is installed) go last. Originals stay
+        /// in the update's work folder until every file is installed, so a failed copy can roll back.</summary>
         private static void CopyPackage(string from, string to, string self, List<string> skipped)
         {
             var selfTarget = Path.GetFullPath(self);
             var manifest = Path.GetFullPath(Path.Combine(to, "package.json"));
+            var backup = from + ".backup";
+            var replaced = new List<(string Target, string? Original)>();
+            var created = new List<string>();
+            void Restore((string Target, string? Original) entry)
+            {
+                if (entry.Original != null)
+                    Retry(() => File.Move(entry.Original, entry.Target, overwrite: true));
+                else
+                    Retry(() => File.Delete(entry.Target));
+            }
             int Last(string file) => Path.GetFullPath(Path.Combine(to, Path.GetRelativePath(from, file))) is var t &&
                 string.Equals(t, selfTarget, StringComparison.OrdinalIgnoreCase) ? 2 :
                 string.Equals(t, manifest, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-            foreach (var file in Directory.GetFiles(from, "*", SearchOption.AllDirectories).OrderBy(Last))
+            try
             {
-                var relative = Path.GetRelativePath(from, file);
-                var top = relative.Split(Path.DirectorySeparatorChar)[0];
-                if (Kept.Contains(top, StringComparer.OrdinalIgnoreCase)) continue;
+                foreach (var file in Directory.GetFiles(from, "*", SearchOption.AllDirectories).OrderBy(Last))
+                {
+                    var relative = Path.GetRelativePath(from, file);
+                    var top = relative.Split(Path.DirectorySeparatorChar)[0];
+                    if (Kept.Contains(top, StringComparer.OrdinalIgnoreCase)) continue;
 
-                var target = Path.Combine(to, relative);
-                if (string.Equals(Path.GetFullPath(target), selfTarget, StringComparison.OrdinalIgnoreCase))
-                {
-                    ReplaceSelf(self, file);
-                    continue;
-                }
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                try { Retry(() => File.Copy(file, target, overwrite: true)); }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-                {
-                    if (!IsOptional(relative)) throw Blocked(file, e);
-                    skipped.Add(relative.Replace('\\', '/'));
+                    var target = Path.Combine(to, relative);
+                    var recorded = false;
+                    try
+                    {
+                        if (string.Equals(Path.GetFullPath(target), selfTarget, StringComparison.OrdinalIgnoreCase))
+                        {
+                            ReplaceSelf(self, file);
+                            continue;
+                        }
+                        var missing = new Stack<string>();
+                        for (var dir = Path.GetDirectoryName(target)!; !Directory.Exists(dir); dir = Path.GetDirectoryName(dir)!)
+                            missing.Push(dir);
+                        while (missing.Count > 0)
+                        {
+                            var dir = missing.Pop();
+                            Directory.CreateDirectory(dir);
+                            created.Add(dir);
+                        }
+                        string? original = null;
+                        if (File.Exists(target))
+                        {
+                            original = Path.Combine(backup, relative);
+                            Directory.CreateDirectory(Path.GetDirectoryName(original)!);
+                            Retry(() => File.Move(target, original));
+                        }
+                        replaced.Add((target, original));
+                        recorded = true;
+                        Retry(() => File.Copy(file, target, overwrite: true));
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                    {
+                        if (!IsOptional(relative)) throw Blocked(file, e);
+                        if (recorded)
+                        {
+                            Restore(replaced[^1]);
+                            replaced.RemoveAt(replaced.Count - 1);
+                        }
+                        skipped.Add(relative.Replace('\\', '/'));
+                    }
                 }
             }
+            catch (Exception error)
+            {
+                // Keep trying the rest if one restore is blocked, and retain its backup for recovery.
+                foreach (var entry in replaced.AsEnumerable().Reverse())
+                {
+                    try { Restore(entry); }
+                    catch (Exception e) { error.Data[entry.Target] = e; }
+                }
+                foreach (var dir in created.AsEnumerable().Reverse())
+                    try { Directory.Delete(dir); } catch (Exception e) { error.Data[dir] = e; }
+                throw;
+            }
+            try { if (Directory.Exists(backup)) Directory.Delete(backup, recursive: true); } catch (Exception) { }
         }
 
         private static void ReplaceSelf(string self, string replacement)
