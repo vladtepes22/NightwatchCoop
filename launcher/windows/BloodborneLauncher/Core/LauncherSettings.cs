@@ -200,8 +200,11 @@ namespace BloodborneLauncher.Core
         public void Save()
         {
             Directory.CreateDirectory(Paths.ConfigDir);
-            File.WriteAllText(Paths.ConfigFile,
+            // Written beside and moved into place: an interrupted write no longer leaves an empty file
+            // that the next start reads as all defaults (remembered passwords gone).
+            File.WriteAllText(Paths.ConfigFile + ".tmp",
                 _data.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(Paths.ConfigFile + ".tmp", Paths.ConfigFile, true);
         }
 
         /// <summary>The shadNet password, kept encrypted for this Windows user (Core/Secret.cs).</summary>

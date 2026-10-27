@@ -844,7 +844,20 @@ namespace BloodborneLauncher
         {
             var ws = Workspace.Current;
             if (ws.Update is not { } release) return;
-            await InstallAsync(release, await Updater.NeedsPackageAsync(release));
+            if (await PackageCheck(() => Updater.NeedsPackageAsync(release)) is { } package)
+                await InstallAsync(release, package);
+        }
+
+        /// <summary>Whether an update needs the whole package, or null (logged) when the release manifest
+        /// could not be read: guessing would install a new launcher over an engine it does not match.</summary>
+        private static async Task<bool?> PackageCheck(Func<Task<bool>> check)
+        {
+            try { return await check(); }
+            catch (InvalidOperationException ex)
+            {
+                Workspace.Current.Log(L.T("Update failed: ") + ex.Message, LogLevel.Bad);
+                return null;
+            }
         }
 
         /// <summary>An older package's engine: download the latest package and update it in place.</summary>
@@ -868,7 +881,8 @@ namespace BloodborneLauncher
                 Prompt.Tell(L.T("Already installed"), L.F($"You already have {Updater.CurrentLabel}."));
                 return;
             }
-            await InstallAsync(release, await Updater.SwitchNeedsPackageAsync(release), chosen: true);
+            if (await PackageCheck(() => Updater.SwitchNeedsPackageAsync(release)) is { } package)
+                await InstallAsync(release, package, chosen: true);
         }
 
         private bool _updating;

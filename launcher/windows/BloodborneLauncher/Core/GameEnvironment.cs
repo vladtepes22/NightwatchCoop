@@ -8,6 +8,9 @@ namespace BloodborneLauncher.Core
     /// </summary>
     public static class GameEnvironment
     {
+        internal static readonly string[] ExperimentalVariables =
+            { "BB_FAST_LOADING", "BB_HOT_PAGES", "BB_GUEST_IN_PLACE", "BB_NATIVE_CALLS", "BB_CAMERA_FIX" };
+
         public static string GameDir(LauncherSettings s) => Paths.Expand(s.Str("game_dir"));
 
         /// <summary>The saves folder the player chose (or the package's user folder): the Main profile.</summary>
@@ -207,11 +210,8 @@ namespace BloodborneLauncher.Core
             if (s.Bool("safe_mode_next"))
             {
                 // Safe mode (after a crash, one run): every experimental engine option and the mods off.
-                env.Remove("BB_FAST_LOADING");
-                env.Remove("BB_HOT_PAGES");
-                env.Remove("BB_GUEST_IN_PLACE");
-                env.Remove("BB_NATIVE_CALLS");
-                env.Remove("BB_CAMERA_FIX");
+                foreach (var variable in ExperimentalVariables)
+                    env.Remove(variable);
                 env["BB_PRECISE_PACING"] = "0";
                 env["BB_IMAGE_WRITEBACK_GC"] = "0";
                 env["BB_GC_PRESSURE_PERCENT"] = "0";

@@ -99,6 +99,9 @@ namespace BloodborneLauncher.Core
             info.WorkingDirectory = Paths.IsPortDir(Paths.PortDir) ? Paths.EngineDir : Environment.CurrentDirectory;
             foreach (var (key, value) in GameEnvironment.Build(s))
                 info.Environment[key] = value;
+            if (s.Bool("safe_mode_next"))
+                foreach (var variable in GameEnvironment.ExperimentalVariables)
+                    info.Environment.Remove(variable);
             info.Environment["PYTHONUNBUFFERED"] = "1";
             // UTF-8 whatever the Windows language: the game title (param.sfo) has a ™ that GBK and other
             // code pages cannot write.
@@ -113,7 +116,7 @@ namespace BloodborneLauncher.Core
 
             try
             {
-                var process = new Process { StartInfo = info, EnableRaisingEvents = true };
+                var process = new Process { StartInfo = info };
                 OpenLog();
                 // The first line of every log, the Output page's export included: which build ran.
                 Emit($"Nightwatch Co-op {Updater.CurrentLabel}, engine {Updater.LocalEngine() ?? "unknown"}, {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
@@ -123,7 +126,7 @@ namespace BloodborneLauncher.Core
                 {
                     var code = -1;
                     try { process.WaitForExit(); code = process.ExitCode; } catch { /* gone */ }
-                    _process = null;
+                    if (!ReferenceEquals(_process, process)) return;
                     if (_partyUserDir is { } user)
                     {
                         // The party save checks after every party session, in the session log.
@@ -138,14 +141,17 @@ namespace BloodborneLauncher.Core
                         }
                     }
                     CloseLog();
+                    _partyUserDir = null;
+                    _process = null;
                     Exited?.Invoke(code);
                 };
                 process.Start();
+                _process = process;
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
-                _process = process;
                 _partyUserDir = SeamlessSettings.Enabled(s) ? GameEnvironment.UserDir(s) : null;
                 StartedAt = DateTime.Now;
+                process.EnableRaisingEvents = true;
                 return null;
             }
             catch (Exception e)

@@ -234,7 +234,7 @@ namespace BloodborneLauncher.Core
             return false;
         }
 
-        /// <summary>The engine build the release's package has, or null when it does not say.</summary>
+        /// <summary>The engine build the release's package has, or null when it does not say. Fetch failures throw.</summary>
         public static async Task<string?> RemoteEngineAsync(Release release)
         {
             if (release.PackageUrl == null) return null;
@@ -245,7 +245,7 @@ namespace BloodborneLauncher.Core
             }
             catch
             {
-                return null;
+                throw new InvalidOperationException("Could not read the release manifest. Check your connection and try the update again.");
             }
         }
 
@@ -292,15 +292,18 @@ namespace BloodborneLauncher.Core
                 var zip = Path.Combine(work, "package.zip");
                 await DownloadAsync(release.ZipUrl!, zip, release.ZipSize, progress);
                 var unpacked = Path.Combine(work, "unpacked");
-                Extract(zip, unpacked, skipped);
-                var root = (Directory.GetFiles(unpacked, ExeName, SearchOption.AllDirectories).FirstOrDefault() ??
+                var root = await Task.Run(() =>
+                {
+                    Extract(zip, unpacked, skipped);
+                    return (Directory.GetFiles(unpacked, ExeName, SearchOption.AllDirectories).FirstOrDefault() ??
                             OldExeNames.Select(old => Directory.GetFiles(unpacked, old, SearchOption.AllDirectories).FirstOrDefault()).FirstOrDefault(f => f != null)) is { } found
-                    ? Path.GetDirectoryName(found)
-                    : throw new InvalidOperationException($"The package has no {ExeName}.");
+                        ? Path.GetDirectoryName(found)
+                        : throw new InvalidOperationException($"The package has no {ExeName}.");
+                });
                 if (Process.GetProcessesByName("bb-probe").Length > 0)
                     throw new InvalidOperationException("Close the game first: the update replaces the engine.");
                 SdlPad.Unload(); // the Controls tab's SDL3.dll keeps it and out\libiconv-2.dll open
-                CopyPackage(root!, folder, self, skipped);
+                await Task.Run(() => CopyPackage(root!, folder, self, skipped));
             }
             else
             {
@@ -309,7 +312,7 @@ namespace BloodborneLauncher.Core
                 await DownloadAsync(url, exe, release.ExeSize, progress);
                 if (new FileInfo(exe).Length < 100_000)
                     throw new InvalidOperationException("The download is too small to be the launcher.");
-                ReplaceSelf(self, exe);
+                await Task.Run(() => ReplaceSelf(self, exe));
             }
             Process.Start(new ProcessStartInfo(self) { UseShellExecute = true, WorkingDirectory = folder });
             return skipped;
@@ -466,7 +469,8 @@ namespace BloodborneLauncher.Core
             }
             catch
             {
-                File.Move(aside, self); // put the working one back
+                Retry(() => File.Delete(self)); // a failed copy may have left a partial exe
+                Retry(() => File.Move(aside, self)); // put the working one back
                 throw;
             }
         }
