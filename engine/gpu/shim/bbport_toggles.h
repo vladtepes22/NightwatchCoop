@@ -118,12 +118,14 @@ inline const bool enabled = [] {
     const char* env = std::getenv("BB_FRAME_STATS");
     return env && env[0] == '1';
 }();
+/// `on`: a timer that also runs without BB_FRAME_STATS (a rare path the per-minute lines report).
 struct Timer {
     std::atomic<std::uint64_t>& total;
+    bool on = enabled;
     std::chrono::steady_clock::time_point start =
-        enabled ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+        on ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     ~Timer() {
-        if (!enabled) {
+        if (!on) {
             return;
         }
         total.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -146,6 +148,9 @@ inline std::atomic<std::uint64_t> residency_alloc_bytes{0}, residency_unused_byt
 inline std::atomic<std::uint64_t> gc_used_bytes{0}, gc_trigger_bytes{0}, gc_freed_images{0};
 inline std::atomic<std::uint32_t> coarse_second{0};
 inline std::atomic<std::uint64_t> vram_idle_bytes{0}, vram_unmapped_bytes{0}, vram_chunks_freed_bytes{0};
+/// The game's data that left VRAM unused (EvictIdleCopies) and came back with a request
+/// (EnsureResident) since the start: both climbing together is the cleanup thrashing.
+inline std::atomic<std::uint64_t> vram_evicted_bytes{0}, vram_restored_bytes{0};
 inline std::atomic<std::uint64_t> residency_chunk_count{0}, evacuations{0}, evac_kept_gpu{0}, evac_kept_other{0};
 inline std::atomic<std::uint64_t> gc_kept_images{0};
 /// The collector's work since the start (BB_FRAME_LOG: per frame): bytes of the images it freed,

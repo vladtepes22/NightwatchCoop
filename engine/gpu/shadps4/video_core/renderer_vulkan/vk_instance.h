@@ -702,5 +702,8 @@ private:
 /// bbport memory statistics: device-local VMA memory blocks and the allocations in them (the
 /// difference is free space VMA keeps).
 void VmaDeviceUsage(u64& block_bytes, u64& allocation_bytes);
+/// bbport: the driver's VRAM usage of this process and its budget (VK_EXT_memory_budget; 0 and 0
+/// without it): our own counts stay flat while other programs or Windows' paging squeeze the card.
+void DriverDeviceUsage(u64& usage, u64& budget);
 
 } // namespace Vulkan

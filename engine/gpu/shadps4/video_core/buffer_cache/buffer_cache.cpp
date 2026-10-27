@@ -1428,13 +1428,20 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
         });
         if (!restored.Empty()) {
             evicted_blocks.Subtract(from, to);
+            u64 blocks = 0;
+            for (const auto& range : restored) {
+                blocks += range.end - range.start;
+            }
+            BbStats::vram_restored_bytes.fetch_add(blocks * block_size, std::memory_order_relaxed);
         }
     }
     if (bind_ranges.Empty()) {
         memo = {first_block, last_block, ResidencyGeneration()};
         return;
     }
-    BbStats::Timer timer{BbStats::t_resident};
+    // Timed in every session: the per-minute "GPU memory:" line reports it (a player's stutter
+    // after long sessions, 27 Oct, suspected this path).
+    BbStats::Timer timer{BbStats::t_resident, true};
 
     // bbport BB_GUEST_IN_PLACE: blocks of the game's direct memory are bound to the memory it
     // lives in; the rest (and everything without it) gets VRAM as before.
@@ -2026,6 +2033,7 @@ void BufferCache::EvictIdleCopies(u32 now) {
     }
     const u64 bytes = u64(blocks.size()) * block_size;
     evicted_bytes += bytes;
+    BbStats::vram_evicted_bytes.fetch_add(bytes, std::memory_order_relaxed);
     if (evict_reports < 20 &&
         (evicted_bytes == bytes || (evicted_bytes >> 28) != ((evicted_bytes - bytes) >> 28))) {
         ++evict_reports;

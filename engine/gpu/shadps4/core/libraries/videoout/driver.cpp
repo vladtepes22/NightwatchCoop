@@ -407,13 +407,26 @@ static void LogRam() {
     // bbport: what holds the GPU's memory (PrintMemory's numbers, which are Linux-only): an 8 GB
     // card full of something other than images showed only "GPU images 1 GB" here before.
     {
-        u64 vma_blocks = 0, vma_used = 0;
+        u64 vma_blocks = 0, vma_used = 0, driver_used = 0, driver_budget = 0;
         Vulkan::VmaDeviceUsage(vma_blocks, vma_used);
+        Vulkan::DriverDeviceUsage(driver_used, driver_budget);
+        // Since the last line: the game's data that left VRAM and came back, and the time binding
+        // it back (a stutter that set in after long sessions, GPU and CPU mostly idle: 27 Oct).
+        static u64 last_evicted, last_restored, last_bind_ns;
+        const u64 evicted = BbStats::vram_evicted_bytes.load(),
+                  restored = BbStats::vram_restored_bytes.load(), bind_ns = BbStats::t_resident.load();
         std::printf("GPU memory: Vulkan %llu MiB allocated (VMA blocks %llu MiB, %llu MiB of them used); the "
-                    "game's data in VRAM %llu MiB (%llu MiB unused)\n",
+                    "game's data in VRAM %llu MiB (%llu MiB unused); driver %llu of %llu MiB budget; since "
+                    "the last line %llu MiB of the game's data left VRAM, %llu MiB came back (%.0f ms "
+                    "binding)\n",
                     mib(BbStats::device_alloc_bytes.load() - BbStats::device_free_bytes.load()), mib(vma_blocks),
                     mib(vma_used), mib(BbStats::residency_alloc_bytes.load()),
-                    mib(BbStats::residency_unused_bytes.load()));
+                    mib(BbStats::residency_unused_bytes.load()), mib(driver_used), mib(driver_budget),
+                    mib(evicted - last_evicted), mib(restored - last_restored),
+                    double(bind_ns - last_bind_ns) / 1e6);
+        last_evicted = evicted;
+        last_restored = restored;
+        last_bind_ns = bind_ns;
     }
 #endif
     // Where that RAM is: on the first report, then every five minutes. Listing every resident page
