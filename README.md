@@ -315,8 +315,9 @@ Include reviewed, redacted copies of **both** `logs\last_session.log` and
 `logs\previous_session.log` from each affected player who agrees to share them. After an automatic
 restart, the crash may be in the previous log. If logs are unavailable, explain why.
 
-The launcher's title-bar logs menu (**Copy last ... logs**) hides some personal information; review them
-before posting. Remove remaining addresses, player names, passwords and connection codes.
+Easiest: the launcher's title-bar logs menu → **Report a problem** packs both logs and a settings
+summary into a ZIP (addresses, user folder, player name and passwords hidden) and opens the bug
+report form; attach the ZIP. Look through it before posting. Remove remaining addresses, player names, passwords and connection codes.
 Never attach saves or game files. For setup help, use [Discord](https://discord.gg/sBK9FKKeup).
 
 ## Credits
