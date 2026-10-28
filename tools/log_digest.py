@@ -14,7 +14,8 @@ import sys
 
 
 def redact(text: str) -> str:
-    return re.sub(r"C:[\\/]Users[\\/][^\\/\r\n]+[\\/]",
+    # [\\/]+: an OSError text quotes its path with doubled backslashes (C:\\Users\\name\\...).
+    return re.sub(r"C:[\\/]+Users[\\/]+[^\\/\r\n]+[\\/]+",
                   lambda m: "C:\\Users\\<user>\\", text, flags=re.IGNORECASE)
 
 
