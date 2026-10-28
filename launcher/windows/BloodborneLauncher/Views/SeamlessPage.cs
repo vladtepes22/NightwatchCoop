@@ -179,7 +179,7 @@ public sealed class SeamlessPage : LauncherPage
         host.Children.Add(Text(L.T("The host's rules for the whole party. When you join, the host's count and yours are kept for when you host (in the game: System > Party rules)."), "Faint"));
         host.Children.Add(Card(SymbolRegular.Settings24, L.T("Co-op setup"),
             L.T("A few questions that set the difficulty rules below: guest health, dying, supplies, scaling and rot."),
-            SmallButton(L.T("Run setup again"), SymbolRegular.Play24, (_, _) => CoopWizard.Open()), out _));
+            SmallButton(L.T("Run Setup Wizard"), SymbolRegular.Play24, (_, _) => CoopWizard.Open()), out _));
         IniToggles(host,
             ("party_kill_record", L.T("Enemies stay dead"), true), ("party_open_world", L.T("Remove multiplayer barriers"), true),
             ("party_share_lamps", L.T("Shared lamps"), true), ("party_gather", L.T("Host can gather the party"), true),

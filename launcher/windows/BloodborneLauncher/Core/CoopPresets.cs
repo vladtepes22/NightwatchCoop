@@ -27,12 +27,12 @@ namespace BloodborneLauncher.Core
 
         public static Page[] Pages() => new[]
         {
-            new Page(L.T("Guest health"), L.T("How much health a hunter has after joining a party."), new[]
+            new Page(L.T("Guest health"), L.T("How much health should each joining Hunter have in your world?"), new[]
             {
-                new Choice(L.T("Cut by 30 %"), L.T("As in the game's own co-op: hunters who join have 30 % less maximum health."), On("party_phantom_hp", true)),
+                new Choice(L.T("Cut by 30 %"), L.T("The original Hunter's experience: Hunters who join will have 30 % less maximum health."), On("party_phantom_hp", true)),
                 new Choice(L.T("Full health"), L.T("Guests keep their full maximum health."), On("party_phantom_hp", false)),
             }),
-            new Page(L.T("Scaling presets"), L.T("How much tougher enemies and bosses get for each guest."), new[]
+            new Page(L.T("Scaling presets"), L.T("How much tougher should enemies and bosses be for each Hunter in your world?"), new[]
             {
                 new Choice(L.T("Vanilla"),
                     L.T("The game's own numbers: boss health 100 %, no extra damage, no enemy scaling. The easy way to play seamless, for players who want a stress-free experience."),
@@ -44,22 +44,22 @@ namespace BloodborneLauncher.Core
                     L.T("Boss health 200 %, boss damage +20 %, enemy health 100 %, enemy damage +10 %. The recommended experience."),
                     new[] { ("party_boss_hp", "200"), ("party_boss_damage", "20"), ("party_enemy_hp", "100"), ("party_enemy_damage", "10") }),
             }),
-            new Page(L.T("Rot on death"), L.T("Whether dying weakens you until you rest."), new[]
+            new Page(L.T("Rot on death"), L.T("Should Hunters suffer an additional penalty on death?"), new[]
             {
                 new Choice(L.T("Off"), L.T("No penalty for dying."), On("party_rot", false)),
                 new Choice(L.T("On"), L.T("Each death adds a penalty, stacking up to five times; resting at a lamp removes it."), On("party_rot", true)),
             }),
-            new Page(L.T("Level sync"), L.T("What happens when a guest's level is far above the host's."), new[]
+            new Page(L.T("Level sync"), L.T("How should guest Hunters be scaled in your world?"), new[]
             {
-                new Choice(L.T("On"), L.T("As in the game's own co-op: a hunter whose level is above the host's range is scaled down while it plays in the host's world."), On("party_level_sync", true)),
-                new Choice(L.T("Off"), L.T("Everyone keeps full stats."), On("party_level_sync", false)),
+                new Choice(L.T("On"), L.T("The original Hunter's experience: a Hunter whose level is above the host's range is scaled down while they play in the host's world."), On("party_level_sync", true)),
+                new Choice(L.T("Off"), L.T("All Hunters keep their original stats and are not scaled down to match the host's stats."), On("party_level_sync", false)),
             }),
-            new Page(L.T("Boss drops for guests"), L.T("Who gets what a world boss drops."), new[]
+            new Page(L.T("Boss drops for guests"), L.T("What do guest Hunters get from defeating bosses?"), new[]
             {
                 new Choice(L.T("On"), L.T("The item a world boss drops for the host also goes to every guest who is there, once, in their own save."), On("party_boss_drops", true)),
-                new Choice(L.T("Off"), L.T("Only the host gets the drop."), On("party_boss_drops", false)),
+                new Choice(L.T("Off"), L.T("Only the host gets boss drops. Guest Hunters will have to go back to their own worlds to obtain boss drops."), On("party_boss_drops", false)),
             }),
-            new Page(L.T("Travel by vote"), L.T("Who decides when the party travels by lamp, headstone or Hunter's Mark."), new[]
+            new Page(L.T("Travel by vote"), L.T("Who decides when the hunting party travels by lamp, headstone, or Hunter's Mark?"), new[]
             {
                 new Choice(L.T("Off"), L.T("Whoever travels takes the party along."), On("party_travel_vote", false)),
                 new Choice(L.T("On"), L.T("Travel needs every member's approval; one refusal cancels it."), On("party_travel_vote", true)),
