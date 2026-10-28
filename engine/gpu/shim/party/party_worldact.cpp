@@ -3072,9 +3072,33 @@ void LiftRiderTick(const GameSnapshot& s) {
         ground.prev_t = now;
     }
     if (!playing && !track.riding) {
+        // NW-666485f (Mensis, frame generation): riders died with no `lift ride:` line. While the
+        // local chr rides an object and no table car plays within reach, say once per 10 s which
+        // car is nearest and whether it reads as playing (car not found / not playing / too far).
+        static double said = -100;
+        static int diag = 0;
+        const double now = Now();
+        if (diag < 16 && now - said >= 10.0 && SafeRead(s.player + 0x1e1, &f, 5) && deathrules::RidingObject(f)) {
+            said = now;
+            std::int32_t near_car = 0;
+            float near_d = 1e9f, near_y = 0;
+            for (const Lift& l : Lifts()) {
+                float at[3];
+                const float d = ObjectPoint(l.car, 0, 0, at) ? std::hypot(me[0] - at[0], me[2] - at[2]) : 1e9f;
+                if (d < near_d) near_car = l.car, near_d = d, near_y = at[1];
+            }
+            if (near_d < 40.0f) {
+                ObjAnimState car;
+                const bool read = ReadObjAnim(near_car, &car);
+                ++diag;
+                Log("lift ride: riding an object at (%.1f, %.1f, %.1f) with no table car playing within %.0f m: nearest car "
+                    "%d %.1f m away (y %.1f), %s", double(me[0]), double(me[1]), double(me[2]), double(kLiftCarRadius),
+                    near_car, double(near_d), double(near_y),
+                    !read ? "its animation unreadable" : car.playing ? "playing (outside the radius)" : "not playing");
+            }
+        }
         return;
     }
-    std::uint64_t f = 0;
     SafeRead(s.player + 0x1e1, &f, 5);
     bool ride_bit = deathrules::RidingObject(f);
     {
