@@ -32,7 +32,18 @@ def native_package(name='fixture-native', binding_address=4112, binding_kind=1,
             + struct.pack('<8Q',32,1,0,0,40,1,1,0) + image)
 
 
-@unittest.skipUnless(EXE.exists(), 'build native probe first')
+def _probe_state():
+    """Why the loader tests cannot run, or None: no probe built, or one older than src/probe.c (a stale
+    build fails every test against today's loader rules; rebuild it instead of reading those failures)."""
+    if not EXE.exists():
+        return 'build native probe first'
+    src = ROOT / 'src' / 'probe.c'
+    if src.exists() and EXE.stat().st_mtime < src.stat().st_mtime:
+        return f'{EXE.name} is older than src/probe.c: rebuild it'
+    return None
+
+
+@unittest.skipIf(_probe_state() is not None, _probe_state() or '')
 class LoaderTests(unittest.TestCase):
     def test_invalid_content_profile_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

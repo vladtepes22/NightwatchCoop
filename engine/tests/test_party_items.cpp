@@ -57,7 +57,7 @@ static void test_tables() {
     CHECK(ItemLedgerDoneFlag(35) == 12401800);
     CHECK(ItemLedgerIndex(14000) == 0);
     // Party policy 0.7.5: consumables are not in the ledger any more (indices stay reserved).
-    for (const std::int32_t lot : {22000, 24000, 26000, 27010, 32000, 35000, 15005, 21002950, 75002400, 25700000}) {
+    for (const std::int32_t lot : {22000, 24000, 26000, 27010, 32000, 35000, 15005, 21002950, 75002400}) {
         CHECK(ItemLedgerIndex(lot) == kItemNone);
         CHECK(ItemLotUnshared(lot));
         CHECK(ItemLotDenied(lot, kItemNone));
@@ -70,6 +70,14 @@ static void test_tables() {
         CHECK(!ItemLotUnshared(lot));
     }
     CHECK(!ItemLotDenied(34020, 50001820) && !ItemLotDenied(43020, 50002260));
+    // 0.7.7 (bossrunes): a rune a world boss's defeat gives and the weapons of the DLC rewards are unique:
+    // Ludwig's rune (3401800, flag 6674), the Celestial Emissary's Communion (25700000, ledger), Ludwig's
+    // Holy Moonlight Sword spots (43210 / 43211; category 0 was skipped by the shareable rule).
+    for (const std::int32_t lot : {3401800, 43200, 43210, 43211, 25700000}) {
+        CHECK(!ItemLotUnshared(lot));
+    }
+    CHECK(!ItemLotDenied(3401800, 6674) && !ItemLotDenied(43211, 50002351));
+    CHECK(ItemLedgerIndex(25700000) == 33);
     CHECK(ItemLedgerIndex(17010) == kItemNone);    // repeatable (common 9100)
     CHECK(ItemLedgerIndex(43000) == kItemNone);    // repeatable (13501940)
     CHECK(ItemLedgerIndex(2400450) == kItemNone);  // flagged

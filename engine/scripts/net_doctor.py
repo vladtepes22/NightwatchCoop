@@ -467,7 +467,7 @@ def diagnose(logs, show_ips):
                        f"The party link (TCP) gets through, the game traffic (UDP) does not, so {g} is never "
                        f"summoned.{back}",
                     f"{hn}: allow the game in Windows Firewall for INBOUND UDP + TCP 9307 (and in any antivirus "
-                    f"firewall); the router mapping alone is not enough. Then restart the launcher and host again.")
+                    f"firewall); if you once cancelled the Windows prompt, press 'Fix firewall issues' in the launcher (or delete the game's inbound Block rules in wf.msc); the router mapping alone is not enough. Then restart the launcher and host again.")
                 continue
             add(1, f"**{g}'s game cannot send UDP to the internet**: it only knows its home address, so the host "
                    f"cannot summon it ({cnt}x). {g} is in the party (that part uses TCP) but stays in its own world; "

@@ -64,6 +64,43 @@ int main() {
     const float near_zero[] = {0.0f, 3.0f};
     CHECK(PickLimboTarget(near_zero, 2) == 0);
 
+    // a dead player leaves the target bank only on the AI owner's game, in a fight, at HP 0
+    CHECK(DeadPlayerOutOfBank(true, true, true, 0));
+    CHECK(!DeadPlayerOutOfBank(true, true, true, 1));
+    CHECK(!DeadPlayerOutOfBank(true, false, true, 0));
+    CHECK(!DeadPlayerOutOfBank(true, true, false, 0));
+    CHECK(!DeadPlayerOutOfBank(false, true, true, 0));
+
+    // bank vector edits: remove shifts the rest down; insert at the end, once, within capacity
+    int bank[5] = {11, 22, 33, 44, 0};
+    CHECK(BankRemove(bank, bank + 4, 22));
+    CHECK(bank[0] == 11 && bank[1] == 33 && bank[2] == 44);
+    CHECK(!BankRemove(bank, bank + 3, 99));
+    CHECK(BankRemove(bank, bank + 3, 44));  // the last one
+    CHECK(bank[0] == 11 && bank[1] == 33);
+    CHECK(BankInsert(bank, bank + 2, bank + 5, 22));
+    CHECK(bank[2] == 22);
+    CHECK(!BankInsert(bank, bank + 3, bank + 5, 33));  // already there
+    CHECK(!BankInsert(bank, bank + 5, bank + 5, 77));  // full
+
+    // attention sharing: alternate between the living players in reach every `hold` seconds
+    {
+        const float d2[] = {4.0f, 400.0f, 9.0f};  // 2 m, 20 m, 3 m from the boss
+        const double last[] = {5.0, 0.0, 0.0};
+        CHECK(PickAttention(d2, last, 3, 30.0f, -1, 0, 10.0, 8.0) == 2);   // never targeted: the nearer of them
+        CHECK(PickAttention(d2, last, 3, 10.0f, -1, 0, 10.0, 8.0) == 2);   // the 20 m one is out of reach
+        CHECK(PickAttention(d2, last, 3, 30.0f, 1, 9.0, 10.0, 8.0) == -1); // handed 1 s ago: hold
+        const double last2[] = {5.0, 10.0, 0.0};
+        CHECK(PickAttention(d2, last2, 3, 30.0f, 1, 10.0, 19.0, 8.0) == 2);
+        const double last3[] = {5.0, 10.0, 19.0};
+        CHECK(PickAttention(d2, last3, 3, 30.0f, 2, 19.0, 28.0, 8.0) == 0);
+        const float one[] = {4.0f, -1.0f, 9999.0f};  // one living in reach: the game decides
+        CHECK(PickAttention(one, last, 3, 30.0f, -1, 0, 10.0, 8.0) == -1);
+        const double last4[] = {0.0, 0.0};
+        const float dead_cur[] = {-1.0f, 4.0f};
+        CHECK(PickAttention(dead_cur, last4, 2, 30.0f, 0, 5.0, 6.0, 8.0) == -1);
+    }
+
     if (g_fail) {
         std::printf("%d failure(s)\n", g_fail);
         return 1;

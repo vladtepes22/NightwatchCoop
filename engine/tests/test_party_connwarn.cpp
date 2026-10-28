@@ -97,6 +97,11 @@ static void test_firewall_notice() {
     blk.state = FwState::Blocked;
     Tracker t2;
     assert(t2.FirewallVerdict(blk, 9400, 0).find("blocks your party") != std::string::npos);
+    const std::string bt = FirewallText(FwState::Blocked, 9400), mt = FirewallText(FwState::Missing, 9400);
+    assert(bt.find("wf.msc") != std::string::npos && bt.find("block icon") != std::string::npos && bt.find("9400") != std::string::npos);
+    assert(bt.find("Fix firewall issues") != std::string::npos);
+    assert(bt != mt && mt.find("wf.msc") == std::string::npos);
+    assert(mt.find("Allow an app through firewall") != std::string::npos);
 }
 
 static void test_no_guests() {

@@ -39,6 +39,7 @@
 #include "party_split_notice.h"
 #include "party_kidnap_rules.h"
 #include "party_bossfog_rules.h"
+#include "party_enemyai_rules.h"
 #include "party_hud.h"
 #include "party_status.h"
 #include "party_guestvals_rules.h"
@@ -6609,6 +6610,181 @@ void LimboBossTargetTick(double now) {
     }
 }
 
+/// Host (the boss AI's owner), main thread, twice a second: while a boss bar is up and two or more
+/// living players (the host's own chr and the members' copies) are within reach of the boss, the boss
+/// is handed each of them in turn as a forced target (the event ChangeTarget path 0x1299CD0, as the
+/// limbo retarget does) every kAttentionHold seconds, the one targeted longest ago first
+/// (enemyai_rules::PickAttention). The game's own search keeps the nearest / first player, so a guest
+/// fighting a few metres further was ignored (player report: "bosses only target the host").
+/// party_boss_share (System > My party: Bosses, launcher, BB_PARTY_BOSS_SHARE=0 off).
+void BossAttentionTick(const GameSnapshot& s, double now) {
+    static double next = 0;
+    if (now < next) return;
+    next = now + 0.5;
+    struct State {
+        u32 handle = 0;
+        int current = -1;
+        double since = 0;
+        std::map<u32, double> last;  // player chr handle -> when it was last handed the target
+    };
+    static std::map<u32, State> st;  // by boss handle
+    static bool fighting = false;
+    const bool on = BbSettings::Get().party_boss_share.load() && Role() == RoleHost && s.world_up && !s.loading;
+    const u64 hud = on ? Slot(0x5562878) : 0;
+    if (!hud) {
+        if (fighting) st.clear();
+        fighting = false;
+        return;
+    }
+    std::vector<u64> players;
+    if (s.player) players.push_back(s.player);
+    for (const TaskInfo& t : Tasks(false)) {
+        const u64 c = (t.mode == 1 || t.mode == 2) ? PlayerForPeer(t.task + kTaskPeer) : 0;
+        if (c) players.push_back(c);
+    }
+    bool any = false;
+    for (int i = 0; i < 3; ++i) {
+        const u32 h = Field<u32>(hud, 0x165c + u64(i) * 0x14, ~0u);
+        const u64 boss = h == ~0u ? 0 : ChrOfHandle(h);
+        if (!boss || ChrHp(boss) <= 0) continue;
+        any = true;
+        float bp[3] = {};
+        if (!ChrPos(boss, bp)) continue;
+        State& e = st[h];
+        std::vector<float> d2(players.size(), -1.0f);
+        std::vector<double> last(players.size(), 0.0);
+        int cur = -1;
+        for (size_t k = 0; k < players.size(); ++k) {
+            float cp[3] = {};
+            const u32 ph = Field<u32>(players[k], 8);
+            if (ChrHp(players[k]) > 0 && ChrPos(players[k], cp))
+                d2[k] = (cp[0] - bp[0]) * (cp[0] - bp[0]) + (cp[1] - bp[1]) * (cp[1] - bp[1]) + (cp[2] - bp[2]) * (cp[2] - bp[2]);
+            const auto it = e.last.find(ph);
+            if (it != e.last.end()) last[k] = it->second;
+            if (ph == e.handle) cur = int(k);
+        }
+        const int pick = enemyai_rules::PickAttention(d2.data(), last.data(), int(players.size()), 30.0f, cur, e.since, now, 8.0);
+        if (pick < 0) continue;
+        const bool ok = reinterpret_cast<bool(BB_COOP_SYSV*)(u64, u64)>(Guest(0x1299cd0))(boss, players[size_t(pick)]);
+        const u32 ph = Field<u32>(players[size_t(pick)], 8);
+        e.handle = ph;
+        e.since = now;
+        e.last[ph] = now;
+        Log("boss attention: boss %08x turns to player chr %08x (%.1f m, ChangeTarget %s)", h, ph,
+            double(std::sqrt(d2[size_t(pick)])), ok ? "ok" : "refused: no AI");
+    }
+    if (!any) st.clear();
+    fighting = any;
+}
+
+/// Host (the AI owner of its world), main thread, every frame: a player chr at HP 0 in a boss fight
+/// or in the host's limbo leaves the enemies' target bank (SprjTargetBankManager *0x553B098: begin
+/// +0x8, end +0x10, capacity +0x18; the chr's entry at chr +0x3B0 -> +0x40 -> +0x8, as the teardown
+/// 0x18BC110 removes it) and goes back when it gets up, the fight ends or the session does. The
+/// target search 0x12ADC50 has no HP check: the boss kept a dead player (the spectating host's
+/// carried chr 0.2 m from the followed member, a dead guest's copy at its death spot) as its
+/// nearest target and idled over it while the living fought on. BB_PARTY_DEAD_UNTARGET=0 off (A/B).
+struct UntargetedChr {
+    u64 chr = 0, entry = 0;
+    u32 handle = ~0u;
+    size_t size_before = 0;  // the bank's size when it was taken out: room for it is still allocated
+    double next_check = 0;
+    bool readded_logged = false;
+};
+std::vector<UntargetedChr> g_untargeted;  // main thread only
+
+void DeadPlayerUntargetTick(const GameSnapshot& s, double now) {
+    static const bool on = !(std::getenv("BB_PARTY_DEAD_UNTARGET") && std::getenv("BB_PARTY_DEAD_UNTARGET")[0] == '0');
+    const u64 bank = Slot(0x553b098);
+    const bool up = s.world_up && !s.loading && bank;
+    const bool fight = up && (g_host_limbo.load() || BossFightActive());
+    // The player chrs now: the local one and every member's copy.
+    std::vector<u64> players;
+    if (up && s.player) players.push_back(s.player);
+    for (const TaskInfo& t : (up ? Tasks(false) : std::vector<TaskInfo>{})) {
+        const u64 c = (t.mode == 1 || t.mode == 2) ? PlayerForPeer(t.task + kTaskPeer) : 0;
+        if (c) players.push_back(c);
+    }
+    const auto entry_of = [](u64 chr) { return Field<u64>(Field<u64>(Field<u64>(chr, 0x3b0), 0x40), 8); };
+    // The bank vector [begin, end) now; take_out removes one entry as the chr teardown does.
+    const auto read_bank = [bank](std::vector<u64>& v) {
+        const u64 b = Field<u64>(bank, 8), e = Field<u64>(bank, 0x10);
+        const size_t n = b && e >= b ? size_t((e - b) / 8) : 0;
+        v.assign(n, 0);
+        return n <= 4096 && (n == 0 || SafeRead(b, v.data(), n * 8));
+    };
+    const auto in_bank = [&](u64 ent) {
+        std::vector<u64> v;
+        return read_bank(v) && std::find(v.begin(), v.end(), ent) != v.end();
+    };
+    const auto take_out = [&](u64 ent) -> size_t {
+        std::vector<u64> v;
+        if (!ent || !read_bank(v) || v.empty() || !enemyai_rules::BankRemove(v.data(), v.data() + v.size(), ent)) return 0;
+        const u64 b = Field<u64>(bank, 8);
+        SafeWrite(b, v.data(), (v.size() - 1) * 8);
+        const u64 e = b + (v.size() - 1) * 8;
+        SafeWrite(bank + 0x10, &e, 8);
+        return v.size();
+    };
+    // Back in: got up, the fight is over, or not the owner any more. A chr that is gone (a load, a
+    // member left) took its entry with it: forgotten, never put back.
+    for (auto it = g_untargeted.begin(); it != g_untargeted.end();) {
+        const bool live = std::find(players.begin(), players.end(), it->chr) != players.end() && entry_of(it->chr) == it->entry;
+        const bool keep_out = live && enemyai_rules::DeadPlayerOutOfBank(on, Role() == RoleHost, fight, ChrHp(it->chr));
+        if (keep_out) {
+            // Does the game put it back by itself (its own registration)? Then take it out again.
+            if (now >= it->next_check) {
+                it->next_check = now + 1.0;
+                if (in_bank(it->entry)) {
+                    if (!it->readded_logged) {
+                        it->readded_logged = true;
+                        Log("dead untarget: chr %08x was put back into the bank by the game: taken out again", it->handle);
+                    }
+                    take_out(it->entry);
+                }
+            }
+            ++it;
+            continue;
+        }
+        if (live && up) {
+            u64 b = Field<u64>(bank, 8), e = Field<u64>(bank, 0x10), cap = Field<u64>(bank, 0x18);
+            const size_t n = b && e >= b ? size_t((e - b) / 8) : 0;
+            // Room: the size it had (a vector never shrinks its storage), or the capacity word when
+            // the bank grew meanwhile and the word is plausible.
+            const size_t room = std::max(it->size_before, cap >= e && cap - b <= 4096 * 8 ? size_t((cap - b) / 8) : 0);
+            std::vector<u64> v(std::max(n, room) + 1, 0);
+            bool ok = n <= 4096 && room <= 4096 && (n == 0 || SafeRead(b, v.data(), n * 8));
+            ok = ok && enemyai_rules::BankInsert(v.data(), v.data() + n, v.data() + room, it->entry);
+            if (ok) {
+                SafeWrite(b + n * 8, &it->entry, 8);
+                e += 8;
+                SafeWrite(bank + 0x10, &e, 8);
+            }
+            const bool there = !ok && in_bank(it->entry);
+            Log("dead untarget: chr %08x (hp %d) back in the enemies' target bank%s", it->handle, ChrHp(it->chr),
+                ok ? "" : there ? " (the game had put it back already)" : " (no room: left to the game)");
+        } else {
+            Log("dead untarget: chr %08x gone (%s): its entry is not put back", it->handle, up ? "left" : "a load");
+        }
+        it = g_untargeted.erase(it);
+    }
+    if (!fight) return;
+    for (const u64 c : players) {
+        if (!enemyai_rules::DeadPlayerOutOfBank(on, Role() == RoleHost, fight, ChrHp(c))) continue;
+        if (std::any_of(g_untargeted.begin(), g_untargeted.end(), [c](const UntargetedChr& u) { return u.chr == c; })) continue;
+        const u64 ent = entry_of(c);
+        const u64 b = Field<u64>(bank, 8);
+        const size_t n = take_out(ent);
+        if (n == 0) continue;
+        g_untargeted.push_back({c, ent, Field<u32>(c, 8), n, now + 1.0, false});
+        Log("dead untarget: chr %08x (%s, hp %d) out of the enemies' target bank (%zu -> %zu entries, capacity word "
+            "%lld)%s",
+            Field<u32>(c, 8), c == s.player ? "this player" : "a member's copy", ChrHp(c), n, n - 1,
+            (long long)((Field<u64>(bank, 0x18) - b) / 8),
+            g_host_limbo.load() ? " in the host's limbo" : " in a boss fight");
+    }
+}
+
 /// Main thread, host: the alive snapshot, the taken death's revive (or a wipe's vanilla funnel)
 /// and a 10 s watch of the revived chr.
 void HostDownTick(const GameSnapshot& s, double now) {
@@ -9720,7 +9896,8 @@ void TitleJoinHostTick(const GameSnapshot& s) {
         // A Chalice Dungeon: a title join loads the joiner's own slot's dungeon (no quick join), so
         // only a joiner whose slot holds this dungeon comes in that way; the others continue into
         // their own world and the summon brings them in (an empty m29 otherwise).
-        const std::uint64_t host_channel = Field<u64>(Field<u64>(Guest(0x553b120), 0, 0), 0xa88, dsummon::kNoChannel);
+        const std::uint64_t host_channel =
+            chalice::BoardChannelFor(Field<u64>(Field<u64>(Guest(0x553b120), 0, 0), 0xa88, dsummon::kNoChannel));
         std::vector<int> into_chalice;
         if (busy == dsummon::Busy::None) {
             std::lock_guard<std::mutex> lk(TJ().mu);
@@ -10073,7 +10250,8 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
         // guest's game quick-joins (chalice.md 4). Right after the host's arrival it is still 0 (live:
         // ~1.5 s), and the summoned game fetches the dungeon from the board: until both are there,
         // the guest asks again (a room without it loaded the guest into an empty m29 and it fell).
-        const std::uint64_t host_channel = Field<u64>(Field<u64>(Guest(kNetMan), 0, 0), 0xa88, dsummon::kNoChannel);
+        const std::uint64_t host_channel =
+            chalice::BoardChannelFor(Field<u64>(Field<u64>(Guest(kNetMan), 0, 0), 0xa88, dsummon::kNoChannel));
         v.chalice_unready = dsummon::ChaliceMap(s.map_id) &&
                             (!dsummon::ChannelSet(host_channel) ||
                              !bbnet::party::FromApi::instance().channels().known(host_channel));
@@ -11865,6 +12043,8 @@ void Tick(const GameSnapshot& s) {
     HeldDeathTick(s, now);
     LampSpotTick(s);
     HostDownTick(s, now);
+    DeadPlayerUntargetTick(s, now);
+    BossAttentionTick(s, now);
     HostRevivedTick(s);
     JoinBesideTick(s, Now());
     CarryArrivalTick(s, Now());

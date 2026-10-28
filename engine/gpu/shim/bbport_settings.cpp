@@ -53,6 +53,7 @@ const PartySwitch PartySwitches[] = {
     {"party_covenant_per_player", "BB_PARTY_COVENANT_PER_PLAYER", &Values::party_covenant_per_player, false},
     // 0.7.3: lamp travel voting (party_vote.h reads it live; the host's rule, off by default).
     {"party_travel_vote", "BB_PARTY_TRAVEL_VOTE", &Values::party_travel_vote, false},
+    {"party_boss_share", "BB_PARTY_BOSS_SHARE", &Values::party_boss_share, false},  // 0.7.7, bosstarget
     {"party_npc_fights", "BB_PARTY_NPC_FIGHTS", &Values::party_npc_fights, false},  // 0.7.3, D11
     {"party_skip_prologue", "BB_PARTY_SKIP_PROLOGUE", &Values::party_skip_prologue, false},  // 0.7.5
     {"party_any_kidnap", "BB_PARTY_ANY_KIDNAP", &Values::party_any_kidnap, false},  // 0.7.3, kidnapall

@@ -480,7 +480,9 @@ struct State {
     // Summons that cannot work (summon_endpoint_unusable, UdpReachTick): host: the members with no
     // usable UDP endpoint; guest: this game (no STUN-mapped endpoint, the host is remote).
     std::vector<std::string> unreachable;
+    std::vector<std::string> unreach_noted;  // the members the host last named as having no public endpoint
     bool self_unreachable = false;
+    bool self_noted = false;
     Clock::time_point reach_at{}, reach_said{};
 };
 
@@ -1866,9 +1868,12 @@ void TargetAnimTick(Test& t, Clock::time_point now) {
         const std::uint64_t player = LocalPlayer();
         if (now >= next_pos && player && balance::ChrPosition(player, me) && balance::ChrPosition(chr, at)) {
             next_pos = now + std::chrono::seconds(1);
-            Log("test: target pos: entity %u at (%.1f, %.1f, %.1f), %.1f m from this player", entity, double(at[0]),
-                double(at[1]), double(at[2]),
-                double(std::sqrt((at[0] - me[0]) * (at[0] - me[0]) + (at[2] - me[2]) * (at[2] - me[2]))));
+            std::uint64_t pins = 0, pdm = 0;
+            std::int32_t php = -1;
+            if (SafeGet(player + 0x3b0, &pins) && pins && SafeGet(pins + 0x20, &pdm) && pdm) SafeGet(pdm + 0xf8, &php);
+            Log("test: target pos: entity %u at (%.1f, %.1f, %.1f), %.1f m from this player (player HP %d)", entity,
+                double(at[0]), double(at[1]), double(at[2]),
+                double(std::sqrt((at[0] - me[0]) * (at[0] - me[0]) + (at[2] - me[2]) * (at[2] - me[2]))), php);
         }
     }
     SafeGet(cm + 0x20, &dm);
@@ -2992,6 +2997,19 @@ bool TestUnreachable() {
     return on;
 }
 
+// 0.7.7 (lanonly077): a game with no public UDP endpoint of its own is no longer refused. The host
+// records the address it observes the guest at (party_host_service record_locked: the link's public
+// IP and the port its datagrams reach our party port from) and both games punch there; the guest
+// finds the host's endpoint as always. BB_PARTY_UNREACHABLE_HOLD=1 restores the 0.7.6 hold (no bell,
+// no summon until a STUN answer), kept as a rollback and as the "before" of the smoke phase.
+bool UnreachableHold() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_PARTY_UNREACHABLE_HOLD");
+        return v && v[0] == '1';
+    }();
+    return on;
+}
+
 void UdpReachTick(State& st, PartyRole role, party::PartyLink* link, Clock::time_point now) {
     if (role == PartyRole::None || !link || Seconds(st.reach_at, now) < 1.0) {
         return;
@@ -3016,24 +3034,31 @@ void UdpReachTick(State& st, PartyRole role, party::PartyLink* link, Clock::time
                 continue;
             }
             names.push_back(e.name);
-            if (std::find(st.unreachable.begin(), st.unreachable.end(), e.name) == st.unreachable.end()) {
-                Log("summon: UDP to %s is blocked: its game has only the LAN address %s (no public UDP endpoint: "
-                    "the STUN on our party port gave it no answer); no bell or summon for it until it has one "
-                    "(it retries in the background)",
-                    e.name.c_str(), where.empty() ? "(test)" : where.c_str());
-                party::status::SetLastEvent("UDP to " + e.name +
-                                            " is blocked: their game has no public UDP address yet; no summon "
-                                            "until it has one (retrying)");
+            if (std::find(st.unreach_noted.begin(), st.unreach_noted.end(), e.name) == st.unreach_noted.end()) {
+                if (UnreachableHold()) {
+                    Log("summon: UDP to %s is blocked: its game has only the LAN address %s (no public UDP endpoint: "
+                        "the STUN on our party port gave it no answer); no bell or summon for it until it has one "
+                        "(it retries in the background)",
+                        e.name.c_str(), where.empty() ? "(test)" : where.c_str());
+                    party::status::SetLastEvent("UDP to " + e.name +
+                                                " is blocked: their game has no public UDP address yet; no summon "
+                                                "until it has one (retrying)");
+                } else {
+                    Log("summon: %s has no public UDP endpoint of its own (its game has only the LAN address %s; no STUN "
+                        "answer): summoning it at the address we hear it from (connect-back)",
+                        e.name.c_str(), where.empty() ? "(test)" : where.c_str());
+                }
             }
         }
-        for (const std::string& n : st.unreachable) {
+        for (const std::string& n : st.unreach_noted) {
             if (std::find(names.begin(), names.end(), n) == names.end()) {
-                Log("summon: UDP to %s works again (its public endpoint is known): summons resume", n.c_str());
-                party::status::SetLastEvent("UDP to " + n + " works again: summoning");
+                Log("summon: %s has a public UDP endpoint now (its STUN answered)", n.c_str());
+                if (UnreachableHold()) party::status::SetLastEvent("UDP to " + n + " works again: summoning");
                 st.rung_ever = false;
             }
         }
-        st.unreachable = std::move(names);
+        st.unreach_noted = names;
+        if (UnreachableHold()) st.unreachable = std::move(names);
         return;
     }
     std::string stun_host;
@@ -3044,6 +3069,16 @@ void UdpReachTick(State& st, PartyRole role, party::PartyLink* link, Clock::time
         (TestUnreachable() ||
          (!known && bbnet::party::summon_endpoint_unusable(bbnet::party::ip_parse(stun_host),
                                                            bbnet::party::ip_parse(bbnet::session::local_addr_text()), 0, 0)));
+    if (!UnreachableHold()) {
+        if (blocked != st.self_noted) {
+            st.self_noted = blocked;
+            if (blocked) {
+                Log("summon: this game has no public UDP endpoint (the host's party port gave no STUN answer); "
+                    "ringing anyway: the host summons us at the address it hears us from");
+            }
+        }
+        return;
+    }
     if (blocked != st.self_unreachable) {
         st.self_unreachable = blocked;
         st.reach_said = now;

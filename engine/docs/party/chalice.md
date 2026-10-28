@@ -632,3 +632,15 @@ dungeon is quick-joined or carried the game's reads of 92900000-92999999 (IsEven
 `BB_PARTY_CHALICE_CASEFLAGS=0` off). Details, the shop rows and the smoke (`chalice_shop`: csh, csh2): docs/party/items.md
 11.1. Open: a guest with its own dungeon got no talk prompt at the dungeon's Bath Messenger after a test warp (its region
 event flags 129072xx stay silent; the guest without a dungeon sets 12907224 there): not analysed, not seen in a player report.
+
+## 9. A game id the board cannot hold (chalicefollow2, 0.7.7)
+
+The board's JSON ids are doubles (exact below 2^53) and `dsummon::ChannelSet` treats a top bit as "none". A
+Nightwatch host's game numbers its own ritual dungeons with ids like `0x80e3...` (FrpgNetMan +0xa88 and the
+helper at +0xd8; the slot record's ChannelId reads "none"), so the host saw "no ChannelId on the party's
+board" and refused every direct summon (guest sent home after 6 s, then waiting forever). `party_chalice::Tick`
+now puts such a dungeon on the board under `ChannelBoard::IdOf(FormData of the slot's helper)`;
+`BoardChannelFor(real)` hands that alias to the summon room (party_b2) and the readiness check. The guest
+quick-joins the alias (its +0xa88 differs from the host's real id; direct summons do not need them equal).
+Not covered: the game's own sign/summon message (the sign path) still carries the real id. Test aid:
+`BB_CHALICE_ALIAS_TEST=1` on the host forces the alias for any id; smoke phase `cla` (group `chalice_alias`).

@@ -2735,6 +2735,36 @@ bool p2p_stun(const char* host, std::uint16_t sport, int timeout_ms, std::uint32
 
 bool p2p_relay(std::uint32_t* server, std::uint16_t* vport) { return g_relay.get(server, vport); }
 
+bool p2p_heard_port_for(std::uint32_t addr, std::uint16_t prefer_port_host, std::uint16_t* port_host) {
+    std::shared_ptr<P2pPort> port;
+    {
+        std::lock_guard<std::mutex> lock(g_net_mu);
+        port = p2p_port_open(settings().party_port);
+    }
+    if (!port) return false;
+    const auto now = Clock::now();
+    std::lock_guard<std::mutex> lk(port->mu);
+    bool found = false;
+    Clock::time_point best{};
+    std::uint16_t best_port = 0;
+    for (const auto& [key, at] : port->heard) {
+        if (static_cast<std::uint32_t>(key & 0xffffffffu) != addr) continue;
+        if (now - at > std::chrono::seconds(300)) continue;
+        const std::uint16_t p = bswap16(static_cast<std::uint16_t>(key >> 32));
+        if (p == prefer_port_host) {  // the port-preserving NAT: the LAN port is the public one
+            *port_host = p;
+            return true;
+        }
+        if (!found || at > best) {
+            found = true;
+            best = at;
+            best_port = p;
+        }
+    }
+    if (found) *port_host = best_port;
+    return found;
+}
+
 bool p2p_relay_vport_for(std::uint32_t addr, std::uint16_t port_host, std::uint16_t* vport) {
     return g_relay_server.vport_for(addr, port_host, vport);
 }

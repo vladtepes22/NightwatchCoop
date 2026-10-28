@@ -224,6 +224,18 @@ struct PartyHostService::Impl {
             if (r.relay_port) ep.relay_port = r.relay_port;
             link = c->second.link_addr;
         }
+        // A remote member with only a private LAN address and no STUN answer (its game finds no public
+        // UDP endpoint of its own): peers use the address the host observes it at - its link's public
+        // IP and the port its datagrams reach our party port from - instead of the unreachable LAN
+        // address. Connect-back to the observed source; it works when the guest's NAT keeps or
+        // opens that port towards us (the guest initiates; see docs/party/network_robustness.md).
+        if (online_id != host_online && link &&
+            summon_endpoint_unusable(link, ip_parse(ep.local_addr), ip_parse(ep.mapped_addr), ep.mapped_port)) {
+            std::uint16_t heard = 0;
+            const bool seen = p2p_heard_port_for(link, static_cast<std::uint16_t>(ep.local_port), &heard);
+            ep.mapped_addr = ip_text(link);
+            ep.mapped_port = seen ? heard : ep.local_port;
+        }
         if (online_id == host_online && !host_addr.empty() && ep.mapped_addr.empty()) {
             ep.mapped_addr = host_addr;
             ep.mapped_port = host_port;

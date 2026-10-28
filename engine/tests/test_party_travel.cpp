@@ -384,6 +384,10 @@ static void test_chalice_state() {
     CHECK(InDungeonSlotBits(0x20, 9) == 0x20);
     CHECK(ChannelFromDwords(0, 0x80000000u) == 0);  // the game's "never uploaded"
     CHECK(ChannelFromDwords(0x12345678u, 0x9u) == 0x912345678ull);
+    // chalicefollow2: a game id the board's JSON doubles cannot hold rides under an alias
+    CHECK(BoardChannel(0xd41e02ae5afafull) && BoardChannel(1) && !BoardChannel(0));
+    CHECK(!BoardChannel(0x80e31eac98aca1eeull) && !BoardChannel(1ull << 53) && BoardChannel((1ull << 53) - 1));
+    CHECK(NoChannel(0) && NoChannel(0x8000000000000000ull) && !NoChannel(0x80e31eac98aca1eeull));
     CHECK(IsChaliceGoods(6109) && IsChaliceGoods(6539) && !IsChaliceGoods(7000) && !IsChaliceGoods(200));
     std::vector<std::uint32_t> ids;
     CHECK(GoodsFromJsonText(GoodsToJsonText({6109, 6209}), &ids) && ids == (std::vector<std::uint32_t>{6109, 6209}));

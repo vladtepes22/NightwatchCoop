@@ -77,6 +77,8 @@ constexpr std::uint64_t kEventFlagManSlot = 0x553b100;
 constexpr std::uint64_t kLoadModeOff = 0x80;
 
 std::atomic<std::uint64_t> g_local{0};
+std::atomic<std::uint64_t> g_alias_real{0};   // the host's game ChannelId the board cannot hold ...
+std::atomic<std::uint64_t> g_alias_board{0};  // ... and the id the board has the dungeon under
 std::mutex g_mu;
 std::vector<std::uint32_t> g_host_goods, g_host_pending, g_guest_goods;
 bool g_host_dirty = false, g_guest_dirty = false;
@@ -674,6 +676,8 @@ std::vector<std::uint8_t> SlotFormData(int slot) {
     return out;
 }
 
+std::uint64_t RawNetChannel();
+
 State Read() {
     State s;
     std::uint64_t man = 0;
@@ -783,6 +787,43 @@ void Tick(bool host) {
                 }
                 sent_for = s.channel;
                 sent_at = now;
+            }
+        }
+    }
+    if (host && s.load_mode == 0 && s.slot >= 0 && (g.map_id >> 24) == 29) {
+        // The game's own id for this dungeon is one the board cannot hold (Nightwatch's uploads:
+        // 0x80e3...; the slot record then reads "none" too), so no summon could carry it and the host
+        // refused every guest ("no ChannelId on the board"). The dungeon goes on the board under an id
+        // made of its FormData (the helper's layout) and the summon carries that.
+        const std::uint64_t real = RawNetChannel();
+        const bool force = std::getenv("BB_CHALICE_ALIAS_TEST") != nullptr;
+        if (!NoChannel(real) && (!BoardChannel(real) || force) && g_alias_real.load() != real) {
+            const std::vector<std::uint8_t> fd = SlotFormData(s.slot);
+            if (!fd.empty()) {
+                const std::string b64 = bbnet::party::b64_encode(fd.data(), fd.size());
+                bbnet::party::ChannelBoard& board = bbnet::party::FromApi::instance().channels();
+                const std::uint64_t alias = bbnet::party::ChannelBoard::IdOf(b64);
+                std::string name;
+                {
+                    std::lock_guard<std::mutex> lk(g_mu);
+                    name = g_host_name;
+                }
+                if (board.known(alias) || board.adopt(alias, b64, name.empty() ? "host" : name)) {
+                    g_alias_board.store(alias);
+                    g_alias_real.store(real);
+                    std::printf("[coop] Party: chalice: the game's dungeon id 0x%llx cannot ride the board: summons carry %llu "
+                                "(slot %d's FormData, %zu bytes)\n",
+                                static_cast<unsigned long long>(real), static_cast<unsigned long long>(alias), s.slot, fd.size());
+                    std::fflush(stdout);
+                }
+            } else {
+                static double warned = -100;
+                if (now - warned > 30.0) {
+                    warned = now;
+                    std::printf("[coop] Party: chalice: the game's dungeon id 0x%llx cannot ride the board and slot %d has no FormData yet\n",
+                                static_cast<unsigned long long>(real), s.slot);
+                    std::fflush(stdout);
+                }
             }
         }
     }
@@ -967,6 +1008,19 @@ void OnGuestForm(int slot, const std::string& member, const std::string& body) {
 
 std::uint64_t LocalChannel() {
     return g_local.load();
+}
+
+std::uint64_t RawNetChannel() {
+    std::uint64_t net = 0, ch = 0;
+    const std::uint64_t at = Guest(0x553b120);
+    return at && SafeGet(at, &net) && net && SafeGet(net + 0xa88, &ch) ? ch : 0;
+}
+
+std::uint64_t BoardChannelFor(std::uint64_t real) {
+    if (NoChannel(real)) return 0x8000000000000000ull;
+    if (g_alias_real.load() == real && g_alias_board.load() != 0) return g_alias_board.load();
+    if (BoardChannel(real) && !std::getenv("BB_CHALICE_ALIAS_TEST")) return real;
+    return 0x8000000000000000ull;  // the alias is not made yet: the summon waits
 }
 
 std::uint64_t CurrentDungeon() {

@@ -42,6 +42,65 @@ DEFAULT_GAME = Path(os.environ.get("BB_GAME_DIR", r"E:\games\bloodborne"))
 BASE_PORT = 47600  # default root; see base_port()
 
 
+FG_SUFFIXES = {"fg": "fsr", "fgfsr": "fsr", "fgdlss": "dlss"}  # a rate's frame-generation suffix -> fg_backend
+
+
+def split_fg(token):
+    """'60fg' -> ('60', 'fsr'), '120fgdlss' -> ('120', 'dlss'), '60' -> ('60', None): one per-instance entry of
+    --fps, its frame cap and the frame generation it runs (2x; FSR when the suffix names no backend)."""
+    t = str(token).strip().lower()
+    for suf in sorted(FG_SUFFIXES, key=len, reverse=True):
+        if t.endswith(suf) and t != suf:
+            return t[:-len(suf)], FG_SUFFIXES[suf]
+    return str(token).strip(), None
+
+
+def parse_fps(spec, count):
+    """--fps / BB_MP_FPS: 'N' (every instance) or 'A/B/C' (per instance, the last value repeats) -> one BB_FPS
+    string per instance (N a positive number, or 'uncap'). Each value may end in a frame-generation suffix
+    (`fg` = FSR 2x, `fgdlss` = DLSS 2x: 60fg, 60fg/30, uncapfg; see parse_fg); BB_FPS is the rendered rate."""
+    parts = [split_fg(x)[0] for x in str(spec).split("/")]
+    for x in parts:
+        if x.lower() != "uncap":
+            try:
+                ok = float(x) > 0
+            except ValueError:
+                ok = False
+            if not ok:
+                raise ValueError("bad frame rate %r in --fps %r (a number, uncap, or A/B/C per instance; "
+                                 "a fg / fgdlss suffix for frame generation)" % (x, spec))
+    parts = [x.lower() if x.lower() == "uncap" else x for x in parts]
+    return [parts[min(i, len(parts) - 1)] for i in range(count)]
+
+
+def parse_fg(spec, count):
+    """The frame generation of each instance in an --fps spec (the last value repeats, like parse_fps):
+    None (off) or the fg_backend ('fsr' / 'dlss') it runs at 2x. '60fg/30' -> ['fsr', None, None]."""
+    parse_fps(spec, count)  # the same validation
+    parts = [split_fg(x)[1] for x in str(spec).split("/")]
+    return [parts[min(i, len(parts) - 1)] for i in range(count)]
+
+
+PRESETS = ("30", "60", "90", "uncap")  # BB_FPS values the game's patch presets know
+
+
+def fps_env(fps, fg, headless=False):
+    """The environment one instance gets for its --fps entry: its cap, its frame generation (forced off
+    without a suffix, so a bbport.ini left by an earlier run cannot turn it on), and the game's own rate
+    lines (BB_FRAME_RATE_LOG: steps per s; BB_FG_TIMING: rendered / presented per s), the proof a sweep
+    reads back (smoke_party.measured_rates). A headless instance presents nothing: no frame generation."""
+    env = {"BB_FPS": fps, "BB_FRAME_GENERATION": "off"}
+    if fps not in PRESETS:
+        # The game's patch presets are 30 / 60 / 90 / uncap (patches.py --fps); any other rate is the
+        # uncapped preset with the launcher's frame rate limit, as a player sets 120 or 144
+        env.update({"BB_FPS": "uncap", "BB_FPS_LIMIT": fps})
+    if os.environ.get("BB_FRAME_RATE_LOG") is None:
+        env["BB_FRAME_RATE_LOG"] = "10"
+    if fg and not headless:
+        env.update({"BB_FRAME_GENERATION": "2x", "BB_FG_BACKEND": fg, "BB_FG_TIMING": "1"})
+    return env
+
+
 def base_port(root) -> int:
     """Each harness root gets its own port range, so agents' parallel runs (tools/agent/agent_env.py
     gives each its own root) never collide: BB_MP_BASE_PORT, else 47600 for the default root, else
@@ -491,12 +550,17 @@ def run(a):
         order = [int(x) for x in a.start_order.split(",") if x.strip()]
         if sorted(order) != list(range(a.count)):
             sys.exit("--start-order must name every instance 0..%d once" % (a.count - 1))
+    inst_fps = parse_fps(a.fps, a.count)
+    inst_fg = parse_fg(a.fps, a.count)
+    print("[instances] frame rate per instance (BB_FPS): %s" % ", ".join(
+        "inst%d=%s%s" % (i, f, " + %s FG 2x" % g.upper() if g else "") for i, (f, g) in enumerate(zip(inst_fps, inst_fg))),
+          flush=True)
     for n_started, i in enumerate(order):
         inst = Path(a.root) / f"inst{i}"
         env = os.environ.copy()
         env.update({
             "BB_GAME_DIR": str(a.game), "BB_FROM_LAUNCHER": "1", "BB_NO_LAUNCHER_SETTINGS": "1",
-            "BB_FULLSCREEN": "0", "BB_FPS": str(a.fps), "BB_TIMEOUT": str(a.seconds), "BB_VRAM_LIMIT_MB": str(a.vram),
+            "BB_FULLSCREEN": "0", "BB_TIMEOUT": str(a.seconds), "BB_VRAM_LIMIT_MB": str(a.vram),
             "BB_SHADER_PRECOMPILE": "1", "BB_MUTE_UNFOCUSED": "1", "BB_WINDOW_BACKGROUND": "1",
             "BB_AUDIO": "none",  # test games are silent (timer audio backend, also less CPU)
             "BB_DLSS": "0",  # no DLSS probe or library in test games (upscaler is off anyway)
@@ -513,6 +577,7 @@ def run(a):
             **({"BB_WINDOW_X": str(r[0]), "BB_WINDOW_Y": str(r[1]), "BB_WINDOW_W": str(r[2]), "BB_WINDOW_H": str(r[3])}
                if (r := tile_rect(getattr(a, "slots", list(range(a.count)))[i])) else {}),
         })
+        env.update(fps_env(inst_fps[i], inst_fg[i], i >= a.count - getattr(a, "headless", 0)))
         if a.party:
             party_saves_from(inst / "user", getattr(a, "fresh_saves", False))
             env.update({
@@ -982,7 +1047,10 @@ def main():
     ap.add_argument("--headless", type=int, default=0,
                     help="run: the last N instances headless-lite (BB_HEADLESS=1: minimised, no draws, no present)")
     ap.add_argument("--fps", default=os.environ.get("BB_MP_FPS", "30"),
-                    help="frame cap of the test instances (30, 60, 90, uncap: the game patch presets)")
+                    help="frame cap of the test instances (30, 60, 90, uncap: the game patch presets); one value for "
+                         "all, or a per-instance list '60/30' (instance 0 at 60, the rest at 30), '60/30/90' "
+                         "(the last value repeats); a fg suffix runs FSR frame generation 2x on that instance (60fg, 60fg/30, "
+                         "uncapfg; fgdlss: DLSS), BB_FPS then being the rendered rate")
     ap.add_argument("--stagger", type=float, default=float(os.environ.get("BB_MP_STAGGER", "2")),
                     help="run: s between instance starts (guests wait for the host's party code file anyway)")
     ap.add_argument("--party", action="store_true", help="instance 0 hosts a loopback party, the others join")

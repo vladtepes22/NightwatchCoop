@@ -1149,6 +1149,14 @@ void DefineAll() {
     scale_row(&Values::party_boss_poise, kPoiseTable, "Boss poise", "Стойкость боссов", 2);
     scale_row(&Values::party_enemy_poise, kPoiseTable, "Enemy poise", "Стойкость врагов", 5);
 
+    // ---- My party: Bosses (0.7.7, bosstarget): a boss turns on every player in reach in turn. The
+    // switch acts on the host's game (the boss AI's owner); a guest's value is unused. ----
+    AddPage("My party: Bosses", "Моя группа: боссы",
+            "Host's rule: bosses turn on every hunter in reach in turn, not only on one (bbport)",
+            "Правило хоста: боссы поочерёдно атакуют каждого охотника поблизости (bbport)");
+    own(&Values::party_boss_share, "Bosses share attention", "Боссы делят внимание",
+        "A boss in a party fight turns on each hunter in reach in turn instead of keeping to one. Party rule (host)",
+        "Босс в бою группы поочерёдно атакует каждого охотника поблизости. Правило группы (хост)");
 
     // ---- Party rules: Phantoms (0.7.5, levelsync, party_levelsync_rules.h): what a hunter keeps of its
     // stats when it joins a party. Both ON = Bloodborne's own co-op. ----

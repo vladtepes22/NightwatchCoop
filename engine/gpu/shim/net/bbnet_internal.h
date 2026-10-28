@@ -119,6 +119,10 @@ std::string p2p_paths_status();
 // Host side: the relay port the host's relay gave the client seen at addr (network order) :
 // port_host (host order), from its STUN HELLO; false when that address never asked for one.
 bool p2p_relay_vport_for(std::uint32_t addr, std::uint16_t port_host, std::uint16_t* vport);
+// Host side: the port (host order) a datagram from `addr` (network order) last reached the party
+// port from (STUN request, punch probe, game traffic; within 5 min). `prefer_port_host` wins when
+// heard. For a guest with no public endpoint of its own: its observed one.
+bool p2p_heard_port_for(std::uint32_t addr, std::uint16_t prefer_port_host, std::uint16_t* port_host);
 // Host side: which source addresses (network order) the party port answers STUN for and gives
 // relay ports to (the party runtime: its PartyLink members). Unset: everyone.
 void p2p_set_relay_admit(std::function<bool(std::uint32_t addr)> admit);

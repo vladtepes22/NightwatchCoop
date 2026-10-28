@@ -135,7 +135,11 @@ FwReport QueryFirewall(const std::string& exe, int port) {
 // ---- texts ----
 std::string FirewallText(FwState s, int port) {
     const std::string p = std::to_string(port);
-    const char* why = s == FwState::Blocked ? "Windows Firewall blocks your party" : "Windows Firewall may block your party";
+    if (s == FwState::Blocked)
+        return "Windows Firewall blocks your party\nA firewall rule blocks the game (the Windows prompt was cancelled once): "
+               "press Fix firewall issues in the launcher, or open wf.msc > Inbound Rules, delete the game's entries with "
+               "the red block icon, then allow the game (Private and Public, UDP and TCP " + p + ").";
+    const char* why = "Windows Firewall may block your party";
     return std::string(why) +
            "\nGuests cannot join until the game is allowed. In the launcher, open the Co-op tab and press Fix firewall "
            "issues (it opens UDP and TCP " + p + " and removes rules that block the game).";

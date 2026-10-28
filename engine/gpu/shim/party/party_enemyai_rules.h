@@ -58,4 +58,59 @@ inline int PickLimboTarget(const float* d2, int n) {
     return best;
 }
 
+/// The enemies' target search (SprjTargetBankManager *0x553B098, a vector of every chr's target
+/// entry, read by 0x12ADC50) has no HP check, and a party member's dead chr stays in it: the host's
+/// own chr lies dead in its boss-fight limbo (and, spectating, is carried onto the followed member's
+/// spot, 0.2 m from it), a dead guest's copy stays at its death spot. The boss then picks a dead
+/// player as its nearest target and idles over it. On the AI owner's game a player chr at HP 0 in a
+/// boss fight (or the host's limbo) leaves the bank until it gets up or the fight ends.
+inline bool DeadPlayerOutOfBank(bool enabled, bool ai_owner, bool fight_or_limbo, int hp) {
+    return enabled && ai_owner && fight_or_limbo && hp <= 0;
+}
+
+/// The bank vector edits (as the chr teardown 0x18BC110 does them): remove `x` from [b, e), shifting
+/// the rest down; returns true when it was there (the caller stores e - 1).
+template <class T>
+inline bool BankRemove(T* b, T* e, T x) {
+    for (T* p = b; p != e; ++p) {
+        if (*p == x) {
+            for (T* q = p; q + 1 != e; ++q) *q = q[1];
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Put `x` back at the end of [b, e) (capacity `cap`): false when it is already there (a load built a
+/// new entry) or there is no room (the vector grew meanwhile: the game's own allocator owns that).
+template <class T>
+inline bool BankInsert(T* b, T* e, T* cap, T x) {
+    for (T* p = b; p != e; ++p) {
+        if (*p == x) return false;
+    }
+    if (e >= cap) return false;
+    *e = x;
+    return true;
+}
+
+/// Boss attention sharing (0.7.7): the boss's own target search keeps the player it first took (or the
+/// nearest one), so a guest who fights from a few metres more than the host is ignored. On the AI
+/// owner's game, in a boss fight with two or more living players within `reach` of the boss, the
+/// target is handed on every `hold` seconds to the one who was the target longest ago (never targeted
+/// = oldest). `d2` squared distances to the boss (negative: dead / unreadable), `last` the time each
+/// was last handed the target (0 = never), `current` the index handed it last (-1 none), `since` the
+/// time it was handed. Returns the index to hand the target now, -1 for no change.
+inline int PickAttention(const float* d2, const double* last, int n, float reach, int current, double since,
+                         double now, double hold) {
+    int live = 0, best = -1;
+    for (int i = 0; i < n; ++i) {
+        if (d2[i] < 0 || d2[i] > reach * reach) continue;
+        ++live;
+        if (best < 0 || last[i] < last[best] || (last[i] == last[best] && d2[i] < d2[best])) best = i;
+    }
+    if (live < 2) return -1;
+    if (current >= 0 && current < n && d2[current] >= 0 && d2[current] <= reach * reach && now - since < hold) return -1;
+    return best == current ? -1 : best;
+}
+
 }  // namespace enemyai_rules

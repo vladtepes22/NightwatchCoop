@@ -63,6 +63,13 @@ constexpr std::uint64_t ChannelFromDwords(std::uint32_t lo, std::uint32_t hi) {
     return (hi & 0x80000000u) ? 0 : (static_cast<std::uint64_t>(hi) << 32 | lo);
 }
 
+/// A ChannelId the party's channel board can hold: its JSON ids are doubles, exact below 2^53. The
+/// game's own ids need not fit (live, Nightwatch: 0x80e31eac98aca1ee from its own upload): such a
+/// dungeon is put on the board under an alias (BoardChannelFor) and the summon carries the alias.
+constexpr bool BoardChannel(std::uint64_t id) { return id != 0 && id < (1ull << 53); }
+/// The game's "no dungeon": 0, or the top-bit-only value 0x8000000000000000.
+constexpr bool NoChannel(std::uint64_t id) { return id == 0 || id == 0x8000000000000000ull; }
+
 // ---- The party's chalices (progress for everyone) ----
 // The chalices (goods; HolygrailExParam rows that are EquipParamGoods, isOnlyOne, never consumed
 // by a ritual) any member owns go to every member that lacks them (a guest's to the host, the
@@ -123,6 +130,11 @@ std::uint64_t LocalChannel();
 /// a summoned member's is the host's (InDungeonSlotHook), at home its own slot's. Only meaningful
 /// while the map is a Chalice Dungeon (elsewhere the game leaves the last load's value). 0 none.
 std::uint64_t CurrentDungeon();
+/// Host: the id a summon into the host's current dungeon carries, for the game's ChannelId `real`
+/// (FrpgNetMan +0xa88). `real` itself when the board can hold it; for an id it cannot (or with
+/// BB_CHALICE_ALIAS_TEST=1) the alias the dungeon was put on the board under (its FormData from the
+/// slot's helper), 0 while that is not done yet.
+std::uint64_t BoardChannelFor(std::uint64_t real);
 /// A B2 re-join of a guest inside the host's dungeon is about to set load mode 0 and 1 again (the flag
 /// snapshot's K11 step): the carried dungeon stays and is carried into the next load mode 1 (60 s).
 /// No-op when no dungeon is carried.

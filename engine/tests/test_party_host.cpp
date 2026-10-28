@@ -1274,10 +1274,22 @@ static void test_unusable_endpoint() {
              obj({{"OnlineId", "Near"}, {"SignalingAddr", "192.168.1.20"}, {"SignalingPort", 9307}}), reply);
     auto bad = s.unusable_endpoints();
     CHECK(bad.size() == 1 && bad[0].first == "Far" && bad[0].second == "192.168.1.5:9307");
+    // 0.7.7: no longer refused - peers get the address the host observes it at (its link's public IP,
+    // the party port it registered when no datagram was heard) instead of the unreachable LAN address.
+    {
+        json::Value r = call(s, "Host", "signaling_resolve", obj({{"OnlineId", "Far"}}));
+        CHECK(str_of(r, "Addr") == "198.51.100.20");
+        CHECK(int_of(r, "Port", 0) == 9307);
+        CHECK(str_of(r, "MappedAddr") == "198.51.100.20");
+    }
     // Its STUN answer arrives later (the keepalive's retry): summonable again.
     s.handle(Caller{"Far", pub}, "signaling_update",
              obj({{"OnlineId", "Far"}, {"MappedAddr", "198.51.100.20"}, {"MappedPort", 50123}}), reply);
     CHECK(s.unusable_endpoints().empty());
+    {
+        json::Value r = call(s, "Host", "signaling_resolve", obj({{"OnlineId", "Far"}}));
+        CHECK(int_of(r, "Port", 0) == 50123);  // its own STUN endpoint wins again
+    }
     std::printf("unusable endpoint: remote guest without a mapping held back, back after its STUN answer\n");
 }
 
