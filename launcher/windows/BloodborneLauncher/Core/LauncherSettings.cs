@@ -101,7 +101,7 @@ namespace BloodborneLauncher.Core
             ["trophy_notifications"] = true,
             ["map_enabled"] = true,  // the in-game map (Display › Map); on by default since 0.2.4 (MapOnMarker)
             ["trophy_sound"] = true,
-            ["trophy_volume"] = 70,
+            ["trophy_volume"] = 35,  // NW-e2243ba: 70 was too loud for the first trophy
             ["trophy_position"] = "top-right",
         };
 
