@@ -582,6 +582,37 @@ def old_hunters_writes(elf):
     return [(offset,edition_one)]
 
 
+def frame_time_writes(elf, segments, settings, names, env=os.environ):
+    """The port's frame-time code (start/patches.cpp FrameTimeCode does the same): steady cloth time
+    (cloth_time.py), cloth as on PS4 (cloth.py, only with it; bbport.ini steady_cloth), plant sway
+    by the frame's time (foliage_time.py), the air drag of 30 FPS (air_drag.py). On by default;
+    BB_CLOTH_TIME / BB_STEADY_CLOTH / BB_FOLIAGE_TIME / BB_AIR_DRAG = 0 leave one out."""
+    sys.path.insert(0,str(Path(__file__).resolve().parent))
+    import frame_time_code, quit_menu
+    try:
+        quit_menu.check_segments(segments)
+    except ValueError as error:
+        print(f'Patches: {error}; steady cloth, plant sway and jump drag left out')
+        return []
+    writes,cloth_time=[],False
+    for name,module,switch,setting,needs,_ in frame_time_code.GROUPS:
+        if env.get(switch)=='0' or (setting and settings.get(setting,'1')=='0'):
+            print(f'Patches: {name} off ({setting or switch}=0)')
+            continue
+        if needs and not cloth_time:
+            print(f'Patches: {name} left out: it steps with Steady cloth time, which is off')
+            continue
+        try:
+            module.check_original(lambda start,end: original_bytes(elf,start,end-start))
+        except ValueError as error:
+            print(f'Patches: {error}; {name} left out')
+            continue
+        writes+=module.code_writes()
+        names.append(name)
+        cloth_time=cloth_time or switch=='BB_CLOTH_TIME'
+    return writes
+
+
 def write_site_table(xml, app_version, elf_path):
     """The site table from a verified 1.09 eboot.elf (every eboot patch of `app_version`)."""
     from engine_assets import EBOOT_SHA, sha
@@ -807,6 +838,7 @@ def main():
     if pools:
         writes+=pools
         print(f'Patches: render pools {RENDER_POOL_SIZE>>10} KiB each (the game\'s 256)')
+    writes+=frame_time_writes(elf,segments,read_settings(a.settings),names)
     size=render_size(read_settings(a.settings),a.render_res) if a.render_res else None
     out=output_size(read_settings(a.settings))
     if a.output_res:

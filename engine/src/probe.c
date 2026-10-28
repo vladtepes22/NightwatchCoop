@@ -689,6 +689,18 @@ static int mapped(Segment *segments, uint64_t count, uint64_t address, uint64_t 
             address - segments[i].address <= segments[i].size - bytes) return 1;
     return 0;
 }
+/* Patches may also write past an executable segment's end up to its 4 KiB page boundary: those
+ * bytes are mapped with the segment (and on PS4) and unused by the game, so they hold patch code
+ * that does not fit in place (scripts/cloth.py, cloth_time.py, foliage_time.py, air_drag.py). */
+static int patchable(Segment *segments, uint64_t count, uint64_t address, uint64_t bytes) {
+    if (mapped(segments, count, address, bytes)) return 1;
+    for (uint64_t i = 0; i < count; ++i) {
+        const uint64_t end = segments[i].address + segments[i].size, tail = (end + 4095) & ~(uint64_t)4095;
+        if ((segments[i].flags & 1) && address >= end && bytes <= tail - end && address - end <= tail - end - bytes)
+            return 1;
+    }
+    return 0;
+}
 static void apply_patches(const char *path, Segment *segments, uint64_t ns, const Reloc *relocs, uint64_t nr) {
     FILE *f=fopen(path,"rb");
     char magic[8];
@@ -697,7 +709,7 @@ static void apply_patches(const char *path, Segment *segments, uint64_t ns, cons
     unsigned char data[4096];
     for (uint64_t i=0;i<count;++i) {
         uint64_t offset=read64(f), length=read64(f);
-        if (!length || length>sizeof(data) || !mapped(segments,ns,offset,length) || fread(data,1,length,f)!=length)
+        if (!length || length>sizeof(data) || !patchable(segments,ns,offset,length) || fread(data,1,length,f)!=length)
             fail("bad patch entry");
         uint64_t slots[sizeof(data)/8]; size_t nslots=0;
         for (uint64_t r=0;r<nr;++r) {

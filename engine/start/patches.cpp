@@ -344,6 +344,62 @@ Writes CorrectFrameRate(const Writes& writes, std::optional<int> fps, const Byte
     return out;
 }
 
+// The port's frame-time code (scripts/cloth_time.py, cloth.py, foliage_time.py, air_drag.py; their
+// bytes in frame_time_code.inc): the cloth steps with a steady time (a stutter is no kick to capes
+// and dresses) and as on PS4, plants sway by the frame's time, and the air drag of a jump is the
+// one per second of 30 FPS. On by default; BB_CLOTH_TIME / BB_STEADY_CLOTH (bbport.ini steady_cloth)
+// / BB_FOLIAGE_TIME / BB_AIR_DRAG = 0 leave one out. Its code lives in the code segment's last page
+// past the segment's end (src/probe.c lets patches write there). Applied after the FPS preset: the
+// air drag replaces the FPS++ patches' jump to their own drag code at the same spot.
+struct FrameTimeSite {
+    std::uint64_t at;
+    const char* hex;
+};
+struct FrameTimeGroup {
+    const char* name;
+    const char* env;
+    const char* setting;
+    bool needs_cloth_time;
+    std::vector<FrameTimeSite> originals, writes;
+};
+#include "frame_time_code.inc"
+
+void FrameTimeCode(const Bytes& elf, const Segments& segments, const std::map<std::string, std::string>& settings,
+                   Writes& writes, std::vector<std::string>& names) {
+    const bool page_free =
+        std::any_of(segments.ranges.begin(), segments.ranges.end(), [](const auto& r) { return r.second == kPatchCodeEnd; }) &&
+        std::none_of(segments.ranges.begin(), segments.ranges.end(), [](const auto& r) {
+            return r.second != kPatchCodeEnd && r.first < kPatchCodePageEnd && r.second > kPatchCodeEnd;
+        });
+    if (!page_free) {
+        Log("Patches: steady cloth, plant sway and jump drag left out: unexpected code segment layout");
+        return;
+    }
+    bool cloth_time = false;
+    for (const FrameTimeGroup& group : kFrameTimeGroups) {
+        if (Env(group.env, "") == "0" || (group.setting && Setting(settings, group.setting).value_or("1") == "0")) {
+            Log("Patches: %s off (%s=0)", group.name, group.setting ? group.setting : group.env);
+            continue;
+        }
+        if (group.needs_cloth_time && !cloth_time) {
+            Log("Patches: %s left out: it steps with Steady cloth time, which is off", group.name);
+            continue;
+        }
+        const auto differs = std::find_if(group.originals.begin(), group.originals.end(), [&](const FrameTimeSite& s) {
+            const Bytes original = FromHex(s.hex);
+            return OriginalBytes(elf, s.at, original.size()) != original;
+        });
+        if (differs != group.originals.end()) {
+            Log("Patches: %s left out: this executable differs at %#llx", group.name,
+                (unsigned long long)(differs->at + kBase));
+            continue;
+        }
+        for (const FrameTimeSite& w : group.writes) writes.emplace_back(w.at, FromHex(w.hex));
+        names.push_back(group.name);
+        if (std::string_view(group.env) == "BB_CLOTH_TIME") cloth_time = true;
+    }
+}
+
 void OldHuntersEdition(const Bytes& elf, Writes& writes) {
     constexpr std::uint64_t kEditionCall = 0x1fb6d20;
     const Bytes call = FromHex("e8bb210000");
@@ -859,6 +915,7 @@ PatchResult CompilePatches(const PatchRequest& request) {
             Log("Patches: render pools left at the game's size: this executable differs there");
         }
     }
+    FrameTimeCode(elf, segments, settings, writes, names);
     const std::optional<Size> size = request.render_res.empty() ? std::nullopt : RenderSize(settings, request.render_res);
     Size out = OutputSize(settings);
     if (!request.output_res.empty()) {
