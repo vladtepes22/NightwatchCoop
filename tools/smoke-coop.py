@@ -137,7 +137,7 @@ def main():
             logs.append(output)
             command = [sys.executable, '-u', str(REPO / 'tools/smoke-game.py'), '--name', name,
                        '--role', role, '--port', str(port), '--code-file', str(code), '--seconds', str(args.seconds),
-                       '--party-max', str(len(players)),
+                       '--party-max', str(scenario.get('guest_party_max', len(players)) if role != 'host' else len(players)),
                        '--party-name', 'HostSmoke' if role == 'host' else 'GuestSmoke' + seed[len('guest'):]]
             if args.game:
                 command += ['--game', args.game]

@@ -2042,7 +2042,6 @@
   "Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Join fills in the host's address and party size. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed.": "Хосты в вашем VPN (Radmin VPN, Hamachi, ZeroTier) или локальной сети, у которых включено «Показывать мою группу друзьям». «Вступить» заполняет адрес хоста и размер группы. Название, уровень и игроков берутся из объявления хоста. Пока эта вкладка закрыта, ничего не отображается.",
   "Join by code or address": "Подключиться по коду или адресу",
   "For a party that is not listed: paste the host's code or address.": "Для группы, которой нет в списке: вставьте код или адрес хоста.",
-  "Must be the host's party size. Join in the list above sets it.": "Должен совпадать с размером группы хоста. «Вступить» в списке выше задаёт его.",
   "Listening on ": "Поиск на ",
   "No VPN or local network to listen on.": "Нет VPN или локальной сети для поиска.",
   "Parties on Tailscale are not listed: paste the host's address under Join by code or address.": "Группы в Tailscale в списке не показываются: вставьте адрес хоста в «Подключиться по коду или адресу».",

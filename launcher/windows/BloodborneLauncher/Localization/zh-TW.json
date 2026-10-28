@@ -2042,7 +2042,6 @@
   "Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Join fills in the host's address and party size. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed.": "你的 VPN（Radmin VPN、Hamachi、ZeroTier）或區域網路上，已開啟「向朋友顯示我的隊伍」的房主。加入會自動填入房主的位址與隊伍人數。名稱、等級與玩家來自房主的公布。此分頁關閉時不會列出任何內容。",
   "Join by code or address": "以代碼或位址加入",
   "For a party that is not listed: paste the host's code or address.": "若隊伍未列出：請貼上房主的代碼或位址。",
-  "Must be the host's party size. Join in the list above sets it.": "必須與房主的隊伍人數相同。上方列表中的加入會自動設定。",
   "Listening on ": "正在監聽 ",
   "No VPN or local network to listen on.": "沒有可監聽的 VPN 或區域網路。",
   "Parties on Tailscale are not listed: paste the host's address under Join by code or address.": "Tailscale 上的隊伍不會列出：請在「以代碼或位址加入」下貼上房主的位址。",

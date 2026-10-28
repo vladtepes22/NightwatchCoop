@@ -2042,7 +2042,6 @@
   "Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Join fills in the host's address and party size. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed.": "VPN(Radmin VPN, Hamachi, ZeroTier)이나 로컬 네트워크에서 친구에게 내 파티 표시를 켜 둔 호스트입니다. 참가를 누르면 호스트의 주소와 파티 인원이 채워집니다. 이름, 레벨, 플레이어는 호스트의 알림에서 가져옵니다. 이 탭이 닫혀 있는 동안에는 아무것도 표시되지 않습니다.",
   "Join by code or address": "코드나 주소로 참가",
   "For a party that is not listed: paste the host's code or address.": "목록에 없는 파티: 호스트의 코드나 주소를 붙여 넣으세요.",
-  "Must be the host's party size. Join in the list above sets it.": "호스트의 파티 인원과 같아야 합니다. 위 목록에서 참가하면 자동으로 설정됩니다.",
   "Listening on ": "수신 중: ",
   "No VPN or local network to listen on.": "수신할 VPN이나 로컬 네트워크가 없습니다.",
   "Parties on Tailscale are not listed: paste the host's address under Join by code or address.": "Tailscale의 파티는 목록에 표시되지 않습니다: 코드나 주소로 참가에 호스트의 주소를 붙여 넣으세요.",

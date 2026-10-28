@@ -71,9 +71,7 @@ std::string RulesTag(const Config& c) {
     if (c.npc_signs) {
         t += ",E6";
     }
-    if (c.local_max >= 5) {
-        t += ",H6";  // the SOS filter's guest literal 4 -> 5 (a 4th cooperator)
-    }
+    t += ",H6";  // the SOS filter's guest literal 4 -> 5 (a 4th cooperator); every peer, whatever its own max
     return t;
 }
 
@@ -1076,11 +1074,10 @@ void FourpInit() {
     }
     // H6 (5 players: a 4th cooperator): the SOS filter 0x1874710 refuses a request once
     // cooperators + invaders + others + outgoing requests (slots +8/+0xc/+0x10, sel+0x1c8) reach 4:
-    // `cmp esi, 4` at 0x1874bbe -> 5. Only with BB_PARTY_MAX >= 5 (every peer: the rules tag says H6).
-    if (g_cfg.local_max >= 5) {
-        g_h6 = PatchBytes(0x1874bbe, {0x83, 0xfe, 0x04}, {0x83, 0xfe, 0x05}, "4p H6 SOS filter guests < 5 (5 players)");
-    }
-    if (g_cfg.recruit && g_cfg.local_max >= 4) {
+    // `cmp esi, 4` at 0x1874bbe -> 5. Installed for every peer whatever its own max (a guest takes the
+    // host's in WELCOME, so its hook set must not depend on its setting; the party's size caps the requests).
+    g_h6 = PatchBytes(0x1874bbe, {0x83, 0xfe, 0x04}, {0x83, 0xfe, 0x05}, "4p H6 SOS filter guests < 5 (5 players)");
+    if (g_cfg.recruit) {
         g_p5 = PatchBytes(kRecruitNum, {0xb9, 0x02, 0x00, 0x00, 0x00}, {0xb9, 0x03, 0x00, 0x00, 0x00},
                           "4p P5 RecruitNum 2 -> 3");
     }

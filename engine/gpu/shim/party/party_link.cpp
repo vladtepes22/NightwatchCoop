@@ -490,6 +490,17 @@ static std::string split_rules(const std::string& rules, RuleEntries* join) {
     return rules.substr(0, at);
 }
 
+// The base rules without their leading "max N players, ": the host's max reaches a guest in WELCOME
+// (PartyLink::max_players, party_fourp FourpTick), so a guest's own setting never makes a party mismatch.
+static std::string without_max_players(const std::string& base) {
+    if (base.rfind("max ", 0) != 0) return base;
+    std::size_t p = base.find(" players");
+    if (p == std::string::npos) return base;
+    p += 8;
+    if (base.compare(p, 2, ", ") == 0) p += 2;
+    return base.substr(p);
+}
+
 std::string identity_mismatch(const LinkConfig& host, const LinkConfig& guest) {
     std::vector<std::string> parts;
     // Each clause: what differs (host's / yours) and what to do about it.
@@ -519,10 +530,10 @@ std::string identity_mismatch(const LinkConfig& host, const LinkConfig& guest) {
     RuleEntries host_join, guest_join;
     const std::string host_base = split_rules(host.rules, &host_join);
     const std::string guest_base = split_rules(guest.rules, &guest_join);
-    if (host_base != guest_base)
+    if (without_max_players(host_base) != without_max_players(guest_base))
         parts.push_back("party rules differ (host " + (host_base.empty() ? std::string("none") : host_base) +
                         "; yours " + (guest_base.empty() ? std::string("none: an older build") : guest_base) +
-                        "): every player needs the same Max players setting (BB_PARTY_MAX) and BB_PARTY_FOURP*");
+                        "): every player needs the same BB_PARTY_FOURP* settings (the host's Max players applies to guests)");
     // 0.7.4: the host's session rules its game reads only at start: each one the guest has otherwise.
     if (host_join != guest_join) {
         std::string set;

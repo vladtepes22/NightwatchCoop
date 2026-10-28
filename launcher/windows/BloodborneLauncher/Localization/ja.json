@@ -2042,7 +2042,6 @@
   "Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Join fills in the host's address and party size. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed.": "VPN (Radmin VPN、Hamachi、ZeroTier) またはローカルネットワーク上で「フレンドにパーティーを公開」を有効にしているホストを表示します。「参加」でホストのアドレスとパーティー人数を設定します。名前・レベル・参加者はホストの通知内容です。このタブを閉じている間は検出しません。",
   "Join by code or address": "コードまたはアドレスで参加",
   "For a party that is not listed: paste the host's code or address.": "一覧にないパーティーには、ホストのコードまたはアドレスを貼り付けてください。",
-  "Must be the host's party size. Join in the list above sets it.": "ホストと同じパーティー人数にしてください。上の一覧から参加すると自動設定します。",
   "Listening on ": "検出に使用中: ",
   "No VPN or local network to listen on.": "検出に使える VPN やローカルネットワークがありません。",
   "Parties on Tailscale are not listed: paste the host's address under Join by code or address.": "Tailscale のパーティーは一覧に表示されません。「コードまたはアドレスで参加」にホストのアドレスを貼り付けてください。",

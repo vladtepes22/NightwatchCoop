@@ -714,7 +714,7 @@ static void test_four_players() {
     auto guest_cfg = [&](const char* name) {
         LinkConfig c = base_cfg(name, "");
         c.max_players = 3;  // the guest's own setting: the host's counts
-        c.rules = hc.rules;
+        c.rules = "max 3 players, 4p:v1:H1,H2,H3,H4,E6";  // only its max differs from the host's: no mismatch
         return c;
     };
     PartyLink a(guest_cfg("A"), recorder_callbacks(ar, "a")), b(guest_cfg("B"), recorder_callbacks(br, "b")),
@@ -736,7 +736,7 @@ static void test_four_players() {
     CHECK(d.start_guest("127.0.0.1", port, &err));
     CHECK(d.wait_state(LinkState::Rejected, 5000) && d.reject_code() == RejectCode::Full);
     LinkConfig ec = guest_cfg("E");
-    ec.rules = "max 3 players, 4p:v1:H1,H2,H3,H4,E6";
+    ec.rules = "max 4 players, 4p:off";
     PartyLink e(ec, none);
     c.stop();  // a free slot: the rejection below is about the rules, not the size
     CHECK(wait_for([&] { return host.roster().size() == 3; }, 3000));
@@ -744,8 +744,8 @@ static void test_four_players() {
     CHECK(e.wait_state(LinkState::Rejected, 5000) && e.reject_code() == RejectCode::Mismatch);
     std::printf("  other rules: %s\n", e.reject_reason().c_str());
     CHECK(e.reject_reason().find("party rules differ") != std::string::npos &&
-          e.reject_reason().find("max 3 players") != std::string::npos &&
-          e.reject_reason().find("max 4 players") != std::string::npos);
+          e.reject_reason().find("4p:off") != std::string::npos &&
+          e.reject_reason().find("4p:v1") != std::string::npos);
 }
 
 // Party HUD vitals: the sanitizer, then host + 2 guests exchanging VITALS (each sees the others).

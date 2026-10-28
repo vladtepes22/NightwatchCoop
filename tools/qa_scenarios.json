@@ -1,7 +1,8 @@
 {
   "join": {
-    "about": "Host and guest in one session for 15 s; the guest arrives in the host's world.",
+    "about": "Host and guest in one session for 15 s; the guest arrives in the host's world. The guest's own max players (4) differs from the host's (2): it joins and takes the host's.",
     "seconds": 180,
+    "guest_party_max": 4,
     "host": "",
     "guest": "",
     "expect": [
@@ -12,6 +13,10 @@
       [
         "guest",
         "party networking on \\(guest"
+      ],
+      [
+        "guest",
+        "max players 4 -> 2 \\(the host's setting\\)"
       ]
     ]
   },

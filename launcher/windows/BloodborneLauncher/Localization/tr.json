@@ -2042,7 +2042,6 @@
   "Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Join fills in the host's address and party size. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed.": "VPN'inizde (Radmin VPN, Hamachi, ZeroTier) veya yerel ağınızda, Partimi arkadaşlarıma göster açık olan host'lar. Katıl, host'un adresini ve parti boyutunu doldurur. Ad, seviye ve oyuncular host'un duyurusundan gelir. Bu sekme kapalıyken hiçbir şey listelenmez.",
   "Join by code or address": "Kod veya adresle katıl",
   "For a party that is not listed: paste the host's code or address.": "Listelenmeyen bir parti için: host'un kodunu veya adresini yapıştırın.",
-  "Must be the host's party size. Join in the list above sets it.": "Host'un parti boyutu olmalıdır. Yukarıdaki listedeki Katıl bunu ayarlar.",
   "Listening on ": "Dinlenen: ",
   "No VPN or local network to listen on.": "Dinlenecek VPN veya yerel ağ yok.",
   "Parties on Tailscale are not listed: paste the host's address under Join by code or address.": "Tailscale üzerindeki partiler listelenmez: host'un adresini Kod veya adresle katıl altına yapıştırın.",

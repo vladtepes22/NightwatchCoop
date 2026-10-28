@@ -48,21 +48,22 @@ static void test_config_and_tag() {
     c = ConfigFromEnv();
     CHECK(c.on && c.scaling && c.npc_signs && c.recruit);
     CHECK(c.local_max == 4);
-    CHECK(FourpRulesTag() == "4p:v2:H1,H5,H2,H3,H4,E6");
+    CHECK(FourpRulesTag() == "4p:v2:H1,H5,H2,H3,H4,E6,H6");
 
-    // Max players does not change the tag: the host's value is sent in WELCOME.
+    // Max players does not change the tag: the host's value is sent in WELCOME, H6 is on every peer.
     set_env("BB_PARTY_MAX", "3");
-    CHECK(FourpRulesTag() == "4p:v2:H1,H5,H2,H3,H4,E6");
+    CHECK(FourpRulesTag() == "4p:v2:H1,H5,H2,H3,H4,E6,H6");
     set_env("BB_PARTY_MAX", "9");
     CHECK(ConfigFromEnv().local_max == 5);
-    CHECK(FourpRulesTag() == "4p:v2:H1,H5,H2,H3,H4,E6,H6");  // 5 players: H6 on every peer
+    CHECK(FourpRulesTag() == "4p:v2:H1,H5,H2,H3,H4,E6,H6");
     set_env("BB_PARTY_MAX", "1");
     CHECK(ConfigFromEnv().local_max == 2);
+    CHECK(FourpRulesTag() == "4p:v2:H1,H5,H2,H3,H4,E6,H6");
 
     set_env("BB_PARTY_FOURP_SCALING", "0");
-    CHECK(FourpRulesTag() == "4p:v2:H1,H5,E6");
+    CHECK(FourpRulesTag() == "4p:v2:H1,H5,E6,H6");
     set_env("BB_PARTY_FOURP_NPC_SIGNS", "0");
-    CHECK(FourpRulesTag() == "4p:v2:H1,H5");
+    CHECK(FourpRulesTag() == "4p:v2:H1,H5,H6");
     set_env("BB_PARTY_FOURP", "0");
     CHECK(FourpRulesTag() == "4p:off");
     set_env("BB_PARTY_FOURP", "1");

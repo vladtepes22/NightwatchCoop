@@ -85,14 +85,13 @@ public sealed class SeamlessPage : LauncherPage
         _partyList = new StackPanel();
         found.Children.Add(_partyList);
         // Joining by hand, folded under the list. Its password is the one remembered for the code or address typed
-        // here (Join in the list asks for it); the party size is the same setting as the host's row.
+        // here (Join in the list asks for it); there is no party size here: the host's applies.
         _manual = new AdvancedSection(L.T("Join by code or address"), L.T("For a party that is not listed: paste the host's code or address."));
         found.Children.Add(_manual);
         _codeBox = TextRow(SymbolRegular.Link24, L.T("Host code or address"), L.T("Paste the host's Internet code, LAN code or host:port."), "BBP3-…",
             () => S.Str("party_code"), v => { S.Set("party_code", v); SyncSharedRows(); }, _manual.Rows);
         _joinPassword = PasswordRow(_manual.Rows, () => S.JoinPassword(S.Str("party_code")), v => S.SetJoinPassword(S.Str("party_code"), v),
             L.T("The host's party password. Remembered for this code or address, encrypted for your Windows user."));
-        _joinSize = PartySizeRow(_manual.Rows, L.T("Must be the host's party size. Join in the list above sets it."));
 
         // Network settings only matter when the party does not connect: folded, with the mode's own rows.
         var network = Fold(L.T("Network and troubleshooting"), InParty, L.T("Ports, NAT traversal and connection codes: only needed when the party does not connect."));
@@ -296,7 +295,7 @@ public sealed class SeamlessPage : LauncherPage
     private Wpf.Ui.Controls.TextBox _codeBox = null!;
     private AdvancedSection _manual = null!;
     private PasswordBox _joinPassword = null!, _hostPassword = null!;
-    private System.Windows.Controls.ComboBox _joinSize = null!, _hostSize = null!;
+    private System.Windows.Controls.ComboBox _hostSize = null!;
     private string _partySignature = "\0";
     private string _joinNote = "";  // the list's status line after Join: "Restart the game to join ..."
     private long _listenSinceMs;
@@ -350,15 +349,14 @@ public sealed class SeamlessPage : LauncherPage
         System.Diagnostics.Process.Start(info)?.Dispose();
     }
 
-    /// <summary>The password and party size each have a Host row and a Join row: show the stored values (the Join
-    /// row's password is the one remembered for the code or address typed there).</summary>
+    /// <summary>The password has a Host row and a Join row: show the stored values (the Join row's password is the
+    /// one remembered for the code or address typed there). The party size is the host's alone: a guest takes the host's.</summary>
     private void SyncSharedRows()
     {
         foreach (var (box, password) in new[] { (_joinPassword, S.JoinPassword(S.Str("party_code"))), (_hostPassword, S.PartyPassword) })
             if (box.Password != password) box.Password = password;
         var index = Choices.IndexOf(PartySizes(), PartySize());
-        foreach (var box in new[] { _joinSize, _hostSize })
-            if (box.SelectedIndex != index) box.SelectedIndex = index;
+        if (_hostSize.SelectedIndex != index) _hostSize.SelectedIndex = index;
     }
 
     /// <summary>Join in the list: asks for the host's password (filled with the one last used for that host), then

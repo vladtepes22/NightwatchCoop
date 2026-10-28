@@ -2042,7 +2042,6 @@
   "Hosts on your VPN (Radmin VPN, Hamachi, ZeroTier) or local network that left Show my party to friends on. Join fills in the host's address and party size. The name, level and players come from the host's announcement. Nothing is listed while this tab is closed.": "Les hôtes sur votre VPN (Radmin VPN, Hamachi, ZeroTier) ou votre réseau local qui ont laissé Montrer mon groupe à mes amis activé. Rejoindre renseigne l’adresse de l’hôte et la taille du groupe. Le nom, le niveau et les joueurs proviennent de l’annonce de l’hôte. Aucune liste n’est établie lorsque cet onglet est fermé.",
   "Join by code or address": "Rejoindre par code ou adresse",
   "For a party that is not listed: paste the host's code or address.": "Pour un groupe absent de la liste : collez le code ou l’adresse de l’hôte.",
-  "Must be the host's party size. Join in the list above sets it.": "Doit correspondre à la taille du groupe de l’hôte. Rejoindre dans la liste ci-dessus la définit.",
   "Listening on ": "Écoute sur ",
   "No VPN or local network to listen on.": "Aucun VPN ni réseau local sur lequel écouter.",
   "Parties on Tailscale are not listed: paste the host's address under Join by code or address.": "Les groupes sur Tailscale ne sont pas listés : collez l’adresse de l’hôte dans Rejoindre par code ou adresse.",

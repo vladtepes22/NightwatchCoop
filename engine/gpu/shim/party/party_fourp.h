@@ -15,8 +15,9 @@
 //   E6  EMEVD 3[29] "cooperators < 2" in the NPC summon sign events (xx04400..xx04406, 12906962)
 //       -> "< 3" while the party's max players >= 4 (via the EMEVD dispatch filter,
 //       seamless_rules.h SetEmevdRewriter), reverted when it drops below 4.
-//   P5  0x1e97770 RecruitNum `mov ecx,2` -> 3 (optional, cosmetic: only told to a server) when
-//       the local BB_PARTY_MAX >= 4.
+//   P5  0x1e97770 RecruitNum `mov ecx,2` -> 3 (optional, cosmetic: only told to a server).
+//   P5 and H6 (SOS filter 4 -> 5) are installed on every peer whatever its own BB_PARTY_MAX: a guest takes
+//   the host's, so its hook set and rules tag must not depend on its own setting.
 // H2-H4 change nothing while at most 2 cooperators exist (vanilla cap), so they are installed for
 // every party; only H1 / E6 follow the max players, which can change at run time.
 //
