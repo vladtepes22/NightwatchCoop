@@ -101,7 +101,7 @@ static void test_firewall_notice() {
     assert(bt.find("wf.msc") != std::string::npos && bt.find("block icon") != std::string::npos && bt.find("9400") != std::string::npos);
     assert(bt.find("Fix firewall issues") != std::string::npos);
     assert(bt != mt && mt.find("wf.msc") == std::string::npos);
-    assert(mt.find("Allow an app through firewall") != std::string::npos);
+    assert(mt.find("Fix firewall issues") != std::string::npos);  // Nightwatch: the Missing text points at the launcher's button
 }
 
 static void test_no_guests() {
