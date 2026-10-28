@@ -322,6 +322,10 @@ int Main(std::vector<std::wstring> arguments) {
     if (!Env("BB_CONFIG")) SetEnv("BB_CONFIG", Utf8(data / "bbport.ini"));
     const fs::path config = Path(*Env("BB_CONFIG"));
     const auto settings = ReadSettings(config);
+    // Legacy CPU (prepare.cpp): legacy_cpu=1/0 in bbport.ini forces the translations on or off;
+    // without it (or with "auto") the CPU decides. The environment wins over the file.
+    if (const auto legacy = Setting(settings, "legacy_cpu"); legacy && !Env("BB_LEGACY_CPU") && (*legacy == "0" || *legacy == "1"))
+        SetEnv("BB_LEGACY_CPU", *legacy);
     try {
         Log(ConfigureOnline(settings, data) ? "Online: configured server profile and automatic game redirect"
                                             : "Online: offline mode");

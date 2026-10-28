@@ -145,6 +145,7 @@ namespace BloodborneLauncher.Core
             // More › Engine › Performance: empty is the engine's own choice (left unset).
             if (s.Str("draw_pipe") is "0" or "1") env["BB_DRAW_PIPE"] = s.Str("draw_pipe");
             if (s.Str("readbacks") is "0" or "2") env["BB_READBACKS"] = s.Str("readbacks");
+            if (s.Str("legacy_cpu") is "0" or "1") env["BB_LEGACY_CPU"] = s.Str("legacy_cpu");
             if (s.Bool("frame_stats")) env["BB_FRAME_STATS"] = "1";
             if (s.Bool("fsr_profile")) env["BB_FSR4_PROFILE"] = "1";
             if (s.Bool("audio_stats")) env["BB_AUDIO_STATS"] = "1";

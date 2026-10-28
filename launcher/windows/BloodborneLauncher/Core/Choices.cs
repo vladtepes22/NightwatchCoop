@@ -201,6 +201,14 @@
             new(L.T("Off"), "0", L.T("More stable, but slower")),
         };
 
+        // Legacy CPU (bb-start, BB_LEGACY_CPU): automatic turns it on when the CPU lacks BMI1, LZCNT or MOVBE.
+        public static readonly Choice[] LegacyCpu =
+        {
+            new(L.T("Automatic"), "", L.T("On when this CPU needs it")),
+            new(L.T("On"), "1", L.T("Also on a newer CPU (for testing)")),
+            new(L.T("Off"), "0"),
+        };
+
         public static readonly Choice[] GameLanguages =
         {
             new("English", "1"),

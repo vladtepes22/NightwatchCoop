@@ -2182,5 +2182,9 @@
   "{version} shows the launcher's version; {area}, {boss}, {level}, {echoes} and {insight} show the game's": "{version} 显示启动器版本；{area}、{boss}、{level}、{echoes} 和 {insight} 显示游戏信息",
   "Show where you are": "显示你在哪里",
   "The area you're in, or the boss you're fighting": "你所在的区域，或正在挑战的首领",
-  "Show your level, Blood Echoes and Insight": "显示等级、血之回响和洞察"
+  "Show your level, Blood Echoes and Insight": "显示等级、血之回响和洞察",
+  "Older CPU support": "旧款 CPU 支持",
+  "For AMD FX and Intel 2nd/3rd generation Core (no MOVBE/BMI1): the game's newer CPU instructions are replaced when it starts. Best effort": "适用于 AMD FX 和 Intel 第 2/3 代酷睿（无 MOVBE/BMI1）：游戏启动时替换其较新的 CPU 指令。尽力而为",
+  "On when this CPU needs it": "此 CPU 需要时开启",
+  "Also on a newer CPU (for testing)": "在较新的 CPU 上也开启（用于测试）"
 }
