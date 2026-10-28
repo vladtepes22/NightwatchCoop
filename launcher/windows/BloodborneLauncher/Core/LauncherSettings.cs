@@ -33,6 +33,7 @@ namespace BloodborneLauncher.Core
             ["fps_mode"] = "60",
             ["draw_pipe"] = "",
             ["readbacks"] = "",
+            ["legacy_cpu"] = "",
             // Beta builds: on (Load switches older files once), so crash logs carry the frame stats.
             ["frame_stats"] = Updater.CurrentBeta > 0,
             ["gpu_profile"] = false,

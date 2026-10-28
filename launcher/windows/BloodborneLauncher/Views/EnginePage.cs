@@ -161,6 +161,9 @@ namespace BloodborneLauncher.Views
                 SettingCombo(SymbolRegular.Flow20, L.T("Two-stage GPU pipeline"), L.T("20–30% faster; turn off if the game is unstable"),
                     Choices.DrawPipe, "draw_pipe");
                 SettingCombo(SymbolRegular.ArrowSwap24, L.T("CPU reads of GPU data"), L.T("Relaxed is the default"), Choices.Readbacks, "readbacks");
+                SettingCombo(SymbolRegular.DeveloperBoard24, L.T("Older CPU support"),
+                    L.T("For AMD FX and Intel 2nd/3rd generation Core (no MOVBE/BMI1): the game's newer CPU instructions are replaced when it starts. Best effort"),
+                    Choices.LegacyCpu, "legacy_cpu");
             }
             else if (group == EngineSwitches.Sound)
             {

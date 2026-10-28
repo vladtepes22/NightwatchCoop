@@ -351,6 +351,7 @@ Nightwatch Co-op is a modified version of **Lantern Engine by Awaken (https://gi
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
+| Older CPU support (AMD FX, Intel 2nd/3rd generation Core) | the translation plan and its checks from [Supermedo/bloodborne_pc](https://github.com/Supermedo/bloodborne_pc), with the CPU part of T0ug's Ivy Bridge work there, as integrated by visy (GPL-2.0-or-later) |
 | Renderer crash fixes | adapted from [AwesomeObserver](https://github.com/AwesomeObserver/bloodborne_pc) and [deadinside28](https://github.com/deadinside28/bloodborne_pc) |
 | Online backend (in the engine, not used: this build plays offline) | [droogie/bbhost](https://github.com/droogie/bbhost) |
 | FSR 3.1 and FSR 4 on Vulkan | [FireBurn/FSR-Vulkan](https://github.com/FireBurn/FSR-Vulkan) and the AMD FidelityFX SDK |

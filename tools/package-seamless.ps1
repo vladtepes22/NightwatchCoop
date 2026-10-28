@@ -120,6 +120,8 @@ while ($queue.Count) {
 foreach ($folder in 'patches', 'data') {
     Copy-Item -Path (Join-Path $engine "$folder\*") -Destination (Join-Path $destinationRoot "engine\$folder") -Recurse -Force
 }
+# Legacy CPU: bb-start reads the translation plan from engine\patches (start/cpu_compat.cpp).
+Copy-Item -LiteralPath (Join-Path $engine 'tools\legacy-cpu-plan.json') -Destination (Join-Path $destinationRoot 'engine\patches') -Force
 $licenses = Join-Path $destinationRoot 'engine\licenses'
 New-Item -ItemType Directory -Force -Path (Join-Path $licenses 'msys2') | Out-Null
 Copy-Item -Path (Join-Path $MsysRoot 'clang64\share\licenses\*') -Destination (Join-Path $licenses 'msys2') -Recurse -Force

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "prepare.h"
+#include "cpu_compat.h"
 #include "elf.h"
 
 #include <windows.h>
@@ -520,9 +521,46 @@ struct Export {
     std::string file;
 };
 
-void LinkModules(const fs::path& game, const fs::path& out, Module& main, Boot boot, const fs::path& engine) {
+// Legacy CPU (cpu_compat.cpp): what the plan's guards need from the link. Null when the plan
+// does not describe these game files (it is then not applied at all).
+const nlohmann::json* LegacyCpuInput(const fs::path& game, const Module& main, const nlohmann::json* plan,
+                                     CpuCompatInput& input) {
+    if (!plan) return nullptr;
+    try {
+        const auto& modules = plan->at("modules");
+        input.eboot_sha256 = Sha256Hex(ReadFile(game / "eboot.bin"));
+        std::string differs;
+        if (modules.value("eboot.bin", "") != input.eboot_sha256) differs = "eboot.bin";
+        for (const char* filename : {"libc.prx", "libSceFios2.prx"})
+            if (modules.value(filename, "") != Sha256Hex(ReadFile(game / "sce_module" / filename)))
+                differs += (differs.empty() ? "" : ", ") + std::string(filename);
+        if (!differs.empty()) {
+            Log("Legacy CPU: not applied: the plan was made for other game files (%s differ)", differs.c_str());
+            return nullptr;
+        }
+    } catch (const std::exception& e) {
+        Log("Legacy CPU: not applied: %s", e.what());
+        return nullptr;
+    }
+    for (const Symbol& s : main.symbols)
+        if (s.section) input.eboot_symbols.push_back(s.value);
+    for (const Relocation& r : main.relocs) {
+        if (r.kind == 8) {
+            input.eboot_reloc_entries.push_back(r.addend);
+        } else if ((r.kind == 1 || r.kind == 6 || r.kind == 7) && r.symbol < main.symbols.size() &&
+                   main.symbols[r.symbol].section) {
+            input.eboot_reloc_entries.push_back(std::int64_t(main.symbols[r.symbol].value) + r.addend);
+        }
+    }
+    return plan;
+}
+
+bool LinkModules(const fs::path& game, const fs::path& out, Module& main, Boot boot, const fs::path& engine,
+                 const nlohmann::json* legacy_plan) {
     Bytes& image = boot.image;
     const std::uint64_t size = image.size();
+    CpuCompatInput cpu;
+    const nlohmann::json* legacy = LegacyCpuInput(game, main, legacy_plan, cpu);
     std::vector<std::optional<Identity>> order;
     std::vector<std::size_t> index_of;
     std::unordered_map<Identity, std::size_t, IdentityHash> position;
@@ -596,6 +634,16 @@ void LinkModules(const fs::path& game, const fs::path& out, Module& main, Boot b
             std::copy_n(Span(m.exe.elf, p->offset, p->filesz), p->filesz, image.begin() + std::ptrdiff_t(base + p->vaddr));
             boot.segments.push_back({base + p->vaddr, p->memsz, p->flags});
         }
+        if (legacy && std::string_view(filename) == "libc.prx") {
+            const std::string strlen_nid = Nid("strlen");
+            std::vector<const Symbol*> found;
+            for (const Symbol& s : m.symbols)
+                if (s.section && s.type == 2 && Split(s.name, '#')[0] == strlen_nid) found.push_back(&s);
+            const std::string why = found.size() != 1 ? std::string("strlen is not unique")
+                                                      : ReplaceLibcStrlen(image, base, found[0]->value, found[0]->size);
+            if (why.empty()) Log("Legacy CPU: libc's BMI1 strlen replaced by a baseline loop");
+            else Log("Legacy CPU: libc's strlen left as it is (%s)", why.c_str());
+        }
         const Ph* tls = m.Find(7);
         std::uint64_t module_id = 0;
         if (tls) {
@@ -655,6 +703,39 @@ void LinkModules(const fs::path& game, const fs::path& out, Module& main, Boot b
     std::vector<std::uint64_t> skip;
     for (const Reloc& r : boot.relocs) skip.push_back(r.target);
     std::sort(skip.begin(), skip.end());
+
+    // Legacy CPU: the translations go first and the red-zone sites they touch stay as they are
+    // (visy's link_modules order). Off, nothing here runs and the image is today's.
+    CpuCompatResult translated;
+    if (legacy) {
+        for (const Entry& t : table) cpu.modules.push_back({t.file, t.base, t.size, Sha256Hex(ReadFile(game / "sce_module" / t.file))});
+        cpu.reloc_targets = skip;
+        for (const Reloc& r : boot.relocs)
+            if (r.kind == 0) cpu.resolved_relocs.push_back(std::uint64_t(r.value + r.addend));
+        std::vector<std::array<std::uint64_t, 3>> segments;
+        for (const Segment& s : boot.segments) segments.push_back({s.address, s.size, s.flags});
+        try {
+            translated = ApplyCpuCompat(image, segments, cpu, *legacy);
+            for (std::size_t i = boot.segments.size(); i < segments.size(); ++i)
+                boot.segments.push_back({segments[i][0], segments[i][1], segments[i][2]});
+            if (translated.patched) base = (image.size() + 65535) & ~65535ull;
+        } catch (const std::exception& e) {
+            Log("Legacy CPU: not applied: %s", e.what());
+        }
+        for (const std::string& line : translated.skipped_sites) Log("Legacy CPU: skipped %s", line.c_str());
+    }
+    int red_zone_left = 0;
+    const auto clear_of_translations = [&](const nlohmann::json& sites) {
+        if (!translated.patched) return sites;
+        nlohmann::json clear = nlohmann::json::array();
+        for (const auto& site : sites) {
+            if (CpuCompatClear(translated, image, site.at(0).get<std::uint64_t>(), site.at(1).get<std::string>().size() / 2))
+                clear.push_back(site);
+            else
+                ++red_zone_left;
+        }
+        return clear;
+    };
     Bytes code;
     if (Env("BB_RED_ZONE_FUNCTIONS", "") == "1" && fs::is_regular_file(functions_path, error)) {
         const auto functions = nlohmann::json::parse(ReadText(functions_path)).at("functions");
@@ -664,7 +745,7 @@ void LinkModules(const fs::path& game, const fs::path& out, Module& main, Boot b
             functions.size());
     }
     if (fs::is_regular_file(sites_path, error)) {
-        const auto sites = nlohmann::json::parse(ReadText(sites_path)).at("sites");
+        const auto sites = clear_of_translations(nlohmann::json::parse(ReadText(sites_path)).at("sites"));
         const Bytes more = ProtectRedZones(image, sites, base + code.size(), skip, red_zone_sites);
         code.insert(code.end(), more.begin(), more.end());
     }
@@ -740,6 +821,15 @@ void LinkModules(const fs::path& game, const fs::path& out, Module& main, Boot b
     Log("Linked modules: %s; %zu native bindings, %zu imports left to the host runtime, fs->gs patched=%d, "
         "red-zone-safe stores at %d sites",
         summary.c_str(), bindings.size(), unresolved, fs_patched, red_zone_sites);
+    if (legacy && translated.patched) {
+        std::string counts;
+        for (const auto& [name, n] : translated.counts) counts += (counts.empty() ? "" : ", ") + name + " " + std::to_string(n);
+        Log("Legacy CPU: translated %d instruction sites (%s; %d with their neighbours moved), %d skipped, "
+            "trampolines %llu bytes at %s; %d red-zone sites left to the translations",
+            translated.patched, counts.c_str(), translated.spans, translated.skipped,
+            static_cast<unsigned long long>(translated.trampoline_bytes), Hex(translated.arena).c_str(), red_zone_left);
+    }
+    return translated.patched > 0;
 }
 
 void ContentProfile(const fs::path& game, const fs::path& out, const std::string& sku) {
@@ -763,7 +853,7 @@ void ContentProfile(const fs::path& game, const fs::path& out, const std::string
 
 const char* const kPrepared[] = {"boot-linked.bin", "eboot.elf", "content.bin", "game-code.txt", "game-image.txt"};
 
-std::string PrepareKey(const fs::path& game, const std::string& sku, const fs::path& engine) {
+std::string PrepareKey(const fs::path& game, const std::string& sku, const fs::path& engine, const fs::path* legacy_plan) {
     Sha256Stream digest;
     std::vector<fs::path> paths{game / "eboot.bin", game / "sce_sys" / "param.sfo"};
     std::error_code error;
@@ -789,6 +879,14 @@ std::string PrepareKey(const fs::path& game, const std::string& sku, const fs::p
     }
     digest.Update("sku=" + sku + ";check=" + Env("BB_SKIP_GAME_CHECK", "") +
                   ";redzone_functions=" + Env("BB_RED_ZONE_FUNCTIONS", ""));
+    // Legacy CPU on: its plan is part of the image (off leaves the key as it was).
+    if (legacy_plan) {
+        digest.Update(";legacy_cpu=1;plan=" + Env("BB_LEGACY_CPU_ALLOW_PARTIAL", "1") + ";");
+        if (fs::is_regular_file(*legacy_plan, error)) {
+            const Bytes data = ReadFile(*legacy_plan);
+            digest.Update(data.data(), data.size());
+        }
+    }
     return digest.HexDigest();
 }
 
@@ -801,7 +899,15 @@ void PrepareImage(const fs::path& game, const fs::path& out, const fs::path& eng
     };
     const std::string sku = Env("BB_CONTENT_SKU", "full");
     const fs::path stamp = out / "prepared.json";
-    const std::string key = PrepareKey(game, sku, engine);
+    // Legacy CPU (cpu_compat.cpp): CPUs without BMI1, LZCNT or MOVBE run a translated image.
+    std::string legacy_reason;
+    const bool legacy = LegacyCpuActive(legacy_reason);
+    const fs::path legacy_plan = legacy ? LegacyCpuPlanPath(engine) : fs::path();
+    if (legacy || !StartsWith(legacy_reason, "this CPU has"))
+        Log("Legacy CPU: %s (%s)", legacy ? "on" : "off", legacy_reason.c_str());
+    // bb-probe's CPU check lets BMI1, LZCNT and MOVBE pass only when the image holds the translations.
+    SetEnv("BB_CPU_COMPAT", "0");
+    const std::string key = PrepareKey(game, sku, engine, legacy ? &legacy_plan : nullptr);
     std::error_code error;
     bool reusable = false;
     try {
@@ -812,11 +918,24 @@ void PrepareImage(const fs::path& game, const fs::path& out, const fs::path& eng
                                 [&](const char* name) { return fs::is_regular_file(out / name, error); })) {
         Log("Boot image unchanged: reused (%.1f s)", elapsed());
         try {
-            const std::string note = nlohmann::json::parse(ReadText(stamp)).value("patched_eboot", "");
+            const auto stamped = nlohmann::json::parse(ReadText(stamp));
+            const std::string note = stamped.value("patched_eboot", "");
             if (!note.empty()) Log("%s", note.c_str());
+            if (stamped.value("cpu_compat", false)) {
+                SetEnv("BB_CPU_COMPAT", "1");
+                Log("Legacy CPU: the reused image holds the translations");
+            }
         } catch (const std::exception&) {
         }
         return;
+    }
+    std::optional<nlohmann::json> plan;
+    if (legacy) {
+        try {
+            plan = nlohmann::json::parse(ReadText(legacy_plan));
+        } catch (const std::exception& e) {
+            Log("Legacy CPU: not applied: no readable plan at %s (%s)", Utf8(legacy_plan).c_str(), e.what());
+        }
     }
     fs::remove(stamp, error);
     fs::create_directories(out);
@@ -825,9 +944,13 @@ void PrepareImage(const fs::path& game, const fs::path& out, const fs::path& eng
     Boot boot = PrepareBoot(game, main, engine);
     WriteText(out / "game-code.txt", checked_code_109 ? "1.09\n" : game_check_skipped ? "unchecked\n" : "other\n");
     WriteText(out / "game-image.txt", game_image_sha + "\n");
-    LinkModules(game, out, main, std::move(boot), engine);
+    const bool translated = LinkModules(game, out, main, std::move(boot), engine, plan ? &*plan : nullptr);
     ContentProfile(game, out, sku);
     nlohmann::json stamped{{"key", key}};
+    if (translated) {
+        stamped["cpu_compat"] = true;
+        SetEnv("BB_CPU_COMPAT", "1");
+    }
     if (!patched_note.empty()) {
         // The launcher compares this with the eboot.bin it would start before it shows the note.
         stamped["patched_eboot"] = patched_note;
