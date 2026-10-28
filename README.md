@@ -11,7 +11,7 @@ files included.
 
 A modified version of **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)**,
 0.9.37 (Bloodborne running natively on Windows, with upscalers and PC controls), with **visy's
-seamless co-op v0.7.5+8d2822f3 (0.7.6 work)**.
+seamless co-op v0.7.6+e7f9bee6 (0.7.7 work)**.
 
 **See it in action:** [Nightwatch Co-op on YouTube](https://www.youtube.com/watch?v=bYavrI0ca94)
 (thanks to Zarok for helping make it).
@@ -69,7 +69,7 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 ## Install
 
-1. Download `NightwatchCoop-v0.2.5-beta.3-win64.zip` from
+1. Download `NightwatchCoop-v0.2.6-beta.1-win64.zip` from
    [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
    Read the selected release's requirements and known issues; choose its zip asset, not the
    source-code archive. Everyone in your party must install the same release.
@@ -325,7 +325,7 @@ Never attach saves or game files. For setup help, use [Discord](https://discord.
 | | |
 |---|---|
 | **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | not involved in this project: the launcher, the built-in game patches, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, cheats, occlusion culling, trophies, fixes) |
-| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.5+8d2822f3 |
+| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.6+e7f9bee6 |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
