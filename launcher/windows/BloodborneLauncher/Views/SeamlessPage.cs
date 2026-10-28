@@ -39,7 +39,7 @@ public sealed class SeamlessPage : LauncherPage
         // adapters are read off the UI thread (RefreshRoute); the address is shown on this screen only. Join mode
         // says which networks the party list hears instead (ListenLine).
         var host = Rows(Hosting);
-        _copyAddress = SmallButton(L.T("Copy"), SymbolRegular.Copy24, (_, _) => { if (_route.Address.Length > 0) Clipboard.SetText(_route.Address); });
+        _copyAddress = SmallButton(L.T("Copy"), SymbolRegular.Copy24, (_, _) => { if (_route.Address.Length > 0) Copy(_route.Address); });
         Add(Card(SymbolRegular.Router24, L.T("Your connection"),
             L.T("How the party reaches you: your VPN (Radmin VPN, Hamachi, ZeroTier, Tailscale) when one is found, else your local network. Friends on the same VPN or network can join with the address shown here. It is only shown on this screen."),
             _copyAddress, out _routeHint, wide: true), host);
@@ -68,7 +68,7 @@ public sealed class SeamlessPage : LauncherPage
         ToggleRow(SymbolRegular.People24, L.T("Show my party to friends"), L.T("While you host, the game announces the party's name, level and players on your VPN and local network, so friends see it under Parties on your network when they join. Never the password or your address. Takes effect at once."),
             () => Ini.Get("party_discovery", "1") == "1", v => Ini.Set("party_discovery", v ? "1" : "0"), host);
         Add(Card(SymbolRegular.Copy24, L.T("Share party codes"), L.T("Available after the host starts. Use the LAN code on the same router."),
-            SmallButton(L.T("Copy codes"), SymbolRegular.Copy24, (_, _) => Clipboard.SetText(SeamlessSettings.Codes(S))), out _codes), host);
+            SmallButton(L.T("Copy codes"), SymbolRegular.Copy24, (_, _) => Copy(SeamlessSettings.Codes(S))), out _codes), host);
         Add(Card(SymbolRegular.Info24, L.T("Check my connection"),
             L.T("Explains this PC's last session problems from its logs. Names and IPs are hidden; the reply is copied to the clipboard."),
             SmallButton(L.T("Check"), SymbolRegular.Info24, (_, _) => CheckConnection()), out _), host);
@@ -127,7 +127,7 @@ public sealed class SeamlessPage : LauncherPage
             SmallButton(L.T("Copy guest code"), SymbolRegular.Copy24, (_, _) => {
                 var code = SeamlessSession.Read(S)?.guest_code;
                 if (string.IsNullOrEmpty(code)) Prompt.Tell(L.T("Party"), L.T("No guest connection code is available yet."));
-                else Clipboard.SetText(code);
+                else Copy(code);
             }), out _), join);
         Add(Card(SymbolRegular.Link24, L.T("Join through a member"), L.T("Guest: when the host cannot be reached but another member can, copy that member's guest code and add it here."),
             SmallButton(L.T("Add copied member code"), SymbolRegular.Link24, (_, _) => {
@@ -317,6 +317,13 @@ public sealed class SeamlessPage : LauncherPage
         new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice(L.T("5 (experimental)"), "5") };
     private static string PartySize() => S.Str("party_max") is { Length: > 0 } n ? n : "3";
 
+    /// <summary>Copies text; a clipboard another program holds open is reported instead of crashing the launcher.</summary>
+    private static void Copy(string text)
+    {
+        if (!ClipboardText.Set(text))
+            Prompt.Tell(L.T("Party"), L.T("Could not copy: another program is using the clipboard. Try again."));
+    }
+
     /// <summary>Shows the firewall commands. Yes runs them in an administrator PowerShell, No copies them to paste by hand.</summary>
     private static void FixFirewall()
     {
@@ -327,7 +334,7 @@ public sealed class SeamlessPage : LauncherPage
             L.T("Yes: run them now (Windows asks for administrator permission).") + "\n" +
             L.T("No: copy them, then paste them into PowerShell opened as administrator yourself."),
             L.T("Fix firewall issues"), MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
-        if (answer == MessageBoxResult.No) Clipboard.SetText(script);
+        if (answer == MessageBoxResult.No) Copy(script);
         else if (answer == MessageBoxResult.Yes) FirewallFix.RunElevated(port);
     }
 
