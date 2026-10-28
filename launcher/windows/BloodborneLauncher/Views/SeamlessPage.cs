@@ -188,6 +188,7 @@ public sealed class SeamlessPage : LauncherPage
             ("party_story_mirror", L.T("Cutscenes for every player"), true), ("party_npc_mirror", L.T("NPCs as in the host's world"), true),
             ("party_covenant_per_player", L.T("Covenant outcomes per player"), true),
             ("party_npc_fights", L.T("NPC hunters fight the whole party"), true),
+            ("party_boss_share", L.T("Bosses share attention"), true),
             ("party_any_kidnap", L.T("Anyone can be abducted"), true),
             ("party_travel_vote", L.T("Party votes on travel"), false),
             ("party_guests_bring_lamps", L.T("Guests bring their lamps"), false));
@@ -568,6 +569,7 @@ public sealed class SeamlessPage : LauncherPage
         "party_covenant_per_player" => L.T("Annalise's, Alfred's and Valtr's quest outcomes stay in each player's own save."),
         "party_travel_vote" => L.T("Party travel by lamp, headstone or Hunter's Mark needs every member's approval; one refusal cancels it."),
         "party_npc_fights" => L.T("A hunter NPC that turns hostile is hostile to guests too, so everyone can fight it."),
+        "party_boss_share" => L.T("A boss in a party fight turns on each hunter in reach in turn instead of keeping to the nearest one. The host's rule."),
         "party_any_kidnap" => L.T("A Snatcher grabbing a guest takes the whole party to the Hypogean Gaol, just as when it grabs the host."),
         "party_friendly_fire" => L.T("Party members can hurt each other; being killed by a party member counts as a normal death."),
         "party_boss_drops" => L.T("The item a world boss drops for you also goes to every guest who is there when it dies, once, in their own save. Key and unique items already reach every guest and are not given twice."),

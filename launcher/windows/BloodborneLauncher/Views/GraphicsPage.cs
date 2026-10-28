@@ -64,7 +64,7 @@ namespace BloodborneLauncher.Views
 
             // Moved here from the Display page: the frame rate sits beside frame generation.
             Group(L.T("Frame rate"));
-            SettingCombo(SymbolRegular.Gauge24, L.T("Frame rate"), L.T("30, 60, 90, 120 and 144 are the game's frame-rate patches for that rate; Uncapped uses the community uncapped patch"), Choices.FpsModes, "fps_mode");
+            SettingCombo(SymbolRegular.Gauge24, L.T("Frame rate"), L.T("30, 60, 90, 120 and 144 are the game's frame-rate patches for that rate; Uncapped uses the community uncapped patch"), Choices.FpsModes, "fps_mode", changed: UpdateUpscaler);
 
             Group(L.T("Frame generation"));
             IniCombo(SymbolRegular.FastForward24, L.T("Method"),
@@ -196,6 +196,10 @@ namespace BloodborneLauncher.Views
             });
             if (frameGen != "off" && value == "off")
                 SetHint(_frameGenHint, L.T("Frame generation needs an upscaler (or TAA): choose one above"));
+            // NW-666485f: with frame generation the game itself runs near half the shown rate, under what the 90-144
+            // patches' timing expects, and lifts drop riders. 60 (or Uncapped with even pacing) keeps them in step.
+            else if (frameGen != "off" && S.Str("fps_mode") is "90" or "120" or "144")
+                SetHint(_frameGenHint, L.T("With frame generation the game itself runs at about half the frame rate shown, slower than the 90 to 144 FPS patches expect, and lifts can drop you. Choose 60 FPS (or Uncapped with even pacing) for frame generation"));
 
             // An upscaler takes the finished frame at outputs other than 1920x1080 and can smear the
             // game's motion blur; More > Engine can leave the blur out there (BB_UPSCALER_NO_BLUR).
