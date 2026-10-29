@@ -1,0 +1,211 @@
+using System.ComponentModel;
+using System.Globalization;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Markup;
+using BloodborneLauncher.Core;
+
+namespace BloodborneLauncher.Views;
+
+// Row view-models of the save editor's virtualized lists. They own their edit state, so filtering and
+// scrolling never lose a change; the window only asks them what changed.
+internal sealed class RowCommand(Action run, Func<bool>? can = null) : ICommand
+{
+    public event EventHandler? CanExecuteChanged;
+    public bool CanExecute(object? parameter) => can?.Invoke() ?? true;
+    public void Execute(object? parameter) => run();
+    public void Raise() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+}
+
+internal abstract class RowBase : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+    protected void Raise(params string[] names)
+    {
+        foreach (var name in names) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+}
+
+internal sealed class ItemRow : RowBase
+{
+    private readonly Action _changed;
+    private string _count;
+    private int _level;
+    private bool _removed;
+    public SaveEditor.Item Item { get; }
+    public RowCommand LevelDown { get; }
+    public RowCommand LevelUp { get; }
+    public RowCommand RemoveCommand { get; }
+
+    public ItemRow(SaveEditor.Item item, Action changed)
+    {
+        Item = item; _changed = changed;
+        _count = item.Count.ToString(CultureInfo.InvariantCulture); _level = item.Level ?? 0;
+        LevelDown = new RowCommand(() => Level--, () => CanEditLevel && !Removed && Level > 0);
+        LevelUp = new RowCommand(() => Level++, () => CanEditLevel && !Removed && Level < Item.MaxLevel);
+        RemoveCommand = new RowCommand(() => Removed = !Removed);
+    }
+
+    public string Title => Item.Name ?? L.T("Unnamed item");
+    public string Meta => (Item.Section == 0 ? "" : L.T("Key item") + " · ") + L.T("Item ID") + " " + Item.Number;
+    public bool IsKey => Item.Section != 0;
+    public string Group => IsKey ? L.T("Key items") : KindLabel(Item.Kind);
+    public string Kind => Item.Kind;
+    public int Order => IsKey ? 5 : Item.Kind switch { "goods" => 0, "weapon" => 1, "armor" => 2, "accessory" => 3, "gem" => 4, _ => 6 };
+    public bool HasLevel => Item.Level.HasValue;
+    public bool CanEditLevel => Item.Level.HasValue && Item.MaxLevel is > 0;
+    public Visibility LevelVisibility => HasLevel ? Visibility.Visible : Visibility.Collapsed;
+    public string LevelText => "+" + _level;
+    public bool CountEnabled => !_removed;
+    public string RemoveText => _removed ? L.T("Undo") : L.T("Remove");
+
+    public string Count
+    {
+        get => _count;
+        set { _count = value; Raise(nameof(Count), nameof(CountValid), nameof(Changed)); _changed(); }
+    }
+    public int Level
+    {
+        get => _level;
+        set
+        {
+            if (value == _level) return;
+            _level = value; Raise(nameof(Level), nameof(LevelText), nameof(Changed)); RaiseLevelCommands(); _changed();
+        }
+    }
+    public bool Removed
+    {
+        get => _removed;
+        set
+        {
+            _removed = value;
+            Raise(nameof(Removed), nameof(CountEnabled), nameof(RemoveText), nameof(Changed)); RaiseLevelCommands(); _changed();
+        }
+    }
+    private void RaiseLevelCommands() { LevelDown.Raise(); LevelUp.Raise(); }
+
+    public bool CountValid => _removed || (int.TryParse(_count, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n >= 1);
+    public int CountNumber => int.Parse(_count, CultureInfo.InvariantCulture);
+    public bool CountChanged => !_removed && int.TryParse(_count, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n != Item.Count;
+    public bool LevelChanged => !_removed && Item.Level.HasValue && _level != Item.Level;
+    public bool Changed => _removed || CountChanged || LevelChanged || !CountValid;
+
+    public IEnumerable<string> Describe()
+    {
+        if (_removed) { yield return L.T("Remove") + ": " + Title; yield break; }
+        if (CountChanged) yield return Title + ": " + Item.Count.ToString("N0") + " → " + CountNumber.ToString("N0");
+        if (LevelChanged) yield return Title + ": +" + Item.Level + " → +" + _level;
+    }
+
+    public static string KindLabel(string kind) => kind switch
+    {
+        "goods" => L.T("Goods"), "weapon" => L.T("Weapons"), "armor" => L.T("Armor"),
+        "accessory" => L.T("Accessories"), "gem" => L.T("Gems"), _ => L.T("Items")
+    };
+}
+
+internal sealed class FlagRow : RowBase
+{
+    private readonly Action _changed;
+    private bool _on;
+    public SaveEditor.Flag Flag { get; }
+    public FlagRow(SaveEditor.Flag flag, Action changed) { Flag = flag; _on = flag.On; _changed = changed; }
+    public string Label => Flag.Label;
+    public string Group => Flag.Group;
+    public bool On
+    {
+        get => _on;
+        set { if (_on == value) return; _on = value; Raise(nameof(On), nameof(Changed)); _changed(); }
+    }
+    public bool Changed => _on != Flag.On;
+}
+
+internal static class SaveEditorXaml
+{
+    private const string Header = "xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" " +
+        "xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" xmlns:ui=\"http://schemas.lepo.co/wpfui/2022/xaml\"";
+
+    private static T Parse<T>(string xaml) => (T)XamlReader.Parse(xaml);
+
+    public static DataTemplate ItemTemplate() => Parse<DataTemplate>($$"""
+        <DataTemplate {{Header}}>
+          <Border x:Name="Bar" Padding="12,7,22,7" BorderThickness="3,0,0,0" BorderBrush="Transparent">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="116"/><ColumnDefinition Width="92"/>
+              </Grid.ColumnDefinitions>
+              <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                <TextBlock x:Name="Title" Text="{Binding Title}" ToolTip="{Binding Title}" TextTrimming="CharacterEllipsis" Style="{DynamicResource RowTitle}"/>
+                <TextBlock Text="{Binding Meta}" TextTrimming="CharacterEllipsis" Style="{DynamicResource StatLabel}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0" Visibility="{Binding LevelVisibility}">
+                <ui:Button Content="−" Command="{Binding LevelDown}" Width="28" Height="28" Padding="0" AutomationProperties.Name="Decrease weapon level"/>
+                <TextBlock Text="{Binding LevelText}" Width="42" TextAlignment="Center" VerticalAlignment="Center" Style="{DynamicResource RowTitle}"/>
+                <ui:Button Content="+" Command="{Binding LevelUp}" Width="28" Height="28" Padding="0" AutomationProperties.Name="Increase weapon level"/>
+              </StackPanel>
+              <ui:TextBox x:Name="CountBox" Grid.Column="2" Text="{Binding Count, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CountEnabled}"
+                          Padding="8,5" VerticalAlignment="Center" AutomationProperties.Name="Count"/>
+              <ui:Button Grid.Column="3" Content="{Binding RemoveText}" Command="{Binding RemoveCommand}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                         Padding="10,5" Appearance="Transparent"/>
+            </Grid>
+          </Border>
+          <DataTemplate.Triggers>
+            <DataTrigger Binding="{Binding Changed}" Value="True">
+              <Setter TargetName="Bar" Property="BorderBrush" Value="{DynamicResource AccentTextFillColorPrimaryBrush}"/>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding CountValid}" Value="False">
+              <Setter TargetName="CountBox" Property="BorderBrush" Value="{DynamicResource DangerTextBrush}"/>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Removed}" Value="True">
+              <Setter TargetName="Title" Property="TextDecorations" Value="Strikethrough"/>
+              <Setter TargetName="Title" Property="Opacity" Value="0.55"/>
+            </DataTrigger>
+          </DataTemplate.Triggers>
+        </DataTemplate>
+        """);
+
+    public static DataTemplate FlagTemplate() => Parse<DataTemplate>($$"""
+        <DataTemplate {{Header}}>
+          <Border x:Name="Bar" Padding="12,5,22,5" BorderThickness="3,0,0,0" BorderBrush="Transparent">
+            <Grid>
+              <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,70,0" Style="{DynamicResource RowTitle}"/>
+              <ui:ToggleSwitch IsChecked="{Binding On, Mode=TwoWay}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               AutomationProperties.Name="{Binding Label}"/>
+            </Grid>
+          </Border>
+          <DataTemplate.Triggers>
+            <DataTrigger Binding="{Binding Changed}" Value="True">
+              <Setter TargetName="Bar" Property="BorderBrush" Value="{DynamicResource AccentTextFillColorPrimaryBrush}"/>
+            </DataTrigger>
+          </DataTemplate.Triggers>
+        </DataTemplate>
+        """);
+
+    public static DataTemplate GroupHeaderTemplate() => Parse<DataTemplate>($$"""
+        <DataTemplate {{Header}}>
+          <TextBlock Text="{Binding Name}" Margin="12,16,0,6" Style="{DynamicResource GroupHeader}"/>
+        </DataTemplate>
+        """);
+
+    // Plain rows with a divider: no selection chrome, because the controls inside are what the user touches.
+    public static Style RowStyle() => Parse<Style>($$"""
+        <Style {{Header}} TargetType="ListBoxItem">
+          <Setter Property="Focusable" Value="False"/>
+          <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+          <Setter Property="Template">
+            <Setter.Value>
+              <ControlTemplate TargetType="ListBoxItem">
+                <Border x:Name="Chrome" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" Background="Transparent">
+                  <ContentPresenter/>
+                </Border>
+                <ControlTemplate.Triggers>
+                  <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SidebarItemHoverBrush}"/>
+                  </Trigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
+        </Style>
+        """);
+}
