@@ -73,9 +73,12 @@ int SessionRole() {
     return Field<int>(Slot(0x5540290), 0x124, -1);
 }
 
+std::atomic<int> g_mode_test{-1};  // TestSetMode (smoke aid): a mode set while the game runs
+
 Mode CurrentMode() {
     static const Mode m = ModeFromEnv(std::getenv("BB_PARTY_TRAVEL_CHOICE"));
-    return m;
+    const int t = g_mode_test.load(std::memory_order_relaxed);
+    return t >= 0 ? static_cast<Mode>(t) : m;
 }
 
 enum class Ask { None, Queued, Open, Answered };
@@ -432,6 +435,10 @@ void NoteLocalUse(std::uint32_t id) {
     g_local_at = Now();
 }
 
+void TestSetMode(const char* mode) {
+    g_mode_test = static_cast<int>(ModeFromEnv(mode));
+}
+
 void NoteMapTravel(std::uint32_t id) {
     NoteLocalUse(id);
     g_map_travel_id = id;
@@ -531,7 +538,16 @@ bool Hold(std::uint32_t id, bool mark) {
     }
     const deathrules::GuestLamp gl =
         guest ? deathrules::PlanGuestLamp(true, b2::AtLampSpot(id), b2::LampInLoadedMap(id), mark) : deathrules::GuestLamp::Plain;
-    if (gl == deathrules::GuestLamp::SoloLoad) {
+    // 0.7.7 (CL-bc6bdc): a guest APART from the host (left in the Dream / another area or block by its own alone
+    // trip; the lamp is not in the guest's own loaded block) that chooses a lamp of the block the host stands in: the host ignores such a request (it would only be
+    // moved inside its own map: "the guest loads alone"), so before, with the guest lamps rule on, nobody
+    // loaded and the guest waited 60 s. Such a guest goes there itself, whatever the travel-choice mode: a
+    // re-join at that lamp (one loading screen, the host does not move, nobody rests).
+    static const bool apart_home_on = !(std::getenv("BB_PARTY_APART_HOME") && std::getenv("BB_PARTY_APART_HOME")[0] == '0');
+    const bool apart_home =
+        apart_home_on && guest && !mark && gl == deathrules::GuestLamp::Ask &&
+        stayrules::PlanApartGuestYes(true, ids::EntityMap(id), b2::MemberMap(0)) == stayrules::ApartYes::OwnTrip;
+    if (gl == deathrules::GuestLamp::SoloLoad || apart_home) {
         std::lock_guard<std::mutex> lk(g_mu);
         if (g_p.state != Ask::None) {
             Log("lamp %u: a choice is already pending (lamp %u); this warp is dropped", id, g_p.id);
@@ -543,10 +559,15 @@ bool Hold(std::uint32_t id, bool mark) {
         g_p.mark = mark;
         g_p.solo_load = true;
         const double map_age = Age(g_map_travel_at, Now());
-        g_p.no_rest = !mark && g_map_travel_id.load() == id && map_age >= 0 && map_age <= 5.0;
+        g_p.no_rest = apart_home || (!mark && g_map_travel_id.load() == id && map_age >= 0 && map_age <= 5.0);
         g_p.since = Now();
-        Log("%s %u (guest): in the loaded map: no question, the guest's own loading screen (the host stays)",
-            mark ? "Hunter's Mark to lamp" : "lamp", id);
+        if (apart_home) {
+            Log("lamp %u (guest): the host is in another area and this lamp is in its map: no question, this guest goes "
+                "there itself (a re-join, the host does not move)", id);
+        } else {
+            Log("%s %u (guest): in the loaded map: no question, the guest's own loading screen (the host stays)",
+                mark ? "Hunter's Mark to lamp" : "lamp", id);
+        }
         return true;
     }
     if (CurrentMode() == Mode::Party && host) {

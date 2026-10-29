@@ -1224,6 +1224,15 @@ static void test_nr_loadgap() {
     const LoadGapGate::Clock::time_point t0 = LoadGapGate::Clock::now();
     auto at = [&](int ms) { return t0 + milliseconds(ms); };
     const std::uint64_t peer = 7, other = 9;
+    {  // CL-9142b8: a member that left is expected silence, however long; back in the roster it counts again
+        LoadGapGate g;
+        g.set_gone(peer, true);
+        CHECK(!g.gap_counts(peer, at(0), at(60000), 4.0));
+        CHECK(g.gap_counts(other, at(0), at(60000), 4.0));  // a staying member's real outage still counts
+        CHECK(g.gone(peer) && g.load_touched(peer, at(0)));
+        g.set_gone(peer, false);
+        CHECK(g.gap_counts(peer, at(0), at(5000), 4.0));
+    }
     {  // no load: the whole gap counts, 4 s is the threshold
         LoadGapGate g;
         CHECK(g.gap_counts(peer, at(0), at(4000), 4.0));

@@ -449,6 +449,8 @@ struct TestState {
     u32 start = 0;         // start=ID: first a plain lamp warp there when the save is in another map
     bool map = false;      // map=ID|any (host / solo), guestmap=ID|any (guest): a map travel request instead of the lamp walk
     u32 map_to = 0;        // its lamp; 0 (any): the first lamp map travel may go to
+    std::string then_mode;  // thenmode=party: the travel-choice mode for the second map travel (test aid)
+    u32 then_to = 0;       // then=ID: after the first map travel arrived, a second one to this lamp (test aid: a guest apart)
     bool started = false;
     double wait = 0;       // wait=S: S s more in the first steady world before the setup (another fixture first)
     enum Stage { Title, Settle, Walk, Press, Choose, Wait, Done } stage = Title;
@@ -490,6 +492,8 @@ void TestParse() {
             const std::string val = item.substr(item.find('=') + 1);
             g_t.map_to = val == "any" ? 0 : static_cast<u32>(std::strtoul(val.c_str(), nullptr, 10));
         }
+        else if (item.rfind("thenmode=", 0) == 0) g_t.then_mode = item.substr(9);
+        else if (item.rfind("then=", 0) == 0) g_t.then_to = static_cast<u32>(std::strtoul(item.c_str() + 5, nullptr, 10));
         else if (item.rfind("lamp=", 0) == 0) g_t.lamp = static_cast<u32>(std::strtoul(item.c_str() + 5, nullptr, 10));
         else if (item.rfind("wait=", 0) == 0) g_t.wait = std::strtod(item.c_str() + 5, nullptr);
         else if (item.rfind("start=", 0) == 0) g_t.start = static_cast<u32>(std::strtoul(item.c_str() + 6, nullptr, 10));
@@ -980,6 +984,13 @@ void Tick() {
                     g_t.stage = party_wait ? TestState::Wait : TestState::Done;
                     g_t.at = now;
                     g_t.members_at = 0;
+                    if (g_t.then_to && g_t.map) {
+                        const u32 to = g_t.then_to;
+                        g_t.then_to = 0;
+                        if (!g_t.then_mode.empty()) split::TestSetMode(g_t.then_mode.c_str());
+                        Log("test: then: a second map travel to %u from %s (%s)", to, MapName(s.map_id).c_str(),
+                            RequestMapTravel(to) ? "asked" : "NOT asked");
+                    }
                 }
             }
         } else if (!g_arrival.load_seen && now - g_arrival.at > 60.0) {

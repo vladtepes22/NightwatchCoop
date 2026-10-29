@@ -188,7 +188,7 @@ In your `NightwatchCoop` folder:
 | Co-op (party) saves | `user\savedata_party\` |
 | Automatic party save backups | `user\save_backups\` |
 
-To keep playing a character from Lantern Engine, copy its `user\savedata` folder into this one's
+To keep playing a character from another install, copy its `user\savedata` folder into this one's
 `user\`. The Co-op page can copy your single-player saves into the party saves (the old party
 saves are backed up first), check the party saves after a session, and undo the last session.
 
@@ -205,12 +205,13 @@ clipboard (addresses, user folder, player name and passwords hidden); paste them
 
 ## Credits
 
-Nightwatch Co-op is a modified version of **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)**
-0.9.38, not an official Lantern Engine release, combined with visy's seamless co-op.
+Nightwatch Co-op is a standalone project, developed and released on its own. It is a modified version of
+**Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)**, not an official Lantern Engine release,
+combined with visy's seamless co-op.
 
 | | |
 |---|---|
-| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.6+a53d3dd2 |
+| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.6+be2fda48 |
 | **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | the launcher, the built-in game patches, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, cheats, occlusion culling, trophies, fixes) |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
@@ -219,7 +220,7 @@ Nightwatch Co-op is a modified version of **Lantern Engine by Awaken (https://gi
 | Renderer crash fixes | adapted from [AwesomeObserver](https://github.com/AwesomeObserver/bloodborne_pc) and [deadinside28](https://github.com/deadinside28/bloodborne_pc) |
 | Online backend (in the engine, not used: this build plays offline) | [droogie/bbhost](https://github.com/droogie/bbhost) |
 | FSR 3.1 and FSR 4 on Vulkan | [FireBurn/FSR-Vulkan](https://github.com/FireBurn/FSR-Vulkan) and the AMD FidelityFX SDK |
-| FSR (4.1.2 on Radeon, 3.1.6 elsewhere) | AMD's signed FidelityFX SDK 2.4 for Vulkan, as in Lantern Engine 0.9.39 beta 16 |
+| FSR (4.1.2 on Radeon, 3.1.6 elsewhere) | AMD's signed FidelityFX SDK 2.4 for Vulkan |
 | FSR 4.1.1 on NVIDIA and Intel | [fsr4vk](https://github.com/dvj5411/fsr4vk) |
 | DLSS | NVIDIA DLSS SDK |
 | Sound | [LibAtrac9](https://github.com/Thealexbarney/LibAtrac9) |

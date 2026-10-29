@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstdint>
 #include <map>
+#include <set>
 
 namespace bbnet::nr {
 
@@ -29,6 +30,12 @@ public:
         if (!s.loading && loading) s.last_start = now;
         s.loading = loading;
     }
+    // CL-9142b8: a member that left the party (Party > Leave: its own home load, the roster drops it) is
+    // expected silence on every link to it, until the roster has it again (a rejoin).
+    void set_gone(std::uint64_t peer, bool gone) {
+        if (gone) gone_.insert(peer); else gone_.erase(peer);
+    }
+    bool gone(std::uint64_t peer) const { return gone_.count(peer) != 0; }
     bool loading(std::uint64_t scope) const {
         auto it = scopes_.find(scope);
         return it != scopes_.end() && it->second.loading;
@@ -38,6 +45,7 @@ public:
     // `now`. 0 while a load of either side is up; after a load that ended inside the gap, the time
     // since that load ended; with no load in the gap, the whole gap.
     double effective_silent_s(std::uint64_t peer, Clock::time_point prev, Clock::time_point now) const {
+        if (gone_.count(peer)) return 0;
         Clock::time_point from = prev;
         for (std::uint64_t k : {kOwn, kHost, peer}) {
             auto it = scopes_.find(k);
@@ -55,6 +63,7 @@ public:
     }
     // Whether a load of either side touched the gap at all (for log wording).
     bool load_touched(std::uint64_t peer, Clock::time_point prev) const {
+        if (gone_.count(peer)) return true;
         for (std::uint64_t k : {kOwn, kHost, peer}) {
             auto it = scopes_.find(k);
             if (it == scopes_.end()) continue;
@@ -70,6 +79,7 @@ private:
         Clock::time_point last_start{}, last_end{};
     };
     std::map<std::uint64_t, Scope> scopes_;
+    std::set<std::uint64_t> gone_;
 };
 
 }  // namespace bbnet::nr

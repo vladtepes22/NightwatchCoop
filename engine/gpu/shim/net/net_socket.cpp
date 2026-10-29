@@ -54,6 +54,7 @@
 #include <cstring>
 #include <deque>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -3197,16 +3198,38 @@ void p2p_outage_keepalive(bool on) {
 
 void p2p_load_update(bool own_loading, bool host_loading, const std::vector<std::pair<std::string, bool>>& peers) {
     std::vector<std::pair<std::uint64_t, bool>> keys;
+    // CL-9142b8: a roster name that was there and is not any more has left (Party > Leave): its links
+    // stay silent by design. The name -> link key is remembered from while the peer was online (the
+    // session forgets a peer at its leave).
+    static std::map<std::string, std::uint64_t> known;  // director thread only
+    std::vector<std::uint64_t> gone, back;
+    std::set<std::string> now_names;
     for (const auto& [name, loading] : peers) {
+        now_names.insert(name);
         session::Peer p;
         if (!session::peers_find_online(name, &p)) continue;
-        keys.emplace_back(source_key(p.addr, bswap16(p.port)), loading);
+        const std::uint64_t k = source_key(p.addr, bswap16(p.port));
+        keys.emplace_back(k, loading);
+        known[name] = k;
+        back.push_back(k);
+    }
+    for (auto it = known.begin(); it != known.end();) {
+        if (now_names.count(it->first)) { ++it; continue; }
+        gone.push_back(it->second);
+        it = known.erase(it);
     }
     const auto now = Clock::now();
     std::lock_guard<std::mutex> lk(g_loadgap_mu);
     g_loadgap.set_loading(nr::LoadGapGate::kOwn, own_loading, now);
     g_loadgap.set_loading(nr::LoadGapGate::kHost, host_loading, now);
     for (const auto& [k, l] : keys) g_loadgap.set_loading(k, l, now);
+    for (std::uint64_t k : back) g_loadgap.set_gone(k, false);
+    static const bool off = [] {  // test aid: the behaviour without the leave rule, for A/B smoke runs
+        const char* e = std::getenv("BB_NET_LEAVEGAP_OFF");
+        return e && e[0] == '1';
+    }();
+    if (!off)
+        for (std::uint64_t k : gone) g_loadgap.set_gone(k, true);
 }
 
 void p2p_set_gap_hook(std::function<void(std::uint32_t, std::uint16_t, double)> fn) {
