@@ -120,7 +120,7 @@ namespace BloodborneLauncher.Core
                 OpenLog();
                 // The first line of every log, the Output page's export included: which build ran.
                 Emit($"Nightwatch Co-op {Updater.CurrentLabel}, engine {Updater.LocalEngine() ?? "unknown"}, {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-                process.OutputDataReceived += (_, e) => { if (e.Data != null) Emit(e.Data); };
+                process.OutputDataReceived += (_, e) => { if (e.Data != null && !LiveGame.Take(e.Data)) Emit(e.Data); };
                 process.ErrorDataReceived += (_, e) => { if (e.Data != null) Emit(e.Data); };
                 process.Exited += (_, _) =>
                 {
@@ -140,6 +140,7 @@ namespace BloodborneLauncher.Core
                             Emit("Party save check could not finish: " + e.Message);
                         }
                     }
+                    LiveGame.Clear();
                     CloseLog();
                     _partyUserDir = null;
                     _process = null;
