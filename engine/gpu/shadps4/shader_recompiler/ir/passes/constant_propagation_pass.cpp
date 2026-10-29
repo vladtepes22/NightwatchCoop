@@ -323,14 +323,15 @@ void ConstantPropagation(IR::Block& block, IR::Inst& inst) {
         return;
     case IR::Opcode::UDiv32:
         FoldWhenAllImmediates(inst, [](u32 a, u32 b) {
-            ASSERT_MSG(b != 0, "Folding UDiv32 with divisor 0");
-            return a / b;
+            // Divide by zero must not trap or assert at compile time (a zeroed SRT word can feed
+            // an immediate 0 here); GCN's rcp-based udiv sequence yields all ones.
+            return b == 0 ? 0xFFFFFFFFu : a / b;
         });
         return;
     case IR::Opcode::UMod32:
         FoldWhenAllImmediates(inst, [](u32 a, u32 b) {
-            ASSERT_MSG(b != 0, "Folding UMod32 with modulo 0");
-            return a % b;
+            // a - (a / b) * b with a / b == ~0 and b == 0 leaves a.
+            return b == 0 ? a : a % b;
         });
         return;
     case IR::Opcode::ShiftLeftLogical32:
