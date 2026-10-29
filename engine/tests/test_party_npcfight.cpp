@@ -86,5 +86,26 @@ int main() {
     assert(CovenantOutcomeFlag(1042) && CovenantOutcomeFlag(1348) && CovenantOutcomeFlag(1805));
     assert(!CovenantOutcomeFlag(1367) && !CovenantOutcomeFlag(12410810) && !CovenantOutcomeFlag(1039));
     std::puts("party-npcfight-test: ok");
+
+    // Bell helpers and the boss fog (npcfog2077): a helper still outside the arena after the grace is put at
+    // the entry spot; one inside, or with the fight off / not joined / left / dead, is left alone.
+    {
+        std::set<std::uint32_t> npcs;
+        for (const FogHelper& h : kFogHelpers) {
+            assert(npcs.insert(h.npc).second && h.join && h.leave && h.host_flag && h.region);
+            assert(h.join != h.leave);
+        }
+        assert(kFogHelpers[0].npc == 2300740 && kFogHelpers[0].host_flag == 12304800 && kFogHelpers[0].region == 2302800);
+        assert(PlanFogFollow(true, true, true, false, true, 0.0, 40.0f, false) == FogFollow::wait);
+        assert(PlanFogFollow(true, true, true, false, true, kFogFollowGrace, 40.0f, false) == FogFollow::warp);
+        assert(PlanFogFollow(true, true, true, false, true, 30.0, 3.0f, false) == FogFollow::done);
+        assert(PlanFogFollow(false, true, true, false, true, 30.0, 40.0f, false) == FogFollow::none);   // the rule off
+        assert(PlanFogFollow(true, false, true, false, true, 30.0, 40.0f, false) == FogFollow::none);   // no fight
+        assert(PlanFogFollow(true, true, false, false, true, 30.0, 40.0f, false) == FogFollow::none);   // never joined
+        assert(PlanFogFollow(true, true, true, true, true, 30.0, 40.0f, false) == FogFollow::none);     // it left
+        assert(PlanFogFollow(true, true, true, false, false, 30.0, 40.0f, false) == FogFollow::none);   // dead / off
+        assert(PlanFogFollow(true, true, true, false, true, 30.0, 40.0f, true) == FogFollow::none);     // once per fight
+    }
+
     return 0;
 }

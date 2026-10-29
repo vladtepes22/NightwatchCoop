@@ -4450,15 +4450,25 @@ def phase_npf(only):
     ring = os.environ.get("BB_NPF_RING", "host")
     pvp = os.environ.get("BB_NPF_PVP", "0") == "1"
     solo = os.environ.get("BB_NPF_SOLO", "0") == "1"   # control run: the host alone (no guest), the vanilla behaviour
-    host = ["god", "insight=20", "host_warp=2302950@8" + ("" if solo else "^1"), "host_flag=1340@2%m23_00", "host_flag=72400461@0.5%m23_00", "host_use=4312@1%m23_00", "host_move=-45:-123.9:7:90@4%m23_00", "host_press=0x4000@3%m23_00!",
-            "host_press=0@25%m23_00!", "host_obj=%d@2%%m23_00" % NPF_FOG, "host_press=0x4000@3%m23_00!",
-            "host_press=0x4000@2%m23_00!", "host_press=0@50%m23_00!", "host_press=0@40%m23_00!", "host_press=0@40%m23_00!"]
-    g1 = ["god", "guest_obj=%d@110%%m23_00" % NPF_FOG, "guest_press=0x4000@2%m23_00!", "guest_press=0x4000@2%m23_00!",
+    order = os.environ.get("BB_NPF_ORDER", "host")      # who walks through the beast's fog first: host | guest
+    hfog = (["host_press=0x4@1!", "host_press=0@1!"] + ["host_press=0x4000@3%m23_00!", "host_press=0@2%m23_00!"] * 2 +
+            sum([["host_obj=%d:1.2:%d@2%%m23_00" % (NPF_FOG, ang), "host_press=0x4@1!", "host_press=0@1!",
+                  "host_press=0x4000@3%m23_00!", "host_press=0@2%m23_00!", "host_press=0x4000@3%m23_00!", "host_press=0@2%m23_00!"]
+                 for ang in (180, 90, 270)], [])) if order == "host" else ["host_press=0@12%m23_00!"]
+    host = ["god", "insight=20", ] + ([] if solo else ["host_warp=2302950@8^1"]) + ["host_flag=1340@2%m23_00", "host_flag=72400461@0.5%m23_00", "host_use=4312@1%m23_00", "host_move=-45:-123.9:7:90@4%m23_00", "host_press=0x4000@3%m23_00!",
+            "host_press=0@25%m23_00!", "host_obj=%d@2%%m23_00" % NPF_FOG] + hfog + [
+            "host_press=0@50%m23_00!", "host_press=0@40%m23_00!", "host_press=0@40%m23_00!"]
+    gdelay = 220 if order == "host" else 110
+    g1 = ["god", "guest_obj=%d@%d%%m23_00" % (NPF_FOG, gdelay), "guest_press=0x4000@2%m23_00!", "guest_press=0x4000@2%m23_00!",
           "guest_press=0@60%m23_00!"]
     ienv = ["0:BB_PARTY_DIRECTOR_TEST=" + ",".join(host)] + ([] if solo else ["1:BB_PARTY_DIRECTOR_TEST=" + ",".join(g1)]) + [
             "%d:BB_PARTY_TEST_NPC=%d" % (0 if ring == "host" else 1, NPF_NPC),
             "%d:BB_PARTY_TEST_NPC_MODE=log" % (0 if ring == "host" else 1),
             "%d:BB_PARTY_TEST_NPC_FLAGS=%s" % (0 if ring == "host" else 1, NPF_FLAGS)]
+    if os.environ.get("BB_NPF_TRACE") == "1":   # the instructions of the NPC's two events, every call (host game)
+        ienv += ["0:BB_PARTY_EMEVD_TRACE=1", "0:BB_PARTY_EMEVD_TRACE_ALL=12304450,12304460,12304410,12304810,12304811"]
+    if solo:
+        ienv += ["0:BB_PARTY_TEST_START_LAMP=2302950"]     # start at Old Yharnam's lamp: no party travel
     if pvp:
         ienv += ["0:BB_PARTY_PVP_TEST=on@2,log@200"]
     return dict(
@@ -8015,9 +8025,29 @@ def check_pvn(v, L):
     check_common(v, L, "pvn")
 
 
+NPF_ARENA = (-116.25, -126.33, 38.31)   # the Blood-starved Beast's arena entry spot (region 2302800)
+
+
 def check_npf(v, L):
-    """Phase npf: exploration check (filled in once the arena spot is known)."""
+    """Phase npf: the bell helper Alfred (entity 2300740) must be inside the beast's arena once the fight is on."""
     need(v, L, "npf join: 2 players", 0, r"cooperators 0 -> 1")
+    ring = os.environ.get("BB_NPF_RING", "host")
+    ri = 0 if ring == "host" else 1
+    on = need(v, L, "npf the fight is on (host-entered flag)", 0, r"flag 12304800=1|boss fog: slot \d+ went in first", 0.0)
+    pos = L.all(ri, r"npc 2300740 at \(([-\d.]+), ([-\d.]+), ([-\d.]+)\) disabled 0")
+    best = None
+    for t, line in pos:
+        m = re.search(r"npc 2300740 at \(([-\d.]+), ([-\d.]+), ([-\d.]+)\)", line)
+        if m and on is not None and t >= on:
+            d = sum((float(m.group(k + 1)) - NPF_ARENA[k]) ** 2 for k in range(3)) ** 0.5
+            best = d if best is None else min(best, d)
+    v.step("npf the helper is in the boss room (closest %.0f m to the arena entry spot)" % (best if best is not None else -1),
+           best is not None and best < 15.0, "no position after the fight began" if best is None else "%.1f m" % best)
+    last = pos[-1][1] if pos else ""
+    m = re.search(r"npc 2300740 at \(([-\d.]+), ([-\d.]+), ([-\d.]+)\)", last)
+    if m:
+        d = sum((float(m.group(k + 1)) - NPF_ARENA[k]) ** 2 for k in range(3)) ** 0.5
+        v.step("npf the helper is still in the arena at the end (%.0f m)" % d, d < 60.0, last[:120])
     check_common(v, L, "npf")
 
 
