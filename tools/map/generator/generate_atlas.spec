@@ -1,6 +1,6 @@
 # Atlas Lite freeze; source algorithms remain the original generator scripts.
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata
 
 root = Path(SPECPATH)
 # The engine's game check (game_identity.py): game_check.py and prepare.py, and beside them the
@@ -13,6 +13,9 @@ datas += copy_metadata("constrata")
 binaries = []
 hiddenimports = []
 hiddenimports += ["scipy.linalg", "scipy.sparse"]
+# scipy.spatial (generate_atlas_lite.py) loads compiled submodules of scipy.transform since scipy 1.16
+# (_rigid_transform); a frozen build without them fails with "No module named ..." (NW-1883505).
+hiddenimports += collect_submodules("scipy.spatial")
 
 # zstandard backs Soulstruct's DCX reader; keep it until end-to-end extraction
 # shows that the format path is not reached for the supported game inputs.
