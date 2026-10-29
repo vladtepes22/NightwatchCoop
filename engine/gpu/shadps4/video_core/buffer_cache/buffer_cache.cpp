@@ -1972,6 +1972,34 @@ void BufferCache::ProcessIdleBlocks() {
                     demotions_waiting.push_back({block, tick, false, true, true});
                 }
             }
+        } else if (level >= 1) {
+            // bbport (small-VRAM diagnostic, NW-1562c69 / NW-7a799d8): VRAM is tight, free slots exist
+            // and nothing was evacuated. One line a minute says which condition held it back.
+            static u32 last_note = 0;
+            if (now - last_note >= 60) {
+                last_note = now;
+                u32 current = 0, empty = 0, recent = 0, usable = 0;
+                for (const auto& [memory, chunk] : residency_chunks) {
+                    if (memory == static_cast<VkDeviceMemory>(residency_memory)) {
+                        ++current;
+                    } else if (chunk.used == 0) {
+                        ++empty;
+                    } else if (now - chunk.evacuated_second < (level >= 2 ? 10u : 60u)) {
+                        ++recent;
+                    } else {
+                        ++usable;
+                    }
+                }
+                std::printf("Guest memory: no evacuation at level %d: %llu MiB free slots, %zu chunks "
+                            "(current %u, empty %u, evacuated lately %u, candidates %u); sparsest "
+                            "candidate holds %llu MiB, the other chunks' free slots take %llu MiB\n",
+                            level, static_cast<unsigned long long>(free_slot_count * block_size >> 20),
+                            residency_chunks.size(), current, empty, recent, usable,
+                            sparsest == residency_chunks.end()
+                                ? 0ull
+                                : static_cast<unsigned long long>(sparsest->second.used >> 20),
+                            static_cast<unsigned long long>(free_elsewhere >> 20));
+            }
         }
     }
     FreeEmptyChunks(now);

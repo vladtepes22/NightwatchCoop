@@ -266,9 +266,16 @@ std::atomic<bool> g_logged{false};
 
 void SetState(const State& now) {
     static int shown = -1;
-    if (!now.keys && shown != int(now.xbox)) {
-        shown = int(now.xbox);
-        host_log("button prompts: %s controller icons", now.xbox ? "Xbox" : "the game's (PlayStation)");
+    // One line per change, with the two settings that decide it (NW-c6e7544: "keyboard prompts never
+    // show" is PC controls off, or the mode not reaching the game; the log did not say which).
+    const auto& settings = BbSettings::Get();
+    const int note = int(now.keys) | int(now.xbox) << 1 | settings.pc_controls << 2 |
+                     settings.button_prompts.load(std::memory_order_relaxed) << 3;
+    if (shown != note) {
+        shown = note;
+        host_log("button prompts: %s (button_prompts %d: 0 auto, 1 keyboard, 2 controller; pc_controls %d)",
+                 now.keys ? "keyboard keys" : now.xbox ? "Xbox controller icons" : "the game's (PlayStation) icons",
+                 settings.button_prompts.load(std::memory_order_relaxed), int(settings.pc_controls));
     }
     g_state = now;
     g_have_state = true;
