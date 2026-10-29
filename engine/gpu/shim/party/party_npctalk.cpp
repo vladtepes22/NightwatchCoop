@@ -648,7 +648,10 @@ void Send(PartyLink* link, PartyRole role, TalkEvent e) {
 
 void ShowLine(const TalkEvent& e, float dist, double now) {
     const std::string header = CaptionFor(e.who, e.msg ? e.msg : e.talk);
-    const bool native = !EnvOff("BB_PARTY_NPC_TALK_SUBTITLE");
+    // A line with no text in this game's talk FMG (voice-only grunts; the talker's own game shows nothing
+    // either): never ask the game for its subtitle, it draws the "?TalkMsg?" missing-text placeholder.
+    const bool has_text = !TalkText(e.msg).empty();
+    const bool native = has_text && !EnvOff("BB_PARTY_NPC_TALK_SUBTITLE");
     StopVoice();
     g_remote.active = true;
     g_remote.msg = e.msg;
@@ -794,7 +797,11 @@ void Handle(const TalkEvent& e, const GameSnapshot& s, PartyRole role, PartyLink
         break;
     case Kind::Choice: {
         const std::string text = MenuRowText(e.msg);
-        const std::string line = e.who + " chose: " + (text.empty() ? "#" + std::to_string(e.msg) : text);
+        if (text.empty()) {
+            Log("choice from %s dropped: row %u has no text here", e.who.c_str(), e.msg);
+            break;
+        }
+        const std::string line = e.who + " chose: " + text;
         SetNote(CaptionFor(e.who, e.talk ? e.talk : e.msg), line);
         Log("choice shown: %s", line.c_str());
         break;
