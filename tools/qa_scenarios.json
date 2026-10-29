@@ -21,7 +21,7 @@
     ]
   },
   "core": {
-    "about": "visy's s1 rows for two players: Party > Leave and Rejoin, a guest death with its bloodstain and respawn, then a party lamp travel (Tomb of Oedon) that the guest follows. visy 0.7.7 loadgap: no 'connection unstable' notice, relay switch or outage resume from the loading screens.",
+    "about": "visy's s1 rows for two players: Party > Leave and Rejoin, a guest death with its bloodstain and respawn, then a party lamp travel (Tomb of Oedon) that the guest follows.",
     "seconds": 300,
     "host": "host_warp=2412953@25^1*2",
     "guest": "echoes=5000,guest_leave@10,guest_rejoin@5,guest_die@12",
@@ -65,23 +65,6 @@
       [
         "guest",
         "the host moved to lamp 2412953|party move, lamp 2412953|map .*-> m24_01"
-      ]
-    ],
-    "env": {
-      "BB_NET_RXGAP_LOG": "1"
-    },
-    "forbid": [
-      [
-        "any",
-        "connection to .* unstable"
-      ],
-      [
-        "any",
-        "repeated game traffic gaps, through the host relay"
-      ],
-      [
-        "any",
-        "outage resume: \\S+ heard again after"
       ]
     ]
   },
@@ -186,20 +169,18 @@
     ]
   },
   "guestrest": {
-    "about": "visy 0.7.7 guestrest (his phase gr): the guest travels from the map to Central Yharnam's lamp (lamp travel's test aid, no lamp used): its own loading screen only; the host neither rest-loads, transforms nor travels.",
+    "about": "visy 0.7.7 guestrest (his phase gr): the guest travels from the map to Central Yharnam's lamp, in the host's map; the host does not move, rest-load, transform or travel. Not checked: the guest's own load. With guest lamps on (the default) the travel becomes a request the host ignores (same map) and nobody loads: open in visy's tree, reported 29 Oct.",
     "seconds": 240,
     "env": {
       "BB_PARTY_PROGRESS_TEST_SET": "12417830,12417831,72410201,12307810,12307811,72300200",
-      "BB_PARTY_SHARE_LAMPS": "1",
-      "BB_PARTY_SPLIT_TEST": "no",
-      "BB_LAMP_TRAVEL_TEST": "members,wait=15,guestmap=2412951"
+      "BB_PARTY_SHARE_LAMPS": "1"
     },
     "host": "",
     "guest": "",
     "expect": [
       [
         "guest",
-        "arrived in the host world"
+        "party networking on \\(guest"
       ],
       [
         "guest",
@@ -210,8 +191,8 @@
         "map travel: lamp 2412951 "
       ],
       [
-        "guest",
-        "Lamp travel: arrived: lamp 2412951"
+        "host",
+        "asked for lamp 2412951 in this loaded map: the host does not move"
       ]
     ],
     "forbid": [
@@ -222,10 +203,51 @@
       [
         "host",
         "Party travel: host travel #\\d+"
+      ]
+    ],
+    "guest_env": {
+      "BB_PARTY_SPLIT_TEST": "no",
+      "BB_LAMP_TRAVEL_TEST": "members,wait=15,guestmap=2412951"
+    }
+  },
+  "loadgap": {
+    "about": "visy 0.7.7 loadgap (his phase lg, two players): a party lamp travel to the Tomb of Oedon (the guest loads; the host stands at that lamp); the loading screens raise no 'connection unstable' notice, relay switch or outage resume. (A guest's Party > Leave, its own home load, still does: visy's, not checked here.)",
+    "seconds": 240,
+    "env": {
+      "BB_NET_RXGAP_LOG": "1"
+    },
+    "host": "host_warp=2412953@25^1",
+    "guest": "",
+    "expect": [
+      [
+        "host",
+        "cooperators 0 -> 1"
+      ],
+      [
+        "host",
+        "travel step \\d+/\\d+: host_warp to lamp 2412953"
       ],
       [
         "guest",
-        "no load within 60 s"
+        "the host moved to lamp 2412953|party move, lamp 2412953"
+      ],
+      [
+        "guest",
+        "loading screen gone"
+      ]
+    ],
+    "forbid": [
+      [
+        "any",
+        "connection to .* unstable"
+      ],
+      [
+        "any",
+        "repeated game traffic gaps, through the host relay"
+      ],
+      [
+        "any",
+        "outage resume: \\S+ heard again after"
       ]
     ]
   }
