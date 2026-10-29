@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace party {
 
@@ -33,6 +34,11 @@ bool stun_query(std::intptr_t sock, const std::string& server, std::uint16_t loc
 // The whole chain above. `upnp_external_ip` is UpnpResult::external_ip (may be empty).
 PublicAddress resolve_public_address(std::uint16_t party_port, std::intptr_t udp_sock = -1,
                                      const std::string& upnp_external_ip = {});
+
+// Splits "host:port" / "host" (default_port) with strict checks: port 1-65535 and digits only, host
+// of [A-Za-z0-9._-] up to 253 chars (so no IPv6 / bracket forms, NUL, spaces). No DNS.
+bool split_host_port(std::string_view host_port, std::uint16_t default_port, std::string* host,
+                     std::uint16_t* port);
 
 // "host:port" / "host" (default_port) -> IPv4 (DNS allowed). False when it does not resolve.
 bool resolve_ipv4(const std::string& host_port, std::uint16_t default_port, std::array<std::uint8_t, 4>* ip,

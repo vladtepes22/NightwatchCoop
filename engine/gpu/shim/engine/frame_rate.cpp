@@ -221,6 +221,68 @@ bool MakeDataWritable() {
 float Rounded(float rate) {
     return std::clamp(std::round(rate), kSlowest, g_target);
 }
+
+// bbport (visy 0.7.7 CL-6857c0, deadinside28's ClothStiffnessFactor, bloodborne_pc 0fc2921c, their
+// issue #58; GPL-2.0-or-later): Havok's stiffness factor of a cloth constraint set for one substep
+// (+0x1167a80, replaced). `mode` 2 adapts the constraints' stiffness to how often they are solved,
+// (substeps x a x b)^-1.725 (a, b the instance's scales); for a set of type 8 the iteration's share
+// instead, for types 5 and 10 only the last substep. The substeps are per frame, so above 30 FPS the
+// cloth is solved more often by the same factor and is stiffer by as much (cloaks and hair flutter).
+// The factor here is the game's x the frame's length in 30 FPS frames (30 / the rate the game holds):
+// the cloth is pulled as far per second as at 30 FPS. BB_CLOTH_STIFFNESS=0: off.
+constexpr std::size_t kClothFactor = 0x1167a80;
+// push rbp; mov rbp, rsp; push r15; push r14; push rbx; push rax; vmovaps xmm2, xmm0 (14 bytes)
+constexpr std::uint8_t kClothFactorCode[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41,
+                                             0x56, 0x53, 0x50, 0xc5, 0xf8, 0x28, 0xd0};
+static_assert(sizeof kClothFactorCode == 14, "the jump below covers exactly these instructions");
+constexpr std::size_t kClothExponent = 0x48d7bbc;
+float g_cloth_exponent = -1.725f;
+std::atomic<float> g_cloth_rate{30.0f};
+std::atomic<std::uint64_t> g_cloth_calls{0};
+
+__attribute__((sysv_abi)) float ClothStiffnessFactor(const std::uint8_t* set, int mode, int iteration, int substeps,
+                                                     float a, float b) {
+    std::uint32_t type;
+    std::memcpy(&type, set + 0x18, 4);
+    const float frames = 30.0f / std::max(g_cloth_rate.load(std::memory_order_relaxed), kSlowest);
+    if (g_cloth_calls.fetch_add(1, std::memory_order_relaxed) == 20000)
+        host_log("Frame rate: cloth stiffness factor: constraint type %u, %.0f FPS: factor x%.3f", type,
+                 double(30.0f / frames), double(frames));
+    const bool adapts = mode == 2 && !(substeps == 1 && a == 1.0f && b == 1.0f);
+    if (adapts && type == 8) return float(iteration + 1) / float(substeps);
+    if (adapts && (type == 5 || type == 10)) return substeps - 1 == iteration ? 1.0f : 0.0f;
+    const float game = adapts ? std::pow(float(substeps) * a * b, g_cloth_exponent) : 1.0f;
+    if (type == 5 || type == 8 || type == 10) return game;
+    return game * frames;
+}
+
+bool InstallClothFactor(std::uint8_t* image, std::size_t size) {
+    const char* v = std::getenv("BB_CLOTH_STIFFNESS");
+    if (v && *v && std::strtof(v, nullptr) == 0.0f) {
+        host_log("Frame rate: cloth stiffness factor off (BB_CLOTH_STIFFNESS=0)");
+        return false;
+    }
+    if (size < kClothExponent + 4 || std::memcmp(image + kClothFactor, kClothFactorCode, sizeof kClothFactorCode) != 0) {
+        host_log("Frame rate: +0x%zx is not the expected code: cloth stiffness factor not installed", kClothFactor);
+        return false;
+    }
+    std::memcpy(&g_cloth_exponent, image + kClothExponent, 4);
+    if (!(g_cloth_exponent < 0.0f && g_cloth_exponent > -4.0f)) {
+        host_log("Frame rate: cloth exponent %.3f unexpected: cloth stiffness factor not installed",
+                 double(g_cloth_exponent));
+        return false;
+    }
+    // jmp [rip + 0]; the handler's address (14 bytes, whole instructions; nothing jumps into them).
+    std::uint8_t jump[14] = {0xff, 0x25, 0, 0, 0, 0};
+    const auto target = reinterpret_cast<std::uint64_t>(&ClothStiffnessFactor);
+    std::memcpy(jump + 6, &target, 8);
+    if (!WriteCode(image + kClothFactor, jump, sizeof jump)) {
+        host_log("Frame rate: cloth stiffness factor not installed (code not writable)");
+        return false;
+    }
+    host_log("Frame rate: cloth stiffness factor on (BB_CLOTH_STIFFNESS=0 turns it off)");
+    return true;
+}
 }
 
 bool Install(std::uint8_t* image, std::size_t size) {
@@ -266,6 +328,8 @@ bool Install(std::uint8_t* image, std::size_t size) {
     for (const Site* s : g_data) Store(image + s->offset, Value(s->kind, g_target));
     g_code_rate = g_target;
     g_held = g_target;
+    g_cloth_rate.store(g_target, std::memory_order_relaxed);
+    InstallClothFactor(image, size);
     host_log("Frame rate: native at %.0f FPS%s: %zu code, %zu data, %d target and %d fixed sites (%d left as they were); "
              "%s",
              double(g_target), g_uncapped ? " (uncapped limit)" : "", g_code.size(), g_data.size(), fixed, held, skipped,
@@ -281,6 +345,7 @@ void Tick() {
     const float rate = std::clamp(1.0f / frame, kSlowest, g_target);
     g_held = g_held + (rate - g_held) * 0.05f;
     g_shown.store(g_held, std::memory_order_relaxed);
+    g_cloth_rate.store(g_held, std::memory_order_relaxed);
     if (!g_data_writable) {
         if (!MakeDataWritable()) {
             host_log("Frame rate: the data sites cannot be made writable; they stay at %.0f FPS", double(g_target));

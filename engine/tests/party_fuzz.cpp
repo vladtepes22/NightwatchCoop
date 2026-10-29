@@ -52,7 +52,10 @@
 #include "party/party_ping.h"
 #include "party/party_dsummon.h"
 #include "party/party_desync.h"
+#include "party/party_addr.h"
 #include "party/party_code.h"
+#include "party/party_lan.h"
+#include "party/party_rdv.h"
 #include "party/party_ids.h"
 #include "party/party_crypto.h"
 #include "party/party_guestsvc.h"
@@ -618,6 +621,272 @@ void run_code(Rng& r, const Corpus& c) {
     (void)party::parse_identity_file(s, "patch", &h, &names);
     std::array<u8, 4> ip{};
     if (party::parse_ipv4(s, &ip)) INVARIANT(party::format_ipv4(ip).size() <= 15);
+}
+
+// ---- 0.7.7 lanfuzz: LAN discovery datagrams, address / code fields, join rules, DHT replies ----
+
+const party::crypto::Key& lan_key() {
+    static const party::crypto::Key k = [] {
+        const std::array<u8, 8> secret{1, 2, 3, 4, 5, 6, 7, 8};
+        return party::crypto::derive_party_key("lan", secret.data());
+    }();
+    return k;
+}
+const party::crypto::Key& lan_key2() {
+    static const party::crypto::Key k = [] {
+        const std::array<u8, 8> secret{8, 7, 6, 5, 4, 3, 2, 1};
+        return party::crypto::derive_party_key("other", secret.data());
+    }();
+    return k;
+}
+
+// Discovery datagrams: probes and replies (valid, then mutated / truncated / padded / re-tagged),
+// every receive-side entry (is_lan, verify_probe, parse_reply, answer_probe with a limiter).
+void run_lan(Rng& r, const Corpus&) {
+    using namespace party::lan;
+    Nonce nonce{};
+    for (auto& b : nonce) b = static_cast<u8>(r.next());
+    const std::array<u8, 4> ip{static_cast<u8>(r.next()), static_cast<u8>(r.next()), static_cast<u8>(r.next()),
+                               static_cast<u8>(r.next())};
+    const std::uint16_t port = static_cast<std::uint16_t>(r.next());
+    const party::crypto::Key& key = r.chance(2) ? lan_key() : lan_key2();
+    Bytes d;
+    const bool reply = r.chance(2);
+    if (reply) {
+        const auto e = encode_reply(key, nonce, ip, port);
+        d.assign(e.begin(), e.end());
+    } else {
+        const auto e = encode_probe(key, nonce);
+        d.assign(e.begin(), e.end());
+    }
+    const Bytes good = d;
+    switch (r.below(8)) {
+    case 0: break;
+    case 1: d.resize(r.below(d.size() + 1)); break;                                    // truncated
+    case 2: d.resize(d.size() + 1 + r.below(2000), static_cast<u8>(r.next())); break;  // oversized
+    case 3: d[r.below(4)] ^= static_cast<u8>(1 + r.below(255)); break;                 // wrong magic / version / type
+    case 4: d[4 + r.below(d.size() - 4)] ^= static_cast<u8>(1u << r.below(8)); break;  // nonce / body / tag bit
+    case 5: d.insert(d.begin(), good.begin(), good.begin() + 4); break;                // header twice
+    case 6:                                                                            // random bytes behind a header
+        for (std::size_t i = 4; i < d.size(); ++i) d[i] = static_cast<u8>(r.next());
+        break;
+    default: mutate_bytes(r, d, {good}); break;
+    }
+    set_input("lan", d.data(), d.size());
+    const u8* p = d.empty() ? nullptr : d.data();
+    (void)is_lan(p, d.size());
+    Nonce got{};
+    const bool probe_ok = verify_probe(key, p, d.size(), &got);
+    std::array<u8, 4> said{};
+    std::uint16_t hp = 0;
+    const bool reply_ok = parse_reply(key, nonce, p, d.size(), &said, &hp);
+    ReplyLimiter lim;
+    const auto ans = answer_probe({lan_key(), lan_key2()}, p, d.size(), ip, port, &lim, Clock::now());
+    if (d == good) {
+        // the unmodified datagram is accepted by its own key only, and only for its kind
+        INVARIANT(reply ? (reply_ok == (port != 0) && !probe_ok) : (probe_ok && !reply_ok && !ans.empty()));
+        if (reply_ok) INVARIANT(said == ip && hp == port);
+        if (probe_ok) INVARIANT(got == nonce);
+    } else {
+        // any other bytes: a different header, nonce or tag, never accepted
+        INVARIANT(!probe_ok && !reply_ok);
+    }
+    if (d.size() != kProbeSize) INVARIANT(ans.empty() && !probe_ok);
+    if (!ans.empty()) {
+        INVARIANT(ans.size() == kReplySize && ans[3] == kTypeReply && d.size() == kProbeSize);
+        Nonce asked{};
+        std::memcpy(asked.data(), d.data() + 4, 8);
+        std::array<u8, 4> a2{};
+        std::uint16_t p2 = 0;
+        const party::crypto::Key& k2 = verify_probe(lan_key(), p, d.size(), nullptr) ? lan_key() : lan_key2();
+        INVARIANT(port == 0 || parse_reply(k2, asked, ans.data(), ans.size(), &a2, &p2));
+    }
+    // a limiter never allows more than its burst in one instant
+    ReplyLimiter l2;
+    int allowed = 0;
+    const auto t0 = Clock::now();
+    for (int i = 0; i < 50; ++i) allowed += l2.allow(t0) ? 1 : 0;
+    INVARIANT(allowed <= kRepliesPerSecond);
+}
+
+// A text from address-like pieces (IPv4 forms, ports at the edges, IPv6, junk).
+std::string address_text(Rng& r) {
+    static const std::string hosts[] = {"1.2.3.4",    "0.0.0.0",  "255.255.255.255", "256.1.1.1",       "1.2.3",
+                                        "1.2.3.4.5",  "01.02.03.04", "1..2.3",       ".1.2.3",          "1.2.3.",
+                                        "999999999999", "0x7f.0.0.1", "-1.2.3.4",    "::1",             "[::1]",
+                                        "[fe80::1%25eth0]", "2001:db8::1", "localhost", "a",            "a.b-c_d",
+                                        "",           " ",        "1.2.3.4 ",       "\xff\xfe",        "\xc3\x28",
+                                        std::string("1.2.3.4\0evil", 12)};
+    static const char* const ports[] = {"0",     "1",          "9307",  "65535", "65536", "65537",
+                                        "-1",    "+80",        " 80",   "80abc", "0x50",  "99999",
+                                        "100000", "4294967296", "18446744073709551617", "", "00080", "\xef\xbc\x98\xef\xbc\x90"};
+    std::string s = hosts[r.below(std::size(hosts))];
+    const int form = static_cast<int>(r.below(5));
+    if (form > 0) s += std::string(":") + ports[r.below(std::size(ports))];
+    if (form == 2) s += std::string(":") + ports[r.below(std::size(ports))];
+    if (r.chance(6)) s.insert(r.below(s.size() + 1), 1, static_cast<char>(r.next()));
+    if (r.chance(20)) s.append(r.below(4000), 'a');
+    return s;
+}
+
+// Address and code fields: host:port split, party / LAN codes, secret hex. No DNS: only strings the
+// splitter accepts as dotted IPv4 reach resolve_ipv4.
+void run_addr(Rng& r, const Corpus& c) {
+    party::set_local_ipv4_provider([](std::array<u8, 4>* o) { *o = {192, 168, 1, 77}; return true; });  // no adapter query
+    const std::string s = r.chance(3) ? text_of(next_input(r, c, false)) : address_text(r);
+    set_input("addr", s);
+    std::string host;
+    std::uint16_t port = 7;
+    std::array<u8, 4> ip{};
+    std::uint16_t p2 = 0;
+    if (party::split_host_port(s, 9307, &host, &port)) {
+        INVARIANT(port != 0 && !host.empty() && host.size() <= 253);
+        INVARIANT(host.find('\0') == std::string::npos && host.find(':') == std::string::npos);
+        if (party::parse_ipv4(host, &ip)) {
+            INVARIANT(party::resolve_ipv4(s, 9307, &ip, &p2) && p2 == port);
+            INVARIANT(party::format_ipv4(ip).size() <= 15);
+        }
+    } else {
+        INVARIANT(!party::resolve_ipv4(s, 9307, &ip, &p2));
+    }
+    party::PartyCode pc;
+    std::string err;
+    if (party::decode_party_code(s, &pc, &err)) {
+        INVARIANT(pc.port != 0 && pc.address().size() < s.size() + 64);
+        if (!pc.plain) {
+            // a coded address re-encodes to a code that decodes to the same fields
+            party::PartyCode again;
+            const std::string re = party::encode_party_code(pc);
+            INVARIANT(party::decode_party_code(re, &again, &err));
+            INVARIANT(again.ipv4 == pc.ipv4 && again.port == pc.port && again.has_ipv6 == pc.has_ipv6);
+            if (pc.lan_partial) party::fill_lan_prefix(&pc, {10, 0, 0, 5});
+            INVARIANT(!pc.address().empty());
+        }
+    } else {
+        INVARIANT(!err.empty());
+    }
+    // LAN codes: made from a random secret / port / flags, then mangled
+    std::array<u8, 8> secret{};
+    for (auto& b : secret) b = static_cast<u8>(r.next());
+    std::string lan;
+    const std::uint8_t flags = static_cast<std::uint8_t>(r.below(16));
+    const std::uint16_t lp = static_cast<std::uint16_t>(r.next());
+    if (party::make_lan_code(lp, secret, flags, &lan)) {
+        Bytes b(lan.begin(), lan.end());
+        if (r.chance(2)) mutate_bytes(r, b, {});
+        const std::string m = text_of(b);
+        set_input("addr", m);
+        party::PartyCode q;
+        if (party::decode_party_code(m, &q, &err)) INVARIANT(q.port != 0);
+        if (m == lan && lp != 0) INVARIANT(party::decode_party_code(m, &q, &err) && q.port == lp && (q.lan_partial || q.version < 3));
+    }
+    std::array<u8, 8> sec2{};
+    (void)party::parse_secret_hex(s, &sec2);
+    std::array<u8, 8> pick{};
+    (void)party::pick_host_secret(nullptr, s, s, &pick);
+}
+
+// The join rules / identity strings: identity_mismatch (split_rules inside) with hostile rules,
+// names and builds on both sides. Output stays bounded by the inputs.
+void run_rules(Rng& r, const Corpus& c) {
+    static const char* const parts[] = {"max 4 players", "; join: ", "; ", "=", "A=on", "B=Right away", "4p:x", ";",
+                                        "; join:", "join: ", "==", "=;", "; ; ", "\n", "\xff", "a=b=c", ""};
+    auto make = [&]() {
+        std::string s;
+        const std::size_t n = r.below(12);
+        for (std::size_t i = 0; i < n; ++i) {
+            s += parts[r.below(std::size(parts))];
+            if (r.chance(5)) s += text_of(next_input(r, c, false)).substr(0, 40);
+        }
+        if (r.chance(60)) s.append(r.below(20000), '=');
+        return s;
+    };
+    party::LinkConfig h, g;
+    h.rules = make();
+    g.rules = r.chance(3) ? h.rules : make();
+    h.build_id = text_of(next_input(r, c, false)).substr(0, 64);
+    g.build_id = r.chance(2) ? h.build_id : "";
+    const std::size_t names = r.below(6);
+    for (std::size_t i = 0; i < names; ++i) {
+        h.patch_names.push_back(address_text(r));
+        g.mod_names.push_back(make().substr(0, 50));
+        h.hook_names.push_back(g.build_id);
+    }
+    h.patches_hash[0] = static_cast<u8>(r.next());
+    g.hooks_hash[3] = static_cast<u8>(r.next());
+    set_input("rules", h.rules + "\n" + g.rules);
+    const std::string m = party::identity_mismatch(h, g);
+    std::size_t in = h.rules.size() + g.rules.size() + h.build_id.size() + 4096;
+    for (const auto& n : h.patch_names) in += n.size();
+    for (const auto& n : g.mod_names) in += n.size();
+    for (const auto& n : h.hook_names) in += n.size();
+    INVARIANT(m.size() <= in * 4);
+    const party::LinkConfig same = h;
+    INVARIANT(party::identity_mismatch(h, same).empty());
+}
+
+// DHT rendezvous replies (bencode): decode and the Lookup state machine on hostile answers.
+void run_rdv(Rng& r, const Corpus&) {
+    using namespace party::rdv;
+    Id self{}, target{};
+    for (auto& b : self) b = static_cast<u8>(r.next());
+    for (auto& b : target) b = static_cast<u8>(r.next());
+    std::string d;
+    switch (r.below(4)) {
+    case 0: d = make_get_peers("aa", self, target); break;
+    case 1:
+        d = make_announce("aa", self, target, static_cast<std::uint16_t>(r.next()), std::string(r.below(200), 'k'));
+        break;
+    case 2: {
+        BNode m, rr, vals;
+        m.kind = rr.kind = BNode::Dict;
+        vals.kind = BNode::List;
+        m.dict.emplace_back("t", BNode::str("aa"));
+        m.dict.emplace_back("y", BNode::str("r"));
+        rr.dict.emplace_back("id", BNode::str(std::string(20, 'x')));
+        rr.dict.emplace_back("token", BNode::str(std::string(r.below(100), 't')));
+        const std::size_t nv = r.below(300);
+        for (std::size_t i = 0; i < nv; ++i) vals.list.push_back(BNode::str(std::string(r.below(9), 'v')));
+        rr.dict.emplace_back("values", vals);
+        rr.dict.emplace_back("nodes", BNode::str(std::string(r.below(26 * 100), 'n')));
+        m.dict.emplace_back("r", rr);
+        d = bencode(m);
+        break;
+    }
+    default: {
+        const std::size_t n = 1 + r.below(6000);  // deep / wide nests of l / d / i / digits
+        static const char al[] = "lldi:e0123456789-";
+        for (std::size_t i = 0; i < n; ++i) d += al[r.below(sizeof al - 1)];
+        break;
+    }
+    }
+    Bytes b(d.begin(), d.end());
+    if (r.chance(2)) mutate_bytes(r, b, {});
+    set_input("rdv", b.data(), b.size());
+    BNode out;
+    if (bdecode(b.data(), b.size(), &out)) {
+        const std::string re = bencode(out);
+        BNode again;
+        INVARIANT(bdecode(reinterpret_cast<const u8*>(re.data()), re.size(), &again));
+    }
+    Reply rep;
+    if (parse_reply(b.data(), b.size(), &rep)) INVARIANT(rep.values.size() <= 200 && rep.nodes.size() <= 64);
+    Lookup::Options o;
+    o.allow_private = r.chance(2);
+    o.announce = r.chance(2);
+    const auto now = Clock::now();
+    Lookup lk(target, self, o, now);
+    Endpoint seed;
+    seed.addr = 0x0100007f;
+    seed.port = 6881;
+    lk.seed(seed);
+    std::vector<party::rudp::Datagram> sent;
+    lk.poll(now, sent);
+    for (int i = 0; i < 4; ++i) {
+        lk.on_datagram(seed, b.data(), b.size(), now);
+        lk.poll(now + std::chrono::milliseconds(10 * i), sent);
+    }
+    INVARIANT(lk.peers().size() <= 4096 && sent.size() < 5000);
 }
 
 void run_stun(Rng& r, const Corpus& c) {
@@ -1527,6 +1796,66 @@ void regress_json() {
     CHECK(bbnet::party::int_of(o, "n", 0) > 0 && bbnet::party::int_of(o, "m", 0) < 0);
 }
 
+// 0.7.7 lanfuzz: address fields, LAN datagrams, join rules, DHT replies.
+void regress_lanfuzz() {
+    std::string h;
+    std::uint16_t p = 0;
+    CHECK(party::split_host_port("1.2.3.4:9307", 1, &h, &p) && h == "1.2.3.4" && p == 9307);
+    CHECK(party::split_host_port("example.com", 77, &h, &p) && h == "example.com" && p == 77);
+    CHECK(party::split_host_port("1.2.3.4:65535", 1, &h, &p) && p == 65535);
+    CHECK(!party::split_host_port("1.2.3.4:0", 1, &h, &p));
+    CHECK(!party::split_host_port("1.2.3.4:65536", 1, &h, &p));
+    CHECK(!party::split_host_port("1.2.3.4:80abc", 1, &h, &p));  // strtol used to take "80"
+    CHECK(!party::split_host_port("1.2.3.4:+80", 1, &h, &p));
+    CHECK(!party::split_host_port("1.2.3.4: 80", 1, &h, &p));
+    CHECK(!party::split_host_port("1.2.3.4:", 1, &h, &p));
+    CHECK(!party::split_host_port("1.2.3.4:123456", 1, &h, &p));
+    CHECK(!party::split_host_port(":9307", 1, &h, &p));
+    CHECK(!party::split_host_port("", 1, &h, &p));
+    CHECK(!party::split_host_port("::1", 1, &h, &p));
+    CHECK(!party::split_host_port("[::1]:9307", 1, &h, &p));
+    CHECK(!party::split_host_port(std::string("1.2.3.4 evil:9307", 17), 1, &h, &p));  // the resolver stopped at the NUL
+    CHECK(!party::split_host_port(std::string(300, 'a'), 1, &h, &p));
+    std::array<u8, 4> ip{};
+    std::uint16_t port = 0;
+    CHECK(party::resolve_ipv4("10.1.2.3:4000", 9307, &ip, &port) && port == 4000 && ip[3] == 3);
+    CHECK(!party::resolve_ipv4("10.1.2.3:70000", 9307, &ip, &port));
+    CHECK(!party::resolve_ipv4(std::string("127.0.0.1 x", 11), 9307, &ip, &port));
+    // LAN datagrams: only the exact size, magic, version, type and tag
+    using namespace party::lan;
+    Nonce nonce{1, 2, 3, 4, 5, 6, 7, 8};
+    const auto probe = encode_probe(party_key(), nonce);
+    Nonce got{};
+    CHECK(verify_probe(party_key(), probe.data(), probe.size(), &got) && got == nonce);
+    CHECK(!verify_probe(party_key(), probe.data(), probe.size() - 1, &got));
+    CHECK(!verify_probe(party_key(), probe.data(), 0, &got));
+    CHECK(!verify_probe(party_key(), nullptr, 0, &got));
+    Bytes big(probe.begin(), probe.end());
+    big.resize(1500);
+    CHECK(!verify_probe(party_key(), big.data(), big.size(), &got));
+    CHECK(answer_probe({party_key()}, big.data(), big.size(), {1, 2, 3, 4}, 9307, nullptr, Clock::now()).empty());
+    Bytes bad(probe.begin(), probe.end());
+    bad[2] = kVersion + 1;
+    CHECK(!verify_probe(party_key(), bad.data(), bad.size(), &got));
+    const auto zero_port = encode_reply(party_key(), nonce, {1, 2, 3, 4}, 0);
+    CHECK(!parse_reply(party_key(), nonce, zero_port.data(), zero_port.size(), nullptr, nullptr));
+    CHECK(!is_lan(probe.data(), 3));
+    // join rules: hostile separators never throw or loop
+    party::LinkConfig a, b;
+    a.rules = "max 4 players; join: ; join: =; ; ==; x";
+    b.rules = std::string("max 4 players; join: ") + std::string(5000, '=');
+    (void)party::identity_mismatch(a, b);
+    a.rules = "; join: A=on";
+    b.rules = "; join: ";
+    CHECK(party::identity_mismatch(a, b).find("A") != std::string::npos);
+    // DHT: nesting and counts stay bounded
+    std::string deep(100000, 'l');
+    party::rdv::BNode n;
+    CHECK(!party::rdv::bdecode(reinterpret_cast<const u8*>(deep.data()), deep.size(), &n));
+    std::string wide = "l" + std::string(50000, '0') + "e";
+    CHECK(!party::rdv::bdecode(reinterpret_cast<const u8*>(wide.data()), wide.size(), &n));
+}
+
 void regress_udp() {
     using bbnet::udp::RelayServer;
     // A full relay table refuses newcomers instead of handing out a taken port.
@@ -2153,6 +2482,7 @@ int main(int argc, char** argv) {
         set_input("regress", "");
         regress_json();
         regress_udp();
+        regress_lanfuzz();
         regress_decoders();
         regress_hostsvc();
         regress_link();
@@ -2191,7 +2521,7 @@ int main(int argc, char** argv) {
         double share;  // of the time budget
     };
     std::vector<Named> targets = {
-        {"json", run_json, &jc, 1},       {"code", run_code, &bin, 0.5},     {"stun", run_stun, &bin, 0.5},
+        {"json", run_json, &jc, 1},       {"code", run_code, &bin, 0.5}, {"lan", run_lan, &bin, 0.5}, {"addr", run_addr, &bin, 0.5}, {"rules", run_rules, &bin, 0.5}, {"rdv", run_rdv, &bin, 0.5},     {"stun", run_stun, &bin, 0.5},
         {"udp", run_udp, &bin, 0.7},      {"travel", run_travel, &jc, 1},    {"story", run_story, &jc, 1},
         {"items", run_items, &jc, 1},     {"phantom", run_phantom, &jc, 0.5}, {"lamp", run_lamp, &jc, 0.3}, {"peerev", run_peerev, &jc, 0.5}, {"balance", run_balance, &jc, 0.2}, {"progress", run_progress, &jc, 1},
         {"hostsvc", run_hostsvc, &jc, 1.5}, {"linkhost", run_linkhost, &jc, 2}, {"linkguest", run_linkguest, &jc, 2},

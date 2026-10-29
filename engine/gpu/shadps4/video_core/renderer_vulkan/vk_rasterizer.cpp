@@ -5070,7 +5070,20 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
             attachment.image_layout = target.layout;
         }
         image.usage.depth_target = true;
+        // bbport (visy CL-fc5e17): a depth-only pass (a Scaleform mask: colour writes off) is
+        // redirected into the UI depth only together with the UI's colour target. Under another
+        // target (the HUD's own) the mask was lost to the draws it cuts out: a grid of item icons
+        // over the screen (idea: upstream deadinside28 0fc2921c, GPL-2.0-or-later).
+        bool other_target = false;
         if (upscaler->Enabled()) {
+            bool depth_only = true;
+            for (u32 cb = 0; cb < state.num_color_attachments; ++cb) {
+                depth_only &= !state.color_attachments[cb].image_view;
+            }
+            const auto& cb0 = regs.color_buffers[0];
+            other_target = depth_only && cb0 && !upscaler->IsUiColorAddress(cb0.Address());
+        }
+        if (upscaler->Enabled() && !other_target) {
             VulkanUpscalerTarget depth_redirect;
             depth_redirected = upscaler->RedirectDepth(image_id, depth_redirect);
             if (depth_redirected) {
