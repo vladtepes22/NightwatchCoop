@@ -81,6 +81,7 @@ def _self_test_imports() -> int:
         from PIL import Image, ImageDraw
         import scipy
         import scipy.spatial
+        import scipy.spatial.transform  # compiled _rigid_transform since scipy 1.16 (NW-1883505)
         import shapely
 
         probe = Image.new("1", (8, 8))
