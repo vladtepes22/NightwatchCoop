@@ -16,6 +16,8 @@ LAMP_IDS = (72110200, 72200200, 72200201, 72300200, 72300201, 72300202, 72400200
             72600200, 72600201, 72600202, 72600203, 72700200, 72700201, 72800200, 72800201, 72800202,
             72800203)
 ENDING_IDS = (21, 22, 23, 6600, 6601, 6602, 6603, 6604)
+ENDINGS_SEEN = {6600: "Yharnam Sunrise seen", 6601: "Honoring Wishes seen", 6602: "Childhood's Beginning seen",
+                6603: "Any ending seen"}
 # boss kill flag -> chr id in the game's NPC name list (None: no evidence which boss it is)
 BOSS_CHR = {12101800: 804000, 12101850: 540000, 12201800: 210000, 12301800: 209000, 12401800: 502000,
             12411800: 271000, 12421800: 251000, 12501800: 232000, 12601800: 551000, 12601850: 899000,
@@ -52,4 +54,6 @@ def lamps(cat=None):
 
 
 def endings():
-    return [(f, "Endings", f"Ending flag [{f}]") for f in ENDING_IDS]
+    """Only the 'ending seen' records (docs/party/cutscenes_endings.md). 21-23 start an ending's credits and
+    NG+ on the next load and 6604 strips the key items on the next load, so they are never offered."""
+    return [(f, "Endings", label) for f, label in ENDINGS_SEEN.items()]

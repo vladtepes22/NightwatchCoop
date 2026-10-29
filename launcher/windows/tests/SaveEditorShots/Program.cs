@@ -28,20 +28,21 @@ internal static class Program
             foreach (var file in new[] { "Charcoal", "Styles", "ScrollBar" })
                 app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri($"pack://application:,,,/Nightwatch Co-op;component/Themes/{file}.xaml") });
             int shots = 0;
+            IconPath = WriteIcon(Path.Combine(args[0], "fixture-icon.png"));
             foreach (var theme in new[] { "default", "crimson", "moon" })
             {
                 var settings = new LauncherSettings(); settings.Set("ui_theme", theme); LauncherTheme.Apply(settings, false);
                 foreach (var size in new[] { (900, 700), (1200, 800) })
-                foreach (var state in new[] { "character", "inventory", "weapons", "progress", "repairs", "backups", "empty", "running" })
+                foreach (var state in new[] { "character", "inventory", "weapons", "gems", "progress", "repairs", "backups", "empty", "running" })
                 {
                     var source = new FakeSource(state == "empty", state == "running");
                     var window = new SaveEditorWindow(source);
                     window.LoadAsync().GetAwaiter().GetResult();
-                    window.SelectTab(state is "inventory" or "weapons" ? 1 : state == "progress" ? 2 : state == "repairs" ? 3 : state is "backups" or "empty" ? 4 : 0);
+                    window.SelectTab(state is "inventory" or "weapons" or "gems" ? 1 : state == "progress" ? 2 : state == "repairs" ? 3 : state is "backups" or "empty" ? 4 : 0);
                     var root = Mount(window, size.Item1, size.Item2);
-                    if (state == "weapons")
+                    if (state is "weapons" or "gems")
                     {
-                        Descendants(root).OfType<Button>().First(b => b.Content as string == "Weapons")
+                        Descendants(root).OfType<Button>().First(b => b.Content as string == (state == "gems" ? "Gems" : "Weapons"))
                             .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
                         root.UpdateLayout();
                     }
@@ -67,7 +68,19 @@ internal static class Program
                 root.UpdateLayout();
                 Render(root, 1400, 800, 1, Path.Combine(args[0], "crimson-1400x800-live-theme.png")); shots++; window.Close();
             }
-            Console.WriteLine($"PASS: {shots} off-screen PNGs; fixtures, dirty state, validation, filtering and write protection checked.");
+            foreach (var size in new[] { (620, 640), (480, 480) })
+            {
+                var current = new[] { new SaveEditor.GemEffect(126301, "Physical ATK UP +9.1%"), new SaveEditor.GemEffect(28101, "ATK DOWN -0.3%") };
+                var choices = Effects().Select(e => JsonSerializer.Deserialize<SaveEditor.GemEffect>(JsonSerializer.Serialize(e), SaveEditor.Json)!).ToArray();
+                var dialog = new SaveEditorGemDialog("Cursed Tempering Blood Gemstone (2)", current, choices);
+                var content = (FrameworkElement)dialog.Content; dialog.Content = null;
+                var root = new Border { Child = content, Width = size.Item1, Height = size.Item2 };
+                dialog.Content = root; root.SetResourceReference(Border.BackgroundProperty, "DialogBackgroundBrush");
+                Layout(root, size.Item1, size.Item2);
+                CheckGemDialog(root);
+                Render(root, size.Item1, size.Item2, 1, Path.Combine(args[0], $"moon-{size.Item1}x{size.Item2}-gem-effects.png")); shots++; dialog.Close();
+            }
+            Console.WriteLine($"PASS: {shots} off-screen PNGs; fixtures, dirty state, validation, filtering, gem effects and write protection checked.");
             app.Shutdown(); return 0;
         }
         catch (Exception e) { Console.Error.WriteLine(e); return 1; }
@@ -90,6 +103,36 @@ internal static class Program
         var bitmap = new RenderTargetBitmap((int)(width * scale), (int)(height * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
         bitmap.Render(root); var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
         using var output = File.Create(file); png.Save(output);
+    }
+    private static string WriteIcon(string file)
+    {
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+            dc.DrawGeometry(Brushes.IndianRed, null, Geometry.Parse("M40,6 L74,40 L40,74 L6,40 Z"));
+        var bitmap = new RenderTargetBitmap(80, 80, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
+        var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
+        using (var output = File.Create(file)) png.Save(output);
+        return file;
+    }
+    // The dialog's buttons follow the 1-3 effect rule; a choice replaces or joins the list.
+    private static void CheckGemDialog(FrameworkElement root)
+    {
+        Button Named(string text) => Descendants(root).OfType<Button>().Single(b => b.Content as string == text);
+        void Click(string text) => Named(text).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        var lists = Descendants(root).OfType<ListBox>().ToArray();
+        var current = lists.Single(l => AutomationProperties.GetName(l) == "Effects");
+        var choices = lists.Single(l => AutomationProperties.GetName(l) == "All blood gem effects");
+        Require(current.Items.Count == 2 && Named("OK").IsEnabled, "Gem dialog did not load the effects");
+        Require(!Named("Add effect").IsEnabled, "Add needs a chosen effect");
+        var search = Descendants(root).OfType<TextBox>().Single(b => AutomationProperties.GetName(b) == "Search effects");
+        search.Text = "Fire"; Require(choices.Items.Count == 100, "Effect search did not filter");
+        choices.SelectedIndex = 0; Click("Add effect");
+        Require(current.Items.Count == 3 && !Named("Add effect").IsEnabled, "A gem takes at most 3 effects");
+        Click("Remove effect"); Click("Remove effect");
+        Require(current.Items.Count == 1 && !Named("Remove effect").IsEnabled, "A gem keeps at least one effect");
+        Click("Replace selected");
+        Require(((SaveEditor.GemEffect)current.Items[0]).Text!.StartsWith("Fire"), "Replace did not change the effect");
+        search.Text = "";
     }
     private static IEnumerable<DependencyObject> Descendants(DependencyObject node)
     {
@@ -171,11 +214,25 @@ internal static class Program
         string[] armor = { "Hunter Garb", "Yharnam Hunter Hat", "Old Hunter Trousers" };
         for (int i = 0; i < armor.Length; i++)
             rows.Add(new { section = 0, slot = 30 + i, kind = "armor", number = 300000 + i, name = armor[i], count = 1, level = (int?)null, max_level = (int?)null });
-        rows.Add(new { section = 0, slot = 40, kind = "gem", number = 9000, name = "Radial Blood Gem", count = 1, level = (int?)null, max_level = (int?)null });
+        rows.Add(new { section = 0, slot = 40, kind = "gem", number = 124001, name = "Cursed Tempering Blood Gemstone (2)", count = 1, level = (int?)null, max_level = (int?)null,
+            icon = IconPath, gem = new { handle = 3229614081L, type = 1, shape = 1, sort = 0, cursed = true,
+                effects = new object[] { new { id = 126301, text = "Physical ATK UP +9.1%" }, new { id = 28101, text = "ATK DOWN -0.3%" } } } });
+        rows.Add(new { section = 0, slot = 41, kind = "gem", number = 129001, name = "Moon", count = 1, level = (int?)null, max_level = (int?)null,
+            icon = IconPath, gem = new { handle = 3229614082L, type = 2, shape = 63, sort = 1, cursed = false,
+                effects = new object[] { new { id = 600, text = "Increase Blood Echoes gained +10%" }, new { id = 601, text = (string?)null } } } });
+        rows.Add(new { section = 3, slot = 0, kind = "gem", number = 124001, name = "Adept Blood Gemstone (1)", count = 1, level = (int?)null, max_level = (int?)null,
+            icon = IconPath, locked = true, gem = new { handle = 3229614083L, type = 1, shape = 2, sort = 0, cursed = false,
+                effects = new object[] { new { id = 13105, text = "Blunt ATK UP +3.8%" } }, socketed_in = new { number = 1000100, name = "Saw Cleaver" } } });
+        rows[10] = new { section = 0, slot = 20, kind = "weapon", number = 1000300, name = "Saw Cleaver", count = 1, level = (int?)3, max_level = (int?)10, icon = IconPath,
+            sockets = new object[] { new { shape = 2, gem = "Adept Blood Gemstone (1)" }, new { shape = 1, gem = (string?)null } } };
         rows.Add(new { section = 1, slot = 0, kind = "goods", number = 4000, name = "Iron Key", count = 1, level = (int?)null, max_level = (int?)null });
         rows.Add(new { section = 1, slot = 1, kind = "goods", number = 4001, name = "Beckoning Bell", count = 1, level = (int?)null, max_level = (int?)null });
         return rows.ToArray();
     }
+    private static string? IconPath;
+    private static object[] Effects() => Enumerable.Range(1, 400)
+        .Select(i => (object)new { id = 13100 + i, text = (i % 4) switch { 0 => "Blunt", 1 => "Thrust", 2 => "Fire", _ => "Arcane" } + " ATK UP +" + (i / 10.0).ToString("0.0") + "%" })
+        .ToArray();
     private static object[] Flags()
     {
         var rows = new List<object>();
@@ -185,7 +242,8 @@ internal static class Program
         string[] lamps = { "Hunter's Dream", "Central Yharnam", "Cathedral Ward", "Old Yharnam", "Hemwick Charnel Lane", "Forbidden Woods" };
         for (int i = 0; i < lamps.Length; i++)
             rows.Add(new { id = 72110200 + i, kind = "lamp", group = i < 3 ? "Yharnam" : "Beyond", label = lamps[i] + " [" + (72110200 + i) + "]", on = i != 4 });
-        rows.Add(new { id = 21, kind = "ending", group = "Endings", label = "Ending flag [21]", on = false });
+        rows.Add(new { id = 6600, kind = "ending", group = "Endings", label = "Yharnam Sunrise seen", on = false });
+        rows.Add(new { id = 6603, kind = "ending", group = "Endings", label = "Any ending seen", on = false });
         return rows.ToArray();
     }
     private sealed class FakeSource(bool empty, bool running) : ISaveEditorSource
@@ -208,6 +266,7 @@ internal static class Program
                     new { name = "20261029-143200-before-edit", path = "fixture", reason = "before-edit" },
                     new { name = "20261028-201500-before-restore", path = "fixture", reason = "before-restore" },
                     new { name = "20261027-091000-before-edit", path = "fixture", reason = "before-edit" } },
+                "effects" => Effects(),
                 _ => throw new InvalidOperationException("Fixture data source refuses writes")
             };
             return Task.FromResult(JsonSerializer.Serialize(result));

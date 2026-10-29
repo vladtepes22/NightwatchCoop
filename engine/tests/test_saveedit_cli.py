@@ -9,9 +9,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import struct
+
+import test_saveedit
 from test_saveedit import make_save
 import saveedit_cli as cli
-from saveedit import model, names, store
+from saveedit import instances, model, names, store
 
 
 class SaveEditorCliTests(unittest.TestCase):
@@ -127,6 +130,63 @@ class SaveEditorCliTests(unittest.TestCase):
         self.assertEqual((code, error["type"]), (1, "GameRunning"))
         self.assertEqual(self.call("restore", backup="../elsewhere")[0], 1)
         self.assertEqual(self.file.read_bytes(), edited)
+
+    def test_gems_sockets_icons_and_placeholders(self):
+        d = bytearray(self.original)
+        n = test_saveedit.NAME_AT + model.NORMAL_BEHIND_NAME
+        # instance table: the inventory weapon with one filled slot, the Memory Altar, a loose gem, a rune
+        none = (instances.NO_SLOT, 0)
+        struct.pack_into("<15I", d, 0x54, 0x80800010, 22000300, 0, 0, 0, 1, 0xC0800002, *none * 4)
+        struct.pack_into("<15I", d, 0x54 + 60, 0x80800011, 1000, 0, 0, 0, *none * 5)
+        struct.pack_into("<8I", d, 0x54 + 120, 0, 0xFFFFFFFF, 0, 0xFFFFFFFF, 0, 0xFFFFFFFF, 0, 0xFFFFFFFF)
+        gem = 0x54 + 152
+        struct.pack_into("<10I", d, gem, 0xC0800001, 0x80000000 | 124001, 1, 1, 13105, *[0xFFFFFFFF] * 5)
+        struct.pack_into("<10I", d, gem + 40, 0xC0800002, 0x80000000 | 124001, 1, 2, 13105, *[0xFFFFFFFF] * 5)
+        struct.pack_into("<10I", d, gem + 80, 0xC0800003, 0x80000000 | 129001, 2, 63, 600, 601, *[0xFFFFFFFF] * 4)
+        test_saveedit.put_item(d, n, 3, 0xC0800001, 0x80000000 | 124001, 1, 8)
+        test_saveedit.put_item(d, n, 4, 0x80800011, 1000, 1, 9)
+        test_saveedit.put_item(d, n, 5, 0xC0800003, 0x80000000 | 129001, 1, 10)
+        struct.pack_into("<I", d, n, 6)
+        self.file.write_bytes(bytes(d))
+        catalogue = names.Catalogue({
+            "names": {"weapon": {22000000: "Test Cleaver"}, "effect": {13105: "Add blood ATK +2.5",
+                      28101: "ATK DOWN -0.3%", 600: "Rune effect", 700: "Caryll effect"},
+                      "gem": {1000005: "Test Gemstone", 2000005: "Triangle Gemstone", 1100005: "Cursed Gemstone",
+                              16000016: "Test Rune"}},
+            "ids": {"weapon": [22000300]}, "icons": {"weapon": {22000000: 1001}},
+            "effects": {13105: [0, 5, 5, 0], 28101: [1, 0, 0, 0], 600: [0, 216, 16, 1], 601: [0, 0, 0, 1],
+                        700: [0, 0, 0, 1]},
+            "gemgen": {124001: 0, 129001: 10000000}})
+        with patch.object(names.Catalogue, "load", return_value=catalogue):
+            shown = self.call("show")[1]
+            items = shown["items"]
+            self.assertNotIn(1000, [i["number"] for i in items if i["kind"] == "weapon"])
+            weapon = next(i for i in items if i["kind"] == "weapon")
+            self.assertEqual(weapon["sockets"], [dict(shape=1, gem="Triangle Gemstone")])
+            loose = next(i for i in items if i["section"] == 0 and i["kind"] == "gem" and i["gem"]["type"] == 1)
+            self.assertEqual((loose["name"], loose["gem"]["cursed"]), ("Test Gemstone", False))
+            rune = next(i for i in items if i["kind"] == "gem" and i["gem"]["type"] == 2)
+            self.assertEqual((rune["name"], rune["gem"]["sort"]), ("Test Rune", 1))
+            socketed = next(i for i in items if i["section"] == cli.SOCKETED)
+            self.assertTrue(socketed["locked"])
+            self.assertEqual(socketed["gem"]["socketed_in"], dict(number=22000300, name="Test Cleaver"))
+            self.assertIsNone(weapon["icon"])  # no --game: no icon files
+            self.assertEqual(self.call("effects")[1], [dict(id=13105, text="Add blood ATK +2.5"),
+                                                       dict(id=28101, text="ATK DOWN -0.3%")])
+            revision = shown["revision"]
+            for bad in ([], [13105] * 4, [600], [99], ["13105"]):
+                edit = dict(revision=revision, gems=[dict(handle=loose["gem"]["handle"], effects=bad)])
+                self.assertEqual(self.call("apply", edit)[0], 1, bad)
+            for bad in (dict(gems=[dict(handle=rune["gem"]["handle"], effects=[700])]),
+                        dict(items=[dict(section=0, slot=4, remove=True)])):
+                self.assertEqual(self.call("apply", dict(revision=revision, **bad))[0], 1, bad)
+            before = self.file.read_bytes()
+            edit = dict(revision=revision, gems=[dict(handle=loose["gem"]["handle"], effects=[13105, 28101])])
+            self.assertEqual(self.call("apply", edit)[0], 0)
+            after = self.file.read_bytes()
+            self.assertEqual([i for i in range(len(after)) if after[i] != before[i]], [gem + 20, gem + 21, gem + 22, gem + 23])
+            again = next(i for i in self.call("show")[1]["items"] if i.get("gem", {}).get("handle") == 0xC0800001)
+            self.assertEqual((again["name"], again["gem"]["cursed"]), ("Cursed Gemstone", True))
 
     def test_subprocess_json_contract(self):
         script = Path(cli.__file__)

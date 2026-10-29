@@ -1,8 +1,11 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Markup;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using BloodborneLauncher.Core;
 
 namespace BloodborneLauncher.Views;
@@ -28,27 +31,84 @@ internal abstract class RowBase : INotifyPropertyChanged
 
 internal sealed class ItemRow : RowBase
 {
+    public const int MaxGemEffects = 3;
     private readonly Action _changed;
     private string _count;
     private int _level;
     private bool _removed;
+    private SaveEditor.GemEffect[] _effects;
+    private ImageSource? _icon;
     public SaveEditor.Item Item { get; }
     public RowCommand LevelDown { get; }
     public RowCommand LevelUp { get; }
     public RowCommand RemoveCommand { get; }
+    public RowCommand EditGemCommand { get; }
 
-    public ItemRow(SaveEditor.Item item, Action changed)
+    public ItemRow(SaveEditor.Item item, Action changed, Action<ItemRow>? editGem = null)
     {
         Item = item; _changed = changed;
         _count = item.Count.ToString(CultureInfo.InvariantCulture); _level = item.Level ?? 0;
+        _effects = item.Gem?.Effects ?? [];
         LevelDown = new RowCommand(() => Level--, () => CanEditLevel && !Removed && Level > 0);
         LevelUp = new RowCommand(() => Level++, () => CanEditLevel && !Removed && Level < Item.MaxLevel);
         RemoveCommand = new RowCommand(() => Removed = !Removed);
+        EditGemCommand = new RowCommand(() => editGem?.Invoke(this), () => CanEditGem && !Removed);
     }
 
     public string Title => Item.Name ?? L.T("Unnamed item");
-    public string Meta => (Item.Section == 0 ? "" : L.T("Key item") + " · ") + L.T("Item ID") + " " + Item.Number;
-    public bool IsKey => Item.Section != 0;
+    public string Meta => Item.Gem is { } gem ? GemMeta(gem)
+        : (Item.Section == 0 ? "" : L.T("Key item") + " · ") + L.T("Item ID") + " " + Item.Number;
+    public bool IsKey => Item.Section is 1 or 2;
+    public bool Locked => Item.Locked;
+    public ImageSource? Icon => _icon ??= LoadIcon(Item.Icon);
+    // Gem effects, or a weapon's slots, under the title.
+    public string Details => Item.Gem != null ? string.Join("\n", _effects.Select(e => e.Text ?? L.T("Hidden effect")))
+        : Item.Sockets is { Length: > 0 } sockets ? string.Join("  ·  ", sockets.Select(s => s.Gem ?? string.Format(L.T("{0} slot, empty"), ShapeName(s.Shape))))
+        : "";
+    public Visibility DetailsVisibility => Details.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility CountVisibility => Locked ? Visibility.Collapsed : Visibility.Visible;
+    // A gem is one instance with its own effects: it is removed, never stacked.
+    public Visibility CountBoxVisibility => Locked || Item.Gem != null ? Visibility.Collapsed : Visibility.Visible;
+    // Runes carry hidden effects that make the rune, so only blood gems are edited.
+    public bool CanEditGem => Item.Gem is { Type: 1 };
+    public Visibility GemEditVisibility => CanEditGem ? Visibility.Visible : Visibility.Collapsed;
+    public string EditGemText => L.T("Edit effects");
+    public IReadOnlyList<SaveEditor.GemEffect> Effects
+    {
+        get => _effects;
+        set
+        {
+            _effects = value.ToArray();
+            Raise(nameof(Effects), nameof(Details), nameof(DetailsVisibility), nameof(Changed)); _changed();
+        }
+    }
+    public bool GemChanged => !_removed && Item.Gem != null && !_effects.Select(e => e.Id).SequenceEqual(Item.Gem.Effects.Select(e => e.Id));
+
+    private static string GemMeta(SaveEditor.Gem gem)
+    {
+        var parts = new List<string> { gem.Sort switch { 1 => L.T("Caryll rune"), 2 => L.T("Oath rune"), _ => gem.Type == 2 ? L.T("Rune") : L.T("Blood gem") } };
+        if (gem.Type == 1) parts.Add(ShapeName(gem.Shape));
+        if (gem.Cursed) parts.Add(L.T("Cursed"));
+        if (gem.SocketedIn is { } holder)
+            parts.Add(string.Format(L.T("In {0}"), holder.Number == 1000 ? L.T("Memory Altar") : holder.Name ?? L.T("a weapon")));
+        return string.Join(" · ", parts);
+    }
+    public static string ShapeName(int shape) => shape switch
+    {
+        1 => L.T("Radial"), 2 => L.T("Triangle"), 4 => L.T("Waning"), 8 => L.T("Circle"), 63 => L.T("Droplet"), _ => L.T("Unknown shape")
+    };
+    private static ImageSource? LoadIcon(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+        try
+        {
+            // OnLoad reads the file now and closes it, so the cache folder is never held open.
+            var image = new BitmapImage();
+            image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad; image.UriSource = new Uri(path); image.EndInit();
+            image.Freeze(); return image;
+        }
+        catch (Exception e) when (e is IOException or NotSupportedException or UriFormatException) { return null; }
+    }
     public string Group => IsKey ? L.T("Key items") : KindLabel(Item.Kind);
     public string Kind => Item.Kind;
     public int Order => IsKey ? 5 : Item.Kind switch { "goods" => 0, "weapon" => 1, "armor" => 2, "accessory" => 3, "gem" => 4, _ => 6 };
@@ -82,19 +142,20 @@ internal sealed class ItemRow : RowBase
             Raise(nameof(Removed), nameof(CountEnabled), nameof(RemoveText), nameof(Changed)); RaiseLevelCommands(); _changed();
         }
     }
-    private void RaiseLevelCommands() { LevelDown.Raise(); LevelUp.Raise(); }
+    private void RaiseLevelCommands() { LevelDown.Raise(); LevelUp.Raise(); EditGemCommand.Raise(); }
 
     public bool CountValid => _removed || (int.TryParse(_count, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n >= 1);
     public int CountNumber => int.Parse(_count, CultureInfo.InvariantCulture);
     public bool CountChanged => !_removed && int.TryParse(_count, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n != Item.Count;
     public bool LevelChanged => !_removed && Item.Level.HasValue && _level != Item.Level;
-    public bool Changed => _removed || CountChanged || LevelChanged || !CountValid;
+    public bool Changed => _removed || CountChanged || LevelChanged || GemChanged || !CountValid;
 
     public IEnumerable<string> Describe()
     {
         if (_removed) { yield return L.T("Remove") + ": " + Title; yield break; }
         if (CountChanged) yield return Title + ": " + Item.Count.ToString("N0") + " → " + CountNumber.ToString("N0");
         if (LevelChanged) yield return Title + ": +" + Item.Level + " → +" + _level;
+        if (GemChanged) yield return Title + ": " + string.Join(", ", _effects.Select(e => e.Text ?? e.Id.ToString(CultureInfo.InvariantCulture)));
     }
 
     public static string KindLabel(string kind) => kind switch
@@ -110,8 +171,9 @@ internal sealed class FlagRow : RowBase
     private bool _on;
     public SaveEditor.Flag Flag { get; }
     public FlagRow(SaveEditor.Flag flag, Action changed) { Flag = flag; _on = flag.On; _changed = changed; }
-    public string Label => Flag.Label;
-    public string Group => Flag.Group;
+    // Ending labels are the editor's own fixed strings; boss and lamp names come from the game's text.
+    public string Label => Flag.Kind == "ending" ? L.T(Flag.Label) : Flag.Label;
+    public string Group => Flag.Kind == "ending" ? L.T(Flag.Group) : Flag.Group;
     public bool On
     {
         get => _on;
@@ -129,24 +191,30 @@ internal static class SaveEditorXaml
 
     public static DataTemplate ItemTemplate() => Parse<DataTemplate>($$"""
         <DataTemplate {{Header}}>
-          <Border x:Name="Bar" Padding="12,7,22,7" BorderThickness="3,0,0,0" BorderBrush="Transparent">
+          <Border x:Name="Bar" Padding="10,6,22,6" BorderThickness="3,0,0,0" BorderBrush="Transparent">
             <Grid>
               <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="116"/><ColumnDefinition Width="92"/>
+                <ColumnDefinition Width="52"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="116"/><ColumnDefinition Width="92"/>
               </Grid.ColumnDefinitions>
-              <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+              <Border Width="44" Height="44" CornerRadius="6" VerticalAlignment="Center" HorizontalAlignment="Left" Background="#18000000">
+                <Image x:Name="Icon" Source="{Binding Icon}" Width="44" Height="44" RenderOptions.BitmapScalingMode="HighQuality"/>
+              </Border>
+              <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
                 <TextBlock x:Name="Title" Text="{Binding Title}" ToolTip="{Binding Title}" TextTrimming="CharacterEllipsis" Style="{DynamicResource RowTitle}"/>
                 <TextBlock Text="{Binding Meta}" TextTrimming="CharacterEllipsis" Style="{DynamicResource StatLabel}"/>
+                <TextBlock Text="{Binding Details}" Visibility="{Binding DetailsVisibility}" TextWrapping="Wrap" Margin="0,3,0,0" Style="{DynamicResource Muted}"/>
               </StackPanel>
-              <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0" Visibility="{Binding LevelVisibility}">
+              <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0" Visibility="{Binding LevelVisibility}">
                 <ui:Button Content="−" Command="{Binding LevelDown}" Width="28" Height="28" Padding="0" AutomationProperties.Name="Decrease weapon level"/>
                 <TextBlock Text="{Binding LevelText}" Width="42" TextAlignment="Center" VerticalAlignment="Center" Style="{DynamicResource RowTitle}"/>
                 <ui:Button Content="+" Command="{Binding LevelUp}" Width="28" Height="28" Padding="0" AutomationProperties.Name="Increase weapon level"/>
               </StackPanel>
-              <ui:TextBox x:Name="CountBox" Grid.Column="2" Text="{Binding Count, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CountEnabled}"
-                          Padding="8,5" VerticalAlignment="Center" AutomationProperties.Name="Count"/>
-              <ui:Button Grid.Column="3" Content="{Binding RemoveText}" Command="{Binding RemoveCommand}" HorizontalAlignment="Right" VerticalAlignment="Center"
-                         Padding="10,5" Appearance="Transparent"/>
+              <ui:Button x:Name="EditGem" Grid.Column="2" Content="{Binding EditGemText}" Command="{Binding EditGemCommand}" Visibility="{Binding GemEditVisibility}"
+                         VerticalAlignment="Center" Margin="0,0,14,0" Padding="10,5" AutomationProperties.Name="Edit effects"/>
+              <ui:TextBox x:Name="CountBox" Grid.Column="3" Text="{Binding Count, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CountEnabled}"
+                          Visibility="{Binding CountBoxVisibility}" Padding="8,5" VerticalAlignment="Center" AutomationProperties.Name="Count"/>
+              <ui:Button Grid.Column="4" Content="{Binding RemoveText}" Command="{Binding RemoveCommand}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                         Visibility="{Binding CountVisibility}" Padding="10,5" Appearance="Transparent"/>
             </Grid>
           </Border>
           <DataTemplate.Triggers>

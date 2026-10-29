@@ -17,9 +17,11 @@ FMG_FILES = {"goods": "アイテム名", "weapon": "武器名", "armor": "防具
 PARAMS = {"weapon": "EquipParamWeapon", "armor": "EquipParamProtector", "accessory": "EquipParamAccessory",
           "goods": "EquipParamGoods"}
 _PLACEHOLDER = re.compile(r"^(\*|NOT NEEDED|en\d+)?$", re.I)
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 EVENT_TEXT = "イベントテキスト"  # menu.msgbnd FMG: the lamp warp list names (id 7000AABn)
 NPC_NAMES = "NPC名"  # item.msgbnd FMG: boss and NPC names by character id
+GEM_NAMES = "魔石名"  # menu.msgbnd FMG: blood gem and rune names (key built in gems.name_key)
+GEM_EFFECTS = "魔石効果"  # menu.msgbnd FMG: gem effect texts by GemeffectParam id
 
 
 def _dcx(b):
@@ -94,13 +96,31 @@ def read_game(game_dir, lang="engus"):
     names["npc"] = _fmg(_entry(msg, NPC_NAMES + ".fmg"))
     menu = _bnd4(_dcx((game / "msg" / lang / "menu.msgbnd.dcx").read_bytes()))
     names["lamp"] = {i: t for i, t in _fmg(_entry(menu, EVENT_TEXT + ".fmg")).items() if 70002100 <= i < 70003600}
+    names["gem"] = _fmg(_entry(menu, GEM_NAMES + ".fmg"))
+    names["effect"] = _fmg(_entry(menu, GEM_EFFECTS + ".fmg"))
     ids = {kind: sorted(_param_ids(_entry(par, pn + ".param"))) for kind, pn in PARAMS.items()}
-    return {"names": names, "ids": ids}
+    data = {"names": names, "ids": ids}
+    from .params import Params  # params reads its files with this module's helpers
+    try:  # icons and gem rows need the paramdefs too; without them the editor still has names
+        p = Params(game)
+        data["icons"] = {kind: {i: v[0] for i, v in p.table(pn, ["iconIdM" if kind == "armor" else "iconId"]).items()
+                                if v[0] > 0 and not (kind == "weapon" and (i % 10000) // 100)}
+                         for kind, pn in PARAMS.items()}
+        negative = {i for i, v in p.table("GemCategoryParam", ["isNegative"]).items() if v[0]}
+        # effect id -> [cursed, icon offset, name offset, sort category (0 blood gem, 1 Caryll rune, 2 oath rune)]
+        data["effects"] = {i: [int(cat in negative), icon, name, sort] for i, (cat, icon, name, sort) in
+                           p.table("GemeffectParam", ["categoryId", "gemIconIdOffset", "gemNameIdOffset",
+                                                      "sortCategory"]).items()}
+        data["gemgen"] = {i: v[0] for i, v in p.table("GemGenParam", ["gemNameIdOffset"]).items()}
+    except (OSError, ValueError, KeyError, struct.error, zlib.error):
+        pass
+    return data
 
 
 def _stamp(game, lang):
     out = []
-    for p in (game / "msg" / lang / "item.msgbnd.dcx", game / "param" / "gameparam" / "gameparam.parambnd.dcx"):
+    for p in (game / "msg" / lang / "item.msgbnd.dcx", game / "param" / "gameparam" / "gameparam.parambnd.dcx",
+              game / "msg" / lang / "menu.msgbnd.dcx"):
         try:
             st = p.stat()
             out += [st.st_size, int(st.st_mtime)]
@@ -118,6 +138,9 @@ class Catalogue:
         self.ok = bool(data)
         self._names = {k: {int(i): n for i, n in v.items()} for k, v in (data or {}).get("names", {}).items()}
         self._ids = {k: set(v) for k, v in (data or {}).get("ids", {}).items()}
+        self._icons = {k: {int(i): n for i, n in v.items()} for k, v in (data or {}).get("icons", {}).items()}
+        self._effects = {int(i): v for i, v in (data or {}).get("effects", {}).items()}
+        self._gemgen = {int(i): v for i, v in (data or {}).get("gemgen", {}).items()}
 
     @classmethod
     def load(cls, game_dir, cache_dir, lang="engus"):
@@ -155,6 +178,40 @@ class Catalogue:
         elif kind == "armor":
             pass
         return n.get(number)
+
+    def icon(self, category, number):
+        """Icon id of an inventory item (the menu sheets' numbering), None when unknown."""
+        kind = self.KIND_OF_CATEGORY.get(category)
+        if kind == "weapon":
+            number = number - (number % 10000) // 100 * 100
+        return self._icons.get(kind, {}).get(number)
+
+    # Gem shape bit -> the digit in the gem name key and the icon block (checked on all 77 gems and runes of a
+    # level 90 save: name key = GemGen.gemNameIdOffset + digit * 1e6 + 1e5 if cursed + first effect's
+    # gemNameIdOffset; icon = 3000 + block + 100 if cursed + first effect's gemIconIdOffset).
+    SHAPES = {1: (1, 0), 2: (2, 200), 4: (3, 400), 8: (4, 600), 63: (6, 1000)}
+
+    def effect(self, eid):
+        """[cursed, icon offset, name offset, sort category] of a GemeffectParam row, None when unknown."""
+        return self._effects.get(eid)
+
+    def effect_text(self, eid):
+        return self._names.get("effect", {}).get(eid)
+
+    def gem(self, gen_id, shape, effects):
+        """(name, icon id, cursed) of a gem or rune from its GemGen row, shape and effect ids."""
+        rows = [self._effects.get(e) for e in effects]
+        if not rows or rows[0] is None or shape not in self.SHAPES:
+            return None, None, False
+        cursed = any(r and r[0] for r in rows)
+        digit, block = self.SHAPES[shape]
+        key = self._gemgen.get(gen_id, 0) + digit * 1000000 + (100000 if cursed else 0) + rows[0][2]
+        return self._names.get("gem", {}).get(key), 3000 + block + (100 if cursed else 0) + rows[0][1], cursed
+
+    def effects_for(self, sort_category):
+        """[(id, text)] of the named effects a gem of this sort category can carry, in id order."""
+        texts = self._names.get("effect", {})
+        return [(i, texts[i]) for i, v in sorted(self._effects.items()) if v[3] == sort_category and i in texts]
 
     def lamp_name(self, flag):
         """Name of the lamp whose lit flag is 7AAB02nn (the warp list text 7000AABn), None when unknown."""
