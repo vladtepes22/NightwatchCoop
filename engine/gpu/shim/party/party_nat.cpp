@@ -139,16 +139,6 @@ Path predict(const Side& host, const Side& guest, bool guest_endpoint_known) {
     return host.type == Type::Restricted ? Path::UdpPunched : Path::None;
 }
 
-bool proves_open_port(bool direct_tcp, std::uint32_t peer_nbo) {
-    if (!direct_tcp || peer_nbo == 0) return false;
-    const std::uint8_t a = peer_nbo & 0xff, b = (peer_nbo >> 8) & 0xff;
-    if (a == 0 || a == 127 || a >= 224) return false;
-    if (a == 10 || (a == 172 && b >= 16 && b <= 31) || (a == 192 && b == 168) || (a == 100 && b >= 64 && b <= 127) ||
-        (a == 169 && b == 254))
-        return false;
-    return true;
-}
-
 std::string advice(Type self, bool host, bool port_open, Rendezvous rendezvous, std::uint16_t port) {
     const std::string p = std::to_string(port);
     if (host) {

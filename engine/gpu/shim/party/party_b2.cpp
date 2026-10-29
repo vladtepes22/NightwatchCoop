@@ -5685,6 +5685,9 @@ void ReviveLocal(const GameSnapshot& s, const LampSpot& sp, bool host) {
             SafeWrite(m20 + 0xf8, &mx, 4);  // HP to max
         }
     }
+    if (const int poison = DropPoisonStates()) {
+        Log("%s revive: poison dropped (%d SpEffect(s)), as the game's respawn load does", host ? "host" : "guest", poison);
+    }
     if (RecipeHas("fade")) {
         // The death dissolve (+0x20C alpha -> 0, +0x1E5 bit 2): faded in again from 0 over ~0.7 s,
         // as ChrFadeIn does (rate = (1 - alpha) / time).

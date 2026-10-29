@@ -497,6 +497,34 @@ void LogState(Fixture& f, const GameSnapshot& s, bool force) {
         line += one;
     }
     line += "; " + SlotsText(table) + "; " + SelText();
+    // npcfog077: where each fixture NPC stands (the boss-fog follow proof) and the watched event flags.
+    for (const Target& t : f.targets) {
+        const u64 chr = ChrByEntity(t.entity);
+        float pos[4] = {}, rot[4] = {};
+        char one[128];
+        if (chr && ChrTransform(chr, pos, rot)) {
+            std::snprintf(one, sizeof one, "; npc %d at (%.1f, %.1f, %.1f) disabled %d", t.entity, pos[0], pos[1], pos[2],
+                          ChrDisabled(chr) ? 1 : 0);
+        } else {
+            std::snprintf(one, sizeof one, "; npc %d not loaded", t.entity);
+        }
+        line += one;
+    }
+    if (const char* wf = std::getenv("BB_PARTY_TEST_NPC_FLAGS"); wf && wf[0]) {
+        std::string list = wf;
+        std::size_t at = 0;
+        while (at < list.size()) {
+            std::size_t end = list.find(',', at);
+            if (end == std::string::npos) {
+                end = list.size();
+            }
+            const int id = std::atoi(list.substr(at, end - at).c_str());
+            if (id > 0) {
+                line += "; flag " + std::to_string(id) + "=" + std::to_string(EventFlag(static_cast<u32>(id)) ? 1 : 0);
+            }
+            at = end + 1;
+        }
+    }
     if (force || f.log_every_second || line != f.last_state) {
         Log("state %s", line.c_str());
     }

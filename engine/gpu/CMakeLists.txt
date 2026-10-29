@@ -255,7 +255,7 @@ file(GLOB_RECURSE BB_ID_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*.h ../src/*.c
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION" BB_VERSION_FULL LIMIT_COUNT 1)
 string(REGEX REPLACE "-.*$" "" BB_COOP_VERSION "${BB_VERSION_FULL}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION")
-set(BB_ID_CONTENT "nightwatch-coop-${BB_COOP_VERSION}-lantern-0.9.37-visy-0.7.6-a2f353e4")
+set(BB_ID_CONTENT "nightwatch-coop-${BB_COOP_VERSION}-lantern-0.9.38-visy-0.7.6-a53d3dd2")
 foreach(source IN LISTS BB_ID_SOURCES)
     file(SHA256 "${source}" source_hash)
     string(APPEND BB_ID_CONTENT "${source_hash}")
@@ -418,6 +418,18 @@ target_include_directories(camera-motion-test PRIVATE shim shadps4 ${SHADER_INCL
 target_compile_options(camera-motion-test PRIVATE -UNDEBUG -fPIC)
 target_link_libraries(camera-motion-test PRIVATE bbgpu)
 add_dependencies(camera-motion-test host_shaders)
+
+# bbport: the generated SRT walker with tables that change between draws (null and bad pointers):
+# ninja -C out/gpu srt-walker-test, then run it. No GPU.
+add_executable(srt-walker-test EXCLUDE_FROM_ALL ../tests/test_srt_walker.cpp ../tests/test_gpu_runtime_stubs.cpp)
+target_include_directories(srt-walker-test PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include)
+target_compile_options(srt-walker-test PRIVATE -UNDEBUG -fPIC)
+set_source_files_properties(../tests/test_srt_walker.cpp PROPERTIES
+    COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
+target_link_libraries(srt-walker-test PRIVATE bbgpu)
+if (WIN32)
+    target_link_libraries(srt-walker-test PRIVATE onecore dbghelp ntdll winmm)
+endif()
 
 # bbport: indirect_clamp.comp as Rasterizer::ClampDispatchArgs records it, then an indirect
 # dispatch from its output (run it under the validation layer); plain Vulkan, no bbgpu.
