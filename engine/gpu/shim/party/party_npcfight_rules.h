@@ -209,4 +209,53 @@ constexpr bool CovenantOutcomeFlag(std::uint32_t id) {
     return (id >= 1040 && id <= 1059) || (id >= 1340 && id <= 1359) || (id >= 1790 && id <= 1809);
 }
 
+// ---- bell helpers and the boss fog (npcfog2077, NW-dd78dd9 part 2) ----
+//
+// A Beckoning-Bell NPC helper (Alfred before the Blood-starved Beast, the Old Yharnam / Cathedral Ward /
+// Forbidden Woods / Nightmare helpers) joins the fight by two map events (docs/party/npc_fights.md): xx04450
+// waits for the host-entered flag of the boss (xx04800) and sends the NPC to the fog front (AI command 990
+// to the fog's region), xx04460 waits for the NPC inside that region and walks it through the fog into the
+// arena. Both run on the host's game only (1003[6] end on a client) and both assume the HOST walks in: the
+// host's chr is at the fog, the NPC beside it. When a guest goes through the fog first (the guest's fog
+// report sets the host-entered flag, the host stays outside) the NPC followed the party's other chr away
+// from the fog instead (live npf run: it walked 50 m back east and stood there for the whole fight), so
+// xx04460 never saw it at the fog front and it never entered. The host's game puts a helper that is
+// still outside the arena some seconds after the host-entered flag at the arena's entry spot (the spot
+// the player lands on, xx04460's first arena region) - the same place the event's own walk ends.
+// Data: party_npcfog.inc (tools/party/npcfog_tool.py gen).
+
+struct FogHelper {
+    std::uint32_t npc;        ///< the helper's chr entity
+    std::uint32_t join;       ///< xx04420: it is in the party (its sign was answered)
+    std::uint32_t leave;      ///< xx04430: it left
+    std::uint32_t host_flag;  ///< xx04800: the boss's host-entered flag (the fight is on)
+    std::uint32_t region;     ///< the arena's entry region (xx04460's first arena region)
+    float x, y, z, yaw;       ///< that region's spot
+};
+
+inline constexpr FogHelper kFogHelpers[] = {
+#include "party_npcfog.inc"
+};
+
+constexpr double kFogFollowGrace = 10.0;  ///< s after the host-entered flag: the events' own walk gets this long
+constexpr float kFogFollowNear = 15.0f;   ///< m: a helper this close to the entry spot is in the arena
+
+enum class FogFollow : std::uint8_t {
+    none,  ///< nothing to do (no fight, no helper, or already handled)
+    wait,  ///< the fight is on: the events' own walk has the grace period
+    warp,  ///< outside the arena after the grace: put it at the entry spot
+    done,  ///< inside the arena: nothing to do for this fight
+};
+
+/// One helper's tick on the host's game. `fight`: its host-entered flag is on; `joined` / `left`: its
+/// xx04420 / xx04430 flags; `alive`: chr present, enabled, HP above 0; `since`: seconds since `fight`
+/// became true; `dist`: metres from the helper to the entry spot.
+constexpr FogFollow PlanFogFollow(bool rule_on, bool fight, bool joined, bool left, bool alive, double since, float dist,
+                                  bool handled) {
+    if (!rule_on || !fight || !joined || left || !alive || handled) return FogFollow::none;
+    if (dist <= kFogFollowNear) return FogFollow::done;
+    return since < kFogFollowGrace ? FogFollow::wait : FogFollow::warp;
+}
+
+
 }  // namespace coop::npcfight

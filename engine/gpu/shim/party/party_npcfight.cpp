@@ -17,6 +17,8 @@
 #include "seamless_rules.h"
 
 #include <atomic>
+#include <chrono>
+#include <cmath>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -170,6 +172,96 @@ void SetInvincible(u64 chr, bool on) {
     }
 }
 
+
+// ---- bell helpers and the boss fog (main thread, the host's game) ----
+
+struct FogState {
+    double since[std::size(kFogHelpers)] = {};  ///< seconds on the clock when the host-entered flag was first seen on
+    bool seen[std::size(kFogHelpers)] = {};
+    bool handled[std::size(kFogHelpers)] = {};
+    std::uint32_t map = 0xffffffffu;
+};
+
+bool ChrPos(u64 chr, float pos[4], float rot[4]) {
+    u64 a = 0, b = 0, c = 0, phys = 0;
+    if (!SafeGet(chr + 0x58, &a) || !a || !SafeGet(a + 8, &b) || !b || !SafeGet(b + 0x3b0, &c) || !c ||
+        !SafeGet(c + 0x68, &phys) || !phys)
+        return false;
+    return SafeRead(phys + 0x1e0, pos, 16) && SafeRead(phys + 0x1d0, rot, 16);
+}
+
+bool ChrAlive(u64 chr) {
+    u64 a = 0, b = 0, vis = 0;
+    std::int32_t hp = 0;
+    std::uint8_t off = 0;
+    if (!SafeGet(chr + 0x3b0, &a) || !a || !SafeGet(a + 0x20, &b) || !b || !SafeGet(b + 0xf8, &hp)) return false;
+    if (!SafeGet(chr + 0x18, &vis) || !vis || !SafeGet(vis + 0x20, &off)) return false;
+    return hp > 0 && (off & 1) == 0;
+}
+
+/// The chr's own warp (vfunc +0x5f8, the bare warp the director uses for the player: 0x18CD600).
+bool ChrWarp(u64 chr, const float pos3[3], float yaw_rad) {
+    alignas(16) float pos[4] = {pos3[0], pos3[1], pos3[2], 1.0f};
+    alignas(16) float rot[4] = {0, yaw_rad, 0, 0};
+    u64 vt = 0, fn = 0;
+    if (!chr || !SafeGet(chr, &vt) || !vt || !SafeGet(vt + 0x5f8, &fn) || !fn) return false;
+    using WarpFn = void(BB_COOP_SYSV*)(u64, const float*, const float*, std::uint64_t);
+    reinterpret_cast<WarpFn>(fn)(chr, pos, rot, 1);
+    return true;
+}
+
+void FogFollowTick(const GameSnapshot& s, double now) {
+    static FogState st;
+    if (s.loading || !s.world_up || s.map_id != st.map) {
+        st = FogState{};
+        st.map = s.map_id;
+        if (s.loading || !s.world_up) return;
+    }
+    const bool on = RuleOn(false);
+    for (std::size_t i = 0; i < std::size(kFogHelpers); ++i) {
+        const FogHelper& h = kFogHelpers[i];
+        if (h.npc / 100000 != (s.map_id >> 24) || (h.npc / 10000) % 10 != ((s.map_id >> 16) & 0xff)) continue;
+        bool fight = false, joined = false, left = false;
+        ReadEventFlag(h.host_flag, &fight);
+        ReadEventFlag(h.join, &joined);
+        ReadEventFlag(h.leave, &left);
+        if (!fight) {
+            st.seen[i] = st.handled[i] = false;  // the fight is over (or a load put the flag back)
+            continue;
+        }
+        if (!st.seen[i]) {
+            st.seen[i] = true;
+            st.since[i] = now;
+        }
+        if (!joined || left || st.handled[i]) continue;
+        const u64 chr = ChrByEntity(h.npc);
+        float pos[4] = {}, rot[4] = {};
+        const bool alive = chr && ChrAlive(chr) && ChrPos(chr, pos, rot);
+        float dist = 0.0f;
+        if (alive) {
+            const float dx = pos[0] - h.x, dy = pos[1] - h.y, dz = pos[2] - h.z;
+            dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+        }
+        switch (PlanFogFollow(on, fight, joined, left, alive, now - st.since[i], dist, st.handled[i])) {
+            case FogFollow::done:
+                st.handled[i] = true;
+                Log("bell helper %u is in the arena (%.1f m from the entry spot): nothing to do", h.npc, dist);
+                break;
+            case FogFollow::warp: {
+                const float to[3] = {h.x, h.y, h.z};
+                const bool ok = ChrWarp(chr, to, h.yaw * 3.14159265f / 180.0f);
+                st.handled[i] = true;
+                Log("bell helper %u is still outside the boss room %.0f s after the fight began (%.1f m from the "
+                    "entry spot, region %u; its fog walk needs the host at the fog): put at (%.1f, %.1f, %.1f)%s",
+                    h.npc, now - st.since[i], dist, h.region, h.x, h.y, h.z, ok ? "" : " - the warp is not available");
+                break;
+            }
+            default:
+                break;
+        }
+    }
+}
+
 struct TickState {
     bool shown[std::size(kAssassins)] = {};
     std::uint32_t map = 0xffffffffu;
@@ -192,7 +284,14 @@ void Tick(const GameSnapshot& s, bool host) {
         st.map = s.map_id;
         if (s.loading || !s.world_up) return;
     }
-    if (host || s.session_role != kRoleClient) return;
+    if (host) {
+        if (!s.loading && s.world_up) {
+            using Clock = std::chrono::steady_clock;
+            FogFollowTick(s, std::chrono::duration<double>(Clock::now().time_since_epoch()).count());
+        }
+        return;
+    }
+    if (s.session_role != kRoleClient) return;
     const bool on = RuleOn(true);
     for (std::size_t i = 0; i < std::size(kAssassins); ++i) {
         const Assassin& a = kAssassins[i];
