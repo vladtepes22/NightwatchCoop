@@ -2182,5 +2182,9 @@
   "{version} shows the launcher's version; {area}, {boss}, {level}, {echoes} and {insight} show the game's": "{version} mostra la versione del launcher; {area}, {boss}, {level}, {echoes} e {insight} quelli del gioco",
   "Show where you are": "Mostra dove sei",
   "The area you're in, or the boss you're fighting": "L'area in cui sei o il boss che stai affrontando",
-  "Show your level, Blood Echoes and Insight": "Mostra livello, Echi del sangue e Intuito"
+  "Show your level, Blood Echoes and Insight": "Mostra livello, Echi del sangue e Intuito",
+  "Older CPU support": "Supporto CPU meno recenti",
+  "For AMD FX and Intel 2nd/3rd generation Core (no MOVBE/BMI1): the game's newer CPU instructions are replaced when it starts. Best effort": "Per AMD FX e Intel Core di 2ª/3ª generazione (senza MOVBE/BMI1): le istruzioni CPU più recenti del gioco vengono sostituite all'avvio. Senza garanzie",
+  "On when this CPU needs it": "Attivo quando questa CPU ne ha bisogno",
+  "Also on a newer CPU (for testing)": "Attivo anche su una CPU più recente (per i test)"
 }

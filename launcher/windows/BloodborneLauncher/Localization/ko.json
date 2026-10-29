@@ -2182,5 +2182,9 @@
   "{version} shows the launcher's version; {area}, {boss}, {level}, {echoes} and {insight} show the game's": "{version}은 런처 버전, {area}, {boss}, {level}, {echoes}, {insight}는 게임 정보를 표시합니다",
   "Show where you are": "현재 위치 표시",
   "The area you're in, or the boss you're fighting": "지금 있는 지역 또는 싸우고 있는 보스",
-  "Show your level, Blood Echoes and Insight": "레벨, 피의 메아리, 통찰 표시"
+  "Show your level, Blood Echoes and Insight": "레벨, 피의 메아리, 통찰 표시",
+  "Older CPU support": "구형 CPU 지원",
+  "For AMD FX and Intel 2nd/3rd generation Core (no MOVBE/BMI1): the game's newer CPU instructions are replaced when it starts. Best effort": "AMD FX 및 인텔 2/3세대 Core용(MOVBE/BMI1 없음): 게임을 시작할 때 게임의 최신 CPU 명령어를 대체합니다. 작동 보장 없음",
+  "On when this CPU needs it": "이 CPU에 필요할 때 켜기",
+  "Also on a newer CPU (for testing)": "최신 CPU에서도 켜기(테스트용)"
 }

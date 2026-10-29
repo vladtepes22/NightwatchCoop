@@ -2182,5 +2182,9 @@
   "{version} shows the launcher's version; {area}, {boss}, {level}, {echoes} and {insight} show the game's": "{version} başlatıcının sürümünü, {area}, {boss}, {level}, {echoes} ve {insight} oyunun bilgilerini gösterir",
   "Show where you are": "Nerede olduğunu göster",
   "The area you're in, or the boss you're fighting": "Bulunduğun bölge ya da savaştığın boss",
-  "Show your level, Blood Echoes and Insight": "Seviyeni, Kan Yankılarını ve Kavrayışı göster"
+  "Show your level, Blood Echoes and Insight": "Seviyeni, Kan Yankılarını ve Kavrayışı göster",
+  "Older CPU support": "Eski CPU desteği",
+  "For AMD FX and Intel 2nd/3rd generation Core (no MOVBE/BMI1): the game's newer CPU instructions are replaced when it starts. Best effort": "AMD FX ve 2./3. nesil Intel Core için (MOVBE/BMI1 yok): oyunun yeni CPU komutları oyun başlarken değiştirilir. Garanti yok",
+  "On when this CPU needs it": "Bu CPU gerektirdiğinde açık",
+  "Also on a newer CPU (for testing)": "Yeni bir CPU'da da açık (test için)"
 }
