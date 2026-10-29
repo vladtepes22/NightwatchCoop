@@ -126,16 +126,18 @@ namespace BloodborneLauncher.Views
             // Discord status: a preview of the card, and for Custom every part Discord lets a game set.
             var discordPreview = new DiscordPreview();
             var discordCustom = new StackPanel();
+            var discordGame = new StackPanel();
             var discordLink = new StackPanel();
             var discordOwn = new StackPanel();
             void DiscordChanged()
             {
                 var mode = S.Str("discord_status");
+                discordGame.Visibility = mode is "lantern" or "custom" ? Visibility.Visible : Visibility.Collapsed;
                 discordCustom.Visibility = mode == "custom" ? Visibility.Visible : Visibility.Collapsed;
                 discordLink.Visibility = S.Str("discord_picture") == "url" ? Visibility.Visible : Visibility.Collapsed;
                 // The Name combo has one entry (own app) and never fires a change, so "discord_app" is never saved: always show the ID rows.
                 discordOwn.Visibility = Visibility.Visible;
-                discordPreview.Show(DiscordPresence.LookOf(S));
+                discordPreview.Show(DiscordPresence.LookOf(S, LiveGame.Example));
                 Ws.SaveSoon();
                 MainWindow.Instance?.UpdateDiscord();
             }
@@ -146,6 +148,11 @@ namespace BloodborneLauncher.Views
                 L.T("Shows that you're playing on your Discord profile while the game runs. Custom: your own lines, picture and buttons"),
                 Choices.DiscordStatus, "discord_status", changed: DiscordChanged);
             Body.Children.Add(discordPreview);
+            ToggleRow(SymbolRegular.Globe24, L.T("Show where you are"), L.T("The area you're in, or the boss you're fighting"),
+                () => S.Bool("discord_game_place"), v => S.Set("discord_game_place", v), discordGame, DiscordChanged);
+            ToggleRow(SymbolRegular.Trophy24, L.T("Show your level, Blood Echoes and Insight"), null,
+                () => S.Bool("discord_game_stats"), v => S.Set("discord_game_stats", v), discordGame, DiscordChanged);
+            Body.Children.Add(discordGame);
             ComboRow(SymbolRegular.Rename24, L.T("Name"), L.T("The name in bold is the Discord app's. My own Discord app: make one on discord.com/developers with any name and paste its Application ID"),
                 DiscordPresence.Names, () => "own",
                 v => S.Set("discord_app", v), discordCustom, changed: DiscordChanged);
@@ -154,7 +161,7 @@ namespace BloodborneLauncher.Views
             TextRow(SymbolRegular.Rename24, L.T("Your app's name"), L.T("Only for the preview: Discord shows the name you gave the app"), "Hunt night",
                 () => S.Str("discord_app_name"), v => { S.Set("discord_app_name", v); DiscordChanged(); }, discordOwn, 380);
             discordCustom.Children.Add(discordOwn);
-            DiscordText(L.T("First line"), "Hunting together", "discord_details", L.T("{version} shows the launcher's version"));
+            DiscordText(L.T("First line"), "Hunting together", "discord_details", L.T("{version} shows the launcher's version; {area}, {boss}, {level}, {echoes} and {insight} show the game's"));
             DiscordText(L.T("Second line"), L.T("Optional"), "discord_state");
             ComboRow(SymbolRegular.Image24, L.T("Picture"), null, DiscordPresence.Pictures, () => S.Str("discord_picture") == "url" ? "url" : "none",
                 v => S.Set("discord_picture", v), discordCustom, changed: DiscordChanged);

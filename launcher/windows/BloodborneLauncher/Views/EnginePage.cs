@@ -167,6 +167,8 @@ namespace BloodborneLauncher.Views
                 SettingCombo(SymbolRegular.Speaker224, L.T("Sound output"),
                     L.T("If the sound jitters or crackles, try DirectSound. The larger buffer is steadier but the sound comes a little later"),
                     Choices.SoundOutput, "sound_output");
+                SettingToggle(SymbolRegular.Speaker224, L.T("Mute in the background"),
+                    L.T("No sound while the game window is not in front or is minimized"), "mute_unfocused");
                 SettingToggle(SymbolRegular.Speaker224, L.T("Sound threads first"),
                     L.T("For CPUs with many slower cores (older Xeons and similar): the game's sound runs before its other threads, against late or stuttering sound. Off by default"),
                     "audio_priority");

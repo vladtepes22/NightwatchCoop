@@ -39,6 +39,7 @@ int bbgpu_overlay_captures_input(void);
  * view (the pad reader, on the map button). */
 int bbgpu_map_available(void);
 void bbgpu_map_toggle(void);
+int bbgpu_window_in_background(void);
 /* Patches the loaded image before the game runs (image still writable): libGnm entry hooks. */
 void bbgpu_patch_image(unsigned char *image, uint64_t size);
 /* Number of symbols registered by the vendored libraries (diagnostics). */
