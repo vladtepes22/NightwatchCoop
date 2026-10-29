@@ -2063,11 +2063,11 @@ def phase_cao(only):
     )
 
 
-# Phase cab (chalice_boss, 2 players; 0.7.7 altar077): a LIVE Chalice layer boss with a guest. The host Continues
+# Phase cab (chalice_boss, 2 players; 0.7.7 altar077 / chalboss077): a LIVE Chalice layer boss with a guest. The host Continues
 # from chalice_pthumeru_boss (chalice_pthumeru_inside with the layer 1 boss's defeat flags cleared by
-# tools/party/make_chalice_boss_fixture.py: it stands in the boss room beside the lamp), guest 1 (default save)
-# is summoned in. Both walk to the boss (-39, 30.5, -91); the boss bar and the boss HP ("test: boss bar ...",
-# log_pos) must show on BOTH games.
+# tools/party/make_chalice_boss_fixture.py: it stands inside the boss arena, whose boss only wakes when a player comes in through
+# the arena's closed door). Host: out to the corridor (x -20), the stick walk to the door ("Open Door"), Cross, in; the boss bar
+# and HP show on both games, the host sets it to 50% (synced), then kills it (clear bonus on host and guest).
 CAB_HOST = Path("E:/games/bbport/test_saves/chalice_pthumeru_boss/savedata")
 
 
@@ -2079,13 +2079,39 @@ def prep_chalboss(root: Path):
 
 
 def phase_cab(only):
-    host = ",".join(["log_pos", "host_press=0@25%m29!", "host_kill=1@3%m29", "host_move=-45:30.7:-93@3%m29",
-                     "host_move=-42:30.6:-91@10%m29", "host_press=0@60%m29!"])
-    g1 = ",".join(["log_pos", "guest_move=-46:30.7:-92@30%m29", "guest_move=-43:30.6:-91@10%m29", "guest_press=0@50%m29!"])
+    # The boss 2900100 wakes (bar, fog, AI) by the arena's entry region, which only a player coming from OUTSIDE
+    # the closed door x -24.4 wakes (world frame: the arena runs along x, the lamp room is its far end, the
+    # layer 1 boss stands at (-39, 30.5, -91)): the fixture's player starts inside, so both hop out to x -20 and back in.
+    # host: out to x -20, the stick walk to the door (prompt "Open Door"), Cross, and the same walk goes on through
+    # the opened door: the arena's entry wakes the boss (bar, fog) ~50 s into the run; the guest goes in after.
+    host = ",".join(["log_pos=1", "watch_text=Open Door", "host_move=-20:31.6:-91.1@3%m29", "approach=-26:-91.1:4.0:cross",
+                     "host_kill=2900100:hp50@36%m29", "host_kill=2900100:hp@12%m29"])
+    g1 = ",".join(["log_pos=1", "guest_move=-20:31.6:-91.1@25%m29", "guest_move=-27:31.4:-91.1@4%m29"])
+    host = os.environ.get("CAB_HOST_STEPS", host)   # probes (fog position, prompt text)
+    g1 = os.environ.get("CAB_G1_STEPS", g1)
     return dict(
-        name="cab", seconds=int(os.environ.get("CAB_SECONDS", "260")), count=2, headless=0, prep=prep_chalboss, post=post_chalamp,
+        name="cab", seconds=int(os.environ.get("CAB_SECONDS", "260")), count=2, headless=0, pad=int(os.environ.get("CAB_PAD", "1")), prep=prep_chalboss, post=post_chalamp,
         env=["BB_PARTY_TRAVEL_CHOICE=party", "BB_PARTY_TEST_INVINCIBLE=1"],
         ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=" + g1],
+        crash=[], until=[], until_hold=20,
+    )
+
+
+# Phase caq (chalice_queen, 1 player; 0.7.7 chalboss077; FIXTURE MAKER, UNPROVEN: the altar menu did not open in the one run; not in the default list): the altar7 ritual (docs/party/
+# test_saves.md) for the Pthumeru Ihyll Root Chalice (goods 6500; Queen Yharnam's dungeon). CAQ_GOODS = the chalice and the
+# rite materials the altar asks for; CAQ_SEQ = the menu walk. The save to keep: inst0/user/savedata_party of the run.
+def prep_chalqueen(root: Path):
+    _cl_saves(root, CL_DEFAULT, 0)
+
+
+def phase_caq(only):
+    goods = os.environ.get("CAQ_GOODS", "goods=6500:1,goods=7000:9,goods=7001:9,goods=7002:9,goods=7003:9,goods=7004:9,goods=7012:9,goods=7050:25,goods=7100:9,goods=7150:9,echoes=30000")
+    seq = os.environ.get("CAQ_SEQ", "!cross@Ritual Altar/?cross@Use the Ritual Altar/cross@Search by Chalice Glyph/cross@Select chalice to use/cross@Rite materials/left@Conduct a ritual to create a Chalice Dungeon?/cross/wait/wait/wait/wait")
+    host = "log_pos=2,watch_text=Rite/ritual/Ritual/chalice/Chalice," + goods + ",approach=-18.27:-16.88:1.3,prompt=Ritual Altar,seq=" + seq
+    return dict(
+        name="caq", seconds=int(os.environ.get("CAQ_SECONDS", "150")), count=1, headless=0, prep=prep_chalqueen, post=post_chalamp, pad=1,
+        env=["BB_PARTY_TRAVEL_CHOICE=party"],
+        ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host],
         crash=[], until=[], until_hold=20,
     )
 
@@ -3921,8 +3947,8 @@ def phase_cvt(only, who="guest"):
 # `log_oath` reads the oath rune's marker SpEffect (6100 Corruption, 6110 Radiance, 6120 Hunter, 6142 Impurity,
 # 250 Beast's Embrace, 255 Milkweed: what the game's EMEVDs and the NPCs test) on the local player of each game:
 # each must carry ITS OWN covenant and never the other's, while the guest is summoned in the host's world.
-CVR_HOST_LOT = os.environ.get("CVR_HOST_LOT", "17000")    # Corruption
-CVR_GUEST_LOT = os.environ.get("CVR_GUEST_LOT", "35010")  # Hunter
+CVR_HOST_LOT = os.environ.get("CVR_HOST_LOT", "3401850")  # Beast's Embrace (17000 Corruption, 34020 Radiance, 43120 Impurity)
+CVR_GUEST_LOT = os.environ.get("CVR_GUEST_LOT", "43020")  # Milkweed (35010 Hunter)
 CVR_KEYS = os.environ.get("CVR_KEYS", "left,cross,w,w,w,w,w,w")
 CVR_GKEYS = os.environ.get("CVR_GKEYS", CVR_KEYS)
 CVR_UNTIL = [r"1:guest_leave: Party > Leave pressed[\s\S]*1:test: oath: "]
@@ -3955,13 +3981,42 @@ def phase_cva(only):
     env, ienv = _anl_env([])
     env = [(e + ",9042,50000200") if e.startswith("BB_PARTY_PROGRESS_TEST_CLEAR") else e for e in env
            if not e.startswith("BB_PARTY_PROGRESS_TEST_READ")] + ["BB_PARTY_PROGRESS_TEST_READ=" + CVA_READ]
-    ienv = ienv + ["0:BB_PARTY_DIRECTOR_TEST=" + ",".join(["god", "log_oath"] + talk("host", 15)),
+    if os.environ.get("CVA_TRACE") == "1":  # the instructions of Annalise's m25 events (kneel / offer / give blood), every call
+        env = env + ["BB_PARTY_EMEVD_TRACE=1", "BB_PARTY_EMEVD_TRACE_ALL=" + ",".join(str(i) for i in range(12500010, 12500022))]
+    sweep = []
+    if os.environ.get("CVA_SWEEP") == "1":  # exploration: after the host's talk try gesture list rows 0..N one by one (touchpad, Down*k, Cross)
+        env = env + ["BB_PARTY_GESTURE_TEST=" + ",".join(str(g) for g in range(800, 823))]
+        lf = "log_flag=" + "/".join(str(f) for f in list(range(72500300, 72500340)) + [9042, 1040, 1041, 1042, 50000200])
+        sweep = [lf, "log_anim", "host_press=0x4000@2.5%m25_00!", "host_press=0x0@28%m25_00!"]  # one talk, wait for its end
+        gat = os.environ.get("CVA_SWEEP_AT", "3")  # seconds after the talk's first Cross: her "Kneel afore Us" line is ~17 s in
+        if os.environ.get("CVA_KNEEL"):
+            # pre-open the gesture list (the menu cannot be opened during her lines), clear the first-talk state so her greeting plays
+            # again, perform list gesture k at CVA_KNEEL_AT s after that (her "Kneel afore Us" line is ~9 s into the greeting)
+            sweep = sweep[:2]
+            for k in [int(x) for x in os.environ["CVA_KNEEL"].split(",")]:
+                # 331 falling 1 -> 0 (with 301 / 302 clear) starts her greeting again; the gesture menu cannot be open during it
+                # (it is closed), so it is opened CVA_KNEEL_AT s later, right after her lines end (~14 s)
+                sweep += ["host_flag=72500331@1%m25_00", "host_flag=72500301:0@0.1%m25_00", "host_flag=72500302:0@0.1%m25_00",
+                          "host_flag=72500331:0@0.1%m25_00", "host_press=0x100000@" + os.environ.get("CVA_KNEEL_AT", "14.5") + "%m25_00!",
+                          "host_press=0x1000@0.8%m25_00!"] + ["host_press=0x40@0.4%m25_00!"] * k                     + ["host_press=0x8000@0.8%m25_00!", "host_press=0x0@" + os.environ.get("CVA_KNEEL_WAIT", "14") + "%m25_00!"]
+        talk_each = os.environ.get("CVA_SWEEP_TALK") == "1"  # every trial starts its own talk (touchpad at CVA_SWEEP_AT s after its Cross)
+        if talk_each:
+            sweep = sweep[:2]
+        ks = [int(x) for x in os.environ.get("CVA_SWEEP_KS", "").split(",") if x] or range(int(os.environ.get("CVA_SWEEP_FROM", "0")), int(os.environ.get("CVA_SWEEP_TO", "23")))
+        for k in ([] if os.environ.get("CVA_KNEEL") else ks):
+            if talk_each:
+                sweep += ["host_press=0x4000@2.5%m25_00!"]
+            # the touchpad's gesture menu: Triangle (Switch) moves into the list of learned gestures, Down walks it, Square = Test Now
+            sweep += ["host_press=0x100000@" + gat + "%m25_00!", "host_press=0x1000@0.8%m25_00!"] + ["host_press=0x40@0.4%m25_00!"] * k                 + ["host_press=0x8000@0.8%m25_00!", "host_press=0x0@" + os.environ.get("CVA_SWEEP_WAIT", "8") + "%m25_00!"]
+    ienv = ienv + ["0:BB_PARTY_DIRECTOR_TEST=" + ",".join(["god", "log_oath"] + (talk("host", 15) if not sweep else ["host_chr=%s:1.6@15%%m25_00" % CVA_ANNALISE]) + sweep),
                    "1:BB_PARTY_DIRECTOR_TEST=" + ",".join(["god", "log_oath"] + talk("guest", CVS_GUEST_AT) + ["guest_leave@8%m25_00"]),
                    "1:BB_PARTY_GUESTSVC_TEST=buttonprobe;promptlog"]
-    return dict(name="cva", seconds=600, count=2, headless=0, env=env, ienv=ienv,
+    if sweep:
+        ienv = [e.replace(",guest_leave@8%m25_00", "") for e in ienv]
+    return dict(name="cva", seconds=int(os.environ.get("CVA_SECONDS", "900")) if sweep else 600, count=2, headless=0, env=env, ienv=ienv,
                 watch=["--watch", r"npc_talk: local line: talk=cvtalk@1.5,10,30",
                        "--watch", r"npc_talk: local choice: npc=cvchoice@0.5,2"],
-                crash=[], until=[r"1:guest_leave: Party > Leave pressed[\s\S]*test read \(load mode 0"], until_hold=8)
+                crash=[], until=[] if sweep else [r"1:guest_leave: Party > Leave pressed[\s\S]*test read \(load mode 0"], until_hold=8)
 
 
 # Phase cvs / cvo (covenant_seq, 0.7.7, ~7 min, 2 players, group `covenant_seq`; "covenants per player"): in ONE
@@ -5205,7 +5260,7 @@ def check_lo(v, L):
 
 
 PHASES = {"s1": phase_s1, "s2": phase_s2, "rules": phase_rules, "sc": phase_sc, "summonfail": phase_summonfail,
-          "s3": phase_s3, "sk": phase_sk, "lg": phase_lg, "lv": phase_lv, "ga": phase_ga, "gl": phase_gl, "lf": phase_lf, "lfx": phase_lfx, "mk": phase_mk, "kd": phase_kd, "kw": phase_kw, "fl": phase_fl, "fd": phase_fd, "fdj": phase_fdj, "cd": phase_cd, "iw": phase_iw, "iwn": phase_iwn, "an": phase_an, "anl": phase_anl, "ld": phase_ld, "cl": phase_cl, "clg": phase_clg, "clw": phase_clw, "cla": phase_cla, "cpr": phase_cpr, "chc": phase_chc, "chn": lambda only: phase_chc(only, "chn", True), "chw": phase_chw, "cpa": phase_cpa, "cae": phase_cae, "cao": phase_cao, "cab": phase_cab, "el": phase_el, "lt": phase_lt, "bf": phase_bf, "bv": phase_bv, "ch": phase_ch, "md": phase_md, "mds": phase_mds, "svl": phase_svl, "rh": phase_rh, "rs": phase_rs, "fw": phase_fw, "fwg": phase_fwg, "fwb": phase_fwb, "fwe": phase_fwe, "fh": phase_fh, "lp": phase_lp, "gd": phase_gd, "gh": phase_gh, "gm": phase_gm, "gr": phase_gr, "gr2": phase_gr2, "gr3": phase_gr3, "gr4": phase_gr4, "gro": lambda only: phase_gr(only, "gro", False), "gr2o": lambda only: phase_gr2(only, "gr2o", False), "gr3o": lambda only: phase_gr3(only, "gr3o", False), "gr4o": lambda only: phase_gr4(only, "gr4o", False), "jl": phase_jl, "ml": phase_ml, "mg": phase_mg, "hs": phase_hs, "ngj": phase_ngj, "nl": phase_nl, "ff": phase_ff, "lk": phase_lk, "lkc": phase_lkc, "rt": phase_rt, "br": phase_br, "rf": phase_rf, "rj": phase_rj, "em": phase_em, "bd": phase_bd, "bdo": phase_bdo, "sm": phase_sm, "ef": phase_ef, "mb": phase_mb, "gb": phase_gb, "mbs": phase_mbs, "gbs": phase_gbs, "da": phase_da, "cv": phase_cv, "cvs": phase_cvs, "cvo": lambda only: phase_cvs(only, False), "cvr": phase_cvr, "cva": phase_cva, "cvt": phase_cvt, "cvh": lambda only: phase_cvt(only, "host"), "ie": phase_ie, "il": phase_il, "rw": phase_rw, "rwe": phase_rwe, "rwt": phase_rwt, "rwl": phase_rwl, "tv": phase_tv, "nf": phase_nf, "nfa": phase_nfa, "npa": phase_npa, "npd": phase_npd, "pvd": phase_pvd, "pvh": phase_pvh, "pvn": phase_pvn, "npf": phase_npf, "eh": phase_eh, "bl": phase_bl, "mw": phase_mw, "px": phase_px, "pxg": lambda only: phase_px(only, True), "sj": phase_sj, "ou": phase_ou, "mesh": phase_mesh, "fp": phase_fp, "lo": phase_lo, "po": phase_po, "pos": phase_pos, "sg": phase_sg, "sg2": phase_sg2, "csh": phase_csh, "csh2": phase_csh2, "ba": phase_ba, "bh": phase_bh, "bk": phase_bk, "hg": phase_hg, "lw": phase_lw, "la": phase_la, "lb": phase_lb, "lc": phase_lc}
+          "s3": phase_s3, "sk": phase_sk, "lg": phase_lg, "lv": phase_lv, "ga": phase_ga, "gl": phase_gl, "lf": phase_lf, "lfx": phase_lfx, "mk": phase_mk, "kd": phase_kd, "kw": phase_kw, "fl": phase_fl, "fd": phase_fd, "fdj": phase_fdj, "cd": phase_cd, "iw": phase_iw, "iwn": phase_iwn, "an": phase_an, "anl": phase_anl, "ld": phase_ld, "cl": phase_cl, "clg": phase_clg, "clw": phase_clw, "cla": phase_cla, "cpr": phase_cpr, "chc": phase_chc, "chn": lambda only: phase_chc(only, "chn", True), "chw": phase_chw, "cpa": phase_cpa, "cae": phase_cae, "cao": phase_cao, "cab": phase_cab, "caq": phase_caq, "el": phase_el, "lt": phase_lt, "bf": phase_bf, "bv": phase_bv, "ch": phase_ch, "md": phase_md, "mds": phase_mds, "svl": phase_svl, "rh": phase_rh, "rs": phase_rs, "fw": phase_fw, "fwg": phase_fwg, "fwb": phase_fwb, "fwe": phase_fwe, "fh": phase_fh, "lp": phase_lp, "gd": phase_gd, "gh": phase_gh, "gm": phase_gm, "gr": phase_gr, "gr2": phase_gr2, "gr3": phase_gr3, "gr4": phase_gr4, "gro": lambda only: phase_gr(only, "gro", False), "gr2o": lambda only: phase_gr2(only, "gr2o", False), "gr3o": lambda only: phase_gr3(only, "gr3o", False), "gr4o": lambda only: phase_gr4(only, "gr4o", False), "jl": phase_jl, "ml": phase_ml, "mg": phase_mg, "hs": phase_hs, "ngj": phase_ngj, "nl": phase_nl, "ff": phase_ff, "lk": phase_lk, "lkc": phase_lkc, "rt": phase_rt, "br": phase_br, "rf": phase_rf, "rj": phase_rj, "em": phase_em, "bd": phase_bd, "bdo": phase_bdo, "sm": phase_sm, "ef": phase_ef, "mb": phase_mb, "gb": phase_gb, "mbs": phase_mbs, "gbs": phase_gbs, "da": phase_da, "cv": phase_cv, "cvs": phase_cvs, "cvo": lambda only: phase_cvs(only, False), "cvr": phase_cvr, "cva": phase_cva, "cvt": phase_cvt, "cvh": lambda only: phase_cvt(only, "host"), "ie": phase_ie, "il": phase_il, "rw": phase_rw, "rwe": phase_rwe, "rwt": phase_rwt, "rwl": phase_rwl, "tv": phase_tv, "nf": phase_nf, "nfa": phase_nfa, "npa": phase_npa, "npd": phase_npd, "pvd": phase_pvd, "pvh": phase_pvh, "pvn": phase_pvn, "npf": phase_npf, "eh": phase_eh, "bl": phase_bl, "mw": phase_mw, "px": phase_px, "pxg": lambda only: phase_px(only, True), "sj": phase_sj, "ou": phase_ou, "mesh": phase_mesh, "fp": phase_fp, "lo": phase_lo, "po": phase_po, "pos": phase_pos, "sg": phase_sg, "sg2": phase_sg2, "csh": phase_csh, "csh2": phase_csh2, "ba": phase_ba, "bh": phase_bh, "bk": phase_bk, "hg": phase_hg, "lw": phase_lw, "la": phase_la, "lb": phase_lb, "lc": phase_lc}
 # --only groups (a smaller run for repeat cycles): the phase each needs and the verdict rows it keeps
 GROUPS = {"join": "s1", "leave": "s1", "death": "s1", "travel": "s1", "boss": "s1", "host_death": "s1",
           "wipe": "s1", "wipe_late": "s1", "kill": "s2", "arena": "s2", "itembox": "s2", "rejoin_kill": "s2", "c6": "s2", "host_crash": "s2",
@@ -5705,12 +5760,26 @@ def check_cao(v, L):
 
 
 def check_cab(v, L):
-    """cab: info only until a fixture engages the layer boss (see docs/party/test_saves.md chalice_pthumeru_boss)."""
+    """cab: a live Chalice layer boss with a guest: woken by the real route (the door's Open Door prompt + the walk
+    in), its bar and HP on both games, damage synced, its death credits both (clear bonus on host and guest)."""
     check_common(v, L, "cab")
     need(v, L, "cab host in the dungeon (m29)", 0, r"map - -> m29_00")
-    need(v, L, "cab the layer 1 boss 2900100 is loaded and alive (HP 3175)", 0, r"loaded #\d+: entity 2900100, HP \d+")
-    hits = L.all(0, r"test: boss bar \d+", 0, 1e9) + L.all(1, r"test: boss bar \d+", 0, 1e9)
-    v.step("cab (info) boss bar seen on host/guest", True, "%d lines" % len(hits))
+    need(v, L, "cab the door prompt came up for the host", 0, r'test: text shows: "Open Door"')
+    t0 = need(v, L, "cab the host's Cross opened the door (approach pressed)", 0, r"test: approach: pressed 0x4000")
+    w0 = need(v, L, "cab the boss woke on the host (boss health bar shown, entity 2900100)", 0,
+              r"boss health bar shown: a boss fight \(event \d+, entity 2900100", t0 or 0)
+    w1 = need(v, L, "cab the same bar on the guest's game", 1, r"boss health bar shown: a boss fight \(event \d+, entity 2900100", t0 or 0)
+    b0 = need(v, L, "cab host boss bar on screen with its HP (test: boss bar)", 0, r"test: boss bar \d+: .* hp \d+", w0 or 0)
+    b1 = need(v, L, "cab guest boss bar on screen with its HP (test: boss bar)", 1, r"test: boss bar \d+: .* hp \d+", w1 or 0)
+    hit = need(v, L, "cab damage: the host sets the boss to 50% HP", 0, r"host_kill: entity 2900100 HP \d+ -> \d+ \(HP set only", b0 or 0)
+    if hit is not None:
+        low = r"test: boss bar \d+: .* hp ([0-2]\d{3}|\d{1,3})$"
+        need(v, L, "cab damage synced: the host's bar shows the lower HP", 0, low, hit)
+        need(v, L, "cab damage synced: the guest's bar shows the lower HP too", 1, low, hit)
+    kill = need(v, L, "cab the boss killed on the host (HP 0, the game's own death)", 0, r"host_kill: entity 2900100 HP \d+ -> 0 ", hit or 0)
+    need(v, L, "cab boss death credited on the host (clear bonus)", 0, r"boss clear on this game \(BlockClear2\): boss 2900100", kill or 0)
+    need(v, L, "cab boss death credited on the guest (host's clear bonus + its own)", 1, r"boss clear on this game \(BlockClear2\): boss 2900100", kill or 0)
+    need(v, L, "cab guest: the host's boss clear bonus", 1, r"host boss clear bonus: \d+ Blood Echoes \(boss 2900100\)", kill or 0)
 
 def check_common(v, L, tag):
     none_of(v, L, tag + ": no crash / assert", r"(?i)unhandled exception|assertion failed|EXCEPTION_ACCESS|fatal error")
@@ -8196,10 +8265,10 @@ def check_cvt(v, L, d: Path, who="guest"):
         need(v, L, t + " the rune is given into the guest's inventory (after the Leave, at home)", 1,
              CV_RUNE_GIVEN % (CV_RUNE_LOT, CV_RUNE_FLAG, CV_RUNE_FLAG, CV_RUNE_LOT, CV_RUNE_FLAG), tr or 0)
         none_of(v, L, t + " the trigger never goes to the host", r"world action sent to the host.*%s" % CV_RUNE_TRIGGER, insts=(0, 1))
-        none_of(v, L, t + " the host gets no rune", r"gave #\d+ lot %s" % CV_RUNE_LOT, insts=(0,))
+        none_of(v, L, t + " the host gets no rune", r"gave #\d+ lot %s" % CV_RUNE_LOT, insts=(0,))
     else:
         # the host's rune is the game's own event 12700906 (no mod log line): proved by the host's save below
-        none_of(v, L, t + " the guest gets no rune from the host's talk", r"gave #\d+ lot %s|own talk gift trigger %s" % (CV_RUNE_LOT, CV_RUNE_TRIGGER),
+        none_of(v, L, t + " the guest gets no rune from the host's talk", r"gave #\d+ lot %s|own talk gift trigger %s" % (CV_RUNE_LOT, CV_RUNE_TRIGGER),
                 insts=(1,))
     g = lp_save_flags(d, ti, ids)
     o = lp_save_flags(d, oi, ids)
@@ -8226,13 +8295,27 @@ def check_cvr(v, L, d=None):
         v.step("cvr the %s never carries the other member's covenant effect" % who, not wrong, "%d wrong samples" % len(wrong))
         summ = [ln for t, ln in on if "role 6" in ln or "role 3" in ln]
         v.step("cvr the %s's effect holds in the host's world (summoned / hosting)" % who, len(summ) >= 3, "%d samples" % len(summ))
+    # the numbers (0.7.7 covleft077): the oath rune's SpEffect rows the PLAYER'S OWN active effect nodes point at (log_oath's `oath row`
+    # line: node row IS the param row, every non-zero field): Beast's Embrace row 180050 holds the Therianthrope resist (+0x1E0 = 15),
+    # Milkweed row 180060 the item discovery rate (+0x1FC = 0.1); the oath marker rows (6100 / 6110 / 6120 / 6142 / 250 / 255) carry no
+    # numbers of their own (the engine and the EMEVDs / ESDs act on the marker's presence on the chr)
+    num = {"3401850": ("BeastResist(180050)", r"\+1E0=15"), "43020": ("MilkweedDrop(180060)", r"\+1FC=0\.1")}
+    for i, who, lot, other in ((0, "host", CVR_HOST_LOT, CVR_GUEST_LOT), (1, "guest", CVR_GUEST_LOT, CVR_HOST_LOT)):
+        if lot in num:
+            nm, pat = num[lot]
+            rows = [ln for t, ln in L.all(i, r"test: oath row %s: node row IS the param row" % re.escape(nm), 0)]
+            v.step("cvr the %s's own %s row is attached to its chr with its number (%s)" % (who, nm, pat), any(re.search(pat, ln) for ln in rows), "%d row line(s)" % len(rows))
+            if other in num:
+                onm, _ = num[other]
+                wrong = L.all(i, r"test: oath row %s" % re.escape(onm), 0)
+                v.step("cvr the %s never shows the other member's %s row" % (who, onm), not wrong, "%d" % len(wrong))
     home = [ln for t, ln in L.all(1, r"test: oath: covenant effects on the local player: .*role 0", 0) if re.search(gn + r"\(", ln)]
     v.step("cvr the guest keeps its own covenant effect at home after the Leave", len(home) >= 1, "%d samples" % len(home))
     check_common(v, L, "cvr")
 
 
 def check_cva(v, L, d: Path):
-    """Phase cva: Annalise's greeting lines on the host and on the guest (the kneel gesture itself is NOT driven: unproven)."""
+    """Phase cva: Annalise's greeting lines on the host and on the guest (the kneel itself is NOT proven: docs/party/event_flags.md; CVA_SWEEP / CVA_KNEEL explore it)."""
     j = need(v, L, "cva join: the guest is in", 0, r"cooperators 0 -> 1")
     for i, who in ((0, "host"), (1, "guest")):
         ln = L.all(i, r"npc_talk: local line: talk \d+ .*npc 250307 \(Annalise\)", j or 0)
@@ -8461,7 +8544,7 @@ CHECKS = {"s1": lambda v, L, d: check_s1(v, L), "s2": check_s2, "rules": lambda 
           "ga": lambda v, L, d: check_ga(v, L), "gl": lambda v, L, d: check_gl(v, L), "lf": lambda v, L, d: check_lf(v, L), "lfx": lambda v, L, d: check_lf(v, L), "el": lambda v, L, d: check_el(v, L), "lt": lambda v, L, d: check_lt(v, L), "ch": lambda v, L, d: check_ch(v, L), "md": check_md, "mds": check_mds, "svl": check_svl, "rh": lambda v, L, d: check_rh(v, L), "rs": lambda v, L, d: check_rs(v, L), "fw": lambda v, L, d: check_fw(v, L), "fwg": lambda v, L, d: check_fw(v, L, "fwg", (1,)), "fwb": lambda v, L, d: check_fw(v, L, "fwb", (0, 1)), "fwe": lambda v, L, d: check_fw(v, L, "fwe", (0, 1)), "fh": lambda v, L, d: check_fw(v, L, "fh", (0, 1), FH_POS, FH_BUSY, "1", "0x16000000", (-211.25, 542.1), -20.3),
           "mk": lambda v, L, d: check_mk(v, L), "kd": lambda v, L, d: check_kd(v, L), "kw": lambda v, L, d: check_kw(v, L),
           "fl": lambda v, L, d: check_fl(v, L), "fd": lambda v, L, d: check_fd(v, L), "fdj": lambda v, L, d: check_fdj(v, L), "cd": lambda v, L, d: check_cd(v, L), "iw": lambda v, L, d: check_iw(v, L), "iwn": lambda v, L, d: check_iwn(v, L), "an": lambda v, L, d: check_an(v, L), "anl": lambda v, L, d: check_anl(v, L), "ld": lambda v, L, d: check_ld(v, L),
-          "cl": lambda v, L, d: check_cl(v, L), "clg": lambda v, L, d: check_clg(v, L), "cpr": lambda v, L, d: check_cpr(v, L), "chc": lambda v, L, d: check_chc(v, L), "chw": lambda v, L, d: check_chc(v, L, True), "chn": lambda v, L, d: check_chc(v, L), "cpa": lambda v, L, d: check_common(v, L, "cpa"), "cae": lambda v, L, d: check_cae(v, L), "cao": lambda v, L, d: check_cao(v, L), "cab": lambda v, L, d: check_cab(v, L), "clw": lambda v, L, d: check_clw(v, L), "cla": lambda v, L, d: check_cla(v, L), "bf": lambda v, L, d: check_bf(v, L), "lp": check_lp, "gd": check_gd, "gh": lambda v, L, d: check_gh(v, L), "gm": check_gm, "gr": lambda v, L, d: check_gr(v, L), "gr2": lambda v, L, d: check_gr(v, L, 2), "gr3": lambda v, L, d: check_gr(v, L, 3), "gr4": lambda v, L, d: check_gr(v, L, 4), "gro": lambda v, L, d: check_gr(v, L, 1, "gro"), "gr2o": lambda v, L, d: check_gr(v, L, 2, "gr2o"), "gr3o": lambda v, L, d: check_gr(v, L, 3, "gr3o"), "gr4o": lambda v, L, d: check_gr(v, L, 4, "gr4o"), "jl": check_jl, "ml": lambda v, L, d: check_ml(v, L), "mg": lambda v, L, d: check_mg(v, L), "hs": lambda v, L, d: check_hs(v, L), "ngj": lambda v, L, d: check_ngj(v, L), "nl": lambda v, L, d: check_nl(v, L), "ff": lambda v, L, d: check_ff(v, L), "lk": lambda v, L, d: check_lk(v, L), "lkc": lambda v, L, d: check_lkc(v, L), "br": lambda v, L, d: check_br(v, L), "rf": lambda v, L, d: check_rf(v, L), "rj": lambda v, L, d: check_rj(v, L), "em": lambda v, L, d: check_em(v, L), "bd": lambda v, L, d: check_bd(v, L), "bdo": lambda v, L, d: check_bd(v, L, True), "sm": lambda v, L, d: check_sm(v, L), "ef": lambda v, L, d: check_ef(v, L), "mb": lambda v, L, d: check_mb(v, L), "gb": lambda v, L, d: check_gb(v, L), "mbs": lambda v, L, d: check_mbs(v, L), "gbs": lambda v, L, d: check_gbs(v, L), "da": lambda v, L, d: check_da(v, L), "cv": check_cv, "cvs": check_cvs, "cvo": lambda v, L, d: check_cvs(v, L, d, False), "cvr": check_cvr, "cva": check_cva, "cvt": check_cvt, "cvh": lambda v, L, d: check_cvt(v, L, d, "host"), "ie": lambda v, L, d: check_ie(v, L), "il": check_il, "rw": lambda v, L, d: check_rw(v, L), "rwe": lambda v, L, d: check_rwe(v, L), "rwt": lambda v, L, d: check_rwt(v, L), "rwl": lambda v, L, d: check_rwl(v, L), "nf": lambda v, L, d: check_nf(v, L), "nfa": lambda v, L, d: check_nfa(v, L), "npa": lambda v, L, d: check_npa(v, L), "npd": lambda v, L, d: check_npd(v, L), "pvd": lambda v, L, d: check_pvd(v, L), "pvh": lambda v, L, d: check_pvh(v, L), "pvn": lambda v, L, d: check_pvn(v, L), "npf": lambda v, L, d: check_npf(v, L), "sj": lambda v, L, d: check_sj(v, L), "bl": lambda v, L, d: check_bl(v, L), "mw": lambda v, L, d: check_mw(v, L), "px": lambda v, L, d: check_px(v, L), "pxg": lambda v, L, d: check_px(v, L, 1), "ba": lambda v, L, d: check_ba(v, L), "bh": lambda v, L, d: check_bh(v, L), "bk": lambda v, L, d: check_bk(v, L), "hg": lambda v, L, d: check_hg(v, L), "lw": lambda v, L, d: check_lw(v, L), "la": lambda v, L, d: check_la(v, L), "lb": lambda v, L, d: check_common(v, L, "lb"), "lc": lambda v, L, d: check_lc(v, L),
+          "cl": lambda v, L, d: check_cl(v, L), "clg": lambda v, L, d: check_clg(v, L), "cpr": lambda v, L, d: check_cpr(v, L), "chc": lambda v, L, d: check_chc(v, L), "chw": lambda v, L, d: check_chc(v, L, True), "chn": lambda v, L, d: check_chc(v, L), "cpa": lambda v, L, d: check_common(v, L, "cpa"), "cae": lambda v, L, d: check_cae(v, L), "cao": lambda v, L, d: check_cao(v, L), "cab": lambda v, L, d: check_cab(v, L), "caq": lambda v, L, d: check_common(v, L, "caq"), "clw": lambda v, L, d: check_clw(v, L), "cla": lambda v, L, d: check_cla(v, L), "bf": lambda v, L, d: check_bf(v, L), "lp": check_lp, "gd": check_gd, "gh": lambda v, L, d: check_gh(v, L), "gm": check_gm, "gr": lambda v, L, d: check_gr(v, L), "gr2": lambda v, L, d: check_gr(v, L, 2), "gr3": lambda v, L, d: check_gr(v, L, 3), "gr4": lambda v, L, d: check_gr(v, L, 4), "gro": lambda v, L, d: check_gr(v, L, 1, "gro"), "gr2o": lambda v, L, d: check_gr(v, L, 2, "gr2o"), "gr3o": lambda v, L, d: check_gr(v, L, 3, "gr3o"), "gr4o": lambda v, L, d: check_gr(v, L, 4, "gr4o"), "jl": check_jl, "ml": lambda v, L, d: check_ml(v, L), "mg": lambda v, L, d: check_mg(v, L), "hs": lambda v, L, d: check_hs(v, L), "ngj": lambda v, L, d: check_ngj(v, L), "nl": lambda v, L, d: check_nl(v, L), "ff": lambda v, L, d: check_ff(v, L), "lk": lambda v, L, d: check_lk(v, L), "lkc": lambda v, L, d: check_lkc(v, L), "br": lambda v, L, d: check_br(v, L), "rf": lambda v, L, d: check_rf(v, L), "rj": lambda v, L, d: check_rj(v, L), "em": lambda v, L, d: check_em(v, L), "bd": lambda v, L, d: check_bd(v, L), "bdo": lambda v, L, d: check_bd(v, L, True), "sm": lambda v, L, d: check_sm(v, L), "ef": lambda v, L, d: check_ef(v, L), "mb": lambda v, L, d: check_mb(v, L), "gb": lambda v, L, d: check_gb(v, L), "mbs": lambda v, L, d: check_mbs(v, L), "gbs": lambda v, L, d: check_gbs(v, L), "da": lambda v, L, d: check_da(v, L), "cv": check_cv, "cvs": check_cvs, "cvo": lambda v, L, d: check_cvs(v, L, d, False), "cvr": check_cvr, "cva": check_cva, "cvt": check_cvt, "cvh": lambda v, L, d: check_cvt(v, L, d, "host"), "ie": lambda v, L, d: check_ie(v, L), "il": check_il, "rw": lambda v, L, d: check_rw(v, L), "rwe": lambda v, L, d: check_rwe(v, L), "rwt": lambda v, L, d: check_rwt(v, L), "rwl": lambda v, L, d: check_rwl(v, L), "nf": lambda v, L, d: check_nf(v, L), "nfa": lambda v, L, d: check_nfa(v, L), "npa": lambda v, L, d: check_npa(v, L), "npd": lambda v, L, d: check_npd(v, L), "pvd": lambda v, L, d: check_pvd(v, L), "pvh": lambda v, L, d: check_pvh(v, L), "pvn": lambda v, L, d: check_pvn(v, L), "npf": lambda v, L, d: check_npf(v, L), "sj": lambda v, L, d: check_sj(v, L), "bl": lambda v, L, d: check_bl(v, L), "mw": lambda v, L, d: check_mw(v, L), "px": lambda v, L, d: check_px(v, L), "pxg": lambda v, L, d: check_px(v, L, 1), "ba": lambda v, L, d: check_ba(v, L), "bh": lambda v, L, d: check_bh(v, L), "bk": lambda v, L, d: check_bk(v, L), "hg": lambda v, L, d: check_hg(v, L), "lw": lambda v, L, d: check_lw(v, L), "la": lambda v, L, d: check_la(v, L), "lb": lambda v, L, d: check_common(v, L, "lb"), "lc": lambda v, L, d: check_lc(v, L),
           "rt": lambda v, L, d: check_rt(v, L), "tv": lambda v, L, d: check_tv(v, L),
           "eh": lambda v, L, d: check_eh(v, L), "ou": lambda v, L, d: check_ou(v, L), "mesh": lambda v, L, d: check_mesh(v, L), "bv": lambda v, L, d: check_bv(v, L), "fp": lambda v, L, d: check_fp(v, L), "lo": lambda v, L, d: check_lo(v, L), "po": lambda v, L, d: check_po(v, L), "pos": lambda v, L, d: check_pos(v, L), "sg": lambda v, L, d: check_sg(v, L), "sg2": lambda v, L, d: check_sg2(v, L), "csh": lambda v, L, d: check_csh(v, L), "csh2": lambda v, L, d: check_csh2(v, L)}
 

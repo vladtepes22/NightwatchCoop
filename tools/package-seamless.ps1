@@ -212,7 +212,7 @@ if ($Release) {
 $baseInfo = Get-Content -LiteralPath (Join-Path $base 'package.json') -Raw | ConvertFrom-Json
 Write-Json ([ordered]@{
     version = $Version; engine = $engineId; source = (git -C $repo rev-parse HEAD)
-    seamless = 'visy v0.7.6+be2fda48'
+    seamless = 'visy v0.7.6+a0bc1a76'
     runtime_sha256 = (Get-FileHash -LiteralPath (Join-Path $out 'bb-probe.exe')).Hash.ToLowerInvariant()
 }) (Join-Path $destinationRoot 'package.json')
 Write-Output "Package assembled: $destinationRoot"

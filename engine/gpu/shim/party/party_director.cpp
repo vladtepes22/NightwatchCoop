@@ -310,6 +310,7 @@ struct Test {
     Clock::time_point st_at{};
     bool god = false;     // god: the own chr kept invincible (test aid)
     bool log_pos = false; // log_pos: the player's area and position (FrpgNetMan +0xa7c / +0xaac) every 3 s
+    bool log_anim = false; // log_anim (covleft077): every new animation of the local player (its TimeAct ring), e.g. a gesture's
     bool log_oath = false; // log_oath (covfx077): every 2 s the covenant (oath rune) SpEffects on the local player
     std::string fx_last;  // log_fx=-1: the last list logged
     int log_fx = 0;       // log_fx=ID (mergo077): every second the local player's SpEffect ID on / off
@@ -3267,6 +3268,25 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
             Log("test: god: invincible (chr +0x1E1 bit 14)");
         }
     }
+    if (t.log_anim && s.world_up && !s.loading && s.player) {
+        // the player's TimeAct ring ([[chr+0x3B0]+0x18]: 10 x {anim id, ...} at +0x20, next write index at +0xC0)
+        static std::int32_t last_idx = -1;
+        std::uint64_t cm = 0, ta = 0;
+        std::int32_t idx = -1;
+        if (SafeGet(s.player + 0x3b0, &cm) && cm && SafeGet(cm + 0x18, &ta) && ta && SafeGet(ta + 0xc0, &idx) && idx >= 0 && idx < 10 &&
+            idx != last_idx) {
+            const int from = last_idx < 0 ? idx : last_idx;
+            for (int k = from; k != idx; k = (k + 1) % 10) {
+                std::int32_t anim = 0;
+                SafeGet(ta + 0x20 + std::uint64_t(k) * 0x10, &anim);
+                static std::int32_t last_anim = -1;
+                if (anim == last_anim) continue;  // the ring repeats a running animation every frame
+                last_anim = anim;
+                Log("test: player anim %d (role %d)", anim, int(s.session_role));
+            }
+            last_idx = idx;
+        }
+    }
     if (t.log_oath && s.world_up && !s.loading && s.player && Seconds(t.fx_at, now) >= 0.5) {
         // 6100 Corruption (Vilebloods), 6110 Radiance (Executioners), 6120 Hunter, 6142 Impurity (League),
         // 250 Beast's Embrace, 255 Milkweed: the oath rune's marker SpEffects (GemeffectParam 2107001..2129001)
@@ -3278,8 +3298,42 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
             {252, "BeastEmbrace2"}, {253, "BeastEmbrace3"}, {6661, "BeastEmbrace4"}, {180050, "BeastResist"}, {255, "Milkweed"},
             {257, "Milkweed2"}, {180060, "MilkweedDrop"}};
         std::string on;
-        for (const auto& [e, n] : kOath)
-            if (HasSpEffect(s.player, e)) on += (on.empty() ? "" : ",") + std::string(n) + "(" + std::to_string(e) + ")";
+        static std::set<int> dumped;
+        for (const auto& [e, n] : kOath) {
+            if (!HasSpEffect(s.player, e)) continue;
+            on += (on.empty() ? "" : ",") + std::string(n) + "(" + std::to_string(e) + ")";
+            if (!dumped.insert(e).second) continue;
+            // the numbers of the effect: the SpEffectParam row the player's active effect node points at (node +0x48) and the
+            // param table's own row of that id (they must be the same row), every non-zero 4-byte field as hex / float
+            std::uint64_t list = 0, node = 0, nrow = 0;
+            if (SafeGet(s.player + 0x1c8, &list) && list && SafeGet(list + 8, &node)) {
+                for (int guard = 0; node && guard < 512; ++guard) {
+                    std::int32_t nid = 0;
+                    if (!SafeGet(node + 0x40, &nid)) break;
+                    if (nid == e) {
+                        SafeGet(node + 0x48, &nrow);
+                        break;
+                    }
+                    if (!SafeGet(node + 0x58, &node)) break;
+                }
+            }
+            const std::uint64_t prow = GameParamRow("SpEffectParam", "SP_EFFECT_PARAM_ST", std::uint32_t(e));
+            std::string f;
+            for (int off = 0; prow && off < 0x210; off += 4) {
+                std::uint32_t w = 0;
+                if (!SafeGet(prow + off, &w) || !w) continue;
+                float fl;
+                std::memcpy(&fl, &w, 4);
+                char b[64];
+                if (std::fabs(fl) > 1e-3f && std::fabs(fl) < 1e5f && w > 0x3000000u && w != 0xffffffffu)
+                    std::snprintf(b, sizeof b, " +%X=%.4g", off, double(fl));
+                else
+                    std::snprintf(b, sizeof b, " +%X=%d", off, int(w));
+                f += b;
+            }
+            Log("test: oath row %s(%d): node row %s param row (0x%llx / 0x%llx):%s", n, e, nrow == prow && prow ? "IS the" : "is NOT the",
+                static_cast<unsigned long long>(nrow), static_cast<unsigned long long>(prow), f.empty() ? " none" : f.c_str());
+        }
         Log("test: oath: covenant effects on the local player: %s (role %d, map 0x%08x)", on.empty() ? "none" : on.c_str(),
             int(s.session_role), unsigned(s.map_id));
     }
@@ -4119,6 +4173,8 @@ void PartyDirector::ConfigureFromEnv() {
                 st.test.god = true;
             } else if (item.rfind("log_fx=", 0) == 0) {
                 st.test.log_fx = std::atoi(item.c_str() + 7);
+            } else if (item == "log_anim") {
+                st.test.log_anim = true;
             } else if (item == "log_oath") {
                 st.test.log_oath = true;
             } else if (item == "log_pos") {
