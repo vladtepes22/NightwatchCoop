@@ -2182,5 +2182,9 @@
   "{version} shows the launcher's version; {area}, {boss}, {level}, {echoes} and {insight} show the game's": "{version} — версия лаунчера; {area}, {boss}, {level}, {echoes} и {insight} — данные игры",
   "Show where you are": "Показывать, где вы",
   "The area you're in, or the boss you're fighting": "Локация, в которой вы находитесь, или босс, с которым сражаетесь",
-  "Show your level, Blood Echoes and Insight": "Показывать уровень, Отголоски крови и Озарение"
+  "Show your level, Blood Echoes and Insight": "Показывать уровень, Отголоски крови и Озарение",
+  "Older CPU support": "Поддержка старых процессоров",
+  "For AMD FX and Intel 2nd/3rd generation Core (no MOVBE/BMI1): the game's newer CPU instructions are replaced when it starts. Best effort": "Для AMD FX и Intel Core 2-го/3-го поколения (без MOVBE/BMI1): более новые инструкции процессора в игре заменяются при запуске. Без гарантий",
+  "On when this CPU needs it": "Включено, когда это нужно процессору",
+  "Also on a newer CPU (for testing)": "Включено и на новом процессоре (для тестов)"
 }

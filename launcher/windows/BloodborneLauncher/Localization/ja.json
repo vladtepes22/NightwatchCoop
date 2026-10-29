@@ -2182,5 +2182,9 @@
   "{version} shows the launcher's version; {area}, {boss}, {level}, {echoes} and {insight} show the game's": "{version} はランチャーのバージョン、{area}、{boss}、{level}、{echoes}、{insight} はゲームの情報を表示します",
   "Show where you are": "現在地を表示",
   "The area you're in, or the boss you're fighting": "今いるエリア、または戦っているボス",
-  "Show your level, Blood Echoes and Insight": "レベル、血の遺志、啓蒙を表示"
+  "Show your level, Blood Echoes and Insight": "レベル、血の遺志、啓蒙を表示",
+  "Older CPU support": "旧型 CPU のサポート",
+  "For AMD FX and Intel 2nd/3rd generation Core (no MOVBE/BMI1): the game's newer CPU instructions are replaced when it starts. Best effort": "AMD FX と第 2/3 世代 Intel Core 向け（MOVBE/BMI1 なし）：起動時にゲームの新しい CPU 命令を置き換えます。動作保証なし",
+  "On when this CPU needs it": "この CPU に必要なときにオン",
+  "Also on a newer CPU (for testing)": "新しい CPU でもオン（テスト用）"
 }
