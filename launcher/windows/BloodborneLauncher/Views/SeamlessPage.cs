@@ -263,6 +263,7 @@ public sealed class SeamlessPage : LauncherPage
             SmallButton(L.T("Export"), SymbolRegular.ArrowExportUp24, async (_, _) => await ExportForEditor()), out _));
         Add(Card(SymbolRegular.ArrowImport24, L.T("Import from save editor"), L.T("Puts an edited export back into its slot. Your saves are backed up first."),
             SmallButton(L.T("Import"), SymbolRegular.ArrowImport24, async (_, _) => await ImportFromEditor()), out _));
+        Add(Card(SymbolRegular.Save24, L.T("Save editor"), L.T("Saves are backed up before every change. Close the game first."), SmallButton(L.T("Save editor"), SymbolRegular.Save24, (_, _) => new SaveEditorWindow(S).ShowDialog()), out _));
         ComboRow(SymbolRegular.Document24, L.T("Party log detail"), L.T("Verbose and trace logging add overhead."),
             new[] { new Choice(L.T("Normal"), ""), new Choice(L.T("Verbose"), "verbose"), new Choice(L.T("Trace"), "trace") },
             () => S.Str("party_log"), v => S.Set("party_log", v));
