@@ -205,7 +205,7 @@ if ($Release) {
 $baseInfo = Get-Content -LiteralPath (Join-Path $base 'package.json') -Raw | ConvertFrom-Json
 Write-Json ([ordered]@{
     version = $Version; engine = $engineId; source = (git -C $repo rev-parse HEAD)
-    base = "Lantern Engine $($baseInfo.version) ($($baseInfo.engine))"; seamless = 'visy v0.7.6+e7f9bee6'
+    base = "Lantern Engine $($baseInfo.version) ($($baseInfo.engine))"; seamless = 'visy v0.7.6+a2f353e4'
     runtime_sha256 = (Get-FileHash -LiteralPath (Join-Path $out 'bb-probe.exe')).Hash.ToLowerInvariant()
 }) (Join-Path $destinationRoot 'package.json')
 Write-Output "Package assembled: $destinationRoot"
