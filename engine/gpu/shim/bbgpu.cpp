@@ -8,6 +8,7 @@
 #include <sys/resource.h>
 #endif
 #include "bbport_free_check.h"
+#include "bbport_gx_query_guard.h"
 #include "bbport_sampler.h"
 #include "bbport_freeze.h"
 #include "bbport_platform.h"
@@ -504,6 +505,7 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbGnmHooks::PatchImage(image, size);
     BbEngine::Install(image, size);
     coop::HooksInit(image, size);
+    BbGxQueryGuard::Install();  // every mode: an occlusion query without a handle is skipped (visy CL-9666e3)
     BbGameMenu::PatchImage(image, size);
     coop::lamptravel::Install(image, size);
     coop::b2::InstallOwnWorldTypeGuard();  // own-world chr type repair, every mode (party save played offline)

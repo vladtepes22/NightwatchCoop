@@ -1795,6 +1795,7 @@ const bool g_chalice_awards = !EnvOff("BB_PARTY_CHALICE_AWARDS");
 bool g_capturing = false;           // main thread: the host's own award runs, GiveListEntry records
 std::vector<GrantItem> g_captured;  // its items (category, id, count)
 bool g_captured_bad = false;        // an item that could not be read (the guest resolves the lot itself)
+bool g_captured_nothing = false;    // the roll made the game's empty record (item -1): no item exists (runenow077)
 
 /// Host side of an award, before the game runs it: the grant to offer once the call returned
 /// (its items captured), else nothing. Guest side: the mark for a lot received while summoned.
@@ -1901,6 +1902,7 @@ BB_COOP_SYSV void AwardReplace(u64 mim, u64 lot_arg, u64 host_only_arg) {
     std::optional<ItemGrant> g = AwardEntry(lot_arg, host_only_arg);
     g_captured.clear();
     g_captured_bad = false;
+    g_captured_nothing = false;
     g_capturing = g.has_value();
     g_award_original(mim, static_cast<u32>(lot_arg), static_cast<u32>(host_only_arg));
     g_capturing = false;
@@ -1948,6 +1950,12 @@ BB_COOP_SYSV void AwardReplace(u64 mim, u64 lot_arg, u64 host_only_arg) {
     }
     Log("host award %s %s; items [%s]%s", DescribeItem(*g).c_str(), queued ? "queued for the party" : "already sent",
         list.c_str(), g_captured_bad ? " (an item could not be read: guests resolve the lot themselves)" : "");
+    if (g_captured_nothing && g_captured.empty() && !g_captured_bad) {
+        Log("host award lot %d: the game's roll made no item (an empty record, e.g. a gem id with no GemGenParam row): "
+            "nothing exists to share, no notice",
+            g->lot);
+        return;
+    }
     if (queued) {
         ShareNotice(*g, "host award");
     }
@@ -1980,6 +1988,14 @@ BB_COOP_SYSV void GiveListEntry(u64, u64 list, u64, u64, u64, u64) {
             it.category = e[1] >> 28;
             it.id = static_cast<std::int32_t>(e[1] & 0x0fffffffu);
             it.count = static_cast<std::int32_t>(e[2]);
+            if (e[0] == 0 && e[1] == 0xffffffffu) {
+                // The game's empty record: the lot rolled nothing (a Caryll rune lot whose gem id has no GemGenParam
+                // row, e.g. 227000 of lot 2700620: no member can ever get an item from it).
+                if (g_capturing) {
+                    g_captured_nothing = true;
+                }
+                continue;
+            }
             if (it.category == 8) {
                 if (it.count != 1 || !ReadGem(e[0], &it)) {
                     Log("give list entry %u/%u: gem %u (gaitem 0x%x, count %u) could not be read: instance data %s", i + 1, n,
@@ -1991,6 +2007,8 @@ BB_COOP_SYSV void GiveListEntry(u64, u64 list, u64, u64, u64, u64) {
                 gem = true;
             }
             if (!GrantItemSupported(it) || it.id <= 0 || it.count < 1 || it.count > 255) {
+                Log("give list entry %u/%u: category %u id %d count %d (gaitem 0x%x) not shared (%s)", i + 1, n, it.category,
+                    it.id, it.count, e[0], it.has_gem ? GemText(it).c_str() : "no gem data");
                 bad = true;
                 continue;
             }

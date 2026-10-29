@@ -13,3 +13,23 @@ Items agreed for later (0.6.2 planning, 2026-10-15). They come after the parity 
 
 Not in this list (already done): guests rejoining by themselves after a guest crash (C6), short
 outages keeping the session (F5), the version check naming what differs (A9).
+
+## EMEVD stale-off audit (0.7.7, emevdaudit077)
+
+Pattern (found in Rom's lake jump, 13204820): a host-copy event runs on a guest, skips its "on" behind a
+multiplayer guard (1003[5] / 1003[105] / 1003[109]) and still runs the "off" later, undoing the guest's own state.
+`python -I -X utf8 tools/party/stale_off_tool.py scan GAME/event` lists every such event (all maps + common).
+Result over the whole game (1.09 EMEVD): exactly one real instance, 13204820 (2004[15] invincibility, fixed by the
+client-only rule `13204820:2004:15@8`). The other hits are false positives: 12901693 (2003[36] item grants,
+reward ids only), and with `--all` the boss-room rematch object toggles 2005[3] and boss speffect ids 2004[53].
+
+Cross-event sweep (every instruction aimed at entity 10000 in banks 2003/2004/2005/2009; invincibility 2004[15],
+undead 2004[12], gravity 2004[10], map hit 2004[31], speffects 2004[8]/[21], [54]) found no other un-guarded reset
+of a state a host-trigger event skips for a guest. Unproven, low risk, not fixed:
+- 12204892/12204893 (and the same pair in every boss map, 12304812/3, 12404842/3, 12414732/3, 12424812/3 ...):
+  2004[54] "map hit & gravity off outside own world" for entity 10000, on near the fog (2 m) / off far (4 m). Gated
+  to chr type 0 and a no-op in the player's own world; a guest in the host's world gets them by design.
+- 12104870 (Moon Presence gaze): 2004[12] undead on, off 5 frames later, both unguarded, runs per player.
+- 12405263 / 12800431 (Amygdala / Nightmare Frontier throw): 2004[12] undead on with no off in the event; the
+  warp that follows ends it (host-only, end-if-client at [16]).
+- 13204470 (Byrgenwerth new-NPC summon landing): 2004[15] on/off on the summoned NPC (param), not a player.

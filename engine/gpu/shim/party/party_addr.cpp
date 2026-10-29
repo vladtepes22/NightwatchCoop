@@ -5,24 +5,45 @@
 #include "party_code.h"
 #include "party_sock.h"
 
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
 
 namespace party {
 
-bool resolve_ipv4(const std::string& host_port, std::uint16_t default_port, std::array<std::uint8_t, 4>* ip,
-                  std::uint16_t* port) {
-    std::string host = host_port;
+bool split_host_port(std::string_view host_port, std::uint16_t default_port, std::string* host,
+                     std::uint16_t* port) {
+    std::string_view h = host_port;
     std::uint16_t p = default_port;
-    std::size_t colon = host_port.rfind(':');
-    if (colon != std::string::npos) {
-        host = host_port.substr(0, colon);
-        long v = std::strtol(host_port.c_str() + colon + 1, nullptr, 10);
-        if (v <= 0 || v > 65535) return false;
+    const std::size_t colon = host_port.rfind(':');
+    if (colon != std::string_view::npos) {
+        h = host_port.substr(0, colon);
+        const std::string_view ps = host_port.substr(colon + 1);
+        if (ps.empty() || ps.size() > 5) return false;
+        unsigned v = 0;
+        for (char c : ps) {
+            if (c < '0' || c > '9') return false;  // "80abc", "+80", " 80" are not ports
+            v = v * 10 + static_cast<unsigned>(c - '0');
+        }
+        if (v == 0 || v > 65535) return false;
         p = static_cast<std::uint16_t>(v);
     }
-    if (host.empty()) return false;
+    // IPv4 literal or a DNS name: no IPv6 / bracket forms (the resolver is IPv4 only), no NUL (the
+    // resolver would see only the part before it), nothing a DNS label cannot hold.
+    if (h.empty() || h.size() > 253) return false;
+    for (char c : h)
+        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_')) return false;
+    *host = std::string(h);
+    *port = p;
+    return true;
+}
+
+bool resolve_ipv4(const std::string& host_port, std::uint16_t default_port, std::array<std::uint8_t, 4>* ip,
+                  std::uint16_t* port) {
+    std::string host;
+    std::uint16_t p = default_port;
+    if (!split_host_port(host_port, default_port, &host, &p)) return false;
     if (parse_ipv4(host, ip)) {
         *port = p;
         return true;

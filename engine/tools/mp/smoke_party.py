@@ -3990,9 +3990,9 @@ def check_rwe(v, L):
 
 
 # Phase rwt (~5 min, 2 players): a weapon and a Caryll rune from world treasure, both directions. The host picks up
-# the Cannon (lot 2400510) and a Caryll rune (2700620); the GUEST "picks up" the Tonitrus (2800330) and a Caryll rune
+# the Cannon (lot 2400510) and a Caryll rune (lot 17000, rune 200010; the treasure runes 2700620 etc. name gems with no GemGenParam row: the game rolls nothing for them); the GUEST "picks up" the Tonitrus (2800330) and a Caryll rune
 # (3200510) in the host's world (BB_PARTY_GUEST_PICKUP_TEST: the D4 pickup path's own calls). Each reaches the others once.
-RWT_UNTIL = [r"1:gave #\d+ lot 2700620 ", r"0:gift from slot 1: flag 53200510 is now"]
+RWT_UNTIL = [r"1:gave #\d+ lot 17000 ", r"0:gift from slot 1: flag 53200510 is now"]
 
 
 def phase_rwt(only):
@@ -4001,9 +4001,9 @@ def phase_rwt(only):
     g1 = ",".join(["god"] + ["guest_press=0x4000@7!"] * 30)
     return dict(
         name="rwt", seconds=360, count=2, headless=0, until_hold=15,
-        env=["BB_PARTY_PROGRESS_TEST_CLEAR=52400510,52700620,52800330,53200510"],
+        env=["BB_PARTY_PROGRESS_TEST_CLEAR=52400510,50000200,52700620,52800330,53200510"],
         ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=" + g1,
-              "0:BB_PARTY_ITEMS_HOST_TEST=2400510,2700620",
+              "0:BB_PARTY_ITEMS_HOST_TEST=2400510,17000,2700620",
               "1:BB_PARTY_GUEST_PICKUP_TEST=2800330,3200510"],
         watch=["--watch", r"notice shown: .*=rwtnotice@0.6,2,5"],
         start_when=[r"1/0:test: cleared in the own save .*52400510"],
@@ -4013,7 +4013,7 @@ def phase_rwt(only):
 
 def check_rwt(v, L):
     j = need(v, L, "rwt join: 2 players", 0, r"cooperators 0 -> 1")
-    for lot, what in ((2400510, "Cannon (weapon)"), (2700620, "Caryll rune")):
+    for lot, what in ((2400510, "Cannon (weapon)"), (17000, "Caryll rune")):
         need(v, L, "rwt host pickup of the %s goes to the party" % what, 0,
              r"(host award|host flag \d+ ->) #\d+ lot %d " % lot, j or 0)
         need(v, L, "rwt the guest's apply of the host's %s is logged" % what, 1, r"#\d+ lot %d " % lot, j or 0)
@@ -4021,7 +4021,13 @@ def check_rwt(v, L):
         # A Caryll rune whose gem the host's give list did not yield waits for the guest's own world (known, unproven live)
         wait = L.all(1, r"lot %d .*waits for the own world" % lot)
         v.step("rwt the guest gets the host's %s once (a rune: given at its next own-world load)" % what,
-               len(gg) == 1 or (lot == 2700620 and len(wait) == 1), "%d give(s), %d deferred" % (len(gg), len(wait)))
+               len(gg) == 1 or (lot == 17000 and len(wait) == 1), "%d give(s), %d deferred" % (len(gg), len(wait)))
+    # a treasure rune whose gem id has no GemGenParam row (lot 2700620, gem 227000): the game rolls nothing, so nothing
+    # is shared and no notice claims it (runenow077)
+    need(v, L, "rwt a treasure rune lot that rolls no item is recognised on the host", 0,
+         r"host award lot 2700620: the game's roll made no item", j or 0)
+    none_of(v, L, "rwt no 'Caryll rune: shared' notice for the empty roll",
+            r"notice \"Caryll rune: shared with the party\" \(lot 2700620", insts=(0, 1))
     for lot, what in ((2800330, "Tonitrus (weapon)"), (3200510, "Caryll rune")):
         need(v, L, "rwt guest pickup of the %s is reported to the host" % what, 1,
              r"gift: shared key treasure lot %d " % lot, j or 0)
@@ -4030,7 +4036,7 @@ def check_rwt(v, L):
         v.step("rwt the host awards the guest's %s once" % what, len(gh) == 1, "%d award(s)" % len(gh))
     for i, who in ((0, "host"), (1, "guest")):
         need(v, L, "rwt notice on the %s's screen" % who, i, r"notice shown: .*: shared with the party", j or 0)
-    none_of(v, L, "rwt no duplicate give of the Cannon / rune on the guest", r"skip .*lot (2400510|2700620)", insts=(1,))
+    none_of(v, L, "rwt no duplicate give of the Cannon / rune on the guest", r"skip .*lot (2400510|17000)", insts=(1,))
     check_common(v, L, "rwt")
 
 
