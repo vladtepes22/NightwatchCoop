@@ -38,7 +38,7 @@ LEVELS = {
     'merge': ['native', 'python', 'launcher'],
     'release': ['build', 'native', 'python', 'launcher', 'smoke', 'coop', 'privacy'],
 }
-RELEASE_SCENARIOS = ['join', 'core', 'deaths', 'boss']
+RELEASE_SCENARIOS = ['join', 'core', 'deaths', 'boss', 'guestrest']
 # Touched path -> layers; the first matching rule wins (a party-only change needs the co-op rows, not the solo
 # smoke). The order of LAYERS decides the run order.
 RULES = [
@@ -229,6 +229,7 @@ class Run:
             if m and (Path(m.group(1).strip()) / 'result.json').exists():
                 result = json.loads((Path(m.group(1).strip()) / 'result.json').read_text(encoding='utf-8'))
             rows = result.get('expects', [])
+            rows += [dict(r, expect='never ' + r['forbid']) for r in result.get('forbids', [])]
             passed = code == 0 and result.get('passed') is True
             ok &= passed
             miss = next((r['role'] + ': ' + r['expect'] for r in rows if not r['passed']), '')

@@ -21,7 +21,7 @@
     ]
   },
   "core": {
-    "about": "visy's s1 rows for two players: Party > Leave and Rejoin, a guest death with its bloodstain and respawn, then a party lamp travel (Tomb of Oedon) that the guest follows.",
+    "about": "visy's s1 rows for two players: Party > Leave and Rejoin, a guest death with its bloodstain and respawn, then a party lamp travel (Tomb of Oedon) that the guest follows. visy 0.7.7 loadgap: no 'connection unstable' notice, relay switch or outage resume from the loading screens.",
     "seconds": 300,
     "host": "host_warp=2412953@25^1*2",
     "guest": "echoes=5000,guest_leave@10,guest_rejoin@5,guest_die@12",
@@ -65,6 +65,23 @@
       [
         "guest",
         "the host moved to lamp 2412953|party move, lamp 2412953|map .*-> m24_01"
+      ]
+    ],
+    "env": {
+      "BB_NET_RXGAP_LOG": "1"
+    },
+    "forbid": [
+      [
+        "any",
+        "connection to .* unstable"
+      ],
+      [
+        "any",
+        "repeated game traffic gaps, through the host relay"
+      ],
+      [
+        "any",
+        "outage resume: \\S+ heard again after"
       ]
     ]
   },
@@ -165,6 +182,50 @@
       [
         "guest2",
         "party networking on \\(guest"
+      ]
+    ]
+  },
+  "guestrest": {
+    "about": "visy 0.7.7 guestrest (his phase gr): the guest travels from the map to Central Yharnam's lamp (lamp travel's test aid, no lamp used): its own loading screen only; the host neither rest-loads, transforms nor travels.",
+    "seconds": 240,
+    "env": {
+      "BB_PARTY_PROGRESS_TEST_SET": "12417830,12417831,72410201,12307810,12307811,72300200",
+      "BB_PARTY_SHARE_LAMPS": "1",
+      "BB_PARTY_SPLIT_TEST": "no",
+      "BB_LAMP_TRAVEL_TEST": "members,wait=15,guestmap=2412951"
+    },
+    "host": "",
+    "guest": "",
+    "expect": [
+      [
+        "guest",
+        "arrived in the host world"
+      ],
+      [
+        "guest",
+        "test: map travel to 2412951 "
+      ],
+      [
+        "guest",
+        "map travel: lamp 2412951 "
+      ],
+      [
+        "guest",
+        "Lamp travel: arrived: lamp 2412951"
+      ]
+    ],
+    "forbid": [
+      [
+        "host",
+        "host: slot \\d+ rested at lamp|forced transform \\(a guest's rest|a guest's rest"
+      ],
+      [
+        "host",
+        "Party travel: host travel #\\d+"
+      ],
+      [
+        "guest",
+        "no load within 60 s"
       ]
     ]
   }
