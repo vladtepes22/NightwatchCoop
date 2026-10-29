@@ -159,6 +159,7 @@ def main():
             if args.probe:
                 command += ['--probe', str(args.probe.resolve())]
             child_env = dict(env, BB_PAD_FILE=str(artifacts / f'{seed}-pad.txt'), BB_PARTY_DIRECTOR_TEST=steps[seed])
+            child_env.update(scenario.get(f'{seed}_env', {}))  # one game's own switches (visy's ienv)
             child = subprocess.Popen(command, env=child_env, cwd=REPO, stdout=output, stderr=output,
                                      creationflags=subprocess.CREATE_NO_WINDOW)
             children.append(child)

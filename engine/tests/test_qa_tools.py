@@ -142,6 +142,7 @@ class Scenarios(unittest.TestCase):
                 re.compile(pattern)
             for role in roles:
                 self.assertIsInstance(row.get(role, ''), str)
+                self.assertIsInstance(row.get(role + '_env', {}), dict)
 
     def test_release_rows_exist(self):
         rows = json.loads((TOOLS / 'qa_scenarios.json').read_text(encoding='utf-8'))
