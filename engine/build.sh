@@ -68,11 +68,12 @@ fi
 if [[ ! -f gpu/third_party/fsr-vulkan/CMakeLists.txt || ! -f gpu/third_party/imgui/imgui.h ]]; then
     git submodule update --init --recursive
 fi
-# A plain source copy (no submodule checkout) already has them applied.
+# A plain source copy (no submodule checkout) already has them applied. --ignore-whitespace: 0001 is
+# CRLF, 0002 is LF, and a submodule checkout is CRLF or LF depending on core.autocrlf.
 if [[ -e gpu/third_party/fsr-vulkan/.git ]]; then
     for patch in gpu/patches/fsr-vulkan/*.patch; do
-        if ! git -C gpu/third_party/fsr-vulkan apply --reverse --check "$PWD/$patch" 2>/dev/null; then
-            git -C gpu/third_party/fsr-vulkan apply "$PWD/$patch"
+        if ! git -C gpu/third_party/fsr-vulkan apply --ignore-whitespace --reverse --check "$PWD/$patch" 2>/dev/null; then
+            git -C gpu/third_party/fsr-vulkan apply --ignore-whitespace "$PWD/$patch"
         fi
     done
 fi
