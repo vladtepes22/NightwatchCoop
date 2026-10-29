@@ -41,7 +41,6 @@ public sealed partial class SaveEditorWindow : Window
     private readonly ComboBox _kind = new();
     private readonly ListBox _slots = new();
     private readonly TextBlock _slotEmpty = LauncherPage.Text(L.T("No save found yet"), "Muted");
-    private readonly ContentControl _portrait = new();
     private readonly TextBlock _name = LauncherPage.Text("", "PageTitle");
     private readonly TextBlock _level = LauncherPage.Text("", "Muted");
     private readonly TextBlock _status = LauncherPage.Text("", "Muted");
@@ -108,12 +107,10 @@ public sealed partial class SaveEditorWindow : Window
             detail.RowDefinitions.Add(new() { Height = height });
         Place(columns, detail, 0, 2);
         var hero = new Grid { Margin = new Thickness(0, 0, 0, 18) };
-        hero.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         hero.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        _portrait.Margin = new Thickness(0, 0, 16, 0); hero.Children.Add(_portrait);
         var identity = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         _name.FontSize = 26; _name.TextTrimming = TextTrimming.CharacterEllipsis;
-        identity.Children.Add(_name); identity.Children.Add(_level); Place(hero, identity, 0, 1); detail.Children.Add(hero);
+        identity.Children.Add(_name); identity.Children.Add(_level); Place(hero, identity, 0, 0); detail.Children.Add(hero);
         var tabs = new Grid { Margin = new Thickness(0, 0, 0, 16) };
         string[] labels = { L.T("Character"), L.T("Inventory"), L.T("Backups") };
         for (int i = 0; i < labels.Length; i++)
@@ -219,7 +216,6 @@ public sealed partial class SaveEditorWindow : Window
         bool found = _snapshot != null;
         _name.Text = found ? _snapshot!.Character.Name : L.T("No save found yet");
         _level.Text = found ? L.T("Level") + " " + _snapshot!.Character.Level : L.T("Choose a save type to find your characters.");
-        _portrait.Content = Emblem(found ? _snapshot!.Character.Name : "", _selected?.SlotNumber ?? 0, 72);
         _tabs[0].IsEnabled = found; _tabs[1].IsEnabled = found;
         if (!found) SelectTab(2);
     }
@@ -235,7 +231,7 @@ public sealed partial class SaveEditorWindow : Window
         _apply.IsEnabled = !_busy && !_running && _dirty && valid;
         _status.Text = _snapshot != null && !_fields["name"].Valid ? L.T("Use a name of 1 to 16 characters.") :
             !valid && _snapshot != null ? L.T("Enter whole numbers within the allowed range.") :
-            _dirty ? L.T("Unsaved changes") : L.T("Saves are backed up before every change.");
+            _dirty ? L.T("Unsaved changes") : "";
         _status.SetResourceReference(TextBlock.ForegroundProperty, _dirty ? "AccentTextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
         foreach (var button in _restoreButtons) button.IsEnabled = !_busy && !_running;
         if (_snapshot != null && Stats.All(s => _fields[s].Valid))

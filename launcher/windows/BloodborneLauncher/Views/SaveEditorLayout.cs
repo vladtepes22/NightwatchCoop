@@ -14,7 +14,7 @@ namespace BloodborneLauncher.Views;
 
 public sealed partial class SaveEditorWindow
 {
-    private readonly TextBlock _resultLevel = LauncherPage.Text("", "StatValue");
+    private readonly TextBlock _resultLevel = LauncherPage.Text("", "RowTitle");
     private static void Place(Grid grid, UIElement element, int row, int column = 0)
     {
         Grid.SetRow(element, row); Grid.SetColumn(element, column); grid.Children.Add(element);
@@ -182,35 +182,14 @@ public sealed partial class SaveEditorWindow
     }
     private static ListBoxItem SlotCard(SaveEditor.Slot slot)
     {
-        var row = new Grid(); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        var icon = Emblem(slot.Name, slot.SlotNumber, 38); icon.Margin = new Thickness(0, 0, 10, 0); row.Children.Add(icon);
+        var row = new Grid(); row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         var info = new StackPanel(); info.Children.Add(LauncherPage.Text(slot.Name, "RowTitle"));
         info.Children.Add(LauncherPage.Text(L.T("Level") + " " + slot.Level, "StatLabel"));
-        info.Children.Add(LauncherPage.Text(slot.Echoes.ToString("N0") + " " + L.T("Echoes"), "StatLabel")); Place(row, info, 0, 1);
+        info.Children.Add(LauncherPage.Text(slot.Echoes.ToString("N0") + " " + L.T("Echoes"), "StatLabel")); Place(row, info, 0, 0);
         var card = new ListBoxItem { Content = row, Tag = slot, ToolTip = slot.Name };
         AutomationProperties.SetName(card, slot.Name + ", " + L.T("Level") + " " + slot.Level + ", " + slot.Echoes + " " + L.T("Echoes"));
         return card;
     }
-    private static FrameworkElement Emblem(string name, int slot, double size)
-    {
-        // Original geometric cowl and seal: no game assets or inferred appearance data.
-        var canvas = new Canvas { Width = 80, Height = 80 };
-        var ring = new Ellipse { Width = 76, Height = 76, StrokeThickness = 1, Opacity = .6 };
-        ring.SetResourceReference(Shape.StrokeProperty, "AccentTextFillColorPrimaryBrush"); Canvas.SetLeft(ring, 2); Canvas.SetTop(ring, 2); canvas.Children.Add(ring);
-        var hood = new Path { Data = Geometry.Parse("M40,9 C23,19 21,31 20,45 L12,66 Q40,80 68,66 L60,45 C59,31 57,19 40,9 Z M40,22 Q26,38 29,53 Q40,63 51,53 Q54,38 40,22 Z"), StrokeThickness = 1.4 };
-        hood.SetResourceReference(Shape.FillProperty, "SidebarItemSelectedBrush"); hood.SetResourceReference(Shape.StrokeProperty, "AccentTextFillColorPrimaryBrush"); canvas.Children.Add(hood);
-        var letter = LauncherPage.Text(string.IsNullOrWhiteSpace(name) ? "·" : StringInfo.GetNextTextElement(name.Trim()).ToUpperInvariant(), "PageTitle");
-        letter.FontSize = 20; letter.Width = 40; letter.TextAlignment = TextAlignment.Center;
-        letter.SetResourceReference(TextBlock.ForegroundProperty, "AccentTextFillColorPrimaryBrush"); Canvas.SetLeft(letter, 20); Canvas.SetTop(letter, 30); canvas.Children.Add(letter);
-        for (int i = 0; i <= Math.Abs(slot % 4); i++)
-        {
-            var dot = new Ellipse { Width = 3, Height = 3 }; dot.SetResourceReference(Shape.FillProperty, "AccentTextFillColorPrimaryBrush");
-            Canvas.SetLeft(dot, 35 - (slot % 4) * 3 + i * 6); Canvas.SetTop(dot, 68); canvas.Children.Add(dot);
-        }
-        return new Viewbox { Width = size, Height = size, Child = canvas, VerticalAlignment = VerticalAlignment.Center };
-    }
-
     private sealed class EditorField : StackPanel
     {
         private readonly TextBox _box = new();
