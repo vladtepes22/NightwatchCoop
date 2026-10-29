@@ -93,6 +93,22 @@ constexpr int GuestLevelFor(u64 used, const Marks& m) {
     return used >= m.hard + (m.budget - m.hard) / 2 ? 2 : used >= m.hard ? 1 : 0;
 }
 
+/// The guest level on the driver's own count (BufferCache::UpdateVramLevel): past the budget on
+/// the raw usage the game's data is at least tight (1), and stays so until the raw usage is back
+/// halfway between the hard mark and the budget. GuestUsage takes off VMA block slack and the free
+/// slots of the game's chunks, but the driver counts both: a GTX 1650 (0.2.5 beta 3) sat at 3282
+/// of 3151 MiB for good, the game's data at level 0 (2826 MiB by GuestUsage), its chunks growing
+/// from 896 to 1024 MiB and none leaving, while the texture collector's evictions left holes in
+/// VMA blocks that never shrank (1893 MiB). Level 1 lets the sparsest chunk empty and go back.
+constexpr int GuestLevelOnDriver(int level, int was, u64 raw, const Marks& m) {
+    if (m.budget == 0) {
+        return level;
+    }
+    const u64 release = m.hard + (m.budget - m.hard) / 2;
+    const bool tight = raw >= m.budget || (was >= 1 && raw >= release);
+    return tight ? std::max(level, 1) : level;
+}
+
 enum class Level : u32 { None = 0, Idle = 1, Soft = 2, Hard = 3, Over = 4 };
 
 constexpr Level LevelFor(u64 used, const Marks& m) {

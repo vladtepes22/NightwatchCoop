@@ -1722,9 +1722,16 @@ void BufferCache::UpdateVramLevel(u32 now) {
         budget = GcPolicy::BudgetFor(instance.GetDeviceMemoryBudgetNow(),
                                      instance.IsIntegrated() ? 0 : instance.GetDeviceLocalMemory());
         if (budget != 0 && percent == ~u64{0}) {
-            used = GcPolicy::GuestUsage(used, instance.GetDeviceBlockSlack(),
+            const u64 raw = used;
+            const auto marks = GcPolicy::MarksFor(budget);
+            used = GcPolicy::GuestUsage(raw, instance.GetDeviceBlockSlack(),
                                         texture_cache.PendingFreeBytes(), VramResidencyUnused());
-            level = GcPolicy::GuestLevelFor(used, GcPolicy::MarksFor(budget));
+            const int discounted = GcPolicy::GuestLevelFor(used, marks);
+            level = GcPolicy::GuestLevelOnDriver(
+                discounted, vram_level.load(std::memory_order_relaxed), raw, marks);
+            if (level != discounted) {
+                used = raw; // the report shows the driver's count that made it tight
+            }
         } else if (budget != 0) {
             level = used * 100 >= budget * (percent + 5) ? 2
                     : used * 100 >= budget * percent     ? 1
