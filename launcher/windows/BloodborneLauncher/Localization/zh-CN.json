@@ -2239,5 +2239,20 @@
   "Unnamed item": "未命名物品",
   "Unsaved changes": "未保存的更改",
   "Weapons": "武器",
-  "Use a name of 1 to 16 characters.": "请输入 1 至 16 个字符的名字。"
+  "Use a name of 1 to 16 characters.": "请输入 1 至 16 个字符的名字。",
+  "Friends join over": "好友加入方式",
+  "Internet: friends anywhere join with the Internet party code. Local network or VPN: friends on your router or in your Radmin VPN, Hamachi, Tailscale or ZeroTier network join with the other code. Read when the game starts.": "互联网：任何地方的好友使用互联网队伍代码加入。本地网络或 VPN：同一路由器下，或在你的 Radmin VPN、Hamachi、Tailscale、ZeroTier 网络中的好友使用另一个代码加入。游戏启动时读取。",
+  "Local network or VPN": "本地网络或 VPN",
+  "Copy invite": "复制邀请",
+  "Invite friends": "邀请好友",
+  "Friends paste this code under Join, with your password. It stays the same until you change the password or your address changes.": "好友在“加入”中粘贴此代码并输入你的密码。在你更改密码或地址变化之前，代码保持不变。",
+  "Fix firewall": "修复防火墙",
+  "Friends cannot connect?": "好友连不上？",
+  "Check explains last session's problems from the logs (names and IPs are hidden; the reply is copied). Fix firewall allows the party port (TCP and UDP) and party discovery through the Windows Firewall on every network type, and shows you the commands first.": "“检查”根据日志说明上一局的问题（隐藏名字和 IP，回复会复制到剪贴板）。“修复防火墙”让队伍端口（TCP 和 UDP）和队伍发现在所有网络类型下通过 Windows 防火墙，并先显示命令。",
+  "Party options": "队伍选项",
+  "Party size and whether friends on your network see your party in their list.": "队伍人数，以及你网络中的好友是否能在列表中看到你的队伍。",
+  "Friends join with the Internet code. Port forwarding (TCP and UDP, the party port) is only needed for a strict NAT.": "好友使用互联网代码加入。只有严格 NAT 才需要端口转发（TCP 和 UDP，队伍端口）。",
+  "Looking up your public address…": "正在查找你的公网地址…",
+  "Could not find your public address. Check your internet connection, or enter it under Network and troubleshooting > Host public address.": "找不到你的公网地址。请检查网络连接，或在“网络和故障排除”>“主机公开地址”中填写。",
+  "No VPN or local network found.": "找不到 VPN 或本地网络。"
 }

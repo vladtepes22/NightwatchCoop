@@ -563,8 +563,9 @@ Check(firewallLines.Length == 4 && firewallLines.Skip(1).All(l => l.Contains("-A
 Check(firewallLines[1].Contains("-Protocol TCP -LocalPort 47890") && firewallLines[2].Contains("-Protocol UDP -LocalPort 47890")
     && firewallLines[3].Contains($"-LocalPort {PartyDiscovery.Port}"), "Firewall rules on the wrong ports");
 
+PartyCodeTests.Run();
 SaveEditorTests.Run();
-Console.WriteLine("PASS: host/join validation, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
+Console.WriteLine("PASS: host/join validation, party codes against the engine's, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 
 [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
 [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.U1)]

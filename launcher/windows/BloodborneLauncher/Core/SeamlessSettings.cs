@@ -199,11 +199,4 @@ public static partial class SeamlessSettings
         env["BB_PARTY_LOG"] = s.Str("party_log");
         foreach (var option in Switches) env[option.Environment] = Flag(s, option.Key) ? "1" : "0";
     }
-
-    public static string Codes(LauncherSettings s)
-    {
-        var path = Path.Combine(GameEnvironment.UserDir(s), "party_code.txt");
-        try { return File.Exists(path) ? File.ReadAllText(path).Trim() : L.T("Start hosting to generate your party codes."); }
-        catch (IOException) { return L.T("Party codes are being updated."); }
-    }
 }
