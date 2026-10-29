@@ -68,7 +68,7 @@ namespace BloodborneLauncher.Views
 
             // Moved here from the Display page: the frame rate sits beside frame generation.
             Group(L.T("Frame rate"));
-            SettingCombo(SymbolRegular.Gauge24, L.T("Frame rate"), L.T("30, 60, 90, 120 and 144 are the game's frame-rate patches for that rate; Uncapped uses the community uncapped patch"), Choices.FpsModes, "fps_mode", changed: UpdateUpscaler);
+            SettingCombo(SymbolRegular.Gauge24, L.T("Frame rate"), L.T("Nightwatch Co-op runs the game at the rate you pick and keeps its timing right there, also when a scene runs slower. 30 FPS is the game's own"), Choices.FpsModes, "fps_mode", changed: UpdateUpscaler);
 
             Group(L.T("Frame generation"));
             IniCombo(SymbolRegular.FastForward24, L.T("Method"),
