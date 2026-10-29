@@ -44,10 +44,10 @@ namespace BloodborneLauncher.Core
             ["cross"] = "a", ["circle"] = "b", ["square"] = "x", ["triangle"] = "y",
             ["l1"] = "leftshoulder", ["r1"] = "rightshoulder", ["l2"] = "lefttrigger", ["r2"] = "righttrigger",
             ["l3"] = "leftstick", ["r3"] = "rightstick", ["options"] = "start",
-            ["touchpad"] = "back, touchpad", ["touchpad_right"] = "",
+            ["touchpad"] = "touchpad", ["touchpad_right"] = "",
             ["up"] = "dpup", ["down"] = "dpdown", ["left"] = "dpleft", ["right"] = "dpright",
-            // Not a PS4 button: a button of its own for Ping (co-op); Touchpad + R3 always works too.
-            ["ping"] = "",
+            // Not a PS4 button: Ping (co-op) is on the Share button; Touchpad + R3 always works too.
+            ["ping"] = "back",
             // The same for Gather the party (host); Touchpad + L3 always works too.
             ["gather"] = "",
             ["menu_confirm"] = "", ["menu_back"] = "",
