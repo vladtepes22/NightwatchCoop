@@ -83,6 +83,27 @@ int main() {
                 }
             }
         }
+        // That case stays at level 0 on the driver's count too: the raw usage is under the budget.
+        assert(GuestLevelOnDriver(0, 0, raw, m) == 0);
+        assert(GuestLevelOnDriver(0, 1, raw, m) == 1); // 3336 >= release 3306: stays tight
+    }
+    {
+        // The GTX 1650 log of 0.2.5 beta 3: 3282 of 3151 MiB by the driver, 266 MiB of VMA block
+        // slack, 190 MiB of free slots: level 0 by GuestUsage, the chunks grew, nothing left VRAM.
+        const Marks m = MarksFor(3151 * MiB);
+        const u64 raw = 3282 * MiB;
+        const int discounted = GuestLevelFor(GuestUsage(raw, 266 * MiB, 0, 190 * MiB), m);
+        assert(discounted == 0);
+        assert(GuestLevelOnDriver(discounted, 0, raw, m) == 1);
+        // Never lowers a level, and leaves the hard / full levels alone.
+        assert(GuestLevelOnDriver(2, 0, raw, m) == 2);
+        assert(GuestLevelOnDriver(2, 2, 2000 * MiB, m) == 2);
+        // Hysteresis: tight until halfway between the hard mark and the budget.
+        const u64 release = m.hard + (m.budget - m.hard) / 2;
+        assert(GuestLevelOnDriver(0, 1, release, m) == 1);
+        assert(GuestLevelOnDriver(0, 1, release - 1, m) == 0);
+        assert(GuestLevelOnDriver(0, 0, m.budget - 1, m) == 0);
+        assert(GuestLevelOnDriver(0, 1, raw, MarksFor(0)) == 0);
     }
 
     // Levels.
