@@ -52,6 +52,8 @@ namespace coop::b2 {
 constexpr const char* kEventName = "b2";
 
 bool Requested();
+/// Test diagnostics: a boss health bar is up for a living chr; `who` = "boss bar N: name N chr H hp HP".
+bool BossBarLine(std::string* who);
 /// F5: true once after the host's game ended the co-op session by itself (BeginLeaveSession from the
 /// OnIrregularLeaveSession sites: its send queue past 1000 messages 0x178980d, the receive stall
 /// 0x1789cb4).

@@ -1246,13 +1246,24 @@ static void test_nr_loadgap() {
         CHECK(!g.gap_counts(peer, at(0), at(16200), 4.0));  // heard 0.2 s after the load ended
         CHECK(g.load_touched(peer, at(0)));
     }
-    {  // silent on for 5 s past the load's end: a real outage, counted from the load's end
+    {  // CL-d329c8: a hitch right after the load (heard 4.6 s after its end) is inside the grace: no outage
         LoadGapGate g;
-        g.set_loading(peer, true, at(1000));
-        g.set_loading(peer, false, at(16000));
-        CHECK(!g.gap_counts(peer, at(0), at(19900), 4.0));
-        CHECK(g.gap_counts(peer, at(0), at(20000), 4.0));
-        CHECK(g.effective_silent_s(peer, at(0), at(21000)) > 4.9 && g.effective_silent_s(peer, at(0), at(21000)) < 5.1);
+        g.set_loading(0, true, at(1000));
+        g.set_loading(0, false, at(16000));  // our world-up
+        CHECK(!g.gap_counts(peer, at(0), at(20600), 4.0));
+        CHECK(!g.gap_counts(peer, at(0), at(23900), 4.0));
+        // still silent after the grace: counted from the grace's end
+        CHECK(g.gap_counts(peer, at(0), at(28000), 4.0));
+        CHECK(!g.gap_counts(peer, at(0), at(27900), 4.0));
+        g.set_loading(peer, true, at(30000));
+        g.set_loading(peer, false, at(40000));  // the peer's load end gets the same grace
+        CHECK(!g.gap_counts(peer, at(29000), at(45000), 4.0));
+        CHECK(g.gap_counts(peer, at(29000), at(52000), 4.0));
+        CHECK(g.effective_silent_s(peer, at(29000), at(53000)) > 4.9 && g.effective_silent_s(peer, at(29000), at(53000)) < 5.1);
+    }
+    {  // a steady member's real outage, no load anywhere: counted at once
+        LoadGapGate g;
+        CHECK(g.gap_counts(peer, at(0), at(4100), 4.0));
     }
     {  // our own load excuses every link; another peer's load excuses only its own link
         LoadGapGate g;
@@ -1261,7 +1272,7 @@ static void test_nr_loadgap() {
         CHECK(!g.gap_counts(peer, at(0), at(9500), 4.0) && !g.gap_counts(other, at(0), at(9500), 4.0));
         g.set_loading(other, true, at(10000));
         g.set_loading(other, false, at(20000));
-        CHECK(g.gap_counts(peer, at(9500), at(20000), 4.0));    // a real outage on the other link
+        CHECK(g.gap_counts(peer, at(9500), at(30000), 4.0));    // a real outage on the other link (past our grace)
         CHECK(!g.gap_counts(other, at(9500), at(20000), 4.0));
     }
     {  // the session host's load excuses every link (guest-guest too)
@@ -1269,7 +1280,8 @@ static void test_nr_loadgap() {
         g.set_loading(LoadGapGate::kHost, true, at(500));
         CHECK(!g.gap_counts(peer, at(0), at(9000), 4.0) && !g.gap_counts(other, at(0), at(9000), 4.0));
         g.set_loading(LoadGapGate::kHost, false, at(9000));
-        CHECK(g.gap_counts(peer, at(0), at(14000), 4.0));  // 5 s past the end: real
+        CHECK(!g.gap_counts(peer, at(0), at(14000), 4.0));  // inside the grace
+        CHECK(g.gap_counts(peer, at(0), at(21000), 4.0));  // 12 s past the end: real
     }
     {  // a load that ended before the gap began does not excuse it
         LoadGapGate g;

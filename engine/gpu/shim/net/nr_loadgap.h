@@ -24,6 +24,8 @@ public:
     static constexpr std::uint64_t kHost = 1;  // the session host's load, seen from a guest: the whole
                                                // session (guest-guest links too) goes quiet in it
 
+    static constexpr std::chrono::milliseconds kGrace{8000};  // post-load grace window
+
     void set_loading(std::uint64_t scope, bool loading, Clock::time_point now) {
         Scope& s = scopes_[scope];
         if (s.loading && !loading) s.last_end = now;
@@ -43,7 +45,7 @@ public:
 
     // The silence of the link to `peer` that counts: it was last heard at `prev` and is heard at
     // `now`. 0 while a load of either side is up; after a load that ended inside the gap, the time
-    // since that load ended; with no load in the gap, the whole gap.
+    // since that load ended plus the grace window (kGrace); with no load in the gap, the whole gap.
     double effective_silent_s(std::uint64_t peer, Clock::time_point prev, Clock::time_point now) const {
         if (gone_.count(peer)) return 0;
         Clock::time_point from = prev;
@@ -52,7 +54,9 @@ public:
             if (it == scopes_.end()) continue;
             const Scope& s = it->second;
             if (s.loading) return 0;
-            if (s.last_end.time_since_epoch().count() && s.last_end > from) from = s.last_end;
+            // CL-d329c8: the game hitches for a few seconds after its own world-up (and a peer after its
+            // load end): the silence only starts to count once that grace window has passed.
+            if (s.last_end.time_since_epoch().count() && s.last_end > prev && s.last_end + kGrace > from) from = s.last_end + kGrace;
         }
         if (now <= from) return 0;
         return std::chrono::duration<double>(now - from).count();
