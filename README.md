@@ -219,7 +219,8 @@ Nightwatch Co-op is a modified version of **Lantern Engine by Awaken (https://gi
 | Renderer crash fixes | adapted from [AwesomeObserver](https://github.com/AwesomeObserver/bloodborne_pc) and [deadinside28](https://github.com/deadinside28/bloodborne_pc) |
 | Online backend (in the engine, not used: this build plays offline) | [droogie/bbhost](https://github.com/droogie/bbhost) |
 | FSR 3.1 and FSR 4 on Vulkan | [FireBurn/FSR-Vulkan](https://github.com/FireBurn/FSR-Vulkan) and the AMD FidelityFX SDK |
-| FSR 4.1.1 | [fsr4vk](https://github.com/dvj5411/fsr4vk), with the AMD driver fix from [0xCydral](https://github.com/0xCydral/bloodborne_pc) |
+| FSR (4.1.2 on Radeon, 3.1.6 elsewhere) | AMD's signed FidelityFX SDK 2.4 for Vulkan, as in Lantern Engine 0.9.39 beta 16 |
+| FSR 4.1.1 on NVIDIA and Intel | [fsr4vk](https://github.com/dvj5411/fsr4vk) |
 | DLSS | NVIDIA DLSS SDK |
 | Sound | [LibAtrac9](https://github.com/Thealexbarney/LibAtrac9) |
 | In-game menu | [Dear ImGui](https://github.com/ocornut/imgui) |
