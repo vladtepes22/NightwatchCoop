@@ -1020,7 +1020,11 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
                image.info.resources.Contains(info.resources) &&
                image.info.LayoutKey() == info.LayoutKey();
     };
-    if ((cached.generation == registry_generation.load(std::memory_order_relaxed) || still_exact()) &&
+    if (cached.image_id && !slot_images.is_allocated(cached.image_id)) {
+        cached = {}; // a freed slot is not a hit, whatever the generation says (visy 040fe8ff)
+    }
+    if (cached.image_id &&
+        (cached.generation == registry_generation.load(std::memory_order_relaxed) || still_exact()) &&
         cached.address == info.guest_address &&
         cached.size == info.guest_size && cached.extent == info.size &&
         cached.format == info.pixel_format && cached.type == info.type &&
@@ -1435,6 +1439,12 @@ void TextureCache::RegisterImage(ImageId image_id) {
 }
 
 void TextureCache::UnregisterImage(ImageId image_id) {
+    // visy 040fe8ff: no memoized lookup keeps the id of an image that leaves the registry.
+    for (auto& entry : find_image_cache) {
+        if (entry.image_id == image_id) {
+            entry = {};
+        }
+    }
     Image& image = slot_images[image_id];
     ASSERT_MSG(True(image.flags & ImageFlagBits::Registered),
                "Trying to unregister an already unregistered image");
