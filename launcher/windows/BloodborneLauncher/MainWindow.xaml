@@ -66,8 +66,8 @@
         </Style>
 
         <Style x:Key="TitleIcon" TargetType="Button">
-            <Setter Property="Height" Value="22" />
-            <Setter Property="MinWidth" Value="26" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="MinWidth" Value="32" />
             <Setter Property="Focusable" Value="False" />
             <!-- WPF-UI's implicit button style paints a light fill; these sit on the dark title bar. -->
             <Setter Property="Background" Value="{DynamicResource TitleButtonBrush}" />
@@ -79,12 +79,17 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Bg" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5" Padding="7,0">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+                            <Grid>
+                                <!-- Hover: a light tint over the button's own fill, so it stays opaque and
+                                     just gets a shade lighter (replacing the fill showed the bar through it). -->
+                                <Border x:Name="HoverTint" CornerRadius="5" Background="#1AFFFFFF" Opacity="0" />
+                                <ContentPresenter Margin="10,0" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource SidebarItemHoverBrush}" />
+                                <Setter TargetName="HoverTint" Property="Opacity" Value="1" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -94,8 +99,8 @@
 
         <!-- The settings search: a slim pill in the title bar, with its shortcut shown while it is empty. -->
         <Style x:Key="TitleSearch" TargetType="TextBox">
-            <Setter Property="Height" Value="24" />
-            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
             <Setter Property="CaretBrush" Value="{DynamicResource TextFillColorPrimaryBrush}" />
             <Setter Property="SelectionBrush" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
@@ -109,14 +114,17 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="TextBox">
                         <Border x:Name="Bg" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="9,0,8,0">
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="14">
                             <Grid>
+                            <!-- Hover: a light tint over the pill's own fill (see TitleIcon). -->
+                            <Border x:Name="HoverTint" CornerRadius="13" Background="#1AFFFFFF" Opacity="0" />
+                            <Grid Margin="10,0,9,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <ui:SymbolIcon Symbol="Search24" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center"
+                                <ui:SymbolIcon Symbol="Search24" FontSize="13" Margin="0,0,6,0" VerticalAlignment="Center"
                                                Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                                 <TextBlock x:Name="Placeholder" Grid.Column="1" Text="{loc:Tr &#x27;Search settings&#x27;}" VerticalAlignment="Center"
                                            Foreground="{DynamicResource TextFillColorTertiaryBrush}" IsHitTestVisible="False"
@@ -124,9 +132,10 @@
                                 <!-- Room on the right for the clear button, which sits over the box. -->
                                 <ScrollViewer x:Name="PART_ContentHost" Grid.Column="1" Margin="0,0,14,0" VerticalAlignment="Center"
                                               Focusable="False" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" />
-                                <TextBlock x:Name="Shortcut" Grid.Column="2" Text="Ctrl+F" FontSize="10.5" VerticalAlignment="Center"
+                                <TextBlock x:Name="Shortcut" Grid.Column="2" Text="Ctrl+F" FontSize="11" VerticalAlignment="Center"
                                            Foreground="{DynamicResource TextFillColorTertiaryBrush}" IsHitTestVisible="False"
                                            Visibility="Collapsed" />
+                            </Grid>
                             </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -141,7 +150,7 @@
                                 <Setter TargetName="Shortcut" Property="Visibility" Value="Visible" />
                             </MultiTrigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource SidebarItemHoverBrush}" />
+                                <Setter TargetName="HoverTint" Property="Opacity" Value="1" />
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="Bg" Property="Background" Value="{DynamicResource ControlFillColorInputActiveBrush}" />
@@ -189,7 +198,13 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
                         <Border x:Name="Bg" Background="Transparent" CornerRadius="16" Padding="18,6" MinWidth="80">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Grid>
+                                <!-- An invisible SemiBold copy of the label keeps room for the chosen tab's bold
+                                     text, so choosing a tab doesn't widen it and shift the strip sideways. -->
+                                <TextBlock Text="{Binding Content, RelativeSource={RelativeSource TemplatedParent}}"
+                                           FontWeight="SemiBold" Visibility="Hidden" HorizontalAlignment="Center" />
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -209,7 +224,7 @@
     </ui:FluentWindow.Resources>
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="34" />
+            <RowDefinition Height="40" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -250,7 +265,7 @@
                 </StackPanel>
 
                 <!-- Settings search (Ctrl+F): on the left; the results open under it. -->
-                <Grid x:Name="SearchArea" HorizontalAlignment="Left" VerticalAlignment="Center" Width="200" Margin="12,0,0,0"
+                <Grid x:Name="SearchArea" HorizontalAlignment="Left" VerticalAlignment="Center" Width="220" Margin="12,0,0,0"
                       shell:WindowChrome.IsHitTestVisibleInChrome="True">
                     <TextBox x:Name="SearchBox" Style="{StaticResource TitleSearch}"
                              TextChanged="SearchBox_TextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown"
@@ -259,28 +274,28 @@
                             VerticalAlignment="Center" Visibility="Collapsed" ToolTip="Clear (Esc)" Click="SearchClear_Click" />
                 </Grid>
 
-                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" IsHitTestVisible="False">
-                    <Run Text="Nightwatch Co-op" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                    <Run x:Name="TitlePage" Text="" Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
-                </TextBlock>
+                <!-- Just the name: the tab strip already shows the open page, and a page name here
+                     made the centred title shift sideways with every tab change. -->
+                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14" IsHitTestVisible="False"
+                           Text="Nightwatch Co-op" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
 
                 <StackPanel x:Name="TitleTools" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,148,0">
                     <Button x:Name="TitleUpdate" Style="{StaticResource TitleIcon}" Click="TitleUpdate_Click" Margin="0,0,6,0"
                             Visibility="Collapsed" BorderBrush="{DynamicResource GoodTextBrush}" BorderThickness="1"
                             ToolTip="{loc:Tr &#x27;A new launcher version is available&#x27;}">
                         <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="ArrowDownload24" FontSize="13" Margin="0,0,5,0"
+                            <ui:SymbolIcon Symbol="ArrowDownload24" FontSize="15" Margin="0,0,5,0"
                                            Foreground="{DynamicResource GoodTextBrush}" />
-                            <TextBlock x:Name="TitleUpdateText" Text="{loc:Tr &#x27;Update&#x27;}" FontSize="11.5" VerticalAlignment="Center"
+                            <TextBlock x:Name="TitleUpdateText" Text="{loc:Tr &#x27;Update&#x27;}" FontSize="12.5" VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                         </StackPanel>
                     </Button>
                     <Button x:Name="TitleLogs" Style="{StaticResource TitleIcon}" Click="TitleLogs_Click" Margin="0,0,6,0"
                             ToolTip="{loc:Tr &#x27;Copy logs or the last crash report, for a bug report&#x27;}">
                         <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="DocumentCopy24" FontSize="13" Margin="0,0,5,0"
+                            <ui:SymbolIcon Symbol="DocumentCopy24" FontSize="15" Margin="0,0,5,0"
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            <TextBlock Text="{loc:Tr &#x27;Logs&#x27;}" FontSize="11.5" VerticalAlignment="Center"
+                            <TextBlock Text="{loc:Tr &#x27;Logs&#x27;}" FontSize="12.5" VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                         </StackPanel>
                     </Button>
@@ -289,14 +304,14 @@
                             BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                             ToolTip="{loc:Tr &#x27;Start the game&#x27;}">
                         <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon x:Name="TitlePlayIcon" Symbol="Play24" FontSize="13" Margin="0,0,5,0"
+                            <ui:SymbolIcon x:Name="TitlePlayIcon" Symbol="Play24" FontSize="15" Margin="0,0,5,0"
                                            Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                            <TextBlock x:Name="TitlePlayText" Text="{loc:Tr &#x27;Play&#x27;}" FontSize="11.5" VerticalAlignment="Center"
+                            <TextBlock x:Name="TitlePlayText" Text="{loc:Tr &#x27;Play&#x27;}" FontSize="12.5" VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                         </StackPanel>
                     </Button>
                     <Button Style="{StaticResource TitleIcon}" Click="ToggleLog_Click" ToolTip="{loc:Tr &#x27;Activity&#x27;}">
-                        <ui:SymbolIcon Symbol="Pulse24" FontSize="14"
+                        <ui:SymbolIcon Symbol="Pulse24" FontSize="16"
                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                     </Button>
                 </StackPanel>
