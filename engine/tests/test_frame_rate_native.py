@@ -36,7 +36,7 @@ class Image:
 def lists():
     root = ET.parse(ROOT / 'patches/Bloodborne.xml').getroot()
     return {m.get('Name'): [(int(l.get('Address'), 16), bytes.fromhex(l.get('Value').replace('0x', '')))
-                            for l in m.iter('Line')] for m in root.iter('Metadata')}
+                            for l in m.iter('Line') if l.get('Type') == 'bytes'] for m in root.iter('Metadata')}
 
 
 def sites():
