@@ -244,6 +244,14 @@ Key findings behind the rows:
   cutscene_seen). The oath itself is the equipped rune (the player's record), the rune flags
   9440-9451 and the personal block (6676 / 6678 Valtr's gifts, 6813 League successor) were per
   player already; the NPCs' item awards stay C3's; Eileen (1360-1379) stays shared.
+  **Rune effects per member (0.7.7, covfx077, smoke `covenant_runes` cvr)**: the oath rune's effect is its marker
+  SpEffect on the player (GemGen 200000-200050 -> GemeffectParam -> 6110 Radiance, 6100 Corruption, 6120 Hunter, 6142
+  Impurity, Beast's Embrace 250 / 252 / 253 / 6661 / 180050, Milkweed 255 / 257 / 180060; the game's EMEVDs test
+  these). Host and guest memorized different oath runes at the Memory Altar in the host's Dream (test aid
+  `log_oath`): each game carried only its own covenant's rows, steadily, summoned and after the guest's Leave
+  (Radiance + Impurity, Corruption + Hunter, Beast's Embrace + Milkweed). Unproven: Annalise's kneel talk and
+  Alfred's talk (greeting lines only, `cva`), the numeric effect of Corruption (heal near death) / Hunter (stamina
+  recovery) / Radiance (vial HP) / League and Executioner behaviour.
 - **Session/runtime**: 2000-2099, 7000-7399 and 7600-7699 (common event completions), 9200-9299,
   zones 1AAB5/6/7nnn, restart events. **boss_area** (1AAB4nnn: fight state, fog, NPC summons) is
   not synced live; the vanilla session already carries it.

@@ -310,6 +310,7 @@ struct Test {
     Clock::time_point st_at{};
     bool god = false;     // god: the own chr kept invincible (test aid)
     bool log_pos = false; // log_pos: the player's area and position (FrpgNetMan +0xa7c / +0xaac) every 3 s
+    bool log_oath = false; // log_oath (covfx077): every 2 s the covenant (oath rune) SpEffects on the local player
     std::string fx_last;  // log_fx=-1: the last list logged
     int log_fx = 0;       // log_fx=ID (mergo077): every second the local player's SpEffect ID on / off
     Clock::time_point fx_at{};
@@ -3266,6 +3267,22 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
             Log("test: god: invincible (chr +0x1E1 bit 14)");
         }
     }
+    if (t.log_oath && s.world_up && !s.loading && s.player && Seconds(t.fx_at, now) >= 0.5) {
+        // 6100 Corruption (Vilebloods), 6110 Radiance (Executioners), 6120 Hunter, 6142 Impurity (League),
+        // 250 Beast's Embrace, 255 Milkweed: the oath rune's marker SpEffects (GemeffectParam 2107001..2129001)
+        t.fx_at = now;
+        // plus the rune's further rows: Beast's Embrace 252 / 253 / 6661 / 180050 (Therianthrope resist +15), Milkweed 257 /
+        // 180060 (item discovery +0.1)
+        static const std::pair<int, const char*> kOath[] = {
+            {6100, "Corruption"}, {6110, "Radiance"}, {6120, "Hunter"}, {6142, "Impurity"}, {250, "BeastEmbrace"},
+            {252, "BeastEmbrace2"}, {253, "BeastEmbrace3"}, {6661, "BeastEmbrace4"}, {180050, "BeastResist"}, {255, "Milkweed"},
+            {257, "Milkweed2"}, {180060, "MilkweedDrop"}};
+        std::string on;
+        for (const auto& [e, n] : kOath)
+            if (HasSpEffect(s.player, e)) on += (on.empty() ? "" : ",") + std::string(n) + "(" + std::to_string(e) + ")";
+        Log("test: oath: covenant effects on the local player: %s (role %d, map 0x%08x)", on.empty() ? "none" : on.c_str(),
+            int(s.session_role), unsigned(s.map_id));
+    }
     if (t.log_fx < 0 && s.world_up && !s.loading && s.player && Seconds(t.fx_at, now) >= 1.0) {
         // log_fx=-1 (poison077): every SpEffect id on the local player, logged when the set changes.
         t.fx_at = now;
@@ -4101,6 +4118,8 @@ void PartyDirector::ConfigureFromEnv() {
                 st.test.god = true;
             } else if (item.rfind("log_fx=", 0) == 0) {
                 st.test.log_fx = std::atoi(item.c_str() + 7);
+            } else if (item == "log_oath") {
+                st.test.log_oath = true;
             } else if (item == "log_pos") {
                 st.test.log_pos = true;
             } else if (item.rfind("log_pos=", 0) == 0) {
