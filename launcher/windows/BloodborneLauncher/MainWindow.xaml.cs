@@ -396,7 +396,7 @@ namespace BloodborneLauncher
             {
                 if (ResizeMode != ResizeMode.NoResize)
                     chrome.ResizeBorderThickness = new Thickness(8);
-                chrome.CaptionHeight = 34;
+                chrome.CaptionHeight = 40;
             }
         }
 
@@ -571,15 +571,12 @@ namespace BloodborneLauncher
 
         private void SidebarItem_Checked(object sender, RoutedEventArgs e)
         {
-            if (sender is not System.Windows.Controls.RadioButton { Tag: Type pageType } item)
+            if (sender is not System.Windows.Controls.RadioButton { Tag: Type pageType })
                 return;
 
             var page = PageOf(pageType);
             PageFrame.Navigate(page);
             page.OnShown();
-
-            var name = ItemName(item);
-            TitlePage.Text = string.IsNullOrEmpty(name) ? "" : $" — {name}";
         }
 
         /// <summary>A page, made the first time it is asked for and kept.</summary>
