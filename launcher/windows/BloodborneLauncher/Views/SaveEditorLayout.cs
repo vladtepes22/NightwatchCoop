@@ -168,6 +168,7 @@ public sealed partial class SaveEditorWindow
         if (_changedOnly.IsChecked == true && !row.Changed) return false;
         var query = _search.Text.Trim();
         return query.Length == 0 || row.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase) ||
+            row.Details.Contains(query, StringComparison.CurrentCultureIgnoreCase) ||
             row.Item.Number.ToString(CultureInfo.InvariantCulture).Contains(query);
     }
     private void RefreshItems()
@@ -216,7 +217,7 @@ public sealed partial class SaveEditorWindow
         {
             0 => L.T("Only the kill flag changes. A boss you clear here may not fully reset its fight."),
             1 => L.T("A lit lamp can be used for warping straight away."),
-            _ => L.T("Ending flags decide which endings the save has already seen.")
+            _ => L.T("Endings the save has seen unlock shop and messenger items. The flags that roll an ending's credits or take the key items away are never offered here.")
         };
     }
     private void SetFlags(bool on)

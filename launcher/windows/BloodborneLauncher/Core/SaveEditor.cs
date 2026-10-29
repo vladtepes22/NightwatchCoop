@@ -23,7 +23,18 @@ internal static class SaveEditor
         public int Count { get; set; }
         public int? Level { get; set; }
         public int? MaxLevel { get; set; }
+        // A PNG cut from the player's own game files (null when the game folder or the icon is missing).
+        public string? Icon { get; set; }
+        // A gem sitting in a weapon slot: shown, never counted or removed.
+        public bool Locked { get; set; }
+        public Gem? Gem { get; set; }
+        public Socket[]? Sockets { get; set; }
     }
+    // Type 1 blood gem, 2 rune; Sort 0 blood gem, 1 Caryll rune, 2 oath rune. Handles are unsigned 32-bit.
+    internal sealed record Gem(long Handle, int Type, int Shape, int? Sort, bool Cursed, GemEffect[] Effects, Holder? SocketedIn = null);
+    internal sealed record GemEffect(int Id, string? Text);
+    internal sealed record Holder(int? Number, string? Name);
+    internal sealed record Socket(int Shape, string? Gem);
     internal sealed record Flag(int Id, string Kind, string Group, string Label, bool On);
     internal sealed record Findings(bool Phantom, string[] DuplicateKeys, bool WorldEmpty);
     internal sealed record Snapshot(string Revision, Character Character, Item[] Items, Flag[]? Flags = null, Findings? Findings = null);

@@ -66,6 +66,7 @@ public sealed partial class SaveEditorWindow : Window
     private CheckBox? _repairPhantom, _repairKeys;
     private List<ItemRow> _items = new();
     private List<FlagRow> _flags = new();
+    private SaveEditor.GemEffect[]? _effectChoices;
     private SaveEditor.Snapshot? _snapshot;
     private SaveEditor.Slot? _selected;
     private bool _busy, _loading, _dirty, _running;
@@ -204,7 +205,7 @@ public sealed partial class SaveEditorWindow : Window
             _fields["echoes"].Load(c.Echoes.ToString(CultureInfo.InvariantCulture));
             _fields["insight"].Load(c.Insight.ToString(CultureInfo.InvariantCulture));
             _fields["ng_cycle"].Load(c.NgCycle.ToString(CultureInfo.InvariantCulture));
-            _items = data.Items.Select(i => new ItemRow(i, UpdateState)).ToList();
+            _items = data.Items.Select(i => new ItemRow(i, UpdateState, row => _ = Guard(() => EditGem(row)))).ToList();
             _flags = (data.Flags ?? []).Select(f => new FlagRow(f, UpdateState)).ToList();
             _search.Text = ""; _changedOnly.IsChecked = false; _itemKinds.Select(0); _flagKinds.Select(0);
             BindItems(); RefreshItems(); BindFlags(); BuildRepairs(data.Findings);
@@ -281,7 +282,7 @@ public sealed partial class SaveEditorWindow : Window
         var summary = string.Join("\n", lines.Take(14).Select(l => "• " + l));
         if (lines.Count > 14) summary += "\n" + string.Format(L.T("…and {0} more"), lines.Count - 14);
         if (_items.Any(r => r.Removed && r.IsKey)) summary += "\n\n" + L.T("Removing a key item can block story progress.");
-        var items = _items.Where(r => r.Changed).Select(r =>
+        var items = _items.Where(r => r.Changed && (r.Removed || r.CountChanged || r.LevelChanged)).Select(r =>
         {
             var change = new Dictionary<string, object> { ["section"] = r.Item.Section, ["slot"] = r.Item.Slot };
             if (r.Removed) change["remove"] = true;
@@ -292,15 +293,24 @@ public sealed partial class SaveEditorWindow : Window
             }
             return change;
         }).ToArray();
+        var gems = _items.Where(r => r.GemChanged)
+            .Select(r => new { r.Item.Gem!.Handle, Effects = r.Effects.Select(e => e.Id).ToArray() }).ToArray();
         var edit = new { _snapshot.Revision, Name = _fields["name"].Value,
             Stats = Stats.ToDictionary(s => s, s => _fields[s].Number), Echoes = _fields["echoes"].Number,
-            Insight = _fields["insight"].Number, NgCycle = _fields["ng_cycle"].Number, Items = items,
+            Insight = _fields["insight"].Number, NgCycle = _fields["ng_cycle"].Number, Items = items, Gems = gems,
             Flags = _flags.Where(f => f.Changed).Select(f => new { f.Flag.Id, f.On }).ToArray(),
             Repair = new[] { _repairPhantom?.IsChecked == true ? "phantom" : null, _repairKeys?.IsChecked == true ? "duplicate_keys" : null }
                 .OfType<string>().ToArray() };
         if (!Prompt.Confirm(L.T("Apply these edits?"), summary + "\n\n" + L.T("All current saves of this type will be backed up first."), L.T("Apply"))) return;
         var result = await Run<SaveEditor.WriteResult>("apply", _selected.SlotNumber, edit);
         Prompt.Tell(L.T("Backup folder"), result.Backup ?? ""); await Refresh();
+    }
+    private async Task EditGem(ItemRow row)
+    {
+        _effectChoices ??= await Run<SaveEditor.GemEffect[]>("effects");
+        if (_effectChoices.Length == 0) throw new InvalidOperationException(L.T("The game's gem list could not be read. Check the game folder in Settings."));
+        var dialog = new SaveEditorGemDialog(row.Title, row.Effects, _effectChoices) { Owner = this };
+        if (dialog.ShowDialog() == true && dialog.Result is { } result) row.Effects = result;
     }
     private async Task Restore(SaveEditor.Backup backup)
     {

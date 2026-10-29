@@ -135,4 +135,6 @@ def lamps(cat=None):
 
 
 def endings():
-    return [(f, "Endings", f"Ending flag [{f}]") for f in ENDING_IDS]
+    """Only the 'ending seen' records (docs/party/cutscenes_endings.md). 21-23 start an ending's credits and
+    NG+ on the next load and 6604 strips the key items on the next load, so they are never offered."""
+    return [(f, "Endings", label) for f, label in ENDINGS_SEEN.items()]
