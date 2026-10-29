@@ -236,6 +236,7 @@ constexpr std::uint8_t kClothFactorCode[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57,
                                              0x56, 0x53, 0x50, 0xc5, 0xf8, 0x28, 0xd0};
 static_assert(sizeof kClothFactorCode == 14, "the jump below covers exactly these instructions");
 constexpr std::size_t kClothExponent = 0x48d7bbc;
+constexpr std::size_t kClothBend = 0x7387f4; // Steady cloth's bend-constraint site (scripts/cloth.py BEND)
 float g_cloth_exponent = -1.725f;
 std::atomic<float> g_cloth_rate{30.0f};
 std::atomic<std::uint64_t> g_cloth_calls{0};
@@ -260,6 +261,13 @@ bool InstallClothFactor(std::uint8_t* image, std::size_t size) {
     const char* v = std::getenv("BB_CLOTH_STIFFNESS");
     if (v && *v && std::strtof(v, nullptr) == 0.0f) {
         host_log("Frame rate: cloth stiffness factor off (BB_CLOTH_STIFFNESS=0)");
+        return false;
+    }
+    // The start's Steady cloth (scripts/cloth.py, bbport.ini steady_cloth, on by default) already
+    // eases the cloth above 30 FPS through its bend constraints (a jmp at +0x7387f4); both together
+    // would ease it twice. The factor is used only when Steady cloth is off.
+    if (size > kClothBend && image[kClothBend] == 0xe9) {
+        host_log("Frame rate: cloth stiffness factor left out: Steady cloth already corrects the cloth for the frame rate");
         return false;
     }
     if (size < kClothExponent + 4 || std::memcmp(image + kClothFactor, kClothFactorCode, sizeof kClothFactorCode) != 0) {
