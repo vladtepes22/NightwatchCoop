@@ -60,7 +60,6 @@ internal sealed class SaveEditorGemDialog : Window
         AutomationProperties.SetName(_choices, L.T("All blood gem effects"));
         VirtualizingPanel.SetIsVirtualizing(_choices, true); ScrollViewer.SetHorizontalScrollBarVisibility(_choices, ScrollBarVisibility.Disabled);
         _choices.SelectionChanged += (_, _) => UpdateButtons();
-        _choices.MouseDoubleClick += (_, _) => { if (_replace.IsEnabled) Replace(); else if (_add.IsEnabled) Append(); };
         Add(_choices, 5);
 
         var footer = new Grid { Margin = new Thickness(0, 14, 0, 0) };
@@ -69,6 +68,7 @@ internal sealed class SaveEditorGemDialog : Window
         void Place(UIElement element, int column) { Grid.SetColumn(element, column); footer.Children.Add(element); }
         _replace = Small(L.T("Replace selected"), Replace); Place(_replace, 0);
         _add = Small(L.T("Add effect"), Append); Place(_add, 1);
+        _choices.MouseDoubleClick += (_, _) => { if (_replace.IsEnabled) Replace(); else if (_add.IsEnabled) Append(); };
         var cancel = new Button { Content = L.T("Cancel"), MinWidth = 80, Margin = new Thickness(0, 0, 8, 0) };
         cancel.Click += (_, _) => Close(); Place(cancel, 3);
         _ok = new Button { Content = L.T("OK"), Appearance = ControlAppearance.Primary, MinWidth = 90 };
