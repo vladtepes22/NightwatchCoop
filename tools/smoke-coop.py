@@ -60,6 +60,20 @@ def check_expects(expects, text):
     return results
 
 
+def check_forbids(forbids, text):
+    """Each (role, regex) must match nowhere in that role's log ('any' = every log)."""
+    results = []
+    for role, pattern in forbids:
+        logs = [log for seed, log in text.items() if role in ('any', seed)]
+        found = next((m for m in (re.search(pattern, log) for log in logs) if m), None)
+        line = None
+        if found:
+            log = found.string
+            line = log[log.rfind('\n', 0, found.start()) + 1:log.find('\n', found.end())].strip()
+        results.append({'role': role, 'forbid': pattern, 'passed': not found, 'line': line[:200] if line else None})
+    return results
+
+
 # The engine's own fault / stop lines (probe.c, runtime_kernel.c), Vulkan errors and visy's common smoke
 # negatives (smoke_party.py check_common: Session lost, boot stall); not the party's
 # benign "host gone ... its crash restart" notice.
@@ -103,6 +117,7 @@ def main():
     for role in guests[1:]:  # extra guests: their own row key, else no director chain
         steps[role] = scenario.get(role, '')
     expects = [tuple(e) for e in scenario.get('expect', [])] + args.expect
+    forbids = [tuple(e) for e in scenario.get('forbid', [])]
     args.seconds = args.seconds or scenario.get('seconds', 240)
     run = f'coop-{args.label}-{datetime.now():%Y%m%d-%H%M%S}'
     artifacts = ARTIFACTS / run
@@ -215,12 +230,16 @@ def main():
         rows = check_expects(expects, text)
         for row in rows:
             print(f"{'PASS' if row['passed'] else 'FAIL'} {row['role']}: {row['expect']}", flush=True)
+        forbid_rows = check_forbids(forbids, text)
+        for row in forbid_rows:
+            print(f"{'PASS' if row['passed'] else 'FAIL'} {row['role']}: never {row['forbid']}"
+                  + (f" (seen: {row['line']})" if row['line'] else ''), flush=True)
         crashes = {seed: len(re.findall(CRASH_RX, log))
                    for seed, log in text.items()}
         success = ((stopped_early or all(code == 0 for code in exits)) and stable_seconds >= 15 and
-                   all(r['passed'] for r in rows) and not any(crashes.values()) and
+                   all(r['passed'] for r in rows + forbid_rows) and not any(crashes.values()) and
                    (not args.require_boundary or boundary and joined_after_boundary_seconds >= 15))
-        result = {'passed': success, 'scenario': args.scenario, 'steps': steps, 'expects': rows,
+        result = {'passed': success, 'scenario': args.scenario, 'steps': steps, 'expects': rows, 'forbids': forbid_rows,
                   'crash_lines': crashes, 'stopped_early': stopped_early,
                   'exits': exits, 'longest_continuous_join_seconds': stable_seconds,
                   'boundary_observed': boundary, 'stale_collision_clear_reports': cleared,
