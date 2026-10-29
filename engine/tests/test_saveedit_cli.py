@@ -69,6 +69,27 @@ class SaveEditorCliTests(unittest.TestCase):
         self.assertTrue(Path(result["backup"]).is_dir())
         self.assertEqual(self.file.read_bytes(), self.original)
 
+    def test_progress_findings_and_repairs(self):
+        self.file.write_bytes(make_save(name="Tester", phantom=1))
+        catalogue = names.Catalogue({"names": {}, "ids": {"weapon": [22000000, 22000300, 22000500, 22001000]}})
+        with patch.object(names.Catalogue, "load", return_value=catalogue):
+            shown = self.call("show")[1]
+            boss = next(f for f in shown["flags"] if f["kind"] == "boss")
+            self.assertFalse(boss["on"])
+            self.assertTrue(shown["findings"]["phantom"])
+            self.assertEqual(shown["items"][0]["max_level"], 10)
+            self.assertIsNone(shown["items"][1]["max_level"])
+            edit = dict(revision=shown["revision"], flags=[dict(id=boss["id"], on=True)], repair=["phantom"])
+            self.assertEqual(self.call("apply", edit)[0], 0)
+            after = self.call("show")[1]
+            self.assertTrue(next(f for f in after["flags"] if f["id"] == boss["id"])["on"])
+            self.assertFalse(after["findings"]["phantom"])
+            for bad in (dict(flags=[dict(id=1, on=True)]), dict(flags=[dict(id=boss["id"], on=1)]),
+                        dict(repair=["everything"])):
+                code, result = self.call("apply", dict(revision=after["revision"], **bad))
+                self.assertEqual(code, 1, bad)
+            self.assertEqual(self.call("show")[1]["revision"], after["revision"])
+
     def test_refuses_running_and_conflict(self):
         revision = self.call("show")[1]["revision"]
         edit = dict(revision=revision, echoes=1234)

@@ -602,7 +602,7 @@ FogAction HostFogAction(const BossGate& g, bool guest_starts_on, bool intro_done
 #include "seamless_rules.h"
 #include "party_bossfog_rules.h"
 #include "bbport_present_hold.h"
-#include "bbport_frame_rate.h"
+#include "engine/frame_rate.h"
 #include "party_lift_watch.h"
 
 #include <atomic>
@@ -3211,7 +3211,7 @@ BB_COOP_SYSV std::uint64_t WaitCheckHook(std::uint64_t entity, std::uint64_t ani
             ObjAnimState a;
             ReadObjAnim(static_cast<std::int32_t>(entity), &a);
             Log("lift wait check: entity %d anim %d -> %d (obj anim %d playing %d flags %#x) step %llu", int(entity), int(anim),
-                int(r & 0xff), a.anim, int(a.playing), a.flags, (unsigned long long)BbFrameRate::Steps());
+                int(r & 0xff), a.anim, int(a.playing), a.flags, (unsigned long long)BbEngine::FrameRate::Steps());
         }
     }
     return r;
@@ -3385,7 +3385,7 @@ void LiftProbeTick(const GameSnapshot& s) {
     }();
     if (!mode || !s.world_up || s.loading || !s.player) return;
     static std::map<std::int32_t, std::string> last;
-    const std::uint64_t step = BbFrameRate::Steps();
+    const std::uint64_t step = BbEngine::FrameRate::Steps();
     float me[4], rot[4];
     const bool have_me = LocalChrPose(me, rot);
     std::uint64_t chr_hit = 0, chr_flags = 0;
@@ -3513,7 +3513,7 @@ void LiftProbeTick(const GameSnapshot& s) {
             hit_chr_diff = hy - (have_me ? me[1] : 0.0f);
             Log("lift probe: step %llu t %.3f dt %.5f chrdt %.5f car %d %s%s | map_y %.2f hit_y %.3f chr_y %.3f (hit-chr %.3f) "
                 "chrhit %s f1e1 %010llx | %s",
-                (unsigned long long)step, BbFrameRate::GameSeconds(), double(BbFrameRate::LastDt()), double(chr_dt), l.car, key,
+                (unsigned long long)step, BbEngine::FrameRate::GameSeconds(), double(BbEngine::FrameRate::LastDt()), double(chr_dt), l.car, key,
                 changed ? " CHANGED" : "", double(ey), double(hy), have_me ? double(me[1]) : 0.0, double(hit_chr_diff),
                 chr_hit == hit ? "=car" : (chr_hit ? "other" : "none"), static_cast<unsigned long long>(chr_flags), mv);
             if (mode >= 2 && active && hit > 0x100000000ull && hit < 0x7ff000000000ull) {

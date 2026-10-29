@@ -345,11 +345,24 @@ bool Install(std::uint8_t* image, std::size_t size) {
     return true;
 }
 
+namespace {
+std::atomic<std::uint64_t> g_steps{0};
+std::atomic<double> g_game_seconds{0.0};
+std::atomic<float> g_last_dt{0.0f};
+}
+
+std::uint64_t Steps() { return g_steps.load(std::memory_order_relaxed); }
+double GameSeconds() { return g_game_seconds.load(std::memory_order_relaxed); }
+float LastDt() { return g_last_dt.load(std::memory_order_relaxed); }
+
 void Tick() {
     if (!g_image || !g_follow) return;
     float frame;
     std::memcpy(&frame, g_image + kFrameTime, 4);
     if (!(frame > 0.0f) || !std::isfinite(frame)) return;
+    g_steps.fetch_add(1, std::memory_order_relaxed);
+    g_game_seconds.store(g_game_seconds.load(std::memory_order_relaxed) + double(frame), std::memory_order_relaxed);
+    g_last_dt.store(frame, std::memory_order_relaxed);
     const float rate = std::clamp(1.0f / frame, kSlowest, g_target);
     g_held = g_held + (rate - g_held) * 0.05f;
     g_shown.store(g_held, std::memory_order_relaxed);
