@@ -1,6 +1,6 @@
 # Nightwatch Co-op
 
-**Play the whole of Bloodborne together with friends, on PC.** Seamless co-op for up to 4 hunters:
+**Play the whole of Bloodborne, and all Chalice Dungeons, together with friends, on PC.** Seamless co-op for up to 5 hunters:
 no bells, no summon signs, no fog walls. Deaths, boss kills and lamp travel don't end the session,
 and everyone's save keeps the progress. Free and open source. Needs your own game dump (update
 1.09); no game files included.
