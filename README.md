@@ -1,27 +1,46 @@
 # Nightwatch Co-op
 
-**Play the whole of Bloodborne together with friends, on PC.** No bells, no summon signs, no fog
-walls: deaths, boss kills and lamp travel don't end the session, and everyone's save keeps the
-progress. Up to 4 hunters. Free and open source. Needs your own game dump (update 1.09); no game
-files included.
+**Play the whole of Bloodborne together with friends, on PC.** Seamless co-op for up to 4 hunters:
+no bells, no summon signs, no fog walls. Deaths, boss kills and lamp travel don't end the session,
+and everyone's save keeps the progress. Free and open source. Needs your own game dump (update
+1.09); no game files included.
 
 [Download a release](https://github.com/vladtepes22/NightwatchCoop/releases) · [Install](#install) ·
 [Watch gameplay](https://www.youtube.com/watch?v=bYavrI0ca94) · [Report a problem](#reporting-a-bug) ·
 [Discord](https://discord.gg/sBK9FKKeup)
 
-A modified version of **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)**,
-0.9.37 (Bloodborne running natively on Windows, with upscalers and PC controls), with **visy's
-seamless co-op v0.7.6+a2f353e4 (0.7.7 work)**.
-
 **See it in action:** [Nightwatch Co-op on YouTube](https://www.youtube.com/watch?v=bYavrI0ca94)
 (thanks to Zarok for helping make it).
 
-<!-- Media placeholder: launcher Host/Join screenshot and 10–15-second party travel/rejoin clip.
-Caption each with build and demonstrated behaviour; hide names, codes and IPs; avoid spoilers. -->
+## Features
 
-> **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22. It is not made, supported or
-> endorsed by Awaken / Lantern Engine, The Hunter's Dream, FromSoftware or Sony. Please don't
-> ask them for help with this build: use the Discord below.
+- **Seamless co-op for up to 4 hunters.** Play through the whole game together, all the way
+  through NG+ and beyond.
+- **Your party, your rules.** Enemy health scaling by party size, party voting on lamp travel,
+  rot, shared or personal lamps and more.
+- **Easy to connect.** Over a VPN, UPnP, IPv6 or a forwarded port, with one code to share. No
+  server in between: co-op runs directly between your PCs.
+- **Made for PC.** 120 FPS and beyond, ultrawide, popular community patches, DLSS and FSR upscaling,
+  frame generation, and cheats you can switch on or off.
+- **Your controls.** Remap every key and gamepad button.
+- **Chalice Dungeons together.** Explore every Chalice Dungeon that ships with the game as a party.
+- **An in-game map**, made from your own game files (see [The map](#the-map)).
+- **Splitscreen** on one PC through Nucleus Co-op.
+- **Mods that stay optional.** Game-data mods and community additions, each one switched on and off
+  from the launcher.
+
+## Coming next
+
+- Permadeath mode
+- More optional community mods, like RenoDX HDR
+- Auto-hiding HUD
+- NPC forgiveness (for a price)
+- Save editor
+- And more to come
+
+> **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22 and is not made, supported or
+> endorsed by FromSoftware or Sony. Please don't ask Awaken, FromSoftware or Sony for help with
+> this build: use the Discord above.
 >
 > There is no public online play. Co-op runs directly between the players' PCs; this build never
 > connects to The Hunter's Dream or any other online server.
@@ -322,10 +341,13 @@ Never attach saves or game files. For setup help, use [Discord](https://discord.
 
 ## Credits
 
+Nightwatch Co-op is a modified version of **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)**
+0.9.37, not an official Lantern Engine release, combined with visy's seamless co-op.
+
 | | |
 |---|---|
-| **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | not involved in this project: the launcher, the built-in game patches, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, cheats, occlusion culling, trophies, fixes) |
 | Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.6+a2f353e4 |
+| **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | the launcher, the built-in game patches, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, cheats, occlusion culling, trophies, fixes) |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
