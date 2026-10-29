@@ -518,6 +518,8 @@ int main() {
     CHECK(!GuestAloneRestsHostWorld(false, false, false));  // YES: the party travel is the rest
     CHECK(GuestAloneRestsHostWorld(true, true, false));  // D9 (pard4): a lamp of the loaded map rests too
     // 0.7.3: a guest leaving the Hunter's Dream alone (headstone, NO) is a plain travel: no rest load
+    CHECK(!GuestAloneRestsHostWorld(true, true, false, true));  // 0.7.7: a map travel used no lamp: no rest
+    CHECK(!GuestAloneRestsHostWorld(true, false, false, true));
     CHECK(!GuestAloneRestsHostWorld(true, false, true));
     CHECK(!GuestAloneRestsHostWorld(true, true, true));
     CHECK(!GuestAloneRestsHostWorld(false, false, true));

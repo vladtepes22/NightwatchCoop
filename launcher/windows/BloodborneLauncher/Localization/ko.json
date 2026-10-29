@@ -2146,5 +2146,7 @@
   "Yes: run them now (Windows asks for administrator permission).": "예: 지금 실행 (Windows가 관리자 권한을 요청합니다).",
   "No: copy them, then paste them into PowerShell opened as administrator yourself.": "아니요: 복사한 뒤 관리자 권한으로 연 PowerShell에 직접 붙여 넣습니다.",
   "Free stamina out of combat": "전투 외 스태미나 무소모",
-  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "R1, R2, L1, L2를 누르거나 체력을 잃은 뒤 8초 동안을 제외하면 스태미나가 소모되지 않습니다"
+  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "R1, R2, L1, L2를 누르거나 체력을 잃은 뒤 8초 동안을 제외하면 스태미나가 소모되지 않습니다",
+  "Shared item notices": "공유 아이템 알림",
+  "A short notice when a key or unique item, a weapon or a rune is shared with the party. Never for ordinary pickups. Shows only while join, leave and travel notices are on.": "열쇠나 고유 아이템, 무기, 룬이 파티와 공유될 때 짧은 알림을 표시합니다. 일반 아이템에는 표시하지 않습니다. 참가, 퇴장, 이동 알림이 켜져 있을 때만 표시됩니다."
 }

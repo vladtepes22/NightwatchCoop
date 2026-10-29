@@ -1220,6 +1220,12 @@ void DefineAll() {
     own(&Values::party_key_items_summoned, "Key items at once", "Ключи сразу",
         "While you are a guest: a key the host's world gives you is yours at once (needs own key items). Off: at home",
         "Пока вы гость: ключ из мира хоста ваш сразу (нужны свои ключи). Выкл.: дома, в своём мире");
+    // 0.7.7: "<item>: shared with the party" when a key / unique item, weapon or rune is given to the party
+    // (visy put it on Party members, which then has 7 rows for 6 slots with 4 hunters).
+    AddRow(Flag(&Values::party_item_notices), "Shared item notices", "Уведомления об общих предметах",
+           "A short notice when an item is shared with the party (key and unique items, weapons, runes)",
+           "Короткое уведомление, когда предмет передан группе (ключевые и уникальные предметы, оружие, руны)", toggle,
+           Kind::Toggle);
 
 
     // ---- My party: Display: what this player sees of the party (local) ----

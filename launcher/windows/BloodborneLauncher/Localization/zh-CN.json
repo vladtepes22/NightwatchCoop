@@ -2146,5 +2146,7 @@
   "Fix": "修复",
   "These lines add Windows Firewall rules that let friends reach your party and remove rules that block the game. Nothing else is changed:": "以下命令会添加 Windows 防火墙规则，让好友能连到你的队伍，并删除阻止游戏的规则。不会更改其他任何内容：",
   "Yes: run them now (Windows asks for administrator permission).": "是：立即运行（Windows 会请求管理员权限）。",
-  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "否：复制命令，然后自己粘贴到以管理员身份打开的 PowerShell 中。"
+  "No: copy them, then paste them into PowerShell opened as administrator yourself.": "否：复制命令，然后自己粘贴到以管理员身份打开的 PowerShell 中。",
+  "Shared item notices": "共享物品提示",
+  "A short notice when a key or unique item, a weapon or a rune is shared with the party. Never for ordinary pickups. Shows only while join, leave and travel notices are on.": "当钥匙或独特物品、武器或符文被共享给队伍时显示简短提示。普通拾取不会提示。仅在加入、离开和旅行提示开启时显示。"
 }

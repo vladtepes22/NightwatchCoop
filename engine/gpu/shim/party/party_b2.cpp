@@ -6309,6 +6309,9 @@ bool GuestArenaRevive(const GameSnapshot& s, double held_for) {
         horiz, dy, !c.valid ? ", no corpse spot kept" : !fell ? "" : g_local_safe.valid ? ", a fall death" : ", a fall death, no safe spot kept");
     SpectateEnd();
     ReviveLocal(s, arena, false);
+    if (const int dark = DropFightDarkness()) {
+        Log("guest: the boss's darkness (%d SpEffect(s)) dropped with the revive", dark);
+    }
     party::status::SetLastEvent("The boss fell: you are back on your feet");
     return true;
 }
@@ -6996,6 +6999,9 @@ void HostDownTick(const GameSnapshot& s, double now) {
             dy, !fell ? "" : g_local_safe.valid ? ", a fall death" : ", a fall death, no safe spot kept");
         SpectateEnd();
         ReviveLocal(s, arena, true);
+        if (const int dark = DropFightDarkness()) {
+            Log("host death: the boss's darkness (%d SpEffect(s)) dropped with the revive", dark);
+        }
         party::status::SetLastEvent("The boss fell: you are back on your feet");
         watch_until = now + 10.0;
         next_watch = now + 0.5;
@@ -7510,11 +7516,31 @@ void GuestStainTick(const GameSnapshot& s) {
     auto pay = [&](const char* where, const float* me3) {
         const u64 pgd = Field<u64>(gdm, 8);
         const int before = Field<int>(pgd, 0x94, -1);
-        const u64 add = Field<u64>(Field<u64>(s.player, 0), 0x3d0);
-        if (!add || before < 0) {
+        if (before < 0) {
             return;
         }
-        reinterpret_cast<void(BB_COOP_SYSV*)(u64, int, int, int)>(add)(s.player, p.s.echoes, 0, 1);
+        // echoes077 (NW-4b5e142): the stain's echoes go in as the game's own pick-up does (0x130AB80: the record's
+        // echoes added to the held total, clamped), not through the player's AddSoul (vfunc +0x3D0), which
+        // multiplies by the gain rate of the player's SpEffects (Caryll runes: x1.716 with all three levels): a
+        // guest with such a rune got more than the stain held, and the next death stained the inflated total.
+        // BB_PARTY_STAIN_PAY_VFUNC=1: the old pay-out through AddSoul (A/B for the smoke).
+        static const bool old_pay = std::getenv("BB_PARTY_STAIN_PAY_VFUNC") && std::getenv("BB_PARTY_STAIN_PAY_VFUNC")[0] == '1';
+        const u64 add = Field<u64>(Field<u64>(s.player, 0), 0x3d0);
+        const long long sum = static_cast<long long>(before) + p.s.echoes;
+        const int total = sum < 0 ? 0 : sum >= 1000000000ll ? 999999999 : static_cast<int>(sum);
+        if (old_pay && add) {
+            reinterpret_cast<void(BB_COOP_SYSV*)(u64, int, int, int)>(add)(s.player, p.s.echoes, 0, 1);
+        } else {
+            SafeWrite(pgd + 0x94, &total, 4);
+        }
+        {
+            // the game's pick-up also flags the stats object (WorldChrMan +0x60 [+0x3B0] [+0x28] +0x50) for its refresh
+            const u64 st = Field<u64>(Field<u64>(Field<u64>(Slot(0x553e878), 0x60), 0x3b0), 0x28);
+            if (st) {
+                const u8 one = 1;
+                SafeWrite(st + 0x50, &one, 1);
+            }
+        }
         const int after = Field<int>(pgd, 0x94, -1);
         // The own record is this stain: taken (no second payment at home).
         bool own_cleared = false;
@@ -7727,6 +7753,26 @@ void GuestStainTick(const GameSnapshot& s) {
         shown_at = Now();
         Log("party stain: shown in the host's world, %d Blood Echoes at (%.1f, %.1f, %.1f), %.1f m away", p.s.echoes,
             double(p.s.pos[0]), double(p.s.pos[1]), double(p.s.pos[2]), double(gueststain::Horizontal(me, p.s.pos)));
+    {
+        // BB_PARTY_STAIN_TEST_SPFX=ID,ID: SpEffects on the own chr (NW-4b5e142: 100000..100002 are the Caryll
+        // rune gain rates x1.1 x1.2 x1.3): the pick-up must still pay exactly the stain's echoes.
+        if (const char* sp = std::getenv("BB_PARTY_STAIN_TEST_SPFX")) {
+            u64 vt = 0, fn = 0;
+            if (SafeGet(s.player, &vt) && vt && SafeGet(vt + 0x3f0, &fn) && fn) {
+                for (const char* c = sp; *c;) {
+                    const int id = std::atoi(c);
+                    if (id > 0) {
+                        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64, u64, u64, u64, u64, float, float, float, float,
+                                                             float)>(fn)(s.player, u64(id), s.player, 0, 1, 0, 0, 1.0f,
+                                                                         1.0f, 1.0f, 1.0f, 1.0f);
+                        Log("stain test: SpEffect %d on the own chr", id);
+                    }
+                    while (*c && *c != ',') ++c;
+                    if (*c == ',') ++c;
+                }
+            }
+        }
+    }
     }
     // Picked up by walking back onto it: armed once the living guest stood kArmDistance away (a
     // revive at a lamp right beside it does not pay at once; live ngB).

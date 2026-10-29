@@ -378,7 +378,7 @@ __attribute__((noinline)) BB_COOP_SYSV u64 TalkCommandHook(u64 ctx, u64 call, u6
     return orig(ctx, call, a2, a3, a4, a5);
 }
 
-void Act(u32 here, u32 id) {
+void Act(u32 here, u32 id, bool from_map = false) {
     if (id == kDreamReturnPoint) {
         // The lamp's own YES: its common event 7200 (turn, light, warp) - the vanilla rest trip.
         const u32 flag = DreamFlag(here);
@@ -391,7 +391,10 @@ void Act(u32 here, u32 id) {
         Log("chose lamp %u (%s): lamp warp 0x13CDF30(%u) from lamp %u", id, MapName(MapOf(id)).c_str(), id, here);
         // In a party: this player's own lamp use (no lamp flag is set for it), so the split
         // question asks here and nowhere else (party_split PlanLampOrigin).
-        split::NoteLocalUse(id);
+        // A travel from the map is no rest at a lamp (nothing was used): a guest's own trip never
+        // resets the host's world (party_split NoteMapTravel).
+        if (from_map) split::NoteMapTravel(id);
+        else split::NoteLocalUse(id);
         reinterpret_cast<void(BB_COOP_SYSV*)(u32)>(Guest(kLampWarp))(id);
     }
     g_arrival = Arrival{id, Now(), false};
@@ -444,7 +447,7 @@ struct TestState {
     u32 lamp = 0;          // lamp=ID (0: the nearest lit one)
     u32 to = 0;            // to=ID (0: "other": the first lamp of another map)
     u32 start = 0;         // start=ID: first a plain lamp warp there when the save is in another map
-    bool map = false;      // map=ID|any: a map travel request (RequestMapTravel) instead of the lamp walk
+    bool map = false;      // map=ID|any (host / solo), guestmap=ID|any (guest): a map travel request instead of the lamp walk
     u32 map_to = 0;        // its lamp; 0 (any): the first lamp map travel may go to
     bool started = false;
     double wait = 0;       // wait=S: S s more in the first steady world before the setup (another fixture first)
@@ -476,11 +479,16 @@ void TestParse() {
         else if (item == "setuponly") g_t.setup_only = true;
         else if (item == "listonly") g_t.list_only = true;
         else if (item == "members") g_t.members = true;
-        else if (item.rfind("map=", 0) == 0) {
-            // The host's (or a solo game's) only: the joiner of a smoke-coop run shares the variable.
+        else if (item.rfind("map=", 0) == 0 || item.rfind("guestmap=", 0) == 0) {
+            // map=: the host's (or a solo game's) only, guestmap=: a guest's only - the joiner of a
+            // smoke-coop run shares the variable. Test aid, never in normal play.
+            const bool guest_item = item[0] == 'g';
             const char* role = std::getenv("BB_PARTY");
-            g_t.map = !role || !*role || std::strcmp(role, "host") == 0;
-            g_t.map_to = item == "map=any" ? 0 : static_cast<u32>(std::strtoul(item.c_str() + 4, nullptr, 10));
+            const bool is_host = role && std::strcmp(role, "host") == 0;
+            const bool is_guest = role && *role && !is_host;
+            g_t.map = guest_item ? is_guest : !is_guest;
+            const std::string val = item.substr(item.find('=') + 1);
+            g_t.map_to = val == "any" ? 0 : static_cast<u32>(std::strtoul(val.c_str(), nullptr, 10));
         }
         else if (item.rfind("lamp=", 0) == 0) g_t.lamp = static_cast<u32>(std::strtoul(item.c_str() + 5, nullptr, 10));
         else if (item.rfind("wait=", 0) == 0) g_t.wait = std::strtod(item.c_str() + 5, nullptr);
@@ -919,7 +927,7 @@ bool MapTravelAllowedTo(std::uint32_t return_point) {
 }
 
 bool RequestMapTravel(std::uint32_t return_point) {
-    // No game reads here (the map view's render thread): the main-thread tick checks it all.
+    // No game reads here (a map view's render thread): the main-thread tick checks it all.
     if (!return_point || !g_on.load(std::memory_order_relaxed)) return false;
     u32 none = 0;
     if (!g_map_request.compare_exchange_strong(none, return_point)) return false;
@@ -979,8 +987,8 @@ void Tick() {
             ClearArrival();
         }
     }
-    // The map's travel: checked again here (the map view asked on its own thread); it waits while
-    // a menu is up (the map view closing), at most 5 s.
+    // The map's travel: checked again here (a map view asks on its own thread); it waits while a
+    // menu is up (the map view closing), at most 5 s.
     if (const u32 want = g_map_request.load()) {
         MapTravelSituation sit = MapSituation(s);
         sit.busy = g_arriving.load();
@@ -1001,9 +1009,8 @@ void Tick() {
             }
         } else {
             g_map_request = 0;
-            const u32 here = HereLamp(s);
             Log("map travel: lamp %u (%s) chosen on the map, from %s", want, MapName(MapOf(want)).c_str(), MapName(s.map_id).c_str());
-            Act(here, want);
+            Act(HereLamp(s), want, true);
         }
     }
     u32 act_here = 0, act_id = 0;

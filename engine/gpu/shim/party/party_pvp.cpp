@@ -196,6 +196,35 @@ void NpcApply() {
 std::atomic<bool> g_rule{false};
 std::atomic<bool> g_active{false};
 
+// ---- NPC hunters stay friends (0.7.7, "bell-summoned NPC hunters turn on the host") ----
+//
+// A bell-summoned NPC hunter is a cooperator like a guest: team 20. The tables are indexed by team, so
+// opening team 19 <-> 20 for the host / guest duel (and 20 -> 20 for two guests) also made every NPC
+// hunter an enemy of the host (and of the guests). Friendly fire is for the party's player chrs only:
+// while it is on, the NPC chrs that sit on a party team are moved to a spare team (22 or 5: no chr
+// uses them, every row / column of them is 0 in the three tables) whose row and column are a copy of
+// team 20's, before PvP opened anything. They keep fighting team 23 and stay allies of 19, 20 and
+// each other; the players' duel cells never touch them. Back to team 20 when the rule goes off.
+constexpr int kSpareTeams[] = {22, 5};
+constexpr u64 kFriendTable = 0x4731960;  // rodata: the SpEffect "friend" twin of the target table
+
+struct SpareTeam {
+    int team = 0;             // 0: none in use
+    std::vector<Cell> cells;  // the bytes written (orig = before)
+    struct Moved {
+        u64 chr = 0;
+        u32 entity = 0;
+        int from = 0;
+    };
+    std::vector<Moved> moved;
+    Clock::time_point scan_at{};
+    bool failed = false;  // no spare team usable: logged once
+};
+SpareTeam& SP() {
+    static SpareTeam s;
+    return s;
+}
+
 /// The party's player chrs on this game: the local one first, then the others (WorldChrMan's
 /// player set).
 std::vector<u64> PlayerChrs(u64 wcm) {
@@ -216,12 +245,155 @@ u64 RelationTable() {
     return p == Guest(kRelationTable) ? p : 0;  // 1.09's table only
 }
 
+/// The original byte of a cell friendly fire / the NPC-hit rule opened (the tables as the game ships them).
+u8 OrigByte(u64 addr, u8 now) {
+    for (const Cell& c : S().cells)
+        if (c.addr == addr) return c.orig;
+    for (const Cell& c : N().cells)
+        if (c.addr == addr) return c.orig;
+    return now;
+}
+
+bool TeamIsDead(u64 rel, u64 eff, u64 fr, int t) {
+    for (const u64 base : {rel, eff, fr}) {
+        for (int k = 0; k < kTeams; ++k) {
+            u8 a = 1, b = 1;
+            if (!SafeGet(base + u64(t) * kTeams + u64(k), &a) || !SafeGet(base + u64(k) * kTeams + u64(t), &b)) return false;
+            if (a || b) return false;
+        }
+    }
+    return true;
+}
+
+void SpareRestoreChrs(const char* why) {
+    SpareTeam& sp = SP();
+    int back = 0;
+    for (const auto& m : sp.moved) {
+        // Only a chr that is still the same one (its entity id) and still on the spare team.
+        if (Field<u32>(m.chr, 0x1f0, 0) == m.entity && Field<u32>(m.chr, kChrTeam, 0) == u32(sp.team)) {
+            const u32 t = u32(m.from);
+            if (SafeWrite(m.chr + kChrTeam, &t, 4)) ++back;
+        }
+    }
+    if (!sp.moved.empty()) Log("npc teams: %d of %zu NPC chr(s) back on their team (%s)", back, sp.moved.size(), why);
+    sp.moved.clear();
+}
+
+void SpareRestore(const char* why) {
+    SpareTeam& sp = SP();
+    SpareRestoreChrs(why);
+    int restored = 0;
+    for (const Cell& c : sp.cells) {
+        u8 now = 0;
+        if (SafeGet(c.addr, &now) && now != c.orig && WriteByte(c.addr, c.orig)) ++restored;
+    }
+    if (!sp.cells.empty()) Log("npc teams: spare team %d closed: %d table cell(s) put back (%s)", sp.team, restored, why);
+    sp.cells.clear();
+    sp.team = 0;
+}
+
+/// Spare team X as a copy of team 20 in the three tables (target, friend twin, relation), as the game
+/// ships them. False: no dead team to use.
+bool SpareOpen() {
+    SpareTeam& sp = SP();
+    if (sp.team) return true;
+    const u64 rel = RelationTable(), eff = Guest(kEffectTable), fr = Guest(kFriendTable);
+    if (!rel || !eff || !fr) return false;
+    int x = 0;
+    for (int t : kSpareTeams)
+        if (TeamIsDead(rel, eff, fr, t)) {
+            x = t;
+            break;
+        }
+    if (!x) {
+        if (!sp.failed) Log("npc teams: no spare team is free (22, 5): the NPC hunters stay on team %d", kGuestTeam);
+        sp.failed = true;
+        return false;
+    }
+    int written = 0;
+    for (const u64 base : {rel, eff, fr}) {
+        const auto at = [&](int a, int b) { return base + u64(a) * kTeams + u64(b); };
+        u8 row[kTeams]{}, col[kTeams]{};
+        bool ok = true;
+        for (int k = 0; k < kTeams && ok; ++k) {
+            u8 r = 0, c = 0;
+            ok = SafeGet(at(kGuestTeam, k), &r) && SafeGet(at(k, kGuestTeam), &c);
+            row[k] = OrigByte(at(kGuestTeam, k), r);
+            col[k] = OrigByte(at(k, kGuestTeam), c);
+        }
+        if (!ok) continue;
+        for (int k = 0; k < kTeams; ++k) {
+            // Row x: what team 20 does to k; column x: what k does to team 20 (x itself counts as 20).
+            const int kk = k == x ? kGuestTeam : k;
+            for (int dir = 0; dir < 2; ++dir) {
+                if (dir == 1 && k == x) continue;  // [x][x] is written in the row pass
+                Cell c;
+                c.addr = dir == 0 ? at(x, k) : at(k, x);
+                const u8 want = dir == 0 ? row[kk] : col[kk];
+                if (!SafeGet(c.addr, &c.orig) || c.orig == want) continue;
+                c.a = dir == 0 ? x : k, c.b = dir == 0 ? k : x;
+                c.table = base == rel ? "relation" : base == eff ? "effect" : "friend";
+                if (!WriteByte(c.addr, want)) continue;
+                sp.cells.push_back(c);
+                ++written;
+            }
+        }
+    }
+    sp.team = x;
+    Log("npc teams: spare team %d is a copy of team %d (%d table cell(s) written)", x, kGuestTeam, written);
+    return true;
+}
+
+/// Moves the NPC chrs on a party team (not the party's player chrs) to the spare team. Called every
+/// frame while friendly fire is applied; scans 4 times a second (a chr the game put back is moved again).
+void SpareScan(u64 wcm, const std::vector<u64>& players) {
+    SpareTeam& sp = SP();
+    const auto now = Clock::now();
+    if (sp.team && now - sp.scan_at < std::chrono::milliseconds(250)) return;
+    if (!sp.team && !SpareOpen()) return;
+    sp.scan_at = now;
+    const int sets = std::min(Field<int>(Field<u64>(wcm, 8), 0x18, -2) + 2, 64);
+    int fresh = 0, again = 0;
+    std::string ids;
+    for (int set = 0; set < sets; ++set) {
+        const u64 tab = Field<u64>(wcm, 0x850 + u64(set) * 8);
+        const int count = Field<int>(tab, 0, 0);
+        const u64 entries = Field<u64>(tab, 8);
+        if (!tab || !entries || count <= 0 || count > 4096) continue;
+        for (int i = 0; i < count; ++i) {
+            const u64 chr = Field<u64>(entries + u64(i) * 0x38, 0);
+            if (!chr || std::find(players.begin(), players.end(), chr) != players.end()) continue;
+            const int team = static_cast<int>(Field<u32>(chr, kChrTeam, 0));
+            if (team != kGuestTeam && team != kHostTeam) continue;
+            const u32 to = u32(sp.team);
+            if (!SafeWrite(chr + kChrTeam, &to, 4)) continue;
+            const u32 ent = Field<u32>(chr, 0x1f0, 0);
+            bool known = false;
+            for (auto& m : sp.moved)
+                if (m.chr == chr && m.entity == ent) known = true;
+            if (known) {
+                ++again;  // the game put it back to its team and it is moved again
+                continue;
+            }
+            sp.moved.push_back({chr, ent, team});
+            ++fresh;
+            if (fresh <= 6) {
+                char b[48];
+                std::snprintf(b, sizeof b, " %u(team %d)", ent, team);
+                ids += b;
+            }
+        }
+    }
+    if (fresh || again) Log("npc teams: %d NPC chr(s) moved to team %d:%s%s", fresh, sp.team, ids.c_str(), again ? " (+ some moved again)" : "");
+}
+
 void Restore(State& st, const char* why) {
     int restored = 0;
     for (const Cell& c : st.cells) {
         u8 now = 0;
         if (SafeGet(c.addr, &now) && now == 1 && now != c.orig && WriteByte(c.addr, c.orig)) ++restored;
     }
+    SpareRestore(why);
     if (!st.cells.empty()) Log("closed %d table cell(s) (%s): party members are allies again", restored, why);
     st.cells.clear();
     st.pairs.clear();
@@ -285,6 +457,38 @@ std::string Collateral(u64 wcm, const std::vector<int>& party_teams, const std::
     char line[400];
     std::snprintf(line, sizeof line, "%d other chr(s) on a party team%s", n, ids.c_str());
     return line;
+}
+
+/// Evidence (test "log" step): each non-player chr on a party team, with the table cells between the
+/// host's team and its own (relation / effect, both directions): 1 = enemies.
+std::string NpcView(u64 wcm, const std::vector<u64>& players) {
+    const u64 rel = RelationTable(), eff = Guest(kEffectTable);
+    const int sets = std::min(Field<int>(Field<u64>(wcm, 8), 0x18, -2) + 2, 64);
+    std::string out;
+    int n = 0;
+    for (int set = 0; set < sets && rel && eff; ++set) {
+        const u64 tab = Field<u64>(wcm, 0x850 + u64(set) * 8);
+        const int count = Field<int>(tab, 0, 0);
+        const u64 entries = Field<u64>(tab, 8);
+        if (!tab || !entries || count <= 0 || count > 4096) continue;
+        for (int i = 0; i < count && n < 6; ++i) {
+            const u64 chr = Field<u64>(entries + u64(i) * 0x38, 0);
+            if (!chr || std::find(players.begin(), players.end(), chr) != players.end()) continue;
+            const int team = static_cast<int>(Field<u32>(chr, kChrTeam, 0));
+            if (team != kHostTeam && team != kGuestTeam && team != 22 && team != 5) continue;
+            u8 r1 = 9, r2 = 9, e1 = 9, e2 = 9;
+            SafeGet(rel + u64(kHostTeam) * kTeams + u64(team), &r1);
+            SafeGet(rel + u64(team) * kTeams + u64(kHostTeam), &r2);
+            SafeGet(eff + u64(kHostTeam) * kTeams + u64(team), &e1);
+            SafeGet(eff + u64(team) * kTeams + u64(kHostTeam), &e2);
+            char b[160];
+            std::snprintf(b, sizeof b, " [npc %u team %d type %u: host->it rel %d eff %d, it->host rel %d eff %d]",
+                          Field<u32>(chr, 0x1f0, 0), team, Field<u32>(chr, kChrType, 0), r1, e1, r2, e2);
+            out += b;
+            ++n;
+        }
+    }
+    return n ? out : " [no npc chr on a party team]";
 }
 
 void Toast(bool on, bool host) {
@@ -421,8 +625,9 @@ void TestTick(State& st, const GameSnapshot& s, bool session, bool host) {
         break;
     }
     case TestStep::Kind::Log:
-        Log("test: step %zu: %s; rule %s, active %s, %zu cell(s) open", st.next, st.teams_line.c_str(),
-            g_rule.load() ? "on" : "off", g_active.load() ? "yes" : "no", st.cells.size());
+        Log("test: step %zu: %s; rule %s, active %s, %zu cell(s) open;%s", st.next, st.teams_line.c_str(),
+            g_rule.load() ? "on" : "off", g_active.load() ? "yes" : "no", st.cells.size(),
+            NpcView(wcm, PlayerChrs(wcm)).c_str());
         break;
     }
 }
@@ -485,6 +690,7 @@ void Tick(const GameSnapshot& s, bool host) {
         uniq.erase(std::unique(uniq.begin(), uniq.end()), uniq.end());
         Apply(st, pairs, line + "; " + Collateral(wcm, uniq, chrs));
     }
+    if (g_active.load() && !st.cells.empty()) SpareScan(wcm, chrs);
     // Evidence: the local HP, a death, Echoes / Insight (no farming: party kills give nothing).
     const u64 dm = Field<u64>(Field<u64>(s.player, 0x3b0), 0x20);
     const int hp = Field<int>(dm, 0xf8, -1);

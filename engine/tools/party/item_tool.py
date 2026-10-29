@@ -64,19 +64,55 @@ def is_chalice(lot, flag):
     return lot >= 100_000_000 or (flag > 0 and (flag // 100_000) % 100 == 29 and flag // 10_000_000 in (1, 5))
 
 
-def shared_treasure(rows, goods):
-    """[(lot, catchup, note)] for the shared map-treasure lots (see the module doc)."""
-    out = []
+# Kill awards whose item is not a key / unique item but a reward of a defeat the whole party earned
+# (0.7.7, NW-4ae26be): lot -> why. Shared like a map-treasure pickup (the lot's flag is the "given" bit).
+#   2605010: Living String (ritual material of the Pthumeru Ihyll chalice), awarded by m26 event
+#   12600029 when the Evil Eye (Brain of Mensis, entity 2600129) dies of damage by entity 10000.
+SHARED_REWARD_LOTS = {2605010: "Living String (Brain of Mensis kill)"}
+
+# Kill awards the host's event only grants when entity 10000 (the host's own player) dealt the damage
+# (EMEVD 3[23] with attacker 10000 next to the award): a guest's kill needs the host-side fallback
+# (party_items KillAwardTick). lot -> (map area, entity, event, spot flag set by the event or 0).
+KILL_AWARDS = {2605010: (26, 2600129, 12600029, 5913)}
+
+
+def treasure_flag(f):
+    """True for a map-treasure pickup flag 5AABZnnn with a real map area (not 0, not the test area 99)."""
+    return 50_000_000 <= f < 60_000_000 and f // 100_000 % 100 not in (0, 99)
+
+
+def treasure_item_shared(cat, item_id, goods, reward_runes=frozenset()):
+    """World treasure the whole party gets (0.7.7): a key / unique goods item, a weapon, a Caryll rune
+    (or a world boss's reward rune). Armor and rings from treasure stay per player."""
+    if cat == 0:
+        return True
+    if cat == 8:
+        return 200000 <= item_id < 300000 or item_id in reward_runes
+    if cat == 4:
+        g = goods.get(item_id, {})
+        return g.get("goodsType") == 1 or g.get("maxNum") == 1
+    return False
+
+
+def shared_treasure(rows, goods, reward_runes=frozenset()):
+    """[(lot, catchup, note)] for the shared map-treasure lots (see the module doc). A pickup flag is
+    shared as a unit: when any row that carries it (a corpse can hold several rows) gives a shared
+    item, every row of the flag is listed, so ItemLotForFlag (the lowest lot) finds it."""
+    by_flag = {}
     for lot, r in sorted(rows.items()):
         f = r["getItemFlagId"]
-        if is_chalice(lot, f) or not (50_000_000 <= f < 60_000_000 and f // 100_000 % 100 != 0):
+        if is_chalice(lot, f) or not treasure_flag(f):
             continue
-        keys = [r[f"lotItemId0{k}"] for k in range(1, 9)
-                if r[f"lotItemCategory0{k}"] == 4 and r[f"lotItemId0{k}"] > 0
-                and goods.get(r[f"lotItemId0{k}"], {}).get("goodsType") == 1]
-        if keys or lot in SHARED_QUEST_LOTS:
-            ids = keys or [r[f"lotItemId0{k}"] for k in range(1, 9) if r[f"lotItemCategory0{k}"] == 4]
-            out.append((lot, int(lot in SHARED_CATCHUP_LOTS), "goods " + "+".join(str(i) for i in ids if i > 0)))
+        by_flag.setdefault(f, []).append(lot)
+    out = []
+    for f, lots in sorted(by_flag.items()):
+        hit = [lot for lot in lots if lot in SHARED_QUEST_LOTS or lot in SHARED_REWARD_LOTS
+               or any(treasure_item_shared(c, i, goods, reward_runes) for c, i in slot_items(rows[lot]))]
+        if not hit:
+            continue
+        for lot in lots:
+            ids = [i for c, i in slot_items(rows[lot])]
+            out.append((lot, int(lot in SHARED_CATCHUP_LOTS), "items " + "+".join(str(i) for i in ids)))
     return out
 
 
@@ -204,18 +240,152 @@ def award_spots(rows, allrec, flags_inc):
     return sorted(out)
 
 
+# ---- the audit (0.7.7, sharing077): every lot that gives a key / unique item, a weapon, a Caryll rune ----
+# Mirror of ItemLotDenied (party_items.cpp): lots the party never replays, with the owner's reason.
+PER_PLAYER_LOTS = {
+    10000: "Messenger gift (personal flag)", 10010: "Messenger gift (personal flag)",
+    10011: "Messenger gift (personal flag)", 10500: "covenant gem (per player)", 11500: "covenant gem (per player)",
+    12500: "covenant gem (per player)", 17010: "repeatable NPC gift", 24060: "repeatable NPC gift",
+    28000: "repeatable NPC gift", 32020: "repeatable NPC gift", 43000: "repeatable NPC gift (Clock Tower)",
+    2100900: "DLC messenger hat (per player)", 2100910: "DLC messenger hat (per player)",
+    2100920: "DLC messenger hat (per player)", 43802: "cycle variant of 43800", 5020: "PvP text lot",
+    16581: "NPC kill text lot",
+}
+REPLAYED_PERSONAL = {3401800, 3401850, 10050}  # personal-block flags, but replayed (ItemLotDenied exceptions)
+
+
+def required_kinds(row, goods, reward_runes):
+    """What makes a lot shareable: {'key', 'unique', 'weapon', 'caryll', 'boss-rune'} (+ 'armor' / 'ring' = info)."""
+    k = set()
+    for c, i in slot_items(row):
+        if c == 0:
+            k.add("weapon")
+        elif c == 1:
+            k.add("armor")
+        elif c == 2:
+            k.add("ring")
+        elif c == 8 and 200000 <= i < 300000:
+            k.add("caryll")
+        elif c == 8 and i in reward_runes:
+            k.add("boss-rune")
+        elif c == 4:
+            g = goods.get(i, {})
+            if g.get("goodsType") == 1:
+                k.add("key")
+            elif g.get("maxNum") == 1:
+                k.add("unique")
+    return k
+
+
+def audit(rows, allrec, goods, ledger_lots, shared, bossdrops, unshared, reward_runes):
+    """[(lot, flag, kinds, ids, source, verdict, path)]: verdict 'shared' (path = the code path that gives it to
+    every member), 'per-player' (path = the owner's reason), 'excluded' (not a pickup of a world player) or 'GAP'."""
+    shared_lots = {t[0] for t in shared}
+    boss_lots = {t[0] for t in bossdrops}
+    unshared_set = set(unshared)
+    sources = {}
+    for stem, recs in allrec.items():
+        for r in recs:
+            for m in r["markers"]:
+                if m["m"] in ("item_lot", "item_lot_client"):
+                    v = m["v"]
+                    lot = v[0] if isinstance(v, (list, tuple)) else v
+                    if isinstance(lot, int):
+                        sources.setdefault(lot, set()).add(f"{stem}:{r['event']}")
+    out = []
+    for lot, row in sorted(rows.items()):
+        kinds = required_kinds(row, goods, reward_runes)
+        if lot in SHARED_REWARD_LOTS:
+            kinds.add("reward")  # a kill reward the party earned together (Living String), not key / unique by type
+        if lot in SHARED_QUEST_LOTS:
+            kinds.add("quest")
+        if not kinds:
+            continue
+        f = row["getItemFlagId"]
+        ids = "+".join(str(i) for c, i in slot_items(row))
+        src = ",".join(sorted(sources.get(lot, ()))[:2]) or "-"
+
+        def rec(verdict, path, lot=lot, f=f, kinds=kinds, ids=ids, src=src):
+            out.append((lot, f, "+".join(sorted(kinds)), ids, src, verdict, path))
+
+        if lot == 0:
+            rec("excluded", "parameterised-event placeholder (lot 0), nothing is given")
+        elif is_chalice(lot, f):
+            rec("excluded", "Chalice Dungeon (ItemSource::Chalice grants, docs/party/chalice.md)")
+        elif f > 0 and f // 100_000 % 100 == 99 and 50_000_000 <= f < 60_000_000:
+            rec("excluded", "area 99 treasure flag: no map script or MSB of the game's maps uses it (chalice layout rows)")
+        elif f > 0 and treasure_flag(f):
+            if lot in shared_lots:
+                rec("shared", "treasure: host pickup -> C3 flag replay; a guest's pickup is reported up (ReportGuestKeyTreasure)"
+                    + ("; kill award with host fallback" if lot in KILL_AWARDS else ""))
+            elif kinds <= {"armor", "ring"}:
+                rec("per-player", "treasure: armor / ring only (owner rule: weapons, runes and key / unique items are shared)")
+            else:
+                rec("GAP", "map treasure not in ITEM_SHARED_TREASURE")
+        elif 6000 <= f <= 8999 and lot not in REPLAYED_PERSONAL:
+            rec("per-player", "personal flag block 6000-8999 (Messenger gifts, DLC costumes / NPC gifts)")
+        elif lot in PER_PLAYER_LOTS:
+            rec("per-player", PER_PLAYER_LOTS[lot])
+        elif 100000 <= lot <= 101999:
+            rec("per-player", "rune / gem use (common event 9500)")
+        elif 5500 <= lot <= 5959:
+            rec("per-player", "covenant / PvP lots")
+        elif lot in unshared_set:
+            rec("GAP", "unshared by the 0.7.5 policy although it gives a shareable item")
+        elif f > 0:
+            rec("shared", "flag replay (C2 diff of item_lot_picked flags / award hook), full list on a rejoin")
+        elif lot in ledger_lots:
+            rec("shared", "ledger lot (award hook -> C3, ledger bit 60009000+idx, full list on a rejoin)")
+        elif lot in boss_lots:
+            rec("shared", "boss drop (host's roll to the guests at the kill)")
+        elif lot not in sources:
+            rec("excluded", "no award in the EMEVD, talk ESD or Lua scripts (unused row, enemy drop table or chalice generator)")
+        else:
+            rec("GAP", "flagless host-only award outside the ledger")
+    return out
+
+
+def write_audit_md(path, rows_audit):
+    import collections
+    cnt = collections.Counter(r[5] for r in rows_audit)
+    lines = [
+        "# Shared rewards and pickups: the lot audit (generated)",
+        "",
+        "Generated by `python -I tools/party/item_tool.py gen-inc GAME` (do not edit). Every ItemLotParam row that gives a",
+        "key item, a unique item (goods maxNum 1), a weapon, a Caryll rune or a world boss's reward rune (armor and rings",
+        "are listed as info) with where it comes from and the path that shares it with the whole party. The owner's rule",
+        "(0.7.7): key items, unique items, weapons and runes reach every member exactly once, whoever picks them up or",
+        "lands the kill; ordinary pickups (vials, materials, most treasure) stay per player. Unit test",
+        "`party-items-test` (test_audit): every `shared` row has a code path in the shipped tables, every `per-player` row none;",
+        "the generator exits 1 on a `GAP` row.",
+        "",
+        "| verdict | rows |", "|---|---|",
+    ]
+    lines += [f"| {k} | {cnt[k]} |" for k in ("shared", "per-player", "excluded", "GAP")]
+    lines += ["", "| lot | flag | kinds | items | source events | verdict | path / reason |", "|---|---|---|---|---|---|---|"]
+    for lot, f, kinds, ids, src, verdict, why in rows_audit:
+        if verdict == "excluded" and "Chalice" in why:
+            continue  # ~1000 Chalice Dungeon rows: one line below
+        lines.append(f"| {lot} | {f} | {kinds} | {ids} | {src} | {verdict} | {why} |")
+    ch = sum(1 for r in rows_audit if r[5] == "excluded" and "Chalice" in r[6])
+    lines += ["", f"Chalice Dungeon rows (not listed, {ch}): host rolls reach the guests in the dungeon through "
+              "`ItemSource::Chalice` grants (docs/party/chalice.md)."]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+
 INC_LEDGER = re.compile(r"ITEM_LEDGER\(\s*(\d+)\s*,\s*(\d+)\s*,")
 INC_RETIRED = re.compile(r"retired ledger lot (\d+) \(index (\d+)")
 
 
 def cmd_gen_inc(a):
     rows, allrec, goods = load(a.game)
-    shared = shared_treasure(rows, goods)
     flagged = sorted((lot, r["getItemFlagId"]) for lot, r in rows.items()
                      if r["getItemFlagId"] > 0 and not is_chalice(lot, r["getItemFlagId"]))
     cand_all = ledger_candidates(rows, allrec)
     bossdrops = boss_drops(rows, allrec)
     reward_runes = {i for lot, _a, _n in bossdrops for c, i in slot_items(rows[lot]) if c == 8}
+    shared = shared_treasure(rows, goods, reward_runes)
     shared_lots = {t[0] for t in shared}
     # Party policy: a lot that gives no key / unique item is not shared (ITEM_UNSHARED), whether it
     # has a pickup flag or is a flagless host-only award. Its ledger index stays reserved.
@@ -251,6 +421,8 @@ def cmd_gen_inc(a):
     unshared = sorted(unshared_set)
     ledger.sort()
     spots = award_spots(rows, allrec, Path(__file__).resolve().parents[2] / "gpu/shim/party/party_flags.inc")
+    rows_audit = audit(rows, allrec, goods, {c[1] for c in ledger}, shared, bossdrops, unshared, reward_runes)
+    gaps = [r for r in rows_audit if r[5] == "GAP"]
     out = [
         "// Generated by tools/party/item_tool.py gen-inc from ItemLotParam and the EMEVD scripts",
         "// (Bloodborne 1.09). Do not edit by hand: change the tool's rules and regenerate.",
@@ -291,11 +463,36 @@ def cmd_gen_inc(a):
     for lot, area, note in bossdrops:
         out.append(f'ITEM_BOSS_DROP({lot}, {area}, "{note}")')
     out.append("#endif")
+    req = [r for r in rows_audit if r[5] == "shared"]
+    per = [r for r in rows_audit if r[5] == "per-player"]
+    out += [f"// ---- {len(req)} lots that must reach every member (audit, docs/party/items_audit.md)",
+            "// ITEM_REQUIRE_SHARED(lot, kinds): the unit test asserts ItemLotSharePath() finds a path for each;",
+            "// ITEM_PER_PLAYER(lot, reason): the owner's per-player rows, asserted to have no path.",
+            "#ifdef ITEM_REQUIRE_SHARED"]
+    for r in req:
+        out.append(f'ITEM_REQUIRE_SHARED({r[0]}, "{r[2]}")')
+    out += ["#endif", f"// ---- {len(per)} per-player lots", "#ifdef ITEM_PER_PLAYER"]
+    for r in per:
+        out.append(f'ITEM_PER_PLAYER({r[0]}, "{r[6].split(" (")[0].split(":")[0]}")')
+    out.append("#endif")
+    out += [f"// ---- {len(KILL_AWARDS)} kill awards the game only grants for entity 10000's blows (host fallback)",
+            "// ITEM_KILL_AWARD(lot, map area, entity, event, spot flag): party_items KillAwardTick awards the lot when the",
+            "// entity died and the lot's flag is still unset after a grace time (a guest landed the last hit).",
+            "#ifdef ITEM_KILL_AWARD"]
+    for lot, (area, ent, ev, spot) in sorted(KILL_AWARDS.items()):
+        out.append(f"ITEM_KILL_AWARD({lot}, {area}, {ent}, {ev}, {spot})")
+    out.append("#endif")
     for lot in dropped:
         out.append(f"// retired ledger lot {lot} (index {keep[lot]} stays reserved)")
     outp.parent.mkdir(parents=True, exist_ok=True)
     outp.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
-    print(f"wrote {outp}: {len(flagged)} flagged lots, {len(ledger)} ledger lots, {len(spots)} award spots, {len(shared)} shared treasure lots, {len(bossdrops)} boss drop lots")
+    write_audit_md(Path(a.audit), rows_audit)
+    if gaps:
+        for g in gaps:
+            print(f"GAP: lot {g[0]} flag {g[1]} {g[2]} items {g[3]}: {g[6]}", file=sys.stderr)
+        print(f"{len(gaps)} audit gap(s)", file=sys.stderr)
+    print(f"wrote {outp}: {len(flagged)} flagged lots, {len(ledger)} ledger lots, {len(spots)} award spots, {len(shared)} shared treasure lots, {len(bossdrops)} boss drop lots, {len(req)} required-shared / {len(per)} per-player audit rows, {len(gaps)} gaps")
+    return 1 if gaps else 0
 
 
 def cmd_check_ledger(a):
@@ -354,6 +551,7 @@ def main():
     p = sp.add_parser("gen-inc")
     p.add_argument("game")
     p.add_argument("--out", default=str(Path(__file__).resolve().parents[2] / "gpu/shim/party/party_items.inc"))
+    p.add_argument("--audit", default=str(Path(__file__).resolve().parents[2] / "docs/party/items_audit.md"))
     p = sp.add_parser("check-ledger")
     p.add_argument("game")
     p.add_argument("--first", type=int, default=LEDGER_BASE)

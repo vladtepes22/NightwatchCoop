@@ -2146,5 +2146,7 @@
   "Yes: run them now (Windows asks for administrator permission).": "Да: выполнить сейчас (Windows запросит разрешение администратора).",
   "No: copy them, then paste them into PowerShell opened as administrator yourself.": "Нет: скопировать их и вставить самостоятельно в PowerShell, открытый от имени администратора.",
   "Free stamina out of combat": "Свободная выносливость вне боя",
-  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "Выносливость не тратится, кроме 8 секунд после нажатия R1, R2, L1 или L2 или потери здоровья"
+  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "Выносливость не тратится, кроме 8 секунд после нажатия R1, R2, L1 или L2 или потери здоровья",
+  "Shared item notices": "Уведомления об общих предметах",
+  "A short notice when a key or unique item, a weapon or a rune is shared with the party. Never for ordinary pickups. Shows only while join, leave and travel notices are on.": "Короткое уведомление, когда ключевой или уникальный предмет, оружие или руна переданы группе. Не для обычных предметов. Показывается, только пока включены уведомления о входе, выходе и перемещении."
 }

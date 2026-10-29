@@ -5,6 +5,8 @@
 // Build and run: ninja -C out/gpu party-items-test && out/gpu/party-items-test.exe
 #include <cstring>
 #include "party/party_items.h"
+#include "party/party_kill_award_rules.h"
+#include "party/party_item_notice_rules.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -1388,6 +1390,102 @@ static void test_goods_limits() {
     CHECK(ClassifyLotFit({badge}) == LotFit::Owned);
 }
 
+// 0.7.7 (sharing077): the generated audit (docs/party/items_audit.md). Every lot that gives a key / unique item, a weapon or a
+// Caryll rune and is not one of the owner's per-player rows must have a path to every member in the shipped tables;
+// the per-player rows must have none. Fails when a table regeneration or a deny rule drops a lot.
+static void test_audit() {
+    const std::vector<ItemAuditRow> rows = ItemAuditRows();
+    CHECK(rows.size() > 250);
+    int required = 0, per_player = 0, treasure = 0, flag = 0, ledger = 0, bossdrop = 0;
+    for (const ItemAuditRow& r : rows) {
+        const SharePath p = ItemLotSharePath(r.lot);
+        if (r.required) {
+            ++required;
+            if (p == SharePath::None) {
+                std::fprintf(stderr, "audit: lot %d (%s) has no path to the party\n", r.lot, r.note);
+            }
+            CHECK(p != SharePath::None);
+            treasure += p == SharePath::Treasure;
+            flag += p == SharePath::Flag;
+            ledger += p == SharePath::Ledger;
+            bossdrop += p == SharePath::BossDrop;
+        } else {
+            ++per_player;
+            if (p != SharePath::None) {
+                std::fprintf(stderr, "audit: per-player lot %d (%s) is shared\n", r.lot, r.note);
+            }
+            CHECK(p == SharePath::None);
+        }
+    }
+    CHECK(required > 150 && per_player > 50);
+    std::printf("audit: %d required (%d treasure, %d flag, %d ledger, %d boss drop), %d per player\n", required, treasure,
+                flag, ledger, bossdrop, per_player);
+    CHECK(treasure > 80 && flag > 40 && ledger >= 10);
+    // Weapons and Caryll runes from world treasure (before 0.7.7 they stayed per player).
+    for (const std::int32_t lot : {2400510, 2410100, 2501000, 2800330, 3400060, 3500810, 3601100,  // weapons
+                                   2420234, 2700620, 2800530, 3200510, 3200520}) {                   // Caryll runes
+        CHECK(SharedKeyTreasureLot(lot));
+        CHECK(ItemLotSharePath(lot) == SharePath::Treasure);
+        CHECK(!InstancedTreasureFlag(ItemLotFlag(lot), true, false));
+        CHECK(GuestGiftShareable(lot, ItemLotFlag(lot)));
+        ItemGrant g;
+        g.lot = lot;
+        g.flag = ItemLotFlag(lot);
+        g.source = ItemSource::Flag;
+        CHECK(ItemGrantFromPeerAllowed(g));
+    }
+    // Unique hunter tools from corpses too; armor-only corpses and the plain consumables stay per player.
+    CHECK(ItemLotSharePath(2500250) == SharePath::Treasure);  // Executioner's Gloves
+    CHECK(ItemLotSharePath(2410140) == SharePath::None);      // Madman's Knowledge corpse
+    CHECK(TreasureFlagToHide(2420231) == 52420230u);          // a continuation row hides its corpse's own flag
+    CHECK(TreasureFlagToHide(2400550) == 52420550u);
+    CHECK(TreasureFlagToHide(2400450) == 52400450u);
+    // The Brain of Mensis kill (NW-4ae26be): the Living String reaches every member; flagged reward, shared like a corpse.
+    CHECK(ItemLotFlag(2605010) == 52605010 && ItemLotSharePath(2605010) == SharePath::Treasure);
+    CHECK(!ItemLotDenied(2605010, 52605010) && !ItemLotUnshared(2605010));
+    CHECK(!InstancedTreasureFlag(52605010, true, false));
+    std::map<std::int32_t, std::int32_t> none;
+    const auto ls = ClassifyFlag(52605010, none);
+    CHECK(ls && ls->lot == 2605010);
+    const auto la = ClassifyAward(2605010, true);  // the host's event award
+    CHECK(la && la->flag == 52605010);
+    // A late joiner / reconnect: the host's full list is built from the set pickup flags, so the lot is in it once.
+    CHECK(KillAwardEntity(2605010) == 2600129 && KillAwardEntity(2400450) == 0);
+
+    // CL-806406: the notice text and its rate limit.
+    {
+        CHECK(itemnotice::Text("Living String") == "Living String: shared with the party");
+        CHECK(itemnotice::Text("") == "Item: shared with the party");
+        itemnotice::Queue q;
+        std::string out;
+        CHECK(q.Push("A", 0.0) && !q.Push("A", 0.1));           // the same item twice while waiting: once
+        CHECK(q.Push("B", 0.1) && q.Push("C", 0.1) && q.Push("D", 0.1) && !q.Push("E", 0.1));  // full: dropped
+        CHECK(q.Pop(0.2, &out) && out == "A");
+        CHECK(!q.Pop(1.0, &out));                                 // 2.5 s apart at least
+        CHECK(q.Pop(2.8, &out) && out == "B");
+        CHECK(q.Pop(5.4, &out) && out == "C" && q.Pop(8.0, &out) && out == "D" && !q.Pop(20.0, &out));
+        CHECK(!q.Push("D", 9.0));                                 // just shown: not again within 20 s
+        CHECK(q.Push("D", 40.0));
+    }
+
+    // The host fallback's timing rule: dead for kGraceS without the lot's flag = award once; the flag = done.
+    {
+        killaward::State st;
+        CHECK(!killaward::Due(&st, 10.0, true, true, false));    // alive
+        CHECK(!killaward::Due(&st, 11.0, true, false, false));   // just died: the game's event gets its grace time
+        CHECK(!killaward::Due(&st, 12.0, true, false, false));
+        CHECK(killaward::Due(&st, 13.6, true, false, false));    // 2.6 s dead, the flag still unset: award
+        st.done = true;
+        CHECK(!killaward::Due(&st, 20.0, true, false, false));   // never twice
+        killaward::State ev;
+        CHECK(!killaward::Due(&ev, 1.0, true, false, false));
+        CHECK(!killaward::Due(&ev, 2.0, true, false, true));     // the game's own event ran (flag set)
+        CHECK(ev.done && !killaward::Due(&ev, 9.0, true, false, false));
+        killaward::State gone;
+        CHECK(!killaward::Due(&gone, 1.0, false, false, false) && !killaward::Due(&gone, 9.0, false, false, false));  // not loaded
+    }
+}
+
 int main() {
     test_goods_limits();
     test_tables();
@@ -1415,6 +1513,7 @@ int main() {
     test_chalice_award();
     test_boss_drop();
     test_key_catchup();
+    test_audit();
     std::printf("party-items-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

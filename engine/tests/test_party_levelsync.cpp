@@ -39,6 +39,10 @@ int main() {
 
     // Phantom health: the game's 0.7 on, full off.
     assert(PhantomHpRate(true) == 0.7f && PhantomHpRate(false) == 1.0f);
+    // The Cursed dungeon's guest rows (4735 / 4736): the game's with the cut on, the product with 0.7 without it.
+    assert(ChaliceCurseGuestRate(0.7143f, true) == 0.7143f);
+    assert(ChaliceCurseGuestRate(0.7143f, false) > 0.4999f && ChaliceCurseGuestRate(0.7143f, false) < 0.5001f);
+    assert(ChaliceCurseGuestRate(0.70029f, false) > 0.4901f && ChaliceCurseGuestRate(0.70029f, false) < 0.4903f);
     assert(kLevelSyncEffect == 0x23f0);
 
     // 0.7.6 Full health in PvP: the cut goes while friendly fire is on and the rule is; the rule alone or

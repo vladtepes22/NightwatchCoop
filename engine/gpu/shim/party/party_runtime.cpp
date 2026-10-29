@@ -486,6 +486,12 @@ struct Runtime {
 
 std::mutex g_marker_mu;  // serializes marker writes (startup thread, link callback thread)
 
+// The host's port proved open by a guest's own TCP connection (a manual forward is invisible to
+// STUN): 0 not yet, 1 proven. The Network line says so as soon as it is known.
+std::atomic<int> g_open_proven{0};
+std::atomic<int> g_nat_announced{0};  // the NAT line was written (so a later proof rewrites it)
+std::atomic<int> g_party_port_hosted{0};
+
 Runtime& R() {
     static Runtime* r = new Runtime;  // lives as long as the process (exit paths use it)
     return *r;
@@ -1127,6 +1133,20 @@ LinkCallbacks make_callbacks(bool host) {
         plog("link: %s", line.rfind("party link: ", 0) == 0 ? line.c_str() + 12 : line.c_str());
     };
     if (host) {
+        cb.on_direct_inbound = [] {
+            if (g_open_proven.exchange(1)) return;
+            if (!g_nat_announced.load()) return;  // the NAT line below then already says "port open"
+            const std::string adv = nat::advice(nat::Type::Cone, true, true, nat::Rendezvous::NotApplicable,
+                                                static_cast<std::uint16_t>(g_party_port_hosted.load()));
+            plog("NAT: cone (port open); a guest reached the party port directly over TCP (UPnP or a port forward works): %s",
+                 adv.c_str());
+            {
+                std::lock_guard<std::mutex> lk(R().mu);
+                R().st.network = adv;
+            }
+            netroute::HostNetworkLine(adv);
+            bridge::OnNetwork(adv);
+        };
         cb.on_member_joined = [](const RosterEntry& m, bool rejoined) {
             plog("%s %s (slot %d)", m.name.c_str(), rejoined ? "is back" : "joined", m.slot);
             std::string why;
@@ -1965,7 +1985,8 @@ void start_host(LinkConfig cfg) {
         const std::string stun_text = source.rfind("stun", 0) == 0 ? format_ipv4(pub) : std::string();
         const nat::Outside outside = upnp_ok ? nat::classify_outside(upnp_ip, stun_text) : nat::Outside::Unknown;
         const bool upnp_opens = upnp_ok && (outside == nat::Outside::Public || outside == nat::Outside::Unknown);
-        const bool port_open = upnp_opens || source == "override" || host_nat == nat::Type::Open;
+        const bool port_open = upnp_opens || source == "override" || host_nat == nat::Type::Open || g_open_proven.load();
+        g_party_port_hosted.store(port);
         // The DHT rendezvous is opt-in (launcher Party tab / System > Party members; both PCs).
         const bool rdv_on = !port_open && !internet.empty() && traversal::rendezvous_enabled(lb);
         const nat::Rendezvous rdv = internet.empty()                     ? nat::Rendezvous::NotApplicable
@@ -2001,6 +2022,7 @@ void start_host(LinkConfig cfg) {
         }
         netroute::HostNetworkLine(adv);
         bridge::OnNetwork(adv);
+        g_nat_announced.store(1);
         if (rdv_on) {
             {
                 std::lock_guard<std::mutex> lk(r.mu);

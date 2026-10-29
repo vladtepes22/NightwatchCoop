@@ -180,6 +180,14 @@ std::vector<EmevdSkipRule> BossRoomRules() {
             out.push_back(EmevdSkipRule{ff[i].refight_event, 1003, 5, ff[i].client_skip_index, false, true});
         }
     }
+    // The Moon Presence's boss music (m21 event 12104853, "boss BGM on"): outside the single-player
+    // states its wait also needs flag 12104851 ([8] 3[0] IfEventFlag), which only the guest-entry
+    // event 12104881 sets (a press at the fog gate). In a party nobody presses it: the guests are
+    // in the arena through the host's cutscene, and the host's own instruction [7] 1003[5] does
+    // not skip [8] either, so neither heard the music (CL-76fd20, parity B6). Skipped for every
+    // role: the music starts once the fight is started (12101852) and the player stands in the
+    // fight area (region 2102801), as when playing alone.
+    out.push_back(EmevdSkipRule{12104853, 3, 0, 8, false});
     return out;
 }
 

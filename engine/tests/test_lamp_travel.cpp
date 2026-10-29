@@ -193,6 +193,36 @@ int main() {
     CHECK(GuestLampMayOpen(kGuestLampAfterTalkGrace));  // later: the player's own press at the lamp
     CHECK(GuestLampMayOpen(1e9));                       // no talk yet
 
+    // 0.7.7: map travel (the test aid asks for it): the lit lamps of the table, never the Dream.
+    {
+        MapTravelSituation ok;
+        ok.on = ok.world_up = true;
+        ok.map = 0x18010000u;
+        ok.hp = 100;
+        CHECK(MapTravelState(ok) == MapTravel::Ready);
+        MapTravelSituation t = ok;
+        t.on = false;
+        CHECK(MapTravelState(t) == MapTravel::Off);
+        t = ok, t.loading = true;
+        CHECK(MapTravelState(t) == MapTravel::NotInWorld);
+        t = ok, t.cutscene = true;
+        CHECK(MapTravelState(t) == MapTravel::Cutscene);
+        t = ok, t.boss = true;
+        CHECK(MapTravelState(t) == MapTravel::Boss);
+        t = ok, t.hp = 0;
+        CHECK(MapTravelState(t) == MapTravel::Dead);
+        t = ok, t.busy = true;
+        CHECK(MapTravelState(t) == MapTravel::Busy);
+        t = ok, t.map = 0x1d000000u;  // area 29: a Chalice Dungeon
+        CHECK(MapTravelState(t) == MapTravel::Chalice);
+        const auto lit = [](std::uint32_t f) { return f == 12417830u; };
+        const auto known = [](std::uint32_t) { return true; };
+        CHECK(MapTravelTarget(2412951, lit, known));
+        CHECK(!MapTravelTarget(2412950, lit, known));          // not lit
+        CHECK(!MapTravelTarget(kDreamReturnPoint, lit, known)); // the Dream is no map target
+        CHECK(!MapTravelTarget(9999999, lit, known));
+    }
+
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

@@ -578,6 +578,16 @@ is NOT (below the real floor), three times, and stops.
   the cap, the NaN fallback).
 - Still open: the root in the frame-rate corrections, and every lift of the table ridden once.
 
+**bbport 0.7.7 (lifts077, 38f45e63):** the measured guard above was ported as e57eb466 and then changed:
+- At a lift's arrival the car animation ends and the measured height reads the end position at once while the
+  rider is still 3-8 m below being carried; a put-back there threw the rider 3-5 m up when the car stopped
+  (NW-666485f). No put-back now while the rider is rising, unless it is more than 12 m behind.
+- Cainhurst and Research Hall cars report a height that never follows the ride; the measured guard looped
+  put-backs there (12, then a fall). A car whose measured height stays static while the rider moves falls back
+  to the speed guess.
+- Open: a guest ride that starts before the car's block init ran snaps to the top at 90/120/60fg (CL-4e8bd3);
+  `BB_TEST_LIFT_TRACE=1` logs rider and car height every 0.1 s.
+
 ## 11. Interface (for split travel and other callers)
 
 * Wire format: EVENT `world_action` (`worldact::kEventName`), guest -> host, body

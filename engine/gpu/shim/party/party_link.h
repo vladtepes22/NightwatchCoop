@@ -314,6 +314,9 @@ struct KeptMember {
 struct LinkCallbacks {
     // Host: a member completed the handshake (rejoined = it got its kept slot back).
     std::function<void(const RosterEntry& member, bool rejoined)> on_member_joined;
+    // Host: a member's own TCP connection reached the party port from a public address (the port
+    // is open: UPnP, a manual forward or a public address). Called on every such join.
+    std::function<void()> on_direct_inbound;
     // Host: slot_kept = connection lost, slot held for slot_keep_ms; false = slot released (BYE,
     // expiry, kick).
     std::function<void(const RosterEntry& member, bool slot_kept)> on_member_left;

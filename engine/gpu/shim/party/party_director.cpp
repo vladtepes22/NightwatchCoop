@@ -177,7 +177,7 @@ struct TravelStep {
         HostOutage, GuestOutage, // a simulated total network outage of `buttons` ms (BB_NET_SIM on)
         HostSpfx, // host_spfx=ENTITY:ID: SpEffect ID on that entity's chr by its ApplySpEffect (D7 doping dedupe)
         HostPoise, // host_poise=N: the Enemy poise setting (party_enemy_poise, % of the step) set live, not saved (D7 A/B)
-        HostGfx,   // host_gfx=lod:N|cap|log: graphics test aid (model LOD bias, frame record, camera values; GfxTestStep)
+        HostGfx,   // host_gfx=lod:N|cap|stallcap|log: graphics test aid (model LOD bias, frame record, camera values; GfxTestStep)
         HostObj, GuestObj, HostChr, GuestChr, // stand at a map object / character: ENTITY[:DIST[:ANGLE]]
         HostUse, GuestUse, // use goods ID as the item does (test aid): its behaviour's SpEffect on the own chr
         GuestFixture, // guest_fixture@S: the BB_PARTY_WORLDACT_TEST objects / pickups again (worldact::FixtureRearm)
@@ -310,6 +310,8 @@ struct Test {
     Clock::time_point st_at{};
     bool god = false;     // god: the own chr kept invincible (test aid)
     bool log_pos = false; // log_pos: the player's area and position (FrpgNetMan +0xa7c / +0xaac) every 3 s
+    int log_fx = 0;       // log_fx=ID (mergo077): every second the local player's SpEffect ID on / off
+    Clock::time_point fx_at{};
     double log_pos_every = 1.0;  // log_pos=S (liftfix): every S s (0.2..10; a lift ride's vertical speed)
     Clock::time_point pos_at{};
     // watch_text=A/B: every new appearance of a game text containing A or B (an action prompt
@@ -1403,7 +1405,13 @@ void GfxTestStep(const std::string& arg) {
         const std::int32_t want = std::clamp(std::atoi(arg.c_str() + 4), -2, 2);
         SafeWrite(cfg + 0x530, &want, sizeof want);
         Log("test: host_gfx: model LOD bias %d -> %d", bias, want);
-    } else if (arg == "cap") {
+    } else if (arg == "cap" || arg == "stallcap") {
+        // stallcap: the next frame stalls (BB_TEST_FRAME_STALL_FILE, bbport_frame_rate.cpp) and the record follows
+        if (arg == "stallcap") {
+            if (const char* path = std::getenv("BB_TEST_FRAME_STALL_FILE"); path && *path) {
+                if (FILE* f = std::fopen(path, "w")) std::fclose(f);
+            }
+        }
         for (const char* env : {"BB_CAPTURE_TRIGGER", "BB_PRESENT_DUMP_TRIGGER"}) {
             if (const char* path = std::getenv(env); path && *path) {
                 if (FILE* f = std::fopen(path, "w")) std::fclose(f);
@@ -2897,6 +2905,19 @@ void RequestGuestSendHome(const std::string& why) {
 
 bool GuestBellEffectOn() { return HasSpEffect(LocalPlayer(), kGuestBellEffect); }
 bool DropGuestBellEffect() { return RemoveSpEffect(kGuestBellEffect); }
+
+// Mergo's Wet Nurse's darkness (SpEffect 5630, 50 s; 5631 on her): her defeat event 12601800 drops 5630 ~21 s
+// after the kill, in the host's game and only on a chr that is up. A member that lay in the fight's limbo and
+// gets up in the arena after the kill (the 0.7.6 report: the dark arena stayed) drops both at once.
+int DropFightDarkness() {
+    int n = 0;
+    for (const int id : {5630, 5631}) {
+        while (n < 8 && RemoveSpEffect(id)) {
+            ++n;
+        }
+    }
+    return n;
+}
 bool ApplyGuestBellEffect() { return ApplySpEffect(kGuestBellEffect); }
 
 bool LeaveGameSession() {
@@ -3214,6 +3235,10 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
             Log("test: god: invincible (chr +0x1E1 bit 14)");
         }
     }
+    if (t.log_fx > 0 && s.world_up && !s.loading && s.player && Seconds(t.fx_at, now) >= 1.0) {
+        t.fx_at = now;
+        Log("test: SpEffect %d is %s on the local player", t.log_fx, HasSpEffect(s.player, t.log_fx) ? "ON" : "off");
+    }
     if (t.log_pos && s.world_up && !s.loading && Seconds(t.pos_at, now) >= t.log_pos_every) {
         // Every second: the physics position (as DescribeHere; the map man's +0xAAC is the last
         // grounded / area position and goes stale after a re-created PlayerIns) and the area id.
@@ -3241,6 +3266,30 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
         if (s.player) SafeRead(s.player + 0x1e1, &f, 5);
         Log("test: pos area 0x%08x (%.2f, %.2f, %.2f) safe (%.2f, %.2f, %.2f) f %010llx", area, p[0], p[1], p[2], safe[0],
             safe[1], safe[2], static_cast<unsigned long long>(f));
+        // hpcurse (0.7.7): the local max HP and the SpEffects of the Chalice curse family (4730..4736, 9006 cooperator cut).
+        {
+            std::uint64_t cm = 0, dm = 0;
+            int hp = -1, mx = -1;
+            if (s.player && SafeGet(s.player + 0x3b0, &cm) && cm && SafeGet(cm + 0x20, &dm) && dm) {
+                SafeGet(dm + 0xf8, &hp);
+                SafeGet(dm + 0xfc, &mx);
+            }
+            std::string fx;
+            std::uint64_t node = 0, l1 = 0;
+            if (s.player && SafeGet(s.player + 0x1c8, &l1) && l1 && SafeGet(l1 + 8, &node)) {
+                for (int guard = 0; node && guard < 256; ++guard) {
+                    int id = -1;
+                    SafeGet(node + 0x40, &id);
+                    if ((id >= 4730 && id <= 4736) || id == 9006 || id == 9026 || id == 9920 || id == 6142) {
+                        fx += " " + std::to_string(id);
+                    }
+                    std::uint64_t nx = 0;
+                    if (!SafeGet(node + 0x58, &nx)) break;
+                    node = nx;
+                }
+            }
+            Log("test: hp %d/%d area 0x%08x curse speffects:%s", hp, mx, area, fx.empty() ? " none" : fx.c_str());
+        }
     }
     if (!t.watch_texts.empty() && Seconds(t.watch_at, now) >= 0.25) {
         t.watch_at = now;
@@ -4001,6 +4050,8 @@ void PartyDirector::ConfigureFromEnv() {
                 }
             } else if (item == "god") {
                 st.test.god = true;
+            } else if (item.rfind("log_fx=", 0) == 0) {
+                st.test.log_fx = std::atoi(item.c_str() + 7);
             } else if (item == "log_pos") {
                 st.test.log_pos = true;
             } else if (item.rfind("log_pos=", 0) == 0) {
@@ -4536,6 +4587,18 @@ void PartyDirector::Tick() {
     zone.Next(perf::Zone::DirSend);
     // The roster entry.
     if (link) {
+        {
+            // 0.7.7: loading screens of ours and of the members (the roster): receive gaps inside them
+            // are no outage (nr_loadgap.h).
+            std::vector<std::pair<std::string, bool>> loads;
+            bool host_loading = false;
+            for (const party::RosterEntry& e : link->roster()) {
+                const bool l = e.state == party::MemberState::Loading;
+                if (e.slot == 0 && l) host_loading = true;
+                loads.emplace_back(e.name, l);
+            }
+            bbnet::p2p_load_update(s.loading, host_loading, loads);
+        }
         const party::MemberState ms = LocalState(s, st.start_prologue);
         const std::uint32_t map = s.world_up ? s.map_id : 0;
         if (!st.sent_any || ms != st.sent_state || map != st.sent_map) {

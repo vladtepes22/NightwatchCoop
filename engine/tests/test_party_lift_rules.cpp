@@ -354,8 +354,35 @@ int main() {
         RiderTrack c;
         CHECK(RiderTick(c, true, true, 0.0, 0, 10.27f, 0, put, 1, 10.0f) == RiderStep::riding);
         int puts = 0;
-        for (int i = 1; i < 40; ++i) puts += RiderTick(c, true, true, 0.1 * i, 0, 0.0f, 0, put, 1, 10.0f) == RiderStep::through;
+        for (int i = 1; i < 40; ++i) puts += RiderTick(c, true, false, 0.1 * i, 0, 0.0f, 0, put, 1, 10.0f) == RiderStep::through;
         CHECK(puts == kRiderMaxPutsMeasured);
+        // lifts077: the car's height jumps to its end (the arrival animation) while the rider is still being
+        // carried up 5 m behind: no put-back while it rises; stopped under the car it is put back
+        RiderTrack u;
+        CHECK(RiderTick(u, true, true, 0.0, 0, -85.0f, 0, put, 6, -85.5f) == RiderStep::riding);
+        double ut = 0;
+        float uy = -85.0f;
+        for (int i = 0; i < 5; ++i) {
+            ut += 0.1, uy += 1.0f;
+            CHECK(RiderTick(u, true, true, ut, 0, uy, 0, put, 6, -78.0f) == RiderStep::riding);  // car at its end
+        }
+        int through = 0;
+        for (int i = 0; i < 6; ++i) {
+            ut += 0.1;  // stuck 3 m under the floor
+            through += RiderTick(u, true, false, ut, 0, uy, 0, put, 6, -78.0f) == RiderStep::through;
+        }
+        CHECK(through >= 1);
+        // lifts077: a car whose measured height never moves (Cainhurst / Research Hall): the rider carried
+        // down 2 m with its bit on is no drop through the car; the speed guess takes over
+        RiderTrack k;
+        CHECK(RiderTick(k, true, true, 0.0, 0, 65.1f, 0, put, 1, 65.05f) == RiderStep::riding);
+        double kt = 0;
+        float ky = 65.1f;
+        for (int i = 0; i < 20; ++i) {
+            kt += 0.1, ky -= 0.2f;
+            CHECK(RiderTick(k, true, true, kt, 0, ky, 0, put, 1, 65.05f) == RiderStep::riding);
+        }
+        CHECK(k.static_car);
         // car height not readable: the old speed guess is unchanged (NaN default)
         RiderTrack n;
         CHECK(RiderTick(n, true, true, 0.0, 0, 5.0f, 0, put, 1) == RiderStep::riding);

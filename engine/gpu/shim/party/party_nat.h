@@ -94,6 +94,10 @@ Path predict(const Side& host, const Side& guest, bool guest_endpoint_known);
 // endpoint, a LAN / plain address code: the guest code is the only way).
 enum class Rendezvous : std::uint8_t { On, Off, NotApplicable };
 std::string advice(Type self, bool host, bool port_open, Rendezvous rendezvous, std::uint16_t port);
+// A guest's TCP connection that reached the party port from outside proves it is open (UPnP, a
+// manual forward or a public address; a STUN probe cannot see a manual forward). `peer_nbo`: the
+// connection's source address, network order. Loopback, LAN, VPN and CGNAT ranges prove nothing.
+bool proves_open_port(bool direct_tcp, std::uint32_t peer_nbo);
 // The hint when automatic punching is off, for the guest's failure message and the Party page.
 inline constexpr const char* kRendezvousOffHint =
     "automatic punching is off: send the host your guest code, or turn on the DHT option on both PCs";

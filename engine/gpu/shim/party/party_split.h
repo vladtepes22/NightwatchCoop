@@ -46,6 +46,9 @@ bool OnLampWarp(std::uint32_t id);
 /// Test steps that call the lamp warp "as the player" (no talk script, so no lamp flag): the
 /// next warp is this player's own use.
 void NoteLocalUse(std::uint32_t id);
+/// As NoteLocalUse, for a travel from a map view (lamp_travel RequestMapTravel): no lamp was used,
+/// so a guest's own trip into the loaded map is not a rest (the host's world is not reset).
+void NoteMapTravel(std::uint32_t id);
 /// Game thread: a story warp of this player's game (deathrules::StoryWarpEvent) is about to run:
 /// this player's own use, and its question waits until the scene before it is over.
 void NoteStoryWarp(std::uint32_t id);

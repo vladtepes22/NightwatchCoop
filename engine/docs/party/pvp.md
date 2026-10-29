@@ -46,6 +46,16 @@ as against an invader.
 - **Lock-on** follows the relation table, so with friendly fire on the lock-on can pick a party
   member, as it picks an invader in vanilla.
 
+## NPC hunters stay friends (0.7.7, pvpnpc)
+
+A bell-summoned NPC hunter (and any other non-player chr on a party team) has team 20, as a guest, so the duel cells 19 <-> 20 (and 20 -> 20)
+made it an enemy of the host and the guests (player report: the summon attacked the host with PvP on). While the rule is applied,
+`SpareScan` (party_pvp.cpp) moves every non-player chr on team 19 / 20 to a spare team (22, else 5: all rows / columns 0 in the relation,
+target and friend tables, found at run time) and `SpareOpen` writes that team's row and column as a copy of team 20's as the game ships them
+(65 cells for team 22), so the NPC keeps fighting team 23 and stays an ally of 19 / 20. Rescanned 4 times a second (new NPCs); chrs and
+cells go back when the rule goes off, a load starts or the session ends. Not covered: the `0x4028` / SpEffect 132 overrides. Smoke group
+`pvp_npc` (phase pvn): before the fix the NPC rows showed `host->it rel 1 eff 1, it->host rel 1 eff 1` on both games, after: team 22, all 0.
+
 ## Full health in PvP (0.7.6, pvphp; owner's decision)
 
 A joined hunter has 30 % less maximum health than the host (SpEffect 9006 / 9026 maxHpRate 0.7, the host rule

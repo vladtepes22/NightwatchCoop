@@ -128,6 +128,20 @@ static void test_classify() {
     CHECK(advice(Type::Restricted, false, false, off, 9307).find(kRendezvousOffHint) != std::string::npos);
     CHECK(advice(Type::Restricted, false, false, na, 9307).find("DHT") == std::string::npos);
     CHECK(advice(Type::Restricted, false, false, on, 9307).find("automatically") != std::string::npos);
+    // 0.7.7: a manual port forward is invisible to STUN; a guest's direct TCP connection from a public
+    // address proves the port open, so the Network line stops saying "no open port" (synthetic addresses).
+    const auto ip = [](int a, int b, int c, int d) {
+        return static_cast<std::uint32_t>(a | (b << 8) | (c << 16) | (d << 24));
+    };
+    CHECK(proves_open_port(true, ip(203, 0, 113, 9)));
+    CHECK(!proves_open_port(false, ip(203, 0, 113, 9)));  // UDP / relayed: proves nothing
+    CHECK(!proves_open_port(true, ip(127, 0, 0, 1)));
+    CHECK(!proves_open_port(true, ip(192, 168, 1, 5)));
+    CHECK(!proves_open_port(true, ip(10, 1, 2, 3)));
+    CHECK(!proves_open_port(true, ip(172, 20, 0, 1)));
+    CHECK(!proves_open_port(true, ip(100, 64, 1, 1)));  // CGNAT / Tailscale
+    CHECK(!proves_open_port(true, 0));
+    CHECK(advice(Type::Cone, true, true, on, 9307).find("no open port") == std::string::npos);
 }
 
 // One guest connection attempt through two simulated NATs, with the real rudp streams: the host

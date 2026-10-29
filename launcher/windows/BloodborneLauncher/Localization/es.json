@@ -2146,5 +2146,7 @@
   "Yes: run them now (Windows asks for administrator permission).": "Sí: ejecutarlas ahora (Windows pedirá permiso de administrador).",
   "No: copy them, then paste them into PowerShell opened as administrator yourself.": "No: copiarlas y pegarlas tú en PowerShell abierto como administrador.",
   "Free stamina out of combat": "Aguante libre fuera de combate",
-  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "El aguante no se gasta, salvo durante 8 segundos tras pulsar R1, R2, L1 o L2 o perder salud"
+  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "El aguante no se gasta, salvo durante 8 segundos tras pulsar R1, R2, L1 o L2 o perder salud",
+  "Shared item notices": "Avisos de objetos compartidos",
+  "A short notice when a key or unique item, a weapon or a rune is shared with the party. Never for ordinary pickups. Shows only while join, leave and travel notices are on.": "Un aviso breve cuando se comparte con el grupo un objeto clave o único, un arma o una runa. Nunca para objetos comunes. Solo se muestra si los avisos de entrada, salida y viaje están activados."
 }

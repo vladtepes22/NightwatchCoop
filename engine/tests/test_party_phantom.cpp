@@ -71,17 +71,21 @@ static void test_skip_rules() {
         // Party mode whatever the open world: 13400010's "not in multiplayer" condition [11]; on a
         // client, the room-open skip of the Ebrietas, Rom, Laurence and Lady Maria re-fight events.
         const std::vector<EmevdSkipRule> rooms = BossRoomRules();
-        CHECK(rooms.size() == 5);
+        CHECK(rooms.size() == 6);
         CHECK(rooms[0].event == 13400010 && rooms[0].bank == 0 && rooms[0].id == 0 && rooms[0].index == 11 &&
               !rooms[0].needs_travel && !rooms[0].client_only);
         std::set<int> refights;
-        for (std::size_t i = 1; i < rooms.size(); ++i) {
+        for (std::size_t i = 1; i < 5; ++i) {
             CHECK(rooms[i].bank == 1003 && rooms[i].id == 5 && rooms[i].index == 2 && rooms[i].client_only &&
                   !rooms[i].needs_travel);
             refights.insert(rooms[i].event);
         }
         CHECK(refights == (std::set<int>{12424810, 13204830, 13404850, 13504800}));
         CHECK(DescribeSkipRule(rooms[1]) == "12424810:1003:5@2 (on a client)");
+        // 0.7.7 (CL-76fd20): the Moon Presence's boss music waits on the guest-entry flag ([8] 3[0]),
+        // skipped for every role.
+        CHECK(rooms[5].event == 12104853 && rooms[5].bank == 3 && rooms[5].id == 0 && rooms[5].index == 8 &&
+              !rooms[5].needs_travel && !rooms[5].client_only);
     }
     // Event 7600 as the data has it (common.emevd), and its Chalice Dungeon copy 12907600
     // (m29.emevd, the same 12 instructions): only 6 and 7 are skipped.

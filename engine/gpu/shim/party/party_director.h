@@ -88,6 +88,8 @@ bool LeaveGameSession();
 bool GuestBellEffectOn();
 bool DropGuestBellEffect();
 bool ApplyGuestBellEffect();
+/// Main thread: drops Mergo's Wet Nurse's darkness (SpEffects 5630 / 5631) from the local player; how many were on.
+int DropFightDarkness();
 /// Any thread: the host ended the party / is gone: a guest still in the host's world goes home at
 /// once (OnLeave_Limit on the next main-thread tick).
 void RequestGuestSendHome(const std::string& why);

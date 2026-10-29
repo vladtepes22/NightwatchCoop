@@ -3,7 +3,7 @@ enable_testing()
 file(GLOB PARTY_NET_SOURCES CONFIGURE_DEPENDS shim/net/*.cpp)
 set(PARTY_LINK_SOURCES shim/party/party_link.cpp shim/party/party_rudp.cpp
     shim/party/party_code.cpp shim/party/party_addr.cpp shim/party/party_crypto.cpp
-    shim/party/party_lan.cpp shim/party/upnp_win.cpp)
+    shim/party/party_lan.cpp shim/party/upnp_win.cpp shim/party/party_nat.cpp)
 add_executable(party-net-test EXCLUDE_FROM_ALL ../tests/test_party_net.cpp ${PARTY_NET_SOURCES})
 
 target_compile_options(party-net-test PRIVATE -UNDEBUG -Wall -Wextra)
@@ -30,7 +30,7 @@ target_include_directories(party-link-test PRIVATE shim)
 set_target_properties(party-link-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
 add_executable(party-nat-test EXCLUDE_FROM_ALL ../tests/test_party_nat.cpp ${PARTY_LINK_SOURCES}
-    shim/party/party_nat.cpp shim/party/party_rdv.cpp shim/party/party_netpath.cpp shim/net/party_route.cpp
+    shim/party/party_rdv.cpp shim/party/party_netpath.cpp shim/net/party_route.cpp
     shim/net/party_udp.cpp shim/net/net_stun.cpp shim/net/netsim.cpp
     third_party/monocypher/monocypher.c)
 

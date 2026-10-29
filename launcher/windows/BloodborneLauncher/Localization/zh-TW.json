@@ -2146,5 +2146,7 @@
   "Yes: run them now (Windows asks for administrator permission).": "是：立即執行（Windows 會要求系統管理員權限）。",
   "No: copy them, then paste them into PowerShell opened as administrator yourself.": "否：請複製它們，然後自行貼到以系統管理員身分開啟的 PowerShell 中。",
   "Free stamina out of combat": "戰鬥外免耐力消耗",
-  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "耐力不會消耗，但按下 R1、R2、L1 或 L2 或損失生命後的 8 秒內除外"
+  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "耐力不會消耗，但按下 R1、R2、L1 或 L2 或損失生命後的 8 秒內除外",
+  "Shared item notices": "共享物品提示",
+  "A short notice when a key or unique item, a weapon or a rune is shared with the party. Never for ordinary pickups. Shows only while join, leave and travel notices are on.": "當鑰匙或獨特物品、武器或符文被共享給隊伍時顯示簡短提示。一般拾取不會提示。僅在加入、離開和旅行提示開啟時顯示。"
 }

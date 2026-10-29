@@ -16,6 +16,8 @@
 #include "bbnet_internal.h"
 #include "net_stun.h"
 #include "netsim.h"
+#include "np_session.h"
+#include "nr_loadgap.h"
 #include "nr_outage.h"
 #include "nr_rxgap.h"
 #include "party_route.h"
@@ -662,13 +664,17 @@ std::int64_t steady_ns() {
 }
 int dgram_send(int s, const void* buf, std::uint64_t len, int flags, const SceSockaddrIn* to);
 std::mutex g_gap_hook_mu;
+// 0.7.7: loading screens of this game and of the peers (nr_loadgap.h), fed by the party director.
+std::mutex g_loadgap_mu;
+nr::LoadGapGate g_loadgap;
 std::function<void(std::uint32_t, std::uint16_t, double)> g_gap_hook;
 // Sends the kept records again (nr_outage.h), off the reader thread, a few at a time.
 void resume_replay(int sock, SceSockaddrIn to, std::vector<std::vector<std::uint8_t>> dgs, std::size_t records,
-                   double silent_s) {
+                   double silent_s, bool quiet = false) {
     char ip[32];
     write_ipv4(ip, sizeof(ip), to.addr);
-    log("outage resume: %s:%u heard again after %.1f s: %zu reliable record(s) sent again in %zu datagram(s)", ip,
+    if (!quiet)
+        log("outage resume: %s:%u heard again after %.1f s: %zu reliable record(s) sent again in %zu datagram(s)", ip,
         bswap16(to.port), silent_s, records, dgs.size());
     std::thread([sock, to, dgs = std::move(dgs)] {
         for (std::size_t i = 0; i < dgs.size(); ++i) {
@@ -1031,22 +1037,38 @@ void p2p_reader(std::shared_ptr<P2pPort> port) {
                 auto dgs = r->second.on_heard(now, prev, &records);
                 auto to = q->replay_to.find(key);
                 if (!dgs.empty() && to != q->replay_to.end()) {
-                    // A guest-to-guest pair that goes silent again and again moves to the host relay.
-                    if (!settings().host) {
-                        std::string why;
-                        paths().note_gap(dg.addr, dg.port, now, &why);
-                        if (!why.empty()) log("%s", why.c_str());
-                    }
+                    // 0.7.7: only the silence outside loading screens (ours or the peer's) is an outage; the
+                    // records are sent again either way, but no notice, no relay switch, no log line.
+                    double eff;
                     {
+                        std::lock_guard<std::mutex> gl(g_loadgap_mu);
+                        eff = g_loadgap.effective_silent_s(key, prev, now);
+                    }
+                    const double raw = std::chrono::duration<double>(now - prev).count();
+                    static const bool off = [] {  // test aid: the pre-0.7.7 behaviour, for A/B smoke runs
+                        const char* e = std::getenv("BB_NET_LOADGAP_OFF");
+                        return e && e[0] == '1';
+                    }();
+                    if (off) eff = raw;
+                    const bool counts = eff >= 4.0;
+                    if (counts) {
+                        // A guest-to-guest pair that goes silent again and again moves to the host relay.
+                        if (!settings().host) {
+                            std::string why;
+                            paths().note_gap(dg.addr, dg.port, now, &why);
+                            if (!why.empty()) log("%s", why.c_str());
+                        }
                         std::function<void(std::uint32_t, std::uint16_t, double)> hook;
                         {
                             std::lock_guard<std::mutex> hl(g_gap_hook_mu);
                             hook = g_gap_hook;
                         }
-                        if (hook) hook(dg.addr, dg.port, std::chrono::duration<double>(now - prev).count());
+                        if (hook) hook(dg.addr, dg.port, eff);
                     }
-                    resume_replay(q->sock, to->second, std::move(dgs), records,
-                                  std::chrono::duration<double>(now - prev).count());
+                    if (!counts && g_rxgap_log)
+                        log("rx gap in a loading screen ignored: %.1f s silent, %.1f s of it outside loads (no notice, "
+                            "no relay switch)", raw, eff);
+                    resume_replay(q->sock, to->second, std::move(dgs), records, raw, !counts);
                     q->strip_until[key] = now + std::chrono::seconds(3);
                 }
             }
@@ -3171,6 +3193,20 @@ void p2p_outage_keepalive(bool on) {
     if (g_outage_keepalive.exchange(on) == on) return;
     log("outage keepalive %s", on ? "on: the game hears silent peers' last keepalive every 2 s" : "off");
     if (on && !g_outage_keepalive_thread.exchange(true)) std::thread(outage_keepalive_main).detach();
+}
+
+void p2p_load_update(bool own_loading, bool host_loading, const std::vector<std::pair<std::string, bool>>& peers) {
+    std::vector<std::pair<std::uint64_t, bool>> keys;
+    for (const auto& [name, loading] : peers) {
+        session::Peer p;
+        if (!session::peers_find_online(name, &p)) continue;
+        keys.emplace_back(source_key(p.addr, bswap16(p.port)), loading);
+    }
+    const auto now = Clock::now();
+    std::lock_guard<std::mutex> lk(g_loadgap_mu);
+    g_loadgap.set_loading(nr::LoadGapGate::kOwn, own_loading, now);
+    g_loadgap.set_loading(nr::LoadGapGate::kHost, host_loading, now);
+    for (const auto& [k, l] : keys) g_loadgap.set_loading(k, l, now);
 }
 
 void p2p_set_gap_hook(std::function<void(std::uint32_t, std::uint16_t, double)> fn) {

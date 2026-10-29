@@ -55,6 +55,13 @@ constexpr std::uint32_t kPartyRangePercent = 20, kPartyRangeAdd = 20;
 
 inline float PhantomHpRate(bool rule_on) { return rule_on ? 0.7f : 1.0f; }
 
+/// 0.7.7 (cursedhp): the Cursed Chalice Dungeon's cut for a guest. The game's event 12907420 gives the host SpEffect
+/// 4730 (max HP x0.5) and a guest 4735 / 4736 (x0.7143 / x0.70029) because a guest already carries the cooperator's
+/// x0.7 (9006): together about half. With the Phantom health cut off (or lifted in PvP) the guest has no x0.7, so the
+/// guest's row would leave it at x0.71 and "not halved". `vanilla` is the game's own maxHpRate of 4735 / 4736; the
+/// rate in force is that when the cut is on, and the product with the cooperator's 0.7 when it is not.
+inline float ChaliceCurseGuestRate(float vanilla, bool cut_on) { return cut_on ? vanilla : vanilla * 0.7f; }
+
 /// 0.7.6 (pvphp, owner's decision): the host's rule "Full health in PvP" (pvp_full_hp, default on). While
 /// friendly fire / PvP is on, a joined hunter keeps its full maximum health: a 70 % hunter against a 100 %
 /// host is no duel. The cut in force on every peer: the Phantom health rule, unless PvP is on and this is.

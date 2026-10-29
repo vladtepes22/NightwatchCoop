@@ -1017,6 +1017,27 @@ bool ApplyPhantomHp() {
                 double(v), double(want));
         }
     }
+    // 0.7.7 (cursedhp): the Cursed dungeon's guest curse rows follow the cut (see levelsync::ChaliceCurseGuestRate):
+    // with the cut on they are the game's, with it off the product with 0.7, so a guest is halved either way.
+    static const bool curse_rows_off = std::getenv("BB_PARTY_CURSE_GUEST_ROWS") && std::string(std::getenv("BB_PARTY_CURSE_GUEST_ROWS")) == "0";
+    if (!refused && !curse_rows_off) {  // BB_PARTY_CURSE_GUEST_ROWS=0: the game's rows (tests, A/B)
+        static const struct { u32 id; float vanilla; } kCurse[] = {{4735u, 0.7143f}, {4736u, 0.70029f}};
+        static int logged_curse = -1;
+        for (const auto& c : kCurse) {
+            const u64 row = Row(t, c.id);
+            float v = 0;
+            if (RowSize(t) != 0x210 || !row || !ReadField(row + 0x10, 4, &v)) continue;
+            const float want_c = levelsync::ChaliceCurseGuestRate(c.vanilla, on);
+            const auto near = [](float a, float b) { return a > b - 0.0005f && a < b + 0.0005f; };
+            if (near(v, want_c)) continue;
+            if (!near(v, c.vanilla) && !near(v, levelsync::ChaliceCurseGuestRate(c.vanilla, false))) continue;  // not ours
+            if (WriteField(row + 0x10, 4, want_c) && logged_curse != (on ? 1 : 0)) {
+                Log("Cursed dungeon: guest curse SpEffect %u maxHpRate %g -> %g (phantom cut %s)", c.id, double(v), double(want_c),
+                    on ? "on" : "off");
+            }
+        }
+        logged_curse = on ? 1 : 0;
+    }
     if (all) logged_rule = state;
     return all;
 }

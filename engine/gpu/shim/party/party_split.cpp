@@ -85,6 +85,7 @@ struct Pending {
     bool host = false;
     bool mark = false;  // a Hunter's Mark (id = the player's own last lamp)
     bool solo_load = false;  // a guest's lamp in the loaded map: its own load, no question (bug 10)
+    bool no_rest = false;    // travel from a map view (lamp_travel's map travel): no lamp was used, so no rest
     double since = 0;
     u64 dialog = 0;
     int test_step = 0;
@@ -122,6 +123,8 @@ Pending g_p;  // under g_mu (OnLampWarp: game thread; Tick: main thread - the sa
 // this game's own warp event; g_dropped_* only remembers it for the log.
 std::atomic<double> g_local_at{-1}, g_dropped_at{-1};
 std::atomic<u32> g_local_id{0}, g_dropped_id{0}, g_dropped_n{0};
+std::atomic<double> g_map_travel_at{-1};  // NoteMapTravel: the last travel from a map view
+std::atomic<u32> g_map_travel_id{0};
 constexpr u64 kPacketRead = 0x1789200;  // int (net man, peer, packet type, buffer, size)
 // 0x1339B50 (SprjLuaEventMan update) drains packet 0x0e (network-synced EMEVD event state, 0x14
 // bytes) at 0x1339C02 / 0x1339D0E and packet 0x0f (a peer's CompleteEvent flag, 4 bytes) at
@@ -323,7 +326,9 @@ void Carry(const Pending& p, bool alone, const char* how) {
     const bool from_dream = InDreamNow();
     if (alone && p.solo_load) {
         // D9 (pard4): a lamp use in the loaded map is a rest too (not a Hunter's Mark).
-        const bool rest = deathrules::GuestAloneRestsHostWorld(!p.mark, true, from_dream);
+        // A travel from a map view used no lamp: it rests nothing (a guest's own trip moves only
+        // that guest: the host keeps playing, no rest load, no loading screen for the others).
+        const bool rest = deathrules::GuestAloneRestsHostWorld(!p.mark, true, from_dream, p.no_rest);
         bool carried = false;
         if (b2::GuestSoloLampLoad(p.id, p.mark, rest, &carried)) {
             if (rest && !carried) {
@@ -425,6 +430,12 @@ void Init() {
 void NoteLocalUse(std::uint32_t id) {
     g_local_id = id;
     g_local_at = Now();
+}
+
+void NoteMapTravel(std::uint32_t id) {
+    NoteLocalUse(id);
+    g_map_travel_id = id;
+    g_map_travel_at = Now();
 }
 
 void NoteStoryWarp(std::uint32_t id) {
@@ -531,6 +542,8 @@ bool Hold(std::uint32_t id, bool mark) {
         g_p.id = id;
         g_p.mark = mark;
         g_p.solo_load = true;
+        const double map_age = Age(g_map_travel_at, Now());
+        g_p.no_rest = !mark && g_map_travel_id.load() == id && map_age >= 0 && map_age <= 5.0;
         g_p.since = Now();
         Log("%s %u (guest): in the loaded map: no question, the guest's own loading screen (the host stays)",
             mark ? "Hunter's Mark to lamp" : "lamp", id);

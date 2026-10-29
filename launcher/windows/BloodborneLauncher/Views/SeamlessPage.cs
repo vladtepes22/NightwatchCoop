@@ -213,7 +213,7 @@ public sealed class SeamlessPage : LauncherPage
         party.Children.Add(Text(L.T("Your own party settings: your screen, what you get as a guest, story sync (in the game: System > My party)."), "Faint"));
         IniToggles(party,
             ("party_hud", L.T("Party HUD"), true), ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
-            ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_npc_talk", L.T("Share NPC dialogue"), true));
+            ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_item_notices", L.T("Shared item notices"), true), ("party_npc_talk", L.T("Share NPC dialogue"), true));
         foreach (var option in SeamlessSettings.Switches)
         {
             var key = option.Key;
@@ -593,6 +593,7 @@ public sealed class SeamlessPage : LauncherPage
         "party_through_walls" => L.T("A small marker with the distance on each companion on your map, also behind walls."),
         "party_glow_off" => L.T("On: other hunters look like normal hunters on your screen. Off: the game's blue phantom glow."),
         "party_toasts" => L.T("A short notice in a top corner when a hunter joins, leaves or travels."),
+        "party_item_notices" => L.T("A short notice when a key or unique item, a weapon or a rune is shared with the party. Never for ordinary pickups. Shows only while join, leave and travel notices are on."),
         "party_npc_talk" => L.T("See and hear the NPC conversations of companions near you (subtitles, choices, gifts)."),
         "party_guest_lamps" => L.T("Guests may use lamps and headstones; the whole party travels with them. Needs a restart."),
         "party_key_view" => L.T("While you are a guest, your own keys and badges show in Key Items; off shows the game's empty list. Takes effect on the next game start."),

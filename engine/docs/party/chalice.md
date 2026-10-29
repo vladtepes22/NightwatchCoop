@@ -644,3 +644,17 @@ now puts such a dungeon on the board under `ChannelBoard::IdOf(FormData of the s
 quick-joins the alias (its +0xa88 differs from the host's real id; direct summons do not need them equal).
 Not covered: the game's own sign/summon message (the sign path) still carries the real id. Test aid:
 `BB_CHALICE_ALIAS_TEST=1` on the host forces the alias for any id; smoke phase `cla` (group `chalice_alias`).
+
+## The Curse (0.7.7, cursedhp)
+
+* DungeonFeatureParam 70 (Cursed, `eventflagId` 70 -> case flag 92905370; enemy SpEffect 7150). m29 event 12907420 (one per
+  curse level, slots 0..2 = 92905370..72) gives the **host** SpEffect 4730 (maxHpRate 0.5) and a **client** 4735 / 4736
+  (0.7143 / 0.70029; 4736 when it has SpEffect 6142 and char type 1): the client already carries the cooperator cut 9006
+  (x0.7), so both end at about half. The flag is derived by the game from the layout pairs at the load (a flag bit written
+  into the save's slot group alone is wiped); the guest reads it through the case-flag redirect (above).
+* With the host's rule Phantom health cut off (9006 = 1.0) a guest was left at 0.7143 (513 of 719 against the host's 359).
+  `seamless_rules.cpp ApplyPhantomHp` now also sets the rows 4735 / 4736 to the product with 0.7 while the cut is off or
+  lifted (`levelsync::ChaliceCurseGuestRate`; `BB_PARTY_CURSE_GUEST_ROWS=0` = the game's rows).
+* Smoke `chalice_curse`: chc (cut on, death + revive), chn (cut off), chw (party wipe in the dungeon); the test aid log_pos
+  logs `test: hp H/M area A curse speffects: ...`. Verified: the curse stays through a death, a revive and a wipe respawn.
+

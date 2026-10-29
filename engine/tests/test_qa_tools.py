@@ -79,6 +79,13 @@ class Expects(unittest.TestCase):
     def test_missing_role_log(self):
         self.assertFalse(coop.check_expects([('guest', 'x')], {'host': 'x'})[0]['passed'])
 
+    def test_forbid_per_role_and_any(self):
+        rows = coop.check_forbids([('guest', 'cooperators'), ('host', 'cooperators 1 -> 0'), ('any', 'Rejoin')],
+                                  self.LOGS)
+        self.assertEqual([r['passed'] for r in rows], [True, False, False])
+        self.assertEqual(rows[1]['line'], 'cooperators 1 -> 0')
+        self.assertEqual(rows[2]['line'], 'guest_rejoin: Party > Rejoin pressed')
+
     def test_expect_argument(self):
         self.assertEqual(coop.parse_expect('host:a:b'), ('host', 'a:b'))
         self.assertEqual(coop.parse_expect('guest2:x'), ('guest2', 'x'))
@@ -129,6 +136,9 @@ class Scenarios(unittest.TestCase):
             roles = ['host'] + coop.guest_roles(row.get('guests', 1))
             for role, pattern in row['expect']:
                 self.assertIn(role, roles, name)
+                re.compile(pattern)
+            for role, pattern in row.get('forbid', []):
+                self.assertIn(role, roles + ['any'], name)
                 re.compile(pattern)
             for role in roles:
                 self.assertIsInstance(row.get(role, ''), str)

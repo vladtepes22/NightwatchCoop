@@ -26,7 +26,8 @@
 // another map; "startany": also in the same map), "titleany" (title presses also in a party process
 // whose host never answers: Right = CANCEL on the server error, Cross), "dream" (Cross / Left / Cross at
 // the lamp - the vanilla Dream box - done once a load starts), "map=ID|any" (the host or a solo
-// game, instead of the lamp walk: a map travel request to that lamp, any = the first one allowed).
+// game, instead of the lamp walk: a map travel request to that lamp, any = the first one allowed),
+// "guestmap=ID|any" (the same, for a party guest only).
 #pragma once
 
 #include "lamp_travel_rules.h"
@@ -51,7 +52,7 @@ using TalkCommandObserver = void(__attribute__((sysv_abi)) *)(std::uint64_t env,
 /// True: lamp travel owns the switch and calls `fn` from now on (before the game runs).
 bool AddTalkCommandObserver(TalkCommandObserver fn);
 
-// ---- Map travel (map/map_page.cpp: a lamp selected on the map view) ----
+// ---- Map travel (a lamp selected on a map view; here only the test aid asks for it) ----
 // The same lamp warp 0x13CDF30 as a choice in a world lamp's list (Act), from wherever the player
 // stands: in a party this player's own lamp use, so the party travel rules apply unchanged. Needs
 // lamp travel on; refused in a Chalice Dungeon, a cutscene, a boss fight, while dead or loading

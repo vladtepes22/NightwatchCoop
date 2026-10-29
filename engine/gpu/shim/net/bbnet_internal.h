@@ -298,6 +298,11 @@ void p2p_outage_keepalive(bool on);
 // 0.7.6: called (off the reader thread's locks) when the game hears a peer again after a silence of
 // at least 4 s in which it had sent reliable data: the peer's address (network order), port (network
 // order) and the silence in seconds. The party shows "connection to X unstable".
+// 0.7.7: loading screens (nr_loadgap.h): this game's own, the session host's (a guest's whole session is
+// quiet in it) and each peer's (online id), every frame.
+// Receive gaps inside a load are no outage: no notice, no relay switch, no log. Real silence after
+// the load's end counts again.
+void p2p_load_update(bool own_loading, bool host_loading, const std::vector<std::pair<std::string, bool>>& peers);
 void p2p_set_gap_hook(std::function<void(std::uint32_t, std::uint16_t, double)> fn);
 
 }  // namespace bbnet

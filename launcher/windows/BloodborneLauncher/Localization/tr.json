@@ -2146,5 +2146,7 @@
   "Yes: run them now (Windows asks for administrator permission).": "Evet: şimdi çalıştır (Windows yönetici izni ister).",
   "No: copy them, then paste them into PowerShell opened as administrator yourself.": "Hayır: kopyala, sonra yönetici olarak açtığınız PowerShell'e kendiniz yapıştırın.",
   "Free stamina out of combat": "Savaş dışında bedava dayanıklılık",
-  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "Dayanıklılık harcanmaz; R1, R2, L1 veya L2'ye bastıktan ya da can kaybettikten sonraki 8 saniye hariç"
+  "Stamina costs nothing, except for 8 seconds after you press R1, R2, L1 or L2 or lose health": "Dayanıklılık harcanmaz; R1, R2, L1 veya L2'ye bastıktan ya da can kaybettikten sonraki 8 saniye hariç",
+  "Shared item notices": "Paylaşılan eşya bildirimleri",
+  "A short notice when a key or unique item, a weapon or a rune is shared with the party. Never for ordinary pickups. Shows only while join, leave and travel notices are on.": "Bir anahtar ya da benzersiz eşya, bir silah veya bir rün grupla paylaşıldığında kısa bir bildirim. Sıradan eşyalar için asla. Yalnızca katılma, ayrılma ve yolculuk bildirimleri açıkken görünür."
 }

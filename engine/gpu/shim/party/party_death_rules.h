@@ -1086,8 +1086,10 @@ inline GuestLamp PlanGuestLamp(bool guest_in_host_world, bool at_lamp_spot, bool
 /// another lamp) never rests the host's world either: the host no longer reloads where it stands.
 /// Only a lamp of the map the party stands in stays a rest (`same_map_solo`): the guest reloads that
 /// map itself, and without the host's rest load the host's kills would live again on its screen only.
-inline bool GuestAloneRestsHostWorld(bool alone, bool same_map_solo, bool from_dream) {
-    return alone && same_map_solo && !from_dream;
+/// 0.7.7 (a guest's map travel reloaded the whole party): a travel from a map view (`from_map`) used
+/// no lamp, so it rests nothing at all - the guest's own trip moves only that guest.
+inline bool GuestAloneRestsHostWorld(bool alone, bool same_map_solo, bool from_dream, bool from_map = false) {
+    return alone && same_map_solo && !from_dream && !from_map;
 }
 
 // ---- The host runs a rest load for a guest's rest ----

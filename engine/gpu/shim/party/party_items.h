@@ -255,6 +255,31 @@ bool InstancedTreasureFlag(std::int32_t flag, bool instanced, bool captured);
 /// that holds the item or has the lot's flag already gets nothing twice (docs/party/items.md 6.2).
 /// BB_PARTY_SHARED_TREASURE=0 (testing): nothing is shared, every treasure is per player.
 bool SharedKeyTreasureLot(std::int32_t lot);
+/// How a lot reaches every member (the audit, docs/party/items_audit.md). None = per player / not replayed.
+enum class SharePath { None, Treasure, Flag, Ledger, BossDrop };
+/// The path the shipped tables give `lot` (denied lots and ordinary world treasure: None).
+SharePath ItemLotSharePath(std::int32_t lot);
+/// The generated audit rows: `required` = the lot must have a path, else it must have none.
+struct ItemAuditRow {
+    std::int32_t lot;
+    bool required;
+    const char* note;
+};
+std::vector<ItemAuditRow> ItemAuditRows();
+/// Kill awards the game only grants for a kill by entity 10000 (generated ITEM_KILL_AWARD rows; the Living String):
+/// the host awards the lot itself when the entity died and the lot's flag stayed unset (KillAwardTick).
+struct KillAwardRow {
+    std::int32_t lot;
+    int area;
+    std::uint32_t entity;
+    std::uint32_t event;
+    std::uint32_t spot_flag;  ///< flag the game's event sets with the award (0: none)
+};
+/// 0.7.7: queue the notice "<item>: shared with the party" for a shared grant given on this game / queued for the party
+/// by the host (nothing for catch-up lists, per-player lots, or with party_item_notices off). Game build only.
+void ShareNotice(const ItemGrant& g, const char* how);
+std::vector<KillAwardRow> KillAwardRows();
+std::uint32_t KillAwardEntity(std::int32_t lot);  ///< 0: not a kill award
 /// A shared key treasure given to a member who stands in the host's world (summoned guest): the item
 /// lying on the ground in that game's copy of the world must go too, else the member can pick it up
 /// again (a duplicate key). The game side registers the remover (worldact: it takes the treasure

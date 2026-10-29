@@ -6,6 +6,7 @@
 #include "bbnet_internal.h"
 #include "net_stun.h"
 #include "netsim.h"
+#include "nr_loadgap.h"
 #include "nr_outage.h"
 #include "nr_rxgap.h"
 #include "party_discovery.h"
@@ -1216,6 +1217,60 @@ static void test_nr_outage() {
     CHECK(ordered && total == records && prev == static_cast<std::uint16_t>(seq - 1));
 }
 
+// 0.7.7 (nr_loadgap.h): receive gaps inside loading screens are no outage.
+static void test_nr_loadgap() {
+    using namespace bbnet::nr;
+    using std::chrono::milliseconds;
+    const LoadGapGate::Clock::time_point t0 = LoadGapGate::Clock::now();
+    auto at = [&](int ms) { return t0 + milliseconds(ms); };
+    const std::uint64_t peer = 7, other = 9;
+    {  // no load: the whole gap counts, 4 s is the threshold
+        LoadGapGate g;
+        CHECK(g.gap_counts(peer, at(0), at(4000), 4.0));
+        CHECK(!g.gap_counts(peer, at(0), at(3900), 4.0));
+    }
+    {  // the peer's 15 s load covers the gap: nothing counts, also right at its end
+        LoadGapGate g;
+        g.set_loading(peer, true, at(1000));
+        CHECK(!g.gap_counts(peer, at(0), at(10000), 4.0));  // still loading
+        g.set_loading(peer, false, at(16000));
+        CHECK(!g.gap_counts(peer, at(0), at(16200), 4.0));  // heard 0.2 s after the load ended
+        CHECK(g.load_touched(peer, at(0)));
+    }
+    {  // silent on for 5 s past the load's end: a real outage, counted from the load's end
+        LoadGapGate g;
+        g.set_loading(peer, true, at(1000));
+        g.set_loading(peer, false, at(16000));
+        CHECK(!g.gap_counts(peer, at(0), at(19900), 4.0));
+        CHECK(g.gap_counts(peer, at(0), at(20000), 4.0));
+        CHECK(g.effective_silent_s(peer, at(0), at(21000)) > 4.9 && g.effective_silent_s(peer, at(0), at(21000)) < 5.1);
+    }
+    {  // our own load excuses every link; another peer's load excuses only its own link
+        LoadGapGate g;
+        g.set_loading(0, true, at(500));
+        g.set_loading(0, false, at(9000));
+        CHECK(!g.gap_counts(peer, at(0), at(9500), 4.0) && !g.gap_counts(other, at(0), at(9500), 4.0));
+        g.set_loading(other, true, at(10000));
+        g.set_loading(other, false, at(20000));
+        CHECK(g.gap_counts(peer, at(9500), at(20000), 4.0));    // a real outage on the other link
+        CHECK(!g.gap_counts(other, at(9500), at(20000), 4.0));
+    }
+    {  // the session host's load excuses every link (guest-guest too)
+        LoadGapGate g;
+        g.set_loading(LoadGapGate::kHost, true, at(500));
+        CHECK(!g.gap_counts(peer, at(0), at(9000), 4.0) && !g.gap_counts(other, at(0), at(9000), 4.0));
+        g.set_loading(LoadGapGate::kHost, false, at(9000));
+        CHECK(g.gap_counts(peer, at(0), at(14000), 4.0));  // 5 s past the end: real
+    }
+    {  // a load that ended before the gap began does not excuse it
+        LoadGapGate g;
+        g.set_loading(peer, true, at(0));
+        g.set_loading(peer, false, at(3000));
+        CHECK(g.gap_counts(peer, at(4000), at(9000), 4.0));
+        CHECK(!g.load_touched(peer, at(4000)));
+    }
+}
+
 // 0.7.6 diagnostics (nr_rxgap.h): a quiet peer with a reader that ran on time vs. a stalled reader.
 static void test_nr_rxgap() {
     using namespace bbnet::nr;
@@ -1307,6 +1362,7 @@ int main() {
     test_stun();
     test_netsim();
     test_nr_outage();
+    test_nr_loadgap();
     test_nr_rxgap();
     test_peer_paths();
     test_peer_paths_gaps();

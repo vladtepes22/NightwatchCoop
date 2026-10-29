@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "party_link.h"
+#include "party_nat.h"
 
 #include "party_crypto.h"
 #include "party_sock.h"
@@ -1703,6 +1704,11 @@ struct PartyLink::Impl {
             ", from " + format_peer(c) + ")");
         RosterEntry e = entry_of(*m);
         if (cb.on_member_joined) post([this, e, rejoined] { cb.on_member_joined(e, rejoined); });
+        if (cb.on_direct_inbound && c->s != sock::kInvalid) {
+            std::uint32_t ip = 0;
+            std::memcpy(&ip, c->peer_ip.data(), 4);
+            if (party::nat::proves_open_port(true, ip)) post([this] { cb.on_direct_inbound(); });
+        }
         broadcast_roster();
     }
 

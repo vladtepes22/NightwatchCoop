@@ -188,6 +188,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_discovery = i != 0;
     } else if (key == "party_conn_warnings") {
         v.party_conn_warnings = i != 0;
+    } else if (key == "party_item_notices") {
+        v.party_item_notices = i != 0;
     } else if (key == "party_guest_lamps") {
         v.party_guest_lamps = i != 0;
     } else if (key == "party_rot") {
@@ -970,6 +972,7 @@ void Save() {
     put("party_hud", flag(v.party_hud));
     put("party_discovery", flag(v.party_discovery));
     put("party_conn_warnings", flag(v.party_conn_warnings));
+    put("party_item_notices", flag(v.party_item_notices));
     put("party_name_tags", flag(v.party_name_tags));
     put("party_glow_off", flag(v.party_glow_off));
     put("party_npc_talk", flag(v.party_npc_talk));

@@ -204,6 +204,10 @@ struct Values {
     /// 0.7.6: connection warnings (party/party_connwarn.h): an on-screen notice when the firewall, the router or a
     /// wrong address keeps the party from working. Per player. ini party_conn_warnings. Live.
     std::atomic<bool> party_conn_warnings{true};
+    /// 0.7.7: the notice "<item>: shared with the party" on the screen when a shared item (key / unique item, weapon,
+    /// rune) is given (party/party_item_notice_rules.h). Per player; shows only while the party notices
+    /// (party_toasts) are on. ini party_item_notices. Live.
+    std::atomic<bool> party_item_notices{true};
     /// Party gameplay switches (the launcher's Party Rules / My Party tabs, the game's party pages in
     /// System; PartySwitches below): ini key = the member's name, env BB_PARTY_* = 0/1 wins at start.
     /// On by default. Load puts each value into the process environment when its variable is unset,
