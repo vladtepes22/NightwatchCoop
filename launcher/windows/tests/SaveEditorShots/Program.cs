@@ -32,25 +32,31 @@ internal static class Program
             {
                 var settings = new LauncherSettings(); settings.Set("ui_theme", theme); LauncherTheme.Apply(settings, false);
                 foreach (var size in new[] { (900, 700), (1200, 800) })
-                foreach (var state in new[] { "character", "inventory", "backups", "empty", "running" })
+                foreach (var state in new[] { "character", "inventory", "weapons", "progress", "repairs", "backups", "empty", "running" })
                 {
                     var source = new FakeSource(state == "empty", state == "running");
                     var window = new SaveEditorWindow(source);
                     window.LoadAsync().GetAwaiter().GetResult();
-                    window.SelectTab(state == "inventory" ? 1 : state is "backups" or "empty" ? 2 : 0);
+                    window.SelectTab(state is "inventory" or "weapons" ? 1 : state == "progress" ? 2 : state == "repairs" ? 3 : state is "backups" or "empty" ? 4 : 0);
                     var root = Mount(window, size.Item1, size.Item2);
+                    if (state == "weapons")
+                    {
+                        Descendants(root).OfType<Button>().First(b => b.Content as string == "Weapons")
+                            .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                        root.UpdateLayout();
+                    }
                     Check(root, source);
                     Render(root, size.Item1, size.Item2, 1, Path.Combine(args[0], $"{theme}-{size.Item1}x{size.Item2}-{state}.png"));
                     shots++; window.Close();
                 }
             }
             foreach (var scale in new[] { 1.25, 1.5 })
-            foreach (var tab in new[] { 0, 1, 2 })
+            foreach (var tab in new[] { 0, 1, 2, 3, 4 })
             {
                 var window = new SaveEditorWindow(new FakeSource(false, false)); window.LoadAsync().GetAwaiter().GetResult();
                 window.SelectTab(tab);
                 var root = Mount(window, 700, 700);
-                string state = tab == 0 ? "" : tab == 1 ? "inventory-" : "backups-";
+                string state = tab == 0 ? "" : tab == 1 ? "inventory-" : tab == 2 ? "progress-" : tab == 3 ? "repairs-" : "backups-";
                 Render(root, 700, 700, scale, Path.Combine(args[0], $"moon-700x700-{state}dpi{scale * 100:0}.png")); shots++; window.Close();
             }
             {
@@ -101,7 +107,7 @@ internal static class Program
         if (vigor != null)
         {
             vigor.Text = "42"; Require(apply.IsEnabled == !source.GameRunning, "Dirty Apply/game-running gate failed");
-            Require(nodes.OfType<TextBlock>().Any(t => t.Text == "Level 96"), "Resulting level did not update");
+            Require(nodes.OfType<TextBlock>().Any(t => t.Text == "Level 82 → 96"), "Resulting level did not update");
             vigor.Text = "100"; Require(!apply.IsEnabled, "Invalid stat must disable Apply");
             vigor.Text = "28"; Require(!apply.IsEnabled, "Returning to original must clear dirty state");
             var increase = nodes.OfType<Button>().Single(b => AutomationProperties.GetName(b) == "Increase Vigor");
@@ -116,13 +122,71 @@ internal static class Program
         if (search != null)
         {
             var count = nodes.OfType<TextBox>().First(b => AutomationProperties.GetName(b) == "Count");
-            count.Text = "17"; Require(apply.IsEnabled, "Inventory change must enable Apply");
-            search.Text = "no-match"; search.Text = "";
-            root.UpdateLayout();
-            Require(Descendants(root).OfType<TextBox>().Any(b => b.Text == "17"), "Filtering discarded item edits");
-            count.Text = "12"; Require(!apply.IsEnabled, "Inventory reset must clear dirty state");
+            var before = count.Text;
+            count.Text = "1234"; Require(apply.IsEnabled == !source.GameRunning, "Inventory change must enable Apply");
+            search.Text = "no-match"; root.UpdateLayout();
+            Require(!Descendants(root).OfType<TextBox>().Any(b => AutomationProperties.GetName(b) == "Count"), "Search did not filter the list");
+            search.Text = ""; root.UpdateLayout();
+            count = Descendants(root).OfType<TextBox>().FirstOrDefault(b => b.Text == "1234")!;
+            Require(count != null, "Filtering discarded item edits");
+            count.Text = before; Require(!apply.IsEnabled, "Inventory reset must clear dirty state");
+            count.Text = "0"; Require(!apply.IsEnabled, "A zero count must disable Apply");
+            count.Text = before;
+            root.UpdateLayout(); nodes = Descendants(root).ToArray();
+            var up = nodes.OfType<Button>().FirstOrDefault(b => AutomationProperties.GetName(b) == "Increase weapon level" && b.Command?.CanExecute(null) == true);
+            if (up != null)
+            {
+                up.Command.Execute(null); Require(apply.IsEnabled == !source.GameRunning, "A weapon level change must enable Apply");
+                var down = nodes.OfType<Button>().First(b => AutomationProperties.GetName(b) == "Decrease weapon level" && b.DataContext == up.DataContext);
+                down.Command.Execute(null); Require(!apply.IsEnabled, "Returning the weapon level must clear dirty state");
+            }
+        }
+        var toggle = nodes.OfType<Wpf.Ui.Controls.ToggleSwitch>().FirstOrDefault();
+        if (toggle != null)
+        {
+            Require(toggle.IsChecked == true, "A set flag must load switched on");
+            toggle.IsChecked = !toggle.IsChecked; Require(apply.IsEnabled == !source.GameRunning, "A progress flag must enable Apply");
+            toggle.IsChecked = !toggle.IsChecked; Require(!apply.IsEnabled, "Returning a flag must clear dirty state");
+        }
+        var repair = nodes.OfType<System.Windows.Controls.CheckBox>().FirstOrDefault(b => b.Content as string == "Repair when applying");
+        if (repair != null)
+        {
+            repair.IsChecked = true; repair.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            Require(apply.IsEnabled == !source.GameRunning, "A repair must enable Apply");
+            repair.IsChecked = false; repair.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            Require(!apply.IsEnabled, "Unchecking a repair must clear dirty state");
         }
         Require(source.Commands.All(c => c is "slots" or "show" or "backups"), "Preview attempted a write");
+    }
+
+    private static object[] Items()
+    {
+        var rows = new List<object>();
+        string[] goods = { "Blood Vial", "Quicksilver Bullet", "Molotov Cocktail", "Pebble", "Throwing Knife", "Antidote", "Sedative", "Blue Elixir", "Rally Potion", "Fire Paper" };
+        for (int i = 0; i < goods.Length; i++)
+            rows.Add(new { section = 0, slot = i, kind = "goods", number = 100 + i, name = goods[i], count = 5 + i * 3, level = (int?)null, max_level = (int?)null });
+        string[] weapons = { "Saw Cleaver", "Threaded Cane", "Hunter Axe", "Ludwig's Holy Blade" };
+        for (int i = 0; i < weapons.Length; i++)
+            rows.Add(new { section = 0, slot = 20 + i, kind = "weapon", number = 1000000 + i * 1000 + (i % 3) * 100, name = weapons[i], count = 1, level = (int?)(i % 3 + 3), max_level = (int?)10 });
+        string[] armor = { "Hunter Garb", "Yharnam Hunter Hat", "Old Hunter Trousers" };
+        for (int i = 0; i < armor.Length; i++)
+            rows.Add(new { section = 0, slot = 30 + i, kind = "armor", number = 300000 + i, name = armor[i], count = 1, level = (int?)null, max_level = (int?)null });
+        rows.Add(new { section = 0, slot = 40, kind = "gem", number = 9000, name = "Radial Blood Gem", count = 1, level = (int?)null, max_level = (int?)null });
+        rows.Add(new { section = 1, slot = 0, kind = "goods", number = 4000, name = "Iron Key", count = 1, level = (int?)null, max_level = (int?)null });
+        rows.Add(new { section = 1, slot = 1, kind = "goods", number = 4001, name = "Beckoning Bell", count = 1, level = (int?)null, max_level = (int?)null });
+        return rows.ToArray();
+    }
+    private static object[] Flags()
+    {
+        var rows = new List<object>();
+        string[] bosses = { "Cleric Beast", "Father Gascoigne", "Blood-starved Beast", "Vicar Amelia", "Witch of Hemwick" };
+        for (int i = 0; i < bosses.Length; i++)
+            rows.Add(new { id = 12101800 + i, kind = "boss", group = i < 3 ? "Central Yharnam" : "Cathedral Ward", label = bosses[i] + " [" + (12101800 + i) + "]", on = i < 2 });
+        string[] lamps = { "Hunter's Dream", "Central Yharnam", "Cathedral Ward", "Old Yharnam", "Hemwick Charnel Lane", "Forbidden Woods" };
+        for (int i = 0; i < lamps.Length; i++)
+            rows.Add(new { id = 72110200 + i, kind = "lamp", group = i < 3 ? "Yharnam" : "Beyond", label = lamps[i] + " [" + (72110200 + i) + "]", on = i != 4 });
+        rows.Add(new { id = 21, kind = "ending", group = "Endings", label = "Ending flag [21]", on = false });
+        return rows.ToArray();
     }
     private sealed class FakeSource(bool empty, bool running) : ISaveEditorSource
     {
@@ -139,12 +203,7 @@ internal static class Program
                     new { slot = 2, name = "Ash", level = 116, echoes = 980100 } },
                 "show" => new { revision = "fixture", character = new { name = "Evelyn", level = 82, echoes = 126450, insight = 24, ng_cycle = 1,
                     stats = new { vigor = 28, endurance = 20, strength = 18, skill = 34, bloodtinge = 18, arcane = 14 } },
-                    items = new[] {
-                        new { section = 0, slot = 0, kind = "goods", number = 100, name = "Restorative tonic", count = 12, level = (int?)null },
-                        new { section = 0, slot = 1, kind = "goods", number = 101, name = "Silver cartridge", count = 20, level = (int?)null },
-                        new { section = 0, slot = 2, kind = "goods", number = 102, name = "Ember flask", count = 6, level = (int?)null },
-                        new { section = 0, slot = 3, kind = "weapon", number = 200000, name = "Wayfarer's blade", count = 1, level = (int?)6 },
-                        new { section = 0, slot = 4, kind = "armor", number = 3000, name = "Weathered cloak", count = 1, level = (int?)null } } },
+                    items = Items(), flags = Flags(), findings = new { phantom = true, duplicate_keys = new[] { "Beckoning Bell" }, world_empty = false } },
                 "backups" => empty ? Array.Empty<object>() : new object[] {
                     new { name = "20261029-143200-before-edit", path = "fixture", reason = "before-edit" },
                     new { name = "20261028-201500-before-restore", path = "fixture", reason = "before-restore" },

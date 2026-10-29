@@ -22,8 +22,11 @@ internal static class SaveEditor
         public string? Name { get; set; }
         public int Count { get; set; }
         public int? Level { get; set; }
+        public int? MaxLevel { get; set; }
     }
-    internal sealed record Snapshot(string Revision, Character Character, Item[] Items);
+    internal sealed record Flag(int Id, string Kind, string Group, string Label, bool On);
+    internal sealed record Findings(bool Phantom, string[] DuplicateKeys, bool WorldEmpty);
+    internal sealed record Snapshot(string Revision, Character Character, Item[] Items, Flag[]? Flags = null, Findings? Findings = null);
     internal sealed record Backup(string Name, string Path, string Reason)
     {
         public override string ToString() => Name;

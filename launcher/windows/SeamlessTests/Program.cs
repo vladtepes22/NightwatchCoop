@@ -95,7 +95,7 @@ Check(PadMap.First(padIni, "map") == "start" && PadMap.MapButtonShared(padIni), 
 PadMap.Assign(padIni, "map", "paddle1");
 Check(PadMap.First(padIni, "options") == "start" && !PadMap.MapButtonShared(padIni), "Moving the map changed Options, or a button of its own reads as shared");
 PadMap.Assign(padIni, "map", "back");
-Check(PadMap.Get(padIni, "touchpad").Contains("back") && PadMap.MapButtonShared(padIni), "The map took Back from the touchpad");
+Check(PadMap.Get(padIni, "touchpad").SequenceEqual(new[] { "touchpad" }) && PadMap.Get(padIni, "ping").Contains("back") && !PadMap.MapButtonShared(padIni), "The map on Back changed the touchpad or Ping, or reads as shared with a game input");
 PadMap.Assign(padIni, "options", "y");
 Check(PadMap.First(padIni, "map") == "back" && PadMap.First(padIni, "triangle") == "start", "Moving Options moved the map");
 PadMap.Reset(padIni, "map");
