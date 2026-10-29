@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import sys
 
-from saveedit import names, store
+from saveedit import flagsdata, names, store
 from save_editor import _update_party_characters
 
 
@@ -55,6 +55,41 @@ def revision(model):
     return hashlib.sha256(model.orig).hexdigest()
 
 
+def flag_rows(catalogue):
+    """[(id, kind, group, label)] of the flags the editor offers, in display order."""
+    rows = [(f, "boss", g, label) for f, g, label in flagsdata.bosses(catalogue)]
+    rows += [(f, "lamp", g, label) for f, g, label in flagsdata.lamps(catalogue)]
+    rows += [(f, "ending", g, label) for f, g, label in flagsdata.endings()]
+    return rows
+
+
+def max_level(catalogue, item):
+    """Highest reinforcement level the game has a row for, None when the item or the game list is unknown."""
+    ids = catalogue.valid_ids(0)
+    if item.level is None or not ids:
+        return None
+    base = item.number - item.level * 100
+    return max((lv for lv in range(item.level + 11) if base + 100 * lv in ids), default=None)
+
+
+def describe(model, catalogue):
+    flags = [dict(id=f, kind=kind, group=group, label=label, on=bool(model.flag(f)))
+             for f, kind, group, label in flag_rows(catalogue) if model.flag(f) is not None]
+    return dict(revision=revision(model), character=dict(name=model.name, stats=model.stats,
+                level=model.level, echoes=model.echoes, insight=model.insight, ng_cycle=model.ng_cycle),
+                items=[dict(section=i.section, slot=i.slot, kind=i.kind, number=i.number,
+                            name=catalogue.name(i.category, i.number), count=i.count, level=i.level,
+                            max_level=max_level(catalogue, i))
+                       for i in model.items()],
+                flags=flags,
+                findings=dict(phantom=bool(model.phantom_mark),
+                              duplicate_keys=[catalogue.name(4, n) or str(n) for n in model.duplicate_keys()],
+                              world_empty=bool(model.world_empty)))
+
+
+REPAIRS = ("phantom", "duplicate_keys")
+
+
 def execute(args, edit=None, running=running_games):
     user, kind = args.user, args.kind
     if args.command == "slots":
@@ -72,16 +107,12 @@ def execute(args, edit=None, running=running_games):
     model = store.open_slot(user, kind, args.slot)
     catalogue = names.Catalogue.load(args.game, user / "cache" / "saveedit")
     if args.command == "show":
-        return dict(revision=revision(model), character=dict(name=model.name, stats=model.stats,
-                    level=model.level, echoes=model.echoes, insight=model.insight, ng_cycle=model.ng_cycle),
-                    items=[dict(section=i.section, slot=i.slot, kind=i.kind, number=i.number,
-                                name=catalogue.name(i.category, i.number), count=i.count, level=i.level)
-                           for i in model.items()])
+        return describe(model, catalogue)
     if not isinstance(edit, dict):
         raise ValueError("expected a JSON edit object")
     if edit.get("revision") != revision(model):
         raise store.EditConflict("the save changed on disk; open it again")
-    unknown = set(edit) - {"revision", "name", "stats", "echoes", "insight", "ng_cycle", "items"}
+    unknown = set(edit) - {"revision", "name", "stats", "echoes", "insight", "ng_cycle", "items", "flags", "repair"}
     if unknown:
         raise ValueError("unknown edit fields")
     if "name" in edit:
@@ -108,6 +139,18 @@ def execute(args, edit=None, running=running_games):
                 model.set_count(item, change["count"])
             if "level" in change:
                 model.set_weapon_level(item, change["level"], catalogue.valid_ids(0))
+    offered = {f for f, *_ in flag_rows(catalogue) if model.flag(f) is not None}
+    for change in edit.get("flags", []):
+        if set(change) - {"id", "on"} or change.get("id") not in offered or not isinstance(change.get("on"), bool):
+            raise ValueError("invalid flag edit")
+        model.set_flag(change["id"], change["on"])
+    repairs = edit.get("repair", [])
+    if not isinstance(repairs, list) or set(repairs) - set(REPAIRS):
+        raise ValueError("unknown repair")
+    if "phantom" in repairs:
+        model.repair_phantom_mark()
+    if "duplicate_keys" in repairs:
+        model.merge_duplicate_keys()
     return {"backup": store.apply_edit(user, kind, args.slot, model, running, _update_party_characters)}
 
 

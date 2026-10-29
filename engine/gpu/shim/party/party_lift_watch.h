@@ -10,7 +10,7 @@ struct Hit {
     std::uint32_t tid = 0;
     std::uint64_t rip = 0;      // the instruction after the write, guest offset
     std::uint64_t value = 0;    // the watched bytes after the write
-    std::uint64_t step = 0;     // BbFrameRate::Steps() when it fired
+    std::uint64_t step = 0;     // BbEngine::FrameRate::Steps() when it fired
     std::uint64_t ret[6] = {};  // return addresses along the rbp chain
     std::uint64_t rsp0 = 0;     // [rsp] when it points into the image
 };
