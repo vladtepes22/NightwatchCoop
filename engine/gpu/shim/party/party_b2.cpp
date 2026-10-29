@@ -10657,6 +10657,8 @@ void ChaliceApartTick(const GameSnapshot& s, double now) {
 
 } // namespace
 
+bool BossBarLine(std::string* who) { return BossFightActive(who); }
+
 void NoteChosenApart(const char* why) {
     if (Role() != RoleClient) return;
     g_chalice_chosen = true;

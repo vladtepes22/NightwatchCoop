@@ -3355,6 +3355,7 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
                 }
             }
             Log("test: hp %d/%d area 0x%08x curse speffects:%s", hp, mx, area, fx.empty() ? " none" : fx.c_str());
+            if (std::string bb; b2::BossBarLine(&bb)) Log("test: %s", bb.c_str());  // altar077: the boss bar and its HP on this game
         }
     }
     if (!t.watch_texts.empty() && Seconds(t.watch_at, now) >= 0.25) {

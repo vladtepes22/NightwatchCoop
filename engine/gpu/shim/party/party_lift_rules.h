@@ -137,6 +137,17 @@ inline bool LocalEndToAllPlayers(std::int32_t event_id, std::int32_t bank, std::
     return true;
 }
 
+/// liftre077: a lift car is built (model, hit object, animation controller) some 2-4 s after a player comes near
+/// it; PlayAnim on an unbuilt car plays nothing and does not mark it playing, so the lift event's wait for the
+/// animation's end passes at once and the whole ride runs in 40 ms (docs/party/world_actions.md 10.1.2). For a car
+/// that is wanted here (a player is near: its active flag is set) but not built yet, the animation is held as
+/// playing until the build, which replays the request for real. Far from every player the fast forward is right.
+constexpr double kCarHoldMax = 12.0;  // s: a car that never gets built lets its wait go
+inline bool HoldCarAnim(bool hold_on, bool lift_car, bool built, bool wanted) {
+    return hold_on && lift_car && !built && wanted;
+}
+inline bool CarHoldExpired(double held_s) { return held_s > kCarHoldMax; }
+
 /// liftfix (a player's report: "I was riding an elevator and went through the ground and died", the
 /// Research Hall lift 3501105 at 60 FPS: the host on the car at the top, HP 0 37 m lower, 11 m under
 /// the shaft's bottom floor, with the game's fall state set and its ride bit cleared): a rider that

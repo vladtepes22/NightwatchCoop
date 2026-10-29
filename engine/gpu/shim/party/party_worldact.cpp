@@ -602,6 +602,8 @@ FogAction HostFogAction(const BossGate& g, bool guest_starts_on, bool intro_done
 #include "seamless_rules.h"
 #include "party_bossfog_rules.h"
 #include "bbport_present_hold.h"
+#include "bbport_frame_rate.h"
+#include "party_lift_watch.h"
 
 #include <atomic>
 #include <chrono>
@@ -619,6 +621,8 @@ extern "C" void runtime_pad_director_press(std::uint32_t buttons); // src/runtim
 
 namespace coop::worldact {
 namespace {
+// liftre077: when this game last saw a lift car it rides play a ride animation (LiftRiderTick), Now() s
+std::atomic<double> g_lift_ride_seen{-1e9};
 
 void Log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 void Log(const char* fmt, ...) {
@@ -985,7 +989,16 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link) {
             if (!(st.pickups && MapItemFlag(id))) {
                 st.known.insert(std::uint64_t(id) * 2 + (v ? 1 : 0));
                 if (LiftByPosFlag(id)) {
-                    st.lift_baseline.insert(std::uint64_t(id) * 2 + (v ? 1 : 0));
+                    if (now - g_lift_ride_seen.load() < 25.0 && v) {
+                        // liftre077: the ride's own end, written as the guest crossed into the next block at the top
+                        // (Cathedral Ward: m24_01 -> m24_00): the baseline of that load swallowed it and the host's
+                        // world kept the car at the other end. A ride seen lately is a ride to report.
+                        st.lift_pending[id] = v;
+                        Log("guest: lift flag %u = %d changed during the load after a ride seen %.0f s ago: reported as a ride end", id,
+                            v ? 1 : 0, now - g_lift_ride_seen.load());
+                    } else {
+                        st.lift_baseline.insert(std::uint64_t(id) * 2 + (v ? 1 : 0));
+                    }
                 }
             }
         }
@@ -3016,6 +3029,7 @@ void LiftRiderTick(const GameSnapshot& s) {
             }
         }
     }
+    if (playing) g_lift_ride_seen.store(Now());
     std::uint64_t f = 0;
     if (!playing && !track.riding) {
         // NW-666485f (Mensis, frame generation): riders died with no `lift ride:` line. While the
@@ -3093,6 +3107,427 @@ void LiftRiderTick(const GameSnapshot& s) {
         Log("lift ride: the local chr dropped through the moving car at (%.1f, %.1f, %.1f) (ride bit off, %.1f m under "
             "the car); %s (%.1f, %.1f, %.1f)", double(me[0]), double(me[1]), double(me[2]), double(put[1] - 0.3f - me[1]),
             ok ? "put back on the car at" : "NOT put back to", double(put[0]), double(put[1]), double(put[2]));
+    }
+}
+
+// liftre077: a lift car's animation requested while the car is not built yet (docs/party/world_actions.md 10.1.2).
+// A map object is built (model, hit object entry+0x288, animation controller entry+0x290) some 2-4 s AFTER a
+// player comes near it (flag 0x40 of entry+0x1FC set at once, the build by the object's state machine 0x15A30F0
+// -> 0x15A2A00 as its resources arrive). PlayAnim (0x15A25C0) on an object without a controller plays nothing
+// and does not mark it playing, so the lift event's wait for the animation's end (2003[18], check 0x13CC180:
+// entry+0x208 == the animation and entry+0x1FE bit 3) passes at once: the up event runs its three animations
+// (31, 32, 7) in 40 ms, the car shows the end pose when the build finishes (the build replays the last
+// requested animation, 0x15A1710) and the rider, who never left, is snapped up by the rider guard. Far from every
+// player the same fast-forward is right (nobody sees the car). So for a lift car that is wanted here (flag 0x40)
+// but not built: mark it playing (entry+0x1FE bit 3) until the build replays the request, which then plays for real.
+struct CarHold {
+    std::uint64_t entry;
+    std::int32_t anim;
+    double since;
+    std::int32_t car = 0;
+};
+std::mutex g_hold_mu;
+std::vector<CarHold> g_holds;
+void* g_playanim_orig = nullptr;
+std::atomic<int> g_hold_made{0}, g_hold_done{0}, g_hold_timeout{0};
+
+bool LiftCarEntity(std::uint64_t entry, std::int32_t* car) {
+    for (const Lift& l : Lifts()) {
+        for (const std::int32_t e : {l.car, l.gate_rides ? l.gate : 0}) {
+            ObjAnimState a;
+            if (e && ReadObjAnim(e, &a) && a.entry == entry) {
+                *car = e;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+BB_COOP_SYSV void PlayAnimHook(std::uint64_t entry, std::int32_t anim) {
+    reinterpret_cast<void(BB_COOP_SYSV*)(std::uint64_t, std::int32_t)>(g_playanim_orig)(entry, anim);
+    if (!entry || anim < 0) return;
+    std::uint64_t ctrl = 0;
+    std::uint32_t fl = 0;
+    if (!SafeGet(entry + 0x290, &ctrl)) return;
+    if (ctrl) {
+        std::lock_guard<std::mutex> lk(g_hold_mu);
+        for (std::size_t i = 0; i < g_holds.size(); ++i) {
+            if (g_holds[i].entry == entry) {
+                Log("lift car hold: entry %#llx built after %.2f s; animation %d plays for real now (held %d)",
+                    static_cast<unsigned long long>(entry), Now() - g_holds[i].since, int(anim), g_holds[i].anim);
+                g_holds.erase(g_holds.begin() + static_cast<std::ptrdiff_t>(i));
+                g_hold_done.fetch_add(1);
+                break;
+            }
+        }
+        return;
+    }
+    static const bool off = [] {
+        const char* e = std::getenv("BB_PARTY_LIFT_HOLD");
+        return e && e[0] == '0';
+    }();
+    SafeGet(entry + 0x1fc, &fl);
+    std::int32_t car = 0;
+    // not wanted here: nobody sees this car, the wait passes as in the game
+    if (!liftrules::HoldCarAnim(!off, (fl & 0x40) != 0 && LiftCarEntity(entry, &car), false, (fl & 0x40) != 0)) return;
+    std::uint8_t f8 = 0;
+    if (!SafeGet(entry + 0x1fe, &f8)) return;
+    f8 |= 8;
+    SafeWrite(entry + 0x1fe, &f8, 1);
+    std::lock_guard<std::mutex> lk(g_hold_mu);
+    bool known = false;
+    for (CarHold& h : g_holds) {
+        if (h.entry == entry) h.anim = anim, known = true;
+    }
+    if (!known) {
+        g_holds.push_back({entry, anim, Now(), car});
+        g_hold_made.fetch_add(1);
+        Log("lift car hold: car %d (entry %#llx) is not built yet (flags %#x): animation %d is held as playing until it is",
+            car, static_cast<unsigned long long>(entry), fl, int(anim));
+    }
+}
+
+// liftre077 test aid (BB_TEST_LIFT_PROBE): the lift event's wait check (0x13CC180) as it answers for a lift car.
+void* g_waitchk_orig = nullptr;
+BB_COOP_SYSV std::uint64_t WaitCheckHook(std::uint64_t entity, std::uint64_t anim) {
+    std::uint64_t r = reinterpret_cast<std::uint64_t(BB_COOP_SYSV*)(std::uint64_t, std::uint64_t)>(g_waitchk_orig)(entity, anim);
+    // liftre077: the game clears the unbuilt car's playing bit again within a step (live: the check read 1 once,
+    // then 0, and the three animations ran in 40 ms), so the wait answers "playing" itself while the hold stands.
+    if (!(r & 0xff)) {
+        std::lock_guard<std::mutex> lk(g_hold_mu);
+        for (const CarHold& h : g_holds) {
+            if (h.car == static_cast<std::int32_t>(entity) && h.anim == static_cast<std::int32_t>(anim)) {
+                r = 1;
+                break;
+            }
+        }
+    }
+    static const bool on = std::getenv("BB_TEST_LIFT_PROBE") != nullptr;
+    static std::atomic<std::uint64_t> last{~0ull};
+    if (on && liftrules::LiftByCar(static_cast<std::int32_t>(entity))) {
+        const std::uint64_t key = (entity << 20) ^ (anim << 4) ^ (r & 0xff);
+        if (last.exchange(key) != key) {
+            ObjAnimState a;
+            ReadObjAnim(static_cast<std::int32_t>(entity), &a);
+            Log("lift wait check: entity %d anim %d -> %d (obj anim %d playing %d flags %#x) step %llu", int(entity), int(anim),
+                int(r & 0xff), a.anim, int(a.playing), a.flags, (unsigned long long)BbFrameRate::Steps());
+        }
+    }
+    return r;
+}
+
+// Main thread, every tick: a held car that never got built lets go.
+void LiftHoldTick() {
+    std::lock_guard<std::mutex> lk(g_hold_mu);
+    for (std::size_t i = 0; i < g_holds.size();) {
+        std::uint64_t ctrl = 0;
+        CarHold& h = g_holds[i];
+        if (SafeGet(h.entry + 0x290, &ctrl) && !ctrl && liftrules::CarHoldExpired(Now() - h.since)) {
+            std::uint8_t f8 = 0;
+            if (SafeGet(h.entry + 0x1fe, &f8)) {
+                f8 &= static_cast<std::uint8_t>(~8);
+                SafeWrite(h.entry + 0x1fe, &f8, 1);
+            }
+            Log("lift car hold: entry %#llx was not built in %.0f s; animation %d released", static_cast<unsigned long long>(h.entry),
+                liftrules::kCarHoldMax, int(h.anim));
+            g_hold_timeout.fetch_add(1);
+            g_holds.erase(g_holds.begin() + static_cast<std::ptrdiff_t>(i));
+        } else if (ctrl) {
+            g_holds.erase(g_holds.begin() + static_cast<std::ptrdiff_t>(i));  // built (the replay's hook logs)
+        } else {
+            ++i;
+        }
+    }
+}
+
+// liftre077: lift cars within kPrebuildRadius of the local chr stay fully built. The game keeps an object at a level
+// by the grid cells the loaded area covers (0x15B2B20 -> SetLevel 0x15A4810: 2 builds it fully, 1 model only, 3 drops
+// it); a car is built only when a player is already close, 2-4 s before the floor and the animation exist. A player
+// placed by an in-world warp (gather, party travel) or running up to a lift reaches it first. Cars within 150 m of the
+// local chr are asked for the full level, so they are built long before anyone stands on them.
+constexpr float kPrebuildRadius = 150.0f;
+std::atomic<std::uint64_t> g_pre_entry[48];
+std::atomic<bool> g_pre_near[48];
+std::atomic<int> g_pre_n{0};
+void* g_setlevel_orig = nullptr;
+std::atomic<int> g_pre_forced{0};
+BB_COOP_SYSV std::uint64_t SetLevelHook(std::uint64_t entry, std::int32_t level) {
+    if (level != 2) {
+        const int n = g_pre_n.load(std::memory_order_relaxed);
+        for (int i = 0; i < n; ++i) {
+            if (g_pre_entry[i].load(std::memory_order_relaxed) == entry) {
+                if (g_pre_near[i].load(std::memory_order_relaxed)) {
+                    if (g_pre_forced.fetch_add(1) < 6) {
+                        Log("lift car prebuild: car entry %#llx asked for level %d, kept fully built (local chr within %.0f m)",
+                            static_cast<unsigned long long>(entry), int(level), double(kPrebuildRadius));
+                    }
+                    level = 2;
+                }
+                break;
+            }
+        }
+    }
+    return reinterpret_cast<std::uint64_t(BB_COOP_SYSV*)(std::uint64_t, std::int32_t)>(g_setlevel_orig)(entry, level);
+}
+void LiftPrebuildTick(const GameSnapshot& s) {
+    static const bool off = [] {
+        const char* e = std::getenv("BB_PARTY_LIFT_PREBUILD");
+        return e && e[0] == '0';
+    }();
+    float me[4], rot[4];
+    if (!s.world_up || s.loading) {
+        g_pre_n.store(0, std::memory_order_relaxed);  // no object table yet / being rebuilt
+        return;
+    }
+    const bool ok = !off && s.player && LocalChrPose(me, rot);
+    int n = 0;
+    for (const Lift& l : Lifts()) {
+        for (const std::int32_t e : {l.car, l.gate_rides ? l.gate : 0}) {
+            ObjAnimState a;
+            float at[3];
+            if (!e || n >= 48 || !ReadObjAnim(e, &a) || !a.entry) continue;
+            g_pre_entry[n].store(a.entry, std::memory_order_relaxed);
+            const bool near = ok && ObjectPoint(e, 0, 0, at) && std::hypot(me[0] - at[0], me[2] - at[2]) < kPrebuildRadius;
+            g_pre_near[n].store(near, std::memory_order_relaxed);
+            ++n;
+            // a car nobody asked for yet (level 0): ask for the full build now, the way the cell pass does
+            std::uint8_t rq = 0;
+            static double last_ask[48];
+            if (near && g_setlevel_orig && SafeGet(a.entry + 0x1f9, &rq) && rq != 4 && Now() - last_ask[n - 1] > 1.0) {
+                last_ask[n - 1] = Now();
+                reinterpret_cast<std::uint64_t(BB_COOP_SYSV*)(std::uint64_t, std::int32_t)>(g_setlevel_orig)(a.entry, 2);
+                static int logged = 0;
+                if (logged++ < 8) {
+                    Log("lift car prebuild: car %d (entry %#llx) was at level %u: asked to build fully (local chr %.0f m away)", e,
+                        static_cast<unsigned long long>(a.entry), unsigned(rq),
+                        double(std::hypot(me[0] - at[0], me[2] - at[2])));
+                }
+            }
+        }
+    }
+    g_pre_n.store(n, std::memory_order_relaxed);
+}
+
+// liftre077: a lift car that is wanted here but not built has no floor either (hit object entry+0x288 absent): a
+// player who steps into its footprint falls down the shaft (live, lf at 60 FPS with the ride 1.2 s after the
+// arrival: the guest dropped 25 m through the unbuilt car and died). While the local chr is near such a car and
+// starts to fall, it is put back on the last spot it stood on and held there until the car is built (or 10 s).
+void LiftBuildGuardTick(const GameSnapshot& s) {
+    static struct {
+        bool have = false, pinned = false;
+        float good[3] = {}, rot[4] = {}, last_y = 0;
+        double t = 0, pin_since = 0, grace = 0;
+    } g;
+    static const bool off = [] {
+        const char* e = std::getenv("BB_PARTY_LIFT_HOLD");
+        return e && e[0] == '0';
+    }();
+    if (off || !s.world_up || s.loading || !s.player) {
+        g.have = g.pinned = false;
+        return;
+    }
+    float me[4], rot[4];
+    if (!LocalChrPose(me, rot)) return;
+    bool unbuilt_near = false;
+    for (const Lift& l : Lifts()) {
+        for (const std::int32_t e : {l.car, l.gate_rides ? l.gate : 0}) {
+            ObjAnimState a;
+            float at[3];
+            std::uint64_t ctrl = 1;
+            if (!e || !ReadObjAnim(e, &a) || !a.entry || !(a.flags & 0x40) || !SafeGet(a.entry + 0x290, &ctrl) || ctrl ||
+                !ObjectPoint(e, 0, 0, at)) {
+                continue;
+            }
+            if (std::hypot(me[0] - at[0], me[2] - at[2]) < kLiftCarRadius + 2.0f) unbuilt_near = true;
+        }
+    }
+    const double now = Now();
+    if (unbuilt_near) g.grace = now + 2.5;  // the car's floor enters the world a moment after the build
+    if (!unbuilt_near && now > g.grace) {
+        g.have = g.pinned = false;
+        return;
+    }
+    const double dt = now - g.t;
+    const float vy = g.have && dt > 0.0 ? float((me[1] - g.last_y) / dt) : 0.0f;
+    g.t = now, g.last_y = me[1];
+    if (g.pinned && !unbuilt_near) g.pinned = false;  // built: no more holding, a fall is still put back
+    if (g.pinned && now - g.pin_since > 10.0) {
+        g.pinned = false;
+        Log("lift car floor: the car near the local chr was not built in 10 s; released");
+        return;
+    }
+    if (!g.pinned && (!g.have || vy > -3.0f)) {
+        g.have = true;
+        std::memcpy(g.good, me, sizeof g.good);
+        std::memcpy(g.rot, rot, sizeof g.rot);
+        return;
+    }
+    if (!g.pinned) {
+        g.pinned = unbuilt_near;
+        g.pin_since = now;
+        Log("lift car floor: the local chr falls (%.1f m/s) at (%.1f, %.1f, %.1f) next to a lift car that is not built yet: held at "
+            "(%.1f, %.1f, %.1f) until it is", double(vy), double(me[0]), double(me[1]), double(me[2]), double(g.good[0]),
+            double(g.good[1]), double(g.good[2]));
+    }
+    alignas(16) float to[4] = {g.good[0], g.good[1], g.good[2], 1.0f};
+    alignas(16) float r16[4] = {g.rot[0], g.rot[1], g.rot[2], g.rot[3]};
+    b2::LocalChrWarp(s.player, to, r16, "next to a lift car that is not built yet: held on the spot it stood on");
+}
+
+// liftre077 test aid (BB_TEST_LIFT_PROBE=1 or 2): the lift cars' object state and the local chr's carry state per
+// game step. 1: a line when a car's state changes (the ints below) and every 25th step while a car plays; 2: a line
+// every step while a car within reach plays or the chr rides (the hit record's floats too).
+void LiftProbeTick(const GameSnapshot& s) {
+    static const int mode = [] {
+        const char* e = std::getenv("BB_TEST_LIFT_PROBE");
+        return e && *e ? std::atoi(e) : 0;
+    }();
+    if (!mode || !s.world_up || s.loading || !s.player) return;
+    static std::map<std::int32_t, std::string> last;
+    const std::uint64_t step = BbFrameRate::Steps();
+    float me[4], rot[4];
+    const bool have_me = LocalChrPose(me, rot);
+    std::uint64_t chr_hit = 0, chr_flags = 0;
+    SafeGet(s.player + 0x288, &chr_hit);
+    SafeRead(s.player + 0x1e1, &chr_flags, 5);
+    float chr_dt = 0;
+    SafeGet(s.player + 0xe0, &chr_dt);
+    {
+        // BB_TEST_LIFT_WATCH=1: hardware write breakpoints (party_lift_watch.cpp) on the chr's position y, standing
+        // hit, flag dword and the nearest car's hit height while a car is within 25 m.
+        static const bool watch = std::getenv("BB_TEST_LIFT_WATCH") != nullptr;
+        static const bool entry_mode = watch && std::atoi(std::getenv("BB_TEST_LIFT_WATCH")) == 2;
+        std::uint64_t car_entry = 0;
+        static int logged = 0;
+        if (watch) {
+            liftwatch::SetStep(step);
+            std::uint64_t phys = 0, hitp = 0;
+            std::uint64_t mod = 0;
+            if (SafeGet(s.player + 0x3b0, &mod) && mod && SafeGet(mod + 0x68, &phys) && phys && have_me) {
+                for (const Lift& l : Lifts()) {
+                    ObjAnimState c2;
+                    float at[3];
+                    if (ReadObjAnim(l.car, &c2) && c2.entry && ObjectPoint(l.car, 0, 0, at) &&
+                        std::hypot(me[0] - at[0], me[2] - at[2]) < 25.0f) {
+                        SafeGet(c2.entry + 0x288, &hitp);
+                        car_entry = c2.entry;
+                        break;
+                    }
+                }
+                if (entry_mode && car_entry) {
+                    // BB_TEST_LIFT_WATCH=2: the car's own build state (state / requested level / flags, resource bits,
+                    // hit object, animation controller)
+                    const std::uint64_t addr[4] = {car_entry + 0x1f8, car_entry + 0x1c8, car_entry + 0x288, car_entry + 0x290};
+                    const int len[4] = {8, 8, 8, 8};
+                    liftwatch::Arm(reinterpret_cast<std::uint64_t>(coop::Image()), addr, len);
+                } else if (!entry_mode && hitp > 0x100000000ull && hitp < 0x7ff000000000ull) {
+                    const std::uint64_t addr[4] = {phys + 0x1e4, s.player + 0x288, s.player + 0x1e4, hitp + 0xac};
+                    const int len[4] = {4, 8, 4, 4};
+                    liftwatch::Arm(reinterpret_cast<std::uint64_t>(coop::Image()), addr, len);
+                }
+            }
+            liftwatch::Hit h;
+            while (liftwatch::Pop(&h)) {
+                if (logged++ > 6000) break;
+                static const char* names[4] = {"chr_y", "chr_hit", "chr_flags", "car_hit_y"};
+                static const char* enames[4] = {"car_1f8", "car_1c8", "car_hit", "car_ctrl"};
+                char v[32];
+                if (entry_mode) {
+                    std::snprintf(v, sizeof v, "%#llx", static_cast<unsigned long long>(h.value));
+                } else if (h.which == 0 || h.which == 3) {
+                    float f;
+                    std::memcpy(&f, &h.value, 4);
+                    std::snprintf(v, sizeof v, "%.4f", double(f));
+                } else {
+                    std::snprintf(v, sizeof v, "%#llx", static_cast<unsigned long long>(h.value));
+                }
+                Log("lift watch: step %llu tid %u %s <- %s at +%llx ret %llx %llx %llx %llx rsp0 %llx", (unsigned long long)h.step,
+                    h.tid, entry_mode ? enames[h.which & 3] : names[h.which & 3], v, (unsigned long long)h.rip, (unsigned long long)h.ret[0],
+                    (unsigned long long)h.ret[1], (unsigned long long)h.ret[2], (unsigned long long)h.ret[3],
+                    (unsigned long long)h.rsp0);
+            }
+        }
+    }
+    for (const Lift& l : Lifts()) {
+        ObjAnimState car;
+        if (!ReadObjAnim(l.car, &car) || !car.entry) continue;
+        const std::uint64_t e = car.entry;
+        std::uint8_t st = 0, rq = 0, f8 = 0, c8 = 0;
+        std::uint32_t c0 = 0;
+        std::uint64_t m278 = 0, hit = 0, ctrl = 0, mdl = 0, p1d0 = 0;
+        std::int32_t h = -1;
+        SafeGet(e + 0x1f8, &st); SafeGet(e + 0x1f9, &rq); SafeGet(e + 0x1fe, &f8); SafeGet(e + 0x1c8, &c8);
+        SafeGet(e + 0x1c0, &c0); SafeGet(e + 0x278, &m278); SafeGet(e + 0x288, &hit); SafeGet(e + 0x290, &ctrl);
+        SafeGet(e + 0x238, &mdl); SafeGet(e + 0x1d0, &p1d0); SafeGet(e + 0x20c, &h);
+        std::int32_t hs = -1; std::uint8_t hf = 0;
+        float hy = std::numeric_limits<float>::quiet_NaN();
+        if (hit > 0x100000000ull && hit < 0x7ff000000000ull) {
+            SafeGet(hit + 0x6c, &hs); SafeGet(hit + 0xc0, &hf); SafeGet(hit + 0xac, &hy);
+        }
+        char key[320];
+        std::snprintf(key, sizeof key,
+                      "st %u rq %u f1fc %#x f1fe %#x c8 %#x c0 %u anim %d play %d h20c %d state230 %d ctrl %d mdl %d "
+                      "hit %d hs %d hf %#x",
+                      st, rq, car.flags, f8, c8, c0, car.anim, int(car.playing), h, car.state, ctrl != 0, mdl != 0,
+                      hit != 0, hs, hf);
+        std::string& prev = last[l.car];
+        const bool changed = prev != key;
+        prev = key;
+        bool near = false;
+        if (have_me) {
+            float at[3];
+            near = ObjectPoint(l.car, 0, 0, at) && std::hypot(me[0] - at[0], me[2] - at[2]) < 25.0f;
+        }
+        const bool active = near && (car.playing || (chr_flags & 0x200000000ull));
+        // The standing contact the way the game's mover test (0x18CB0E0) reads it: the chr's physics module (+0xa8 the
+        // contact object, +0xa0 its node) and that node's motion vectors (|+0x40|^2, |+0x50|^2 against 0.0005).
+        char mv[160] = "";
+        if (have_me && (active || changed)) {
+            std::uint64_t mod = 0, phys = 0, contact = 0, model = 0, nmap = 0, mgr = 0, mgr2 = 0, arrA = 0, arrB = 0;
+            std::int32_t node = -1, sk = -1, bi = -1;
+            if (SafeGet(s.player + 0x3b0, &mod) && mod && SafeGet(mod + 0x68, &phys) && phys && SafeGet(phys + 0xa8, &contact)) {
+                SafeGet(phys + 0xa0, &node);
+                if (contact == e && SafeGet(e + 0x278, &model) && model && SafeGet(model + 0x28, &nmap) && nmap) {
+                    std::uint64_t map2 = 0;
+                    std::int32_t cnt = 0;
+                    if (SafeGet(nmap + 0x20, &map2) && map2 && SafeGet(nmap + 0x28, &cnt) && node >= 0 && node < cnt &&
+                        SafeGet(map2 + 4ull * node, &sk) && SafeGet(Guest(0x553d700), &mgr) && mgr && SafeGet(mgr + 0x28, &mgr2) &&
+                        mgr2 && SafeGet(mgr2 + 8, &mgr2) && mgr2 && SafeGet(mgr2 + 0x20, &arrA) && SafeGet(mgr2 + 0xe0, &arrB) &&
+                        arrA && arrB && SafeGet(arrA + 0x68 + 0x90ull * sk, &bi)) {
+                        float v40[4] = {}, v50[4] = {};
+                        SafeRead(arrB + 0x40 + 0x80ull * bi, v40, 16);
+                        SafeRead(arrB + 0x50 + 0x80ull * bi, v50, 16);
+                        std::snprintf(mv, sizeof mv, "node %d sk %d bi %d |v40|2 %.6f (%.4f %.4f %.4f) |v50|2 %.6f", node, sk, bi,
+                                      double(v40[0] * v40[0] + v40[1] * v40[1] + v40[2] * v40[2]), double(v40[0]), double(v40[1]),
+                                      double(v40[2]), double(v50[0] * v50[0] + v50[1] * v50[1] + v50[2] * v50[2]));
+                    }
+                }
+            }
+            if (!mv[0]) std::snprintf(mv, sizeof mv, "contact %s", contact == e ? "=car (no node vector)" : (contact ? "other" : "none"));
+        }
+        if (changed || (active && (mode >= 2 || (step % 25) == 0))) {
+            float ey = std::numeric_limits<float>::quiet_NaN(), hit_chr_diff = 0;
+            float at[3];
+            if (ObjectPoint(l.car, 0, 0, at)) ey = at[1];
+            hit_chr_diff = hy - (have_me ? me[1] : 0.0f);
+            Log("lift probe: step %llu t %.3f dt %.5f chrdt %.5f car %d %s%s | map_y %.2f hit_y %.3f chr_y %.3f (hit-chr %.3f) "
+                "chrhit %s f1e1 %010llx | %s",
+                (unsigned long long)step, BbFrameRate::GameSeconds(), double(BbFrameRate::LastDt()), double(chr_dt), l.car, key,
+                changed ? " CHANGED" : "", double(ey), double(hy), have_me ? double(me[1]) : 0.0, double(hit_chr_diff),
+                chr_hit == hit ? "=car" : (chr_hit ? "other" : "none"), static_cast<unsigned long long>(chr_flags), mv);
+            if (mode >= 2 && active && hit > 0x100000000ull && hit < 0x7ff000000000ull) {
+                float f[32] = {};
+                SafeRead(hit + 0x30, f, sizeof f);
+                Log("lift probe: hit34..b4: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f | "
+                    "%.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
+                    double(f[0]), double(f[1]), double(f[2]), double(f[3]), double(f[4]), double(f[5]), double(f[6]),
+                    double(f[7]), double(f[8]), double(f[9]), double(f[10]), double(f[11]), double(f[12]), double(f[13]),
+                    double(f[14]), double(f[15]), double(f[16]), double(f[17]), double(f[18]), double(f[19]), double(f[20]),
+                    double(f[21]), double(f[22]), double(f[23]), double(f[24]), double(f[25]), double(f[26]), double(f[27]),
+                    double(f[28]), double(f[29]), double(f[30]), double(f[31]));
+            }
+        }
     }
 }
 
@@ -3379,6 +3814,21 @@ void Init() {
     const bool b = HookPrologue(0x13AF830, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53},
                                 &NetKickEntry, "ObjAct remote kick (log)");
     Log("ObjAct kick log %s", a && b ? "on" : "partly off");
+    // liftre077: PlayAnim (0x15A25C0: push rbp; mov rbp, rsp; push r15; push r14), a lift car asked to play before it is built.
+    if (!ReplacePrologue(0x15A25C0, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56}, reinterpret_cast<const void*>(&PlayAnimHook),
+                         &g_playanim_orig, "lift car animation held until the car is built (0x15A25C0)")) {
+        g_playanim_orig = nullptr;
+        Log("lift car hold: NOT installed (bytes differ)");
+    }
+    if (!ReplacePrologue(0x15A4810, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56}, reinterpret_cast<const void*>(&SetLevelHook),
+                         &g_setlevel_orig, "lift cars near the local chr stay built (0x15A4810)")) {
+        g_setlevel_orig = nullptr;
+        Log("lift car prebuild: NOT installed (bytes differ)");
+    }
+    if (!ReplacePrologue(0x13CC180, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56}, reinterpret_cast<const void*>(&WaitCheckHook),
+                         &g_waitchk_orig, "lift car animation wait held while the car is built (0x13CC180)")) {
+        g_waitchk_orig = nullptr;
+    }
     // Enemy drop rolls and map item pickups: logged (the D4 evidence) - only with D4 on or a test.
     const bool d4 = st.pickups || std::getenv("BB_PARTY_WORLDACT_TEST");
     // The enemy drop roll (0x17DD0B0): one shared roll per kill for the party (party_droproll.h),
@@ -3604,6 +4054,10 @@ void Tick(const GameSnapshot& s, party::PartyLink* link) {
     const PartyRole role = PartyDirector::Get().Role();
     LiftReplayTick(s);
     LiftRiderTick(s);
+    LiftPrebuildTick(s);
+    LiftHoldTick();
+    LiftBuildGuardTick(s);
+    LiftProbeTick(s);
     droproll::Tick(s, link, role == PartyRole::Host);
     if (role == PartyRole::Guest) {
         g_fog_host_map.store(b2::MemberMap(0), std::memory_order_relaxed);

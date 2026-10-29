@@ -588,6 +588,72 @@ is NOT (below the real floor), three times, and stops.
 - Open: a guest ride that starts before the car's block init ran snaps to the top at 90/120/60fg (CL-4e8bd3);
   `BB_TEST_LIFT_TRACE=1` logs rider and car height every 0.1 s.
 
+### 10.1.2 A lift car that is not built yet (liftre077, 2026-10-29, live, eboot decompiled)
+
+**Why guests fell through lifts or rode them "instantly" (CL-4e8bd3).** A map object (a lift car included) is not
+a finished object when a player comes near it. The game builds it by levels, and the build takes 2-4 s of
+resource loading:
+
+* Object entries are `0x2E0` bytes in the blocks of the table at `0x553B168` (`0x13C9AF0` finds one by entity
+  id). `+0x1F8` is the state (0 none .. 4 built), `+0x1F9` the level asked for (0 none, 2 model, 4 full),
+  `+0x1FC` bit `0x40` active, `+0x1C8` the resource bits (bit 4: loaded), `+0x278` the model, `+0x288` the hit
+  object (the floor), `+0x290` the animation controller, `+0x208` the last requested animation, `+0x1FE`
+  bit 3 "an animation is playing".
+* The level comes from a pass over the grid cells the loaded area covers (`0x15B2B20` -> `SetLevel 0x15A4810`:
+  argument 2 builds fully, 1 model only, 3 drops). The state machine `0x15A30F0` builds (`0x15A2A00` ->
+  `0x15A1710`) once the resources arrive, and the build replays the last requested animation
+  (`0x15A25C0` with the record at `+0x2B0`).
+* `PlayAnim` (`0x15A25C0`) on a car without controller plays nothing and does not set the playing bit, and the
+  game clears a bit set by hand within a step. The lift event's wait for the animation's end (`2003[18]`,
+  waiter `0x179BC30`, check `0x13CC180`) therefore passes at once. Live (Cathedral Ward 2401102): anim 31, 32
+  and 7 requested in 44 ms, flags flipped, the car shows the end pose when it is built 1.5 s later and the
+  rider guard snaps the rider (that is the "instant ride" and the "no ride seen" of the lf smoke).
+* Until the car is built it has no floor: a player in its footprint falls down the shaft (live: lf at 60 FPS with
+  the ride 1.2 s after the arrival, the guest dropped 25 m through the unbuilt car and died; that is the
+  "phased through the elevator" of the report). The vanilla game never meets it: a loading screen builds
+  everything around the lamp. The party's in-world warps (gather, party travel), a slow machine or a
+  running player do.
+* It is not frame-rate dependent in itself (it is wall time of resource loading), but a slower game or a
+  harness wait shorter than the build makes it show at some rates only. The smoke waited for `?obj=2401102:30`,
+  which matched the OLD stop of the lamp load's pose (lifts2077).
+
+**The fix (all four are test-switchable, default on; `BB_PARTY_LIFT_PREBUILD=0`, `BB_PARTY_LIFT_HOLD=0`):**
+
+1. *Prebuild* (`LiftPrebuildTick`, `SetLevelHook`): lift cars within 150 m of the local chr are asked for the
+   full level (`0x15A4810` called by us once a second per car, and the game's own "drop" / "model only"
+   requests for them are turned into 2). They are built before anyone can stand on them: measured 0.2-0.9 s
+   after the lamp load.
+2. *Hold* (`PlayAnimHook` on `0x15A25C0`, `WaitCheckHook` on `0x13CC180`): when a car that is active but not built
+   is asked to play an animation, the wait for it keeps answering "playing" until the build replays the
+   request for real (12 s at most, `liftrules::HoldCarAnim`). Far from every player nothing changes (the game's
+   fast forward is right when nobody sees the car).
+3. *Floor guard* (`LiftBuildGuardTick`): a local chr that starts to fall near an unbuilt car is put back on the
+   spot it stood on and held until the car is built, then for 2.5 s more. A last resort: a fall at the build
+   itself can still gain speed, the prebuild is what makes it rare.
+4. *Ride end after a block change* (`g_lift_ride_seen`): a guest's ride end written while the guest crosses
+   into the next block (Cathedral Ward's top is m24_00) was swallowed by that load's baseline and the host's
+   world kept the car at the other end. A ride seen in the last 25 s is reported.
+
+The rider guard (`liftrules::RiderTick`) stays as the backstop.
+
+**How the game carries a rider (decompiled, for the next person).** Per game step: ChrIns update `0x18BE0A0` ->
+controller step `0x1514500` (gets the step's dt) -> moving-ground test `0x18CB0E0`. That function clears the
+ride bit (PlayerIns `+0x1E5` bit 2) at `0x18CB14F` every step and sets it again at `0x18CB369` when the standing
+hit's object is flagged as a mover; the rider is attached to the standing object's node when that node's
+motion vector (node array element `+0x40` / `+0x50`, base `*(*(0x553D700+0x28)+8)`, stride `0x80`) has a squared
+length over 0.0005 (`0x4927D20`); the displacement is the anchored node transform delta
+(`0x1A4DD20`, `0x1804620`), with no dt in it. The chr position is written from the Havok proxy by `0x1E38910`
+(`0x1E389ED`, blend factor at `+0x300`). In every ride traced (Cathedral Ward, 30-120 FPS targets, the game
+stepping at 30-60/s) the ride bit stayed on and the chr followed the car. No game-side fall-through of a
+built car was seen; the frame-rate hooks do not touch these functions. What is unproven: whether the 0.0005
+threshold turns the carry off in the slow ease phases at a real 120 FPS (the probe prints the node vector:
+`BB_TEST_LIFT_PROBE=2`).
+
+**Test aids.** `BB_TEST_LIFT_PROBE=1|2` (per-step car build state, hit, chr carry, node vector, the wait check),
+`BB_TEST_LIFT_WATCH=1|2` (hardware write breakpoints on the chr's position / ride bit / standing hit, or on the
+car's build fields; `party_lift_watch.cpp`), smoke phase `lfx` (the lf ride with two players), `BB_LF_PIN` /
+`BB_LF_CAR_DELAY` (shorten the wait on the landing: the ride before the build).
+
 ## 11. Interface (for split travel and other callers)
 
 * Wire format: EVENT `world_action` (`worldact::kEventName`), guest -> host, body

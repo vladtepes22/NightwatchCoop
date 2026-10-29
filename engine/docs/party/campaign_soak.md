@@ -173,6 +173,18 @@ merged: `read_tsc` through the process counter at a pinned 1 GHz) came ~7.7 s in
 GPU library assertion: a guest-side timing change, not a shader or a load; common to both is only
 that neither left a report on disk, which the new `device_lost_*.log` covers.
 
+## Device lost in a guest's first load, 0.7.7 (agent devlost077)
+
+Smoke saw rare device losts (bossrunes br, upport sj at 30 FPS, clothfps mds, lifts fw/fwg/lf) whose
+visible asserts (`Device lost during submit` at the bindSparse in buffer_cache.cpp / the submit in
+vk_scheduler.cpp, and the following vk_scheduler / vk_semaphore asserts) are only the first thread to
+notice an already lost device, not the cause. Not reproduced: seam_rejoin `sj` at 30 FPS, 10 runs
+back to back on one PC (RTX 3070, 2 loopback instances), 0 device losts (the failed steps of those
+runs were seam logic steps, none a GPU one). Left planned: the next occurrence is already
+captured by `out\device_lost_<time>.log` (breadcrumbs, device fault address, hang shader `.bin` /
+`.spv`; see the section above). Whoever sees it should read that report first: an "invalid write
+at 0" fault address points to a shader using an unbound buffer (stale descriptor in a first load).
+
 ## 2026-10-15 segment: Cathedral Ward -> Old Yharnam -> Forbidden Woods -> Byrgenwerth (agent pard)
 
 The next main-path segment of the live playtests, 2 loopback instances, the test saves

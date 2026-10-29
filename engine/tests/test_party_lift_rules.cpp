@@ -389,6 +389,16 @@ int main() {
         CHECK(!n.has_off);
     }
 
+    {
+        // liftre077: a lift car asked to play before it is built holds its wait; far from everyone it does not
+        CHECK(HoldCarAnim(true, true, false, true));
+        CHECK(!HoldCarAnim(true, true, true, true));    // built: the animation plays for real
+        CHECK(!HoldCarAnim(true, true, false, false));  // nobody near: the game's fast forward stands
+        CHECK(!HoldCarAnim(true, false, false, true));  // not a lift car
+        CHECK(!HoldCarAnim(false, true, false, true));  // BB_PARTY_LIFT_HOLD=0
+        CHECK(!CarHoldExpired(kCarHoldMax - 0.1) && CarHoldExpired(kCarHoldMax + 0.1));
+    }
+
     if (g_fail) {
         std::printf("%d check(s) failed\n", g_fail);
         return 1;
