@@ -237,8 +237,10 @@ Key findings behind the rows:
   1780-1789 is the Fishing Hamlet priest's), m27 12700901 / 12700903-12700905 / 12700910, m27 T7
   72700300-72700339 (321 / 322 the rune and League Staff triggers of 12700906). While the host's
   rule *Covenants per player* is on (default): C2 never writes them into a guest's save, a guest's
-  change of them in the host's world is never a world action, the host-world mirror still shows the
-  host's values in the overlay. Off: the base category (`BaseCategoryOf`: npc_quest, world_state,
+  change of them in the host's world is never a world action, and (0.7.7, covenant2077) the overlay shows
+  the guest's OWN values (`GuestCovenantTick`: the covenant bits are out of the mirror, the overlay is the own
+  pool's, and what the guest's talk changes in them is written back to the own pool; the log lines `guest
+  covenant overlay:`), so a guest talks to Valtr / Alfred / Annalise on its own state after the host joined. Off: the base category (`BaseCategoryOf`: npc_quest, world_state,
   cutscene_seen). The oath itself is the equipped rune (the player's record), the rune flags
   9440-9451 and the personal block (6676 / 6678 Valtr's gifts, 6813 League successor) were per
   player already; the NPCs' item awards stay C3's; Eileen (1360-1379) stays shared.

@@ -310,6 +310,7 @@ struct Test {
     Clock::time_point st_at{};
     bool god = false;     // god: the own chr kept invincible (test aid)
     bool log_pos = false; // log_pos: the player's area and position (FrpgNetMan +0xa7c / +0xaac) every 3 s
+    std::string fx_last;  // log_fx=-1: the last list logged
     int log_fx = 0;       // log_fx=ID (mergo077): every second the local player's SpEffect ID on / off
     Clock::time_point fx_at{};
     double log_pos_every = 1.0;  // log_pos=S (liftfix): every S s (0.2..10; a lift ride's vertical speed)
@@ -2918,6 +2919,36 @@ int DropFightDarkness() {
     }
     return n;
 }
+// A member who dies poisoned and gets up in place (every party revive: a lamp spot, the arena, beside a member)
+// kept the poison: the game clears it only by its respawn load, which rebuilds the chr and its SpEffect list
+// (the 0.7.6 report). Poison is the SpEffect rows with stateInfo (+0x156) 2 (2120 poison, 2121); a row's pointer
+// is at the list node +0x48. Gear / rune effects have other state infos and stay.
+int DropPoisonStates() {
+    constexpr std::uint16_t kPoisonStateInfo = 2;
+    const std::uint64_t player = LocalPlayer();
+    std::uint64_t list = 0, node = 0;
+    if (!player || !SafeGet(player + 0x1c8, &list) || !list || !SafeGet(list + 8, &node)) {
+        return 0;
+    }
+    std::vector<int> ids;
+    for (int guard = 0; node && guard < 512; ++guard) {
+        std::int32_t nid = 0;
+        std::uint64_t row = 0;
+        std::uint16_t state = 0;
+        if (!SafeGet(node + 0x40, &nid)) break;
+        if (SafeGet(node + 0x48, &row) && row && SafeGet(row + 0x156, &state) && state == kPoisonStateInfo) {
+            ids.push_back(nid);
+        }
+        if (!SafeGet(node + 0x58, &node)) break;
+    }
+    int n = 0;
+    for (const int id : ids) {
+        while (n < 8 && RemoveSpEffect(id)) {
+            ++n;
+        }
+    }
+    return n;
+}
 bool ApplyGuestBellEffect() { return ApplySpEffect(kGuestBellEffect); }
 
 bool LeaveGameSession() {
@@ -3233,6 +3264,24 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
             f |= 1u << 14;
             SafeWrite(s.player + 0x1e1, &f, 4);
             Log("test: god: invincible (chr +0x1E1 bit 14)");
+        }
+    }
+    if (t.log_fx < 0 && s.world_up && !s.loading && s.player && Seconds(t.fx_at, now) >= 1.0) {
+        // log_fx=-1 (poison077): every SpEffect id on the local player, logged when the set changes.
+        t.fx_at = now;
+        std::string ids;
+        std::uint64_t list = 0, node = 0;
+        if (SafeGet(s.player + 0x1c8, &list) && list && SafeGet(list + 8, &node)) {
+            for (int guard = 0; node && guard < 512; ++guard) {
+                std::int32_t nid = 0;
+                if (!SafeGet(node + 0x40, &nid)) break;
+                ids += " " + std::to_string(nid);
+                if (!SafeGet(node + 0x58, &node)) break;
+            }
+        }
+        if (ids != t.fx_last) {
+            t.fx_last = ids;
+            Log("test: SpEffects on the local player:%s", ids.empty() ? " none" : ids.c_str());
         }
     }
     if (t.log_fx > 0 && s.world_up && !s.loading && s.player && Seconds(t.fx_at, now) >= 1.0) {

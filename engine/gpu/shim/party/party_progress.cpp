@@ -1342,6 +1342,7 @@ struct MirrorTables {
     std::vector<int> keys;
     std::vector<GroupBytes> masks;  // per pool key; all zero outside the mirror
     std::vector<GroupBytes> items;  // per pool key: the masked item_lot_picked bits
+    std::vector<GroupBytes> cov;    // per pool key: the masked covenant_outcome bits (0.7.7: per player in the overlay)
     std::vector<GroupBytes> shop;   // per pool key: the shop stock bits (never in `masks`)
 };
 std::atomic<bool> g_instanced_items{false};
@@ -1350,6 +1351,7 @@ const MirrorTables& Mirror() {
         MirrorTables m;
         m.masks.assign(kPoolBlocks, GroupBytes{});
         m.items.assign(kPoolBlocks, GroupBytes{});
+        m.cov.assign(kPoolBlocks, GroupBytes{});
         m.shop.assign(kPoolBlocks, GroupBytes{});
         // BB_PARTY_SHOP_STOCK=0: the 0.6.9 behaviour (the host's stock mirrored; a live repro aid).
         const char* ss = std::getenv("BB_PARTY_SHOP_STOCK");
@@ -1392,6 +1394,12 @@ const MirrorTables& Mirror() {
             }
             for (u32 bit = kBitsPerBlock; bit < kBlockBytes * 8; ++bit) {
                 PutBit(mask.data(), bit, false);  // padding bits of the last byte
+            }
+            GroupBytes& cov = m.cov[key];
+            for (u32 bit = 0; bit < kBitsPerBlock; ++bit) {
+                if (GetBit(mask.data(), bit) && CategoryOf(first + bit) == Category::covenant_outcome) {
+                    PutBit(cov.data(), bit, true);
+                }
             }
             GroupBytes& items = m.items[key];
             for (u32 bit = 0; bit < kBitsPerBlock; ++bit) {
@@ -1470,6 +1478,10 @@ void SetInstancedItems(bool on) {
 
 bool InstancedItems() {
     return g_instanced_items.load();
+}
+
+const GroupBytes& WorldCovenantMask(int key) {
+    return key >= 0 && key < int(kPoolBlocks) ? Mirror().cov[key] : kZeroGroup;
 }
 
 const GroupBytes& WorldMirrorMask(int key) {
@@ -1591,9 +1603,11 @@ std::vector<std::pair<u32, bool>> GuestWorldMirror::LocalChanges(const std::map<
         const GroupBytes& mask = Mirror().masks[key];
         const GroupBytes& host = applied_[key];
         const bool inst = g_instanced_items.load(std::memory_order_relaxed);
+        const bool cov_own = CovenantPerPlayer();
         const u32 base = BlockOfPoolKey(int(key)) * kBitsPerBlock;
         for (u32 i = 0; i < kBlockBytes; ++i) {
-            const u8 d = u8((cur[i] ^ host[i]) & mask[i] & (inst ? u8(~Mirror().items[key][i]) : u8(0xff)));
+            const u8 d = u8((cur[i] ^ host[i]) & mask[i] & (inst ? u8(~Mirror().items[key][i]) : u8(0xff)) &
+                            (cov_own ? u8(~Mirror().cov[key][i]) : u8(0xff)));
             if (!d) {
                 continue;
             }
@@ -1629,6 +1643,11 @@ bool GuestWorldMirror::Apply(const std::map<u32, u64>& overlay, const MemOps& op
         if (g_instanced_items.load(std::memory_order_relaxed)) {
             for (u32 i = 0; i < kBlockBytes; ++i) {
                 mask[i] = u8(mask[i] & ~Mirror().items[key][i]);  // the guest's own pickups (D4)
+            }
+        }
+        if (CovenantPerPlayer()) {
+            for (u32 i = 0; i < kBlockBytes; ++i) {
+                mask[i] = u8(mask[i] & ~Mirror().cov[key][i]);  // 0.7.7: the guest's own covenant state
             }
         }
         GroupBytes cur;
@@ -2370,6 +2389,97 @@ void GuestShopStockTick(const FlagStore& store) {
     }
 }
 
+/// Guest, main thread, load mode 1 (0.7.7, covenant2077): covenant outcomes are per player (the rule), so the
+/// guest's talk with a covenant NPC in the host's world must read the GUEST's own state (Valtr, Alfred,
+/// Annalise, their talk blocks), not the host's: a host who joined the League once left the guest a "you
+/// are a member" dialog and no join menu. The overlay's covenant bits (WorldCovenantMask, kept out of the
+/// mirror) are the own pool's when an overlay appears; what the guest's game changes in them afterwards
+/// (its own talk) goes to the own pool, so it is saved with the guest's progress and is not lost at the leave.
+void GuestCovenantTick(const FlagStore& store) {
+    static std::map<int, std::pair<u64, GroupBytes>> last;  // per pool key: overlay address, the covenant bits we last saw
+    static u64 last_identity = 0;
+    static const std::vector<int> keys = [] {
+        std::vector<int> k;
+        for (int key : WorldMirrorKeys()) {
+            const GroupBytes& m = WorldCovenantMask(key);
+            if (std::any_of(m.begin(), m.end(), [](u8 b) { return b != 0; })) {
+                k.push_back(key);
+            }
+        }
+        return k;
+    }();
+    if (!CovenantPerPlayer()) {
+        last.clear();
+        last_identity = 0;
+        return;
+    }
+    const u64 ident = store.OverlayIdentity();
+    if (ident != last_identity) {
+        last.clear();
+        last_identity = ident;
+    }
+    bool saved = false;
+    for (int key : keys) {
+        const u32 block = BlockOfPoolKey(key);
+        BlockRef r;
+        const u64 pool = store.PoolBlockAddress(key);
+        if (!pool || !store.FindBlock(block, &r) || r.kind != 2 || !r.data || r.data == pool) {
+            continue;
+        }
+        const GroupBytes& cm = WorldCovenantMask(key);
+        GroupBytes cur, own;
+        if (!store.ops().read(r.data, cur.data(), kBlockBytes) || !store.ops().read(pool, own.data(), kBlockBytes)) {
+            continue;
+        }
+        auto it = last.find(key);
+        if (it == last.end() || it->second.first != r.data) {
+            GroupBytes next = cur, seen{};
+            std::string bits;
+            for (u32 i = 0; i < kBlockBytes; ++i) {
+                next[i] = u8((cur[i] & ~cm[i]) | (own[i] & cm[i]));
+                seen[i] = u8(own[i] & cm[i]);
+                for (u32 b = 0; b < 8 && bits.size() < 160; ++b) {
+                    if ((next[i] ^ cur[i]) & 0x80u >> b) {
+                        bits += (bits.empty() ? "" : " ") + std::to_string(block * kBitsPerBlock + i * 8 + b);
+                    }
+                }
+            }
+            if (next != cur && store.ops().write(r.data, next.data(), kBlockBytes)) {
+                Log("guest covenant overlay: the host's covenant state replaced by the guest's own in block %u (bits "
+                    "changed: %s)", block, bits.c_str());
+            }
+            last[key] = {r.data, seen};
+            continue;
+        }
+        GroupBytes& seen = it->second.second;
+        GroupBytes next_own = own, next_seen = seen;
+        std::string ids;
+        for (u32 i = 0; i < kBlockBytes; ++i) {
+            const u8 d = u8((cur[i] ^ seen[i]) & cm[i]);  // what the guest's game changed
+            if (!d) {
+                continue;
+            }
+            next_own[i] = u8((own[i] & ~d) | (cur[i] & d));
+            next_seen[i] = u8((seen[i] & ~d) | (cur[i] & d));
+            for (u32 b = 0; b < 8 && ids.size() < 160; ++b) {
+                if (d & 0x80u >> b) {
+                    const u32 id = block * kBitsPerBlock + i * 8 + b;
+                    ids += (ids.empty() ? "" : " ") + std::to_string(id) + "=" + ((cur[i] & 0x80u >> b) ? "1" : "0");
+                }
+            }
+        }
+        seen = next_seen;
+        if (next_own != own && store.ops().write(pool, next_own.data(), kBlockBytes)) {
+            saved = true;
+            Log("guest covenant overlay: own covenant flag(s) changed in the host's world kept in the own save "
+                "(per player): %s", ids.c_str());
+        }
+    }
+    if (saved) {
+        RequestGameSave("covenant state in the host's world");
+    }
+}
+
 const char* MirrorWhy(bool full, u64 id, u64 last) {
     return !full ? "host changes" : id != last ? "new overlay" : "snapshot applied";
 }
@@ -2666,6 +2776,7 @@ void Tick(const GameSnapshot& s) {
     } else if (role == Role::Guest) {
         if (store.LoadMode() == 1) {
             GuestShopStockTick(store);
+            GuestCovenantTick(store);
         }
         GuestTick(g, store, s.map_id);
     }

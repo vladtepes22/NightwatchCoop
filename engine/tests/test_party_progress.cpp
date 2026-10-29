@@ -1080,6 +1080,12 @@ static void TestCovenantOutcomes() {
     CHECK(CategoryOf(9440) == Category::never_sync && CategoryOf(9451) == Category::never_sync);  // runes
     CHECK(!HostCandidate(6676) && !HostCandidate(6813) && CategoryOf(6676) != Category::covenant_outcome);  // personal
     CHECK(std::string(CategoryName(Category::covenant_outcome)) == "covenant_outcome");
+    // 0.7.7 (covenant2077): the covenant bits of the mirror groups, kept in the guest's own state while summoned
+    CHECK(GetBit(WorldCovenantMask(PoolKeyOfId(1790)).data(), 1790 % kBitsPerBlock));
+    CHECK(GetBit(WorldCovenantMask(PoolKeyOfId(72700321)).data(), 72700321 % kBitsPerBlock));
+    CHECK(GetBit(WorldCovenantMask(PoolKeyOfId(12500010)).data(), 12500010 % kBitsPerBlock));
+    CHECK(!GetBit(WorldCovenantMask(PoolKeyOfId(12410200)).data(), 12410200 % kBitsPerBlock));
+    CHECK(!GetBit(WorldCovenantMask(PoolKeyOfId(1360)).data(), 1360 % kBitsPerBlock));  // Eileen stays shared
     Category back = Category::never_sync;
     CHECK(CategoryFromName("covenant_outcome", &back) && back == Category::covenant_outcome);
 

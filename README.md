@@ -342,11 +342,11 @@ Never attach saves or game files. For setup help, use [Discord](https://discord.
 ## Credits
 
 Nightwatch Co-op is a modified version of **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)**
-0.9.37, not an official Lantern Engine release, combined with visy's seamless co-op.
+0.9.38, not an official Lantern Engine release, combined with visy's seamless co-op.
 
 | | |
 |---|---|
-| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.6+a2f353e4 |
+| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.6+a53d3dd2 |
 | **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | the launcher, the built-in game patches, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, cheats, occlusion culling, trophies, fixes) |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |

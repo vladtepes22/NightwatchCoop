@@ -97,7 +97,16 @@ std::string advice(Type self, bool host, bool port_open, Rendezvous rendezvous, 
 // A guest's TCP connection that reached the party port from outside proves it is open (UPnP, a
 // manual forward or a public address; a STUN probe cannot see a manual forward). `peer_nbo`: the
 // connection's source address, network order. Loopback, LAN, VPN and CGNAT ranges prove nothing.
-bool proves_open_port(bool direct_tcp, std::uint32_t peer_nbo);
+// Inline (header only): party_link.cpp calls it and the link-only test targets do not build party_nat.cpp.
+inline bool proves_open_port(bool direct_tcp, std::uint32_t peer_nbo) {
+    if (!direct_tcp || peer_nbo == 0) return false;
+    const std::uint8_t a = peer_nbo & 0xff, b = (peer_nbo >> 8) & 0xff;
+    if (a == 0 || a == 127 || a >= 224) return false;
+    if (a == 10 || (a == 172 && b >= 16 && b <= 31) || (a == 192 && b == 168) || (a == 100 && b >= 64 && b <= 127) ||
+        (a == 169 && b == 254))
+        return false;
+    return true;
+}
 // The hint when automatic punching is off, for the guest's failure message and the Party page.
 inline constexpr const char* kRendezvousOffHint =
     "automatic punching is off: send the host your guest code, or turn on the DHT option on both PCs";

@@ -353,6 +353,8 @@ const GroupBytes& WorldItemMask(int key);
 bool ShopStockFlag(u32 id);
 /// The shop stock bits of a mirror key (never mirrored: the overlay keeps the guest's own stock).
 const GroupBytes& WorldShopMask(int key);
+/// 0.7.7: the covenant_outcome bits of a mirror group (per player while the rule is on: kept out of the mirror).
+const GroupBytes& WorldCovenantMask(int key);
 /// Guest, load mode 1: one overlay group against the same group of the own pool, shop stock bits
 /// only, set-only both ways (a stock flag only goes 0 -> 1): a purchase the guest made in the
 /// host's world goes to its pool (`saved`), its own earlier purchases show in the overlay

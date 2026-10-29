@@ -516,7 +516,9 @@ std::string identity_mismatch(const LinkConfig& host, const LinkConfig& guest) {
     if (host.params_sha256 != guest.params_sha256)
         parts.push_back("game params differ (gameparam.parambnd.dcx: host " + short_hex(host.params_sha256) +
                         ", yours " + short_hex(guest.params_sha256) +
-                        "): another game version or edited params; use the same game dump (1.09) as the host");
+                        "): first check that the launcher's game folder is the right one (players fixed this by "
+                        "choosing the game folder by hand), else another game version or edited params; use the "
+                        "same game dump (1.09) as the host");
     if (host.patches_hash != guest.patches_hash)
         parts.push_back(set_clause("gameplay patches", host.patches_hash, host.patch_names, guest.patches_hash,
                                    guest.patch_names) +
