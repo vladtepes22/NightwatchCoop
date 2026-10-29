@@ -5,8 +5,9 @@ the game at E:\games\bloodborne seamless\gamedir\CUSA03173 and Host mode for two
 players. The engine uses the sibling CUSA03173-patch update when present.
 
 1. Open the **Co-op** tab.
-2. Choose Host, a unique player name and the party size. Start the game, then
-   use **Copy codes** to share the host code.
+2. Choose Host, a unique player name and the party size (under Party options).
+   Pick how friends join, then use **Copy invite** to share the host code (it is
+   there before the game starts).
 3. On the other PC, use the same package, game version, gameplay mods, party
    size and optional password. Select Join and paste the host code.
 4. Complete each new character's prologue. Continue the party save on both PCs;

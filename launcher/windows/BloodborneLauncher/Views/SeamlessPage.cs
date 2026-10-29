@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -13,7 +14,6 @@ namespace BloodborneLauncher.Views;
 
 public sealed class SeamlessPage : LauncherPage
 {
-    private readonly TextBlock _codes;
     private readonly TextBlock _status;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     /// Rows and group headers shown only in some modes ("" single player, "host", "join").
@@ -35,23 +35,20 @@ public sealed class SeamlessPage : LauncherPage
         var party = Rows(InParty);
         TextRow(SymbolRegular.Person24, L.T("Your name"), L.T("1–16 letters, numbers, underscores or hyphens."), L.T("Hunter"),
             () => SeamlessSettings.Name(S), v => S.Set("party_name", v), party);
-        // The connection card (Host only): the route the party uses, its state and the address to give friends. The
-        // adapters are read off the UI thread (RefreshRoute); the address is shown on this screen only. Join mode
-        // says which networks the party list hears instead (ListenLine).
+        // Host: password, how friends join, then one invite with the code to send (made here before the game starts, the
+        // engine's own once it hosts) and the connection test. Party size and discovery are folded. The adapters are read
+        // off the UI thread (RefreshRoute); the code and address are shown on this screen only. Join mode says which
+        // networks the party list hears instead (ListenLine).
         var host = Rows(Hosting);
-        _copyAddress = SmallButton(L.T("Copy"), SymbolRegular.Copy24, (_, _) => { if (_route.Address.Length > 0) Copy(_route.Address); });
-        Add(Card(SymbolRegular.Router24, L.T("Your connection"),
-            L.T("How the party reaches you: your VPN (Radmin VPN, Hamachi, ZeroTier, Tailscale) when one is found, else your local network. Friends on the same VPN or network can join with the address shown here. It is only shown on this screen."),
-            _copyAddress, out _routeHint, wide: true), host);
-        _hostPassword = PasswordRow(host, () => S.PartyPassword, v => S.PartyPassword = v,
+        _hostPassword = PasswordRow(host, () => S.PartyPassword, v => { S.PartyPassword = v; UpdateInvite(); },
             L.T("Use the same password on every PC. Stored encrypted for your Windows user."));
-        _hostSize = PartySizeRow(host, L.T("Host and guests use the same limit. Five players is experimental."));
         // party_vpn in bbport.ini (auto / an adapter name / off), the same value as the game's System > Party network row.
-        ComboRow(SymbolRegular.Router24, L.T("Host over"), L.T("Automatic takes your Radmin VPN, Hamachi, Tailscale or ZeroTier when one is up, else your local network. VPN: friends in that VPN join with the address above. Internet: friends join with the Internet party code. Read when the game starts."),
-            new[] { new Choice(L.T("Automatic"), "auto"), new Choice(L.T("VPN"), "vpn"), new Choice(L.T("Internet (party code)"), "off") },
-            () => NetworkRoute.HostOverOf(Ini.Get("party_vpn", "auto")) switch { HostOver.Automatic => "auto", HostOver.Internet => "off", _ => "vpn" },
-            v => Ini.Set("party_vpn", NetworkRoute.PrefFor(v switch { "auto" => HostOver.Automatic, "off" => HostOver.Internet, _ => HostOver.Vpn },
-                _adapters, Ini.Get("party_vpn", "auto"))),
+        // Internet is "off"; the other choice keeps an explicit VPN already chosen, else Automatic (VPN when one is up, else the local network).
+        ComboRow(SymbolRegular.Router24, L.T("Friends join over"), L.T("Internet: friends anywhere join with the Internet party code. Local network or VPN: friends on your router or in your Radmin VPN, Hamachi, Tailscale or ZeroTier network join with the other code. Read when the game starts."),
+            new[] { new Choice(L.T("Internet"), "off"), new Choice(L.T("Local network or VPN"), "net") },
+            () => NetworkRoute.HostOverOf(Ini.Get("party_vpn", "auto")) == HostOver.Internet ? "off" : "net",
+            v => Ini.Set("party_vpn", v == "off" ? NetworkRoute.PrefFor(HostOver.Internet, _adapters, Ini.Get("party_vpn", "auto"))
+                : NetworkRoute.HostOverOf(Ini.Get("party_vpn", "auto")) == HostOver.Internet ? "auto" : Ini.Get("party_vpn", "auto")),
             host, changed: UpdateRoute, buttons: true);
         _hostOverNote = Text("", "Faint");
         _hostOverNote.TextWrapping = TextWrapping.Wrap;
@@ -65,16 +62,27 @@ public sealed class SeamlessPage : LauncherPage
             UpdateRoute();
         };
         _vpnPickRow = Add(Card(SymbolRegular.Router24, L.T("VPN"), L.T("More than one VPN is up: the one friends are in."), _vpnPick, out _), host);
+        _inviteButton = SmallButton(L.T("Copy invite"), SymbolRegular.Copy24, (_, _) => { if (_invite.Length > 0) Copy(_invite); });
+        Add(Card(SymbolRegular.Link24, L.T("Invite friends"),
+            L.T("Friends paste this code under Join, with your password. It stays the same until you change the password or your address changes."),
+            _inviteButton, out _inviteHint, wide: true), host);
+        // Friends cannot connect: Check explains the last session from the logs (names and IPs hidden, the reply is copied),
+        // Fix allows the party port through the Windows Firewall (the commands are shown first).
+        var tests = new[] { (L.T("Check"), SymbolRegular.Info24, (Action)CheckConnection), (L.T("Fix firewall"), SymbolRegular.Wrench24, FixFirewall) };
+        var testButtons = new List<UIElement>();
+        foreach (var (title, icon, action) in tests)
+        {
+            var button = SmallButton(title, icon, (_, _) => action());
+            button.Margin = new Thickness(testButtons.Count > 0 ? 8 : 0, 0, 0, 0);
+            testButtons.Add(button);
+        }
+        Add(Card(SymbolRegular.Info24, L.T("Friends cannot connect?"),
+            L.T("Check explains last session's problems from the logs (names and IPs are hidden; the reply is copied). Fix firewall allows the party port (TCP and UDP) and party discovery through the Windows Firewall on every network type, and shows you the commands first."),
+            Row(testButtons.ToArray()), out _), host);
+        var options = Fold(L.T("Party options"), Hosting, L.T("Party size and whether friends on your network see your party in their list."));
+        _hostSize = PartySizeRow(options, L.T("Host and guests use the same limit. Five players is experimental."));
         ToggleRow(SymbolRegular.People24, L.T("Show my party to friends"), L.T("While you host, the game announces the party's name, level and players on your VPN and local network, so friends see it under Parties on your network when they join. Never the password or your address. Takes effect at once."),
-            () => Ini.Get("party_discovery", "1") == "1", v => Ini.Set("party_discovery", v ? "1" : "0"), host);
-        Add(Card(SymbolRegular.Copy24, L.T("Share party codes"), L.T("Available after the host starts. Use the LAN code on the same router."),
-            SmallButton(L.T("Copy codes"), SymbolRegular.Copy24, (_, _) => Copy(SeamlessSettings.Codes(S))), out _codes), host);
-        Add(Card(SymbolRegular.Info24, L.T("Check my connection"),
-            L.T("Explains this PC's last session problems from its logs. Names and IPs are hidden; the reply is copied to the clipboard."),
-            SmallButton(L.T("Check"), SymbolRegular.Info24, (_, _) => CheckConnection()), out _), host);
-        Add(Card(SymbolRegular.Router24, L.T("Fix firewall issues"),
-            L.T("Allows the party port (TCP and UDP) and party discovery through the Windows Firewall on every network type. Shows you the commands first."),
-            SmallButton(L.T("Fix"), SymbolRegular.Wrench24, (_, _) => FixFirewall()), out _), host);
+            () => Ini.Get("party_discovery", "1") == "1", v => Ini.Set("party_discovery", v ? "1" : "0"), options);
         // The Join list: parties announced on the VPN or local network (party discovery, UDP 9308). The listener runs
         // on its own thread while this tab is open in Join mode; the timer only reads its snapshot.
         var found = Rows(Joining);
@@ -269,7 +277,8 @@ public sealed class SeamlessPage : LauncherPage
             () => S.Str("party_log"), v => S.Set("party_log", v));
 
         _timer.Tick += (_, _) => {
-            SetHint(_codes, SeamlessSettings.Codes(S));
+            RefreshPublic();
+            UpdateInvite();
             if (++_ticks % 5 == 0) RefreshRoute();
             RefreshParties();
             var status = SeamlessSession.Read(S);
@@ -278,7 +287,7 @@ public sealed class SeamlessPage : LauncherPage
                 string.Join("\n", status.members.Select(m => $"{m.name}：{(m.in_world ? L.T("in host world") : m.connected ? L.T("connected") : L.T("disconnected"))}  {(m.ping_ms < 0 ? "" : m.ping_ms + " ms")}  {m.area}")) +
                 $"\n{status.@event}\n{status.alert}";
         };
-        Loaded += (_, _) => { SetHint(_codes, SeamlessSettings.Codes(S)); _timer.Start(); RefreshRoute(); StartListener(); };
+        Loaded += (_, _) => { _timer.Start(); RefreshPublic(); RefreshRoute(); StartListener(); };
         Unloaded += (_, _) => { _timer.Stop(); _listener?.Dispose(); _listener = null; };
         ShowMode();
     }
@@ -458,12 +467,17 @@ public sealed class SeamlessPage : LauncherPage
         }
     }
 
-    private readonly Wpf.Ui.Controls.Button _copyAddress;
+    private readonly Wpf.Ui.Controls.Button _inviteButton;
+    private readonly TextBlock _inviteHint;
+    private string _invite = "";
+    private string? _publicIp;
+    private string _publicKey = "";
+    private DateTime _publicAt;
+    private bool _publicLooking;
     private readonly TextBlock _hostOverNote;
     private readonly System.Windows.Controls.ComboBox _vpnPick;
     private readonly FrameworkElement _vpnPickRow;
     private bool _syncingVpn;
-    private readonly TextBlock _routeHint;
     private IReadOnlyList<NetAdapter> _adapters = Array.Empty<NetAdapter>();
     private Route _route = Route.None;
     private bool _adaptersBusy;
@@ -487,30 +501,16 @@ public sealed class SeamlessPage : LauncherPage
     {
         var port = int.TryParse(S.Str("party_port"), out var p) ? p : NetworkRoute.DefaultPort;
         _route = NetworkRoute.Choose(_adapters, Ini.Get("party_vpn", "auto"), port);
-        var label = _route.Label switch { "LAN" => L.T("Local network"), "Internet" => L.T("Internet"), var other => other };
-        var lines = new List<string>
-        {
-            _route.Connected ? label + " · " + L.T("Connected") : L.T("Not connected"),
-        };
-        if (_route.Address.Length > 0) lines.Add(L.T("Address to share: ") + _route.Address);
-        else if (_route.Connected) lines.Add(L.T("No local address to share: use the party code from the Share party codes row."));
-        SetHint(_routeHint, string.Join("\n", lines));
-        _copyAddress.IsEnabled = _route.Address.Length > 0;
-
         var pref = Ini.Get("party_vpn", "auto");
         var over = NetworkRoute.HostOverOf(pref);
         var vpns = NetworkRoute.VpnLabels(_adapters);
-        _hostOverNote.Text = over switch
-        {
-            HostOver.Automatic => L.T("Automatic: ") + (!_route.Connected ? L.T("Not connected") : _route.Vpn ? _route.Label :
-                _route.Label == "LAN" ? L.T("local network") : L.T("Internet (party code)")),
-            HostOver.Internet => L.T("Friends join with the Internet code under Share party codes. Port forwarding (TCP and UDP, the party port) is only needed for a strict NAT."),
-            _ => vpns.Count == 0 ? L.T("No VPN is up: start Radmin VPN, Hamachi, ZeroTier or Tailscale.") : L.T("VPN: ") + (_route.Vpn ? _route.Label : pref),
-        };
+        _hostOverNote.Text = over == HostOver.Internet
+            ? L.T("Friends join with the Internet code. Port forwarding (TCP and UDP, the party port) is only needed for a strict NAT.")
+            : !_route.Connected ? L.T("Not connected") : _route.Vpn ? _route.Label : L.T("Local network");
         var offline = NetworkRoute.OfflineVpnLabels(_adapters, pref);
-        if (!_route.Vpn && offline.Count > 0)
+        if (over != HostOver.Internet && !_route.Vpn && offline.Count > 0)
             _hostOverNote.Text = string.Join(", ", offline) + L.T(" installed but offline (connect it in its app): the usual address is used.");
-        _vpnPickRow.Visibility = over == HostOver.Vpn && vpns.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        _vpnPickRow.Visibility = over != HostOver.Internet && vpns.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
         _syncingVpn = true;
         if (!_vpnPick.Items.Cast<string>().SequenceEqual(vpns))
         {
@@ -519,6 +519,71 @@ public sealed class SeamlessPage : LauncherPage
         }
         _vpnPick.SelectedItem = vpns.FirstOrDefault(l => l.Contains(pref, StringComparison.OrdinalIgnoreCase) || pref.Contains(l, StringComparison.OrdinalIgnoreCase));
         _syncingVpn = false;
+        UpdateInvite();
+    }
+
+    /// <summary>The Invite friends card: the code for the way friends join (Internet code, or the local network / VPN code).
+    /// While the game hosts it is the engine's own (party_code.txt: UPnP, IPv6); before that it is made here from the saved
+    /// secret, the password, the port and the address (PartyCodes), so it can be copied without starting the game.</summary>
+    private void UpdateInvite()
+    {
+        if (S.Str("party_mode") != "host") return;  // a guest or single player keeps no secret and looks up no address
+        var internet = NetworkRoute.HostOverOf(Ini.Get("party_vpn", "auto")) == HostOver.Internet;
+        var password = S.PartyPassword.Length > 0;
+        var port = int.TryParse(S.Str("party_port"), out var p) && p is >= 1 and <= 65535 ? p : NetworkRoute.DefaultPort;
+        var userDir = GameEnvironment.UserDir(S);
+        var running = Ws.Game.Running;
+        var code = "";
+        var note = "";
+        if (running)
+        {
+            var file = PartyCodes.ReadFile(userDir);
+            code = internet ? file.Internet : file.Lan;
+        }
+        if (code.Length == 0)
+        {
+            var secret = PartyCodes.HostSecret(userDir, password, save: !running);
+            if (internet)
+            {
+                if (_publicIp != null && IPAddress.TryParse(_publicIp, out var ip)) code = PartyCodes.Encode(false, password, ip.GetAddressBytes(), port, secret);
+                else note = _publicLooking || _publicAt == default ? L.T("Looking up your public address…")
+                    : L.T("Could not find your public address. Check your internet connection, or enter it under Network and troubleshooting > Host public address.");
+            }
+            else if (_route.Address.Length > 0 && IPAddress.TryParse(_route.Address.Split(':')[0], out var local))
+                code = PartyCodes.Encode(true, password, local.GetAddressBytes(), port, secret);
+            else note = L.T("No VPN or local network found.");
+        }
+        var lines = new List<string>();
+        if (code.Length > 0) lines.Add(code);
+        if (note.Length > 0) lines.Add(note);
+        else if (!internet && _route.Address.Length > 0) lines.Add(L.T("Address to share: ") + _route.Address);
+        SetHint(_inviteHint, string.Join("\n", lines));
+        _invite = code;
+        _inviteButton.IsEnabled = code.Length > 0;
+    }
+
+    /// <summary>Looks up this PC's public address for the Internet code (the Host public address, else STUN) off the UI
+    /// thread: when the page opens, when those settings change, every few minutes, and again soon after a failure.</summary>
+    private async void RefreshPublic()
+    {
+        if (_publicLooking || S.Str("party_mode") != "host") return;
+        var over = S.Str("party_public_addr").Trim();
+        var stun = S.Str("party_stun").Trim();
+        var age = DateTime.UtcNow - _publicAt;
+        if (over + "|" + stun == _publicKey && age < (_publicIp != null ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(30))) return;
+        _publicLooking = true;
+        UpdateInvite();
+        string? found = null;
+        // A best-effort lookup: whatever goes wrong (no network, a mistyped server) is "not found", never a crash.
+        try { found = await PartyCodes.PublicAddressAsync(over, stun).ConfigureAwait(false); }
+        catch (Exception e) when (e is not OutOfMemoryException) { }
+        await Dispatcher.InvokeAsync(() => {
+            _publicIp = found;
+            _publicKey = over + "|" + stun;
+            _publicAt = DateTime.UtcNow;
+            _publicLooking = false;
+            UpdateInvite();
+        });
     }
 
     /// <summary>The host's start-up rules (the game reads them once; a guest must have the host's values).</summary>
@@ -558,6 +623,7 @@ public sealed class SeamlessPage : LauncherPage
             element.Visibility = when(mode) ? Visibility.Visible : Visibility.Collapsed;
         SyncSharedRows();
         UpdateRoute();
+        RefreshPublic();
         StartListener();
     }
     // Party rules from engine/gpu/shim/bbport_game_menu_pages.cpp; My party descriptions from
