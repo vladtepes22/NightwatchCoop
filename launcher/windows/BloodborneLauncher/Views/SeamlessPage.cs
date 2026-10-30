@@ -28,35 +28,32 @@ public sealed class SeamlessPage : LauncherPage
         L.T("Play the campaign together with visy's seamless co-op. The host shares a party code; everyone uses the same build, gameplay mods and party size."))
     {
         _previewPublic = previewPublic;
+        _hostSlot = NewSlot();
+        _joinSlot = NewSlot();
         Group(L.T("Party"));
         var mode = (Segmented)SettingCombo(SymbolRegular.People24, L.T("Mode"), L.T("Host starts the party; Join connects to the host."),
             new[] { new Choice(L.T("Single player"), ""), new Choice(L.T("Host"), "host"), new Choice(L.T("Join"), "join") }, "party_mode",
-            changed: () => { ShowMode(); RunCheck(); }, buttons: true);
-        var modeGrid = (Grid)mode.Parent;
-        Grid.SetColumn(_modeVpnStatus, 2);
-        _modeVpnStatus.HorizontalAlignment = HorizontalAlignment.Right;
-        modeGrid.Children.Add(_modeVpnStatus);
+            changed: () => { ShowMode(); RunCheck(); OfferVpn(); }, buttons: true);
+        PlaceSlot(_joinSlot, (Grid)mode.Parent, Joining);
         var party = Rows(InParty);
         TextRow(SymbolRegular.Person24, L.T("Your name"), L.T("1–16 letters, numbers, underscores or hyphens."), L.T("Hunter"),
             () => SeamlessSettings.Name(S), v => S.Set("party_name", v), party);
-        var checks = Rows(InParty);
         _checkBanner = CheckBanner();
-        checks.Children.Add(_checkBanner);
-        _checkLine = Text("", "Faint");
-        checks.Children.Add(_checkLine);
+        _checkPanel.Children.Add(_checkBanner);
         var host = Rows(Hosting);
-        _hostMode = (Segmented)ComboRow(SymbolRegular.People24, L.T("Party visibility"), null,
-            new[] { new Choice(L.T("Public party"), "1"), new Choice(L.T("Private party"), "0") },
+        _hostMode = (Segmented)ComboRow(SymbolRegular.People24, L.T("Party type"), null,
+            new[] { new Choice(L.T("Nightwatch Online"), "1"), new Choice(L.T("uPnP/VPN/LAN"), "0") },
             () => IsPublic ? "1" : "0", ChangeHostMode, host,
             enabled: c => c.Value != "1" || NightwatchVpn.Shipped != null || _previewPublic != null, buttons: true);
-        _hostConnect = SmallButton(L.T("Connect"), SymbolRegular.Globe24, async (_, _) => await ToggleVpn());
-        Add(Card(SymbolRegular.Globe24, L.T("Party connection"), null, Row(_hostRing, _hostConnect), out _hostConnection), host);
+        PlaceSlot(_hostSlot, (Grid)_hostMode.Parent, null);
+        host.Children.Add(_hostSlot.Note);
         _hostPassword = PasswordRow(host, () => S.PartyPassword, v => { S.PartyPassword = v; UpdateInvite(); },
-            L.T("Optional. Without a password, anyone who sees the party can join."));
+            L.T("Optional. Without a password, anyone who sees the party can join."), L.T("Password"));
         var hostOptions = new Grid();
         hostOptions.ColumnDefinitions.Add(new ColumnDefinition());
         hostOptions.ColumnDefinitions.Add(new ColumnDefinition());
         host.Children.Add(hostOptions);
+        host.Children.Add(_hostChecks);
         var sizeRows = new StackPanel();
         var showRows = new StackPanel();
         Grid.SetColumn(showRows, 1);
@@ -68,28 +65,27 @@ public sealed class SeamlessPage : LauncherPage
         _privateCodes = Rows(m => Hosting(m) && !IsPublic);
         _internetButton = SmallButton(L.T("Copy Internet code"), SymbolRegular.Copy24, (_, _) => { if (_internetCode.Length > 0) Copy(_internetCode); });
         _lanButton = SmallButton(L.T("Copy LAN / VPN code"), SymbolRegular.Copy24, (_, _) => { if (_lanCode.Length > 0) Copy(_lanCode); });
-        Add(Card(SymbolRegular.Link24, L.T("Private party codes"), L.T("VPNs (Radmin VPN, Hamachi, Tailscale, ZeroTier) use the LAN code."),
+        Add(Card(SymbolRegular.Link24, L.T("Party codes"), L.T("uPnP uses the Internet code; a VPN or the local network uses the LAN / VPN code."),
             Row(_internetButton, _lanButton), out _inviteHint, wide: true), _privateCodes);
 
         var found = Rows(Joining);
-        _joinConnect = SmallButton(L.T("Connect now"), SymbolRegular.Globe24, async (_, _) => await ToggleVpn());
-        _joinBanner = JoinBanner();
-        found.Children.Add(_joinBanner);
+        found.Children.Add(_joinChecks);
+        found.Children.Add(_joinSlot.Note);
         _searchBox = new Wpf.Ui.Controls.TextBox { PlaceholderText = L.T("Search parties"), Margin = new Thickness(0, 8, 0, 8) };
         found.Children.Add(_searchBox);
         _searchBox.TextChanged += (_, _) => { RefreshLobby(); RefreshParties(); };
-        _lobbyRow = Add(Card(SymbolRegular.Globe24, L.T("Games on the Nightwatch VPN"), null,
-            SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24, (_, _) => RefreshLists()), out _lobbyHint), found);
+        Add(Card(SymbolRegular.People24, L.T("Lobbies available to me, through Nightwatch Online / VPN / LAN"), null,
+            SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24, (_, _) => RefreshLists()), out _partiesHint, wide: true), found);
+        found.Children.Add(_lobbyHint);
         _lobbyList = new StackPanel(); found.Children.Add(_lobbyList);
-        Add(Card(SymbolRegular.People24, L.T("Parties on your network"), null,
-            SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24, (_, _) => RefreshLists()), out _partiesHint), found);
         _partyList = new StackPanel(); found.Children.Add(_partyList);
+        var byCode = Fold(L.T("Join by host code or address"), Joining);
         _codeBox = TextRow(SymbolRegular.Link24, L.T("Host code or address"), L.T("Paste the host's Internet code, LAN code or host:port."), "BBP3-…",
-            () => S.Str("party_code"), v => { S.Set("party_code", v); SyncSharedRows(); }, found);
-        _joinPassword = PasswordRow(found, () => S.JoinPassword(S.Str("party_code")), v => S.SetJoinPassword(S.Str("party_code"), v),
-            L.T("Optional. Enter the host's party password if needed."));
+            () => S.Str("party_code"), v => { S.Set("party_code", v); SyncSharedRows(); }, byCode);
+        _joinPassword = PasswordRow(byCode, () => S.JoinPassword(S.Str("party_code")), v => S.SetJoinPassword(S.Str("party_code"), v),
+            L.T("Enter the host's party password if needed."), L.T("Password (optional)"));
         Add(Card(SymbolRegular.Link24, L.T("Join by code or address"), null,
-            SmallButton(L.T("Join party"), SymbolRegular.Link24, async (_, _) => await StartJoin()), out _), found);
+            SmallButton(L.T("Join party"), SymbolRegular.Link24, async (_, _) => await StartJoin()), out _), byCode);
 
         var network = Fold(L.T("Advanced networking and troubleshooting"), InParty);
         _vpnPick = new System.Windows.Controls.ComboBox { Width = 220, VerticalAlignment = VerticalAlignment.Center };
@@ -124,7 +120,7 @@ public sealed class SeamlessPage : LauncherPage
         TextRow(SymbolRegular.Server24, L.T("STUN server"), L.T("Empty uses stun.l.google.com:19302. Use off to disable."), L.T("Default"),
             () => S.Str("party_stun"), v => S.Set("party_stun", v), party);
         host = Rows(Hosting, network);
-        TextRow(SymbolRegular.Globe24, L.T("Host public address"), L.T("Leave on Automatic unless guests reach you another way: your VPN address (Radmin VPN, Tailscale, ZeroTier), or your public IP or DNS name when you forwarded the port yourself (host or host:port). The party code then carries it."), L.T("Automatic"),
+        TextRow(SymbolRegular.Globe24, L.T("Host public address"), L.T("Leave on Automatic unless guests reach you another way: your VPN address, or your public IP or DNS name when you forwarded the port yourself (host or host:port). The party code then carries it."), L.T("Automatic"),
             () => S.Str("party_public_addr"), v => S.Set("party_public_addr", v), host);
         Add(Card(SymbolRegular.Link24, L.T("Connect a guest"), L.T("Host: copy the guest's BBG1 code first, then add it here."),
             SmallButton(L.T("Add copied guest code"), SymbolRegular.Link24, (_, _) => {
@@ -300,7 +296,7 @@ public sealed class SeamlessPage : LauncherPage
                 string.Join("\n", status.members.Select(m => $"{m.name}：{(m.in_world ? L.T("in host world") : m.connected ? L.T("connected") : L.T("disconnected"))}  {(m.ping_ms < 0 ? "" : m.ping_ms + " ms")}  {m.area}")) +
                 $"\n{status.@event}\n{status.alert}";
         };
-        Loaded += (_, _) => { _timer.Start(); RefreshPublic(); RefreshRoute(); StartListener(); RunCheck(); };
+        Loaded += (_, _) => { _timer.Start(); DefaultHostType(); RefreshPublic(); RefreshRoute(); StartListener(); RunCheck(); };
         Unloaded += (_, _) => { _timer.Stop(); _listener?.Dispose(); _listener = null; _lobby?.Dispose(); _lobby = null; };
         ShowMode();
     }
@@ -308,7 +304,7 @@ public sealed class SeamlessPage : LauncherPage
     /// <summary>The first time this tab is shown, the co-op setup wizard (after the page is on screen).</summary>
     public override void OnShown()
     {
-        if (S.Bool(CoopPresets.DoneKey)) return;
+        if (S.Bool(CoopPresets.DoneKey)) { OfferVpn(); return; }
         S.Set(CoopPresets.DoneKey, true);
         Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, CoopWizard.Open);
     }
@@ -317,8 +313,7 @@ public sealed class SeamlessPage : LauncherPage
     private VpnLobby.Poller? _lobby;
     private volatile bool _lobbyOn;
     private string _lobbySignature = "\0";
-    private readonly FrameworkElement _lobbyRow;
-    private readonly TextBlock _lobbyHint;
+    private readonly TextBlock _lobbyHint = Text("", "Faint");
     private readonly StackPanel _lobbyList;
     private readonly Wpf.Ui.Controls.Button? _vpnButton;
     private readonly TextBlock? _vpnHint;
@@ -329,18 +324,17 @@ public sealed class SeamlessPage : LauncherPage
     private StackPanel _partyList = null!;
     private TextBlock _partiesHint = null!;
     private Wpf.Ui.Controls.TextBox _codeBox = null!;
-    private readonly TextBlock _modeVpnStatus = Text("", "Faint");
     private readonly Segmented _hostMode;
-    private readonly TextBlock _hostConnection;
-    private readonly FrameworkElement _joinBanner;
     private readonly StackPanel _privateCodes;
-    private readonly Wpf.Ui.Controls.Button _hostConnect, _joinConnect;
     private readonly Wpf.Ui.Controls.TextBox _searchBox;
-    private readonly Wpf.Ui.Controls.ProgressRing _hostRing = new() { Width = 18, Height = 18, IsIndeterminate = true, Visibility = Visibility.Collapsed };
-    private readonly Wpf.Ui.Controls.ProgressRing _joinRing = new() { Width = 18, Height = 18, IsIndeterminate = true, Visibility = Visibility.Collapsed };
+    private readonly VpnSlot _hostSlot, _joinSlot;
+    /// The VPN's state with its buttons: on the Party type row when hosting, on the Mode row when joining. The note under
+    /// it carries the install and connection messages.
+    private sealed record VpnSlot(StackPanel Panel, TextBlock Status, TextBlock Note, Wpf.Ui.Controls.ProgressRing Ring,
+        Wpf.Ui.Controls.Button Connect, Wpf.Ui.Controls.Button Install);
     private bool _changingHost;
     private readonly bool? _previewPublic;
-    private bool IsPublic => _previewPublic ?? (NightwatchVpn.Shipped != null && S.Str("party_host_public") == "1");
+    private bool IsPublic => _previewPublic ?? (NightwatchVpn.Shipped != null && S.Str("party_host_public") != "0");
 
     private PasswordBox _joinPassword = null!, _hostPassword = null!;
     private System.Windows.Controls.ComboBox _hostSize = null!;
@@ -349,11 +343,11 @@ public sealed class SeamlessPage : LauncherPage
     private long _listenSinceMs;
     private const int ListenGraceMs = 4000;  // a host announces every 1.5 s: an empty list before this is not yet news
 
-    private PasswordBox PasswordRow(Panel into, Func<string> get, Action<string> set, string hint)
+    private PasswordBox PasswordRow(Panel into, Func<string> get, Action<string> set, string hint, string title)
     {
         var box = new PasswordBox { Width = 300, Password = get(), PlaceholderText = L.T("Party password"), PlaceholderEnabled = true };
         box.PasswordChanged += (_, _) => { if (box.Password != get()) { set(box.Password); Ws.SaveSoon(); } };
-        Add(Card(SymbolRegular.Password24, L.T("Password"), hint, box, out _), into);
+        Add(Card(SymbolRegular.Password24, title, hint, box, out _), into);
         return box;
     }
 
@@ -459,6 +453,93 @@ public sealed class SeamlessPage : LauncherPage
         return row;
     }
 
+    private VpnSlot NewSlot()
+    {
+        var status = Text("", "Faint");
+        status.VerticalAlignment = VerticalAlignment.Center;
+        status.Margin = new Thickness(0, 0, 10, 0);
+        var note = Text("", "Faint");
+        note.TextWrapping = TextWrapping.Wrap;
+        note.Margin = new Thickness(14, 2, 14, 4);
+        var ring = new Wpf.Ui.Controls.ProgressRing { Width = 18, Height = 18, IsIndeterminate = true, Margin = new Thickness(0, 0, 10, 0), Visibility = Visibility.Collapsed };
+        var connect = SmallButton(L.T("Connect"), SymbolRegular.Globe24, async (_, _) => await ToggleVpn());
+        connect.Margin = new Thickness(0, 0, 8, 0);
+        var install = SmallButton(L.T("Install"), SymbolRegular.ArrowDownload24, async (_, _) => await InstallOrRemoveVpn());
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
+        panel.Children.Add(ring); panel.Children.Add(status); panel.Children.Add(connect); panel.Children.Add(install);
+        return new VpnSlot(panel, status, note, ring, connect, install);
+    }
+
+    /// <summary>Puts the slot on the right of a segmented row; <paramref name="when"/> limits it to some modes.</summary>
+    private void PlaceSlot(VpnSlot slot, Grid row, Func<string, bool>? when)
+    {
+        Grid.SetColumn(slot.Panel, 2);
+        row.Children.Add(slot.Panel);
+        if (when != null) _byMode.Add((slot.Panel, when));
+    }
+
+    /// <summary>Party type: Nightwatch Online (true) or uPnP/VPN/LAN, with the host settings that go with it.</summary>
+    private void SetHostType(bool isPublic)
+    {
+        S.Set("party_host_public", isPublic ? "1" : "0");
+        ApplyHostMode(isPublic, Ini.Get("party_discovery", "1") == "1");
+        _hostMode.Select(isPublic ? 0 : 1, notify: false);
+        Ws.SaveSoon(); ShowMode(); UpdateVpn();
+    }
+
+    /// <summary>Nightwatch Online is the default party type until the player picks one.</summary>
+    private void DefaultHostType()
+    {
+        if (_previewPublic == null && NightwatchVpn.Shipped != null && S.Str("party_host_public").Length == 0) SetHostType(true);
+    }
+
+    /// <summary>The first time a party mode is open on a PC without OpenVPN: offers it, before the lobby. Accepting sets
+    /// Nightwatch Online; refusing, or an install that fails, sets uPnP/VPN/LAN. Asked once.</summary>
+    private void OfferVpn() => Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, async () =>
+    {
+        if (_previewPublic != null || !InParty(S.Str("party_mode")) || NightwatchVpn.Shipped == null || NightwatchVpn.GuiExe() != null
+            || S.Bool("party_vpn_offered") || _vpn.Busy || _vpnSetup) return;
+        S.Set("party_vpn_offered", true);
+        Ws.SaveSoon();
+        await InstallVpn();
+    });
+
+    /// <summary>The Install / Uninstall button, whether hosting or joining and whatever the party type.</summary>
+    private async Task InstallOrRemoveVpn()
+    {
+        if (_vpn.Busy || _vpnSetup) return;
+        if (NightwatchVpn.GuiExe() == null) await InstallVpn(); else await UninstallVpn();
+    }
+
+    /// <summary>Installs OpenVPN once the player agreed: installed sets Nightwatch Online and connects; cancelled or failed sets uPnP/VPN/LAN.</summary>
+    private async Task InstallVpn()
+    {
+        var installed = await SetUpOpenVpn() != null;
+        SetHostType(installed);
+        if (installed && VpnLobby.TunnelIp(_adapters) == null) await ToggleVpn();
+    }
+
+    private async Task UninstallVpn()
+    {
+        if (!Prompt.Confirm(L.T("Uninstall"),
+                L.T("This removes OpenVPN from this PC, so Nightwatch Online stops working until it is installed again. Windows may ask for administrator permission."),
+                L.T("Uninstall")))
+            return;
+        if (VpnLobby.TunnelIp(_adapters) != null)
+        {
+            await ToggleVpn();
+            if (VpnLobby.TunnelIp(_adapters) != null) return;
+        }
+        _vpnSetup = true;
+        _vpnNote = L.T("Removing the VPN…");
+        UpdateVpn();
+        var result = await OpenVpnSetup.UninstallAsync();
+        _vpnSetup = false;
+        var gone = NightwatchVpn.GuiExe() == null;
+        _vpnNote = gone || result == OpenVpnSetupResult.Declined ? "" : L.T("OpenVPN could not be removed.");
+        if (gone) SetHostType(false); else UpdateVpn();
+    }
+
     /// <summary>First use on a PC without OpenVPN: the player agrees, then the shipped installer runs (one UAC prompt).
     /// Cancel installs nothing. Null: no OpenVPN to connect with, and the note says why.</summary>
     private async Task<string?> SetUpOpenVpn()
@@ -470,7 +551,7 @@ public sealed class SeamlessPage : LauncherPage
         }
         if (!Prompt.Confirm(L.T("Set up online play"),
                 L.T("Online play uses the Nightwatch VPN network. Setup will install OpenVPN GUI and the required networking components. Windows may ask for administrator permission."),
-                L.T("Install and continue")))
+                L.T("Install and continue"), L.T("Want to know more?"), OpenVpnSetup.LearnMoreUrl))
             return null;
         _vpnSetup = true;
         _vpnNote = L.T("Setting up online play…");
@@ -480,10 +561,10 @@ public sealed class SeamlessPage : LauncherPage
         _vpnNote = result switch
         {
             OpenVpnSetupResult.Installed when NightwatchVpn.GuiExe() != null => "",
-            OpenVpnSetupResult.Declined => L.T("Setup was cancelled, so nothing was installed. You can still play with a Private party."),
+            OpenVpnSetupResult.Declined => L.T("Setup was cancelled, so nothing was installed. You can still play with uPnP, VPN or LAN."),
             OpenVpnSetupResult.Busy => L.T("Another installer is running. Wait for it to finish and press Connect again."),
-            OpenVpnSetupResult.Tampered or OpenVpnSetupResult.Missing => L.T("The OpenVPN installer in this package is damaged or missing. Reinstall Nightwatch Co-op, or play with a Private party."),
-            _ => L.T("OpenVPN could not be installed. You can still play with a Private party."),
+            OpenVpnSetupResult.Tampered or OpenVpnSetupResult.Missing => L.T("The OpenVPN installer in this package is damaged or missing. Reinstall Nightwatch Co-op, or play with uPnP, VPN or LAN."),
+            _ => L.T("OpenVPN could not be installed. You can still play with uPnP, VPN or LAN."),
         };
         UpdateVpn();
         return NightwatchVpn.GuiExe();
@@ -553,7 +634,7 @@ public sealed class SeamlessPage : LauncherPage
         if (_vpn.TimedOut)
         {
             _vpnNote = connecting
-                ? L.T("The connection did not come up: the VPN server may be full, or a firewall blocks it. You can still play with a Private party.")
+                ? L.T("The connection did not come up: the VPN server may be full, or a firewall blocks it. You can still play with uPnP, VPN or LAN.")
                 : L.T("OpenVPN did not confirm the disconnect. Check its tray icon.");
             if (connecting) await Task.Run(() => NightwatchVpn.Disconnect(gui));
         }
@@ -575,20 +656,25 @@ public sealed class SeamlessPage : LauncherPage
     private void UpdateVpn()
     {
         var up = VpnLobby.TunnelIp(_adapters) != null;
-        _modeVpnStatus.Text = up ? L.T("VPN connected") : L.T("VPN disconnected");
-        _joinBanner.Visibility = !up && (NightwatchVpn.Shipped != null || _previewPublic != null) ? Visibility.Visible : Visibility.Collapsed;
-        SetHint(_hostConnection, !IsPublic ? L.T("Friends use a code") : !up ? L.T("Nightwatch VPN not connected")
-            : Ini.Get("party_vpn_lobby", "0") == "1" ? L.T("Listed in the lobby as ") + SeamlessSettings.Name(S) : L.T("Not listed: Show my party to friends is off"));
-        _hostConnect.Visibility = IsPublic && !up ? Visibility.Visible : Visibility.Collapsed;
-        _hostConnect.IsEnabled = _joinConnect.IsEnabled = !_vpn.Busy && !_vpnSetup && !_changingHost;
-        _hostRing.Visibility = _joinRing.Visibility = _vpn.Busy || _vpnSetup ? Visibility.Visible : Visibility.Collapsed;
-        if (_vpnNote.Length > 0 || _vpn.Busy || _vpnSetup)
-            SetHint(_hostConnection, _hostConnection.Text + "\n" + (_vpnNote.Length > 0 ? _vpnNote : L.T("Connecting…")));
+        var shown = NightwatchVpn.Shipped != null || _previewPublic != null;
+        var installed = NightwatchVpn.GuiExe() != null;
+        var busy = _vpn.Busy || _vpnSetup;
+        var note = _vpnNote.Length > 0 ? _vpnNote : _vpn.Phase == VpnPhase.Disconnecting ? L.T("Disconnecting…") : busy ? L.T("Connecting…") : "";
+        foreach (var (slot, wantsConnect) in new[] { (_hostSlot, IsPublic), (_joinSlot, true) })
+        {
+            slot.Status.Visibility = slot.Install.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+            slot.Status.Text = !installed ? L.T("VPN not installed") : up ? L.T("VPN connected") : L.T("VPN disconnected");
+            slot.Install.Content = installed ? L.T("Uninstall") : L.T("Install");
+            slot.Install.Icon = new SymbolIcon { Symbol = installed ? SymbolRegular.Delete24 : SymbolRegular.ArrowDownload24 };
+            slot.Connect.Visibility = shown && installed && !up && wantsConnect ? Visibility.Visible : Visibility.Collapsed;
+            slot.Install.IsEnabled = slot.Connect.IsEnabled = !busy && !_changingHost;
+            slot.Ring.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+            SetHint(slot.Note, note);
+        }
         if (_vpnButton == null || _vpnHint == null) return;
         // A tunnel of ours from before this launcher started (a crash) belongs to whoever closes it next.
         if (up && !NightwatchVpn.OwnedHere && !_vpn.Busy && File.Exists(NightwatchVpn.ProfilePath)) NightwatchVpn.TryOwn();
         var other = up && !NightwatchVpn.OwnedHere;
-        var busy = _vpn.Busy || _vpnSetup;
         if (up && !busy) _vpnNote = "";
         _vpnRing.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         _vpnButton.Content = _vpn.Phase == VpnPhase.Connecting ? L.T("Connect") : up ? L.T("Disconnect") : L.T("Connect");
@@ -632,8 +718,6 @@ public sealed class SeamlessPage : LauncherPage
     /// version; another version is greyed out.</summary>
     private void RefreshLobby()
     {
-        _lobbyRow.Visibility = _lobbyOn && S.Str("party_mode") == "join" ? Visibility.Visible : Visibility.Collapsed;
-        _lobbyList.Visibility = _lobbyRow.Visibility;
         if (!_lobbyOn) return;
         var test = VpnLobby.TestTarget() != null;
         var up = test || VpnLobby.TunnelIp(_adapters) != null;
@@ -654,7 +738,7 @@ public sealed class SeamlessPage : LauncherPage
             join.IsEnabled = open;
             var row = Card(SymbolRegular.People24, game.Name, null, join, out var hint);
             if (!open) row.Opacity = 0.6;
-            SetHint(hint, game.Players + " / " + game.Max + " · " + (game.Password ? L.T("Password: yes") : L.T("Open")) + " · " + VpnLobby.VersionOf(game.Build));
+            SetHint(hint, L.T("Nightwatch Online") + " · " + game.Players + " / " + game.Max + " · " + (game.Password ? L.T("Password: yes") : L.T("Open")) + " · " + VpnLobby.VersionOf(game.Build));
             _lobbyList.Children.Add(row);
         }
     }
@@ -696,7 +780,7 @@ public sealed class SeamlessPage : LauncherPage
         var saved = S.Str("party_code");
         var listen = ListenLine();
         var signature = _searchBox.Text + "|" + _joinNote + "|" + _listener?.Error + "|" + waited + "|" + saved + "|" + listen + "|" +
-                        string.Join(";", parties.Select(p => $"{p.Info.Id}/{p.Ip}/{p.Info.Players}/{p.Info.Max}/{p.Info.Level}/{p.Info.Area}/{p.Info.Name}/{p.Info.Password}"));
+                        string.Join(";", parties.Select(p => $"{PartyDiscovery.Tag(p, _adapters)}/{p.Info.Id}/{p.Ip}/{p.Info.Players}/{p.Info.Max}/{p.Info.Level}/{p.Info.Area}/{p.Info.Name}/{p.Info.Password}"));
         if (signature == _partySignature) return;
         _partySignature = signature;
         _partyList.Children.Clear();
@@ -711,7 +795,7 @@ public sealed class SeamlessPage : LauncherPage
             var info = party.Info;
             var state = PartyDiscovery.StateOf(info, prefix);
             var selected = PartyDiscovery.Selected(party, saved);
-            var text = (selected ? L.T("Selected") + " · " : "") + L.T("Level ") + (info.Level > 0 ? info.Level.ToString() : "?") + " · " +
+            var text = L.T(PartyDiscovery.Tag(party, _adapters)) + " · " + (selected ? L.T("Selected") + " · " : "") + L.T("Level ") + (info.Level > 0 ? info.Level.ToString() : "?") + " · " +
                        info.Players + " / " + info.Max + " · " + (info.Password ? L.T("Password") : info.Open ? L.T("Open") : L.T("Code required")) + (info.Area.Length > 0 ? " · " + info.Area : "");
             if (state == PartyDiscovery.RowState.OtherBuild) text += "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.");
             var picked = party;
@@ -870,37 +954,12 @@ public sealed class SeamlessPage : LauncherPage
         await MainWindow.Instance!.PlayOrStopAsync();
     }
 
-    /// <summary>The red notice over the Join lists while the Nightwatch VPN is down.</summary>
-    private Border JoinBanner()
-    {
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var icon = new SymbolIcon { Symbol = SymbolRegular.Warning24, FontSize = 28, Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center };
-        var title = Text(L.T("Nightwatch VPN not connected"), "Body");
-        title.FontWeight = FontWeights.SemiBold;
-        var hint = Text(L.T("Connect to see public parties, or use a private party code below."), "Faint");
-        hint.TextWrapping = TextWrapping.Wrap;
-        var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { title, hint } };
-        var action = Row(_joinRing, _joinConnect);
-        action.VerticalAlignment = VerticalAlignment.Center;
-        action.Margin = new Thickness(12, 0, 0, 0);
-        Grid.SetColumn(words, 1);
-        Grid.SetColumn(action, 2);
-        grid.Children.Add(icon); grid.Children.Add(words); grid.Children.Add(action);
-        var banner = new Border { Child = grid, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 12, 14, 12), Margin = new Thickness(14, 8, 14, 4) };
-        banner.SetResourceReference(Border.BorderBrushProperty, "DangerTextBrush");
-        icon.SetResourceReference(ForegroundProperty, "DangerTextBrush");
-        return banner;
-    }
-
     // ---- The silent connection check (Core/ConnectionCheck): a banner only when something is wrong ----
 
     private Border _checkBanner = null!;
     private StackPanel _checkLines = null!;
     private Wpf.Ui.Controls.Button _checkFix = null!;
-    private TextBlock _checkLine = null!;
+    private readonly StackPanel _checkPanel = new(), _hostChecks = new(), _joinChecks = new();
     private List<CheckProblem> _problems = new();
     private CheckFacts? _checkFacts;
     private int _checkRun;
@@ -937,7 +996,6 @@ public sealed class SeamlessPage : LauncherPage
             Hosting = mode == "host",
             PublicParty = IsPublic,
             LocalAddress = NetworkRoute.SelectLan(adapters)?.IpText ?? "",
-            OfflineVpns = NetworkRoute.OfflineVpnLabels(adapters, pref),
             VpnsUp = NetworkRoute.VpnLabels(adapters),
             AutomaticRoute = NetworkRoute.HostOverOf(pref) == HostOver.Automatic,
             OpenVpnMissing = NightwatchVpn.Shipped != null && NightwatchVpn.GuiExe() == null,
@@ -961,7 +1019,6 @@ public sealed class SeamlessPage : LauncherPage
         }
         _checkFix.Visibility = _problems.Any(c => c.Fix != CheckFix.None) ? Visibility.Visible : Visibility.Collapsed;
         _checkBanner.Visibility = _problems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        _checkLine.Text = (_problems.Count == 0 ? L.T("Connection check: no problems found") : L.T("Connection check: problems found")) + " (" + DateTime.Now.ToString("t") + ")";
     }
 
     /// <summary>Everything fixable, in one go: the firewall's commands are shown first as always.</summary>
@@ -993,8 +1050,8 @@ public sealed class SeamlessPage : LauncherPage
         var isPublic = value == "1";
         if (isPublic == IsPublic) return;
         var up = VpnLobby.TunnelIp(_adapters) != null;
-        if (!isPublic && up && !Prompt.Confirm(L.T("Private party"),
-            L.T("Private party turns off the Nightwatch VPN. You can still play with friends over the internet, LAN or other VPNs."), L.T("Disconnect")))
+        if (!isPublic && up && !Prompt.Confirm(L.T("uPnP/VPN/LAN"),
+            L.T("uPnP/VPN/LAN turns off the Nightwatch VPN. You can still play with friends over the internet, LAN or other VPNs."), L.T("Disconnect")))
         { _hostMode.Select(0, notify: false); return; }
         _changingHost = true;
         _hostMode.IsEnabled = false;
@@ -1009,6 +1066,7 @@ public sealed class SeamlessPage : LauncherPage
             ApplyHostMode(isPublic, Ini.Get("party_discovery", "1") == "1");
             Ws.SaveSoon(); ShowMode();
             if (isPublic && !up) await ToggleVpn();
+            if (isPublic && NightwatchVpn.GuiExe() == null) SetHostType(false);
         }
         finally { _changingHost = false; _hostMode.IsEnabled = true; UpdateVpn(); }
     }
@@ -1018,6 +1076,12 @@ public sealed class SeamlessPage : LauncherPage
         var mode = S.Str("party_mode");
         foreach (var (element, when) in _byMode)
             element.Visibility = when(mode) ? Visibility.Visible : Visibility.Collapsed;
+        var checksAt = Joining(mode) ? _joinChecks : _hostChecks;
+        if (_checkPanel.Parent != checksAt)
+        {
+            (_checkPanel.Parent as Panel)?.Children.Remove(_checkPanel);
+            checksAt.Children.Add(_checkPanel);
+        }
         SyncSharedRows();
         UpdateRoute();
         RefreshPublic();

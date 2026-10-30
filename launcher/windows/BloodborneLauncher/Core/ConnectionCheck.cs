@@ -23,7 +23,6 @@ public sealed record CheckFacts
     public int NextFreePort { get; init; }
     public bool? Internet { get; init; }
     public string LocalAddress { get; init; } = "";
-    public IReadOnlyList<string> OfflineVpns { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> VpnsUp { get; init; } = Array.Empty<string>();
     public bool AutomaticRoute { get; init; } = true;
     public bool OpenVpnMissing { get; init; }
@@ -57,8 +56,7 @@ public static class ConnectionCheck
                 f.NextFreePort > 0 ? CheckFix.NextPort : CheckFix.None);
         if (f.Internet == false) Add("internet", L.T("This PC could not reach the internet. Friends over the internet and the Nightwatch VPN will not work."));
         if (f.Hosting && !f.PublicParty && IsCarrierNat(f.LocalAddress))
-            Add("nat", L.T("Your provider shares one public address between customers (CGNAT), so friends may not reach you directly. Use a Public party, or port forwarding if your provider allows it (Advanced)."));
-        if (f.OfflineVpns.Count > 0) Add("vpn-offline", string.Join(", ", f.OfflineVpns) + L.T(" is installed but offline: connect it in its app."));
+            Add("nat", L.T("Your provider shares one public address between customers (CGNAT), so friends may not reach you directly. Use Nightwatch Online, or port forwarding if your provider allows it (Advanced)."));
         if (f.Hosting && !f.PublicParty && f.AutomaticRoute && f.VpnsUp.Count > 1)
             Add("vpns", L.T("Several VPNs are up: ") + string.Join(", ", f.VpnsUp) + L.T(". Pick the one your friends are in under Advanced."));
         if (f.Hosting && f.PublicParty && f.OpenVpnMissing && f.SetupPackaged)

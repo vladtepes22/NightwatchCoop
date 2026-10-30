@@ -17,6 +17,10 @@ public static class OpenVpnSetup
     /// OpenVPN.GUI.OnLogon: nothing starts with Windows.</summary>
     public const string Features = "OpenVPN,OpenVPN.GUI,OpenVPN.Service,Drivers,Drivers.OvpnDco,Drivers.TAPWindows6";
 
+    /// <summary>"Want to know more?" in the install prompt: the README section that says what Nightwatch Online is, how safe
+    /// it is, and that it is optional. The section (anchor #nightwatch-online) is written by the 0.2.6 release.</summary>
+    public const string LearnMoreUrl = "https://github.com/vladtepes22/NightwatchCoop#nightwatch-online";
+
     public static string PackagedMsi => Path.Combine(Paths.PortDir, "openvpn", MsiName);
 
     public static bool HashMatches(Stream msi) =>
@@ -24,6 +28,8 @@ public static class OpenVpnSetup
 
     public static string Arguments(string msi, string log) =>
         $"/i \"{msi}\" /qn /norestart ADDLOCAL={Features} /L*v \"{log}\"";
+
+    public static string UninstallArguments(string msi, string log) => $"/x \"{msi}\" /qn /norestart /L*v \"{log}\"";
 
     /// <summary>msiexec's exit code: 3010 and 1641 are a success that wants a restart, 1602 cancelled, 1618 another
     /// installer is running.</summary>
@@ -37,13 +43,18 @@ public static class OpenVpnSetup
 
     /// <summary>One UAC prompt, no wizard. The file stays open against writes from the hash check until the installer is
     /// done, so what was checked is what runs.</summary>
-    public static async Task<OpenVpnSetupResult> InstallAsync()
+    public static Task<OpenVpnSetupResult> InstallAsync() => RunAsync(Arguments, "openvpn-setup.log");
+
+    /// <summary>Removes the OpenVPN this package installs, with the same signed installer (one UAC prompt).</summary>
+    public static Task<OpenVpnSetupResult> UninstallAsync() => RunAsync(UninstallArguments, "openvpn-remove.log");
+
+    private static async Task<OpenVpnSetupResult> RunAsync(Func<string, string, string> arguments, string logName)
     {
         try
         {
             await using var msi = new FileStream(PackagedMsi, FileMode.Open, FileAccess.Read, FileShare.Read);
             if (!HashMatches(msi)) return OpenVpnSetupResult.Tampered;
-            var start = new ProcessStartInfo("msiexec.exe", Arguments(PackagedMsi, Path.Combine(Paths.ConfigDir, "openvpn-setup.log")))
+            var start = new ProcessStartInfo("msiexec.exe", arguments(PackagedMsi, Path.Combine(Paths.ConfigDir, logName)))
             {
                 UseShellExecute = true,
                 Verb = "runas",

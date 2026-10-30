@@ -83,6 +83,15 @@ public static class PartyDiscovery
     /// <summary>The launcher's Party size choice for a host's announced limit; null when it has no such choice (keep yours).</summary>
     public static string? PartySize(int max) => max is >= 2 and <= 5 ? max.ToString() : null;
 
+    /// <summary>How a heard party is reached: "Nightwatch Online" on the tunnel, "VPN" on another VPN's network, else "LAN".</summary>
+    public static string Tag(FoundParty party, IEnumerable<NetAdapter> adapters)
+    {
+        var ip = NetworkRoute.Parse(party.Ip);
+        if (VpnLobby.IsTunnelAddress(ip)) return "Nightwatch Online";
+        var onNet = adapters.FirstOrDefault(a => a.Ip != 0 && a.Mask != 0 && (a.Ip & a.Mask) == (ip & a.Mask));
+        return onNet != null && NetworkRoute.KindOf(onNet) != VpnKind.None ? "VPN" : "LAN";
+    }
+
     /// <summary>The networks the list hears parties on ("LAN" for a plain local network), and whether a Tailscale
     /// adapter is up (its parties never show: discovery skips Tailscale, NetworkRoute.DiscoveryOk).</summary>
     public static (List<string> Networks, bool Tailscale) Networks(IEnumerable<NetAdapter> adapters)

@@ -24,7 +24,7 @@ namespace BloodborneLauncher.Views
         /// <summary>Choose: the index of the button pressed; -1 when closed with Escape.</summary>
         private int _chosen = -1;
 
-        private Prompt(string title, string? message, IReadOnlyList<Field> fields, string ok, bool showCancel, string[]? choices = null)
+        private Prompt(string title, string? message, IReadOnlyList<Field> fields, string ok, bool showCancel, string[]? choices = null, string? linkText = null, string? linkUrl = null)
         {
             var owner = Application.Current.MainWindow is { IsLoaded: true } main && main.WindowState != WindowState.Minimized ? main : null;
             Owner = owner;
@@ -78,6 +78,22 @@ namespace BloodborneLauncher.Views
                 box.PlaceholderEnabled = true;
                 _boxes.Add(box);
                 stack.Children.Add(box);
+            }
+
+            if (linkText != null && linkUrl != null)
+            {
+                var link = LauncherPage.Text(linkText, "Muted");
+                link.FontSize = 13;
+                link.TextDecorations = TextDecorations.Underline;
+                link.Cursor = Cursors.Hand;
+                link.Margin = new Thickness(0, 6, 0, 0);
+                link.SetResourceReference(TextBlock.ForegroundProperty, "AccentTextFillColorPrimaryBrush");
+                link.MouseLeftButtonUp += (_, _) =>
+                {
+                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(linkUrl) { UseShellExecute = true }); }
+                    catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
+                };
+                stack.Children.Add(link);
             }
 
             // Two equal-width buttons along the bottom, the action on the right.
@@ -227,8 +243,9 @@ namespace BloodborneLauncher.Views
 
         private string[] Values() => _boxes.Select(b => b is PasswordBox p ? p.Password : b.Text).ToArray();
 
-        public static bool Confirm(string title, string message, string ok) =>
-            new Prompt(title, message, Array.Empty<Field>(), ok, showCancel: true).ShowDialog() == true;
+        /// <summary>With a link line (opens the address in the browser) under the text.</summary>
+        public static bool Confirm(string title, string message, string ok, string? linkText = null, string? linkUrl = null) =>
+            new Prompt(title, message, Array.Empty<Field>(), ok, showCancel: true, null, linkText, linkUrl).ShowDialog() == true;
 
         /// <summary>One of several actions (the last is the main one): its index, or -1 if dismissed.</summary>
         public static int Choose(string title, string message, params string[] choices)

@@ -129,7 +129,6 @@ internal static class CoopSetupTests
         Check(Ids(new CheckFacts { Internet = false }).Contains("internet"), "No internet");
         Check(Ids(new CheckFacts { Internet = null }).Length == 0, "Unknown internet is no problem");
         Check(Ids(host with { LocalAddress = "100.70.0.1" }).Contains("nat") && !Ids(host with { LocalAddress = "100.70.0.1", PublicParty = true }).Contains("nat"), "CGNAT only for a private host");
-        Check(Ids(new CheckFacts { OfflineVpns = new[] { "Radmin VPN" } }).Contains("vpn-offline"), "VPN offline");
         var two = new[] { "A", "B" };
         Check(Ids(host with { VpnsUp = two }).Contains("vpns") && !Ids(host with { VpnsUp = two, AutomaticRoute = false }).Contains("vpns") && !Ids(host with { VpnsUp = new[] { "A" } }).Contains("vpns"), "Several VPNs");
         var setup = host with { PublicParty = true, OpenVpnMissing = true, SetupPackaged = true };
