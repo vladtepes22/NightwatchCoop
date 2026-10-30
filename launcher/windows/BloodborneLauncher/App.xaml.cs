@@ -40,10 +40,22 @@ namespace BloodborneLauncher
             }
         }
 
+        /// <summary>Online play ends with the launcher, on every way out. There is no window left to tell, so a tunnel that
+        /// did not go is noted beside the crash log.</summary>
+        private static void EndVpn()
+        {
+            if (System.Threading.Interlocked.Exchange(ref _vpnEnded, 1) != 0 || Core.NightwatchVpn.DisconnectOnExit()) return;
+            try { File.AppendAllText(CrashLog, DateTime.Now + ": the Nightwatch VPN connection did not confirm its end when the launcher closed\n"); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+        private static int _vpnEnded;
+
         protected override void OnStartup(StartupEventArgs e)
         {
             L.Initialize();
             base.OnStartup(e);
+            Exit += (_, _) => EndVpn();
+            SessionEnding += (_, _) => EndVpn();
 
             // A UI-thread fault is recoverable; the other two are only logged, so a hard exit
             // still leaves evidence behind.

@@ -309,9 +309,13 @@ public static class NightwatchVpn
     /// a reconnect; <see cref="Disconnect"/> and the launcher's next start without a tunnel delete it.</summary>
     public static void Connect(VpnInstall install, string guiExe)
     {
-        WriteUserOnly(ProfilePath, BuildProfile(install, Unprotect(install.KeyProtected), Unprotect(install.TlsProtected)));
-        Gui(guiExe, "--command", "rescan").WaitForExit(3000);  // a running GUI has to see the file before connect
-        Gui(guiExe, "--command", "connect", ConfigName);
+        lock (GuiLock)
+        {
+            if (_closing) return;
+            WriteUserOnly(ProfilePath, BuildProfile(install, Unprotect(install.KeyProtected), Unprotect(install.TlsProtected)));
+            Gui(guiExe, "--command", "rescan").WaitForExit(3000);  // a running GUI has to see the file before connect
+            if (!_closing) Gui(guiExe, "--command", "connect", ConfigName);
+        }
     }
 
     public static void Disconnect(string guiExe)
@@ -324,6 +328,68 @@ public static class NightwatchVpn
     {
         try { File.Delete(ProfilePath); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+
+    // ---- Who owns the connection: one launcher at a time, and it ends with that launcher ----
+
+    private static readonly object GuiLock = new();
+    private static volatile bool _closing;
+    private static Mutex? _owner;
+    private const string OwnerMutex = @"Local\NightwatchVpnOwner";
+
+    public static bool OwnedHere => _owner != null;
+
+    /// <summary>Takes the connection for this launcher; false while another launcher holds it. One a crashed launcher left
+    /// is free to take. Call on the UI thread: a mutex belongs to the thread that took it.</summary>
+    public static bool TryOwn()
+    {
+        if (_owner != null) return true;
+        var mutex = new Mutex(false, OwnerMutex);
+        try
+        {
+            if (!mutex.WaitOne(0))
+            {
+                mutex.Dispose();
+                return false;
+            }
+        }
+        catch (AbandonedMutexException) { }
+        _owner = mutex;
+        return true;
+    }
+
+    public static void ReleaseOwnership()
+    {
+        _owner?.ReleaseMutex();
+        _owner?.Dispose();
+        _owner = null;
+    }
+
+    /// <summary>The launcher is closing (the window, an update's restart, Windows shutting down): ends this launcher's
+    /// connection, and one still being made, and waits a bounded time for the tunnel to go. Only the Nightwatch profile, and
+    /// the GUI keeps running: it may hold the player's other VPNs. Returns whether the tunnel is confirmed gone.</summary>
+    public static bool DisconnectOnExit()
+    {
+        _closing = true;
+        if (!OwnedHere) return true;
+        var locked = Monitor.TryEnter(GuiLock, TimeSpan.FromSeconds(4));
+        try
+        {
+            if (GuiExe() is { } gui)
+            {
+                Gui(gui, "--command", "disconnect", ConfigName);
+                var until = DateTime.UtcNow.AddSeconds(6);
+                while (VpnLobby.TunnelIp(NetworkRoute.Enumerate()) != null)
+                {
+                    if (DateTime.UtcNow >= until) return false;
+                    Thread.Sleep(250);
+                }
+            }
+            DeleteProfile();
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception) { return false; }
+        finally { if (locked) Monitor.Exit(GuiLock); }
     }
 
     private static Process Gui(string exe, params string[] args)

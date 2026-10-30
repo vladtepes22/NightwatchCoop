@@ -15,6 +15,10 @@ keep their own licenses and notices: shadPS4, bbport, bloodborne_pc, bbhost (lic
 BBHOST-PORTS.md), shadNet (licenses/SHADNET-PORT.md), the third-party libraries, and the changes
 contributors sent in. The additional terms apply only to Lantern Engine's own code.
 
+The package ships the official, unmodified OpenVPN 2.7.7 installer (openvpn/OpenVPN-2.7.7-I001-amd64.msi),
+(c) OpenVPN Inc. and contributors, under the GNU GPL version 2. Source for this version:
+https://swupdate.openvpn.org/community/releases/openvpn-2.7.7.tar.gz
+
 Additional terms (GNU GPL version 3, section 7)
 
 1. Attribution (section 7(b)). If you convey Lantern Engine's own code, or a work based on it,

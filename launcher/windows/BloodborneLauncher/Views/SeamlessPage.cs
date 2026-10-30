@@ -114,8 +114,8 @@ public sealed class SeamlessPage : LauncherPage
         {
             _vpnButton = SmallButton(L.T("Connect"), SymbolRegular.Globe24, (_, _) => ToggleVpn());
             Add(Card(SymbolRegular.Globe24, L.T("Connection"),
-                L.T("Needs OpenVPN. The first Connect makes a personal key that stays on this PC, encrypted for your Windows user, and asks the Nightwatch VPN server for a certificate. Nobody registers."),
-                _vpnButton, out _vpnHint), nightwatch);
+                L.T("Needs OpenVPN. The first Connect makes a personal key that stays on this PC, encrypted for your Windows user, and asks the Nightwatch VPN server for a certificate. Nobody registers. Closing the launcher ends the connection."),
+                VpnControl(), out _vpnHint), nightwatch);
         }
         ToggleRow(SymbolRegular.Globe24, L.T("Nightwatch VPN lobby"), L.T("Join: lists the games of other Nightwatch VPN players. Host with a password: lists your character name and slots, never your address. Takes effect at once."),
             () => Ini.Get("party_vpn_lobby", "0") == "1", v => { Ini.Set("party_vpn_lobby", v ? "1" : "0"); _lobbyOn = v; }, nightwatch);
@@ -329,7 +329,9 @@ public sealed class SeamlessPage : LauncherPage
     private readonly StackPanel _lobbyList;
     private readonly Wpf.Ui.Controls.Button? _vpnButton;
     private readonly TextBlock? _vpnHint;
-    private bool _vpnBusy;
+    private readonly VpnConnection _vpn = new();
+    private readonly Wpf.Ui.Controls.ProgressRing _vpnRing = new() { IsIndeterminate = true, Width = 18, Height = 18, Margin = new Thickness(0, 0, 10, 0), Visibility = Visibility.Collapsed };
+    private bool _vpnSetup;
     private string _vpnNote = "";
     private StackPanel _partyList = null!;
     private TextBlock _partiesHint = null!;
@@ -444,34 +446,111 @@ public sealed class SeamlessPage : LauncherPage
         await MainWindow.Instance!.PlayOrStopAsync();
     }
 
-    /// <summary>Connect / Disconnect: enrolls on first use, renews when due, then OpenVPN GUI runs the tunnel.</summary>
-    private async void ToggleVpn()
+    private StackPanel VpnControl()
     {
-        if (NightwatchVpn.Shipped is not { } endpoint || _vpnBusy) return;
-        if (NightwatchVpn.GuiExe() is not { } gui)
+        var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        row.Children.Add(_vpnRing);
+        row.Children.Add(_vpnButton!);
+        return row;
+    }
+
+    /// <summary>First use on a PC without OpenVPN: the player agrees, then the shipped installer runs (one UAC prompt).
+    /// Cancel installs nothing. Null: no OpenVPN to connect with, and the note says why.</summary>
+    private async Task<string?> SetUpOpenVpn()
+    {
+        if (!File.Exists(OpenVpnSetup.PackagedMsi))
         {
             Prompt.Tell(L.T("Nightwatch VPN"), L.T("OpenVPN is not installed. Install OpenVPN Community from openvpn.net, then press Connect again."));
-            return;
+            return null;
         }
-        _vpnBusy = true;
+        if (!Prompt.Confirm(L.T("Set up online play"),
+                L.T("Online play uses the Nightwatch VPN network. Setup will install OpenVPN GUI and the required networking components. Windows may ask for administrator permission."),
+                L.T("Install and continue")))
+            return null;
+        _vpnSetup = true;
+        _vpnNote = L.T("Setting up online play…");
+        UpdateVpn();
+        var result = await OpenVpnSetup.InstallAsync();
+        _vpnSetup = false;
+        _vpnNote = result switch
+        {
+            OpenVpnSetupResult.Installed when NightwatchVpn.GuiExe() != null => "",
+            OpenVpnSetupResult.Declined => L.T("Setup was cancelled, so nothing was installed. You can still play with a Private party."),
+            OpenVpnSetupResult.Busy => L.T("Another installer is running. Wait for it to finish and press Connect again."),
+            OpenVpnSetupResult.Tampered or OpenVpnSetupResult.Missing => L.T("The OpenVPN installer in this package is damaged or missing. Reinstall Nightwatch Co-op, or play with a Private party."),
+            _ => L.T("OpenVPN could not be installed. You can still play with a Private party."),
+        };
+        UpdateVpn();
+        return NightwatchVpn.GuiExe();
+    }
+
+    /// <summary>Connect / Disconnect: sets up OpenVPN and enrolls on first use, renews when due, then OpenVPN GUI runs the
+    /// tunnel. The state holds until the tunnel's adapter confirms it (<see cref="WatchVpn"/>).</summary>
+    private async void ToggleVpn()
+    {
+        if (NightwatchVpn.Shipped is not { } endpoint || _vpn.Busy || _vpnSetup) return;
+        var up = VpnLobby.TunnelIp(_adapters) != null;
+        if (up && !NightwatchVpn.OwnedHere) return;
+        if (NightwatchVpn.GuiExe() is not { } gui)
+        {
+            if (await SetUpOpenVpn() is not { } installed) return;
+            gui = installed;
+        }
         _vpnNote = "";
         try
         {
-            if (VpnLobby.TunnelIp(_adapters) != null) await Task.Run(() => NightwatchVpn.Disconnect(gui));
+            if (up)
+            {
+                _vpn.BeginDisconnect(DateTime.UtcNow);
+                UpdateVpn();
+                await Task.Run(() => NightwatchVpn.Disconnect(gui));
+            }
             else
             {
-                _vpnNote = L.T("Connecting…");
+                if (!NightwatchVpn.TryOwn())
+                {
+                    _vpnNote = L.T("Another launcher window holds the connection.");
+                    UpdateVpn();
+                    return;
+                }
+                _vpn.BeginConnect(DateTime.UtcNow);
                 UpdateVpn();
                 var install = await NightwatchVpn.ReadyAsync(endpoint, Paths.ConfigDir);
                 await Task.Run(() => NightwatchVpn.Connect(install, gui));
             }
+            await WatchVpn(gui);
+            return;
         }
         catch (VpnException e) { _vpnNote = VpnMessage(e); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or System.Security.Cryptography.CryptographicException)
         {
             _vpnNote = L.T("Could not start the connection through OpenVPN.");
         }
-        _vpnBusy = false;
+        _vpn.Abort(VpnLobby.TunnelIp(_adapters) != null);
+        if (_vpn.Phase == VpnPhase.Off) NightwatchVpn.ReleaseOwnership();
+        RefreshRoute();
+        UpdateVpn();
+    }
+
+    /// <summary>Until the adapter confirms the change or the time is up. A connection that timed out is called off, so it
+    /// cannot come up later unasked.</summary>
+    private async Task WatchVpn(string gui)
+    {
+        var connecting = _vpn.Phase == VpnPhase.Connecting;
+        while (_vpn.Busy)
+        {
+            await Task.Delay(500);
+            _adapters = await Task.Run(NetworkRoute.Enumerate);
+            _vpn.Observe(VpnLobby.TunnelIp(_adapters) != null, DateTime.UtcNow);
+        }
+        if (_vpn.TimedOut)
+        {
+            _vpnNote = connecting
+                ? L.T("The connection did not come up: the VPN server may be full, or a firewall blocks it. You can still play with a Private party.")
+                : L.T("OpenVPN did not confirm the disconnect. Check its tray icon.");
+            if (connecting) await Task.Run(() => NightwatchVpn.Disconnect(gui));
+        }
+        if (_vpn.Phase == VpnPhase.Off) NightwatchVpn.ReleaseOwnership();
         RefreshRoute();
         UpdateVpn();
     }
@@ -490,10 +569,19 @@ public sealed class SeamlessPage : LauncherPage
     {
         if (_vpnButton == null || _vpnHint == null) return;
         var up = VpnLobby.TunnelIp(_adapters) != null;
-        if (up && !_vpnBusy) _vpnNote = "";
-        _vpnButton.Content = up ? L.T("Disconnect") : L.T("Connect");
-        _vpnButton.IsEnabled = !_vpnBusy;
-        SetHint(_vpnHint, _vpnNote.Length > 0 ? _vpnNote : up ? L.T("Connected.") : L.T("Not connected"));
+        // A tunnel of ours from before this launcher started (a crash) belongs to whoever closes it next.
+        if (up && !NightwatchVpn.OwnedHere && !_vpn.Busy && File.Exists(NightwatchVpn.ProfilePath)) NightwatchVpn.TryOwn();
+        var other = up && !NightwatchVpn.OwnedHere;
+        var busy = _vpn.Busy || _vpnSetup;
+        if (up && !busy) _vpnNote = "";
+        _vpnRing.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        _vpnButton.Content = _vpn.Phase == VpnPhase.Connecting ? L.T("Connect") : up ? L.T("Disconnect") : L.T("Connect");
+        _vpnButton.IsEnabled = !busy && !other;
+        SetHint(_vpnHint, _vpn.Phase == VpnPhase.Connecting ? L.T("Connecting…")
+            : _vpn.Phase == VpnPhase.Disconnecting ? L.T("Disconnecting…")
+            : _vpnNote.Length > 0 ? _vpnNote
+            : other ? L.T("Another launcher window or VPN program holds this connection.")
+            : up ? L.T("Connected. Online play ends when you close the launcher.") : L.T("Not connected"));
     }
 
     /// <summary>Join in the VPN lobby's list: asks for the password, then starts the game as Play starts it. The address

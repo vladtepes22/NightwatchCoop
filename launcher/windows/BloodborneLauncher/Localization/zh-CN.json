@@ -2343,5 +2343,21 @@
   "This host has no password and shares a party code: ask the host for it.": "此房主未设密码，使用队伍代码加入：请向房主索取。",
   "Right hand": "右手",
   "Left hand": "左手",
-  "Runes": "符文"
+  "Runes": "符文",
+  "Set up online play": "设置在线游戏",
+  "Install and continue": "安装并继续",
+  "Online play uses the Nightwatch VPN network. Setup will install OpenVPN GUI and the required networking components. Windows may ask for administrator permission.": "在线游戏使用 Nightwatch VPN 网络。设置将安装 OpenVPN GUI 和所需的网络组件。Windows 可能会请求管理员权限。",
+  "Setting up online play…": "正在设置在线游戏…",
+  "Disconnecting…": "正在断开连接…",
+  "Setup was cancelled, so nothing was installed. You can still play with a Private party.": "设置已取消，未安装任何内容。你仍可使用私人队伍游玩。",
+  "Another installer is running. Wait for it to finish and press Connect again.": "另一个安装程序正在运行。请等待其完成后再次点击连接。",
+  "The OpenVPN installer in this package is damaged or missing. Reinstall Nightwatch Co-op, or play with a Private party.": "此软件包中的 OpenVPN 安装程序已损坏或缺失。请重新安装 Nightwatch Co-op，或使用私人队伍游玩。",
+  "OpenVPN could not be installed. You can still play with a Private party.": "无法安装 OpenVPN。你仍可使用私人队伍游玩。",
+  "Another launcher window holds the connection.": "另一个启动器窗口正在占用此连接。",
+  "The connection did not come up: the VPN server may be full, or a firewall blocks it. You can still play with a Private party.": "连接未能建立：VPN 服务器可能已满，或被防火墙阻止。你仍可使用私人队伍游玩。",
+  "OpenVPN did not confirm the disconnect. Check its tray icon.": "OpenVPN 未确认断开连接。请检查其托盘图标。",
+  "Another launcher window or VPN program holds this connection.": "另一个启动器窗口或 VPN 程序正在占用此连接。",
+  "Connected. Online play ends when you close the launcher.": "已连接。关闭启动器后在线游戏将结束。",
+  "Needs OpenVPN. The first Connect makes a personal key that stays on this PC, encrypted for your Windows user, and asks the Nightwatch VPN server for a certificate. Nobody registers. Closing the launcher ends the connection.": "需要 OpenVPN。首次连接会生成一个保存在此电脑上的个人密钥（已为你的 Windows 用户加密），并向 Nightwatch VPN 服务器申请证书。无需注册。关闭启动器会结束连接。",
+  "Online play installs the official, unmodified OpenVPN (GPL v2, source at https://openvpn.net) after you agree.": "在线游戏会在你同意后安装官方未修改的 OpenVPN（GPL v2，源代码见 https://openvpn.net）。"
 }

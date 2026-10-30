@@ -219,6 +219,7 @@ combined with visy's seamless co-op.
 | Older CPU support (AMD FX, Intel 2nd/3rd generation Core) | the translation plan and its checks from [Supermedo/bloodborne_pc](https://github.com/Supermedo/bloodborne_pc), with the CPU part of T0ug's Ivy Bridge work there, as integrated by visy (GPL-2.0-or-later) |
 | Renderer crash fixes | adapted from [AwesomeObserver](https://github.com/AwesomeObserver/bloodborne_pc) and [deadinside28](https://github.com/deadinside28/bloodborne_pc) |
 | Online backend (in the engine, not used: this build plays offline) | [droogie/bbhost](https://github.com/droogie/bbhost) |
+| VPN tunnel for online play (the official installer, unmodified) | [OpenVPN](https://github.com/OpenVPN/openvpn), GPL-2.0 |
 | FSR 3.1 and FSR 4 on Vulkan | [FireBurn/FSR-Vulkan](https://github.com/FireBurn/FSR-Vulkan) and the AMD FidelityFX SDK |
 | FSR (4.1.2 on Radeon, 3.1.6 elsewhere) | AMD's signed FidelityFX SDK 2.4 for Vulkan |
 | FSR 4.1.1 on NVIDIA and Intel | [fsr4vk](https://github.com/dvj5411/fsr4vk) |
@@ -238,4 +239,5 @@ The combined package is GPL-3.0-or-later (see [LICENSE](LICENSE)). Lantern Engin
 modified version of it, not an official Lantern Engine release. visy's co-op is GPL-3.0-or-later;
 code from shadPS4, bbport and bloodborne_pc keeps its GPL-2.0-or-later notices (a copy of that
 license is in [engine/licenses/GPL-2.0.txt](engine/licenses/GPL-2.0.txt)). Third-party components
-retain their own licenses in the package's `licenses/` folder.
+retain their own licenses in the package's `licenses/` folder. The package also ships the official, unmodified
+OpenVPN 2.7.7 installer under GPL-2.0 (see [NOTICE](NOTICE) for its source).

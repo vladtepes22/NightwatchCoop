@@ -31,8 +31,50 @@ static class VpnTests
         throw new InvalidOperationException("VPN: " + what + ": no failure");
     }
 
+    private static void SetupAndConnectionRules()
+    {
+        var args = OpenVpnSetup.Arguments(@"C:\p q\o.msi", @"C:\l.log");
+        Check(args.Contains("\"C:\\p q\\o.msi\"") && args.Contains("/qn") && args.Contains("/norestart") && args.Contains("ADDLOCAL="), "msiexec arguments");
+        Check(!OpenVpnSetup.Features.Contains("OnLogon") && OpenVpnSetup.Features.Contains("OpenVPN.GUI") && OpenVpnSetup.Features.Contains("OpenVPN.Service"), "Nothing starts with Windows, and the GUI and its service are in");
+        foreach (var (code, want) in new[] { (0, OpenVpnSetupResult.Installed), (3010, OpenVpnSetupResult.Installed), (1641, OpenVpnSetupResult.Installed), (1602, OpenVpnSetupResult.Declined), (1223, OpenVpnSetupResult.Declined), (1618, OpenVpnSetupResult.Busy), (1603, OpenVpnSetupResult.Failed) })
+            Check(OpenVpnSetup.ResultOf(code) == want, "msiexec exit " + code);
+        using (var wrong = new MemoryStream(new byte[] { 1, 2, 3 })) Check(!OpenVpnSetup.HashMatches(wrong), "A changed installer passed the hash");
+
+        var t = new DateTime(2026, 10, 30, 12, 0, 0, DateTimeKind.Utc);
+        var c = new VpnConnection();
+        c.BeginConnect(t);
+        Check(c.Busy && c.Observe(false, t.AddSeconds(30)) == VpnPhase.Connecting, "Connecting holds without a tunnel");
+        Check(c.Observe(true, t.AddSeconds(31)) == VpnPhase.On && !c.Busy && !c.TimedOut, "The tunnel confirms Connect");
+        c.BeginDisconnect(t);
+        Check(c.Observe(true, t.AddSeconds(5)) == VpnPhase.Disconnecting, "Disconnecting holds while the tunnel is up");
+        Check(c.Observe(false, t.AddSeconds(6)) == VpnPhase.Off && !c.TimedOut, "The tunnel's end confirms Disconnect");
+        c.BeginConnect(t);
+        Check(c.Observe(false, t + VpnConnection.ConnectLimit) == VpnPhase.Off && c.TimedOut, "A connect that never comes up times out");
+        c.BeginDisconnect(t);
+        Check(c.Observe(true, t + VpnConnection.DisconnectLimit) == VpnPhase.On && c.TimedOut, "A disconnect that never ends times out, still on");
+        c.BeginConnect(t);
+        c.Abort(false);
+        Check(c.Phase == VpnPhase.Off && !c.TimedOut, "A failure before the tunnel is no timeout");
+
+        // One owner: a launcher that does not hold the connection never ends it, and ownership frees for the next.
+        Check(NightwatchVpn.TryOwn() && NightwatchVpn.OwnedHere, "The first launcher owns the connection");
+        var second = true;
+        var other = new Thread(() =>
+        {
+            using var mutex = new Mutex(false, @"Local\NightwatchVpnOwner");
+            second = mutex.WaitOne(0);
+            if (second) mutex.ReleaseMutex();
+        });
+        other.Start();
+        other.Join();
+        Check(!second, "A second holder got the connection");
+        NightwatchVpn.ReleaseOwnership();
+        Check(!NightwatchVpn.OwnedHere, "Ownership was not released");
+    }
+
     public static void Run()
     {
+        SetupAndConnectionRules();
         Formats();
         Lobby();
         Store();

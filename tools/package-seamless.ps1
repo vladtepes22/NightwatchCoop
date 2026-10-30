@@ -123,6 +123,15 @@ foreach ($folder in 'patches', 'data') {
 }
 # Legacy CPU: bb-start reads the translation plan from engine\patches (start/cpu_compat.cpp).
 Copy-Item -LiteralPath (Join-Path $engine 'tools\legacy-cpu-plan.json') -Destination (Join-Path $destinationRoot 'engine\patches') -Force
+# Online play's first-time setup: the official OpenVPN installer; name and hash are pinned in the launcher.
+$vpnSetup = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'launcher\windows\BloodborneLauncher\Core\OpenVpnSetup.cs')
+$vpnMsi = [regex]::Match($vpnSetup, 'MsiName = "([^"]+)"').Groups[1].Value
+$vpnHash = [regex]::Match($vpnSetup, 'MsiSha256 = "([^"]+)"').Groups[1].Value
+$vpnSource = Join-Path $repoRoot "work\downloads\openvpn\$vpnMsi"
+if ((Test-Path -LiteralPath $vpnSource) -and (Get-FileHash -LiteralPath $vpnSource -Algorithm SHA256).Hash -eq $vpnHash) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $destinationRoot 'openvpn') | Out-Null
+    Copy-Item -LiteralPath $vpnSource -Destination (Join-Path $destinationRoot "openvpn\$vpnMsi")
+} elseif ($Release) { throw "A release needs the OpenVPN installer with the pinned hash: work\downloads\openvpn\$vpnMsi" }
 $licenses = Join-Path $destinationRoot 'engine\licenses'
 New-Item -ItemType Directory -Force -Path (Join-Path $licenses 'msys2') | Out-Null
 Copy-Item -Path (Join-Path $MsysRoot 'clang64\share\licenses\*') -Destination (Join-Path $licenses 'msys2') -Recurse -Force
