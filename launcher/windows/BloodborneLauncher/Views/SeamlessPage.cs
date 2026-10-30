@@ -28,16 +28,16 @@ public sealed class SeamlessPage : LauncherPage
         L.T("Play the campaign together with visy's seamless co-op. The host shares a party code; everyone uses the same build, gameplay mods and party size."))
     {
         _previewPublic = previewPublic;
-        _hostSlot = NewSlot();
-        _joinSlot = NewSlot();
+        _slot = NewSlot();
         Group(L.T("Party"));
         var mode = (Segmented)SettingCombo(SymbolRegular.People24, L.T("Mode"), L.T("Host starts the party; Join connects to the host."),
             new[] { new Choice(L.T("Single player"), ""), new Choice(L.T("Host"), "host"), new Choice(L.T("Join"), "join") }, "party_mode",
             changed: () => { ShowMode(); RunCheck(); OfferVpn(); }, buttons: true);
-        PlaceSlot(_joinSlot, (Grid)mode.Parent, Joining);
+        PlaceSlot(_slot, (Grid)mode.Parent, InParty);
         var party = Rows(InParty);
         TextRow(SymbolRegular.Person24, L.T("Your name"), L.T("1–16 letters, numbers, underscores or hyphens."), L.T("Hunter"),
             () => SeamlessSettings.Name(S), v => S.Set("party_name", v), party);
+        party.Children.Add(_slot.Note);
         _checkBanner = CheckBanner();
         _checkPanel.Children.Add(_checkBanner);
         var host = Rows(Hosting);
@@ -45,8 +45,6 @@ public sealed class SeamlessPage : LauncherPage
             new[] { new Choice(L.T("Nightwatch Online"), "1"), new Choice(L.T("uPnP/VPN/LAN"), "0") },
             () => IsPublic ? "1" : "0", ChangeHostMode, host,
             enabled: c => c.Value != "1" || NightwatchVpn.Shipped != null || _previewPublic != null, buttons: true);
-        PlaceSlot(_hostSlot, (Grid)_hostMode.Parent, null);
-        host.Children.Add(_hostSlot.Note);
         _hostPassword = PasswordRow(host, () => S.PartyPassword, v => { S.PartyPassword = v; UpdateInvite(); },
             L.T("Optional. Without a password, anyone who sees the party can join."), L.T("Password"));
         var hostOptions = new Grid();
@@ -70,7 +68,6 @@ public sealed class SeamlessPage : LauncherPage
 
         var found = Rows(Joining);
         found.Children.Add(_joinChecks);
-        found.Children.Add(_joinSlot.Note);
         _searchBox = new Wpf.Ui.Controls.TextBox { PlaceholderText = L.T("Search parties"), Margin = new Thickness(0, 8, 0, 8) };
         found.Children.Add(_searchBox);
         _searchBox.TextChanged += (_, _) => { RefreshLobby(); RefreshParties(); };
@@ -327,9 +324,9 @@ public sealed class SeamlessPage : LauncherPage
     private readonly Segmented _hostMode;
     private readonly StackPanel _privateCodes;
     private readonly Wpf.Ui.Controls.TextBox _searchBox;
-    private readonly VpnSlot _hostSlot, _joinSlot;
-    /// The VPN's state with its buttons: on the Party type row when hosting, on the Mode row when joining. The note under
-    /// it carries the install and connection messages.
+    private readonly VpnSlot _slot;
+    /// The VPN's state with its buttons, on the Mode row for both Host and Join. The note under the name row carries the
+    /// install and connection messages.
     private sealed record VpnSlot(StackPanel Panel, TextBlock Status, TextBlock Note, Wpf.Ui.Controls.ProgressRing Ring,
         Wpf.Ui.Controls.Button Connect, Wpf.Ui.Controls.Button Install);
     private bool _changingHost;
@@ -355,7 +352,7 @@ public sealed class SeamlessPage : LauncherPage
         (System.Windows.Controls.ComboBox)ComboRow(SymbolRegular.People24, L.T("Party size"), hint, PartySizes(), PartySize, v => S.Set("party_max", v), into);
 
     private static Choice[] PartySizes() =>
-        new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice(L.T("5 (experimental)"), "5") };
+        new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice("5", "5") };
     private static string PartySize() => S.Str("party_max") is { Length: > 0 } n ? n : "3";
 
     /// <summary>Copies text; a clipboard another program holds open is reported instead of crashing the launcher.</summary>
@@ -660,17 +657,16 @@ public sealed class SeamlessPage : LauncherPage
         var installed = NightwatchVpn.GuiExe() != null;
         var busy = _vpn.Busy || _vpnSetup;
         var note = _vpnNote.Length > 0 ? _vpnNote : _vpn.Phase == VpnPhase.Disconnecting ? L.T("Disconnecting…") : busy ? L.T("Connecting…") : "";
-        foreach (var (slot, wantsConnect) in new[] { (_hostSlot, IsPublic), (_joinSlot, true) })
-        {
-            slot.Status.Visibility = slot.Install.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
-            slot.Status.Text = !installed ? L.T("VPN not installed") : up ? L.T("VPN connected") : L.T("VPN disconnected");
-            slot.Install.Content = installed ? L.T("Uninstall") : L.T("Install");
-            slot.Install.Icon = new SymbolIcon { Symbol = installed ? SymbolRegular.Delete24 : SymbolRegular.ArrowDownload24 };
-            slot.Connect.Visibility = shown && installed && !up && wantsConnect ? Visibility.Visible : Visibility.Collapsed;
-            slot.Install.IsEnabled = slot.Connect.IsEnabled = !busy && !_changingHost;
-            slot.Ring.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
-            SetHint(slot.Note, note);
-        }
+        var slot = _slot;
+        slot.Status.Visibility = slot.Install.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+        slot.Status.Text = !installed ? L.T("VPN not installed") : up ? L.T("VPN connected") : L.T("VPN disconnected");
+        slot.Install.Content = installed ? L.T("Uninstall") : L.T("Install");
+        slot.Install.Icon = new SymbolIcon { Symbol = installed ? SymbolRegular.Delete24 : SymbolRegular.ArrowDownload24 };
+        var mode = S.Str("party_mode");
+        slot.Connect.Visibility = shown && installed && !up && (Joining(mode) || IsPublic) ? Visibility.Visible : Visibility.Collapsed;
+        slot.Install.IsEnabled = slot.Connect.IsEnabled = !busy && !_changingHost;
+        slot.Ring.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        SetHint(slot.Note, note);
         if (_vpnButton == null || _vpnHint == null) return;
         // A tunnel of ours from before this launcher started (a crash) belongs to whoever closes it next.
         if (up && !NightwatchVpn.OwnedHere && !_vpn.Busy && File.Exists(NightwatchVpn.ProfilePath)) NightwatchVpn.TryOwn();
