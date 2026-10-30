@@ -766,6 +766,7 @@ LW = {
         wait={"top": (-140.40, -44.5, 5.20), "bottom": (-117.10, -58.5, -17.30)},
         wk={"top": (-136.70, -44.5, 1.50), "bottom": (-121.10, -58.4, -15.60)},
         far={"top": (-184.6, -38.7, 32.6), "bottom": (-74.9, -54.8, 17.2)},
+        gate={"top": "-129.8:-44.4:-8.5"},
         route={"top": "-180.7:-41.5:29.6/-177.6:-41.7:26.7/-173.4:-41.7:26.3/-169.0:-41.7:23.9/-165.4:-41.7:21.5/-161.9:-41.7:17.5/-158.2:-41.7:15.0/-154.3:-41.7:11.6/-151.3:-41.7:9.1/-147.6:-41.7:10.8/-144.8:-43.3:7.6/-140.4:-44.5:5.2/-136.7:-44.5:1.5/-134.7:-44.2:-2.5/-130.8:-44.5:-3.7/-130.0:-44.5:-8.0",
                "bottom": "-78.8:-55.4:14.7/-79.1:-55.5:9.9/-83.5:-55.5:8.9/-88.2:-55.4:6.2/-89.5:-55.5:2.0/-92.6:-55.5:-1.5/-96.6:-55.5:-3.9/-100.3:-55.4:-6.3/-103.5:-55.4:-10.0/-107.9:-55.4:-12.6/-110.3:-55.4:-15.8/-113.0:-56.9:-19.2/-116.5:-58.7:-21.3/-117.1:-58.5:-17.3/-121.1:-58.4:-15.6/-124.4:-58.4:-12.6/-128.1:-58.1:-10.7"},
         # liftfar077: starts more than 150 m from the car (outside the prebuild ring), walked in over the navmesh route
@@ -896,6 +897,16 @@ def lfw_chains(spec, slow=False):
                 s.append("%s_move=%s:pin=4:ground@8%%%s%s" % (role, _p(*rw), m, rc))
                 rc = ""
                 pin = 4
+            if slow:
+                # liftbis077: the route's last waypoints can lie inside the trigger cylinder (r 0.55 m: lfwcs top 0.5 m): the ride then
+                # starts mid-route, and the tail walk below (a HOP back to the landing) warped the carried host to the top and into the
+                # open shaft (live lfwcs, car down: fell 48 m). The slow phases' route stops outside the cylinder; the stick step rides.
+                _tx, _ty, _tz = spec["trig"][end]
+                _head, _bar, _last = route.rpartition("|")
+                _wp = [w for w in _last.split("/") if w]
+                while len(_wp) > 3 and math.dist((float(_wp[-1].split(":")[0]), float(_wp[-1].split(":")[2])), (_tx, _tz)) <= 0.8:
+                    _wp.pop()
+                route = _head + _bar + "/".join(_wp)
             legs = route.split("|")  # a leg ends at a ladder's foot: Cross climbs it, the next leg starts at the top
             for li, leg in enumerate(legs):
                 if li:
@@ -910,7 +921,10 @@ def lfw_chains(spec, slow=False):
                 # (not the points inside the trigger cylinder: the ride must start by the trigger step, not mid-walk)
                 tx0, _ty0, tz0 = spec["trig"][end]
                 pts = [w for w in route.split("/") if w and math.dist((float(w.split(":")[0]), float(w.split(":")[2])), (tx0, tz0)) > 0.8]
-                tail = "/".join(pts[-3:])
+                # liftbis077: ... and the last standing spot recorded in the car's doorway (real runs: the guest stood at (-129.8, -8.5)
+                # on its way into the trigger; the straight step from the cage's front corner (-129.3, -7.6) runs into the rail)
+                gate = spec.get("gate", {}).get(end)
+                tail = "/".join(pts[-3:] + ([gate] if gate else []))
                 if tail:
                     s.append("%s_route=%s@1%%%s" % (role, tail, m))
             if riders == "both" and role == "host":

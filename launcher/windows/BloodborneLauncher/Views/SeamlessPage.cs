@@ -197,6 +197,7 @@ public sealed class SeamlessPage : LauncherPage
         IniToggles(host,
             ("party_kill_record", L.T("Enemies stay dead"), true), ("party_open_world", L.T("Remove multiplayer barriers"), true),
             ("party_share_lamps", L.T("Shared lamps"), true), ("party_gather", L.T("Host can gather the party"), true),
+            ("party_guest_gather", L.T("Guests can gather the party"), false), ("party_layer_travel", L.T("Chalice layer travel"), false),
             ("party_guest_respawn", L.T("Guest respawn"), true), ("party_level_sync", L.T("Level sync"), true),
             ("party_friendly_fire", L.T("Friendly fire / PvP"), false), ("party_pvp_full_hp", L.T("Full health in PvP"), true));
         IniToggles(Fold(L.T("World and story"), Hosting),
@@ -1025,6 +1026,8 @@ public sealed class SeamlessPage : LauncherPage
     {
         "party_kill_record" => L.T("A party kill stays dead for everyone, even when maps reload, until a rest."),
         "party_gather" => L.T("Party > Gather the party brings every guest to you; each guest is asked first."),
+        "party_guest_gather" => L.T("A guest may use Party > Gather the party too: the host and the other guests are asked and come to that guest by an in-world warp, never through a loading screen. Off: only the host gathers. The host's rule: guests follow it."),
+        "party_layer_travel" => L.T("In the host's Chalice Dungeon a lamp lists the Hunter's Dream and every lit lamp of the dungeon, and the party goes with the host. Off: the lamp only offers the way back to the Hunter's Dream. The host's rule: guests follow it."),
         "party_npc_mirror" => L.T("An NPC gone from your world is gone for guests too."),
         "party_covenant_per_player" => L.T("Annalise's, Alfred's and Valtr's quest outcomes stay in each player's own save."),
         "party_travel_vote" => L.T("Party travel by lamp, headstone or Hunter's Mark needs every member's approval; one refusal cancels it."),

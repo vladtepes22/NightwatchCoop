@@ -744,6 +744,32 @@ to its end. `lfw` and `lfwc` are in the default smoke list; `lfws` / `lfwcs` run
   0.45 m (inside the 0.55 m cylinder) so a sprinting walker cannot circle the trigger and leave the car; the slow phases walk
   the last three recorded waypoints again (not the trigger's) before that step, so a walker the floor guard moved back is led
   through the car's gate. Only `lfwcbs` ran after these (ride 1 of the three runs passes; ride 2 does not: top pocket).
+* **Bisect of the "lfws / lfwcs went red" report (liftbis077, 2026-10-30, 30 FPS, one launch per cell, 11 launches).** Verdict: NOT a
+  game / party code change (A) and not one harness commit (B): the sprinting walker is flaky, and two real harness bugs sat under it.
+  No lift code changed between 9a5ef9ec and master (the diff holds splitscreen, stay-home, gather, boss HP catch-up; nothing in
+  `party_worldact.cpp`).
+
+| cell (code + harness) | `lfws` | `lfwcs` |
+|---|---|---|
+| 9a5ef9ec + 9a5ef9ec | FAIL (ride 1 never ran), then ride 1 pass / ride 2 never ran | PASS 24/24 |
+| master 6a079ff1 code + 9a5ef9ec harness | PASS 24/24 | |
+| master + master harness (6a079ff1) | ride 1-2 pass, 1 check fail (non-rider stood still); then FAIL (ride 1 never ran) | FAIL: host fell down the shaft (below) |
+| master + liftbis077 harness, HOP fix in the director | both rides pass; only "non-rider walks while the car moves" fails | both rides pass; same single check fails |
+
+  The old commit fails the same way (guest wedged against the cage 6 m / 2 m short of the trigger, `lfws`), so the green 24/24 of the
+  merge was a lucky run of a ~50% walker. Two real test-harness / test-director bugs were found and fixed:
+  1. `lfwcs` (master harness): the route's last waypoint (23.8, 194.0) lies 0.5 m from the trigger, inside its 0.55 m cylinder, so
+     the ride started mid-route; the slow phases' tail walk (added by liftreg077) then HOPPED the carried host back to the top
+     landing, onto the open shaft with the car at the bottom: a 48 m fall (HP irrelevant, god mode). The slow phases' route now
+     stops outside the cylinder (0.8 m); the stick step rides.
+  2. Director route walker: at the route's LAST waypoint after a stuck check (`ap_steps` 20) it hopped every 0.4 s for ever (1864 hops
+     at 0.0 m, `lfws` never ended): the hop now resets the step counter.
+  Also the `lfws` top-end doorway: a recorded standing spot (-129.8, -44.4, -8.5) ends the tail walk (the stick step from the cage's
+  front corner at (-129.3, -7.6) runs into the rail). Floor-guard put-back inspected: it is the spot the chr stood on 0.8 s before
+  the fall began, 2-3 m back along its own approach path on the landing, so a player who steers is not wedged; in the runs above
+  the wedge also happened with the guard NOT fired (9a5ef9ec + 9a harness), i.e. it is the walker's straight sprint line, not the
+  put-back. Still red in this harness: the "non-rider walks while the car moves" check (the waiter's 4 m walk can finish before the
+  ride starts: 0.0 m from the ride's begin). Unproven: 60 / 90 FPS, three repeats of the green cells.
 * **Still open (harness): `lfwcbs` is NOT green 3/3.** The top pocket's walk-in with two riders stalls (see the table); the next
   step is a host far start that is certain to land on the pocket floor (walk it live and record it, no navmesh points), and a
   rerun of `lfws` / `lfwcs` with the 0.45 m / waypoint-tail changes (not rerun: the 14-launch cap).

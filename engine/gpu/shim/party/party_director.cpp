@@ -3796,6 +3796,9 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
                         t.route_i + 1, t.route.size(), double(to[0]), double(to[1]), double(to[2]), ok ? "" : " FAILED");
                     t.ap_still = 0;
                     t.ap_slides_here = 0;
+                    // liftbis077: the hop counts as the waypoint's 20 steps being over; with the counter left at 20 the walk at the
+                    // route's LAST waypoint hopped again every 0.4 s for ever (live lfws: 1864 hops at 0.0 m) and never ended
+                    t.ap_steps = 0;
                     t.ap_at = now + std::chrono::milliseconds(400);
                     t.ap_phase = 0;
                 } else {
