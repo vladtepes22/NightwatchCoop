@@ -32,7 +32,8 @@ internal static class SaveEditor
         public Socket[]? Sockets { get; set; }
     }
     // Type 1 blood gem, 2 rune; Sort 0 blood gem, 1 Caryll rune, 2 oath rune. Handles are unsigned 32-bit.
-    internal sealed record Gem(long Handle, int Type, int Shape, int? Sort, bool Cursed, GemEffect[] Effects, Holder? SocketedIn = null);
+    internal sealed record Gem(long Handle, int Type, int Shape, int? Sort, bool Cursed, GemEffect[] Effects, Holder? SocketedIn = null, long Gen = 0);
+    internal sealed record GemPreview(string? Name, string? Icon, bool Cursed);
     internal sealed record GemEffect(int Id, string? Text);
     internal sealed record Holder(int? Number, string? Name);
     internal sealed record Socket(int Shape, string? Gem);

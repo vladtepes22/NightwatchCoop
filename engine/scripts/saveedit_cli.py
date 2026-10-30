@@ -12,7 +12,7 @@ from saveedit import flagsdata, icons, instances, names, store
 from save_editor import _update_party_characters
 
 
-COMMANDS = ("slots", "show", "apply", "backups", "restore", "effects")
+COMMANDS = ("slots", "show", "apply", "backups", "restore", "effects", "gem_preview", "gem_icons")
 
 
 def running_games():
@@ -92,7 +92,7 @@ def gem_sort(gem, catalogue):
 
 def gem_view(gem, catalogue):
     name, icon, cursed = catalogue.gem(gem.gen, gem.shape, gem.effects)
-    return name, icon, dict(handle=gem.handle, type=gem.type, shape=gem.shape, sort=gem_sort(gem, catalogue),
+    return name, icon, dict(handle=gem.handle, gen=gem.gen, type=gem.type, shape=gem.shape, sort=gem_sort(gem, catalogue),
                             cursed=cursed, effects=[dict(id=e, text=catalogue.effect_text(e)) for e in gem.effects])
 
 
@@ -164,6 +164,17 @@ def execute(args, edit=None, running=running_games, catalogues=None):
             catalogues[user] = catalogue
     if args.command == "effects":
         return [dict(id=e, text=text) for e, text in catalogue.effects_for(0)]  # blood gem effects
+    if args.command == "gem_icons":
+        if args.game:
+            icons.ensure(args.game, cache, catalogue.gem_icon_ids())
+        return {}
+    if args.command == "gem_preview":
+        # The name and icon a gem would have, by the same rule as a saved gem's. Nothing is written.
+        if not isinstance(edit, dict) or set(edit) != {"gen", "shape", "effects"} or not isinstance(edit["effects"], list):
+            raise ValueError("expected gen, shape and effects")
+        name, icon, cursed = catalogue.gem(edit["gen"], edit["shape"], edit["effects"])
+        paths = icons.ensure(args.game, cache, {icon}) if args.game and icon else {}
+        return dict(name=name, icon=paths.get(icon), cursed=cursed)
     model = store.open_slot(user, kind, args.slot)
     if args.command == "show":
         return describe(model, catalogue, lambda ids: icons.ensure(args.game, cache, ids) if args.game else {})
@@ -282,7 +293,7 @@ def main(argv=None, stdin=None, stdout=None, running=running_games):
             worker(args, stdin or sys.stdin, stdout, running)
             return 0
         check_slot(args)
-        edit = json.load(stdin or sys.stdin) if args.command == "apply" else None
+        edit = json.load(stdin or sys.stdin) if args.command in ("apply", "gem_preview") else None
         result = execute(args, edit, running)
         print(json.dumps(result, default=str, ensure_ascii=True), file=stdout)
         return 0

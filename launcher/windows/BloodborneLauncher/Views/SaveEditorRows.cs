@@ -39,6 +39,8 @@ internal sealed class ItemRow : RowBase
     private SaveEditor.GemEffect[] _effects;
     private ImageSource? _icon;
     private bool _iconAsked;
+    private string? _previewName;
+    private bool? _previewCursed;
     public SaveEditor.Item Item { get; }
     public RowCommand LevelDown { get; }
     public RowCommand LevelUp { get; }
@@ -56,8 +58,8 @@ internal sealed class ItemRow : RowBase
         EditGemCommand = new RowCommand(() => editGem?.Invoke(this), () => CanEditGem && !Removed);
     }
 
-    public string Title => Item.Name ?? L.T("Unnamed item");
-    public string Meta => Item.Gem is { } gem ? GemMeta(gem)
+    public string Title => _previewName ?? Item.Name ?? L.T("Unnamed item");
+    public string Meta => Item.Gem is { } gem ? GemMeta(gem with { Cursed = _previewCursed ?? gem.Cursed })
         : (Item.Section == 0 ? "" : L.T("Key item") + " · ") + L.T("Item ID") + " " + Item.Number;
     public bool IsKey => Item.Section is 1 or 2;
     public bool Locked => Item.Locked;
@@ -112,7 +114,16 @@ internal sealed class ItemRow : RowBase
     {
         1 => L.T("Radial"), 2 => L.T("Triangle"), 4 => L.T("Waning"), 8 => L.T("Circle"), 63 => L.T("Droplet"), _ => L.T("Unknown shape")
     };
-    private static ImageSource? LoadIcon(string? path)
+    /// <summary>Name and icon after an unsaved gem edit, the change marker stays until Apply or Revert.</summary>
+    public void ShowPreview(SaveEditor.GemPreview preview)
+    {
+        _previewName = preview.Name;
+        _previewCursed = preview.Cursed;
+        _iconAsked = true;
+        _icon = LoadIcon(preview.Icon);
+        Raise(nameof(Title), nameof(Meta), nameof(Icon));
+    }
+    internal static ImageSource? LoadIcon(string? path)
     {
         if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
         try

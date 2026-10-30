@@ -217,6 +217,11 @@ class Catalogue:
         key = self._gemgen.get(gen_id, 0) + digit * 1000000 + (100000 if cursed else 0) + rows[0][2]
         return self._names.get("gem", {}).get(key), 3000 + block + (100 if cursed else 0) + rows[0][1], cursed
 
+    def gem_icon_ids(self):
+        """Every icon a blood gem can show, so a preview never waits for the icon sheet."""
+        return {3000 + block + cursed + row[1] for _, block in self.SHAPES.values() for cursed in (0, 100)
+                for row in self._effects.values() if row[3] == 0}
+
     def effects_for(self, sort_category):
         """[(id, text)] of the named effects a gem of this sort category can carry, in id order."""
         texts = self._names.get("effect", {})

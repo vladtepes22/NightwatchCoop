@@ -309,10 +309,28 @@ public sealed partial class SaveEditorWindow : Window
     }
     private async Task EditGem(ItemRow row)
     {
+        var first = _effectChoices == null;
         _effectChoices ??= await Run<SaveEditor.GemEffect[]>("effects");
+        if (first) _ = PreloadGemIcons();
         if (_effectChoices.Length == 0) throw new InvalidOperationException(L.T("The game's gem list could not be read. Check the game folder in Settings."));
-        var dialog = new SaveEditorGemDialog(row.Title, row.Effects, _effectChoices) { Owner = this };
-        if (dialog.ShowDialog() == true && dialog.Result is { } result) row.Effects = result;
+        var gem = row.Item.Gem!;
+        async Task<SaveEditor.GemPreview?> Preview(int[] effects)
+        {
+            // Only a nicety: without it the dialog and the row keep their text, and Apply still checks the effects.
+            try { return await Run<SaveEditor.GemPreview>("gem_preview", edit: new { gem.Gen, gem.Shape, Effects = effects }); }
+            catch (Exception e) when (e is InvalidOperationException or IOException or JsonException) { return null; }
+        }
+        var dialog = new SaveEditorGemDialog(row.Title, row.Effects, _effectChoices, Preview) { Owner = this };
+        if (dialog.ShowDialog() == true && dialog.Result is { } result)
+        {
+            row.Effects = result;
+            if (await Preview(result.Select(e => e.Id).ToArray()) is { } preview) row.ShowPreview(preview);
+        }
+    }
+    private async Task PreloadGemIcons()
+    {
+        try { await _source.Run("gem_icons", Kind); }
+        catch (Exception e) when (e is InvalidOperationException or IOException or JsonException) { }
     }
     private async Task Restore(SaveEditor.Backup backup)
     {

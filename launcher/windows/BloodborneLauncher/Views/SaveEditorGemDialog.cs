@@ -19,11 +19,17 @@ internal sealed class SaveEditorGemDialog : Window
     private readonly ListBox _current = new(), _choices = new();
     private readonly TextBox _search = new();
     private readonly Button _replace, _add, _remove, _up, _ok;
+    private readonly Func<int[], Task<SaveEditor.GemPreview?>>? _preview;
+    private readonly TextBlock _name;
+    private readonly System.Windows.Controls.Image _icon = new() { Width = 44, Height = 44, Margin = new Thickness(0, 0, 12, 0), Visibility = Visibility.Collapsed };
+    private int _previewRun;
     public SaveEditor.GemEffect[]? Result { get; private set; }
 
-    public SaveEditorGemDialog(string gem, IReadOnlyList<SaveEditor.GemEffect> current, IReadOnlyList<SaveEditor.GemEffect> choices)
+    public SaveEditorGemDialog(string gem, IReadOnlyList<SaveEditor.GemEffect> current, IReadOnlyList<SaveEditor.GemEffect> choices,
+        Func<int[], Task<SaveEditor.GemPreview?>>? preview = null)
     {
         _effects = current.ToList();
+        _preview = preview;
         Title = L.T("Edit effects"); Width = 620; Height = 640; MinWidth = 480; MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         SetResourceReference(BackgroundProperty, "DialogBackgroundBrush");
@@ -35,7 +41,9 @@ internal sealed class SaveEditorGemDialog : Window
             body.RowDefinitions.Add(new() { Height = height });
         void Add(UIElement element, int row) { Grid.SetRow(element, row); body.Children.Add(element); }
         var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
-        var name = LauncherPage.Text(gem, "PageTitle"); name.TextTrimming = TextTrimming.CharacterEllipsis; heading.Children.Add(name);
+        _name = LauncherPage.Text(gem, "PageTitle"); _name.TextTrimming = TextTrimming.CharacterEllipsis; _name.VerticalAlignment = VerticalAlignment.Center;
+        DockPanel.SetDock(_icon, Dock.Left);
+        heading.Children.Add(new DockPanel { Children = { _icon, _name } });
         var hint = LauncherPage.Text(L.T("Up to 3 effects. The first one decides the gem's name and icon; a cursed effect makes it a cursed gem."), "Muted");
         hint.TextWrapping = TextWrapping.Wrap; heading.Children.Add(hint);
         Add(heading, 0);
@@ -88,6 +96,18 @@ internal sealed class SaveEditorGemDialog : Window
     {
         _current.ItemsSource = null; _current.ItemsSource = _effects.ToArray();
         _current.SelectedIndex = _effects.Count == 0 ? -1 : Math.Min(select, _effects.Count - 1); UpdateButtons();
+        RefreshPreview();
+    }
+    /// <summary>The gem's name and icon for the effects now in the list; a newer change replaces an older answer.</summary>
+    private async void RefreshPreview()
+    {
+        if (_preview == null || _effects.Count == 0) return;
+        var run = ++_previewRun;
+        var answer = await _preview(_effects.Select(e => e.Id).ToArray());
+        if (run != _previewRun || answer == null) return;
+        if (answer.Name != null) _name.Text = answer.Name;
+        _icon.Source = ItemRow.LoadIcon(answer.Icon);
+        _icon.Visibility = _icon.Source != null ? Visibility.Visible : Visibility.Collapsed;
     }
     private void UpdateButtons()
     {

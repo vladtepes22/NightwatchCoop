@@ -256,6 +256,22 @@ class SaveEditorCliTests(unittest.TestCase):
             self.worker([dict(command="show", slot=0), dict(command="show", slot=0)])
         self.assertEqual(load.call_count, 1)
 
+    def test_gem_preview_uses_the_saved_gems_rule(self):
+        class Fake:
+            effects = None
+
+            def gem(self, gen, shape, effects):
+                Fake.effects = (gen, shape, effects)
+                return "Gold Radial Blood Gem", 3007, True
+
+        with patch.object(cli.names.Catalogue, "load", return_value=Fake()):
+            reply = self.worker([dict(command="gem_preview", edit=dict(gen=5, shape=1, effects=[7, 8]))])[0]
+            bad = self.worker([dict(command="gem_preview", edit=dict(shape=1))])[0]
+        self.assertEqual(Fake.effects, (5, 1, [7, 8]))
+        self.assertEqual(reply["result"], dict(name="Gold Radial Blood Gem", icon=None, cursed=True))
+        self.assertIn("error", bad)
+        self.assertEqual(self.file.read_bytes(), self.original)
+
 
 if __name__ == "__main__":
     unittest.main()
