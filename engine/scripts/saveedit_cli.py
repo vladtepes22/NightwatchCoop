@@ -91,7 +91,8 @@ def catalog(catalogue, request, game, cache):
         raise ValueError("expected a category: 0 weapon, 1 armor, 4 goods")
     category, text = request["category"], str(request.get("text", ""))[:60]
     rows = [(n, name) for n, name in catalogue.search(category, text)
-            if catalogue.name(category, n) is not None and (category, n) not in PLACEHOLDERS][:CATALOG_LIMIT]
+            if catalogue.name(category, n) is not None and catalogue.fallback_name(category, n) is None
+            and (category, n) not in PLACEHOLDERS][:CATALOG_LIMIT]
     wanted = {catalogue.icon(category, n) for n, _ in rows} - {None}
     paths = icons.ensure(game, cache, wanted) if game and wanted else {}
     return [dict(number=n, name=name, icon=paths.get(catalogue.icon(category, n))) for n, name in rows]
@@ -266,7 +267,7 @@ def execute(args, edit=None, running=running_games, catalogues=None):
                 or change.get("category") not in ADD_CATEGORIES or type(change.get("number")) is not int):
             raise ValueError("invalid item to add")
         category, number = change["category"], change["number"]
-        if (category, number) in PLACEHOLDERS or not catalogue.known(category, number) or catalogue.name(category, number) is None:
+        if (category, number) in PLACEHOLDERS or not catalogue.known(category, number) or catalogue.name(category, number) is None                 or catalogue.fallback_name(category, number) is not None:
             raise ValueError("the game has no such item")
         if category == 0 and (number % 10000) // 100:
             raise ValueError("add a weapon at +0; raise its level afterwards")

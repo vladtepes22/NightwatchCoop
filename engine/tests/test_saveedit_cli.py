@@ -293,6 +293,16 @@ class SaveEditorCliTests(unittest.TestCase):
                     self.assertEqual(self.call("apply", dict(revision=revision, add=add))[0], 1)
         self.assertEqual(self.file.read_bytes(), self.original)
 
+    def test_cut_content_is_named_but_never_added(self):
+        cat = names.Catalogue({"names": {"goods": {1000: "Blood Vial"}}, "ids": {"armor": [40000, 902000], "goods": [1000]}})
+        self.assertEqual(cat.name(1, 902000), "[CUT] Arms")
+        self.assertIsNone(cat.name(1, 40000))
+        with patch.object(names.Catalogue, "load", return_value=cat):
+            self.assertEqual(self.call("catalog", dict(category=1))[1], [])
+            revision = self.call("show")[1]["revision"]
+            self.assertEqual(self.call("apply", dict(revision=revision, add=[dict(category=1, number=902000)]))[0], 1)
+        self.assertEqual(self.file.read_bytes(), self.original)
+
     def test_gem_preview_uses_the_saved_gems_rule(self):
         class Fake:
             effects = None

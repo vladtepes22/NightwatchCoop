@@ -132,6 +132,10 @@ def _stamp(game, lang):
     return out
 
 
+# Rows the game has no item name for (cut content and a few boss weapon variants), named by Noxde's editor.
+_FALLBACK = json.loads((Path(__file__).with_name("fallbacknames.json")).read_text(encoding="utf-8"))
+
+
 class Catalogue:
     """Names and ids for the UI. Empty (ok False) when the game files cannot be read."""
 
@@ -181,7 +185,14 @@ class Catalogue:
             number = number - (number % 10000) // 100 * 100  # id = base + 100 * reinforcement level
         elif kind == "armor":
             pass
-        return n.get(number)
+        return n.get(number) or self.fallback_name(category, number)
+
+    def fallback_name(self, category, number):
+        """Name of a row the game does not name (cut content), from Noxde's list; such rows are shown, never added."""
+        kind = self.KIND_OF_CATEGORY.get(category)
+        if kind == "weapon":
+            number = number - (number % 10000) // 100 * 100
+        return _FALLBACK.get(kind, {}).get(str(number)) if kind in ("armor", "weapon") else None
 
     def weapon_hand(self, number):
         """Equip hand; unknown or dual-hand rows stay in the right-hand filter."""
