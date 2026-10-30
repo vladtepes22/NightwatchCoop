@@ -2425,5 +2425,11 @@
   "? Friends then need your new code.": "? Entonces tus amigos necesitarán tu nuevo código.",
   "Move": "Mover",
   "The save editor is experimental. Adding items is coming soon.": "El editor de partidas es experimental. Añadir objetos llegará pronto.",
-  "Stay in my world": "Quedarme en mi mundo"
+  "Stay in my world": "Quedarme en mi mundo",
+  "Copy party character to offline": "Copiar personaje de grupo a offline",
+  "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Un personaje de grupo se copia a la misma ranura individual, limpio para jugar sin conexión. La partida de grupo no cambia.",
+  "Copy to offline": "Copiar a offline",
+  "There is no party character yet.": "Aún no hay ningún personaje de grupo.",
+  "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "¿Copiar a {0} (nivel {1}) a la ranura individual {2}? Lo que solo sirve en el grupo se elimina de la copia y tu partida de grupo no cambia.{3}\n\nTus partidas individuales se copian primero a user\\save_backups.",
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nSustituye a {0} en la ranura individual {1}."
 }

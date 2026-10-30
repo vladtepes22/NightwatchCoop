@@ -2425,5 +2425,11 @@
   "? Friends then need your new code.": "？之後好友需要你的新代碼。",
   "Move": "移動",
   "The save editor is experimental. Adding items is coming soon.": "存檔編輯器仍處於實驗階段。新增物品功能即將推出。",
-  "Stay in my world": "留在我的世界"
+  "Stay in my world": "留在我的世界",
+  "Copy party character to offline": "將隊伍角色複製到離線",
+  "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "隊伍角色會複製到相同編號的單人存檔位，並為離線遊玩清理。隊伍存檔不會被更改。",
+  "Copy to offline": "複製到離線",
+  "There is no party character yet.": "還沒有隊伍角色。",
+  "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "將 {0}（等級 {1}）複製到單人存檔位 {2}？僅隊伍使用的狀態會從副本中清除，隊伍存檔不會被更改。{3}\n\n單人存檔會先複製到 user\\save_backups。",
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\n這會取代單人存檔位 {1} 中的 {0}。"
 }

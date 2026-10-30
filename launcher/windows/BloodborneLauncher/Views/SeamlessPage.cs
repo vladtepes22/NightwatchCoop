@@ -280,6 +280,9 @@ public sealed class SeamlessPage : LauncherPage
             SmallButton(L.T("Export"), SymbolRegular.ArrowExportUp24, async (_, _) => await ExportForEditor()), out _));
         Add(Card(SymbolRegular.ArrowImport24, L.T("Import from save editor"), L.T("Puts an edited export back into its slot. Your saves are backed up first."),
             SmallButton(L.T("Import"), SymbolRegular.ArrowImport24, async (_, _) => await ImportFromEditor()), out _));
+        // visy 0.7.7 (scripts/party_offline.py): the party-only state is cleaned out of the copy.
+        Add(Card(SymbolRegular.Copy24, L.T("Copy party character to offline"), L.T("A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed."),
+            SmallButton(L.T("Copy to offline"), SymbolRegular.Copy24, async (_, _) => await CopyPartyToOffline()), out _));
         ComboRow(SymbolRegular.Document24, L.T("Party log detail"), L.T("Verbose and trace logging add overhead."),
             new[] { new Choice(L.T("Normal"), ""), new Choice(L.T("Verbose"), "verbose"), new Choice(L.T("Trace"), "trace") },
             () => S.Str("party_log"), v => S.Set("party_log", v));
@@ -1154,6 +1157,28 @@ public sealed class SeamlessPage : LauncherPage
             Prompt.Tell(L.T("Import from save editor"), await SeamlessSession.SaveTool(S, "editor-import", file.FileName));
         }
         catch (Exception e) { Prompt.Tell(L.T("Import from save editor"), e.Message); }
+    }
+    private sealed record OfflineCharacter(int slot, string name, int level, string? replaces);
+
+    private async Task CopyPartyToOffline()
+    {
+        var title = L.T("Copy party character to offline");
+        try
+        {
+            var characters = System.Text.Json.JsonSerializer.Deserialize<OfflineCharacter[]>(
+                await SeamlessSession.OfflineTool(S, "list")) ?? [];
+            if (characters.Length == 0) { Prompt.Tell(title, L.T("There is no party character yet.")); return; }
+            var choice = Prompt.Choose(title, L.T("Which character?"), characters.Select(c => $"{c.slot + 1}: {c.name} ({c.level})").ToArray());
+            if (choice < 0) return;
+            var pick = characters[choice];
+            var replaces = pick.replaces is null ? "" : L.F($"\n\nIt replaces {pick.replaces} in single-player slot {pick.slot + 1}.");
+            if (!Prompt.Confirm(title,
+                    L.F($"Copy {pick.name} (level {pick.level}) to single-player slot {pick.slot + 1}? Party-only state is cleaned out of the copy and your party save is not changed.{replaces}\n\nYour single-player saves are copied to user\\save_backups first."),
+                    L.T("Copy")))
+                return;
+            Prompt.Tell(title, await SeamlessSession.OfflineTool(S, "copy", pick.slot.ToString()));
+        }
+        catch (Exception e) { Prompt.Tell(title, e.Message); }
     }
     private async Task SaveAction(string action)
     {

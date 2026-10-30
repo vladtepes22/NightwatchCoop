@@ -2425,5 +2425,11 @@
   "? Friends then need your new code.": "? Arkadaşların o zaman yeni kodunuza ihtiyacı olur.",
   "Move": "Taşı",
   "The save editor is experimental. Adding items is coming soon.": "Kayıt düzenleyici deneyseldir. Eşya ekleme yakında geliyor.",
-  "Stay in my world": "Dünyamda kal"
+  "Stay in my world": "Dünyamda kal",
+  "Copy party character to offline": "Parti karakterini çevrimdışına kopyala",
+  "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Bir parti karakteri, çevrimdışı oynamak için temizlenerek aynı tek oyunculu yuvaya kopyalanır. Parti kaydı değişmez.",
+  "Copy to offline": "Çevrimdışına kopyala",
+  "There is no party character yet.": "Henüz parti karakteri yok.",
+  "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "{0} (seviye {1}) tek oyunculu {2}. yuvaya kopyalansın mı? Yalnızca partide işe yarayan veriler kopyadan çıkarılır ve parti kaydınız değişmez.{3}\n\nTek oyunculu kayıtlarınız önce user\\save_backups klasörüne kopyalanır.",
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nBu, tek oyunculu {1}. yuvadaki {0} karakterinin yerine geçer."
 }

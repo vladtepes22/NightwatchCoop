@@ -2425,5 +2425,11 @@
   "? Friends then need your new code.": "? 그러면 친구는 새 코드가 필요합니다.",
   "Move": "이동",
   "The save editor is experimental. Adding items is coming soon.": "세이브 편집기는 실험 기능입니다. 아이템 추가는 곧 제공될 예정입니다.",
-  "Stay in my world": "내 세계에 머무르기"
+  "Stay in my world": "내 세계에 머무르기",
+  "Copy party character to offline": "파티 캐릭터를 오프라인으로 복사",
+  "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "파티 캐릭터를 같은 번호의 싱글 플레이 슬롯으로 오프라인용으로 정리해 복사합니다. 파티 저장 데이터는 바뀌지 않습니다.",
+  "Copy to offline": "오프라인으로 복사",
+  "There is no party character yet.": "아직 파티 캐릭터가 없습니다.",
+  "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "{0}(레벨 {1})을(를) 싱글 플레이 슬롯 {2}에 복사할까요? 파티 전용 상태는 복사본에서 제거되며 파티 저장 데이터는 바뀌지 않습니다.{3}\n\n싱글 플레이 저장 데이터는 먼저 user\\save_backups로 복사됩니다.",
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\n싱글 플레이 슬롯 {1}의 {0}이(가) 교체됩니다."
 }

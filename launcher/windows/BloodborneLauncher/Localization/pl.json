@@ -2425,5 +2425,11 @@
   "? Friends then need your new code.": "? Znajomi potrzebują wtedy twojego nowego kodu.",
   "Move": "Przenieś",
   "The save editor is experimental. Adding items is coming soon.": "Edytor zapisów jest eksperymentalny. Dodawanie przedmiotów pojawi się wkrótce.",
-  "Stay in my world": "Zostań w moim świecie"
+  "Stay in my world": "Zostań w moim świecie",
+  "Copy party character to offline": "Kopiuj postać z drużyny do offline",
+  "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Postać z drużyny trafia do tego samego miejsca zapisu jednoosobowego, oczyszczona pod grę offline. Zapis drużyny nie zmienia się.",
+  "Copy to offline": "Kopiuj do offline",
+  "There is no party character yet.": "Nie ma jeszcze postaci z drużyny.",
+  "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "Skopiować {0} (poziom {1}) do miejsca zapisu jednoosobowego {2}? Stan potrzebny tylko w drużynie zostanie usunięty z kopii, a zapis drużyny nie zmieni się.{3}\n\nZapisy jednoosobowe są najpierw kopiowane do user\\save_backups.",
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nZastępuje to postać {0} w miejscu zapisu jednoosobowego {1}."
 }

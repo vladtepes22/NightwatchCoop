@@ -2425,5 +2425,11 @@
   "? Friends then need your new code.": "? Gli amici avranno poi bisogno del tuo nuovo codice.",
   "Move": "Sposta",
   "The save editor is experimental. Adding items is coming soon.": "L'editor di salvataggi è sperimentale. L'aggiunta di oggetti arriverà presto.",
-  "Stay in my world": "Resta nel mio mondo"
+  "Stay in my world": "Resta nel mio mondo",
+  "Copy party character to offline": "Copia il personaggio del gruppo offline",
+  "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Un personaggio del gruppo viene copiato nello stesso slot singolo, ripulito per il gioco offline. Il salvataggio del gruppo non cambia.",
+  "Copy to offline": "Copia offline",
+  "There is no party character yet.": "Non c'è ancora nessun personaggio del gruppo.",
+  "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "Copiare {0} (livello {1}) nello slot singolo {2}? Ciò che serve solo al gruppo viene rimosso dalla copia e il salvataggio del gruppo non cambia.{3}\n\nI salvataggi in singolo vengono prima copiati in user\\save_backups.",
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nSostituisce {0} nello slot singolo {1}."
 }

@@ -2425,5 +2425,11 @@
   "? Friends then need your new code.": "? Тогда друзьям нужен ваш новый код.",
   "Move": "Перенести",
   "The save editor is experimental. Adding items is coming soon.": "Редактор сохранений экспериментальный. Добавление предметов появится скоро.",
-  "Stay in my world": "Остаться в моём мире"
+  "Stay in my world": "Остаться в моём мире",
+  "Copy party character to offline": "Копировать персонажа группы в офлайн",
+  "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Персонаж группы копируется в тот же слот одиночной игры и очищается для игры офлайн. Сохранение группы не меняется.",
+  "Copy to offline": "Копировать в офлайн",
+  "There is no party character yet.": "Персонажей группы пока нет.",
+  "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "Копировать {0} (уровень {1}) в слот одиночной игры {2}? То, что нужно только в группе, удаляется из копии, а сохранение группы не меняется.{3}\n\nСохранения одиночной игры сначала копируются в user\\save_backups.",
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nЭто заменит {0} в слоте одиночной игры {1}."
 }

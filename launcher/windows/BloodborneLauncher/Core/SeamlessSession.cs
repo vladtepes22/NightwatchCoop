@@ -44,7 +44,21 @@ public static class SeamlessSession
     }
 
     /// <summary>Runs party_save_tool.py `action` on the user folder `user` (the game must not run).</summary>
-    internal static async Task<string> RunSaveTool(string user, string action, params string[] extra)
+    internal static Task<string> RunSaveTool(string user, string action, params string[] extra) =>
+        RunScript("party_save_tool.py", user, action, extra);
+
+    /// <summary>party_offline_tool.py `action` (list, copy): a party character into the single-player folder. The game must not run.</summary>
+    public static async Task<string> OfflineTool(LauncherSettings settings, string action, params string[] extra)
+    {
+        var games = ProcessTree.GamesIn(Paths.EngineDir);
+        var running = games.Length > 0;
+        foreach (var game in games) game.Dispose();
+        if (Workspace.Current.Game.Running || running)
+            throw new InvalidOperationException("Stop the game before checking or changing saves.");
+        return await RunScript("party_offline_tool.py", GameEnvironment.UserDir(settings), action, extra);
+    }
+
+    private static async Task<string> RunScript(string script, string user, string action, string[] extra)
     {
         var start = new ProcessStartInfo(Paths.SeamlessPython)
         {
@@ -53,7 +67,7 @@ public static class SeamlessSession
             WorkingDirectory = Paths.PortDir
         };
         start.Environment["PYTHONUTF8"] = "1";
-        start.ArgumentList.Add(Path.Combine(Paths.SeamlessScripts, "party_save_tool.py"));
+        start.ArgumentList.Add(Path.Combine(Paths.SeamlessScripts, script));
         start.ArgumentList.Add(action);
         start.ArgumentList.Add(user);
         foreach (var argument in extra) start.ArgumentList.Add(argument);
