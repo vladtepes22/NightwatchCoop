@@ -196,7 +196,9 @@ struct TravelStep {
         // guest's own world is checked afterwards (smoke group phantom_own).
         HostKick,
         // I5: the Party page's Gather the party as the host presses it (party_status RequestGather).
-        HostGather
+        HostGather,
+        // CL-a3a9e6: the same press as a guest (guest_gather@S); refused by the board while the host's rule is off.
+        GuestGather
     } kind = HostWarp;
     bool after_scene = false; // "~": the delay counts from the end of a cutscene after the previous step
     std::uint32_t id = 0; // HostWarp: the ReturnPointParam row for 0x13CDF30; HostKill: the entity id
@@ -1368,6 +1370,7 @@ const char* TravelStepName(TravelStep::Kind k) {
     case TravelStep::HostRejoin: return "host_rejoin";
     case TravelStep::GuestRejoin: return "guest_rejoin";
     case TravelStep::HostGather: return "host_gather";
+    case TravelStep::GuestGather: return "guest_gather";
     }
     return "?";
 }
@@ -2036,7 +2039,7 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
                 step.kind == TravelStep::GuestRoute || step.kind == TravelStep::GuestFixture ||
                 step.kind == TravelStep::GuestHome || step.kind == TravelStep::GuestFlag ||
                 step.kind == TravelStep::GuestLastLamp || step.kind == TravelStep::GuestLeave ||
-                step.kind == TravelStep::GuestRejoin) == (role == PartyRole::Guest) || step.kind == TravelStep::OwnRule;
+                step.kind == TravelStep::GuestRejoin || step.kind == TravelStep::GuestGather) == (role == PartyRole::Guest) || step.kind == TravelStep::OwnRule;
     };
     if (t.script_on) {
         RunTravelScript(st, s, now);
@@ -2600,9 +2603,11 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
             target += b;
         }
         Log("test: %s 0x%x%s", TravelStepName(step.kind), step.buttons, target.c_str());
-    } else if (step.kind == TravelStep::HostGather) {
+    } else if (step.kind == TravelStep::HostGather || step.kind == TravelStep::GuestGather) {
         const bool queued = ::party::status::RequestGather();
-        Log("test: host_gather: Party > Gather the party pressed%s (%s)", queued ? "" : " - NOT queued (not the host)",
+        Log("test: %s: Party > Gather the party pressed%s (%s)", TravelStepName(step.kind),
+            queued ? "" : step.kind == TravelStep::GuestGather ? " - NOT queued (not a guest, or the host's rule is off)"
+                                                              : " - NOT queued (not the host)",
             Describe(s).c_str());
     } else if (step.kind == TravelStep::HostKick) {
         const bool ok = ::party::status::KickMember(step.args);
@@ -4313,7 +4318,8 @@ void PartyDirector::ConfigureFromEnv() {
                        item.rfind("host_rule=", 0) == 0 || item.rfind("own_rule=", 0) == 0 ||
                        item.rfind("guest_home", 0) == 0 || item.rfind("host_leave", 0) == 0 || item.rfind("host_kick=", 0) == 0 ||
                        item.rfind("guest_leave", 0) == 0 || item.rfind("host_rejoin", 0) == 0 ||
-                       item.rfind("guest_rejoin", 0) == 0 || item.rfind("host_gather", 0) == 0) {
+                       item.rfind("guest_rejoin", 0) == 0 || item.rfind("host_gather", 0) == 0 ||
+                       item.rfind("guest_gather", 0) == 0) {
                 TravelStep step;
                 step.after_scene = after_scene;
                 step.kind = item.rfind("guest_outage", 0) == 0  ? TravelStep::GuestOutage
@@ -4339,6 +4345,7 @@ void PartyDirector::ConfigureFromEnv() {
                             : item.rfind("host_rejoin", 0) == 0  ? TravelStep::HostRejoin
                             : item.rfind("guest_rejoin", 0) == 0 ? TravelStep::GuestRejoin
                             : item.rfind("host_gather", 0) == 0  ? TravelStep::HostGather
+                            : item.rfind("guest_gather", 0) == 0 ? TravelStep::GuestGather
                             : item[0] == 'g'                     ? TravelStep::GuestDie
                             : item.rfind("host_die", 0) == 0     ? TravelStep::HostDie
                             : item.rfind("host_kill", 0) == 0    ? TravelStep::HostKill

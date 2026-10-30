@@ -130,6 +130,9 @@ static void EveryState() {
                Has(world, "NPCs as in host's world") && Has(world, "Covenants per player") &&
                Has(world, "Party votes on travel") &&
                Has(world, "NPC hunters fight all"));  // 0.7.3
+        // CL-a3a9e6: Guests can gather, a host rule on the Travel page (host toggle / guest read-only line)
+        assert(Has(Names(PageNamed("Party rules: Travel")), "Guests can gather"));
+        assert(Has(Names(PageNamed("Party rules: PvP & lamps")), "Chalice layer travel"));  // CL-48ee07
         // 0.7.5 partyrules: the item rows stay each player's own; the Insight list is the host's rule
         const auto items = Names(PageNamed("My party: Your items"));
         assert(Has(items, "Own key items as guest") && Has(items, "Key items at once"));

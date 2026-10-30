@@ -13,6 +13,7 @@
 #include "party_director.h"
 #include "party_guestsvc.h"
 #include "../bbport_game_menu.h"
+#include "../bbport_settings.h"
 #include "party_ids.h"
 #include "party_split.h"
 #include "seamless_rules.h"
@@ -172,6 +173,28 @@ std::vector<Spot> LampSpots() {
     return v;
 }
 
+/// CL-48ee07: the loaded Chalice Dungeon lamps' objects (entity 2901950 + n, return point 2902950 + n) and where they
+/// stand; a generated dungeon has no table spots, so the lamp the player stands at is the nearest object.
+std::vector<Spot> ChaliceLampSpots() {
+    std::vector<Spot> v;
+    for (int n = 0; n < kChaliceLamps; ++n) {
+        const u32 rp = kChaliceFirstReturn + static_cast<u32>(n);
+        u32 idx = 0xffffffffu;
+        const u64 rec = reinterpret_cast<u64(BB_COOP_SYSV*)(i32, u32*)>(Guest(kMapObject))(static_cast<i32>(rp - 1000), &idx);
+        float m[12] = {};
+        if (rec && SafeRead(rec + 0x240, m, sizeof m)) v.push_back({rp, m[3], m[7], m[11]});
+    }
+    return v;
+}
+
+/// The Chalice Dungeon lamp the player stands at (0: none within 8 m / no lamp object loaded).
+u32 ChaliceHereLamp(const GameSnapshot& s) {
+    float drawn[3], phys[3];
+    const bool phys_ok = s.player && balance::ChrPosition(s.player, phys);
+    if (!PlayerPos(s.player, drawn) && !phys_ok) return 0;
+    return NearestChaliceLamp(ChaliceLampSpots(), StandingPos(phys_ok, phys, drawn), 8.0f);
+}
+
 /// The lamp the player stands at (its return point; 0 unknown).
 u32 HereLamp(const GameSnapshot& s) {
     float drawn[3], phys[3];
@@ -237,12 +260,27 @@ bool TryOpen(u64 orig_ctx, u64 a2, u64 a3, u64 a4, u64 a5) {
         Log("the lamp's Dream question stays (%s)", sit.cutscene ? "cutscene" : sit.boss ? "boss fight" : "not in the world");
         return false;
     }
-    const u32 here = HereLamp(s);
+    const bool chalice = ((s.map_id >> 24) & 0xff) == 29;
+    if (chalice && !ChaliceListOffered(BbSettings::Get().party_layer_travel.load(), s.session_role == RoleClient)) {
+        return false;  // a dungeon lamp: the vanilla question (the rule is off, or a guest's own lamp)
+    }
+    const u32 here = chalice ? ChaliceHereLamp(s) : HereLamp(s);
     if (!here) {
         Log("the lamp's Dream question stays: no lamp of the table within 15 m (map %s)", MapName(s.map_id).c_str());
         return false;
     }
-    std::vector<Entry> list = BuildList(here, &Flag, [](u32 rp) { return ids::ReturnPointKnown(rp); });
+    if (chalice) {
+        std::string fl;  // CL-48ee07 diagnostics: each dungeon lamp's lit / registration / +11 flags and its name flag
+        for (u32 n = 0; n < static_cast<u32>(kChaliceLamps); ++n) {
+            char b[64];
+            std::snprintf(b, sizeof b, " %u:%d%d%d%d", n, Flag(ChaliceLitFlag(n)), Flag(12907800u + 20u * n),
+                          Flag(12907811u + 20u * n), Flag(ChaliceNameFlag(n)));
+            fl += b;
+        }
+        Log("dungeon lamp flags (lit reg +11 blocked):%s", fl.c_str());
+    }
+    std::vector<Entry> list = chalice ? BuildChaliceList(here, &Flag, [](u32 rp) { return ids::ReturnPointKnown(rp); })
+                                      : BuildList(here, &Flag, [](u32 rp) { return ids::ReturnPointKnown(rp); });
     if (list.empty()) {
         Log("lamp %u: no other lit lamp; the vanilla Dream question", here);
         return false;
@@ -302,8 +340,8 @@ bool TryOpen(u64 orig_ctx, u64 a2, u64 a3, u64 a4, u64 a5) {
         PlayerPos(s.player, g_p.at);
         g_p.opened = Now();
     }
-    Log("lamp %u (%s): the warp menu instead of the Dream question; %zu entries: %s (menu bits now 0x%x)", here,
-        MapName(s.map_id).c_str(), n, names.c_str(), MenuFlags());
+    Log("lamp %u (%s): the warp menu instead of the Dream question%s; %zu entries: %s (menu bits now 0x%x)", here,
+        MapName(s.map_id).c_str(), chalice ? " (Chalice layer travel)" : "", n, names.c_str(), MenuFlags());
     if (g_t_on.load(std::memory_order_relaxed)) {
         // Test diagnostics: each entry's shown name next to where it travels (the names of the
         // Cathedral Ward / Grand Cathedral lamps, 0.7.3), a few per line.
@@ -381,7 +419,7 @@ __attribute__((noinline)) BB_COOP_SYSV u64 TalkCommandHook(u64 ctx, u64 call, u6
 void Act(u32 here, u32 id, bool from_map = false) {
     if (id == kDreamReturnPoint) {
         // The lamp's own YES: its common event 7200 (turn, light, warp) - the vanilla rest trip.
-        const u32 flag = DreamFlag(here);
+        const u32 flag = IsChaliceLamp(here) ? ChaliceDreamFlag(ChaliceLampIndex(here)) : DreamFlag(here);
         const bool ok = flag && WriteEventFlag(flag, true);
         Log("chose the Hunter's Dream: lamp %u's Dream flag %u %s", here, flag, ok ? "set (the lamp's own warp)" : "NOT set");
         if (!ok) {
@@ -451,6 +489,7 @@ struct TestState {
     u32 map_to = 0;        // its lamp; 0 (any): the first lamp map travel may go to
     std::string then_mode;  // thenmode=party: the travel-choice mode for the second map travel (test aid)
     u32 then_to = 0;       // then=ID: after the first map travel arrived, a second one to this lamp (test aid: a guest apart)
+    bool back = false, back_done = false;  // back: after the first trip (and the party's return) the way back: lamp and to swap
     bool started = false;
     double wait = 0;       // wait=S: S s more in the first steady world before the setup (another fixture first)
     enum Stage { Title, Settle, Walk, Press, Choose, Wait, Done } stage = Title;
@@ -477,6 +516,7 @@ void TestParse() {
         if (item == "continue") g_t.cont = true;
         else if (item == "titleany") g_t.cont = g_t.any_title = true;
         else if (item == "dream") g_t.dream = true;
+        else if (item == "back") g_t.back = true;
         else if (item == "startany") g_t.start_any = true;
         else if (item == "setuponly") g_t.setup_only = true;
         else if (item == "listonly") g_t.list_only = true;
@@ -553,6 +593,19 @@ bool PlacePose(const GameSnapshot& s, u32 rp, int k) {
     if (!SafeGet(s.player, &vtbl) || !SafeGet(vtbl + 0x5f8, &fn) || !fn) return false;
     reinterpret_cast<void(BB_COOP_SYSV*)(u64, const float*, const float*, u64)>(fn)(s.player, pos, rot, 0);
     Log("test: listonly: spot %d at lamp %u: (%.1f, %.1f, %.1f) yaw %.2f", k, rp, pos[0], pos[1], pos[2], rot[1]);
+    return true;
+}
+
+/// back: the first trip is done (and the party is back); the same walk and choice the other way round (CL-48ee07).
+bool StartBack(double now) {
+    if (!g_t.back || g_t.back_done || !g_t.lamp || !g_t.to) return false;
+    g_t.back_done = true;
+    std::swap(g_t.lamp, g_t.to);
+    g_t.walked = 0, g_t.presses = 0, g_t.downs = 0, g_t.confirms = 0, g_t.want_downs = -1, g_t.rewalks = 0;
+    g_t.stage = TestState::Settle;
+    g_t.steady_since = now;
+    g_t.members_at = 0;
+    Log("test: back: now lamp %u, choosing %u", g_t.lamp, g_t.to);
     return true;
 }
 
@@ -865,6 +918,7 @@ void TestTick(const GameSnapshot& s, double now) {
         if (g_t.members_at > 0 && now - g_t.members_at >= 8.0) {
             Log("test: done: %d cooperator(s) in the world again, %.0f s after the arrival", coop, now - g_t.at);
             g_t.stage = TestState::Done;
+            if (!StartBack(now)) Log("test: all trips done");
         } else if (now - g_t.at > 150.0) {
             Log("test: FAILED: the party did not come back within 150 s (cooperators %d)", coop);
             g_t.stage = TestState::Done;
@@ -984,6 +1038,7 @@ void Tick() {
                     g_t.stage = party_wait ? TestState::Wait : TestState::Done;
                     g_t.at = now;
                     g_t.members_at = 0;
+                    if (!party_wait && !StartBack(now)) Log("test: all trips done");
                     if (g_t.then_to && g_t.map) {
                         const u32 to = g_t.then_to;
                         g_t.then_to = 0;

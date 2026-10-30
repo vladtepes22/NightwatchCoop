@@ -724,6 +724,29 @@ to its end. `lfw` and `lfwc` are in the default smoke list; `lfws` / `lfwcs` run
 * `lfwcbs` is flaky: green 2 of 4 runs (the other two: the first of two riders stops in the top pocket with an item pickup
   box ("OK") on screen, the walk-in route stalls 30-40 s, no car or party fault). `lfwbs` 2/2, `lfwf` 3/3 (4 with one probe), `lfwcf` 3/4
   (the one failure was the near bottom walk-in stopped at an enemy, before any far leg).
+* **Regression run on master 4f5c946c (liftreg077, 2026-10-30, 30 FPS, one launch per phase; 14 launches in all).** No ride fault
+  (fall through a car, rider left behind, instant ride, car at the wrong end) was seen in any ride that ran; every failure is a
+  walker / harness stall or a test-aid effect, listed with its cause:
+
+| phase | result | cause of the failures |
+|---|---|---|
+| `lfw` | PASS 36/36 | (at 60 FPS: 21 steps pass, rides 1-2 pass, ride 3 "both down" never ran: the host's stick step stopped 2.0 m short of the car's top gate, "no 1 m in 8 s", the guest then waited for it 120 s; no fall, no death) |
+| `lfwc` | 27 pass; rides 1-3 pass, ride 4 never ran | an item box ("Beast x1": the prelude kill's drop) stayed up on the host, the walk stalled in the top pocket |
+| `lfws` | ride 1 pass, ride 2 never ran (twice) | after the unbuilt-car floor guard put the host back on the landing, the straight stick step ran into the car's cage rail 2.3 m short of the trigger |
+| `lfwcs` | rides 1-2 fail twice | run 1: the sprinting guest overshot the trigger, stepped off the rising car and walked into the open shaft (y -70, HP 0): walker, not the car (car anim 31 -> 32 -> 7 and flags correct on both games); run 2: the same rail wedge as `lfws` |
+| `lfwf` | PASS | |
+| `lfwcf` | rides 1-2 pass, 3-4 never ran | the bottom walk-in stopped at an enemy / the item box |
+| `lfwbs` | PASS | |
+| `lfwcbs` | ride 1 pass (3 runs), ride 2 never ran (3 runs) | run 1: item box + rail wedge; run 3 (after the harness fixes below): the box is gone, the host and guest stall in the top pocket (two walkers in a narrow lane, the host's far start can land on the lower floor y 0.1 under the pocket) |
+
+  Harness changes made (tools/mp/smoke_party.py, no game code changed): `lfwc` / `lfwcbs` (`dismiss`): the host presses Cross
+  after each kill group of the prelude (the item box is gone in the shots); the slow phases end the trigger stick step at
+  0.45 m (inside the 0.55 m cylinder) so a sprinting walker cannot circle the trigger and leave the car; the slow phases walk
+  the last three recorded waypoints again (not the trigger's) before that step, so a walker the floor guard moved back is led
+  through the car's gate. Only `lfwcbs` ran after these (ride 1 of the three runs passes; ride 2 does not: top pocket).
+* **Still open (harness): `lfwcbs` is NOT green 3/3.** The top pocket's walk-in with two riders stalls (see the table); the next
+  step is a host far start that is certain to land on the pocket floor (walk it live and record it, no navmesh points), and a
+  rerun of `lfws` / `lfwcs` with the 0.45 m / waypoint-tail changes (not rerun: the 14-launch cap).
 * NOT proven: the Central Yharnam BOTTOM end and Cathedral Ward's bottom end from over 150 m (see above: no walkable start);
   a far walk with the slow aids (far + unbuilt); a true 120+ steps/s; the car's build on a really slow disk (the aid delays the
   request, not the IO); a player report retest.

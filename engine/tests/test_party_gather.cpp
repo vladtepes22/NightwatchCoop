@@ -282,7 +282,96 @@ static void QuestionStates() {
     CHECK(QuestionState(-1, true, 95, 96) == Question::Expired);
 }
 
+// CL-a3a9e6: a guest gathers the party.
+static RequesterView ReadyGuest() {
+    RequesterView v;
+    v.allowed = true;
+    v.client = true;
+    v.guest.world_up = true;
+    v.now = 1000;
+    return v;
+}
+
+static void GuestGather() {
+    int wait = -1;
+    RequesterView v = ReadyGuest();
+    CHECK(RequestRefusal(v, &wait) == Refusal::None && wait == 0);
+    { RequesterView w = v; w.allowed = false; CHECK(RequestRefusal(w) == Refusal::GuestsOff); }
+    { RequesterView w = v; w.client = false; CHECK(RequestRefusal(w) == Refusal::OwnWorld); }
+    { RequesterView w = v; w.guest.stay_home = true; CHECK(RequestRefusal(w) == Refusal::StayHome); }
+    // staying home wins over the own-world refusal (the guest is at home because it chose to be)
+    { RequesterView w = v; w.guest.stay_home = true; w.client = false; CHECK(RequestRefusal(w) == Refusal::StayHome); }
+    { RequesterView w = v; w.guest.loading = true; CHECK(RequestRefusal(w) == Refusal::Loading); }
+    { RequesterView w = v; w.guest.boss_fight = true; CHECK(RequestRefusal(w) == Refusal::BossFight); }
+    { RequesterView w = v; w.guest.cutscene = true; CHECK(RequestRefusal(w) == Refusal::Cutscene); }
+    { RequesterView w = v; w.guest.alive = false; CHECK(RequestRefusal(w) == Refusal::Dead); }
+    { RequesterView w = v; w.guest.travelling = true; CHECK(RequestRefusal(w) == Refusal::Travelling); }
+    { RequesterView w = v; w.standing = false; CHECK(RequestRefusal(w) == Refusal::NotStanding); }
+    // the request comes from the menu: an open menu or dialog is no reason
+    { RequesterView w = v; w.guest.menu = true; w.guest.dialog = true; CHECK(RequestRefusal(w) == Refusal::None); }
+    v.last_request_at = v.now - 10.2;
+    CHECK(RequestRefusal(v, &wait) == Refusal::Cooldown && wait == 20);
+    v.last_request_at = v.now - kCooldownS;
+    CHECK(RequestRefusal(v, &wait) == Refusal::None);
+
+    // the host's side: its rule, the shared cooldown, a round still open
+    CHECK(RequestHostRefusal(true, true, false, 1000, -1e9, &wait) == Refusal::None);
+    CHECK(RequestHostRefusal(true, false, false, 1000, -1e9) == Refusal::GuestsOff);
+    CHECK(RequestHostRefusal(false, true, false, 1000, -1e9) == Refusal::NotHost);
+    CHECK(RequestHostRefusal(true, true, false, 1000, 990, &wait) == Refusal::Cooldown && wait == 20);
+    CHECK(RequestHostRefusal(true, true, true, 1000, -1e9, &wait) == Refusal::Cooldown && wait == 5);
+
+    // members in another map are not moved there (no load, no computed point)
+    CHECK(MemberAreaRefusal(0x18010000, 0x18010001) == Refusal::None);
+    CHECK(MemberAreaRefusal(0x18000000, 0x18010000) == Refusal::OtherArea);
+    CHECK(MemberAreaRefusal(0x15000000, 0x18010000) == Refusal::OtherArea);
+    CHECK(MemberAreaRefusal(0xffffffffu, 0x18010000) == Refusal::OtherArea);
+    CHECK(MemberAreaRefusal(0, 0) == Refusal::OtherArea);
+
+    // texts
+    CHECK(HostRefusalText(Refusal::GuestsOff, 0) == "Gather the party: the host has not allowed guests to gather");
+    CHECK(HostRefusalText(Refusal::OwnWorld, 0) == "Gather the party: you are in your own world");
+    CHECK(HostRefusalText(Refusal::StayHome, 0) == "Gather the party: staying in own world");
+    CHECK(GuestRefusalText(Refusal::Menu, "Ann") == "Ann gathers the party: not now (in a menu)");
+    CHECK(GuestRefusalText(Refusal::OtherArea, "Ann") == "Ann gathers the party: not now (in another area)");
+    for (Refusal r : {Refusal::GuestsOff, Refusal::OwnWorld, Refusal::OtherArea}) CHECK(RefusalFromWord(RefusalWord(r)) == r);
+    // the refusal reaches the host's summary with the same reason as for the host's own gather
+    CHECK(Summary({{"Ann", true, {1, Reply::Refused, Refusal::StayHome, Route::Here}}}) == "Gather: not now: Ann (staying in own world)");
+
+    // wire: the request and the ask carry the gathering guest's slot; the reply carries the host's verdict
+    Ask a;
+    a.round = 3;
+    a.map = 0x18010000;
+    a.pos[0] = 1.5f;
+    a.pos[1] = -2.25f;
+    a.pos[2] = 30.0f;
+    a.yaw = 0.5f;
+    a.t = 12345;
+    a.standing = true;
+    a.by = 2;
+    Ask b;
+    CHECK(DecodeAsk(EncodeAsk(a, "req"), &b, "req") && b.by == 2 && b.round == 3 && b.standing && b.t == 12345);
+    CHECK(!DecodeAsk(EncodeAsk(a, "req"), &b));            // a request is not an ask
+    CHECK(!DecodeAsk(EncodeAsk(a), &b, "req"));            // nor an ask a request
+    CHECK(DecodeAsk(EncodeAsk(a), &b) && b.by == 2);
+    a.by = 0;
+    CHECK(DecodeAsk(EncodeAsk(a), &b) && b.by == 0);       // the host's own gather: by 0
+    CHECK(DecodeAsk("{\"op\":\"ask\",\"round\":1,\"map\":402718720,\"pos\":[1,2,3],\"yaw\":0}", &b) && b.by == 0);  // older host
+    RequestReply rp, rq;
+    rp.round = 7;
+    rp.ok = true;
+    rp.asked = 2;
+    CHECK(DecodeReply(EncodeReply(rp), &rq) && rq.ok && rq.asked == 2 && rq.round == 7);
+    rp.ok = false;
+    rp.why = Refusal::GuestsOff;
+    CHECK(DecodeReply(EncodeReply(rp), &rq) && !rq.ok && rq.why == Refusal::GuestsOff);
+    Answer an;
+    CHECK(!DecodeAnswer(EncodeReply(rp), &an));            // the reply is no answer
+    CHECK(!DecodeAsk(EncodeReply(rp), &b) && !DecodeAsk(EncodeReply(rp), &b, "req"));
+}
+
 int main() {
+    GuestGather();
     HostRules();
     Standing();
     Spots();

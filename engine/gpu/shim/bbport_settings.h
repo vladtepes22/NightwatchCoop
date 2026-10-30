@@ -259,6 +259,12 @@ struct Values {
     std::atomic<bool> party_kill_record{true};  ///< enemies stay dead for the party (party_kill_record.h)
     std::atomic<bool> party_npc_mirror{true};   ///< an NPC gone from the host's world is gone on guests
     std::atomic<bool> party_gather{true};       ///< I5: the host may gather the party (party_gather.h)
+    /// 0.7.7 (CL-a3a9e6): guests may gather the party too (party_gather.h, a guest asks the host, which asks the others).
+    /// The host's rule, sent to the guests; OFF by default.
+    std::atomic<bool> party_guest_gather{false};
+    /// 0.7.7 (CL-48ee07): a Chalice Dungeon lamp lists the dungeon's other lit lamps (layers) and the host's choice
+    /// takes the whole party there (lamp_travel.h). The host's rule, sent to the guests; OFF by default.
+    std::atomic<bool> party_layer_travel{false};
     /// 0.7.3 (user decision 2026-10-22): covenant outcomes (Annalise, Alfred, Valtr) stay in each
     /// player's own save (party_progress Category::covenant_outcome). The host's; on by default.
     std::atomic<bool> party_covenant_per_player{true};

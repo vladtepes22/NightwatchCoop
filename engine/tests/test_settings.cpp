@@ -63,6 +63,38 @@ int main() {
         d.party_hud_ping = true;
         { std::ofstream file(path); file << ini; assert(file.good()); }
     }
+    {
+        // visy 0.7.7 host rules (CL-a3a9e6 guest gather, CL-48ee07 Chalice layer travel): off by default,
+        // read from and written to bbport.ini, and an explicit variable wins over the ini.
+        auto& d = BbSettings::Get();
+        assert(!d.party_guest_gather && !d.party_layer_travel);
+        { std::ofstream file(path); file << "party_guest_gather=1\nparty_layer_travel=1\n"; }
+        BbSettings::Load();
+        assert(d.party_guest_gather && d.party_layer_travel);
+        BbSettings::Save();
+        const std::string text = Read(path);
+        assert(text.find("party_guest_gather=1\n") != std::string::npos);
+        assert(text.find("party_layer_travel=1\n") != std::string::npos);
+#ifdef _WIN32
+        _putenv_s("BB_PARTY_GUEST_GATHER", "0");
+        _putenv_s("BB_PARTY_LAYER_TRAVEL", "0");
+#else
+        setenv("BB_PARTY_GUEST_GATHER", "0", 1);
+        setenv("BB_PARTY_LAYER_TRAVEL", "0", 1);
+#endif
+        BbSettings::Load();
+        assert(!d.party_guest_gather && !d.party_layer_travel);
+#ifdef _WIN32
+        _putenv_s("BB_PARTY_GUEST_GATHER", "");
+        _putenv_s("BB_PARTY_LAYER_TRAVEL", "");
+#else
+        unsetenv("BB_PARTY_GUEST_GATHER");
+        unsetenv("BB_PARTY_LAYER_TRAVEL");
+#endif
+        d.party_guest_gather = false;
+        d.party_layer_travel = false;
+        { std::ofstream file(path); file << ini; assert(file.good()); }
+    }
     BbSettings::Load();
     auto& s = BbSettings::Get();
     assert(s.upscaler == BbSettings::UpscalerFsr3 && !s.show_fps && s.menu_x < 0.0f);

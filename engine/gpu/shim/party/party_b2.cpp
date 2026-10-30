@@ -31,6 +31,7 @@
 #include "party_nr_drop.h"
 #include "party_dsummon.h"
 #include "party_chalice.h"
+#include "lamp_travel_rules.h"
 #include "party_status_bridge.h"
 #include "party_spectate.h"
 #include "party_director.h"
@@ -10601,6 +10602,30 @@ void ChaliceLeaveSession(const char* why) {
     }
 }
 
+std::atomic<u32> g_layer_follow_lamp{0};     // CL-48ee07: the dungeon lamp this guest warps to (main thread runs it)
+std::atomic<double> g_layer_follow_at{0};
+
+/// Main thread: the guest's own lamp warp for Chalice layer travel, once the guards hold now (a second look at
+/// the state; anything else drops it and the usual notice stays).
+void LayerFollowTick(const GameSnapshot& s, double now) {
+    const u32 lamp = g_layer_follow_lamp.load();
+    if (!lamp) return;
+    const double at = g_layer_follow_at.load();
+    if (now - at < 1.5) return;
+    g_layer_follow_lamp = 0;
+    const bool dungeon = s.world_up && ((s.map_id >> 24) & 0xff) == 29;
+    const char* why = coop::lamptravel::LayerFollowRefusal(
+        party::status::HostRuleOn(party::status::HostRule::LayerTravel), lamp, chalice::LocalChannel(),
+        chalice::LocalChannel(), dungeon, coop::stayhome::Active(), s.loading || !s.world_up, LocalHp() <= 0,
+        BossBarShown() || CutscenePlaying());
+    if (why || Role() != RoleClient || now - at > 20.0) {
+        Log("guest: layer travel to lamp %u dropped (%s)", lamp, why ? why : "too late");
+        return;
+    }
+    Log("guest: layer travel: lamp warp %u (own dungeon %llu)", lamp, ull(chalice::LocalChannel()));
+    RunLampWarpPartyNotRest(lamp, "chalice layer travel");
+}
+
 void ChaliceApartTick(const GameSnapshot& s, double now) {
     static double since = 0;
     static bool left = false, noticed = false;
@@ -12077,6 +12102,7 @@ void Tick(const GameSnapshot& s) {
     DirectSummonTick(s, now);
     ChaliceEmptyWorldTick(s, now);
     ChaliceApartTick(s, now);
+    LayerFollowTick(s, now);
     {
         // The end of this game's last load (BlockClear2Hook's arrival clock).
         static bool was_up = false;
@@ -12257,6 +12283,23 @@ bool OnHostTravel(const TravelIntent& t) {
         g_host_left = true;
         g_host_alone_seen = Now();
         NoteAway(0);
+        if (t.kind == TravelKind::Lamp && t.lamp_id / 100000 == 29) {
+            // CL-48ee07: Chalice layer travel: a guest whose current slot holds the host's dungeon follows by the
+            // same lamp warp (the guard is LayerFollowRefusal; the main-thread tick runs it).
+            const u64 mine = chalice::LocalChannel();
+            Log("guest: layer travel: the host's lamp %u in dungeon %llu, this game's current dungeon %llu", t.lamp_id,
+                ull(t.chalice_channel), ull(mine));
+            const char* why = coop::lamptravel::LayerFollowRefusal(
+                party::status::HostRuleOn(party::status::HostRule::LayerTravel), t.lamp_id, mine, t.chalice_channel,
+                true, coop::stayhome::Active(), false, false, false);
+            if (!why) {
+                g_layer_follow_lamp = t.lamp_id;
+                g_layer_follow_at = Now();
+                Log("guest: layer travel: following with the lamp warp %u", t.lamp_id);
+                return true;
+            }
+            Log("guest: layer travel: not following (%s)", why);
+        }
         Log("guest: the host travels alone (%s); staying here (no load)", DescribeTravel(t).c_str());
         return true;
     }
@@ -12862,8 +12905,10 @@ bool OwnWorldPos(float p[3]) {
 
 bool GatherBesideHost(const char* why, const float* spot, float spot_yaw, float test_lift_m, float* dest, float* from,
                       int attempt, float* host_y) {
-    alignas(16) float hp[4], hr[4];
-    if (LocalHp() <= 0 || !HostChrTransform(hp, hr)) {
+    alignas(16) float hp[4] = {}, hr[4] = {};
+    // With a `spot` the host's chr is not needed (CL-a3a9e6: the host itself, or a guest, is put beside a guest's
+    // spot); without one it is the place beside which to stand.
+    if (LocalHp() <= 0 || (!spot && !HostChrTransform(hp, hr))) {
         return false;
     }
     if (from) {
@@ -12893,7 +12938,8 @@ bool GatherBesideHost(const char* why, const float* spot, float spot_yaw, float 
     const float floor_y = pos[1];
     if (host_y) *host_y = floor_y;
     if (attempt < coop::gather::kHostSpot) {
-        BesideHost(pos, rot, coop::fourp::SpotForTry(g_local_slot.load(), attempt));
+        // the host (slot 0) takes the third spot: the guests' slots 1 and 2 are the first two
+        BesideHost(pos, rot, coop::fourp::SpotForTry(Role() == RoleHost ? 3 : g_local_slot.load(), attempt));
     }
     if (!coop::gather::SpotAcceptable(floor_y, pos[1])) {
         pos[1] = floor_y;  // never happens with a flat offset; kept as the rule's guard

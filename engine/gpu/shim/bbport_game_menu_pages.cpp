@@ -172,6 +172,7 @@ u32 split_text[1] = {0};
 u32 notice_text[1] = {0};
 u32 ending_text[1] = {0};
 u32 gather_text[1] = {0};
+u32 guest_gather_text[1] = {0};  // CL-a3a9e6: a guest gathers the party (run-time: who)
 u32 vote_text[1] = {0};  // 0.7.3: the travel vote's question (run-time: who, where)
 
 /// A confirmed button's help line: the row's own help, or "press again to confirm" while armed
@@ -614,14 +615,21 @@ void DefineBuiltinPartyRows() {
     gather.order = 32;
     gather.name = [](const B&) { return T2("Gather the party", "Собрать группу"); };
     gather.value = [](const B&) { return T2("Gather", "Собрать"); };
-    gather.help = [](const B&) {
-        return T2("Bring every guest to you; each is asked, not in boss fights, 30 s apart. Also touchpad + L3 / H",
-                  "Перенести всех гостей к вам; каждого спросят, не в бою с боссом, раз в 30 с. Ещё тачпад + L3 / H");
+    gather.help = [](const B& b) {
+        return b.role == ps::Role::Guest
+                   ? T2("Bring the host and the other guests to you; each is asked, 30 s apart. The host allows it",
+                        "Перенести хоста и других гостей к вам; каждого спросят, раз в 30 с. Если хост разрешил")
+                   : T2("Bring every guest to you; each is asked, not in boss fights, 30 s apart. Also touchpad + L3 / H",
+                        "Перенести всех гостей к вам; каждого спросят, не в бою с боссом, раз в 30 с. Ещё тачпад + L3 / H");
     };
-    gather.visible = [](const B& b) { return Running(b) && b.role == ps::Role::Host; };
+    // CL-a3a9e6: a guest sees it only while the host allows guests to gather (the host's rule, synced).
+    gather.visible = [](const B& b) {
+        return Running(b) && (b.role == ps::Role::Host ||
+                              (b.role == ps::Role::Guest && ps::HostRuleOn(ps::HostRule::GuestGather)));
+    };
     gather.press = PartyRow::Press::Once;
     gather.run = [](const B& b) {
-        if (Running(b) && b.role == ps::Role::Host) ps::RequestGather();
+        if (Running(b) && (b.role == ps::Role::Host || b.role == ps::Role::Guest)) ps::RequestGather();
     };
     party_rows.push_back({gather});
 
@@ -826,6 +834,7 @@ void DefineAll() {
     // 0.7.3: lamp travel voting (party_vote.cpp): who wants to travel where, set before it opens.
     vote_text[0] = AddDynamic(DynamicCapacity - 1);
 
+    guest_gather_text[0] = AddDynamic(DynamicCapacity - 1);
     gather_text[0] = AddText("The host gathers the party.\nYES: go to the host now.  NO: stay where you are.",
                              "Хозяин собирает группу.\nДА: перейти к хозяину сейчас.  НЕТ: остаться здесь.");
 
@@ -961,6 +970,16 @@ void DefineAll() {
               {"The host's world keeps its own lamps; any lamp you light there is saved for all",
                "Мир хоста хранит свои фонари; зажжённый вами там фонарь сохраняется у всех"});
 
+    // CL-48ee07: a Chalice Dungeon lamp lists the dungeon's lit lamps (layers); the host's choice takes the party there.
+    host_rule(&Values::party_layer_travel, "Chalice layer travel", "Путь по слоям чаши",
+              AddText("The host's Chalice Dungeon lamp lists the dungeon's other lit lamps; the party travels with the host. Party rule",
+                      "Фонарь подземелья хоста показывает другие зажжённые фонари; группа идёт с хостом. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::LayerTravel); },
+              {"The host allows it: its dungeon lamp offers the other lit lamps and the party follows its choice",
+               "Хост разрешил: его фонарь подземелья предлагает другие фонари, группа идёт за выбором хоста"},
+              {"The host decides; off: a dungeon lamp only returns to the Hunter's Dream",
+               "Решает хост; выкл.: фонарь подземелья только возвращает в Сон охотника"});
+
     // ---- Party rules: Deaths (party_b2): the host's deaths ----
     AddPage("Party rules: Deaths", "Правила: смерти",
             "Host's rules: the party's deaths: getting up without a load, guests' respawn and refill (bbport)",
@@ -1054,6 +1073,15 @@ void DefineAll() {
                "Правило хоста: вне подземелья хоста после смерти или переноса - вас призовут обратно"},
               {"The host decides; off: a death in the host's dungeon takes you to your own lamp",
                "Решает хост; выкл.: смерть в подземелье хоста ведёт к вашему фонарю"});
+    // CL-a3a9e6: guests may gather the party too; off by default (the guest's Gather the party row follows it).
+    host_rule(&Values::party_guest_gather, "Guests can gather", "Гости собирают группу",
+              AddText("A guest's Gather the party brings you and the other guests to it (each is asked). Party rule",
+                      "Сбор группы гостем переносит вас и других гостей к нему (каждого спросят). Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::GuestGather); },
+              {"The host allows it: a guest may gather the party; you are asked each time and may say no",
+               "Хост разрешил: гость может собрать группу; вас каждый раз спросят, можно отказаться"},
+              {"The host decides; off: guests cannot gather the party",
+               "Решает хост; выкл.: гости не могут собирать группу"});
     host_rule(&Values::party_story_mirror, "Cutscenes live with host", "Ролики вместе с хостом",
               AddText("A guest in your world watches a cutscene with you. Off: later, in its own world. Party rule",
                       "Гость в вашем мире смотрит ролик вместе с вами. Выкл.: позже, в своём мире. Правило группы"),
@@ -1400,6 +1428,18 @@ u32 EndingQuestionText() {
 u32 GatherQuestionText() {
     Define();
     return gather_text[0];
+}
+
+u32 GuestGatherQuestionText() {
+    Define();
+    return guest_gather_text[0];
+}
+
+void SetGuestGatherQuestion(const std::string& who) {
+    Define();
+    const std::u16string w = Utf16(who.c_str());
+    SetDynamic16(guest_gather_text[0], w + u" gathers the party.\nYES: go to " + w + u" now.  NO: stay where you are.",
+                 w + u" собирает группу.\nДА: перейти к игроку сейчас.  НЕТ: остаться здесь.");
 }
 
 u32 TravelVoteQuestionText() {

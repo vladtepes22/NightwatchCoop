@@ -71,6 +71,12 @@ struct Rules {
     bool kill_record = true;
     bool npc_mirror = true;
     bool gather = true;
+    /// 0.7.7 (CL-a3a9e6): a guest may gather the party too (party_gather.h). The host's; off by default (a host from
+    /// before it sends none: off).
+    bool guest_gather = false;
+    /// 0.7.7 (CL-48ee07): a Chalice Dungeon lamp lists the dungeon's lit lamps and the host's choice takes the party
+    /// there (lamp_travel.h). The host's; off by default (a host from before it sends none: off).
+    bool layer_travel = false;
     /// 0.7.3 (user decision 2026-10-22): covenant outcomes per player (party_progress
     /// covenant_outcome). The host's; on by default (a host from before it sends none: on).
     bool covenant_per_player = true;
@@ -169,6 +175,12 @@ Doping Boss(const Rules& r, int cooperators);
 Doping Enemy(const Rules& r, int cooperators);
 /// The normal enemy row only matters when it changes something.
 bool EnemyScalingActive(const Rules& r);
+
+/// A doped boss whose chr has not ticked yet (a guest far from the fight: the game's per-frame HP update
+/// only runs for chrs near a player) still has max HP = base while its SpEffect already says
+/// base * rate. Returns the max HP to write (> 0) when the chr is at full health on a stale max, and
+/// sets *new_hp to the full health to write; 0 otherwise (already right, damaged, or no data).
+int BossHpCatchUp(int hp, int max_hp, int base_hp, float rate, int* new_hp);
 
 /// C4: the max HP factor for `stacks` rot stacks (clamped 0..kRotMaxStacks).
 float RotHpFactor(int stacks);
@@ -270,3 +282,4 @@ std::string DescribeDamage(int percent, bool russian);
 std::string DescribePoise(int percent, bool russian);
 
 }  // namespace coop::balance
+ 

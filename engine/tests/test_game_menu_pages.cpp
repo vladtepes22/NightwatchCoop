@@ -359,8 +359,22 @@ static void Party() {
         assert(Length(stay.help, true) <= P::MaxHelpLength && Length(stay.help, false) <= P::MaxHelpLength);
         ps::SetRole(ps::Role::Guest);
         P::Load();
+        // CL-a3a9e6: a guest sees Gather the party only while the host allows guests to gather (default: not)
+        assert(!ps::HostRuleOn(ps::HostRule::GuestGather));
         assert(!gather.visible());
         assert(!ps::RequestGather());
+        ps::SetHostRule(ps::HostRule::GuestGather, true);
+        P::Load();
+        assert(gather.visible());
+        while (ps::PopCommand(&c)) {}
+        Press(gather);
+        assert(ps::PopCommand(&c) && c.type == ps::CommandType::Gather);
+        ps::SetHostRule(ps::HostRule::GuestGather, false);
+        P::Load();
+        assert(!gather.visible());
+        assert(!ps::RequestGather());
+        assert(std::u16string(P::Text(gather.help, false)).find(u"allow") != std::u16string::npos);
+        assert(Length(gather.help, true) <= P::MaxHelpLength && Length(gather.help, false) <= P::MaxHelpLength);
         assert(stay.visible() && stay.kind == P::Kind::Toggle);
         BbSettings::Get().party_stay = false;  // the default; EverySettingSaved flipped it
         P::Load();
@@ -502,7 +516,7 @@ static void RulesPages() {
     const V rot = {u"Rot on death", u"Rot: boss kill cleanses", u"Rot: kill your killer", u"Rot: echoes back"};
     const V world = {u"Friendly fire / PvP", u"Full health in PvP", u"Shared lamps", u"Guests bring their lamps"};
     const V travel = {u"Guests use lamps", u"Guests use Hunter's Mark", u"Open world", u"Stay in Chalice Dungeons",
-                      u"Cutscenes live with host"};
+                      u"Guests can gather", u"Cutscenes live with host"};
     const V look = {u"No companion glow", u"Ping in the party list", u"Join/leave notices", u"Share NPC dialogue",
                     u"NPC dialogue range", u"Party discovery"};
     const V save = {u"Share story progress", u"Share NPC quests", u"Share cutscenes, endings"};
@@ -534,6 +548,8 @@ static void RulesPages() {
         BbSettings::Get().party_kill_record = true;
         BbSettings::Get().party_guests_bring_lamps = false;
         BbSettings::Get().party_travel_vote = false;
+        BbSettings::Get().party_guest_gather = false;
+        BbSettings::Get().party_layer_travel = false;
         P::Load();
         Advance(300);
         assert(names(u"Party rules: World") == shared);
@@ -605,6 +621,8 @@ static void RulesPages() {
         assert(shared_line.find("Covenants per player=On") != std::string::npos);
         // 0.7.3: Party votes on travel, the host's rule, off by default (a guest: the host's value).
         assert(shared_line.find("Party votes on travel=Off") != std::string::npos);
+        // CL-a3a9e6: Guests can gather, the host's rule, off by default (a guest: the host's value).
+        assert(P::ShownSummary(PageNamed(u"Party rules: Travel")).find("Guests can gather=Off") != std::string::npos);
         // 0.7.2: Guests bring their lamps, the host's rule, off by default (a guest: the host's value).
         const std::string world_line = P::ShownSummary(PageNamed(u"Party rules: PvP & lamps"));
         assert(world_line.find("Guests bring their lamps=Off") != std::string::npos);
@@ -654,6 +672,8 @@ static void RulesPages() {
           std::tuple{u"Party rules: Rot", u"Rot: echoes back", "party_rot_cleanse_echoes",
                      &BbSettings::Values::party_rot_cleanse_echoes},
           std::tuple{u"Party rules: World", u"Host can gather", "party_gather", &BbSettings::Values::party_gather},
+          std::tuple{u"Party rules: Travel", u"Guests can gather", "party_guest_gather", &BbSettings::Values::party_guest_gather},
+          std::tuple{u"Party rules: PvP & lamps", u"Chalice layer travel", "party_layer_travel", &BbSettings::Values::party_layer_travel},
           std::tuple{u"Party rules: World", u"NPCs as in host's world", "party_npc_mirror", &BbSettings::Values::party_npc_mirror},
           std::tuple{u"Party rules: World", u"Party votes on travel", "party_travel_vote", &BbSettings::Values::party_travel_vote},
           std::tuple{u"Party rules: World", u"NPC hunters fight all", "party_npc_fights", &BbSettings::Values::party_npc_fights},

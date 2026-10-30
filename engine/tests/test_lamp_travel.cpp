@@ -223,6 +223,50 @@ int main() {
         CHECK(!MapTravelTarget(9999999, lit, known));
     }
 
+    // CL-48ee07: Chalice layer travel: the dungeon lamp's list (the Dream, then the other lit lamps)
+    {
+        const auto known = [](std::uint32_t rp) { return rp >= 2902950u && rp <= 2902958u; };
+        // lamp 2 lit (flag 12907850); the player stands at lamp 2; lamp 0 (the start) is always there
+        const auto lit = [](std::uint32_t f) { return f == 12907850u; };
+        const std::vector<Entry> l = BuildChaliceList(2902952, lit, known);
+        CHECK(l.size() == 2);
+        CHECK(l[0].return_point == kDreamReturnPoint && l[0].index == 1);
+        CHECK(l[1].return_point == 2902950u && l[1].index == 2 && l[1].name_flag == 70002900u && l[1].lit_flag == 12907850u);  // lamp 0 unlit: the standing lamp's flag
+        CHECK(BuildChaliceList(2902952, [](std::uint32_t f) { return f == 12907850u || f == 12907810u; }, known)[1].lit_flag == 12907810u);
+        CHECK(Chosen(l, 2) == 2902950u);
+        // lamp 1 lit too (its registration flag 12907820 counts), lamp 3 blocked ("cannot travel" name flag):
+        // ascending, the standing lamp left out
+        const auto lit3 = [](std::uint32_t f) { return f == 12907820u || f == 12907850u || f == 12907870u; };
+        const auto blocked = [&](std::uint32_t f) { return lit3(f) || f == 70002903u; };
+        const std::vector<Entry> m = BuildChaliceList(2902952, blocked, known);
+        CHECK(m.size() == 3 && m[1].return_point == 2902950u && m[2].return_point == 2902951u);
+        // standing at the start lamp with nothing else lit: nothing to choose but the Dream, the vanilla question stays
+        CHECK(BuildChaliceList(2902950, [](std::uint32_t) { return false; }, known).empty());
+        // not a dungeon lamp
+        CHECK(BuildChaliceList(2412951, lit, known).empty());
+        CHECK(IsChaliceLamp(2902958) && !IsChaliceLamp(2902959) && !IsChaliceLamp(2412950));
+        CHECK(ChaliceDreamFlag(4) == 72900104u && ChaliceNameFlag(2) == 70002902u && ChaliceLitFlag(8) == 12907970u);
+        // the lamp the player stands at: the nearest object within 8 m
+        const std::vector<Spot> spots = {{2902950, 40, 31.5f, -54}, {2902952, -48.2f, 30.6f, -93.4f}};
+        const float at[3] = {-47.0f, 30.6f, -93.0f}, far_[3] = {0, 0, 0};
+        CHECK(NearestChaliceLamp(spots, at, 8.0f) == 2902952u);
+        CHECK(NearestChaliceLamp(spots, far_, 8.0f) == 0u);
+        // a guest follows the host's dungeon-lamp warp itself only when every guard holds
+        CHECK(LayerFollowRefusal(true, 2902950, 7, 7, true, false, false, false, false) == nullptr);
+        CHECK(LayerFollowRefusal(false, 2902950, 7, 7, true, false, false, false, false) != nullptr);
+        CHECK(LayerFollowRefusal(true, 2412950, 7, 7, true, false, false, false, false) != nullptr);
+        CHECK(LayerFollowRefusal(true, 2902959, 7, 7, true, false, false, false, false) != nullptr);
+        CHECK(LayerFollowRefusal(true, 2902950, 7, 8, true, false, false, false, false) != nullptr);  // another dungeon
+        CHECK(LayerFollowRefusal(true, 2902950, 0, 0, true, false, false, false, false) != nullptr);  // none known
+        CHECK(LayerFollowRefusal(true, 2902950, 7, 7, true, true, false, false, false) != nullptr);   // stay home
+        CHECK(LayerFollowRefusal(true, 2902950, 7, 7, false, false, false, false, false) != nullptr);
+        CHECK(LayerFollowRefusal(true, 2902950, 7, 7, true, false, true, false, false) != nullptr);
+        CHECK(LayerFollowRefusal(true, 2902950, 7, 7, true, false, false, true, false) != nullptr);
+        CHECK(LayerFollowRefusal(true, 2902950, 7, 7, true, false, false, false, true) != nullptr);
+        // the rule: the host (or a solo game) only
+        CHECK(ChaliceListOffered(true, false) && !ChaliceListOffered(false, false) && !ChaliceListOffered(true, true));
+    }
+
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

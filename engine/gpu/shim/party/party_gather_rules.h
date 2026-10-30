@@ -48,6 +48,9 @@ enum class Refusal {
     NotStanding,// the host climbs a ladder or is in the air (a jump, a fall): no ground to put guests on
     Failed,     // YES, but the move could not start (logged)
     StayHome,   // the guest's "Stay in my world" is on (CL-adeb50)
+    GuestsOff,  // CL-a3a9e6: the host has not allowed guests to gather
+    OwnWorld,   // CL-a3a9e6: the requesting guest is not in the host's world
+    OtherArea,  // CL-a3a9e6: the member stands in another map than the gathering guest (it is not moved there)
 };
 
 inline const char* RefusalWord(Refusal r) {
@@ -68,12 +71,15 @@ inline const char* RefusalWord(Refusal r) {
     case Refusal::NotStanding: return "not_standing";
     case Refusal::Failed: return "failed";
     case Refusal::StayHome: return "stay_home";
+    case Refusal::GuestsOff: return "guests_off";
+    case Refusal::OwnWorld: return "own_world";
+    case Refusal::OtherArea: return "other_area";
     }
     return "?";
 }
 
 inline Refusal RefusalFromWord(const std::string& w) {
-    for (int i = 0; i <= int(Refusal::StayHome); ++i) {
+    for (int i = 0; i <= int(Refusal::OtherArea); ++i) {
         if (w == RefusalWord(Refusal(i))) return Refusal(i);
     }
     return Refusal::Failed;
@@ -98,8 +104,16 @@ inline const char* RefusalReason(Refusal r) {
     case Refusal::NotStanding: return "on a ladder or in the air";
     case Refusal::Failed: return "could not move";
     case Refusal::StayHome: return "staying in own world";
+    case Refusal::GuestsOff: return "guests may not gather";
+    case Refusal::OwnWorld: return "in own world";
+    case Refusal::OtherArea: return "in another area";
     }
     return "?";
+}
+
+/// Area and block equal (one loaded map; streamed neighbours of one area are other blocks).
+constexpr bool MapsAlike(std::uint32_t a, std::uint32_t b) {
+    return a != 0 && a != 0xffffffffu && b != 0 && b != 0xffffffffu && (a >> 16) == (b >> 16);
 }
 
 // ---- host ----
@@ -158,6 +172,9 @@ inline std::string HostRefusalText(Refusal r, int wait_s) {
     case Refusal::NoGuests: return "Gather the party: no guests connected";
     case Refusal::NotHost: return "Gather the party: only the host gathers";
     case Refusal::Off: return "Gather the party is off (System > Party rules: World)";
+    case Refusal::GuestsOff: return "Gather the party: the host has not allowed guests to gather";
+    case Refusal::OwnWorld: return "Gather the party: you are in your own world";
+    case Refusal::OtherArea: return "Gather the party: the host is in another area";
     default: return std::string("Gather the party: ") + RefusalReason(r);
     }
 }
@@ -187,8 +204,62 @@ inline Refusal GuestRefusal(const GuestView& v) {
 }
 
 /// The guest's notice when it cannot come ("The host gathers the party: not now (in a menu)").
-inline std::string GuestRefusalText(Refusal r) {
-    return std::string("The host gathers the party: not now (") + RefusalReason(r) + ")";
+inline std::string GuestRefusalText(Refusal r, const std::string& by = std::string()) {
+    return (by.empty() ? std::string("The host") : by) + " gathers the party: not now (" + RefusalReason(r) + ")";
+}
+
+// ---- a guest gathers (CL-a3a9e6) ----
+// A guest with the host's permission (rule GuestGather) asks the host (EVENT gather {"op":"req"}); the host checks the
+// rule and the cooldown (shared with its own gather), asks every other member (itself included) with the same
+// question as its own gather ({"op":"ask"} + "by": the gathering guest's slot) and tells the guest ({"op":"reqreply"}).
+// A member comes only by an in-world warp beside the guest's spot (the spot the guest asked from, ground the guest
+// checked), never a map load and never a computed point: another map is refused (OtherArea). The members keep the
+// YES / NO question and the same refusals as for the host's gather.
+struct RequesterView {
+    bool allowed = false;      // the host's rule GuestGather (synced)
+    bool client = false;       // in the host's world (session role client)
+    GuestView guest;           // the guest's own state (menu / dialog are ignored: the request comes from the menu)
+    bool standing = true;      // on the ground (HostStanding)
+    double now = 0, last_request_at = -1e9;
+};
+
+/// Why a guest's own press of Gather the party is refused now (None: send the request).
+inline Refusal RequestRefusal(const RequesterView& v, int* wait_s = nullptr) {
+    if (wait_s) *wait_s = 0;
+    if (!v.allowed) return Refusal::GuestsOff;
+    if (v.guest.stay_home) return Refusal::StayHome;
+    if (!v.client) return Refusal::OwnWorld;
+    GuestView g = v.guest;
+    g.menu = false;
+    g.dialog = false;
+    if (const Refusal r = GuestRefusal(g); r != Refusal::None) return r;
+    if (!v.standing) return Refusal::NotStanding;
+    const double left = kCooldownS - (v.now - v.last_request_at);
+    if (left > 0) {
+        if (wait_s) *wait_s = int(std::ceil(left));
+        return Refusal::Cooldown;
+    }
+    return Refusal::None;
+}
+
+/// Why the host turns a guest's request down (None: ask the members). `round_open`: its last round is still open.
+inline Refusal RequestHostRefusal(bool host, bool allowed, bool round_open, double now, double last_gather_at,
+                                  int* wait_s = nullptr) {
+    if (wait_s) *wait_s = 0;
+    if (!host) return Refusal::NotHost;
+    if (!allowed) return Refusal::GuestsOff;
+    const double left = kCooldownS - (now - last_gather_at);
+    if (left > 0 || round_open) {
+        if (wait_s) *wait_s = left > 0 ? int(std::ceil(left)) : 5;
+        return Refusal::Cooldown;
+    }
+    return Refusal::None;
+}
+
+/// A member of a guest's gather (the host or another guest) that stands in another map than the gathering guest is not
+/// moved there: a map load or a computed point is never used.
+inline Refusal MemberAreaRefusal(std::uint32_t own_map, std::uint32_t asked_map) {
+    return MapsAlike(own_map, asked_map) ? Refusal::None : Refusal::OtherArea;
 }
 
 // A player's report: after one NO the host's later gather questions never came back until a restart. The
@@ -324,6 +395,7 @@ struct Ask {
     float yaw = 0;
     std::int64_t t = 0;  // the host clock (PartyLink::host_clock_ms) when sent: a replay after a reconnect is old
     bool standing = false;  // the host checked `pos` is ground (HostStanding); older hosts do not send it
+    int by = 0;             // CL-a3a9e6: the party slot of the guest that gathers (0: the host gathers)
 };
 constexpr std::int64_t kAskMaxAgeMs = 15000;
 
@@ -345,18 +417,21 @@ struct Answer {
     Route route = Route::Here;    // Yes
 };
 
-inline std::string EncodeAsk(const Ask& a) {
-    char b[240];
+/// `op`: "ask" (to a member) or "req" (a guest's request to the host).
+inline std::string EncodeAsk(const Ask& a, const char* op = "ask") {
+    char b[280];
     std::snprintf(b, sizeof b,
-                  "{\"op\":\"ask\",\"round\":%u,\"map\":%u,\"pos\":[%.3f,%.3f,%.3f],\"yaw\":%.4f,\"t\":%lld,\"stand\":%d}",
-                  a.round, a.map, double(a.pos[0]), double(a.pos[1]), double(a.pos[2]), double(a.yaw), (long long)a.t,
-                  a.standing ? 1 : 0);
+                  "{\"op\":\"%s\",\"round\":%u,\"map\":%u,\"pos\":[%.3f,%.3f,%.3f],\"yaw\":%.4f,\"t\":%lld,\"stand\":%d,"
+                  "\"by\":%d}",
+                  op, a.round, a.map, double(a.pos[0]), double(a.pos[1]), double(a.pos[2]), double(a.yaw), (long long)a.t,
+                  a.standing ? 1 : 0, a.by);
     return b;
 }
 
-inline bool DecodeAsk(const std::string& body, Ask* out) {
+inline bool DecodeAsk(const std::string& body, Ask* out, const char* op = "ask") {
     const char* s = body.c_str();
-    if (!std::strstr(s, "\"op\":\"ask\"")) return false;
+    const std::string needle = std::string("\"op\":\"") + op + "\"";
+    if (!std::strstr(s, needle.c_str())) return false;
     const char* pr = std::strstr(s, "\"round\":");
     const char* pm = std::strstr(s, "\"map\":");
     const char* pp = std::strstr(s, "\"pos\":[");
@@ -380,6 +455,10 @@ inline bool DecodeAsk(const std::string& body, Ask* out) {
         int st = 0;
         if (std::sscanf(ps, "\"stand\":%d", &st) == 1) a.standing = st == 1;
     }
+    if (const char* pb = std::strstr(s, "\"by\":")) {
+        int by = 0;
+        if (std::sscanf(pb, "\"by\":%d", &by) == 1 && by >= 0 && by < 16) a.by = by;
+    }
     *out = a;
     return true;
 }
@@ -391,12 +470,43 @@ inline std::string EncodeAnswer(const Answer& a) {
     return b;
 }
 
+/// The host's verdict on a guest's request (EVENT gather {"op":"reqreply"}).
+struct RequestReply {
+    std::uint32_t round = 0;
+    bool ok = false;
+    Refusal why = Refusal::None;
+    int asked = 0;  // ok: how many members were asked
+};
+
+inline std::string EncodeReply(const RequestReply& r) {
+    char b[128];
+    std::snprintf(b, sizeof b, "{\"op\":\"reqreply\",\"round\":%u,\"ok\":%d,\"why\":\"%s\",\"asked\":%d}", r.round,
+                  r.ok ? 1 : 0, RefusalWord(r.why), r.asked);
+    return b;
+}
+
 inline std::string Word(const char* s, const char* key) {
     const char* p = std::strstr(s, key);
     if (!p) return {};
     p += std::strlen(key);
     const char* e = std::strchr(p, '"');
     return e && e - p < 32 ? std::string(p, e) : std::string();
+}
+
+inline bool DecodeReply(const std::string& body, RequestReply* out) {
+    const char* s = body.c_str();
+    if (!std::strstr(s, "\"op\":\"reqreply\"")) return false;
+    const char* pr = std::strstr(s, "\"round\":");
+    const char* po = std::strstr(s, "\"ok\":");
+    RequestReply r;
+    int ok = 0;
+    if (!pr || !po || std::sscanf(pr, "\"round\":%u", &r.round) != 1 || std::sscanf(po, "\"ok\":%d", &ok) != 1) return false;
+    r.ok = ok == 1;
+    if (const char* pa = std::strstr(s, "\"asked\":")) std::sscanf(pa, "\"asked\":%d", &r.asked);
+    const std::string why = Word(s, "\"why\":\"");
+    r.why = why.empty() ? Refusal::None : RefusalFromWord(why);
+    *out = r;
+    return true;
 }
 
 inline bool DecodeAnswer(const std::string& body, Answer* out) {

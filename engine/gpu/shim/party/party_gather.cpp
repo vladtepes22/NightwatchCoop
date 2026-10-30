@@ -70,6 +70,8 @@ bool OwnPos(u64 player, float p[3]) {
 std::atomic<bool> g_request{false};
 std::mutex g_mu;
 std::deque<std::pair<int, std::string>> g_in;  // under g_mu
+std::deque<std::string> g_self;                // under g_mu: the asks of a guest's gather the host answers itself (CL-a3a9e6)
+bool g_is_host = false;                        // main thread: this game hosts the party (Tick's argument)
 
 // ---- host ----
 struct HostState {
@@ -109,6 +111,8 @@ struct GuestState {
     int landing_try = 0;           // the side tried (SpotForTry), kHostSpot = the host's own ground position
     float landing_ref_y = 0;       // the host's floor height
     Ask landing_ask;               // the question this landing answers (the next side's warp)
+    u32 next_req = 0;              // CL-a3a9e6: this guest's own gather requests
+    double last_req_at = -1e9;
     int test_bad = 0;              // test aid: this many landings count as bad (the next sides)
     float test_lift = 0;           // test aid: this YES's lift (BB_PARTY_GATHER_TEST "yesdrop")
     // test aid
@@ -150,11 +154,75 @@ float VerticalSpeed(HostState& h, const GameSnapshot& s, double now) {
     return 0.0f;
 }
 
+/// CL-a3a9e6: a guest asks to gather the party. The host checks its rule (party_guest_gather) and the cooldown it shares
+/// with its own gather, then asks itself and every other guest with the question of its own gather.
+void HandleRequest(party::PartyLink* link, int slot, const Ask& req, double now) {
+    HostState& h = g_host;
+    if (!link) return;
+    const std::string who = RosterName(link, slot);
+    RequestReply rp;
+    rp.round = req.round;
+    const std::int64_t age = link->host_clock_ms() - req.t;
+    if (req.t != 0 && age > kAskMaxAgeMs) {
+        Log("host: slot %d (%s) request %u is %lld ms old: dropped", slot, who.c_str(), req.round, (long long)age);
+        return;
+    }
+    int wait = 0;
+    const Refusal r = RequestHostRefusal(link->is_host(), BbSettings::Get().party_guest_gather.load(), h.open, now,
+                                         h.last_gather_at, &wait);
+    if (r != Refusal::None) {
+        rp.why = r;
+        link->post_event(slot, kEventName, EncodeReply(rp));
+        party::status::SetLastEvent(who + " tried to gather the party: " + RefusalReason(r));
+        Log("host: slot %d (%s) asked to gather the party: refused (%s, %d s)", slot, who.c_str(), RefusalReason(r), wait);
+        return;
+    }
+    Ask a = req;
+    a.round = ++h.next_round;
+    a.by = slot;
+    a.standing = req.standing;
+    a.t = link->host_clock_ms();
+    h.last_gather_at = now;
+    h.open = true;
+    h.round = a.round;
+    h.at = now;
+    h.slots.clear();
+    h.m.clear();
+    h.slots.push_back(0);  // the host answers like a guest (GuestTick)
+    MemberAnswer self;
+    self.name = RosterName(link, 0);
+    h.m.push_back(self);
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        g_self.push_back(EncodeAsk(a));
+    }
+    for (const party::RosterEntry& e : link->roster()) {
+        if (e.slot == 0 || !e.connected || e.slot == slot) continue;
+        h.slots.push_back(e.slot);
+        MemberAnswer m;
+        m.name = e.name;
+        h.m.push_back(m);
+        link->post_event(e.slot, kEventName, EncodeAsk(a));
+    }
+    rp.ok = true;
+    rp.asked = int(h.slots.size());
+    link->post_event(slot, kEventName, EncodeReply(rp));
+    party::status::SetLastEvent(who + " gathers the party: asking " + std::to_string(h.slots.size()) +
+                                (h.slots.size() == 1 ? " player" : " players"));
+    Log("round %u: %s (slot %d) gathers the party: %zu member(s) asked, in %s at (%.1f, %.1f, %.1f)", a.round, who.c_str(), slot,
+        h.slots.size(), MapName(a.map).c_str(), double(a.pos[0]), double(a.pos[1]), double(a.pos[2]));
+}
+
 void HostTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<std::pair<int, std::string>>& in) {
     HostState& h = g_host;
     const double now = Now();
     const float vmps = VerticalSpeed(h, s, now);
     for (const auto& [slot, body] : in) {
+        Ask req;
+        if (DecodeAsk(body, &req, "req")) {
+            HandleRequest(link, slot, req, now);
+            continue;
+        }
         Answer a;
         if (!DecodeAnswer(body, &a)) {
             Log("host: bad event from slot %d dropped", slot);
@@ -250,6 +318,11 @@ void Press(u32 buttons, double now, GuestState& g) {
 }
 
 void SendAnswer(party::PartyLink* link, const Answer& a) {
+    if (g_is_host) {  // the host answering a guest's gather: its own round book (HostTick, slot 0)
+        std::lock_guard<std::mutex> lk(g_mu);
+        g_in.emplace_back(0, EncodeAnswer(a));
+        return;
+    }
     if (link) link->post_event(party::kHostSlot, kEventName, EncodeAnswer(a));
 }
 
@@ -263,8 +336,8 @@ GuestView ReadGuestView(const GameSnapshot& s, bool own_question) {
     v.spectating = b2::Spectating();
     v.boss_fight = BossBarShown();
     v.cutscene = CutscenePlaying();
-    v.travelling = b2::RejoinRunning() || b2::GuestTravelPending();
-    v.stay_home = stayhome::Active();
+    v.travelling = b2::RejoinRunning() || b2::GuestTravelPending() || (g_is_host && b2::HostRejoinRunning());
+    v.stay_home = !g_is_host && stayhome::Active();
     if (!own_question) {
         v.menu = party::hud::GameMenu();
         v.dialog = party::hud::GameDialog() || split::DialogUp();
@@ -278,18 +351,19 @@ void Refuse(party::PartyLink* link, const Ask& ask, Refusal why) {
     a.reply = Reply::Refused;
     a.why = why;
     SendAnswer(link, a);
-    const std::string text = GuestRefusalText(why);
+    const std::string text = GuestRefusalText(why, ask.by > 0 ? RosterName(link, ask.by) : std::string());
     party::status::SetLastEvent(text);
-    Log("guest: round %u refused: %s", ask.round, RefusalReason(why));
+    Log("%s: round %u refused: %s", g_is_host ? "host as a member" : "guest", ask.round, RefusalReason(why));
 }
 
 /// The in-world warp beside the host (SpotFor: its chr, or the ground it asked from when its chr
 /// has climbed or dropped since), then watched until the guest stands (LandingCheck).
 bool PutBeside(const Ask& ask, const char* why, bool arrival, int attempt = 0) {
     GuestState& g = g_guest;
-    float live[3];
-    const Spot spot = b2::HostChrPos(live) ? SpotFor(ask.standing, live[1], ask.pos[1]) : Spot::Live;
-    if (spot == Spot::Asked && attempt == 0) {
+    float live[3] = {};
+    // A guest's gather (ask.by): always the spot it asked from (ground it checked), never the host's chr.
+    const Spot spot = ask.by > 0 ? Spot::Asked : b2::HostChrPos(live) ? SpotFor(ask.standing, live[1], ask.pos[1]) : Spot::Live;
+    if (spot == Spot::Asked && attempt == 0 && ask.by == 0) {
         Log("guest: the host's chr is %.1f m %s the spot it asked from (a ladder, a jump, a drop): beside that spot",
             double(std::fabs(live[1] - ask.pos[1])), live[1] > ask.pos[1] ? "above" : "below");
     }
@@ -358,15 +432,17 @@ void LandingTick(const GameSnapshot& s) {
             double(g.landing_dest[1] - g.landing_low), g.landing_try);
         return;
     }
+    const bool no_travel = g.landing_arrival || g.landing_ask.by > 0;  // a guest's gather never loads a map
     Log("guest: FELL %.1f m %.1f s after the warp beside the host (no ground there): back where it stood (%.1f, %.1f, "
         "%.1f)%s", double(g.landing_dest[1] - p[1]), now - g.landing_since, double(g.landing_from[0]),
         double(g.landing_from[1]), double(g.landing_from[2]),
-        g.landing_arrival ? "" : ", then the travel to the host (one loading screen)");
+        no_travel ? "" : ", then the travel to the host (one loading screen)");
     if (!b2::GatherWarpBack(g.landing_from, g.landing_from[3], "gather: no ground beside the host, back")) {
         Log("guest: the warp back did not run");
     }
-    if (g.landing_arrival) {
-        party::status::SetLastEvent("Gathered: near the host (no ground beside it)");
+    if (g.landing_arrival || g.landing_ask.by > 0) {
+        party::status::SetLastEvent(g.landing_ask.by > 0 ? "Gathering: no safe ground beside the guest, you stay"
+                                                          : "Gathered: near the host (no ground beside it)");
         return;
     }
     g.test_lift = 0;  // test aid: the arrival is not lifted again
@@ -388,7 +464,28 @@ void LandingTick(const GameSnapshot& s) {
 }
 
 /// YES: come to the host by RouteFor. False: could not move (the answer says Failed).
+/// YES to a guest's gather: an in-world warp beside its spot (same map only, checked at the ask), no load.
+bool ComeToGuest(const GameSnapshot& s, const Ask& ask, Route* route) {
+    float me[3] = {};
+    float d = 1e9f;
+    if (OwnPos(s.player, me)) d = std::sqrt((me[0] - ask.pos[0]) * (me[0] - ask.pos[0]) + (me[1] - ask.pos[1]) * (me[1] - ask.pos[1]) +
+                                            (me[2] - ask.pos[2]) * (me[2] - ask.pos[2]));
+    *route = d <= kBesideM ? Route::Here : Route::InWorld;
+    Log("%s: YES to the guest in slot %d: route %s (%.1f m from its spot)", g_is_host ? "host" : "guest", ask.by, RouteWord(*route),
+        double(d));
+    if (*route == Route::Here) {
+        party::status::SetLastEvent("Gathering: you are already with the guest");
+        return true;
+    }
+    if (PutBeside(ask, "gather (guest)", false)) {
+        party::status::SetLastEvent("Gathered: beside the guest");
+        return true;
+    }
+    return false;
+}
+
 bool Come(const GameSnapshot& s, const Ask& ask, Route* route) {
+    if (ask.by > 0) return ComeToGuest(s, ask, route);
     Place p;
     p.client = s.session_role == RoleClient;
     p.own_map = s.map_id;
@@ -436,9 +533,60 @@ bool Come(const GameSnapshot& s, const Ask& ask, Route* route) {
     return false;
 }
 
+/// CL-a3a9e6: this guest pressed Gather the party (the Party page / the status bridge): check, then ask the host.
+void RequestTick(const GameSnapshot& s, party::PartyLink* link, double now) {
+    GuestState& g = g_guest;
+    RequesterView v;
+    v.allowed = party::status::HostRuleOn(party::status::HostRule::GuestGather);
+    v.client = s.session_role == RoleClient;
+    v.guest = ReadGuestView(s, false);
+    const int ladder = b2::OwnLadderState();
+    v.standing = HostStanding(ladder, VerticalSpeed(g_host, s, now));
+    v.now = now;
+    v.last_request_at = g.last_req_at;
+    int wait = 0;
+    Refusal r = RequestRefusal(v, &wait);
+    if (r == Refusal::None && !link) r = Refusal::OwnWorld;
+    if (r != Refusal::None) {
+        const std::string text = HostRefusalText(r, wait);
+        party::status::SetLastEvent(text);
+        Log("guest: Gather the party refused: %s (%s)", RefusalReason(r), text.c_str());
+        return;
+    }
+    Ask a;
+    a.round = ++g.next_req;
+    a.map = s.map_id;
+    OwnPos(s.player, a.pos);
+    a.yaw = b2::OwnYaw();
+    a.standing = true;  // RequestRefusal: standing
+    a.t = link->host_clock_ms();
+    g.last_req_at = now;
+    link->post_event(party::kHostSlot, kEventName, EncodeAsk(a, "req"));
+    party::status::SetLastEvent("Gathering the party: asking the host");
+    Log("guest: Gather the party: request %u sent to the host, in %s at (%.1f, %.1f, %.1f)", a.round, MapName(a.map).c_str(),
+        double(a.pos[0]), double(a.pos[1]), double(a.pos[2]));
+}
+
+void OnReply(const RequestReply& rp) {
+    if (rp.ok) {
+        party::status::SetLastEvent("Gathering the party: asking " + std::to_string(rp.asked) +
+                                    (rp.asked == 1 ? " player" : " players"));
+        Log("guest: request %u accepted: %d member(s) asked", rp.round, rp.asked);
+    } else {
+        const std::string text = rp.why == Refusal::Cooldown ? std::string("Gather the party: too soon after the last gather")
+                                                              : HostRefusalText(rp.why, 0);
+        party::status::SetLastEvent(text);
+        Log("guest: request %u refused by the host: %s", rp.round, RefusalReason(rp.why));
+    }
+}
+
 void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<std::pair<int, std::string>>& in) {
     GuestState& g = g_guest;
     const double now = Now();
+    if (!g_is_host) {
+        VerticalSpeed(g_host, s, now);  // the own height samples (HostStanding) for a request
+        if (g_request.exchange(false)) RequestTick(s, link, now);
+    }
     LandingTick(s);
     if (g.release_at > 0 && now >= g.release_at) {
         runtime_pad_director_press(0);
@@ -453,6 +601,11 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
         Log("test: the in-game menu opened (Options) for the next question");
     }
     for (const auto& [slot, body] : in) {
+        RequestReply rp;
+        if (DecodeReply(body, &rp)) {
+            OnReply(rp);
+            continue;
+        }
         Ask a;
         if (!DecodeAsk(body, &a)) {
             Log("guest: bad event from slot %d dropped", slot);
@@ -463,10 +616,11 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
             Log("guest: round %u is %lld ms old (a replay after a reconnect): dropped", a.round, (long long)age);
             continue;
         }
-        Log("guest: round %u: the host gathers the party (host in %s at (%.1f, %.1f, %.1f))", a.round, MapName(a.map).c_str(),
-            double(a.pos[0]), double(a.pos[1]), double(a.pos[2]));
-        if (!party::status::HostRuleOn(party::status::HostRule::Gather)) {  // the host's rule (late)
-            Refuse(link, a, Refusal::Off);
+        Log("%s: round %u: %s gathers the party (in %s at (%.1f, %.1f, %.1f))", g_is_host ? "host as a member" : "guest", a.round,
+            a.by > 0 ? RosterName(link, a.by).c_str() : "the host", MapName(a.map).c_str(), double(a.pos[0]), double(a.pos[1]),
+            double(a.pos[2]));
+        if (!party::status::HostRuleOn(a.by > 0 ? party::status::HostRule::GuestGather : party::status::HostRule::Gather)) {
+            Refuse(link, a, a.by > 0 ? Refusal::GuestsOff : Refusal::Off);  // the host's rule (late)
             continue;
         }
         if (g.active) {
@@ -485,6 +639,12 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
             }
             continue;
         }
+        if (a.by > 0) {  // a guest's gather: only a member in the same map is moved (no load, no computed point)
+            if (const Refusal ar = MemberAreaRefusal(s.map_id, a.map); ar != Refusal::None) {
+                Refuse(link, a, ar);
+                continue;
+            }
+        }
         g.active = true;
         g.ask = a;
         g.since = now;
@@ -500,7 +660,9 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
     }
     if (g.active) {
         if (!g.dialog) {
-            g.dialog = split::AskYesNo(BbGameMenu::Pages::GatherQuestionText());
+            if (g.ask.by > 0) BbGameMenu::Pages::SetGuestGatherQuestion(RosterName(link, g.ask.by));
+            g.dialog = split::AskYesNo(g.ask.by > 0 ? BbGameMenu::Pages::GuestGatherQuestionText()
+                                                    : BbGameMenu::Pages::GatherQuestionText());
             if (g.dialog) {
                 Log("guest: round %u: question open (dialog %#llx)", g.ask.round, static_cast<unsigned long long>(g.dialog));
                 g.dialog_at = now;
@@ -566,7 +728,7 @@ void GuestTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<
         } else {
             a.reply = Reply::Refused;
             a.why = Refusal::Failed;
-            party::status::SetLastEvent(GuestRefusalText(Refusal::Failed));
+            party::status::SetLastEvent(GuestRefusalText(Refusal::Failed, g.ask.by > 0 ? RosterName(link, g.ask.by) : std::string()));
         }
         SendAnswer(link, a);
         Log("guest: round %u: YES -> %s", a.round, a.reply == Reply::Yes ? RouteWord(a.route) : "could not move");
@@ -642,16 +804,19 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool host) {
             Log("test: %zu answer(s) scripted (%s)", g_guest.test.size(), v);
         }
     }
-    std::vector<std::pair<int, std::string>> in;
+    std::vector<std::pair<int, std::string>> in, self;
     {
         std::lock_guard<std::mutex> lk(g_mu);
         in.assign(g_in.begin(), g_in.end());
         g_in.clear();
+        for (const std::string& b : g_self) self.emplace_back(0, b);
+        g_self.clear();
     }
+    g_is_host = host;
     if (host) {
         HostTick(s, link, in);
+        GuestTick(s, link, self);  // the host is a member of a guest's gather
     } else {
-        g_request = false;  // only the host gathers
         GuestTick(s, link, in);
     }
 }

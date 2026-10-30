@@ -225,8 +225,9 @@ std::atomic<bool> g_host_rules[int(HostRule::Count)] = {
     true,  true, true, true, false, true, true,       // RotCleanseBoss .. AnyKidnap
     true, true, false,                                // LevelSync, PhantomHp, SkipPrologue
     true,  true, true, true, true, true, true, true, true,   // OpenWorld .. FullRewards
-    true, true};                                      // PvpFullHp, BossDrops
-static_assert(int(HostRule::Count) == 28, "a HostRule without its default above");
+    true, true,                                       // PvpFullHp, BossDrops
+    false, false};                                    // GuestGather, LayerTravel
+static_assert(int(HostRule::Count) == 30, "a HostRule without its default above");
 }  // namespace
 void SetHostRule(HostRule rule, bool on) {
     if (rule < HostRule::Count) g_host_rules[int(rule)].store(on);
@@ -284,7 +285,12 @@ bool RequestNewCode() {
 
 bool RequestGather() {
     std::scoped_lock lock{mutex};
-    if (board.role != Role::Host) return false;
+    // A guest's press (CL-a3a9e6) only when the host's rule allows it (the host checks it again).
+    if (board.role == Role::Guest) {
+        if (!g_host_rules[int(HostRule::GuestGather)].load()) return false;
+    } else if (board.role != Role::Host) {
+        return false;
+    }
     Queue({CommandType::Gather, {}});
     return true;
 }

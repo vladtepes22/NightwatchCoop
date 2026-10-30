@@ -211,8 +211,9 @@ void HandleCommand(Bridge& b, const status::Command& c, const TickIn& in, TickOu
         break;
     }
     case status::CommandType::Gather: {
-        if (!in.host) break;
-        Log("status: Gather the party pressed");
+        // The host gathers; a guest asks the host to (CL-a3a9e6; party_status RequestGather lets it through only
+        // while the host's rule allows it).
+        Log("status: Gather the party pressed%s", in.host ? "" : " (a guest)");
         if (a.gather) a.gather();
         break;
     }
