@@ -195,8 +195,123 @@ restores the old `server.conf` by itself if OpenVPN fails to start.
 Tunables are in `/etc/nwsign/nwsign.json` (`enroll_per_ip_day`, `enroll_global_day`, `cert_days`,
 `renew_after_days`, `grace_days`, ...; defaults in `nwsign_core.DEFAULTS`). Restart the service after a change.
 
+## Game lobby (nwlobby, UDP 9310)
+
+LAN discovery (UDP 9308 broadcast) does not cross an OpenVPN tun, so VPN players would not see each
+other's games. `tools/vpn/lobby/nwlobby.py` is a tiny in-memory lobby on the VPN server's tunnel address
+(`10.8.0.1:9310`, reachable only from the tunnel). Code: `tools/vpn/lobby/`, game side
+`gpu/shim/net/party_vpnlobby.*`, launcher side `lobby_*` in `launcher.py`, tests `tests/test_nwlobby.py`,
+`tests/test_launcher_vpnlobby.py`, `test_vpnlobby()` in `tests/test_party_net.cpp`.
+
+Off by default: the setting `party_vpn_lobby` (bbport.ini; launcher checkbox *Nightwatch VPN lobby*; in the
+game *System > Party network > Nightwatch VPN lobby*, host's row; env `BB_PARTY_VPN_LOBBY`).
+
+### How a join works
+
+```
+host game (10.8.0.x)                 lobby 10.8.0.1:9310                guest launcher (10.8.0.y)
+  announce every 10 s ------------->  entry per source address
+  (name, port, slots, build,          expires after 30 s          <---- list request (page offset)
+   password flag)                                                  ----> names, flags, slots, build,
+                                                                         host tunnel address + port
+                                                                  guest picks a game, types the password,
+                                                                  the game joins <address>:<port> + password
+```
+
+Joining a plain `host:port` needs the host's password (without one only a party code works, and the code
+holds the party secret). So the lobby is for hosts **with a password**: the game does not announce a
+party without one, and the list says *Pass: yes* for every game. The guest types the password the host
+told them; the launcher starts the game as a guest with `BB_PARTY_CODE=<tunnel address>:<port>` and
+`BB_PARTY_PASSWORD`. The VPN firewall already lets clients reach each other's party port 9307 (UDP and
+TCP) only.
+
+### Wire format (version 1, big endian)
+
+Every packet starts `0xfa 'L' 0x01 type`. At most 512 bytes in (longer datagrams are dropped unread), at
+most 1024 bytes out. Nothing malformed is ever answered.
+
+| type | name | body |
+|---|---|---|
+| 1 | announce (host to lobby) | flags u8 (bit 0 password), port u16, players u8, max u8, build: u8 len + printable ASCII (at most 32), name: u8 len + UTF-8 (1 to 48 bytes) |
+| 2 | list (guest to lobby) | offset u16: the first entry wanted in the sorted list |
+| 3 | reply (lobby to guest) | total u16, offset u16, count u8, then count entries: ipv4 (4), port u16, flags u8 (bit 0 password, bit 1 this is your own entry), players u8, max u8, name (u8 len + UTF-8), build (u8 len + ASCII) |
+| 4 | bye (host to lobby) | none: removes the sender's entry |
+
+A reply holds at most 16 entries and 1024 bytes; the client asks the next page with `offset += count`
+until `offset >= total`. Entries are sorted by name (case-folded), then address. Reference encoder and
+parser: `nwlobby.py` (`encode_announce`, `encode_list`, `parse_reply`). The same announce bytes come out of
+the game's C++ encoder (`fa4c010101245b01040b302e372e3720286162632905416c696365` for *Alice*, port 9307,
+1/4 players, build `0.7.7 (abc)`, password): both tests check this vector.
+
+### Rules the lobby enforces
+
+- Only senders from `10.8.0.0/24` are answered; the network, broadcast and server (`.1`) addresses and
+  everything else are dropped without a trace (no state is created for strangers).
+- One entry per source address (a new announce replaces the old one), at most 300 entries, 30 s to live.
+  Entry address = the datagram's source: OpenVPN drops packets whose source is not the client's own tunnel
+  address, so a host cannot list someone else's address, and the entry never carries an address field.
+- Rate limit per source: a bucket of 8 packets refilling 2 per second (announce, list and bye alike).
+- Name: UTF-8, control, format (bidi, zero width), separator and private-use characters and combining marks
+  stripped, spaces folded, at most 16 characters; an empty or non-UTF-8 name is refused. The build is
+  printable ASCII at most 32 bytes. Port 1024 or higher, 1 to 8 slots, players not above slots.
+- Replies are capped (16 entries, 1024 bytes) and paginated, so one query cannot be used to amplify.
+
+### What the player sees (and never sees)
+
+The list shows the **character name** of the host (the name in the host's save, read from the game, not an
+account, Discord or Steam name), slots, password flag and version. The tunnel address is kept in memory by
+the launcher for the join only: it is not shown, not copied, not saved in `launcher_settings.json` and not
+written to logs. A game with a different version is greyed out; your own game is left out of your list.
+
+### Privacy
+
+Nothing is written to disk and nothing is logged: the service prints nothing and has no state directory
+(`DynamicUser`, `ProtectSystem=strict`, no `ReadWritePaths`; the unit sends stdout to null). The list lives in
+process memory and is gone at a restart. The game's own log says only that it announces (no address).
+A VPN player can read the tunnel addresses of the hosts in the replies (the launcher hides them from the
+UI); all of them are already reachable to each other on port 9307 by the firewall design.
+
+### Operations
+
+Install (root, from a copy of the directory; idempotent):
+
+```
+git archive HEAD tools/vpn/lobby | ssh visy@<vpn-host> 'tar xf - -C ~'
+ssh visy@<vpn-host>
+sudo sh ~/tools/vpn/lobby/install.sh
+```
+
+The installer copies the script to `/opt/nwlobby`, installs and starts `nwlobby.service`
+(`After=openvpn-server@server`; `10.8.0.1` exists only while OpenVPN runs, so the script also retries the
+bind), and opens UDP 9310 from the tunnel in both firewalls: the iptables-nft rules (the Nightwatch
+`add-openvpn-rules.sh` already has the lobby rule in `NW_VPN_IN`; the installer only adds a rule, to the
+script and live, when it is missing) and the nftables `inet filter` table (live
+`nft add rule inet filter input iifname "tun0" udp dport 9310 accept` and the line after `udp dport 1194
+accept` in `/etc/nftables.conf`, checked with `nft -c -f`, backup `*.pre-nwlobby`). `uninstall.sh` reverses
+all of it. The unit is hardened (`DynamicUser`, `NoNewPrivileges`, `ProtectSystem=strict`,
+`RestrictAddressFamilies=AF_INET`, empty capability set, syscall filter, `IPAddressDeny=any` except the
+tunnel network, 64 MB). Check: `systemctl status nwlobby`; there are no logs to read by design.
+
+Test override (never set in production): `NWLOBBY_BIND=127.0.0.1:19310 NWLOBBY_NET=127.0.0.0/8 python3
+nwlobby.py` serves on loopback and accepts loopback senders. The game and launcher use the matching
+`BB_PARTY_VPNLOBBY_ADDR=127.0.0.1:19310` (sends from 127.0.0.1 and skips the 10.8.0.x address check);
+`BB_PARTY_VPNLOBBY_NAME` replaces the character name in the game (synthetic name for tests).
+
+### What the launcher must do (the Nightwatch launcher)
+
+1. Show *Nightwatch VPN lobby* as an opt-in checkbox next to the VPN option; write bbport.ini
+   `party_vpn_lobby=1/0` (the game reads it live; the same checkbox exists in the game's System menu).
+2. When on and the VPN adapter has a `10.8.0.2`-`10.8.0.254` address: every 5 s send a list request from
+   that address to `10.8.0.1:9310` (page through the replies), 1 s timeout, strict parser (`lobby_parse_reply`
+   in `launcher.py` is a model). Do not send when the VPN is off.
+3. Show the list: name, slots, password flag, version (grey out another version). Drop entries flagged
+   *own*. Never display, copy or log the address.
+4. *Join*: ask for the password, then start the game as a guest with `BB_PARTY=join`,
+   `BB_PARTY_CODE=<address>:<port>` and `BB_PARTY_PASSWORD=<password>`; keep the address out of saved settings.
+
 ## Tests
 
 `python -m unittest tests.test_nwsign` needs the `openssl` CLI (Git for Windows' is fine). Tests that need
 the real `openvpn` binary are skipped when it is absent. `tools/vpn/nwvpn_client.py` is the reference for
-the wire format.
+the wire format. The lobby: `python -m unittest tests.test_nwlobby tests.test_launcher_vpnlobby` and
+`party-net-test` (`ninja -C out/gpu party-net-test`).

@@ -628,7 +628,8 @@ resource loading:
    request for real (12 s at most, `liftrules::HoldCarAnim`). Far from every player nothing changes (the game's
    fast forward is right when nobody sees the car).
 3. *Floor guard* (`LiftBuildGuardTick`): a local chr that starts to fall near an unbuilt car is put back on the
-   spot it stood on and held until the car is built, then for 2.5 s more. A last resort: a fall at the build
+   ground it stood on 0.8 s earlier and held until the car's floor exists, then for 2.5 s more (liftwalk2077: the first
+   version recorded the falling spot and failed for a car that was not active, see the walk-in proof). A last resort: a fall at the build
    itself can still gain speed, the prebuild is what makes it rare.
 4. *Ride end after a block change* (`g_lift_ride_seen`): a guest's ride end written while the guest crosses
    into the next block (Cathedral Ward's top is m24_00) was swallowed by that load's baseline and the host's
@@ -653,6 +654,59 @@ threshold turns the carry off in the slow ease phases at a real 120 FPS (the pro
 `BB_TEST_LIFT_WATCH=1|2` (hardware write breakpoints on the chr's position / ride bit / standing hit, or on the
 car's build fields; `party_lift_watch.cpp`), smoke phase `lfx` (the lf ride with two players), `BB_LF_PIN` /
 `BB_LF_CAR_DELAY` (shorten the wait on the landing: the ride before the build).
+
+**Walk-in proof (liftwalk077 + liftwalk2077, 2026-10-30, smoke phases `lfw` / `lfwc` / `lfws` / `lfwcs`, groups `lift_walk` /
+`lift_walk_slow`).** Riders are walked onto the car by the left stick (the route walker over positions recorded from real
+walks, then a stick step into the trigger), starting 60-70 m from the car after an in-world warp to a far spot; the player who
+does not ride walks a few metres by the stick while the car moves. Pass: every rider on the arrival floor alive with the ride
+bit on all the way, both games show the same flags and car end after each ride, no fall (12 m/s), no jump, every route walked
+to its end. `lfw` and `lfwc` are in the default smoke list; `lfws` / `lfwcs` run with `--only lift_walk_slow` / `physics`.
+
+| cell | result |
+|---|---|
+| Central Yharnam 2411320, `lfw`: guest down, host up, both down, both up | 36/36 at 30 FPS (reg1, final spec); earlier 60 FPS singles; 24/24 at 120 (target) FPS with the probe |
+| Cathedral Ward 2401102, `lfwc`: guest up (bottom walk-in 58 s), host down, both up, both down | 36/36 at 30 FPS |
+| `lfws`: slow loading + sprint, guest down, host up (singles only) | 24/24 at 30 FPS; 23/24 at 60 FPS (every ride passes; the host's walk-in route stopped short once at an obstacle and the stick step finished the walk) |
+| `lfwcs`: the same on 2401102 | 24/24 at 30 and at 60 FPS |
+| control `BB_PARTY_LIFT_PREBUILD=0 BB_PARTY_LIFT_HOLD=0` + `lfws` | FAILS as it must: the guest falls 200 m (y -251), fall recovery fires |
+| 120 FPS target, `BB_TEST_LIFT_PROBE=2`, `lfw` rides 1-2 | no drop of the ride bit in 792 + 593 probe samples; see below |
+
+* **Two riders together** need geometry: the car's trigger (region 2412321 / 2412322 on 2411320, 2402058 / 2402059 on 2401102)
+  is a cylinder of radius 0.55 m; whoever stands in it starts the ride. The first rider stops beside it (the route's last
+  points run through the cylinder: `trim`), the second walks in once the first stands there (`?near=`), and the two never
+  walk the same route at once (live: two walkers in a doorway or a narrow lane block each other; a stalled second rider is
+  left behind by the ride, which is vanilla). Both are carried like single riders (ride bit on for 15-16 samples each).
+  A sprinting walker overshoots the beside spot into the trigger and starts the ride alone: the slow phases ride singly.
+* **A real fault found and fixed (`LiftBuildGuardTick`)**, by `lfws` (slow load: the car is unbuilt when the rider arrives):
+  the floor guard of 0.7.7 was idle until the car turned active (flags bit 0x40), which a car that was never asked for does
+  1-2 s after the player stepped into the shaft; it then recorded the *falling* position as the one to hold, and the hold
+  (a warp every tick) does not reset the fall speed, so the chr fell on through the car's floor at the release (guest at
+  y -209 / -292, fall recovery 6 s later). Now the standing spot is tracked every tick (a ring of 2.5 s; a jump over 2 m /
+  4 m in one tick is a warp, not a fall), the hold puts the chr back on ground it stood on 0.8 s before the fall began
+  (standing on the landing resets the fall speed), "not built" is no animation controller or, for the car, no hit object
+  (`+0x288`, the floor), and the hold ends only when the floor exists. The unbuilt car is held for at most 10 s; a car that
+  takes longer (the test aid with a 20 s delay) leaves the rider standing at the landing, not falling.
+* **The 0.0005 node-motion threshold at a high frame rate (`BB_TEST_LIFT_PROBE=2`, `--fps 120`).** The game stepped at
+  about 76/s on this machine for the 120 FPS target (dt 8-33 ms, mean 13 ms): not a true 120. 792 samples (host) and 593
+  (guest) with the chr on the car while it played a ride animation: the ride bit (+0x1E5 bit 2) was on in every one; the
+  node vector's squared length fell under 0.0005 only in the first two samples of the start ease (0.00, the car not yet
+  moved, the chr moved 0.02 m), the bit stayed on. Unproven: a real 120+ steps/s.
+* "The other player runs in place while the car moves" (user report during these runs): not party code. The waiting player had
+  been warped to a spot against a wall / railing (navmesh centroid); the chr stood pressed into it (camera inside the wall, the
+  position frozen to 0.01 m). After moving the waiting spots to open floor the waiter walks 4-8 m during the ride on both sides.
+  No party code holds a non-rider.
+* Test-harness findings (so the next run does not repeat them): the director's stuck check (8 s without 1 m) was not
+  restarted by a new walk (a second walk at the same spot gave up at once); positions of a walk-in must be validated in one
+  short run (`BB_LFW_RIDES=1`, `BB_LFW_PRELUDE=0`, `BB_PARTY_TEST_COND_TIMEOUT` is 120 s because the host's enemy-clearing
+  prelude takes 90 s; a shorter value makes the guest's first step skip its condition); a route recorded from a navmesh
+  centroid can start in a wall (2401102's first bottom spot: 0.2 m of progress, the start is now 66 m out on a walked
+  stretch); enemies near the walk (torch villagers at the Cathedral bottom) stop a walker: keep the prelude; the 48 m lift runs
+  8.3 m/s, so the no-fall rate is 12 m/s (a fall is faster than any lift; the nets use 16).
+* Test aids: `BB_TEST_LIFT_BUILD_DELAY` / `_NEAR` / `_DROP` (slow car build, drop of far cars), `BB_TEST_WALK_SPRINT`,
+  `BB_LFW_*` harness switches (DEBUG_SWITCHES.md).
+* NOT proven: a start more than 150 m from the car (outside the prebuild ring; the lamp start is 100-130 m from either car and the
+  far spots 60-70 m); the slow phases with two riders (a sprint overshoot, see above); a true 120+ steps/s; the car's
+  build on a really slow disk (the aid delays the request, not the IO); a player report retest.
 
 ## 11. Interface (for split travel and other callers)
 

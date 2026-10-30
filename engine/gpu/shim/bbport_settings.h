@@ -201,6 +201,10 @@ struct Values {
     /// 0.7.5: party discovery (net/party_discovery.h): the host announces itself on the VPN and LAN adapters
     /// only; the launcher's Join page lists what it hears. ini party_discovery, env BB_PARTY_DISCOVERY. Live.
     std::atomic<bool> party_discovery{true};
+    /// 0.7.7: Nightwatch VPN lobby (net/party_vpnlobby.h): a host with a password on the Nightwatch VPN (a 10.8.0.x
+    /// address) announces its character name, slots and version to the lobby on the VPN server, so VPN players
+    /// see the game in the launcher's Join list. ini party_vpn_lobby, env BB_PARTY_VPN_LOBBY. Live. Off by default.
+    std::atomic<bool> party_vpn_lobby{false};
     /// 0.7.6: connection warnings (party/party_connwarn.h): an on-screen notice when the firewall, the router or a
     /// wrong address keeps the party from working. Per player. ini party_conn_warnings. Live.
     std::atomic<bool> party_conn_warnings{true};

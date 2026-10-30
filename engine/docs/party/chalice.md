@@ -631,7 +631,19 @@ dungeon is quick-joined or carried the game's reads of 92900000-92999999 (IsEven
 (`CaseFlagRedirect`, log `the dungeon's feature flags ... are read from the quick-joined slot N's group`,
 `BB_PARTY_CHALICE_CASEFLAGS=0` off). Details, the shop rows and the smoke (`chalice_shop`: csh, csh2): docs/party/items.md
 11.1. Open: a guest with its own dungeon got no talk prompt at the dungeon's Bath Messenger after a test warp (its region
-event flags 129072xx stay silent; the guest without a dungeon sets 12907224 there): not analysed, not seen in a player report.
+event flags 129072xx stay silent; the guest without a dungeon sets 12907224 there): **solved in 0.7.7 (chalshop077, CL-567d1f), see below.**
+
+### 10.1 The EMEVD reads the case flags inline: the tree nodes (chalshop077, 0.7.7)
+
+The EMEVD scripts of the dungeon (the sub-feature events 12905188 .. 12905244: which special characters, baths and Bath Messengers the dungeon has) read type-9 flags 92905300 + n
+inline, not through IsEventFlag / GetEventFlagValue (a log of every hooked read in the host's dungeon showed only the diagnostic's own). The tree nodes for the blocks 92900..92909
+point at the group of the CURRENT slot (the remap 0x13b89b0, run by the last own-world load; the load mode 1 switch does not run it again). A summoned member whose own ritual dungeon
+is the current slot read ITS dungeon's features there: the Bath Messenger, its bath and the shop's special characters stayed disabled (the screenshots: nothing in front of the guest;
+`levelup: action prompt not seen`); the member without a dungeon (current slot 0 = the quick-joined slot) was fine. Fix (`party_chalice.cpp` `RepointCaseGroups`): after the switch to
+load mode 1 with the host's dungeon carried, the ten nodes (block, kind 1, pool index = `resolve_group_key(9, 40 + slot, 0, zone)` 0x13bc710) are re-pointed to the quick-joined slot's
+groups; the own-world rebuild of the switch back restores them. Log: `load mode 1: the area 29 type-9 flag groups (92900..92909) read the quick-joined slot 0's data (10 re-pointed ...)`;
+`BB_PARTY_CHALICE_CASETREE=0` off. Smoke `chalice_shop3` (csh3): the csh walk with the guest `chalice_hintertomb_ritual` (own dungeon in slot 1): talk prompt, the shop opens, the Sinister Isz
+Root Chalice is bought (before the fix: no prompt at any distance, no messenger on screen). Not proven: Lower Loran layer 3 itself and deeper layers (only layer 1 of Isz was walked).
 
 ## 9. A game id the board cannot hold (chalicefollow2, 0.7.7)
 

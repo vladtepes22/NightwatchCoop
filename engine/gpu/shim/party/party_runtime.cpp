@@ -46,6 +46,7 @@
 #include "../net/party_host_service.h"
 #include "../net/party_route.h"
 #include "../net/party_discovery.h"
+#include "../net/party_vpnlobby.h"
 #include "../bbport_settings.h"
 #include "party_split_notice.h"
 #include "../net/party_transport.h"
@@ -1802,6 +1803,33 @@ void start_host(LinkConfig cfg) {
         *out = a;
         return true;
     });
+    // 0.7.7: Nightwatch VPN lobby - a host WITH a password and a character name tells the lobby on the VPN
+    // server (10.8.0.1) its name, slots and version, while the setting is on (live) and this PC has a
+    // 10.8.0.x address. A plain host:port join needs the password, so a host without one is not listed.
+    bbnet::lobby::start([](bbnet::lobby::Announce* out) {
+        if (!BbSettings::Get().party_vpn_lobby) return false;
+        Runtime& rr = R();
+        PartyLink* l;
+        bbnet::lobby::Announce a;
+        {
+            std::lock_guard<std::mutex> lk(rr.mu);
+            if (!rr.link || rr.stopping || rr.left || rr.cfg.password.empty()) return false;
+            l = rr.link;
+            a.port = rr.cfg.port;
+            a.build = rr.cfg.build_id;
+        }
+        const char* test_name = env("BB_PARTY_VPNLOBBY_NAME");  // tests only: a synthetic character name
+        a.name = bbnet::lobby::clean_name(test_name && *test_name ? std::string(test_name)
+                                                                  : bbnet::lobby::utf16_to_utf8(coop::CharacterName().c_str(), 16));
+        if (a.name.empty()) return false;  // no character loaded yet: nothing to show
+        a.password = true;
+        int players = 0;
+        for (const RosterEntry& e : l->roster()) players += e.connected ? 1 : 0;
+        a.max_players = static_cast<std::uint8_t>(std::clamp(l->max_players(), 1, 8));
+        a.players = static_cast<std::uint8_t>(std::clamp(players, 1, static_cast<int>(a.max_players)));
+        *out = a;
+        return true;
+    });
     if (!kept.empty()) link->restore_members(kept);
     // The party port answers STUN and hands out relay ports only to PartyLink members' addresses
     // (it is on the internet; STUN is a reflector and the relay forwards to members).
@@ -2865,6 +2893,7 @@ void startup_main() {
 void do_shutdown() {
     Runtime& r = R();
     bbnet::disc::stop();
+    bbnet::lobby::stop();
     PartyLink* link;
     std::unique_ptr<UpnpMapper> upnp;
     std::vector<std::shared_ptr<Pump>> pumps;

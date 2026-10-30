@@ -775,6 +775,12 @@ void DefineAll() {
                    "Гость: скопируйте гостевой код участника (BBG1-...) и нажмите: его ретранслятор, если хост недоступен"),
            {AddText("Paste", "Вставить")}, Kind::Button,
            [] { return party::status::Snapshot().role == party::status::Role::Guest; });
+    // 0.7.7: Nightwatch VPN lobby (net/party_vpnlobby.h; the list is in the launcher's Join page). A host's row:
+    // a guest has "Join via a member" in its place, so the page stays within the six rows.
+    AddRow(Flag(&Values::party_vpn_lobby), AddText("Nightwatch VPN lobby", "Лобби Nightwatch VPN"),
+           AddText("Host with a password: list your character name and slots for Nightwatch VPN players (no address)",
+                   "Хост с паролем: имя героя и места видны игрокам Nightwatch VPN (без адреса)"),
+           toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
     // 0.7.5: host over a VPN. A list opens a pop-up over the rows below it: last on the page.
     AddRow(Setting(
                Kind::List, [](const Values& v) { return std::clamp(v.party_vpn.load(), 0, 2); },

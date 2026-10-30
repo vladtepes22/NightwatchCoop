@@ -11,6 +11,7 @@
 #include "nr_rxgap.h"
 #include "party_discovery.h"
 #include "party_udp.h"
+#include "party_vpnlobby.h"
 #include "party_util.h"
 #include "json.h"
 #include "gpu/bbnet.h"
@@ -947,6 +948,83 @@ static void test_discovery() {
     std::printf("party discovery: ok\n");
 }
 
+// Nightwatch VPN lobby, host side (0.7.7): the wire bytes (the same vector as tests/test_nwlobby.py), the name
+// cleaning, the 10.8.0.x test and a loopback exchange with a stand-in lobby through the announcer thread.
+static void test_vpnlobby() {
+    using namespace bbnet::lobby;
+    Announce a;
+    a.name = "Alice"; a.port = 9307; a.players = 1; a.max_players = 4; a.password = true; a.build = "0.7.7 (abc)";
+    const std::vector<std::uint8_t> want = {0xfa, 0x4c, 0x01, 0x01, 0x01, 0x24, 0x5b, 0x01, 0x04, 0x0b, 0x30, 0x2e, 0x37,
+                                            0x2e, 0x37, 0x20, 0x28, 0x61, 0x62, 0x63, 0x29, 0x05, 0x41, 0x6c, 0x69, 0x63, 0x65};
+    CHECK(encode_announce(a) == want);
+    CHECK((encode_bye() == std::vector<std::uint8_t>{0xfa, 0x4c, 0x01, 0x04}));
+    CHECK(encode_announce(a).size() <= 512);
+    // refused: no name, port < 1024, bad slots
+    { Announce b = a; b.name = "\x01 \xe2\x80\xae"; CHECK(encode_announce(b).empty()); }
+    { Announce b = a; b.port = 80; CHECK(encode_announce(b).empty()); }
+    { Announce b = a; b.max_players = 9; CHECK(encode_announce(b).empty()); }
+    { Announce b = a; b.players = 5; CHECK(encode_announce(b).empty()); }
+    { Announce b = a; b.password = false; const auto p = encode_announce(b); CHECK(!p.empty() && p[4] == 0); }
+    // names: controls, bidi / zero width, line separators stripped; spaces folded; 16 characters; invalid UTF-8 refused
+    CHECK(clean_name(std::string("Al\x00ic\ne\r\t", 9)) == "Alice");
+    CHECK(clean_name("A\xe2\x80\xae" "B\xe2\x80\x8b" "C") == "ABC");
+    CHECK(clean_name("A\xe2\x80\xa8" "B") == "AB");
+    CHECK(clean_name("  A   B  ") == "A B");
+    CHECK(clean_name("\xff\xfe").empty() && clean_name("\xc0\x80").empty());
+    CHECK(clean_name(std::string(40, 'x')) == std::string(16, 'x'));
+    CHECK(clean_name("\xe3\x83\x8f\xe3\x83\xb3") == "\xe3\x83\x8f\xe3\x83\xb3");
+    { std::string jp; for (int i = 0; i < 30; ++i) jp += "\xe3\x83\x8f"; CHECK(clean_name(jp).size() == 48); }
+    // UTF-16 (the game's name field): ASCII, BMP, a surrogate pair, a lone surrogate, stops at NUL
+    const char16_t w1[] = {'H', 'u', 'n', 't', 'e', 'r', 0, 'x'};
+    CHECK(utf16_to_utf8(w1, 8) == "Hunter");
+    const char16_t w2[] = {0x30cf, 0xd83d, 0xde00, 0xd800, 'z', 0};
+    CHECK(utf16_to_utf8(w2, 6) == "\xe3\x83\x8f\xf0\x9f\x98\x80" "z");
+    // only 10.8.0.2 .. 10.8.0.254 are player addresses
+    CHECK(is_tunnel_player_address(0x0a080002u) && is_tunnel_player_address(0x0a0800feu));
+    CHECK(!is_tunnel_player_address(0x0a080001u) && !is_tunnel_player_address(0x0a080000u) &&
+          !is_tunnel_player_address(0x0a0800ffu) && !is_tunnel_player_address(0x0a080102u) &&
+          !is_tunnel_player_address(0xc0a80102u));
+    // the announcer thread: a stand-in lobby on 127.0.0.1 gets the announce, then a bye when hosting ends
+#if defined(_WIN32)
+    using Sock = SOCKET;
+#else
+    using Sock = int;
+#endif
+    Sock ls = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    sockaddr_in sa{};
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl(0x7f000001u);
+    CHECK(::bind(ls, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == 0);
+    socklen_t sl = sizeof(sa);
+    ::getsockname(ls, reinterpret_cast<sockaddr*>(&sa), &sl);
+#if defined(_WIN32)
+    DWORD tmo = 6000;
+    ::setsockopt(ls, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tmo), sizeof(tmo));
+#else
+    timeval tmo{6, 0};
+    ::setsockopt(ls, SOL_SOCKET, SO_RCVTIMEO, &tmo, sizeof(tmo));
+#endif
+    char addr[40];
+    std::snprintf(addr, sizeof(addr), "127.0.0.1:%u", ntohs(sa.sin_port));
+    set_env("BB_PARTY_VPNLOBBY_ADDR", addr);
+    std::atomic<bool> hosting{true};
+    start([&](Announce* out) { if (!hosting) return false; *out = a; return true; });
+    std::uint8_t buf[600];
+    int n = ::recv(ls, reinterpret_cast<char*>(buf), sizeof(buf), 0);
+    CHECK(n == static_cast<int>(want.size()) && std::memcmp(buf, want.data(), want.size()) == 0);
+    hosting = false;
+    n = ::recv(ls, reinterpret_cast<char*>(buf), sizeof(buf), 0);
+    CHECK(n == 4 && buf[3] == 4);
+    stop();
+    set_env("BB_PARTY_VPNLOBBY_ADDR", "");
+#if defined(_WIN32)
+    ::closesocket(ls);
+#else
+    ::close(ls);
+#endif
+    std::printf("party vpn lobby: ok\n");
+}
+
 static void test_vpn_selection() {
     using bbnet::LanAdapter;
     using bbnet::VpnKind;
@@ -1379,6 +1457,7 @@ int main() {
     test_vpn_selection();
     test_vpn_online();
     test_discovery();
+    test_vpnlobby();
     set_env("BB_PARTY_LOOPBACK", "1");  // back to loopback-only sockets for the tests below
     test_stun();
     test_netsim();

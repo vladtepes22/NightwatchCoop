@@ -30,6 +30,7 @@ constexpr std::uint64_t kNpManager = 0x56c7048;
 constexpr std::uint64_t kCooperatorCount = 0x15bdc20;
 
 constexpr std::uint64_t kRecInsight = 0x84, kRecLevel = 0x90, kRecEchoes = 0x94;
+constexpr std::uint64_t kRecName = 0xa8;  // the character name, UTF-16, 16 code units (save: name offset)
 
 // Campaign start (game_state.h).
 constexpr std::uint64_t kEventFlagMan = 0x553b100;
@@ -177,6 +178,28 @@ __attribute__((noinline)) bool SafeWrite(std::uint64_t address, const void* in, 
     }
     runtime_fault_recover = prev;
     return true;
+}
+
+std::u16string CharacterName() {
+    if (!Image()) {
+        return {};
+    }
+    const std::uint64_t rec = Field<std::uint64_t>(Slot(kGameDataMan), 8, 0);
+    if (!rec) {
+        return {};
+    }
+    char16_t w[17] = {};
+    for (int i = 0; i < 16; ++i) {
+        std::uint16_t c = 0;
+        if (!SafeGet(rec + kRecName + 2u * i, &c)) {
+            return {};
+        }
+        w[i] = static_cast<char16_t>(c);
+        if (!c) {
+            break;
+        }
+    }
+    return std::u16string(w);
 }
 
 const char* SessionRoleName(int role) {

@@ -367,6 +367,11 @@ def phase_sc(only):
 # page must keep all four, the last event and Connection warnings within its six rows (Shared item notices lives on
 # My party: Your items).
 RULES_PLAYERS = int(os.environ.get("BB_RULES_PLAYERS", "2"))
+# The guest opens Party rules: PvP & lamps ~72 s into its walk and reads the host's Friendly fire there once, when the page
+# opens; the host turns it on ~106 s into its own walk. The guest starts this long after the host so it opens the page
+# after the change (a page's rows line is printed once, on open; 2026-10-30: the guest got there 7 s early).
+RULES_HOST_DELAY = 8 + 30 * (RULES_PLAYERS > 2)
+RULES_GUEST_LAG = 50
 RULES_PAGES = [
     # the member rows carry the hunters' names: only the rows after them are listed (see check_rules)
     ("Party members", ["Last event", "Connection warnings"],
@@ -377,7 +382,7 @@ RULES_PAGES = [
     # 0.7.5: host over a VPN (a game dropdown, Auto by default: the walk checks it is listed on host and
     # guest; the change is the relay toggle, a dropdown needs Cross / Down / Cross)
     ("Party network", ["Network", "Find via public DHT", "Relay for members", "IPv6", "Join via a member",
-                       "Host over a VPN"],
+                       "Nightwatch VPN lobby", "Host over a VPN"],
      ("Relay for members", "down/down/", "left", "Off", "right", "party_member_relay=0", "party_member_relay=1", None)),
     # 0.7.1 / 0.7.3: the host's world rules
     ("Party rules: World", ["Enemies stay dead", "Host can gather", "NPCs as in host's world", "Covenants per player",
@@ -404,6 +409,9 @@ RULES_PAGES = [
      ("Rot on death", "", "right", "On", "left", "party_rot=1", "party_rot=0", '"rot":true')),
     ("Party rules: Enemies", ["Boss health", "Boss damage", "Enemy health", "Enemy damage", "Boss poise", "Enemy poise"],
      ("Boss health", "", "right", "7", "left", "party_boss_hp=200", "party_boss_hp=150", '"boss_hp":200')),
+    # 0.7.7 bosstarget: the host's boss rule, a page of its own between Enemies and Phantoms
+    ("My party: Bosses", ["Bosses share attention"],
+     ("Bosses share attention", "", "left", "Off", "right", "party_boss_share=0", "party_boss_share=1", None)),
     # 0.7.5: level sync and the phantom health cut (on by default: the change turns level sync off and back on)
     ("Party rules: Phantoms", ["Level sync", "Phantom health cut", "Skip the prologue"],
      ("Level sync", "", "left", "Off", "right", "party_level_sync=0", "party_level_sync=1", '"level_sync":false')),
@@ -426,7 +434,7 @@ RULES_INI_RESET = ["party_rot", "party_guest_revive_inplace", "party_friendly_fi
                    "party_kill_record", "party_gather", "party_travel_vote", "party_covenant_per_player",
                    "party_npc_mirror", "party_key_view", "party_key_items_summoned", "party_rot_cleanse_boss",
                    "party_rot_cleanse_killer", "party_rot_cleanse_echoes", "party_npc_fights", "party_open_world",
-                   "party_toasts", "party_any_kidnap", "party_level_sync", "party_phantom_hp", "party_pvp_full_hp", "party_boss_drops", "party_vpn", "party_member_relay", "party_conn_warnings", "party_item_notices", "settings_rev"]
+                   "party_toasts", "party_any_kidnap", "party_level_sync", "party_phantom_hp", "party_pvp_full_hp", "party_boss_drops", "party_vpn", "party_member_relay", "party_conn_warnings", "party_item_notices", "party_boss_share", "party_vpn_lobby", "settings_rev"]
 
 
 def rules_walk_to_first():
@@ -434,6 +442,10 @@ def rules_walk_to_first():
     port's pages from the last) to the first rules page, Cross. Read from bbport_game_menu_pages.cpp."""
     src = (REPO / "gpu" / "shim" / "bbport_game_menu_pages.cpp").read_text(encoding="utf-8", errors="replace")
     pages = re.findall(r'AddPage\("([^"]+)"', src)
+    first = pages.index(RULES_PAGES[0][0])
+    # the walk steps page to page with Down: a page added to the System menu must be listed in RULES_PAGES
+    # (the 2026-10-30 misses: My party: Bosses and the VPN lobby row were not), so fail fast here
+    assert pages[first:first + len(RULES_PAGES)] == [pg[0] for pg in RULES_PAGES],         "RULES_PAGES out of step with the System menu pages: %s" % pages[first:first + len(RULES_PAGES) + 2]
     ups = 3 + (len(pages) - pages.index(RULES_PAGES[0][0]) - 1) + 1
     return "options/right/right/cross/" + "/".join(["up"] * ups) + "/cross"
 
@@ -459,11 +471,11 @@ def phase_rules(only):
                ["rules_h%dc" % k for k in range(1, n + 1)] + ["rules_h_ffoff"]:
         watch += ["--watch", r"step \d+/\d+: ~?mark=%s(@|\s)=%s@1.2" % (tag, tag)]
     return dict(
-        name="rules", seconds=300, count=RULES_PLAYERS, headless=max(0, RULES_PLAYERS - 2),
+        name="rules", seconds=300 + 90 * (RULES_PLAYERS > 2), count=RULES_PLAYERS, headless=max(0, RULES_PLAYERS - 2),
         env=["BB_GAME_MENU_TRACE=1", "BB_TEST_MENU_FILE={root}\\menu{i}.txt"] + (["BB_PARTY_MAX=4"] if RULES_PLAYERS > 2 else []),
         ienv=[],
-        files={"menu0.txt": "joined %d %s\n-\n-\n" % (8 + 30 * (RULES_PLAYERS > 2), host),
-               "menu1.txt": "joined %d %s\n-\n-\n" % (30 + 30 * (RULES_PLAYERS > 2), guest)},
+        files={"menu0.txt": "joined %d %s\n-\n-\n" % (RULES_HOST_DELAY, host),
+               "menu1.txt": "joined %d %s\n-\n-\n" % (RULES_HOST_DELAY + RULES_GUEST_LAG, guest)},
         ini_reset=RULES_INI_RESET,
         # a 0.7.1 bbport.ini: party_rot=1 saved, no settings_rev: the game turns rot off once (0.7.2)
         ini_preset={"party_rot": "1"},
@@ -712,6 +724,301 @@ def phase_lfx(only):
     ph["ienv"] = [e for e in ph["ienv"] if not e.startswith("2:")]
     ph["until"] = [LF_UNTIL, r"1:travel step (\d+)/\1: guest_press"]
     return ph
+
+
+# Phase lfw / lfwc / lfws (liftwalk077, groups `lift_walk` / `lift_walk_slow`): the lifts ridden the way players ride
+# them: WALKED onto the car by the left stick (the director's route walker over the game's navmesh, pad file), never
+# warped onto it. Each ride's rider(s) start 60-100 m of walking from the car (a warp to a far spot on the same
+# floor, then a stick route, then a stick step into the trigger box), the other player waits at the other end.
+# lfw: Central Yharnam's lift 2411320 (the shortcut lift below Gascoigne's area; 14 m, a platform): guest down, host
+# up, both down, both up. lfwc: Cathedral Ward's lift 2401102 (48 m; its top end is a 12 m
+# pocket of the navmesh, so the walks into the top end are short): guest up, host down, both up, both down.
+# lfws: lfw with a slow-loading simulation (BB_TEST_LIFT_BUILD_DELAY / _DROP: the car is dropped when the walker is far
+# and its full build comes only 5 s after the walker is within 30 m) and sprinting walks (BB_TEST_WALK_SPRINT).
+# BB_LFW_ENV="K=V,K=V" adds env (BB_TEST_LIFT_PROBE=2, BB_PARTY_LIFT_PREBUILD=0, ...). Pass: every rider is on the
+# arrival floor alive with its ride bit on all the way, both games show the same flags and car end after each ride.
+def _p(*a):
+    return ":".join("%.2f" % x for x in a)
+
+
+LW = {
+    "yh": dict(
+        tag="lfw", map="m24_01", car="2411320", pos="12410350", busy="12415350", start="top", top_val=1,
+        lamp="2412953", set_flags="12410330,12410350",
+        trig={"top": (-128.72, -44.3, -9.73), "bottom": (-128.72, -58.0, -9.73)},
+        side={"top": (-128.19, -44.3, -9.20), "bottom": (-129.25, -58.0, -10.26)},
+        out_h={"top": (-134.70, -44.2, -2.50), "bottom": (-125.28, -58.4, -11.69)},
+        out_g={"top": (-130.80, -44.5, -3.70), "bottom": (-117.10, -58.5, -17.30)},
+        wait={"top": (-140.40, -44.5, 5.20), "bottom": (-117.10, -58.5, -17.30)},
+        wk={"top": (-136.70, -44.5, 1.50), "bottom": (-121.10, -58.4, -15.60)},
+        far={"top": (-184.6, -38.7, 32.6), "bottom": (-74.9, -54.8, 17.2)},
+        route={"top": "-180.7:-41.5:29.6/-177.6:-41.7:26.7/-173.4:-41.7:26.3/-169.0:-41.7:23.9/-165.4:-41.7:21.5/-161.9:-41.7:17.5/-158.2:-41.7:15.0/-154.3:-41.7:11.6/-151.3:-41.7:9.1/-147.6:-41.7:10.8/-144.8:-43.3:7.6/-140.4:-44.5:5.2/-136.7:-44.5:1.5/-134.7:-44.2:-2.5/-130.8:-44.5:-3.7/-130.0:-44.5:-8.0",
+               "bottom": "-78.8:-55.4:14.7/-79.1:-55.5:9.9/-83.5:-55.5:8.9/-88.2:-55.4:6.2/-89.5:-55.5:2.0/-92.6:-55.5:-1.5/-96.6:-55.5:-3.9/-100.3:-55.4:-6.3/-103.5:-55.4:-10.0/-107.9:-55.4:-12.6/-110.3:-55.4:-15.8/-113.0:-56.9:-19.2/-116.5:-58.7:-21.3/-117.1:-58.5:-17.3/-121.1:-58.4:-15.6/-124.4:-58.4:-12.6/-128.1:-58.1:-10.7"},
+        arr={"down": "1", "up": "3"}, start_anim={"down": (4,), "up": (6,)}, end_anim={"down": 5, "up": 7},
+        y_arr={"top": lambda y: y > -46.0, "bottom": lambda y: y < -56.0},
+        rides=["guest", "host", "both", "both"], kills={"top": 8, "bottom": 8},
+    ),
+    "ca": dict(
+        tag="lfwc", map="m24_0", stagger=True, trim={"top": 1, "bottom": 2}, car="2401102", pos="12400827", busy="12400828", start="bottom", top_val=1,
+        lamp="2412953", set_flags="",
+        trig={"top": (24.28, 3.0, 194.17), "bottom": (24.28, -45.5, 194.17)},
+        side={"top": (25.4, 3.0, 193.3), "bottom": (25.4, -45.6, 193.3)},
+        out_h={"top": (21.3, 2.8, 191.2), "bottom": (30.11, -45.6, 197.56)},
+        out_g={"top": (16.9, 3.8, 187.9), "bottom": (33.3, -45.8, 201.3)},
+        wk={"top": (21.3, 2.8, 191.2), "bottom": (30.11, -45.6, 197.56)},
+        far={"top": (13.1, 3.6, 188.9), "bottom": (66.2, -51.0, 236.6)},
+        route={"top": "16.1:3.8:186.9/18.5:3.6:189.1/21.3:2.8:191.2/23.2:2.9:192.3/23.8:2.8:194.0",
+               "bottom": "64.1:-51.0:235.7/63.1:-50.9:235.4/62.7:-49.8:232.6/61.2:-47.8:229.2/59.2:-46.3:227.4/57.1:-45.8:226.2/55.9:-45.7:223.7/52.2:-45.6:221.7/52.2:-45.7:218.9/49.8:-45.7:217.6/48.3:-45.7:215.0/46.1:-45.7:212.7/41.0:-45.8:211.8/41.1:-45.7:208.5/38.2:-45.8:206.8/36.4:-45.7:204.2/33.3:-45.8:201.3/30.6:-45.6:201.0/28.3:-45.7:199.4/27.6:-45.8:196.7/25.0:-45.5:194.9/24.3:-45.4:194.3"},
+        arr={"down": "28", "up": "32"}, start_anim={"down": (1,), "up": (31,)}, end_anim={"down": 29, "up": 7},
+        y_arr={"top": lambda y: y > 0.5, "bottom": lambda y: y < -40.0},
+        rides=["guest", "host", "both", "both"], kills={"top": 4, "bottom": 14},
+    ),
+}
+
+
+def lfw_plan(spec, slow=False):
+    """[(direction, riders, car end before)] for the spec's rides: the car alternates ends from its start."""
+    out, end = [], spec["start"]
+    # BB_LFW_KINDS=guest,host,both: a custom list. The slow-load phases (sprinting walks) ride singly: a sprinting walker
+    # overshoots the beside-the-trigger spot into the trigger and starts the ride alone (live lfws2-4)
+    kinds = os.environ.get("BB_LFW_KINDS", "").split(",") if os.environ.get("BB_LFW_KINDS") else (
+        spec["rides"][:2] if slow else spec["rides"])
+    for riders in kinds[:int(os.environ.get("BB_LFW_RIDES", "0")) or None]:  # BB_LFW_RIDES=N: a shorter run
+        out.append(("down" if end == "top" else "up", riders, end))
+        end = "bottom" if end == "top" else "top"
+    return out
+
+
+def lfw_chains(spec, slow=False):
+    """(host steps, guest steps) of the walk-in plan."""
+    m, car = spec["map"], spec["car"]
+    steps = {"host": [], "guest": []}
+    # prelude: the host kills the regular enemies near both ends' walk-in routes (a brute standing in the Gascoigne
+    # plaza stopped the walker dead, live lfw4), one end after the other, and ends on the first waiter's spot: the
+    # guest's first step waits for it
+    first_end = lfw_plan(spec, slow)[0][2]
+    pre = (("top", "far"), ("top", "out_h"), ("bottom", "far"), ("bottom", "out_h"))
+    if os.environ.get("BB_LFW_PRELUDE") == "0":  # route validation runs: no enemy clearing, just the first waiter's spot
+        pre = pre[3:]
+    for n, (e, kind) in enumerate(pre):
+        steps["host"].append("host_move=%s:pin=4:ground@%s%%%s%s" % (_p(*spec[kind][e]), "4" if n == 0 else "1", m,
+                                                                      "^1" if n == 0 else ""))
+        if len(pre) == 4:
+            steps["host"] += ["host_kill=0@0.6%%%s" % m] * (spec["kills"][e] if kind == "far" else 5)
+    for k, (d, riders, end) in enumerate(lfw_plan(spec, slow)):
+        other = "bottom" if end == "top" else "top"
+        gate = "" if k == 0 else "?%s=%d" % (spec["pos"], spec["top_val"] if end == "top" else 1 - spec["top_val"])
+        who = ("host", "guest") if riders == "both" else (riders,)
+        for role in ("host", "guest"):
+            s = steps[role]
+            first = k == 0
+            if role not in who:
+                # the one who waits: at the other end (the arrival), beside where the rider steps out
+                s.append("%s_move=%s:pin=4:ground@%s%%%s%s" % (role, _p(*spec.get("wait", spec["out_g"])[other]), "1" if first else "14", m, gate))
+                # the player who does not ride walks a few metres by the stick while the car moves (the user's report:
+                # "the other player runs in place and cannot move while the elevator moves"); it starts once the rider
+                # stands in the trigger box
+                ox, oy, oz = spec["wk"][other]
+                s.append("%s_stick=%.2f:%.2f:1.0:24@0.5%%%s?near=%s:0.9" % (role, ox, oz, m, _p(*spec["trig"][end])))
+                continue
+            second = riders == "both" and role == "guest"
+            far, route = spec["far"][end], spec["route"][end]
+            if second and spec.get("stagger"):
+                # the second rider starts 2 waypoints further on: two walkers warped to one spot push each other off
+                # a ledge (live lfwc4: the top pocket's floor edge)
+                pts = route.split("/")
+                far, route = tuple(float(x) for x in pts[1].split(":")), "/".join(pts[2:])
+            if riders == "both" and role == "host" and spec.get("trim"):
+                # the first of two riders stops short of the trigger and steps to the spot beside it: the route's last
+                # points run through the trigger cylinder (r 0.55 m), which starts the ride with the second still outside
+                route = "/".join(route.split("/")[:-spec["trim"][end]])
+            if first:
+                # the host after its prelude; the guest once the host stands where the first waiter does
+                g0 = "" if role == "host" else "?near=%s:12" % _p(*spec["out_h"]["bottom"])  # the prelude's last spot (and the first waiter's)
+                s.append("%s_move=%s:pin=4:ground@1%%%s%s" % (role, _p(*far), m, g0))
+            else:
+                s.append("%s_move=%s:pin=4:ground@14%%%s%s" % (role, _p(*far), m, gate))
+            # the second rider walks in once the first one stands on the car: two walkers on the same route block
+            # each other in its narrow places and in the doorway (live lfw4 / lfw5)
+            rc = "?near=%s:0.9" % _p(*spec["side"][end]) if second else ""
+            s.append("%s_route=%s@%s%%%s%s" % (role, route, "1" if second else "9", m, rc))
+            if riders == "both" and role == "host":
+                # on the car beside the trigger box; the guest steps into the box once the host stands there
+                sx, sy, sz = spec["side"][end]
+                s.append("%s_stick=%.2f:%.2f:0.2:30@0.2%%%s" % (role, sx, sz, m))
+            else:
+                tx, ty, tz = spec["trig"][end]
+                cond = "?near=%s:0.9" % _p(*spec["side"][end]) if second else ""
+                s.append("%s_stick=%.2f:%.2f:0.25:30@0.2%%%s%s" % (role, tx, tz, m, cond))
+            # out at the arrival: walk off the car once the car shows its arrival animation
+            ox, oy, oz = spec["out_g" if second else "out_h"][other]
+            if os.environ.get("BB_LFW_EXIT") == "walk":
+                s.append("%s_stick=%.2f:%.2f:1.5:16@0.3%%%s?obj=%s:%s" % (role, ox, oz, m, car, spec["arr"][d]))
+            else:
+                # off the car by the game's own in-world warp at the arrival (as phase lt): a stick walk needs 2-3 s to
+                # find its direction, and a rider still in the arrival end's trigger when the ride ends rides back (live lfw8)
+                s.append("%s_move=%s:0:native@0.3%%%s?obj=%s:%s" % (role, _p(ox, oy, oz), m, car, spec["arr"][d]))
+    return steps["host"], steps["guest"]
+
+
+def phase_lfw_for(key, slow=False, name=None):
+    spec = LW[key]
+    host, guest = lfw_chains(spec, slow)
+    common = "god,log_pos=0.5,log_objanim=%s,log_obj=%s,log_flag=%s/%s" % (spec["car"], spec["car"], spec["pos"], spec["busy"])
+    env = ["BB_TEST_REMO_SKIP_AFTER=5", "BB_PARTY_TEST_START_LAMP=" + spec["lamp"], "BB_PARTY_TEST_COND_TIMEOUT=120"]
+    if spec["set_flags"]:
+        env.append("BB_PARTY_PROGRESS_TEST_SET=" + spec["set_flags"])
+    if slow:
+        env += ["BB_TEST_LIFT_BUILD_DELAY=16", "BB_TEST_LIFT_BUILD_NEAR=22", "BB_TEST_LIFT_BUILD_DROP=40", "BB_TEST_WALK_SPRINT=1"]
+    extra = os.environ.get("BB_LFW_ENV", "")
+    env += [e for e in extra.split(",") if "=" in e]
+    starts = "(" + "|".join("|".join(str(a) for a in spec["start_anim"][d]) for d in ("down", "up")) + ")"
+    ends = "(%d|%d)" % (spec["end_anim"]["down"], spec["end_anim"]["up"])
+    return dict(
+        name=name or spec["tag"], seconds=900, count=2, headless=0, pads=(0, 1),
+        env=env,
+        ienv=["0:BB_PARTY_DIRECTOR_TEST=" + ",".join([common] + host), "1:BB_PARTY_DIRECTOR_TEST=" + ",".join([common] + guest)],
+        watch=RIDE_BURST(spec["car"], starts, ends),
+        crash=[], until=LFW_UNTIL, until_hold=15,
+    )
+
+
+LFW_UNTIL = [r"0:travel step (\d+)/\1: ", r"1:travel step (\d+)/\1: "]
+
+
+def phase_lfw(only):
+    return phase_lfw_for("yh")
+
+
+def phase_lfwc(only):
+    return phase_lfw_for("ca")
+
+
+def phase_lfws(only):
+    return phase_lfw_for("yh", True, "lfws")
+
+
+def phase_lfwcs(only):
+    return phase_lfw_for("ca", True, "lfwcs")
+
+
+def lw_rides(L, i, spec):
+    """The lift's rides on instance i from its car animations: [{start, t, up, end, t_end, t_arr}]."""
+    rides = []
+    starts = {a for d in spec["start_anim"].values() for a in d}
+    arrs = {int(a) for a in spec["arr"].values()}
+    ends = set(spec["end_anim"].values())
+    for t, line in L.all(i, r"test: object %s anim -?\d+ playing" % spec["car"]):
+        m = re.search(r"anim (-?\d+) playing (\d)", line)
+        anim, playing, w = int(m.group(1)), m.group(2) == "1", wall(line)
+        if anim in starts and playing and (not rides or rides[-1]["end"] is not None):
+            rides.append(dict(start=w, t=t, up=anim in spec["start_anim"]["up"], end=None, t_end=None, t_arr=None))
+        elif anim in arrs and not playing and rides and rides[-1]["end"] is None:
+            rides[-1]["t_arr"] = rides[-1]["t_arr"] or t
+        elif anim in ends and not playing and rides and rides[-1]["end"] is None:
+            rides[-1].update(end=w, t_end=t, t_arr=rides[-1]["t_arr"] or t)
+        elif anim in ends and playing and rides and rides[-1]["end"] is None and rides[-1]["t_arr"] is None:
+            rides[-1]["t_arr"] = t  # the end animation starts at once when nobody is on the car at the arrival
+    return rides
+
+
+def lw_flags_at(L, i, spec, w):
+    val = None
+    for _t, line in L.all(i, r"test: flags %s=" % spec["pos"]):
+        lw = wall(line)
+        if lw is not None and lw <= w:
+            val = tuple(int(x) for x in re.findall(r"=(-?\d)", line)[:2])
+    return val
+
+
+def lw_anim_at(L, i, spec, w):
+    val = None
+    for _t, line in L.all(i, r"test: object %s anim -?\d+ playing" % spec["car"]):
+        lw = wall(line)
+        if lw is not None and lw <= w:
+            val = int(re.search(r"anim (-?\d+)", line).group(1))
+    return val
+
+
+def check_lfw(v, L, key, tag):
+    spec = LW[key]
+    plan = lfw_plan(spec, tag.endswith("s"))
+    need(v, L, tag + " join: 2 players", 0, r"cooperators 0 -> 1")
+    rides = [lw_rides(L, i, spec) for i in (0, 1)]
+    v.step(tag + " rides: %d on each game" % len(plan), len(rides[0]) == len(plan) and len(rides[1]) == len(plan),
+           "host %d, guest %d" % (len(rides[0]), len(rides[1])))
+    for k, (d, riders, end) in enumerate(plan):
+        name = "%d %s %s" % (k + 1, riders, d)
+        rh = rides[0][k] if k < len(rides[0]) else None
+        rg = rides[1][k] if k < len(rides[1]) else None
+        if not rh or not rg or rh["end"] is None or rg["end"] is None:
+            v.step("%s %s: ran and ended on both games" % (tag, name), False, "host %s, guest %s" % (rh, rg))
+            continue
+        up = d == "up"
+        v.step("%s %s: one ride, the planned way, on both games" % (tag, name),
+               rh["up"] == up and rg["up"] == up and abs(rh["start"] - rg["start"]) < 1.5,
+               "start host %.2f / guest %.2f" % (rh["start"] % 3600, rg["start"] % 3600))
+        w = max(rh["end"], rg["end"]) + 0.5
+        want_pos = spec["top_val"] if up else 1 - spec["top_val"]
+        fh, fg = lw_flags_at(L, 0, spec, w), lw_flags_at(L, 1, spec, w)
+        ah, ag = lw_anim_at(L, 0, spec, w), lw_anim_at(L, 1, spec, w)
+        v.step("%s %s: same flags and car end on both games" % (tag, name),
+               fh == fg == (want_pos, 0) and ah == ag == spec["end_anim"][d],
+               "pos/busy host %s / guest %s (want %s), car anim host %s / guest %s (want %s)" %
+               (fh, fg, (want_pos, 0), ah, ag, spec["end_anim"][d]))
+        arrive = "top" if up else "bottom"
+        ax, _ay, az = spec["trig"][end]
+        for role in (("host", "guest") if riders == "both" else (riders,)):
+            i = 0 if role == "host" else 1
+            r = rides[i][k]
+            arr = r["t_arr"]
+            pos = L.all(i, POS_RX.pattern, arr - 1.0, arr + 0.05) if arr else []
+            y = float(POS_RX.search(pos[-1][1]).group(2)) if pos else None
+            after = L.all(i, POS_RX.pattern, (r["t_arr"] or r["t_end"]) + 0.5, (r["t_arr"] or r["t_end"]) + 3.0)
+            y2 = float(POS_RX.search(after[0][1]).group(2)) if after else None
+            n = off = 0
+            for _t, line in L.all(i, POS_RX.pattern, r["t"] + 0.6, (arr or r["t"]) - 0.3):
+                m = POS_RX.search(line)
+                f = re.search(r" f ([0-9a-f]{10})", line)
+                if f and ((float(m.group(1)) - ax) ** 2 + (float(m.group(3)) - az) ** 2) ** 0.5 < 2.0:
+                    n += 1
+                    off += 0 if int(f.group(1), 16) & RIDE_BIT else 1
+            v.step("%s %s: the %s rode along to the %s end, on the floor after" % (tag, name, role, arrive),
+                   y is not None and spec["y_arr"][arrive](y) and y2 is not None and spec["y_arr"][arrive](y2) and n >= 3 and off == 0,
+                   "y %s at the arrival, %s shortly after the arrival, %d samples on the car, %d off it" %
+                   ("%.1f" % y if y is not None else "-", "%.1f" % y2 if y2 is not None else "-", n, off))
+    need_far = 1.5 if tag.endswith("s") else 3.0  # sprinting walkers meet the other player's exit spot
+    for k, (d, riders, end) in enumerate(plan):
+        for role in ("host", "guest"):
+            if riders in ("both", role) or k >= len(rides[0]) or k >= len(rides[1]):
+                continue
+            i = 0 if role == "host" else 1
+            r = rides[i][k]
+            if r.get("t_end") is None:
+                continue
+            pts = [tuple(float(x) for x in POS_RX.search(l).groups()) for _t, l in L.all(i, POS_RX.pattern, r["t"], r["t_end"])]
+            far = max([math.hypot(q[0] - pts[0][0], q[2] - pts[0][2]) for q in pts] or [0.0])
+            v.step("%s %d %s: the %s who does not ride walks while the car moves" % (tag, k + 1, d, role), far >= need_far,
+                   "%d samples, farthest %.1f m from where the ride began (need %.1f m)" % (len(pts), far, need_far))
+    for i, who in ((0, "host"), (1, "guest")):
+        f = falls(L, i, rate=12.0)  # the 48 m lift runs 8.3 m/s; a fall is faster than any lift (the nets use 16)
+        v.step("%s %s: no fall (vertical speed under 12 m/s)" % (tag, who), not f,
+               ("; ".join("+%.1f s %.1f m/s" % x for x in f[:4])) if f else "fastest drop within a lift's speed")
+        walks = L.all(i, r"test: route: DONE at waypoint")
+        stops = L.all(i, r"test: route: STOPPED")
+        mine = sum(1 for _d, riders, _e in plan if riders == "both" or riders == who)
+        v.step("%s %s: every walk-in's route was walked to its end" % (tag, who), len(walks) >= mine and not stops,
+               "%d routes done (need %d), %d stopped, %d hop(s)" % (len(walks), mine, len(stops),
+                                                                   len(L.all(i, r"test: route: HOP"))))
+    jump_steps(v, tag, L, rides, (spec["trig"]["top"][0], spec["trig"]["top"][2]),
+               ["%d %s %s" % (k + 1, r, d) for k, (d, r, _e) in enumerate(plan)])
+    none_of(v, L, tag + " nobody died", r"local death: HP 0", 0, 1e9, (0, 1))
+    none_of(v, L, tag + " no fall recovery", r"recovery: falling", 0, 1e9, (0, 1))
+    holds = sum(len(L.all(i, r"lift car hold:|lift car floor:|lift car prebuild:")) for i in (0, 1))
+    delays = sum(len(L.all(i, r"lift car build (delay|drop) \(test aid\)")) for i in (0, 1))
+    v.step(tag + " (info) the unbuilt-car guards and the slow-load aid", True,
+           "%d hold/floor/prebuild lines, %d test-aid lines" % (holds, delays))
+    check_common(v, L, tag)
 
 
 # Phase ga (gather, ~4 min, 3 players; ERSC_PARITY I5): the host's System > Party > Gather the party
@@ -2632,7 +2939,7 @@ BV_UNTIL = [r"2:guest: went through boss fog"]
 def phase_bv(only):
     host = ",".join(["god", "host_warp=2412953@8^1", "host_move=%s@3%%m24_01" % GASCOIGNE_TRIGGER])
     def guest(delay):
-        return ",".join(["god", "guest_press=0x0@%g%%m24_01!" % delay, "guest_obj=2411810@3%m24_01",
+        return ",".join(["god", "guest_press=0x0@%g%%m24_01&" % delay, "guest_obj=2411810@3%m24_01",
                          "guest_press=0x4000@2%m24_01!", "guest_press=0x4000@2%m24_01!", "guest_press=0x0@2%m24_01"])
     cut = os.environ.get("BB_BV_CUT", "0") == "1"   # the guest pair is cut (host relay) from before the fog walks
     extra = dict(driver=lambda root, hl: BlockDriver(root, hl, after_s=5, cut_s=int(os.environ.get("BB_BV_CUT_S", "300")))) if cut else {}
@@ -2868,7 +3175,7 @@ def phase_hg(only):
                          "host_chr=2410810:%s@12%%m24_01" % dist,
                          "host_kill=2410810:hp%s@%s%%m24_01" % (hp, os.environ.get("BB_HG_HPAT", "25"))])
         g1 = ",".join(([] if mortal else ["god"]) + [
-                       "guest_press=0x0@%g%%m24_01!" % (delay + 3),           # waits for the host's intro
+                       "guest_press=0x0@%g%%m24_01&" % (delay + 3),           # waits for the host's intro
                        "guest_obj=2411810@3%m24_01",                          # at the fog
                        "guest_press=0x4000@2%m24_01!", "guest_press=0x4000@2%m24_01!",  # through it
                        "guest_chr=2410810:%s@8%%m24_01" % gdist] +                      # beside the boss
@@ -3695,6 +4002,33 @@ def phase_ef(only):
     )
 
 
+# Phase ngp (ngplus_ending, ~12 min (the staff roll is ~380 s and cannot be skipped), 2 players, group `ngplus_ending`, not in a default run; CL-e4239a): the host finishes the game (flag 72100130 = Gehrman's Submit,
+# the cheapest ending: m21 event 12100180) with a guest in its Dream. The guest is asked, answers YES, plays the
+# host's ending in its own world. Both saves end in NG+ 1 EXACTLY (an ending once moved a guest save two cycles, 0.7.6),
+# then the guest presses Party > Rejoin in NG+ and is back in the host's world (nobody could join after the ending).
+NGP_UNTIL = r"0:cooperators 0 -> 1[\s\S]*cooperators 0 -> 1|1:test: FAILED"
+
+
+def phase_ngp(only):
+    # The new cycle starts in Iosefka's Clinic (its prologue: nobody can be summoned until a hunter is "start-ready");
+    # the flags a player has by the Dream (the Dream's lamp, Gehrman, the Workshop) are set as the test aid.
+    ready = [("12101020", "12101021", "12100105", "9401")]
+    host = ",".join(["god", "host_flag=72100130@12"] + ["host_flag=%s@%d%%m24_01" % (f, 12 if k == 0 else 1) for k, f in enumerate(ready[0])])
+    guest = ",".join(["god", "guest_press=0@2"] + ["guest_flag=%s@%d%%m24_01&" % (f, 12 if k == 0 else 1) for k, f in enumerate(ready[0])] + ["guest_rejoin@470"])
+    return dict(
+        name="ngp", seconds=900, count=2, headless=0,
+        env=[],
+        ienv=["0:BB_PARTY_TEST_START_LAMP=2102950", "0:BB_PARTY_DIRECTOR_TEST=" + host, "0:BB_PARTY_DIRECTOR_TEST_SOLO=1",
+              "1:BB_PARTY_DIRECTOR_TEST=" + guest, "1:BB_PARTY_ENDING_TEST=yes",
+              "1:BB_TEST_REMO_SKIP_AFTER=20", "0:BB_TEST_REMO_SKIP_AFTER=20"],
+        watch=["--watch", r"ending 1: question open=ngpask@1,3",
+               "--watch", r"ending: staff roll / ending step t=10 s=ngpcredits@0,4",
+               "--watch", r"ending: the next cycle's world is up=ngpnext@0,6",
+               "--watch", r"cooperators 0 -> 1=ngpback@0,6"],
+        crash=[], until=[NGP_UNTIL], until_hold=15,
+    )
+
+
 # Phase mb (moonmusic, ~4 min, 2 players, group `moon_music`; 0.7.7, parity B6, CL-76fd20: after the
 # Gehrman fight the guests did not hear the Moon Presence music). The host's Dream with the three
 # cords (9900) and Gehrman dead (12101802 + 12101800); the host steps onto the arena's hit parts
@@ -4342,6 +4676,122 @@ def phase_nfa(only):
                "--watch", r"test: guest_press 0x800=nfahit@0.5",
                "--watch", r"test: guest_kill: =nfakill@1,5"],
         crash=[], until=[NFA_UNTIL], until_hold=8,
+    )
+
+
+# Phase nfe (npc_eileen, 0.7.7 D11, ~4 min, 2 players, group `npc_eileen`): the blood-drunk Eileen (Grand Cathedral,
+# m24_00, entity 2400902) fought by the whole party. Her hostility is the init event 12400650 (team 27, "kTeamEvents":
+# the hostile 27 is no foe for a phantom, so a guest's copy gets 23) at a load with her state 1374 + night 9802;
+# event 12400656 (the "falls to the blood" transition in kGuestRuns) is never started by the 1.09 map script
+# (no InitializeEvent; the night's common event 9723 sets 1372 itself, traced 2026-10-30), so only the init path is
+# live. Fixture: 1374 + 9802 set, her other flags 1360-1379 / 1700-1705 cleared. Host and guest stand beside her;
+# the guest locks on, R1s (her HP falls on both games), HP 0 on its game (guest_kill :hp); her death (1368) reaches
+# the host. Alfred (nfa) already covers an in-map switch; this covers a hostile NPC that is hostile from the load.
+NFE_EILEEN = 2400902
+NFE_FLAGS = "1368/1369/1372/1374/1701/1705/9802"
+NFE_CLEAR = ",".join(str(f) for f in list(range(1360, 1374)) + list(range(1375, 1380)) + list(range(1700, 1706)) + [72400520, 72400524, 72400526])
+NFE_UNTIL = r"0:test: flags 1368=1"
+
+
+def phase_nfe(only):
+    host = ",".join([
+        "god", "log_flag=" + NFE_FLAGS,
+        "host_warp=2402950@8^1",                              # 1: the party at the Cathedral Ward lamp
+        "host_chr=%d:5@10%%m24_00^1" % NFE_EILEEN,            # 2: the host beside Eileen (guest back in)
+        "host_kill=%d:hp2@3%%m24_00" % NFE_EILEEN,            # 3: her HP at 2 % (the host owns it): the guest's R1s finish her
+        "host_press=0@150%m24_00!"])                          # 4: idle while the guest fights
+    g1 = ",".join(["god", "log_flag=" + NFE_FLAGS,
+                   "guest_chr=%d:3@12%%m24_00" % NFE_EILEEN]    # 2: beside her
+                  + ["guest_press=0x4:lock@1%m24_00!"] * 3
+                  + ["guest_chr=%d:1.2@4%%m24_00" % NFE_EILEEN]  # 3: in front of her
+                  + ["guest_press=0x4:lock@1%m24_00!"] * 2
+                  + (["guest_press=0x800@1.2%m24_00!"] * 3 + ["guest_chr=%d:1.2@1%%m24_00" % NFE_EILEEN]) * 5)
+    return dict(
+        name="nfe", seconds=420, count=2, headless=0,
+        env=["BB_PARTY_PROGRESS_TEST_CLEAR=" + NFE_CLEAR, "BB_PARTY_PROGRESS_TEST_SET=1374,9802," + NF_LOGARIUS_DEAD,
+             "BB_PARTY_PROGRESS_TEST_READ=1368,1369,1372,1374,9802", "BB_PARTY_CHR_DUMP=40",
+             "BB_PARTY_TEST_COND_TIMEOUT=100"],
+        ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=" + g1],
+        watch=["--watch", r"test: host_chr %d=nfearrive@0.5,3" % NFE_EILEEN,
+               "--watch", r"test: guest_press 0x800=nfehit@0.5",
+               "--watch", r"test: flags 1368=1=nfedead@1,5"],
+        crash=[], until=[NFE_UNTIL], until_hold=8,
+    )
+
+
+# Phase nfw (npc_alfred_ward, 0.7.7 D11, ~5 min, 2 players, group `npc_alfred_ward`): Alfred in the Cathedral Ward
+# (m24_00, entity 2400763, state 1344 friendly). The host hits him three times (event 12400592 slot 1 counts the
+# local player's blows -> 72400476; 12400593 slot 1 -> team 27 + state 1345): a host-only in-map switch (`4[3]`
+# gate in kGuestRuns) while the guest stands next to him. The guest's copy (gate passed) re-teams him to 23 on its
+# game; the guest locks on, its real R1s hurt him on both games (he heals at low HP, so the host ends it with HP 0, the game's
+# own death), his drop roll, death and Echoes reach both.
+NFW_ALFRED = 2400763
+NFW_FLAGS = "1344/1345/1346/72400476"
+NFW_CLEAR = ",".join(str(f) for f in list(range(1340, 1344)) + list(range(1345, 1360)) + [72400475, 72400476, 72400471, 12405160])
+NFW_UNTIL = r"0:drops: shared drop roll[^\n]*entity 2400763"
+
+
+def phase_nfw(only):
+    host = ",".join([
+        "god", "log_flag=" + NFW_FLAGS,
+        "host_warp=2402950@8^1",                               # 1: the party at the Cathedral Ward lamp
+        "host_chr=%d:1.5@10%%m24_00^1" % NFW_ALFRED]           # 2: the host in front of Alfred (guest back in)
+        + ["host_press=0x800@1.2%m24_00!"] * 6                  # 3: his counter (3 hits by the local player) -> hostile
+        + ["host_kill=%d:hp@42%%m24_00" % NFW_ALFRED,         # 4: after the guest's R1s: his HP 0 (the game's own death; he heals from 1 %)
+           "host_press=0@150%m24_00!"])
+    g1 = ",".join(["god", "log_flag=" + NFW_FLAGS,
+                   "guest_chr=%d:2.5:90@12%%m24_00" % NFW_ALFRED]  # 2: beside him (friendly)
+                  + ["guest_press=0x4:lock@1%m24_00!"] * 2
+                  + ["guest_press=0@14%m24_00!"]
+                  + ["guest_chr=%d:1.2@2%%m24_00" % NFW_ALFRED]  # 3: in front of him after the switch
+                  + ["guest_press=0x4:lock@1%m24_00!"] * 2
+                  + (["guest_press=0x800@1.2%m24_00!"] * 3 + ["guest_chr=%d:1.2@1%%m24_00" % NFW_ALFRED]) * 5)
+    return dict(
+        name="nfw", seconds=420, count=2, headless=0,
+        env=["BB_PARTY_PROGRESS_TEST_CLEAR=" + NFW_CLEAR, "BB_PARTY_PROGRESS_TEST_SET=1344,9801," + NF_LOGARIUS_DEAD,
+             "BB_PARTY_PROGRESS_TEST_READ=1344,1345,1346,72400476", "BB_PARTY_CHR_DUMP=40",
+             "BB_PARTY_TEST_COND_TIMEOUT=100"],
+        ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=" + g1],
+        watch=["--watch", r"test: host_chr %d=nfwarrive@0.5,3" % NFW_ALFRED,
+               "--watch", r"test: host_press 0x800=nfwprovoke@0.6",
+               "--watch", r"test: guest_press 0x800=nfwhit@0.5",
+               "--watch", r"shared drop roll[^\n]*entity 2400763=nfwdead@1,5"],
+        crash=[], until=[NFW_UNTIL], until_hold=8,
+    )
+
+
+# Phase npi (npc_invader, 0.7.7 D11, 2 players, group `npc_invader`): an NPC hunter that ARRIVES as an invader. No retail
+# event does it (the only 2003[51] type-1 event, 12904634, is called by the prototype layout m29_05_00_05 only), so the
+# Beckoning Bell fixture (BB_PARTY_TEST_NPC) summons the Tomb of Oedon sign NPC (2410740) with session type 28 (EMEVD
+# type 1, the invader's). The host summons it in Central Yharnam; the guest must see it arrive at the same place, lock
+# on, hit it; HP and death agree.
+NPI_NPC = 2410740
+NPI_UNTIL = r"0:drops: enemy drop roll on this game[^\n]*chr handle 0x10014001"
+
+
+def phase_npi(only):
+    host = ",".join([
+        "god", "host_warp=2412951@8^1",                       # 1: the party in Central Yharnam (m24_01)
+        "host_chr=%d:5@10%%m24_01^1" % NPI_NPC,               # 2: the host beside the arrived invader (the fixture summons it there)
+        "host_press=0@20%m24_01!",                            # 3: the arrival walk and presentation end (team 21 / chr type 2, ~15 s)
+        "host_kill=%d:hp@42%%m24_01" % NPI_NPC,               # 4: after the guest's R1s: its HP 0 (the game's own death; it heals from low HP)
+        "host_press=0@150%m24_01!"])                          # 5: idle while the guest fights
+    g1 = ",".join(["god", "guest_chr=%d:3@12%%m24_01" % NPI_NPC]  # 2: beside it
+                  + ["guest_press=0@22%m24_01!"]                 # the arrival ends, the host sets its HP low
+                  + ["guest_press=0x4:lock@1%m24_01!"] * 3
+                  + ["guest_chr=%d:1.2@4%%m24_01" % NPI_NPC]    # 3: in front of it
+                  + ["guest_press=0x4:lock@1%m24_01!"] * 2
+                  + (["guest_press=0x800@1.2%m24_01!"] * 3 + ["guest_chr=%d:1.2@1%%m24_01" % NPI_NPC]) * 5)
+    return dict(
+        name="npi", seconds=420, count=2, headless=0,
+        env=["BB_PARTY_TEST_COND_TIMEOUT=100", "BB_PARTY_CHR_DUMP=40"],
+        ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=" + g1,
+              "0:BB_PARTY_TEST_NPC=%d:28" % NPI_NPC, "0:BB_PARTY_TEST_NPC_DELAY=12",
+              "0:BB_PARTY_TEST_NPC_LOG=0"],
+        watch=["--watch", r"Party NPC: summon #1=npiarrive@0.5,3",
+               "--watch", r"test: guest_press 0x800=npihit@0.5",
+               "--watch", r"drops: enemy drop roll on this game[^\n]*chr handle 0x10014001=npidead@1,5"],
+        crash=[], until=[NPI_UNTIL], until_hold=8,
     )
 
 
@@ -5004,6 +5454,14 @@ def phase_csh(only):
     )
 
 
+def phase_csh3(only):
+    # 0.7.7 chalshop077: csh with the guest that owns a dungeon (slot 1): the same real walk-up to the messenger; the
+    # talk prompt and the shop must work for it too (CL-567d1f).
+    ph = phase_csh(only)
+    ph.update(name="csh3", prep=prep_csh2)
+    return ph
+
+
 def phase_csh2(only):
     host = ",".join(["log_pos", "host_lamp=%s@25%%m21" % CL_OWN_ENTRY, "host_press=0@60%m29!"])
     return dict(
@@ -5023,6 +5481,17 @@ def check_csh(v, L):
     need(v, L, "csh guest: bought the Sinister Isz Root Chalice (20000 echoes), it holds it", 1,
          r"PURCHASE on the guest: echoes 30000 -> 10000.*Isz 6532 x1\)")
     check_common(v, L, "csh")
+
+
+def check_csh3(v, L):
+    need(v, L, "csh3 join: the guest (own dungeon in slot 1) is in the host's dungeon", 1, r"map - -> m29_00_00_00")
+    need(v, L, "csh3 guest: the messenger's region flag 12907224 set (the bath animation / talk prompt)", 1,
+         r"chalice case flags \(role 6, load mode 1.*region flags 129072xx: .*12907224")
+    need(v, L, "csh3 guest: the action prompt at the messenger", 1, r"test: levelup: at [\d.]+ m: action prompt text")
+    need(v, L, "csh3 guest: the messenger menu opened", 1, r"test: levelup: key ")
+    need(v, L, "csh3 guest: bought the Sinister Isz Root Chalice (20000 echoes), it holds it", 1,
+         r"PURCHASE on the guest: echoes 30000 -> 10000.*Isz 6532 x1\)")
+    check_common(v, L, "csh3")
 
 
 def check_csh2(v, L):
@@ -5260,14 +5729,14 @@ def check_lo(v, L):
 
 
 PHASES = {"s1": phase_s1, "s2": phase_s2, "rules": phase_rules, "sc": phase_sc, "summonfail": phase_summonfail,
-          "s3": phase_s3, "sk": phase_sk, "lg": phase_lg, "lv": phase_lv, "ga": phase_ga, "gl": phase_gl, "lf": phase_lf, "lfx": phase_lfx, "mk": phase_mk, "kd": phase_kd, "kw": phase_kw, "fl": phase_fl, "fd": phase_fd, "fdj": phase_fdj, "cd": phase_cd, "iw": phase_iw, "iwn": phase_iwn, "an": phase_an, "anl": phase_anl, "ld": phase_ld, "cl": phase_cl, "clg": phase_clg, "clw": phase_clw, "cla": phase_cla, "cpr": phase_cpr, "chc": phase_chc, "chn": lambda only: phase_chc(only, "chn", True), "chw": phase_chw, "cpa": phase_cpa, "cae": phase_cae, "cao": phase_cao, "cab": phase_cab, "caq": phase_caq, "el": phase_el, "lt": phase_lt, "bf": phase_bf, "bv": phase_bv, "ch": phase_ch, "md": phase_md, "mds": phase_mds, "svl": phase_svl, "rh": phase_rh, "rs": phase_rs, "fw": phase_fw, "fwg": phase_fwg, "fwb": phase_fwb, "fwe": phase_fwe, "fh": phase_fh, "lp": phase_lp, "gd": phase_gd, "gh": phase_gh, "gm": phase_gm, "gr": phase_gr, "gr2": phase_gr2, "gr3": phase_gr3, "gr4": phase_gr4, "gro": lambda only: phase_gr(only, "gro", False), "gr2o": lambda only: phase_gr2(only, "gr2o", False), "gr3o": lambda only: phase_gr3(only, "gr3o", False), "gr4o": lambda only: phase_gr4(only, "gr4o", False), "jl": phase_jl, "ml": phase_ml, "mg": phase_mg, "hs": phase_hs, "ngj": phase_ngj, "nl": phase_nl, "ff": phase_ff, "lk": phase_lk, "lkc": phase_lkc, "rt": phase_rt, "br": phase_br, "rf": phase_rf, "rj": phase_rj, "em": phase_em, "bd": phase_bd, "bdo": phase_bdo, "sm": phase_sm, "ef": phase_ef, "mb": phase_mb, "gb": phase_gb, "mbs": phase_mbs, "gbs": phase_gbs, "da": phase_da, "cv": phase_cv, "cvs": phase_cvs, "cvo": lambda only: phase_cvs(only, False), "cvr": phase_cvr, "cva": phase_cva, "cvt": phase_cvt, "cvh": lambda only: phase_cvt(only, "host"), "ie": phase_ie, "il": phase_il, "rw": phase_rw, "rwe": phase_rwe, "rwt": phase_rwt, "rwl": phase_rwl, "tv": phase_tv, "nf": phase_nf, "nfa": phase_nfa, "npa": phase_npa, "npd": phase_npd, "pvd": phase_pvd, "pvh": phase_pvh, "pvn": phase_pvn, "npf": phase_npf, "eh": phase_eh, "bl": phase_bl, "mw": phase_mw, "px": phase_px, "pxg": lambda only: phase_px(only, True), "sj": phase_sj, "ou": phase_ou, "mesh": phase_mesh, "fp": phase_fp, "lo": phase_lo, "po": phase_po, "pos": phase_pos, "sg": phase_sg, "sg2": phase_sg2, "csh": phase_csh, "csh2": phase_csh2, "ba": phase_ba, "bh": phase_bh, "bk": phase_bk, "hg": phase_hg, "lw": phase_lw, "la": phase_la, "lb": phase_lb, "lc": phase_lc}
+          "s3": phase_s3, "sk": phase_sk, "lg": phase_lg, "lv": phase_lv, "ga": phase_ga, "gl": phase_gl, "lf": phase_lf, "lfx": phase_lfx, "lfw": phase_lfw, "lfwc": phase_lfwc, "lfws": phase_lfws, "lfwcs": phase_lfwcs, "mk": phase_mk, "kd": phase_kd, "kw": phase_kw, "fl": phase_fl, "fd": phase_fd, "fdj": phase_fdj, "cd": phase_cd, "iw": phase_iw, "iwn": phase_iwn, "an": phase_an, "anl": phase_anl, "ld": phase_ld, "cl": phase_cl, "clg": phase_clg, "clw": phase_clw, "cla": phase_cla, "cpr": phase_cpr, "chc": phase_chc, "chn": lambda only: phase_chc(only, "chn", True), "chw": phase_chw, "cpa": phase_cpa, "cae": phase_cae, "cao": phase_cao, "cab": phase_cab, "caq": phase_caq, "el": phase_el, "lt": phase_lt, "bf": phase_bf, "bv": phase_bv, "ch": phase_ch, "md": phase_md, "mds": phase_mds, "svl": phase_svl, "rh": phase_rh, "rs": phase_rs, "fw": phase_fw, "fwg": phase_fwg, "fwb": phase_fwb, "fwe": phase_fwe, "fh": phase_fh, "lp": phase_lp, "gd": phase_gd, "gh": phase_gh, "gm": phase_gm, "gr": phase_gr, "gr2": phase_gr2, "gr3": phase_gr3, "gr4": phase_gr4, "gro": lambda only: phase_gr(only, "gro", False), "gr2o": lambda only: phase_gr2(only, "gr2o", False), "gr3o": lambda only: phase_gr3(only, "gr3o", False), "gr4o": lambda only: phase_gr4(only, "gr4o", False), "jl": phase_jl, "ml": phase_ml, "mg": phase_mg, "hs": phase_hs, "ngj": phase_ngj, "nl": phase_nl, "ff": phase_ff, "lk": phase_lk, "lkc": phase_lkc, "rt": phase_rt, "br": phase_br, "rf": phase_rf, "rj": phase_rj, "em": phase_em, "bd": phase_bd, "bdo": phase_bdo, "sm": phase_sm, "ef": phase_ef, "ngp": phase_ngp, "mb": phase_mb, "gb": phase_gb, "mbs": phase_mbs, "gbs": phase_gbs, "da": phase_da, "cv": phase_cv, "cvs": phase_cvs, "cvo": lambda only: phase_cvs(only, False), "cvr": phase_cvr, "cva": phase_cva, "cvt": phase_cvt, "cvh": lambda only: phase_cvt(only, "host"), "ie": phase_ie, "il": phase_il, "rw": phase_rw, "rwe": phase_rwe, "rwt": phase_rwt, "rwl": phase_rwl, "tv": phase_tv, "nf": phase_nf, "nfa": phase_nfa, "nfe": phase_nfe, "nfw": phase_nfw, "npi": phase_npi, "npa": phase_npa, "npd": phase_npd, "pvd": phase_pvd, "pvh": phase_pvh, "pvn": phase_pvn, "npf": phase_npf, "eh": phase_eh, "bl": phase_bl, "mw": phase_mw, "px": phase_px, "pxg": lambda only: phase_px(only, True), "sj": phase_sj, "ou": phase_ou, "mesh": phase_mesh, "fp": phase_fp, "lo": phase_lo, "po": phase_po, "pos": phase_pos, "sg": phase_sg, "sg2": phase_sg2, "csh": phase_csh, "csh2": phase_csh2, "csh3": phase_csh3, "ba": phase_ba, "bh": phase_bh, "bk": phase_bk, "hg": phase_hg, "lw": phase_lw, "la": phase_la, "lb": phase_lb, "lc": phase_lc}
 # --only groups (a smaller run for repeat cycles): the phase each needs and the verdict rows it keeps
 GROUPS = {"join": "s1", "leave": "s1", "death": "s1", "travel": "s1", "boss": "s1", "host_death": "s1",
           "wipe": "s1", "wipe_late": "s1", "kill": "s2", "arena": "s2", "itembox": "s2", "rejoin_kill": "s2", "c6": "s2", "host_crash": "s2",
           "host_leave": "s2", "keyitems": "s2", "rules": "rules", "savecopy": "sc", "summonfail": "summonfail",
-          "host_revive": "s3", "streamkill": "sk", "load_gap": "lg", "leave_gap": "lv", "gather": "ga", "gather_ground": "gl", "lifts": "lf", "lifts2": "lfx", "ladder": "lf,ld", "mark": "mk", "kidnap": "kd", "story_warp": "kw", "fall": "fl", "fall_deep": "fd,fdj", "host_fall_lamp": "cd", "cainhurst_scene": "iw,iwn", "cainhurst_annalise": "an,anl", "chalamp": "cl", "chalice_guest": "clg", "chalice_progress": "cpr", "chalice_curse": "chc,chn,chw", "chalice_altar": "cpa", "chalice_enter": "cae,cao", "chalice_boss": "cab", "chalice_wipe": "clw", "chalice_alias": "cla", "elevator": "el", "lifts_together": "lt", "fight_load": "bf", "cainhurst_lift": "ch", "cainhurst_maid": "md", "cloth_stall": "mds", "save_load": "svl", "research_lift": "rh", "research_solo": "rs", "forbidden_lift": "fw", "forbidden_lift_guest": "fwg", "forbidden_lift_both": "fwb", "forbidden_lift_edge": "fwe", "hemwick_lift": "fh", "lamps": "lp", "guest_dream": "gd", "guest_dream_host": "gh", "guest_lamp": "gm", "guest_rest": "gr,gr2,gr3,gr4", "guest_rest_off": "gro,gr2o,gr3o,gr4o", "join_lamp": "jl", "mensis_lamp": "ml", "mensis_lamp_guest": "mg", "headstone_split": "hs", "ngplus_rejoin": "ngj", "npc_lamp": "nl", "frontier_fall": "ff", "lunarium_key": "lk,lkc",
-          "rot": "rt", "boss_rooms": "br", "rom_fog": "rf", "rom_jump": "rj", "emissary": "em", "boss_drops": "bd", "boss_drops_off": "bdo", "scene_mirror": "sm", "ending_flow": "ef", "moon_music": "mb", "gehrman_music": "gb", "moon_music_stop": "mbs", "gehrman_music_stop": "gbs", "dream_apart": "da", "covenant": "cv",
-          "valtr_rune": "cv", "covenant_talk": "cvt,cvh", "covenant_seq": "cvs,cvo", "covenant_runes": "cvr", "covenant_annalise": "cva", "items_every": "ie", "items_leak": "il", "reward_guest_kill": "rw", "reward_eye": "rwe", "reward_treasure": "rwt", "reward_late": "rwl", "shop_sync": "il", "travel_vote": "tv", "npc_fights": "nf,nfa", "npc_alfred": "nfa", "npc_attack": "npa", "npc_doll": "npd", "pvp_revive": "pvd", "pvp_full_hp": "pvh", "pvp_npc": "pvn", "npc_fog": "npf", "echo_hold": "eh", "limbo_leave": "bl", "boss_darkness": "mw", "death_poison": "px,pxg", "seam_rejoin": "sj", "outage_short": "ou", "guest_mesh": "mesh", "fourp_nat": "fp", "lan_only": "lo", "phantom_own": "po", "phantom_save": "pos", "shop_repair": "sg", "shop_repair2": "sg2", "chalice_shop": "csh,csh2", "boss_ai": "ba", "boss_dead": "bh,bk", "boss_late": "hg", "boss_visible": "bv", "ludwig_wipe": "lw", "lone_ai": "la,lc"}
+          "host_revive": "s3", "streamkill": "sk", "load_gap": "lg", "leave_gap": "lv", "gather": "ga", "gather_ground": "gl", "lifts": "lf", "lifts2": "lfx", "lift_walk": "lfw,lfwc", "lift_walk_slow": "lfws,lfwcs", "ladder": "lf,ld", "mark": "mk", "kidnap": "kd", "story_warp": "kw", "fall": "fl", "fall_deep": "fd,fdj", "host_fall_lamp": "cd", "cainhurst_scene": "iw,iwn", "cainhurst_annalise": "an,anl", "chalamp": "cl", "chalice_guest": "clg", "chalice_progress": "cpr", "chalice_curse": "chc,chn,chw", "chalice_altar": "cpa", "chalice_enter": "cae,cao", "chalice_boss": "cab", "chalice_wipe": "clw", "chalice_alias": "cla", "elevator": "el", "lifts_together": "lt", "fight_load": "bf", "cainhurst_lift": "ch", "cainhurst_maid": "md", "cloth_stall": "mds", "save_load": "svl", "research_lift": "rh", "research_solo": "rs", "forbidden_lift": "fw", "forbidden_lift_guest": "fwg", "forbidden_lift_both": "fwb", "forbidden_lift_edge": "fwe", "hemwick_lift": "fh", "lamps": "lp", "guest_dream": "gd", "guest_dream_host": "gh", "guest_lamp": "gm", "guest_rest": "gr,gr2,gr3,gr4", "guest_rest_off": "gro,gr2o,gr3o,gr4o", "join_lamp": "jl", "mensis_lamp": "ml", "mensis_lamp_guest": "mg", "headstone_split": "hs", "ngplus_rejoin": "ngj", "npc_lamp": "nl", "frontier_fall": "ff", "lunarium_key": "lk,lkc",
+          "rot": "rt", "boss_rooms": "br", "rom_fog": "rf", "rom_jump": "rj", "emissary": "em", "boss_drops": "bd", "boss_drops_off": "bdo", "scene_mirror": "sm", "ending_flow": "ef", "ngplus_ending": "ngp", "moon_music": "mb", "gehrman_music": "gb", "moon_music_stop": "mbs", "gehrman_music_stop": "gbs", "dream_apart": "da", "covenant": "cv",
+          "valtr_rune": "cv", "covenant_talk": "cvt,cvh", "covenant_seq": "cvs,cvo", "covenant_runes": "cvr", "covenant_annalise": "cva", "items_every": "ie", "items_leak": "il", "reward_guest_kill": "rw", "reward_eye": "rwe", "reward_treasure": "rwt", "reward_late": "rwl", "shop_sync": "il", "travel_vote": "tv", "npc_fights": "nf,nfa", "npc_alfred": "nfa", "npc_eileen": "nfe", "npc_alfred_ward": "nfw", "npc_invader": "npi", "npc_attack": "npa", "npc_doll": "npd", "pvp_revive": "pvd", "pvp_full_hp": "pvh", "pvp_npc": "pvn", "npc_fog": "npf", "echo_hold": "eh", "limbo_leave": "bl", "boss_darkness": "mw", "death_poison": "px,pxg", "seam_rejoin": "sj", "outage_short": "ou", "guest_mesh": "mesh", "fourp_nat": "fp", "lan_only": "lo", "phantom_own": "po", "phantom_save": "pos", "shop_repair": "sg", "shop_repair2": "sg2", "chalice_shop": "csh,csh2", "chalice_shop3": "csh3", "boss_ai": "ba", "boss_dead": "bh,bk", "boss_late": "hg", "boss_visible": "bv", "ludwig_wipe": "lw", "lone_ai": "la,lc"}
 GROUP_ROWS = {"join": r"^s1 join", "leave": r"s1 (Leave|Rejoin)", "death": r"guest death|bloodstain|revived",
               "travel": r"travel", "boss": r"Gascoigne|intro", "host_death": r"host death|limbo",
               "wipe": r"wipe", "wipe_late": r"late wipe", "kill": r"s2 boss kill|party stays", "arena": r"arena", "itembox": r"item box|reward on the summoned",
@@ -5275,10 +5744,10 @@ GROUP_ROWS = {"join": r"^s1 join", "leave": r"s1 (Leave|Rejoin)", "death": r"gue
               "host_crash": r"host crash", "host_leave": r"host Leave", "keyitems": r"key item", "rules": r"^rules",
               "savecopy": r"^sc ", "summonfail": r"^summonfail",
               "host_revive": r"^s3 ", "streamkill": r"^sk ", "load_gap": r"^lg(:| )", "leave_gap": r"^lv(:| )", "gather": r"^ga ", "gather_ground": r"^gl ",
-              "lifts": r"^lf (join|lift|guest's lift|host)", "lifts2": r"^lfx (join|lift|guest's lift|host)", "ladder": r"^lf (join|ladder)|^ld ", "mark": r"^mk ", "kidnap": r"^kd ", "story_warp": r"^kw ", "fall": r"^fl ", "fall_deep": r"^fd ", "host_fall_lamp": r"^cd ", "cainhurst_scene": r"^iwn? ", "cainhurst_annalise": r"^an |^anl ", "chalamp": r"^cl ", "chalice_guest": r"^clg ", "chalice_progress": r"^cpr ", "chalice_curse": r"^ch[cw] ", "chalice_altar": r"^cpa ", "chalice_enter": r"^ca[eo] ", "chalice_boss": r"^cab ", "chalice_enter": r"^ca[eo] ", "chalice_boss": r"^cab ", "chalice_wipe": r"^clw ", "chalice_alias": r"^cla ", "elevator": r"^el ", "lifts_together": r"^lt ", "fight_load": r"^bf ", "cainhurst_lift": r"^ch ", "cainhurst_maid": r"^md ", "cloth_stall": r"^mds ", "save_load": r"^svl ", "research_lift": r"^rh ", "forbidden_lift": r"^fw ", "forbidden_lift_guest": r"^fwg ", "forbidden_lift_both": r"^fwb ", "forbidden_lift_edge": r"^fwe ", "hemwick_lift": r"^fh ", "research_solo": r"^rs ", "lamps": r"^lp ", "guest_dream": r"^gd ", "guest_dream_host": r"^gh ", "guest_lamp": r"^gm ", "join_lamp": r"^jl ", "mensis_lamp": r"^ml ", "mensis_lamp_guest": r"^mg ", "headstone_split": r"^hs ", "ngplus_rejoin": r"^ngj ", "npc_lamp": r"^nl ", "frontier_fall": r"^ff ", "lunarium_key": r"^lkc? ",
-              "rot": r"^rt ", "boss_rooms": r"^br ", "rom_fog": r"^rf ", "rom_jump": r"^rj ", "emissary": r"^em ", "boss_drops": r"^bd ", "boss_drops_off": r"^bdo ", "scene_mirror": r"^sm ", "ending_flow": r"^ef ", "moon_music": r"^mb ", "gehrman_music": r"^gb ", "moon_music_stop": r"^mbs ", "gehrman_music_stop": r"^gbs ", "dream_apart": r"^da ",
+              "lifts": r"^lf (join|lift|guest's lift|host)", "lifts2": r"^lfx (join|lift|guest's lift|host)", "lift_walk": r"^lfwc? ", "lift_walk_slow": r"^lfwc?s ", "ladder": r"^lf (join|ladder)|^ld ", "mark": r"^mk ", "kidnap": r"^kd ", "story_warp": r"^kw ", "fall": r"^fl ", "fall_deep": r"^fd ", "host_fall_lamp": r"^cd ", "cainhurst_scene": r"^iwn? ", "cainhurst_annalise": r"^an |^anl ", "chalamp": r"^cl ", "chalice_guest": r"^clg ", "chalice_progress": r"^cpr ", "chalice_curse": r"^ch[cw] ", "chalice_altar": r"^cpa ", "chalice_enter": r"^ca[eo] ", "chalice_boss": r"^cab ", "chalice_enter": r"^ca[eo] ", "chalice_boss": r"^cab ", "chalice_wipe": r"^clw ", "chalice_alias": r"^cla ", "elevator": r"^el ", "lifts_together": r"^lt ", "fight_load": r"^bf ", "cainhurst_lift": r"^ch ", "cainhurst_maid": r"^md ", "cloth_stall": r"^mds ", "save_load": r"^svl ", "research_lift": r"^rh ", "forbidden_lift": r"^fw ", "forbidden_lift_guest": r"^fwg ", "forbidden_lift_both": r"^fwb ", "forbidden_lift_edge": r"^fwe ", "hemwick_lift": r"^fh ", "research_solo": r"^rs ", "lamps": r"^lp ", "guest_dream": r"^gd ", "guest_dream_host": r"^gh ", "guest_lamp": r"^gm ", "join_lamp": r"^jl ", "mensis_lamp": r"^ml ", "mensis_lamp_guest": r"^mg ", "headstone_split": r"^hs ", "ngplus_rejoin": r"^ngj ", "npc_lamp": r"^nl ", "frontier_fall": r"^ff ", "lunarium_key": r"^lkc? ",
+              "rot": r"^rt ", "boss_rooms": r"^br ", "rom_fog": r"^rf ", "rom_jump": r"^rj ", "emissary": r"^em ", "boss_drops": r"^bd ", "boss_drops_off": r"^bdo ", "scene_mirror": r"^sm ", "ending_flow": r"^ef ", "ngplus_ending": r"^ngp ", "moon_music": r"^mb ", "gehrman_music": r"^gb ", "moon_music_stop": r"^mbs ", "gehrman_music_stop": r"^gbs ", "dream_apart": r"^da ",
               "covenant": r"^cv(:| join| host's fixture| rule| covenant| shared| host's save| guest's save)",
-              "valtr_rune": r"^cv(:| join| rule| rune)", "covenant_talk": r"^cv[th] ", "covenant_seq": r"^cv[so] ", "covenant_runes": r"^cvr ", "covenant_annalise": r"^cva ", "items_every": r"^ie ", "items_leak": r"^il ", "reward_guest_kill": r"^rw ", "reward_eye": r"^rwe ", "reward_treasure": r"^rwt ", "reward_late": r"^rwl ", "shop_sync": r"^il (join|sync)", "travel_vote": r"^tv ", "npc_fights": r"^nfa? ", "npc_alfred": r"^nfa ", "npc_attack": r"^npa ", "npc_doll": r"^npd ", "pvp_revive": r"^pvd ", "pvp_full_hp": r"^pvh ", "pvp_npc": r"^pvn ", "npc_fog": r"^npf ", "echo_hold": r"^eh ", "limbo_leave": r"^bl ", "boss_darkness": r"^mw ", "death_poison": r"^pxg? ", "seam_rejoin": r"^sj ", "outage_short": r"^ou ", "guest_mesh": r"^mesh ", "fourp_nat": r"^fp ", "lan_only": r"^lo ", "phantom_own": r"^po ", "phantom_save": r"^pos ", "shop_repair": r"^sg ", "shop_repair2": r"^sg2 ", "chalice_shop": r"^csh2? ", "boss_ai": r"^ba ", "boss_dead": r"^b[hk][ :]", "boss_late": r"^hg ", "boss_visible": r"^bv ", "ludwig_wipe": r"^lw ", "lone_ai": r"^la |^lc "}
+              "valtr_rune": r"^cv(:| join| rule| rune)", "covenant_talk": r"^cv[th] ", "covenant_seq": r"^cv[so] ", "covenant_runes": r"^cvr ", "covenant_annalise": r"^cva ", "items_every": r"^ie ", "items_leak": r"^il ", "reward_guest_kill": r"^rw ", "reward_eye": r"^rwe ", "reward_treasure": r"^rwt ", "reward_late": r"^rwl ", "shop_sync": r"^il (join|sync)", "travel_vote": r"^tv ", "npc_fights": r"^nfa? ", "npc_alfred": r"^nfa ", "npc_attack": r"^npa ", "npc_doll": r"^npd ", "pvp_revive": r"^pvd ", "pvp_full_hp": r"^pvh ", "pvp_npc": r"^pvn ", "npc_fog": r"^npf ", "npc_invader": r"^npi ", "npc_eileen": r"^nfe ", "npc_alfred_ward": r"^nfw ", "echo_hold": r"^eh ", "limbo_leave": r"^bl ", "boss_darkness": r"^mw ", "death_poison": r"^pxg? ", "seam_rejoin": r"^sj ", "outage_short": r"^ou ", "guest_mesh": r"^mesh ", "fourp_nat": r"^fp ", "lan_only": r"^lo ", "phantom_own": r"^po ", "phantom_save": r"^pos ", "shop_repair": r"^sg ", "shop_repair2": r"^sg2 ", "chalice_shop": r"^csh2? ", "chalice_shop3": r"^csh3 ", "boss_ai": r"^ba ", "boss_dead": r"^b[hk][ :]", "boss_late": r"^hg ", "boss_visible": r"^bv ", "ludwig_wipe": r"^lw ", "lone_ai": r"^la |^lc "}
 
 
 # --only: the log lines that end each group's checks (instances.py --until "I:RX"); a phase with
@@ -5320,6 +5789,8 @@ GROUP_UNTIL = {
     "cainhurst_annalise": [AN_UNTIL],
     "elevator": EL_UNTIL,
     "lifts_together": LT_UNTIL,
+    "lift_walk": LFW_UNTIL,
+    "lift_walk_slow": LFW_UNTIL,
     "cainhurst_lift": CH_UNTIL,
     "cainhurst_maid": MD_UNTIL,
     "cloth_stall": MD_UNTIL,
@@ -5359,7 +5830,7 @@ GROUP_UNTIL = {
     "boss_drops": BD_UNTIL,
     "boss_drops_off": BDO_UNTIL,
     "scene_mirror": [SM_UNTIL],
-    "ending_flow": [EF_UNTIL],
+    "ending_flow": [EF_UNTIL], "ngplus_ending": [NGP_UNTIL],
     "moon_music": [MB_UNTIL],
     "gehrman_music": [GB_UNTIL],
     "moon_music_stop": [MBS_UNTIL],
@@ -5403,6 +5874,7 @@ GROUP_UNTIL = {
     "shop_repair": [SG_UNTIL],
     "shop_repair2": [SG2_UNTIL],
     "chalice_shop": [CSH_UNTIL, CSH2_UNTIL],
+    "chalice_shop3": [CSH_UNTIL],
     "outage_short": [r"0:outage file .*: %d o%d" % (OU_LENGTHS[-1], len(OU_LENGTHS))],
 }
 # --only: seconds the run goes on after the group's lines (screenshots of the state they reach)
@@ -5451,7 +5923,7 @@ def hold_udp_ports(n):
 # applies only when no --fps sweep is running. "fps_fixed": True marks a phase that needs its rate even in
 # a sweep (none does today). Without --fps nothing changes: BB_MP_FPS (default 30) or the phase's "fps".
 # Physics / timing groups (lifts, ladders, falls: anything frame-dependent): `--only physics`.
-PHYSICS_GROUPS = ["lifts", "ladder", "elevator", "lifts_together", "cainhurst_lift", "research_lift", "research_solo",
+PHYSICS_GROUPS = ["lifts", "lift_walk", "ladder", "elevator", "lifts_together", "cainhurst_lift", "research_lift", "research_solo",
                   "forbidden_lift", "forbidden_lift_guest", "forbidden_lift_both", "forbidden_lift_edge",
                   "hemwick_lift", "fall", "fall_deep", "host_fall_lamp", "frontier_fall", "cainhurst_maid", "cloth_stall", "rom_jump"]
 
@@ -5780,6 +6252,10 @@ def check_cab(v, L):
     need(v, L, "cab boss death credited on the host (clear bonus)", 0, r"boss clear on this game \(BlockClear2\): boss 2900100", kill or 0)
     need(v, L, "cab boss death credited on the guest (host's clear bonus + its own)", 1, r"boss clear on this game \(BlockClear2\): boss 2900100", kill or 0)
     need(v, L, "cab guest: the host's boss clear bonus", 1, r"host boss clear bonus: \d+ Blood Echoes \(boss 2900100\)", kill or 0)
+    # CL-6dc7c6: the Insight the kill gives reaches the guest (a "Insight N -> M" line with M > N, after the kill; the host's own
+    # kill Insight and the boss event's story Insight both land there). The in-dungeon Bath Messenger's shop is covered by csh / csh3.
+    need(v, L, "cab guest: Insight rises after the kill (the host's boss Insight reaches the guest)", 1,
+         r"Party: \[[\d:.]+\] Insight (\d+) -> (\d+)", kill or 0)
 
 def check_common(v, L, tag):
     none_of(v, L, tag + ": no crash / assert", r"(?i)unhandled exception|assertion failed|EXCEPTION_ACCESS|fatal error")
@@ -6035,7 +6511,7 @@ def check_sc(v, L, d: Path):
 
 
 def check_rules(v, L):
-    need(v, L, "rules join: the guest is in (cooperators -> 1)", 0, r"cooperators 0 -> 1")
+    need(v, L, "rules join: the guest is in (cooperators -> 1)", 0, r"cooperators 0 -> [1-9]")  # 4 hunters: two guests may land in one poll
     for k, (page, labels, change) in enumerate(RULES_PAGES):
         row, _, _, value, back, ini_after, ini_back, effect = change
         for i, who in ((0, "host"), (1, "guest")):
@@ -6046,10 +6522,11 @@ def check_rules(v, L):
                 continue
             shown = [r.rsplit("=", 1)[0] for r in line[1].split("): ", 1)[1].split(" | ")]
             # the host has no "Join via a member" row (a guest's button)
-            want = [x for x in labels if not (i == 0 and x == "Join via a member")]
+            # (and a guest has no "Nightwatch VPN lobby" row: the host lists the party there)
+            want = [x for x in labels if not (i == 0 and x == "Join via a member") and not (i == 1 and x == "Nightwatch VPN lobby")]
             if page == "Party members":  # RULES_PLAYERS member rows (their names vary), then the fixed rows
                 want = shown[:RULES_PLAYERS] + want
-            ok = shown == want and (page != "Party members" or len(shown) == RULES_PLAYERS + 2) and len(shown) <= 6 and "(CUT)" not in line[1]
+            ok = shown == want and (page != "Party members" or len(shown) == RULES_PLAYERS + 2) and len(shown) <= 6 and                 "(CUT)" not in re.sub(r"Last event=[^|]*", "Last event=", line[1])  # a long last event text is cut by design
             v.step("rules %s: %s rows" % (who, page), ok, line[1][:300] if ok else
                    "expected %s, got %s" % (want, line[1][:300]))
         t = need(v, L, "rules host: %s changed (%s -> %s)" % (page, row, value), 0,
@@ -7829,6 +8306,32 @@ def check_ef(v, L):
     check_common(v, L, "ef")
 
 
+def check_ngp(v, L):
+    """Phase ngp: host ending with a guest; both saves NG+ 1 exactly; the guest rejoins in NG+."""
+    j = need(v, L, "ngp join: 2 players", 0, r"cooperators 0 -> 1")
+    q = need(v, L, "ngp the guest is asked about the host's ending", 1, r"ending 1: question open", j or 0)
+    a = need(v, L, "ngp the guest answers YES", 1, r"ending 1: answer YES", q or 0)
+    for i, who in ((0, "host"), (1, "guest")):
+        need(v, L, "ngp %s starts at NG cycle 0" % who, i, r"NG cycle 0 at world-up")
+        need(v, L, "ngp %s ends in NG cycle 1" % who, i, r"NG cycle 1 \(changed\)|NG cycle 0 -> 1|NG cycle 1 at world-up", j or 0)
+        too = L.all(i, r"NG cycle [2-9]|NG cycle 1 -> [2-9]")
+        v.step("ngp %s never reaches NG cycle 2" % who, not too, "none" if not too else too[0][1][:120])
+        need(v, L, "ngp %s: the new cycle's world is up (Iosefka's Clinic, NG cycle 1)" % who, i, r"NG cycle 1 at world-up \(map m24_01", j or 0)
+    t = L.find(0, r"ending: the next cycle's world is up")
+    t1 = L.find(1, r"ending: the next cycle's world is up")
+    base = max(x[0] for x in (t, t1) if x) if (t or t1) else 0
+    nw = L.find(1, r"NG cycle 1 at world-up \(map m24_01", j or 0)
+    base = nw[0] if nw else base
+    r = need(v, L, "ngp the NG+ host becomes start-ready", 0, r"start \(prologue_solo\): step ready.*READY", base)
+    need(v, L, "ngp the guest is back in the party in NG+ (Rejoin pressed or rung in by itself)", 1,
+         r"guest_rejoin: (Party > Rejoin pressed|back in the party)|NG guard: kept the own NG cycle", r or base)
+    need(v, L, "ngp the host has its guest again (cooperators 0 -> 1)", 0, r"cooperators 0 -> 1", r or base)
+    need(v, L, "ngp the guest is in the host's NG+ 1 world (NG cycle 1 as a client)", 1,
+         r"NG cycle 1 at world-up .*session client", r or base)
+    none_of(v, L, "ngp no refused join after the ending", r"join refused|not start-ready", base, insts=(0, 1))
+    check_common(v, L, "ngp")
+
+
 def check_mb(v, L):
     """Phase mb: the Moon Presence music (event 12104853's boss map sound on) runs on host and guest."""
     need(v, L, "mb join: 2 players", 0, r"cooperators 0 -> 1")
@@ -8038,6 +8541,137 @@ def check_nfa(v, L):
     none_of(v, L, "nfa no flag write from a guest copy reaches the host as a world action",
             r"world action sent to the host[^\n]*\b(134[0-9]|135[0-9])\b", 0, insts=(1,))
     check_common(v, L, "nfa")
+
+
+def check_nfe(v, L):
+    need(v, L, "nfe join: 2 players", 0, r"cooperators 0 -> 1")
+    at = need(v, L, "nfe host beside the blood-drunk Eileen", 0, r"test: host_chr %d" % NFE_EILEEN)
+    gat = need(v, L, "nfe guest beside her", 1, r"test: guest_chr %d" % NFE_EILEEN)
+    if not (at and gat):
+        v.step("nfe both beside her", False, "host_chr %s guest_chr %s" % (at, gat))
+        check_common(v, L, "nfe")
+        return
+    hd = nf_hp(L, 0, NFE_EILEEN, 0)
+    gd = nf_hp(L, 1, NFE_EILEEN, 0)
+    v.step("nfe Eileen on the host's game, hostile (team 27)", any(tm == 27 for _, _, tm in hd),
+           "teams %s" % sorted({tm for _, _, tm in hd}))
+    v.step("nfe Eileen on the guest's game, a foe it can hit (team 23)", any(tm == 23 for _, _, tm in gd),
+           "teams %s" % sorted({tm for _, _, tm in gd}))
+    t0 = gat
+    dead = L.find(0, r"test: flags 1368=1", t0)
+    end = dead[0] if dead else 1e9
+    hits = L.all(1, r"test: guest_press 0x800", t0, end)
+    lock = L.find(1, r"test: guest_press 0x(4|800)(; | ).*lock-on 1|test: guest_press 0x4:lock skipped: locked on already", t0, end)
+    v.step("nfe the guest locks on to the hostile Eileen", bool(lock), lock[1][:140] if lock else "no lock-on")
+    low = L.find(0, r"test: host_kill: .*entity %d" % NFE_EILEEN, t0)
+    v.step("nfe (info) her HP set low on the host", True, low[1][-140:] if low else "no host_kill line")
+    if hits and dead:
+        hh = [h for _, h, _ in nf_hp(L, 0, NFE_EILEEN, low[0] if low else t0, end)]
+        gh = [h for _, h, _ in nf_hp(L, 1, NFE_EILEEN, low[0] if low else t0, end)]
+        v.step("nfe (info) her HP series, host / guest", True, "%s / %s" % (hh[:10], gh[:10]))
+        v.step("nfe Eileen dies on the host from the guest's real blows (1368, no HP aid on the guest)", True,
+               "1368 at +%.1f s after %d guest R1s" % (dead[0], len(hits)))
+        need(v, L, "nfe her death on the guest's game (HP 0 / disabled in its chr dump)", 1, r"chr dump: entity %d [^\n]*HP 0/" % NFE_EILEEN, low[0] if low else t0)
+        drop = L.find(0, r"shared drop roll .*entity %d" % NFE_EILEEN, t0)
+        v.step("nfe (info) her drop roll on the host", True, drop[1][:140] if drop else "none")
+    else:
+        v.step("nfe the guest's R1s kill Eileen", False, "R1s %d, death %s" % (len(hits), bool(dead)))
+    none_of(v, L, "nfe no flag write from a guest copy reaches the host as a world action",
+            r"world action sent to the host[^\n]*\b(136[0-9]|137[0-9]|170[0-5])\b", 0, insts=(1,))
+    check_common(v, L, "nfe")
+
+
+def check_npi(v, L):
+    """Phase npi: an NPC hunter arrives as an invader (session type 28); the whole party fights it (D11)."""
+    N = NPI_NPC
+    need(v, L, "npi join: 2 players", 0, r"cooperators 0 -> 1")
+    arr = need(v, L, "npi the invader arrives (summon request accepted, desc[28])", 0, r"Party NPC: summon #1: entity %d .*desc\[28\]" % N)
+    at = need(v, L, "npi host beside the invader", 0, r"test: host_chr %d" % N)
+    gat = need(v, L, "npi guest beside it", 1, r"test: guest_chr %d" % N)
+    if not (arr and at and gat):
+        v.step("npi both beside the invader", False, "arrive %s host_chr %s guest_chr %s" % (arr, at, gat))
+        check_common(v, L, "npi")
+        return
+    hd = [x for x in nf_hp(L, 0, N, arr) if x[2] == 21 or x[0] > arr + 5]
+    gd = nf_hp(L, 1, N, arr)
+    # arrival: the same place on both games (chr dump positions)
+    def pos(i):
+        out = []
+        for t, line in L.all(i, r"chr dump: entity %d " % N, arr):
+            m = re.search(r"team (-?\d+) .*HP (-?\d+)/\d+ at \((-?[\d.]+), (-?[\d.]+), (-?[\d.]+)\)", line)
+            if m and int(m.group(2)) > 0:
+                out.append((t, int(m.group(1)), float(m.group(3)), float(m.group(5))))
+        return out
+    hp_, gp_ = pos(0), pos(1)
+    v.step("npi the invader is there on both games", bool(hp_) and bool(gp_),
+           "host dumps %d, guest dumps %d; teams host %s guest %s" % (len(hp_), len(gp_), sorted({x[1] for x in hp_}), sorted({x[1] for x in gp_})))
+    if hp_ and gp_:
+        dx = min(((a[2] - b[2]) ** 2 + (a[3] - b[3]) ** 2) ** 0.5 for a in hp_ for b in gp_ if abs(a[0] - b[0]) < 4)
+        v.step("npi the invader stands at the same place on both games (within 3 m)", dx < 3.0, "%.1f m" % dx)
+    t0 = gat
+    dead = L.find(0, r"drops: enemy drop roll on this game[^\n]*chr handle 0x10014001", t0)
+    end = dead[0] if dead else 1e9
+    hits = L.all(1, r"test: guest_press 0x800", t0, end)
+    lock = L.find(1, r"test: guest_press 0x(4|800)(; | ).*lock-on 1|test: guest_press 0x4:lock skipped: locked on already", t0, end)
+    v.step("npi the guest locks on to the invader", bool(lock), lock[1][:140] if lock else "no lock-on")
+    low = L.find(0, r"test: host_kill: .*entity %d" % N, t0 - 5)
+    v.step("npi (info) its HP 0 on the host", True, low[1][-140:] if low else "no host_kill line")
+    if hits and dead:
+        hh = [h for _, h, tm in nf_hp(L, 0, N, t0, end) if tm == 21]
+        gh = [h for _, h, tm in nf_hp(L, 1, N, t0, end) if tm == 21]
+        v.step("npi (info) its HP series, host / guest", True, "%s / %s" % (hh[:12], gh[:12]))
+        v.step("npi the guest's R1s hurt the invader on the host's game and on the guest's (same HP)", bool(hh) and bool(gh) and min(hh) < max(hh) - 100 and min(gh) < max(gh) - 100
+               and abs(min(hh) - min(gh)) < 120, "host min %s guest min %s" % (min(hh, default=None), min(gh, default=None)))
+        v.step("npi the invader dies on the host from the guest's real blows (drop roll)", True,
+               "drop roll at +%.1f s after %d guest R1s" % (dead[0], len(hits)))
+        need(v, L, "npi its death on the guest's game (HP 0 in its chr dump)", 1, r"chr dump: entity %d [^\n]*HP 0/" % N, low[0] if low else t0)
+    else:
+        v.step("npi the guest's R1s kill the invader", False, "R1s %d, death %s" % (len(hits), bool(dead)))
+    check_common(v, L, "npi")
+
+
+def check_nfw(v, L):
+    need(v, L, "nfw join: 2 players", 0, r"cooperators 0 -> 1")
+    at = need(v, L, "nfw host in front of Alfred (Cathedral Ward)", 0, r"test: host_chr %d" % NFW_ALFRED)
+    gat = need(v, L, "nfw guest beside him", 1, r"test: guest_chr %d" % NFW_ALFRED)
+    prov = L.find(0, r"test: host_press 0x800", at or 0)
+    if not (at and gat and prov):
+        v.step("nfw the host's R1s ran", False, "host_chr %s guest_chr %s press %s" % (at, gat, bool(prov)))
+        check_common(v, L, "nfw")
+        return
+    bh = nf_hp(L, 0, NFW_ALFRED, 0, prov[0])
+    bg = nf_hp(L, 1, NFW_ALFRED, 0, prov[0])
+    v.step("nfw (before) Alfred friendly on both games (team 26)", bool(bh) and bool(bg) and all(tm == 26 for _, _, tm in bh + bg),
+           "host teams %s, guest teams %s" % (sorted({tm for _, _, tm in bh}), sorted({tm for _, _, tm in bg})))
+    hflag = L.find(0, r"test: flags [^\n]*1345=1", prov[0] - 1)
+    hteam = [(t, tm) for t, _, tm in nf_hp(L, 0, NFW_ALFRED, prov[0] - 1) if tm == 27]
+    v.step("nfw the host's R1s turn Alfred hostile on the host (1345 / team 27)", bool(hflag or hteam),
+           "1345 at %s, team 27 at %s" % ("+%.1f" % hflag[0] if hflag else "-", "+%.1f" % hteam[0][0] if hteam else "-"))
+    gteam = [(t, tm) for t, _, tm in nf_hp(L, 1, NFW_ALFRED, prov[0] - 1) if tm in (23, 27)]
+    v.step("nfw in-map switch: Alfred a foe on the guest's game while it stands there (team 23)",
+           bool(gteam) and gteam[0][1] == 23, "guest teams after the host's R1s %s" %
+           sorted({tm for _, _, tm in nf_hp(L, 1, NFW_ALFRED, prov[0] - 1)}))
+    t0 = gteam[0][0] if gteam else prov[0]
+    dead = L.find(0, r"shared drop roll[^\n]*entity %d" % NFW_ALFRED, t0)
+    end = dead[0] if dead else 1e9
+    hits = L.all(1, r"test: guest_press 0x800", t0, end)
+    lock = L.find(1, r"test: guest_press 0x(4|800)(; | ).*lock-on 1|test: guest_press 0x4:lock skipped: locked on already", t0, end)
+    v.step("nfw the guest locks on to the hostile Alfred", bool(lock), lock[1][:140] if lock else "no lock-on")
+    low = L.find(0, r"test: host_kill: .*entity %d" % NFW_ALFRED, t0 - 5)
+    v.step("nfw (info) his HP 0 on the host", True, low[1][-120:] if low else "no host_kill line")
+    if hits and dead:
+        hh = [h for _, h, _ in nf_hp(L, 0, NFW_ALFRED, t0, end)]
+        gh = [h for _, h, _ in nf_hp(L, 1, NFW_ALFRED, t0, end)]
+        v.step("nfw (info) his HP series, host / guest", True, "%s / %s" % (hh[:10], gh[:10]))
+        v.step("nfw the guest's R1s hurt Alfred on the host's game and on the guest's", bool(hh) and bool(gh) and min(hh) < max(hh[:1]) - 60 and min(gh) < max(gh[:1]) - 60,
+               "host %s guest %s" % (hh[:4], gh[:4]))
+        v.step("nfw Alfred dies on the host (his drop roll) after %d guest R1s" % len(hits), True, "drop roll at +%.1f s" % dead[0])
+        need(v, L, "nfw his death on the guest's game (HP 0 in its chr dump)", 1, r"chr dump: entity %d [^\n]*HP 0/" % NFW_ALFRED, low[0] if low else t0)
+    else:
+        v.step("nfw the guest's R1s kill Alfred", False, "R1s %d, death %s" % (len(hits), bool(dead)))
+    none_of(v, L, "nfw no flag write from a guest copy reaches the host as a world action",
+            r"world action sent to the host[^\n]*\b(134[0-9]|135[0-9])\b", 0, insts=(1,))
+    check_common(v, L, "nfw")
 
 
 def check_pvd(v, L):
@@ -8541,12 +9175,12 @@ def check_ngj(v, L):
 CHECKS = {"s1": lambda v, L, d: check_s1(v, L), "s2": check_s2, "rules": lambda v, L, d: check_rules(v, L),
           "sc": check_sc, "summonfail": lambda v, L, d: check_summonfail(v, L),
           "s3": lambda v, L, d: check_s3(v, L), "sk": lambda v, L, d: check_sk(v, L), "lg": lambda v, L, d: check_lg(v, L), "lv": lambda v, L, d: check_lv(v, L),
-          "ga": lambda v, L, d: check_ga(v, L), "gl": lambda v, L, d: check_gl(v, L), "lf": lambda v, L, d: check_lf(v, L), "lfx": lambda v, L, d: check_lf(v, L), "el": lambda v, L, d: check_el(v, L), "lt": lambda v, L, d: check_lt(v, L), "ch": lambda v, L, d: check_ch(v, L), "md": check_md, "mds": check_mds, "svl": check_svl, "rh": lambda v, L, d: check_rh(v, L), "rs": lambda v, L, d: check_rs(v, L), "fw": lambda v, L, d: check_fw(v, L), "fwg": lambda v, L, d: check_fw(v, L, "fwg", (1,)), "fwb": lambda v, L, d: check_fw(v, L, "fwb", (0, 1)), "fwe": lambda v, L, d: check_fw(v, L, "fwe", (0, 1)), "fh": lambda v, L, d: check_fw(v, L, "fh", (0, 1), FH_POS, FH_BUSY, "1", "0x16000000", (-211.25, 542.1), -20.3),
+          "ga": lambda v, L, d: check_ga(v, L), "gl": lambda v, L, d: check_gl(v, L), "lf": lambda v, L, d: check_lf(v, L), "lfx": lambda v, L, d: check_lf(v, L), "lfw": lambda v, L, d: check_lfw(v, L, "yh", "lfw"), "lfwc": lambda v, L, d: check_lfw(v, L, "ca", "lfwc"), "lfws": lambda v, L, d: check_lfw(v, L, "yh", "lfws"), "lfwcs": lambda v, L, d: check_lfw(v, L, "ca", "lfwcs"), "el": lambda v, L, d: check_el(v, L), "lt": lambda v, L, d: check_lt(v, L), "ch": lambda v, L, d: check_ch(v, L), "md": check_md, "mds": check_mds, "svl": check_svl, "rh": lambda v, L, d: check_rh(v, L), "rs": lambda v, L, d: check_rs(v, L), "fw": lambda v, L, d: check_fw(v, L), "fwg": lambda v, L, d: check_fw(v, L, "fwg", (1,)), "fwb": lambda v, L, d: check_fw(v, L, "fwb", (0, 1)), "fwe": lambda v, L, d: check_fw(v, L, "fwe", (0, 1)), "fh": lambda v, L, d: check_fw(v, L, "fh", (0, 1), FH_POS, FH_BUSY, "1", "0x16000000", (-211.25, 542.1), -20.3),
           "mk": lambda v, L, d: check_mk(v, L), "kd": lambda v, L, d: check_kd(v, L), "kw": lambda v, L, d: check_kw(v, L),
           "fl": lambda v, L, d: check_fl(v, L), "fd": lambda v, L, d: check_fd(v, L), "fdj": lambda v, L, d: check_fdj(v, L), "cd": lambda v, L, d: check_cd(v, L), "iw": lambda v, L, d: check_iw(v, L), "iwn": lambda v, L, d: check_iwn(v, L), "an": lambda v, L, d: check_an(v, L), "anl": lambda v, L, d: check_anl(v, L), "ld": lambda v, L, d: check_ld(v, L),
-          "cl": lambda v, L, d: check_cl(v, L), "clg": lambda v, L, d: check_clg(v, L), "cpr": lambda v, L, d: check_cpr(v, L), "chc": lambda v, L, d: check_chc(v, L), "chw": lambda v, L, d: check_chc(v, L, True), "chn": lambda v, L, d: check_chc(v, L), "cpa": lambda v, L, d: check_common(v, L, "cpa"), "cae": lambda v, L, d: check_cae(v, L), "cao": lambda v, L, d: check_cao(v, L), "cab": lambda v, L, d: check_cab(v, L), "caq": lambda v, L, d: check_common(v, L, "caq"), "clw": lambda v, L, d: check_clw(v, L), "cla": lambda v, L, d: check_cla(v, L), "bf": lambda v, L, d: check_bf(v, L), "lp": check_lp, "gd": check_gd, "gh": lambda v, L, d: check_gh(v, L), "gm": check_gm, "gr": lambda v, L, d: check_gr(v, L), "gr2": lambda v, L, d: check_gr(v, L, 2), "gr3": lambda v, L, d: check_gr(v, L, 3), "gr4": lambda v, L, d: check_gr(v, L, 4), "gro": lambda v, L, d: check_gr(v, L, 1, "gro"), "gr2o": lambda v, L, d: check_gr(v, L, 2, "gr2o"), "gr3o": lambda v, L, d: check_gr(v, L, 3, "gr3o"), "gr4o": lambda v, L, d: check_gr(v, L, 4, "gr4o"), "jl": check_jl, "ml": lambda v, L, d: check_ml(v, L), "mg": lambda v, L, d: check_mg(v, L), "hs": lambda v, L, d: check_hs(v, L), "ngj": lambda v, L, d: check_ngj(v, L), "nl": lambda v, L, d: check_nl(v, L), "ff": lambda v, L, d: check_ff(v, L), "lk": lambda v, L, d: check_lk(v, L), "lkc": lambda v, L, d: check_lkc(v, L), "br": lambda v, L, d: check_br(v, L), "rf": lambda v, L, d: check_rf(v, L), "rj": lambda v, L, d: check_rj(v, L), "em": lambda v, L, d: check_em(v, L), "bd": lambda v, L, d: check_bd(v, L), "bdo": lambda v, L, d: check_bd(v, L, True), "sm": lambda v, L, d: check_sm(v, L), "ef": lambda v, L, d: check_ef(v, L), "mb": lambda v, L, d: check_mb(v, L), "gb": lambda v, L, d: check_gb(v, L), "mbs": lambda v, L, d: check_mbs(v, L), "gbs": lambda v, L, d: check_gbs(v, L), "da": lambda v, L, d: check_da(v, L), "cv": check_cv, "cvs": check_cvs, "cvo": lambda v, L, d: check_cvs(v, L, d, False), "cvr": check_cvr, "cva": check_cva, "cvt": check_cvt, "cvh": lambda v, L, d: check_cvt(v, L, d, "host"), "ie": lambda v, L, d: check_ie(v, L), "il": check_il, "rw": lambda v, L, d: check_rw(v, L), "rwe": lambda v, L, d: check_rwe(v, L), "rwt": lambda v, L, d: check_rwt(v, L), "rwl": lambda v, L, d: check_rwl(v, L), "nf": lambda v, L, d: check_nf(v, L), "nfa": lambda v, L, d: check_nfa(v, L), "npa": lambda v, L, d: check_npa(v, L), "npd": lambda v, L, d: check_npd(v, L), "pvd": lambda v, L, d: check_pvd(v, L), "pvh": lambda v, L, d: check_pvh(v, L), "pvn": lambda v, L, d: check_pvn(v, L), "npf": lambda v, L, d: check_npf(v, L), "sj": lambda v, L, d: check_sj(v, L), "bl": lambda v, L, d: check_bl(v, L), "mw": lambda v, L, d: check_mw(v, L), "px": lambda v, L, d: check_px(v, L), "pxg": lambda v, L, d: check_px(v, L, 1), "ba": lambda v, L, d: check_ba(v, L), "bh": lambda v, L, d: check_bh(v, L), "bk": lambda v, L, d: check_bk(v, L), "hg": lambda v, L, d: check_hg(v, L), "lw": lambda v, L, d: check_lw(v, L), "la": lambda v, L, d: check_la(v, L), "lb": lambda v, L, d: check_common(v, L, "lb"), "lc": lambda v, L, d: check_lc(v, L),
+          "cl": lambda v, L, d: check_cl(v, L), "clg": lambda v, L, d: check_clg(v, L), "cpr": lambda v, L, d: check_cpr(v, L), "chc": lambda v, L, d: check_chc(v, L), "chw": lambda v, L, d: check_chc(v, L, True), "chn": lambda v, L, d: check_chc(v, L), "cpa": lambda v, L, d: check_common(v, L, "cpa"), "cae": lambda v, L, d: check_cae(v, L), "cao": lambda v, L, d: check_cao(v, L), "cab": lambda v, L, d: check_cab(v, L), "caq": lambda v, L, d: check_common(v, L, "caq"), "clw": lambda v, L, d: check_clw(v, L), "cla": lambda v, L, d: check_cla(v, L), "bf": lambda v, L, d: check_bf(v, L), "lp": check_lp, "gd": check_gd, "gh": lambda v, L, d: check_gh(v, L), "gm": check_gm, "gr": lambda v, L, d: check_gr(v, L), "gr2": lambda v, L, d: check_gr(v, L, 2), "gr3": lambda v, L, d: check_gr(v, L, 3), "gr4": lambda v, L, d: check_gr(v, L, 4), "gro": lambda v, L, d: check_gr(v, L, 1, "gro"), "gr2o": lambda v, L, d: check_gr(v, L, 2, "gr2o"), "gr3o": lambda v, L, d: check_gr(v, L, 3, "gr3o"), "gr4o": lambda v, L, d: check_gr(v, L, 4, "gr4o"), "jl": check_jl, "ml": lambda v, L, d: check_ml(v, L), "mg": lambda v, L, d: check_mg(v, L), "hs": lambda v, L, d: check_hs(v, L), "ngj": lambda v, L, d: check_ngj(v, L), "nl": lambda v, L, d: check_nl(v, L), "ff": lambda v, L, d: check_ff(v, L), "lk": lambda v, L, d: check_lk(v, L), "lkc": lambda v, L, d: check_lkc(v, L), "br": lambda v, L, d: check_br(v, L), "rf": lambda v, L, d: check_rf(v, L), "rj": lambda v, L, d: check_rj(v, L), "em": lambda v, L, d: check_em(v, L), "bd": lambda v, L, d: check_bd(v, L), "bdo": lambda v, L, d: check_bd(v, L, True), "sm": lambda v, L, d: check_sm(v, L), "ef": lambda v, L, d: check_ef(v, L), "ngp": lambda v, L, d: check_ngp(v, L), "mb": lambda v, L, d: check_mb(v, L), "gb": lambda v, L, d: check_gb(v, L), "mbs": lambda v, L, d: check_mbs(v, L), "gbs": lambda v, L, d: check_gbs(v, L), "da": lambda v, L, d: check_da(v, L), "cv": check_cv, "cvs": check_cvs, "cvo": lambda v, L, d: check_cvs(v, L, d, False), "cvr": check_cvr, "cva": check_cva, "cvt": check_cvt, "cvh": lambda v, L, d: check_cvt(v, L, d, "host"), "ie": lambda v, L, d: check_ie(v, L), "il": check_il, "rw": lambda v, L, d: check_rw(v, L), "rwe": lambda v, L, d: check_rwe(v, L), "rwt": lambda v, L, d: check_rwt(v, L), "rwl": lambda v, L, d: check_rwl(v, L), "nf": lambda v, L, d: check_nf(v, L), "nfa": lambda v, L, d: check_nfa(v, L), "nfe": lambda v, L, d: check_nfe(v, L), "nfw": lambda v, L, d: check_nfw(v, L), "npi": lambda v, L, d: check_npi(v, L), "npa": lambda v, L, d: check_npa(v, L), "npd": lambda v, L, d: check_npd(v, L), "pvd": lambda v, L, d: check_pvd(v, L), "pvh": lambda v, L, d: check_pvh(v, L), "pvn": lambda v, L, d: check_pvn(v, L), "npf": lambda v, L, d: check_npf(v, L), "sj": lambda v, L, d: check_sj(v, L), "bl": lambda v, L, d: check_bl(v, L), "mw": lambda v, L, d: check_mw(v, L), "px": lambda v, L, d: check_px(v, L), "pxg": lambda v, L, d: check_px(v, L, 1), "ba": lambda v, L, d: check_ba(v, L), "bh": lambda v, L, d: check_bh(v, L), "bk": lambda v, L, d: check_bk(v, L), "hg": lambda v, L, d: check_hg(v, L), "lw": lambda v, L, d: check_lw(v, L), "la": lambda v, L, d: check_la(v, L), "lb": lambda v, L, d: check_common(v, L, "lb"), "lc": lambda v, L, d: check_lc(v, L),
           "rt": lambda v, L, d: check_rt(v, L), "tv": lambda v, L, d: check_tv(v, L),
-          "eh": lambda v, L, d: check_eh(v, L), "ou": lambda v, L, d: check_ou(v, L), "mesh": lambda v, L, d: check_mesh(v, L), "bv": lambda v, L, d: check_bv(v, L), "fp": lambda v, L, d: check_fp(v, L), "lo": lambda v, L, d: check_lo(v, L), "po": lambda v, L, d: check_po(v, L), "pos": lambda v, L, d: check_pos(v, L), "sg": lambda v, L, d: check_sg(v, L), "sg2": lambda v, L, d: check_sg2(v, L), "csh": lambda v, L, d: check_csh(v, L), "csh2": lambda v, L, d: check_csh2(v, L)}
+          "eh": lambda v, L, d: check_eh(v, L), "ou": lambda v, L, d: check_ou(v, L), "mesh": lambda v, L, d: check_mesh(v, L), "bv": lambda v, L, d: check_bv(v, L), "fp": lambda v, L, d: check_fp(v, L), "lo": lambda v, L, d: check_lo(v, L), "po": lambda v, L, d: check_po(v, L), "pos": lambda v, L, d: check_pos(v, L), "sg": lambda v, L, d: check_sg(v, L), "sg2": lambda v, L, d: check_sg2(v, L), "csh": lambda v, L, d: check_csh(v, L), "csh2": lambda v, L, d: check_csh2(v, L), "csh3": lambda v, L, d: check_csh3(v, L)}
 
 
 def sweep_args(argv):
@@ -8611,7 +9245,7 @@ def main():
     ap.add_argument("--build", default=str(REPO))
     ap.add_argument("--game", default=os.environ.get("BB_GAME_DIR", str(AGENT_ROOT / "game")))
     ap.add_argument("--out", default=str(AGENT_ROOT / "smoke" / time.strftime("%Y%m%d_%H%M")))
-    ap.add_argument("--phase", default="s1,s2,rules,sc,summonfail,s3,sk,ga,gl,lf,ld,mk,kd,kw,fl,fdj,cl,clg,clw,el,lt,ch,rh,rs,bf,bl,lp,rt,eh,br,sm,da,cv,tv,nf,nfa,ie,sj")
+    ap.add_argument("--phase", default="s1,s2,rules,sc,summonfail,s3,sk,ga,gl,lf,ld,mk,kd,kw,fl,fdj,cl,clg,clw,el,lt,lfw,lfwc,ch,rh,rs,bf,bl,lp,rt,eh,br,sm,da,cv,tv,nf,nfa,ie,sj")
     ap.add_argument("--every", type=float, default=10)
     ap.add_argument("--fps", default=None,
                     help="frame-rate sweep: comma list, each one rate or a per-instance mix: 30,60,90,120,60fg,60/30 (60/30 = host "
@@ -8642,8 +9276,8 @@ def main():
     if bad:
         sys.exit("unknown --only group(s): " + ",".join(sorted(bad)))
     if only:
-        a.phase = ",".join(p for p in ("s1", "s2", "rules", "bv", "sc", "summonfail", "s3", "sk", "lg", "lv", "ga", "gl", "lf", "mk", "kd", "kw", "fl", "fd", "fdj", "cd", "iw", "iwn", "an", "ld", "cl", "clg", "clw", "cla", "cpr", "chc", "chn", "chw", "cpa", "cae", "cao", "cab", "el", "lt", "bf", "ch", "md", "mds", "svl",
-                                     "lp", "gd", "gh", "gm", "gr", "gr2", "gr3", "gr4", "gro", "gr2o", "gr3o", "gr4o", "jl", "ml", "mg", "hs", "ngj", "nl", "ff", "lk", "lkc", "rt", "br", "rf", "rj", "em", "bd", "bdo", "sm", "ef", "mb", "gb", "mbs", "gbs", "da", "cv", "cvr", "cva", "cvt", "cvh", "cvs", "cvo", "ie", "il", "rw", "rwe", "rwt", "rwl", "rh", "rs", "fw", "fwg", "fwb", "fwe", "fh", "tv", "nf", "nfa", "npa", "npd", "pvd", "pvh", "pvn", "npf", "eh", "bl", "mw", "px", "pxg", "sj", "ou", "mesh", "fp", "lo", "po", "pos", "sg", "sg2", "csh", "csh2", "ba", "bh", "bk", "hg", "lw", "la", "lb", "lc")
+        a.phase = ",".join(p for p in ("s1", "s2", "rules", "bv", "sc", "summonfail", "s3", "sk", "lg", "lv", "ga", "gl", "lf", "lfw", "lfwc", "lfws", "lfwcs", "mk", "kd", "kw", "fl", "fd", "fdj", "cd", "iw", "iwn", "an", "ld", "cl", "clg", "clw", "cla", "cpr", "chc", "chn", "chw", "cpa", "cae", "cao", "cab", "el", "lt", "bf", "ch", "md", "mds", "svl",
+                                     "lp", "gd", "gh", "gm", "gr", "gr2", "gr3", "gr4", "gro", "gr2o", "gr3o", "gr4o", "jl", "ml", "mg", "hs", "ngj", "nl", "ff", "lk", "lkc", "rt", "br", "rf", "rj", "em", "bd", "bdo", "sm", "ef", "ngp", "mb", "gb", "mbs", "gbs", "da", "cv", "cvr", "cva", "cvt", "cvh", "cvs", "cvo", "ie", "il", "rw", "rwe", "rwt", "rwl", "rh", "rs", "fw", "fwg", "fwb", "fwe", "fh", "tv", "nf", "nfa", "nfe", "nfw", "npi", "npa", "npd", "pvd", "pvh", "pvn", "npf", "eh", "bl", "mw", "px", "pxg", "sj", "ou", "mesh", "fp", "lo", "po", "pos", "sg", "sg2", "csh", "csh2", "csh3", "ba", "bh", "bk", "hg", "lw", "la", "lb", "lc")
                            if p in {n for g in only for n in GROUPS[g].split(",")})
     if Path(a.game).resolve() == Path(r"E:\games\bloodborne").resolve():
         sys.exit("never the user's game folder as the test game (agents/RULES_062.txt)")

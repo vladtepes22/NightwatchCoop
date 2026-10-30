@@ -292,6 +292,8 @@ struct Test {
     int ap_still = 0;               // steps in a row without moving (blocked: gives up after 8)
     double ap_angle = 0;
     float ap_from[2] = {0, 0};
+    float ap_ref[2] = {1e9f, 1e9f}; // liftwalk077: the spot the stuck check measures from
+    Clock::time_point ap_ref_at{};
     Clock::time_point ap_at{};
     // stand=X:Y:Z:YAW[:BUTTON]: puts the player there in place (PlayerIns vfunc +0x5F8, no map
     // reload; yaw t faces (-sin t, -cos t), agent/guestsvc's Doll fixture), then BUTTON once 1.5 s on.
@@ -2226,6 +2228,13 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
          next_kind == TravelStep::HostMark || next_kind == TravelStep::GuestMark || !t.steps[t.next_step].map.empty())) {
         const bool out = !steady && t.steps[t.next_step].out_ok && t.ran && t.world;
         if ((!steady && !out) || (!t.ran && !t.armed) || t.joins < t.steps[t.next_step].min_join) {
+            static Clock::time_point why_at{};
+            if (why_at == Clock::time_point{} || Seconds(why_at, now) >= 30.0) {
+                why_at = now;
+                Log("test: travel step %zu (%s) waits: steady %d, out_ok %d, ran %d, armed %d, world %d, joins %d/%d, map %s",
+                    t.next_step + 1, TravelStepName(next_kind), int(steady), int(t.steps[t.next_step].out_ok), int(t.ran),
+                    int(t.armed), int(t.world), t.joins, t.steps[t.next_step].min_join, MapName(s.map_id).c_str());
+            }
             return; // as the first step of a chain it still waits for the join
         }
         // S s after the later of: the last load (steady again), the previous step (or the join).
@@ -2682,6 +2691,8 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
             tt.ap_slides_here = 0;
             tt.ap_phase = 0;
             tt.ap_at = now;
+            tt.ap_ref[0] = tt.ap_ref[1] = 1e9f; // a new walk: the stuck check starts afresh (not from the last walk's spot)
+            tt.ap_ref_at = now;
             // Invincible while it walks (EnableInvincible, chr +0x1E1 bit 14, as a11_move): enemies on the
             // way must not end the walk; fights and deaths are the steps after it.
             std::uint32_t f = 0;
@@ -2739,6 +2750,8 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
             tt.ap_slides_here = 0;
             tt.ap_phase = 0;
             tt.ap_at = now;
+            tt.ap_ref[0] = tt.ap_ref[1] = 1e9f; // a new walk: the stuck check starts afresh (not from the last walk's spot)
+            tt.ap_ref_at = now;
             Log("test: %s: walk to (%.2f, %.2f) within %.1f m, at most %d steps (%s)", TravelStepName(step.kind),
                 double(x), double(z), double(r), steps, DescribeHere(s).c_str());
         } else {
@@ -2819,7 +2832,16 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
 bool ReadPlayerPos(std::uint32_t* area, float pos[3]) {
     std::uint64_t man = 0;
     const std::uint64_t at = Guest(0x553b120);
-    return at && SafeGet(at, &man) && man && SafeGet(man + 0xa7c, area) && SafeRead(man + 0xaac, pos, 3 * sizeof(float));
+    if (!(at && SafeGet(at, &man) && man && SafeGet(man + 0xa7c, area) && SafeRead(man + 0xaac, pos, 3 * sizeof(float)))) return false;
+    // liftwalk077: the network manager's copy stops updating while the chr rides a moving object (a lift car: live, a
+    // stick walk into a lift saw the same spot for the whole ride and kept pushing the rider); the chr's physics
+    // position is the real one.
+    float real[3];
+    const std::uint64_t player = LocalPlayer();
+    if (player && balance::ChrPosition(player, real) && std::isfinite(real[0]) && std::isfinite(real[1]) && std::isfinite(real[2])) {
+        std::memcpy(pos, real, sizeof real);
+    }
+    return true;
 }
 
 /// Test fixtures: the left stick through the BB_PAD_FILE pad script (src/runtime_pad.c re-reads
@@ -3685,6 +3707,19 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
                     t.route_block = blk;
                 }
             }
+            // liftwalk077 stuck check: no 1 m of progress in 8 s ends the walk (a route first tries its hop within 6 m)
+            if (t.ap_phase == 0 || t.ap_phase == 2) {
+                if (std::hypot(pos[0] - t.ap_ref[0], pos[2] - t.ap_ref[1]) > 1.0) {
+                    t.ap_ref[0] = pos[0];
+                    t.ap_ref[1] = pos[2];
+                    t.ap_ref_at = now;
+                } else if (Seconds(t.ap_ref_at, now) > 8.0) {
+                    Log("test: approach: stuck at (%.1f, %.1f, %.1f), %.1f m from the target (no 1 m in 8 s)", double(pos[0]),
+                        double(pos[1]), double(pos[2]), dist);
+                    t.ap_steps = (on_route && dist <= kRouteHopMax) ? std::max(t.ap_steps, 20) : t.ap_max;
+                    t.ap_ref_at = now;
+                }
+            }
             if (t.ap_phase == 1) { // a step ends: release, let it settle
                 WritePadFile("");
                 t.ap_phase = 2;
@@ -3699,7 +3734,14 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
                         t.ap_angle = wrap(t.ap_angle + wrap(want - std::atan2(mx, mz)));
                     }
                 }
-                if (on_route && dist <= t.ap_r && t.route_i + 1 < t.route.size()) {
+                // liftwalk077: a waypoint that 10 steps could not reach from within 4 m (a pillar's corner, a rail the
+                // navmesh cuts) is skipped like a reached one: the walk goes on to the next waypoint.
+                const bool stuck_near = on_route && t.ap_steps >= 10 && dist <= 4.0 && t.route_i + 1 < t.route.size();
+                if (stuck_near) {
+                    Log("test: route: waypoint %zu/%zu skipped (%.1f m away after %d steps)", t.route_i + 1, t.route.size(), dist,
+                        t.ap_steps);
+                }
+                if (on_route && (dist <= t.ap_r || stuck_near) && t.route_i + 1 < t.route.size()) {
                     // A waypoint reached: on to the next one, no stop.
                     ++t.route_i;
                     t.ap_x = t.route[t.route_i][0];
@@ -3718,8 +3760,8 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
                     }
                 } else {
                 const std::array<float, 3>& wp = on_route ? t.route[t.route_i] : std::array<float, 3>{};
-                if (on_route && t.ap_still >= 3 && t.ap_slides_here >= kRouteSlidesBeforeHop && !std::isnan(wp[1]) &&
-                    dist <= kRouteHopMax && t.ap_slide == 0) {
+                if (on_route && ((t.ap_still >= 3 && t.ap_slides_here >= kRouteSlidesBeforeHop) || t.ap_steps >= 20) && !std::isnan(wp[1]) &&
+                    dist <= kRouteHopMax && t.ap_slide == 0) {  // liftwalk077: 20 steps without reaching it count as blocked too
                     // Still blocked after the side steps (an enemy's body, a cart, a railing the
                     // navmesh walks around): one short chr warp onto this waypoint (a navmesh face
                     // of the route), counted and logged; then the stick walk goes on.
@@ -3769,8 +3811,14 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
                     }
                     const int lx = 128 + static_cast<int>(std::lround(127 * std::sin(angle)));
                     const int ly = 128 - static_cast<int>(std::lround(127 * std::cos(angle)));
-                    char tok[48];
-                    std::snprintf(tok, sizeof tok, "lx=%d ly=%d", std::clamp(lx, 0, 255), std::clamp(ly, 0, 255));
+                    char tok[64];
+                    // liftwalk077 test aid BB_TEST_WALK_SPRINT=1: Circle held with the stick, a sprinting walk
+                    static const bool sprint = [] {
+                        const char* e = std::getenv("BB_TEST_WALK_SPRINT");
+                        return e && e[0] == '1';
+                    }();
+                    std::snprintf(tok, sizeof tok, "lx=%d ly=%d%s", std::clamp(lx, 0, 255), std::clamp(ly, 0, 255),
+                                  sprint ? " circle" : "");
                     WritePadFile(tok);
                     t.ap_phase = 1;
                     const double secs = on_route ? std::clamp(dist / 4.0, 0.12, 0.7) : std::clamp(dist / 3.0, 0.12, 0.45);
@@ -4444,7 +4492,9 @@ void PartyDirector::ConfigureFromEnv() {
                         step.coop_rise = std::atoi(item.c_str() + star + 1);  // "^N*K": the K-th time
                 }
                 // "%MAP#N" / "%MAP!": the map name ends at the next option (a '#2' in it never matched).
-                if (const std::size_t cut = step.map.find_first_of("#!@^"); cut != std::string::npos) {
+                // "%MAP&": also out of the party (the first parser does the same; guest_flag in the own world after an ending).
+                if (step.map.find('&') != std::string::npos) step.out_ok = true;
+                if (const std::size_t cut = step.map.find_first_of("#!@^&"); cut != std::string::npos) {
                     step.map.erase(cut);
                 }
                 step.wait_flag = wait_flag;

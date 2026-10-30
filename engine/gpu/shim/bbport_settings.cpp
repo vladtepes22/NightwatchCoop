@@ -186,6 +186,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_hud = i != 0;
     } else if (key == "party_discovery") {
         v.party_discovery = i != 0;
+    } else if (key == "party_vpn_lobby") {
+        v.party_vpn_lobby = i != 0;
     } else if (key == "party_conn_warnings") {
         v.party_conn_warnings = i != 0;
     } else if (key == "party_item_notices") {
@@ -835,7 +837,7 @@ void Load() {
         }
     }
     const std::pair<const char*, const char*> env_keys[] = {
-        {"BB_PARTY_VPN", "party_vpn"},  {"BB_PARTY_DISCOVERY", "party_discovery"},  // visy 0.7.5 (2179ec17, 51fb67e9)
+        {"BB_PARTY_VPN", "party_vpn"},  {"BB_PARTY_DISCOVERY", "party_discovery"}, {"BB_PARTY_VPN_LOBBY", "party_vpn_lobby"},  // visy 0.7.5 (2179ec17, 51fb67e9)
         {"BB_FSR_SHARPNESS", "sharpness"},        {"BB_JITTER", "jitter"},
         {"BB_REACTIVE", "reactive"},              {"BB_REACTIVE_SCALE", "reactive_scale"},
         {"BB_REACTIVE_THRESHOLD", "reactive_threshold"}, {"BB_REACTIVE_MAX", "reactive_max"},
@@ -978,6 +980,7 @@ void Save() {
     put("party_toasts", flag(v.party_toasts));
     put("party_hud", flag(v.party_hud));
     put("party_discovery", flag(v.party_discovery));
+    put("party_vpn_lobby", flag(v.party_vpn_lobby));
     put("party_conn_warnings", flag(v.party_conn_warnings));
     put("party_item_notices", flag(v.party_item_notices));
     put("party_name_tags", flag(v.party_name_tags));

@@ -379,6 +379,79 @@ void KeepDungeonCarry() {
     }
 }
 
+// 0.7.7 (chalshop077): the event flag tree's nodes for the type-9 blocks of area 29 (92900..92909: the dungeon's sub-feature
+// "case" flags 92905300 + n, read INLINE by the EMEVD events that enable the dungeon's Bath Messengers, baths, special
+// characters ...; the EMEVD does not go through IsEventFlag / GetEventFlagValue) point at the group of the CURRENT slot
+// (the remap 0x13b89b0, run by the last own-world load, and not run again by the load mode 1 switch). A summoned member
+// whose own ritual dungeon is the current slot (1..) read ITS OWN dungeon's features in the host's dungeon: the Bath
+// Messengers stayed disabled (player report, Lower Loran layer 3: no shop at all; the member without a dungeon of its own
+// reads slot 0, the quick-joined slot, and never saw it). After the switch to load mode 1 the nodes are re-pointed to the
+// quick-joined slot's groups (resolve_group_key 0x13bc710 (type 9, area 40 + slot, block 0, zone)); the own-world rebuild
+// of the switch back (0x13b6540 + the remap) restores them. Nothing is written to the flags; BB_PARTY_CHALICE_CASETREE=0
+// turns it off (tests).
+void RepointCaseGroups(u64 man, int slot) {
+    static const bool off = std::getenv("BB_PARTY_CHALICE_CASETREE") && std::string(std::getenv("BB_PARTY_CHALICE_CASETREE")) == "0";
+    if (off || !man || slot < 0 || slot >= kSlots) {
+        return;
+    }
+    using KeyFn = std::uint32_t(BB_COOP_SYSV*)(int, int, int, int);
+    const KeyFn key_of = reinterpret_cast<KeyFn>(Guest(0x13bc710));
+    std::uint64_t head = 0;
+    if (!SafeGet(man + 0x38, &head) || head < 0x10000) {
+        return;
+    }
+    int moved = 0, same = 0, missing = 0;
+    for (std::uint32_t zone = 0; zone < 10; ++zone) {
+        const std::uint32_t block = 92900u + zone;
+        std::uint64_t node = 0, cand = head;
+        if (!SafeGet(head + 8, &node)) {
+            return;
+        }
+        for (int guard = 0; guard < 64; ++guard) {
+            std::uint8_t nil = 1;
+            if (node < 0x10000 || !SafeGet(node + 0x19, &nil) || nil != 0) {
+                break;
+            }
+            std::uint32_t b = 0;
+            if (!SafeGet(node + 0x20, &b)) {
+                break;
+            }
+            std::uint64_t next = 0;
+            if (b >= block) {
+                cand = node;
+                if (!SafeGet(node, &next)) break;
+            } else if (!SafeGet(node + 0x10, &next)) {
+                break;
+            }
+            node = next;
+        }
+        std::uint32_t cb = 0;
+        if (cand == head || !SafeGet(cand + 0x20, &cb) || cb != block) {
+            ++missing;
+            continue;
+        }
+        const std::uint32_t key = key_of(9, 40 + slot, 0, static_cast<int>(zone));
+        std::int32_t kind = 0;
+        std::uint64_t at = 0;
+        if (!SafeGet(cand + 0x28, &kind) || !SafeGet(cand + 0x30, &at)) {
+            ++missing;
+            continue;
+        }
+        if (kind == 1 && at == key) {
+            ++same;
+            continue;
+        }
+        const std::int32_t one = 1;
+        const std::uint64_t k64 = key;
+        SafeWrite(cand + 0x28, &one, sizeof one);
+        SafeWrite(cand + 0x30, &k64, sizeof k64);
+        ++moved;
+    }
+    std::printf("[coop] Party: chalice: load mode 1: the area 29 type-9 flag groups (92900..92909) read the quick-joined slot %d's data "
+                "(%d re-pointed, %d already, %d not found)\n", slot, moved, same, missing);
+    std::fflush(stdout);
+}
+
 BB_COOP_SYSV void SetLoadModeHook(u64 man, u64 mode) {
     using Fn = void(BB_COOP_SYSV*)(u64, u64);
     std::int32_t cur = -1;
@@ -459,6 +532,9 @@ BB_COOP_SYSV void SetLoadModeHook(u64 man, u64 mode) {
                 slot >= 0 && slot != from ? (", the map loads read it, not the current slot " + std::to_string(slot) + "'s").c_str() : "",
                 before, after);
     std::fflush(stdout);
+    if (static_cast<std::uint32_t>(mode) == 1) {
+        RepointCaseGroups(man, from);
+    }
 }
 
 // The map load's read of the current slot (GetEventFlagValue(9020, 7) at 0x192876a, only for an

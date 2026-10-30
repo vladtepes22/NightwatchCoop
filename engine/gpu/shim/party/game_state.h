@@ -62,6 +62,8 @@ struct GameSnapshot {
 
 /// SprjSessionManager +0x124 (6 = client in another world), -1 without a session manager. Cheap.
 int LocalSessionRole();
+/// The local character's name (PlayerGameData +0xA8, UTF-16, at most 16 units); empty before a character is loaded.
+std::u16string CharacterName();
 /// Reads the state. `call_game` also asks the game's cooperator count (main thread only, world up).
 GameSnapshot ReadGameState(bool call_game);
 /// "m24_01_00_00" (or "-" when unknown).
