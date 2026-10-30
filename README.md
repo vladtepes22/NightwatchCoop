@@ -213,6 +213,7 @@ combined with visy's seamless co-op.
 |---|---|
 | Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.6+be2fda48 |
 | **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | the launcher, the built-in game patches, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, cheats, occlusion culling, trophies, fixes) |
+| Adding items in the save editor (how a weapon, armour piece or item is written into a save) | ported from [Noxde/Bloodborne-save-editor](https://github.com/Noxde/Bloodborne-save-editor) by Noxde, GPL-3.0 |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |

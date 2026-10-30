@@ -58,6 +58,8 @@ def make_save(name="Alfred", stats=(10, 11, 12, 13, 14, 15), echoes=500, insight
         cnt = 1984 if sec == 0 else 64
         for k in range(cnt):
             struct.pack_into("<IIII", d, at + 4 + k * 16, 0, 0xFFFFFFFF, 0, 0)
+    d[NAME_AT + M.FACE_BEHIND_NAME:NAME_AT + M.FACE_BEHIND_NAME + 4] = b"FACE"
+    d[M.SLOT_SIZE - 4:] = b""  # the end of a real save is data, not zeros
     put_item(d, n, 0, 0x80800010, 22000300, 1, 7)  # a +3 weapon
     put_item(d, n, 1, 0xB0000064, 0x40000064, 5, 100)  # goods 100 x5
     put_item(d, n, 2, 0xB0000584, 0x40000584, 2, 101)
@@ -168,6 +170,74 @@ def test_inventory_edit_remove_levels():
         m.set_weapon_level(w, 12, valid)  # no param row
     with pytest.raises(ValueError):
         m.set_weapon_level(w, 5, None)
+
+
+def counter_of(m):
+    return m.u32(m._second_counter())
+
+
+def test_add_goods_takes_the_first_empty_entry_and_moves_two_counters():
+    m = M.SaveModel(make_save())
+    before, used = counter_of(m), m.u32(m.normal_at)
+    m.add_goods(1000, 20)
+    assert m.u32(m.normal_at) == used + 1 and counter_of(m) == before + 1
+    got = [i for i in m.items((0,)) if i.number == 1000][0]
+    assert (got.slot, got.handle, got.iid, got.count, got.serial) == (3, 0xB00003E8, 0x400003E8, 20, 0)
+    entry = m.normal_at + 4 + 3 * M.ENTRY
+    inside = lambda a, b: any(lo <= a and b <= hi for lo, hi in ((m.normal_at, m.normal_at + 4), (entry, entry + M.ENTRY),
+                                                               (m._second_counter(), m._second_counter() + 4)))
+    assert all(inside(a, b) for a, b in m.diff())  # only the used count, the new entry and the second counter
+    assert M.SaveModel(m.to_bytes()).items((0,))[3].count == 20
+
+
+def test_add_goods_refuses_what_is_wrong():
+    m = M.SaveModel(make_save())
+    for call in ((100, 1), (1000, 0), (1000, 1000), (0, 1), (0x10000000, 1)):
+        with pytest.raises(ValueError):
+            m.add_goods(*call)
+    assert m.diff() == []
+    for k in range(M.NORMAL_ENTRIES - 3):
+        m.add_goods(2000 + k, 1)
+    with pytest.raises(ValueError, match="full"):
+        m.add_goods(900000, 1)
+
+
+def test_add_gear_follows_noxdes_layout_and_the_file_still_opens():
+    raw = make_save()
+    m = M.SaveModel(raw)
+    first = M.GA_START
+    struct.pack_into("<II", m.d, first, 0xC0800041, 0x80000001)  # a gem record: handles count from the highest
+    m.d[first + 8:first + 40] = b"\x00" * 32
+    m.d[first + 40:first + 48] = b"\x00" * 8
+    m.set_flag(100)
+    raw = m.to_bytes()
+    m = M.SaveModel(raw)
+    m.add_gear(0, 0x4C4B40)
+    assert len(m.to_bytes()) == M.SLOT_SIZE and m.shift == 52
+    d = m.to_bytes()
+    empty_at = first + 40  # the first empty slot behind the gem record
+    assert d[empty_at:empty_at + 60] == struct.pack("<5I", 0x80800042, 0x4C4B40, 0xC8, 0, 1) + struct.pack("<2I", 0x80000000, 0) * 5
+    again = M.SaveModel(d)  # the header is stale: the name is found again from the face block
+    assert (again.name, again.shift, again.name_at) == ("Alfred", 52, m.name_at)
+    assert [(i.kind, i.number, i.count) for i in again.items((0,))][-1] == ("weapon", 0x4C4B40, 1)
+    assert again.items((0,))[-1].handle == 0x80800042 and again.u32(again.normal_at) == 4
+    assert again.ng_cycle == 0 and again.world_empty and again.flag(100) is True and again.flag(101) is False
+    again.add_gear(1, 40000)  # a second add works on the shifted file
+    third = M.SaveModel(again.to_bytes())
+    assert third.shift == 104 and third.items((0,))[-1].iid == 0x10000000 | 40000
+    assert third.items((0,))[-1].handle == 0x90800043
+    assert third.stats == M.SaveModel(raw).stats and third.echoes == 500
+
+
+def test_add_gear_needs_an_item_slot_and_a_free_entry():
+    m = M.SaveModel(make_save())
+    for k in range(M.NORMAL_ENTRIES - 3):
+        m.add_goods(2000 + k, 1)
+    with pytest.raises(ValueError, match="full"):
+        m.add_gear(0, 0x4C4B40)
+    assert m.shift == 0
+    with pytest.raises(ValueError):
+        M.SaveModel(make_save()).add_gear(4, 100)
 
 
 def test_duplicate_keys_merge():

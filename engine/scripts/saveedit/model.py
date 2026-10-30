@@ -16,6 +16,13 @@ Layout facts (name = the character name's UTF-16 field, 17 characters of 2 bytes
               entry {u32 handle, u32 item id (category << 28 | id), u32 count, u32 serial}; empty is
               {0, 0xFFFFFFFF, 0, 0}; weapons: id = base + 100 * reinforcement level
   event flags = the 150001-byte section (group key and bit: scripts/party_session._group_key)
+
+Adding items (add_goods, add_gear) follows noxde's Bloodborne Save Editor (github.com/Noxde/Bloodborne-save-editor,
+GPL-3.0; src-tauri/src/data_handling/inventory.rs, add_item and add_armor_or_weapon), ported to this layout:
+the item instance table (file 0x54, 4096 slots) is a packed stream, so a weapon or armour record (60 bytes)
+replaces an empty slot (8 bytes) and moves everything behind it 52 bytes up; the last 52 bytes of the file
+fall off (not zero on any save we have, and noxde's editor does the same on every add). The section table in the header is left as it is (the game rewrites it on its
+next save); the name is then found again from the face block that follows the inventory.
 """
 import re
 import struct
@@ -29,8 +36,15 @@ FLAG_SECTION = POOL_BYTES + 1
 NORMAL_ENTRIES = 1984
 KEY_ENTRIES = 64
 ENTRY = 16
+FACE_BEHIND_NAME = 34044 + 0x1C4  # the "FACE" block of the appearance sits this far behind the name
+GA_START = 0x54
+GA_SLOTS = 4096
+GA_SIZES = {0x80: 60, 0x90: 60, 0xC0: 40}
+GA_GROW = 52  # a 60-byte record replaces an 8-byte empty slot
+GEAR_DURABILITY = 0xC8
 NORMAL_BEHIND_NAME = 0x1C4
 EMPTY_ID = 0xFFFFFFFF
+NO_SLOT = 0x80000000
 STAT_NAMES = ("vigor", "endurance", "strength", "skill", "bloodtinge", "arcane")
 STAT_BACK = {"vigor": 0x68, "endurance": 0x60, "strength": 0x50, "skill": 0x48, "bloodtinge": 0x40, "arcane": 0x38}
 LEVEL_BASE = 50
@@ -103,12 +117,35 @@ class SaveModel:
         if self.u32(0) != SAVE_VERSION:
             raise SaveFormatError(f"save version {self.u32(0):#x}, expected {SAVE_VERSION:#x}")
         size, end = struct.unpack_from("<II", self.d, 0x0C)
-        self.name_at = end - size - NAME_BACK
+        header_name_at = end - size - NAME_BACK
+        self.name_at = header_name_at
+        if not self._plausible(header_name_at):
+            # A file that gained a weapon or armour record (see the docstring) has its header behind the data:
+            # take the name's place from the face block instead.
+            face = bytes(self.d).find(b"FACE", 0xF000)
+            if face > 0 and self._plausible(face - FACE_BEHIND_NAME):
+                self.name_at = face - FACE_BEHIND_NAME
+        self.shift = self.name_at - header_name_at
+        self.header_name_at = header_name_at
         if not (0x100 <= self.name_at <= 0x40000):
             raise SaveFormatError("the character name is not where this save version keeps it")
-        self.pool = self._find_pool()
+        self.pool = self._find_pool() + self.shift
         self.normal_at = self.name_at + NORMAL_BEHIND_NAME
         self._check_inventory()
+
+    def _moved(self, header_offset):
+        """Where the data a header entry points at is now: the header was written before records were added to
+        the instance table, so everything that lay behind the name area has moved by self.shift."""
+        return header_offset + (self.shift if header_offset > self.header_name_at else 0)
+
+    def _plausible(self, name_at):
+        if not (0x100 <= name_at <= 0x40000):
+            return False
+        at = name_at + NORMAL_BEHIND_NAME
+        if at + 4 + NORMAL_ENTRIES * ENTRY + 2 * (4 + KEY_ENTRIES * ENTRY) > SLOT_SIZE:
+            return False
+        used = sum(1 for k in range(NORMAL_ENTRIES) if not self._empty(at + 4 + k * ENTRY))
+        return self.u32(at) == used
 
     # --- raw helpers -------------------------------------------------------------------------
     def u32(self, o):
@@ -207,7 +244,7 @@ class SaveModel:
         off, size = struct.unpack_from("<II", self.d, 0x2C)
         if size != 8 or not 0x54 <= off <= SLOT_SIZE - 8:
             raise SaveFormatError("no NG cycle block")
-        return off
+        return self._moved(off)
 
     @property
     def ng_cycle(self):
@@ -231,6 +268,7 @@ class SaveModel:
     def world_empty(self):
         """True: written in another player's world (three empty world-state blocks, no LCED)."""
         a, an = struct.unpack_from("<II", self.d, 0x3C)
+        a = self._moved(a)
         return an == 12 and not any(self.d[a:a + 12]) if 0x54 <= a <= SLOT_SIZE - 12 else False
 
     # --- inventory --------------------------------------------------------------------------------
@@ -290,6 +328,75 @@ class SaveModel:
         o = self._item_off(item)
         self._put(o + 4, (0 << 28) | new)
         item.iid = new
+
+    # --- adding items --------------------------------------------------------------------------------------
+    def _second_counter(self):
+        """The u32 right behind the key lists; it grows by one with every entry added to the inventory."""
+        return self.normal_at + 4 + NORMAL_ENTRIES * ENTRY + 2 * (4 + KEY_ENTRIES * ENTRY)
+
+    def has_item(self, category, number):
+        return any(i.category == category and i.number == number for i in self.items((0,)))
+
+    def _free_entry(self):
+        at = self.normal_at + 4
+        for k in range(NORMAL_ENTRIES):
+            if self._empty(at + k * ENTRY):
+                return at + k * ENTRY
+        raise ValueError("the inventory is full")
+
+    def _put_entry(self, o, handle, iid, count):
+        self.d[o:o + ENTRY] = struct.pack("<IIII", handle, iid, count, 0)
+        self._recount(0)
+        self._put(self._second_counter(), self.u32(self._second_counter()) + 1)
+
+    def add_goods(self, number, count):
+        """A consumable, material, key item or chalice. valid_ids is the caller's check (the game's goods list);
+        an item the inventory already holds is edited with set_count, not added twice."""
+        count = int(count)
+        if not 1 <= count <= 999:
+            raise ValueError("the count is 1 to 999")
+        if not 0 < number < 0x10000000:
+            raise ValueError("not an item id")
+        if self.has_item(4, number):
+            raise ValueError("the inventory already holds this item; change its count")
+        self._put_entry(self._free_entry(), 0xB0000000 | number, 0x40000000 | number, count)
+
+    def _ga_walk(self):
+        """(offset of the first empty slot or None, highest handle number) over the instance table's slots."""
+        o, first, top = GA_START, None, 0
+        for _ in range(GA_SLOTS):
+            if o + 8 > self.name_at:
+                raise ValueError("the item instance table does not check out")
+            kind = self.d[o + 3]
+            if kind == 0:
+                first = o if first is None else first
+                o += 8
+                continue
+            if kind not in GA_SIZES:
+                raise ValueError("the item instance table does not check out")
+            top = max(top, struct.unpack_from("<H", self.d, o)[0])
+            o += GA_SIZES[kind]
+        return first, top
+
+    def add_gear(self, category, number):
+        """A weapon (category 0) or armour piece (1) with five closed gem slots. The caller validates the id."""
+        if category not in (0, 1) or not 0 < number < 0x10000000:
+            raise ValueError("not a weapon or armour id")
+        entry = self._free_entry()  # fails before anything moves
+        first, top = self._ga_walk()
+        if first is None or top >= 0xFFFF:
+            raise ValueError("the save has no free item slot")
+        handle = (0x90800000 if category == 1 else 0x80800000) | (top + 1)
+        iid = (0x10000000 if category == 1 else 0) | number
+        record = struct.pack("<5I", handle, iid, GEAR_DURABILITY, 0, 1) + struct.pack("<2I", NO_SLOT, 0) * 5
+        assert len(record) == 60
+        self.d[first:first + 8] = record
+        del self.d[-GA_GROW:]
+        self.name_at += GA_GROW
+        self.normal_at += GA_GROW
+        self.pool += GA_GROW
+        self.shift += GA_GROW
+        self._put_entry(entry + GA_GROW, handle, iid, 1)
 
     def duplicate_keys(self):
         """Goods ids that have a stack in both key lists, or twice in one."""

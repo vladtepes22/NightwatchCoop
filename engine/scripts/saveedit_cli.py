@@ -12,7 +12,7 @@ from saveedit import flagsdata, icons, instances, names, store
 from save_editor import _update_party_characters
 
 
-COMMANDS = ("slots", "show", "apply", "backups", "restore", "effects", "gem_preview", "gem_icons")
+COMMANDS = ("slots", "show", "apply", "backups", "restore", "effects", "gem_preview", "gem_icons", "catalog")
 
 
 def running_games():
@@ -80,6 +80,21 @@ def max_level(catalogue, item):
 PLACEHOLDERS = {(0, 1000), (0, 1000000)}
 SOCKETED = 3  # item section of a gem sitting in a weapon slot (not in the inventory lists)
 GEM_EFFECTS = 3
+ADD_CATEGORIES = (0, 1, 4)  # weapons, armour, goods: what "add item" offers (gems and runes are not added yet)
+ADD_MAX_COUNT = 99
+CATALOG_LIMIT = 60
+
+
+def catalog(catalogue, request, game, cache):
+    """[{number, name, icon}] of the items the editor can add, filtered by name or id (nothing is written)."""
+    if not isinstance(request, dict) or request.get("category") not in ADD_CATEGORIES:
+        raise ValueError("expected a category: 0 weapon, 1 armor, 4 goods")
+    category, text = request["category"], str(request.get("text", ""))[:60]
+    rows = [(n, name) for n, name in catalogue.search(category, text)
+            if catalogue.name(category, n) is not None and (category, n) not in PLACEHOLDERS][:CATALOG_LIMIT]
+    wanted = {catalogue.icon(category, n) for n, _ in rows} - {None}
+    paths = icons.ensure(game, cache, wanted) if game and wanted else {}
+    return [dict(number=n, name=name, icon=paths.get(catalogue.icon(category, n))) for n, name in rows]
 
 
 def gem_sort(gem, catalogue):
@@ -168,6 +183,8 @@ def execute(args, edit=None, running=running_games, catalogues=None):
         if args.game:
             icons.ensure(args.game, cache, catalogue.gem_icon_ids())
         return {}
+    if args.command == "catalog":
+        return catalog(catalogue, edit, args.game, cache)
     if args.command == "gem_preview":
         # The name and icon a gem would have, by the same rule as a saved gem's. Nothing is written.
         if not isinstance(edit, dict) or set(edit) != {"gen", "shape", "effects"} or not isinstance(edit["effects"], list):
@@ -183,7 +200,7 @@ def execute(args, edit=None, running=running_games, catalogues=None):
     if edit.get("revision") != revision(model):
         raise store.EditConflict("the save changed on disk; open it again")
     unknown = set(edit) - {"revision", "name", "stats", "echoes", "insight", "ng_cycle", "items", "flags", "repair",
-                           "gems"}
+                           "gems", "add"}
     if unknown:
         raise ValueError("unknown edit fields")
     if "name" in edit:
@@ -240,6 +257,26 @@ def execute(args, edit=None, running=running_games, catalogues=None):
         model.repair_phantom_mark()
     if "duplicate_keys" in repairs:
         model.merge_duplicate_keys()
+    # Last: adding a weapon or armour piece moves the data behind the item table, so no offset taken earlier holds.
+    added = edit.get("add", [])
+    if not isinstance(added, list) or len(added) > 50:
+        raise ValueError("expected up to 50 items to add")
+    for change in added:
+        if (not isinstance(change, dict) or set(change) - {"category", "number", "count"}
+                or change.get("category") not in ADD_CATEGORIES or type(change.get("number")) is not int):
+            raise ValueError("invalid item to add")
+        category, number = change["category"], change["number"]
+        if (category, number) in PLACEHOLDERS or not catalogue.known(category, number) or catalogue.name(category, number) is None:
+            raise ValueError("the game has no such item")
+        if category == 0 and (number % 10000) // 100:
+            raise ValueError("add a weapon at +0; raise its level afterwards")
+        if category == 4:
+            count = change.get("count", 1)
+            if type(count) is not int or not 1 <= count <= ADD_MAX_COUNT:
+                raise ValueError(f"the count is 1 to {ADD_MAX_COUNT}")
+            model.add_goods(number, count)
+        else:
+            model.add_gear(category, number)
     return {"backup": store.apply_edit(user, kind, args.slot, model, running, _update_party_characters)}
 
 
@@ -293,7 +330,7 @@ def main(argv=None, stdin=None, stdout=None, running=running_games):
             worker(args, stdin or sys.stdin, stdout, running)
             return 0
         check_slot(args)
-        edit = json.load(stdin or sys.stdin) if args.command in ("apply", "gem_preview") else None
+        edit = json.load(stdin or sys.stdin) if args.command in ("apply", "gem_preview", "catalog") else None
         result = execute(args, edit, running)
         print(json.dumps(result, default=str, ensure_ascii=True), file=stdout)
         return 0

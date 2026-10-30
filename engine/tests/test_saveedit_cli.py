@@ -256,6 +256,43 @@ class SaveEditorCliTests(unittest.TestCase):
             self.worker([dict(command="show", slot=0), dict(command="show", slot=0)])
         self.assertEqual(load.call_count, 1)
 
+    def catalogue(self):
+        return names.Catalogue({"names": {"goods": {1000: "Blood Vial", 1100: "Quicksilver Bullet"},
+                                          "weapon": {4000000: "Hunter Axe"}, "armor": {40000: "Hunter Cap"}},
+                                "ids": {"goods": [1000, 1100, 5], "weapon": [4000000, 4000100], "armor": [40000]}})
+
+    def test_catalog_lists_named_items_only(self):
+        with patch.object(names.Catalogue, "load", return_value=self.catalogue()):
+            code, rows = self.call("catalog", dict(category=4, text="vial"))
+            self.assertEqual((code, [r["number"] for r in rows]), (0, [1000]))
+            self.assertEqual([r["name"] for r in self.call("catalog", dict(category=0))[1]], ["Hunter Axe"])
+            self.assertEqual(self.call("catalog", dict(category=2))[0], 1)
+            self.assertEqual(self.call("catalog", dict(text="x"))[0], 1)
+
+    def test_add_items_through_apply(self):
+        with patch.object(names.Catalogue, "load", return_value=self.catalogue()):
+            revision = self.call("show")[1]["revision"]
+            code, reply = self.call("apply", dict(revision=revision, add=[
+                dict(category=4, number=1100, count=30), dict(category=0, number=4000000),
+                dict(category=1, number=40000)]))
+            self.assertEqual(code, 0, reply)
+            rows = [r for r in self.call("show")[1]["items"] if r["section"] == 0]
+        self.assertEqual([(r["kind"], r["number"], r["count"]) for r in rows[-3:]],
+                         [("goods", 1100, 30), ("weapon", 4000000, 1), ("armor", 40000, 1)])
+        self.assertEqual(self.call("slots")[1][0]["name"], "Tester")
+
+    def test_add_items_refuses_what_is_not_offered(self):
+        bad = ([dict(category=4, number=999)], [dict(category=4, number=1000, count=100)],
+               [dict(category=4, number=1000, count=0)], [dict(category=0, number=4000100)],
+               [dict(category=8, number=1)], [dict(category=4, number=100)], [dict(category=4, number=5)],
+               [dict(category=4, number="1000")], [dict(category=4, number=1000, extra=1)], "x")
+        with patch.object(names.Catalogue, "load", return_value=self.catalogue()):
+            revision = self.call("show")[1]["revision"]
+            for add in bad:
+                with self.subTest(add=add):
+                    self.assertEqual(self.call("apply", dict(revision=revision, add=add))[0], 1)
+        self.assertEqual(self.file.read_bytes(), self.original)
+
     def test_gem_preview_uses_the_saved_gems_rule(self):
         class Fake:
             effects = None

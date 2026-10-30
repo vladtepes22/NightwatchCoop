@@ -47,10 +47,26 @@ an ending's staff roll and NG+ on the next load and 6604 strips the key items on
 Not pinned (read only / not offered): the 4th inventory u32 ("serial": a sort key built from a per item part x 40960 plus a counter that is
 shared with the weapon/armour handle numbers 0x4E.., so a new entry cannot be forged safely), moving gems between weapons, gem shapes,
 storage (a 16-byte list near 0xE1AB4, not identified), equipped slots, covenant, appearance, spawn lamp. The editor therefore edits and
-removes existing entries but does not add new ones.
+removes existing entries; adding is below.
 
 Names: from the player's game (msg\<lang>\item.msgbnd.dcx FMGs: goods, weapon, armor, accessory, NPC names by chr id; menu.msgbnd.dcx event text
 7000AABn = the n-th lamp of map AAB, matching the lamp flag 7AAB02nn: lamp counts per area agree, 72102410 "1st Floor Sickroom" = lamp 2412950).
 Param row ids (EquipParam*) bound valid weapon levels.
 
-Adding items (30 Oct 2026): not offered. It needs the diffs of saves edited by another tool to settle the serial rule and the table's packing; none exist yet, so the editor says it is coming soon.
+Adding items (31 Oct 2026, ported from Noxde's Bloodborne Save Editor, GPL-3.0, `inventory.rs`; checked byte for byte against the
+expected bytes of its own test `inventory_add_armor_or_weapon` on its `newsave`: record, inventory entry, both counters). Offered:
+goods (consumable, material, key item, chalice), weapons (at +0) and armour. Not offered: blood gems and runes (their effect rolls
+are a separate record), the storage box.
+- Goods: the first empty entry of the normal list gets `{0xB0000000 | id, 0x40000000 | id, count, 0}`; the serial stays 0 (saves
+  edited with Noxde's tool hold such entries and load). The list's used count and the second counter (the u32 right behind the
+  summoned key list, name + 34256) each go up by one.
+- Weapon and armour: the item instance table (file 0x54, 4096 slots, packed) gets a 60-byte record
+  `{handle, id (armour 0x10000000 | id), 0xC8, 0, 1, 5 x {0x80000000, 0}}` in place of its first empty 8-byte slot; the handle is
+  `0x80800000` (armour `0x90800000`) `| (highest u16 handle number in the table, gems included, + 1)`. Everything behind moves 52 bytes
+  up and the last 52 bytes of the file fall off (not zero on any save we have; Noxde's tool does the same). The inventory entry
+  carries the same handle and id, count 1, serial 0.
+- The header's section table is not touched, so after an add its absolute offsets lie 52 bytes behind the data. `SaveModel` takes the
+  name from the "FACE" appearance block (name = FACE - 34044 - 0x1C4) when the header's place does not check out, moves the flag pool
+  and the header offsets that lay behind the name (NG cycle, world-state blocks) by `shift`, and `diff()` then shows the whole
+  moved range. The game rewrites the header on its next save.
+- Unproven until seen in game: that a save with a record added by this port loads, shows the item and can be saved again.
