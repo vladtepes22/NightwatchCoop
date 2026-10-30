@@ -662,8 +662,7 @@ public sealed class SeamlessPage : LauncherPage
         slot.Status.Text = !installed ? L.T("VPN not installed") : up ? L.T("VPN connected") : L.T("VPN disconnected");
         slot.Install.Content = installed ? L.T("Uninstall") : L.T("Install");
         slot.Install.Icon = new SymbolIcon { Symbol = installed ? SymbolRegular.Delete24 : SymbolRegular.ArrowDownload24 };
-        var mode = S.Str("party_mode");
-        slot.Connect.Visibility = shown && installed && !up && (Joining(mode) || IsPublic) ? Visibility.Visible : Visibility.Collapsed;
+        slot.Connect.Visibility = shown && installed && !up ? Visibility.Visible : Visibility.Collapsed;
         slot.Install.IsEnabled = slot.Connect.IsEnabled = !busy && !_changingHost;
         slot.Ring.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         SetHint(slot.Note, note);
