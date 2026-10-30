@@ -99,11 +99,23 @@ namespace BloodborneLauncher.Views
             _step = Math.Clamp(step, 0, _pages.Length);
             _back.IsEnabled = _step > 0;
             _next.Content = _step < _pages.Length ? L.T("Next") : L.T("Finish");
+            _next.Appearance = _step == 0 ? ControlAppearance.Secondary : ControlAppearance.Primary;
+            _next.IsDefault = _step > 0;
             _choices.Children.Clear();
             if (_step == 0)
             {
                 _title.Text = L.T("Co-op setup");
                 _intro.Text = L.T("A few questions about how hard the party should be. Each page starts on what you have now, and nothing changes until you press Finish. Every rule stays editable on this tab.");
+                var recommended = new Button { Content = L.T("Use recommended"), Appearance = ControlAppearance.Primary, MinWidth = 160, IsDefault = true, Margin = new Thickness(0, 0, 0, 6) };
+                recommended.Click += (_, _) =>
+                {
+                    CoopPresets.ApplyRecommended((key, value) => Ws.Ini.Set(key, value));
+                    _finished = true;
+                    Ws.SaveSoon();
+                    Close();
+                };
+                _choices.Children.Add(recommended);
+                _choices.Children.Add(Info(L.T("Sets all of them at once: Seamless scaling, 30 % guest health cut, no rot, level sync, boss drops for guests, no travel vote. Next asks you instead."), 12));
                 return;
             }
             var index = _step - 1;

@@ -71,7 +71,7 @@ This build uses Awakenchan's published engine source and its complete available
 optimization settings. The newer upstream binary's additional game-edition and
 modified-executable support is not included. Use the clean CUSA03173 1.09 dump.
 
-Launcher configuration: %APPDATA%\bloodborne-seamless. Session logs are under
+Launcher configuration: %APPDATA%\nightwatch. Session logs are under
 this package's logs; large crash/capture artifacts are directed to
 D:\project-artifacts\BloodborneSeamless\user-tests on the configured PC.
 

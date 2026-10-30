@@ -14,7 +14,7 @@ $package = $PSScriptRoot
 if (!(Test-Path -LiteralPath (Join-Path $package 'Nightwatch Co-op.exe'))) { throw 'Put this script in the Nightwatch Co-op folder.' }
 $guestPackage = "$package-Guest"
 $tests = Join-Path $package 'local-test'
-$mine = Join-Path $env:APPDATA 'bloodborne-seamless\settings.json'
+$mine = Join-Path $env:APPDATA $(if (Test-Path (Join-Path $env:APPDATA 'nightwatch')) { 'nightwatch\settings.json' } else { 'bloodborne-seamless\settings.json' })
 if (!(Test-Path -LiteralPath $mine)) { throw "Start Nightwatch Co-op.exe once first (no $mine)." }
 
 # The guest's own install: a second game may not run from the same folder (the launcher would close it).

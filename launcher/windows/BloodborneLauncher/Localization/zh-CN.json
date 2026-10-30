@@ -2359,5 +2359,13 @@
   "Another launcher window or VPN program holds this connection.": "另一个启动器窗口或 VPN 程序正在占用此连接。",
   "Connected. Online play ends when you close the launcher.": "已连接。关闭启动器后在线游戏将结束。",
   "Needs OpenVPN. The first Connect makes a personal key that stays on this PC, encrypted for your Windows user, and asks the Nightwatch VPN server for a certificate. Nobody registers. Closing the launcher ends the connection.": "需要 OpenVPN。首次连接会生成一个保存在此电脑上的个人密钥（已为你的 Windows 用户加密），并向 Nightwatch VPN 服务器申请证书。无需注册。关闭启动器会结束连接。",
-  "Online play installs the official, unmodified OpenVPN (GPL v2, source at https://openvpn.net) after you agree.": "在线游戏会在你同意后安装官方未修改的 OpenVPN（GPL v2，源代码见 https://openvpn.net）。"
+  "Online play installs the official, unmodified OpenVPN (GPL v2, source at https://openvpn.net) after you agree.": "在线游戏会在你同意后安装官方未修改的 OpenVPN（GPL v2，源代码见 https://openvpn.net）。",
+  "Seamless (recommended)": "无缝（推荐）",
+  "Nightwatch": "夜巡",
+  "Use recommended": "使用推荐设置",
+  "visy's numbers: boss health 150 %, boss damage +10 %, enemy health 50 %. The normal experience: easy for veterans, still enjoyable. The recommended experience.": "visy 的数值：首领生命 150%，首领伤害 +10%，敌人生命 50%。常规体验：对老玩家较轻松，但依然有趣。推荐的体验。",
+  "Boss health 200 %, boss damage +20 %, enemy health 100 %, enemy damage +10 %. The hard experience, for parties that want a fight.": "首领生命 200%，首领伤害 +20%，敌人生命 100%，敌人伤害 +10%。困难体验，适合想要挑战的队伍。",
+  "Sets all of them at once: Seamless scaling, 30 % guest health cut, no rot, level sync, boss drops for guests, no travel vote. Next asks you instead.": "一次设置全部：无缝缩放、访客生命减少 30%、无死亡腐化、等级同步、访客获得首领掉落、无旅行投票。点击“下一步”则逐项询问。",
+  "Your settings could not move to the new Nightwatch folder, because another launcher is open or the folder is in use. They are used where they are for now, and the next start tries again.": "无法将设置移动到新的 Nightwatch 文件夹，因为另一个启动器已打开或文件夹正在使用中。现在将继续在原位置使用，下次启动时会重试。",
+  "Nightwatch Co-op keeps its settings in %APPDATA%\\nightwatch. An older settings folder is still in %APPDATA%\\bloodborne-seamless, untouched, if you ever need it.": "Nightwatch Co-op 将设置保存在 %APPDATA%\\nightwatch。旧的设置文件夹仍保留在 %APPDATA%\\bloodborne-seamless，未作改动，以备不时之需。"
 }

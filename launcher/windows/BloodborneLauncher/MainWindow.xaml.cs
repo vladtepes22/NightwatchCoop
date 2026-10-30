@@ -95,6 +95,7 @@ namespace BloodborneLauncher
             Loaded += async (_, _) =>
             {
                 Updater.CleanUp();
+                TellConfigMove(ws);
                 // Nightwatch VPN, only for an install that already enrolled: the key-holding profile does not outlive the
                 // tunnel, and the keys renew in the background.
                 if (NightwatchVpn.Shipped is { } vpn)
@@ -484,6 +485,22 @@ namespace BloodborneLauncher
             {
                 // The window closes without remembering where it was.
             }
+        }
+
+        /// <summary>The settings folder's move (Paths.ResolveConfig), when the player has something to know: a failure at every
+        /// start it happens, the kept old folder once.</summary>
+        private void TellConfigMove(Workspace ws)
+        {
+            string? text = null;
+            if (Paths.ConfigMoved == ConfigMove.Failed)
+                text = L.T("Your settings could not move to the new Nightwatch folder, because another launcher is open or the folder is in use. They are used where they are for now, and the next start tries again.");
+            else if (Paths.ConfigMoved == ConfigMove.OldKept && !ws.Settings.Bool("old_settings_noted"))
+            {
+                ws.Settings.Set("old_settings_noted", true);
+                ws.SaveSoon();
+                text = L.T("Nightwatch Co-op keeps its settings in %APPDATA%\\nightwatch. An older settings folder is still in %APPDATA%\\bloodborne-seamless, untouched, if you ever need it.");
+            }
+            if (text != null) Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () => Prompt.Tell(L.T("Settings"), text));
         }
 
         private async void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)

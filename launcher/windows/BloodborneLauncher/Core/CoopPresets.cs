@@ -37,11 +37,11 @@ namespace BloodborneLauncher.Core
                 new Choice(L.T("Vanilla"),
                     L.T("The game's own numbers: boss health 100 %, no extra damage, no enemy scaling. The easy way to play seamless, for players who want a stress-free experience."),
                     new[] { ("party_boss_hp", "100"), ("party_boss_damage", "0"), ("party_enemy_hp", "0"), ("party_enemy_damage", "0") }),
-                new Choice(L.T("Seamless"),
-                    L.T("visy's numbers: boss health 150 %, boss damage +10 %, enemy health 50 %. The normal experience: easy for veterans, still enjoyable."),
+                new Choice(L.T("Seamless (recommended)"),
+                    L.T("visy's numbers: boss health 150 %, boss damage +10 %, enemy health 50 %. The normal experience: easy for veterans, still enjoyable. The recommended experience."),
                     new[] { ("party_boss_hp", "150"), ("party_boss_damage", "10"), ("party_enemy_hp", "50"), ("party_enemy_damage", "0") }),
-                new Choice(L.T("Nightwatch (recommended)"),
-                    L.T("Boss health 200 %, boss damage +20 %, enemy health 100 %, enemy damage +10 %. The recommended experience."),
+                new Choice(L.T("Nightwatch"),
+                    L.T("Boss health 200 %, boss damage +20 %, enemy health 100 %, enemy damage +10 %. The hard experience, for parties that want a fight."),
                     new[] { ("party_boss_hp", "200"), ("party_boss_damage", "20"), ("party_enemy_hp", "100"), ("party_enemy_damage", "10") }),
             }),
             new Page(L.T("Rot on death"), L.T("Should Hunters suffer an additional penalty on death?"), new[]
@@ -65,6 +65,15 @@ namespace BloodborneLauncher.Core
                 new Choice(L.T("On"), L.T("Travel needs every member's approval; one refusal cancels it."), On("party_travel_vote", true)),
             }),
         };
+
+        /// <summary>Use recommended: every page's shipped default, so a player who skips the questions plays what a fresh
+        /// install plays (Seamless scaling). Only these rules; nothing else in the ini.</summary>
+        public static void ApplyRecommended(Action<string, string> set)
+        {
+            foreach (var page in Pages())
+                foreach (var (key, value) in page.Choices[Match(page, _ => null)].Values)
+                    set(key, value);
+        }
 
         /// <summary>The index of the choice whose values all equal the current ones (<paramref name="raw"/>
         /// gives a key's value in the ini, or null when absent), or -1 when none does.</summary>

@@ -13,7 +13,7 @@ $package = $PSScriptRoot
 $start = Join-Path $package 'engine\out\bb-start.exe'
 if (!(Test-Path -LiteralPath $start)) { throw "Put this script in the Nightwatch Co-op folder (no engine\out\bb-start.exe beside it)." }
 if (!$Game) {
-    $settings = Join-Path $env:APPDATA 'bloodborne-seamless\settings.json'
+    $settings = Join-Path $env:APPDATA $(if (Test-Path (Join-Path $env:APPDATA 'nightwatch')) { 'nightwatch\settings.json' } else { 'bloodborne-seamless\settings.json' })
     if (Test-Path -LiteralPath $settings) { $Game = (Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json).game_dir }
 }
 if (!$Game -or !(Test-Path -LiteralPath (Join-Path $Game 'eboot.bin'))) { throw "Game folder not found; pass -Game <folder with eboot.bin>." }

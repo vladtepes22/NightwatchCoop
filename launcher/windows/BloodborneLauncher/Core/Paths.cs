@@ -3,23 +3,68 @@ using BloodborneLauncher.Build;
 
 namespace BloodborneLauncher.Core
 {
+    /// <summary>What happened to the old settings folder at this start (Paths.ResolveConfig).</summary>
+    public enum ConfigMove { None, OldKept, Failed }
+
     /// <summary>
     /// Where things live. The package folder (PortDir) holds the launcher, Bloodborne.exe and the
     /// player's files - bbport.ini, mods.json, patches.json, user, mods, logs (its data folder,
     /// BB_DATA_DIR) - and the engine in engine\: out\bb-probe.exe, scripts\run_windows.py and a
     /// bundled Python. Older packages had the engine at the top (EngineDirOf handles both).
-    /// Launcher settings are per-user, in %APPDATA%\bloodborne-seamless\settings.json.
+    /// Launcher settings are per-user, in %APPDATA%\nightwatch\settings.json.
     /// </summary>
     public static class Paths
     {
-        /// <summary>The launcher's settings: %APPDATA%\bloodborne-seamless, or BB_LAUNCHER_CONFIG_DIR (a second
-        /// launcher on one PC, e.g. a local co-op test, keeps its own).</summary>
-        public static readonly string ConfigDir =
+        /// <summary>The launcher's settings: %APPDATA%\nightwatch, or BB_LAUNCHER_CONFIG_DIR (a second launcher on one PC,
+        /// e.g. a local co-op test, keeps its own and never moves anything).</summary>
+        private static readonly (string Dir, ConfigMove Move) Config =
             Environment.GetEnvironmentVariable("BB_LAUNCHER_CONFIG_DIR") is { Length: > 0 } configDir
-                ? configDir
-                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "bloodborne-seamless");
+                ? (configDir, ConfigMove.None)
+                : ResolveConfig(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), OtherLaunchersRunning,
+                    System.Reflection.Assembly.GetEntryAssembly() == typeof(Paths).Assembly);
+
+        public static readonly string ConfigDir = Config.Dir;
+        public static readonly ConfigMove ConfigMoved = Config.Move;
 
         public static readonly string ConfigFile = Path.Combine(ConfigDir, "settings.json");
+
+        /// <summary>Picks the settings folder before anything reads it, moving the old default on first use. The new one
+        /// wins when both exist, and neither is touched then. While another launcher runs, or when the rename fails, the
+        /// old folder stays in use for this run: its contents are never split, merged or started fresh. Only the launcher
+        /// itself moves it (<paramref name="mayMove"/>), never a test program that links this class.</summary>
+        public static (string Dir, ConfigMove Move) ResolveConfig(string appData, Func<bool> othersRunning, bool mayMove)
+        {
+            string old = Path.Combine(appData, "bloodborne-seamless"), now = Path.Combine(appData, "nightwatch");
+            using var turn = new Mutex(false, @"Local\NightwatchConfigMove");
+            var held = false;
+            try
+            {
+                try { held = turn.WaitOne(TimeSpan.FromSeconds(5)); }
+                catch (AbandonedMutexException) { held = true; }
+                if (Directory.Exists(now)) return (now, Directory.Exists(old) ? ConfigMove.OldKept : ConfigMove.None);
+                if (!Directory.Exists(old)) return (now, ConfigMove.None);
+                if (!held || !mayMove) return (old, ConfigMove.Failed);
+                // An update's restart: the launcher it replaces is on its way out.
+                for (var i = 0; i < 15 && othersRunning(); i++) Thread.Sleep(200);
+                if (othersRunning()) return (old, ConfigMove.Failed);
+                try
+                {
+                    Directory.Move(old, now);
+                    return (now, ConfigMove.None);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return (old, ConfigMove.Failed); }
+            }
+            finally { if (held) turn.ReleaseMutex(); }
+        }
+
+        private static bool OtherLaunchersRunning()
+        {
+            using var self = System.Diagnostics.Process.GetCurrentProcess();
+            var same = System.Diagnostics.Process.GetProcessesByName(self.ProcessName);
+            var others = same.Any(p => p.Id != self.Id);
+            foreach (var p in same) p.Dispose();
+            return others;
+        }
 
         /// <summary>The port folder in use: the "port_dir" setting, else one found by ResolvePort.</summary>
         public static string PortDir { get; set; } = "";

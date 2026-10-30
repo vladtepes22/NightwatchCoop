@@ -609,6 +609,7 @@ Check(firewallLines[1].Contains("-Protocol TCP -LocalPort 47890") && firewallLin
 PartyCodeTests.Run();
 SaveEditorTests.Run();
 VpnTests.Run();
+CoopSetupTests.Run();
 Console.WriteLine("PASS: host/join validation, party codes against the engine's, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 
 [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
