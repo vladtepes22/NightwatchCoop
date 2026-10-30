@@ -2419,5 +2419,6 @@
   "Connection check: problems found": "連線檢查：發現問題",
   "Move the party to port ": "將隊伍移至連接埠 ",
   "? Friends then need your new code.": "？之後好友需要你的新代碼。",
-  "Move": "移動"
+  "Move": "移動",
+  "The save editor is experimental. Adding items is coming soon.": "存檔編輯器仍處於實驗階段。新增物品功能即將推出。"
 }

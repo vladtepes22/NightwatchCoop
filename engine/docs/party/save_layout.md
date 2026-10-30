@@ -52,3 +52,5 @@ removes existing entries but does not add new ones.
 Names: from the player's game (msg\<lang>\item.msgbnd.dcx FMGs: goods, weapon, armor, accessory, NPC names by chr id; menu.msgbnd.dcx event text
 7000AABn = the n-th lamp of map AAB, matching the lamp flag 7AAB02nn: lamp counts per area agree, 72102410 "1st Floor Sickroom" = lamp 2412950).
 Param row ids (EquipParam*) bound valid weapon levels.
+
+Adding items (30 Oct 2026): not offered. It needs the diffs of saves edited by another tool to settle the serial rule and the table's packing; none exist yet, so the editor says it is coming soon.
