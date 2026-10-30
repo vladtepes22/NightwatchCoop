@@ -92,6 +92,12 @@ public sealed class SeamlessPage : LauncherPage
             out _partiesHint), found);
         _partyList = new StackPanel();
         found.Children.Add(_partyList);
+        // The Nightwatch VPN lobby's games (VpnLobby): only while the lobby is on. The host's address never reaches the page's text.
+        _lobbyRow = Add(Card(SymbolRegular.Globe24, L.T("Games on the Nightwatch VPN"),
+            L.T("Hosts on the Nightwatch VPN with a party password. Ask the host for the password. Join starts the game."),
+            null, out _lobbyHint), found);
+        _lobbyList = new StackPanel();
+        found.Children.Add(_lobbyList);
         // Joining by hand, folded under the list. Its password is the one remembered for the code or address typed
         // here (Join in the list asks for it); there is no party size here: the host's applies.
         _manual = new AdvancedSection(L.T("Join by code or address"), L.T("For a party that is not listed: paste the host's code or address."));
@@ -100,6 +106,19 @@ public sealed class SeamlessPage : LauncherPage
             () => S.Str("party_code"), v => { S.Set("party_code", v); SyncSharedRows(); }, _manual.Rows);
         _joinPassword = PasswordRow(_manual.Rows, () => S.JoinPassword(S.Str("party_code")), v => S.SetJoinPassword(S.Str("party_code"), v),
             L.T("The host's party password. Remembered for this code or address, encrypted for your Windows user."));
+
+        // The Nightwatch VPN: its keys and the connection (NightwatchVpn), and the lobby switch, the game's own System >
+        // Party network row. No request leaves this PC before the player's first Connect.
+        var nightwatch = Fold(L.T("Nightwatch VPN"), InParty, L.T("An optional network for co-op, with a personal key for this PC and a list of games."));
+        if (NightwatchVpn.Shipped != null)
+        {
+            _vpnButton = SmallButton(L.T("Connect"), SymbolRegular.Globe24, (_, _) => ToggleVpn());
+            Add(Card(SymbolRegular.Globe24, L.T("Connection"),
+                L.T("Needs OpenVPN. The first Connect makes a personal key that stays on this PC, encrypted for your Windows user, and asks the Nightwatch VPN server for a certificate. Nobody registers."),
+                _vpnButton, out _vpnHint), nightwatch);
+        }
+        ToggleRow(SymbolRegular.Globe24, L.T("Nightwatch VPN lobby"), L.T("Join: lists the games of other Nightwatch VPN players. Host with a password: lists your character name and slots, never your address. Takes effect at once."),
+            () => Ini.Get("party_vpn_lobby", "0") == "1", v => { Ini.Set("party_vpn_lobby", v ? "1" : "0"); _lobbyOn = v; }, nightwatch);
 
         // Network settings only matter when the party does not connect: folded, with the mode's own rows.
         var network = Fold(L.T("Network and troubleshooting"), InParty, L.T("Ports, NAT traversal and connection codes: only needed when the party does not connect."));
@@ -281,6 +300,8 @@ public sealed class SeamlessPage : LauncherPage
             UpdateInvite();
             if (++_ticks % 5 == 0) RefreshRoute();
             RefreshParties();
+            RefreshLobby();
+            UpdateVpn();
             var status = SeamlessSession.Read(S);
             _status.Text = status == null ? (Ws.Game.Running ? L.T("Waiting for party status…") : L.T("Game stopped.")) :
                 $"{PartyRole(status.role)}：{PartyState(status.state)}  {status.detail}\n{status.network}\n" +
@@ -288,7 +309,7 @@ public sealed class SeamlessPage : LauncherPage
                 $"\n{status.@event}\n{status.alert}";
         };
         Loaded += (_, _) => { _timer.Start(); RefreshPublic(); RefreshRoute(); StartListener(); };
-        Unloaded += (_, _) => { _timer.Stop(); _listener?.Dispose(); _listener = null; };
+        Unloaded += (_, _) => { _timer.Stop(); _listener?.Dispose(); _listener = null; _lobby?.Dispose(); _lobby = null; };
         ShowMode();
     }
 
@@ -301,6 +322,16 @@ public sealed class SeamlessPage : LauncherPage
     }
     private PartyDiscovery.Book _book = new();
     private PartyDiscovery.Listener? _listener;
+    private VpnLobby.Poller? _lobby;
+    private volatile bool _lobbyOn;
+    private string _lobbySignature = "\0";
+    private readonly FrameworkElement _lobbyRow;
+    private readonly TextBlock _lobbyHint;
+    private readonly StackPanel _lobbyList;
+    private readonly Wpf.Ui.Controls.Button? _vpnButton;
+    private readonly TextBlock? _vpnHint;
+    private bool _vpnBusy;
+    private string _vpnNote = "";
     private StackPanel _partyList = null!;
     private TextBlock _partiesHint = null!;
     private Wpf.Ui.Controls.TextBox _codeBox = null!;
@@ -400,6 +431,119 @@ public sealed class SeamlessPage : LauncherPage
         await MainWindow.Instance!.PlayOrStopAsync();
     }
 
+    /// <summary>Connect / Disconnect: enrolls on first use, renews when due, then OpenVPN GUI runs the tunnel.</summary>
+    private async void ToggleVpn()
+    {
+        if (NightwatchVpn.Shipped is not { } endpoint || _vpnBusy) return;
+        if (NightwatchVpn.GuiExe() is not { } gui)
+        {
+            Prompt.Tell(L.T("Nightwatch VPN"), L.T("OpenVPN is not installed. Install OpenVPN Community from openvpn.net, then press Connect again."));
+            return;
+        }
+        _vpnBusy = true;
+        _vpnNote = "";
+        try
+        {
+            if (VpnLobby.TunnelIp(_adapters) != null) await Task.Run(() => NightwatchVpn.Disconnect(gui));
+            else
+            {
+                _vpnNote = L.T("Connecting…");
+                UpdateVpn();
+                var install = await NightwatchVpn.ReadyAsync(endpoint, Paths.ConfigDir);
+                await Task.Run(() => NightwatchVpn.Connect(install, gui));
+            }
+        }
+        catch (VpnException e) { _vpnNote = VpnMessage(e); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or System.Security.Cryptography.CryptographicException)
+        {
+            _vpnNote = L.T("Could not start the connection through OpenVPN.");
+        }
+        _vpnBusy = false;
+        RefreshRoute();
+        UpdateVpn();
+    }
+
+    private static string VpnMessage(VpnException e) => e.Failure switch
+    {
+        VpnFailure.Blocked => L.T("This install is blocked."),
+        VpnFailure.RateLimited => L.T("The VPN server asks to wait before trying again. Minutes left: ") + Math.Max(1, e.RetryAfterSeconds / 60),
+        VpnFailure.PinMismatch => L.T("The VPN server could not prove who it is, so nothing was sent."),
+        VpnFailure.Unreachable => L.T("Could not reach the VPN server. Check your connection and try again."),
+        VpnFailure.Protect => L.T("Could not read the VPN keys for this Windows user."),
+        _ => L.T("The VPN server refused the request."),
+    };
+
+    private void UpdateVpn()
+    {
+        if (_vpnButton == null || _vpnHint == null) return;
+        var up = VpnLobby.TunnelIp(_adapters) != null;
+        if (up && !_vpnBusy) _vpnNote = "";
+        _vpnButton.Content = up ? L.T("Disconnect") : L.T("Connect");
+        _vpnButton.IsEnabled = !_vpnBusy;
+        SetHint(_vpnHint, _vpnNote.Length > 0 ? _vpnNote : up ? L.T("Connected.") : L.T("Not connected"));
+    }
+
+    /// <summary>Join in the VPN lobby's list: asks for the password, then starts the game as Play starts it. The address
+    /// and the password stay in memory for this start (SeamlessSettings.PendingJoin).</summary>
+    private async void JoinLobbyGame(LobbyGame game)
+    {
+        if (Ws.Game.Running)
+        {
+            Prompt.Tell(L.T("Join ") + game.Name, L.T("Restart the game to join ") + game.Name + ".");
+            return;
+        }
+        var password = Prompt.Secret(L.T("Join ") + game.Name, L.T("Type the host's party password."),
+            new Prompt.Field(L.T("Password"), "", L.T("Party password")), L.T("Join"));
+        if (password == null) return;
+        if (password.Trim().Length == 0)
+        {
+            Prompt.Tell(L.T("No password"), L.T("Every party has a password: ask the host for it."));
+            return;
+        }
+        SeamlessSettings.PendingJoin = (game.JoinCode, password);
+        try { await MainWindow.Instance!.PlayOrStopAsync(); }
+        finally { SeamlessSettings.PendingJoin = null; }
+    }
+
+    /// <summary>Where the poller asks: the lobby on the tunnel from this PC's tunnel address, or a test lobby; null sends nothing.</summary>
+    private (IPEndPoint Target, string? Bind)? LobbySource()
+    {
+        if (!_lobbyOn) return null;
+        if (VpnLobby.TestTarget() is { } test) return (test, null);
+        return VpnLobby.TunnelIp(_adapters) is { } ip ? (new IPEndPoint(IPAddress.Parse(VpnLobby.Address), VpnLobby.Port), ip) : null;
+    }
+
+    /// <summary>Redraws the VPN games from the poller's list, only when it changed. Shows the name, players, password and
+    /// version; another version is greyed out.</summary>
+    private void RefreshLobby()
+    {
+        _lobbyRow.Visibility = _lobbyOn && S.Str("party_mode") == "join" ? Visibility.Visible : Visibility.Collapsed;
+        _lobbyList.Visibility = _lobbyRow.Visibility;
+        if (_lobby == null || !_lobbyOn) return;
+        var test = VpnLobby.TestTarget() != null;
+        var up = test || VpnLobby.TunnelIp(_adapters) != null;
+        var games = VpnLobby.Rows(_lobby.Games ?? new List<LobbyGame>(), test);
+        var prefix = PartyDiscovery.BuildPrefix(Updater.Current);
+        var signature = up + "|" + _lobby.Answered + "|" + string.Join(";", games.Select(g => $"{g.Name}/{g.Ip}/{g.Port}/{g.Players}/{g.Max}/{g.Build}"));
+        if (signature == _lobbySignature) return;
+        _lobbySignature = signature;
+        SetHint(_lobbyHint, !up ? L.T("Connect to the Nightwatch VPN to see its games.") : !_lobby.Answered ? L.T("Waiting for the lobby…") :
+            games.Count == 0 ? L.T("No games on the Nightwatch VPN right now.") : "");
+        _lobbyList.Children.Clear();
+        foreach (var game in games)
+        {
+            var sameVersion = PartyDiscovery.BuildMatches(game.Build, prefix);
+            var open = sameVersion && game.Players < game.Max;
+            var picked = game;
+            var join = SmallButton(!sameVersion ? L.T("Update needed") : open ? L.T("Join") : L.T("Full"), SymbolRegular.Link24, (_, _) => JoinLobbyGame(picked));
+            join.IsEnabled = open;
+            var row = Card(SymbolRegular.People24, game.Name, null, join, out var hint);
+            if (!open) row.Opacity = 0.6;
+            SetHint(hint, game.Players + " / " + game.Max + " · " + L.T("Password: yes") + " · " + VpnLobby.VersionOf(game.Build));
+            _lobbyList.Children.Add(row);
+        }
+    }
+
     /// <summary>The networks the list hears parties on, for the list's status line.</summary>
     private string ListenLine()
     {
@@ -413,6 +557,10 @@ public sealed class SeamlessPage : LauncherPage
     private void StartListener(bool restart = false)
     {
         var wanted = IsLoaded && S.Str("party_mode") == "join";
+        _lobbyOn = Ini.Get("party_vpn_lobby", "0") == "1";
+        if (!wanted) { _lobby?.Dispose(); _lobby = null; }
+        else _lobby ??= new VpnLobby.Poller(LobbySource);
+        RefreshLobby();
         if (_listener != null && (!wanted || restart)) { _listener.Dispose(); _listener = null; }
         if (!wanted || _listener != null) return;
         var own = _adapters.Select(a => a.IpText);

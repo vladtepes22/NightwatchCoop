@@ -9,6 +9,48 @@ if ((args.Length == 2 || args.Length == 3) && args[0] == "--render-ui")
     UiRender.Check(args[1]);
     return;
 }
+// --vpn enroll|renew|ready|connect|disconnect|lobby <host:port> <pin> <folder>: the launcher's VPN client against a service
+// and OpenVPN GUI; prints only the outcome, never the host, an address or a key.
+if (args.Length == 5 && args[0] == "--vpn")
+{
+    var parts = args[2].Split(':');
+    var endpoint = new VpnEndpoint(parts[0], int.Parse(parts[1]), args[3].ToLowerInvariant());
+    try
+    {
+        if (args[1] == "connect")
+        {
+            NightwatchVpn.Connect(NightwatchVpn.Load(args[4])!, NightwatchVpn.GuiExe()!);
+            Console.WriteLine("asked OpenVPN GUI to connect");
+            return;
+        }
+        if (args[1] == "disconnect")
+        {
+            NightwatchVpn.Disconnect(NightwatchVpn.GuiExe()!);
+            Console.WriteLine("asked OpenVPN GUI to disconnect; profile gone: " + !File.Exists(NightwatchVpn.ProfilePath));
+            return;
+        }
+        if (args[1] == "lobby")
+        {
+            var test = VpnLobby.TestTarget();
+            var tunnel = VpnLobby.TunnelIp(NetworkRoute.Enumerate());
+            Console.WriteLine("tunnel address: " + (tunnel != null));
+            if (test == null && tunnel == null) return;
+            var games = VpnLobby.Fetch(test ?? new System.Net.IPEndPoint(System.Net.IPAddress.Parse(VpnLobby.Address), VpnLobby.Port), test != null ? null : tunnel);
+            Console.WriteLine(games == null ? "lobby: no answer" : "lobby games: " + games.Count + ", rows: " + string.Join(", ", VpnLobby.Rows(games, test != null).Select(g =>
+                $"{g.Name} {g.Players}/{g.Max} {VpnLobby.VersionOf(g.Build)} match={PartyDiscovery.BuildMatches(g.Build, "nightwatch-coop-0.2.6-")}")));
+            return;
+        }
+        var install = args[1] switch
+        {
+            "enroll" => await NightwatchVpn.EnrollAsync(endpoint, args[4]),
+            "renew" => await NightwatchVpn.RenewAsync(endpoint, args[4], NightwatchVpn.Load(args[4])!),
+            _ => await NightwatchVpn.ReadyAsync(endpoint, args[4]),
+        };
+        Console.WriteLine($"ok: id {install.InstallId[..6]}..., expires in {(install.Expires - NightwatchVpn.Now) / 3600} h");
+    }
+    catch (VpnException e) { Console.WriteLine("failed: " + e.Failure); Environment.Exit(1); }
+    return;
+}
 // --map-prep <package> <game> <user folder>: the launcher's map preparation (MapPrep) end to end
 // with a package's generator and baker, as on a tester's first start; no window, no game.
 if (args.Length == 4 && args[0] == "--map-prep")
@@ -565,6 +607,7 @@ Check(firewallLines[1].Contains("-Protocol TCP -LocalPort 47890") && firewallLin
 
 PartyCodeTests.Run();
 SaveEditorTests.Run();
+VpnTests.Run();
 Console.WriteLine("PASS: host/join validation, party codes against the engine's, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 
 [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]

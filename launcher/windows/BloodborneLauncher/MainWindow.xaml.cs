@@ -95,6 +95,14 @@ namespace BloodborneLauncher
             Loaded += async (_, _) =>
             {
                 Updater.CleanUp();
+                // Nightwatch VPN, only for an install that already enrolled: the key-holding profile does not outlive the
+                // tunnel, and the keys renew in the background.
+                if (NightwatchVpn.Shipped is { } vpn)
+                    _ = Task.Run(async () =>
+                    {
+                        if (VpnLobby.TunnelIp(NetworkRoute.Enumerate()) == null) NightwatchVpn.DeleteProfile();
+                        await NightwatchVpn.RenewIfDueAsync(vpn, Paths.ConfigDir);
+                    });
                 // Running a beta means choosing beta: kept after updating to a stable release.
                 if (Updater.CurrentBeta > 0 && ws.Settings.Str("update_channel").Length == 0)
                 {

@@ -13,6 +13,14 @@
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- The Nightwatch VPN's host and SPKI pin ship in the exe but stay out of the repo: they come from this file (or from
+       -p:NwVpnHost / -p:NwVpnPin). Without them the launcher builds with the VPN hidden; a release package refuses that. -->
+  <Import Project="$(USERPROFILE)\.nightwatch-vpn.props" Condition="Exists('$(USERPROFILE)\.nightwatch-vpn.props')" />
+  <ItemGroup>
+    <AssemblyMetadata Include="NwVpnHost" Value="$(NwVpnHost)" />
+    <AssemblyMetadata Include="NwVpnPin" Value="$(NwVpnPin)" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- The source fingerprint the builder writes beside the exe; shared so both agree on it. -->
     <Compile Include="..\Shared\SourceStamp.cs" Link="Core\SourceStamp.cs" />

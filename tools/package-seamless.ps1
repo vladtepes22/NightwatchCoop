@@ -157,6 +157,10 @@ if ((Get-AuthenticodeSignature -FilePath (Join-Path $python 'python.exe')).Statu
 }
 
 # 4. The launcher (self-contained) and Bloodborne.exe (starts the game straight away).
+# A release needs the Nightwatch VPN's host and pin (BloodborneLauncher.csproj); they are not in the repo.
+if ($Release -and -not (Test-Path -LiteralPath (Join-Path $env:USERPROFILE '.nightwatch-vpn.props'))) {
+    throw 'No %USERPROFILE%\.nightwatch-vpn.props: the launcher would ship with the Nightwatch VPN hidden.'
+}
 $published = Join-Path $repo 'work\published-launcher'
 dotnet publish (Join-Path $repo 'launcher\windows\BloodborneLauncher\BloodborneLauncher.csproj') `
     -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true `

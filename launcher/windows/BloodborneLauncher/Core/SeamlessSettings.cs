@@ -161,17 +161,24 @@ public static partial class SeamlessSettings
         if (s.Str("party_port").Length > 0 &&
             (!int.TryParse(s.Str("party_port"), out var port) || port is < 1 or > 65535))
             return L.T("Party port must be between 1 and 65535.");
-        if (s.Str("party_mode") == "join" && s.Str("party_code").Trim().Length == 0)
+        if (s.Str("party_mode") == "join" && Code(s).Trim().Length == 0)
             return L.T("Enter the host's party code or address before joining.");
-        var code = s.Str("party_code");
+        var code = Code(s);
         if (code.Any(char.IsControl) || code.Length > 512)
             return L.T("The party code or address contains invalid characters.");
         return null;
     }
 
+    /// <summary>A join from the Nightwatch VPN lobby, for the one start it is set around: the host's tunnel address and
+    /// the password stay in memory and go to the game's environment, never into the saved settings.</summary>
+    public static (string Code, string Password)? PendingJoin { get; set; }
+
+    /// <summary>The host the game joins.</summary>
+    public static string Code(LauncherSettings s) => PendingJoin?.Code ?? s.Str("party_code");
+
     /// <summary>The password the game gets: a guest's is the one remembered for the host it joins.</summary>
     public static string Password(LauncherSettings s) =>
-        s.Str("party_mode") == "join" ? s.JoinPassword(s.Str("party_code")) : s.PartyPassword;
+        s.Str("party_mode") != "join" ? s.PartyPassword : PendingJoin?.Password ?? s.JoinPassword(s.Str("party_code"));
 
     public static void Apply(LauncherSettings s, Dictionary<string, string> env)
     {
@@ -182,7 +189,7 @@ public static partial class SeamlessSettings
         env["BB_ONLINE"] = "0";
         env["BB_PARTY_NAME"] = Name(s);
         env["BB_PARTY_PORT"] = s.Str("party_port") is { Length: > 0 } port ? port : "9307";
-        env["BB_PARTY_CODE"] = s.Str("party_code").Trim();
+        env["BB_PARTY_CODE"] = Code(s).Trim();
         env["BB_PARTY_PASSWORD"] = Password(s);
         env["BB_PARTY_MAX"] = s.Str("party_max") is "2" or "3" or "4" or "5" ? s.Str("party_max") : "3";
         env["BB_PARTY_UPNP"] = Flag(s, "party_upnp") ? "1" : "0";
