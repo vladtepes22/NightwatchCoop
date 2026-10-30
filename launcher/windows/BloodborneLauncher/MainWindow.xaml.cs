@@ -1036,7 +1036,7 @@ namespace BloodborneLauncher
 
             var s = ws.Settings;
             var ini = ws.Ini;
-            if (SeamlessSettings.Validate(s) is { } partyProblem)
+            if (SeamlessSettings.Validate(s, ini.Get("party_open", "0") == "1") is { } partyProblem)
             {
                 Prompt.Tell(L.T("Co-op"), partyProblem);
                 Show("seamless");
