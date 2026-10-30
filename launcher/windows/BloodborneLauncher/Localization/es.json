@@ -2420,7 +2420,6 @@
   "Move the party to port ": "Mover la party al puerto ",
   "? Friends then need your new code.": "? Entonces tus amigos necesitarán tu nuevo código.",
   "Move": "Mover",
-  "The save editor is experimental. Adding items is coming soon.": "El editor de partidas es experimental. Añadir objetos llegará pronto.",
   "Stay in my world": "Quedarme en mi mundo",
   "Copy party character to offline": "Copiar personaje de grupo a offline",
   "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Un personaje de grupo se copia a la misma ranura individual, limpio para jugar sin conexión. La partida de grupo no cambia.",
@@ -2432,5 +2431,10 @@
   "Your level will go up and down depending on your stat allocation - just like in-game.": "Tu nivel subirá y bajará según cómo repartas tus atributos, igual que en el juego.",
   "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "Esto solo cambia el estado de derrotado del jefe en el juego. Puede que el jefe no se restablezca por completo al usar este menú.",
   "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "Los finales que marques como «vistos» desbloquearán los objetos asociados de la tienda y del mensajero, si existen. Las opciones de abajo nunca activarán los créditos del juego ni te quitarán objetos clave.",
-  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Aquí puedes restaurar cualquier partida anterior a su edición. Al restaurar se sustituyen todas las ranuras del personaje seleccionado."
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Aquí puedes restaurar cualquier partida anterior a su edición. Al restaurar se sustituyen todas las ranuras del personaje seleccionado.",
+  "Add item": "Añadir objeto",
+  "Add": "Añadir",
+  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Elige uno o más objetos y pulsa Añadir. Las gemas de sangre y las runas aún no se pueden añadir.",
+  "The game's item list could not be read. Check the game folder in Settings.": "No se pudo leer la lista de objetos del juego. Revisa la carpeta del juego en Ajustes.",
+  "The save already holds an item you picked: change its count in the list instead.": "La partida ya tiene un objeto que elegiste: cambia su cantidad en la lista."
 }

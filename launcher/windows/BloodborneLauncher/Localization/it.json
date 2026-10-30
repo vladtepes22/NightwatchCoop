@@ -2420,7 +2420,6 @@
   "Move the party to port ": "Sposta il party alla porta ",
   "? Friends then need your new code.": "? Gli amici avranno poi bisogno del tuo nuovo codice.",
   "Move": "Sposta",
-  "The save editor is experimental. Adding items is coming soon.": "L'editor di salvataggi è sperimentale. L'aggiunta di oggetti arriverà presto.",
   "Stay in my world": "Resta nel mio mondo",
   "Copy party character to offline": "Copia il personaggio del gruppo offline",
   "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Un personaggio del gruppo viene copiato nello stesso slot singolo, ripulito per il gioco offline. Il salvataggio del gruppo non cambia.",
@@ -2432,5 +2431,10 @@
   "Your level will go up and down depending on your stat allocation - just like in-game.": "Il tuo livello salirà e scenderà in base alla distribuzione delle statistiche, proprio come nel gioco.",
   "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "Questo cambia solo lo stato di sconfitto del boss nel gioco. Il boss potrebbe non azzerarsi del tutto usando questo menu.",
   "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "I finali che hai segnato come «visti» sbloccano gli oggetti associati del negozio e del messaggero, se esistono. Le opzioni qui sotto non avvieranno mai i titoli di coda né ti toglieranno oggetti chiave.",
-  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Qui puoi ripristinare qualsiasi salvataggio precedente alla modifica. Il ripristino sostituisce tutti gli slot del personaggio selezionato."
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Qui puoi ripristinare qualsiasi salvataggio precedente alla modifica. Il ripristino sostituisce tutti gli slot del personaggio selezionato.",
+  "Add item": "Aggiungi oggetto",
+  "Add": "Aggiungi",
+  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Scegli uno o più oggetti, poi Aggiungi. Le gemme di sangue e le rune non si possono ancora aggiungere.",
+  "The game's item list could not be read. Check the game folder in Settings.": "Impossibile leggere l'elenco degli oggetti del gioco. Controlla la cartella del gioco nelle Impostazioni.",
+  "The save already holds an item you picked: change its count in the list instead.": "Il salvataggio contiene già un oggetto scelto: modifica invece la sua quantità nell'elenco."
 }

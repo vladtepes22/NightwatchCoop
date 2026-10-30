@@ -2420,7 +2420,6 @@
   "Move the party to port ": "Перенести групу на порт ",
   "? Friends then need your new code.": "? Тоді друзям потрібен ваш новий код.",
   "Move": "Перенести",
-  "The save editor is experimental. Adding items is coming soon.": "Редактор збережень експериментальний. Додавання предметів скоро з'явиться.",
   "Stay in my world": "Залишитися в моєму світі",
   "Copy party character to offline": "Копіювати персонажа групи в офлайн",
   "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Персонаж групи копіюється в той самий слот одиночної гри й очищається для гри офлайн. Збереження групи не змінюється.",
@@ -2432,5 +2431,10 @@
   "Your level will go up and down depending on your stat allocation - just like in-game.": "Ваш рівень зростатиме й спадатиме залежно від розподілу характеристик - як у грі.",
   "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "Це змінює лише статус перемоги над босом у грі. Після використання цього меню бос може скинутися не повністю.",
   "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "Кінцівки, позначені як «побачені», відкриють пов'язані предмети крамниці й вісника, якщо вони є. Параметри нижче ніколи не запустять титри гри й не заберуть ключові предмети.",
-  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Тут можна відновити будь-яке збереження, що існувало до редагування. Відновлення замінює всі слоти збережень вибраного персонажа."
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Тут можна відновити будь-яке збереження, що існувало до редагування. Відновлення замінює всі слоти збережень вибраного персонажа.",
+  "Add item": "Додати предмет",
+  "Add": "Додати",
+  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Виберіть один або кілька предметів і натисніть «Додати». Кривавих самоцвітів і рун поки що додати не можна.",
+  "The game's item list could not be read. Check the game folder in Settings.": "Не вдалося прочитати список предметів гри. Перевірте теку гри в налаштуваннях.",
+  "The save already holds an item you picked: change its count in the list instead.": "У збереженні вже є вибраний предмет: змініть його кількість у списку."
 }

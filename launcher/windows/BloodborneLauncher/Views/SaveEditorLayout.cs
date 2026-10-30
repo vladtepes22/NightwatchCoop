@@ -141,8 +141,9 @@ public sealed partial class SaveEditorWindow
             _ => RefreshItems(), 4, 5, true);
         _itemKinds.Select(0); _itemKinds.Panel.Margin = new Thickness(0, 0, 0, 10);
         DockPanel.SetDock(_itemKinds.Panel, Dock.Top); dock.Children.Add(_itemKinds.Panel);
-        var addNote = LauncherPage.Text(L.T("The save editor is experimental. Adding items is coming soon."), "Muted");
-        addNote.Margin = new Thickness(2, 4, 0, 0); DockPanel.SetDock(addNote, Dock.Bottom); dock.Children.Add(addNote);
+        _addItem = new Button { Content = L.T("Add item"), Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, IsEnabled = false };
+        _addItem.Click += (_, _) => AddItems();
+        DockPanel.SetDock(_addItem, Dock.Bottom); dock.Children.Add(_addItem);
         _itemCount.Margin = new Thickness(2, 8, 0, 0); DockPanel.SetDock(_itemCount, Dock.Bottom); dock.Children.Add(_itemCount);
         var host = new Grid();
         ConfigureList(_itemList, SaveEditorXaml.ItemTemplate());

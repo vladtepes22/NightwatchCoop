@@ -2420,7 +2420,6 @@
   "Move the party to port ": "파티를 포트 ",
   "? Friends then need your new code.": "? 그러면 친구는 새 코드가 필요합니다.",
   "Move": "이동",
-  "The save editor is experimental. Adding items is coming soon.": "세이브 편집기는 실험 기능입니다. 아이템 추가는 곧 제공될 예정입니다.",
   "Stay in my world": "내 세계에 머무르기",
   "Copy party character to offline": "파티 캐릭터를 오프라인으로 복사",
   "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "파티 캐릭터를 같은 번호의 싱글 플레이 슬롯으로 오프라인용으로 정리해 복사합니다. 파티 저장 데이터는 바뀌지 않습니다.",
@@ -2432,5 +2431,10 @@
   "Your level will go up and down depending on your stat allocation - just like in-game.": "레벨은 게임 내와 마찬가지로 능력치 배분에 따라 오르내립니다.",
   "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "게임 내 보스의 처치 상태만 바꿉니다. 이 메뉴를 사용해도 보스가 완전히 초기화되지 않을 수 있습니다.",
   "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "'확인함'으로 체크한 엔딩은 해당하는 상점 및 전령 아이템이 있으면 잠금 해제합니다. 아래 옵션은 게임 크레딧을 재생하거나 핵심 아이템을 빼앗지 않습니다.",
-  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "편집하기 전의 저장 데이터를 여기에서 복원할 수 있습니다. 복원하면 선택한 캐릭터의 모든 저장 슬롯이 교체됩니다."
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "편집하기 전의 저장 데이터를 여기에서 복원할 수 있습니다. 복원하면 선택한 캐릭터의 모든 저장 슬롯이 교체됩니다.",
+  "Add item": "아이템 추가",
+  "Add": "추가",
+  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "아이템을 하나 이상 선택한 다음 추가를 누르세요. 혈석과 룬은 아직 추가할 수 없습니다.",
+  "The game's item list could not be read. Check the game folder in Settings.": "게임의 아이템 목록을 읽을 수 없습니다. 설정에서 게임 폴더를 확인하세요.",
+  "The save already holds an item you picked: change its count in the list instead.": "선택한 아이템이 이미 저장 파일에 있습니다. 목록에서 수량을 변경하세요."
 }

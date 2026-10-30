@@ -2420,7 +2420,6 @@
   "Move the party to port ": "Party auf Port verschieben ",
   "? Friends then need your new code.": "? Freunde brauchen dann Ihren neuen Code.",
   "Move": "Verschieben",
-  "The save editor is experimental. Adding items is coming soon.": "Der Save-Editor ist experimentell. Das Hinzufügen von Gegenständen kommt bald.",
   "Stay in my world": "In meiner Welt bleiben",
   "Copy party character to offline": "Party-Charakter offline kopieren",
   "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Ein Party-Charakter wird in denselben Einzelspieler-Platz kopiert und für das Offline-Spiel bereinigt. Der Party-Spielstand bleibt unverändert.",
@@ -2432,5 +2431,10 @@
   "Your level will go up and down depending on your stat allocation - just like in-game.": "Dein Level steigt und sinkt je nach Verteilung deiner Werte - genau wie im Spiel.",
   "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "Dies ändert nur den Besiegt-Status des Bosses im Spiel. Der Boss wird bei Verwendung dieses Menüs eventuell nicht vollständig zurückgesetzt.",
   "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "Enden, die du als „gesehen“ markiert hast, schalten die zugehörigen Shop- und Boten-Gegenstände frei, falls es welche gibt. Die Optionen unten lösen niemals den Abspann aus und nehmen dir keine Schlüsselgegenstände weg.",
-  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Hier kannst du jeden Spielstand wiederherstellen, der vor dem Bearbeiten existierte. Beim Wiederherstellen werden alle Spielstand-Plätze des gewählten Charakters ersetzt."
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Hier kannst du jeden Spielstand wiederherstellen, der vor dem Bearbeiten existierte. Beim Wiederherstellen werden alle Spielstand-Plätze des gewählten Charakters ersetzt.",
+  "Add item": "Gegenstand hinzufügen",
+  "Add": "Hinzufügen",
+  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Wähle einen oder mehrere Gegenstände und klicke auf Hinzufügen. Blutedelsteine und Runen können noch nicht hinzugefügt werden.",
+  "The game's item list could not be read. Check the game folder in Settings.": "Die Gegenstandsliste des Spiels konnte nicht gelesen werden. Prüfe den Spielordner in den Einstellungen.",
+  "The save already holds an item you picked: change its count in the list instead.": "Der Spielstand enthält einen gewählten Gegenstand bereits: Ändere stattdessen seine Anzahl in der Liste."
 }

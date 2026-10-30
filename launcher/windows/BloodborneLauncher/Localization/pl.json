@@ -2420,7 +2420,6 @@
   "Move the party to port ": "Przenieś drużynę na port ",
   "? Friends then need your new code.": "? Znajomi potrzebują wtedy twojego nowego kodu.",
   "Move": "Przenieś",
-  "The save editor is experimental. Adding items is coming soon.": "Edytor zapisów jest eksperymentalny. Dodawanie przedmiotów pojawi się wkrótce.",
   "Stay in my world": "Zostań w moim świecie",
   "Copy party character to offline": "Kopiuj postać z drużyny do offline",
   "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Postać z drużyny trafia do tego samego miejsca zapisu jednoosobowego, oczyszczona pod grę offline. Zapis drużyny nie zmienia się.",
@@ -2432,5 +2431,10 @@
   "Your level will go up and down depending on your stat allocation - just like in-game.": "Twój poziom będzie rósł i malał zależnie od rozdziału statystyk - tak jak w grze.",
   "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "To zmienia tylko status pokonania bossa w grze. Boss może nie zostać w pełni zresetowany po użyciu tego menu.",
   "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "Zakończenia oznaczone jako „widziane” odblokują powiązane przedmioty ze sklepu i od posłańca, jeśli takie istnieją. Poniższe opcje nigdy nie uruchomią napisów końcowych ani nie zabiorą przedmiotów kluczowych.",
-  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Tutaj możesz przywrócić dowolny zapis sprzed edycji. Przywracanie zastępuje wszystkie miejsca zapisu wybranej postaci."
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Tutaj możesz przywrócić dowolny zapis sprzed edycji. Przywracanie zastępuje wszystkie miejsca zapisu wybranej postaci.",
+  "Add item": "Dodaj przedmiot",
+  "Add": "Dodaj",
+  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Wybierz jeden lub więcej przedmiotów i kliknij Dodaj. Krwawych klejnotów i run nie można jeszcze dodawać.",
+  "The game's item list could not be read. Check the game folder in Settings.": "Nie udało się odczytać listy przedmiotów gry. Sprawdź folder gry w Ustawieniach.",
+  "The save already holds an item you picked: change its count in the list instead.": "Zapis ma już wybrany przedmiot: zmień jego liczbę na liście."
 }

@@ -2420,7 +2420,6 @@
   "Move the party to port ": "Déplacer la partie sur le port ",
   "? Friends then need your new code.": "? Vos amis auront alors besoin de votre nouveau code.",
   "Move": "Déplacer",
-  "The save editor is experimental. Adding items is coming soon.": "L'éditeur de sauvegarde est expérimental. L'ajout d'objets arrive bientôt.",
   "Stay in my world": "Rester dans mon monde",
   "Copy party character to offline": "Copier le personnage de groupe hors ligne",
   "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Un personnage de groupe est copié dans le même emplacement solo, nettoyé pour jouer hors ligne. La sauvegarde de groupe n'est pas modifiée.",
@@ -2432,5 +2431,10 @@
   "Your level will go up and down depending on your stat allocation - just like in-game.": "Votre niveau montera et descendra selon la répartition de vos stats, comme dans le jeu.",
   "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "Cela ne modifie que l'état « vaincu » du boss dans le jeu. Le boss peut ne pas être entièrement réinitialisé avec ce menu.",
   "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "Les fins que vous avez cochées comme « vues » débloquent les objets associés de la boutique et du messager, s'ils existent. Les options ci-dessous ne déclencheront jamais le générique du jeu et ne vous retireront pas d'objets clés.",
-  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Vous pouvez restaurer ici toute sauvegarde antérieure à une modification. La restauration remplace tous les emplacements du personnage sélectionné."
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Vous pouvez restaurer ici toute sauvegarde antérieure à une modification. La restauration remplace tous les emplacements du personnage sélectionné.",
+  "Add item": "Ajouter un objet",
+  "Add": "Ajouter",
+  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Choisis un ou plusieurs objets, puis Ajouter. Les gemmes de sang et les runes ne peuvent pas encore être ajoutées.",
+  "The game's item list could not be read. Check the game folder in Settings.": "La liste des objets du jeu n'a pas pu être lue. Vérifie le dossier du jeu dans les paramètres.",
+  "The save already holds an item you picked: change its count in the list instead.": "La sauvegarde contient déjà un objet que tu as choisi : change plutôt sa quantité dans la liste."
 }

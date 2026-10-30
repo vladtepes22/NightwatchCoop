@@ -69,6 +69,9 @@ public sealed partial class SaveEditorWindow : Window
     private Segments _kind = null!, _tabs = null!, _itemKinds = null!, _flagKinds = null!;
     private List<ItemRow> _items = new();
     private List<FlagRow> _flags = new();
+    // Items picked in the Add item dialog; written by Apply, dropped by Revert or a reload.
+    private readonly List<SaveEditorAddDialog.Pick> _added = new();
+    private Button _addItem = null!;
     private SaveEditor.GemEffect[]? _effectChoices;
     private SaveEditor.Snapshot? _snapshot;
     private SaveEditor.Slot? _selected;
@@ -203,7 +206,7 @@ public sealed partial class SaveEditorWindow : Window
     }
     private async Task OpenSlot()
     {
-        _snapshot = null; _dirty = false;
+        _snapshot = null; _dirty = false; _added.Clear();
         _selected = (_slots.SelectedItem as ListBoxItem)?.Tag as SaveEditor.Slot;
         if (_selected == null) { ClearEditors(); ShowHunter(); UpdateState(); return; }
         _loading = true;
@@ -255,6 +258,10 @@ public sealed partial class SaveEditorWindow : Window
             var before = lines.Count; lines.AddRange(row.Describe());
             perTab[InventoryTab] += Math.Max(1, lines.Count - before);
         }
+        foreach (var pick in _added)
+        {
+            lines.Add(L.T("Add item") + ": " + pick.Name + (pick.Category == 4 && pick.Count > 1 ? " × " + pick.Count : "")); perTab[InventoryTab]++;
+        }
         foreach (var row in _flags.Where(f => f.Changed))
         {
             lines.Add(row.Label + ": " + (row.On ? L.T("set") : L.T("cleared"))); perTab[ProgressTab]++;
@@ -267,6 +274,7 @@ public sealed partial class SaveEditorWindow : Window
         var (lines, perTab) = Changes();
         _dirty = lines.Count > 0;
         bool valid = _fields.Values.All(f => f.Valid) && _items.All(r => r.CountValid);
+        if (_addItem != null) _addItem.IsEnabled = !_busy && !_running && _snapshot != null;
         _apply.IsEnabled = !_busy && !_running && _dirty && valid; _revert.IsEnabled = !_busy && (_dirty || !valid);
         _status.Text = _snapshot != null && !_fields["name"].Valid ? L.T("Use a name of 1 to 16 characters.") :
             !valid && _snapshot != null ? L.T("Enter whole numbers within the allowed range.") :
@@ -307,11 +315,23 @@ public sealed partial class SaveEditorWindow : Window
         var edit = new { _snapshot.Revision, Name = _fields["name"].Value,
             Stats = Stats.ToDictionary(s => s, s => _fields[s].Number), Echoes = _fields["echoes"].Number,
             Insight = _fields["insight"].Number, NgCycle = _fields["ng_cycle"].Number, Items = items, Gems = gems,
+            Add = _added.Select(a => new { a.Category, a.Number, Count = a.Category == 4 ? a.Count : (int?)null }).ToArray(),
             Flags = _flags.Where(f => f.Changed).Select(f => new { f.Flag.Id, f.On }).ToArray(),
             Repair = Array.Empty<string>() };
         if (!Prompt.Confirm(L.T("Apply these edits?"), summary + "\n\n" + L.F($"All saves related to {_snapshot.Character.Name} will be backed up first."), L.T("Apply"))) return;
         var result = await Run<SaveEditor.WriteResult>("apply", _selected.SlotNumber, edit);
         Prompt.Tell(L.T("Backup folder"), result.Backup ?? ""); await Refresh(_selected.SlotNumber);
+    }
+    private void AddItems()
+    {
+        if (_snapshot == null) return;
+        var held = _items.Where(r => r.Item.Section == 0 && r.Item.Kind == "goods").Select(r => (4, r.Item.Number))
+            .Concat(_added.Where(a => a.Category == 4).Select(a => (4, a.Number)));
+        var dialog = new SaveEditorAddDialog((category, text) => _source.Run("catalog", Kind, edit: new { category, text }), held) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        foreach (var pick in dialog.Result)
+            if (!_added.Any(a => a.Category == pick.Category && a.Number == pick.Number && a.Category == 4)) _added.Add(pick);
+        UpdateState();
     }
     private async Task EditGem(ItemRow row)
     {

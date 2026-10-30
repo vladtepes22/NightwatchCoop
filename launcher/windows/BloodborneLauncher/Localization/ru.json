@@ -2420,7 +2420,6 @@
   "Move the party to port ": "Перенести группу на порт ",
   "? Friends then need your new code.": "? Тогда друзьям нужен ваш новый код.",
   "Move": "Перенести",
-  "The save editor is experimental. Adding items is coming soon.": "Редактор сохранений экспериментальный. Добавление предметов появится скоро.",
   "Stay in my world": "Остаться в моём мире",
   "Copy party character to offline": "Копировать персонажа группы в офлайн",
   "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Персонаж группы копируется в тот же слот одиночной игры и очищается для игры офлайн. Сохранение группы не меняется.",
@@ -2432,5 +2431,10 @@
   "Your level will go up and down depending on your stat allocation - just like in-game.": "Ваш уровень будет расти и падать в зависимости от распределения характеристик - как в игре.",
   "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "Это меняет только статус победы над боссом в игре. После использования этого меню босс может сброситься не полностью.",
   "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "Концовки, отмеченные как «увиденные», откроют связанные предметы магазина и вестника, если они есть. Параметры ниже никогда не запустят титры игры и не отнимут ключевые предметы.",
-  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Здесь можно восстановить любое сохранение, существовавшее до редактирования. Восстановление заменяет все слоты сохранений выбранного персонажа."
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Здесь можно восстановить любое сохранение, существовавшее до редактирования. Восстановление заменяет все слоты сохранений выбранного персонажа.",
+  "Add item": "Добавить предмет",
+  "Add": "Добавить",
+  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Выберите один или несколько предметов и нажмите «Добавить». Кровавые самоцветы и руны пока добавить нельзя.",
+  "The game's item list could not be read. Check the game folder in Settings.": "Не удалось прочитать список предметов игры. Проверьте папку игры в настройках.",
+  "The save already holds an item you picked: change its count in the list instead.": "В сохранении уже есть выбранный предмет: измените его количество в списке."
 }

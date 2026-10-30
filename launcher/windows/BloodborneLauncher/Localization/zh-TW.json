@@ -2420,7 +2420,6 @@
   "Move the party to port ": "將隊伍移至連接埠 ",
   "? Friends then need your new code.": "？之後好友需要你的新代碼。",
   "Move": "移動",
-  "The save editor is experimental. Adding items is coming soon.": "存檔編輯器仍處於實驗階段。新增物品功能即將推出。",
   "Stay in my world": "留在我的世界",
   "Copy party character to offline": "將隊伍角色複製到離線",
   "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "隊伍角色會複製到相同編號的單人存檔位，並為離線遊玩清理。隊伍存檔不會被更改。",
@@ -2432,5 +2431,10 @@
   "Your level will go up and down depending on your stat allocation - just like in-game.": "你的等級會像遊戲中一樣，隨屬性分配上下變化。",
   "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "這只會更改遊戲中首領的擊敗狀態。使用此選單時，首領可能不會完全重置。",
   "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "你勾選為「已見」的結局會解鎖對應的商店和信使物品（如果有）。下方選項不會觸發遊戲製作人員名單，也不會拿走你的關鍵物品。",
-  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "你可以在這裡還原編輯前的任何存檔。還原會取代所選角色的所有存檔位。"
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "你可以在這裡還原編輯前的任何存檔。還原會取代所選角色的所有存檔位。",
+  "Add item": "新增物品",
+  "Add": "新增",
+  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "選擇一個或多個物品，然後按「新增」。血寶石和盧恩暫時無法新增。",
+  "The game's item list could not be read. Check the game folder in Settings.": "無法讀取遊戲的物品清單。請在設定中檢查遊戲資料夾。",
+  "The save already holds an item you picked: change its count in the list instead.": "存檔中已有你選擇的物品：請改在清單中修改其數量。"
 }

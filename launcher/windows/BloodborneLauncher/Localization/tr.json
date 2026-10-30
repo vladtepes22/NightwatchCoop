@@ -2420,7 +2420,6 @@
   "Move the party to port ": "Partiyi bağlantı noktası şuraya taşı: ",
   "? Friends then need your new code.": "? Arkadaşların o zaman yeni kodunuza ihtiyacı olur.",
   "Move": "Taşı",
-  "The save editor is experimental. Adding items is coming soon.": "Kayıt düzenleyici deneyseldir. Eşya ekleme yakında geliyor.",
   "Stay in my world": "Dünyamda kal",
   "Copy party character to offline": "Parti karakterini çevrimdışına kopyala",
   "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "Bir parti karakteri, çevrimdışı oynamak için temizlenerek aynı tek oyunculu yuvaya kopyalanır. Parti kaydı değişmez.",
@@ -2432,5 +2431,10 @@
   "Your level will go up and down depending on your stat allocation - just like in-game.": "Seviyen, oyundaki gibi statlarını dağıtışına göre artıp azalır.",
   "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "Bu yalnızca oyundaki patronun yenilme durumunu değiştirir. Bu menü kullanılırken patron tam olarak sıfırlanmayabilir.",
   "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "“Görüldü” olarak işaretlediğin sonlar, varsa ilgili mağaza ve haberci eşyalarının kilidini açar. Aşağıdaki seçenekler oyunun jeneriğini asla başlatmaz ve anahtar eşyalarını almaz.",
-  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Düzenlemeden önceki kayıtları buradan geri yükleyebilirsin. Geri yükleme, seçili karakterin tüm kayıt yuvalarını değiştirir."
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Düzenlemeden önceki kayıtları buradan geri yükleyebilirsin. Geri yükleme, seçili karakterin tüm kayıt yuvalarını değiştirir.",
+  "Add item": "Eşya ekle",
+  "Add": "Ekle",
+  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Bir veya daha fazla eşya seçip Ekle'ye bas. Kan taşları ve rünler henüz eklenemiyor.",
+  "The game's item list could not be read. Check the game folder in Settings.": "Oyunun eşya listesi okunamadı. Ayarlar'dan oyun klasörünü kontrol et.",
+  "The save already holds an item you picked: change its count in the list instead.": "Kayıtta seçtiğin bir eşya zaten var: bunun yerine listeden adedini değiştir."
 }

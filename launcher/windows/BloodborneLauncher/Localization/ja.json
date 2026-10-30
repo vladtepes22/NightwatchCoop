@@ -2420,7 +2420,6 @@
   "Move the party to port ": "パーティーをポート ",
   "? Friends then need your new code.": "？その後フレンドは新しいコードが必要です。",
   "Move": "移動",
-  "The save editor is experimental. Adding items is coming soon.": "セーブエディターは試験段階です。アイテムの追加機能は近日対応予定です。",
   "Stay in my world": "自分のワールドに留まる",
   "Copy party character to offline": "パーティーのキャラクターをオフラインにコピー",
   "A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed.": "パーティーのキャラクターを同じ番号のシングルプレイ枠へ、オフライン用に整えてコピーします。パーティーのセーブデータは変更されません。",
@@ -2432,5 +2431,10 @@
   "Your level will go up and down depending on your stat allocation - just like in-game.": "レベルは、ゲーム内と同じようにステータスの振り分けに応じて上下します。",
   "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "ゲーム内のボスの撃破状態のみを変更します。このメニューを使ってもボスが完全にリセットされない場合があります。",
   "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "「見た」にチェックを入れたエンディングは、対応するショップや使者のアイテムがあれば解放されます。以下のオプションでクレジットが流れたり、キーアイテムが失われたりすることはありません。",
-  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "編集前のセーブデータをここから復元できます。復元すると、選択したキャラクターのすべてのセーブ枠が置き換えられます。"
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "編集前のセーブデータをここから復元できます。復元すると、選択したキャラクターのすべてのセーブ枠が置き換えられます。",
+  "Add item": "アイテムを追加",
+  "Add": "追加",
+  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "アイテムを1つ以上選んで「追加」を押してください。血の宝石とルーンはまだ追加できません。",
+  "The game's item list could not be read. Check the game folder in Settings.": "ゲームのアイテム一覧を読み込めませんでした。設定でゲームフォルダを確認してください。",
+  "The save already holds an item you picked: change its count in the list instead.": "選んだアイテムはすでにセーブにあります。一覧でその個数を変更してください。"
 }
