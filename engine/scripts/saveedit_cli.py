@@ -12,6 +12,9 @@ from saveedit import flagsdata, icons, instances, names, store
 from save_editor import _update_party_characters
 
 
+COMMANDS = ("slots", "show", "apply", "backups", "restore", "effects")
+
+
 def running_games():
     """Fail closed if the Windows process snapshot cannot be inspected."""
     if os.name != "nt":
@@ -139,7 +142,7 @@ def describe(model, catalogue, icon_paths=lambda ids: {}):
 REPAIRS = ("phantom", "duplicate_keys")
 
 
-def execute(args, edit=None, running=running_games):
+def execute(args, edit=None, running=running_games, catalogues=None):
     user, kind = args.user, args.kind
     if args.command == "slots":
         return [dict(slot=r["slot"], name=r["name"], level=r["level"],
@@ -154,7 +157,11 @@ def execute(args, edit=None, running=running_games):
             raise ValueError("unknown backup")
         return {"backup": store.restore_backup(user, kind, backup, running)}
     cache = user / "cache" / "saveedit"
-    catalogue = names.Catalogue.load(args.game, cache)
+    catalogue = catalogues.get(user) if catalogues is not None else None
+    if catalogue is None:
+        catalogue = names.Catalogue.load(args.game, cache)
+        if catalogues is not None:
+            catalogues[user] = catalogue
     if args.command == "effects":
         return [dict(id=e, text=text) for e, text in catalogue.effects_for(0)]  # blood gem effects
     model = store.open_slot(user, kind, args.slot)
@@ -225,6 +232,36 @@ def execute(args, edit=None, running=running_games):
     return {"backup": store.apply_edit(user, kind, args.slot, model, running, _update_party_characters)}
 
 
+def error_reply(error):
+    message = "close the game before changing saves" if isinstance(error, store.GameRunning) else str(error)
+    return {"error": message, "type": type(error).__name__}
+
+
+def worker(args, stdin, stdout, running):
+    """One process per editor window: a JSON request per line, a JSON reply per line, until stdin closes. Each request
+    goes through execute(), with the same checks as a single run; only the game's catalogue is kept."""
+    catalogues = {}
+    for line in stdin:
+        try:
+            request = json.loads(line)
+            if not isinstance(request, dict) or request.get("command") not in COMMANDS:
+                raise ValueError("unknown command")
+            one = argparse.Namespace(command=request["command"], user=args.user, game=args.game,
+                                     kind=request.get("kind", args.kind), slot=request.get("slot"), backup=request.get("backup"))
+            if one.kind not in store.KINDS:
+                raise ValueError("unknown save type")
+            check_slot(one)
+            reply = {"result": execute(one, request.get("edit"), running, catalogues)}
+        except Exception as error:
+            reply = error_reply(error)
+        print(json.dumps(reply, default=str, ensure_ascii=True), file=stdout, flush=True)
+
+
+def check_slot(args):
+    if args.command in ("show", "apply") and args.slot not in range(10):
+        raise ValueError("slot must be 0 to 9")
+
+
 class Parser(argparse.ArgumentParser):
     def error(self, message):
         raise ValueError(message)
@@ -234,22 +271,23 @@ def main(argv=None, stdin=None, stdout=None, running=running_games):
     stdout = stdout or sys.stdout
     try:
         parser = Parser(description=__doc__)
-        parser.add_argument("command", choices=("slots", "show", "apply", "backups", "restore", "effects"))
+        parser.add_argument("command", choices=COMMANDS + ("worker",))
         parser.add_argument("--user", type=Path, required=True)
         parser.add_argument("--kind", choices=tuple(store.KINDS), required=True)
         parser.add_argument("--slot", type=int)
         parser.add_argument("--game", type=Path)
         parser.add_argument("--backup")
         args = parser.parse_args(argv)
-        if args.command in ("show", "apply") and args.slot not in range(10):
-            raise ValueError("slot must be 0 to 9")
+        if args.command == "worker":
+            worker(args, stdin or sys.stdin, stdout, running)
+            return 0
+        check_slot(args)
         edit = json.load(stdin or sys.stdin) if args.command == "apply" else None
         result = execute(args, edit, running)
         print(json.dumps(result, default=str, ensure_ascii=True), file=stdout)
         return 0
     except Exception as error:
-        message = "close the game before changing saves" if isinstance(error, store.GameRunning) else str(error)
-        print(json.dumps({"error": message, "type": type(error).__name__}), file=stdout)
+        print(json.dumps(error_reply(error)), file=stdout)
         return 1
 
 

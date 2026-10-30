@@ -220,6 +220,42 @@ class SaveEditorCliTests(unittest.TestCase):
     def test_windows_process_inspection(self):
         self.assertIsInstance(cli.running_games(), list)
 
+    def worker(self, requests, running=lambda: []):
+        lines = "".join(r if isinstance(r, str) else json.dumps(r) + "\n" for r in requests)
+        output = io.StringIO()
+        code = cli.main(["worker", "--user", str(self.user), "--kind", "solo"], io.StringIO(lines), output, running)
+        self.assertEqual(code, 0)
+        return [json.loads(line) for line in output.getvalue().splitlines()]
+
+    def test_worker_answers_each_request_with_the_same_checks(self):
+        shown = self.call("show")[1]
+        slots, show, bad, unknown, no_slot, other, applied, stale = self.worker([
+            dict(command="slots"), dict(command="show", slot=0), "not json\n", dict(command="worker"), dict(command="show"),
+            dict(command="slots", kind="nonsense"),
+            dict(command="apply", slot=0, edit=dict(revision=shown["revision"], echoes=1234)),
+            dict(command="apply", slot=0, edit=dict(revision=shown["revision"], echoes=99)),
+        ])
+        self.assertEqual(slots["result"][0]["name"], "Tester")
+        self.assertEqual(show["result"], shown)
+        self.assertIn("error", bad)
+        self.assertEqual(unknown["error"], "unknown command")
+        self.assertIn("slot", no_slot["error"])
+        self.assertEqual(other["error"], "unknown save type")
+        self.assertTrue(applied["result"]["backup"])
+        self.assertEqual(stale["type"], "EditConflict")
+        self.assertEqual(self.call("show")[1]["character"]["echoes"], 1234)
+
+    def test_worker_refuses_a_write_while_the_game_runs(self):
+        shown = self.call("show")[1]
+        reply = self.worker([dict(command="apply", slot=0, edit=dict(revision=shown["revision"], echoes=7))], running=lambda: ["game"])[0]
+        self.assertEqual(reply["type"], "GameRunning")
+        self.assertEqual(self.file.read_bytes(), self.original)
+
+    def test_worker_keeps_the_catalogue(self):
+        with patch.object(cli.names.Catalogue, "load", wraps=cli.names.Catalogue.load) as load:
+            self.worker([dict(command="show", slot=0), dict(command="show", slot=0)])
+        self.assertEqual(load.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -154,6 +154,7 @@ public sealed partial class SaveEditorWindow
     {
         _itemList.ItemsSource = null;
         var view = (ListCollectionView)CollectionViewSource.GetDefaultView(_items);
+        using var once = view.DeferRefresh();  // one sort, not one per description
         view.GroupDescriptions.Clear(); view.SortDescriptions.Clear();
         view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(ItemRow.Group)));
         view.SortDescriptions.Add(new System.ComponentModel.SortDescription(nameof(ItemRow.Order), System.ComponentModel.ListSortDirection.Ascending));
@@ -185,6 +186,11 @@ public sealed partial class SaveEditorWindow
     {
         if (_itemList.ItemsSource is not ListCollectionView view) return;
         view.Refresh();
+        ShowItemCount();
+    }
+    private void ShowItemCount()
+    {
+        if (_itemList.ItemsSource is not ListCollectionView view) return;
         _itemEmpty.Visibility = view.IsEmpty ? Visibility.Visible : Visibility.Collapsed;
         _itemCount.Text = _items.Count == 0 ? "" : string.Format(L.T("Showing {0} of {1}"), view.Count, _items.Count);
     }

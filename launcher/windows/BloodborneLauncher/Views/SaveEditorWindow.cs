@@ -22,10 +22,12 @@ public interface ISaveEditorSource
 
 public sealed partial class SaveEditorWindow : Window
 {
-    private sealed class LocalSource(LauncherSettings settings) : ISaveEditorSource
+    private sealed class LocalSource(LauncherSettings settings) : ISaveEditorSource, IDisposable
     {
-        public async Task<string> Run(string command, string kind, int? slot = null, object? edit = null, string? backup = null)
-            => (await SaveEditor.Run<JsonElement>(settings, command, kind, slot, edit, backup)).GetRawText();
+        private readonly SaveEditor.Worker _worker = new(settings);
+        public Task<string> Run(string command, string kind, int? slot = null, object? edit = null, string? backup = null)
+            => _worker.Run(command, kind, slot, edit, backup);
+        public void Dispose() => _worker.Dispose();
         public bool GameRunning
         {
             get
@@ -48,6 +50,7 @@ public sealed partial class SaveEditorWindow : Window
     private readonly TextBlock _name = LauncherPage.Text("", "PageTitle");
     private readonly TextBlock _level = LauncherPage.Text("", "Muted");
     private readonly TextBlock _status = LauncherPage.Text("", "Muted");
+    private readonly ProgressRing _loadRing = new() { IsIndeterminate = true, Width = 16, Height = 16, Margin = new Thickness(0, 0, 8, 0), Visibility = Visibility.Collapsed };
     private readonly Border _warning;
     private readonly Button _apply, _revert;
     private readonly ContentControl _page = new();
@@ -133,7 +136,8 @@ public sealed partial class SaveEditorWindow : Window
         foreach (var width in new[] { new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto })
             footer.ColumnDefinitions.Add(new() { Width = width });
         _status.VerticalAlignment = VerticalAlignment.Center; _status.Margin = new Thickness(0, 0, 14, 0);
-        _status.TextTrimming = TextTrimming.CharacterEllipsis; footer.Children.Add(_status);
+        _status.TextTrimming = TextTrimming.CharacterEllipsis;
+        footer.Children.Add(new DockPanel { Children = { _loadRing, _status } });
         _revert = new Button { Content = L.T("Revert"), Margin = new Thickness(0, 0, 8, 0), MinWidth = 80, IsEnabled = false };
         _revert.Click += async (_, _) => await Guard(OpenSlot); Place(footer, _revert, 0, 1);
         var close = new Button { Content = L.T("Close"), Margin = new Thickness(0, 0, 8, 0), MinWidth = 80 };
@@ -156,7 +160,7 @@ public sealed partial class SaveEditorWindow : Window
         Closing += (_, e) => { if (_busy || !CanDiscard()) e.Cancel = true; };
         _timer.Tick += (_, _) => UpdateRunning();
         Loaded += async (_, _) => { await LoadAsync(); _timer.Start(); };
-        Closed += (_, _) => _timer.Stop();
+        Closed += (_, _) => { _timer.Stop(); (_source as IDisposable)?.Dispose(); };
     }
 
     public Task LoadAsync() => Guard(Refresh);
@@ -170,10 +174,11 @@ public sealed partial class SaveEditorWindow : Window
     private async Task Guard(Func<Task> action)
     {
         if (_busy) return;
-        _busy = true; _body.IsEnabled = false;
+        // Clicks wait, the page stays as it is until the new data arrives: greying it out on every slot change reads as lag.
+        _busy = true; _body.IsHitTestVisible = false; _loadRing.Visibility = Visibility.Visible;
         try { await action(); }
         catch (Exception e) { Prompt.Tell(L.T("Save editor"), e is InvalidOperationException ? e.Message : L.T("Could not open the save editor data.")); }
-        finally { _busy = false; _body.IsEnabled = true; UpdateState(); }
+        finally { _busy = false; _body.IsHitTestVisible = true; _loadRing.Visibility = Visibility.Collapsed; UpdateState(); }
     }
     private bool CanDiscard() => !_dirty || Prompt.Confirm(L.T("Save editor"), L.T("Discard unsaved changes?"), L.T("Discard"));
     private async Task Refresh()
@@ -206,8 +211,9 @@ public sealed partial class SaveEditorWindow : Window
             _fields["ng_cycle"].Load(c.NgCycle.ToString(CultureInfo.InvariantCulture));
             _items = data.Items.Select(i => new ItemRow(i, UpdateState, row => _ = Guard(() => EditGem(row)))).ToList();
             _flags = (data.Flags ?? []).Select(f => new FlagRow(f, UpdateState)).ToList();
+            _itemList.ItemsSource = null;  // no refilter of the old list on the resets below
             _search.Text = ""; _changedOnly.IsChecked = false; _itemKinds.Select(0); _flagKinds.Select(0);
-            BindItems(); RefreshItems(); BindFlags();
+            BindItems(); ShowItemCount(); BindFlags();
         }
         finally { _loading = false; }
         ShowHunter(); UpdateState();

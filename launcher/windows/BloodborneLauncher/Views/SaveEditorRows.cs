@@ -38,6 +38,7 @@ internal sealed class ItemRow : RowBase
     private bool _removed;
     private SaveEditor.GemEffect[] _effects;
     private ImageSource? _icon;
+    private bool _iconAsked;
     public SaveEditor.Item Item { get; }
     public RowCommand LevelDown { get; }
     public RowCommand LevelUp { get; }
@@ -60,7 +61,21 @@ internal sealed class ItemRow : RowBase
         : (Item.Section == 0 ? "" : L.T("Key item") + " · ") + L.T("Item ID") + " " + Item.Number;
     public bool IsKey => Item.Section is 1 or 2;
     public bool Locked => Item.Locked;
-    public ImageSource? Icon => _icon ??= LoadIcon(Item.Icon);
+    // Decoded off the UI thread when a row first shows; the row fills in a moment later.
+    public ImageSource? Icon
+    {
+        get
+        {
+            if (!_iconAsked) { _iconAsked = true; FetchIcon(); }
+            return _icon;
+        }
+    }
+    private async void FetchIcon()
+    {
+        var path = Item.Icon;
+        _icon = await Task.Run(() => LoadIcon(path));
+        if (_icon != null) Raise(nameof(Icon));
+    }
     // Gem effects, or a weapon's slots, under the title.
     public string Details => Item.Gem != null ? string.Join("\n", _effects.Select(e => e.Text ?? L.T("Hidden effect")))
         : Item.Sockets is { Length: > 0 } sockets ? string.Join("  ·  ", sockets.Select(s => s.Gem ?? string.Format(L.T("{0} slot, empty"), ShapeName(s.Shape))))
@@ -104,7 +119,7 @@ internal sealed class ItemRow : RowBase
         {
             // OnLoad reads the file now and closes it, so the cache folder is never held open.
             var image = new BitmapImage();
-            image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad; image.UriSource = new Uri(path); image.EndInit();
+            image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad; image.DecodePixelWidth = 44; image.UriSource = new Uri(path); image.EndInit();
             image.Freeze(); return image;
         }
         catch (Exception e) when (e is IOException or NotSupportedException or UriFormatException) { return null; }

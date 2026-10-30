@@ -48,47 +48,91 @@ internal static class SaveEditor
     internal static T Parse<T>(string text) => JsonSerializer.Deserialize<T>(text, Json)
         ?? throw new JsonException();
 
-    internal static async Task<T> Run<T>(LauncherSettings settings, string command, string kind,
-        int? slot = null, object? edit = null, string? backup = null)
+    /// <summary>The Python side of one editor window, kept running so a slot or a save type opens without a new process
+    /// and a new read of the game's catalogue. Requests go one at a time. A worker that died is restarted once for a read;
+    /// a write is never sent twice, it reports the failure.</summary>
+    internal sealed class Worker(LauncherSettings settings) : IDisposable
     {
-        if (command is "apply" or "restore")
+        private readonly SemaphoreSlim _turn = new(1, 1);
+        private Process? _process;
+
+        private Process Start()
         {
-            var games = ProcessTree.GamesIn(Paths.EngineDir);
-            var running = games.Length > 0;
-            foreach (var game in games) game.Dispose();
-            if (Workspace.Current.Game.Running || running)
-                throw new InvalidOperationException(L.T("Close the game before changing saves."));
-        }
-        var start = new ProcessStartInfo(Paths.SeamlessPython)
-        {
-            UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Paths.PortDir,
-            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true
-        };
-        start.Environment["PYTHONUTF8"] = "1";
-        foreach (var argument in new[] { Path.Combine(Paths.SeamlessScripts, "saveedit_cli.py"), command,
-                     "--user", GameEnvironment.UserDir(settings), "--kind", kind,
-                     "--game", GameEnvironment.GameDir(settings) }) start.ArgumentList.Add(argument);
-        if (slot.HasValue) { start.ArgumentList.Add("--slot"); start.ArgumentList.Add(slot.Value.ToString()); }
-        if (backup != null) { start.ArgumentList.Add("--backup"); start.ArgumentList.Add(backup); }
-        using var process = Process.Start(start) ?? throw new IOException(L.T("Could not open the save editor data."));
-        var output = process.StandardOutput.ReadToEndAsync();
-        var error = process.StandardError.ReadToEndAsync();
-        if (edit != null) await process.StandardInput.WriteAsync(JsonSerializer.Serialize(edit, Json));
-        process.StandardInput.Close();
-        await process.WaitForExitAsync();
-        var text = await output;
-        await error;
-        if (process.ExitCode != 0)
-        {
-            using var failure = JsonDocument.Parse(text);
-            var type = failure.RootElement.TryGetProperty("type", out var value) ? value.GetString() : "";
-            throw new InvalidOperationException(type switch
+            var start = new ProcessStartInfo(Paths.SeamlessPython)
             {
-                "GameRunning" => L.T("Close the game before changing saves."),
-                "EditConflict" => L.T("The save changed. Open the slot again before applying edits."),
-                _ => L.T("Could not complete the save operation. Check the values and save folder, then try again.")
-            });
+                UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Paths.PortDir,
+                RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true
+            };
+            start.Environment["PYTHONUTF8"] = "1";
+            foreach (var argument in new[] { Path.Combine(Paths.SeamlessScripts, "saveedit_cli.py"), "worker",
+                         "--user", GameEnvironment.UserDir(settings), "--kind", "solo",
+                         "--game", GameEnvironment.GameDir(settings) }) start.ArgumentList.Add(argument);
+            var process = Process.Start(start) ?? throw new IOException(L.T("Could not open the save editor data."));
+            process.ErrorDataReceived += (_, _) => { };
+            process.BeginErrorReadLine();
+            return process;
         }
-        return Parse<T>(text);
+
+        private async Task<string?> Exchange(string request)
+        {
+            _process ??= Start();
+            try
+            {
+                await _process.StandardInput.WriteLineAsync(request);
+                await _process.StandardInput.FlushAsync();
+                return await _process.StandardOutput.ReadLineAsync();
+            }
+            catch (Exception e) when (e is IOException or ObjectDisposedException or InvalidOperationException) { return null; }
+        }
+
+        internal async Task<string> Run(string command, string kind, int? slot = null, object? edit = null, string? backup = null)
+        {
+            var writes = command is "apply" or "restore";
+            if (writes)
+            {
+                var games = ProcessTree.GamesIn(Paths.EngineDir);
+                var running = games.Length > 0;
+                foreach (var game in games) game.Dispose();
+                if (Workspace.Current.Game.Running || running)
+                    throw new InvalidOperationException(L.T("Close the game before changing saves."));
+            }
+            var request = JsonSerializer.Serialize(new { command, kind, slot, backup, edit }, Json);
+            await _turn.WaitAsync();
+            try
+            {
+                var line = await Exchange(request);
+                if (line == null)
+                {
+                    Stop();
+                    if (writes) throw new IOException(L.T("Could not open the save editor data."));
+                    line = await Exchange(request) ?? throw new IOException(L.T("Could not open the save editor data."));
+                }
+                using var reply = JsonDocument.Parse(line);
+                if (reply.RootElement.TryGetProperty("result", out var result)) return result.GetRawText();
+                var type = reply.RootElement.TryGetProperty("type", out var value) ? value.GetString() : "";
+                throw new InvalidOperationException(type switch
+                {
+                    "GameRunning" => L.T("Close the game before changing saves."),
+                    "EditConflict" => L.T("The save changed. Open the slot again before applying edits."),
+                    _ => L.T("Could not complete the save operation. Check the values and save folder, then try again.")
+                });
+            }
+            finally { _turn.Release(); }
+        }
+
+        private void Stop()
+        {
+            if (_process == null) return;
+            try
+            {
+                _process.StandardInput.Close();  // it exits on the closed pipe
+                if (!_process.WaitForExit(1000)) _process.Kill();
+            }
+            catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            _process.Dispose();
+            _process = null;
+        }
+
+        public void Dispose() => Stop();
     }
 }
