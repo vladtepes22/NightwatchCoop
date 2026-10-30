@@ -164,6 +164,25 @@ Only the **host** needs a reachable port; guests never do. Try these in order:
    UDP**, to it. Then restart the game.
 4. **Let someone else host:** a player whose port is open can host for everyone.
 
+## Nightwatch Online
+
+Nightwatch Online is an optional, private network for co-op. It is an [OpenVPN](https://openvpn.net)
+network run for this project: the launcher installs OpenVPN once (one Windows administrator prompt),
+and **Connect** on the Co-op tab joins the network. Hosts and guests then reach each other without
+any port forwarding, and the hosts of the network show up in the Join list.
+
+- **Optional.** The party type **UPnP/VPN/LAN** needs none of it. Nothing connects until you press
+  Connect, and closing the launcher ends the connection.
+- **No account.** The launcher makes a private key on your PC (kept encrypted for your Windows user,
+  never sent) and asks the server for a certificate that lasts a few days and renews itself.
+- **What the server can see:** that a certificate is in use, your public IP address while connected, and
+  how much traffic passes. The party link between host and guest is encrypted by the game itself, so
+  the network carries it without being able to read it.
+- **What it cannot do:** the network's firewall lets players reach each other only on the party port
+  and with ping, so another player cannot reach the rest of your PC through it. A banned install can
+  no longer connect or renew.
+- **Remove it.** **Uninstall** next to Nightwatch VPN removes OpenVPN again.
+
 ## Host without an open port (Using VPN)
 
 For a host whose router can't open a port (no UPnP, no port forwarding, mobile or carrier NAT, a
