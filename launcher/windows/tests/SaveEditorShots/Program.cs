@@ -17,7 +17,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Length != 1) { Console.Error.WriteLine("Usage: SaveEditorShots <output-folder>"); return 2; }
+        if (args.Length != 1 && !(args.Length == 2 && args[1] == "--coop")) { Console.Error.WriteLine("Usage: SaveEditorShots <output-folder> [--coop]"); return 2; }
         try
         {
             Directory.CreateDirectory(args[0]);
@@ -27,6 +27,7 @@ internal static class Program
             app.Resources.MergedDictionaries.Add(new ControlsDictionary());
             foreach (var file in new[] { "Charcoal", "Styles", "ScrollBar" })
                 app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri($"pack://application:,,,/Nightwatch Co-op;component/Themes/{file}.xaml") });
+            if (args.Length == 2) { CoopShots(args[0]); app.Shutdown(); return 0; }
             int shots = 0;
             IconPath = WriteIcon(Path.Combine(args[0], "fixture-icon.png"));
             foreach (var theme in new[] { "default", "crimson", "moon" })
@@ -85,6 +86,36 @@ internal static class Program
         }
         catch (Exception e) { Console.Error.WriteLine(e); return 1; }
     }
+    private static void CoopShots(string output)
+    {
+        Environment.SetEnvironmentVariable("BB_LAUNCHER_CONFIG_DIR", Path.Combine(output, "fixture-config"));
+        var settings = Workspace.Current.Settings;
+        settings.Set("party_stun", "off");
+        settings.Set("party_name", "Example");
+        settings.Set("ui_theme", "crimson");
+        LauncherTheme.Apply(settings, false);
+        foreach (var state in new[] { "host-public", "host-private", "join" })
+        {
+            settings.Set("party_mode", state == "join" ? "join" : "host");
+            settings.Set("party_host_public", state == "host-public" ? "1" : "0");
+            var page = new SeamlessPage(state == "host-public");
+            // Sectionize without Loaded: no timers, listeners, VPN calls or windows.
+            typeof(LauncherPage).GetMethod("Sectionize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(page, null);
+            var content = (UIElement)page.Content; page.Content = null;
+            var root = new Border { Child = content, Width = 820, Height = 700 };
+            root.SetResourceReference(Border.BackgroundProperty, "DialogBackgroundBrush");
+            Layout(root, 820, 700);
+            foreach (var control in Descendants(root).OfType<FrameworkElement>().Where(c => c.IsVisible && c is Button or TextBox or System.Windows.Controls.ComboBox))
+            {
+                var bounds = control.TransformToAncestor(root).TransformBounds(new Rect(control.RenderSize));
+                Require(bounds.Left >= 0 && bounds.Right <= 820.5, "Co-op control clipped horizontally: " + state);
+            }
+            Render(root, 820, 700, 1, Path.Combine(output, "coop-" + state + ".png"));
+            Require(!Directory.Exists(Path.Combine(output, "fixture-config")), "Preview wrote configuration");
+        }
+        Console.WriteLine("PASS: 3 off-screen Co-op PNGs at minimum width (820); no clipped controls or configuration writes.");
+    }
+
     private static Border Mount(SaveEditorWindow window, int width, int height)
     {
         var content = (FrameworkElement)window.Content; window.Content = null;

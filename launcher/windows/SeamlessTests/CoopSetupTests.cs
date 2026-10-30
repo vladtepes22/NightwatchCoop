@@ -66,10 +66,41 @@ internal static class CoopSetupTests
         finally { Directory.Delete(app, true); }
     }
 
+    private static void HostModes()
+    {
+        foreach (var isPublic in new[] { false, true })
+        foreach (var show in new[] { false, true })
+        foreach (var pref in new[] { "off", "", "auto", "Example VPN" })
+        {
+            var writes = new Dictionary<string, string>();
+            CoopHostMode.Apply(isPublic, show, pref, (k, v) => writes.Add(k, v));
+            Check(writes.Count == 4, "Host mode writes exactly four settings");
+            Check(writes["party_vpn_lobby"] == (isPublic && show ? "1" : "0"), "Lobby follows public visibility");
+            Check(writes["party_discovery"] == (show ? "1" : "0") && writes["party_open"] == (show ? "1" : "0"), "Discovery and open follow Show");
+            Check(writes["party_vpn"] == (isPublic || pref is "off" or "" ? "auto" : pref), "Private keeps a named adapter; public uses auto");
+        }
+        Check(CoopHostMode.MatchesSearch("Example Party", " pArT "), "Search ignores case and outer spaces");
+        Check(CoopHostMode.MatchesSearch("Example Party", ""), "Empty search includes every party");
+        Check(!CoopHostMode.MatchesSearch("Example Party", "absent"), "Search rejects nonmatches");
+        var lan = new NetAdapter("Ethernet", NetworkRoute.Parse("192.168.50.2"), Gateway: true, Physical: true);
+        Check(!NetworkRoute.Choose(new[] { lan }, "auto", 9307).Vpn, "Automatic without VPN uses LAN");
+        foreach (var (name, kind) in new[] { ("Radmin VPN", VpnKind.Radmin), ("Hamachi", VpnKind.Hamachi),
+            ("ZeroTier", VpnKind.ZeroTier), ("Tailscale", VpnKind.Tailscale), ("Example VPN", VpnKind.Other) })
+        {
+            var vpn = new NetAdapter(name, NetworkRoute.Parse("10.20.30.2"), Vendor: "online");
+            Check(NetworkRoute.KindOf(vpn) == kind, "VPN fixture classification");
+            var route = NetworkRoute.Choose(new[] { lan, vpn }, "auto", 9307);
+            // Other VPNs are deliberately excluded by NetworkRoute's existing Automatic policy.
+            Check(kind == VpnKind.Other ? !route.Vpn : route.Vpn && route.Address == "10.20.30.2:9307", "Automatic VPN policy: " + kind);
+            Check(NetworkRoute.Choose(new[] { lan }, "auto", 9307).Address == "192.168.50.2:9307", "Missing VPN falls back to LAN");
+        }
+    }
+
     public static void Run()
     {
+        HostModes();
         Recommended();
         Move();
-        Console.WriteLine("PASS: Use recommended; settings folder move");
+        Console.WriteLine("PASS: Host modes, search, automatic routes; Use recommended; settings folder move");
     }
 }
