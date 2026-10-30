@@ -42,7 +42,7 @@ public sealed class SeamlessPage : LauncherPage
         _checkPanel.Children.Add(_checkBanner);
         var host = Rows(Hosting);
         _hostMode = (Segmented)ComboRow(SymbolRegular.People24, L.T("Party type"), null,
-            new[] { new Choice(L.T("Nightwatch Online"), "1"), new Choice(L.T("uPnP/VPN/LAN"), "0") },
+            new[] { new Choice(L.T("Nightwatch Online"), "1"), new Choice(L.T("UPnP/VPN/LAN"), "0") },
             () => IsPublic ? "1" : "0", ChangeHostMode, host,
             enabled: c => c.Value != "1" || NightwatchVpn.Shipped != null || _previewPublic != null, buttons: true);
         _hostPassword = PasswordRow(host, () => S.PartyPassword, v => { S.PartyPassword = v; UpdateInvite(); },
@@ -63,12 +63,12 @@ public sealed class SeamlessPage : LauncherPage
         _privateCodes = Rows(m => Hosting(m) && !IsPublic);
         _internetButton = SmallButton(L.T("Copy Internet code"), SymbolRegular.Copy24, (_, _) => { if (_internetCode.Length > 0) Copy(_internetCode); });
         _lanButton = SmallButton(L.T("Copy LAN / VPN code"), SymbolRegular.Copy24, (_, _) => { if (_lanCode.Length > 0) Copy(_lanCode); });
-        Add(Card(SymbolRegular.Link24, L.T("Party codes"), L.T("uPnP uses the Internet code; a VPN or the local network uses the LAN / VPN code."),
+        Add(Card(SymbolRegular.Link24, L.T("Party codes"), L.T("UPnP uses the Internet code; a VPN or the local network uses the LAN / VPN code."),
             Row(_internetButton, _lanButton), out _inviteHint, wide: true), _privateCodes);
 
         var found = Rows(Joining);
         found.Children.Add(_joinChecks);
-        _searchBox = new Wpf.Ui.Controls.TextBox { PlaceholderText = L.T("Search parties"), Margin = new Thickness(0, 8, 0, 8) };
+        _searchBox = new Wpf.Ui.Controls.TextBox { PlaceholderText = L.T("Search parties"), Margin = new Thickness(14, 8, 14, 8) };
         found.Children.Add(_searchBox);
         _searchBox.TextChanged += (_, _) => { RefreshLobby(); RefreshParties(); };
         Add(Card(SymbolRegular.People24, L.T("Lobbies available to me, through Nightwatch Online / VPN / LAN"), null,
@@ -475,7 +475,7 @@ public sealed class SeamlessPage : LauncherPage
         if (when != null) _byMode.Add((slot.Panel, when));
     }
 
-    /// <summary>Party type: Nightwatch Online (true) or uPnP/VPN/LAN, with the host settings that go with it.</summary>
+    /// <summary>Party type: Nightwatch Online (true) or UPnP/VPN/LAN, with the host settings that go with it.</summary>
     private void SetHostType(bool isPublic)
     {
         S.Set("party_host_public", isPublic ? "1" : "0");
@@ -490,15 +490,27 @@ public sealed class SeamlessPage : LauncherPage
         if (_previewPublic == null && NightwatchVpn.Shipped != null && S.Str("party_host_public").Length == 0) SetHostType(true);
     }
 
-    /// <summary>The first time a party mode is open on a PC without OpenVPN: offers it, before the lobby. Accepting sets
-    /// Nightwatch Online; refusing, or an install that fails, sets uPnP/VPN/LAN. Asked once.</summary>
-    private void OfferVpn() => Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, async () =>
+    /// <summary>The pointer to the Install button, shown once (here) and again when Play finds Nightwatch Online without the VPN.</summary>
+    public static void TellVpnNeeded() => Prompt.Tell(L.T("Nightwatch Online"),
+        L.T("In order to play Nightwatch Online, you'll need to install our VPN sourced by OpenVPN. You can install it by clicking the \"Install\" button next to \"Nightwatch VPN\"."));
+
+    /// <summary>True when the host's party type is Nightwatch Online and the VPN it needs is not installed.</summary>
+    public static bool NeedsVpn(LauncherSettings s) =>
+        s.Str("party_mode") == "host" && NightwatchVpn.Shipped != null && s.Str("party_host_public") != "0" && NightwatchVpn.GuiExe() == null;
+
+    /// <summary>The first time a party mode is open on a PC without OpenVPN: says where the Install button is, before the
+    /// lobby. Told once; the Install button does the rest.</summary>
+    private void TellVpnOnce()
     {
-        if (_previewPublic != null || !InParty(S.Str("party_mode")) || NightwatchVpn.Shipped == null || NightwatchVpn.GuiExe() != null
-            || S.Bool("party_vpn_offered") || _vpn.Busy || _vpnSetup) return;
+        if (_previewPublic != null || NightwatchVpn.Shipped == null || NightwatchVpn.GuiExe() != null || S.Bool("party_vpn_offered")) return;
         S.Set("party_vpn_offered", true);
         Ws.SaveSoon();
-        await InstallVpn();
+        TellVpnNeeded();
+    }
+
+    private void OfferVpn() => Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
+    {
+        if (InParty(S.Str("party_mode")) && !_vpn.Busy && !_vpnSetup) TellVpnOnce();
     });
 
     /// <summary>The Install / Uninstall button, whether hosting or joining and whatever the party type.</summary>
@@ -508,7 +520,7 @@ public sealed class SeamlessPage : LauncherPage
         if (NightwatchVpn.GuiExe() == null) await InstallVpn(); else await UninstallVpn();
     }
 
-    /// <summary>Installs OpenVPN once the player agreed: installed sets Nightwatch Online and connects; cancelled or failed sets uPnP/VPN/LAN.</summary>
+    /// <summary>Installs OpenVPN once the player agreed: installed sets Nightwatch Online and connects; cancelled or failed sets UPnP/VPN/LAN.</summary>
     private async Task InstallVpn()
     {
         var installed = await SetUpOpenVpn() != null;
@@ -543,7 +555,7 @@ public sealed class SeamlessPage : LauncherPage
     {
         if (!File.Exists(OpenVpnSetup.PackagedMsi))
         {
-            Prompt.Tell(L.T("Nightwatch VPN"), L.T("OpenVPN is not installed. Install OpenVPN Community from openvpn.net, then press Connect again."));
+            Prompt.Tell(L.T("Nightwatch VPN"), L.T("The OpenVPN installer in this package is damaged or missing. Reinstall Nightwatch Co-op, or play with UPnP, VPN or LAN."));
             return null;
         }
         if (!Prompt.Confirm(L.T("Set up online play"),
@@ -558,10 +570,10 @@ public sealed class SeamlessPage : LauncherPage
         _vpnNote = result switch
         {
             OpenVpnSetupResult.Installed when NightwatchVpn.GuiExe() != null => "",
-            OpenVpnSetupResult.Declined => L.T("Setup was cancelled, so nothing was installed. You can still play with uPnP, VPN or LAN."),
+            OpenVpnSetupResult.Declined => L.T("Setup was cancelled, so nothing was installed. You can still play with UPnP, VPN or LAN."),
             OpenVpnSetupResult.Busy => L.T("Another installer is running. Wait for it to finish and press Connect again."),
-            OpenVpnSetupResult.Tampered or OpenVpnSetupResult.Missing => L.T("The OpenVPN installer in this package is damaged or missing. Reinstall Nightwatch Co-op, or play with uPnP, VPN or LAN."),
-            _ => L.T("OpenVPN could not be installed. You can still play with uPnP, VPN or LAN."),
+            OpenVpnSetupResult.Tampered or OpenVpnSetupResult.Missing => L.T("The OpenVPN installer in this package is damaged or missing. Reinstall Nightwatch Co-op, or play with UPnP, VPN or LAN."),
+            _ => L.T("OpenVPN could not be installed. You can still play with UPnP, VPN or LAN."),
         };
         UpdateVpn();
         return NightwatchVpn.GuiExe();
@@ -631,7 +643,7 @@ public sealed class SeamlessPage : LauncherPage
         if (_vpn.TimedOut)
         {
             _vpnNote = connecting
-                ? L.T("The connection did not come up: the VPN server may be full, or a firewall blocks it. You can still play with uPnP, VPN or LAN.")
+                ? L.T("The connection did not come up: the VPN server may be full, or a firewall blocks it. You can still play with UPnP, VPN or LAN.")
                 : L.T("OpenVPN did not confirm the disconnect. Check its tray icon.");
             if (connecting) await Task.Run(() => NightwatchVpn.Disconnect(gui));
         }
@@ -659,11 +671,14 @@ public sealed class SeamlessPage : LauncherPage
         var note = _vpnNote.Length > 0 ? _vpnNote : _vpn.Phase == VpnPhase.Disconnecting ? L.T("Disconnecting…") : busy ? L.T("Connecting…") : "";
         var slot = _slot;
         slot.Status.Visibility = slot.Install.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
-        slot.Status.Text = !installed ? L.T("VPN not installed") : up ? L.T("VPN connected") : L.T("VPN disconnected");
+        slot.Status.Text = !installed ? L.T("Nightwatch VPN not installed") : up ? L.T("Nightwatch VPN connected") : L.T("Nightwatch VPN disconnected");
         slot.Install.Content = installed ? L.T("Uninstall") : L.T("Install");
         slot.Install.Icon = new SymbolIcon { Symbol = installed ? SymbolRegular.Delete24 : SymbolRegular.ArrowDownload24 };
-        slot.Connect.Visibility = shown && installed && !up ? Visibility.Visible : Visibility.Collapsed;
-        slot.Install.IsEnabled = slot.Connect.IsEnabled = !busy && !_changingHost;
+        slot.Connect.Visibility = shown && installed ? Visibility.Visible : Visibility.Collapsed;
+        slot.Connect.Content = up ? L.T("Disconnect") : L.T("Connect");
+        // A tunnel another launcher window or program holds is not ours to close (ToggleVpn refuses it too).
+        slot.Connect.IsEnabled = !busy && !_changingHost && !(up && !NightwatchVpn.OwnedHere);
+        slot.Install.IsEnabled = !busy && !_changingHost;
         slot.Ring.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         SetHint(slot.Note, note);
         if (_vpnButton == null || _vpnHint == null) return;
@@ -1045,8 +1060,8 @@ public sealed class SeamlessPage : LauncherPage
         var isPublic = value == "1";
         if (isPublic == IsPublic) return;
         var up = VpnLobby.TunnelIp(_adapters) != null;
-        if (!isPublic && up && !Prompt.Confirm(L.T("uPnP/VPN/LAN"),
-            L.T("uPnP/VPN/LAN turns off the Nightwatch VPN. You can still play with friends over the internet, LAN or other VPNs."), L.T("Disconnect")))
+        if (!isPublic && up && !Prompt.Confirm(L.T("UPnP/VPN/LAN"),
+            L.T("UPnP/VPN/LAN turns off the Nightwatch VPN. You can still play with friends over the internet, LAN or other VPNs."), L.T("Disconnect")))
         { _hostMode.Select(0, notify: false); return; }
         _changingHost = true;
         _hostMode.IsEnabled = false;
@@ -1060,8 +1075,8 @@ public sealed class SeamlessPage : LauncherPage
             S.Set("party_host_public", isPublic ? "1" : "0");
             ApplyHostMode(isPublic, Ini.Get("party_discovery", "1") == "1");
             Ws.SaveSoon(); ShowMode();
-            if (isPublic && !up) await ToggleVpn();
-            if (isPublic && NightwatchVpn.GuiExe() == null) SetHostType(false);
+            if (isPublic && NightwatchVpn.GuiExe() == null) TellVpnOnce();
+            else if (isPublic && !up) await ToggleVpn();
         }
         finally { _changingHost = false; _hostMode.IsEnabled = true; UpdateVpn(); }
     }

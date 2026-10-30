@@ -1042,6 +1042,12 @@ namespace BloodborneLauncher
                 Show("seamless");
                 return;
             }
+            if (Views.SeamlessPage.NeedsVpn(s))
+            {
+                Views.SeamlessPage.TellVpnNeeded();
+                Show("seamless");
+                return;
+            }
             // No public online play (no shadNet, no The Hunter's Dream): co-op is the party's own.
             ini.Set("online_enabled", "0");
             ini.Set("online_pool", "");
