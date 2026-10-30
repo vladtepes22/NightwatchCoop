@@ -463,12 +463,13 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     Check(good is { Id: 0xdeadbeef, Port: 9307, Level: 42, Players: 1, Max: 3, Password: true, Name: "Hunter-1a2b", Area: "Central City" } &&
           good.Build == "nightwatch-coop-0.2.4-0123456789abcdef", "A valid announcement was not parsed");
     Check(PartyDiscovery.Parse(Packet(flags: 0))?.Password == false && PartyDiscovery.Parse(Packet(area: ""))?.Area == "", "No password flag or an empty area");
+    Check(PartyDiscovery.Parse(Packet(flags: 2))?.Open == true && PartyDiscovery.Parse(Packet(flags: 0))?.Open == false && PartyDiscovery.Parse(Packet(flags: 4)) == null, "The open party flag");
     Check(PartyDiscovery.Parse(Packet(build: new string('b', 64))) != null && PartyDiscovery.Parse(Packet(name: new string('n', 16), area: new string('a', 32))) != null, "The longest strings were refused");
     Check(PartyDiscovery.Parse(Packet(players: 3, max: 3)) != null && PartyDiscovery.Parse(Packet(max: 8)) != null, "A full party or 8 slots was refused");
     var bad = new Dictionary<string, byte[]>
     {
         ["empty"] = Array.Empty<byte>(), ["short"] = Packet()[..16], ["long"] = Packet(area: new string('a', 32)).Concat(new byte[100]).ToArray(),
-        ["magic"] = new byte[] { 0xfb }.Concat(Packet().Skip(1)).ToArray(), ["version"] = Packet(version: 2), ["flags"] = Packet(flags: 2),
+        ["magic"] = new byte[] { 0xfb }.Concat(Packet().Skip(1)).ToArray(), ["version"] = Packet(version: 2), ["flags"] = Packet(flags: 4),
         ["port 0"] = Packet(port: 0), ["max 0"] = Packet(players: 0, max: 0), ["max 9"] = Packet(players: 1, max: 9), ["players > max"] = Packet(players: 4, max: 3),
         ["empty name"] = Packet(name: ""), ["build 65"] = Packet(build: new string('b', 65)), ["name 17"] = Packet(name: new string('n', 17)),
         ["area 33"] = Packet(area: new string('a', 33)), ["control"] = Packet(name: "Hunter"), ["del"] = Packet(name: "Hunter"),

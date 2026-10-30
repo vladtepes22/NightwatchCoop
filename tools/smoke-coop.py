@@ -118,6 +118,7 @@ def main():
         steps[role] = scenario.get(role, '')
     expects = [tuple(e) for e in scenario.get('expect', [])] + args.expect
     forbids = [tuple(e) for e in scenario.get('forbid', [])]
+    no_join = scenario.get('no_join', False)  # the row proves a refusal: nobody may join
     args.seconds = args.seconds or scenario.get('seconds', 240)
     run = f'coop-{args.label}-{datetime.now():%Y%m%d-%H%M%S}'
     artifacts = ARTIFACTS / run
@@ -214,7 +215,7 @@ def main():
                 stable_joined_at = None
                 joined_after_boundary_at = None
             # A scenario ends as soon as every expected line is there (no idle time to the deadline).
-            if expects and stable_seconds >= 15 and not args.require_boundary and time.monotonic() >= next_expect_check:
+            if expects and (stable_seconds >= 15 or no_join) and not args.require_boundary and time.monotonic() >= next_expect_check:
                 next_expect_check = time.monotonic() + 5
                 if all(r['passed'] for r in check_expects(expects, read_logs(offsets))):
                     print('Every expected line seen: ending the run.', flush=True)
@@ -237,7 +238,7 @@ def main():
                   + (f" (seen: {row['line']})" if row['line'] else ''), flush=True)
         crashes = {seed: len(re.findall(CRASH_RX, log))
                    for seed, log in text.items()}
-        success = ((stopped_early or all(code == 0 for code in exits)) and stable_seconds >= 15 and
+        success = ((stopped_early or all(code == 0 for code in exits)) and (stable_seconds == 0 if no_join else stable_seconds >= 15) and
                    all(r['passed'] for r in rows + forbid_rows) and not any(crashes.values()) and
                    (not args.require_boundary or boundary and joined_after_boundary_seconds >= 15))
         result = {'passed': success, 'scenario': args.scenario, 'steps': steps, 'expects': rows, 'forbids': forbid_rows,

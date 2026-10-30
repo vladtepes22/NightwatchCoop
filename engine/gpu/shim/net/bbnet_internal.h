@@ -166,6 +166,7 @@ struct LanAdapter {
     bool loopback = false;    // the software loopback adapter (or 127/8)
     bool tunnel = false;      // IF_TYPE_TUNNEL (Teredo, 6to4 ...)
     bool gateway = false;     // has an IPv4 default gateway
+    std::uint32_t gateway_ip = 0;  // network order; 0 none (party discovery's enumerate_adapters only)
     bool default_route = false;  // the interface the system routes the Internet through
     bool physical = false;    // Ethernet or Wi-Fi interface type
     std::uint32_t metric = 0;    // IPv4 interface metric (lower first), a tie breaker

@@ -448,6 +448,11 @@ add_executable(party-glow-test EXCLUDE_FROM_ALL ../tests/test_party_glow.cpp)
 target_compile_options(party-glow-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(party-glow-test PRIVATE shim)
 set_target_properties(party-glow-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# The open party's join rule (party_open_rules.h). ninja -C out/gpu party-open-test
+add_executable(party-open-test EXCLUDE_FROM_ALL ../tests/test_party_open.cpp)
+target_compile_options(party-open-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-open-test PRIVATE shim)
+set_target_properties(party-open-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 # Splitscreen mode: messages filter, compass-only HUD (party_splitscreen_rules.h). ninja -C out/gpu party-splitscreen-test
 add_executable(party-splitscreen-test EXCLUDE_FROM_ALL ../tests/test_party_splitscreen.cpp)
 target_compile_options(party-splitscreen-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)

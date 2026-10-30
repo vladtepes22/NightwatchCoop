@@ -116,6 +116,8 @@ def main():
         progressed = not args.new_game or (any(marker in text for marker in
             ['prologue skip: done; after the warp:', 'prologue skip: already past the prologue']) and 'GAVE UP' not in text)
         print(f'New-game progression verified: {progressed}' if args.new_game else 'Startup check complete.', flush=True)
+        if 'cannot host on TCP port' in text:
+            print(f'Port {args.port} was taken, so the game never hosted: not a code fault, run it again.', flush=True)
         print(f'Silent audio backend verified: {muted}', flush=True)
         manual = not args.manual_title or ('restarted after an unclean exit' in text and 'auto-continue: Cross #' not in text)
         if args.manual_title:

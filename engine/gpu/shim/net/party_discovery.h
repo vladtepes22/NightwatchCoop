@@ -6,7 +6,8 @@
 //   announce (host -> <adapter's directed broadcast>:9308, every 1.5 s), version 1, big endian:
 //     [0xfa]['A'][ver 1][flags]  id u32  port u16  level u16  players u8  max u8
 //     build: u8 len + bytes   name: u8 len + bytes   area: u8 len + bytes
-//     flags bit 0: the party has a password. Printable ASCII only; at most kMaxPacket bytes.
+//     flags bit 0: the party has a password; bit 1: an open party (party_open_rules.h: no password, plain address joins).
+//     Printable ASCII only; at most kMaxPacket bytes.
 //   Never the password, the party secret, a party code or an address (the receiver reads the host's
 //   address from the datagram's source). Parsing is strict: any length, version or character
 //   violation drops the packet. A listener ignores its own id and rate-limits per source.
@@ -38,6 +39,7 @@ struct Announce {
     std::uint16_t level = 0;  // the host's character level; 0 unknown
     std::uint8_t players = 0, max_players = 0;
     bool password = false;
+    bool open = false;
     std::string build;        // party build id (at most kMaxBuild characters)
     std::string name;         // host name (at most 16)
     std::string area;         // area name (at most 32)

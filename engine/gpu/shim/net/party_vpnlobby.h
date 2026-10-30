@@ -5,7 +5,7 @@
 // launcher's Join page asks the lobby for the list and joins with the host's password.
 //
 //   announce (host -> 10.8.0.1:9310, every 10 s), big endian, at most 512 bytes:
-//     [0xfa]['L'][ver 1][type 1]  flags u8 (bit 0: password)  port u16  players u8  max u8
+//     [0xfa]['L'][ver 1][type 1]  flags u8 (bit 0: password; none: an open party, party_open_rules.h)  port u16  players u8  max u8
 //     build: u8 len + printable ASCII (<= 32)   name: u8 len + UTF-8 (<= 48 bytes, <= 16 characters)
 //   bye (host -> lobby, on leaving): [0xfa]['L'][ver 1][type 4]
 //   The lobby learns the host's tunnel address from the datagram's source; the game never sends an

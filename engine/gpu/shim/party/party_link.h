@@ -260,6 +260,9 @@ struct LinkConfig {
     // party port's route table, a /56 by the peer's key; net/party_route.h throttle_key). Unset: the
     // peer's own address.
     std::function<std::uint32_t(std::uint32_t ip, std::uint16_t port)> throttle_key;  // port: network order
+    // Host with no password: whether this peer (network order) may join with the key of no password and no secret
+    // (the open party, party_open_rules.h). Asked only for a proof made with that key. Unset: code only.
+    std::function<bool(std::uint32_t ip)> open_peer_allowed;
 };
 
 // What differs between the host's and a guest's game (bbport build, eboot.bin, game params,

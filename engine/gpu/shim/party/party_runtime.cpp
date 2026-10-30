@@ -47,6 +47,7 @@
 #include "../net/party_route.h"
 #include "../net/party_discovery.h"
 #include "../net/party_vpnlobby.h"
+#include "party_open_rules.h"
 #include "../bbport_settings.h"
 #include "party_split_notice.h"
 #include "../net/party_transport.h"
@@ -1610,6 +1611,21 @@ LanResponder& lan_responder() {
     static LanResponder* l = new LanResponder;
     return *l;
 }
+// The open party: whether a peer (network order) may join this passwordless host by plain address. The settings are
+// live; the adapters are read here, so only for a proof made with the open key. Addresses arrive in network order.
+bool open_peer_allowed(std::uint32_t ip) {
+    namespace op = party::open_party;
+    const op::Scope scope = op::ScopeOf(false, BbSettings::Get().party_vpn_lobby, BbSettings::Get().party_open);
+    std::vector<op::Adapter> adapters;
+    for (const bbnet::LanAdapter& a : bbnet::disc::enumerate_adapters()) {
+        adapters.push_back({__builtin_bswap32(a.ip), __builtin_bswap32(a.mask), __builtin_bswap32(a.gateway_ip),
+                            bbnet::lobby::is_tunnel_player_address(__builtin_bswap32(a.ip))});
+    }
+    const bool allowed = op::PeerAllowed(scope, __builtin_bswap32(ip), adapters, loopback_mode());
+    if (!allowed) plog("open party: a plain-address join refused (%s)",
+                       scope == op::Scope::None ? "this party is not open" : "not on this PC's LAN or VPN subnet");
+    return allowed;
+}
 bool lan_discovery_enabled() {
     const char* v = env("BB_PARTY_LAN_DISCOVERY");
     if (!v) return true;
@@ -1763,6 +1779,7 @@ void start_host(LinkConfig cfg) {
 
     // F2 (0.7.1): wrong passwords from IPv6 peers count per /64 (the route table's throttle key).
     cfg.throttle_key = [](std::uint32_t ip, std::uint16_t port) { return bbnet::p2p_router().throttle_key(ip, port); };
+    if (cfg.password.empty()) cfg.open_peer_allowed = open_peer_allowed;
     auto* link = new PartyLink(cfg, make_callbacks(true));
     attach_udp_path(link);
     if (const char* gc = env("BB_PARTY_GUEST_CODES")) add_guest_code_text(gc);
@@ -1791,6 +1808,7 @@ void start_host(LinkConfig cfg) {
             a.name = rr.cfg.name;
             a.port = rr.cfg.port;
             a.password = !rr.cfg.password.empty();  // only whether one is set
+            a.open = !a.password && BbSettings::Get().party_open.load();
             a.build = rr.cfg.build_id;
         }
         int players = 0;
@@ -1803,9 +1821,9 @@ void start_host(LinkConfig cfg) {
         *out = a;
         return true;
     });
-    // 0.7.7: Nightwatch VPN lobby - a host WITH a password and a character name tells the lobby on the VPN
-    // server (10.8.0.1) its name, slots and version, while the setting is on (live) and this PC has a
-    // 10.8.0.x address. A plain host:port join needs the password, so a host without one is not listed.
+    // 0.7.7: Nightwatch VPN lobby - a host with a character name tells the lobby on the VPN server (10.8.0.1)
+    // its name, slots and version, while the setting is on (live) and this PC has a 10.8.0.x address. A host
+    // without a password is an open party for the tunnel while it is listed (party_open_rules.h).
     bbnet::lobby::start([](bbnet::lobby::Announce* out) {
         if (!BbSettings::Get().party_vpn_lobby) return false;
         Runtime& rr = R();
@@ -1813,16 +1831,16 @@ void start_host(LinkConfig cfg) {
         bbnet::lobby::Announce a;
         {
             std::lock_guard<std::mutex> lk(rr.mu);
-            if (!rr.link || rr.stopping || rr.left || rr.cfg.password.empty()) return false;
+            if (!rr.link || rr.stopping || rr.left) return false;
             l = rr.link;
             a.port = rr.cfg.port;
             a.build = rr.cfg.build_id;
+            a.password = !rr.cfg.password.empty();
         }
         const char* test_name = env("BB_PARTY_VPNLOBBY_NAME");  // tests only: a synthetic character name
         a.name = bbnet::lobby::clean_name(test_name && *test_name ? std::string(test_name)
                                                                   : bbnet::lobby::utf16_to_utf8(coop::CharacterName().c_str(), 16));
         if (a.name.empty()) return false;  // no character loaded yet: nothing to show
-        a.password = true;
         int players = 0;
         for (const RosterEntry& e : l->roster()) players += e.connected ? 1 : 0;
         a.max_players = static_cast<std::uint8_t>(std::clamp(l->max_players(), 1, 8));

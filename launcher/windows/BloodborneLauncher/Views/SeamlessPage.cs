@@ -405,6 +405,17 @@ public sealed class SeamlessPage : LauncherPage
         if (_hostSize.SelectedIndex != index) _hostSize.SelectedIndex = index;
     }
 
+    /// <summary>The host's password for a join, or null when cancelled or left empty (a party with a password needs it).</summary>
+    private static string? AskPartyPassword(string host, string remembered)
+    {
+        var password = Prompt.Secret(L.T("Join ") + host, L.T("Type the host's party password."),
+            new Prompt.Field(L.T("Password"), remembered, L.T("Party password")), L.T("Join"));
+        if (password == null) return null;
+        if (password.Trim().Length > 0) return password;
+        Prompt.Tell(L.T("No password"), L.T("This party has a password: ask the host for it."));
+        return null;
+    }
+
     /// <summary>Join in the list: asks for the host's password (filled with the one last used for that host), then
     /// sets the host's address and party size and starts the game as Play starts it. A running game is never stopped.</summary>
     private async void JoinParty(FoundParty party)
@@ -417,13 +428,16 @@ public sealed class SeamlessPage : LauncherPage
             RefreshParties();
             return;
         }
-        var password = Prompt.Secret(L.T("Join ") + party.Info.Name, L.T("Type the host's party password."),
-            new Prompt.Field(L.T("Password"), S.JoinPassword(party.Address), L.T("Party password")), L.T("Join"));
-        if (password == null) return;
-        if (password.Trim().Length == 0)
+        if (!party.Info.Password && !party.Info.Open)
         {
-            Prompt.Tell(L.T("No password"), L.T("Every party has a password: ask the host for it."));
+            Prompt.Tell(L.T("Join ") + party.Info.Name, L.T("This host has no password and shares a party code: ask the host for it."));
             return;
+        }
+        var password = "";
+        if (party.Info.Password)
+        {
+            if (AskPartyPassword(party.Info.Name, S.JoinPassword(party.Address)) is not { } typed) return;
+            password = typed;
         }
         S.SetJoinPassword(party.Address, password);
         _codeBox.Text = party.Address;  // saved by the row
@@ -496,13 +510,11 @@ public sealed class SeamlessPage : LauncherPage
             Prompt.Tell(L.T("Join ") + game.Name, L.T("Restart the game to join ") + game.Name + ".");
             return;
         }
-        var password = Prompt.Secret(L.T("Join ") + game.Name, L.T("Type the host's party password."),
-            new Prompt.Field(L.T("Password"), "", L.T("Party password")), L.T("Join"));
-        if (password == null) return;
-        if (password.Trim().Length == 0)
+        var password = "";
+        if (game.Password)
         {
-            Prompt.Tell(L.T("No password"), L.T("Every party has a password: ask the host for it."));
-            return;
+            if (AskPartyPassword(game.Name, "") is not { } typed) return;
+            password = typed;
         }
         SeamlessSettings.PendingJoin = (game.JoinCode, password);
         try { await MainWindow.Instance!.PlayOrStopAsync(); }
@@ -543,7 +555,7 @@ public sealed class SeamlessPage : LauncherPage
             join.IsEnabled = open;
             var row = Card(SymbolRegular.People24, game.Name, null, join, out var hint);
             if (!open) row.Opacity = 0.6;
-            SetHint(hint, game.Players + " / " + game.Max + " · " + L.T("Password: yes") + " · " + VpnLobby.VersionOf(game.Build));
+            SetHint(hint, game.Players + " / " + game.Max + " · " + (game.Password ? L.T("Password: yes") : L.T("Open")) + " · " + VpnLobby.VersionOf(game.Build));
             _lobbyList.Children.Add(row);
         }
     }

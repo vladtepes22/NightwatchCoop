@@ -883,7 +883,8 @@ static void test_discovery() {
     // strictness: every truncation, a wrong magic / version, flags, trailing bytes, control characters
     for (std::size_t n = 0; n < pkt.size(); ++n) CHECK(!parse(pkt.data(), n, &b));
     auto mutated = [&](std::size_t i, std::uint8_t v) { auto m = pkt; m[i] = v; return parse(m.data(), m.size(), &b); };
-    CHECK(!mutated(0, 0) && !mutated(1, 'B') && !mutated(2, 2) && !mutated(3, 2));
+    CHECK(!mutated(0, 0) && !mutated(1, 'B') && !mutated(2, 2) && !mutated(3, 4));
+    CHECK(mutated(3, 2) && b.open && !b.password);  // an open party
     { auto m = pkt; m[9] = 0; m[8] = 0; CHECK(!parse(m.data(), m.size(), &b)); }
     { auto m = pkt; m[12] = 9; CHECK(!parse(m.data(), m.size(), &b)); }  // players > max
     { auto m = pkt; m.push_back(0); CHECK(!parse(m.data(), m.size(), &b)); }

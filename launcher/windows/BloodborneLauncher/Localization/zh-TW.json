@@ -2343,5 +2343,7 @@
   "Party messages": "隊伍訊息",
   "Errors only": "僅錯誤",
   "For several game windows on one screen (the Nucleus Co-op splitscreen mod): the party HUD shows only the compass, with no name tags, and party messages are cut to errors only.": "用於在同一螢幕上執行多個遊戲視窗（Nucleus Co-op 分割畫面模組）：隊伍 HUD 只顯示指南針，不顯示名稱標籤，隊伍訊息僅保留錯誤。",
-  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "顯示哪些隊伍通知和訊息框：全部、僅錯誤（連線中斷或不穩定、加入遭拒或失敗、不同步）或不顯示。分割畫面模式會將「全部」變為「僅錯誤」。"
+  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "顯示哪些隊伍通知和訊息框：全部、僅錯誤（連線中斷或不穩定、加入遭拒或失敗、不同步）或不顯示。分割畫面模式會將「全部」變為「僅錯誤」。",
+  "This party has a password: ask the host for it.": "此隊伍設有密碼：請向房主詢問。",
+  "This host has no password and shares a party code: ask the host for it.": "此房主未設密碼，使用隊伍代碼加入：請向房主索取。"
 }

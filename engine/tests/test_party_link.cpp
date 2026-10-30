@@ -465,6 +465,45 @@ static void test_party() {
                 b.local_slot());
     CHECK(a.observed_address().rfind("127.0.0.1:", 0) == 0);
 
+    // The open party: a host with no password refuses a plain-address join until the rule allows it;
+    // a guest with a password stays refused, and the party code keeps working.
+    {
+        Recorder or_, gr;
+        std::atomic<bool> allow{false};
+        LinkConfig open_cfg = base_cfg("OpenHost", "");
+        open_cfg.open_peer_allowed = [&](std::uint32_t) { return allow.load(); };
+        open_cfg.auth_throttle = false;
+        PartyLink open_host(open_cfg, recorder_callbacks(or_, "openhost"));
+        CHECK(open_host.start_host(&err));
+        const std::uint16_t open_port = open_host.bound_port();
+        const auto plain_guest = [](const char* password) {
+            LinkConfig g = base_cfg("Plain", password);
+            g.secret = {};  // a plain host:port has no secret
+            return g;
+        };
+        {
+            PartyLink refused(plain_guest(""), recorder_callbacks(gr, "refused"));
+            CHECK(refused.start_guest("127.0.0.1", open_port, &err));
+            CHECK(refused.wait_state(LinkState::Rejected, 5000) && refused.reject_code() == RejectCode::Auth);
+        }
+        allow = true;
+        {
+            PartyLink wrong(plain_guest("guess"), recorder_callbacks(gr, "wrong"));
+            CHECK(wrong.start_guest("127.0.0.1", open_port, &err));
+            CHECK(wrong.wait_state(LinkState::Rejected, 5000) && wrong.reject_code() == RejectCode::Auth);
+        }
+        {
+            PartyLink joined(plain_guest(""), recorder_callbacks(gr, "joined"));
+            CHECK(joined.start_guest("127.0.0.1", open_port, &err));
+            CHECK(joined.wait_connected(5000));
+        }
+        {
+            PartyLink code_guest(base_cfg("Coded", ""), recorder_callbacks(gr, "coded"));  // the code still works
+            CHECK(code_guest.start_guest("127.0.0.1", open_port, &err));
+            CHECK(code_guest.wait_connected(5000));
+        }
+    }
+
     // Wrong password, mismatched hash, duplicate name, party full.
     {
         Recorder xr;

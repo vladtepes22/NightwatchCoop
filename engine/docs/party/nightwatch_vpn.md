@@ -218,10 +218,11 @@ host game (10.8.0.x)                 lobby 10.8.0.1:9310                guest la
                                                                   the game joins <address>:<port> + password
 ```
 
-Joining a plain `host:port` needs the host's password (without one only a party code works, and the code
-holds the party secret). So the lobby is for hosts **with a password**: the game does not announce a
-party without one, and the list says *Pass: yes* for every game. The guest types the password the host
-told them; the launcher starts the game as a guest with `BB_PARTY_CODE=<tunnel address>:<port>` and
+Joining a plain `host:port` needs the host's password, or an open party. A listed host without a password
+is an open party for the tunnel's subnet (`party_open_rules.h`; `party_open` extends it to the host's LAN
+and other VPN subnets), and the list says *Open*. Anyone on that network can join and holds the same link
+key, so the link's encryption does not protect an open party from them. With a password the guest types
+the password the host told them; the launcher starts the game as a guest with `BB_PARTY_CODE=<tunnel address>:<port>` and
 `BB_PARTY_PASSWORD`. The VPN firewall already lets clients reach each other's party port 9307 (UDP and
 TCP) only.
 

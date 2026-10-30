@@ -250,5 +250,53 @@
         "outage resume: \\S+ heard again after"
       ]
     ]
+  },
+  "openparty": {
+    "about": "Open party (party_open_rules.h): a passwordless host with party_open on takes a guest that joins by plain address, without the party code.",
+    "seconds": 180,
+    "host_env": {
+      "BB_PARTY_OPEN": "1"
+    },
+    "guest_env": {
+      "BB_PARTY_CODE": "127.0.0.1:47912"
+    },
+    "host": "",
+    "guest": "",
+    "expect": [
+      [
+        "host",
+        "open party: a player joins by plain address"
+      ],
+      [
+        "host",
+        "cooperators 0 -> 1"
+      ]
+    ]
+  },
+  "openparty_off": {
+    "about": "Open party off (the default): the same plain-address join is refused and nobody enters the session.",
+    "seconds": 120,
+    "no_join": true,
+    "guest_env": {
+      "BB_PARTY_CODE": "127.0.0.1:47912"
+    },
+    "host": "",
+    "guest": "",
+    "expect": [
+      [
+        "host",
+        "open party: a plain-address join refused \\(this party is not open\\)"
+      ]
+    ],
+    "forbid": [
+      [
+        "host",
+        "open party: a player joins"
+      ],
+      [
+        "host",
+        "cooperators 0 -> 1"
+      ]
+    ]
   }
 }

@@ -205,6 +205,10 @@ struct Values {
     /// address) announces its character name, slots and version to the lobby on the VPN server, so VPN players
     /// see the game in the launcher's Join list. ini party_vpn_lobby, env BB_PARTY_VPN_LOBBY. Live. Off by default.
     std::atomic<bool> party_vpn_lobby{false};
+    /// The open party (party/party_open_rules.h): a host with no password also takes plain-address joins from its LAN
+    /// and VPN subnets. ini party_open, env BB_PARTY_OPEN. Live. Off by default, so hosting with no password stays
+    /// code only until the player asks for it.
+    std::atomic<bool> party_open{false};
     /// 0.7.7 (CL-2eec68): splitscreen mode for several windows on one screen (party/party_splitscreen_rules.h): the party
     /// HUD shows only the compass, no name tags, party messages cut to errors. Each player's own. ini
     /// party_splitscreen, env BB_PARTY_SPLITSCREEN. Live. Off by default.

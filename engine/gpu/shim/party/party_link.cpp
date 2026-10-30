@@ -1485,9 +1485,11 @@ struct PartyLink::Impl {
             Key expect = crypto::auth_proof(party_key, c->hn, c->gn);
             if (!crypto::equal32(expect.data(), proof)) {
                 const Key by_password = crypto::auth_proof(password_key, c->hn, c->gn);
-                if (cfg.password.empty() || !crypto::equal32(by_password.data(), proof)) {
-                    std::uint32_t ip = 0;
-                    std::memcpy(&ip, c->peer_ip.data(), 4);
+                std::uint32_t ip = 0;
+                std::memcpy(&ip, c->peer_ip.data(), 4);
+                const bool key_matches = (!cfg.password.empty() || cfg.open_peer_allowed) &&
+                                         crypto::equal32(by_password.data(), proof);
+                if (!key_matches || (cfg.password.empty() && !cfg.open_peer_allowed(ip))) {
                     if (cfg.throttle_key) ip = cfg.throttle_key(ip, htons(c->peer_port));
                     const std::uint64_t global_before = auth_throttle.global_lockouts();
                     if (cfg.auth_throttle && auth_throttle.Fail(ip, now_ms())) {
@@ -1506,6 +1508,7 @@ struct PartyLink::Impl {
                     return reject_conn(c, RejectCode::Auth, auth_reject_reason(!cfg.password.empty()));
                 }
                 c->password_only = true;  // a plain address and the right password
+                if (cfg.password.empty()) log("party link: open party: a player joins by plain address");
             }
             {
                 std::uint32_t ip = 0;
@@ -2332,7 +2335,7 @@ bool PartyLink::start_host(std::string* error) {
     if (!valid_member_name(I.cfg.name)) return fail("invalid name (1-16 of A-Z a-z 0-9 _ -)");
     I.host = true;
     I.party_key = crypto::derive_party_key(I.cfg.password, I.cfg.secret.data());
-    if (!I.cfg.password.empty()) {
+    if (!I.cfg.password.empty() || I.cfg.open_peer_allowed) {
         const std::array<std::uint8_t, 8> no_secret{};
         I.password_key = crypto::derive_party_key(I.cfg.password, no_secret.data());
     }

@@ -63,7 +63,7 @@ bool get_str(const std::uint8_t* d, std::size_t n, std::size_t* pos, std::size_t
 }  // namespace
 
 std::vector<std::uint8_t> encode(const Announce& a) {
-    std::vector<std::uint8_t> v{0xfa, 'A', kVersion, static_cast<std::uint8_t>(a.password ? 1 : 0)};
+    std::vector<std::uint8_t> v{0xfa, 'A', kVersion, static_cast<std::uint8_t>((a.password ? 1 : 0) | (a.open ? 2 : 0))};
     for (int s = 24; s >= 0; s -= 8) v.push_back(static_cast<std::uint8_t>(a.id >> s));
     v.push_back(static_cast<std::uint8_t>(a.port >> 8));
     v.push_back(static_cast<std::uint8_t>(a.port));
@@ -79,9 +79,10 @@ std::vector<std::uint8_t> encode(const Announce& a) {
 
 bool parse(const std::uint8_t* d, std::size_t n, Announce* out) {
     if (!d || !out || n < 17 || n > kMaxPacket) return false;
-    if (d[0] != 0xfa || d[1] != 'A' || d[2] != kVersion || (d[3] & ~1) != 0) return false;
+    if (d[0] != 0xfa || d[1] != 'A' || d[2] != kVersion || (d[3] & ~3) != 0) return false;
     Announce a;
     a.password = (d[3] & 1) != 0;
+    a.open = (d[3] & 2) != 0;
     a.id = (std::uint32_t(d[4]) << 24) | (std::uint32_t(d[5]) << 16) | (std::uint32_t(d[6]) << 8) | d[7];
     a.port = static_cast<std::uint16_t>((d[8] << 8) | d[9]);
     a.level = static_cast<std::uint16_t>((d[10] << 8) | d[11]);
@@ -134,7 +135,7 @@ std::vector<LanAdapter> enumerate_adapters() {
     ULONG rc = ERROR_BUFFER_OVERFLOW;
     for (int tries = 0; tries < 4 && rc == ERROR_BUFFER_OVERFLOW; ++tries) {
         buf.resize(size);
-        rc = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+        rc = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER | GAA_FLAG_INCLUDE_GATEWAYS,
                                   nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data()), &size);
     }
     if (rc != NO_ERROR) return out;
@@ -157,6 +158,10 @@ std::vector<LanAdapter> enumerate_adapters() {
         info.loopback = a->IfType == IF_TYPE_SOFTWARE_LOOPBACK;
         info.tunnel = a->IfType == IF_TYPE_TUNNEL;
         info.physical = a->IfType == IF_TYPE_ETHERNET_CSMACD || a->IfType == IF_TYPE_IEEE80211;
+        for (auto* g = a->FirstGatewayAddress; g && !info.gateway_ip; g = g->Next) {
+            if (g->Address.lpSockaddr && g->Address.lpSockaddr->sa_family == AF_INET)
+                info.gateway_ip = reinterpret_cast<sockaddr_in*>(g->Address.lpSockaddr)->sin_addr.s_addr;
+        }
         for (auto* u = a->FirstUnicastAddress; u; u = u->Next) {
             if (!u->Address.lpSockaddr || u->Address.lpSockaddr->sa_family != AF_INET) continue;
             LanAdapter one = info;
