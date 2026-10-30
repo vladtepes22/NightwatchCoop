@@ -72,7 +72,7 @@ internal sealed class SaveEditorAddDialog : Window
         var hint = LauncherPage.Text(L.T("Pick one or more items, then Add. Blood gems and runes cannot be added yet."), "Muted");
         hint.TextWrapping = TextWrapping.Wrap; hint.Margin = new Thickness(0, 0, 0, 10); Put(hint, 1);
 
-        _list.SelectionMode = SelectionMode.Extended; _list.ItemTemplate = Template();
+        _list.SelectionMode = SelectionMode.Extended; _list.ItemTemplate = RowTemplate();
         _list.BorderThickness = new Thickness(0); _list.Background = Brushes.Transparent;
         ScrollViewer.SetHorizontalScrollBarVisibility(_list, ScrollBarVisibility.Disabled);
         VirtualizingPanel.SetIsVirtualizing(_list, true);
@@ -106,7 +106,7 @@ internal sealed class SaveEditorAddDialog : Window
     private bool IsGoods => Category == 4;
     private int? CountNumber => int.TryParse(_count.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n is >= 1 and <= 99 ? n : null;
 
-    private static DataTemplate Template() => (DataTemplate)XamlReader.Parse(
+    private static DataTemplate RowTemplate() => (DataTemplate)XamlReader.Parse(
         "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
         "<Grid Margin='4,3'><Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>" +
         "<Image Source='{Binding Icon}' Width='36' Height='36' Margin='0,0,12,0' Visibility='{Binding IconVisibility}'/>" +

@@ -290,7 +290,7 @@ def test_apply_edit_backs_up_writes_and_verifies(user):
     assert path.read_bytes() == m.to_bytes() != before
     assert (backup / "1" / "CUSA00207" / "SPRJ0005" / "userdata0000").read_bytes() == before
     assert backup.name.endswith("-before-edit") and (backup / S.INFO).is_file()
-    assert S.list_backups(user, "solo")[0]["path"] == backup
+    assert S.list_backups(user, "solo")[0]["path"].samefile(backup)  # MSYS Python spells the same folder with a backslash
     # the other slot and the system file are untouched
     assert S.slot_files(user, "solo")[1].read_bytes() == make_save("Beth", phantom=1)
 
