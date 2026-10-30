@@ -45,7 +45,8 @@ if ($MapGenerator) {
     $generatorBuilt = (Get-Item -LiteralPath (Join-Path $MapGenerator 'generate_atlas_lite.exe')).LastWriteTimeUtc
     $generatorSources = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tools\map\generator\src') -Recurse -File -Filter *.py) +
         (Get-Item (Join-Path $repoRoot 'tools\map\generator\generate_atlas.spec')) +
-        (Get-ChildItem -LiteralPath (Join-Path $repoRoot 'engine\scripts') -File -Include 'game_check.py', 'prepare.py') +
+        (Get-Item (Join-Path $repoRoot 'engine\scripts\game_check.py')) +
+        (Get-Item (Join-Path $repoRoot 'engine\scripts\prepare.py')) +
         (Get-Item (Join-Path $repoRoot 'engine\scripts\image_109_hashes.txt'))
     $stale = $generatorSources | Where-Object { $_.LastWriteTimeUtc -gt $generatorBuilt } | Select-Object -First 1
     if ($stale) { throw "The map generator at $MapGenerator is older than $($stale.Name): rebuild it with tools\map\build-generator.ps1." }
