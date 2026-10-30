@@ -2207,7 +2207,6 @@
   "Restore backup": "バックアップを復元",
   "Backup folder": "バックアップフォルダー",
   "Saves are backed up before every change. Close the game first.": "変更前に毎回セーブをバックアップします。先にゲームを終了してください。",
-  "Restoring replaces all slots of the selected save type.": "復元すると、選択したセーブ種別の全スロットが置き換わります。",
   "Apply these edits? All current saves of this type will be backed up first.": "変更を適用しますか？この種別の現在の全セーブを先にバックアップします。",
   "Restore this backup? All current saves of this type will be backed up first.": "このバックアップを復元しますか？この種別の現在の全セーブを先にバックアップします。",
   "Close the game before changing saves.": "セーブを変更する前にゲームを終了してください。",
@@ -2271,7 +2270,6 @@
   "Removing a key item can block story progress.": "キーアイテムを削除すると、ストーリーの進行がブロックされることがあります。",
   "Apply these edits?": "これらの編集を適用しますか？",
   "All current saves of this type will be backed up first.": "この種類の現在のセーブデータは、先にすべてバックアップされます。",
-  "The level always follows the six stats, as in the game.": "レベルは、ゲームと同様に常に 6 つの能力値に従います。",
   "Changed only": "変更のみ",
   "Key items": "キーアイテム",
   "Showing {0} of {1}": "{1} 件中 {0} 件を表示",
@@ -2280,7 +2278,6 @@
   "Endings": "エンディング",
   "Set all": "すべて設定",
   "Clear all": "すべて解除",
-  "Only the kill flag changes. A boss you clear here may not fully reset its fight.": "変わるのは撃破フラグだけです。ここで解除したボスは、戦闘が完全にはリセットされない場合があります。",
   "A lit lamp can be used for warping straight away.": "点灯したランプは、すぐに移動に使えます。",
   "Repair when applying": "適用時に修復",
   "This character was last saved as a summoned guest. In its own world that can soft-lock the game. The repair clears the mark.": "このキャラクターは最後に召喚されたゲストとして保存されています。自分のワールドでは、これによりゲームが固まることがあります。修復すると印が消えます。",
@@ -2309,7 +2306,6 @@
   "Droplet": "雫",
   "Unknown shape": "不明な形",
   "The game's gem list could not be read. Check the game folder in Settings.": "ゲームの血晶石リストを読み込めませんでした。設定でゲームフォルダーを確認してください。",
-  "Endings the save has seen unlock shop and messenger items. The flags that roll an ending's credits or take the key items away are never offered here.": "セーブデータが見たエンディングは、ショップとメッセンジャーのアイテムを解放します。エンディングのクレジットを流す、またはキーアイテムを取り除くフラグは、ここには表示されません。",
   "Yharnam Sunrise seen": "ヤーナムの夜明け 視聴済み",
   "Honoring Wishes seen": "願いの成就 視聴済み",
   "Childhood's Beginning seen": "幼子の始まり 視聴済み",
@@ -2431,5 +2427,10 @@
   "Copy to offline": "オフラインにコピー",
   "There is no party character yet.": "パーティーのキャラクターがまだありません。",
   "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "{0}（レベル {1}）をシングルプレイ枠 {2} にコピーしますか？パーティー専用の状態はコピーから取り除かれ、パーティーのセーブデータは変更されません。{3}\n\nシングルプレイのセーブデータは先に user\\save_backups にコピーされます。",
-  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nシングルプレイ枠 {1} の {0} が置き換えられます。"
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nシングルプレイ枠 {1} の {0} が置き換えられます。",
+  "All saves related to {0} will be backed up first.": "{0} に関連するすべてのセーブデータを先にバックアップします。",
+  "Your level will go up and down depending on your stat allocation - just like in-game.": "レベルは、ゲーム内と同じようにステータスの振り分けに応じて上下します。",
+  "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "ゲーム内のボスの撃破状態のみを変更します。このメニューを使ってもボスが完全にリセットされない場合があります。",
+  "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "「見た」にチェックを入れたエンディングは、対応するショップや使者のアイテムがあれば解放されます。以下のオプションでクレジットが流れたり、キーアイテムが失われたりすることはありません。",
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "編集前のセーブデータをここから復元できます。復元すると、選択したキャラクターのすべてのセーブ枠が置き換えられます。"
 }

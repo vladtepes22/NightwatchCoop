@@ -35,7 +35,7 @@ internal sealed class SaveEditorGemDialog : Window
         SetResourceReference(BackgroundProperty, "DialogBackgroundBrush");
         SetResourceReference(ForegroundProperty, "TextFillColorPrimaryBrush");
         SetResourceReference(FontFamilyProperty, "UiFont");
-        UseLayoutRounding = true;
+        UseLayoutRounding = true; SourceInitialized += (_, _) => WindowTheme.Apply(this);
         var body = new Grid { Margin = new Thickness(22) };
         foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto })
             body.RowDefinitions.Add(new() { Height = height });

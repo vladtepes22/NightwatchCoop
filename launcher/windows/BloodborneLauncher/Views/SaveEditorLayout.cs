@@ -4,6 +4,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using BloodborneLauncher.Core;
 using Button = Wpf.Ui.Controls.Button;
 using CheckBox = System.Windows.Controls.CheckBox;
@@ -26,10 +27,12 @@ public sealed partial class SaveEditorWindow
         border.SetResourceReference(Border.BorderBrushProperty, "CardStrokeColorDefaultBrush");
         return border;
     }
+    // The vertical scroll bar floats over the right edge of its viewer (18 px with its hover track), so a viewer keeps this
+    // much room free there and nothing under it is covered. The padding on the other sides does not change.
+    private const double ScrollGutter = 22;
     private static ScrollViewer Scroll(UIElement child) => new() { Content = child,
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        Padding = new Thickness(0, 0, 6, 0) };
-
+        Padding = new Thickness(0, 0, ScrollGutter, 0) };
     // A row of equal buttons where one is outlined in the accent colour: tabs, filters and the save type.
     private sealed class Segments
     {
@@ -47,6 +50,11 @@ public sealed partial class SaveEditorWindow
                 var button = new Button { Content = labels[i], Padding = new Thickness(wrap ? padding + 6 : padding, padding, wrap ? padding + 6 : padding, padding),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     Margin = wrap ? new Thickness(0, 0, gap, gap) : new Thickness(0, 0, i == labels.Length - 1 ? 0 : gap, 0) };
+                // The default hover is one shade off the resting fill and the pressed text goes near black: a clearer
+                // hover, and a pressed state that keeps readable text. Only these buttons; keys are WPF-UI's own.
+                button.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF));
+                button.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(Color.FromArgb(0x2A, 0xFF, 0xFF, 0xFF));
+                button.Resources["ButtonForegroundPressed"] = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF));
                 button.Click += (_, _) => { Select(index); _chosen?.Invoke(index); };
                 Buttons.Add(button);
                 if (Panel is Grid grid) { grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); Place(grid, button, 0, i); }
@@ -97,7 +105,7 @@ public sealed partial class SaveEditorWindow
         var result = new DockPanel { Margin = new Thickness(0, 14, 0, 0) };
         _resultLevel.TextTrimming = TextTrimming.CharacterEllipsis; result.Children.Add(_resultLevel);
         group.Children.Add(result);
-        group.Children.Add(Wrapped(L.T("The level always follows the six stats, as in the game."), "StatLabel"));
+        group.Children.Add(Wrapped(L.T("Your level will go up and down depending on your stat allocation - just like in-game."), "StatLabel"));
         stack.Children.Add(Surface(group));
         stack.Children.Add(LauncherPage.Text(L.T("Resources"), "GroupHeader"));
         var resources = new Grid();
@@ -145,7 +153,7 @@ public sealed partial class SaveEditorWindow
     private static void ConfigureList(ListBox list, DataTemplate template)
     {
         list.BorderThickness = new Thickness(0); list.Background = System.Windows.Media.Brushes.Transparent;
-        list.ItemTemplate = template; list.ItemContainerStyle = SaveEditorXaml.RowStyle();
+        list.ItemTemplate = template; list.ItemContainerStyle = SaveEditorXaml.RowStyle(ScrollGutter);
         ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
         VirtualizingPanel.SetIsVirtualizing(list, true); VirtualizingPanel.SetIsVirtualizingWhenGrouping(list, true);
         VirtualizingPanel.SetScrollUnit(list, ScrollUnit.Pixel);
@@ -233,9 +241,9 @@ public sealed partial class SaveEditorWindow
         _flagEmpty.Visibility = view.IsEmpty ? Visibility.Visible : Visibility.Collapsed;
         _flagNote.Text = _flagKinds.Selected switch
         {
-            0 => L.T("Only the kill flag changes. A boss you clear here may not fully reset its fight."),
+            0 => L.T("This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu."),
             1 => L.T("A lit lamp can be used for warping straight away."),
-            _ => L.T("Endings the save has seen unlock shop and messenger items. The flags that roll an ending's credits or take the key items away are never offered here.")
+            _ => L.T("Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.")
         };
     }
     private void SetFlags(bool on)
@@ -248,7 +256,7 @@ public sealed partial class SaveEditorWindow
     private UIElement BackupsPage()
     {
         var dock = new DockPanel();
-        var hint = LauncherPage.Text(L.T("Restoring replaces all slots of the selected save type."), "Muted");
+        var hint = LauncherPage.Text(L.T("You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character."), "Muted");
         hint.Margin = new Thickness(0, 0, 0, 16); DockPanel.SetDock(hint, Dock.Top); dock.Children.Add(hint);
         dock.Children.Add(Scroll(_backupRows)); return dock;
     }
@@ -287,7 +295,7 @@ public sealed partial class SaveEditorWindow
         var style = new Style(typeof(ListBoxItem));
         style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10)));
-        style.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(0, 0, 0, 8)));
+        style.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(0, 0, ScrollGutter, 8)));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
         style.Setters.Add(new Setter(Control.BackgroundProperty, new DynamicResourceExtension("CardBackgroundFillColorDefaultBrush")));
         style.Setters.Add(new Setter(Control.BorderBrushProperty, new DynamicResourceExtension("CardStrokeColorDefaultBrush")));

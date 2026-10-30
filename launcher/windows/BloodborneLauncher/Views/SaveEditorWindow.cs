@@ -73,7 +73,8 @@ public sealed partial class SaveEditorWindow : Window
     private SaveEditor.Snapshot? _snapshot;
     private SaveEditor.Slot? _selected;
     private bool _busy, _loading, _dirty, _running;
-    private int _kindIndex;
+    // Most players use the launcher for co-op, so the party saves open first.
+    private int _kindIndex = 1;
     private string Kind => _kindIndex == 1 ? "party" : "solo";
 
     public SaveEditorWindow(LauncherSettings settings) : this(new LocalSource(settings)) { }
@@ -87,6 +88,7 @@ public sealed partial class SaveEditorWindow : Window
         SetResourceReference(ForegroundProperty, "TextFillColorPrimaryBrush");
         SetResourceReference(FontFamilyProperty, "UiFont");
         UseLayoutRounding = true; Content = _body;
+        SourceInitialized += (_, _) => WindowTheme.Apply(this);
         foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto })
             _body.RowDefinitions.Add(new() { Height = height });
         var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 18) };
@@ -110,13 +112,13 @@ public sealed partial class SaveEditorWindow : Window
         {
             if (_loading || _busy || index == _kindIndex) { _kind.Select(_kindIndex); return; }
             if (!CanDiscard()) { _kind.Select(_kindIndex); return; }
-            _kindIndex = index; await Guard(Refresh);
+            _kindIndex = index; await Guard(() => Refresh());
         }, 6, 6, true);
-        _kind.Select(0); _kind.Panel.Margin = new Thickness(0, 6, 0, 14);
+        _kind.Select(_kindIndex); _kind.Panel.Margin = new Thickness(0, 6, 0, 14);
         pick.Children.Add(_kind.Panel); pick.Children.Add(LauncherPage.Text(L.T("Character slots"), "GroupHeader"));
         DockPanel.SetDock(pick, Dock.Top); sidebar.Children.Add(pick);
         var refresh = LauncherPage.SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24,
-            async (_, _) => { if (CanDiscard()) await Guard(Refresh); });
+            async (_, _) => { if (CanDiscard()) await Guard(() => Refresh(_selected?.SlotNumber)); });
         refresh.Margin = new Thickness(0, 12, 0, 0); DockPanel.SetDock(refresh, Dock.Bottom); sidebar.Children.Add(refresh);
         var slotHost = new Grid(); StyleList(_slots); slotHost.Children.Add(_slots);
         _slotEmpty.Margin = new Thickness(8, 14, 8, 0); slotHost.Children.Add(_slotEmpty);
@@ -164,7 +166,7 @@ public sealed partial class SaveEditorWindow : Window
         Closed += (_, _) => { _timer.Stop(); (_source as IDisposable)?.Dispose(); };
     }
 
-    public Task LoadAsync() => Guard(Refresh);
+    public Task LoadAsync() => Guard(() => Refresh());
     public void SelectTab(int index)
     {
         if (index < 0 || index >= _pages.Length) return;
@@ -182,7 +184,8 @@ public sealed partial class SaveEditorWindow : Window
         finally { _busy = false; _body.IsHitTestVisible = true; _loadRing.Visibility = Visibility.Collapsed; UpdateState(); }
     }
     private bool CanDiscard() => !_dirty || Prompt.Confirm(L.T("Save editor"), L.T("Discard unsaved changes?"), L.T("Discard"));
-    private async Task Refresh()
+    // keepSlot: the slot to select again after a write or a refresh (the first one when it is gone or not given).
+    private async Task Refresh(int? keepSlot = null)
     {
         _loading = true;
         try
@@ -191,7 +194,9 @@ public sealed partial class SaveEditorWindow : Window
             var rows = await Run<SaveEditor.Slot[]>("slots"); _slots.Items.Clear();
             foreach (var slot in rows) _slots.Items.Add(SlotCard(slot));
             _slotEmpty.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-            BuildBackups(await Run<SaveEditor.Backup[]>("backups")); _slots.SelectedIndex = rows.Length > 0 ? 0 : -1;
+            BuildBackups(await Run<SaveEditor.Backup[]>("backups"));
+            var kept = Array.FindIndex(rows, r => r.SlotNumber == keepSlot);
+            _slots.SelectedIndex = rows.Length == 0 ? -1 : Math.Max(kept, 0);
         }
         finally { _loading = false; }
         await OpenSlot(); UpdateRunning();
@@ -304,9 +309,9 @@ public sealed partial class SaveEditorWindow : Window
             Insight = _fields["insight"].Number, NgCycle = _fields["ng_cycle"].Number, Items = items, Gems = gems,
             Flags = _flags.Where(f => f.Changed).Select(f => new { f.Flag.Id, f.On }).ToArray(),
             Repair = Array.Empty<string>() };
-        if (!Prompt.Confirm(L.T("Apply these edits?"), summary + "\n\n" + L.T("All current saves of this type will be backed up first."), L.T("Apply"))) return;
+        if (!Prompt.Confirm(L.T("Apply these edits?"), summary + "\n\n" + L.F($"All saves related to {_snapshot.Character.Name} will be backed up first."), L.T("Apply"))) return;
         var result = await Run<SaveEditor.WriteResult>("apply", _selected.SlotNumber, edit);
-        Prompt.Tell(L.T("Backup folder"), result.Backup ?? ""); await Refresh();
+        Prompt.Tell(L.T("Backup folder"), result.Backup ?? ""); await Refresh(_selected.SlotNumber);
     }
     private async Task EditGem(ItemRow row)
     {
@@ -338,6 +343,6 @@ public sealed partial class SaveEditorWindow : Window
         if (!CanDiscard()) return;
         if (!Prompt.Confirm(L.T("Restore backup"), L.T("Restore this backup? All current saves of this type will be backed up first."), L.T("Restore"))) return;
         var result = await Run<SaveEditor.WriteResult>("restore", backup: backup.Name);
-        Prompt.Tell(L.T("Backup folder"), result.Backup ?? ""); await Refresh();
+        Prompt.Tell(L.T("Backup folder"), result.Backup ?? ""); await Refresh(_selected?.SlotNumber);
     }
 }

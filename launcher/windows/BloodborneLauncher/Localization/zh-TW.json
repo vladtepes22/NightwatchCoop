@@ -2207,7 +2207,6 @@
   "Restore backup": "還原備份",
   "Backup folder": "備份資料夾",
   "Saves are backed up before every change. Close the game first.": "每次修改前都會備份存檔。請先關閉遊戲。",
-  "Restoring replaces all slots of the selected save type.": "還原將取代所選存檔類型的所有存檔欄位。",
   "Apply these edits? All current saves of this type will be backed up first.": "套用這些修改？將先備份此類型的所有目前存檔。",
   "Restore this backup? All current saves of this type will be backed up first.": "還原此備份？將先備份此類型的所有目前存檔。",
   "Close the game before changing saves.": "請先關閉遊戲，再修改存檔。",
@@ -2271,7 +2270,6 @@
   "Removing a key item can block story progress.": "移除關鍵道具可能會卡住劇情進度。",
   "Apply these edits?": "套用這些修改？",
   "All current saves of this type will be backed up first.": "會先備份此類型的所有目前存檔。",
-  "The level always follows the six stats, as in the game.": "等級始終由六項屬性決定，與遊戲內一致。",
   "Changed only": "僅顯示已修改",
   "Key items": "關鍵道具",
   "Showing {0} of {1}": "顯示 {0} / {1}",
@@ -2280,7 +2278,6 @@
   "Endings": "結局",
   "Set all": "全部開啟",
   "Clear all": "全部清除",
-  "Only the kill flag changes. A boss you clear here may not fully reset its fight.": "只會修改擊敗標記。在此清除的首領可能不會完全重置戰鬥。",
   "A lit lamp can be used for warping straight away.": "點亮的路燈可立即用於傳送。",
   "Repair when applying": "套用時修復",
   "This character was last saved as a summoned guest. In its own world that can soft-lock the game. The repair clears the mark.": "此角色上次是以被召喚的訪客身份儲存的。在其自己的世界裡，這可能導致遊戲卡死。修復會清除該標記。",
@@ -2309,7 +2306,6 @@
   "Droplet": "水滴形",
   "Unknown shape": "未知形狀",
   "The game's gem list could not be read. Check the game folder in Settings.": "無法讀取遊戲的寶石列表。請在設定中檢查遊戲資料夾。",
-  "Endings the save has seen unlock shop and messenger items. The flags that roll an ending's credits or take the key items away are never offered here.": "存檔看過的結局會解鎖商店和信使的物品。會播放結局字幕或收走關鍵物品的旗標不會在這裡提供。",
   "Yharnam Sunrise seen": "已看過「亞楠的日出」",
   "Honoring Wishes seen": "已看過「遵從遺願」",
   "Childhood's Beginning seen": "已看過「童年的開始」",
@@ -2431,5 +2427,10 @@
   "Copy to offline": "複製到離線",
   "There is no party character yet.": "還沒有隊伍角色。",
   "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "將 {0}（等級 {1}）複製到單人存檔位 {2}？僅隊伍使用的狀態會從副本中清除，隊伍存檔不會被更改。{3}\n\n單人存檔會先複製到 user\\save_backups。",
-  "\n\nIt replaces {0} in single-player slot {1}.": "\n\n這會取代單人存檔位 {1} 中的 {0}。"
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\n這會取代單人存檔位 {1} 中的 {0}。",
+  "All saves related to {0} will be backed up first.": "會先備份與 {0} 相關的所有存檔。",
+  "Your level will go up and down depending on your stat allocation - just like in-game.": "你的等級會像遊戲中一樣，隨屬性分配上下變化。",
+  "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "這只會更改遊戲中首領的擊敗狀態。使用此選單時，首領可能不會完全重置。",
+  "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "你勾選為「已見」的結局會解鎖對應的商店和信使物品（如果有）。下方選項不會觸發遊戲製作人員名單，也不會拿走你的關鍵物品。",
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "你可以在這裡還原編輯前的任何存檔。還原會取代所選角色的所有存檔位。"
 }

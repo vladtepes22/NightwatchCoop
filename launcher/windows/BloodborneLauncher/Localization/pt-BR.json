@@ -2207,7 +2207,6 @@
   "Restore backup": "Restaurar backup",
   "Backup folder": "Pasta de backup",
   "Saves are backed up before every change. Close the game first.": "Os saves são copiados antes de cada alteração. Feche o jogo primeiro.",
-  "Restoring replaces all slots of the selected save type.": "A restauração substitui todos os espaços do tipo de save selecionado.",
   "Apply these edits? All current saves of this type will be backed up first.": "Aplicar estas alterações? Primeiro será feito um backup de todos os saves atuais deste tipo.",
   "Restore this backup? All current saves of this type will be backed up first.": "Restaurar este backup? Primeiro será feito um backup de todos os saves atuais deste tipo.",
   "Close the game before changing saves.": "Feche o jogo antes de alterar os saves.",
@@ -2271,7 +2270,6 @@
   "Removing a key item can block story progress.": "Remover um item-chave pode bloquear o progresso da história.",
   "Apply these edits?": "Aplicar estas edições?",
   "All current saves of this type will be backed up first.": "Todos os saves atuais deste tipo terão backup feito primeiro.",
-  "The level always follows the six stats, as in the game.": "O nível sempre segue os seis atributos, como no jogo.",
   "Changed only": "Apenas alterados",
   "Key items": "Itens-chave",
   "Showing {0} of {1}": "Mostrando {0} de {1}",
@@ -2280,7 +2278,6 @@
   "Endings": "Finais",
   "Set all": "Definir todos",
   "Clear all": "Limpar todos",
-  "Only the kill flag changes. A boss you clear here may not fully reset its fight.": "Só muda a flag de abate. Um chefe que você limpar aqui pode não resetar totalmente a luta.",
   "A lit lamp can be used for warping straight away.": "Uma lâmpada acesa pode ser usada para teleporte imediatamente.",
   "Repair when applying": "Reparar ao aplicar",
   "This character was last saved as a summoned guest. In its own world that can soft-lock the game. The repair clears the mark.": "Este personagem foi salvo por último como convidado invocado. No mundo dele isso pode travar o jogo. O reparo remove a marca.",
@@ -2309,7 +2306,6 @@
   "Droplet": "Gota",
   "Unknown shape": "Forma desconhecida",
   "The game's gem list could not be read. Check the game folder in Settings.": "Não foi possível ler a lista de gemas do jogo. Verifique a pasta do jogo em Configurações.",
-  "Endings the save has seen unlock shop and messenger items. The flags that roll an ending's credits or take the key items away are never offered here.": "Os finais que o save já viu desbloqueiam itens da loja e do mensageiro. As flags que sorteiam os créditos de um final ou tiram os itens-chave nunca são oferecidas aqui.",
   "Yharnam Sunrise seen": "Amanhecer em Yharnam visto",
   "Honoring Wishes seen": "Honrando Desejos visto",
   "Childhood's Beginning seen": "Início da Infância visto",
@@ -2431,5 +2427,10 @@
   "Copy to offline": "Copiar para offline",
   "There is no party character yet.": "Ainda não há personagem do grupo.",
   "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "Copiar {0} (nível {1}) para o slot solo {2}? O que só vale no grupo é removido da cópia e o save do grupo não muda.{3}\n\nSeus saves solo são copiados antes para user\\save_backups.",
-  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nIsso substitui {0} no slot solo {1}."
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nIsso substitui {0} no slot solo {1}.",
+  "All saves related to {0} will be backed up first.": "Será feito antes um backup de todos os saves de {0}.",
+  "Your level will go up and down depending on your stat allocation - just like in-game.": "Seu nível sobe e desce conforme a distribuição dos atributos, igual ao jogo.",
+  "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "Isto só muda o status de derrotado do chefe no jogo. O chefe pode não ser totalmente reiniciado ao usar este menu.",
+  "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "Os finais que você marcar como «vistos» liberam os itens associados da loja e do mensageiro, se existirem. As opções abaixo nunca iniciam os créditos do jogo nem tiram seus itens-chave.",
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Aqui você pode restaurar qualquer save anterior à edição. Restaurar substitui todos os slots do personagem selecionado."
 }

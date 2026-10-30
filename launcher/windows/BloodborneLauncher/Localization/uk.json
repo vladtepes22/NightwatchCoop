@@ -2207,7 +2207,6 @@
   "Restore backup": "Відновити копію",
   "Backup folder": "Папка резервної копії",
   "Saves are backed up before every change. Close the game first.": "Перед кожною зміною створюється резервна копія збережень. Спочатку закрийте гру.",
-  "Restoring replaces all slots of the selected save type.": "Відновлення замінює всі комірки вибраного типу збережень.",
   "Apply these edits? All current saves of this type will be backed up first.": "Застосувати зміни? Спочатку буде створено копію всіх поточних збережень цього типу.",
   "Restore this backup? All current saves of this type will be backed up first.": "Відновити цю копію? Спочатку буде створено копію всіх поточних збережень цього типу.",
   "Close the game before changing saves.": "Закрийте гру перед зміною збережень.",
@@ -2271,7 +2270,6 @@
   "Removing a key item can block story progress.": "Видалення ключового предмета може заблокувати просування сюжетом.",
   "Apply these edits?": "Застосувати ці зміни?",
   "All current saves of this type will be backed up first.": "Спершу буде створено резервні копії всіх поточних збережень цього типу.",
-  "The level always follows the six stats, as in the game.": "Рівень завжди слідує за шістьма характеристиками, як у грі.",
   "Changed only": "Лише змінені",
   "Key items": "Ключові предмети",
   "Showing {0} of {1}": "Показано {0} з {1}",
@@ -2280,7 +2278,6 @@
   "Endings": "Кінцівки",
   "Set all": "Встановити всі",
   "Clear all": "Очистити всі",
-  "Only the kill flag changes. A boss you clear here may not fully reset its fight.": "Змінюється лише прапорець убивства. Бос, якого ви тут очищаєте, може не повністю скинути свій бій.",
   "A lit lamp can be used for warping straight away.": "Запалену лампу можна одразу використати для телепортації.",
   "Repair when applying": "Виправляти під час застосування",
   "This character was last saved as a summoned guest. In its own world that can soft-lock the game. The repair clears the mark.": "Цього персонажа востаннє збережено як викликаного гостя. У власному світі це може призвести до зависання гри. Виправлення знімає позначку.",
@@ -2309,7 +2306,6 @@
   "Droplet": "Крапля",
   "Unknown shape": "Невідома форма",
   "The game's gem list could not be read. Check the game folder in Settings.": "Не вдалося прочитати список самоцвітів гри. Перевірте теку гри в Налаштуваннях.",
-  "Endings the save has seen unlock shop and messenger items. The flags that roll an ending's credits or take the key items away are never offered here.": "Кінцівки, які побачило збереження, відкривають предмети магазину й месенджера. Прапорці, що визначають титри кінцівки або забирають ключові предмети, тут ніколи не пропонуються.",
   "Yharnam Sunrise seen": "Схід сонця в Ярнамі переглянуто",
   "Honoring Wishes seen": "Виконання бажань переглянуто",
   "Childhood's Beginning seen": "Початок дитинства переглянуто",
@@ -2431,5 +2427,10 @@
   "Copy to offline": "Копіювати в офлайн",
   "There is no party character yet.": "Персонажів групи ще немає.",
   "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "Копіювати {0} (рівень {1}) у слот одиночної гри {2}? Те, що потрібне лише в групі, видаляється з копії, а збереження групи не змінюється.{3}\n\nЗбереження одиночної гри спочатку копіюються в user\\save_backups.",
-  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nЦе замінить {0} у слоті одиночної гри {1}."
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nЦе замінить {0} у слоті одиночної гри {1}.",
+  "All saves related to {0} will be backed up first.": "Спочатку буде створено резервні копії всіх збережень персонажа {0}.",
+  "Your level will go up and down depending on your stat allocation - just like in-game.": "Ваш рівень зростатиме й спадатиме залежно від розподілу характеристик - як у грі.",
+  "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "Це змінює лише статус перемоги над босом у грі. Після використання цього меню бос може скинутися не повністю.",
+  "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "Кінцівки, позначені як «побачені», відкриють пов'язані предмети крамниці й вісника, якщо вони є. Параметри нижче ніколи не запустять титри гри й не заберуть ключові предмети.",
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Тут можна відновити будь-яке збереження, що існувало до редагування. Відновлення замінює всі слоти збережень вибраного персонажа."
 }

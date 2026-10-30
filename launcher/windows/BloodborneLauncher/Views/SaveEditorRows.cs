@@ -282,14 +282,15 @@ internal static class SaveEditorXaml
         """);
 
     // Plain rows with a divider: no selection chrome, because the controls inside are what the user touches.
-    public static Style RowStyle() => Parse<Style>($$"""
+    // gutter: room kept free on the right for the scroll bar that floats over that edge.
+    public static Style RowStyle(double gutter) => Parse<Style>($$"""
         <Style {{Header}} TargetType="ListBoxItem">
           <Setter Property="Focusable" Value="False"/>
           <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
           <Setter Property="Template">
             <Setter.Value>
               <ControlTemplate TargetType="ListBoxItem">
-                <Border x:Name="Chrome" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" Background="Transparent">
+                <Border x:Name="Chrome" Margin="0,0,{{gutter.ToString(System.Globalization.CultureInfo.InvariantCulture)}},0" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" Background="Transparent">
                   <ContentPresenter/>
                 </Border>
                 <ControlTemplate.Triggers>

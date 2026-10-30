@@ -2207,7 +2207,6 @@
   "Restore backup": "Восстановить копию",
   "Backup folder": "Папка резервной копии",
   "Saves are backed up before every change. Close the game first.": "Перед каждым изменением создаётся резервная копия сохранений. Сначала закройте игру.",
-  "Restoring replaces all slots of the selected save type.": "Восстановление заменяет все ячейки выбранного типа сохранений.",
   "Apply these edits? All current saves of this type will be backed up first.": "Применить изменения? Сначала будет создана копия всех текущих сохранений этого типа.",
   "Restore this backup? All current saves of this type will be backed up first.": "Восстановить эту копию? Сначала будет создана копия всех текущих сохранений этого типа.",
   "Close the game before changing saves.": "Закройте игру перед изменением сохранений.",
@@ -2271,7 +2270,6 @@
   "Removing a key item can block story progress.": "Удаление ключевого предмета может заблокировать прохождение сюжета.",
   "Apply these edits?": "Применить эти изменения?",
   "All current saves of this type will be backed up first.": "Сначала будут созданы резервные копии всех текущих сохранений этого типа.",
-  "The level always follows the six stats, as in the game.": "Уровень всегда определяется шестью характеристиками, как в игре.",
   "Changed only": "Только изменённые",
   "Key items": "Ключевые предметы",
   "Showing {0} of {1}": "Показано {0} из {1}",
@@ -2280,7 +2278,6 @@
   "Endings": "Концовки",
   "Set all": "Задать все",
   "Clear all": "Очистить все",
-  "Only the kill flag changes. A boss you clear here may not fully reset its fight.": "Меняется только флаг убийства. Босс, очищенный здесь, может не полностью сбросить свой бой.",
   "A lit lamp can be used for warping straight away.": "Зажжённую лампаду можно сразу использовать для перехода.",
   "Repair when applying": "Исправлять при применении",
   "This character was last saved as a summoned guest. In its own world that can soft-lock the game. The repair clears the mark.": "Этот персонаж в последний раз сохранён как призванный гость. В его собственном мире это может заблокировать игру. Исправление снимает метку.",
@@ -2309,7 +2306,6 @@
   "Droplet": "Капля",
   "Unknown shape": "Неизвестная форма",
   "The game's gem list could not be read. Check the game folder in Settings.": "Не удалось прочитать список камней игры. Проверьте папку игры в настройках.",
-  "Endings the save has seen unlock shop and messenger items. The flags that roll an ending's credits or take the key items away are never offered here.": "Концовки, которые видел сохранение, открывают предметы магазина и посланника. Флаги, которые выбирают титры концовки или забирают ключевые предметы, здесь никогда не предлагаются.",
   "Yharnam Sunrise seen": "Просмотрен «Восход Ярнама»",
   "Honoring Wishes seen": "Просмотрено «Исполнение желаний»",
   "Childhood's Beginning seen": "Просмотрено «Начало детства»",
@@ -2431,5 +2427,10 @@
   "Copy to offline": "Копировать в офлайн",
   "There is no party character yet.": "Персонажей группы пока нет.",
   "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "Копировать {0} (уровень {1}) в слот одиночной игры {2}? То, что нужно только в группе, удаляется из копии, а сохранение группы не меняется.{3}\n\nСохранения одиночной игры сначала копируются в user\\save_backups.",
-  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nЭто заменит {0} в слоте одиночной игры {1}."
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nЭто заменит {0} в слоте одиночной игры {1}.",
+  "All saves related to {0} will be backed up first.": "Сначала будут сохранены резервные копии всех сохранений персонажа {0}.",
+  "Your level will go up and down depending on your stat allocation - just like in-game.": "Ваш уровень будет расти и падать в зависимости от распределения характеристик - как в игре.",
+  "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "Это меняет только статус победы над боссом в игре. После использования этого меню босс может сброситься не полностью.",
+  "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "Концовки, отмеченные как «увиденные», откроют связанные предметы магазина и вестника, если они есть. Параметры ниже никогда не запустят титры игры и не отнимут ключевые предметы.",
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Здесь можно восстановить любое сохранение, существовавшее до редактирования. Восстановление заменяет все слоты сохранений выбранного персонажа."
 }

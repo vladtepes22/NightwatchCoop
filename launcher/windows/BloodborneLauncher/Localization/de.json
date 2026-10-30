@@ -2207,7 +2207,6 @@
   "Restore backup": "Sicherung wiederherstellen",
   "Backup folder": "Sicherungsordner",
   "Saves are backed up before every change. Close the game first.": "Vor jeder Änderung werden die Spielstände gesichert. Schließe zuerst das Spiel.",
-  "Restoring replaces all slots of the selected save type.": "Die Wiederherstellung ersetzt alle Slots des gewählten Spielstandtyps.",
   "Apply these edits? All current saves of this type will be backed up first.": "Änderungen anwenden? Alle aktuellen Spielstände dieses Typs werden vorher gesichert.",
   "Restore this backup? All current saves of this type will be backed up first.": "Diese Sicherung wiederherstellen? Alle aktuellen Spielstände dieses Typs werden vorher gesichert.",
   "Close the game before changing saves.": "Schließe das Spiel, bevor du Spielstände änderst.",
@@ -2271,7 +2270,6 @@
   "Removing a key item can block story progress.": "Das Entfernen eines Schlüsselgegenstands kann den Handlungsfortschritt blockieren.",
   "Apply these edits?": "Diese Änderungen anwenden?",
   "All current saves of this type will be backed up first.": "Alle aktuellen Spielstände dieser Art werden vorher gesichert.",
-  "The level always follows the six stats, as in the game.": "Das Level richtet sich immer nach den sechs Werten, wie im Spiel.",
   "Changed only": "Nur geänderte",
   "Key items": "Schlüsselgegenstände",
   "Showing {0} of {1}": "Angezeigt: {0} von {1}",
@@ -2280,7 +2278,6 @@
   "Endings": "Enden",
   "Set all": "Alle setzen",
   "Clear all": "Alle löschen",
-  "Only the kill flag changes. A boss you clear here may not fully reset its fight.": "Nur die Besiegt-Markierung ändert sich. Ein Boss, den Sie hier als besiegt markieren, setzt seinen Kampf womöglich nicht ganz zurück.",
   "A lit lamp can be used for warping straight away.": "Eine entzündete Lampe kann sofort zum Teleportieren genutzt werden.",
   "Repair when applying": "Beim Anwenden reparieren",
   "This character was last saved as a summoned guest. In its own world that can soft-lock the game. The repair clears the mark.": "Dieser Charakter wurde zuletzt als herbeigerufener Gast gespeichert. In der eigenen Welt kann das das Spiel blockieren. Die Reparatur entfernt die Markierung.",
@@ -2309,7 +2306,6 @@
   "Droplet": "Tropfen",
   "Unknown shape": "Unbekannte Form",
   "The game's gem list could not be read. Check the game folder in Settings.": "Die Edelsteinliste des Spiels konnte nicht gelesen werden. Prüfen Sie den Spielordner in den Einstellungen.",
-  "Endings the save has seen unlock shop and messenger items. The flags that roll an ending's credits or take the key items away are never offered here.": "Enden, die der Spielstand gesehen hat, schalten Shop- und Botenartikel frei. Die Markierungen, die den Abspann eines Endes auslösen oder Schlüsselgegenstände entfernen, werden hier nie angeboten.",
   "Yharnam Sunrise seen": "Sonnenaufgang in Yharnam gesehen",
   "Honoring Wishes seen": "Ehrung der Wünsche gesehen",
   "Childhood's Beginning seen": "Anfang der Kindheit gesehen",
@@ -2431,5 +2427,10 @@
   "Copy to offline": "Offline kopieren",
   "There is no party character yet.": "Es gibt noch keinen Party-Charakter.",
   "Copy {0} (level {1}) to single-player slot {2}? Party-only state is cleaned out of the copy and your party save is not changed.{3}\n\nYour single-player saves are copied to user\\save_backups first.": "{0} (Level {1}) in Einzelspieler-Platz {2} kopieren? Nur für die Party relevante Daten werden aus der Kopie entfernt, Ihr Party-Spielstand bleibt unverändert.{3}\n\nIhre Einzelspieler-Spielstände werden zuerst nach user\\save_backups kopiert.",
-  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nDadurch wird {0} in Einzelspieler-Platz {1} ersetzt."
+  "\n\nIt replaces {0} in single-player slot {1}.": "\n\nDadurch wird {0} in Einzelspieler-Platz {1} ersetzt.",
+  "All saves related to {0} will be backed up first.": "Alle Spielstände von {0} werden zuerst gesichert.",
+  "Your level will go up and down depending on your stat allocation - just like in-game.": "Dein Level steigt und sinkt je nach Verteilung deiner Werte - genau wie im Spiel.",
+  "This only changes the boss' defeated status in the game. The boss might not fully reset when using this menu.": "Dies ändert nur den Besiegt-Status des Bosses im Spiel. Der Boss wird bei Verwendung dieses Menüs eventuell nicht vollständig zurückgesetzt.",
+  "Endings you have checked off as \"seen\" will unlock the associated shop and messenger items if they exist. The options below will never trigger the game credits or take away your key items.": "Enden, die du als „gesehen“ markiert hast, schalten die zugehörigen Shop- und Boten-Gegenstände frei, falls es welche gibt. Die Optionen unten lösen niemals den Abspann aus und nehmen dir keine Schlüsselgegenstände weg.",
+  "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Hier kannst du jeden Spielstand wiederherstellen, der vor dem Bearbeiten existierte. Beim Wiederherstellen werden alle Spielstand-Plätze des gewählten Charakters ersetzt."
 }
