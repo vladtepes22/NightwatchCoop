@@ -131,6 +131,9 @@ public static class NightwatchVpn
 
     /// <summary>POST over TLS, trusting only the pin: the handshake fails on another key, before anything is sent.
     /// No proxy and no redirects. Every failure becomes a VpnException without the address in its text.</summary>
+    /// <summary>This PC's clock against the server's, from its last reply this run.</summary>
+    public static TimeSpan? ClockSkew { get; private set; }
+
     private static async Task<JsonElement> PostAsync(VpnEndpoint endpoint, string path, object body)
     {
         if (Now < Interlocked.Read(ref _waitUntil)) throw new VpnException(VpnFailure.RateLimited, (int)(_waitUntil - Now));
@@ -153,6 +156,7 @@ public static class NightwatchVpn
         try
         {
             using var reply = await http.PostAsync($"https://{endpoint.Host}:{endpoint.Port}{path}", content);
+            if (reply.Headers.Date is { } serverTime) ClockSkew = DateTimeOffset.UtcNow - serverTime;
             var status = (int)reply.StatusCode;
             if (status == 429)
             {

@@ -31,7 +31,7 @@ public sealed class SeamlessPage : LauncherPage
         Group(L.T("Party"));
         var mode = (Segmented)SettingCombo(SymbolRegular.People24, L.T("Mode"), L.T("Host starts the party; Join connects to the host."),
             new[] { new Choice(L.T("Single player"), ""), new Choice(L.T("Host"), "host"), new Choice(L.T("Join"), "join") }, "party_mode",
-            changed: ShowMode, buttons: true);
+            changed: () => { ShowMode(); RunCheck(); }, buttons: true);
         var modeGrid = (Grid)mode.Parent;
         Grid.SetColumn(_modeVpnStatus, 2);
         _modeVpnStatus.HorizontalAlignment = HorizontalAlignment.Right;
@@ -39,6 +39,11 @@ public sealed class SeamlessPage : LauncherPage
         var party = Rows(InParty);
         TextRow(SymbolRegular.Person24, L.T("Your name"), L.T("1–16 letters, numbers, underscores or hyphens."), L.T("Hunter"),
             () => SeamlessSettings.Name(S), v => S.Set("party_name", v), party);
+        var checks = Rows(InParty);
+        _checkBanner = CheckBanner();
+        checks.Children.Add(_checkBanner);
+        _checkLine = Text("", "Faint");
+        checks.Children.Add(_checkLine);
         var host = Rows(Hosting);
         _hostMode = (Segmented)ComboRow(SymbolRegular.People24, L.T("Party visibility"), null,
             new[] { new Choice(L.T("Public party"), "1"), new Choice(L.T("Private party"), "0") },
@@ -102,7 +107,7 @@ public sealed class SeamlessPage : LauncherPage
         }
         ToggleRow(SymbolRegular.Globe24, L.T("Nightwatch VPN lobby"), L.T("Controls whether your hosted party is listed. Join always browses while connected."),
             () => Ini.Get("party_vpn_lobby", "0") == "1", v => Ini.Set("party_vpn_lobby", v ? "1" : "0"), Rows(Hosting, network));
-        Add(Card(SymbolRegular.Info24, L.T("Friends cannot connect?"), null,
+        Add(Card(SymbolRegular.Info24, L.T("Last session and firewall"), null,
             Row(SmallButton(L.T("Check"), SymbolRegular.Info24, (_, _) => CheckConnection()),
                 SmallButton(L.T("Fix firewall"), SymbolRegular.Wrench24, (_, _) => FixFirewall())), out _), network);
         party = Rows(InParty, network);
@@ -290,7 +295,7 @@ public sealed class SeamlessPage : LauncherPage
                 string.Join("\n", status.members.Select(m => $"{m.name}：{(m.in_world ? L.T("in host world") : m.connected ? L.T("connected") : L.T("disconnected"))}  {(m.ping_ms < 0 ? "" : m.ping_ms + " ms")}  {m.area}")) +
                 $"\n{status.@event}\n{status.alert}";
         };
-        Loaded += (_, _) => { _timer.Start(); RefreshPublic(); RefreshRoute(); StartListener(); };
+        Loaded += (_, _) => { _timer.Start(); RefreshPublic(); RefreshRoute(); StartListener(); RunCheck(); };
         Unloaded += (_, _) => { _timer.Stop(); _listener?.Dispose(); _listener = null; _lobby?.Dispose(); _lobby = null; };
         ShowMode();
     }
@@ -883,6 +888,95 @@ public sealed class SeamlessPage : LauncherPage
         banner.SetResourceReference(Border.BorderBrushProperty, "DangerTextBrush");
         icon.SetResourceReference(ForegroundProperty, "DangerTextBrush");
         return banner;
+    }
+
+    // ---- The silent connection check (Core/ConnectionCheck): a banner only when something is wrong ----
+
+    private Border _checkBanner = null!;
+    private StackPanel _checkLines = null!;
+    private Wpf.Ui.Controls.Button _checkFix = null!;
+    private TextBlock _checkLine = null!;
+    private List<CheckProblem> _problems = new();
+    private CheckFacts? _checkFacts;
+    private int _checkRun;
+
+    private Border CheckBanner()
+    {
+        _checkLines = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        _checkFix = SmallButton(L.T("Fix"), SymbolRegular.Wrench24, (_, _) => FixProblems());
+        _checkFix.Margin = new Thickness(12, 0, 0, 0);
+        _checkFix.VerticalAlignment = VerticalAlignment.Center;
+        DockPanel.SetDock(_checkFix, Dock.Right);
+        var banner = new Border
+        {
+            Child = new DockPanel { Children = { _checkFix, _checkLines } },
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 10, 14, 10),
+            Margin = new Thickness(14, 8, 14, 4), Visibility = Visibility.Collapsed,
+        };
+        banner.SetResourceReference(Border.BorderBrushProperty, "DangerTextBrush");
+        return banner;
+    }
+
+    /// <summary>Runs on tab open and when Host or Join is pressed; a newer run replaces an older one's result.</summary>
+    private async void RunCheck()
+    {
+        var mode = S.Str("party_mode");
+        if (mode.Length == 0 || _previewPublic != null) return;
+        var run = ++_checkRun;
+        var port = int.TryParse(S.Str("party_port"), out var p) && p is >= 1 and <= 65535 ? p : NetworkRoute.DefaultPort;
+        var adapters = await Task.Run(NetworkRoute.Enumerate);
+        _adapters = adapters;
+        var pref = Ini.Get("party_vpn", "auto");
+        var start = new CheckFacts
+        {
+            Hosting = mode == "host",
+            PublicParty = IsPublic,
+            LocalAddress = NetworkRoute.SelectLan(adapters)?.IpText ?? "",
+            OfflineVpns = NetworkRoute.OfflineVpnLabels(adapters, pref),
+            VpnsUp = NetworkRoute.VpnLabels(adapters),
+            AutomaticRoute = NetworkRoute.HostOverOf(pref) == HostOver.Automatic,
+            OpenVpnMissing = NightwatchVpn.Shipped != null && NightwatchVpn.GuiExe() == null,
+            SetupPackaged = File.Exists(OpenVpnSetup.PackagedMsi),
+            VpnNote = _vpn.Busy || _vpnSetup ? "" : _vpnNote,
+            ClockSkew = NightwatchVpn.ClockSkew,
+        };
+        var stun = S.Str("party_stun");
+        var running = Ws.Game.Running;
+        var facts = await Task.Run(() => ConnectionCheck.Gather(start, port, stun, running));
+        if (run != _checkRun) return;
+        _checkFacts = facts;
+        _problems = ConnectionCheck.Detect(facts);
+        _checkLines.Children.Clear();
+        foreach (var problem in _problems)
+        {
+            var line = Text(problem.Text, "Faint");
+            line.TextWrapping = TextWrapping.Wrap;
+            line.Margin = new Thickness(0, 2, 0, 2);
+            _checkLines.Children.Add(line);
+        }
+        _checkFix.Visibility = _problems.Any(c => c.Fix != CheckFix.None) ? Visibility.Visible : Visibility.Collapsed;
+        _checkBanner.Visibility = _problems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _checkLine.Text = (_problems.Count == 0 ? L.T("Connection check: no problems found") : L.T("Connection check: problems found")) + " (" + DateTime.Now.ToString("t") + ")";
+    }
+
+    /// <summary>Everything fixable, in one go: the firewall's commands are shown first as always.</summary>
+    private async void FixProblems()
+    {
+        foreach (var fix in _problems.Select(c => c.Fix).Distinct().ToList())
+        {
+            if (fix == CheckFix.Firewall) FixFirewall();
+            else if (fix == CheckFix.VpnSetup) await ToggleVpn();
+            else if (fix == CheckFix.NextPort && _checkFacts is { NextFreePort: > 0 } facts
+                     && Prompt.Confirm(L.T("Party port"), L.T("Move the party to port ") + facts.NextFreePort + L.T("? Friends then need your new code."), L.T("Move")))
+            {
+                S.Set("party_port", facts.NextFreePort.ToString());
+                Ws.SaveSoon();
+                UpdateInvite();
+            }
+        }
+        // The elevated window takes a moment to finish its rules.
+        await Task.Delay(TimeSpan.FromSeconds(8));
+        RunCheck();
     }
 
     private void ApplyHostMode(bool isPublic, bool show) =>

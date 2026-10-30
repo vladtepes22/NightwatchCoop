@@ -4,31 +4,35 @@ using System.IO;
 
 namespace BloodborneLauncher.Core;
 
-/// <summary>The "Fix firewall issues" action: inbound allow rules for the party port (TCP + UDP) and party discovery
-/// (UDP 9308) on every network profile, and removal of the game's inbound block rules (cancelling the Windows prompt
-/// leaves those behind, and a block rule wins over any allow rule). The script is shown to the player first; running it needs an administrator
+/// <summary>The "Fix firewall issues" action: inbound allow rules, for the game only, for the party port (TCP + UDP) and
+/// party discovery (UDP 9308, also for the launcher, whose Join list listens on it) on every network profile, and removal
+/// of those programs' inbound block rules (cancelling the Windows prompt leaves those behind, and a block rule wins over
+/// any allow rule). The script is shown to the player first; running it needs an administrator
 /// prompt, or the player pastes the same lines into an administrator PowerShell.</summary>
 public static class FirewallFix
 {
     private const string Name = "Nightwatch Co-op";
 
     /// <summary>The exact lines that run. Existing rules of the same name are replaced, so running it twice is harmless.</summary>
-    public static string Script(int port) => Script(port, Path.Combine(Paths.BinariesDir, Paths.Program("bb-probe")));
+    public static string Script(int port) => Script(port, Path.Combine(Paths.BinariesDir, Paths.Program("bb-probe")), Environment.ProcessPath);
 
     /// <summary>The same lines for a given game exe (the tests and the elevated QA check pass a dummy path).</summary>
-    public static string Script(int port, string exe) => string.Join("\n", new[]
+    public static string Script(int port, string exe, string? launcher = null)
     {
-        UnblockLine(exe),
-        Rule("party (TCP)", "TCP", port),
-        Rule("party (UDP)", "UDP", port),
-        Rule("party discovery (UDP)", "UDP", PartyDiscovery.Port),
-    });
+        var lines = new List<string> { UnblockLine(exe) };
+        if (launcher != null) lines.Add(UnblockLine(launcher));
+        lines.Add(Rule("party (TCP)", "TCP", port, exe));
+        lines.Add(Rule("party (UDP)", "UDP", port, exe));
+        lines.Add(Rule("party discovery (UDP)", "UDP", PartyDiscovery.Port, exe));
+        if (launcher != null) lines.Add(Rule("party discovery, launcher (UDP)", "UDP", PartyDiscovery.Port, launcher));
+        return string.Join("\n", lines);
+    }
 
-    private static string Rule(string what, string protocol, int port)
+    private static string Rule(string what, string protocol, int port, string program)
     {
         var name = $"{Name} {what} {port}";
         return $"Remove-NetFirewallRule -DisplayName '{name}' -ErrorAction SilentlyContinue; " +
-               $"New-NetFirewallRule -DisplayName '{name}' -Direction Inbound -Protocol {protocol} -LocalPort {port} -Profile Any -Action Allow | Out-Null";
+               $"New-NetFirewallRule -DisplayName '{name}' -Direction Inbound -Program '{program.Replace("'", "''")}' -Protocol {protocol} -LocalPort {port} -Profile Any -Action Allow | Out-Null";
     }
 
     /// <summary>Removes every inbound block rule whose program is exe.</summary>

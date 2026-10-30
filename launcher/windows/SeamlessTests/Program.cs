@@ -84,6 +84,13 @@ if (args.Length == 4 && args[0] == "--map-prep")
     Environment.Exit(MapPrep.IsReady(prep) ? 0 : 1);
 }
 
+// --connection-check <port>: what the troubleshooter reads on this PC, for a host (read-only).
+if (args.Length == 2 && args[0] == "--connection-check")
+{
+    var checkedFacts = await ConnectionCheck.Gather(new CheckFacts { Hosting = true }, int.Parse(args[1]), "", false);
+    Console.WriteLine($"block={checkedFacts.FirewallBlock} allowMissing={checkedFacts.FirewallAllowMissing} busy={checkedFacts.PortBusy} internet={checkedFacts.Internet}");
+    return;
+}
 // --firewall-script <port> <exe>: prints FirewallFix's script for that exe (tools/firewall-block-check.ps1 runs it).
 if (args.Length == 3 && args[0] == "--firewall-script")
 {

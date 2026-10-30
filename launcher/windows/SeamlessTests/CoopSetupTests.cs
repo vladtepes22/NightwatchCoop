@@ -96,8 +96,57 @@ internal static class CoopSetupTests
         }
     }
 
+    private static void Troubleshooter()
+    {
+        const string exe = @"C:\Game\bb-probe.exe";
+        FirewallRuleInfo Rule(bool allow, string program, int protocol, string ports, bool inbound = true, bool enabled = true) => new(inbound, allow, enabled, program, protocol, ports);
+        var full = new[] { Rule(true, exe, 6, "9307"), Rule(true, exe, 17, "9307") };
+        Check(ConnectionCheck.ReadRules(full, exe, 9307) == (false, false), "Both allows are enough");
+        Check(ConnectionCheck.ReadRules(new[] { Rule(true, exe, 6, "9307") }, exe, 9307).AllowMissing, "UDP allow is missing");
+        Check(!ConnectionCheck.ReadRules(new[] { Rule(true, "", 256, "*") }, exe, 9307).AllowMissing, "An allow for all counts");
+        Check(!ConnectionCheck.ReadRules(new[] { Rule(true, "", 6, "9000-9400"), Rule(true, "", 17, "80,9307") }, exe, 9307).AllowMissing, "Port lists and ranges");
+        Check(ConnectionCheck.ReadRules(new[] { Rule(true, @"C:\Other\x.exe", 256, "*") }, exe, 9307).AllowMissing, "Another program's allow does not count");
+        Check(ConnectionCheck.ReadRules(new[] { Rule(false, exe.ToUpperInvariant(), 256, "*") }, exe, 9307).Block, "A block of the game");
+        Check(!ConnectionCheck.ReadRules(new[] { Rule(false, exe, 256, "*", enabled: false), Rule(false, exe, 256, "*", inbound: false) }, exe, 9307).Block, "Off and outbound blocks do not count");
+        Check(!ConnectionCheck.ReadRules(new[] { Rule(false, @"C:\Other\x.exe", 256, "*") }, exe, 9307).Block, "A block of another program does not count");
+
+        const string netstat = "  Proto  Local  Remote  State  PID\r\n  TCP  0.0.0.0:19307  0.0.0.0:0  ABHOEREN  1\r\n  TCP  10.0.0.2:5000  1.2.3.4:9307  HERGESTELLT  2\r\n  TCP  0.0.0.0:9307  0.0.0.0:0  ABHOEREN  77\r\n  UDP  0.0.0.0:9307  *:*  88\r\n";
+        Check(ConnectionCheck.PortHolderPid(netstat, 9307) == 77, "netstat: the listener on the port, in any language");
+        Check(ConnectionCheck.PortHolderPid("  UDP  0.0.0.0:9307  *:*  88\r\n", 9307) == 88, "netstat: UDP");
+        Check(ConnectionCheck.PortHolderPid(netstat, 1234) == null, "netstat: nobody");
+
+        Check(ConnectionCheck.IsCarrierNat("100.64.0.1") && ConnectionCheck.IsCarrierNat("100.127.255.1") && !ConnectionCheck.IsCarrierNat("100.128.0.1") && !ConnectionCheck.IsCarrierNat("192.168.1.2") && !ConnectionCheck.IsCarrierNat(""), "CGNAT range");
+
+        string[] Ids(CheckFacts f) => ConnectionCheck.Detect(f).Select(p => p.Id).ToArray();
+        var host = new CheckFacts { Hosting = true };
+        Check(Ids(host).Length == 0, "Nothing known is no problem");
+        Check(Ids(new CheckFacts { FirewallBlock = true, PortBusy = true }).Length == 0, "Firewall and port matter only to a host");
+        Check(ConnectionCheck.Detect(host with { FirewallBlock = true })[0].Fix == CheckFix.Firewall, "Firewall block has a fix");
+        Check(ConnectionCheck.Detect(host with { FirewallAllowMissing = true })[0].Fix == CheckFix.Firewall, "Missing allow has a fix");
+        var port = ConnectionCheck.Detect(host with { PortBusy = true, PortHolder = "other", NextFreePort = 9310 })[0];
+        Check(port.Fix == CheckFix.NextPort && port.Text.Contains("other") && port.Text.Contains("9310"), "Port: names the program and the next port");
+        Check(ConnectionCheck.Detect(host with { PortBusy = true })[0].Fix == CheckFix.None, "Port: no fix without a free port");
+        Check(Ids(new CheckFacts { Internet = false }).Contains("internet"), "No internet");
+        Check(Ids(new CheckFacts { Internet = null }).Length == 0, "Unknown internet is no problem");
+        Check(Ids(host with { LocalAddress = "100.70.0.1" }).Contains("nat") && !Ids(host with { LocalAddress = "100.70.0.1", PublicParty = true }).Contains("nat"), "CGNAT only for a private host");
+        Check(Ids(new CheckFacts { OfflineVpns = new[] { "Radmin VPN" } }).Contains("vpn-offline"), "VPN offline");
+        var two = new[] { "A", "B" };
+        Check(Ids(host with { VpnsUp = two }).Contains("vpns") && !Ids(host with { VpnsUp = two, AutomaticRoute = false }).Contains("vpns") && !Ids(host with { VpnsUp = new[] { "A" } }).Contains("vpns"), "Several VPNs");
+        var setup = host with { PublicParty = true, OpenVpnMissing = true, SetupPackaged = true };
+        Check(ConnectionCheck.Detect(setup)[0].Fix == CheckFix.VpnSetup && !Ids(setup with { PublicParty = false }).Contains("vpn-setup") && !Ids(setup with { SetupPackaged = false }).Contains("vpn-setup"), "Setup only for a public host with the installer");
+        Check(Ids(new CheckFacts { VpnNote = "wait" }).Contains("vpn"), "A VPN failure's message");
+        Check(Ids(new CheckFacts { ClockSkew = TimeSpan.FromHours(-2) }).Contains("clock") && !Ids(new CheckFacts { ClockSkew = TimeSpan.FromMinutes(5) }).Contains("clock"), "Clock");
+        Check(ConnectionCheck.Detect(new CheckFacts { MissingFiles = new[] { "bb-probe.exe" } })[0].Text.StartsWith("bb-probe.exe"), "Missing file is named");
+
+        var lines = FirewallFix.Script(9307, exe, @"C:\Game\Launcher.exe").Split('\n');
+        Check(lines.Length == 6 && lines[0] == FirewallFix.UnblockLine(exe) && lines[1] == FirewallFix.UnblockLine(@"C:\Game\Launcher.exe"), "Firewall: both programs are unblocked first");
+        Check(lines.Skip(2).All(l => l.Contains("-Program '") && l.Contains("-Action Allow")), "Firewall: every allow is scoped to a program");
+        Check(lines[5].Contains("Launcher.exe") && lines[5].Contains("-LocalPort " + PartyDiscovery.Port) && !lines[2].Contains("Launcher.exe"), "Firewall: only discovery opens for the launcher");
+    }
+
     public static void Run()
     {
+        Troubleshooter();
         HostModes();
         Recommended();
         Move();
