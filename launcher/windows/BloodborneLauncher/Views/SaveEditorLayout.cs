@@ -129,7 +129,7 @@ public sealed partial class SaveEditorWindow
         _changedOnly.Content = L.T("Changed only"); _changedOnly.VerticalAlignment = VerticalAlignment.Center; Place(tools, _changedOnly, 0, 1);
         _search.TextChanged += (_, _) => RefreshItems(); _changedOnly.Click += (_, _) => RefreshItems();
         DockPanel.SetDock(tools, Dock.Top); dock.Children.Add(tools);
-        _itemKinds = new Segments(new[] { L.T("All items"), L.T("Goods"), L.T("Weapons"), L.T("Armor"), L.T("Accessories"), L.T("Gems"), L.T("Key items") },
+        _itemKinds = new Segments(new[] { L.T("All items"), L.T("Goods"), L.T("Right hand"), L.T("Left hand"), L.T("Armor"), L.T("Accessories"), L.T("Gems"), L.T("Runes"), L.T("Key items") },
             _ => RefreshItems(), 4, 5, true);
         _itemKinds.Select(0); _itemKinds.Panel.Margin = new Thickness(0, 0, 0, 10);
         DockPanel.SetDock(_itemKinds.Panel, Dock.Top); dock.Children.Add(_itemKinds.Panel);
@@ -149,7 +149,7 @@ public sealed partial class SaveEditorWindow
         VirtualizingPanel.SetScrollUnit(list, ScrollUnit.Pixel);
         list.GroupStyle.Add(new GroupStyle { HeaderTemplate = SaveEditorXaml.GroupHeaderTemplate() });
     }
-    private static readonly string?[] ItemFilters = { null, "goods", "weapon", "armor", "accessory", "gem", "key" };
+    private static readonly string?[] ItemFilters = { null, "goods", "right", "left", "armor", "accessory", "gem", "rune", "key" };
     private void BindItems()
     {
         _itemList.ItemsSource = null;
@@ -164,7 +164,17 @@ public sealed partial class SaveEditorWindow
     private bool ItemVisible(ItemRow row)
     {
         var filter = ItemFilters[Math.Max(0, _itemKinds.Selected)];
-        if (filter == "key" ? !row.IsKey : filter != null && (row.IsKey || row.Kind != filter)) return false;
+        var matches = filter switch
+        {
+            null => true,
+            "key" => row.IsKey,
+            "right" => !row.IsKey && row.Kind == "weapon" && row.Item.Hand != "left",
+            "left" => !row.IsKey && row.Kind == "weapon" && row.Item.Hand == "left",
+            "gem" => !row.IsKey && row.Kind == "gem" && row.Item.Gem?.Type != 2,
+            "rune" => !row.IsKey && row.Kind == "gem" && row.Item.Gem?.Type == 2,
+            _ => !row.IsKey && row.Kind == filter
+        };
+        if (!matches) return false;
         if (_changedOnly.IsChecked == true && !row.Changed) return false;
         var query = _search.Text.Trim();
         return query.Length == 0 || row.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase) ||
@@ -224,44 +234,6 @@ public sealed partial class SaveEditorWindow
     {
         if (_flagList.ItemsSource is not ListCollectionView view) return;
         foreach (var row in view.Cast<FlagRow>().ToArray()) row.On = on;
-    }
-
-    // ---- Repairs ---------------------------------------------------------------------------------------------
-    private UIElement RepairsPage()
-    {
-        _repairHost.Margin = new Thickness(0); return Scroll(_repairHost);
-    }
-    private void BuildRepairs(SaveEditor.Findings? findings)
-    {
-        _repairHost.Children.Clear(); _repairPhantom = null; _repairKeys = null;
-        void Card(string title, string text, CheckBox? fix)
-        {
-            var body = new StackPanel(); body.Children.Add(LauncherPage.Text(title, "RowTitle")); body.Children.Add(Wrapped(text, "Muted"));
-            ((TextBlock)body.Children[1]).Margin = new Thickness(0, 4, 0, fix == null ? 0 : 10);
-            if (fix != null) body.Children.Add(fix);
-            var card = Surface(body); card.Margin = new Thickness(0, 0, 0, 10); _repairHost.Children.Add(card);
-        }
-        if (findings?.Phantom == true)
-        {
-            _repairPhantom = new CheckBox { Content = L.T("Repair when applying") };
-            _repairPhantom.Click += (_, _) => UpdateState();
-            Card(L.T("Summoned-guest mark"), L.T("This character was last saved as a summoned guest. In its own world that can soft-lock the game. The repair clears the mark."), _repairPhantom);
-        }
-        if (findings is { DuplicateKeys.Length: > 0 })
-        {
-            _repairKeys = new CheckBox { Content = L.T("Repair when applying") };
-            _repairKeys.Click += (_, _) => UpdateState();
-            Card(L.T("Duplicate key items"), string.Format(L.T("These key items are in the inventory twice: {0}. The repair keeps one stack of each."), string.Join(", ", findings.DuplicateKeys)), _repairKeys);
-        }
-        if (findings?.WorldEmpty == true)
-            Card(L.T("Saved in another world"), L.T("This save was last written as a guest in another player's world, so save editors that read it may fail. Use Export for save editor on the Seamless page to share a fixed copy."), null);
-        if (_repairHost.Children.Count == 0)
-        {
-            var empty = new StackPanel { Margin = new Thickness(8, 24, 8, 24) };
-            empty.Children.Add(LauncherPage.Text(L.T("Nothing to repair"), "PageTitle"));
-            empty.Children.Add(Wrapped(L.T("This save passed the checks for the party problems the editor knows."), "Muted"));
-            _repairHost.Children.Add(Surface(empty));
-        }
     }
 
     // ---- Backups ---------------------------------------------------------------------------------------------

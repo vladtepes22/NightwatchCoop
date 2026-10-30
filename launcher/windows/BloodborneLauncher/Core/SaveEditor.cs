@@ -18,6 +18,7 @@ internal static class SaveEditor
         public int Section { get; set; }
         public int Slot { get; set; }
         public string Kind { get; set; } = "";
+        public string Hand { get; set; } = "";
         public int Number { get; set; }
         public string? Name { get; set; }
         public int Count { get; set; }

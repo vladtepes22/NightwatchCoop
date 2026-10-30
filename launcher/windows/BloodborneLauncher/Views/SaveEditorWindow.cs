@@ -37,7 +37,7 @@ public sealed partial class SaveEditorWindow : Window
             }
         }
     }
-    public const int CharacterTab = 0, InventoryTab = 1, ProgressTab = 2, RepairsTab = 3, BackupsTab = 4;
+    public const int CharacterTab = 0, InventoryTab = 1, ProgressTab = 2, BackupsTab = 3;
     private static readonly string[] Stats = { "vigor", "endurance", "strength", "skill", "bloodtinge", "arcane" };
     private static string[] StatLabels => new[] { L.T("Vigor"), L.T("Endurance"), L.T("Strength"), L.T("Skill"), L.T("Bloodtinge"), L.T("Arcane") };
 
@@ -52,7 +52,7 @@ public sealed partial class SaveEditorWindow : Window
     private readonly Button _apply, _revert;
     private readonly ContentControl _page = new();
     private readonly Dictionary<string, EditorField> _fields = new();
-    private readonly StackPanel _backupRows = new(), _repairHost = new();
+    private readonly StackPanel _backupRows = new();
     private readonly TextBox _search = new();
     private readonly CheckBox _changedOnly = new();
     private readonly ListBox _itemList = new(), _flagList = new();
@@ -61,9 +61,8 @@ public sealed partial class SaveEditorWindow : Window
     private readonly List<Button> _restoreButtons = new();
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly UIElement[] _pages;
-    private readonly string[] _tabLabels = { L.T("Character"), L.T("Inventory"), L.T("Progress"), L.T("Repairs"), L.T("Backups") };
+    private readonly string[] _tabLabels = { L.T("Character"), L.T("Inventory"), L.T("Progress"), L.T("Backups") };
     private Segments _kind = null!, _tabs = null!, _itemKinds = null!, _flagKinds = null!;
-    private CheckBox? _repairPhantom, _repairKeys;
     private List<ItemRow> _items = new();
     private List<FlagRow> _flags = new();
     private SaveEditor.GemEffect[]? _effectChoices;
@@ -128,7 +127,7 @@ public sealed partial class SaveEditorWindow : Window
         identity.Children.Add(_name); identity.Children.Add(_level); Place(detail, identity, 0);
         _tabs = new Segments(_tabLabels, SelectTab, 6, 8); _tabs.Panel.Margin = new Thickness(0, 0, 0, 14);
         Place(detail, _tabs.Panel, 1); Place(detail, _page, 2);
-        _pages = new[] { CharacterPage(), InventoryPage(), ProgressPage(), RepairsPage(), BackupsPage() }; SelectTab(CharacterTab);
+        _pages = new[] { CharacterPage(), InventoryPage(), ProgressPage(), BackupsPage() }; SelectTab(CharacterTab);
 
         var footer = new Grid { Margin = new Thickness(0, 18, 0, 0) };
         foreach (var width in new[] { new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto })
@@ -208,14 +207,14 @@ public sealed partial class SaveEditorWindow : Window
             _items = data.Items.Select(i => new ItemRow(i, UpdateState, row => _ = Guard(() => EditGem(row)))).ToList();
             _flags = (data.Flags ?? []).Select(f => new FlagRow(f, UpdateState)).ToList();
             _search.Text = ""; _changedOnly.IsChecked = false; _itemKinds.Select(0); _flagKinds.Select(0);
-            BindItems(); RefreshItems(); BindFlags(); BuildRepairs(data.Findings);
+            BindItems(); RefreshItems(); BindFlags();
         }
         finally { _loading = false; }
         ShowHunter(); UpdateState();
     }
     private void ClearEditors()
     {
-        _items = new(); _flags = new(); BindItems(); BindFlags(); RefreshItems(); BuildRepairs(null);
+        _items = new(); _flags = new(); BindItems(); BindFlags(); RefreshItems();
     }
     private void ShowHunter()
     {
@@ -233,7 +232,7 @@ public sealed partial class SaveEditorWindow : Window
     // What differs from the opened save, per tab, as readable lines (also the apply confirmation).
     private (List<string> Lines, int[] PerTab) Changes()
     {
-        var lines = new List<string>(); var perTab = new int[5];
+        var lines = new List<string>(); var perTab = new int[4];
         if (_snapshot == null) return (lines, perTab);
         foreach (var field in _fields.Values.Where(f => f.Changed))
         {
@@ -248,8 +247,6 @@ public sealed partial class SaveEditorWindow : Window
         {
             lines.Add(row.Label + ": " + (row.On ? L.T("set") : L.T("cleared"))); perTab[ProgressTab]++;
         }
-        if (_repairPhantom?.IsChecked == true) { lines.Add(L.T("Repair") + ": " + L.T("Summoned-guest mark")); perTab[RepairsTab]++; }
-        if (_repairKeys?.IsChecked == true) { lines.Add(L.T("Repair") + ": " + L.T("Duplicate key items")); perTab[RepairsTab]++; }
         return (lines, perTab);
     }
     private void UpdateState()
@@ -299,8 +296,7 @@ public sealed partial class SaveEditorWindow : Window
             Stats = Stats.ToDictionary(s => s, s => _fields[s].Number), Echoes = _fields["echoes"].Number,
             Insight = _fields["insight"].Number, NgCycle = _fields["ng_cycle"].Number, Items = items, Gems = gems,
             Flags = _flags.Where(f => f.Changed).Select(f => new { f.Flag.Id, f.On }).ToArray(),
-            Repair = new[] { _repairPhantom?.IsChecked == true ? "phantom" : null, _repairKeys?.IsChecked == true ? "duplicate_keys" : null }
-                .OfType<string>().ToArray() };
+            Repair = Array.Empty<string>() };
         if (!Prompt.Confirm(L.T("Apply these edits?"), summary + "\n\n" + L.T("All current saves of this type will be backed up first."), L.T("Apply"))) return;
         var result = await Run<SaveEditor.WriteResult>("apply", _selected.SlotNumber, edit);
         Prompt.Tell(L.T("Backup folder"), result.Backup ?? ""); await Refresh();

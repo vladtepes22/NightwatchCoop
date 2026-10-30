@@ -51,6 +51,25 @@ class SaveEditorCliTests(unittest.TestCase):
                 {"names": {"goods": {100: "Test item"}}, "ids": {}})):
             self.assertEqual(self.call("show")[1]["items"][1]["name"], "Test item")
 
+    def test_show_weapon_hand(self):
+        for hands, expected in (({22000300: "left"}, "left"), ({22000000: "right"}, "right"),
+                                ({22000000: "left"}, "left"), ({}, "right")):
+            with self.subTest(hands=hands), patch.object(names.Catalogue, "load", return_value=names.Catalogue(
+                    {"weapon_hands": hands})):
+                code, shown = self.call("show")
+                self.assertEqual(code, 0)
+                self.assertEqual(shown["items"][0]["hand"], expected)
+                self.assertNotIn("hand", shown["items"][1])
+        self.assertEqual(self.file.read_bytes(), self.original)
+
+    def test_flag_labels_without_ids(self):
+        rows = cli.flag_rows(names.Catalogue())
+        self.assertTrue(rows)
+        for flag, kind, group, label in rows:
+            self.assertNotIn(f"[{flag}]", label)
+        self.assertEqual([(f, g, label) for f, k, g, label in rows if k == "ending"],
+                         cli.flagsdata.endings())
+
     def test_apply_backup_restore(self):
         revision = self.call("show")[1]["revision"]
         edit = dict(revision=revision, name="Edited", stats={"vigor": 20}, echoes=1234,

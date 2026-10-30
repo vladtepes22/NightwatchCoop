@@ -33,16 +33,16 @@ internal static class Program
             {
                 var settings = new LauncherSettings(); settings.Set("ui_theme", theme); LauncherTheme.Apply(settings, false);
                 foreach (var size in new[] { (900, 700), (1200, 800) })
-                foreach (var state in new[] { "character", "inventory", "weapons", "gems", "progress", "repairs", "backups", "empty", "running" })
+                foreach (var state in new[] { "character", "inventory", "weapons", "gems", "progress", "backups", "empty", "running" })
                 {
                     var source = new FakeSource(state == "empty", state == "running");
                     var window = new SaveEditorWindow(source);
                     window.LoadAsync().GetAwaiter().GetResult();
-                    window.SelectTab(state is "inventory" or "weapons" or "gems" ? 1 : state == "progress" ? 2 : state == "repairs" ? 3 : state is "backups" or "empty" ? 4 : 0);
+                    window.SelectTab(state is "inventory" or "weapons" or "gems" ? 1 : state == "progress" ? 2 : state is "backups" or "empty" ? 3 : 0);
                     var root = Mount(window, size.Item1, size.Item2);
                     if (state is "weapons" or "gems")
                     {
-                        Descendants(root).OfType<Button>().First(b => b.Content as string == (state == "gems" ? "Gems" : "Weapons"))
+                        Descendants(root).OfType<Button>().First(b => b.Content as string == (state == "gems" ? "Gems" : "Right hand"))
                             .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
                         root.UpdateLayout();
                     }

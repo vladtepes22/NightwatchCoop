@@ -17,7 +17,7 @@ FMG_FILES = {"goods": "アイテム名", "weapon": "武器名", "armor": "防具
 PARAMS = {"weapon": "EquipParamWeapon", "armor": "EquipParamProtector", "accessory": "EquipParamAccessory",
           "goods": "EquipParamGoods"}
 _PLACEHOLDER = re.compile(r"^(\*|NOT NEEDED|en\d+)?$", re.I)
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 EVENT_TEXT = "イベントテキスト"  # menu.msgbnd FMG: the lamp warp list names (id 7000AABn)
 NPC_NAMES = "NPC名"  # item.msgbnd FMG: boss and NPC names by character id
 GEM_NAMES = "魔石名"  # menu.msgbnd FMG: blood gem and rune names (key built in gems.name_key)
@@ -101,8 +101,11 @@ def read_game(game_dir, lang="engus"):
     ids = {kind: sorted(_param_ids(_entry(par, pn + ".param"))) for kind, pn in PARAMS.items()}
     data = {"names": names, "ids": ids}
     from .params import Params  # params reads its files with this module's helpers
-    try:  # icons and gem rows need the paramdefs too; without them the editor still has names
+    try:  # hand, icon and gem rows need the paramdefs too; without them the editor still has names
         p = Params(game)
+        data["weapon_hands"] = {i: "left" if left and not right else "right"
+                                for i, (right, left) in p.table("EquipParamWeapon",
+                                    ["rightHandEquipable", "leftHandEquipable"]).items()}
         data["icons"] = {kind: {i: v[0] for i, v in p.table(pn, ["iconIdM" if kind == "armor" else "iconId"]).items()
                                 if v[0] > 0 and not (kind == "weapon" and (i % 10000) // 100)}
                          for kind, pn in PARAMS.items()}
@@ -120,7 +123,7 @@ def read_game(game_dir, lang="engus"):
 def _stamp(game, lang):
     out = []
     for p in (game / "msg" / lang / "item.msgbnd.dcx", game / "param" / "gameparam" / "gameparam.parambnd.dcx",
-              game / "msg" / lang / "menu.msgbnd.dcx"):
+              game / "msg" / lang / "menu.msgbnd.dcx", game / "paramdef" / "paramdef.paramdefbnd.dcx"):
         try:
             st = p.stat()
             out += [st.st_size, int(st.st_mtime)]
@@ -141,6 +144,7 @@ class Catalogue:
         self._icons = {k: {int(i): n for i, n in v.items()} for k, v in (data or {}).get("icons", {}).items()}
         self._effects = {int(i): v for i, v in (data or {}).get("effects", {}).items()}
         self._gemgen = {int(i): v for i, v in (data or {}).get("gemgen", {}).items()}
+        self._weapon_hands = {int(i): v for i, v in (data or {}).get("weapon_hands", {}).items()}
 
     @classmethod
     def load(cls, game_dir, cache_dir, lang="engus"):
@@ -178,6 +182,11 @@ class Catalogue:
         elif kind == "armor":
             pass
         return n.get(number)
+
+    def weapon_hand(self, number):
+        """Equip hand; unknown or dual-hand rows stay in the right-hand filter."""
+        base = number - (number % 10000) // 100 * 100
+        return self._weapon_hands.get(number, self._weapon_hands.get(base, "right"))
 
     def icon(self, category, number):
         """Icon id of an inventory item (the menu sheets' numbering), None when unknown."""

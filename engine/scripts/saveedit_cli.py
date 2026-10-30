@@ -60,7 +60,7 @@ def flag_rows(catalogue):
     rows = [(f, "boss", g, label) for f, g, label in flagsdata.bosses(catalogue)]
     rows += [(f, "lamp", g, label) for f, g, label in flagsdata.lamps(catalogue)]
     rows += [(f, "ending", g, label) for f, g, label in flagsdata.endings()]
-    return rows
+    return [(f, kind, group, label.removesuffix(f" [{f}]")) for f, kind, group, label in rows]
 
 
 def max_level(catalogue, item):
@@ -105,6 +105,8 @@ def describe(model, catalogue, icon_paths=lambda ids: {}):
         row = dict(section=i.section, slot=i.slot, kind=i.kind, number=i.number,
                    name=catalogue.name(i.category, i.number), count=i.count, level=i.level,
                    max_level=max_level(catalogue, i), icon=catalogue.icon(i.category, i.number))
+        if i.category == 0:
+            row["hand"] = catalogue.weapon_hand(i.number)
         if i.category == 8 and i.handle in gems:
             row["name"], row["icon"], row["gem"] = gem_view(gems[i.handle], catalogue)
         elif i.category == 0 and table and table.weapons.get(i.handle):

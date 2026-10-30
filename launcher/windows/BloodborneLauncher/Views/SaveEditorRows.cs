@@ -109,7 +109,7 @@ internal sealed class ItemRow : RowBase
         }
         catch (Exception e) when (e is IOException or NotSupportedException or UriFormatException) { return null; }
     }
-    public string Group => IsKey ? L.T("Key items") : KindLabel(Item.Kind);
+    public string Group => IsKey ? L.T("Key items") : Item.Gem?.Type == 2 ? L.T("Runes") : KindLabel(Item.Kind);
     public string Kind => Item.Kind;
     public int Order => IsKey ? 5 : Item.Kind switch { "goods" => 0, "weapon" => 1, "armor" => 2, "accessory" => 3, "gem" => 4, _ => 6 };
     public bool HasLevel => Item.Level.HasValue;

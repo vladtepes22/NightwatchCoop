@@ -22,6 +22,8 @@ namespace BloodborneLauncher.Views
         public CheatsPage() : base(L.T("Cheats"),
             L.T("Set here for the next start. While playing, change them in the in-game menu (Insert or L3 + R3): they apply live. Turning a cheat off puts the game's values back; items you already have stay.") + " " + L.T("In a party, items and insight you add can affect everyone's game: only use them with players who agree."))
         {
+            Add(Card(SymbolRegular.Save24, L.T("Save editor"), L.T("Saves are backed up before every change. Close the game first."), SmallButton(L.T("Save editor"), SymbolRegular.Save24, (_, _) => new SaveEditorWindow(S).ShowDialog(), ControlAppearance.Primary), out _));
+
             _engine = new InfoBar
             {
                 IsClosable = false,

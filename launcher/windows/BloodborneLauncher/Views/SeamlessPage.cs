@@ -240,11 +240,7 @@ public sealed class SeamlessPage : LauncherPage
         party.Children.Add(Text(L.T("Your own party settings: your screen, what you get as a guest, story sync (in the game: System > My party)."), "Faint"));
         IniToggles(party,
             ("party_hud", L.T("Party HUD"), true), ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
-            ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_item_notices", L.T("Shared item notices"), true), ("party_npc_talk", L.T("Share NPC dialogue"), true),
-            ("party_splitscreen", L.T("Splitscreen mode"), false));
-        ComboRow(SymbolRegular.Alert24, L.T("Party messages"), PartyInfo("party_messages"),
-            new[] { new Choice(L.T("All"), "all"), new Choice(L.T("Errors only"), "errors"), new Choice(L.T("Off"), "off") },
-            () => Ini.Get("party_messages", "all"), v => Ini.Set("party_messages", v), party);
+            ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_item_notices", L.T("Shared item notices"), true), ("party_npc_talk", L.T("Share NPC dialogue"), true));
         foreach (var option in SeamlessSettings.Switches)
         {
             var key = option.Key;
@@ -294,7 +290,6 @@ public sealed class SeamlessPage : LauncherPage
             SmallButton(L.T("Export"), SymbolRegular.ArrowExportUp24, async (_, _) => await ExportForEditor()), out _));
         Add(Card(SymbolRegular.ArrowImport24, L.T("Import from save editor"), L.T("Puts an edited export back into its slot. Your saves are backed up first."),
             SmallButton(L.T("Import"), SymbolRegular.ArrowImport24, async (_, _) => await ImportFromEditor()), out _));
-        Add(Card(SymbolRegular.Save24, L.T("Save editor"), L.T("Saves are backed up before every change. Close the game first."), SmallButton(L.T("Save editor"), SymbolRegular.Save24, (_, _) => new SaveEditorWindow(S).ShowDialog()), out _));
         ComboRow(SymbolRegular.Document24, L.T("Party log detail"), L.T("Verbose and trace logging add overhead."),
             new[] { new Choice(L.T("Normal"), ""), new Choice(L.T("Verbose"), "verbose"), new Choice(L.T("Trace"), "trace") },
             () => S.Str("party_log"), v => S.Set("party_log", v));
@@ -825,8 +820,6 @@ public sealed class SeamlessPage : LauncherPage
         "party_glow_off" => L.T("On: other hunters look like normal hunters on your screen. Off: the game's blue phantom glow."),
         "party_toasts" => L.T("A short notice in a top corner when a hunter joins, leaves or travels."),
         "party_item_notices" => L.T("A short notice when a key or unique item, a weapon or a rune is shared with the party. Never for ordinary pickups. Shows only while join, leave and travel notices are on."),
-        "party_splitscreen" => L.T("For several game windows on one screen (the Nucleus Co-op splitscreen mod): the party HUD shows only the compass, with no name tags, and party messages are cut to errors only."),
-        "party_messages" => L.T("Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only."),
         "party_npc_talk" => L.T("See and hear the NPC conversations of companions near you (subtitles, choices, gifts)."),
         "party_guest_lamps" => L.T("Guests may use lamps and headstones; the whole party travels with them. Needs a restart."),
         "party_key_view" => L.T("While you are a guest, your own keys and badges show in Key Items; off shows the game's empty list. Takes effect on the next game start."),
