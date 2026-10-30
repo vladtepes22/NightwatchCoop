@@ -216,7 +216,11 @@ const char* StateText(const party::hud::Companion& c) {
     case MemberState::Loading: return BbSettings::MenuText("Loading", "Загрузка");
     case MemberState::Prologue: return BbSettings::MenuText("Prologue", "Пролог");
     case MemberState::Joining: return BbSettings::MenuText("Joining", "Входит");
-    case MemberState::Home: return BbSettings::MenuText("Own world", "В своём мире");
+    case MemberState::Home:
+        // CL-adeb50 "Stay in my world": the host sees which guest pauses its joining (party_stayhome_rules.h)
+        if (c.slot > 0 && c.slot < 32 && ((party::status::StayMask() >> c.slot) & 1u))
+            return BbSettings::MenuText("Staying home", "Остаётся дома");
+        return BbSettings::MenuText("Own world", "В своём мире");
     case MemberState::InHostWorld: return BbSettings::MenuText("Host's world", "В мире хоста");
     case MemberState::Dead: return BbSettings::MenuText("Dead", "Мёртв");
     }

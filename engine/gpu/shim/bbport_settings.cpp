@@ -193,6 +193,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_open = i != 0;
     } else if (key == "party_splitscreen") {
         v.party_splitscreen = i != 0 || value == "on" || value == "true";
+    } else if (key == "party_stay") {
+        v.party_stay = i != 0 || value == "on" || value == "true";
     } else if (key == "party_messages") {
         v.party_messages = static_cast<int>(coop::splitscreen::ParseMessages(value));
     } else if (key == "party_conn_warnings") {
@@ -845,7 +847,7 @@ void Load() {
     }
     const std::pair<const char*, const char*> env_keys[] = {
         {"BB_PARTY_VPN", "party_vpn"},  {"BB_PARTY_DISCOVERY", "party_discovery"}, {"BB_PARTY_VPN_LOBBY", "party_vpn_lobby"},
-        {"BB_PARTY_OPEN", "party_open"}, {"BB_PARTY_SPLITSCREEN", "party_splitscreen"}, {"BB_PARTY_MESSAGES", "party_messages"},  // visy 0.7.5 (2179ec17, 51fb67e9)
+        {"BB_PARTY_OPEN", "party_open"}, {"BB_PARTY_SPLITSCREEN", "party_splitscreen"}, {"BB_PARTY_STAY", "party_stay"}, {"BB_PARTY_MESSAGES", "party_messages"},  // visy 0.7.5 (2179ec17, 51fb67e9)
         {"BB_FSR_SHARPNESS", "sharpness"},        {"BB_JITTER", "jitter"},
         {"BB_REACTIVE", "reactive"},              {"BB_REACTIVE_SCALE", "reactive_scale"},
         {"BB_REACTIVE_THRESHOLD", "reactive_threshold"}, {"BB_REACTIVE_MAX", "reactive_max"},
@@ -991,6 +993,7 @@ void Save() {
     put("party_vpn_lobby", flag(v.party_vpn_lobby));
     put("party_open", flag(v.party_open));
     put("party_splitscreen", flag(v.party_splitscreen));
+    put("party_stay", flag(v.party_stay));
     put("party_messages", coop::splitscreen::MessagesName(coop::splitscreen::ClampMessages(v.party_messages.load())));
     put("party_conn_warnings", flag(v.party_conn_warnings));
     put("party_item_notices", flag(v.party_item_notices));

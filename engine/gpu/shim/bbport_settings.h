@@ -213,6 +213,10 @@ struct Values {
     /// HUD shows only the compass, no name tags, party messages cut to errors. Each player's own. ini
     /// party_splitscreen, env BB_PARTY_SPLITSCREEN. Live. Off by default.
     std::atomic<bool> party_splitscreen{false};
+    /// 0.7.7 (CL-adeb50): "Stay in my world" (party/party_stayhome_rules.h): a guest pauses the automatic joining (no bell,
+    /// no gather, not asked to travel or vote) and stays in its own world, still in the party. Per player (guest).
+    /// ini party_stay, env BB_PARTY_STAY. Live. Off by default.
+    std::atomic<bool> party_stay{false};
     /// 0.7.7: which party messages show (0 All, 1 Errors only, 2 Off; coop::splitscreen::Messages). Splitscreen forces
     /// All to Errors only. Per player. ini party_messages = all|errors|off, env BB_PARTY_MESSAGES. Live.
     std::atomic<int> party_messages{0};

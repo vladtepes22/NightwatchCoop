@@ -217,6 +217,7 @@ struct FollowState {
     bool start_ready = true;  ///< party_start READY (the director's UpdateStart)
     int session_role = -1;    ///< SprjSessionManager +0x124
     double client_ago = -1;   ///< s since the session role last was client (6); < 0 never
+    bool stay_home = false;   ///< CL-adeb50 "Stay in my world" is on: the "just left" window does not count
 };
 constexpr double kFollowClientWindow = 60.0; ///< s after leaving the host's world that still follow
 TravelFollow GuestFollowsHostTravel(const FollowState& s);

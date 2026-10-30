@@ -10,6 +10,7 @@
 #include "party_link.h"
 #include "party_split.h"
 #include "party_status.h"
+#include "party_stayhome.h"
 #include "../bbport_game_menu.h"
 #include "../bbport_game_menu_pages.h"
 #include "../bbport_settings.h"
@@ -237,6 +238,11 @@ void HostTick(const GameSnapshot& s, party::PartyLink* link, const std::vector<s
         std::vector<Member> roster;
         bool host_listed = false;
         for (const party::RosterEntry& e : link->roster()) {
+            // CL-adeb50: a guest that stays in its own world does not vote (and is never waited for).
+            if (e.slot != 0 && e.slot != g_round.starter && stayhome::SlotStays(e.slot)) {
+                Log("round %u: %s (slot %d) stays in its own world: does not vote", g_round.round, e.name.c_str(), e.slot);
+                continue;
+            }
             roster.push_back({e.slot, e.name, e.slot == 0 ? true : e.connected});
             host_listed = host_listed || e.slot == 0;
         }
@@ -297,6 +303,11 @@ void GuestTick(party::PartyLink* link, const std::vector<std::pair<int, std::str
             if (a.starter == mine) {
                 Log("round %u: the party votes on this player's travel to lamp %u", a.round, a.lamp);
                 party::status::SetLastEvent("Waiting for the party's vote");
+                continue;
+            }
+            if (stayhome::Active()) {  // CL-adeb50: staying in my own world; the host does not count this vote
+                Log("round %u: %s wants the party to travel to lamp %u; not asked (staying in my own world)", a.round,
+                    a.who.c_str(), a.lamp);
                 continue;
             }
             if (g_q.active) CloseQuestion(now, "a newer vote");

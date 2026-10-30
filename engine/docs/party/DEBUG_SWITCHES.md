@@ -17,6 +17,7 @@ What they do for a player: [docs/PARTY.md](../PARTY.md).
 | `BB_PARTY_NAME` | Your name | Windows user name |
 | `BB_PARTY_MAX` | Max players | 3 (2..4) |
 | `BB_PARTY_AUTO` | Automatic summoning | 1 |
+| `BB_PARTY_STAY` | none (launcher My Party > Start & saves writes bbport.ini `party_stay`); `1`: this guest stays in its own world, no automatic joining (docs/party/stay_home.md; wins over the ini at start) | unset: the ini's value, off |
 | `BB_PARTY_SEAMLESS` | Seamless party rules | 1 |
 | `BB_PARTY_SAVE` | Separate party saves (always on) | `separate`; every party session uses `savedata_party`, `shared` is ignored |
 | `BB_PARTY_PORT` | Port | 9307 |

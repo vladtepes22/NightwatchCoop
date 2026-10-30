@@ -26,6 +26,7 @@
 #include "party_director.h"
 #include "party_dsummon.h"
 #include "party_status.h"
+#include "../bbport_settings.h"
 
 #include <atomic>
 #include <chrono>
@@ -442,8 +443,10 @@ TravelFollow GuestFollowsHostTravel(const FollowState& s) {
     if (s.session_role == kClient || s.session_role == kJoining) {
         return TravelFollow::Follow;
     }
-    if (s.client_ago >= 0 && s.client_ago <= kFollowClientWindow) {
-        return TravelFollow::Follow; // just left the host's world (sent home, B2 fallback)
+    if (s.client_ago >= 0 && s.client_ago <= kFollowClientWindow && !s.stay_home) {
+        // just left the host's world (sent home, B2 fallback). Not with Stay in my world on: the guest went
+        // home by its own choice and stays there (CL-adeb50; a guest still summoned follows, above).
+        return TravelFollow::Follow;
     }
     return s.start_ready ? TravelFollow::IgnoreOwnWorld : TravelFollow::IgnorePrologue;
 }
@@ -638,6 +641,7 @@ TravelFollow FollowNow(int session_role, double at) {
     FollowState f;
     f.start_ready = g_start_ready.load();
     f.session_role = session_role;
+    f.stay_home = BbSettings::Get().party_stay.load();
     const double last = g_last_client.load();
     f.client_ago = last < 0 ? -1.0 : std::max(0.0, at - last);
     return GuestFollowsHostTravel(f);

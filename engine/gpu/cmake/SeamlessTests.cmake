@@ -453,6 +453,11 @@ add_executable(party-open-test EXCLUDE_FROM_ALL ../tests/test_party_open.cpp)
 target_compile_options(party-open-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(party-open-test PRIVATE shim)
 set_target_properties(party-open-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# "Stay in my world" (party_stayhome_rules.h). ninja -C out/gpu party-stayhome-test
+add_executable(party-stayhome-test EXCLUDE_FROM_ALL ../tests/test_party_stayhome.cpp)
+target_compile_options(party-stayhome-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-stayhome-test PRIVATE shim)
+set_target_properties(party-stayhome-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 # Splitscreen mode: messages filter, compass-only HUD (party_splitscreen_rules.h). ninja -C out/gpu party-splitscreen-test
 add_executable(party-splitscreen-test EXCLUDE_FROM_ALL ../tests/test_party_splitscreen.cpp)
 target_compile_options(party-splitscreen-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)

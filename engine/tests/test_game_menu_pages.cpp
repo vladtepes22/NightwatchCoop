@@ -352,10 +352,25 @@ static void Party() {
         while (ps::PopCommand(&c)) {}
         Press(gather);
         assert(ps::PopCommand(&c) && c.type == ps::CommandType::Gather);
+        // CL-adeb50 Stay in my world: a guest-only toggle row (off by default) that flips party_stay at once.
+        const P::Row& stay = RowNamed(party, u"Stay in my world");
+        assert(!stay.visible());
+        assert(std::u16string(P::Text(stay.name, true)) == u"Остаться в моём мире" && Length(stay.name, true) <= P::MaxNameLength);
+        assert(Length(stay.help, true) <= P::MaxHelpLength && Length(stay.help, false) <= P::MaxHelpLength);
         ps::SetRole(ps::Role::Guest);
         P::Load();
         assert(!gather.visible());
         assert(!ps::RequestGather());
+        assert(stay.visible() && stay.kind == P::Kind::Toggle);
+        BbSettings::Get().party_stay = false;  // the default; EverySettingSaved flipped it
+        P::Load();
+        assert(*P::Byte(stay.field) == 0);
+        BbSettings::Get().party_stay = true;
+        P::Load();
+        assert(*P::Byte(stay.field) == 1);
+        *P::Byte(stay.field) = 0;
+        Advance(16);
+        assert(!BbSettings::Get().party_stay.load());
         ps::SetRole(ps::Role::Host);
         P::Load();
     }
@@ -447,7 +462,7 @@ static void Party() {
     // rejoin, leave) are hidden, the extension row shows (in order).
     ps::ResetForTest(false);
     P::Load();
-    assert(P::PartyRowCount() == 9); // status, rot, copy, LAN copy, rejoin, gather, new party code, leave + the extension row
+    assert(P::PartyRowCount() == 10); // status, rot, copy, LAN copy, rejoin, gather, new party code, stay, leave + the extension row
     assert(!hud.visible()); // the party HUD switch: party mode only
     std::vector<const P::Row*> shown;
     for (const P::Row& row : party.rows) if (!row.visible || row.visible()) shown.push_back(&row);

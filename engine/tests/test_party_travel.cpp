@@ -429,6 +429,17 @@ static void test_follow() {
     CHECK(at(true, 0, -1) == TravelFollow::IgnoreOwnWorld);
     CHECK(at(true, 0, kFollowClientWindow + 1) == TravelFollow::IgnoreOwnWorld);
     CHECK(at(true, 3, -1) == TravelFollow::IgnoreOwnWorld); // hosting its own session
+    // CL-adeb50 Stay in my world: a guest that went home by choice is not pulled back by the "just left" window
+    {
+        FollowState f;
+        f.session_role = 0;
+        f.client_ago = 0.5;
+        CHECK(GuestFollowsHostTravel(f) == TravelFollow::Follow);
+        f.stay_home = true;
+        CHECK(GuestFollowsHostTravel(f) == TravelFollow::IgnoreOwnWorld);
+        f.session_role = 6;  // still summoned: follows as before
+        CHECK(GuestFollowsHostTravel(f) == TravelFollow::Follow);
+    }
     CHECK(std::strcmp(TravelFollowName(TravelFollow::IgnorePrologue), "in own world (prologue)") == 0);
 }
 

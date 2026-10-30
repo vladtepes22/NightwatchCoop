@@ -406,10 +406,14 @@ void RefreshParty() {
             return text;
         });
         SetDynamic(party.member_name[k], en, ru);
+        // CL-adeb50 "Stay in my world": this guest (its own switch) or, on the host, a guest that reported it.
+        const bool staying = m.slot != 0 && m.connected && !m.in_world &&
+                             (m.local ? BbSettings::Get().party_stay.load() : ((ps::StayMask() >> m.slot) & 1u) != 0);
         const auto where = [&](bool r) {
             std::string text = !m.connected  ? L(r, "Connection lost", "Связь потеряна")
                                : m.slot == 0 ? L(r, "Host's world", "Мир хоста")
                                : m.in_world  ? L(r, "In world", "В мире") // short: the value column is narrow
+                               : staying     ? L(r, "Staying home", "Остаётся дома") // CL-adeb50
                                              : L(r, "In own world", "В своём мире");
             if (m.connected && !m.local && m.ping_ms >= 0) {
                 text += ", " + std::to_string(m.ping_ms) + L(r, " ms", " мс");
@@ -639,6 +643,21 @@ void DefineBuiltinPartyRows() {
         if (Running(b) && b.role == ps::Role::Host) ps::RequestNewCode();
     };
     party_rows.push_back({newcode});
+
+    // CL-adeb50 "Stay in my world": a guest pauses the automatic joining (party_stayhome_rules.h) and plays on in
+    // its own world; a toggle row for guests only (the host's world is the world). Off by default.
+    PartyRow stay;
+    stay.order = 35;
+    stay.toggle = true;
+    stay.name = [](const B&) { return T2("Stay in my world", "Остаться в моём мире"); };
+    stay.help = [](const B&) {
+        return T2("Guest: no automatic joining while on: your Chalice ritual or shopping first. Off: join again",
+                  "Гость: пока вкл., вы не заходите к хосту сами: свой ритуал или покупки. Выкл.: снова к хосту");
+    };
+    stay.visible = [](const B& b) { return Running(b) && b.role == ps::Role::Guest; };
+    stay.toggle_get = [] { return BbSettings::Get().party_stay.load(); };
+    stay.toggle_set = [](bool on) { BbSettings::Get().party_stay = on; };
+    party_rows.push_back({stay});
 
     PartyRow leave;
     leave.order = 40;

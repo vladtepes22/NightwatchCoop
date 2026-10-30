@@ -87,6 +87,10 @@ Board Snapshot();
 std::uint64_t EventSeq();
 /// Cheap (atomic): changes whenever SetAlert is called.
 std::uint64_t AlertSeq();
+/// CL-adeb50 "Stay in my world": host side, the guests (bit = party slot) that report staying in their own world
+/// (party_stayhome.cpp). Cheap (atomic); for the Party members rows.
+void SetStayMask(unsigned mask);
+unsigned StayMask();
 /// I1: friendly fire in force on this player (party_pvp.h; the host's rule on a guest), for the
 /// menus. Cheap (atomic); set by the party tick.
 void SetFriendlyFire(bool on);

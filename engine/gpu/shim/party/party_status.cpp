@@ -191,6 +191,15 @@ std::uint64_t EventSeq() {
 }
 
 namespace {
+std::atomic<unsigned> g_stay_mask{0};
+}  // namespace
+void SetStayMask(unsigned mask) {
+    g_stay_mask.store(mask);
+}
+unsigned StayMask() {
+    return g_stay_mask.load();
+}
+namespace {
 std::atomic<bool> g_friendly_fire{false};
 }  // namespace
 void SetFriendlyFire(bool on) {

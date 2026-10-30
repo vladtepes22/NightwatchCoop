@@ -62,6 +62,11 @@ static void GuestRules() {
     { GuestView w = v; w.menu = true; CHECK(GuestRefusal(w) == Refusal::Menu); }
     { GuestView w = v; w.dialog = true; CHECK(GuestRefusal(w) == Refusal::Dialog); }
     { GuestView w = v; w.travelling = true; CHECK(GuestRefusal(w) == Refusal::Travelling); }
+    // CL-adeb50 Stay in my world: refused whatever else is up, and the host hears the reason
+    { GuestView w = v; w.stay_home = true; CHECK(GuestRefusal(w) == Refusal::StayHome); }
+    { GuestView w = v; w.stay_home = true; w.menu = true; CHECK(GuestRefusal(w) == Refusal::StayHome); }
+    CHECK(std::string(RefusalReason(Refusal::StayHome)) == "staying in own world");
+    CHECK(GuestRefusalText(Refusal::StayHome) == "The host gathers the party: not now (staying in own world)");
     // Dead in a menu: dead is what counts (the menu closes by itself, the death does not).
     { GuestView w = v; w.alive = false; w.menu = true; CHECK(GuestRefusal(w) == Refusal::Dead); }
     // A boss fight with the menu open: the fight.
@@ -180,7 +185,7 @@ static void Wire() {
     CHECK(DecodeAnswer(EncodeAnswer(y), &z) && z.reply == Reply::Refused && z.why == Refusal::Menu);
     CHECK(!DecodeAnswer("{\"op\":\"answer\",\"round\":2,\"reply\":\"maybe\"}", &z));
     CHECK(!DecodeAnswer("{\"op\":\"answer\",\"reply\":\"yes\"}", &z));
-    for (int i = 0; i <= int(Refusal::Failed); ++i) CHECK(RefusalFromWord(RefusalWord(Refusal(i))) == Refusal(i));
+    for (int i = 0; i <= int(Refusal::StayHome); ++i) CHECK(RefusalFromWord(RefusalWord(Refusal(i))) == Refusal(i));
 }
 
 static void Rounds() {

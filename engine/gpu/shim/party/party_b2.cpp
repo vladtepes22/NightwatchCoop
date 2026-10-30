@@ -45,6 +45,7 @@
 #include "party_guestvals_rules.h"
 #include "party_glow_rules.h"
 #include "party_stay_rules.h"
+#include "party_stayhome.h"
 #include "party_ownworld_rules.h"
 #include "party_remote_show_rules.h"
 #include "party_ping.h"
@@ -11388,6 +11389,15 @@ bool TitleJoinHold(const GameSnapshot& s) {
     }
     switch (phase) {
     case TitlePhase::Idle: {
+        if (coop::stayhome::Active()) {
+            // CL-adeb50 "Stay in my world": no automatic joining from the title either; plain Continue.
+            static bool said = false;
+            if (!said) {
+                said = true;
+                Log("title join: skipped: Stay in my world is on; plain Continue into the own world");
+            }
+            return false;
+        }
         if (coop::SavedPrologue()) {
             // Playtest 1 #19: this save was still in its prologue: a title join would load it
             // straight into the host's world. Plain Continue into its own world; the bell summons

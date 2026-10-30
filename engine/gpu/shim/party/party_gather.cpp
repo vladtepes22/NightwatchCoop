@@ -2,6 +2,7 @@
 // I5 "Gather the party", the game side (party_gather.h). Main thread: Tick; OnEvent on the link's
 // callback thread only queues.
 #include "party_gather.h"
+#include "party_stayhome.h"
 #include "party_gather_rules.h"
 
 #include "game_state.h"
@@ -263,6 +264,7 @@ GuestView ReadGuestView(const GameSnapshot& s, bool own_question) {
     v.boss_fight = BossBarShown();
     v.cutscene = CutscenePlaying();
     v.travelling = b2::RejoinRunning() || b2::GuestTravelPending();
+    v.stay_home = stayhome::Active();
     if (!own_question) {
         v.menu = party::hud::GameMenu();
         v.dialog = party::hud::GameDialog() || split::DialogUp();

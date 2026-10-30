@@ -47,6 +47,7 @@ enum class Refusal {
     Cooldown,   // the host's last gather was less than kCooldownS ago
     NotStanding,// the host climbs a ladder or is in the air (a jump, a fall): no ground to put guests on
     Failed,     // YES, but the move could not start (logged)
+    StayHome,   // the guest's "Stay in my world" is on (CL-adeb50)
 };
 
 inline const char* RefusalWord(Refusal r) {
@@ -66,12 +67,13 @@ inline const char* RefusalWord(Refusal r) {
     case Refusal::Cooldown: return "cooldown";
     case Refusal::NotStanding: return "not_standing";
     case Refusal::Failed: return "failed";
+    case Refusal::StayHome: return "stay_home";
     }
     return "?";
 }
 
 inline Refusal RefusalFromWord(const std::string& w) {
-    for (int i = 0; i <= int(Refusal::Failed); ++i) {
+    for (int i = 0; i <= int(Refusal::StayHome); ++i) {
         if (w == RefusalWord(Refusal(i))) return Refusal(i);
     }
     return Refusal::Failed;
@@ -95,6 +97,7 @@ inline const char* RefusalReason(Refusal r) {
     case Refusal::Cooldown: return "too soon after the last gather";
     case Refusal::NotStanding: return "on a ladder or in the air";
     case Refusal::Failed: return "could not move";
+    case Refusal::StayHome: return "staying in own world";
     }
     return "?";
 }
@@ -166,10 +169,12 @@ struct GuestView {
     bool boss_fight = false, cutscene = false;
     bool menu = false, dialog = false;
     bool travelling = false;
+    bool stay_home = false;  // "Stay in my world" is on (CL-adeb50)
 };
 
 /// Why this guest does not come now (None: ask it). The order is what the player is told.
 inline Refusal GuestRefusal(const GuestView& v) {
+    if (v.stay_home) return Refusal::StayHome;
     if (!v.world_up || v.loading) return Refusal::Loading;
     if (v.spectating) return Refusal::Spectating;
     if (!v.alive) return Refusal::Dead;
