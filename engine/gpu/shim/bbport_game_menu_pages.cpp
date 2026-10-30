@@ -1228,7 +1228,7 @@ void DefineAll() {
         "Пока вы гость: ключ из мира хоста ваш сразу (нужны свои ключи). Выкл.: дома, в своём мире");
     // 0.7.7: "<item>: shared with the party" notice. Not on Party members: four hunters + the last event +
     // Connection warnings already fill its six rows.
-    AddRow(Flag(&Values::party_item_notices), "Shared item notices", "Уведомления об общих предметах",
+    AddRow(Flag(&Values::party_item_notices), "Shared item notices", "Увед. об общих предметах",
            "A short notice when an item is shared with the party (key and unique items, weapons, runes)",
            "Короткое уведомление, когда предмет передан группе (ключевые и уникальные предметы, оружие, руны)", toggle,
            Kind::Toggle);
@@ -1299,6 +1299,23 @@ void DefineAll() {
     AddRow(Flag(&Values::party_discovery), "Party discovery", "Поиск групп",
            "Host: announce the party on your VPN / LAN (never the Internet) for the launcher's Join list",
            "Хост: объявлять группу в VPN и LAN (не в Интернет) для списка лаунчера", toggle, Kind::Toggle);
+
+    // ---- My party: Splitscreen (0.7.7, CL-2eec68): several game windows on one screen (Nucleus Co-op). Each
+    // player's own; the rules are in party/party_splitscreen_rules.h. ----
+    AddPage("My party: Splitscreen", "Моя группа: сплитскрин",
+            "Yours: splitscreen mode and which party messages show (bbport)",
+            "Ваше: режим раздельного экрана и какие сообщения группы показывать (bbport)");
+    own(&Values::party_splitscreen, "Splitscreen mode", "Раздельный экран",
+        "For windows sharing a screen: party HUD shows only the compass, no name tags, errors-only messages",
+        "Для окон на одном экране: в панели группы только компас, без имён, сообщения только об ошибках");
+    // A list opens a pop-up over the rows below it: last on the page.
+    AddRow(Setting(
+               Kind::List, [](const Values& v) { return std::clamp(v.party_messages.load(), 0, 2); },
+               [](int i) { BbSettings::Get().party_messages = std::clamp(i, 0, 2); }),
+           AddText("Party messages", "Сообщения группы"),
+           AddText("Which party notices show: all, errors only (lost link, failed join) or none. Splitscreen: errors",
+                   "Какие сообщения группы видны: все, только ошибки (связь, вход) или никакие. Раздельный экран: ошибки"),
+           {AddText("All", "Все"), AddText("Errors only", "Только ошибки"), AddText("Off", "Выкл.")}, Kind::List);
 }
 
 /// The party rules' help lines: the current value, and on a guest that the host's rules count.

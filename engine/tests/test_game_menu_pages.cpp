@@ -494,7 +494,8 @@ static void RulesPages() {
     const V shared = {u"Enemies stay dead", u"Host can gather", u"NPCs as in host's world", u"Covenants per player",
                       u"Party votes on travel", u"NPC hunters fight all"};
     const V rewards = {u"Full rewards for guests", u"Boss drops for guests", u"Insight for bosses"};
-    const V items = {u"Host's item rewards", u"Give the bells", u"Own key items as guest", u"Key items at once"};
+    const V items = {u"Host's item rewards", u"Give the bells", u"Own key items as guest", u"Key items at once",
+                  u"Shared item notices"};
     const V display = {u"Party HUD", u"Party name tags", u"Pings", u"Show party through walls", u"Bloodstain marker",
                        u"Above companions"};
     for (const ps::Role role : {ps::Role::Host, ps::Role::Guest}) {
@@ -531,6 +532,8 @@ static void RulesPages() {
         assert(names(u"Party rules: Rewards") == rewards);
         assert(names(u"My party: Display") == display);
         assert(names(u"My party: Look & notices") == look);
+        assert(names(u"My party: Splitscreen") == (V{u"Splitscreen mode", u"Party messages"}));
+        assert(kinds(u"My party: Splitscreen").back() == P::Kind::List);
         const bool guest = role == ps::Role::Guest;
         // Every row of a Party rules page is a host's rule (a toggle for the host, a read-only line
         // for a guest; the Enemies sliders: the host's values); every My party row a toggle / slider /
@@ -574,8 +577,10 @@ static void RulesPages() {
             const auto first = at(u"Party rules: World");
             const char16_t* group[] = {u"Party rules: World", u"Party rules: PvP & lamps", u"Party rules: Deaths",
                                        u"Party rules: Travel", u"Party rules: Rewards", u"Party rules: Rot",
-                                       u"Party rules: Enemies", u"Party rules: Phantoms", u"My party: Your save",
-                                       u"My party: Your items", u"My party: Display", u"My party: Look & notices"};
+                                       u"Party rules: Enemies", u"My party: Bosses", u"Party rules: Phantoms",
+                                       u"My party: Your save",
+                                       u"My party: Your items", u"My party: Display", u"My party: Look & notices",
+                                       u"My party: Splitscreen"};
             for (std::size_t i = 0; i < std::size(group); ++i) assert(at(group[i]) == first + long(i));
         }
         const std::string shared_line = P::ShownSummary(PageNamed(u"Party rules: World"));

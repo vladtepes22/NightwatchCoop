@@ -51,6 +51,14 @@ int main() {
     CHECK(!ParseRouteArgs("1:2//3:4", &route));
     CHECK(!ParseRouteArgs("1:2/3", &route));
     CHECK(!ParseRouteArgs("1:2:3:4", &route));
+    {
+        std::string a = "10:20:1:5:cross";
+        CHECK(StripStickButton(&a) == 0x4000u && a == "10:20:1:5");
+        a = "10:20";
+        CHECK(StripStickButton(&a) == 0u && a == "10:20");
+        a = "obj:1:2:3:circle";
+        CHECK(StripStickButton(&a) == 0x2000u && a == "obj:1:2:3");
+    }
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

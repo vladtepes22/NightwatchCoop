@@ -704,9 +704,29 @@ to its end. `lfw` and `lfwc` are in the default smoke list; `lfws` / `lfwcs` run
   8.3 m/s, so the no-fall rate is 12 m/s (a fall is faster than any lift; the nets use 16).
 * Test aids: `BB_TEST_LIFT_BUILD_DELAY` / `_NEAR` / `_DROP` (slow car build, drop of far cars), `BB_TEST_WALK_SPRINT`,
   `BB_LFW_*` harness switches (DEBUG_SWITCHES.md).
-* NOT proven: a start more than 150 m from the car (outside the prebuild ring; the lamp start is 100-130 m from either car and the
-  far spots 60-70 m); the slow phases with two riders (a sprint overshoot, see above); a true 120+ steps/s; the car's
-  build on a really slow disk (the aid delays the request, not the IO); a player report retest.
+* **Far start and two riders on slow loads (liftfar077, 2026-10-30, smoke phases `lfwf` / `lfwcf` / `lfwbs` / `lfwcbs`).**
+  * `lfwf` / `lfwcf` (group `lift_walk_far`): the walker at the TOP end starts at a spot over 150 m from the car (outside the
+    prebuild ring: Central Yharnam 153 m behind the gate region at the far west street, Cathedral Ward 163 m at the Oedon
+    Chapel side), waits 8 s there, steps to a spot inside the ring (the ladder's top / 135 m out) and WALKS in (the recorded
+    tail). The rides, flags, car end, ride bit and no-fall checks are those of `lfw` / `lfwc`; the car was built before (the
+    lamp load builds the cars within 150 m), so the far start proves that the ring change does not rebuild or drop anything and
+    the arrival walk (36 / 36 steps) is the same; the unbuilt-on-arrival case needs the slow aid (`BB_LFW_ENV=BB_TEST_LIFT_BUILD_DELAY=16,...`).
+  * `lfwbs` / `lfwcbs` (group `lift_walk_slow`): the slow-load phases with BOTH riders (`both`, `both`), walking, not
+    sprinting (a sprint overshoots into the trigger). Guest and host stand beside the trigger in turn as in `lfw`.
+  * Harness traps found: (1) a warp to a navmesh centroid can land 1 m under the floor (the navmesh y is not the floor's y: the
+    Yharnam east street floor is -40.8, its centroids -42.0): the chr falls 300 m, fall recovery fires - this is also what a
+    route walker's HOP does (a hop warps to the waypoint's y): never use navmesh-computed points for warps or hops, only spots
+    walked live; (2) a warp 120+ m out into the east street (Central Yharnam bottom end) gets no floor within 10 s;
+    (3) the route step started 9 s after the move step while the pin lasted 10 s: the walk stalled inside the pin (`pin + 2`
+    now); (4) closed gates and ladders are in the navmesh (a gate at (-203, 115) and the 10 m ladder at (-186, 75) stop the walk;
+    a walk-in route from there is not possible by stick); (5) Cathedral Ward's bottom end is a navmesh island of 95 m
+    (857 faces): no walk of 150 m exists there. `BB_LFW_FAR_ENDS=bottom` / `top,bottom` selects far ends (default top).
+* `lfwcbs` is flaky: green 2 of 4 runs (the other two: the first of two riders stops in the top pocket with an item pickup
+  box ("OK") on screen, the walk-in route stalls 30-40 s, no car or party fault). `lfwbs` 2/2, `lfwf` 3/3 (4 with one probe), `lfwcf` 3/4
+  (the one failure was the near bottom walk-in stopped at an enemy, before any far leg).
+* NOT proven: the Central Yharnam BOTTOM end and Cathedral Ward's bottom end from over 150 m (see above: no walkable start);
+  a far walk with the slow aids (far + unbuilt); a true 120+ steps/s; the car's build on a really slow disk (the aid delays the
+  request, not the IO); a player report retest.
 
 ## 11. Interface (for split travel and other callers)
 

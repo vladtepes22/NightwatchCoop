@@ -205,6 +205,13 @@ struct Values {
     /// address) announces its character name, slots and version to the lobby on the VPN server, so VPN players
     /// see the game in the launcher's Join list. ini party_vpn_lobby, env BB_PARTY_VPN_LOBBY. Live. Off by default.
     std::atomic<bool> party_vpn_lobby{false};
+    /// 0.7.7 (CL-2eec68): splitscreen mode for several windows on one screen (party/party_splitscreen_rules.h): the party
+    /// HUD shows only the compass, no name tags, party messages cut to errors. Each player's own. ini
+    /// party_splitscreen, env BB_PARTY_SPLITSCREEN. Live. Off by default.
+    std::atomic<bool> party_splitscreen{false};
+    /// 0.7.7: which party messages show (0 All, 1 Errors only, 2 Off; coop::splitscreen::Messages). Splitscreen forces
+    /// All to Errors only. Per player. ini party_messages = all|errors|off, env BB_PARTY_MESSAGES. Live.
+    std::atomic<int> party_messages{0};
     /// 0.7.6: connection warnings (party/party_connwarn.h): an on-screen notice when the firewall, the router or a
     /// wrong address keeps the party from working. Per player. ini party_conn_warnings. Live.
     std::atomic<bool> party_conn_warnings{true};

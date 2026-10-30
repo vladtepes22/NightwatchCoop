@@ -2338,5 +2338,10 @@
   "Connect to the Nightwatch VPN to see its games.": "连接 Nightwatch VPN 后即可查看其中的游戏。",
   "Waiting for the lobby…": "正在等待大厅…",
   "No games on the Nightwatch VPN right now.": "Nightwatch VPN 上目前没有游戏。",
-  "Password: yes": "密码：有"
+  "Password: yes": "密码：有",
+  "Splitscreen mode": "分屏模式",
+  "Party messages": "队伍消息",
+  "Errors only": "仅错误",
+  "For several game windows on one screen (the Nucleus Co-op splitscreen mod): the party HUD shows only the compass, with no name tags, and party messages are cut to errors only.": "用于在同一屏幕上运行多个游戏窗口（Nucleus Co-op 分屏模组）：队伍 HUD 只显示指南针，不显示名称标签，队伍消息仅保留错误。",
+  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "显示哪些队伍通知和消息框：全部、仅错误（连接丢失或不稳定、加入被拒绝或失败、不同步）或不显示。分屏模式会将“全部”变为“仅错误”。"
 }

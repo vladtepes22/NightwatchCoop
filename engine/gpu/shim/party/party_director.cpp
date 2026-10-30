@@ -2712,27 +2712,29 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
         int entity = 0;
         float odist = 0, oangle = 0;
         bool ok = false;
-        if (ParseStickObjArgs(step.args, &entity, &odist, &oangle, &r, &steps)) {
+        std::string stick_args = step.args;
+        const unsigned stick_button = StripStickButton(&stick_args);  // ":cross" at the end: tapped on arrival
+        if (ParseStickObjArgs(stick_args, &entity, &odist, &oangle, &r, &steps)) {
             // obj:ENTITY:DIST:ANGLE: the point DIST m from that map object (e.g. through a
             // confinement wall on a block boundary: ANGLE 180 = behind it).
             float p[3] = {};
             ok = worldact::ObjectPoint(entity, odist, oangle, p);
             x = p[0], z = p[2];
             Log("test: %s: object %d %s", TravelStepName(step.kind), entity, ok ? "found" : "NOT loaded");
-        } else if (step.args.rfind("stain", 0) == 0) {
+        } else if (stick_args.rfind("stain", 0) == 0) {
             // stain[:R[:STEPS]]: onto the own bloodstain (GameDataMan +0x28 flag, +0x30 record:
             // position +0x18), walked, so its pickup prompt comes up the way it does in play.
             std::uint64_t rec = 0;
             std::uint8_t flag = 0;
             float p[3] = {};
-            std::sscanf(step.args.c_str(), "stain:%f:%d", &r, &steps);
+            std::sscanf(stick_args.c_str(), "stain:%f:%d", &r, &steps);
             ok = s.game_data_man && SafeGet(s.game_data_man + 0x28, &flag) && flag &&
                  SafeGet(s.game_data_man + 0x30, &rec) && rec && SafeRead(rec, p, sizeof p);
             x = p[0], z = p[2];
             Log("test: %s: own bloodstain %s at (%.1f, %.1f, %.1f)", TravelStepName(step.kind), ok ? "found" : "NOT there",
                 double(p[0]), double(p[1]), double(p[2]));
         } else {
-            ok = ParseStickArgs(step.args, &x, &z, &r, &steps);
+            ok = ParseStickArgs(stick_args, &x, &z, &r, &steps);
         }
         if (ok) {
             Test& tt = t;
@@ -2743,7 +2745,7 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
             tt.ap_z = z;
             tt.ap_r = r;
             tt.ap_max = steps;
-            tt.ap_button = 0;
+            tt.ap_button = stick_button;
             tt.ap_steps = 0;
             tt.ap_still = 0;
             tt.ap_slide = 0;

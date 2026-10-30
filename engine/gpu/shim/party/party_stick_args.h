@@ -73,3 +73,19 @@ inline bool ParseRouteArgs(const std::string& args, std::vector<std::array<float
     *out = std::move(pts);
     return true;
 }
+
+// A trailing ":cross" / ":triangle" / ":square" / ":circle" on a host_stick= / guest_stick= argument: the
+// button tapped once on arrival (like approach=X:Z:R:cross; a door prompt right at the walk's end). Removes the
+// suffix from *args and returns the pad button mask (0 = none, *args untouched).
+inline unsigned StripStickButton(std::string* args) {
+    static const struct { const char* name; unsigned mask; } kButtons[] = {
+        {":cross", 0x4000u}, {":triangle", 0x1000u}, {":square", 0x8000u}, {":circle", 0x2000u}};
+    for (const auto& b : kButtons) {
+        const std::string n = b.name;
+        if (args->size() > n.size() && args->compare(args->size() - n.size(), n.size(), n) == 0) {
+            args->erase(args->size() - n.size());
+            return b.mask;
+        }
+    }
+    return 0;
+}

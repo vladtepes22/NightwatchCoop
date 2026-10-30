@@ -4,6 +4,7 @@
 #include "bbport_frame_state.h"
 #include "bbport_settings.h"
 #include "party/party_hud.h"
+#include "party/party_splitscreen_rules.h"
 #include "party/party_npctalk.h"
 #include "party/party_ping.h"
 #include "party/party_pvp.h"
@@ -65,14 +66,34 @@ const bool party_tags_on = [] {
     return !(v && v[0] == '0');
 }();
 
+/// CL-2eec68: the party messages in force (the messages setting; splitscreen turns All into Errors only) and
+/// whether the splitscreen switch is on (compass-only panel, no name tags).
+bool SplitscreenOn() { return BbSettings::Get().party_splitscreen.load(); }
+coop::splitscreen::Messages EffectiveMessages() {
+    return coop::splitscreen::Effective(SplitscreenOn(),
+                                        coop::splitscreen::ClampMessages(BbSettings::Get().party_messages.load()));
+}
+/// A notice / alert text as shown: empty when the messages setting hides it.
+std::string FilterMessage(coop::splitscreen::Kind kind, const std::string& text) {
+    if (coop::splitscreen::MessageShown(EffectiveMessages(), kind, text)) return text;
+    if (!text.empty()) {  // once per message (the caller runs when a new one arrives)
+        std::printf("[coop] Party messages: hidden (%s, mode %s%s): %.80s\n",
+                    kind == coop::splitscreen::Kind::Alert ? "alert" : "notice",
+                    coop::splitscreen::MessagesName(EffectiveMessages()), SplitscreenOn() ? ", splitscreen" : "",
+                    text.c_str());
+    }
+    return std::string();
+}
+
 bool PartyHudWanted() {
     return party::status::Enabled() && BbSettings::Get().party_hud && party::hud::Shown();
 }
 
 /// The overhead display (E2, bbport.ini party_overhead; independent of the panel).
 bool PartyTagsWanted() {
-    return party_tags_on && party::status::Enabled() && BbSettings::Get().party_name_tags &&
-           BbSettings::Get().party_overhead.load() != 0 &&
+    return party_tags_on && party::status::Enabled() &&
+           coop::splitscreen::NameTagsShown(SplitscreenOn(), BbSettings::Get().party_name_tags,
+                                            BbSettings::Get().party_overhead.load()) &&
            party::hud::Shown() && !party::hud::GameDialog();  // not over the game's dimmed dialog box
 }
 
@@ -255,7 +276,62 @@ void PartyHud() {
     const Axes axes = DirectionAxes(b, cam);
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const float s = base_scale;
-    if (panel) {
+    if (panel && coop::splitscreen::CompassOnly(SplitscreenOn())) {
+        // CL-2eec68 splitscreen: only the compass - per companion on this map a direction arrow in its colour
+        // and the distance. No names, bars, pings, states or rot line (the tags are off too, PartyTagsWanted).
+        int rows = 0;
+        for (int i = 0; i < b.count; ++i) rows += b.c[i].same_map && b.c[i].same_world && b.c[i].connected ? 1 : 0;
+        static int last_rows = -1;
+        if (rows != last_rows) {
+            last_rows = rows;
+            std::printf("[coop] Party HUD: splitscreen compass, %d companion row(s)\n", rows);
+        }
+        if (rows > 0) {
+            const float pad = 12.0f * s;
+            float bottom = perf_hud_bottom_left ? perf_hud_top - 6.0f * s
+                                                : viewport->WorkPos.y + viewport->WorkSize.y - pad;
+            party::hud::HudRect boss;
+            if (BossBarArea(viewport, &boss)) {
+                const float x0 = viewport->WorkPos.x + pad;
+                const float h = party_hud_size.y > 0.0f ? party_hud_size.y : float(rows) * 26.0f * s + 14.0f * s;
+                bottom = party::hud::BottomClearOf(x0, x0 + 110.0f * s, bottom, h, boss, 6.0f * s);
+            }
+            ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + pad, bottom), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+            ImGui::SetNextWindowBgAlpha(0.42f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * s, 6.0f * s));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f * s, 3.0f * s));
+            ImGui::Begin("##party_hud", nullptr,
+                         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                             ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
+                             ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings);
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            const float r = 8.0f * s;
+            for (int i = 0; i < b.count; ++i) {
+                const party::hud::Companion& c = b.c[i];
+                if (!(c.same_map && c.same_world && c.connected)) continue;
+                float mc[3];
+                party::hud::MemberColour(c.slot, mc);
+                const ImVec2 row = ImGui::GetCursorScreenPos();
+                Arrow(draw, ImVec2(row.x + r, row.y + r + 1.0f * s), r,
+                      party::hud::Bearing(b.me_pos, c.pos, axes.fx, axes.fz, axes.rx, axes.rz),
+                      Rgba(mc[0], mc[1], mc[2], 0.97f), Rgba(0.10f, 0.07f, 0.04f, 0.9f));
+                const float d = party::hud::Distance(b.me_pos, c.pos);
+                char dist[24];
+                std::snprintf(dist, sizeof dist, d < 10.0f ? "%.1f m" : "%.0f m", d);
+                ImGui::PushFont(game_font, 14.0f);
+                const ImVec2 ts = ImGui::CalcTextSize(dist);
+                draw->AddText(ImVec2(row.x + 2.0f * r + 6.0f * s, row.y + (2.0f * r - ts.y) * 0.5f + 1.0f * s),
+                              Rgba(0.86f, 0.82f, 0.74f, 0.95f), dist);
+                ImGui::PopFont();
+                ImGui::Dummy(ImVec2(2.0f * r + 6.0f * s + 48.0f * s, 2.0f * r + 2.0f * s));
+            }
+            party_hud_top = ImGui::GetWindowPos().y;
+            party_hud_size = ImGui::GetWindowSize();
+            ImGui::End();
+            ImGui::PopStyleVar(3);
+        }
+    } else if (panel) {
     const float pad = 12.0f * s;
     float bottom = perf_hud_bottom_left ? perf_hud_top - 6.0f * s
                                         : viewport->WorkPos.y + viewport->WorkSize.y - pad;
@@ -759,7 +835,7 @@ void PartyToast() {
     if (party::status::EventSeq() != toast_seen.load()) {
         const party::status::Board b = party::status::Snapshot();
         toast_seen = b.event_seq;
-        toast_text = b.last_event;
+        toast_text = FilterMessage(coop::splitscreen::Kind::Notice, b.last_event);
         toast_until_ms = toast_text.empty() ? 0 : now + party::status::ToastMs(toast_text);
     }
     const std::int64_t left = toast_until_ms.load() - now;
@@ -858,7 +934,7 @@ void PartyAlert() {
     if (party::status::AlertSeq() != alert_seen.load()) {
         const party::status::Board b = party::status::Snapshot();
         alert_seen = b.alert_seq;
-        alert_text = b.alert;
+        alert_text = FilterMessage(coop::splitscreen::Kind::Alert, b.alert);
         alert_until_ms = alert_text.empty() ? 0 : now + AlertMs;
     }
     const std::int64_t left = alert_until_ms.load() - now;
@@ -913,7 +989,7 @@ void HoldPartyNoticesInGameMenu() {
     if (party::status::EventSeq() != toast_seen.load()) {
         const party::status::Board b = party::status::Snapshot();
         toast_seen = b.event_seq;
-        toast_text = b.last_event;
+        toast_text = FilterMessage(coop::splitscreen::Kind::Notice, b.last_event);
         toast_until_ms = toast_text.empty() ? 0 : now + party::status::ToastMs(toast_text);
     } else if (toast_until_ms.load() > now) {
         toast_until_ms += dt;
@@ -921,7 +997,7 @@ void HoldPartyNoticesInGameMenu() {
     if (party::status::AlertSeq() != alert_seen.load()) {
         const party::status::Board b = party::status::Snapshot();
         alert_seen = b.alert_seq;
-        alert_text = b.alert;
+        alert_text = FilterMessage(coop::splitscreen::Kind::Alert, b.alert);
         alert_until_ms = alert_text.empty() ? 0 : now + AlertMs;
     } else if (alert_until_ms.load() > now) {
         alert_until_ms += dt;
