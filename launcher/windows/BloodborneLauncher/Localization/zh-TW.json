@@ -360,6 +360,7 @@
   "Use letters, numbers, spaces, - or _ only.": "只能使用字母、數字、空格、- 或 _。",
   "There is already a profile called {0}.": "已經有名為 {0} 的設定檔。",
   "This backup has no savedata folder.": "此備份中沒有 savedata 資料夾。",
+  "This backup is empty, so your saves were left as they are.": "此備份是空的,因此你的存檔未被變更。",
   "That folder has no Bloodborne save files (userdata).": "該資料夾中沒有 Bloodborne 存檔檔案（userdata）。",
   "That save is incomplete: it has no {0}, the file the game needs to find the ": "該存檔不完整：缺少 {0}，也就是遊戲用來找到 ",
   "save slots (importing it would make the game crash). Import the whole SPRJ0005 folder.": "存檔欄位的檔案（匯入它會使遊戲當機）。請匯入整個 SPRJ0005 資料夾。",

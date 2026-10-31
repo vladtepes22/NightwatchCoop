@@ -351,6 +351,7 @@
   "Use letters, numbers, spaces, - or _ only.": "名称只能包含字母、数字、空格、连字符（-）或下划线（_）。",
   "There is already a profile called {0}.": "名为 {0} 的玩家档案已存在。",
   "This backup has no savedata folder.": "此备份中没有存档数据文件夹。",
+  "This backup is empty, so your saves were left as they are.": "此备份为空,因此你的存档未被改动。",
   "That folder has no Bloodborne save files (userdata).": "该文件夹中没有 Bloodborne 存档文件（userdata）。",
   "That save is incomplete: it has no {0}, the file the game needs to find the ": "该存档不完整：缺少 {0}。游戏需要此文件来查找",
   "save slots (importing it would make the game crash). Import the whole SPRJ0005 folder.": "存档栏位（导入此存档会导致游戏崩溃）。请导入整个 SPRJ0005 文件夹。",

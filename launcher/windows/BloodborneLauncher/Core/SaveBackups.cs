@@ -117,6 +117,8 @@ namespace BloodborneLauncher.Core
         {
             var from = Path.Combine(backup.Dir, "savedata");
             if (!Directory.Exists(from)) throw new DirectoryNotFoundException(L.T("This backup has no savedata folder."));
+            if (!Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories).Any())
+                throw new IOException(L.T("This backup is empty, so your saves were left as they are."));
             Create(s, beforeRestore: true);
 
             var target = SaveData(s);

@@ -360,6 +360,7 @@
   "Use letters, numbers, spaces, - or _ only.": "Лише літери, цифри, пробіли, - або _.",
   "There is already a profile called {0}.": "Профіль з назвою {0} уже існує.",
   "This backup has no savedata folder.": "У цій резервній копії немає теки savedata.",
+  "This backup is empty, so your saves were left as they are.": "Ця резервна копія порожня, тому ваші збереження залишилися без змін.",
   "That folder has no Bloodborne save files (userdata).": "У цій теці немає файлів збережень Bloodborne (userdata).",
   "That save is incomplete: it has no {0}, the file the game needs to find the ": "Це збереження неповне: у ньому немає {0} — файлу, за яким гра знаходить ",
   "save slots (importing it would make the game crash). Import the whole SPRJ0005 folder.": "слоти збережень (імпорт такого збереження призведе до збою гри). Імпортуйте всю теку SPRJ0005.",

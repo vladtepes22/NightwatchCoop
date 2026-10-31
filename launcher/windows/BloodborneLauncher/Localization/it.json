@@ -360,6 +360,7 @@
   "Use letters, numbers, spaces, - or _ only.": "Usa solo lettere, numeri, spazi, - o _.",
   "There is already a profile called {0}.": "Esiste già un profilo chiamato {0}.",
   "This backup has no savedata folder.": "Questo backup non ha una cartella savedata.",
+  "This backup is empty, so your saves were left as they are.": "Questo backup è vuoto: i tuoi salvataggi non sono stati toccati.",
   "That folder has no Bloodborne save files (userdata).": "Quella cartella non contiene file di salvataggio di Bloodborne (userdata).",
   "That save is incomplete: it has no {0}, the file the game needs to find the ": "Quel salvataggio è incompleto: manca {0}, il file che serve al gioco per trovare gli ",
   "save slots (importing it would make the game crash). Import the whole SPRJ0005 folder.": "slot di salvataggio (importarlo farebbe andare in crash il gioco). Importa l'intera cartella SPRJ0005.",

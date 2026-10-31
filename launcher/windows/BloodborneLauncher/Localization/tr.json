@@ -360,6 +360,7 @@
   "Use letters, numbers, spaces, - or _ only.": "Yalnızca harf, rakam, boşluk, - veya _ kullanın.",
   "There is already a profile called {0}.": "{0} adında bir profil zaten var.",
   "This backup has no savedata folder.": "Bu yedekte savedata klasörü yok.",
+  "This backup is empty, so your saves were left as they are.": "Bu yedek boş, bu yüzden kayıtlarına dokunulmadı.",
   "That folder has no Bloodborne save files (userdata).": "Bu klasörde Bloodborne kayıt dosyası yok (userdata).",
   "That save is incomplete: it has no {0}, the file the game needs to find the ": "Bu kayıt eksik: içinde {0} yok; oyunun kayıt yuvalarını bulmak için ihtiyaç duyduğu ",
   "save slots (importing it would make the game crash). Import the whole SPRJ0005 folder.": "dosya bu (içe aktarmak oyunun çökmesine yol açar). SPRJ0005 klasörünün tamamını içe aktarın.",
