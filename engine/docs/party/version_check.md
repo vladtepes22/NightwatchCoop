@@ -118,3 +118,12 @@ answers: newer / same / older, pre-release, HTML, offline, timeout, rate limit, 
   (BB_PARTY_* switches) as the host`. The status board turns that into the party UI's "host refused:
   ..." (RejectText, party-status-bridge-test). Not tried live: two different builds (needs a second
   build; covered by party-link-test and test_simguest).
+
+## The version in the build ID (0.2.6 beta 3)
+
+The build ID holds the whole `VERSION`: `nightwatch-coop-0.2.6-beta.3-<hash>` (before: `nightwatch-coop-0.2.6-<hash>`), so the
+launcher's lobby can tell betas apart. `PartyDiscovery.BuildPrefix` is built from the launcher's own release version and
+must equal the engine's, so **a launcher-only beta is no longer possible**: a `VERSION` change needs an engine build, and
+that beta cannot play with the one before it. The VPN lobby carries 32 characters of the ID, which keeps the whole prefix.
+Launchers from before beta 3 compare only `nightwatch-coop-0.2.6-`, so they show a beta 3 host as joinable and the game
+refuses on join.
