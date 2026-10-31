@@ -35,8 +35,6 @@ public:
     static constexpr u32 FlagPsycho = 32, FlagEncoded = 64, FlagSnapshot = 128;
     /// PsychoV30: the in-game menu's 16-bit probe 6, magenta where a channel arrives below 0.
     static constexpr u32 FlagNegativeProbe = 256;
-    /// PsychoV30: the snapshot's alpha is the HUD's mask (hdr_ui_mask.comp), not to be guessed.
-    static constexpr u32 FlagUiMask = 512;
     static constexpr u32 FlagScRgb = 1;   ///< scRGB (linear BT.709) output, else HDR10 PQ
     static constexpr u32 FlagOverlay = 2; ///< the menu layer is drawn
     static constexpr u32 FlagNative = 4;  ///< `gain` is this frame's gain map (native mode)

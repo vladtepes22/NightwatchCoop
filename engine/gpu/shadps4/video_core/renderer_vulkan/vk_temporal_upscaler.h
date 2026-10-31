@@ -144,8 +144,6 @@ public:
     bool DisplayOverride(VAddr address, Display& display);
     bool TakePsychoSnapshot(VAddr address, std::unique_ptr<HdrGainMap>& snapshot);
     void PublishPsychoSnapshot(VAddr address);
-    /// Mode 5, at the display pass: the HUD's mask into the pre-HUD snapshot's alpha.
-    void MaskPsychoSnapshot();
     std::array<u32, 2> SceneSnapshotSize() const { return {snapshot_width, snapshot_height}; }
     bool Redirecting() const noexcept { return ui_phase || display_redirect; }
     /// BB_PRESENT_DUMP_TRIGGER: whether this presented frame is to be saved (consumes the trigger).
@@ -178,10 +176,10 @@ private:
     /// Render size below the scaled-preset output size (the resolution patch is on).
     [[nodiscard]] bool Scaled() const;
     /// A target of the patched render size: the game allocates it with aligned dimensions
-    /// (a 1916x1078 scene in 1916x1080 targets).
+    /// (a 1916x1078 scene in 1916x1080 targets, a 1708x960 one in 1792x960: widths to 128).
     [[nodiscard]] bool RenderTarget(u32 w, u32 h) const {
         if (!scaled_session) return w == 1920 && h == 1080;
-        return w >= render_width && h >= render_height && w < render_width + 64 &&
+        return w >= render_width && h >= render_height && w < render_width + 128 &&
                h < render_height + 64;
     }
     /// bbport: native HDR output: the game's tonemapped frame (the UI target): RGBA8 of the
@@ -209,7 +207,7 @@ private:
         vk::Image target, vk::ImageView target_view, u32 w, u32 h, bool encode,
         bool snapshot = false);
     void ExtraSharpenHdr(vk::CommandBuffer cmd, vk::Image target, bool ldr, u32 w, u32 h);
-    /// HDR16: the pre-HUD snapshot's image at the UI image's size. True when it was made again
+    /// Native+: the pre-HUD snapshot's image at the UI image's size. True when it was made again
     /// (after scheduler.Finish(): a command buffer taken before is gone).
     bool EnsureSnapshot();
     bool EnsureResources(u32 width, u32 height, u32 out_width, u32 out_height, bool hdr);
@@ -283,7 +281,6 @@ private:
     vk::UniqueDescriptorSetLayout hdr_transfer_desc_layout;
     vk::UniquePipelineLayout hdr_transfer_pipeline_layout;
     vk::UniquePipeline hdr_transfer_pipeline;
-    vk::UniquePipeline hdr_ui_mask_pipeline; ///< hdr_ui_mask.comp, hdr_transfer's layout
     /// The encode that also writes the pre-HUD snapshot (a third binding).
     vk::UniqueDescriptorSetLayout hdr_transfer_snapshot_desc_layout;
     vk::UniquePipelineLayout hdr_transfer_snapshot_pipeline_layout;
@@ -292,7 +289,6 @@ private:
     vk::UniqueImageView scene_snapshot_view;
     u32 snapshot_width = 0, snapshot_height = 0;
     std::atomic<bool> snapshot_ready{false};
-    std::atomic<bool> snapshot_masked{false}; ///< the snapshot's alpha is the HUD's mask
     VideoCore::UniqueImage ui_image;
     VideoCore::UniqueImage ui_depth_image;
     vk::UniqueImageView ui_view;

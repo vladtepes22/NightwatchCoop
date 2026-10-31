@@ -58,7 +58,7 @@ DriverCache::Identity DriverIdentity(const Instance& instance) {
 }
 
 std::filesystem::path DriverCachePath() {
-    // HDR16 shares it with the other modes, as the shader cache (cache_storage.cpp).
+    // Native+ shares it with the other modes, as the shader cache (cache_storage.cpp).
     return Common::FS::GetUserPath(Common::FS::PathType::CacheDir) /
            (std::string{Common::ElfInfo::Instance().GameSerial()} + ".vkcache");
 }
@@ -395,6 +395,8 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
                              AmdGpu::Liverpool* liverpool_, u32 sparse_page_shift)
     : instance{instance_}, scheduler{scheduler_}, liverpool{liverpool_},
       desc_heap{instance, scheduler.GetWorkSemaphore(), DescriptorHeapSizes} {
+    // Native+ was HDR16: the two messages below keep that name, as their text is part of
+    // gpu-cache.id (build.sh) and changing it would start every player's shader cache again.
     ASSERT_MSG(!HdrChannel::Native16() ||
         instance.GetPhysicalDevice().getProperties().limits.maxPushConstantsSize >= 176,
         "HDR16 requires 176 bytes of Vulkan push constants; choose Native or Expand on this GPU");
@@ -464,7 +466,7 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
         // bbport: native shaders, on unless BB_NATIVE_SHADERS=0 (the launcher's "Legacy shader
         // compiler"). Uniform buffers need the per-buffer offset in the push data (a 64-byte
         // uniform alignment can leave a remainder) and the 64 KiB range the shaders declare.
-        // HDR16 (mode 5) reads the composite's constant buffer either way (vk_hdr_channel.cpp
+        // Native+ (mode 5) reads the composite's constant buffer either way (vk_hdr_channel.cpp
         // BuildComposite); its layout is checked below.
         .uniform_constant_buffers =
             [] {
@@ -489,7 +491,7 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
         const char* env = std::getenv("BB_UBO_EXACT");
         return env && env[0] == '1';
     }();
-    // HDR16's composite reads a native uniform buffer as dwords, at the offset in the push data
+    // Native+'s composite reads a native uniform buffer as dwords, at the offset in the push data
     // (bb_composite_hdr.frag, BB_CB_UBO); with another layout, the legacy compiler.
     if (HdrChannel::Native16() && profile.uniform_constant_buffers &&
         (!profile.uniform_dword_layout || profile.uniform_exact_base)) {
@@ -529,7 +531,7 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
     profile.flatbuf_storage = profile.uniform_constant_buffers && !switch_on("BB_UBO_FLATBUF");
     // bbport: pixel shader arithmetic the driver may fuse; BB_FS_CONTRACT=0 keeps it unfused.
     profile.fragment_exact_fp = !switch_on("BB_FS_CONTRACT");
-    // bbport: manual interpolation only where it matters; BB_INTERP_HW=0 for every input. HDR16's
+    // bbport: manual interpolation only where it matters; BB_INTERP_HW=0 for every input. Native+'s
     // replacements have a build for either kind of input (vk_hdr_channel.cpp, bb_inputs.glsl).
     profile.manual_interpolation_all = profile.needs_manual_interpolation && !switch_on("BB_INTERP_HW");
     if (profile.uniform_constant_buffers) {
@@ -1026,7 +1028,7 @@ vk::ShaderModule PipelineCache::CompileModule(Shader::Info& info, Shader::Runtim
     DumpShader(spv, info.pgm_hash, info.hw_stage, perm_idx, "spv");
 
     // Build composite variants from the original interface, then replace only chain passes. The
-    // cache keeps the game's own shader (`stored`): HDR16 swaps its replacements in again when it
+    // cache keeps the game's own shader (`stored`): Native+ swaps its replacements in again when it
     // loads it (LoadPipelineStage), so every mode, the shader catalog and bb-shader-lab's
     // recompiles share one cache.
     std::vector<u32> stored;

@@ -152,7 +152,7 @@ void FrameGenerator::CaptureInputs(Scheduler& scheduler, vk::ImageView source_de
 
 void FrameGenerator::CaptureHudless(Scheduler& scheduler, vk::Image image, vk::Format format,
                                     u32 w, u32 h) {
-    // HDR16: the UI image is the 16-bit chain's, as the copy made for it (EnsureResources).
+    // Native+: the UI image is the 16-bit chain's, as the copy made for it (EnsureResources).
     const bool hdr16 = resources16 && format == HdrChannel::Native16Format;
     if (!WantsHudless() || !image ||
         (format != vk::Format::eR8G8B8A8Unorm && format != vk::Format::eR8G8B8A8Srgb && !hdr16)) {
@@ -349,7 +349,7 @@ bool FrameGenerator::Record(vk::CommandBuffer cmdbuf, const Job& job, vk::ImageV
     GlobalBarrier(cmdbuf);
     const vk::Format color_format =
         resources16 ? HdrChannel::Native16Format : vk::Format::eR8G8B8A8Unorm;
-    // HDR16: the chain's values, gamma encoded with the game's white at 1 and the highlights
+    // Native+: the chain's values, gamma encoded with the game's white at 1 and the highlights
     // above, up to the display's peak. FSR's sRGB transfer assumes 0..1 (its optical flow
     // stores the luminance in 8 bits and overflowed above white); as scRGB with the encoded
     // peak as its maximum luminance they map to 0..1. The interpolation itself blends the raw
@@ -426,7 +426,7 @@ bool FrameGenerator::Record(vk::CommandBuffer cmdbuf, const Job& job, vk::ImageV
     // The UI from the real frame, the rest from the interpolated one.
     // The real frame is sampled through its own view (BGRA or RGBA, the channels come out in
     // order either way); the copies are read in the same encoding, sRGB-decoded or not.
-    // HDR16: all three are the chain's RGBA16F values, encoded alike (no sRGB view decodes).
+    // Native+: all three are the chain's RGBA16F values, encoded alike (no sRGB view decodes).
     const bool srgb = !resources16 && (job.view_format == vk::Format::eR8G8B8A8Srgb ||
                                        job.view_format == vk::Format::eB8G8R8A8Srgb);
     const vk::ImageMemoryBarrier2 to_write{
@@ -580,7 +580,7 @@ bool FrameGenerator::EnsureResources(u32 w, u32 h, u32 rw, u32 rh, bool fsr) {
             .image = vk::Image(source), .viewType = vk::ImageViewType::e2D, .format = format,
             .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}}));
     };
-    // HDR16: the frame without its UI and FSR 3.1's generated one are the 16-bit chain's (values
+    // Native+: the frame without its UI and FSR 3.1's generated one are the 16-bit chain's (values
     // above the game's white kept, gamma encoded), as the frames themselves.
     const bool hudless16 = HdrChannel::Native16();
     resources16 = hudless16;
