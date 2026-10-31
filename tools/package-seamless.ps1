@@ -219,7 +219,7 @@ $defaultsFile = Join-Path $destinationRoot 'seamless-defaults.json'
 if ($Release) {
     Remove-Item -LiteralPath $defaultsFile -Force -ErrorAction SilentlyContinue
 } else {
-    $defaults = [ordered]@{ port_dir = $destinationRoot; party_mode = 'host'; party_max = '2'; check_updates = $false; hardware_offered = $true }
+    $defaults = [ordered]@{ port_dir = $destinationRoot; party_mode = 'host'; party_max = '2'; hardware_offered = $true }
     if ($Game) { $defaults.game_dir = $Game }
     Write-Json $defaults $defaultsFile
 }

@@ -112,6 +112,13 @@ namespace BloodborneLauncher
                 }
                 if (ws.Settings.Bool("check_updates"))
                     _ = ws.CheckForUpdatesAsync(quiet: true);
+                // A launcher left open hears about a release too.
+                var updateCheck = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromHours(1) };
+                updateCheck.Tick += (_, _) =>
+                {
+                    if (ws.Update == null && ws.Settings.Bool("check_updates")) _ = ws.CheckForUpdatesAsync(quiet: true);
+                };
+                updateCheck.Start();
                 await Task.Yield();
                 PlayItem.IsChecked = true;
                 UpdatePlayButton();

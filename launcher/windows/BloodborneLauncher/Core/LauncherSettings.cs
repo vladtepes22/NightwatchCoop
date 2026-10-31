@@ -143,6 +143,10 @@ namespace BloodborneLauncher.Core
                     // and objects appeared late or flickered). On again only by choice.
                     // 0.2.4: the in-game map is on by default, switched on once for older files
                     // (they saved the old default, off). Off again only by choice.
+                    // 0.2.6: test packages started with the update check off, and the file outlives them
+                    // (settings are per user): on once. Off again only by choice.
+                    if (!saved.ContainsKey(UpdateCheckMarker))
+                        _data["check_updates"] = true;
                     if (!saved.ContainsKey(MapOnMarker))
                         _data["map_enabled"] = true;
                     // 0.2.5: the Eldritch theme is the default, switched on once for older files that
@@ -184,12 +188,14 @@ namespace BloodborneLauncher.Core
             }
             _data["legacy_shaders_default_98"] = true;
             _data["occlusion_off_99"] = true;
+            _data[UpdateCheckMarker] = true;
             _data[MapOnMarker] = true;
             _data[EldritchMarker] = true;
             _data[PerfDefaultsMarker] = true;
         }
 
         private const string PerfDefaultsMarker = "perf_defaults_b4";
+        private const string UpdateCheckMarker = "update_check_026";
         private const string MapOnMarker = "map_on_024";
         private const string EldritchMarker = "theme_eldritch_025";
 
