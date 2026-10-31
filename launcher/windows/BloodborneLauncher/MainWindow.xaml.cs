@@ -81,6 +81,13 @@ namespace BloodborneLauncher
             Activated += (_, _) => Wake();
             Deactivated += (_, _) => Wake();
             StateChanged += (_, _) => Wake();
+            // visy 0.7.8 handoff (Core/VpnIdle.cs): an idle Nightwatch VPN tunnel goes, and comes back when needed.
+            Activated += (_, _) => { _inactiveSince = null; _ = VpnIdleNow(VpnIdleTrigger.WindowActivated); };
+            Deactivated += (_, _) => _inactiveSince ??= DateTime.UtcNow;
+            StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) _inactiveSince ??= DateTime.UtcNow; };
+            var vpnIdle = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            vpnIdle.Tick += (_, _) => _ = VpnIdleNow(VpnIdleTrigger.Tick);
+            vpnIdle.Start();
             ApplyIcon();
 
             var version = typeof(MainWindow).Assembly.GetName().Version;
@@ -598,6 +605,14 @@ namespace BloodborneLauncher
             WatcherZoom.BeginAnimation(ScaleTransform.ScaleYProperty, zoom);
             WatcherText.BeginAnimation(OpacityProperty, Keys((0, 0), (0, 1216), (1, 1600), (1, 2176), (0, 2432)));
         }
+
+        private DateTime? _inactiveSince;
+
+        /// <summary>The Co-op page decides (VpnIdle); before it was ever shown the player never connected here.</summary>
+        private Task VpnIdleNow(VpnIdleTrigger trigger) =>
+            _pages.TryGetValue(typeof(SeamlessPage), out var page) && page is SeamlessPage coop
+                ? coop.VpnIdleCheck(trigger, IsActive && WindowState != WindowState.Minimized, _inactiveSince)
+                : Task.CompletedTask;
 
         // ---------------------------------------------------------------- navigation
 
@@ -1214,6 +1229,10 @@ namespace BloodborneLauncher
             }
 
             if (_updating) return;
+            // visy 0.7.8 handoff (VpnIdle): a VPN tunnel dropped while idle comes back before a party game starts;
+            // bounded, then the game starts anyway (the Co-op tab says if the connection did not come up).
+            if (s.Str("party_mode") is "host" or "join")
+                await Task.WhenAny(VpnIdleNow(VpnIdleTrigger.Play), Task.Delay(VpnIdle.PlayWait));
             var error = ws.StartGame();
             if (error != null)
             {

@@ -107,6 +107,10 @@ public sealed class SeamlessPage : LauncherPage
         }
         ToggleRow(SymbolRegular.Globe24, L.T("Nightwatch VPN lobby"), L.T("Controls whether your hosted party is listed. Join always browses while connected."),
             () => Ini.Get("party_vpn_lobby", "0") == "1", v => Ini.Set("party_vpn_lobby", v ? "1" : "0"), Rows(Hosting, network));
+        if (NightwatchVpn.Shipped != null)
+            ToggleRow(SymbolRegular.Globe24, L.T("Disconnect the VPN when idle"),
+                L.T("After 10 minutes with the launcher in the background and no game running. It reconnects when you bring the launcher back, open Co-op or press Play."),
+                () => S.Bool("vpn_idle_disconnect"), v => S.Set("vpn_idle_disconnect", v), network);
         Add(Card(SymbolRegular.Info24, L.T("Last session and firewall"), null,
             Row(SmallButton(L.T("Check"), SymbolRegular.Info24, (_, _) => CheckConnection()),
                 SmallButton(L.T("Fix firewall"), SymbolRegular.Wrench24, (_, _) => FixFirewall())), out _), network);
@@ -311,6 +315,7 @@ public sealed class SeamlessPage : LauncherPage
     /// <summary>The first time this tab is shown, the co-op setup wizard (after the page is on screen).</summary>
     public override void OnShown()
     {
+        _ = VpnIdleCheck(VpnIdleTrigger.CoopShown, windowActive: true, inactiveSince: null);
         if (S.Bool(CoopPresets.DoneKey)) { OfferVpnSetup(); return; }
         S.Set(CoopPresets.DoneKey, true);
         Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, CoopWizard.Open);
@@ -327,6 +332,8 @@ public sealed class SeamlessPage : LauncherPage
     private readonly VpnConnection _vpn = new();
     private readonly Wpf.Ui.Controls.ProgressRing _vpnRing = new() { IsIndeterminate = true, Width = 18, Height = 18, Margin = new Thickness(0, 0, 10, 0), Visibility = Visibility.Collapsed };
     private bool _vpnSetup;
+    private static bool _vpnWanted;  // the player connected in this launcher and has not pressed Disconnect since (VpnIdle);
+                                     // static: ReloadPages makes a new page, the wish belongs to the launcher
     private string _vpnNote = "";
     private StackPanel _partyList = null!;
     private TextBlock _partiesHint = null!;
@@ -618,7 +625,29 @@ public sealed class SeamlessPage : LauncherPage
 
     /// <summary>Connect / Disconnect: sets up OpenVPN and enrolls on first use, renews when due, then OpenVPN GUI runs the
     /// tunnel. The state holds until the tunnel's adapter confirms it (<see cref="WatchVpn"/>).</summary>
-    private async Task ToggleVpn()
+    /// <summary>MainWindow asks on a timer and when the player may need the tunnel (VpnIdle): drops a tunnel left idle,
+    /// brings back one the player wanted. Uses the same connect / disconnect path as the button.</summary>
+    public async Task VpnIdleCheck(VpnIdleTrigger trigger, bool windowActive, DateTime? inactiveSince)
+    {
+        if (NightwatchVpn.Shipped == null || NightwatchVpn.GuiExe() == null || !_vpnWanted) return;
+        _adapters = await Task.Run(NetworkRoute.Enumerate);
+        var state = new VpnIdleState(S.Bool("vpn_idle_disconnect"), _vpnWanted, NightwatchVpn.OwnedHere,
+            VpnLobby.TunnelIp(_adapters) != null, _vpn.Busy || _vpnSetup, Ws.Game.Running, windowActive, inactiveSince,
+            VpnIdle.IdleAfter(S.Str("vpn_idle_minutes")), DateTime.UtcNow);
+        switch (VpnIdle.Decide(state, trigger))
+        {
+            case VpnIdleAction.Disconnect:
+                await ToggleVpn(byPlayer: false);
+                _vpnNote = L.T("Disconnected while idle; it reconnects when you need it.");
+                UpdateVpn();
+                break;
+            case VpnIdleAction.Connect:
+                await ToggleVpn(byPlayer: false);
+                break;
+        }
+    }
+
+    private async Task ToggleVpn(bool byPlayer = true)
     {
         if (NightwatchVpn.Shipped is not { } endpoint || _vpn.Busy || _vpnSetup) return;
         _adapters = await Task.Run(NetworkRoute.Enumerate);
@@ -635,6 +664,7 @@ public sealed class SeamlessPage : LauncherPage
         {
             if (up)
             {
+                if (byPlayer) _vpnWanted = false;  // a manual Disconnect stays off until Connect
                 _vpn.BeginDisconnect(DateTime.UtcNow);
                 UpdateVpn();
                 await Task.Run(() => NightwatchVpn.Disconnect(gui));
@@ -647,6 +677,7 @@ public sealed class SeamlessPage : LauncherPage
                     UpdateVpn();
                     return;
                 }
+                if (byPlayer) _vpnWanted = true;
                 _vpn.BeginConnect(DateTime.UtcNow);
                 UpdateVpn();
                 var install = await NightwatchVpn.ReadyAsync(endpoint, Paths.ConfigDir);
