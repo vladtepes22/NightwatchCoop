@@ -202,6 +202,16 @@ static Binding bindings[IN_COUNT];
 static int bindings_ready;
 static int pad_swap_sticks, pad_invert_look_x, pad_invert_look_y, pad_deadzone;
 
+/* A round dead zone on the whole stick; speed starts from zero at its edge. */
+static void apply_deadzone(uint8_t *x, uint8_t *y) {
+    const float zone=pad_deadzone*1.28f, dx=*x-128.0f, dy=*y-128.0f, length=SDL_sqrtf(dx*dx+dy*dy);
+    if (length<=zone) { *x=*y=128; return; }
+    const float scale=(length-zone)*128.0f/(128.0f-zone)/length;
+    const float nx=128.0f+dx*scale, ny=128.0f+dy*scale;
+    *x=(uint8_t)(nx<0.0f ? 0 : nx>255.0f ? 255 : (int)(nx+0.5f));
+    *y=(uint8_t)(ny<0.0f ? 0 : ny>255.0f ? 255 : (int)(ny+0.5f));
+}
+
 static void bind_defaults(void) {
     static const struct { int input; SDL_Scancode key; } keys[]={
         {IN_CROSS,SDL_SCANCODE_SPACE}, {IN_CIRCLE,SDL_SCANCODE_LSHIFT}, {IN_SQUARE,SDL_SCANCODE_E},
@@ -384,9 +394,8 @@ static void sample_host(PadData *d) {
         d->left_x=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTX)); d->left_y=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTY));
         d->right_x=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTX)); d->right_y=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTY));
         if (pad_deadzone) {
-            const int dz=pad_deadzone*128/100;
-            uint8_t *sticks[4]={&d->left_x,&d->left_y,&d->right_x,&d->right_y};
-            for (int s=0;s<4;++s) if (*sticks[s]-128<dz && 128-*sticks[s]<dz) *sticks[s]=128;
+            apply_deadzone(&d->left_x,&d->left_y);
+            apply_deadzone(&d->right_x,&d->right_y);
         }
         if (pad_swap_sticks) {
             uint8_t t=d->left_x; d->left_x=d->right_x; d->right_x=t;

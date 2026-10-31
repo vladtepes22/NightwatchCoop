@@ -501,7 +501,7 @@ target_include_directories(pc-input-test PRIVATE shim)
 target_link_libraries(pc-input-test PRIVATE PkgConfig::SDL3)
 target_compile_options(pc-input-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_executable(widescreen-test EXCLUDE_FROM_ALL ../tests/test_widescreen.cpp
-    shim/engine/widescreen.cpp shim/engine/camera.cpp shim/engine/engine_hooks.cpp shim/bbport_settings.cpp
+    shim/engine/widescreen.cpp shim/engine/camera.cpp shim/engine/camera_timing.cpp shim/engine/engine_hooks.cpp shim/bbport_settings.cpp
     shim/bbport_menu_i18n.cpp)
 target_include_directories(widescreen-test PRIVATE shim)
 target_compile_options(widescreen-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
