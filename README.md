@@ -171,6 +171,9 @@ any port forwarding, and the hosts of the network show up in the Join list.
   so other players on the network cannot join or read it.
 - **What it cannot do:** the network's firewall lets players reach each other only on the party port
   and with ping, so another player cannot reach the rest of your PC through it.
+- **Removing it.** **Uninstall**, next to Connect on the Co-op tab, removes OpenVPN and its network
+  components (one Windows administrator prompt). Your private key stays on your PC for a later
+  install. An OpenVPN you installed yourself is left alone; remove that one in Windows Settings.
 
 ## Where the saves are
 

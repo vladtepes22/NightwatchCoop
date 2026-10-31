@@ -531,3 +531,12 @@ Next: the same run with all guests rendering-lite off (2 windows + 1 headless) t
   2.5 s after each leave, `cooperators 2 -> 1`, and `1 -> 2` at each rejoin (never 3); no
   `two chrs read`, no same-queue overlap, no crash; screenshots show the three together after every
   rejoin. The host's Leave at the end ended the session on both guests in 0.4 s.
+
+## Five players (visy 0.7.8, CL-de2e94; hand-ported for Nightwatch 0.2.6 beta 3)
+
+Ported from visy `574c7c25`: the host's direct-summon cap `HostView::max_cooperators` stayed 3, so a 4th guest's rejoin fell to
+the bell sign path (`dsummon::MaxCooperators`); the entry wait no longer runs while the guest's own world loads
+(`dsummon::HoldWhileLoading`); the Party members page had seven rows for six slots, so *Last event* steps aside at five.
+Not ported: his smoke phase `fp5`. Ours is the row `fiverejoin` in `tools/qa_scenarios.json`, not a release row: it starts five
+games, about 40 GB of free commit by our QA notes. visy's run passed with five clients on one 32 GB PC (about 20 GB of
+working set, free memory down to 0.4 GB). Not tried by him: five real PCs, the late areas, invaders, Chalice Dungeons.

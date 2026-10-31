@@ -56,6 +56,7 @@ saves), gives each its own chain and judges **log lines, in order, per role**. T
 }
 ```
 
+- `fiverejoin` (four guests, the fourth Leaves and Rejoins) is run by hand only: five games need about 40 GB of free commit.
 - Rows today: `join` (session up), `core` (Leave / Rejoin, guest death + bloodstain + respawn, party lamp
   travel), `deaths` (host and guest deaths outside a fight: revive at the lamp, session kept), `boss`
   (Gascoigne: the guest goes in first, the host dies in the fight and spectates, then the wipe). A row may
