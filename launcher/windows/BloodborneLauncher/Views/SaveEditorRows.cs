@@ -128,12 +128,15 @@ internal sealed class ItemRow : RowBase
         if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
         try
         {
-            // OnLoad reads the file now and closes it, so the cache folder is never held open.
+            // Our own stream, so the file closes here even when decoding fails (a UriSource stays open until collected).
+            using var file = File.OpenRead(path);
             var image = new BitmapImage();
-            image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad; image.DecodePixelWidth = 44; image.UriSource = new Uri(path); image.EndInit();
+            image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad; image.DecodePixelWidth = 44; image.StreamSource = file; image.EndInit();
             image.Freeze(); return image;
         }
-        catch (Exception e) when (e is IOException or NotSupportedException or UriFormatException) { return null; }
+        // Whatever is wrong with the file (half written, damaged, an imaging error) means no icon, never a crash: this
+        // runs on a pool thread behind an async void, where an escaping exception ends the launcher.
+        catch (Exception) { return null; }
     }
     public string Group => IsKey ? L.T("Key items") : Item.Gem?.Type == 2 ? L.T("Runes") : KindLabel(Item.Kind);
     public string Kind => Item.Kind;

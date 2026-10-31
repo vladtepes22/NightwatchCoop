@@ -135,7 +135,9 @@ public sealed partial class SaveEditorWindow
         _search.PlaceholderText = L.T("Search items"); AutomationProperties.SetName(_search, L.T("Search items"));
         _search.Margin = new Thickness(0, 0, 12, 0); tools.Children.Add(_search);
         _changedOnly.Content = L.T("Changed only"); _changedOnly.VerticalAlignment = VerticalAlignment.Center; Place(tools, _changedOnly, 0, 1);
-        _search.TextChanged += (_, _) => RefreshItems(); _changedOnly.Click += (_, _) => RefreshItems();
+        // One refilter when typing pauses: each one sorts and regroups the whole list and realizes rows again.
+        _searchPause.Tick += (_, _) => { _searchPause.Stop(); RefreshItems(); };
+        _search.TextChanged += (_, _) => { _searchPause.Stop(); _searchPause.Start(); }; _changedOnly.Click += (_, _) => RefreshItems();
         DockPanel.SetDock(tools, Dock.Top); dock.Children.Add(tools);
         _itemKinds = new Segments(new[] { L.T("All items"), L.T("Goods"), L.T("Right hand"), L.T("Left hand"), L.T("Armor"), L.T("Accessories"), L.T("Gems"), L.T("Runes"), L.T("Key items") },
             _ => RefreshItems(), 4, 5, true);

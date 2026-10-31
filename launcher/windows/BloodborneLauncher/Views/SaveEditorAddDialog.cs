@@ -33,6 +33,7 @@ internal sealed class SaveEditorAddDialog : Window
 
     // The categories the Python side offers: 4 goods, 0 weapons, 1 armour.
     private static readonly int[] Categories = { 4, 0, 1 };
+    private const int SearchPauseMs = 200;
     private readonly Func<int, string, Task<string>> _catalog;
     private readonly ComboBox _kind = new();
     private readonly TextBox _search = new(), _count = new() { Text = "1", Width = 70 };
@@ -41,6 +42,8 @@ internal sealed class SaveEditorAddDialog : Window
     private readonly Button _ok;
     private readonly HashSet<(int, int)> _held;
     private int _run;
+    // Decoded once per file: a search shows mostly the icons the last one did.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ImageSource?> Icons = new();
     public Pick[] Result { get; private set; } = [];
 
     /// <param name="catalog">Asks the save editor's worker for the items of a category matching a text (JSON rows).</param>
@@ -96,7 +99,13 @@ internal sealed class SaveEditorAddDialog : Window
         Content = body;
 
         _kind.SelectionChanged += async (_, _) => { Update(); await Load(); };
-        _search.TextChanged += async (_, _) => await Load();
+        // One search when typing pauses, not one per key: each asks the worker (requests queue) and decodes up to 60 icons.
+        _search.TextChanged += async (_, _) =>
+        {
+            var typed = ++_run;
+            await Task.Delay(SearchPauseMs);
+            if (typed == _run) await Load();
+        };
         _count.TextChanged += (_, _) => Update();
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { e.Handled = true; Close(); } };
         Loaded += async (_, _) => await Load();
@@ -120,8 +129,9 @@ internal sealed class SaveEditorAddDialog : Window
         try
         {
             var json = await _catalog(category, _search.Text.Trim());
+            if (run != _run) return;
             var found = JsonSerializer.Deserialize<Found[]>(json, SaveEditor.Json) ?? [];
-            var rows = await Task.Run(() => found.Select(f => new Row(f.Number, f.Name ?? "", ItemRow.LoadIcon(f.Icon))).ToList());
+            var rows = await Task.Run(() => found.Select(f => new Row(f.Number, f.Name ?? "", CachedIcon(f.Icon))).ToList());
             if (run != _run) return;
             _list.ItemsSource = rows;
             _empty.Text = rows.Count == 0 ? L.T("No items found") : "";
@@ -133,6 +143,15 @@ internal sealed class SaveEditorAddDialog : Window
         }
         Update();
     }
+    private static ImageSource? CachedIcon(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        if (Icons.TryGetValue(path, out var known)) return known;
+        var icon = ItemRow.LoadIcon(path);  // a file that failed is tried again next time: it may have been half written
+        if (icon != null) Icons[path] = icon;
+        return icon;
+    }
+
     private void Update()
     {
         if (_ok == null) return;

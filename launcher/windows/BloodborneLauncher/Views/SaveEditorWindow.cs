@@ -58,6 +58,7 @@ public sealed partial class SaveEditorWindow : Window
     private readonly Dictionary<string, EditorField> _fields = new();
     private readonly StackPanel _backupRows = new();
     private readonly TextBox _search = new();
+    private readonly DispatcherTimer _searchPause = new() { Interval = TimeSpan.FromMilliseconds(180) };
     private readonly CheckBox _changedOnly = new();
     private readonly ListBox _itemList = new(), _flagList = new();
     private readonly TextBlock _itemEmpty = LauncherPage.Text(L.T("No items found"), "Muted"), _itemCount = LauncherPage.Text("", "StatLabel");
