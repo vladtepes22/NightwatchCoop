@@ -5,7 +5,7 @@ using System.Net.Sockets;
 
 namespace BloodborneLauncher.Core;
 
-public enum CheckFix { None, Firewall, NextPort, VpnSetup }
+public enum CheckFix { None, Firewall, NextPort }
 
 public sealed record CheckProblem(string Id, string Text, CheckFix Fix);
 
@@ -25,8 +25,6 @@ public sealed record CheckFacts
     public string LocalAddress { get; init; } = "";
     public IReadOnlyList<string> VpnsUp { get; init; } = Array.Empty<string>();
     public bool AutomaticRoute { get; init; } = true;
-    public bool OpenVpnMissing { get; init; }
-    public bool SetupPackaged { get; init; }
     public string VpnNote { get; init; } = "";
     public TimeSpan? ClockSkew { get; init; }
     public IReadOnlyList<string> MissingFiles { get; init; } = Array.Empty<string>();
@@ -59,8 +57,6 @@ public static class ConnectionCheck
             Add("nat", L.T("Your provider shares one public address between customers (CGNAT), so friends may not reach you directly. Use Nightwatch Online, or port forwarding if your provider allows it (Advanced)."));
         if (f.Hosting && !f.PublicParty && f.AutomaticRoute && f.VpnsUp.Count > 1)
             Add("vpns", L.T("Several VPNs are up: ") + string.Join(", ", f.VpnsUp) + L.T(". Pick the one your friends are in under Advanced."));
-        if (f.Hosting && f.PublicParty && f.OpenVpnMissing && f.SetupPackaged)
-            Add("vpn-setup", L.T("Online play is not set up on this PC yet."), CheckFix.VpnSetup);
         if (f.VpnNote.Length > 0) Add("vpn", f.VpnNote);
         if (f.ClockSkew is { } skew && skew.Duration() > ClockLimit)
             Add("clock", L.T("This PC's clock is wrong, so VPN certificates can fail. Set the date and time in Windows."));

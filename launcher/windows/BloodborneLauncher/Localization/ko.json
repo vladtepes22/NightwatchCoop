@@ -2460,7 +2460,7 @@
   "UPnP/VPN/LAN": "UPnP/VPN/LAN",
   "UPnP/VPN/LAN turns off the Nightwatch VPN. You can still play with friends over the internet, LAN or other VPNs.": "UPnP/VPN/LAN을 선택하면 Nightwatch VPN이 꺼집니다. 인터넷, LAN 또는 다른 VPN으로는 계속 친구와 플레이할 수 있습니다.",
   "LAN": "LAN",
-  "In order to play Nightwatch Online, you'll need to install our VPN sourced by OpenVPN. You can install it by clicking the \"Install\" button next to \"Nightwatch VPN\".": "Nightwatch Online을 플레이하려면 OpenVPN 기반의 전용 VPN을 설치해야 합니다. 'Nightwatch VPN' 옆의 '설치' 버튼을 눌러 설치할 수 있습니다.",
+  "In order to play Nightwatch Online, you'll need to install our VPN sourced by OpenVPN. Press \"Install\" in the Nightwatch VPN box above the password.": "Nightwatch Online을 플레이하려면 OpenVPN 기반의 전용 VPN을 설치해야 합니다. 비밀번호 위의 'Nightwatch VPN' 상자에서 '설치'를 누르세요.",
   "Nightwatch VPN not installed": "Nightwatch VPN 미설치",
   "Nightwatch VPN connected": "Nightwatch VPN 연결됨",
   "Nightwatch VPN disconnected": "Nightwatch VPN 연결 끊김"

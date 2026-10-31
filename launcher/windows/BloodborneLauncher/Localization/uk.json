@@ -2460,7 +2460,7 @@
   "UPnP/VPN/LAN": "UPnP/VPN/LAN",
   "UPnP/VPN/LAN turns off the Nightwatch VPN. You can still play with friends over the internet, LAN or other VPNs.": "UPnP/VPN/LAN вимикає Nightwatch VPN. Ви все одно можете грати з друзями через інтернет, LAN або інші VPN.",
   "LAN": "LAN",
-  "In order to play Nightwatch Online, you'll need to install our VPN sourced by OpenVPN. You can install it by clicking the \"Install\" button next to \"Nightwatch VPN\".": "Щоб грати в Nightwatch Online, потрібно встановити наш VPN на основі OpenVPN. Встановити його можна кнопкою «Встановити» поруч із «Nightwatch VPN».",
+  "In order to play Nightwatch Online, you'll need to install our VPN sourced by OpenVPN. Press \"Install\" in the Nightwatch VPN box above the password.": "Щоб грати в Nightwatch Online, потрібно встановити наш VPN на основі OpenVPN. Натисніть «Встановити» в блоці Nightwatch VPN над паролем.",
   "Nightwatch VPN not installed": "Nightwatch VPN не встановлено",
   "Nightwatch VPN connected": "Nightwatch VPN підключено",
   "Nightwatch VPN disconnected": "Nightwatch VPN відключено"

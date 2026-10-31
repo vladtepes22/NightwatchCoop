@@ -131,8 +131,6 @@ internal static class CoopSetupTests
         Check(Ids(host with { LocalAddress = "100.70.0.1" }).Contains("nat") && !Ids(host with { LocalAddress = "100.70.0.1", PublicParty = true }).Contains("nat"), "CGNAT only for a private host");
         var two = new[] { "A", "B" };
         Check(Ids(host with { VpnsUp = two }).Contains("vpns") && !Ids(host with { VpnsUp = two, AutomaticRoute = false }).Contains("vpns") && !Ids(host with { VpnsUp = new[] { "A" } }).Contains("vpns"), "Several VPNs");
-        var setup = host with { PublicParty = true, OpenVpnMissing = true, SetupPackaged = true };
-        Check(ConnectionCheck.Detect(setup)[0].Fix == CheckFix.VpnSetup && !Ids(setup with { PublicParty = false }).Contains("vpn-setup") && !Ids(setup with { SetupPackaged = false }).Contains("vpn-setup"), "Setup only for a public host with the installer");
         Check(Ids(new CheckFacts { VpnNote = "wait" }).Contains("vpn"), "A VPN failure's message");
         Check(Ids(new CheckFacts { ClockSkew = TimeSpan.FromHours(-2) }).Contains("clock") && !Ids(new CheckFacts { ClockSkew = TimeSpan.FromMinutes(5) }).Contains("clock"), "Clock");
         Check(ConnectionCheck.Detect(new CheckFacts { MissingFiles = new[] { "bb-probe.exe" } })[0].Text.StartsWith("bb-probe.exe"), "Missing file is named");
