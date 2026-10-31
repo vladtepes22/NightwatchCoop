@@ -164,6 +164,9 @@ any port forwarding, and the hosts of the network show up in the Join list.
 
 - **Optional.** The party type **UPnP/VPN/LAN** needs none of it. Nothing connects until you press
   Connect, and closing the launcher ends the connection.
+- **Idle.** With the launcher in the background and no game running for 10 minutes, the connection
+  drops, and it comes back when you return to the launcher, open Co-op or press Play. Turn this off
+  on the Co-op tab. If you press Disconnect, it stays off until you press Connect.
 - **No account.** The launcher makes a private key on your PC (kept encrypted for your Windows user,
   never sent) and asks the server for a certificate that lasts a few days and renews itself.
 - **What we can see:** that a certificate is in use, your public IP address while connected, and
@@ -198,7 +201,7 @@ clipboard (addresses, user folder, player name and passwords hidden); paste them
 
 | | |
 |---|---|
-| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.7+e2a65dd8 |
+| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.7+e3169e38 |
 | **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | the engine and launcher this project started from. Nightwatch Co-op is a modified version, not an official Lantern Engine release |
 | Adding items in the save editor (how a weapon, armour piece or item is written into a save) | ported from [Noxde/Bloodborne-save-editor](https://github.com/Noxde/Bloodborne-save-editor) by Noxde, GPL-3.0 |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |

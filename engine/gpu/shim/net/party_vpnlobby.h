@@ -10,7 +10,7 @@
 //   bye (host -> lobby, on leaving): [0xfa]['L'][ver 1][type 4]
 //   The lobby learns the host's tunnel address from the datagram's source; the game never sends an
 //   address, the password, the party secret or a code. The name is the player's character name.
-// Only a machine with a 10.8.0.x tunnel address announces (no other adapter, never the Internet).
+// Only a machine with a 10.8.0.0/22 tunnel address announces (no other adapter, never the Internet).
 #pragma once
 
 #include <cstdint>
@@ -42,7 +42,8 @@ std::string utf16_to_utf8(const char16_t* s, std::size_t n);
 std::vector<std::uint8_t> encode_announce(const Announce& a);
 std::vector<std::uint8_t> encode_bye();
 
-// Is `ip` (host order) a player address of the Nightwatch tunnel: 10.8.0.2 .. 10.8.0.254?
+// Is `ip` (host order) a player address of the Nightwatch tunnel: 10.8.0.0/22 minus the network, the
+// server (10.8.0.1) and the broadcast address, i.e. 10.8.0.2 .. 10.8.3.254 (0.7.8; was 10.8.0.0/24)?
 bool is_tunnel_player_address(std::uint32_t ip_host_order);
 
 // The provider fills the live state each round and returns false while not hosting / switched off /
