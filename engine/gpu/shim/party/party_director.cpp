@@ -3859,6 +3859,15 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
                                return t.ap_taps == 0;
                            }
                            const std::int64_t seen = BbGameMenu::TextSeenMs(t.ap_prompt.c_str());
+                           // rel077: the walk's own last steps may already face the prompt; a tap then turns the
+                           // player off it (the altar prompt flashed for 1 s and the Cross found nothing).
+                           const std::int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                           Clock::now().time_since_epoch()).count();
+                           if (t.ap_taps == 0 && seen > 0 && now_ms - seen <= 6000) {
+                               Log("test: approach: '%s' already shows at the arrival (no tap)", t.ap_prompt.c_str());
+                               t.ap_prompt_seen = true;
+                               return false;
+                           }
                            if (t.ap_taps > 0 && seen > t.ap_tap_ms) {
                                Log("test: approach: '%s' shows after %d tap(s)", t.ap_prompt.c_str(), t.ap_taps);
                                t.ap_prompt_seen = true;
