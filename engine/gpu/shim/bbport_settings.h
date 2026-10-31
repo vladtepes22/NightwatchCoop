@@ -496,7 +496,8 @@ const char* MenuText(const char* english, const char* russian);
 inline const char* MenuText(const char* english) { return MenuText(english, english); }
 
 void Load();
-void ConfigureUpscalerSupport(bool fsr4, bool fsr411, bool dlss = false, bool fsr_sdk = false);
+void ConfigureUpscalerSupport(bool fsr4, bool fsr411, bool dlss = false, bool fsr_sdk = false,
+                              bool fsr4_to_sdk = false);
 bool FixedRenderSession();
 int RenderPreset();
 bool ResolutionNeedsRestart();
