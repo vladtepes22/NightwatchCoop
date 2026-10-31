@@ -9,9 +9,6 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
 [Watch gameplay](https://www.youtube.com/watch?v=bYavrI0ca94) · [Report a problem](#reporting-a-bug) ·
 [Discord](https://discord.gg/sBK9FKKeup)
 
-**See it in action:** [Nightwatch Co-op on YouTube](https://www.youtube.com/watch?v=bYavrI0ca94)
-(thanks to Zarok for helping make it).
-
 ## Features
 
 - **Seamless co-op for up to 5 hunters.** Play through the whole game together, all the way
@@ -40,7 +37,6 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
 - More optional community mods, like RenoDX HDR
 - Auto-hiding HUD
 - NPC forgiveness
-- And more to come
 
 > **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22 and is not made, supported or
 > endorsed by FromSoftware or Sony.
@@ -60,27 +56,23 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
   tool): Nightwatch makes the 60 FPS, the resolution and every co-op change itself, and each of
   them is made for the clean 1.09 bytes. On a pre-patched eboot they are left out where it
   differs: the game runs at **30 FPS** and a co-op party is held at 30. The launcher's game folder
-  line warns about it after the first start ([Stuck at 30 FPS](#stuck-at-30-fps)).
+  line warns about it after the first start.
 - For co-op: **everyone on the same Nightwatch release** and the same mods.
 
 ## Co-op in four steps
 
 1. Everyone installs this release ([Install](#install)) and starts `Nightwatch Co-op.exe`.
-2. **Host:** Co-op tab → **Mode: Host**, pick the **Player limit** → **Play**. While the game runs,
-   click **Copy Internet code** on the Co-op tab and send it to your friends (`BBP3-…`).
-3. **Friends:** Co-op tab → **Mode: Join** → paste the code → **Play**. Guests take the host's party size.
+2. **Host:** Co-op tab → **Mode: Host**, connect to Nightwatch VPN, pick the **Player limit** → **Play**. 
+3. **Friends:** Co-op tab → **Mode: Join** → connect to Nightwatch VPN and join your friends using the lobby browser.
 4. Continue a character and you appear next to the host (a new character plays its own prologue
    first, then joins by itself).
 
 Can't connect? The host's **Network line** (Co-op tab) says why: see
 [If friends can't connect](#if-friends-cant-connect).
 
-**Need help?** [Report a problem](#reporting-a-bug) or find players on [Discord](https://discord.gg/sBK9FKKeup).
-
 **Guides:** [Install](#install) · [The map](#the-map) · [Host a game](#host-a-game) ·
 [Join a game](#join-a-friends-game) · [If friends can't connect](#if-friends-cant-connect) ·
-[Nightwatch Online](#nightwatch-online) · [Host without an open port (Using VPN)](#host-without-an-open-port-using-vpn) ·
-[Saves](#where-the-saves-are) · [Stuck at 30 FPS](#stuck-at-30-fps) · [Reporting a bug](#reporting-a-bug) ·
+[Nightwatch Online](#nightwatch-online) · [Saves](#where-the-saves-are) · [Reporting a bug](#reporting-a-bug) ·
 [My party settings](engine/docs/party/my_party_settings.md) · [Credits](#credits)
 
 ## Install
@@ -97,11 +89,9 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 ### Quick FAQ
 
-- **Does this include the game?** No. Supply your own decrypted dump with update 1.09.
 - **Does it use official servers?** No. Co-op connects players' PCs Peer to Peer.
 - **Can I keep my solo character?** Solo and co-op saves are separate; read [Saves](#where-the-saves-are) before copying characters.
 - **I connected, but it says "In Prologue"** New characters finish their own prologue first; see [Host a game](#host-a-game).
-- **Why can't we connect?** Check matching builds and gameplay mods, then [connection troubleshooting](#if-friends-cant-connect).
 
 ## The map
 
@@ -132,14 +122,13 @@ have no map.
    - **Player limit:** how many players.
    - **Password (optional):** it keeps strangers out. Without one, anyone who sees the party can join;
      with **Show my party to friends** off, only people with your code can.
-   - Leave **UPnP** on: it asks your router to open the party port (9307) for you, if you want to play over internet.
+   - Leave **UPnP** on: it asks your router to open the party port (9307) for you, if you want to play over internet 
+     instead of Nightwatch VPN
 2. Press **Play** on the main page. Allow the Windows Firewall prompt the first time.
    If friends still cannot connect, press **Fix firewall issues** on the Co-op tab.
 3. Load a save, or start one, as usual.
-4. If playing over VPN, you do not have to do anything, your lobby shows up automatically on guests join page.
-5. Copy your code: **Copy Internet code** on the launcher's Co-op tab, or in the game
-   **System → Party → Copy Internet code** if playing over Internet.
-6. Send your friends the **Internet code** (`BBP3-…`) and the password if you set one.
+4. Copy your code: **Copy Internet code** on the launcher's Co-op tab, or in the game
+   **System → Party → Copy Internet code** if playing over Internet, and send it to your friends.
 
 The code stays the same in later sessions.
 
@@ -152,21 +141,19 @@ by itself; until then a joining player shows as "joining" or "Prologue".
 1. Install this same release (everyone needs exactly the same build and gameplay mods).
 2. Open the **Co-op** tab:
    - **Mode:** Join
-   - **If playing over VPN or LAN:** select your friend's lobby. It asks for a password if the party has one, and you join automatically.
+   - **If playing over Nightwatch VPN or LAN:** select your friend's lobby. It asks for a password if the party has one, and you join automatically.
    - **Otherwise:** paste the host's code or address under **Join by code or address**.
-   - **Password (optional):** the host's, if they set one.
-3. Press **Play** while the host's game is running. You can load an old save, or create a new character (and finish the prologue)
+3. Continue an old save, or create a new character (and finish the prologue)
 
 ## If friends can't connect
 
 Only the **host** needs a reachable port; guests never do. Try these in order:
 
-1. **VPN:** see the next section. It works even when the host cannot open a port at all.
-2. **Check the Network line** on the host's Co-op page while the game runs: it says whether
+1. **Check the Network line** on the host's Co-op page while the game runs: it says whether
    the port is open, and why not.
-3. **Open the port:** in the host's router, allow UPnP for the host PC, or forward **9307, TCP and
+2. **Open the port:** in the host's router, allow UPnP for the host PC, or forward **9307, TCP and
    UDP**, to it. Then restart the game.
-4. **Let someone else host:** a player whose port is open can host for everyone.
+3. **Let someone else host:** a player whose port is open can host for everyone.
 
 ## Nightwatch Online
 
@@ -179,27 +166,11 @@ any port forwarding, and the hosts of the network show up in the Join list.
   Connect, and closing the launcher ends the connection.
 - **No account.** The launcher makes a private key on your PC (kept encrypted for your Windows user,
   never sent) and asks the server for a certificate that lasts a few days and renews itself.
-- **What the server can see:** that a certificate is in use, your public IP address while connected, and
-  how much traffic passes. The party link between host and guest is encrypted by the game itself, so
-  the network carries it without being able to read it.
+- **What we can see:** that a certificate is in use, your public IP address while connected, and
+  how much traffic passes. The party link between host and guest is encrypted; set a party password
+  so other players on the network cannot join or read it.
 - **What it cannot do:** the network's firewall lets players reach each other only on the party port
-  and with ping, so another player cannot reach the rest of your PC through it. A banned install can
-  no longer connect or renew.
-- **Remove it.** **Uninstall** next to Nightwatch VPN removes OpenVPN again.
-
-## Host without an open port (Using VPN)
-
-For a host whose router can't open a port (no UPnP, no port forwarding, mobile or carrier NAT, a
-"symmetric NAT" on the Network line). An easy to setup VPN is [Radmin VPN](https://www.radmin-vpn.com) (free, Windows)
-puts the PCs in one virtual network, as if they were on the same router. Any VPN works.
-
-**Everyone, once:**
-1. Install Radmin VPN and start it.
-2. The host clicks **Network → Create network**, picks a network name and password, and sends
-   both to the friends. Each friend clicks **Network → Join network** and enters them.
-
-**Guest:**
-1. Co-op page → **Mode: Join** → the Hosts game shows up as a joinable Lobby automatically.
+  and with ping, so another player cannot reach the rest of your PC through it.
 
 ## Where the saves are
 
@@ -215,17 +186,6 @@ To keep playing a character from another install, copy its `user\savedata` folde
 `user\`. The Co-op page can copy your single-player saves into the party saves (the old party
 saves are backed up first), check the party saves after a session, and undo the last session.
 
-### Stuck at 30 FPS
-
-The game runs at 30 FPS (alone, or the whole party as soon as someone joins) although the frame
-rate is set to 60: the `eboot.bin` is a pre-patched one (a 60 FPS package or similar), not the
-clean 1.09. The log says so near the top:
-
-```
-Game check: eboot.bin is a pre-patched 1.09 (12 of 1390 64 KiB pieces changed, e.g. a 60 FPS package). ...
-Patches: "60 FPS++" left out: this game executable is not the standard 1.09 ...
-```
-
 ## Reporting a bug
 
 Easiest: the launcher's title-bar logs menu → **Copy last 2 logs** puts both log files on the
@@ -233,30 +193,19 @@ clipboard (addresses, user folder, player name and passwords hidden); paste them
 
 ## Credits
 
-Nightwatch Co-op is a standalone project, developed and released on its own. It is a modified version of
-**Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)**, not an official Lantern Engine release,
-combined with visy's seamless co-op.
-
 | | |
 |---|---|
 | Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.7+e2a65dd8 |
-| **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | the launcher, the built-in game patches, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, cheats, occlusion culling, trophies, fixes) |
+| **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | the engine and launcher this project started from. Nightwatch Co-op is a modified version, not an official Lantern Engine release |
 | Adding items in the save editor (how a weapon, armour piece or item is written into a save) | ported from [Noxde/Bloodborne-save-editor](https://github.com/Noxde/Bloodborne-save-editor) by Noxde, GPL-3.0 |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
-| First integration of Lantern and visy's co-op | [Artificial-Sweetener/BloodBorneButPc](https://github.com/Artificial-Sweetener/BloodBorneButPc) |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
 | Older CPU support (AMD FX, Intel 2nd/3rd generation Core) | the translation plan and its checks from [Supermedo/bloodborne_pc](https://github.com/Supermedo/bloodborne_pc), with the CPU part of T0ug's Ivy Bridge work there, as integrated by visy (GPL-2.0-or-later) |
 | Renderer crash fixes | adapted from [AwesomeObserver](https://github.com/AwesomeObserver/bloodborne_pc) and [deadinside28](https://github.com/deadinside28/bloodborne_pc) |
 | Online backend (in the engine, not used: this build plays offline) | [droogie/bbhost](https://github.com/droogie/bbhost) |
 | VPN tunnel for online play (the official installer, unmodified) | [OpenVPN](https://github.com/OpenVPN/openvpn), GPL-2.0 |
-| FSR 3.1 and FSR 4 on Vulkan | [FireBurn/FSR-Vulkan](https://github.com/FireBurn/FSR-Vulkan) and the AMD FidelityFX SDK |
-| FSR (4.1.2 on Radeon, 3.1.6 elsewhere) | AMD's signed FidelityFX SDK 2.4 for Vulkan |
-| FSR 4.1.1 on NVIDIA and Intel | [fsr4vk](https://github.com/dvj5411/fsr4vk) |
-| DLSS | NVIDIA DLSS SDK |
-| Sound | [LibAtrac9](https://github.com/Thealexbarney/LibAtrac9) |
-| In-game menu | [Dear ImGui](https://github.com/ocornut/imgui) |
-| Controller mappings | [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) |
-| UI library | [WPF-UI](https://github.com/lepoco/wpfui) |
+| Upscalers | FSR on Vulkan: [FireBurn/FSR-Vulkan](https://github.com/FireBurn/FSR-Vulkan) and AMD's signed FidelityFX SDK 2.4 for Vulkan (FSR 4.1.2 on Radeon, 3.1.6 elsewhere); FSR 4.1.1 on NVIDIA and Intel: [fsr4vk](https://github.com/dvj5411/fsr4vk); DLSS: NVIDIA DLSS SDK |
+| Libraries | [LibAtrac9](https://github.com/Thealexbarney/LibAtrac9) (sound), [Dear ImGui](https://github.com/ocornut/imgui) (in-game menu), [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) (controller mappings), [WPF-UI](https://github.com/lepoco/wpfui) (launcher UI) |
 | Playtesting | yorochi, Mal1216, Zarok, Banana U Pidžami and visy: thank you! |
 | Video | Zarok, for helping make the [YouTube video](https://www.youtube.com/watch?v=bYavrI0ca94) |
 
