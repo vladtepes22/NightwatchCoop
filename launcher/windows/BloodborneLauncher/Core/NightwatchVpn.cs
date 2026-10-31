@@ -328,6 +328,9 @@ public static class NightwatchVpn
         DeleteProfile();
     }
 
+    /// <summary>Closes OpenVPN GUI, so the uninstaller finds no running program.</summary>
+    public static void ExitGui(string guiExe) => Gui(guiExe, "--command", "exit");
+
     public static void DeleteProfile()
     {
         try { File.Delete(ProfilePath); }
