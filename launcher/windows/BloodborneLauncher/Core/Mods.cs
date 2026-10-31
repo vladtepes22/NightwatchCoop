@@ -21,7 +21,7 @@ namespace BloodborneLauncher.Core
             "CUSA03179", "CUSA03014", "CUSA03023",
         };
 
-        private static readonly string[] LooseFileTypes = { ".txt", ".md", ".jpg", ".png", ".ini" };
+        private static readonly string[] LooseFileTypes = { ".txt", ".md", ".jpg", ".png", ".ini", ".toml" };
 
         public static string ProfilePath => Path.Combine(Paths.DataDir, "mods.json");
 

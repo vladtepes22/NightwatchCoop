@@ -360,6 +360,7 @@
   "Use letters, numbers, spaces, - or _ only.": "使用できるのは英字、数字、スペース、- または _ のみです。",
   "There is already a profile called {0}.": "{0} という名前のプロファイルはすでに存在します。",
   "This backup has no savedata folder.": "このバックアップには savedata フォルダーがありません。",
+  "This backup is empty, so your saves were left as they are.": "このバックアップは空のため、セーブデータは変更されませんでした。",
   "That folder has no Bloodborne save files (userdata).": "このフォルダーには Bloodborne のセーブファイル (userdata) がありません。",
   "That save is incomplete: it has no {0}, the file the game needs to find the ": "このセーブデータは不完全です: {0} (ゲームがセーブ ",
   "save slots (importing it would make the game crash). Import the whole SPRJ0005 folder.": "スロットを見つけるのに必要なファイル) がありません (インポートするとゲームがクラッシュします)。SPRJ0005 フォルダー全体をインポートしてください。",

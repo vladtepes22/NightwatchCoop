@@ -360,6 +360,7 @@
   "Use letters, numbers, spaces, - or _ only.": "문자, 숫자, 공백, - 또는 _만 사용하세요.",
   "There is already a profile called {0}.": "{0}(이)라는 프로필이 이미 있습니다.",
   "This backup has no savedata folder.": "이 백업에는 savedata 폴더가 없습니다.",
+  "This backup is empty, so your saves were left as they are.": "이 백업은 비어 있어 세이브 데이터를 변경하지 않았습니다.",
   "That folder has no Bloodborne save files (userdata).": "이 폴더에는 Bloodborne 세이브 파일(userdata)이 없습니다.",
   "That save is incomplete: it has no {0}, the file the game needs to find the ": "이 세이브는 불완전합니다. 게임이 세이브 슬롯을 찾는 데 필요한 파일인 {0}이(가) ",
   "save slots (importing it would make the game crash). Import the whole SPRJ0005 folder.": "없습니다(가져오면 게임이 충돌합니다). SPRJ0005 폴더 전체를 가져오세요.",
