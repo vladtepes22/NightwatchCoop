@@ -98,19 +98,19 @@ public static class VpnLobby
     }
 
     /// <summary>The rows to show, by name: your own game left out, and (unless testing) only tunnel addresses, so a lobby
-    /// that lies cannot send a guest's password to somewhere outside the VPN.</summary>
+    /// that lies cannot send a guest's password to somewhere outside the VPN. A game without a password is an open party
+    /// for the tunnel (party_open_rules.h), so it is listed too.</summary>
     public static List<LobbyGame> Rows(IEnumerable<LobbyGame> games, bool anyAddress = false) =>
-        games.Where(g => !g.Own && g.Password && (anyAddress || IsTunnelAddress(g.Ip)))
+        games.Where(g => !g.Own && (anyAddress || IsTunnelAddress(g.Ip)))
             .OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ThenBy(g => g.Ip).ToList();
 
-    /// <summary>The version in a build id ("nightwatch-coop-0.2.6-a1b2c3"), for the list.</summary>
+    /// <summary>The version in a build id, for the list: "nightwatch-coop-0.2.6-beta.3-a1b2c3" is "0.2.6 beta 3", and
+    /// "nightwatch-coop-0.2.6-a1b2c3" (a stable build, or a beta before beta 3) is "0.2.6".</summary>
     public static string VersionOf(string build)
     {
-        const string prefix = "nightwatch-coop-";
-        if (!build.StartsWith(prefix, StringComparison.Ordinal)) return build;
-        var rest = build[prefix.Length..];
-        var dash = rest.IndexOf('-');
-        return dash > 0 ? rest[..dash] : rest;
+        var match = System.Text.RegularExpressions.Regex.Match(build, @"^nightwatch-coop-(\d+\.\d+\.\d+)(?:-beta\.(\d+))?(?:-|$)");
+        if (!match.Success) return build;
+        return match.Groups[2].Success ? match.Groups[1].Value + " beta " + match.Groups[2].Value : match.Groups[1].Value;
     }
 
     /// <summary>All pages of the list, or null when the lobby does not answer. The connected socket hears only the lobby.</summary>

@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 
 namespace BloodborneLauncher.Core;
 
-public enum OpenVpnSetupResult { Installed, Declined, Busy, Failed, Missing, Tampered }
+public enum OpenVpnSetupResult { Installed, Declined, Busy, Failed, Missing, Tampered, NotOurs }
 
 /// <summary>First-time setup of online play: the official signed OpenVPN installer, shipped in the package
 /// (tools/package-seamless.ps1 reads the name and the hash from here), installed unattended after the player agreed.
@@ -32,12 +32,13 @@ public static class OpenVpnSetup
     public static string UninstallArguments(string msi, string log) => $"/x \"{msi}\" /qn /norestart /L*v \"{log}\"";
 
     /// <summary>msiexec's exit code: 3010 and 1641 are a success that wants a restart, 1602 cancelled, 1618 another
-    /// installer is running.</summary>
+    /// installer is running, 1605 an uninstall of a product this installer did not put here (the player's own OpenVPN).</summary>
     public static OpenVpnSetupResult ResultOf(int exitCode) => exitCode switch
     {
         0 or 3010 or 1641 => OpenVpnSetupResult.Installed,
         1602 or 1223 => OpenVpnSetupResult.Declined,
         1618 => OpenVpnSetupResult.Busy,
+        1605 => OpenVpnSetupResult.NotOurs,
         _ => OpenVpnSetupResult.Failed,
     };
 

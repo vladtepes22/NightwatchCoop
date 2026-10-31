@@ -62,13 +62,14 @@ public static class PartyDiscovery
         return true;
     }
 
-    /// <summary>Does the host run this launcher's co-op build? The build id is "nightwatch-coop-&lt;version&gt;-&lt;hash&gt;"; the
-    /// launcher knows the version, not the hash, so only the version is compared (the game checks the whole id on joining).</summary>
+    /// <summary>Does the host run this launcher's co-op build? The build id is "nightwatch-coop-&lt;version&gt;-&lt;hash&gt;" with the
+    /// beta in the version; the launcher knows the version, not the hash, so only the version is compared (the game checks
+    /// the whole id on joining). A stable launcher's prefix does not match a beta of that version.</summary>
     public static bool BuildMatches(string hostBuild, string prefix) =>
-        hostBuild.StartsWith(prefix, StringComparison.Ordinal);
+        hostBuild.StartsWith(prefix, StringComparison.Ordinal) && !hostBuild.AsSpan(prefix.Length).StartsWith("beta.", StringComparison.Ordinal);
 
-    /// <summary>This launcher's build id prefix: "nightwatch-coop-0.2.4-".</summary>
-    public static string BuildPrefix(Version v) => $"nightwatch-coop-{v.Major}.{v.Minor}.{Math.Max(0, v.Build)}-";
+    /// <summary>This launcher's build id prefix: "nightwatch-coop-0.2.6-beta.3-".</summary>
+    public static string BuildPrefix(string version) => $"nightwatch-coop-{version}-";
 
     public enum RowState { Join, Full, OtherBuild }
 

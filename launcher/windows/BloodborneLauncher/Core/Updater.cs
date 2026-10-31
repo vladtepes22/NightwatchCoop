@@ -29,7 +29,7 @@ namespace BloodborneLauncher.Core
         /// ("nightwatch-coop-0.2.0-beta.8"), so every update replaces the co-op engine with the launcher.</summary>
         public static string EngineId { get; } = "nightwatch-coop-" + ReleaseVersion();
 
-        private static string ReleaseVersion()
+        internal static string ReleaseVersion()
         {
             var text = typeof(Updater).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
                 .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "";

@@ -251,9 +251,9 @@ add_library(bbgpu ${BBGPU_LIBRARY_TYPE} ${VIDEO_CORE} ${RECOMPILER} ${COMMON} ${
 target_sources(bbgpu PRIVATE third_party/monocypher/monocypher.c)
 file(GLOB_RECURSE BB_ID_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*.h ../src/*.c ../src/*.h)
 # The co-op mod's version: in the party build id (host and guests must match) and in the log.
-# Read from the repo's VERSION file (0.2.3-beta.1 -> 0.2.3); a change there reconfigures the build.
+# Read whole from the repo's VERSION file (0.2.6-beta.3), so the lobby can tell betas apart; a change there reconfigures the build.
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION" BB_VERSION_FULL LIMIT_COUNT 1)
-string(REGEX REPLACE "-.*$" "" BB_COOP_VERSION "${BB_VERSION_FULL}")
+set(BB_COOP_VERSION "${BB_VERSION_FULL}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION")
 set(BB_ID_CONTENT "nightwatch-coop-${BB_COOP_VERSION}-visy-0.7.7-e2a65dd8")
 foreach(source IN LISTS BB_ID_SOURCES)

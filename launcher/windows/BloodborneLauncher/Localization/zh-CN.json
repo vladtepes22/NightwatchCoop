@@ -2468,5 +2468,18 @@
   "Party messages": "队伍消息",
   "Errors only": "仅错误",
   "For several game windows on one screen (the Nucleus Co-op splitscreen mod): the party HUD shows only the compass, with no name tags, and party messages are cut to errors only.": "用于在同一屏幕上运行多个游戏窗口（Nucleus Co-op 分屏模组）：队伍 HUD 只显示指南针，不显示名称标签，队伍消息仅保留错误。",
-  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "显示哪些队伍通知和消息框：全部、仅错误（连接丢失或不稳定、加入被拒绝或失败、不同步）或不显示。分屏模式会将“全部”变为“仅错误”。"
+  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "显示哪些队伍通知和消息框：全部、仅错误（连接丢失或不稳定、加入被拒绝或失败、不同步）或不显示。分屏模式会将“全部”变为“仅错误”。",
+  "Uninstall Nightwatch VPN": "卸载 Nightwatch VPN",
+  "This removes OpenVPN GUI and its network components, and ends the connection. Windows may ask for administrator permission. Your personal VPN key stays on this PC for a later install.": "这会移除 OpenVPN GUI 及其网络组件，并断开连接。Windows 可能会请求管理员权限。你的个人 VPN 密钥会保留在这台电脑上，供以后重新安装时使用。",
+  "Close the game before uninstalling the Nightwatch VPN.": "请先关闭游戏，再卸载 Nightwatch VPN。",
+  "Uninstalling…": "正在卸载…",
+  "Nightwatch VPN uninstalled.": "Nightwatch VPN 已卸载。",
+  "Uninstall was cancelled, so nothing was removed.": "卸载已取消，未移除任何内容。",
+  "Another installer is running. Wait for it to finish and press Uninstall again.": "另一个安装程序正在运行。请等待其完成后再次点击“卸载”。",
+  "This OpenVPN was not installed by Nightwatch Co-op. Remove it in Windows Settings, under Apps.": "此 OpenVPN 不是由 Nightwatch Co-op 安装的。请在 Windows 设置的“应用”中移除。",
+  "OpenVPN could not be removed. Try again, or remove it in Windows Settings, under Apps.": "无法移除 OpenVPN。请重试，或在 Windows 设置的“应用”中移除。",
+  "Different version": "版本不同",
+  "This party has a password.": "此队伍设有密码。",
+  "No password: anyone who sees the party can join.": "无密码：看到此队伍的任何人都可以加入。",
+  "Connect to the Nightwatch VPN first.": "请先连接 Nightwatch VPN。"
 }

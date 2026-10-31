@@ -2468,5 +2468,18 @@
   "Party messages": "パーティーメッセージ",
   "Errors only": "エラーのみ",
   "For several game windows on one screen (the Nucleus Co-op splitscreen mod): the party HUD shows only the compass, with no name tags, and party messages are cut to errors only.": "1つの画面で複数のゲームウィンドウを使う場合（画面分割MOD Nucleus Co-op）：パーティーHUDはコンパスのみを表示し、名前タグは表示せず、パーティーメッセージはエラーのみになります。",
-  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "表示するパーティー通知とメッセージボックス：すべて、エラーのみ（接続の切断や不安定、参加の拒否や失敗、同期ずれ）、またはなし。画面分割モードでは「すべて」が「エラーのみ」になります。"
+  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "表示するパーティー通知とメッセージボックス：すべて、エラーのみ（接続の切断や不安定、参加の拒否や失敗、同期ずれ）、またはなし。画面分割モードでは「すべて」が「エラーのみ」になります。",
+  "Uninstall Nightwatch VPN": "Nightwatch VPN をアンインストール",
+  "This removes OpenVPN GUI and its network components, and ends the connection. Windows may ask for administrator permission. Your personal VPN key stays on this PC for a later install.": "OpenVPN GUI とそのネットワークコンポーネントを削除し、接続を終了します。Windows が管理者権限を求める場合があります。個人用 VPN キーは、後で再インストールするためにこの PC に残ります。",
+  "Close the game before uninstalling the Nightwatch VPN.": "Nightwatch VPN をアンインストールする前にゲームを閉じてください。",
+  "Uninstalling…": "アンインストール中…",
+  "Nightwatch VPN uninstalled.": "Nightwatch VPN をアンインストールしました。",
+  "Uninstall was cancelled, so nothing was removed.": "アンインストールはキャンセルされたため、何も削除されていません。",
+  "Another installer is running. Wait for it to finish and press Uninstall again.": "別のインストーラーが実行中です。終了を待ってから、もう一度「アンインストール」を押してください。",
+  "This OpenVPN was not installed by Nightwatch Co-op. Remove it in Windows Settings, under Apps.": "この OpenVPN は Nightwatch Co-op によってインストールされたものではありません。Windows の設定の「アプリ」から削除してください。",
+  "OpenVPN could not be removed. Try again, or remove it in Windows Settings, under Apps.": "OpenVPN を削除できませんでした。もう一度試すか、Windows の設定の「アプリ」から削除してください。",
+  "Different version": "バージョンが異なります",
+  "This party has a password.": "このパーティにはパスワードがあります。",
+  "No password: anyone who sees the party can join.": "パスワードなし：このパーティが見える人は誰でも参加できます。",
+  "Connect to the Nightwatch VPN first.": "先に Nightwatch VPN に接続してください。"
 }

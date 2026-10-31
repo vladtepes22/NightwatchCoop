@@ -2468,5 +2468,18 @@
   "Party messages": "파티 메시지",
   "Errors only": "오류만",
   "For several game windows on one screen (the Nucleus Co-op splitscreen mod): the party HUD shows only the compass, with no name tags, and party messages are cut to errors only.": "한 화면에 여러 게임 창을 띄울 때 사용합니다(화면 분할 모드 Nucleus Co-op). 파티 HUD에는 나침반만 표시되고 이름표는 표시되지 않으며, 파티 메시지는 오류만 표시됩니다.",
-  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "표시할 파티 알림과 메시지 상자: 전체, 오류만(연결 끊김 또는 불안정, 참가 거부 또는 실패, 동기화 오류) 또는 없음. 화면 분할 모드에서는 '전체'가 '오류만'으로 바뀝니다."
+  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "표시할 파티 알림과 메시지 상자: 전체, 오류만(연결 끊김 또는 불안정, 참가 거부 또는 실패, 동기화 오류) 또는 없음. 화면 분할 모드에서는 '전체'가 '오류만'으로 바뀝니다.",
+  "Uninstall Nightwatch VPN": "Nightwatch VPN 제거",
+  "This removes OpenVPN GUI and its network components, and ends the connection. Windows may ask for administrator permission. Your personal VPN key stays on this PC for a later install.": "OpenVPN GUI와 네트워크 구성 요소를 제거하고 연결을 종료합니다. Windows에서 관리자 권한을 요청할 수 있습니다. 개인 VPN 키는 나중에 다시 설치할 수 있도록 이 PC에 남습니다.",
+  "Close the game before uninstalling the Nightwatch VPN.": "Nightwatch VPN을 제거하기 전에 게임을 닫으세요.",
+  "Uninstalling…": "제거 중…",
+  "Nightwatch VPN uninstalled.": "Nightwatch VPN을 제거했습니다.",
+  "Uninstall was cancelled, so nothing was removed.": "제거가 취소되어 아무것도 제거되지 않았습니다.",
+  "Another installer is running. Wait for it to finish and press Uninstall again.": "다른 설치 프로그램이 실행 중입니다. 끝날 때까지 기다린 후 제거를 다시 누르세요.",
+  "This OpenVPN was not installed by Nightwatch Co-op. Remove it in Windows Settings, under Apps.": "이 OpenVPN은 Nightwatch Co-op이 설치한 것이 아닙니다. Windows 설정의 앱에서 제거하세요.",
+  "OpenVPN could not be removed. Try again, or remove it in Windows Settings, under Apps.": "OpenVPN을 제거할 수 없습니다. 다시 시도하거나 Windows 설정의 앱에서 제거하세요.",
+  "Different version": "다른 버전",
+  "This party has a password.": "이 파티에는 비밀번호가 있습니다.",
+  "No password: anyone who sees the party can join.": "비밀번호 없음: 파티를 볼 수 있는 누구나 참가할 수 있습니다.",
+  "Connect to the Nightwatch VPN first.": "먼저 Nightwatch VPN에 연결하세요."
 }

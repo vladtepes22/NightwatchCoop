@@ -488,13 +488,43 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     var overrun = Packet(); overrun[14 + 1 + "nightwatch-coop-0.2.4-0123456789abcdef".Length] = 200;   // the name's length byte runs past the end
     Check(PartyDiscovery.Parse(overrun) == null, "A length that overruns was taken");
 
-    Check(PartyDiscovery.BuildMatches("nightwatch-coop-0.2.4-0123456789abcdef", PartyDiscovery.BuildPrefix(new Version(0, 2, 4, 7))) &&
-          !PartyDiscovery.BuildMatches("nightwatch-coop-0.2.3-0123456789abcdef", PartyDiscovery.BuildPrefix(new Version(0, 2, 4))) &&
-          !PartyDiscovery.BuildMatches("nightwatch-coop-0.2.40-abc", PartyDiscovery.BuildPrefix(new Version(0, 2, 4))) &&
-          !PartyDiscovery.BuildMatches("0.7.5 (abc)", PartyDiscovery.BuildPrefix(new Version(0, 2, 4))), "Build match");
+    Check(PartyDiscovery.BuildMatches("nightwatch-coop-0.2.4-0123456789abcdef", PartyDiscovery.BuildPrefix("0.2.4")) &&
+          !PartyDiscovery.BuildMatches("nightwatch-coop-0.2.3-0123456789abcdef", PartyDiscovery.BuildPrefix("0.2.4")) &&
+          !PartyDiscovery.BuildMatches("nightwatch-coop-0.2.40-abc", PartyDiscovery.BuildPrefix("0.2.4")) &&
+          !PartyDiscovery.BuildMatches("0.7.5 (abc)", PartyDiscovery.BuildPrefix("0.2.4")), "Build match");
+    // Betas of one version are different builds: each sees the others as another version, and the list names the beta.
+    Check(PartyDiscovery.BuildMatches("nightwatch-coop-0.2.6-beta.3-0123", PartyDiscovery.BuildPrefix("0.2.6-beta.3")) &&
+          PartyDiscovery.BuildMatches("nightwatch-coop-0.2.6-beta.3-", PartyDiscovery.BuildPrefix("0.2.6-beta.3")) &&
+          !PartyDiscovery.BuildMatches("nightwatch-coop-0.2.6-beta.2-0123", PartyDiscovery.BuildPrefix("0.2.6-beta.3")) &&
+          !PartyDiscovery.BuildMatches("nightwatch-coop-0.2.6-0123", PartyDiscovery.BuildPrefix("0.2.6-beta.3")) &&
+          !PartyDiscovery.BuildMatches("nightwatch-coop-0.2.6-beta.3-0123", PartyDiscovery.BuildPrefix("0.2.6")) &&
+          PartyDiscovery.BuildMatches("nightwatch-coop-0.2.6-0123", PartyDiscovery.BuildPrefix("0.2.6")), "Betas are separate builds");
+    Check(VpnLobby.VersionOf("nightwatch-coop-0.2.6-beta.3-012345") == "0.2.6 beta 3" && VpnLobby.VersionOf("nightwatch-coop-0.2.6-beta.12-") == "0.2.6 beta 12" &&
+          VpnLobby.VersionOf("nightwatch-coop-0.2.6-0123456789abcdef") == "0.2.6" && VpnLobby.VersionOf("nightwatch-coop-0.2.6") == "0.2.6" &&
+          VpnLobby.VersionOf("0.7.5 (abc)") == "0.7.5 (abc)", "Version in the party list");
+    // The longest build the VPN lobby carries (32 characters) still names the beta.
+    Check("nightwatch-coop-0.2.6-beta.3-012".Length == 32 && VpnLobby.VersionOf("nightwatch-coop-0.2.6-beta.3-012") == "0.2.6 beta 3", "Beta inside the lobby's limit");
+    LobbyGame Game(bool password, bool own = false) => new() { Name = "h", Players = 1, Max = 2, Password = password, Build = "b", Own = own, Ip = NetworkRoute.Parse("10.8.0.5"), Port = 9307 };
+    Check(VpnLobby.Rows(new[] { Game(true), Game(false), Game(false, own: true) }).Count == 2, "A passwordless game is listed in the VPN lobby, your own is not");
+    Check(OpenVpnSetup.ResultOf(1605) == OpenVpnSetupResult.NotOurs && OpenVpnSetup.ResultOf(0) == OpenVpnSetupResult.Installed &&
+          OpenVpnSetup.UninstallArguments("a.msi", "l.log").StartsWith("/x \"a.msi\" /qn"), "VPN uninstall");
+    // A LAN party stays heard with the VPN up, and with it down again.
+    var lanHost = NetworkRoute.Parse("192.168.5.9");
+    var wifi = new NetAdapter("Wi-Fi / Intel", NetworkRoute.Parse("192.168.5.2"), NetworkRoute.Parse("255.255.255.0"));
+    var tun = new NetAdapter("OpenVPN Data Channel Offload", NetworkRoute.Parse("10.8.0.7"), NetworkRoute.Parse("255.255.255.0"));
+    Check(NetworkRoute.SourceAllowed(lanHost, new[] { wifi }) && NetworkRoute.SourceAllowed(lanHost, new[] { wifi, tun }) && NetworkRoute.SourceAllowed(lanHost, new[] { tun, wifi }), "A LAN party with the VPN up");
+    // A party on this PC is kept when the list restarts (the page's Book has no own addresses).
+    var ownBook = new PartyDiscovery.Book();
+    Check(ownBook.Feed(Packet(), "192.168.5.2", 1000) && ownBook.Snapshot(1000).Count == 1, "A party on this PC is listed");
+    // A half-written icon is no icon, never an exception (it would end the launcher from the save editor's list).
+    var brokenIcon = Path.Combine(Path.GetTempPath(), "nw-broken-icon-" + Guid.NewGuid().ToString("N") + ".png");
+    File.WriteAllBytes(brokenIcon, new byte[] { 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48 });
+    var brokenLoaded = BloodborneLauncher.Views.ItemRow.LoadIcon(brokenIcon);
+    File.Delete(brokenIcon);
+    Check(brokenLoaded == null, "A damaged icon file");
 
     // The Join list's rows: button state, the selected party, the Party size a Join sets.
-    var prefix = PartyDiscovery.BuildPrefix(new Version(0, 2, 4));
+    var prefix = PartyDiscovery.BuildPrefix("0.2.4");
     Check(PartyDiscovery.StateOf(good!, prefix) == PartyDiscovery.RowState.Join &&
           PartyDiscovery.StateOf(good! with { Players = 3 }, prefix) == PartyDiscovery.RowState.Full &&
           PartyDiscovery.StateOf(good! with { Players = 3, Build = "nightwatch-coop-0.2.3-ab" }, prefix) == PartyDiscovery.RowState.OtherBuild, "Join row state");

@@ -2468,5 +2468,18 @@
   "Party messages": "Повідомлення групи",
   "Errors only": "Лише помилки",
   "For several game windows on one screen (the Nucleus Co-op splitscreen mod): the party HUD shows only the compass, with no name tags, and party messages are cut to errors only.": "Для кількох вікон гри на одному екрані (мод розділеного екрана Nucleus Co-op): HUD групи показує лише компас, без табличок з іменами, а повідомлення групи обмежуються помилками.",
-  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "Які сповіщення та вікна повідомлень групи показувати: усі, лише помилки (втрата або нестабільність зв'язку, відмова або збій під час приєднання, розсинхронізація) або жодних. Режим розділеного екрана замінює «Усі» на «Лише помилки»."
+  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "Які сповіщення та вікна повідомлень групи показувати: усі, лише помилки (втрата або нестабільність зв'язку, відмова або збій під час приєднання, розсинхронізація) або жодних. Режим розділеного екрана замінює «Усі» на «Лише помилки».",
+  "Uninstall Nightwatch VPN": "Видалити Nightwatch VPN",
+  "This removes OpenVPN GUI and its network components, and ends the connection. Windows may ask for administrator permission. Your personal VPN key stays on this PC for a later install.": "Буде видалено OpenVPN GUI та його мережеві компоненти, а з'єднання завершиться. Windows може запитати дозвіл адміністратора. Ваш особистий ключ VPN залишиться на цьому ПК для майбутнього встановлення.",
+  "Close the game before uninstalling the Nightwatch VPN.": "Закрийте гру перед видаленням Nightwatch VPN.",
+  "Uninstalling…": "Видалення…",
+  "Nightwatch VPN uninstalled.": "Nightwatch VPN видалено.",
+  "Uninstall was cancelled, so nothing was removed.": "Видалення скасовано, нічого не змінено.",
+  "Another installer is running. Wait for it to finish and press Uninstall again.": "Працює інший інсталятор. Дочекайтеся його завершення і знову натисніть «Видалити».",
+  "This OpenVPN was not installed by Nightwatch Co-op. Remove it in Windows Settings, under Apps.": "Цей OpenVPN встановлено не Nightwatch Co-op. Видаліть його в параметрах Windows, у розділі «Програми».",
+  "OpenVPN could not be removed. Try again, or remove it in Windows Settings, under Apps.": "Не вдалося видалити OpenVPN. Спробуйте ще раз або видаліть його в параметрах Windows, у розділі «Програми».",
+  "Different version": "Інша версія",
+  "This party has a password.": "Ця група має пароль.",
+  "No password: anyone who sees the party can join.": "Без пароля: приєднатися може будь-хто, хто бачить групу.",
+  "Connect to the Nightwatch VPN first.": "Спочатку підключіться до Nightwatch VPN."
 }

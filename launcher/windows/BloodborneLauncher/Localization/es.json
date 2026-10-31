@@ -2468,5 +2468,18 @@
   "Party messages": "Mensajes del grupo",
   "Errors only": "Solo errores",
   "For several game windows on one screen (the Nucleus Co-op splitscreen mod): the party HUD shows only the compass, with no name tags, and party messages are cut to errors only.": "Para varias ventanas del juego en una pantalla (el mod de pantalla dividida Nucleus Co-op): el HUD del grupo muestra solo la brújula, sin etiquetas de nombre, y los mensajes del grupo se reducen a errores.",
-  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "Qué avisos y cuadros de mensaje del grupo se muestran: todos, solo errores (conexión perdida o inestable, unión rechazada o fallida, desincronización) o ninguno. El modo de pantalla dividida convierte «Todos» en «Solo errores»."
+  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "Qué avisos y cuadros de mensaje del grupo se muestran: todos, solo errores (conexión perdida o inestable, unión rechazada o fallida, desincronización) o ninguno. El modo de pantalla dividida convierte «Todos» en «Solo errores».",
+  "Uninstall Nightwatch VPN": "Desinstalar Nightwatch VPN",
+  "This removes OpenVPN GUI and its network components, and ends the connection. Windows may ask for administrator permission. Your personal VPN key stays on this PC for a later install.": "Esto quita OpenVPN GUI y sus componentes de red, y termina la conexión. Windows puede pedir permiso de administrador. Tu clave VPN personal se queda en este PC para una instalación posterior.",
+  "Close the game before uninstalling the Nightwatch VPN.": "Cierra el juego antes de desinstalar Nightwatch VPN.",
+  "Uninstalling…": "Desinstalando…",
+  "Nightwatch VPN uninstalled.": "Nightwatch VPN desinstalada.",
+  "Uninstall was cancelled, so nothing was removed.": "Se canceló la desinstalación, así que no se quitó nada.",
+  "Another installer is running. Wait for it to finish and press Uninstall again.": "Hay otro instalador en ejecución. Espera a que termine y pulsa Desinstalar de nuevo.",
+  "This OpenVPN was not installed by Nightwatch Co-op. Remove it in Windows Settings, under Apps.": "Este OpenVPN no lo instaló Nightwatch Co-op. Quítalo en Configuración de Windows, en Aplicaciones.",
+  "OpenVPN could not be removed. Try again, or remove it in Windows Settings, under Apps.": "No se pudo quitar OpenVPN. Inténtalo de nuevo o quítalo en Configuración de Windows, en Aplicaciones.",
+  "Different version": "Otra versión",
+  "This party has a password.": "Este grupo tiene contraseña.",
+  "No password: anyone who sees the party can join.": "Sin contraseña: cualquiera que vea el grupo puede unirse.",
+  "Connect to the Nightwatch VPN first.": "Conéctate primero a Nightwatch VPN."
 }
