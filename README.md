@@ -14,18 +14,22 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
 
 ## Features
 
-- **Seamless co-op for up to 4 hunters.** Play through the whole game together, all the way
+- **Seamless co-op for up to 5 hunters.** Play through the whole game together, all the way
   through NG+ and beyond.
 - **Your party, your rules.** Enemy health scaling by party size, party voting on lamp travel,
   rot, shared or personal lamps and more.
-- **Easy to connect.** Over a VPN, UPnP, IPv6 or a forwarded port, with one code to share. No
-  server in between: co-op runs directly between your PCs.
+- **Easy to connect.** Over a VPN, UPnP, IPv6 or a forwarded port, with one code to share, or through
+  the optional [Nightwatch Online](#nightwatch-online): see each other's games and press Join, no
+  registration and no port forwarding.
 - **Made for PC.** 120 FPS and beyond, ultrawide, popular community patches, DLSS and FSR upscaling,
   frame generation, and cheats you can switch on or off.
 - **Your controls.** Remap every key and gamepad button.
 - **Chalice Dungeons together.** Explore every Chalice Dungeon that ships with the game as a party.
 - **An in-game map**, made from your own game files (see [The map](#the-map)).
-- **Splitscreen** on one PC through Nucleus Co-op.
+- **Splitscreen** on one PC through Nucleus Co-op: Co-op tab → Splitscreen mode gives each window a
+  compass-only party HUD, no name tags and errors-only party messages.
+- **Save editor** for single-player and party saves (stats, echoes, insight, items, weapons, armour,
+  flags), with automatic backups.
 - **Mods that stay optional.** Game-data mods available soon on Nexus Mods, that ship never seen before 
   new hunter tools and weapons that do not replace any original items in the game.
 
@@ -36,7 +40,6 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
 - More optional community mods, like RenoDX HDR
 - Auto-hiding HUD
 - NPC forgiveness
-- Save editor
 - And more to come
 
 > **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22 and is not made, supported or
@@ -63,9 +66,9 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
 ## Co-op in four steps
 
 1. Everyone installs this release ([Install](#install)) and starts `Nightwatch Co-op.exe`.
-2. **Host:** Co-op tab → **Mode: Host**, pick the **Party size** → **Play**. While the game runs,
-   click **Copy codes** on the Co-op tab and send your friends the **Internet code** (`BBP3-…`).
-3. **Friends:** Co-op tab → **Mode: Join** → paste the code, the same **Party size** → **Play**.
+2. **Host:** Co-op tab → **Mode: Host**, pick the **Player limit** → **Play**. While the game runs,
+   click **Copy Internet code** on the Co-op tab and send it to your friends (`BBP3-…`).
+3. **Friends:** Co-op tab → **Mode: Join** → paste the code → **Play**. Guests take the host's party size.
 4. Continue a character and you appear next to the host (a new character plays its own prologue
    first, then joins by itself).
 
@@ -74,15 +77,15 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 **Need help?** [Report a problem](#reporting-a-bug) or find players on [Discord](https://discord.gg/sBK9FKKeup).
 
-**Guides:** [Install](#install) · [Single player](#play-single-player) · [The map](#the-map) · [Host a game](#host-a-game) ·
-[Join a game](#join-a-friends-game) · [Play on the same network](#play-on-the-same-network-lan) ·
-[If friends can't connect](#if-friends-cant-connect) · [Host without an open port (Radmin VPN)](#host-without-an-open-port-radmin-vpn) ·
-[Saves](#where-the-saves-are) · [How co-op works](#how-co-op-works) · [Known issues](#known-issues) · [Stuck at 30 FPS](#stuck-at-30-fps) · [Reporting a bug](#reporting-a-bug) ·
+**Guides:** [Install](#install) · [The map](#the-map) · [Host a game](#host-a-game) ·
+[Join a game](#join-a-friends-game) · [If friends can't connect](#if-friends-cant-connect) ·
+[Nightwatch Online](#nightwatch-online) · [Host without an open port (Using VPN)](#host-without-an-open-port-using-vpn) ·
+[Saves](#where-the-saves-are) · [Stuck at 30 FPS](#stuck-at-30-fps) · [Reporting a bug](#reporting-a-bug) ·
 [My party settings](engine/docs/party/my_party_settings.md) · [Credits](#credits)
 
 ## Install
 
-1. Download the zip file the latest release at:
+1. Download `NightwatchCoop-v0.2.6-beta.1-win64.zip` from
    [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive.
@@ -126,14 +129,15 @@ have no map.
 1. Open the **Co-op** tab:
    - **Mode:** Host
    - **Your name:** any name (1-16 letters, numbers, `_` or `-`)
-   - **Party size:** how many players.
-   - **Password:** it keeps strangers out.
+   - **Player limit:** how many players.
+   - **Password (optional):** it keeps strangers out. Without one, anyone who sees the party can join.
+     A party hidden with **Show my party to friends** off needs a password.
    - Leave **UPnP** on: it asks your router to open the party port (9307) for you, if you want to play over internet.
 2. Press **Play** on the main page. Allow the Windows Firewall prompt the first time.
    If friends still cannot connect, press **Fix firewall issues** on the Co-op tab.
 3. Load a save, or start one, as usual.
 4. If playing over VPN, you do not have to do anything, your lobby shows up automatically on guests join page.
-5. Copy your code: **Copy codes** on the launcher's Co-op tab, or in the game
+5. Copy your code: **Copy Internet code** on the launcher's Co-op tab, or in the game
    **System → Party → Copy Internet code** if playing over Internet.
 6. Send your friends the **Internet code** (`BBP3-…`) and the password if you set one.
 
@@ -148,9 +152,9 @@ by itself; until then a joining player shows as "joining" or "Prologue".
 1. Install this same release (everyone needs exactly the same build and gameplay mods).
 2. Open the **Co-op** tab:
    - **Mode:** Join
-   - **If playing over VPN, or LAN:** select your friends Lobby, it will ask for a password and you will join automatically.
-   - **Host code or address:** paste the host's code, or select
-   - **Password:** the host's, if they set one
+   - **If playing over VPN or LAN:** select your friend's lobby. It asks for a password if the party has one, and you join automatically.
+   - **Otherwise:** paste the host's code or address under **Join by code or address**.
+   - **Password (optional):** the host's, if they set one.
 3. Press **Play** while the host's game is running. You can load an old save, or create a new character (and finish the prologue)
 
 ## If friends can't connect
@@ -217,6 +221,11 @@ The game runs at 30 FPS (alone, or the whole party as soon as someone joins) alt
 rate is set to 60: the `eboot.bin` is a pre-patched one (a 60 FPS package or similar), not the
 clean 1.09. The log says so near the top:
 
+```
+Game check: eboot.bin is a pre-patched 1.09 (12 of 1390 64 KiB pieces changed, e.g. a 60 FPS package). ...
+Patches: "60 FPS++" left out: this game executable is not the standard 1.09 ...
+```
+
 ## Reporting a bug
 
 Easiest: the launcher's title-bar logs menu → **Copy last 2 logs** puts both log files on the
@@ -230,7 +239,7 @@ combined with visy's seamless co-op.
 
 | | |
 |---|---|
-| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.6+be2fda48 |
+| Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.7+e2a65dd8 |
 | **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | the launcher, the built-in game patches, and the engine reworked from its starting point (native shader compiler, direct draw calls, draw pipeline and memory performance work, PC menus and controls, upscaler integration, cheats, occlusion culling, trophies, fixes) |
 | Adding items in the save editor (how a weapon, armour piece or item is written into a save) | ported from [Noxde/Bloodborne-save-editor](https://github.com/Noxde/Bloodborne-save-editor) by Noxde, GPL-3.0 |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
