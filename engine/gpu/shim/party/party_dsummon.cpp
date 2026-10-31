@@ -205,6 +205,10 @@ bool SignSummonBusy(const HostView& v) {
     return v.ms_since_member_joined >= 0 && v.ms_since_member_joined < v.ms_since_sign_summon;  // its guest came in
 }
 
+int MaxCooperators(int max_players) {
+    return max_players < 2 ? 1 : max_players - 1;
+}
+
 const char* HostRefusal(const HostView& v) {
     if (!v.world_up || v.loading) return "the host is not in its world";
     if (v.travel_pending) return "the host is about to travel (its loading screen is next): the guest joins it there";
@@ -350,6 +354,10 @@ void OnDelivered(Guest& g, double now, bool ok) {
 bool GatherFirst(bool direct_on, Phase last) { return !direct_on || last == Phase::Failed; }
 bool GatherFirst(bool direct_on, Phase last, bool last_waited) {
     return !direct_on || (last == Phase::Failed && !last_waited);
+}
+
+void HoldWhileLoading(Guest& g, double now, bool loading) {
+    if (loading && g.phase == Phase::HaveRoom) g.since = now;
 }
 
 Action Step(Guest& g, double now, bool entry_waiting, bool joined) {

@@ -10289,6 +10289,7 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
         v.host_map = s.map_id;
         v.carry = dsummon::CarriesAcrossMaps(s.map_id, gather_dsum);
         v.cooperators = s.cooperators < 0 ? 0 : s.cooperators;
+        v.max_cooperators = dsummon::MaxCooperators(coop::fourp::FourpEffectiveMax());
         v.ms_since_sign_summon = bbnet::party::FromApi::instance().ms_since_request();
         v.ms_since_member_joined = bbnet::np::ms_since_member_joined();
         v.other_hold_ms = bbnet::party::FromApi::instance().hold_left_ms();
@@ -10485,6 +10486,7 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
                     s.world_up ? "up" : "down", s.loading ? "yes" : "no", SummonStepManager() ? "ok" : "none",
                     GuestBellEffectOn() ? "on" : "off");
             }
+            dsummon::HoldWhileLoading(DS().g, now, s.loading);
             a = dsummon::Step(DS().g, now, entry, Role() == RoleClient);
         }
         if (before == dsummon::Phase::Asked && DS().g.phase == dsummon::Phase::Failed) {
