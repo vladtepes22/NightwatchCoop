@@ -2463,5 +2463,10 @@
   "In order to play Nightwatch Online, you'll need to install our VPN sourced by OpenVPN. Press \"Install\" in the Nightwatch VPN box above the password.": "要游玩 Nightwatch Online，需要安装基于 OpenVPN 的我们的 VPN。点击密码上方“Nightwatch VPN”框中的“安装”即可。",
   "Nightwatch VPN not installed": "Nightwatch VPN 未安装",
   "Nightwatch VPN connected": "Nightwatch VPN 已连接",
-  "Nightwatch VPN disconnected": "Nightwatch VPN 未连接"
+  "Nightwatch VPN disconnected": "Nightwatch VPN 未连接",
+  "Splitscreen mode": "分屏模式",
+  "Party messages": "队伍消息",
+  "Errors only": "仅错误",
+  "For several game windows on one screen (the Nucleus Co-op splitscreen mod): the party HUD shows only the compass, with no name tags, and party messages are cut to errors only.": "用于在同一屏幕上运行多个游戏窗口（Nucleus Co-op 分屏模组）：队伍 HUD 只显示指南针，不显示名称标签，队伍消息仅保留错误。",
+  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "显示哪些队伍通知和消息框：全部、仅错误（连接丢失或不稳定、加入被拒绝或失败、不同步）或不显示。分屏模式会将“全部”变为“仅错误”。"
 }

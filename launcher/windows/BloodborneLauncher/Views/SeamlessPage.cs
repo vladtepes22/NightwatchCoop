@@ -45,7 +45,7 @@ public sealed class SeamlessPage : LauncherPage
         host.Children.Add(VpnBar());  // the VPN and the connection check sit right above the password
         host.Children.Add(_hostChecks);
         _hostPassword = PasswordRow(host, () => S.PartyPassword, v => { S.PartyPassword = v; UpdateInvite(); },
-            L.T("Optional. Without a password, anyone who sees the party can join."), L.T("Password"));
+            L.T("Optional. Without a password, anyone who sees the party can join."), L.T("Password (optional)"));
         var hostOptions = new Grid();
         hostOptions.ColumnDefinitions.Add(new ColumnDefinition());
         hostOptions.ColumnDefinitions.Add(new ColumnDefinition());
@@ -224,7 +224,10 @@ public sealed class SeamlessPage : LauncherPage
         IniToggles(party,
             ("party_hud", L.T("Party HUD"), true), ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
             ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_item_notices", L.T("Shared item notices"), true), ("party_npc_talk", L.T("Share NPC dialogue"), true),
-            ("party_stay", L.T("Stay in my world"), false));
+            ("party_stay", L.T("Stay in my world"), false), ("party_splitscreen", L.T("Splitscreen mode"), false));
+        ComboRow(SymbolRegular.Alert24, L.T("Party messages"), PartyInfo("party_messages"),
+            new[] { new Choice(L.T("All"), "all"), new Choice(L.T("Errors only"), "errors"), new Choice(L.T("Off"), "off") },
+            () => Ini.Get("party_messages", "all"), v => Ini.Set("party_messages", v), party);
         foreach (var option in SeamlessSettings.Switches)
         {
             var key = option.Key;
@@ -1119,6 +1122,8 @@ public sealed class SeamlessPage : LauncherPage
         "party_glow_off" => L.T("On: other hunters look like normal hunters on your screen. Off: the game's blue phantom glow."),
         "party_toasts" => L.T("A short notice in a top corner when a hunter joins, leaves or travels."),
         "party_item_notices" => L.T("A short notice when a key or unique item, a weapon or a rune is shared with the party. Never for ordinary pickups. Shows only while join, leave and travel notices are on."),
+        "party_splitscreen" => L.T("For several game windows on one screen (the Nucleus Co-op splitscreen mod): the party HUD shows only the compass, with no name tags, and party messages are cut to errors only."),
+        "party_messages" => L.T("Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only."),
         "party_npc_talk" => L.T("See and hear the NPC conversations of companions near you (subtitles, choices, gifts)."),
         "party_guest_lamps" => L.T("Guests may use lamps and headstones; the whole party travels with them. Needs a restart."),
         "party_key_view" => L.T("While you are a guest, your own keys and badges show in Key Items; off shows the game's empty list. Takes effect on the next game start."),

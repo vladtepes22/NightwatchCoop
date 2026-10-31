@@ -2463,5 +2463,10 @@
   "In order to play Nightwatch Online, you'll need to install our VPN sourced by OpenVPN. Press \"Install\" in the Nightwatch VPN box above the password.": "Para jogar Nightwatch Online, você precisa instalar nossa VPN, baseada no OpenVPN. Clique em \"Instalar\" na caixa Nightwatch VPN acima da senha.",
   "Nightwatch VPN not installed": "Nightwatch VPN não instalada",
   "Nightwatch VPN connected": "Nightwatch VPN conectada",
-  "Nightwatch VPN disconnected": "Nightwatch VPN desconectada"
+  "Nightwatch VPN disconnected": "Nightwatch VPN desconectada",
+  "Splitscreen mode": "Modo de tela dividida",
+  "Party messages": "Mensagens do grupo",
+  "Errors only": "Somente erros",
+  "For several game windows on one screen (the Nucleus Co-op splitscreen mod): the party HUD shows only the compass, with no name tags, and party messages are cut to errors only.": "Para várias janelas do jogo em uma tela (o mod de tela dividida Nucleus Co-op): o HUD do grupo mostra apenas a bússola, sem etiquetas de nome, e as mensagens do grupo ficam restritas a erros.",
+  "Which party notices and message boxes show: all, only errors (connection lost or unstable, a refused or failed join, a desync), or none. Splitscreen mode turns All into Errors only.": "Quais avisos e caixas de mensagem do grupo aparecem: todos, somente erros (conexão perdida ou instável, entrada recusada ou com falha, dessincronização) ou nenhum. O modo de tela dividida transforma “Todos” em “Somente erros”."
 }
