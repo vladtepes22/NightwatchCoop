@@ -1,6 +1,5 @@
 #include "video_core/renderer_vulkan/vk_hdr_channel.h"
 #include "video_core/host_shaders/hdr_upscale_transfer_comp.h"
-#include "video_core/host_shaders/hdr_ui_mask_comp.h"
 #include "video_core/host_shaders/hdr_upscale_transfer_snapshot_comp.h"
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "video_core/renderer_vulkan/vk_temporal_upscaler.h"
@@ -816,8 +815,6 @@ void TemporalUpscaler::CreatePipelines() {
             .setLayoutCount = 1, .pSetLayouts = &*hdr_transfer_desc_layout,
             .pushConstantRangeCount = 1, .pPushConstantRanges = &push}));
         hdr_transfer_pipeline = compute(HDR_UPSCALE_TRANSFER_COMP, *hdr_transfer_pipeline_layout);
-        // The HUD's mask: the same bindings (the UI image sampled, the snapshot as storage).
-        hdr_ui_mask_pipeline = compute(HDR_UI_MASK_COMP, *hdr_transfer_pipeline_layout);
         const std::array<vk::DescriptorSetLayoutBinding, 3> snapshot_bindings{{
             bindings[0], bindings[1],
             {.binding = 2, .descriptorType = vk::DescriptorType::eStorageImage,
@@ -1848,10 +1845,8 @@ void TemporalUpscaler::OnDisplayPass(VAddr address, VideoCore::ImageId frame) {
     if (HdrChannel::Native16() && !ui_phase && LdrFrame(ldr_target)) {
         RunUiOnly(ldr_target, camera_motion.Depth(), true); // the scene's own target: the world
     }
-    // The HUD's mask (MaskPsychoSnapshot) is off: it took the HUD's translucent backgrounds as
-    // HUD, so the scene behind them went to the UI brightness (white at 500 nits, black at 48),
-    // and capping them at the UI's white drew dark boxes over the moon. The final pass tells the
-    // HUD by its luminance; over highlights the HUD blends with the scene, as in RenoDX.
+    // The final pass tells the HUD by its luminance against this snapshot; over highlights the
+    // HUD blends with the scene, as in RenoDX.
     if (HdrChannel::Native16()) PublishPsychoSnapshot(address);
     // bbport: frame generation: a frame without UI is its own frame without UI.
     if (frame_gen && frame_gen->WantsHudless()) {
@@ -2186,7 +2181,6 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
                     .image = ui, .subresourceRange = color}};
             cmd.pipelineBarrier2({.imageMemoryBarrierCount = 2, .pImageMemoryBarriers = after.data()});
         });
-        snapshot_masked = false;
         snapshot_ready = true;
     }
     reset = true; // returning to 3D must not reuse history from before a menu/loading screen
@@ -2840,7 +2834,7 @@ void TemporalUpscaler::RecordHdrTransfer(vk::CommandBuffer cmdbuf, vk::Image sou
                                         vk::ImageView source_view, vk::Image target,
                                         vk::ImageView target_view, u32 w, u32 h, bool encode,
                                         bool snapshot) {
-    // HDR16 (snapshot): the encode also writes the pre-HUD snapshot (EnsureSnapshot made it).
+    // Native+ (snapshot): the encode also writes the pre-HUD snapshot (EnsureSnapshot made it).
     snapshot = snapshot && scene_snapshot_view && snapshot_width == w && snapshot_height == h;
     const auto all = vk::PipelineStageFlagBits2::eAllCommands;
     const auto compute = vk::PipelineStageFlagBits2::eComputeShader;
@@ -2895,7 +2889,6 @@ void TemporalUpscaler::RecordHdrTransfer(vk::CommandBuffer cmdbuf, vk::Image sou
         .dstAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite};
     cmdbuf.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &ready});
     if (snapshot) {
-        snapshot_masked = false;
         snapshot_ready = true;
     }
 }
@@ -2952,63 +2945,6 @@ void TemporalUpscaler::PublishPsychoSnapshot(VAddr address) {
     std::swap(slot->view, scene_snapshot_view);
     std::swap(slot->width, snapshot_width);
     std::swap(slot->height, snapshot_height);
-    slot->ui_mask = snapshot_masked.exchange(false);
-}
-
-void TemporalUpscaler::MaskPsychoSnapshot() {
-    // The UI image now holds the frame with its UI (General layout, written by the UI's draws);
-    // the snapshot, the frame before them (General, read by the final pass). The pipeline comes
-    // with the upscaler's resources (CreatePipelines): the first frames in game can come before
-    // them (DLSS), and binding no pipeline crashed the driver (nvoglv64); the final pass then
-    // tells the HUD by its luminance.
-    if (!hdr_ui_mask_pipeline || !snapshot_ready || !scene_snapshot_view || !ui_image || !ui_view ||
-        snapshot_width != ui_width || snapshot_height != ui_height) {
-        return;
-    }
-    scheduler.Record([ui = vk::Image(ui_image), ui_view = *ui_view,
-                      snapshot = vk::Image(scene_snapshot), snapshot_view = *scene_snapshot_view,
-                      pipeline = *hdr_ui_mask_pipeline, layout = *hdr_transfer_pipeline_layout,
-                      w = ui_width, h = ui_height](vk::CommandBuffer cmd) {
-        const auto all = vk::PipelineStageFlagBits2::eAllCommands;
-        const auto compute = vk::PipelineStageFlagBits2::eComputeShader;
-        const auto rw = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite;
-        const vk::ImageSubresourceRange color{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-        const std::array<vk::ImageMemoryBarrier2, 2> before{{
-            {.srcStageMask = all, .srcAccessMask = vk::AccessFlagBits2::eMemoryWrite,
-             .dstStageMask = compute, .dstAccessMask = vk::AccessFlagBits2::eShaderSampledRead,
-             .oldLayout = vk::ImageLayout::eGeneral, .newLayout = vk::ImageLayout::eGeneral,
-             .image = ui, .subresourceRange = color},
-            {.srcStageMask = all, .srcAccessMask = rw, .dstStageMask = compute,
-             .dstAccessMask = vk::AccessFlagBits2::eShaderStorageRead |
-                              vk::AccessFlagBits2::eShaderStorageWrite,
-             .oldLayout = vk::ImageLayout::eGeneral, .newLayout = vk::ImageLayout::eGeneral,
-             .image = snapshot, .subresourceRange = color},
-        }};
-        cmd.pipelineBarrier2({.imageMemoryBarrierCount = u32(before.size()),
-                              .pImageMemoryBarriers = before.data()});
-        const std::array<vk::DescriptorImageInfo, 2> infos{{
-            {.imageView = ui_view, .imageLayout = vk::ImageLayout::eGeneral},
-            {.imageView = snapshot_view, .imageLayout = vk::ImageLayout::eGeneral},
-        }};
-        const std::array<vk::WriteDescriptorSet, 2> writes{{
-            {.dstBinding = 0, .descriptorCount = 1,
-             .descriptorType = vk::DescriptorType::eSampledImage, .pImageInfo = &infos[0]},
-            {.dstBinding = 1, .descriptorCount = 1,
-             .descriptorType = vk::DescriptorType::eStorageImage, .pImageInfo = &infos[1]},
-        }};
-        const u32 unused = 0;
-        cmd.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
-        cmd.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, layout, 0, writes);
-        cmd.pushConstants(layout, vk::ShaderStageFlagBits::eCompute, 0, sizeof(unused), &unused);
-        cmd.dispatch((w + 7) / 8, (h + 7) / 8, 1);
-        // The display pass reads the UI image next, the final pass the snapshot.
-        const vk::MemoryBarrier2 done{.srcStageMask = compute,
-                                      .srcAccessMask = vk::AccessFlagBits2::eShaderStorageWrite |
-                                                       vk::AccessFlagBits2::eShaderSampledRead,
-                                      .dstStageMask = all, .dstAccessMask = rw};
-        cmd.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &done});
-    });
-    snapshot_masked = true;
 }
 
 bool TemporalUpscaler::TakePsychoSnapshot(VAddr address, std::unique_ptr<HdrGainMap>& snapshot) {

@@ -79,7 +79,7 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
     draw_prep = std::make_unique<DrawPreparation>(pipeline_cache);
     ASSERT_MSG(!HdrChannel::Native16() ||
         instance.GetPhysicalDevice().getProperties().limits.maxPushConstantsSize >= 176,
-        "HDR16 requires 176 bytes of Vulkan push constants; choose Native or Expand on this GPU");
+        "Native+ requires 176 bytes of Vulkan push constants; choose Native or Expand on this GPU");
     scene_targets = std::make_unique<SceneTargets>(instance, scheduler, runtime, texture_cache);
     // Allocation is independent of shader compilation, including constructor-time precache.
     object_motion = std::make_unique<ObjectMotion>(instance, scheduler);
@@ -1900,6 +1900,11 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         FrameCapture::Poll();
         scheduler.PopPendingOperations();
     }
+    // bbport: the color table the ColorGrading pass just drew with (NoteColorTable), read now
+    // that the pass is recorded.
+    if (color_table_pending) {
+        ReadColorTable(std::exchange(color_table_pending, VAddr{0}));
+    }
     // bbport: under SET_PREDICATION on a block known to read occluded (vk_occlusion.h).
     if (occlusion && occlusion->SkipDraw()) {
         return;
@@ -1909,6 +1914,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     if (const u32 frame = BbStats::frame_number.load(std::memory_order_relaxed);
         frame != preupload_frame) {
         preupload_frame = frame;
+        CheckColorTablePresence();
         BB_SECTION(Preupload);
         static const u64 budget = [] {
             const char* env = std::getenv("BB_PREUPLOAD_MB");
@@ -2079,8 +2085,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
             const float strength =
                 std::clamp(BbSettings::Get().hdr_scene_grading.load(), 0.0f, 100.0f) / 100.0f;
             push_data.bb_hdr[3] = std::bit_cast<u32>(strength) + 1u;
-            // bb_hdr.y: the LUT bridge (Color Table Bridge, 0 Exact, 1 RenoDX), plus one.
-            push_data.bb_hdr[1] = u32(std::clamp(BbSettings::Get().hdr_lut_bridge.load(), 0, 1)) + 1u;
+            NoteColorTable(*ps);
         }
         // The chain probe (in-game menu, test): which stage shows itself in color.
         if (const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
@@ -2166,32 +2171,32 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         const float bloom = std::clamp(BbSettings::Get().hdr_bloom.load(), 0.0f, 100.0f) / 50.0f;
         // bb_hdr.y: the knee (Highlight range, % of the game's white), the float's bits + 1.
         const float knee = std::clamp(BbSettings::Get().hdr_knee.load(), 10.0f, 95.0f) / 100.0f;
-        // bb_hdr2: tone mapper PsychoV30 (scene), applied in the composite on the scene itself
-        // (each a float's bits + 1; all 0 otherwise): the peak in units of the game's white, and
-        // the color grading sliders as PsychoV30's own parameters, the way RenoDX's mods pass
-        // them (0..100 sliders over 50: 1 neutral; exposure as it is); then the target gamut
-        // (PsychoV30's gamut_compression_mode) and the shadow match (2: none, PsychoV30
-        // (pure), reported by Tonemapper() as PsychoV30 (scene)) and 4 for Vanilla+ (its own curve
-        // and roll-off; the sliders as RenoDX's user grading) in one word, their sum + 1; then
-        // PsychoV30's gamut_compression and compression in 1/10000 (bits 0..15, 16..30; bit 31
-        // marks the word as set).
+        // bb_hdr2: the tone mapper (Vanilla+ or PsychoV), applied in the composite on the scene
+        // itself (each a float's bits + 1; all 0 otherwise): the peak in units of the game's
+        // white, and the color grading sliders as PsychoV30's own parameters, the way RenoDX's
+        // mods pass them (0..100 sliders over 50: 1 neutral; exposure as it is); then the target
+        // gamut (PsychoV30's gamut_compression_mode), 2 (no shadow match), 4 for Vanilla+ (its
+        // own curve and roll-off; the sliders as RenoDX's user grading) or 16 for PsychoV
+        // (PsychoV30 with Vanilla+'s bloom), and PsychoV's Vanilla+ Highlights in percent from
+        // bit 8, in one word, their sum + 1; then PsychoV's Hue Correction, 0..1 (PsychoV30's
+        // gamut compression and compression, which this word held, are RenoDX's defaults, 1 and
+        // 1).
         const auto bits = [](float f) { return std::bit_cast<u32>(f) + 1u; };
-        const auto fixed4 = [](float f) { return u32(std::lround(f * 10000.0f)); };
         std::array<u32, 8> scene{};
         if (HdrChannel::Tonemapper() == u32(BbSettings::HdrToneMapperPsychoScene)) {
             const auto& bb = BbSettings::Get();
             const auto half = [](float slider) { return std::clamp(slider, 0.0f, 100.0f) / 50.0f; };
+            const bool psychov = bb.hdr_tonemapper == BbSettings::HdrToneMapperPsychoV;
+            const u32 highlights =
+                u32(std::lround(BbSettings::VanillaPlusHighlightsPercent())) << 8u;
             scene = {bits(HdrChannel::PeakNits() /
                           std::max(float(EmulatorSettings.GetHdrPaperWhite()), 1.0f)),
                      bits(std::clamp(bb.hdr_exposure.load(), 0.0f, 2.0f)),
                      bits(half(bb.hdr_grade_highlights)), bits(half(bb.hdr_shadows)),
                      bits(half(bb.hdr_contrast)), bits(half(bb.hdr_saturation)),
-                     u32(std::clamp(bb.hdr_gamut.load(), 0, 1)) +
-                         (bb.hdr_tonemapper == BbSettings::HdrToneMapperPsychoPure ? 2u : 0u) +
-                         (bb.hdr_tonemapper == BbSettings::HdrToneMapperVanillaPlus ? 4u : 0u) + 1u,
-                     fixed4(std::clamp(bb.hdr_gamut_compression.load(), 0.0f, 1.0f)) |
-                         fixed4(std::clamp(bb.hdr_compression.load(), 0.0f, 2.0f)) << 16 |
-                         0x80000000u};
+                     1u /* BT.2020, RenoDX's HDR target */ +
+                         (psychov ? 2u + 16u + highlights : 4u) + 1u,
+                     bits(psychov ? BbSettings::HueCorrectionPercent() / 100.0f : 0.0f)};
         }
         // bb_hdr.y .. bb_hdr2[7], contiguous: one push, then the game's values back.
         std::array<u32, 11> probe{bits(knee), HdrChannel::ChainProbe(), bits(bloom)};
@@ -5912,6 +5917,193 @@ void Rasterizer::ReportUboStats() {
                 s.staged / double(frames), s.copied / double(frames));
     ubo_stats = {};
     frames = 0;
+}
+
+namespace {
+u64 SteadyMs() {
+    return static_cast<u64>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch())
+                                .count());
+}
+
+bool ColorTableLog() {
+    static const bool on = [] {
+        const char* env = std::getenv("BB_COLOR_TABLE_LOG");
+        return !(env && env[0] == '0');
+    }();
+    return on;
+}
+
+float HalfToFloat(u16 h) {
+    const u32 sign = u32(h >> 15) << 31, exponent = (h >> 10) & 0x1f, mantissa = h & 0x3ff;
+    if (exponent == 0) {
+        const float value = float(mantissa) * (1.0f / 16777216.0f); // subnormal: m 2^-24
+        return sign ? -value : value;
+    }
+    if (exponent == 31) {
+        return std::bit_cast<float>(sign | 0x7f800000u | (mantissa << 13));
+    }
+    return std::bit_cast<float>(sign | ((exponent + 112) << 23) | (mantissa << 13));
+}
+
+// The game's 16x16x16 color table (texel (r, g, b) at x + 16 (y + 16 z)) against a neutral one
+// (texel = its coordinates / 15), in the table's own encoding, as 8-bit steps.
+u32 ColorTableTexelBytes(vk::Format format) {
+    return format == vk::Format::eR32G32B32A32Sfloat   ? 16
+           : format == vk::Format::eR16G16B16A16Sfloat ? 8
+                                                         : 4;
+}
+
+void LogColorTable(const u8* data, vk::Format format, VAddr address, std::atomic<u64>& last) {
+    const u32 texel_bytes = ColorTableTexelBytes(format);
+    const u64 hash = XXH3_64bits(data, 16 * 16 * 16 * texel_bytes);
+    if (last.exchange(hash) == hash) {
+        return;
+    }
+    const auto texel = [&](u32 x, u32 y, u32 z) {
+        const u8* t = data + (x + 16 * (y + 16 * z)) * texel_bytes;
+        std::array<float, 3> c{};
+        switch (format) {
+        case vk::Format::eR32G32B32A32Sfloat:
+            std::memcpy(c.data(), t, sizeof(c));
+            break;
+        case vk::Format::eR16G16B16A16Sfloat:
+            for (u32 i = 0; i < 3; ++i) {
+                c[i] = HalfToFloat(u16(t[2 * i] | (t[2 * i + 1] << 8)));
+            }
+            break;
+        case vk::Format::eB8G8R8A8Unorm:
+        case vk::Format::eB8G8R8A8Srgb:
+            c = {t[2] / 255.0f, t[1] / 255.0f, t[0] / 255.0f};
+            break;
+        case vk::Format::eA2B10G10R10UnormPack32: {
+            const u32 v = t[0] | (t[1] << 8) | (t[2] << 16) | (u32(t[3]) << 24);
+            c = {(v & 0x3ff) / 1023.0f, ((v >> 10) & 0x3ff) / 1023.0f, ((v >> 20) & 0x3ff) / 1023.0f};
+            break;
+        }
+        default:
+            c = {t[0] / 255.0f, t[1] / 255.0f, t[2] / 255.0f};
+            break;
+        }
+        return c;
+    };
+    double sum = 0.0, largest = 0.0, brightness = 0.0, saturation = 0.0;
+    u32 saturated = 0;
+    for (u32 z = 0; z < 16; ++z) {
+        for (u32 y = 0; y < 16; ++y) {
+            for (u32 x = 0; x < 16; ++x) {
+                const auto out = texel(x, y, z);
+                const std::array<float, 3> in{x / 15.0f, y / 15.0f, z / 15.0f};
+                for (u32 i = 0; i < 3; ++i) {
+                    const double d = std::abs(double(out[i]) - in[i]);
+                    sum += d;
+                    largest = std::max(largest, d);
+                }
+                brightness += 0.2126 * (out[0] - in[0]) + 0.7152 * (out[1] - in[1]) +
+                              0.0722 * (out[2] - in[2]);
+                const float in_range = std::max({in[0], in[1], in[2]}) - std::min({in[0], in[1], in[2]});
+                if (in_range >= 0.2f) {
+                    saturation += (std::max({out[0], out[1], out[2]}) -
+                                   std::min({out[0], out[1], out[2]})) / in_range;
+                    ++saturated;
+                }
+            }
+        }
+    }
+    const auto grey = [&](u32 i) {
+        const auto c = texel(i, i, i);
+        return fmt::format("({:.0f}, {:.0f}, {:.0f})", c[0] * 255.0f, c[1] * 255.0f, c[2] * 255.0f);
+    };
+    const double mean = sum / (16 * 16 * 16 * 3) * 255.0;
+    std::printf("Color table %#llx (%s): %s; against a neutral table, mean change %.1f/255, largest "
+                "%.0f/255, brightness %+.1f/255, saturation x%.2f; greys black %s, mid %s (neutral "
+                "136), white %s, per 255\n",
+                static_cast<unsigned long long>(address), vk::to_string(format).c_str(),
+                largest * 255.0 < 2.0 ? "neutral (Color Grade Strength changes nothing here)"
+                                      : "grades the image",
+                mean, largest * 255.0, brightness / (16 * 16 * 16) * 255.0,
+                saturated ? saturation / saturated : 1.0, grey(0).c_str(), grey(8).c_str(),
+                grey(15).c_str());
+}
+} // namespace
+
+void Rasterizer::NoteColorTable(const Shader::Info& stage) {
+    if (!ColorTableLog()) {
+        return;
+    }
+    const u64 now = SteadyMs();
+    if (color_table_gone) {
+        std::printf("Color table: the game draws its color grading pass again\n");
+        color_table_gone = false;
+    }
+    color_table_seen_ms = now;
+    if (now < color_table_next_ms) {
+        return;
+    }
+    for (const auto& image : stage.images) {
+        const auto sharp = image.GetSharp(stage);
+        if (sharp.GetType() == AmdGpu::ImageType::Color3D) {
+            color_table_pending = sharp.Address();
+            color_table_next_ms = now + 2000;
+            return;
+        }
+    }
+}
+
+void Rasterizer::CheckColorTablePresence() {
+    if (!ColorTableLog() || color_table_gone || color_table_seen_ms == 0) {
+        return;
+    }
+    if (SteadyMs() > color_table_seen_ms + 3000) {
+        std::printf("Color table: the game has not drawn its color grading pass for 3 s (no grading "
+                    "here: Color Grade Strength has nothing to change)\n");
+        color_table_gone = true;
+        color_table_hash->store(0);
+    }
+}
+
+void Rasterizer::ReadColorTable(VAddr address) {
+    const VideoCore::ImageId id = texture_cache.FindImageFromRange(address, 1, false);
+    if (!id) {
+        return;
+    }
+    VideoCore::Image& image = texture_cache.GetImage(id);
+    const auto& info = image.info;
+    const vk::Format format = info.pixel_format;
+    const bool known = format == vk::Format::eR8G8B8A8Unorm || format == vk::Format::eR8G8B8A8Srgb ||
+                       format == vk::Format::eB8G8R8A8Unorm || format == vk::Format::eB8G8R8A8Srgb ||
+                       format == vk::Format::eA2B10G10R10UnormPack32 ||
+                       format == vk::Format::eR16G16B16A16Sfloat ||
+                       format == vk::Format::eR32G32B32A32Sfloat;
+    if (info.size.width != 16 || info.size.height != 16 || info.size.depth != 16 || !known) {
+        static bool told = false;
+        if (!std::exchange(told, true)) {
+            std::printf("Color table %#llx: %ux%ux%u %s, not read (16x16x16 RGBA expected)\n",
+                        static_cast<unsigned long long>(address), info.size.width,
+                        info.size.height, info.size.depth, vk::to_string(format).c_str());
+        }
+        return;
+    }
+    const u64 size = 16 * 16 * 16 * ColorTableTexelBytes(format);
+    const auto staging = runtime.GetStagingPool().Request(size, VideoCore::MemoryType::HostCached,
+                                                          16, true);
+    const vk::BufferImageCopy copy = {
+        .bufferOffset = staging.offset,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {.aspectMask = vk::ImageAspectFlagBits::eColor,
+                             .mipLevel = 0,
+                             .baseArrayLayer = 0,
+                             .layerCount = 1},
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {16, 16, 16},
+    };
+    runtime.DownloadImage(&image, staging.buffer, std::span{&copy, 1});
+    scheduler.DeferPriorityOperation([this, staging, format, address, last = color_table_hash] {
+        staging.Invalidate();
+        LogColorTable(staging.mapped, format, address, *last);
+        runtime.GetStagingPool().FreeDeferred(staging);
+    });
 }
 
 void Rasterizer::NoteFrameStart() {

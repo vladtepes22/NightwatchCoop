@@ -65,10 +65,9 @@ void main() {
     // bb_hdr.w: the strength's bits plus one (0: not set by bbport, the game's grading).
     uint bits = push_data.bb_hdr.w;
     float strength = bits == 0u ? 1.0 : clamp(uintBitsToFloat(bits - 1u), 0.0, 1.0);
-    int bridge = push_data.bb_hdr.y == 0u ? 0 : int(push_data.bb_hdr.y - 1u);
     float top = max(max(c.x, c.y), c.z);
     vec3 o;
-    if (bridge == 0 && min(min(c.x, c.y), c.z) >= 0.0) {
+    if (min(min(c.x, c.y), c.z) >= 0.0) {
         // Inside BT.709: up to white the table as the game applies it; above, the color divided
         // by its largest channel (hue and saturation kept), graded, and scaled back up.
         float scale = max(top, 1.0);
@@ -79,9 +78,7 @@ void main() {
         float gamut_scale = bb_gamut_compression_scale(linear);
         vec3 inside = gamut_scale < 1.0 ? bb_gamut_compress(linear, gamut_scale) : linear;
         inside = max(inside, 0.0);
-        float range_scale = bridge == 1
-                                ? bb_neutwo_max_channel_scale(inside)
-                                : 1.0 / max(max(max(inside.x, inside.y), inside.z), 1.0);
+        float range_scale = 1.0 / max(max(max(inside.x, inside.y), inside.z), 1.0);
         vec3 graded = signed_pow(grade(signed_pow(inside * range_scale, 1.0 / 2.2), strength), 2.2) /
                       range_scale;
         if (gamut_scale < 1.0) {

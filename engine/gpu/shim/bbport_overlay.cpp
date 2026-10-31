@@ -522,15 +522,15 @@ bool NamedSlider(const char* label, int& value, const char* const* names, int co
 void PsychoSection(BbSettings::Values& s) {
     if (!s.startup_psychov30) {
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s",
-                           BbSettings::MenuText("HDR16 starts with the next game start.",
-                                                "HDR16 включится при следующем запуске игры."));
+                           BbSettings::MenuText("Native+ starts with the next game start.",
+                                                "Native+ включится при следующем запуске игры."));
     } else if (s.hdr_native16_live) {
         ImGui::TextColored(ImVec4(0.45f, 0.9f, 0.45f, 1.0f), "%s",
-                           BbSettings::MenuText("HDR 16-bit: active", "HDR 16 бит: активен"));
+                           BbSettings::MenuText("Native+: active", "Native+: активен"));
     } else {
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s",
-                           BbSettings::MenuText("HDR 16-bit: not active here (shown in SDR)",
-                                                "HDR 16 бит: здесь не активен (показ в SDR)"));
+                           BbSettings::MenuText("Native+: not active here (shown in SDR)",
+                                                "Native+: здесь не активен (показ в SDR)"));
     }
 
     static const char* presets[] = {"Off", "Preset #1", "Preset #2", "Preset #3"};
@@ -554,68 +554,37 @@ void PsychoSection(BbSettings::Values& s) {
 
     ImGui::BeginDisabled(preset == 0);
     ImGui::SeparatorText("Tone Mapping");
-    // Hybrid (3) is no longer offered; set in bbport.ini, it shows as a fourth entry.
-    static const char* tonemappers[] = {"Vanilla", "Vanilla+", "PsychoV-30", "Hybrid"};
-    static constexpr int stored[] = {BbSettings::HdrToneMapperVanilla,
-                                     BbSettings::HdrToneMapperVanillaPlus,
-                                     BbSettings::HdrToneMapperPsychoPure,
-                                     BbSettings::HdrToneMapperPsychoScene};
-    int tone = 1; // Vanilla+, the default
-    for (int i = 0; i < 4; ++i) {
-        tone = stored[i] == s.hdr_tonemapper ? i : tone;
-    }
-    const int entries = tone == 3 ? 4 : 3;
-    if (const int chosen = ComboIndex("Tone Mapper", tone, tonemappers, entries, 1);
-        chosen != tone) {
-        Store(s.hdr_tonemapper, stored[chosen], true);
+    static const char* tonemappers[] = {"Vanilla+", "PsychoV"};
+    // A slider, as Preset and Settings Mode: Vanilla+ (the default, its reset) or PsychoV.
+    int tone = s.hdr_tonemapper == BbSettings::HdrToneMapperPsychoV ? 1 : 0;
+    if (NamedSlider("Tone Mapper", tone, tonemappers, 2, 0)) {
+        Store(s.hdr_tonemapper,
+              tone == 1 ? BbSettings::HdrToneMapperPsychoV : BbSettings::HdrToneMapperVanillaPlus,
+              true);
     }
     Hint(BbSettings::MenuText(
-        "PsychoV-30: RenoDX's tone mapper on the game's scene in place of its curve, as RenoDX's "
-        "mods set it: the game's mid tones and contrast, PsychoV-30's own shadows, the lights up "
-        "to your display's peak. Vanilla+ (by souperman9, from his RenoDX Bloodborne mod): the "
-        "game's own image up to mid grey, the lights continued above it and rolled off to your "
-        "display's peak (brighter highlights). Vanilla: the game's own look (no HDR highlights). "
-        "Live.",
-        "PsychoV-30: тонмаппер RenoDX вместо кривой игры, как в модах RenoDX: средние тона и "
-        "контраст игры, собственные тени PsychoV-30, свет до пика вашего дисплея. Vanilla+ (автор "
-        "souperman9, из его мода RenoDX для Bloodborne): картинка игры до среднего серого, свет "
-        "выше продолжен и плавно доведён до пика дисплея (ярче блики). Vanilla: собственная "
-        "картинка игры (без HDR-бликов). Сразу."));
-    // Target gamut and PsychoV30's compressions: PsychoV30 only.
-    ImGui::BeginDisabled(s.hdr_tonemapper == BbSettings::HdrToneMapperVanilla ||
-                         s.hdr_tonemapper == BbSettings::HdrToneMapperVanillaPlus);
-    static const char* gamuts[] = {"BT.2020", "BT.709"};
-    const int gamut = s.hdr_gamut == BbSettings::HdrGamutBt709 ? 1 : 0;
-    if (const int chosen = ComboIndex(BbSettings::MenuText("Target gamut", "Целевой охват"), gamut,
-                                      gamuts, 2, 0);
-        chosen != gamut) {
-        Store(s.hdr_gamut,
-              chosen == 1 ? int(BbSettings::HdrGamutBt709) : int(BbSettings::HdrGamutBt2020), true);
-    }
-    Hint(BbSettings::MenuText(
-        "PsychoV-30 only: the color volume it fits the picture into, BT.2020 (RenoDX's HDR "
-        "default) or BT.709. Compare them on saturated lights (lanterns, fire, blue lights). Live.",
-        "Только PsychoV-30: цветовой объём, в который он вписывает картинку, BT.2020 (по умолчанию "
-        "в HDR-модах RenoDX) или BT.709. Сравните на насыщенных источниках (фонари, огонь, синий "
-        "свет). Сразу."));
-    if (level >= 1) {
-        SliderReset("Gamut Compression", s.hdr_gamut_compression, 0.0f, 1.0f, 1.0f, "%.2f",
+        "Vanilla+ (by souperman9, from his RenoDX Bloodborne mod): the game's own image up to mid "
+        "grey, the lights continued above it and rolled off to your display's peak per color "
+        "channel. PsychoV: RenoDX's PsychoV-30 on the game's scene with Vanilla+'s bloom (deeper "
+        "blacks, softer highlights that keep the most detail near the peak); its Vanilla+ "
+        "Highlights and Hue Correction take it towards Vanilla+'s brightness and hues. Live.",
+        "Vanilla+ (автор souperman9, из его мода RenoDX для Bloodborne): картинка игры до среднего "
+        "серого, свет выше продолжен и плавно доведён до пика дисплея по каждому каналу. PsychoV: "
+        "PsychoV-30 из RenoDX на сцене игры со свечением Vanilla+ (глубже чёрный, мягче блики, "
+        "больше деталей у пика); его Vanilla+ Highlights и Hue Correction приближают его к "
+        "яркости и оттенкам Vanilla+. Сразу."));
+    if (tone == 1) {
+        SliderReset("Vanilla+ Highlights", s.hdr_vplus_highlights, 0.0f, 100.0f, 0.0f, "%.0f %%",
                     BbSettings::MenuText(
-                        "How far colors too saturated for the target gamut are brought into it: 1 "
-                        "fully (RenoDX's default), 0 not at all.",
-                        "Насколько слишком насыщенные цвета вписываются в целевой охват: 1 полностью "
-                        "(по умолчанию в RenoDX), 0 никак."));
-        SliderReset("Compression", s.hdr_compression, 0.0f, 2.0f, 1.0f,
-                    s.hdr_compression.load() < 0.005f ? "Auto" : "%.2f",
-                    BbSettings::MenuText(
-                        "How fast the lights reach your display's peak: higher brings them closer "
-                        "to it (brighter, harder), lower keeps them further (softer). 1 is "
-                        "RenoDX's default, 0 automatic.",
-                        "Как быстро свет доходит до пика дисплея: больше приближает его к пику "
-                        "(ярче, жёстче), меньше держит дальше (мягче). 1 по умолчанию в RenoDX, "
-                        "0 автоматически."));
+                        "PsychoV's highlights from its own curve (0: the most detail near the "
+                        "peak) to Vanilla+'s (100: Vanilla+'s brightness, the moon and lamps "
+                        "brighter, less detail at the very top), still compressed to your "
+                        "display's peak by PsychoV-30. Shadows and colors do not change.",
+                        "Блики PsychoV от его собственной кривой (0: больше всего деталей у пика) "
+                        "до кривой Vanilla+ (100: яркость Vanilla+, луна и лампы ярче, меньше "
+                        "деталей на самом верху), всё так же сжатые до пика дисплея PsychoV-30. "
+                        "Тени и цвета не меняются."));
     }
-    ImGui::EndDisabled();
     const float display_peak = BbSettings::DisplayPeak();
     char peak_hint[200];
     if (display_peak > 0.0f) {
@@ -661,35 +630,30 @@ void PsychoSection(BbSettings::Values& s) {
                                      "203 нит по умолчанию (UI Brightness RenoDX)."));
 
     ImGui::SeparatorText("Color Grading");
-    const bool psycho = s.hdr_tonemapper != BbSettings::HdrToneMapperVanilla;
-    ImGui::BeginDisabled(!psycho); // PsychoV30's own parameters; Vanilla+: RenoDX's user grading
+    // PsychoV: PsychoV-30's own parameters; Vanilla+: RenoDX's user grading.
     SliderReset("Exposure", s.hdr_exposure, 0.0f, 2.0f, 1.0f, "%.2f", nullptr);
     SliderReset("Highlights", s.hdr_grade_highlights, 0.0f, 100.0f, 50.0f, "%.0f", nullptr);
     SliderReset("Shadows", s.hdr_shadows, 0.0f, 100.0f, 50.0f, "%.0f", nullptr);
     SliderReset("Contrast", s.hdr_contrast, 0.0f, 100.0f, 50.0f, "%.0f", nullptr);
     SliderReset("Saturation", s.hdr_saturation, 0.0f, 100.0f, 50.0f, "%.0f", nullptr);
-    ImGui::EndDisabled();
+    // PsychoV: how far its hues go to Vanilla+'s (RenoDX's hue correction).
+    if (s.hdr_tonemapper == BbSettings::HdrToneMapperPsychoV) {
+        SliderReset("Hue Correction", s.hdr_hue_correction, 0.0f, 100.0f, 0.0f, "%.0f %%",
+                    BbSettings::MenuText(
+                        "How far the colors take Vanilla+'s hues (RenoDX's hue correction): 0 "
+                        "keeps PsychoV-30's own (bright fires more yellow), 100 Vanilla+'s (fires "
+                        "more orange). Brightness and saturation do not change.",
+                        "Насколько цвета берут оттенки Vanilla+ (коррекция оттенка RenoDX): 0 "
+                        "оставляет собственные оттенки PsychoV-30 (яркий огонь желтее), 100 "
+                        "оттенки Vanilla+ (огонь оранжевее). Яркость и насыщенность не "
+                        "меняются."));
+    }
     if (level >= 1) {
         SliderReset("Color Grade Strength", s.hdr_scene_grading, 0.0f, 100.0f, 100.0f, "%.0f %%",
                     BbSettings::MenuText(
                         "The game's own color grading: 100 is the game's look, 0 the image before "
                         "it.",
                         "Собственная цветокоррекция игры: 100 как в игре, 0 картинка до неё."));
-        static const char* bridges[] = {"Exact", "RenoDX"};
-        const int bridge = std::clamp(s.hdr_lut_bridge.load(), 0, 1);
-        if (const int chosen = ComboIndex("Color Table Bridge", bridge, bridges, 2, 0);
-            chosen != bridge) {
-            Store(s.hdr_lut_bridge, chosen, true);
-        }
-        Hint(BbSettings::MenuText(
-            "How the HDR image goes through the game's color table. Both bring colors outside "
-            "BT.709 inside it and back (RenoDX's gamut bridge), so they are graded too. Exact: the "
-            "game's own grade up to white. RenoDX: RenoDX's bridge as it is, smoother above white, "
-            "mid tones graded slightly differently. Live.",
-            "Как HDR-картинка проходит через таблицу цветов игры. Оба режима вписывают цвета вне "
-            "BT.709 и возвращают их (мост охвата RenoDX), так что они тоже грейдятся. Exact: "
-            "собственный грейд игры до белого. RenoDX: мост RenoDX как есть, мягче выше белого, "
-            "средние тона чуть иначе. Сразу."));
         SliderReset("Black Floor", s.hdr_black_floor, 0.0f, 2.0f, 0.0f, "%.2f nits",
                     BbSettings::MenuText(
                         "Takes the game's darkest greys down to true black (OLED). 0 keeps the "
@@ -726,22 +690,22 @@ void PsychoSection(BbSettings::Values& s) {
                                        "5. Copy above white",
                                        "6. Final pass: colors outside BT.709",
                                        "7. Final pass: HUD"};
-        s.hdr_native16_probe = ComboIndex("16-bit probe", s.hdr_native16_probe, probes, 8, 0);
+        s.hdr_native16_probe = ComboIndex("Test probe", s.hdr_native16_probe, probes, 8, 0);
         Hint(BbSettings::MenuText(
-            "6: magenta where a color outside BT.709 (Target gamut BT.2020) reaches the final pass, "
+            "6: magenta where a color outside BT.709 (PsychoV's BT.2020) reaches the final pass, "
             "a BT.709 channel below 0 kept to the end. 7: red over what the final pass takes as the "
             "HUD (shown at UI Brightness). Not saved.",
-            "6: пурпурный там, где цвет вне BT.709 (Target gamut BT.2020) доходит до финального "
+            "6: пурпурный там, где цвет вне BT.709 (BT.2020 у PsychoV) доходит до финального "
             "прохода с отрицательным каналом BT.709. 7: красный там, где финальный проход видит "
             "интерфейс (HUD). Не сохраняется."));
-        if (ImGui::Button("Log the 16-bit chain (one frame)")) {
+        if (ImGui::Button("Log the HDR chain (one frame)")) {
             s.hdr_chain_trace = true;
         }
         Hint("BB_GPU_LOG=info: the HDR trace lines in the log.");
     }
     ImGui::SeparatorText("About");
-    ImGui::TextDisabled("HDR16 by LRF17 (github.com/LRF17/LanternEngine-HDR16).");
-    ImGui::TextDisabled("PsychoV-30 and this menu's layout from RenoDX");
+    ImGui::TextDisabled("Native+ HDR by LRF17 (github.com/LRF17/LanternEngine-NativePlusHDR).");
+    ImGui::TextDisabled("PsychoV-30, hue correction and this menu's layout from RenoDX");
     ImGui::TextDisabled("(github.com/clshortfuse/renodx, Carlos Lopez and contributors, MIT).");
     ImGui::TextDisabled("Tone mapper Vanilla+ by souperman9 (from his RenoDX Bloodborne mod).");
 }
@@ -781,22 +745,24 @@ void HdrSection() {
     }
     int mode = std::clamp(s.hdr_mode.load(), 0, BbSettings::HdrModeCount - 1);
     if (const char* label = Item("HDR mode", "Режим HDR")) {
-        // bbport: hdr_mode, live (docs/hdr.md); HDR16 (hdr_mode=psychov30) on restart.
+        // bbport: hdr_mode, live (docs/hdr.md); Native+ (hdr_mode=psychov30) on restart.
         const char* modes[BbSettings::HdrModeCount] = {
             BbSettings::MenuText("Native (from the game's HDR scene)", "Нативный (из HDR-сцены игры)"),
             BbSettings::MenuText("Expand (from the SDR picture)", "Расширение (из SDR-картинки)"),
-            "HDR16 (16-bit, restart required)",
+            "Native+ (restart required)",
         };
         const bool mode_changed = ImGui::Combo(label, &mode, modes, BbSettings::HdrModeCount);
         Store(s.hdr_mode, mode, mode_changed);
         Hint(BbSettings::MenuText(
-            "HDR16: the game's own light in 16 bits, tone mapped by Vanilla+ or PsychoV-30, with the "
+            "Native+: the light of the game's scene kept to the screen, tone mapped to your display's "
+            "peak by Vanilla+ or PsychoV, with the "
             "RenoDX-style settings below; entering or leaving it applies after restarting the game. "
             "Native: the brightness of lamps, fire, the moon and other highlights comes from the "
             "game's own HDR scene, before its tonemap clipped it to SDR white. Midtones, colours and "
             "the UI stay as in the SDR picture. Menus, loading screens and movies (no scene) use "
             "Expand. Expand: the SDR picture's brightest parts are stretched towards the peak.",
-            "HDR16: собственный свет игры в 16 битах, тонмаппинг Vanilla+ или PsychoV-30, с "
+            "Native+: свет сцены игры сохраняется до экрана, тонмаппинг под пик дисплея Vanilla+ "
+            "или PsychoV, с "
             "настройками в стиле RenoDX ниже; включение и выключение применяются после перезапуска. "
             "Нативный: яркость ламп, огня, луны и других светлых мест берётся из собственной "
             "HDR-сцены игры, до того как тонмаппинг обрезал её до белого SDR. Средние тона, цвета и "
@@ -811,8 +777,8 @@ void HdrSection() {
     }
     if (s.startup_psychov30 && WholeSection() && Shown("HDR output", "Вывод HDR")) {
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s",
-                           BbSettings::MenuText("HDR16 stays on until the game restarts.",
-                                                "HDR16 работает до перезапуска игры."));
+                           BbSettings::MenuText("Native+ stays on until the game restarts.",
+                                                "Native+ работает до перезапуска игры."));
     }
     if (const char* label = Item("Paper white (nits)", "Белый SDR (нит)")) {
         Slider(label, s.hdr_paper_white, BbSettings::HdrPaperWhiteMin, BbSettings::HdrPaperWhiteMax, "%.0f",
@@ -910,7 +876,7 @@ void PictureSection() {
             "0.25-8)."));
     }
     const bool vignette = s.graphics_vignette;
-    // HDR16: brightness, contrast, saturation and bloom are the HDR section's (engine/graphics.cpp
+    // Native+: brightness, contrast, saturation and bloom are the HDR section's (engine/graphics.cpp
     // leaves the game's own ones as drawn), not shown twice.
     const bool hdr_grading = s.startup_psychov30;
     bool moved = false;
@@ -956,10 +922,10 @@ void PictureSection() {
     if (hdr_grading && WholeSection() && Shown("Picture", "Изображение")) {
         ImGui::PushTextWrapPos();
         ImGui::TextDisabled("%s", BbSettings::MenuText(
-            "HDR16: brightness, contrast, saturation and bloom are set in the HDR section "
+            "Native+: brightness, contrast, saturation and bloom are set in the HDR section "
             "(Exposure, Contrast, Saturation, Bloom); the game's own ones stay as drawn here "
             "and in the game's PC Colour menu.",
-            "HDR16: яркость, контраст, насыщенность и bloom задаются в разделе HDR "
+            "Native+: яркость, контраст, насыщенность и bloom задаются в разделе HDR "
             "(Exposure, Contrast, Saturation, Bloom); собственные значения игры здесь и в меню PC "
             "Colour не меняются."));
         ImGui::PopTextWrapPos();

@@ -347,15 +347,15 @@ int main() {
     BbSettings::Load();
     assert(s.frame_gen == BbSettings::FrameGenFsr3 && s.reflex == BbSettings::ReflexOn &&
            s.render_scale == BbSettings::RenderScaleMax);
-    // HDR16 (hdr_mode=psychov30).
-    { std::ofstream file(path); file << "hdr=1\nhdr_mode=psychov30\nhdr_tonemapper=3\n"
+    // Native+ (hdr_mode=nativeplus; the earlier psychov30 read and written back as nativeplus).
+    { std::ofstream file(path); file << "hdr=1\nhdr_mode=psychov30\nhdr_tonemapper=4\n"
         "hdr_exposure=1.25\nhdr_scene_grading=75\nhdr_bloom=40\n"; }
     BbSettings::Load();
     assert(s.startup_psychov30 && s.hdr_mode == BbSettings::HdrModePsychoV30);
-    assert(s.hdr_tonemapper == BbSettings::HdrToneMapperPsychoScene &&
+    assert(s.hdr_tonemapper == BbSettings::HdrToneMapperPsychoV &&
            s.hdr_exposure == 1.25f && s.hdr_scene_grading == 75.0f && s.hdr_bloom == 40.0f);
     BbSettings::Save();
-    assert(Read(path).find("hdr_mode=psychov30\n") != std::string::npos);
+    assert(Read(path).find("hdr_mode=nativeplus\n") != std::string::npos);
     BbSettings::Load();
     assert(s.startup_psychov30 && s.hdr_exposure == 1.25f && s.hdr_bloom == 40.0f);
     { std::ofstream file(path); file << "hdr=0\nhdr_mode=psychov30\nhdr_tonemapper=99\n"
@@ -365,7 +365,7 @@ int main() {
     assert(s.hdr_exposure == 1.0f && s.hdr_bloom == 100.0f && s.hdr_scene_grading == 0.0f);
     // HDR presets (PsychoV30 menu): a file from before them becomes Preset #1; another preset
     // starts from the defaults; each keeps its own settings through a save and a reload.
-    { std::ofstream file(path); file << "hdr=1\nhdr_mode=psychov30\nhdr_exposure=1.40\n"
+    { std::ofstream file(path); file << "hdr=1\nhdr_mode=nativeplus\nhdr_exposure=1.40\n"
         "hdr_contrast=70\nhdr_paper_white=180\n"; }
     BbSettings::Load();
     assert(s.hdr_preset == 1 && s.hdr_exposure == 1.4f && s.hdr_contrast == 70.0f);
@@ -393,68 +393,74 @@ int main() {
     BbSettings::SetDisplayPeak(0.0f);
     BbSettings::SelectHdrPreset(0); // Off keeps the values; the renderer shows the game's look
     assert(s.hdr_preset == 0 && s.hdr_saturation == 50.0f);
-    // PsychoV30's target gamut: BT.2020 by default, saved by name, kept per preset.
+    // Tone mappers: Vanilla+ by default; PsychoV (4) saved, read back and kept per preset; 0.9.38.2's
+    // PsychoV (7) read as PsychoV with Vanilla+ Highlights and Hue Correction at 100 %; the earlier
+    // Vanilla (2), Hybrid (3), Neutwo (0) and PsychoV-17 (6) read as Vanilla+. The removed
+    // settings (target gamut, gamut compression, compression, colour-table bridge) are ignored.
     { std::ofstream file(path); file << "hdr=1\nhdr_mode=psychov30\n"; }
     BbSettings::Load();
-    assert(s.hdr_gamut == BbSettings::HdrGamutBt2020);
-    s.hdr_gamut = BbSettings::HdrGamutBt709;
-    BbSettings::SelectHdrPreset(3);
-    assert(s.hdr_gamut == BbSettings::HdrGamutBt2020);
-    BbSettings::SelectHdrPreset(1);
-    assert(s.hdr_gamut == BbSettings::HdrGamutBt709);
-    BbSettings::Save();
-    assert(Read(path).find("hdr_gamut=bt709\n") != std::string::npos);
-    BbSettings::Load();
-    assert(s.hdr_gamut == BbSettings::HdrGamutBt709);
-    // Vanilla+ the default; Hybrid (bbport.ini only) saved, kept per preset.
     assert(s.hdr_tonemapper == BbSettings::HdrToneMapperVanillaPlus);
-    s.hdr_tonemapper = BbSettings::HdrToneMapperPsychoScene;
-    BbSettings::Save();
-    assert(Read(path).find("hdr_tonemapper=3\n") != std::string::npos);
-    BbSettings::Load();
-    assert(s.hdr_tonemapper == BbSettings::HdrToneMapperPsychoScene);
-    BbSettings::SelectHdrPreset(2);
-    assert(s.hdr_tonemapper == BbSettings::HdrToneMapperVanillaPlus);
-    BbSettings::SelectHdrPreset(1);
-    assert(s.hdr_tonemapper == BbSettings::HdrToneMapperPsychoScene);
-    // PsychoV-30 saved and read back.
-    s.hdr_tonemapper = BbSettings::HdrToneMapperPsychoPure;
+    s.hdr_tonemapper = BbSettings::HdrToneMapperPsychoV;
     BbSettings::Save();
     assert(Read(path).find("hdr_tonemapper=4\n") != std::string::npos);
+    assert(Read(path).find("hdr_gamut") == std::string::npos &&
+           Read(path).find("hdr_lut_bridge") == std::string::npos &&
+           Read(path).find("hdr_compression") == std::string::npos);
     BbSettings::Load();
-    assert(s.hdr_tonemapper == BbSettings::HdrToneMapperPsychoPure);
-    s.hdr_tonemapper = BbSettings::HdrToneMapperVanillaPlus;
-    // PsychoV30's gamut compression and compression: 1 by default, saved, clamped, per preset.
-    assert(s.hdr_gamut_compression == 1.0f && s.hdr_compression == 1.0f);
-    s.hdr_gamut_compression = 0.5f;
-    s.hdr_compression = 0.0f;
-    BbSettings::Save();
-    assert(Read(path).find("hdr_gamut_compression=0.50\n") != std::string::npos);
-    assert(Read(path).find("hdr_compression=0.00\n") != std::string::npos);
-    BbSettings::Load();
-    assert(s.hdr_gamut_compression == 0.5f && s.hdr_compression == 0.0f);
+    assert(s.hdr_tonemapper == BbSettings::HdrToneMapperPsychoV);
     BbSettings::SelectHdrPreset(2);
-    assert(s.hdr_gamut_compression == 1.0f && s.hdr_compression == 1.0f);
+    assert(s.hdr_tonemapper == BbSettings::HdrToneMapperVanillaPlus);
     BbSettings::SelectHdrPreset(1);
-    assert(s.hdr_gamut_compression == 0.5f && s.hdr_compression == 0.0f);
-    { std::ofstream file(path); file << "hdr=1\nhdr_mode=psychov30\nhdr_compression=9\n"
-                                        "hdr_gamut_compression=-1\n"; }
-    BbSettings::Load();
-    assert(s.hdr_compression == 2.0f && s.hdr_gamut_compression == 0.0f);
-    // The color table's bridge: Exact by default, saved by name, per preset, reset.
-    assert(s.hdr_lut_bridge == 0);
-    s.hdr_lut_bridge = 1;
-    BbSettings::Save();
-    assert(Read(path).find("hdr_lut_bridge=renodx\n") != std::string::npos);
-    BbSettings::Load();
-    assert(s.hdr_lut_bridge == 1);
-    BbSettings::SelectHdrPreset(2);
-    assert(s.hdr_lut_bridge == 0);
-    BbSettings::SelectHdrPreset(1);
-    assert(s.hdr_lut_bridge == 1);
+    assert(s.hdr_tonemapper == BbSettings::HdrToneMapperPsychoV);
     BbSettings::ResetHdr();
-    assert(s.hdr_lut_bridge == 0);
-    // UI Brightness in nits (203 by default, 48..500); the earlier ratio converted with the
+    { std::ofstream file(path); file << "hdr=1\nhdr_mode=nativeplus\nhdr_hue_correction=-1\n"
+                                        "hdr_tonemapper=7\n"; }
+    BbSettings::Load();
+    assert(s.hdr_tonemapper == BbSettings::HdrToneMapperPsychoV &&
+           s.hdr_vplus_highlights == 100.0f && s.hdr_hue_correction == 100.0f);
+    BbSettings::Save();
+    assert(Read(path).find("hdr_tonemapper=4\n") != std::string::npos &&
+           Read(path).find("hdr_vplus_highlights=100\n") != std::string::npos &&
+           Read(path).find("hdr_hue_correction=100\n") != std::string::npos);
+    for (const char* earlier : {"0", "2", "3", "6"}) {
+        { std::ofstream file(path); file << "hdr=1\nhdr_mode=psychov30\nhdr_tonemapper=" << earlier
+                                         << "\nhdr_gamut=bt709\nhdr_lut_bridge=renodx\n"
+                                            "hdr_compression=0\nhdr_gamut_compression=0.5\n"; }
+        BbSettings::Load();
+        assert(s.hdr_tonemapper == BbSettings::HdrToneMapperVanillaPlus);
+    }
+    // PsychoV's Vanilla+ Highlights and Hue Correction: 0 by default, kept per preset, saved and
+    // read back, clamped to 0..100; a Hue Correction below 0 (a test build's "not set") is ignored.
+    BbSettings::ResetHdr();
+    assert(s.hdr_hue_correction == 0.0f && s.hdr_vplus_highlights == 0.0f);
+    s.hdr_tonemapper = BbSettings::HdrToneMapperPsychoV;
+    s.hdr_hue_correction = 40.0f;
+    s.hdr_vplus_highlights = 65.0f;
+    assert(BbSettings::HueCorrectionPercent() == 40.0f &&
+           BbSettings::VanillaPlusHighlightsPercent() == 65.0f);
+    BbSettings::Save();
+    assert(Read(path).find("hdr_hue_correction=40\n") != std::string::npos &&
+           Read(path).find("hdr_vplus_highlights=65\n") != std::string::npos);
+    BbSettings::Load();
+    assert(s.hdr_hue_correction == 40.0f && s.hdr_vplus_highlights == 65.0f);
+    BbSettings::SelectHdrPreset(2);
+    assert(s.hdr_hue_correction == 0.0f && s.hdr_vplus_highlights == 0.0f);
+    BbSettings::SelectHdrPreset(1);
+    assert(s.hdr_hue_correction == 40.0f && s.hdr_vplus_highlights == 65.0f);
+    for (const char* text : {"-5", "nan"}) {
+        { std::ofstream file(path); file << "hdr=1\nhdr_mode=nativeplus\nhdr_hue_correction="
+                                         << text << "\nhdr_vplus_highlights=" << text << "\n"; }
+        s.hdr_hue_correction = 30.0f;
+        BbSettings::Load();
+        assert(s.hdr_hue_correction == 30.0f && s.hdr_vplus_highlights == 0.0f);
+    }
+    { std::ofstream file(path); file << "hdr=1\nhdr_mode=nativeplus\nhdr_hue_correction=250\n"
+                                        "hdr_vplus_highlights=250\n"; }
+    BbSettings::Load();
+    assert(s.hdr_hue_correction == 100.0f && s.hdr_vplus_highlights == 100.0f);
+    BbSettings::ResetHdr();
+    assert(s.hdr_hue_correction == 0.0f && s.hdr_vplus_highlights == 0.0f);
+   // UI Brightness in nits (203 by default, 48..500); the earlier ratio converted with the
     // paper white written before it, and not written back.
     assert(s.hdr_ui_nits == 203.0f);
     { std::ofstream file(path); file << "hdr=1\nhdr_mode=psychov30\nhdr_paper_white=180\n"

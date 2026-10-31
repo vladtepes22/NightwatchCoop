@@ -525,6 +525,14 @@ private:
 
     /// Display pass: counts the frame (BbStats::gpu_frames) and, with BB_BUFFER_STATS, the lag.
     void NoteFrameStart();
+    /// Native+ diagnostic (BB_COLOR_TABLE_LOG=0 turns it off): the game's color table, the
+    /// ColorGrading pass's 16x16x16 3D texture, read back at most every 2 s and logged when it
+    /// changes (how far from a neutral table), and a line when the pass stops being drawn: tells a
+    /// place without grading from a neutral table. NoteColorTable marks it in the pass's draw;
+    /// the next draw reads it (after the pass is recorded); NoteFrameStart checks its absence.
+    void NoteColorTable(const Shader::Info& stage);
+    void ReadColorTable(VAddr address);
+    void CheckColorTablePresence();
     /// BB_GPU_PROFILE: a timestamp where a render pass starts (vk_gpu_profiler.h).
     void MarkPass(const GraphicsPipeline* pipeline, const RenderState& state);
     void BindVertexBuffers(const GraphicsPipeline* pipeline,
@@ -822,6 +830,12 @@ private:
     bool pipeline_is_compute = false; ///< bbport: the bound pipeline of BindResources
     bool scene_debug_frame = false; ///< BB_SCENE_DEBUG: this frame's passes are printed
     u32 preupload_frame = ~0u; ///< bbport: frame of the last background pre-upload
+    VAddr color_table_pending = 0;   ///< NoteColorTable: the table to read at the next draw
+    u64 color_table_next_ms = 0;     ///< NoteColorTable: no read before this (steady ms)
+    u64 color_table_seen_ms = 0;     ///< the pass's last draw (steady ms; 0 never)
+    bool color_table_gone = false;   ///< CheckColorTablePresence: the absence is logged
+    std::shared_ptr<std::atomic<u64>> color_table_hash =
+        std::make_shared<std::atomic<u64>>(0); ///< the last table logged (read-back thread)
     bool PendingWriteOverlaps(VAddr address, u64 size);
     /// Stage B: the ring bindings of the stages of the packet being recorded.
     struct RingStage {

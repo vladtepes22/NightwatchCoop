@@ -364,7 +364,7 @@ void Presenter::CreateHdrTarget(HdrTarget& target, vk::Extent2D extent, const ch
     const bool sdr = format == vk::Format::eUndefined;
     const vk::ImageCreateInfo image_info = {
         .imageType = vk::ImageType::e2D,
-        // HDR16: the composite keeps the 16-bit chain's values above white.
+        // Native+: the composite keeps the 16-bit chain's values above white.
         .format = !sdr ? format
                   : HdrChannel::Native16() && std::strcmp(name, "composite") == 0
                       ? HdrChannel::Native16Format
@@ -439,7 +439,7 @@ void Presenter::EnsureDlssHdrTargets(vk::Extent2D extent) {
                 DestroyHdrTarget(hudless);
             });
     }
-    // HDR16: the 16-bit chain's frame without its UI, as the back buffer's composite.
+    // Native+: the 16-bit chain's frame without its UI, as the back buffer's composite.
     CreateHdrTarget(dlss_hdr_composite, extent, "DLSS-G HUD-less composite",
                     HdrChannel::Native16() ? HdrChannel::Native16Format : vk::Format::eUndefined);
     CreateHdrTarget(dlss_hdr_hudless, extent, "DLSS-G HUD-less", swapchain.GetHdrFormat().format);
@@ -580,11 +580,10 @@ void Presenter::PresentHdr(vk::CommandBuffer cmdbuf, Frame* frame, vk::Extent2D 
                  (psycho && frame->psycho_encoded ? HostPasses::HdrOutputPass::FlagEncoded : 0u) |
                  (psycho && frame->psycho_snapshot ? HostPasses::HdrOutputPass::FlagSnapshot : 0u) |
                  (psycho && settings.hdr_native16_probe == 6 ? HostPasses::HdrOutputPass::FlagNegativeProbe : 0u) |
-                 (psycho && frame->psycho_snapshot && frame->psycho_snapshot->ui_mask ? HostPasses::HdrOutputPass::FlagUiMask : 0u) |
                  // PsychoV30: the 16-bit probe 7, the pixels taken as the HUD in red.
                  (debug || (psycho && settings.hdr_native16_probe == 7) ? HostPasses::HdrOutputPass::FlagDebug : 0u) |
                  (mode == BbSettings::HdrModeNative && !native ? HostPasses::HdrOutputPass::FlagUiFrame : 0u) |
-                 // The split comparison (Native / Expand); HDR16 has its own (hdr16_compare).
+                 // The split comparison (Native / Expand); Native+ has its own (hdr16_compare).
                  (!psycho && settings.hdr_compare.load(std::memory_order_relaxed) ? HostPasses::HdrOutputPass::FlagCompare : 0u),
         .gain_offset = {float(fit.offset.x), float(fit.offset.y)},
         .gain_scale = {1.0f / float(std::max(fit.extent.width, 1u)),
@@ -673,10 +672,9 @@ void Presenter::PresentHdr(vk::CommandBuffer cmdbuf, Frame* frame, vk::Extent2D 
     };
     barriers(to_encode);
     auto hudless_hdr = hdr;
-    // Without the menu layer; HDR16: no UI to tell from the scene in it (no pre-UI snapshot).
+    // Without the menu layer; Native+: no UI to tell from the scene in it (no pre-UI snapshot).
     hudless_hdr.flags &= ~(HostPasses::HdrOutputPass::FlagOverlay |
-                           HostPasses::HdrOutputPass::FlagSnapshot |
-                           HostPasses::HdrOutputPass::FlagUiMask);
+                           HostPasses::HdrOutputPass::FlagSnapshot);
     hdr_pass.Render(cmdbuf, dlss_hdr_composite.view, dlss_hdr_composite.view,
                     native ? *frame->hdr_gain->view : dlss_hdr_composite.view,
                     native ? Layout::eGeneral : Layout::eShaderReadOnlyOptimal,
@@ -699,7 +697,7 @@ void Presenter::LogHdrState(bool scrgb, int mode, bool native_frame) {
         std::printf("HDR output: %s, mode %s (%s)\n",
                     scrgb ? "scRGB (FP16)" : "HDR10 (PQ, BT.2020)", BbSettings::HdrModeNames[mode],
                     HdrChannel::Native16()
-                        ? "HDR16, tone mapped on the game's scene, 16-bit chain"
+                        ? "Native+, tone mapped on the game's scene, 16-bit chain"
                     : mode == BbSettings::HdrModeNative
                         ? "highlights from the game's HDR scene, plain SDR where a frame has none"
                         : "highlights expanded from the SDR picture");
@@ -982,7 +980,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     std::optional<FrameGenerator::Job> gen_job;
     Frame* generated = nullptr;
     {
-        // HDR16's frames are HDR too (16-bit): FSR 3.1 interpolates them as they are.
+        // Native+'s frames are HDR too (16-bit): FSR 3.1 interpolates them as they are.
         const bool hdr = BbSettings::Get().hdr_output.load(std::memory_order_relaxed) !=
                              BbSettings::HdrOutputOff ||
                          frame->is_hdr || psycho_frame;
@@ -1136,7 +1134,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
         generated->ready_semaphore = frame->ready_semaphore;
         generated->ready_tick = frame->ready_tick;
         generated->hdr_native = false;
-        // HDR16 (FSR 3.1 frame generation): the generated frame is the chain's 16-bit image
+        // Native+ (FSR 3.1 frame generation): the generated frame is the chain's 16-bit image
         // like the real one, encoded alike by the final pass; without the real frame's pre-HUD
         // snapshot (the scene moved since: what moved would be taken for HUD), so its HUD is
         // shown as the scene's white.

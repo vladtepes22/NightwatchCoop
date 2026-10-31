@@ -515,15 +515,16 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     } else if (key == "hdr_ui_color") {
         v.hdr_ui_color = Clamp(std::isfinite(f) ? f : HdrUiColorDefault, 0.0f, 1.0f);
     } else if (key == "hdr_mode") {
-        int mode = -1;
+        // Native+'s name before 0.9.38.2 is still read (and written back as nativeplus).
+        int mode = value == "psychov30" ? int(HdrModePsychoV30) : -1;
         for (int m = 0; m < HdrModeCount; ++m) {
             if (value == HdrModeNames[m]) {
                 mode = m;
             }
         }
         if (mode < 0) {
-            std::printf("Settings: unknown hdr_mode '%s' (expected native or expand); native\n",
-                        value.c_str());
+            std::printf("Settings: unknown hdr_mode '%s' (expected native, expand or nativeplus); "
+                        "native\n", value.c_str());
         }
         v.hdr_mode = mode < 0 ? HdrModeNative : mode;
     } else if (key == "hdr_exposure") {
@@ -542,19 +543,25 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.hdr_scene_grading = Clamp(std::isfinite(f) ? f : 100.0f, 0.0f, 100.0f);
     } else if (key == "hdr_black_floor") {
         v.hdr_black_floor = Clamp(std::isfinite(f) ? f : 0.0f, 0.0f, 2.0f);
-    } else if (key == "hdr_gamut_compression") {
-        v.hdr_gamut_compression = Clamp(std::isfinite(f) ? f : 1.0f, 0.0f, 1.0f);
-    } else if (key == "hdr_compression") {
-        v.hdr_compression = Clamp(std::isfinite(f) ? f : 1.0f, 0.0f, 2.0f);
-    } else if (key == "hdr_lut_bridge") {
-        v.hdr_lut_bridge = value == "renodx" ? 1 : 0;
+    } else if (key == "hdr_hue_correction") {
+        // Below 0 (a test build's "not set") or not a number: left as it is (the default, or
+        // 100 % from hdr_tonemapper=7 read before it).
+        if (std::isfinite(f) && f >= 0.0f) {
+            v.hdr_hue_correction = Clamp(f, 0.0f, 100.0f);
+        }
+    } else if (key == "hdr_vplus_highlights") {
+        v.hdr_vplus_highlights = Clamp(std::isfinite(f) ? f : 0.0f, 0.0f, 100.0f);
     } else if (key == "hdr_tonemapper") {
-        v.hdr_tonemapper = i == HdrToneMapperVanilla       ? HdrToneMapperVanilla
-                           : i == HdrToneMapperPsychoScene ? HdrToneMapperPsychoScene
-                           : i == HdrToneMapperPsychoPure  ? HdrToneMapperPsychoPure
-                                                           : HdrToneMapperVanillaPlus;
-    } else if (key == "hdr_gamut") {
-        v.hdr_gamut = value == "bt709" ? HdrGamutBt709 : HdrGamutBt2020;
+        // PsychoV or Vanilla+. 7, 0.9.38.2's PsychoV (Vanilla+'s curve above mid grey and its
+        // hues), is PsychoV with both sliders at 100 %; the earlier Vanilla, Hybrid, Neutwo and
+        // PsychoV-17 read as Vanilla+.
+        if (i == HdrToneMapperPsychoVPlus) {
+            v.hdr_vplus_highlights = 100.0f;
+            v.hdr_hue_correction = 100.0f;
+        }
+        v.hdr_tonemapper = i == HdrToneMapperPsychoV || i == HdrToneMapperPsychoVPlus
+                               ? HdrToneMapperPsychoV
+                               : HdrToneMapperVanillaPlus;
     } else if (key == "hdr_compare") {
         v.hdr_compare = std::clamp(i, 0, 1);
     } else if (key == "live_resolution") {
@@ -622,7 +629,7 @@ MenuLanguage LanguageOfLocale(const char* lang) {
     return MenuLanguage::English;
 }
 
-// The HDR16 settings a preset holds, as lantern.ini writes them, separated by `sep`.
+// The Native+ settings a preset holds, as lantern.ini writes them, separated by `sep`.
 std::string HdrText(const Values& v, char sep) {
     std::string out;
     char item[64];
@@ -636,7 +643,6 @@ std::string HdrText(const Values& v, char sep) {
     add("hdr_peak_auto=%d", v.hdr_peak_auto.load() ? 1 : 0);
     add("hdr_ui_nits=%.0f", v.hdr_ui_nits.load());
     add("hdr_tonemapper=%d", v.hdr_tonemapper.load());
-    add("hdr_gamut=%s", v.hdr_gamut == HdrGamutBt709 ? "bt709" : "bt2020");
     add("hdr_exposure=%.2f", v.hdr_exposure.load());
     add("hdr_contrast=%.0f", v.hdr_contrast.load());
     add("hdr_grade_highlights=%.0f", v.hdr_grade_highlights.load());
@@ -645,9 +651,8 @@ std::string HdrText(const Values& v, char sep) {
     add("hdr_bloom=%.0f", v.hdr_bloom.load());
     add("hdr_scene_grading=%.0f", v.hdr_scene_grading.load());
     add("hdr_black_floor=%.2f", v.hdr_black_floor.load());
-    add("hdr_gamut_compression=%.2f", v.hdr_gamut_compression.load());
-    add("hdr_compression=%.2f", v.hdr_compression.load());
-    add("hdr_lut_bridge=%s", v.hdr_lut_bridge == 1 ? "renodx" : "exact");
+    add("hdr_hue_correction=%.0f", v.hdr_hue_correction.load());
+    add("hdr_vplus_highlights=%.0f", v.hdr_vplus_highlights.load());
     return out;
 }
 
@@ -673,7 +678,6 @@ void ResetHdr(Values& v) {
     v.hdr_peak_auto = true; // the display's peak when it reports one
     v.hdr_ui_nits = HdrUiNitsDefault;
     v.hdr_tonemapper = HdrToneMapperVanillaPlus;
-    v.hdr_gamut = HdrGamutBt2020;
     v.hdr_exposure = 1.0f;
     v.hdr_contrast = 50.0f;
     v.hdr_grade_highlights = 50.0f;
@@ -682,9 +686,8 @@ void ResetHdr(Values& v) {
     v.hdr_bloom = 50.0f;
     v.hdr_scene_grading = 100.0f;
     v.hdr_black_floor = 0.0f;
-    v.hdr_gamut_compression = 1.0f;
-    v.hdr_compression = 1.0f;
-    v.hdr_lut_bridge = 0;
+    v.hdr_hue_correction = 0.0f;
+    v.hdr_vplus_highlights = 0.0f;
 }
 
 } // namespace
@@ -729,6 +732,14 @@ float DefaultPeakNits() {
 float DefaultGameNits() {
     // BT.2408's HDR reference white, whatever the display's peak.
     return HdrPaperWhiteDefault;
+}
+
+float HueCorrectionPercent() {
+    return std::clamp(Get().hdr_hue_correction.load(), 0.0f, 100.0f);
+}
+
+float VanillaPlusHighlightsPercent() {
+    return std::clamp(Get().hdr_vplus_highlights.load(), 0.0f, 100.0f);
 }
 
 void SetDisplayPeak(float nits) {
@@ -1109,11 +1120,9 @@ void Save() {
     put("hdr_bloom", fixed(v.hdr_bloom, 3));
     put("hdr_scene_grading", fixed(v.hdr_scene_grading, 3));
     put("hdr_black_floor", fixed(v.hdr_black_floor, 3));
-    put("hdr_gamut_compression", fixed(v.hdr_gamut_compression, 2));
-    put("hdr_compression", fixed(v.hdr_compression, 2));
-    put("hdr_lut_bridge", v.hdr_lut_bridge == 1 ? "renodx" : "exact");
+    put("hdr_hue_correction", fixed(v.hdr_hue_correction, 0));
+    put("hdr_vplus_highlights", fixed(v.hdr_vplus_highlights, 0));
     put("hdr_tonemapper", std::to_string(v.hdr_tonemapper.load()));
-    put("hdr_gamut", v.hdr_gamut == HdrGamutBt709 ? "bt709" : "bt2020");
     put("hdr_mode", HdrModeNames[std::clamp(v.hdr_mode.load(), 0, HdrModeCount - 1)]);
     // The HDR presets (in-game menu): the selected one holds the settings above.
     put("hdr_preset", std::to_string(v.hdr_preset.load()));
