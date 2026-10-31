@@ -10,3 +10,8 @@ dist/
 launcher/windows/install.txt
 /work/
 __pycache__/
+
+# Python caches (a tracked .pyc once carried a personal path)
+__pycache__/
+*.pyc
+.pytest_cache/
