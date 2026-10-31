@@ -107,7 +107,7 @@ class Party(unittest.TestCase):
     def test_guest_roles(self):
         self.assertEqual(coop.guest_roles(1), ['guest'])
         self.assertEqual(coop.guest_roles(3), ['guest', 'guest2', 'guest3'])
-        self.assertTrue(set(coop.guest_roles(3)) < set(coop.ROLES))
+        self.assertTrue(set(coop.guest_roles(4)) < set(coop.ROLES))
 
 
 class CrashLines(unittest.TestCase):
