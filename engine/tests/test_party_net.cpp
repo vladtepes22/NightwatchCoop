@@ -980,11 +980,13 @@ static void test_vpnlobby() {
     CHECK(utf16_to_utf8(w1, 8) == "Hunter");
     const char16_t w2[] = {0x30cf, 0xd83d, 0xde00, 0xd800, 'z', 0};
     CHECK(utf16_to_utf8(w2, 6) == "\xe3\x83\x8f\xf0\x9f\x98\x80" "z");
-    // only 10.8.0.2 .. 10.8.0.254 are player addresses
-    CHECK(is_tunnel_player_address(0x0a080002u) && is_tunnel_player_address(0x0a0800feu));
+    // 10.8.0.0/22 minus network, server and broadcast: 10.8.0.2 .. 10.8.3.254 are player addresses
+    CHECK(is_tunnel_player_address(0x0a080002u) && is_tunnel_player_address(0x0a0800feu) &&
+          is_tunnel_player_address(0x0a0800ffu) && is_tunnel_player_address(0x0a080102u) &&
+          is_tunnel_player_address(0x0a080300u) && is_tunnel_player_address(0x0a0803feu));
     CHECK(!is_tunnel_player_address(0x0a080001u) && !is_tunnel_player_address(0x0a080000u) &&
-          !is_tunnel_player_address(0x0a0800ffu) && !is_tunnel_player_address(0x0a080102u) &&
-          !is_tunnel_player_address(0xc0a80102u));
+          !is_tunnel_player_address(0x0a0803ffu) && !is_tunnel_player_address(0x0a080400u) &&
+          !is_tunnel_player_address(0x0a090002u) && !is_tunnel_player_address(0xc0a80102u));
     // the announcer thread: a stand-in lobby on 127.0.0.1 gets the announce, then a bye when hosting ends
 #if defined(_WIN32)
     using Sock = SOCKET;

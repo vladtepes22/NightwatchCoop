@@ -51,8 +51,8 @@ namespace party {
 constexpr std::uint16_t kLinkProtocolVersion = 2;  // 2: HELLO carries the patch / mod sets
 constexpr int kBroadcast = -1;  // send_* target: every member (host side)
 // Players a party may hold, the host included (BB_PARTY_MAX, default 3, is clamped to
-// 2..kMaxPartyPlayers): host + 4 guests (user, 2026-10-12: 5-player tests; 4 is the verified size,
-// ERSC allows 6). Every party-side table (link slots, VITALS, HUD rows, the Party members page)
+// 2..kMaxPartyPlayers): host + 4 guests (user, 2026-10-12: 5-player tests; 4 is the launcher's size,
+// 5 passes smoke fp5 since 0.7.8; ERSC allows 6). Every party-side table (link slots, VITALS, HUD rows, the Party members page)
 // follows this constant. 5 = every engine table full (party_fourp H6; four_players.md); 6 needs
 // the engine's fixed tables relocated.
 constexpr int kMaxPartyPlayers = 5;

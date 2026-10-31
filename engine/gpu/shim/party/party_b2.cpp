@@ -34,6 +34,7 @@
 #include "lamp_travel_rules.h"
 #include "party_status_bridge.h"
 #include "party_spectate.h"
+#include "party_spectator_hide.h"
 #include "party_director.h"
 #include "party_pvp_rules.h"
 #include "party_death_rules.h"
@@ -6462,7 +6463,7 @@ std::vector<std::array<float, 3>> g_spectators;      // positions where members 
 /// removed copy was built again by its task and its plate followed the spectator around (spec3).
 /// Its revive / respawn replaces the copy with a fresh one as usual.
 std::atomic<double> g_spectator_until{0};
-std::set<u64> g_spectator_hidden;  // the copies disabled here (main thread)
+coop::spectator::HideTracker g_spectator_hide;  // the copies disabled here (main thread)
 void SpectatorRemoveTick(const GameSnapshot& s) {
     {
         std::lock_guard<std::mutex> lk(g_member_revived_mu);
@@ -6471,17 +6472,40 @@ void SpectatorRemoveTick(const GameSnapshot& s) {
             g_spectator_until = Now() + 300.0;
         }
     }
-    if (!s.world_up || s.loading || Now() > g_spectator_until.load()) {
+    if (!s.world_up || s.loading) {
+        // A load frees every copy and ends the fight's limbo: the window and the hidden copies go
+        // (live 0.7.6: a copy built by the re-join read HP 0 and was hidden for good, a living
+        // member invisible to the others).
+        g_spectator_until = 0;
+        g_spectator_hide.Clear();
         return;
     }
+    const double now = Now();
+    const bool window = now <= g_spectator_until.load();
+    if (!window && g_spectator_hide.hidden.empty() && g_spectator_hide.dead_since.empty()) {
+        return;
+    }
+    std::set<u64> present;
     for (const TaskInfo& t : Tasks(false)) {
         const u64 c = (t.mode == 1 || t.mode == 2) ? PlayerForPeer(t.task + kTaskPeer) : 0;
-        if (!c || ChrHp(c) != 0 || g_spectator_hidden.count(c)) {
-            continue;
+        if (c) {
+            present.insert(c);
         }
-        g_spectator_hidden.insert(c);
-        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u32)>(Guest(0x18c6390))(c, 1);
-        Log("spectator: its dead copy %#llx here disabled (not drawn, no plate) until it respawns", ull(c));
+    }
+    g_spectator_hide.Prune(present);
+    for (const u64 c : present) {
+        switch (g_spectator_hide.Step(c, ChrHp(c), now, window)) {
+            case coop::spectator::Act::Hide:
+                reinterpret_cast<void(BB_COOP_SYSV*)(u64, u32)>(Guest(0x18c6390))(c, 1);
+                Log("spectator: its dead copy %#llx here disabled (not drawn, no plate) until it respawns", ull(c));
+                break;
+            case coop::spectator::Act::Show:
+                reinterpret_cast<void(BB_COOP_SYSV*)(u64, u32)>(Guest(0x18c6390))(c, 0);
+                Log("spectator: copy %#llx reads HP again: shown again", ull(c));
+                break;
+            case coop::spectator::Act::None:
+                break;
+        }
     }
 }
 
@@ -6499,7 +6523,7 @@ void RecreateMemberNear(const std::array<float, 3>& at, const char* why, bool pr
                             (p[2] - at[2]) * (p[2] - at[2]);
             // The arena revive's spot is where the spectate carried the dead chr: on the followed
             // member's own spot, so a living member can be as near as the dead copy.
-            const int r = !prefer_dead ? 2 : g_spectator_hidden.count(c) ? 0 : ChrHp(c) <= 0 ? 1 : 2;
+            const int r = !prefer_dead ? 2 : g_spectator_hide.hidden.count(c) ? 0 : ChrHp(c) <= 0 ? 1 : 2;
             if (d < 36.0f && (r < rank || (r == rank && d < best))) {
                 best = d;
                 rank = r;
@@ -6507,7 +6531,7 @@ void RecreateMemberNear(const std::array<float, 3>& at, const char* why, bool pr
             }
         }
     }
-    g_spectator_hidden.erase(victim);
+    g_spectator_hide.hidden.erase(victim);
     if (!victim) {
         // Already removed (its limbo: "spectating") or never here: built again by its task.
         const int n = RewindRemoteTasks(why);

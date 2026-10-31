@@ -155,7 +155,9 @@ std::vector<std::uint8_t> encode_announce(const Announce& a) {
 std::vector<std::uint8_t> encode_bye() { return {0xfa, 'L', 1, 4}; }
 
 bool is_tunnel_player_address(std::uint32_t ip) {
-    return (ip >> 8) == 0x0a0800u && (ip & 255) >= 2 && (ip & 255) <= 254;
+    // 10.8.0.0/22 (0.7.8: room for 1021 players once the server widens its pool from /24); the network,
+    // the server (10.8.0.1) and the broadcast address are not players
+    return (ip & 0xfffffc00u) == 0x0a080000u && ip != 0x0a080000u && ip != 0x0a080001u && ip != 0x0a0803ffu;
 }
 
 // ---- the announcer thread ------------------------------------------------------------------------

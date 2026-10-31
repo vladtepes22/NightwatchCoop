@@ -29,6 +29,24 @@ def pool_file(pool: str) -> Path:
     return QUEUE_FILE if pool == "game" else QUEUE_FILE.with_name(f"{pool}_queue.json")
 
 
+def free_ram_mb():
+    """Free physical RAM in MB (Windows GlobalMemoryStatusEx), or None when it cannot be read."""
+    try:
+        import ctypes
+
+        class MS(ctypes.Structure):
+            _fields_ = [("l", ctypes.c_ulong), ("load", ctypes.c_ulong), ("tp", ctypes.c_ulonglong), ("ap", ctypes.c_ulonglong),
+                        ("tpf", ctypes.c_ulonglong), ("apf", ctypes.c_ulonglong), ("tv", ctypes.c_ulonglong),
+                        ("av", ctypes.c_ulonglong), ("ae", ctypes.c_ulonglong)]
+        m = MS()
+        m.l = ctypes.sizeof(MS)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+            return None
+        return int(min(m.ap, m.apf) // (1 << 20))  # free RAM, and the free commit charge if that is smaller
+    except Exception:
+        return None
+
+
 def _alive(pid: int) -> bool:
     if pid <= 0:
         return False
@@ -144,7 +162,13 @@ def game_slots(count: int, root: str, pool: str = "game", label: str = ""):
         parent = int(os.environ.get("BB_MP_PARENT_PID") or 0)
     except ValueError:
         parent = 0
-    me = {"id": f"{os.getpid()}-{time.time():.0f}", "pid": os.getpid(), "count": count,
+    # Memory guard (opt-in per job: BB_GAME_QUEUE_MEMGUARD=1, set by smoke_party.py --lanes N): the job may start
+    # beyond max_clients (up to max_mem_clients game clients in all) when the free RAM covers its games with
+    # mem_reserve_mb to spare, and nothing without the guard is waiting. Limits are keys in the queue file
+    # (defaults: 7000 MB per client - measured 2026-10-31: a 2-3 game phase takes 18-20 GB of the commit
+    # limit and 7-10 GB of RAM -, 3000 MB reserve, 6 clients, 45 s settle time for a holder that just started).
+    memguard = os.environ.get("BB_GAME_QUEUE_MEMGUARD") == "1"
+    me = {"id": f"{os.getpid()}-{time.time():.0f}", "pid": os.getpid(), "count": count, "memguard": memguard,
           "root": str(Path(root).resolve()), "label": label, "t": time.time(),
           "since": time.strftime("%H:%M:%S"), **({"parent": parent} if parent > 0 else {})}
     with _locked(pool) as st:
@@ -171,8 +195,18 @@ def game_slots(count: int, root: str, pool: str = "game", label: str = ""):
                 first = order and order[0]["id"] == me["id"]
                 # Backfill: when the head of the queue doesn't fit in the free slots, the earliest
                 # waiter that does fit may go (runs are short, so the head isn't starved for long).
-                def fits(e):  # within max_clients, or a big job alone (up to max_solo)
-                    return used + e["count"] <= st["max_clients"] or (used == 0 and e["count"] <= st.get("max_solo", 0))
+                def fits(e):  # within max_clients, or a big job alone (up to max_solo), or the memory guard's room
+                    if used + e["count"] <= st["max_clients"] or (used == 0 and e["count"] <= st.get("max_solo", 0)):
+                        return True
+                    if not e.get("memguard") or any(not w.get("memguard") for w in st["queue"] if w["id"] != e["id"]):
+                        return False
+                    if used + e["count"] > st.get("max_mem_clients", 6):
+                        return False
+                    # a holder that started moments ago is still loading (its memory is not yet at its peak)
+                    if any(time.time() - h.get("granted", h.get("t", 0)) < st.get("mem_settle_s", 45) for h in st["holders"]):
+                        return False
+                    free = free_ram_mb()
+                    return free is not None and free - e["count"] * st.get("mem_per_client_mb", 7000) >= st.get("mem_reserve_mb", 3000)
                 if not first and order:
                     free = st["max_clients"] - used
                     head_fits = fits(order[0])
@@ -192,10 +226,11 @@ def game_slots(count: int, root: str, pool: str = "game", label: str = ""):
                 if first and fits(me):
                     st["queue"] = [e for e in st["queue"] if e["id"] != me["id"]]
                     me["since"] = time.strftime("%H:%M:%S")
+                    me["granted"] = time.time()
                     # Slot numbers (0..max-1) not held by anyone: the game pool uses them as screen
                     # positions (tools/mp/instances.py tiles windows by slot).
                     taken = {n for e in st["holders"] for n in e.get("slots", [])}
-                    me["slots"] = [n for n in range(st["max_clients"] + count) if n not in taken][:count]
+                    me["slots"] = [n for n in range(st["max_clients"] + count + len(taken)) if n not in taken][:count]
                     st["holders"].append(me)
                     break
                 pos = next((i for i, e in enumerate(order) if e["id"] == me["id"]), -1)
@@ -208,7 +243,7 @@ def game_slots(count: int, root: str, pool: str = "game", label: str = ""):
                 print(f"{pool} queue: waiting (position {pos + 1}, {used}/{limit} in use: {busy})", flush=True)
                 last_note = time.time()
             time.sleep(2)
-        print(f"{pool} queue: got {count} slot(s) {me['slots']}", flush=True)
+        print(f"{pool} queue: got {count} slot(s) {me['slots']} after waiting {time.time() - me['t']:.0f} s", flush=True)
         yield me["slots"]
     finally:
         with _locked(pool) as st:

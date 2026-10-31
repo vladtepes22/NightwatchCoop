@@ -118,6 +118,14 @@ target_include_directories(party-spectate-test PRIVATE shim)
 
 set_target_properties(party-spectate-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
+add_executable(party-spectator-hide-test EXCLUDE_FROM_ALL ../tests/test_party_spectator_hide.cpp)
+
+target_compile_options(party-spectator-hide-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+
+target_include_directories(party-spectator-hide-test PRIVATE shim)
+
+set_target_properties(party-spectator-hide-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
 add_executable(party-gather-test EXCLUDE_FROM_ALL ../tests/test_party_gather.cpp)
 target_compile_options(party-gather-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(party-gather-test PRIVATE shim)
