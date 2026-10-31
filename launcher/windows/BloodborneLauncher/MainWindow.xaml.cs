@@ -1036,7 +1036,10 @@ namespace BloodborneLauncher
 
             var s = ws.Settings;
             var ini = ws.Ini;
-            if (SeamlessSettings.Validate(s, ini.Get("party_open", "0") == "1") is { } partyProblem)
+            if (s.Str("party_mode") == "host" &&
+                CoopHostMode.Repair(NightwatchVpn.Shipped != null && s.Str("party_host_public") != "0", (k, d) => ini.Get(k, d), (k, v) => ini.Set(k, v)))
+                ini.Save();
+            if (SeamlessSettings.Validate(s) is { } partyProblem)
             {
                 Prompt.Tell(L.T("Co-op"), partyProblem);
                 Show("seamless");

@@ -79,6 +79,15 @@ internal static class CoopSetupTests
             Check(writes["party_discovery"] == (show ? "1" : "0") && writes["party_open"] == (show ? "1" : "0"), "Discovery and open follow Show");
             Check(writes["party_vpn"] == (isPublic || pref is "off" or "" ? "auto" : pref), "Private keeps a named adapter; public uses auto");
         }
+        foreach (var (discovery, open, repairs, lobby) in new[] { ("1", "", true, "1"), ("1", "0", true, "1"), ("", "", true, "1"), ("1", "1", false, ""), ("0", "0", false, ""), ("0", "", false, "") })
+        {
+            var ini = new Dictionary<string, string>();
+            if (discovery.Length > 0) ini["party_discovery"] = discovery;
+            if (open.Length > 0) ini["party_open"] = open;
+            var repaired = CoopHostMode.Repair(true, (k, d) => ini.TryGetValue(k, out var v) ? v : d, (k, v) => ini[k] = v);
+            Check(repaired == repairs, "Repair only when show and open differ");
+            Check(!repairs || (ini["party_open"] == "1" && ini["party_vpn_lobby"] == lobby), "Repair opens the shown party and lists it");
+        }
         Check(CoopHostMode.MatchesSearch("Example Party", " pArT "), "Search ignores case and outer spaces");
         Check(CoopHostMode.MatchesSearch("Example Party", ""), "Empty search includes every party");
         Check(!CoopHostMode.MatchesSearch("Example Party", "absent"), "Search rejects nonmatches");

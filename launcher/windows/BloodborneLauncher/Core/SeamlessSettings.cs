@@ -150,14 +150,14 @@ public static partial class SeamlessSettings
         return name;
     }
 
-    /// <summary>A host needs a password unless it runs an open party (<paramref name="openParty"/>: bbport.ini party_open, set by
-    /// Show my party); a guest may leave it empty, and the engine says so when the host asks for one.</summary>
-    public static string? Validate(LauncherSettings s, bool openParty = false)
+    /// <summary>The password is optional for everyone: a host without one is joined by its party code, or by plain address
+    /// when it shows the party (bbport.ini party_open). Only a password of nothing but spaces is refused.</summary>
+    public static string? Validate(LauncherSettings s)
     {
         if (!Enabled(s)) return null;
         if (!Regex.IsMatch(Name(s), "^[A-Za-z0-9_-]{1,16}$"))
             return L.T("Party name must contain 1–16 letters, numbers, underscores or hyphens.");
-        if (s.Str("party_mode") != "join" && !openParty && Password(s).Trim().Length == 0)
+        if (s.Str("party_mode") != "join" && Password(s).Length > 0 && Password(s).Trim().Length == 0)
             return L.T("Set a party password first: the host and every guest use the same one.");
         if (s.Str("party_port").Length > 0 &&
             (!int.TryParse(s.Str("party_port"), out var port) || port is < 1 or > 65535))

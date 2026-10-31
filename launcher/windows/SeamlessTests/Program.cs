@@ -113,8 +113,7 @@ var env = new Dictionary<string, string> { ["BB_UPSCALER"] = "dlss", ["BB_HDR"] 
 SeamlessSettings.Apply(settings, env);
 Check(SeamlessSettings.Validate(settings) == null, "Valid host rejected");
 settings.PartyPassword = "";
-Check(SeamlessSettings.Validate(settings) != null, "Host without a password accepted");
-Check(SeamlessSettings.Validate(settings, openParty: true) == null, "Open party host without a password rejected");
+Check(SeamlessSettings.Validate(settings) == null, "Host without a password rejected");
 settings.PartyPassword = " \t ";
 Check(SeamlessSettings.Validate(settings) != null, "Host with a whitespace password accepted");
 settings.PartyPassword = "test secret";
@@ -616,8 +615,8 @@ Check(firewallLines[1].Contains("-Protocol TCP -LocalPort 47890") && firewallLin
 
 PartyCodeTests.Run();
 SaveEditorTests.Run();
-VpnTests.Run();
 CoopSetupTests.Run();
+VpnTests.Run();
 Console.WriteLine("PASS: host/join validation, party codes against the engine's, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 
 [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
