@@ -337,6 +337,9 @@ private:
     std::unique_ptr<Fsr4Upscaler> fsr4;
     std::unique_ptr<DlssUpscaler> dlss; ///< NVIDIA devices only; records the FSR 4 frame
     bool fsr4_failed = false;
+    float slow_window_ms = 0.0f;
+    u32 slow_window_frames = 0, slow_frames = 0, slow_guard_used = 0;
+    bool Fsr4TooSlow(float frame_ms);
     bool fsr4_building = false; ///< FSR 4's model is built in the background: FSR 3.1 until then
     VideoCore::UniqueImage motion_image;
     VideoCore::UniqueImage output_image;

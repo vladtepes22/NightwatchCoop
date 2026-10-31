@@ -249,10 +249,13 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
     std::error_code fsr411_error;
     const bool fsr411_assets = std::filesystem::is_directory(
         fsr411_dir && fsr411_dir[0] ? fsr411_dir : "fsr4_411", fsr411_error);
+    const char* fsr4_builtin_amd = std::getenv("BB_FSR4_BUILTIN_AMD");
     BbSettings::ConfigureUpscalerSupport(instance.IsFsr4Int8Supported(),
                                          (instance.IsFsr411Supported() && fsr411_assets) ||
                                              instance.IsFsr4VkSupported(),
-                                         dlss && dlss->Available(), instance.IsFsrSdkAvailable());
+                                         dlss && dlss->Available(), instance.IsFsrSdkAvailable(),
+                                         instance.GetVendorID() == 0x1002 &&
+                                             !(fsr4_builtin_amd && fsr4_builtin_amd[0] == '1'));
     fsr4 = std::make_unique<Fsr4Upscaler>(instance, scheduler);
     // Available unless BB_UPSCALER=none; on/off and the parameters are the menu's settings.
     const char* env = std::getenv("BB_UPSCALER");
@@ -2759,6 +2762,30 @@ bool TemporalUpscaler::UseFsr4() const {
     return BbSettings::IsFsr4(selected) && supported && !fsr4_failed && !fsr4_building;
 }
 
+bool TemporalUpscaler::Fsr4TooSlow(float frame_ms) {
+    static const bool guard = [] {
+        const char* env = std::getenv("BB_FSR4_SLOW_GUARD");
+        return !(env && env[0] == '0');
+    }();
+    const u32 selected = 1u << BbSettings::Get().upscaler.load();
+    if (!guard || reset || (slow_guard_used & selected)) {
+        slow_window_ms = 0.0f;
+        slow_window_frames = slow_frames = 0;
+        return false;
+    }
+    slow_window_ms += frame_ms;
+    ++slow_window_frames;
+    slow_frames += frame_ms >= 50.0f ? 1 : 0;
+    if (slow_window_ms < 5000.0f) {
+        return false;
+    }
+    const bool slow = slow_frames * 10 >= slow_window_frames * 9;
+    slow_window_ms = 0.0f;
+    slow_window_frames = slow_frames = 0;
+    slow_guard_used |= slow ? selected : 0u;
+    return slow;
+}
+
 bool TemporalUpscaler::RecordFsr4(vk::CommandBuffer cmdbuf, Fsr4Upscaler::Image color,
                                   Fsr4Upscaler::Image depth, u32 w, u32 h, u32 ow, u32 oh,
                                   float frame_ms, bool reactive) {
@@ -2792,6 +2819,18 @@ bool TemporalUpscaler::RecordFsr4(vk::CommandBuffer cmdbuf, Fsr4Upscaler::Image 
                         : Fsr4Upscaler::Image{},
     };
     const bool ok = use_dlss ? dlss->Record(frame) : fsr4->Record(frame);
+    if (ok && !use_dlss && Fsr4TooSlow(frame_ms)) {
+        static const std::string slow =
+            "too slow on this GPU (under 20 FPS for 5 s); you can select it again to retry";
+        BbSettings::Get().fsr4_problem = slow.c_str();
+        const bool to_sdk = settings.upscaler != BbSettings::UpscalerFsr && instance.IsFsrSdkAvailable();
+        std::printf("Upscaler: FSR 4 too slow on this GPU (under 20 FPS for 5 s); falling back to %s "
+                    "(BB_FSR4_SLOW_GUARD=0 keeps it)\n", to_sdk ? "FSR (AMD FSR SDK)" : "FSR 3.1");
+        BbSettings::Get().upscaler = to_sdk ? BbSettings::UpscalerFsr : BbSettings::UpscalerFsr3;
+        fsr4_failed = !to_sdk;
+        reset = true;
+        return ok;
+    }
     // The menu shows the reason; it outlives this frame (FSR 4 keeps its last message).
     static std::string shown;
     const char* problem = use_dlss ? dlss->Problem() : fsr4->Problem();

@@ -930,14 +930,18 @@ void Load() {
     v.startup_psychov30 = v.startup_hdr && v.hdr_mode == HdrModePsychoV30;
 }
 
-void ConfigureUpscalerSupport(bool fsr4, bool fsr411, bool dlss, bool fsr_sdk) {
+void ConfigureUpscalerSupport(bool fsr4, bool fsr411, bool dlss, bool fsr_sdk, bool fsr4_to_sdk) {
     auto& v = Get();
-    v.fsr4_supported = fsr4;
+    v.fsr4_supported = fsr4 && !(fsr4_to_sdk && fsr_sdk);
     v.fsr411_supported = fsr4 && fsr411;
     v.dlss_supported = dlss;
     v.fsr_sdk_supported = fsr_sdk;
     const int requested = v.upscaler;
-    if (requested == UpscalerFsr && !fsr_sdk) {
+    if (requested == UpscalerFsr4 && fsr4_to_sdk && fsr_sdk) {
+        std::printf("Upscaler: fsr4 runs through AMD's FSR SDK on this GPU: the built-in FSR 4 model is "
+                    "far slower on Radeon (BB_FSR4_BUILTIN_AMD=1 keeps it)\n");
+        v.upscaler = UpscalerFsr;
+    } else if (requested == UpscalerFsr && !fsr_sdk) {
         v.fsr4_problem = "FSR needs the AMD FSR SDK files (engine/fsr_sdk); using FSR 3.1";
         std::printf("Upscaler: fsr unavailable (AMD FSR SDK files missing or GPU unsupported); falling back to FSR 3.1 before the first frame\n");
         v.upscaler = UpscalerFsr3;
