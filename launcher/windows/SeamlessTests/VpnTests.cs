@@ -31,6 +31,34 @@ static class VpnTests
         throw new InvalidOperationException("VPN: " + what + ": no failure");
     }
 
+    /// <summary>VpnIdle: an idle tunnel goes after the set minutes, comes back when needed, and never against the player's choice.</summary>
+    private static void IdleRules()
+    {
+        var t0 = new DateTime(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc);
+        var idle = new VpnIdleState(Enabled: true, Wanted: true, Owned: true, Up: true, Busy: false, GameRunning: false,
+            WindowActive: false, InactiveSince: t0, IdleAfter: TimeSpan.FromMinutes(10), Now: t0.AddMinutes(10));
+        var tick = VpnIdleTrigger.Tick;
+        Check(VpnIdle.Decide(idle, tick) == VpnIdleAction.Disconnect, "idle 10 min: disconnect");
+        Check(VpnIdle.Decide(idle with { Now = t0.AddMinutes(9) }, tick) == VpnIdleAction.None, "idle 9 min: keep");
+        Check(VpnIdle.Decide(idle with { GameRunning = true }, tick) == VpnIdleAction.None, "never while the game runs");
+        Check(VpnIdle.Decide(idle with { WindowActive = true }, tick) == VpnIdleAction.None, "never while the window is in front");
+        Check(VpnIdle.Decide(idle with { InactiveSince = null }, tick) == VpnIdleAction.None, "no idle start: keep");
+        Check(VpnIdle.Decide(idle with { Owned = false }, tick) == VpnIdleAction.None, "another launcher's tunnel: keep");
+        Check(VpnIdle.Decide(idle with { Busy = true }, tick) == VpnIdleAction.None, "a change under way: wait");
+        Check(VpnIdle.Decide(idle with { Enabled = false }, tick) == VpnIdleAction.None, "setting off: keep");
+        Check(VpnIdle.Decide(idle with { Wanted = false }, tick) == VpnIdleAction.None, "not this launcher's wish: keep");
+        Check(VpnIdle.Decide(idle, VpnIdleTrigger.WindowActivated) == VpnIdleAction.None, "an up tunnel is not dropped on a trigger");
+        var down = idle with { Up = false, WindowActive = true, InactiveSince = null };
+        foreach (var trigger in new[] { VpnIdleTrigger.WindowActivated, VpnIdleTrigger.CoopShown, VpnIdleTrigger.Play })
+            Check(VpnIdle.Decide(down, trigger) == VpnIdleAction.Connect, "back on demand: " + trigger);
+        Check(VpnIdle.Decide(down, tick) == VpnIdleAction.None, "a tick never connects");
+        Check(VpnIdle.Decide(down with { Wanted = false }, VpnIdleTrigger.Play) == VpnIdleAction.None, "never connects a player who did not");
+        Check(VpnIdle.Decide(down with { Enabled = false }, VpnIdleTrigger.Play) == VpnIdleAction.None, "setting off: no auto connect");
+        Check(VpnIdle.IdleAfter("25") == TimeSpan.FromMinutes(25) && VpnIdle.IdleAfter("0") == VpnIdle.DefaultIdle &&
+              VpnIdle.IdleAfter("x") == VpnIdle.DefaultIdle && VpnIdle.IdleAfter(null) == VpnIdle.DefaultIdle &&
+              VpnIdle.IdleAfter("999") == VpnIdle.DefaultIdle, "idle minutes setting");
+    }
+
     private static void SetupAndConnectionRules()
     {
         var args = OpenVpnSetup.Arguments(@"C:\p q\o.msi", @"C:\l.log");
@@ -57,7 +85,13 @@ static class VpnTests
         Check(c.Phase == VpnPhase.Off && !c.TimedOut, "A failure before the tunnel is no timeout");
 
         // One owner: a launcher that does not hold the connection never ends it, and ownership frees for the next.
-        Check(NightwatchVpn.TryOwn() && NightwatchVpn.OwnedHere, "The first launcher owns the connection");
+        if (!NightwatchVpn.TryOwn())
+        {
+            // The lock is per Windows session: a real launcher open on this PC holds it, and must not be disturbed.
+            Console.WriteLine("SKIP: VPN one-owner check (a launcher on this PC owns the connection)");
+            return;
+        }
+        Check(NightwatchVpn.OwnedHere, "The first launcher owns the connection");
         var second = true;
         var other = new Thread(() =>
         {
@@ -74,6 +108,7 @@ static class VpnTests
 
     public static void Run()
     {
+        IdleRules();
         SetupAndConnectionRules();
         Formats();
         Lobby();
@@ -136,8 +171,11 @@ static class VpnTests
         Check(VpnLobby.ParseReply(Reply(1, 0, Entry(TunnelHost, 9307, 1, 1, 4, name, Build)).Append((byte)0).ToArray()) == null, "trailing byte");
 
         Check(!VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.0.1")) && VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.0.2")) &&
-              VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.0.254")) && !VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.0.255")) &&
-              !VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.1.2")), "tunnel range");
+              VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.0.254")) && VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.0.255")) &&
+              VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.1.2")) && VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.3.254")) &&
+              !VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.0.0")) && !VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.3.255")) &&
+              !VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.8.4.2")) && !VpnLobby.IsTunnelAddress(NetworkRoute.Parse("10.9.0.2")),
+              "tunnel range (10.8.0.0/22)");
         Check(VpnLobby.TunnelIp(new[] { new NetAdapter("lan", NetworkRoute.Parse("192.168.1.2")) }) == null, "no tunnel, nothing to bind");
 
         // Your own game, a game without a password and an address outside the tunnel are not rows.

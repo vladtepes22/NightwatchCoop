@@ -32,8 +32,11 @@ public static class VpnLobby
     public const string Address = "10.8.0.1";
     private const int FlagPassword = 1, FlagOwn = 2;
 
-    /// <summary>A player address of the tunnel: 10.8.0.2 to 10.8.0.254.</summary>
-    public static bool IsTunnelAddress(uint ip) => (ip & 0xffffff00) == 0x0a080000 && (ip & 0xff) is >= 2 and <= 254;
+    /// <summary>A player address of the tunnel: 10.8.0.0/22 minus the network, the server (10.8.0.1) and the broadcast address,
+    /// i.e. 10.8.0.2 to 10.8.3.254 (visy 0.7.8: room for 1021 players once the server widens its pool from /24; a /24 server
+    /// only hands out 10.8.0.x, which is still inside). Same rule as the game (party_vpnlobby is_tunnel_player_address).</summary>
+    public static bool IsTunnelAddress(uint ip) =>
+        (ip & 0xfffffc00) == 0x0a080000 && ip != 0x0a080000 && ip != 0x0a080001 && ip != 0x0a0803ff;
 
     /// <summary>This PC's tunnel address, or null while the VPN is off.</summary>
     public static string? TunnelIp(IEnumerable<NetAdapter> adapters) =>
