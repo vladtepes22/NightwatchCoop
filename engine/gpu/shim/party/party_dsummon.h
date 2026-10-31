@@ -108,6 +108,11 @@ bool SameMap(std::uint32_t a, std::uint32_t b);
 /// ChannelId), or the BB_PARTY_GATHER_DSUM experiment.
 bool CarriesAcrossMaps(std::uint32_t host_map, bool gather_dsum_experiment);
 
+/// The cooperators a host's world takes for a party of `max_players` (host included; BB_PARTY_MAX).
+/// 0.7.8 (fp5): HostView::max_cooperators stayed 3, so at 5 players a 4th guest's direct summon was
+/// refused as "the host's world is full" and fell back to the slower sign path.
+int MaxCooperators(int max_players);
+
 /// Host: why a guest's request is refused now (nullptr: serve it).
 struct HostView {
     bool world_up = false, loading = false;
@@ -177,6 +182,10 @@ constexpr double kRearmAfter = 2.5;   // the room is here, no entry yet: re-ring
 /// One tick. `entry_waiting`: the game has a passive guest entry not yet answered;
 /// `joined`: the guest's session is a client of the host's room.
 Action Step(Guest& g, double now, bool entry_waiting, bool joined);
+/// fp5 (0.7.8): the room is here but this game is in a loading screen (its own world reloads after a
+/// Leave / Rejoin; 5 clients on one PC: 14-18 s): the bell's entry cannot come up before it ends, so the
+/// entry wait does not run meanwhile (it gave up after 8 s and the failed join cost another ~25 s).
+void HoldWhileLoading(Guest& g, double now, bool loading);
 void OnAsked(Guest& g, double now);
 /// A refusal's "wait" word: OtherMap sets g.gather (the director gathers, then rings again).
 void OnRoom(Guest& g, double now, bool refused, Busy wait = Busy::None);

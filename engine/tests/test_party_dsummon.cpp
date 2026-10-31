@@ -136,6 +136,31 @@ int main() {
     CHECK(TitleJoinBusy(false, false, true, true) == Busy::MemberPrologue &&
           TitleJoinBusy(false, false, false, true) == Busy::Prologue);
     v.member_in_prologue = false;
+    // fp5 (0.7.8): a loading screen right after the room came: the entry wait does not run (no failure at 20 s)
+    {
+        Guest g;
+        OnAsked(g, 10.0);
+        OnRoom(g, 10.1, false);
+        CHECK(g.phase == Phase::HaveRoom);
+        for (double t = 10.5; t < 30.0; t += 0.5) {
+            HoldWhileLoading(g, t, true);
+            CHECK(Step(g, t, false, false) != Action::ReportFail && g.phase == Phase::HaveRoom);
+        }
+        CHECK(Step(g, 32.1, false, false) == Action::Rearm);     // the load ended: the normal wait begins
+        HoldWhileLoading(g, 33.0, false);                         // not loading: the timer is untouched
+        CHECK(Step(g, 40.4, false, false) == Action::ReportFail); // and still gives up when the entry never comes
+    }
+    // fp5 (0.7.8): the cooperator cap follows BB_PARTY_MAX (host included): 5 players take 4 cooperators
+    {
+        CHECK(MaxCooperators(2) == 1 && MaxCooperators(3) == 2 && MaxCooperators(4) == 3 && MaxCooperators(5) == 4);
+        HostView w; w.world_up = true; w.host_ready = true; w.ms_since_sign_summon = 1000000;
+        w.cooperators = 3; w.max_cooperators = MaxCooperators(5);
+        CHECK(HostRefusal(w) == nullptr);                       // the 4th guest is served at 5 players
+        w.cooperators = 4;
+        CHECK(HostRefusal(w) && std::strstr(HostRefusal(w), "world is full"));
+        w.cooperators = 3; w.max_cooperators = MaxCooperators(4);
+        CHECK(HostRefusal(w) && std::strstr(HostRefusal(w), "world is full"));  // still full at 4 players
+    }
     // F5: a member left this host's room moments ago and its game is ending that session: the
     // guest asks again (Settle) instead of falling back to the bell sign
     {

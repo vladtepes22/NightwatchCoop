@@ -17,6 +17,7 @@
 #include "gpu/shim/bbport_game_menu_pages.h"
 #include "gpu/shim/bbport_settings.h"
 #include "gpu/shim/party/party_flow.h"
+#include "gpu/shim/party/party_link.h"
 #include "gpu/shim/party/party_status.h"
 
 namespace P = BbGameMenu::Pages;
@@ -94,7 +95,7 @@ static void EveryState() {
                         for (int address = 0; address < 2; ++address)
                             for (int board = 0; board < 4; ++board)
                                 for (int codes = 0; codes < 3; ++codes)
-                                    for (int members = 0; members <= 4; ++members) {
+                                    for (int members = 0; members <= party::kMaxPartyPlayers; ++members) {
                                         context = {};
                                         context.party_process = process;
                                         context.host = process && host;

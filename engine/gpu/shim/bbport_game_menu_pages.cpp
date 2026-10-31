@@ -771,7 +771,10 @@ void DefineAll() {
     // join/leave notices are on My party: Look & notices, the DHT switch on Party network.)
     party.event_value = AddDynamic(MaxValueLength);
     party.event_help = AddDynamic(MaxHelpLength);
-    AddRow(Info(), AddText("Last event", "Последнее"), party.event_help, {party.event_value}, Kind::Button);
+    // 0.7.8 (fp5): a page holds RowsPerPage rows; with 5 hunters the member rows, this one and the toggle
+    // below made 7 and the toggle was dropped: the info row steps aside (the event is also a notice).
+    AddRow(Info(), AddText("Last event", "Последнее"), party.event_help, {party.event_value}, Kind::Button,
+           [] { return member_rows + 2 <= int(RowsPerPage); });
     // 0.7.6: connection warnings (party/party_connwarn.h): the firewall / router / address hints (a player's
     // own switch; Look & notices has no free slot).
     AddRow(Flag(&Values::party_conn_warnings), "Connection warnings", "Предупреждения о связи",
