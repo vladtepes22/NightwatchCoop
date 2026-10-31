@@ -13,7 +13,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 if (-not $Release) { $Release = Join-Path $repo 'work\release' }
-$branch = 'port-0.9.37'
+$branch = (git -C $repo rev-parse --abbrev-ref HEAD).Trim()
 $remote = 'fork'
 $repoName = 'vladtepes22/NightwatchCoop'
 $gh = 'C:\msys64\clang64\bin\gh.exe'
@@ -32,8 +32,6 @@ foreach ($file in @($zip, $exe, $manifest, $Notes)) {
     if (-not (Test-Path -LiteralPath $file)) { $problems.Add("missing file: $file") }
 }
 $head = (git -C $repo rev-parse HEAD).Trim()
-$branchHead = (git -C $repo rev-parse $branch).Trim()
-if ($branchHead -ne $head) { $problems.Add("$branch is at $($branchHead.Substring(0,8)), HEAD is at $($head.Substring(0,8)): push what you built") }
 $packageManifest = Join-Path $Package 'package.json'
 if (-not (Test-Path -LiteralPath $packageManifest)) {
     $problems.Add("no package.json in $Package")

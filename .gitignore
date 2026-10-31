@@ -9,3 +9,4 @@ dist/
 .idea/
 launcher/windows/install.txt
 /work/
+__pycache__/
