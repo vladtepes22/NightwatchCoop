@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "engine_hooks.h"
 #include "camera.h"
+#include "camera_timing.h"
 #include "change_appearance.h"
 #include "cheats.h"
 #include "effect_timing.h"
@@ -141,6 +142,7 @@ void Install(std::uint8_t* image, std::size_t size) {
     const bool frame_rate = FrameRate::Install(image, size);
     const bool slots = JobSlots::Install(image, size);
     const bool status = GameStatus::Install(image, size);
+    CameraTiming::Install(image, size);
     if (!(editor || input || camera || wide || graphics || menus || rebirth || cheats || online || guard || timing ||
           frame_rate || slots || status)) {
         for (auto& h : hooks) Discard(h);
