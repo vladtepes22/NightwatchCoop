@@ -168,6 +168,46 @@
       ]
     ]
   },
+  "fiverejoin": {
+    "about": "Five players (visy CL-de2e94, not a release row: five games need about 40 GB of free commit): the host counts four guests; the fourth Leaves and Rejoins by the direct summon, not refused as a full world.",
+    "seconds": 480,
+    "guests": 4,
+    "host": "",
+    "guest": "",
+    "guest4": "guest_leave@15,guest_rejoin@5",
+    "expect": [
+      [
+        "host",
+        "cooperators 3 -> 4"
+      ],
+      [
+        "guest4",
+        "guest_leave: Party > Leave pressed"
+      ],
+      [
+        "guest4",
+        "guest_rejoin: Party > Rejoin pressed"
+      ],
+      [
+        "host",
+        "cooperators 4 -> 3"
+      ],
+      [
+        "host",
+        "cooperators 3 -> 4"
+      ]
+    ],
+    "forbid": [
+      [
+        "any",
+        "the host's world is full"
+      ],
+      [
+        "any",
+        "direct summon: FAILED"
+      ]
+    ]
+  },
   "guestrest": {
     "about": "visy 0.7.7 guestrest (his phase gr): the guest travels from the map to Central Yharnam's lamp, in the host's map; the host does not move, rest-load, transform or travel. Not checked: the guest's own load. With guest lamps on (the default) the travel becomes a request the host ignores (same map) and nobody loads: open in visy's tree, reported 29 Oct.",
     "seconds": 240,

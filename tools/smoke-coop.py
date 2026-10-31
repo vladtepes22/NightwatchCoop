@@ -1,4 +1,4 @@
-"""Bounded, headless, muted game instances (a host and one to three guests) with isolated copies of smoke-test saves."""
+"""Bounded, headless, muted game instances (a host and one to four guests) with isolated copies of smoke-test saves."""
 import argparse
 from datetime import datetime
 import json
@@ -30,8 +30,8 @@ def joined(status, need=1):
         if not member.get('local') and member.get('connected') and member.get('in_world')) >= need
 
 
-# Roles: the host, then guest, guest2, guest3 (a party of up to four).
-ROLES = ('host', 'guest', 'guest2', 'guest3')
+# Roles: the host, then guest, guest2, guest3, guest4 (a party of up to five).
+ROLES = ('host', 'guest', 'guest2', 'guest3', 'guest4')
 
 
 def guest_roles(count):
@@ -107,7 +107,7 @@ def main():
     parser.add_argument('--seed-host', default='host', help='Existing smoke-game save fixture name.')
     parser.add_argument('--seed-guest', default='guest', help='Existing smoke-game save fixture name.')
     parser.add_argument('--game', help='Game folder (CUSA03173), passed to smoke-game.py.')
-    parser.add_argument('--guests', type=int, choices=[1, 2, 3],
+    parser.add_argument('--guests', type=int, choices=[1, 2, 3, 4],
                         help='Guests to run (default: the scenario\'s "guests", else 1); all copy --seed-guest.')
     args = parser.parse_args()
     scenario = load_scenario(args.scenario) if args.scenario else {}
