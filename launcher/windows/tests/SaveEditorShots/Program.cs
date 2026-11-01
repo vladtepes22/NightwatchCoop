@@ -113,7 +113,40 @@ internal static class Program
             Render(root, 820, 700, 1, Path.Combine(output, "coop-" + state + ".png"));
             Require(!Directory.Exists(Path.Combine(output, "fixture-config")), "Preview wrote configuration");
         }
-        Console.WriteLine("PASS: 3 off-screen Co-op PNGs at minimum width (820); no clipped controls or configuration writes.");
+        LobbyShot(output);
+        Console.WriteLine("PASS: 4 off-screen Co-op PNGs at minimum width (820); no clipped controls or configuration writes; lobby rows carry a hover mark and no info mark.");
+    }
+
+    /// <summary>The real lobby rows from fixture games: a public, a private, a full and another build's party.</summary>
+    private static void LobbyShot(string output)
+    {
+        Environment.SetEnvironmentVariable("BB_PARTY_VPNLOBBY_ADDR", "127.0.0.1:1");
+        Workspace.Current.Settings.Set("party_mode", "join");
+        var page = new SeamlessPage(false);
+        var build = PartyDiscovery.BuildPrefix(Updater.ReleaseVersion()) + "fixture";
+        LobbyGame Game(string name, int players, int max, bool password, string b) =>
+            new() { Name = name, Players = players, Max = max, Password = password, Build = b, Own = false, Ip = 0x0a080001, Port = 1 };
+        // No poller thread: the fixture list is all the page sees.
+        var poller = (VpnLobby.Poller)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(VpnLobby.Poller));
+        poller.Games = new List<LobbyGame> { Game("Public", 1, 3, false, build), Game("Private", 2, 3, true, build), Game("Full", 2, 2, true, build), Game("Other", 1, 3, false, "other-build") };
+        poller.Answered = true;
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        typeof(SeamlessPage).GetField("_lobby", flags)!.SetValue(page, poller);
+        typeof(SeamlessPage).GetField("_lobbyOn", flags)!.SetValue(page, true);
+        typeof(SeamlessPage).GetMethod("RefreshLobby", flags)!.Invoke(page, null);
+        var list = (StackPanel)typeof(SeamlessPage).GetField("_lobbyList", flags)!.GetValue(page)!;
+        Require(list.Children.Count == 4, "Lobby rows missing");
+        var parent = System.Windows.Media.VisualTreeHelper.GetParent(list) ?? System.Windows.LogicalTreeHelper.GetParent(list);
+        (parent as Panel)?.Children.Remove(list);
+        var root = new Border { Child = list, Width = 820, Height = 340 };
+        root.SetResourceReference(Border.BackgroundProperty, "DialogBackgroundBrush");
+        Layout(root, 820, 340);
+        var marks = Descendants(root).OfType<Border>().Where(b => b.ToolTip is string && b.Visibility == Visibility.Visible && b.ActualWidth > 0).ToList();
+        Require(marks.Count == 4, "Every lobby row needs one visible hover mark, found " + marks.Count);
+        var icons = Descendants(root).OfType<Wpf.Ui.Controls.SymbolIcon>().Where(i => i.Visibility == Visibility.Visible && i.ActualWidth > 0).Select(i => i.Symbol).ToList();
+        Require(!icons.Contains(Wpf.Ui.Controls.SymbolRegular.Info16), "Lobby rows must not show the info mark");
+        Require(icons.Count(s => s == Wpf.Ui.Controls.SymbolRegular.Globe24) == 2 && icons.Count(s => s == Wpf.Ui.Controls.SymbolRegular.LockClosed24) == 2, "Lobby marks: two globes and two locks expected");
+        Render(root, 820, 340, 2, Path.Combine(output, "coop-lobby.png"));
     }
 
     private static Border Mount(SaveEditorWindow window, int width, int height)
