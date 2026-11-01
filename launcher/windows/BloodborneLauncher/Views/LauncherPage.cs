@@ -229,7 +229,7 @@ namespace BloodborneLauncher.Views
                 if (i == index)
                 {
                     _items[i].SetResourceReference(BackgroundProperty, "SegmentSelectedBrush");
-                    label.Foreground = Brushes.White;
+                    label.SetResourceReference(TextBlock.ForegroundProperty, "SegmentSelectedTextBrush");
                     label.FontWeight = FontWeights.SemiBold;
                 }
                 else

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using BloodborneLauncher.Core;
@@ -92,36 +93,73 @@ internal static class Program
         var settings = Workspace.Current.Settings;
         settings.Set("party_stun", "off");
         settings.Set("party_name", "Example");
-        settings.Set("ui_theme", "crimson");
-        LauncherTheme.Apply(settings, false);
-        foreach (var state in new[] { "host-public", "host-private", "join" })
+        var looks = LauncherTheme.Themes.Select(t => (Name: t.Value, Theme: t.Value, Colour: "")).Where(l => l.Theme != "custom").ToList();
+        looks.AddRange(new[] { (Name: "custom-white", Theme: "custom", Colour: "#FFFFFF"), (Name: "custom-yellow", Theme: "custom", Colour: "#FFE000"), (Name: "custom-black", Theme: "custom", Colour: "#101010") });
+        foreach (var look in looks)
         {
-            settings.Set("party_mode", state == "join" ? "join" : "host");
-            settings.Set("party_host_public", state == "host-public" ? "1" : "0");
-            var page = new SeamlessPage(state == "host-public");
-            // Sectionize without Loaded: no timers, listeners, VPN calls or windows.
-            typeof(LauncherPage).GetMethod("Sectionize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(page, null);
-            var content = (UIElement)page.Content; page.Content = null;
-            var root = new Border { Child = content, Width = 820, Height = 700 };
-            root.SetResourceReference(Border.BackgroundProperty, "DialogBackgroundBrush");
-            Layout(root, 820, 700);
-            foreach (var control in Descendants(root).OfType<FrameworkElement>().Where(c => c.IsVisible && c is Button or TextBox or System.Windows.Controls.ComboBox))
+            settings.Set("ui_theme", look.Theme);
+            settings.Set("ui_theme_colour", look.Colour);
+            LauncherTheme.Apply(settings, true);
+            var shade = LauncherTheme.ShadeColour(settings);
+            foreach (var state in new[] { "host-public", "host-private", "join" })
             {
-                var bounds = control.TransformToAncestor(root).TransformBounds(new Rect(control.RenderSize));
-                Require(bounds.Left >= 0 && bounds.Right <= 820.5, "Co-op control clipped horizontally: " + state);
+                settings.Set("party_mode", state == "join" ? "join" : "host");
+                settings.Set("party_host_public", state == "host-public" ? "1" : "0");
+                var page = new SeamlessPage(state == "host-public");
+                // Sectionize without Loaded: no timers, listeners, VPN calls or windows.
+                typeof(LauncherPage).GetMethod("Sectionize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(page, null);
+                var content = (UIElement)page.Content; page.Content = null;
+                var root = CoopRoot(content, 820, 700, shade);
+                Layout(root, 820, 700);
+                foreach (var control in Descendants(root).OfType<FrameworkElement>().Where(c => c is Button or TextBox && c.Visibility == Visibility.Visible && c.ActualWidth > 0))
+                {
+                    var bounds = control.TransformToAncestor(root).TransformBounds(new Rect(control.RenderSize));
+                    Require(bounds.Left >= 0 && bounds.Right <= 820.5, "Co-op control clipped horizontally: " + look.Name + " " + state);
+                }
+                Render(root, 820, 700, 1, Path.Combine(output, "coop-" + look.Name + "-" + state + ".png"));
+                Require(!Directory.Exists(Path.Combine(output, "fixture-config")), "Preview wrote configuration");
             }
-            Render(root, 820, 700, 1, Path.Combine(output, "coop-" + state + ".png"));
-            Require(!Directory.Exists(Path.Combine(output, "fixture-config")), "Preview wrote configuration");
+            LobbyShot(output, look.Name, settings, shade);
+            var primaryFill = ((SolidColorBrush)Application.Current.TryFindResource("AccentButtonBackground")).Color;
+            var primaryText = ((SolidColorBrush)Application.Current.TryFindResource("AccentButtonForeground")).Color;
+            var primaryContrast = Contrast(primaryText, primaryFill);
+            Require(primaryContrast >= 3.5, $"{look.Name}: primary button contrast {primaryContrast:0.0}");
+            Console.WriteLine($"{look.Name}: primary button #{primaryFill.R:X2}{primaryFill.G:X2}{primaryFill.B:X2} {primaryContrast:0.0}:1");
+            if (look.Theme is not ("default" or "eldritch"))
+            {
+                var accent = LauncherTheme.Accent(settings)!.Value;
+                var fill = LauncherTheme.SegmentFill(accent, true);
+                var text = ((SolidColorBrush)Application.Current.Resources["SegmentSelectedTextBrush"]).Color;
+                Require(text == LauncherTheme.SegmentText(fill), look.Name + ": pill text resource not applied");
+                var pill = Contrast(text, fill);
+                Require(pill >= 3.5, $"{look.Name}: selected pill contrast {pill:0.0}");
+                Console.WriteLine($"{look.Name}: selected pill {pill:0.0}:1 ({(text == Colors.White ? "white" : "dark")} text)");
+            }
         }
-        LobbyShot(output);
-        Console.WriteLine("PASS: 4 off-screen Co-op PNGs at minimum width (820); no clipped controls or configuration writes; lobby rows carry a hover mark and no info mark.");
+        Console.WriteLine($"PASS: {looks.Count * 4} off-screen Co-op PNGs in {looks.Count} looks; no clipped controls or configuration writes; lobby marks and text readable.");
+    }
+
+    private static Border CoopRoot(UIElement content, int width, int height, Color shade)
+    {
+        var root = new Border { Child = content, Width = width, Height = height, Background = new SolidColorBrush(shade) };
+        root.SetResourceReference(TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
+        return root;
+    }
+
+    /// <summary>Contrast ratio of a possibly translucent colour over an opaque one.</summary>
+    private static double Contrast(Color front, Color back)
+    {
+        double a = front.A / 255.0;
+        var over = Color.FromRgb((byte)(front.R * a + back.R * (1 - a)), (byte)(front.G * a + back.G * (1 - a)), (byte)(front.B * a + back.B * (1 - a)));
+        double one = LauncherTheme.RelativeLuminance(over), two = LauncherTheme.RelativeLuminance(back);
+        return (Math.Max(one, two) + 0.05) / (Math.Min(one, two) + 0.05);
     }
 
     /// <summary>The real lobby rows from fixture games: a public, a private, a full and another build's party.</summary>
-    private static void LobbyShot(string output)
+    private static void LobbyShot(string output, string look, LauncherSettings settings, Color shade)
     {
         Environment.SetEnvironmentVariable("BB_PARTY_VPNLOBBY_ADDR", "127.0.0.1:1");
-        Workspace.Current.Settings.Set("party_mode", "join");
+        settings.Set("party_mode", "join");
         var page = new SeamlessPage(false);
         var build = PartyDiscovery.BuildPrefix(Updater.ReleaseVersion()) + "fixture";
         LobbyGame Game(string name, int players, int max, bool password, string b) =>
@@ -136,17 +174,24 @@ internal static class Program
         typeof(SeamlessPage).GetMethod("RefreshLobby", flags)!.Invoke(page, null);
         var list = (StackPanel)typeof(SeamlessPage).GetField("_lobbyList", flags)!.GetValue(page)!;
         Require(list.Children.Count == 4, "Lobby rows missing");
-        var parent = System.Windows.Media.VisualTreeHelper.GetParent(list) ?? System.Windows.LogicalTreeHelper.GetParent(list);
-        (parent as Panel)?.Children.Remove(list);
-        var root = new Border { Child = list, Width = 820, Height = 340 };
-        root.SetResourceReference(Border.BackgroundProperty, "DialogBackgroundBrush");
+        (System.Windows.LogicalTreeHelper.GetParent(list) as Panel)?.Children.Remove(list);
+        var root = CoopRoot(list, 820, 340, shade);
         Layout(root, 820, 340);
         var marks = Descendants(root).OfType<Border>().Where(b => b.ToolTip is string && b.Visibility == Visibility.Visible && b.ActualWidth > 0).ToList();
         Require(marks.Count == 4, "Every lobby row needs one visible hover mark, found " + marks.Count);
-        var icons = Descendants(root).OfType<Wpf.Ui.Controls.SymbolIcon>().Where(i => i.Visibility == Visibility.Visible && i.ActualWidth > 0).Select(i => i.Symbol).ToList();
-        Require(!icons.Contains(Wpf.Ui.Controls.SymbolRegular.Info16), "Lobby rows must not show the info mark");
-        Require(icons.Count(s => s == Wpf.Ui.Controls.SymbolRegular.Globe24) == 2 && icons.Count(s => s == Wpf.Ui.Controls.SymbolRegular.LockClosed24) == 2, "Lobby marks: two globes and two locks expected");
-        Render(root, 820, 340, 2, Path.Combine(output, "coop-lobby.png"));
+        Require(!Descendants(root).OfType<Wpf.Ui.Controls.SymbolIcon>().Any(i => i.Symbol == Wpf.Ui.Controls.SymbolRegular.Info16), "Lobby rows must not show the info mark");
+        var locks = Descendants(root).OfType<System.Windows.Shapes.Path>().Where(p => p.ActualWidth > 0 && p.Fill is SolidColorBrush).ToList();
+        Require(locks.Count == 2, "Two padlocks expected, found " + locks.Count);
+        Require(Descendants(root).OfType<Wpf.Ui.Controls.SymbolIcon>().Count(i => i.Symbol == Wpf.Ui.Controls.SymbolRegular.Globe24) == 2, "Two globes expected");
+        var mark = Contrast(((SolidColorBrush)locks[0].Fill).Color, shade);
+        Require(mark >= 4.5, $"{look}: padlock contrast {mark:0.0}");
+        var least = Descendants(root).OfType<TextBlock>().Where(t => t.Foreground is SolidColorBrush && t.Text.Length > 0).Min(t => Contrast(((SolidColorBrush)t.Foreground).Color, shade));
+        Require(least >= 3, $"{look}: lobby text contrast {least:0.0}");
+        Console.WriteLine($"{look}: padlock {mark:0.0}:1, faintest text {least:0.0}:1");
+        // Checked by eye, on its own fill: a selected party's Join, as the local list draws it.
+        list.Children.Add(LauncherPage.SmallButton("Selected", Wpf.Ui.Controls.SymbolRegular.Checkmark24, (_, _) => { }, Wpf.Ui.Controls.ControlAppearance.Primary));
+        Layout(root, 820, 340);
+        Render(root, 820, 340, 2, Path.Combine(output, "lobby-" + look + ".png"));
     }
 
     private static Border Mount(SaveEditorWindow window, int width, int height)

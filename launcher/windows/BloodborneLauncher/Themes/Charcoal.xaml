@@ -60,6 +60,7 @@
     <SolidColorBrush x:Key="GoodTextBrush" Color="#FF5FD38A" />
     <!-- The chosen option of a segmented control and the active tab. -->
     <SolidColorBrush x:Key="SegmentSelectedBrush" Color="#FF2D7FF0" />
+    <SolidColorBrush x:Key="SegmentSelectedTextBrush" Color="#FFFFFFFF" />
 
     <!-- Pane, divider and pill colours; Glass.xaml turns them into glass for the Modern layout. -->
     <SolidColorBrush x:Key="GlassPaneBrush" Color="#FF2E2E31" />

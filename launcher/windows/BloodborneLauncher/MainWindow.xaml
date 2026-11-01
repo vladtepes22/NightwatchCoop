@@ -213,7 +213,7 @@
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Bg" Property="Background" Value="{DynamicResource SegmentSelectedBrush}" />
-                                <Setter Property="Foreground" Value="White" />
+                                <Setter Property="Foreground" Value="{DynamicResource SegmentSelectedTextBrush}" />
                                 <Setter Property="FontWeight" Value="SemiBold" />
                             </Trigger>
                         </ControlTemplate.Triggers>
