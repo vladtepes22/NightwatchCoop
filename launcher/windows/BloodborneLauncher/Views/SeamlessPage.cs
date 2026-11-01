@@ -816,6 +816,7 @@ public sealed class SeamlessPage : LauncherPage
             var join = SmallButton(!sameVersion ? L.T("Different version") : open ? L.T("Join") : L.T("Full"), SymbolRegular.Link24, (_, _) => JoinLobbyGame(picked));
             join.IsEnabled = open;
             var row = Card(game.Password ? SymbolRegular.LockClosed24 : SymbolRegular.LockOpen24, game.Name, LockInfo(game.Password), join, out var hint);
+            row.ShowIcon = true;
             if (!open) row.Opacity = 0.6;
             SetHint(hint, L.T("Nightwatch Online") + " · " + game.Players + " / " + game.Max + " · " + VpnLobby.VersionOf(game.Build) +
                           (sameVersion ? "" : "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.")));
@@ -894,6 +895,7 @@ public sealed class SeamlessPage : LauncherPage
             join.IsEnabled = state == PartyDiscovery.RowState.Join;
             var row = Card(info.Password ? SymbolRegular.LockClosed24 : info.Open ? SymbolRegular.LockOpen24 : SymbolRegular.Key24, info.Name,
                 info.Password || info.Open ? LockInfo(info.Password) : L.T("This host has no password and shares a party code: ask the host for it."), join, out var hint);
+            row.ShowIcon = true;
             if (state != PartyDiscovery.RowState.Join) row.Opacity = 0.6;
             SetHint(hint, text);
             _partyList.Children.Add(row);
