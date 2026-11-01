@@ -826,7 +826,7 @@ public sealed class SeamlessPage : LauncherPage
     /// <summary>A party's Join button with a globe (public) or closed lock (private) before it; hovering the mark gives the details.</summary>
     private static StackPanel WithAccessMark(bool isPublic, string info, UIElement join)
     {
-        var icon = new SymbolIcon { Symbol = isPublic ? SymbolRegular.Globe24 : SymbolRegular.LockClosed24, FontSize = 18 };
+        var icon = new SymbolIcon { Symbol = isPublic ? SymbolRegular.Globe24 : SymbolRegular.LockClosed24, FontSize = 20, Filled = true };
         icon.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "TextFillColorSecondaryBrush");
         // The transparent background makes the whole mark hoverable, not only the glyph's strokes.
         var mark = new Border { Child = icon, Padding = new Thickness(6), Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center,
