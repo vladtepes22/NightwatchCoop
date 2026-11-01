@@ -30,6 +30,10 @@ def main():
     parser.add_argument('--without-development-runtime', action='store_true')
     parser.add_argument('--max-party-tick-ms', type=float,
                         help='Require the last three in-world 5-second party tick p99 measurements below this limit.')
+    parser.add_argument('--mods', type=Path,
+                        help='Load mods from this folder: one mod (it holds dvdroot_ps4) or a Mods folder (BB_MODS_DIR).')
+    parser.add_argument('--env', action='append', default=[], metavar='NAME=VALUE',
+                        help='Extra environment for the game, e.g. BB_DEBUG_BULLETS=1 (repeatable).')
     args = parser.parse_args()
     engine = args.engine.resolve()
     probe = args.probe.resolve() if args.probe else engine / 'out/bb-probe.exe'
@@ -77,6 +81,13 @@ def main():
         (user / 'party_state.json').write_text(json.dumps({'role': args.role, 'secret': '0011223344556677', 'members': []}))
     if args.code_file:
         env['BB_PARTY_CODE_FILE'] = str(args.code_file.resolve())
+    # Without --mods the test's own empty mods folder is used, never the user's install.
+    env['BB_MODS_DIR'] = str(args.mods.resolve() if args.mods else data / 'mods')
+    for item in args.env:
+        name, sep, value = item.partition('=')
+        if not sep or not name:
+            parser.error(f'--env needs NAME=VALUE: {item}')
+        env[name] = value
     status_path = user / 'party_status.json'
     status_path.unlink(missing_ok=True)
     (user / 'party_command.json').unlink(missing_ok=True)
@@ -119,6 +130,9 @@ def main():
         if 'cannot host on TCP port' in text:
             print(f'Port {args.port} was taken, so the game never hosted: not a code fault, run it again.', flush=True)
         print(f'Silent audio backend verified: {muted}', flush=True)
+        if args.mods:
+            loaded = re.findall(r'^Mods: (.+: \d+ files)$', text, re.M)
+            print(f'Mods loaded: {", ".join(loaded) or "none (check the Mods: lines in the log)"}', flush=True)
         manual = not args.manual_title or ('restarted after an unclean exit' in text and 'auto-continue: Cross #' not in text)
         if args.manual_title:
             print(f'Stale recovery marker leaves title under manual control: {manual}', flush=True)

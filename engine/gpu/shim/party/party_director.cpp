@@ -13,6 +13,7 @@
 #include "party_balance.h"
 #include "party_enemyai.h"
 #include "party_npcfight.h"
+#include "party_bullet_debug.h"
 #include "party_async_io.h"
 
 #include "coop_hooks.h"
@@ -5536,6 +5537,7 @@ void CoopTick() {
     z.Next(Zone::Fourp);
     fourp::FourpTick(); // 4-player rules: the party's max players (party_fourp.h)
     plog::GameTick();   // party logging: snapshots, area events (party_log_game.h; cheap at Normal)
+    bulletdebug::Tick(); // BB_DEBUG_BULLETS / BB_DEBUG_USE_TOOL (party_bullet_debug.h; off: one test)
 }
 
 void PartyInit(unsigned char* image, std::uint64_t size) {
@@ -5571,6 +5573,7 @@ void PartyInit(unsigned char* image, std::uint64_t size) {
     balance::Init();        // C4 rot hook, D7 scaling (party_balance.h)
     enemyai::Init();        // C2 / split travel: a lone guest's enemies run on its own AI (party_enemyai.h)
     npcfight::Init();       // D11: NPC hunter fights with the whole party (party_npcfight.h)
+    bulletdebug::Init();    // modding: bullet log and headless tool test (party_bullet_debug.h)
     g_tick_installed = HookPrologue(kFlipperUpdate,
                                     {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53, 0x48,
                                      0x83, 0xec, 0x38},
