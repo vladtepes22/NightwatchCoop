@@ -815,13 +815,27 @@ public sealed class SeamlessPage : LauncherPage
             var picked = game;
             var join = SmallButton(!sameVersion ? L.T("Different version") : open ? L.T("Join") : L.T("Full"), SymbolRegular.Link24, (_, _) => JoinLobbyGame(picked));
             join.IsEnabled = open;
-            var row = Card(game.Password ? SymbolRegular.LockClosed24 : SymbolRegular.LockOpen24, game.Name, LockInfo(game.Password), join, out var hint);
-            row.ShowIcon = true;
+            var row = Card(SymbolRegular.People24, game.Name, null, WithAccessMark(!game.Password, LockInfo(game.Password), join), out var hint);
             if (!open) row.Opacity = 0.6;
             SetHint(hint, L.T("Nightwatch Online") + " · " + game.Players + " / " + game.Max + " · " + VpnLobby.VersionOf(game.Build) +
                           (sameVersion ? "" : "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.")));
             _lobbyList.Children.Add(row);
         }
+    }
+
+    /// <summary>A party's Join button with a globe (public) or closed lock (private) before it; hovering the mark gives the details.</summary>
+    private static StackPanel WithAccessMark(bool isPublic, string info, UIElement join)
+    {
+        var icon = new SymbolIcon { Symbol = isPublic ? SymbolRegular.Globe24 : SymbolRegular.LockClosed24, FontSize = 18 };
+        icon.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "TextFillColorSecondaryBrush");
+        // The transparent background makes the whole mark hoverable, not only the glyph's strokes.
+        var mark = new Border { Child = icon, Padding = new Thickness(6), Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center,
+            Background = System.Windows.Media.Brushes.Transparent, ToolTip = info };
+        ToolTipService.SetInitialShowDelay(mark, 150);
+        var line = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        line.Children.Add(mark);
+        line.Children.Add(join);
+        return line;
     }
 
     private static string LockInfo(bool password) =>
@@ -893,9 +907,8 @@ public sealed class SeamlessPage : LauncherPage
                 }, selected ? SymbolRegular.Checkmark24 : SymbolRegular.Link24, (_, _) => JoinParty(picked),
                 selected ? ControlAppearance.Primary : ControlAppearance.Secondary);
             join.IsEnabled = state == PartyDiscovery.RowState.Join;
-            var row = Card(info.Password ? SymbolRegular.LockClosed24 : info.Open ? SymbolRegular.LockOpen24 : SymbolRegular.Key24, info.Name,
-                info.Password || info.Open ? LockInfo(info.Password) : L.T("This host has no password and shares a party code: ask the host for it."), join, out var hint);
-            row.ShowIcon = true;
+            var access = info.Password || info.Open ? LockInfo(info.Password) : L.T("This host has no password and shares a party code: ask the host for it.");
+            var row = Card(SymbolRegular.People24, info.Name, null, WithAccessMark(!info.Password && info.Open, access, join), out var hint);
             if (state != PartyDiscovery.RowState.Join) row.Opacity = 0.6;
             SetHint(hint, text);
             _partyList.Children.Add(row);
