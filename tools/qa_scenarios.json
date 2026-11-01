@@ -255,12 +255,12 @@
     }
   },
   "loadgap": {
-    "about": "visy 0.7.7 loadgap (his phase lg, two players): a party lamp travel to the Tomb of Oedon (the guest loads; the host stands at that lamp); the loading screens raise no 'connection unstable' notice, relay switch or outage resume. (A guest's Party > Leave, its own home load, still does: visy's, not checked here.)",
+    "about": "visy 0.7.7 loadgap (his phase lg, two players): a party lamp travel to another map, Cathedral Ward (the guest really loads; a lamp in the same map loads nothing, and the guest's only loading screen would be its trip home when the games stop); the loading screens raise no 'connection unstable' notice, relay switch or outage resume. (A guest's Party > Leave, its own home load, still does: visy's, not checked here.)",
     "seconds": 240,
     "env": {
       "BB_NET_RXGAP_LOG": "1"
     },
-    "host": "host_warp=2412953@25^1",
+    "host": "host_warp=2402950@25^1",
     "guest": "",
     "expect": [
       [
@@ -269,11 +269,15 @@
       ],
       [
         "host",
-        "travel step \\d+/\\d+: host_warp to lamp 2412953"
+        "travel step \\d+/\\d+: host_warp to lamp 2402950"
       ],
       [
         "guest",
-        "the host moved to lamp 2412953|party move, lamp 2412953"
+        "loading screen gone"
+      ],
+      [
+        "guest",
+        "2402950"
       ],
       [
         "guest",
