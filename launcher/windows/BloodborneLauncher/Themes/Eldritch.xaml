@@ -16,6 +16,12 @@
     <SolidColorBrush x:Key="GlassDividerBrush" Color="#228A6A55" />
     <SolidColorBrush x:Key="PillTrackBrush" Color="#B0080505" />
     <SolidColorBrush x:Key="SegmentSelectedBrush" Color="#FF5A1915" />
+    <SolidColorBrush x:Key="AccentButtonBackground" Color="#FF5A1915" />
+    <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#FF6E231D" />
+    <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#FF4A130F" />
+    <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFFFF" />
+    <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFFFF" />
+    <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#FFFFFFFF" />
 
     <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="#C8130E0C" />
     <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#B8130E0C" />

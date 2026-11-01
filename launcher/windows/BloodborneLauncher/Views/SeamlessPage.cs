@@ -823,14 +823,31 @@ public sealed class SeamlessPage : LauncherPage
         }
     }
 
+    /// <summary>A solid padlock: thick shackle, square body with rounded bottom corners, keyhole cut through.</summary>
+    private static readonly System.Windows.Media.Geometry Padlock = System.Windows.Media.Geometry.Parse(
+        "F0 M6.25 11 V7.75 A5.75 5.75 0 0 1 17.75 7.75 V11 H15.55 V7.75 A3.55 3.55 0 0 0 8.45 7.75 V11 Z " +
+        "M4.7 11 H19.3 V20.8 A1.2 1.2 0 0 1 18.1 22 H5.9 A1.2 1.2 0 0 1 4.7 20.8 Z " +
+        "M11.45 18.8 V16.7 A1.2 1.2 0 1 1 12.55 16.7 V18.8 Z");
+
     /// <summary>A party's Join button with a globe (public) or closed lock (private) before it; hovering the mark gives the details.</summary>
     private static StackPanel WithAccessMark(bool isPublic, string info, UIElement join)
     {
-        var icon = new SymbolIcon { Symbol = isPublic ? SymbolRegular.Globe24 : SymbolRegular.LockClosed24, FontSize = 20, Filled = true };
-        icon.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "TextFillColorSecondaryBrush");
+        FrameworkElement icon;
+        if (isPublic)
+        {
+            icon = new SymbolIcon { Symbol = SymbolRegular.Globe24, FontSize = 20, Filled = true };
+            icon.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
+        }
+        else
+        {
+            var padlock = new System.Windows.Shapes.Path { Data = Padlock, Width = 20, Height = 20, Stretch = System.Windows.Media.Stretch.Uniform };
+            padlock.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TextFillColorPrimaryBrush");
+            icon = padlock;
+        }
         // The transparent background makes the whole mark hoverable, not only the glyph's strokes.
         var mark = new Border { Child = icon, Padding = new Thickness(6), Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center,
             Background = System.Windows.Media.Brushes.Transparent, ToolTip = info };
+        System.Windows.Automation.AutomationProperties.SetName(mark, info);
         ToolTipService.SetInitialShowDelay(mark, 150);
         var line = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         line.Children.Add(mark);

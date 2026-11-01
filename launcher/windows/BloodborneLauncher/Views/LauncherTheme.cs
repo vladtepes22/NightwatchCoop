@@ -93,6 +93,16 @@ namespace BloodborneLauncher.Views
             var d = new ResourceDictionary();
             void Solid(string key, Color c) => d[key] = Freeze(new SolidColorBrush(c));
             Solid("AccentTextFillColorPrimaryBrush", Mix(a, Colors.White, 0.25));
+            Solid("SegmentSelectedTextBrush", SegmentText(SegmentFill(a, glass)));
+            // The library's Primary buttons keep its own blue otherwise, whatever the theme.
+            var primary = Mix(a, Colors.Black, 0.1);
+            var primaryText = SegmentText(primary);
+            Solid("AccentButtonBackground", primary);
+            Solid("AccentButtonBackgroundPointerOver", Mix(a, Colors.White, 0.1));
+            Solid("AccentButtonBackgroundPressed", Mix(a, Colors.Black, 0.25));
+            Solid("AccentButtonForeground", primaryText);
+            Solid("AccentButtonForegroundPointerOver", SegmentText(Mix(a, Colors.White, 0.1)));
+            Solid("AccentButtonForegroundPressed", SegmentText(Mix(a, Colors.Black, 0.25)));
             if (glass)
             {
                 d["SegmentSelectedBrush"] = Freeze(new LinearGradientBrush(WithAlpha(Mix(a, Colors.White, 0.2), 0xC0),
@@ -124,6 +134,25 @@ namespace BloodborneLauncher.Views
         public static Color ShadeColour(LauncherSettings s) =>
             Eldritch(s) ? Color.FromRgb(0x0E, 0x08, 0x07)
             : Accent(s) is { } a ? Mix(Color.FromRgb(0x0A, 0x0B, 0x0E), a, 0.12) : Color.FromRgb(0x0A, 0x0B, 0x0E);
+
+        /// <summary>What a selected pill's fill averages to; on glass its translucent gradient over the backdrop shade.</summary>
+        public static Color SegmentFill(Color accent, bool glass) => glass
+            ? Mix(Mix(Color.FromRgb(0x0A, 0x0B, 0x0E), accent, 0.12), Mix(Mix(accent, Colors.White, 0.2), accent, 0.5), 0xA0 / 255.0)
+            : Mix(accent, Colors.Black, 0.1);
+
+        /// <summary>White on a pill while it reads well, otherwise near-black (a light accent such as Amber or Moonlight).</summary>
+        public static Color SegmentText(Color fill) =>
+            1.05 / (RelativeLuminance(fill) + 0.05) >= 3.5 ? Colors.White : Color.FromRgb(0x10, 0x10, 0x12);
+
+        public static double RelativeLuminance(Color c)
+        {
+            static double Part(byte v)
+            {
+                var s = v / 255.0;
+                return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+            }
+            return 0.2126 * Part(c.R) + 0.7152 * Part(c.G) + 0.0722 * Part(c.B);
+        }
 
         public static Color Mix(Color from, Color to, double amount) => Color.FromRgb(
             (byte)Math.Round(from.R + (to.R - from.R) * amount),
