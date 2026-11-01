@@ -5,6 +5,10 @@
 - Keep test saves separate from the user's existing installations. Store captures, dumps and large traces under `D:\project-artifacts\BloodborneSeamless`.
 - Use PowerShell and Windows paths. Preserve the CLANG64 toolchain recorded in the existing build tree.
 
+# Agent memory
+
+- For Discord messaging, read [memory/discord.md](memory/discord.md) for the verified channel IDs and short tool workflow.
+
 # QA gate (every agent, every change)
 
 - Read [QA_TESTING.md](QA_TESTING.md) once. Before committing, run `python tools/qa.py plan --level change` and then `run` (CLANG64 Python: `C:\msys64\clang64\bin\python.exe`). Paste its `work/qa/<run>/report.md` table into your report, plus what stayed unproven.
