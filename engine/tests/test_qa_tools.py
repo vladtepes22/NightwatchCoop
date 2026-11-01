@@ -118,12 +118,61 @@ class CrashLines(unittest.TestCase):
                      'Party: Session lost', '[WATCHDOG] Boot stalled for 20 s']:
             self.assertTrue(re.search(coop.CRASH_RX, line), line)
             self.assertTrue(re.search(qa.CRASH_RX, line), line)
+            self.assertTrue(coop.CRASH_BYTES_RX.search(b'x\n' + line.encode() + b'\n'), line)  # the live early stop
 
     def test_benign_lines_pass(self):
         for line in ["[coop] Party: host gone: waiting for it to come back (its crash restart) up to 180 s",
                      'Crash reports: another module replaced the unhandled exception filter (an overlay?); set again',
                      'BB_LOG_CXX_EXCEPTIONS=1']:
             self.assertIsNone(re.search(coop.CRASH_RX, line), line)
+
+
+class FailureNote(unittest.TestCase):
+    """What an agent reads on a failure instead of two ~450 KB session logs."""
+    LOGS = {'host': '[coop] Party: [1] cooperators 0 -> 1\n[coop] Net: send -> x\n',
+            'guest': ('[coop] Party: [1] guest_leave: Party > Leave pressed\n[coop] Party perf: tick 1 ms\n'
+                      '[coop] Net: recv <- y\n[coop] Party: [2] left the session\n')}
+
+    def note(self, expects, logs=None, crashes=None, joined=60):
+        logs = logs or self.LOGS
+        return coop.failure_note(coop.check_expects(expects, logs), logs, crashes or {}, joined, {})
+
+    def test_missing_line_after_the_last_match(self):
+        note = self.note([('host', 'cooperators 0 -> 1'), ('guest', 'Leave pressed'), ('guest', 'Rejoin pressed')])
+        self.assertEqual(note[0], '== guest')
+        self.assertIn('  missing: Rejoin pressed', note)
+        self.assertIn('  last match: [coop] Party: [1] guest_leave: Party > Leave pressed', note)
+        # Only party lines after the match: no net trace, no perf table, nothing already matched.
+        self.assertEqual(note[-1], '    [coop] Party: [2] left the session')
+        self.assertFalse(any('Net:' in l or 'perf' in l or 'host' in l for l in note))
+
+    def test_a_passing_role_stays_out(self):
+        self.assertEqual(self.note([('host', 'cooperators 0 -> 1')]), [])
+
+    def test_crash_lines_and_short_join(self):
+        logs = dict(self.LOGS, host=self.LOGS['host'] + 'uncaught C++ exception: std::bad_alloc\n')
+        note = self.note([('host', 'cooperators')], logs, {'host': 1}, joined=4)
+        self.assertEqual(note[0], 'joined only 4 s (needs 15)')
+        self.assertIn('== host (1 crash lines)', note)
+        self.assertIn('  crash: uncaught C++ exception: std::bad_alloc', note)
+        self.assertIn('== guest', note)  # a short join shows every role's party lines
+
+    def test_empty_log_shows_the_harness(self):
+        rows = coop.check_expects([('guest', 'x')], {'host': '', 'guest': ''})
+        note = coop.failure_note(rows, {'guest': ''}, {}, 60, {'guest': 'a\nThe host did not publish a code.\n'})
+        self.assertEqual(note[-1], '  The host did not publish a code.')
+
+    def test_repeats_collapse(self):
+        lines = ['[coop] Party: [13:16:50.741] roster: A', 'x', '[coop] Party: [13:16:55.002] roster: A', 'y', 'y', 'z']
+        self.assertEqual(coop.last_distinct(lines, 3), ['[coop] Party: roster: A (x2)', 'y (x2)', 'z'])
+        self.assertEqual(coop.last_distinct(lines, 2), ['y (x2)', 'z'])
+
+    def test_how_the_run_ended_comes_first(self):
+        rows = coop.check_expects([('host', 'nope')], self.LOGS)
+        self.assertEqual(coop.failure_note(rows, self.LOGS, {}, 60, {}, 'the deadline')[0], 'run ended: the deadline')
+
+    def test_qa_pick_caps_lines(self):
+        self.assertEqual(qa.pick('FAIL: a\nok\nFAIL: b\nFAIL: c\n', '^FAIL', 2), ['FAIL: a', 'FAIL: b'])
 
 
 class Scenarios(unittest.TestCase):

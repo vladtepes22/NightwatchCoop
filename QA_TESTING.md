@@ -37,6 +37,20 @@ Each run writes `work/qa/<run>/report.md` (the table to paste into a change repo
 log per layer. Exit code 1 when any layer fails. The release level refuses to build without a `subst`
 drive mapped to the tree: exes built under `C:\Users\...` embed the user name.
 
+**For agents: the harness does the work, you read its stdout.** One `qa.py` command per check; no
+hand-built director chains, loops or log greps. A PASS is the table line: paste `report.md`. A FAIL prints a
+short note under its layer (also in `failures.txt`): failed tests, first errors, and for a co-op row each
+role's first missing line, the last line that did match, the party lines after it (no net trace, perf
+tables or periodic dumps) and any crash lines, about 2 KB instead of two ~450 KB session logs. Open a
+session log only for a line the note quotes (`grep -n`, then a line range). A timing-sensitive row:
+`--repeat 3` (the summary says `N/3 runs passed`; only the first failure's note is printed). A new co-op
+check is a new row in `tools/qa_scenarios.json`, run once with `--only coop --scenario <row>`. Game layers
+first wait (up to `--wait-games`, 30 min) for games already running on the PC (another session's test, the
+user's game): a `not run: other games still running` row is a busy PC, not a failure to triage. A failing
+row stops 5 s after a crash line, and at its deadline the harness stops every game at once, so the note's
+first line says how the run ended. The release rows are `core`, `deaths`, `boss` (~7 min); `join` is
+inside `core`.
+
 ## 2. Co-op rows: the game plays itself
 
 There is no external input injection. visy's party code has a built-in **director**
