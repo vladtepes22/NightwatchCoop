@@ -56,7 +56,8 @@ def check_expects(expects, text):
             cursor[role] = found.end()
             line_start = text[role].rfind('\n', 0, found.start()) + 1
             line = text[role][line_start:text[role].find('\n', found.end())].strip()
-        results.append({'role': role, 'expect': pattern, 'passed': bool(found), 'line': line[:200] if found else None})
+        results.append({'role': role, 'expect': pattern, 'passed': bool(found), 'line': line[:200] if found else None,
+                         'at': found.end() if found else None})
     return results
 
 
@@ -74,10 +75,56 @@ def check_forbids(forbids, text):
     return results
 
 
+# The party's own story lines (state changes, director steps), without the per-packet net trace, the perf
+# tables and the periodic dumps (B2 status, remote chrs, title polling) that make up most of a session log.
+STORY_RX = re.compile(r'^\[coop\] Party(?! perf| B2: (?:status|remote chrs)| seamless: talk NPC| ?: \[[\d:.]+\] title: FROM)|^Boot: ')
+
+
+def last_distinct(lines, count):
+    """The last `count` distinct lines (time stamps ignored), in order, a repeated one marked (xN): periodic
+    dumps such as the roster would otherwise fill the note."""
+    seen, kept = {}, []
+    for line in reversed(lines):
+        key = re.sub(r'\[\d\d:\d\d:\d\d\.\d+\] ', '', line)
+        if key in seen:
+            seen[key] += 1
+        elif len(kept) < count:
+            seen[key] = 1
+            kept.append(key)
+    return [l + (f' (x{seen[l]})' if seen[l] > 1 else '') for l in reversed(kept)]
+
+
+def failure_note(rows, text, crashes, joined_seconds, harness, ended='', tail=12):
+    """A short note an agent reads instead of the session logs (each ~450 KB): per role, the first expect
+    it never showed, the last line that did match, the party lines after that point and its crash lines."""
+    note = [f'run ended: {ended}'] if ended else []
+    if joined_seconds < 15:
+        note.append(f'joined only {joined_seconds:.0f} s (needs 15)')
+    for role, log in text.items():
+        missing = next((r for r in rows if r['role'] == role and not r['passed']), None)
+        crash = [l.strip()[:200] for l in log.splitlines() if re.search(CRASH_RX, l)]
+        if not (missing or crash or joined_seconds < 15):
+            continue
+        note.append(f'== {role}' + (f' ({crashes.get(role, 0)} crash lines)' if crash else ''))
+        if not log:
+            note += ['  empty session log; harness output:'] + ['  ' + l[:200] for l in harness.get(role, '').splitlines()[-5:]]
+            continue
+        start = 0
+        if missing:
+            matched = [r for r in rows[:rows.index(missing)] if r['role'] == role and r['passed']]
+            start = matched[-1]['at'] if matched else 0
+            note += [f'  missing: {missing["expect"]}', f'  last match: {matched[-1]["line"] if matched else "(none)"}']
+        story = [l.strip()[:200] for l in log[start:].splitlines() if STORY_RX.match(l)]
+        note += [f'  party lines after it (last {tail} distinct of {len(story)}):'] + ['    ' + l for l in last_distinct(story, tail)]
+        note += ['  crash: ' + l for l in crash[:5]]
+    return note
+
+
 # The engine's own fault / stop lines (probe.c, runtime_kernel.c), Vulkan errors and visy's common smoke
 # negatives (smoke_party.py check_common: Session lost, boot stall); not the party's
 # benign "host gone ... its crash restart" notice.
 CRASH_RX = r'(?i)(?:guest|host) fault|uncaught C\+\+ exception|C\+\+ exception, thread|VK_ERROR|STOP: guest raised|assertion failed|EXCEPTION_ACCESS|fatal error|Session lost|\[WATCHDOG\] Boot stalled'
+CRASH_BYTES_RX = re.compile(CRASH_RX.encode())
 
 
 def read_logs(paths):
@@ -152,7 +199,11 @@ def main():
             output = (artifacts / f'{seed}-harness.log').open('w', encoding='utf-8')
             logs.append(output)
             command = [sys.executable, '-u', str(REPO / 'tools/smoke-game.py'), '--name', name,
-                       '--role', role, '--port', str(port), '--code-file', str(code), '--seconds', str(args.seconds),
+                       '--role', role, '--port', str(port), '--code-file', str(code),
+                       # This harness ends every game at once (its own deadline below); a game's own deadline is only
+                       # a safety net. With it at args.seconds the host, started first, stopped first, and the guests'
+                       # last lines read "the host left" as if the link had broken.
+                       '--seconds', str(args.seconds + 180),
                        '--party-max', str(scenario.get('guest_party_max', len(players)) if role != 'host' else len(players)),
                        '--party-name', 'HostSmoke' if role == 'host' else 'GuestSmoke' + seed[len('guest'):]]
             if args.game:
@@ -184,6 +235,7 @@ def main():
         joined_after_boundary_seconds = 0
         positions = {seed: 0 for seed in offsets}
         stopped_early = False
+        crash_at = None  # a crash line fails the row: stop a few seconds later instead of at the deadline
         next_expect_check = 0
         deadline = time.monotonic() + args.seconds + 20
         while time.monotonic() < deadline and any(child.poll() is None for child in children):
@@ -196,6 +248,11 @@ def main():
                     if boundary_at is None and re.search(rb'K3: stage-record change with a session[^\n]*, [1-4] member chr', chunk):
                         boundary_at = time.monotonic()
                         print('Streaming stage boundary observed with the session active.', flush=True)
+                    if crash_at is None and CRASH_BYTES_RX.search(chunk):
+                        crash_at = time.monotonic()
+                        print(f'Crash line in the {seed} log: ending the run in 5 s.', flush=True)
+            if crash_at is not None and time.monotonic() - crash_at >= 5:
+                break
             snapshot = {seed: read_status(path) for seed, path in states.items()}
             # The host must see every guest; a guest needs the host (guest-to-guest shows in the logs).
             both_joined = all(joined(status, len(guests) if seed == 'host' else 1) for seed, status in snapshot.items())
@@ -222,7 +279,8 @@ def main():
                     stopped_early = True
                     break
             time.sleep(0.5)
-        if stopped_early:
+        at_deadline = all(child.poll() is None for child in children)  # the run's end, not a game's exit
+        if stopped_early or crash_at is not None or at_deadline:
             for child in children:
                 subprocess.run(['taskkill', '/PID', str(child.pid), '/T', '/F'], capture_output=True)
         exits = [child.wait(timeout=15) for child in children]
@@ -238,17 +296,31 @@ def main():
                   + (f" (seen: {row['line']})" if row['line'] else ''), flush=True)
         crashes = {seed: len(re.findall(CRASH_RX, log))
                    for seed, log in text.items()}
-        success = ((stopped_early or all(code == 0 for code in exits)) and (stable_seconds == 0 if no_join else stable_seconds >= 15) and
+        success = ((stopped_early or at_deadline or all(code == 0 for code in exits)) and (stable_seconds == 0 if no_join else stable_seconds >= 15) and
                    all(r['passed'] for r in rows + forbid_rows) and not any(crashes.values()) and
                    (not args.require_boundary or boundary and joined_after_boundary_seconds >= 15))
         result = {'passed': success, 'scenario': args.scenario, 'steps': steps, 'expects': rows, 'forbids': forbid_rows,
-                  'crash_lines': crashes, 'stopped_early': stopped_early,
+                  'crash_lines': crashes, 'stopped_early': stopped_early, 'stopped_on_crash': crash_at is not None,
                   'exits': exits, 'longest_continuous_join_seconds': stable_seconds,
                   'boundary_observed': boundary, 'stale_collision_clear_reports': cleared,
                   'longest_join_after_boundary_seconds': joined_after_boundary_seconds,
                   'logs': {seed: str(path) for seed, path in offsets.items()}, 'sessions': evidence}
         (artifacts / 'result.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
-        print(json.dumps({key: value for key, value in result.items() if key != 'sessions'}, indent=2), flush=True)
+        # One verdict line; the details stay in result.json, and a failure gets a short note (failure.txt).
+        print(f"{'PASS' if success else 'FAIL'} {args.scenario or args.label}: rows {sum(r['passed'] for r in rows)}/{len(rows)}, "
+              f"joined {stable_seconds:.0f} s, crash lines {sum(crashes.values())}, exits {exits}", flush=True)
+        if not success:
+            for log in logs:
+                log.flush()
+            harness = {seed: (artifacts / f'{seed}-harness.log').read_text(encoding='utf-8', errors='replace')
+                       for seed in offsets}
+            ended = ('a crash line (stopped 5 s later)' if crash_at is not None else
+                     f'the {args.seconds} s deadline: the harness stopped every game, so a last link line is that stop'
+                     if at_deadline else f'a game exited by itself (exits {exits})')
+            note = failure_note(rows, text, crashes, stable_seconds, harness, ended)
+            note += [f"{r['role']}: forbidden line seen: {r['line']}" for r in forbid_rows if not r['passed']]
+            (artifacts / 'failure.txt').write_text('\n'.join(note) + '\n', encoding='utf-8', newline='\n')
+            print('\n'.join(note), flush=True)
         return 0 if success else 1
     finally:
         for child in children:
