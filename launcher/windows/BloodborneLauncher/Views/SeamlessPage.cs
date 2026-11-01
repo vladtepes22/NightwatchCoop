@@ -56,7 +56,7 @@ public sealed class SeamlessPage : LauncherPage
         hostOptions.Children.Add(sizeRows); hostOptions.Children.Add(showRows);
         _hostSize = (System.Windows.Controls.ComboBox)ComboRow(SymbolRegular.People24, L.T("Player limit"), null,
             PartySizes(), PartySize, v => S.Set("party_max", v), sizeRows, width: 90);
-        ToggleRow(SymbolRegular.People24, L.T("Show my party to friends"), null,
+        ToggleRow(SymbolRegular.People24, L.T("Show my party in the lobby browser"), null,
             () => Ini.Get("party_discovery", "1") == "1", v => { ApplyHostMode(IsPublic, v); UpdateInvite(); }, showRows);
         // Nightwatch Online with the party not shown: the host hands out its code by hand.
         _onlineCodeButton = SmallButton(L.T("Copy code"), SymbolRegular.Copy24, (_, _) => { if (_onlineCode.Length > 0) Copy(_onlineCode); });
@@ -905,7 +905,7 @@ public sealed class SeamlessPage : LauncherPage
             _listener?.Error.Length > 0 ? L.T("Could not listen for parties: ") + _listener?.Error + L.T(". Paste the host's code below instead.") :
             parties.Count > 0 || lobbyRows ? "" : _searchBox.Text.Trim().Length > 0 ? L.T("No matching parties.") :
             !waited ? L.T("Looking for parties…") :
-            L.T("No party found yet. Check that:") + "\n• " + L.T("the host has Show my party to friends on and has started the game") +
+            L.T("No party found yet. Check that:") + "\n• " + L.T("the host has Show my party in the lobby browser on and has started the game") +
             "\n• " + L.T("you are both on the same VPN or local network") + "\n• " + L.T("Windows Firewall allows Nightwatch Co-op on Public networks too (VPN adapters often count as Public)")).TrimEnd('\n'));
         foreach (var party in parties)
         {

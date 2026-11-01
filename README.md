@@ -77,7 +77,7 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 ## Install
 
-1. Download `NightwatchCoop-v0.2.6-beta.3-win64.zip` from
+1. Download `NightwatchCoop-v0.2.6-beta.4-win64.zip` from
    [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive.
@@ -121,7 +121,7 @@ have no map.
    - **Your name:** any name (1-16 letters, numbers, `_` or `-`)
    - **Player limit:** how many players.
    - **Password (optional):** it keeps strangers out. Without one, anyone who sees the party can join;
-     with **Show my party to friends** off, only people with your code can.
+     with **Show my party in the lobby browser** off, only people with your code can.
    - Leave **UPnP** on: it asks your router to open the party port (9307) for you, if you want to play over internet 
      instead of Nightwatch VPN
 2. Press **Play** on the main page. Allow the Windows Firewall prompt the first time.

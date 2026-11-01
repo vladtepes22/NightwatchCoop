@@ -86,7 +86,7 @@ their tooltips in the launcher and by the game's System > Party rules pages.
 | Launcher label | Key | Default | What it does |
 |---|---|---|---|
 | Host over a VPN | `party_vpn` | Auto | `auto` takes a Radmin VPN, Hamachi, Tailscale or ZeroTier adapter (in that order) when there is one, `off` never, or an adapter name. A commercial VPN is only used when named. Read at start. |
-| Show my party to friends | `party_discovery` | on | While hosting, the game announces name, level, players, area and build (never the password or an address) by UDP broadcast on port 9308 on private LAN, Radmin, Hamachi and ZeroTier adapters. Live. |
+| Show my party in the lobby browser | `party_discovery` | on | While hosting, the game announces name, level, players, area and build (never the password or an address) by UDP broadcast on port 9308 on private LAN, Radmin, Hamachi and ZeroTier adapters. Live. |
 | Online memory watch (crash) | `BB_HEAP_WATCH_LOG` (launcher: More > Engine > Diagnostics) | off | Logs every 20 s which parts of the game hold the memory the online code uses, for "Transaction failed" crash reports. |
 
 The **Your connection** card shows the route the party uses (the VPN adapter, the local network or
