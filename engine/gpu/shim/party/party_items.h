@@ -92,6 +92,17 @@ struct ShopGateRepair;
 /// nowhere, -1 unknown. Clears gate 12101000 + n when it is set and badge 4110 + n is held nowhere.
 ShopGateRepair BadgeGatesToRepair(const std::function<bool(std::uint32_t)>& is_set,
                                   const std::function<int(std::int32_t)>& held);
+/// The live badge guard (0.7.8, BB_PARTY_BADGE_GUARD=0 off): every few seconds, own world and summoned, a badge row
+/// 12101000 + n that reads open while badge 4110 + n is held nowhere is closed. The badge must be missing in
+/// `kBadgeGuardConfirm` checks in a row (a list that reads empty for one frame must not close a real owner's row).
+struct BadgeGuardState {
+    int missing[kBadgeGateCount] = {};
+};
+constexpr int kBadgeGuardConfirm = 2;
+/// One check: `open(n)` = row n reads open, `held(goods)` 1 held / 0 nowhere / -1 unknown. Returns the row flags
+/// to close now; the state counts the consecutive checks a row was open without its badge.
+std::vector<std::int32_t> BadgeGuardStep(BadgeGuardState& st, const std::function<bool(std::int32_t)>& open,
+                                         const std::function<int(std::int32_t)>& held);
 /// Eye repair: what to undo in a save that holds the Eye (or its sale flags) before its own DLC gate.
 struct EyeRepair {
     bool done = false;       ///< the save carries kEyeGateRepaired
@@ -331,6 +342,10 @@ struct KillAwardRow {
 /// 0.7.7: queue the notice "<item>: shared with the party" for a shared grant given on this game / queued for the party
 /// by the host (nothing for catch-up lists, per-player lots, or with party_item_notices off). Game build only.
 void ShareNotice(const ItemGrant& g, const char* how);
+/// The game's name of an item (its own language); empty when the lookup is not up yet or there is none.
+std::string PartyItemName(std::uint32_t category, std::int32_t id);
+/// A far shared drop paid straight into the inventory (party_droproll): the party notice corner, `text` as is.
+void PartyDropNotice(const std::string& text);
 std::vector<KillAwardRow> KillAwardRows();
 std::uint32_t KillAwardEntity(std::int32_t lot);  ///< 0: not a kill award
 /// A shared key treasure given to a member who stands in the host's world (summoned guest): the item
@@ -618,6 +633,45 @@ bool SummonedKeyGiveNowRule(bool key_view, const char* give_env, bool usable);
 /// slots: an entry given to the character in save slot `entry_slot` is re-given only to that one
 /// (-1 on either side = unknown: an older file or an unreadable slot; given as before).
 bool SummonedGiveForSlot(int entry_slot, int current_slot);
+
+// ---- one character, not one slot (0.7.8, CL-55cea7) ----
+// The save slot alone does not say which character an entry was given to: a new character created in the
+// same slot, or an entry from before the slot field, replayed the old character's key items (Eye, hunter
+// badges, workshop tools) into a fresh character. Each character now carries a random 20-bit id in its own
+// save (flags kCharIdFirst.. + kCharIdValid in the ledger range, written on the first party use) and an entry
+// is replayed only to the exact (slot, id) it was given to.
+constexpr std::uint32_t kCharIdBits = 20;
+constexpr std::uint32_t kCharIdValid = kItemLedgerBase + kItemLedgerSize - 6;  ///< the id below was written
+constexpr std::uint32_t kCharIdFirst = kItemLedgerBase + kItemLedgerSize - 6 - kCharIdBits;  ///< bit 0 .. 19
+/// Set once a save was checked for key items the old replay gave without their vanilla source (SgivePoisonToRepair).
+constexpr std::uint32_t kSgiveRepaired = kItemLedgerBase + kItemLedgerSize - 5;
+enum class SgiveOwner : std::uint8_t {
+    Replay,        ///< the same character: give again
+    KeepForOther,  ///< another save slot with a known id: kept for that character
+    Unsure,        ///< this character's slot / id is not readable now: kept, not replayed
+    Drop,          ///< no identity (an older file), or another character in this slot: never replayed
+};
+/// `enforce` false (BB_PARTY_SGIVE_OWNER=0) is the old slot-only rule (SummonedGiveForSlot).
+SgiveOwner SummonedGiveOwner(int entry_slot, std::uint32_t entry_id, int cur_slot, std::uint32_t cur_id, bool enforce);
+
+/// The own-world flags that show a key item was earned by its vanilla source (its lot's pickup flag, the
+/// ledger bit and awarding event of a flagless lot, a quest flag); any one set = earned. Empty: unknown.
+std::vector<std::uint32_t> GoodsEarnedFlags(std::int32_t goods);
+/// Repair of a character the old replay poisoned: key items held without any of their source flags are taken
+/// away and the badge rows 12101000 + n of removed badges (or of badges held nowhere) are cleared. Only on a
+/// first-playthrough save. A hunter badge without its source goes at once; other key items only with at least
+/// `kSgiveMinUnearned` such items in all (one stray item has other explanations); unknown goods are never
+/// touched. `held(goods)`: 1 / 0 / -1 (unreadable), as BadgeGatesToRepair.
+constexpr int kSgiveMinUnearned = 2;
+struct SgiveRepair {
+    bool done = false;      ///< the save carries kSgiveRepaired
+    bool complete = true;   ///< decided (false: a value was unreadable; ask again, do not mark)
+    std::vector<std::int32_t> remove;      ///< goods to take away
+    std::vector<std::int32_t> kept;        ///< held without a source flag but left (too few, or NG+)
+    std::vector<std::uint32_t> clear;      ///< badge row flags to clear
+};
+SgiveRepair SgivePoisonToRepair(const std::function<bool(std::uint32_t)>& is_set,
+                                const std::function<int(std::int32_t)>& held, int ng);
 
 class GuestItems {
 public:

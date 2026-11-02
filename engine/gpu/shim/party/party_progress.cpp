@@ -1973,6 +1973,63 @@ constexpr int kExtraLocalSetObservers = 3;
 std::atomic<LocalFlagSetObserver> g_local_set_extra[kExtraLocalSetObservers]{};
 std::atomic<bool> g_set_flag_hooked{false};
 
+// ---- writers of the Messenger badge rows 12101000-12101009 (0.7.8) ----
+constexpr u32 kBadgeRowFirst = 12101000, kBadgeRowCount = 10, kBadgeNotes = 4;
+struct BadgeNote {
+    std::chrono::steady_clock::time_point at{};
+    char text[112] = {};
+};
+std::mutex g_badge_mu;
+BadgeNote g_badge_notes[kBadgeRowCount][kBadgeNotes];
+unsigned g_badge_next[kBadgeRowCount] = {};
+thread_local const char* t_flag_cause = nullptr;
+
+void RecordBadgeNote(u32 id, const char* what) {
+    if (id < kBadgeRowFirst || id >= kBadgeRowFirst + kBadgeRowCount) {
+        return;
+    }
+    std::lock_guard<std::mutex> lk(g_badge_mu);
+    const u32 n = id - kBadgeRowFirst;
+    BadgeNote& e = g_badge_notes[n][g_badge_next[n]++ % kBadgeNotes];
+    e.at = std::chrono::steady_clock::now();
+    std::snprintf(e.text, sizeof e.text, "%s", what);
+}
+
+/// The first `want` return addresses into the game image found on this thread's stack ("0x13a... ") .
+void GameCallers(char* out, std::size_t cap, int want) {
+    const u64 base = Guest(0), size = ImageSize();
+    int n = 0;
+    std::size_t len = 0;
+    out[0] = 0;
+    const u64* sp = static_cast<const u64*>(__builtin_frame_address(0));
+    for (int i = 0; i < 160 && n < want; ++i) {
+        u64 v = 0;
+        if (!SafeGet(reinterpret_cast<u64>(sp + i), &v) || v <= base || v >= base + size) {
+            continue;
+        }
+        const int w = std::snprintf(out + len, cap - len, "%s0x%llx", n ? "," : "", static_cast<unsigned long long>(v - base));
+        if (w < 0 || std::size_t(w) >= cap - len) {
+            break;
+        }
+        len += std::size_t(w);
+        ++n;
+    }
+}
+
+__attribute__((noinline)) void NoteBadgeFlagCall(const char* via, u32 id, u32 on) {
+    char callers[80];
+    GameCallers(callers, sizeof callers, 3);
+    char what[112];
+    if (t_flag_cause) {
+        std::snprintf(what, sizeof what, "%s(%u) by %s", via, on, t_flag_cause);
+    } else if (Global::self_write) {
+        std::snprintf(what, sizeof what, "%s(%u) by shared progress", via, on);
+    } else {
+        std::snprintf(what, sizeof what, "%s(%u) by game code (EMEVD or Lua), callers %s", via, on, callers);
+    }
+    RecordBadgeNote(id, what);
+}
+
 void NoteLocalSet(u32 id) {
     if (Global::self_write) {
         return;
@@ -2035,6 +2092,9 @@ __attribute__((noinline)) void TraceWatchedWrite(const char* via, u64 man, u32 i
 
 BB_COOP_SYSV void OnSetEventFlag(u64 man, u64 id, u64 on, u64, u64, u64) {
     perf::Scope z(perf::Zone::HookSetFlag);
+    if (u32(id) >= kBadgeRowFirst && u32(id) < kBadgeRowFirst + kBadgeRowCount && man == Manager()) {
+        NoteBadgeFlagCall("SetEventFlag", u32(id), u32(on));
+    }
     if (!WatchedWrites().empty()) {
         TraceWatchedWrite(man == Manager() ? "SetEventFlag" : "SetEventFlag (other manager)", man, u32(id), u32(on));
     }
@@ -2048,6 +2108,12 @@ BB_COOP_SYSV void OnSetEventFlag(u64 man, u64 id, u64 on, u64, u64, u64) {
 
 BB_COOP_SYSV void OnSetEventFlagValue(u64 man, u64 first, u64 bits, u64, u64, u64) {
     perf::Scope z(perf::Zone::HookSetFlagValue);
+    if (man == Manager() && u32(bits) <= 32 && u32(first) < kBadgeRowFirst + kBadgeRowCount &&
+        u32(first) + u32(bits) > kBadgeRowFirst) {
+        for (u32 k = 0; k < u32(bits); ++k) {
+            NoteBadgeFlagCall("SetEventFlagValue", u32(first) + k, 0);
+        }
+    }
     if (!Capturing() || man != Manager() || u32(bits) == 0 || u32(bits) > 32) {
         return;
     }
@@ -2058,6 +2124,9 @@ BB_COOP_SYSV void OnSetEventFlagValue(u64 man, u64 first, u64 bits, u64, u64, u6
 
 BB_COOP_SYSV void OnBroadcastSetFlag(u64, u64 id, u64, u64, u64, u64) {
     perf::Scope z(perf::Zone::HookBroadcastFlag);
+    if (u32(id) >= kBadgeRowFirst && u32(id) < kBadgeRowFirst + kBadgeRowCount) {
+        NoteBadgeFlagCall("CompleteEvent", u32(id), 1);
+    }
     if (!WatchedWrites().empty()) {
         TraceWatchedWrite("CompleteEvent", 1, u32(id), 1);
     }
@@ -2071,12 +2140,17 @@ BB_COOP_SYSV void OnBroadcastSetFlag(u64, u64 id, u64, u64, u64, u64) {
 
 BB_COOP_SYSV void OnEmkEndOrRestart(u64 self, u64, u64, u64, u64, u64) {
     perf::Scope z(perf::Zone::HookEmkEnd);
-    if (!Capturing()) {
-        return;
-    }
     u32 event = 0;
     std::int16_t slot = 0;
     if (!SafeGet(self + kEmkEventId, &event) || !SafeGet(self + kEmkSlot, &slot)) {
+        return;
+    }
+    if (event >= kBadgeRowFirst && event < kBadgeRowFirst + kBadgeRowCount && slot >= 0) {
+        char what[112];
+        std::snprintf(what, sizeof what, "EMEVD event %u slot %d ended or restarted", event, int(slot));
+        RecordBadgeNote(event + u32(slot), what);
+    }
+    if (!Capturing()) {
         return;
     }
     const std::int32_t id = std::int32_t(event) + slot;
@@ -2744,6 +2818,7 @@ void Tick(const GameSnapshot& s) {
             for (u32 id : ids) {
                 bool before = false, after = false;
                 store.ReadOwnSave(id, &before);
+                NoteBadgeRowWrite(id, "test aid BB_PARTY_PROGRESS_TEST_SET/CLEAR");
                 store.WriteOwnSave(id, on);
                 store.ReadOwnSave(id, &after);
                 list += (list.empty() ? "" : ",") + std::to_string(id) + ":" + std::to_string(int(before)) + "->" +
@@ -3038,17 +3113,61 @@ Policy CurrentPolicy() {
     return G().policy;
 }
 
+bool IsBadgeRowFlag(u32 id) {
+    return id >= kBadgeRowFirst && id < kBadgeRowFirst + kBadgeRowCount;
+}
+
+void NoteBadgeRowWrite(u32 id, const char* what) {
+    RecordBadgeNote(id, what);
+}
+
+std::string BadgeRowWriters(u32 id) {
+    if (!IsBadgeRowFlag(id)) {
+        return "unknown";
+    }
+    std::lock_guard<std::mutex> lk(g_badge_mu);
+    const u32 n = id - kBadgeRowFirst;
+    const unsigned total = g_badge_next[n];
+    std::string out;
+    const auto now = std::chrono::steady_clock::now();
+    for (unsigned k = 0; k < kBadgeNotes && k < total; ++k) {
+        const BadgeNote& e = g_badge_notes[n][(total - 1 - k) % kBadgeNotes];
+        char age[24];
+        std::snprintf(age, sizeof age, "%.0f s ago: ", std::chrono::duration<double>(now - e.at).count());
+        out += (out.empty() ? "" : "; ") + std::string(age) + e.text;
+    }
+    return out.empty() ? "unknown (no write seen this run)" : out;
+}
+
+FlagCause::FlagCause(const char* what) : prev_(t_flag_cause) {
+    t_flag_cause = what;
+}
+
+FlagCause::~FlagCause() {
+    t_flag_cause = prev_;
+}
+
 bool ReadFlag(u32 id, bool* value) {
     const FlagStore store(Manager(), GameOps());
     return store.Valid() && store.ReadVisible(id, value);
 }
 
 bool WriteFlagOwnSave(u32 id, bool value) {
+    if (IsBadgeRowFlag(id)) {
+        char what[112];
+        std::snprintf(what, sizeof what, "own-save write(%d) by %s", int(value), t_flag_cause ? t_flag_cause : "party code");
+        RecordBadgeNote(id, what);
+    }
     const FlagStore store(Manager(), GameOps());
     return store.Valid() && store.WriteOwnSave(id, value);
 }
 
 bool WriteFlagVisible(u32 id, bool value) {
+    if (IsBadgeRowFlag(id)) {
+        char what[112];
+        std::snprintf(what, sizeof what, "visible write(%d) by %s", int(value), t_flag_cause ? t_flag_cause : "party code");
+        RecordBadgeNote(id, what);
+    }
     const FlagStore store(Manager(), GameOps());
     return store.Valid() && store.WriteVisible(id, value);
 }

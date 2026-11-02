@@ -513,6 +513,9 @@ bool PopHostStoryNotice(StoryNotice* out);
 void RequestGuestStoryNotice(const StoryNotice& n);
 /// bbgpu_patch_image, once, after coop::HooksInit (party mode only): the bank-2002 capture hook.
 void InstallStoryHooks();
+/// Host (a later Snatcher grab, BB_PARTY_GAOL_ALWAYS): offer the Gaol waking scene 28000010 to the party; a
+/// guest that has seen it (its seen set) skips the scene, one that has not plays it once in the cell.
+void NoteHostGaolScene();
 /// Host: the next story intent to broadcast (any thread).
 bool PopHostStory(StoryIntent* out);
 /// Guest: the host's intent (any thread; the PartyLink callback).

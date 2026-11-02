@@ -1553,6 +1553,20 @@ BB_COOP_SYSV u64 EventSyncRead(u64 man, u64 peer, u64 type, u64 buf, u64 size) {
             kind = 1;
             event = 0;
         }
+        if (std::int32_t(r) > 0 && buf && SafeGet(buf, &kind) && kind == 0 && SafeGet(buf + 8, &event) &&
+            event >= kBadgeGateFirst && event < kBadgeGateFirst + kBadgeGateCount) {
+            // 0.7.8: a peer's state of a badge row event, for the badge guard's "who set it" line.
+            std::int16_t slot = 0;
+            std::int32_t state = 0;
+            SafeGet(buf + 0xc, &slot);
+            SafeGet(buf + 0x10, &state);
+            char what[112];
+            std::snprintf(what, sizeof what, "network packet 0x31 (event state of a peer): event %d slot %d state %d%s",
+                          event, int(slot), state, ItemGateSyncFilterOn() ? ", dropped" : ", applied");
+            progress::NoteBadgeRowWrite(static_cast<std::uint32_t>(event + slot), what);
+            kind = 1;
+            event = 0;
+        }
         if (std::int32_t(r) <= 0 || !buf || !SafeGet(buf, &kind) || kind != 0 || !SafeGet(buf + 8, &event) ||
             !((MessengerSyncFilterOn() && PerPlayerMessengerEvent(std::uint32_t(event))) ||
               (ItemGateSyncFilterOn() && PerPlayerItemGateEvent(std::uint32_t(event))) ||

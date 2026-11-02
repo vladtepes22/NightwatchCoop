@@ -56,7 +56,17 @@ int main() {
         assert(PlanHost(o) == HostPlan::RuleOff);
         o = v;
         o.woke = true;         // the first kidnap is done: a later grab is a plain death (9421 ends on 9423)
+        o.gaol_always = false;
         assert(PlanHost(o) == HostPlan::Woke);
+        o.gaol_always = true;  // BB_PARTY_GAOL_ALWAYS (default): every grab of a guest goes to the Gaol
+        assert(PlanHost(o) == HostPlan::Direct);
+        o.busy = true;
+        assert(PlanHost(o) == HostPlan::Busy);
+        o.busy = false;
+        o.host_map = 0x1c000000;
+        assert(PlanHost(o) == HostPlan::NotHere);
+        o.rule_on = false;
+        assert(PlanHost(o) == HostPlan::RuleOff);
         o = v;
         o.host_map = 0x1c000000;  // the host is in Yahar'gul (no Snatchers there)
         assert(PlanHost(o) == HostPlan::NotHere);

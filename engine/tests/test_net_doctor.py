@@ -137,3 +137,41 @@ def test_one_log_per_player(tmp_path, capsys):
     assert out.count("(guest)") == 1
     assert "Guest 1 sent 2 logs" in out and "used 18:53" in out
     assert "different sessions" not in out
+
+
+
+def _lan_logs(tmp, coop, joined):
+    host, guest = tmp / "h.log", tmp / "g.log"
+    host.write_text("Nightwatch Co-op v0.7.7, engine x, 2026-11-01 20:00:00\n"
+                    "[coop] Net: party networking on (host, as HostA, port 9307)\n"
+                    "[coop] Party: build 0.7.7+aaaa1111 (x), params\n"
+                    + ("[coop] Party: roster: GuestB(slot 1, in_host_world, 40 ms)\n" if joined else ""),
+                    encoding="utf-8")
+    guest.write_text("Nightwatch Co-op v0.7.7, engine x, 2026-11-01 20:00:00\n"
+                     "[coop] Net: party networking on (guest, as GuestB, port 9307)\n"
+                     f"[coop] Party: build {coop} (x), params\n"
+                     "[coop] Party: joining 10.0.0.2:9307 as GuestB\n"
+                     "[coop] Net: LAN fallback: found host at 10.0.0.9:9307 (it reports 10.0.0.2;\n"
+                     + ("[coop] Party: link: connected: slot 1\n" if joined else ""), encoding="utf-8")
+    return [host, guest]
+
+
+def test_coop_at_least():
+    assert nd.coop_at_least("0.7.7+e3169e38", "0.7.6") and nd.coop_at_least("v0.7.6", "0.7.6")
+    assert nd.coop_at_least("0.10.0", "0.7.6")
+    assert not nd.coop_at_least("0.7.5", "0.7.6") and not nd.coop_at_least(None, "0.7.6")
+
+
+def test_lan_fallback_not_flagged_on_new_build_or_success(tmp_path, capsys):
+    for n, (coop, joined) in enumerate((("0.7.7+e3169e38", True), ("0.7.7+e3169e38", False), ("0.7.4", True))):
+        d = tmp_path / str(n)
+        d.mkdir()
+        assert nd.main([str(p) for p in _lan_logs(d, coop, joined)]) == 0
+        out = capsys.readouterr().out
+        assert "wrong address" not in out and "Fixed in co-op" not in out, (coop, joined)
+
+
+def test_lan_fallback_kept_for_old_build_that_did_not_get_in(tmp_path, capsys):
+    assert nd.main([str(p) for p in _lan_logs(tmp_path, "0.7.4", False)]) == 0
+    out = capsys.readouterr().out
+    assert "wrong address" in out and "Fixed in co-op 0.7.6" in out

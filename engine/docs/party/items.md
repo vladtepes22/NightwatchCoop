@@ -1127,3 +1127,25 @@ setting; own switch `party_item_notices` (System > Party members, launcher My Pa
 Test aids: `BB_PARTY_GUEST_PICKUP_TEST=lot,...` (a guest "picks up" shared treasure 20 s after its world is steady: the
 D4 pickup path's flag write and `ReportGuestKeyTreasure`), smoke groups `reward_guest_kill` (rw), `reward_eye` (rwe),
 `reward_treasure` (rwt).
+
+### 10.8 One character, not one slot: the summoned-gives lists and their repair (0.7.8, CL-55cea7)
+
+4-player playtest 2026-11-01: guest 1, a fresh character, got 18 key items at session start from
+`party_summoned_gives.txt` (`goods given while summoned are missing in the own world; given again`): the Eye, hunter
+badges 4110-4117 (their Messenger rows open), the Rune Workshop Tool, the Oedon Tomb Key. Cause: the file lives in
+the user folder (one per PC), entries were keyed by save slot only, and `SummonedGiveForSlot` replayed an entry when
+its slot was -1 (older file) or the current slot unknown, or equal: a new character in the same slot got the old
+character's list. `GoodsOwnGateFlags` only held the Eye.
+Fix: each character gets a random 20-bit id in its own save (ledger range: flags 60009974-60009993 + valid bit
+60009994, `OwnCharId`, written by the first give while summoned or the first own world with the party code on;
+copied saves share it, which is fine). Entries of `party_summoned_gives.txt` (6th column) and `party_owed_lots.txt`
+(4th column) carry (slot, id); `SummonedGiveOwner` decides: same slot + same id = replay; another slot = kept for that
+character; same slot, other id = dropped (a new character); no slot / no id (older file) = dropped when the file is
+read (logged once); this character's slot or id not readable = kept, not replayed. An entry whose time was greater than
+the character's play time is covered by the id (play time is not read). `BB_PARTY_SGIVE_OWNER=0` = the old rule.
+Repair (`RepairSgivePoisonTick`, own world, 9 s steady, marker 60009995, NG0 only): per goods in
+`GoodsEarnedFlags` (lot pickup flag 50000000+lot, ledger bit + awarding event of flagless lots, quest flag 6670)
+that the save holds with none of its source flags set: a hunter badge 4110-4119 is removed at once, other key items
+only when at least two items lack theirs (one stray item has other explanations); the rows 12101000+n of removed
+badges (and of badges held nowhere) are cleared; goods without a table entry (and the Eye, handled by the Eye
+repair) are never touched. Smoke `sgp` (group `sgive_owner`, fixture `play4_guest_poisoned`).

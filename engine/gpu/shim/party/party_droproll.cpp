@@ -151,6 +151,16 @@ bool DropSeedFromJson(const std::string& text, DropSeed* out, std::string* error
     }
 }
 
+std::string FarDropText(const std::string& item, int count) {
+    std::string t = item.empty() ? std::string("Item") : item;
+    if (count > 1) t += " x" + std::to_string(count);
+    return t + " (party drop)";
+}
+
+bool FarDropFromEnv(const char* v) {
+    return !(v && v[0] == '0' && v[1] == 0);
+}
+
 bool DropRollBeforeArrival(bool world_up, bool loading, std::uint32_t map) {
     return !world_up || loading || map == 0xffffffffu || map == 0;
 }
@@ -162,6 +172,7 @@ bool DropRollBeforeArrival(bool world_up, bool loading, std::uint32_t map) {
 #include "coop_hooks.h"
 #include "game_state.h"
 #include "party_balance.h"
+#include "party_items.h"
 #include "party_link.h"
 #include "seamless_rules.h"
 
@@ -225,6 +236,11 @@ bool g_in_own_drop = false;  // main thread: inside an own (unshared) roll (C4 d
 float g_disc_before_rot = 0; // the discovery before the C4 rot took its stacks off (0: no rot)
 float g_disc_override = 0;   // the discovery written into the request (0 = the game's own)
 float g_disc_used = 0;       // the discovery the request rolled with (logged)
+bool g_far_direct = true;    // BB_PARTY_FAR_DROP (default on)
+float g_far_m = kFarDropM;   // BB_PARTY_FAR_DROP_M: test aid, the limit in metres
+bool g_far_roll = false;     // main thread: the wrapped roll is a far member's (its goods go into the inventory)
+struct FarItem { u32 bits; u32 id; int count; };
+std::vector<FarItem> g_far_items;
 std::string g_result;        // the items the wrapped roll dropped
 int g_result_n = 0;
 
@@ -264,6 +280,26 @@ void NoteInsert(u64 rec) {
     i32 n = 0;
     if (!SafeGet(rec + 0x34, &n) || n < 0 || n > 4) {
         return;
+    }
+    if (g_far_roll && n > 0) {
+        // A far member: goods only (materials, vials, bullets) go straight into the inventory; the pile
+        // would lie where this game never shows it. Any other kind of item keeps the pile.
+        bool all_goods = true;
+        FarItem got[4] = {};
+        for (i32 i = 0; i < n; ++i) {
+            u32 e[4] = {};
+            if (!SafeRead(rec + 0x38 + 16ull * u64(i), e, sizeof e) || (e[1] >> 28) != 4 || e[2] == 0 || e[2] > 999) {
+                all_goods = false;
+                break;
+            }
+            got[i] = {0x40000000u, e[1] & 0x0fffffffu, int(e[2])};
+        }
+        if (all_goods) {
+            const i32 zero = 0;
+            if (SafeWrite(rec + 0x34, &zero, sizeof zero)) {
+                for (i32 i = 0; i < n; ++i) g_far_items.push_back(got[i]);
+            }
+        }
     }
     for (i32 i = 0; i < n; ++i) {
         u32 e[4] = {};
@@ -398,7 +434,20 @@ BB_COOP_SYSV void DropRollReplace(u64 mim, u64 handle_arg, u64 npc) {
         SafeGet(chr + 0x1f0, &k.entity);
         SafeGet(chr + 0x3b8, &k.entity2);
     }
-    k.map = ReadGameState(false).map_id;
+    const GameSnapshot gsnap = ReadGameState(false);
+    k.map = gsnap.map_id;
+    // A far member (the enemy died beyond kFarDropM of this player): its goods go into the inventory.
+    float far_m = -1.0f;
+    g_far_roll = false;
+    if (g_far_direct && gsnap.player) {
+        float me[3] = {}, at[3] = {};
+        if (const u64 chr = ChrOfHandle(handle); chr && balance::ChrPosition(gsnap.player, me) && balance::ChrPosition(chr, at)) {
+            const float dx = me[0] - at[0], dy = me[1] - at[1], dz = me[2] - at[2];
+            far_m = std::sqrt(dx * dx + dy * dy + dz * dz);
+            g_far_roll = FarDrop(far_m, g_far_m);
+        }
+    }
+    g_far_items.clear();
     const u32 s = DropRollSeed(seed.salt, seed.gen, k);
     // The game RNG: saved, seeded for this enemy, restored after the roll.
     static unsigned char saved[kRngSize];
@@ -422,7 +471,17 @@ BB_COOP_SYSV void DropRollReplace(u64 mim, u64 handle_arg, u64 npc) {
     g_result_n = 0;
     g_roll_original(mim, handle_arg, npc);
     g_in_drop = false;
+    g_far_roll = false;
     SafeWrite(rng, saved, kRngSize);
+    for (const FarItem& it : g_far_items) {
+        const bool ok = GiveItem(it.bits, it.id, it.count);
+        const bool shown = ok && ShowItemGet(it.bits, it.id, it.count);
+        const std::string text = FarDropText(PartyItemName(4, i32(it.id)), it.count);
+        PartyDropNotice(text);
+        Log("far shared drop (%.0f m from this player, beyond %.0f m): goods %u x%d paid into the inventory (%s, item-get %s), no pile",
+            double(far_m), double(g_far_m), it.id, it.count, ok ? "given" : "GiveItem FAILED", shown ? "shown" : "not shown");
+    }
+    g_far_items.clear();
     // The first row's pick (the first draw of the seeded RNG), at this game's discovery and at
     // the host's: the same dice, each player's own discovery.
     const u32 draw = Mt19937First(s);
@@ -464,6 +523,11 @@ void Init(bool log_rolls) {
     g_log_rolls = log_rolls;
     g_shared = SharedRollFromEnv(std::getenv("BB_PARTY_SHARED_DROP_ROLL"));
     g_host_disc = HostDiscoveryFromEnv(std::getenv("BB_PARTY_DROP_DISCOVERY"));
+    g_far_direct = FarDropFromEnv(std::getenv("BB_PARTY_FAR_DROP"));
+    if (const char* t = std::getenv("BB_PARTY_FAR_DROP_M")) {  // test aid
+        const float v = std::strtof(t, nullptr);
+        if (std::isfinite(v) && v >= 1.0f && v <= 5000.0f) g_far_m = v;
+    }
     if (const char* t = std::getenv("BB_PARTY_DROP_DISCOVERY_TEST")) {
         const float v = std::strtof(t, nullptr);
         g_test_disc = std::isfinite(v) && v > 0.0f && v <= 100.0f ? v : 0.0f;

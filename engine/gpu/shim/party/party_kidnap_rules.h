@@ -69,6 +69,8 @@ constexpr bool SendRequest(double since_last_s) {
 /// The host's answer to a guest's grab.
 enum class HostPlan : std::uint8_t {
     Start,     ///< 9420 on the host, then the party's travel to the Gaol
+    Direct,    ///< 9423 on and BB_PARTY_GAOL_ALWAYS: no 9420 (common 9421 ended with 9423), the respawn record is
+               ///< written directly, then the party's travel (every grab of a guest goes to the Gaol)
     RuleOff,   ///< "Anyone can be abducted" off: the guest's death is a plain death
     Woke,      ///< 9423 on (the kidnap was done): a later grab is a plain death, as in the game
     NotHere,   ///< not in the world / no member / not in the Snatchers' area / the guest elsewhere
@@ -77,6 +79,7 @@ enum class HostPlan : std::uint8_t {
 };
 constexpr const char* HostPlanName(HostPlan p) {
     return p == HostPlan::Start     ? "start"
+           : p == HostPlan::Direct  ? "direct (9423 on: a later grab goes to the Gaol too)"
            : p == HostPlan::RuleOff ? "the rule is off"
            : p == HostPlan::Woke    ? "the kidnap was done already (9423)"
            : p == HostPlan::NotHere ? "not here"
@@ -90,6 +93,7 @@ struct HostView {
     int members = 0;            ///< member tasks
     bool busy = false;          ///< down / limbo / a kidnap or travel under way
     bool woke = false;          ///< 9423
+    bool gaol_always = true;    ///< BB_PARTY_GAOL_ALWAYS: a later grab (9423 on) goes to the Gaol too
     std::uint32_t host_map = 0; ///< 0xAABBCCDD
     std::uint32_t guest_map = 0;///< the grabbed guest's (0 unknown)
     double age_s = 0;           ///< since the request came
@@ -101,13 +105,13 @@ constexpr bool SnatcherArea(std::uint32_t map) {
 constexpr HostPlan PlanHost(const HostView& v) {
     if (!v.rule_on) return HostPlan::RuleOff;
     if (!(v.age_s >= 0.0 && v.age_s <= kRequestMaxAge)) return HostPlan::Stale;
-    if (v.woke) return HostPlan::Woke;
+    if (v.woke && !v.gaol_always) return HostPlan::Woke;
     if (!v.in_world || v.members <= 0 || !SnatcherArea(v.host_map)) return HostPlan::NotHere;
     if (v.guest_map != 0 && v.guest_map != 0xffffffffu && (v.guest_map >> 24) != (v.host_map >> 24)) {
         return HostPlan::NotHere;
     }
     if (v.busy) return HostPlan::Busy;
-    return HostPlan::Start;
+    return v.woke ? HostPlan::Direct : HostPlan::Start;
 }
 
 /// After 9420 on the host: its common 9421 sets the respawn point within a few frames.

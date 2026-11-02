@@ -133,3 +133,26 @@ and the Eye's sale 12101100 / 12101101 are per player (never_sync; another playe
 `PerPlayerItemGateEvent`). `RepairBadgeGatesTick` clears a set badge row whose badge is in neither key section nor the
 storage box, once per save (marker 60009997, one `shop gate repair: flag N cleared (...)` line each). Smoke groups
 `shop_badge` (sgb) and `shop_badge_sync` (sgb2).
+
+### Live badge guard (0.7.8, `BadgeGuardTick`)
+
+The opening path of the playtest's Tonitrus row (12101008 open with no Spark Hunter Badge 4118, Darkbeast Paarl never
+killed) was never found, so besides the once-per-save repair a live guard runs (party items on). Every 3 s, 8 s after
+the world is up, in the own world (load mode 0) and while summoned (load mode 1), for n in 0..9: a row 12101000 + n
+that reads open (own world: the live store; summoned: the host-world overlay the shop reads, and the own save's pool,
+which `ShopGateTick` copies back into the overlay) while badge 4110 + n is in neither key section nor the storage box
+is closed in both places. The badge must read missing in two checks in a row (`BadgeGuardStep`, unit test
+`test_badge_guard`); an unreadable list never closes anything. The host's world flag is never touched by a guest. The Eye
+sale flags 12101100 / 12101101 keep their own repair and are not part of the guard.
+
+One log line per closed row: `badge row 12101008 was open without badge 4118: closed (was set by: <writers>) [Spark
+Hunter Badge, own world|summoned, overlay and own save]`. `<writers>` is the history `progress::BadgeRowWriters` keeps
+for the ten ids (always on, one range check per hook call): the SetEventFlag / SetEventFlagValue / CompleteEvent hooks
+(`by game code (EMEVD or Lua), callers 0x..` = game return addresses, resolvable with the Ghidra export;
+`by shared progress` = our progress writes; `by party items` / `by party story` = party code via `FlagCause`), the EMEVD
+event end hook (`EMEVD event 12101000 slot n ended or restarted`), a peer's packet 0x31 for the event (`event E slot S
+state X, dropped|applied`), own-save and overlay writes of the progress API, and the test aid. It lists the last four
+writes with their age; `unknown (no write seen this run)` means the flag was loaded set from the save. Blind spots: a
+write straight into the save pool by a path that does not go through `progress::WriteFlagOwnSave` (none known), and a
+flag that was already set when the game started. `BB_PARTY_BADGE_GUARD=0` switches the guard off. Smoke group
+`badge_guard` (sgb3, `BB_SGB3_OFF=1` = control with the guard off).
