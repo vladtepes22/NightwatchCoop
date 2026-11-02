@@ -14,7 +14,6 @@ namespace BloodborneLauncher.Views;
 
 public sealed class SeamlessPage : LauncherPage
 {
-    private readonly TextBlock _status;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     /// Rows and group headers shown only in some modes ("" single player, "host", "join").
     private readonly List<(UIElement Element, Func<string, bool> When)> _byMode = new();
@@ -69,6 +68,18 @@ public sealed class SeamlessPage : LauncherPage
         _lanButton = SmallButton(L.T("Copy LAN / VPN code"), SymbolRegular.Copy24, (_, _) => { if (_lanCode.Length > 0) Copy(_lanCode); });
         Add(Card(SymbolRegular.Link24, L.T("Party codes"), L.T("UPnP uses the Internet code; a VPN or the local network uses the LAN / VPN code."),
             Row(_internetButton, _lanButton), out _inviteHint, wide: true), _privateCodes);
+        Add(Card(SymbolRegular.People24, L.T("Kick player"), L.T("Host only. Enter the member's exact party name."),
+            SmallButton(L.T("Choose member"), SymbolRegular.People24, (_, _) => {
+                var status = SeamlessSession.Read(S);
+                if (status?.role != "host") { Prompt.Tell(L.T("Party"), L.T("Only the host can remove members.")); return; }
+                var members = status.members.Where(m => !m.local).ToArray();
+                if (members.Length == 0) { Prompt.Tell(L.T("Party"), L.T("No remote members to remove.")); return; }
+                var choice = Prompt.Choose(L.T("Remove member"), L.T("Choose a member to disconnect."), members.Select(m => m.name).ToArray());
+                if (choice >= 0) {
+                    try { SeamlessSession.Command(S, "kick", members[choice].name); }
+                    catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
+                }
+            }), out _), Rows(Hosting));
 
         var found = Rows(Joining);
         _searchBox = new Wpf.Ui.Controls.TextBox { PlaceholderText = L.T("Search parties"), Width = 200, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -156,37 +167,6 @@ public sealed class SeamlessPage : LauncherPage
                     SeamlessSession.Command(S, "add_relay_code", code);
                 } catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
             }), out _), join);
-
-        // The running session: its state, then Leave / Rejoin side by side, and the host's Remove.
-        _byMode.Add((Group(L.T("Session")), InParty));
-        party = Rows(InParty);
-        _status = Text(L.T("Start the game to see party status."), "Faint");
-        _status.TextWrapping = TextWrapping.Wrap;
-        party.Children.Add(_status);
-        var commands = new List<UIElement>();
-        foreach (var (title, action, icon) in new[] { (L.T("Leave party"), "leave", SymbolRegular.ArrowExit20), (L.T("Rejoin party"), "rejoin", SymbolRegular.ArrowSync24) })
-        {
-            var command = action;
-            var button = SmallButton(title, icon, (_, _) => {
-                try { SeamlessSession.Command(S, command); }
-                catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
-            });
-            button.Margin = new Thickness(commands.Count > 0 ? 8 : 0, 0, 0, 0);
-            commands.Add(button);
-        }
-        Add(Card(SymbolRegular.People24, L.T("Party"), L.T("Leave goes back to your own world; Rejoin connects to the party again."), Row(commands.ToArray()), out _), party);
-        Add(Card(SymbolRegular.People24, L.T("Remove a member"), L.T("Host only. Enter the member's exact party name."),
-            SmallButton(L.T("Choose member"), SymbolRegular.People24, (_, _) => {
-                var status = SeamlessSession.Read(S);
-                if (status?.role != "host") { Prompt.Tell(L.T("Party"), L.T("Only the host can remove members.")); return; }
-                var members = status.members.Where(m => !m.local).ToArray();
-                if (members.Length == 0) { Prompt.Tell(L.T("Party"), L.T("No remote members to remove.")); return; }
-                var choice = Prompt.Choose(L.T("Remove member"), L.T("Choose a member to disconnect."), members.Select(m => m.name).ToArray());
-                if (choice >= 0) {
-                    try { SeamlessSession.Command(S, "kick", members[choice].name); }
-                    catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
-                }
-            }), out _), Rows(Hosting));
 
         // Party settings as in the game's System > Party rules / My party pages (visy 0.7.3): the host's
         // rules for the whole party (the ones most hosts change shown, the rest folded by topic), then what each
@@ -301,11 +281,6 @@ public sealed class SeamlessPage : LauncherPage
             RefreshLobby();
             RefreshParties();  // its help text goes by the lobby's rows
             UpdateVpn();
-            var status = SeamlessSession.Read(S);
-            _status.Text = status == null ? (Ws.Game.Running ? L.T("Waiting for party status…") : L.T("Game stopped.")) :
-                $"{PartyRole(status.role)}：{PartyState(status.state)}  {status.detail}\n{status.network}\n" +
-                string.Join("\n", status.members.Select(m => $"{m.name}：{(m.in_world ? L.T("in host world") : m.connected ? L.T("connected") : L.T("disconnected"))}  {(m.ping_ms < 0 ? "" : m.ping_ms + " ms")}  {m.area}")) +
-                $"\n{status.@event}\n{status.alert}";
         };
         Loaded += (_, _) => { _timer.Start(); DefaultHostType(); RefreshPublic(); RefreshRoute(); StartListener(); RunCheck(); };
         Unloaded += (_, _) => { _timer.Stop(); _listener?.Dispose(); _listener = null; _lobby?.Dispose(); _lobby = null; };
@@ -1288,30 +1263,6 @@ public sealed class SeamlessPage : LauncherPage
         "party_guest_insight" => L.T("Controls the Insight you receive as a guest when the host kills a boss. Takes effect on the next game start."),
         "party_start" => L.T("Each new character normally completes its own prologue first; Right away starts the party at once. The host's rule, read at game start: a guest must have the same value, or the host refuses the join."),
         _ => null,
-    };
-
-    /// The party role and state the game writes to party_status.json (party_status.cpp RoleName /
-    /// StateName, stored for logs): their labels. The free-text detail, network and event lines stay
-    /// as the game writes them, which is English.
-    private static string PartyRole(string role) => role switch
-    {
-        "host" => L.T("Host"),
-        "guest" => L.T("Guest"),
-        _ => L.T("Not in a party"),
-    };
-
-    private static string PartyState(string state) => state switch
-    {
-        "starting" => L.T("Starting"),
-        "hosting" => L.T("Waiting for hunters"),
-        "connecting" => L.T("Connecting"),
-        "waiting_for_world" => L.T("Loading the world"),
-        "ringing_bell" => L.T("Ringing the bell"),
-        "joined" => L.T("Together"),
-        "travelling" => L.T("Travelling"),
-        "reconnecting" => L.T("Reconnecting"),
-        "error" => L.T("Error"),
-        _ => L.T("Not in a party"),
     };
 
     /// Switches kept in bbport.ini like the game's party pages, so both show the same value.

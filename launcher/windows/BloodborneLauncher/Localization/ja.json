@@ -1884,7 +1884,7 @@
   "Start the game to see party status.": "ゲームを開始するとパーティーの状態が表示されます。",
   "Leave party": "パーティーから離脱",
   "Rejoin party": "パーティーに再参加",
-  "Remove a member": "メンバーを除外",
+  "Kick player": "メンバーを除外",
   "Host only. Enter the member's exact party name.": "ホスト専用。メンバーの正確なパーティー名を入力してください。",
   "Choose member": "メンバーを選択",
   "Only the host can remove members.": "メンバーを除外できるのはホストのみです。",
