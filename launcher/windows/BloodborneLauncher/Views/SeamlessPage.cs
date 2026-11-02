@@ -214,6 +214,7 @@ public sealed class SeamlessPage : LauncherPage
         IniToggles(party,
             ("party_hud", L.T("Party HUD"), true), ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
             ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_item_notices", L.T("Shared item notices"), true), ("party_npc_talk", L.T("Share NPC dialogue"), true),
+            ("party_glyph_list", L.T("Chalice glyph list"), false),
             ("party_stay", L.T("Stay in my world"), false), ("party_splitscreen", L.T("Splitscreen mode"), false));
         ComboRow(SymbolRegular.Alert24, L.T("Party messages"), PartyInfo("party_messages"),
             new[] { new Choice(L.T("All"), "all"), new Choice(L.T("Errors only"), "errors"), new Choice(L.T("Off"), "off") },
@@ -1244,6 +1245,7 @@ public sealed class SeamlessPage : LauncherPage
         "party_npc_talk_range" => L.T("How close a companion has to be for you to see their NPC conversation."),
         "party_overhead" => L.T("What shows above companions in view, only for you: nothing, name, name and level, name and health, name and deaths, or name and ping."),
         "party_grant_bells" => L.T("Gives the Beckoning Bell and Small Resonant Bell after the prologue, for ringing by hand. Takes effect on the next game start."),
+        "party_glyph_list" => L.T("At the Ritual Altar, Search by Chalice Glyph first shows a list of the party's glyphs to pick from (your own dungeons, the guests' dungeons and the shipped list), then the code keyboard: typing a code still works. Pick one and the whole party enters that dungeon together. Your own setting."),
         "party_open_world" => L.T("Removes co-op walls on area borders so the party can walk anywhere. The host's rule: guests follow it."),
         "party_guest_respawn" => L.T("A guest who dies comes back at the host's last lamp and is summoned again, instead of being sent home. The host's rule: guests follow it."),
         "party_guest_refill" => L.T("Guests' Blood Vials and Quicksilver Bullets refill when the host rests, dies or travels. The host's rule: guests follow it."),
