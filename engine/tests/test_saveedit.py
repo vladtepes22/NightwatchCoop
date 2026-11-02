@@ -595,3 +595,17 @@ def test_same_named_armour_rows_are_told_apart():
                      "ids": {"armor": [71000, 281000, 191000, 301000]}})
     assert dict(c.search(1, "garb")) == {71000: "Hunter Garb (Cape)", 281000: "Hunter Garb"}
     assert c.name(1, 191000) == "Student Uniform (Cape)" and c.name(1, 301000) == "Student Uniform"
+
+
+def test_a_lamp_is_all_its_flags():
+    from saveedit import flagsdata as F
+    assert F.lamp_group(72410200) == (12417810, 12417811, 72410200)
+    assert F.lamp_group(72200201) == (12207830, 12207831, 72200201)
+    assert F.lamp_group(12401800) == (12401800,)  # a boss flag stands alone
+    assert all(M.group_key(x) is not None for f in F.LAMP_IDS for x in F.lamp_group(f))
+    m = M.SaveModel(make_save())
+    for x in F.lamp_group(72410200):
+        assert not m.flag(x)
+    for x in F.lamp_group(72410200):
+        m.set_flag(x, True)
+    assert all(M.SaveModel(m.to_bytes()).flag(x) for x in F.lamp_group(72410200))

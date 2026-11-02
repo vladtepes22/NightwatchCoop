@@ -113,7 +113,7 @@ def gem_view(gem, catalogue):
 
 
 def describe(model, catalogue, icon_paths=lambda ids: {}):
-    flags = [dict(id=f, kind=kind, group=group, label=label, on=bool(model.flag(f)))
+    flags = [dict(id=f, kind=kind, group=group, label=label, on=all(model.flag(x) for x in flagsdata.lamp_group(f)))
              for f, kind, group, label in flag_rows(catalogue) if model.flag(f) is not None]
     table = instances.read(model)
     gems = table.gems if table else {}
@@ -250,7 +250,8 @@ def execute(args, edit=None, running=running_games, catalogues=None):
     for change in edit.get("flags", []):
         if set(change) - {"id", "on"} or change.get("id") not in offered or not isinstance(change.get("on"), bool):
             raise ValueError("invalid flag edit")
-        model.set_flag(change["id"], change["on"])
+        for fid in flagsdata.lamp_group(change["id"]):
+            model.set_flag(fid, change["on"])
     repairs = edit.get("repair", [])
     if not isinstance(repairs, list) or set(repairs) - set(REPAIRS):
         raise ValueError("unknown repair")

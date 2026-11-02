@@ -352,19 +352,22 @@ class SaveEditorTab(ttk.Frame):
             if group not in groups:
                 groups[group] = self.flag_tree.insert("", "end", iid=f"g:{group}", text=group, open=True)
             self.flag_tree.insert(groups[group], "end", iid=str(fid), text=label,
-                                  values=("yes" if self.model.flag(fid) else "no",))
+                                  values=("yes" if all(self.model.flag(x) for x in F.lamp_group(fid)) else "no",))
 
     def toggle_flag(self):
         sel = [i for i in self.flag_tree.selection() if not i.startswith("g:")]
         if sel and self._risk():
             fid = int(sel[0])
-            self.model.set_flag(fid, not self.model.flag(fid))
+            on = not all(self.model.flag(x) for x in F.lamp_group(fid))
+            for part in F.lamp_group(fid):
+                self.model.set_flag(part, on)
             self.fill_flags()
 
     def light_lamps(self):
         if self._risk():
             for fid in F.LAMP_IDS:
-                self.model.set_flag(fid, True)
+                for part in F.lamp_group(fid):
+                    self.model.set_flag(part, True)
             self.fill_flags()
 
     def _fid(self):

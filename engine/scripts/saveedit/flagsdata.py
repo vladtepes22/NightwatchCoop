@@ -45,6 +45,16 @@ def bosses(cat=None):
     return out
 
 
+def lamp_group(fid):
+    """The flags that make lamp 7AAB02nn lit: the lamp object's own lit flags (1AAB7810 + 20 n and +11, which stop the
+    lamp asking to be lit again and play the lighting) and the lamp-lit flag itself (the same three the host sets when it
+    lights a guest's lamp, party_guestvals_rules.h lampshare::LitFlags). Any other flag stands alone."""
+    if fid in LAMP_IDS:
+        base = 10000000 + (fid // 10000 % 1000) * 10000 + 7800 + 20 * (fid % 100)
+        return (base + 10, base + 11, fid)
+    return (fid,)
+
+
 def lamps(cat=None):
     out = []
     for f in LAMP_IDS:
