@@ -183,6 +183,10 @@ struct RiderTrack {
     double st = 0;
     float car0 = 0, y0 = 0;             // lifts077: the car's height and the chr's at the ride's first sample
     bool static_car = false;            // lifts077: the car's height does not follow its ride: speed guess
+    bool no_height = false;             // liftfall078: the measured height was not near the rider at the ride's start
+    double pin_t0 = 0;                  // liftfall078: when the rescue's first put-back was (0: no rescue running)
+    double put_t = 0;                   // liftfall078: when the last put-back of the rescue was
+    int bit_on = 0;                     // liftfall078: consecutive samples with the ride bit on during a rescue
 };
 constexpr float kRiderSlip = 1.0f;      // m below the car's height before it counts as a drop through it
 constexpr float kRiderSideways = 1.0f;  // m sideways from the last ride sample: stepped off (no put-back)
@@ -193,7 +197,19 @@ constexpr float kRiderStaticMove = 0.6f;  // lifts077: m the chr moved with its 
 constexpr float kRiderStaticCar = 0.15f;  // ... while the car's height moved less than this: not a live height
 constexpr float kRiderRising = 1.0f;   // lifts077: m/s up: the chr is still being carried up to the car
 constexpr float kRiderMaxLag = 12.0f;  // lifts077: m under the floor; further behind is put back even rising
-enum class RiderStep { idle, riding, through, off };
+/// liftfall078 (NW-e118458: a guest fell through a descending car on every ride, three put-backs in three
+/// frames, none had reached the chr yet, then the guard gave up and the chr fell 45-55 m): `giveup` is a rescue
+/// that could not keep the rider on the car (the caller lands it on the game's last safe ground spot).
+enum class RiderStep { idle, riding, through, off, giveup };
+constexpr int kRiderRescuePuts = 4;        // liftfall078: put-backs of one rescue, spaced kRiderPutGap apart ...
+constexpr double kRiderPutGap = 0.6;       // ... s: a warp reaches the chr's physics a step or two later, and the chr
+                                           // needs a moment on the floor before the game sets its ride bit (live: the
+                                           // 0.7.7 guard put back three times in three frames, none had landed yet)
+constexpr int kRiderPinBitOn = 3;          // ... a rescue ends once the game carries the chr again for this many samples
+constexpr float kRiderDropIn = 0.8f;       // ... a rescue puts the chr this far OVER the floor it guesses: the speed
+                                           // guess runs behind a car that is still speeding up, and a chr placed in or
+                                           // under the floor falls through it again; one placed over it lands on it
+constexpr float kRiderBadHeight = 3.0f;    // liftfall078: a ride that starts this far from the measured height has none
 /// liftcar (the Nightmare Frontier report, 26 Oct 2026): at 60 FPS the game can carry a rider on the
 /// Frontier car faster than the car itself (7.8-9.5 m/s against the car's ~4, the ride bit on), so the
 /// speed guess above took the rider's speed, every put-back landed lower and the rider died in the pit.
@@ -201,9 +217,13 @@ enum class RiderStep { idle, riding, through, off };
 /// the car's placement): the chr's offset to it is kept from the ride's first sample, and a chr more than
 /// kRiderSlip under car + offset is put back on the floor whether its ride bit is on or not.
 inline RiderStep RiderTickMeasured(RiderTrack& r, bool ride_bit, double t, float x, float y, float z, float car_y,
-                                   float put[3]) {
+                                   float put[3], bool rescue = false) {
     if (!r.riding) {
         if (!ride_bit || std::fabs(y - car_y) > kRiderSideways * 3.0f) {
+            // liftfall078: a chr carried by the ride bit but nowhere near the "measured" height (a lift whose hit
+            // object does not keep a world height: the Upper Cathedral Ward car reads 0.0) is not measured at all;
+            // the speed guess has it, instead of an idle guard for the whole ride
+            if (rescue && ride_bit && std::fabs(y - car_y) > kRiderBadHeight) r.no_height = true;
             return RiderStep::idle;  // not on this car when its ride began
         }
         r.riding = true, r.has_off = true, r.off = y - car_y;
@@ -222,11 +242,15 @@ inline RiderStep RiderTickMeasured(RiderTrack& r, bool ride_bit, double t, float
         r.mv = float((y - r.sy) / (t - r.st)), r.sy = y, r.st = t;
     }
     const float side = std::hypot(x - r.x, z - r.z);
-    if (side > kRiderSideways || r.puts >= kRiderMaxPutsMeasured || (!ride_bit && t - r.t > kRiderWindow)) {
+    if (side > kRiderSideways || (!rescue && r.puts >= kRiderMaxPutsMeasured) || (!ride_bit && t - r.t > kRiderWindow)) {
         r = RiderTrack{};
         return RiderStep::off;
     }
     const float floor = car_y + r.off;
+    if (rescue && r.pin_t0 > 0) {
+        r.bit_on = ride_bit ? r.bit_on + 1 : 0;
+        if (r.bit_on >= kRiderPinBitOn) r.pin_t0 = 0, r.puts = 0, r.bit_on = 0;  // carried again
+    }
     if (y >= floor - kRiderSlip) {
         if (ride_bit) r.t = t;
         r.x = x, r.y = y, r.z = z;
@@ -240,9 +264,21 @@ inline RiderStep RiderTickMeasured(RiderTrack& r, bool ride_bit, double t, float
         if (ride_bit) r.t = t;
         return RiderStep::riding;
     }
-    put[0] = r.x, put[1] = floor + 0.3f, put[2] = r.z;
-    r.t = t, r.y = floor + 0.3f;
+    if (rescue && r.pin_t0 > 0) {
+        if (t - r.put_t < kRiderPutGap) return RiderStep::riding;  // the last put-back is still settling
+        if (r.puts >= kRiderRescuePuts) {
+            r = RiderTrack{};
+            return RiderStep::giveup;  // put back kRiderRescuePuts times and not carried: land it safely
+        }
+    }
+    const float lift = rescue ? kRiderDropIn : 0.3f;
+    put[0] = r.x, put[1] = floor + lift, put[2] = r.z;
+    r.t = t, r.y = floor + lift;
     r.sy = r.y, r.st = t, r.mv = 0;
+    if (rescue) {
+        if (r.pin_t0 <= 0) r.pin_t0 = t, r.bit_on = 0;
+        r.put_t = t;
+    }
     ++r.puts;
     return RiderStep::through;
 }
@@ -251,15 +287,21 @@ inline RiderStep RiderTickMeasured(RiderTrack& r, bool ride_bit, double t, float
 /// `put` gets the spot to put it back at for `through`. `anim`: the car's animation (-1: not known).
 /// `car_y`: the car's live height (NaN: not known, the speed guess below).
 inline RiderStep RiderTick(RiderTrack& r, bool car_playing, bool ride_bit, double t, float x, float y, float z,
-                           float put[3], std::int32_t anim = -1, float car_y = std::numeric_limits<float>::quiet_NaN()) {
+                           float put[3], std::int32_t anim = -1, float car_y = std::numeric_limits<float>::quiet_NaN(),
+                           bool rescue = false) {
     if (!car_playing) {
         r = RiderTrack{};
         return RiderStep::idle;
     }
-    if (std::isfinite(car_y) && !r.static_car && (r.has_off || !r.riding)) {
-        return RiderTickMeasured(r, ride_bit, t, x, y, z, car_y, put);
+    if (std::isfinite(car_y) && !r.static_car && !r.no_height && (r.has_off || !r.riding)) {
+        const RiderStep m = RiderTickMeasured(r, ride_bit, t, x, y, z, car_y, put, rescue);
+        // liftfall078: the first ride sample far from the measured height: this tick already goes on as a guess
+        if (!(rescue && r.no_height)) return m;
     }
     if (ride_bit) {
+        if (rescue && r.pin_t0 > 0) {  // liftfall078: carried again after a rescue
+            if (++r.bit_on >= kRiderPinBitOn) r.pin_t0 = 0, r.puts = 0, r.bit_on = 0;
+        }
         const double dt = t - r.t;
         const bool same_segment = r.riding && anim == r.anim;
         if (same_segment && !r.after_put && dt > 0.0 && dt < 0.5) {
@@ -281,7 +323,8 @@ inline RiderStep RiderTick(RiderTrack& r, bool car_playing, bool ride_bit, doubl
     }
     const double dt = t - r.t;
     const float side = std::hypot(x - r.x, z - r.z);
-    if (dt > kRiderWindow || side > kRiderSideways || r.puts >= kRiderMaxPuts) {
+    if (rescue) r.bit_on = 0;
+    if (dt > kRiderWindow || side > kRiderSideways || (!rescue && r.puts >= kRiderMaxPuts)) {
         r = RiderTrack{};
         return RiderStep::off;
     }
@@ -294,9 +337,23 @@ inline RiderStep RiderTick(RiderTrack& r, bool car_playing, bool ride_bit, doubl
     if (y >= car - kRiderSlip) {
         return RiderStep::riding;  // the bit flickers (a roll, a jump in the car): still on it
     }
-    put[0] = r.x, put[1] = car + 0.3f, put[2] = r.z;
+    // liftfall078: rescue put-backs are spaced (kRiderPutGap), end the rescue when the game carries the chr again
+    // and give up into a safe landing after kRiderRescuePuts; they put the chr OVER the guessed floor (kRiderDropIn)
+    if (rescue && r.pin_t0 > 0) {
+        if (t - r.put_t < kRiderPutGap) return RiderStep::riding;  // the last put-back is still settling
+        if (r.puts >= kRiderRescuePuts) {
+            r = RiderTrack{};
+            return RiderStep::giveup;
+        }
+    }
+    const float lift = rescue ? kRiderDropIn : 0.3f;
+    put[0] = r.x, put[1] = car + lift, put[2] = r.z;
     r.t = t, r.y = car;  // the next sample measures from here
     r.after_put = true;
+    if (rescue) {
+        if (r.pin_t0 <= 0) r.pin_t0 = t, r.bit_on = 0;
+        r.put_t = t;
+    }
     ++r.puts;
     return RiderStep::through;
 }

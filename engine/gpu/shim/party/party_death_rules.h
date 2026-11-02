@@ -693,6 +693,10 @@ inline bool RidingObject(std::uint64_t f1e1) {
 // below the Great Bridge, in ~30 s: ~49 m/s on average). A drop faster than this per sample is a fall
 // even with the ride flag on (a stale flag never hides one).
 constexpr double kLiftMaxRate = 16.0;
+// liftfall078: a chr that does NOT carry the ride bit is on a moving car only while it keeps up with one at the
+// pace of a lift's ease-in; a drop of this many m/s between two scans is a free fall beside the car (the report:
+// 10.1 m/s "riding a moving object: no fall" while the guest fell down the shaft)
+constexpr double kNoBitRideRate = 5.0;
 /// One recovery sample: the chr dropped `dy` m in `dt` s. A fall sample: at least `min_rate` m/s
 /// down, and not a ride on a moving object at a lift's rate.
 inline bool FallSample(double dy, double dt, double min_rate, bool riding) {

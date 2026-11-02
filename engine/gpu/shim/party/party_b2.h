@@ -283,6 +283,10 @@ bool NativeWarpLocal(std::uint64_t player, const float* pos16, const float* rot1
 /// The local player's in-world warp: NativeWarpLocal unless BB_PARTY_WARP_REFRESH=0, else the chr
 /// warp vfunc +0x5F8. Main thread.
 bool LocalChrWarp(std::uint64_t player, const float* pos16, const float* rot16, const char* why);
+/// liftfall078: the local player onto the game's last safe ground spot (where a death would leave its
+/// stain) when that is within the usual reach of where it is: a rescue that cannot keep a rider on a lift's
+/// car lands it there instead of letting it fall down the shaft. False: no usable spot (nothing was moved).
+bool LocalSafeLanding(std::uint64_t player, const char* why, const float* ground = nullptr, const float* ground_rot = nullptr);
 /// Guest: the boss-clear action-button hold (+0x52) is lifted for this session (K10 kept the
 /// party; issue #4 item 1). The item box must not put the hold back then.
 bool K10ActionHoldLifted();

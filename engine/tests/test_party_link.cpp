@@ -1022,6 +1022,27 @@ static void test_identity() {
                      "IsClientPlayer (guest services) @+0x1234)") != std::string::npos);
         CHECK(w.find("same bbport build and party options") != std::string::npos);
         std::printf("  A9: %s\n", w.c_str());
+        // 0.7.8: host-world-only hooks (shared progress, story capture) are not part of the compatibility set.
+        CHECK(host_world_hook_name("progress: SetEventFlag"));
+        CHECK(host_world_hook_name("progress: CompleteEvent (BroadcastSetFlag)"));
+        CHECK(host_world_hook_name("story capture (EMEVD bank 2002 handler)"));
+        CHECK(!host_world_hook_name("travel funnel (SessionWorldTransition)"));
+        CHECK(!host_world_hook_name("lamp multiplayer gate +0x49 (party lamps)"));
+        // 0.7.8: a known option is named in plain words with both values.
+        {
+            LinkConfig h2 = hb, g2 = hb;
+            h2.hook_names = {"lamp multiplayer gate +0x49 (party lamps) @+0x1", "talk IsMultiplayerInProgress (party headstones) @+0x2"};
+            g2.hook_names = {"talk IsMultiplayerInProgress (party headstones) @+0x2"};
+            h2.hooks_hash = hook_set_hash(h2.hook_names);
+            g2.hooks_hash = hook_set_hash(g2.hook_names);
+            const std::string n = identity_mismatch(h2, g2);
+            CHECK(n.find("party options differ (Guest lamps (BB_PARTY_GUEST_LAMPS): host ON, you OFF)") !=
+                  std::string::npos);
+            CHECK(n.find("System > Party or the launcher") != std::string::npos);
+            CHECK(n.find("@+0x") == std::string::npos);
+            std::swap(h2, g2);
+            CHECK(identity_mismatch(h2, g2).find("host OFF, you ON") != std::string::npos);
+        }
         // Order and duplicates do not matter; the empty set hashes to zeros.
         CHECK(hook_set_hash({"b", "a", "a"}) == hook_set_hash({"a", "b"}));
         CHECK(hook_set_hash({"a"}) != hook_set_hash({"a", "b"}));

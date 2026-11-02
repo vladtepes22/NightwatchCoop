@@ -3057,6 +3057,27 @@ void LiftRiderTick(const GameSnapshot& s) {
         }
     }
     if (playing) g_lift_ride_seen.store(Now());
+    // liftfall078: the last spot the chr stood still on ground (no ride bit, no car playing within reach): where a
+    // rescue that cannot keep the rider on the car puts it (a lift's landing; the car's own spot is a hole by then)
+    static struct {
+        float p[3] = {}, rot[4] = {};
+        bool ok = false;
+        float prev_y = 0;
+        double prev_t = -1e9;
+    } ground;
+    {
+        std::uint64_t g1 = 0;
+        SafeRead(s.player + 0x1e1, &g1, 5);
+        const double now = Now();
+        if (!playing && !track.riding && !deathrules::RidingObject(g1) && now - ground.prev_t < 0.5 &&
+            std::fabs(me[1] - ground.prev_y) < 0.03f) {
+            std::memcpy(ground.p, me, sizeof ground.p);
+            std::memcpy(ground.rot, rot, sizeof ground.rot);
+            ground.ok = true;
+        }
+        ground.prev_y = me[1];
+        ground.prev_t = now;
+    }
     std::uint64_t f = 0;
     if (!playing && !track.riding) {
         // NW-666485f (Mensis, frame generation): riders died with no `lift ride:` line. While the
@@ -3111,9 +3132,47 @@ void LiftRiderTick(const GameSnapshot& s) {
             }
         }
     }
+    static const bool rescue = [] {  // liftfall078 (BB_PARTY_LIFT_RESCUE=0: the 0.7.7 guard)
+        const char* e = std::getenv("BB_PARTY_LIFT_RESCUE");
+        return !(e && e[0] == '0');
+    }();
+    {
+        // Test aid (liftfall078, BB_TEST_LIFT_DROP=START[:COUNT]: once per car ride, START s into the stretch of a car
+        // playing within reach, the local chr is set 1.6 m under its floor and its ride bit reads off for the next
+        // 0.5 s: a real drop through the car (the NW-e118458 guest), so the rescue shows live)
+        static const char* env = std::getenv("BB_TEST_LIFT_DROP");
+        static double drop_from = -1, drop_last = -1;
+        static double bit_off_until = -1;
+        static int drops = 0;
+        static float drop_x = 0, drop_z = 0;
+        if (!playing) {
+            drop_from = -1, drops = 0;
+        } else if (env && env[0]) {
+            const double now = Now();
+            if (drop_from < 0) drop_from = now;
+            // "START[:COUNT]": COUNT drops, 0.4 s apart (a rescue that cannot hold: the safe landing shows live)
+            float start = 0;
+            int count = 1;
+            std::sscanf(env, "%f:%d", &start, &count);
+            const bool first = drops == 0 && now - drop_from >= start && ride_bit;
+            const bool again = drops > 0 && drops < count && now - drop_last >= 0.4 && std::hypot(me[0] - drop_x, me[2] - drop_z) < 1.5f;
+            if (first || again) {
+                if (first) drop_x = me[0], drop_z = me[2];
+                ++drops;
+                drop_last = now;
+                alignas(16) float to[4] = {me[0], me[1] - 1.6f, me[2], 1.0f};
+                alignas(16) float r16[4] = {rot[0], rot[1], rot[2], rot[3]};
+                const bool ok = b2::LocalChrWarp(s.player, to, r16, "test: the chr set under the lift car");
+                bit_off_until = now + 0.5;
+                Log("lift ride: test: the local chr set 1.6 m under the car at (%.1f, %.1f, %.1f) (BB_TEST_LIFT_DROP %d of %d): %s",
+                    double(me[0]), double(me[1]), double(me[2]), drops, count, ok ? "done" : "NOT done");
+            }
+            if (now < bit_off_until) ride_bit = false;
+        }
+    }
     float put[3];
-    const liftrules::RiderStep step =
-        liftrules::RiderTick(track, playing, ride_bit, Now(), me[0], me[1], me[2], put, anim, car_y);
+    liftrules::RiderStep step =
+        liftrules::RiderTick(track, playing, ride_bit, Now(), me[0], me[1], me[2], put, anim, car_y, rescue);
     {
         // Test aid (lifts077, BB_TEST_LIFT_TRACE=1): a line per 0.1 s while a car plays within reach.
         static const bool trace = std::getenv("BB_TEST_LIFT_TRACE") != nullptr;
@@ -3123,6 +3182,16 @@ void LiftRiderTick(const GameSnapshot& s) {
             Log("lift trace: chr y %.2f car_y %.2f off %.2f bit %d anim %d step %d puts %d", double(me[1]), double(car_y),
                 double(track.off), int(ride_bit), int(anim), int(step), track.puts);
         }
+    }
+    if (step == liftrules::RiderStep::giveup) {
+        // liftfall078: pinned to the car for kRiderPinSeconds and the game does not carry it: the shaft is lethal
+        // (the report: 45-56 m), so the rider goes to the game's last safe ground spot, not on down
+        const bool ok = b2::LocalSafeLanding(s.player, "a lift rider the car does not carry: landed safely",
+                                             ground.ok ? ground.p : nullptr, ground.ok ? ground.rot : nullptr);
+        Log("lift ride: the local chr at (%.1f, %.1f, %.1f) was put back on the car %d times and is not carried; %s", double(me[0]),
+            double(me[1]), double(me[2]), liftrules::kRiderRescuePuts,
+            ok ? "landed on solid ground" : "no ground to put it on (the fall recovery has it)");
+        return;
     }
     if (step != liftrules::RiderStep::through) {
         return;

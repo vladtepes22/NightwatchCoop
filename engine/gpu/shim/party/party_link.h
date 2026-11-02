@@ -297,6 +297,13 @@ constexpr double kHostBackWaitS = 60.0;
 std::string host_no_answer_hint(double since_host_gone_s, bool auto_punch = false);
 // A9: is an installed hook's name a diagnostic (log / probe / trace / test), not a gameplay patch?
 bool diagnostic_hook_name(const std::string& name);
+// 0.7.8: a hook that only the HOST's world needs (shared progress flag capture, story capture). A guest
+// without it just does not receive that part, so it is left out of the compatibility hash (a guest
+// with BB_PARTY_PROGRESS=0 / BB_PARTY_STORY=0 may still join a host that has them on).
+bool host_world_hook_name(const std::string& name);
+// 0.7.8: the player-facing option behind a party hook name ("Guest lamps (BB_PARTY_GUEST_LAMPS)"), or
+// an empty string for a hook that has no option of its own.
+std::string hook_option_label(const std::string& name);
 // A9: the party hook set's hash: BLAKE2b-256 over the sorted, de-duplicated names (diagnostics
 // left out by the caller); zeros for an empty set.
 std::array<std::uint8_t, 32> hook_set_hash(std::vector<std::string> names);

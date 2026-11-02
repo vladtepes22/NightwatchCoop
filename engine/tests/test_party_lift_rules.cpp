@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <set>
 
 using namespace coop::liftrules;
@@ -405,6 +406,109 @@ int main() {
         CHECK(!HoldCarAnim(true, false, false, true));  // not a lift car
         CHECK(!HoldCarAnim(false, true, false, true));  // BB_PARTY_LIFT_HOLD=0
         CHECK(!CarHoldExpired(kCarHoldMax - 0.1) && CarHoldExpired(kCarHoldMax + 0.1));
+    }
+
+    {
+        // liftfall078 (a guest fell through a descending car, NW-e118458): the rescue pins the chr to the car until
+        // the game carries it again, never gives up silently, and a height far from the rider is not a height
+        float put[3] = {};
+        const float kNaN = std::numeric_limits<float>::quiet_NaN();
+        // the descent: on the car 8 samples (y 49.6 -> 44, ~7 m/s), then the bit goes off and the chr stays behind
+        auto descend = [&](RiderTrack& r, double& t, float& y, bool rescue) {
+            float p[3];
+            for (int k = 0; k < 8; ++k, t += 0.03, y -= 0.21f) {
+                CHECK(RiderTick(r, true, true, t, 82.8f, y, 366.8f, p, 8, kNaN, rescue) == RiderStep::riding);
+            }
+        };
+        {
+            RiderTrack r;
+            double t = 0;
+            float y = 49.6f;
+            descend(r, t, y, true);
+            // consecutive frames under the car: the old guard put back three times in three frames (the warp not yet
+            // applied) and quit; the rescue spaces its put-backs kRiderPutGap apart, four of them, then gives up
+            // (never "off")
+            int puts = 0, gave = 0, offs = 0;
+            double lastp = -1;
+            for (int k = 0; k < 120; ++k, t += 0.03) {
+                const RiderStep st = RiderTick(r, true, false, t, 82.8f, y - 1.4f - k * 0.3f, 366.8f, put, 8, kNaN, true);  // under it, falling faster
+                if (st == RiderStep::through) {
+                    CHECK(lastp < 0 || t - lastp >= kRiderPutGap - 1e-6);  // spaced, not three in three frames
+                    CHECK(put[1] > y - 1.4f - k * 0.3f);                   // over the chr's spot
+                    lastp = t;
+                }
+                puts += st == RiderStep::through;
+                gave += st == RiderStep::giveup;
+                offs += st == RiderStep::off;
+                if (st == RiderStep::giveup) break;
+            }
+            CHECK(puts == kRiderRescuePuts);
+            CHECK(gave == 1 && offs == 0);
+            CHECK(!r.riding);  // the track starts afresh
+        }
+        {
+            // the game carries it again after a put-back: the pin ends, the counters restart
+            RiderTrack r;
+            double t = 0;
+            float y = 49.6f;
+            descend(r, t, y, true);
+            CHECK(RiderTick(r, true, false, t, 82.8f, y - 1.4f, 366.8f, put, 8, kNaN, true) == RiderStep::through);
+            CHECK(r.pin_t0 > 0);
+            CHECK(put[1] > y - 1.4f);
+            float cy = put[1] - 0.1f;
+            for (int k = 0; k < 4; ++k) {
+                t += 0.03, cy -= 0.2f;
+                CHECK(RiderTick(r, true, true, t, 82.8f, cy, 366.8f, put, 8, kNaN, true) == RiderStep::riding);
+            }
+            CHECK(r.pin_t0 == 0 && r.puts == 0);
+        }
+        {
+            // without the rescue (BB_PARTY_LIFT_RESCUE=0) it is the 0.7.7 guard: three put-backs, then "off"
+            RiderTrack r;
+            double t = 0;
+            float y = 49.6f;
+            descend(r, t, y, false);
+            int puts = 0, offs = 0;
+            for (int k = 0; k < 40; ++k, t += 0.03) {
+                const RiderStep st = RiderTick(r, true, false, t, 82.8f, y - 1.4f - k * 0.3f, 366.8f, put, 8);
+                puts += st == RiderStep::through;
+                offs += st == RiderStep::off;
+            }
+            CHECK(puts == kRiderMaxPuts && offs >= 1);
+        }
+        {
+            // a "measured" height of 0.0 for a car at y 49.6 (the Upper Cathedral Ward car): the guard was idle for the
+            // whole ride before; now the speed guess takes over from the first ride sample
+            RiderTrack r;
+            double t = 0;
+            float y = 49.6f;
+            RiderTick(r, true, true, t, 82.8f, y, 366.8f, put, 8, 0.0f, true);
+            CHECK(r.no_height);
+            for (int k = 0; k < 8; ++k, t += 0.03, y -= 0.21f) {
+                CHECK(RiderTick(r, true, true, t, 82.8f, y, 366.8f, put, 8, 0.0f, true) == RiderStep::riding);
+            }
+            CHECK(r.riding && r.vy < -5.0f);
+            CHECK(RiderTick(r, true, false, t, 82.8f, y - 1.4f, 366.8f, put, 8, 0.0f, true) == RiderStep::through);
+            RiderTrack o;  // the 0.7.7 guard never saw this ride
+            CHECK(RiderTick(o, true, true, 0.0, 82.8f, 49.6f, 366.8f, put, 8, 0.0f, false) == RiderStep::idle && !o.riding);
+        }
+        {
+            // the measured path pins and gives up too: a car whose height reads true
+            RiderTrack r;
+            double t = 0;
+            float car = 49.4f;
+            CHECK(RiderTick(r, true, true, t, 82.8f, car + 0.2f, 366.8f, put, 8, car, true) == RiderStep::riding);
+            int puts = 0, gave = 0;
+            for (int k = 0; k < 120; ++k, t += 0.03) {
+                car -= 0.2f;
+                const RiderStep st = RiderTick(r, true, false, t, 82.8f, car - 2.0f, 366.8f, put, 8, car, true);
+                puts += st == RiderStep::through;
+                gave += st == RiderStep::giveup;
+                if (st == RiderStep::through) CHECK(put[1] > car + 0.5f && put[1] < car + 1.1f);
+                if (st == RiderStep::giveup) break;
+            }
+            CHECK(puts == kRiderRescuePuts && gave == 1);
+        }
     }
 
     if (g_fail) {
