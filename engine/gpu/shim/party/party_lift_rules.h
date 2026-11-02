@@ -435,6 +435,22 @@ inline bool LiftNeedsReplay(const Lift& l, bool pos_now, std::int32_t car_anim) 
 /// liftfall: a lift that `replays` (Lift::Replays) is applied with its car loaded too (the host's
 /// LiftReplayTick then puts the car at that end), unless the host stands at it (`occupied`: within
 /// a few m of the car, or the car rides: its own copy decides).
+/// liftapart078: a lift car found in the object table counts as "loaded here" only while the host's own
+/// map is in the lift's area (its position flag's area: 24 for flag 12400150). The table keeps the entries of
+/// a block the host left (live, a 4-player playtest: the host in the Hunter's Dream, m21_01, still found the
+/// Cathedral Ward church lift's car): HostLiftSync then answered `loaded` and left a guest's ride out of the
+/// host's world, so the host's block init put the car at the old end when it came back. `host_map` is the
+/// host's map id (area in the top byte); 0 (unknown) keeps the old answer. `enabled` is BB_PARTY_LIFT_AREA.
+inline bool CarLoadedHere(bool car_found, std::uint32_t pos_flag, std::uint32_t host_map, bool enabled = true) {
+    if (!car_found) {
+        return false;
+    }
+    if (!enabled || host_map == 0u) {
+        return true;
+    }
+    return pos_flag / 100000u % 100u == (host_map >> 24);
+}
+
 enum class LiftSync { apply, same, busy, loaded, occupied };
 inline LiftSync HostLiftSync(bool host_pos, bool host_busy, bool car_loaded, bool want, bool replays = false,
                              bool occupied = false) {

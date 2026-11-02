@@ -111,6 +111,14 @@ int main() {
     CHECK(HostLiftSync(false, false, true, true, true, false) == LiftSync::apply);
     CHECK(HostLiftSync(false, false, true, true, true, true) == LiftSync::occupied);
     CHECK(HostLiftSync(true, false, true, true, true, true) == LiftSync::same);
+    // liftapart078: a car entry of a block the host left is not "loaded here" (the Cathedral Ward church
+    // lift, flag 12400150 = area 24, with the host in the Hunter's Dream m21_01 = 0x15010000).
+    CHECK(!CarLoadedHere(false, 12400150u, 0x18000000u));
+    CHECK(CarLoadedHere(true, 12400150u, 0x18000000u) && CarLoadedHere(true, 12400150u, 0x18010000u));
+    CHECK(!CarLoadedHere(true, 12400150u, 0x15010000u));
+    CHECK(CarLoadedHere(true, 12400150u, 0x15010000u, false));  // BB_PARTY_LIFT_AREA=0: the old answer
+    CHECK(CarLoadedHere(true, 12400150u, 0u));                  // map unknown: the old answer
+    CHECK(HostLiftSync(false, false, CarLoadedHere(true, 12400150u, 0x15010000u), true) == LiftSync::apply);
     CHECK(GuestLiftRideDone(true, true, false) && GuestLiftRideDone(false, false, false));
     CHECK(!GuestLiftRideDone(true, true, true) && !GuestLiftRideDone(false, true, false));
 

@@ -1653,12 +1653,39 @@ std::map<std::uint32_t, bool> g_lift_wait;  // host: lift pos flag -> a guest's 
 // liftfix: the host's answer to a guest's ride (HostLiftSync) and its write. Occupied: the host stands in
 // the car (within kLiftInCarRadius of its axis: 0.7.1 took 4 m, which on a landing beside Cainhurst's car
 // refused every ride) or its own copy rides.
-LiftSync HostLiftDecide(const Lift& l, bool want, bool* ok) {
+// liftapart078: BB_PARTY_LIFT_AREA=0 turns the area test of "the car is loaded here" off (the old answer).
+bool LiftAreaOn() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_PARTY_LIFT_AREA");
+        return !(v && v[0] == '0');
+    }();
+    return on;
+}
+
+LiftSync HostLiftDecide(const Lift& l, bool want, bool* ok, std::uint32_t host_map) {
     bool pos = false, busy = false;
     progress::ReadFlag(l.pos, &pos);
     if (l.busy) progress::ReadFlag(l.busy, &busy);
     ObjAnimState car;
-    const bool loaded = ReadObjAnim(l.car, &car);
+    bool found = ReadObjAnim(l.car, &car);
+    // Test aid (BB_TEST_LIFT_STALE_TABLE=1, liftapart078): the object table still answers for a lift car of a
+    // block the host is not in (the playtest's host in the Dream found the Cathedral Ward church lift's car).
+    // The real entry is a leftover that is not there at every moment, so the smoke phase lfa simulates it.
+    if (!found && host_map && l.pos / 100000u % 100u != (host_map >> 24)) {
+        static const bool stale = [] {
+            const char* v = std::getenv("BB_TEST_LIFT_STALE_TABLE");
+            return v && v[0] == '1';
+        }();
+        found = stale;
+    }
+    const bool loaded = liftrules::CarLoadedHere(found, l.pos, host_map, LiftAreaOn());
+    if (found && !loaded) {
+        static std::set<std::uint32_t> logged;
+        if (logged.insert(l.pos).second) {
+            Log("host: lift %d: the car is in the object table but the host's map %s is not its area: not loaded here (BB_PARTY_LIFT_AREA)",
+                l.car, MapName(host_map).c_str());
+        }
+    }
     const bool occupied = loaded && l.Replays() &&
                           (LiftBusyHere(l, kLiftInCarRadius) || liftrules::MirrorHold(l, car.anim, car.playing));
     const LiftSync what = HostLiftSync(pos, busy, loaded, want, l.Replays(), occupied);
@@ -1673,7 +1700,7 @@ LiftSync HostLiftDecide(const Lift& l, bool want, bool* ok) {
 }
 
 // liftfix: guests' rides refused while the host stood in the car, applied once it is out.
-void HostLiftWaitTick() {
+void HostLiftWaitTick(std::uint32_t host_map) {
     std::map<std::uint32_t, bool> wait;
     {
         std::lock_guard<std::mutex> lk(g_lift_wait_mu);
@@ -1682,7 +1709,7 @@ void HostLiftWaitTick() {
     for (const auto& [id, want] : wait) {
         const Lift* l = LiftByPosFlag(id);
         bool ok = true;
-        const LiftSync what = l ? HostLiftDecide(*l, want, &ok) : LiftSync::same;
+        const LiftSync what = l ? HostLiftDecide(*l, want, &ok, host_map) : LiftSync::same;
         if (what == LiftSync::occupied || what == LiftSync::busy) {
             std::lock_guard<std::mutex> lk(g_lift_wait_mu);
             g_lift_wait.emplace(id, want);  // still in the car / riding
@@ -1697,7 +1724,7 @@ void HostLiftWaitTick() {
 void HostTick(const GameSnapshot& s) {
     State& st = S();
     if (s.world_up && !s.loading && progress::FlagLoadMode() == 0) {
-        HostLiftWaitTick();
+        HostLiftWaitTick(s.map_id);
     }
     std::deque<std::pair<int, Request>> in;
     {
@@ -1782,7 +1809,7 @@ void HostTick(const GameSnapshot& s) {
                     continue;
                 }
                 bool ok = true;
-                const LiftSync what = HostLiftDecide(*l, want, &ok);
+                const LiftSync what = HostLiftDecide(*l, want, &ok, s.map_id);
                 if (what == LiftSync::apply) {
                     st.stats.applied += ok ? 1 : 0;
                     applied_any = applied_any || ok;
