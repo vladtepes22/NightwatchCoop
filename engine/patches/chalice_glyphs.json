@@ -1,0 +1,4 @@
+{
+  "_doc": "Curated Chalice Glyphs for the Ritual Altar's pick list (bbport.ini party_glyph_list). A glyph is only a lookup key: the dungeon's layout (FormData) lived on FromSoftware's servers, and the party has no server. An entry is offered only when it carries its layout in \"form\" (the base64 FormData of a dungeon, as the party board holds it); without \"form\" it cannot be entered and is skipped. Entry: {\"glyph\": 8 letters/digits, \"name\": text, \"depth\": 1-5, \"area\": text, \"notes\": text, \"form\": base64}. Add entries here; nothing else is needed.",
+  "glyphs": []
+}

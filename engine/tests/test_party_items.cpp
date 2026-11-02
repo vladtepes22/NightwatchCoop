@@ -502,6 +502,108 @@ static void test_ledger_seed() {
 }
 
 
+// 0.7.8 badge rows (playtest 2026-11-01): flag 12101000 + n is cleared only when badge 4110 + n is held nowhere;
+// a held badge keeps its row; an unreadable list clears nothing; once per save.
+static void test_badge_gate_repair() {
+    std::set<std::uint32_t> save;
+    for (std::uint32_t f = 12101000; f <= 12101009; ++f) {
+        save.insert(f);
+    }
+    auto is_set = [&save](std::uint32_t id) { return save.count(id) != 0; };
+    std::set<std::int32_t> held = {4110, 4114};  // Saw + Sword Hunter Badges (the default test save)
+    auto holds = [&held](std::int32_t g) { return held.count(g) ? 1 : 0; };
+    ShopGateRepair r = BadgeGatesToRepair(is_set, holds);
+    CHECK(!r.done && r.complete);
+    CHECK((r.clear == std::vector<std::int32_t>{12101001, 12101002, 12101003, 12101005, 12101006, 12101007, 12101008,
+                                                12101009}));
+    // The playtest host: 0,1,2,4,5,6,7 set (a guest's badges), no badge held: all seven cleared, 3/8/9 untouched.
+    save = {12101000, 12101001, 12101002, 12101004, 12101005, 12101006, 12101007};
+    held.clear();
+    r = BadgeGatesToRepair(is_set, holds);
+    CHECK((r.clear == std::vector<std::int32_t>{12101000, 12101001, 12101002, 12101004, 12101005, 12101006, 12101007}));
+    // A legit save (flags = badges held): nothing to do.
+    held = {4110, 4111, 4112, 4114, 4115, 4116, 4117};
+    r = BadgeGatesToRepair(is_set, holds);
+    CHECK(r.complete && r.clear.empty());
+    // A badge held but its flag clear: never set by the repair (the game's own event sets it).
+    save = {12101000};
+    r = BadgeGatesToRepair(is_set, holds);
+    CHECK(r.clear.empty());
+    // One list unreadable: nothing decided for that badge, not complete (the caller clears nothing and retries).
+    save = {12101003, 12101009};
+    auto unknown = [](std::int32_t g) { return g == 4113 ? -1 : 0; };
+    r = BadgeGatesToRepair(is_set, unknown);
+    CHECK(!r.complete && (r.clear == std::vector<std::int32_t>{12101009}));
+    // Marked: nothing.
+    save = {12101003, kBadgeGatesRepaired};
+    r = BadgeGatesToRepair(is_set, holds);
+    CHECK(r.done && r.clear.empty());
+    CHECK(kBadgeGatesRepaired == kShopGatesRepaired - 1 && kEyeGateRepaired == kShopGatesRepaired - 2);
+    CHECK(kBadgeGatesRepaired == 60009997u && kEyeGateRepaired == 60009996u);
+    CHECK(ItemLedgerCount() < std::size_t(kItemLedgerSize - 4));
+    // The 0x31 filter: the badge rows (one event id, slots 0-9) and the grab; not the gift messengers' (guestsvc).
+    CHECK(PerPlayerItemGateEvent(12101000u) && PerPlayerItemGateEvent(12405263u));
+    CHECK(!PerPlayerItemGateEvent(12101001u) && !PerPlayerItemGateEvent(12101100u) && !PerPlayerItemGateEvent(12404000u));
+}
+
+// 0.7.8 Eye of a Blood-drunk Hunter: the gate (night 9801 + DLC 6899) for the party's give, and the repair of
+// an NG0 save that holds it (or its flags) before the night and never entered the DLC.
+static void test_eye_gate() {
+    CHECK((LotOwnGateFlags(10040) == std::vector<std::uint32_t>{9801, 6899}));
+    CHECK((GoodsOwnGateFlags(4311) == std::vector<std::uint32_t>{9801, 6899}));
+    CHECK(LotOwnGateFlags(10050).empty() && LotOwnGateFlags(50000010).empty() && GoodsOwnGateFlags(4114).empty());
+    std::map<std::uint32_t, int> pool;  // 1 set, 0 clear, -1 unreadable
+    auto read = [&pool](std::uint32_t f, bool* v) {
+        const auto it = pool.find(f);
+        const int x = it == pool.end() ? 0 : it->second;
+        *v = x == 1;
+        return x >= 0;
+    };
+    const std::vector<std::uint32_t> gate = LotOwnGateFlags(10040);
+    pool = {{9801, 1}, {6899, 1}};
+    CHECK(OwnGateState(gate, read) == 1);
+    pool = {{9801, 0}, {6899, 1}};
+    CHECK(OwnGateState(gate, read) == 0);   // before the night: held back
+    pool = {{9801, -1}, {6899, 1}};
+    CHECK(OwnGateState(gate, read) == -1);  // unreadable: held back too (the caller gives only on 1)
+    pool = {{9801, -1}, {6899, 0}};
+    CHECK(OwnGateState(gate, read) == 0);
+    CHECK(OwnGateState({}, read) == 1);
+
+    std::set<std::uint32_t> save;
+    auto is_set = [&save](std::uint32_t id) { return save.count(id) != 0; };
+    // The playtest case: Eye held, the sale flags set, no night, DLC never entered, NG0: repaired.
+    save = {6899, 12101100, 12101101, 12301800};
+    EyeRepair r = EyeToRepair(is_set, 0, 1);
+    CHECK(!r.done && r.complete && r.remove_eye && (r.clear == std::vector<std::uint32_t>{12101100, 12101101}));
+    // The party's replay also set the lot flag: cleared too, so the vanilla Messenger can give it at night.
+    save = {6899, 50000100};
+    r = EyeToRepair(is_set, 0, 1);
+    CHECK(r.remove_eye && (r.clear == std::vector<std::uint32_t>{50000100}));
+    // No Eye but its flags: the flags go, nothing to take.
+    r = EyeToRepair(is_set, 0, 0);
+    CHECK(r.complete && !r.remove_eye && (r.clear == std::vector<std::uint32_t>{50000100}));
+    // Legit: night reached (the default test save), DLC entered, NG+: untouched.
+    save = {9800, 9801, 6899, 50000100, 12101100, 12101101};
+    r = EyeToRepair(is_set, 0, 1);
+    CHECK(r.complete && !r.remove_eye && r.clear.empty());
+    save = {6899, 13401000, 12101101};
+    r = EyeToRepair(is_set, 0, 1);
+    CHECK(r.complete && !r.remove_eye && r.clear.empty());
+    save = {6899};
+    r = EyeToRepair(is_set, 1, 1);
+    CHECK(r.complete && !r.remove_eye && r.clear.empty());
+    // Unknown NG cycle or key items: not decided, not marked.
+    r = EyeToRepair(is_set, -1, 1);
+    CHECK(!r.complete && !r.remove_eye && r.clear.empty());
+    r = EyeToRepair(is_set, 0, -1);
+    CHECK(!r.complete && !r.remove_eye);
+    // Marked: nothing.
+    save = {6899, 12101101, kEyeGateRepaired};
+    r = EyeToRepair(is_set, 0, 1);
+    CHECK(r.done && !r.remove_eye && r.clear.empty());
+}
+
 // Shop-gate repair (0.7.6): flags 5500-5521 left in a save by 0.7.4-era sessions are cleared unless
 // the weapon is owned (inventory or storage, any upgrade level); once per save; unknown never clears.
 static void test_shop_gate_repair() {
@@ -1492,6 +1594,8 @@ int main() {
     test_fit();
     test_ledger_seed();
     test_shop_gate_repair();
+    test_badge_gate_repair();
+    test_eye_gate();
     test_deny();
     test_classify();
     test_json();

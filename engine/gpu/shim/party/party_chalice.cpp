@@ -51,11 +51,13 @@ bool GoodsFromJsonText(const std::string& text, std::vector<std::uint32_t>* out,
 #ifndef BB_PARTY_CHALICE_NO_GAME
 #include "coop_hooks.h"
 #include "game_state.h"
+#include "party_chalice_glyphs.h"
 #include "party_chalice_merge.h"
 #include "party_progress.h"
 #include "party_status.h"
 
 #include "../bbport_game_menu.h"
+#include "../bbport_settings.h"
 #include "../net/from_api.h"
 #include "../net/party_util.h"
 
@@ -63,11 +65,17 @@ bool GoodsFromJsonText(const std::string& text, std::vector<std::uint32_t>* out,
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <deque>
+#include <fstream>
+#include <map>
+#include <sstream>
 #include <cstdlib>
 #include <string>
 #include <cstring>
 #include <cstring>
 #include <mutex>
+
+extern "C" int bbgpu_text_input_test_queue(const char* keys);
 
 namespace coop::chalice {
 
@@ -82,7 +90,7 @@ std::atomic<std::uint64_t> g_alias_board{0};  // ... and the id the board has th
 std::mutex g_mu;
 std::vector<std::uint32_t> g_host_goods, g_host_pending, g_guest_goods;
 bool g_host_dirty = false, g_guest_dirty = false;
-std::string g_form_pending;      // guest: {"id":"N","form":"b64"} for the host's board
+std::deque<std::string> g_form_queue;  // guest: {"id":"N","form":"b64","cur":0|1} for the host's board
 double g_host_sent_at = 0;
 
 // The party's dungeon (host): the newest ritual of another member, offered at the host's altar as
@@ -95,6 +103,7 @@ char g_party_glyph[16] = {};               // "" when none (read by the ImeDialo
 char16_t g_party_label[64] = {};           // the altar menu item
 char16_t g_party_help[160] = {};           // its help line
 std::atomic<bool> g_party_dungeon{false};
+std::atomic<bool> g_list_text{false};      // the altar item reads "Enter a party glyph" (the pick list is on)
 std::atomic<bool> g_altar_auto{false};     // the glyph box took the party glyph: walk the rest
 
 void CopyU16(char16_t* out, std::size_t cap, const std::string& text) {
@@ -104,7 +113,8 @@ void CopyU16(char16_t* out, std::size_t cap, const std::string& text) {
 }
 
 const char16_t* AltarText(std::uint32_t, std::uint32_t id, const char16_t* original) {
-    if (id != kGlyphSearchText || !g_party_dungeon.load(std::memory_order_acquire) || !original) {
+    if (id != kGlyphSearchText || !(g_party_dungeon.load(std::memory_order_acquire) || g_list_text.load(std::memory_order_acquire)) ||
+        !original) {
         return nullptr;
     }
     // The same id names the menu item (short) and its help line (long), in two message tables.
@@ -134,6 +144,135 @@ const char* PartyGlyph(std::uint32_t max_length) {
 double Seconds() {
     using namespace std::chrono;
     return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+// ---- The glyph pick list (CL-420d9f, docs/party/chalice.md 11) ----
+// bbport.ini party_glyph_list (this player's own, off by default): the altar's "Search by Chalice Glyph" box opens
+// with the party's glyphs to pick from (the host's own dungeons, the guests' sent over the party, the shipped
+// patches/chalice_glyphs.json) above the keyboard; typing a code still works.
+std::mutex g_list_mu;
+std::vector<glyphs::Entry> g_list;        // rebuilt by the host's Tick
+std::string g_list_choices;               // glyphs::EncodeChoices(g_list)
+std::vector<glyphs::Curated> g_curated;
+bool g_curated_loaded = false;
+std::string g_test_glyph;                 // host_glyph=CODE: typed into the next glyph box
+int g_test_pick = 0;                      // host_pick=N: the N-th row of the list picked (1-based)
+
+bool ListOn() {
+    return BbSettings::Get().party_glyph_list.load();
+}
+
+// The glyph box the altar opened: its menu item was shown within the last 20 s.
+bool GlyphBoxRecent() {
+    const std::int64_t seen = BbGameMenu::LastLookupMs(kGlyphSearchText);
+    const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now().time_since_epoch())
+                                 .count();
+    return seen && now - seen <= 20000;
+}
+
+std::string ReadWhole(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return {};
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+// patches/chalice_glyphs.json next to the game (BB_CHALICE_GLYPHS_FILE overrides), read once.
+void LoadCurated() {
+    if (g_curated_loaded) return;
+    g_curated_loaded = true;
+    std::vector<std::string> paths;
+    if (const char* e = std::getenv("BB_CHALICE_GLYPHS_FILE"); e && e[0]) paths.push_back(e);
+    for (const char* p : {"patches/chalice_glyphs.json", "../patches/chalice_glyphs.json", "../../patches/chalice_glyphs.json"}) paths.push_back(p);
+    for (const std::string& p : paths) {
+        const std::string text = ReadWhole(p);
+        if (text.empty()) continue;
+        std::string err;
+        int skipped = 0;
+        if (glyphs::ParseCurated(text, &g_curated, &err, &skipped)) {
+            std::printf("[coop] Party: chalice: glyph list: %zu curated glyph(s) from %s (%d skipped)\n", g_curated.size(), p.c_str(), skipped);
+        } else {
+            g_curated.clear();
+            std::printf("[coop] Party: chalice: glyph list: %s unusable (%s)\n", p.c_str(), err.c_str());
+        }
+        std::fflush(stdout);
+        return;
+    }
+    std::printf("[coop] Party: chalice: glyph list: no patches/chalice_glyphs.json found\n");
+    std::fflush(stdout);
+}
+
+// The ImeDialog opens: with the list on, the altar's glyph box gets the party's glyphs to pick from. The test
+// aids queue their keys into the box here (host_glyph types a code, host_pick picks a row).
+const char* GlyphChoices(std::uint32_t max_length) {
+    if (max_length != glyphs::kGlyphLength || !GlyphBoxRecent()) return nullptr;
+    std::string list;
+    std::size_t rows = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_list_mu);
+        if (ListOn()) {
+            list = g_list_choices;
+            rows = g_list.size();
+        }
+        if (!g_test_glyph.empty()) {
+            const std::string keys = g_test_glyph + "\n";
+            bbgpu_text_input_test_queue(keys.c_str());
+            std::printf("[coop] Party: chalice: test: host_glyph %s typed into the glyph box (%zu list row(s))\n", g_test_glyph.c_str(), rows);
+            g_test_glyph.clear();
+        } else if (g_test_pick > 0 && rows > 0) {
+            std::string keys;
+            for (int i = 1; i < g_test_pick && i < static_cast<int>(rows); ++i) keys += '\x02';
+            keys += '\n';
+            bbgpu_text_input_test_queue(keys.c_str());
+            std::printf("[coop] Party: chalice: test: host_pick %d (of %zu): Down x%zu, Enter\n", g_test_pick, rows, keys.size() - 1);
+            g_test_pick = 0;
+        }
+    }
+    static std::string keep;  // the caller copies it at once (runtime_services.c ime_init)
+    keep = list;
+    if (!keep.empty()) {
+        std::printf("[coop] Party: chalice: the altar's glyph box opens with a list of %zu party glyph(s)\n", rows);
+        std::fflush(stdout);
+    }
+    return keep.empty() ? nullptr : keep.c_str();
+}
+
+// The box ended: with the list on, a glyph the party has is welcome (the autopilot may walk the rest); one it does
+// not gets a clear notice (the game's own search then answers "not found").
+void GlyphClosed(std::uint32_t max_length, const char* text, bool cancelled) {
+    if (max_length != glyphs::kGlyphLength || cancelled || !text || !GlyphBoxRecent() || !ListOn()) return;
+    const std::string typed = text;
+    const std::string glyph = glyphs::LowerGlyph(typed);
+    bbnet::party::ChannelBoard& board = bbnet::party::FromApi::instance().channels();
+    bbnet::party::ChannelBoard::Channel c;
+    const char* how = nullptr;
+    if (glyphs::ValidGlyph(glyph)) {
+        if (board.find_glyph(glyph, &c) && !c.form_data.empty()) {
+            how = "on the board";
+        } else {
+            std::lock_guard<std::mutex> lk(g_list_mu);
+            for (const glyphs::Entry& e : g_list) {
+                if (e.glyph == glyph && !e.form_on_board && !e.form.empty()) {
+                    // A curated glyph: its layout goes on the board before the game's search asks for it.
+                    const std::uint64_t id = bbnet::party::ChannelBoard::IdOf(e.form);
+                    if (board.known(id) || board.adopt(id, e.form, "curated", glyph)) how = "curated, put on the board";
+                    break;
+                }
+            }
+        }
+    }
+    if (how) {
+        std::printf("[coop] Party: chalice: glyph %s chosen at the altar (%s)\n", glyph.c_str(), how);
+        std::fflush(stdout);
+        g_altar_auto.store(true, std::memory_order_release);
+        return;
+    }
+    const std::string msg = glyphs::UnknownGlyphText(typed);
+    std::printf("[coop] Party: chalice: glyph '%s' chosen at the altar is not in the party's list: %s\n", typed.c_str(), msg.c_str());
+    std::fflush(stdout);
+    party::status::SetAlert("Chalice Glyph\n" + msg);
 }
 
 } // namespace
@@ -635,6 +774,8 @@ void InstallProbes() {
     done = true;
     BbGameMenu::SetTextOverride(&AltarText);
     BbGameMenu::SetImePreset(&PartyGlyph);
+    BbGameMenu::SetImeChoices(&GlyphChoices);
+    BbGameMenu::SetImeClosed(&GlyphClosed);
     HookPrologue(0x14ba340, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &SummonMessageProbe, "chalice: summon message probe");
     HookPrologue(0x1aa5280, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &QuickJoinRequestProbe, "chalice: quick join request probe");
     HookPrologue(0x1aa81d0, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &QuickJoinStepProbe, "chalice: quick join step probe");
@@ -781,6 +922,125 @@ State Read() {
     return s;
 }
 
+namespace {
+
+// The dungeons in the local game's 7 slots that hold a map: {slot, ChannelId the board can hold}.
+std::vector<std::pair<int, std::uint64_t>> OwnDungeons() {
+    std::vector<std::pair<int, std::uint64_t>> out;
+    for (int k = 0; k < kSlots; ++k) {
+        const std::uint32_t base = kRecordBase + static_cast<std::uint32_t>(k) * kRecordStride;
+        std::uint32_t map = 0, lo = 0, hi = 0x80000000u;
+        if (ReadEventFlagValue(base + 96, 32, &map) && (map & 0xff000000u) == 0x1d000000u &&
+            ReadEventFlagValue(base + kChannelLoBit, 32, &lo) && ReadEventFlagValue(base + kChannelHiBit, 32, &hi)) {
+            const std::uint64_t id = ChannelFromDwords(lo, hi);
+            if (BoardChannel(id)) out.push_back({k, id});
+            continue;
+        }
+        // Summoned / title-joined (load mode 1) the flag store holds the host's world; the slot's ritual helper object
+        // keeps the member's own dungeon (its ChannelId at +0xd8, the layout fields SlotFormData reads).
+        std::uint32_t w[0x1e] = {};
+        std::uint64_t id = 0;
+        const std::uint64_t h = HelperOf(k);
+        if (h && SafeGet(h + 0xd8, &id) && BoardChannel(id) && HelperFields(k, w) && w[3] != 0) out.push_back({k, id});
+    }
+    return out;
+}
+
+std::string name_for_list() {
+    std::lock_guard<std::mutex> lk(g_mu);
+    return g_host_name.empty() ? "host" : g_host_name;
+}
+
+// Host: the pick list. Every 3 s while the setting is on: the host's own dungeons (all 7 slots) go on the board with
+// their FormData, then the list is built from the board and the curated file.
+void HostGlyphList(const State& s, const std::string& me) {
+    static double next = 0;
+    const double now = Seconds();
+    if (now < next) return;
+    next = now + 3.0;
+    if (!ListOn()) {
+        std::lock_guard<std::mutex> lk(g_list_mu);
+        if (!g_list.empty()) {
+            g_list.clear();
+            g_list_choices.clear();
+        }
+        g_list_text.store(false, std::memory_order_release);
+        return;
+    }
+    LoadCurated();
+    bbnet::party::ChannelBoard& board = bbnet::party::FromApi::instance().channels();
+    if (s.load_mode == 0) {  // the slots are the host's own only in its own world
+        for (const auto& [slot, id] : OwnDungeons()) {
+            const std::vector<std::uint8_t> fd = SlotFormData(slot);
+            if (fd.empty()) continue;
+            const std::string b64 = bbnet::party::b64_encode(fd.data(), fd.size());
+            if (!board.known(id)) {
+                board.adopt(id, b64, me);
+            } else if (board.form_data(id).empty()) {
+                board.set_form_data(id, b64);
+            }
+        }
+    }
+    std::vector<glyphs::BoardItem> items;
+    for (const bbnet::party::ChannelBoard::Channel& c : board.channels()) {
+        glyphs::BoardItem b;
+        b.glyph = c.glyph;
+        b.owner = c.owner;
+        b.goods = glyphs::GoodsOfForm(c.form_data);
+        b.depth = static_cast<int>(c.ritual_level);
+        b.has_form = !c.form_data.empty();
+        b.touched = c.touched;
+        items.push_back(std::move(b));
+    }
+    std::vector<glyphs::Entry> list = glyphs::BuildList(me, std::move(items), g_curated);
+    const std::string choices = glyphs::EncodeChoices(list);
+    std::lock_guard<std::mutex> lk(g_list_mu);
+    if (choices != g_list_choices) {
+        g_list = std::move(list);
+        g_list_choices = choices;
+        std::printf("[coop] Party: chalice: glyph list: %zu glyph(s)\n", g_list.size());
+        for (const glyphs::Entry& e : g_list) std::printf("[coop] Party: chalice: glyph list: %s [%s] %s\n", e.glyph.c_str(), e.source.c_str(), e.label.c_str());
+        std::fflush(stdout);
+    }
+    if (g_list.empty() == g_list_text.load()) {
+        g_list_text.store(!g_list.empty(), std::memory_order_release);
+        if (!g_list.empty() && !g_party_dungeon.load()) {
+            CopyU16(g_party_label, sizeof g_party_label / sizeof g_party_label[0], "Enter a party glyph");
+            CopyU16(g_party_help, sizeof g_party_help / sizeof g_party_help[0],
+                    "Pick one of the party's Chalice Glyphs from a list, or type a code.");
+        }
+    }
+}
+
+// Guest: every dungeon in its 7 slots (not the host's joined one) for the host's pick list, each at most every 60 s.
+void GuestSlotForms(const State& s, double now) {
+    static std::map<std::uint64_t, double> sent;
+    static double next = 0;
+    if (now < next) return;
+    next = now + 5.0;
+    if (s.load_mode != 0 && s.load_mode != 1) return;
+    for (const auto& [slot, id] : OwnDungeons()) {
+        if (slot == 0 && s.load_mode == 1) continue;  // the quick-joined host dungeon
+        if (slot == s.slot) continue;                 // the current slot goes with the old per-dungeon message
+        auto it = sent.find(id);
+        if (it != sent.end() && now - it->second < 60.0) continue;
+        const std::vector<std::uint8_t> fd = SlotFormData(slot);
+        if (fd.empty()) continue;
+        const std::string b64 = bbnet::party::b64_encode(fd.data(), fd.size());
+        std::lock_guard<std::mutex> lk(g_mu);
+        g_form_queue.push_back("{\"id\":\"" + std::to_string(id) + "\",\"form\":\"" + b64 + "\",\"cur\":0}");
+        while (g_form_queue.size() > 16) g_form_queue.pop_front();
+        if (it == sent.end()) {
+            std::printf("[coop] Party: chalice: dungeon %llu of slot %d: FormData for the host's glyph list\n",
+                        static_cast<unsigned long long>(id), slot);
+            std::fflush(stdout);
+        }
+        sent[id] = now;
+    }
+}
+
+} // namespace
+
 void Tick(bool host) {
     static double next = 0;
     static State last;
@@ -822,7 +1082,7 @@ void Tick(bool host) {
             std::lock_guard<std::mutex> lk(g_mu);
             name = g_host_name;
         }
-        const bool any = !name.empty() &&
+        const bool any = !name.empty() && !ListOn() &&
                          bbnet::party::FromApi::instance().channels().latest_ritual(name, std::chrono::hours(1), &c, &member) &&
                          c.glyph.size() == kGlyphLength && !(s.load_mode == 0 && s.slot >= 0 && s.channel == c.id);
         static std::string shown;
@@ -842,6 +1102,12 @@ void Tick(bool host) {
             std::fflush(stdout);
         }
     }
+    if (host) {
+        HostGlyphList(s, name_for_list());
+    }
+    if (!host) {
+        GuestSlotForms(s, now);
+    }
     if (!host && s.slot >= 0 && s.channel && (s.load_mode == 0 || s.slot != 0)) {
         // A guest's own ritual dungeon: its FormData for the host's board (a shared fixed dungeon is
         // never uploaded; the host's glyph join and a summon need it). Once per dungeon and minute.
@@ -855,7 +1121,8 @@ void Tick(bool host) {
             if (!fd.empty()) {
                 const std::string b64 = bbnet::party::b64_encode(fd.data(), fd.size());
                 std::lock_guard<std::mutex> lk(g_mu);
-                g_form_pending = "{" + std::string("\"id\":\"") + std::to_string(s.channel) + "\",\"form\":\"" + b64 + "\"}";
+                g_form_queue.push_back("{" + std::string("\"id\":\"") + std::to_string(s.channel) + "\",\"form\":\"" + b64 + "\"}");
+                while (g_form_queue.size() > 16) g_form_queue.pop_front();
                 if (sent_for != s.channel) {
                     std::printf("[coop] Party: chalice: dungeon %llu: FormData of slot %d (%zu bytes) for the host's board\n",
                                 static_cast<unsigned long long>(s.channel), s.slot, fd.size());
@@ -1024,6 +1291,16 @@ void Tick(bool host) {
     }
 }
 
+void SetTestGlyph(const std::string& code) {
+    std::lock_guard<std::mutex> lk(g_list_mu);
+    g_test_glyph = code;
+}
+
+void SetTestPick(int row) {
+    std::lock_guard<std::mutex> lk(g_list_mu);
+    g_test_pick = row;
+}
+
 bool TakeAltarAutopilot() {
     return g_altar_auto.exchange(false, std::memory_order_acq_rel);
 }
@@ -1035,11 +1312,11 @@ void SetHostName(const std::string& name) {
 
 bool PopGuestForm(std::string* body) {
     std::lock_guard<std::mutex> lk(g_mu);
-    if (g_form_pending.empty()) {
+    if (g_form_queue.empty()) {
         return false;
     }
-    *body = g_form_pending;
-    g_form_pending.clear();
+    *body = g_form_queue.front();
+    g_form_queue.pop_front();
     return true;
 }
 
@@ -1069,7 +1346,9 @@ void OnGuestForm(int slot, const std::string& member, const std::string& body) {
     } else if (board.form_data(channel).empty()) {
         what = board.set_form_data(channel, form->string) ? "on the board" : "refused";
     }
-    if (board.known(channel)) {
+    const json::Value* cur = v.find("cur");
+    const bool current = !cur || cur->type != json::Value::Type::Number || cur->number != 0;
+    if (board.known(channel) && current) {
         board.note_made(member, channel);  // the party's dungeon at the host's altar
     }
     static std::string last;

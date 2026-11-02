@@ -134,3 +134,58 @@ event ChangeTarget path 0x1299CD0 hands the boss the one who was the target long
 Log: `boss attention: boss ... turns to player chr ...`. Switch `party_boss_share` / `BB_PARTY_BOSS_SHARE=0`. With the rule on
 the same run: boss at the guest (39/51 samples < 4 m), guest HP to 0 while the host stood by. Not tested: 3+ players,
 bosses other than Gascoigne, the 8 s / 30 m values against real play.
+
+## Laurence and the guest (0.7.8, bossg078, report "bosses never attack the guest")
+
+Not a bug in the logs: a player's host and guest logs (Nightwatch 0.2.6 beta 3, 2 players, Laurence) show the host-side
+attention share firing every fight (alternating host / guest chr), the guest's game showing the boss bar in every fight
+(also when the guest went through the fog first: the bar and "went through boss fog" lines come in either order) and
+the guest taking ~40 boss hits, dying in fights 1-3; the host's copy of the guest loses HP to 0 / 1 in most fights.
+The boss hits once per 8 s turn, so a guest next to the host feels ignored half of the time (by design, PickAttention).
+Smoke phase `bg` (group `boss_guest`, Laurence, BR fixture, host god beside the boss, mortal guest 8 m away): the bar is up on
+both games, the boss turns to the guest and its hit lands on the guest's game 4.5 s after the turn (both screens looked at).
+Tune knobs: BB_BG_HOSTDIST, BB_BG_GUESTDIST, BB_BG_LAP. Not reproduced / unproven: the intermittent "stuck on the statue"
+(CL-7b1d4e), the guest not starting the fight (every guest log with a fight shows the bar).
+
+### Guest-first Gascoigne: the boss ignores a guest at some spots (0.7.8, bossg078; solved, see the root cause below)
+
+Reproduced deterministically: smoke `hg` with `BB_HG_ORDER=guest BB_HG_MORTAL=1 BB_HG_HOSTDIST=1 BB_HG_GUESTAT=-42.1:-40.76:77.3`
+(guest 7-8 m from the boss at a fixed spot; host god beside the boss): every ChangeTarget answers ok, the boss never leaves the
+host (0.8 m for 140+ s) and the guest's HP stays flat. The same run with the guest 1.5 m to the east (-40.5:-40.76:77.6,
+what `guest_chr=...:8` gave on most runs, 1 in ~4 runs landed on the bad spot because the boss's position varies) is adopted at
+once and the guest dies within 20 s. Boss AI target list (`BB_PARTY_AI_LOG=1`, "boss target dump"): AI chr vfunc+0x160 -> +0xB0 ->
++0x560 -> entries from +0x18 (next +8, flags byte +2, kind +0x28, ref +0x48, handle at +0x50, slot ptr +0x58). One entry with
+flags 0x87 is the active target; a good ChangeTarget puts the chosen chr's handle there ~1 s later. At the bad spot, and for a guest
+19-20 m away anywhere, it never does. Tried and ruled out: re-asserting ChangeTarget up to 3x per turn (no effect); writing the
+guest's handle/slot into the 0x87 entry every frame (it holds, the boss still does not move: that entry is a view, the AI goals do
+not follow it). So the rejection is inside the AI's own goal / perception logic, position dependent (sight / path / region). Open.
+
+### Root cause and fix (0.7.8, bossg078)
+
+The boss's goals follow the AI's per-chr hate record, not the active entry (flags 0x87) that the event ChangeTarget moves.
+A record is a kind-1 entry (flags 0x81 / 0x82) with +0x20 type, +0x38 seconds left, +0x2C, +0x40 active; the game's own "attacker of a hit"
+path (0x12A9230) sets type 3, 10.0 s, +0x2C 0, +0x40 1 on the chr that hurt the boss. The host keeps a live record because it hits the
+boss; a passive guest has none, so at some spots the boss never turned to it (ChangeTarget ok, active entry moved for a second or not at
+all, no hits). `BossLockEntry` (party_b2.cpp) now sets the same record on the chr BossAttentionTick hands the boss to. Proof: smoke `hg`
+with `BB_HG_GUESTAT=-42.1:-40.76:77.3` (the former dead spot): 0 hits in 140 s before, 6 hits after (2/2 runs); guest-first `hg` 8/8 runs
+with the guest's HP falling; `bg` (Laurence) and `bv`, `bw`, `s3`, `s1` green.
+
+## A guest stays "dead" for the enemies after a wipe (0.7.8, amelia2078, CL-2c1eef, Vicar Amelia's second try)
+
+4-player playtest: Amelia's first try (intro) wiped the party; on the second try the host died early and she animated and
+walked but never attacked the guests. Smoke `amp` (group `amelia_phase`, fixture `amelia_alive`) reproduces it with two players
+on master and on 0.7.7: after the host's death on try 2, 0 attacks and 0 guest HP drops; on try 1, and on try 2 with the host
+alive, she attacks everyone.
+
+How the enemies see players (static RE, confirmed live): the perception tick 0x12AB4C0 (holder vtable 0x531B9F0 slot +0x18 ->
+0x12A85C0) searches the target bank with 0x12ADC50 in mode 0, which takes only bank entries whose `[entry +0x18] +0x30 -> +0x18`
+bit 0 is clear; the sighted ones are (re)marked in the AI's target list (0x12B2760: flags | 0x80), and the list update 0x12B17C0
+removes every entry that was not re-marked that tick (0x12B2490). A hit (0x12A9230) or an event ChangeTarget (0x12AD1B0) only
+marks for one tick: without perception such a record is gone again within 0.5 s (live: the limbo's hate record write).
+
+The bit is the dead mark: the host's own entry goes 0 -> 1 at its death. A member's copy re-created by the wipe's re-join came
+back with it still set (live: the guest's entry 0 on try 1, 1 on try 2 from its first frame), so no enemy perceived the guest: a
+boss fought the host while it lived and nobody once the host was down. `LivingTargetMarkTick` (party_b2.cpp, any role, every
+tick) clears the mark on every living player chr (HP > 0, not the spectating / limbo local player), logged once per chr
+(`living target: chr ... still had the dead mark`). `BB_PARTY_LIVING_TARGET=0` turns it off. Not the cause (A/B): the dead
+untarget, the limbo ChangeTarget, the boss room notice 2009[6], the intro's player chr +0x1E5 bit 0x10 (a remo marker only).

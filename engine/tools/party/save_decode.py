@@ -111,6 +111,11 @@ class Save:
     def revive_wait(self):
         return self.d[self.pool + POOL_BYTES]
 
+    def last_lamp(self):
+        """The last-lamp record (PlayerGameData +0x1528, the respawn lamp's ReturnPointParam id): the u32 9 bytes
+        before the flag store (found 2026-11-01: 2402950 in cathedral_day, 2102961 = the Dream in the default)."""
+        return struct.unpack_from("<I", self.d, self.pool - 9)[0] if self.pool and self.pool >= 9 else None
+
     def set_flags(self):
         out = []
         for k in range(1200):
@@ -243,6 +248,7 @@ def main():
     print(f"version {s.version:#x}, map {s.map_id >> 24}_{(s.map_id >> 16) & 0xff:02d}, play time "
           f"{s.play_ms / 3.6e6:.2f} h, flag store at {s.pool:#x}, revive-wait {s.revive_wait()}")
     print("character:", s.character())
+    print("last lamp:", s.last_lamp())
     w = s.world()
     if w is None:
         print("world state: layout unknown")

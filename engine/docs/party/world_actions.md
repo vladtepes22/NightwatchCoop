@@ -884,6 +884,17 @@ The dialog rule live: no subtitle request on the host while its dialog was up (s
 caption (and the party name tags) draw over the listener's own full-screen menus (e.g. its level-up
 screen: no "game menu open" signal yet; the game's own subtitle is dimmed under the menu).
 
+### 10.1.3 Ride bit flicker at a car's start (flaky078, 2026-11-01, smoke lfwc; possible game-side quirk)
+
+In the lift-walk smoke (phase lfwc, the 48 m Cathedral Ward lift) a rider's position log (every 0.5 s) showed, in two runs out of
+about 30 (30 FPS and 60 FPS, the first rider of a pair at the top end going down), ONE sample with the ride bit (chr `+0x1E5`
+bit `0x02`, flag word bit 25) clear, between on-car samples 1.4 s after the car's start (y 2.86 on the 3.0 platform, car 0.18 m
+down), and set again on the next sample. The rider ended on the car and on the floor, no fall recovery fired, no vertical speed
+over the lift's. Seen on one game's own log, not mirrored on the other game's copy. Cause not found (the car's first 0.2 s
+of acceleration against the chr's ground check is the suspect). The smoke accepts at most ONE isolated off sample with
+on-car samples on both sides and prints it as `ride bit flicker (1 sample)`; several off samples, or one at either end of the
+ride, or a rider ending off or below the car still fail. If the flicker rate rises, or ever shows two samples, look at the car start.
+
 ## 2026-10-25 (simonwipe): a guest's boss phase event no longer starts the host's scene
 
 Player report (Nightwatch 0.7.4 / 0.7.5): a party wipe at Ludwig (Hunter's Nightmare), then the Holy Blade scene

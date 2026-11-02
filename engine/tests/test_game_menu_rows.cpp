@@ -233,6 +233,25 @@ static void Reported() {
     P::Load();
     names = Names(mode);
     assert(names.size() == 1 && names[0] == "Party mode");
+
+    // 0.7.8 Party access: the host has the lobby and Open party switches (live), a guest one read-only line.
+    const P::Page& access = PageNamed("Party access");
+    context = {};
+    context.party_process = context.party_save = context.host = context.in_world = true;
+    ps::ResetForTest(true);
+    ps::SetRole(ps::Role::Host);
+    ps::SetState(ps::State::Hosting);
+    P::Load();
+    names = Names(access);
+    assert(names.size() == 2 && names[0] == "Nightwatch VPN lobby" && names[1] == "Open party (no password)");
+    context = {};
+    context.party_process = context.party_save = context.in_world = true;
+    ps::ResetForTest(true);
+    ps::SetRole(ps::Role::Guest);
+    ps::SetState(ps::State::Joined);
+    P::Load();
+    names = Names(access);
+    assert(names.size() == 1 && names[0] == "Host's access");
 }
 
 int main() {

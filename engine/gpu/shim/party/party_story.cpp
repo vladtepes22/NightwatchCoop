@@ -2474,6 +2474,16 @@ bool HostStoryFromGuest(int slot, const std::string& body, std::string* why) {
         }
         return false;
     }
+    if (s.event_id == 12405263u) {
+        // 0.7.8: Amygdala's grab is each player's own trip into the DLC (its own Eye of a Blood-drunk Hunter): a
+        // guest's grab is not played for the party (playtest 2026-11-01: the host went in with no Eye of its own).
+        Log("host: story_up %u (event %u) from slot %d refused: the grab into the DLC is per player (its own Eye)", s.id,
+            s.event_id, slot);
+        if (why) {
+            *why = "the grab into the DLC is per player";
+        }
+        return false;
+    }
     if (LocalPrologueHold()) {
         Log("host: story_up %u (event %u) from slot %d refused: the host is in its prologue (#19)", s.id, s.event_id,
             slot);

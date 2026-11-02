@@ -215,6 +215,13 @@ Before this work the party answered `word_search` / `random_join` with `{"ResKin
   dungeon unless its `title_req` names the host's ChannelId (its own slot's). Last net:
   `ChaliceEmptyWorldTick` - a guest in the session whose map stays unknown for 3 s while the
   host's roster map is in area 29 leaves the session (home load) with a notice.
+* **The guest's game must be able to make the channel request** (0.7.8, NW-5e27806): 0x1e65290 returns nothing unless
+  FrpgNetMan +8 is set and +0x9f6 / +0x9f8 / +0xa50 are clear (the FROM client is online). DeliverSummon asks 0x1e65290 for the
+  id first (`ChannelRequestById`): not possible -> the room is not handed over (3 tries, a notice), so the game never joins a
+  dungeon it cannot fetch; after the handler a missing +0xc0 is made for the entry. Two empty dungeon loads in a row
+  (`dsummon::kMaxEmptyLoads`) stop the guest's ringing (notice; Party > Rejoin resets). Cause of the live loops: the
+  "Unlock Game Region" patch (sell region 5, no ss.info URL: the game offline; from_api_schema.md 2.1), fixed by pointing
+  region 5's URL at the others'. Smoke `caa`.
 * **No gather into a dungeon**: GatherGuest skips the gather while the host's map or lamp is in
   area 29 (it warped the guest to the host's dungeon lamp = its own slot's dungeon).
 * **The automatic flow**: host and guests are in the Hunter's Dream (B1 travel follows the host
@@ -670,3 +677,14 @@ Not covered: the game's own sign/summon message (the sign path) still carries th
 * Smoke `chalice_curse`: chc (cut on, death + revive), chn (cut off), chw (party wipe in the dungeon); the test aid log_pos
   logs `test: hp H/M area A curse speffects: ...`. Verified: the curse stays through a death, a revive and a wipe respawn.
 
+
+## 11. The glyph pick list at the Ritual Altar (glyph078, CL-420d9f, 0.7.8)
+
+Switch `party_glyph_list` (System > My party: Chalice, launcher My Party tab, env BB_PARTY_GLYPH_LIST), off by default, the host's own UI setting.
+* **List** (`party_chalice_glyphs.h`, built by `HostGlyphList` every 3 s): the host's 7 slots go on the board with their FormData (`OwnDungeons`), the guests' dungeons come over the `chalice_form` event (new field `cur`:0 for slots other than the current one; every 60 s; in load mode 1 the flag store is the host's, so the slot's ritual helper object is read), the data file `patches/chalice_glyphs.json` adds entries that carry their own `form`. Order: yours, the guests', curated; label `<family>, depth N - owner` (family and depth from the chalice goods id inside the FormData).
+* **UI**: `ImeChoices` / `ImeClosed` hooks in the ImeDialog (runtime_services.c, bbgpu.h): the altar's glyph box (8 characters, menu item 262002 shown within 20 s) opens the overlay text box with the list (window.cpp, bbport_overlay.cpp TextPrompt). Up / Down / D-pad set the text to the glyph, Enter / Cross confirm, typing clears the pick.
+* **Entry**: the glyph goes through the game's own search; the answer comes from the party board (`word_search`), never FROM's server, so it works offline. The remaining prompts are the one-press autopilot (BB_PARTY_ALTAR_AUTO). Guests follow by the existing summon / quick join (cae path), same layout.
+* **Unknown glyph**: notice (SetAlert) "Glyph X is not in this party's list ..."; the board answers lost and the game shows its not-found.
+* **Limits**: a public glyph's layout is server data; without `form` in the data file an entry cannot be entered (the file ships empty). A title-joined guest exposes only dungeons readable in its current slot (flaky as cae).
+* **Smoke** `chalice_glyph`: cgt (host_glyph typed), cgp (host_pick, the list UI keys), cgu (unknown glyph, nobody enters). Aids: director `host_glyph=CODE`, `host_pick=N`.
+* **Not done / not proven**: layer travel and dungeon shops inside a glyph dungeon, leave / rejoin, death redirect and boss HP catch-up were not re-tested for glyph-entered dungeons (the entered dungeon is the same host dungeon, so the existing chalamp / clg / cis phases apply).

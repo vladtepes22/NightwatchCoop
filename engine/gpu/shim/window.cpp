@@ -243,13 +243,27 @@ u32 BackgroundFrameLimit() {
     return limit;
 }
 
-void WindowSDL::BeginTextInput(const std::string& initial, const std::string& prompt) {
+void WindowSDL::BeginTextInput(const std::string& initial, const std::string& prompt,
+                               const std::vector<std::pair<std::string, std::string>>& choices) {
+    std::string keys;
+    {
+        std::scoped_lock lock{text_mutex};
+        text = initial;
+        text_selected = choices.empty() && !initial.empty();
+        text_prompt = prompt;
+        text_state = 0;
+        text_choices = choices;
+        text_sel = choices.empty() ? -1 : 0;
+        if (text_sel == 0) text = text_choices[0].first;  // the first choice is the answer until the player moves or types
+        text_requested = true;
+        keys.swap(text_test_keys);
+    }
+    if (!keys.empty()) TestType(keys);
+}
+
+void WindowSDL::QueueTestKeys(const std::string& keys) {
     std::scoped_lock lock{text_mutex};
-    text = initial;
-    text_selected = !initial.empty();
-    text_prompt = prompt;
-    text_state = 0;
-    text_requested = true;
+    text_test_keys += keys;
 }
 
 int WindowSDL::PollTextInput(std::string& out) {
@@ -267,6 +281,15 @@ void WindowSDL::UpdateTextTitle() {
                                           : base_title;
     SDL_SetWindowTitle(window, title.c_str());
     BbOverlay::SetTextPrompt(text_active, text_prompt, shown);
+    UpdateChoices();
+}
+
+void WindowSDL::UpdateChoices() {
+    std::vector<std::string> lines;
+    if (text_active) {
+        for (const auto& c : text_choices) lines.push_back(c.first + "   " + c.second);
+    }
+    BbOverlay::SetTextChoices(lines, text_sel);
 }
 
 bool WindowSDL::IsTextInputActive() {
@@ -282,10 +305,10 @@ void WindowSDL::TestType(const std::string& keys) {
     }();
     for (unsigned char c:keys) {
         SDL_Event event{};
-        if (c=='\n' || c=='\b' || c==27) {
+        if (c=='\n' || c=='\b' || c==27 || c==1 || c==2) {
             event.type=SDL_EVENT_KEY_DOWN;
             event.key.windowID=SDL_GetWindowID(window);
-            event.key.key=c=='\n' ? SDLK_RETURN : c=='\b' ? SDLK_BACKSPACE : SDLK_ESCAPE;
+            event.key.key=c=='\n' ? SDLK_RETURN : c=='\b' ? SDLK_BACKSPACE : c==1 ? SDLK_UP : c==2 ? SDLK_DOWN : SDLK_ESCAPE;
             event.key.down=true;
         } else if(c>=32 && c<127) {
             event.type=SDL_EVENT_TEXT_INPUT;
@@ -319,9 +342,18 @@ bool WindowSDL::PollEvents() {
             std::scoped_lock lock{text_mutex};
             const bool ctrl = event.type == SDL_EVENT_KEY_DOWN && (event.key.mod & SDL_KMOD_CTRL);
             if (event.type == SDL_EVENT_TEXT_INPUT) {
-                if (text_selected) text.clear();
+                if (text_selected || text_sel >= 0) text.clear();  // the list's answer gives way to typing
                 text_selected = false;
+                text_sel = -1;
                 text += event.text.text;
+            } else if (event.type == SDL_EVENT_KEY_DOWN && !text_choices.empty() && event.key.key == SDLK_UP) {
+                text_sel = text_sel <= 0 ? int(text_choices.size()) - 1 : text_sel - 1;
+                text = text_choices[size_t(text_sel)].first;
+                text_selected = false;
+            } else if (event.type == SDL_EVENT_KEY_DOWN && !text_choices.empty() && event.key.key == SDLK_DOWN) {
+                text_sel = text_sel + 1 >= int(text_choices.size()) ? 0 : text_sel + 1;
+                text = text_choices[size_t(text_sel)].first;
+                text_selected = false;
             } else if (ctrl && event.key.key == SDLK_V) {
                 if (char* clip = SDL_GetClipboardText()) {
                     std::string pasted;
@@ -329,8 +361,9 @@ bool WindowSDL::PollEvents() {
                         if (*c != '\r' && *c != '\n' && *c != '\t') pasted += *c;
                     }
                     SDL_free(clip);
-                    if (text_selected) text.clear();
+                    if (text_selected || text_sel >= 0) text.clear();
                     text_selected = false;
+                    text_sel = -1;
                     text += pasted;
                 }
             } else if (ctrl && event.key.key == SDLK_A) {
@@ -338,7 +371,9 @@ bool WindowSDL::PollEvents() {
             } else if (event.key.key == SDLK_BACKSPACE && text_selected) {
                 text.clear();
                 text_selected = false;
+                text_sel = -1;
             } else if (event.key.key == SDLK_BACKSPACE && !text.empty()) {
+                text_sel = -1;  // edit the picked glyph by hand
                 size_t cut = text.size() - 1;
                 while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
                 text.erase(cut);
@@ -347,6 +382,18 @@ bool WindowSDL::PollEvents() {
                 text_active = false;
                 SDL_StopTextInput(window);
             }
+            UpdateTextTitle();
+            continue;
+        }
+        // A pick list (Chalice glyphs): the d-pad moves the selection (a controller has no arrow keys here).
+        if (text_active && !text_choices.empty() && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&
+            (event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP || event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN)) {
+            std::scoped_lock lock{text_mutex};
+            const int n = int(text_choices.size());
+            if (event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP) text_sel = text_sel <= 0 ? n - 1 : text_sel - 1;
+            else text_sel = text_sel + 1 >= n ? 0 : text_sel + 1;
+            text = text_choices[size_t(text_sel)].first;
+            text_selected = false;
             UpdateTextTitle();
             continue;
         }

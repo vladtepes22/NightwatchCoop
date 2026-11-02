@@ -53,6 +53,59 @@ constexpr std::uint32_t kItemLedgerSeeded = kItemLedgerBase + kItemLedgerSize - 
 /// Set once a save's shop-gate flags 5500-5521 were checked against the weapons it owns
 /// (RepairShopGatesTick); the second to last bit of the ledger range, never a lot's index.
 constexpr std::uint32_t kShopGatesRepaired = kItemLedgerBase + kItemLedgerSize - 2;
+/// Set once a save's badge lineup flags 12101000-12101009 were checked against the badges it holds
+/// (BadgeGatesToRepair, 0.7.8); the third to last bit of the ledger range, never a lot's index.
+constexpr std::uint32_t kBadgeGatesRepaired = kItemLedgerBase + kItemLedgerSize - 3;
+/// Set once a save was checked for an Eye of a Blood-drunk Hunter held before its own DLC gate
+/// (EyeToRepair, 0.7.8); the fourth to last bit of the ledger range, never a lot's index.
+constexpr std::uint32_t kEyeGateRepaired = kItemLedgerBase + kItemLedgerSize - 4;
+
+// ---- the Bath Messenger's badge rows and the DLC Eye (0.7.8, playtest 2026-11-01) ----
+/// m21 event 12101000 slot n (n = 0..9) waits until the player holds hunter badge goods 4110 + n
+/// (Saw, Crow, Powder Keg, Old Hunter, Sword, Radiant, Wheel, Cainhurst, Spark, Cosmic Eye) and ends:
+/// its completion flag 12101000 + n is the shop lineup row's gate. Vanilla keeps "flag ON" equal to
+/// "badge held" (badges are never used up).
+constexpr std::int32_t kBadgeGateFirst = 12101000;
+constexpr std::int32_t kBadgeGateCount = 10;
+constexpr std::int32_t kBadgeGoodsFirst = 4110;
+/// The Eye of a Blood-drunk Hunter (lot 10040, pickup flag 50000100), the DLC entry: m21 event
+/// 12101028 gives it only to the own chr (type 0) with night 9801 and the DLC 6899 set; m21 event
+/// 12101100 starts its shop sale (12101101) on the same two flags; m24 event 12405263 (Amygdala's
+/// grab) needs it held. 13401000: the player entered the DLC.
+constexpr std::int32_t kEyeGoods = 4311;
+constexpr std::int32_t kEyeLot = 10040;
+constexpr std::int32_t kEyeLotFlag = 50000100;
+constexpr std::uint32_t kFlagNight = 9801;
+constexpr std::uint32_t kFlagDlcOwned = 6899;
+constexpr std::uint32_t kFlagDlcEntered = 13401000;
+constexpr std::uint32_t kFlagEyeSaleEvent = 12101100;
+constexpr std::uint32_t kFlagEyeSale = 12101101;
+/// The own-world flags a lot's or goods' vanilla giver needs (all set = the gate holds); empty: no
+/// gate. Lot 10040 / goods 4311: {9801, 6899}.
+std::vector<std::uint32_t> LotOwnGateFlags(std::int32_t lot);
+std::vector<std::uint32_t> GoodsOwnGateFlags(std::int32_t goods);
+/// 1 when every flag reads set, 0 when one reads clear, -1 when one is unreadable (`read` false).
+int OwnGateState(const std::vector<std::uint32_t>& flags,
+                 const std::function<bool(std::uint32_t, bool*)>& read);
+struct ShopGateRepair;
+/// Badge row repair: `held(goods)` 1 = held (inventory, either key section or storage), 0 = held
+/// nowhere, -1 unknown. Clears gate 12101000 + n when it is set and badge 4110 + n is held nowhere.
+ShopGateRepair BadgeGatesToRepair(const std::function<bool(std::uint32_t)>& is_set,
+                                  const std::function<int(std::int32_t)>& held);
+/// Eye repair: what to undo in a save that holds the Eye (or its sale flags) before its own DLC gate.
+struct EyeRepair {
+    bool done = false;       ///< the save carries kEyeGateRepaired
+    bool complete = true;    ///< decided (false: a value was unreadable; ask again, do not mark)
+    bool remove_eye = false; ///< take goods 4311 away
+    std::vector<std::uint32_t> clear;  ///< flags to clear (50000100, 12101100, 12101101)
+    const char* why = "";    ///< the reason kept / repaired (log)
+};
+/// `ng` the own NG cycle (-1 unknown), `eye_held` 1 / 0 / -1. Repairs only an NG0 save that has not
+/// reached night (9801 clear) and never entered the DLC (13401000 clear).
+EyeRepair EyeToRepair(const std::function<bool(std::uint32_t)>& is_set, int ng, int eye_held);
+/// Events whose network-synced state (packet 0x31) from another player must not run this game's copy:
+/// 12101000 (badge rows, every slot) and 12405263 (Amygdala's grab into the DLC, needs the own Eye).
+bool PerPlayerItemGateEvent(std::uint32_t event_id);
 
 enum class ItemSource : std::uint8_t {
     Unknown = 0,

@@ -106,7 +106,9 @@ public:
     /// The host's own game is in dungeon `id` the board does not know (entered from an earlier
     /// session's ritual: the board lives in the host's process): add it with its FormData, so
     /// summons into it work. False when known already or the FormData is unusable.
-    bool adopt(std::uint64_t id, const std::string& b64, const std::string& owner);
+    bool adopt(std::uint64_t id, const std::string& b64, const std::string& owner, const std::string& glyph = {});
+    /// A glyph word the board answers a word_search with ("" -> none): the channel that has it.
+    bool find_glyph(const std::string& glyph, Channel* out) const;
     /// A member's game holds dungeon `id` in its current slot (its own ritual, this session or an
     /// earlier one): it counts as that member's latest ritual (latest_ritual).
     void note_made(const std::string& member, std::uint64_t id);

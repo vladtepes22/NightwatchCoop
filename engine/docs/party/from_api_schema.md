@@ -113,6 +113,12 @@ SIGNED_OUT, so every party member went offline on its first world load; the part
   0 `https://ss4.scej-network.jp:20443/bb-jp/ss.info`, 1 `.../bb-us/ss.info`,
   2 `.../bb-eu/ss.info`, 3 `.../bb-asia/ss.info`, 4 = bb-eu, 5 = empty.
   Method GET, no body, timeout float 0x5590698.
+  **Region 5 is what the community patch "Unlock Game Region" (0x023b9190, XML address) makes the game use**: the URL is
+  empty, the GET goes out with no address, the FROM client never logs in and FrpgNetMan +8 stays 0 (offline) for the whole
+  session: every board request (summon channel request by id, ChannelUpload, ritual search) fails (NW-5e27806: a summoned
+  guest loaded the host's Chalice Dungeon empty, 10 loops). `online_watch.cpp region_fix_main` points table entry 5 at
+  entry 2's string (bb-eu) so the party's ss.info answer is asked for whatever the region (log `region: the ss.info URL
+  table's entry 5 ...`). Smoke phase `caa` runs with the patch on (CAA_PATCHES overrides).
 * Triggered by the title task 0x1c492c0 (vtable 0x5348ed0), 0x1789b60, 0x195de30, the reload
   timer (mgr+0xd0, `ReloadServerStatusInfoInterval`) and ResKind 0x100108.
 * Completion: 0x1e7f240 → (api 0x26) → 0x1e89850: requires request status OK; reads whole body;

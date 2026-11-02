@@ -101,6 +101,13 @@ int main() {
         CHECK(PickAttention(dead_cur, last4, 2, 30.0f, 0, 5.0, 6.0, 8.0) == -1);
     }
 
+    // a standing boss with a player in reach is reported; moving, dead, nobody near: not
+    CHECK(BossLooksStuck(15.0, 15.0, true, 12.0, 30.0));
+    CHECK(!BossLooksStuck(14.9, 15.0, true, 12.0, 30.0));
+    CHECK(!BossLooksStuck(40.0, 15.0, false, 12.0, 30.0));
+    CHECK(!BossLooksStuck(40.0, 15.0, true, 45.0, 30.0));
+    CHECK(!BossLooksStuck(40.0, 15.0, true, -1.0, 30.0));
+
     if (g_fail) {
         std::printf("%d failure(s)\n", g_fail);
         return 1;

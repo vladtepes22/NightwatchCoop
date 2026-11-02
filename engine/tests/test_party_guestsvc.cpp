@@ -84,6 +84,12 @@ int main() {
     assert(GehrmanLastEvent(true, false, false));
     assert(GehrmanLastEvent(true, true, true));
     assert(kGehrmanTalk == 210305);
+    // Memory Altar t210699: in the built-in list, usable by a guest only with the Rune Workshop Tool unlocked / held.
+    assert(GuestServiceTalk(kMemoryAltarTalk) && kMemoryAltarTalk == 210699);
+    assert(!MemoryAltarUsable(false, 0));
+    assert(MemoryAltarUsable(true, 0));
+    assert(MemoryAltarUsable(false, 1));
+    assert(kAltarUnlockFlag == 52200360u && kRuneWorkshopTool == 4104u);
     assert(GuestServiceTalkAllowed(210305, "all"));
     assert(GuestServiceTalkAllowed(210305, "123,210305"));
     assert(!GuestServiceTalkAllowed(210305, "123,2103050"));

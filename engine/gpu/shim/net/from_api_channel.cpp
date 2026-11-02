@@ -436,13 +436,30 @@ bool ChannelBoard::set_form_data(std::uint64_t id, const std::string& b64) {
     return true;
 }
 
-bool ChannelBoard::adopt(std::uint64_t id, const std::string& b64, const std::string& owner) {
+bool ChannelBoard::find_glyph(const std::string& glyph, Channel* out) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (const Channel& c : channels_) {
+        if (!glyph.empty() && c.glyph == glyph) {
+            if (out) *out = c;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ChannelBoard::adopt(std::uint64_t id, const std::string& b64, const std::string& owner, const std::string& glyph) {
     if (!id || !form_data_ok(b64)) return false;
     std::lock_guard<std::mutex> lk(mu_);
     if (find_id(id)) return false;
+    // A named glyph (a curated public one) never takes another dungeon's word.
+    if (!glyph.empty()) {
+        for (const Channel& c : channels_) {
+            if (c.glyph == glyph) return false;
+        }
+    }
     Channel n;
     n.id = id;
-    n.glyph = GlyphOf(b64);
+    n.glyph = glyph.empty() ? GlyphOf(b64) : glyph;
     n.owner = owner;
     n.form_data = b64;
     n.status = 1;

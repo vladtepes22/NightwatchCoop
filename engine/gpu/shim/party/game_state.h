@@ -99,6 +99,9 @@ int GoodsCount(std::uint32_t goods_id);
 StartFlags ReadStartFlags();
 /// Awards item lot `lot` (with the item popup); false when the code differs or there is no player.
 bool AwardItemLot(std::uint32_t lot);
+/// The live NG cycle (GameDataMan +0x68: 0 = the first playthrough), -1 unknown. In a summoned guest's game it
+/// is the host's (B2 ngguard); read it in the own world.
+int NgCycleLive();
 /// Gives `count` of goods `id` directly; false when the code differs or there is no player.
 bool GiveGoods(std::uint32_t goods_id, int count);
 

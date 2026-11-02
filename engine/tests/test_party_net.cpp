@@ -314,6 +314,20 @@ static void test_netsim_block() {
     const std::uint32_t v = 1;
     CHECK(q.submit(at(10), 1, 0x0100007f, htons(15822), &v, 4) == 0);
     CHECK(q.submit(at(10), 1, 0x0100007f, htons(9307), &v, 4) == 1);
+    // 0.7.8: a repeating per-pair silence (4.5 s every 60 s from 10 s) and the path MTU
+    CHECK(parse("lat=0,block=15822,block_at=10000,block_for=4500,block_every=60000,mtu=1300", &c, &err));
+    CHECK(c.block_every_ms == 60000 && c.mtu == 1300);
+    CHECK(describe(c).find("block_every=60000") != std::string::npos && describe(c).find("mtu=1300") != std::string::npos);
+    CHECK(!blocked_at(c, t0, at(9000), htons(15822)) && blocked_at(c, t0, at(12000), htons(15822)));
+    CHECK(!blocked_at(c, t0, at(15000), htons(15822)) && blocked_at(c, t0, at(70000), htons(15822)));
+    CHECK(!blocked_at(c, t0, at(74600), htons(15822)) && blocked_at(c, t0, at(130100), htons(15822)));
+    CHECK(!blocked_at(c, t0, at(70000), htons(9307)));
+    Queue qm(c);
+    qm.set_epoch(t0);
+    std::vector<std::uint8_t> big(1301, 1), fits(1300, 1);
+    CHECK(qm.submit(at(1), 1, 0x0100007f, htons(9307), big.data(), big.size()) == 0);
+    CHECK(qm.submit(at(1), 1, 0x0100007f, htons(9307), fits.data(), fits.size()) == 1);
+    CHECK(qm.stats().mtu_dropped == 1 && qm.stats().dropped == 1);
     std::printf("netsim block: ok\n");
 }
 
@@ -1028,6 +1042,60 @@ static void test_vpnlobby() {
     std::printf("party vpn lobby: ok\n");
 }
 
+// 0.7.8 (CL-79fe9c): the Nightwatch OpenVPN tunnel is taken by party_vpn=auto (synthetic adapters only).
+template <typename Make>
+static void test_vpn_nightwatch(Make adapter) {
+    using bbnet::LanAdapter;
+    using bbnet::VpnKind;
+    const LanAdapter lan = adapter("Ethernet / Realtek PCIe 2.5GbE Family Controller", "192.168.1.20", true, true, true);
+    const LanAdapter tap = adapter("Ethernet 3 / TAP-Windows Adapter V9", "10.8.0.17", false, false, true);
+    const LanAdapter dco = adapter("OpenVPN Data Channel Offload", "10.8.2.40", false, false, false);
+    const LanAdapter wintun = adapter("OpenVPN Wintun / Wintun Userspace Tunnel", "10.8.3.254", false, false, false);
+    // the same TAP driver, a commercial OpenVPN service on the default 10.8.0.0/24 that routes all traffic
+    const LanAdapter commercial = adapter("Ethernet 4 / TAP-Windows Adapter V9", "10.8.0.6", false, true, true);
+    const LanAdapter tap_other = adapter("Ethernet 5 / TAP-Windows Adapter V9", "10.9.0.6", false, false, true);
+    const LanAdapter tap_server = adapter("Ethernet 3 / TAP-Windows Adapter V9", "10.8.0.1", false, false, true);
+    const LanAdapter home_10_8 = adapter("Ethernet / Intel(R) Ethernet I219-V", "10.8.0.50", true, true, true);
+    const LanAdapter radmin = adapter("Radmin VPN / Famatech Radmin VPN Ethernet Adapter", "26.41.7.9", false, false, true);
+    CHECK(bbnet::adapter_is_virtual("OpenVPN Data Channel Offload"));
+    CHECK(bbnet::vpn_kind(tap) == VpnKind::Nightwatch && bbnet::vpn_kind(dco) == VpnKind::Nightwatch);
+    CHECK(bbnet::vpn_kind(wintun) == VpnKind::Nightwatch);
+    CHECK(bbnet::vpn_kind(commercial) == VpnKind::Other);   // carries the Internet: never taken unasked
+    CHECK(bbnet::vpn_kind(tap_other) == VpnKind::Other);    // outside the tunnel range
+    CHECK(bbnet::vpn_kind(tap_server) == VpnKind::Other);   // 10.8.0.1 is the server, not a player
+    CHECK(bbnet::vpn_kind(home_10_8) == VpnKind::None);     // a real LAN that happens to use 10.8.x
+    CHECK(bbnet::vpn_label(dco) == "Nightwatch VPN");
+    // before 0.7.8 the LAN won (score 114 vs 2: a virtual adapter); now auto takes the tunnel
+    CHECK(bbnet::lan_adapter_score(lan) == 114 && bbnet::lan_adapter_score(tap) < 100);
+    CHECK(bbnet::select_vpn_adapter({lan, tap}, "auto") == 1);
+    CHECK(bbnet::select_vpn_adapter({lan, dco}, "") == 1);
+    CHECK(bbnet::vpn_adapter_score(tap, "auto") > bbnet::lan_adapter_score(lan));
+    CHECK(bbnet::select_vpn_adapter({lan, commercial}, "auto") == -1);
+    CHECK(bbnet::select_vpn_adapter({lan, tap_other}, "auto") == -1);
+    CHECK(bbnet::select_vpn_adapter({home_10_8}, "auto") == -1);
+    CHECK(bbnet::select_vpn_adapter({lan, radmin, tap}, "auto") == 2);  // the party's own VPN first
+    CHECK(bbnet::select_vpn_adapter({lan, tap}, "off") == -1);
+    CHECK(bbnet::select_vpn_adapter({lan, dco}, "OpenVPN") == 1);  // the 0.7.7 workaround still works
+    // BB_PARTY_NW_AUTO=0: the 0.7.7 behaviour (the LAN wins; a name still picks the adapter)
+    set_env("BB_PARTY_NW_AUTO", "0");
+    CHECK(!bbnet::nightwatch_auto_enabled());
+    CHECK(bbnet::select_vpn_adapter({lan, tap}, "auto") == -1);
+    CHECK(bbnet::select_vpn_adapter({lan, dco}, "OpenVPN") == 1);
+    set_env("BB_PARTY_NW_AUTO", "1");
+    CHECK(bbnet::nightwatch_auto_enabled());
+
+    // The punch's candidate rule: a tunnel peer is reached at tunnel addresses only.
+    using bbnet::party::ip_parse;
+    using bbnet::udp::tunnel_candidate_ok;
+    CHECK(!tunnel_candidate_ok(ip_parse("10.8.0.17"), ip_parse("192.168.1.30")));  // its home LAN
+    CHECK(!tunnel_candidate_ok(ip_parse("10.8.0.17"), ip_parse("203.0.113.7")));  // its WAN
+    CHECK(!tunnel_candidate_ok(ip_parse("10.8.0.17"), ip_parse("10.8.0.1")));      // the server
+    CHECK(tunnel_candidate_ok(ip_parse("10.8.0.17"), ip_parse("10.8.1.9")));
+    CHECK(tunnel_candidate_ok(ip_parse("203.0.113.7"), ip_parse("192.168.1.30")));  // not a tunnel peer: unchanged
+    CHECK(tunnel_candidate_ok(ip_parse("26.41.7.9"), ip_parse("192.168.1.30")));     // Radmin: unchanged
+    std::printf("vpn nightwatch: ok\n");
+}
+
 static void test_vpn_selection() {
     using bbnet::LanAdapter;
     using bbnet::VpnKind;
@@ -1079,6 +1147,7 @@ static void test_vpn_selection() {
     // (Not on the real adapters of this PC: the scores only.)
     CHECK(bbnet::vpn_adapter_score(radmin, "auto") > bbnet::lan_adapter_score(lan));
     CHECK(bbnet::vpn_adapter_score(radmin, "off") < 0);
+    test_vpn_nightwatch(adapter);
     std::printf("vpn selection: ok\n");
 }
 
@@ -1259,6 +1328,15 @@ static void test_nr_outage() {
     }
     CHECK(sum == big.size());
     CHECK(!split_records(bad, sizeof bad, kGameMtu, &parts));
+    // 0.7.8: what an unsplittable datagram is (the log line); one big record is never cut
+    std::vector<std::uint8_t> one{0x01, 0x05, 0x9c};  // a channel-1 record of 1436 bytes = 1439 in all
+    one.insert(one.end(), 1436, 0x00);
+    one[3 + 4] = 0x33;
+    CHECK(!split_records(one.data(), one.size(), kGameMtu, &parts));
+    CHECK(oversize_shape(one.data(), one.size(), kGameMtu) == "1 record(s), one of 1439 bytes (channel 1, type 0x33)");
+    std::vector<std::uint8_t> junk(1455, 0xee);
+    CHECK(oversize_shape(junk.data(), junk.size(), kGameMtu).rfind("not session records (first bytes ee ee ee ee)", 0) == 0);
+    CHECK(oversize_shape(big.data(), big.size(), kGameMtu) == "50 record(s), each fits");
 
     // Resume replay: the peer heard until t=10 s, silent to t=30 s.
     PeerReplay rp;

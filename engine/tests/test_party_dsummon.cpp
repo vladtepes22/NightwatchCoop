@@ -360,6 +360,32 @@ int main() {
         Guest rg; OnAsked(rg, 0); OnRoom(rg, 1, true, Busy::Chalice);
         CHECK(rg.phase == Phase::Asked && rg.reask_at > 1);
         CHECK(Step(rg, 1 + kReaskWait + 0.1, false, false) == Action::Reask);
+        // Empty loads: two in a row stop the summons; a known dungeon map or a host out of its dungeon resets.
+        CHECK(!StopAfterEmptyLoads(0) && !StopAfterEmptyLoads(1) && StopAfterEmptyLoads(2) && StopAfterEmptyLoads(10));
+        CHECK(EmptyLoadsAfter(2, false, true) == 2 && EmptyLoadsAfter(2, true, true) == 0 && EmptyLoadsAfter(2, false, false) == 0);
+        // Why no channel request: FrpgNetMan +8 clear = offline (the region patch case); a busy flag = wait; else fine.
+        CHECK(WhyNoChannel(0, 0, 0, 0) == NoChannel::Offline && WhyNoChannel(0, 1, 0, 0) == NoChannel::Offline);
+        CHECK(WhyNoChannel(1, 1, 0, 0) == NoChannel::NotReady && WhyNoChannel(1, 0, 1, 0) == NoChannel::NotReady &&
+              WhyNoChannel(1, 0, 0, 1) == NoChannel::NotReady && WhyNoChannel(1, 0, 0, 0) == NoChannel::None);
+        // The offline notice: only when offline, and not on the first failed look.
+        CHECK(!OfflineNoticeDue(NoChannel::Offline, 0) && !OfflineNoticeDue(NoChannel::Offline, 1) &&
+              OfflineNoticeDue(NoChannel::Offline, 2) && !OfflineNoticeDue(NoChannel::NotReady, 9) &&
+              !OfflineNoticeDue(NoChannel::None, 9));
+        // The notices: a title line + a body, short enough for the alert box, naming the cause and the way out.
+        for (const StuckWhy w : {StuckWhy::Empty, StuckWhy::Offline}) {
+            const std::string g = GuestNotice(w), h = HostNotice(w, "Name");
+            const std::size_t gn = g.find('\n'), hn = h.find('\n');
+            CHECK(gn != std::string::npos && gn <= 40 && g.find('\n', gn + 1) == std::string::npos && g.size() - gn <= 340);
+            CHECK(hn != std::string::npos && hn <= 40 && h.find('\n', hn + 1) == std::string::npos && h.size() - hn <= 360);
+            CHECK(g.find("Unlock Game Region") != std::string::npos && g.find("region") != std::string::npos);
+            CHECK(h.find("Name") != std::string::npos && h.find("Unlock Game Region") != std::string::npos);
+            for (const unsigned char c : g + h) CHECK(c < 0x80);
+            StuckWhy back = StuckWhy::Empty;
+            CHECK(DecodeStuck(EncodeStuck(w), &back) && back == w && KindOf(EncodeStuck(w)) == Kind::Stuck);
+        }
+        CHECK(GuestNotice(StuckWhy::Empty).find("Rejoin") != std::string::npos);
+        CHECK(GuestNotice(StuckWhy::Offline).find("offline") != std::string::npos);
+        CHECK(HostNotice(StuckWhy::Empty, "").rfind("Chalice summon stopped for a guest\nA guest", 0) == 0);
         // Title join: only a joiner whose own slot holds the host's dungeon comes in from its title.
         CHECK(!TitleJoinChaliceElsewhere(0x15000000, kNoChannel, 0));
         CHECK(TitleJoinChaliceElsewhere(0x1d000000, 1110692594440089ull, 0));

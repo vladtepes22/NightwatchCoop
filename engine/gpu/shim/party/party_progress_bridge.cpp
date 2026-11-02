@@ -337,6 +337,7 @@ struct CensusCheck {
     u64 digests = 0, matched = 0, differed = 0, confirmed = 0, transient = 0, other_map = 0, no_world = 0, repaired = 0;
     int test_after = -1;
     bool test_fired = false;
+    desync::CensusRepairLedger ledger;  // entities already repaired on this map (killed once, never again)
     u32 fake_dead = 0;  // BB_PARTY_CENSUS_TEST: a living enemy this game reports as dead
     bool last_matched = false;  // the last compared digest matched (a match after a difference is logged)
 };
@@ -455,7 +456,11 @@ void GuestCensus(party::PartyLink* link) {
                 // game's own enemy sync; the confirmed difference puts it to death here (HP 0: the
                 // game's own death, drop roll and kill echoes follow as for a kill).
                 std::map<u32, int> want;
-                for (const auto& [id, n] : desync::CensusRepairTargets(hl, list)) want[id] = n;
+                std::vector<u32> stuck;
+                for (const auto& [id, n] : c.ledger.Filter(map, desync::CensusRepairTargets(hl, list), &stuck)) want[id] = n;
+                for (u32 id : stuck)
+                    BLog("enemy census: repair: entity %u was put to death here before and counts alive again: left alone "
+                         "(killed once per map)", id);
                 int done = 0;
                 std::string ids;
                 for (const EnemyKillCandidate& e : balance::LoadedEnemies()) {
@@ -465,6 +470,7 @@ void GuestCensus(party::PartyLink* link) {
                         !(KR().rec.PaidHere(e.entity) ? balance::SetEnemyDeadQuietly(e.chr) : balance::SetEnemyHpZero(e.chr)))
                         continue;
                     --it->second;
+                    c.ledger.Done(e.entity);
                     ++done;
                     ids += (ids.empty() ? "" : " ") + std::to_string(e.entity);
                 }
@@ -482,7 +488,10 @@ void GuestCensus(party::PartyLink* link) {
     }
 }
 
-void GuestDesync(party::PartyLink* link, bool in_world) {
+void GuestDesync(party::PartyLink* link, bool in_world, bool world_steady) {
+    // Every world load (lamp rest, death, quit-out, travel) respawns the enemies on both games: a repair from
+    // before the load is spent, a new difference after it is a new one.
+    if (!world_steady) CC().ledger.Reset();
     KillRecordTick(link, false, in_world, {});
     std::string body;
     if (link && !link->is_host() && desync::GuestPopResync(&body)) {
@@ -656,7 +665,7 @@ void DirectorTick(const GameSnapshot& s, party::PartyLink* link) {
         break;
     case Role::Guest:
         GuestSide(b, s);
-        GuestDesync(link, b.guest_in_world);
+        GuestDesync(link, b.guest_in_world, s.world_up && !s.loading);
         break;
     default:
         break;

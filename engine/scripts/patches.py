@@ -727,6 +727,65 @@ def resolution_footprint(xml, app_version, segments):
     return {offset+i for offset,data in compile_patches(xml,[RESOLUTION_TEMPLATE],app_version,segments)
             for i in range(len(data))}
 
+def metadata_writes(meta):
+    """A patch's (offset, bytes) writes, without the eboot check; [] when a line cannot be read."""
+    try:
+        return [(int(line.get('Address') or '',0)-EBOOT_BASE,encode(line)) for line in meta.iter('Line')]
+    except ValueError:
+        return []
+
+
+def writes_overlap(writes_a, writes_b):
+    """True if any write of writes_a touches a byte of writes_b."""
+    ranges=[(offset,offset+len(data)) for offset,data in writes_a]
+    return any(start<offset+len(data) and offset<end
+               for offset,data in writes_b for start,end in ranges)
+
+
+def party_overlap_report(xml, names, app_version='01.09'):
+    """[(patch name, [party patch names it overlaps])] for the enabled patches `names` that write bytes of a "Party: " patch
+    in xml (the launcher warns about them; the party patches win at build time, see party_wins)."""
+    metas={m.get('Name'):m for m in ET.parse(xml).getroot().iter('Metadata') if m.get('AppVer')==app_version}
+    party={n:metadata_writes(m) for n,m in metas.items() if n.startswith('Party: ')}
+    out=[]
+    for n in names:
+        if n.startswith('Party: ') or n not in metas:
+            continue
+        w=metadata_writes(metas[n])
+        hit=[pn for pn,pw in party.items() if writes_overlap(pw,w)]
+        if hit: out.append((n,hit))
+    return out
+
+
+def subtract_ranges(write, cut):
+    """The pieces of write (offset, data) outside the (start, end) ranges in cut."""
+    offset,data=write
+    pieces=[(offset,offset+len(data))]
+    for start,end in cut:
+        nxt=[]
+        for a,b in pieces:
+            if end<=a or b<=start:
+                nxt.append((a,b))
+                continue
+            if a<start: nxt.append((a,start))
+            if end<b: nxt.append((end,b))
+        pieces=nxt
+    return [(a,data[a-offset:b-offset]) for a,b in pieces if b>a]
+
+
+def party_wins(writes, party_writes):
+    """writes without the bytes the party patches write, followed by the party patches' own writes: a community patch
+    (60 FPS++ in the Lantern engine's list writes the same timers as "Party: Fast rejoin") never leaves a party site
+    with bytes the party's check does not know (it then skips the site: "MISMATCH") nor wins over it."""
+    cut=[(o,o+len(d)) for o,d in party_writes]
+    kept=[]
+    for w in writes:
+        if w in party_writes:
+            continue
+        kept.extend(subtract_ranges(w,cut))
+    return kept+list(party_writes)
+
+
 
 def skip_for_online(key):
     print(f'Patches: skipped {key} while online is on: it moves the game to a region with no Bloodborne '
@@ -860,6 +919,15 @@ def main():
         writes+=compile_external(external_selection(external_patches(a.patches_dir,a.app_version,a.xml),
                                                     a.patches_config),segments,resolution,applied)
         party_items += [(meta.get('Name')+' (external)',meta,ours) for _,meta,ours in applied]
+    party_w=[w for n,_,ws in party_items if n.startswith('Party: ') for w in ws]
+    if party_w:
+        party_names=[n for n,_,_ in party_items if n.startswith('Party: ')]
+        for n,_,ws in party_items:
+            if not n.startswith('Party: ') and writes_overlap(party_w,ws):
+                print(f'Patches: WARNING: "{n}" writes bytes of the party patches ({", ".join(party_names)}): the '
+                      f'party patches win on those bytes (a copy of "60 FPS++" from another list did not apply "Party: Fast rejoin")',
+                      file=sys.stderr)
+        writes=party_wins(writes,party_w)
     # Whether a patch enlarges the game's heaps (the built-in one, or a resolution patch above
     # 1080p from a patches/ file): run_windows.py then gives the game the larger memory pool.
     heap_bytes={offset+i for offset,data in compile_patches(a.xml,[HEAP_PATCH],a.app_version,segments)

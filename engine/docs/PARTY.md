@@ -290,6 +290,17 @@ is installed) as "maybe hosting". Hosting without a password over Radmin VPN or 
 warning in the launcher, because strangers can be in those networks. Switch it off with *Party
 discovery* (launcher, or *System > My party: Look & notices*).
 
+### Open party (no password, LAN or VPN)
+
+A host with no password can let players on its own network join by plain address (`192.168.1.5:9307`, a Radmin or
+Tailscale address), without a party code. Turn on *Open party* (launcher Party tab, host only and greyed out while a
+password is set, or *System > Party access > Open party (no password)*, live; bbport.ini `party_open`, `BB_PARTY_OPEN`).
+Off by default. The host accepts a plain-address join only from a peer on the subnet of one of its private or VPN
+adapters; a public address, the router itself and relayed guests are refused. A password always wins: with one, the
+open party is off. Everyone on those networks can join and holds the same link key, so the encryption does not protect
+an open party from them: use it on networks you trust. The host's LAN announcement and the Nightwatch VPN lobby mark such
+a game *open*; the launcher's lists then join it without asking for a password. Rules: docs/party/open_party.md.
+
 ### Connection doctor (`net_doctor.bat`)
 
 When players cannot join or keep dropping, collect the logs of **one session** from the host and

@@ -8,6 +8,10 @@
 // for `outage` ms once every `every` ms (the first one `every` ms after the first datagram).
 // One-shot outage: outage=<ms>,at=<ms> (`at` ms after the simulator was configured: process start).
 // `jit` is an alias of `jitter`.
+// Path MTU (0.7.8, CL-79fe9c): mtu=<bytes> drops every UDP datagram whose payload is larger (a tunnel path
+// that loses IP fragments: one lost fragment loses the datagram). Counted in Stats::mtu_dropped.
+// Per-pair silence schedule (0.7.8): block=<ports>,block_at=<ms>,block_for=<ms>,block_every=<ms> repeats the
+// block window every `block_every` ms from `block_at` (e.g. 4.5 s of silence every 60 s for one pair).
 // Only loopback destinations / peers (127.0.0.0/8) are simulated unless `any=1`: a test setting
 // that leaks into a real game never slows a real internet session.
 // Both transports: every UDP datagram the game sends (Queue, sender side) and the party link's TCP
@@ -59,6 +63,8 @@ struct Config {
     // running several instances (one port each) this cuts one pair of players only.
     std::vector<std::uint16_t> block_ports;
     double block_at_ms = 0, block_for_ms = 0;
+    double block_every_ms = 0;  // 0.7.8: > 0 repeats the block window (block_for > 0) every this many ms
+    std::size_t mtu = 0;        // 0.7.8: > 0 drops datagrams with a larger UDP payload
 };
 // True when a datagram to `port_nbo` sent at `now` falls in the config's per-peer block window.
 bool blocked_at(const Config& c, Clock::time_point epoch, Clock::time_point now, std::uint16_t port_nbo);
@@ -103,6 +109,7 @@ struct Packet {
 struct Stats {
     std::uint64_t submitted = 0, dropped = 0, duplicated = 0, reordered = 0, delivered = 0;
     std::uint64_t blacked_out = 0;  // dropped by an outage (counted in dropped too)
+    std::uint64_t mtu_dropped = 0;  // dropped as larger than mtu= (counted in dropped too)
 };
 
 // The delay line, without threads or sockets (tests drive it with their own clock).

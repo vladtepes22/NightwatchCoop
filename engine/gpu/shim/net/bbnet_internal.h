@@ -182,7 +182,11 @@ int lan_adapter_score(const LanAdapter& a);
 // --- Host over a VPN (0.7.5, party_vpn / BB_PARTY_VPN) ---
 // The overlay VPNs players use to play together: by adapter name, else (a virtual adapter only) by
 // the address range: Radmin 26/8, Hamachi 25/8, Tailscale 100.64/10.
-enum class VpnKind { None, Radmin, Hamachi, ZeroTier, Tailscale, Other };
+// Nightwatch (0.7.8, CL-79fe9c): the Nightwatch OpenVPN network, a virtual adapter (TAP-Windows,
+// OpenVPN Data Channel Offload, Wintun ...) holding a tunnel player address (10.8.0.0/22, see
+// lobby::is_tunnel_player_address) that does not carry the PC's Internet traffic (not the default
+// route: a commercial OpenVPN service on the same default subnet does, and is never taken unasked).
+enum class VpnKind { None, Radmin, Hamachi, ZeroTier, Tailscale, Other, Nightwatch };
 VpnKind vpn_kind(const LanAdapter& a);
 // "Radmin VPN", "Hamachi", "ZeroTier", "Tailscale"; Other: the adapter's friendly name.
 std::string vpn_label(const LanAdapter& a);
@@ -193,6 +197,15 @@ std::string vpn_pref_normalize(const std::string& pref);
 // auto: a usable Radmin / Hamachi / ZeroTier / Tailscale adapter (a commercial VPN that carries all
 // the PC's traffic is never taken unasked); a name: any usable adapter whose name contains it.
 int vpn_adapter_score(const LanAdapter& a, const std::string& pref);
+// 0.7.8 (CL-79fe9c): the Nightwatch VPN taken by party_vpn=auto, and the tunnel rules below.
+// BB_PARTY_NW_AUTO=0 turns both off (the 0.7.7 behaviour; party_vpn=<adapter name> still works).
+bool nightwatch_auto_enabled();
+// This PC plays over the Nightwatch tunnel: its chosen address (local_ipv4) is a tunnel player address
+// and BB_PARTY_NW_AUTO is not 0. Then the host announces its tunnel address (no WAN STUN, no UPnP),
+// a guest makes no guest code, and a peer at a tunnel address is never reached at another address.
+bool nightwatch_vpn_mode();
+// addr (network order) is a tunnel player address and nightwatch_vpn_mode() holds.
+bool nightwatch_tunnel_peer(std::uint32_t addr);
 // --- Is the VPN really online? (0.7.6) --- Windows keeps an overlay VPN's adapter Up with its address
 // while the VPN app is switched off, so the adapter state proves nothing. The evidence: the vendor's
 // own local status (Radmin's service.log, `tailscale status --json`, `zerotier-cli info`; no network

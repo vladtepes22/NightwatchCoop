@@ -265,6 +265,9 @@ struct Values {
     /// 0.7.7 (CL-48ee07): a Chalice Dungeon lamp lists the dungeon's other lit lamps (layers) and the host's choice
     /// takes the whole party there (lamp_travel.h). The host's rule, sent to the guests; OFF by default.
     std::atomic<bool> party_layer_travel{false};
+    /// 0.7.8 (CL-420d9f): the Ritual Altar's "Search by Chalice Glyph" shows the party's glyphs as a pick list before the
+    /// code keyboard (party_chalice_glyphs.h). This player's own, read live; OFF by default.
+    std::atomic<bool> party_glyph_list{false};
     /// 0.7.3 (user decision 2026-10-22): covenant outcomes (Annalise, Alfred, Valtr) stay in each
     /// player's own save (party_progress Category::covenant_outcome). The host's; on by default.
     std::atomic<bool> party_covenant_per_player{true};

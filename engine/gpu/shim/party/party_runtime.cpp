@@ -1813,7 +1813,9 @@ void start_host(LinkConfig cfg) {
             a.name = rr.cfg.name;
             a.port = rr.cfg.port;
             a.password = !rr.cfg.password.empty();  // only whether one is set
-            a.open = !a.password && BbSettings::Get().party_open.load();
+            // open for any scope (party_open on, or the VPN lobby on: the tunnel's open party), never with a password
+            a.open = party::open_party::ScopeOf(a.password, BbSettings::Get().party_vpn_lobby, BbSettings::Get().party_open) !=
+                     party::open_party::Scope::None;
             a.build = rr.cfg.build_id;
         }
         int players = 0;
@@ -1918,8 +1920,12 @@ void start_host(LinkConfig cfg) {
 
     std::string upnp_ip, upnp_msg;
     bool upnp_ok = false;
+    // 0.7.8 (CL-79fe9c): over the Nightwatch VPN the guests reach this PC on its tunnel address only.
+    const bool nw_vpn = !lb && bbnet::nightwatch_vpn_mode();
     if (lb) {
         upnp_msg = "off (loopback test)";
+    } else if (nw_vpn) {
+        upnp_msg = "off (Nightwatch VPN: guests reach this PC on its tunnel address)";
     } else if (!UpnpMapper::enabled_by_env()) {
         upnp_msg = "off (BB_PARTY_UPNP=0)";
     } else {
@@ -1950,6 +1956,14 @@ void start_host(LinkConfig cfg) {
         host_nat = traversal::detect(stun_fn, {}, 0, port, true);
     } else if (const char* ov = env("BB_PARTY_PUBLIC_ADDR"); ov && resolve_ipv4(ov, port, &pub, &pub_port)) {
         source = "override";
+    } else if (nw_vpn) {
+        // No STUN toward the Internet: the WAN address it reports is not the path a tunnel peer uses
+        // (a 4-player VPN session: the host's game address flipped between its WAN and tunnel address).
+        const std::uint32_t t = bbnet::local_ipv4();
+        std::memcpy(pub.data(), &t, 4);
+        pub_port = port;
+        source = "Nightwatch VPN tunnel";
+        host_nat = nat::Type::Open;  // every tunnel player reaches the party port (the VPN's firewall allows it)
     } else {
         const char* stun_env = env("BB_PARTY_STUN");
         const std::string server = stun_env ? stun_env : "stun.l.google.com:19302";
@@ -2168,6 +2182,12 @@ std::uint16_t publish_guest_code(nat::Type* type) {
         const char* stun_env = env("BB_PARTY_STUN");
         const std::string server = stun_env ? stun_env : "stun.l.google.com:19302";
         if (server == "off" || server == "0") return 0;
+        if (bbnet::nightwatch_vpn_mode()) {
+            // 0.7.8 (CL-79fe9c): the host reaches us on the tunnel; a WAN guest code would only open a
+            // path outside it.
+            plog("guest code: none over the Nightwatch VPN (the host reaches this PC on its tunnel address)");
+            return 0;
+        }
         std::string host_part = server;
         std::uint16_t sport = 19302;
         if (const auto c = server.rfind(':'); c != std::string::npos) {

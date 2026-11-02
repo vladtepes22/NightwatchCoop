@@ -805,12 +805,6 @@ void DefineAll() {
                    "Гость: скопируйте гостевой код участника (BBG1-...) и нажмите: его ретранслятор, если хост недоступен"),
            {AddText("Paste", "Вставить")}, Kind::Button,
            [] { return party::status::Snapshot().role == party::status::Role::Guest; });
-    // 0.7.7: Nightwatch VPN lobby (net/party_vpnlobby.h; the list is in the launcher's Join page). A host's row:
-    // a guest has "Join via a member" in its place, so the page stays within the six rows.
-    AddRow(Flag(&Values::party_vpn_lobby), AddText("Nightwatch VPN lobby", "Лобби Nightwatch VPN"),
-           AddText("Host with a password: list your character name and slots for Nightwatch VPN players (no address)",
-                   "Хост с паролем: имя героя и места видны игрокам Nightwatch VPN (без адреса)"),
-           toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
     // 0.7.5: host over a VPN. A list opens a pop-up over the rows below it: last on the page.
     AddRow(Setting(
                Kind::List, [](const Values& v) { return std::clamp(v.party_vpn.load(), 0, 2); },
@@ -820,6 +814,27 @@ void DefineAll() {
                    "Radmin, Hamachi, ZeroTier, Tailscale: в код попадёт адрес VPN. Авто: если он есть. Со след. запуска"),
            {AddText("Auto", "Авто"), AddText("Off", "Выкл."), AddText("Named adapter", "Адаптер по имени")},
            Kind::List);
+
+    // ---- Party access (0.7.8, CL-7f44cd): who may join the host without a party code (docs/party/open_party.md).
+    // The host's two opt-ins; a guest has no say in them, so its page is one line. ----
+    AddPage("Party access", "Доступ к группе", "Host: Nightwatch VPN lobby, open party without a password (bbport)",
+            "Хост: лобби Nightwatch VPN, открытая группа без пароля (bbport)");
+    // 0.7.7: Nightwatch VPN lobby (net/party_vpnlobby.h; the list is in the launcher's Join page). A host's row.
+    AddRow(Flag(&Values::party_vpn_lobby), AddText("Nightwatch VPN lobby", "Лобби Nightwatch VPN"),
+           AddText("Host with a password: list your character name and slots for Nightwatch VPN players (no address)",
+                   "Хост с паролем: имя героя и места видны игрокам Nightwatch VPN (без адреса)"),
+           toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
+    // 0.7.8: the open party (party/party_open_rules.h): no password, plain address joins from this PC's LAN or VPN subnets.
+    // Live: the host reads it on every join. Only meaningful without a password (the password decides otherwise).
+    AddRow(Flag(&Values::party_open), AddText("Open party (no password)", "Открытая группа"),
+           AddText("No password: players on your LAN or VPN join by plain address. You trust that network",
+                   "Без пароля: игроки из вашей LAN или VPN входят по адресу. Вы доверяете этой сети"),
+           toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
+    AddRow(Info(), AddText("Host's access", "Доступ хоста"),
+           AddText("The host decides who joins without a party code (Open party, Nightwatch VPN lobby)",
+                   "Хост решает, кто входит без кода группы (открытая группа, лобби Nightwatch VPN)"),
+           {AddText("Host only", "Только хост")}, Kind::Button,
+           [] { return party::status::Snapshot().role == party::status::Role::Guest; });
 
     // The split-travel question (party_split.cpp): a game dialog with YES / NO after a lamp,
     // headstone or Hunter's Mark in a party (docs/party/split_travel.md).
@@ -975,7 +990,7 @@ void DefineAll() {
 
     // CL-48ee07: a Chalice Dungeon lamp lists the dungeon's lit lamps (layers); the host's choice takes the party there.
     host_rule(&Values::party_layer_travel, "Chalice layer travel", "Путь по слоям чаши",
-              AddText("The host's Chalice Dungeon lamp lists the dungeon's other lit lamps; the party travels with the host. Party rule",
+              AddText("The host's Chalice lamp lists the dungeon's other lit lamps; the party travels with the host. Party rule",
                       "Фонарь подземелья хоста показывает другие зажжённые фонари; группа идёт с хостом. Правило группы"),
               [] { return ps::HostRuleOn(ps::HostRule::LayerTravel); },
               {"The host allows it: its dungeon lamp offers the other lit lamps and the party follows its choice",
@@ -1366,6 +1381,14 @@ void DefineAll() {
            AddText("Which party notices show: all, errors only (lost link, failed join) or none. Splitscreen: errors",
                    "Какие сообщения группы видны: все, только ошибки (связь, вход) или никакие. Раздельный экран: ошибки"),
            {AddText("All", "Все"), AddText("Errors only", "Только ошибки"), AddText("Off", "Выкл.")}, Kind::List);
+
+    // ---- My party: Chalice (0.7.8, CL-420d9f): the Ritual Altar's glyph pick list. The host's altar is where it shows. ----
+    AddPage("My party: Chalice", "Моя группа: чаша",
+            "Yours: the Ritual Altar lists the party's Chalice Glyphs to pick from (bbport)",
+            "Ваше: Алтарь ритуалов показывает глифы чаши группы на выбор (bbport)");
+    own(&Values::party_glyph_list, "Chalice glyph list", "Список глифов чаши",
+        "The Ritual Altar's glyph search lists the party's glyphs to pick from first. Off by default",
+        "Поиск глифа у Алтаря ритуалов сначала показывает глифы группы. По умолчанию выкл.");
 }
 
 /// The party rules' help lines: the current value, and on a guest that the host's rules count.

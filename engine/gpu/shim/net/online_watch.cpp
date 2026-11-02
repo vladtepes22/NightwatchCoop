@@ -178,9 +178,37 @@ void watch_main() {
 
 }  // namespace
 
+// The ss.info URL comes from the game's region (0x5128948 < 6) through the pointer table 0x5358440; region 5 has an empty
+// string. The community patch "Unlock Game Region" makes the game's sell region 5, so its FROM client asked for the URL "":
+// no ss.info, FrpgNetMan +8 clear, "offline" - no board request of the party worked (channel requests for a Chalice
+// Dungeon summon, ChannelUpload: NW-5e27806, a summoned guest loaded the dungeon empty and looped). Entry 5 is pointed at
+// the same URL as entry 2 (bb-eu) so the party's ss.info answer is asked for, whatever the region.
+constexpr std::uint64_t kSsUrlTable = 0x5358440;
+
+static void region_fix_main() {
+    runtime_thread_attach_host("bb:region-fix");
+    for (int i = 0; i < 1200; ++i) {  // 2 min at 10 Hz: the image is mapped from the start; the table is static data
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        void* t = guest_image_at(kSsUrlTable, 8 * 6);
+        if (!t) continue;
+        const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(t);
+        std::uint64_t p2 = 0, p5 = 0;
+        if (!rd(base + 16, &p2) || !rd(base + 40, &p5) || !p2) continue;
+        std::uint16_t c5 = 0;
+        if (p5 && rd(static_cast<std::uintptr_t>(p5), &c5) && c5 != 0) return;  // entry 5 is a URL already
+        if (p5 == p2) return;
+        if (guest_write(base + 40, &p2, 8)) {
+            log("region: the ss.info URL table's entry 5 (an empty URL, set by a patch such as Unlock Game Region) now points at "
+                "entry 2's: the FROM client can log in to the party's server");
+            return;
+        }
+    }
+}
+
 void online_watch_start() {
     static std::atomic<bool> started{false};
     if (!settings().party || started.exchange(true)) return;
+    std::thread(region_fix_main).detach();
     const char* e = std::getenv("BB_PARTY_ONLINE_WATCH");
     if (e && e[0] == '0') return;
     std::thread(watch_main).detach();

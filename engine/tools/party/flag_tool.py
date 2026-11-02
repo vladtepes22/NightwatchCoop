@@ -671,6 +671,13 @@ OVERRIDE_ROWS = (
         # stock flags 72101000-72101002 / 72101010-72101011, per player). As npc_quest the host's
         # pick reached every guest's save: its messengers were gone with no weapon taken.
         (12101020, 12101021, "never_sync", "per-player: starting weapon messengers done (m21 events 12101020 / 12101021; the pick is each player's own)"),
+        # 0.7.8 (playtest 2026-11-01): the Bath Messenger's badge rows. m21 event 12101000 slot n waits for
+        # 3[4] "holds goods 4110 + n" (a hunter badge) and its completion flag 12101000 + n gates the shop
+        # rows (Chikage, the Beak Mask, ...). As npc_quest the host's rows reached every guest's save.
+        (12101000, 12101009, "never_sync", "per-player: Messenger badge rows (m21 ev 12101000 slot n = own badge goods 4110+n)"),
+        # The Eye of a Blood-drunk Hunter's sale (m21 12101100: own chr, night 9801 + DLC 6899 -> 12101101):
+        # each player's own night opens it (the DLC entry).
+        (12101100, 12101101, "never_sync", "per-player: the Eye of a Blood-drunk Hunter's sale (m21 ev 12101100: own night 9801 + DLC 6899)"),
     ])
 
 # covenant_outcome (0.7.3, user decision 2026-10-22: covenant outcomes are per player): the quest

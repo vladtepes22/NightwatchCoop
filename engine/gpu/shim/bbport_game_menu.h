@@ -42,6 +42,15 @@ void SetTextOverride(TextOverrideFn fn);
 using ImePresetFn = const char* (*)(std::uint32_t max_length);
 void SetImePreset(ImePresetFn fn);
 const char* ImePreset(std::uint32_t max_length);
+/// The text box's pick list when an ImeDialog opens (after ImePreset found no preset): "value<TAB>label"
+/// lines, null for the plain box (SetImeChoices registers the provider; party_chalice.cpp).
+using ImeChoicesFn = const char* (*)(std::uint32_t max_length);
+void SetImeChoices(ImeChoicesFn fn);
+const char* ImeChoices(std::uint32_t max_length);
+/// An ImeDialog ended with `text` (SetImeClosed registers the listener).
+using ImeClosedFn = void (*)(std::uint32_t max_length, const char* text, bool cancelled);
+void SetImeClosed(ImeClosedFn fn);
+void ImeClosed(std::uint32_t max_length, const char* text, bool cancelled);
 
 /// Applies what the player changed on the port's pages (each presented frame).
 void Poll();

@@ -311,6 +311,13 @@ bool is_own_endpoint(std::uint32_t ip, std::uint16_t port, std::uint16_t own_por
 bool local_candidate_usable(std::uint32_t cand_ip, std::uint16_t cand_port, std::uint16_t own_port,
                             const std::vector<OwnIf>& own, std::uint32_t own_public, std::uint32_t peer_public);
 
+// 0.7.8 (CL-79fe9c): a peer whose address is a Nightwatch tunnel address (10.8.0.0/22) is reached only at
+// tunnel addresses: its LAN or WAN "local" candidate is never probed or adopted as its alias (a 4-player
+// session over the VPN: after the host's restart a guest took the host's LAN address, which matched its
+// own home subnet, and that pair's game traffic left the tunnel). Addresses network order. The caller
+// applies it only in Nightwatch mode (nightwatch_vpn_mode).
+bool tunnel_candidate_ok(std::uint32_t peer_addr, std::uint32_t cand_addr);
+
 // BB_PARTY_FORCE_RELAY=1: a guest sends its game traffic for other guests through the host
 // relay even when the direct path would work (tests, strict NATs). Traffic to the host goes to
 // the host's party port, which is the relay itself.

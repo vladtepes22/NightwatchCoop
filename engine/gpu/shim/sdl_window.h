@@ -2,6 +2,8 @@
 #include <atomic>
 #include <mutex>
 #include <string>
+#include <utility>
+#include <vector>
 #include "common/types.h"
 
 struct SDL_Window;
@@ -31,7 +33,13 @@ public:
     WindowSystemInfo GetWindowInfo() const { return window_info; }
     bool IsOpen() const { return is_open.load(std::memory_order_relaxed); }
     bool PollEvents();
-    void BeginTextInput(const std::string& initial, const std::string& prompt);
+    /// `choices`: a pick list (value, label) shown above the box - Up / Down (keyboard, d-pad) move the
+    /// selection, which sets the text, Enter / Cross confirm; typing or Backspace leaves the list for the
+    /// keyboard. Empty: the plain box. (Chalice glyphs, docs/party/chalice.md 11.)
+    void BeginTextInput(const std::string& initial, const std::string& prompt,
+                        const std::vector<std::pair<std::string, std::string>>& choices = {});
+    /// Test aid (any thread): keys (TestType's) the next text box takes as soon as it opens.
+    void QueueTestKeys(const std::string& keys);
     int PollTextInput(std::string& text);
     bool IsTextInputActive();
     void TestType(const std::string& keys);
@@ -44,6 +52,10 @@ private:
     bool text_selected{};
     int text_state{};
     std::string text, text_prompt, base_title;
+    std::vector<std::pair<std::string, std::string>> text_choices;
+    int text_sel{-1};  ///< the selected choice, -1: typing
+    std::string text_test_keys;
+    void UpdateChoices();
     void UpdateTextTitle();
     void UpdateCursor();
     u64 last_mouse_motion_ms{};

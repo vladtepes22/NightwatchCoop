@@ -16,6 +16,14 @@ static std::string Read(const char* path) {
     return text.str();
 }
 
+static int bb_test_setenv(const char* name, const char* value) {
+#ifdef _WIN32
+    return _putenv_s(name, value);
+#else
+    return setenv(name, value, 1);
+#endif
+}
+
 int main() {
     const auto temporary = std::filesystem::temp_directory_path() /
         ("bbport-settings-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -472,6 +480,20 @@ int main() {
     assert(s.hdr_ui_nits == 203.0f);
     BbSettings::SelectHdrPreset(1);
     assert(s.hdr_ui_nits == 150.0f);
+    // 0.7.8 (CL-420d9f): the Chalice glyph pick list: this player's own, OFF by default, ini key + variable
+    assert(bb_test_setenv("BB_PARTY_GLYPH_LIST", "") == 0);
+    BbSettings::Load();
+    assert(!s.party_glyph_list);
+    s.party_glyph_list = true;
+    BbSettings::Save();
+    assert(Read(path).find("party_glyph_list=1\n") != std::string::npos);
+    BbSettings::Load();
+    assert(s.party_glyph_list);
+    assert(bb_test_setenv("BB_PARTY_GLYPH_LIST", "0") == 0);
+    BbSettings::Load();
+    assert(!s.party_glyph_list);
+    assert(bb_test_setenv("BB_PARTY_GLYPH_LIST", "") == 0);
+    s.party_glyph_list = false;
     std::filesystem::remove(temporary);
     std::puts("PASS: settings save keeps other keys, menu position");
 }

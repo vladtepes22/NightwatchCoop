@@ -18,6 +18,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flag_tool as ft  # noqa: E402
 
 SHOP_OWN_RANGE = (5500, 5521)  # common 5500+slot: ends once the player holds weapon param (event 5500)
+# 0.7.8: m21 12101000 slot n ends once the player holds badge goods 4110+n (its own badge rows)
+BADGE_RANGE = (12101000, 12101009)
+# 0.7.8: m21 12101100 sets 12101101 for the own chr at its own night 9801 + DLC 6899 (the Eye's sale)
+OWN_PROGRESS = {12101100, 12101101}
 # categories C2 delivers to guests (party_progress.cpp ModeFor: everything but item_lot_picked is Off or a candidate)
 SYNCED = {"boss_defeated", "lamp_unlocked", "shortcut_door", "key_event", "cutscene_seen", "world_state", "npc_quest"}
 
@@ -104,6 +108,10 @@ def build(game):
             cls, why = "open", "no gate"
         elif SHOP_OWN_RANGE[0] <= f <= SHOP_OWN_RANGE[1]:
             cls, why = "item", "event 5500+slot ends when the player owns the weapon (and also ends early for a phantom)"
+        elif BADGE_RANGE[0] <= f <= BADGE_RANGE[1]:
+            cls, why = "item", "event 12101000 slot n ends when the player holds badge goods 4110+n (per player, 0.7.8)"
+        elif f in OWN_PROGRESS:
+            cls, why = "item", "event 12101100: the own chr's night 9801 + DLC 6899 (the Eye's sale, per player, 0.7.8)"
         elif lt:
             cls, why = "item", "pickup flag of item lot(s) " + ",".join(map(str, lt[:4]))
         elif 6000 <= f <= 8999:

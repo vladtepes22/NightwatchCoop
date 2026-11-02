@@ -44,7 +44,10 @@ std::vector<std::uint8_t> encode_bye();
 
 // Is `ip` (host order) a player address of the Nightwatch tunnel: 10.8.0.0/22 minus the network, the
 // server (10.8.0.1) and the broadcast address, i.e. 10.8.0.2 .. 10.8.3.254 (0.7.8; was 10.8.0.0/24)?
-bool is_tunnel_player_address(std::uint32_t ip_host_order);
+// Inline (0.7.8, CL-79fe9c): the address choice and the punch's candidate filter use it too.
+inline bool is_tunnel_player_address(std::uint32_t ip) {
+    return (ip & 0xfffffc00u) == 0x0a080000u && ip != 0x0a080000u && ip != 0x0a080001u && ip != 0x0a0803ffu;
+}
 
 // The provider fills the live state each round and returns false while not hosting / switched off /
 // without a name (nothing is sent; a bye goes out when it turns false after announcing).

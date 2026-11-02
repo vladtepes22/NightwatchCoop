@@ -19,6 +19,7 @@ Kind KindOf(const std::string& b) {
     if (b.find("\"op\":\"dsum_req\"") != std::string::npos) return Kind::Req;
     if (b.find("\"op\":\"dsum_room\"") != std::string::npos) return Kind::Room;
     if (b.find("\"op\":\"dsum_done\"") != std::string::npos) return Kind::Done;
+    if (b.find("\"op\":\"dsum_stuck\"") != std::string::npos) return Kind::Stuck;
     if (b.find("\"op\":\"dsum_busy\"") != std::string::npos) return Kind::Busy;
     return Kind::None;
 }
@@ -91,6 +92,15 @@ std::string EncodeRefuse(Busy why) {
 
 std::string EncodeBusy(Busy b) { return std::string("{\"op\":\"dsum_busy\",\"wait\":\"") + BusyWord(b) + "\"}"; }
 std::string EncodeDone(bool ok) { return ok ? "{\"op\":\"dsum_done\",\"ok\":1}" : "{\"op\":\"dsum_done\",\"ok\":0}"; }
+
+std::string EncodeStuck(StuckWhy why) {
+    return std::string("{\"op\":\"dsum_stuck\",\"why\":\"") + (why == StuckWhy::Offline ? "offline" : "empty") + "\"}";
+}
+bool DecodeStuck(const std::string& body, StuckWhy* why) {
+    if (KindOf(body) != Kind::Stuck) return false;
+    *why = body.find("\"why\":\"offline\"") != std::string::npos ? StuckWhy::Offline : StuckWhy::Empty;
+    return true;
+}
 
 std::string EncodeRoom(const Room& r) {
     std::string s = "{\"op\":\"dsum_room\",\"room\":\"";

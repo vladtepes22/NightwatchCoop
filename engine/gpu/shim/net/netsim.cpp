@@ -121,6 +121,8 @@ bool parse(const char* spec, Config* out, std::string* error) {
         else if (key == "every") out->outage_every_ms = v;
         else if (key == "block_at") out->block_at_ms = v;
         else if (key == "block_for") out->block_for_ms = v;
+        else if (key == "block_every") out->block_every_ms = v;
+        else if (key == "mtu") out->mtu = static_cast<std::size_t>(v);
         else {
             if (error) *error = "netsim: unknown key '" + key + "'";
             return false;
@@ -149,7 +151,12 @@ std::string describe(const Config& c) {
         for (std::size_t i = 0; i < c.block_ports.size(); ++i) s += (i ? "+" : "") + std::to_string(c.block_ports[i]);
         std::snprintf(buf, sizeof(buf), ",block_at=%g,block_for=%g", c.block_at_ms, c.block_for_ms);
         s += buf;
+        if (c.block_every_ms > 0) {
+            std::snprintf(buf, sizeof(buf), ",block_every=%g", c.block_every_ms);
+            s += buf;
+        }
     }
+    if (c.mtu > 0) s += ",mtu=" + std::to_string(c.mtu);
     if (c.any_addr) s += ",any=1";
     if (c.nat) s += c.nat_kind == NatKind::PortRestricted ? std::string(",nat=1") : std::string(",nat=") + nat_kind_name(c.nat_kind);
     return s;
@@ -219,6 +226,7 @@ bool blocked_at(const Config& c, Clock::time_point epoch, Clock::time_point now,
     using ms = std::chrono::duration<double, std::milli>;
     const double since = ms(now - epoch).count();
     if (since < c.block_at_ms) return false;
+    if (c.block_every_ms > 0 && c.block_for_ms > 0) return std::fmod(since - c.block_at_ms, c.block_every_ms) < c.block_for_ms;
     return c.block_for_ms <= 0 || since < c.block_at_ms + c.block_for_ms;
 }
 
@@ -284,6 +292,11 @@ bool Queue::in_outage(Clock::time_point now) {
 int Queue::submit(Clock::time_point now, std::uintptr_t fd, std::uint32_t addr, std::uint16_t port, const void* data,
                   std::size_t len) {
     ++stats_.submitted;
+    if (cfg_.mtu > 0 && len > cfg_.mtu) {
+        ++stats_.dropped;
+        ++stats_.mtu_dropped;
+        return 0;
+    }
     if (has_epoch_ && blocked_at(cfg_, epoch_, now, port)) {
         ++stats_.dropped;
         return 0;

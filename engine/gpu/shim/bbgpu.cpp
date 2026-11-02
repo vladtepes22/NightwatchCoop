@@ -582,6 +582,35 @@ extern "C" int bbgpu_window_in_background(void) {
     return Frontend::WindowInBackground() ? 1 : 0;
 }
 
+extern "C" const char* bbgpu_ime_choices(uint32_t max_length) {
+    return BbGameMenu::ImeChoices(max_length);
+}
+
+extern "C" void bbgpu_ime_closed(uint32_t max_length, const char* text, int cancelled) {
+    BbGameMenu::ImeClosed(max_length, text ? text : "", cancelled != 0);
+}
+
+extern "C" int bbgpu_text_input_begin_list(const char* initial, const char* prompt, const char* choices) {
+    if (!g_window) return 0;
+    std::vector<std::pair<std::string, std::string>> list;
+    for (const char* p = choices ? choices : ""; *p;) {
+        const char* end = std::strchr(p, '\n');
+        const std::string line(p, end ? size_t(end - p) : std::strlen(p));
+        const size_t tab = line.find('\t');
+        if (!line.empty()) list.emplace_back(line.substr(0, tab), tab == std::string::npos ? "" : line.substr(tab + 1));
+        if (!end) break;
+        p = end + 1;
+    }
+    g_window->BeginTextInput(initial ? initial : "", prompt ? prompt : "Text", list);
+    return 1;
+}
+
+extern "C" int bbgpu_text_input_test_queue(const char* keys) {
+    if (!g_window || !keys) return 0;
+    g_window->QueueTestKeys(keys);
+    return 1;
+}
+
 extern "C" int bbgpu_text_input_begin(const char* initial, const char* prompt) {
     if (!g_window) return 0;
     g_window->BeginTextInput(initial ? initial : "", prompt ? prompt : "Text");

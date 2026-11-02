@@ -40,6 +40,7 @@
 #include <map>
 #include <string>
 #include <utility>
+#include <set>
 #include <vector>
 
 namespace coop::desync {
@@ -167,6 +168,36 @@ std::string DescribeCensusReport(const CensusReport& r);
 /// defeat runs its own path, K10 / D1). BB_PARTY_CENSUS_REPAIR=0: report only, as before.
 std::vector<std::pair<u32, int>> CensusRepairTargets(const CensusList& host, const std::vector<CensusEntry>& mine);
 bool CensusRepairFromEnv();
+
+/// The repair kills an entity once per loaded map. An entity put to death here whose HP is later
+/// seen above 0 again (a dormant chalice boss, whose copy the game re-arms) must not be killed every
+/// confirmation (15 s) for ever: the ledger lets each entity through once and then names it as stuck.
+class CensusRepairLedger {
+public:
+    /// Drops the entries of `targets` that were repaired before on this map; `stuck` gets them.
+    std::vector<std::pair<u32, int>> Filter(u32 map, const std::vector<std::pair<u32, int>>& targets,
+                                            std::vector<u32>* stuck = nullptr) {
+        if (map != map_) {
+            map_ = map;
+            done_.clear();
+        }
+        std::vector<std::pair<u32, int>> out;
+        for (const auto& t : targets) {
+            if (done_.count(t.first)) {
+                if (stuck) stuck->push_back(t.first);
+            } else {
+                out.push_back(t);
+            }
+        }
+        return out;
+    }
+    void Done(u32 entity) { done_.insert(entity); }
+    void Reset() { done_.clear(); map_ = 0; }
+
+private:
+    u32 map_ = 0;
+    std::set<u32> done_;
+};
 
 std::string CensusAskToJson(u32 map, const std::vector<int>& buckets);
 bool CensusAskFromJson(const std::string& text, u32* map, std::vector<int>* buckets, std::string* error = nullptr);
