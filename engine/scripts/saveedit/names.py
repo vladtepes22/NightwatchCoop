@@ -136,6 +136,11 @@ def _stamp(game, lang):
 _FALLBACK = json.loads((Path(__file__).with_name("fallbacknames.json")).read_text(encoding="utf-8"))
 
 
+# Two armour rows the game gives one name: the garb with the cape and the one without. The caped row is named so, as
+# Noxde's editor does; else both read "Hunter Garb" and the capeless one looks missing from the Add item list.
+_CAPED = {71000: ("Hunter Garb", "Hunter Garb (Cape)"), 191000: ("Student Uniform", "Student Uniform (Cape)")}
+
+
 class Catalogue:
     """Names and ids for the UI. Empty (ok False) when the game files cannot be read."""
 
@@ -183,8 +188,8 @@ class Catalogue:
         n = self._names.get(kind, {})
         if kind == "weapon":
             number = number - (number % 10000) // 100 * 100  # id = base + 100 * reinforcement level
-        elif kind == "armor":
-            pass
+        elif kind == "armor" and number in _CAPED and n.get(number) == _CAPED[number][0]:
+            return _CAPED[number][1]
         return n.get(number) or self.fallback_name(category, number)
 
     def fallback_name(self, category, number):
