@@ -1884,7 +1884,7 @@
   "Start the game to see party status.": "Parti durumunu görmek için oyunu başlatın.",
   "Leave party": "Partiden ayrıl",
   "Rejoin party": "Partiye yeniden katıl",
-  "Remove a member": "Bir üyeyi çıkar",
+  "Kick player": "Bir üyeyi çıkar",
   "Host only. Enter the member's exact party name.": "Yalnızca host. Üyenin parti adını tam olarak girin.",
   "Choose member": "Üye seç",
   "Only the host can remove members.": "Üyeleri yalnızca host çıkarabilir.",

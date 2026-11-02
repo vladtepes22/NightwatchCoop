@@ -1884,7 +1884,7 @@
   "Start the game to see party status.": "Inicie o jogo para ver o estado do grupo.",
   "Leave party": "Sair do grupo",
   "Rejoin party": "Voltar ao grupo",
-  "Remove a member": "Remover um membro",
+  "Kick player": "Remover um membro",
   "Host only. Enter the member's exact party name.": "Apenas o anfitrião. Digite o nome exato do membro no grupo.",
   "Choose member": "Escolher membro",
   "Only the host can remove members.": "Só o anfitrião pode remover membros.",

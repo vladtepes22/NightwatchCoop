@@ -1873,7 +1873,7 @@
   "Start the game to see party status.": "启动游戏后可查看队伍状态。",
   "Leave party": "离开队伍",
   "Rejoin party": "重新加入队伍",
-  "Remove a member": "移除队员",
+  "Kick player": "移除队员",
   "Host only. Enter the member's exact party name.": "仅房主可用。请输入队员的准确队名。",
   "Choose member": "选择队员",
   "Only the host can remove members.": "只有房主可以移除队员。",

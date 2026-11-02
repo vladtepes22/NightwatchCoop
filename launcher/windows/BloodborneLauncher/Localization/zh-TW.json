@@ -1884,7 +1884,7 @@
   "Start the game to see party status.": "啟動遊戲即可查看隊伍狀態。",
   "Leave party": "離開隊伍",
   "Rejoin party": "重新加入隊伍",
-  "Remove a member": "移除隊員",
+  "Kick player": "移除隊員",
   "Host only. Enter the member's exact party name.": "僅限房主。請輸入隊員的確切隊伍名稱。",
   "Choose member": "選擇隊員",
   "Only the host can remove members.": "只有房主可以移除隊員。",

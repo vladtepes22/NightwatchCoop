@@ -1884,7 +1884,7 @@
   "Start the game to see party status.": "Uruchom grę, aby zobaczyć stan drużyny.",
   "Leave party": "Opuść drużynę",
   "Rejoin party": "Dołącz ponownie do drużyny",
-  "Remove a member": "Usuń członka",
+  "Kick player": "Usuń członka",
   "Host only. Enter the member's exact party name.": "Tylko gospodarz. Wpisz dokładną nazwę członka drużyny.",
   "Choose member": "Wybierz członka",
   "Only the host can remove members.": "Tylko gospodarz może usuwać członków.",

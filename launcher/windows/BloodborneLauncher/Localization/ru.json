@@ -1884,7 +1884,7 @@
   "Start the game to see party status.": "Запустите игру, чтобы увидеть статус группы.",
   "Leave party": "Покинуть группу",
   "Rejoin party": "Вернуться в группу",
-  "Remove a member": "Удалить участника",
+  "Kick player": "Удалить участника",
   "Host only. Enter the member's exact party name.": "Только для хоста. Введите точное имя участника в группе.",
   "Choose member": "Выбрать участника",
   "Only the host can remove members.": "Удалять участников может только хост.",

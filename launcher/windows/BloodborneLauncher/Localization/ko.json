@@ -1884,7 +1884,7 @@
   "Start the game to see party status.": "파티 상태를 보려면 게임을 시작하세요.",
   "Leave party": "파티 나가기",
   "Rejoin party": "파티 재참가",
-  "Remove a member": "파티원 내보내기",
+  "Kick player": "파티원 내보내기",
   "Host only. Enter the member's exact party name.": "호스트 전용입니다. 파티원의 정확한 파티 이름을 입력하세요.",
   "Choose member": "파티원 선택",
   "Only the host can remove members.": "호스트만 파티원을 내보낼 수 있습니다.",
