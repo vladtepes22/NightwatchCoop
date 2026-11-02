@@ -63,7 +63,18 @@ def open_slot(user, kind, slot):
     p = slot_files(user, kind).get(slot)
     if p is None:
         raise FileNotFoundError(f"no slot {slot} in {KINDS[kind]}")
-    return SaveModel(p.read_bytes())
+    data = p.read_bytes()
+    # A save the game wrote as a guest in another world has an empty world-state section, which makes
+    # editors read the wrong bytes: edit a copy with minimal blocks in, put the original back on save
+    # (scripts/save_editor.py editor_copy / restore_from_editor).
+    import save_editor
+    try:
+        edited, changed = save_editor.editor_copy(data)
+    except save_editor.SaveFormatError:
+        edited, changed = data, []  # SaveModel below reports a damaged file as before
+    model = SaveModel(edited)
+    model.disk_bytes, model.world_changes = data, changed
+    return model
 
 
 def _stamp():
@@ -129,9 +140,12 @@ def apply_edit(user, kind, slot, model, running, update_party=None):
     path = slot_files(user, kind).get(slot)
     if path is None:
         raise FileNotFoundError(f"no slot {slot}")
-    if path.read_bytes() != model.orig:
+    if path.read_bytes() != getattr(model, "disk_bytes", model.orig):
         raise EditConflict("the save changed on disk since it was opened; open it again")
     new = model.to_bytes()
+    if getattr(model, "world_changes", None):
+        import save_editor
+        new = save_editor.restore_from_editor(new, model.world_changes)
     SaveModel(new)  # the edited file must still parse
     backup = make_backup(user, kind, "before-edit", f"slot={slot}\nname={model.name}")
     tmp = path.with_name(path.name + ".editor-tmp")

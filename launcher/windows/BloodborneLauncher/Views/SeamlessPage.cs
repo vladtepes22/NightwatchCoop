@@ -251,6 +251,9 @@ public sealed class SeamlessPage : LauncherPage
                 var folder = GameEnvironment.UserDir(S); Directory.CreateDirectory(folder);
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
             }), out _));
+        Add(Card(SymbolRegular.ArrowImport24, L.T("Import saves"),
+            L.T("From shadPS4, another Bloodborne port, or a PS4 save exported decrypted (Apollo Save Tool, Save Wizard). You choose single player, multiplayer or both; saves that are replaced are backed up first."),
+            SmallButton(L.T("Import…"), SymbolRegular.FolderArrowRight24, (_, _) => ImportSaves()), out _));
         Add(Card(SymbolRegular.Copy24, L.T("Copy single-player progress into party saves"), L.T("Existing party saves are backed up before replacement."),
             SmallButton(L.T("Copy progress"), SymbolRegular.Copy24, async (_, _) => {
                 if (!Prompt.Confirm(L.T("Copy progress"), L.T("Copy this profile's single-player saves into its party save folder? Existing party progress will be backed up."), L.T("Copy"))) return;
@@ -263,14 +266,6 @@ public sealed class SeamlessPage : LauncherPage
                     if (Prompt.Confirm(L.T("Undo party session"), description, L.T("Restore"))) await SaveAction("undo");
                 } catch (Exception e) { Prompt.Tell(L.T("Party saves"), e.Message); }
             }), out _));
-        Add(Card(SymbolRegular.Save24, L.T("Check party saves"), L.T("Checks save structure and compares progress with the last session snapshot."),
-            SmallButton(L.T("Check"), SymbolRegular.Save24, async (_, _) => await SaveAction("check")), out _));
-        // visy 0.7.3 (scripts/save_editor.py): a save last written as a guest in another world lacks the own
-        // world's state that save editors look for; the export adds it and the import takes it out again.
-        Add(Card(SymbolRegular.ArrowExportUp24, L.T("Export for save editor"), L.T("A copy of one character save that save editors can open. Your save is not changed."),
-            SmallButton(L.T("Export"), SymbolRegular.ArrowExportUp24, async (_, _) => await ExportForEditor()), out _));
-        Add(Card(SymbolRegular.ArrowImport24, L.T("Import from save editor"), L.T("Puts an edited export back into its slot. Your saves are backed up first."),
-            SmallButton(L.T("Import"), SymbolRegular.ArrowImport24, async (_, _) => await ImportFromEditor()), out _));
         // visy 0.7.7 (scripts/party_offline.py): the party-only state is cleaned out of the copy.
         Add(Card(SymbolRegular.Copy24, L.T("Copy party character to offline"), L.T("A party character goes into the same single-player slot, cleaned for offline play. The party save is not changed."),
             SmallButton(L.T("Copy to offline"), SymbolRegular.Copy24, async (_, _) => await CopyPartyToOffline()), out _));
@@ -1282,41 +1277,81 @@ public sealed class SeamlessPage : LauncherPage
         foreach (var (key, label, value) in rows)
             TextRow(SymbolRegular.Settings24, label, PartyInfo(key), value.ToString(), () => Ini.Get(key, value.ToString()), v => Ini.Set(key, v), into, width: 120);
     }
-    private sealed record EditorSave(string kind, int slot, string text, bool guest_written);
-    private sealed record EditorPlan(string kind, int slot, string target, string[] notes);
-
-    private async Task ExportForEditor()
+    /// <summary>Import saves (moved here from the Play page): asks where they go, then copies them in.</summary>
+    private void ImportSaves()
     {
-        try
+        var title = L.T("Import saves");
+        if (Ws.Game.Running) { Prompt.Tell(title, L.T("Close the game first: it has the saves open.")); return; }
+        string? from = null;
+        if (SaveImport.Known(S).FirstOrDefault() is { } found)
         {
-            var saves = System.Text.Json.JsonSerializer.Deserialize<EditorSave[]>(await SeamlessSession.SaveTool(S, "editor-list")) ?? [];
-            if (saves.Length == 0) { Prompt.Tell(L.T("Export for save editor"), L.T("There is no character save yet.")); return; }
-            var choice = Prompt.Choose(L.T("Export for save editor"), L.T("Which character?"), saves.Select(s => s.text).ToArray());
-            if (choice < 0) return;
-            var folder = new Microsoft.Win32.OpenFolderDialog { Title = L.T("A folder for the save editor's copy (an empty folder is best)") };
-            if (folder.ShowDialog() != true) return;
-            var save = saves[choice];
-            Prompt.Tell(L.T("Export for save editor"), await SeamlessSession.SaveTool(S, "editor-export", save.kind, save.slot.ToString(), folder.FolderName) +
-                (save.guest_written ? L.T(" The copy was fixed up for the editor (it was last saved as a guest in another world).") : ""));
+            var choice = Prompt.Choose(title,
+                L.F($"Bloodborne saves found ({found.From}), last saved {found.Saved:d MMM yyyy, HH:mm}:\n{found.Dir}"),
+                L.T("Cancel"), L.T("Choose others…"), L.T("Import these"));
+            if (choice <= 0) return;
+            if (choice == 2) from = found.Dir;
         }
-        catch (Exception e) { Prompt.Tell(L.T("Export for save editor"), e.Message); }
-    }
-    private async Task ImportFromEditor()
-    {
-        try
+        if (from == null)
         {
-            var file = new Microsoft.Win32.OpenFileDialog { Title = L.T("The edited save (exported by the launcher)"), Filter = L.T("Character save|userdata000*|All files|*") };
-            if (file.ShowDialog() != true) return;
-            var plan = System.Text.Json.JsonSerializer.Deserialize<EditorPlan>(await SeamlessSession.SaveTool(S, "editor-check", file.FileName))!;
-            var kind = plan.kind == "party" ? L.T("party save") : L.T("single-player save");
-            var notes = string.Concat(plan.notes.Select(n => "\n- " + n));
-            if (!Prompt.Confirm(L.T("Import from save editor"),
-                    L.F($"Replace slot {plan.slot + 1} of your {kind} ({plan.target}) with the edited file?{notes}\n\nYour current saves are copied to user\\save_backups first."), L.T("Import")))
+            var how = Prompt.Choose(title,
+                L.T("Choose the folder with your saves (another port's whole folder is fine), or a save file: ") +
+                L.T("a .zip of the save, or one of its files (userdata0000)."),
+                L.T("Cancel"), L.T("A folder…"), L.T("A file or .zip…"));
+            if (how <= 0) return;
+            string? folder;
+            if (how == 1) folder = PickFolder(L.T("The folder with your saves (another port's whole folder is fine)"), "");
+            else
+            {
+                var dialog = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = L.T("A save file: a .zip of the save, or one of its files (userdata0000)"),
+                    Filter = L.T("Bloodborne saves (*.zip;userdata*)|*.zip;userdata*|All files|*.*"),
+                };
+                try { folder = dialog.ShowDialog() == true ? SaveImport.FolderOfFile(dialog.FileName) : null; }
+                catch (Exception e) { Prompt.Tell(title, L.T("Could not open that file: ") + e.Message); return; }
+            }
+            if (folder == null) return;
+            if (SaveImport.Find(folder, L.T("chosen folder")).FirstOrDefault() is not { } inside)
+            {
+                Prompt.Tell(title, SaveImport.HasEncryptedPs4Save(folder)
+                    ? L.T("That is a PS4 save as the console copies it to USB: it is encrypted with that PS4's own keys, ") +
+                      L.T("which only the console has, so no PC program can open it.\n\n") +
+                      L.T("Export it decrypted instead: on a jailbroken PS4 with Apollo Save Tool (Copy save game → decrypted, to USB), ") +
+                      L.T("or with Save Wizard for PS4. Then import that folder here.")
+                    : L.T("No Bloodborne saves in that folder or the folders under it (a SPRJ0005 folder with userdata files)."));
                 return;
-            Prompt.Tell(L.T("Import from save editor"), await SeamlessSession.SaveTool(S, "editor-import", file.FileName));
+            }
+            from = inside.Dir;
         }
-        catch (Exception e) { Prompt.Tell(L.T("Import from save editor"), e.Message); }
+        var pick = Prompt.Choose(title, L.T("Where should these saves go?"),
+            L.T("Cancel"), L.T("Single player"), L.T("Multiplayer"), L.T("Both"));
+        if (pick <= 0) return;
+        var where = pick == 1 ? SaveImport.Where.Single : pick == 2 ? SaveImport.Where.Party : SaveImport.Where.Both;
+        var folders = new[] { where != SaveImport.Where.Party ? SaveImport.Target(S) : null, where != SaveImport.Where.Single ? SaveImport.PartyTarget(S) : null }
+            .Where(f => f != null).Select(f => f!).ToList();
+        if (folders.Any(f => string.Equals(Path.GetFullPath(from), Path.GetFullPath(f), StringComparison.OrdinalIgnoreCase)))
+        {
+            Prompt.Tell(title, L.T("Those are already this profile's saves."));
+            return;
+        }
+        var replacing = folders.Any(SaveImport.HasSaves)
+            ? L.T("\n\nWhat is replaced is backed up first (single player: Save backups › Restore…; multiplayer: the save_backups folder).")
+            : "";
+        if (!Prompt.Confirm(title, L.F($"Copy the saves from\n{from}\ninto{PlayerProfiles.Current(S)}'s {(pick == 1 ? L.T("single-player") : pick == 2 ? L.T("multiplayer") : L.T("single-player and multiplayer"))} saves?{replacing}"), L.T("Import")))
+            return;
+        try
+        {
+            SaveImport.Import(S, from, where);
+            Ws.Log(L.F($"Saves imported from {from}."), LogLevel.Good);
+            Prompt.Tell(L.T("Saves imported"), L.T("Start the game and choose Continue or Load Game."));
+        }
+        catch (Exception e)
+        {
+            Ws.Log(L.T("Could not import the saves: ") + e.Message, LogLevel.Bad);
+            Prompt.Tell(title, L.T("Could not import: ") + e.Message);
+        }
     }
+
     private sealed record OfflineCharacter(int slot, string name, int level, string? replaces);
 
     private async Task CopyPartyToOffline()

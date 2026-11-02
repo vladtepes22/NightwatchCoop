@@ -2491,5 +2491,14 @@
   "Party frame cost log (freezes in a party)": "队伍帧耗时日志（组队时卡顿）",
   "For reports of freezes or stutter in a party: every 10 s, how long the party code took per frame (typical and worst), by part, plus any single step over 1 ms. Use with the frame stats of the game log.": "用于报告组队时的停顿或卡顿：每 10 秒按模块记录队伍代码每帧的耗时（典型值和最大值），并记录任何超过 1 毫秒的单个步骤。请配合游戏日志中的帧统计使用。",
   "Background save writes (experimental)": "后台写入存档（实验性）",
-  "May reduce the freezes of a few seconds some guests see when the game saves. Closing a save file hands the flush to disk and the rename to a background thread, so a slow or synced save folder cannot freeze the game for seconds. Experimental. Restart required.": "可能减少部分客人在游戏保存时遇到的数秒停顿。关闭存档文件时，将磁盘刷新和重命名操作交给后台线程，避免速度较慢或正在同步的存档文件夹导致游戏停顿数秒。实验性功能。需要重启游戏。"
+  "May reduce the freezes of a few seconds some guests see when the game saves. Closing a save file hands the flush to disk and the rename to a background thread, so a slow or synced save folder cannot freeze the game for seconds. Experimental. Restart required.": "可能减少部分客人在游戏保存时遇到的数秒停顿。关闭存档文件时，将磁盘刷新和重命名操作交给后台线程，避免速度较慢或正在同步的存档文件夹导致游戏停顿数秒。实验性功能。需要重启游戏。",
+  "Where should these saves go?": "这些存档要放到哪里？",
+  "Multiplayer": "多人游戏",
+  "Both": "两者",
+  "single-player": "单人",
+  "multiplayer": "多人游戏",
+  "single-player and multiplayer": "单人和多人游戏",
+  "From shadPS4, another Bloodborne port, or a PS4 save exported decrypted (Apollo Save Tool, Save Wizard). You choose single player, multiplayer or both; saves that are replaced are backed up first.": "从 shadPS4、其他 Bloodborne 移植版，或已解密导出的 PS4 存档 (Apollo Save Tool、Save Wizard) 导入。可选择单人、多人游戏或两者；被替换的存档会先备份。",
+  "\n\nWhat is replaced is backed up first (single player: Save backups › Restore…; multiplayer: the save_backups folder).": "\n\n被替换的存档会先备份（单人：“存档备份 › 恢复…”；多人游戏：save_backups 文件夹）。",
+  "Copy the saves from\n{0}\ninto {1}'s {2} saves?{3}": "要将以下位置的存档\n{0}\n复制到配置 {1} 的{2}存档中吗？{3}"
 }
