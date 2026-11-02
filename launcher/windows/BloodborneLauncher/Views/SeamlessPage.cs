@@ -37,14 +37,12 @@ public sealed class SeamlessPage : LauncherPage
         _checkBanner = CheckBanner();
         _checkPanel.Children.Add(_checkBanner);
         var host = Rows(Hosting);
-        var hostRowsBefore = host.Children.Count;
         _hostMode = (Segmented)ComboRow(SymbolRegular.People24, L.T("Party type"), null,
             new[] { new Choice(L.T("Nightwatch Online"), "1"), new Choice(L.T("UPnP/VPN/LAN"), "0") },
             () => IsPublic ? "1" : "0", ChangeHostMode, host,
             enabled: c => c.Value != "1" || NightwatchVpn.Shipped != null || _previewPublic != null, buttons: true);
-        // The UPnP/VPN/LAN party type is gone (user, 2 Nov): Nightwatch Online is the only type, so its row is not shown.
-        if (host.Children.Count > hostRowsBefore) host.Children[host.Children.Count - 1].Visibility = Visibility.Collapsed;
-        host.Children.Add(VpnBar());  // the VPN and the connection check sit right above the password
+        _hostVpnBar = VpnBar();  // hidden in the UPnP/VPN/LAN type: no Nightwatch VPN controls there (user, 2 Nov)
+        host.Children.Add(_hostVpnBar);  // the VPN and the connection check sit right above the password
         host.Children.Add(_hostChecks);
         _hostPassword = PasswordRow(host, () => S.PartyPassword, v => { S.PartyPassword = v; UpdateInvite(); },
             L.T("Optional. Without a password, anyone who sees the party can join."), L.T("Password (optional)"));
@@ -115,7 +113,7 @@ public sealed class SeamlessPage : LauncherPage
         if (NightwatchVpn.Shipped != null)
         {
             _vpnButton = SmallButton(L.T("Connect"), SymbolRegular.Globe24, async (_, _) => await ToggleVpn());
-            Add(Card(SymbolRegular.Globe24, L.T("Connection"),
+            _vpnConnRow = Add(Card(SymbolRegular.Globe24, L.T("Connection"),
                 L.T("Needs OpenVPN. The first Connect makes a personal key that stays on this PC, encrypted for your Windows user, and asks the Nightwatch VPN server for a certificate. Nobody registers. Closing the launcher ends the connection."),
                 VpnControl(), out _vpnHint), network);
         }
@@ -317,7 +315,7 @@ public sealed class SeamlessPage : LauncherPage
     private readonly Wpf.Ui.Controls.TextBox _searchBox;
     private bool _changingHost;
     private readonly bool? _previewPublic;
-    private bool IsPublic => _previewPublic ?? NightwatchVpn.Shipped != null;
+    private bool IsPublic => _previewPublic ?? (NightwatchVpn.Shipped != null && S.Str("party_host_public") != "0");
 
     private PasswordBox _joinPassword = null!, _hostPassword = null!;
     private System.Windows.Controls.ComboBox _hostSize = null!;
@@ -448,7 +446,7 @@ public sealed class SeamlessPage : LauncherPage
     /// <summary>Nightwatch Online is the default party type until the player picks one.</summary>
     private void DefaultHostType()
     {
-        if (_previewPublic == null && NightwatchVpn.Shipped != null && S.Str("party_host_public") != "1") SetHostType(true);
+        if (_previewPublic == null && NightwatchVpn.Shipped != null && S.Str("party_host_public").Length == 0) SetHostType(true);
     }
 
     /// <summary>The pointer to the Fix button, shown when Play finds Nightwatch Online without the VPN.</summary>
@@ -724,6 +722,10 @@ public sealed class SeamlessPage : LauncherPage
             ui.Ring.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
             SetHint(ui.Note, note);
         }
+        // Hosting a UPnP/VPN/LAN party: no Nightwatch VPN connect / disconnect / uninstall controls (the Join side keeps its own).
+        var lanHost = S.Str("party_mode") == "host" && !IsPublic;
+        if (lanHost) _hostVpnBar.Visibility = Visibility.Collapsed;
+        if (_vpnConnRow != null) _vpnConnRow.Visibility = lanHost ? Visibility.Collapsed : Visibility.Visible;
         if (_vpnButton == null || _vpnHint == null) return;
         // A tunnel of ours from before this launcher started (a crash) belongs to whoever closes it next.
         if (up && !NightwatchVpn.OwnedHere && !_vpn.Busy && File.Exists(NightwatchVpn.ProfilePath)) NightwatchVpn.TryOwn();
@@ -917,6 +919,8 @@ public sealed class SeamlessPage : LauncherPage
     private bool _publicLooking;
     private readonly System.Windows.Controls.ComboBox _vpnPick;
     private readonly FrameworkElement _vpnPickRow;
+    private readonly Border _hostVpnBar;
+    private FrameworkElement? _vpnConnRow;
     private bool _syncingVpn;
     private IReadOnlyList<NetAdapter> _adapters = Array.Empty<NetAdapter>();
     private Route _route = Route.None;

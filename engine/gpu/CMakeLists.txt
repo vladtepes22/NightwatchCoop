@@ -251,7 +251,7 @@ add_library(bbgpu ${BBGPU_LIBRARY_TYPE} ${VIDEO_CORE} ${RECOMPILER} ${COMMON} ${
 target_sources(bbgpu PRIVATE third_party/monocypher/monocypher.c)
 file(GLOB_RECURSE BB_ID_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*.h ../src/*.c ../src/*.h)
 # The co-op mod's version: in the party build id (host and guests must match) and in the log.
-# Read whole from the repo's VERSION file (0.2.6-beta.5), so the lobby can tell betas apart; a change there reconfigures the build.
+# Read whole from the repo's VERSION file (0.2.6-beta.6), so the lobby can tell betas apart; a change there reconfigures the build.
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION" BB_VERSION_FULL LIMIT_COUNT 1)
 set(BB_COOP_VERSION "${BB_VERSION_FULL}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION")
