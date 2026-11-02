@@ -108,6 +108,16 @@ int LotRowPick(const LotSlot (&slots)[8], float cumulate_frac, float discovery, 
 std::uint32_t LotRowWeights(const LotSlot (&slots)[8], float cumulate_frac, float discovery,
                             std::uint32_t (&weights)[8]);
 
+/// 0.7.8 (CL-a6a2a7): a shared drop whose enemy died farther than this from the local player is not
+/// left as a pile (invisible, out of reach, in an unstreamed spot): its goods are paid straight into the
+/// inventory with a party notice. BB_PARTY_FAR_DROP=0 turns it off (the pile as before).
+constexpr float kFarDropM = 60.0f;
+constexpr bool FarDrop(float dist_m, float limit_m = kFarDropM) { return dist_m > limit_m; }
+/// The notice text: "<item> x3 (party drop)" (no count for one).
+std::string FarDropText(const std::string& item, int count);
+/// BB_PARTY_FAR_DROP: default on, "0" off.
+bool FarDropFromEnv(const char* v);
+
 #ifndef BB_PARTY_DROPROLL_NO_GAME
 /// Once, from worldact::Init (party mode): the roll hook (replaces the old log-only hook).
 void Init(bool log_rolls);

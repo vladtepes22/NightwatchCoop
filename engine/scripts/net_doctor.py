@@ -295,6 +295,16 @@ def parse(path):
     return lg
 
 
+def coop_at_least(coop, wanted):
+    """True when a co-op version string ("0.7.7+e3169e38", "v0.7.6") is at least `wanted` ("0.7.6").
+    False when the version is unknown, so advice gated on "fixed in X" is only dropped on evidence."""
+    def num(v):
+        m = re.match(r"v?(\d+(?:\.\d+)*)", (v or "").strip())
+        return tuple(int(x) for x in m.group(1).split(".")) if m else None
+    have, need = num(coop), num(wanted)
+    return bool(have and need and have >= need)
+
+
 def hide(ip, _show=None):
     return "?" if ip is None else ip
 
@@ -436,12 +446,13 @@ def diagnose(logs, show_ips):
         who = l.name or l.path.name
         for peer, local_used, _game in l.punch_local:
             if l.local and local_used == l.local:
+                newer = "" if coop_at_least(l.coop, "0.7.5") else " Co-op 0.7.5 and newer fix the remaining case."
                 add(1, f"**{who}'s game thinks {peer} is at {who}'s own address** ({hide(local_used, show_ips)}), "
                        f"so it ends up talking to itself and drops out.",
                     f"Every player checks `BB_PARTY_LOCAL_IP`: press the Windows key, type `cmd`, Enter, then "
                     f"type `echo %BB_PARTY_LOCAL_IP%` and Enter. It must print that player's OWN VPN address "
                     f"(shown in the VPN app). If not, set it with `setx BB_PARTY_LOCAL_IP <own VPN address>`, close "
-                    f"the window, restart the launcher (or the PC). Co-op 0.7.5 and newer fix the remaining case.")
+                    f"the window, restart the launcher (or the PC)." + newer)
                 break
             other = by_name.get(peer)
             if other and other.local and local_used != other.local and not is_vpn_ip(local_used) and \
@@ -504,11 +515,13 @@ def diagnose(logs, show_ips):
             add(2, f"**{who}'s connection to the host keeps dying** ({l.no_traffic} reconnects).",
                 "Usually a weak link: phone hotspot, Wi-Fi far from the router, a relayed VPN. Try a cable, "
                 "or a different VPN.")
-        if l.lan_fallback:
+        if l.lan_fallback and not l.connected and not (host and host.in_world.get(l.name)) and \
+                not coop_at_least(l.coop, "0.7.6"):
+            # the fallback search found the host: only an old build that still did not get in has a wrong-address problem
             found, reports = l.lan_fallback
             add(4, f"{who}'s LAN code pointed at the wrong address; the game found the host at "
                    f"{hide(found, show_ips)} by searching (the host advertised {hide(reports, show_ips)}).",
-                "Fixed in co-op 0.7.6. Until then the host sets `BB_PARTY_LOCAL_IP` to its VPN address (Windows "
+                "Fixed in co-op 0.7.6: update. Until then the host sets `BB_PARTY_LOCAL_IP` to its VPN address (Windows "
                 "key, `cmd`, `setx BB_PARTY_LOCAL_IP <VPN address>`, close the window, restart the launcher).")
 
     # Hole punching
@@ -553,10 +566,11 @@ def diagnose(logs, show_ips):
     # Not network, but blocks joining
     for l in logs:
         if l.prologue_last and l.role == "host":
+            fixed = coop_at_least(l.coop, "0.7.6")
             add(1, f"**Not network: {l.prologue_last[0]} counts as still in the prologue**, so no summons "
-                   f"happen. After an ending (NG+) this is a known bug, fixed in co-op 0.7.6.",
+                   f"happen. After an ending (NG+) this is a known bug" + ("." if fixed else ", fixed in co-op 0.7.6."),
                 setx_steps(l.prologue_last[0], "BB_PARTY_START", "immediate",
-                           "until co-op 0.7.6, skip the prologue check: ") +
+                           "skip the prologue check: " if fixed else "until co-op 0.7.6, skip the prologue check: ") +
                 "\n   In a first playthrough, finish the first Hunter's Dream visit (take a weapon) instead.")
             break
     ngs = {l.name or l.path.name: l.ng for l in logs if l.ng is not None}

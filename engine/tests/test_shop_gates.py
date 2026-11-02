@@ -45,5 +45,17 @@ class ShopGateSync(unittest.TestCase):
         self.assertEqual(spec[70009290][0], "never_sync")
 
 
+class BadgeRowsStayPerPlayer(unittest.TestCase):
+    """0.7.8: the Bath Messenger's badge rows (m21 ev 12101000 slot n = own badge goods 4110+n, e.g. 12101008 =
+    Tonitrus / Bolt Paper after the Spark Hunter Badge) and the Eye sale never travel between players."""
+
+    def test_rows_and_eye_sale_are_never_sync(self):
+        rows = ft.load_inc(str(REPO / "gpu" / "shim" / "party" / "party_flags.inc"))
+        for flag in list(range(12101000, 12101010)) + [12101100, 12101101]:
+            self.assertEqual(ft.categorize(rows, flag)[0], "never_sync", flag)
+        # the neighbours stay shared: 12101010 sets the time-of-day shop flags 5900-5904
+        self.assertEqual(ft.categorize(rows, 12101010)[0], "npc_quest")
+
+
 if __name__ == "__main__":
     unittest.main()

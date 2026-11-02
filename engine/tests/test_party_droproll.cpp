@@ -189,6 +189,14 @@ static void test_switch() {
     CHECK(!SharedRollFromEnv("0"));
 }
 
+static void test_far_drop() {
+    CHECK(!FarDrop(0.0f) && !FarDrop(kFarDropM) && FarDrop(kFarDropM + 0.5f) && FarDrop(400.0f));
+    CHECK(FarDropText("Blood Rock", 1) == "Blood Rock (party drop)");
+    CHECK(FarDropText("Blood Rock", 3) == "Blood Rock x3 (party drop)");
+    CHECK(FarDropText("", 2) == "Item x2 (party drop)");
+    CHECK(FarDropFromEnv(nullptr) && FarDropFromEnv("1") && !FarDropFromEnv("0"));
+}
+
 int main() {
     test_seed_shared();
     test_seed_varies();
@@ -197,6 +205,7 @@ int main() {
     test_switch();
     test_discovery_per_player();
     test_discovery_switch();
+    test_far_drop();
     std::printf("party-droproll-test: %d checks, %d failures\n", g_checks, g_failures);
     // pard3: a kill before the guest's world is up rolls nothing on the guest.
     CHECK(coop::droproll::DropRollBeforeArrival(false, false, 0x18000000u));

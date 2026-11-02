@@ -566,6 +566,28 @@ void SetLocalFlagSetObserver(LocalFlagSetObserver fn);
 bool AddLocalFlagSetObserver(LocalFlagSetObserver fn);
 /// Whether the SetEventFlag hook that feeds it is installed.
 bool LocalFlagSetHooked();
+
+// ---- who wrote a Messenger badge row (0.7.8) ----
+/// The badge lineup flags 12101000-12101009 keep a short history of their writers (always on; only these ten
+/// ids are looked at, so the hooks pay one range check): the SetEventFlag / SetEventFlagValue / CompleteEvent
+/// hooks (with the game return addresses), the EMEVD event end hook (event id + slot), a peer's packet 0x31
+/// (party_guestsvc), the progress writes. The badge guard (party_items) puts it into its log line.
+bool IsBadgeRowFlag(u32 id);
+/// Records `what` (any thread) as the latest writer of badge row flag `id`; ignored for other ids.
+void NoteBadgeRowWrite(u32 id, const char* what);
+/// "<age> s ago: <what>; ..." for the last writes of `id` (newest first), or "unknown" when none was seen this run.
+std::string BadgeRowWriters(u32 id);
+/// Names who a SetEventFlag on this thread comes from while alive (party code that calls the game's
+/// SetEventFlag itself, so the hook can tell it from the game's own EMEVD).
+class FlagCause {
+public:
+    explicit FlagCause(const char* what);
+    ~FlagCause();
+    FlagCause(const FlagCause&) = delete;
+    FlagCause& operator=(const FlagCause&) = delete;
+private:
+    const char* prev_;
+};
 /// Called on the main thread at each steady load (load mode 0 or 1) right before any host flag
 /// is applied there (C3's ledger seeding). nullptr unregisters.
 using BeforeApplyHook = void (*)();
