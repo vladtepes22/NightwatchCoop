@@ -61,6 +61,8 @@ def make_save(name="Alfred", stats=(10, 11, 12, 13, 14, 15), echoes=500, insight
     d[NAME_AT + M.FACE_BEHIND_NAME:NAME_AT + M.FACE_BEHIND_NAME + 4] = b"FACE"
     d[M.SLOT_SIZE - 4:] = b""  # the end of a real save is data, not zeros
     put_item(d, n, 0, 0x80800010, 22000300, 1, 7)  # a +3 weapon
+    d[M.GA_START:M.GA_START + 60] = (struct.pack("<5I", 0x80800010, 22000300, M.GEAR_DURABILITY, 0, 1)
+                                     + struct.pack("<2I", M.NO_SLOT, 0) * 5)  # its instance record
     put_item(d, n, 1, 0xB0000064, 0x40000064, 5, 100)  # goods 100 x5
     put_item(d, n, 2, 0xB0000584, 0x40000584, 2, 101)
     struct.pack_into("<I", d, n, 3)
@@ -165,7 +167,14 @@ def test_inventory_edit_remove_levels():
     w = items[0]
     valid = {22000000 + 100 * k for k in range(11)}
     m.set_weapon_level(w, 10, valid)
-    assert M.SaveModel(m.to_bytes()).items((0,))[0].number == 22001000
+    back = M.SaveModel(m.to_bytes())
+    assert back.items((0,))[0].number == 22001000
+    assert back.u32(back._ga_record(w.handle) + 4) == 22001000  # the instance record follows the inventory entry
+    lost = M.SaveModel(make_save())
+    lost.d[M.GA_START:M.GA_START + 60] = bytes(60)  # no instance record: refused, nothing written
+    with pytest.raises(ValueError):
+        lost.set_weapon_level(lost.items((0,))[0], 10, valid)
+    assert lost.items((0,))[0].number == 22000300
     with pytest.raises(ValueError):
         m.set_weapon_level(w, 12, valid)  # no param row
     with pytest.raises(ValueError):
