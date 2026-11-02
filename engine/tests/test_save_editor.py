@@ -139,3 +139,4 @@ def test_fixture_export_reads_in_the_editor(tmp_path):
     put(user, "party", 0, guest)
     f = se.export_save(user, "party", 0, tmp_path / "export2")
     assert ec.parse(f.read_bytes())["problems"] == [] and se.check_import(user, f)["data"] == guest
+

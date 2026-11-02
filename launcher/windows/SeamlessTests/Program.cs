@@ -658,6 +658,32 @@ PartyCodeTests.Run();
 SaveEditorTests.Run();
 CoopSetupTests.Run();
 VpnTests.Run();
+{
+    // Import saves: single player, multiplayer or both; a replaced party save is backed up (temporary user folder only).
+    var tmp = Path.Combine(Path.GetTempPath(), "nw-import-" + Guid.NewGuid().ToString("N"));
+    var src = Path.Combine(tmp, "from", "SPRJ0005");
+    Directory.CreateDirectory(src);
+    File.WriteAllText(Path.Combine(src, "userdata0000"), "new");
+    File.WriteAllText(Path.Combine(src, "userdata0010"), "slots");
+    var imp = new LauncherSettings();
+    imp.Set("user_dir", Path.Combine(tmp, "user"));
+    var solo = SaveImport.Target(imp);
+    var party = SaveImport.PartyTarget(imp);
+    Check(solo.Contains("savedata") && !solo.Contains("savedata_party") && party.Contains("savedata_party"), "Import targets are mixed up");
+    SaveImport.Import(imp, src, SaveImport.Where.Party);
+    Check(File.ReadAllText(Path.Combine(party, "userdata0000")) == "new" && !Directory.Exists(solo), "A multiplayer import touched single player or missed the party folder");
+    File.WriteAllText(Path.Combine(src, "userdata0000"), "newer");
+    SaveImport.Import(imp, src, SaveImport.Where.Both);
+    Check(File.ReadAllText(Path.Combine(party, "userdata0000")) == "newer" && File.ReadAllText(Path.Combine(solo, "userdata0000")) == "newer", "An import to both missed a folder");
+    var backups = Path.Combine(imp.Str("user_dir"), "save_backups", "savedata_party");
+    Check(Directory.Exists(backups) && Directory.GetFiles(backups, "userdata0000", SearchOption.AllDirectories).Any(f => File.ReadAllText(f) == "new"),
+          "A replaced party save was not backed up");
+    File.Delete(Path.Combine(src, "userdata0010"));
+    var refused = false;
+    try { SaveImport.Import(imp, src, SaveImport.Where.Party); } catch (IOException) { refused = true; }
+    Check(refused, "An incomplete save (no slot file) was imported");
+    Directory.Delete(tmp, recursive: true);
+}
 Console.WriteLine("PASS: host/join validation, party codes against the engine's, start-up rules, VPN route, party discovery, password, save isolation, rule settings, base renderer options, package updates and the map's input with an update");
 
 [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]

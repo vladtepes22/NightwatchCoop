@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 
 namespace BloodborneLauncher.Core
@@ -133,16 +134,45 @@ namespace BloodborneLauncher.Core
             return Walk(root, depth);
         }
 
-        /// <summary>Copies a save folder's files in as the current profile's saves, after backing up
-        /// what is there.</summary>
-        public static void Import(LauncherSettings s, string from)
+        /// <summary>Where an import goes: the single-player saves, the party (multiplayer) saves, or both.</summary>
+        public enum Where { Single, Party, Both }
+
+        /// <summary>Where the current profile's party saves go (the engine's savedata_party, same layout).</summary>
+        public static string PartyTarget(LauncherSettings s) =>
+            Path.Combine(GameEnvironment.UserDir(s), "savedata_party", "1", GameId(s), SaveDir);
+
+        /// <summary>Copies a save folder's files in as the current profile's saves (single-player, party or both), after
+        /// backing up what is there.</summary>
+        public static void Import(LauncherSettings s, string from, Where where = Where.Single)
         {
             if (!HasSaves(from)) throw new IOException(L.T("That folder has no Bloodborne save files (userdata)."));
             if (!IsComplete(from))
                 throw new IOException(L.F($"That save is incomplete: it has no {SlotFile}, the file the game needs to find the ") +
                                       L.T("save slots (importing it would make the game crash). Import the whole SPRJ0005 folder."));
-            SaveBackups.Create(s, beforeRestore: true);
-            var target = Target(s);
+            if (where != Where.Party)
+            {
+                SaveBackups.Create(s, beforeRestore: true);
+                CopyInto(Target(s), from);
+            }
+            if (where != Where.Single)
+            {
+                var target = PartyTarget(s);
+                var party = Path.Combine(GameEnvironment.UserDir(s), "savedata_party");
+                if (HasSaves(target))
+                {
+                    // The same place and name style the party tools use for a replaced party save.
+                    var backup = Path.Combine(GameEnvironment.UserDir(s), "save_backups", "savedata_party",
+                        DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "-replaced-by-import");
+                    Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+                    SaveBackups.Copy(party, backup);
+                }
+                CopyInto(target, from);
+            }
+        }
+
+        private static void CopyInto(string target, string from)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             // Copied next to it first, so a failed copy leaves the current saves in place. Only the
             // save files: shadPS4's sce_sys folder inside is its own bookkeeping.
             var staging = target + ".importing";

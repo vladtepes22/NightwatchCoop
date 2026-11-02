@@ -609,3 +609,23 @@ def test_a_lamp_is_all_its_flags():
     for x in F.lamp_group(72410200):
         m.set_flag(x, True)
     assert all(M.SaveModel(m.to_bytes()).flag(x) for x in F.lamp_group(72410200))
+
+
+def test_guest_written_save_is_edited_through_a_repaired_copy(user):
+    """A save the game wrote as a guest has an empty world-state section: the editor works on a copy with the
+    blocks in and writes the game's own empty section back (scripts/save_editor.py), with no export / import step."""
+    import save_editor as se
+    d = bytearray(make_save("Gwen"))
+    struct.pack_into("<6I", d, 0x3C, 0x200, 12, 0x20C, 12, 0x20C, 16)  # a header save_editor.layout accepts
+    guest = bytes(d)
+    assert se.world_empty(guest)
+    path = S.slot_files(user, "party")[0]
+    path.write_bytes(guest)
+    model = S.open_slot(user, "party", 0)
+    assert not se.world_empty(model.orig) and model.world_changes
+    model.set_echoes(777)
+    S.apply_edit(user, "party", 0, model, not_running)
+    after = path.read_bytes()
+    assert se.world_empty(after) and S.open_slot(user, "party", 0).echoes == 777
+    diff = [i for i, (a, b) in enumerate(zip(guest, after)) if a != b]
+    assert 0 < len(diff) <= 4  # only the echoes changed; the game's own empty section is back

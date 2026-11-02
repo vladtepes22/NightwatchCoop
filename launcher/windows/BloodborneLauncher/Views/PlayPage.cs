@@ -190,10 +190,6 @@ namespace BloodborneLauncher.Views
                     Paths.OpenFolder(SaveBackups.Folder(S));
                 }),
                 backupToggle), out _backupHint));
-            Add(Card(SymbolRegular.ArrowImport24, L.T("Import saves"),
-                L.T("From shadPS4, another Bloodborne port, or a PS4 save exported decrypted (Apollo Save Tool, Save Wizard). This profile's saves are backed up first"),
-                SmallButton(L.T("Import…"), SymbolRegular.FolderArrowRight24, (_, _) => ImportSaves()), out _));
-
             ComboRow(SymbolRegular.LocalLanguage24, L.T("In-game menu language"), L.T("The port's settings menu (Insert or L3 + R3)"),
                 Choices.MenuLanguages, () => Ini.Get("menu_language", "en"), v => Ini.Set("menu_language", v));
 
@@ -487,86 +483,6 @@ namespace BloodborneLauncher.Views
                 menu.Items.Add(item);
             }
             menu.IsOpen = true;
-        }
-
-        private void ImportSaves()
-        {
-            if (Ws.Game.Running)
-            {
-                Prompt.Tell(L.T("Import saves"), L.T("Close the game first: it has the saves open."));
-                return;
-            }
-            string? from = null;
-            if (SaveImport.Known(S).FirstOrDefault() is { } found)
-            {
-                var choice = Prompt.Choose(L.T("Import saves"),
-                    L.F($"Bloodborne saves found ({found.From}), last saved {found.Saved:d MMM yyyy, HH:mm}:\n{found.Dir}"),
-                    L.T("Cancel"), L.T("Choose others…"), L.T("Import these"));
-                if (choice <= 0) return;
-                if (choice == 2) from = found.Dir;
-            }
-            if (from == null)
-            {
-                var how = Prompt.Choose(L.T("Import saves"),
-                    L.T("Choose the folder with your saves (another port's whole folder is fine), or a save file: ") +
-                    L.T("a .zip of the save, or one of its files (userdata0000)."),
-                    L.T("Cancel"), L.T("A folder…"), L.T("A file or .zip…"));
-                if (how <= 0) return;
-                string? folder;
-                if (how == 1)
-                {
-                    folder = PickFolder(L.T("The folder with your saves (another port's whole folder is fine)"), "");
-                }
-                else
-                {
-                    var dialog = new Microsoft.Win32.OpenFileDialog
-                    {
-                        Title = L.T("A save file: a .zip of the save, or one of its files (userdata0000)"),
-                        Filter = L.T("Bloodborne saves (*.zip;userdata*)|*.zip;userdata*|All files|*.*"),
-                    };
-                    try { folder = dialog.ShowDialog() == true ? SaveImport.FolderOfFile(dialog.FileName) : null; }
-                    catch (Exception e)
-                    {
-                        Prompt.Tell(L.T("Import saves"), L.T("Could not open that file: ") + e.Message);
-                        return;
-                    }
-                }
-                if (folder == null) return;
-                if (SaveImport.Find(folder, L.T("chosen folder")).FirstOrDefault() is not { } inside)
-                {
-                    Prompt.Tell(L.T("Import saves"), SaveImport.HasEncryptedPs4Save(folder)
-                        ? L.T("That is a PS4 save as the console copies it to USB: it is encrypted with that PS4's own keys, ") +
-                          L.T("which only the console has, so no PC program can open it.\n\n") +
-                          L.T("Export it decrypted instead: on a jailbroken PS4 with Apollo Save Tool (Copy save game → decrypted, to USB), ") +
-                          L.T("or with Save Wizard for PS4. Then import that folder here.")
-                        : L.T("No Bloodborne saves in that folder or the folders under it (a SPRJ0005 folder with userdata files)."));
-                    return;
-                }
-                from = inside.Dir;
-            }
-            var target = SaveImport.Target(S);
-            if (string.Equals(Path.GetFullPath(from), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
-            {
-                Prompt.Tell(L.T("Import saves"), L.T("Those are already this profile's saves."));
-                return;
-            }
-            var replacing = SaveImport.HasSaves(target)
-                ? L.T("\n\nThis profile's current saves are backed up first: Save backups › Restore… brings them back.")
-                : "";
-            if (!Prompt.Confirm(L.T("Import saves"), L.F($"Copy the saves from\n{from}\ninto {PlayerProfiles.Current(S)}'s saves?{replacing}"), L.T("Import")))
-                return;
-            try
-            {
-                SaveImport.Import(S, from);
-                Ws.Log(L.F($"Saves imported from {from}."), LogLevel.Good);
-                Prompt.Tell(L.T("Saves imported"), L.T("Start the game and choose Continue or Load Game."));
-            }
-            catch (Exception e)
-            {
-                Ws.Log(L.T("Could not import the saves: ") + e.Message, LogLevel.Bad);
-                Prompt.Tell(L.T("Import saves"), L.T("Could not import: ") + e.Message);
-            }
-            Refresh();
         }
 
         private void RestoreBackup(SaveBackups.Backup backup)
