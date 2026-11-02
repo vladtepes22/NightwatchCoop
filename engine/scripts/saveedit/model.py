@@ -325,8 +325,10 @@ class SaveModel:
         new = base + 100 * int(level)
         if new not in valid_ids:
             raise ValueError(f"this weapon has no level {level}")
+        record = self._ga_record(item.handle)  # the game reads the id from here too; checked before anything is written
         o = self._item_off(item)
         self._put(o + 4, (0 << 28) | new)
+        self._put(record + 4, new)
         item.iid = new
 
     # --- adding items --------------------------------------------------------------------------------------
@@ -377,6 +379,23 @@ class SaveModel:
             top = max(top, struct.unpack_from("<H", self.d, o)[0])
             o += GA_SIZES[kind]
         return first, top
+
+    def _ga_record(self, handle):
+        """Offset of the instance table record with this handle (a weapon or armour piece)."""
+        o = GA_START
+        for _ in range(GA_SLOTS):
+            if o + 8 > self.name_at:
+                break
+            kind = self.d[o + 3]
+            if kind == 0:
+                o += 8
+                continue
+            if kind not in GA_SIZES:
+                break
+            if self.u32(o) == handle:
+                return o
+            o += GA_SIZES[kind]
+        raise ValueError("the weapon is not in the item instance table")
 
     def add_gear(self, category, number):
         """A weapon (category 0) or armour piece (1) with five closed gem slots. The caller validates the id."""
