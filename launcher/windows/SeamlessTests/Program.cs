@@ -125,6 +125,17 @@ Check(env["BB_UPSCALER"] == "dlss" && env["BB_HDR"] == "1" && env["BB_DRAW_AHEAD
 // variable would undo an in-game change at the next start. Only the launcher's own switches go out.
 Check(!env.ContainsKey("BB_PARTY_ITEMS") && !env.ContainsKey("BB_PARTY_PROGRESS") && !env.ContainsKey("BB_PARTY_GUEST_INSIGHT") && !env.ContainsKey("BB_PARTY_RENDEZVOUS")
       && env["BB_PARTY_RESTART"] == "1", "The game's co-op switches were passed as variables, or the restart switch is missing");
+var debugSettings = new LauncherSettings();
+var debugEnv = GameEnvironment.Build(debugSettings);
+Check(debugEnv["BB_BOSS_LOG"] == "0" && debugEnv["BB_PARTY_PERF"] == "0", "New diagnostic logs must default off");
+debugSettings.Set("boss_log", true);
+debugSettings.Set("party_perf", true);
+debugEnv = GameEnvironment.Build(debugSettings);
+Check(debugEnv["BB_BOSS_LOG"] == "1" && debugEnv["BB_PARTY_PERF"] == "1", "Enabled diagnostic logs missing");
+Check(!debugEnv.ContainsKey("BB_PARTY_GLYPH_LIST") && !debugEnv.ContainsKey("BB_SAVE_COMMIT_ASYNC"),
+    "INI switches must not be overridden by launcher variables");
+Check(!SeamlessSettings.OwnSwitches.Contains("party_glyph_list") &&
+    !SeamlessSettings.StartupRules.Any(o => o.Key == "party_glyph_list"), "Glyph list must stay outside save and host start-up rules");
 var moveSettings = new LauncherSettings();
 moveSettings.Set("party_items", false);
 moveSettings.Set("party_story", true);

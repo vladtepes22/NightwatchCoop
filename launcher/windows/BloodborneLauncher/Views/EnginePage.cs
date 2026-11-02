@@ -60,6 +60,9 @@ namespace BloodborneLauncher.Views
                 L.T("New is the current engine. Legacy runs it the way 0.9.33 did: try it if the game crashes or draws something wrong"),
                 EnginePreset.Choices, () => EnginePreset.Current(S), v => EnginePreset.Apply(S, v), changed: SyncFeatures);
             var exp = Advanced(L.T("Experimental engine features"));
+            ToggleRow(SymbolRegular.Storage24, L.T("Background save writes (experimental)"),
+                L.T("May reduce the freezes of a few seconds some guests see when the game saves. Closing a save file hands the flush to disk and the rename to a background thread, so a slow or synced save folder cannot freeze the game for seconds. Experimental. Restart required."),
+                () => Ini.Get("save_commit_async", "0") == "1", v => Ini.Set("save_commit_async", v ? "1" : "0"), exp);
             SettingToggle(SymbolRegular.Code24, L.T("Legacy shader compiler"),
                 L.T("Off by default: the native compiler reads constant data through the GPU's constant cache. On compiles the game's shaders the way 0.9.33 did: try it if something draws wrong. Switching recompiles every shader once"),
                 "legacy_shaders", exp);
@@ -121,6 +124,10 @@ namespace BloodborneLauncher.Views
             }
 
             Group(L.T("Diagnostics"));
+            SettingToggle(SymbolRegular.TextBulletListSquare24, L.T("Boss log (stuck or ignoring bosses)"),
+                L.T("Logs a boss's position, animation, health and the nearest player every 10 s while a boss bar is up, for reports of a boss that stands still or ignores a player in a party. The \"may be stuck\" line is always logged."), "boss_log");
+            SettingToggle(SymbolRegular.TextBulletListSquare24, L.T("Party frame cost log (freezes in a party)"),
+                L.T("For reports of freezes or stutter in a party: every 10 s, how long the party code took per frame (typical and worst), by part, plus any single step over 1 ms. Use with the frame stats of the game log."), "party_perf");
             SettingToggle(SymbolRegular.TextBulletListSquare24, L.T("Frame statistics in the log"), "BB_FRAME_STATS", "frame_stats");
             SettingToggle(SymbolRegular.DeveloperBoard24, L.T("FSR 4 profile in the log"), "BB_FSR4_PROFILE", "fsr_profile");
             SettingToggle(SymbolRegular.Speaker224, L.T("Audio statistics in the log"), "BB_AUDIO_STATS", "audio_stats");

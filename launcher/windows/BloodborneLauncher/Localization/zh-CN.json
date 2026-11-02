@@ -2483,5 +2483,13 @@
   "Different version": "版本不同",
   "This party has a password.": "此队伍设有密码。",
   "No password: anyone who sees the party can join.": "无密码：看到此队伍的任何人都可以加入。",
-  "Connect to the Nightwatch VPN first.": "请先连接 Nightwatch VPN。"
+  "Connect to the Nightwatch VPN first.": "请先连接 Nightwatch VPN。",
+  "Chalice glyph list": "圣杯铭文列表",
+  "At the Ritual Altar, Search by Chalice Glyph first shows a list of the party's glyphs to pick from (your own dungeons, the guests' dungeons and the shipped list), then the code keyboard: typing a code still works. Pick one and the whole party enters that dungeon together. Your own setting.": "在仪式祭坛选择“按圣杯铭文搜索”时，会先显示队伍的铭文列表供你选择（包括你自己的地牢、客人的地牢和内置列表），然后显示代码键盘；仍可手动输入代码。选定后，全队会一起进入该地牢。这是你自己的设置。",
+  "Boss log (stuck or ignoring bosses)": "首领日志（卡住或无视玩家）",
+  "Logs a boss's position, animation, health and the nearest player every 10 s while a boss bar is up, for reports of a boss that stands still or ignores a player in a party. The \"may be stuck\" line is always logged.": "用于报告队伍中首领站着不动或无视玩家的问题：显示首领血条时，每 10 秒记录首领的位置、动画、生命值和最近的玩家。“可能卡住”这一行始终会记录。",
+  "Party frame cost log (freezes in a party)": "队伍帧耗时日志（组队时卡顿）",
+  "For reports of freezes or stutter in a party: every 10 s, how long the party code took per frame (typical and worst), by part, plus any single step over 1 ms. Use with the frame stats of the game log.": "用于报告组队时的停顿或卡顿：每 10 秒按模块记录队伍代码每帧的耗时（典型值和最大值），并记录任何超过 1 毫秒的单个步骤。请配合游戏日志中的帧统计使用。",
+  "Background save writes (experimental)": "后台写入存档（实验性）",
+  "May reduce the freezes of a few seconds some guests see when the game saves. Closing a save file hands the flush to disk and the rename to a background thread, so a slow or synced save folder cannot freeze the game for seconds. Experimental. Restart required.": "可能减少部分客人在游戏保存时遇到的数秒停顿。关闭存档文件时，将磁盘刷新和重命名操作交给后台线程，避免速度较慢或正在同步的存档文件夹导致游戏停顿数秒。实验性功能。需要重启游戏。"
 }

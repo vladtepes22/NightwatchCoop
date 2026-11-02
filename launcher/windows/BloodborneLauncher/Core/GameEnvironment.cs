@@ -151,6 +151,8 @@ namespace BloodborneLauncher.Core
             if (s.Bool("audio_stats")) env["BB_AUDIO_STATS"] = "1";
             if (s.Bool("heap_watch_log")) env["BB_HEAP_WATCH_LOG"] = "1";
             if (s.Bool("net_rxgap_log")) env["BB_NET_RXGAP_LOG"] = "1";
+            env["BB_BOSS_LOG"] = s.Bool("boss_log") ? "1" : "0";
+            env["BB_PARTY_PERF"] = s.Bool("party_perf") ? "1" : "0";
             if (s.Bool("load_profile")) env["BB_SAMPLE_THREADS"] = "load";
             if (s.Bool("fsr4_balanced")) env["BB_FSR4_MODEL"] = "balanced";
             // Experimental engine features: on by default, each can be turned off.
