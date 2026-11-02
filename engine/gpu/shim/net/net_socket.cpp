@@ -22,6 +22,7 @@
 #include "nr_rxgap.h"
 #include "party_route.h"
 #include "party_udp.h"
+#include "party_vpnlobby.h"
 
 #if defined(_WIN32)
 #include <winsock2.h>
@@ -378,6 +379,11 @@ struct P2pPort {
     std::thread reader;
     std::atomic<bool> stop{false};
     std::uint64_t rx = 0, unmatched = 0, no_header = 0, probes = 0, stun_answered = 0, relayed = 0;
+    // 0.7.8 (CL-79fe9c): game datagrams this port sent with more than 1232 / 1400 bytes of game data (after
+    // the split; the vport header adds 4, a relay frame a few more) and those over the transport's 1232 that
+    // could not be split; since the last report line (60 s). Over a VPN tunnel (OpenVPN adds ~70 bytes) the
+    // > 1400 ones leave as IP fragments.
+    std::atomic<std::uint64_t> sent_over_1232{0}, sent_over_1400{0}, unsplit{0};
     Clock::time_point last_report{};
     // One STUN Binding exchange at a time (p2p_stun): the reader answers the transaction it
     // finds here (under mu).
@@ -577,11 +583,15 @@ void p2p_report_locked(P2pPort& port, const char* when) {
                       static_cast<unsigned long long>(q->forwarded));
         line += buf;
     }
-    log("p2p port %u %s: rx %llu, unmatched %llu, no header %llu, probes %llu, stun %llu, relayed %llu;%s", port.port,
-        when, static_cast<unsigned long long>(port.rx), static_cast<unsigned long long>(port.unmatched),
+    const auto o1232 = port.sent_over_1232.exchange(0), o1400 = port.sent_over_1400.exchange(0),
+               unsplit = port.unsplit.exchange(0);
+    log("p2p port %u %s: rx %llu, unmatched %llu, no header %llu, probes %llu, stun %llu, relayed %llu; "
+        "sent > 1232 B %llu, > 1400 B %llu, unsplit %llu (since the last line);%s",
+        port.port, when, static_cast<unsigned long long>(port.rx), static_cast<unsigned long long>(port.unmatched),
         static_cast<unsigned long long>(port.no_header), static_cast<unsigned long long>(port.probes),
         static_cast<unsigned long long>(port.stun_answered), static_cast<unsigned long long>(port.relayed),
-        line.c_str());
+        static_cast<unsigned long long>(o1232), static_cast<unsigned long long>(o1400),
+        static_cast<unsigned long long>(unsplit), line.c_str());
 }
 std::map<std::uint16_t, std::shared_ptr<P2pPort>> g_p2p_ports;  // under g_net_mu
 std::atomic<std::uint16_t> g_bound_port{0};
@@ -678,9 +688,12 @@ void resume_replay(int sock, SceSockaddrIn to, std::vector<std::vector<std::uint
         log("outage resume: %s:%u heard again after %.1f s: %zu reliable record(s) sent again in %zu datagram(s)", ip,
         bswap16(to.port), silent_s, records, dgs.size());
     std::thread([sock, to, dgs = std::move(dgs)] {
+        // Paced (0.7.8, CL-79fe9c): 4 datagrams (~4.4 KB), then a pause of 1 ms (one scheduler tick, up to
+        // ~16 ms on Windows): a backlog of 30 datagrams no longer leaves as one burst that a VPN server's or
+        // router's queue can drop; ~0.3-4 MB/s, the whole replay within ~0.1 s.
         for (std::size_t i = 0; i < dgs.size(); ++i) {
             dgram_send(sock, dgs[i].data(), dgs[i].size(), 0, &to);
-            if (i % 8 == 7) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            if (i % 4 == 3 && i + 1 < dgs.size()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }).detach();
 }
@@ -1191,6 +1204,22 @@ std::shared_ptr<P2pPort> p2p_port_open(std::uint16_t want) {
         log("party port %u is in use by another program%s", at, i + 1 < kTries ? "; trying the next" : "");
     }
     if (!sock_ok(port->fd)) return nullptr;
+    {
+        // 0.7.8 (CL-79fe9c): 1 MiB socket buffers (Windows' default 64 KB holds ~50 full datagrams: a resume
+        // replay plus the game's own catch-up burst, or a reader that stalls during a load, overflowed it).
+        // IP_DONTFRAGMENT is NOT set: the game's own sends that cannot be split (above 1232, see dgram_send)
+        // would then be dropped on any path with a smaller MTU, with no fallback; fragments at least arrive
+        // on most paths.
+        constexpr int kBuf = 1 << 20;
+        sock_setopt_int(port->fd, SOL_SOCKET, SO_RCVBUF, kBuf);
+        sock_setopt_int(port->fd, SOL_SOCKET, SO_SNDBUF, kBuf);
+        int rcv = 0, snd = 0;
+        socklen_type sl = sizeof(rcv);
+        ::getsockopt(port->fd, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<char*>(&rcv), &sl);
+        sl = sizeof(snd);
+        ::getsockopt(port->fd, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<char*>(&snd), &sl);
+        log("party port %u: socket buffers receive %d B, send %d B", port->port, rcv, snd);
+    }
     if (port->port != want) log("party port %u (BB_PARTY_PORT %u was taken); peers reach this game there", port->port, want);
     else log("party port %u: listening on this PC (whether the internet reaches it: the Party NAT line)", port->port);
     g_bound_port.store(port->port);
@@ -1328,11 +1357,24 @@ int dgram_send(int s, const void* buf, std::uint64_t len, int flags, const SceSo
     // (1232; live up to 2042 bytes) and the peer's game reads at most its MTU: the records past it
     // were cut off and their gap stalled the stream. Such a datagram leaves as several, split at
     // record boundaries (each record stands alone).
-    if (sock.p2p && buf && len > nr::kGameMtu && g_outage_replay) {
+    // 0.7.8 (CL-79fe9c): toward a Nightwatch tunnel peer always (BB_PARTY_OUTAGE_REPLAY=0 too): a datagram
+    // over ~1430 bytes is IP-fragmented inside the tunnel and one lost fragment loses all of it. A datagram
+    // that is not records, or holds one record over 1232 bytes, leaves whole (the receiver needs each in
+    // one piece: cutting it would hand the game a broken record) and is counted (p2p port line "unsplit").
+    if (sock.p2p && buf && len > nr::kGameMtu && (g_outage_replay || (to && nightwatch_tunnel_peer(to->addr)))) {
         std::vector<std::vector<std::uint8_t>> parts;
-        if (nr::split_records(static_cast<const std::uint8_t*>(buf), static_cast<std::size_t>(len), nr::kGameMtu,
-                              &parts) &&
-            parts.size() > 1) {
+        const bool split = nr::split_records(static_cast<const std::uint8_t*>(buf), static_cast<std::size_t>(len),
+                                             nr::kGameMtu, &parts);
+        if (!split || parts.size() < 2) {
+            if (sock.port) sock.port->unsplit.fetch_add(1, std::memory_order_relaxed);
+            static std::atomic<int> said{0};
+            if (said.fetch_add(1) < 10)
+                log("send: a %llu-byte game datagram left whole: %s", static_cast<unsigned long long>(len),
+                    nr::oversize_shape(static_cast<const std::uint8_t*>(buf), static_cast<std::size_t>(len),
+                                       nr::kGameMtu)
+                        .c_str());
+        }
+        if (split && parts.size() > 1) {
             static std::atomic<int> logged{0};
             if (logged.fetch_add(1) < 10)
                 log("send: a %llu-byte game datagram split into %zu at record boundaries",
@@ -1347,6 +1389,10 @@ int dgram_send(int s, const void* buf, std::uint64_t len, int flags, const SceSo
     const sockfd_t fd = sock.port ? sock.port->fd : sock.fd;
     if (!sock_ok(fd)) return static_cast<int>(len);
     if (!to) return net_err(bsd::kEDESTADDRREQ);
+    if (sock.p2p && sock.port && len > 1232) {
+        sock.port->sent_over_1232.fetch_add(1, std::memory_order_relaxed);
+        if (len > 1400) sock.port->sent_over_1400.fetch_add(1, std::memory_order_relaxed);
+    }
     if (sock.p2p)
         if (P2pRecvHookFn h = g_p2p_recv_hook.load(std::memory_order_relaxed)) h(s, 2);
     std::uint8_t pkt[udp::kMaxDatagram + kRelayHeader];
@@ -2267,7 +2313,7 @@ bool adapter_is_virtual(const std::string& name) {
     for (char c : name) n += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     static const char* const kMarks[] = {
         "hyper-v", "vethernet", "wsl", "virtualbox", "vbox", "vmware", "vmnet", "virtual", "docker",
-        "tap-windows", "tap adapter", "tap-", "openvpn", "wintun", "wireguard", "tailscale", "zerotier",
+        "tap-windows", "tap adapter", "tap-", "openvpn", "data channel offload", "wintun", "wireguard", "tailscale", "zerotier",
         "hamachi", "radmin", "nordlynx", "vpn", "anyconnect", "fortinet", "pangp", "loopback", "bluetooth"};
     for (const char* m : kMarks) {
         if (n.find(m) != std::string::npos) return true;
@@ -2303,6 +2349,10 @@ VpnKind vpn_kind(const LanAdapter& a) {
     if (has("tailscale")) return VpnKind::Tailscale;
     if (!adapter_is_virtual(a.name)) return VpnKind::None;
     const std::uint32_t host = bswap32(a.ip);
+    // 0.7.8 (CL-79fe9c): the Nightwatch OpenVPN tunnel (the adapter's name varies: TAP-Windows, OpenVPN
+    // Data Channel Offload, Wintun): a tunnel player address on an adapter that is not the PC's route to
+    // the Internet (a commercial OpenVPN service using the same default subnet is: it stays Other).
+    if (lobby::is_tunnel_player_address(host) && !a.default_route) return VpnKind::Nightwatch;
     if ((host >> 24) == 26) return VpnKind::Radmin;
     if ((host >> 24) == 25) return VpnKind::Hamachi;
     if ((host >> 22) == (0x64400000u >> 22)) return VpnKind::Tailscale;  // 100.64.0.0/10
@@ -2318,6 +2368,7 @@ std::string vpn_label(const LanAdapter& a) {
         case VpnKind::Hamachi: return "Hamachi";
         case VpnKind::ZeroTier: return "ZeroTier";
         case VpnKind::Tailscale: return "Tailscale";
+        case VpnKind::Nightwatch: return "Nightwatch VPN";
         default: break;
     }
     const std::size_t slash = a.name.find(" / ");
@@ -2341,6 +2392,8 @@ int vpn_adapter_score(const LanAdapter& a, const std::string& pref_in) {
     const VpnKind k = vpn_kind(a);
     if (pref == "auto") {
         switch (k) {
+            // The party's own VPN first: its tunnel is the only path its players share (0.7.8).
+            case VpnKind::Nightwatch: return nightwatch_auto_enabled() ? 1005 : -1;
             case VpnKind::Radmin: return 1004;
             case VpnKind::Hamachi: return 1003;
             case VpnKind::Tailscale: return 1002;
@@ -2349,6 +2402,25 @@ int vpn_adapter_score(const LanAdapter& a, const std::string& pref_in) {
         }
     }
     return lower_text(a.name).find(lower_text(pref)) != std::string::npos ? 1000 : -1;
+}
+
+bool nightwatch_auto_enabled() {
+    const char* v = std::getenv("BB_PARTY_NW_AUTO");
+    return !(v && v[0] == '0');
+}
+
+bool nightwatch_vpn_mode() {
+    // local_ipv4() is chosen once per process, so this is too.
+    static const bool on = [] {
+        const bool m = nightwatch_auto_enabled() && lobby::is_tunnel_player_address(bswap32(local_ipv4()));
+        if (m) log("Nightwatch VPN: party traffic stays on the tunnel address (no WAN STUN, no LAN candidates for tunnel peers; BB_PARTY_NW_AUTO=0 turns this off)");
+        return m;
+    }();
+    return on;
+}
+
+bool nightwatch_tunnel_peer(std::uint32_t addr) {
+    return lobby::is_tunnel_player_address(bswap32(addr)) && nightwatch_vpn_mode();
 }
 
 // ---- Is the VPN really online? (0.7.6) --------------------------------------------------------
@@ -3005,6 +3077,14 @@ void p2p_punch(const char* label, std::uint32_t addr, std::uint16_t port_host, s
     a.sin_port = bswap16(port_host);
     targets.push_back(a);
     bool local_ok = local_addr && local_port && (local_addr != addr || local_port != port_host);
+    if (local_ok && nightwatch_tunnel_peer(addr) && !udp::tunnel_candidate_ok(addr, local_addr)) {
+        // 0.7.8 (CL-79fe9c): a tunnel peer stays on the tunnel; its LAN address is never probed or adopted.
+        char lip[32];
+        write_ipv4(lip, sizeof(lip), local_addr);
+        log("punch %s: ignoring its local address %s:%u (a Nightwatch tunnel peer is reached on the tunnel only)",
+            label ? label : "peer", lip, local_port);
+        local_ok = false;
+    }
     if (local_ok && self_guard_on()) {
         std::uint32_t own_public = 0;
         {

@@ -113,4 +113,11 @@ inline int PickAttention(const float* d2, const double* last, int n, float reach
     return best == current ? -1 : best;
 }
 
+/// A boss that looks stuck (0.7.8, player reports "Laurence stays on the statue, falls, then cannot move"): it has
+/// not moved `eps` m nor played a new animation for `still_for` seconds, is alive, and a living player is within
+/// `reach` m (nearest distance, negative: none). The player log then names it once per standstill.
+inline bool BossLooksStuck(double still_for, double need_still, bool alive, double nearest_player, double reach) {
+    return alive && still_for >= need_still && nearest_player >= 0 && nearest_player <= reach;
+}
+
 }  // namespace enemyai_rules

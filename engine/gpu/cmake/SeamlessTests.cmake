@@ -504,6 +504,24 @@ target_compile_options(party-enemyai-rules-test PRIVATE -UNDEBUG -Wall -Wextra -
 target_include_directories(party-enemyai-rules-test PRIVATE shim)
 set_target_properties(party-enemyai-rules-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
+# The party patches win on overlapping bytes (start/party_wins.h). ninja -C out/gpu party-wins-test
+add_executable(party-wins-test EXCLUDE_FROM_ALL ../tests/test_party_wins.cpp)
+target_compile_options(party-wins-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-wins-test PRIVATE ..)
+set_target_properties(party-wins-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
+# Navmesh test walker (shim/party/nav_walk.h). ninja -C out/gpu nav-walk-test
+add_executable(nav-walk-test EXCLUDE_FROM_ALL ../tests/test_nav_walk.cpp)
+target_compile_options(nav-walk-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(nav-walk-test PRIVATE shim)
+set_target_properties(nav-walk-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
+# The Chalice glyph pick list (party_chalice_glyphs.h). ninja -C out/gpu party-chalice-glyphs-test
+add_executable(party-chalice-glyphs-test EXCLUDE_FROM_ALL ../tests/test_party_chalice_glyphs.cpp shim/net/json.cpp)
+target_compile_options(party-chalice-glyphs-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-chalice-glyphs-test PRIVATE shim)
+set_target_properties(party-chalice-glyphs-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
 get_property(all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 set(party_tests)
 foreach(target IN LISTS all_targets)
@@ -521,6 +539,15 @@ target_link_libraries(party-host-harness PRIVATE ws2_32 iphlpapi ole32 oleaut32 
 # The allocation counter overrides new/delete; keep libc++ allocations in the same module.
 target_link_options(party-security-test PRIVATE -static-libstdc++)
 
+# Save commit (src/runtime_savecommit.c): background commit of a closed save file, ordering and kills.
+add_executable(savecommit-test EXCLUDE_FROM_ALL ../tests/test_savecommit.c ../src/runtime_savecommit.c ../src/win32_compat.c)
+target_compile_options(savecommit-test PRIVATE -UNDEBUG -Wall -Wextra)
+target_include_directories(savecommit-test PRIVATE ../src)
+target_link_libraries(savecommit-test PRIVATE ws2_32 bcrypt winpthread)
+set_target_properties(savecommit-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_dependencies(seamless-tests savecommit-test nav-walk-test)
+add_test(NAME nav-walk-test COMMAND nav-walk-test)
+
 add_executable(save-policy-test EXCLUDE_FROM_ALL ../tests/test_save_policy.c ../src/runtime_savepolicy.c)
 target_include_directories(save-policy-test PRIVATE ../src)
 target_compile_options(save-policy-test PRIVATE -UNDEBUG)
@@ -528,9 +555,10 @@ add_test(NAME save-policy-test COMMAND save-policy-test)
 add_dependencies(seamless-tests save-policy-test)
 target_link_libraries(save-policy-test PRIVATE winpthread)
 
-add_executable(atomic-save-test EXCLUDE_FROM_ALL ../tests/test_atomic_save.c ../src/win32_compat.c)
+add_executable(atomic-save-test EXCLUDE_FROM_ALL ../tests/test_atomic_save.c ../src/win32_compat.c ../src/runtime_savecommit.c)
 target_include_directories(atomic-save-test PRIVATE ../src ..)
 target_compile_options(atomic-save-test PRIVATE -UNDEBUG)
+target_link_libraries(atomic-save-test PRIVATE winpthread)
 target_compile_definitions(atomic-save-test PRIVATE _WIN32_WINNT=0x0A00)
 target_link_libraries(atomic-save-test PRIVATE ws2_32)
 add_test(NAME atomic-save-test COMMAND atomic-save-test)

@@ -265,6 +265,22 @@ Key findings behind the rows:
   `PC kneels` waits for 72500329, 12500019 counts kneels in 317-319). A later Cross talk is the refusing branch (talk
   1700800, "Such impudence", 72500302). What sets 329 (the ESD t250307's own kneel test) is not found; Alfred's real talk
   and League / Executioner behaviour were not driven.
+  **0.7.8 (covnpc078)**: the kneel AREA is the 1 m sphere of region 2502501 at (127.7, 129.95, -464.5) (event 12500011 sets
+  72500330 while the player is in it; the earlier trials stood 1.9 m away, outside); the talk-call region 2502500 (331) is a box
+  at (119.5, 129.1, -452.7). Stood in the sphere after the greeting, all 23 gesture-list rows (`CVA_SWEEP=1 CVA_KNEEL2=0..22`, anims
+  104000-104242 logged) set 330 but never 329 / 317-319 / 332-335, and the player anim 101262 / Annalise's 101260 of event 12500012
+  never played: the kneel is still NOT proven (the ESD t250307 reads 329 in two places and teaches Respect 818 / Deep Respect 819 after
+  it; what sets 329 is not a gesture anim we can see). **Alfred** (Cathedral Ward chr 2400763, ESD t240343, state 1344) is no oath
+  rune NPC: his gifts are triggers 9072 / 9073 (common 9040 slots 32 / 33: lots 34000 goods 1300 x3, 34010 goods 4116); the oath runes
+  are Eileen's talk (Hunter, 9075, lot 35010, ESD t240342), Annalise's (Corruption 9042, lot 17000), Valtr's (Impurity 12700906) and the
+  Radiance rune (lot 34020) only in the Chalice (m29 event). Smoke `covenant_alfred` cvf: host then guest talk to Alfred in one session,
+  both get his full menu and lines (21-23 lines), no rune lot reaches either. **Rune amounts**: each oath gem has a second SpEffect row
+  holding the numbers (GemeffectParam 2107002 / 2108002 / 2110002): Radiance 180000 transfusionHpRecoverRate 1.02 (blood vial heal x1.02),
+  Corruption 180010 changeHpPoint -1 every 2 s with conditionHp 12.5, Hunter 180020 staminaRecoverChangeSpeed +3; Impurity 6142 has
+  none. `log_oath` now dumps them and logs HP / stamina every 0.5 s (smoke `covenant_measure` cvm, Hunter host vs Corruption guest, no god
+  mode): both rows are on their own chr only; HP stayed flat on the Corruption member at 70 % HP (no drain: the effect is gated by
+  conditionHp 12.5, i.e. it acts only at very low HP, not measured); the stamina bar (0-100) refills in 2-3 s on both members; the straight-line fits over three runs were noisy (host 8.1 / 8.3 / 14.8, guest
+  9.0 / 9.5 / 42 per s), so the Hunter +3 / s is not resolved at the 0.5 s sampling (reported, not asserted). The vial heal (Radiance) was not measured (no low-HP aid).
 - **Session/runtime**: 2000-2099, 7000-7399 and 7600-7699 (common event completions), 9200-9299,
   zones 1AAB5/6/7nnn, restart events. **boss_area** (1AAB4nnn: fight state, fog, NPC summons) is
   not synced live; the vanilla session already carries it.

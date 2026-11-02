@@ -3,6 +3,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include "common/types.h"
 #include "video_core/renderer_vulkan/vk_common.h"
 
@@ -35,5 +36,7 @@ void ToggleMap();
 bool MenuOpen();
 
 void SetTextPrompt(bool active, const std::string& prompt, const std::string& text);
+/// The text box's pick list (window.cpp): one line per choice, `selected` highlighted (-1: typing). Empty: none.
+void SetTextChoices(const std::vector<std::string>& lines, int selected);
 
 }

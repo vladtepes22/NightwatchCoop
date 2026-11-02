@@ -32,6 +32,7 @@
 #include "party_guestsvc.h"
 #include "party_link.h"
 #include "party_npc_mirror.h"
+#include "party_perf.h"
 #include "party_phantom.h"
 #include "party_start.h"
 #include "party_rot_rules.h"
@@ -704,30 +705,108 @@ void AiProbeTick(const GameSnapshot& s) {
     }
 }
 
-void EnemyPass(const GameSnapshot& s, bool scale) {
-    const u64 wcm = Slot(kSlotWorldChrMan);
-    if (!wcm || !s.player) return;
-    const int sets = std::min(Field<int>(Field<u64>(wcm, 8), 0x18, -2) + 2, kMaxSets);
+// 0.7.8 (CL-7fc9fe): the enemy pass of a freshly loaded map (hundreds of chrs, a SpEffect applied to each enemy)
+// runs in slices of at most LoadBudgetUs() per frame instead of in one frame; chrs within kNearM of the player
+// are always done in the first slice (an enemy at the spawn is scaled before control returns), the far
+// ones follow on the next frames. Opt-in (no measurable gain in the 2-client A/B): BB_PARTY_LOAD_SPREAD=1 (or
+// bbport.ini party_load_spread=1); BB_PARTY_LOAD_BUDGET_US sets the slice (default 400, 0 = unlimited).
+bool LoadSpreadOn() {
+    static const bool on = [] {
+        if (const char* e = std::getenv("BB_PARTY_LOAD_SPREAD"); e && e[0]) return e[0] != '0';
+        const char* cfg = std::getenv("BB_CONFIG");
+        if (FILE* f = std::fopen(cfg && cfg[0] ? cfg : "bbport.ini", "r")) {
+            char line[256];
+            bool v = false;
+            while (std::fgets(line, sizeof line, f)) {
+                if (std::strncmp(line, "party_load_spread", 17) != 0) continue;
+                const char* q = line + 17;
+                while (*q == ' ' || *q == '\t') ++q;
+                if (*q != '=') continue;
+                ++q;
+                while (*q == ' ' || *q == '\t') ++q;
+                v = *q != '0';
+            }
+            std::fclose(f);
+            return v;
+        }
+        return false;
+    }();
+    return on;
+}
+int LoadBudgetUs() {
+    static const int us = [] {
+        const char* e = std::getenv("BB_PARTY_LOAD_BUDGET_US");
+        return e && e[0] ? std::max(0, std::atoi(e)) : 400;
+    }();
+    return LoadSpreadOn() ? us : 0;
+}
+constexpr float kNearM = 40.0f;
+
+// The carried state of a sliced pass (one map): where it stopped and what it counted so far.
+struct PassCarry {
+    bool active = false;
+    u32 map = 0;
+    int set = 0, index = 0;
     int seen = 0, enemies = 0, applied = 0, removed = 0, bosses = 0, carrying = 0, counted = 0;
-    bool sample_live = false;  // the sample chr is still in a chr table (a freed chr keeps its old handle)
-    // The bosses of the loaded maps, by the entity ids the boss events dope (EMEVD 2004[8] with
-    // SpEffect 7500 / 7501, every map; GetChrByEntityId 0x13c97a0, as the events resolve them).
-    u64 boss_chrs[sizeof kBossEntities / sizeof kBossEntities[0] + sizeof kChaliceBossEntities / sizeof(int)];
+    bool sample_live = false;
     int n_boss = 0;
-    for (int e : kBossEntities)
-        if (const u64 c = ChrByEntity(e)) boss_chrs[n_boss++] = c;
-    if (((s.map_id >> 24) & 0xff) == 29) {
-        for (int e : kChaliceBossEntities)
-            if (const u64 c = ChrByEntity(e)) boss_chrs[n_boss++] = c;
+    u64 boss_chrs[128];
+    int slices = 0;
+};
+PassCarry g_carry;
+
+bool EnemyPass(const GameSnapshot& s, bool scale) {
+    PARTY_PERF_SECTION("balance.enemy_pass");
+    const u64 wcm = Slot(kSlotWorldChrMan);
+    if (!wcm || !s.player) return false;
+    const int sets = std::min(Field<int>(Field<u64>(wcm, 8), 0x18, -2) + 2, kMaxSets);
+    const int budget_us = LoadBudgetUs();
+    const auto t0 = Clock::now();
+    if (!(g_carry.active && g_carry.map == s.map_id)) g_carry = PassCarry{};  // a fresh pass (or another map)
+    PassCarry& cy = g_carry;
+    int& seen = cy.seen; int& enemies = cy.enemies; int& applied = cy.applied; int& removed = cy.removed;
+    int& bosses = cy.bosses; int& carrying = cy.carrying; int& counted = cy.counted;
+    bool& sample_live = cy.sample_live;  // the sample chr is still in a chr table (a freed chr keeps its old handle)
+    if (!cy.active) {
+        // The bosses of the loaded maps, by the entity ids the boss events dope (EMEVD 2004[8] with
+        // SpEffect 7500 / 7501, every map; GetChrByEntityId 0x13c97a0, as the events resolve them).
+        static_assert(sizeof kBossEntities / sizeof kBossEntities[0] + sizeof kChaliceBossEntities / sizeof(int) <= 128,
+                      "PassCarry::boss_chrs");
+        for (int e : kBossEntities)
+            if (const u64 c = ChrByEntity(e)) cy.boss_chrs[cy.n_boss++] = c;
+        if (((s.map_id >> 24) & 0xff) == 29) {
+            for (int e : kChaliceBossEntities)
+                if (const u64 c = ChrByEntity(e)) cy.boss_chrs[cy.n_boss++] = c;
+        }
+        cy.active = true;
+        cy.map = s.map_id;
     }
-    for (int set = 0; set < sets; ++set) {
+    const u64* const boss_chrs = cy.boss_chrs;
+    const int n_boss = cy.n_boss;
+    float me[3] = {0, 0, 0};
+    bool have_me = false, have_me_tried = false;
+    for (int set = cy.set; set < sets; ++set) {
         const u64 tab = Field<u64>(wcm, 0x850 + u64(set) * 8);
         const int count = Field<int>(tab, 0, 0);
         const u64 entries = Field<u64>(tab, 8);
-        if (!tab || !entries || count <= 0 || count > kMaxPerSet) continue;
-        for (int i = 0; i < count; ++i) {
+        if (!tab || !entries || count <= 0 || count > kMaxPerSet) { cy.index = 0; continue; }
+        for (int i = set == cy.set ? cy.index : 0; i < count; ++i) {
             const u64 chr = Field<u64>(entries + u64(i) * 0x38, 0);
             if (!chr) continue;
+            if (budget_us > 0 && (seen & 7) == 0 &&
+                std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - t0).count() >= budget_us) {
+                // Over this frame's budget: what is near the player is still done now, the rest next frame.
+                if (!have_me_tried) { have_me_tried = true; have_me = LocalPos(s.player, me); }
+                float p[3];
+                const bool near = have_me && ChrPosition(chr, p) &&
+                                  (p[0] - me[0]) * (p[0] - me[0]) + (p[2] - me[2]) * (p[2] - me[2]) <= kNearM * kNearM;
+                if (!near) {
+                    cy.set = set;
+                    cy.index = i;
+                    ++cy.slices;
+                    return true;
+                }
+            }
             ++seen;
             if (chr == g_sample) sample_live = true;
             if (IsPlayer(wcm, chr)) continue;
@@ -793,6 +872,7 @@ void EnemyPass(const GameSnapshot& s, bool scale) {
             if (scale && applied < kMaxAppliesPerPass && !HasEffect(chr, int(kEnemyRow))) {
                 const u64 dm = Field<u64>(Field<u64>(chr, 0x3b0), 0x20);
                 const int hp_before = Field<int>(dm, 0xf8, -1), max_before = Field<int>(dm, 0xfc, -1);
+                PARTY_PERF_SECTION("balance.enemy_pass.apply");
                 if (ApplyEffect(chr, int(kEnemyRow))) {
                     if (!applied) {  // one sample, followed in the log (evidence: max HP before / after)
                         g_sample = chr;
@@ -836,8 +916,11 @@ void EnemyPass(const GameSnapshot& s, bool scale) {
     const bool any = applied || removed;
     if (S().log || any || (sample[0] && ++g_sample_logs <= 3))
         Log("enemy pass: %d chrs, %d enemies (%d bosses), SpEffect %u applied to %d, on %d boss(es) from before, carried by %d "
-            "(%d counted)%s",
-            seen, enemies, bosses, kEnemyRow, applied, removed, carrying, counted, sample);
+            "(%d counted)%s%s",
+            seen, enemies, bosses, kEnemyRow, applied, removed, carrying, counted, sample,
+            cy.slices ? (" [spread over " + std::to_string(cy.slices + 1) + " frames]").c_str() : "");
+    g_carry = PassCarry{};
+    return false;
 }
 
 }  // namespace
@@ -2093,7 +2176,9 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool host) {
     if (in_world && now >= st.next_enemies) {
         st.next_enemies = now + std::chrono::seconds(2);
         const bool scale = st.last_n > 0 && EnemyScalingActive(r);
-        if (scale || st.log || (st.last_n > 0 && r.boss_hp > 0)) EnemyPass(s, scale);
+        if (scale || st.log || (st.last_n > 0 && r.boss_hp > 0)) {
+            if (EnemyPass(s, scale)) st.next_enemies = now;  // 0.7.8: the rest of a sliced pass, next frame
+        }
     }
 }
 

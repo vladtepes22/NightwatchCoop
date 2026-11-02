@@ -730,5 +730,48 @@ class OwnPatchTests(unittest.TestCase):
             self.assertEqual(at.get(address), value, hex(address))
 
 
+class PartyWinsTest(unittest.TestCase):
+    def test_subtract_and_order(self):
+        w = patches.party_wins([(0, b'abcdefgh'), (100, b'zz')], [(2, b'XX'), (100, b'zz')])
+        self.assertEqual(w, [(0, b'ab'), (4, b'efgh'), (2, b'XX'), (100, b'zz')])
+        self.assertEqual(patches.party_wins([(10, b'ab')], []), [(10, b'ab')])
+        self.assertEqual(patches.subtract_ranges((0, b'abcd'), [(0, 4)]), [])
+
+    def test_a_foreign_list_writing_fast_rejoin_timers(self):
+        # The Lantern engine's 60 FPS++ writes 60.0 at the peer-keep timers "Party: Fast rejoin" sets to 10.0 (NW-5e27806).
+        party = [(0x147afe4 - 0, bytes.fromhex('41c78424e800000000002041'))]
+        foreign = [(0x147afec, bytes.fromhex('00007042')), (0x500000, b'')]
+        out = patches.party_wins(foreign, party)
+        self.assertEqual(dict(out)[0x147afe4], party[0][1])
+        self.assertNotIn(0x147afec, dict(out))
+        self.assertEqual(dict(out)[0x500000], b'')
+
+
+class PartyOverlapTest(unittest.TestCase):
+    """The shipped optional patches never write bytes the party patches write (the party's checks skip a site whose bytes
+    another patch changed). Known, intended pairs: the two copies of the network-choice skip, and our list's FPS patches,
+    which write the peer-keep timers of Fast rejoin (the party patch wins on those bytes: start/party_wins.h)."""
+    ALLOWED = {frozenset(('Party: Skip Online/Offline Choice (Online)', 'Skip Online/Offline Choice'))} | {
+        frozenset(('Party: Fast rejoin', fps)) for fps in ('60FPS (no deltatime)', '60 FPS++', '90 FPS++', 'Uncap FPS++')}
+
+    def test_party_patches_overlap_nothing(self):
+        by_name = {}
+        for m in ET.parse(XML).getroot().iter('Metadata'):
+            if m.get('AppVer') != '01.09':
+                continue
+            by_name.setdefault(m.get('Name'), []).extend(
+                (a, a + len(d)) for a, d in ((x[0] + EBOOT_BASE, x[1]) for x in patches.metadata_writes(m)))
+        party = [n for n in by_name if n.startswith('Party: ')]
+        self.assertTrue(party)
+        bad = []
+        for p in party:
+            for o, rs in by_name.items():
+                if o.startswith('Party: ') or frozenset((p, o)) in self.ALLOWED:
+                    continue
+                if any(a[0] < b[1] and b[0] < a[1] for a in by_name[p] for b in rs):
+                    bad.append((p, o))
+        self.assertEqual(bad, [])
+
+
 if __name__ == '__main__':
     unittest.main()

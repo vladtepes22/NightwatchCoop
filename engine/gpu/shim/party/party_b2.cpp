@@ -4470,10 +4470,11 @@ void StayActionHoldTick(const GameSnapshot& s, double now) {
             next_check = now + 0.25;
             bool f4047 = false;
             const bool f_ok = ReadEventFlag(4047, &f4047);
-            char b[200];
-            std::snprintf(b, sizeof b, "ctx %#llx wait %d hold %d evstate %d flag4047 %s role %d %s%s", ull(ctx), wait, hold,
+            char b[240];
+            // chr type: the player ChrIns +0x78 (EMEVD 4[3](10000, type) tests it; a host's fog waits for 0)
+            std::snprintf(b, sizeof b, "ctx %#llx wait %d hold %d evstate %d flag4047 %s role %d chrtype %d %s%s", ull(ctx), wait, hold,
                           Field<int>(Slot(0x553b0d8), 0, -1), f_ok ? (f4047 ? "1" : "0") : "?", Role(),
-                          MapName(s.map_id).c_str(), s.loading ? " loading" : "");
+                          s.player ? Field<int>(s.player, 0x78, -1) : -1, MapName(s.map_id).c_str(), s.loading ? " loading" : "");
             if (last != b) {
                 last = b;
                 Log("hold log: %s", b);
@@ -6642,6 +6643,184 @@ void LimboBossTargetTick(double now) {
     }
 }
 
+/// BB_PARTY_AI_LOG=1 diagnostics for the boss attention: the boss AI's target entries (the list
+/// 0x12B2760 adds to: AI chr vfunc+0x160 -> +0xB0 -> +0x560, entries from +0x18, next at +8; entry flags
+/// byte +2, kind +0x28, ref at +0x48 / +0x60 whose vfunc+0xA8 is the chr handle), logged after a turn.
+void BossTargetDump(u64 boss, u32 bh, const char* tag) {
+    u64 vt = 0, fn = 0;
+    if (!SafeGet(boss, &vt) || !vt || !SafeGet(vt + 0x160, &fn) || !fn) return;
+    const u64 ai = reinterpret_cast<u64(BB_COOP_SYSV*)(u64)>(fn)(boss);
+    const u64 holder = ai ? Field<u64>(Field<u64>(ai, 0xb0), 0x560) : 0;
+    if (!holder) {
+        Log("boss target dump %s: boss %08x: no target holder", tag, bh);
+        return;
+    }
+    {
+        // once: the holder's vtable and its first slots as image offsets (static RE of the list's update / prune)
+        static bool vt_logged = false;
+        if (!vt_logged) {
+            vt_logged = true;
+            const u64 base = Guest(0), hv = Field<u64>(holder, 0);
+            std::string vs;
+            for (int k = 0; hv && k < 16; ++k) {
+                char vb[32];
+                std::snprintf(vb, sizeof vb, " +%x=%llx", k * 8, ull(Field<u64>(hv, u64(k) * 8) - base));
+                vs += vb;
+            }
+            Log("boss target dump: holder vtable %llx:%s; owner (+8) vtable %llx", ull(hv - base), vs.c_str(),
+                ull(Field<u64>(Field<u64>(holder, 8), 0) - base));
+        }
+    }
+    std::string out;
+    u64 n = Field<u64>(holder, 0x18);
+    for (int k = 0; n && k < 12; ++k, n = Field<u64>(n, 8)) {
+        const u32 kind = Field<u32>(n, 0x28);
+        u32 handle = ~0u;
+        const u64 ref = kind == 1 ? n + 0x48 : kind == 2 ? n + 0x60 : 0;
+        u64 rvt = 0, rfn = 0;
+        if (ref && SafeGet(ref, &rvt) && rvt && SafeGet(rvt + 0xa8, &rfn) && rfn)
+            handle = reinterpret_cast<u32(BB_COOP_SYSV*)(u64)>(rfn)(ref);
+        char b[128];
+        float t38 = 0, t3c = 0;
+        SafeGet(n + 0x38, &t38);
+        SafeGet(n + 0x3c, &t3c);
+        std::snprintf(b, sizeof b, " [fl %02x kind %u t20 %u t38 %.2f t3c %.2f b40 %u h %08x]", unsigned(Field<u8>(n, 2)), kind,
+                      Field<u32>(n, 0x20), double(t38), double(t3c), unsigned(Field<u8>(n, 0x40)), handle);
+        out += b;
+    }
+    Log("boss target dump %s: boss %08x:%s", tag, bh, out.empty() ? " (empty)" : out.c_str());
+    // amelia2078: every player chr (the local one and the members' copies) as the enemies' target search sees it:
+    // HP, team (+0x88), whether its entry (chr +0x3B0 -> +0x40 -> +8) is in the target bank *0x553B098, and the
+    // chr's +0x1E1 flags; once every 5 s
+    static double next_players = 0;
+    const double now = Now();
+    if (now < next_players) return;
+    next_players = now + 2.0;
+    const u64 bank = Slot(0x553b098);
+    std::vector<u64> v;
+    const u64 b = bank ? Field<u64>(bank, 8) : 0, e = bank ? Field<u64>(bank, 0x10) : 0;
+    const size_t cnt = b && e >= b ? size_t((e - b) / 8) : 0;
+    if (cnt && cnt <= 4096) {
+        v.assign(cnt, 0);
+        if (!SafeRead(b, v.data(), cnt * 8)) v.clear();
+    }
+    std::vector<u64> players;
+    if (const u64 me = Field<u64>(Slot(kSlotWorldChrMan), 0x60)) players.push_back(me);
+    for (const TaskInfo& t : Tasks(false)) {
+        const u64 c = (t.mode == 1 || t.mode == 2) ? PlayerForPeer(t.task + kTaskPeer) : 0;
+        if (c) players.push_back(c);
+    }
+    std::string ps;
+    for (u64 c : players) {
+        const u64 ent = Field<u64>(Field<u64>(Field<u64>(c, 0x3b0), 0x40), 8);
+        // the bank entry as the target search 0x12ADC50 filters it: vfunc +0x78 (valid), [3] +0x20 flags (bits 1 / 4
+        // exclude, bit 2 needs [3]+0x30 -> +0x18 bit 0), [3] +0x10 (must be 4), [3]+0x30 -> +0xD bit 0x10 (excludes);
+        // +0x1E5 bit 0x10: set on every player from a boss intro (remo) on, absent on a re-fight (CL-2c1eef marker)
+        int valid = -1;
+        u64 evt = 0, efn = 0;
+        if (ent && SafeGet(ent, &evt) && evt && SafeGet(evt + 0x78, &efn) && efn)
+            valid = reinterpret_cast<bool(BB_COOP_SYSV*)(u64)>(efn)(ent) ? 1 : 0;
+        const u64 e3 = ent ? Field<u64>(ent, 0x18) : 0, e30 = e3 ? Field<u64>(e3, 0x30) : 0;
+        char pb[256];
+        std::snprintf(pb, sizeof pb, " [chr %08x hp %d team %d bank %d f1e1 %08x b1e5 %02x entry valid %d f20 %02x k10 %d o0d %02x o18 %02x]",
+                      Field<u32>(c, 8), ChrHp(c), Field<int>(c, 0x88),
+                      ent && std::find(v.begin(), v.end(), ent) != v.end() ? 1 : 0, Field<u32>(c, 0x1e1),
+                      unsigned(Field<u8>(c, 0x1e5)), valid,
+                      e3 ? unsigned(Field<u8>(e3, 0x20)) : 0xffu, e3 ? Field<int>(e3, 0x10) : -1,
+                      e30 ? unsigned(Field<u8>(e30, 0xd)) : 0xffu, e30 ? unsigned(Field<u8>(e30, 0x18)) : 0xffu);
+        ps += pb;
+    }
+    Log("boss target dump %s: players (bank %zu entries):%s", tag, v.size(), ps.c_str());
+}
+
+/// The AI keeps a per-chr hate record (its target list entries of kind 1: flags 0x81 / 0x82, +0x20 type, +0x38
+/// remaining seconds, +0x40 active): a chr that hurt the boss gets +0x20 = 3, +0x38 = 10.0 s, +0x2C = 0, +0x40 = 1
+/// (0x12A9230, the "attacker of a hit" path) and the boss's goals go for the chr with the live record. The event
+/// ChangeTarget alone (0x1299CD0) only moved the AI's active entry (flags 0x87), which the goals did not follow for a
+/// guest standing at some spots 7-8 m from the boss (live hg guest-first, BB_HG_GUESTAT: 0 hits in 140 s; with the
+/// record set: hits within seconds). BossAttentionTick writes the record of the chr it hands the boss to.
+void BossLockEntry(u64 boss, u32 want) {
+    u64 vt = 0, fn = 0;
+    if (!SafeGet(boss, &vt) || !vt || !SafeGet(vt + 0x160, &fn) || !fn) return;
+    const u64 ai = reinterpret_cast<u64(BB_COOP_SYSV*)(u64)>(fn)(boss);
+    const u64 holder = ai ? Field<u64>(Field<u64>(ai, 0xb0), 0x560) : 0;
+    u64 n = holder ? Field<u64>(holder, 0x18) : 0;
+    for (int k = 0; n && k < 12; ++k, n = Field<u64>(n, 8)) {
+        if (Field<u32>(n, 0x28) != 1 || (Field<u8>(n, 2) & 0x7f) != 1 || Field<u32>(n, 0x50) != want) continue;
+        const u32 three = 3, zero = 0;
+        const float ten = 10.0f;
+        const u8 one = 1;
+        SafeWrite(n + 0x20, &three, 4);
+        SafeWrite(n + 0x38, &ten, 4);
+        SafeWrite(n + 0x2c, &zero, 4);
+        SafeWrite(n + 0x40, &one, 1);
+        Log("boss attention: the boss's hate record of %08x is set as for the attacker of a hit (10 s)", want);
+    }
+}
+
+/// Any role, main thread: while a boss bar is up, one line every 10 s per boss with its position, its latest
+/// animation and HP, and a "boss may be stuck" line when it has not moved 0.3 m and played no new animation for
+/// 15 s with a player within 30 m (player reports: Laurence stays on the statue, falls and cannot move; the logs
+/// had no boss position to tell the host's copy from the guest's).
+void BossStateTick(const GameSnapshot& s, double now) {
+    static double next = 0;
+    static const bool boss_log = std::getenv("BB_BOSS_LOG") && std::getenv("BB_BOSS_LOG")[0] == '1';
+    if (now < next) return;
+    next = now + 1.0;
+    struct Track {
+        float pos[3] = {};
+        int anim = -1;
+        double moved_at = 0, logged = 0;
+        bool stuck_logged = false;
+    };
+    static std::map<u32, Track> tr;
+    const u64 hud = (s.world_up && !s.loading) ? Slot(0x5562878) : 0;
+    if (!hud) {
+        tr.clear();
+        return;
+    }
+    for (int i = 0; i < 3; ++i) {
+        const u32 h = Field<u32>(hud, 0x165c + u64(i) * 0x14, ~0u);
+        const u64 boss = h == ~0u ? 0 : ChrOfHandle(h);
+        float bp[3] = {};
+        if (!boss || ChrHp(boss) <= 0 || !ChrPos(boss, bp)) continue;
+        int anim = -1;
+        const u64 cm = Field<u64>(boss, 0x3b0), ta = cm ? Field<u64>(cm, 0x18) : 0;
+        const int idx = ta ? Field<int>(ta, 0xc0) : -1;
+        if (ta && idx >= 0 && idx < 10) anim = Field<int>(ta, 0x20 + u64((idx + 9) % 10) * 0x10);
+        Track& t = tr[h];
+        const float dx = bp[0] - t.pos[0], dy = bp[1] - t.pos[1], dz = bp[2] - t.pos[2];
+        if (t.moved_at == 0 || dx * dx + dy * dy + dz * dz > 0.09f || anim != t.anim) {
+            t.moved_at = now;
+            t.stuck_logged = false;
+            std::copy(bp, bp + 3, t.pos);
+            t.anim = anim;
+        }
+        float near_m = 1e9f;
+        std::vector<u64> players;
+        if (s.player) players.push_back(s.player);
+        for (const TaskInfo& tk : Tasks(false)) {
+            const u64 c = (tk.mode == 1 || tk.mode == 2) ? PlayerForPeer(tk.task + kTaskPeer) : 0;
+            if (c) players.push_back(c);
+        }
+        for (u64 pl : players) {
+            float pp[3] = {};
+            if (ChrHp(pl) > 0 && ChrPos(pl, pp))
+                near_m = std::min(near_m, std::sqrt((pp[0] - bp[0]) * (pp[0] - bp[0]) + (pp[2] - bp[2]) * (pp[2] - bp[2])));
+        }
+        if (boss_log && now - t.logged >= 10.0) {
+            t.logged = now;
+            Log("boss state: %08x at (%.1f, %.1f, %.1f), animation %d, HP %d, nearest player %.1f m, still for %.0f s", h,
+                double(bp[0]), double(bp[1]), double(bp[2]), anim, ChrHp(boss), double(near_m), now - t.moved_at);
+        }
+        if (!t.stuck_logged && enemyai_rules::BossLooksStuck(now - t.moved_at, 15.0, true, double(near_m < 1e8f ? near_m : -1.0f), 30.0)) {
+            t.stuck_logged = true;
+            Log("boss state: %08x may be stuck: at (%.1f, %.1f, %.1f), animation %d for %.0f s, HP %d, nearest player %.1f m", h,
+                double(bp[0]), double(bp[1]), double(bp[2]), anim, now - t.moved_at, ChrHp(boss), double(near_m));
+        }
+    }
+}
+
 /// Host (the boss AI's owner), main thread, twice a second: while a boss bar is up and two or more
 /// living players (the host's own chr and the members' copies) are within reach of the boss, the boss
 /// is handed each of them in turn as a forced target (the event ChangeTarget path 0x1299CD0, as the
@@ -6661,6 +6840,7 @@ void BossAttentionTick(const GameSnapshot& s, double now) {
     };
     static std::map<u32, State> st;  // by boss handle
     static bool fighting = false;
+    static const bool ai_log = std::getenv("BB_PARTY_AI_LOG") && std::getenv("BB_PARTY_AI_LOG")[0] == '1';
     const bool on = BbSettings::Get().party_boss_share.load() && Role() == RoleHost && s.world_up && !s.loading;
     const u64 hud = on ? Slot(0x5562878) : 0;
     if (!hud) {
@@ -6683,6 +6863,7 @@ void BossAttentionTick(const GameSnapshot& s, double now) {
         float bp[3] = {};
         if (!ChrPos(boss, bp)) continue;
         State& e = st[h];
+        if (ai_log && e.handle) BossTargetDump(boss, h, "tick");
         std::vector<float> d2(players.size(), -1.0f);
         std::vector<double> last(players.size(), 0.0);
         int cur = -1;
@@ -6704,6 +6885,8 @@ void BossAttentionTick(const GameSnapshot& s, double now) {
         e.last[ph] = now;
         Log("boss attention: boss %08x turns to player chr %08x (%.1f m, ChangeTarget %s)", h, ph,
             double(std::sqrt(d2[size_t(pick)])), ok ? "ok" : "refused: no AI");
+        BossLockEntry(boss, ph);
+        if (ai_log) BossTargetDump(boss, h, "after the turn");
     }
     if (!any) st.clear();
     fighting = any;
@@ -6724,6 +6907,45 @@ struct UntargetedChr {
     bool readded_logged = false;
 };
 std::vector<UntargetedChr> g_untargeted;  // main thread only
+
+/// CL-2c1eef (amelia2078), host (the AI owner), main thread, every tick: a LIVING player chr whose target-bank entry
+/// still carries the dead mark gets it cleared. The enemies' perception (0x12AB4C0 -> the bank search 0x12ADC50 with
+/// mode 0) only sees bank entries whose [entry +0x18] +0x30 -> +0x18 bit 0 is clear; the game sets that bit when the
+/// chr dies (live: the host's own entry 0 -> 1 at its death). A member's copy re-created by a wipe's re-join came back
+/// with the bit still set (live amp: the guest's entry 0 on try 1, 1 on try 2 from its first frame), so no enemy
+/// perceived it: Vicar Amelia's second try fought the host while it lived (the host's own entry was clean) and
+/// attacked nobody once the host was dead (the 4-player playtest's frozen Amelia). Hits / ChangeTarget only add
+/// one-tick records that the list update 0x12B17C0 drops again when perception does not refresh them.
+/// Any role (a guest's game runs the AI of the enemies it owns). BB_PARTY_LIVING_TARGET=0 off (A/B).
+void LivingTargetMarkTick(const GameSnapshot& s) {
+    static const bool on = !(std::getenv("BB_PARTY_LIVING_TARGET") && std::getenv("BB_PARTY_LIVING_TARGET")[0] == '0');
+    static std::set<u32> logged;
+    // any role: a guest's game runs the AI of the enemies it owns (party_enemyai) and keeps its own bank entries
+    if (!on || !SessionUp() || !s.world_up || s.loading) return;
+    std::vector<u64> players;
+    if (s.player) players.push_back(s.player);
+    for (const TaskInfo& t : Tasks(false)) {
+        const u64 c = (t.mode == 1 || t.mode == 2) ? PlayerForPeer(t.task + kTaskPeer) : 0;
+        if (c) players.push_back(c);
+    }
+    for (u64 c : players) {
+        // truly alive only: HP above 0 (a dying chr is at 0), never this player while it spectates or lies in the
+        // host's limbo (the dead host stays untargeted)
+        if (ChrHp(c) <= 0 || (c == s.player && (g_spectating.load() || g_host_limbo.load()))) continue;
+        const u64 ent = Field<u64>(Field<u64>(Field<u64>(c, 0x3b0), 0x40), 8);
+        const u64 e3 = ent ? Field<u64>(ent, 0x18) : 0, e30 = e3 ? Field<u64>(e3, 0x30) : 0;
+        if (!e30) continue;
+        const u8 b = Field<u8>(e30, 0x18);
+        if (!(b & 1)) continue;
+        const u8 nb = u8(b & ~1u);
+        SafeWrite(e30 + 0x18, &nb, 1);
+        const u32 h = Field<u32>(c, 8);
+        if (logged.insert(h).second)
+            Log("living target: chr %08x (HP %d) is alive but its target-bank entry still had the dead mark (+0x18 bit 0, "
+                "%02x): cleared, enemies perceive it again", h, ChrHp(c), unsigned(b));
+    }
+    if (players.empty()) logged.clear();
+}
 
 void DeadPlayerUntargetTick(const GameSnapshot& s, double now) {
     static const bool on = !(std::getenv("BB_PARTY_DEAD_UNTARGET") && std::getenv("BB_PARTY_DEAD_UNTARGET")[0] == '0');
@@ -10205,6 +10427,31 @@ u64 WaitingGuestEntry() {
     return 0;
 }
 
+constexpr u64 kChannelRequestByIdFn = 0x1e65290;  // DLRefCounted* FUN(out*, const ChannelId*): the get_details_info request by id
+
+/// The game's channel request for `id` (0x1e65290: the object the summon handler keeps in the entry's +0xc0), with one
+/// reference taken for the caller; 0 when the game's network is not usable for it (FrpgNetMan +8 clear, or +0x9f6 / +0x9f8 /
+/// +0xa50 set). The handler of a dungeon summon makes the same call: a null answer there leaves the quick join without its
+/// channel, and the guest loads the host's Chalice Dungeon empty (NW-5e27806). Asking first tells a delivery to wait.
+/// Test aid BB_PARTY_CHALICE_MSG_TEST=offline|stop: the guest's game reads as offline / its empty-load count is forced to the
+/// stop (smoke cam / camo: the notices appear).
+bool ChaliceMsgTest(const char* what) {
+    const char* v = std::getenv("BB_PARTY_CHALICE_MSG_TEST");
+    return v && std::strcmp(v, what) == 0;
+}
+
+u64 ChannelRequestById(u64 id) {
+    u64 out = 0;
+    reinterpret_cast<u64*(BB_COOP_SYSV*)(u64*, const u64*)>(Guest(kChannelRequestByIdFn))(&out, &id);
+    return out;
+}
+
+void ReleaseRef(u64 obj) {
+    if (!obj) return;
+    const int rc = Field<int>(obj, 8, 0);
+    if (rc > 1) __atomic_sub_fetch(reinterpret_cast<int*>(obj + 8), 1, __ATOMIC_SEQ_CST);  // the list keeps its own
+}
+
 bool DeliverSummon(const dsummon::Room& room, const std::string& host_name) {
     const u64 ssm = SummonStepManager();
     const u64 entry = WaitingGuestEntry();
@@ -10213,6 +10460,43 @@ bool DeliverSummon(const dsummon::Room& room, const std::string& host_name) {
     if (fn != u64(Guest(kHandleItem))) {
         Log("direct summon: the manager's handler is %#llx, not the 1.09 one: not delivered", (unsigned long long)fn);
         return false;
+    }
+    const bool dungeon_room = dsummon::ChannelSet(room.channel);
+    if (dungeon_room) {
+        // A Chalice Dungeon: the game must be able to make the channel request by id, or the summon joins without the
+        // dungeon (an empty m29: the grey screen). Ask first; not yet usable: the delivery waits (3 tries).
+        static int offline_fails = 0;
+        static bool offline_shown = false;
+        const bool test_offline = ChaliceMsgTest("offline");  // test aid: the game reads as offline
+        const u64 probe = test_offline ? 0 : ChannelRequestById(room.channel);
+        if (!probe) {
+            const u64 nm = Field<u64>(Guest(kNetMan), 0, 0);
+            const unsigned online = test_offline ? 0 : Field<u8>(nm, 0x8, 0xff);
+            const dsummon::NoChannel why = dsummon::WhyNoChannel(online, Field<u8>(nm, 0x9f6, 0), Field<u8>(nm, 0x9f8, 0),
+                                                                  Field<u8>(nm, 0xa50, 0));
+            Log("direct summon: Chalice Dungeon %llu: the game cannot make the channel request yet (FrpgNetMan +8 %u, +0x9f6 %u, "
+                "+0x9f8 %u, +0xa50 %u): %s, not delivered, tried again",
+                ull(room.channel), online, Field<u8>(nm, 0x9f6, 0xff), Field<u8>(nm, 0x9f8, 0xff), Field<u8>(nm, 0xa50, 0xff),
+                why == dsummon::NoChannel::Offline ? "this game is OFFLINE" : "busy");
+            if (why == dsummon::NoChannel::Offline) ++offline_fails;
+            else offline_fails = 0;
+            if (dsummon::OfflineNoticeDue(why, offline_fails)) {
+                if (!offline_shown) {
+                    offline_shown = true;
+                    Log("chalice: notice shown: %s (this game never came online: no channel request is possible; a region / "
+                        "online patch is the likely cause)", dsummon::OfflineTitle());
+                    party::status::SetAlert(dsummon::GuestNotice(dsummon::StuckWhy::Offline));
+                    Send(0, dsummon::EncodeStuck(dsummon::StuckWhy::Offline));
+                }
+            } else if (why != dsummon::NoChannel::Offline) {
+                party::status::SetAlert("This game's network is not ready to fetch the host's Chalice Dungeon yet; the summon is "
+                                 "tried again in a moment.");
+            }
+            return false;
+        }
+        offline_fails = 0;
+        offline_shown = false;
+        ReleaseRef(probe);
     }
     u8 id[8] = {};
     SafeRead(entry + 0x10, id, 8);
@@ -10251,6 +10535,20 @@ bool DeliverSummon(const dsummon::Room& room, const std::string& host_name) {
         // +0xc0: the channel request by id (get_details_info) that becomes the quick join.
         Log("direct summon: Chalice Dungeon %llu (ChannelId %#llx): channel request %s", ull(room.channel), ull(room.channel),
             Field<u64>(entry, 0xc0, 0) ? "made (the quick join follows the join)" : "NOT made");
+        if (!Field<u64>(entry, 0xc0, 0)) {
+            // The handler kept no channel request: make it for the entry (it owns the reference), as the handler would.
+            const u64 req = ChannelRequestById(room.channel);
+            if (req) {
+                SafeWrite(entry + 0xc0, &req, 8);
+                Log("direct summon: the handler kept no channel request: made it for the entry now");
+            }
+        }
+        if (!Field<u64>(entry, 0xc0, 0)) {
+            const u64 nm = Field<u64>(Guest(kNetMan), 0, 0);
+            Log("direct summon: channel request diagnostics: FrpgNetMan +8 %u, +0x9f6 %u, +0x9f8 %u, +0xa50 %u, +0xa98 %u, +0xb14 %#x, +0xca8 %#llx",
+                Field<u8>(nm, 0x8, 0xff), Field<u8>(nm, 0x9f6, 0xff), Field<u8>(nm, 0x9f8, 0xff), Field<u8>(nm, 0xa50, 0xff),
+                Field<u32>(nm, 0xa98, 0xff), Field<u8>(nm, 0xb14, 0xff), ull(Field<u64>(nm, 0xca8, 0)));
+        }
     }
     return state != 0;
 }
@@ -10571,6 +10869,9 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
 /// again at every respawn). Whatever path brought it, it leaves the session at once and goes home
 /// (the game's own send-home, or the title join's lamp warp) with a notice; the summon's quick join
 /// brings it in properly next.
+std::atomic<int> g_empty_loads{0};        // empty Chalice Dungeon loads in a row (dsummon::kMaxEmptyLoads stops the summons)
+std::atomic<bool> g_empty_notice{false};
+
 void ChaliceEmptyWorldTick(const GameSnapshot& s, double now) {
     static double since = 0;
     static bool bailed = false;
@@ -10579,6 +10880,20 @@ void ChaliceEmptyWorldTick(const GameSnapshot& s, double now) {
     coop::MemberRoster(0, &host_state, &host_map);
     const bool empty = Role() == RoleClient && s.world_up && !s.loading && !dsummon::MapKnown(s.map_id) &&
                        dsummon::ChaliceMap(host_map);
+    if (ChaliceMsgTest("stop") && Role() != RoleHost && Role() != RoleClient && s.world_up && !s.loading && g_empty_loads.load() < dsummon::kMaxEmptyLoads) {
+        g_empty_loads = dsummon::kMaxEmptyLoads;  // test aid: two empty loads, without making them
+        ChaliceSummonStopped();                   // the notice at once (no summon needed)
+        return;
+    }
+    if (s.world_up && !s.loading) {
+        const int was = g_empty_loads.load();
+        const int now_n = dsummon::EmptyLoadsAfter(was, dsummon::ChaliceMap(s.map_id) && dsummon::MapKnown(s.map_id),
+                                                   dsummon::ChaliceMap(host_map));
+        if (now_n != was) {
+            g_empty_loads = now_n;
+            g_empty_notice = false;
+        }
+    }
     if (!empty) {
         since = 0;
         if (s.loading) bailed = false;
@@ -10587,6 +10902,7 @@ void ChaliceEmptyWorldTick(const GameSnapshot& s, double now) {
     if (since == 0) since = now;
     if (bailed || now - since < 3.0) return;
     bailed = true;
+    ++g_empty_loads;
     float p[3] = {};
     const u64 me = Field<u64>(Slot(kSlotWorldChrMan), 0x60);
     if (me) ChrPos(me, p);
@@ -10727,6 +11043,8 @@ bool ChaliceRejoinPressed() {
         return false;
     }
     g_chalice_chosen = false;
+    g_empty_loads = 0;
+    g_empty_notice = false;
     ChaliceLeaveSession("Party > Rejoin while apart from the host's Chalice Dungeon");
     party::status::SetLastEvent("Rejoining the host's Chalice Dungeon: the summon brings you in");
     return true;
@@ -10745,6 +11063,19 @@ void DirectSummonEvent(int from_slot, const std::string& body) {
         }
         party::bridge::OnHostBusy(dsummon::BusyText(b, false), b == dsummon::Busy::Cutscene, StoryMirrorPlaying());
         Log("A11: the host's hold: %s%s", dsummon::BusyWord(b), b == dsummon::Busy::None ? " (its bell rings again)" : "");
+        return;
+    }
+    case dsummon::Kind::Stuck: {  // host: a guest's Chalice summons stopped (empty loads / offline): tell the host
+        dsummon::StuckWhy why = dsummon::StuckWhy::Empty;
+        if (Role() != RoleHost || !dsummon::DecodeStuck(body, &why)) return;
+        std::string name;
+        {
+            std::lock_guard<std::mutex> lk(DS().mu);
+            if (DS().names.count(from_slot)) name = DS().names[from_slot];
+        }
+        Log("chalice: notice shown: Chalice summon stopped for a guest (slot %d, %s)", from_slot,
+            why == dsummon::StuckWhy::Offline ? "offline" : "empty loads");
+        party::status::SetAlert(dsummon::HostNotice(why, name));
         return;
     }
     case dsummon::Kind::Req: {
@@ -12157,6 +12488,8 @@ void Tick(const GameSnapshot& s) {
     LampSpotTick(s);
     HostDownTick(s, now);
     DeadPlayerUntargetTick(s, now);
+    LivingTargetMarkTick(s);
+    BossStateTick(s, now);
     BossAttentionTick(s, now);
     HostRevivedTick(s);
     JoinBesideTick(s, Now());
@@ -13381,8 +13714,21 @@ bool LocalChrWarp(std::uint64_t player, const float* pos16, const float* rot16, 
 } // namespace coop::b2
 
 namespace coop::b2 {
+bool ChaliceSummonStopped() {
+    if (!dsummon::StopAfterEmptyLoads(g_empty_loads.load())) return false;
+    if (!g_empty_notice.exchange(true)) {
+        Log("chalice: %d empty loads of the host's Chalice Dungeon in a row: no more summons for it (Party > Rejoin tries again)",
+            g_empty_loads.load());
+        Log("chalice: notice shown: %s", dsummon::StopTitle());
+        party::status::SetAlert(dsummon::GuestNotice(dsummon::StuckWhy::Empty));
+        Send(0, dsummon::EncodeStuck(dsummon::StuckWhy::Empty));
+    }
+    return true;
+}
+
 void DirectSummonRing() {
     if (!DirectSummonOn() || !g_on.load() || Role() == RoleHost || Role() == RoleClient) return;
+    if (ChaliceSummonStopped()) return;
     std::lock_guard<std::mutex> lk(DS().mu);
     const dsummon::Phase p = DS().g.phase;
     if (p == dsummon::Phase::Asked || p == dsummon::Phase::HaveRoom || p == dsummon::Phase::Delivered) return;

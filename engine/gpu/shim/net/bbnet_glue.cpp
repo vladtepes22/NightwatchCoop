@@ -347,7 +347,9 @@ const char* bbnet_status_line(void) {
     std::snprintf(buf, sizeof(buf), "party %s as %s; %s; netsim %s", s.host ? "host" : "guest", s.online_id.c_str(),
                   bbnet::p2p_status().c_str(),
                   bbnet::netsim::enabled()
-                      ? ("on (" + std::to_string(st.submitted) + " sent, " + std::to_string(st.dropped) + " lost)").c_str()
+                      ? ("on (" + std::to_string(st.submitted) + " sent, " + std::to_string(st.dropped) + " lost" +
+                         (st.mtu_dropped ? ", " + std::to_string(st.mtu_dropped) + " over mtu" : std::string()) + ")")
+                            .c_str()
                       : "off");
     line = buf;
     if (bbnet::runtime_hooks().status) line += "; " + bbnet::runtime_hooks().status();

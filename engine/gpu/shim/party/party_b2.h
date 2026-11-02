@@ -85,6 +85,8 @@ bool OnHostTravel(const TravelIntent& t);
 void OnLinkEvent(int from_slot, const std::string& body);
 /// Direct summon (party_dsummon.h): the guest rang its bell; the online id of a link slot.
 void DirectSummonRing();
+/// Guest: two empty Chalice Dungeon loads in a row: the summons for the dungeon stop (notice once; Party > Rejoin resets).
+bool ChaliceSummonStopped();
 void DirectSummonName(int slot, const std::string& name);
 /// Host, A11: its boss fight / cutscene hold started, ended or is re-announced: the party status
 /// line on both sides ("Waiting: the host is in a boss fight") and a dsum_busy event to the guests.
@@ -124,6 +126,7 @@ struct Where {
     bool has_pos = false;
     float pos[3] = {0, 0, 0};
     std::uint32_t age_ms = 0;
+    std::uint8_t flags = 0;  ///< its VITALS flags (party::kVitals*: alive, spectating, boss bar)
 };
 /// Main thread (the director, every tick, before Tick).
 void SetWhere(const std::vector<Where>& members);

@@ -30,6 +30,7 @@
 //        insight=N    writes the player's Insight once the world is up
 //        echoes=N     writes the player's Blood Echoes once the world is up
 //        goods=ID:N   tops goods ID up to N once, 8 s after the world is up (repeatable item)
+//        clear_enemies[=R]  every loaded regular enemy (no bosses / NPCs; within R m if given) dies quietly, each second
 //        log_pos      the player's area / position (FrpgNetMan +0xa7c / +0xaac) every 3 s
 //        place=MAP:X:Y:Z:YAW  one forced placement (hex packed map), 15 s after the world is up
 //        warp=MAP:POINT       one stage warp to warp point / entity POINT of MAP instead

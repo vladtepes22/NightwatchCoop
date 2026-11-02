@@ -2,6 +2,7 @@
 // Party UDP framing and the host relay (party_udp.h). Derived from the relay in
 // droogie/bbhost src/hle/net.cpp @8f2746c (moved out of net_socket.cpp).
 #include "party_udp.h"
+#include "party_vpnlobby.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -619,6 +620,19 @@ bool local_candidate_usable(std::uint32_t cand_ip, std::uint16_t cand_port, std:
     for (const OwnIf& o : own)
         if (o.mask && (o.ip & o.mask) == (cand_ip & o.mask)) return true;
     return false;
+}
+
+namespace {
+std::uint32_t host_order_ip(std::uint32_t nbo) {
+    const auto* b = reinterpret_cast<const std::uint8_t*>(&nbo);
+    return (static_cast<std::uint32_t>(b[0]) << 24) | (static_cast<std::uint32_t>(b[1]) << 16) |
+           (static_cast<std::uint32_t>(b[2]) << 8) | b[3];
+}
+}  // namespace
+
+bool tunnel_candidate_ok(std::uint32_t peer_addr, std::uint32_t cand_addr) {
+    if (!lobby::is_tunnel_player_address(host_order_ip(peer_addr))) return true;
+    return lobby::is_tunnel_player_address(host_order_ip(cand_addr));
 }
 
 bool force_relay_from_env() {

@@ -437,6 +437,13 @@ int main() {
     for (std::uint32_t f : {72110100u, 72410101u, 72102110u, 72410201u, 9401u}) {
         CHECK(!TalkStateFlag(f));
     }
+    // Gehrman's ordinary lines are shared progress (BB_PARTY_GEHRMAN_SYNC); the ending choice and the Doll's state are not.
+    for (std::uint32_t f : {72100120u, 72100125u, 72100129u, 72100133u, 72100135u}) {
+        CHECK(GehrmanLineFlag(f));
+    }
+    for (std::uint32_t f : {72100119u, 72100130u, 72100131u, 72100132u, 72100136u, 72100101u, 72100113u}) {
+        CHECK(!GehrmanLineFlag(f));
+    }
     CHECK(PlanLampOrigin(-1, -1) == LampOrigin::Other);     // no own flag: another game's warp event
     CHECK(PlanLampOrigin(-1, -1, false) == LampOrigin::Own); // no flag hook: ask as before
     // A Chalice Dungeon's lamps stand where the generated layout puts them, not at the table's spot.

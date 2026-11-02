@@ -216,7 +216,8 @@ treasure the host picks up, NPC gifts), exactly once, even across crashes and re
    Tear Stone 14000 (and 9040 NPC slots with flag -1).
 3. Deny list (never replay; per-player or repeatable): lots whose flag is in 6000-8999 (Messenger gifts
    10000/10010; 10050 the Old Hunter Bell is replayed since 0.7.3, 10.8, DLC/costume 6670-6678; 10040 the Eye of a Blood-drunk Hunter is replayed since
-   2026-10-14, quest_audit.md F3), covenant gems `common 9440`, rune/gem use `9500`,
+   2026-10-14, quest_audit.md F3; since 0.7.8 only to a member whose own save has night 9801 + DLC 6899, the vanilla
+   gift's gate, `LotOwnGateFlags`: the grant, the owed lots and the summoned-give replay hold it back until then), covenant gems `common 9440`, rune/gem use `9500`,
    repeatables `common 9100` / `13501940` (何度でも), DLC messenger hats `12105064`, PvP/covenant lots
    5500-5950, 16581, 5020, chalice-dungeon lots (area 29, flag -1 boss lots 1100xxxxx).
 

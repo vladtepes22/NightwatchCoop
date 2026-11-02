@@ -798,7 +798,7 @@ static void test_vitals() {
     v.max_stamina = 60000;
     v.pos[0] = 1e9f;
     CHECK(sanitize_vitals(v));
-    CHECK(v.flags == (kVitalsValid | kVitalsAlive | kVitalsSpectating) && v.max_hp == kMaxVitalsHp && v.hp == kMaxVitalsHp);
+    CHECK(v.flags == (kVitalsValid | kVitalsAlive | kVitalsSpectating | kVitalsBossBar) && v.max_hp == kMaxVitalsHp && v.hp == kMaxVitalsHp);
     CHECK(v.max_stamina == kMaxVitalsStamina && v.stamina == kMaxVitalsStamina && v.pos[0] == 0.0f);
     MemberVitals w;
     w.slot = kMaxVitals;
@@ -817,8 +817,10 @@ static void test_vitals() {
     w.yaw = 7.0f;
     CHECK(sanitize_vitals(w) && w.hp == 0 && w.max_hp == 0 && w.flags == kVitalsHasPos && w.yaw < 3.1416f &&
           w.yaw > 0.7f);
-    w.flags = kVitalsValid | kVitalsHasPos | kVitalsSpectating | 0x30;  // a spectator's body spot; unknown bits go
+    w.flags = kVitalsValid | kVitalsHasPos | kVitalsSpectating | 0x60;  // a spectator's body spot; unknown bits go
     CHECK(sanitize_vitals(w) && w.flags == (kVitalsValid | kVitalsHasPos | kVitalsSpectating));
+    w.flags = kVitalsValid | kVitalsBossBar | 0x80;  // in a boss fight: kept
+    CHECK(sanitize_vitals(w) && w.flags == (kVitalsValid | kVitalsBossBar));
 
     PartyLink host(base_cfg("Host", ""), LinkCallbacks{});
     std::string err;

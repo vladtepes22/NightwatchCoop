@@ -264,6 +264,95 @@ ShopGateRepair ShopGatesToRepair(const std::function<bool(std::uint32_t)>& is_se
     return r;
 }
 
+std::vector<std::uint32_t> LotOwnGateFlags(std::int32_t lot) {
+    if (lot == kEyeLot) {
+        return {kFlagNight, kFlagDlcOwned};
+    }
+    return {};
+}
+
+std::vector<std::uint32_t> GoodsOwnGateFlags(std::int32_t goods) {
+    if (goods == kEyeGoods) {
+        return {kFlagNight, kFlagDlcOwned};
+    }
+    return {};
+}
+
+int OwnGateState(const std::vector<std::uint32_t>& flags, const std::function<bool(std::uint32_t, bool*)>& read) {
+    int state = 1;
+    for (const std::uint32_t f : flags) {
+        bool v = false;
+        if (!read(f, &v)) {
+            state = -1;
+        } else if (!v) {
+            return 0;
+        }
+    }
+    return state;
+}
+
+ShopGateRepair BadgeGatesToRepair(const std::function<bool(std::uint32_t)>& is_set,
+                                  const std::function<int(std::int32_t)>& held) {
+    ShopGateRepair r;
+    if (is_set(kBadgeGatesRepaired)) {
+        r.done = true;
+        return r;
+    }
+    for (std::int32_t n = 0; n < kBadgeGateCount; ++n) {
+        const std::int32_t flag = kBadgeGateFirst + n;
+        if (!is_set(static_cast<std::uint32_t>(flag))) {
+            continue;
+        }
+        const int h = held(kBadgeGoodsFirst + n);
+        if (h < 0) {
+            r.complete = false;  // a list is unreadable: keep the flag, ask again
+        } else if (h == 0) {
+            r.clear.push_back(flag);
+        }
+    }
+    return r;
+}
+
+EyeRepair EyeToRepair(const std::function<bool(std::uint32_t)>& is_set, int ng, int eye_held) {
+    EyeRepair r;
+    if (is_set(kEyeGateRepaired)) {
+        r.done = true;
+        r.why = "checked before";
+        return r;
+    }
+    if (ng < 0 || eye_held < 0) {
+        r.complete = false;
+        r.why = ng < 0 ? "the NG cycle is not readable yet" : "the key items are not readable yet";
+        return r;
+    }
+    // A later cycle starts the night over while key items can come along from the cycle before: not decided
+    // there, left as it is.
+    if (ng > 0) {
+        r.why = "NG+ (key items can come from the cycle before): left as it is";
+        return r;
+    }
+    if (is_set(kFlagDlcEntered)) {
+        r.why = "the DLC was entered already (13401000)";
+        return r;
+    }
+    if (is_set(kFlagNight)) {
+        r.why = "night reached (9801): the vanilla gate holds";
+        return r;
+    }
+    r.why = "no night (9801) and the DLC never entered: the vanilla Messenger gift and sale cannot have run";
+    r.remove_eye = eye_held > 0;
+    for (const std::uint32_t f : {static_cast<std::uint32_t>(kEyeLotFlag), kFlagEyeSaleEvent, kFlagEyeSale}) {
+        if (is_set(f)) {
+            r.clear.push_back(f);
+        }
+    }
+    return r;
+}
+
+bool PerPlayerItemGateEvent(std::uint32_t event_id) {
+    return event_id == static_cast<std::uint32_t>(kBadgeGateFirst) || event_id == 12405263u;
+}
+
 std::vector<std::uint32_t> LedgerBitsToSeed(const std::function<bool(std::uint32_t)>& is_set) {
     std::vector<std::uint32_t> out;
     if (is_set(kItemLedgerSeeded)) {
@@ -2637,6 +2726,22 @@ bool OwnSaveFlag(std::int64_t id) {
     return id >= 0 && progress::ReadFlagOwnSave(static_cast<u32>(id), &v) && v;
 }
 
+// 0.7.8: the own-world gate of a lot / goods whose vanilla giver checks the player's own progress (the Eye of a
+// Blood-drunk Hunter: night 9801 + DLC 6899, m21 12101028). 1 holds, 0 not, -1 unreadable (the own pool).
+int OwnGateNow(const std::vector<std::uint32_t>& flags) {
+    return OwnGateState(flags, [](std::uint32_t f, bool* v) { return progress::ReadFlagOwnSave(f, v); });
+}
+
+std::string GateFlagsText(const std::vector<std::uint32_t>& flags) {
+    std::string t;
+    for (const std::uint32_t f : flags) {
+        bool v = false;
+        const bool ok = progress::ReadFlagOwnSave(f, &v);
+        t += (t.empty() ? "" : ", ") + std::to_string(f) + (ok ? (v ? "=1" : "=0") : "=?");
+    }
+    return t;
+}
+
 // ---- goods given while summoned: given again after a load that dropped them (H3, par_c6) ----
 struct SummonedGive {
     u32 bits = 0;
@@ -2773,6 +2878,14 @@ void SummonedGivesTick(const GameSnapshot& gs, int load_mode, double now) {
         // back at home, without the summoned copy. Anything else given while summoned stays in the
         // inventory, so fewer held now means used, dropped or sold (0.6.9: Ritual Blood / a pendant
         // used while summoned came back at home).
+        if ((g.bits >> 28) == 4) {
+            const std::vector<std::uint32_t> gate = GoodsOwnGateFlags(static_cast<std::int32_t>(g.id));
+            if (!gate.empty() && OwnGateNow(gate) != 1) {
+                Log("goods %u given while summoned: not given again: this world has not reached its vanilla gate (%s)",
+                    g.id, GateFlagsText(gate).c_str());
+                continue;
+            }
+        }
         LotSlotState ks;
         ks.category = g.bits >> 28;
         ks.id = static_cast<std::int32_t>(g.id);
@@ -2969,6 +3082,11 @@ void KeyCatchupTick(const GameSnapshot& gs, int load_mode, double now) {
         const std::int32_t idx = flag > 0 ? kItemNone : ItemLedgerIndex(lot);
         const std::int64_t done = flag > 0 ? flag : idx >= 0 ? std::int64_t(kItemLedgerBase) + idx : -1;
         const bool done_set = done >= 0 && IsFlag(man, done);
+        if (const std::vector<std::uint32_t> gate = LotOwnGateFlags(lot); !gate.empty() && OwnGateNow(gate) != 1) {
+            Log("owed lot %d: not given: this world has not reached its vanilla gate (%s); the host's list brings it "
+                "again once it has", lot, GateFlagsText(gate).c_str());
+            continue;
+        }
         bool any = false;
         for (const LotSlotState& sl : LotSlots(lot)) {
             if (sl.id <= 0) {
@@ -3988,8 +4106,20 @@ void GiftTick(double now) {
         g_gift_due.pop_front();
     }
     g_gift_last = now;
+    static const bool hide_on = !EnvOff("BB_PARTY_GIFT_HIDE");
+    // One award per lot per session (BB_PARTY_GIFT_HIDE=0 turns this and the hide off).
+    static std::set<std::int32_t> awarded;
+    if (hide_on && awarded.count(d.lot)) {
+        Log("gift from slot %d: lot %d was already awarded this session; nothing to give", d.slot, d.lot);
+        return;
+    }
     if (IsFlag(Ptr(kFlagMan), d.flag)) {
         Log("gift from slot %d: lot %d already in the host's world (flag %d set); nothing to give", d.slot, d.lot, d.flag);
+        if (hide_on) {
+            if (const std::uint32_t tf = TreasureFlagToHide(d.lot); tf && g_treasure_hider && g_treasure_hider(tf)) {
+                Log("gift from slot %d: lot %d's leftover treasure (flag %u) taken out", d.slot, d.lot, tf);
+            }
+        }
         return;
     }
     {
@@ -4006,6 +4136,14 @@ void GiftTick(double now) {
     // broadcasts it; the guest that talked holds the flag already (its mark) and skips it.
     reinterpret_cast<AwardFn>(Guest(kAwardLot))(mim, static_cast<u32>(d.lot), 1);
     Log("gift from slot %d: flag %d is now %d", d.slot, d.flag, IsFlag(Ptr(kFlagMan), d.flag) ? 1 : 0);
+    if (hide_on) {
+        awarded.insert(d.lot);
+        // The treasure still lying in the host's own world: taken out, else the host picks it up a second
+        // time (a duplicate key item and the "second item" warning).
+        if (const std::uint32_t tf = TreasureFlagToHide(d.lot); tf && g_treasure_hider && g_treasure_hider(tf)) {
+            Log("gift from slot %d: lot %d's treasure (flag %u) taken out of the host's world", d.slot, d.lot, tf);
+        }
+    }
 }
 
 } // namespace
@@ -4268,6 +4406,153 @@ void RepairShopGatesTick(const GameSnapshot& gs) {
         kept.empty() ? "none" : kept.c_str(), kShopGatesRepaired);
 }
 
+// Goods held anywhere in this player's data: the inventory (the key section in view), the key section out of
+// view (ItemStacks counts both) and the storage box. 1 / 0 / -1 unknown (a list not readable).
+int GoodsHeldAnywhere(std::int32_t goods) {
+    const u32 id = static_cast<u32>(goods);
+    const int inv = ItemCount(0x40000000u, id), stacks = ItemStacks(0x40000000u, id);
+    const int box = StorageItemCount(0x40000000u, id);
+    if (inv > 0 || stacks > 0 || box > 0) {
+        return 1;
+    }
+    return inv < 0 || stacks < 0 || box < 0 ? -1 : 0;
+}
+
+const char* BadgeName(std::int32_t goods) {
+    static const char* const kNames[kBadgeGateCount] = {
+        "Saw Hunter Badge",   "Crow Hunter Badge", "Powder Keg Hunter Badge", "Old Hunter Badge",   "Sword Hunter Badge",
+        "Radiant Sword Hunter Badge", "Wheel Hunter Badge", "Cainhurst Badge", "Spark Hunter Badge", "Cosmic Eye Watch Badge"};
+    const std::int32_t n = goods - kBadgeGoodsFirst;
+    return n >= 0 && n < kBadgeGateCount ? kNames[n] : "badge";
+}
+
+// Main thread, own world (load mode 0), world settled: once per save (marker kBadgeGatesRepaired), clears
+// every badge lineup flag 12101000 + n that is set while badge 4110 + n is held nowhere. Before 0.7.8 another
+// player's copy of m21 event 12101000 ended this game's copy (packet 0x31) and the flags were shared as NPC
+// quest progress: the Messenger sold Chikage, the Beak Mask etc. to players without the badge (playtest
+// 2026-11-01). BB_PARTY_SHOP_REPAIR=0 switches it off with the weapon repair.
+void RepairBadgeGatesTick(const GameSnapshot& gs) {
+    static double next = 0.0, up_since = 0.0;
+    static bool done = false, logged_wait = false;
+    static bool off = std::getenv("BB_PARTY_SHOP_REPAIR") && std::string(std::getenv("BB_PARTY_SHOP_REPAIR")) == "0";
+    if (!g_on.load() || off || done) {
+        return;
+    }
+    const double now = Now();
+    const u64 man = Ptr(kFlagMan);
+    if (!man || LoadMode(man) != 0 || !gs.world_up || gs.loading || gs.map_id == 0xffffffffu || gs.player_rec == 0) {
+        up_since = 0.0;
+        return;
+    }
+    if (up_since == 0.0) {
+        up_since = now;
+    }
+    if (now - up_since < 8.0 || now < next) {
+        return;
+    }
+    next = now + 2.0;
+    auto is_set = [man](std::uint32_t id) { return IsFlag(man, id); };
+    const ShopGateRepair r = BadgeGatesToRepair(is_set, GoodsHeldAnywhere);
+    if (r.done) {
+        done = true;
+        return;
+    }
+    if (!r.complete) {
+        // Nothing is cleared while one list is unreadable: the whole check runs again.
+        if (!logged_wait) {
+            logged_wait = true;
+            Log("shop gate repair: the key items or the storage are not readable yet, trying again (badge rows)");
+        }
+        return;
+    }
+    for (const std::int32_t f : r.clear) {
+        SetFlag(man, f, false);
+        const std::int32_t goods = kBadgeGoodsFirst + (f - kBadgeGateFirst);
+        Log("shop gate repair: flag %d cleared (%s %d not held)", f, BadgeName(goods), goods);
+    }
+    SetFlag(man, kBadgeGatesRepaired);
+    done = true;
+    std::string kept;
+    for (std::int32_t n = 0; n < kBadgeGateCount; ++n) {
+        if (IsFlag(man, kBadgeGateFirst + n)) {
+            kept += (kept.empty() ? "" : ",") + std::to_string(kBadgeGateFirst + n);
+        }
+    }
+    Log("shop gate repair: badge rows: %zu flag%s cleared; still set (badge held): %s; save marked (flag %u)",
+        r.clear.size(), r.clear.size() == 1 ? "" : "s", kept.empty() ? "none" : kept.c_str(), kBadgeGatesRepaired);
+    if (!r.clear.empty()) {
+        RequestGameSave("shop gate repair: badge rows");
+    }
+}
+
+// Main thread, own world, world settled: once per save (marker kEyeGateRepaired), an NG0 save that holds the
+// Eye of a Blood-drunk Hunter (or its pickup / sale flags) without night 9801 and never entered the DLC loses
+// them: the vanilla Messenger gives and sells the Eye only at night (m21 12101028 / 12101100), so the party
+// put it there (before 0.7.8 lot 10040 was replayed to every member at once). BB_PARTY_EYE_REPAIR=0 off.
+void RepairEyeGateTick(const GameSnapshot& gs) {
+    static double next = 0.0, up_since = 0.0;
+    static bool done = false;
+    static const char* logged_wait = nullptr;
+    static bool off = std::getenv("BB_PARTY_EYE_REPAIR") && std::string(std::getenv("BB_PARTY_EYE_REPAIR")) == "0";
+    if (!g_on.load() || off || done) {
+        return;
+    }
+    const double now = Now();
+    const u64 man = Ptr(kFlagMan);
+    if (!man || LoadMode(man) != 0 || !gs.world_up || gs.loading || gs.map_id == 0xffffffffu || gs.player_rec == 0) {
+        up_since = 0.0;
+        return;
+    }
+    if (up_since == 0.0) {
+        up_since = now;
+    }
+    if (now - up_since < 8.0 || now < next) {
+        return;
+    }
+    next = now + 2.0;
+    auto is_set = [man](std::uint32_t id) { return IsFlag(man, id); };
+    const EyeRepair r = EyeToRepair(is_set, NgCycleLive(), GoodsHeldAnywhere(kEyeGoods));
+    if (r.done) {
+        done = true;
+        return;
+    }
+    if (!r.complete) {
+        if (logged_wait != r.why) {
+            logged_wait = r.why;
+            Log("eye repair: %s, trying again", r.why);
+        }
+        return;
+    }
+    if (r.remove_eye) {
+        // At home the key section in view is the own one; GiveItemDirect with a negative count takes it.
+        const u32 eye = static_cast<u32>(kEyeGoods);
+        const int before = ItemStacks(0x40000000u, eye);
+        const int inv = ItemCount(0x40000000u, eye);
+        const bool ok = inv <= 0 || GiveItem(0x40000000u, eye, -inv);
+        const int after = ItemStacks(0x40000000u, eye);
+        const int box = StorageItemCount(0x40000000u, eye);
+        Log("eye repair: Eye of a Blood-drunk Hunter %d removed (%s): key stacks %d -> %d%s", kEyeGoods, r.why, before,
+            after, !ok ? " (GiveItemDirect unavailable)" : box > 0 ? "; one more in the storage box, left there" : "");
+        if (!ok || after != 0) {
+            return;  // not taken: the flags stay as they are, the check runs again
+        }
+    }
+    for (const std::uint32_t f : r.clear) {
+        SetFlag(man, f, false);
+        Log("eye repair: flag %u cleared (%s)", f,
+            f == static_cast<std::uint32_t>(kEyeLotFlag) ? "the Messenger's Eye gift, lot 10040"
+            : f == kFlagEyeSale                            ? "the Eye's shop sale"
+                                                           : "the Eye's sale event");
+    }
+    SetFlag(man, kEyeGateRepaired);
+    done = true;
+    Log("eye repair: %s: %s; save marked (flag %u)", r.remove_eye || !r.clear.empty() ? "repaired" : "nothing to do",
+        r.why, kEyeGateRepaired);
+    if (r.remove_eye || !r.clear.empty()) {
+        RequestGameSave("eye repair");
+    }
+}
+
 // ---- the guest's shop gates while summoned (0.7.5) ----
 // The messenger shop lists the Uncanny / Lost weapons of ShopLineupParam rows gated by the event
 // flags 5500-5521 (docs/party/shop_gates.md). Their setter is common event 5500+slot, "the player
@@ -4290,7 +4575,18 @@ void ShopGateTick(const GameSnapshot& gs, int load_mode, double now) {
         return;
     }
     std::string fixed;
+    // 0.7.8: also the badge rows 12101000-12101009 (own badges, PerPlayerItemGateEvent) and the Eye's sale
+    // 12101100 / 12101101 (the own night and DLC): the host's values listed its rows in this guest's shop.
+    std::vector<std::int32_t> gates;
     for (std::int32_t f = kShopOwnFirst; f <= kShopOwnLast; ++f) {
+        gates.push_back(f);
+    }
+    for (std::int32_t n = 0; n < kBadgeGateCount; ++n) {
+        gates.push_back(kBadgeGateFirst + n);
+    }
+    gates.push_back(static_cast<std::int32_t>(kFlagEyeSaleEvent));
+    gates.push_back(static_cast<std::int32_t>(kFlagEyeSale));
+    for (const std::int32_t f : gates) {
         bool own = false;
         if (!progress::ReadFlagOwnSave(static_cast<u32>(f), &own)) {
             return;  // the own pool is not readable now: leave everything as it is
@@ -4302,7 +4598,8 @@ void ShopGateTick(const GameSnapshot& gs, int load_mode, double now) {
     }
     if (!fixed.empty() && fixed_total < 40) {
         fixed_total++;
-        Log("shop gates while summoned: the host-world overlay shows the own save's 'owns the weapon' flags: %s",
+        Log("shop gates while summoned: the host-world overlay shows the own save's 'owns the weapon' / badge / Eye sale "
+            "flags: %s",
             fixed.c_str());
     }
 }
@@ -4399,6 +4696,8 @@ void ItemsTick() {
     ShopGateTick(gs, s.load_mode, Now());
     ChaliceCaseFlagLogTick(gs, s.load_mode, Now());
     RepairShopGatesTick(gs);
+    RepairBadgeGatesTick(gs);
+    RepairEyeGateTick(gs);
     KeyGoodsWatchTick(gs, s.load_mode, Now());
     SummonedGivesTick(gs, s.load_mode, Now());
     KeyCatchupTick(gs, s.load_mode, Now());
@@ -4448,6 +4747,18 @@ void ItemsTick() {
         }
     }
     if (!g) {
+        return;
+    }
+    if (const std::vector<std::uint32_t> gate = LotOwnGateFlags(g->lot); !gate.empty() && OwnGateNow(gate) != 1) {
+        // 0.7.8: the Eye of a Blood-drunk Hunter (lot 10040, the DLC entry) only once this player's own world has
+        // reached the vanilla gift's gate (night 9801, DLC 6899): before, the host's Eye went to every member at
+        // once (playtest 2026-11-01: a guest's party-given Eye before its own night). Not marked done: the host's
+        // next list brings it again.
+        static std::set<std::int32_t> logged;
+        if (logged.insert(g->lot).second) {
+            Log("%s: held back: this player's own world has not reached the vanilla gate (%s); it comes with the "
+                "host's list once it has", DescribeItem(*g).c_str(), GateFlagsText(gate).c_str());
+        }
         return;
     }
     if (mode == ItemApplyMode::Summoned) {

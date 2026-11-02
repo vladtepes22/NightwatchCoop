@@ -102,16 +102,16 @@ Class: `progress` = shared with the party, `item` = per player (the item was obt
 | 6695 | never_sync | item | 5 rows (101144..) | Church Cannon (wpn 35000000) | personal block (6000-8999): this player's own |
 | 6696 | never_sync | item | 5 rows (101145..) | Fist of Gratia (wpn 34000000) | personal block (6000-8999): this player's own |
 | 6697 | never_sync | item | 5 rows (101146..) | Loch Shield (wpn 19100000) | personal block (6000-8999): this player's own |
-| 12101000 | npc_quest | progress | 40 rows (100100..) | Hunter Axe (wpn 5000000), Hunter Blunderbuss (wpn 6000000), Saw Cleaver (wpn 7000000), Saw Spear (wpn 7100000), Hunter Pistol (wpn 14000000), Threaded Cane (wpn 22000000) | m21_00_00_00 event 12101000 slot 0 (completion) |
-| 12101001 | npc_quest | progress | 25 rows (100400..) | Blade of Mercy (wpn 4000000), Beak Mask (armor 180000), Crowfeather Garb (armor 181000), Crowfeather Manchettes (armor 182000), Crowfeather Trousers (armor 183000) | m21_00_00_00 event 12101000 slot 1 (completion) |
-| 12101002 | npc_quest | progress | 20 rows (100200..) | Rifle Spear (wpn 10000000), Stake Driver (wpn 11000000), Oil Urn (goods 1220), Rope Molotov Cocktail (goods 1250) | m21_00_00_00 event 12101000 slot 2 (completion) |
-| 12101003 | npc_quest | progress | 20 rows (100300..) | Burial Blade (wpn 5100000), Gehrman's Hunter Cap (armor 200000), Gehrman's Hunter Garb (armor 201000), Gehrman's Hunter Trousers (armor 203000) | m21_00_00_00 event 12101000 slot 3 (completion) |
-| 12101004 | npc_quest | progress | 30 rows (100600..) | Kirkhammer (wpn 8000000), Repeating Pistol (wpn 14200000), Antidote (goods 1100), Bold Hunter's Mark (goods 1400), Hand Lantern (goods 1412), Hunter Chief Emblem (goods 4011) | m21_00_00_00 event 12101000 slot 4 (completion) |
-| 12101005 | npc_quest | progress | 60 rows (100700..) | Ludwig's Rifle (wpn 6100000), Ludwig's Holy Blade (wpn 8100000), Flamesprayer (wpn 18100000), Tomb Prospector Hood (armor 140000), Tomb Prospector Garb (armor 141000), Tomb Prospector Gloves (armor 142000) | m21_00_00_00 event 12101000 slot 5 (completion) |
-| 12101006 | npc_quest | progress | 10 rows (100800..) | Logarius' Wheel (wpn 12000000), Gold Ardeo (armor 150000) | m21_00_00_00 event 12101000 slot 6 (completion) |
-| 12101007 | npc_quest | progress | 40 rows (100900..) | Chikage (wpn 2000000), Reiterpallasch (wpn 10100000), Evelyn (wpn 14100000), Cainhurst Helmet (armor 100000), Cainhurst Armor (armor 101000), Cainhurst Gauntlets (armor 102000) | m21_00_00_00 event 12101000 slot 7 (completion) |
-| 12101008 | npc_quest | progress | 15 rows (100500..) | Tonitrus (wpn 13000000), Bolt Paper (goods 1320) | m21_00_00_00 event 12101000 slot 8 (completion) |
-| 12101009 | npc_quest | progress | 30 rows (101000..) | Rosmarinus (wpn 18000000), Sedative (goods 1101), Beast Blood Pellet (goods 1110), Blue Elixir (goods 1120), Poison Knife (goods 1210), Twin Blood Stone Shards (goods 3010) | m21_00_00_00 event 12101000 slot 9 (completion) |
+| 12101000 | never_sync | item | 40 rows (100100..) | Hunter Axe (wpn 5000000), Hunter Blunderbuss (wpn 6000000), Saw Cleaver (wpn 7000000), Saw Spear (wpn 7100000), Hunter Pistol (wpn 14000000), Threaded Cane (wpn 22000000) | event 12101000 slot n ends when the player holds badge goods 4110+n (per player, 0.7.8) |
+| 12101001 | never_sync | item | 25 rows (100400..) | Blade of Mercy (wpn 4000000), Beak Mask (armor 180000), Crowfeather Garb (armor 181000), Crowfeather Manchettes (armor 182000), Crowfeather Trousers (armor 183000) | event 12101000 slot n ends when the player holds badge goods 4110+n (per player, 0.7.8) |
+| 12101002 | never_sync | item | 20 rows (100200..) | Rifle Spear (wpn 10000000), Stake Driver (wpn 11000000), Oil Urn (goods 1220), Rope Molotov Cocktail (goods 1250) | event 12101000 slot n ends when the player holds badge goods 4110+n (per player, 0.7.8) |
+| 12101003 | never_sync | item | 20 rows (100300..) | Burial Blade (wpn 5100000), Gehrman's Hunter Cap (armor 200000), Gehrman's Hunter Garb (armor 201000), Gehrman's Hunter Trousers (armor 203000) | event 12101000 slot n ends when the player holds badge goods 4110+n (per player, 0.7.8) |
+| 12101004 | never_sync | item | 30 rows (100600..) | Kirkhammer (wpn 8000000), Repeating Pistol (wpn 14200000), Antidote (goods 1100), Bold Hunter's Mark (goods 1400), Hand Lantern (goods 1412), Hunter Chief Emblem (goods 4011) | event 12101000 slot n ends when the player holds badge goods 4110+n (per player, 0.7.8) |
+| 12101005 | never_sync | item | 60 rows (100700..) | Ludwig's Rifle (wpn 6100000), Ludwig's Holy Blade (wpn 8100000), Flamesprayer (wpn 18100000), Tomb Prospector Hood (armor 140000), Tomb Prospector Garb (armor 141000), Tomb Prospector Gloves (armor 142000) | event 12101000 slot n ends when the player holds badge goods 4110+n (per player, 0.7.8) |
+| 12101006 | never_sync | item | 10 rows (100800..) | Logarius' Wheel (wpn 12000000), Gold Ardeo (armor 150000) | event 12101000 slot n ends when the player holds badge goods 4110+n (per player, 0.7.8) |
+| 12101007 | never_sync | item | 40 rows (100900..) | Chikage (wpn 2000000), Reiterpallasch (wpn 10100000), Evelyn (wpn 14100000), Cainhurst Helmet (armor 100000), Cainhurst Armor (armor 101000), Cainhurst Gauntlets (armor 102000) | event 12101000 slot n ends when the player holds badge goods 4110+n (per player, 0.7.8) |
+| 12101008 | never_sync | item | 15 rows (100500..) | Tonitrus (wpn 13000000), Bolt Paper (goods 1320) | event 12101000 slot n ends when the player holds badge goods 4110+n (per player, 0.7.8) |
+| 12101009 | never_sync | item | 30 rows (101000..) | Rosmarinus (wpn 18000000), Sedative (goods 1101), Beast Blood Pellet (goods 1110), Blue Elixir (goods 1120), Poison Knife (goods 1210), Twin Blood Stone Shards (goods 3010) | event 12101000 slot n ends when the player holds badge goods 4110+n (per player, 0.7.8) |
 | 92905385 | never_sync | progress | 4 rows (510011..) | Sinister Lower Pthumeru Root Chalice (goods 6302) | no setter found |
 | 92905386 | never_sync | progress | 4 rows (510012..) | Sinister Hintertomb Root Chalice (goods 6312) | no setter found |
 | 92905387 | never_sync | progress | 4 rows (510013..) | Sinister Pthumeru Ihyll Root Chalice (goods 6502) | no setter found |
@@ -127,3 +127,9 @@ weapon id + 100 * level for levels 0-15), once per save (marker flag 60009998, l
 range), and logs one line ("shop gate repair: ..."). Progress gates (5090/5091, 59xx) and goods gates are never
 touched. `BB_PARTY_SHOP_REPAIR=0` switches it off. Smoke groups `shop_repair` (one player) and `shop_repair2`
 (a guest that goes home, is repaired, rejoins and opens the shop).
+
+0.7.8: the badge rows 12101000-12101009 (m21 event 12101000 slot n ends when the player holds badge goods 4110 + n)
+and the Eye's sale 12101100 / 12101101 are per player (never_sync; another player's 0x31 state of 12101000 is dropped,
+`PerPlayerItemGateEvent`). `RepairBadgeGatesTick` clears a set badge row whose badge is in neither key section nor the
+storage box, once per save (marker 60009997, one `shop gate repair: flag N cleared (...)` line each). Smoke groups
+`shop_badge` (sgb) and `shop_badge_sync` (sgb2).

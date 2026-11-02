@@ -82,6 +82,14 @@ bool GuestServiceTalkAllowed(std::uint32_t talk, const std::string& extra);
 /// events 12100143 / 12100144 / 12100145); else the ordinary lines (72100120-72100129,
 /// 72100133-72100135). A guest talks to him unless the last event is up.
 constexpr std::uint32_t kGehrmanTalk = 210305;
+
+/// The Memory Altar (t210699, MSB 2100203): a guest uses it only once the Rune Workshop Tool (goods 4104, lot
+/// 2200360, a shared key treasure: the host's pickup reaches the party) is unlocked in the guest's save (pickup flag
+/// 52200360) or held. BB_PARTY_ALTAR_GATE=0 = always open (0.7.7 behaviour).
+constexpr std::uint32_t kMemoryAltarTalk = 210699;
+constexpr std::uint32_t kAltarUnlockFlag = 52200360;
+constexpr std::uint32_t kRuneWorkshopTool = 4104;
+bool MemoryAltarUsable(bool flag_set, int tool_count);
 bool GehrmanLastEvent(bool f1028, bool f1029, bool f1030);
 
 /// Dream headstones and warp menus whose multiplayer / client tests the lamp part lifts:

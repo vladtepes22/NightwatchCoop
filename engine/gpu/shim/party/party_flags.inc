@@ -25,7 +25,7 @@
 {72500300u, 72500339u, Category::covenant_outcome, "Annalise's talk / kneel / blood / revival block (m25 T7)"},
 {72500350u, 72500359u, Category::covenant_outcome, "Alfred in Cainhurst (m25 T7)"},
 {72700300u, 72700339u, Category::covenant_outcome, "Valtr's talk block, rune / staff triggers (m27 T7)"},
-// ---- 85 override rows (area gates, endings, cutscene/time-of-day flags)
+// ---- 87 override rows (area gates, endings, cutscene/time-of-day flags)
 {2100u, 2100u, Category::never_sync, "area gate (TBL1 0x47304B0: ON blocks the host bell / summons in the area)"},
 {2200u, 2200u, Category::never_sync, "area gate (TBL1 0x47304B0: ON blocks the host bell / summons in the area)"},
 {2300u, 2300u, Category::never_sync, "area gate (TBL1 0x47304B0: ON blocks the host bell / summons in the area)"},
@@ -111,6 +111,8 @@
 {72100113u, 72100113u, Category::never_sync, "per-player: Doll talk t210304 state after a level-up"},
 {72100202u, 72100202u, Category::never_sync, "per-player: the Dream mirror t210696 one-time note ('Wear clothing to change appearance.')"},
 {12101020u, 12101021u, Category::never_sync, "per-player: starting weapon messengers done (m21 events 12101020 / 12101021; the pick is each player's own)"},
+{12101000u, 12101009u, Category::never_sync, "per-player: Messenger badge rows (m21 ev 12101000 slot n = own badge goods 4110+n)"},
+{12101100u, 12101101u, Category::never_sync, "per-player: the Eye of a Blood-drunk Hunter's sale (m21 ev 12101100: own night 9801 + DLC 6899)"},
 // ---- 1728 specific rows
 {2200u, 2200u, Category::boss_defeated, "set by m22_00_00_00 ev 12201800 (boss defeat)"},
 {2300u, 2301u, Category::boss_defeated, "set by m23_00_00_00 ev 12301800 (boss defeat) (+1 more)"},

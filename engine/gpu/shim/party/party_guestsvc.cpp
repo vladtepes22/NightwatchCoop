@@ -87,6 +87,10 @@ bool GuestServiceTalkAllowed(std::uint32_t talk, const std::string& extra) {
     return false;
 }
 
+bool MemoryAltarUsable(bool flag_set, int tool_count) {
+    return flag_set || tool_count > 0;
+}
+
 bool GehrmanLastEvent(bool f1028, bool f1029, bool f1030) {
     return f1028 || (f1029 && !f1030);
 }
@@ -398,6 +402,13 @@ std::atomic<int> g_lamp_requests_made{0}; // guest: lamp warps turned into reque
 std::atomic<bool> g_gate{false};
 // Gehrman's ordinary talk for a guest (the tick: the gate is open and his last event is not up).
 std::atomic<bool> g_gehrman_talk{false};
+// The Memory Altar (t210699) for a guest: the Rune Workshop Tool is held (shared with the party when the host picks
+// it up). BB_PARTY_ALTAR_GATE=0 keeps the old always-open altar.
+std::atomic<bool> g_altar_ok{true};
+bool AltarGateOn() {
+    static const bool on = !(std::getenv("BB_PARTY_ALTAR_GATE") && std::getenv("BB_PARTY_ALTAR_GATE")[0] == '0');
+    return on;
+}
 std::atomic<std::uint32_t> g_overrides{0};
 // Talk environments seen asking while the gate was open (discovery log, tick side).
 constexpr int kEnvSlots = 32;
@@ -504,6 +515,9 @@ std::uint64_t BB_COOP_SYSV IsClientFilter(std::uint64_t env, std::uint64_t value
     const bool gehrman = talk == kGehrmanTalk && g_gehrman_talk.load(std::memory_order_relaxed);
     if (!headstone && !gehrman && !GuestServiceTalkAllowed(talk, g.extra)) {
         return value;
+    }
+    if (talk == kMemoryAltarTalk && AltarGateOn() && !g_altar_ok.load(std::memory_order_relaxed)) {
+        return value;  // the party has not unlocked the altar yet: the vanilla client wait
     }
     g_overrides.fetch_add(1, std::memory_order_relaxed);
     return 0;
@@ -633,7 +647,8 @@ void LogEnv(std::uint64_t env) {
     std::uint32_t talk = 0;
     SafeGet(env + 0x10, &talk);
     Log("talk script t%u (environment %p) asks IsClientPlayer: %s; ids:%s; head:%s", talk, reinterpret_cast<void*>(env),
-        GuestServiceTalkAllowed(talk, g.extra) || (talk == kGehrmanTalk && g_gehrman_talk.load()) ? "allowed" : "kept vanilla",
+        (GuestServiceTalkAllowed(talk, g.extra) && !(talk == kMemoryAltarTalk && AltarGateOn() && !g_altar_ok.load())) ||
+                (talk == kGehrmanTalk && g_gehrman_talk.load()) ? "allowed" : "kept vanilla",
         found.empty() ? " none" : found.c_str(),
         hex.c_str());
 }
@@ -1502,6 +1517,14 @@ bool EventSyncLogOn() {
     }();
     return on;
 }
+/// BB_PARTY_ITEM_GATE_SYNC=1 (testing): another player's state of the badge rows / Amygdala's grab is applied again.
+bool ItemGateSyncFilterOn() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_PARTY_ITEM_GATE_SYNC");
+        return !(v && v[0] == '1' && !v[1]);
+    }();
+    return on;
+}
 bool MessengerSyncFilterOn() {
     static const bool on = [] {
         const char* v = std::getenv("BB_PARTY_MESSENGER_SYNC");
@@ -1532,6 +1555,7 @@ BB_COOP_SYSV u64 EventSyncRead(u64 man, u64 peer, u64 type, u64 buf, u64 size) {
         }
         if (std::int32_t(r) <= 0 || !buf || !SafeGet(buf, &kind) || kind != 0 || !SafeGet(buf + 8, &event) ||
             !((MessengerSyncFilterOn() && PerPlayerMessengerEvent(std::uint32_t(event))) ||
+              (ItemGateSyncFilterOn() && PerPlayerItemGateEvent(std::uint32_t(event))) ||
               (LampSyncFilterOn() && deathrules::LampWarpEvent(std::uint32_t(event))) ||
               (BossPhaseSyncFilterOn() && bossfog::HostOnlyBossEvent(std::uint32_t(event)) &&
                PartyDirector::Get().Role() == PartyRole::Host))) {
@@ -1543,6 +1567,20 @@ BB_COOP_SYSV u64 EventSyncRead(u64 man, u64 peer, u64 type, u64 buf, u64 size) {
             if (boss_drops.fetch_add(1) < 8) {
                 Log("Boss phase: event %d's state from a guest not applied (the host's own boss chr decides when "
                     "the phase scene plays)", event);
+            }
+            continue;
+        }
+        if (PerPlayerItemGateEvent(std::uint32_t(event))) {
+            // 0.7.8 (playtest 2026-11-01): another player's copy of a badge row (12101000, its own badge) or of
+            // Amygdala's grab (12405263, its own Eye) ended / ran this game's copy: the host's shop listed a guest's
+            // badge rows and the host was grabbed into the DLC with no Eye of its own.
+            static std::atomic<int> gate_drops{0};
+            if (gate_drops.fetch_add(1) < 40) {
+                std::int16_t slot = 0;
+                SafeGet(buf + 0xc, &slot);
+                Log("Item gates: event %d slot %d's state from another player not applied (%s)", event, int(slot),
+                    event == 12405263 ? "the grab into the DLC needs this player's own Eye of a Blood-drunk Hunter"
+                                      : "a Messenger badge row opens with this player's own badge");
             }
             continue;
         }
@@ -2933,6 +2971,17 @@ void GuestServicesTick(const GameSnapshot& s, party::PartyLink* link) {
         } else {
             Log("closed (role %s, map %s%s)", SessionRoleName(s.session_role), MapName(s.map_id).c_str(),
                 s.loading ? ", loading" : "");
+        }
+    }
+    {
+        bool flag = false;
+        const bool known = progress::ReadFlagOwnSave(kAltarUnlockFlag, &flag);
+        const int tool = GoodsCount(kRuneWorkshopTool);
+        const bool ok = !open || !AltarGateOn() || MemoryAltarUsable(known && flag, tool);
+        if (ok != g_altar_ok.exchange(ok, std::memory_order_relaxed) && open) {
+            Log("Memory Altar (t210699): %s (Rune Workshop Tool unlock flag %u %s, tool held %d)",
+                ok ? "a guest may use it" : "kept vanilla for a guest: the party has not unlocked it",
+                kAltarUnlockFlag, known ? (flag ? "set" : "clear") : "unreadable", tool);
         }
     }
     {

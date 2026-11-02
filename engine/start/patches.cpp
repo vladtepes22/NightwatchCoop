@@ -2,6 +2,7 @@
 #include "patches.h"
 #include "elf.h"
 #include "party.h"
+#include "party_wins.h"
 #include "xml.h"
 
 #include <nlohmann/json.hpp>
@@ -1004,6 +1005,20 @@ PatchResult CompilePatches(const PatchRequest& request) {
                 chosen.push_back(e);
         const Writes external = CompileExternal(chosen, segments, resolution, &party_patches);
         writes.insert(writes.end(), external.begin(), external.end());
+    }
+    Writes party_writes;
+    std::string party_names;
+    for (const PartyPatch& p : party_patches)
+        if (p.name.rfind("Party: ", 0) == 0) {
+            party_writes.insert(party_writes.end(), p.writes.begin(), p.writes.end());
+            party_names += (party_names.empty() ? "" : ", ") + p.name;
+        }
+    if (!party_writes.empty()) {
+        for (const PartyPatch& p : party_patches)
+            if (p.name.rfind("Party: ", 0) != 0 && partywins::Overlaps(party_writes, p.writes))
+                Log("Patches: WARNING: \"%s\" writes bytes of the party patches (%s): the party patches win on those bytes",
+                    p.name.c_str(), party_names.c_str());
+        writes = partywins::PartyWins(writes, party_writes);
     }
     if (Env("BB_OTHER_EDITION", "") == "1") {
         writes.clear();

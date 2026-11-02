@@ -142,8 +142,8 @@ void ReportSections(double secs) {
         const u64 ns = s.ns.exchange(0, std::memory_order_relaxed);
         const u64 calls = s.calls.exchange(0, std::memory_order_relaxed);
         const u64 mx = s.max.exchange(0, std::memory_order_relaxed);
-        if (!calls || double(ns) / 1e6 < 0.5 * secs) {
-            continue; // under 0.05 ms per second of game time: not interesting
+        if (!calls || (double(ns) / 1e6 < 0.5 * secs && mx < 1000000)) {
+            continue; // under 0.05 ms per second of game time and no single call over 1 ms: not interesting
         }
         std::printf("[coop] Party perf:   section %-48.48s total %8.2f ms, %7llu calls, avg %8.2f us, max %8.2f us\n", s.name,
                     double(ns) / 1e6, static_cast<unsigned long long>(calls), double(ns) / 1e3 / double(calls),

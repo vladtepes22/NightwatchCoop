@@ -617,6 +617,12 @@ bool AwardItemLot(std::uint32_t lot) {
     return true;
 }
 
+int NgCycleLive() {
+    const std::uint64_t gdm = Slot(kGameDataMan);
+    const std::uint32_t ng = gdm ? Field<std::uint32_t>(gdm, 0x68, 0xffffffffu) : 0xffffffffu;  // GameDataMan +0x68
+    return ng <= 7 ? int(ng) : -1;
+}
+
 bool GiveGoods(std::uint32_t goods_id, int count) {
     return GiveItem(kTypeGoods, goods_id, count);
 }

@@ -23,8 +23,10 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <deque>
 #include <set>
+#include <string>
 #include <vector>
 
 namespace bbnet::nr {
@@ -134,6 +136,34 @@ inline bool split_records(const std::uint8_t* d, std::size_t n, std::size_t max,
     });
     if (!cur.empty()) out->push_back(std::move(cur));
     return ok && fits;
+}
+
+// 0.7.8 (CL-79fe9c): why a datagram over `max` could not be split, for the log: "not session records" (another
+// protocol: it must reach the peer's game whole) or "one record of N bytes" (a single record larger than the
+// datagram size: the receiver needs it in one piece too). Records are never cut: the transport reads a
+// record whole or not at all.
+inline std::string oversize_shape(const std::uint8_t* d, std::size_t n, std::size_t max) {
+    std::size_t records = 0, biggest = 0;
+    int big_channel = -1, big_type = -1;
+    const bool ok = for_each_record(d, n, [&](const Record& r) {
+        ++records;
+        if (3 + r.len > biggest) {
+            biggest = 3 + r.len;
+            big_channel = r.channel;
+            big_type = r.len >= 5 ? r.body[4] : -1;
+        }
+    });
+    char buf[160];
+    if (!ok) {
+        std::snprintf(buf, sizeof buf, "not session records (first bytes %02x %02x %02x %02x)", n > 0 ? d[0] : 0,
+                      n > 1 ? d[1] : 0, n > 2 ? d[2] : 0, n > 3 ? d[3] : 0);
+    } else if (biggest > max) {
+        std::snprintf(buf, sizeof buf, "%zu record(s), one of %zu bytes (channel %d, type 0x%02x)", records, biggest,
+                      big_channel, big_type < 0 ? 0 : big_type);
+    } else {
+        std::snprintf(buf, sizeof buf, "%zu record(s), each fits", records);
+    }
+    return buf;
 }
 
 // What one peer was sent, for a replay when it is heard again after a silence.

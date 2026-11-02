@@ -412,6 +412,26 @@ void TestCensus() {
         const std::vector<CensusEntry> synced = {{cw, false}, {boss, false}, {twin, true}, {twin, false}};
         CHECK(CensusRepairTargets(hl2, synced).empty());
     }
+    // The repair kills one entity once per map (a dormant boss copy re-armed by the game stays alive):
+    {
+        CensusRepairLedger led;
+        const std::vector<std::pair<u32, int>> tg = {{2900101u, 1}, {2410247u, 1}};
+        std::vector<u32> stuck;
+        auto first = led.Filter(0x1d000000u, tg, &stuck);
+        CHECK(first.size() == 2 && stuck.empty());
+        for (const auto& t : first) led.Done(t.first);
+        int kills = 2;
+        for (int round = 0; round < 5; ++round) {  // five more confirmations: nothing more is killed
+            auto again = led.Filter(0x1d000000u, tg, &stuck);
+            kills += static_cast<int>(again.size());
+        }
+        CHECK(kills == 2 && stuck.size() == 10);
+        CHECK(led.Filter(0x18010000u, tg).size() == 2);  // another map: a fresh ledger
+        for (const auto& t : tg) led.Done(t.first);
+        CHECK(led.Filter(0x18010000u, tg).empty());
+        led.Reset();  // a world load on the SAME map (lamp rest, death): the enemies respawned
+        CHECK(led.Filter(0x18010000u, tg).size() == 2);
+    }
     // hostcheck (live): enemies without an id read -1 (0xFFFFFFFF), not only 0: never one shared id
     // whose alive count (it follows streaming) makes the repair put them all to death.
     {

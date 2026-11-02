@@ -49,8 +49,12 @@ constexpr bool ChannelSet(std::uint64_t c) { return c != 0 && (c >> 63) == 0; }
 /// A map / room area in area 29 (the Chalice Dungeons).
 constexpr bool ChaliceMap(std::uint32_t m) { return m != 0xffffffffu && ((m >> 24) & 0xff) == 29; }
 
-enum class Kind { None, Req, Room, Done, Busy };
+enum class Kind { None, Req, Room, Done, Busy, Stuck };
 Kind KindOf(const std::string& body);
+
+/// Why a guest's Chalice summons cannot work (player-facing notices below).
+enum class StuckWhy { Empty, Offline };
+
 
 /// A11: why the host holds every join now. Prologue / OtherMap: playtest 1, only as the "wait"
 /// word of a refusal (never broadcast as dsum_busy).
@@ -89,6 +93,9 @@ std::string EncodeRoom(const Room& r);
 std::string EncodeRefuse(Busy why = Busy::None);
 std::string EncodeBusy(Busy b);
 std::string EncodeDone(bool ok);
+/// Guest -> host {"op":"dsum_stuck","why":"empty"|"offline"}: the guest's Chalice summons stopped (see StuckWhy).
+std::string EncodeStuck(StuckWhy why);
+bool DecodeStuck(const std::string& body, StuckWhy* why);
 /// False for a refusal or a bad message (`err` says which); a refusal sets *refused.
 bool DecodeRoom(const std::string& body, Room* out, bool* refused, std::string* err);
 bool DecodeDone(const std::string& body, bool* ok);
@@ -179,6 +186,53 @@ constexpr double kAnswerWait = 4.0;   // no dsum_room within this: the host does
 constexpr double kEntryWait = 8.0;    // the bell's own entry (sign sender, ~2 s) not up within this
 constexpr double kJoinWait = 8.0;     // delivered, but no session (client) within this
 constexpr double kRearmAfter = 2.5;   // the room is here, no entry yet: re-ring the bell (normal: ~2 s)
+/// A guest that loaded the host's Chalice Dungeon empty this many times (m29 without the dungeon, sent home each time) stops
+/// ringing for it: the summon only repeats the same empty load (NW-5e27806: 10 loops). Party > Rejoin tries again.
+constexpr int kMaxEmptyLoads = 2;
+/// Why the game cannot make the channel request of a dungeon summon: FrpgNetMan +8 clear = the FROM client never came online
+/// (no server address: a region / online patch; NW-5e27806), else one of the +0x9f6 / +0x9f8 / +0xa50 flags is set (busy,
+/// the summon waits), else it can.
+enum class NoChannel { None, Offline, NotReady };
+constexpr NoChannel WhyNoChannel(unsigned online, unsigned f9f6, unsigned f9f8, unsigned fa50) {
+    return online == 0 ? NoChannel::Offline : (f9f6 || f9f8 || fa50) ? NoChannel::NotReady : NoChannel::None;
+}
+/// The offline notice shows from this many failed deliveries in a row (the first look right after a load is let through).
+constexpr int kOfflineNoticeAfter = 2;
+constexpr bool OfflineNoticeDue(NoChannel why, int fails_in_a_row) {
+    return why == NoChannel::Offline && fails_in_a_row >= kOfflineNoticeAfter;
+}
+/// The notices (the party alert box: first line the title, the rest the body; plain English, the party text has no
+/// translation table). Guest: the loop stop; guest: offline; host: a guest's summons stopped (name = the guest's, may be empty).
+inline const char* StopTitle() { return "Chalice Dungeon loaded empty twice"; }
+inline const char* StopBody() {
+    return "Co-op summons into the host's Chalice Dungeon have stopped, and you stay in your own world. Use Party > Rejoin to "
+           "try again. If it keeps happening, turn off game patches that change the region or online settings (for example "
+           "Unlock Game Region) and send your logs.";
+}
+inline const char* OfflineTitle() { return "This game is offline"; }
+inline const char* OfflineBody() {
+    return "The game could not go online, so it cannot be summoned into the host's Chalice Dungeon (it would load empty). "
+           "The likely cause is a patch that changes the region or online settings, for example Unlock Game Region. Turn it "
+           "off, restart the game and try again. Send your logs if it keeps happening.";
+}
+inline std::string GuestNotice(StuckWhy w) {
+    return w == StuckWhy::Offline ? std::string(OfflineTitle()) + "\n" + OfflineBody()
+                                  : std::string(StopTitle()) + "\n" + StopBody();
+}
+inline std::string HostNotice(StuckWhy w, const std::string& name) {
+    const std::string who = name.empty() ? "A guest" : name;
+    return std::string("Chalice summon stopped for a guest\n") + who +
+           std::string(w == StuckWhy::Offline ? "'s game is offline, so it cannot be summoned into your Chalice Dungeon (it would load empty)."
+                                   : "'s game loaded your Chalice Dungeon empty twice, so summons for that guest stopped.") +
+           " A patch that changes the region or online settings (for example Unlock Game Region) on their PC is the likely "
+           "cause. They can turn it off, or use Party > Rejoin to try again.";
+}
+constexpr bool StopAfterEmptyLoads(int empty_loads) { return empty_loads >= kMaxEmptyLoads; }
+/// The empty-load count after a look at the guest's state: it is in a known dungeon map (the dungeon came) or the host is not
+/// in a dungeon any more: back to 0; otherwise unchanged.
+constexpr int EmptyLoadsAfter(int empty_loads, bool in_known_dungeon, bool host_in_dungeon) {
+    return (in_known_dungeon || !host_in_dungeon) ? 0 : empty_loads;
+}
 /// One tick. `entry_waiting`: the game has a passive guest entry not yet answered;
 /// `joined`: the guest's session is a client of the host's room.
 Action Step(Guest& g, double now, bool entry_waiting, bool joined);

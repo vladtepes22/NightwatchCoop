@@ -834,6 +834,12 @@ inline bool PeerLampPacket(std::uint32_t type, std::uint32_t size, const std::ui
 inline bool TalkStateFlag(std::uint32_t id) {
     return id >= 70000000u && id < 80000000u && id / 1000 % 10 == 0 && id % 1000 / 100 == 1 && !LampTriggerFlag(id);
 }
+/// Gehrman's ordinary-talk lines (t210305: 72100120-72100129, 72100133-72100135) are shared party progress, not
+/// per-player talk state: a guest greets/continues from where the host's talks left off. 72100130/31 (the ending
+/// choice) stay never_sync. BB_PARTY_GEHRMAN_SYNC=0 (read by party_progress) keeps them per player.
+inline bool GehrmanLineFlag(std::uint32_t id) {
+    return (id >= 72100120u && id <= 72100129u) || (id >= 72100133u && id <= 72100135u);
+}
 /// The party's lamp spawn table (party_ids ReturnSpot: the MSB revive points) holds this lamp's
 /// real spot. Not for a Chalice Dungeon's lamps (area 29, 2902950..): a dungeon is assembled from
 /// pieces at load time, so its lamps stand elsewhere (a tester's report: the host's revive for lamp

@@ -484,6 +484,8 @@ void AddRows(void* page, const P::Page& from) {
 
 std::atomic<TextOverrideFn> text_override{nullptr};
 std::atomic<ImePresetFn> ime_preset{nullptr};
+std::atomic<ImeChoicesFn> ime_choices{nullptr};
+std::atomic<ImeClosedFn> ime_closed{nullptr};
 std::atomic<const char16_t*> title_override{nullptr}; // while the game builds one of our pages (its menu thread)
 // Called by the game's menu code (guest threads, System V ABI like the game), one set per page.
 bool Trace();
@@ -980,6 +982,24 @@ void SetTextOverride(TextOverrideFn fn) {
 
 void SetImePreset(ImePresetFn fn) {
     ime_preset.store(fn, std::memory_order_release);
+}
+
+void SetImeChoices(ImeChoicesFn fn) {
+    ime_choices.store(fn, std::memory_order_release);
+}
+
+const char* ImeChoices(std::uint32_t max_length) {
+    const ImeChoicesFn fn = ime_choices.load(std::memory_order_acquire);
+    return fn ? fn(max_length) : nullptr;
+}
+
+void SetImeClosed(ImeClosedFn fn) {
+    ime_closed.store(fn, std::memory_order_release);
+}
+
+void ImeClosed(std::uint32_t max_length, const char* text, bool cancelled) {
+    const ImeClosedFn fn = ime_closed.load(std::memory_order_acquire);
+    if (fn) fn(max_length, text, cancelled);
 }
 
 const char* ImePreset(std::uint32_t max_length) {

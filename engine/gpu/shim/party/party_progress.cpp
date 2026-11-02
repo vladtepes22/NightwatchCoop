@@ -1356,6 +1356,9 @@ const MirrorTables& Mirror() {
         // BB_PARTY_SHOP_STOCK=0: the 0.6.9 behaviour (the host's stock mirrored; a live repro aid).
         const char* ss = std::getenv("BB_PARTY_SHOP_STOCK");
         const bool shop_per_player = !(ss && ss[0] == '0');
+        // BB_PARTY_GEHRMAN_SYNC=0: Gehrman's ordinary-talk flags stay per player (the 0.7.7 behaviour).
+        const char* gs = std::getenv("BB_PARTY_GEHRMAN_SYNC");
+        const bool gehrman_sync = !(gs && gs[0] == '0');
         for (int key = 0; key < int(kPoolBlocks); ++key) {
             const u32 block = BlockOfPoolKey(key);
             if (block == 0xffffffffu) {
@@ -1383,7 +1386,7 @@ const MirrorTables& Mirror() {
                 // Lamp / headstone "used" triggers are per player: mirrored, the host's headstone ran the
                 // guest's warp event too (playtest 1 bug 20); so are the talk state flags of that shape.
                 if ((id >= 2000 && id <= 2099) || (id >= 9020 && id <= 9026) || deathrules::LampTriggerFlag(id) ||
-                    deathrules::TalkStateFlag(id)) {
+                    (deathrules::TalkStateFlag(id) && !(gehrman_sync && deathrules::GehrmanLineFlag(id)))) {
                     PutBit(mask.data(), bit, false);
                 }
                 // Shop stock is per player: mirrored, the host's purchase sold the item out on the guest.

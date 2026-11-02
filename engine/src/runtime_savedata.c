@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "runtime.h"
 #include "save_policy.h"
+#include "runtime_savecommit.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -261,6 +262,7 @@ static ABI int32_t save_delete(const Delete *d) {
     snprintf(host,sizeof(host),"%s/%s",base,d->dir->data);
     snprintf(meta,sizeof(meta),"%s/%s.sce_sys",base,d->dir->data);
     struct stat st;
+    runtime_savecommit_flush(); /* saves closed a moment ago may still be on their way into this folder */
     if (stat(host,&st)) return ERR_NOT_FOUND;
 #ifdef _WIN32
     runtime_win_remove_tree(host);

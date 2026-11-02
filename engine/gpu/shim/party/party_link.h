@@ -164,7 +164,9 @@ enum : std::uint8_t {
     kVitalsHasPos = 4,  // pos / yaw valid
     kVitalsSpectating = 8,  // dead in a boss fight, spectating (C5): pos is where its body fell, not
                             // the carried spot its camera orbits (older peers drop the bit)
-    kVitalsKnownFlags = 15,
+    kVitalsBossBar = 16,    // a boss health bar is up on its game (its boss fight is on; test gates, older
+                            // peers drop the bit)
+    kVitalsKnownFlags = 31,
 };
 struct MemberVitals {
     int slot = -1;

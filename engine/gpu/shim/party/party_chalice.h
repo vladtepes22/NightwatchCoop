@@ -120,6 +120,10 @@ void OnGuestForm(int slot, const std::string& member, const std::string& body);
 /// Host: true once after the altar's glyph box took the party dungeon's glyph: the director then
 /// answers the remaining prompts (OK, the search result, YES, the altar, the awaken point).
 bool TakeAltarAutopilot();
+/// Test aids (director host_glyph=CODE / host_pick=N): the next altar glyph box gets CODE typed into it, or its N-th
+/// list row (1-based) picked with Down / Enter. One shot.
+void SetTestGlyph(const std::string& code);
+void SetTestPick(int row);
 /// Host: its own online id (the roster's host entry), so the party's dungeon at its altar is
 /// another member's ritual (docs/party/chalice.md 7).
 void SetHostName(const std::string& name);

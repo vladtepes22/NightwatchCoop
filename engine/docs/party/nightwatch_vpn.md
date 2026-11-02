@@ -204,7 +204,7 @@ other's games. `tools/vpn/lobby/nwlobby.py` is a tiny in-memory lobby on the VPN
 `tests/test_launcher_vpnlobby.py`, `test_vpnlobby()` in `tests/test_party_net.cpp`.
 
 Off by default: the setting `party_vpn_lobby` (bbport.ini; launcher checkbox *Nightwatch VPN lobby*; in the
-game *System > Party network > Nightwatch VPN lobby*, host's row; env `BB_PARTY_VPN_LOBBY`).
+game *System > Party access > Nightwatch VPN lobby*, host's row; env `BB_PARTY_VPN_LOBBY`).
 
 ### How a join works
 
@@ -321,6 +321,67 @@ nwlobby.py` serves on loopback and accepts loopback senders. The game and launch
    *own*. Never display, copy or log the address.
 4. *Join*: ask for the password, then start the game as a guest with `BB_PARTY=join`,
    `BB_PARTY_CODE=<address>:<port>` and `BB_PARTY_PASSWORD=<password>`; keep the address out of saved settings.
+
+## Party traffic over the tunnel (0.7.8, CL-79fe9c)
+
+A 4-player session over the VPN (2026-11-01, NW-80b250f) had no socket errors and a stable party link, but
+the game's own traffic left the tunnel on some paths. Every PC announced its LAN address as its local
+address: the OpenVPN adapter (TAP-Windows or *OpenVPN Data Channel Offload*) was a commercial-looking
+virtual adapter (`VpnKind::Other`, score 0) and `party_vpn=auto` never took it. The host then asked a
+public STUN server and advertised its WAN address, while the guests reached it at its tunnel address, and
+after the host restarted a guest probed the host's LAN address (it matched the guest's own home subnet)
+and adopted it as the host's alias. The ~130 pairwise 4-5 s game-traffic gaps of that second session (5 in
+the 3.3 h before) were all on those pairs. That the paths caused the gaps is likely, not proven.
+
+What the game does now (`gpu/shim/net/net_socket.cpp`, `party_udp.cpp`, `shim/party/party_runtime.cpp`):
+
+- **Address choice.** A virtual adapter whose address is a tunnel player address (10.8.0.0/22, the same
+  rule as the lobby, `lobby::is_tunnel_player_address`) and that is not the PC's route to the Internet is
+  `VpnKind::Nightwatch` ("Nightwatch VPN"), and `party_vpn=auto` (the default) takes it first (score
+  1005, above Radmin). A commercial OpenVPN service on the same default subnet routes all traffic (it is
+  the default route) and stays `Other`, never taken unasked; a real LAN on 10.8.x is not virtual and is
+  never taken. `party_vpn=<adapter name>` and `off` work as before. The log line: `local address
+  10.8.x.y on ... [hosting over Nightwatch VPN, party_vpn=auto]`.
+- **Nightwatch mode** (the chosen address is a tunnel address; log `Nightwatch VPN: party traffic stays on
+  the tunnel address`):
+  - the host asks no STUN server and opens no UPnP mapping: it advertises its tunnel address and party port
+    (`public address 10.8.x.y:9307 (Nightwatch VPN tunnel)`, NAT line *Open*); its Internet code carries the
+    tunnel address too;
+  - a guest makes no guest code (`guest code: none over the Nightwatch VPN`);
+  - a peer at a tunnel address is never probed or aliased at another address
+    (`punch ...: ignoring its local address ... (a Nightwatch tunnel peer is reached on the tunnel only)`,
+    `udp::tunnel_candidate_ok`).
+  Peers outside the tunnel (LAN, Internet, Radmin, Hamachi, ZeroTier, Tailscale) are handled as before.
+- **Kill switch:** `BB_PARTY_NW_AUTO=0` gives the 0.7.7 behaviour (no automatic choice, no Nightwatch mode).
+  No new setting: this is a fix for VPN players only.
+
+**Packet size.** OpenVPN adds ~70 bytes, so a game datagram over ~1430 bytes is IP-fragmented inside the
+tunnel and is lost with any one fragment.
+- The game's session transport packs datagrams past its own MTU (1232) when it catches up; those were
+  already split at record boundaries (0.6.2, `BB_PARTY_OUTAGE_REPLAY`); toward a tunnel peer they are now
+  always split, also with `BB_PARTY_OUTAGE_REPLAY=0`.
+- A datagram that is not session records, or holds one record over 1232 bytes, cannot be split (the
+  receiver reads a record whole or not at all, and a non-record datagram must arrive in one piece). It leaves
+  whole, is counted, and the first ten are logged with their shape (`send: a 1455-byte game datagram left
+  whole: not session records (first bytes ...)` or `... one of N bytes (channel c, type t)`). In the
+  playtest one such send (1455 bytes) went out once, at the session start; the receiving game read it whole.
+- The p2p port's 60 s line now ends with `sent > 1232 B n, > 1400 B m, unsplit k (since the last line)`.
+- The party port has 1 MiB receive and send buffers (Windows' default is 64 KB, ~50 full datagrams); the
+  log says what the system granted (`party port 9307: socket buffers receive ... B, send ... B`).
+- The outage resume replay sends 4 datagrams, then pauses 1 ms (a scheduler tick), instead of 8 per 2 ms.
+- `IP_DONTFRAGMENT` is not set on purpose: the unsplittable sends above would then be dropped on any path
+  with a smaller MTU with no fallback; with fragmentation they still arrive on most paths.
+
+**Local repro without the VPN.** `BB_NET_SIM` (`gpu/shim/net/netsim.h`) has `mtu=<bytes>` (a datagram with a
+larger UDP payload is dropped, as a tunnel that loses a fragment does; `over mtu` in the status line) and
+`block_every=<ms>` (with `block=<ports>,block_at=<ms>,block_for=<ms>`: one pair's silence repeated, e.g. 4.5
+s every 60 s). Smoke group `vpn_mtu`: phases `oum` (the `ou` outages) and `meshm` (the `mesh` guest-pair
+cut) under `BB_NET_SIM=dsl,mtu=1400`. The address choice itself needs real adapters (a test may not bind a
+10.8.x address without a firewall prompt): `test_vpn_nightwatch()` in `tests/test_party_net.cpp` scores
+synthetic TAP / DCO / Wintun / commercial / LAN adapters and checks the candidate rule.
+
+**Still to look at in the next VPN session:** `BB_NET_RXGAP_LOG=1` on every PC and the VPN server's tun0
+drop counters, to tell whether gaps remain once every path stays on the tunnel.
 
 ## Tests
 
