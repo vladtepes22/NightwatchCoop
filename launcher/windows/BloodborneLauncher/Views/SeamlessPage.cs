@@ -37,10 +37,13 @@ public sealed class SeamlessPage : LauncherPage
         _checkBanner = CheckBanner();
         _checkPanel.Children.Add(_checkBanner);
         var host = Rows(Hosting);
+        var hostRowsBefore = host.Children.Count;
         _hostMode = (Segmented)ComboRow(SymbolRegular.People24, L.T("Party type"), null,
             new[] { new Choice(L.T("Nightwatch Online"), "1"), new Choice(L.T("UPnP/VPN/LAN"), "0") },
             () => IsPublic ? "1" : "0", ChangeHostMode, host,
             enabled: c => c.Value != "1" || NightwatchVpn.Shipped != null || _previewPublic != null, buttons: true);
+        // The UPnP/VPN/LAN party type is gone (user, 2 Nov): Nightwatch Online is the only type, so its row is not shown.
+        if (host.Children.Count > hostRowsBefore) host.Children[host.Children.Count - 1].Visibility = Visibility.Collapsed;
         host.Children.Add(VpnBar());  // the VPN and the connection check sit right above the password
         host.Children.Add(_hostChecks);
         _hostPassword = PasswordRow(host, () => S.PartyPassword, v => { S.PartyPassword = v; UpdateInvite(); },
@@ -319,7 +322,7 @@ public sealed class SeamlessPage : LauncherPage
     private readonly Wpf.Ui.Controls.TextBox _searchBox;
     private bool _changingHost;
     private readonly bool? _previewPublic;
-    private bool IsPublic => _previewPublic ?? (NightwatchVpn.Shipped != null && S.Str("party_host_public") != "0");
+    private bool IsPublic => _previewPublic ?? NightwatchVpn.Shipped != null;
 
     private PasswordBox _joinPassword = null!, _hostPassword = null!;
     private System.Windows.Controls.ComboBox _hostSize = null!;
@@ -450,7 +453,7 @@ public sealed class SeamlessPage : LauncherPage
     /// <summary>Nightwatch Online is the default party type until the player picks one.</summary>
     private void DefaultHostType()
     {
-        if (_previewPublic == null && NightwatchVpn.Shipped != null && S.Str("party_host_public").Length == 0) SetHostType(true);
+        if (_previewPublic == null && NightwatchVpn.Shipped != null && S.Str("party_host_public") != "1") SetHostType(true);
     }
 
     /// <summary>The pointer to the Fix button, shown when Play finds Nightwatch Online without the VPN.</summary>
@@ -866,7 +869,8 @@ public sealed class SeamlessPage : LauncherPage
     {
         if (S.Str("party_mode") != "join") return;
         var now = PartyDiscovery.NowMs;
-        var parties = _book.Snapshot(now).Where(p => CoopHostMode.MatchesSearch(p.Info.Name, _searchBox.Text)).ToList();
+        var own = new HashSet<string>(_adapters.Select(a => a.IpText));  // your own game is never listed
+        var parties = _book.Snapshot(now).Where(p => !own.Contains(p.Ip) && CoopHostMode.MatchesSearch(p.Info.Name, _searchBox.Text)).ToList();
         var prefix = PartyDiscovery.BuildPrefix(Updater.ReleaseVersion());
         var waited = now - _listenSinceMs > ListenGraceMs;
         var lobbyRows = _lobbyList.Children.Count > 0;
