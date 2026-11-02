@@ -42,7 +42,7 @@ def make_save(name="Alfred", stats=(10, 11, 12, 13, 14, 15), echoes=500, insight
     struct.pack_into("<II", d, 0x0C, size, NAME_AT + M.NAME_BACK + size)
     struct.pack_into("<II", d, 0x14, M.FLAG_SECTION, POOL + M.FLAG_SECTION)
     struct.pack_into("<II", d, 0x2C, NG_AT, 8)
-    struct.pack_into("<II", d, 0x3C, 0x60, 12)  # an empty world-state section
+    struct.pack_into("<II", d, 0x3C, 0x200, 12)  # an empty world-state section (behind the instance record)
     d[NAME_AT:NAME_AT + 2 * len(name)] = name.encode("utf-16le")
     for k, v in zip(M.STAT_NAMES, stats):
         struct.pack_into("<I", d, NAME_AT - M.STAT_BACK[k], v)
@@ -587,3 +587,11 @@ def test_real_names_of_lamps_and_bosses(tmp_path):
     assert c.lamp_name(72410200) == "1st Floor Sickroom" and c.lamp_name(72110200) == "Abandoned Old Workshop"
     named = [c.boss_name(chr_id) for chr_id in F.BOSS_CHR.values() if chr_id]
     assert all(named) and "Vicar Amelia" in named and "Orphan of Kos" in named
+
+
+def test_same_named_armour_rows_are_told_apart():
+    c = N.Catalogue({"names": {"armor": {"71000": "Hunter Garb", "281000": "Hunter Garb", "191000": "Student Uniform",
+                                          "301000": "Student Uniform"}},
+                     "ids": {"armor": [71000, 281000, 191000, 301000]}})
+    assert dict(c.search(1, "garb")) == {71000: "Hunter Garb (Cape)", 281000: "Hunter Garb"}
+    assert c.name(1, 191000) == "Student Uniform (Cape)" and c.name(1, 301000) == "Student Uniform"
