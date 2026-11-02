@@ -119,8 +119,8 @@ def _simulate(spec, slow):
                     pos[role] = (float(f[0]), float(f[2 if "_move=" in head else 1]))
                     key = (round(pos[role][0], 2), round(pos[role][1], 2))
                     retry = last_trig[role]
-                    last_trig[role] = "_stick=" in head and key in trig_xz
-                    if "_stick=" in head and key in trig_xz and not retry:  # the repeated stick step is a retry, not a second ride
+                    last_trig[role] = key in trig_xz  # flaky3078: a stick step or the in-world warp into the trigger
+                    if key in trig_xz and not retry:  # the repeated stick step is a retry, not a second ride
                         d = "down" if car[0] == "top" else "up"
                         car[0] = "bottom" if car[0] == "top" else "top"
                         for r_ in seen:

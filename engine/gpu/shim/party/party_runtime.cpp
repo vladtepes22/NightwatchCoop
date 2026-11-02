@@ -367,7 +367,7 @@ void write_identity_file(const LinkConfig& cfg) {
 void hook_identity(LinkConfig& cfg) {
     std::vector<std::string> names;
     for (const std::string& n : coop::InstalledHooks())
-        if (!diagnostic_hook_name(n)) names.push_back(n);
+        if (!diagnostic_hook_name(n) && !host_world_hook_name(n)) names.push_back(n);
     std::sort(names.begin(), names.end());
     names.erase(std::unique(names.begin(), names.end()), names.end());
     cfg.hooks_hash = hook_set_hash(names);

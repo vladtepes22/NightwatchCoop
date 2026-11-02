@@ -660,3 +660,17 @@ the host's presentation entry is the likely trigger (not reproduced naturally in
 
 So a guest's ring -> beside the host in the same map is now ~5.3 s (1.5 s to the client role,
 ~3.8 s to the end of the load), was ~7 s with the 2 s timer.
+
+## 2026-11-02 (joinload078): guest stuck loading into Yahar'gul (CL-f9b8fc), not reproduced
+
+Player report (Nightwatch build, 3 players): the host stood in Yahar'gul (m28, lamp 2802950), a guest in the Hunter's Dream
+joined and sat on the loading screen; the same from the gravestone. The guest log shows the normal A5 path to the end of the
+load (direct summon, `cross-map join`, lamp warp 0x13CDF30 into m28, `world up`, the m28 / m24 map files opened, the lamp's
+talk states asked) but never `loading screen gone`; the host travelled away ~8 min later. Smoke phase `yj` (group
+`yahargul_join`; env `YJ_NET` = BB_NET_SIM preset, `YJ_GUESTS` = 1/2, `YJ_LIT=0` = unlit lamp, `YJ_HOST_SAVE` = a test_saves
+fixture for the host) joins the guest from its Dream after the host stands in Yahar'gul: the same log sequence (lamp 2802950,
+`respawn 0x...2ac506`, `+0x1521 0 +0x1593 1 +0x1598 1`) ends with `loading screen gone` after 5-7 s in every run: host before the
+Blood Moon with the lamp lit and unlit (placement beside the host), host after the Blood Moon (`blood_moon_yahargul`), dsl with
+2 guests, bad with 1 guest. The only differences left to the report are the Nightwatch engine and its replaced game files
+(`Mods: 423 game files replaced`), a level 100 guest save and the player's real network. Open: a repeat with the Nightwatch
+build's log of the HOST side (what it sent after the guest's world-up) would show whether a host packet is missing.

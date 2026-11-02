@@ -25,6 +25,13 @@ when a newer release is out (below), so players can update before they meet.
 | Party patches | every game hook the party code installed (`coop::InstalledHooks()`: "<name> @+<offset>", from coop_hooks' install functions), diagnostics left out (`diagnostic_hook_name`: log / probe / trace / observer / fixture / test), sorted, BLAKE2b (`hook_set_hash`) | names only one side has: "use the same bbport build and party options (BB_PARTY_* switches) as the host" |
 | Party rules | "max N players, 4p:..." | "every player needs the same Max players setting" |
 
+0.7.8: hooks that only the HOST's world needs are left out of the set as well (`host_world_hook_name`: the shared-progress
+flag capture `progress: ...` and `story capture ...`). A guest with `BB_PARTY_PROGRESS=0` / `BB_PARTY_STORY=0` still joins a host
+that has them on (it just does not receive them; player report CL-aa5a64, same build both sides). When the hook sets still differ,
+the refusal names each known option in plain words with both values (`hook_option_label`: Guest lamps, Headstones, Guest
+services, Shared enemy drop roll, 4-player rules): `party options differ (Guest lamps (BB_PARTY_GUEST_LAMPS): host ON, you OFF):
+change it in System > Party or the launcher so it matches the host`; a difference with an unknown hook keeps the old list of names.
+
 The party patch set reflects what really runs: a party option that installs a hook (for example
 guest lamps / headstones, the 4-player hooks, B2) changes it, so two players with different
 gameplay options cannot meet in a half-patched session. Diagnostic hooks (`BB_PARTY_TRACE_*`, item

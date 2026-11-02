@@ -526,10 +526,38 @@ std::string identity_mismatch(const LinkConfig& host, const LinkConfig& guest) {
     if (host.mods_hash != guest.mods_hash)
         parts.push_back(set_clause("gameplay mods", host.mods_hash, host.mod_names, guest.mods_hash, guest.mod_names) +
                         ": enable the same mods as the host (launcher Mods tab)");
-    if (host.hooks_hash != guest.hooks_hash)
-        parts.push_back(set_clause("party patches", host.hooks_hash, host.hook_names, guest.hooks_hash,
-                                   guest.hook_names) +
-                        ": use the same bbport build and party options (BB_PARTY_* switches) as the host");
+    if (host.hooks_hash != guest.hooks_hash) {
+        // 0.7.8: name each differing option in plain words when every differing hook belongs to a known one.
+        std::vector<std::string> host_only, guest_only;
+        for (const std::string& n : host.hook_names)
+            if (std::find(guest.hook_names.begin(), guest.hook_names.end(), n) == guest.hook_names.end())
+                host_only.push_back(n);
+        for (const std::string& n : guest.hook_names)
+            if (std::find(host.hook_names.begin(), host.hook_names.end(), n) == host.hook_names.end())
+                guest_only.push_back(n);
+        std::vector<std::string> opts;  // "Label: host ON, you OFF"
+        bool all_known = !host_only.empty() || !guest_only.empty();
+        auto add = [&](const std::vector<std::string>& names, const char* host_v, const char* you_v) {
+            for (const std::string& n : names) {
+                const std::string label = hook_option_label(n);
+                if (label.empty()) { all_known = false; continue; }
+                const std::string line = label + ": host " + host_v + ", you " + you_v;
+                if (std::find(opts.begin(), opts.end(), line) == opts.end()) opts.push_back(line);
+            }
+        };
+        add(host_only, "ON", "OFF");
+        add(guest_only, "OFF", "ON");
+        if (all_known) {
+            std::string list;
+            for (const std::string& o : opts) list += (list.empty() ? "" : "; ") + o;
+            parts.push_back("party options differ (" + list +
+                            "): change it in System > Party or the launcher so it matches the host");
+        } else {
+            parts.push_back(set_clause("party patches", host.hooks_hash, host.hook_names, guest.hooks_hash,
+                                       guest.hook_names) +
+                            ": use the same bbport build and party options (BB_PARTY_* switches) as the host");
+        }
+    }
     RuleEntries host_join, guest_join;
     const std::string host_base = split_rules(host.rules, &host_join);
     const std::string guest_base = split_rules(guest.rules, &guest_join);
@@ -571,6 +599,23 @@ bool diagnostic_hook_name(const std::string& name) {
     for (const char* w : {"probe", "trace", "(log)", " log", "log (", "observer", "fixture", "test"})
         if (n.find(w) != std::string::npos) return true;
     return false;
+}
+
+bool host_world_hook_name(const std::string& name) {
+    return name.rfind("progress:", 0) == 0 || name.rfind("story capture", 0) == 0;
+}
+
+std::string hook_option_label(const std::string& name) {
+    static const std::pair<const char*, const char*> kOptions[] = {
+        {"(party lamps)", "Guest lamps (BB_PARTY_GUEST_LAMPS)"},
+        {"(party headstones)", "Headstones (BB_PARTY_HEADSTONES)"},
+        {"talk IsClientPlayer", "Guest services (BB_PARTY_GUEST_TALK)"},
+        {"enemy drop roll", "Shared enemy drop roll (BB_PARTY_SHARED_DROP_ROLL)"},
+        {"4p ", "4-player rules (BB_PARTY_FOURP*)"},
+    };
+    for (const auto& [frag, label] : kOptions)
+        if (name.find(frag) != std::string::npos) return label;
+    return {};
 }
 
 std::array<std::uint8_t, 32> hook_set_hash(std::vector<std::string> names) {

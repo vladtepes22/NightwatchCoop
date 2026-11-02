@@ -3592,7 +3592,12 @@ bool LocalRiding(u64 chr, const float p[3]) {
         // shaft beside a moving car, not a ride (run 11, the report: a fall into the Research Hall lift's
         // empty pit counted "on a moving object", its 37 m drop taken for 0.2 m)
         const double dt = at < 0 ? 0.0 : now - at;
-        const bool falling = dt > 0.0 && dt < 1.0 && (double(last_y) - p[1]) / dt >= deathrules::kLiftMaxRate;
+        // liftfall078 (NW-e118458: a guest in free fall at 10 m/s read "riding a moving object"): a chr without the
+        // ride bit that drops faster than a car that has lost its rider is falling (BB_PARTY_LIFT_RESCUE=0: the old
+        // lift-speed limit)
+        static const bool rescue = !EnvOff("BB_PARTY_LIFT_RESCUE");
+        const double limit = rescue ? deathrules::kNoBitRideRate : deathrules::kLiftMaxRate;
+        const bool falling = dt > 0.0 && dt < 1.0 && (double(last_y) - p[1]) / dt >= limit;
         at = now;
         last_y = p[1];
         on_car = !falling && worldact::OnMovingLiftCar(p);
@@ -13738,6 +13743,26 @@ bool NativeWarpLocal(std::uint64_t player, const float* pos16, const float* rot1
 }
 bool LocalChrWarp(std::uint64_t player, const float* pos16, const float* rot16, const char* why) {
     return LocalChrWarpImpl(player, pos16, rot16, why);
+}
+bool LocalSafeLanding(std::uint64_t player, const char* why, const float* ground, const float* ground_rot) {
+    alignas(16) float safe[4], safe_rot[4];
+    float here[3] = {0, 0, 0};
+    if (!player || !ChrPos(player, here)) return false;
+    // The game's last safe ground spot when it is within 25 m (a lift's landing is a few metres from the car; the
+    // game's spot is left behind at the last real ground, so one from another part of the map is no landing for
+    // this shaft), else the spot the caller saw the chr stand on before the ride (`ground`, within 40 m)
+    const bool game = deathrules::SafeSpotUsable(GameSafeSpot(player, safe, safe_rot), safe, here) &&
+                      std::hypot(safe[0] - here[0], safe[2] - here[2]) <= 25.0;
+    const bool own = !game && ground && std::isfinite(ground[0]) && std::hypot(ground[0] - here[0], ground[2] - here[2]) <= 40.0;
+    if (!game && !own) return false;
+    const float* pos = game ? safe : ground;
+    alignas(16) float to[4] = {pos[0], pos[1] + 0.2f, pos[2], 1.0f};
+    alignas(16) float r16[4] = {0.0f, game ? safe_rot[1] : (ground_rot ? ground_rot[1] : 0.0f), 0.0f, 0.0f};
+    if (!LocalChrWarpImpl(player, to, r16, why)) return false;
+    Log("%s: the local chr from (%.1f, %.1f, %.1f) onto %s (%.1f, %.1f, %.1f)", why, double(here[0]), double(here[1]),
+        double(here[2]), game ? "the game's last safe ground spot" : "the ground it stood on before the ride", double(pos[0]),
+        double(pos[1]), double(pos[2]));
+    return true;
 }
 
 } // namespace coop::b2
