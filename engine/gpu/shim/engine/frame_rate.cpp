@@ -294,6 +294,18 @@ bool InstallClothFactor(std::uint8_t* image, std::size_t size) {
 }
 
 bool Install(std::uint8_t* image, std::size_t size) {
+    // Nightwatch: the Live FPS clock (live_clock.cpp, chosen by the start with the Deltatime patch)
+    // runs the frame rate; the native sites and lists are for the FPS++ code, which is not applied.
+    // Tick still counts the steps from the global step the clock writes (Steps, GameSeconds, LastDt).
+    if (const char* live = std::getenv("BB_LIVE_FPS_ACTIVE"); live && !std::strcmp(live, "1")) {
+        if (!image || size < kFrameTime + 4) return false;
+        g_target = TargetRate(g_uncapped);
+        g_image = image;
+        g_follow = true;
+        g_held = g_target;
+        host_log("Frame rate: the Live FPS clock runs the frame rate (no native frame-rate sites)");
+        return true;
+    }
     if (!Switch("LANTERN_FRAMERATE", true)) {
         host_log("Frame rate: native frame rate off (Engine switches); the start's frame-rate patches are used");
         return false;

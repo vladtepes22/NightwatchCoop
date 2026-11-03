@@ -641,6 +641,7 @@ class BuiltInSelectionTests(unittest.TestCase):
             self.assertTrue(patches.placeable(XML, name, '01.09', segments), name)
 
 
+LIVE_BASE = '60 FPS++ (Deltatime)'  # Live FPS (Nightwatch appends it after the Party: patches)
 COMMUNITY_NAMES = (
     'Skip Intro', 'Performance Patch (perf increase)', 'Disable Motion Blur (perf increase)',
     'Disable Dynamic Light Shadows (perf increase)', 'Disable Chromatic Aberration', 'Disable AA', 'Disable DoF',
@@ -666,7 +667,8 @@ COMMUNITY_NAMES = (
 class OwnPatchTests(unittest.TestCase):
     def test_every_community_name_is_built_in(self):
         names = [meta.get('Name') for meta in ET.parse(XML).getroot().iter('Metadata')
-                 if not meta.get('Name').startswith('Party: ')]  # Nightwatch's co-op patches
+                 if not meta.get('Name').startswith('Party: ')  # Nightwatch's co-op patches
+                 and meta.get('Name') != LIVE_BASE]  # Live FPS base (visy 0.7.8)
         self.assertEqual(len(COMMUNITY_NAMES), 62)
         self.assertEqual(sorted(names), sorted(COMMUNITY_NAMES))
 
@@ -702,7 +704,7 @@ class OwnPatchTests(unittest.TestCase):
         self.assertEqual(len(party), 11)
         self.assertTrue(all(line.get('Original') for meta in party for line in meta.iter('Line')))
         self.assertTrue({meta.get('Author') for meta in metas if meta not in party}
-                        <= {'Lantern Engine', 'distpade (NexusMods)'})
+                        <= {'Lantern Engine', 'distpade (NexusMods)', 'Kyo, yogesh1239'})
         names = [meta.get('Name') for meta in metas]
         self.assertEqual(len(names), len(set(names)))
         for meta in metas:
@@ -719,7 +721,9 @@ class OwnPatchTests(unittest.TestCase):
         import game_patches
         built = game_patches.render(game_patches.build(game_patches.Eboot(elf_path)))
         # Nightwatch appends its Party: patches before </Patch>; the rest is Lantern Engine's, as built.
-        shipped = re.sub(r'\n\n(?:[ \t]*<Metadata[^>]*Name="Party: .*?</Metadata>\n)+(?=</Patch>)', '\n',
+        # And the Live FPS base (visy 0.7.8) after them.
+        shipped = re.sub(r'\n\n(?:\n?[ \t]*<Metadata[^>]*Name="(?:Party: [^"]*|60 FPS\+\+ \(Deltatime\))".*?</Metadata>\n)+'
+                         r'(?=</Patch>)', '\n',
                          XML.read_bytes().decode('utf-8').replace('\r\n', '\n'), flags=re.S)
         self.assertEqual(shipped, built)
 
@@ -752,7 +756,8 @@ class PartyOverlapTest(unittest.TestCase):
     another patch changed). Known, intended pairs: the two copies of the network-choice skip, and our list's FPS patches,
     which write the peer-keep timers of Fast rejoin (the party patch wins on those bytes: start/party_wins.h)."""
     ALLOWED = {frozenset(('Party: Skip Online/Offline Choice (Online)', 'Skip Online/Offline Choice'))} | {
-        frozenset(('Party: Fast rejoin', fps)) for fps in ('60FPS (no deltatime)', '60 FPS++', '90 FPS++', 'Uncap FPS++')}
+        frozenset(('Party: Fast rejoin', fps))
+        for fps in ('60FPS (no deltatime)', '60 FPS++', '90 FPS++', 'Uncap FPS++', '60 FPS++ (Deltatime)')}
 
     def test_party_patches_overlap_nothing(self):
         by_name = {}

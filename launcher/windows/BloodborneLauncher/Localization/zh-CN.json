@@ -2514,5 +2514,7 @@
   "Hide offensive names": "隐藏冒犯性名称",
   "Off by default. T (keyboard) or touchpad + L1 (pad: a list of short lines) writes to the party; lines show in your colour.": "默认关闭。按 T（键盘）或触摸板 + L1（手柄：选择短句列表中的内容）向队伍发送消息；消息以你的颜色显示。",
   "With party chat on: show the lines the other hunters write (off = mute them).": "开启队伍聊天时：显示其他猎人发送的消息（关闭 = 将他们静音）。",
-  "On: a hateful player name shows as Hunter and a short code on your screen (display only).": "开启：含有仇恨内容的玩家名称会在你的屏幕上显示为 Hunter 和一段短代码（仅影响显示）。"
+  "On: a hateful player name shows as Hunter and a short code on your screen (display only).": "开启：含有仇恨内容的玩家名称会在你的屏幕上显示为 Hunter 和一段短代码（仅影响显示）。",
+  "Live FPS clock": "实时 FPS 时钟",
+  "The game steps by each frame's measured time (Mrsuss60's clock, from visy's 0.7.8) instead of the fixed frame-rate code: cloth, animation and moving platforms follow real time. On by default; not used at 30 FPS. The target can be changed in game (Insert menu, Live FPS)": "游戏按每一帧实测的时间推进（Mrsuss60 的时钟，来自 visy 0.7.8），而不是固定的帧率代码：布料、动画和移动平台跟随真实时间。默认开启；30 FPS 时不使用。可在游戏中更改目标帧率（Insert 菜单，Live FPS）"
 }

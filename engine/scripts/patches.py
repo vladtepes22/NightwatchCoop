@@ -91,7 +91,7 @@ def party_patches(env=os.environ):
 # too, unless their XML marks them Party="cosmetic").
 COSMETIC_PATCHES={
     # Frame rate (the 30 FPS rule's speed fixes go with them).
-    '30 FPS++','60 FPS++','90 FPS++','Uncap FPS++','Sprint Fix (High FPS)',
+    '30 FPS++','60 FPS++','90 FPS++','Uncap FPS++','Sprint Fix (High FPS)','60 FPS++ (Deltatime)',
     # Resolution / render size / memory for it.
     'Optimal 1080p','Increased Graphics Heap Sizes',
     # Effects and level of detail.
