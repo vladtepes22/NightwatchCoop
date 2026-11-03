@@ -625,6 +625,19 @@ def test_a_mod_item_in_the_inventory_has_the_mods_name_and_icon():
     assert c.search_mod_items("cinder") == [(4, 2146, "Cinder Swarm")]
 
 
+def test_a_mod_weapon_can_be_raised_by_the_mods_level_rows():
+    # The fixture's weapon (22000300) stands in for a mod weapon: the game folder has no row for it, the mod has all 11.
+    c = N.Catalogue({"names": {"weapon": {"7000000": "Saw Cleaver"}}, "ids": {"weapon": [7000000 + 100 * lv for lv in range(11)]}})
+    assert 22001000 not in c.valid_ids(0)
+    c.set_mod_items({(0, 22000000 + 100 * lv): ["Forgotten Greatsword", None, 1042] for lv in range(11)})
+    assert c.search_mod_items("forgotten") == [(0, 22000000, "Forgotten Greatsword")]  # the Add list offers +0 only
+    assert 7001000 in c.valid_ids(0) and 22001000 in c.valid_ids(0)
+    m = M.SaveModel(make_save())
+    w = m.items((0,))[0]
+    m.set_weapon_level(w, 10, c.valid_ids(0))
+    assert M.SaveModel(m.to_bytes()).items((0,))[0].number == 22001000
+
+
 def test_a_lamp_is_all_its_flags():
     from saveedit import flagsdata as F
     assert F.lamp_group(72410200) == (12417810, 12417811, 72410200)

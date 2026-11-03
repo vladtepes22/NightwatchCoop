@@ -166,11 +166,17 @@ def read_mod_items(game_dir, mods_dir, config, lang="engus"):
                 known = set(_param_ids(_entry(vanilla, PARAMS[kind] + ".param")))
                 texts = _fmg(_entry(msg, FMG_FILES[kind] + ".fmg"))
                 icon_field = "iconIdM" if kind == "armor" else "iconId"
-                for i, (sort_id, icon) in table.table(PARAMS[kind], ["sortId", icon_field]).items():
+                rows = table.table(PARAMS[kind], ["sortId", icon_field])
+                for i, (sort_id, icon) in rows.items():
                     if kind == "weapon" and (i % 10000) // 100:
-                        continue  # the +0 row; levels are set on the item
+                        continue  # the +0 row names the weapon; its level rows follow below
                     if i not in known and texts.get(i) and not _PLACEHOLDER.match(texts[i]):
                         out[(category, i)] = [texts[i], sort_id if kind == "goods" else None, icon]
+                if kind == "weapon":  # the level rows of a new weapon: the save editor raises its level by them
+                    for i in rows:
+                        base = (0, i - (i % 10000) // 100 * 100)
+                        if (i % 10000) // 100 and i not in known and base in out:
+                            out[(0, i)] = out[base]
     except (OSError, ValueError, KeyError, TypeError, struct.error, zlib.error):
         return {}
     return out
@@ -253,7 +259,7 @@ class Catalogue:
         """[(category, id, name)] of the mod's items matching text."""
         text = text.lower()
         return [(c, i, n) for (c, i), (n, *_) in sorted(self.mod_items.items(), key=lambda kv: (kv[0][0] != 4, kv[0][0], kv[0][1]))
-                if text in n.lower() or text in str(i)]
+                if not (c == 0 and (i % 10000) // 100) and (text in n.lower() or text in str(i))]  # weapons at +0 only
 
     def name(self, category, number):
         kind = self.KIND_OF_CATEGORY.get(category)
@@ -361,8 +367,12 @@ class Catalogue:
         return self._names.get("npc", {}).get(chr_id)
 
     def valid_ids(self, category):
-        """The set of row ids the game has for this category (None when unknown)."""
-        return self._ids.get(self.KIND_OF_CATEGORY.get(category)) or None
+        """The set of row ids the game has for this category (None when unknown). Weapons include the rows the
+        enabled Nocturne mod adds (every level), so a mod weapon's level can be raised."""
+        ids = self._ids.get(self.KIND_OF_CATEGORY.get(category))
+        if ids and category == 0:
+            ids = ids | {i for c, i in self.mod_items if c == 0}
+        return ids or None
 
     def known(self, category, number):
         ids = self.valid_ids(category)
