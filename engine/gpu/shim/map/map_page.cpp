@@ -678,7 +678,9 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
     // the game's main thread (lamp_travel.h). The hint says what a press does or why it cannot.
     const LampRef* chosen = r.selected ? &lamps[v.lamp] : nullptr;
     const bool travel_on = pad && settings.map_travel && travel != coop::lamptravel::MapTravel::Off;
-    const bool target = chosen && chosen->available && chosen->lamp->return_point && travel_to &&
+    // The party backend (MapTravelAllowedTo: lit, not refused, a known return point) is the one
+    // authority on travel, as on visy's map: the atlas's own availability only greys the marker.
+    const bool target = chosen && chosen->lamp->return_point && travel_to &&
                         std::binary_search(travel_to->begin(), travel_to->end(), chosen->lamp->return_point);
     r.travel = travel_on && travel == coop::lamptravel::MapTravel::Ready && target;
     if (chosen && travel_on)
