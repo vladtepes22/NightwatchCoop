@@ -7,8 +7,10 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <map>
 
 #include "common/assert.h"
 #include "common/types.h"
@@ -42,11 +44,57 @@ public:
         if (in_use()) {
             Retire();
             if (in_use()) {
+                ++stats.full;
                 return std::nullopt;
             }
         }
+        // Bytes that were handed out again by Reuse stay until the GPU is done with that use.
+        while (!holds.empty() && (holds.begin()->first << 16) + Capacity < at + size) {
+            if (retired < holds.begin()->second) {
+                Retire();
+                if (retired < holds.begin()->second) {
+                    ++stats.full;
+                    ++stats.full_by_hold;
+                    return std::nullopt;
+                }
+            }
+            holds.erase(holds.begin());
+        }
         position = at + size;
+        last_at = at;
+        ++stats.allocations;
+        stats.bytes += size;
         return at % Capacity;
+    }
+
+    /// The absolute position (not modulo Capacity) of the last successful Allocate.
+    [[nodiscard]] u64 LastAllocated() const noexcept {
+        return last_at;
+    }
+
+    /// Stage A, BB_RING_DEDUP: the bytes of an earlier allocation (`at`, from LastAllocated) are
+    /// wanted again unchanged. Returns their ring offset when they are still intact in the ring
+    /// (recent, and held against being overwritten until this use has completed on the GPU).
+    /// Mrsuss60 dcdb834f.
+    std::optional<u64> Reuse(u64 at, u64 size) {
+        if (at + size > position || at + Capacity / 4 < position) {
+            return std::nullopt;
+        }
+        u64& until = holds[at >> 16];
+        until = std::max(until, position + 1);
+        ++stats.reused;
+        stats.bytes_reused += size;
+        return at % Capacity;
+    }
+
+    /// Stage A counters (BB_FRAME_STATS), read and cleared by the same thread.
+    struct Stats {
+        u64 allocations = 0, bytes = 0, full = 0, full_by_hold = 0, reused = 0, bytes_reused = 0;
+    };
+    Stats TakeStats() noexcept {
+        const Stats out = stats;
+        stats = {};
+        return out;
     }
 
     [[nodiscard]] u8* Data(u64 offset) noexcept {
@@ -108,6 +156,9 @@ private:
     VideoCore::Buffer buffer;
     u64 position = 0;     ///< stage A
     u64 retired = 0;      ///< stage A: the GPU is done with everything before this
+    u64 last_at = 0;      ///< stage A
+    std::map<u64, u64> holds; ///< stage A: 64 KiB granule of reused bytes -> retired position needed
+    Stats stats;          ///< stage A
     u64 pending_end = 0, pending_tick = 0, last_published = 0; ///< stage B
     std::array<StampEntry, 1024> stamps{};
     alignas(64) std::atomic<u64> stamps_head{0}; ///< stage B writes

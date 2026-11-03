@@ -858,12 +858,20 @@ Liverpool::Task Liverpool::ProcessCeUpdate(std::span<const u32> ccb) {
 
         const auto* header = reinterpret_cast<const PM4Header*>(ccb.data());
         const u32 type = header->type;
+        if (type == 2) {
+            // Type-2 packets are padding (upstream c64a1e0a, Mrsuss60; visy bf1ccab8).
+            ccb = NextPacket(ccb, 1);
+            continue;
+        }
         if (type != 3) {
             // No other types of packets were spotted so far
             UNREACHABLE_MSG("Invalid PM4 type {}", type);
         }
 
         const PM4ItOpcode opcode = header->type3.opcode;
+        // Read the size before running the packet: once it signals the guest, the guest may
+        // already reuse the buffer (upstream 7ea677e5, Mrsuss60).
+        const u32 packet_words = header->type3.NumWords() + 1;
         const auto* it_body = reinterpret_cast<const u32*>(header) + 1;
         switch (opcode) {
         case PM4ItOpcode::Nop: {
@@ -923,12 +931,21 @@ Liverpool::Task Liverpool::ProcessCeUpdate(std::span<const u32> ccb) {
             }
             break;
         }
-        default:
-            const u32 count = header->type3.NumWords();
-            UNREACHABLE_MSG("Unknown PM4 type 3 opcode {:#x} with count {}",
-                            static_cast<u32>(opcode), count);
+        case PM4ItOpcode::Rewind: {
+            if (!rasterizer) {
+                break;
+            }
+            const auto* rewind = reinterpret_cast<const PM4CmdRewind*>(header);
+            while (!rewind->Valid()) {
+                YIELD_CE();
+            }
+            break;
         }
-        ccb = NextPacket(ccb, header->type3.NumWords() + 1);
+        default:
+            UNREACHABLE_MSG("Unknown PM4 type 3 opcode {:#x} with count {}",
+                            static_cast<u32>(opcode), packet_words - 1);
+        }
+        ccb = NextPacket(ccb, packet_words);
     }
 
     FIBER_EXIT;
@@ -2033,8 +2050,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 }
                 const auto skip = *cond_exec->Address() == false;
                 if (skip) {
-                    dcb = NextPacket(dcb,
-                                     header->type3.NumWords() + 1 + cond_exec->exec_count.Value());
+                    dcb = NextPacket(dcb, count + 1 + cond_exec->exec_count.Value());
                     continue;
                 }
                 break;
@@ -2054,7 +2070,9 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     BbNativeCalls::MaybeReport();
                 }
             }
-            dcb = NextPacket(dcb, header->type3.NumWords() + 1);
+            // The size was read before running the packet: a flip or an EOP interrupt lets the
+            // guest reuse this buffer while we are still on it (upstream 7ea677e5, Mrsuss60).
+            dcb = NextPacket(dcb, count + 1);
             break;
         }
     }

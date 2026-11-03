@@ -912,6 +912,54 @@ bool Rasterizer::PendingWriteOverlaps(VAddr address, u64 size) {
     return packet != 0 && !draw_pipe->ReachedPacket(packet);
 }
 
+namespace {
+// BB_RING_DEDUP=0 turns the constant ring deduplication off.
+bool RingDedupOn() {
+    static const bool on = [] {
+        const char* env = std::getenv("BB_RING_DEDUP");
+        return !(env && env[0] == '0');
+    }();
+    return on;
+}
+
+struct RingDedupTables {
+    static constexpr u64 MaxSize = VideoCore::BufferCache::STREAM_THRESHOLD;
+    struct Slot {
+        VAddr address = 0;
+        u64 size = 0;
+        XXH128_hash_t hash{};
+        u64 at = 0; ///< absolute ring position of the copy (ConstantRing::LastAllocated)
+    };
+    std::array<Slot, 8192> by_address{};
+    std::array<Slot, 8192> by_content{};
+    std::array<u8, MaxSize> bytes{};
+    static RingDedupTables& Get() {
+        thread_local auto tables = std::make_unique<RingDedupTables>();
+        return *tables;
+    }
+};
+
+// BB_FRAME_STATS: the constant ring's allocations, ring-full refusals and dedup hits, every 5 s.
+void RingStatsTick(ConstantRing& ring) {
+    static const bool stats = std::getenv("BB_FRAME_STATS") != nullptr;
+    if (!stats) {
+        return;
+    }
+    static auto last = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last < std::chrono::seconds(5)) {
+        return;
+    }
+    last = now;
+    const auto s = ring.TakeStats();
+    std::printf("Constant ring (5 s): %llu allocations (%llu KiB), %llu reused by dedup (%llu KiB), "
+                "ring full %llu times (%llu by held bytes)\n",
+                (unsigned long long)s.allocations, (unsigned long long)(s.bytes >> 10),
+                (unsigned long long)s.reused, (unsigned long long)(s.bytes_reused >> 10),
+                (unsigned long long)s.full, (unsigned long long)s.full_by_hold);
+}
+} // namespace
+
 void Rasterizer::CollectRingBindings(const Shader::Info& stage, const PreparedDraw* prepared,
                            boost::container::static_vector<RingBinding, Shader::NUM_BUFFERS>& out) {
     const PreparedStage* prepared_stage = nullptr;
@@ -928,6 +976,40 @@ void Rasterizer::CollectRingBindings(const Shader::Info& stage, const PreparedDr
     const u64 alignment = std::max<u64>(instance.StorageMinAlignment(),
                                         instance.UniformMinAlignment());
     const auto copy = [&](u32 index, const void* source, VAddr address, u64 size) {
+        if (!source && address != 0 && RingDedupOn() && size <= RingDedupTables::MaxSize) {
+            // BB_RING_DEDUP (Mrsuss60 dcdb834f): the same bytes again (the same buffer unchanged
+            // since the last draw, or another buffer with the same content) bind the copy that is
+            // already in the ring.
+            auto& t = RingDedupTables::Get();
+            memory->CopySparseMemory(address, t.bytes.data(), size);
+            const XXH128_hash_t hash = XXH3_128bits(t.bytes.data(), size);
+            auto& slot = t.by_address[((address * 0x9E3779B97F4A7C15ull) ^
+                                       (size * 0xC2B2AE3D27D4EB4Full)) >> 51];
+            auto& content_slot = t.by_content[hash.low64 >> 51];
+            std::optional<u64> offset;
+            if (slot.address == address && slot.size == size && XXH128_isEqual(slot.hash, hash)) {
+                offset = constant_ring->Reuse(slot.at, size);
+            }
+            if (!offset && content_slot.size == size && XXH128_isEqual(content_slot.hash, hash)) {
+                offset = constant_ring->Reuse(content_slot.at, size);
+                if (offset) {
+                    slot = content_slot;
+                    slot.address = address;
+                }
+            }
+            if (!offset) {
+                offset = constant_ring->Allocate(size, alignment);
+                if (!offset) {
+                    return false;
+                }
+                std::memcpy(constant_ring->Data(*offset), t.bytes.data(), size);
+                constant_ring->Flush(*offset, size);
+                slot = {address, size, hash, constant_ring->LastAllocated()};
+                content_slot = slot;
+            }
+            out.push_back({index, static_cast<u32>(size), *offset, address});
+            return true;
+        }
         const auto offset = constant_ring->Allocate(size, alignment);
         if (!offset) {
             return false;
@@ -942,6 +1024,7 @@ void Rasterizer::CollectRingBindings(const Shader::Info& stage, const PreparedDr
         out.push_back({index, static_cast<u32>(size), *offset, address});
         return true;
     };
+    RingStatsTick(*constant_ring);
     // Compute stages may run as HLE copy shaders, which read their buffers on the recording
     // thread whether or not they were copied here.
     const bool hle_candidate = stage.sw_stage == Shader::SwStage::Compute;
