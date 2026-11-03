@@ -112,6 +112,25 @@ class SaveEditorCliTests(unittest.TestCase):
                 self.assertEqual(code, 1, bad)
             self.assertEqual(self.call("show")[1]["revision"], after["revision"])
 
+    def test_clear_boss_flag(self):
+        m = model.SaveModel(self.original)
+        m.set_flag(12411700, True)
+        self.file.write_bytes(m.to_bytes())
+        revision = self.call("show")[1]["revision"]
+        code, result = self.call("apply", dict(revision=revision, flags=[dict(id=12411700, on=False)]))
+        self.assertEqual(code, 0, result)
+        self.assertFalse(model.SaveModel(self.file.read_bytes()).flag(12411700))
+        self.assertFalse(next(f for f in self.call("show")[1]["flags"] if f["id"] == 12411700)["on"])
+
+    def test_ludwig_group_sets_and_clears(self):
+        for on in (True, False):
+            revision = self.call("show")[1]["revision"]
+            code, result = self.call("apply", dict(revision=revision, flags=[dict(id=13401800, on=on)]))
+            self.assertEqual(code, 0, result)
+            m = model.SaveModel(self.file.read_bytes())
+            self.assertEqual((m.flag(13401800), m.flag(9471)), (on, on))
+            self.assertEqual(next(f for f in self.call("show")[1]["flags"] if f["id"] == 13401800)["on"], on)
+
     def test_refuses_running_and_conflict(self):
         revision = self.call("show")[1]["revision"]
         edit = dict(revision=revision, echoes=1234)
