@@ -523,45 +523,10 @@ std::vector<std::string> EffectPatches(const std::map<std::string, std::string>&
     return names;
 }
 
-bool ManagedBuiltIn(const std::string& name) {
-    for (const auto& [_, names] : FpsPresets())
-        if (std::find(names.begin(), names.end(), name) != names.end()) return true;
-    for (const char* n : {kScaledBase, "30 FPS++", "60FPS (no deltatime)", kIntelTonemap, kSfxWorkaround, kHeapPatch})
-        if (name == n) return true;
-    for (const auto& [_, off, on] : Effects())
-        if ((off && name == off) || (on && name == on)) return true;
-    for (const char* n : kModelLodPatches)
-        if (name == n) return true;
-    return StartsWith(name, "Resolution Patch");
-}
-
 nlohmann::json ReadConfig(const fs::path& config) {
     std::error_code error;
     if (config.empty() || !fs::is_regular_file(config, error)) return nlohmann::json::object();
     return nlohmann::json::parse(ReadText(config));
-}
-
-std::vector<std::string> BuiltinSelection(const PatchFile& xml, const fs::path& config) {
-    std::vector<std::string> enabled;
-    try {
-        const auto settings = ReadConfig(config);
-        if (settings.contains("enabled"))
-            for (const auto& key : settings.at("enabled"))
-                if (key.is_string()) enabled.push_back(key.get<std::string>());
-    } catch (const std::exception&) {
-        return {};
-    }
-    const std::string prefix = Utf8(xml.FilePath().filename()) + "/";
-    std::set<std::string> known;
-    for (const XmlElement* meta : xml.Root().Iter("Metadata"))
-        if (const auto name = meta->Get("Name")) known.insert(*name);
-    std::vector<std::string> out;
-    for (const std::string& key : enabled) {
-        if (!StartsWith(key, prefix)) continue;
-        const std::string name = key.substr(prefix.size());
-        if (known.count(name) && !ManagedBuiltIn(name)) out.push_back(name);
-    }
-    return out;
 }
 
 bool BreaksOnline(const Writes& writes) {
@@ -864,10 +829,6 @@ PatchResult CompilePatches(const PatchRequest& request) {
         if (!Trim(n).empty()) names.push_back(Trim(n));
     for (const std::string& n : EffectPatches(settings))
         if (!has(n)) names.push_back(n);
-    std::vector<std::string> selected;
-    for (const std::string& n : BuiltinSelection(xml, request.patches_config))
-        if (!has(n)) selected.push_back(n);
-    names.insert(names.end(), selected.begin(), selected.end());
     if (Env("BB_INTEL_TONEMAP_FIX", "") == "1" && !has(kIntelTonemap)) names.push_back(kIntelTonemap);
     if (Env("BB_SFX_WORKAROUND", "") == "1" && !has(kSfxWorkaround)) names.push_back(kSfxWorkaround);
     if (PartyEnabled()) {
@@ -907,23 +868,6 @@ PatchResult CompilePatches(const PatchRequest& request) {
         for (const std::string& n : names)
             if (conflict(n)) Log("Patches: \"%s\" left out: Live FPS writes the same frame timers", n.c_str());
         names.erase(std::remove_if(names.begin(), names.end(), conflict), names.end());
-    }
-    {
-        std::vector<std::string> kept;
-        for (const std::string& n : names) {
-            if (std::find(selected.begin(), selected.end(), n) != selected.end()) {
-                try {
-                    xml.Compile({n}, app_version, segments);
-                } catch (const Error& error) {
-                    std::string message = error.what();
-                    if (StartsWith(message, n + ": ")) message.erase(0, n.size() + 2);
-                    Log("Patches: skipped %s/%s: %s", Utf8(request.xml.filename()).c_str(), n.c_str(), message.c_str());
-                    continue;
-                }
-            }
-            kept.push_back(n);
-        }
-        names = kept;
     }
     names = CheckedPatches(xml, names, app_version, segments, elf, preset);
     // The 120/144 preset's 90 FPS++ can be refused (an executable whose frame pacer differs from 1.09's).
