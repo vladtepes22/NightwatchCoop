@@ -130,7 +130,7 @@ def add_gems(model, catalogue, adds):
             if change["effect"] not in runes or type(change["effect"]) is not int:
                 raise ValueError("the game has no such rune")
             gen, shape = runes[change["effect"]]
-            model.add_gem(gen, 2, shape, [change["effect"]])
+            model.add_gem(gen, 2, shape, catalogue.rune_effects(gen))  # all the row's fixed effects, as the game
         elif isinstance(change, dict) and change.get("type") == 1 and set(change) == {"type", "shape", "effects"}:
             effects, shape = change["effects"], change["shape"]
             gen = catalogue.blood_gem_gen(shape) if shape in catalogue.ADD_SHAPES else None

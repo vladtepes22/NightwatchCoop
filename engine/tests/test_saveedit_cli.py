@@ -255,7 +255,7 @@ class SaveEditorCliTests(unittest.TestCase):
             # id -> [name offset, shape bits, fixed effect]
             "gemrows": {127000: [0, 1, 13105], 127002: [0, 2, 13105], 100301: [10000000, 1, 700],
                         400: [10000000, 1, 700], 2100301: [10000000, 1, 700], 100401: [10000000, 1, 701],
-                        200000: [10000000, 2, 2107001]},
+                        200000: [10000000, 2, 2107001, 2107002, 2107003]},  # an oath rune with three fixed effects
             "reach": [13105, 700, 701, 28101]})  # 13106 has a name but no generator reaches it
         with patch.object(names.Catalogue, "load", return_value=catalogue):
             self.assertEqual(self.call("catalog", edit=dict(category=8, text=""))[1],
@@ -271,7 +271,7 @@ class SaveEditorCliTests(unittest.TestCase):
             self.assertEqual(code, 0, reply)
             gems = [i["gem"] for i in self.call("show")[1]["items"] if i.get("gem")]
             self.assertEqual([(g["type"], g["shape"], g["gen"], [e["id"] for e in g["effects"]]) for g in gems],
-                             [(1, 2, 127002, [13105, 28101]), (2, 1, 100301, [700]), (2, 2, 200000, [2107001])])
+                             [(1, 2, 127002, [13105, 28101]), (2, 1, 100301, [700]), (2, 2, 200000, [2107001, 2107002, 2107003])])
             # An effect the game never makes cannot be set on a gem, but one the gem already has stays.
             handle = gems[0]["handle"]
             revision = self.call("show")[1]["revision"]

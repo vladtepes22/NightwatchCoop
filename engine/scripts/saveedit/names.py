@@ -17,7 +17,7 @@ FMG_FILES = {"goods": "アイテム名", "weapon": "武器名", "armor": "防具
 PARAMS = {"weapon": "EquipParamWeapon", "armor": "EquipParamProtector", "accessory": "EquipParamAccessory",
           "goods": "EquipParamGoods"}
 _PLACEHOLDER = re.compile(r"^(\*|NOT NEEDED|en\d+)?$", re.I)
-CACHE_VERSION = 7
+CACHE_VERSION = 8
 EVENT_TEXT = "イベントテキスト"  # menu.msgbnd FMG: the lamp warp list names (id 7000AABn)
 NPC_NAMES = "NPC名"  # item.msgbnd FMG: boss and NPC names by character id
 GEM_NAMES = "魔石名"  # menu.msgbnd FMG: blood gem and rune names (key built in gems.name_key)
@@ -116,10 +116,14 @@ def read_game(game_dir, lang="engus"):
                            p.table("GemeffectParam", ["categoryId", "gemIconIdOffset", "gemNameIdOffset",
                                                       "sortCategory"]).items()}
         data["gemgen"] = {i: v[0] for i, v in p.table("GemGenParam", ["gemNameIdOffset"]).items()}
-        # Rows that make one fixed effect: id -> [name offset, shapes (bit per slotTypeRate column A-F), effect id].
-        # The shape and effect of every gem and rune in a party save follow from these (see Catalogue.caryll_runes).
-        cols = ["gemNameIdOffset"] + [f"slotTypeRate{c}" for c in "ABCDEF"] + ["gemeffectGenParamType_0", "gemeffectGenParam_0"]
-        data["gemrows"] = {i: [v[0], sum(1 << k for k in range(6) if v[1 + k] > 0), v[8]]
+        # Rows whose first effect is fixed: id -> [name offset, shapes (bit per slotTypeRate column A-F), effect id,
+        # the row's other fixed effects...]. The shape and effects of every gem and rune in a party save follow from
+        # these (see Catalogue.caryll_runes): the game writes all of a rune row's fixed effects, e.g. Milkweed's third
+        # (2129003) is what transforms the Kos Parasite, and a Beast rune holds 1129000 and 1140000.
+        cols = (["gemNameIdOffset"] + [f"slotTypeRate{c}" for c in "ABCDEF"]
+                + [f"gemeffectGenParam{k}_{i}" for i in range(6) for k in ("Type", "")])
+        data["gemrows"] = {i: [v[0], sum(1 << k for k in range(6) if v[1 + k] > 0)]
+                           + [v[8 + 2 * k] for k in range(6) if v[7 + 2 * k] == 1 and v[8 + 2 * k] > 0]
                            for i, v in p.table("GemGenParam", cols).items()
                            if v[7] == 1 and v[8] > 0}
         # Effects the game can produce: a fixed effect of a generator row (type 1) or any effect of a category a
@@ -339,13 +343,17 @@ class Catalogue:
         """[(GemGen id, effect id, shape)] of the Caryll and oath runes that can be added, in row order: the lowest row
         of the Caryll name offset in RUNE_ROWS for one fixed rune effect of that sort whose rune has a name."""
         best = {}
-        for gen, (offset, shapes, eff) in sorted(self._gemrows.items()):
+        for gen, (offset, shapes, eff, *_) in sorted(self._gemrows.items()):
             sort = (self._effects.get(eff) or [None] * 4)[3]
             ids, shape = self.RUNE_ROWS.get(sort, ((), 0))
             if (offset == self.CARYLL_NAME_OFFSET and shapes == shape and gen in ids
                     and eff in self._names.get("effect", {}) and self.gem(gen, shape, [eff])[0] is not None):
                 best.setdefault(eff, (gen, shape))
         return sorted((gen, eff, shape) for eff, (gen, shape) in best.items())
+
+    def rune_effects(self, gen):
+        """Every fixed effect of a rune's GemGen row, in slot order: what the game writes on a rune it gives."""
+        return list(self._gemrows[gen][2:])
 
     def gem_icon_ids(self):
         """Every icon a blood gem can show, so a preview never waits for the icon sheet."""
