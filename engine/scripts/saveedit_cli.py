@@ -92,8 +92,10 @@ def catalog(catalogue, request, game, cache):
     if isinstance(request, dict) and request.get("category") == RUNE_CATEGORY:
         return rune_catalog(catalogue, str(request.get("text", ""))[:60].lower(), game, cache)
     if isinstance(request, dict) and request.get("category") == MOD_CATEGORY:
-        return [dict(number=n, name=name, icon=None, category=c)
-                for c, n, name in catalogue.search_mod_items(str(request.get("text", ""))[:60])][:CATALOG_LIMIT]
+        found = catalogue.search_mod_items(str(request.get("text", ""))[:60])[:CATALOG_LIMIT]
+        wanted = {catalogue.icon(c, n) for c, n, _ in found} - {None}
+        paths = icons.ensure(game, cache, wanted) if game and wanted else {}
+        return [dict(number=n, name=name, icon=paths.get(catalogue.icon(c, n)), category=c) for c, n, name in found]
     if not isinstance(request, dict) or request.get("category") not in ADD_CATEGORIES:
         raise ValueError("expected a category: 0 weapon, 1 armor, 4 goods, 8 rune")
     category, text = request["category"], str(request.get("text", ""))[:60]
@@ -221,24 +223,25 @@ def execute(args, edit=None, running=running_games, catalogues=None):
             catalogues[user] = catalogue
     if args.mods and args.game:
         catalogue.set_mod_items(names.read_mod_items(args.game, args.mods, args.mods_config))
+    art = icons.source(args.game, args.mods, args.mods_config) if args.game else None  # the icon sheet in game
     if args.command == "effects":
         return [dict(id=e, text=text) for e, text in catalogue.effects_for(0)]  # blood gem effects
     if args.command == "gem_icons":
-        if args.game:
-            icons.ensure(args.game, cache, catalogue.gem_icon_ids())
+        if art:
+            icons.ensure(art, cache, catalogue.gem_icon_ids())
         return {}
     if args.command == "catalog":
-        return catalog(catalogue, edit, args.game, cache)
+        return catalog(catalogue, edit, art, cache)
     if args.command == "gem_preview":
         # The name and icon a gem would have, by the same rule as a saved gem's. Nothing is written.
         if not isinstance(edit, dict) or set(edit) != {"gen", "shape", "effects"} or not isinstance(edit["effects"], list):
             raise ValueError("expected gen, shape and effects")
         name, icon, cursed = catalogue.gem(edit["gen"], edit["shape"], edit["effects"])
-        paths = icons.ensure(args.game, cache, {icon}) if args.game and icon else {}
+        paths = icons.ensure(art, cache, {icon}) if art and icon else {}
         return dict(name=name, icon=paths.get(icon), cursed=cursed)
     model = store.open_slot(user, kind, args.slot)
     if args.command == "show":
-        return describe(model, catalogue, lambda ids: icons.ensure(args.game, cache, ids) if args.game else {})
+        return describe(model, catalogue, lambda ids: icons.ensure(art, cache, ids) if art else {})
     if not isinstance(edit, dict):
         raise ValueError("expected a JSON edit object")
     if edit.get("revision") != revision(model):

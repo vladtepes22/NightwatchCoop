@@ -143,9 +143,9 @@ MOD_PREFIX = "Nocturne"  # the mod folders whose new items the editor's Nocturne
 
 
 def read_mod_items(game_dir, mods_dir, config, lang="engus"):
-    """{(category, id): [name, sortId or None]} the installed, enabled Nocturne mod adds: goods (4), weapons (0, the +0
-    rows) and armour (1) whose rows the game folder does not have. Empty when no such mod, no game paramdefs or
-    anything unreadable."""
+    """{(category, id): [name, sortId or None, icon id or None]} the installed, enabled Nocturne mod adds: goods (4),
+    weapons (0, the +0 rows) and armour (1) whose rows the game folder does not have. Empty when no such mod, no game
+    paramdefs or anything unreadable."""
     from . import params
     import mods  # scripts/mods.py (scripts is on the path: saveedit_cli.py and the tests)
     game = Path(game_dir)
@@ -158,18 +158,19 @@ def read_mod_items(game_dir, mods_dir, config, lang="engus"):
             if not name.casefold().startswith(MOD_PREFIX.casefold()):
                 continue
             base, prefix = mods.content_root(Path(mods_dir) / name)
-            root = mods.child(base, "dvdroot_ps4") if not prefix else base / prefix
+            root = mods.child(base, "dvdroot_ps4") if not prefix else base  # prefix: the game folders sit in base
             gameparam = mods.child(mods.child(mods.child(root, "param"), "gameparam"), "gameparam.parambnd.dcx")
             msg = _bnd4(_dcx(mods.child(mods.child(mods.child(root, "msg"), lang), "item.msgbnd.dcx").read_bytes()))
             table = params.Params(game, gameparam)
             for category, kind in ((4, "goods"), (0, "weapon"), (1, "armor")):
                 known = set(_param_ids(_entry(vanilla, PARAMS[kind] + ".param")))
                 texts = _fmg(_entry(msg, FMG_FILES[kind] + ".fmg"))
-                for i, (sort_id,) in table.table(PARAMS[kind], ["sortId"]).items():
+                icon_field = "iconIdM" if kind == "armor" else "iconId"
+                for i, (sort_id, icon) in table.table(PARAMS[kind], ["sortId", icon_field]).items():
                     if kind == "weapon" and (i % 10000) // 100:
                         continue  # the +0 row; levels are set on the item
                     if i not in known and texts.get(i) and not _PLACEHOLDER.match(texts[i]):
-                        out[(category, i)] = [texts[i], sort_id if kind == "goods" else None]
+                        out[(category, i)] = [texts[i], sort_id if kind == "goods" else None, icon]
     except (OSError, ValueError, KeyError, TypeError, struct.error, zlib.error):
         return {}
     return out
@@ -210,7 +211,7 @@ class Catalogue:
         self._gemgen = {int(i): v for i, v in (data or {}).get("gemgen", {}).items()}
         self._gemrows = {int(i): v for i, v in (data or {}).get("gemrows", {}).items()}
         self._goods_sort = {int(i): v for i, v in (data or {}).get("goods_sort", {}).items()}
-        self.mod_items = {}  # (category, id) -> [name, goods sortId] of the Nocturne mod (set_mod_items)
+        self.mod_items = {}  # (category, id) -> [name, goods sortId, icon id] of the Nocturne mod (set_mod_items)
         self._reach = set((data or {}).get("reach", []))
         self._weapon_hands = {int(i): v for i, v in (data or {}).get("weapon_hands", {}).items()}
 
@@ -251,7 +252,7 @@ class Catalogue:
     def search_mod_items(self, text=""):
         """[(category, id, name)] of the mod's items matching text."""
         text = text.lower()
-        return [(c, i, n) for (c, i), (n, _) in sorted(self.mod_items.items(), key=lambda kv: (kv[0][0] != 4, kv[0][0], kv[0][1]))
+        return [(c, i, n) for (c, i), (n, *_) in sorted(self.mod_items.items(), key=lambda kv: (kv[0][0] != 4, kv[0][0], kv[0][1]))
                 if text in n.lower() or text in str(i)]
 
     def name(self, category, number):
@@ -263,7 +264,8 @@ class Catalogue:
             number = number - (number % 10000) // 100 * 100  # id = base + 100 * reinforcement level
         elif kind == "armor" and number in _CAPED and n.get(number) == _CAPED[number][0]:
             return _CAPED[number][1]
-        return n.get(number) or self.fallback_name(category, number)
+        mod = self.mod_items.get((category, number))
+        return n.get(number) or (mod[0] if mod else None) or self.fallback_name(category, number)
 
     def fallback_name(self, category, number):
         """Name of a row the game does not name (cut content), from Noxde's list; such rows are shown, never added."""
@@ -282,7 +284,8 @@ class Catalogue:
         kind = self.KIND_OF_CATEGORY.get(category)
         if kind == "weapon":
             number = number - (number % 10000) // 100 * 100
-        return self._icons.get(kind, {}).get(number)
+        mod = self.mod_items.get((category, number))
+        return self._icons.get(kind, {}).get(number) or (mod[2] if mod else None)
 
     # Gem shape bit -> the digit in the gem name key and the icon block (checked on all 77 gems and runes of a
     # level 90 save: name key = GemGen.gemNameIdOffset + digit * 1e6 + 1e5 if cursed + first effect's

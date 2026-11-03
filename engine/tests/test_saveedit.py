@@ -608,6 +608,17 @@ def test_same_named_armour_rows_are_told_apart():
     assert c.name(1, 191000) == "Student Uniform (Cape)" and c.name(1, 301000) == "Student Uniform"
 
 
+def test_a_mod_item_in_the_inventory_has_the_mods_name_and_icon():
+    c = N.Catalogue({"names": {"goods": {"1000": "Blood Vial"}}, "icons": {"goods": {"1000": 146}},
+                     "ids": {"goods": [1000]}})
+    c.set_mod_items({(4, 2146): ["Cinder Swarm", 220077, 137], (0, 27300000): ["Forgotten Greatsword", None, 1042]})
+    assert c.name(4, 2146) == "Cinder Swarm" and c.icon(4, 2146) == 137
+    assert c.name(0, 27300500) == "Forgotten Greatsword" and c.icon(0, 27300500) == 1042  # +5 reads the +0 row
+    assert c.name(4, 1000) == "Blood Vial" and c.icon(4, 1000) == 146
+    assert c.name(4, 23000) is None and c.icon(4, 23000) is None  # no row anywhere: still unnamed
+    assert c.search_mod_items("cinder") == [(4, 2146, "Cinder Swarm")]
+
+
 def test_a_lamp_is_all_its_flags():
     from saveedit import flagsdata as F
     assert F.lamp_group(72410200) == (12417810, 12417811, 72410200)

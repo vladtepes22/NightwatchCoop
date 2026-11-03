@@ -109,6 +109,25 @@ class IconSheets:
         return bytes(out)
 
 
+def source(game_dir, mods_dir=None, config=None):
+    """The folder whose menu/common.tpf.dcx the game shows: the last enabled mod that ships one replaces the whole
+    sheet file (a later mod wins, as in mods.build_overlay), so its art and its new items' cells are the ones in game.
+    The game folder when no mod ships the sheet or the mods cannot be read."""
+    if not mods_dir:
+        return game_dir
+    import mods  # scripts/mods.py (scripts is on the path: saveedit_cli.py and the tests)
+    found = game_dir
+    try:
+        for name in mods.selected(mods_dir, config):
+            base, prefix = mods.content_root(Path(mods_dir) / name)
+            root = mods.child(base, "dvdroot_ps4") if not prefix else base
+            if mods.child(mods.child(root, "menu"), "common.tpf.dcx").is_file():
+                found = root
+    except (OSError, ValueError, TypeError):
+        return game_dir
+    return found
+
+
 def ensure(game_dir, cache_dir, icon_ids):
     """Write <cache>/icons/<id>.png for every id not cached yet (cache keyed by the sheet file's size and
     time); returns {id: path} for the ids that have an icon."""
