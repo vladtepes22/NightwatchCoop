@@ -72,7 +72,7 @@ internal sealed class SaveEditorAddDialog : Window
         _search.PlaceholderText = L.T("Search items"); AutomationProperties.SetName(_search, L.T("Search items"));
         Grid.SetColumn(_search, 1); top.Children.Add(_search);
         Put(top, 0);
-        var hint = LauncherPage.Text(L.T("Pick one or more items, then Add. Blood gems and runes cannot be added yet."), "Muted");
+        var hint = LauncherPage.Text(L.T("Pick one or more items, then Add. To get more of a blood gem or rune, use Copy on one you own."), "Muted");
         hint.TextWrapping = TextWrapping.Wrap; hint.Margin = new Thickness(0, 0, 0, 10); Put(hint, 1);
 
         _list.SelectionMode = SelectionMode.Extended; _list.ItemTemplate = RowTemplate();

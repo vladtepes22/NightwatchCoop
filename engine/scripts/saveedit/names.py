@@ -17,7 +17,7 @@ FMG_FILES = {"goods": "アイテム名", "weapon": "武器名", "armor": "防具
 PARAMS = {"weapon": "EquipParamWeapon", "armor": "EquipParamProtector", "accessory": "EquipParamAccessory",
           "goods": "EquipParamGoods"}
 _PLACEHOLDER = re.compile(r"^(\*|NOT NEEDED|en\d+)?$", re.I)
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 EVENT_TEXT = "イベントテキスト"  # menu.msgbnd FMG: the lamp warp list names (id 7000AABn)
 NPC_NAMES = "NPC名"  # item.msgbnd FMG: boss and NPC names by character id
 GEM_NAMES = "魔石名"  # menu.msgbnd FMG: blood gem and rune names (key built in gems.name_key)
@@ -115,6 +115,24 @@ def read_game(game_dir, lang="engus"):
                            p.table("GemeffectParam", ["categoryId", "gemIconIdOffset", "gemNameIdOffset",
                                                       "sortCategory"]).items()}
         data["gemgen"] = {i: v[0] for i, v in p.table("GemGenParam", ["gemNameIdOffset"]).items()}
+        # Rows that make one fixed effect: id -> [name offset, shapes (bit per slotTypeRate column A-F), effect id].
+        # The shape and effect of every gem and rune in a party save follow from these (see Catalogue.caryll_runes).
+        cols = ["gemNameIdOffset"] + [f"slotTypeRate{c}" for c in "ABCDEF"] + ["gemeffectGenParamType_0", "gemeffectGenParam_0"]
+        data["gemrows"] = {i: [v[0], sum(1 << k for k in range(6) if v[1 + k] > 0), v[8]]
+                           for i, v in p.table("GemGenParam", cols).items()
+                           if v[7] == 1 and v[8] > 0}
+        # Effects the game can produce: a fixed effect of a generator row (type 1) or any effect of a category a
+        # generator draws from (type 2). Rows no generator reaches are cut or unused content and are not offered.
+        gen_cols = [f"gemeffectGenParam{k}_{i}" for i in range(6) for k in ("Type", "")]
+        fixed, drawn = set(), set()
+        for v in p.table("GemGenParam", gen_cols).values():
+            for i in range(6):
+                if v[2 * i] == 1 and v[2 * i + 1] > 0:
+                    fixed.add(v[2 * i + 1])
+                elif v[2 * i] == 2 and v[2 * i + 1] > 0:
+                    drawn.add(v[2 * i + 1])
+        data["reach"] = sorted(fixed | {e for e, (cat, *_rest) in p.table("GemeffectParam", ["categoryId"]).items()
+                                        if cat in drawn})
     except (OSError, ValueError, KeyError, struct.error, zlib.error):
         pass
     return data
@@ -153,6 +171,8 @@ class Catalogue:
         self._icons = {k: {int(i): n for i, n in v.items()} for k, v in (data or {}).get("icons", {}).items()}
         self._effects = {int(i): v for i, v in (data or {}).get("effects", {}).items()}
         self._gemgen = {int(i): v for i, v in (data or {}).get("gemgen", {}).items()}
+        self._gemrows = {int(i): v for i, v in (data or {}).get("gemrows", {}).items()}
+        self._reach = set((data or {}).get("reach", []))
         self._weapon_hands = {int(i): v for i, v in (data or {}).get("weapon_hands", {}).items()}
 
     @classmethod
@@ -233,15 +253,43 @@ class Catalogue:
         key = self._gemgen.get(gen_id, 0) + digit * 1000000 + (100000 if cursed else 0) + rows[0][2]
         return self._names.get("gem", {}).get(key), 3000 + block + (100 if cursed else 0) + rows[0][1], cursed
 
+    # New records: the shape column of a GemGen row (checked on all 11 gems and runes of a party save: radial = column
+    # A, triangle = B). Waning and circle would be C and D but no save here shows one, so they are not offered.
+    ADD_SHAPES = (1, 2)
+    CARYLL_NAME_OFFSET = 10000000
+
+    # The GemGen rows the gems in a party save use: 127000 rolls radial, 127002 triangle (4 of 4 blood gems).
+    BLOOD_GENS = {1: 127000, 2: 127002}
+
+    def blood_gem_gen(self, shape):
+        """GemGen id for a new blood gem of this shape, None when the game's row is not what the saves show."""
+        gen = self.BLOOD_GENS.get(shape)
+        row = self._gemrows.get(gen)
+        return gen if row and row[0] == 0 and row[1] == shape else None
+
+    def caryll_runes(self):
+        """[(GemGen id, effect id)] of the Caryll runes that can be added, in effect order: the lowest 1xxxxx row of the
+        Caryll name offset that rolls radial with one fixed Caryll rune effect whose rune has a name (those are the rows the
+        runes in a save come from; the 4xx and 2xxxxxx rows are other tables)."""
+        best = {}
+        for gen, (offset, shapes, eff) in sorted(self._gemrows.items()):
+            if (offset == self.CARYLL_NAME_OFFSET and shapes == 1 and 100000 <= gen < 200000
+                    and (self._effects.get(eff) or [None] * 4)[3] == 1 and eff in self._names.get("effect", {})
+                    and self.gem(gen, 1, [eff])[0] is not None):
+                best.setdefault(eff, gen)
+        return sorted((gen, eff) for eff, gen in best.items())
+
     def gem_icon_ids(self):
         """Every icon a blood gem can show, so a preview never waits for the icon sheet."""
         return {3000 + block + cursed + row[1] for _, block in self.SHAPES.values() for cursed in (0, 100)
                 for row in self._effects.values() if row[3] == 0}
 
     def effects_for(self, sort_category):
-        """[(id, text)] of the named effects a gem of this sort category can carry, in id order."""
+        """[(id, text)] of the named effects a gem of this sort category can carry, in id order. Only effects the game can
+        produce (see "reach" in read_game); a catalogue without that list offers every named one."""
         texts = self._names.get("effect", {})
-        return [(i, texts[i]) for i, v in sorted(self._effects.items()) if v[3] == sort_category and i in texts]
+        return [(i, texts[i]) for i, v in sorted(self._effects.items())
+                if v[3] == sort_category and i in texts and (not self._reach or i in self._reach)]
 
     def lamp_name(self, flag):
         """Name of the lamp whose lit flag is 7AAB02nn (the warp list text 7000AABn), None when unknown."""

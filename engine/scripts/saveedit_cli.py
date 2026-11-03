@@ -80,15 +80,18 @@ def max_level(catalogue, item):
 PLACEHOLDERS = {(0, 1000), (0, 1000000)}
 SOCKETED = 3  # item section of a gem sitting in a weapon slot (not in the inventory lists)
 GEM_EFFECTS = 3
-ADD_CATEGORIES = (0, 1, 4)  # weapons, armour, goods: what "add item" offers (gems and runes are not added yet)
+RUNE_CATEGORY = 8  # catalog only: a rune is added through add_gems, not "add"
+ADD_CATEGORIES = (0, 1, 4)  # weapons, armour, goods: what "add item" offers (gems and runes are copied: copy_gems)
 ADD_MAX_COUNT = 99
 CATALOG_LIMIT = 60
 
 
 def catalog(catalogue, request, game, cache):
     """[{number, name, icon}] of the items the editor can add, filtered by name or id (nothing is written)."""
+    if isinstance(request, dict) and request.get("category") == RUNE_CATEGORY:
+        return rune_catalog(catalogue, str(request.get("text", ""))[:60].lower(), game, cache)
     if not isinstance(request, dict) or request.get("category") not in ADD_CATEGORIES:
-        raise ValueError("expected a category: 0 weapon, 1 armor, 4 goods")
+        raise ValueError("expected a category: 0 weapon, 1 armor, 4 goods, 8 rune")
     category, text = request["category"], str(request.get("text", ""))[:60]
     rows = [(n, name) for n, name in catalogue.search(category, text)
             if catalogue.name(category, n) is not None and catalogue.fallback_name(category, n) is None
@@ -96,6 +99,40 @@ def catalog(catalogue, request, game, cache):
     wanted = {catalogue.icon(category, n) for n, _ in rows} - {None}
     paths = icons.ensure(game, cache, wanted) if game and wanted else {}
     return [dict(number=n, name=name, icon=paths.get(catalogue.icon(category, n))) for n, name in rows]
+
+
+def rune_catalog(catalogue, text, game, cache):
+    """[{number, name, icon}] of the Caryll runes the editor can add; number is the rune's effect id."""
+    rows = []
+    for gen, effect in catalogue.caryll_runes():
+        name, icon, _ = catalogue.gem(gen, 1, [effect])
+        if name is not None and (not text or text in name.lower() or text == str(effect)):
+            rows.append((effect, name, icon))
+    rows = rows[:CATALOG_LIMIT]
+    paths = icons.ensure(game, cache, {i for _, _, i in rows} - {None}) if game and rows else {}
+    return [dict(number=e, name=n, icon=paths.get(i)) for e, n, i in rows]
+
+
+def add_gems(model, catalogue, adds):
+    """New loose blood gems ({"type": 1, "shape", "effects"}) and Caryll runes ({"type": 2, "effect"})."""
+    if not isinstance(adds, list) or len(adds) > 50:
+        raise ValueError("expected up to 50 gems or runes to add")
+    runes = dict((e, g) for g, e in catalogue.caryll_runes())
+    texts = {e for e, _ in catalogue.effects_for(0)}
+    for change in adds:
+        if isinstance(change, dict) and change.get("type") == 2 and set(change) == {"type", "effect"}:
+            if change["effect"] not in runes or type(change["effect"]) is not int:
+                raise ValueError("the game has no such rune")
+            model.add_gem(runes[change["effect"]], 2, 1, [change["effect"]])
+        elif isinstance(change, dict) and change.get("type") == 1 and set(change) == {"type", "shape", "effects"}:
+            effects, shape = change["effects"], change["shape"]
+            gen = catalogue.blood_gem_gen(shape) if shape in catalogue.ADD_SHAPES else None
+            if (gen is None or not isinstance(effects, list) or not 1 <= len(effects) <= GEM_EFFECTS
+                    or not all(type(e) is int and e in texts for e in effects)):
+                raise ValueError("an effect or the shape does not fit a new blood gem")
+            model.add_gem(gen, 1, shape, effects)
+        else:
+            raise ValueError("invalid gem or rune to add")
 
 
 def gem_sort(gem, catalogue):
@@ -201,7 +238,7 @@ def execute(args, edit=None, running=running_games, catalogues=None):
     if edit.get("revision") != revision(model):
         raise store.EditConflict("the save changed on disk; open it again")
     unknown = set(edit) - {"revision", "name", "stats", "echoes", "insight", "ng_cycle", "items", "flags", "repair",
-                           "gems", "add"}
+                           "gems", "add", "copy_gems", "add_gems"}
     if unknown:
         raise ValueError("unknown edit fields")
     if "name" in edit:
@@ -233,6 +270,7 @@ def execute(args, edit=None, running=running_games, catalogues=None):
         table = instances.read(model)
         if table is None or not catalogue.effects_for(0):
             raise ValueError("gem effects need the save's gem table and the game's gem list")
+        pool = {e for e, _ in catalogue.effects_for(0)}
         done = set()
         for change in gem_edits:
             if set(change) != {"handle", "effects"} or change["handle"] in done or change["handle"] not in table.gems:
@@ -242,7 +280,8 @@ def execute(args, edit=None, running=running_games, catalogues=None):
             # Runes carry hidden effects (no text) that make the rune; only blood gems are edited.
             # At most 3 effects, the most the game rolls (the record has room for 6).
             if (gem.type != 1 or not isinstance(effects, list) or not 1 <= len(effects) <= GEM_EFFECTS or not all(type(e) is int for e in effects)
-                    or any((catalogue.effect(e) or [None] * 4)[3] != sort for e in effects)):
+                    or any((catalogue.effect(e) or [None] * 4)[3] != sort for e in effects)
+                    or any(e not in pool and e not in gem.effects for e in effects)):  # kept as is, or one the game makes
                 raise ValueError("an effect does not fit this gem")
             instances.set_effects(model, gem, effects)
             done.add(change["handle"])
@@ -279,6 +318,15 @@ def execute(args, edit=None, running=running_games, catalogues=None):
             model.add_goods(number, count)
         else:
             model.add_gear(category, number)
+    add_gems(model, catalogue, edit.get("add_gems", []))
+    copies = edit.get("copy_gems", [])
+    if not isinstance(copies, list) or len(copies) > 50:
+        raise ValueError("expected up to 50 gems to copy")
+    for handle in copies:
+        table = instances.read(model)  # each add moves the records behind it
+        if table is None or handle not in table.gems:
+            raise ValueError("invalid gem to copy")
+        model.copy_gem(table.gems[handle].at)
     return {"backup": store.apply_edit(user, kind, args.slot, model, running, _update_party_characters)}
 
 

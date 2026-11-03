@@ -46,9 +46,11 @@ internal sealed class ItemRow : RowBase
     public RowCommand LevelUp { get; }
     public RowCommand RemoveCommand { get; }
     public RowCommand EditGemCommand { get; }
+    public RowCommand CopyGemCommand { get; }
 
-    public ItemRow(SaveEditor.Item item, Action changed, Action<ItemRow>? editGem = null)
+    public ItemRow(SaveEditor.Item item, Action changed, Action<ItemRow>? editGem = null, Action<ItemRow>? copyGem = null)
     {
+        CopyGemCommand = new RowCommand(() => copyGem?.Invoke(this), () => Item.Gem != null && !Removed);
         Item = item; _changed = changed;
         _count = item.Count.ToString(CultureInfo.InvariantCulture); _level = item.Level ?? 0;
         _effects = item.Gem?.Effects ?? [];
@@ -90,6 +92,8 @@ internal sealed class ItemRow : RowBase
     public bool CanEditGem => Item.Gem is { Type: 1 };
     public Visibility GemEditVisibility => CanEditGem ? Visibility.Visible : Visibility.Collapsed;
     public string EditGemText => L.T("Edit effects");
+    public Visibility GemCopyVisibility => Item.Gem != null ? Visibility.Visible : Visibility.Collapsed;
+    public string CopyGemText => L.T("Copy");
     public IReadOnlyList<SaveEditor.GemEffect> Effects
     {
         get => _effects;
@@ -171,7 +175,7 @@ internal sealed class ItemRow : RowBase
             Raise(nameof(Removed), nameof(CountEnabled), nameof(RemoveText), nameof(Changed)); RaiseLevelCommands(); _changed();
         }
     }
-    private void RaiseLevelCommands() { LevelDown.Raise(); LevelUp.Raise(); EditGemCommand.Raise(); }
+    private void RaiseLevelCommands() { LevelDown.Raise(); LevelUp.Raise(); EditGemCommand.Raise(); CopyGemCommand.Raise(); }
 
     public bool CountValid => _removed || (int.TryParse(_count, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n >= 1);
     public int CountNumber => int.Parse(_count, CultureInfo.InvariantCulture);
@@ -238,8 +242,11 @@ internal static class SaveEditorXaml
                 <TextBlock Text="{Binding LevelText}" Width="42" TextAlignment="Center" VerticalAlignment="Center" Style="{DynamicResource RowTitle}"/>
                 <ui:Button Content="+" Command="{Binding LevelUp}" Width="28" Height="28" Padding="0" AutomationProperties.Name="Increase weapon level"/>
               </StackPanel>
-              <ui:Button x:Name="EditGem" Grid.Column="2" Content="{Binding EditGemText}" Command="{Binding EditGemCommand}" Visibility="{Binding GemEditVisibility}"
-                         VerticalAlignment="Center" Margin="0,0,14,0" Padding="10,5" AutomationProperties.Name="Edit effects"/>
+              <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0" Visibility="{Binding GemCopyVisibility}">
+                <ui:Button x:Name="EditGem" Content="{Binding EditGemText}" Command="{Binding EditGemCommand}" Visibility="{Binding GemEditVisibility}"
+                           Margin="0,0,6,0" Padding="10,5" AutomationProperties.Name="Edit effects"/>
+                <ui:Button x:Name="CopyGem" Content="{Binding CopyGemText}" Command="{Binding CopyGemCommand}" Padding="10,5" AutomationProperties.Name="Copy"/>
+              </StackPanel>
               <ui:TextBox x:Name="CountBox" Grid.Column="3" Text="{Binding Count, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CountEnabled}"
                           Visibility="{Binding CountBoxVisibility}" Padding="8,5" VerticalAlignment="Center" AutomationProperties.Name="Count"/>
               <ui:Button Grid.Column="4" Content="{Binding RemoveText}" Command="{Binding RemoveCommand}" HorizontalAlignment="Right" VerticalAlignment="Center"

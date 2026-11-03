@@ -72,6 +72,8 @@ public sealed partial class SaveEditorWindow : Window
     private List<FlagRow> _flags = new();
     // Items picked in the Add item dialog; written by Apply, dropped by Revert or a reload.
     private readonly List<SaveEditorAddDialog.Pick> _added = new();
+    // Gems and runes to copy (a handle may repeat); written by Apply like _added.
+    private readonly List<ItemRow> _gemCopies = new();
     private Button _addItem = null!;
     private SaveEditor.GemEffect[]? _effectChoices;
     private SaveEditor.Snapshot? _snapshot;
@@ -207,7 +209,7 @@ public sealed partial class SaveEditorWindow : Window
     }
     private async Task OpenSlot()
     {
-        _snapshot = null; _dirty = false; _added.Clear();
+        _snapshot = null; _dirty = false; _added.Clear(); _gemCopies.Clear();
         _selected = (_slots.SelectedItem as ListBoxItem)?.Tag as SaveEditor.Slot;
         if (_selected == null) { ClearEditors(); ShowHunter(); UpdateState(); return; }
         _loading = true;
@@ -219,7 +221,7 @@ public sealed partial class SaveEditorWindow : Window
             _fields["echoes"].Load(c.Echoes.ToString(CultureInfo.InvariantCulture));
             _fields["insight"].Load(c.Insight.ToString(CultureInfo.InvariantCulture));
             _fields["ng_cycle"].Load(c.NgCycle.ToString(CultureInfo.InvariantCulture));
-            _items = data.Items.Select(i => new ItemRow(i, UpdateState, row => _ = Guard(() => EditGem(row)))).ToList();
+            _items = data.Items.Select(i => new ItemRow(i, UpdateState, row => _ = Guard(() => EditGem(row)), row => { _gemCopies.Add(row); UpdateState(); })).ToList();
             _flags = (data.Flags ?? []).Select(f => new FlagRow(f, UpdateState)).ToList();
             _itemList.ItemsSource = null;  // no refilter of the old list on the resets below
             _search.Text = ""; _changedOnly.IsChecked = false; _itemKinds.Select(0); _flagKinds.Select(0);
@@ -262,6 +264,10 @@ public sealed partial class SaveEditorWindow : Window
         foreach (var pick in _added)
         {
             lines.Add(L.T("Add item") + ": " + pick.Name + (pick.Category == 4 && pick.Count > 1 ? " × " + pick.Count : "")); perTab[InventoryTab]++;
+        }
+        foreach (var copy in _gemCopies)
+        {
+            lines.Add(L.T("Copy") + ": " + copy.Title); perTab[InventoryTab]++;
         }
         foreach (var row in _flags.Where(f => f.Changed))
         {
@@ -317,6 +323,7 @@ public sealed partial class SaveEditorWindow : Window
             Stats = Stats.ToDictionary(s => s, s => _fields[s].Number), Echoes = _fields["echoes"].Number,
             Insight = _fields["insight"].Number, NgCycle = _fields["ng_cycle"].Number, Items = items, Gems = gems,
             Add = _added.Select(a => new { a.Category, a.Number, Count = a.Category == 4 ? a.Count : (int?)null }).ToArray(),
+            CopyGems = _gemCopies.Select(c => c.Item.Gem!.Handle).ToArray(),
             Flags = _flags.Where(f => f.Changed).Select(f => new { f.Flag.Id, f.On }).ToArray(),
             Repair = Array.Empty<string>() };
         if (!Prompt.Confirm(L.T("Apply these edits?"), summary + "\n\n" + L.F($"All saves related to {_snapshot.Character.Name} will be backed up first."), L.T("Apply"))) return;
