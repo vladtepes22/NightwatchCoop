@@ -900,6 +900,23 @@ static void test_discovery() {
     CHECK(!mutated(0, 0) && !mutated(1, 'B') && !mutated(2, 2) && !mutated(3, 4));
     CHECK(mutated(3, 2) && b.open && !b.password);  // an open party
     { auto m = pkt; m[9] = 0; m[8] = 0; CHECK(!parse(m.data(), m.size(), &b)); }
+    // 0.7.8: the host-owned options ride in flags bits 2-5 with bit 6 ("options present"); alone they are junk.
+    {
+        Announce o = a;
+        o.opts = true; o.lamps = false; o.headstones = true; o.talk = true; o.droproll = false;
+        const auto op = encode(o);
+        CHECK(op[3] == (1 | 0x40 | 8 | 16));
+        Announce q;
+        CHECK(parse(op.data(), op.size(), &q) && q.opts && !q.lamps && q.headstones && q.talk && !q.droproll);
+        CHECK(q.max_players == 4 && q.password);
+        o.lamps = true; o.droproll = true; o.headstones = false; o.talk = false;
+        const auto op2 = encode(o);
+        CHECK(parse(op2.data(), op2.size(), &q) && q.lamps && q.droproll && !q.headstones && !q.talk);
+        CHECK(!mutated(3, 8) && !mutated(3, 0x80) && !mutated(3, 0x80 | 0x40));  // option bit alone; bit 7
+        CHECK(mutated(3, 0x40) && b.opts && !b.lamps && !b.headstones);          // options present, all off
+        CHECK(!pkt.empty() && !(pkt[3] & 0x40));  // an announcement without options stays "unknown"
+        CHECK(parse(pkt.data(), pkt.size(), &q) && !q.opts);
+    }
     { auto m = pkt; m[12] = 9; CHECK(!parse(m.data(), m.size(), &b)); }  // players > max
     { auto m = pkt; m.push_back(0); CHECK(!parse(m.data(), m.size(), &b)); }
     { auto m = pkt; m[15 + a.build.size()] = 0x07; CHECK(!parse(m.data(), m.size(), &b)); }  // control char in name

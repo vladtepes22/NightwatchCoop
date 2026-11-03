@@ -9,6 +9,7 @@
 #include "party/party_crypto.h"
 #include "party/party_lan.h"
 #include "party/party_link.h"
+#include "party/party_options.h"
 #include "party/party_rudp.h"
 #include "net/netsim.h"
 #include "party/party_sock.h"
@@ -1061,6 +1062,92 @@ static void test_identity() {
     }
 }
 
+// 0.7.8: the options the host owns (party_options.h): text, the refusal prefix, the diff and what a guest is told.
+static void test_host_options() {
+    HostOptions h;
+    h.max_players = 4; h.lamps = 0; h.headstones = 1; h.talk = 1; h.droproll = 1;
+    CHECK(options_text(h) == "max=4 lamps=0 headstones=1 talk=1 droproll=1");
+    HostOptions p;
+    CHECK(options_parse(options_text(h), &p) && p == h);
+    // unknown values are left out and stay unknown
+    HostOptions part;
+    part.headstones = 0;
+    CHECK(options_text(part) == "headstones=0");
+    CHECK(options_parse("headstones=0", &p) && p.headstones == 0 && p.max_players == 0 && p.lamps == -1);
+    // untrusted input: strict
+    for (const char* bad : {"", "max=9", "max=1", "lamps=2", "lamps=", "lamps=11", "x=1", "max=4,lamps=1", "max=4  lamps=1",
+                            "headstones=a", "=1"})
+        CHECK(!options_parse(bad, &p));
+    CHECK(!options_parse(std::string(200, 'a'), &p));
+    // env readers as party_guestsvc reads them
+    CHECK(!HeadstonesFromEnv("0", false) && HeadstonesFromEnv("0", true) && HeadstonesFromEnv(nullptr, false) &&
+          HeadstonesFromEnv("1", false));
+    CHECK(!GuestTalkFromEnv("0") && GuestTalkFromEnv(nullptr) && GuestTalkFromEnv("1"));
+    // the refusal prefix round trips; an old host's text (no prefix) is left alone
+    const std::string r = reject_with_options("version mismatch with the host: x", h);
+    CHECK(r.rfind("[host options: max=4", 0) == 0);
+    std::string reason;
+    HostOptions got;
+    CHECK(reject_split_options(r, &reason, &got) && got == h && reason == "version mismatch with the host: x");
+    CHECK(!reject_split_options("version mismatch: y", &reason, &got) && reason == "version mismatch: y");
+    CHECK(!reject_split_options("[host options: max=9] z", &reason, &got) && reason == "[host options: max=9] z");
+    CHECK(reject_with_options("t", HostOptions{}) == "t");
+    // the diff: a guest with Max players 3 and Headstones off against a host with 4 and on
+    HostOptions mine = h;
+    mine.max_players = 3;
+    mine.headstones = 0;
+    const std::vector<OptionDiff> d = options_diff(h, mine);
+    CHECK(d.size() == 2);
+    CHECK(option_diff_line(d[0]) == "Max players (4-player party): host 4, you 3");
+    CHECK(option_diff_line(d[1]) == "Headstones: host on, you off");
+    CHECK(d[0].live && !d[1].live);
+    const std::string how = adopt_explanation(d);
+    CHECK(how.find("restart to join") != std::string::npos && how.find("Headstones: host on, you off") != std::string::npos);
+    // only Max players differs: the running game takes it by itself, nothing to restart for
+    HostOptions m2 = h;
+    m2.max_players = 3;
+    CHECK(adopt_explanation(options_diff(h, m2)).empty());
+    CHECK(options_diff(h, h).empty());
+    // unknown on either side is no difference
+    { HostOptions pp; pp.headstones = 1; CHECK(options_diff(pp, mine).size() == 1); }
+    CHECK(options_diff(part, mine).empty() && options_diff(h, HostOptions{}).empty());
+    // the launcher's file / the announcement mapping
+    const auto env = adopt_env(h);
+    CHECK(env.size() == 5 && env[0].first == "BB_PARTY_MAX" && env[0].second == "4" && env[1].first == "BB_PARTY_GUEST_LAMPS" &&
+          env[1].second == "0" && env[2].second == "1");
+    CHECK(adopt_file_text(h).find("BB_PARTY_MAX=4\n") != std::string::npos &&
+          adopt_file_text(h).find("BB_PARTY_SHARED_DROP_ROLL=1\n") != std::string::npos);
+    // over the wire: the host's Mismatch refusal carries its options; a guest with another hook set reads them
+    {
+        Recorder hr2, gr;
+        LinkConfig hc = base_cfg("Host", "hunter2");
+        hc.options = options_text(h);
+        PartyLink host(hc, recorder_callbacks(hr2, "host"));
+        std::string err;
+        CHECK(host.start_host(&err));
+        LinkConfig gc = base_cfg("Guest_1", "hunter2");
+        gc.mods_hash[3] ^= 1;
+        PartyLink g(gc, recorder_callbacks(gr, "guest"));
+        CHECK(g.start_guest("127.0.0.1", host.bound_port(), &err));
+        CHECK(g.wait_state(LinkState::Rejected, 5000));
+        CHECK(g.reject_code() == RejectCode::Mismatch);
+        CHECK(g.reject_reason().find("gameplay mods differ") != std::string::npos);
+        CHECK(g.reject_reason().find("host options") == std::string::npos);  // stripped from the text
+        CHECK(options_parse(g.reject_options(), &p) && p == h);
+        std::printf("  refused guest read the host's options: %s\n", g.reject_options().c_str());
+        // a host without options: refusal as before, nothing to read
+        Recorder hr3, gr3;
+        PartyLink host2(base_cfg("Host", "hunter2"), recorder_callbacks(hr3, "host2"));
+        CHECK(host2.start_host(&err));
+        PartyLink g3(gc, recorder_callbacks(gr3, "guest3"));
+        CHECK(g3.start_guest("127.0.0.1", host2.bound_port(), &err));
+        CHECK(g3.wait_state(LinkState::Rejected, 5000));
+        CHECK(g3.reject_options().empty());
+    }
+    // the 4-player label names the real settings
+    CHECK(hook_option_label("4p H4 boss doping").find("BB_PARTY_FOURP") != std::string::npos);
+}
+
 // Kick by name: BYE Kicked "kicked by the host" to that guest, its slot freed, and the name refused
 // for the rest of the session (no auto-rejoin, not even with a fresh link after a restart).
 static void test_host_no_answer_hint() {
@@ -1763,6 +1850,8 @@ int main() {
     test_stun_local();
     std::printf("version check\n");
     test_identity();
+    std::printf("host-owned options\n");
+    test_host_options();
     std::printf("loopback party\n");
     test_party();
     std::printf("host secret across launches, new party code\n");

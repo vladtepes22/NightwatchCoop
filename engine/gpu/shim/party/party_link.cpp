@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "party_link.h"
+#include "party_options.h"
 #include "party_nat.h"
 
 #include "party_crypto.h"
@@ -611,7 +612,7 @@ std::string hook_option_label(const std::string& name) {
         {"(party headstones)", "Headstones (BB_PARTY_HEADSTONES)"},
         {"talk IsClientPlayer", "Guest services (BB_PARTY_GUEST_TALK)"},
         {"enemy drop roll", "Shared enemy drop roll (BB_PARTY_SHARED_DROP_ROLL)"},
-        {"4p ", "4-player rules (BB_PARTY_FOURP*)"},
+        {"4p ", "4-player rules (BB_PARTY_FOURP, BB_PARTY_FOURP_SCALING)"},
     };
     for (const auto& [frag, label] : kOptions)
         if (name.find(frag) != std::string::npos) return label;
@@ -951,6 +952,7 @@ struct PartyLink::Impl {
     std::string observed;
     RejectCode reject = RejectCode::None;
     std::string reject_text;
+    std::string reject_options_text;
 
     // Callback thread.
     std::mutex dmu;
@@ -1511,7 +1513,11 @@ struct PartyLink::Impl {
             }
             if (!r.ok) return lose(c, "short HELLO");
             const std::string mismatch = identity_mismatch(cfg, theirs);
-            if (!mismatch.empty()) return reject_conn(c, RejectCode::Mismatch, mismatch);
+            if (!mismatch.empty()) {
+                HostOptions ho;
+                const bool have = !cfg.options.empty() && options_parse(cfg.options, &ho);
+                return reject_conn(c, RejectCode::Mismatch, have ? reject_with_options(mismatch, ho) : mismatch);
+            }
             if (!valid_member_name(c->name))
                 return reject_conn(c, RejectCode::Name, "invalid name (1-16 of A-Z a-z 0-9 _ -)");
             crypto::random_bytes(c->hn.data(), c->hn.size());
@@ -1798,6 +1804,13 @@ struct PartyLink::Impl {
             RejectCode code = static_cast<RejectCode>(r.u8());
             std::string why = sanitize_text(r.str16(), 1024);
             reject = code;
+            reject_options_text.clear();
+            HostOptions ho;
+            std::string bare;
+            if (reject_split_options(why, &bare, &ho)) {
+                reject_options_text = options_text(ho);
+                why = bare;
+            }
             reject_text = why;
             close_conn(c);
             gconn = nullptr;
@@ -2620,6 +2633,11 @@ bool PartyLink::member_endpoint(int slot, std::uint32_t* ip, std::uint16_t* port
 RejectCode PartyLink::reject_code() const {
     std::lock_guard<std::mutex> lk(impl_->mu);
     return impl_->reject;
+}
+
+std::string PartyLink::reject_options() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    return impl_->reject_options_text;
 }
 
 std::string PartyLink::reject_reason() const {

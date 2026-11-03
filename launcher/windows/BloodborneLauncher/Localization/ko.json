@@ -2436,7 +2436,7 @@
   "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "편집하기 전의 저장 데이터를 여기에서 복원할 수 있습니다. 복원하면 선택한 캐릭터의 모든 저장 슬롯이 교체됩니다.",
   "Add item": "아이템 추가",
   "Add": "추가",
-  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "아이템을 하나 이상 선택한 다음 추가를 누르세요. 혈석과 룬은 아직 추가할 수 없습니다.",
+  "Pick one or more items, then Add. To get more of a blood gem or rune, use Copy on one you own.": "아이템을 하나 이상 고른 뒤 추가하세요. 피의 보석이나 룬을 늘리려면 가지고 있는 것에서 복사를 사용하세요.",
   "The game's item list could not be read. Check the game folder in Settings.": "게임의 아이템 목록을 읽을 수 없습니다. 설정에서 게임 폴더를 확인하세요.",
   "The save already holds an item you picked: change its count in the list instead.": "선택한 아이템이 이미 저장 파일에 있습니다. 목록에서 수량을 변경하세요.",
   "Enter the host's party password if needed.": "필요하면 호스트의 파티 비밀번호를 입력하세요.",

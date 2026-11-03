@@ -174,6 +174,9 @@ public static partial class SeamlessSettings
     /// the password stay in memory and go to the game's environment, never into the saved settings.</summary>
     public static (string Code, string Password)? PendingJoin { get; set; }
 
+    /// <summary>The host's options a Join row told, for this start only; saved settings stay the guest's for hosting.</summary>
+    public static Dictionary<string, string>? PendingHostOptions { get; set; }
+
     /// <summary>The host the game joins.</summary>
     public static string Code(LauncherSettings s) => PendingJoin?.Code ?? s.Str("party_code");
 
@@ -206,5 +209,26 @@ public static partial class SeamlessSettings
         env["BB_RELAUNCH_LOOP"] = "1";
         env["BB_PARTY_LOG"] = s.Str("party_log");
         foreach (var option in Switches) env[option.Environment] = Flag(s, option.Key) ? "1" : "0";
+        if (s.Str("party_mode") == "join") ApplyHostOptions(s, env);
+    }
+
+    /// <summary>A join starts with the host's options: the ones its row told, else the ones a refused join left in
+    /// party_adopt.txt (read once, ignored after two days).</summary>
+    private static void ApplyHostOptions(LauncherSettings s, Dictionary<string, string> env)
+    {
+        var file = Path.Combine(GameEnvironment.UserDir(s), "party_adopt.txt");
+        var options = PendingHostOptions;
+        try
+        {
+            if (File.Exists(file))
+            {
+                if (options == null && DateTime.UtcNow - File.GetLastWriteTimeUtc(file) <= TimeSpan.FromDays(2))
+                    options = PartyDiscovery.ParseAdopt(File.ReadAllText(file));
+                File.Delete(file);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        if (options == null) return;
+        foreach (var (key, value) in options) env[key] = value;
     }
 }

@@ -2436,7 +2436,7 @@
   "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Здесь можно восстановить любое сохранение, существовавшее до редактирования. Восстановление заменяет все слоты сохранений выбранного персонажа.",
   "Add item": "Добавить предмет",
   "Add": "Добавить",
-  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Выберите один или несколько предметов и нажмите «Добавить». Кровавые самоцветы и руны пока добавить нельзя.",
+  "Pick one or more items, then Add. To get more of a blood gem or rune, use Copy on one you own.": "Выберите один или несколько предметов и нажмите «Добавить». Чтобы получить больше кровавых камней или рун, используйте «Копировать» на имеющемся.",
   "The game's item list could not be read. Check the game folder in Settings.": "Не удалось прочитать список предметов игры. Проверьте папку игры в настройках.",
   "The save already holds an item you picked: change its count in the list instead.": "В сохранении уже есть выбранный предмет: измените его количество в списке.",
   "Enter the host's party password if needed.": "При необходимости введите пароль группы хоста.",

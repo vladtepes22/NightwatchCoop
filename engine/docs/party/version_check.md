@@ -23,7 +23,7 @@ when a newer release is out (below), so players can update before they meet.
 | Gameplay patches | `out/party_patch_hash.txt` (scripts/patches.py) | names only one side has: "turn on the same patches as the host (launcher Patches tab)" |
 | Gameplay mods | `out/party_mods.txt` (scripts/mods.py) | names: "enable the same mods as the host (launcher Mods tab)" |
 | Party patches | every game hook the party code installed (`coop::InstalledHooks()`: "<name> @+<offset>", from coop_hooks' install functions), diagnostics left out (`diagnostic_hook_name`: log / probe / trace / observer / fixture / test), sorted, BLAKE2b (`hook_set_hash`) | names only one side has: "use the same bbport build and party options (BB_PARTY_* switches) as the host" |
-| Party rules | "max N players, 4p:..." | "every player needs the same Max players setting" |
+| Party rules | "4p:..." rule set (the leading "max N players" is not compared since 0.7.8: a guest takes the host's) | "every player needs the same BB_PARTY_FOURP* settings" |
 
 0.7.8: hooks that only the HOST's world needs are left out of the set as well (`host_world_hook_name`: the shared-progress
 flag capture `progress: ...` and `story capture ...`). A guest with `BB_PARTY_PROGRESS=0` / `BB_PARTY_STORY=0` still joins a host
@@ -31,6 +31,34 @@ that has them on (it just does not receive them; player report CL-aa5a64, same b
 the refusal names each known option in plain words with both values (`hook_option_label`: Guest lamps, Headstones, Guest
 services, Shared enemy drop roll, 4-player rules): `party options differ (Guest lamps (BB_PARTY_GUEST_LAMPS): host ON, you OFF):
 change it in System > Party or the launcher so it matches the host`; a difference with an unknown hook keeps the old list of names.
+
+### Host-owned options (0.7.8, hostopts078)
+
+Max players (`BB_PARTY_MAX`), Guest lamps (`BB_PARTY_GUEST_LAMPS`), Headstones (`BB_PARTY_HEADSTONES`), Guest
+services (`BB_PARTY_GUEST_TALK`) and the Shared enemy drop roll (`BB_PARTY_SHARED_DROP_ROLL`) belong to the host.
+Most of them decide hooks installed at boot, so a running game cannot take another value; the guest therefore learns
+them before its game starts, and the named refusal (`hook_option_label`) stays only as the last resort.
+Pure code: `gpu/shim/party/party_options.{h,cpp}` (`HostOptions`, text `max=4 lamps=1 headstones=1 talk=1 droproll=1`).
+
+| Where | What | Who uses it |
+|---|---|---|
+| Discovery announcement (`party_discovery`, UDP 9308) | flags bit 6 (0x40) "options present" + bit 2 lamps, 3 headstones, 4 services, 5 drop roll (1 = on); `max` was already in it. Option bits alone, or bit 7, are junk (strict parser, C++ and `launcher.py parse_discovery_packet`). An older host sends none: unknown, nothing is copied. | the launcher's Join list: `discovery_adopt_env` -> `launch_game` -> `apply_host_options` sets `BB_PARTY_*` for that launch only |
+| Nightwatch VPN lobby list | not changed (the lobby server's format is theirs); only the slots (`max`) | the launcher copies `BB_PARTY_MAX` |
+| WELCOME | Max players (as before) | `FourpTick`: applied live on a connected guest |
+| Mismatch REJECT | the reason gets a prefix `[host options: max=4 lamps=1 ...] ` (`LinkConfig::options`; the guest's `PartyLink` strips it: `reject_reason()` is the plain text, `reject_options()` the options; an older guest just shows the prefix) | the running game: compares with its own (`local_options`), says in the party status what differs and to restart, writes `<user dir>/party_adopt.txt` (`BB_PARTY_*=value` lines); the launcher's next join reads it once (known keys and values only, ignored after 2 days, deleted after use) |
+
+Behaviour. A guest's saved settings (launcher / bbport.ini) are never overwritten: the host's values are set in the
+environment of that one launch (the ini keeps the guest's own for hosting later). A guest whose game already runs
+with another value of a hook-deciding option is refused as before, but the message now reads e.g. *party options
+differ (Headstones: host on, you off). ... restart to join - the launcher uses the host's for your next join*.
+Max players never refuses (taken live). No toggle: it only removes refusals and changes nothing for a guest that
+already matches; a guest who wants another value hosts or sets the variable by hand (a hand-set `BB_PARTY_*` in the
+environment loses to the host's on a join from the list).
+
+Tests: `party-link-test` "host-owned options" (text/parse strictness, prefix round trip, diff and the plain-words
+line "Max players (4-player party): host 4, you 3", a refused guest reads the host's options over the wire),
+`party-net-test` (announcement bits), `tests/test_launcher_discovery.py` (parser, rows, `parse_party_adopt`,
+`apply_host_options`), smoke `vm` (`VM_MODE=maxadopt`: host 4, three guests 3, all join; `VM_MODE=refuse`).
 
 The party patch set reflects what really runs: a party option that installs a hook (for example
 guest lamps / headstones, the 4-player hooks, B2) changes it, so two players with different

@@ -222,6 +222,9 @@ struct LinkConfig {
     // The party's game rules: "max N players, 4p:..." (party_runtime from BB_PARTY_MAX and
     // party_fourp.h FourpRulesTag). Part of the version check: must equal the host's.
     std::string rules;
+    // 0.7.8: the host-owned options (party_options.h options_text) its Mismatch refusal carries, so a guest
+    // can start again with the host's values. Host side only; empty = none sent.
+    std::string options;
     // A9 build / patch-set fingerprint (party_runtime): the bbport build ("0.5 (git describe)",
     // bbport_build_id.cmake), the game's param set (sha256 of dvdroot_ps4/param/gameparam/
     // gameparam.parambnd.dcx; zeros: not read) and the party's installed game hooks (hook_set_hash
@@ -381,6 +384,8 @@ public:
     bool member_endpoint(int slot, std::uint32_t* ip, std::uint16_t* port_nbo) const;
     RejectCode reject_code() const;
     std::string reject_reason() const;
+    /// 0.7.8: the host's options a Mismatch refusal carried (party_options.h options_parse), or empty.
+    std::string reject_options() const;
 
     // Guest -> host RPC. Blocking: false on timeout / disconnect / no handler (reply then holds
     // the reason). Async: `done` runs on the callback thread exactly once; returns the id (0 when

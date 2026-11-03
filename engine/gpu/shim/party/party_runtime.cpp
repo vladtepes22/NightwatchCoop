@@ -30,6 +30,7 @@
 #include "party_npctalk.h"
 #include "party_ping.h"
 #include "party_droproll.h"
+#include "party_options.h"
 #include "party_log_game.h"
 #include "coop_hooks.h"
 #include "game_state.h"
@@ -360,6 +361,27 @@ void write_identity_file(const LinkConfig& cfg) {
     fs::create_directories(user_dir(), ec);
     std::ofstream f(fs::path(user_dir()) / "party_identity.txt", std::ios::binary | std::ios::trunc);
     if (f) f << t;
+}
+
+// 0.7.8 (hostopts078): this game's host-owned options as they run (party_options.h): what the discovery
+// announcement and the Mismatch refusal tell a guest, and what a refused guest compares with.
+HostOptions local_options(int max_players) {
+    HostOptions o;
+    o.max_players = max_players;
+    const bool lamps = coop::balance::StartupSessionRules().guest_lamps;
+    o.lamps = lamps ? 1 : 0;
+    o.headstones = HeadstonesFromEnv(std::getenv("BB_PARTY_HEADSTONES"), lamps) ? 1 : 0;
+    o.talk = GuestTalkFromEnv(std::getenv("BB_PARTY_GUEST_TALK")) ? 1 : 0;
+    o.droproll = coop::droproll::SharedRollFromEnv(std::getenv("BB_PARTY_SHARED_DROP_ROLL")) ? 1 : 0;
+    return o;
+}
+
+// A refused guest keeps the host's values for the launcher's next join (party_adopt.txt, read once).
+void write_adopt_file(const HostOptions& host) {
+    std::error_code ec;
+    fs::create_directories(user_dir(), ec);
+    std::ofstream f(fs::path(user_dir()) / "party_adopt.txt", std::ios::binary | std::ios::trunc);
+    if (f) f << adopt_file_text(host);
 }
 
 // A9: the party's installed game hooks (coop_hooks), diagnostics (logs, probes, traces, test
@@ -1019,8 +1041,25 @@ void on_state(LinkState s, const std::string& detail) {
         const RejectCode code = link->reject_code();
         if (code == RejectCode::Mismatch) {
             // The host names what differs (identity_mismatch): eboot.bin, gameplay patches, mods.
-            set_error("host refused: " + link->reject_reason());
-            plog("the host refused this game: %s", link->reject_reason().c_str());
+            std::string shown = link->reject_reason();
+            HostOptions host_opts;
+            if (options_parse(link->reject_options(), &host_opts)) {
+                int my_max = 3;
+                {
+                    std::lock_guard<std::mutex> lk(r.mu);
+                    my_max = r.cfg.max_players;
+                }
+                const std::vector<OptionDiff> diffs = options_diff(host_opts, local_options(my_max));
+                const std::string how = adopt_explanation(diffs);
+                if (!how.empty()) {
+                    write_adopt_file(host_opts);
+                    shown += ". " + how;
+                    plog("host-owned options differ; kept the host's for the launcher's next join (party_adopt.txt): %s",
+                         options_text(host_opts).c_str());
+                }
+            }
+            set_error("host refused: " + shown);
+            plog("the host refused this game: %s", shown.c_str());
             plog("make what is listed the same as the host's: the bbport build, the game dump, the launcher's "
                  "Patches and Mods tabs, the party options; BB_PARTY_HASH_PATCHES=0 / BB_PARTY_CHECK_BUILD=0 on "
                  "the host skip the patch / build comparison");
@@ -1825,6 +1864,14 @@ void start_host(LinkConfig cfg) {
         const coop::GameSnapshot gs = coop::ReadGameState(false);
         a.level = static_cast<std::uint16_t>(std::clamp(gs.level, 0, 999));
         a.area = gs.world_up ? coop::splitnotice::AreaNameOf(gs.map_id) : "";
+        {  // 0.7.8: the host-owned options, so a guest's launcher starts with them (party_options.h)
+            const HostOptions ho = local_options(a.max_players);
+            a.opts = true;
+            a.lamps = ho.lamps == 1;
+            a.headstones = ho.headstones == 1;
+            a.talk = ho.talk == 1;
+            a.droproll = ho.droproll == 1;
+        }
         *out = a;
         return true;
     });
@@ -2875,6 +2922,7 @@ void startup_main() {
     patch_identity(cfg, &what);
     mod_identity(cfg, &what);
     // Max players and the 4-player rule set (party_fourp.h): the same for every player.
+    cfg.options = options_text(local_options(cfg.max_players));  // 0.7.8: a refused guest takes them (party_options.h)
     cfg.rules = "max " + std::to_string(cfg.max_players) + " players, " + coop::fourp::FourpRulesTag();
     // 0.7.4: the host's session rules its modules read only at start (party_balance StartupRules):
     // a guest must start with the host's ("set X like the host", party_link identity_mismatch).

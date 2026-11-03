@@ -478,6 +478,14 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
         return bytes.ToArray();
     }
     var good = PartyDiscovery.Parse(Packet());
+    // Host-owned options (flags bit 6 + bits 2-5): option bits alone or bit 7 are junk; the row tells a guest's launch the host's values.
+    Check(PartyDiscovery.Parse(Packet(flags: 4)) == null && PartyDiscovery.Parse(Packet(flags: 0x80)) == null, "Junk option flags were accepted");
+    var told = PartyDiscovery.AdoptEnv(PartyDiscovery.Parse(Packet(flags: 0x40 | 4 | 32, max: 4))!);
+    Check(told["BB_PARTY_MAX"] == "4" && told["BB_PARTY_GUEST_LAMPS"] == "1" && told["BB_PARTY_HEADSTONES"] == "0" &&
+          told["BB_PARTY_GUEST_TALK"] == "0" && told["BB_PARTY_SHARED_DROP_ROLL"] == "1", "The host's announced options were not read");
+    Check(PartyDiscovery.AdoptEnv(PartyDiscovery.Parse(Packet(flags: 1))!).Keys.Single() == "BB_PARTY_MAX", "An announcement without options told some");
+    var adopt = PartyDiscovery.ParseAdopt("# note\nBB_PARTY_MAX=4\r\nBB_PARTY_HEADSTONES=1\nBB_PARTY_MAX2=9\nBB_PARTY_GUEST_TALK=2\nPATH=x\n");
+    Check(adopt.Count == 2 && adopt["BB_PARTY_MAX"] == "4" && adopt["BB_PARTY_HEADSTONES"] == "1", "party_adopt.txt accepted something unknown");
     Check(good is { Id: 0xdeadbeef, Port: 9307, Level: 42, Players: 1, Max: 3, Password: true, Name: "Hunter-1a2b", Area: "Central City" } &&
           good.Build == "nightwatch-coop-0.2.4-0123456789abcdef", "A valid announcement was not parsed");
     Check(PartyDiscovery.Parse(Packet(flags: 0))?.Password == false && PartyDiscovery.Parse(Packet(area: ""))?.Area == "", "No password flag or an empty area");

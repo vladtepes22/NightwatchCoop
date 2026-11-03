@@ -418,12 +418,13 @@ public sealed class SeamlessPage : LauncherPage
         }
         S.SetJoinPassword(party.Address, password);
         _codeBox.Text = party.Address;  // saved by the row
-        if (PartyDiscovery.PartySize(party.Info.Max) is { } size) S.Set("party_max", size);
         Ws.SaveSoon();
         SyncSharedRows();
         _partySignature = "\0";
         RefreshParties();
-        await StartJoin();
+        SeamlessSettings.PendingHostOptions = PartyDiscovery.AdoptEnv(party.Info);
+        try { await StartJoin(); }
+        finally { SeamlessSettings.PendingHostOptions = null; }
     }
 
     private StackPanel VpnControl()
@@ -757,8 +758,10 @@ public sealed class SeamlessPage : LauncherPage
             password = typed;
         }
         SeamlessSettings.PendingJoin = (game.JoinCode, password);
+        if (PartyDiscovery.PartySize(game.Max) is { } size)
+            SeamlessSettings.PendingHostOptions = new() { ["BB_PARTY_MAX"] = size };  // the lobby tells only the slots
         try { await MainWindow.Instance!.PlayOrStopAsync(); }
-        finally { SeamlessSettings.PendingJoin = null; }
+        finally { SeamlessSettings.PendingJoin = null; SeamlessSettings.PendingHostOptions = null; }
     }
 
     /// <summary>Where the poller asks: the lobby on the tunnel from this PC's tunnel address, or a test lobby; null sends nothing.</summary>

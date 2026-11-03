@@ -2436,7 +2436,7 @@
   "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "你可以在这里恢复编辑前的任何存档。恢复会替换所选角色的所有存档位。",
   "Add item": "添加物品",
   "Add": "添加",
-  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "选择一个或多个物品，然后点击“添加”。血宝石和卢恩暂时无法添加。",
+  "Pick one or more items, then Add. To get more of a blood gem or rune, use Copy on one you own.": "选择一个或多个物品,然后点击添加。要获得更多血宝石或符文,请对已拥有的使用复制。",
   "The game's item list could not be read. Check the game folder in Settings.": "无法读取游戏的物品列表。请在设置中检查游戏文件夹。",
   "The save already holds an item you picked: change its count in the list instead.": "存档中已有你选择的物品：请改在列表中修改其数量。",
   "Enter the host's party password if needed.": "如有需要，请输入主机的队伍密码。",
