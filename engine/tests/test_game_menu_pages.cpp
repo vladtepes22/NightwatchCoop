@@ -23,6 +23,14 @@
 #include "gpu/shim/party/party_balance_rules.h"
 #include "gpu/shim/party/party_status.h"
 
+#include "party/party_invade.h"
+
+// The game menu pages call the invasion module (the Block the invader row); the unit test has no game: stubs.
+namespace coop::invade {
+std::string InvaderName() { return {}; }
+void RequestBlock() {}
+}  // namespace coop::invade
+
 namespace P = BbGameMenu::Pages;
 
 static std::filesystem::path ini;
@@ -477,7 +485,7 @@ static void Party() {
     // rejoin, leave) are hidden, the extension row shows (in order).
     ps::ResetForTest(false);
     P::Load();
-    assert(P::PartyRowCount() == 10); // status, rot, copy, LAN copy, rejoin, gather, new party code, stay, leave + the extension row
+    assert(P::PartyRowCount() == 11); // status, rot, copy, LAN copy, rejoin, gather, new party code, stay, block the invader, leave + the extension row
     assert(!hud.visible()); // the party HUD switch: party mode only
     std::vector<const P::Row*> shown;
     for (const P::Row& row : party.rows) if (!row.visible || row.visible()) shown.push_back(&row);
@@ -526,9 +534,9 @@ static void RulesPages() {
                       u"Party votes on travel", u"NPC hunters fight all"};
     const V rewards = {u"Full rewards for guests", u"Boss drops for guests", u"Insight for bosses"};
     const V items = {u"Host's item rewards", u"Give the bells", u"Own key items as guest", u"Key items at once",
-                  u"Shared item notices"};
-    const V display = {u"Party HUD", u"Party name tags", u"Pings", u"Show party through walls", u"Bloodstain marker",
-                       u"Above companions"};
+                  u"Shared item notices", u"Give items to the party"};
+    const V display = {u"Party HUD", u"Party name tags", u"Pings",
+                       u"Show party through walls", u"Coloured name tags", u"Above companions"};
     for (const ps::Role role : {ps::Role::Host, ps::Role::Guest}) {
         ps::ResetForTest(true);
         ps::SetRole(role);
@@ -565,6 +573,7 @@ static void RulesPages() {
         assert(names(u"My party: Your items") == items);
         assert(names(u"Party rules: Rewards") == rewards);
         assert(names(u"My party: Display") == display);
+        assert(names(u"My party: Chat & markers") == (V{u"Party chat", u"Show others' chat", u"Bloodstain marker"}));
         assert(names(u"My party: Look & notices") == look);
         assert(names(u"My party: Splitscreen") == (V{u"Splitscreen mode", u"Party messages"}));
         assert(kinds(u"My party: Splitscreen").back() == P::Kind::List);
@@ -598,7 +607,7 @@ static void RulesPages() {
                                      u"Party rules: Rot", u"Party rules: Travel"})
             for (const P::Kind kind : kinds(page)) assert(kind == host_kind);
         for (const char16_t* page : {u"My party: Your save", u"My party: Your items", u"My party: Display",
-                                     u"My party: Look & notices"})
+                                     u"My party: Chat & markers", u"My party: Look & notices"})
             for (const P::Kind kind : kinds(page)) assert(kind != P::Kind::Button);
         for (const P::Kind kind : kinds(u"Party rules: Rewards")) assert(kind == host_kind || kind == P::Kind::List);
         assert(kinds(u"Party rules: Rewards").back() == (guest ? P::Kind::Button : P::Kind::List) &&
@@ -613,8 +622,8 @@ static void RulesPages() {
                                        u"Party rules: Travel", u"Party rules: Rewards", u"Party rules: Rot",
                                        u"Party rules: Enemies", u"My party: Bosses", u"Party rules: Phantoms",
                                        u"My party: Your save",
-                                       u"My party: Your items", u"My party: Display", u"My party: Look & notices",
-                                       u"My party: Splitscreen", u"My party: Chalice"};
+                                       u"My party: Your items", u"My party: Display", u"My party: Chat & markers",
+                                       u"My party: Look & notices", u"My party: Splitscreen", u"My party: Chalice"};
             for (std::size_t i = 0; i < std::size(group); ++i) assert(at(group[i]) == first + long(i));
         }
         const std::string shared_line = P::ShownSummary(PageNamed(u"Party rules: World"));

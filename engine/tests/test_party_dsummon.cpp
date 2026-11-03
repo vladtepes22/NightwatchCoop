@@ -372,19 +372,35 @@ int main() {
               OfflineNoticeDue(NoChannel::Offline, 2) && !OfflineNoticeDue(NoChannel::NotReady, 9) &&
               !OfflineNoticeDue(NoChannel::None, 9));
         // The notices: a title line + a body, short enough for the alert box, naming the cause and the way out.
-        for (const StuckWhy w : {StuckWhy::Empty, StuckWhy::Offline}) {
+        for (const StuckWhy w : {StuckWhy::Empty, StuckWhy::Offline, StuckWhy::OfflineMode}) {
             const std::string g = GuestNotice(w), h = HostNotice(w, "Name");
             const std::size_t gn = g.find('\n'), hn = h.find('\n');
             CHECK(gn != std::string::npos && gn <= 40 && g.find('\n', gn + 1) == std::string::npos && g.size() - gn <= 340);
             CHECK(hn != std::string::npos && hn <= 40 && h.find('\n', hn + 1) == std::string::npos && h.size() - hn <= 360);
-            CHECK(g.find("Unlock Game Region") != std::string::npos && g.find("region") != std::string::npos);
-            CHECK(h.find("Name") != std::string::npos && h.find("Unlock Game Region") != std::string::npos);
+            if (w != StuckWhy::OfflineMode) {
+                CHECK(g.find("Unlock Game Region") != std::string::npos && g.find("region") != std::string::npos);
+            } else {
+                CHECK(g.find("offline mode") != std::string::npos && g.find("Unlock Game Region") == std::string::npos);
+            }
+            CHECK(h.find("Name") != std::string::npos && (w == StuckWhy::OfflineMode || h.find("Unlock Game Region") != std::string::npos));
             for (const unsigned char c : g + h) CHECK(c < 0x80);
             StuckWhy back = StuckWhy::Empty;
             CHECK(DecodeStuck(EncodeStuck(w), &back) && back == w && KindOf(EncodeStuck(w)) == Kind::Stuck);
         }
         CHECK(GuestNotice(StuckWhy::Empty).find("Rejoin") != std::string::npos);
         CHECK(GuestNotice(StuckWhy::Offline).find("offline") != std::string::npos);
+        // The cause: +0xa (the title's online choice) clear = offline mode, else the login did not finish; the wire keeps the
+        // old word for old hosts ("offline") and adds mode:1.
+        CHECK(OfflineWhy(0) == StuckWhy::OfflineMode && OfflineWhy(1) == StuckWhy::Offline && OfflineWhy(0xff) == StuckWhy::Offline);
+        {
+            StuckWhy back = StuckWhy::Empty;
+            CHECK(EncodeStuck(StuckWhy::OfflineMode).find("\"why\":\"offline\"") != std::string::npos);
+            CHECK(DecodeStuck(EncodeStuck(StuckWhy::Offline), &back) && back == StuckWhy::Offline);
+            CHECK(DecodeStuck("{\"op\":\"dsum_stuck\",\"why\":\"offline\"}", &back) && back == StuckWhy::Offline);
+        }
+        // An offline guest is held where it is (not sent home) only when the switch is on, the host is in a dungeon and +8 is clear.
+        CHECK(HoldOfflineGuest(true, 0, true) && !HoldOfflineGuest(false, 0, true) && !HoldOfflineGuest(true, 1, true) &&
+              !HoldOfflineGuest(true, 0, false) && !HoldOfflineGuest(true, 0xff, true));
         CHECK(HostNotice(StuckWhy::Empty, "").rfind("Chalice summon stopped for a guest\nA guest", 0) == 0);
         // Title join: only a joiner whose own slot holds the host's dungeon comes in from its title.
         CHECK(!TitleJoinChaliceElsewhere(0x15000000, kNoChannel, 0));

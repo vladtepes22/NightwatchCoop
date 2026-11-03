@@ -20,6 +20,14 @@
 #include "gpu/shim/party/party_link.h"
 #include "gpu/shim/party/party_status.h"
 
+#include "party/party_invade.h"
+
+// The game menu pages call the invasion module (the Block the invader row); the unit test has no game: stubs.
+namespace coop::invade {
+std::string InvaderName() { return {}; }
+void RequestBlock() {}
+}  // namespace coop::invade
+
 namespace P = BbGameMenu::Pages;
 namespace ps = party::status;
 
@@ -243,7 +251,7 @@ static void Reported() {
     ps::SetState(ps::State::Hosting);
     P::Load();
     names = Names(access);
-    assert(names.size() == 2 && names[0] == "Nightwatch VPN lobby" && names[1] == "Open party (no password)");
+    assert(names.size() == 3 && names[0] == "Nightwatch VPN lobby" && names[1] == "Open party (no password)" && names[2] == "Allow invaders");
     context = {};
     context.party_process = context.party_save = context.in_world = true;
     ps::ResetForTest(true);

@@ -81,6 +81,8 @@ private:
     PartyDirector() = default;
 };
 
+/// Main thread: the die test aid (BB_PARTY_INVADE_TEST die): the local player dies now (ForceDead).
+void TestDieLocal();
 /// Main thread: the game's own leave (0x13CDDA0: BeginLeaveSession + drop the presentation
 /// members, as the host watchdog uses it), byte-checked; false when the code is not 1.09's.
 bool LeaveGameSession();

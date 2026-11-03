@@ -62,6 +62,29 @@ bool get_str(const std::uint8_t* d, std::size_t n, std::size_t* pos, std::size_t
 
 }  // namespace
 
+std::vector<std::uint8_t> encode_ext(const Announce& a) {
+    std::vector<std::uint8_t> v = {0xfa, 'I', 1};
+    for (int s = 24; s >= 0; s -= 8) v.push_back(static_cast<std::uint8_t>(a.id >> s));
+    v.push_back(static_cast<std::uint8_t>((a.invaders ? 1 : 0) | (a.boss ? 2 : 0)));
+    for (int s = 24; s >= 0; s -= 8) v.push_back(static_cast<std::uint8_t>(a.area_id >> s));
+    v.push_back(static_cast<std::uint8_t>(a.phase <= 4 ? a.phase : 0));
+    v.push_back(static_cast<std::uint8_t>(a.ng <= 7 ? a.ng : 255));
+    return v;
+}
+
+bool parse_ext(const std::uint8_t* d, std::size_t n, AnnounceExt* out) {
+    if (!d || n != 14 || d[0] != 0xfa || d[1] != 'I' || d[2] != 1 || (d[7] & ~3) || d[12] > 4 || (d[13] > 7 && d[13] != 255)) return false;
+    AnnounceExt e;
+    e.id = (std::uint32_t(d[3]) << 24) | (std::uint32_t(d[4]) << 16) | (std::uint32_t(d[5]) << 8) | d[6];
+    e.invaders = d[7] & 1;
+    e.boss = (d[7] & 2) != 0;
+    e.area_id = (std::uint32_t(d[8]) << 24) | (std::uint32_t(d[9]) << 16) | (std::uint32_t(d[10]) << 8) | d[11];
+    e.phase = d[12];
+    e.ng = d[13];
+    *out = e;
+    return true;
+}
+
 std::vector<std::uint8_t> encode(const Announce& a) {
     std::vector<std::uint8_t> v{0xfa, 'A', kVersion, static_cast<std::uint8_t>((a.password ? 1 : 0) | (a.open ? 2 : 0) |
                                                                 (a.opts ? 0x40 | (a.lamps ? 4 : 0) | (a.headstones ? 8 : 0) | (a.talk ? 16 : 0) |
@@ -290,13 +313,15 @@ void thread_main(Provider provider) {
                 }
             }
             a.id = id;
-            const std::vector<std::uint8_t> pkt = encode(a);
+            const std::vector<std::uint8_t> pkt = encode(a), ext = encode_ext(a);
             for (const Out& o : outs) {
                 sockaddr_in to{};
                 to.sin_family = AF_INET;
                 to.sin_port = htons(kDiscoveryPort);
                 to.sin_addr.s_addr = o.broadcast;
                 ::sendto(o.sock, reinterpret_cast<const char*>(pkt.data()), static_cast<int>(pkt.size()), 0,
+                         reinterpret_cast<sockaddr*>(&to), sizeof(to));
+                ::sendto(o.sock, reinterpret_cast<const char*>(ext.data()), static_cast<int>(ext.size()), 0,
                          reinterpret_cast<sockaddr*>(&to), sizeof(to));
             }
         }

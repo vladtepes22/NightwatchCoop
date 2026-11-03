@@ -82,9 +82,10 @@ inline const char* ToastText(bool on) {
 /// "use=N@S" (N taps of Square: the selected quick item, e.g. a thrown knife),
 /// "item=GOODS@S" (test aid: the goods topped up to 10 and put in the first quick-item slot, selected),
 /// "hp=N@S" (the local chr's HP set to N, a test aid for a quick kill), "log@S" (teams and table
-/// cells).
+/// cells), "invader@S" (0.7.8: waits until an invader's chr is on its team on this game, then S s: the invasion's fights
+/// start only once it is there).
 struct TestStep {
-    enum class Kind { On, Off, Face, Hit, Shoot, Use, Item, Hp, Log } kind = Kind::Log;
+    enum class Kind { On, Off, Face, Hit, Shoot, Use, Item, Hp, Log, Invader } kind = Kind::Log;
     int arg = 0;
     double delay = 0;
 };
@@ -129,6 +130,7 @@ inline bool ParseTestSteps(const char* text, std::vector<TestStep>* out, std::st
         else if (head == "item" && !arg.empty()) st.kind = TestStep::Kind::Item, st.arg = std::atoi(arg.c_str());
         else if (head == "hp" && !arg.empty()) st.kind = TestStep::Kind::Hp, st.arg = std::atoi(arg.c_str());
         else if (head == "log") st.kind = TestStep::Kind::Log;
+        else if (head == "invader") st.kind = TestStep::Kind::Invader;
         else {
             if (bad) *bad = item;
             return false;

@@ -218,6 +218,57 @@ static void TestLampShare() {
     const auto whole = LitFlagsOfLampLit(72410201u);
     CHECK(whole.size() == 3 && whole[0] == 12417830u && whole[1] == 12417831u && whole[2] == 72410201u);
     CHECK(LitFlagsOfLampLit(72300200u).size() == 3 && LitFlagsOfLampLit(72300200u)[0] == 12307810u);
+    // 0.7.8 (GitHub issue #28): any one flag of a lamp names the whole lamp, DLC lamps included.
+    const auto nc = WholeLampOfFlag(73400201u);  // Nightmare Church (3402951): lamp 1 of m34_00
+    CHECK(nc.size() == 3 && nc[0] == 13407830u && nc[1] == 13407831u && nc[2] == 73400201u);
+    CHECK(WholeLampOfFlag(13407830u) == nc && WholeLampOfFlag(13407831u) == nc);
+    CHECK(WholeLampOfFlag(13407820u).empty());   // the lamp registration flag (base) names no lit state
+    CHECK(WholeLampOfFlag(13407832u).empty() && WholeLampOfFlag(13407829u).empty());
+    CHECK(WholeLampOfFlag(12417830u).size() == 3 && WholeLampOfFlag(12417830u)[2] == 72410201u);
+    CHECK(WholeLampOfFlag(50000100u).empty() && WholeLampOfFlag(73400100u).empty());
+    // Every lamp of the table: each of its three flags names the same three, for areas 21..36 incl. m34 / m35 / m36.
+    {
+        const struct { std::uint32_t aab, n; } all_lamps[] = {
+            {241, 0}, {241, 3}, {230, 2}, {320, 3}, {260, 2}, {340, 0}, {340, 1}, {340, 2}, {340, 3},
+            {350, 0}, {350, 1}, {350, 2}, {360, 0}, {360, 1}, {360, 2}};
+        for (const auto& l : all_lamps) {
+            const auto w = LitFlags(l.aab, l.n);
+            CHECK(w.size() == 3);
+            for (std::uint32_t id : w) CHECK(WholeLampOfFlag(id) == w);
+        }
+        const auto hn = LitFlags(350, 1);  // Research Hall lamp 1
+        CHECK(hn[0] == 13507830u && hn[1] == 13507831u && hn[2] == 73500201u);
+        const auto fh = LitFlags(360, 2);  // Fishing Hamlet lamp 2
+        CHECK(fh[0] == 13607850u && fh[1] == 13607851u && fh[2] == 73600202u);
+    }
+    // The save repair (flag set computation): a lamp with only its lamp-lit flag gets the object flags, whichever
+    // lamp it is; a whole lamp, an unlit one and a lamp with only an object flag (legal: the Sickroom lamp's 9401
+    // flag 12417810) are left alone.
+    {
+        auto half = [](std::uint32_t id) { return id == 73400201u; };
+        const auto fix = HalfLitRepair(340, 1, half);
+        CHECK(fix.size() == 2 && fix[0] == 13407830u && fix[1] == 13407831u);
+        auto part = [](std::uint32_t id) { return id == 73500200u || id == 13507811u; };
+        const auto fp = HalfLitRepair(350, 0, part);
+        CHECK(fp.size() == 1 && fp[0] == 13507810u);        // +11 already there: only the missing +10
+        auto no11 = [](std::uint32_t id) { return id == 73500201u || id == 13507830u; };
+        CHECK(HalfLitRepair(350, 1, no11).empty());          // lit + object flag without +11: a real save's state
+        auto whole = [](std::uint32_t id) { return id == 13407830u || id == 13407831u || id == 73400201u; };
+        CHECK(HalfLitRepair(340, 1, whole).empty());
+        auto none = [](std::uint32_t) { return false; };
+        CHECK(HalfLitRepair(340, 1, none).empty());
+        auto obj = [](std::uint32_t id) { return id == 12417810u; };
+        CHECK(HalfLitRepair(241, 0, obj).empty());           // object flag alone: not touched
+        CHECK(HalfLitRepair(340, 0, half).empty());           // another lamp of the map
+        for (std::uint32_t n = 0; n < 4; ++n) {                // every DLC lamp of the table, half lit
+            for (std::uint32_t aab : {340u, 350u, 360u}) {
+                const std::uint32_t lit = LitFlags(aab, n)[2];
+                auto h = [lit](std::uint32_t id) { return id == lit; };
+                CHECK(HalfLitRepair(aab, n, h).size() == 2);
+            }
+        }
+        CHECK(kRepairMarker == 60009973u);
+    }
     // The last-lamp guard: a lamp another member lit (its flag just rose, this player far away)
     // never becomes this player's last lamp; its own lighting / rest, a travel, an older lit lamp do.
     CHECK(RestoreLastLamp(3402951u, 3502950u, 0.4, 40.0f, false));   // the report: the guest lit it

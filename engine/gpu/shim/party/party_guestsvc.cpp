@@ -1765,6 +1765,80 @@ std::atomic<double> g_guest_lit_at{-1};
 std::deque<std::pair<int, std::vector<std::uint32_t>>> g_lit_in;  // host: from guests
 std::vector<std::uint32_t> g_lit_out;                             // guest: to send
 
+// ---- whole lamps in the own world (0.7.8, GitHub issue #28) ----
+// A lamp lit by a guest (or shared from any member) must hold ALL the flags the game's own lighting writes: the
+// lamp-lit flag 7AAB02xx AND the lamp object's base+10 (lampshare::LitFlags). A save with the first only has the
+// lamp in the travel list, but at the lamp itself it can be neither lit nor rested at. HostLampRepairTick, in the own
+// world (load mode 0), sets the missing object flags of every lamp whose lamp-lit flag is set: once per save (marker flag,
+// the check of a save on load) and then every 10 s (a lamp that came in by a path that wrote half of it), one log
+// line per lamp. BB_PARTY_LAMP_REPAIR=0 switches it off.
+std::atomic<bool> g_lamp_check_now{false};
+
+void HostLampRepairTick(const GameSnapshot& s) {
+    static double up_since = 0, next = 0;
+    static int lines = 0;
+    static const bool off = std::getenv("BB_PARTY_LAMP_REPAIR") && std::string(std::getenv("BB_PARTY_LAMP_REPAIR")) == "0";
+    if (off) {
+        return;
+    }
+    if (!s.world_up || s.loading || s.map_id == 0xffffffffu || progress::FlagLoadMode() != 0) {
+        up_since = 0;
+        return;
+    }
+    const double now = Now();
+    if (up_since == 0) {
+        up_since = now;
+    }
+    if (now - up_since < 8.0 || (now < next && !g_lamp_check_now.exchange(false))) {
+        return;
+    }
+    next = now + 10.0;
+    const auto is_set = [](std::uint32_t id) {
+        bool v = false;
+        return progress::ReadFlagOwnSave(id, &v) && v;
+    };
+    std::string fixed;
+    int n_fixed = 0;
+    bool wrote = false;
+    for (const lamptravel::Lamp& l : lamptravel::kLamps) {
+        const std::vector<std::uint32_t> missing = lampshare::HalfLitRepair(l.aab, l.n, is_set);
+        if (missing.empty()) {
+            continue;
+        }
+        const std::vector<std::uint32_t> f = lampshare::LitFlags(l.aab, l.n);
+        const bool had_lit = is_set(f[2]), had_obj = is_set(f[0]);
+        int ok = 0;
+        for (std::uint32_t id : missing) {
+            if (progress::WriteFlagOwnSave(id, true)) {
+                ++ok;
+                wrote = true;
+            }
+        }
+        ++n_fixed;
+        if (lines < 40) {
+            ++lines;
+            Log("lamp repair: lamp %u had %s but not %s: set %d of %zu flag(s)%s", lamptravel::ReturnPoint(l),
+                had_lit && !had_obj ? "its lamp-lit flag" : had_obj && !had_lit ? "its object flag" : "part of its flags",
+                had_lit && !had_obj ? "its object flag" : "the rest", ok, missing.size(),
+                ok < int(missing.size()) ? " (the rest again in 10 s)" : "");
+        }
+        if (ok < int(missing.size())) {
+            g_lamp_check_now = false;  // not at once: the next look is the 10 s one
+        }
+        for (std::uint32_t id : missing) {
+            fixed += " " + std::to_string(id);
+        }
+    }
+    if (!is_set(lampshare::kRepairMarker) && progress::WriteFlagOwnSave(lampshare::kRepairMarker, true)) {
+        Log("lamp repair: this save was checked, %d lamp%s repaired (marker flag %u)", n_fixed, n_fixed == 1 ? "" : "s",
+            lampshare::kRepairMarker);
+        wrote = wrote || n_fixed > 0;
+    }
+    if (n_fixed > 0 && wrote) {
+        RequestGameSave("lamp repair: lamps with half of their flags");
+    }
+}
+
 bool GuestServicesOnLampLit(int slot, const std::string& body, std::string* why) {
     if (!g_lamps.load() || PartyDirector::Get().Role() != PartyRole::Host) {
         if (why) {
@@ -2557,6 +2631,7 @@ void LampTick(const GameSnapshot& s, party::PartyLink* link) {
             }
         }
     }
+    HostLampRepairTick(s);
     if (!g_lamps.load()) {
         return;
     }
@@ -2605,11 +2680,13 @@ void LampTick(const GameSnapshot& s, party::PartyLink* link) {
             const int slot = own ? -1 - tagged : tagged;
             std::string list;
             std::vector<std::uint32_t> all = ids;
-            if (!own) {
+            {
                 // 0.7.2: the whole lamp at once (its object's base+10 / +11 come a second after the
                 // lamp-lit flag from the guest), so the save requested below holds all of it.
+                // 0.7.8 (GitHub issue #28): from ANY of the lamp's flags, also a guest's own lamps: a save with
+                // the lamp-lit flag alone has the lamp in the travel list but dead at the lamp itself.
                 for (std::uint32_t id : ids) {
-                    for (std::uint32_t f : lampshare::LitFlagsOfLampLit(id)) {
+                    for (std::uint32_t f : lampshare::WholeLampOfFlag(id)) {
                         if (LampLitFlagAllowed(f) && std::find(all.begin(), all.end(), f) == all.end()) {
                             all.push_back(f);
                         }
@@ -2618,8 +2695,11 @@ void LampTick(const GameSnapshot& s, party::PartyLink* link) {
             }
             for (std::uint32_t id : all) {
                 bool before = false;
-                progress::ReadFlag(id, &before);
+                progress::ReadFlagOwnSave(id, &before);
                 const bool ok = progress::WriteFlagOwnSave(id, true);  // the host's world (load mode 0)
+                if (!ok && !before) {
+                    g_lamp_check_now = true;  // HostLampRepairTick looks at once (the whole lamp, not half of it)
+                }
                 list += " " + std::to_string(id) + (before ? "(was set)" : ok ? "" : "(NOT written)");
                 wrote_own = wrote_own || (own && ok && !before);
                 wrote_lit = wrote_lit || (!own && ok && !before);

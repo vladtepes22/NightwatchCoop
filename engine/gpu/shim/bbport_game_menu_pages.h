@@ -36,7 +36,7 @@ constexpr std::size_t RowsPerPage = 6;
 /// The port's pages in the System menu at most (bbport_game_menu.cpp: one compiled page factory
 /// each; pages past it are dropped with a log line). Our own cap, not the game's: the System list
 /// scrolls. 0.6.2: 16 -> 32 (the list had reached 16 and a new page would have been dropped); 0.7.7: 40.
-constexpr std::size_t MaxPages = 40;
+constexpr std::size_t MaxPages = 44;
 /// Text limits in UTF-16 units (the game draws longer texts over the next column or clips them).
 constexpr std::size_t MaxNameLength = 24, MaxValueLength = 26, MaxHelpLength = 110;
 constexpr std::size_t DynamicCapacity = 160; ///< a run-time text's buffer (UTF-16 units)
@@ -65,6 +65,12 @@ u32 StoryNoticeText(u32 game_message);
 u32 EndingQuestionText();
 /// I5: the question a guest gets when the host gathers the party (party_gather.cpp).
 u32 GatherQuestionText();
+/// 0.7.8: the item menu's Give command (party_give.h): its name and help line.
+u32 GiveCommandText();
+u32 GiveCommandHelp();
+/// 0.7.8: run-time labels of the Give pickers (members / amounts), slots 0..7: the text id, and its text (UTF-8, both languages).
+u32 PickerText(int slot);
+void SetPickerText(int slot, const std::string& utf8);
 /// CL-a3a9e6: the question when a guest gathers the party ("Ann gathers the party. ..."); `SetGuestGatherQuestion` fills
 /// in the name first.
 u32 GuestGatherQuestionText();

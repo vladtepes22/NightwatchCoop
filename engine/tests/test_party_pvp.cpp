@@ -60,6 +60,7 @@ int main() {
         assert(ParseTestSteps("hit@0", &st) && st.size() == 1 && st[0].arg == 1);
         assert(ParseTestSteps(nullptr, &st) && st.empty());
         assert(ParseTestSteps("", &st) && st.empty());
+        assert(ParseTestSteps("invader@3,face=22@2", &st) && st.size() == 2 && st[0].kind == TestStep::Kind::Invader && st[0].delay == 3);
         assert(!ParseTestSteps("jump@1", &st, &bad) && bad == "jump@1");
         assert(!ParseTestSteps("hit=0@1", &st, &bad));
         assert(!ParseTestSteps("on@x", &st, &bad));

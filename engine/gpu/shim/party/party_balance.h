@@ -93,6 +93,8 @@ float RotDropDiscovery(float own);
 std::vector<EnemyKillCandidate> LoadedEnemies();
 /// A chr's HP (+0xF8 of its data module; -1 unreadable) and physics position.
 int EnemyHp(std::uint64_t chr);
+/// "HP a / max b (base c), doping 7500:0 7501:1 7502:0" of a boss chr ("not loaded" for 0): BB_PARTY_BOSS_HP_LOG.
+std::string DescribeBossHp(std::uint64_t chr, bool with_hp = true);
 /// The chr carries SpEffect 9200 (the Level sync rule's downscale; the blue icon on the game's plate).
 bool ChrHasLevelSync(std::uint64_t chr);
 bool ChrPosition(std::uint64_t chr, float out[3]);

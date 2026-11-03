@@ -546,6 +546,35 @@ BB_COOP_SYSV void OwnWorldTypeHook(u64, u64, u64, u64, u64, u64) {
         "set to 0 before this load builds the chr (flow %d)", rem, flow);
 }
 
+/// Guest: the host is in a Chalice Dungeon and this game cannot make the channel request (FrpgNetMan +8 clear: offline mode, or
+/// the FROM login never finished; NW-cab726f): the summon could not bring it in, so it must not be sent to its own world (the
+/// kick home and a load that fails) but stay where it is, with the notice, and follow the host out again. BB_PARTY_CHALICE_
+/// OFFLINE_HOLD=0 restores the send-home. Test aid BB_PARTY_CHALICE_MSG_TEST=offline_mode reads as offline mode.
+void Send(int slot, const std::string& body);
+std::atomic<bool> g_offline_hold_noticed{false};
+bool ChaliceOfflineHold(bool host_in_dungeon, dsummon::StuckWhy* why = nullptr) {
+    static const bool enabled = !(std::getenv("BB_PARTY_CHALICE_OFFLINE_HOLD") && std::getenv("BB_PARTY_CHALICE_OFFLINE_HOLD")[0] == '0');
+    if (Role() != RoleClient) return false;
+    const char* t = std::getenv("BB_PARTY_CHALICE_MSG_TEST");
+    const bool test = t && std::strcmp(t, "offline_mode") == 0;
+    const u64 nm = Field<u64>(Guest(0x553b120), 0, 0);  // FrpgNetMan
+    if (!nm && !test) return false;
+    const unsigned online = test ? 0 : Field<u8>(nm, 0x8, 0xff);
+    const unsigned choice = test ? 0 : Field<u8>(nm, 0xa, 0xff);
+    if (!dsummon::HoldOfflineGuest(enabled, online, host_in_dungeon)) return false;
+    if (why) *why = dsummon::OfflineWhy(choice);
+    return true;
+}
+/// The hold's notice, once per stay (the host is told the same way as for a stopped summon).
+void ChaliceOfflineHoldNotice(dsummon::StuckWhy why) {
+    if (g_offline_hold_noticed.exchange(true)) return;
+    Log("chalice: notice shown: %s (this guest stays out of the host's Chalice Dungeon: its game is %s, no channel request is "
+        "possible)", why == dsummon::StuckWhy::OfflineMode ? dsummon::OfflineModeTitle() : dsummon::OfflineTitle(),
+        why == dsummon::StuckWhy::OfflineMode ? "in offline mode" : "online-less (the FROM login never finished)");
+    party::status::SetAlert(dsummon::GuestNotice(why));
+    Send(0, dsummon::EncodeStuck(why));
+}
+
 bool SendHomeVeto(u64 site) {
     const bool own_leave = SendHomeVetoForOwnLeave() || g_chalice_bail.exchange(false);
     // Split travel: OnLeave_Limit (0x138A51C: the room-gone / irregular-leave path) sent a guest
@@ -557,6 +586,15 @@ bool SendHomeVeto(u64 site) {
     // guest is in its own world and the bell's summon brings it into the dungeon (chalice.md 4;
     // live, beta 6: dropped here, the guest stayed in the host's Dream and was never summoned).
     const bool host_in_chalice = HostInOtherChalice();
+    dsummon::StuckWhy hold_why = dsummon::StuckWhy::Offline;
+    if (g_on.load() && Role() == RoleClient && site == 0x138a51c && !own_leave && host_in_chalice &&
+        ChaliceOfflineHold(true, &hold_why)) {
+        Log("guest: send-home at +0x138a51c (OnLeave_Limit) dropped: the host is in a Chalice Dungeon and this game is offline "
+            "(no channel request possible), so the summon could not bring it in; it stays in the host's world");
+        UndoLeaveState("OnLeave_Limit's send-home dropped (offline guest)");
+        ChaliceOfflineHoldNotice(hold_why);
+        return true;
+    }
     if (g_on.load() && Role() == RoleClient && site == 0x138a51c && !own_leave && host_in_chalice) {
         Log("guest: send-home at +0x138a51c (OnLeave_Limit) not dropped: the host is in a Chalice Dungeon this game "
             "does not have; the summon brings this game in from its own world");
@@ -637,6 +675,18 @@ BB_COOP_SYSV void BlockClear2Hook(u64 state, u64 ctx, u64 args) {
             Log("boss clear of boss %u skipped on this guest: %.1f s after its arrival (the boss was dead in the host's "
                 "world already: no banner, no clear echoes, no Insight)", Field<u32>(args, 0x14), since);
             return;
+        }
+    }
+    if (g_on.load()) {
+        // 0.7.8 (Ludwig wipe report: "PREY SLAUGHTERED" at the fog with the boss alive): every boss clear that runs
+        // on a party game is logged, with the game that runs it, so a false banner shows which game's defeat event
+        // started it, how long after its last load, and whether a boss bar was up.
+        static std::atomic<int> runs{0};
+        if (runs.fetch_add(1) < 12) {
+            const double at = g_load_end_at.load();
+            Log("boss clear of boss %u runs on this game (%s, %.1f s after its last load, boss bar %s)",
+                Field<u32>(args, 0x14), Role() == RoleClient ? "guest" : "host", at < 0 ? -1.0 : Now() - at,
+                BossBarShown() ? "up" : "down");
         }
     }
     using Fn = void(BB_COOP_SYSV*)(u64, u64, u64);
@@ -7342,6 +7392,7 @@ void GlowTick(double now) {
     static coop::glow::Refresh refresh;
     const bool off = coop::glow::GlowOff(BbSettings::Get().party_glow_off.load(), env, party::status::Enabled());
     const u8 type = refresh.Update(off, now);
+    static const bool invader_look = !(std::getenv("BB_PARTY_INVADE_LOOK") && std::getenv("BB_PARTY_INVADE_LOOK")[0] == '0');
     for (const coop::glow::GlowRow& r : coop::glow::kGlowRows) {
         const u64 row = GameParamRow("SpEffectVfxParam", "SP_EFFECT_VFX_PARAM_ST", r.row);
         if (!row) {
@@ -7354,10 +7405,11 @@ void GlowTick(double now) {
                 type == coop::glow::kEffectPaused ? "a live switch: the chrs' glow entries end" : "plays again");
         }
         const std::int32_t cur = Field<std::int32_t>(row, 0, r.sfx);
-        const std::int32_t want = coop::glow::WantedSfx(cur, r.sfx, off);
+        const bool row_off = coop::glow::RowOff(r.row, off, invader_look);
+        const std::int32_t want = coop::glow::WantedSfx(cur, r.sfx, row_off);
         if (want != cur && SafeWrite(row, &want, sizeof want)) {
             Log("glow: SpEffectVfxParam %u midst SFX %d -> %d (%s)", r.row, cur, want,
-                off ? "companions without the phantom glow" : "the game's phantom glow");
+                row_off ? "companions without the phantom glow" : "the game's phantom glow");
         } else if (want == cur && cur != r.sfx && cur != coop::glow::kNoSfx) {
             static bool told = false;
             if (!told) {
@@ -10473,7 +10525,7 @@ bool DeliverSummon(const dsummon::Room& room, const std::string& host_name) {
         // dungeon (an empty m29: the grey screen). Ask first; not yet usable: the delivery waits (3 tries).
         static int offline_fails = 0;
         static bool offline_shown = false;
-        const bool test_offline = ChaliceMsgTest("offline");  // test aid: the game reads as offline
+        const bool test_offline = ChaliceMsgTest("offline") || ChaliceMsgTest("offline_mode");  // test aid: the game reads as offline
         const u64 probe = test_offline ? 0 : ChannelRequestById(room.channel);
         if (!probe) {
             const u64 nm = Field<u64>(Guest(kNetMan), 0, 0);
@@ -10489,10 +10541,16 @@ bool DeliverSummon(const dsummon::Room& room, const std::string& host_name) {
             if (dsummon::OfflineNoticeDue(why, offline_fails)) {
                 if (!offline_shown) {
                     offline_shown = true;
-                    Log("chalice: notice shown: %s (this game never came online: no channel request is possible; a region / "
-                        "online patch is the likely cause)", dsummon::OfflineTitle());
-                    party::status::SetAlert(dsummon::GuestNotice(dsummon::StuckWhy::Offline));
-                    Send(0, dsummon::EncodeStuck(dsummon::StuckWhy::Offline));
+                    // The cause from FrpgNetMan +0xa (the title's online choice): clear = offline mode, set = the login never
+                    // finished (region / online patch, ss.info). The launcher's "Online: offline mode" log line is not it.
+                    const dsummon::StuckWhy cause = dsummon::OfflineWhy(ChaliceMsgTest("offline_mode") ? 0u : unsigned(Field<u8>(nm, 0xa, 0xff)));
+                    Log("chalice: notice shown: %s (%s)",
+                        cause == dsummon::StuckWhy::OfflineMode ? dsummon::OfflineModeTitle() : dsummon::OfflineTitle(),
+                        cause == dsummon::StuckWhy::OfflineMode
+                            ? "this game is in offline mode: no channel request is possible"
+                            : "this game never came online: no channel request is possible; a region / online patch is the likely cause");
+                    party::status::SetAlert(dsummon::GuestNotice(cause));
+                    Send(0, dsummon::EncodeStuck(cause));
                 }
             } else if (why != dsummon::NoChannel::Offline) {
                 party::status::SetAlert("This game's network is not ready to fetch the host's Chalice Dungeon yet; the summon is "
@@ -11002,6 +11060,16 @@ void ChaliceApartTick(const GameSnapshot& s, double now) {
     const bool apart = client && steady && ((s.map_id >> 24) & 0xff) != 29 && host_dungeon &&
                        phase == GuestPhase::Idle && g_death_held_at.load() <= 0 && !g_dead_follow.load();
     g_chalice_apart = apart;
+    if (!host_dungeon) g_offline_hold_noticed = false;
+    if (apart) {
+        // A game that cannot make the channel request is not sent home: the summon could not bring it back in.
+        dsummon::StuckWhy hold_why = dsummon::StuckWhy::Offline;
+        if (ChaliceOfflineHold(true, &hold_why)) {
+            since = 0;
+            ChaliceOfflineHoldNotice(hold_why);
+            return;
+        }
+    }
     if (!apart) {
         since = 0;
         noticed = false;
@@ -11048,6 +11116,12 @@ bool ChaliceRejoinPressed() {
     if (!deathrules::ChaliceRejoinLeavesFirst(true, g_chalice_apart.load(), dsummon::ChaliceMap(host_map))) {
         return false;
     }
+    dsummon::StuckWhy hold_why = dsummon::StuckWhy::Offline;
+    if (ChaliceOfflineHold(true, &hold_why)) {  // the summon could not bring this game in: it stays, with the notice
+        g_offline_hold_noticed = false;
+        ChaliceOfflineHoldNotice(hold_why);
+        return true;
+    }
     g_chalice_chosen = false;
     g_empty_loads = 0;
     g_empty_notice = false;
@@ -11080,7 +11154,7 @@ void DirectSummonEvent(int from_slot, const std::string& body) {
             if (DS().names.count(from_slot)) name = DS().names[from_slot];
         }
         Log("chalice: notice shown: Chalice summon stopped for a guest (slot %d, %s)", from_slot,
-            why == dsummon::StuckWhy::Offline ? "offline" : "empty loads");
+            why == dsummon::StuckWhy::Empty ? "empty loads" : "offline");
         party::status::SetAlert(dsummon::HostNotice(why, bbname::Display(name)));
         return;
     }
@@ -11756,6 +11830,12 @@ bool TitleJoinRequested() {
     return TitleJoinOn() && Requested();
 }
 
+/// 0.7.8: this game started as an invader and the host refused it (REJECT Invasion): no title join, plain Continue.
+static bool LinkRefusedInvader() {
+    party::PartyLink* link = party::runtime_link();
+    return link && link->state() == party::LinkState::Rejected && link->reject_code() == party::RejectCode::Invasion;
+}
+
 bool TitleJoinHold(const GameSnapshot& s) {
     if (!TitleJoinOn() || !g_on.load()) {
         return false;
@@ -11777,6 +11857,7 @@ bool TitleJoinHold(const GameSnapshot& s) {
     }
     switch (phase) {
     case TitlePhase::Idle: {
+        if (LinkRefusedInvader()) return false;  // 0.7.8: a refused invader just Continues into its own world
         if (coop::stayhome::Active()) {
             // CL-adeb50 "Stay in my world": no automatic joining from the title either; plain Continue.
             static bool said = false;
@@ -12505,6 +12586,47 @@ void Tick(const GameSnapshot& s) {
     if (TitleJoinOn() || EnvOn("BB_PARTY_TITLE_JOIN_PROBE")) {
         TitleJoinHostTick(s);
         TitleJoinGuestTick(s, now);
+    }
+    {
+        // BB_PARTY_BOSS_HP_LOG=1 (0.7.8, Ludwig wipe report): Ludwig's two chrs (3400800 / 3400801) HP, max HP and
+        // party doping, every 0.25 s from the start of a load until 15 s after world-up, only when it changes.
+        // Question: does a chr that has not been scaled yet (HP 2400 / max 41646 or HP 2400 / 2400 then max up) read
+        // as under half in the phase event 13404824 right after a respawn load.
+        static const bool on = EnvOn("BB_PARTY_BOSS_HP_LOG");
+        static double next = 0, up_at = -1e9;
+        static bool was_loading = false;
+        static std::string last[2];
+        static int lines = 0;
+        if (on && g_on.load() && lines < 300) {
+            if (s.loading && !was_loading) {
+                Log("boss HP probe: a load starts (%s)", Role() == RoleClient ? "guest" : "host or alone");
+                last[0].clear();
+                last[1].clear();
+            }
+            if (!s.loading && was_loading) up_at = now;
+            was_loading = s.loading;
+            if (now >= next && !s.loading && s.world_up) {
+                next = now + 0.25;
+                const std::uint32_t ents[2] = {3400800u, 3400801u};
+                for (int i = 0; i < 2; ++i) {
+                    const u64 chr =
+                        reinterpret_cast<u64(BB_COOP_SYSV*)(std::int32_t, u64, u64)>(Guest(0x13c97a0))(std::int32_t(ents[i]), 0, 0);
+                    // a line when the chr appears, its max HP or doping changes, or its HP ratio crosses 0.5
+                    const std::string key = balance::DescribeBossHp(chr, false);
+                    const u64 dm = chr ? Field<u64>(Field<u64>(chr, 0x3b0), 0x20) : 0;
+                    const int hp = dm ? Field<int>(dm, 0xf8, -1) : -1, mx = dm ? Field<int>(dm, 0xfc, -1) : -1;
+                    const bool low = mx > 0 && hp > 0 && hp * 2 < mx;
+                    const std::string k2 = key + (low ? " LOW" : "");
+                    if (k2 != last[i]) {
+                        last[i] = k2;
+                        ++lines;
+                        Log("boss HP probe: entity %u: %s%s (%s, %.1f s after world-up)", ents[i],
+                            balance::DescribeBossHp(chr).c_str(), low ? " - UNDER HALF" : "",
+                            Role() == RoleClient ? "guest" : "host or alone", now - up_at);
+                    }
+                }
+            }
+        }
     }
     TestWarpTick(s, now);
     KickStalledTasks(s, now);

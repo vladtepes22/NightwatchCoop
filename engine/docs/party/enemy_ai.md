@@ -204,3 +204,31 @@ appears. Same result with `BB_PARTY_LIVING_TARGET=0` (the dead-mark fix off: it 
 `BB_NET_SIM=dsl` (see the CHANGES entry). Lead, unproven: the stale dead mark of CL-2c1eef (a member's copy re-created by a
 wipe is not perceived by any enemy), fixed after the player's build. A log of the next stuck fight with BB_BOSS_LOG will say
 which game's copy stands still. Knobs: BB_LR_NET, BB_LR_ENV, BB_LR_DIST, BB_LR_WINDOW.
+
+## Ludwig: the Holy Blade scene after a wipe, second report (0.7.8, ludwigwipe078)
+
+Report (video, a guest's view, 3 players, the 0.7.6 phase-event filter already in): Ludwig the Accursed at near full health,
+the party dies ("Respawning with the party"), the loading screen, then about 10 s after it "Waiting: the host is watching a
+cutscene" and the Holy Blade scene (34000030) on the guest, the party at the lamp with the bar "Ludwig, the Holy Blade" up,
+the walk back: "PREY SLAUGHTERED" at the fog, "Waiting: the host is in a boss fight", Ludwig alive in the arena. (The item
+description page on the loading screen is the game's own loading tip, not a menu.)
+
+Not reproduced with the smoke `lw` (group `ludwig_wipe`; 3 players, no injection): the guests die first or the host first,
+last lamp far (3402950) or Ludwig's own lamp 22 m from the arena (3402952), Ludwig at 79 %, with `BB_NET_SIM=mobile`; and with
+the boss taken from 52 % to 45 % while the host lies in its limbo (the scene then plays before the wipe, as in the game, and
+nothing follows it after the respawn load). The EMEVD facts: 13404824 (HP ratio of 3400800 in (0, 0.5)) sets itself and flag
+9180; 13404825 waits for it and for the own chr type 0 (the host; a guest's copy never passes that wait), plays 2002[4]
+(host: scene + warp 3402807) or 2002[3] (a client), then shows bar 451005; the defeat event 13401800 (2003[12], then the
+Lua BlockClear2 with PREY SLAUGHTERED) starts when 3400800 OR 3400801 reads as dead. A banner with the boss alive therefore
+means one game's copy of an entity read as dead. New always-on lines tell which: `boss defeat processing 2003[12] on this game
+(guest / host or alone): event, entity, boss bar` and `boss clear of boss N runs on this game (role, s after its last load, bar)`
+(12 lines a run each), next to the existing `Party story: host / guest #seq cutscene 34000030 (... event 13404825)`.
+HP-ratio lead, tested and refuted (`BB_PARTY_BOSS_HP_LOG=1`, "boss HP probe" lines, every 0.25 s, on every game, in `lw`; also
+set by the smoke): after a respawn load Ludwig's chrs stand unscaled at HP 16658 / max 16658 (base 2400) with none of the
+doping rows 7500 / 7501 / 7502; when the party is near, the row comes on (3 players 7501: 41646; 4 players 7502: 54139) and HP and
+max HP reach the scaled value in the same sample (once on a guest the row was on for 0.3 s with HP = max = 16658 still), so the
+ratio is never under half and 13404824 cannot fire from it; no "UNDER HALF" line in 3 and 4 player runs with a walk back to the
+arena (`BB_LW_WALK=1`, `BB_LW_WALK_AT`, `BB_LW_WALK_TO`; the walk does not reach the re-fight's fog region 3402801, so the
+fight itself was not re-entered). Leads that stay open: the guests' flag syncs; real network timing. Smoke knobs:
+`BB_LW_LATE_HP` / `BB_LW_LATE_AT` (a second boss HP set after the host's death), `BB_LW_ENV="A=1;B=2"`, `BB_LW_DIE`, `BB_LW_GDIE`.
+

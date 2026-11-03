@@ -59,7 +59,14 @@ static void LiveSwitch() {
     static_assert(kEffectPaused > 3 && kEffectSfx == 0, "effect types");
 }
 
+static void InvaderRow() {
+    // The invader's row 276 keeps its SFX while the invader look is on, the cooperator's 272 follows the setting.
+    assert(RowOff(272, true, true) && RowOff(272, true, false) && !RowOff(272, false, true));
+    assert(!RowOff(276, true, true) && RowOff(276, true, false) && !RowOff(276, false, false));
+}
+
 int main() {
+    InvaderRow();
     Setting();
     Rows();
     LiveSwitch();

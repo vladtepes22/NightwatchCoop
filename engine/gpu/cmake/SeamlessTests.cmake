@@ -528,6 +528,22 @@ add_executable(party-chat-test EXCLUDE_FROM_ALL ../tests/test_party_chat.cpp shi
 target_compile_options(party-chat-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(party-chat-test PRIVATE shim)
 set_target_properties(party-chat-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# Invasions into open public games (visy 0.7.8, party_invade_rules.h). ninja -C out/gpu party-invade-test
+add_executable(party-invade-test EXCLUDE_FROM_ALL ../tests/test_party_invade.cpp)
+target_compile_options(party-invade-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-invade-test PRIVATE shim)
+set_target_properties(party-invade-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# Give items to a party member (visy 0.7.8, party_give_rules.h). ninja -C out/gpu party-give-test
+add_executable(party-give-test EXCLUDE_FROM_ALL ../tests/test_party_give.cpp)
+target_compile_options(party-give-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-give-test PRIVATE shim)
+set_target_properties(party-give-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# Auto-hide HUD rules (visy 0.7.8, shim/party/auto_hud_rules.h, header only). ninja -C out/gpu auto-hud-test
+add_executable(auto-hud-test EXCLUDE_FROM_ALL ../tests/test_auto_hud.cpp)
+target_compile_options(auto-hud-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(auto-hud-test PRIVATE shim)
+set_target_properties(auto-hud-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME auto-hud-test COMMAND auto-hud-test)
 
 get_property(all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 set(party_tests)
@@ -538,7 +554,7 @@ foreach(target IN LISTS all_targets)
         add_test(NAME ${target} COMMAND ${target})
     endif()
 endforeach()
-add_custom_target(seamless-tests DEPENDS ${party_tests} party-soak party-host-harness)
+add_custom_target(seamless-tests DEPENDS ${party_tests} party-soak party-host-harness auto-hud-test)
 add_dependencies(seamless-tests boot-watch-test)
 
 target_link_libraries(party-soak PRIVATE ws2_32 iphlpapi ole32 oleaut32 crypt32 synchronization winmm)

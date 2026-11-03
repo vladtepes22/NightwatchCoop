@@ -10,6 +10,11 @@
 //   bye (host -> lobby, on leaving): [0xfa]['L'][ver 1][type 4]
 //   The lobby learns the host's tunnel address from the datagram's source; the game never sends an
 //   address, the password, the party secret or a code. The name is the player's character name.
+//   announce extension (0.7.8, type 7, sent right after every announce; a lobby that does not know it drops it, so the
+//   old list keeps working): flags u8 (bit 0: the host allows invaders, bit 1: a boss fight is on)  area u32 (the host's
+//   map id 0xAABBCCDD, 0 unknown)  phase u8 (0 unknown, 1 day, 2 evening, 3 night, 4 Blood Moon)  ng u8 (0 = NG, 1..7 =
+//   NG+n, 255 unknown). No coordinates, nothing that names a player. A client that wants the extended list asks with
+//   type 8 (same body as type 2) and gets type 9; a lobby that does not answer type 8 is asked with type 2 as before.
 // Only a machine with a 10.8.0.0/22 tunnel address announces (no other adapter, never the Internet).
 #pragma once
 
@@ -30,7 +35,13 @@ struct Announce {
     std::uint8_t players = 0, max_players = 0;
     bool password = false;
     std::string build;
+    // 0.7.8 extension (above)
+    bool invaders = false, boss = false;
+    std::uint32_t area = 0;
+    std::uint8_t phase = 0, ng = 255;
 };
+// The extension datagram (type 7); always 12 bytes.
+std::vector<std::uint8_t> encode_announce_ext(const Announce& a);
 
 // The name as the lobby accepts it: control, format, separator and surrogate characters dropped, runs of
 // spaces folded, at most kMaxNameChars characters (and kMaxNameBytes bytes). Invalid UTF-8 gives "".

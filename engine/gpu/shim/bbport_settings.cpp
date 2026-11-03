@@ -194,6 +194,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_vpn_lobby = i != 0;
     } else if (key == "party_open") {
         v.party_open = i != 0;
+    } else if (key == "party_invaders") {
+        v.party_invaders = i != 0 || value == "on" || value == "true";
     } else if (key == "party_splitscreen") {
         v.party_splitscreen = i != 0 || value == "on" || value == "true";
     } else if (key == "party_stay") {
@@ -202,6 +204,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_messages = static_cast<int>(coop::splitscreen::ParseMessages(value));
     } else if (key == "party_conn_warnings") {
         v.party_conn_warnings = i != 0;
+    } else if (key == "party_give_items") {
+        v.party_give_items = i != 0;
     } else if (key == "party_item_notices") {
         v.party_item_notices = i != 0;
     } else if (key == "party_guest_lamps") {
@@ -236,12 +240,16 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_hide_bad_names = i != 0;
     } else if (key == "party_pings") {
         v.party_pings = i != 0;
+    } else if (key == "party_name_colours") {
+        v.party_name_colours = i != 0;
     } else if (key == "party_through_walls") {
         v.party_through_walls = i != 0;
     } else if (key == "party_hud_ping") {
         v.party_hud_ping = i != 0;
     } else if (key == "party_stain_marker") {
         v.party_stain_marker = i != 0;
+    } else if (key == "auto_hide_hud") {
+        v.auto_hide_hud = i != 0;
     } else if (key == "party_friendly_fire") {
         v.party_friendly_fire = i != 0;
     } else if (key == "party_share_lamps") {
@@ -862,7 +870,8 @@ void Load() {
     }
     const std::pair<const char*, const char*> env_keys[] = {
         {"BB_PARTY_VPN", "party_vpn"},  {"BB_PARTY_DISCOVERY", "party_discovery"}, {"BB_PARTY_HIDE_BAD_NAMES", "party_hide_bad_names"}, {"BB_PARTY_VPN_LOBBY", "party_vpn_lobby"},
-        {"BB_LIVE_FPS", "live_fps"}, {"BB_MAX_DT_HZ", "max_dt_hz"},
+        {"BB_LIVE_FPS", "live_fps"}, {"BB_MAX_DT_HZ", "max_dt_hz"}, {"BB_PARTY_INVADERS", "party_invaders"},
+        {"BB_AUTO_HUD", "auto_hide_hud"}, {"BB_PARTY_NAME_COLOURS", "party_name_colours"},
         {"BB_PARTY_OPEN", "party_open"}, {"BB_PARTY_SPLITSCREEN", "party_splitscreen"}, {"BB_PARTY_STAY", "party_stay"}, {"BB_PARTY_MESSAGES", "party_messages"},  // visy 0.7.5 (2179ec17, 51fb67e9)
         {"BB_FSR_SHARPNESS", "sharpness"},        {"BB_JITTER", "jitter"},
         {"BB_REACTIVE", "reactive"},              {"BB_REACTIVE_SCALE", "reactive_scale"},
@@ -1036,10 +1045,12 @@ void Save() {
     put("party_discovery", flag(v.party_discovery));
     put("party_vpn_lobby", flag(v.party_vpn_lobby));
     put("party_open", flag(v.party_open));
+    put("party_invaders", flag(v.party_invaders));
     put("party_splitscreen", flag(v.party_splitscreen));
     put("party_stay", flag(v.party_stay));
     put("party_messages", coop::splitscreen::MessagesName(coop::splitscreen::ClampMessages(v.party_messages.load())));
     put("party_conn_warnings", flag(v.party_conn_warnings));
+    put("party_give_items", flag(v.party_give_items));
     put("party_item_notices", flag(v.party_item_notices));
     put("party_name_tags", flag(v.party_name_tags));
     put("party_glow_off", flag(v.party_glow_off));
@@ -1048,8 +1059,10 @@ void Save() {
     put("party_chat", flag(v.party_chat));
     put("party_chat_receive", flag(v.party_chat_receive));
     put("party_hide_bad_names", flag(v.party_hide_bad_names));
+    put("party_name_colours", flag(v.party_name_colours));
     put("party_through_walls", flag(v.party_through_walls));
     put("party_stain_marker", flag(v.party_stain_marker));
+    put("auto_hide_hud", flag(v.auto_hide_hud));
     put("party_hud_ping", flag(v.party_hud_ping));
     put("party_friendly_fire", flag(v.party_friendly_fire));
     put("party_share_lamps", flag(v.party_share_lamps));

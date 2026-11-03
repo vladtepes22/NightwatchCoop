@@ -10,6 +10,7 @@ void runtime_restart(void) { abort(); }
 #include <pthread.h>
 #include <stdatomic.h>
 #include <time.h>
+#include <unistd.h>
 
 typedef int (ABI *Register)(GuestCallback);
 typedef int (ABI *RegisterCxa)(void (ABI *)(void *), void *, void *);
@@ -200,6 +201,86 @@ static void direct_memory(void) {
     assert(*(uint64_t *)x==0);
     assert(release(a,length)==0);
 }
+/* A memory call writes its results into the game's own struct. On a GPU-tracked page that write
+ * faults, and the fault's handling waits for other threads that look the region table up (the draw
+ * recording thread): the results must be written after the table's lock is released. The trap
+ * here stands for the GPU's: its fault handler asks another thread for a region lookup and waits
+ * for it (the old code deadlocked: the call held the lock while its write faulted). */
+typedef int32_t (ABI *VirtualQuery)(const void *, int, void *, uint64_t);
+static volatile int lookup_done, lookup_started;
+static uintptr_t trap_page;
+static const void *lookup_address;
+static VirtualQuery lookup_query;
+static void *lookup_thread(void *arg) {
+    (void)arg;
+    uint64_t info[9]={0};
+    lookup_started=1;
+    assert(lookup_query(lookup_address,0,info,72)==0);
+    lookup_done=1;
+    return NULL;
+}
+static void lookup_fault(int sig, siginfo_t *info, void *context) {
+    (void)sig; (void)info; (void)context;
+    pthread_t thread;
+    lookup_done=0; lookup_started=0;
+    assert(pthread_create(&thread,NULL,lookup_thread,NULL)==0);
+    for (int i=0; i<2000 && !lookup_done; ++i) usleep(1000);
+    runtime_memory_trap(trap_page,4096,2,0); /* the GPU lets the write through */
+    pthread_join(thread,NULL);
+}
+static int write_waits_for_lookup(void (*write)(void)) {
+    struct sigaction action={0}, old;
+    action.sa_sigaction=lookup_fault;
+    action.sa_flags=SA_SIGINFO;
+    sigemptyset(&action.sa_mask);
+    sigaction(SIGSEGV,&action,&old);
+    lookup_done=0;
+    runtime_memory_trap(trap_page,4096,2,1);
+    write();
+    sigaction(SIGSEGV,&old,NULL);
+    return lookup_done;
+}
+static void *volatile *result_slot;
+uintptr_t runtime_memory_resolve(const char *name);
+static uint64_t call_size, call_physical;
+static void do_direct_map(void) {
+    Map map=GET(Map,"L-Q3LEjIbgA#p#J");
+    assert(map((void **)result_slot,call_size,3,0,(int64_t)call_physical,0)==0);
+}
+static void do_virtual_query(void) {
+    assert(lookup_query(lookup_address,0,(void *)result_slot,72)==0); /* the info goes to the trapped page */
+}
+static void results_after_lock(void) {
+    Allocate alloc=GET(Allocate,"rTXw65xmLIA#p#J");
+    Map map=GET(Map,"L-Q3LEjIbgA#p#J");
+    Unmap unmap=GET(Unmap,"cQke9UuBQOk#p#J");
+    Release release=GET(Release,"MBuItvba6z8#p#J");
+    const uint64_t length=16384;
+    int64_t a=-1;
+    void *region=NULL;
+    assert(alloc(0,536870912,length,0,0,&a)==0 && map(&region,length,3,0,a,0)==0);
+    /* the result slot: a page of its own, the game's data (a mapping), trapped */
+    void *slot_page=NULL;
+    int64_t b=-1;
+    assert(alloc(0,536870912,length,0,0,&b)==0 && map(&slot_page,length,3,0,b,0)==0);
+    trap_page=(uintptr_t)slot_page;
+    lookup_address=region;
+    lookup_query=(VirtualQuery)runtime_memory_resolve("sceKernelVirtualQuery");
+    assert(lookup_query);
+    result_slot=slot_page;
+    *result_slot=NULL;
+    call_size=length;
+    int64_t c=-1;
+    assert(alloc(0,536870912,length,0,0,&c)==0);
+    call_physical=(uint64_t)c;
+    assert(write_waits_for_lookup(do_direct_map)); /* map: the pointer result */
+    void *mapped=*result_slot;
+    assert(mapped && unmap(mapped,length)==0);
+    assert(write_waits_for_lookup(do_virtual_query)); /* virtual query: the info struct */
+    assert(unmap(region,length)==0 && unmap(slot_page,length)==0);
+    assert(release(a,length)==0 && release(b,length)==0 && release(c,length)==0);
+    puts("PASS: memory call results are written after the region lock (no wait on a faulting write)");
+}
 static void memory_primitives(void) {
     typedef void *(ABI *Set)(void *,int,size_t);
     typedef void *(ABI *Copy)(void *,const void *,size_t);
@@ -348,7 +429,7 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"--rwlock-lifecycle")) { rw_lifecycle(); return 0; }
     if (argc>1 && !strcmp(argv[1],"--rwlock-concurrency")) { rw_concurrency(); return 0; }
     if (argc>1 && !strcmp(argv[1],"--rwlock-timeouts")) { rw_timeouts(); return 0; }
-    libc_support(); posix_mutexes(); wall_time(); exit_handlers(); guards(); mutexes(); direct_memory(); memory_primitives();
+    libc_support(); posix_mutexes(); wall_time(); exit_handlers(); guards(); mutexes(); direct_memory(); results_after_lock(); memory_primitives();
     rw_lifecycle(); rw_concurrency(); rw_timeouts();
     puts("PASS: callback lifecycle, guard ABI, mutex errors, shared direct memory, memory primitives, resolver scope");
     return 0;

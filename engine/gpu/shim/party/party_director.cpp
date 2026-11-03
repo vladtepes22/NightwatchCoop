@@ -34,9 +34,11 @@
 #include "party_npc_test.h"
 #include "party_guestsvc.h"
 #include "party_split.h"
+#include "party_give.h"
 #include "party_gather.h"
 #include "party_vote.h"
 #include "party_stayhome.h"
+#include "party_invade.h"
 #include "lamp_travel.h"
 #include "party_phantom.h"
 #include "party_start.h"
@@ -1303,7 +1305,11 @@ void AutoContinue(State& st, const GameSnapshot& s, PartyRole role, party::Party
         return;
     }
     const party::LinkState ls = link ? link->state() : party::LinkState::Idle;
-    const bool link_ok = role == PartyRole::Host ? ls == party::LinkState::Hosting : ls == party::LinkState::Connected;
+    // 0.7.8: an invader the host refused plays on in its own world (Continue as usual), it does not wait at the title.
+    const bool refused_invader = role == PartyRole::Guest && link && ls == party::LinkState::Rejected &&
+                                 link->reject_code() == party::RejectCode::Invasion;
+    const bool link_ok = role == PartyRole::Host ? ls == party::LinkState::Hosting
+                                                 : ls == party::LinkState::Connected || refused_invader;
     if (!link_ok) {
         release();
         st.continue_waiting = false;
@@ -2748,6 +2754,12 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
             (BbSettings::Get().*(sw.member)).store(on);
             Log("test: host_rule: %s %d -> %d", sw.key, was ? 1 : 0, on ? 1 : 0);
         }
+        if (!found && key == "party_invaders") {  // 0.7.8: the host's Allow invaders
+            found = true;
+            const bool was = BbSettings::Get().party_invaders.load();
+            BbSettings::Get().party_invaders.store(on);
+            Log("test: host_rule: %s %d -> %d", key.c_str(), was ? 1 : 0, on ? 1 : 0);
+        }
         if (!found && key == "party_friendly_fire") {  // 0.7.6 (pvphp): the PvP switch is not in PartySwitches
             found = true;
             const bool was = BbSettings::Get().party_friendly_fire.load();
@@ -2763,6 +2775,10 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
             const bool was = BbSettings::Get().party_stay.load();
             BbSettings::Get().party_stay.store(on);
             Log("test: own_rule: %s %d -> %d", key.c_str(), was ? 1 : 0, on ? 1 : 0);
+        } else if (key == "invade_view") {  // 0.7.8 invasions: the host's moment forced (boss / cutscene / loading / full / none)
+            invade::TestView(step.args.substr(step.args.find(':') + 1));
+        } else if (key == "invade_rejoin") {  // the invader asks again after a refusal (System > Party > Rejoin the host)
+            Log("test: invade_rejoin -> %d", party::runtime_rejoin());
         } else {
             Log("test: own_rule: no setting %s", key.c_str());
         }
@@ -3541,6 +3557,8 @@ void RequestGuestSendHome(const std::string& why) {
     }
     g_send_home_request = true;
 }
+
+void TestDieLocal() { DieForTest(); }
 
 bool GuestBellEffectOn() { return HasSpEffect(LocalPlayer(), kGuestBellEffect); }
 bool DropGuestBellEffect() { return RemoveSpEffect(kGuestBellEffect); }
@@ -5516,6 +5534,12 @@ void PartyDirector::Tick() {
         }
         const party::MemberState ms = LocalState(s, st.start_prologue);
         const std::uint32_t map = s.world_up ? s.map_id : 0;
+        // A link made anew (Rejoin, an invader asking again after a refusal) knows nothing of the state sent to the old one.
+        static const party::PartyLink* sent_to = nullptr;
+        if (link != sent_to) {
+            sent_to = link;
+            st.sent_any = false;
+        }
         if (!st.sent_any || ms != st.sent_state || map != st.sent_map) {
             st.sent_any = true;
             st.sent_state = ms;
@@ -5748,8 +5772,10 @@ void PartyDirector::Tick() {
     PARTY_PERF_CALL(split::Tick(s, link));  // split travel: the lamp choice dialog (party_split.h)
     if (role != PartyRole::None) {
         PARTY_PERF_CALL(gather::Tick(s, link, role == PartyRole::Host));  // I5 Gather the party (party_gather.h)
+        PARTY_PERF_CALL(give::Tick(s, link, role == PartyRole::Host));    // 0.7.8 give items (party_give.h)
         PARTY_PERF_CALL(vote::Tick(s, link, role == PartyRole::Host));    // 0.7.3 lamp travel voting (party_vote.h)
         PARTY_PERF_CALL(stayhome::Tick(link, role == PartyRole::Host));   // CL-adeb50 stay in my world
+        PARTY_PERF_CALL(invade::Tick(s, link, role == PartyRole::Host));  // 0.7.8 invasions (party_invade.h)
     }
     if (role == PartyRole::Host) {
         AltarAutopilotTick(s);  // "Enter the party's dungeon" in one press

@@ -1197,6 +1197,136 @@ static void test_kick() {
     CHECK(!host.reconnect_now());
 }
 
+
+// ---- 0.7.8 invasions: the invader admission path (docs/party/invasions.md) ----
+static void test_invader() {
+    Recorder hr, ir, ar;
+    LinkConfig hc = base_cfg("Host", "hostpw");
+    std::atomic<int> gate_calls{0}, final_calls{0};
+    std::string deny;  // the reason the gate returns ("" admits)
+    std::mutex gm;
+    hc.invader_gate = [&](const std::string&, std::uint32_t, bool final_check) {
+        ++gate_calls;
+        if (final_check) ++final_calls;
+        std::lock_guard<std::mutex> lk(gm);
+        return deny;
+    };
+    LinkCallbacks hcb = recorder_callbacks(hr, "host");
+    std::atomic<int> rpcs{0};
+    hcb.on_rpc = [&](int, const std::string& kind, const std::string&) {
+        ++rpcs;
+        return std::string("{\"ok\":\"") + kind + "\"}";
+    };
+    PartyLink host(hc, hcb);
+    std::string err;
+    CHECK(host.start_host(&err));
+    // A cooperator with the password (slot 1).
+    PartyLink coop(base_cfg("Coop", "hostpw"), recorder_callbacks(ar, "coop"));
+    CHECK(coop.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(coop.wait_connected(5000));
+    // The invader: NO password at all (a different one would fail a cooperator), the invader flag.
+    LinkConfig ic = base_cfg("Invader", "");
+    ic.invader = true;
+    PartyLink inv(ic, recorder_callbacks(ir, "inv"));
+    CHECK(inv.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(inv.wait_connected(5000));
+    CHECK(gate_calls.load() == 2 && final_calls.load() == 1);  // asked at HELLO (counted) and at AUTH
+    CHECK(host.is_invader(2) && !host.is_invader(1) && !host.is_invader(0) && !host.is_invader(7));
+    bool seen = false;
+    for (const auto& e : host.roster()) seen = seen || (e.name == "Invader" && e.invader);
+    CHECK(seen);
+    // Host -> invader: only the invasion's own events; nothing of the party's world.
+    host.send_event(kBroadcast, "progress_flags", "{}");
+    host.send_event(kBroadcast, "balance", "{}");
+    host.send_event(kBroadcast, "invade", "{}");
+    host.send_event(kBroadcast, "party_chat", "{}");
+    host.send_party_cmd(kBroadcast, "x", "{}");
+    std::vector<std::uint8_t> blob(100000, 0x5a);
+    host.send_progress(kBroadcast, blob);
+    CHECK(wait_for([&] { return ir.has_event("invade") && ir.has_event("party_chat") && ar.has_event("balance"); }, 3000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    CHECK(!ir.has_event("progress_flags") && !ir.has_event("balance"));
+    CHECK(ir.cmds.load() == 0 && ir.progress.load() == 0);
+    CHECK(ar.has_event("progress_flags") && ar.cmds.load() == 1 && ar.progress.load() == 1);  // the cooperator gets it all
+    // Invader -> host: only invade_fell and chat; everything else is dropped on the host.
+    inv.send_event(kHostSlot, "world_action", "{}");
+    inv.send_event(kHostSlot, "stay_home", "{}");
+    inv.send_event(kHostSlot, "vote", "{}");
+    inv.send_event(kHostSlot, "invade_fell", "{}");
+    inv.send_event(kHostSlot, "party_chat", "{}");
+    inv.send_party_cmd(kHostSlot, "c", "{}");
+    inv.send_progress(kHostSlot, blob);
+    CHECK(wait_for([&] { return hr.has_event("invade_fell") && hr.has_event("party_chat"); }, 3000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    CHECK(!hr.has_event("world_action") && !hr.has_event("stay_home") && !hr.has_event("vote"));
+    CHECK(hr.cmds.load() == 0 && hr.progress.load() == 0);
+    // An RPC (a world action, an item) from the invader is refused by the host without reaching its handler.
+    std::string reply;
+    CHECK(!inv.rpc_call("give_item", "{}", &reply, 1500) && reply.find("not allowed for an invader") != std::string::npos);
+    CHECK(!inv.rpc_call("kick_member", "{}", &reply, 1500) && reply.find("not allowed for an invader") != std::string::npos);
+    CHECK(rpcs.load() == 0);  // neither reached the host's handler
+    // The game's session API goes through (the bell and the summon need it).
+    CHECK(inv.rpc_call("http", "{}", &reply, 1500) && reply.find("\"ok\":\"http\"") != std::string::npos);
+    CHECK(inv.rpc_call("join_room", "{}", &reply, 1500) && rpcs.load() == 2);
+    CHECK(invader_rpc_ok("heartbeat") && !invader_rpc_ok("kick_member") && !invader_rpc_ok("world_action"));
+    // A third player cannot be admitted as an invader into the cooperator slot count: max_players 3 = host, coop, invader.
+    LinkConfig ic2 = base_cfg("Second", "");
+    ic2.invader = true;
+    PartyLink inv2(ic2, LinkCallbacks{});
+    CHECK(inv2.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(inv2.wait_state(LinkState::Rejected, 5000) && inv2.reject_code() == RejectCode::Full);
+    // A refusal by the gate is named and is an Invasion reject, no retry.
+    {
+        std::lock_guard<std::mutex> lk(gm);
+        deny = "a boss fight is on in the host's world";
+    }
+    LinkConfig ic3 = base_cfg("Third", "");
+    ic3.invader = true;
+    PartyLink inv3(ic3, LinkCallbacks{});
+    CHECK(inv3.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(inv3.wait_state(LinkState::Rejected, 5000));
+    CHECK(inv3.reject_code() == RejectCode::Invasion && inv3.reject_reason() == "a boss fight is on in the host's world");
+    // An incompatible invader gets the version check's named reason, not the gate's.
+    LinkConfig ic4 = base_cfg("Fourth", "");
+    ic4.invader = true;
+    ic4.build_id = "0.4 (other)";
+    PartyLink inv4(ic4, LinkCallbacks{});
+    CHECK(inv4.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(inv4.wait_state(LinkState::Rejected, 5000) && inv4.reject_code() == RejectCode::Mismatch);
+    CHECK(inv4.reject_reason().find("bbport build differs") != std::string::npos);
+    // The host kicks the invader: it is blocked for the session by name and its link does not reconnect.
+    {
+        std::lock_guard<std::mutex> lk(gm);
+        deny.clear();
+    }
+    CHECK(host.kick_name("Invader", "blocked by the host"));
+    CHECK(inv.wait_state(LinkState::Rejected, 3000));
+    CHECK(wait_for([&] { return !host.is_invader(2) && host.roster().size() == 2; }, 2000));
+    PartyLink again(ic, LinkCallbacks{});
+    CHECK(again.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(again.wait_state(LinkState::Rejected, 5000) && again.reject_code() == RejectCode::Invasion);
+    // An invader lost without a BYE is released at once (no kept slot, no resume).
+    LinkConfig ic5 = base_cfg("Fifth", "");
+    ic5.invader = true;
+    PartyLink inv5(ic5, recorder_callbacks(ir, "inv5"));
+    CHECK(inv5.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(inv5.wait_connected(5000));
+    const int released = hr.left_released.load();
+    inv5.debug_drop_connections();
+    CHECK(inv5.wait_state(LinkState::Rejected, 3000));
+    CHECK(wait_for([&] { return hr.left_released.load() > released && host.roster().size() == 2; }, 3000));
+    // A cooperator's party key never opens the invader path and vice versa: an old host (no gate) refuses invaders.
+    PartyLink plain(base_cfg("Plain", "pw2"), recorder_callbacks(hr, "plain"));
+    CHECK(plain.start_host(&err));
+    LinkConfig ic6 = base_cfg("Sixth", "");
+    ic6.invader = true;
+    PartyLink inv6(ic6, LinkCallbacks{});
+    CHECK(inv6.start_guest("127.0.0.1", plain.bound_port(), &err));
+    CHECK(inv6.wait_state(LinkState::Rejected, 5000) && inv6.reject_code() == RejectCode::Invasion &&
+          inv6.reject_reason() == "the host does not allow invaders");
+    std::printf("  invader refusal: %s\n", inv3.reject_reason().c_str());
+}
+
 // ---- reliable UDP stream (party_rudp.h): a lossy, reordering channel on a virtual clock ----
 static void test_rudp() {
     using namespace party::rudp;
@@ -1864,6 +1994,8 @@ int main() {
     test_plain_address_password();
     std::printf("kick by name\n");
     test_kick();
+    std::printf("invasions: the invader admission path and its role limits\n");
+    test_invader();
     std::printf("host gone: wait for it, not the NAT advice\n");
     test_host_no_answer_hint();
     std::printf("four players (host + 3 guests), game rules\n");

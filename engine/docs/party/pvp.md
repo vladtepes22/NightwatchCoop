@@ -46,6 +46,12 @@ as against an invader.
 - **Lock-on** follows the relation table, so with friendly fire on the lock-on can pick a party
   member, as it picks an invader in vanilla.
 
+## Invaders (0.7.8)
+
+A hostile invader (docs/party/invasions.md) does not use the friendly-fire cells: its chr is moved to a spare team that is a copy of
+the map enemies' team 23 in the three tables (`InvaderOpen`, `InvaderTick` in party_pvp.cpp), whatever the host's friendly-fire
+rule says; the cells and the chr go back when the invasion ends.
+
 ## NPC hunters stay friends (0.7.7, pvpnpc)
 
 A bell-summoned NPC hunter (and any other non-player chr on a party team) has team 20, as a guest, so the duel cells 19 <-> 20 (and 20 -> 20)

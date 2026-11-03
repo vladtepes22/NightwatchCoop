@@ -237,6 +237,8 @@ most 1024 bytes out. Nothing malformed is ever answered.
 | 2 | list (guest to lobby) | offset u16: the first entry wanted in the sorted list |
 | 3 | reply (lobby to guest) | total u16, offset u16, count u8, then count entries: ipv4 (4), port u16, flags u8 (bit 0 password, bit 1 this is your own entry), players u8, max u8, name (u8 len + UTF-8), build (u8 len + ASCII) |
 | 4 | bye (host to lobby) | none: removes the sender's entry |
+| 7 | announce extension (0.7.8, host to lobby) | flags u8 (bit 0 allows invaders, bit 1 boss fight), area u32 (map id), phase u8, ng u8: invasions and where the host is, docs/party/invasions.md |
+| 8 / 9 | list2 / reply2 (0.7.8) | like 2 / 3 with the flags bits 2 (allows invaders) and 3 (boss fight) and area u32, phase u8, ng u8 per entry; a client falls back to type 2 when the lobby does not answer type 8 |
 
 A reply holds at most 16 entries and 1024 bytes; the client asks the next page with `offset += count`
 until `offset >= total`. Entries are sorted by name (case-folded), then address. Reference encoder and
