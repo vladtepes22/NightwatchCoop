@@ -9,7 +9,7 @@ namespace BloodborneLauncher.Views
     public sealed class MorePage : SectionPage
     {
         // Cheats only once the engine applies them.
-        public MorePage() : base(L.T("More"), new (string, string, Type)[]
+        public MorePage() : base(L.T("More"), new (string, string, Type?)[]
         {
             ("controls", L.T("Controls"), typeof(ControlsPage)),
             ("trophies", L.T("Trophies"), typeof(TrophiesPage)),
