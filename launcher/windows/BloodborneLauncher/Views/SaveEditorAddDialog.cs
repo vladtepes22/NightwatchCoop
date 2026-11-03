@@ -21,8 +21,9 @@ internal sealed class SaveEditorAddDialog : Window
 {
     internal sealed record Pick(int Category, int Number, string Name, int Count, int Shape = 1, SaveEditor.GemEffect[]? Effects = null, string? Icon = null);
 
-    public sealed class Row(int number, string name, ImageSource? icon, int category = 0, string? iconPath = null)
+    public sealed class Row(int number, string name, ImageSource? icon, int category = 0, string? iconPath = null, int shape = 1)
     {
+        public int Shape { get; } = shape;
         public string? IconPath { get; } = iconPath;
         public int Category { get; } = category;
         public int Number { get; } = number;
@@ -31,7 +32,9 @@ internal sealed class SaveEditorAddDialog : Window
         public string Meta => L.T("Item ID") + " " + Number;
         public Visibility IconVisibility => Icon != null ? Visibility.Visible : Visibility.Collapsed;
     }
-    private sealed record Found(int Number, string? Name, string? Icon, int Category = 0);
+    private sealed record Found(int Number, string? Name, string? Icon, int Category = 0, int Shape = 1);
+    // Every shape a new blood gem can have (the catalogue's ADD_SHAPES), in the order the list shows them.
+    private static readonly int[] GemShapes = [1, 2, 4, 8, 63];
 
     // Category 2 is a local gem pick; category 8 is the rune catalogue. Both use add_gems.
     // Category 9 is the list of the Nocturne mod: each row carries its own category (goods, weapon or armour).
@@ -97,7 +100,7 @@ internal sealed class SaveEditorAddDialog : Window
         _host = host; Put(host, 2);
         _gemPanel.Visibility = Visibility.Collapsed;
         _gemPanel.Children.Add(LauncherPage.Text(L.T("Shape"), "StatLabel"));
-        foreach (var shape in new[] { L.T("Radial"), L.T("Triangle") }) _shape.Items.Add(shape);
+        foreach (var shape in GemShapes) _shape.Items.Add(ItemRow.ShapeName(shape));
         _shape.SelectedIndex = 0; _shape.Margin = new Thickness(0, 6, 0, 12);
         AutomationProperties.SetName(_shape, L.T("Shape")); _gemPanel.Children.Add(_shape);
         var chooseEffects = new Button { Content = L.T("Edit effects"), HorizontalAlignment = HorizontalAlignment.Left };
@@ -172,7 +175,7 @@ internal sealed class SaveEditorAddDialog : Window
             var json = await _catalog(category, _search.Text.Trim());
             if (run != _run) return;
             var found = JsonSerializer.Deserialize<Found[]>(json, SaveEditor.Json) ?? [];
-            var rows = await Task.Run(() => found.Select(f => new Row(f.Number, f.Name ?? "", CachedIcon(f.Icon), f.Category, f.Icon)).ToList());
+            var rows = await Task.Run(() => found.Select(f => new Row(f.Number, f.Name ?? "", CachedIcon(f.Icon), f.Category, f.Icon, f.Shape)).ToList());
             if (run != _run) return;
             _list.ItemsSource = rows;
             _empty.Text = rows.Count == 0 ? L.T("No items found") : "";
@@ -215,11 +218,11 @@ internal sealed class SaveEditorAddDialog : Window
         if (!_ok.IsEnabled) return;
         if (IsGem)
         {
-            Result = [new Pick(2, 0, L.T("Blood gem"), 1, _shape.SelectedIndex + 1, _pickedEffects.ToArray())];
+            Result = [new Pick(2, 0, L.T("Blood gem"), 1, GemShapes[_shape.SelectedIndex], _pickedEffects.ToArray())];
             DialogResult = true; return;
         }
         var count = IsGoods ? CountNumber ?? 1 : 1;
-        Result = _list.SelectedItems.Cast<Row>().Select(r => new Pick(Category == 9 ? r.Category : Category, r.Number, r.Name, (Category == 9 ? r.Category : Category) == 4 ? count : 1, Icon: r.IconPath)).ToArray();
+        Result = _list.SelectedItems.Cast<Row>().Select(r => new Pick(Category == 9 ? r.Category : Category, r.Number, r.Name, (Category == 9 ? r.Category : Category) == 4 ? count : 1, r.Shape, Icon: r.IconPath)).ToArray();
         DialogResult = true;
     }
 }

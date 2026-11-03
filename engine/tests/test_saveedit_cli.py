@@ -246,30 +246,32 @@ class SaveEditorCliTests(unittest.TestCase):
         self.file.write_bytes(bytes(d))
         catalogue = names.Catalogue({
             "names": {"effect": {13105: "Add blood ATK +2.5", 13106: "Cut effect text", 700: "Caryll effect",
-                                 701: "Cut rune", 28101: "ATK DOWN -0.3%"},
-                      "gem": {1000005: "Test Gemstone", 11000016: "Test Rune"}},
+                                 701: "Cut rune", 28101: "ATK DOWN -0.3%", 2107001: "Oath effect"},
+                      "gem": {1000005: "Test Gemstone", 11000016: "Test Rune", 12000004: "Test Oath"}},
             "ids": {"weapon": [22000300]}, "icons": {},
             "effects": {13105: [0, 5, 5, 0], 13106: [0, 5, 5, 0], 28101: [1, 0, 0, 0], 700: [0, 216, 16, 1],
-                        701: [0, 0, 0, 1]},
-            "gemgen": {127000: 0, 127002: 0, 100301: 10000000, 400: 10000000, 2100301: 10000000, 100401: 10000000},
+                        701: [0, 0, 0, 1], 2107001: [0, 1013, 4, 2]},
+            "gemgen": {127000: 0, 127002: 0, 100301: 10000000, 400: 10000000, 2100301: 10000000, 100401: 10000000, 200000: 10000000},
             # id -> [name offset, shape bits, fixed effect]
             "gemrows": {127000: [0, 1, 13105], 127002: [0, 2, 13105], 100301: [10000000, 1, 700],
-                        400: [10000000, 1, 700], 2100301: [10000000, 1, 700], 100401: [10000000, 1, 701]},
+                        400: [10000000, 1, 700], 2100301: [10000000, 1, 700], 100401: [10000000, 1, 701],
+                        200000: [10000000, 2, 2107001]},
             "reach": [13105, 700, 701, 28101]})  # 13106 has a name but no generator reaches it
         with patch.object(names.Catalogue, "load", return_value=catalogue):
             self.assertEqual(self.call("catalog", edit=dict(category=8, text=""))[1],
-                             [dict(number=700, name="Test Rune", icon=None)])  # 701 has no name; 400 and 2100301 are other tables
+                             [dict(number=700, name="Test Rune", icon=None, shape=1),
+                              dict(number=2107001, name="Test Oath", icon=None, shape=2)])  # 701 has no name; 400 and 2100301 are other tables
             revision = self.call("show")[1]["revision"]
             for bad in ([dict(type=2, effect=701)], [dict(type=2, effect=99)], [dict(type=1, shape=1, effects=[13106])],
                         [dict(type=1, shape=4, effects=[13105])], [dict(type=1, shape=1, effects=[])],
                         [dict(type=1, shape=1, effects=[13105] * 4)], [dict(type=3)], [dict(type=2, effect=700, shape=1)]):
                 self.assertEqual(self.call("apply", dict(revision=revision, add_gems=bad))[0], 1, bad)
-            good = [dict(type=1, shape=2, effects=[13105, 28101]), dict(type=2, effect=700)]
+            good = [dict(type=1, shape=2, effects=[13105, 28101]), dict(type=2, effect=700), dict(type=2, effect=2107001)]
             code, reply = self.call("apply", dict(revision=revision, add_gems=good))
             self.assertEqual(code, 0, reply)
             gems = [i["gem"] for i in self.call("show")[1]["items"] if i.get("gem")]
             self.assertEqual([(g["type"], g["shape"], g["gen"], [e["id"] for e in g["effects"]]) for g in gems],
-                             [(1, 2, 127002, [13105, 28101]), (2, 1, 100301, [700])])
+                             [(1, 2, 127002, [13105, 28101]), (2, 1, 100301, [700]), (2, 2, 200000, [2107001])])
             # An effect the game never makes cannot be set on a gem, but one the gem already has stays.
             handle = gems[0]["handle"]
             revision = self.call("show")[1]["revision"]

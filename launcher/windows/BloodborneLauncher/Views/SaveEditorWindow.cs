@@ -345,7 +345,8 @@ public sealed partial class SaveEditorWindow : Window
                 _added.Add(pick);
                 var item = new SaveEditor.Item { Kind = pick.Category switch { 0 => "weapon", 1 => "armor", 4 => "goods", _ => "gem" },
                     Number = pick.Number, Name = pick.Name, Count = pick.Count, Icon = pick.Icon,
-                    Gem = pick.Category == 8 ? new(0, 2, 1, 1, false, [new(pick.Number, pick.Name)]) :
+                    // A rune's shape is its slot: 2 is the oath slot (the catalogue's RUNE_ROWS), 1 a Caryll rune.
+                    Gem = pick.Category == 8 ? new(0, 2, pick.Shape, pick.Shape == 2 ? 2 : 1, false, [new(pick.Number, pick.Name)]) :
                         pick.Category == 2 ? new(0, 1, pick.Shape, 0, false, pick.Effects ?? []) : null };
                 ItemRow? pending = null;
                 pending = new ItemRow(item, UpdateState, removePending: () =>
@@ -354,6 +355,7 @@ public sealed partial class SaveEditorWindow : Window
                     _items.Remove(pending!); BindItems(); RefreshItems(); UpdateState();
                 });
                 _items.Add(pending);
+                if (pick.Category == 2) _ = ShowGemPreview(pending);  // a new blood gem's name and icon come from its effects
             }
         BindItems(); RefreshItems();
         UpdateState();
@@ -396,18 +398,23 @@ public sealed partial class SaveEditorWindow : Window
     {
         var choices = await GemEffects();
         var gem = row.Item.Gem!;
-        async Task<SaveEditor.GemPreview?> Preview(int[] effects)
-        {
-            // Only a nicety: without it the dialog and the row keep their text, and Apply still checks the effects.
-            try { return await Run<SaveEditor.GemPreview>("gem_preview", edit: new { gem.Gen, gem.Shape, Effects = effects }); }
-            catch (Exception e) when (e is InvalidOperationException or IOException or JsonException) { return null; }
-        }
+        Task<SaveEditor.GemPreview?> Preview(int[] effects) => GemPreview(gem, effects);
         var dialog = new SaveEditorGemDialog(row.Title, row.Effects, choices, Preview) { Owner = this };
         if (dialog.ShowDialog() == true && dialog.Result is { } result)
         {
             row.Effects = result;
             if (await Preview(result.Select(e => e.Id).ToArray()) is { } preview) row.ShowPreview(preview);
         }
+    }
+    private async Task<SaveEditor.GemPreview?> GemPreview(SaveEditor.Gem gem, int[] effects)
+    {
+        // Only a nicety: without it the dialog and the row keep their text, and Apply still checks the effects.
+        try { return await Run<SaveEditor.GemPreview>("gem_preview", edit: new { gem.Gen, gem.Shape, Effects = effects }); }
+        catch (Exception e) when (e is InvalidOperationException or IOException or JsonException) { return null; }
+    }
+    private async Task ShowGemPreview(ItemRow row)
+    {
+        if (await GemPreview(row.Item.Gem!, row.Item.Gem!.Effects.Select(e => e.Id).ToArray()) is { } preview) row.ShowPreview(preview);
     }
     private async Task PreloadGemIcons()
     {
