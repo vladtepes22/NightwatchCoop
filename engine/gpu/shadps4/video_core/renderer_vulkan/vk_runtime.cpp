@@ -8,6 +8,7 @@
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
+#include "video_core/renderer_vulkan/vk_breadcrumbs.h"
 #include "video_core/renderer_vulkan/image_copy_region.h"
 #include "video_core/texture_cache/overlap_diagnostics.h"
 #include "video_core/renderer_vulkan/vk_gpu_profiler.h"
@@ -148,7 +149,11 @@ void Runtime::CopyBuffer(const VideoCore::Buffer* src, const VideoCore::Buffer* 
     }
 
     scheduler.Record([src_handle = src->Handle(), dst_handle = dst->Handle(),
-                      regions = scheduler.RecordData(copies)](vk::CommandBuffer cmdbuf) {
+                      regions = scheduler.RecordData(copies),
+                      stream = scheduler.CrumbStream()](vk::CommandBuffer cmdbuf) {
+        const Breadcrumbs::TransferScope crumb{cmdbuf, stream, "copy buffer",
+                                               u64(VkBuffer(dst_handle)), regions.empty() ? 0 : regions[0].dstOffset,
+                                               regions.empty() ? 0 : regions[0].size};
         cmdbuf.copyBuffer(src_handle, dst_handle, regions.size(), regions.data());
     });
 
@@ -174,7 +179,10 @@ void Runtime::FillBuffer(const VideoCore::Buffer* dst, u64 offset, u64 size, u32
         FlushBarriers();
     }
 
-    scheduler.Record([handle = dst->Handle(), offset, size, value](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([handle = dst->Handle(), offset, size, value,
+                      stream = scheduler.CrumbStream()](vk::CommandBuffer cmdbuf) {
+        const Breadcrumbs::TransferScope crumb{cmdbuf, stream, "fill buffer",
+                                               u64(VkBuffer(handle)), offset, size};
         cmdbuf.fillBuffer(handle, offset, size, value);
     });
 
@@ -195,8 +203,11 @@ void Runtime::CopyFromGuestChunk(vk::Buffer src, const VideoCore::Buffer* dst,
     if (needs_flush) {
         FlushBarriers();
     }
-    scheduler.Record([src, dst_handle = dst->Handle(),
-                      regions = scheduler.RecordData(copies)](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([src, dst_handle = dst->Handle(), regions = scheduler.RecordData(copies),
+                      stream = scheduler.CrumbStream()](vk::CommandBuffer cmdbuf) {
+        const Breadcrumbs::TransferScope crumb{cmdbuf, stream, "copy from guest chunk",
+                                               u64(VkBuffer(dst_handle)), regions.empty() ? 0 : regions[0].dstOffset,
+                                               regions.empty() ? 0 : regions[0].size};
         cmdbuf.copyBuffer(src, dst_handle, regions.size(), regions.data());
     });
     for (const auto& copy : copies) {
@@ -217,7 +228,10 @@ void Runtime::UpdateBuffer(const VideoCore::Buffer* dst, u64 offset, std::span<c
     for (std::size_t at = 0; at < data.size(); at += Piece) {
         const auto piece = data.subspan(at, std::min(Piece, data.size() - at));
         scheduler.Record([handle = dst->Handle(), to = offset + at,
-                          bytes = scheduler.RecordData(piece)](vk::CommandBuffer cmdbuf) {
+                          bytes = scheduler.RecordData(piece),
+                          stream = scheduler.CrumbStream()](vk::CommandBuffer cmdbuf) {
+            const Breadcrumbs::TransferScope crumb{cmdbuf, stream, "update buffer",
+                                                   u64(VkBuffer(handle)), to, bytes.size_bytes()};
             cmdbuf.updateBuffer(handle, to, bytes.size_bytes(), bytes.data());
         });
     }
@@ -232,7 +246,10 @@ void Runtime::InlineData(VideoCore::Buffer* dst, u64 offset, u32 value) {
         FlushBarriers();
     }
 
-    scheduler.Record([handle = dst->Handle(), offset, value](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([handle = dst->Handle(), offset, value,
+                      stream = scheduler.CrumbStream()](vk::CommandBuffer cmdbuf) {
+        const Breadcrumbs::TransferScope crumb{cmdbuf, stream, "inline data",
+                                               u64(VkBuffer(handle)), offset, sizeof(value)};
         cmdbuf.updateBuffer(handle, offset, sizeof(value), &value);
     });
 
@@ -300,7 +317,11 @@ void Runtime::UploadImage(VideoCore::Image* dst, const VideoCore::Buffer* src,
     }
 
     scheduler.Record([src_handle = src->Handle(), image = dst->GetImage(),
-                      regions = scheduler.RecordData(upload_copies)](vk::CommandBuffer cmdbuf) {
+                      regions = scheduler.RecordData(upload_copies),
+                      stream = scheduler.CrumbStream()](vk::CommandBuffer cmdbuf) {
+        const Breadcrumbs::TransferScope crumb{cmdbuf, stream, "image upload",
+                                               u64(VkImage(image)), regions.empty() ? 0 : regions[0].bufferOffset,
+                                               regions.empty() ? 0 : regions[0].imageExtent.width};
         cmdbuf.copyBufferToImage(src_handle, image, vk::ImageLayout::eTransferDstOptimal,
                                  regions.size(), regions.data());
     });
@@ -332,7 +353,11 @@ void Runtime::DownloadImage(VideoCore::Image* src, const VideoCore::Buffer* dst,
     }
 
     scheduler.Record([image = src->GetImage(), buffer = dst->Handle(),
-                      regions = scheduler.RecordData(download_copies)](vk::CommandBuffer cmdbuf) {
+                      regions = scheduler.RecordData(download_copies),
+                      stream = scheduler.CrumbStream()](vk::CommandBuffer cmdbuf) {
+        const Breadcrumbs::TransferScope crumb{cmdbuf, stream, "image download",
+                                               u64(VkBuffer(buffer)), regions.empty() ? 0 : regions[0].bufferOffset,
+                                               regions.empty() ? 0 : regions[0].imageExtent.width};
         cmdbuf.copyImageToBuffer(image, vk::ImageLayout::eTransferSrcOptimal, buffer,
                                  regions.size(), regions.data());
     });
@@ -707,8 +732,10 @@ void Runtime::ClearImage(VideoCore::Image* dst, const VideoCore::SubresourceRang
         .baseArrayLayer = range.base.layer,
         .layerCount = range.extent.layers,
     };
-    scheduler.Record([image = dst->GetImage(), color = clear_value.color,
-                      vk_range](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([image = dst->GetImage(), color = clear_value.color, vk_range,
+                      stream = scheduler.CrumbStream()](vk::CommandBuffer cmdbuf) {
+        const Breadcrumbs::TransferScope crumb{cmdbuf, stream, "clear color image",
+                                               u64(VkImage(image)), 0, 0};
         cmdbuf.clearColorImage(image, vk::ImageLayout::eTransferDstOptimal, color, vk_range);
     });
 

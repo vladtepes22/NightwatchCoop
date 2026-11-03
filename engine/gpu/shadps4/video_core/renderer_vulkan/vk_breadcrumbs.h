@@ -73,4 +73,36 @@ private:
     u32 id = 0;
 };
 
+/// BB_BREADCRUMBS_TRANSFERS=1 (off by default, a marker pair per copy / fill / update / image
+/// upload): the transfers get breadcrumbs too, so a device lost in work between two draws names
+/// the copy (kind, buffer or image handle, offset, size) instead of "copies, clears, barriers".
+[[nodiscard]] bool TransfersEnabled() noexcept;
+
+class TransferScope {
+public:
+    TransferScope(vk::CommandBuffer cmdbuf_, u32 stream_, const char* name, u64 handle,
+                  u64 offset, u64 size)
+        : cmdbuf{cmdbuf_}, stream{stream_} {
+        if (TransfersEnabled()) {
+            id = Note(stream, {.kind = Kind::Pass,
+                               .name = name,
+                               .address = handle,
+                               .count = {u32(size), u32(size >> 32), u32(offset)}});
+            Mark(cmdbuf, stream, id, false);
+        }
+    }
+    ~TransferScope() {
+        if (id) {
+            Mark(cmdbuf, stream, id, true);
+        }
+    }
+    TransferScope(const TransferScope&) = delete;
+    TransferScope& operator=(const TransferScope&) = delete;
+
+private:
+    vk::CommandBuffer cmdbuf;
+    u32 stream;
+    u32 id = 0;
+};
+
 } // namespace Vulkan::Breadcrumbs
