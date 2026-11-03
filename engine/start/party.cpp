@@ -32,7 +32,7 @@ const char* const kFastSign = "Party: Fast bell sign";
 
 // Patches that change only what one machine draws or plays back: friends may differ in them.
 const std::set<std::string> kCosmetic{
-    "30 FPS++", "60 FPS++", "90 FPS++", "Uncap FPS++", "Sprint Fix (High FPS)",
+    "30 FPS++", "60 FPS++", "90 FPS++", "Uncap FPS++", "Sprint Fix (High FPS)", "60 FPS++ (Deltatime)",
     "Optimal 1080p", "Increased Graphics Heap Sizes",
     "Disable AA", "Disable Chromatic Aberration", "Disable DoF", "Disable Dynamic Light Shadows (perf increase)",
     "Disable Motion Blur (perf increase)", "Disable SSAO", "Enable Screen Space Reflections (READ NOTE)",

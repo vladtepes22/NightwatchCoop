@@ -63,6 +63,8 @@ namespace BloodborneLauncher.Views
             Group(L.T("Frame rate"));
             SettingCombo(SymbolRegular.Gauge24, L.T("Frame rate"), L.T("Nightwatch Co-op runs the game at the rate you pick and keeps its timing right there, also when a scene runs slower. 30 FPS is the game's own"), Choices.FpsModes, "fps_mode", changed: UpdateUpscaler);
 
+            IniToggle(SymbolRegular.Clock24, L.T("Live FPS clock"),
+                L.T("The game steps by each frame's measured time (Mrsuss60's clock, from visy's 0.7.8) instead of the fixed frame-rate code: cloth, animation and moving platforms follow real time. On by default; not used at 30 FPS. The target can be changed in game (Insert menu, Live FPS)"), "live_fps");
             Group(L.T("Frame generation"));
             IniCombo(SymbolRegular.FastForward24, L.T("Method"),
                 L.T("Extra frames between the game's own: smoother motion, a little more input lag. Needs an upscaler. Off by default"),

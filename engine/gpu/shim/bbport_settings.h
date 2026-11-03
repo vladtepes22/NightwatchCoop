@@ -323,6 +323,14 @@ struct Values {
     std::atomic<int> frame_gen_frames{1};
     std::atomic<bool> frame_gen_dynamic{false};
     std::atomic<int> frame_gen_target_fps{0};
+    /// Live FPS clock (visy 0.7.8 18907808, from Mrsuss60 a7cbfae6 / 83a168ee; engine/live_clock.cpp): the
+    /// "60 FPS++ (Deltatime)" patch and a measured-frame-time step instead of the native frame rate.
+    /// live_fps is read at start (ini live_fps, BB_LIVE_FPS wins; on by default as in visy's tree);
+    /// target_fps (30..239, 0 = uncapped) changes live (the launcher's BB_FPS / BB_FPS_LIMIT set it at
+    /// start); max_dt_hz is the step's upper clamp (30: 1/30 s, as the game).
+    std::atomic<bool> live_fps{true};
+    std::atomic<int> target_fps{60};
+    std::atomic<int> max_dt_hz{30};
     std::atomic<bool> dlss_fg_dynamic_supported{false};
     std::atomic<int> reflex{ReflexOn};
     std::atomic<bool> streamline_loaded{false}, dlss_fg_supported{false};

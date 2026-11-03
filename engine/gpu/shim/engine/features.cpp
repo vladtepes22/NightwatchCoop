@@ -7,6 +7,7 @@
 #include "effect_timing.h"
 #include "engine_state.h"
 #include "frame_rate.h"
+#include "live_clock.h"
 #include "game_status.h"
 #include "job_slots.h"
 #include "graphics.h"
@@ -139,6 +140,7 @@ void Install(std::uint8_t* image, std::size_t size) {
     const bool online = OnlineFixes::Install(image, size);
     const bool guard = RenderGuard::Install(image, size);
     const bool timing = EffectTiming::Install(image, size);
+    LiveClock::Install(image, size); // before the native rate, which stands aside while it runs
     const bool frame_rate = FrameRate::Install(image, size);
     const bool slots = JobSlots::Install(image, size);
     const bool status = GameStatus::Install(image, size);

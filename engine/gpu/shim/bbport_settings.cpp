@@ -322,6 +322,12 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.frame_gen_dynamic = i != 0;
     } else if (key == "frame_gen_target_fps") {
         v.frame_gen_target_fps = std::clamp(i, 0, 1000);
+    } else if (key == "live_fps") {
+        v.live_fps = i != 0;
+    } else if (key == "target_fps") {
+        v.target_fps = (value == "uncap" || i == 0) ? 0 : std::clamp(i, 30, 239);
+    } else if (key == "max_dt_hz") {
+        v.max_dt_hz = std::clamp(i, 10, 240);
     } else if (key == "fsr3_velocity_factor") {
         v.fsr3_velocity_factor = Clamp(f, 0.0f, 1.0f);
     } else if (key == "fsr3_reactiveness_scale") {
@@ -856,6 +862,7 @@ void Load() {
     }
     const std::pair<const char*, const char*> env_keys[] = {
         {"BB_PARTY_VPN", "party_vpn"},  {"BB_PARTY_DISCOVERY", "party_discovery"}, {"BB_PARTY_HIDE_BAD_NAMES", "party_hide_bad_names"}, {"BB_PARTY_VPN_LOBBY", "party_vpn_lobby"},
+        {"BB_LIVE_FPS", "live_fps"}, {"BB_MAX_DT_HZ", "max_dt_hz"},
         {"BB_PARTY_OPEN", "party_open"}, {"BB_PARTY_SPLITSCREEN", "party_splitscreen"}, {"BB_PARTY_STAY", "party_stay"}, {"BB_PARTY_MESSAGES", "party_messages"},  // visy 0.7.5 (2179ec17, 51fb67e9)
         {"BB_FSR_SHARPNESS", "sharpness"},        {"BB_JITTER", "jitter"},
         {"BB_REACTIVE", "reactive"},              {"BB_REACTIVE_SCALE", "reactive_scale"},
@@ -1085,6 +1092,10 @@ void Save() {
     put("reactive_max", fixed(v.reactive_max, 2));
     put("frame_gen_dynamic", flag(v.frame_gen_dynamic));
     put("frame_gen_target_fps", std::to_string(v.frame_gen_target_fps.load()));
+    // Live FPS (engine/live_clock.cpp): live_fps read by the start, target_fps live by the clock.
+    put("live_fps", flag(v.live_fps));
+    put("target_fps", v.target_fps.load() <= 0 ? "uncap" : std::to_string(v.target_fps.load()));
+    put("max_dt_hz", std::to_string(v.max_dt_hz.load()));
     put("fsr3_velocity_factor", fixed(v.fsr3_velocity_factor, 3));
     put("fsr3_reactiveness_scale", fixed(v.fsr3_reactiveness_scale, 3));
     put("fsr3_shading_change_scale", fixed(v.fsr3_shading_change_scale, 3));

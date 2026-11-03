@@ -19,6 +19,7 @@
 #include "bbport_usage.h"
 #include "engine/cheats.h"
 #include "engine/graphics.h"
+#include "engine/live_clock.h"
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
@@ -1899,6 +1900,33 @@ void MouseSection();
 
 void FpsSection() {
     auto& s = BbSettings::Get();
+    // Live FPS (visy 0.7.8, Mrsuss60's clock; engine/live_clock.cpp): on/off after a restart, the target at once.
+    Section("Live FPS", "Живой FPS");
+    if (const char* label = Item("Live FPS clock (after a restart)", "Живой FPS (после перезапуска)")) {
+        Checkbox(label, s.live_fps);
+        Hint(BbSettings::MenuText(
+            "The game steps by each frame's measured time with the \"60 FPS++ (Deltatime)\" patch instead of the "
+            "native frame rate: cloth, animation and moving platforms follow the real frame time. On by default; the "
+            "game's own 30 FPS never uses it.",
+            "Игра шагает по измеренному времени кадра с патчем «60 FPS++ (Deltatime)» вместо родной частоты. "
+            "Ткань, анимация и платформы следуют реальному времени кадра. Вкл. по умолчанию; при 30 FPS не "
+            "используется."));
+    }
+    if (BbEngine::LiveClock::Active() || Searching()) {
+        if (const char* label = Item("Target frame rate", "Целевой FPS")) {
+            static constexpr int targets[] = {30, 60, 90, 120, 144, 0}; // 0: uncapped (the clock's 240 ceiling)
+            const char* names[] = {"30", "60", "90", "120", "144",
+                                   BbSettings::MenuText("Uncapped (240)", "Без лимита (240)")};
+            int index = 1;
+            for (int i = 0; i < int(std::size(targets)); ++i)
+                if (targets[i] == s.target_fps.load()) index = i;
+            if (ImGui::Combo(label, &index, names, int(std::size(names)))) Store(s.target_fps, targets[index], true);
+            Hint(BbSettings::MenuText("At once. The display's refresh still limits it (60 and 90 FPS starts pace the "
+                                      "game at that refresh).",
+                                      "Сразу. Частота экрана всё равно ограничивает (старт на 60 и 90 FPS идёт с этой "
+                                      "частотой)."));
+        }
+    }
     Section("FPS counter", "Счётчик FPS");
     if (const char* label = Item("FPS counter in corner", "Счётчик FPS в углу")) {
         Checkbox(label, s.show_fps);

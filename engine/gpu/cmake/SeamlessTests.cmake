@@ -649,3 +649,7 @@ target_include_directories(name-filter-test PRIVATE shim)
 set_target_properties(name-filter-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 add_test(NAME name-filter-test COMMAND name-filter-test ${CMAKE_CURRENT_SOURCE_DIR}/../tests/name_filter_vectors.txt)
 add_dependencies(seamless-tests name-filter-test)
+
+# Live FPS clock rules (shim/engine/live_clock_rules.h; target in CMakeLists.txt).
+add_test(NAME live-clock-test COMMAND live-clock-test)
+add_dependencies(seamless-tests live-clock-test)

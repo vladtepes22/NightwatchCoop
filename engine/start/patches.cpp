@@ -32,6 +32,34 @@ constexpr unsigned kGxRegionGame = 160, kGxRegionDefault = 288, kGxRegionMax = 4
 using Write = std::pair<std::uint64_t, Bytes>;
 using Writes = std::vector<Write>;
 
+// Live FPS (visy 0.7.8 18907808, from Mrsuss60's Windows port): the Deltatime base and the clock in the
+// engine (gpu/shim/engine/live_clock.cpp) instead of the FPS++ code. These patches write the same
+// timers and frame constants and are left out with it (Mrsuss60's LIVE_FPS_CONFLICTS), and so are
+// external patches whose name says fps++, no deltatime or performance patch.
+const char* const kLiveBase = "60 FPS++ (Deltatime)";
+const std::set<std::string> kLiveConflicts{"30 FPS++",   "60FPS (no deltatime)",  "60 FPS++",
+                                           "90 FPS++",   "Uncap FPS++",           "Sprint Fix (High FPS)",
+                                           "Performance Patch (perf increase)"};
+bool LiveExternalConflict(const std::string& name) {
+    const std::string n = Lower(name);
+    return n.find("fps++") != std::string::npos || n.find("no deltatime") != std::string::npos ||
+           n.find("performance patch") != std::string::npos;
+}
+
+// Live FPS wanted for this start: BB_LIVE_FPS wins over bbport.ini live_fps (on by default, as in
+// visy's tree); never at the game's own 30 FPS or with BB_FPS_PATCH=0. Must agree with
+// LiveWanted in gpu/shim/engine/live_clock_rules.h.
+bool LiveFpsWanted(const std::map<std::string, std::string>& settings, const std::string& fps) {
+    const auto off = [](std::string v) {
+        v = Lower(Trim(v));
+        return v.empty() || v == "0" || v == "off" || v == "false" || v == "no";
+    };
+    const std::string patch = Env("BB_FPS_PATCH", "");
+    if (fps == "30" || (!patch.empty() && off(patch))) return false;
+    const std::string env = Env("BB_LIVE_FPS", "");
+    return !off(!env.empty() ? env : Setting(settings, "live_fps").value_or("1"));
+}
+
 const std::map<std::string, std::vector<std::string>>& FpsPresets() {
     static const std::map<std::string, std::vector<std::string>> presets{
         {"30", {}}, {"60", {"60 FPS++"}}, {"90", {"90 FPS++", kSprint}}, {"uncap", {"Uncap FPS++", kSprint}}};
@@ -366,7 +394,13 @@ struct FrameTimeGroup {
 #include "frame_time_code.inc"
 
 void FrameTimeCode(const Bytes& elf, const Segments& segments, const std::map<std::string, std::string>& settings,
-                   Writes& writes, std::vector<std::string>& names) {
+                   Writes& writes, std::vector<std::string>& names, bool live) {
+    if (live) {
+        // The Deltatime base reads the measured frame time in the cloth, plant and motion code itself
+        // (it rewrites the jump drag's site too): ours on top would correct the same steps twice.
+        Log("Patches: steady cloth, plant sway and jump drag left out: the Live FPS base steps them");
+        return;
+    }
     const bool page_free =
         std::any_of(segments.ranges.begin(), segments.ranges.end(), [](const auto& r) { return r.second == kPatchCodeEnd; }) &&
         std::none_of(segments.ranges.begin(), segments.ranges.end(), [](const auto& r) {
@@ -789,15 +823,41 @@ PatchResult CompilePatches(const PatchRequest& request) {
     if (preset_it == presets.end() && !scaled_fps.count(request.fps)) throw Error("invalid FPS preset " + request.fps);
     const std::vector<std::string> listed =
         preset_it != presets.end() ? preset_it->second : std::vector<std::string>{kScaledBase, kSprint};
-    const bool engine_rate =
-        !listed.empty() && Env("LANTERN_FRAMERATE", "1") != "0" && !Env("BB_ENGINE_IMAGE_SHA256", "").empty();
+    const Bytes elf = ReadFile(request.out / "eboot.elf");
+    const Segments segments = EbootSegments(elf);
+    // Live FPS needs the engine (its clock hooks the step block the base leaves) and a standard 1.09
+    // executable at every one of the base's sites; else the usual frame rate below, Live FPS off.
+    bool live = false;
+    if (!listed.empty() && LiveFpsWanted(settings, request.fps)) {
+        bool fits = false;
+        try {
+            fits = !Env("BB_ENGINE_IMAGE_SHA256", "").empty() &&
+                   !CheckedPatches(xml, {kLiveBase}, app_version, segments, elf, {}).empty() &&
+                   OriginalsMatch(xml, kLiveBase, app_version, elf);
+        } catch (const Error&) {
+            fits = false;
+        }
+        if (fits) {
+            live = true;
+            Log("Patches: Live FPS clock on (the \"%s\" base; the native frame rate and the FPS++ patches are off; "
+                "live_fps=0 in bbport.ini or BB_LIVE_FPS=0 turns it off)", kLiveBase);
+        } else {
+            Log("Patches: Live FPS is on but \"%s\" does not fit this start (engine off or another executable): "
+                "the usual %s FPS frame rate", kLiveBase, request.fps.c_str());
+        }
+    }
+    if (live) SetEnv("BB_LIVE_FPS_ACTIVE", "1");
+    else UnsetEnv("BB_LIVE_FPS_ACTIVE");
+    const bool engine_rate = !live && !listed.empty() && Env("LANTERN_FRAMERATE", "1") != "0" &&
+                             !Env("BB_ENGINE_IMAGE_SHA256", "").empty();
     if (engine_rate) {
         SetEnv("LANTERN_FRAMERATE_FROM_ENGINE", "1");
         Log("Patches: %s FPS from the engine's native frame rate (no frame-rate patches)", request.fps.c_str());
     } else {
         UnsetEnv("LANTERN_FRAMERATE_FROM_ENGINE");
     }
-    const std::vector<std::string> preset = engine_rate ? std::vector<std::string>{} : listed;
+    const std::vector<std::string> preset =
+        live ? std::vector<std::string>{kLiveBase} : engine_rate ? std::vector<std::string>{} : listed;
     std::vector<std::string> names = preset;
     const auto has = [&](const std::string& n) { return std::find(names.begin(), names.end(), n) != names.end(); };
     for (const std::string& n : Split(request.extra, ';'))
@@ -842,8 +902,12 @@ PatchResult CompilePatches(const PatchRequest& request) {
                         "(debug_menu in bbport.ini)");
     }
 
-    const Bytes elf = ReadFile(request.out / "eboot.elf");
-    const Segments segments = EbootSegments(elf);
+    if (live) {
+        const auto conflict = [](const std::string& n) { return kLiveConflicts.count(n) > 0; };
+        for (const std::string& n : names)
+            if (conflict(n)) Log("Patches: \"%s\" left out: Live FPS writes the same frame timers", n.c_str());
+        names.erase(std::remove_if(names.begin(), names.end(), conflict), names.end());
+    }
     {
         std::vector<std::string> kept;
         for (const std::string& n : names) {
@@ -866,7 +930,7 @@ PatchResult CompilePatches(const PatchRequest& request) {
     // 60 FPS++ is the next best: the game at 60, and frame generation still shows up to 120. It goes
     // through the same site check; without it the game stays at the native 30.
     std::string fps_key = request.fps;
-    if (scaled_fps.count(fps_key) && !has(kScaledBase)) {
+    if (!live && scaled_fps.count(fps_key) && !has(kScaledBase)) {
         if (!has("60 FPS++")) names.push_back("60 FPS++");
         names = CheckedPatches(xml, names, app_version, segments, elf, {"60 FPS++"});
         if (has("60 FPS++")) {
@@ -876,7 +940,8 @@ PatchResult CompilePatches(const PatchRequest& request) {
         }
     }
     const bool fell_back = fps_key != request.fps;
-    const std::string lead = fell_back ? std::string("60 FPS++") : preset.empty() ? std::string() : preset[0];
+    const std::string lead =
+        live ? std::string() : fell_back ? std::string("60 FPS++") : preset.empty() ? std::string() : preset[0];
     {
         std::vector<std::string> kept;
         for (const std::string& n : names) {
@@ -925,7 +990,7 @@ PatchResult CompilePatches(const PatchRequest& request) {
             Log("Patches: render pools left at the game's size: this executable differs there");
         }
     }
-    FrameTimeCode(elf, segments, settings, writes, names);
+    FrameTimeCode(elf, segments, settings, writes, names, live);
     const std::optional<Size> size = request.render_res.empty() ? std::nullopt : RenderSize(settings, request.render_res);
     Size out = OutputSize(settings);
     if (!request.output_res.empty()) {
@@ -1001,8 +1066,14 @@ PatchResult CompilePatches(const PatchRequest& request) {
                     if (v.is_string()) (std::string(k) == "enabled" ? enabled : disabled).insert(v.get<std::string>());
         std::vector<External> chosen;
         for (const External& e : found)
-            if (enabled.count(e.key) || (!disabled.count(e.key) && Lower(e.meta->Get("isEnabled", "false")) == "true"))
+            if (enabled.count(e.key) || (!disabled.count(e.key) && Lower(e.meta->Get("isEnabled", "false")) == "true")) {
+                if (live && LiveExternalConflict(e.meta->Get("Name", ""))) {
+                    Log("Patches: external \"%s\" left out: Live FPS writes the same frame timers",
+                        e.meta->Get("Name", "").c_str());
+                    continue;
+                }
                 chosen.push_back(e);
+            }
         const Writes external = CompileExternal(chosen, segments, resolution, &party_patches);
         writes.insert(writes.end(), external.begin(), external.end());
     }
