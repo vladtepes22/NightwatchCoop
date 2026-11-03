@@ -43,6 +43,18 @@ public sealed class SeamlessPage : LauncherPage
             nameBox.Text = clean;
             nameBox.CaretIndex = Math.Min(caret, clean.Length);
         };
+        nameBox.LostFocus += async (_, _) =>
+        {
+            if (nameBox.Text.Length == 0 || SeamlessSettings.HasLatin(nameBox.Text)) return;
+            var character = await SeamlessSettings.CharacterNameAsync(S);
+            var name = character ?? SeamlessSettings.HunterName();
+            if (SeamlessSettings.HasLatin(nameBox.Text)) return;  // typed something usable while the save was read
+            nameBox.Text = name;
+            S.Set("party_name", name);
+            Prompt.Tell(L.T("Your name"), character != null
+                ? L.F($"A name needs at least one letter (A–Z) or digit. It is now your character's name, {name}; change it here whenever you like.")
+                : L.F($"A name needs at least one letter (A–Z) or digit. It is now {name}; change it here whenever you like."));
+        };
         _checkBanner = CheckBanner();
         _checkPanel.Children.Add(_checkBanner);
         var host = Rows(Hosting);

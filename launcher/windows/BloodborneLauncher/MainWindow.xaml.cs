@@ -639,15 +639,15 @@ namespace BloodborneLauncher
             item.Content as string ??
             (item.Content as Panel)?.Children.OfType<System.Windows.Controls.TextBlock>().FirstOrDefault()?.Text;
 
-        /// <summary>Shows a page: a tab ("seamless": Co-op, "advanced": Settings), or one of More's ("output", "mods", "engine").</summary>
+        /// <summary>Shows a page: a tab ("seamless": Co-op, "advanced": Settings), or one of More's ("output", "engine", "cheats", "controls", "trophies") or Workshop's ("mods").</summary>
         public void Show(string page)
         {
             var item = page switch
             {
                 "seamless" => CoopItem,
                 "advanced" => SettingsItem,
-                "output" or "mods" or "engine" or "cheats" => MoreItem,
-                "controls" => ControlsItem,
+                "mods" => WorkshopItem,
+                "output" or "engine" or "cheats" or "controls" or "trophies" => MoreItem,
                 _ => PlayItem,
             };
             if (item.IsChecked == true)
@@ -655,6 +655,8 @@ namespace BloodborneLauncher
             item.IsChecked = true;
             if (item == MoreItem && _pages.TryGetValue(typeof(MorePage), out var more))
                 ((MorePage)more).ShowSection(page);
+            else if (item == WorkshopItem && _pages.TryGetValue(typeof(WorkshopPage), out var workshop))
+                ((WorkshopPage)workshop).ShowSection(page);
         }
 
         private void PageFrame_Navigated(object sender, System.Windows.Navigation.NavigationEventArgs e)
@@ -681,7 +683,7 @@ namespace BloodborneLauncher
                 // Only pages already made: MakeSearchPagesAsync makes the rest in the background and
                 // searches again once they are all there.
                 if (!_pages.TryGetValue((Type)item.Tag, out var made)) continue;
-                if (made is MorePage more)
+                if (made is SectionPage more)
                 {
                     foreach (var (key, label, page) in more.MadeSectionPages())
                         yield return new SettingSearch.Place($"{name} › {label}", page, () => { Open(); more.ShowSection(key); });
@@ -755,7 +757,7 @@ namespace BloodborneLauncher
             foreach (var type in items)
             {
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
-                if (PageOf(type) is MorePage more)
+                if (PageOf(type) is SectionPage more)
                     foreach (var key in more.SectionKeys)
                     {
                         await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);

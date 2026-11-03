@@ -141,12 +141,35 @@ public static partial class SeamlessSettings
 
     public static string SanitizeName(string value) => Regex.Replace(value, "[^A-Za-z0-9_-]", "_")[..Math.Min(16, value.Length)];
 
+    /// <summary>A name needs a Latin letter or digit: underscores and hyphens alone (what a name in other scripts
+    /// becomes) say nothing to the other players.</summary>
+    public static bool HasLatin(string value) => Regex.IsMatch(value, "[A-Za-z0-9]");
+
+    public static string HunterName() => "hunter_" + Random.Shared.Next(10000).ToString("D4");
+
+    /// <summary>The first character's name in the party saves, else the solo ones, when it can be used as a party name;
+    /// null when there is no save, the editor's data cannot be read or the name has no Latin letters.</summary>
+    internal static async Task<string?> CharacterNameAsync(LauncherSettings s)
+    {
+        using var worker = new SaveEditor.Worker(s);
+        foreach (var kind in new[] { "party", "solo" })
+            try
+            {
+                var slots = SaveEditor.Parse<SaveEditor.Slot[]>(await worker.Run("slots", kind));
+                var name = slots.Select(slot => SanitizeName(slot.Name.Trim())).FirstOrDefault(HasLatin);
+                if (name != null) return name;
+            }
+            catch (Exception e) when (e is IOException or InvalidOperationException or System.Text.Json.JsonException) { }
+        return null;
+    }
+
     public static string Name(LauncherSettings s)
     {
         var name = s.Str("party_name");
         var clean = SanitizeName(name);
         if (clean.Length > 0)
         {
+            if (!HasLatin(clean)) clean = HunterName();
             if (clean != name) s.Set("party_name", clean);
             return clean;
         }

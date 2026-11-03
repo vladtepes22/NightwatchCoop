@@ -21,7 +21,7 @@ when a newer release is out (below), so players can update before they meet.
 | Game executable | `out/game-image.txt` from bb-start: sha256 of eboot.bin's loaded image (see Game identity below) | "game executable differs ...: another game version or a patched eboot.bin; both need the clean 1.09 eboot.bin" |
 | Game params | sha256 of `<game>/dvdroot_ps4/param/gameparam/gameparam.parambnd.dcx` | "game params differ ...: use the same game dump (1.09) as the host" |
 | Gameplay patches | `out/party_patch_hash.txt` (scripts/patches.py) | names only one side has: "turn on the same patches as the host (launcher Patches tab)" |
-| Gameplay mods | `out/party_mods.txt` (scripts/mods.py) | names: "enable the same mods as the host (launcher Mods tab)" |
+| Gameplay mods | `out/party_mods.txt` (scripts/mods.py) | names: "enable the same mods as the host (launcher Workshop > Mods)" |
 | Party patches | every game hook the party code installed (`coop::InstalledHooks()`: "<name> @+<offset>", from coop_hooks' install functions), diagnostics left out (`diagnostic_hook_name`: log / probe / trace / observer / fixture / test), sorted, BLAKE2b (`hook_set_hash`) | names only one side has: "use the same bbport build and party options (BB_PARTY_* switches) as the host" |
 | Party rules | "4p:..." rule set (the leading "max N players" is not compared since 0.7.8: a guest takes the host's) | "every player needs the same BB_PARTY_FOURP* settings" |
 
