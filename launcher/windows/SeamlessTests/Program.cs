@@ -236,6 +236,11 @@ Check(SeamlessSettings.Validate(settings) == null && settings.Str("party_name") 
 Check(SeamlessSettings.SanitizeName("a b!é中_-9") == "a_b____-9", "Name sanitizer allowed invalid characters");
 Check(SeamlessSettings.SanitizeName("abcdefghijklmnopq") == "abcdefghijklmnop"
     && SeamlessSettings.SanitizeName("") == "", "Name sanitizer length bounds failed");
+settings.Set("party_name", "你好世界");
+var hunter = SeamlessSettings.Name(settings);
+Check(System.Text.RegularExpressions.Regex.IsMatch(hunter, "^hunter_[0-9]{4}$") && settings.Str("party_name") == hunter && SeamlessSettings.Validate(settings) == null,
+    "A name without Latin letters did not become hunter_NNNN");
+Check(SeamlessSettings.HasLatin("a__") && SeamlessSettings.HasLatin("_9") && !SeamlessSettings.HasLatin("___-") && !SeamlessSettings.HasLatin(""), "HasLatin is wrong");
 settings.Set("party_name", "");
 Check(SeamlessSettings.Name(settings).Length is > 0 and <= 16, "Empty name did not get a default");
 {
