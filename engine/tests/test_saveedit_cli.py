@@ -390,6 +390,17 @@ class SaveEditorCliTests(unittest.TestCase):
         self.assertIn("error", bad)
         self.assertEqual(self.file.read_bytes(), self.original)
 
+    def test_the_rune_list_is_never_cut_so_the_oath_runes_at_its_end_show(self):
+        class Runes:  # the game has 67 Caryll rows before the six oath runes
+            def caryll_runes(self):
+                return [(100000 + k, 1100000 + k, 1) for k in range(67)] + [(200000 + 10 * k, 2100000 + k, 2) for k in range(6)]
+
+            def gem(self, gen, shape, effects):
+                return (f"Rune {effects[0]}", None, None)
+        rows = cli.rune_catalog(Runes(), "", None, None)
+        self.assertEqual(len(rows), 73)
+        self.assertEqual([r["shape"] for r in rows].count(2), 6)
+
 
 if __name__ == "__main__":
     unittest.main()
