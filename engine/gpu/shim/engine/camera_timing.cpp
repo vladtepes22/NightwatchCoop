@@ -105,7 +105,7 @@ template <std::size_t... N> constexpr std::array<Callback, kCount> Entries(std::
 
 bool Install(std::uint8_t* image, std::size_t size) {
     const char* on = std::getenv("LANTERN_CAMERA_TIMING");
-    if (on && on[0] == '0') return false;
+    if (!on || on[0] != '1') return false; // opt-in since Lantern beta 29: the smoothing lagged at high frame rates
     if (!image || size < kFrameTime + 4) return false;
     const auto entries = Entries(std::make_index_sequence<kCount>{});
     std::array<Hook, kCount> hooks;
