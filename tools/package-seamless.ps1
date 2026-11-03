@@ -152,7 +152,7 @@ else { Write-Warning 'engine\fsr_sdk is missing (engine/tools/fetch_fsr_sdk.sh):
 $seamless = Join-Path $destinationRoot 'seamless'
 $scripts = Join-Path $seamless 'scripts'
 New-Item -ItemType Directory -Force -Path $scripts | Out-Null
-foreach ($file in 'party_save_tool.py', 'party_session.py', 'party_saves.py', 'party_env.py', 'save_editor.py', 'saveedit_cli.py', 'party_offline.py', 'party_offline_tool.py', 'net_doctor.py') {
+foreach ($file in 'party_save_tool.py', 'party_session.py', 'party_saves.py', 'party_env.py', 'save_editor.py', 'saveedit_cli.py', 'mods.py', 'party_offline.py', 'party_offline_tool.py', 'net_doctor.py') {
     Copy-Item -LiteralPath (Join-Path $engine "scripts\$file") -Destination $scripts -Force
 }
 # The launcher's Save editor window runs saveedit_cli.py over the saveedit library (not its Tk window, ui.py).
