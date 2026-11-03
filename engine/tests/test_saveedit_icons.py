@@ -25,6 +25,26 @@ class IconTests(unittest.TestCase):
         self.assertEqual(bc7.decode_block(mode6(0, 0)), bytes(64))
         self.assertEqual(bc7.decode_block(bytes(16)), bytes(64))  # reserved mode 8: black
 
+    def test_the_last_enabled_mod_with_a_sheet_owns_the_icons(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            game, mods = Path(tmp) / "game", Path(tmp) / "mods"
+            (game / "menu").mkdir(parents=True)
+            for name, sheet in (("A", True), ("B", True), ("C", False)):
+                root = mods / name / "dvdroot_ps4"
+                (root / ("menu" if sheet else "chr")).mkdir(parents=True)
+                if sheet:
+                    (root / "menu" / "common.tpf.dcx").write_bytes(b"x")
+            config = Path(tmp) / "mods.json"
+            config.write_text(json.dumps({"order": ["B", "A", "C"], "disabled": []}))
+            self.assertTrue(os.path.samefile(icons.source(game, mods, config), mods / "A" / "dvdroot_ps4"))
+            config.write_text(json.dumps({"order": ["B", "A", "C"], "disabled": ["A"]}))
+            self.assertTrue(os.path.samefile(icons.source(game, mods, config), mods / "B" / "dvdroot_ps4"))
+            config.write_text(json.dumps({"order": [], "disabled": ["A", "B"]}))
+            self.assertTrue(os.path.samefile(icons.source(game, mods, config), game))
+            self.assertTrue(os.path.samefile(icons.source(game, None, None), game))
+
     def test_sheet_layout(self):
         self.assertEqual(icons.sheet_cell(1001), ("MENU_Icon_01001", 80, 0))
         self.assertEqual(icons.sheet_cell(4216), ("MENU_Icon_04002", 0, 6 * 80))  # cell 72 of sheet 2
