@@ -32,7 +32,8 @@ internal sealed class SaveEditorAddDialog : Window
     private sealed record Found(int Number, string? Name, string? Icon);
 
     // Category 2 is a local gem pick; category 8 is the rune catalogue. Both use add_gems.
-    private static readonly int[] Categories = { 4, 0, 1, 2, 8 };
+    // Category 9 is the goods list of the Nocturne mod (picked as goods, category 4).
+    private static readonly int[] Categories = { 4, 0, 1, 2, 8, 9 };
     private const int SearchPauseMs = 200;
     private readonly Func<int, string, Task<string>> _catalog;
     private readonly ComboBox _kind = new(), _shape = new();
@@ -73,7 +74,7 @@ internal sealed class SaveEditorAddDialog : Window
         var top = new Grid { Margin = new Thickness(0, 0, 0, 10) };
         top.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        foreach (var text in new[] { L.T("Goods"), L.T("Weapons"), L.T("Armor"), L.T("Blood gem"), L.T("Caryll rune") }) _kind.Items.Add(text);
+        foreach (var text in new[] { L.T("Goods"), L.T("Weapons"), L.T("Armor"), L.T("Blood gem"), L.T("Caryll rune"), "Nocturne" }) _kind.Items.Add(text);
         _kind.SelectedIndex = 0; _kind.MinWidth = 150; _kind.Margin = new Thickness(0, 0, 12, 0);
         AutomationProperties.SetName(_kind, L.T("Add item"));
         Grid.SetColumn(_kind, 0); top.Children.Add(_kind);
@@ -147,7 +148,7 @@ internal sealed class SaveEditorAddDialog : Window
     }
 
     private int Category => Categories[Math.Max(0, _kind.SelectedIndex)];
-    private bool IsGoods => Category == 4;
+    private bool IsGoods => Category is 4 or 9;
     private bool IsGem => Category == 2;
     private int? CountNumber => int.TryParse(_count.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n is >= 1 and <= 99 ? n : null;
 
@@ -216,7 +217,7 @@ internal sealed class SaveEditorAddDialog : Window
             DialogResult = true; return;
         }
         var count = IsGoods ? CountNumber ?? 1 : 1;
-        Result = _list.SelectedItems.Cast<Row>().Select(r => new Pick(Category, r.Number, r.Name, count)).ToArray();
+        Result = _list.SelectedItems.Cast<Row>().Select(r => new Pick(Category == 9 ? 4 : Category, r.Number, r.Name, count)).ToArray();
         DialogResult = true;
     }
 }

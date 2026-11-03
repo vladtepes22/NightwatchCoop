@@ -345,14 +345,20 @@ class SaveModel:
                 return at + k * ENTRY
         raise ValueError("the inventory is full")
 
-    def _put_entry(self, o, handle, iid, count):
-        self.d[o:o + ENTRY] = struct.pack("<IIII", handle, iid, count, 0)
+    def _put_entry(self, o, handle, iid, count, sort_id=None):
+        """sort_id (goods) sets the entry's menu index the way the game writes it: sortId << 12 | (slot + 64), the
+        slot counted in the game's unified inventory (64 key entries first); the counter behind the key lists
+        becomes the highest of those slots. An entry with index 0 is kept and counted but the menu never lists it."""
+        tail, slot = self._second_counter(), (o - self.normal_at - 4) // ENTRY
+        index = 0 if sort_id is None else sort_id << 12 | (slot + KEY_ENTRIES)
+        self.d[o:o + ENTRY] = struct.pack("<IIII", handle, iid, count, index)
         self._recount(0)
-        self._put(self._second_counter(), self.u32(self._second_counter()) + 1)
+        self._put(tail, self.u32(tail) + 1 if sort_id is None else max(self.u32(tail), slot + KEY_ENTRIES))
 
-    def add_goods(self, number, count):
+    def add_goods(self, number, count, sort_id=None):
         """A consumable, material, key item or chalice. valid_ids is the caller's check (the game's goods list);
-        an item the inventory already holds is edited with set_count, not added twice."""
+        an item the inventory already holds is edited with set_count, not added twice. sort_id is the goods row's
+        sortId (the Catalogue has it); without it the entry gets index 0 and is not listed by the game's menu."""
         count = int(count)
         if not 1 <= count <= 999:
             raise ValueError("the count is 1 to 999")
@@ -360,7 +366,9 @@ class SaveModel:
             raise ValueError("not an item id")
         if self.has_item(4, number):
             raise ValueError("the inventory already holds this item; change its count")
-        self._put_entry(self._free_entry(), 0xB0000000 | number, 0x40000000 | number, count)
+        if sort_id is not None and not 0 <= sort_id < 1 << 20:
+            raise ValueError("not a sort id")
+        self._put_entry(self._free_entry(), 0xB0000000 | number, 0x40000000 | number, count, sort_id)
 
     def _ga_walk(self):
         """(offset of the first empty slot or None, highest handle number) over the instance table's slots."""

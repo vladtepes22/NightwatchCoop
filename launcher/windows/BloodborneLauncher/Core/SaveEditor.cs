@@ -67,7 +67,8 @@ internal static class SaveEditor
             start.Environment["PYTHONUTF8"] = "1";
             foreach (var argument in new[] { Path.Combine(Paths.SeamlessScripts, "saveedit_cli.py"), "worker",
                          "--user", GameEnvironment.UserDir(settings), "--kind", "solo",
-                         "--game", GameEnvironment.GameDir(settings) }) start.ArgumentList.Add(argument);
+                         "--game", GameEnvironment.GameDir(settings), "--mods", GameEnvironment.ModsDir(settings),
+                         "--mods-config", Mods.ProfilePath }) start.ArgumentList.Add(argument);
             var process = Process.Start(start) ?? throw new IOException(L.T("Could not open the save editor data."));
             process.ErrorDataReceived += (_, _) => { };
             process.BeginErrorReadLine();

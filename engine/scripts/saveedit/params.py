@@ -51,13 +51,14 @@ def layout(paramdef):
 class Params:
     """The game's gameparam and paramdef files, read once; table(name, fields) -> {row id: (values...)}."""
 
-    def __init__(self, game_dir):
+    def __init__(self, game_dir, gameparam=None):
+        """gameparam: another gameparam.parambnd.dcx (a mod's) read with this game's paramdefs."""
         def short(k):
             return k.replace("/", "\\").split("\\")[-1].rsplit(".", 1)[0]
         self._defs = {short(k): v for k, v in
                       _bnd4(_dcx((game_dir / "paramdef" / "paramdef.paramdefbnd.dcx").read_bytes())).items()}
         self._params = {short(k): v for k, v in
-                        _bnd4(_dcx((game_dir / "param" / "gameparam" / "gameparam.parambnd.dcx").read_bytes())).items()}
+                        _bnd4(_dcx((gameparam or game_dir / "param" / "gameparam" / "gameparam.parambnd.dcx").read_bytes())).items()}
 
     def table(self, name, fields):
         spec = layout(self._defs[name])
