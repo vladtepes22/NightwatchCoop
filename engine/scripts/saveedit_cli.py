@@ -81,7 +81,7 @@ PLACEHOLDERS = {(0, 1000), (0, 1000000)}
 SOCKETED = 3  # item section of a gem sitting in a weapon slot (not in the inventory lists)
 GEM_EFFECTS = 3
 RUNE_CATEGORY = 8  # catalog only: a rune is added through add_gems, not "add"
-MOD_CATEGORY = 9  # catalog only: the goods the Nocturne mod adds (added as goods, category 4)
+MOD_CATEGORY = 9  # catalog only: the items the Nocturne mod adds (each row names its own category)
 ADD_CATEGORIES = (0, 1, 4)  # weapons, armour, goods: what "add item" offers (gems and runes are copied: copy_gems)
 ADD_MAX_COUNT = 99
 CATALOG_LIMIT = 60
@@ -92,8 +92,8 @@ def catalog(catalogue, request, game, cache):
     if isinstance(request, dict) and request.get("category") == RUNE_CATEGORY:
         return rune_catalog(catalogue, str(request.get("text", ""))[:60].lower(), game, cache)
     if isinstance(request, dict) and request.get("category") == MOD_CATEGORY:
-        return [dict(number=n, name=name, icon=None)
-                for n, name in catalogue.search_mod_goods(str(request.get("text", ""))[:60])][:CATALOG_LIMIT]
+        return [dict(number=n, name=name, icon=None, category=c)
+                for c, n, name in catalogue.search_mod_items(str(request.get("text", ""))[:60])][:CATALOG_LIMIT]
     if not isinstance(request, dict) or request.get("category") not in ADD_CATEGORIES:
         raise ValueError("expected a category: 0 weapon, 1 armor, 4 goods, 8 rune")
     category, text = request["category"], str(request.get("text", ""))[:60]
@@ -220,7 +220,7 @@ def execute(args, edit=None, running=running_games, catalogues=None):
         if catalogues is not None:
             catalogues[user] = catalogue
     if args.mods and args.game:
-        catalogue.set_mod_goods(names.read_mod_goods(args.game, args.mods, args.mods_config))
+        catalogue.set_mod_items(names.read_mod_items(args.game, args.mods, args.mods_config))
     if args.command == "effects":
         return [dict(id=e, text=text) for e, text in catalogue.effects_for(0)]  # blood gem effects
     if args.command == "gem_icons":
@@ -313,7 +313,7 @@ def execute(args, edit=None, running=running_games, catalogues=None):
                 or change.get("category") not in ADD_CATEGORIES or type(change.get("number")) is not int):
             raise ValueError("invalid item to add")
         category, number = change["category"], change["number"]
-        mod_item = category == 4 and number in catalogue.mod_goods
+        mod_item = (category, number) in catalogue.mod_items
         if not mod_item and ((category, number) in PLACEHOLDERS or not catalogue.known(category, number)
                              or catalogue.name(category, number) is None
                              or catalogue.fallback_name(category, number) is not None):
