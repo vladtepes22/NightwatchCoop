@@ -108,28 +108,29 @@ def catalog(catalogue, request, game, cache):
 
 
 def rune_catalog(catalogue, text, game, cache):
-    """[{number, name, icon}] of the Caryll runes the editor can add; number is the rune's effect id."""
+    """[{number, name, icon, shape}] of the Caryll and oath runes the editor can add; number is the rune's effect id."""
     rows = []
-    for gen, effect in catalogue.caryll_runes():
-        name, icon, _ = catalogue.gem(gen, 1, [effect])
+    for gen, effect, shape in catalogue.caryll_runes():
+        name, icon, _ = catalogue.gem(gen, shape, [effect])
         if name is not None and (not text or text in name.lower() or text == str(effect)):
-            rows.append((effect, name, icon))
+            rows.append((effect, name, icon, shape))
     rows = rows[:CATALOG_LIMIT]
-    paths = icons.ensure(game, cache, {i for _, _, i in rows} - {None}) if game and rows else {}
-    return [dict(number=e, name=n, icon=paths.get(i)) for e, n, i in rows]
+    paths = icons.ensure(game, cache, {r[2] for r in rows} - {None}) if game and rows else {}
+    return [dict(number=e, name=n, icon=paths.get(i), shape=s) for e, n, i, s in rows]
 
 
 def add_gems(model, catalogue, adds):
     """New loose blood gems ({"type": 1, "shape", "effects"}) and Caryll runes ({"type": 2, "effect"})."""
     if not isinstance(adds, list) or len(adds) > 50:
         raise ValueError("expected up to 50 gems or runes to add")
-    runes = dict((e, g) for g, e in catalogue.caryll_runes())
+    runes = {e: (g, s) for g, e, s in catalogue.caryll_runes()}
     texts = {e for e, _ in catalogue.effects_for(0)}
     for change in adds:
         if isinstance(change, dict) and change.get("type") == 2 and set(change) == {"type", "effect"}:
             if change["effect"] not in runes or type(change["effect"]) is not int:
                 raise ValueError("the game has no such rune")
-            model.add_gem(runes[change["effect"]], 2, 1, [change["effect"]])
+            gen, shape = runes[change["effect"]]
+            model.add_gem(gen, 2, shape, [change["effect"]])
         elif isinstance(change, dict) and change.get("type") == 1 and set(change) == {"type", "shape", "effects"}:
             effects, shape = change["effects"], change["shape"]
             gen = catalogue.blood_gem_gen(shape) if shape in catalogue.ADD_SHAPES else None

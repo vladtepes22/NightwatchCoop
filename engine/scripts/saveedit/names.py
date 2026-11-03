@@ -310,12 +310,13 @@ class Catalogue:
         return self._names.get("gem", {}).get(key), 3000 + block + (100 if cursed else 0) + rows[0][1], cursed
 
     # New records: the shape column of a GemGen row (checked on all 11 gems and runes of a party save: radial = column
-    # A, triangle = B). Waning and circle would be C and D but no save here shows one, so they are not offered.
-    ADD_SHAPES = (1, 2)
+    # A, triangle = B; saves also hold waning = 4 and circle = 8 blood gems). Every shape a blood gem can have is offered.
+    ADD_SHAPES = (1, 2, 4, 8, 63)
     CARYLL_NAME_OFFSET = 10000000
 
-    # The GemGen rows the gems in a party save use: 127000 rolls radial, 127002 triangle (4 of 4 blood gems).
-    BLOOD_GENS = {1: 127000, 2: 127002}
+    # GemGen rows of name offset 0 that roll one shape: 127000 radial and 127002 triangle (the gems in a party save use
+    # them), 128000 waning, 123000 circle, 6 droplet (the only row that rolls 63).
+    BLOOD_GENS = {1: 127000, 2: 127002, 4: 128000, 8: 123000, 63: 6}
 
     def blood_gem_gen(self, shape):
         """GemGen id for a new blood gem of this shape, None when the game's row is not what the saves show."""
@@ -323,17 +324,22 @@ class Catalogue:
         row = self._gemrows.get(gen)
         return gen if row and row[0] == 0 and row[1] == shape else None
 
+    # Rune GemGen rows by sort category: (ids, shape). Caryll runes are 1xxxxx rows that roll radial (the rows the runes
+    # in a save come from); oath runes are the 2000x0 rows that roll triangle, the oath slot's shape, and only that shape
+    # gives their names. The 4xx and 2xxxxxx rows are other tables.
+    RUNE_ROWS = {1: (range(100000, 200000), 1), 2: (range(200000, 300000), 2)}
+
     def caryll_runes(self):
-        """[(GemGen id, effect id)] of the Caryll runes that can be added, in effect order: the lowest 1xxxxx row of the
-        Caryll name offset that rolls radial with one fixed Caryll rune effect whose rune has a name (those are the rows the
-        runes in a save come from; the 4xx and 2xxxxxx rows are other tables)."""
+        """[(GemGen id, effect id, shape)] of the Caryll and oath runes that can be added, in row order: the lowest row
+        of the Caryll name offset in RUNE_ROWS for one fixed rune effect of that sort whose rune has a name."""
         best = {}
         for gen, (offset, shapes, eff) in sorted(self._gemrows.items()):
-            if (offset == self.CARYLL_NAME_OFFSET and shapes == 1 and 100000 <= gen < 200000
-                    and (self._effects.get(eff) or [None] * 4)[3] == 1 and eff in self._names.get("effect", {})
-                    and self.gem(gen, 1, [eff])[0] is not None):
-                best.setdefault(eff, gen)
-        return sorted((gen, eff) for eff, gen in best.items())
+            sort = (self._effects.get(eff) or [None] * 4)[3]
+            ids, shape = self.RUNE_ROWS.get(sort, ((), 0))
+            if (offset == self.CARYLL_NAME_OFFSET and shapes == shape and gen in ids
+                    and eff in self._names.get("effect", {}) and self.gem(gen, shape, [eff])[0] is not None):
+                best.setdefault(eff, (gen, shape))
+        return sorted((gen, eff, shape) for eff, (gen, shape) in best.items())
 
     def gem_icon_ids(self):
         """Every icon a blood gem can show, so a preview never waits for the icon sheet."""
