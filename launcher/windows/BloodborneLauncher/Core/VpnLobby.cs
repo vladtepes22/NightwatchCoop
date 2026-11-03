@@ -17,6 +17,11 @@ public sealed class LobbyGame
     public required bool Own { get; init; }
     public required uint Ip { get; init; }
     public required int Port { get; init; }
+    /// <summary>The host turned on Allow invaders (only from an extended list; the lobby sets it from the host's own
+    /// announce of the last minute, so a host with invasions off is never offered).</summary>
+    public bool Invaders { get; init; }
+    /// <summary>An invader can be let in: the host allows it and has a free slot.</summary>
+    public bool Invadable => Invaders && Players < Max;
     public string JoinCode => NetworkRoute.HostAddress(NetworkRoute.Text(Ip), Port);
     public override string ToString() => Name;
 }
@@ -30,7 +35,10 @@ public static class VpnLobby
 {
     public const int Port = 9310, PollMs = 5000, TimeoutMs = 1000, MaxPages = 20;
     public const string Address = "10.8.0.1";
-    private const int FlagPassword = 1, FlagOwn = 2;
+    private const int FlagPassword = 1, FlagOwn = 2, FlagInvaders = 4, FlagBoss = 8;
+    private const byte TypeReply = 3, TypeList2 = 8, TypeReply2 = 9;
+    /// <summary>When the lobby last ignored the extended list (an older lobby): the plain list is asked instead for a while.</summary>
+    private static long _plainUntil;
 
     /// <summary>A player address of the tunnel: 10.8.0.0/22 minus the network, the server (10.8.0.1) and the broadcast address,
     /// i.e. 10.8.0.2 to 10.8.3.254 (visy 0.7.8: room for 1021 players once the server widens its pool from /24; a /24 server
@@ -46,24 +54,36 @@ public static class VpnLobby
     public static IPEndPoint? TestTarget() =>
         Environment.GetEnvironmentVariable("BB_PARTY_VPNLOBBY_ADDR") is { Length: > 0 } text && IPEndPoint.TryParse(text, out var target) ? target : null;
 
-    public static byte[] ListRequest(int offset) => new byte[] { 0xfa, (byte)'L', 1, 2, (byte)(offset >> 8), (byte)offset };
+    public static byte[] ListRequest(int offset, bool extended = false) =>
+        new byte[] { 0xfa, (byte)'L', 1, extended ? TypeList2 : (byte)2, (byte)(offset >> 8), (byte)offset };
 
     /// <summary>Strict, untrusted input: anything malformed gives null. Reply: fa 'L' 1 3, total u16, offset u16, count u8, then
-    /// ipv4, port u16, flags u8, players u8, max u8, name (u8 len + UTF-8), build (u8 len + printable ASCII).</summary>
+    /// ipv4, port u16, flags u8, players u8, max u8, name (u8 len + UTF-8), build (u8 len + printable ASCII). The extended
+    /// reply (type 9, visy 0.7.8 nwlobby) has flags bit 2 (allows invaders) and bit 3 (boss fight), and after max: area u32,
+    /// phase u8, ng u8.</summary>
     public static (int Total, int Offset, List<LobbyGame> Games)? ParseReply(ReadOnlySpan<byte> d)
     {
-        if (d.Length is < 9 or > 1024 || d[0] != 0xfa || d[1] != (byte)'L' || d[2] != 1 || d[3] != 3) return null;
+        if (d.Length is < 9 or > 1024 || d[0] != 0xfa || d[1] != (byte)'L' || d[2] != 1 || d[3] is not (TypeReply or TypeReply2)) return null;
+        var extended = d[3] == TypeReply2;
         int total = d[4] << 8 | d[5], offset = d[6] << 8 | d[7], count = d[8], pos = 9;
         var games = new List<LobbyGame>();
         var utf8 = new UTF8Encoding(false, throwOnInvalidBytes: true);
+        var allowed = FlagPassword | FlagOwn | (extended ? FlagInvaders | FlagBoss : 0);
         for (var i = 0; i < count; i++)
         {
-            if (pos + 10 > d.Length) return null;
+            if (pos + (extended ? 16 : 10) > d.Length) return null;
             var ip = (uint)d[pos] << 24 | (uint)d[pos + 1] << 16 | (uint)d[pos + 2] << 8 | d[pos + 3];
             var port = d[pos + 4] << 8 | d[pos + 5];
-            int flags = d[pos + 6], players = d[pos + 7], max = d[pos + 8], n = d[pos + 9];
+            int flags = d[pos + 6], players = d[pos + 7], max = d[pos + 8];
+            if (extended)
+            {
+                int phase = d[pos + 13], ng = d[pos + 14];  // area u32 at pos + 9: where the host is (not shown yet)
+                if (phase > 4 || (ng > 7 && ng != 255)) return null;
+                pos += 6;
+            }
+            var n = d[pos + 9];
             pos += 10;
-            if ((flags & ~(FlagPassword | FlagOwn)) != 0 || port < 1024 || max is < 1 or > 8 || players > max || n == 0 || pos + n + 1 > d.Length) return null;
+            if ((flags & ~allowed) != 0 || port < 1024 || max is < 1 or > 8 || players > max || n == 0 || pos + n + 1 > d.Length) return null;
             string name;
             try { name = CleanName(utf8.GetString(d.Slice(pos, n))); }
             catch (ArgumentException) { return null; }
@@ -77,7 +97,7 @@ public static class VpnLobby
             games.Add(new LobbyGame
             {
                 Name = name, Players = players, Max = max, Password = (flags & FlagPassword) != 0, Own = (flags & FlagOwn) != 0,
-                Build = build, Ip = ip, Port = port,
+                Build = build, Ip = ip, Port = port, Invaders = (flags & FlagInvaders) != 0,
             });
         }
         return pos == d.Length ? (total, offset, games) : null;
@@ -127,10 +147,21 @@ public static class VpnLobby
             var games = new List<LobbyGame>();
             var buffer = new byte[2048];
             var offset = 0;
+            // The extended list first (it carries Allow invaders); a lobby that does not answer it is an older one: ask the
+            // plain list, and keep asking that for five minutes.
+            var extended = Environment.TickCount64 >= Interlocked.Read(ref _plainUntil);
             for (var page = 0; page < MaxPages; page++)
             {
-                socket.Send(ListRequest(offset));
-                var n = socket.Receive(buffer);
+                socket.Send(ListRequest(offset, extended));
+                int n;
+                try { n = socket.Receive(buffer); }
+                catch (SocketException) when (extended && page == 0)
+                {
+                    Interlocked.Exchange(ref _plainUntil, Environment.TickCount64 + 5 * 60 * 1000);
+                    extended = false;
+                    socket.Send(ListRequest(offset));
+                    n = socket.Receive(buffer);
+                }
                 if (ParseReply(buffer.AsSpan(0, n)) is not { } reply || reply.Offset != offset) return games.Count > 0 ? games : null;
                 games.AddRange(reply.Games);
                 offset += reply.Games.Count;

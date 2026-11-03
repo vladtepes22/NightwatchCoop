@@ -597,6 +597,38 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
     Check("nightwatch-coop-0.2.6-beta.3-012".Length == 32 && VpnLobby.VersionOf("nightwatch-coop-0.2.6-beta.3-012") == "0.2.6 beta 3", "Beta inside the lobby's limit");
     LobbyGame Game(bool password, bool own = false) => new() { Name = "h", Players = 1, Max = 2, Password = password, Build = "b", Own = own, Ip = NetworkRoute.Parse("10.8.0.5"), Port = 9307 };
     Check(VpnLobby.Rows(new[] { Game(true), Game(false), Game(false, own: true) }).Count == 2, "A passwordless game is listed in the VPN lobby, your own is not");
+    // visy 0.7.8 extended list (nwlobby type 9): flags bit 2 = the host allows invaders, then area u32, phase u8, ng u8.
+    static byte[] Reply(byte type, byte flags, byte players, bool extended, byte phase = 3, byte ng = 1)
+    {
+        var row = new List<byte> { 10, 8, 0, 5, 0x24, 0x5b, flags, players, 2 };
+        if (extended) row.AddRange(new byte[] { 0x18, 0x01, 0x00, 0x00, phase, ng });
+        row.Add(1); row.Add((byte)'h'); row.Add(1); row.Add((byte)'b');
+        return new byte[] { 0xfa, (byte)'L', 1, type, 0, 1, 0, 0, 1 }.Concat(row).ToArray();
+    }
+    var ext = VpnLobby.ParseReply(Reply(9, 1 | 4, 1, true));
+    Check(ext is { } e1 && e1.Games.Count == 1 && e1.Games[0].Invaders && e1.Games[0].Password && e1.Games[0].Invadable && e1.Games[0].Port == 9307,
+        "The extended lobby reply carries Allow invaders");
+    Check(VpnLobby.ParseReply(Reply(9, 1 | 4, 2, true)) is { } e2 && !e2.Games[0].Invadable, "A full host is not invadable");
+    Check(VpnLobby.ParseReply(Reply(9, 1, 1, true)) is { } e3 && !e3.Games[0].Invaders, "A host without Allow invaders is not invadable");
+    Check(VpnLobby.ParseReply(Reply(3, 4, 1, false)) == null && VpnLobby.ParseReply(Reply(9, 1, 1, true, phase: 5)) == null &&
+          VpnLobby.ParseReply(Reply(9, 1, 1, true, ng: 9)) == null, "An invaders bit in a plain reply, or a bad phase / NG, is refused");
+    Check(VpnLobby.ParseReply(Reply(3, 1, 1, false)) is { } p1 && !p1.Games[0].Invaders, "The plain reply still parses (an older lobby)");
+    Check(VpnLobby.ListRequest(0, extended: true)[3] == 8 && VpnLobby.ListRequest(0)[3] == 2, "The extended list is asked with type 8");
+    // An Invade start: BB_PARTY_INVADE for that start only, and never the password.
+    var invader = new LauncherSettings();
+    invader.Set("party_mode", "join");
+    invader.Set("party_name", "Invader_Test");
+    var invadeEnv = new Dictionary<string, string>();
+    SeamlessSettings.PendingJoin = ("10.8.0.5:9307", "");
+    SeamlessSettings.PendingInvade = true;
+    try { SeamlessSettings.Apply(invader, invadeEnv); }
+    finally { SeamlessSettings.PendingJoin = null; SeamlessSettings.PendingInvade = false; }
+    Check(invadeEnv["BB_PARTY_INVADE"] == "1" && invadeEnv["BB_PARTY_PASSWORD"] == "" && invadeEnv["BB_PARTY_CODE"] == "10.8.0.5:9307", "Invade starts as an invader without a password");
+    var joinEnv = new Dictionary<string, string>();
+    SeamlessSettings.PendingJoin = ("10.8.0.5:9307", "pw");
+    try { SeamlessSettings.Apply(invader, joinEnv); }
+    finally { SeamlessSettings.PendingJoin = null; }
+    Check(!joinEnv.ContainsKey("BB_PARTY_INVADE") && joinEnv["BB_PARTY_PASSWORD"] == "pw", "A plain Join is not an invasion and keeps its password");
     Check(OpenVpnSetup.ResultOf(1605) == OpenVpnSetupResult.NotOurs && OpenVpnSetup.ResultOf(0) == OpenVpnSetupResult.Installed &&
           OpenVpnSetup.UninstallArguments("a.msi", "l.log").StartsWith("/x \"a.msi\" /qn"), "VPN uninstall");
     // A LAN party stays heard with the VPN up, and with it down again.

@@ -1,4 +1,9 @@
 {
+  "Allow invasions": "İstilalara izin ver",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "Diğer oyuncular Nightwatch Online listesinden şifresiz olarak düşman hayalet olarak dünyanı istila edebilir. Ortak oyuncuların hâlâ şifreye ihtiyacı var. Aynı anda tek istilacı.",
+  "Invade": "İstila et",
+  "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "{0} adlı oyuncunun dünyasını istila etmek mi? Düşman hayalet olarak katılırsın: ev sahibi ve misafirleri seni öldürebilir, sen de onları. Sen ya da onlar ölünce evine dönersin.",
+  "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "Düşman hayalet olarak katıl. Ev sahibi istilalara izin veriyor: şifre gerekmez ve gönderilmez.",
   "Hide full": "Dolu olanları gizle",
   "Hide wrong build": "Farklı sürümleri gizle",
   "No password": "Şifresiz",

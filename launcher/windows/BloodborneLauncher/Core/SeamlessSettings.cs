@@ -204,6 +204,10 @@ public static partial class SeamlessSettings
     /// the password stay in memory and go to the game's environment, never into the saved settings.</summary>
     public static (string Code, string Password)? PendingJoin { get; set; }
 
+    /// <summary>The start PendingJoin is set around joins as an invader (visy 0.7.8 invasions, docs/party/invasions.md): the
+    /// game gets BB_PARTY_INVADE=1 and no password (an invader never sends one; the host's Allow invaders admits it).</summary>
+    public static bool PendingInvade { get; set; }
+
     /// <summary>The host's options a Join row told, for this start only; saved settings stay the guest's for hosting.</summary>
     public static Dictionary<string, string>? PendingHostOptions { get; set; }
 
@@ -240,6 +244,11 @@ public static partial class SeamlessSettings
         env["BB_PARTY_LOG"] = s.Str("party_log");
         foreach (var option in Switches) env[option.Environment] = Flag(s, option.Key) ? "1" : "0";
         if (s.Str("party_mode") == "join") ApplyHostOptions(s, env);
+        if (PendingInvade && PendingJoin != null)
+        {
+            env["BB_PARTY_INVADE"] = "1";  // this start only, never saved
+            env["BB_PARTY_PASSWORD"] = "";
+        }
     }
 
     /// <summary>A join starts with the host's options: the ones its row told, else the ones a refused join left in
