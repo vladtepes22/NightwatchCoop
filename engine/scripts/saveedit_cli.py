@@ -114,7 +114,7 @@ def rune_catalog(catalogue, text, game, cache):
         name, icon, _ = catalogue.gem(gen, shape, [effect])
         if name is not None and (not text or text in name.lower() or text == str(effect)):
             rows.append((effect, name, icon, shape))
-    rows = rows[:CATALOG_LIMIT]
+    # No CATALOG_LIMIT: the game's rune list is fixed and short (73 rows), and the oath runes come last.
     paths = icons.ensure(game, cache, {r[2] for r in rows} - {None}) if game and rows else {}
     return [dict(number=e, name=n, icon=paths.get(i), shape=s) for e, n, i, s in rows]
 
