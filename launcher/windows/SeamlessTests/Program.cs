@@ -103,6 +103,45 @@ static void Check(bool condition, string message)
     if (!condition) throw new InvalidOperationException(message);
 }
 
+{
+    // Pending rows are additions only; their wire payload keeps copies and newly made gems separate.
+    var pendingAdds = new List<BloodborneLauncher.Views.SaveEditorAddDialog.Pick>
+    {
+        new(4, 100, "Goods", 7), new(0, 200, "Weapon", 1), new(1, 300, "Armor", 1),
+        new(8, 400, "Rune", 1), new(2, 0, "Gem", 1, 2, [new(500, "Effect"), new(501, "Effect")])
+    };
+    var pendingGem = new BloodborneLauncher.Views.ItemRow(new SaveEditor.Item
+        { Kind = "gem", Count = 1, Gem = new(0xf0000001L, 1, 1, 0, false, []) }, () => { }, removePending: () => { });
+    var pendingCopies = new List<BloodborneLauncher.Views.ItemRow> { pendingGem, pendingGem };
+    System.Text.Json.JsonElement PendingJson() => System.Text.Json.JsonSerializer.SerializeToElement(
+        BloodborneLauncher.Views.SaveEditorWindow.BuildPendingPayload(pendingAdds, pendingCopies), SaveEditor.Json);
+    var pendingJson = PendingJson();
+    var addParts = pendingJson.GetProperty("add");
+    var gemParts = pendingJson.GetProperty("add_gems");
+    Check(addParts.GetArrayLength() == 3 && addParts[0].GetProperty("count").GetInt32() == 7 &&
+          addParts[1].GetProperty("count").ValueKind == System.Text.Json.JsonValueKind.Null &&
+          addParts[2].GetProperty("category").GetInt32() == 1 &&
+          pendingJson.GetProperty("copy_gems").EnumerateArray().All(v => v.GetInt64() == 0xf0000001L) &&
+          pendingJson.GetProperty("copy_gems").GetArrayLength() == 2 &&
+          gemParts.GetArrayLength() == 2 && gemParts[0].EnumerateObject().Count() == 2 &&
+          gemParts[0].GetProperty("type").GetInt32() == 2 && gemParts[0].GetProperty("effect").GetInt32() == 400 &&
+          gemParts[1].EnumerateObject().Count() == 3 && gemParts[1].GetProperty("type").GetInt32() == 1 &&
+          gemParts[1].GetProperty("shape").GetInt32() == 2 &&
+          gemParts[1].GetProperty("effects").EnumerateArray().Select(v => v.GetInt32()).SequenceEqual(new[] { 500, 501 }),
+          "Pending adds, copies and new gems payload");
+    Check(pendingGem.IsPending && pendingGem.Changed && !pendingGem.GemChanged && !pendingGem.CountChanged &&
+          !pendingGem.LevelChanged && !pendingGem.CanEditGem && !pendingGem.CopyGemCommand.CanExecute(null),
+          "Pending rows cannot edit existing instances");
+    pendingAdds.RemoveAt(0); pendingAdds.RemoveAt(2); pendingCopies.RemoveAt(0);
+    pendingJson = PendingJson();
+    Check(pendingJson.GetProperty("add").GetArrayLength() == 2 &&
+          pendingJson.GetProperty("copy_gems").GetArrayLength() == 1 &&
+          pendingJson.GetProperty("add_gems").GetArrayLength() == 1,
+          "Removed pending entries stay out of the payload");
+
+    Console.WriteLine("PASS: pending add/copy/gem payload and removal");
+}
+
 var settings = new LauncherSettings();
 settings.Set("party_mode", "host");
 settings.Set("party_name", "Host_Test");

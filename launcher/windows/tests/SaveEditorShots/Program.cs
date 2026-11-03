@@ -249,6 +249,21 @@ internal static class Program
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
             foreach (var child in Descendants(VisualTreeHelper.GetChild(node, i))) yield return child;
     }
+    /// The window filters after a typing pause (SaveEditorWindow._searchPause, 180 ms): let the dispatcher run past it.
+    private static void WaitSearchPause(FrameworkElement root)
+    {
+        var until = DateTime.UtcNow.AddMilliseconds(400);
+        while (DateTime.UtcNow < until)
+        {
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Background, new Action(() => frame.Continue = false));
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+            Thread.Sleep(10);
+        }
+        root.UpdateLayout();
+    }
+
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
     private static void Check(FrameworkElement root, FakeSource source)
     {
@@ -276,9 +291,9 @@ internal static class Program
             var count = nodes.OfType<TextBox>().First(b => AutomationProperties.GetName(b) == "Count");
             var before = count.Text;
             count.Text = "1234"; Require(apply.IsEnabled == !source.GameRunning, "Inventory change must enable Apply");
-            search.Text = "no-match"; root.UpdateLayout();
+            search.Text = "no-match"; WaitSearchPause(root);
             Require(!Descendants(root).OfType<TextBox>().Any(b => AutomationProperties.GetName(b) == "Count"), "Search did not filter the list");
-            search.Text = ""; root.UpdateLayout();
+            search.Text = ""; WaitSearchPause(root);
             count = Descendants(root).OfType<TextBox>().FirstOrDefault(b => b.Text == "1234")!;
             Require(count != null, "Filtering discarded item edits");
             count.Text = before; Require(!apply.IsEnabled, "Inventory reset must clear dirty state");

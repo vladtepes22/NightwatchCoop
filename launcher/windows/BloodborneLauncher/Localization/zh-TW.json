@@ -2488,5 +2488,8 @@
   "Different version": "版本不同",
   "This party has a password.": "此隊伍設有密碼。",
   "No password: anyone who sees the party can join.": "無密碼：看到此隊伍的任何人都可以加入。",
-  "Connect to the Nightwatch VPN first.": "請先連線至 Nightwatch VPN。"
+  "Connect to the Nightwatch VPN first.": "請先連線至 Nightwatch VPN。",
+  "New": "新增",
+  "Shape": "形狀",
+  "Pick items or choose gem effects, then Add.": "選擇物品或寶石效果，然後點選「新增」。"
 }

@@ -48,19 +48,24 @@ internal sealed class ItemRow : RowBase
     public RowCommand EditGemCommand { get; }
     public RowCommand CopyGemCommand { get; }
 
-    public ItemRow(SaveEditor.Item item, Action changed, Action<ItemRow>? editGem = null, Action<ItemRow>? copyGem = null)
+    public ItemRow(SaveEditor.Item item, Action changed, Action<ItemRow>? editGem = null, Action<ItemRow>? copyGem = null, Action? removePending = null)
     {
-        CopyGemCommand = new RowCommand(() => copyGem?.Invoke(this), () => Item.Gem != null && !Removed);
         Item = item; _changed = changed;
+        IsPending = removePending != null;
+        CopyGemCommand = new RowCommand(() => copyGem?.Invoke(this), () => !IsPending && Item.Gem != null && !Removed);
         _count = item.Count.ToString(CultureInfo.InvariantCulture); _level = item.Level ?? 0;
         _effects = item.Gem?.Effects ?? [];
         LevelDown = new RowCommand(() => Level--, () => CanEditLevel && !Removed && Level > 0);
         LevelUp = new RowCommand(() => Level++, () => CanEditLevel && !Removed && Level < Item.MaxLevel);
-        RemoveCommand = new RowCommand(() => Removed = !Removed);
+        RemoveCommand = new RowCommand(() => { if (removePending != null) removePending(); else Removed = !Removed; });
         EditGemCommand = new RowCommand(() => editGem?.Invoke(this), () => CanEditGem && !Removed);
     }
 
-    public string Title => _previewName ?? Item.Name ?? L.T("Unnamed item");
+    public bool IsPending { get; }
+    public string NewText => L.T("New");
+    public Visibility NewVisibility => IsPending ? Visibility.Visible : Visibility.Collapsed;
+    public string Title => (_previewName ?? Item.Name ?? L.T("Unnamed item")) +
+        (IsPending && Item.Count > 1 ? " × " + Item.Count : "");
     public string Meta => Item.Gem is { } gem ? GemMeta(gem with { Cursed = _previewCursed ?? gem.Cursed })
         : (Item.Section == 0 ? "" : L.T("Key item") + " · ") + L.T("Item ID") + " " + Item.Number;
     public bool IsKey => Item.Section is 1 or 2;
@@ -87,12 +92,12 @@ internal sealed class ItemRow : RowBase
     public Visibility DetailsVisibility => Details.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility CountVisibility => Locked ? Visibility.Collapsed : Visibility.Visible;
     // A gem is one instance with its own effects: it is removed, never stacked.
-    public Visibility CountBoxVisibility => Locked || Item.Gem != null ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility CountBoxVisibility => Locked || IsPending || Item.Gem != null ? Visibility.Collapsed : Visibility.Visible;
     // Runes carry hidden effects that make the rune, so only blood gems are edited.
-    public bool CanEditGem => Item.Gem is { Type: 1 };
+    public bool CanEditGem => !IsPending && Item.Gem is { Type: 1 };
     public Visibility GemEditVisibility => CanEditGem ? Visibility.Visible : Visibility.Collapsed;
     public string EditGemText => L.T("Edit effects");
-    public Visibility GemCopyVisibility => Item.Gem != null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility GemCopyVisibility => !IsPending && Item.Gem != null ? Visibility.Visible : Visibility.Collapsed;
     public string CopyGemText => L.T("Copy");
     public IReadOnlyList<SaveEditor.GemEffect> Effects
     {
@@ -103,7 +108,7 @@ internal sealed class ItemRow : RowBase
             Raise(nameof(Effects), nameof(Details), nameof(DetailsVisibility), nameof(Changed)); _changed();
         }
     }
-    public bool GemChanged => !_removed && Item.Gem != null && !_effects.Select(e => e.Id).SequenceEqual(Item.Gem.Effects.Select(e => e.Id));
+    public bool GemChanged => !IsPending && !_removed && Item.Gem != null && !_effects.Select(e => e.Id).SequenceEqual(Item.Gem.Effects.Select(e => e.Id));
 
     private static string GemMeta(SaveEditor.Gem gem)
     {
@@ -146,7 +151,7 @@ internal sealed class ItemRow : RowBase
     public string Kind => Item.Kind;
     public int Order => IsKey ? 5 : Item.Kind switch { "goods" => 0, "weapon" => 1, "armor" => 2, "accessory" => 3, "gem" => 4, _ => 6 };
     public bool HasLevel => Item.Level.HasValue;
-    public bool CanEditLevel => Item.Level.HasValue && Item.MaxLevel is > 0;
+    public bool CanEditLevel => !IsPending && Item.Level.HasValue && Item.MaxLevel is > 0;
     public Visibility LevelVisibility => HasLevel ? Visibility.Visible : Visibility.Collapsed;
     public string LevelText => "+" + _level;
     public bool CountEnabled => !_removed;
@@ -179,9 +184,9 @@ internal sealed class ItemRow : RowBase
 
     public bool CountValid => _removed || (int.TryParse(_count, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n >= 1);
     public int CountNumber => int.Parse(_count, CultureInfo.InvariantCulture);
-    public bool CountChanged => !_removed && int.TryParse(_count, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n != Item.Count;
-    public bool LevelChanged => !_removed && Item.Level.HasValue && _level != Item.Level;
-    public bool Changed => _removed || CountChanged || LevelChanged || GemChanged || !CountValid;
+    public bool CountChanged => !IsPending && !_removed && int.TryParse(_count, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n != Item.Count;
+    public bool LevelChanged => !IsPending && !_removed && Item.Level.HasValue && _level != Item.Level;
+    public bool Changed => IsPending || _removed || CountChanged || LevelChanged || GemChanged || !CountValid;
 
     public IEnumerable<string> Describe()
     {
@@ -233,6 +238,7 @@ internal static class SaveEditorXaml
                 <Image x:Name="Icon" Source="{Binding Icon}" Width="44" Height="44" RenderOptions.BitmapScalingMode="HighQuality"/>
               </Border>
               <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
+                <TextBlock Text="{Binding NewText}" Visibility="{Binding NewVisibility}" Style="{DynamicResource StatLabel}"/>
                 <TextBlock x:Name="Title" Text="{Binding Title}" ToolTip="{Binding Title}" TextTrimming="CharacterEllipsis" Style="{DynamicResource RowTitle}"/>
                 <TextBlock Text="{Binding Meta}" TextTrimming="CharacterEllipsis" Style="{DynamicResource StatLabel}"/>
                 <TextBlock Text="{Binding Details}" Visibility="{Binding DetailsVisibility}" TextWrapping="Wrap" Margin="0,3,0,0" Style="{DynamicResource Muted}"/>
