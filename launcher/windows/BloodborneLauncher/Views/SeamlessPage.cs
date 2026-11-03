@@ -239,6 +239,8 @@ public sealed class SeamlessPage : LauncherPage
         IniToggles(party,
             ("party_hud", L.T("Party HUD"), true), ("party_name_tags", L.T("Party name tags"), true), ("party_pings", L.T("Pings"), true),
             ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_item_notices", L.T("Shared item notices"), true), ("party_npc_talk", L.T("Share NPC dialogue"), true),
+            ("party_chat", L.T("Party chat"), false), ("party_chat_receive", L.T("Show others' chat"), true),
+            ("party_hide_bad_names", L.T("Hide offensive names"), true),
             ("party_glyph_list", L.T("Chalice glyph list"), false),
             ("party_stay", L.T("Stay in my world"), false), ("party_splitscreen", L.T("Splitscreen mode"), false));
         ComboRow(SymbolRegular.Alert24, L.T("Party messages"), PartyInfo("party_messages"),
@@ -1274,6 +1276,9 @@ public sealed class SeamlessPage : LauncherPage
         "party_enemy_hp" => L.T("Controls how much enemy health scales for each additional guest."),
         "party_enemy_damage" => L.T("Controls how much enemy damage scales for each additional guest."),
         "party_enemy_poise" => L.T("Controls how much enemy poise scales for each additional guest."),
+        "party_chat" => L.T("Off by default. T (keyboard) or touchpad + L1 (pad: a list of short lines) writes to the party; lines show in your colour."),
+        "party_chat_receive" => L.T("With party chat on: show the lines the other hunters write (off = mute them)."),
+        "party_hide_bad_names" => L.T("On: a hateful player name shows as Hunter and a short code on your screen (display only)."),
         "party_hud" => L.T("Shows companions' names, health and where they are, in the bottom left corner. Party mode only."),
         "party_conn_warnings" => L.T("A notice with the fix when the Windows Firewall, the router or a wrong address keeps the party from working. Each at most once per session. Your own setting, not a host rule."),
         "party_name_tags" => L.T("On: our name plates above companions, never hidden by walls. Off: the game's own plate."),

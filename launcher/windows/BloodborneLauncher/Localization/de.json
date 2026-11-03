@@ -2491,5 +2491,11 @@
   "Connect to the Nightwatch VPN first.": "Verbinde dich zuerst mit dem Nightwatch VPN.",
   "New": "Neu",
   "Shape": "Form",
-  "Pick items or choose gem effects, then Add.": "Gegenstände oder Edelsteineffekte wählen, dann hinzufügen."
+  "Pick items or choose gem effects, then Add.": "Gegenstände oder Edelsteineffekte wählen, dann hinzufügen.",
+  "Party chat": "Gruppenchat",
+  "Show others' chat": "Chat anderer anzeigen",
+  "Hide offensive names": "Beleidigende Namen ausblenden",
+  "Off by default. T (keyboard) or touchpad + L1 (pad: a list of short lines) writes to the party; lines show in your colour.": "Standardmäßig aus. T (Tastatur) oder Touchpad + L1 (Controller: Liste kurzer Nachrichten) sendet an die Gruppe; Nachrichten erscheinen in deiner Farbe.",
+  "With party chat on: show the lines the other hunters write (off = mute them).": "Bei aktiviertem Gruppenchat: Nachrichten anderer Jäger anzeigen (aus = stummschalten).",
+  "On: a hateful player name shows as Hunter and a short code on your screen (display only).": "Ein: Ein hasserfüllter Spielername erscheint auf deinem Bildschirm als Hunter mit einem kurzen Code (nur Anzeige)."
 }

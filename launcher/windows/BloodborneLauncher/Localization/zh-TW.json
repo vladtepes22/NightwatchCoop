@@ -2491,5 +2491,11 @@
   "Connect to the Nightwatch VPN first.": "請先連線至 Nightwatch VPN。",
   "New": "新增",
   "Shape": "形狀",
-  "Pick items or choose gem effects, then Add.": "選擇物品或寶石效果，然後點選「新增」。"
+  "Pick items or choose gem effects, then Add.": "選擇物品或寶石效果，然後點選「新增」。",
+  "Party chat": "隊伍聊天",
+  "Show others' chat": "顯示他人的聊天",
+  "Hide offensive names": "隱藏冒犯性名稱",
+  "Off by default. T (keyboard) or touchpad + L1 (pad: a list of short lines) writes to the party; lines show in your colour.": "預設關閉。按 T（鍵盤）或觸控板 + L1（手把：選擇短句清單中的內容）向隊伍傳送訊息；訊息以你的顏色顯示。",
+  "With party chat on: show the lines the other hunters write (off = mute them).": "開啟隊伍聊天時：顯示其他獵人傳送的訊息（關閉 = 將他們靜音）。",
+  "On: a hateful player name shows as Hunter and a short code on your screen (display only).": "開啟：含有仇恨內容的玩家名稱會在你的螢幕上顯示為 Hunter 和一段短代碼（僅影響顯示）。"
 }

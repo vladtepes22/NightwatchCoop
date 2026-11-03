@@ -2491,5 +2491,11 @@
   "Connect to the Nightwatch VPN first.": "先に Nightwatch VPN に接続してください。",
   "New": "新規",
   "Shape": "形状",
-  "Pick items or choose gem effects, then Add.": "アイテムまたは宝石の効果を選び、追加してください。"
+  "Pick items or choose gem effects, then Add.": "アイテムまたは宝石の効果を選び、追加してください。",
+  "Party chat": "パーティーチャット",
+  "Show others' chat": "他のプレイヤーのチャットを表示",
+  "Hide offensive names": "不適切な名前を非表示",
+  "Off by default. T (keyboard) or touchpad + L1 (pad: a list of short lines) writes to the party; lines show in your colour.": "初期設定ではオフ。T（キーボード）またはタッチパッド + L1（パッド：短文リスト）でパーティーに送信します。メッセージは自分の色で表示されます。",
+  "With party chat on: show the lines the other hunters write (off = mute them).": "パーティーチャットがオンの場合、他の狩人のメッセージを表示します（オフにするとミュート）。",
+  "On: a hateful player name shows as Hunter and a short code on your screen (display only).": "オン：憎悪表現を含むプレイヤー名を、自分の画面では Hunter と短いコードで表示します（表示のみ）。"
 }

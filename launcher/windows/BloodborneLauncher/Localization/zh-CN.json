@@ -2508,5 +2508,11 @@
   "Copy the saves from\n{0}\ninto {1}'s {2} saves?{3}": "要将以下位置的存档\n{0}\n复制到配置 {1} 的{2}存档中吗？{3}",
   "New": "新增",
   "Shape": "形状",
-  "Pick items or choose gem effects, then Add.": "选择物品或宝石效果，然后点击“添加”。"
+  "Pick items or choose gem effects, then Add.": "选择物品或宝石效果，然后点击“添加”。",
+  "Party chat": "队伍聊天",
+  "Show others' chat": "显示他人的聊天",
+  "Hide offensive names": "隐藏冒犯性名称",
+  "Off by default. T (keyboard) or touchpad + L1 (pad: a list of short lines) writes to the party; lines show in your colour.": "默认关闭。按 T（键盘）或触摸板 + L1（手柄：选择短句列表中的内容）向队伍发送消息；消息以你的颜色显示。",
+  "With party chat on: show the lines the other hunters write (off = mute them).": "开启队伍聊天时：显示其他猎人发送的消息（关闭 = 将他们静音）。",
+  "On: a hateful player name shows as Hunter and a short code on your screen (display only).": "开启：含有仇恨内容的玩家名称会在你的屏幕上显示为 Hunter 和一段短代码（仅影响显示）。"
 }

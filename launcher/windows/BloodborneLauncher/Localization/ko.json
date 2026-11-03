@@ -2491,5 +2491,11 @@
   "Connect to the Nightwatch VPN first.": "먼저 Nightwatch VPN에 연결하세요.",
   "New": "새 항목",
   "Shape": "형태",
-  "Pick items or choose gem effects, then Add.": "아이템이나 보석 효과를 선택한 후 추가하세요."
+  "Pick items or choose gem effects, then Add.": "아이템이나 보석 효과를 선택한 후 추가하세요.",
+  "Party chat": "파티 채팅",
+  "Show others' chat": "다른 플레이어의 채팅 표시",
+  "Hide offensive names": "불쾌한 이름 숨기기",
+  "Off by default. T (keyboard) or touchpad + L1 (pad: a list of short lines) writes to the party; lines show in your colour.": "기본값은 꺼짐입니다. T(키보드) 또는 터치패드 + L1(패드: 짧은 문장 목록)로 파티에 보냅니다. 메시지는 자신의 색상으로 표시됩니다.",
+  "With party chat on: show the lines the other hunters write (off = mute them).": "파티 채팅이 켜져 있을 때 다른 사냥꾼의 메시지를 표시합니다(끄면 차단).",
+  "On: a hateful player name shows as Hunter and a short code on your screen (display only).": "켜짐: 혐오 표현이 담긴 플레이어 이름을 자신의 화면에서 Hunter와 짧은 코드로 표시합니다(표시만 변경)."
 }
