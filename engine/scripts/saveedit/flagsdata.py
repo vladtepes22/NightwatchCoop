@@ -6,23 +6,27 @@ texts and NPC/boss names); this file holds only ids and the area of each (own st
   lamp flag 7AAB02nn   = the n-th lamp of map AAB (m24_01 = AAB 241); its warp-list text is menu id 7000AABn
                          (4 lamps of Central Yharnam = 70002410..13: lamp counts per area agree, and
                          72102410 "1st Floor Sickroom" -> lamp 2412950 in docs/party/travel.md)
-  boss kill flag 1AAB1800 -> the chr id of the boss, from docs/party/campaign_soak.md and event_flags.md
+  boss kill flag 1AAB1700 / 1AAB1800 / 1AAB1850 -> the chr id of the boss, from the EMEVD boss health-bar name (2003[11])
 """
-BOSS_IDS = (12101800, 12101850, 12201800, 12301800, 12401800, 12411800, 12421800, 12501800, 12601800,
-            12601850, 12701800, 12801800, 13201800, 13301800, 13401800, 13401850, 13501800, 13501850,
-            13601800)
+BOSS_IDS = (12101800, 12101850, 12201800, 12301700, 12301800, 12401800, 12411700, 12411800,
+            12421700, 12421800, 12501800, 12601800, 12601850, 12701800, 12801800, 13201800, 13301800,
+            13401800, 13401850, 13501800, 13501850, 13601800)
+# Map event 7100 calls provide the unlock ids; common event 7000 registers the lamp objects (2009[5]).
 LAMP_IDS = (72110200, 72200200, 72200201, 72300200, 72300201, 72300202, 72400200, 72400201, 72410200,
             72410201, 72410202, 72410203, 72420200, 72420201, 72420202, 72500200, 72500201, 72500202,
             72600200, 72600201, 72600202, 72600203, 72700200, 72700201, 72800200, 72800201, 72800202,
-            72800203)
+            72800203, 73200200, 73200201, 73200202, 73200203, 73300200, 73300201, 73400200, 73400201,
+            73400202, 73400203, 73500200, 73500201, 73500202, 73600200, 73600201, 73600202)
 ENDING_IDS = (21, 22, 23, 6600, 6601, 6602, 6603, 6604)
 ENDINGS_SEEN = {6600: "Yharnam Sunrise seen", 6601: "Honoring Wishes seen", 6602: "Childhood's Beginning seen",
                 6603: "Any ending seen"}
 # boss kill flag -> chr id in the game's NPC name list (None: no evidence which boss it is)
-BOSS_CHR = {12101800: 804000, 12101850: 540000, 12201800: 210000, 12301800: 209000, 12401800: 502000,
-            12411800: 271000, 12421800: 251000, 12501800: 232000, 12601800: 551000, 12601850: 899000,
+BOSS_CHR = {12101800: 804000, 12101850: 540000, 12201800: 210000, 12301700: 508000, 12301800: 209000,
+            12401800: 502000,
+            12411700: 500000, 12411800: 271000, 12421700: 257000, 12421800: 251000,
+            12501800: 232000, 12601800: 551000, 12601850: 899000,
             12701800: 212010, 12801800: 507000, 13201800: 510000, 13301800: 512000, 13401800: 451000,
-            13401850: 403000, 13501800: 452000, 13501850: None, 13601800: 453000}
+            13401850: 450000, 13501800: 452000, 13501850: 403000, 13601800: 453000}
 AREAS = {210: "Hunter's Dream", 211: "Abandoned Old Workshop", 220: "Hemwick Charnel Lane", 230: "Old Yharnam",
          240: "Cathedral Ward", 241: "Central Yharnam", 242: "Upper Cathedral Ward", 250: "Cainhurst",
          260: "Nightmare of Mensis", 270: "Forbidden Woods", 280: "Yahar'gul", 320: "Byrgenwerth",
@@ -43,6 +47,14 @@ def bosses(cat=None):
         name = (cat.boss_name(chr_id) if cat is not None and chr_id else None) or "Boss"
         out.append((f, group_of(f), f"{name} [{f}]"))
     return out
+
+
+def flag_group(fid):
+    """Flags edited together for a named boss or lamp."""
+    # m34: 13401800 and the arena events test 9471 instead of the kill-event flag.
+    if fid == 13401800:
+        return (13401800, 9471)
+    return lamp_group(fid)
 
 
 def lamp_group(fid):

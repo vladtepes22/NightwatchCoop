@@ -486,8 +486,8 @@ def test_flag_lists_match_party_session():
     from saveedit import flagsdata as F
     assert F.BOSS_IDS == ps.BOSS_FLAGS and F.LAMP_IDS == ps.LAMP_FLAGS and F.ENDING_IDS == ps.ENDING_FLAGS
     assert all(M.group_key(f) is not None for f in F.BOSS_IDS + F.LAMP_IDS + F.ENDING_IDS)
-    assert len(F.bosses()) == 19 and len(F.lamps()) == 28
-    assert F.lamps()[0][1] == "Abandoned Old Workshop" and F.bosses()[4][1:] == ("Cathedral Ward", "Boss [12401800]")
+    assert len(F.bosses()) == 22 and len(F.lamps()) == 44
+    assert F.lamps()[0][1] == "Abandoned Old Workshop" and next((g, l) for f, g, l in F.bosses() if f == 12401800) == ("Cathedral Ward", "Boss [12401800]")
     assert {g for _, g, _ in F.bosses() + F.lamps()} <= set(F.AREAS.values())
     assert M.group_key(12401800) == party_group(12401800)
 
@@ -629,3 +629,25 @@ def test_guest_written_save_is_edited_through_a_repaired_copy(user):
     assert se.world_empty(after) and S.open_slot(user, "party", 0).echoes == 777
     diff = [i for i, (a, b) in enumerate(zip(guest, after)) if a != b]
     assert 0 < len(diff) <= 4  # only the echoes changed; the game's own empty section is back
+
+
+def test_added_bosses_and_lamps():
+    from saveedit import flagsdata as F
+    assert {f: F.BOSS_CHR[f] for f in (12301700, 12411700, 12421700, 13501850, 13401850)} == {
+        12301700: 508000, 12411700: 500000, 12421700: 257000, 13501850: 403000, 13401850: 450000}
+    assert set(F.LAMP_IDS[28:]) == {73200200, 73200201, 73200202, 73200203, 73300200, 73300201,
+                                  73400200, 73400201, 73400202, 73400203, 73500200, 73500201,
+                                  73500202, 73600200, 73600201, 73600202}
+    assert F.lamp_group(73600202) == (13607850, 13607851, 73600202)
+    assert F.flag_group(13401800) == (13401800, 9471)
+    m = M.SaveModel(make_save())
+    parts = {x for f in F.BOSS_IDS + F.LAMP_IDS for x in F.flag_group(f)}
+    for x in parts:
+        assert M.group_key(x) is not None and M.group_key(x) == party_group(x)
+        m.set_flag(x, True)
+    m = M.SaveModel(m.to_bytes())
+    assert all(m.flag(x) for x in parts)
+    for x in parts:
+        m.set_flag(x, False)
+    m = M.SaveModel(m.to_bytes())
+    assert not any(m.flag(x) for x in parts)

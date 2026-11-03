@@ -342,7 +342,7 @@ and, separately, the raw pool (label suffix `-pool`, blocks numbered by `id/1000
 ## 11. Silent catch-up: boss flags of the current map (2026-10-11)
 
 A join snapshot applied in load mode 0 wrote the host's boss flags into a guest standing in that
-boss's map (a fresh guest in the clinic, m24_01: Cleric Beast 12411800). The map's boss event then
+boss's map (a fresh guest in the clinic, m24_01: Gascoigne 12411800). The map's boss event then
 sees the kill and plays it: "PREY SLAUGHTERED", the music change, its reward branch - without the
 guest having been there. `GuestApplier::Apply(store, policy, allow_mode0, map_id)` now holds back
 every `boss_defeated` flag whose id names the map the guest stands in (`HoldBossFlagInMode0`:
