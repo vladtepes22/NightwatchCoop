@@ -40,7 +40,6 @@ FACE_BEHIND_NAME = 34044 + 0x1C4  # the "FACE" block of the appearance sits this
 GA_START = 0x54
 GA_SLOTS = 4096
 GA_SIZES = {0x80: 60, 0x90: 60, 0xC0: 40}
-GA_GROW = 52  # a 60-byte record replaces an 8-byte empty slot
 GEAR_DURABILITY = 0xC8
 NORMAL_BEHIND_NAME = 0x1C4
 EMPTY_ID = 0xFFFFFFFF
@@ -409,13 +408,47 @@ class SaveModel:
         iid = (0x10000000 if category == 1 else 0) | number
         record = struct.pack("<5I", handle, iid, GEAR_DURABILITY, 0, 1) + struct.pack("<2I", NO_SLOT, 0) * 5
         assert len(record) == 60
+        self._insert_instance(first, entry, record, handle, iid)
+
+    def copy_gem(self, source_at):
+        """A loose copy of the gem or rune record at this offset, with its own handle. Copying keeps the type, shape
+        and hidden effects the game wrote, which a new record would have to guess."""
+        if self.d[source_at + 3] != 0xC0:
+            raise ValueError("not a gem record")
+        entry = self._free_entry()  # fails before anything moves
+        first, top = self._ga_walk()
+        if first is None or top >= 0xFFFF:
+            raise ValueError("the save has no free item slot")
+        handle = 0xC0800000 | (top + 1)
+        record = struct.pack("<I", handle) + bytes(self.d[source_at + 4:source_at + 40])
+        self._insert_instance(first, entry, record, handle, self.u32(source_at + 4))
+        return handle
+
+    def add_gem(self, gen, gem_type, shape, effects):
+        """A new loose blood gem (type 1) or rune (type 2). The caller picks a GemGen row that fits the shape and
+        checks the effects (Catalogue.blood_gem_gen / caryll_runes); this lays the record out like copy_gem's."""
+        if gem_type not in (1, 2) or not 1 <= len(effects) <= 6 or not 0 < gen < 0x10000000:
+            raise ValueError("not a gem or rune")
+        entry = self._free_entry()  # fails before anything moves
+        first, top = self._ga_walk()
+        if first is None or top >= 0xFFFF:
+            raise ValueError("the save has no free item slot")
+        handle = 0xC0800000 | (top + 1)
+        record = struct.pack("<10I", handle, 0x80000000 | gen, gem_type, shape, *(list(effects) + [0xFFFFFFFF] * (6 - len(effects))))
+        self._insert_instance(first, entry, record, handle, 0x80000000 | gen)
+        return handle
+
+    def _insert_instance(self, first, entry, record, handle, iid):
+        """Put a record in the empty slot at first and its inventory entry at entry. The file keeps its size: the
+        data behind the slot moves up and the same number of bytes leaves the end."""
+        grow = len(record) - 8  # the record replaces an 8-byte empty slot
         self.d[first:first + 8] = record
-        del self.d[-GA_GROW:]
-        self.name_at += GA_GROW
-        self.normal_at += GA_GROW
-        self.pool += GA_GROW
-        self.shift += GA_GROW
-        self._put_entry(entry + GA_GROW, handle, iid, 1)
+        del self.d[-grow:]
+        self.name_at += grow
+        self.normal_at += grow
+        self.pool += grow
+        self.shift += grow
+        self._put_entry(entry + grow, handle, iid, 1)
 
     def duplicate_keys(self):
         """Goods ids that have a stack in both key lists, or twice in one."""
