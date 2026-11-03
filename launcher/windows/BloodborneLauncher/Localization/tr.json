@@ -2491,5 +2491,11 @@
   "Connect to the Nightwatch VPN first.": "Önce Nightwatch VPN'e bağlan.",
   "New": "Yeni",
   "Shape": "Şekil",
-  "Pick items or choose gem effects, then Add.": "Eşyaları veya mücevher etkilerini seçip Ekle’ye basın."
+  "Pick items or choose gem effects, then Add.": "Eşyaları veya mücevher etkilerini seçip Ekle’ye basın.",
+  "Party chat": "Grup sohbeti",
+  "Show others' chat": "Diğerlerinin sohbetini göster",
+  "Hide offensive names": "Saldırgan adları gizle",
+  "Off by default. T (keyboard) or touchpad + L1 (pad: a list of short lines) writes to the party; lines show in your colour.": "Varsayılan olarak kapalı. T (klavye) veya dokunmatik yüzey + L1 (kontrolcü: kısa cümle listesi) gruba gönderir; mesajlar sizin renginizde görünür.",
+  "With party chat on: show the lines the other hunters write (off = mute them).": "Grup sohbeti açıkken diğer avcıların mesajlarını gösterir (kapalı = onları susturur).",
+  "On: a hateful player name shows as Hunter and a short code on your screen (display only).": "Açık: nefret içeren bir oyuncu adı ekranınızda Hunter ve kısa bir kod olarak görünür (yalnızca görüntüleme)."
 }

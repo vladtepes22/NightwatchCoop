@@ -9,7 +9,7 @@ limits, masking, the log), `party_chat_game.cpp` (box, send, receive), overlay `
 
 | What | Where |
 |---|---|
-| Party chat (default OFF) | `bbport.ini party_chat`, System > My party: Chat & names (Nightwatch: in-game menu only); `BB_PARTY_CHAT=0/1` over the setting |
+| Party chat (default OFF) | `bbport.ini party_chat`, System > My party: Chat & names (also My party on the launcher's Seamless page); `BB_PARTY_CHAT=0/1` over the setting |
 | Show others' chat (default on) | `party_chat_receive`, same pages. Off: others' lines are dropped on arrival (yours still show; the host still passes lines on) |
 | Chat key (default `T`) | `party_chat_key=<SDL key name>` in `bbport.ini`, `BB_PARTY_CHAT_KEY` over it |
 | Offensive words masked | `party_hide_bad_names` (the name filter's switch, default on): other players' lines only |

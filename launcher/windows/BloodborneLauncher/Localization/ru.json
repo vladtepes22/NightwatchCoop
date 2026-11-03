@@ -2491,5 +2491,11 @@
   "Connect to the Nightwatch VPN first.": "Сначала подключитесь к Nightwatch VPN.",
   "New": "Новое",
   "Shape": "Форма",
-  "Pick items or choose gem effects, then Add.": "Выберите предметы или эффекты самоцвета и нажмите «Добавить»."
+  "Pick items or choose gem effects, then Add.": "Выберите предметы или эффекты самоцвета и нажмите «Добавить».",
+  "Party chat": "Чат группы",
+  "Show others' chat": "Показывать чат других",
+  "Hide offensive names": "Скрывать оскорбительные имена",
+  "Off by default. T (keyboard) or touchpad + L1 (pad: a list of short lines) writes to the party; lines show in your colour.": "По умолчанию выключено. T (клавиатура) или сенсорная панель + L1 (геймпад: список коротких фраз) отправляет сообщение группе; оно отображается вашим цветом.",
+  "With party chat on: show the lines the other hunters write (off = mute them).": "При включённом чате группы: показывать сообщения других охотников (выключено = заглушить их).",
+  "On: a hateful player name shows as Hunter and a short code on your screen (display only).": "Включено: имя игрока с выражением ненависти отображается на вашем экране как Hunter с коротким кодом (только отображение)."
 }
