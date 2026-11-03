@@ -2436,7 +2436,7 @@
   "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Hier kannst du jeden Spielstand wiederherstellen, der vor dem Bearbeiten existierte. Beim Wiederherstellen werden alle Spielstand-Plätze des gewählten Charakters ersetzt.",
   "Add item": "Gegenstand hinzufügen",
   "Add": "Hinzufügen",
-  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Wähle einen oder mehrere Gegenstände und klicke auf Hinzufügen. Blutedelsteine und Runen können noch nicht hinzugefügt werden.",
+  "Pick one or more items, then Add. To get more of a blood gem or rune, use Copy on one you own.": "Wähle einen oder mehrere Gegenstände und dann Hinzufügen. Für weitere Blutedelsteine oder Runen nutze Kopieren bei einem, den du besitzt.",
   "The game's item list could not be read. Check the game folder in Settings.": "Die Gegenstandsliste des Spiels konnte nicht gelesen werden. Prüfe den Spielordner in den Einstellungen.",
   "The save already holds an item you picked: change its count in the list instead.": "Der Spielstand enthält einen gewählten Gegenstand bereits: Ändere stattdessen seine Anzahl in der Liste.",
   "Enter the host's party password if needed.": "Geben Sie das Party-Passwort des Hosts ein, falls nötig.",

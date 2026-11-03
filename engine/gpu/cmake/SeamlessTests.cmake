@@ -1,7 +1,7 @@
 # Seamless regression targets, carried from visy v0.6.5.
 enable_testing()
 file(GLOB PARTY_NET_SOURCES CONFIGURE_DEPENDS shim/net/*.cpp)
-set(PARTY_LINK_SOURCES shim/party/party_link.cpp shim/party/party_rudp.cpp
+set(PARTY_LINK_SOURCES shim/party/party_link.cpp shim/party/party_options.cpp shim/party/party_rudp.cpp
     shim/party/party_code.cpp shim/party/party_addr.cpp shim/party/party_crypto.cpp
     shim/party/party_lan.cpp shim/party/upnp_win.cpp shim/party/party_nat.cpp)
 add_executable(party-net-test EXCLUDE_FROM_ALL ../tests/test_party_net.cpp ${PARTY_NET_SOURCES})

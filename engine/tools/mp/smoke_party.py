@@ -3136,12 +3136,25 @@ def check_yj(v, L, d: Path):
 # the host shared progress, the guest had BB_PARTY_PROGRESS=0: refused as a generic mismatch). VM_MODE=follow
 # (default): the guest turns shared progress and cutscenes off and must still join (host-world hooks are not
 # part of the compatibility check). VM_MODE=refuse: the guest turns Guest lamps / Headstones off, the host
-# refuses it and the guest's party UI names both options with both values in plain words.
+# refuses it and the guest's party UI names both options with both values in plain words, says to restart and keeps the
+# host's values for the launcher (party_adopt.txt). VM_MODE=maxadopt (0.7.8 hostopts078, 4 players): the host has Max
+# players 4, the guests keep 3: they take the host's and all join.
 VM_REFUSE_RE = r"party options differ \(Guest lamps \(BB_PARTY_GUEST_LAMPS\): host ON, you OFF; Headstones \(BB_PARTY_HEADSTONES\): host ON, you OFF\)"
 
 
 def phase_vm(only):
-    refuse = os.environ.get("VM_MODE", "follow") == "refuse"
+    mode = os.environ.get("VM_MODE", "follow")
+    refuse = mode == "refuse"
+    if mode == "maxadopt":
+        # 0.7.8 (hostopts078): the host runs Max players 4, all three guests keep the default 3: they take the host's
+        # (WELCOME) and join; the 4th player gets in too (host counts 3 cooperators).
+        return dict(
+            name="vm", seconds=420, count=4, headless=2,
+            env=["BB_PARTY_HOLD_LOG=1"],
+            ienv=["0:BB_PARTY_MAX=4", "1:BB_PARTY_MAX=3", "2:BB_PARTY_MAX=3", "3:BB_PARTY_MAX=3"] +
+                 ["%d:BB_PARTY_DIRECTOR_TEST=god" % i for i in range(4)],
+            until=[r"0:cooperators 2 -> 3"], until_hold=15, crash=[],
+        )
     guest = ["1:BB_PARTY_GUEST_LAMPS=0", "1:BB_PARTY_HEADSTONES=0"] if refuse else ["1:BB_PARTY_PROGRESS=0", "1:BB_PARTY_STORY=0"]
     return dict(
         name="vm", seconds=180, count=2, headless=0,
@@ -3151,9 +3164,21 @@ def phase_vm(only):
 
 
 def check_vm(v, L, d: Path):
-    if os.environ.get("VM_MODE", "follow") == "refuse":
+    mode = os.environ.get("VM_MODE", "follow")
+    if mode == "maxadopt":
+        need(v, L, "vm maxadopt: the host runs Max players 4", 0, r"max players \d -> 4|up to 4 players")
+        for g in (1, 2, 3):
+            need(v, L, "vm maxadopt guest %d: takes the host's Max players (own setting 3)" % g, g, r"max players 3 -> 4 \(the host's setting\)")
+            need(v, L, "vm maxadopt guest %d: in the host's world" % g, g, r"guest services: open: guest in the host's")
+        need(v, L, "vm maxadopt: 4 players (host counts 3 cooperators)", 0, r"cooperators \d -> 3")
+        none_of(v, L, "vm maxadopt: nobody refused (no 'party rules differ' / mismatch)", r"version mismatch with the host|party rules differ|the host refused", insts=(0, 1, 2, 3))
+    elif mode == "refuse":
         need(v, L, "vm refuse: the guest is refused with both options named and both values", 1, VM_REFUSE_RE)
+        need(v, L, "vm refuse: the guest is told to restart (the host's values kept for the launcher)", 1,
+             r"host-owned options differ; kept the host's for the launcher's next join \(party_adopt\.txt\): .*headstones=1")
+        need(v, L, "vm refuse: the explanation is in the party status", 1, r"restart to join - the launcher uses the host's for your next join")
         none_of(v, L, "vm refuse: no internal hook names in the refusal", r"party patches differ", insts=(0, 1))
+        none_of(v, L, "vm refuse: the host's options prefix is not shown to the guest", r"\[host options:", insts=(1,))
         none_of(v, L, "vm refuse: the guest did not join", r"join: arrived \d+\.\d m from the host", insts=(1,))
     else:
         need(v, L, "vm follow: the guest with progress / story off joins the host", 1, r"join: arrived \d+\.\d m from the host")

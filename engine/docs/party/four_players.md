@@ -148,10 +148,14 @@ Switches: `BB_PARTY_FOURP=0` (nothing), `BB_PARTY_FOURP_SCALING=0` (no H2-H4),
 
 **Max players and the version check.** `party_runtime` sets `LinkConfig::rules` =
 `"max <BB_PARTY_MAX> players, <rule tag>"` (tag `4p:off` / `4p:v2:H1,H5,H2,H3,H4,E6`), sent last in
-HELLO and compared by `identity_mismatch` next to eboot / gameplay patches / gameplay mods: a
-guest with another max players or rule set gets a Mismatch REJECT "party rules differ (host max 4
-players, 4p:v1:...; yours max 3 players, ...)". So every player sets the same Max players (the
-launcher tooltip says so). The host's value also arrives in WELCOME and `FourpTick` applies it on
+HELLO and compared by `identity_mismatch` next to eboot / gameplay patches / gameplay mods. Since 0.7.8 (PR #24,
+hostopts078) the leading "max N players" is NOT compared: a guest with another Max players joins and takes the
+host's. Only a different rule set (`BB_PARTY_FOURP*`) gets a Mismatch REJECT "party rules differ". The hooks the
+4-player rules install (H1, H5, H6, P5...) are installed on every peer whatever its own max, so the hook set does
+not depend on it either. The host's value reaches the guest in three places: the discovery announcement's
+`max` (the launcher's Join list sets BB_PARTY_MAX for that launch), WELCOME (applied live by `FourpTick`,
+`EffectiveMaxPlayers`), and a Mismatch refusal's "[host options: max=4 ...]" prefix (party_options.h). See
+version_check.md "Host-owned options". The host's value also arrives in WELCOME and `FourpTick` applies it on
 a connected guest (`EffectiveMaxPlayers`), so H1/E6 follow the host; WELCOME arrives at the title
 screen (the network starts there), before a world loads.
 

@@ -2436,7 +2436,7 @@
   "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Düzenlemeden önceki kayıtları buradan geri yükleyebilirsin. Geri yükleme, seçili karakterin tüm kayıt yuvalarını değiştirir.",
   "Add item": "Eşya ekle",
   "Add": "Ekle",
-  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Bir veya daha fazla eşya seçip Ekle'ye bas. Kan taşları ve rünler henüz eklenemiyor.",
+  "Pick one or more items, then Add. To get more of a blood gem or rune, use Copy on one you own.": "Bir veya daha fazla eşya seçip Ekle'ye bas. Daha fazla kan mücevheri veya rün için sahip olduğun birinde Kopyala'yı kullan.",
   "The game's item list could not be read. Check the game folder in Settings.": "Oyunun eşya listesi okunamadı. Ayarlar'dan oyun klasörünü kontrol et.",
   "The save already holds an item you picked: change its count in the list instead.": "Kayıtta seçtiğin bir eşya zaten var: bunun yerine listeden adedini değiştir.",
   "Enter the host's party password if needed.": "Gerekirse sunucunun parti parolasını girin.",

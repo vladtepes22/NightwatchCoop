@@ -7,6 +7,8 @@
 //     [0xfa]['A'][ver 1][flags]  id u32  port u16  level u16  players u8  max u8
 //     build: u8 len + bytes   name: u8 len + bytes   area: u8 len + bytes
 //     flags bit 0: the party has a password; bit 1: an open party (party_open_rules.h: no password, plain address joins).
+//     bit 6 (0x40): the host-owned options follow in bits 2-5 (0.7.8, party_options.h): 2 Guest lamps, 3 Headstones,
+//     4 Guest services, 5 Shared enemy drop roll (1 = on). A guest's launcher copies them (and `max`) for its launch.
 //     Printable ASCII only; at most kMaxPacket bytes.
 //   Never the password, the party secret, a party code or an address (the receiver reads the host's
 //   address from the datagram's source). Parsing is strict: any length, version or character
@@ -41,6 +43,8 @@ struct Announce {
     bool password = false;
     bool open = false;
     std::string build;        // party build id (at most kMaxBuild characters)
+    bool opts = false;        // the host-owned options below are filled (flags bit 6)
+    bool lamps = false, headstones = false, talk = false, droproll = false;
     std::string name;         // host name (at most 16)
     std::string area;         // area name (at most 32)
 };

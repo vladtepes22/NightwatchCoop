@@ -4,7 +4,7 @@ using System.Net.Sockets;
 namespace BloodborneLauncher.Core;
 
 /// <summary>A party a host announced (the game's engine/gpu/shim/net/party_discovery.h, version 1).</summary>
-public sealed record PartyAnnounce(uint Id, int Port, int Level, int Players, int Max, bool Password, bool Open, string Build, string Name, string Area);
+public sealed record PartyAnnounce(uint Id, int Port, int Level, int Players, int Max, bool Password, bool Open, string Build, string Name, string Area, int Flags = 0);
 
 /// <summary>A party heard on the network: the announcement and the address of the host it came from.</summary>
 public sealed record FoundParty(PartyAnnounce Info, string Ip, long SeenMs)
@@ -36,7 +36,8 @@ public static class PartyDiscovery
     public static PartyAnnounce? Parse(ReadOnlySpan<byte> d)
     {
         if (d.Length < 17 || d.Length > MaxPacket) return null;
-        if (d[0] != 0xfa || d[1] != (byte)'A' || d[2] != 1 || (d[3] & ~3) != 0) return null;
+        if (d[0] != 0xfa || d[1] != (byte)'A' || d[2] != 1 || (d[3] & ~0x7f) != 0) return null;
+        if ((d[3] & 0x3c) != 0 && (d[3] & 0x40) == 0) return null;  // option bits only with the options flag
         var id = (uint)d[4] << 24 | (uint)d[5] << 16 | (uint)d[6] << 8 | d[7];
         var port = d[8] << 8 | d[9];
         var level = d[10] << 8 | d[11];
@@ -46,7 +47,7 @@ public static class PartyDiscovery
         if (!Text(d, ref pos, MaxBuild, out var build) || !Text(d, ref pos, MaxName, out var name) ||
             !Text(d, ref pos, MaxArea, out var area) || pos != d.Length || name.Length == 0)
             return null;
-        return new PartyAnnounce(id, port, level, players, max, (d[3] & 1) != 0, (d[3] & 2) != 0, build, name, area);
+        return new PartyAnnounce(id, port, level, players, max, (d[3] & 1) != 0, (d[3] & 2) != 0, build, name, area, d[3]);
     }
 
     private static bool Text(ReadOnlySpan<byte> d, ref int pos, int limit, out string text)
@@ -82,6 +83,38 @@ public static class PartyDiscovery
         savedCode.Trim().Equals(party.Address, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The launcher's Party size choice for a host's announced limit; null when it has no such choice (keep yours).</summary>
+    /// <summary>The host's options an announcement tells (party_options.h), as the variables of a guest's launch.</summary>
+    public static Dictionary<string, string> AdoptEnv(PartyAnnounce info)
+    {
+        var env = new Dictionary<string, string>();
+        if (PartySize(info.Max) is { } size) env["BB_PARTY_MAX"] = size;
+        if ((info.Flags & 0x40) == 0) return env;
+        env["BB_PARTY_GUEST_LAMPS"] = (info.Flags & 4) != 0 ? "1" : "0";
+        env["BB_PARTY_HEADSTONES"] = (info.Flags & 8) != 0 ? "1" : "0";
+        env["BB_PARTY_GUEST_TALK"] = (info.Flags & 16) != 0 ? "1" : "0";
+        env["BB_PARTY_SHARED_DROP_ROLL"] = (info.Flags & 32) != 0 ? "1" : "0";
+        return env;
+    }
+
+    /// <summary>party_adopt.txt, written by the game after a refused join: only known keys with their allowed values.</summary>
+    public static Dictionary<string, string> ParseAdopt(string text)
+    {
+        var env = new Dictionary<string, string>();
+        foreach (var line in text.Split('\n'))
+        {
+            var parts = line.Trim().Split('=', 2);
+            if (parts.Length != 2) continue;
+            var ok = parts[0] switch
+            {
+                "BB_PARTY_MAX" => PartySize(int.TryParse(parts[1], out var max) ? max : 0) == parts[1],
+                "BB_PARTY_GUEST_LAMPS" or "BB_PARTY_HEADSTONES" or "BB_PARTY_GUEST_TALK" or "BB_PARTY_SHARED_DROP_ROLL" => parts[1] is "0" or "1",
+                _ => false,
+            };
+            if (ok) env[parts[0]] = parts[1];
+        }
+        return env;
+    }
+
     public static string? PartySize(int max) => max is >= 2 and <= 5 ? max.ToString() : null;
 
     /// <summary>How a heard party is reached: "Nightwatch Online" on the tunnel, "VPN" on another VPN's network, else "LAN".</summary>

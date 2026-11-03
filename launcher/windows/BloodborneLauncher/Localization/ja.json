@@ -2436,7 +2436,7 @@
   "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "編集前のセーブデータをここから復元できます。復元すると、選択したキャラクターのすべてのセーブ枠が置き換えられます。",
   "Add item": "アイテムを追加",
   "Add": "追加",
-  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "アイテムを1つ以上選んで「追加」を押してください。血の宝石とルーンはまだ追加できません。",
+  "Pick one or more items, then Add. To get more of a blood gem or rune, use Copy on one you own.": "アイテムを1つ以上選んで追加します。血晶石やカレル文字を増やすには、所持しているものでコピーを使います。",
   "The game's item list could not be read. Check the game folder in Settings.": "ゲームのアイテム一覧を読み込めませんでした。設定でゲームフォルダを確認してください。",
   "The save already holds an item you picked: change its count in the list instead.": "選んだアイテムはすでにセーブにあります。一覧でその個数を変更してください。",
   "Enter the host's party password if needed.": "必要であれば、ホストのパーティパスワードを入力してください。",

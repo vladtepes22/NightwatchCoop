@@ -2436,7 +2436,7 @@
   "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Aquí puedes restaurar cualquier partida anterior a su edición. Al restaurar se sustituyen todas las ranuras del personaje seleccionado.",
   "Add item": "Añadir objeto",
   "Add": "Añadir",
-  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Elige uno o más objetos y pulsa Añadir. Las gemas de sangre y las runas aún no se pueden añadir.",
+  "Pick one or more items, then Add. To get more of a blood gem or rune, use Copy on one you own.": "Elige uno o más objetos y pulsa Añadir. Para tener más de una gema de sangre o runa, usa Copiar en una que tengas.",
   "The game's item list could not be read. Check the game folder in Settings.": "No se pudo leer la lista de objetos del juego. Revisa la carpeta del juego en Ajustes.",
   "The save already holds an item you picked: change its count in the list instead.": "La partida ya tiene un objeto que elegiste: cambia su cantidad en la lista.",
   "Enter the host's party password if needed.": "Introduce la contraseña de grupo del anfitrión si hace falta.",

@@ -63,7 +63,10 @@ bool get_str(const std::uint8_t* d, std::size_t n, std::size_t* pos, std::size_t
 }  // namespace
 
 std::vector<std::uint8_t> encode(const Announce& a) {
-    std::vector<std::uint8_t> v{0xfa, 'A', kVersion, static_cast<std::uint8_t>((a.password ? 1 : 0) | (a.open ? 2 : 0))};
+    std::vector<std::uint8_t> v{0xfa, 'A', kVersion, static_cast<std::uint8_t>((a.password ? 1 : 0) | (a.open ? 2 : 0) |
+                                                                (a.opts ? 0x40 | (a.lamps ? 4 : 0) | (a.headstones ? 8 : 0) | (a.talk ? 16 : 0) |
+                                                                            (a.droproll ? 32 : 0)
+                                                                       : 0))};
     for (int s = 24; s >= 0; s -= 8) v.push_back(static_cast<std::uint8_t>(a.id >> s));
     v.push_back(static_cast<std::uint8_t>(a.port >> 8));
     v.push_back(static_cast<std::uint8_t>(a.port));
@@ -79,10 +82,16 @@ std::vector<std::uint8_t> encode(const Announce& a) {
 
 bool parse(const std::uint8_t* d, std::size_t n, Announce* out) {
     if (!d || !out || n < 17 || n > kMaxPacket) return false;
-    if (d[0] != 0xfa || d[1] != 'A' || d[2] != kVersion || (d[3] & ~3) != 0) return false;
+    if (d[0] != 0xfa || d[1] != 'A' || d[2] != kVersion || (d[3] & ~0x7f) != 0) return false;
+    if ((d[3] & 0x3c) != 0 && (d[3] & 0x40) == 0) return false;  // option bits only with the options flag
     Announce a;
     a.password = (d[3] & 1) != 0;
     a.open = (d[3] & 2) != 0;
+    a.opts = (d[3] & 0x40) != 0;
+    a.lamps = (d[3] & 4) != 0;
+    a.headstones = (d[3] & 8) != 0;
+    a.talk = (d[3] & 16) != 0;
+    a.droproll = (d[3] & 32) != 0;
     a.id = (std::uint32_t(d[4]) << 24) | (std::uint32_t(d[5]) << 16) | (std::uint32_t(d[6]) << 8) | d[7];
     a.port = static_cast<std::uint16_t>((d[8] << 8) | d[9]);
     a.level = static_cast<std::uint16_t>((d[10] << 8) | d[11]);

@@ -2436,7 +2436,7 @@
   "You can restore any saves prior to editing them here. Restoring replaces all save slots for the selected character.": "Tutaj możesz przywrócić dowolny zapis sprzed edycji. Przywracanie zastępuje wszystkie miejsca zapisu wybranej postaci.",
   "Add item": "Dodaj przedmiot",
   "Add": "Dodaj",
-  "Pick one or more items, then Add. Blood gems and runes cannot be added yet.": "Wybierz jeden lub więcej przedmiotów i kliknij Dodaj. Krwawych klejnotów i run nie można jeszcze dodawać.",
+  "Pick one or more items, then Add. To get more of a blood gem or rune, use Copy on one you own.": "Wybierz jeden lub więcej przedmiotów, a potem Dodaj. Aby mieć więcej klejnotów krwi lub run, użyj Kopiuj na posiadanym.",
   "The game's item list could not be read. Check the game folder in Settings.": "Nie udało się odczytać listy przedmiotów gry. Sprawdź folder gry w Ustawieniach.",
   "The save already holds an item you picked: change its count in the list instead.": "Zapis ma już wybrany przedmiot: zmień jego liczbę na liście.",
   "Enter the host's party password if needed.": "W razie potrzeby wpisz hasło drużyny hosta.",
