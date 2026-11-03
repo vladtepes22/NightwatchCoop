@@ -154,6 +154,16 @@ std::vector<std::uint8_t> encode_announce(const Announce& a) {
 
 std::vector<std::uint8_t> encode_bye() { return {0xfa, 'L', 1, 4}; }
 
+std::vector<std::uint8_t> encode_announce_ext(const Announce& a) {
+    std::vector<std::uint8_t> v = {0xfa, 'L', 1, 7,
+                                   static_cast<std::uint8_t>((a.invaders ? 1 : 0) | (a.boss ? 2 : 0)),
+                                   static_cast<std::uint8_t>(a.area >> 24), static_cast<std::uint8_t>(a.area >> 16),
+                                   static_cast<std::uint8_t>(a.area >> 8), static_cast<std::uint8_t>(a.area),
+                                   static_cast<std::uint8_t>(a.phase <= 4 ? a.phase : 0),
+                                   static_cast<std::uint8_t>(a.ng <= 7 ? a.ng : 255)};
+    return v;
+}
+
 // is_tunnel_player_address: party_vpnlobby.h (10.8.0.0/22 minus the network, the server 10.8.0.1 and the
 // broadcast address).
 
@@ -266,10 +276,13 @@ void thread_main(Provider provider) {
                 }
             }
             // Every kAnnounceEveryMs, and at once when the state changed (a player joined, a new name).
-            const std::vector<std::uint8_t> pkt = encode_announce(a);
+            std::vector<std::uint8_t> pkt = encode_announce(a);
+            const std::vector<std::uint8_t> ext = encode_announce_ext(a);
+            if (!pkt.empty()) pkt.insert(pkt.end(), ext.begin(), ext.end());  // compared as one; sent as two datagrams
             if (route.sock != kBad && !pkt.empty() &&
                 (pkt != last_pkt || now - last_sent >= std::chrono::milliseconds(kAnnounceEveryMs))) {
-                send_to(route, pkt);
+                send_to(route, std::vector<std::uint8_t>(pkt.begin(), pkt.end() - static_cast<std::ptrdiff_t>(ext.size())));
+                send_to(route, ext);
                 last_pkt = pkt;
                 last_sent = now;
                 announced = true;

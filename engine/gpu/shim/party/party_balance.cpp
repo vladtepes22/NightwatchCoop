@@ -2205,6 +2205,17 @@ std::string DescribeKillEchoGates(u64 chr) {
 
 bool ChrHasLevelSync(u64 chr) { return chr && HasEffect(chr, levelsync::kLevelSyncEffect); }
 
+std::string DescribeBossHp(u64 chr, bool with_hp) {
+    if (!chr) return "not loaded";
+    const u64 dm = Field<u64>(Field<u64>(chr, 0x3b0), 0x20);
+    char b[160];
+    std::snprintf(b, sizeof b, "HP %d / max %d (base %d), doping 7500:%d 7501:%d 7502:%d",
+                  with_hp ? (dm ? Field<int>(dm, 0xf8, -1) : -1) : 0,
+                  dm ? Field<int>(dm, 0xfc, -1) : -1, dm ? Field<int>(dm, 0x100, -1) : -1, HasEffect(chr, 7500) ? 1 : 0,
+                  HasEffect(chr, 7501) ? 1 : 0, HasEffect(chr, 7502) ? 1 : 0);
+    return b;
+}
+
 int EnemyHp(u64 chr) {
     const u64 dm = Field<u64>(Field<u64>(chr, 0x3b0), 0x20);
     return dm ? Field<int>(dm, 0xf8, -1) : -1;

@@ -2652,5 +2652,10 @@ void StoryMemberJoined() {
     g_member_joined.store(true);
 }
 
+int WorldTodPhase() {
+    const int v = FlagValue(9800, 3);
+    return v < 0 ? -1 : TodFromFlagValue(v);
+}
+
 #endif // BB_PARTY_STORY_NO_GAME
 } // namespace coop

@@ -222,6 +222,14 @@ Before this work the party answered `word_search` / `random_join` with `{"ResKin
   (`dsummon::kMaxEmptyLoads`) stop the guest's ringing (notice; Party > Rejoin resets). Cause of the live loops: the
   "Unlock Game Region" patch (sell region 5, no ss.info URL: the game offline; from_api_schema.md 2.1), fixed by pointing
   region 5's URL at the others'. Smoke `caa`.
+* **Offline-mode guests stay out** (0.7.8, NW-cab726f): the Nightwatch log line "Online: offline mode" is printed by every Nightwatch start (its engine
+  has no shadNet; the party's own in-process server answers the FROM client), so it is NOT the cause. The cause is FrpgNetMan +8 clear:
+  +0xa clear = the game is in offline mode (the title's online step fell back / was skipped: `Party: online mode 1 -> 0`), +0xa set = the
+  login never finished (ss.info / region patch). Such a guest is not sent home when the host enters a dungeon (`ChaliceOfflineHold`:
+  SendHomeVeto drops OnLeave_Limit, ChaliceApartTick and Party > Rejoin do not leave), it keeps the notice (`OfflineMode` or `Offline`
+  text by +0xa) and follows the host out normally. Making the summon work offline is not feasible from a running world: 0x1e65290
+  needs the login (user id, session) that only the title's online chain 0x1c37b30 produces, which does not run again in a world.
+  `BB_PARTY_CHALICE_OFFLINE_HOLD=0` = old send-home; test aid `BB_PARTY_CHALICE_MSG_TEST=offline_mode`; smoke `camh`.
 * **No gather into a dungeon**: GatherGuest skips the gather while the host's map or lamp is in
   area 29 (it warped the guest to the host's dungeon lamp = its own slot's dungeon).
 * **The automatic flow**: host and guests are in the Hunter's Dream (B1 travel follows the host

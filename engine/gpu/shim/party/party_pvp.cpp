@@ -5,6 +5,8 @@
 #include "party_pvp_rules.h"
 #include "party_balance.h"
 #include "party_status.h"
+#include "party_invade.h"
+#include "party_hud.h"
 #include "party_async_io.h"
 #include "coop_hooks.h"
 #include "../bbport_settings.h"
@@ -193,6 +195,10 @@ void NpcApply() {
     Log("npc hit: a guest hits what the host hits: opened%s", opened.empty() ? " nothing" : opened.c_str());
 }
 
+std::string party_hud_name(u64 chr) {
+    return PartyHudChrName(chr);
+}
+
 std::atomic<bool> g_rule{false};
 std::atomic<bool> g_active{false};
 
@@ -223,6 +229,34 @@ struct SpareTeam {
 SpareTeam& SP() {
     static SpareTeam s;
     return s;
+}
+
+// ---- invaders (0.7.8, CL-4cc63c, docs/party/invasions.md) ----
+//
+// An invader is a red phantom: the host and the guests are its enemies, the map's enemies are not. The party link admits it
+// as a member whose chr is a cooperator (team 20) on every game, the same team as the guests. So its chr is moved to a spare
+// team whose three table rows and columns are a copy of team 23's (the map enemies: an enemy of the players' teams 19 and
+// 20, an ally of the enemies, and of itself), on every game: the host's and the guests' copy of it, and its own chr on its
+// own game. The hostility needs no friendly-fire rule (those cells stay shut) and ends with the invasion: the chr and the
+// cells go back. Which chr is the invader's: on its own game the local one; elsewhere the member whose name the host named.
+struct InvaderState {
+    int team = 0;
+    std::vector<Cell> cells;
+    u64 chr = 0;
+    u32 entity = 0;
+    int from = 0;
+    bool added_look = false;    // SpEffect 9026 (the red phantom look) was applied to the chr by this code
+    bool removed_coop = false;  // SpEffect 9006 (the cooperator look) was taken off the chr by this code
+    Clock::time_point scan_at{};
+    bool failed = false;
+    bool logged_chr = false;
+};
+InvaderState& IV() {
+    static InvaderState s;
+    return s;
+}
+int InvaderTeamInUse() {
+    return IV().team;
 }
 
 /// The party's player chrs on this game: the local one first, then the others (WorldChrMan's
@@ -301,7 +335,7 @@ bool SpareOpen() {
     if (!rel || !eff || !fr) return false;
     int x = 0;
     for (int t : kSpareTeams)
-        if (TeamIsDead(rel, eff, fr, t)) {
+        if (t != InvaderTeamInUse() && TeamIsDead(rel, eff, fr, t)) {
             x = t;
             break;
         }
@@ -385,6 +419,185 @@ void SpareScan(u64 wcm, const std::vector<u64>& players) {
         }
     }
     if (fresh || again) Log("npc teams: %d NPC chr(s) moved to team %d:%s%s", fresh, sp.team, ids.c_str(), again ? " (+ some moved again)" : "");
+}
+
+constexpr int kEnemyTeam = 23;  // the map's enemies: what the invader's team is copied from
+// The red phantom look is the game's own mechanism, a SpEffect (party_invade_rules.h): 9006 (cooperator, SFX 211, blue) on the
+// invader's chr on the other games is swapped for 9026 (the invader's, SFX 212), and its own chr gets 9026. Per chr, undone at the end.
+bool InvaderLook() {  // BB_PARTY_INVADE_LOOK=0 turns it off
+    static const bool on = [] {
+        const char* v = std::getenv("BB_PARTY_INVADE_LOOK");
+        return !(v && v[0] == '0');
+    }();
+    return on;
+}
+
+bool ChrSpEffectNode(u64 chr, int id, u64* node_out = nullptr) {
+    u64 node = Field<u64>(Field<u64>(chr, 0x1c8), 8);
+    for (int guard = 0; node && guard < 256; ++guard) {
+        if (Field<int>(node, 0x40, -1) == id) {
+            if (node_out) *node_out = node;
+            return true;
+        }
+        node = Field<u64>(node, 0x58);
+    }
+    return false;
+}
+bool ChrApplySpEffect(u64 chr, int id) {
+    u64 vt = 0, fn = 0;
+    if (!chr || !SafeGet(chr, &vt) || !vt || !SafeGet(vt + 0x3f0, &fn) || !fn) return false;
+    using Fn = void(BB_COOP_SYSV*)(u64, u64, u64, u64, u64, u64, u64, float, float, float, float, float);
+    reinterpret_cast<Fn>(fn)(chr, u64(id), chr, 0, 1, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+    return true;
+}
+bool ChrRemoveSpEffect(u64 chr, int id) {  // the game's RemoveSpEffect 0x17E1D90(list, node, 1)
+    u64 node = 0;
+    const u64 list = Field<u64>(chr, 0x1c8);
+    if (!list || !ChrSpEffectNode(chr, id, &node)) return false;
+    using Fn = void(BB_COOP_SYSV*)(u64, u64, u32);
+    reinterpret_cast<Fn>(Guest(0x17e1d90))(list, node, 1);
+    return true;
+}
+
+void InvaderRestoreChr(const char* why) {
+    InvaderState& iv = IV();
+    if (iv.chr && Field<u32>(iv.chr, 0x1f0, 0) == iv.entity) {
+        if (Field<u32>(iv.chr, kChrTeam, 0) == u32(iv.team)) {
+            const u32 t = u32(iv.from);
+            if (SafeWrite(iv.chr + kChrTeam, &t, 4)) Log("invader: its chr is back on team %d (%s)", iv.from, why);
+        }
+        const invade::LookBack b = invade::LookEnd(iv.added_look, iv.removed_coop, ChrSpEffectNode(iv.chr, invade::kInvaderLookEffect),
+                                                    ChrSpEffectNode(iv.chr, invade::kCoopLookEffect));
+        if (b.remove_invader && ChrRemoveSpEffect(iv.chr, invade::kInvaderLookEffect)) Log("invader: its red look (SpEffect %d) is off", invade::kInvaderLookEffect);
+        if (b.add_coop && ChrApplySpEffect(iv.chr, invade::kCoopLookEffect)) Log("invader: its cooperator look (SpEffect %d) is back", invade::kCoopLookEffect);
+    }
+    iv.added_look = iv.removed_coop = false;
+    iv.chr = 0;
+    iv.logged_chr = false;
+}
+
+void InvaderRestore(const char* why) {
+    InvaderState& iv = IV();
+    InvaderRestoreChr(why);
+    int restored = 0;
+    for (const Cell& c : iv.cells) {
+        u8 now = 0;
+        if (SafeGet(c.addr, &now) && now != c.orig && WriteByte(c.addr, c.orig)) ++restored;
+    }
+    if (!iv.cells.empty()) Log("invader: team %d closed: %d table cell(s) put back (%s)", iv.team, restored, why);
+    iv.cells.clear();
+    iv.team = 0;
+    iv.failed = false;
+}
+
+/// The invader's team X as a copy of team 23 (map enemies) in the three tables, X itself counting as 23.
+bool InvaderOpen() {
+    InvaderState& iv = IV();
+    if (iv.team) return true;
+    const u64 rel = RelationTable(), eff = Guest(kEffectTable), fr = Guest(kFriendTable);
+    if (!rel || !eff || !fr) return false;
+    int x = 0;
+    for (int t : kSpareTeams)
+        if (t != SP().team && TeamIsDead(rel, eff, fr, t)) {
+            x = t;
+            break;
+        }
+    if (!x) {
+        if (!iv.failed) Log("invader: no spare team is free (22, 5): the invader stays on its team and is not hostile");
+        iv.failed = true;
+        return false;
+    }
+    int written = 0;
+    for (const u64 base : {rel, eff, fr}) {
+        const auto at = [&](int a, int b) { return base + u64(a) * kTeams + u64(b); };
+        u8 row[kTeams]{}, col[kTeams]{};
+        bool ok = true;
+        for (int k = 0; k < kTeams && ok; ++k) {
+            ok = SafeGet(at(kEnemyTeam, k), &row[k]) && SafeGet(at(k, kEnemyTeam), &col[k]);
+        }
+        if (!ok) continue;
+        for (int k = 0; k < kTeams; ++k) {
+            const int kk = k == x ? kEnemyTeam : k;
+            for (int dir = 0; dir < 2; ++dir) {
+                if (dir == 1 && k == x) continue;
+                Cell c;
+                c.addr = dir == 0 ? at(x, k) : at(k, x);
+                const u8 want = dir == 0 ? row[kk] : col[kk];
+                if (!SafeGet(c.addr, &c.orig) || c.orig == want) continue;
+                c.a = dir == 0 ? x : k, c.b = dir == 0 ? k : x;
+                c.table = base == rel ? "relation" : base == eff ? "effect" : "friend";
+                if (!WriteByte(c.addr, want)) continue;
+                iv.cells.push_back(c);
+                ++written;
+            }
+        }
+    }
+    iv.team = x;
+    Log("invader: team %d is a copy of team %d, the map's enemies (%d table cell(s) written)", x, kEnemyTeam, written);
+    return true;
+}
+
+/// Every frame in a party session with an invasion: the invader's chr on its team. `active`: a session in a loaded world.
+void InvaderTick(bool active, u64 player) {
+    InvaderState& iv = IV();
+    const std::string name = invade::InvaderName();
+    const bool local = invade::LocalIsInvader();
+    if (!active || (name.empty() && !local)) {
+        if (iv.team || iv.chr) InvaderRestore(!active ? "no party session / loading" : "the invasion is over");
+        return;
+    }
+    if (!InvaderOpen()) return;
+    const u64 wcm = Slot(kSlotWorldChrMan);
+    const auto now = Clock::now();
+    u64 chr = 0;
+    if (local) {
+        chr = Field<u64>(wcm, 0x60);
+    } else if (now - iv.scan_at >= std::chrono::milliseconds(250) || !iv.chr) {
+        iv.scan_at = now;
+        const std::vector<u64> chrs = PlayerChrs(wcm);
+        for (std::size_t i = 1; i < chrs.size(); ++i)
+            if (party_hud_name(chrs[i]) == name) chr = chrs[i];
+        if (!chr && iv.chr) chr = iv.chr;
+    } else {
+        chr = iv.chr;
+    }
+    if (!chr) return;
+    const u32 ent = Field<u32>(chr, 0x1f0, 0);
+    if (chr != iv.chr || ent != iv.entity) {
+        InvaderRestoreChr("another chr");
+        iv.chr = chr;
+        iv.entity = ent;
+        iv.from = static_cast<int>(Field<u32>(chr, kChrTeam, 0));
+        if (iv.from == iv.team) iv.from = kGuestTeam;
+        iv.logged_chr = false;
+    }
+    {  // evidence: this game's own HP while an invasion is on (the duel's hits and the fall)
+        static u64 last_player = 0;
+        static int last_hp = -1;
+        const int hp = Field<int>(Field<u64>(Field<u64>(player, 0x3b0), 0x20), 0xf8, -1);
+        if (player == last_player && hp >= 0 && last_hp >= 0 && hp < last_hp) Log("invader: own HP %d -> %d%s", last_hp, hp, hp == 0 ? " (dead)" : "");
+        last_player = player;
+        last_hp = hp;
+    }
+    if (InvaderLook()) {  // the red phantom's look: SpEffect 9026 in place of the cooperator's 9006
+        const invade::LookStep st = invade::LookNow(ChrSpEffectNode(chr, invade::kCoopLookEffect), ChrSpEffectNode(chr, invade::kInvaderLookEffect));
+        if (st.remove_coop && ChrRemoveSpEffect(chr, invade::kCoopLookEffect)) {
+            iv.removed_coop = true;
+            Log("invader: chr %x cooperator look (SpEffect %d) off", ent, invade::kCoopLookEffect);
+        }
+        if (st.add_invader && ChrApplySpEffect(chr, invade::kInvaderLookEffect)) {
+            iv.added_look = true;
+            Log("invader: chr %x red look (SpEffect %d) on (%s)", ent, invade::kInvaderLookEffect, local ? "this game's own" : "a remote member's");
+        }
+    }
+    if (Field<u32>(chr, kChrTeam, 0) != u32(iv.team)) {
+        const u32 t = u32(iv.team);
+        if (SafeWrite(chr + kChrTeam, &t, 4) && !iv.logged_chr) {
+            iv.logged_chr = true;
+            Log("invader: chr %x (%s) moved from team %d to team %d", ent, local ? "this game's own" : "a remote member's", iv.from,
+                iv.team);
+        }
+    }
 }
 
 void Restore(State& st, const char* why) {
@@ -583,6 +796,10 @@ void TestTick(State& st, const GameSnapshot& s, bool session, bool host) {
     }
     if (!steady || st.taps_left > 0 || st.next >= st.steps.size()) return;
     const TestStep& step = st.steps[st.next];
+    if (step.kind == TestStep::Kind::Invader && !IV().chr) {  // waits for the invader's chr; its delay counts from then
+        st.step_at = now;
+        return;
+    }
     if (std::chrono::duration<double>(now - st.step_at).count() < step.delay) return;
     ++st.next;
     st.step_at = now;
@@ -624,6 +841,9 @@ void TestTick(State& st, const GameSnapshot& s, bool session, bool host) {
         Log("test: step %zu: own HP %d -> %d%s", st.next, before, v, ok ? "" : " FAILED");
         break;
     }
+    case TestStep::Kind::Invader:
+        Log("test: step %zu: the invader's chr %x is on team %d here", st.next, Field<u32>(IV().chr, 8, 0), IV().team);
+        break;
     case TestStep::Kind::Log:
         Log("test: step %zu: %s; rule %s, active %s, %zu cell(s) open;%s", st.next, st.teams_line.c_str(),
             g_rule.load() ? "on" : "off", g_active.load() ? "yes" : "no", st.cells.size(),
@@ -662,6 +882,7 @@ void Tick(const GameSnapshot& s, bool host) {
     TestTick(st, s, session, host);
     if (!NpcHitDisabled() && session && in_world) NpcApply();
     else if (!N().cells.empty()) NpcRestore(NpcHitDisabled() ? "BB_PARTY_NPC_HIT=0" : !session ? "no party session" : "loading");
+    InvaderTick(session && in_world, s.player);  // 0.7.8: an invader is hostile whatever the friendly-fire rule says
     if (Disabled()) return;
 
     if (!rule || !session || !in_world) {

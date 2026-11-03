@@ -32,6 +32,11 @@ the refusal names each known option in plain words with both values (`hook_optio
 services, Shared enemy drop roll, 4-player rules): `party options differ (Guest lamps (BB_PARTY_GUEST_LAMPS): host ON, you OFF):
 change it in System > Party or the launcher so it matches the host`; a difference with an unknown hook keeps the old list of names.
 
+### Invaders (0.7.8)
+
+The HELLO has one more trailing byte, the role (0 cooperator, 1 invader; docs/party/invasions.md). The identity check above
+runs for an invader first, with the same named refusal; only then the host's invader gate (REJECT `Invasion`) is asked.
+
 ### Not compared: party text chat (0.7.8)
 
 Party chat (`docs/party/chat.md`) adds no game hook, no link message type and no compared setting. Its lines travel as the EVENT

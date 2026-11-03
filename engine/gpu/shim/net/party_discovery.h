@@ -10,6 +10,10 @@
 //     bit 6 (0x40): the host-owned options follow in bits 2-5 (0.7.8, party_options.h): 2 Guest lamps, 3 Headstones,
 //     4 Guest services, 5 Shared enemy drop roll (1 = on). A guest's launcher copies them (and `max`) for its launch.
 //     Printable ASCII only; at most kMaxPacket bytes.
+//   extension (0.7.8, its own datagram right after every announce; a listener that does not know it drops it as junk, the
+//   old list keeps working): [0xfa]['I'][ver 1] id u32  flags u8 (bit 0: the host allows invaders, bit 1: a boss fight)
+//   area u32 (the host's map id 0xAABBCCDD, 0 unknown)  phase u8 (0 unknown, 1 day, 2 evening, 3 night, 4 Blood Moon)
+//   ng u8 (0 = NG, 1..7 = NG+n, 255 unknown); 14 bytes. Nothing that names a player or a place to the metre.
 //   Never the password, the party secret, a party code or an address (the receiver reads the host's
 //   address from the datagram's source). Parsing is strict: any length, version or character
 //   violation drops the packet. A listener ignores its own id and rate-limits per source.
@@ -47,7 +51,20 @@ struct Announce {
     bool lamps = false, headstones = false, talk = false, droproll = false;
     std::string name;         // host name (at most 16)
     std::string area;         // area name (at most 32)
+    // 0.7.8 extension (above)
+    bool invaders = false, boss = false;
+    std::uint32_t area_id = 0;
+    std::uint8_t phase = 0, ng = 255;
 };
+struct AnnounceExt {
+    std::uint32_t id = 0;
+    bool invaders = false, boss = false;
+    std::uint32_t area_id = 0;
+    std::uint8_t phase = 0, ng = 255;
+};
+std::vector<std::uint8_t> encode_ext(const Announce& a);  // 14 bytes
+// Strict: exactly 14 bytes, magic / version, no unknown flag bit, phase <= 4, ng <= 7 or 255.
+bool parse_ext(const std::uint8_t* d, std::size_t n, AnnounceExt* out);
 
 // Printable ASCII only; longer strings are cut, other bytes become '?'. The bytes to broadcast.
 std::vector<std::uint8_t> encode(const Announce& a);

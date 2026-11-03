@@ -1,5 +1,6 @@
 #include "bbport_write_log.h"
 #include "bbport_gnm_hooks.h"
+#include "party/auto_hud.h"
 #include "bbport_overlay.h"
 #include "map/map_page.h"
 #include "bbport_settings.h"
@@ -508,6 +509,7 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbGxQueryGuard::Install();  // every mode: an occlusion query without a handle is skipped (visy CL-9666e3)
     BbGameMenu::PatchImage(image, size);
     coop::lamptravel::Install(image, size);
+    coop::autohud::Install();  // the auto-hide HUD (visy 0.7.8; setting off by default)
     coop::b2::InstallOwnWorldTypeGuard();  // own-world chr type repair, every mode (party save played offline)
     if (coop::PartyRequested()) { coop::PartyInit(image, size); bbnet_start(); }
     coop::MarkImageHooksDone();  // the party version check hashes the installed hooks after this

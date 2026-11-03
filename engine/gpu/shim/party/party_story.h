@@ -544,6 +544,8 @@ bool PopGuestStoryUp(StoryIntent* out);
 bool HostStoryFromGuest(int slot, const std::string& body, std::string* why);
 /// Host, any thread: a member joined (its catch-up gets the host's time of day, e.g. the Blood Moon).
 void StoryMemberJoined();
+/// Main thread: this world's time of day, 0 morning / day, 1 evening, 2 night, 3 Blood Moon (the 9800..9802 flags), -1 unknown.
+int WorldTodPhase();
 /// The guest is replaying a story item (hold the bell / rejoin).
 bool StoryBusy();
 /// BB_PARTY_STORY_TEST is set (single instance test; the party layer must start for it).

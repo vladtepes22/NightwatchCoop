@@ -977,6 +977,31 @@ static void test_discovery() {
     CHECK(t[1].source == ipv4("26.41.7.9") && t[1].broadcast == ipv4("26.255.255.255"));
     LanAdapter nomask = lan; nomask.mask = 0;
     CHECK(targets_for({nomask}).empty());
+    // 0.7.8 extension: a datagram of its own that an old listener drops as junk; strict on its own parser
+    {
+        Announce x;
+        x.id = 0xdeadbeefu; x.invaders = true; x.boss = true; x.area_id = 0x1c010000u; x.phase = 4; x.ng = 2;
+        const auto e = encode_ext(x);
+        CHECK(e.size() == 14 && e[1] == 'I');
+        AnnounceExt o;
+        CHECK(parse_ext(e.data(), e.size(), &o) && o.id == 0xdeadbeefu && o.invaders && o.boss && o.area_id == 0x1c010000u &&
+              o.phase == 4 && o.ng == 2);
+        Announce plain;
+        plain.id = 7; plain.port = 9307; plain.players = 1; plain.max_players = 4; plain.name = "Alice"; plain.build = "0.7.8";
+        Announce parsed;
+        CHECK(!parse(e.data(), e.size(), &parsed));                       // an old listener: junk, dropped
+        const auto pk = encode(plain);
+        CHECK(!parse_ext(pk.data(), pk.size(), &o));                      // and the other way round
+        auto bad = e; bad[7] = 4;  CHECK(!parse_ext(bad.data(), bad.size(), &o));   // unknown flag bit
+        bad = e; bad[12] = 5;      CHECK(!parse_ext(bad.data(), bad.size(), &o));   // phase out of range
+        bad = e; bad[13] = 8;      CHECK(!parse_ext(bad.data(), bad.size(), &o));   // ng out of range
+        bad = e; bad[2] = 2;       CHECK(!parse_ext(bad.data(), bad.size(), &o));   // version
+        bad = e; bad.push_back(0); CHECK(!parse_ext(bad.data(), bad.size(), &o));   // trailing byte
+        CHECK(!parse_ext(e.data(), 13, &o));
+        x.phase = 9; x.ng = 9;
+        const auto e3 = encode_ext(x);
+        CHECK(e3[12] == 0 && e3[13] == 255);
+    }
     std::printf("party discovery: ok\n");
 }
 
@@ -986,9 +1011,20 @@ static void test_vpnlobby() {
     using namespace bbnet::lobby;
     Announce a;
     a.name = "Alice"; a.port = 9307; a.players = 1; a.max_players = 4; a.password = true; a.build = "0.7.7 (abc)";
+    a.invaders = true; a.area = 0x1c010000u; a.phase = 4; a.ng = 1;
     const std::vector<std::uint8_t> want = {0xfa, 0x4c, 0x01, 0x01, 0x01, 0x24, 0x5b, 0x01, 0x04, 0x0b, 0x30, 0x2e, 0x37,
                                             0x2e, 0x37, 0x20, 0x28, 0x61, 0x62, 0x63, 0x29, 0x05, 0x41, 0x6c, 0x69, 0x63, 0x65};
     CHECK(encode_announce(a) == want);
+    // the extension: flags, map id, phase, NG cycle; out-of-range values become "unknown"
+    {
+        Announce x = a;
+        x.invaders = true; x.boss = true; x.area = 0x1c010000u; x.phase = 4; x.ng = 1;
+        const std::vector<std::uint8_t> e = {0xfa, 0x4c, 0x01, 0x07, 0x03, 0x1c, 0x01, 0x00, 0x00, 0x04, 0x01};
+        CHECK(encode_announce_ext(x) == e);
+        x.invaders = false; x.boss = false; x.phase = 9; x.ng = 8;
+        const auto e2 = encode_announce_ext(x);
+        CHECK(e2[4] == 0 && e2[9] == 0 && e2[10] == 255);
+    }
     CHECK((encode_bye() == std::vector<std::uint8_t>{0xfa, 0x4c, 0x01, 0x04}));
     CHECK(encode_announce(a).size() <= 512);
     // refused: no name, port < 1024, bad slots
@@ -1046,6 +1082,9 @@ static void test_vpnlobby() {
     std::uint8_t buf[600];
     int n = ::recv(ls, reinterpret_cast<char*>(buf), sizeof(buf), 0);
     CHECK(n == static_cast<int>(want.size()) && std::memcmp(buf, want.data(), want.size()) == 0);
+    // 0.7.8: the extension follows as its own datagram (type 7)
+    n = ::recv(ls, reinterpret_cast<char*>(buf), sizeof(buf), 0);
+    CHECK(n == 11 && buf[3] == 7 && buf[4] == 1 && buf[5] == 0x1c && buf[6] == 0x01 && buf[8] == 0 && buf[9] == 4 && buf[10] == 1);
     hosting = false;
     n = ::recv(ls, reinterpret_cast<char*>(buf), sizeof(buf), 0);
     CHECK(n == 4 && buf[3] == 4);

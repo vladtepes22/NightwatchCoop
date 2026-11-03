@@ -240,6 +240,7 @@ std::string RejectText(RejectCode code, const std::string& reason) {
     case RejectCode::Version: return reason.empty() ? "different party protocol version" : reason;
     case RejectCode::Mismatch: return "host refused: " + (reason.empty() ? std::string("different game") : reason);
     case RejectCode::Name: return reason.empty() ? "name refused" : reason;
+    case RejectCode::Invasion: return "invasion refused: " + (reason.empty() ? std::string("not now") : reason);
     default: return reason.empty() ? "refused by the host" : reason;
     }
 }
@@ -288,6 +289,10 @@ std::string RefusalNotice(RejectCode code, const std::string& reason) {
     case RejectCode::Kicked:
         title = "The host removed you from the party";
         todo = "System > Party > Rejoin the host asks to join again.";
+        break;
+    case RejectCode::Invasion:
+        title = reason.empty() ? "The invasion is over" : "The invasion is over: " + reason;
+        todo = "Pick another game in the launcher's list, or try again later.";
         break;
     case RejectCode::Name:
         title = reason.empty() ? "Your party name was refused" : "Party name refused: " + reason;

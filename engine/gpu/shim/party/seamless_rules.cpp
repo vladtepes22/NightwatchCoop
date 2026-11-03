@@ -644,6 +644,20 @@ BB_COOP_SYSV u8 EmevdDispatch(u64 self, u64 event, float dt) {
     if (instr && !skip && ((bank == 2007 && id == 2) || (bank == 2003 && (id == 12 || id == 15 || id == 53)))) {
         g_banner_at.store(SteadyNow(), std::memory_order_relaxed);
     }
+    if (instr && !skip && bank == 2003 && id == 12) {
+        // 0.7.8 (Ludwig wipe report, a "PREY SLAUGHTERED" with the boss alive): which game's defeat event ran, for
+        // which entity, with or without a bar up. At most 12 lines a run.
+        static std::atomic<int> defeats{0};
+        if (defeats.fetch_add(1) < 12) {
+            u8 a[8] = {};
+            u32 asz = 0;
+            const u64 at = EmevdInstructionArgs(event, instr, &asz);
+            Log("boss defeat processing 2003[12] on this game (%s): event %d, entity %d, boss bar %s",
+                LocalSessionRole() == 6 ? "guest" : "host or alone", event_id,
+                at && asz >= 4 && SafeRead(at, a, 4) ? *reinterpret_cast<const i32*>(a) : -1,
+                g_boss_bar.load() ? "up" : "down");
+        }
+    }
     if (instr && !skip && bank == 2003 && (id == 12 || id == 15 || id == 53) && g_boss_bar.exchange(false)) {
         g_boss_bar_slots.store(0, std::memory_order_relaxed);
         Log("boss health bar: off (a boss defeat, event %d 2003[%d])", event_id, id);

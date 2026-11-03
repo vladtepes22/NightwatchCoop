@@ -30,6 +30,7 @@
 // is unit-tested (tests/test_party_items.cpp, built with BB_PARTY_ITEMS_NO_GAME).
 #pragma once
 
+#include "party_give_rules.h"
 #include "net/json.h"
 
 #include <cstddef>
@@ -765,5 +766,19 @@ bool PopGuestGift(std::string* body);
 /// Host: EVENT gift_up from `slot` (link thread): validated, rate limited, queued for the tick.
 bool OnHostGiftUp(int slot, const std::string& body, std::string* why);
 #endif
+
+// ---- 0.7.8 give items to a party member (party_give.cpp; the rules are party_give_rules.h) ----
+/// The param facts (EquipParamGoods maxNum / goodsType / maxRepositoryNum) and the inventory count of goods `id`, and
+/// whether a quick-item slot holds it. False when the param row or the inventory cannot be read yet.
+bool ReadGiveFacts(std::uint32_t id, give::GoodsFacts* out);
+/// Room left in the own storage box for goods `id` (the game's own check); -1 unknown.
+int GiveStorageRoom(std::uint32_t id);
+/// Receiver: gives `n` of goods `id`: into the inventory with the native item-get dialog, past the inventory's
+/// maximum through the award's give list (rest into the storage box). Returns how many arrived (inventory plus
+/// storage, counted before and after), -1 when the give is not available. `dialog` false: no dialog (a give back).
+int GiveGoodsToOwn(std::uint32_t id, int n, bool dialog);
+/// Giver: takes `n` of goods `id` out of the inventory; returns how many the inventory really lost (counted before
+/// and after), -1 when unavailable.
+int TakeGoodsFromOwn(std::uint32_t id, int n);
 
 } // namespace coop

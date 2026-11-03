@@ -346,5 +346,33 @@
         "cooperators 0 -> 1"
       ]
     ]
+  },
+  "invade": {
+    "about": "visy 0.7.8 invasions (docs/party/invasions.md): the host has a password and Allow invaders on; the second game starts as an invader (BB_PARTY_INVADE=1, no password, what the launcher's Invade button sets), is admitted past the password and stands in the host's world.",
+    "seconds": 240,
+    "host": "",
+    "guest": "",
+    "host_env": {
+      "BB_PARTY_PASSWORD": "qa-invade-secret",
+      "BB_PARTY_INVADERS": "1"
+    },
+    "guest_env": {
+      "BB_PARTY_INVADE": "1",
+      "BB_PARTY_PASSWORD": ""
+    },
+    "expect": [
+      [
+        "guest",
+        "Party: invade: this game invades the host's world"
+      ],
+      [
+        "host",
+        "Party: invade: an invader is admitted into slot \\d+"
+      ],
+      [
+        "host",
+        "Party: invade: invader slot \\d+: in the world"
+      ]
+    ]
   }
 }

@@ -23,9 +23,11 @@
 #include "party_fourp.h"
 #include "party_progress.h"
 #include "party_split.h"
+#include "party_give.h"
 #include "party_gather.h"
 #include "party_vote.h"
 #include "party_stayhome.h"
+#include "party_invade.h"
 #include "party_desync.h"
 #include "party_travel.h"
 #include "party_worldact.h"
@@ -1339,6 +1341,14 @@ LinkCallbacks make_callbacks(bool host) {
                 coop::ping::OnEvent(slot, body);
                 return;
             }
+            if (name == coop::give::kEventName) {  // give items: a guest's offer / answer, relayed by the tick (party_give.h)
+                coop::give::OnEvent(slot, body);
+                return;
+            }
+            if (name == coop::invade::kFellEvent) {  // the invader says it fell (party_invade.h)
+                coop::invade::OnEvent(slot, name, body);
+                return;
+            }
             if (name == party::chat::kEventName) {  // a guest's chat line (party_chat.h): relayed by the tick
                 coop::chat::OnEvent(slot, body);
                 return;
@@ -1502,6 +1512,14 @@ LinkCallbacks make_callbacks(bool host) {
             }
             if (name == party::ping::kEventName) {  // a member's ping (I2, party_ping.h)
                 coop::ping::OnEvent(slot, body);
+                return;
+            }
+            if (name == coop::give::kEventName) {  // give items: the host's relay or its own message (party_give.h)
+                coop::give::OnEvent(slot, body);
+                return;
+            }
+            if (name == coop::invade::kEventName) {  // the host's invasion state: coming / in / over (party_invade.h)
+                coop::invade::OnEvent(slot, name, body);
                 return;
             }
             if (name == party::chat::kEventName) {  // a member's chat line (party_chat.h)
@@ -1882,6 +1900,14 @@ void start_host(LinkConfig cfg) {
             a.talk = ho.talk == 1;
             a.droproll = ho.droproll == 1;
         }
+        {  // 0.7.8: invasions and where the host is (party_invade.h); the flag is false whenever the switch is off
+            const coop::invade::Where w = coop::invade::Announced();
+            a.invaders = w.allow && w.invadable;
+            a.boss = w.boss;
+            a.area_id = w.area;
+            a.phase = w.phase;
+            a.ng = w.ng;
+        }
         *out = a;
         return true;
     });
@@ -1909,6 +1935,14 @@ void start_host(LinkConfig cfg) {
         for (const RosterEntry& e : l->roster()) players += e.connected ? 1 : 0;
         a.max_players = static_cast<std::uint8_t>(std::clamp(l->max_players(), 1, 8));
         a.players = static_cast<std::uint8_t>(std::clamp(players, 1, static_cast<int>(a.max_players)));
+        {  // 0.7.8: the invader flag and where the host is (party_invade.h)
+            const coop::invade::Where w = coop::invade::Announced();
+            a.invaders = w.allow && w.invadable;
+            a.boss = w.boss;
+            a.area = w.area;
+            a.phase = w.phase;
+            a.ng = w.ng;
+        }
         *out = a;
         return true;
     });
@@ -2952,6 +2986,11 @@ void startup_main() {
                  waited);
     }
     hook_identity(cfg);
+    // 0.7.8 invasions: the host asks the gate for every invader HELLO; a guest started by the launcher's Invade button joins
+    // as an invader (never a password: the link ignores it for that role).
+    cfg.invader_gate = coop::invade::Gate;
+    cfg.invader = !host && coop::invade::JoinAsInvader();
+    if (cfg.invader) cfg.password.clear();
     plog("%s %s, port %u, up to %d players; version check: eboot %s..., patches %s..., mods %s... (%s)%s",
          host ? "host" : "guest", cfg.name.c_str(), cfg.port, cfg.max_players, hex_prefix(cfg.eboot_sha256).c_str(),
          hex_prefix(cfg.patches_hash).c_str(), hex_prefix(cfg.mods_hash).c_str(), what.c_str(),

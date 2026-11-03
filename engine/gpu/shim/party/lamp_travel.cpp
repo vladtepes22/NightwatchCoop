@@ -7,6 +7,7 @@
 #include "game_state.h"
 #include "lamp_travel_rules.h"
 #include "mirror_frame.h"
+#include "auto_hud.h"
 #include "party_async_io.h"
 #include "party_b2.h"
 #include "party_balance.h"
@@ -1033,6 +1034,7 @@ bool RequestMapTravel(std::uint32_t return_point) {
 void Tick() {
     warper::Tick();  // the world warper (solo; nothing while it is off)
     mirror::Tick();  // the Dream mirror's editor frame (solo and party)
+    autohud::Tick();  // the auto-hide HUD (solo and party; nothing while the setting is off)
     if (!g_on.load(std::memory_order_relaxed)) return;
     const double now = Now();
     const GameSnapshot s = ReadGameState(false);

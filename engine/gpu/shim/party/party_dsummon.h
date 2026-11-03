@@ -53,7 +53,9 @@ enum class Kind { None, Req, Room, Done, Busy, Stuck };
 Kind KindOf(const std::string& body);
 
 /// Why a guest's Chalice summons cannot work (player-facing notices below).
-enum class StuckWhy { Empty, Offline };
+/// Offline = the game's FROM client never logged in although the title chose online (a region / online patch, a failed ss.info);
+/// OfflineMode = the game is in offline mode (FrpgNetMan +0xa clear: started or fallen back offline at the title).
+enum class StuckWhy { Empty, Offline, OfflineMode };
 
 
 /// A11: why the host holds every join now. Prologue / OtherMap: playtest 1, only as the "wait"
@@ -215,17 +217,39 @@ inline const char* OfflineBody() {
            "The likely cause is a patch that changes the region or online settings, for example Unlock Game Region. Turn it "
            "off, restart the game and try again. Send your logs if it keeps happening.";
 }
+inline const char* OfflineModeTitle() { return "This game is in offline mode"; }
+inline const char* OfflineModeBody() {
+    return "Chalice Dungeons with a party need the game online, and this game is in offline mode (started offline, or it fell "
+           "back to offline at the title). You stay in the host's world until the host leaves the dungeon. To join the "
+           "dungeon, restart the game and wait at the title until it goes online. Send your logs if it keeps happening.";
+}
 inline std::string GuestNotice(StuckWhy w) {
-    return w == StuckWhy::Offline ? std::string(OfflineTitle()) + "\n" + OfflineBody()
-                                  : std::string(StopTitle()) + "\n" + StopBody();
+    return w == StuckWhy::OfflineMode ? std::string(OfflineModeTitle()) + "\n" + OfflineModeBody()
+           : w == StuckWhy::Offline   ? std::string(OfflineTitle()) + "\n" + OfflineBody()
+                                      : std::string(StopTitle()) + "\n" + StopBody();
 }
 inline std::string HostNotice(StuckWhy w, const std::string& name) {
     const std::string who = name.empty() ? "A guest" : name;
+    if (w == StuckWhy::OfflineMode)
+        return std::string("Chalice summon stopped for a guest\n") + who +
+               "'s game is in offline mode, so it cannot join your Chalice Dungeon. They stay in your previous map and "
+               "follow you out again when you leave the dungeon; they can restart the game online to join.";
     return std::string("Chalice summon stopped for a guest\n") + who +
            std::string(w == StuckWhy::Offline ? "'s game is offline, so it cannot be summoned into your Chalice Dungeon (it would load empty)."
                                    : "'s game loaded your Chalice Dungeon empty twice, so summons for that guest stopped.") +
            " A patch that changes the region or online settings (for example Unlock Game Region) on their PC is the likely "
            "cause. They can turn it off, or use Party > Rejoin to try again.";
+}
+/// The cause of a game without the channel request, from FrpgNetMan +0xa (the title's online choice; 0xff = not readable):
+/// clear = the game is in offline mode, else the login did not finish (patch / server).
+constexpr StuckWhy OfflineWhy(unsigned title_online_flag) {
+    return title_online_flag == 0 ? StuckWhy::OfflineMode : StuckWhy::Offline;
+}
+/// A guest whose game cannot make the channel request (FrpgNetMan +8 clear) is not sent home when the host enters a Chalice
+/// Dungeon and is not left to the apart-tick's send-home: the summon could not bring it in (it would load empty), so it stays
+/// where it is with the notice and follows the host out again. `enabled` is BB_PARTY_CHALICE_OFFLINE_HOLD (default on).
+constexpr bool HoldOfflineGuest(bool enabled, unsigned online_flag, bool host_in_dungeon) {
+    return enabled && host_in_dungeon && online_flag == 0;
 }
 constexpr bool StopAfterEmptyLoads(int empty_loads) { return empty_loads >= kMaxEmptyLoads; }
 /// The empty-load count after a look at the guest's state: it is in a known dungeon map (the dungeon came) or the host is not

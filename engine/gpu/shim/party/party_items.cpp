@@ -5209,6 +5209,68 @@ void ItemsTick() {
     }
 }
 
+// ---- 0.7.8 give items to a party member (party_give.cpp) ----
+
+bool ReadGiveFacts(std::uint32_t id, give::GoodsFacts* out) {
+    LotSlotState s;
+    s.category = 4;
+    s.id = static_cast<std::int32_t>(id);
+    FillGoodsLimits(&s);
+    out->id = id;
+    out->held = s.owned;
+    out->max_num = s.max_num;
+    out->max_storage = s.max_storage;
+    out->goods_type = s.goods_type;
+    out->quick = false;
+    for (int slot = 0; slot < 6; ++slot) {
+        if (QuickItemId(slot) == id) {
+            out->quick = true;
+        }
+    }
+    return s.owned >= 0 && s.max_num >= 0 && s.goods_type >= 0;
+}
+
+int GiveStorageRoom(std::uint32_t id) {
+    return StorageRoom(id);
+}
+
+int GiveGoodsToOwn(std::uint32_t id, int n, bool dialog) {
+    const u32 bits = 0x40000000u;
+    const int inv0 = ItemCount(bits, id);
+    const int box0 = StorageItemCount(bits, id);
+    if (inv0 < 0 || n <= 0) {
+        return -1;
+    }
+    give::GoodsFacts f;
+    ReadGiveFacts(id, &f);
+    const bool over = f.max_num > 0 && inv0 + n > f.max_num;
+    bool ok = false;
+    if (over) {
+        ok = GiveGoodsViaList(id, n);  // fills the inventory, the rest into the storage box; queues its own dialog
+    } else {
+        ok = GiveItem(bits, id, n);
+        if (ok && dialog) {
+            ShowItemGet(bits, id, n);
+        }
+    }
+    if (!ok) {
+        return -1;
+    }
+    const int inv1 = ItemCount(bits, id);
+    const int box1 = StorageItemCount(bits, id);
+    return (inv1 - inv0) + (std::max(box1, 0) - std::max(box0, 0));
+}
+
+int TakeGoodsFromOwn(std::uint32_t id, int n) {
+    const u32 bits = 0x40000000u;
+    const int before = ItemCount(bits, id);
+    if (before < 0 || n <= 0 || !GiveItem(bits, id, -n)) {
+        return -1;
+    }
+    const int after = ItemCount(bits, id);
+    return after < 0 ? -1 : before - after;
+}
+
 #endif // BB_PARTY_ITEMS_NO_GAME
 
 } // namespace coop

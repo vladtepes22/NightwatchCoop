@@ -264,6 +264,23 @@ inline std::vector<std::uint32_t> LitFlagsOfLampLit(std::uint32_t id) {
     return LitFlags((id - 70000000u) / 10000u, id % 10000u - 200u);
 }
 
+/// Set once a save's lamps were checked for a lamp-lit flag without its object flags (HostLampRepairTick, 0.7.8, GitHub
+/// issue #28); in the item ledger's flag range (60009000..60009999), below the character id bits (60009974..60009994).
+constexpr std::uint32_t kRepairMarker = 60009973u;
+
+/// The lamp any one of whose lit flags (base+10, base+11, 7AAB02xx) is `id`: its LitFlags (empty for any other id).
+/// 0.7.8 (GitHub issue #28): a lamp written into a world or a save from ANY of its flags is written whole; a
+/// 7AAB02xx alone (the lamp is in the travel list, but its object reads "not kindled") is a lamp that cannot be used.
+inline std::vector<std::uint32_t> WholeLampOfFlag(std::uint32_t id) {
+    if (const std::vector<std::uint32_t> w = LitFlagsOfLampLit(id); !w.empty()) return w;
+    if (id < 10000000u || id >= 20000000u) return {};
+    const std::uint32_t aab = id / 10000u % 1000u, k = id % 10000u;
+    if (k < 7810u || k >= 7810u + 20u * 20u) return {};
+    const std::uint32_t off = (k - 7800u) % 20u;
+    if (off != 10u && off != 11u) return {};
+    return LitFlags(aab, (k - 7810u) / 20u);
+}
+
 /// The last-lamp guard (0.7.2 player report: "died in the research hall and respawned at the lamp
 /// above the elevator, which I had not lit"). Lighting a lamp makes it the last lamp (GSM +0x1528
 /// {return point, anim}, the respawn record +0x1538 / +0x153C) of every game that sees its lit flag
@@ -359,6 +376,25 @@ std::vector<std::uint32_t> MissingFromLit(std::uint32_t aab, std::uint32_t n, Sr
         if (!dst(id)) {
             out.push_back(id);
         }
+    }
+    return out;
+}
+
+/// The save repair for a lamp that is lit but cannot be used (GitHub issue #28): its lamp-lit flag 7AAB02xx is set
+/// and its object flag base+10 is not (every lamp the game lights itself has both). base+11 is set with it, but a
+/// lamp lit by the game alone can lack it (real saves: Cathedral Ward's second lamp), so it never triggers a repair.
+/// Only the lamp-lit flag counts: an object flag alone is a legal state (the Sickroom lamp's 12417810 is set by the
+/// first Dream arrival, 9401, long before the lamp is lit). Returns the flags to set.
+template <class IsSetFn>
+std::vector<std::uint32_t> HalfLitRepair(std::uint32_t aab, std::uint32_t n, IsSetFn is_set) {
+    std::vector<std::uint32_t> out;
+    const std::vector<std::uint32_t> f = LitFlags(aab, n);
+    if (!is_set(f[2]) || is_set(f[0])) {
+        return out;
+    }
+    out.push_back(f[0]);
+    if (!is_set(f[1])) {
+        out.push_back(f[1]);
     }
     return out;
 }

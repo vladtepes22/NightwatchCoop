@@ -40,6 +40,13 @@ inline bool GlowOff(bool setting, const char* env, bool party_mode) {
     return setting;
 }
 
+/// The row of SpEffect 9026: the invader's red look (party_invade_rules.h). Companions without the glow must not hide it: the
+/// invader is not a companion and has to be recognisable, so this row keeps its SFX while the invader look is on.
+inline constexpr std::uint32_t kInvaderRow = 276;
+inline bool RowOff(std::uint32_t row, bool off, bool invader_look) {
+    return off && !(row == kInvaderRow && invader_look);
+}
+
 /// The midstSfxId to write to a glow row holding `current`: `vanilla` or kNoSfx as `off` wants;
 /// `current` itself (nothing to write) when it already is that, or when it is neither (another
 /// mod's value: left alone).

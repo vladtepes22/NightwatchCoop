@@ -165,6 +165,9 @@ struct Values {
     /// list, name tags, notices. Display only: the party itself still sees the real name. ini party_hide_bad_names,
     /// env BB_PARTY_HIDE_BAD_NAMES. Live. ON by default (safety), unlike other new party features.
     std::atomic<bool> party_hide_bad_names{true};
+    /// Overhead name tags in each member's party colour (the party panel's / chat's MemberColour) with a strong outline,
+    /// instead of the plate's blue (ini party_name_colours; off by default, 0.7.8). Live, local.
+    std::atomic<bool> party_name_colours{false};
     /// I2: every party member on this map drawn through walls as a small marker with its distance
     /// in its colour (ini party_through_walls; off by default: busy next to the name plates). Live.
     std::atomic<bool> party_through_walls{false};
@@ -173,6 +176,10 @@ struct Values {
     /// 2026-10-20); the bloodstain and its echoes are there either way (ini party_stain_marker; env
     /// BB_PARTY_STAIN_MARKER overrides). Live, local.
     std::atomic<bool> party_stain_marker{false};
+    /// Auto-hide HUD (visy 0.7.8, CL-7d51fe; party/auto_hud.h): the game's HP / stamina bars, item slots and the echoes /
+    /// Insight counters fade out while nothing happens and come back on damage, stamina use, a fight, a lock-on, an
+    /// equipment change or a menu, like Elden Ring's "HUD: Auto". Off by default (ini auto_hide_hud; env BB_AUTO_HUD=0/1). Live.
+    std::atomic<bool> auto_hide_hud{false};
     /// The party HUD board shows each member's round-trip time in ms after the name, green / yellow / red
     /// by quality (ini party_hud_ping, default on). Live, local.
     std::atomic<bool> party_hud_ping{true};
@@ -222,6 +229,10 @@ struct Values {
     /// and VPN subnets. ini party_open, env BB_PARTY_OPEN. Live. Off by default, so hosting with no password stays
     /// code only until the player asks for it.
     std::atomic<bool> party_open{false};
+    /// 0.7.8 (CL-4cc63c): "Allow invaders" (party/party_invade_rules.h, docs/party/invasions.md): the HOST lets other players
+    /// join its world as hostile phantoms from the public lists (VPN lobby / LAN discovery). Only the host's value counts. ini
+    /// party_invaders, env BB_PARTY_INVADERS. Live. Off by default.
+    std::atomic<bool> party_invaders{false};
     /// 0.7.7 (CL-2eec68): splitscreen mode for several windows on one screen (party/party_splitscreen_rules.h): the party
     /// HUD shows only the compass, no name tags, party messages cut to errors. Each player's own. ini
     /// party_splitscreen, env BB_PARTY_SPLITSCREEN. Live. Off by default.
@@ -240,6 +251,10 @@ struct Values {
     /// rune) is given (party/party_item_notice_rules.h). Per player; shows only while the party notices
     /// (party_toasts) are on. ini party_item_notices. Live.
     std::atomic<bool> party_item_notices{true};
+    /// 0.7.8: give items to a party member (party/party_give_rules.h): the Insert menu's Party tab lists the own
+    /// consumables and sends one to a member through a two-phase transfer. The giver's switch shows the list, the
+    /// receiver's is its consent. Per player. OFF by default. ini party_give_items; env BB_PARTY_GIVE_ITEMS=1 wins.
+    std::atomic<bool> party_give_items{false};
     /// Party gameplay switches (the launcher's Party Rules / My Party tabs, the game's party pages in
     /// System; PartySwitches below): ini key = the member's name, env BB_PARTY_* = 0/1 wins at start.
     /// On by default. Load puts each value into the process environment when its variable is unset,

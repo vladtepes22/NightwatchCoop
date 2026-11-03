@@ -94,11 +94,13 @@ std::string EncodeBusy(Busy b) { return std::string("{\"op\":\"dsum_busy\",\"wai
 std::string EncodeDone(bool ok) { return ok ? "{\"op\":\"dsum_done\",\"ok\":1}" : "{\"op\":\"dsum_done\",\"ok\":0}"; }
 
 std::string EncodeStuck(StuckWhy why) {
-    return std::string("{\"op\":\"dsum_stuck\",\"why\":\"") + (why == StuckWhy::Offline ? "offline" : "empty") + "\"}";
+    return std::string("{\"op\":\"dsum_stuck\",\"why\":\"") + (why == StuckWhy::Empty ? "empty" : "offline") +
+           (why == StuckWhy::OfflineMode ? "\",\"mode\":1}" : "\"}");
 }
 bool DecodeStuck(const std::string& body, StuckWhy* why) {
     if (KindOf(body) != Kind::Stuck) return false;
-    *why = body.find("\"why\":\"offline\"") != std::string::npos ? StuckWhy::Offline : StuckWhy::Empty;
+    *why = body.find("\"why\":\"offline\"") == std::string::npos ? StuckWhy::Empty
+           : body.find("\"mode\":1") != std::string::npos ? StuckWhy::OfflineMode : StuckWhy::Offline;
     return true;
 }
 
