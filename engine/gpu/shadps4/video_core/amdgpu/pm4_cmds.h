@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstring>
 #include "common/assert.h"
 #include "common/bit_field.h"
@@ -654,7 +655,9 @@ struct PM4CmdRewind {
     };
 
     bool Valid() const {
-        return valid;
+        // The guest sets the bit while we poll it (upstream c64a1e0a, Mrsuss60).
+        return (std::atomic_ref<u32>{const_cast<u32&>(raw)}.load(std::memory_order_acquire) >>
+                31) != 0;
     }
 };
 
