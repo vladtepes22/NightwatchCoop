@@ -32,8 +32,17 @@ public sealed class SeamlessPage : LauncherPage
             new[] { new Choice(L.T("Single player"), ""), new Choice(L.T("Host"), "host"), new Choice(L.T("Join"), "join") }, "party_mode",
             changed: () => { ShowMode(); RunCheck(); }, buttons: true);
         var party = Rows(InParty);
-        TextRow(SymbolRegular.Person24, L.T("Your name"), L.T("1–16 letters, numbers, underscores or hyphens."), L.T("Hunter"),
-            () => SeamlessSettings.Name(S), v => S.Set("party_name", v), party);
+        var nameBox = TextRow(SymbolRegular.Person24, L.T("Your name"), L.T("1–16 letters, numbers, underscores or hyphens."), L.T("Hunter"),
+            () => SeamlessSettings.Name(S), v => S.Set("party_name", SeamlessSettings.SanitizeName(v)), party);
+        nameBox.MaxLength = 16;
+        nameBox.TextChanged += (_, _) =>
+        {
+            var clean = SeamlessSettings.SanitizeName(nameBox.Text);
+            if (clean == nameBox.Text) return;
+            var caret = nameBox.CaretIndex;
+            nameBox.Text = clean;
+            nameBox.CaretIndex = Math.Min(caret, clean.Length);
+        };
         _checkBanner = CheckBanner();
         _checkPanel.Children.Add(_checkBanner);
         var host = Rows(Hosting);
@@ -89,10 +98,25 @@ public sealed class SeamlessPage : LauncherPage
         var joinVpn = VpnBar();
         joinVpn.Margin = new Thickness(0, 4, 0, 10);
         Add(Card(SymbolRegular.People24, L.T("Lobbies available to me, through Nightwatch Online / VPN / LAN"), null,
-            new StackPanel { Children = { joinVpn, Row(_searchBox, SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24, (_, _) => RefreshLists())) } },
+            new StackPanel { Children = { joinVpn, Row(_searchBox, LobbyFilter(L.T("Hide full"), "lobby_hide_full"), LobbyFilter(L.T("Hide wrong build"), "lobby_hide_wrong_build"), LobbyFilter(L.T("No password"), "lobby_no_password"), SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24, (_, _) => RefreshLists())) } },
             out _partiesHint, wide: true), found);
         found.Children.Add(_lobbyHint);
-        _lobbyList = new StackPanel(); found.Children.Add(_lobbyList);
+        found.Children.Add(_lobbyCount);
+        _lobbyList = new StackPanel();
+        _lobbyScroll = new ScrollViewer { Content = _lobbyList, MaxHeight = 324,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        _lobbyScroll.PreviewMouseWheel += (_, e) =>
+        {
+            if ((e.Delta > 0 && _lobbyScroll.VerticalOffset <= 0)
+                || (e.Delta < 0 && _lobbyScroll.VerticalOffset >= _lobbyScroll.ScrollableHeight))
+            {
+                e.Handled = true;
+                if (_lobbyScroll.Parent is UIElement parent)
+                    parent.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+                    { RoutedEvent = UIElement.MouseWheelEvent, Source = parent });
+            }
+        };
+        found.Children.Add(_lobbyScroll);
         _partyList = new StackPanel(); found.Children.Add(_partyList);
         Rows(Joining).Children.Add(_joinChecks);  // right above the password in the fold below
         var byCode = Fold(L.T("Join by host code or address"), Joining);
@@ -299,6 +323,16 @@ public sealed class SeamlessPage : LauncherPage
     private string _lobbySignature = "\0";
     private readonly TextBlock _lobbyHint = Text("", "Faint");
     private readonly StackPanel _lobbyList;
+    private readonly ScrollViewer _lobbyScroll;
+    private readonly TextBlock _lobbyCount = Text("", "Faint");
+
+    private System.Windows.Controls.CheckBox LobbyFilter(string label, string key)
+    {
+        var box = new System.Windows.Controls.CheckBox { Content = label, IsChecked = S.Bool(key),
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        box.Click += (_, _) => { S.Set(key, box.IsChecked == true); Ws.SaveSoon(); RefreshLobby(); RefreshParties(); };
+        return box;
+    }
     private readonly Wpf.Ui.Controls.Button? _vpnButton;
     private readonly TextBlock? _vpnHint;
     private readonly VpnConnection _vpn = new();
@@ -696,7 +730,7 @@ public sealed class SeamlessPage : LauncherPage
     private static string VpnMessage(VpnException e) => e.Failure switch
     {
         VpnFailure.Blocked => L.T("This install is blocked."),
-        VpnFailure.RateLimited => L.T("The VPN server asks to wait before trying again. Minutes left: ") + Math.Max(1, e.RetryAfterSeconds / 60),
+        VpnFailure.RateLimited => NightwatchVpn.FormatSignUpLimit(e.RetryAfterSeconds),
         VpnFailure.PinMismatch => L.T("The VPN server could not prove who it is, so nothing was sent."),
         VpnFailure.Unreachable => L.T("Could not reach the VPN server. Check your connection and try again."),
         VpnFailure.Protect => L.T("Could not read the VPN keys for this Windows user."),
@@ -781,11 +815,15 @@ public sealed class SeamlessPage : LauncherPage
         var up = test || VpnLobby.TunnelIp(_adapters) != null;
         var games = VpnLobby.Rows(_lobby?.Games ?? new List<LobbyGame>(), test).Where(g => CoopHostMode.MatchesSearch(g.Name, _searchBox.Text)).ToList();
         var prefix = PartyDiscovery.BuildPrefix(Updater.ReleaseVersion());
-        var signature = _searchBox.Text + "|" + up + "|" + (_lobby?.Answered == true) + "|" + string.Join(";", games.Select(g => $"{g.Name}/{g.Ip}/{g.Port}/{g.Players}/{g.Max}/{g.Build}/{g.Password}"));
+        var result = LobbyListRules.Apply(games, prefix, S.Bool("lobby_hide_full"), S.Bool("lobby_hide_wrong_build"), S.Bool("lobby_no_password"));
+        games = result.Games;
+        var signature = result.Total + "|" + result.Hidden + "|" + _searchBox.Text + "|" + up + "|" + (_lobby?.Answered == true) + "|" + string.Join(";", games.Select(g => $"{g.Name}/{g.Ip}/{g.Port}/{g.Players}/{g.Max}/{g.Build}/{g.Password}"));
         if (signature == _lobbySignature) return;
         _lobbySignature = signature;
         SetHint(_lobbyHint, !up ? L.T("Connect to the Nightwatch VPN to see its games.") : !(_lobby?.Answered == true) ? L.T("Waiting for the lobby…") :
-            games.Count == 0 ? (_searchBox.Text.Trim().Length > 0 ? L.T("No matching parties.") : L.T("No games on the Nightwatch VPN right now.")) : "");
+            result.Total == 0 ? (_searchBox.Text.Trim().Length > 0 ? L.T("No matching parties.") : L.T("No games on the Nightwatch VPN right now.")) : "");
+        SetHint(_lobbyCount, string.Format(L.T("{0} lobbies, {1} hidden"), result.Total, result.Hidden));
+        var offset = _lobbyScroll.VerticalOffset;
         _lobbyList.Children.Clear();
         foreach (var game in games)
         {
@@ -800,6 +838,8 @@ public sealed class SeamlessPage : LauncherPage
                           (sameVersion ? "" : "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.")));
             _lobbyList.Children.Add(row);
         }
+        _lobbyScroll.UpdateLayout();
+        _lobbyScroll.ScrollToVerticalOffset(offset);
     }
 
     /// <summary>A solid padlock: thick shackle, square body with rounded bottom corners, keyhole cut through.</summary>

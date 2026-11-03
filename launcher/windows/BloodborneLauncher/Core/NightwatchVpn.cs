@@ -134,6 +134,23 @@ public static class NightwatchVpn
     /// <summary>This PC's clock against the server's, from its last reply this run.</summary>
     public static TimeSpan? ClockSkew { get; private set; }
 
+    public static int SignUpRetrySeconds(double? retryAfterSeconds, string reply)
+    {
+        if (retryAfterSeconds is > 0 && double.IsFinite(retryAfterSeconds.Value))
+            return (int)Math.Min(int.MaxValue, Math.Ceiling(retryAfterSeconds.Value));
+        var match = Regex.Match(reply, @"(?:minutes\s+left\s*[:=]?\s*(\d+)|(\d+)\s*minutes?)", RegexOptions.IgnoreCase);
+        var digits = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+        return double.TryParse(digits, out var minutes) && minutes > 0
+            ? (int)Math.Min(int.MaxValue, Math.Ceiling(minutes * 60)) : 3600;
+    }
+
+    public static string FormatSignUpLimit(int seconds) =>
+        string.Format(seconds < 3600
+            ? L.T("Sign-up limit reached, try again in about {0} minutes.")
+            : L.T("Sign-up limit reached, try again in about {0} hours."),
+            Math.Max(1, Math.Ceiling(seconds / (seconds < 3600 ? 60.0 : 3600.0))))
+        + " " + L.T("Ask in the Nightwatch Discord if this keeps happening.");
+
     private static async Task<JsonElement> PostAsync(VpnEndpoint endpoint, string path, object body)
     {
         if (Now < Interlocked.Read(ref _waitUntil)) throw new VpnException(VpnFailure.RateLimited, (int)(_waitUntil - Now));
@@ -160,7 +177,19 @@ public static class NightwatchVpn
             var status = (int)reply.StatusCode;
             if (status == 429)
             {
-                var wait = (int?)reply.Headers.RetryAfter?.Delta?.TotalSeconds ?? 3600;
+                var retry = reply.Headers.RetryAfter;
+                var seconds = retry?.Delta?.TotalSeconds
+                    ?? (retry?.Date is { } date ? (date - (reply.Headers.Date ?? DateTimeOffset.UtcNow)).TotalSeconds : (double?)null);
+                var bodyText = "";
+                if (seconds is not > 0 && reply.Content.Headers.ContentLength is null or <= MaxReply)
+                {
+                    using var stream = await reply.Content.ReadAsStreamAsync();
+                    using var reader = new StreamReader(stream);
+                    var buffer = new char[MaxReply + 1];
+                    var length = await reader.ReadBlockAsync(buffer, 0, buffer.Length);
+                    if (length <= MaxReply) bodyText = new string(buffer, 0, length);
+                }
+                var wait = SignUpRetrySeconds(seconds, bodyText);
                 Interlocked.Exchange(ref _waitUntil, Now + wait);
                 throw new VpnException(VpnFailure.RateLimited, wait);
             }
