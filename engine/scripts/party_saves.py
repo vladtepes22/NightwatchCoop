@@ -66,6 +66,19 @@ def copy_solo_to_party(user: Path, replace: bool = False):
             if _files(backup) != _files(party):
                 shutil.rmtree(staging, ignore_errors=True)
                 raise OSError(f"could not back up {party}; nothing changed")
-        shutil.rmtree(party)
+        # Moved aside, not deleted, until the copy is in place: a rename that fails (a file held open) must
+        # not leave the player without a party save.
+        aside = user / (PARTY + ".replaced")
+        shutil.rmtree(aside, ignore_errors=True)
+        party.rename(aside)
+        try:
+            staging.rename(party)
+        except OSError:
+            if aside.is_dir() and not party.exists():
+                aside.rename(party)
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        shutil.rmtree(aside, ignore_errors=True)
+        return backup
     staging.rename(party)
     return backup

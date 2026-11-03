@@ -65,6 +65,9 @@ extern "C" {
 #endif
 int bbgpu_ping_combo_enabled(void);
 void bbgpu_ping_request(void);
+/* Party text chat (gpu/shim/party/party_chat.h): on while the setting is on in a party; the pad combo opens the preset list. */
+int bbgpu_chat_enabled(void);
+void bbgpu_chat_request_pad(const char *source);
 /* I5 gather the party (gpu/shim/party/party_gather.h): 1 while this game hosts a running party
  * with gathering on; the pad reader calls request on touchpad held + L3. `source` names the
  * combo in the log. */

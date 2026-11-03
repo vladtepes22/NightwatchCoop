@@ -6,6 +6,8 @@
 #include "party/party_hud.h"
 #include "party/party_splitscreen_rules.h"
 #include "party/party_npctalk.h"
+#include "party/party_chat.h"
+#include "party/party_display_name.h"
 #include "party/party_ping.h"
 #include "party/party_pvp.h"
 #include "party/party_status.h"
@@ -108,6 +110,12 @@ bool PartyThroughWalls() {
 bool PartyPingsWanted() {
     return party::status::Enabled() && (coop::ping::Enabled() || PartyThroughWalls()) &&
            party::hud::Shown() && !party::hud::GameDialog();
+}
+
+/// Party text chat (party_chat.h): the log is drawn while chat is on and a party companion is up.
+bool PartyChatWanted() {
+    return coop::chat::Enabled() && party::hud::Shown() && !party::hud::GameDialog() &&
+           !party::chat::Read(party::hud::NowMs()).empty();
 }
 
 // Party alert (party_status SetAlert: the host refused us): a message box in the middle of the
@@ -373,7 +381,7 @@ void PartyHud() {
         float mc[3];
         party::hud::MemberColour(c.slot, mc);  // the same colour as the member's tag (and I2's pings)
         ImGui::TextColored(here ? ImVec4(mc[0], mc[1], mc[2], 1.0f) : ImVec4(0.62f, 0.60f, 0.57f, alpha), "%s",
-                           c.name);
+                           bbname::Display(c.name).c_str());
         const float name_h = ImGui::GetItemRectSize().y, name_w = ImGui::GetItemRectSize().x;
         ImGui::PopFont();
         if (BbSettings::Get().party_hud_ping.load() && c.connected && c.ping_ms > 0) {
@@ -534,19 +542,20 @@ void PartyHud() {
         // Name, with the level ("Lv 42") or the deaths ("3 deaths, rot 2") after it.
         char label[96];
         const bool ru = BbSettings::MenuText("en", "ru")[0] == 'r';
+        const std::string shown_name = bbname::Display(c.name);
         if (overhead == 2 && c.level > 0) {
-            if (ru) std::snprintf(label, sizeof label, "%s  ур. %d", c.name, c.level);
-            else std::snprintf(label, sizeof label, "%s  Lv %d", c.name, c.level);
+            if (ru) std::snprintf(label, sizeof label, "%s  ур. %d", shown_name.c_str(), c.level);
+            else std::snprintf(label, sizeof label, "%s  Lv %d", shown_name.c_str(), c.level);
         } else if (overhead == 4 && c.rot > 0) {
-            if (ru) std::snprintf(label, sizeof label, "%s  смертей %d, гниль %d", c.name, c.deaths, c.rot);
-            else std::snprintf(label, sizeof label, "%s  deaths %d, rot %d", c.name, c.deaths, c.rot);
+            if (ru) std::snprintf(label, sizeof label, "%s  смертей %d, гниль %d", shown_name.c_str(), c.deaths, c.rot);
+            else std::snprintf(label, sizeof label, "%s  deaths %d, rot %d", shown_name.c_str(), c.deaths, c.rot);
         } else if (overhead == 5 && c.ping_ms > 0) {
-            std::snprintf(label, sizeof label, ru ? "%s  %u мс" : "%s  %u ms", c.name, c.ping_ms);
+            std::snprintf(label, sizeof label, ru ? "%s  %u мс" : "%s  %u ms", shown_name.c_str(), c.ping_ms);
         } else if (overhead == 4) {
-            if (ru) std::snprintf(label, sizeof label, "%s  смертей %d", c.name, c.deaths);
-            else std::snprintf(label, sizeof label, "%s  deaths %d", c.name, c.deaths);
+            if (ru) std::snprintf(label, sizeof label, "%s  смертей %d", shown_name.c_str(), c.deaths);
+            else std::snprintf(label, sizeof label, "%s  deaths %d", shown_name.c_str(), c.deaths);
         } else {
-            std::snprintf(label, sizeof label, "%s", c.name);
+            std::snprintf(label, sizeof label, "%s", shown_name.c_str());
         }
         // Laid out as the game's phantom plate (party_hud.h LayoutPlate: measured live; the game's
         // own plate is off in party mode, party_hud_game.cpp): the bar's top on the anchor with
@@ -1067,16 +1076,71 @@ void PartyNpcCaption() {
 
 
 }
+/// Party text chat (party_chat.h): the last lines at the left edge, a bit below the middle (clear of the game's HUD and of
+/// the party panel), the sender's name in its party colour, the text in cream, fading out. Received text is masked with
+/// the offensive-name filter when "Hide offensive names" is on; a hateful sender name is shown masked too. Not interactive.
+void PartyChat() {
+    using namespace PartyHudDraw;
+    if (!coop::chat::Enabled() || BbFrameState::IsMenuOrLoading() || party::hud::GameDialog()) {
+        return;
+    }
+    const std::int64_t now = party::hud::NowMs();
+    const std::vector<party::chat::Line> lines = party::chat::Read(now);
+    if (lines.empty()) {
+        return;
+    }
+    const bool hide = BbSettings::Get().party_hide_bad_names;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const ImVec2 display = viewport->Size;
+    const float s = base_scale;
+    ImDrawList* bg = ImGui::GetBackgroundDrawList();
+    ImGui::PushFont(game_font, 17.0f);
+    ImFont* font = ImGui::GetFont();
+    const float size = ImGui::GetFontSize();
+    const float x = std::round(display.x * 0.012f + 8.0f * s);
+    const float wrap = std::max(120.0f * s, display.x * 0.34f);
+    // Lay the lines out from the bottom up (the newest at the bottom), ending at 64% of the height.
+    float y = std::round(display.y * 0.64f);
+    for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
+        const party::chat::Line& l = *it;
+        const float a = party::chat::Alpha(l.until_ms - now);
+        if (a <= 0.0f) {
+            continue;
+        }
+        float rgb[3];
+        party::hud::MemberColour(l.slot, rgb);
+        const std::string shown_name = (hide ? bbname::Display(l.name) : std::string(l.name)) + ": ";
+        const std::string& text = hide && !l.mine ? l.masked : l.text;
+        const ImVec2 name_size = ImGui::CalcTextSize(shown_name.c_str());
+        const ImVec2 body = ImGui::CalcTextSize(text.c_str(), nullptr, false, wrap - name_size.x);
+        const float h = std::max(name_size.y, body.y);
+        y -= h + 3.0f * s;
+        const ImU32 dark = Rgba(0.02f, 0.02f, 0.02f, 0.8f * a);
+        const ImU32 name_col = Rgba(rgb[0], rgb[1], rgb[2], a), text_col = Rgba(0.96f, 0.93f, 0.86f, a);
+        const ImVec2 at(x, y), tx(x + name_size.x, y);
+        bg->AddRectFilled(ImVec2(x - 4.0f * s, y - 1.0f * s), ImVec2(x + name_size.x + body.x + 5.0f * s, y + h + 1.0f * s),
+                          Rgba(0.0f, 0.0f, 0.0f, 0.38f * a), 3.0f * s);
+        for (const ImVec2 d : {ImVec2(-1, 0), ImVec2(1, 0), ImVec2(0, -1), ImVec2(0, 1)}) {
+            bg->AddText(font, size, ImVec2(at.x + d.x * s, at.y + d.y * s), dark, shown_name.c_str());
+            bg->AddText(font, size, ImVec2(tx.x + d.x * s, tx.y + d.y * s), dark, text.c_str(), nullptr,
+                        wrap - name_size.x);
+        }
+        bg->AddText(font, size, at, name_col, shown_name.c_str());
+        bg->AddText(font, size, tx, text_col, text.c_str(), nullptr, wrap - name_size.x);
+    }
+    ImGui::PopFont();
+}
+
 bool Visible() {
     return ToastWanted() || AlertWanted() || NpcCaptionWanted() || PartyHudWanted() ||
-        PartyTagsWanted() || PartyPingsWanted() || PartyStainWanted() || coop::warper::Active();
+        PartyTagsWanted() || PartyPingsWanted() || PartyChatWanted() || PartyStainWanted() || coop::warper::Active();
 }
 void Draw(float scale) {
     base_scale = scale;
     PartyHudDiag();
     HoldPartyNoticesInGameMenu();
     if (!party::hud::GameMenu()) {
-        PartyHud(); PartyPings(); PartyStainMarker(); PartyToast(); PartyAlert(); PartyNpcCaption();
+        PartyHud(); PartyPings(); PartyChat(); PartyStainMarker(); PartyToast(); PartyAlert(); PartyNpcCaption();
     }
     WarperPanel();
 }

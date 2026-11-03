@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Shared NPC dialogue (see party_npctalk.h; RE in docs/party/world_actions.md "Shared NPC dialogue").
 #include "party_npctalk.h"
+#include "party_display_name.h"
 
 #include "net/json.h"
 
@@ -161,7 +162,7 @@ bool ChoiceInConversation(std::uint32_t choice_npc, std::uint32_t last_line_npc)
 
 std::string CaptionFor(const std::string& who, std::uint32_t talk) {
     const char* npc = NpcNameForTalk(talk);
-    return (who.empty() ? std::string("A hunter") : who) + " talking to " + (npc ? npc : "someone");
+    return (who.empty() ? std::string("A hunter") : bbname::Display(who)) + " talking to " + (npc ? npc : "someone");
 }
 
 int RangeFromEnv(const char* env, int setting) {
@@ -801,14 +802,14 @@ void Handle(const TalkEvent& e, const GameSnapshot& s, PartyRole role, PartyLink
             Log("choice from %s dropped: row %u has no text here", e.who.c_str(), e.msg);
             break;
         }
-        const std::string line = e.who + " chose: " + text;
+        const std::string line = bbname::Display(e.who) + " chose: " + text;
         SetNote(CaptionFor(e.who, e.talk ? e.talk : e.msg), line);
         Log("choice shown: %s", line.c_str());
         break;
     }
     case Kind::Gift: {
         const std::string item = ItemName(e.item_cat, e.item_id);
-        const std::string line = e.who + " received " + (item.empty() ? "a gift" : item) +
+        const std::string line = bbname::Display(e.who) + " received " + (item.empty() ? "a gift" : item) +
                                  (npc_name ? std::string(" from ") + npc_name : std::string());
         SetNote(CaptionFor(e.who, e.talk), line);
         Log("gift shown: %s (lot %d, item %u:%d)", line.c_str(), e.lot, e.item_cat, e.item_id);

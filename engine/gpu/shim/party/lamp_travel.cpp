@@ -152,6 +152,13 @@ void ClearArrival() {
 // The map's travel (RequestMapTravel): the lamp asked for, run by the main-thread tick.
 std::atomic<u32> g_map_request{0};
 std::atomic<double> g_map_request_at{0};
+// The open in-game map (map/map_view.cpp) watches which lamps it may travel to: the main-thread
+// tick refreshes this every 0.3 s while a watch is asked for (flag reads are game reads).
+std::atomic<double> g_map_watch_until{0};
+std::mutex g_map_snap_mu;
+MapTravel g_map_snap_state = MapTravel::Off;
+std::vector<u32> g_map_snap_lit;
+double g_map_snap_at = -1;
 
 u32 MenuFlags() {
     return reinterpret_cast<u32(BB_COOP_SYSV*)()>(Guest(kMenuFlags))();
@@ -460,6 +467,27 @@ MapTravelSituation MapSituation(const GameSnapshot& s) {
 
 bool KnownReturnPoint(u32 rp) {
     return ids::ReturnPointKnown(rp);
+}
+
+/// Main thread: the map watch's snapshot (state and the lamps the map may travel to).
+void MapWatchTick(const GameSnapshot& s, double now) {
+    if (now > g_map_watch_until.load(std::memory_order_relaxed)) return;
+    if (g_map_snap_at >= 0 && now - g_map_snap_at < 0.3) return;
+    g_map_snap_at = now;
+    MapTravelSituation sit = MapSituation(s);
+    sit.busy = g_arriving.load();
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        sit.busy = sit.busy || g_p.open;
+    }
+    std::vector<u32> lit;
+    if (s.world_up && !s.loading) {
+        for (const Lamp& l : kLamps)
+            if (MapTravelTarget(ReturnPoint(l), &Flag, &KnownReturnPoint)) lit.push_back(ReturnPoint(l));
+    }
+    std::lock_guard<std::mutex> lk(g_map_snap_mu);
+    g_map_snap_state = MapTravelState(sit);
+    g_map_snap_lit = std::move(lit);
 }
 
 BB_COOP_SYSV void OwnTickEntry(u64, u64, u64, u64, u64, u64) {
@@ -984,6 +1012,14 @@ bool MapTravelAllowedTo(std::uint32_t return_point) {
     return MapTravelTarget(return_point, &Flag, &KnownReturnPoint);
 }
 
+bool MapWatch(MapTravel* state, std::vector<std::uint32_t>* lit) {
+    g_map_watch_until = Now() + 1.5;
+    std::lock_guard<std::mutex> lk(g_map_snap_mu);
+    if (state) *state = g_map_snap_state;
+    if (lit) *lit = g_map_snap_lit;
+    return g_map_snap_at >= 0;
+}
+
 bool RequestMapTravel(std::uint32_t return_point) {
     // No game reads here (a map view's render thread): the main-thread tick checks it all.
     if (!return_point || !g_on.load(std::memory_order_relaxed)) return false;
@@ -1000,6 +1036,7 @@ void Tick() {
     if (!g_on.load(std::memory_order_relaxed)) return;
     const double now = Now();
     const GameSnapshot s = ReadGameState(false);
+    MapWatchTick(s, now);
     TestTick(s, now);
     if (g_boss_watch && (!s.world_up || s.loading)) BossBarReset();  // a load ends a boss fight (as the party director)
     if (g_t.on) {

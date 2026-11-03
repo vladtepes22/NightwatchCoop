@@ -3,6 +3,7 @@
 #include "party_status.h"
 
 #include "../../party_env.h"
+#include "party_display_name.h"
 
 #include <algorithm>
 #include <atomic>
@@ -183,6 +184,13 @@ Board Snapshot() {
         copy = board;
     }
     copy.enabled = Enabled();
+    for (const Member& m : copy.members) {  // also registers hateful names for the Scrub calls below
+        const std::string shown = bbname::Display(m.name);
+        if (shown != m.name) copy.shown_names.emplace_back(m.name, shown);
+    }
+    copy.last_event = bbname::Scrub(copy.last_event);
+    copy.alert = bbname::Scrub(copy.alert);
+    copy.detail = bbname::Scrub(copy.detail);
     return copy;
 }
 

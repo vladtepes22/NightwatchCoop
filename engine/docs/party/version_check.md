@@ -32,6 +32,11 @@ the refusal names each known option in plain words with both values (`hook_optio
 services, Shared enemy drop roll, 4-player rules): `party options differ (Guest lamps (BB_PARTY_GUEST_LAMPS): host ON, you OFF):
 change it in System > Party or the launcher so it matches the host`; a difference with an unknown hook keeps the old list of names.
 
+### Not compared: party text chat (0.7.8)
+
+Party chat (`docs/party/chat.md`) adds no game hook, no link message type and no compared setting. Its lines travel as the EVENT
+`party_chat`; a member that does not know it ignores it, so chat on one side never refuses a join.
+
 ### Host-owned options (0.7.8, hostopts078)
 
 Max players (`BB_PARTY_MAX`), Guest lamps (`BB_PARTY_GUEST_LAMPS`), Headstones (`BB_PARTY_HEADSTONES`), Guest

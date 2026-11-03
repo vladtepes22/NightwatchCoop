@@ -33,6 +33,7 @@
 #include "lamp_travel_rules.h"
 
 #include <cstdint>
+#include <vector>
 
 namespace coop::lamptravel {
 
@@ -62,6 +63,11 @@ bool AddTalkCommandObserver(TalkCommandObserver fn);
 MapTravel MapTravelNow();
 /// Lamp `return_point` is lit and may be travelled to (MapTravelTarget; game thread).
 bool MapTravelAllowedTo(std::uint32_t return_point);
+/// Any thread, once a frame while the map is open: asks the main-thread tick to keep the map's snapshot
+/// fresh (for 1.5 s from this call) and returns the last one: why map travel can or cannot start
+/// (MapTravelNow's state) and the lamps (return points) the map may travel to (MapTravelAllowedTo for
+/// each lamp of the table: lit and known). False before the first snapshot (state Off, no lamps).
+bool MapWatch(MapTravel* state, std::vector<std::uint32_t>* lit);
 /// Asks for map travel to `return_point` (any thread; reads nothing of the game); the main-thread
 /// tick checks it all again and runs the warp once no menu is up. False: lamp travel is off or
 /// another request is pending.

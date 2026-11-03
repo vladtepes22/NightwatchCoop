@@ -331,6 +331,20 @@ bool PartyHudChrPos(std::uint64_t chr, const float near[3], float out[3]) {
     return true;
 }
 
+bool MapSelfPose(MapPose* out) {
+    // Any thread (the in-game map's present thread, once a frame): this player's map, position and
+    // facing. Every read is a SafeRead; solo play has no party tick, so it reads the player itself.
+    if (!Image()) return false;
+    const GameSnapshot q = ReadGameState(false);
+    if (!q.world_up || q.loading || !q.player) return false;
+    const ChrRead mine = ReadChr(q.player);
+    if (!mine.have_pos) return false;
+    out->map_id = q.map_id;
+    std::memcpy(out->pos, mine.pos, sizeof out->pos);
+    out->yaw = mine.yaw;
+    return true;
+}
+
 namespace {
 /// One read of the game's menu state: the full-screen menu (MenuMan fields, the menu flow through
 /// `kind`) and the dialog box. `read` false: nothing read (all zero / closed).

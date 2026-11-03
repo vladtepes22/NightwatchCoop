@@ -3,6 +3,7 @@
 #include "party_log_game.h"
 
 #include "party_log.h"
+#include "party_chat.h"
 
 #include "game_state.h"
 #include "party_async_io.h"
@@ -85,14 +86,21 @@ bool RateOk(const std::string& key, int* suppressed) {
 void TraceEvent(const char* dir, int slot, const std::string& name, const std::string& body) {
     const unsigned area = AreaOfEvent(name);
     if (!On(kNet | area)) return;
+    // Chat lines are players' text: never in a log, at any level (the size only).
+    const bool private_body = name == party::chat::kEventName;
     int suppressed = 0;
     if (!RateOk(std::string(dir) + name, &suppressed)) return;
     std::string text = Fmt("net: %s '%s' %s %s (%zu B)", dir, name.c_str(), dir[0] == 's' ? "->" : "<-",
                            SlotText(slot).c_str(), body.size());
     if (suppressed) text += Fmt(" [%d more '%s' lines suppressed]", suppressed, name.c_str());
     // Bodies: flag / item / travel / summon events at verbose (short), everything at trace.
-    if (TraceOn()) text += ": " + Excerpt(body, 800);
-    else if (area != kNet) text += ": " + Excerpt(body, 200);
+    if (private_body) {
+        // no body
+    } else if (TraceOn()) {
+        text += ": " + Excerpt(body, 800);
+    } else if (area != kNet) {
+        text += ": " + Excerpt(body, 200);
+    }
     Line(text);
 }
 

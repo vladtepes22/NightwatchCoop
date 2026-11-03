@@ -5,6 +5,8 @@
 #include "party_async_io.h"
 #include "party_chalice.h"
 #include "party_gestures.h"
+#include "party_chat.h"
+#include "party_display_name.h"
 
 #include "party_addr.h"
 #include "party_code.h"
@@ -1337,6 +1339,10 @@ LinkCallbacks make_callbacks(bool host) {
                 coop::ping::OnEvent(slot, body);
                 return;
             }
+            if (name == party::chat::kEventName) {  // a guest's chat line (party_chat.h): relayed by the tick
+                coop::chat::OnEvent(slot, body);
+                return;
+            }
             if (name == coop::gather::kEventName) {  // a guest's answer to Gather the party (I5, party_gather.h)
                 coop::gather::OnEvent(slot, body);
                 return;
@@ -1496,6 +1502,10 @@ LinkCallbacks make_callbacks(bool host) {
             }
             if (name == party::ping::kEventName) {  // a member's ping (I2, party_ping.h)
                 coop::ping::OnEvent(slot, body);
+                return;
+            }
+            if (name == party::chat::kEventName) {  // a member's chat line (party_chat.h)
+                coop::chat::OnEvent(slot, body);
                 return;
             }
             if (name == coop::gather::kEventName) {  // the host gathers the party (I5, party_gather.h)
@@ -2912,6 +2922,7 @@ void startup_main() {
     if (cfg.password.empty()) cfg.password = flow::RuntimePassword();  // the party flow's (party.json)
     cfg.port = s.party_port;  // the network library's (validated) value
     cfg.name = s.online_id;
+    bbname::InstallGameFilter();  // hateful member names are shown masked (party_hide_bad_names)
     if (!valid_member_name(cfg.name)) {
         set_error("invalid party name " + cfg.name);
         plog("invalid party name '%s'", cfg.name.c_str());

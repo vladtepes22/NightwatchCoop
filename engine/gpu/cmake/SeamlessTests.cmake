@@ -522,6 +522,13 @@ target_compile_options(party-chalice-glyphs-test PRIVATE -UNDEBUG -Wall -Wextra 
 target_include_directories(party-chalice-glyphs-test PRIVATE shim)
 set_target_properties(party-chalice-glyphs-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
+# Party text chat (visy 0.7.8, shim/party/party_chat.cpp): sanitising, EVENT party_chat JSON, rate limits, word masking.
+add_executable(party-chat-test EXCLUDE_FROM_ALL ../tests/test_party_chat.cpp shim/party/party_chat.cpp
+    shim/party/name_filter.cpp shim/net/json.cpp)
+target_compile_options(party-chat-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-chat-test PRIVATE shim)
+set_target_properties(party-chat-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
 get_property(all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 set(party_tests)
 foreach(target IN LISTS all_targets)
@@ -634,3 +641,11 @@ target_include_directories(gc-policy-test PRIVATE ..)
 target_compile_options(gc-policy-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME gc-policy-test COMMAND gc-policy-test)
 add_dependencies(seamless-tests gc-policy-test)
+
+# Offensive-name filter (visy 0.7.8, party/name_filter.cpp): shared vectors with scripts/namefilter.py.
+add_executable(name-filter-test EXCLUDE_FROM_ALL ../tests/test_name_filter.cpp shim/party/name_filter.cpp)
+target_compile_options(name-filter-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(name-filter-test PRIVATE shim)
+set_target_properties(name-filter-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME name-filter-test COMMAND name-filter-test ${CMAKE_CURRENT_SOURCE_DIR}/../tests/name_filter_vectors.txt)
+add_dependencies(seamless-tests name-filter-test)

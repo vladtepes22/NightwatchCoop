@@ -185,6 +185,43 @@ captured by `out\device_lost_<time>.log` (breadcrumbs, device fault address, han
 `.spv`; see the section above). Whoever sees it should read that report first: an "invalid write
 at 0" fault address points to a shader using an unbound buffer (stale descriptor in a first load).
 
+## Device lost in a guest's first load, 0.7.8 (agent devlost078, CL-ab12f5)
+
+A first local capture: smoke `lfw` at 30 FPS, the guest 26 s in (still before its join), `out\device_lost_*.log`:
+GPU fault "invalid write at 0 (within 0..0xfff)" (address precision 4 KiB: a null base plus a small
+offset), 718 of 6414 MiB VRAM (not memory pressure), stream 0 finished #10137 `pass presenter post
+process` and did not start #10138 (a draw, guest vs `89cda9e4`, no pixel shader, 3 vertices: a
+full-screen triangle whose vertex shader only reads `clip_planes`), the compute dispatches after it
+(`a361a1e5`, `a224d59e`) are plain storage-buffer shaders with descriptor bindings. The device-lost
+assert at vk_scheduler.cpp:1260 is only the first thread to see the lost device.
+
+Reading of the evidence: the markers are bottom-of-pipe writes, so "finished #10137, not started #10138"
+puts the fault in the work *recorded between* the two crumbs, which nothing numbered: buffer-cache
+copies / fills / updates, image uploads and clears, barriers. Neither named draw nor dispatch can
+write through a null device address (the draw has no PS and no storage writes; the compute shaders
+write through descriptors, and `robustBufferAccess2` + `nullDescriptor` drop null-descriptor
+accesses). The device-address writers in the renderer that could produce page 0 are all checked:
+the paged-buffer accessor selects the trash buffer for a missing page-table entry, the timestamp and
+occlusion helpers assert on a buffer without an address (`BufferDeviceAddress()`), the DMA reader
+falls back to zero for an uncached page. That leaves a transfer with a wrong destination or, more
+likely for a rare first-load-only fault, a command stream misparsed by the ring-reuse race that
+Mrsuss60 6b2cc0e0 fixed (the packet size was read after the packet had signalled the guest): that
+capture was on a build without it, and a misparsed packet gives exactly a stray draw with a
+state that was never set up (no PS, odd counts).
+
+Reproduction on the build with 6b2cc0e0 (RTX 3070, 2 loopback instances, 30 FPS, cold shader and
+pipeline caches in every run, test saves, the `lfw` start lamp 2412953, 75 s a run = through the
+guest's boot and first load into the host's map, `BB_BREADCRUMBS_TRANSFERS=1`): 12 runs back to back, 0 device losts and no GPU assert in either instance;
+plus the full `lfw` smoke phase at 30 FPS once: 39/39, no device lost. No Vulkan validation layer is
+installed on this PC (no SDK), so no validation run.
+
+New diagnostic: `BB_BREADCRUMBS_TRANSFERS=1` (off by default, env only like `BB_BREADCRUMBS`) gives
+every buffer copy, fill, update, inline data write, image upload / download and colour clear its own
+breadcrumb with the target buffer or image handle, the offset and the size, so the "stuck in the
+work recorded between them (copies, clears, barriers)" case of the report names the transfer. It
+costs two bottom-of-pipe marker writes per transfer, which is why it is not on by default.
+Whoever gets a device lost with the "did not start" wording should rerun with it on.
+
 ## 2026-10-15 segment: Cathedral Ward -> Old Yharnam -> Forbidden Woods -> Byrgenwerth (agent pard)
 
 The next main-path segment of the live playtests, 2 loopback instances, the test saves

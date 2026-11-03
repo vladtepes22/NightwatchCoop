@@ -189,3 +189,18 @@ boss fought the host while it lived and nobody once the host was down. `LivingTa
 tick) clears the mark on every living player chr (HP > 0, not the spectating / limbo local player), logged once per chr
 (`living target: chr ... still had the dead mark`). `BB_PARTY_LIVING_TARGET=0` turns it off. Not the cause (A/B): the dead
 untarget, the limbo ChangeTarget, the boss room notice 2009[6], the intro's player chr +0x1E5 bit 0x10 (a remo marker only).
+
+## Laurence stuck on the statue after repeated fights (0.7.8, laurence078, CL-7b1d4e) - not reproduced
+
+Report: Laurence stays on the statue, falls and cannot move; a restart of the guest's game helps. The player's 0.7.7 logs
+(8 fights, 7 wipes in a row) carry no boss position or animation (BB_BOSS_LOG came later), so the stuck fight cannot be told
+apart; what they do show is the host's attention share turning him to the host and the guest alternately in all 8 fights
+and the boss bar on the guest's game in every fight.
+
+Smoke `lr` (group `boss_laurence_wipe`, Laurence, BR fixture): try 1 the guest stands inside, the host uses the skull
+(intro scene, bars), the host dies, then the guest: the wipe; try 2 both walk to the fog like players (R3, Cross) and stand
+passive 8 m from him. On both games he walks ~50 m in 60 s, changes animation, hits a player and no "boss may be stuck" line
+appears. Same result with `BB_PARTY_LIVING_TARGET=0` (the dead-mark fix off: it matters only once the host is down) and under
+`BB_NET_SIM=dsl` (see the CHANGES entry). Lead, unproven: the stale dead mark of CL-2c1eef (a member's copy re-created by a
+wipe is not perceived by any enemy), fixed after the player's build. A log of the next stuck fight with BB_BOSS_LOG will say
+which game's copy stands still. Knobs: BB_LR_NET, BB_LR_ENV, BB_LR_DIST, BB_LR_WINDOW.

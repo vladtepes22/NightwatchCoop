@@ -171,7 +171,7 @@ bool CensusRepairFromEnv();
 
 /// The repair kills an entity once per loaded map. An entity put to death here whose HP is later
 /// seen above 0 again (a dormant chalice boss, whose copy the game re-arms) must not be killed every
-/// confirmation (15 s) for ever: the ledger lets each entity through once and then names it as stuck.
+/// confirmation (15 s) for ever: the ledger lets each entity through once and then names it as stuck (once: one log line).
 class CensusRepairLedger {
 public:
     /// Drops the entries of `targets` that were repaired before on this map; `stuck` gets them.
@@ -180,11 +180,12 @@ public:
         if (map != map_) {
             map_ = map;
             done_.clear();
+            told_.clear();
         }
         std::vector<std::pair<u32, int>> out;
         for (const auto& t : targets) {
             if (done_.count(t.first)) {
-                if (stuck) stuck->push_back(t.first);
+                if (stuck && told_.insert(t.first).second) stuck->push_back(t.first);  // named once, not every 15 s
             } else {
                 out.push_back(t);
             }
@@ -192,11 +193,11 @@ public:
         return out;
     }
     void Done(u32 entity) { done_.insert(entity); }
-    void Reset() { done_.clear(); map_ = 0; }
+    void Reset() { done_.clear(); told_.clear(); map_ = 0; }
 
 private:
     u32 map_ = 0;
-    std::set<u32> done_;
+    std::set<u32> done_, told_;
 };
 
 std::string CensusAskToJson(u32 map, const std::vector<int>& buckets);

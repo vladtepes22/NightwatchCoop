@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "party/party_chat.h"
 #include "bbport_overlay.h"
 #include "seamless_overlay.h"
 
@@ -2549,6 +2550,12 @@ bool HandleEvent(const SDL_Event& event) {
             (BbMapPage::OpensWithKey(int(event.key.scancode)) || (map_shown && event.key.key == SDLK_ESCAPE))) {
             SetMapOpen(!map_shown);
             return true;
+        }
+        // T (party_chat_key): the party chat box (party_chat.h). Not taken from the game: a key.* binding still works.
+        if (!is_open && down && !event.key.repeat && event.key.key == SDL_Keycode(coop::chat::ChatKey()) &&
+            coop::chat::Enabled()) {
+            coop::chat::RequestOpen(false, "chat key");
+            return false;
         }
         if (down && !event.key.repeat && event.key.key == SDLK_F9 && BbSettings::Get().startup_psychov30) {
             auto& compare = BbSettings::Get().hdr16_compare;
