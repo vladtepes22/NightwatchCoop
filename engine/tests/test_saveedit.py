@@ -579,6 +579,12 @@ def test_catalogue_accepts_the_eboot_folder(tmp_path):
     assert N.Catalogue.load(GAME.parent, tmp_path).ok
 
 
+@pytest.mark.skipif(not (GAME / "msg").is_dir(), reason="no game folder")
+def test_fishing_hamlet_lamps_are_named(tmp_path):
+    c = N.Catalogue.load(GAME, tmp_path)
+    assert [c.lamp_name(f) for f in (73600200, 73600201, 73600202)] == ["Fishing Hamlet", "Lighthouse Hut", "Coast"]
+
+
 def test_lamp_and_boss_names_from_the_catalogue():
     from saveedit import flagsdata as F
     c = N.Catalogue({"names": {"lamp": {"70002410": "1st Floor Sickroom", "70002401": "Grand Cathedral"},

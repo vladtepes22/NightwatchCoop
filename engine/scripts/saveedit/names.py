@@ -17,7 +17,7 @@ FMG_FILES = {"goods": "アイテム名", "weapon": "武器名", "armor": "防具
 PARAMS = {"weapon": "EquipParamWeapon", "armor": "EquipParamProtector", "accessory": "EquipParamAccessory",
           "goods": "EquipParamGoods"}
 _PLACEHOLDER = re.compile(r"^(\*|NOT NEEDED|en\d+)?$", re.I)
-CACHE_VERSION = 6
+CACHE_VERSION = 7
 EVENT_TEXT = "イベントテキスト"  # menu.msgbnd FMG: the lamp warp list names (id 7000AABn)
 NPC_NAMES = "NPC名"  # item.msgbnd FMG: boss and NPC names by character id
 GEM_NAMES = "魔石名"  # menu.msgbnd FMG: blood gem and rune names (key built in gems.name_key)
@@ -95,7 +95,7 @@ def read_game(game_dir, lang="engus"):
     names = {kind: _fmg(_entry(msg, fn + ".fmg")) for kind, fn in FMG_FILES.items()}
     names["npc"] = _fmg(_entry(msg, NPC_NAMES + ".fmg"))
     menu = _bnd4(_dcx((game / "msg" / lang / "menu.msgbnd.dcx").read_bytes()))
-    names["lamp"] = {i: t for i, t in _fmg(_entry(menu, EVENT_TEXT + ".fmg")).items() if 70002100 <= i < 70003600}
+    names["lamp"] = {i: t for i, t in _fmg(_entry(menu, EVENT_TEXT + ".fmg")).items() if 70002100 <= i < 70003700}
     names["gem"] = _fmg(_entry(menu, GEM_NAMES + ".fmg"))
     names["effect"] = _fmg(_entry(menu, GEM_EFFECTS + ".fmg"))
     ids = {kind: sorted(_param_ids(_entry(par, pn + ".param"))) for kind, pn in PARAMS.items()}
