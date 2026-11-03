@@ -3,6 +3,9 @@
 #pragma once
 
 #include <atomic>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace BbSettings {
 inline constexpr int HdrToneMapperVanilla = 2, HdrToneMapperPsychoScene = 3;
@@ -152,6 +155,16 @@ struct Values {
     /// everyone sees it through walls with its distance for 10 s (ini party_pings; env
     /// BB_PARTY_PINGS overrides). Live, local: off = no combo, no sending, others' pings not drawn.
     std::atomic<bool> party_pings{true};
+    /// Party text chat (0.7.8, party_chat.h): the chat key (T) or touchpad + L1 opens a box / preset list; lines reach every
+    /// member in a small fading log in the sender's colour. Off by default: off = no key, no sending, others' lines
+    /// ignored (ini party_chat; env BB_PARTY_CHAT overrides). Live, local.
+    std::atomic<bool> party_chat{false};
+    /// Chat on: show the lines of the other members (ini party_chat_receive, default on); off = they are dropped on arrival.
+    std::atomic<bool> party_chat_receive{true};
+    /// Hateful member names (slurs, hate codes; party/name_filter.h) are shown as "Hunter 3F2" on this PC: the party
+    /// list, name tags, notices. Display only: the party itself still sees the real name. ini party_hide_bad_names,
+    /// env BB_PARTY_HIDE_BAD_NAMES. Live. ON by default (safety), unlike other new party features.
+    std::atomic<bool> party_hide_bad_names{true};
     /// I2: every party member on this map drawn through walls as a small marker with its distance
     /// in its colour (ini party_through_walls; off by default: busy next to the name plates). Live.
     std::atomic<bool> party_through_walls{false};
@@ -507,6 +520,8 @@ bool ResolutionNeedsRestart();
 /// Writes the file (menu changes). With an HDR preset selected, it also keeps the HDR settings
 /// as that preset's.
 void Save();
+/// The file's lines whose key starts with `prefix` (key, value), in file order.
+std::vector<std::pair<std::string, std::string>> ReadLines(const std::string& prefix);
 
 inline constexpr int HdrPresetCount = 4; ///< Off and three of the player's
 /// Selects an HDR preset: the HDR settings go to the one selected before, and those of the new

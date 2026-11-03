@@ -54,6 +54,7 @@
 #include "party_worldact.h"
 #include "party_npctalk.h"
 #include "party_ping.h"
+#include "party_chat.h"
 #include "nav_walk.h"
 #include "party_pvp.h"
 #include "../bbport_game_menu.h"
@@ -5526,6 +5527,8 @@ void PartyDirector::Tick() {
     if (role != PartyRole::None) PartyHudTick(s, link, LocalState(s, st.start_prologue));
     // Pings (I2, party_ping.h): the button -> the spot looked at -> the party; theirs -> the board.
     ping::Tick(s, role != PartyRole::None ? link : nullptr, s.world_up && !s.loading && s.player);
+    // Party text chat (party_chat.h): the box's line out, the members' lines into the log.
+    chat::Tick(s, role != PartyRole::None ? link : nullptr, s.world_up && !s.loading && s.player);
     // #19: who in the party is still in its prologue (the holds below and in the sync modules;
     // the Party page's "Waiting: X is in the prologue"; the host's sign board).
     if (link && role != PartyRole::None) {

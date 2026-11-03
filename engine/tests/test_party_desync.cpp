@@ -425,7 +425,7 @@ void TestCensus() {
             auto again = led.Filter(0x1d000000u, tg, &stuck);
             kills += static_cast<int>(again.size());
         }
-        CHECK(kills == 2 && stuck.size() == 10);
+        CHECK(kills == 2 && stuck.size() == 2);  // each stuck entity is named once, not on every confirmation
         CHECK(led.Filter(0x18010000u, tg).size() == 2);  // another map: a fresh ledger
         for (const auto& t : tg) led.Done(t.first);
         CHECK(led.Filter(0x18010000u, tg).empty());

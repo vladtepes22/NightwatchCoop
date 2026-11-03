@@ -367,6 +367,15 @@ void PartyHudTick(const GameSnapshot& s, party::PartyLink* link, party::MemberSt
 /// (the one the game draws, read now), when it is still a live chr within 10 m of `near` (the
 /// board's position from the last tick); false otherwise (freed, disabled, moved far).
 bool PartyHudChrPos(std::uint64_t chr, const float near[3], float out[3]);
+/// This player's place for the in-game map (map/map_view.h): the map id (0xAABBCCDD), position and facing
+/// (forward = (sin yaw, cos yaw) in x, z), read now (solo play too). Any thread; false in a loading
+/// screen / before the world is up.
+struct MapPose {
+    std::uint32_t map_id = 0;
+    float pos[3] = {0, 0, 0};
+    float yaw = 0;
+};
+bool MapSelfPose(MapPose* out);
 /// Main thread (party_b2 C5 spectate): this player spectates from now on (`body`: where its chr
 /// lay when the spectate began) or no longer (`on` false). Its VITALS then carry
 /// kVitalsSpectating and the body's spot instead of the carried chr's (the others' panels showed

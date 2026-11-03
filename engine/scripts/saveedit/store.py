@@ -197,6 +197,14 @@ def restore_backup(user, kind, backup, running):
             shutil.copyfile(child, staging / child.name)
     if folder.is_dir():
         os.replace(folder, old)
-    os.replace(staging, folder)
+    try:
+        os.replace(staging, folder)
+    except OSError:
+        # The live folder went aside and the backup could not move in (an antivirus or a sync tool holding
+        # a file): the folder from before comes back, else the game would start without any save.
+        if old.is_dir() and not folder.exists():
+            os.replace(old, folder)
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     shutil.rmtree(old, ignore_errors=True)
     return keep

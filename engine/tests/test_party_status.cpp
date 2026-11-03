@@ -2,6 +2,7 @@
 // Party status board (gpu/shim/party/party_status.h): snapshot, events, command queue, threads.
 // ninja -C out/gpu party-status-test && out/gpu/party-status-test
 #include "party/party_status.h"
+#include "party/party_display_name.h"
 
 #include <atomic>
 #include <cassert>
@@ -140,7 +141,27 @@ static void test_toast_ms() {
     assert(ToastMs(std::string(116, 'x')) == 9960 && ToastMs(std::string(117, 'x')) == 10000);
 }
 
+// A hateful name is shown masked on the board (party_display_name.h); the real name stays the identity.
+static std::string FakeDisplay(const std::string& n) { return n == "Badname" ? "Hunter 123" : n; }
+static std::string FakeScrub(const std::string& t) {
+    std::string out = t;
+    for (size_t p; (p = out.find("Badname")) != std::string::npos;) out.replace(p, 7, "Hunter 123");
+    return out;
+}
+static void test_display_names() {
+    bbname::Register(&FakeDisplay, &FakeScrub);
+    SetMembers({{"Hunter0", true, true, 0, 0, "", true}, {"Badname", true, true, 5, 1, "", false}});
+    SetLastEvent("Badname joined");
+    const Board b = Snapshot();
+    assert(b.members[1].name == "Badname");
+    assert(b.ShownName("Badname") == "Hunter 123" && b.ShownName("Hunter0") == "Hunter0");
+    assert(b.last_event == "Hunter 123 joined");
+    bbname::Register(nullptr, nullptr);
+    assert(Snapshot().ShownName("Badname") == "Badname");
+}
+
 int main() {
+    test_display_names();
     test_toast_ms();
     test_snapshot();
     test_commands();

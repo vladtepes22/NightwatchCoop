@@ -264,6 +264,17 @@ account, Discord or Steam name), slots, password flag and version. The tunnel ad
 the launcher for the join only: it is not shown, not copied, not saved in `launcher_settings.json` and not
 written to logs. A game with a different version is greyed out; your own game is left out of your list.
 
+### Offensive names (0.7.8)
+
+A host whose character name is a slur, a hate code or a hostile phrase about a group of people is still listed, under
+a masked name (`Hunter 3F2`: the code is a hash of the real name, so two masked hosts differ). The service masks
+before it stores or serves the name, so every client, including a Nightwatch build, only ever sees the mask; nothing
+is logged (the lobby logs nothing). The matcher is the shared `scripts/namefilter.py` (rules, word lists and tests:
+`data/name_filter/README.txt`, `tests/test_name_filter.py`); the service loads it by explicit path from its own
+folder (it runs with `python3 -I`), so `/opt/nwlobby` holds `nwlobby.py`, `namefilter.py` and `namefilter_data.py`.
+`NWLOBBY_NAME_FILTER=0` turns the masking off. If the filter files are missing the lobby keeps running, unfiltered,
+and writes one line to stderr. The launcher masks again on its side (*Hide offensive names*, on by default).
+
 ### Privacy
 
 Nothing is written to disk and nothing is logged: the service prints nothing and has no state directory

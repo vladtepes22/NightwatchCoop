@@ -585,17 +585,19 @@ static uint32_t last_sample_left=0x8080u;
 uint32_t runtime_pad_last_left(void) { return __atomic_load_n(&last_sample_left,__ATOMIC_RELAXED); }
 uint32_t runtime_pad_cross_presses(void) { return __atomic_load_n(&cross_presses,__ATOMIC_RELAXED); }
 static void ping_combo(PadData *d) {
-    static int state, right, r3_prev, l3_prev; /* state 0 idle, 1 touchpad held back, 2 combo sent */
+    static int state, right, r3_prev, l3_prev, l1_prev; /* state 0 idle, 1 touchpad held back, 2 combo sent */
     static uint32_t combo_button; /* the combo's stick click (BTN_R3 / BTN_L3), held back too */
     static uint64_t click_until;
     const uint64_t now=now_us();
     const int tp=(d->buttons & BTN_TOUCHPAD)!=0, r3=(d->buttons & BTN_R3)!=0, l3=(d->buttons & BTN_L3)!=0;
-    const int r3_rise=r3 && !r3_prev, l3_rise=l3 && !l3_prev;
+    const int l1=(d->buttons & BTN_L1)!=0;
+    const int r3_rise=r3 && !r3_prev, l3_rise=l3 && !l3_prev, l1_rise=l1 && !l1_prev;
     r3_prev=r3;
     l3_prev=l3;
+    l1_prev=l1;
     switch (state) {
     case 0:
-        if (!tp || !(bbgpu_ping_combo_enabled() || bbgpu_gather_combo_enabled())) {
+        if (!tp || !(bbgpu_ping_combo_enabled() || bbgpu_gather_combo_enabled() || bbgpu_chat_enabled())) {
             if (click_until) {
                 if (now<click_until) touch_click(d,right);
                 else click_until=0;
@@ -615,6 +617,11 @@ static void ping_combo(PadData *d) {
         if (l3_rise && bbgpu_gather_combo_enabled()) {
             state=2; combo_button=BTN_L3;
             bbgpu_gather_request("touchpad + L3"); puts("Runtime: gather (touchpad + L3)");
+            break;
+        }
+        if (l1_rise && bbgpu_chat_enabled()) { /* party text chat (party_chat.h): the preset list */
+            state=2; combo_button=BTN_L1;
+            bbgpu_chat_request_pad("touchpad + L1"); puts("Runtime: party chat (touchpad + L1)");
             break;
         }
         if (!tp) { state=0; click_until=now+120000; touch_click(d,right); return; }

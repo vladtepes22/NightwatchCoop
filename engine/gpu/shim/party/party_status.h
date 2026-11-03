@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace party::status {
@@ -56,6 +57,15 @@ struct Board {
     std::string guest_code;  // guest: BBG1-... (its public UDP endpoint, for a host behind a NAT)
     std::string network;     // F2: NAT advice / the link's path ("Connected over UDP ...")
     std::vector<Member> members;
+    // Display names (party_display_name.h) of members whose name is hateful, (real name, shown); filled by Snapshot().
+    // The real name stays the identity (kick, matching): show ShownName(m.name).
+    std::vector<std::pair<std::string, std::string>> shown_names;
+    std::string ShownName(const std::string& real) const {
+        for (const auto& p : shown_names) {
+            if (p.first == real) return p.second;
+        }
+        return real;
+    }
     std::string last_event;
     std::uint64_t event_seq = 0;  // +1 per SetLastEvent
     std::int64_t event_ms = 0;    // steady clock (ms) of the last event

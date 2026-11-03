@@ -773,6 +773,16 @@ to its end. `lfw` and `lfwc` are in the default smoke list; `lfws` / `lfwcs` run
 * **Still open (harness): `lfwcbs` is NOT green 3/3.** The top pocket's walk-in with two riders stalls (see the table); the next
   step is a host far start that is certain to land on the pocket floor (walk it live and record it, no navmesh points), and a
   rerun of `lfws` / `lfwcs` with the 0.45 m / waypoint-tail changes (not rerun: the 14-launch cap).
+* **liftpair078 (0.7.8): `lfwcbs` / `lfwcs` / `lfwc` failures were the harness, not the lift (no game change).** Evidence: the host's
+  "fall" in `lfwcbs` ride 2 was a second, 20 s-late side warp (flaky3078's repeat for the unbuilt-car guard) that ran 6 s into the ride
+  and put the carried host on the open top spot; the same stale-warp shape came from a stray early ride (the nav walker's door step or a
+  route's run-on carried a rider through the trigger cylinder 3-8 s before the planned warps, `lfwcs` ride 2, `lfwc` ride 1 / 4). Ride 1
+  "guest not carried" in `lfwcbs`: the guest warped into the trigger 3 s before its own car was built (the 16 s build delay counts from
+  the guest being within 22 m, not from the host), so its exit step fired at once off the unbuilt car's stale end animation. The
+  Cathedral phases now: one host side warp after the build (18 s), the trigger entered by a warp after the build (second rider 8 s,
+  lone rider 18 s), no door walk, long routes stop 2.6 m short of the trigger. The "copy does not freeze" row needs 3 windows (it
+  failed on short lone-rider phases with no freeze). A walk-in by stick onto a RISING car is itself unreliable (the navmesh ends under
+  the car: the old walker wanders off the platform), so no step walks while a ride runs.
 * NOT proven: the Central Yharnam BOTTOM end and Cathedral Ward's bottom end from over 150 m (see above: no walkable start);
   a far walk with the slow aids (far + unbuilt); a true 120+ steps/s; the car's build on a really slow disk (the aid delays the
   request, not the IO); a player report retest.
@@ -959,6 +969,44 @@ known and a warp into its trigger at the top did not start a ride. Phase `lu` is
 times 0.4 s apart: the fall-through of the report, the guard shows live). Smoke phase `lu` (2421250, group `lift_down`, also in `--only physics`); `LD_BOTH=1` puts the host
 on the car's rest spot (it may start the ride before the guest arrives), `LD_WARP=1` warps the guest into the trigger instead of walking,
 `FW_ENV="BB_TEST_LIFT_DROP=2.0"` arms the aid.
+
+### 10.1.5 Live FPS clock vs the frame rate hooks, physics smoke (livefps078, 2026-11-03)
+
+Mrsuss60's live FPS clock (docs/LIVE_FPS.md) is on by default; control = `BB_LIVE_FPS=0` (the frame rate hooks). Groups `lift_down` (`lu`, no
+`BB_TEST_LIFT_DROP`), `lift_walk` (`lfw`, `lfwc`), `cainhurst_maid` (`md`), `fall` (`fl`); two games, passed/total rows:
+
+| rate | mode | lu | lfw | lfwc | md | fl |
+|---|---|---|---|---|---|---|
+| 30 | (live is not used at 30) | 8/8 | 39/39 (second try) | 39/39 | 8/8 | all pass |
+| 60 | live | 8/8 | 39/39 | 39/39 | 8/8 | 24/24 |
+| 60 | control | 8/8 | 39/39 | 39/39 | 8/8 | 24/24 |
+| 60/48 (guest capped at 48) | live | 8/8 | 39/39 | 39/39 | 8/8 | 24/24 |
+| 60/48 | control | 8/8 | 39/39 | 39/39 | 8/8 | 24/24 |
+| 120 | live | 8/8 | 39/39 | 39/39 | 8/8 | 24/24 |
+| 120 | control | 4/8 (GPU assert `vk_scheduler.cpp:1168` at +18 s, game 0: not physics) | 39/39 | 39/39 | 8/8 | 24/24 |
+
+* No guest fell through a descending car in any run, live or control, and no `dropped through` / rescue line appeared: the natural drop of
+  CL-eab030 (a real 48 steps a second under a 120 preset) is still not reproduced, so this run neither fixes nor refutes it. The rider guard
+  stays the net.
+* One `lfw` run at 30 (live not in use) lost a game to a device lost at submit (`vk_scheduler.cpp:1260`, the known rare CL-ab12f5, copied to
+  `agents\devlost_cl-ab12f5`); the retry passed. The control's `lu` at 120 had a similar GPU assert at `:1168`.
+* Speed, first port (slew-limited step, presenter-held target): live 48.8 steps a second and 0.83 game seconds per real second at a target of 60 vs
+  the hooks' 59.6 / 1.0. Two causes, both fixed (livefps078, second commit): the +12% / -15% slew limit lagged every long frame, and the game's pacer
+  asked for 1/240 s so only the presenter held the target, which a 480 Hz vblank quantised (49 steps at 60; vblank 240 / 120 gave 52-54, vblank
+  60 exactly 60.0). Now the step is the measured frame time (micro-jitter under 1.5% locked to the target with the difference carried), the pacer
+  mode hook waits for the target and `run.bat` keeps the presets' vblank.
+* Speed after the fix (median steps a second / game time per real second, in-world, same phases live vs `BB_LIVE_FPS=0`):
+
+| case | live | control |
+|---|---|---|
+| one game (`rs`), target 60 | 59.6 / 0.996 | 59.8 / 1.000 |
+| one game, target 120 (run 1 / run 2) | 67.9 / 1.000, 67.8 / 1.000 | 76.8 / 1.000, 68.0 / 0.999 |
+| two games (`md`), target 60 | 56.8 / 0.950 | 56.9 / 0.952 |
+| two games, 60/48 (inst0) | 55.9 / 0.937 | 57.7 / 0.965 |
+| two games, target 120 | 64.0 / 0.956 | 64.0 / 0.944 |
+
+  The two-game and 120 rates are the PC's (GPU and CPU bound), equal live and control within run noise (the one 76.8 control run was not repeated:
+  its repeat gave 68.0). Rows after the fix, live, 60 and 120: `lu` 8/8, `lfw` 39/39, `lfwc` 39/39 at both rates.
 
 ## 2026-10-25 (simonwipe): a guest's boss phase event no longer starts the host's scene
 

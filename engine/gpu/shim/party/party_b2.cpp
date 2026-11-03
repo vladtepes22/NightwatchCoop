@@ -6,6 +6,7 @@
 // is System V: every call into it goes through a BB_COOP_SYSV pointer at Guest(off).
 #include "party_npchit_rules.h"
 #include "party_b2.h"
+#include "party_display_name.h"
 #include "party_async_io.h"
 #include "party_balance.h"
 #include "party_fourp.h"
@@ -1992,7 +1993,7 @@ std::set<int> g_split_told_away;
 std::string SplitMemberName(int slot) {
     if (party::PartyLink* link = party::runtime_link()) {
         for (const party::RosterEntry& r : link->roster()) {
-            if (r.slot == slot) return r.name;
+            if (r.slot == slot) return bbname::Display(r.name);  // shown in a notice: masked when hateful
         }
     }
     return slot == party::kHostSlot ? "The host" : "";
@@ -8766,7 +8767,7 @@ void SpectateTick(const GameSnapshot& s, double now) {
         std::string name;
         for (int i = 0; i < n; ++i) {
             if (living[i] == pick) {
-                name = PartyHudChrName(chrs[i]);
+                name = bbname::Display(PartyHudChrName(chrs[i]));  // shown in the spectate notice
             }
         }
         const std::string notice = deathrules::SpectateNotice(name, n);
@@ -11080,7 +11081,7 @@ void DirectSummonEvent(int from_slot, const std::string& body) {
         }
         Log("chalice: notice shown: Chalice summon stopped for a guest (slot %d, %s)", from_slot,
             why == dsummon::StuckWhy::Offline ? "offline" : "empty loads");
-        party::status::SetAlert(dsummon::HostNotice(why, name));
+        party::status::SetAlert(dsummon::HostNotice(why, bbname::Display(name)));
         return;
     }
     case dsummon::Kind::Req: {

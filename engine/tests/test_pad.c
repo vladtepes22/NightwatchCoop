@@ -45,6 +45,8 @@ int bbgpu_ping_combo_enabled(void) { return 0; }
 void bbgpu_ping_request(void) {}
 int bbgpu_gather_combo_enabled(void) { return 0; }
 void bbgpu_gather_request(const char *source) { (void)source; }
+int bbgpu_chat_enabled(void) { return 0; }
+void bbgpu_chat_request_pad(const char *source) { (void)source; }
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *name) {
     (void)table; (void)count; (void)name;
     return 0;

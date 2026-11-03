@@ -228,6 +228,12 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_glow_off = i != 0;
     } else if (key == "party_npc_talk") {
         v.party_npc_talk = i != 0;
+    } else if (key == "party_chat") {
+        v.party_chat = i != 0;
+    } else if (key == "party_chat_receive") {
+        v.party_chat_receive = i != 0;
+    } else if (key == "party_hide_bad_names") {
+        v.party_hide_bad_names = i != 0;
     } else if (key == "party_pings") {
         v.party_pings = i != 0;
     } else if (key == "party_through_walls") {
@@ -849,7 +855,7 @@ void Load() {
         }
     }
     const std::pair<const char*, const char*> env_keys[] = {
-        {"BB_PARTY_VPN", "party_vpn"},  {"BB_PARTY_DISCOVERY", "party_discovery"}, {"BB_PARTY_VPN_LOBBY", "party_vpn_lobby"},
+        {"BB_PARTY_VPN", "party_vpn"},  {"BB_PARTY_DISCOVERY", "party_discovery"}, {"BB_PARTY_HIDE_BAD_NAMES", "party_hide_bad_names"}, {"BB_PARTY_VPN_LOBBY", "party_vpn_lobby"},
         {"BB_PARTY_OPEN", "party_open"}, {"BB_PARTY_SPLITSCREEN", "party_splitscreen"}, {"BB_PARTY_STAY", "party_stay"}, {"BB_PARTY_MESSAGES", "party_messages"},  // visy 0.7.5 (2179ec17, 51fb67e9)
         {"BB_FSR_SHARPNESS", "sharpness"},        {"BB_JITTER", "jitter"},
         {"BB_REACTIVE", "reactive"},              {"BB_REACTIVE_SCALE", "reactive_scale"},
@@ -983,6 +989,30 @@ bool ResolutionNeedsRestart() {
          (v.upscaler == UpscalerTaa) != (v.startup_upscaler == UpscalerTaa));
 }
 
+
+std::vector<std::pair<std::string, std::string>> ReadLines(const std::string& prefix) {
+    std::vector<std::pair<std::string, std::string>> lines;
+    if (FILE* file = std::fopen(Path(), "r")) {
+        char line[512];
+        while (std::fgets(line, sizeof(line), file)) {
+            std::string text{line};
+            text.erase(text.find_last_not_of(" \t\r\n") + 1);
+            const auto eq = text.find('=');
+            if (text.empty() || text[0] == '#' || eq == std::string::npos) {
+                continue;
+            }
+            std::string key = text.substr(0, eq);
+            key.erase(key.find_last_not_of(" \t") + 1);
+            key.erase(0, key.find_first_not_of(" \t"));
+            if (key.compare(0, prefix.size(), prefix) == 0) {
+                lines.emplace_back(key, text.substr(eq + 1));
+            }
+        }
+        std::fclose(file);
+    }
+    return lines;
+}
+
 void Save() {
     const auto& v = Get();
     std::vector<std::pair<std::string, std::string>> keys;
@@ -1008,6 +1038,9 @@ void Save() {
     put("party_glow_off", flag(v.party_glow_off));
     put("party_npc_talk", flag(v.party_npc_talk));
     put("party_pings", flag(v.party_pings));
+    put("party_chat", flag(v.party_chat));
+    put("party_chat_receive", flag(v.party_chat_receive));
+    put("party_hide_bad_names", flag(v.party_hide_bad_names));
     put("party_through_walls", flag(v.party_through_walls));
     put("party_stain_marker", flag(v.party_stain_marker));
     put("party_hud_ping", flag(v.party_hud_ping));
