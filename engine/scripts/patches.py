@@ -663,38 +663,6 @@ def external_patches(directory, app_version='01.09', exclude=Path(__file__).reso
     return found
 
 
-def managed_builtin(name):
-    return (name in {n for names in FPS_PRESETS.values() for n in names} or name in (SCALED_BASE, '30 FPS++',
-            '60FPS (no deltatime)', INTEL_TONEMAP, SFX_WORKAROUND) or
-            name in {n for pair in EFFECTS.values() for n in pair if n} or name in MODEL_LOD_PATCHES or
-            name.startswith('Resolution Patch'))
-
-
-def builtin_selection(xml, config):
-    """The built-in patches switched on in the launcher's Mods page: patches.json keys
-    "Bloodborne.xml/<name>" in "enabled" (built-in ones start off, whatever the file says)."""
-    try:
-        enabled=json.loads(Path(config).read_text()).get('enabled',[]) if config and Path(config).is_file() else []
-    except (OSError, ValueError):
-        return []
-    prefix=Path(xml).name+'/'
-    known={meta.get('Name') for meta in ET.parse(xml).getroot().iter('Metadata')}
-    return [k[len(prefix):] for k in enabled if k.startswith(prefix) and k[len(prefix):] in known
-            and not managed_builtin(k[len(prefix):])]
-
-
-def placeable(xml, name, app_version, segments):
-    """Whether a built-in patch switched on in the Mods page fits this eboot. One that doesn't
-    (Performance Patch writes past its end: GitHub issues 28, 29) is left out, as an external
-    patch would be, instead of stopping the launch."""
-    try:
-        compile_patches(xml,[name],app_version,segments)
-        return True
-    except ValueError as error:
-        print(f'Patches: skipped {Path(xml).name}/{name}: {str(error).removeprefix(name+": ")}',file=sys.stderr)
-        return False
-
-
 def external_selection(found, config):
     """Selected external patches: patches.json {"enabled": [...], "disabled": [...]} overrides
     each file's isEnabled."""
@@ -869,8 +837,6 @@ def main():
         preset=[]
     names=preset+[n.strip() for n in a.extra.split(';') if n.strip()]
     names+=[n for n in effect_patches(read_settings(a.settings)) if n not in names]
-    selected=[n for n in builtin_selection(a.xml,a.patches_config) if n not in names]
-    names+=selected
     if intel_tonemap_fix() and INTEL_TONEMAP not in names:
         names.append(INTEL_TONEMAP)
     if party_mode():
@@ -881,7 +847,6 @@ def main():
     validate_patch_requirements(names,a.game_dir)
     elf=(a.out/'eboot.elf').read_bytes()
     segments=eboot_segments(elf)
-    names=[n for n in names if n not in selected or placeable(a.xml,n,a.app_version,segments)]
     names=checked_patches(a.xml,names,a.app_version,segments,elf,preset)
     for name in [n for n in names if breaks_online(compile_patches(a.xml,[n],a.app_version,segments))]:
         skip_for_online(name)

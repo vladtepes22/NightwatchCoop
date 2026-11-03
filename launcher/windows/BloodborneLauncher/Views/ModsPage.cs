@@ -11,7 +11,7 @@ namespace BloodborneLauncher.Views
     public sealed class ModsPage : LauncherPage
     {
         private readonly StackPanel _modList = new();
-        private readonly StackPanel _builtInList = new(), _patchList = new();
+        private readonly StackPanel _patchList = new();
         private readonly TextBlock _modsHint, _patchesHint;
         private List<Mods.Entry> _mods = new();
         private List<(Patches.Patch Patch, bool On)> _patches = new();
@@ -35,10 +35,6 @@ namespace BloodborneLauncher.Views
                 IconButton(SymbolRegular.Open24, L.T("Open in Explorer"), (_, _) => Paths.OpenFolder(GameEnvironment.ModsDir(S))),
                 IconButton(SymbolRegular.ArrowClockwise24, L.T("Refresh the list"), (_, _) => RefreshMods())), out _modsHint));
             Body.Children.Add(_modList);
-
-            Group(L.T("Built-in patches"));
-            Body.Children.Add(Text(L.T("Optional patches that come with the launcher (Bloodborne.xml), off until you switch them on. Frame rate, effects and resolution have their own settings."), "Faint"));
-            Body.Children.Add(_builtInList);
 
             Group(L.T("Third-party patches"));
             Body.Children.Add(Text(L.T("shadPS4-format XML patches for version 01.09 that you put in the patches folder. Put each in a file of its own: Bloodborne.xml is replaced on every update."), "Faint"));
@@ -158,12 +154,11 @@ namespace BloodborneLauncher.Views
             }
             if (read != _patchReads) return;
             _patches = patches;
-            SetHint(_patchesHint, _patches.Any(p => !Patches.IsBuiltIn(p.Patch)) ? dir : L.F($"{dir} — no patches"));
+            SetHint(_patchesHint, _patches.Count > 0 ? dir : L.F($"{dir} — no patches"));
             var shown = string.Join("\u0001", _patches.Select(p => $"{p.Patch.Key}|{p.Patch.Name}|{p.Patch.File}|{p.Patch.Author}|{p.Patch.Note}={p.On}"));
             if (shown == _patchesShown) return;
             _patchesShown = shown;
 
-            _builtInList.Children.Clear();
             _patchList.Children.Clear();
             for (var i = 0; i < _patches.Count; i++)
             {
@@ -188,7 +183,7 @@ namespace BloodborneLauncher.Views
                 card.Margin = new Thickness(24, 0, 0, 4);
                 if (patch.Note.Length > 0)
                     card.ToolTip = patch.Note;
-                (Patches.IsBuiltIn(patch) ? _builtInList : _patchList).Children.Add(card);
+                _patchList.Children.Add(card);
             }
         }
     }

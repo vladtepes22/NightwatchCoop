@@ -611,36 +611,6 @@ class WidescreenUiTests(unittest.TestCase):
         self.assertEqual(data[patches.UI_HEIGHT], bytes([0xB9]) + (1080).to_bytes(3, 'little'))
 
 
-class BuiltInSelectionTests(unittest.TestCase):
-    def test_switched_on_builtins_apply_and_managed_ones_never(self):
-        xml = Path(patches.__file__).resolve().parent.parent / 'patches/Bloodborne.xml'
-        with tempfile.TemporaryDirectory() as directory:
-            config = Path(directory) / 'patches.json'
-            config.write_text(json.dumps({'enabled': ['Bloodborne.xml/No Rally Decay', 'Bloodborne.xml/60 FPS++',
-                                                      'Bloodborne.xml/Disable DoF', 'Bloodborne.xml/Not a patch',
-                                                      'other.xml/No Rally Decay'],
-                                          'disabled': ['Bloodborne.xml/Increased camera distance']}))
-            self.assertEqual(patches.builtin_selection(xml, config), ['No Rally Decay'])
-            self.assertEqual(patches.builtin_selection(xml, None), [])
-        self.assertTrue(patches.managed_builtin('Resolution Patch 2560x1080 (21:9)'))
-        self.assertTrue(patches.managed_builtin('Intel 12th Gen+ SFX workaround'))
-        self.assertFalse(patches.managed_builtin('Unlock Game Region'))
-        self.assertFalse(patches.managed_builtin(patches.HEAP_PATCH))
-
-    def test_a_switched_on_builtin_past_the_eboot_is_left_out_not_fatal(self):
-        segments = [(0, 0x06000000 - patches.EBOOT_BASE)]
-        with tempfile.TemporaryDirectory() as directory:
-            xml = Path(directory) / 'Bloodborne.xml'
-            xml.write_text('<Patch><Metadata Name="Past" AppVer="01.09"><PatchList>'
-                           '<Line Type="bytes" Address="0x0603AD1A" Value="00"/></PatchList></Metadata></Patch>')
-            with contextlib.redirect_stderr(io.StringIO()) as err:
-                self.assertFalse(patches.placeable(xml, 'Past', '01.09', segments))
-            self.assertIn('0x0603AD1A is outside the eboot', err.getvalue())
-        for name in ('Unlock Game Region', 'Disable Camera Auto Rotation via Movement', 'Player No Dead (Read note)',
-                     'Performance Patch (perf increase)', 'Enemy Control'):
-            self.assertTrue(patches.placeable(XML, name, '01.09', segments), name)
-
-
 LIVE_BASE = '60 FPS++ (Deltatime)'  # Live FPS (Nightwatch appends it after the Party: patches)
 COMMUNITY_NAMES = (
     'Skip Intro', 'Performance Patch (perf increase)', 'Disable Motion Blur (perf increase)',

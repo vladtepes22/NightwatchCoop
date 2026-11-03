@@ -195,28 +195,11 @@ namespace BloodborneLauncher.Core
                    major == 1 && minor == 9;
         }
 
-        /// <summary>Built-in patches the port sets from its own settings or no longer needs: not
-        /// offered (scripts/patches.py managed_builtin, the same list).</summary>
-        public static bool ManagedBuiltIn(string name) =>
-            name.Contains("FPS++", StringComparison.Ordinal) || name.StartsWith("Resolution Patch", StringComparison.Ordinal) ||
-            name.StartsWith("Model LOD", StringComparison.Ordinal) || ManagedNames.Contains(name);
-
-        private static readonly HashSet<string> ManagedNames = new(StringComparer.Ordinal)
-        {
-            "Sprint Fix (High FPS)", "60FPS (no deltatime)", "Intel Black Tonemap Fix",
-            "Intel 12th Gen+ SFX workaround", "Disable Chromatic Aberration", "Disable DoF", "Disable Motion Blur (perf increase)",
-            "Disable SSAO", "Disable AA", "Disable Dynamic Light Shadows (perf increase)", "Enable Screen Space Reflections (READ NOTE)",
-            "Skip Intro", "Restore Debug Camera", "Restore Debug Menu (READ NOTES)", "Increased Graphics Heap Sizes",
-        };
-
-        /// <summary>One of the port's own optional patches (Bloodborne.xml, shipped and replaced by updates).</summary>
-        public static bool IsBuiltIn(Patch patch) => string.Equals(patch.File, "Bloodborne.xml", StringComparison.OrdinalIgnoreCase);
-
         public static List<Patch> Discover(string directory)
         {
             var found = new List<Patch>();
             // The player's patches folder (removed by 0.9.30's update cleanup, GitHub issue 44): made
-            // again; the built-in patches are listed either way.
+            // again.
             try
             {
                 Directory.CreateDirectory(directory);
@@ -227,15 +210,11 @@ namespace BloodborneLauncher.Core
 
             var builtIn = Path.GetFullPath(Path.Combine(Paths.EngineDir, "patches", "Bloodborne.xml"));
             var footprint = ResolutionFootprint();
-            // The built-in file first (it lives in the package's patches folder; updates replace it):
-            // its optional patches, off until switched on here.
-            // A copy of Bloodborne.xml in another patches folder (an older package's) is never listed: it would
-            // apply its frame-rate patches over the port's own (scripts/patches.py does the same).
+            // Bloodborne.xml is the engine's own template, never listed: a copy in the patches folder (an older
+            // package's) would apply its frame-rate patches over the port's own (scripts/patches.py does the same).
             var files = (Directory.Exists(directory) ? Directory.GetFiles(directory, "*.xml") : Array.Empty<string>()).Where(p => !string.Equals(Path.GetFileName(p), Path.GetFileName(builtIn), StringComparison.OrdinalIgnoreCase));
-            if (File.Exists(builtIn)) files = files.Prepend(builtIn);
             foreach (var path in files.Distinct().ToList())
             {
-                var isBuiltIn = string.Equals(Path.GetFullPath(path), builtIn, StringComparison.OrdinalIgnoreCase);
                 XElement root;
                 try
                 {
@@ -256,37 +235,17 @@ namespace BloodborneLauncher.Core
                         ((string?)meta.Attribute("AppElf") ?? "eboot.bin") != "eboot.bin")
                         continue;
                     var name = (string?)meta.Attribute("Name") ?? "";
-                    if (isBuiltIn && ManagedBuiltIn(name))
-                        continue;
                     var file = Path.GetFileName(path);
                     found.Add(new Patch($"{file}/{name}", name.Length > 0 ? name : $"{file}/{name}", file,
                         (string?)meta.Attribute("Author") ?? "",
                         ((string?)meta.Attribute("Note") ?? "").Replace("\\n", "\n"),
-                        !isBuiltIn && string.Equals((string?)meta.Attribute("isEnabled"), "true", StringComparison.OrdinalIgnoreCase),
+                        string.Equals((string?)meta.Attribute("isEnabled"), "true", StringComparison.OrdinalIgnoreCase),
                         meta.Descendants("Line").Any(WritesRegion),
                         meta.Descendants("Line").Select(Range).Any(r => r is { } w &&
                             footprint.Any(f => f.Start < w.End && w.Start < f.End))));
                 }
             }
             return found;
-        }
-
-        private static readonly Dictionary<string, string> RenamedBuiltIns = new(StringComparer.Ordinal)
-        {
-            ["Bloodborne.xml/All languages (region unlock)"] = "Bloodborne.xml/Unlock Game Region",
-            ["Bloodborne.xml/Camera: no auto-turn"] = "Bloodborne.xml/Disable Camera Auto Rotation via Movement",
-            ["Bloodborne.xml/Can't die (HP stops at 1)"] = "Bloodborne.xml/Player No Dead (Read note)",
-        };
-
-        private static bool Rename(HashSet<string> keys)
-        {
-            var old = keys.Where(RenamedBuiltIns.ContainsKey).ToList();
-            foreach (var key in old)
-            {
-                keys.Remove(key);
-                keys.Add(RenamedBuiltIns[key]);
-            }
-            return old.Count > 0;
         }
 
         public static (HashSet<string> Enabled, HashSet<string> Disabled) LoadProfile()
@@ -296,16 +255,6 @@ namespace BloodborneLauncher.Core
                 if (File.Exists(ProfilePath) && JsonNode.Parse(File.ReadAllText(ProfilePath)) is JsonObject profile)
                 {
                     var (enabled, disabled) = (Set(profile["enabled"]), Set(profile["disabled"]));
-                    if (Rename(enabled) | Rename(disabled))
-                    {
-                        try
-                        {
-                            Write(enabled, disabled);
-                        }
-                        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-                        {
-                        }
-                    }
                     return (enabled, disabled);
                 }
             }

@@ -258,6 +258,7 @@ public sealed class SeamlessPage : LauncherPage
             ("party_glow_off", L.T("Companions without glow"), true));
         IniNumbers(party, ("party_overhead", L.T("Name tag detail (0–4)"), 3), ("party_npc_talk_range", L.T("NPC dialogue range (m)"), 25));
         party = Fold(L.T("Progress and items"), InParty, L.T("What reaches your own save. Takes effect on the next game start."));
+        party.Children.Add(Text(L.T("Shared progression and Shared story and endings must match the host's. A guest with a different value is refused."), "Faint"));
         IniToggles(party, SeamlessSettings.GameSwitches.Where(o => SeamlessSettings.OwnSwitches.Contains(o.Key)).Select(o => (o.Key, o.Label, true)).ToArray());
         IniToggles(party,
             ("party_key_view", L.T("Own key items as a guest"), true), ("party_key_items_summoned", L.T("Key items at once"), true));
