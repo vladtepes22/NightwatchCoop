@@ -344,7 +344,7 @@ public sealed partial class SaveEditorWindow : Window
             {
                 _added.Add(pick);
                 var item = new SaveEditor.Item { Kind = pick.Category switch { 0 => "weapon", 1 => "armor", 4 => "goods", _ => "gem" },
-                    Number = pick.Number, Name = pick.Name, Count = pick.Count,
+                    Number = pick.Number, Name = pick.Name, Count = pick.Count, Icon = pick.Icon,
                     Gem = pick.Category == 8 ? new(0, 2, 1, 1, false, [new(pick.Number, pick.Name)]) :
                         pick.Category == 2 ? new(0, 1, pick.Shape, 0, false, pick.Effects ?? []) : null };
                 ItemRow? pending = null;
