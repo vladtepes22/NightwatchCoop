@@ -19,10 +19,11 @@ namespace BloodborneLauncher.Views;
 // window keeps the picks as unsaved changes until Apply.
 internal sealed class SaveEditorAddDialog : Window
 {
-    internal sealed record Pick(int Category, int Number, string Name, int Count, int Shape = 1, SaveEditor.GemEffect[]? Effects = null);
+    internal sealed record Pick(int Category, int Number, string Name, int Count, int Shape = 1, SaveEditor.GemEffect[]? Effects = null, string? Icon = null);
 
-    public sealed class Row(int number, string name, ImageSource? icon, int category = 0)
+    public sealed class Row(int number, string name, ImageSource? icon, int category = 0, string? iconPath = null)
     {
+        public string? IconPath { get; } = iconPath;
         public int Category { get; } = category;
         public int Number { get; } = number;
         public string Name { get; } = name;
@@ -171,7 +172,7 @@ internal sealed class SaveEditorAddDialog : Window
             var json = await _catalog(category, _search.Text.Trim());
             if (run != _run) return;
             var found = JsonSerializer.Deserialize<Found[]>(json, SaveEditor.Json) ?? [];
-            var rows = await Task.Run(() => found.Select(f => new Row(f.Number, f.Name ?? "", CachedIcon(f.Icon), f.Category)).ToList());
+            var rows = await Task.Run(() => found.Select(f => new Row(f.Number, f.Name ?? "", CachedIcon(f.Icon), f.Category, f.Icon)).ToList());
             if (run != _run) return;
             _list.ItemsSource = rows;
             _empty.Text = rows.Count == 0 ? L.T("No items found") : "";
@@ -218,7 +219,7 @@ internal sealed class SaveEditorAddDialog : Window
             DialogResult = true; return;
         }
         var count = IsGoods ? CountNumber ?? 1 : 1;
-        Result = _list.SelectedItems.Cast<Row>().Select(r => new Pick(Category == 9 ? r.Category : Category, r.Number, r.Name, (Category == 9 ? r.Category : Category) == 4 ? count : 1)).ToArray();
+        Result = _list.SelectedItems.Cast<Row>().Select(r => new Pick(Category == 9 ? r.Category : Category, r.Number, r.Name, (Category == 9 ? r.Category : Category) == 4 ? count : 1, Icon: r.IconPath)).ToArray();
         DialogResult = true;
     }
 }
