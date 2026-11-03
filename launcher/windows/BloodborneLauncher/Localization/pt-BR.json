@@ -1,4 +1,9 @@
 {
+  "Allow invasions": "Permitir invasões",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "Outros jogadores podem invadir seu mundo como fantasma hostil pela lista do Nightwatch Online, sem a senha. Jogadores cooperativos ainda precisam dela. Um invasor por vez.",
+  "Invade": "Invadir",
+  "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "Invadir o mundo de {0}? Você entra como fantasma hostil: o anfitrião e os convidados podem matar você e você pode matá-los. Você volta para casa quando morre ou quando eles morrem.",
+  "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "Entrar como fantasma hostil. O anfitrião permite invasões: nenhuma senha é necessária ou enviada.",
   "Hide full": "Ocultar lotadas",
   "Hide wrong build": "Ocultar outras versões",
   "No password": "Sem senha",

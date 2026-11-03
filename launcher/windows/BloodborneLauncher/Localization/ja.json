@@ -1,4 +1,9 @@
 {
+  "Allow invasions": "侵入を許可",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "他のプレイヤーが Nightwatch Online の一覧から、パスワードなしで敵対ファントムとしてあなたの世界に侵入できます。協力プレイヤーには引き続きパスワードが必要です。侵入者は一度に1人です。",
+  "Invade": "侵入",
+  "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "{0} の世界に侵入しますか？ 敵対ファントムとして参加します。ホストとゲストはあなたを倒せ、あなたも彼らを倒せます。あなたか彼らが死ぬと元の世界に戻ります。",
+  "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "敵対ファントムとして参加します。ホストは侵入を許可しています。パスワードは不要で、送信もされません。",
   "Hide full": "満員を非表示",
   "Hide wrong build": "異なるバージョンを非表示",
   "No password": "パスワードなし",

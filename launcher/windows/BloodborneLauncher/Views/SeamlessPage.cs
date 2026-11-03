@@ -85,6 +85,11 @@ public sealed class SeamlessPage : LauncherPage
         _onlineCodeButton.Margin = new Thickness(0, 0, 14, 4);
         _onlineCodeButton.Visibility = Visibility.Collapsed;
         showRows.Children.Add(_onlineCodeButton);
+        // visy 0.7.8 invasions (engine/docs/party/invasions.md): bbport.ini party_invaders, read live by the game; only the
+        // host's value counts. The lobby lists an invadable host, and an invader needs no password.
+        ToggleRow(SymbolRegular.Shield24, L.T("Allow invasions"),
+            L.T("Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time."),
+            () => Ini.Get("party_invaders", "0") == "1", v => Ini.Set("party_invaders", v ? "1" : "0"), host);
         _privateCodes = Rows(m => Hosting(m) && !IsPublic);
         _internetButton = SmallButton(L.T("Copy Internet code"), SymbolRegular.Copy24, (_, _) => { if (_internetCode.Length > 0) Copy(_internetCode); });
         _lanButton = SmallButton(L.T("Copy LAN / VPN code"), SymbolRegular.Copy24, (_, _) => { if (_lanCode.Length > 0) Copy(_lanCode); });
@@ -793,7 +798,7 @@ public sealed class SeamlessPage : LauncherPage
 
     /// <summary>Join in the VPN lobby's list: asks for the password, then starts the game as Play starts it. The address
     /// and the password stay in memory for this start (SeamlessSettings.PendingJoin).</summary>
-    private async void JoinLobbyGame(LobbyGame game)
+    private async void JoinLobbyGame(LobbyGame game, bool invade = false)
     {
         if (Ws.Game.Running)
         {
@@ -801,16 +806,22 @@ public sealed class SeamlessPage : LauncherPage
             return;
         }
         var password = "";
-        if (game.Password)
+        if (invade)
+        {
+            if (!Prompt.Confirm(L.T("Invade"), string.Format(L.T("Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die."), game.Name), L.T("Invade")))
+                return;
+        }
+        else if (game.Password)
         {
             if (AskPartyPassword(game.Name, "") is not { } typed) return;
             password = typed;
         }
         SeamlessSettings.PendingJoin = (game.JoinCode, password);
+        SeamlessSettings.PendingInvade = invade;
         if (PartyDiscovery.PartySize(game.Max) is { } size)
             SeamlessSettings.PendingHostOptions = new() { ["BB_PARTY_MAX"] = size };  // the lobby tells only the slots
         try { await MainWindow.Instance!.PlayOrStopAsync(); }
-        finally { SeamlessSettings.PendingJoin = null; SeamlessSettings.PendingHostOptions = null; }
+        finally { SeamlessSettings.PendingJoin = null; SeamlessSettings.PendingInvade = false; SeamlessSettings.PendingHostOptions = null; }
     }
 
     /// <summary>Where the poller asks: the lobby on the tunnel from this PC's tunnel address, or a test lobby; null sends nothing.</summary>
@@ -832,7 +843,7 @@ public sealed class SeamlessPage : LauncherPage
         var prefix = PartyDiscovery.BuildPrefix(Updater.ReleaseVersion());
         var result = LobbyListRules.Apply(games, prefix, S.Bool("lobby_hide_full"), S.Bool("lobby_hide_wrong_build"), S.Bool("lobby_no_password"));
         games = result.Games;
-        var signature = result.Total + "|" + result.Hidden + "|" + _searchBox.Text + "|" + up + "|" + (_lobby?.Answered == true) + "|" + string.Join(";", games.Select(g => $"{g.Name}/{g.Ip}/{g.Port}/{g.Players}/{g.Max}/{g.Build}/{g.Password}"));
+        var signature = result.Total + "|" + result.Hidden + "|" + _searchBox.Text + "|" + up + "|" + (_lobby?.Answered == true) + "|" + string.Join(";", games.Select(g => $"{g.Name}/{g.Ip}/{g.Port}/{g.Players}/{g.Max}/{g.Build}/{g.Password}/{g.Invaders}"));
         if (signature == _lobbySignature) return;
         _lobbySignature = signature;
         SetHint(_lobbyHint, !up ? L.T("Connect to the Nightwatch VPN to see its games.") : !(_lobby?.Answered == true) ? L.T("Waiting for the lobby…") :
@@ -847,7 +858,14 @@ public sealed class SeamlessPage : LauncherPage
             var picked = game;
             var join = SmallButton(!sameVersion ? L.T("Different version") : open ? L.T("Join") : L.T("Full"), SymbolRegular.Link24, (_, _) => JoinLobbyGame(picked));
             join.IsEnabled = open;
-            var row = Card(SymbolRegular.People24, game.Name, null, WithAccessMark(!game.Password, LockInfo(game.Password), join), out var hint);
+            UIElement buttons = join;
+            if (sameVersion && game.Invadable)
+            {
+                var invade = SmallButton(L.T("Invade"), SymbolRegular.Shield24, (_, _) => JoinLobbyGame(picked, invade: true));
+                invade.ToolTip = L.T("Join as a hostile phantom. The host allows invasions: no password is needed or sent.");
+                buttons = Row(invade, join);
+            }
+            var row = Card(SymbolRegular.People24, game.Name, null, WithAccessMark(!game.Password, LockInfo(game.Password), buttons), out var hint);
             if (!open) row.Opacity = 0.6;
             SetHint(hint, L.T("Nightwatch Online") + " · " + game.Players + " / " + game.Max + " · " + VpnLobby.VersionOf(game.Build) +
                           (sameVersion ? "" : "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.")));
