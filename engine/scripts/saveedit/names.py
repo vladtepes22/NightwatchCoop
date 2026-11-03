@@ -17,7 +17,7 @@ FMG_FILES = {"goods": "アイテム名", "weapon": "武器名", "armor": "防具
 PARAMS = {"weapon": "EquipParamWeapon", "armor": "EquipParamProtector", "accessory": "EquipParamAccessory",
           "goods": "EquipParamGoods"}
 _PLACEHOLDER = re.compile(r"^(\*|NOT NEEDED|en\d+)?$", re.I)
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 EVENT_TEXT = "イベントテキスト"  # menu.msgbnd FMG: the lamp warp list names (id 7000AABn)
 NPC_NAMES = "NPC名"  # item.msgbnd FMG: boss and NPC names by character id
 GEM_NAMES = "魔石名"  # menu.msgbnd FMG: blood gem and rune names (key built in gems.name_key)
@@ -103,6 +103,7 @@ def read_game(game_dir, lang="engus"):
     from .params import Params  # params reads its files with this module's helpers
     try:  # hand, icon and gem rows need the paramdefs too; without them the editor still has names
         p = Params(game)
+        data["goods_sort"] = {i: v[0] for i, v in p.table("EquipParamGoods", ["sortId"]).items()}
         data["weapon_hands"] = {i: "left" if left and not right else "right"
                                 for i, (right, left) in p.table("EquipParamWeapon",
                                     ["rightHandEquipable", "leftHandEquipable"]).items()}
@@ -136,6 +137,38 @@ def read_game(game_dir, lang="engus"):
     except (OSError, ValueError, KeyError, struct.error, zlib.error):
         pass
     return data
+
+
+MOD_GOODS_PREFIX = "Nocturne"  # the mod folders whose new goods the editor's Nocturne list offers
+
+
+def read_mod_goods(game_dir, mods_dir, config, lang="engus"):
+    """{goods id: [name, sortId]} the installed, enabled Nocturne mod adds: EquipParamGoods rows and names that the game
+    folder does not have. Empty when no such mod, no game paramdefs or anything unreadable."""
+    from . import params
+    import mods  # scripts/mods.py (scripts is on the path: saveedit_cli.py and the tests)
+    game = Path(game_dir)
+    if not (game / "msg").is_dir() and (game / "dvdroot_ps4" / "msg").is_dir():
+        game = game / "dvdroot_ps4"
+    out = {}
+    try:
+        vanilla = set(_param_ids(_entry(_bnd4(_dcx((game / "param" / "gameparam" / "gameparam.parambnd.dcx").read_bytes())),
+                                        PARAMS["goods"] + ".param")))
+        for name in mods.selected(mods_dir, config):
+            if not name.casefold().startswith(MOD_GOODS_PREFIX.casefold()):
+                continue
+            base, prefix = mods.content_root(Path(mods_dir) / name)
+            root = mods.child(base, "dvdroot_ps4") if not prefix else base / prefix
+            gameparam = mods.child(mods.child(mods.child(root, "param"), "gameparam"), "gameparam.parambnd.dcx")
+            sort = params.Params(game, gameparam).table("EquipParamGoods", ["sortId"])
+            msg = mods.child(mods.child(mods.child(root, "msg"), lang), "item.msgbnd.dcx")
+            names = _fmg(_entry(_bnd4(_dcx(msg.read_bytes())), FMG_FILES["goods"] + ".fmg"))
+            for i, (sort_id,) in sort.items():
+                if i not in vanilla and names.get(i) and not _PLACEHOLDER.match(names[i]):
+                    out[i] = [names[i], sort_id]
+    except (OSError, ValueError, KeyError, TypeError, struct.error, zlib.error):
+        return {}
+    return out
 
 
 def _stamp(game, lang):
@@ -172,6 +205,8 @@ class Catalogue:
         self._effects = {int(i): v for i, v in (data or {}).get("effects", {}).items()}
         self._gemgen = {int(i): v for i, v in (data or {}).get("gemgen", {}).items()}
         self._gemrows = {int(i): v for i, v in (data or {}).get("gemrows", {}).items()}
+        self._goods_sort = {int(i): v for i, v in (data or {}).get("goods_sort", {}).items()}
+        self.mod_goods = {}  # goods id -> [name, sortId] of the Nocturne mod (set_mod_goods)
         self._reach = set((data or {}).get("reach", []))
         self._weapon_hands = {int(i): v for i, v in (data or {}).get("weapon_hands", {}).items()}
 
@@ -200,6 +235,17 @@ class Catalogue:
         except OSError:
             pass
         return cls(data)
+
+    def set_mod_goods(self, goods):
+        self.mod_goods = {int(i): v for i, v in goods.items()}
+
+    def goods_sort(self, number):
+        """The goods row's sortId (menu order), from the mod's row when the mod adds the item; None when unknown."""
+        return self.mod_goods[number][1] if number in self.mod_goods else self._goods_sort.get(number)
+
+    def search_mod_goods(self, text=""):
+        text = text.lower()
+        return [(i, n) for i, (n, _) in sorted(self.mod_goods.items()) if text in n.lower() or text in str(i)]
 
     def name(self, category, number):
         kind = self.KIND_OF_CATEGORY.get(category)

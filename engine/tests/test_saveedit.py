@@ -199,6 +199,17 @@ def test_add_goods_takes_the_first_empty_entry_and_moves_two_counters():
     assert M.SaveModel(m.to_bytes()).items((0,))[3].count == 20
 
 
+def test_add_goods_with_a_sort_id_gets_the_index_the_menu_lists():
+    m = M.SaveModel(make_save())
+    tail = counter_of(m)
+    m.add_goods(2146, 1, 220077)
+    entry = m.normal_at + 4 + 3 * M.ENTRY
+    assert m.u32(entry + 12) == 220077 << 12 | (3 + 64)
+    assert counter_of(m) == max(tail, 3 + 64)
+    with pytest.raises(ValueError):
+        m.add_goods(2147, 1, 1 << 20)
+
+
 def test_add_goods_refuses_what_is_wrong():
     m = M.SaveModel(make_save())
     for call in ((100, 1), (1000, 0), (1000, 1000), (0, 1), (0x10000000, 1)):
