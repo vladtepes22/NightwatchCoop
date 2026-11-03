@@ -193,7 +193,35 @@ settings.Set("party_port", "65536");
 Check(SeamlessSettings.Validate(settings) != null, "Invalid port accepted");
 settings.Set("party_port", "47890");
 settings.Set("party_name", "bad name");
-Check(SeamlessSettings.Validate(settings) != null, "Invalid name accepted");
+Check(SeamlessSettings.Validate(settings) == null && settings.Str("party_name") == "bad_name", "Stored name was not repaired");
+Check(SeamlessSettings.SanitizeName("a b!é中_-9") == "a_b____-9", "Name sanitizer allowed invalid characters");
+Check(SeamlessSettings.SanitizeName("abcdefghijklmnopq") == "abcdefghijklmnop"
+    && SeamlessSettings.SanitizeName("") == "", "Name sanitizer length bounds failed");
+settings.Set("party_name", "");
+Check(SeamlessSettings.Name(settings).Length is > 0 and <= 16, "Empty name did not get a default");
+{
+    LobbyGame Lobby(string name, int players = 1, bool password = false, string build = "test-hash") =>
+        new() { Name = name, Players = players, Max = 2, Password = password, Build = build, Own = false, Ip = 0, Port = 9307 };
+    var games = new[] { Lobby("full", 2), Lobby("open1"), Lobby("locked", password: true), Lobby("wrong", build: "other"), Lobby("open2") };
+    var all = LobbyListRules.Apply(games, "test-", false, false, false);
+    Check(string.Join(",", all.Games.Select(g => g.Name)) == "open1,open2,full,locked,wrong"
+        && all.Total == 5 && all.Hidden == 0, "Lobby ordering was not stable");
+    var defaults = LobbyListRules.Apply(games, "test-", true, true, false);
+    Check(defaults.Games.Count == 3 && defaults.Hidden == 2 && defaults.Total == 5, "Default lobby filters/count failed");
+    var unlocked = LobbyListRules.Apply(games, "test-", true, true, true);
+    Check(unlocked.Games.Count == 2 && unlocked.Hidden == 3, "Password filter failed");
+    Check(LobbyListRules.Apply(Array.Empty<LobbyGame>(), "test-", true, true, true).Total == 0, "Empty lobby count failed");
+    Check(LobbyListRules.Apply(games.Take(1), "test-", true, false, false).Hidden == 1, "All-hidden count failed");
+}
+Check(NightwatchVpn.SignUpRetrySeconds(null, "minutes left 901") == 54060
+    && NightwatchVpn.SignUpRetrySeconds(null, "retry in 12 minutes") == 720
+    && NightwatchVpn.SignUpRetrySeconds(61.1, "minutes left 901") == 62
+    && NightwatchVpn.SignUpRetrySeconds(null, "invalid") == 3600, "VPN retry time parsing failed");
+Check(NightwatchVpn.FormatSignUpLimit(54060) == "Sign-up limit reached, try again in about 16 hours. Ask in the Nightwatch Discord if this keeps happening."
+    && NightwatchVpn.FormatSignUpLimit(61).Contains("2 minutes.")
+    && NightwatchVpn.FormatSignUpLimit(3600).Contains("1 hours.")
+    && NightwatchVpn.FormatSignUpLimit(0).Contains("1 minutes."), "VPN rate limit rounding failed");
+Console.WriteLine("PASS: lobby filters/order/counts, player name sanitizer, VPN sign-up limit formatting");
 settings.Set("party_mode", "");
 settings.PartyPassword = "";
 Check(SeamlessSettings.Validate(settings) == null, "Single player without a password rejected");

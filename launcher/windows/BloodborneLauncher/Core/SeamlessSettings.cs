@@ -139,11 +139,18 @@ public static partial class SeamlessSettings
     public static bool Flag(LauncherSettings s, string key, bool fallback = true) =>
         s.All.Any(item => item.Key == key) ? s.Bool(key) : fallback;
 
+    public static string SanitizeName(string value) => Regex.Replace(value, "[^A-Za-z0-9_-]", "_")[..Math.Min(16, value.Length)];
+
     public static string Name(LauncherSettings s)
     {
         var name = s.Str("party_name");
-        if (name.Length > 0) return name;
-        name = Regex.Replace(Environment.UserName, "[^A-Za-z0-9_-]", "_");
+        var clean = SanitizeName(name);
+        if (clean.Length > 0)
+        {
+            if (clean != name) s.Set("party_name", clean);
+            return clean;
+        }
+        name = SanitizeName(Environment.UserName);
         if (name.Length == 0) name = "Hunter";
         name = name[..Math.Min(11, name.Length)] + "-" + Random.Shared.Next(0x10000).ToString("x4");
         s.Set("party_name", name);
@@ -156,7 +163,7 @@ public static partial class SeamlessSettings
     {
         if (!Enabled(s)) return null;
         if (!Regex.IsMatch(Name(s), "^[A-Za-z0-9_-]{1,16}$"))
-            return L.T("Party name must contain 1–16 letters, numbers, underscores or hyphens.");
+            return L.T("Your name must contain 1–16 letters, numbers, underscores or hyphens.");
         if (s.Str("party_mode") != "join" && Password(s).Length > 0 && Password(s).Trim().Length == 0)
             return L.T("Set a party password first: the host and every guest use the same one.");
         if (s.Str("party_port").Length > 0 &&

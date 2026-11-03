@@ -50,6 +50,9 @@ namespace BloodborneLauncher.Core
             ["check_updates"] = true,
             ["vpn_idle_disconnect"] = true,  // visy 0.7.8 handoff: drop an idle Nightwatch VPN tunnel (VpnIdle)
             ["vpn_idle_minutes"] = "10",
+            ["lobby_hide_full"] = true,
+            ["lobby_hide_wrong_build"] = true,
+            ["lobby_no_password"] = false,
             ["save_backups"] = true,
             ["discord_status"] = "off",
             ["discord_timer"] = true,
