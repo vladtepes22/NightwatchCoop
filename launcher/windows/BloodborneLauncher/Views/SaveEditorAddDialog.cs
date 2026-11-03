@@ -19,7 +19,7 @@ namespace BloodborneLauncher.Views;
 // window keeps the picks as unsaved changes until Apply.
 internal sealed class SaveEditorAddDialog : Window
 {
-    internal sealed record Pick(int Category, int Number, string Name, int Count);
+    internal sealed record Pick(int Category, int Number, string Name, int Count, int Shape = 1, SaveEditor.GemEffect[]? Effects = null);
 
     public sealed class Row(int number, string name, ImageSource? icon)
     {
@@ -31,11 +31,18 @@ internal sealed class SaveEditorAddDialog : Window
     }
     private sealed record Found(int Number, string? Name, string? Icon);
 
-    // The categories the Python side offers: 4 goods, 0 weapons, 1 armour.
-    private static readonly int[] Categories = { 4, 0, 1 };
+    // Category 2 is a local gem pick; category 8 is the rune catalogue. Both use add_gems.
+    private static readonly int[] Categories = { 4, 0, 1, 2, 8 };
     private const int SearchPauseMs = 200;
     private readonly Func<int, string, Task<string>> _catalog;
-    private readonly ComboBox _kind = new();
+    private readonly ComboBox _kind = new(), _shape = new();
+    private readonly StackPanel _gemPanel = new();
+    private readonly TextBlock _gemSummary = LauncherPage.Text("", "Muted");
+    private readonly Func<Task<SaveEditor.GemEffect[]>>? _effects;
+    private SaveEditor.GemEffect[] _pickedEffects = [];
+    private Grid _host = null!;
+    private bool _loadingCatalog;
+    private string? _catalogError;
     private readonly TextBox _search = new(), _count = new() { Text = "1", Width = 70 };
     private readonly ListBox _list = new();
     private readonly TextBlock _empty = LauncherPage.Text("", "Muted"), _countLabel = LauncherPage.Text(L.T("Count"), "StatLabel");
@@ -48,9 +55,10 @@ internal sealed class SaveEditorAddDialog : Window
 
     /// <param name="catalog">Asks the save editor's worker for the items of a category matching a text (JSON rows).</param>
     /// <param name="held">(category, number) the open save already holds as goods: those are edited in the list, not added.</param>
-    public SaveEditorAddDialog(Func<int, string, Task<string>> catalog, IEnumerable<(int Category, int Number)> held)
+    public SaveEditorAddDialog(Func<int, string, Task<string>> catalog, IEnumerable<(int Category, int Number)> held,
+        Func<Task<SaveEditor.GemEffect[]>>? effects = null)
     {
-        _catalog = catalog; _held = held.ToHashSet();
+        _catalog = catalog; _held = held.ToHashSet(); _effects = effects;
         Title = L.T("Add item"); Width = 600; Height = 660; MinWidth = 460; MinHeight = 460;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         SetResourceReference(BackgroundProperty, "DialogBackgroundBrush");
@@ -65,14 +73,14 @@ internal sealed class SaveEditorAddDialog : Window
         var top = new Grid { Margin = new Thickness(0, 0, 0, 10) };
         top.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        foreach (var text in new[] { L.T("Goods"), L.T("Weapons"), L.T("Armor") }) _kind.Items.Add(text);
+        foreach (var text in new[] { L.T("Goods"), L.T("Weapons"), L.T("Armor"), L.T("Blood gem"), L.T("Caryll rune") }) _kind.Items.Add(text);
         _kind.SelectedIndex = 0; _kind.MinWidth = 150; _kind.Margin = new Thickness(0, 0, 12, 0);
         AutomationProperties.SetName(_kind, L.T("Add item"));
         Grid.SetColumn(_kind, 0); top.Children.Add(_kind);
         _search.PlaceholderText = L.T("Search items"); AutomationProperties.SetName(_search, L.T("Search items"));
         Grid.SetColumn(_search, 1); top.Children.Add(_search);
         Put(top, 0);
-        var hint = LauncherPage.Text(L.T("Pick one or more items, then Add. To get more of a blood gem or rune, use Copy on one you own."), "Muted");
+        var hint = LauncherPage.Text(L.T("Pick items or choose gem effects, then Add."), "Muted");
         hint.TextWrapping = TextWrapping.Wrap; hint.Margin = new Thickness(0, 0, 0, 10); Put(hint, 1);
 
         _list.SelectionMode = SelectionMode.Extended; _list.ItemTemplate = RowTemplate();
@@ -83,7 +91,34 @@ internal sealed class SaveEditorAddDialog : Window
         _list.SelectionChanged += (_, _) => Update(); _list.MouseDoubleClick += (_, _) => { if (_ok!.IsEnabled) Accept(); };
         var host = new Grid(); host.Children.Add(_list);
         _empty.Margin = new Thickness(12, 24, 12, 0); _empty.VerticalAlignment = VerticalAlignment.Top; host.Children.Add(_empty);
-        Put(host, 2);
+        _host = host; Put(host, 2);
+        _gemPanel.Visibility = Visibility.Collapsed;
+        _gemPanel.Children.Add(LauncherPage.Text(L.T("Shape"), "StatLabel"));
+        foreach (var shape in new[] { L.T("Radial"), L.T("Triangle") }) _shape.Items.Add(shape);
+        _shape.SelectedIndex = 0; _shape.Margin = new Thickness(0, 6, 0, 12);
+        AutomationProperties.SetName(_shape, L.T("Shape")); _gemPanel.Children.Add(_shape);
+        var chooseEffects = new Button { Content = L.T("Edit effects"), HorizontalAlignment = HorizontalAlignment.Left };
+        chooseEffects.Click += async (_, _) =>
+        {
+            chooseEffects.IsEnabled = false;
+            try
+            {
+                var choices = _effects == null ? [] : await _effects();
+                if (choices.Length == 0) throw new InvalidOperationException(L.T("The game's gem list could not be read. Check the game folder in Settings."));
+                var picker = new SaveEditorGemDialog(L.T("Blood gem"), _pickedEffects, choices) { Owner = this };
+                if (picker.ShowDialog() == true && picker.Result is { } picked)
+                {
+                    _pickedEffects = picked;
+                    _gemSummary.Text = string.Join("\n", picked.Select(e => e.Text));
+                }
+            }
+            catch (Exception e) when (e is InvalidOperationException or IOException or JsonException)
+            { Prompt.Tell(L.T("Edit effects"), e.Message); }
+            finally { chooseEffects.IsEnabled = true; Update(); }
+        };
+        _gemPanel.Children.Add(chooseEffects);
+        _gemSummary.TextWrapping = TextWrapping.Wrap; _gemSummary.Margin = new Thickness(0, 12, 0, 0);
+        _gemPanel.Children.Add(_gemSummary); Put(_gemPanel, 2);
 
         var footer = new Grid { Margin = new Thickness(0, 14, 0, 0) };
         foreach (var width in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto })
@@ -98,7 +133,7 @@ internal sealed class SaveEditorAddDialog : Window
         Put(footer, 3);
         Content = body;
 
-        _kind.SelectionChanged += async (_, _) => { Update(); await Load(); };
+        _kind.SelectionChanged += async (_, _) => { _list.ItemsSource = null; Update(); await Load(); };
         // One search when typing pauses, not one per key: each asks the worker (requests queue) and decodes up to 60 icons.
         _search.TextChanged += async (_, _) =>
         {
@@ -113,6 +148,7 @@ internal sealed class SaveEditorAddDialog : Window
 
     private int Category => Categories[Math.Max(0, _kind.SelectedIndex)];
     private bool IsGoods => Category == 4;
+    private bool IsGem => Category == 2;
     private int? CountNumber => int.TryParse(_count.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n is >= 1 and <= 99 ? n : null;
 
     private static DataTemplate RowTemplate() => (DataTemplate)XamlReader.Parse(
@@ -126,6 +162,8 @@ internal sealed class SaveEditorAddDialog : Window
     {
         var run = ++_run;
         var category = Category;
+        if (IsGem) { _loadingCatalog = false; Update(); return; }
+        _loadingCatalog = true; _catalogError = null; _list.ItemsSource = null; Update();
         try
         {
             var json = await _catalog(category, _search.Text.Trim());
@@ -139,9 +177,9 @@ internal sealed class SaveEditorAddDialog : Window
         catch (Exception e) when (e is InvalidOperationException or IOException or JsonException)
         {
             if (run != _run) return;
-            _list.ItemsSource = null; _empty.Text = L.T("The game's item list could not be read. Check the game folder in Settings.");
+            _list.ItemsSource = null; _catalogError = L.T("The game's item list could not be read. Check the game folder in Settings.");
         }
-        Update();
+        _loadingCatalog = false; Update();
     }
     private static ImageSource? CachedIcon(string? path)
     {
@@ -156,14 +194,27 @@ internal sealed class SaveEditorAddDialog : Window
     {
         if (_ok == null) return;
         _countLabel.Visibility = _count.Visibility = IsGoods ? Visibility.Visible : Visibility.Collapsed;
+        _gemPanel.Visibility = IsGem ? Visibility.Visible : Visibility.Collapsed;
+        _host.Visibility = _search.Visibility = IsGem ? Visibility.Collapsed : Visibility.Visible;
+        if (IsGem)
+        {
+            _ok.IsEnabled = _pickedEffects.Length is >= 1 and <= ItemRow.MaxGemEffects;
+            return;
+        }
         var chosen = _list.SelectedItems.Cast<Row>().ToList();
-        _ok.IsEnabled = chosen.Count > 0 && (!IsGoods || CountNumber != null) &&
+        _ok.IsEnabled = !_loadingCatalog && chosen.Count > 0 && (!IsGoods || CountNumber != null) &&
             (!IsGoods || chosen.All(r => !_held.Contains((4, r.Number))));
-        _empty.Text = _list.ItemsSource is List<Row> { Count: 0 } ? L.T("No items found") :
-            IsGoods && chosen.Any(r => _held.Contains((4, r.Number))) ? L.T("The save already holds an item you picked: change its count in the list instead.") : "";
+        _empty.Text = _catalogError ?? (_list.ItemsSource is List<Row> { Count: 0 } ? L.T("No items found") :
+            IsGoods && chosen.Any(r => _held.Contains((4, r.Number))) ? L.T("The save already holds an item you picked: change its count in the list instead.") : "");
     }
     private void Accept()
     {
+        if (!_ok.IsEnabled) return;
+        if (IsGem)
+        {
+            Result = [new Pick(2, 0, L.T("Blood gem"), 1, _shape.SelectedIndex + 1, _pickedEffects.ToArray())];
+            DialogResult = true; return;
+        }
         var count = IsGoods ? CountNumber ?? 1 : 1;
         Result = _list.SelectedItems.Cast<Row>().Select(r => new Pick(Category, r.Number, r.Name, count)).ToArray();
         DialogResult = true;

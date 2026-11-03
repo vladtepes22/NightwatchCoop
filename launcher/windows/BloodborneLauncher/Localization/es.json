@@ -2488,5 +2488,8 @@
   "Different version": "Otra versión",
   "This party has a password.": "Este grupo tiene contraseña.",
   "No password: anyone who sees the party can join.": "Sin contraseña: cualquiera que vea el grupo puede unirse.",
-  "Connect to the Nightwatch VPN first.": "Conéctate primero a Nightwatch VPN."
+  "Connect to the Nightwatch VPN first.": "Conéctate primero a Nightwatch VPN.",
+  "New": "Nuevo",
+  "Shape": "Forma",
+  "Pick items or choose gem effects, then Add.": "Elige objetos o efectos de gema y pulsa Añadir."
 }

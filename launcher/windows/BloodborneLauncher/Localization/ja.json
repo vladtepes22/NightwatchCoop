@@ -2488,5 +2488,8 @@
   "Different version": "バージョンが異なります",
   "This party has a password.": "このパーティにはパスワードがあります。",
   "No password: anyone who sees the party can join.": "パスワードなし：このパーティが見える人は誰でも参加できます。",
-  "Connect to the Nightwatch VPN first.": "先に Nightwatch VPN に接続してください。"
+  "Connect to the Nightwatch VPN first.": "先に Nightwatch VPN に接続してください。",
+  "New": "新規",
+  "Shape": "形状",
+  "Pick items or choose gem effects, then Add.": "アイテムまたは宝石の効果を選び、追加してください。"
 }

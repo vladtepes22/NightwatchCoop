@@ -2505,5 +2505,8 @@
   "single-player and multiplayer": "单人和多人游戏",
   "From shadPS4, another Bloodborne port, or a PS4 save exported decrypted (Apollo Save Tool, Save Wizard). You choose single player, multiplayer or both; saves that are replaced are backed up first.": "从 shadPS4、其他 Bloodborne 移植版，或已解密导出的 PS4 存档 (Apollo Save Tool、Save Wizard) 导入。可选择单人、多人游戏或两者；被替换的存档会先备份。",
   "\n\nWhat is replaced is backed up first (single player: Save backups › Restore…; multiplayer: the save_backups folder).": "\n\n被替换的存档会先备份（单人：“存档备份 › 恢复…”；多人游戏：save_backups 文件夹）。",
-  "Copy the saves from\n{0}\ninto {1}'s {2} saves?{3}": "要将以下位置的存档\n{0}\n复制到配置 {1} 的{2}存档中吗？{3}"
+  "Copy the saves from\n{0}\ninto {1}'s {2} saves?{3}": "要将以下位置的存档\n{0}\n复制到配置 {1} 的{2}存档中吗？{3}",
+  "New": "新增",
+  "Shape": "形状",
+  "Pick items or choose gem effects, then Add.": "选择物品或宝石效果，然后点击“添加”。"
 }

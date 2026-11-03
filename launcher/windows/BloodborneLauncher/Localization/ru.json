@@ -2488,5 +2488,8 @@
   "Different version": "Другая версия",
   "This party has a password.": "У этой группы есть пароль.",
   "No password: anyone who sees the party can join.": "Без пароля: присоединиться может любой, кто видит группу.",
-  "Connect to the Nightwatch VPN first.": "Сначала подключитесь к Nightwatch VPN."
+  "Connect to the Nightwatch VPN first.": "Сначала подключитесь к Nightwatch VPN.",
+  "New": "Новое",
+  "Shape": "Форма",
+  "Pick items or choose gem effects, then Add.": "Выберите предметы или эффекты самоцвета и нажмите «Добавить»."
 }

@@ -221,7 +221,7 @@ public sealed partial class SaveEditorWindow : Window
             _fields["echoes"].Load(c.Echoes.ToString(CultureInfo.InvariantCulture));
             _fields["insight"].Load(c.Insight.ToString(CultureInfo.InvariantCulture));
             _fields["ng_cycle"].Load(c.NgCycle.ToString(CultureInfo.InvariantCulture));
-            _items = data.Items.Select(i => new ItemRow(i, UpdateState, row => _ = Guard(() => EditGem(row)), row => { _gemCopies.Add(row); UpdateState(); })).ToList();
+            _items = data.Items.Select(i => new ItemRow(i, UpdateState, row => _ = Guard(() => EditGem(row)), QueueGemCopy)).ToList();
             _flags = (data.Flags ?? []).Select(f => new FlagRow(f, UpdateState)).ToList();
             _itemList.ItemsSource = null;  // no refilter of the old list on the resets below
             _search.Text = ""; _changedOnly.IsChecked = false; _itemKinds.Select(0); _flagKinds.Select(0);
@@ -256,14 +256,16 @@ public sealed partial class SaveEditorWindow : Window
         {
             lines.Add(field.Label + ": " + field.Original + " → " + field.Value); perTab[CharacterTab]++;
         }
-        foreach (var row in _items.Where(r => r.Changed))
+        foreach (var row in _items.Where(r => !r.IsPending && r.Changed))
         {
             var before = lines.Count; lines.AddRange(row.Describe());
             perTab[InventoryTab] += Math.Max(1, lines.Count - before);
         }
         foreach (var pick in _added)
         {
-            lines.Add(L.T("Add item") + ": " + pick.Name + (pick.Category == 4 && pick.Count > 1 ? " × " + pick.Count : "")); perTab[InventoryTab]++;
+            var detail = pick.Category == 2 ? " · " + ItemRow.ShapeName(pick.Shape) + ": " +
+                string.Join(", ", (pick.Effects ?? []).Select(e => e.Text ?? e.Id.ToString(CultureInfo.InvariantCulture))) : "";
+            lines.Add(L.T("Add item") + ": " + pick.Name + (pick.Category == 4 && pick.Count > 1 ? " × " + pick.Count : "") + detail); perTab[InventoryTab]++;
         }
         foreach (var copy in _gemCopies)
         {
@@ -306,7 +308,7 @@ public sealed partial class SaveEditorWindow : Window
         var summary = string.Join("\n", lines.Take(14).Select(l => "• " + l));
         if (lines.Count > 14) summary += "\n" + string.Format(L.T("…and {0} more"), lines.Count - 14);
         if (_items.Any(r => r.Removed && r.IsKey)) summary += "\n\n" + L.T("Removing a key item can block story progress.");
-        var items = _items.Where(r => r.Changed && (r.Removed || r.CountChanged || r.LevelChanged)).Select(r =>
+        var items = _items.Where(r => !r.IsPending && r.Changed && (r.Removed || r.CountChanged || r.LevelChanged)).Select(r =>
         {
             var change = new Dictionary<string, object> { ["section"] = r.Item.Section, ["slot"] = r.Item.Slot };
             if (r.Removed) change["remove"] = true;
@@ -319,11 +321,11 @@ public sealed partial class SaveEditorWindow : Window
         }).ToArray();
         var gems = _items.Where(r => r.GemChanged)
             .Select(r => new { r.Item.Gem!.Handle, Effects = r.Effects.Select(e => e.Id).ToArray() }).ToArray();
+        var pending = BuildPendingPayload(_added, _gemCopies);
         var edit = new { _snapshot.Revision, Name = _fields["name"].Value,
             Stats = Stats.ToDictionary(s => s, s => _fields[s].Number), Echoes = _fields["echoes"].Number,
             Insight = _fields["insight"].Number, NgCycle = _fields["ng_cycle"].Number, Items = items, Gems = gems,
-            Add = _added.Select(a => new { a.Category, a.Number, Count = a.Category == 4 ? a.Count : (int?)null }).ToArray(),
-            CopyGems = _gemCopies.Select(c => c.Item.Gem!.Handle).ToArray(),
+            pending.Add, pending.CopyGems, pending.AddGems,
             Flags = _flags.Where(f => f.Changed).Select(f => new { f.Flag.Id, f.On }).ToArray(),
             Repair = Array.Empty<string>() };
         if (!Prompt.Confirm(L.T("Apply these edits?"), summary + "\n\n" + L.F($"All saves related to {_snapshot.Character.Name} will be backed up first."), L.T("Apply"))) return;
@@ -335,18 +337,64 @@ public sealed partial class SaveEditorWindow : Window
         if (_snapshot == null) return;
         var held = _items.Where(r => r.Item.Section == 0 && r.Item.Kind == "goods").Select(r => (4, r.Item.Number))
             .Concat(_added.Where(a => a.Category == 4).Select(a => (4, a.Number)));
-        var dialog = new SaveEditorAddDialog((category, text) => _source.Run("catalog", Kind, edit: new { category, text }), held) { Owner = this };
+        var dialog = new SaveEditorAddDialog((category, text) => _source.Run("catalog", Kind, edit: new { category, text }), held, GemEffects) { Owner = this };
         if (dialog.ShowDialog() != true) return;
         foreach (var pick in dialog.Result)
-            if (!_added.Any(a => a.Category == pick.Category && a.Number == pick.Number && a.Category == 4)) _added.Add(pick);
+            if (!_added.Any(a => a.Category == pick.Category && a.Number == pick.Number && a.Category == 4))
+            {
+                _added.Add(pick);
+                var item = new SaveEditor.Item { Kind = pick.Category switch { 0 => "weapon", 1 => "armor", 4 => "goods", _ => "gem" },
+                    Number = pick.Number, Name = pick.Name, Count = pick.Count,
+                    Gem = pick.Category == 8 ? new(0, 2, 1, 1, false, [new(pick.Number, pick.Name)]) :
+                        pick.Category == 2 ? new(0, 1, pick.Shape, 0, false, pick.Effects ?? []) : null };
+                ItemRow? pending = null;
+                pending = new ItemRow(item, UpdateState, removePending: () =>
+                {
+                    _added.RemoveAt(_added.FindIndex(a => ReferenceEquals(a, pick)));
+                    _items.Remove(pending!); BindItems(); RefreshItems(); UpdateState();
+                });
+                _items.Add(pending);
+            }
+        BindItems(); RefreshItems();
         UpdateState();
     }
-    private async Task EditGem(ItemRow row)
+    internal sealed record PendingPayload(object[] Add, long[] CopyGems, Dictionary<string, object>[] AddGems);
+    internal static PendingPayload BuildPendingPayload(IEnumerable<SaveEditorAddDialog.Pick> adds, IEnumerable<ItemRow> copies)
+    {
+        var picks = adds.ToArray();
+        return new(picks.Where(a => a.Category is 0 or 1 or 4)
+            .Select(a => (object)new { a.Category, a.Number, Count = a.Category == 4 ? a.Count : (int?)null }).ToArray(),
+            copies.Select(c => c.Item.Gem!.Handle).ToArray(),
+            picks.Where(a => a.Category is 2 or 8).Select(a => a.Category == 8
+                ? new Dictionary<string, object> { ["type"] = 2, ["effect"] = a.Number }
+                : new Dictionary<string, object> { ["type"] = 1, ["shape"] = a.Shape,
+                    ["effects"] = (a.Effects ?? []).Select(e => e.Id).ToArray() }).ToArray());
+    }
+    private void QueueGemCopy(ItemRow source)
+    {
+        var original = source.Item;
+        var gem = original.Gem!;
+        var item = new SaveEditor.Item { Kind = "gem", Name = original.Name, Count = 1, Icon = original.Icon,
+            Gem = gem with { SocketedIn = null } };
+        ItemRow? pending = null;
+        pending = new ItemRow(item, UpdateState, removePending: () =>
+        {
+            _gemCopies.Remove(source); _items.Remove(pending!); BindItems(); RefreshItems(); UpdateState();
+        });
+        _gemCopies.Add(source); _items.Add(pending);
+        BindItems(); RefreshItems(); UpdateState();
+    }
+    private async Task<SaveEditor.GemEffect[]> GemEffects()
     {
         var first = _effectChoices == null;
         _effectChoices ??= await Run<SaveEditor.GemEffect[]>("effects");
         if (first) _ = PreloadGemIcons();
         if (_effectChoices.Length == 0) throw new InvalidOperationException(L.T("The game's gem list could not be read. Check the game folder in Settings."));
+        return _effectChoices;
+    }
+    private async Task EditGem(ItemRow row)
+    {
+        var choices = await GemEffects();
         var gem = row.Item.Gem!;
         async Task<SaveEditor.GemPreview?> Preview(int[] effects)
         {
@@ -354,7 +402,7 @@ public sealed partial class SaveEditorWindow : Window
             try { return await Run<SaveEditor.GemPreview>("gem_preview", edit: new { gem.Gen, gem.Shape, Effects = effects }); }
             catch (Exception e) when (e is InvalidOperationException or IOException or JsonException) { return null; }
         }
-        var dialog = new SaveEditorGemDialog(row.Title, row.Effects, _effectChoices, Preview) { Owner = this };
+        var dialog = new SaveEditorGemDialog(row.Title, row.Effects, choices, Preview) { Owner = this };
         if (dialog.ShowDialog() == true && dialog.Result is { } result)
         {
             row.Effects = result;
