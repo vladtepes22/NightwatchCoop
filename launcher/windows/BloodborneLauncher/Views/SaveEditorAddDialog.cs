@@ -21,18 +21,19 @@ internal sealed class SaveEditorAddDialog : Window
 {
     internal sealed record Pick(int Category, int Number, string Name, int Count, int Shape = 1, SaveEditor.GemEffect[]? Effects = null);
 
-    public sealed class Row(int number, string name, ImageSource? icon)
+    public sealed class Row(int number, string name, ImageSource? icon, int category = 0)
     {
+        public int Category { get; } = category;
         public int Number { get; } = number;
         public string Name { get; } = name;
         public ImageSource? Icon { get; } = icon;
         public string Meta => L.T("Item ID") + " " + Number;
         public Visibility IconVisibility => Icon != null ? Visibility.Visible : Visibility.Collapsed;
     }
-    private sealed record Found(int Number, string? Name, string? Icon);
+    private sealed record Found(int Number, string? Name, string? Icon, int Category = 0);
 
     // Category 2 is a local gem pick; category 8 is the rune catalogue. Both use add_gems.
-    // Category 9 is the goods list of the Nocturne mod (picked as goods, category 4).
+    // Category 9 is the list of the Nocturne mod: each row carries its own category (goods, weapon or armour).
     private static readonly int[] Categories = { 4, 0, 1, 2, 8, 9 };
     private const int SearchPauseMs = 200;
     private readonly Func<int, string, Task<string>> _catalog;
@@ -170,7 +171,7 @@ internal sealed class SaveEditorAddDialog : Window
             var json = await _catalog(category, _search.Text.Trim());
             if (run != _run) return;
             var found = JsonSerializer.Deserialize<Found[]>(json, SaveEditor.Json) ?? [];
-            var rows = await Task.Run(() => found.Select(f => new Row(f.Number, f.Name ?? "", CachedIcon(f.Icon))).ToList());
+            var rows = await Task.Run(() => found.Select(f => new Row(f.Number, f.Name ?? "", CachedIcon(f.Icon), f.Category)).ToList());
             if (run != _run) return;
             _list.ItemsSource = rows;
             _empty.Text = rows.Count == 0 ? L.T("No items found") : "";
@@ -217,7 +218,7 @@ internal sealed class SaveEditorAddDialog : Window
             DialogResult = true; return;
         }
         var count = IsGoods ? CountNumber ?? 1 : 1;
-        Result = _list.SelectedItems.Cast<Row>().Select(r => new Pick(Category == 9 ? 4 : Category, r.Number, r.Name, count)).ToArray();
+        Result = _list.SelectedItems.Cast<Row>().Select(r => new Pick(Category == 9 ? r.Category : Category, r.Number, r.Name, (Category == 9 ? r.Category : Category) == 4 ? count : 1)).ToArray();
         DialogResult = true;
     }
 }
