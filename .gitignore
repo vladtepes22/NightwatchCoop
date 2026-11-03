@@ -15,3 +15,6 @@ __pycache__/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# AMD FSR SDK files (engine/tools/fetch_fsr_sdk.sh)
+engine/fsr_sdk/

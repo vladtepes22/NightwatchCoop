@@ -136,6 +136,17 @@ $licenses = Join-Path $destinationRoot 'engine\licenses'
 New-Item -ItemType Directory -Force -Path (Join-Path $licenses 'msys2') | Out-Null
 Copy-Item -Path (Join-Path $MsysRoot 'clang64\share\licenses\*') -Destination (Join-Path $licenses 'msys2') -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $engine 'gpu\third_party\monocypher\LICENCE.md') -Destination (Join-Path $licenses 'Monocypher.md') -Force
+# AMD's FSR SDK upscaler (Radeon cards) goes to engine\fsr_sdk, where the engine looks. engine/tools/fetch_fsr_sdk.sh
+# fills engine\fsr_sdk (pinned SHA-256); AMD's license, which binary redistribution requires, travels with the DLLs.
+$fsrSdk = Join-Path $engine 'fsr_sdk'
+if (Test-Path -LiteralPath (Join-Path $fsrSdk 'amd_fidelityfx_upscaler_vk.dll')) {
+    $fsrTarget = Join-Path $destinationRoot 'engine\fsr_sdk'
+    New-Item -ItemType Directory -Force -Path $fsrTarget | Out-Null
+    foreach ($file in 'amd_fidelityfx_loader_vk.dll', 'amd_fidelityfx_upscaler_vk.dll', 'LICENSE-AMD-FSR-SDK.md', 'SOURCE.txt') {
+        Copy-Item -LiteralPath (Join-Path $fsrSdk $file) -Destination $fsrTarget -Force
+    }
+} elseif ($Release) { throw 'A release needs the AMD FSR SDK files: run engine/tools/fetch_fsr_sdk.sh' }
+else { Write-Warning 'engine\fsr_sdk is missing (engine/tools/fetch_fsr_sdk.sh): FSR stays on FSR 3.1 in this package.' }
 
 # 3. The party save tools and an embedded Python (python.org, signature checked) in seamless\.
 $seamless = Join-Path $destinationRoot 'seamless'

@@ -46,3 +46,9 @@ Additional terms (GNU GPL version 3, section 7)
 
 You may not remove these additional terms from copies of Lantern Engine's own code. Nothing
 here restricts what the GPL allows for code that is not Lantern Engine's own.
+
+AMD FidelityFX SDK (FSR): packages ship AMD's unmodified, signed Vulkan upscaler binaries
+(engine/fsr_sdk/amd_fidelityfx_loader_vk.dll and amd_fidelityfx_upscaler_vk.dll, SDK v2.4.0), (c) Advanced
+Micro Devices, Inc. They are not covered by the GPL terms above; they are redistributed in binary form only,
+unmodified, under AMD's license, reproduced in engine/fsr_sdk/LICENSE-AMD-FSR-SDK.md. AMD, FSR and Radeon are
+trademarks of Advanced Micro Devices, Inc.
