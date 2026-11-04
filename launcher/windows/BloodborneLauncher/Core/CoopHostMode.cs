@@ -13,11 +13,13 @@ public static class CoopHostMode
 
     /// <summary>The party type is per user but these settings are per install: a folder the launcher never set them in (a new
     /// install, or an update) shows the party while the game keeps it closed. Show and open are always written together, so
-    /// a difference means that; true when it was repaired.</summary>
+    /// a difference means that, as does a lobby flag that does not follow them; true when it was repaired.</summary>
     public static bool Repair(bool isPublic, Func<string, string, string> get, Action<string, string> setIni)
     {
         var show = get("party_discovery", "1");
-        if (show == get("party_open", "0")) return false;
+        // The lobby flag follows Show too (its own switch is gone, user 4 Nov): an old off left the party out of the list.
+        var lobby = isPublic && show == "1" ? "1" : "0";
+        if (show == get("party_open", "0") && get("party_vpn_lobby", "0") == lobby) return false;
         Apply(isPublic, show == "1", get("party_vpn", "auto"), setIni);
         return true;
     }
