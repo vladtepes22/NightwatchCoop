@@ -1449,7 +1449,7 @@
   "The profile {0} has no saves in {1}.\n\n": "프로필 {0}의 세이브가 {1}에 없습니다.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "{0}에서 Bloodborne 세이브를 찾았습니다(프로필: {1}, 마지막 저장: {2:d MMM yyyy, HH:mm}).\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "'그 폴더 사용'을 선택하면 그 세이브로 플레이합니다. 여기서 플레이하면 새 게임이 시작되며, 그쪽 세이브는 그대로 유지됩니다.",
-  "Play here anyway": "그래도 여기서 플레이",
+  "Play anyway": "그래도 플레이",
   "Use that folder": "그 폴더 사용",
   "Your saves have a safety copy": "세이브의 안전 사본이 있습니다",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "{1:d MMM yyyy, HH:mm} 시점의 {0} 프로필 세이브 안전 사본이 {2}에 보관되어 있습니다 ",
@@ -2529,9 +2529,6 @@
   "Downloading Nocturne {0}: {1}%": "Nocturne {0} 다운로드 중: {1}%",
   "Use Nocturne {0} and join": "Nocturne {0} 사용하고 참가",
   "Modded": "모드 사용",
-  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0}을(를) 여기서 받을 수 없습니다: 아마 참가할 수 없습니다.",
-  "This host runs other mods: you probably can't join without the same ones.": "이 호스트는 다른 모드를 사용합니다: 같은 모드가 없으면 아마 참가할 수 없습니다.",
-  "Your mods differ from the host's: you probably can't join.": "내 모드가 호스트와 다릅니다: 아마 참가할 수 없습니다.",
   "Nocturne {0} is not available for download.": "Nocturne {0}은(는) 다운로드할 수 없습니다.",
   "No mods": "모드 없음",
   "Nocturne only": "Nocturne만",
@@ -2546,5 +2543,7 @@
   "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Nocturne {0} 출시: Nightwatch 개발자가 만든 선택형 모드로, 새 무기와 사냥꾼 도구를 추가합니다. 추가 내용은 {link}에서 확인하세요.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} 출시(현재 {1}). '업데이트'를 누르면 다운로드({2} MB)하고 설치된 버전을 교체합니다. 새로운 내용은 {link}에서 확인하세요.",
   "The Nocturne download could not be reached: {0}": "Nocturne 다운로드에 연결할 수 없습니다: {0}",
-  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "모드 폴더에 이미 {0} 폴더가 있습니다. 삭제하거나 이름을 바꾼 뒤 다시 시도하세요."
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "모드 폴더에 이미 {0} 폴더가 있습니다. 삭제하거나 이름을 바꾼 뒤 다시 시도하세요.",
+  "You do not have Nocturne {0} installed. Install it in the {1}.": "Nocturne {0}이(가) 설치되어 있지 않습니다. {1}에서 설치하세요.",
+  "Mods mismatch: enable the same mods and try again.": "모드가 일치하지 않습니다. 같은 모드를 켜고 다시 시도하세요."
 }

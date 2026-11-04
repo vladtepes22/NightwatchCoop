@@ -1463,7 +1463,7 @@
   "The profile {0} has no saves in {1}.\n\n": "配置 {0} 在 {1} 中没有存档。\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "在 {0} 中找到了 Bloodborne 存档（配置：{1}），最后保存于 {2:d MMM yyyy, HH:mm}。\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "选择“使用该文件夹”即可用这些存档游玩。在此处游玩会开始新游戏，那里的存档保持原样。",
-  "Play here anyway": "仍在此处游玩",
+  "Play anyway": "仍然游玩",
   "Use that folder": "使用该文件夹",
   "Your saves have a safety copy": "你的存档有安全副本",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "配置 {0} 在 {1:d MMM yyyy, HH:mm} 的存档安全副本保存在 {2} ",
@@ -2552,9 +2552,6 @@
   "Downloading Nocturne {0}: {1}%": "正在下载 Nocturne {0}：{1}%",
   "Use Nocturne {0} and join": "使用 Nocturne {0} 并加入",
   "Modded": "已加模组",
-  "Nocturne {0} is not available here: you probably can't join.": "此处无法获取 Nocturne {0}：你可能无法加入。",
-  "This host runs other mods: you probably can't join without the same ones.": "该主机使用其他模组：没有相同模组你可能无法加入。",
-  "Your mods differ from the host's: you probably can't join.": "你的模组与主机不同：你可能无法加入。",
   "Nocturne {0} is not available for download.": "Nocturne {0} 无法下载。",
   "No mods": "不加载模组",
   "Nocturne only": "仅 Nocturne",
@@ -2569,5 +2566,7 @@
   "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Nocturne {0} 已发布：由 Nightwatch 开发者制作的可选模组，加入新的武器和猎人道具。{link}查看它新增的内容。",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} 已发布（你当前是 {1}）。点击“更新”即可下载（{2} MB）并替换已安装的版本。{link}查看更新内容。",
   "The Nocturne download could not be reached: {0}": "无法连接到 Nocturne 下载地址：{0}",
-  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "你的模组文件夹中已有名为 {0} 的文件夹。请删除或重命名它，然后重试。"
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "你的模组文件夹中已有名为 {0} 的文件夹。请删除或重命名它，然后重试。",
+  "You do not have Nocturne {0} installed. Install it in the {1}.": "你没有安装 Nocturne {0}。请在{1}中安装。",
+  "Mods mismatch: enable the same mods and try again.": "模组不一致：请启用相同的模组后重试。"
 }

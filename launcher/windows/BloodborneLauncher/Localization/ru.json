@@ -1449,7 +1449,7 @@
   "The profile {0} has no saves in {1}.\n\n": "У профиля {0} нет сохранений в {1}.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Сохранения Bloodborne найдены в {0} (профили: {1}), последнее сохранение {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "«Использовать ту папку» — играть с ними. Если играть здесь, начнётся новая игра; сохранения в той папке останутся как есть.",
-  "Play here anyway": "Всё равно играть здесь",
+  "Play anyway": "Всё равно играть",
   "Use that folder": "Использовать ту папку",
   "Your saves have a safety copy": "У ваших сохранений есть страховочная копия",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "Страховочная копия сохранений профиля {0} от {1:d MMM yyyy, HH:mm} хранится в {2} ",
@@ -2529,9 +2529,6 @@
   "Downloading Nocturne {0}: {1}%": "Загрузка Nocturne {0}: {1}%",
   "Use Nocturne {0} and join": "Nocturne {0} и присоединиться",
   "Modded": "С модами",
-  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0} здесь недоступен: скорее всего, присоединиться не получится.",
-  "This host runs other mods: you probably can't join without the same ones.": "У этого хоста другие моды: без таких же, скорее всего, присоединиться не получится.",
-  "Your mods differ from the host's: you probably can't join.": "Ваши моды отличаются от модов хоста: скорее всего, присоединиться не получится.",
   "Nocturne {0} is not available for download.": "Nocturne {0} недоступен для загрузки.",
   "No mods": "Без модов",
   "Nocturne only": "Только Nocturne",
@@ -2546,5 +2543,7 @@
   "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Вышел Nocturne {0}: необязательный мод от разработчиков Nightwatch, который добавляет новое оружие и инструменты охотника. Что он добавляет, смотрите {link}.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Вышел Nocturne {0} (у вас {1}). «Обновить» скачивает его ({2} МБ) и заменяет установленную версию. Что нового, смотрите {link}.",
   "The Nocturne download could not be reached: {0}": "Не удалось связаться с сервером загрузки Nocturne: {0}",
-  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "В папке модов уже есть папка {0}. Удалите или переименуйте её и попробуйте снова."
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "В папке модов уже есть папка {0}. Удалите или переименуйте её и попробуйте снова.",
+  "You do not have Nocturne {0} installed. Install it in the {1}.": "Nocturne {0} не установлен. Установите его в разделе {1}.",
+  "Mods mismatch: enable the same mods and try again.": "Моды не совпадают: включите те же моды и попробуйте снова."
 }

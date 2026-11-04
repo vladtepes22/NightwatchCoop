@@ -1449,7 +1449,7 @@
   "The profile {0} has no saves in {1}.\n\n": "{0} profilinin {1} içinde kaydı yok.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Bloodborne kayıtları {0} içinde bulundu (profiller: {1}), son kayıt {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "\"O klasörü kullan\" onlarla oynatır. Burada oynamak yeni bir oyun başlatır; oradaki kayıtlar olduğu gibi kalır.",
-  "Play here anyway": "Yine de burada oyna",
+  "Play anyway": "Yine de oyna",
   "Use that folder": "O klasörü kullan",
   "Your saves have a safety copy": "Kayıtlarınızın bir güvenlik kopyası var",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "{0} profilinin {1:d MMM yyyy, HH:mm} tarihli kayıtlarının güvenlik kopyası {2} içinde tutuluyor ",
@@ -2529,9 +2529,6 @@
   "Downloading Nocturne {0}: {1}%": "Nocturne {0} indiriliyor: %{1}",
   "Use Nocturne {0} and join": "Nocturne {0} kullan ve katıl",
   "Modded": "Modlu",
-  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0} burada mevcut değil: muhtemelen katılamazsın.",
-  "This host runs other mods: you probably can't join without the same ones.": "Bu sunucu başka modlar kullanıyor: aynıları olmadan muhtemelen katılamazsın.",
-  "Your mods differ from the host's: you probably can't join.": "Modların sunucununkilerden farklı: muhtemelen katılamazsın.",
   "Nocturne {0} is not available for download.": "Nocturne {0} indirilemiyor.",
   "No mods": "Mod yok",
   "Nocturne only": "Yalnızca Nocturne",
@@ -2546,5 +2543,7 @@
   "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Nocturne {0} çıktı: Nightwatch geliştiricilerinin yaptığı, yeni silahlar ve avcı aletleri ekleyen isteğe bağlı bir mod. Neler eklediğine göz at: {link}.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} çıktı (sende {1} var). \"Güncelle\" onu indirir ({2} MB) ve kurulu sürümünün yerine koyar. Yeniliklere göz at: {link}.",
   "The Nocturne download could not be reached: {0}": "Nocturne indirmesine ulaşılamadı: {0}",
-  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Mod klasöründe zaten {0} adlı bir klasör var. Onu kaldır ya da yeniden adlandır, sonra tekrar dene."
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Mod klasöründe zaten {0} adlı bir klasör var. Onu kaldır ya da yeniden adlandır, sonra tekrar dene.",
+  "You do not have Nocturne {0} installed. Install it in the {1}.": "Nocturne {0} kurulu değil. {1} sekmesinden kur.",
+  "Mods mismatch: enable the same mods and try again.": "Modlar uyuşmuyor: aynı modları aç ve tekrar dene."
 }

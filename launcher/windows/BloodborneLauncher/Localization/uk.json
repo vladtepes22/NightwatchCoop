@@ -1449,7 +1449,7 @@
   "The profile {0} has no saves in {1}.\n\n": "Профіль {0} не має збережень у {1}.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Збереження Bloodborne знайдено в {0} (профілі: {1}), останнє збереження {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "«Використати ту теку» — грати з ними. Якщо грати тут, почнеться нова гра; збереження в тій теці залишаться як є.",
-  "Play here anyway": "Усе одно грати тут",
+  "Play anyway": "Усе одно грати",
   "Use that folder": "Використати ту теку",
   "Your saves have a safety copy": "Ваші збереження мають запобіжну копію",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "Запобіжна копія збережень профілю {0} від {1:d MMM yyyy, HH:mm} зберігається в {2} ",
@@ -2529,9 +2529,6 @@
   "Downloading Nocturne {0}: {1}%": "Завантаження Nocturne {0}: {1}%",
   "Use Nocturne {0} and join": "Nocturne {0} і приєднатися",
   "Modded": "З модами",
-  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0} тут недоступний: найімовірніше, приєднатися не вийде.",
-  "This host runs other mods: you probably can't join without the same ones.": "Цей хост має інші моди: без таких самих, найімовірніше, приєднатися не вийде.",
-  "Your mods differ from the host's: you probably can't join.": "Ваші моди відрізняються від модів хоста: найімовірніше, приєднатися не вийде.",
   "Nocturne {0} is not available for download.": "Nocturne {0} недоступний для завантаження.",
   "No mods": "Без модів",
   "Nocturne only": "Лише Nocturne",
@@ -2546,5 +2543,7 @@
   "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Вийшов Nocturne {0}: необов'язковий мод від розробників Nightwatch, що додає нову зброю та інструменти мисливця. Що він додає, дивіться {link}.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Вийшов Nocturne {0} (у вас {1}). «Оновити» завантажує його ({2} МБ) і замінює встановлену версію. Що нового, дивіться {link}.",
   "The Nocturne download could not be reached: {0}": "Не вдалося зв'язатися із сервером завантаження Nocturne: {0}",
-  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "У теці модів уже є тека {0}. Видаліть або перейменуйте її та спробуйте знову."
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "У теці модів уже є тека {0}. Видаліть або перейменуйте її та спробуйте знову.",
+  "You do not have Nocturne {0} installed. Install it in the {1}.": "Nocturne {0} не встановлено. Встановіть його в розділі {1}.",
+  "Mods mismatch: enable the same mods and try again.": "Моди не збігаються: увімкніть ті самі моди й спробуйте знову."
 }

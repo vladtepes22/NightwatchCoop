@@ -255,7 +255,7 @@ namespace BloodborneLauncher.Core
                     L.F($"The profile {profile} has no saves in {here}.\n\n") +
                     L.F($"Bloodborne saves were found in {found.Root} (profiles: {string.Join(", ", found.Profiles)}), last saved {found.Saved:d MMM yyyy, HH:mm}.\n\n") +
                     L.T("\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are."),
-                    new[] { L.T("Cancel"), L.T("Play here anyway"), L.T("Use that folder") });
+                    new[] { L.T("Cancel"), L.T("Play anyway"), L.T("Use that folder") });
                 if (choice <= 0) return (false, false);
                 if (choice == 1) return (true, false);
                 Use(s, found);
@@ -266,7 +266,7 @@ namespace BloodborneLauncher.Core
                 L.F($"A safety copy of the {found.Profiles[0]} profile's saves from {found.Saved:d MMM yyyy, HH:mm} is kept in {VaultDir} ") +
                 L.F($"(they were in {found.Root}).\n\n") +
                 L.T("\"Restore it here\" copies them in. Playing here without them starts a new game; the copy stays either way."),
-                new[] { L.T("Cancel"), L.T("Play here anyway"), L.T("Restore it here") });
+                new[] { L.T("Cancel"), L.T("Play anyway"), L.T("Restore it here") });
             if (restore <= 0) return (false, false);
             if (restore == 1) return (true, false);
             try

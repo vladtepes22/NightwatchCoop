@@ -991,19 +991,45 @@ public sealed class SeamlessPage : LauncherPage
             rowHint = hint;
             if (!open) row.Opacity = 0.6;
             var hostMods = CuratedMods.NocturneOf(game.Mods) is { } hv ? " · Nocturne " + hv : game.Mods.Length > 0 ? " · " + L.T("Modded") : "";
-            var modsNote = !sameVersion ? "" : advice.Kind switch
-            {
-                JoinKind.NocturneNotAvailable => "\n" + string.Format(L.T("Nocturne {0} is not available here: you probably can't join."), advice.Version),
-                JoinKind.Modded => "\n" + L.T("This host runs other mods: you probably can't join without the same ones."),
-                JoinKind.MismatchJoinAnyway => "\n" + L.T("Your mods differ from the host's: you probably can't join."),
-                _ => "",
-            };
             SetHint(hint, L.T("Nightwatch Online") + " · " + game.Players + " / " + game.Max + " · " + VpnLobby.VersionOf(game.Build) + hostMods +
-                          (sameVersion ? "" : "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.")) + modsNote);
+                          (sameVersion ? "" : "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.")));
+            if (sameVersion && ModsNote(advice, hint.FontSize) is { } note && hint.Parent is Panel details)
+                details.Children.Insert(details.Children.IndexOf(hint) + 1, note);
             _lobbyList.Children.Add(row);
         }
         _lobbyScroll.UpdateLayout();
         _lobbyScroll.ScrollToVerticalOffset(offset);
+    }
+
+    private static readonly System.Windows.Media.SolidColorBrush ModsNoteBrush = NoteRed();
+    private static System.Windows.Media.SolidColorBrush NoteRed()
+    {
+        var brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0x6B, 0x6B));
+        brush.Freeze();
+        return brush;
+    }
+
+    /// <summary>A lobby row's mods problem, in red under its details (user, 4 Nov): a Nocturne version this PC does not have
+    /// links to the Workshop (underlined); other mods that differ ask for the same mods. Null when the mods match.</summary>
+    private static TextBlock? ModsNote(JoinChoice advice, double fontSize)
+    {
+        if (advice.Kind is not (JoinKind.NocturneNotAvailable or JoinKind.Modded or JoinKind.MismatchJoinAnyway)) return null;
+        var note = new TextBlock { Foreground = ModsNoteBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0), FontSize = fontSize };
+        if (advice.Kind == JoinKind.NocturneNotAvailable)
+        {
+            // {1} is the link; the text either side of it stays plain.
+            var text = string.Format(L.T("You do not have Nocturne {0} installed. Install it in the {1}."), advice.Version, "\u0001");
+            var parts = text.Split('\u0001');
+            note.Inlines.Add(new System.Windows.Documents.Run(parts[0]));
+            var link = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run(L.T("Workshop")))
+                { Foreground = ModsNoteBrush, TextDecorations = TextDecorations.Underline, Cursor = System.Windows.Input.Cursors.Hand };
+            link.Click += (_, _) => OpenModsPage();
+            note.Inlines.Add(link);
+            if (parts.Length > 1) note.Inlines.Add(new System.Windows.Documents.Run(parts[1]));
+        }
+        else
+            note.Text = L.T("Mods mismatch: enable the same mods and try again.");
+        return note;
     }
 
     /// <summary>A solid padlock: thick shackle, square body with rounded bottom corners, keyhole cut through.</summary>

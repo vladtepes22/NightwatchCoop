@@ -1449,7 +1449,7 @@
   "The profile {0} has no saves in {1}.\n\n": "Profil {0} nie ma zapisów w {1}.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Znaleziono zapisy Bloodborne w {0} (profile: {1}), ostatni zapis {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "„Użyj tamtego folderu” pozwala grać na nich. Granie tutaj zaczyna nową grę; tamte zapisy pozostają bez zmian.",
-  "Play here anyway": "Mimo to graj tutaj",
+  "Play anyway": "Graj mimo to",
   "Use that folder": "Użyj tamtego folderu",
   "Your saves have a safety copy": "Twoje zapisy mają kopię zabezpieczającą",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "Kopia zabezpieczająca zapisów profilu {0} z {1:d MMM yyyy, HH:mm} jest przechowywana w {2} ",
@@ -2529,9 +2529,6 @@
   "Downloading Nocturne {0}: {1}%": "Pobieranie Nocturne {0}: {1}%",
   "Use Nocturne {0} and join": "Użyj Nocturne {0} i dołącz",
   "Modded": "Z modami",
-  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0} nie jest tu dostępny: prawdopodobnie nie dołączysz.",
-  "This host runs other mods: you probably can't join without the same ones.": "Ten host używa innych modów: bez tych samych prawdopodobnie nie dołączysz.",
-  "Your mods differ from the host's: you probably can't join.": "Twoje mody różnią się od modów hosta: prawdopodobnie nie dołączysz.",
   "Nocturne {0} is not available for download.": "Nocturne {0} nie jest dostępny do pobrania.",
   "No mods": "Bez modów",
   "Nocturne only": "Tylko Nocturne",
@@ -2546,5 +2543,7 @@
   "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Wyszedł Nocturne {0}: opcjonalny mod od twórców Nightwatch, który dodaje nowe bronie i narzędzia łowcy. Zobacz, co dodaje, {link}.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Wyszedł Nocturne {0} (masz {1}). „Aktualizuj” pobiera go ({2} MB) i zastępuje zainstalowaną wersję. Zobacz nowości {link}.",
   "The Nocturne download could not be reached: {0}": "Nie można połączyć się z pobieraniem Nocturne: {0}",
-  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Twój folder modów ma już folder o nazwie {0}. Usuń go lub zmień jego nazwę, a potem spróbuj ponownie."
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Twój folder modów ma już folder o nazwie {0}. Usuń go lub zmień jego nazwę, a potem spróbuj ponownie.",
+  "You do not have Nocturne {0} installed. Install it in the {1}.": "Nie masz zainstalowanego Nocturne {0}. Zainstaluj go w zakładce {1}.",
+  "Mods mismatch: enable the same mods and try again.": "Mody się nie zgadzają: włącz te same mody i spróbuj ponownie."
 }

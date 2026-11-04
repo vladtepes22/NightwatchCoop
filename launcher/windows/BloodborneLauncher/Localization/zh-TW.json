@@ -1449,7 +1449,7 @@
   "The profile {0} has no saves in {1}.\n\n": "設定檔 {0} 在 {1} 中沒有存檔。\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "在 {0} 中找到 Bloodborne 存檔（設定檔：{1}），最後儲存於 {2:d MMM yyyy, HH:mm}。\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "選擇「使用該資料夾」即可使用這些存檔遊玩。在此處遊玩會開始新遊戲；該處的存檔會保持原樣。",
-  "Play here anyway": "仍在此處遊玩",
+  "Play anyway": "仍然遊玩",
   "Use that folder": "使用該資料夾",
   "Your saves have a safety copy": "您的存檔有安全副本",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "設定檔 {0} 於 {1:d MMM yyyy, HH:mm} 的存檔安全副本保存在 {2} ",
@@ -2529,9 +2529,6 @@
   "Downloading Nocturne {0}: {1}%": "正在下載 Nocturne {0}：{1}%",
   "Use Nocturne {0} and join": "使用 Nocturne {0} 並加入",
   "Modded": "已加模組",
-  "Nocturne {0} is not available here: you probably can't join.": "此處無法取得 Nocturne {0}：你可能無法加入。",
-  "This host runs other mods: you probably can't join without the same ones.": "該主機使用其他模組：沒有相同模組你可能無法加入。",
-  "Your mods differ from the host's: you probably can't join.": "你的模組與主機不同：你可能無法加入。",
   "Nocturne {0} is not available for download.": "Nocturne {0} 無法下載。",
   "No mods": "不載入模組",
   "Nocturne only": "僅 Nocturne",
@@ -2546,5 +2543,7 @@
   "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Nocturne {0} 已發布：由 Nightwatch 開發者製作的可選模組，加入新的武器和獵人道具。{link}查看它新增的內容。",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} 已發布（你目前是 {1}）。點擊「更新」即可下載（{2} MB）並取代已安裝的版本。{link}查看更新內容。",
   "The Nocturne download could not be reached: {0}": "無法連線到 Nocturne 下載位址：{0}",
-  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "你的模組資料夾中已有名為 {0} 的資料夾。請刪除或重新命名它，然後再試一次。"
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "你的模組資料夾中已有名為 {0} 的資料夾。請刪除或重新命名它，然後再試一次。",
+  "You do not have Nocturne {0} installed. Install it in the {1}.": "你沒有安裝 Nocturne {0}。請在{1}中安裝。",
+  "Mods mismatch: enable the same mods and try again.": "模組不一致：請啟用相同的模組後重試。"
 }

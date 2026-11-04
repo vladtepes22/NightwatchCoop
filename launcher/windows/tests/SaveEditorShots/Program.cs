@@ -205,32 +205,33 @@ internal static class Program
         settings.Set("party_mode", "join");
         var page = new SeamlessPage(false);
         var build = PartyDiscovery.BuildPrefix(Updater.ReleaseVersion()) + "fixture";
-        LobbyGame Game(string name, int players, int max, bool password, string b) =>
-            new() { Name = name, Players = players, Max = max, Password = password, Build = b, Own = false, Ip = 0x0a080001, Port = 1 };
+        LobbyGame Game(string name, int players, int max, bool password, string b, string mods = "") =>
+            new() { Name = name, Players = players, Max = max, Password = password, Build = b, Own = false, Ip = 0x0a080001, Port = 1, Mods = mods };
         // No poller thread: the fixture list is all the page sees.
         var poller = (VpnLobby.Poller)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(VpnLobby.Poller));
-        poller.Games = new List<LobbyGame> { Game("Public", 1, 3, false, build), Game("Private", 2, 3, true, build), Game("Full", 2, 2, true, build), Game("Other", 1, 3, false, "other-build") };
+        poller.Games = new List<LobbyGame> { Game("Public", 1, 3, false, build), Game("Private", 2, 3, true, build), Game("Full", 2, 2, true, build), Game("Other", 1, 3, false, "other-build"),
+            Game("Nocturne host", 1, 3, false, build, "nocturne@9.9"), Game("Modded host", 1, 3, false, build, "mods:3f9a12c0") };
         poller.Answered = true;
         const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
         typeof(SeamlessPage).GetField("_lobby", flags)!.SetValue(page, poller);
         typeof(SeamlessPage).GetField("_lobbyOn", flags)!.SetValue(page, true);
         typeof(SeamlessPage).GetMethod("RefreshLobby", flags)!.Invoke(page, null);
         var list = (StackPanel)typeof(SeamlessPage).GetField("_lobbyList", flags)!.GetValue(page)!;
-        Require(list.Children.Count == 4, "Lobby rows missing");
+        Require(list.Children.Count == 6, "Lobby rows missing");
         switch (System.Windows.LogicalTreeHelper.GetParent(list))
         {
             case Panel panel: panel.Children.Remove(list); break;
             case Decorator decorator: decorator.Child = null; break; // the Join list's scroller (about 6 rows)
             case ContentControl control: control.Content = null; break;
         }
-        var root = CoopRoot(list, 820, 340, shade);
-        Layout(root, 820, 340);
+        var root = CoopRoot(list, 820, 520, shade);
+        Layout(root, 820, 520);
         var marks = Descendants(root).OfType<Border>().Where(b => b.ToolTip is string && b.Visibility == Visibility.Visible && b.ActualWidth > 0).ToList();
-        Require(marks.Count == 4, "Every lobby row needs one visible hover mark, found " + marks.Count);
+        Require(marks.Count == 6, "Every lobby row needs one visible hover mark, found " + marks.Count);
         Require(!Descendants(root).OfType<Wpf.Ui.Controls.SymbolIcon>().Any(i => i.Symbol == Wpf.Ui.Controls.SymbolRegular.Info16), "Lobby rows must not show the info mark");
         var locks = Descendants(root).OfType<System.Windows.Shapes.Path>().Where(p => p.ActualWidth > 0 && p.Fill is SolidColorBrush).ToList();
         Require(locks.Count == 2, "Two padlocks expected, found " + locks.Count);
-        Require(Descendants(root).OfType<Wpf.Ui.Controls.SymbolIcon>().Count(i => i.Symbol == Wpf.Ui.Controls.SymbolRegular.Globe24) == 2, "Two globes expected");
+        Require(Descendants(root).OfType<Wpf.Ui.Controls.SymbolIcon>().Count(i => i.Symbol == Wpf.Ui.Controls.SymbolRegular.Globe24) == 4, "Four globes expected");
         var mark = Contrast(((SolidColorBrush)locks[0].Fill).Color, shade);
         Require(mark >= 4.5, $"{look}: padlock contrast {mark:0.0}");
         var least = Descendants(root).OfType<TextBlock>().Where(t => t.Foreground is SolidColorBrush && t.Text.Length > 0).Min(t => Contrast(((SolidColorBrush)t.Foreground).Color, shade));
@@ -239,7 +240,7 @@ internal static class Program
         // Checked by eye, on its own fill: a selected party's Join, as the local list draws it.
         list.Children.Add(LauncherPage.SmallButton("Selected", Wpf.Ui.Controls.SymbolRegular.Checkmark24, (_, _) => { }, Wpf.Ui.Controls.ControlAppearance.Primary));
         Layout(root, 820, 340);
-        Render(root, 820, 340, 2, Path.Combine(output, "lobby-" + look + ".png"));
+        Render(root, 820, 520, 2, Path.Combine(output, "lobby-" + look + ".png"));
     }
 
     private static Border Mount(SaveEditorWindow window, int width, int height)

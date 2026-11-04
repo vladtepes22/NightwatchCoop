@@ -1449,7 +1449,7 @@
   "The profile {0} has no saves in {1}.\n\n": "プロファイル {0} のセーブデータが {1} にありません。\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "{0} に Bloodborne のセーブデータが見つかりました (プロファイル: {1}、最終セーブ: {2:d MMM yyyy, HH:mm})。\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "「そのフォルダーを使用」を選ぶと、それらのセーブデータでプレイします。ここでプレイすると新しいゲームが始まり、そちらのセーブデータはそのまま残ります。",
-  "Play here anyway": "このままここでプレイ",
+  "Play anyway": "このままプレイ",
   "Use that folder": "そのフォルダーを使用",
   "Your saves have a safety copy": "セーブデータの安全コピーがあります",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "プロファイル {0} の {1:d MMM yyyy, HH:mm} 時点のセーブデータの安全コピーが {2} に保管されています ",
@@ -2529,9 +2529,6 @@
   "Downloading Nocturne {0}: {1}%": "Nocturne {0} をダウンロード中: {1}%",
   "Use Nocturne {0} and join": "Nocturne {0} を使って参加",
   "Modded": "MODあり",
-  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0} はここでは入手できません。おそらく参加できません。",
-  "This host runs other mods: you probably can't join without the same ones.": "このホストは別のMODを使っています。同じMODがないとおそらく参加できません。",
-  "Your mods differ from the host's: you probably can't join.": "あなたのMODはホストと異なります。おそらく参加できません。",
   "Nocturne {0} is not available for download.": "Nocturne {0} はダウンロードできません。",
   "No mods": "MODなし",
   "Nocturne only": "Nocturne のみ",
@@ -2546,5 +2543,7 @@
   "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Nocturne {0} が公開されました。Nightwatch の開発者が作った、新しい武器と狩人の道具を加える任意のMODです。内容は{link}で確認できます。",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} が公開されました（現在は {1}）。「更新」でダウンロード（{2} MB）し、インストール済みのバージョンを置き換えます。新要素は{link}で確認できます。",
   "The Nocturne download could not be reached: {0}": "Nocturne のダウンロード先に接続できません: {0}",
-  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "MODフォルダーには既に {0} という名前のフォルダーがあります。削除するか名前を変更してから、もう一度お試しください。"
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "MODフォルダーには既に {0} という名前のフォルダーがあります。削除するか名前を変更してから、もう一度お試しください。",
+  "You do not have Nocturne {0} installed. Install it in the {1}.": "Nocturne {0} がインストールされていません。{1}でインストールしてください。",
+  "Mods mismatch: enable the same mods and try again.": "MODが一致しません。同じMODを有効にしてもう一度お試しください。"
 }
