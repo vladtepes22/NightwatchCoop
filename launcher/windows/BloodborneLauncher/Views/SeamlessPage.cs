@@ -356,7 +356,7 @@ public sealed class SeamlessPage : LauncherPage
         }
         // Back on the UI thread in the app; a host without a dispatcher context (the off-screen shots) resumes elsewhere.
         if (_gameModeHint.Dispatcher.CheckAccess()) SetHint(_gameModeHint, text);
-        else _gameModeHint.Dispatcher.BeginInvoke(() => SetHint(_gameModeHint, text));
+        else _ = _gameModeHint.Dispatcher.BeginInvoke(() => SetHint(_gameModeHint, text));
     }
 
     /// <summary>Opens the Workshop tab, whose first page is Mods.</summary>
