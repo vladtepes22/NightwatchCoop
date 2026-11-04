@@ -536,6 +536,14 @@ namespace BloodborneLauncher.Views
                 Padding = new Thickness(10, 5, 10, 5),
                 VerticalAlignment = VerticalAlignment.Center,
             };
+            if (look == ControlAppearance.Secondary)
+            {
+                // The library's own ButtonBackground is 6% white, which our surfaces never recolour: a row's
+                // action button drew see-through. ActionButton* (Charcoal.xaml / Glass.xaml) is a filled dark grey.
+                button.SetResourceReference(Control.BackgroundProperty, "ActionButtonBrush");
+                button.SetResourceReference(Button.MouseOverBackgroundProperty, "ActionButtonHoverBrush");
+                button.SetResourceReference(Button.PressedBackgroundProperty, "ActionButtonPressedBrush");
+            }
             button.Click += click;
             return button;
         }

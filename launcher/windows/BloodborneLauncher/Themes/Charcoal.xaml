@@ -17,6 +17,10 @@
     <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#FF3A3A3E" />
     <SolidColorBrush x:Key="CardStrokeColorDefaultSolidBrush" Color="#FF3A3A3E" />
 
+    <!-- A row's action button (LauncherPage.SmallButton): filled, never the library's see-through default. -->
+    <SolidColorBrush x:Key="ActionButtonBrush" Color="#FF303034" />
+    <SolidColorBrush x:Key="ActionButtonHoverBrush" Color="#FF38383C" />
+    <SolidColorBrush x:Key="ActionButtonPressedBrush" Color="#FF2B2B2E" />
     <SolidColorBrush x:Key="ControlFillColorDefaultBrush" Color="#FF303034" />
     <SolidColorBrush x:Key="ControlFillColorSecondaryBrush" Color="#FF38383C" />
     <SolidColorBrush x:Key="ControlFillColorTertiaryBrush" Color="#FF2B2B2E" />

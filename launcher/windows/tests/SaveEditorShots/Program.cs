@@ -34,6 +34,7 @@ internal static class Program
             foreach (var theme in new[] { "default", "crimson", "moon" })
             {
                 var settings = new LauncherSettings(); settings.Set("ui_theme", theme); LauncherTheme.Apply(settings, false);
+                CheckActionButton("charcoal " + theme);
                 foreach (var size in new[] { (900, 700), (1200, 800) })
                 foreach (var state in new[] { "character", "inventory", "weapons", "gems", "progress", "backups", "empty", "running" })
                 {
@@ -120,6 +121,7 @@ internal static class Program
                 Require(!Directory.Exists(Path.Combine(output, "fixture-config")), "Preview wrote configuration");
             }
             LobbyShot(output, look.Name, settings, shade);
+            CheckActionButton("coop " + look.Name);
             var primaryFill = ((SolidColorBrush)Application.Current.TryFindResource("AccentButtonBackground")).Color;
             var primaryText = ((SolidColorBrush)Application.Current.TryFindResource("AccentButtonForeground")).Color;
             var primaryContrast = Contrast(primaryText, primaryFill);
@@ -137,6 +139,14 @@ internal static class Program
             }
         }
         Console.WriteLine($"PASS: {looks.Count * 4} off-screen Co-op PNGs in {looks.Count} looks; no clipped controls or configuration writes; lobby marks and text readable.");
+    }
+
+    /// <summary>A row's action button (SmallButton, Secondary) has a filled background, not the library's 6% white.</summary>
+    private static void CheckActionButton(string look)
+    {
+        var button = LauncherPage.SmallButton("Action", Wpf.Ui.Controls.SymbolRegular.Add24, (_, _) => { });
+        Require(button.Background is SolidColorBrush { Color.A: >= 0xB0 }, look + ": action button background is see-through");
+        Require(button.MouseOverBackground is SolidColorBrush { Color.A: >= 0xB0 }, look + ": action button hover is see-through");
     }
 
     private static Border CoopRoot(UIElement content, int width, int height, Color shade)
@@ -174,7 +184,12 @@ internal static class Program
         typeof(SeamlessPage).GetMethod("RefreshLobby", flags)!.Invoke(page, null);
         var list = (StackPanel)typeof(SeamlessPage).GetField("_lobbyList", flags)!.GetValue(page)!;
         Require(list.Children.Count == 4, "Lobby rows missing");
-        (System.Windows.LogicalTreeHelper.GetParent(list) as Panel)?.Children.Remove(list);
+        switch (System.Windows.LogicalTreeHelper.GetParent(list))
+        {
+            case Panel panel: panel.Children.Remove(list); break;
+            case Decorator decorator: decorator.Child = null; break; // the Join list's scroller (about 6 rows)
+            case ContentControl control: control.Content = null; break;
+        }
         var root = CoopRoot(list, 820, 340, shade);
         Layout(root, 820, 340);
         var marks = Descendants(root).OfType<Border>().Where(b => b.ToolTip is string && b.Visibility == Visibility.Visible && b.ActualWidth > 0).ToList();
