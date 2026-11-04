@@ -24,7 +24,7 @@ namespace {
 
 constexpr std::uint64_t kSprjRemo = 0x5540058; // *(+8) remo player; +0x168 bit 0 playing
 constexpr std::uint32_t kYharnamLamp = 2412951; // skip prologue: Central Yharnam lamp (the sickroom lamp is 2412950)
-constexpr std::uint32_t kGoodsIosefkaVial = 23000; // Iosefka's Blood Vial (her talk gives it; common 9100)
+constexpr std::uint32_t kGoodsIosefkaVial = 703; // Iosefka's Blood Vial, goods 703 (her talk gives it through item lot 23000; common 9100)
 constexpr std::uint32_t kDreamLamp = 2102961;  // fallback gather point (the Hunter's Dream lamp)
 
 void Log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
