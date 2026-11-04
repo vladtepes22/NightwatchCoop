@@ -613,7 +613,7 @@ add_dependencies(seamless-tests game-menu-rows-test)
 
 # Low host memory with Windows refusing commits (src/win32_memory.c).
 if (WIN32)
-    add_executable(win32-memory-test EXCLUDE_FROM_ALL ../tests/test_win32_memory.c ../src/win32_memory.c)
+    add_executable(win32-memory-test EXCLUDE_FROM_ALL ../tests/test_win32_memory.c ../src/win32_memory.c ../src/runtime_logdrain.c)
     target_include_directories(win32-memory-test PRIVATE ../src)
     target_compile_options(win32-memory-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
     set_target_properties(win32-memory-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)

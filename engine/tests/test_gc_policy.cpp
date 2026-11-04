@@ -105,6 +105,28 @@ int main() {
         assert(GuestLevelOnDriver(0, 0, m.budget - 1, m) == 0);
         assert(GuestLevelOnDriver(0, 1, raw, MarksFor(0)) == 0);
     }
+    for (const u64 card : {2048 * MiB, 3072 * MiB, 4096 * MiB, 3400 * MiB, 1700 * MiB}) {
+        // 2-4 GB budgets (0.2.8 beta 1 check of d7ab5889): the driver's count never makes the
+        // game's data tight before the driver's own budget is reached (over it, the driver pages
+        // our memory out itself), and it lets go 80-100 MiB under the budget. Tight in place
+        // (the default) sends back only copies unused for 15 s.
+        const Marks m = MarksFor(card);
+        const u64 release = m.hard + (m.budget - m.hard) / 2;
+        assert(m.budget - release >= 80 * MiB && m.budget - release <= 103 * MiB);
+        for (u64 raw = card / 2; raw < card; raw += 8 * MiB) {
+            assert(GuestLevelOnDriver(0, 0, raw, m) == 0);
+        }
+        assert(GuestLevelOnDriver(0, 0, card, m) == 1);
+        assert(GuestLevelOnDriver(0, 1, release, m) == 1);
+        assert(GuestLevelOnDriver(0, 1, release - 1, m) == 0);
+        // The collector's marks sit under the budget: textures go before the game's data does.
+        assert(m.soft < m.hard && m.hard < release && release < m.budget);
+        assert(LevelFor(card, m) == Level::Over);
+    }
+    // The 2 GB numbers in full: hard mark 160 MiB under the budget, released 80 MiB under it.
+    assert(MarksFor(2048 * MiB).hard == 1888 * MiB);
+    assert(GuestLevelOnDriver(0, 1, 1968 * MiB, MarksFor(2048 * MiB)) == 1);
+    assert(GuestLevelOnDriver(0, 1, 1967 * MiB, MarksFor(2048 * MiB)) == 0);
 
     // Levels.
     {

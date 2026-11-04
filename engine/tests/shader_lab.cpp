@@ -1655,6 +1655,50 @@ std::set<size_t> UsedPerms(const fs::path& cache, u64 pgm) {
     return used;
 }
 
+/// Whether this engine can read a shader catalog (--check-catalog; tools/package-seamless.ps1): its GPU
+/// profile, shader states and specializations in the formats SeedCache and RecompileBatch take. The
+/// shaders themselves are compiled again at the seed, so the compiler the catalog was made with does
+/// not matter; a record whose specialization this compiler changed is left out there, one by one.
+/// Exit 0 when the profile is readable and at least 90% of the states with their specializations are.
+int CheckCatalog(const fs::path& catalog) {
+    std::error_code error;
+    const bool profile = ReadBytes(catalog / "profile.bin").size() == sizeof(Profile);
+    u32 states = 0, readable = 0, keys = 0, bad_keys = 0;
+    for (const auto& entry : fs::directory_iterator(catalog, error)) {
+        const auto ext = entry.path().extension();
+        if (ext == ".key") {
+            (KeyStageHashes(ReadAll(entry.path())).empty() ? bad_keys : keys) += 1;
+            continue;
+        }
+        if (ext != Native::StateExtension) continue;
+        ++states;
+        unsigned long long pgm = 0;
+        size_t perm = 0;
+        if (std::sscanf(entry.path().stem().string().c_str(), "0x%llx_%zu", &pgm, &perm) != 2) continue;
+        StateLayout layout;
+        const auto bytes = ReadBytes(entry.path());
+        if (!layout.Parse(bytes) || layout.header.version < 2 || layout.header.version > Native::CaptureVersion ||
+            layout.header.runtime_info_size != sizeof(RuntimeInfo)) {
+            continue;
+        }
+        auto meta = ReadBytes(MetaPath(catalog, pgm, perm));
+        if (meta.size() < 24) continue;
+        if (u32 version; std::memcpy(&version, meta.data(), 4), version == 7) { // as SeedCache takes it
+            version = 8;
+            std::memcpy(meta.data(), &version, 4);
+        }
+        StageSpecialization spec;
+        size_t meta_perm = 0;
+        if (Vulkan::ReadShaderMetaSpec(std::move(meta), spec, meta_perm) && meta_perm == perm) ++readable;
+    }
+    const bool ok = profile && states && u64(readable) * 10 >= u64(states) * 9;
+    std::printf("Catalog check: %u of %u shader states readable with their specializations, %u pipeline keys "
+                "(%u unreadable), GPU profile %s: %s\n",
+                readable, states, keys, bad_keys, profile ? "readable" : "of another engine",
+                ok ? "usable by this engine" : "not usable by this engine");
+    return ok ? 0 : 4;
+}
+
 int SeedCache(const fs::path& self, const fs::path& catalog, const fs::path& cache, const fs::path& game,
               const fs::path& eboot) {
     std::error_code error;
@@ -2751,6 +2795,9 @@ int main(int argc, char** argv) {
     }
     if (argc >= 4 && std::strcmp(argv[1], "--export-catalog") == 0) {
         return ExportCatalog(argv[2], argv[3]);
+    }
+    if (argc >= 3 && std::strcmp(argv[1], "--check-catalog") == 0) {
+        return CheckCatalog(argv[2]);
     }
     if (argc >= 6 && std::strcmp(argv[1], "--seed-cache") == 0) {
 #ifdef _WIN32

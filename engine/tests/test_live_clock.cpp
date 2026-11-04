@@ -61,6 +61,10 @@ int main() {
         LiveClockStep(a, t60 * 1.01f, 60, 30, interval);
         assert(Near(LiveClockStep(a, 1.0f / 120, 120, 30, interval), 1.0f / 120, 1e-6f));
     }
+    // Fast loading's 30 FPS loading screens stay at 30 under the live clock (0.2.7 drew them at the target).
+    assert(Near(LoadingInterval(1.0f / 60, true), Frame30, 1e-7f));
+    assert(Near(LoadingInterval(1.0f / 240, true), Frame30, 1e-7f));
+    assert(Near(LoadingInterval(1.0f / 60, false), 1.0f / 60, 1e-7f));
     std::puts("live-clock-test: OK");
     return 0;
 }

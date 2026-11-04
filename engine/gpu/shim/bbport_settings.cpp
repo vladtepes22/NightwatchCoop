@@ -506,9 +506,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         // A -2 saved before settings_rev 2 is turned into 0 once (Load).
         v.model_lod = i == -2 ? -2 : std::clamp(i, 0, 1);
     } else if (key == "texture_quality") {
-        for (int q = 0; q < TextureQuality::Count; ++q) {
-            if (value == TextureQuality::Name(q)) v.texture_quality = q;
-        }
+        // A name in any case ("Half"); anything else keeps the value (auto by default).
+        if (const int q = TextureQuality::Parse(value.c_str()); q >= 0) v.texture_quality = q;
     } else if (key == "fullscreen") {
         v.fullscreen = i != 0;
     } else if (key == "hdr") {
