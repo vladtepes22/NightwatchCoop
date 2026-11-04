@@ -2538,8 +2538,6 @@
   "Change": "更改",
   "Try Nocturne": "试用 Nocturne",
   "Not now": "暂不",
-  "New: play with Nocturne": "新功能：使用 Nocturne 游玩",
-  "A curated mod for the game. It is downloaded once; switch back any time under Workshop, Mods.": "为游戏精选的模组。只需下载一次；可随时在“创意工坊”的“模组”中切换回来。",
   "The Nocturne download list is not valid: {0}": "Nocturne 下载列表无效：{0}",
   "The Nocturne download address is not https.": "Nocturne 下载地址不是 https。",
   "The folder holds no mod files.": "该文件夹中没有模组文件。",
@@ -2566,5 +2564,7 @@
   "My mods ({0})": "我的模组（{0}）",
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN 未连接，Nightwatch Online 的玩家看不到也无法加入你的队伍。请连接，或切换到 UPnP/VPN/LAN 以不用它来主持。",
   "Switch to UPnP/VPN/LAN": "切换到 UPnP/VPN/LAN",
-  "Connect and play": "连接并开始游戏"
+  "Connect and play": "连接并开始游戏",
+  "A curated mod for the game. Try it here (Load mods: Nocturne only, downloaded once), or read about it on its Nexus Mods page.": "为游戏精选的模组。可以在这里试玩（加载模组：仅 Nocturne，只下载一次），或在它的 Nexus Mods 页面了解详情。",
+  "Nexus Mods": "Nexus Mods"
 }

@@ -2515,8 +2515,6 @@
   "Change": "Alterar",
   "Try Nocturne": "Experimentar o Nocturne",
   "Not now": "Agora não",
-  "New: play with Nocturne": "Novo: jogue com o Nocturne",
-  "A curated mod for the game. It is downloaded once; switch back any time under Workshop, Mods.": "Um mod selecionado para o jogo. É baixado uma vez; volte quando quiser em Oficina, Mods.",
   "The Nocturne download list is not valid: {0}": "A lista de download do Nocturne não é válida: {0}",
   "The Nocturne download address is not https.": "O endereço de download do Nocturne não é https.",
   "The folder holds no mod files.": "A pasta não contém arquivos de mod.",
@@ -2543,5 +2541,7 @@
   "My mods ({0})": "Meus mods ({0})",
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "A Nightwatch VPN não está conectada, então os jogadores do Nightwatch Online não podem ver nem entrar no seu grupo. Conecte-se ou mude para UPnP/VPN/LAN para hospedar sem ela.",
   "Switch to UPnP/VPN/LAN": "Mudar para UPnP/VPN/LAN",
-  "Connect and play": "Conectar e jogar"
+  "Connect and play": "Conectar e jogar",
+  "A curated mod for the game. Try it here (Load mods: Nocturne only, downloaded once), or read about it on its Nexus Mods page.": "Um mod selecionado para o jogo. Experimente aqui (Carregar mods: Só Nocturne, baixado uma vez) ou leia sobre ele na página do Nexus Mods.",
+  "Nexus Mods": "Nexus Mods"
 }

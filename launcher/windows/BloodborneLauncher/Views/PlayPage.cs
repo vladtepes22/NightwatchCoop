@@ -100,36 +100,6 @@ namespace BloodborneLauncher.Views
             _engineCard.Margin = new Thickness(0, 12, 0, 0);
             Body.Children.Add(_engineCard);
 
-            // Once: the curated mod Nocturne (Core/CuratedMods.cs). Hidden for good with "Not now".
-            if (!S.Bool("nocturne_card_seen") && CuratedMods.Mode(S) != "nocturne")
-            {
-                SettingRow? nocturne = null;
-                TextBlock nocturneHint = null!;
-                Button tryIt = null!, notNow = null!;
-                void Hide()
-                {
-                    S.Set("nocturne_card_seen", true);
-                    Ws.SaveSoon();
-                    Body.Children.Remove(nocturne);
-                }
-                tryIt = SmallButton(L.T("Try Nocturne"), SymbolRegular.ArrowDownload24, async (_, _) =>
-                {
-                    tryIt.IsEnabled = notNow.IsEnabled = false;
-                    var progress = new Progress<double>(p => SetHint(nocturneHint, L.F($"Downloading Nocturne: {(int)(p * 100)}%")));
-                    var error = await ModsPage.SwitchModeAsync(Ws, "nocturne", progress);
-                    tryIt.IsEnabled = notNow.IsEnabled = true;
-                    SetHint(nocturneHint, L.T("A curated mod for the game. It is downloaded once; switch back any time under Workshop, Mods."));
-                    if (error == null) Hide();
-                    else if (error.Length > 0) Prompt.Tell(L.T("Nocturne"), error);
-                }, ControlAppearance.Primary);
-                notNow = SmallButton(L.T("Not now"), SymbolRegular.Dismiss24, (_, _) => Hide());
-                nocturne = Card(SymbolRegular.Sparkle24, L.T("New: play with Nocturne"),
-                    L.T("A curated mod for the game. It is downloaded once; switch back any time under Workshop, Mods."),
-                    Row(tryIt, notNow), out nocturneHint);
-                nocturne.Margin = new Thickness(0, 12, 0, 0);
-                Body.Children.Add(nocturne);
-            }
-
             // The community: help, news and people to play with. Hidden for good with the X
             // (Settings keeps the link).
             if (!S.Bool("discord_hidden"))

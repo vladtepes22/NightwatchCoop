@@ -2515,8 +2515,6 @@
   "Change": "Değiştir",
   "Try Nocturne": "Nocturne'u dene",
   "Not now": "Şimdi değil",
-  "New: play with Nocturne": "Yeni: Nocturne ile oyna",
-  "A curated mod for the game. It is downloaded once; switch back any time under Workshop, Mods.": "Oyun için seçilmiş bir mod. Bir kez indirilir; istediğin zaman Atölye, Modlar bölümünden geri dönebilirsin.",
   "The Nocturne download list is not valid: {0}": "Nocturne indirme listesi geçersiz: {0}",
   "The Nocturne download address is not https.": "Nocturne indirme adresi https değil.",
   "The folder holds no mod files.": "Klasörde mod dosyası yok.",
@@ -2543,5 +2541,7 @@
   "My mods ({0})": "Modlarım ({0})",
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN bağlı değil, bu yüzden Nightwatch Online oyuncuları grubunuzu göremez ve katılamaz. Bağlanın ya da onsuz host etmek için UPnP/VPN/LAN'a geçin.",
   "Switch to UPnP/VPN/LAN": "UPnP/VPN/LAN'a geç",
-  "Connect and play": "Bağlan ve oyna"
+  "Connect and play": "Bağlan ve oyna",
+  "A curated mod for the game. Try it here (Load mods: Nocturne only, downloaded once), or read about it on its Nexus Mods page.": "Oyun için seçilmiş bir mod. Burada deneyin (Modları yükle: Yalnızca Nocturne, bir kez indirilir) ya da Nexus Mods sayfasında okuyun.",
+  "Nexus Mods": "Nexus Mods"
 }

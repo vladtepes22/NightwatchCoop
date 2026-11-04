@@ -2515,8 +2515,6 @@
   "Change": "변경",
   "Try Nocturne": "Nocturne 사용해 보기",
   "Not now": "나중에",
-  "New: play with Nocturne": "새로운 기능: Nocturne으로 플레이",
-  "A curated mod for the game. It is downloaded once; switch back any time under Workshop, Mods.": "게임용으로 엄선된 모드입니다. 한 번만 다운로드하며, 워크숍의 모드에서 언제든 되돌릴 수 있습니다.",
   "The Nocturne download list is not valid: {0}": "Nocturne 다운로드 목록이 올바르지 않습니다: {0}",
   "The Nocturne download address is not https.": "Nocturne 다운로드 주소가 https가 아닙니다.",
   "The folder holds no mod files.": "폴더에 모드 파일이 없습니다.",
@@ -2543,5 +2541,7 @@
   "My mods ({0})": "내 모드 ({0})",
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN이 연결되어 있지 않아 Nightwatch Online 플레이어가 파티를 보거나 참가할 수 없습니다. 연결하거나 UPnP/VPN/LAN으로 전환해 VPN 없이 호스트하세요.",
   "Switch to UPnP/VPN/LAN": "UPnP/VPN/LAN으로 전환",
-  "Connect and play": "연결하고 플레이"
+  "Connect and play": "연결하고 플레이",
+  "A curated mod for the game. Try it here (Load mods: Nocturne only, downloaded once), or read about it on its Nexus Mods page.": "엄선된 게임 모드입니다. 여기서 사용해 보거나(모드 불러오기: Nocturne만, 한 번만 다운로드) Nexus Mods 페이지에서 자세히 알아보세요.",
+  "Nexus Mods": "Nexus Mods"
 }
