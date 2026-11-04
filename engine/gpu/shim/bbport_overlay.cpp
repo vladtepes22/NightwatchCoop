@@ -19,6 +19,7 @@
 #include "bbport_usage.h"
 #include "engine/cheats.h"
 #include "engine/graphics.h"
+#include "engine/texture_quality_rules.h"
 #include "engine/live_clock.h"
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
@@ -998,6 +999,26 @@ void EffectsSection() {
                 "Максимум: объекты дальше 10-15 м могут появляться или исчезать (патч действует только "
                 "на один из трёх путей отрисовки моделей игры)."));
         }
+    }
+    if (const char* label = Item("Texture quality", "Качество текстур")) {
+        // visy c55cd33d (Mrsuss60 8841db5b, deadinside28/bloodborne_pc): engine/texture_quality_rules.h.
+        const char* names[] = {BbSettings::MenuText("Auto", "Авто"), BbSettings::MenuText("Full", "Полное"),
+                               BbSettings::MenuText("Half", "Половина"),
+                               BbSettings::MenuText("Quarter", "Четверть")};
+        const int current = std::clamp(s.texture_quality.load(), 0, TextureQuality::Count - 1);
+        if (ImGui::BeginCombo(label, names[current])) {
+            for (int i = 0; i < TextureQuality::Count; ++i) {
+                if (ImGui::Selectable(names[i], i == current)) {
+                    Store(s.texture_quality, i, true);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        Hint(BbSettings::MenuText(
+            "Big compressed textures are loaded without their largest mip levels: less video memory, "
+            "softer surfaces up close. Auto: half on cards with 3 GB or less.",
+            "Большие сжатые текстуры загружаются без самых крупных мип-уровней: меньше видеопамяти, "
+            "вблизи поверхности мягче. Авто: половина на картах до 3 ГБ."));
     }
     for (int e = 0; e < BbSettings::EffectCount; ++e) {
         const auto& effect = BbSettings::Effects[e];
@@ -2192,6 +2213,7 @@ void Menu() {
     const float footer_top = ImGui::GetCursorPosY();
     bool restart =
         s.object_motion != s.startup_object_motion || s.model_lod != s.startup_model_lod ||
+        s.texture_quality != s.startup_texture_quality ||
         s.live_resolution != s.startup_live_resolution || s.hdr != s.startup_hdr ||
         ((s.hdr_mode == BbSettings::HdrModePsychoV30) != s.startup_psychov30) ||
         BbSettings::ResolutionNeedsRestart();

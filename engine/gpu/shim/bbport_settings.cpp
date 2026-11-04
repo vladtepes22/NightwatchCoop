@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_settings.h"
 #include "bbport_menu_i18n.h"
+#include "engine/texture_quality_rules.h"
 #include "input/ini_bindings.h"
 
 #include <algorithm>
@@ -504,6 +505,10 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         // at all, so Central Yharnam's corpses popped in close and vanished again further away.
         // A -2 saved before settings_rev 2 is turned into 0 once (Load).
         v.model_lod = i == -2 ? -2 : std::clamp(i, 0, 1);
+    } else if (key == "texture_quality") {
+        for (int q = 0; q < TextureQuality::Count; ++q) {
+            if (value == TextureQuality::Name(q)) v.texture_quality = q;
+        }
     } else if (key == "fullscreen") {
         v.fullscreen = i != 0;
     } else if (key == "hdr") {
@@ -870,6 +875,7 @@ void Load() {
     }
     const std::pair<const char*, const char*> env_keys[] = {
         {"BB_PARTY_VPN", "party_vpn"},  {"BB_PARTY_DISCOVERY", "party_discovery"}, {"BB_PARTY_HIDE_BAD_NAMES", "party_hide_bad_names"}, {"BB_PARTY_VPN_LOBBY", "party_vpn_lobby"},
+        {"BB_TEXTURE_QUALITY", "texture_quality"},
         {"BB_LIVE_FPS", "live_fps"}, {"BB_MAX_DT_HZ", "max_dt_hz"}, {"BB_PARTY_INVADERS", "party_invaders"},
         {"BB_AUTO_HUD", "auto_hide_hud"}, {"BB_PARTY_NAME_COLOURS", "party_name_colours"},
         {"BB_PARTY_OPEN", "party_open"}, {"BB_PARTY_SPLITSCREEN", "party_splitscreen"}, {"BB_PARTY_STAY", "party_stay"}, {"BB_PARTY_MESSAGES", "party_messages"},  // visy 0.7.5 (2179ec17, 51fb67e9)
@@ -945,6 +951,7 @@ void Load() {
         v.startup_effects[e] = v.effects[e];
     }
     v.startup_model_lod = v.model_lod;
+    v.startup_texture_quality = v.texture_quality;
     v.startup_output_res = v.output_res;
     v.startup_live_resolution = v.live_resolution;
     v.startup_hdr = v.hdr;
@@ -1222,6 +1229,7 @@ void Save() {
     put("camera_distance_scale", fixed(v.camera_distance_scale, 2));
     put("camera_height_scale", fixed(v.camera_height_scale, 2));
     put("model_lod", std::to_string(v.model_lod.load()));
+    put("texture_quality", TextureQuality::Name(v.texture_quality.load()));
     put("cheat_vials", CheatText(v.cheat_vials));
     put("cheat_bullets", CheatText(v.cheat_bullets));
     put("cheat_stamina", flag(v.cheat_stamina));

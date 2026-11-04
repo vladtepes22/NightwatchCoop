@@ -133,6 +133,10 @@ public:
     /// remembered with it outlives other images' (un)registration (IsRegisteredImage).
     [[nodiscard]] bool IsExactMatch(ImageId image_id, const ImageInfo& info) const;
 
+    /// bbport (texture_quality): moves a view of the whole texture onto the levels a reduced
+    /// image kept (info.skip_levels); no change for any other image.
+    static void AdjustView(const Image& image, ImageViewInfo& view);
+
     /// bbport: whether `image_id` is still the registered image `uid` (see IsExactMatch).
     [[nodiscard]] bool IsRegisteredImage(ImageId image_id, u64 uid) const {
         if (!image_id || !slot_images.is_allocated(image_id)) {
@@ -579,6 +583,11 @@ private:
     Common::LeastRecentlyUsedCache<ImageId, u64> lru_cache;
     Common::LeastRecentlyUsedCache<u64, u64> sampler_lru_cache;
     const bool readback_linear_images;
+    /// bbport (texture_quality, visy c55cd33d): top levels a new sampled texture may lose (0 full,
+    /// 1 half, 2 quarter), fixed for the session; addresses whose textures stay whole from then on
+    /// (a reduced image met by any other use there was dropped).
+    u32 texture_skip_wanted = 0;
+    std::unordered_set<VAddr> whole_textures;
     PageTable page_table;
     std::mutex mutex;
     /// bbport: the pages tracked images protect, readable without `mutex` (WatchesPages);

@@ -9,6 +9,8 @@
 #include "bbport_sections.h"
 #include "bbport_toggles.h"
 #include "bbport_free_check.h"
+#include "bbport_settings.h"
+#include "engine/texture_quality_rules.h"
 #include "engine/key_prompts.h"
 #include "common/assert.h"
 #include "common/debug.h"
@@ -120,6 +122,27 @@ std::string_view ReuseRejection(const ImageInfo& requested, const ImageInfo& cac
 }
 } // namespace
 
+/// bbport (texture_quality): the whole texture's description of an image made without its top
+/// levels; the image's own for any other.
+static const ImageInfo& WholeInfo(const Image& image) {
+    return image.info.skip_levels != 0 ? image.guest_info : image.info;
+}
+
+void TextureCache::AdjustView(const Image& image, ImageViewInfo& view) {
+    const u32 skip = image.info.skip_levels;
+    if (skip == 0) {
+        return;
+    }
+    const u32 levels = image.info.resources.levels;
+    const u32 first = view.range.base.level;
+    const u32 last = first + std::max(view.range.extent.levels, 1u) - 1;
+    const u32 new_first = std::min(first > skip ? first - skip : 0u, levels - 1);
+    const u32 new_last = std::min(last > skip ? last - skip : 0u, levels - 1);
+    view.range.base.level = new_first;
+    view.range.extent.levels = std::max(new_last, new_first) - new_first + 1;
+    view.min_lod = view.min_lod > skip * 256 ? view.min_lod - skip * 256 : 0;
+}
+
 TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& scheduler_,
                            Vulkan::Runtime& runtime_, AmdGpu::Liverpool* liverpool_,
                            BufferCache& buffer_cache_, PageManager& tracker_)
@@ -131,6 +154,24 @@ TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler&
     SetImageAllocRelief(
         [](void* owner, int round) { return static_cast<TextureCache*>(owner)->ReliefForImageAlloc(round); },
         this);
+
+    // bbport: texture_quality (visy c55cd33d, after Mrsuss60 8841db5b and deadinside28), fixed for
+    // the session. Auto decides on the card's own device-local memory, not the budget left at
+    // start (other programs holding VRAM never make a 4 GB card half); BB_VRAM_LIMIT_MB, the
+    // test cap, lowers it.
+    {
+        const int quality = BbSettings::Get().texture_quality.load(std::memory_order_relaxed);
+        u64 decide_mem = instance.GetDeviceLocalMemory() ? instance.GetDeviceLocalMemory()
+                                                         : instance.GetTotalMemoryBudget();
+        if (std::getenv("BB_VRAM_LIMIT_MB")) {
+            decide_mem = std::min(decide_mem, instance.GetTotalMemoryBudget());
+        }
+        texture_skip_wanted = TextureQuality::WantedSkip(quality, decide_mem);
+        LOG_INFO(Render_Vulkan, "texture quality: setting {}, effective {} (device memory {:.2f} GB)",
+                 TextureQuality::Name(quality),
+                 texture_skip_wanted == 0 ? "full" : texture_skip_wanted == 1 ? "half" : "quarter",
+                 double(decide_mem) / double(1ull << 30));
+    }
 
     u32 max_samplers = instance.GetMaxSamplerAllocationCount();
     trigger_gc_samplers = max_samplers * 3 / 4;
@@ -1013,12 +1054,12 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
             return false;
         }
         const Image& image = slot_images[cached.image_id];
+        const ImageInfo& whole = WholeInfo(image);
         return True(image.flags & ImageFlagBits::Registered) &&
-               image.info.guest_address == info.guest_address &&
-               image.info.guest_size == info.guest_size && image.info.size == info.size &&
-               image.info.pixel_format == info.pixel_format && image.info.type == info.type &&
-               image.info.resources.Contains(info.resources) &&
-               image.info.LayoutKey() == info.LayoutKey();
+               whole.guest_address == info.guest_address &&
+               whole.guest_size == info.guest_size && whole.size == info.size &&
+               whole.pixel_format == info.pixel_format && whole.type == info.type &&
+               whole.resources.Contains(info.resources) && whole.LayoutKey() == info.LayoutKey();
     };
     if (cached.image_id && !slot_images.is_allocated(cached.image_id)) {
         cached = {}; // a freed slot is not a hit, whatever the generation says (visy 040fe8ff)
@@ -1048,6 +1089,35 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
     ForEachImageInRegion(info.guest_address, info.guest_size,
                          [&](ImageId image_id, Image& image) { image_ids.push_back(image_id); });
 
+    // bbport (texture_quality, visy c55cd33d): an image without its top levels serves only the
+    // sampled binding of that very texture. Met by any other use (a target, storage, another
+    // description over its memory) it goes, bound ones rebound, and its address keeps its
+    // textures whole from then on.
+    for (auto it = image_ids.begin(); it != image_ids.end();) {
+        Image& reduced = slot_images[*it];
+        if (reduced.info.skip_levels == 0) {
+            ++it;
+            continue;
+        }
+        const ImageInfo& whole = reduced.guest_info;
+        int mip{}, slice{};
+        if (desc.type == BindingType::Texture && whole.guest_address == info.guest_address &&
+            whole.guest_size == info.guest_size && whole.size == info.size &&
+            whole.resources == info.resources &&
+            ReuseRejection(info, whole, desc.type, exact_fmt, mip, slice).empty() && mip == 0 &&
+            slice == 0) {
+            ++it;
+            continue;
+        }
+        whole_textures.insert(whole.guest_address);
+        if (reduced.binding.is_bound || reduced.binding.is_target) {
+            reduced.binding.needs_rebind = 1u;
+        }
+        TraceOverlap(info, desc.type, *it, &reduced, "drop reduced", "texture_quality: other use");
+        FreeImage(*it);
+        it = image_ids.erase(it);
+    }
+
     ImageId image_id{};
 
     int view_mip{-1};
@@ -1056,14 +1126,15 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
     // Other covering parents go through resolution so modified child targets can be merged.
     for (const auto cache_id : image_ids) {
         const auto& candidate = slot_images[cache_id];
-        if (candidate.info.pixel_format == vk::Format::eUndefined ||
-            candidate.info.guest_address != info.guest_address ||
-            candidate.info.guest_size != info.guest_size || candidate.info.size != info.size ||
-            candidate.info.resources != info.resources) {
+        const ImageInfo& candidate_info = WholeInfo(candidate);
+        if (candidate_info.pixel_format == vk::Format::eUndefined ||
+            candidate_info.guest_address != info.guest_address ||
+            candidate_info.guest_size != info.guest_size || candidate_info.size != info.size ||
+            candidate_info.resources != info.resources) {
             continue;
         }
         int mip{}, slice{};
-        const auto reason = ReuseRejection(info, candidate.info, desc.type, exact_fmt, mip, slice);
+        const auto reason = ReuseRejection(info, candidate_info, desc.type, exact_fmt, mip, slice);
         if (reason.empty()) {
             image_id = cache_id;
             view_mip = mip ? mip : -1;
@@ -1105,7 +1176,23 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
     if (!image_id) {
         view_mip = view_slice = -1;
         TraceOverlap(info, desc.type, {}, nullptr, "create", "no candidate covers requested view");
-        image_id = slot_images.insert(instance, runtime, slot_image_views, info);
+        // bbport (texture_quality): only a sampled, plain 2D block-compressed texture that
+        // nothing on the GPU has written loses its top levels.
+        u32 skip = 0;
+        if (texture_skip_wanted != 0 && desc.type == BindingType::Texture &&
+            !desc.view_info.is_storage && !whole_textures.contains(info.guest_address)) {
+            const bool plain = info.props.is_block && !info.props.is_depth &&
+                               !info.props.is_volume && info.type == AmdGpu::ImageType::Color2D &&
+                               info.num_samples == 1 && info.resources.layers == 1;
+            skip = TextureQuality::SkipLevels(
+                plain && !buffer_cache.IsRegionGpuModified(info.guest_address, info.guest_size),
+                info.size.width, info.size.height, info.resources.levels, texture_skip_wanted);
+        }
+        image_id = slot_images.insert(instance, runtime, slot_image_views,
+                                      skip ? info.Reduced(skip) : info);
+        if (skip) {
+            slot_images[image_id].guest_info = info;
+        }
         RegisterImage(image_id);
     }
 
@@ -1145,11 +1232,12 @@ bool TextureCache::IsExactMatch(ImageId image_id, const ImageInfo& info) const {
         return false;
     }
     const Image& image = slot_images[image_id];
+    const ImageInfo& whole = WholeInfo(image);
     return True(image.flags & ImageFlagBits::Registered) &&
-           image.info.guest_address == info.guest_address &&
-           image.info.guest_size == info.guest_size && image.info.size == info.size &&
-           image.info.pixel_format == info.pixel_format && image.info.type == info.type &&
-           image.info.resources == info.resources && image.info.LayoutKey() == info.LayoutKey();
+           whole.guest_address == info.guest_address && whole.guest_size == info.guest_size &&
+           whole.size == info.size && whole.pixel_format == info.pixel_format &&
+           whole.type == info.type && whole.resources == info.resources &&
+           whole.LayoutKey() == info.LayoutKey();
 }
 
 ImageId TextureCache::FindImageFromRange(VAddr address, size_t size, bool ensure_valid) {
@@ -1157,6 +1245,9 @@ ImageId TextureCache::FindImageFromRange(VAddr address, size_t size, bool ensure
     ForEachImageWithAddress(address, size, [&](ImageId image_id, Image& image) {
         if (ensure_valid && !image.SafeToDownload()) {
             return;
+        }
+        if (image.info.skip_levels != 0) {
+            return; // texture_quality: a reduced texture; its whole bytes are in guest memory
         }
         image_ids.push_back(image_id);
     });
@@ -1194,11 +1285,15 @@ ImageView& TextureCache::FindTexture(ImageId image_id, const ImageDesc& desc, Vi
     if (refresh) {
         UpdateImage(image_id);
     }
+    // bbport (texture_quality): `desc` keeps the whole texture's levels (bind memos and rebinds
+    // reuse it); a reduced image's view is moved onto the levels it kept here.
+    ImageViewInfo view_info = desc.view_info;
+    AdjustView(image, view_info);
     if (memo && !BbToggle::Disabled(BbToggle::TextureViewMemo)) {
         if (memo->image_id == image_id && memo->backing == image.backing && memo->view_id) {
             return slot_image_views[memo->view_id];
         }
-        ImageView& view = image.FindView(desc.view_info);
+        ImageView& view = image.FindView(view_info);
         const auto& ids = image.backing->image_view_ids;
         const u32 last = image.backing->last_view;
         memo->image_id = image_id;
@@ -1207,7 +1302,7 @@ ImageView& TextureCache::FindTexture(ImageId image_id, const ImageDesc& desc, Vi
                                                                                     : ids.back();
         return view;
     }
-    return image.FindView(desc.view_info);
+    return image.FindView(view_info);
 }
 
 ImageView& TextureCache::FindRenderTarget(ImageId image_id, const ImageDesc& desc) {
@@ -1313,6 +1408,10 @@ void TextureCache::RefreshImage(Image& image) {
 
     BbStats::image_upload_bytes.fetch_add(image.info.guest_size, std::memory_order_relaxed);
     boost::container::small_vector<vk::BufferImageCopy, 14> image_copies;
+    // bbport (texture_quality): a reduced image's levels keep their guest offsets; detiled, its
+    // linear data starts at the first level kept (DetileImage).
+    const u32 detiled_from =
+        image.info.skip_levels != 0 && image.info.props.is_tiled ? image.info.mips_layout[0].offset : 0;
     for (u32 m = 0; m < num_mips; m++) {
         const u32 width = std::max(image.info.size.width >> m, 1u);
         const u32 height = std::max(image.info.size.height >> m, 1u);
@@ -1342,7 +1441,7 @@ void TextureCache::RefreshImage(Image& image) {
         const u32 extent_width = mip_pitch ? std::min(mip_pitch, width) : width;
         const u32 extent_height = mip_height ? std::min(mip_height, height) : height;
         image_copies.push_back({
-            .bufferOffset = mip_offset,
+            .bufferOffset = mip_offset - detiled_from,
             .bufferRowLength = mip_pitch,
             .bufferImageHeight = mip_height,
             .imageSubresource{
@@ -1387,7 +1486,7 @@ void TextureCache::RefreshImage(Image& image) {
     obtain_scope.End();
     part_timer.emplace(BbStats::t_refresh_detile);
     BbSections::Scope detile_scope{BbSections::RefreshDetile};
-    const auto [buffer, offset] = tile_manager.DetileImage(in_buffer, in_offset, image.info);
+    const auto [buffer, offset] = tile_manager.DetileImage(in_buffer, in_offset, WholeInfo(image), image.info.skip_levels);
     detile_scope.End();
     part_timer.reset();
     for (auto& copy : image_copies) {
