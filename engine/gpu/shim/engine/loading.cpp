@@ -91,6 +91,7 @@ void Install(std::uint8_t* image) {
 }
 
 bool ScreenUp() { return g_up.load(std::memory_order_relaxed); }
+bool FastPace() { return g_fast_set; } // the main thread's (Tick and the Live FPS step both run on it)
 
 void Tick(std::uint64_t pacer) {
     if (!g_image) return;
