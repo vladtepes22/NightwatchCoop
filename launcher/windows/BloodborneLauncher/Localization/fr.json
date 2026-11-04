@@ -2546,5 +2546,6 @@
   "here": "ici",
   "Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.": "Nocturne {0} est sorti : un mod optionnel qui ajoute de nouvelles armes et de nouveaux outils de chasseur au jeu. « Essayer Nocturne » le télécharge ({1} Mo) et joue avec lui seul (vos autres mods sont mis en pause ; « Mes mods » les rétablit). Découvrez ce qu'il ajoute {link}.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} est sorti (vous avez la {1}). « Mettre à jour » le télécharge ({2} Mo) et remplace votre version installée. Découvrez les nouveautés {link}.",
-  "The Nocturne download could not be reached: {0}": "Le téléchargement de Nocturne est injoignable : {0}"
+  "The Nocturne download could not be reached: {0}": "Le téléchargement de Nocturne est injoignable : {0}",
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Votre dossier de mods contient déjà un dossier nommé {0}. Supprimez-le ou renommez-le, puis réessayez."
 }

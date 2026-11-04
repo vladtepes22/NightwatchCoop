@@ -2546,5 +2546,6 @@
   "here": "여기",
   "Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.": "Nocturne {0} 출시: 게임에 새 무기와 사냥꾼 도구를 추가하는 선택형 모드입니다. 'Nocturne 사용해 보기'를 누르면 다운로드({1} MB)하고 Nocturne만 사용합니다(다른 모드는 일시 중지되며 '내 모드'로 되돌릴 수 있습니다). 추가 내용은 {link}에서 확인하세요.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} 출시(현재 {1}). '업데이트'를 누르면 다운로드({2} MB)하고 설치된 버전을 교체합니다. 새로운 내용은 {link}에서 확인하세요.",
-  "The Nocturne download could not be reached: {0}": "Nocturne 다운로드에 연결할 수 없습니다: {0}"
+  "The Nocturne download could not be reached: {0}": "Nocturne 다운로드에 연결할 수 없습니다: {0}",
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "모드 폴더에 이미 {0} 폴더가 있습니다. 삭제하거나 이름을 바꾼 뒤 다시 시도하세요."
 }

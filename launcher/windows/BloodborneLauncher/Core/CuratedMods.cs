@@ -185,12 +185,89 @@ namespace BloodborneLauncher.Core
 
         // ---------------------------------------------------------------- what is installed
 
-        /// <summary>The Nocturne folder of the mods folder (any letter case), or null.</summary>
-        public static string? FolderIn(string modsDir) =>
-            Directory.Exists(modsDir)
-                ? Directory.GetDirectories(modsDir).FirstOrDefault(d =>
-                    string.Equals(Path.GetFileName(d), FolderName, StringComparison.OrdinalIgnoreCase))
-                : null;
+        /// <summary>The folder name the launcher gives its Nocturne install, "Nocturne v1.0.1" (user, 4 Nov), so the mods folder
+        /// shows the version. The co-op hash never sees it (engine/start/mods.cpp hashes paths inside the mod). A version with
+        /// other characters than a-z 0-9 . _ + - keeps the plain name.</summary>
+        public static string FolderFor(string version) =>
+            version.Length is > 0 and <= 32 && version.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '+' or '-') && !version.EndsWith('.')
+                ? $"{FolderName} v{version}" : FolderName;
+
+        /// <summary>A Nocturne folder name: "Nocturne" (older launchers) or "Nocturne v..." (this launcher, the Nexus zip), any case.</summary>
+        public static bool IsNocturneName(string name) =>
+            string.Equals(name, FolderName, StringComparison.OrdinalIgnoreCase) ||
+            name.StartsWith(FolderName + " v", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The Nocturne folder of the mods folder, or null; with several, the one the launcher installed (nocturne.json).</summary>
+        public static string? FolderIn(string modsDir)
+        {
+            if (!Directory.Exists(modsDir)) return null;
+            var all = Directory.GetDirectories(modsDir).Where(d => IsNocturneName(Path.GetFileName(d)))
+                .OrderBy(d => Path.GetFileName(d), StringComparer.OrdinalIgnoreCase).ToList();
+            return all.FirstOrDefault(d => File.Exists(Path.Combine(d, Marker))) ?? all.FirstOrDefault();
+        }
+
+        /// <summary>Gives the launcher's own Nocturne install (nocturne.json matching its files) its version name, then points the
+        /// entries of mods.json and the saved My mods list at the current Nocturne folder, keeping load order and on/off (a renamed
+        /// folder would otherwise come back as a new, enabled mod). Call with the game closed. True when settings changed.</summary>
+        public static bool NameFolder(LauncherSettings s, string modsDir)
+        {
+            if (Paths.DataDir.Length == 0 || FolderIn(modsDir) is not { } folder) return false;
+            if (Installed(modsDir) is { Kind: InstalledKind.Known, Version: { } version }) // no manifest: the marker only
+            {
+                var want = Path.Combine(modsDir, FolderFor(version));
+                var caseOnly = string.Equals(folder, want, StringComparison.OrdinalIgnoreCase);
+                if (!string.Equals(folder, want, StringComparison.Ordinal) && (caseOnly || !Directory.Exists(want)))
+                    try
+                    {
+                        Directory.Move(folder, want);
+                        folder = want;
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                    {
+                        // a file in use: the next start renames it
+                    }
+            }
+            var name = Path.GetFileName(folder);
+            string Map(string n) => IsNocturneName(n) && !string.Equals(n, name, StringComparison.Ordinal) &&
+                !Directory.Exists(Path.Combine(modsDir, n)) ? name : n;
+            try
+            {
+                if (File.Exists(Mods.ProfilePath) && JsonNode.Parse(File.ReadAllText(Mods.ProfilePath)) is JsonObject p &&
+                    Renamed(p, Map))
+                    File.WriteAllText(Mods.ProfilePath, p.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch (Exception e) when (e is IOException or JsonException or InvalidOperationException or UnauthorizedAccessException)
+            {
+            }
+            try
+            {
+                if (s.Str(SavedKey) is { Length: > 0 } saved && JsonNode.Parse(saved) is JsonObject o && Renamed(o, Map))
+                {
+                    s.Set(SavedKey, o.ToJsonString());
+                    return true;
+                }
+            }
+            catch (Exception e) when (e is JsonException or InvalidOperationException)
+            {
+            }
+            return false;
+        }
+
+        // An order/disabled list with each name mapped (duplicates dropped, the first place kept); true when it changed.
+        private static bool Renamed(JsonObject list, Func<string, string> map)
+        {
+            var changed = false;
+            foreach (var key in new[] { "order", "disabled" })
+            {
+                if (list[key] is not JsonArray a) continue;
+                var before = a.Select(n => n?.GetValue<string>() ?? "").ToList();
+                var after = before.Select(map).Distinct().ToList();
+                if (before.SequenceEqual(after)) continue;
+                list[key] = new JsonArray(after.Select(n => (JsonNode?)n).ToArray());
+                changed = true;
+            }
+            return changed;
+        }
 
         /// <summary>Which version the Nocturne folder is: the one nocturne.json names when its content still matches, else the
         /// manifest version with the same content (a Nexus or hand install), else unrecognised.</summary>
@@ -252,7 +329,7 @@ namespace BloodborneLauncher.Core
                         throw new InvalidDataException(L.T("The downloaded mod does not match its list entry."));
                     File.WriteAllText(Path.Combine(fresh, Marker),
                         new JsonObject { ["version"] = entry.Version, ["content"] = content }.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
-                    Swap(modsDir, fresh, aside);
+                    Swap(modsDir, fresh, aside, entry.Version);
                 }, ct);
             }
             finally
@@ -313,13 +390,16 @@ namespace BloodborneLauncher.Core
             }
         }
 
-        private static void Swap(string modsDir, string fresh, string aside)
+        private static void Swap(string modsDir, string fresh, string aside, string version)
         {
             var existing = FolderIn(modsDir);
+            var target = Path.Combine(modsDir, FolderFor(version));
+            if (Directory.Exists(target) && !string.Equals(target, existing, StringComparison.OrdinalIgnoreCase))
+                throw new IOException(L.F($"Your mods folder already has a folder named {Path.GetFileName(target)}. Remove or rename it, then try again."));
             if (existing != null) Directory.Move(existing, aside);
             try
             {
-                Directory.Move(fresh, Path.Combine(modsDir, FolderName));
+                Directory.Move(fresh, target);
             }
             catch
             {
@@ -358,8 +438,8 @@ namespace BloodborneLauncher.Core
             if (Paths.DataDir.Length == 0 || !Directory.Exists(modsDir)) return false;
             var mode = Mode(s);
             var written = s.Str(WrittenKey) is { Length: > 0 } w ? w : "my";
+            var changed = NameFolder(s, modsDir);
             var current = Mods.Load(modsDir);
-            var changed = false;
             if (mode != "my")
             {
                 if (written == "my")
@@ -367,8 +447,9 @@ namespace BloodborneLauncher.Core
                     s.Set(SavedKey, SavedList(current));
                     changed = true;
                 }
+                var nocturne = FolderIn(modsDir) is { } f ? Path.GetFileName(f) : null;
                 var keep = mode == "nocturne" ? current.FirstOrDefault(m =>
-                    string.Equals(m.Name, FolderName, StringComparison.OrdinalIgnoreCase))?.Name : null;
+                    string.Equals(m.Name, nocturne, StringComparison.OrdinalIgnoreCase))?.Name : null;
                 Mods.Save(current.Select(m => m with { Enabled = keep != null && m.Name == keep }));
             }
             else if (written != "my" && ReadSaved(s.Str(SavedKey)) is { } saved)
@@ -398,7 +479,7 @@ namespace BloodborneLauncher.Core
             catch (Exception e) when (e is IOException or JsonException or InvalidOperationException)
             {
             }
-            bool Off(Mods.Entry m) => !m.Enabled || (string.Equals(m.Name, FolderName, StringComparison.OrdinalIgnoreCase) && !known.Contains(m.Name));
+            bool Off(Mods.Entry m) => !m.Enabled || (IsNocturneName(m.Name) && !known.Contains(m.Name));
             return new JsonObject
             {
                 ["order"] = new JsonArray(current.Select(m => (JsonNode?)m.Name).ToArray()),
