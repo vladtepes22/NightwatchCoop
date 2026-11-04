@@ -65,11 +65,14 @@ namespace BloodborneLauncher.Views
 
             Ws.PortChanged += OnShown;
             SwitchChanged += ShowMode;
+            // Loaded, not OnShown: the Workshop calls OnShown while it builds this page, and the settings search builds pages it
+            // never shows; Loaded comes only once the page is in the window.
+            Loaded += (_, _) => NocturneOnce();
         }
 
 
         /// <summary>Once, the first time the Workshop opens: Nocturne, with its Nexus Mods page and a one-click switch (it was a
-        /// card on the Play page; user, 4 Nov). After the page is on screen.</summary>
+        /// card on the Play page; user, 4 Nov). From Loaded, after the page is drawn.</summary>
         private void NocturneOnce()
         {
             if (S.Bool("nocturne_workshop_seen")) return;
@@ -198,7 +201,6 @@ namespace BloodborneLauncher.Views
 
         public override void OnShown()
         {
-            NocturneOnce();
             ShowMode();
             RefreshMods();
             RefreshPatches();
