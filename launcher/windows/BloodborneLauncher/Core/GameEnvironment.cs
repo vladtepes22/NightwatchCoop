@@ -135,8 +135,8 @@ namespace BloodborneLauncher.Core
                 ["BB_USER_DIR"] = UserDir(s),
                 ["BB_MODS_DIR"] = ModsDir(s),
                 ["BB_MODS_CONFIG"] = Path.Combine(Paths.DataDir, "mods.json"),
-                // Nocturne mode loads Nocturne even with "Load mods" off (it is the mode's whole point); safe mode below still wins.
-                ["BB_MODS_ENABLED"] = s.Bool("mods_enabled") || CuratedMods.Mode(s) == "nocturne" ? "1" : "0",
+                // Load mods: My mods and Nocturne only load mods, No mods none; safe mode below still wins.
+                ["BB_MODS_ENABLED"] = CuratedMods.Mode(s) != "standard" ? "1" : "0",
                 ["BB_PATCHES_DIR"] = PatchesDir(s),
                 ["BB_PATCHES_CONFIG"] = Path.Combine(Paths.DataDir, "patches.json"),
                 ["BB_LANGUAGE"] = s.Str("language"),
