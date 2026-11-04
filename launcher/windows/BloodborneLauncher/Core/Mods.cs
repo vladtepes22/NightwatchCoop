@@ -31,6 +31,7 @@ namespace BloodborneLauncher.Core
             if (!Directory.Exists(root))
                 return new List<string>();
             return Directory.GetDirectories(root)
+                .Where(d => !Path.GetFileName(d).StartsWith('.')) // the launcher's own temporary folders (CuratedMods)
                 .Where(HasContent)
                 .Select(Path.GetFileName)
                 .OfType<string>()
@@ -102,6 +103,49 @@ namespace BloodborneLauncher.Core
 
             return order.Concat(available).Distinct().Where(available.Contains)
                 .Select(n => new Entry(n, !disabled.Contains(n))).ToList();
+        }
+
+        /// <summary>A mod's clash with another enabled mod: the files both replace (up to 3 shown).</summary>
+        public sealed record Conflict(string With, IReadOnlyList<string> Examples);
+
+        /// <summary>For the enabled mods (in load order), the files two or more of them replace: per mod, the other mods it clashes
+        /// with and up to 3 example paths. Paths are as in the content hash (lower case, '/', from the folder holding dvdroot_ps4;
+        /// a leading dvdroot_ps4 is dropped so both layouts compare). A file listing only, no hashing.</summary>
+        public static Dictionary<string, List<Conflict>> Conflicts(string root, IEnumerable<string> enabled)
+        {
+            var names = enabled.Distinct().ToList();
+            var owners = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (var name in names)
+            {
+                var folder = Path.Combine(root, name);
+                if (!Directory.Exists(folder)) continue;
+                try
+                {
+                    foreach (var (_, relative) in CuratedMods.GameFiles(folder))
+                    {
+                        var path = relative.StartsWith("dvdroot_ps4/", StringComparison.Ordinal) ? relative["dvdroot_ps4/".Length..] : relative;
+                        if (!owners.TryGetValue(path, out var list)) owners[path] = list = new List<string>();
+                        list.Add(name);
+                    }
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+
+            var found = new Dictionary<string, Dictionary<string, List<string>>>(StringComparer.Ordinal);
+            foreach (var (path, list) in owners.Where(p => p.Value.Count > 1).OrderBy(p => p.Key, StringComparer.Ordinal))
+                foreach (var a in list)
+                {
+                    if (!found.TryGetValue(a, out var withs)) found[a] = withs = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+                    foreach (var b in list.Where(b => b != a))
+                    {
+                        if (!withs.TryGetValue(b, out var examples)) withs[b] = examples = new List<string>();
+                        if (examples.Count < 3) examples.Add(path);
+                    }
+                }
+            return names.Where(found.ContainsKey).ToDictionary(n => n,
+                n => names.Where(found[n].ContainsKey).Select(o => new Conflict(o, found[n][o])).ToList());
         }
 
         public static void Save(IEnumerable<Entry> mods)

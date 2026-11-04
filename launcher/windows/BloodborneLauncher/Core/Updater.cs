@@ -526,7 +526,7 @@ namespace BloodborneLauncher.Core
             }
         }
 
-        private static HttpClient Client(TimeSpan timeout)
+        internal static HttpClient Client(TimeSpan timeout)
         {
             var http = new HttpClient { Timeout = timeout };
             http.DefaultRequestHeaders.UserAgent.ParseAdd($"BloodborneLauncher/{Current}");

@@ -769,6 +769,7 @@ Check(firewallLines[1].Contains("-Protocol TCP -LocalPort 47890") && firewallLin
 PartyCodeTests.Run();
 SaveEditorTests.Run();
 CoopSetupTests.Run();
+CuratedModTests.Run();
 VpnTests.Run();
 {
     // Import saves: single player, multiplayer or both; a replaced party save is backed up (temporary user folder only).
