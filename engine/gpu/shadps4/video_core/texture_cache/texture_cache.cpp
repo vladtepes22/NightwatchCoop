@@ -133,14 +133,20 @@ void TextureCache::AdjustView(const Image& image, ImageViewInfo& view) {
     if (skip == 0) {
         return;
     }
-    const u32 levels = image.info.resources.levels;
-    const u32 first = view.range.base.level;
-    const u32 last = first + std::max(view.range.extent.levels, 1u) - 1;
-    const u32 new_first = std::min(first > skip ? first - skip : 0u, levels - 1);
-    const u32 new_last = std::min(last > skip ? last - skip : 0u, levels - 1);
-    view.range.base.level = new_first;
-    view.range.extent.levels = std::max(new_last, new_first) - new_first + 1;
-    view.min_lod = view.min_lod > skip * 256 ? view.min_lod - skip * 256 : 0;
+    view.range = KeptRange(image, view.range);
+    view.min_lod = TextureQuality::KeptMinLod(view.min_lod, skip);
+}
+
+SubresourceRange TextureCache::KeptRange(const Image& image, SubresourceRange range) {
+    const u32 skip = image.info.skip_levels;
+    if (skip == 0) {
+        return range;
+    }
+    const auto kept = TextureQuality::KeptLevels(range.base.level, range.extent.levels, skip,
+                                                 image.info.resources.levels);
+    range.base.level = kept.first;
+    range.extent.levels = kept.count;
+    return range;
 }
 
 TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& scheduler_,
@@ -167,10 +173,11 @@ TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler&
             decide_mem = std::min(decide_mem, instance.GetTotalMemoryBudget());
         }
         texture_skip_wanted = TextureQuality::WantedSkip(quality, decide_mem);
-        LOG_INFO(Render_Vulkan, "texture quality: setting {}, effective {} (device memory {:.2f} GB)",
-                 TextureQuality::Name(quality),
-                 texture_skip_wanted == 0 ? "full" : texture_skip_wanted == 1 ? "half" : "quarter",
-                 double(decide_mem) / double(1ull << 30));
+        // A plain line (LOG_INFO does not reach players' logs): reports show the setting used.
+        std::printf("Textures: quality %s, effective %s (device memory %.2f GB, texture_quality)\n",
+                    TextureQuality::Name(quality),
+                    texture_skip_wanted == 0 ? "full" : texture_skip_wanted == 1 ? "half" : "quarter",
+                    double(decide_mem) / double(1ull << 30));
     }
 
     u32 max_samplers = instance.GetMaxSamplerAllocationCount();
@@ -1093,7 +1100,8 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
     // sampled binding of that very texture. Met by any other use (a target, storage, another
     // description over its memory) it goes, bound ones rebound, and its address keeps its
     // textures whole from then on.
-    for (auto it = image_ids.begin(); it != image_ids.end();) {
+    // None exist at full quality (texture_skip_wanted is fixed for the session): no walk then.
+    for (auto it = image_ids.begin(); texture_skip_wanted != 0 && it != image_ids.end();) {
         Image& reduced = slot_images[*it];
         if (reduced.info.skip_levels == 0) {
             ++it;

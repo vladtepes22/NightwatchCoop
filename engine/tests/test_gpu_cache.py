@@ -1,5 +1,8 @@
 from paths import ROOT
 from pathlib import Path
+import os
+import re
+import subprocess
 import tempfile
 import unittest
 from run_windows import gpu_cache_dir, gpu_cache_id, reset_stale_gpu_cache
@@ -78,6 +81,42 @@ class GpuCacheTests(unittest.TestCase):
             self.assertEqual(start({0x1002}), (['amd/CUSA03173'], b'1002'))
             self.assertEqual(start({0x1002, 0x10DE}, cache_vendor=0x1002)[0], ['amd/CUSA03173'])
             self.assertEqual(start({0x8086}), ([], None))
+
+
+LAB = ROOT / 'out' / 'bb-shader-lab.exe'
+# A real shader catalog (a package's engine/shader-catalog/<vendor folder>), e.g. the Lantern base's.
+CATALOG = Path(os.environ.get('BB_TEST_SHADER_CATALOG', ROOT.parent / 'work' / 'downloads' / 'lantern-0.9.38' / 'x' /
+                              'BloodbornePC' / 'engine' / 'shader-catalog' / 'amd' / 'CUSA03173'))
+
+
+def check_catalog(folder):
+    env = dict(os.environ, PATH=os.pathsep.join([str(Path('C:/msys64/clang64/bin')), os.environ.get('PATH', '')]))
+    p = subprocess.run([str(LAB), '--check-catalog', str(folder)], capture_output=True, text=True, env=env, timeout=120)
+    line = next((l for l in p.stdout.splitlines() if l.startswith('Catalog check:')), '')
+    return p.returncode, line
+
+
+@unittest.skipUnless(LAB.exists(), 'out/bb-shader-lab.exe not built (build.sh)')
+class ShaderCatalogTests(unittest.TestCase):
+    """tools/package-seamless.ps1 ships the base's catalog when this engine reads it (--check-catalog),
+    whatever compiler made it: the seed compiles every state again with this one."""
+
+    def test_a_catalog_of_another_format_is_not_shipped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / 'profile.bin').write_bytes(b'short')
+            (folder / '0x0000000000000001_0.bbs').write_bytes(b'BBS1' + bytes(60))
+            (folder / '0x0000000000000001_0.meta').write_bytes(bytes(24))
+            code, line = check_catalog(folder)
+            self.assertEqual(code, 4, line)
+            self.assertIn('not usable', line)
+
+    @unittest.skipUnless((CATALOG / 'profile.bin').exists(), 'no shader catalog (BB_TEST_SHADER_CATALOG)')
+    def test_the_base_catalog_is_readable_by_this_engine(self):
+        code, line = check_catalog(CATALOG)
+        self.assertEqual(code, 0, line)
+        readable = int(re.search(r'Catalog check: (\d+) of (\d+)', line).group(1))
+        self.assertGreater(readable, 500, line)
 
 
 if __name__ == '__main__':

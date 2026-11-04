@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include "common/assert.h"
 #include "common/logging/log.h"
+#include "../../../src/runtime_logdrain.h"
 #include <chrono>
 #include <thread>
 #ifndef _WIN32
@@ -32,6 +33,9 @@ void assert_fail_impl() {
     std::fflush(stderr);
     backtrace_symbols_fd(frames, count, STDERR_FILENO);
 #endif
+    // bbport: the log drain (src/runtime_logdrain.c) still holds the assertion's text: _Exit runs no
+    // atexit handler, so hand it to the log first (bounded).
+    runtime_logdrain_flush(3000);
     std::_Exit(23);
 }
 

@@ -754,15 +754,21 @@ void runtime_restart(void) {
 #ifdef _WIN32
     const char *command = getenv("BB_RESTART_COMMAND");
     puts("Runtime: restarting through the launcher");
-    if (!command) { fputs("runtime_restart: BB_RESTART_COMMAND is not set\n", stderr); _exit(1); }
+    if (!command) {
+        fputs("runtime_restart: BB_RESTART_COMMAND is not set\n", stderr);
+        runtime_logdrain_flush(3000);
+        _exit(1);
+    }
     char line[32768];
     snprintf(line, sizeof(line), "%s", command);
     STARTUPINFOA startup = {.cb = sizeof(startup)};
     PROCESS_INFORMATION process;
     if (!CreateProcessA(NULL, line, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &process)) {
         fprintf(stderr, "runtime_restart: CreateProcess failed (%lu)\n", GetLastError());
+        runtime_logdrain_flush(3000);
         _exit(1);
     }
+    runtime_logdrain_flush(3000);
     _exit(0);
 #else
     puts("Runtime: restarting through run.sh");

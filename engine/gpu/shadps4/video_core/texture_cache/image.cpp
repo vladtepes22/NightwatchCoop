@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "bbport_toggles.h"
+#include <algorithm>
 #include <mutex>
 #include <ranges>
 #include <tuple>
@@ -327,6 +328,18 @@ void Image::GetBarriers(Barriers& barriers, vk::ImageLayout dst_layout, vk::Acce
                         std::optional<SubresourceRange> subres_range) {
     auto& last_state = backing->state;
     auto& subresource_states = backing->subresource_states;
+    // bbport (texture_quality): a reduced image never takes a range past its own levels (a range
+    // of the whole texture's levels failed the subresource assertion below; callers pass
+    // TextureCache::KeptRange, this keeps any other inside the image).
+    if (subres_range && info.skip_levels != 0) {
+        auto& range = *subres_range;
+        const u32 levels = info.resources.levels;
+        range.base.level = std::min(range.base.level, levels - 1);
+        range.extent.levels = std::clamp(range.extent.levels, 1u, levels - range.base.level);
+        const u32 layers = info.resources.layers;
+        range.base.layer = std::min(range.base.layer, layers - 1);
+        range.extent.layers = std::clamp(range.extent.layers, 1u, layers - range.base.layer);
+    }
 
     const bool needs_partial_transition =
         subres_range &&

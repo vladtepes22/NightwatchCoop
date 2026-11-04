@@ -13,6 +13,7 @@
 // stands aside while this runs; the party code reads Steps / GameSeconds / LastDt from it as before.
 #include "live_clock.h"
 #include "live_clock_rules.h"
+#include "loading.h"
 #include "engine_hooks.h"
 #include "bbport_settings.h"
 
@@ -216,6 +217,9 @@ __attribute__((sysv_abi)) void LiveClockTick(u8* pacer, float* out) {
     const int max_dt_hz = s.max_dt_hz.load(std::memory_order_relaxed);
     float interval = Frame30;
     const float dt = LiveClockStep(g_state, measured, target, max_dt_hz, interval);
+    // 0.2.7 drew loading screens at the live target: fast loading's 30 FPS pace (loading.cpp writes it
+    // into the pacer's mode setups) was overwritten here every frame.
+    interval = LoadingInterval(interval, Loading::FastPace());
     std::memcpy(pacer + 0x18, &interval, 4);
     g_shortest = interval;
     // The patch's code caves sample the pacer's measured time and the global step: both get the step.
