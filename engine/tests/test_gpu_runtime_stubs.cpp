@@ -63,6 +63,8 @@ int runtime_ime_dialog_count(void) { return 0; }
 uint32_t runtime_pad_cross_presses(void) { return 0; }
 void runtime_pad_director_press(uint32_t) {}
 void runtime_pad_director_sticks(int, int, int, int) {}
+void runtime_pad_director_mask(uint32_t) {}
+void runtime_logdrain_flush(unsigned) {}
 uint32_t runtime_pad_last_buttons(void) { return 0; }
 uint32_t runtime_pad_last_left(void) { return 0x8080u; }
 // Weak: bb-shader-lab (Lantern 0.9.37 beta 9) defines these four itself.
