@@ -143,6 +143,7 @@ internal static class CuratedModTests
                 Put(Path.Combine(applyMods, n, "dvdroot_ps4", "param", n + ".bin"), n);
             Mods.Save(new[] { new Mods.Entry("ModA", true), new Mods.Entry("ModB", false), new Mods.Entry("Nocturne", false) });
             var s = new LauncherSettings();
+            s.Set("mods_enabled", true); // Load's defaults; a bare LauncherSettings has none
             Check(CuratedMods.Mode(s) == "my", "The default game mode is not My mods");
             s.Set("mods_enabled", false);
             Check(CuratedMods.Mode(s) == "standard", "The old Load mods switch off did not read as No mods");
@@ -169,6 +170,16 @@ internal static class CuratedModTests
             Check(CuratedMods.MyModsCount(s, applyMods) == 2, "My mods count wrong");
             Directory.Delete(applyMods, true);
             Check(CuratedMods.Apply(new LauncherSettings(), applyMods) == false, "Apply must do nothing without a mods folder");
+
+            // ---- start-up popup: Try without Nocturne, Update from an older known version, once per manifest version
+            var latest13 = CuratedMods.ParseManifest(Manifest());
+            Check(CuratedMods.StartNewsOf(latest13, new InstalledMod(InstalledKind.None), "") == StartNews.Try, "No Nocturne: offer it");
+            Check(CuratedMods.StartNewsOf(latest13, new InstalledMod(InstalledKind.Known, "1.2"), "") == StartNews.Update, "Older Nocturne: offer the update");
+            Check(CuratedMods.StartNewsOf(latest13, new InstalledMod(InstalledKind.Known, "1.3"), "") == StartNews.None, "Newest Nocturne: nothing");
+            Check(CuratedMods.StartNewsOf(latest13, new InstalledMod(InstalledKind.Unrecognised), "") == StartNews.None, "Own copy: nothing");
+            Check(CuratedMods.StartNewsOf(latest13, new InstalledMod(InstalledKind.None), "1.3") == StartNews.None, "Told about 1.3 already: nothing");
+            Check(CuratedMods.StartNewsOf(latest13, new InstalledMod(InstalledKind.Known, "1.2"), "1.2") == StartNews.Update, "A newer version is told again");
+            Check(CuratedMods.StartNewsOf(null, new InstalledMod(InstalledKind.None), null) == StartNews.None, "No manifest: nothing");
 
             // ---- join advice (visy's terms: the label is a key; only a manifest version is fetched; others show "modded")
             var nocturne13 = new LocalMods("nocturne", "1.3", 0);

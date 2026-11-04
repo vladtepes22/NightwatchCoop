@@ -340,9 +340,9 @@ public sealed class SeamlessPage : LauncherPage
     private async void ShowGameMode()
     {
         var read = ++_gameModeReads;
-        if (ModsPage.Switching is { } switching)
+        if (ModsPage.Switching != null)
         {
-            SetHint(_gameModeHint, switching == "nocturne" ? ModsPage.DownloadText() : "");
+            SetHint(_gameModeHint, ModsPage.SwitchDownloads ? ModsPage.DownloadText() : "");
             return;
         }
         var mode = CuratedMods.Mode(S);

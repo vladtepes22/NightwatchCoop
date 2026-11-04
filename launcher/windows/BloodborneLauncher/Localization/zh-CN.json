@@ -2566,5 +2566,8 @@
   "Switch to UPnP/VPN/LAN": "切换到 UPnP/VPN/LAN",
   "Connect and play": "连接并开始游戏",
   "An optional mod that adds new weapons and hunter tools in the game. Check it out {link}. Press Try Nocturne to install it.": "一个可选模组，为游戏加入新的武器和猎人道具。{link}查看详情。点击“试用 Nocturne”即可安装。",
-  "here": "点此"
+  "here": "点此",
+  "Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.": "Nocturne {0} 已发布：一个可选模组，为游戏加入新的武器和猎人道具。点击“试用 Nocturne”即可下载（{1} MB）并只启用它（其他模组会暂停，“我的模组”可以恢复）。{link}查看它新增的内容。",
+  "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} 已发布（你当前是 {1}）。点击“更新”即可下载（{2} MB）并替换已安装的版本。{link}查看更新内容。",
+  "The Nocturne download could not be reached: {0}": "无法连接到 Nocturne 下载地址：{0}"
 }
