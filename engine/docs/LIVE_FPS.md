@@ -11,6 +11,7 @@ Ported on 3 Nov 2026 from visy's 0.7.8 (18907808, 13a35bbb), which took it from 
 | Step | fixed per rate, data sites retuned while the game holds a lower rate | the measured frame time, clamped to [1/240 s, 1/`max_dt_hz`]; +-1.5% jitter locked to the target with the rest carried |
 | Code | `gpu/shim/engine/frame_rate.cpp` | `gpu/shim/engine/live_clock.cpp`, rules in `live_clock_rules.h` (`live-clock-test`) |
 | Steady cloth, plant sway, jump drag (`start/frame_time_code.inc`) | on | left out: the Deltatime base handles the same code (it rewrites the drag site too) |
+| Plants' wind force | from the frame-time code | fixed at 1/30 (`GrassWind`, visy 0.7.8 af45a20a: the Deltatime base used the live step as the force, so plants shook); the wave time keeps the live step. The 1/30 lives in the stub page: the Deltatime patch sets the game's own 1/30 (0x4926364) to 1/60 |
 
 The start (`start/patches.cpp`) picks it when Live FPS is wanted (`BB_LIVE_FPS` over bbport.ini `live_fps`, never
 at 30 FPS or `BB_FPS_PATCH=0`), the engine is on, and every site of the base matches the 1.09 executable
