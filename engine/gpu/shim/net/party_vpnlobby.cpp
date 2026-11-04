@@ -192,6 +192,17 @@ std::string mods_label(const char* launcher_label, bool gameplay_mods, const std
     return s;
 }
 
+std::string party_label(const std::string& mods_part, const std::array<std::uint8_t, 32>& patches_hash) {
+    static const char* const kHex = "0123456789abcdef";
+    std::string patches = "patches:";
+    for (int i = 0; i < 4; ++i) {
+        patches += kHex[patches_hash[i] >> 4];
+        patches += kHex[patches_hash[i] & 15];
+    }
+    const std::string whole = mods_part.empty() ? patches : mods_part + "+" + patches;
+    return valid_mods_label(whole) ? whole : mods_part;
+}
+
 // is_tunnel_player_address: party_vpnlobby.h (10.8.0.0/22 minus the network, the server 10.8.0.1 and the
 // broadcast address).
 

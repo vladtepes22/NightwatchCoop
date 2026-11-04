@@ -2547,5 +2547,7 @@
   "You do not have Nocturne {0} installed. Install it in the {1}.": "Du hast Nocturne {0} nicht installiert. Installiere es im {1}.",
   "Mods mismatch: enable the same mods and try again.": "Mods stimmen nicht überein: aktiviere dieselben Mods und versuche es erneut.",
   "Give items to the party": "Gegenstände an die Gruppe geben",
-  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Standardmäßig aus. An: Im Inventar hat das Menü eines Gegenstands „Geben“, um Verbrauchsgüter oder Materialien an einen anderen Jäger zu senden, und du nimmst ihre an. Aus: Geschenke anderer werden abgelehnt. Jeder Spieler stellt das selbst ein."
+  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Standardmäßig aus. An: Im Inventar hat das Menü eines Gegenstands „Geben“, um Verbrauchsgüter oder Materialien an einen anderen Jäger zu senden, und du nimmst ihre an. Aus: Geschenke anderer werden abgelehnt. Jeder Spieler stellt das selbst ein.",
+  "Mods and patches differ: enable the same mods and patches and try again.": "Mods und Patches stimmen nicht überein: aktiviere dieselben Mods und Patches und versuche es erneut.",
+  "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "Patches stimmen nicht überein: schalte dieselben Patches ein wie der Host (auch der eigene Patch eines Mods zählt)."
 }

@@ -54,6 +54,11 @@ std::vector<std::uint8_t> encode_announce_mods(const Announce& a);
 // The label this host announces: none without gameplay mods; else `launcher_label` (BB_PARTY_MODS_LABEL, set by the
 // launcher only for a curated mod it verified) when valid, else "mods:" + the first 4 bytes of the party mod hash in hex.
 std::string mods_label(const char* launcher_label, bool gameplay_mods, const std::array<std::uint8_t, 32>& mods_hash);
+// The full label (Nightwatch 0.2.8): the mods part above, then "patches:" + the first 4 bytes of the party patch hash,
+// joined by '+' ("mods:3f9a12c0+patches:d8e32e8a", "patches:d8e32e8a" without gameplay mods). The gameplay
+// patches are half of the join check (a mod's own XML patch counts), so a client can tell both before it joins.
+// The mods part alone when the whole would not be a valid label.
+std::string party_label(const std::string& mods_part, const std::array<std::uint8_t, 32>& patches_hash);
 
 // The name as the lobby accepts it: control, format, separator and surrogate characters dropped, runs of
 // spaces folded, at most kMaxNameChars characters (and kMaxNameBytes bytes). Invalid UTF-8 gives "".

@@ -2570,5 +2570,7 @@
   "You do not have Nocturne {0} installed. Install it in the {1}.": "你没有安装 Nocturne {0}。请在{1}中安装。",
   "Mods mismatch: enable the same mods and try again.": "模组不一致：请启用相同的模组后重试。",
   "Give items to the party": "向队伍赠送物品",
-  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "默认关闭。开启：背包中物品的菜单会出现“赠送”，可把消耗品或材料送给其他猎人，你也会接受他们的赠送。关闭：拒绝其他人的赠送。每位玩家各自设置。"
+  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "默认关闭。开启：背包中物品的菜单会出现“赠送”，可把消耗品或材料送给其他猎人，你也会接受他们的赠送。关闭：拒绝其他人的赠送。每位玩家各自设置。",
+  "Mods and patches differ: enable the same mods and patches and try again.": "模组和补丁不一致：请启用相同的模组和补丁后重试。",
+  "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "补丁不一致：请开启与主机相同的补丁（模组自带的补丁也算）。"
 }

@@ -2547,5 +2547,7 @@
   "You do not have Nocturne {0} installed. Install it in the {1}.": "Nocturne {0} がインストールされていません。{1}でインストールしてください。",
   "Mods mismatch: enable the same mods and try again.": "MODが一致しません。同じMODを有効にしてもう一度お試しください。",
   "Give items to the party": "パーティーにアイテムを渡す",
-  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "初期設定はオフ。オン：インベントリのアイテムメニューに「渡す」が出て、消耗品や素材を他の狩人に送れます。相手からの贈り物も受け取ります。オフ：他の人からの贈り物は断られます。各プレイヤーが自分で設定します。"
+  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "初期設定はオフ。オン：インベントリのアイテムメニューに「渡す」が出て、消耗品や素材を他の狩人に送れます。相手からの贈り物も受け取ります。オフ：他の人からの贈り物は断られます。各プレイヤーが自分で設定します。",
+  "Mods and patches differ: enable the same mods and patches and try again.": "Modとパッチが一致しません: 同じModとパッチを有効にしてから再試行してください。",
+  "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "パッチが一致しません: ホストと同じパッチをオンにしてください（Mod独自のパッチも含みます）。"
 }

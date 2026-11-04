@@ -1050,6 +1050,13 @@ static void test_vpnlobby() {
         CHECK(mods_label(nullptr, true, h) == "mods:3f9a12c0");
         CHECK(mods_label("Bad Label", true, h) == "mods:3f9a12c0");         // an invalid label falls back to the hash
         CHECK(mods_label("", true, h) == "mods:3f9a12c0");
+        std::array<std::uint8_t, 32> p{};
+        p[0] = 0xd8; p[1] = 0xe3; p[2] = 0x2e; p[3] = 0x8a;
+        CHECK(party_label("mods:3f9a12c0", p) == "mods:3f9a12c0+patches:d8e32e8a");
+        CHECK(party_label("nocturne@1.0", p) == "nocturne@1.0+patches:d8e32e8a");
+        CHECK(party_label("", p) == "patches:d8e32e8a");                     // no gameplay mods: patches only
+        CHECK(valid_mods_label(party_label("mods:3f9a12c0", p)));
+        CHECK(party_label(std::string(250, 'a'), p) == std::string(250, 'a')); // too long: the mods part alone
     }
     // refused: no name, port < 1024, bad slots
     { Announce b = a; b.name = "\x01 \xe2\x80\xae"; CHECK(encode_announce(b).empty()); }

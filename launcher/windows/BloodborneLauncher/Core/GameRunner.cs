@@ -58,6 +58,7 @@ namespace BloodborneLauncher.Core
         {
             if (_process != null)
                 return L.T("The game is already running.");
+            PartyHashes.StopForGameStart(); // the lobby's hash check uses the same out folder
             SdlPad.Stop(); // the game takes the controllers
 
             ProcessStartInfo info;

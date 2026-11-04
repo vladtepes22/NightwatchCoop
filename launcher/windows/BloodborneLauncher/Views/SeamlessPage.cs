@@ -964,9 +964,9 @@ public sealed class SeamlessPage : LauncherPage
         games = result.Games;
         RefreshRowManifest();
         var manifest = _rowManifest;
+        if (games.Count > 0) PartyHashes.Refresh(S, Ws.Game.Running); // this PC's hashes as a start would have them now
         var local = games.Any(g => g.Mods.Length > 0) || CuratedMods.Mode(S) != "my" ? CuratedMods.Local(S, GameEnvironment.ModsDir(S), manifest)
-            : new LocalMods("my", null, CuratedMods.MyModsCount(S, GameEnvironment.ModsDir(S)),
-                CuratedMods.LastModsHash(System.IO.Path.Combine(Paths.BinariesDir, "party_mods.txt"), Mods.ProfilePath));
+            : new LocalMods("my", null, CuratedMods.MyModsCount(S, GameEnvironment.ModsDir(S)), PartyHashes.Current.Mods, PartyHashes.Current.Patches);
         var offered = manifest?.Versions.Select(v => v.Version).ToList();
         var signature = result.Total + "|" + result.Hidden + "|" + _searchBox.Text + "|" + up + "|" + (_lobby?.Answered == true) + "|" + local + "|" +
                         (offered == null ? "-" : string.Join(",", offered)) + "|" +
@@ -1014,11 +1014,12 @@ public sealed class SeamlessPage : LauncherPage
             var row = Card(SymbolRegular.People24, game.Name, null, WithAccessMark(!game.Password, LockInfo(game.Password), buttons), out var hint);
             rowHint = hint;
             if (!open) row.Opacity = 0.6;
-            var hostMods = CuratedMods.NocturneOf(game.Mods) is { } hv ? " · Nocturne " + hv : game.Mods.Length > 0 ? " · " + L.T("Modded") : "";
+            var hostMods = CuratedMods.NocturneOf(game.Mods) is { } hv ? " · Nocturne " + hv : CuratedMods.ModsPart(game.Mods).Length > 0 ? " · " + L.T("Modded") : "";
             SetHint(hint, L.T("Nightwatch Online") + " · " + game.Players + " / " + game.Max + " · " + VpnLobby.VersionOf(game.Build) + hostMods +
                           (sameVersion ? "" : "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.")));
-            if (sameVersion && ModsNote(advice, hint.FontSize) is { } note && hint.Parent is Panel details)
-                details.Children.Insert(details.Children.IndexOf(hint) + 1, note);
+            if (sameVersion && hint.Parent is Panel details)
+                foreach (var note in ModsNotes(advice, hint.FontSize).Reverse())
+                    details.Children.Insert(details.Children.IndexOf(hint) + 1, note);
             _lobbyList.Children.Add(row);
         }
         _lobbyScroll.UpdateLayout();
@@ -1029,11 +1030,24 @@ public sealed class SeamlessPage : LauncherPage
 
     /// <summary>A lobby row's mods problem, in red under its details (user, 4 Nov): a Nocturne version this PC does not have
     /// links to the Workshop (underlined); other mods that differ ask for the same mods. Null when the mods match.</summary>
-    private static TextBlock? ModsNote(JoinChoice advice, double fontSize)
+    private static IEnumerable<TextBlock> ModsNotes(JoinChoice advice, double fontSize)
     {
-        if (advice.Kind is not (JoinKind.NocturneNotAvailable or JoinKind.Modded or JoinKind.MismatchJoinAnyway)) return null;
-        var note = new TextBlock { Foreground = ModsNoteBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0), FontSize = fontSize };
-        if (advice.Kind == JoinKind.NocturneNotAvailable)
+        var modsDiffer = advice.Kind is JoinKind.Modded or JoinKind.MismatchJoinAnyway;
+        if (advice.Kind == JoinKind.NocturneNotAvailable) yield return NocturneNote(advice, fontSize);
+        // Patches (user, 4 Nov: a mod's own XML patch refused a join the lobby did not warn about).
+        if (modsDiffer && advice.PatchesDiffer)
+            yield return NoteLine(L.T("Mods and patches differ: enable the same mods and patches and try again."), fontSize);
+        else if (modsDiffer) yield return NoteLine(L.T("Mods mismatch: enable the same mods and try again."), fontSize);
+        else if (advice.PatchesDiffer)
+            yield return NoteLine(L.T("Patches differ: turn on the same patches as the host (a mod's own patch counts too)."), fontSize);
+    }
+
+    private static TextBlock NoteLine(string text, double fontSize) =>
+        new() { Foreground = ModsNoteBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0), FontSize = fontSize, Text = text };
+
+    private static TextBlock NocturneNote(JoinChoice advice, double fontSize)
+    {
+        var note = NoteLine("", fontSize);
         {
             // {1} is the link; the text either side of it stays plain.
             var text = string.Format(L.T("You do not have Nocturne {0} installed. Install it in the {1}."), advice.Version, "\u0001");
@@ -1045,12 +1059,9 @@ public sealed class SeamlessPage : LauncherPage
             note.Inlines.Add(link);
             if (parts.Length > 1) note.Inlines.Add(new System.Windows.Documents.Run(parts[1]));
         }
-        else
-            note.Text = L.T("Mods mismatch: enable the same mods and try again.");
         return note;
     }
 
-    /// <summary>A solid padlock: thick shackle, square body with rounded bottom corners, keyhole cut through.</summary>
     /// <summary>An upright sword (pointed blade, crossguard, grip, pommel), turned 45 degrees on the Invade button.</summary>
     private static readonly System.Windows.Media.Geometry Sword = System.Windows.Media.Geometry.Parse(
         "F0 M12 0.5 L13.9 3.6 V14.4 H10.1 V3.6 Z M6.4 14.4 H17.6 V16.6 H6.4 Z M10.9 16.6 H13.1 V20.3 H10.9 Z " +
