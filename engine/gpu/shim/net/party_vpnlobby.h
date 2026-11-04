@@ -15,9 +15,13 @@
 //   map id 0xAABBCCDD, 0 unknown)  phase u8 (0 unknown, 1 day, 2 evening, 3 night, 4 Blood Moon)  ng u8 (0 = NG, 1..7 =
 //   NG+n, 255 unknown). No coordinates, nothing that names a player. A client that wants the extended list asks with
 //   type 8 (same body as type 2) and gets type 9; a lobby that does not answer type 8 is asked with type 2 as before.
+//   mods label (0.7.8, type 10, sent right after type 7 while gameplay mods are loaded): label u8 len + ASCII, 1..32 of
+//   a-z 0-9 @ . _ : + - ("nocturne@1.0" from the launcher's verified curated mod, else "mods:" + 8 hex of the party mod
+//   hash). The lobby relays it in type 12 (list type 11); a client uses it only as a key, never as a path or address.
 // Only a machine with a 10.8.0.0/22 tunnel address announces (no other adapter, never the Internet).
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -27,7 +31,7 @@ namespace bbnet::lobby {
 
 constexpr std::uint16_t kLobbyPort = 9310;
 constexpr int kAnnounceEveryMs = 10000;
-constexpr std::size_t kMaxNameChars = 16, kMaxNameBytes = 48, kMaxBuild = 32;
+constexpr std::size_t kMaxNameChars = 16, kMaxNameBytes = 48, kMaxBuild = 32, kMaxModsLabel = 32;
 
 struct Announce {
     std::string name;  // UTF-8 character name
@@ -39,9 +43,17 @@ struct Announce {
     bool invaders = false, boss = false;
     std::uint32_t area = 0;
     std::uint8_t phase = 0, ng = 255;
+    std::string mods;  // the mods label (type 10), "" = none
 };
 // The extension datagram (type 7); always 12 bytes.
 std::vector<std::uint8_t> encode_announce_ext(const Announce& a);
+// 1..32 characters, each of a-z 0-9 @ . _ : + - (the lobby's rule).
+bool valid_mods_label(const std::string& label);
+// The mods label datagram (type 10), or empty when a.mods is empty or not a valid label.
+std::vector<std::uint8_t> encode_announce_mods(const Announce& a);
+// The label this host announces: none without gameplay mods; else `launcher_label` (BB_PARTY_MODS_LABEL, set by the
+// launcher only for a curated mod it verified) when valid, else "mods:" + the first 4 bytes of the party mod hash in hex.
+std::string mods_label(const char* launcher_label, bool gameplay_mods, const std::array<std::uint8_t, 32>& mods_hash);
 
 // The name as the lobby accepts it: control, format, separator and surrogate characters dropped, runs of
 // spaces folded, at most kMaxNameChars characters (and kMaxNameBytes bytes). Invalid UTF-8 gives "".

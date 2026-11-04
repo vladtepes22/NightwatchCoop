@@ -2535,5 +2535,16 @@
   "The downloaded mod does not match its list entry.": "下載的模組與清單中的項目不符。",
   "The download is not the expected size: it is damaged or incomplete.": "下載大小與預期不符：檔案已損毀或不完整。",
   "The download is damaged: its checksum differs from the list.": "下載已損毀：其檢查碼與清單不一致。",
-  "The download holds a file outside its folder and was refused.": "下載包含其資料夾之外的檔案，已被拒絕。"
+  "The download holds a file outside its folder and was refused.": "下載包含其資料夾之外的檔案，已被拒絕。",
+  "{0} plays with Nocturne {1}. It is downloaded now ({2} MB) and your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} 正在使用 Nocturne {1} 遊玩。現在將下載（{2} MB），你的遊戲將切換到 Nocturne 模式（其他模組會暫停；「我的模組」可恢復它們）。要繼續嗎？",
+  "{0} plays with Nocturne {1}. Your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} 正在使用 Nocturne {1} 遊玩。你的遊戲將切換到 Nocturne 模式（其他模組會暫停；「我的模組」可恢復它們）。要繼續嗎？",
+  "Download and join": "下載並加入",
+  "Switch and join": "切換並加入",
+  "Downloading Nocturne {0}: {1}%": "正在下載 Nocturne {0}：{1}%",
+  "Use Nocturne {0} and join": "使用 Nocturne {0} 並加入",
+  "Modded": "已加模組",
+  "Nocturne {0} is not available here: you probably can't join.": "此處無法取得 Nocturne {0}：你可能無法加入。",
+  "This host runs other mods: you probably can't join without the same ones.": "該主機使用其他模組：沒有相同模組你可能無法加入。",
+  "Your mods differ from the host's: you probably can't join.": "你的模組與主機不同：你可能無法加入。",
+  "Nocturne {0} is not available for download.": "Nocturne {0} 無法下載。"
 }

@@ -25,7 +25,11 @@ namespace BloodborneLauncher.Core
     /// <summary>What the mods folder holds under the name Nocturne.</summary>
     public sealed record InstalledMod(InstalledKind Kind, string? Version = null);
 
-    public enum JoinKind { Join, GetNocturne, MismatchJoinAnyway }
+    /// <summary>Join: nothing to do. GetNocturne: switch to the host's Nocturne version (downloaded when missing).
+    /// NocturneNotAvailable: the host's version is neither installed nor in the manifest. Modded: the host runs other mods
+    /// (label only shown, nothing fetched). MismatchJoinAnyway: the host runs no mods and this guest does. All but Join
+    /// still allow joining: the game's party mod hash decides.</summary>
+    public enum JoinKind { Join, GetNocturne, NocturneNotAvailable, Modded, MismatchJoinAnyway }
 
     /// <summary>What a guest should do before joining a host (<see cref="CuratedMods.JoinAdvice"/>).</summary>
     public readonly record struct JoinChoice(JoinKind Kind, string? Version = null);
@@ -422,21 +426,70 @@ namespace BloodborneLauncher.Core
 
         // ---------------------------------------------------------------- joining
 
-        /// <summary>What a guest does before joining. hostLabel is empty (the host runs no mods), "nocturne@1.3" or "mods:&lt;8 hex&gt;".
-        /// Any host Nocturne version is joinable: the one the guest lacks is fetched (an older one too). Any other label is a
-        /// mismatch the guest can still join through when it has mods on.</summary>
-        public static JoinChoice JoinAdvice(string? hostLabel, LocalMods local)
+        public const string LabelKey = "nocturne";
+
+        /// <summary>The lobby label this host announces for Nocturne (BB_PARTY_MODS_LABEL): "nocturne@1.0" in Nocturne mode with
+        /// an install whose content matches its nocturne.json, else null (the game then announces "mods:" + its mod hash).</summary>
+        public static string? HostLabel(LauncherSettings s, string modsDir)
+        {
+            if (Mode(s) != "nocturne") return null;
+            var installed = Installed(modsDir);
+            if (installed.Kind != InstalledKind.Known || installed.Version is not { Length: > 0 } version) return null;
+            var label = LabelKey + "@" + version.ToLowerInvariant();
+            return VpnLobby.ValidModsLabel(System.Text.Encoding.ASCII.GetBytes(label)) ? label : null;
+        }
+
+        /// <summary>The Nocturne version a lobby label names, or null. The label is untrusted: it is only split into parts
+        /// ('+') and compared, never used as a path or an address; the version must itself be a plain one (digits, letters, dots).</summary>
+        public static string? NocturneOf(string? hostLabel)
+        {
+            foreach (var part in (hostLabel ?? "").Split('+'))
+            {
+                if (!part.StartsWith(LabelKey + "@", StringComparison.Ordinal)) continue;
+                var version = part[(LabelKey.Length + 1)..];
+                if (version.Length is > 0 and <= 16 && version.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-'))
+                    return version;
+            }
+            return null;
+        }
+
+        /// <summary>What a guest does before joining (visy's terms, 4 Nov): the label is a key only. A Nocturne version is
+        /// fetched only when the guest's built-in manifest offers it (<paramref name="offered"/>, null when it could not be
+        /// read) or the guest already has it; else "not available". Any other label only shows "modded".</summary>
+        public static JoinChoice JoinAdvice(string? hostLabel, LocalMods local, IReadOnlyCollection<string>? offered = null)
         {
             var label = (hostLabel ?? "").Trim();
-            if (label.StartsWith("nocturne@", StringComparison.OrdinalIgnoreCase) && label.Length > "nocturne@".Length)
+            if (NocturneOf(label) is { } version)
             {
-                var version = label["nocturne@".Length..];
-                return local.Mode == "nocturne" && string.Equals(local.NocturneVersion, version, StringComparison.OrdinalIgnoreCase)
-                    ? new JoinChoice(JoinKind.Join)
-                    : new JoinChoice(JoinKind.GetNocturne, version);
+                if (local.Mode == "nocturne" && string.Equals(local.NocturneVersion, version, StringComparison.OrdinalIgnoreCase))
+                    return new JoinChoice(JoinKind.Join);
+                var have = string.Equals(local.NocturneVersion, version, StringComparison.OrdinalIgnoreCase) ||
+                           offered?.Contains(version, StringComparer.OrdinalIgnoreCase) == true;
+                return new JoinChoice(have ? JoinKind.GetNocturne : JoinKind.NocturneNotAvailable, version);
             }
+            if (label.Length > 0) return new JoinChoice(JoinKind.Modded);
             var modsOn = local.Mode == "nocturne" || (local.Mode == "my" && local.EnabledCount > 0);
             return modsOn ? new JoinChoice(JoinKind.MismatchJoinAnyway) : new JoinChoice(JoinKind.Join);
         }
+
+        /// <summary>The guest's side of "Use Nocturne X and join": installs that version from the manifest when the folder holds
+        /// another one, then sets Nocturne mode and writes mods.json. Throws with a message the page shows.</summary>
+        public static async Task UseNocturneAsync(LauncherSettings s, string modsDir, string version, ModManifest? manifest,
+            IProgress<double>? progress, CancellationToken ct = default)
+        {
+            var installed = await Task.Run(() => Installed(modsDir, manifest), ct);
+            if (!(installed.Kind == InstalledKind.Known && string.Equals(installed.Version, version, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (manifest?.Find(version) is not { } entry)
+                    throw new InvalidDataException(L.F($"Nocturne {version} is not available for download."));
+                await InstallAsync(entry, modsDir, progress, ct);
+            }
+            s.Set(ProfileKey, "nocturne");
+            Apply(s, modsDir);
+        }
+
+        /// <summary>The local side for JoinAdvice: mode, installed Nocturne version (any known one) and My mods' count.</summary>
+        public static LocalMods Local(LauncherSettings s, string modsDir, ModManifest? manifest) =>
+            new(Mode(s), Installed(modsDir, manifest) is { Kind: InstalledKind.Known } i ? i.Version : null, MyModsCount(s, modsDir));
     }
 }

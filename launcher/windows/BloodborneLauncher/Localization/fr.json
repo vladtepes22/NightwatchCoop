@@ -2535,5 +2535,16 @@
   "The downloaded mod does not match its list entry.": "Le mod téléchargé ne correspond pas à son entrée dans la liste.",
   "The download is not the expected size: it is damaged or incomplete.": "Le téléchargement n'a pas la taille attendue : il est endommagé ou incomplet.",
   "The download is damaged: its checksum differs from the list.": "Le téléchargement est endommagé : sa somme de contrôle diffère de la liste.",
-  "The download holds a file outside its folder and was refused.": "Le téléchargement contient un fichier hors de son dossier et a été refusé."
+  "The download holds a file outside its folder and was refused.": "Le téléchargement contient un fichier hors de son dossier et a été refusé.",
+  "{0} plays with Nocturne {1}. It is downloaded now ({2} MB) and your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} joue avec Nocturne {1}. Il est téléchargé maintenant ({2} Mo) et ton jeu passe en mode Nocturne (tes autres mods sont en pause ; Mes mods les remet). Continuer ?",
+  "{0} plays with Nocturne {1}. Your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} joue avec Nocturne {1}. Ton jeu passe en mode Nocturne (tes autres mods sont en pause ; Mes mods les remet). Continuer ?",
+  "Download and join": "Télécharger et rejoindre",
+  "Switch and join": "Changer et rejoindre",
+  "Downloading Nocturne {0}: {1}%": "Téléchargement de Nocturne {0} : {1} %",
+  "Use Nocturne {0} and join": "Utiliser Nocturne {0} et rejoindre",
+  "Modded": "Moddé",
+  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0} n'est pas disponible ici : tu ne pourras sans doute pas rejoindre.",
+  "This host runs other mods: you probably can't join without the same ones.": "Cet hôte utilise d'autres mods : sans les mêmes, tu ne pourras sans doute pas rejoindre.",
+  "Your mods differ from the host's: you probably can't join.": "Tes mods diffèrent de ceux de l'hôte : tu ne pourras sans doute pas rejoindre.",
+  "Nocturne {0} is not available for download.": "Nocturne {0} n'est pas disponible au téléchargement."
 }

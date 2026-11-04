@@ -864,6 +864,55 @@ public sealed class SeamlessPage : LauncherPage
         finally { SeamlessSettings.PendingJoin = null; SeamlessSettings.PendingInvade = false; SeamlessSettings.PendingHostOptions = null; }
     }
 
+    // The Nocturne manifest for the Join rows (which host versions can be fetched): read in the background, again after 5 min.
+    private ModManifest? _rowManifest;
+    private long _rowManifestAt = long.MinValue;
+
+    private void RefreshRowManifest()
+    {
+        if (Environment.TickCount64 - _rowManifestAt < 5 * 60 * 1000) return;
+        _rowManifestAt = Environment.TickCount64;
+        _ = Task.Run(async () =>
+        {
+            try { _rowManifest = await CuratedMods.FetchManifestAsync(); }
+            catch (Exception e) when (e is System.Net.Http.HttpRequestException or TaskCanceledException or FormatException or InvalidDataException) { }
+        });
+    }
+
+    /// <summary>"Use Nocturne X and join": a heads-up (with the download size when it must be fetched), the switch to that
+    /// version in Nocturne mode, then the join as usual. The row's hint shows the download.</summary>
+    private async void UseNocturneAndJoin(LobbyGame game, string version, TextBlock? hint)
+    {
+        if (Ws.Game.Running)
+        {
+            Prompt.Tell(L.T("Join ") + game.Name, L.T("Restart the game to join ") + game.Name + ".");
+            return;
+        }
+        var dir = GameEnvironment.ModsDir(S);
+        var manifest = _rowManifest;
+        var installed = await Task.Run(() => CuratedMods.Installed(dir, manifest));
+        var download = !(installed.Kind == InstalledKind.Known && string.Equals(installed.Version, version, StringComparison.OrdinalIgnoreCase));
+        var mb = manifest?.Find(version) is { } entry ? (int)Math.Ceiling(entry.Size / 1e6) : 0;
+        var text = download
+            ? string.Format(L.T("{0} plays with Nocturne {1}. It is downloaded now ({2} MB) and your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?"), game.Name, version, mb)
+            : string.Format(L.T("{0} plays with Nocturne {1}. Your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?"), game.Name, version);
+        if (!Prompt.Confirm(L.T("Nocturne"), text, download ? L.T("Download and join") : L.T("Switch and join"))) return;
+        try
+        {
+            var progress = new Progress<double>(f => { if (hint != null) SetHint(hint, string.Format(L.T("Downloading Nocturne {0}: {1}%"), version, (int)(f * 100))); });
+            await CuratedMods.UseNocturneAsync(S, dir, version, manifest, progress);
+            Ws.SaveSoon();
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or System.Net.Http.HttpRequestException or TaskCanceledException or UnauthorizedAccessException)
+        {
+            Prompt.Tell(L.T("Nocturne"), L.F($"Nocturne could not be set up: {e.Message}"));
+            _lobbySignature = "\0";
+            return;
+        }
+        _lobbySignature = "\0";
+        JoinLobbyGame(game);
+    }
+
     /// <summary>Where the poller asks: the lobby on the tunnel from this PC's tunnel address, or a test lobby; null sends nothing.</summary>
     private (IPEndPoint Target, string? Bind)? LobbySource()
     {
@@ -883,7 +932,14 @@ public sealed class SeamlessPage : LauncherPage
         var prefix = PartyDiscovery.BuildPrefix(Updater.ReleaseVersion());
         var result = LobbyListRules.Apply(games, prefix, S.Bool("lobby_hide_full"), S.Bool("lobby_hide_wrong_build"), S.Bool("lobby_no_password"));
         games = result.Games;
-        var signature = result.Total + "|" + result.Hidden + "|" + _searchBox.Text + "|" + up + "|" + (_lobby?.Answered == true) + "|" + string.Join(";", games.Select(g => $"{g.Name}/{g.Ip}/{g.Port}/{g.Players}/{g.Max}/{g.Build}/{g.Password}/{g.Invaders}"));
+        RefreshRowManifest();
+        var manifest = _rowManifest;
+        var local = games.Any(g => g.Mods.Length > 0) || CuratedMods.Mode(S) != "my" ? CuratedMods.Local(S, GameEnvironment.ModsDir(S), manifest)
+            : new LocalMods("my", null, CuratedMods.MyModsCount(S, GameEnvironment.ModsDir(S)));
+        var offered = manifest?.Versions.Select(v => v.Version).ToList();
+        var signature = result.Total + "|" + result.Hidden + "|" + _searchBox.Text + "|" + up + "|" + (_lobby?.Answered == true) + "|" + local + "|" +
+                        (offered == null ? "-" : string.Join(",", offered)) + "|" +
+                        string.Join(";", games.Select(g => $"{g.Name}/{g.Ip}/{g.Port}/{g.Players}/{g.Max}/{g.Build}/{g.Password}/{g.Invaders}/{g.Mods}"));
         if (signature == _lobbySignature) return;
         _lobbySignature = signature;
         SetHint(_lobbyHint, !up ? L.T("Connect to the Nightwatch VPN to see its games.") : !(_lobby?.Answered == true) ? L.T("Waiting for the lobby…") :
@@ -896,7 +952,16 @@ public sealed class SeamlessPage : LauncherPage
             var sameVersion = PartyDiscovery.BuildMatches(game.Build, prefix);
             var open = sameVersion && game.Players < game.Max;
             var picked = game;
-            var join = SmallButton(!sameVersion ? L.T("Different version") : open ? L.T("Join") : L.T("Full"), SymbolRegular.Link24, (_, _) => JoinLobbyGame(picked));
+            var advice = CuratedMods.JoinAdvice(game.Mods, local, offered);
+            TextBlock? rowHint = null;
+            var useNocturne = open && advice.Kind == JoinKind.GetNocturne && advice.Version is { } wanted;
+            var join = SmallButton(!sameVersion ? L.T("Different version") : !open ? L.T("Full") :
+                                   useNocturne ? string.Format(L.T("Use Nocturne {0} and join"), advice.Version) : L.T("Join"),
+                SymbolRegular.Link24, (_, _) =>
+                {
+                    if (useNocturne) UseNocturneAndJoin(picked, advice.Version!, rowHint);
+                    else JoinLobbyGame(picked);
+                });
             join.IsEnabled = open;
             UIElement buttons = join;
             if (sameVersion && game.Invadable)
@@ -906,9 +971,18 @@ public sealed class SeamlessPage : LauncherPage
                 buttons = Row(invade, join);
             }
             var row = Card(SymbolRegular.People24, game.Name, null, WithAccessMark(!game.Password, LockInfo(game.Password), buttons), out var hint);
+            rowHint = hint;
             if (!open) row.Opacity = 0.6;
-            SetHint(hint, L.T("Nightwatch Online") + " · " + game.Players + " / " + game.Max + " · " + VpnLobby.VersionOf(game.Build) +
-                          (sameVersion ? "" : "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.")));
+            var hostMods = CuratedMods.NocturneOf(game.Mods) is { } hv ? " · Nocturne " + hv : game.Mods.Length > 0 ? " · " + L.T("Modded") : "";
+            var modsNote = !sameVersion ? "" : advice.Kind switch
+            {
+                JoinKind.NocturneNotAvailable => "\n" + string.Format(L.T("Nocturne {0} is not available here: you probably can't join."), advice.Version),
+                JoinKind.Modded => "\n" + L.T("This host runs other mods: you probably can't join without the same ones."),
+                JoinKind.MismatchJoinAnyway => "\n" + L.T("Your mods differ from the host's: you probably can't join."),
+                _ => "",
+            };
+            SetHint(hint, L.T("Nightwatch Online") + " · " + game.Players + " / " + game.Max + " · " + VpnLobby.VersionOf(game.Build) + hostMods +
+                          (sameVersion ? "" : "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.")) + modsNote);
             _lobbyList.Children.Add(row);
         }
         _lobbyScroll.UpdateLayout();
