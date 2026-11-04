@@ -120,6 +120,8 @@ internal static class Program
                 Render(root, 820, 700, 1, Path.Combine(output, "coop-" + look.Name + "-" + state + ".png"));
                 Require(!Directory.Exists(Path.Combine(output, "fixture-config")), "Preview wrote configuration");
             }
+            if (look.Name == looks[0].Name) { settings.Set("party_mode", "host"); settings.Set("party_host_public", "1"); PageShot(output, new SeamlessPage(true), "coop-tall-host", shade); }
+            if (look.Name == looks[0].Name) PageShot(output, new ModsPage(), "mods", shade);
             LobbyShot(output, look.Name, settings, shade);
             CheckActionButton("coop " + look.Name);
             var primaryFill = ((SolidColorBrush)Application.Current.TryFindResource("AccentButtonBackground")).Color;
@@ -166,6 +168,16 @@ internal static class Program
     }
 
     /// <summary>The real lobby rows from fixture games: a public, a private, a full and another build's party.</summary>
+    /// <summary>A whole page, tall, without Loaded (Host tab's lower rows, the Mods page).</summary>
+    private static void PageShot(string output, LauncherPage page, string name, Color shade)
+    {
+        typeof(LauncherPage).GetMethod("Sectionize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(page, null);
+        var content = (UIElement)page.Content; page.Content = null;
+        var root = CoopRoot(content, 820, 1500, shade);
+        Layout(root, 820, 1500);
+        Render(root, 820, 1500, 1, Path.Combine(output, name + ".png"));
+    }
+
     private static void LobbyShot(string output, string look, LauncherSettings settings, Color shade)
     {
         Environment.SetEnvironmentVariable("BB_PARTY_VPNLOBBY_ADDR", "127.0.0.1:1");

@@ -144,6 +144,12 @@ internal static class CuratedModTests
             Mods.Save(new[] { new Mods.Entry("ModA", true), new Mods.Entry("ModB", false), new Mods.Entry("Nocturne", false) });
             var s = new LauncherSettings();
             Check(CuratedMods.Mode(s) == "my", "The default game mode is not My mods");
+            s.Set("mods_enabled", false);
+            Check(CuratedMods.Mode(s) == "standard", "The old Load mods switch off did not read as No mods");
+            s.Set("mod_profile", "my");
+            Check(CuratedMods.Mode(s) == "standard", "My mods with the old switch off did not read as No mods");
+            s.Set("mods_enabled", true);
+            Check(CuratedMods.Mode(s) == "my", "My mods with the switch on is not My mods");
             CuratedMods.Apply(s, applyMods);
             Check(Mods.Load(applyMods).Where(m => m.Enabled).Select(m => m.Name).SequenceEqual(new[] { "ModA" }), "My mods mode changed the list");
             s.Set("mod_profile", "nocturne");

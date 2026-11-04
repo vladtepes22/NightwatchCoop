@@ -205,7 +205,7 @@ namespace BloodborneLauncher.Core
             text.AppendLine(L.F($"{hw.Summary}, {hw.RamBytes >> 30} GB RAM, Windows {Environment.OSVersion.Version}"));
             if (RamTrend() is { } ram) text.AppendLine(ram);
             text.AppendLine(L.F($"Upscaler {ini.Get("upscaler")}, preset {ini.Get("preset")}, output {ini.Get("output_res")}, ") +
-                            L.F($"FPS {s.Str("fps_mode")}, live resolution {ini.Get("live_resolution")}, mods {(s.Bool("mods_enabled") ? "on" : "off")}"));
+                            L.F($"FPS {s.Str("fps_mode")}, live resolution {ini.Get("live_resolution")}, mods {CuratedMods.Mode(s)}"));
             text.AppendLine(L.T("Experimental: ") + string.Join(", ", Experimental.Select(k => $"{k[4..].Replace('_', ' ')} {(s.Bool(k) ? "on" : "off")}")));
             text.AppendLine();
             text.AppendLine(L.F($"Last {logLines} lines of logs\\last_session.log (repeats folded):"));

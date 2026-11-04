@@ -20,30 +20,18 @@ namespace BloodborneLauncher.Views
         private readonly System.Windows.Controls.ComboBox _modeBox = new() { Width = 220, VerticalAlignment = VerticalAlignment.Center };
         private readonly ProgressRing _modeRing = new() { IsIndeterminate = true, Width = 18, Height = 18, Margin = new Thickness(0, 0, 10, 0), Visibility = Visibility.Collapsed };
         private readonly TextBlock _modeHint;
-        private readonly SettingRow _bannerNocturne, _bannerStandard;
         private bool _modeSetting;
 
         public ModsPage() : base(L.T("Mods & patches"),
             L.T("Extract each mod into its own folder (with dvdroot_ps4, or straight chr/, parts/ and so on). Applied when the game starts."))
         {
-            Group(L.T("Game mode"));
+            Group(L.T("Mods"));
             foreach (var (label, value) in ModeChoices())
                 _modeBox.Items.Add(new ComboBoxItem { Content = label, Tag = value });
             _modeBox.SelectionChanged += (_, _) => ModePicked();
-            Add(Card(SymbolRegular.Games24, L.T("Game mode"),
-                L.T("What the game loads: Standard has no mods, Nocturne is the curated mod, My mods is the list below. Applied when the game starts."),
+            Add(Card(SymbolRegular.PuzzlePiece24, L.T("Load mods"), L.T("When two mods replace the same file, the one lower in the list wins"),
                 Row(_modeRing, _modeBox), out _modeHint));
-            _bannerNocturne = Card(SymbolRegular.Info24, L.T("Nocturne is active: your mods are paused"), "",
-                SmallButton(L.T("Switch to My mods"), SymbolRegular.PuzzlePiece24, (_, _) => SwitchToMyMods()), out _);
-            _bannerStandard = Card(SymbolRegular.Info24, L.T("Standard: no mods"), "",
-                SmallButton(L.T("Switch to My mods"), SymbolRegular.PuzzlePiece24, (_, _) => SwitchToMyMods()), out _);
-            Add(_bannerNocturne);
-            Add(_bannerStandard);
             ShowMode();
-
-            Group(L.T("Mods"));
-            SettingToggle(SymbolRegular.PuzzlePiece24, L.T("Load mods"), L.T("When two mods replace the same file, the one lower in the list wins"),
-                "mods_enabled");
             Add(Card(SymbolRegular.Folder24, L.T("Mods folder"), "", Row(
                 SmallButton(L.T("Browse"), SymbolRegular.FolderOpen24, (_, _) =>
                 {
@@ -81,24 +69,22 @@ namespace BloodborneLauncher.Views
 
         private static (string Label, string Value)[] ModeChoices() => new[]
         {
-            (L.T("Standard"), "standard"), (L.T("Nocturne"), "nocturne"), (L.T("My mods"), "my"),
+            (L.T("No mods"), "standard"), (L.T("My mods"), "my"), (L.T("Nocturne only"), "nocturne"),
         };
 
-        /// <summary>The combo, the banners, the mod list and the lock (the game reads the mods at its start only).</summary>
+        /// <summary>The combo, the mod list and the lock (the game reads the mods at its start only).</summary>
         private void ShowMode()
         {
             var mode = CuratedMods.Mode(S);
             _modeSetting = true;
             _modeBox.SelectedIndex = Array.FindIndex(ModeChoices(), c => c.Value == mode);
             _modeSetting = false;
-            _bannerNocturne.Visibility = mode == "nocturne" ? Visibility.Visible : Visibility.Collapsed;
-            _bannerStandard.Visibility = mode == "standard" ? Visibility.Visible : Visibility.Collapsed;
             _modList.IsEnabled = mode == "my";
             var locked = Ws.Game.Running;
             _modeBox.IsEnabled = !locked && _modeRing.Visibility != Visibility.Visible;
             if (_modeRing.Visibility != Visibility.Visible)
-                SetHint(_modeHint, locked ? L.T("Close the game to change the game mode.") :
-                    L.T("What the game loads: Standard has no mods, Nocturne is the curated mod, My mods is the list below. Applied when the game starts."));
+                SetHint(_modeHint, locked ? L.T("Close the game to change which mods load.") :
+                    L.T("No mods: the game as it ships. My mods: the list below. Nocturne only: the curated mod, with your mods paused. Applied when the game starts."));
         }
 
         private async void ModePicked()
@@ -106,8 +92,6 @@ namespace BloodborneLauncher.Views
             if (_modeSetting || _modeBox.SelectedItem is not ComboBoxItem { Tag: string mode } || mode == CuratedMods.Mode(S)) return;
             await ChooseMode(mode);
         }
-
-        private async void SwitchToMyMods() => await ChooseMode("my");
 
         private async Task ChooseMode(string mode)
         {
@@ -117,18 +101,18 @@ namespace BloodborneLauncher.Views
             var error = await SwitchModeAsync(Ws, mode, progress);
             _modeRing.Visibility = Visibility.Collapsed;
             ShowMode(); // the old mode again when it failed
-            if (error is { Length: > 0 }) Prompt.Tell(L.T("Game mode"), error);
+            if (error is { Length: > 0 }) Prompt.Tell(L.T("Load mods"), error);
             _modsShown = null;
             RefreshMods();
         }
 
-        /// <summary>Switches the game mode (shared with the Play page's card). Picking Nocturne installs or updates it first, asking
+        /// <summary>Switches which mods load (shared with the Play page's card). Picking Nocturne installs or updates it first, asking
         /// before the download. Returns null when switched, "" when the player declined, else the message to show; the mode is
         /// unchanged then.</summary>
         internal static async Task<string?> SwitchModeAsync(Workspace ws, string mode, IProgress<double>? progress)
         {
             var s = ws.Settings;
-            if (ws.Game.Running) return L.T("Close the game to change the game mode.");
+            if (ws.Game.Running) return L.T("Close the game to change which mods load.");
             var dir = GameEnvironment.ModsDir(s);
             var before = s.Str(CuratedMods.ProfileKey);
             try
@@ -159,6 +143,7 @@ namespace BloodborneLauncher.Views
                     }
                 }
                 s.Set(CuratedMods.ProfileKey, mode);
+                if (mode == "my") s.Set("mods_enabled", true); // the old Load mods switch: off reads as No mods (CuratedMods.Mode)
                 CuratedMods.Apply(s, dir);
                 ws.SaveSoon();
                 return null;

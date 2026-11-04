@@ -340,7 +340,10 @@ namespace BloodborneLauncher.Core
         // ---------------------------------------------------------------- game mode
 
         /// <summary>The setting's mode: standard, nocturne or my (anything else is my).</summary>
-        public static string Mode(LauncherSettings s) => s.Str(ProfileKey) is "standard" or "nocturne" ? s.Str(ProfileKey) : "my";
+        /// <summary>Load mods: "standard" (No mods), "my" (My mods) or "nocturne" (Nocturne only). My mods with the old Load mods
+        /// switch off (mods_enabled, before the dropdown) reads as No mods.</summary>
+        public static string Mode(LauncherSettings s) => s.Str(ProfileKey) is "standard" or "nocturne" ? s.Str(ProfileKey)
+            : s.Bool("mods_enabled") ? "my" : "standard";
 
         /// <summary>Writes mods.json for the game mode; call right before every game start (new folders appear enabled in
         /// Mods.Load, which would otherwise break Nocturne mode). Leaving My mods saves its list into my_mods_saved, coming back

@@ -87,12 +87,20 @@ public sealed class SeamlessPage : LauncherPage
         showRows.Children.Add(_onlineCodeButton);
         // visy 0.7.8 invasions (engine/docs/party/invasions.md): bbport.ini party_invaders, read live by the game; only the
         // host's value counts. The lobby lists an invadable host, and an invader needs no password.
+        var invadeMods = new Grid();
+        invadeMods.ColumnDefinitions.Add(new ColumnDefinition());
+        invadeMods.ColumnDefinitions.Add(new ColumnDefinition());
+        host.Children.Add(invadeMods);
+        var invadeRows = new StackPanel();
+        var modRows = new StackPanel();
+        Grid.SetColumn(modRows, 1);
+        invadeMods.Children.Add(invadeRows); invadeMods.Children.Add(modRows);
         ToggleRow(SymbolRegular.Shield24, L.T("Allow invasions"),
             L.T("Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time."),
-            () => Ini.Get("party_invaders", "0") == "1", v => Ini.Set("party_invaders", v ? "1" : "0"), host);
-        // The game mode (Workshop > Mods): which mods the game loads; read-only here.
+            () => Ini.Get("party_invaders", "0") == "1", v => Ini.Set("party_invaders", v ? "1" : "0"), invadeRows);
+        // Load mods (Workshop > Mods): which mods the game loads; read-only here.
         Add(Card(SymbolRegular.PuzzlePiece24, L.T("Mods"), null,
-            SmallButton(L.T("Change"), SymbolRegular.Open24, (_, _) => OpenModsPage()), out _gameModeHint), host);
+            SmallButton(L.T("Change"), SymbolRegular.Open24, (_, _) => OpenModsPage()), out _gameModeHint), modRows);
         ShowGameMode();
         _privateCodes = Rows(m => Hosting(m) && !IsPublic);
         _internetButton = SmallButton(L.T("Copy Internet code"), SymbolRegular.Copy24, (_, _) => { if (_internetCode.Length > 0) Copy(_internetCode); });
@@ -335,7 +343,7 @@ public sealed class SeamlessPage : LauncherPage
     /// <summary>The first time this tab is shown, the co-op setup wizard (after the page is on screen).</summary>
     private readonly TextBlock _gameModeHint;
 
-    /// <summary>"Game: Nocturne 1.3", "Game: Standard" or "Game: My mods (N)" (the hash of a Nocturne folder is read off the UI thread).</summary>
+    /// <summary>"Nocturne 1.3", "No mods" or "My mods (N)" (the hash of a Nocturne folder is read off the UI thread).</summary>
     private async void ShowGameMode()
     {
         var mode = CuratedMods.Mode(S);
@@ -345,14 +353,14 @@ public sealed class SeamlessPage : LauncherPage
         {
             text = await Task.Run(() => mode switch
             {
-                "standard" => L.T("Game: Standard"),
-                "nocturne" => CuratedMods.Installed(dir) is { Kind: InstalledKind.Known, Version: { } v } ? L.F($"Game: Nocturne {v}") : L.T("Game: Nocturne"),
-                _ => L.F($"Game: My mods ({CuratedMods.MyModsCount(S, dir)})"),
+                "standard" => L.T("No mods"),
+                "nocturne" => CuratedMods.Installed(dir) is { Kind: InstalledKind.Known, Version: { } v } ? L.F($"Nocturne {v}") : L.T("Nocturne"),
+                _ => L.F($"My mods ({CuratedMods.MyModsCount(S, dir)})"),
             });
         }
         catch (Exception)
         {
-            text = L.T("Game: My mods");
+            text = L.T("My mods");
         }
         // Back on the UI thread in the app; a host without a dispatcher context (the off-screen shots) resumes elsewhere.
         if (_gameModeHint.Dispatcher.CheckAccess()) SetHint(_gameModeHint, text);
