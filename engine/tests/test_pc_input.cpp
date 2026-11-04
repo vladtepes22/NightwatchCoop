@@ -8,12 +8,15 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <string>
 #include <thread>
 
 void host_log(const char*, ...) {}
 std::uint32_t menu_confirm_button() { return PadBits::kCross; }
 std::uint32_t menu_back_button() { return PadBits::kCircle; }
+bool g_in_menu = true; // Confirm / Back reach the pad only in a game menu
+bool menu_pointer_in_menu() { return g_in_menu; }
 
 namespace {
 struct Keyboard {
@@ -57,6 +60,18 @@ void Movement() {
     assert(p.lx == kStickRest && p.ly == kStickLow);
     p = Pad({kBindMoveF, kBindMoveR});
     assert(p.lx == kStickHigh && p.ly == kStickLow);
+    { // a resting gamepad's drift on the other axis does not bend a key walk
+        bool held[kBindCount] = {};
+        held[kBindMoveF] = true;
+        PadState drift;
+        drift.lx = kStickRest + 9;
+        host_bindings_apply(held, false, drift);
+        assert(drift.lx == kStickRest && drift.ly == kStickLow);
+        held[kBindMoveF] = false; // no movement key: the gamepad keeps its stick
+        drift.lx = kStickRest + 40;
+        host_bindings_apply(held, false, drift);
+        assert(drift.lx == kStickRest + 40);
+    }
 
     const PadState straight = Pad({kBindMoveF, kBindWalk}), diagonal = Pad({kBindMoveF, kBindMoveR, kBindWalk});
     const float reach = float(kStickRest - straight.ly);
@@ -78,6 +93,10 @@ void Buttons() {
     assert(p.buttons == PadBits::kL2 && p.l2 == 255);
     p = Pad({kBindConfirm, kBindBack});
     assert(p.buttons == (PadBits::kCross | PadBits::kCircle));
+    g_in_menu = false;
+    p = Pad({kBindConfirm, kBindBack});
+    assert(p.buttons == 0);
+    g_in_menu = true;
     p = Pad({kBindLookL, kBindLookD});
     assert(p.rx == kStickLow && p.ry == kStickHigh);
 
@@ -219,6 +238,9 @@ void MouseCameraTurn() {
 }
 
 int main() {
+#ifdef _WIN32
+    _set_error_mode(_OUT_TO_STDERR); // a failed assert prints instead of opening a dialog
+#endif
     Defaults();
     Movement();
     Buttons();

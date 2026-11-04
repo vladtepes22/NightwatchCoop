@@ -113,6 +113,15 @@ static Port *port_of(int32_t handle, int32_t *error) {
 static ABI int32_t audio_init(void) {
     host_lock(&table_lock);
     int32_t r=initialized ? ERR_ALREADY_INIT : 0;
+#ifdef _WIN32
+    if (!initialized) { /* BB_AFFINITY_MASK=<hex>: test aid, limits the process to these logical CPUs (low-core-count audio A/B; from visy a54ae630) */
+        const char *am=getenv("BB_AFFINITY_MASK");
+        if (am && *am) {
+            const DWORD_PTR m=(DWORD_PTR)strtoull(am,NULL,16);
+            printf("Runtime: BB_AFFINITY_MASK %s -> %s\n",am,m && SetProcessAffinityMask(GetCurrentProcess(),m) ? "set" : "FAILED");
+        }
+    }
+#endif
     initialized=1;
     host_unlock(&table_lock);
     return r;
