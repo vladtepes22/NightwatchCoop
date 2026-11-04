@@ -103,6 +103,9 @@
 extern "C" void runtime_pad_director_press(std::uint32_t buttons); // src/runtime_pad.c
 extern "C" void runtime_pad_director_mask(std::uint32_t buttons);  // src/runtime_pad.c
 extern "C" std::uint32_t runtime_pad_last_buttons(); // src/runtime_pad.c: the last sample the game read
+namespace BbEngine {
+bool FrameTickInstalled(); // engine/features.cpp: its frame hook on SprjFlipper::Update calls CoopTick
+}
 
 namespace coop {
 namespace {
@@ -6344,10 +6347,18 @@ void PartyInit(unsigned char* image, std::uint64_t size) {
     enemyai::Init();        // C2 / split travel: a lone guest's enemies run on its own AI (party_enemyai.h)
     npcfight::Init();       // D11: NPC hunter fights with the whole party (party_npcfight.h)
     bulletdebug::Init();    // modding: bullet log and headless tool test (party_bullet_debug.h)
-    g_tick_installed = HookPrologue(kFlipperUpdate,
-                                    {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53, 0x48,
-                                     0x83, 0xec, 0x38},
-                                    &FlipperEntry, "main-thread tick (SprjFlipper::Update)");
+    // Nightwatch: the engine's frame hook (engine/features.cpp OnFrame, installed first by
+    // bbgpu_patch_image) already holds SprjFlipper::Update's prologue and calls CoopTick there: a
+    // second hook would find its jump instead of the game's bytes and refuse.
+    if (BbEngine::FrameTickInstalled()) {
+        g_tick_installed = true;
+        Log("main-thread tick (SprjFlipper::Update): through the engine's frame hook");
+    } else {
+        g_tick_installed = HookPrologue(kFlipperUpdate,
+                                        {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53,
+                                         0x48, 0x83, 0xec, 0x38},
+                                        &FlipperEntry, "main-thread tick (SprjFlipper::Update)");
+    }
     if (!g_tick_installed) {
         Log("no main-thread tick: the director and Lua events are off");
         return;
