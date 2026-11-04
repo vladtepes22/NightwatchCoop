@@ -164,16 +164,35 @@ internal static class CuratedModTests
             Directory.Delete(applyMods, true);
             Check(CuratedMods.Apply(new LauncherSettings(), applyMods) == false, "Apply must do nothing without a mods folder");
 
-            // ---- join advice
+            // ---- join advice (visy's terms: the label is a key; only a manifest version is fetched; others show "modded")
             var nocturne13 = new LocalMods("nocturne", "1.3", 0);
-            Check(CuratedMods.JoinAdvice("nocturne@1.3", nocturne13) == new JoinChoice(JoinKind.Join), "Same Nocturne must join");
-            Check(CuratedMods.JoinAdvice("nocturne@1.2", nocturne13) == new JoinChoice(JoinKind.GetNocturne, "1.2"), "An older host Nocturne must be fetched");
-            Check(CuratedMods.JoinAdvice("nocturne@1.3", new LocalMods("my", null, 0)) == new JoinChoice(JoinKind.GetNocturne, "1.3"), "A guest without Nocturne must get it");
-            Check(CuratedMods.JoinAdvice("nocturne@1.3", new LocalMods("my", "1.3", 2)) == new JoinChoice(JoinKind.GetNocturne, "1.3"), "A guest not in Nocturne mode must switch");
-            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("my", null, 2)).Kind == JoinKind.MismatchJoinAnyway, "Unknown label with mods on is a mismatch");
-            Check(CuratedMods.JoinAdvice("mods:xxxx", new LocalMods("standard", null, 0)).Kind == JoinKind.Join, "Unknown label without mods joins");
+            var offered = new[] { "1.3", "1.2" };
+            Check(CuratedMods.JoinAdvice("nocturne@1.3", nocturne13, offered) == new JoinChoice(JoinKind.Join), "Same Nocturne must join");
+            Check(CuratedMods.JoinAdvice("nocturne@1.2", nocturne13, offered) == new JoinChoice(JoinKind.GetNocturne, "1.2"), "An older host Nocturne in the manifest must be fetched");
+            Check(CuratedMods.JoinAdvice("nocturne@1.3", new LocalMods("my", null, 0), offered) == new JoinChoice(JoinKind.GetNocturne, "1.3"), "A guest without Nocturne must get it");
+            Check(CuratedMods.JoinAdvice("nocturne@1.3", new LocalMods("my", "1.3", 2), null) == new JoinChoice(JoinKind.GetNocturne, "1.3"), "An installed version switches even without the manifest");
+            Check(CuratedMods.JoinAdvice("nocturne@9.9", nocturne13, offered) == new JoinChoice(JoinKind.NocturneNotAvailable, "9.9"), "A version not in the manifest is not available");
+            Check(CuratedMods.JoinAdvice("nocturne@1.2", nocturne13, null).Kind == JoinKind.NocturneNotAvailable, "No manifest: an uninstalled version is not available");
+            Check(CuratedMods.JoinAdvice("nocturne@1.3+extra:3f9a12c0", nocturne13, offered).Kind == JoinKind.Join, "Extra label parts are ignored");
+            Check(CuratedMods.JoinAdvice("nocturne@../x", nocturne13, offered).Kind == JoinKind.Modded, "A version with path characters is never a key");
+            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("my", null, 2), offered).Kind == JoinKind.Modded, "Another label only shows modded");
+            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("standard", null, 0), offered).Kind == JoinKind.Modded, "Another label only shows modded (vanilla guest)");
             Check(CuratedMods.JoinAdvice("", new LocalMods("my", null, 0)).Kind == JoinKind.Join, "No mods on both sides joins");
             Check(CuratedMods.JoinAdvice(null, nocturne13).Kind == JoinKind.MismatchJoinAnyway, "A guest with Nocturne and a host without mods is a mismatch");
+            Check(CuratedMods.NocturneOf("x+nocturne@1.0") == "1.0" && CuratedMods.NocturneOf("Nocturne@1.0") == null, "Label parts");
+
+            // ---- host label
+            var labelMods = Path.Combine(tmp, "label-mods");
+            var labelSettings = new LauncherSettings();
+            Directory.CreateDirectory(Path.Combine(labelMods, "Nocturne", "dvdroot_ps4", "param"));
+            File.WriteAllText(Path.Combine(labelMods, "Nocturne", "dvdroot_ps4", "param", "a.bin"), "x\n");
+            var labelHash = CuratedMods.ContentHash(Path.Combine(labelMods, "Nocturne"));
+            File.WriteAllText(Path.Combine(labelMods, "Nocturne", "nocturne.json"), "{\"version\":\"1.0\",\"content\":\"" + labelHash + "\"}");
+            Check(CuratedMods.HostLabel(labelSettings, labelMods) == null, "No label outside Nocturne mode");
+            labelSettings.Set(CuratedMods.ProfileKey, "nocturne");
+            Check(CuratedMods.HostLabel(labelSettings, labelMods) == "nocturne@1.0", "Nocturne mode with a verified install announces its version");
+            File.WriteAllText(Path.Combine(labelMods, "Nocturne", "dvdroot_ps4", "param", "b.bin"), "changed");
+            Check(CuratedMods.HostLabel(labelSettings, labelMods) == null, "A changed install announces no Nocturne label");
 
             // ---- file clashes
             var clash = Path.Combine(tmp, "clash");

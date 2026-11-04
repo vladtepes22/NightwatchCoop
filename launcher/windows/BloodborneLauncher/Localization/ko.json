@@ -2535,5 +2535,16 @@
   "The downloaded mod does not match its list entry.": "다운로드한 모드가 목록 항목과 일치하지 않습니다.",
   "The download is not the expected size: it is damaged or incomplete.": "다운로드 크기가 예상과 다릅니다: 손상되었거나 불완전합니다.",
   "The download is damaged: its checksum differs from the list.": "다운로드가 손상되었습니다: 체크섬이 목록과 다릅니다.",
-  "The download holds a file outside its folder and was refused.": "다운로드에 폴더 밖의 파일이 있어 거부되었습니다."
+  "The download holds a file outside its folder and was refused.": "다운로드에 폴더 밖의 파일이 있어 거부되었습니다.",
+  "{0} plays with Nocturne {1}. It is downloaded now ({2} MB) and your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} 님은 Nocturne {1}(으)로 플레이 중입니다. 지금 다운로드하고({2} MB) 게임이 Nocturne 모드로 바뀝니다(다른 모드는 일시 중지되며, 내 모드에서 되돌릴 수 있습니다). 계속할까요?",
+  "{0} plays with Nocturne {1}. Your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} 님은 Nocturne {1}(으)로 플레이 중입니다. 게임이 Nocturne 모드로 바뀝니다(다른 모드는 일시 중지되며, 내 모드에서 되돌릴 수 있습니다). 계속할까요?",
+  "Download and join": "다운로드하고 참가",
+  "Switch and join": "전환하고 참가",
+  "Downloading Nocturne {0}: {1}%": "Nocturne {0} 다운로드 중: {1}%",
+  "Use Nocturne {0} and join": "Nocturne {0} 사용하고 참가",
+  "Modded": "모드 사용",
+  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0}을(를) 여기서 받을 수 없습니다: 아마 참가할 수 없습니다.",
+  "This host runs other mods: you probably can't join without the same ones.": "이 호스트는 다른 모드를 사용합니다: 같은 모드가 없으면 아마 참가할 수 없습니다.",
+  "Your mods differ from the host's: you probably can't join.": "내 모드가 호스트와 다릅니다: 아마 참가할 수 없습니다.",
+  "Nocturne {0} is not available for download.": "Nocturne {0}은(는) 다운로드할 수 없습니다."
 }

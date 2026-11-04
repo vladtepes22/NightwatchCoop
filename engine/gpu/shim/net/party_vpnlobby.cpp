@@ -164,6 +164,34 @@ std::vector<std::uint8_t> encode_announce_ext(const Announce& a) {
     return v;
 }
 
+bool valid_mods_label(const std::string& label) {
+    if (label.empty() || label.size() > kMaxModsLabel) return false;
+    for (const char c : label)
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '@' || c == '.' || c == '_' || c == ':' ||
+              c == '+' || c == '-'))
+            return false;
+    return true;
+}
+
+std::vector<std::uint8_t> encode_announce_mods(const Announce& a) {
+    if (!valid_mods_label(a.mods)) return {};
+    std::vector<std::uint8_t> v = {0xfa, 'L', 1, 10, static_cast<std::uint8_t>(a.mods.size())};
+    v.insert(v.end(), a.mods.begin(), a.mods.end());
+    return v;
+}
+
+std::string mods_label(const char* launcher_label, bool gameplay_mods, const std::array<std::uint8_t, 32>& mods_hash) {
+    if (!gameplay_mods) return "";
+    if (launcher_label && valid_mods_label(launcher_label)) return launcher_label;
+    static const char* const kHex = "0123456789abcdef";
+    std::string s = "mods:";
+    for (int i = 0; i < 4; ++i) {
+        s += kHex[mods_hash[i] >> 4];
+        s += kHex[mods_hash[i] & 15];
+    }
+    return s;
+}
+
 // is_tunnel_player_address: party_vpnlobby.h (10.8.0.0/22 minus the network, the server 10.8.0.1 and the
 // broadcast address).
 
@@ -278,11 +306,17 @@ void thread_main(Provider provider) {
             // Every kAnnounceEveryMs, and at once when the state changed (a player joined, a new name).
             std::vector<std::uint8_t> pkt = encode_announce(a);
             const std::vector<std::uint8_t> ext = encode_announce_ext(a);
-            if (!pkt.empty()) pkt.insert(pkt.end(), ext.begin(), ext.end());  // compared as one; sent as two datagrams
+            const std::vector<std::uint8_t> mods = encode_announce_mods(a);  // empty without a label
+            const std::size_t base = pkt.size();
+            if (!pkt.empty()) {  // compared as one; sent as two or three datagrams
+                pkt.insert(pkt.end(), ext.begin(), ext.end());
+                pkt.insert(pkt.end(), mods.begin(), mods.end());
+            }
             if (route.sock != kBad && !pkt.empty() &&
                 (pkt != last_pkt || now - last_sent >= std::chrono::milliseconds(kAnnounceEveryMs))) {
-                send_to(route, std::vector<std::uint8_t>(pkt.begin(), pkt.end() - static_cast<std::ptrdiff_t>(ext.size())));
+                send_to(route, std::vector<std::uint8_t>(pkt.begin(), pkt.begin() + static_cast<std::ptrdiff_t>(base)));
                 send_to(route, ext);
+                if (!mods.empty()) send_to(route, mods);
                 last_pkt = pkt;
                 last_sent = now;
                 announced = true;

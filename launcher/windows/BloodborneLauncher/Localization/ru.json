@@ -2535,5 +2535,16 @@
   "The downloaded mod does not match its list entry.": "Загруженный мод не соответствует записи в списке.",
   "The download is not the expected size: it is damaged or incomplete.": "Размер загрузки не совпадает с ожидаемым: файл повреждён или неполный.",
   "The download is damaged: its checksum differs from the list.": "Загрузка повреждена: контрольная сумма не совпадает со списком.",
-  "The download holds a file outside its folder and was refused.": "Загрузка содержит файл вне своей папки и была отклонена."
+  "The download holds a file outside its folder and was refused.": "Загрузка содержит файл вне своей папки и была отклонена.",
+  "{0} plays with Nocturne {1}. It is downloaded now ({2} MB) and your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} играет с Nocturne {1}. Он скачается сейчас ({2} МБ), и игра перейдёт в режим Nocturne (остальные моды приостановлены; «Мои моды» вернёт их). Продолжить?",
+  "{0} plays with Nocturne {1}. Your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} играет с Nocturne {1}. Игра перейдёт в режим Nocturne (остальные моды приостановлены; «Мои моды» вернёт их). Продолжить?",
+  "Download and join": "Скачать и присоединиться",
+  "Switch and join": "Переключить и присоединиться",
+  "Downloading Nocturne {0}: {1}%": "Загрузка Nocturne {0}: {1}%",
+  "Use Nocturne {0} and join": "Nocturne {0} и присоединиться",
+  "Modded": "С модами",
+  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0} здесь недоступен: скорее всего, присоединиться не получится.",
+  "This host runs other mods: you probably can't join without the same ones.": "У этого хоста другие моды: без таких же, скорее всего, присоединиться не получится.",
+  "Your mods differ from the host's: you probably can't join.": "Ваши моды отличаются от модов хоста: скорее всего, присоединиться не получится.",
+  "Nocturne {0} is not available for download.": "Nocturne {0} недоступен для загрузки."
 }

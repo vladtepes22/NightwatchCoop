@@ -1926,6 +1926,8 @@ void start_host(LinkConfig cfg) {
             a.port = rr.cfg.port;
             a.build = rr.cfg.build_id;
             a.password = !rr.cfg.password.empty();
+            // 0.7.8: what this game loaded (party_vpnlobby.h mods_label); the party's mod hash stays the join check
+            a.mods = bbnet::lobby::mods_label(env("BB_PARTY_MODS_LABEL"), !rr.cfg.mod_names.empty(), rr.cfg.mods_hash);
         }
         const char* test_name = env("BB_PARTY_VPNLOBBY_NAME");  // tests only: a synthetic character name
         a.name = bbnet::lobby::clean_name(test_name && *test_name ? std::string(test_name)

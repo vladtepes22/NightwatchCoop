@@ -2535,5 +2535,16 @@
   "The downloaded mod does not match its list entry.": "Завантажений мод не відповідає запису в списку.",
   "The download is not the expected size: it is damaged or incomplete.": "Розмір завантаження не збігається з очікуваним: файл пошкоджений або неповний.",
   "The download is damaged: its checksum differs from the list.": "Завантаження пошкоджене: контрольна сума не збігається зі списком.",
-  "The download holds a file outside its folder and was refused.": "Завантаження містить файл поза своєю текою і було відхилене."
+  "The download holds a file outside its folder and was refused.": "Завантаження містить файл поза своєю текою і було відхилене.",
+  "{0} plays with Nocturne {1}. It is downloaded now ({2} MB) and your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} грає з Nocturne {1}. Його буде завантажено зараз ({2} МБ), і гра перейде в режим Nocturne (інші моди призупинено; «Мої моди» поверне їх). Продовжити?",
+  "{0} plays with Nocturne {1}. Your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} грає з Nocturne {1}. Гра перейде в режим Nocturne (інші моди призупинено; «Мої моди» поверне їх). Продовжити?",
+  "Download and join": "Завантажити й приєднатися",
+  "Switch and join": "Перемкнути й приєднатися",
+  "Downloading Nocturne {0}: {1}%": "Завантаження Nocturne {0}: {1}%",
+  "Use Nocturne {0} and join": "Nocturne {0} і приєднатися",
+  "Modded": "З модами",
+  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0} тут недоступний: найімовірніше, приєднатися не вийде.",
+  "This host runs other mods: you probably can't join without the same ones.": "Цей хост має інші моди: без таких самих, найімовірніше, приєднатися не вийде.",
+  "Your mods differ from the host's: you probably can't join.": "Ваші моди відрізняються від модів хоста: найімовірніше, приєднатися не вийде.",
+  "Nocturne {0} is not available for download.": "Nocturne {0} недоступний для завантаження."
 }

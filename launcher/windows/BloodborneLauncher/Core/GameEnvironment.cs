@@ -245,6 +245,17 @@ namespace BloodborneLauncher.Core
                 env["BB_PIPELINE_TAKE"] = "0";
                 env["BB_MODS_ENABLED"] = "0";
             }
+            // The lobby label for a verified Nocturne (party_vpnlobby.h mods_label); without it the game announces its mod hash.
+            if (env["BB_MODS_ENABLED"] == "1")
+            {
+                try
+                {
+                    if (CuratedMods.HostLabel(s, ModsDir(s)) is { } label) env["BB_PARTY_MODS_LABEL"] = label;
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
 
             // The Engine page's switches, only those changed from the engine's default; safe mode
             // starts without them, as without the other experimental options.

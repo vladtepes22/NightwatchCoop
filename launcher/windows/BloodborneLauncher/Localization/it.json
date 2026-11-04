@@ -2535,5 +2535,16 @@
   "The downloaded mod does not match its list entry.": "La mod scaricata non corrisponde alla sua voce nell'elenco.",
   "The download is not the expected size: it is damaged or incomplete.": "Il download non ha la dimensione prevista: è danneggiato o incompleto.",
   "The download is damaged: its checksum differs from the list.": "Il download è danneggiato: il suo checksum differisce da quello dell'elenco.",
-  "The download holds a file outside its folder and was refused.": "Il download contiene un file fuori dalla sua cartella ed è stato rifiutato."
+  "The download holds a file outside its folder and was refused.": "Il download contiene un file fuori dalla sua cartella ed è stato rifiutato.",
+  "{0} plays with Nocturne {1}. It is downloaded now ({2} MB) and your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} gioca con Nocturne {1}. Viene scaricata ora ({2} MB) e il tuo gioco passa alla modalità Nocturne (le altre mod sono in pausa; Le mie mod le riporta). Continuare?",
+  "{0} plays with Nocturne {1}. Your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0} gioca con Nocturne {1}. Il tuo gioco passa alla modalità Nocturne (le altre mod sono in pausa; Le mie mod le riporta). Continuare?",
+  "Download and join": "Scarica ed entra",
+  "Switch and join": "Cambia ed entra",
+  "Downloading Nocturne {0}: {1}%": "Download di Nocturne {0}: {1}%",
+  "Use Nocturne {0} and join": "Usa Nocturne {0} ed entra",
+  "Modded": "Con mod",
+  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0} non è disponibile qui: probabilmente non puoi entrare.",
+  "This host runs other mods: you probably can't join without the same ones.": "Questo host usa altre mod: senza le stesse probabilmente non puoi entrare.",
+  "Your mods differ from the host's: you probably can't join.": "Le tue mod sono diverse da quelle dell'host: probabilmente non puoi entrare.",
+  "Nocturne {0} is not available for download.": "Nocturne {0} non è disponibile per il download."
 }

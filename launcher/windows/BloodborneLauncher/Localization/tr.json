@@ -2535,5 +2535,16 @@
   "The downloaded mod does not match its list entry.": "İndirilen mod, liste kaydıyla eşleşmiyor.",
   "The download is not the expected size: it is damaged or incomplete.": "İndirme beklenen boyutta değil: bozuk veya eksik.",
   "The download is damaged: its checksum differs from the list.": "İndirme bozuk: sağlama toplamı listeyle uyuşmuyor.",
-  "The download holds a file outside its folder and was refused.": "İndirme klasörünün dışında bir dosya içeriyor ve reddedildi."
+  "The download holds a file outside its folder and was refused.": "İndirme klasörünün dışında bir dosya içeriyor ve reddedildi.",
+  "{0} plays with Nocturne {1}. It is downloaded now ({2} MB) and your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0}, Nocturne {1} ile oynuyor. Şimdi indirilir ({2} MB) ve oyunun Nocturne moduna geçer (diğer modların duraklatılır; Modlarım onları geri getirir). Devam edilsin mi?",
+  "{0} plays with Nocturne {1}. Your game switches to Nocturne mode (your other mods are paused; My mods brings them back). Continue?": "{0}, Nocturne {1} ile oynuyor. Oyunun Nocturne moduna geçer (diğer modların duraklatılır; Modlarım onları geri getirir). Devam edilsin mi?",
+  "Download and join": "İndir ve katıl",
+  "Switch and join": "Geç ve katıl",
+  "Downloading Nocturne {0}: {1}%": "Nocturne {0} indiriliyor: %{1}",
+  "Use Nocturne {0} and join": "Nocturne {0} kullan ve katıl",
+  "Modded": "Modlu",
+  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0} burada mevcut değil: muhtemelen katılamazsın.",
+  "This host runs other mods: you probably can't join without the same ones.": "Bu sunucu başka modlar kullanıyor: aynıları olmadan muhtemelen katılamazsın.",
+  "Your mods differ from the host's: you probably can't join.": "Modların sunucununkilerden farklı: muhtemelen katılamazsın.",
+  "Nocturne {0} is not available for download.": "Nocturne {0} indirilemiyor."
 }

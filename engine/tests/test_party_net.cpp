@@ -1027,6 +1027,30 @@ static void test_vpnlobby() {
     }
     CHECK((encode_bye() == std::vector<std::uint8_t>{0xfa, 0x4c, 0x01, 0x04}));
     CHECK(encode_announce(a).size() <= 512);
+    // 0.7.8: the mods label (type 10), the same bytes as tests/test_nwlobby.py's encode_announce_mods
+    {
+        Announce x = a;
+        CHECK(encode_announce_mods(x).empty());  // no label: nothing sent
+        x.mods = "nocturne@1.0";
+        const std::vector<std::uint8_t> m = {0xfa, 0x4c, 0x01, 0x0a, 0x0c, 'n', 'o', 'c', 't', 'u', 'r', 'n', 'e', '@', '1', '.', '0'};
+        CHECK(encode_announce_mods(x) == m);
+        for (const char* bad : {"Nocturne@1.0", "a b", "../x", "a/b", "x\\y", "\xc3\xa9"}) {
+            x.mods = bad;
+            CHECK(!valid_mods_label(bad) && encode_announce_mods(x).empty());
+        }
+        x.mods = std::string(33, 'a');
+        CHECK(encode_announce_mods(x).empty());
+        x.mods = std::string(32, 'a');
+        CHECK(encode_announce_mods(x).size() == 5 + 32);
+        CHECK(valid_mods_label("mods:3f9a12c0") && valid_mods_label("a-b_c.d+e:f@0"));
+        std::array<std::uint8_t, 32> h{};
+        h[0] = 0x3f; h[1] = 0x9a; h[2] = 0x12; h[3] = 0xc0; h[4] = 0xff;
+        CHECK(mods_label("nocturne@1.0", false, h).empty());                // no gameplay mods: no label at all
+        CHECK(mods_label("nocturne@1.0", true, h) == "nocturne@1.0");       // the launcher's verified curated mod
+        CHECK(mods_label(nullptr, true, h) == "mods:3f9a12c0");
+        CHECK(mods_label("Bad Label", true, h) == "mods:3f9a12c0");         // an invalid label falls back to the hash
+        CHECK(mods_label("", true, h) == "mods:3f9a12c0");
+    }
     // refused: no name, port < 1024, bad slots
     { Announce b = a; b.name = "\x01 \xe2\x80\xae"; CHECK(encode_announce(b).empty()); }
     { Announce b = a; b.port = 80; CHECK(encode_announce(b).empty()); }
@@ -1078,13 +1102,18 @@ static void test_vpnlobby() {
     std::snprintf(addr, sizeof(addr), "127.0.0.1:%u", ntohs(sa.sin_port));
     set_env("BB_PARTY_VPNLOBBY_ADDR", addr);
     std::atomic<bool> hosting{true};
-    start([&](Announce* out) { if (!hosting) return false; *out = a; return true; });
+    Announce am = a;
+    am.mods = "nocturne@1.0";
+    start([&](Announce* out) { if (!hosting) return false; *out = am; return true; });
     std::uint8_t buf[600];
     int n = ::recv(ls, reinterpret_cast<char*>(buf), sizeof(buf), 0);
     CHECK(n == static_cast<int>(want.size()) && std::memcmp(buf, want.data(), want.size()) == 0);
     // 0.7.8: the extension follows as its own datagram (type 7)
     n = ::recv(ls, reinterpret_cast<char*>(buf), sizeof(buf), 0);
     CHECK(n == 11 && buf[3] == 7 && buf[4] == 1 && buf[5] == 0x1c && buf[6] == 0x01 && buf[8] == 0 && buf[9] == 4 && buf[10] == 1);
+    // ... and the mods label as a third (type 10)
+    n = ::recv(ls, reinterpret_cast<char*>(buf), sizeof(buf), 0);
+    CHECK(n == 17 && buf[3] == 10 && buf[4] == 12 && std::memcmp(buf + 5, "nocturne@1.0", 12) == 0);
     hosting = false;
     n = ::recv(ls, reinterpret_cast<char*>(buf), sizeof(buf), 0);
     CHECK(n == 4 && buf[3] == 4);
