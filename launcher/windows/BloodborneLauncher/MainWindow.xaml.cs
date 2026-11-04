@@ -161,10 +161,6 @@ namespace BloodborneLauncher
                 else if (ws.Settings.Bool("hardware_offered") && !ws.Settings.Bool("engine_preset_asked") &&
                          Prompt.SnapshotPath == null && Paths.IsPortDir(Paths.PortDir))
                     _ = Dispatcher.BeginInvoke(AskEnginePreset, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-                // Any start without one of the popups above: Nocturne, new to this player or newer than theirs (once per version).
-                else if (Prompt.SnapshotPath == null && Paths.IsPortDir(Paths.PortDir))
-                    _ = Dispatcher.BeginInvoke(async () => await Views.ModsPage.NewsAtStartAsync(ws),
-                        System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             };
             Closing += OnClosing;
             Closed += (_, _) => MapPrep.Stop();

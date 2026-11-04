@@ -2542,9 +2542,8 @@
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "La Nightwatch VPN non è connessa, quindi i giocatori di Nightwatch Online non possono vedere né unirsi al tuo gruppo. Connettiti, oppure passa a UPnP/VPN/LAN per ospitare senza.",
   "Switch to UPnP/VPN/LAN": "Passa a UPnP/VPN/LAN",
   "Connect and play": "Connetti e gioca",
-  "An optional mod that adds new weapons and hunter tools in the game. Check it out {link}. Press Try Nocturne to install it.": "Una mod facoltativa che aggiunge nuove armi e strumenti da cacciatore al gioco. Dai un'occhiata {link}. Premi \"Prova Nocturne\" per installarla.",
   "here": "qui",
-  "Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.": "È uscito Nocturne {0}: una mod opzionale che aggiunge al gioco nuove armi e nuovi strumenti da cacciatore. «Prova Nocturne» la scarica ({1} MB) e gioca solo con lei (le tue altre mod vengono messe in pausa; «Le mie mod» le riporta). Scopri cosa aggiunge {link}.",
+  "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "È uscito Nocturne {0}: una mod opzionale creata dagli sviluppatori di Nightwatch che aggiunge nuove armi e nuovi strumenti da cacciatore. Scopri cosa aggiunge {link}.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "È uscito Nocturne {0} (hai la {1}). «Aggiorna» lo scarica ({2} MB) e sostituisce la versione installata. Scopri le novità {link}.",
   "The Nocturne download could not be reached: {0}": "Impossibile raggiungere il download di Nocturne: {0}",
   "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "La cartella delle mod contiene già una cartella chiamata {0}. Rimuovila o rinominala, poi riprova."

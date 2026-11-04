@@ -68,25 +68,7 @@ namespace BloodborneLauncher.Views
             SwitchChanged += ShowMode;
             // Loaded, not OnShown: the Workshop calls OnShown while it builds this page, and the settings search builds pages it
             // never shows; Loaded comes only once the page is in the window.
-            Loaded += (_, _) => NocturneOnce();
-        }
-
-
-        /// <summary>Once, the first time the Workshop opens: Nocturne, with a link to its Nexus Mods page and a one-click switch (it was a
-        /// card on the Play page; user, 4 Nov). From Loaded, after the page is drawn.</summary>
-        private void NocturneOnce()
-        {
-            if (S.Bool("nocturne_workshop_seen")) return;
-            S.Set("nocturne_workshop_seen", true);
-            Ws.SaveSoon();
-            if (CuratedMods.Mode(S) == "nocturne") return;
-            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, async () =>
-            {
-                var pick = Prompt.ChooseWithLink(L.T("Nocturne"),
-                    L.T("An optional mod that adds new weapons and hunter tools in the game. Check it out {link}. Press Try Nocturne to install it."),
-                    L.T("here"), CuratedMods.NexusPage, L.T("Not now"), L.T("Try Nocturne"));
-                if (pick == 1) await ChooseMode("nocturne");
-            });
+            Loaded += (_, _) => Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, NocturneNewsAsync);
         }
 
         private static (string Label, string Value)[] ModeChoices() => new[]
@@ -131,7 +113,7 @@ namespace BloodborneLauncher.Views
         /// <summary>Switches which mods load (the dropdown and the Workshop's one-time Nocturne popup). Picking Nocturne installs or updates it first, asking
         /// before the download. Returns null when switched, "" when the player declined, else the message to show; the mode is
         /// unchanged then.</summary>
-        /// <paramref name="asked"/>: the player already agreed to the download (the start-up popup gave its size), so no second
+        /// <paramref name="asked"/>: the player already agreed to the download (the Workshop popup gave its size), so no second
         /// question. <paramref name="update"/>: also bring an installed Nocturne to the newest version in another mode.
         internal static async Task<string?> SwitchModeAsync(Workspace ws, string mode, IProgress<double>? progress,
             bool asked = false, bool update = false)
@@ -147,45 +129,54 @@ namespace BloodborneLauncher.Views
             finally { Switching = null; SwitchDownloads = false; SwitchChanged?.Invoke(); }
         }
 
-        /// <summary>The settings key of the last Nocturne version the start-up popup told about.</summary>
+        /// <summary>The settings key of the last Nocturne version the Workshop popup told about.</summary>
         private const string ToldKey = "nocturne_told";
+        private static bool _newsChecked;
 
-        /// <summary>Every launcher start, whatever the game mode (user, 4 Nov: more Nocturne players): reads the manifest and,
-        /// once per Nocturne version, offers it to a player without it or the update to one with an older version. Quiet when
-        /// offline, while the game runs or a switch is under way.</summary>
-        internal static async Task NewsAtStartAsync(Workspace ws)
+        /// <summary>The first time the Workshop opens in a launcher run, whatever the Mods choice (user, 4 Nov: there only, not on
+        /// Play): reads the manifest and, once per Nocturne version, offers Nocturne to a player without it or the update to one
+        /// with an older version. Quiet when offline, while the game runs or a switch is under way. From Loaded, after the page
+        /// is drawn (the Workshop calls OnShown while it builds this page, and the settings search builds pages it never shows).</summary>
+        private async void NocturneNewsAsync()
         {
+            if (_newsChecked || Ws.Game.Running || Switching != null) return;
+            _newsChecked = true;
+            var s = S;
+            var dir = GameEnvironment.ModsDir(s);
             // The launcher's own install gets its version name ("Nocturne v1.0.1") now, not only at the next game start.
-            if (!ws.Game.Running && Switching == null &&
-                await Task.Run(() => CuratedMods.NameFolder(ws.Settings, GameEnvironment.ModsDir(ws.Settings))))
-                ws.SaveSoon();
+            if (await Task.Run(() => CuratedMods.NameFolder(s, dir)))
+                Ws.SaveSoon();
+            _modsShown = null; // the list may show the old folder name
+            RefreshMods();
             ModManifest? manifest;
             try { manifest = await CuratedMods.FetchManifestAsync(); }
-            catch (Exception) { return; } // offline or a bad manifest: the next start tries again
-            var s = ws.Settings;
-            var installed = await Task.Run(() => CuratedMods.Installed(GameEnvironment.ModsDir(s), manifest));
+            catch (Exception) { return; } // offline or a bad manifest: the next launcher run tries again
+            var installed = await Task.Run(() => CuratedMods.Installed(dir, manifest));
             var news = CuratedMods.StartNewsOf(manifest, installed, s.Str(ToldKey));
-            if (news == StartNews.None || ws.Game.Running || Switching != null) return;
+            if (news == StartNews.None || Ws.Game.Running || Switching != null) return;
             var newest = manifest!.Newest;
             s.Set(ToldKey, newest.Version);
-            s.Set("nocturne_workshop_seen", true); // the Workshop's one-time popup would say the same
-            ws.SaveSoon();
+            Ws.SaveSoon();
             var mb = ((int)Math.Ceiling(newest.Size / 1e6)).ToString(CultureInfo.CurrentCulture);
             string? error = null;
             if (news == StartNews.Try)
             {
-                var text = L.T("Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.")
-                    .Replace("{0}", newest.Version).Replace("{1}", mb);
+                var text = L.T("Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.")
+                    .Replace("{0}", newest.Version);
+                // Not asked yet: the switch's own question gives the download size.
                 if (Prompt.ChooseWithLink(L.T("Nocturne"), text, L.T("here"), CuratedMods.NexusPage, L.T("Not now"), L.T("Try Nocturne")) == 1)
-                    error = await SwitchModeAsync(ws, "nocturne", null, asked: true);
+                    error = await SwitchModeAsync(Ws, "nocturne", null);
             }
             else
             {
                 var text = L.T("Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.")
                     .Replace("{0}", newest.Version).Replace("{1}", installed.Version).Replace("{2}", mb);
                 if (Prompt.ChooseWithLink(L.T("Nocturne"), text, L.T("here"), CuratedMods.NexusPage, L.T("Not now"), L.T("Update")) == 1)
-                    error = await SwitchModeAsync(ws, CuratedMods.Mode(s), null, asked: true, update: true);
+                    error = await SwitchModeAsync(Ws, CuratedMods.Mode(s), null, asked: true, update: true);
             }
+            ShowMode();
+            _modsShown = null;
+            RefreshMods();
             if (error is { Length: > 0 }) Prompt.Tell(L.T("Nocturne"), error);
         }
 
@@ -193,7 +184,7 @@ namespace BloodborneLauncher.Views
         /// until the switch ends; null when none runs. SwitchChanged fires on the UI thread.</summary>
         internal static string? Switching { get; private set; }
         internal static double SwitchProgress { get; private set; }
-        /// <summary>The switch running downloads Nocturne (Nocturne mode, or an update from the start-up popup).</summary>
+        /// <summary>The switch running downloads Nocturne (Nocturne mode, or an update from the Workshop popup).</summary>
         internal static bool SwitchDownloads { get; private set; }
         internal static event Action? SwitchChanged;
         internal static string DownloadText() => L.F($"Downloading Nocturne: {(int)(SwitchProgress * 100)}%");
