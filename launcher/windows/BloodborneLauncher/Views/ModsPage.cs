@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -106,7 +107,7 @@ namespace BloodborneLauncher.Views
             var locked = Ws.Game.Running;
             _modeBox.IsEnabled = !locked && !busy;
             if (busy)
-                SetHint(_modeHint, mode == "nocturne" ? DownloadText() : "");
+                SetHint(_modeHint, SwitchDownloads ? DownloadText() : "");
             else
                 SetHint(_modeHint, locked ? L.T("Close the game to change which mods load.") :
                     L.T("No mods: the game as it ships. My mods: the list below. Nocturne only: the curated mod, with your mods paused. Applied when the game starts."));
@@ -130,33 +131,77 @@ namespace BloodborneLauncher.Views
         /// <summary>Switches which mods load (the dropdown and the Workshop's one-time Nocturne popup). Picking Nocturne installs or updates it first, asking
         /// before the download. Returns null when switched, "" when the player declined, else the message to show; the mode is
         /// unchanged then.</summary>
-        internal static async Task<string?> SwitchModeAsync(Workspace ws, string mode, IProgress<double>? progress)
+        /// <paramref name="asked"/>: the player already agreed to the download (the start-up popup gave its size), so no second
+        /// question. <paramref name="update"/>: also bring an installed Nocturne to the newest version in another mode.
+        internal static async Task<string?> SwitchModeAsync(Workspace ws, string mode, IProgress<double>? progress,
+            bool asked = false, bool update = false)
         {
             if (ws.Game.Running) return L.T("Close the game to change which mods load.");
             if (Switching != null) return ""; // one switch at a time; every page already shows the one running
             Switching = mode;
+            SwitchDownloads = mode == "nocturne" || update;
             SwitchProgress = 0;
             SwitchChanged?.Invoke();
             var shared = new Progress<double>(p => { SwitchProgress = p; SwitchChanged?.Invoke(); progress?.Report(p); });
-            try { return await SwitchCoreAsync(ws, mode, shared); }
-            finally { Switching = null; SwitchChanged?.Invoke(); }
+            try { return await SwitchCoreAsync(ws, mode, shared, asked, update); }
+            finally { Switching = null; SwitchDownloads = false; SwitchChanged?.Invoke(); }
+        }
+
+        /// <summary>The settings key of the last Nocturne version the start-up popup told about.</summary>
+        private const string ToldKey = "nocturne_told";
+
+        /// <summary>Every launcher start, whatever the game mode (user, 4 Nov: more Nocturne players): reads the manifest and,
+        /// once per Nocturne version, offers it to a player without it or the update to one with an older version. Quiet when
+        /// offline, while the game runs or a switch is under way.</summary>
+        internal static async Task NewsAtStartAsync(Workspace ws)
+        {
+            ModManifest? manifest;
+            try { manifest = await CuratedMods.FetchManifestAsync(); }
+            catch (Exception) { return; } // offline or a bad manifest: the next start tries again
+            var s = ws.Settings;
+            var installed = await Task.Run(() => CuratedMods.Installed(GameEnvironment.ModsDir(s), manifest));
+            var news = CuratedMods.StartNewsOf(manifest, installed, s.Str(ToldKey));
+            if (news == StartNews.None || ws.Game.Running || Switching != null) return;
+            var newest = manifest!.Newest;
+            s.Set(ToldKey, newest.Version);
+            s.Set("nocturne_workshop_seen", true); // the Workshop's one-time popup would say the same
+            ws.SaveSoon();
+            var mb = ((int)Math.Ceiling(newest.Size / 1e6)).ToString(CultureInfo.CurrentCulture);
+            string? error = null;
+            if (news == StartNews.Try)
+            {
+                var text = L.T("Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.")
+                    .Replace("{0}", newest.Version).Replace("{1}", mb);
+                if (Prompt.ChooseWithLink(L.T("Nocturne"), text, L.T("here"), CuratedMods.NexusPage, L.T("Not now"), L.T("Try Nocturne")) == 1)
+                    error = await SwitchModeAsync(ws, "nocturne", null, asked: true);
+            }
+            else
+            {
+                var text = L.T("Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.")
+                    .Replace("{0}", newest.Version).Replace("{1}", installed.Version).Replace("{2}", mb);
+                if (Prompt.ChooseWithLink(L.T("Nocturne"), text, L.T("here"), CuratedMods.NexusPage, L.T("Not now"), L.T("Update")) == 1)
+                    error = await SwitchModeAsync(ws, CuratedMods.Mode(s), null, asked: true, update: true);
+            }
+            if (error is { Length: > 0 }) Prompt.Tell(L.T("Nocturne"), error);
         }
 
         /// <summary>The choice being switched to (Nocturne while it downloads), shown by the Mods page, the Host tab's Mods line
         /// until the switch ends; null when none runs. SwitchChanged fires on the UI thread.</summary>
         internal static string? Switching { get; private set; }
         internal static double SwitchProgress { get; private set; }
+        /// <summary>The switch running downloads Nocturne (Nocturne mode, or an update from the start-up popup).</summary>
+        internal static bool SwitchDownloads { get; private set; }
         internal static event Action? SwitchChanged;
         internal static string DownloadText() => L.F($"Downloading Nocturne: {(int)(SwitchProgress * 100)}%");
 
-        private static async Task<string?> SwitchCoreAsync(Workspace ws, string mode, IProgress<double> progress)
+        private static async Task<string?> SwitchCoreAsync(Workspace ws, string mode, IProgress<double> progress, bool asked, bool update)
         {
             var s = ws.Settings;
             var dir = GameEnvironment.ModsDir(s);
             var before = s.Str(CuratedMods.ProfileKey);
             try
             {
-                if (mode == "nocturne")
+                if (mode == "nocturne" || update)
                 {
                     ModManifest? manifest = null;
                     string? unreachable = null;
@@ -166,14 +211,16 @@ namespace BloodborneLauncher.Views
                     var newest = manifest?.Newest;
                     var want = newest != null && (installed.Kind == InstalledKind.None ||
                         (installed.Kind == InstalledKind.Known && installed.Version != newest.Version)) ? newest : null;
-                    if (installed.Kind == InstalledKind.None && want == null)
+                    if (update && want == null && unreachable != null)
+                        return L.F($"The Nocturne download could not be reached: {unreachable}");
+                    if (mode == "nocturne" && installed.Kind == InstalledKind.None && want == null)
                         return unreachable != null
                             ? L.F($"Nocturne is not installed and its download could not be reached: {unreachable}")
                             : L.T("Nocturne is not installed and no download is set up.");
                     if (want != null)
                     {
                         var mb = (int)Math.Ceiling(want.Size / 1e6);
-                        var ok = Prompt.Confirm(L.T("Nocturne"), installed.Kind == InstalledKind.None
+                        var ok = asked || Prompt.Confirm(L.T("Nocturne"), installed.Kind == InstalledKind.None
                             ? L.F($"Nocturne {want.Version} is downloaded once ({mb} MB) and kept in your mods folder. Continue?")
                             : L.F($"Nocturne {want.Version} is available ({mb} MB). It replaces your installed version. Continue?"), L.T("Download"));
                         if (!ok && installed.Kind == InstalledKind.None) return "";

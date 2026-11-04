@@ -2543,5 +2543,8 @@
   "Switch to UPnP/VPN/LAN": "Переключиться на UPnP/VPN/LAN",
   "Connect and play": "Подключиться и играть",
   "An optional mod that adds new weapons and hunter tools in the game. Check it out {link}. Press Try Nocturne to install it.": "Необязательный мод, который добавляет в игру новое оружие и инструменты охотника. Посмотрите его {link}. Нажмите «Попробовать Nocturne», чтобы установить.",
-  "here": "здесь"
+  "here": "здесь",
+  "Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.": "Вышел Nocturne {0}: необязательный мод, который добавляет в игру новое оружие и инструменты охотника. «Попробовать Nocturne» скачивает его ({1} МБ) и включает только его (остальные моды приостанавливаются; «Мои моды» возвращают их). Что он добавляет, смотрите {link}.",
+  "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Вышел Nocturne {0} (у вас {1}). «Обновить» скачивает его ({2} МБ) и заменяет установленную версию. Что нового, смотрите {link}.",
+  "The Nocturne download could not be reached: {0}": "Не удалось связаться с сервером загрузки Nocturne: {0}"
 }

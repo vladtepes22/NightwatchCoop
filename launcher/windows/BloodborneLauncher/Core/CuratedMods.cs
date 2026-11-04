@@ -25,6 +25,9 @@ namespace BloodborneLauncher.Core
     /// <summary>What the mods folder holds under the name Nocturne.</summary>
     public sealed record InstalledMod(InstalledKind Kind, string? Version = null);
 
+    /// <summary>The launcher's start-up Nocturne popup (<see cref="CuratedMods.StartNewsOf"/>).</summary>
+    public enum StartNews { None, Try, Update }
+
     /// <summary>Join: nothing to do. GetNocturne: switch to the host's Nocturne version (downloaded when missing).
     /// NocturneNotAvailable: the host's version is neither installed nor in the manifest. Modded: the host runs other mods
     /// (label only shown, nothing fetched). MismatchJoinAnyway: the host runs no mods and this guest does. All but Join
@@ -456,6 +459,23 @@ namespace BloodborneLauncher.Core
                     return version;
             }
             return null;
+        }
+
+        /// <summary>What the launcher tells at its start, whatever the game mode (user, 4 Nov: advertise Nocturne): Try when
+        /// Nocturne is not installed, Update when a known older version is, each once per manifest version
+        /// (<paramref name="toldVersion"/>, the last one told). Nothing without a manifest or for an unrecognised folder
+        /// (the player's own copy).</summary>
+        public static StartNews StartNewsOf(ModManifest? manifest, InstalledMod installed, string? toldVersion)
+        {
+            if (manifest == null || string.Equals(toldVersion, manifest.Newest.Version, StringComparison.OrdinalIgnoreCase))
+                return StartNews.None;
+            return installed.Kind switch
+            {
+                InstalledKind.None => StartNews.Try,
+                InstalledKind.Known when !string.Equals(installed.Version, manifest.Newest.Version, StringComparison.OrdinalIgnoreCase)
+                    => StartNews.Update,
+                _ => StartNews.None,
+            };
         }
 
         /// <summary>What a guest does before joining (visy's terms, 4 Nov): the label is a key only. A Nocturne version is

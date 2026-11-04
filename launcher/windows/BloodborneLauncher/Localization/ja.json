@@ -2543,5 +2543,8 @@
   "Switch to UPnP/VPN/LAN": "UPnP/VPN/LAN に切り替える",
   "Connect and play": "接続してプレイ",
   "An optional mod that adds new weapons and hunter tools in the game. Check it out {link}. Press Try Nocturne to install it.": "ゲームに新しい武器と狩人道具を追加する任意のMODです。詳しくは{link}。インストールするには「Nocturneを試す」を押してください。",
-  "here": "こちら"
+  "here": "こちら",
+  "Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.": "Nocturne {0} が公開されました。ゲームに新しい武器と狩人の道具を加える任意のMODです。「Nocturneを試す」でダウンロード（{1} MB）し、Nocturneだけで遊びます（ほかのMODは一時停止し、「マイMOD」で戻せます）。内容は{link}で確認できます。",
+  "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} が公開されました（現在は {1}）。「更新」でダウンロード（{2} MB）し、インストール済みのバージョンを置き換えます。新要素は{link}で確認できます。",
+  "The Nocturne download could not be reached: {0}": "Nocturne のダウンロード先に接続できません: {0}"
 }
