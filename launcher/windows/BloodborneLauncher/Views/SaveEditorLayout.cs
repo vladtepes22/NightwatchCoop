@@ -330,6 +330,14 @@ public sealed partial class SaveEditorWindow
     {
         private readonly TextBox _box = new();
         private readonly TextBlock _dot = LauncherPage.Text("●", "StatLabel");
+        // An edited field's dot: orange in every theme (user, 4 Nov), apart from the theme's accent.
+        private static readonly SolidColorBrush ChangedBrush = Frozen(Color.FromRgb(0xFF, 0x8C, 0x1A));
+        private static SolidColorBrush Frozen(Color color)
+        {
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            return brush;
+        }
         private readonly int? _min, _max;
         private string _original = "";
         public string Value => _box.Text;
@@ -344,7 +352,7 @@ public sealed partial class SaveEditorWindow
         {
             _min = min; _max = max; Label = label;
             var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 5) };
-            _dot.SetResourceReference(TextBlock.ForegroundProperty, "AccentTextFillColorPrimaryBrush"); _dot.Margin = new Thickness(8, 0, 0, 0);
+            _dot.Foreground = ChangedBrush; _dot.Margin = new Thickness(8, 0, 0, 0);
             DockPanel.SetDock(_dot, Dock.Right); heading.Children.Add(_dot); heading.Children.Add(LauncherPage.Text(label, "StatLabel")); Children.Add(heading);
             AutomationProperties.SetName(_box, label);
             var grid = new Grid(); grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
