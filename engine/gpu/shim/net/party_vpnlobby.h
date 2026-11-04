@@ -15,7 +15,7 @@
 //   map id 0xAABBCCDD, 0 unknown)  phase u8 (0 unknown, 1 day, 2 evening, 3 night, 4 Blood Moon)  ng u8 (0 = NG, 1..7 =
 //   NG+n, 255 unknown). No coordinates, nothing that names a player. A client that wants the extended list asks with
 //   type 8 (same body as type 2) and gets type 9; a lobby that does not answer type 8 is asked with type 2 as before.
-//   mods label (0.7.8, type 10, sent right after type 7 while gameplay mods are loaded): label u8 len + ASCII, 1..32 of
+//   mods label (0.7.8, type 10, sent right after type 7 while gameplay mods are loaded): label u8 len + ASCII, 1..255 of
 //   a-z 0-9 @ . _ : + - ("nocturne@1.0" from the launcher's verified curated mod, else "mods:" + 8 hex of the party mod
 //   hash). The lobby relays it in type 12 (list type 11); a client uses it only as a key, never as a path or address.
 // Only a machine with a 10.8.0.0/22 tunnel address announces (no other adapter, never the Internet).
@@ -31,7 +31,7 @@ namespace bbnet::lobby {
 
 constexpr std::uint16_t kLobbyPort = 9310;
 constexpr int kAnnounceEveryMs = 10000;
-constexpr std::size_t kMaxNameChars = 16, kMaxNameBytes = 48, kMaxBuild = 32, kMaxModsLabel = 32;
+constexpr std::size_t kMaxNameChars = 16, kMaxNameBytes = 48, kMaxBuild = 32, kMaxModsLabel = 255;
 
 struct Announce {
     std::string name;  // UTF-8 character name
@@ -47,7 +47,7 @@ struct Announce {
 };
 // The extension datagram (type 7); always 12 bytes.
 std::vector<std::uint8_t> encode_announce_ext(const Announce& a);
-// 1..32 characters, each of a-z 0-9 @ . _ : + - (the lobby's rule).
+// 1..255 characters, each of a-z 0-9 @ . _ : + - (the lobby's rule).
 bool valid_mods_label(const std::string& label);
 // The mods label datagram (type 10), or empty when a.mods is empty or not a valid label.
 std::vector<std::uint8_t> encode_announce_mods(const Announce& a);

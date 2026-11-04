@@ -614,13 +614,14 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
           VpnLobby.ParseReply(Reply(9, 1, 1, true, ng: 9)) == null, "An invaders bit in a plain reply, or a bad phase / NG, is refused");
     Check(VpnLobby.ParseReply(Reply(3, 1, 1, false)) is { } p1 && !p1.Games[0].Invaders, "The plain reply still parses (an older lobby)");
     Check(VpnLobby.ListRequest(0, 3)[3] == 11 && VpnLobby.ListRequest(0, 2)[3] == 8 && VpnLobby.ListRequest(0)[3] == 2, "The extended list is asked with type 8");
-    // The labelled list (nwlobby type 12): type 9 plus the host's mods label after each build; strict charset, 32 at most.
+    // The labelled list (nwlobby type 12): type 9 plus the host's mods label after each build; strict charset, 255 at most (one length byte).
     static byte[] Labelled(string label) => Reply(12, 1, 1, true).Concat(new[] { (byte)label.Length }).Concat(System.Text.Encoding.ASCII.GetBytes(label)).ToArray();
     Check(VpnLobby.ParseReply(Labelled("nocturne@1.0")) is { } l1 && l1.Games[0].Mods == "nocturne@1.0" && l1.Games[0].Password, "The labelled reply carries the mods label");
     Check(VpnLobby.ParseReply(Labelled("")) is { } l2 && l2.Games[0].Mods == "", "A host without mods has no label");
     Check(VpnLobby.ParseReply(Labelled("../x")) == null && VpnLobby.ParseReply(Labelled("Nocturne@1.0")) == null &&
-          VpnLobby.ParseReply(Labelled(new string('a', 33))) == null && VpnLobby.ParseReply(Reply(12, 1, 1, true)) == null,
-        "A label outside a-z 0-9 @ . _ : + -, too long or missing refuses the page");
+          VpnLobby.ParseReply(Reply(12, 1, 1, true)) == null,
+        "A label outside a-z 0-9 @ . _ : + - or missing refuses the page");
+    Check(VpnLobby.ParseReply(Labelled(new string('a', 255))) is { } l4 && l4.Games[0].Mods.Length == 255, "A 255-character label (a world code) parses");
     Check(VpnLobby.ParseReply(Reply(9, 1, 1, true)) is { } l3 && l3.Games[0].Mods == "", "The type 9 reply has no label");
     // An Invade start: BB_PARTY_INVADE for that start only, and never the password.
     var invader = new LauncherSettings();
