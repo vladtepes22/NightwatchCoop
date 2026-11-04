@@ -47,6 +47,18 @@ namespace BloodborneLauncher.Views
                 text.FontSize = 13;
                 text.Margin = new Thickness(0, 8, 0, 4);
                 text.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
+                // "{link}" in the message: the link sits right there in the sentence instead of on a line of its own.
+                if (linkText != null && linkUrl != null && message.IndexOf(LinkMark, StringComparison.Ordinal) is var at and >= 0)
+                {
+                    text.Inlines.Clear();
+                    text.Inlines.Add(new System.Windows.Documents.Run(message[..at]));
+                    var inline = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run(linkText)) { NavigateUri = new Uri(linkUrl) };
+                    inline.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "AccentTextFillColorPrimaryBrush");
+                    inline.RequestNavigate += (_, e) => { e.Handled = true; OpenLink(linkUrl); };
+                    text.Inlines.Add(inline);
+                    text.Inlines.Add(new System.Windows.Documents.Run(message[(at + LinkMark.Length)..]));
+                    linkText = null;
+                }
                 // A long message (an import's list of changes) scrolls instead of pushing the buttons
                 // out of a small window.
                 stack.Children.Add(new ScrollViewer
@@ -88,11 +100,7 @@ namespace BloodborneLauncher.Views
                 link.Cursor = Cursors.Hand;
                 link.Margin = new Thickness(0, 6, 0, 0);
                 link.SetResourceReference(TextBlock.ForegroundProperty, "AccentTextFillColorPrimaryBrush");
-                link.MouseLeftButtonUp += (_, _) =>
-                {
-                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(linkUrl) { UseShellExecute = true }); }
-                    catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
-                };
+                link.MouseLeftButtonUp += (_, _) => OpenLink(linkUrl);
                 stack.Children.Add(link);
             }
 
@@ -248,11 +256,22 @@ namespace BloodborneLauncher.Views
             new Prompt(title, message, Array.Empty<Field>(), ok, showCancel: true, null, linkText, linkUrl).ShowDialog() == true;
 
         /// <summary>One of several actions (the last is the main one): its index, or -1 if dismissed.</summary>
-        public static int Choose(string title, string message, params string[] choices)
+        public static int Choose(string title, string message, params string[] choices) => ChooseWithLink(title, message, null, null, choices);
+
+        /// <summary>Choose with a link: "{link}" in the message becomes linkText, opening linkUrl.</summary>
+        public static int ChooseWithLink(string title, string message, string? linkText, string? linkUrl, params string[] choices)
         {
-            var dialog = new Prompt(title, message, Array.Empty<Field>(), "", showCancel: false, choices);
+            var dialog = new Prompt(title, message, Array.Empty<Field>(), "", showCancel: false, choices, linkText, linkUrl);
             dialog.ShowDialog();
             return dialog._chosen;
+        }
+
+        private const string LinkMark = "{link}";
+
+        private static void OpenLink(string url)
+        {
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
+            catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { }
         }
 
         public static void Tell(string title, string message) =>

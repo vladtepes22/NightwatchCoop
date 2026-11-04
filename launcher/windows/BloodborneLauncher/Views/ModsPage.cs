@@ -71,7 +71,7 @@ namespace BloodborneLauncher.Views
         }
 
 
-        /// <summary>Once, the first time the Workshop opens: Nocturne, with its Nexus Mods page and a one-click switch (it was a
+        /// <summary>Once, the first time the Workshop opens: Nocturne, with a link to its Nexus Mods page and a one-click switch (it was a
         /// card on the Play page; user, 4 Nov). From Loaded, after the page is drawn.</summary>
         private void NocturneOnce()
         {
@@ -81,15 +81,10 @@ namespace BloodborneLauncher.Views
             if (CuratedMods.Mode(S) == "nocturne") return;
             Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, async () =>
             {
-                var pick = Prompt.Choose(L.T("Nocturne"),
-                    L.T("A curated mod for the game. Try it here (Load mods: Nocturne only, downloaded once), or read about it on its Nexus Mods page."),
-                    L.T("Not now"), L.T("Nexus Mods"), L.T("Try Nocturne"));
-                if (pick == 1)
-                {
-                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(CuratedMods.NexusPage) { UseShellExecute = true }); }
-                    catch (Exception) { Prompt.Tell(L.T("Nexus Mods"), CuratedMods.NexusPage); }
-                }
-                else if (pick == 2) await ChooseMode("nocturne");
+                var pick = Prompt.ChooseWithLink(L.T("Nocturne"),
+                    L.T("An optional mod that adds new weapons and hunter tools in the game. Check it out {link}. Press Try Nocturne to install it."),
+                    L.T("here"), CuratedMods.NexusPage, L.T("Not now"), L.T("Try Nocturne"));
+                if (pick == 1) await ChooseMode("nocturne");
             });
         }
 
