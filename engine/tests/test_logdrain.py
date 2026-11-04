@@ -1,12 +1,12 @@
 """src/runtime_logdrain.c: log lines reach a reader that stops for a while, and the game thread is not held up."""
-from paths import build_hint, test_exe
+from paths import ROOT
 import os
 import re
 import subprocess
 import time
 import unittest
 
-EXE = test_exe('logdrain-test')
+EXE = ROOT / 'out' / 'gpu' / 'logdrain-test.exe'  # ninja -C out/gpu logdrain-test
 
 
 def run(lines, stall_s, async_on):
@@ -24,7 +24,7 @@ def run(lines, stall_s, async_on):
     return p.returncode, data, ms
 
 
-@unittest.skipUnless(EXE.exists(), build_hint('logdrain-test'))
+@unittest.skipUnless(EXE.exists(), 'out/gpu/logdrain-test.exe not built: ninja -C out/gpu logdrain-test')
 class LogDrainTests(unittest.TestCase):
     N = 20000  # about 2 MiB, under the drain pipe, over the 4 KiB OS pipe
 
