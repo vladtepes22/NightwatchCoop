@@ -1022,17 +1022,20 @@ PatchResult CompilePatches(const PatchRequest& request) {
         writes.insert(writes.end(), external.begin(), external.end());
     }
     Writes party_writes;
-    std::string party_names;
     for (const PartyPatch& p : party_patches)
-        if (p.name.rfind("Party: ", 0) == 0) {
-            party_writes.insert(party_writes.end(), p.writes.begin(), p.writes.end());
-            party_names += (party_names.empty() ? "" : ", ") + p.name;
-        }
+        if (p.name.rfind("Party: ", 0) == 0) party_writes.insert(party_writes.end(), p.writes.begin(), p.writes.end());
     if (!party_writes.empty()) {
-        for (const PartyPatch& p : party_patches)
-            if (p.name.rfind("Party: ", 0) != 0 && partywins::Overlaps(party_writes, p.writes))
-                Log("Patches: WARNING: \"%s\" writes bytes of the party patches (%s): the party patches win on those bytes",
-                    p.name.c_str(), party_names.c_str());
+        for (const PartyPatch& p : party_patches) {
+            if (p.name.rfind("Party: ", 0) == 0 || !partywins::Overlaps(party_writes, p.writes)) continue;
+            // Name only the party patches it overlaps (60 FPS++ (Deltatime) meets just Party: Fast rejoin's
+            // 30 s peer reservation immediates, not every party patch).
+            std::string overlapped;
+            for (const PartyPatch& q : party_patches)
+                if (q.name.rfind("Party: ", 0) == 0 && partywins::Overlaps(q.writes, p.writes))
+                    overlapped += (overlapped.empty() ? "" : ", ") + q.name;
+            Log("Patches: \"%s\" writes bytes of %s: the party patch wins on those bytes", p.name.c_str(),
+                overlapped.c_str());
+        }
         writes = partywins::PartyWins(writes, party_writes);
     }
     if (Env("BB_OTHER_EDITION", "") == "1") {
