@@ -454,8 +454,10 @@ void host_bindings_apply(const bool held[kBindCount], bool strong, PadState& pad
     if (x || y) {
         int reach = kStickHigh - kStickRest;
         if (held[kBindWalk]) reach = int(std::lround(reach * kWalkPush / (x && y ? std::sqrt(2.0f) : 1.0f)));
-        if (x) pad.lx = std::uint8_t(kStickRest + x * reach);
-        if (y) pad.ly = std::uint8_t(kStickRest + y * reach);
+        // Keys own both axes while they move the hunter: a resting gamepad's small offset on the other axis
+        // would otherwise bend a straight walk sideways (drift; from Mrsuss60 94388d59).
+        pad.lx = std::uint8_t(kStickRest + x * reach);
+        pad.ly = std::uint8_t(kStickRest + y * reach);
     }
 }
 
