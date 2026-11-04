@@ -136,7 +136,7 @@ public sealed class SeamlessPage : LauncherPage
             out _partiesHint, wide: true), found);
         found.Children.Add(_lobbyHint);
         found.Children.Add(_lobbyCount);
-        _lobbyList = new StackPanel();
+        _lobbyList = new StackPanel { Margin = new Thickness(0, 0, 14, 0) }; // room for the scroll bar, which draws over the rows
         _lobbyScroll = new ScrollViewer { Content = _lobbyList, MaxHeight = 324,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         // The wheel at the list's ends: PageScroll (the page scrolls only after a pause, not in the same swipe).
