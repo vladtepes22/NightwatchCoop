@@ -136,6 +136,9 @@ public:
     /// bbport (texture_quality): moves a view of the whole texture onto the levels a reduced
     /// image kept (info.skip_levels); no change for any other image.
     static void AdjustView(const Image& image, ImageViewInfo& view);
+    /// bbport (texture_quality): a range of the whole texture's levels as the levels a reduced
+    /// image kept (its views and layout changes); unchanged for any other image.
+    [[nodiscard]] static SubresourceRange KeptRange(const Image& image, SubresourceRange range);
 
     /// bbport: whether `image_id` is still the registered image `uid` (see IsExactMatch).
     [[nodiscard]] bool IsRegisteredImage(ImageId image_id, u64 uid) const {
