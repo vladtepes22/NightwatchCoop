@@ -101,6 +101,7 @@
 #endif
 
 extern "C" void runtime_pad_director_press(std::uint32_t buttons); // src/runtime_pad.c
+extern "C" void runtime_pad_director_mask(std::uint32_t buttons);  // src/runtime_pad.c
 extern "C" std::uint32_t runtime_pad_last_buttons(); // src/runtime_pad.c: the last sample the game read
 
 namespace coop {
@@ -548,6 +549,9 @@ struct State {
     Clock::time_point continue_ready{}, continue_last{};
     bool continue_waiting = false;
     bool continue_signin = false;
+    bool signin_masked = false;      // manual play: Cross held back while the title's FROM sign-in runs
+    bool signin_gave_up = false;
+    Clock::time_point signin_mask_since{};
     // BB_BOOT_WATCHDOG: the last press or legitimate hold (sign-in, no link, title join), and
     // whether this quiet spell already asked for a snapshot.
     Clock::time_point continue_moved{};
@@ -1238,6 +1242,36 @@ std::string DescribeSignPolling() {
     return b;
 }
 
+/// Manual play (CL-4b4614, NW-cab726f): the title's FROM sign-in (ss.info -> login -> sync_chara_id -> notices) starts
+/// after the first press and takes a few seconds (longer on a slow link); a Continue pressed meanwhile loads the world
+/// with the game offline for the whole session (no Chalice summon works). While it runs the player's Cross is held back
+/// (at most 30 s; a failed request ends the hold). BB_PARTY_SIGNIN_HOLD=0 turns it off.
+void TitleSigninHold(State& st, const GameSnapshot& s, PartyRole role, Clock::time_point now) {
+    static const bool on = bb_party_switch_on("BB_PARTY_SIGNIN_HOLD");
+    bool hold = false;
+    if (on && role != PartyRole::None && !s.world_up && !s.loading && !st.signin_gave_up) {
+        const bbnet::OnlineProgress op = bbnet::online_progress();
+        hold = (op.ss_info > 0 || op.ss_info_started > 0) && op.notice == 0 && op.failures == 0 &&
+               (op.pending > 0 || (op.since_last >= 0 && op.since_last < 5.0));
+        if (hold && !st.signin_masked) {
+            st.signin_mask_since = now;
+        }
+        if (hold && Seconds(st.signin_mask_since, now) > 30.0) {
+            hold = false;
+            st.signin_gave_up = true;
+            Log("title: the FROM sign-in is still not over after 30 s; the Continue button is released");
+        }
+    }
+    if (hold != st.signin_masked) {
+        st.signin_masked = hold;
+        runtime_pad_director_mask(hold ? kPadCross : 0);
+        const bbnet::OnlineProgress op = bbnet::online_progress();
+        Log("title: %s (ss.info %d started %d, login %d, chara id %d, notice %d, pending %d)",
+            hold ? "the FROM sign-in runs; the Continue button is held back until it is over" : "the FROM sign-in is over; the Continue button is free",
+            op.ss_info, op.ss_info_started, op.login, op.chara_id, op.notice, op.pending);
+    }
+}
+
 /// Title screen: confirms "Continue" (the main menu's default item once a save exists) with the
 /// game's own pad path (runtime_pad_director_press: no OS input) until the world loads. Cross is
 /// pressed 0.15 s every 0.35 s (2.5 s without fast join) while no world was seen in this run, never in the world or while a
@@ -1337,7 +1371,13 @@ void AutoContinue(State& st, const GameSnapshot& s, PartyRole role, party::Party
     // The FROM sign-in (ss.info -> login -> sync_chara_id -> notices) starts once the title takes
     // its first press; Continue while it runs leaves the game offline: wait for it (<= 30 s).
     const bbnet::OnlineProgress op = bbnet::online_progress();
-    const bool signing_in = op.ss_info > 0 && op.notice == 0 && op.since_last >= 0 && op.since_last < 30.0;
+    // 0.7.9: a request still in flight counts (a slow answer, CL-4b4614): the sign-in began with the request, not its answer.
+    static const bool hold_on = bb_party_switch_on("BB_PARTY_SIGNIN_HOLD");  // 0: the 0.7.8 rule (an answered ss.info only)
+    // A stage gap is ~1 s; nothing in flight and nothing for 5 s = the game dropped its request (its own timeout: a late
+    // answer is ignored and the title's next press asks again): no hold then, the presses must go on.
+    const bool signing_in = hold_on ? (op.ss_info > 0 || op.ss_info_started > 0) && op.notice == 0 &&
+                                          (op.pending > 0 || (op.since_last >= 0 && op.since_last < 5.0))
+                                    : op.ss_info > 0 && op.notice == 0 && op.since_last >= 0 && op.since_last < 30.0;
     if (signing_in != st.continue_signin) {
         st.continue_signin = signing_in;
         if (!signing_in) {
@@ -5515,6 +5555,8 @@ void PartyDirector::Tick() {
         }
         if (ac == 1 && !NewGameTestRequested()) {
             AutoContinue(st, s, role, link, now);
+        } else {
+            TitleSigninHold(st, s, role, now);
         }
     }
     zone.Next(perf::Zone::DirSend);

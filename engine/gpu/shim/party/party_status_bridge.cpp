@@ -240,7 +240,10 @@ std::string RejectText(RejectCode code, const std::string& reason) {
     case RejectCode::Version: return reason.empty() ? "different party protocol version" : reason;
     case RejectCode::Mismatch: return "host refused: " + (reason.empty() ? std::string("different game") : reason);
     case RejectCode::Name: return reason.empty() ? "name refused" : reason;
-    case RejectCode::Invasion: return "invasion refused: " + (reason.empty() ? std::string("not now") : reason);
+    case RejectCode::Invasion:
+        if (reason.rfind("Can't ", 0) == 0) return reason;  // 0.7.9: the level range's own sentence
+        return "invasion refused: " + (reason.empty() ? std::string("not now") : reason);
+    case RejectCode::Level: return reason.empty() ? "your level is outside the host's range" : reason;
     default: return reason.empty() ? "refused by the host" : reason;
     }
 }
@@ -291,8 +294,12 @@ std::string RefusalNotice(RejectCode code, const std::string& reason) {
         todo = "System > Party > Rejoin the host asks to join again.";
         break;
     case RejectCode::Invasion:
-        title = reason.empty() ? "The invasion is over" : "The invasion is over: " + reason;
+        title = reason.empty() ? "The invasion is over" : reason.rfind("Can't ", 0) == 0 ? reason : "The invasion is over: " + reason;
         todo = "Pick another game in the launcher's list, or try again later.";
+        break;
+    case RejectCode::Level:
+        title = reason.empty() ? "Your level is outside the host's range" : reason;
+        todo = "Join with the host's party code or password instead (they ignore the level range), or pick another game.";
         break;
     case RejectCode::Name:
         title = reason.empty() ? "Your party name was refused" : "Party name refused: " + reason;

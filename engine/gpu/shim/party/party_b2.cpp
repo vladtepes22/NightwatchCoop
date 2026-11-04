@@ -10,6 +10,7 @@
 #include "party_async_io.h"
 #include "party_balance.h"
 #include "party_fourp.h"
+#include "party_invade.h"
 #include "party_gather_rules.h"
 #include "party_link.h"
 #include "party_runtime.h"
@@ -551,6 +552,12 @@ BB_COOP_SYSV void OwnWorldTypeHook(u64, u64, u64, u64, u64, u64) {
 /// kick home and a load that fails) but stay where it is, with the notice, and follow the host out again. BB_PARTY_CHALICE_
 /// OFFLINE_HOLD=0 restores the send-home. Test aid BB_PARTY_CHALICE_MSG_TEST=offline_mode reads as offline mode.
 void Send(int slot, const std::string& body);
+/// 0.7.9: an invader always sees what it waits for (persistent line + one toast); other guests keep their own texts.
+void InvaderSay(const char* text, bool toast = true) {
+    if (!coop::invade::JoinAsInvader()) return;
+    party::bridge::OnHostBusy(text);
+    if (toast && *text) party::status::SetLastEvent(text);
+}
 std::atomic<bool> g_offline_hold_noticed{false};
 bool ChaliceOfflineHold(bool host_in_dungeon, dsummon::StuckWhy* why = nullptr) {
     static const bool enabled = !(std::getenv("BB_PARTY_CHALICE_OFFLINE_HOLD") && std::getenv("BB_PARTY_CHALICE_OFFLINE_HOLD")[0] == '0');
@@ -10877,6 +10884,7 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
         }
         if (before == dsummon::Phase::Asked && DS().g.phase == dsummon::Phase::Failed) {
             Log("direct summon: no answer from the host within %.0f s: the bell sign path", dsummon::kAnswerWait);
+            InvaderSay("Invading: no quick answer, taking the slower way in");
         }
         fail_why = DS().g.fail_why;
         gather = DS().g.gather;
@@ -10910,6 +10918,7 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
         const bool ok = a == dsummon::Action::ReportOk;
         Send(0, dsummon::EncodeDone(ok));
         if (ok) {
+            InvaderSay("", false);
             Log("direct summon: joined the host's room (%.1f s after the request)", now - asked_at);
             party::connwarn::GuestOwnSummonJoined();
             if (!dsummon::SameMap(room.area, s.map_id) && ((room.area >> 24) & 0xff) != 29) {
@@ -10921,6 +10930,7 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
         } else {
             // Connection warnings: delivered but never joined = the host's session cannot hear this game.
             if (std::strncmp(fail_why, "delivered", 9) == 0) party::connwarn::GuestOwnSummonFailed(bbnet::settings().party_port);
+            InvaderSay(gather ? "Invading: going to the host's area first" : "Invading: the quick way failed, taking the slower way in");
             Log("direct summon: FAILED (%s; %.1f s after the request): %s", fail_why, now - asked_at,
                 gather ? "the bell goes down; gather to the host's area first (loading screen), then ring again"
                        : "the bell sign path takes over");
@@ -11178,6 +11188,7 @@ void DirectSummonEvent(int from_slot, const std::string& body) {
         const bool ok = dsummon::DecodeRoom(body, &r, &refused, &err);
         std::lock_guard<std::mutex> lk(DS().mu);
         if (ok) DS().room = r;
+        if (ok) InvaderSay("Joining the host's world...");
         const dsummon::Busy busy = refused ? dsummon::WaitOf(body) : dsummon::Busy::None;
         dsummon::OnRoom(DS().g, Now(), !ok, busy);
         if (busy != dsummon::Busy::None) party::bridge::OnHostBusy(dsummon::BusyText(busy, false));  // A11
@@ -13913,6 +13924,7 @@ void DirectSummonRing() {
     DS().asked_at = Now();
     Send(0, dsummon::EncodeReq());
     Log("direct summon: asked the host for its room (rang the bell)");
+    InvaderSay("Invading: waiting to be let in");
 }
 bool DirectSummonTakeGather() {
     std::lock_guard<std::mutex> lk(DS().mu);

@@ -29,3 +29,10 @@ and the lobby (`net/party_vpnlobby.h`: no password flag = open).
 
 Launcher: *Parties found* / *Nightwatch VPN games* -> **Join** asks for a password only for a game that has one. By
 hand: paste `host:port` into *Party code* and leave *Password* empty. Smoke: phase `openjoin` (group `open`).
+
+## Level range (0.7.9)
+
+A passwordless join by plain address is refused when the guest's level is outside `floor(X*0.8-20) .. floor(X*1.2+20)` of the
+host's level X (host 100: 60-140), with *Can't join HOST: your level N is outside their range (a-b)*. A party code or a password
+ignores the range (as in the game). Only a new member is checked at the HELLO / AUTH, then its vitals level once known; a
+resume is not re-gated. See `invasions.md` "The level range".

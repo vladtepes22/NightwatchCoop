@@ -199,6 +199,7 @@ enum class RejectCode : std::uint8_t {
     Shutdown = 7,  // host ended the party (BYE)
     Kicked = 8,
     Invasion = 9,  // 0.7.8: an invader the host does not admit now (the reason names why: party_invade_rules.h)
+    Level = 10,    // 0.7.9: an open-party join (no password) outside the host's level range
 };
 
 enum class LinkState : std::uint8_t {
@@ -275,13 +276,20 @@ struct LinkConfig {
     // party's progress. Host: asked for every HELLO with role invader (after the identity check; final_check false: the
     // attempt is counted) and again at AUTH (final_check true) with the name and the peer address (network order); returns "" to admit or the named reason (REJECT Invasion). Unset: refused.
     bool invader = false;
-    std::function<std::string(const std::string& name, std::uint32_t ip, bool final_check)> invader_gate;
+    // 0.7.9: `level` is the Blood Echoes level the invader said in its HELLO (0 unknown / an older build).
+    std::function<std::string(const std::string& name, std::uint32_t ip, bool final_check, int level)> invader_gate;
+    // 0.7.9, invader side: its Blood Echoes level for the HELLO (0 unknown).
+    std::function<int()> own_level;
+    // 0.7.9, host: an open-party join (no password, a plain address; a party code or password ignores the range) of a NEW member
+    // asks this with the level it said in its HELLO; "" admits, else the refusal text (RejectCode::Level). A member already admitted
+    // that resumes is not asked again.
+    std::function<std::string(int level)> open_level_gate;
 };
 
 // 0.7.8: the only EVENTs an invader may send to the host, and the only ones the host sends it (the link drops the
 // rest on both sides: progress, items, gathers, votes, world actions, lamps never cross to or from an invader).
-bool invader_event_from_ok(const std::string& name);
-bool invader_event_to_ok(const std::string& name);
+bool invader_event_from_ok(const std::string& name, const std::string& json);
+bool invader_event_to_ok(const std::string& name, const std::string& json);
 // 0.7.8: the RPCs an invader may make: the game's own session API (the FROM server emulation "http" and the room calls it needs to
 // ring the bell and be summoned). Everything else, e.g. "kick_member", is refused.
 bool invader_rpc_ok(const std::string& kind);
@@ -400,6 +408,10 @@ public:
     bool member_endpoint(int slot, std::uint32_t* ip, std::uint16_t* port_nbo) const;
     // Host: member `slot` joined as an invader (false for a cooperator, the host or an empty slot).
     bool is_invader(int slot) const;
+    // 0.7.9, host: member `slot` came in through the open-party level gate (its vitals level is rechecked by the game side).
+    bool joined_open(int slot) const;
+    // 0.7.9, host: remove member `slot` with BYE (code, reason) without banning its name (the level recheck).
+    bool drop_member(int slot, RejectCode code, const std::string& reason);
     RejectCode reject_code() const;
     std::string reject_reason() const;
     /// 0.7.8: the host's options a Mismatch refusal carried (party_options.h options_parse), or empty.

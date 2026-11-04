@@ -17,6 +17,7 @@
 #include "coop_hooks.h"
 #include "game_state.h"
 #include "party_guestsvc.h"
+#include "party_invade.h"
 #include "party_npcghost.h"
 #include "party_death_rules.h"
 #include "party_phantom.h"
@@ -995,10 +996,17 @@ bool ApplyPhantomHp() {
     static bool refused = false;
     if (refused) return true;
     const bool rule = party::status::HostRuleOn(party::status::HostRule::PhantomHp);
-    const bool pvp = party::status::FriendlyFire();
+    // 0.7.9: an invasion is PvP too (enemy teams, not the friendly-fire switch): the host's "Full health in PvP"
+    // decides the cut while an invader is on the way or in, on every game. An invader's game gets no host rules
+    // (party_link invader_event_to_ok): it follows the host's decision sent in the "invade" event (HostFullHp).
+    const bool pvp = party::status::FriendlyFire() || !coop::invade::InvaderName().empty();
     const bool pvp_full = party::status::HostRuleOn(party::status::HostRule::PvpFullHp);
-    const bool on = levelsync::PhantomCutOn(rule, pvp, pvp_full);
-    const int state = on ? 1 : pvp && pvp_full && rule ? 2 : 0;  // for the log: 2 = lifted by PvP
+    bool on = levelsync::PhantomCutOn(rule, pvp, pvp_full);
+    int state = on ? 1 : pvp && pvp_full && rule ? 2 : 0;  // for the log: 2 = lifted by PvP
+    if (coop::invade::JoinAsInvader()) {
+        const int full = coop::invade::HostFullHp();  // -1 before the host said
+        if (full >= 0) on = full == 0, state = on ? 1 : 2;
+    }
     const float want = levelsync::PhantomHpRate(on);
     ParamTable t;
     if (!FindParam("SpEffectParam", "SP_EFFECT_PARAM_ST", &t)) return false;

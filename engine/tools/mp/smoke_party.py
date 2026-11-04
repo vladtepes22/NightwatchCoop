@@ -2990,6 +2990,33 @@ def check_camh(v, L):
     none_of(v, L, "camh the guest never loaded in", r"map - -> m29_00", t or 0, 1e9, (1,))
 
 
+# Phase cas (group chalice_alias; 0.7.9 signin079, CL-4b4614 / NW-cab726f): the guest's ss.info answer at the title is LATE
+# (BB_HTTP_DELAY_SSINFO_MS on the guest, CAS_DELAY_MS, default 17000 as in the report: healthy ~3 s). Before 0.7.9 the title
+# went on to Continue meanwhile and the game stayed offline for the session (FrpgNetMan +8 clear, no Chalice summon works);
+# now Continue waits for the sign-in. cae's flow (the host enters its ritual dungeon with the guest present): the guest must
+# follow into m29 through the summon. CAS_HOLD=0 puts the 0.7.8 behaviour back (BB_PARTY_SIGNIN_HOLD=0) = the reproduction
+# (the checks then fail: the guest stays offline).
+def phase_cas(only):
+    d = phase_cae(only)
+    d["name"] = "cas"
+    for who in os.environ.get("CAS_WHO", "0,1").split(","):  # which instances get the late answer (0 host, 1 guest)
+        d["ienv"] = d["ienv"] + [who + ":BB_HTTP_DELAY_SSINFO_MS=" + os.environ.get("CAS_DELAY_MS", "17000")]
+        if os.environ.get("CAS_HOLD") == "0":
+            d["ienv"] = d["ienv"] + [who + ":BB_PARTY_SIGNIN_HOLD=0"]
+    d["seconds"] = 300
+    return d
+
+
+def check_cas(v, L):
+    check_common(v, L, "cas")
+    need(v, L, "cas the first ss.info answer was delayed (test knob)", int(os.environ.get("CAS_WHO", "0,1").split(",")[0]), r"http: test: delaying the first ss\.info answer")
+    t = need(v, L, "cas guest: the sign-in finished (ss.info answered late, game online: FrpgNetMan net up)", 1,
+             r"online: FrpgNetMan net 1 online 1 .*user \d+ session [1-9]\d* chars")
+    need(v, L, "cas host: the dungeon load started", 0, r"altar: the party's dungeon is loading")
+    need(v, L, "cas guest followed into the dungeon (m29) through the summon", 1, r"map - -> m29_00", t or 0)
+    none_of(v, L, "cas the guest was not sent home / offline-held", r"send-home at \+0x138a51c \(OnLeave_Limit\) dropped|chalice: notice shown: This game is in offline mode", 0, 1e9, (1,))
+
+
 # Phase caw (chalice_queen walk; 0.7.7 queen077): the Queen fixture (chalice_queen_ritual: a Pthumeru Ihyll Root Chalice
 # dungeon in slot 1, made by phase caq) is the GUEST's save; the host (default save) enters it by the altar's one-press
 # "Enter the party's dungeon" (as cae). CAW_TAIL = director steps after the dungeon loads (probes, warps, host_kill=ID).
@@ -4460,6 +4487,119 @@ def check_lr(v, L):
     check_common(v, L, "lr")
 
 
+# Phase mi (micolash079, CL-ccedf1, ~8 min, 2 players, group `micolash`, player report: "Micolash, second attempt: the
+# fight started before we entered the boss area, his bar lost HP and regained it for one player, the friend saw
+# nothing and one friend was invisible"). Fixture: Nightmare of Mensis, Micolash alive (his flags and the zone 4
+# group cleared), the party at the lamp 2602953 (the nearest lamp the navmesh reaches him from: a 900 m walk).
+# Try 1: the host walks toward him like a player (the first-fight event 12601852 fires within 32 m), the guest
+# goes through his fog 2601850 once the host's bar is up; both stand passive; the host dies (limbo), then the
+# guest: the wipe. Try 2: after the respawn load nobody is near him: for MI_HOLD s his bar must stay down on both
+# games and nobody is invisible; then the host walks in again, the guest follows through the fog.
+MI_LAMP = "2602953"
+MI_CLEAR = "12601850,12601852,12604850,12604851,12604731,12604858,12604857,12604852,12604853"
+MI_READ = "12601850,12601852,12604850,12604851,12604731,12607850,12607851,72600200,72600201,72600202,72600203"
+MI_SPOT = "176.8:-35.8"
+# The lamp 2602953 -> 30 m short of Micolash's spot (176.8, 1038.5, -35.8): a navmesh route of 880 m (tools/party/nav_route.py
+# on m26_00_00_00, local frame, step 30; +1000 in y = the world frame). His first-fight event fires at 32 m; his floor is
+# on another navmesh island for an X:Z stick walk from the lamp, so the walk is a route.
+MI_ROUTE = "/".join("%.1f:%.1f:%.1f" % (x, 1000 + y, z) for x, y, z in [(137.0, 29.4, -6.3), (156.8, 33.0, -14.7)])
+MI_NEAR = "106.2:1029.4:-6.4"   # 70 m of path short of the first-fight spot, outside the 32 m of his event, not in a boss room:
+                                # the full 880 m walk from the lamp is blocked by an Iron Door / lift the harness cannot open
+MI_HOLD = 40
+MI_UNTIL = [r"1:travel step (?P<n>\d+)/(?P=n): guest_press 0x0"]
+
+
+def _mi_fog(role, cond, m):
+    """Walk to Micolash's fog 2601850 and through it like a player (R3: the camera behind, Cross twice)."""
+    return ["%s_obj=2601850@3%s%s" % (role, m, cond), "%s_press=0x4@1%s!" % (role, m), "%s_press=0@1%s!" % (role, m),
+            "%s_press=0x4000@2%s!" % (role, m), "%s_press=0x4000@2%s!" % (role, m)]
+
+
+def phase_mi(only, name="mi", guest_first=False):
+    dist = os.environ.get("BB_MI_DIST", "8")
+    win = int(os.environ.get("BB_MI_WINDOW", "40"))
+    m = "%m26_00"
+    walk = lambda role, at: ["%s_move=%s@%s%s" % (role, MI_NEAR, at, m), "%s_route=%s@3%s" % (role, MI_ROUTE, m)]
+    if guest_first:
+        # the guest alone walks to him and through his fog; the host stays at the lamp (its chr is sent to his spot
+        # for a moment by the party's first-fight start, then put back)
+        host = ",".join(["god", "log_pos=2", "host_warp=%s@8^1" % MI_LAMP, "host_press=0x0@%d%s" % (MI_HOLD + win + 60, m)])
+        g1 = ",".join(["god", "log_pos=2"] + walk("guest", 12) + _mi_fog("guest", "", m) +
+                      ["guest_chr=2600850:%s@8%s" % (dist, m), "guest_press=0x0@%d%s" % (win, m), "guest_press=0x0@2%s" % m])
+    else:
+        host = ",".join(["god", "log_pos=2", "host_warp=%s@8^1" % MI_LAMP] + walk("host", 3) +
+                        ["host_press=0@1%s!" % m,
+                         "host_die@25%s?member=bar" % m,                      # try 1: after the scene, the guest in the fight
+                         "host_press=0x0@%d%s" % (MI_HOLD, m)] +              # after the wipe's load: the hold
+                        walk("host", 2) + _mi_fog("host", "", m) +            # try 2: the walk and the fog
+                        ["host_chr=2600850:%s@4%s" % (dist, m), "host_press=0x0@%d%s" % (win, m)])
+        g1 = ",".join(["god", "log_pos=2"] + walk("guest", 12) + _mi_fog("guest", "?host=bar", m) +
+                      ["guest_chr=2600850:%s@4%s" % (dist, m),
+                       "guest_die@4%s?host=spec" % m,                         # the host is down: the wipe
+                       "guest_press=0x0@%d%s" % (MI_HOLD, m)] + walk("guest", 2) + _mi_fog("guest", "", m) +
+                      ["guest_chr=2600850:%s@4%s" % (dist, m), "guest_press=0x0@%d%s" % (win, m), "guest_press=0x0@2%s" % m])
+    env = ["BB_PARTY_PROGRESS_TEST_CLEAR=" + MI_CLEAR, "BB_PARTY_PROGRESS_TEST_READ=" + MI_READ,
+           "BB_PARTY_TARGET_ANIM=1", "BB_PARTY_AI_LOG=1", "BB_BOSS_LOG=1", "BB_TEST_WALK_SPRINT=1"]
+    if os.environ.get("BB_MI_NET"):
+        env.append("BB_NET_SIM=" + os.environ["BB_MI_NET"])
+    return dict(
+        name=name, seconds=1800, count=2, headless=0, pads=(0, 1), until_hold=4,
+        env=env,
+        ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=" + g1, "1:BB_PARTY_TRAVEL_CHOICE=alone",
+              "0:BB_PARTY_TEST_START_LAMP=" + MI_LAMP],
+        watch=["--watch", r"boss health bar shown=bar@1,4,15",
+               "--watch", r"went through boss fog=fog@1,4",
+               "--watch", r"host death in a boss fight=limbo@2,10"],
+        crash=[], until=MI_UNTIL,
+    )
+
+
+def _mi_hp(L, inst, a, b):
+    out = []
+    for t, ln in L.all(inst, r"test: boss bar 0: name 899000 chr \d+ hp \d+", a, b):
+        out.append((t, int(re.search(r"hp (\d+)", ln).group(1))))
+    return out
+
+
+def check_mi(v, L, tag="mi"):
+    """Phase mi: Micolash's fight starts only when it would in solo (the host within 32 m of him, then the fog on a
+    second try), his bar is up and agrees on both games, nothing starts while the party stands at the lamp after a wipe."""
+    need(v, L, tag + " join: 2 players", 0, r"cooperators 0 -> 1")
+    scene = need(v, L, tag + " try 1: his first-fight scene plays when the host comes within 32 m (cutscene 26000060)", 0,
+                 r"story .*cutscene 26000060")
+    bar1 = need(v, L, tag + " try 1: the fight starts (bar, host)", 0, r"boss health bar shown", scene or 0.0)
+    if bar1 is None:
+        return check_common(v, L, tag)
+    none_of(v, L, tag + " try 1: no bar before the host came near him", r"boss health bar shown", 0, (scene or bar1) - 0.5, (0, 1))
+    need(v, L, tag + " try 1: the guest's game shows the bar", 1, r"boss health bar shown", bar1 - 5)
+    wipe = need(v, L, tag + " try 1: the party wipes", 0, r"a wipe", bar1)
+    if wipe is None:
+        return check_common(v, L, tag)
+    up = need(v, L, tag + " try 1: the respawn load", 0, r"loading screen gone", wipe)
+    walk = need(v, L, tag + " try 2: the host walks back toward him", 0, r"test: route: stage record 0", up or wipe)
+    # the hold: after the load nobody is near him; no bar, no fight on either game
+    if up is not None and walk is not None:
+        none_of(v, L, tag + " try 2: no bar while the party stands at the lamp (hold)", r"boss health bar shown", up, walk - 0.5, (0, 1))
+        none_of(v, L, tag + " try 2: no fight start (host-entered flag 12604850 stays 0 at the lamp)", r"host flag 12604850 = 1", up, walk - 0.5, (0, 1))
+    hit2 = L.find(0, r"boss health bar shown", walk or wipe)
+    bar2 = hit2[0] if hit2 else None
+    v.step(tag + " try 2: after the walk to his fog (info: the harness's fog press does not start the re-fight yet)", True,
+           "bar at %s" % bar2)
+    if bar2 is not None:
+        need(v, L, tag + " try 2: the guest's game shows the bar", 1, r"boss health bar shown", bar2 - 5)
+        a, b = bar2 + 6.0, bar2 + 6.0 + float(os.environ.get("BB_MI_WINDOW", "40"))
+        hh, gg = _mi_hp(L, 0, a, b), _mi_hp(L, 1, a, b)
+        v.step(tag + " try 2: his bar has the same HP on both games (last samples within 5%)",
+               bool(hh) and bool(gg) and abs(hh[-1][1] - gg[-1][1]) <= 0.05 * max(hh[-1][1], 1),
+               "host %s, guest %s (of %s)" % (hh[-1:], gg[-1:], hh[:1]))
+        v.step(tag + " try 2: his HP never regains on the host or the guest (no loss-then-regain)",
+               all(y <= x for (_t, x), (_u, y) in zip(hh, hh[1:])) and all(y <= x for (_t, x), (_u, y) in zip(gg, gg[1:])),
+               "host %d samples, guest %d" % (len(hh), len(gg)))
+    none_of(v, L, tag + ": no 'boss may be stuck' on either game", r"boss state: [0-9a-f]+ may be stuck", 0, 1e9, (0, 1))
+    none_of(v, L, tag + ": every fog walk got through", r"test: fog: NOT through", 0, 1e9, (0, 1))
+    check_common(v, L, tag)
+
+
 # Phase lw (simonwipe, 0.7.6, ~5 min, 2 players, group `ludwig_wipe`, player report 2026-10-25): a party
 # wipe in Ludwig's fight (Hunter's Nightmare, entities 3400800 / 3400801, bars 451000 / 451005). The
 # report: after the wipe the second-phase scene (34000030, event 13404825, warp 3402807) played and the
@@ -5248,9 +5388,20 @@ EM_CLEAR = "12421700,12421702,12424700,12424701"
 EM_SMALL = (2420711, 2420712, 2420713, 2420716, 2420717, 2420719, 2420720)
 
 
-def phase_em(only):
+# emf (0.7.9, player report NW-55a69c9 again: the FIRST fight): 12421702 not set, the host stands at the lamp by the fog
+# (-1.2, 55.3, 292.7 as in the report; the first-start area is a box 70 m east, 7 m lower), the guest goes through the
+# fog first. The host's event 12421702 must run (the host's chr visits the area, P5), so the small emissaries are
+# enabled on the host's game as well (before: only the guest's late-guest event 12421703 did, the host kept them off).
+EMF_SPOT = "-1.2:55.3:292.7"
+
+
+def phase_emf(only):
+    return phase_em(only, first=True)
+
+
+def phase_em(only, first=False):
     delay = float(os.environ.get("BB_EM_DELAY", "20"))
-    spot = os.environ.get("BB_EM_SPOT", EM_SPOT)
+    spot = os.environ.get("BB_EM_SPOT", EMF_SPOT if first else EM_SPOT)
     host = ",".join([
         "god",
         "host_warp=2422950@8^1",                                    # the party to the Upper Cathedral Ward lamp
@@ -5268,12 +5419,32 @@ def phase_em(only):
         "guest_press=0x0@4%m24_02!",
     ])
     return dict(
-        name="em", seconds=300, count=2, headless=0, pads=(0, 1), until_hold=6,
+        name="emf" if first else "em", seconds=300, count=2, headless=0, pads=(0, 1), until_hold=6,
         env=["BB_PARTY_PROGRESS_TEST_CLEAR=" + EM_CLEAR, "BB_PARTY_EMEVD_TRACE=1"] +
-            (["BB_PARTY_PROGRESS_TEST_SET=12421702"] if os.environ.get("BB_EM_REFIGHT", "1") == "1" else []),
+            (["BB_NET_SIM=" + os.environ["BB_EM_NET"]] if os.environ.get("BB_EM_NET") else []) +   # BB_EM_NET=dsl / mobile / bad
+            (["BB_PARTY_PROGRESS_TEST_SET=12421702"] if not first and os.environ.get("BB_EM_REFIGHT", "1") == "1" else []),
         ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=" + g1],
         crash=[], until=EM_UNTIL,
     )
+
+
+def check_emf(v, L):
+    """Phase emf: the first fight, the host at the lamp, the guest through the fog first: the host's own first-fight
+    event 12421702 runs (it enables the small emissaries with the spawn effect), on the guest the late-guest event."""
+    need(v, L, "emf join: 2 players", 0, r"cooperators 0 -> 1")
+    went = need(v, L, "emf guest went through the fog first", 1, r"guest: went through boss fog \(event 12424711")
+    if went is not None:
+        need(v, L, "emf host: the host's first-fight event is started for the guest-first walk", 0,
+             r"host: boss fog: slot \d+ went in before the host's first fight here \(guest event 12424711\)", went - 1.0)
+        need(v, L, "emf host: its first-fight event 12421702 ran (small emissaries' spawn effect)", 0,
+             r"EMEVD event 12421702 \[\d+\] 2003\[18\]", went - 1.0)
+        need(v, L, "emf host: the first fight started", 0,
+             r"host: first fight of guest event 12424711 started", went - 1.0)
+        need(v, L, "emf guest: the late-guest event 12421703 shows the small emissaries", 1,
+             r"EMEVD event 12421703 \[8\] 2003\[18\]", went - 1.0)
+        none_of(v, L, "emf the first fight was not dropped", r"first-fight start for guest event 12424711 dropped",
+                insts=(0,))
+    check_common(v, L, "emf")
 
 
 def check_em(v, L):
@@ -7755,6 +7926,45 @@ def check_ou(v, L, tag="ou"):
     check_common(v, L, tag)
 
 
+# ---- Phases gdr / gdrd / gdrb / gdrf (0.7.9, CL-8c879b, NW-2cedbeb): a guest dies, its game ends, it restarts and rejoins ----
+# Player report (0.7.7, over a VPN): a guest died, restarted its game and could not get back into the host's
+# world (it stayed in its own world, the summon never arrived). Two players. The guest dies in the host's
+# world (no god mode), its game is killed 8 s later (as a crash / a quit: the harness crash plan), run.bat
+# restarts it, it title-joins and must be back in the host's room (cooperators 0 -> 1 a second time) with
+# no failed title join and nobody kicked. gdr: loopback; gdrd: BB_NET_SIM=dsl; gdrb: bad; gdrf: loopback with
+# "Party: Fast rejoin" off (BB_PARTY_FAST_JOIN=0).
+GDR_UNTIL = r"0:cooperators 1 -> 0[\s\S]*cooperators 0 -> 1"
+
+
+def phase_gdr(only, name="gdr", sim=None, fast=True):
+    env = (["BB_NET_SIM=" + sim] if sim else []) + ([] if fast else ["BB_PARTY_FAST_JOIN=0"])
+    return dict(
+        name=name, seconds=420, count=2, headless=0, env=env,
+        ienv=["0:BB_PARTY_DIRECTOR_TEST=god", "1:BB_PARTY_DIRECTOR_TEST=guest_die@25",
+              "0:BB_PARTY_DIRECTOR_TEST_RESTART=none", "1:BB_PARTY_DIRECTOR_TEST_RESTART=none"],
+        crash=[r"1:travel step \d+/\d+: guest_die@8"], until=[GDR_UNTIL], until_hold=25,
+    )
+
+
+def check_gdr(v, L, d, tag="gdr"):
+    j = need(v, L, "%s join: 2 players" % tag, 0, r"cooperators 0 -> 1")
+    if j is None:
+        check_common(v, L, tag)
+        return
+    died = need(v, L, "%s the guest died in the host's world" % tag, 1, r"travel step \d+/\d+: guest_die", j)
+    crashes = harness_crashes(d)
+    g = [t for t, i in crashes if i == 1]
+    v.step("%s guest game ended (harness kill)" % tag, bool(g), "+%.1f s" % g[0] if g else "the crash plan did not fire")
+    if g:
+        back = need(v, L, "%s the restarted guest is back in the host's room" % tag, 0, r"cooperators 0 -> 1", g[0])
+        if back is not None:
+            v.step("%s rejoin time (kill -> room)" % tag, back - g[0] < 60, "%.1f s (limit 60)" % (back - g[0]))
+        none_of(v, L, "%s no failed title join" % tag, r"title join: FAILED", g[0], 1e9, (1,))
+        none_of(v, L, "%s nobody kicked" % tag, r"KickoutRoomMember req", g[0], 1e9, (0,))
+        need(v, L, "%s guest in the host's world (game joined the room)" % tag, 1, r"apply gate open: summoned|load mode 1", g[0])
+    check_common(v, L, tag)
+
+
 # ---- Phases oum / meshm (0.7.8, CL-79fe9c): ou and mesh over a VPN-like path ----
 # The same runs under BB_NET_SIM dsl (80 ms, jitter, 2 % loss, dup, reorder) with mtu=1400: a datagram whose
 # UDP payload is over 1400 bytes is dropped, as an IP-fragmented datagram is when a tunnel loses one fragment.
@@ -8222,27 +8432,64 @@ def check_ivx(v, L, name="ivx"):
     check_common(v, L, n)
 
 
-PHASES = {"iv": phase_iv, "ivn": lambda only: phase_iv(only, "ivn", "dsl"), "ivx": phase_ivx, "ah": phase_ah, "pc": phase_pc, "vm": phase_vm, "yj": phase_yj, "s1": phase_s1, "sh": phase_sh, "gg": phase_gg, "s2": phase_s2, "rules": phase_rules, "ss": phase_ss, "sc": phase_sc, "summonfail": phase_summonfail,
-          "s3": phase_s3, "sk": phase_sk, "lg": phase_lg, "lv": phase_lv, "ga": phase_ga, "gl": phase_gl, "lf": phase_lf, "lfx": phase_lfx, "lfa": phase_lfa, "lfw": phase_lfw, "lfwc": phase_lfwc, "lfws": phase_lfws, "lfwcs": phase_lfwcs, "lfwf": phase_lfwf, "lfwcf": phase_lfwcf, "lfwbs": phase_lfwbs, "lfwcbs": phase_lfwcbs, "lu": phase_lu, "mk": phase_mk, "kd": phase_kd, "kg": phase_kg, "fdr": phase_fdr, "kw": phase_kw, "fl": phase_fl, "fd": phase_fd, "fdj": phase_fdj, "cd": phase_cd, "iw": phase_iw, "iwn": phase_iwn, "an": phase_an, "anl": phase_anl, "ld": phase_ld, "cl": phase_cl, "cy": phase_cy, "cyn": lambda only: phase_cy(only, "cyn", True), "clg": phase_clg, "clw": phase_clw, "cla": phase_cla, "caa": phase_caa, "cam": phase_cam, "camo": lambda only: phase_cam(only, "offline"), "camh": phase_camh, "cpr": phase_cpr, "chc": phase_chc, "chn": lambda only: phase_chc(only, "chn", True), "chw": phase_chw, "cpa": phase_cpa, "cae": phase_cae, "cao": phase_cao, "cgt": phase_cgt, "cgp": phase_cgp, "cgu": phase_cgu, "cab": phase_cab, "caq": phase_caq, "caw": phase_caw, "el": phase_el, "lt": phase_lt, "bf": phase_bf, "bv": phase_bv, "bw": phase_bw, "ch": phase_ch, "md": phase_md, "mds": phase_mds, "svl": phase_svl, "rh": phase_rh, "rs": phase_rs, "fw": phase_fw, "fwg": phase_fwg, "fwb": phase_fwb, "fwe": phase_fwe, "fh": phase_fh, "lp": phase_lp, "gd": phase_gd, "gh": phase_gh, "gm": phase_gm, "gr": phase_gr, "gr2": phase_gr2, "gr3": phase_gr3, "gr4": phase_gr4, "mp": phase_mp, "mpg": phase_mpg, "mph": phase_mph, "gro": lambda only: phase_gr(only, "gro", False), "gr2o": lambda only: phase_gr2(only, "gr2o", False), "gr3o": lambda only: phase_gr3(only, "gr3o", False), "gr4o": lambda only: phase_gr4(only, "gr4o", False), "jl": phase_jl, "ml": phase_ml, "mg": phase_mg, "ll": phase_ll, "hlq": phase_hlq, "hlr": phase_hlr, "hs": phase_hs, "ngj": phase_ngj, "nl": phase_nl, "ff": phase_ff, "lk": phase_lk, "lkc": phase_lkc, "rt": phase_rt, "br": phase_br, "rf": phase_rf, "rj": phase_rj, "em": phase_em, "bd": phase_bd, "bdo": phase_bdo, "sm": phase_sm, "ef": phase_ef, "ngp": phase_ngp, "mb": phase_mb, "gb": phase_gb, "mbs": phase_mbs, "gbs": phase_gbs, "da": phase_da, "cv": phase_cv, "cvs": phase_cvs, "cvo": lambda only: phase_cvs(only, False), "cvr": phase_cvr, "cvm": phase_cvm, "cvc": phase_cvc, "cva": phase_cva, "cvf": phase_cvf, "cvt": phase_cvt, "cvh": lambda only: phase_cvt(only, "host"), "ie": phase_ie, "il": phase_il, "rw": phase_rw, "rwe": phase_rwe, "rwt": phase_rwt, "gag": phase_gag, "gv": phase_gv, "gvg": phase_gvg, "gvr": phase_gvr, "gvl": phase_gvl, "gvn": lambda only: phase_gv(only, "gvn", "dsl"), "gvm": phase_gvm, "gvs": phase_gvs, "rwl": phase_rwl, "tv": phase_tv, "nf": phase_nf, "nfa": phase_nfa, "nfe": phase_nfe, "nfw": phase_nfw, "npi": phase_npi, "npa": phase_npa, "npd": phase_npd, "pvd": phase_pvd, "pvh": phase_pvh, "pvn": phase_pvn, "npf": phase_npf, "eh": phase_eh, "bl": phase_bl, "mw": phase_mw, "px": phase_px, "pxg": lambda only: phase_px(only, True), "sj": phase_sj, "ou": phase_ou, "mesh": phase_mesh, "oum": lambda only: phase_ou(only, "oum", VPN_MTU_SIM), "meshm": lambda only: phase_mesh(only, "meshm", VPN_MTU_SIM), "fp": phase_fp, "fp5": phase_fp5, "oj": phase_oj, "lo": phase_lo, "po": phase_po, "pos": phase_pos, "sg": phase_sg, "sg2": phase_sg2, "sgb": phase_sgb, "sgb2": phase_sgb2, "sgb3": phase_sgb3, "sgp": phase_sgp, "csh": phase_csh, "csh2": phase_csh2, "csh3": phase_csh3, "cis": phase_cis, "ba": phase_ba, "bh": phase_bh, "bk": phase_bk, "hg": phase_hg, "bg": phase_bg, "lr": phase_lr, "lw": phase_lw, "amp": phase_amp, "la": phase_la, "lb": phase_lb, "lc": phase_lc}
+# Phase ivl (0.7.9, group `invade_level`): the invasion level range. The host (Allow invaders on) is in its world; the invader claims
+# level 900 (BB_PARTY_INVADE_LEVEL, HELLO and vitals alike) and dials at +40: it must be refused with the range sentence (or, if
+# the host's level was not yet known at the dial, removed as soon as its vitals say 900), and never stand in the world.
+IVL_UNTIL = [r"1:Can't invade .*your level 900 is outside their range"]
+
+
+def phase_ivl(only):
+    ienv = ["1:BB_PARTY_INVADE=1", "0:BB_PARTY_INVADERS=1", "1:BB_PARTY_INVADE_LEVEL=900",
+            "1:BB_PARTY_INVADE_TEST=rejoin@40?home"]
+    return dict(name="ivl", seconds=420, count=2, headless=0, env=[], ienv=ienv, crash=[], until=IVL_UNTIL, until_hold=25)
+
+
+def check_ivl(v, L):
+    need(v, L, "ivl invader: refused with the level range sentence", 1, r"Can't invade .*: your level 900 is outside their range \(\d+-\d+\)")
+    need(v, L, "ivl host: the gate names the level range", 0, r"gate: invader \(name hidden\).*level_range")
+    none_of(v, L, "ivl the invader never stood in the world", r"invade: invader slot \d+: in the world", insts=(0,))
+    check_common(v, L, "ivl")
+
+
+# Phase ojl (0.7.9, group `open_level`): the open-party level range. The host has no password (BB_PARTY_OPEN=1); the guest joins by the
+# plain address and claims level 900: refused with "Can't join ...", never in the host's world.
+OJL_UNTIL = [r"1:Can't join .*your level 900 is outside their range"]
+
+
+def phase_ojl(only):
+    return dict(name="ojl", seconds=420, count=2, headless=0, env=[],
+                ienv=["0:BB_PARTY_OPEN=1", "1:BB_PARTY_CODE=127.0.0.1:{p0}", "1:BB_PARTY_PASSWORD=", "1:BB_PARTY_INVADE_LEVEL=900"],
+                until=OJL_UNTIL, until_hold=25, crash=[])
+
+
+def check_ojl(v, L):
+    need(v, L, "ojl guest: refused with the level range sentence", 1, r"Can't join .*: your level 900 is outside their range \(\d+-\d+\)")
+    # The guest dials while the host's level is still unknown (no world yet): admitted, then removed by the vitals recheck.
+    need(v, L, "ojl host: the guest is removed (HELLO gate or the vitals recheck)", 0, r"outside the host's range \d+-\d+: removed|open-party join level 900 refused")
+    check_common(v, L, "ojl")
+
+
+PHASES = {"iv": phase_iv, "ivn": lambda only: phase_iv(only, "ivn", "dsl"), "ivx": phase_ivx, "ivl": phase_ivl, "ojl": phase_ojl, "ah": phase_ah, "pc": phase_pc, "vm": phase_vm, "yj": phase_yj, "s1": phase_s1, "sh": phase_sh, "gg": phase_gg, "s2": phase_s2, "rules": phase_rules, "ss": phase_ss, "sc": phase_sc, "summonfail": phase_summonfail,
+          "s3": phase_s3, "sk": phase_sk, "lg": phase_lg, "lv": phase_lv, "ga": phase_ga, "gl": phase_gl, "lf": phase_lf, "lfx": phase_lfx, "lfa": phase_lfa, "lfw": phase_lfw, "lfwc": phase_lfwc, "lfws": phase_lfws, "lfwcs": phase_lfwcs, "lfwf": phase_lfwf, "lfwcf": phase_lfwcf, "lfwbs": phase_lfwbs, "lfwcbs": phase_lfwcbs, "lu": phase_lu, "mk": phase_mk, "kd": phase_kd, "kg": phase_kg, "fdr": phase_fdr, "kw": phase_kw, "fl": phase_fl, "fd": phase_fd, "fdj": phase_fdj, "cd": phase_cd, "iw": phase_iw, "iwn": phase_iwn, "an": phase_an, "anl": phase_anl, "ld": phase_ld, "cl": phase_cl, "cy": phase_cy, "cyn": lambda only: phase_cy(only, "cyn", True), "clg": phase_clg, "clw": phase_clw, "cla": phase_cla, "caa": phase_caa, "cam": phase_cam, "camo": lambda only: phase_cam(only, "offline"), "camh": phase_camh, "cas": phase_cas, "cpr": phase_cpr, "chc": phase_chc, "chn": lambda only: phase_chc(only, "chn", True), "chw": phase_chw, "cpa": phase_cpa, "cae": phase_cae, "cao": phase_cao, "cgt": phase_cgt, "cgp": phase_cgp, "cgu": phase_cgu, "cab": phase_cab, "caq": phase_caq, "caw": phase_caw, "el": phase_el, "lt": phase_lt, "bf": phase_bf, "bv": phase_bv, "bw": phase_bw, "ch": phase_ch, "md": phase_md, "mds": phase_mds, "svl": phase_svl, "rh": phase_rh, "rs": phase_rs, "fw": phase_fw, "fwg": phase_fwg, "fwb": phase_fwb, "fwe": phase_fwe, "fh": phase_fh, "lp": phase_lp, "gd": phase_gd, "gh": phase_gh, "gm": phase_gm, "gr": phase_gr, "gr2": phase_gr2, "gr3": phase_gr3, "gr4": phase_gr4, "mp": phase_mp, "mpg": phase_mpg, "mph": phase_mph, "gro": lambda only: phase_gr(only, "gro", False), "gr2o": lambda only: phase_gr2(only, "gr2o", False), "gr3o": lambda only: phase_gr3(only, "gr3o", False), "gr4o": lambda only: phase_gr4(only, "gr4o", False), "jl": phase_jl, "ml": phase_ml, "mg": phase_mg, "ll": phase_ll, "hlq": phase_hlq, "hlr": phase_hlr, "hs": phase_hs, "ngj": phase_ngj, "nl": phase_nl, "ff": phase_ff, "lk": phase_lk, "lkc": phase_lkc, "rt": phase_rt, "br": phase_br, "rf": phase_rf, "rj": phase_rj, "em": phase_em, "emf": phase_emf, "bd": phase_bd, "bdo": phase_bdo, "sm": phase_sm, "ef": phase_ef, "ngp": phase_ngp, "mb": phase_mb, "gb": phase_gb, "mbs": phase_mbs, "gbs": phase_gbs, "da": phase_da, "cv": phase_cv, "cvs": phase_cvs, "cvo": lambda only: phase_cvs(only, False), "cvr": phase_cvr, "cvm": phase_cvm, "cvc": phase_cvc, "cva": phase_cva, "cvf": phase_cvf, "cvt": phase_cvt, "cvh": lambda only: phase_cvt(only, "host"), "ie": phase_ie, "il": phase_il, "rw": phase_rw, "rwe": phase_rwe, "rwt": phase_rwt, "gag": phase_gag, "gv": phase_gv, "gvg": phase_gvg, "gvr": phase_gvr, "gvl": phase_gvl, "gvn": lambda only: phase_gv(only, "gvn", "dsl"), "gvm": phase_gvm, "gvs": phase_gvs, "rwl": phase_rwl, "tv": phase_tv, "nf": phase_nf, "nfa": phase_nfa, "nfe": phase_nfe, "nfw": phase_nfw, "npi": phase_npi, "npa": phase_npa, "npd": phase_npd, "pvd": phase_pvd, "pvh": phase_pvh, "pvn": phase_pvn, "npf": phase_npf, "eh": phase_eh, "bl": phase_bl, "mw": phase_mw, "px": phase_px, "pxg": lambda only: phase_px(only, True), "sj": phase_sj, "ou": phase_ou, "gdr": phase_gdr, "gdrd": lambda only: phase_gdr(only, "gdrd", "dsl"), "gdrb": lambda only: phase_gdr(only, "gdrb", "bad"), "gdrf": lambda only: phase_gdr(only, "gdrf", None, False), "mesh": phase_mesh, "oum": lambda only: phase_ou(only, "oum", VPN_MTU_SIM), "meshm": lambda only: phase_mesh(only, "meshm", VPN_MTU_SIM), "fp": phase_fp, "fp5": phase_fp5, "oj": phase_oj, "lo": phase_lo, "po": phase_po, "pos": phase_pos, "sg": phase_sg, "sg2": phase_sg2, "sgb": phase_sgb, "sgb2": phase_sgb2, "sgb3": phase_sgb3, "sgp": phase_sgp, "csh": phase_csh, "csh2": phase_csh2, "csh3": phase_csh3, "cis": phase_cis, "ba": phase_ba, "bh": phase_bh, "bk": phase_bk, "hg": phase_hg, "bg": phase_bg, "lr": phase_lr, "mi": phase_mi, "mig": lambda only: phase_mi(only, "mig", True), "lw": phase_lw, "amp": phase_amp, "la": phase_la, "lb": phase_lb, "lc": phase_lc}
 # --only groups (a smaller run for repeat cycles): the phase each needs and the verdict rows it keeps
-GROUPS = {"invade": "iv", "invade_sim": "ivn", "invade_refuse": "ivx", "auto_hud": "ah", "party_chat": "pc", "version_options": "vm", "yahargul_join": "yj", "join": "s1", "leave": "s1", "death": "s1", "travel": "s1", "boss": "s1", "host_death": "s1",
+GROUPS = {"invade": "iv", "invade_sim": "ivn", "invade_refuse": "ivx", "invade_level": "ivl", "open_level": "ojl", "auto_hud": "ah", "party_chat": "pc", "version_options": "vm", "yahargul_join": "yj", "join": "s1", "leave": "s1", "death": "s1", "travel": "s1", "boss": "s1", "host_death": "s1",
           "wipe": "s1", "wipe_late": "s1", "kill": "s2", "arena": "s2", "itembox": "s2", "rejoin_kill": "s2", "c6": "s2", "host_crash": "s2",
           "host_leave": "s2", "keyitems": "s2", "rules": "rules", "splitscreen": "ss", "stay_home": "sh", "guest_gather": "gg", "savecopy": "sc", "summonfail": "summonfail",
-          "host_revive": "s3", "streamkill": "sk", "load_gap": "lg", "leave_gap": "lv", "gather": "ga", "gather_ground": "gl", "lifts": "lf", "lifts2": "lfx", "lift_apart": "lfa", "lift_walk": "lfw,lfwc", "lift_walk_far": "lfwf,lfwcf", "lift_walk_slow": "lfws,lfwcs,lfwbs,lfwcbs", "lift_down": "lu", "ladder": "lf,ld", "mark": "mk", "kidnap": "kd,kg", "drop_far": "fdr", "story_warp": "kw", "fall": "fl", "fall_deep": "fd,fdj", "host_fall_lamp": "cd", "cainhurst_scene": "iw,iwn", "cainhurst_annalise": "an,anl", "chalamp": "cl", "chalice_layers": "cy,cyn", "chalice_guest": "clg", "chalice_progress": "cpr", "chalice_curse": "chc,chn,chw", "chalice_altar": "cpa", "chalice_enter": "cae,cao", "chalice_boss": "cab", "chalice_queen": "caq,caw", "chalice_wipe": "clw", "chalice_alias": "cla,caa,cam,camo,camh", "elevator": "el", "lifts_together": "lt", "fight_load": "bf", "cainhurst_lift": "ch", "cainhurst_maid": "md", "cloth_stall": "mds", "save_load": "svl", "research_lift": "rh", "research_solo": "rs", "forbidden_lift": "fw", "forbidden_lift_guest": "fwg", "forbidden_lift_both": "fwb", "forbidden_lift_edge": "fwe", "hemwick_lift": "fh", "lamps": "lp", "guest_dream": "gd", "guest_dream_host": "gh", "guest_lamp": "gm", "guest_rest": "gr,gr2,gr3,gr4", "atlas": "mp,mpg,mph", "guest_rest_off": "gro,gr2o,gr3o,gr4o", "join_lamp": "jl", "mensis_lamp": "ml", "mensis_lamp_guest": "mg", "lecture_lamp": "ll", "host_lamp": "hlq", "host_lamp_repair": "hlr", "headstone_split": "hs", "ngplus_rejoin": "ngj", "npc_lamp": "nl", "frontier_fall": "ff", "lunarium_key": "lk,lkc",
+          "host_revive": "s3", "streamkill": "sk", "load_gap": "lg", "leave_gap": "lv", "gather": "ga", "gather_ground": "gl", "lifts": "lf", "lifts2": "lfx", "lift_apart": "lfa", "lift_walk": "lfw,lfwc", "lift_walk_far": "lfwf,lfwcf", "lift_walk_slow": "lfws,lfwcs,lfwbs,lfwcbs", "lift_down": "lu", "ladder": "lf,ld", "mark": "mk", "kidnap": "kd,kg", "drop_far": "fdr", "story_warp": "kw", "fall": "fl", "fall_deep": "fd,fdj", "host_fall_lamp": "cd", "cainhurst_scene": "iw,iwn", "cainhurst_annalise": "an,anl", "chalamp": "cl", "chalice_layers": "cy,cyn", "chalice_guest": "clg", "chalice_progress": "cpr", "chalice_curse": "chc,chn,chw", "chalice_altar": "cpa", "chalice_enter": "cae,cao", "chalice_boss": "cab", "chalice_queen": "caq,caw", "chalice_wipe": "clw", "chalice_alias": "cla,caa,cam,camo,camh,cas", "elevator": "el", "lifts_together": "lt", "fight_load": "bf", "cainhurst_lift": "ch", "cainhurst_maid": "md", "cloth_stall": "mds", "save_load": "svl", "research_lift": "rh", "research_solo": "rs", "forbidden_lift": "fw", "forbidden_lift_guest": "fwg", "forbidden_lift_both": "fwb", "forbidden_lift_edge": "fwe", "hemwick_lift": "fh", "lamps": "lp", "guest_dream": "gd", "guest_dream_host": "gh", "guest_lamp": "gm", "guest_rest": "gr,gr2,gr3,gr4", "atlas": "mp,mpg,mph", "guest_rest_off": "gro,gr2o,gr3o,gr4o", "join_lamp": "jl", "mensis_lamp": "ml", "mensis_lamp_guest": "mg", "lecture_lamp": "ll", "host_lamp": "hlq", "host_lamp_repair": "hlr", "headstone_split": "hs", "ngplus_rejoin": "ngj", "npc_lamp": "nl", "frontier_fall": "ff", "lunarium_key": "lk,lkc",
 
-          "rot": "rt", "boss_rooms": "br", "rom_fog": "rf", "rom_jump": "rj", "emissary": "em", "boss_drops": "bd", "boss_drops_off": "bdo", "scene_mirror": "sm", "ending_flow": "ef", "ngplus_ending": "ngp", "moon_music": "mb", "gehrman_music": "gb", "moon_music_stop": "mbs", "gehrman_music_stop": "gbs", "dream_apart": "da", "covenant": "cv",
-          "valtr_rune": "cv", "covenant_talk": "cvt,cvh", "covenant_seq": "cvs,cvo", "covenant_runes": "cvr", "covenant_measure": "cvm", "covenant_chalice": "cvc", "covenant_annalise": "cva", "covenant_alfred": "cvf", "items_every": "ie", "items_leak": "il", "reward_guest_kill": "rw", "reward_eye": "rwe", "reward_treasure": "rwt", "guest_gates": "gag", "give_items": "gv,gvg", "give_rollback": "gvr,gvl", "give_netsim": "gvn", "give_menu": "gvm,gvs", "reward_late": "rwl", "shop_sync": "il", "travel_vote": "tv", "npc_fights": "nf,nfa", "npc_alfred": "nfa", "npc_eileen": "nfe", "npc_alfred_ward": "nfw", "npc_invader": "npi", "npc_attack": "npa", "npc_doll": "npd", "pvp_revive": "pvd", "pvp_full_hp": "pvh", "pvp_npc": "pvn", "npc_fog": "npf", "echo_hold": "eh", "limbo_leave": "bl", "boss_darkness": "mw", "death_poison": "px,pxg", "seam_rejoin": "sj", "outage_short": "ou", "guest_mesh": "mesh", "vpn_mtu": "oum,meshm", "fourp_nat": "fp", "fivep": "fp5", "open_party": "oj", "lan_only": "lo", "phantom_own": "po", "phantom_save": "pos", "shop_repair": "sg", "shop_repair2": "sg2", "shop_badge": "sgb", "shop_badge_sync": "sgb2", "badge_guard": "sgb3", "sgive_owner": "sgp", "chalice_shop": "csh,csh2", "chalice_shop3": "csh3", "chalice_insight": "cis", "chalice_glyph": "cgt,cgp,cgu", "boss_ai": "ba", "boss_dead": "bh,bk", "boss_late": "hg", "boss_guest": "bg", "boss_laurence_wipe": "lr", "boss_visible": "bv,bw", "ludwig_wipe": "lw", "amelia_phase": "amp", "lone_ai": "la,lc"}
-GROUP_ROWS = {"invade": r"^iv ", "invade_sim": r"^ivn ", "invade_refuse": r"^ivx ", "auto_hud": r"^ah ", "party_chat": r"^pc ", "version_options": r"^vm ", "yahargul_join": r"^yj ", "join": r"^s1 join", "leave": r"s1 (Leave|Rejoin)", "death": r"guest death|bloodstain|revived",
+          "rot": "rt", "boss_rooms": "br", "rom_fog": "rf", "rom_jump": "rj", "emissary": "em", "emissary_first": "emf", "boss_drops": "bd", "boss_drops_off": "bdo", "scene_mirror": "sm", "ending_flow": "ef", "ngplus_ending": "ngp", "moon_music": "mb", "gehrman_music": "gb", "moon_music_stop": "mbs", "gehrman_music_stop": "gbs", "dream_apart": "da", "covenant": "cv",
+          "valtr_rune": "cv", "covenant_talk": "cvt,cvh", "covenant_seq": "cvs,cvo", "covenant_runes": "cvr", "covenant_measure": "cvm", "covenant_chalice": "cvc", "covenant_annalise": "cva", "covenant_alfred": "cvf", "items_every": "ie", "items_leak": "il", "reward_guest_kill": "rw", "reward_eye": "rwe", "reward_treasure": "rwt", "guest_gates": "gag", "give_items": "gv,gvg", "give_rollback": "gvr,gvl", "give_netsim": "gvn", "give_menu": "gvm,gvs", "reward_late": "rwl", "shop_sync": "il", "travel_vote": "tv", "npc_fights": "nf,nfa", "npc_alfred": "nfa", "npc_eileen": "nfe", "npc_alfred_ward": "nfw", "npc_invader": "npi", "npc_attack": "npa", "npc_doll": "npd", "pvp_revive": "pvd", "pvp_full_hp": "pvh", "pvp_npc": "pvn", "npc_fog": "npf", "echo_hold": "eh", "limbo_leave": "bl", "boss_darkness": "mw", "death_poison": "px,pxg", "seam_rejoin": "sj", "outage_short": "ou", "guest_restart": "gdr,gdrd,gdrb,gdrf", "guest_mesh": "mesh", "vpn_mtu": "oum,meshm", "fourp_nat": "fp", "fivep": "fp5", "open_party": "oj", "lan_only": "lo", "phantom_own": "po", "phantom_save": "pos", "shop_repair": "sg", "shop_repair2": "sg2", "shop_badge": "sgb", "shop_badge_sync": "sgb2", "badge_guard": "sgb3", "sgive_owner": "sgp", "chalice_shop": "csh,csh2", "chalice_shop3": "csh3", "chalice_insight": "cis", "chalice_glyph": "cgt,cgp,cgu", "boss_ai": "ba", "boss_dead": "bh,bk", "boss_late": "hg", "boss_guest": "bg", "boss_laurence_wipe": "lr", "micolash": "mi", "micolash_guest": "mig", "boss_visible": "bv,bw", "ludwig_wipe": "lw", "amelia_phase": "amp", "lone_ai": "la,lc"}
+GROUP_ROWS = {"invade": r"^iv ", "invade_sim": r"^ivn ", "invade_refuse": r"^ivx ", "invade_level": r"^ivl ", "open_level": r"^ojl ", "auto_hud": r"^ah ", "party_chat": r"^pc ", "version_options": r"^vm ", "yahargul_join": r"^yj ", "join": r"^s1 join", "leave": r"s1 (Leave|Rejoin)", "death": r"guest death|bloodstain|revived",
               "travel": r"travel", "boss": r"Gascoigne|intro", "host_death": r"host death|limbo",
               "wipe": r"wipe", "wipe_late": r"late wipe", "kill": r"s2 boss kill|party stays", "arena": r"arena", "itembox": r"item box|reward on the summoned",
               "rejoin_kill": r"s2 (Leave after|Rejoin|no kick)", "c6": r"guest crash",
               "host_crash": r"host crash", "host_leave": r"host Leave", "keyitems": r"key item", "rules": r"^rules", "splitscreen": r"^ss ", "stay_home": r"^sh ", "guest_gather": r"^gg ",
               "savecopy": r"^sc ", "summonfail": r"^summonfail",
               "host_revive": r"^s3 ", "streamkill": r"^sk ", "load_gap": r"^lg(:| )", "leave_gap": r"^lv(:| )", "gather": r"^ga ", "gather_ground": r"^gl ",
-              "lifts": r"^lf (join|lift|guest's lift|host)", "lifts2": r"^lfx (join|lift|guest's lift|host)", "lift_apart": r"^lfa ", "lift_walk": r"^lfwc? ", "lift_walk_far": r"^lfwc?f ", "lift_walk_slow": r"^lfwc?b?s ", "lift_down": r"^lu ", "ladder": r"^lf (join|ladder)|^ld ", "mark": r"^mk ", "kidnap": r"^k[dg] ", "drop_far": r"^fdr ", "story_warp": r"^kw ", "fall": r"^fl ", "fall_deep": r"^fd ", "host_fall_lamp": r"^cd ", "cainhurst_scene": r"^iwn? ", "cainhurst_annalise": r"^an |^anl ", "chalamp": r"^cl ", "chalice_layers": r"^cyn? ", "chalice_guest": r"^clg ", "chalice_progress": r"^cpr ", "chalice_curse": r"^ch[cw] ", "chalice_altar": r"^cpa ", "chalice_enter": r"^ca[eo] ", "chalice_boss": r"^cab ", "chalice_queen": r"^ca[qw] ", "chalice_enter": r"^ca[eo] ", "chalice_boss": r"^cab ", "chalice_wipe": r"^clw ", "chalice_alias": r"^(cla|caa|cam|camo|camh) ", "elevator": r"^el ", "lifts_together": r"^lt ", "fight_load": r"^bf ", "cainhurst_lift": r"^ch ", "cainhurst_maid": r"^md ", "cloth_stall": r"^mds ", "save_load": r"^svl ", "research_lift": r"^rh ", "forbidden_lift": r"^fw ", "forbidden_lift_guest": r"^fwg ", "forbidden_lift_both": r"^fwb ", "forbidden_lift_edge": r"^fwe ", "hemwick_lift": r"^fh ", "research_solo": r"^rs ", "lamps": r"^lp ", "guest_dream": r"^gd ", "guest_dream_host": r"^gh ", "guest_lamp": r"^gm ", "join_lamp": r"^jl ", "mensis_lamp": r"^ml ", "lecture_lamp": r"^ll ", "host_lamp": r"^hlq ", "host_lamp_repair": r"^hlr ", "mensis_lamp_guest": r"^mg ", "headstone_split": r"^hs ", "ngplus_rejoin": r"^ngj ", "npc_lamp": r"^nl ", "frontier_fall": r"^ff ", "lunarium_key": r"^lkc? ",
-              "rot": r"^rt ", "boss_rooms": r"^br ", "rom_fog": r"^rf ", "rom_jump": r"^rj ", "emissary": r"^em ", "boss_drops": r"^bd ", "boss_drops_off": r"^bdo ", "scene_mirror": r"^sm ", "ending_flow": r"^ef ", "ngplus_ending": r"^ngp ", "moon_music": r"^mb ", "gehrman_music": r"^gb ", "moon_music_stop": r"^mbs ", "gehrman_music_stop": r"^gbs ", "dream_apart": r"^da ",
+              "lifts": r"^lf (join|lift|guest's lift|host)", "lifts2": r"^lfx (join|lift|guest's lift|host)", "lift_apart": r"^lfa ", "lift_walk": r"^lfwc? ", "lift_walk_far": r"^lfwc?f ", "lift_walk_slow": r"^lfwc?b?s ", "lift_down": r"^lu ", "ladder": r"^lf (join|ladder)|^ld ", "mark": r"^mk ", "kidnap": r"^k[dg] ", "drop_far": r"^fdr ", "story_warp": r"^kw ", "fall": r"^fl ", "fall_deep": r"^fd ", "host_fall_lamp": r"^cd ", "cainhurst_scene": r"^iwn? ", "cainhurst_annalise": r"^an |^anl ", "chalamp": r"^cl ", "chalice_layers": r"^cyn? ", "chalice_guest": r"^clg ", "chalice_progress": r"^cpr ", "chalice_curse": r"^ch[cw] ", "chalice_altar": r"^cpa ", "chalice_enter": r"^ca[eo] ", "chalice_boss": r"^cab ", "chalice_queen": r"^ca[qw] ", "chalice_enter": r"^ca[eo] ", "chalice_boss": r"^cab ", "chalice_wipe": r"^clw ", "chalice_alias": r"^(cla|caa|cam|camo|camh|cas) ", "elevator": r"^el ", "lifts_together": r"^lt ", "fight_load": r"^bf ", "cainhurst_lift": r"^ch ", "cainhurst_maid": r"^md ", "cloth_stall": r"^mds ", "save_load": r"^svl ", "research_lift": r"^rh ", "forbidden_lift": r"^fw ", "forbidden_lift_guest": r"^fwg ", "forbidden_lift_both": r"^fwb ", "forbidden_lift_edge": r"^fwe ", "hemwick_lift": r"^fh ", "research_solo": r"^rs ", "lamps": r"^lp ", "guest_dream": r"^gd ", "guest_dream_host": r"^gh ", "guest_lamp": r"^gm ", "join_lamp": r"^jl ", "mensis_lamp": r"^ml ", "lecture_lamp": r"^ll ", "host_lamp": r"^hlq ", "host_lamp_repair": r"^hlr ", "mensis_lamp_guest": r"^mg ", "headstone_split": r"^hs ", "ngplus_rejoin": r"^ngj ", "npc_lamp": r"^nl ", "frontier_fall": r"^ff ", "lunarium_key": r"^lkc? ",
+              "rot": r"^rt ", "boss_rooms": r"^br ", "rom_fog": r"^rf ", "rom_jump": r"^rj ", "emissary": r"^em ", "emissary_first": r"^emf ", "boss_drops": r"^bd ", "boss_drops_off": r"^bdo ", "scene_mirror": r"^sm ", "ending_flow": r"^ef ", "ngplus_ending": r"^ngp ", "moon_music": r"^mb ", "gehrman_music": r"^gb ", "moon_music_stop": r"^mbs ", "gehrman_music_stop": r"^gbs ", "dream_apart": r"^da ",
               "covenant": r"^cv(:| join| host's fixture| rule| covenant| shared| host's save| guest's save)",
-              "valtr_rune": r"^cv(:| join| rule| rune)", "covenant_talk": r"^cv[th] ", "covenant_seq": r"^cv[so] ", "covenant_runes": r"^cvr ", "covenant_measure": r"^cvm ", "covenant_chalice": r"^cvc ", "covenant_annalise": r"^cva ", "covenant_alfred": r"^cvf ", "items_every": r"^ie ", "items_leak": r"^il ", "reward_guest_kill": r"^rw ", "reward_eye": r"^rwe ", "reward_treasure": r"^rwt ", "guest_gates": r"^gag ", "give_items": r"^gv[g]? ", "give_rollback": r"^gv[rl] ", "give_netsim": r"^gvn ", "give_menu": r"^gv[ms] ", "give_items": r"^gv[g]? ", "give_rollback": r"^gv[rl] ", "give_netsim": r"^gvn ", "give_menu": r"^gv[ms] ", "give_items": r"^gv[g]? ", "give_rollback": r"^gv[rl] ", "give_netsim": r"^gvn ", "give_menu": r"^gv[ms] ", "reward_late": r"^rwl ", "shop_sync": r"^il (join|sync)", "travel_vote": r"^tv ", "npc_fights": r"^nfa? ", "npc_alfred": r"^nfa ", "npc_attack": r"^npa ", "npc_doll": r"^npd ", "pvp_revive": r"^pvd ", "pvp_full_hp": r"^pvh ", "pvp_npc": r"^pvn ", "npc_fog": r"^npf ", "npc_invader": r"^npi ", "npc_eileen": r"^nfe ", "npc_alfred_ward": r"^nfw ", "echo_hold": r"^eh ", "limbo_leave": r"^bl ", "boss_darkness": r"^mw ", "death_poison": r"^pxg? ", "seam_rejoin": r"^sj ", "outage_short": r"^ou ", "guest_mesh": r"^mesh ", "vpn_mtu": r"^(oum|meshm) ", "fourp_nat": r"^fp ", "fivep": r"^fp5 ", "open_party": r"^oj ", "lan_only": r"^lo ", "phantom_own": r"^po ", "phantom_save": r"^pos ", "shop_repair": r"^sg ", "shop_repair2": r"^sg2 ", "shop_badge": r"^sgb ", "shop_badge_sync": r"^sgb2 ", "badge_guard": r"^sgb3 ", "sgive_owner": r"^sgp ", "chalice_shop": r"^csh2? ", "chalice_shop3": r"^csh3 ", "chalice_insight": r"^cis ", "chalice_glyph": r"^cg[tpu] ", "boss_ai": r"^ba ", "boss_dead": r"^b[hk][ :]", "boss_late": r"^hg ", "boss_guest": r"^bg ", "boss_laurence_wipe": r"^lr ", "boss_visible": r"^bv ", "ludwig_wipe": r"^lw ", "amelia_phase": r"^amp ", "lone_ai": r"^la |^lc "}
+              "valtr_rune": r"^cv(:| join| rule| rune)", "covenant_talk": r"^cv[th] ", "covenant_seq": r"^cv[so] ", "covenant_runes": r"^cvr ", "covenant_measure": r"^cvm ", "covenant_chalice": r"^cvc ", "covenant_annalise": r"^cva ", "covenant_alfred": r"^cvf ", "items_every": r"^ie ", "items_leak": r"^il ", "reward_guest_kill": r"^rw ", "reward_eye": r"^rwe ", "reward_treasure": r"^rwt ", "guest_gates": r"^gag ", "give_items": r"^gv[g]? ", "give_rollback": r"^gv[rl] ", "give_netsim": r"^gvn ", "give_menu": r"^gv[ms] ", "give_items": r"^gv[g]? ", "give_rollback": r"^gv[rl] ", "give_netsim": r"^gvn ", "give_menu": r"^gv[ms] ", "give_items": r"^gv[g]? ", "give_rollback": r"^gv[rl] ", "give_netsim": r"^gvn ", "give_menu": r"^gv[ms] ", "reward_late": r"^rwl ", "shop_sync": r"^il (join|sync)", "travel_vote": r"^tv ", "npc_fights": r"^nfa? ", "npc_alfred": r"^nfa ", "npc_attack": r"^npa ", "npc_doll": r"^npd ", "pvp_revive": r"^pvd ", "pvp_full_hp": r"^pvh ", "pvp_npc": r"^pvn ", "npc_fog": r"^npf ", "npc_invader": r"^npi ", "npc_eileen": r"^nfe ", "npc_alfred_ward": r"^nfw ", "echo_hold": r"^eh ", "limbo_leave": r"^bl ", "boss_darkness": r"^mw ", "death_poison": r"^pxg? ", "seam_rejoin": r"^sj ", "outage_short": r"^ou ", "guest_restart": r"^gdr[dbf]? ", "guest_mesh": r"^mesh ", "vpn_mtu": r"^(oum|meshm) ", "fourp_nat": r"^fp ", "fivep": r"^fp5 ", "open_party": r"^oj ", "lan_only": r"^lo ", "phantom_own": r"^po ", "phantom_save": r"^pos ", "shop_repair": r"^sg ", "shop_repair2": r"^sg2 ", "shop_badge": r"^sgb ", "shop_badge_sync": r"^sgb2 ", "badge_guard": r"^sgb3 ", "sgive_owner": r"^sgp ", "chalice_shop": r"^csh2? ", "chalice_shop3": r"^csh3 ", "chalice_insight": r"^cis ", "chalice_glyph": r"^cg[tpu] ", "boss_ai": r"^ba ", "boss_dead": r"^b[hk][ :]", "boss_late": r"^hg ", "boss_guest": r"^bg ", "boss_laurence_wipe": r"^lr ", "micolash": r"^mi ", "micolash_guest": r"^mig ", "boss_visible": r"^bv ", "ludwig_wipe": r"^lw ", "amelia_phase": r"^amp ", "lone_ai": r"^la |^lc "}
 
 
 # --only: the log lines that end each group's checks (instances.py --until "I:RX"); a phase with
@@ -8252,6 +8499,8 @@ GROUP_UNTIL = {
     "invade": IV_UNTIL,
     "invade_sim": IV_UNTIL,
     "invade_refuse": IVX_UNTIL,
+    "invade_level": IVL_UNTIL,
+    "open_level": OJL_UNTIL,
     "guest_gather": GG_UNTIL,
     "join": ["0:cooperators [01] -> 2"],
     # the host's second "cooperators 1 -> 2": the first is guest 2's first join, the second the rejoin
@@ -8337,7 +8586,7 @@ GROUP_UNTIL = {
     "boss_rooms": BR_UNTIL,
     "rom_fog": RF_UNTIL,
     "rom_jump": RJ_UNTIL,
-    "emissary": EM_UNTIL,
+    "emissary": EM_UNTIL, "emissary_first": EM_UNTIL,
     "boss_drops": BD_UNTIL,
     "boss_drops_off": BDO_UNTIL,
     "scene_mirror": [SM_UNTIL],
@@ -8375,6 +8624,8 @@ GROUP_UNTIL = {
     "boss_late": HG_UNTIL,
     "boss_guest": BG_UNTIL,
     "boss_laurence_wipe": LR_UNTIL,
+    "micolash": MI_UNTIL,
+    "micolash_guest": MI_UNTIL,
     "boss_visible": BV_UNTIL,
     "ludwig_wipe": LW_UNTIL,
     "amelia_phase": AMP_UNTIL,
@@ -8400,7 +8651,7 @@ GROUP_UNTIL = {
 }
 # --only: seconds the run goes on after the group's lines (screenshots of the state they reach)
 GROUP_HOLD = {"host_death": 10, "wipe_late": 10}  # wipe_late: the fight opened by the walk-in on every screen  # the spectate on every screen (the guests' panels: "Spectating")
-NEEDS_CRASH = {"c6", "host_crash", "host_leave"}  # s2 groups that need the crash plan and its full chain
+NEEDS_CRASH = {"c6", "host_crash", "host_leave", "guest_restart"}  # s2 groups that need the crash plan and its full chain
 
 
 def narrow_phase(ph, only):
@@ -11917,15 +12168,15 @@ def check_ngj(v, L):
     check_common(v, L, "ngj")
 
 
-CHECKS = {"iv": lambda v, L, d: check_iv(v, L), "ivn": lambda v, L, d: check_iv(v, L, "ivn"), "ivx": lambda v, L, d: check_ivx(v, L), "ah": check_ah, "pc": check_pc, "vm": check_vm, "yj": check_yj, "s1": lambda v, L, d: check_s1(v, L), "s2": check_s2, "rules": lambda v, L, d: check_rules(v, L),
+CHECKS = {"iv": lambda v, L, d: check_iv(v, L), "ivn": lambda v, L, d: check_iv(v, L, "ivn"), "ivx": lambda v, L, d: check_ivx(v, L), "ivl": lambda v, L, d: check_ivl(v, L), "ojl": lambda v, L, d: check_ojl(v, L), "ah": check_ah, "pc": check_pc, "vm": check_vm, "yj": check_yj, "s1": lambda v, L, d: check_s1(v, L), "s2": check_s2, "rules": lambda v, L, d: check_rules(v, L),
           "sc": check_sc, "sh": lambda v, L, d: check_sh(v, L), "gg": lambda v, L, d: check_gg(v, L), "ss": lambda v, L, d: check_ss(v, L), "summonfail": lambda v, L, d: check_summonfail(v, L),
           "s3": lambda v, L, d: check_s3(v, L), "sk": lambda v, L, d: check_sk(v, L), "lg": lambda v, L, d: check_lg(v, L), "lv": lambda v, L, d: check_lv(v, L),
           "ga": lambda v, L, d: check_ga(v, L), "gl": lambda v, L, d: check_gl(v, L), "lf": lambda v, L, d: check_lf(v, L), "lfx": lambda v, L, d: check_lf(v, L, 2), "lfa": lambda v, L, d: check_lfa(v, L), "lfw": lambda v, L, d: check_lfw(v, L, "yh", "lfw"), "lfwc": lambda v, L, d: check_lfw(v, L, "ca", "lfwc"), "lfws": lambda v, L, d: check_lfw(v, L, "yh", "lfws"), "lfwcs": lambda v, L, d: check_lfw(v, L, "ca", "lfwcs"), "lfwbs": lambda v, L, d: check_lfw(v, L, "ybs", "lfwbs"), "lfwcbs": lambda v, L, d: check_lfw(v, L, "cbs", "lfwcbs"), "lu": lambda v, L, d: check_lift_down(v, L, "lu"), "lfwf": lambda v, L, d: check_lfw(v, L, "yh", "lfwf"), "lfwcf": lambda v, L, d: check_lfw(v, L, "ca", "lfwcf"), "el": lambda v, L, d: check_el(v, L), "lt": lambda v, L, d: check_lt(v, L), "ch": lambda v, L, d: check_ch(v, L), "md": check_md, "mds": check_mds, "svl": check_svl, "rh": lambda v, L, d: check_rh(v, L), "rs": lambda v, L, d: check_rs(v, L), "fw": lambda v, L, d: check_fw(v, L), "fwg": lambda v, L, d: check_fw(v, L, "fwg", (1,)), "fwb": lambda v, L, d: check_fw(v, L, "fwb", (0, 1)), "fwe": lambda v, L, d: check_fw(v, L, "fwe", (0, 1)), "fh": lambda v, L, d: check_fw(v, L, "fh", (0, 1), FH_POS, FH_BUSY, "1", "0x16000000", (-211.25, 542.1), -20.3),
           "mk": lambda v, L, d: check_mk(v, L), "kd": lambda v, L, d: check_kd(v, L), "kg": lambda v, L, d: check_kg(v, L), "fdr": lambda v, L, d: check_fdr(v, L), "kw": lambda v, L, d: check_kw(v, L),
           "fl": lambda v, L, d: check_fl(v, L), "fd": lambda v, L, d: check_fd(v, L), "fdj": lambda v, L, d: check_fdj(v, L), "cd": lambda v, L, d: check_cd(v, L), "iw": lambda v, L, d: check_iw(v, L), "iwn": lambda v, L, d: check_iwn(v, L), "an": lambda v, L, d: check_an(v, L), "anl": lambda v, L, d: check_anl(v, L), "ld": lambda v, L, d: check_ld(v, L),
-          "cl": lambda v, L, d: check_cl(v, L), "cy": lambda v, L, d: check_cy(v, L), "cyn": lambda v, L, d: check_cy(v, L, "cyn"), "clg": lambda v, L, d: check_clg(v, L), "cpr": lambda v, L, d: check_cpr(v, L), "chc": lambda v, L, d: check_chc(v, L), "chw": lambda v, L, d: check_chc(v, L, True), "chn": lambda v, L, d: check_chc(v, L), "cpa": lambda v, L, d: check_common(v, L, "cpa"), "cae": lambda v, L, d: check_cae(v, L), "cao": lambda v, L, d: check_cao(v, L), "cgt": lambda v, L, d: check_cgt(v, L), "cgp": lambda v, L, d: check_cgp(v, L), "cgu": lambda v, L, d: check_cgu(v, L), "cab": lambda v, L, d: check_cab(v, L), "caq": lambda v, L, d: check_common(v, L, "caq"), "caw": lambda v, L, d: check_common(v, L, "caw"), "clw": lambda v, L, d: check_clw(v, L), "cla": lambda v, L, d: check_cla(v, L), "caa": lambda v, L, d: check_caa(v, L), "cam": lambda v, L, d: check_cam(v, L), "camo": lambda v, L, d: check_cam(v, L, "offline"), "camh": lambda v, L, d: check_camh(v, L), "bf": lambda v, L, d: check_bf(v, L), "lp": check_lp, "gd": check_gd, "gh": lambda v, L, d: check_gh(v, L), "gm": check_gm, "gr": lambda v, L, d: check_gr(v, L), "gr2": lambda v, L, d: check_gr(v, L, 2), "gr3": lambda v, L, d: check_gr(v, L, 3), "gr4": lambda v, L, d: check_gr(v, L, 4), "mp": lambda v, L, d: check_mp(v, L), "mpg": lambda v, L, d: check_mp(v, L, "guest"), "mph": lambda v, L, d: check_mp(v, L, "host"), "gro": lambda v, L, d: check_gr(v, L, 1, "gro"), "gr2o": lambda v, L, d: check_gr(v, L, 2, "gr2o"), "gr3o": lambda v, L, d: check_gr(v, L, 3, "gr3o"), "gr4o": lambda v, L, d: check_gr(v, L, 4, "gr4o"), "jl": check_jl, "ml": lambda v, L, d: check_ml(v, L), "mg": lambda v, L, d: check_mg(v, L), "ll": lambda v, L, d: check_ll(v, L), "hlq": check_hlq, "hlr": check_hlr, "hs": lambda v, L, d: check_hs(v, L), "ngj": lambda v, L, d: check_ngj(v, L), "nl": lambda v, L, d: check_nl(v, L), "ff": lambda v, L, d: check_ff(v, L), "lk": lambda v, L, d: check_lk(v, L), "lkc": lambda v, L, d: check_lkc(v, L), "br": lambda v, L, d: check_br(v, L), "rf": lambda v, L, d: check_rf(v, L), "rj": lambda v, L, d: check_rj(v, L), "em": lambda v, L, d: check_em(v, L), "bd": lambda v, L, d: check_bd(v, L), "bdo": lambda v, L, d: check_bd(v, L, True), "sm": lambda v, L, d: check_sm(v, L), "ef": lambda v, L, d: check_ef(v, L), "ngp": lambda v, L, d: check_ngp(v, L), "mb": lambda v, L, d: check_mb(v, L), "gb": lambda v, L, d: check_gb(v, L), "mbs": lambda v, L, d: check_mbs(v, L), "gbs": lambda v, L, d: check_gbs(v, L), "da": lambda v, L, d: check_da(v, L), "cv": check_cv, "cvs": check_cvs, "cvo": lambda v, L, d: check_cvs(v, L, d, False), "cvr": check_cvr, "cvc": check_cvc, "cva": check_cva, "cvf": check_cvf, "cvm": check_cvm, "cvt": check_cvt, "cvh": lambda v, L, d: check_cvt(v, L, d, "host"), "ie": lambda v, L, d: check_ie(v, L), "il": check_il, "rw": lambda v, L, d: check_rw(v, L), "rwe": lambda v, L, d: check_rwe(v, L), "rwt": lambda v, L, d: check_rwt(v, L), "gag": lambda v, L, d: check_gag(v, L), "gv": lambda v, L, d: check_gv(v, L), "gvg": lambda v, L, d: check_gvg(v, L), "gvr": lambda v, L, d: check_gvr(v, L), "gvl": lambda v, L, d: check_gvl(v, L), "gvn": lambda v, L, d: check_gv(v, L, "gvn"), "gvm": lambda v, L, d: check_gvm(v, L), "gvs": lambda v, L, d: check_gvs(v, L), "rwl": lambda v, L, d: check_rwl(v, L), "nf": lambda v, L, d: check_nf(v, L), "nfa": lambda v, L, d: check_nfa(v, L), "nfe": lambda v, L, d: check_nfe(v, L), "nfw": lambda v, L, d: check_nfw(v, L), "npi": lambda v, L, d: check_npi(v, L), "npa": lambda v, L, d: check_npa(v, L), "npd": lambda v, L, d: check_npd(v, L), "pvd": lambda v, L, d: check_pvd(v, L), "pvh": lambda v, L, d: check_pvh(v, L), "pvn": lambda v, L, d: check_pvn(v, L), "npf": lambda v, L, d: check_npf(v, L), "sj": lambda v, L, d: check_sj(v, L), "bl": lambda v, L, d: check_bl(v, L), "mw": lambda v, L, d: check_mw(v, L), "px": lambda v, L, d: check_px(v, L), "pxg": lambda v, L, d: check_px(v, L, 1), "ba": lambda v, L, d: check_ba(v, L), "bh": lambda v, L, d: check_bh(v, L), "bk": lambda v, L, d: check_bk(v, L), "hg": lambda v, L, d: check_hg(v, L), "bg": lambda v, L, d: check_bg(v, L), "lr": lambda v, L, d: check_lr(v, L), "lw": lambda v, L, d: check_lw(v, L), "amp": lambda v, L, d: check_amp(v, L), "amp": lambda v, L, d: check_amp(v, L), "la": lambda v, L, d: check_la(v, L), "lb": lambda v, L, d: check_common(v, L, "lb"), "lc": lambda v, L, d: check_lc(v, L),
+          "cl": lambda v, L, d: check_cl(v, L), "cy": lambda v, L, d: check_cy(v, L), "cyn": lambda v, L, d: check_cy(v, L, "cyn"), "clg": lambda v, L, d: check_clg(v, L), "cpr": lambda v, L, d: check_cpr(v, L), "chc": lambda v, L, d: check_chc(v, L), "chw": lambda v, L, d: check_chc(v, L, True), "chn": lambda v, L, d: check_chc(v, L), "cpa": lambda v, L, d: check_common(v, L, "cpa"), "cae": lambda v, L, d: check_cae(v, L), "cao": lambda v, L, d: check_cao(v, L), "cgt": lambda v, L, d: check_cgt(v, L), "cgp": lambda v, L, d: check_cgp(v, L), "cgu": lambda v, L, d: check_cgu(v, L), "cab": lambda v, L, d: check_cab(v, L), "caq": lambda v, L, d: check_common(v, L, "caq"), "caw": lambda v, L, d: check_common(v, L, "caw"), "clw": lambda v, L, d: check_clw(v, L), "cla": lambda v, L, d: check_cla(v, L), "caa": lambda v, L, d: check_caa(v, L), "cam": lambda v, L, d: check_cam(v, L), "camo": lambda v, L, d: check_cam(v, L, "offline"), "camh": lambda v, L, d: check_camh(v, L), "cas": lambda v, L, d: check_cas(v, L), "bf": lambda v, L, d: check_bf(v, L), "lp": check_lp, "gd": check_gd, "gh": lambda v, L, d: check_gh(v, L), "gm": check_gm, "gr": lambda v, L, d: check_gr(v, L), "gr2": lambda v, L, d: check_gr(v, L, 2), "gr3": lambda v, L, d: check_gr(v, L, 3), "gr4": lambda v, L, d: check_gr(v, L, 4), "mp": lambda v, L, d: check_mp(v, L), "mpg": lambda v, L, d: check_mp(v, L, "guest"), "mph": lambda v, L, d: check_mp(v, L, "host"), "gro": lambda v, L, d: check_gr(v, L, 1, "gro"), "gr2o": lambda v, L, d: check_gr(v, L, 2, "gr2o"), "gr3o": lambda v, L, d: check_gr(v, L, 3, "gr3o"), "gr4o": lambda v, L, d: check_gr(v, L, 4, "gr4o"), "jl": check_jl, "ml": lambda v, L, d: check_ml(v, L), "mg": lambda v, L, d: check_mg(v, L), "ll": lambda v, L, d: check_ll(v, L), "hlq": check_hlq, "hlr": check_hlr, "hs": lambda v, L, d: check_hs(v, L), "ngj": lambda v, L, d: check_ngj(v, L), "nl": lambda v, L, d: check_nl(v, L), "ff": lambda v, L, d: check_ff(v, L), "lk": lambda v, L, d: check_lk(v, L), "lkc": lambda v, L, d: check_lkc(v, L), "br": lambda v, L, d: check_br(v, L), "rf": lambda v, L, d: check_rf(v, L), "rj": lambda v, L, d: check_rj(v, L), "em": lambda v, L, d: check_em(v, L), "emf": lambda v, L, d: check_emf(v, L), "bd": lambda v, L, d: check_bd(v, L), "bdo": lambda v, L, d: check_bd(v, L, True), "sm": lambda v, L, d: check_sm(v, L), "ef": lambda v, L, d: check_ef(v, L), "ngp": lambda v, L, d: check_ngp(v, L), "mb": lambda v, L, d: check_mb(v, L), "gb": lambda v, L, d: check_gb(v, L), "mbs": lambda v, L, d: check_mbs(v, L), "gbs": lambda v, L, d: check_gbs(v, L), "da": lambda v, L, d: check_da(v, L), "cv": check_cv, "cvs": check_cvs, "cvo": lambda v, L, d: check_cvs(v, L, d, False), "cvr": check_cvr, "cvc": check_cvc, "cva": check_cva, "cvf": check_cvf, "cvm": check_cvm, "cvt": check_cvt, "cvh": lambda v, L, d: check_cvt(v, L, d, "host"), "ie": lambda v, L, d: check_ie(v, L), "il": check_il, "rw": lambda v, L, d: check_rw(v, L), "rwe": lambda v, L, d: check_rwe(v, L), "rwt": lambda v, L, d: check_rwt(v, L), "gag": lambda v, L, d: check_gag(v, L), "gv": lambda v, L, d: check_gv(v, L), "gvg": lambda v, L, d: check_gvg(v, L), "gvr": lambda v, L, d: check_gvr(v, L), "gvl": lambda v, L, d: check_gvl(v, L), "gvn": lambda v, L, d: check_gv(v, L, "gvn"), "gvm": lambda v, L, d: check_gvm(v, L), "gvs": lambda v, L, d: check_gvs(v, L), "rwl": lambda v, L, d: check_rwl(v, L), "nf": lambda v, L, d: check_nf(v, L), "nfa": lambda v, L, d: check_nfa(v, L), "nfe": lambda v, L, d: check_nfe(v, L), "nfw": lambda v, L, d: check_nfw(v, L), "npi": lambda v, L, d: check_npi(v, L), "npa": lambda v, L, d: check_npa(v, L), "npd": lambda v, L, d: check_npd(v, L), "pvd": lambda v, L, d: check_pvd(v, L), "pvh": lambda v, L, d: check_pvh(v, L), "pvn": lambda v, L, d: check_pvn(v, L), "npf": lambda v, L, d: check_npf(v, L), "sj": lambda v, L, d: check_sj(v, L), "bl": lambda v, L, d: check_bl(v, L), "mw": lambda v, L, d: check_mw(v, L), "px": lambda v, L, d: check_px(v, L), "pxg": lambda v, L, d: check_px(v, L, 1), "ba": lambda v, L, d: check_ba(v, L), "bh": lambda v, L, d: check_bh(v, L), "bk": lambda v, L, d: check_bk(v, L), "hg": lambda v, L, d: check_hg(v, L), "bg": lambda v, L, d: check_bg(v, L), "lr": lambda v, L, d: check_lr(v, L), "mi": lambda v, L, d: check_mi(v, L), "mig": lambda v, L, d: check_mi(v, L, "mig"), "lw": lambda v, L, d: check_lw(v, L), "amp": lambda v, L, d: check_amp(v, L), "amp": lambda v, L, d: check_amp(v, L), "la": lambda v, L, d: check_la(v, L), "lb": lambda v, L, d: check_common(v, L, "lb"), "lc": lambda v, L, d: check_lc(v, L),
           "rt": lambda v, L, d: check_rt(v, L), "tv": lambda v, L, d: check_tv(v, L),
-          "eh": lambda v, L, d: check_eh(v, L), "ou": lambda v, L, d: check_ou(v, L), "mesh": lambda v, L, d: check_mesh(v, L), "oum": lambda v, L, d: check_ou(v, L, "oum"), "meshm": lambda v, L, d: check_mesh(v, L, "meshm"), "bv": lambda v, L, d: check_bv(v, L), "bw": lambda v, L, d: check_bw(v, L), "fp": lambda v, L, d: check_fp(v, L), "fp5": lambda v, L, d: check_fp5(v, L), "oj": lambda v, L, d: check_oj(v, L), "lo": lambda v, L, d: check_lo(v, L), "po": lambda v, L, d: check_po(v, L), "pos": lambda v, L, d: check_pos(v, L), "sg": lambda v, L, d: check_sg(v, L), "sg2": lambda v, L, d: check_sg2(v, L), "sgb": lambda v, L, d: check_sgb(v, L), "sgb2": lambda v, L, d: check_sgb2(v, L), "sgb3": lambda v, L, d: check_sgb3(v, L), "sgp": lambda v, L, d: check_sgp(v, L), "csh": lambda v, L, d: check_csh(v, L), "csh2": lambda v, L, d: check_csh2(v, L), "csh3": lambda v, L, d: check_csh3(v, L), "cis": lambda v, L, d: check_cis(v, L, d)}
+          "eh": lambda v, L, d: check_eh(v, L), "ou": lambda v, L, d: check_ou(v, L), "gdr": check_gdr, "gdrd": lambda v, L, d: check_gdr(v, L, d, "gdrd"), "gdrb": lambda v, L, d: check_gdr(v, L, d, "gdrb"), "gdrf": lambda v, L, d: check_gdr(v, L, d, "gdrf"), "mesh": lambda v, L, d: check_mesh(v, L), "oum": lambda v, L, d: check_ou(v, L, "oum"), "meshm": lambda v, L, d: check_mesh(v, L, "meshm"), "bv": lambda v, L, d: check_bv(v, L), "bw": lambda v, L, d: check_bw(v, L), "fp": lambda v, L, d: check_fp(v, L), "fp5": lambda v, L, d: check_fp5(v, L), "oj": lambda v, L, d: check_oj(v, L), "lo": lambda v, L, d: check_lo(v, L), "po": lambda v, L, d: check_po(v, L), "pos": lambda v, L, d: check_pos(v, L), "sg": lambda v, L, d: check_sg(v, L), "sg2": lambda v, L, d: check_sg2(v, L), "sgb": lambda v, L, d: check_sgb(v, L), "sgb2": lambda v, L, d: check_sgb2(v, L), "sgb3": lambda v, L, d: check_sgb3(v, L), "sgp": lambda v, L, d: check_sgp(v, L), "csh": lambda v, L, d: check_csh(v, L), "csh2": lambda v, L, d: check_csh2(v, L), "csh3": lambda v, L, d: check_csh3(v, L), "cis": lambda v, L, d: check_cis(v, L, d)}
 
 
 def sweep_args(argv):
@@ -12227,8 +12478,8 @@ def main():
     if bad:
         sys.exit("unknown --only group(s): " + ",".join(sorted(bad)))
     if only and a.lane_id < 0:  # (a lane child keeps the one phase it was given)
-        a.phase = ",".join(p for p in ("pc", "vm", "yj", "s1", "s2", "rules", "ss", "sh", "iv", "ivn", "ivx", "gg", "bv", "bw", "sc", "summonfail", "s3", "sk", "lg", "lv", "ga", "gl", "lf", "lfa", "lfw", "lfwc", "lfws", "lfwcs", "lfwf", "lfwcf", "lfwbs", "lfwcbs", "lu", "mk", "kd", "kw", "fl", "fd", "fdj", "cd", "iw", "iwn", "an", "ld", "cl", "clg", "clw", "cla", "cpr", "chc", "chn", "chw", "cpa", "cae", "cao", "cgt", "cgp", "cgu", "caa", "cab", "el", "lt", "bf", "ch", "md", "mds", "svl",
-                                     "lp", "gd", "gh", "gm", "gr", "gr2", "gr3", "gr4", "gro", "gr2o", "gr3o", "gr4o", "mp", "mpg", "mph", "jl", "ml", "mg", "ll", "hlq", "hlr", "hs", "ngj", "nl", "ff", "lk", "lkc", "rt", "br", "rf", "rj", "em", "bd", "bdo", "sm", "ef", "ngp", "mb", "gb", "mbs", "gbs", "da", "cv", "cvr", "cvm", "cvc", "cva", "cvf", "cvt", "cvh", "cvs", "cvo", "ie", "il", "rw", "rwe", "rwt", "rwl", "gv", "gvg", "gvr", "gvl", "gvn", "gvm", "gvs", "rh", "rs", "fw", "fwg", "fwb", "fwe", "fh", "tv", "nf", "nfa", "nfe", "nfw", "npi", "npa", "npd", "pvd", "pvh", "pvn", "npf", "eh", "bl", "mw", "px", "pxg", "sj", "ou", "mesh", "oum", "meshm", "fp", "fp5", "oj", "lo", "po", "pos", "sg", "sg2", "sgb", "sgb2", "sgb3", "sgp", "csh", "csh2", "csh3", "cis", "ba", "bh", "bk", "hg", "bg", "lw", "amp", "la", "lb", "lc")
+        a.phase = ",".join(p for p in ("pc", "vm", "yj", "s1", "s2", "rules", "ss", "sh", "iv", "ivn", "ivx", "ivl", "ojl", "gg", "bv", "bw", "sc", "summonfail", "s3", "sk", "lg", "lv", "ga", "gl", "lf", "lfa", "lfw", "lfwc", "lfws", "lfwcs", "lfwf", "lfwcf", "lfwbs", "lfwcbs", "lu", "mk", "kd", "kw", "fl", "fd", "fdj", "cd", "iw", "iwn", "an", "ld", "cl", "clg", "clw", "cla", "cpr", "chc", "chn", "chw", "cpa", "cae", "cao", "cgt", "cgp", "cgu", "caa", "cas", "cab", "el", "lt", "bf", "ch", "md", "mds", "svl",
+                                     "lp", "gd", "gh", "gm", "gr", "gr2", "gr3", "gr4", "gro", "gr2o", "gr3o", "gr4o", "mp", "mpg", "mph", "jl", "ml", "mg", "ll", "hlq", "hlr", "hs", "ngj", "nl", "ff", "lk", "lkc", "rt", "br", "rf", "rj", "em", "emf", "bd", "bdo", "sm", "ef", "ngp", "mb", "gb", "mbs", "gbs", "da", "cv", "cvr", "cvm", "cvc", "cva", "cvf", "cvt", "cvh", "cvs", "cvo", "ie", "il", "rw", "rwe", "rwt", "rwl", "gv", "gvg", "gvr", "gvl", "gvn", "gvm", "gvs", "rh", "rs", "fw", "fwg", "fwb", "fwe", "fh", "tv", "nf", "nfa", "nfe", "nfw", "npi", "npa", "npd", "pvd", "pvh", "pvn", "npf", "eh", "bl", "mw", "px", "pxg", "sj", "ou", "gdr", "gdrd", "gdrb", "gdrf", "mesh", "oum", "meshm", "fp", "fp5", "oj", "lo", "po", "pos", "sg", "sg2", "sgb", "sgb2", "sgb3", "sgp", "csh", "csh2", "csh3", "cis", "ba", "bh", "bk", "hg", "bg", "lr", "mi", "mig", "lw", "amp", "la", "lb", "lc")
                            if p in {n for g in only for n in GROUPS[g].split(",")})
     if Path(a.game).resolve() == Path(r"E:\games\bloodborne").resolve():
         sys.exit("never the user's game folder as the test game (agents/RULES_062.txt)")

@@ -57,8 +57,8 @@ The host's link drops, on both sides:
 
 | Direction | Allowed for an invader | Dropped |
 |---|---|---|
-| invader -> host | EVENT `invade_fell`, EVENT `party_chat` (masked and rate limited like every member's), pong, roster, vitals | every other EVENT (progress, flags, items, give items, gather, travel votes, stay home, world actions ...), PARTY_CMD, PROGRESS, every RPC except the game's own session API (`http`, the room and signaling calls: the bell and the summon need them; `kick_member` and anything else is answered "not allowed for an invader") |
-| host -> invader | EVENT `invade`, `party_chat`, `host_session_end`; roster; vitals | every other EVENT, PARTY_CMD and PROGRESS: it never receives the party's shared progress, flags or items |
+| invader -> host | EVENT `invade_fell`, EVENT `party_chat` (masked and rate limited like every member's), EVENT `b2` with exactly the body `{"op":"dsum_req"}` or `{"op":"dsum_done","ok":0|1}` (0.7.9: the direct summon, see below; matched whole, never as a substring), pong, roster, vitals | every other EVENT (every other `b2` body included) (progress, flags, items, give items, gather, travel votes, stay home, world actions ...), PARTY_CMD, PROGRESS, every RPC except the game's own session API (`http`, the room and signaling calls: the bell and the summon need them; `kick_member` and anything else is answered "not allowed for an invader") |
+| host -> invader | EVENT `invade`, `party_chat`, `host_session_end`; EVENT `b2` `dsum_room` (the answer to its room request) and `dsum_busy` (boss / cutscene hold text); roster; vitals | every other EVENT, PARTY_CMD and PROGRESS: it never receives the party's shared progress, flags or items |
 
 So an invader cannot write the host's world progress or items, and its own save is not changed by the party.
 An invader's slot is never kept: a lost link releases it at once (no 130 s resume), and the invader's link does not reconnect
@@ -87,6 +87,51 @@ Abuse limits: the rate limit above (per address), **Block the invader** (the nam
 the session, the link also refuses the name), at most one invader, hateful names are masked everywhere they are shown
 (`bbname::Display`; the log names no one), and the usual Argon2/AUTH throttles are not involved (an invader has no password to
 guess).
+
+## One load in: the direct summon (0.7.9)
+
+Before 0.7.9 the host's link dropped the invader's `b2` event (`dsum_req`), so the host never answered, the invader waited
+4 s for nothing, then took the old gather / bell sign path (a load into the host's map in its own world, bell polling rounds,
+then the summon: about 90 s from admission, two loads, a silent wait in the Hunter's Dream and a silent move). Now the
+invader asks for the host's room exactly like a co-op guest (`BB_PARTY_GATHER_DSUM`, default on: it rings where it stands, the
+host's answer carries the room, K6 holds the game's own summon load and the load goes straight into the host's map and
+world: one loading screen). The host answers only after the invader gate has admitted it (the request needs an admitted
+slot, the HELLO / AUTH gate ran: boss fight, cutscene, loading, full, ...) and answers only that slot. The invader gets no
+other `b2` action (no travel, gather, progress, item or flag). The host's `HostRefusal` checks (boss / cutscene /
+prologue / travelling) apply to the room request as to a guest's.
+
+What the invader sees while it waits: *Invading: waiting to be let in* (persistent line and toast) until the room comes,
+then *Joining the host's world...*, and if the quick way fails *Invading: the quick way failed, taking the slower way in* /
+*going to the host's area first*; nothing happens silently.
+
+Placement: the invader arrives like a summoned guest, beside the host's arrival point (the vanilla invader appears away from
+the host; not changed in 0.7.9, a placement apart from the host is a separate item).
+
+## The level range (0.7.9)
+
+An invader is refused when its level is outside the host's range, the vanilla invasion formula with both bounds **rounded
+down**: `floor(host * 0.8 - 20) <= invader <= floor(host * 1.1 + 10)` (host 100: 60..120; host 55: 24..70; host 4: 1..14, the
+lower bound clamped at 1). Integer math (`LevelLower`, `LevelUpper` in `party_invade_rules.h`, unit tested against the float
+formula for every level 1..999). Levels are the Blood Echoes level (PlayerGameData +0x90, the same as `MemberVitals::level`).
+* **HELLO.** The invader's HELLO carries its level (a u16 after the role byte; every guest sends it, 0 = unknown); the host passes
+  it to `invader_gate` and `Admit` returns `Deny::LevelRange`. The level check comes right after the host's switch and the block
+  list, before the knock counter and the rate limit: a refused level never counts against `kRateMax` or `kSpamMax`.
+* **Recheck.** The level is self-reported, so the host checks the invader's vitals level as soon as it is known and for as long as
+  the invasion lasts; outside the range the invasion ends (`End::LevelRange`, the same sentence). A level the HELLO did not know
+  (an invader that dialled at its title, level 0) is covered by this.
+* **Unknown host level (0)**: no check; the gate logs it.
+* **Words** (the host's display name is masked like everywhere): *Can't invade NAME: your level 150 is outside their range
+  (60-120)*, shown on the refused game as the persistent party status line and a toast (the same place the other refusals show
+  and the launcher's result). The host gets a log line only.
+* Test aid: `BB_PARTY_INVADE_LEVEL=N` makes this game claim level N in the HELLO and in its vitals. Smoke phase `ivl` (group
+  `invade_level`).
+
+The open-party join (no password, a plain address; `open_party.md`) has the **same range with the vanilla co-op upper bound**:
+`floor(X*0.8-20) .. floor(X*1.2+20)` (host 100: 60..140; host 55: 24..86; host 4: 1..24), refused with *Can't join NAME: your
+level 150 is outside their range (60-140)* (`RejectCode::Level`). A password or a party code ignores the range, as in the game.
+The range is checked for a NEW member only; a member that resumes (same token or name on its kept slot) is not asked again, and
+a guest that levels up inside the party is never removed for that. A new member's vitals level is rechecked (removed with the
+same sentence, name not banned). Smoke phase `ojl` (group `open_level`).
 
 ## Rewards and win / lose
 

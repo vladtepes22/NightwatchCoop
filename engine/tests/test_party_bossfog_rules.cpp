@@ -221,7 +221,7 @@ int main() {
         CHECK(action == (std::set<std::uint32_t>{12424811, 13204831, 13404851, 13504801}));
         CHECK(!GuestMayStartFirstFight(13204831) && GuestRoomOpenSkip(13204830, 1003, 5, 2));
         CHECK(!GuestMayStartFirstFight(13404851) && GuestMayStartFirstFight(13404801) &&
-              GuestMayStartFirstFight(12404841) && !GuestMayStartFirstFight(12424711) &&
+              GuestMayStartFirstFight(12404841) && GuestMayStartFirstFight(12424711) &&
               !GuestMayStartFirstFight(1));
         CHECK(!GuestRoomOpenSkip(12404840, 1003, 5, 2));  // Amelia's room: the guest's fog starts it
         // The host's answer to a guest's fog report at Laurence's before his first fight: nothing

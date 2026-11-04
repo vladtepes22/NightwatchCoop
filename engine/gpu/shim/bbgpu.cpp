@@ -1,3 +1,4 @@
+#include "../../src/runtime_logdrain.h"
 #include "bbport_write_log.h"
 #include "bbport_gnm_hooks.h"
 #include "party/auto_hud.h"
@@ -46,6 +47,7 @@ extern "C" void bbgpu_request_quit(void) {
 [[noreturn]] void BbHardExit(int code) {
     bbnet_shutdown();
     std::fflush(nullptr);
+    runtime_logdrain_flush(3000);
     std::_Exit(code);
 }
 #include "common/logging/log.h"
@@ -300,6 +302,7 @@ long EnvMs(const char* name, long fallback) {
 
 [[noreturn]] void TerminateNow(int code) {
     std::fflush(stdout);
+    runtime_logdrain_flush(3000);
     const char* mode = std::getenv("BB_EXIT_MODE");
     if (mode && std::strcmp(mode, "exit") == 0) {
         std::_Exit(code);

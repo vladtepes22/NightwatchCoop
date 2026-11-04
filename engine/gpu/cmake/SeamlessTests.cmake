@@ -563,12 +563,18 @@ target_link_libraries(party-host-harness PRIVATE ws2_32 iphlpapi ole32 oleaut32 
 target_link_options(party-security-test PRIVATE -static-libstdc++)
 
 # Save commit (src/runtime_savecommit.c): background commit of a closed save file, ordering and kills.
+# Log drain (visy 4b0a8c39; src/runtime_logdrain.c, in bb-probe through build.sh's src/runtime*.c): the game's log
+# output through a background thread. ninja -C out/gpu logdrain-test
+add_executable(logdrain-test EXCLUDE_FROM_ALL ../tests/test_logdrain.c ../src/runtime_logdrain.c)
+target_compile_options(logdrain-test PRIVATE -UNDEBUG -Wall -Wextra)
+target_include_directories(logdrain-test PRIVATE ../src)
+set_target_properties(logdrain-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 add_executable(savecommit-test EXCLUDE_FROM_ALL ../tests/test_savecommit.c ../src/runtime_savecommit.c ../src/win32_compat.c)
 target_compile_options(savecommit-test PRIVATE -UNDEBUG -Wall -Wextra)
 target_include_directories(savecommit-test PRIVATE ../src)
 target_link_libraries(savecommit-test PRIVATE ws2_32 bcrypt winpthread)
 set_target_properties(savecommit-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
-add_dependencies(seamless-tests savecommit-test nav-walk-test)
+add_dependencies(seamless-tests savecommit-test nav-walk-test logdrain-test)
 add_test(NAME nav-walk-test COMMAND nav-walk-test)
 
 add_executable(save-policy-test EXCLUDE_FROM_ALL ../tests/test_save_policy.c ../src/runtime_savepolicy.c)

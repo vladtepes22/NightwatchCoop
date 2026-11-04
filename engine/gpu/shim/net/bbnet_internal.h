@@ -272,6 +272,8 @@ void drain_guest_calls();
 struct OnlineProgress {
     int ss_info = 0, login = 0, chara_id = 0, notice = 0;  // answers with HTTP 200 so far
     int failures = 0;                                      // requests without an HTTP 200
+    int ss_info_started = 0;                               // ss.info requests begun (answered or not)
+    int pending = 0;                                       // FROM requests in flight (an answer still to come)
     double since_last = -1;                                // s since the latest FROM request (-1: none)
 };
 OnlineProgress online_progress();
