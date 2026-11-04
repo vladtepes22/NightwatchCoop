@@ -339,6 +339,8 @@
                                  Tag="{x:Type views:DisplayPage}" Checked="SidebarItem_Checked" />
                     <RadioButton Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Graphics&#x27;}"
                                  Tag="{x:Type views:GraphicsPage}" Checked="SidebarItem_Checked" />
+                    <RadioButton x:Name="ControlsItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Controls&#x27;}"
+                                 Tag="{x:Type views:ControlsPage}" Checked="SidebarItem_Checked" />
                     <RadioButton x:Name="CoopItem" Style="{StaticResource TabItem}" Content="{loc:Tr &#x27;Co-op&#x27;}"
                                  Tag="{x:Type views:SeamlessPage}" Checked="SidebarItem_Checked"
                                  PreviewMouseLeftButtonDown="CoopItem_PreviewMouseLeftButtonDown" />

@@ -639,15 +639,16 @@ namespace BloodborneLauncher
             item.Content as string ??
             (item.Content as Panel)?.Children.OfType<System.Windows.Controls.TextBlock>().FirstOrDefault()?.Text;
 
-        /// <summary>Shows a page: a tab ("seamless": Co-op, "advanced": Settings), or one of More's ("output", "engine", "cheats", "controls", "trophies") or Workshop's ("mods").</summary>
+        /// <summary>Shows a page: a tab ("seamless": Co-op, "advanced": Settings, "controls"), or one of More's ("output", "engine", "cheats", "trophies") or Workshop's ("mods").</summary>
         public void Show(string page)
         {
             var item = page switch
             {
                 "seamless" => CoopItem,
                 "advanced" => SettingsItem,
+                "controls" => ControlsItem,
                 "mods" => WorkshopItem,
-                "output" or "engine" or "cheats" or "controls" or "trophies" => MoreItem,
+                "output" or "engine" or "cheats" or "trophies" => MoreItem,
                 _ => PlayItem,
             };
             if (item.IsChecked == true)
