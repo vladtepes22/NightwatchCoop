@@ -1,0 +1,8 @@
+name = "nightwatch-mods"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[[r2_buckets]]
+binding = "MODS"
+bucket_name = "nightwatch-mods"
