@@ -64,6 +64,7 @@ namespace BloodborneLauncher.Views
 
 
             Ws.PortChanged += OnShown;
+            SwitchChanged += ShowMode;
         }
 
 
@@ -75,31 +76,31 @@ namespace BloodborneLauncher.Views
         /// <summary>The combo, the mod list and the lock (the game reads the mods at its start only).</summary>
         private void ShowMode()
         {
-            var mode = CuratedMods.Mode(S);
+            var mode = Switching ?? CuratedMods.Mode(S);
+            var busy = Switching != null;
+            _modeRing.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
             _modeSetting = true;
             _modeBox.SelectedIndex = Array.FindIndex(ModeChoices(), c => c.Value == mode);
             _modeSetting = false;
             _modList.IsEnabled = mode == "my";
             var locked = Ws.Game.Running;
-            _modeBox.IsEnabled = !locked && _modeRing.Visibility != Visibility.Visible;
-            if (_modeRing.Visibility != Visibility.Visible)
+            _modeBox.IsEnabled = !locked && !busy;
+            if (busy)
+                SetHint(_modeHint, mode == "nocturne" ? DownloadText() : "");
+            else
                 SetHint(_modeHint, locked ? L.T("Close the game to change which mods load.") :
                     L.T("No mods: the game as it ships. My mods: the list below. Nocturne only: the curated mod, with your mods paused. Applied when the game starts."));
         }
 
         private async void ModePicked()
         {
-            if (_modeSetting || _modeBox.SelectedItem is not ComboBoxItem { Tag: string mode } || mode == CuratedMods.Mode(S)) return;
+            if (_modeSetting || Switching != null || _modeBox.SelectedItem is not ComboBoxItem { Tag: string mode } || mode == CuratedMods.Mode(S)) return;
             await ChooseMode(mode);
         }
 
         private async Task ChooseMode(string mode)
         {
-            _modeRing.Visibility = Visibility.Visible;
-            _modeBox.IsEnabled = false;
-            var progress = new Progress<double>(p => SetHint(_modeHint, L.F($"Downloading Nocturne: {(int)(p * 100)}%")));
-            var error = await SwitchModeAsync(Ws, mode, progress);
-            _modeRing.Visibility = Visibility.Collapsed;
+            var error = await SwitchModeAsync(Ws, mode, null);
             ShowMode(); // the old mode again when it failed
             if (error is { Length: > 0 }) Prompt.Tell(L.T("Load mods"), error);
             _modsShown = null;
@@ -111,8 +112,26 @@ namespace BloodborneLauncher.Views
         /// unchanged then.</summary>
         internal static async Task<string?> SwitchModeAsync(Workspace ws, string mode, IProgress<double>? progress)
         {
-            var s = ws.Settings;
             if (ws.Game.Running) return L.T("Close the game to change which mods load.");
+            if (Switching != null) return ""; // one switch at a time; every page already shows the one running
+            Switching = mode;
+            SwitchProgress = 0;
+            SwitchChanged?.Invoke();
+            var shared = new Progress<double>(p => { SwitchProgress = p; SwitchChanged?.Invoke(); progress?.Report(p); });
+            try { return await SwitchCoreAsync(ws, mode, shared); }
+            finally { Switching = null; SwitchChanged?.Invoke(); }
+        }
+
+        /// <summary>The choice being switched to (Nocturne while it downloads), shown by the Mods page, the Host tab's Mods line
+        /// and the Play page until the switch ends; null when none runs. SwitchChanged fires on the UI thread.</summary>
+        internal static string? Switching { get; private set; }
+        internal static double SwitchProgress { get; private set; }
+        internal static event Action? SwitchChanged;
+        internal static string DownloadText() => L.F($"Downloading Nocturne: {(int)(SwitchProgress * 100)}%");
+
+        private static async Task<string?> SwitchCoreAsync(Workspace ws, string mode, IProgress<double> progress)
+        {
+            var s = ws.Settings;
             var dir = GameEnvironment.ModsDir(s);
             var before = s.Str(CuratedMods.ProfileKey);
             try

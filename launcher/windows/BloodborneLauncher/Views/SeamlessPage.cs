@@ -102,6 +102,7 @@ public sealed class SeamlessPage : LauncherPage
         Add(Card(SymbolRegular.PuzzlePiece24, L.T("Mods"), null,
             SmallButton(L.T("Change"), SymbolRegular.Open24, (_, _) => OpenModsPage()), out _gameModeHint), modRows);
         ShowGameMode();
+        ModsPage.SwitchChanged += ShowGameMode; // the choice while it downloads, then the result
         _privateCodes = Rows(m => Hosting(m) && !IsPublic);
         _internetButton = SmallButton(L.T("Copy Internet code"), SymbolRegular.Copy24, (_, _) => { if (_internetCode.Length > 0) Copy(_internetCode); });
         _lanButton = SmallButton(L.T("Copy LAN / VPN code"), SymbolRegular.Copy24, (_, _) => { if (_lanCode.Length > 0) Copy(_lanCode); });
@@ -334,8 +335,16 @@ public sealed class SeamlessPage : LauncherPage
     private readonly TextBlock _gameModeHint;
 
     /// <summary>"Nocturne 1.3", "No mods" or "My mods (N)" (the hash of a Nocturne folder is read off the UI thread).</summary>
+    private int _gameModeReads;
+
     private async void ShowGameMode()
     {
+        var read = ++_gameModeReads;
+        if (ModsPage.Switching is { } switching)
+        {
+            SetHint(_gameModeHint, switching == "nocturne" ? ModsPage.DownloadText() : "");
+            return;
+        }
         var mode = CuratedMods.Mode(S);
         var dir = GameEnvironment.ModsDir(S);
         string text;
@@ -352,6 +361,7 @@ public sealed class SeamlessPage : LauncherPage
         {
             text = L.T("My mods");
         }
+        if (read != _gameModeReads) return; // a newer read (or the download's progress) owns the line
         // Back on the UI thread in the app; a host without a dispatcher context (the off-screen shots) resumes elsewhere.
         if (_gameModeHint.Dispatcher.CheckAccess()) SetHint(_gameModeHint, text);
         else _ = _gameModeHint.Dispatcher.BeginInvoke(() => SetHint(_gameModeHint, text));

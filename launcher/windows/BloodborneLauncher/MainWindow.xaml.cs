@@ -1069,6 +1069,11 @@ namespace BloodborneLauncher
                 Show("seamless");
                 return;
             }
+            if (Views.ModsPage.Switching != null)
+            {
+                Prompt.Tell(L.T("Nocturne"), Views.ModsPage.DownloadText()); // the game reads its mods at start: wait for the switch
+                return;
+            }
             if (Views.SeamlessPage.NeedsVpn(s))
             {
                 Views.SeamlessPage.TellVpnNeeded();
