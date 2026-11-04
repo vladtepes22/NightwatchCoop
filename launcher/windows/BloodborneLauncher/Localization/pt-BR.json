@@ -2542,6 +2542,6 @@
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "A Nightwatch VPN não está conectada, então os jogadores do Nightwatch Online não podem ver nem entrar no seu grupo. Conecte-se ou mude para UPnP/VPN/LAN para hospedar sem ela.",
   "Switch to UPnP/VPN/LAN": "Mudar para UPnP/VPN/LAN",
   "Connect and play": "Conectar e jogar",
-  "A curated mod for the game. Try it here (Load mods: Nocturne only, downloaded once), or read about it on its Nexus Mods page.": "Um mod selecionado para o jogo. Experimente aqui (Carregar mods: Só Nocturne, baixado uma vez) ou leia sobre ele na página do Nexus Mods.",
-  "Nexus Mods": "Nexus Mods"
+  "An optional mod that adds new weapons and hunter tools in the game. Check it out {link}. Press Try Nocturne to install it.": "Um mod opcional que adiciona novas armas e ferramentas de caçador ao jogo. Confira {link}. Clique em \"Experimentar o Nocturne\" para instalá-lo.",
+  "here": "aqui"
 }

@@ -2565,6 +2565,6 @@
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN 未连接，Nightwatch Online 的玩家看不到也无法加入你的队伍。请连接，或切换到 UPnP/VPN/LAN 以不用它来主持。",
   "Switch to UPnP/VPN/LAN": "切换到 UPnP/VPN/LAN",
   "Connect and play": "连接并开始游戏",
-  "A curated mod for the game. Try it here (Load mods: Nocturne only, downloaded once), or read about it on its Nexus Mods page.": "为游戏精选的模组。可以在这里试玩（加载模组：仅 Nocturne，只下载一次），或在它的 Nexus Mods 页面了解详情。",
-  "Nexus Mods": "Nexus Mods"
+  "An optional mod that adds new weapons and hunter tools in the game. Check it out {link}. Press Try Nocturne to install it.": "一个可选模组，为游戏加入新的武器和猎人道具。{link}查看详情。点击“试用 Nocturne”即可安装。",
+  "here": "点此"
 }

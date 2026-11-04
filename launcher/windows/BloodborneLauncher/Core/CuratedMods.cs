@@ -53,7 +53,7 @@ namespace BloodborneLauncher.Core
         public const string FolderName = "Nocturne";
         public const string Marker = "nocturne.json";
         /// <summary>Nocturne's page on Nexus Mods (the Workshop's Nocturne card links to it).</summary>
-        public const string NexusPage = "https://www.nexusmods.com/games/bloodborne/mods/747";
+        public const string NexusPage = "https://www.nexusmods.com/bloodborne/mods/747";
         public const string ProfileKey = "mod_profile";
         public const string SavedKey = "my_mods_saved";
         private const string WrittenKey = "mod_profile_written";
