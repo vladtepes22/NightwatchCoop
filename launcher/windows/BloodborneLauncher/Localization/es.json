@@ -1449,7 +1449,7 @@
   "The profile {0} has no saves in {1}.\n\n": "El perfil {0} no tiene partidas guardadas en {1}.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Se encontraron partidas guardadas de Bloodborne en {0} (perfiles: {1}), guardadas por última vez el {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "\"Usar esa carpeta\" juega con ellas. Jugar aquí inicia una partida nueva; las partidas guardadas de allí se quedan como están.",
-  "Play here anyway": "Jugar aquí de todos modos",
+  "Play anyway": "Jugar igualmente",
   "Use that folder": "Usar esa carpeta",
   "Your saves have a safety copy": "Tus partidas guardadas tienen una copia de resguardo",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "Una copia de resguardo de las partidas guardadas del perfil {0} del {1:d MMM yyyy, HH:mm} se conserva en {2} ",
@@ -2529,9 +2529,6 @@
   "Downloading Nocturne {0}: {1}%": "Descargando Nocturne {0}: {1} %",
   "Use Nocturne {0} and join": "Usar Nocturne {0} y unirse",
   "Modded": "Con mods",
-  "Nocturne {0} is not available here: you probably can't join.": "Nocturne {0} no está disponible aquí: probablemente no puedas unirte.",
-  "This host runs other mods: you probably can't join without the same ones.": "Este anfitrión usa otros mods: probablemente no puedas unirte sin los mismos.",
-  "Your mods differ from the host's: you probably can't join.": "Tus mods son distintos de los del anfitrión: probablemente no puedas unirte.",
   "Nocturne {0} is not available for download.": "Nocturne {0} no está disponible para descargar.",
   "No mods": "Sin mods",
   "Nocturne only": "Solo Nocturne",
@@ -2546,5 +2543,7 @@
   "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Ya salió Nocturne {0}: un mod opcional hecho por los desarrolladores de Nightwatch que añade nuevas armas y herramientas de cazador. Mira lo que añade {link}.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Ya salió Nocturne {0} (tienes la {1}). «Actualizar» la descarga ({2} MB) y reemplaza tu versión instalada. Mira las novedades {link}.",
   "The Nocturne download could not be reached: {0}": "No se pudo acceder a la descarga de Nocturne: {0}",
-  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Tu carpeta de mods ya tiene una carpeta llamada {0}. Quítala o cámbiale el nombre y vuelve a intentarlo."
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Tu carpeta de mods ya tiene una carpeta llamada {0}. Quítala o cámbiale el nombre y vuelve a intentarlo.",
+  "You do not have Nocturne {0} installed. Install it in the {1}.": "No tienes Nocturne {0} instalado. Instálalo en el {1}.",
+  "Mods mismatch: enable the same mods and try again.": "Los mods no coinciden: activa los mismos mods y vuelve a intentarlo."
 }
