@@ -155,6 +155,10 @@ namespace BloodborneLauncher.Views
         /// offline, while the game runs or a switch is under way.</summary>
         internal static async Task NewsAtStartAsync(Workspace ws)
         {
+            // The launcher's own install gets its version name ("Nocturne v1.0.1") now, not only at the next game start.
+            if (!ws.Game.Running && Switching == null &&
+                await Task.Run(() => CuratedMods.NameFolder(ws.Settings, GameEnvironment.ModsDir(ws.Settings))))
+                ws.SaveSoon();
             ModManifest? manifest;
             try { manifest = await CuratedMods.FetchManifestAsync(); }
             catch (Exception) { return; } // offline or a bad manifest: the next start tries again

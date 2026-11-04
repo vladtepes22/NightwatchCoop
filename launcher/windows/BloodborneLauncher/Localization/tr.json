@@ -2546,5 +2546,6 @@
   "here": "Buradan",
   "Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.": "Nocturne {0} çıktı: oyuna yeni silahlar ve avcı aletleri ekleyen isteğe bağlı bir mod. \"Nocturne'u dene\" onu indirir ({1} MB) ve yalnızca onunla oynar (diğer modların duraklatılır; \"Modlarım\" onları geri getirir). Neler eklediğine göz at: {link}.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} çıktı (sende {1} var). \"Güncelle\" onu indirir ({2} MB) ve kurulu sürümünün yerine koyar. Yeniliklere göz at: {link}.",
-  "The Nocturne download could not be reached: {0}": "Nocturne indirmesine ulaşılamadı: {0}"
+  "The Nocturne download could not be reached: {0}": "Nocturne indirmesine ulaşılamadı: {0}",
+  "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Mod klasöründe zaten {0} adlı bir klasör var. Onu kaldır ya da yeniden adlandır, sonra tekrar dene."
 }

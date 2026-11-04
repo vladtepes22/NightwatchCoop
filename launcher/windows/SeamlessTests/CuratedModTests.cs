@@ -117,9 +117,9 @@ internal static class CuratedModTests
 
             double last = 0;
             await CuratedMods.InstallAsync(entry, modsDir, new Progress<double>(p => last = p), CancellationToken.None, local(zipPath));
-            Check(!File.Exists(Path.Combine(modsDir, "Nocturne", "dvdroot_ps4", "old.bin")), "The old folder was not replaced");
-            Check(File.ReadAllText(Path.Combine(modsDir, "Nocturne", "dvdroot_ps4", "param", "gameparam.parambnd.dcx")) == "param-1.3", "The new files are not in place");
-            Check(File.ReadAllText(Path.Combine(modsDir, "Nocturne", "nocturne.json")).Contains("\"version\": \"1.3\""), "nocturne.json was not written");
+            Check(!Directory.Exists(Path.Combine(modsDir, "Nocturne")) && Directory.Exists(Path.Combine(modsDir, "Nocturne v1.3")), "The old folder was not replaced by Nocturne v1.3");
+            Check(File.ReadAllText(Path.Combine(modsDir, "Nocturne v1.3", "dvdroot_ps4", "param", "gameparam.parambnd.dcx")) == "param-1.3", "The new files are not in place");
+            Check(File.ReadAllText(Path.Combine(modsDir, "Nocturne v1.3", "nocturne.json")).Contains("\"version\": \"1.3\""), "nocturne.json was not written");
             Check(!Directory.GetFileSystemEntries(modsDir).Any(e => Path.GetFileName(e).StartsWith('.')), "The install left temporary folders");
             Check(File.Exists(Path.Combine(modsDir, "Other", "param", "x.bin")), "The install touched another mod");
             var installed = CuratedMods.Installed(modsDir);
@@ -127,11 +127,11 @@ internal static class CuratedModTests
             _ = last;
 
             // A hand copy without nocturne.json is matched by content; an edited one is unrecognised.
-            File.Delete(Path.Combine(modsDir, "Nocturne", "nocturne.json"));
+            File.Delete(Path.Combine(modsDir, "Nocturne v1.3", "nocturne.json"));
             var manifest = new ModManifest("Nocturne", "", "1.3", new[] { entry });
             Check(CuratedMods.Installed(modsDir, manifest) is { Kind: InstalledKind.Known, Version: "1.3" }, "A hand install was not matched to the manifest");
             Check(CuratedMods.Installed(modsDir).Kind == InstalledKind.Unrecognised, "A hand install without a manifest should be unrecognised");
-            Put(Path.Combine(modsDir, "Nocturne", "dvdroot_ps4", "param", "gameparam.parambnd.dcx"), "edited");
+            Put(Path.Combine(modsDir, "Nocturne v1.3", "dvdroot_ps4", "param", "gameparam.parambnd.dcx"), "edited");
             Check(CuratedMods.Installed(modsDir, manifest).Kind == InstalledKind.Unrecognised, "An edited install was matched");
             Check(CuratedMods.Installed(Path.Combine(tmp, "nowhere")).Kind == InstalledKind.None, "A missing folder is not 'none'");
 
@@ -170,6 +170,38 @@ internal static class CuratedModTests
             Check(CuratedMods.MyModsCount(s, applyMods) == 2, "My mods count wrong");
             Directory.Delete(applyMods, true);
             Check(CuratedMods.Apply(new LauncherSettings(), applyMods) == false, "Apply must do nothing without a mods folder");
+
+            // ---- folder name: "Nocturne v<version>" for the launcher's own install; mods.json and the saved list follow it
+            Check(CuratedMods.FolderFor("1.0.1") == "Nocturne v1.0.1", "Folder name for 1.0.1");
+            Check(CuratedMods.FolderFor("../x") == "Nocturne" && CuratedMods.FolderFor("1.") == "Nocturne" && CuratedMods.FolderFor("") == "Nocturne",
+                "An unsafe version must not become a folder name");
+            Check(CuratedMods.IsNocturneName("nocturne V1.0") && CuratedMods.IsNocturneName("Nocturne") && !CuratedMods.IsNocturneName("Nocturnes"),
+                "Nocturne folder names");
+            var nameData = Path.Combine(tmp, "name");
+            var nameMods = Path.Combine(nameData, "mods");
+            Environment.SetEnvironmentVariable("BB_DATA_DIR", nameData);
+            Put(Path.Combine(nameMods, "ModA", "param", "a.bin"), "a");
+            var oldNocturne = Path.Combine(nameMods, "Nocturne");
+            Put(Path.Combine(oldNocturne, "dvdroot_ps4", "param", "n.bin"), "n");
+            File.WriteAllText(Path.Combine(oldNocturne, "nocturne.json"),
+                "{\"version\":\"1.0\",\"content\":\"" + CuratedMods.ContentHash(oldNocturne) + "\"}");
+            Mods.Save(new[] { new Mods.Entry("Nocturne", false), new Mods.Entry("ModA", true) });
+            var ns = new LauncherSettings();
+            ns.Set(CuratedMods.SavedKey, "{\"order\":[\"ModA\",\"Nocturne\"],\"disabled\":[\"Nocturne\"]}");
+            Check(CuratedMods.NameFolder(ns, nameMods), "Renaming must report the changed saved list");
+            Check(!Directory.Exists(oldNocturne) && Directory.Exists(Path.Combine(nameMods, "Nocturne v1.0")), "The launcher's install was not renamed to Nocturne v1.0");
+            Check(Mods.Load(nameMods).SequenceEqual(new[] { new Mods.Entry("Nocturne v1.0", false), new Mods.Entry("ModA", true) }),
+                "The rename lost Nocturne's place or its off state in mods.json");
+            Check(ns.Str(CuratedMods.SavedKey).Contains("\"Nocturne v1.0\"") && !ns.Str(CuratedMods.SavedKey).Contains("\"Nocturne\""),
+                "The saved My mods list still names the old folder");
+            Check(CuratedMods.Installed(nameMods) is { Kind: InstalledKind.Known, Version: "1.0" }, "The renamed install is not recognised");
+            Check(!CuratedMods.NameFolder(ns, nameMods), "A second rename changed something");
+            var handCopy = Path.Combine(nameMods, "Nocturne v1.0");
+            File.Delete(Path.Combine(handCopy, "nocturne.json"));
+            Directory.Move(handCopy, Path.Combine(nameMods, "Nocturne"));
+            CuratedMods.NameFolder(ns, nameMods);
+            Check(Directory.Exists(Path.Combine(nameMods, "Nocturne")), "A hand install (no nocturne.json) was renamed");
+            Environment.SetEnvironmentVariable("BB_DATA_DIR", applyData);
 
             // ---- start-up popup: Try without Nocturne, Update from an older known version, once per manifest version
             var latest13 = CuratedMods.ParseManifest(Manifest());
