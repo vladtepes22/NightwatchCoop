@@ -209,7 +209,8 @@ internal static class Program
             new() { Name = name, Players = players, Max = max, Password = password, Build = b, Own = false, Ip = 0x0a080001, Port = 1, Mods = mods };
         // No poller thread: the fixture list is all the page sees.
         var poller = (VpnLobby.Poller)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(VpnLobby.Poller));
-        poller.Games = new List<LobbyGame> { Game("Public", 1, 3, false, build), Game("Private", 2, 3, true, build), Game("Full", 2, 2, true, build), Game("Other", 1, 3, false, "other-build"),
+        var open = new LobbyGame { Name = "Public", Players = 1, Max = 3, Password = false, Build = build, Own = false, Ip = 0x0a080001, Port = 1, Invaders = true };
+        poller.Games = new List<LobbyGame> { open, Game("Private", 2, 3, true, build), Game("Full", 2, 2, true, build), Game("Other", 1, 3, false, "other-build"),
             Game("Nocturne host", 1, 3, false, build, "nocturne@9.9"), Game("Modded host", 1, 3, false, build, "mods:3f9a12c0") };
         poller.Answered = true;
         const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
@@ -229,8 +230,10 @@ internal static class Program
         var marks = Descendants(root).OfType<Border>().Where(b => b.ToolTip is string && b.Visibility == Visibility.Visible && b.ActualWidth > 0).ToList();
         Require(marks.Count == 6, "Every lobby row needs one visible hover mark, found " + marks.Count);
         Require(!Descendants(root).OfType<Wpf.Ui.Controls.SymbolIcon>().Any(i => i.Symbol == Wpf.Ui.Controls.SymbolRegular.Info16), "Lobby rows must not show the info mark");
-        var locks = Descendants(root).OfType<System.Windows.Shapes.Path>().Where(p => p.ActualWidth > 0 && p.Fill is SolidColorBrush).ToList();
+        var locks = Descendants(root).OfType<System.Windows.Shapes.Path>().Where(p => p.ActualWidth > 0 && p.Fill is SolidColorBrush && p.LayoutTransform == Transform.Identity).ToList();
         Require(locks.Count == 2, "Two padlocks expected, found " + locks.Count);
+        var swords = Descendants(root).OfType<Button>().Count(b => b.Content is StackPanel s && s.Children.OfType<System.Windows.Shapes.Path>().Any() && b.Background is SolidColorBrush { Color.R: > 0x80 });
+        Require(swords == 1, "One red Invade button with a sword expected, found " + swords);
         Require(Descendants(root).OfType<Wpf.Ui.Controls.SymbolIcon>().Count(i => i.Symbol == Wpf.Ui.Controls.SymbolRegular.Globe24) == 4, "Four globes expected");
         var mark = Contrast(((SolidColorBrush)locks[0].Fill).Color, shade);
         Require(mark >= 4.5, $"{look}: padlock contrast {mark:0.0}");

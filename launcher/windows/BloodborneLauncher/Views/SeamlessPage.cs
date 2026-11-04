@@ -984,6 +984,16 @@ public sealed class SeamlessPage : LauncherPage
             if (sameVersion && game.Invadable)
             {
                 var invade = SmallButton(L.T("Invade"), SymbolRegular.Shield24, (_, _) => JoinLobbyGame(picked, invade: true));
+                // Red, with a sword (user, 4 Nov): Fluent has no sword glyph, so it is drawn beside the text.
+                invade.Icon = null;
+                invade.Content = new StackPanel { Orientation = Orientation.Horizontal, Children =
+                {
+                    new System.Windows.Shapes.Path { Data = Sword, Width = 18, Height = 18, Stretch = System.Windows.Media.Stretch.Uniform,
+                        Fill = System.Windows.Media.Brushes.White, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center,
+                        LayoutTransform = new System.Windows.Media.RotateTransform(45) },
+                    new TextBlock { Text = L.T("Invade"), VerticalAlignment = VerticalAlignment.Center },
+                } };
+                Tint(invade, true);
                 invade.ToolTip = L.T("Join as a hostile phantom. The host allows invasions: no password is needed or sent.");
                 buttons = Row(invade, join);
             }
@@ -1033,6 +1043,11 @@ public sealed class SeamlessPage : LauncherPage
     }
 
     /// <summary>A solid padlock: thick shackle, square body with rounded bottom corners, keyhole cut through.</summary>
+    /// <summary>An upright sword (pointed blade, crossguard, grip, pommel), turned 45 degrees on the Invade button.</summary>
+    private static readonly System.Windows.Media.Geometry Sword = System.Windows.Media.Geometry.Parse(
+        "F0 M12 0.5 L13.9 3.6 V14.4 H10.1 V3.6 Z M6.4 14.4 H17.6 V16.6 H6.4 Z M10.9 16.6 H13.1 V20.3 H10.9 Z " +
+        "M10.2 21.6 A1.8 1.8 0 1 0 13.8 21.6 A1.8 1.8 0 1 0 10.2 21.6 Z");
+
     private static readonly System.Windows.Media.Geometry Padlock = System.Windows.Media.Geometry.Parse(
         "F0 M6.25 11 V7.75 A5.75 5.75 0 0 1 17.75 7.75 V11 H15.55 V7.75 A3.55 3.55 0 0 0 8.45 7.75 V11 Z " +
         "M4.7 11 H19.3 V20.8 A1.2 1.2 0 0 1 18.1 22 H5.9 A1.2 1.2 0 0 1 4.7 20.8 Z " +
