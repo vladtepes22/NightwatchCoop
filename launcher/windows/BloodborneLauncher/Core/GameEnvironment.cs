@@ -116,6 +116,15 @@ namespace BloodborneLauncher.Core
         public static Dictionary<string, string> Build(LauncherSettings s)
         {
             var fps = Fps(s);
+            // The game mode decides which mods the game loads: mods.json is written for it before every start.
+            try
+            {
+                if (CuratedMods.Apply(s, ModsDir(s))) s.Save();
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+            {
+                // A mods.json that cannot be written: the game starts with the one it has.
+            }
             var env = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 // The package's engine is already built: run_windows.py must not try MSYS2.
@@ -126,7 +135,8 @@ namespace BloodborneLauncher.Core
                 ["BB_USER_DIR"] = UserDir(s),
                 ["BB_MODS_DIR"] = ModsDir(s),
                 ["BB_MODS_CONFIG"] = Path.Combine(Paths.DataDir, "mods.json"),
-                ["BB_MODS_ENABLED"] = s.Bool("mods_enabled") ? "1" : "0",
+                // Nocturne mode loads Nocturne even with "Load mods" off (it is the mode's whole point); safe mode below still wins.
+                ["BB_MODS_ENABLED"] = s.Bool("mods_enabled") || CuratedMods.Mode(s) == "nocturne" ? "1" : "0",
                 ["BB_PATCHES_DIR"] = PatchesDir(s),
                 ["BB_PATCHES_CONFIG"] = Path.Combine(Paths.DataDir, "patches.json"),
                 ["BB_LANGUAGE"] = s.Str("language"),

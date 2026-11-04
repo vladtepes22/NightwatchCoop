@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using BloodborneLauncher.Core;
@@ -15,10 +16,31 @@ namespace BloodborneLauncher.Views
         private readonly TextBlock _modsHint, _patchesHint;
         private List<Mods.Entry> _mods = new();
         private List<(Patches.Patch Patch, bool On)> _patches = new();
+        private Dictionary<string, List<Mods.Conflict>> _clashes = new();
+        private readonly System.Windows.Controls.ComboBox _modeBox = new() { Width = 220, VerticalAlignment = VerticalAlignment.Center };
+        private readonly ProgressRing _modeRing = new() { IsIndeterminate = true, Width = 18, Height = 18, Margin = new Thickness(0, 0, 10, 0), Visibility = Visibility.Collapsed };
+        private readonly TextBlock _modeHint;
+        private readonly SettingRow _bannerNocturne, _bannerStandard;
+        private bool _modeSetting;
 
         public ModsPage() : base(L.T("Mods & patches"),
             L.T("Extract each mod into its own folder (with dvdroot_ps4, or straight chr/, parts/ and so on). Applied when the game starts."))
         {
+            Group(L.T("Game mode"));
+            foreach (var (label, value) in ModeChoices())
+                _modeBox.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+            _modeBox.SelectionChanged += (_, _) => ModePicked();
+            Add(Card(SymbolRegular.Games24, L.T("Game mode"),
+                L.T("What the game loads: Standard has no mods, Nocturne is the curated mod, My mods is the list below. Applied when the game starts."),
+                Row(_modeRing, _modeBox), out _modeHint));
+            _bannerNocturne = Card(SymbolRegular.Info24, L.T("Nocturne is active: your mods are paused"), "",
+                SmallButton(L.T("Switch to My mods"), SymbolRegular.PuzzlePiece24, (_, _) => SwitchToMyMods()), out _);
+            _bannerStandard = Card(SymbolRegular.Info24, L.T("Standard: no mods"), "",
+                SmallButton(L.T("Switch to My mods"), SymbolRegular.PuzzlePiece24, (_, _) => SwitchToMyMods()), out _);
+            Add(_bannerNocturne);
+            Add(_bannerStandard);
+            ShowMode();
+
             Group(L.T("Mods"));
             SettingToggle(SymbolRegular.PuzzlePiece24, L.T("Load mods"), L.T("When two mods replace the same file, the one lower in the list wins"),
                 "mods_enabled");
@@ -57,8 +79,100 @@ namespace BloodborneLauncher.Views
         }
 
 
+        private static (string Label, string Value)[] ModeChoices() => new[]
+        {
+            (L.T("Standard"), "standard"), (L.T("Nocturne"), "nocturne"), (L.T("My mods"), "my"),
+        };
+
+        /// <summary>The combo, the banners, the mod list and the lock (the game reads the mods at its start only).</summary>
+        private void ShowMode()
+        {
+            var mode = CuratedMods.Mode(S);
+            _modeSetting = true;
+            _modeBox.SelectedIndex = Array.FindIndex(ModeChoices(), c => c.Value == mode);
+            _modeSetting = false;
+            _bannerNocturne.Visibility = mode == "nocturne" ? Visibility.Visible : Visibility.Collapsed;
+            _bannerStandard.Visibility = mode == "standard" ? Visibility.Visible : Visibility.Collapsed;
+            _modList.IsEnabled = mode == "my";
+            var locked = Ws.Game.Running;
+            _modeBox.IsEnabled = !locked && _modeRing.Visibility != Visibility.Visible;
+            if (_modeRing.Visibility != Visibility.Visible)
+                SetHint(_modeHint, locked ? L.T("Close the game to change the game mode.") :
+                    L.T("What the game loads: Standard has no mods, Nocturne is the curated mod, My mods is the list below. Applied when the game starts."));
+        }
+
+        private async void ModePicked()
+        {
+            if (_modeSetting || _modeBox.SelectedItem is not ComboBoxItem { Tag: string mode } || mode == CuratedMods.Mode(S)) return;
+            await ChooseMode(mode);
+        }
+
+        private async void SwitchToMyMods() => await ChooseMode("my");
+
+        private async Task ChooseMode(string mode)
+        {
+            _modeRing.Visibility = Visibility.Visible;
+            _modeBox.IsEnabled = false;
+            var progress = new Progress<double>(p => SetHint(_modeHint, L.F($"Downloading Nocturne: {(int)(p * 100)}%")));
+            var error = await SwitchModeAsync(Ws, mode, progress);
+            _modeRing.Visibility = Visibility.Collapsed;
+            ShowMode(); // the old mode again when it failed
+            if (error is { Length: > 0 }) Prompt.Tell(L.T("Game mode"), error);
+            _modsShown = null;
+            RefreshMods();
+        }
+
+        /// <summary>Switches the game mode (shared with the Play page's card). Picking Nocturne installs or updates it first, asking
+        /// before the download. Returns null when switched, "" when the player declined, else the message to show; the mode is
+        /// unchanged then.</summary>
+        internal static async Task<string?> SwitchModeAsync(Workspace ws, string mode, IProgress<double>? progress)
+        {
+            var s = ws.Settings;
+            if (ws.Game.Running) return L.T("Close the game to change the game mode.");
+            var dir = GameEnvironment.ModsDir(s);
+            var before = s.Str(CuratedMods.ProfileKey);
+            try
+            {
+                if (mode == "nocturne")
+                {
+                    ModManifest? manifest = null;
+                    string? unreachable = null;
+                    try { manifest = await CuratedMods.FetchManifestAsync(); }
+                    catch (Exception e) { unreachable = e.Message; }
+                    var installed = await Task.Run(() => CuratedMods.Installed(dir, manifest));
+                    var newest = manifest?.Newest;
+                    var want = newest != null && (installed.Kind == InstalledKind.None ||
+                        (installed.Kind == InstalledKind.Known && installed.Version != newest.Version)) ? newest : null;
+                    if (installed.Kind == InstalledKind.None && want == null)
+                        return unreachable != null
+                            ? L.F($"Nocturne is not installed and its download could not be reached: {unreachable}")
+                            : L.T("Nocturne is not installed and no download is set up.");
+                    if (want != null)
+                    {
+                        var mb = (int)Math.Ceiling(want.Size / 1e6);
+                        var ok = Prompt.Confirm(L.T("Nocturne"), installed.Kind == InstalledKind.None
+                            ? L.F($"Nocturne {want.Version} is downloaded once ({mb} MB) and kept in your mods folder. Continue?")
+                            : L.F($"Nocturne {want.Version} is available ({mb} MB). It replaces your installed version. Continue?"), L.T("Download"));
+                        if (!ok && installed.Kind == InstalledKind.None) return "";
+                        if (ok)
+                            await CuratedMods.InstallAsync(want, dir, progress, CancellationToken.None);
+                    }
+                }
+                s.Set(CuratedMods.ProfileKey, mode);
+                CuratedMods.Apply(s, dir);
+                ws.SaveSoon();
+                return null;
+            }
+            catch (Exception e)
+            {
+                s.Set(CuratedMods.ProfileKey, before);
+                return L.F($"Nocturne could not be set up: {e.Message}");
+            }
+        }
+
         public override void OnShown()
         {
+            ShowMode();
             RefreshMods();
             RefreshPatches();
         }
@@ -72,7 +186,17 @@ namespace BloodborneLauncher.Views
             var read = ++_modReads;
             var dir = GameEnvironment.ModsDir(S);
             List<Mods.Entry> mods;
-            try { mods = await Task.Run(() => Mods.Load(dir)); }
+            Dictionary<string, List<Mods.Conflict>> clashes;
+            try
+            {
+                var paused = CuratedMods.Mode(S) != "my";
+                (mods, clashes) = await Task.Run(() =>
+                {
+                    var list = Mods.Load(dir);
+                    return (list, paused ? new Dictionary<string, List<Mods.Conflict>>()
+                        : Mods.Conflicts(dir, list.Where(m => m.Enabled).Select(m => m.Name)));
+                });
+            }
             catch (Exception e)
             {
                 Ws.Log(L.T("Could not read the mods folder: ") + e.Message, LogLevel.Warn);
@@ -80,15 +204,41 @@ namespace BloodborneLauncher.Views
             }
             if (read != _modReads) return;
             _mods = mods;
+            _clashes = clashes;
             SetHint(_modsHint, _mods.Count == 0 ? L.F($"{dir} — no mods") : _mods.Count == 1 ? L.F($"{dir} — 1 mod") : L.F($"{dir} — {_mods.Count} mods"));
-            var shown = string.Join("|", _mods.Select(m => $"{m.Name}={m.Enabled}"));
-            if (shown == _modsShown) return;
+            if (ModsKey() == _modsShown) return;
             DrawMods();
+        }
+
+        private string ModsKey() => string.Join("|", _mods.Select(m => $"{m.Name}={m.Enabled}{ClashText(m)}"));
+
+        /// <summary>The lines under an enabled mod that shares files with another enabled one.</summary>
+        private string ClashText(Mods.Entry mod) =>
+            !mod.Enabled || !_clashes.TryGetValue(mod.Name, out var list) ? "" :
+                string.Join("\n", list.Select(c => L.F($"Also replaced by {c.With} ({string.Join(", ", c.Examples.Select(Path.GetFileName))}): the one lower in the load order wins")));
+
+        /// <summary>Which mods clash after a switch was flipped.</summary>
+        private async void RefreshClashes()
+        {
+            var read = ++_modReads;
+            var dir = GameEnvironment.ModsDir(S);
+            var enabled = _mods.Where(m => m.Enabled).Select(m => m.Name).ToList();
+            try
+            {
+                var clashes = await Task.Run(() => Mods.Conflicts(dir, enabled));
+                if (read != _modReads) return;
+                _clashes = clashes;
+                DrawMods();
+            }
+            catch (Exception e)
+            {
+                Ws.Log(L.T("Could not read the mods folder: ") + e.Message, LogLevel.Warn);
+            }
         }
 
         private void DrawMods()
         {
-            _modsShown = string.Join("|", _mods.Select(m => $"{m.Name}={m.Enabled}"));
+            _modsShown = ModsKey();
             _modList.Children.Clear();
             for (var i = 0; i < _mods.Count; i++)
             {
@@ -99,13 +249,15 @@ namespace BloodborneLauncher.Views
                 {
                     _mods[index] = mod with { Enabled = toggle.IsChecked == true };
                     SaveMods();
+                    RefreshClashes();
                 };
                 var up = IconButton(SymbolRegular.ArrowUp24, L.T("Load earlier"), (_, _) => Move(index, -1));
                 var down = IconButton(SymbolRegular.ArrowDown24, L.T("Load later"), (_, _) => Move(index, 1));
                 up.IsEnabled = i > 0;
                 down.IsEnabled = i < _mods.Count - 1;
 
-                var card = Card(SymbolRegular.Box24, mod.Name, L.F($"Load order {i + 1}"), Row(up, down, toggle), out _);
+                var clash = ClashText(mod);
+                var card = Card(SymbolRegular.Box24, mod.Name, L.F($"Load order {i + 1}") + (clash.Length > 0 ? "\n" + clash : ""), Row(up, down, toggle), out _);
                 card.Margin = new Thickness(24, 0, 0, 4);
                 _modList.Children.Add(card);
             }

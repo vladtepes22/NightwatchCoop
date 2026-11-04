@@ -27,7 +27,8 @@ export default {
     }
     if (!("body" in object)) return new Response(null, { status: 304, headers }); // onlyIf matched: not modified
     let status = 200;
-    if (object.range && "offset" in object.range) {
+    // R2 reports a range on every read: only a request that asked for one gets 206.
+    if (request.headers.has("range") && object.range && "offset" in object.range) {
       const start = object.range.offset, end = start + object.range.length - 1;
       headers.set("Content-Range", `bytes ${start}-${end}/${object.size}`);
       status = 206;
