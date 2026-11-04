@@ -108,6 +108,10 @@ public sealed class SeamlessPage : LauncherPage
         _lanButton = SmallButton(L.T("Copy LAN / VPN code"), SymbolRegular.Copy24, (_, _) => { if (_lanCode.Length > 0) Copy(_lanCode); });
         Add(Card(SymbolRegular.Link24, L.T("Party codes"), L.T("UPnP uses the Internet code; a VPN or the local network uses the LAN / VPN code."),
             Row(_internetButton, _lanButton), out _inviteHint, wide: true), _privateCodes);
+        // Kick player only while this host's game runs: there is no party to remove anyone from before (user, 4 Nov).
+        var kick = Rows(m => Hosting(m) && Ws.Game.Running);
+        Ws.GameStateChanged += () =>
+            kick.Visibility = Hosting(S.Str("party_mode")) && Ws.Game.Running ? Visibility.Visible : Visibility.Collapsed;
         Add(Card(SymbolRegular.People24, L.T("Kick player"), L.T("Host only. Enter the member's exact party name."),
             SmallButton(L.T("Choose member"), SymbolRegular.People24, (_, _) => {
                 var status = SeamlessSession.Read(S);
@@ -119,7 +123,7 @@ public sealed class SeamlessPage : LauncherPage
                     try { SeamlessSession.Command(S, "kick", members[choice].name); }
                     catch (Exception e) { Prompt.Tell(L.T("Party"), e.Message); }
                 }
-            }), out _), Rows(Hosting));
+            }), out _), kick);
 
         var found = Rows(Joining);
         _searchBox = new Wpf.Ui.Controls.TextBox { PlaceholderText = L.T("Search parties"), Width = 200, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
