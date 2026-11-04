@@ -30,16 +30,18 @@ namespace BloodborneLauncher.Core
 
     /// <summary>Join: nothing to do. GetNocturne: switch to the host's Nocturne version (downloaded when missing).
     /// NocturneNotAvailable: the host's version is neither installed nor in the manifest. Modded: the host runs other mods
-    /// (label only shown, nothing fetched). MismatchJoinAnyway: the host runs no mods and this guest does. All but Join
-    /// still allow joining: the game's party mod hash decides.</summary>
-    public enum JoinKind { Join, GetNocturne, NocturneNotAvailable, Modded, MismatchJoinAnyway }
+    /// whose hash differs from this PC's (label only shown, nothing fetched). ModdedUnchecked: the host runs other mods and
+    /// this PC's hash is unknown (no game start since its mods last changed). MismatchJoinAnyway: the host runs no gameplay
+    /// mods and this guest does. All but Join still allow joining: the game's party mod hash decides.</summary>
+    public enum JoinKind { Join, GetNocturne, NocturneNotAvailable, Modded, ModdedUnchecked, MismatchJoinAnyway }
 
     /// <summary>What a guest should do before joining a host (<see cref="CuratedMods.JoinAdvice"/>).</summary>
     public readonly record struct JoinChoice(JoinKind Kind, string? Version = null);
 
     /// <summary>The guest's own mods: its game mode, its Nocturne version (null when none is installed) and how many mods
-    /// of "My mods" are on.</summary>
-    public sealed record LocalMods(string Mode, string? NocturneVersion, int EnabledCount);
+    /// of "My mods" are on, and the first 8 hex of its party mod hash from the last game start (<see cref="CuratedMods.LastModsHash"/>;
+    /// null when unknown).</summary>
+    public sealed record LocalMods(string Mode, string? NocturneVersion, int EnabledCount, string? ModsHash = null);
 
     /// <summary>
     /// The game mode (Standard / Nocturne / My mods) and the curated mod Nocturne: its public manifest, the content hash
@@ -573,8 +575,13 @@ namespace BloodborneLauncher.Core
                            offered?.Contains(version, StringComparer.OrdinalIgnoreCase) == true;
                 return new JoinChoice(have ? JoinKind.GetNocturne : JoinKind.NocturneNotAvailable, version);
             }
-            if (label.Length > 0) return new JoinChoice(JoinKind.Modded);
+            // "mods:" + 8 hex is the host's party mod hash (Nocturne with other mods, or any other set): the same hash here
+            // means the same gameplay files, whatever the mods are called (user, 4 Nov: Nocturne with another mod said mismatch).
+            if (label.StartsWith("mods:", StringComparison.Ordinal) && local.ModsHash is { } own)
+                return new JoinChoice(string.Equals(label[5..], own, StringComparison.OrdinalIgnoreCase) ? JoinKind.Join : JoinKind.Modded);
             var modsOn = local.Mode == "nocturne" || (local.Mode == "my" && local.EnabledCount > 0);
+            if (label.Length > 0) return new JoinChoice(local.ModsHash == null && modsOn ? JoinKind.ModdedUnchecked : JoinKind.Modded);
+            if (local.ModsHash == NoGameplayMods) return new JoinChoice(JoinKind.Join);  // cosmetic mods only
             return modsOn ? new JoinChoice(JoinKind.MismatchJoinAnyway) : new JoinChoice(JoinKind.Join);
         }
 
@@ -596,6 +603,29 @@ namespace BloodborneLauncher.Core
 
         /// <summary>The local side for JoinAdvice: mode, installed Nocturne version (any known one) and My mods' count.</summary>
         public static LocalMods Local(LauncherSettings s, string modsDir, ModManifest? manifest) =>
-            new(Mode(s), Installed(modsDir, manifest) is { Kind: InstalledKind.Known } i ? i.Version : null, MyModsCount(s, modsDir));
+            new(Mode(s), Installed(modsDir, manifest) is { Kind: InstalledKind.Known } i ? i.Version : null, MyModsCount(s, modsDir),
+                LastModsHash(Path.Combine(Paths.BinariesDir, "party_mods.txt"), Mods.ProfilePath));
+
+        /// <summary>The party hash of a start with no gameplay mods (bb-start writes 64 zeros), first 8 hex.</summary>
+        public const string NoGameplayMods = "00000000";
+
+        /// <summary>The first 8 hex of the party mod hash bb-start wrote at the last game start (engine\out\party_mods.txt, the
+        /// same 4 bytes a host shows as "mods:" in the lobby), or null when there is none or mods.json changed after it
+        /// (the mods were switched since, so the hash may be old).</summary>
+        public static string? LastModsHash(string partyModsFile, string modsConfig)
+        {
+            try
+            {
+                if (!File.Exists(partyModsFile)) return null;
+                if (File.Exists(modsConfig) && File.GetLastWriteTimeUtc(modsConfig) > File.GetLastWriteTimeUtc(partyModsFile)) return null;
+                foreach (var line in File.ReadLines(partyModsFile))
+                    if (line.StartsWith("hash ", StringComparison.Ordinal) && line.Length >= 13 &&
+                        line.AsSpan(5, 8).ToString() is var hex && hex.All(Uri.IsHexDigit))
+                        return hex.ToLowerInvariant();
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            return null;
+        }
     }
 }

@@ -223,8 +223,26 @@ internal static class CuratedModTests
             Check(CuratedMods.JoinAdvice("nocturne@9.9", nocturne13, offered) == new JoinChoice(JoinKind.NocturneNotAvailable, "9.9"), "A version not in the manifest is not available");
             Check(CuratedMods.JoinAdvice("nocturne@1.2", nocturne13, null).Kind == JoinKind.NocturneNotAvailable, "No manifest: an uninstalled version is not available");
             Check(CuratedMods.JoinAdvice("nocturne@1.3+extra:3f9a12c0", nocturne13, offered).Kind == JoinKind.Join, "Extra label parts are ignored");
-            Check(CuratedMods.JoinAdvice("nocturne@../x", nocturne13, offered).Kind == JoinKind.Modded, "A version with path characters is never a key");
-            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("my", null, 2), offered).Kind == JoinKind.Modded, "Another label only shows modded");
+            Check(CuratedMods.JoinAdvice("nocturne@../x", nocturne13, offered).Kind is JoinKind.Modded or JoinKind.ModdedUnchecked, "A version with path characters is never a key");
+            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("my", null, 2, "0A1B2C3D"), offered).Kind == JoinKind.Join, "The same mods hash must join (Nocturne with another mod)");
+            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("nocturne", "1.3", 0, "ffff0000"), offered).Kind == JoinKind.Modded, "A known other hash is a mismatch");
+            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("my", null, 2), offered).Kind == JoinKind.ModdedUnchecked, "An unknown own hash is not called a mismatch");
+            Check(CuratedMods.JoinAdvice("", new LocalMods("my", null, 2, CuratedMods.NoGameplayMods), offered).Kind == JoinKind.Join, "Cosmetic-only mods join an unmodded host");
+            {
+                var dir = Path.Combine(Path.GetTempPath(), "nw-modshash-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                var txt = Path.Combine(dir, "party_mods.txt");
+                var cfg = Path.Combine(dir, "mods.json");
+                File.WriteAllText(cfg, "{}");
+                File.WriteAllText(txt, "# x\nhash 0A1B2C3D" + new string('0', 56) + "\nmod Nocturne (6 files)\n");
+                File.SetLastWriteTimeUtc(cfg, DateTime.UtcNow.AddMinutes(-5));
+                Check(CuratedMods.LastModsHash(txt, cfg) == "0a1b2c3d", "The last start's hash is read");
+                File.SetLastWriteTimeUtc(cfg, DateTime.UtcNow.AddMinutes(5));
+                Check(CuratedMods.LastModsHash(txt, cfg) == null, "A mods.json newer than the hash makes it unknown");
+                Check(CuratedMods.LastModsHash(Path.Combine(dir, "none.txt"), cfg) == null, "No file, no hash");
+                Directory.Delete(dir, true);
+            }
+            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("my", null, 2, "ffff0000"), offered).Kind == JoinKind.Modded, "Another label only shows modded");
             Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("standard", null, 0), offered).Kind == JoinKind.Modded, "Another label only shows modded (vanilla guest)");
             Check(CuratedMods.JoinAdvice("", new LocalMods("my", null, 0)).Kind == JoinKind.Join, "No mods on both sides joins");
             Check(CuratedMods.JoinAdvice(null, nocturne13).Kind == JoinKind.MismatchJoinAnyway, "A guest with Nocturne and a host without mods is a mismatch");

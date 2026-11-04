@@ -964,7 +964,8 @@ public sealed class SeamlessPage : LauncherPage
         RefreshRowManifest();
         var manifest = _rowManifest;
         var local = games.Any(g => g.Mods.Length > 0) || CuratedMods.Mode(S) != "my" ? CuratedMods.Local(S, GameEnvironment.ModsDir(S), manifest)
-            : new LocalMods("my", null, CuratedMods.MyModsCount(S, GameEnvironment.ModsDir(S)));
+            : new LocalMods("my", null, CuratedMods.MyModsCount(S, GameEnvironment.ModsDir(S)),
+                CuratedMods.LastModsHash(System.IO.Path.Combine(Paths.BinariesDir, "party_mods.txt"), Mods.ProfilePath));
         var offered = manifest?.Versions.Select(v => v.Version).ToList();
         var signature = result.Total + "|" + result.Hidden + "|" + _searchBox.Text + "|" + up + "|" + (_lobby?.Answered == true) + "|" + local + "|" +
                         (offered == null ? "-" : string.Join(",", offered)) + "|" +
