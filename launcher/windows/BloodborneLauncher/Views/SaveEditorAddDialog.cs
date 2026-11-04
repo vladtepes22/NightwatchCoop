@@ -38,7 +38,10 @@ internal sealed class SaveEditorAddDialog : Window
 
     // Category 2 is a local gem pick; category 8 is the rune catalogue. Both use add_gems.
     // Category 9 is the list of the Nocturne mod: each row carries its own category (goods, weapon or armour).
-    private static readonly int[] Categories = { 4, 0, 1, 2, 8, 9 };
+    // All (-1, the default; user 4 Nov) asks every list but the gem pick and merges them, each row keeping its category.
+    private const int All = -1;
+    private static readonly int[] Categories = { All, 4, 0, 1, 2, 8, 9 };
+    private static readonly int[] AllLists = { 4, 0, 1, 8, 9 };
     private const int SearchPauseMs = 200;
     private readonly Func<int, string, Task<string>> _catalog;
     private readonly ComboBox _kind = new(), _shape = new();
@@ -53,6 +56,16 @@ internal sealed class SaveEditorAddDialog : Window
     private readonly ListBox _list = new();
     private readonly TextBlock _empty = LauncherPage.Text("", "Muted"), _countLabel = LauncherPage.Text(L.T("Count"), "StatLabel");
     private readonly Button _ok;
+    private readonly TextBlock _heldText = new() { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.White };
+    private readonly Border _heldNote = new() { Background = NoteBrush, CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8, 12, 8),
+        Margin = new Thickness(0, 10, 0, 0), Visibility = Visibility.Collapsed };
+    private static readonly SolidColorBrush NoteBrush = FrozenBrush(Color.FromArgb(0xE6, 0x10, 0x10, 0x12));
+    private static SolidColorBrush FrozenBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
     private readonly HashSet<(int, int)> _held;
     private int _run;
     // Decoded once per file: a search shows mostly the icons the last one did.
@@ -72,24 +85,37 @@ internal sealed class SaveEditorAddDialog : Window
         SetResourceReference(FontFamilyProperty, "UiFont");
         UseLayoutRounding = true; SourceInitialized += (_, _) => WindowTheme.Apply(this);
         var body = new Grid { Margin = new Thickness(22) };
-        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto })
+        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto })
             body.RowDefinitions.Add(new() { Height = height });
         void Put(UIElement element, int row) { Grid.SetRow(element, row); body.Children.Add(element); }
 
         var top = new Grid { Margin = new Thickness(0, 0, 0, 10) };
         top.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         top.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        foreach (var text in new[] { L.T("Goods"), L.T("Weapons"), L.T("Armor"), L.T("Blood gem"), L.T("Caryll rune"), "Nocturne" }) _kind.Items.Add(text);
+        foreach (var text in new[] { L.T("All"), L.T("Goods"), L.T("Weapons"), L.T("Armor"), L.T("Blood gem"), L.T("Caryll rune"), "Nocturne" }) _kind.Items.Add(text);
         _kind.SelectedIndex = 0; _kind.MinWidth = 150; _kind.Margin = new Thickness(0, 0, 12, 0);
         AutomationProperties.SetName(_kind, L.T("Add item"));
         Grid.SetColumn(_kind, 0); top.Children.Add(_kind);
         _search.PlaceholderText = L.T("Search items"); AutomationProperties.SetName(_search, L.T("Search items"));
         Grid.SetColumn(_search, 1); top.Children.Add(_search);
         Put(top, 0);
-        var hint = LauncherPage.Text(L.T("Pick items or choose gem effects, then Add."), "Muted");
+        var hint = LauncherPage.Text(L.T("Click an item, or tick the boxes to add several, then Add. For a blood gem, choose its effects."), "Muted");
         hint.TextWrapping = TextWrapping.Wrap; hint.Margin = new Thickness(0, 0, 0, 10); Put(hint, 1);
 
-        _list.SelectionMode = SelectionMode.Extended; _list.ItemTemplate = RowTemplate();
+        // A click picks that one item; the check box on the left adds or removes items for a multiple pick (user, 4 Nov: no Ctrl or
+        // Shift). Multiple mode is the check boxes' state; a click on the row itself clears the others first.
+        _list.SelectionMode = SelectionMode.Multiple; _list.ItemTemplate = RowTemplate();
+        _list.ItemContainerStyle = SaveEditorXaml.RowStyle(22, selectable: true); // the editor's scroll gutter: the bar draws over the rows
+        _list.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (e.OriginalSource is not DependencyObject hit || Ancestor<CheckBox>(hit) != null) return;
+            if (Ancestor<ListBoxItem>(hit) is not { DataContext: Row row }) return;
+            if (e.ClickCount > 1) return; // the double click adds (MouseDoubleClick)
+            _list.SelectedItems.Clear();
+            _list.SelectedItems.Add(row);
+            e.Handled = true;
+            _list.Focus();
+        };
         _list.BorderThickness = new Thickness(0); _list.Background = Brushes.Transparent;
         ScrollViewer.SetHorizontalScrollBarVisibility(_list, ScrollBarVisibility.Disabled);
         VirtualizingPanel.SetIsVirtualizing(_list, true);
@@ -136,7 +162,9 @@ internal sealed class SaveEditorAddDialog : Window
         cancel.Click += (_, _) => Close(); Place(cancel, 3);
         _ok = new Button { Content = L.T("Add"), Appearance = ControlAppearance.Primary, MinWidth = 90, IsEnabled = false };
         _ok.Click += (_, _) => Accept(); Place(_ok, 4);
-        Put(footer, 3);
+        // A picked item the save already holds: a dark note under the list, not over the rows (user, 4 Nov).
+        _heldNote.Child = _heldText; Put(_heldNote, 3);
+        Put(footer, 4);
         Content = body;
 
         _kind.SelectionChanged += async (_, _) => { _list.ItemsSource = null; Update(); await Load(); };
@@ -152,16 +180,27 @@ internal sealed class SaveEditorAddDialog : Window
         Loaded += async (_, _) => await Load();
     }
 
+    private static T? Ancestor<T>(DependencyObject? node) where T : DependencyObject
+    {
+        for (; node != null; node = node is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
+            if (node is T found) return found;
+        return null;
+    }
+
     private int Category => Categories[Math.Max(0, _kind.SelectedIndex)];
-    private bool IsGoods => Category is 4 or 9;
+    private bool IsGoods => Category is 4 or 9 or All;
+    // The category an item is added in: its own in the merged lists (All, Nocturne), else the list's.
+    private int RowCategory(Row r) => Category is 9 or All ? r.Category : Category;
     private bool IsGem => Category == 2;
     private int? CountNumber => int.TryParse(_count.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n is >= 1 and <= 99 ? n : null;
 
     private static DataTemplate RowTemplate() => (DataTemplate)XamlReader.Parse(
         "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
-        "<Grid Margin='4,3'><Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>" +
-        "<Image Source='{Binding Icon}' Width='36' Height='36' Margin='0,0,12,0' Visibility='{Binding IconVisibility}'/>" +
-        "<StackPanel Grid.Column='1' VerticalAlignment='Center'><TextBlock Text='{Binding Name}' TextTrimming='CharacterEllipsis'/>" +
+        "<Grid Margin='8,5' Background='Transparent'><Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>" +
+        "<CheckBox VerticalAlignment='Center' Margin='0,0,10,0' MinWidth='0' Focusable='False' " +
+        "IsChecked='{Binding IsSelected, Mode=TwoWay, RelativeSource={RelativeSource AncestorType=ListBoxItem}}'/>" +
+        "<Image Grid.Column='1' Source='{Binding Icon}' Width='36' Height='36' Margin='0,0,12,0' Visibility='{Binding IconVisibility}'/>" +
+        "<StackPanel Grid.Column='2' VerticalAlignment='Center'><TextBlock Text='{Binding Name}' TextTrimming='CharacterEllipsis'/>" +
         "<TextBlock Text='{Binding Meta}' Opacity='0.65' FontSize='12'/></StackPanel></Grid></DataTemplate>");
 
     private async Task Load()
@@ -172,9 +211,15 @@ internal sealed class SaveEditorAddDialog : Window
         _loadingCatalog = true; _catalogError = null; _list.ItemsSource = null; Update();
         try
         {
-            var json = await _catalog(category, _search.Text.Trim());
+            var text = _search.Text.Trim();
+            var lists = category == All ? AllLists : [category];
+            var answers = new List<(int List, string Json)>();
+            foreach (var list in lists) answers.Add((list, await _catalog(list, text))); // the worker takes one request at a time
             if (run != _run) return;
-            var found = JsonSerializer.Deserialize<Found[]>(json, SaveEditor.Json) ?? [];
+            // A plain list's rows are its category; the Nocturne list's rows carry their own (goods, weapon or armour).
+            var found = answers.SelectMany(a => (JsonSerializer.Deserialize<Found[]>(a.Json, SaveEditor.Json) ?? [])
+                    .Select(f => a.List == 9 || category == 9 ? f : f with { Category = a.List }))
+                .DistinctBy(f => (f.Category, f.Number)).ToList();
             var rows = await Task.Run(() => found.Select(f => new Row(f.Number, f.Name ?? "", CachedIcon(f.Icon), f.Category, f.Icon, f.Shape)).ToList());
             if (run != _run) return;
             _list.ItemsSource = rows;
@@ -205,13 +250,16 @@ internal sealed class SaveEditorAddDialog : Window
         if (IsGem)
         {
             _ok.IsEnabled = _pickedEffects.Length is >= 1 and <= ItemRow.MaxGemEffects;
+            _heldNote.Visibility = Visibility.Collapsed;
             return;
         }
         var chosen = _list.SelectedItems.Cast<Row>().ToList();
         _ok.IsEnabled = !_loadingCatalog && chosen.Count > 0 && (!IsGoods || CountNumber != null) &&
-            (!IsGoods || chosen.All(r => !_held.Contains((4, r.Number))));
-        _empty.Text = _catalogError ?? (_list.ItemsSource is List<Row> { Count: 0 } ? L.T("No items found") :
-            IsGoods && chosen.Any(r => _held.Contains((4, r.Number))) ? L.T("The save already holds an item you picked: change its count in the list instead.") : "");
+            chosen.All(r => RowCategory(r) != 4 || !_held.Contains((4, r.Number)));
+        _empty.Text = _catalogError ?? (_list.ItemsSource is List<Row> { Count: 0 } ? L.T("No items found") : "");
+        var held = chosen.Any(r => RowCategory(r) == 4 && _held.Contains((4, r.Number)));
+        _heldText.Text = held ? L.T("Already in your save: change its count in the inventory instead.") : "";
+        _heldNote.Visibility = held ? Visibility.Visible : Visibility.Collapsed;
     }
     private void Accept()
     {
@@ -222,7 +270,7 @@ internal sealed class SaveEditorAddDialog : Window
             DialogResult = true; return;
         }
         var count = IsGoods ? CountNumber ?? 1 : 1;
-        Result = _list.SelectedItems.Cast<Row>().Select(r => new Pick(Category == 9 ? r.Category : Category, r.Number, r.Name, (Category == 9 ? r.Category : Category) == 4 ? count : 1, r.Shape, Icon: r.IconPath)).ToArray();
+        Result = _list.SelectedItems.Cast<Row>().Select(r => new Pick(RowCategory(r), r.Number, r.Name, RowCategory(r) == 4 ? count : 1, r.Shape, Icon: r.IconPath)).ToArray();
         DialogResult = true;
     }
 }
