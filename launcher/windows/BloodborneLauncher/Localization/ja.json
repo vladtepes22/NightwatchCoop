@@ -2540,5 +2540,8 @@
   "No mods: the game as it ships. My mods: the list below. Nocturne only: the curated mod, with your mods paused. Applied when the game starts.": "MODなし：そのままのゲーム。マイMOD：下のリスト。Nocturne のみ：厳選MOD（自分のMODは一時停止）。ゲーム起動時に適用されます。",
   "Close the game to change which mods load.": "読み込むMODを変更するにはゲームを閉じてください。",
   "Nocturne {0}": "Nocturne {0}",
-  "My mods ({0})": "マイMOD ({0})"
+  "My mods ({0})": "マイMOD ({0})",
+  "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN に接続されていないため、Nightwatch Online のプレイヤーはあなたのパーティを見ることも参加することもできません。接続するか、UPnP/VPN/LAN に切り替えて VPN なしでホストしてください。",
+  "Switch to UPnP/VPN/LAN": "UPnP/VPN/LAN に切り替える",
+  "Connect and play": "接続してプレイ"
 }

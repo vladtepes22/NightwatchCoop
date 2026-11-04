@@ -2563,5 +2563,8 @@
   "No mods: the game as it ships. My mods: the list below. Nocturne only: the curated mod, with your mods paused. Applied when the game starts.": "不加载模组：原版游戏。我的模组：下方列表。仅 Nocturne：精选模组，你的模组暂停。游戏启动时生效。",
   "Close the game to change which mods load.": "关闭游戏后才能更改要加载的模组。",
   "Nocturne {0}": "Nocturne {0}",
-  "My mods ({0})": "我的模组（{0}）"
+  "My mods ({0})": "我的模组（{0}）",
+  "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN 未连接，Nightwatch Online 的玩家看不到也无法加入你的队伍。请连接，或切换到 UPnP/VPN/LAN 以不用它来主持。",
+  "Switch to UPnP/VPN/LAN": "切换到 UPnP/VPN/LAN",
+  "Connect and play": "连接并开始游戏"
 }
