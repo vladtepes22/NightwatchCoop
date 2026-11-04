@@ -2515,8 +2515,6 @@
   "Change": "変更",
   "Try Nocturne": "Nocturneを試す",
   "Not now": "今はしない",
-  "New: play with Nocturne": "新機能：Nocturneで遊ぶ",
-  "A curated mod for the game. It is downloaded once; switch back any time under Workshop, Mods.": "ゲーム用の厳選MODです。ダウンロードは一度だけで、ワークショップのMODからいつでも元に戻せます。",
   "The Nocturne download list is not valid: {0}": "Nocturneのダウンロードリストが無効です：{0}",
   "The Nocturne download address is not https.": "Nocturneのダウンロードアドレスがhttpsではありません。",
   "The folder holds no mod files.": "このフォルダーにMODファイルがありません。",
@@ -2543,5 +2541,7 @@
   "My mods ({0})": "マイMOD ({0})",
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN に接続されていないため、Nightwatch Online のプレイヤーはあなたのパーティを見ることも参加することもできません。接続するか、UPnP/VPN/LAN に切り替えて VPN なしでホストしてください。",
   "Switch to UPnP/VPN/LAN": "UPnP/VPN/LAN に切り替える",
-  "Connect and play": "接続してプレイ"
+  "Connect and play": "接続してプレイ",
+  "A curated mod for the game. Try it here (Load mods: Nocturne only, downloaded once), or read about it on its Nexus Mods page.": "厳選されたゲーム用MODです。ここで試す（Mod を読み込む：Nocturne のみ、ダウンロードは一度だけ）か、Nexus Mods のページで詳しく見られます。",
+  "Nexus Mods": "Nexus Mods"
 }

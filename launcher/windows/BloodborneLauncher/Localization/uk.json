@@ -2515,8 +2515,6 @@
   "Change": "Змінити",
   "Try Nocturne": "Спробувати Nocturne",
   "Not now": "Не зараз",
-  "New: play with Nocturne": "Нове: грайте з Nocturne",
-  "A curated mod for the game. It is downloaded once; switch back any time under Workshop, Mods.": "Відібраний мод для гри. Завантажується один раз; повернутися можна будь-коли в розділі «Майстерня», «Моди».",
   "The Nocturne download list is not valid: {0}": "Список завантаження Nocturne недійсний: {0}",
   "The Nocturne download address is not https.": "Адреса завантаження Nocturne не використовує https.",
   "The folder holds no mod files.": "У теці немає файлів мода.",
@@ -2543,5 +2541,7 @@
   "My mods ({0})": "Мої моди ({0})",
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN не підключено, тож гравці Nightwatch Online не бачать вашу групу і не можуть приєднатися. Підключіться або перейдіть на UPnP/VPN/LAN, щоб бути хостом без нього.",
   "Switch to UPnP/VPN/LAN": "Перейти на UPnP/VPN/LAN",
-  "Connect and play": "Підключитися й грати"
+  "Connect and play": "Підключитися й грати",
+  "A curated mod for the game. Try it here (Load mods: Nocturne only, downloaded once), or read about it on its Nexus Mods page.": "Відібраний мод для гри. Спробуйте його тут (Завантаження модів: Лише Nocturne, завантажується один раз) або прочитайте про нього на сторінці Nexus Mods.",
+  "Nexus Mods": "Nexus Mods"
 }

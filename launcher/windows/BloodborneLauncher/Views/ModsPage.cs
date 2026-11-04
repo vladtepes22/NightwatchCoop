@@ -68,6 +68,28 @@ namespace BloodborneLauncher.Views
         }
 
 
+        /// <summary>Once, the first time the Workshop opens: Nocturne, with its Nexus Mods page and a one-click switch (it was a
+        /// card on the Play page; user, 4 Nov). After the page is on screen.</summary>
+        private void NocturneOnce()
+        {
+            if (S.Bool("nocturne_workshop_seen")) return;
+            S.Set("nocturne_workshop_seen", true);
+            Ws.SaveSoon();
+            if (CuratedMods.Mode(S) == "nocturne") return;
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, async () =>
+            {
+                var pick = Prompt.Choose(L.T("Nocturne"),
+                    L.T("A curated mod for the game. Try it here (Load mods: Nocturne only, downloaded once), or read about it on its Nexus Mods page."),
+                    L.T("Not now"), L.T("Nexus Mods"), L.T("Try Nocturne"));
+                if (pick == 1)
+                {
+                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(CuratedMods.NexusPage) { UseShellExecute = true }); }
+                    catch (Exception) { Prompt.Tell(L.T("Nexus Mods"), CuratedMods.NexusPage); }
+                }
+                else if (pick == 2) await ChooseMode("nocturne");
+            });
+        }
+
         private static (string Label, string Value)[] ModeChoices() => new[]
         {
             (L.T("No mods"), "standard"), (L.T("My mods"), "my"), (L.T("Nocturne only"), "nocturne"),
@@ -107,7 +129,7 @@ namespace BloodborneLauncher.Views
             RefreshMods();
         }
 
-        /// <summary>Switches which mods load (shared with the Play page's card). Picking Nocturne installs or updates it first, asking
+        /// <summary>Switches which mods load (the dropdown and the Workshop's one-time Nocturne popup). Picking Nocturne installs or updates it first, asking
         /// before the download. Returns null when switched, "" when the player declined, else the message to show; the mode is
         /// unchanged then.</summary>
         internal static async Task<string?> SwitchModeAsync(Workspace ws, string mode, IProgress<double>? progress)
@@ -123,7 +145,7 @@ namespace BloodborneLauncher.Views
         }
 
         /// <summary>The choice being switched to (Nocturne while it downloads), shown by the Mods page, the Host tab's Mods line
-        /// and the Play page until the switch ends; null when none runs. SwitchChanged fires on the UI thread.</summary>
+        /// until the switch ends; null when none runs. SwitchChanged fires on the UI thread.</summary>
         internal static string? Switching { get; private set; }
         internal static double SwitchProgress { get; private set; }
         internal static event Action? SwitchChanged;
@@ -176,6 +198,7 @@ namespace BloodborneLauncher.Views
 
         public override void OnShown()
         {
+            NocturneOnce();
             ShowMode();
             RefreshMods();
             RefreshPatches();

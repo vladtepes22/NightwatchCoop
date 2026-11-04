@@ -27,7 +27,7 @@ namespace BloodborneLauncher.Core
             ["mods_enabled"] = true,
             ["mod_profile"] = "my",  // game mode: standard | nocturne | my (Core/CuratedMods.cs)
             ["my_mods_saved"] = "",  // the My mods list (JSON text) kept while another mode is on
-            ["nocturne_card_seen"] = false,
+            ["nocturne_workshop_seen"] = false,
             ["patches_dir"] = "",
             ["language"] = "1",
             ["fullscreen"] = false,
