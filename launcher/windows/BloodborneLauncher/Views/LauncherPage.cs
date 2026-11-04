@@ -557,8 +557,8 @@ namespace BloodborneLauncher.Views
         private static readonly SolidColorBrush[] GoBrushes = { Fixed(0x2E, 0x7D, 0x32), Fixed(0x38, 0x8E, 0x3C), Fixed(0x1B, 0x5E, 0x20) };
         private static readonly SolidColorBrush[] StopBrushes = { Fixed(0xB3, 0x26, 0x1E), Fixed(0xC6, 0x28, 0x28), Fixed(0x8E, 0x1B, 0x15) };
 
-        /// <summary>A connect button's state colour (user, 4 Nov): green while it would connect (go), red while it would
-        /// disconnect (stop), the plain action grey of <see cref="SmallButton"/> for null.</summary>
+        /// <summary>A button's colour: green (go), red (stop, e.g. the lobby's Invade), or the plain action grey of
+        /// <see cref="SmallButton"/> for null.</summary>
         public static void Tint(Button button, bool? stop)
         {
             if (stop is not { } red)
