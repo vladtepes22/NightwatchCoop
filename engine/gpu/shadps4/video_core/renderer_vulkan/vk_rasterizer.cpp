@@ -4322,14 +4322,17 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
                     barrier |= runtime.Transit(
                         &image, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eAllCommands,
                         vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite,
-                        desc.view_info.range);
+                        VideoCore::TextureCache::KeptRange(image, desc.view_info.range));
                 } else {
                     const auto new_layout = image.info.props.is_depth
                                                 ? vk::ImageLayout::eDepthStencilReadOnlyOptimal
                                                 : vk::ImageLayout::eShaderReadOnlyOptimal;
+                    // bbport (texture_quality): `desc` holds the whole texture's levels; a
+                    // reduced image changes the layout of the levels it kept.
                     barrier |= runtime.Transit(
                         &image, new_layout, vk::PipelineStageFlagBits2::eAllCommands,
-                        vk::AccessFlagBits2::eShaderRead, desc.view_info.range);
+                        vk::AccessFlagBits2::eShaderRead,
+                        VideoCore::TextureCache::KeptRange(image, desc.view_info.range));
                 }
             }
             image.usage.storage |= is_storage;
@@ -4348,7 +4351,7 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
             if (set_ok && binding_index < resolved.size()) {
                 resolved[binding_index] = {image_id, resolved[binding_index].found,
                                            *image_view.image_view, image.backing,
-                                           desc.view_info.range};
+                                           VideoCore::TextureCache::KeptRange(image, desc.view_info.range)};
                 set_ok = !is_storage && !binding.force_general && !binding.is_target;
             }
         }

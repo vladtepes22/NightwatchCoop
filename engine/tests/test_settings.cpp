@@ -47,6 +47,10 @@ int main() {
         assert(d.texture_quality == 2 && d.startup_texture_quality == 2);
         BbSettings::Save();
         assert(Read(path).find("texture_quality=half\n") != std::string::npos);
+        // A name typed in another case is read too (it was ignored: auto).
+        { std::ofstream file(path); file << "texture_quality=Quarter\n"; }
+        BbSettings::Load();
+        assert(d.texture_quality == 3);
         d.texture_quality = 0;
         { std::ofstream file(path); file << ""; }
         BbSettings::Load();
