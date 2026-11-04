@@ -2545,5 +2545,7 @@
   "The Nocturne download could not be reached: {0}": "Nocturne 다운로드에 연결할 수 없습니다: {0}",
   "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "모드 폴더에 이미 {0} 폴더가 있습니다. 삭제하거나 이름을 바꾼 뒤 다시 시도하세요.",
   "You do not have Nocturne {0} installed. Install it in the {1}.": "Nocturne {0}이(가) 설치되어 있지 않습니다. {1}에서 설치하세요.",
-  "Mods mismatch: enable the same mods and try again.": "모드가 일치하지 않습니다. 같은 모드를 켜고 다시 시도하세요."
+  "Mods mismatch: enable the same mods and try again.": "모드가 일치하지 않습니다. 같은 모드를 켜고 다시 시도하세요.",
+  "Give items to the party": "파티에 아이템 주기",
+  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "기본값은 꺼짐. 켜면: 인벤토리의 아이템 메뉴에 주기가 생겨 소모품이나 재료를 다른 사냥꾼에게 보낼 수 있고, 상대가 주는 것도 받습니다. 끄면: 다른 사람의 선물은 거절됩니다. 각 플레이어가 직접 설정합니다."
 }

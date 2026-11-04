@@ -2545,5 +2545,7 @@
   "The Nocturne download could not be reached: {0}": "Le téléchargement de Nocturne est injoignable : {0}",
   "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Votre dossier de mods contient déjà un dossier nommé {0}. Supprimez-le ou renommez-le, puis réessayez.",
   "You do not have Nocturne {0} installed. Install it in the {1}.": "Nocturne {0} n'est pas installé. Installez-le dans l'{1}.",
-  "Mods mismatch: enable the same mods and try again.": "Mods différents : activez les mêmes mods et réessayez."
+  "Mods mismatch: enable the same mods and try again.": "Mods différents : activez les mêmes mods et réessayez.",
+  "Give items to the party": "Donner des objets au groupe",
+  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Désactivé par défaut. Activé : le menu d'un objet dans l'inventaire propose Donner, pour envoyer des consommables ou des matériaux à un autre chasseur, et vous acceptez les siens. Désactivé : les dons des autres sont refusés. Chaque joueur règle le sien."
 }

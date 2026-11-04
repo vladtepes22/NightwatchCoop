@@ -2545,5 +2545,7 @@
   "The Nocturne download could not be reached: {0}": "Não foi possível acessar o download do Nocturne: {0}",
   "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Sua pasta de mods já tem uma pasta chamada {0}. Remova-a ou renomeie-a e tente de novo.",
   "You do not have Nocturne {0} installed. Install it in the {1}.": "Você não tem o Nocturne {0} instalado. Instale na {1}.",
-  "Mods mismatch: enable the same mods and try again.": "Mods diferentes: ative os mesmos mods e tente de novo."
+  "Mods mismatch: enable the same mods and try again.": "Mods diferentes: ative os mesmos mods e tente de novo.",
+  "Give items to the party": "Dar itens ao grupo",
+  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Desligado por padrão. Ligado: o menu de um item no inventário tem Dar, para enviar consumíveis ou materiais a outro caçador, e você aceita os dele. Desligado: presentes dos outros são recusados. Cada jogador define o seu."
 }

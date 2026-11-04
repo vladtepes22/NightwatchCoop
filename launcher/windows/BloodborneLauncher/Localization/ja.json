@@ -2545,5 +2545,7 @@
   "The Nocturne download could not be reached: {0}": "Nocturne のダウンロード先に接続できません: {0}",
   "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "MODフォルダーには既に {0} という名前のフォルダーがあります。削除するか名前を変更してから、もう一度お試しください。",
   "You do not have Nocturne {0} installed. Install it in the {1}.": "Nocturne {0} がインストールされていません。{1}でインストールしてください。",
-  "Mods mismatch: enable the same mods and try again.": "MODが一致しません。同じMODを有効にしてもう一度お試しください。"
+  "Mods mismatch: enable the same mods and try again.": "MODが一致しません。同じMODを有効にしてもう一度お試しください。",
+  "Give items to the party": "パーティーにアイテムを渡す",
+  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "初期設定はオフ。オン：インベントリのアイテムメニューに「渡す」が出て、消耗品や素材を他の狩人に送れます。相手からの贈り物も受け取ります。オフ：他の人からの贈り物は断られます。各プレイヤーが自分で設定します。"
 }
