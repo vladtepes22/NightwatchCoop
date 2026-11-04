@@ -1100,7 +1100,8 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
     // sampled binding of that very texture. Met by any other use (a target, storage, another
     // description over its memory) it goes, bound ones rebound, and its address keeps its
     // textures whole from then on.
-    for (auto it = image_ids.begin(); it != image_ids.end();) {
+    // None exist at full quality (texture_skip_wanted is fixed for the session): no walk then.
+    for (auto it = image_ids.begin(); texture_skip_wanted != 0 && it != image_ids.end();) {
         Image& reduced = slot_images[*it];
         if (reduced.info.skip_levels == 0) {
             ++it;
