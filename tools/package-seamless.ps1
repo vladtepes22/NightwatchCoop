@@ -55,11 +55,26 @@ foreach ($file in $programs + 'gpu-cache.id', 'gpu-cache.legacy.id') {
     if (!(Test-Path -LiteralPath (Join-Path $engine "out\$file"))) { throw "Build the engine first (engine\build.sh): out\$file is missing." }
 }
 if (!(Test-Path -LiteralPath (Join-Path $base 'engine\out\bb-start.exe'))) { throw "Not a Lantern Engine 0.9.32+ package: $base" }
-# The shader catalog is only valid for the shader compiler it was made with.
-$ourCache = (Get-Content -LiteralPath (Join-Path $engine 'out\gpu-cache.id') -Raw).Trim()
-$baseCache = (Get-Content -LiteralPath (Join-Path $base 'engine\out\gpu-cache.id') -Raw).Trim()
-$keepCatalog = $ourCache -eq $baseCache
-if (!$keepCatalog) { Write-Warning "Shader compiler differs from the base ($ourCache vs $baseCache): the shader catalog is left out." }
+# The shader catalog holds shader states without their code, their specializations and pipeline keys:
+# the start adds the game's own shader code back and compiles each one with this engine's compiler
+# (bb-shader-lab --seed-cache), leaving out any whose specialization this compiler changed. So it does
+# not depend on the compiler it was made with (gpu-cache.id), only on this engine reading its formats:
+# bb-shader-lab --check-catalog checks each catalog folder (a GPU profile, states and specializations).
+$keepCatalog = $true
+$catalogs = @(Get-ChildItem -LiteralPath (Join-Path $base 'engine\shader-catalog') -Recurse -Filter profile.bin -File -ErrorAction SilentlyContinue)
+$savedPath = $env:PATH
+$env:PATH = "$native;$env:PATH"
+$savedPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue' # the lab's GPU log on stderr is not an error (Windows PowerShell 5.1)
+try {
+    foreach ($catalogProfile in $catalogs) {
+        $check = & (Join-Path $engine 'out\bb-shader-lab.exe') --check-catalog $catalogProfile.DirectoryName 2>$null | Where-Object { $_ -like 'Catalog check:*' }
+        Write-Host "Shader catalog $($catalogProfile.Directory.Parent.Name)\$($catalogProfile.Directory.Name): $check"
+        if ($LASTEXITCODE -ne 0) { $keepCatalog = $false }
+    }
+} finally { $env:PATH = $savedPath; $ErrorActionPreference = $savedPreference }
+if (!$catalogs) { $keepCatalog = $false }
+if (!$keepCatalog) { Write-Warning "The base's shader catalog is missing or not readable by this engine: the shader catalog is left out." }
 
 if (Test-Path -LiteralPath $destinationRoot) {
     $marker = Join-Path $destinationRoot 'package.json'
