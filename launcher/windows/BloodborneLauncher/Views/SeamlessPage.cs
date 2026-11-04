@@ -134,17 +134,7 @@ public sealed class SeamlessPage : LauncherPage
         _lobbyList = new StackPanel();
         _lobbyScroll = new ScrollViewer { Content = _lobbyList, MaxHeight = 324,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        _lobbyScroll.PreviewMouseWheel += (_, e) =>
-        {
-            if ((e.Delta > 0 && _lobbyScroll.VerticalOffset <= 0)
-                || (e.Delta < 0 && _lobbyScroll.VerticalOffset >= _lobbyScroll.ScrollableHeight))
-            {
-                e.Handled = true;
-                if (_lobbyScroll.Parent is UIElement parent)
-                    parent.RaiseEvent(new System.Windows.Input.MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
-                    { RoutedEvent = UIElement.MouseWheelEvent, Source = parent });
-            }
-        };
+        // The wheel at the list's ends: PageScroll (the page scrolls only after a pause, not in the same swipe).
         found.Children.Add(_lobbyScroll);
         _partyList = new StackPanel(); found.Children.Add(_partyList);
         Rows(Joining).Children.Add(_joinChecks);  // right above the password in the fold below
