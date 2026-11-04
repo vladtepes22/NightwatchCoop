@@ -80,4 +80,11 @@ inline float LiveClockStep(LiveClockState& st, float measured, int target_fps, i
     return std::clamp(dt, floor_dt, max_dt);
 }
 
+/// The pacer's frame time target while fast loading holds a loading screen at 30 FPS (loading.cpp): the
+/// live target (1/60, 1/120, 1/240 uncapped) would draw the loading screen 2 to 8 times as often and take
+/// that CPU time from the loading threads.
+inline float LoadingInterval(float interval, bool fast_loading_pace) {
+    return fast_loading_pace ? std::max(interval, Frame30) : interval;
+}
+
 } // namespace BbEngine::LiveClock
