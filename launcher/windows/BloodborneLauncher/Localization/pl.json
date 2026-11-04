@@ -2547,5 +2547,7 @@
   "You do not have Nocturne {0} installed. Install it in the {1}.": "Nie masz zainstalowanego Nocturne {0}. Zainstaluj go w zakładce {1}.",
   "Mods mismatch: enable the same mods and try again.": "Mody się nie zgadzają: włącz te same mody i spróbuj ponownie.",
   "Give items to the party": "Dawanie przedmiotów drużynie",
-  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Domyślnie wyłączone. Włączone: menu przedmiotu w ekwipunku ma Daj, by wysłać materiały eksploatacyjne lub surowce innemu łowcy, a ty przyjmujesz jego dary. Wyłączone: dary innych są odrzucane. Każdy gracz ustawia to sam."
+  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Domyślnie wyłączone. Włączone: menu przedmiotu w ekwipunku ma Daj, by wysłać materiały eksploatacyjne lub surowce innemu łowcy, a ty przyjmujesz jego dary. Wyłączone: dary innych są odrzucane. Każdy gracz ustawia to sam.",
+  "Mods and patches differ: enable the same mods and patches and try again.": "Mody i łatki się różnią: włącz te same mody i łatki, a potem spróbuj ponownie.",
+  "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "Łatki się różnią: włącz te same łatki co host (własna łatka moda też się liczy)."
 }

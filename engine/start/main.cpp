@@ -538,6 +538,29 @@ int Main(std::vector<std::wstring> arguments) {
         Log("Patches: %s", e.what());
         return 1;
     }
+    if (Env("BB_PARTY_HASH_ONLY", "") == "1") {
+        // bb-start --party-hashes (the launcher's lobby check): the start up to here wrote the party
+        // identity files exactly as a game start does; print their hashes and stop before the game.
+        const auto hash_of = [&](const char* file) {
+            std::string found = "-";
+            try {
+                const std::string text = ReadText(out / file);
+                for (std::size_t pos = 0; pos < text.size();) {
+                    std::size_t end = text.find('\n', pos);
+                    if (end == std::string::npos) end = text.size();
+                    const std::string line = Trim(std::string_view(text).substr(pos, end - pos));
+                    if (line.rfind("hash ", 0) == 0) found = line.substr(5);
+                    pos = end + 1;
+                }
+            } catch (const std::exception&) {
+            }
+            return found;
+        };
+        std::printf("party-hashes mods %s patches %s\n", hash_of("party_mods.txt").c_str(),
+                    hash_of("party_patch_hash.txt").c_str());
+        std::fflush(stdout);
+        return 0;
+    }
     if (!(patches.ui == Size{1920, 1080})) {
         SetEnv("BB_UI_SIZE", size_text(patches.ui));
         Log("Widescreen: UI viewport %s (the 16:9 stage centred in it)", size_text(patches.ui).c_str());
@@ -604,6 +627,13 @@ int wmain(int argc, wchar_t** argv) {
             });
             start::Log("heap_patch=%d ui=%dx%d", int(result.heap_patch), result.ui.w, result.ui.h);
             return 0;
+        }
+        if (!arguments.empty() && arguments[0] == L"--party-hashes") {
+            // The launcher's lobby check: the party mods and patches hashes a start would have now,
+            // without the game (see Main). Not while a game of this install runs: it rewrites out/.
+            arguments.erase(arguments.begin());
+            start::SetEnv("BB_PARTY_HASH_ONLY", "1");
+            return start::Main(arguments);
         }
         return start::RunPartyLoop([&] { return start::Main(arguments); });
     } catch (const std::exception& e) {

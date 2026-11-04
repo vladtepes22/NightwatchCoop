@@ -229,19 +229,34 @@ internal static class CuratedModTests
             Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("my", null, 2), offered).Kind == JoinKind.ModdedUnchecked, "An unknown own hash is not called a mismatch");
             Check(CuratedMods.JoinAdvice("", new LocalMods("my", null, 2, CuratedMods.NoGameplayMods), offered).Kind == JoinKind.Join, "Cosmetic-only mods join an unmodded host");
             {
-                var dir = Path.Combine(Path.GetTempPath(), "nw-modshash-" + Guid.NewGuid().ToString("N"));
+                Check(PartyHashes.HashOf("# x\nhash 0A1B2C3D" + new string('0', 56) + "\nmod Nocturne (6 files)\n") == "0a1b2c3d", "A party file's hash is read");
+                Check(PartyHashes.HashOf("# no hash line\n") == null && PartyHashes.HashOf(null) == null, "No hash line, no hash");
+                Check(PartyHashes.ParseAnswer("party-hashes mods " + new string('0', 64) + " patches D8E32E8A" + new string('1', 56)) ==
+                      new PartyHashes.Hashes(CuratedMods.NoGameplayMods, "d8e32e8a"), "bb-start's answer is read");
+                Check(PartyHashes.ParseAnswer("party-hashes mods - patches d8e32e8a") == new PartyHashes.Hashes(null, "d8e32e8a"), "A missing half stays unknown");
+                Check(PartyHashes.ParseAnswer("bb-start: game folder ...") == null, "Other output is not an answer");
+                var dir = Path.Combine(Path.GetTempPath(), "nw-partyhash-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(dir);
-                var txt = Path.Combine(dir, "party_mods.txt");
-                var cfg = Path.Combine(dir, "mods.json");
-                File.WriteAllText(cfg, "{}");
-                File.WriteAllText(txt, "# x\nhash 0A1B2C3D" + new string('0', 56) + "\nmod Nocturne (6 files)\n");
-                File.SetLastWriteTimeUtc(cfg, DateTime.UtcNow.AddMinutes(-5));
-                Check(CuratedMods.LastModsHash(txt, cfg) == "0a1b2c3d", "The last start's hash is read");
-                File.SetLastWriteTimeUtc(cfg, DateTime.UtcNow.AddMinutes(5));
-                Check(CuratedMods.LastModsHash(txt, cfg) == null, "A mods.json newer than the hash makes it unknown");
-                Check(CuratedMods.LastModsHash(Path.Combine(dir, "none.txt"), cfg) == null, "No file, no hash");
+                var file = Path.Combine(dir, "a.xml");
+                File.WriteAllText(file, "x");
+                var env = new Dictionary<string, string> { ["BB_MODS_DIR"] = dir };
+                var before = PartyHashes.Fingerprint(env, new[] { dir }, Array.Empty<string>());
+                Check(before == PartyHashes.Fingerprint(env, new[] { dir }, Array.Empty<string>()), "Nothing changed, same fingerprint");
+                File.WriteAllText(file, "xy");
+                Check(before != PartyHashes.Fingerprint(env, new[] { dir }, Array.Empty<string>()), "A changed mod file changes the fingerprint");
+                Check(before != PartyHashes.Fingerprint(new Dictionary<string, string> { ["BB_MODS_DIR"] = dir, ["BB_FPS"] = "60" }, new[] { dir }, Array.Empty<string>()),
+                      "A changed start setting changes the fingerprint");
                 Directory.Delete(dir, true);
             }
+            var patched = new LocalMods("my", null, 2, "0a1b2c3d", "d8e32e8a");
+            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d+patches:d8e32e8a", patched, offered) == new JoinChoice(JoinKind.Join), "Same mods and patches join");
+            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d+patches:00000001", patched, offered) == new JoinChoice(JoinKind.Join, null, true), "Other patches are told apart from mods");
+            Check(CuratedMods.JoinAdvice("mods:ffff0000+patches:00000001", patched, offered) is { Kind: JoinKind.Modded, PatchesDiffer: true }, "Both differ");
+            Check(CuratedMods.JoinAdvice("patches:d8e32e8a", new LocalMods("my", null, 0, CuratedMods.NoGameplayMods, "d8e32e8a")).Kind == JoinKind.Join, "A host with patches only joins the same guest");
+            Check(!CuratedMods.JoinAdvice("mods:0a1b2c3d+patches:00000001", new LocalMods("my", null, 2, "0a1b2c3d")).PatchesDiffer, "Unknown own patches are not called different");
+            Check(!CuratedMods.JoinAdvice("mods:0a1b2c3d", patched, offered).PatchesDiffer, "A 0.2.7 host label says nothing about patches");
+            Check(CuratedMods.JoinAdvice("nocturne@1.3+patches:d8e32e8a", nocturne13, offered).Kind == JoinKind.Join, "Nocturne with a patches part still joins");
+            Check(CuratedMods.ModsPart("mods:0a1b2c3d+patches:d8e32e8a") == "mods:0a1b2c3d" && CuratedMods.ModsPart("patches:d8e32e8a") == "", "ModsPart drops the patches part");
             Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("my", null, 2, "ffff0000"), offered).Kind == JoinKind.Modded, "Another label only shows modded");
             Check(CuratedMods.JoinAdvice("mods:0a1b2c3d", new LocalMods("standard", null, 0), offered).Kind == JoinKind.Modded, "Another label only shows modded (vanilla guest)");
             Check(CuratedMods.JoinAdvice("", new LocalMods("my", null, 0)).Kind == JoinKind.Join, "No mods on both sides joins");

@@ -113,13 +113,15 @@ namespace BloodborneLauncher.Core
         /// "keep"), or null when none is on.</summary>
         public static string? ResolutionPatchChoice { get; set; }
 
-        public static Dictionary<string, string> Build(LauncherSettings s)
+        /// <param name="applyMods">false: only the environment, without writing mods.json for the game mode first
+        /// (<see cref="PartyHashes"/> fingerprints it on every lobby refresh).</param>
+        public static Dictionary<string, string> Build(LauncherSettings s, bool applyMods = true)
         {
             var fps = Fps(s);
             // The game mode decides which mods the game loads: mods.json is written for it before every start.
             try
             {
-                if (CuratedMods.Apply(s, ModsDir(s))) s.Save();
+                if (applyMods && CuratedMods.Apply(s, ModsDir(s))) s.Save();
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
             {

@@ -2547,5 +2547,7 @@
   "You do not have Nocturne {0} installed. Install it in the {1}.": "Nocturne {0} не встановлено. Встановіть його в розділі {1}.",
   "Mods mismatch: enable the same mods and try again.": "Моди не збігаються: увімкніть ті самі моди й спробуйте знову.",
   "Give items to the party": "Передавання предметів",
-  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Типово вимкнено. Увімкнено: у меню предмета в інвентарі є «Передати», щоб надіслати витратні предмети чи матеріали іншому мисливцю, і ви приймаєте їхні дарунки. Вимкнено: дарунки інших відхиляються. Кожен гравець налаштовує сам."
+  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Типово вимкнено. Увімкнено: у меню предмета в інвентарі є «Передати», щоб надіслати витратні предмети чи матеріали іншому мисливцю, і ви приймаєте їхні дарунки. Вимкнено: дарунки інших відхиляються. Кожен гравець налаштовує сам.",
+  "Mods and patches differ: enable the same mods and patches and try again.": "Моди й патчі не збігаються: увімкніть ті самі моди й патчі та спробуйте знову.",
+  "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "Патчі не збігаються: увімкніть ті самі патчі, що й у хоста (власний патч мода теж рахується)."
 }

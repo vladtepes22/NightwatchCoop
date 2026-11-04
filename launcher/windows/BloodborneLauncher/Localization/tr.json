@@ -2547,5 +2547,7 @@
   "You do not have Nocturne {0} installed. Install it in the {1}.": "Nocturne {0} kurulu değil. {1} sekmesinden kur.",
   "Mods mismatch: enable the same mods and try again.": "Modlar uyuşmuyor: aynı modları aç ve tekrar dene.",
   "Give items to the party": "Gruba eşya ver",
-  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Varsayılan olarak kapalı. Açık: envanterde bir eşyanın menüsünde Ver çıkar; sarf malzemeleri veya malzemeleri başka bir avcıya gönderirsin ve onlarınkini kabul edersin. Kapalı: başkalarının hediyeleri reddedilir. Her oyuncu kendisi ayarlar."
+  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Varsayılan olarak kapalı. Açık: envanterde bir eşyanın menüsünde Ver çıkar; sarf malzemeleri veya malzemeleri başka bir avcıya gönderirsin ve onlarınkini kabul edersin. Kapalı: başkalarının hediyeleri reddedilir. Her oyuncu kendisi ayarlar.",
+  "Mods and patches differ: enable the same mods and patches and try again.": "Modlar ve yamalar farklı: aynı modları ve yamaları açıp yeniden deneyin.",
+  "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "Yamalar farklı: sunucuyla aynı yamaları açın (bir modun kendi yaması da sayılır)."
 }

@@ -2547,5 +2547,7 @@
   "You do not have Nocturne {0} installed. Install it in the {1}.": "Non hai Nocturne {0} installato. Installalo nel {1}.",
   "Mods mismatch: enable the same mods and try again.": "Le mod non corrispondono: attiva le stesse mod e riprova.",
   "Give items to the party": "Dai oggetti al gruppo",
-  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Disattivato per impostazione predefinita. Attivo: il menu di un oggetto nell'inventario ha Dai, per inviare consumabili o materiali a un altro cacciatore, e accetti i suoi. Disattivo: i doni degli altri vengono rifiutati. Ogni giocatore sceglie il proprio."
+  "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "Disattivato per impostazione predefinita. Attivo: il menu di un oggetto nell'inventario ha Dai, per inviare consumabili o materiali a un altro cacciatore, e accetti i suoi. Disattivo: i doni degli altri vengono rifiutati. Ogni giocatore sceglie il proprio.",
+  "Mods and patches differ: enable the same mods and patches and try again.": "Mod e patch non corrispondono: attiva le stesse mod e patch e riprova.",
+  "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "Le patch non corrispondono: attiva le stesse patch dell'host (conta anche la patch propria di una mod)."
 }
