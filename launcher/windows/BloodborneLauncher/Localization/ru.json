@@ -2540,5 +2540,8 @@
   "No mods: the game as it ships. My mods: the list below. Nocturne only: the curated mod, with your mods paused. Applied when the game starts.": "Без модов: игра как есть. Мои моды: список ниже. Только Nocturne: отобранный мод, ваши моды на паузе. Применяется при запуске игры.",
   "Close the game to change which mods load.": "Закройте игру, чтобы изменить загружаемые моды.",
   "Nocturne {0}": "Nocturne {0}",
-  "My mods ({0})": "Мои моды ({0})"
+  "My mods ({0})": "Мои моды ({0})",
+  "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN не подключён, поэтому игроки Nightwatch Online не видят вашу группу и не могут присоединиться. Подключитесь или переключитесь на UPnP/VPN/LAN, чтобы играть хостом без него.",
+  "Switch to UPnP/VPN/LAN": "Переключиться на UPnP/VPN/LAN",
+  "Connect and play": "Подключиться и играть"
 }

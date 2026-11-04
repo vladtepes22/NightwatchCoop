@@ -558,6 +558,27 @@ public sealed class SeamlessPage : LauncherPage
     public static void TellVpnNeeded() => Prompt.Tell(L.T("Nightwatch Online"),
         L.T("Nightwatch Online is optional. It needs our VPN, built on OpenVPN: press \"Install\" in the Nightwatch VPN box above the password. To play online without it, pick UPnP/VPN/LAN as the Party type (UPnP, port forwarding, Radmin or another VPN, or LAN)."));
 
+    /// <summary>A Nightwatch Online host with the VPN installed: Play checks the tunnel (<see cref="ReadyToHostOnline"/>).</summary>
+    public static bool HostsOnline(LauncherSettings s) =>
+        s.Str("party_mode") == "host" && NightwatchVpn.Shipped != null && s.Str("party_host_public") != "0" && NightwatchVpn.GuiExe() != null;
+
+    /// <summary>Play as a Nightwatch Online host with the tunnel down: no one on Nightwatch Online could see the party, so the
+    /// player connects (their own press, VpnIdle's rule) or switches to UPnP/VPN/LAN; there is no "play anyway" (user, 4 Nov).
+    /// True when the game may start now; false leaves the player on this page (the VPN bar says why a connect failed).</summary>
+    public async Task<bool> ReadyToHostOnline()
+    {
+        while (_vpn.Busy || _vpnSetup) await Task.Delay(500);
+        _adapters = await Task.Run(NetworkRoute.Enumerate);
+        if (VpnLobby.TunnelIp(_adapters) != null) return true;
+        var pick = Prompt.Choose(L.T("Nightwatch Online"),
+            L.T("The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it."),
+            L.T("Switch to UPnP/VPN/LAN"), L.T("Connect and play"));
+        if (pick == 0) SetHostType(false);
+        if (pick != 1) return false;
+        await ToggleVpn();
+        return VpnLobby.TunnelIp(_adapters) != null;
+    }
+
     /// <summary>True when the host's party type is Nightwatch Online and the VPN it needs is not installed.</summary>
     public static bool NeedsVpn(LauncherSettings s) =>
         s.Str("party_mode") == "host" && NightwatchVpn.Shipped != null && s.Str("party_host_public") != "0" && NightwatchVpn.GuiExe() == null;

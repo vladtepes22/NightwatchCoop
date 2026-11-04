@@ -2540,5 +2540,8 @@
   "No mods: the game as it ships. My mods: the list below. Nocturne only: the curated mod, with your mods paused. Applied when the game starts.": "모드 없음: 기본 게임. 내 모드: 아래 목록. Nocturne만: 엄선된 모드(내 모드는 일시 중지). 게임을 시작할 때 적용됩니다.",
   "Close the game to change which mods load.": "불러올 모드를 바꾸려면 게임을 닫으세요.",
   "Nocturne {0}": "Nocturne {0}",
-  "My mods ({0})": "내 모드 ({0})"
+  "My mods ({0})": "내 모드 ({0})",
+  "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN이 연결되어 있지 않아 Nightwatch Online 플레이어가 파티를 보거나 참가할 수 없습니다. 연결하거나 UPnP/VPN/LAN으로 전환해 VPN 없이 호스트하세요.",
+  "Switch to UPnP/VPN/LAN": "UPnP/VPN/LAN으로 전환",
+  "Connect and play": "연결하고 플레이"
 }

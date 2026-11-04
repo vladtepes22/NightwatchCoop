@@ -1240,6 +1240,11 @@ namespace BloodborneLauncher
             // bounded, then the game starts anyway (the Co-op tab says if the connection did not come up).
             if (s.Str("party_mode") is "host" or "join")
                 await Task.WhenAny(VpnIdleNow(VpnIdleTrigger.Play), Task.Delay(VpnIdle.PlayWait));
+            if (Views.SeamlessPage.HostsOnline(s) && PageOf(typeof(Views.SeamlessPage)) is Views.SeamlessPage coop && !await coop.ReadyToHostOnline())
+            {
+                Show("seamless");
+                return;
+            }
             var error = ws.StartGame();
             if (error != null)
             {
