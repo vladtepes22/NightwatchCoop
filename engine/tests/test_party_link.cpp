@@ -1198,6 +1198,71 @@ static void test_kick() {
 }
 
 
+// 0.7.9: the open-party level range: a passwordless plain-address join of a NEW member is asked to the host's gate with the
+// level it said in its HELLO; a join with the party code (the secret) is not; a resume is not asked again.
+static void test_open_level_gate() {
+    LinkCallbacks none;
+    std::atomic<int> asked{0};
+    LinkConfig hc = base_cfg("Host", "");
+    hc.open_peer_allowed = [](std::uint32_t) { return true; };
+    hc.open_level_gate = [&](int level) {
+        ++asked;
+        return level > 140 ? std::string("Can't join Host: your level ") + std::to_string(level) + " is outside their range (60-140)"
+                           : std::string();
+    };
+    PartyLink host(hc, none);
+    std::string err;
+    CHECK(host.start_host(&err));
+    LinkConfig hi = base_cfg("High", "");
+    hi.secret = {};
+    hi.own_level = [] { return 150; };
+    PartyLink h(hi, none);
+    CHECK(h.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(h.wait_state(LinkState::Rejected, 5000) && h.reject_code() == RejectCode::Level);
+    CHECK(h.reject_reason().find("your level 150") != std::string::npos);
+    CHECK(host.roster().size() == 1);
+    LinkConfig ok = base_cfg("Fine", "");
+    ok.secret = {};
+    ok.own_level = [] { return 100; };
+    PartyLink f(ok, none);
+    CHECK(f.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(f.wait_connected(5000));
+    CHECK(host.joined_open(1));
+    // a join with the party code ignores the range
+    LinkConfig code = base_cfg("Coded", "");
+    code.own_level = [] { return 300; };
+    const int before = asked;
+    PartyLink cd(code, none);
+    CHECK(cd.start_guest("127.0.0.1", host.bound_port(), &err));
+    CHECK(cd.wait_connected(5000));
+    CHECK(asked == before);
+    CHECK(!host.joined_open(2));
+    // the level recheck removes an open member without banning its name
+    CHECK(host.drop_member(1, RejectCode::Level, "Can't join Host: your level 150 is outside their range (60-140)"));
+    CHECK(f.wait_state(LinkState::Rejected, 5000) && f.reject_code() == RejectCode::Level);
+    std::printf("  open-party level range: refused outside, code join ignores it, recheck removes\n");
+}
+
+// 0.7.9: the invader's direct summon needs two b2 bodies, matched whole; nothing else of b2 passes either way.
+static void test_invader_b2_filter() {
+    CHECK(invader_event_from_ok("b2", "{\"op\":\"dsum_req\"}"));
+    CHECK(invader_event_from_ok("b2", "{\"op\":\"dsum_done\",\"ok\":1}"));
+    CHECK(invader_event_from_ok("b2", "{\"op\":\"dsum_done\",\"ok\":0}"));
+    CHECK(!invader_event_from_ok("b2", "{\"op\":\"dsum_req\",\"x\":\"title_req\"}"));
+    CHECK(!invader_event_from_ok("b2", "{\"op\":\"title_req\",\"a\":\"dsum_req\"}"));
+    CHECK(!invader_event_from_ok("b2", "{\"op\":\"dsum_stuck\"}"));
+    CHECK(!invader_event_from_ok("b2", "{\"op\":\"travel\"}"));
+    CHECK(!invader_event_from_ok("b2", ""));
+    CHECK(!invader_event_from_ok("flags", "{\"op\":\"dsum_req\"}"));
+    CHECK(invader_event_from_ok("invade_fell", "{}"));
+    CHECK(invader_event_to_ok("b2", "{\"op\":\"dsum_room\",\"room\":\"\"}"));
+    CHECK(invader_event_to_ok("b2", "{\"op\":\"dsum_busy\",\"wait\":\"boss\"}"));
+    CHECK(!invader_event_to_ok("b2", "{\"op\":\"travel\"}"));
+    CHECK(!invader_event_to_ok("b2", "{\"op\":\"gather\"}"));
+    CHECK(!invader_event_to_ok("progress", "{}"));
+    CHECK(invader_event_to_ok("invade", "{}"));
+}
+
 // ---- 0.7.8 invasions: the invader admission path (docs/party/invasions.md) ----
 static void test_invader() {
     Recorder hr, ir, ar;
@@ -1205,7 +1270,7 @@ static void test_invader() {
     std::atomic<int> gate_calls{0}, final_calls{0};
     std::string deny;  // the reason the gate returns ("" admits)
     std::mutex gm;
-    hc.invader_gate = [&](const std::string&, std::uint32_t, bool final_check) {
+    hc.invader_gate = [&](const std::string&, std::uint32_t, bool final_check, int) {
         ++gate_calls;
         if (final_check) ++final_calls;
         std::lock_guard<std::mutex> lk(gm);
@@ -1996,6 +2061,9 @@ int main() {
     test_kick();
     std::printf("invasions: the invader admission path and its role limits\n");
     test_invader();
+    test_invader_b2_filter();
+    std::printf("open-party level range\n");
+    test_open_level_gate();
     std::printf("host gone: wait for it, not the NAT advice\n");
     test_host_no_answer_hint();
     std::printf("four players (host + 3 guests), game rules\n");

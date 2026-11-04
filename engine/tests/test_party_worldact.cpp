@@ -207,7 +207,7 @@ int main() {
         assert(!BossGateWaitsForHost(gas, true, false, false));  // the host had its first fight: fog-first works
         assert(!BossGateWaitsForHost(gas, false, true, false));  // the host is in: the fog opens anyway
         assert(!BossGateWaitsForHost(gas, false, false, true));  // boss dead
-        assert(!BossGateWaitsForHost(*BossGateByEvent(12424711), false, false, false));  // no intro condition
+        assert(BossGateByEvent(12424711)->intro_flag == 12421702);  // the Emissary's first-fight event (region 2422815)
         assert(BossGateInBlock(gas, m2401) && !BossGateInBlock(gas, m2400) && !BossGateInBlock(gas, 0xffffffffu));
         // The notice: flags read, the gate waits, within kBossFogNoticeRange (live 2026-10-14: 3 m).
         assert(BossFogNoticeDue(gas, true, false, false, false, 3.0f));
@@ -221,7 +221,8 @@ int main() {
         const BossGate& amelia = *BossGateByEvent(12404841);
         assert(BossGateGuestStarts(amelia) && BossGateGuestStarts(gas) && BossGateGuestStarts(*BossGateByEvent(12304811)));
         assert(!BossGateGuestStarts(*BossGateByEvent(12424811)));  // Ebrietas: a hit starts her first fight
-        assert(!BossGateGuestStarts(*BossGateByEvent(12424711)));  // Celestial Emissary: no first-fight event
+        assert(BossGateGuestStarts(*BossGateByEvent(12424711)));  // Celestial Emissary: its first-fight event enables the small emissaries
+        assert(FirstFightSpotFor(12421702) != nullptr);
         // DLC (pard2): Ludwig, Living Failures, the Orphan; Lady Maria stays host-first, and so does
         // Laurence (player report 2026-10-22: his first fight needs the host's skull at the altar).
         assert(BossGateGuestStarts(*BossGateByEvent(13404801)) && !BossGateGuestStarts(*BossGateByEvent(13404851)));
@@ -321,7 +322,8 @@ int main() {
         assert(HostFogAction(amelia, true, false, true, false, m2400) == FogAction::none);       // host already in
         assert(HostFogAction(amelia, true, false, false, true, m2400) == FogAction::none);       // boss dead
         assert(HostFogAction(*BossGateByEvent(12424811), true, false, false, false, 0x18020000u) == FogAction::none);
-        assert(HostFogAction(*BossGateByEvent(12424711), true, false, false, false, 0x18020000u) == FogAction::open);
+        assert(HostFogAction(*BossGateByEvent(12424711), true, false, false, false, 0x18020000u) == FogAction::start_first);  // first fight: the host's event 12421702 runs
+        assert(HostFogAction(*BossGateByEvent(12424711), true, true, false, false, 0x18020000u) == FogAction::open);  // re-fight
         assert(HostFogAction(*BossGateByEvent(12304811), true, false, false, false, m2300) == FogAction::start_first);
         for (const BossGate& g : BossGates()) {
             if (BossGateGuestStarts(g)) {

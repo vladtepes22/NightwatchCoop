@@ -2,6 +2,7 @@
 // Invasions into open public games (0.7.8, CL-4cc63c): the allow / deny table, the rate limit, the block book, how an
 // invasion ends and the wire (gpu/shim/party/party_invade_rules.h).
 // Build and run: ninja -C out/gpu party-invade-test && out/gpu/party-invade-test.exe
+#include <cmath>
 #include "party/party_invade_rules.h"
 
 #include <cstdio>
@@ -175,7 +176,7 @@ static void Ending() {
     CHECK(CheckEnd(l) == End::None);
     l.pending_s = kPendingMaxS + 1;
     CHECK(CheckEnd(l) == End::Timeout);
-    for (int i = 1; i <= static_cast<int>(End::Timeout); ++i) {
+    for (int i = 1; i <= static_cast<int>(End::LevelRange); ++i) {
         const End e = static_cast<End>(i);
         End back = End::None;
         CHECK(ParseEnd(EndWord(e), &back) && back == e);
@@ -193,6 +194,20 @@ static void Wire() {
     CHECK(Decode(Encode({1, "Bob", End::None}), &m) && m.state == 1);
     CHECK(Decode(Encode({0, "Bob", End::HostDied}), &m) && m.state == 0 && m.why == End::HostDied);
     CHECK(Decode(Encode({0, "Bob", End::None}), &m) && m.state == 0 && m.why == End::None);
+    // 0.7.9: the host's phantom health for the invasion ("h"); a 0.7.8 message without it reads as -1
+    {
+        Msg h{2, "Bob", End::None};
+        h.full_hp = 1;
+        CHECK(Encode(h) == "{\"s\":2,\"n\":\"Bob\",\"h\":1}");
+        CHECK(Decode(Encode(h), &m) && m.state == 2 && m.full_hp == 1);
+        h.state = 1, h.full_hp = 0;
+        CHECK(Decode(Encode(h), &m) && m.state == 1 && m.full_hp == 0);
+        CHECK(Decode("{\"s\":2,\"n\":\"Bob\"}", &m) && m.full_hp == -1);
+        CHECK(!Decode("{\"s\":2,\"n\":\"Bob\",\"h\":2}", &m));
+        CHECK(!Decode("{\"s\":0,\"n\":\"Bob\",\"h\":1}", &m));  // only pending / in carry it
+        h.state = 0, h.why = End::HostDied, h.full_hp = 1;
+        CHECK(Encode(h) == "{\"s\":0,\"n\":\"Bob\",\"w\":\"host_died\"}");
+    }
     CHECK(!Decode("", &m));
     CHECK(!Decode("{\"s\":3,\"n\":\"Bob\"}", &m));
     CHECK(!Decode("{\"s\":2,\"n\":\"\"}", &m));
@@ -266,7 +281,7 @@ static void Rewards() {
     CHECK(g.pay && g.rate == 0.25f && g.insight == 0);
     // every other pairing pays nothing
     for (End e : {End::None, End::InvaderDied, End::HostDied, End::Travel, End::BossFight, End::Disabled, End::Blocked, End::HostGone,
-                  End::Timeout})
+                  End::Timeout, End::LevelRange})
         for (Role r : {Role::Host, Role::Guest, Role::Invader}) {
             const bool paid = (r == Role::Invader && e == End::HostDied) || (r != Role::Invader && e == End::InvaderDied);
             CHECK(RewardFor(r, e).pay == paid);
@@ -274,7 +289,7 @@ static void Rewards() {
     // the banners: the invader that won reads TargetClear (5), the host and guests that won BlackClear (7), nobody else a banner
     CHECK(w.banner == 5 && h.banner == 7 && g.banner == 7);
     for (End e : {End::None, End::InvaderDied, End::HostDied, End::Travel, End::BossFight, End::Disabled, End::Blocked, End::HostGone,
-                  End::Timeout})
+                  End::Timeout, End::LevelRange})
         for (Role r : {Role::Host, Role::Guest, Role::Invader})
             CHECK((RewardFor(r, e).banner != 0) == RewardFor(r, e).pay);
     // an invader that lost / a host that fell is paid nothing, a guest is not paid when the host fell
@@ -291,6 +306,46 @@ static void Rewards() {
     CHECK(once.Take("B", End::HostDied, 14.0 + kRewardOnceS + 1));  // a later invasion by the same name
 }
 
+// 0.7.9: the level range, both bounds rounded down: lower floor(X*0.8-20) (clamped at 1), upper floor(X*1.1+10).
+static void LevelRange() {
+    CHECK(LevelLower(100) == 60 && LevelUpper(100) == 120);
+    CHECK(LevelLower(55) == 24 && LevelUpper(55) == 70);
+    CHECK(LevelLower(4) == 1 && LevelUpper(4) == 14);
+    CHECK(LevelLower(1) == 1 && LevelUpper(1) == 11);
+    CHECK(LevelLower(25) == 1 && LevelLower(26) == 1 && LevelLower(30) == 4);
+    CHECK(LevelLower(101) == 60 && LevelUpper(101) == 121);  // 60.8 and 121.1 round down
+    CHECK(LevelLower(999) == 779 && LevelUpper(999) == 1108);
+    // brute force against the float formula the user gave (the .1 offsets keep the edges exact)
+    for (int x = 1; x <= 999; ++x) {
+        CHECK(LevelUpper(x) == static_cast<int>(std::floor(x * 1.1 + 10 + 1e-9)));
+        CHECK(LevelLower(x) == std::max(1, static_cast<int>(std::floor(x * 0.8 - 20 + 1e-9))));
+    }
+    CHECK(LevelOk(100, 60) && LevelOk(100, 120) && !LevelOk(100, 59) && !LevelOk(100, 121));
+    CHECK(LevelOk(4, 1) && LevelOk(4, 14) && !LevelOk(4, 15));
+    CHECK(LevelOk(0, 500) && LevelOk(100, 0));  // unknown: not checked
+    CHECK(LevelText("Bob", 100, 150) == "Can't invade Bob: your level 150 is outside their range (60-120)");
+    CHECK(LevelText("Bob", 100, 150, false, LevelLower(100), OpenLevelUpper(100)) ==
+          "Can't join Bob: your level 150 is outside their range (60-140)");
+    // the open-party join range: floor both, vanilla 1.2 * X + 20 upper
+    CHECK(LevelLower(100) == 60 && OpenLevelUpper(100) == 140);
+    CHECK(LevelLower(4) == 1 && OpenLevelUpper(4) == 24);
+    CHECK(LevelLower(55) == 24 && OpenLevelUpper(55) == 86);
+    for (int x = 1; x <= 999; ++x) CHECK(OpenLevelUpper(x) == static_cast<int>(std::floor(x * 1.2 + 20 + 1e-9)));
+    CHECK(OpenLevelOk(100, 60) && OpenLevelOk(100, 140) && !OpenLevelOk(100, 59) && !OpenLevelOk(100, 141));
+    CHECK(OpenLevelOk(0, 999) && OpenLevelOk(100, 0));
+    HostView h = Good();
+    h.host_level = 100;
+    CHECK(Admit(h, false, false, false, 150) == Deny::LevelRange);
+    CHECK(Admit(h, false, false, false, 100) == Deny::None);
+    CHECK(Admit(h, false, false, false, 0) == Deny::None);
+    // the level refusal comes before the rate limit and the knock counter, after the switch and the block list
+    CHECK(Admit(h, false, true, false, 150) == Deny::LevelRange);
+    CHECK(Admit(h, true, false, false, 150) == Deny::Blocked);
+    h.allow = false;
+    CHECK(Admit(h, false, false, false, 150) == Deny::Off);
+    CHECK(!DenyText(Deny::LevelRange).empty() && std::string(DenyWord(Deny::LevelRange)) == "level_range");
+}
+
 int main() {
     Look();
     NameColour();
@@ -303,6 +358,7 @@ int main() {
     Blocking();
     Ending();
     Wire();
+    LevelRange();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

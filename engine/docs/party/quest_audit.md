@@ -331,7 +331,7 @@ major / minor / ok; **fix** = done here (F#), proposal (P#, list at the end) or 
 | Orphanage Key | 12420700 (brain eater drop) lot 2420900 flag 52420900, `2003[4]` | award | captured -> shared | ok | |
 | Orphanage door | ObjAct 2420020 needs goods 4006 | | own key (shared) | ok | |
 | Lift to Ebrietas | 12420150-12420156 (State 12420154/155) | | mirrored | minor | |
-| Celestial Emissary | defeat 12421700 (2420), entry 12421702 (no remo); lots 25700000 / 25700005 (ledger 33/34) | | guest fog first | ok | |
+| Celestial Emissary | defeat 12421700 (2420), entry 12421702 (no remo, region 2422815: a box at the lower end of the arena, it enables the small emissaries; a guest's fog first runs it on the host, emissary079); lots 25700000 / 25700005 (ledger 33/34) | | guest fog first | ok | |
 | Ebrietas | defeat 12421800 (2421, 9459), entry 12421802 (no remo); lot 80000300 Great Isz Chalice flag 5009 | | shared | ok | |
 | Queen Annalise revival | 12420500 (removes goods 4305 Queenly Flesh, remo 24020000) | | covenant_outcome (0.7.3): per player, with Annalise's state 1040-1059 and 72500300-72500339 | minor | |
 | Insight check | 12425290 (host only, >= 10) | | | ok | |

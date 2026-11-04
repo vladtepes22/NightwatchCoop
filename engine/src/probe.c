@@ -6,6 +6,7 @@
 #include <inttypes.h>
 #include <cpuid.h>
 #include "runtime.h"
+#include "runtime_logdrain.h"
 #include "../gpu/bbnet.h"
 #include "gpu/bbgpu.h"
 #include "respawn_patch.h"
@@ -136,6 +137,7 @@ static ABI __attribute__((noreturn)) void unresolved(uint32_t id, uintptr_t argu
     puts(entered_game ? "Original guest entry instructions executed; game initialization is incomplete." :
                         "Native libc initialization is incomplete; game entry has not run.");
     fflush(NULL);
+    runtime_logdrain_flush(3000);
     _exit(20);
 }
 #ifndef _WIN32
@@ -226,6 +228,7 @@ static void describe(char *out, size_t size, uintptr_t a) {
 }
 static __attribute__((noreturn)) void terminate(unsigned code) {
     fflush(NULL);
+    runtime_logdrain_flush(3000);
     TerminateProcess(GetCurrentProcess(), code);
     _exit((int)code);
 }
@@ -777,6 +780,7 @@ void runtime_relaunch(int exit_code) {
     runtime_restarting=1;
     fflush(NULL);
 #ifdef _WIN32
+    runtime_logdrain_flush(3000);
     TerminateProcess(GetCurrentProcess(),(UINT)exit_code);
 #else
     _exit(exit_code);
@@ -816,6 +820,7 @@ int main(int argc, char **argv) {
 
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
+    runtime_logdrain_start(); /* visy 4b0a8c39: log output through a background thread (CL-7fc9fe) */
 #ifndef _WIN32
     mallopt(M_ARENA_MAX,1);
     mallopt(M_MMAP_THRESHOLD,32*1024*1024);

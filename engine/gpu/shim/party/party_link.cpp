@@ -737,6 +737,7 @@ struct PartyLink::Impl {
         Key pending_tx{}, pending_rx{};  // guest: keys derived at AUTH, armed at WELCOME
         bool password_only = false;      // host: the guest proved the password with a plain address (no code secret)
         bool invader = false;            // host: HELLO role invader (the invader key, no password)
+        int invader_level = 0;           // host: the level the member said in its HELLO (0.7.9; 0 unknown)
         Clock::time_point created, last_rx, last_ping;
         bool dead = false;
         bool close_after_flush = false;
@@ -798,6 +799,7 @@ struct PartyLink::Impl {
         EventStream ev;
         bool restored = false;  // from restore_members: the previous host process's member
         bool invader = false;   // 0.7.8: joined as an invader (never a cooperator; its slot is not kept)
+        bool open_join = false; // 0.7.9: came in through the open-party level gate
         MemberVitals vitals;    // party HUD: the member's last VITALS (has_vitals)
         bool has_vitals = false;
         Clock::time_point vitals_at{};
@@ -1402,7 +1404,7 @@ struct PartyLink::Impl {
             es.rx_last = cursor;
             if (!valid_event_name(name))
                 log("party link: dropped an event with an invalid name from slot " + std::to_string(from_slot));
-            else if (from_invader && !invader_event_from_ok(name))
+            else if (from_invader && !invader_event_from_ok(name, json))
                 log("party link: dropped the event '" + name + "' from the invader in slot " + std::to_string(from_slot));
             else if (cb.on_event)
                 post_peer(c, [this, from_slot, cursor, name = std::move(name), json = std::move(json)] {
@@ -1534,7 +1536,10 @@ struct PartyLink::Impl {
             }
             std::uint8_t role = 0;  // 0.7.8: 1 = invader; absent from older builds (they join as cooperators)
             if (r.ok && r.n) role = r.u8();
+            std::uint16_t hello_level = 0;  // 0.7.9: an invader's Blood Echoes level (absent from older builds)
+            if (r.ok && r.n) hello_level = r.u16();
             if (!r.ok) return lose(c, "short HELLO");
+            c->invader_level = hello_level;
             if (role > 1) return lose(c, "unknown HELLO role");
             const std::string mismatch = identity_mismatch(cfg, theirs);
             if (!mismatch.empty()) {
@@ -1550,9 +1555,10 @@ struct PartyLink::Impl {
                 std::uint32_t ip = 0;
                 std::memcpy(&ip, c->peer_ip.data(), 4);
                 if (banned.count(c->name)) return reject_conn(c, RejectCode::Invasion, "the host blocked you for this session");
-                const std::string why = cfg.invader_gate ? cfg.invader_gate(c->name, ip, false) : "the host does not allow invaders";
+                const std::string why = cfg.invader_gate ? cfg.invader_gate(c->name, ip, false, hello_level) : "the host does not allow invaders";
                 if (!why.empty()) return reject_conn(c, RejectCode::Invasion, why);
                 c->invader = true;
+                c->invader_level = hello_level;
             }
             crypto::random_bytes(c->hn.data(), c->hn.size());
             Writer w;
@@ -1575,7 +1581,7 @@ struct PartyLink::Impl {
                     return reject_conn(c, RejectCode::Invasion, "the invasion handshake failed");
                 std::uint32_t ip = 0;
                 std::memcpy(&ip, c->peer_ip.data(), 4);
-                const std::string why = cfg.invader_gate ? cfg.invader_gate(c->name, ip, true) : "the host does not allow invaders";
+                const std::string why = cfg.invader_gate ? cfg.invader_gate(c->name, ip, true, c->invader_level) : "the host does not allow invaders";
                 if (!why.empty()) return reject_conn(c, RejectCode::Invasion, why);
                 admit(c);
                 return;
@@ -1774,6 +1780,13 @@ struct PartyLink::Impl {
                     return reject_conn(c, RejectCode::Name, "the name " + c->name + " is already in the party");
             if (c->name == cfg.name)
                 return reject_conn(c, RejectCode::Name, "the name " + c->name + " is already in the party");
+            // 0.7.9: the open-party level range: only a NEW member that joined with no password and no party code.
+            bool open_join = false;
+            if (!c->invader && c->password_only && cfg.password.empty() && cfg.open_level_gate) {
+                const std::string why = cfg.open_level_gate(c->invader_level);
+                if (!why.empty()) return reject_conn(c, RejectCode::Level, why);
+                open_join = true;
+            }
             int slot = -1;
             for (int s = 1; s < cfg.max_players; ++s)
                 if (!members.count(s)) {
@@ -1787,6 +1800,7 @@ struct PartyLink::Impl {
             nm.slot = slot;
             nm.name = c->name;
             nm.invader = c->invader;
+            nm.open_join = open_join;
             crypto::random_bytes(nm.token.data(), nm.token.size());
             m = &members.emplace(slot, std::move(nm)).first->second;
         }
@@ -2185,6 +2199,10 @@ struct PartyLink::Impl {
         w.str16(cfg.build_id).bytes(cfg.params_sha256.data(), 32).bytes(cfg.hooks_hash.data(), 32);
         w.str16(join_names(cfg.hook_names));
         w.u8(cfg.invader ? 1 : 0);  // 0.7.8: the role (1 = invader); an older host reads no more than the names
+        if (cfg.own_level) {  // 0.7.9: the member's level (self-reported; the host rechecks it from the vitals)
+            const int lv = cfg.own_level ? cfg.own_level() : 0;
+            w.u16(static_cast<std::uint16_t>(lv < 0 ? 0 : lv > 999 ? 999 : lv));
+        }
         send(c, kHello, w);
     }
 
@@ -2789,7 +2807,7 @@ std::uint64_t PartyLink::Impl::send_event_locked(int slot, const std::string& na
     }
     std::uint64_t last = 0;
     for (auto& [s, m] : I.members) {
-        if (m.invader && !invader_event_to_ok(name)) continue;  // an invader is told nothing of the party's world
+        if (m.invader && !invader_event_to_ok(name, json)) continue;  // an invader is told nothing of the party's world
         if (slot == kBroadcast || slot == s) last = push(m.ev, m.conn);
     }
     return last;
@@ -2932,11 +2950,17 @@ bool PartyLink::last_welcome_resumed() const {
     return impl_->last_resumed;
 }
 
-bool invader_event_from_ok(const std::string& name) {
-    return name == "invade_fell" || name == "party_chat";
+bool invader_event_from_ok(const std::string& name, const std::string& json) {
+    if (name == "invade_fell" || name == "party_chat") return true;
+    // 0.7.9: the invader's one-load direct summon needs exactly two b2 messages, matched whole (never a substring: the
+    // b2 handler dispatches on substrings, so anything looser would let a hostile body carry another op).
+    return name == "b2" && (json == "{\"op\":\"dsum_req\"}" || json == "{\"op\":\"dsum_done\",\"ok\":1}" ||
+                            json == "{\"op\":\"dsum_done\",\"ok\":0}");
 }
-bool invader_event_to_ok(const std::string& name) {
-    return name == "invade" || name == "party_chat" || name == "host_session_end";
+bool invader_event_to_ok(const std::string& name, const std::string& json) {
+    if (name == "invade" || name == "party_chat" || name == "host_session_end") return true;
+    // 0.7.9: the host's answer to the invader's room request (and the boss / cutscene hold notice), nothing else of b2.
+    return name == "b2" && (json.rfind("{\"op\":\"dsum_room\"", 0) == 0 || json.rfind("{\"op\":\"dsum_busy\"", 0) == 0);
 }
 
 bool invader_rpc_ok(const std::string& kind) {
@@ -2948,6 +2972,23 @@ bool PartyLink::is_invader(int slot) const {
     std::lock_guard<std::mutex> lk(impl_->mu);
     const auto it = impl_->members.find(slot);
     return impl_->host && it != impl_->members.end() && it->second.invader;
+}
+
+bool PartyLink::joined_open(int slot) const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    const auto it = impl_->members.find(slot);
+    return impl_->host && it != impl_->members.end() && it->second.open_join;
+}
+
+bool PartyLink::drop_member(int slot, RejectCode code, const std::string& reason) {
+    Impl& I = *impl_;
+    std::lock_guard<std::mutex> lk(I.mu);
+    const auto it = I.members.find(slot);
+    if (!I.host || slot == kHostSlot || it == I.members.end()) return false;
+    I.log("party link: removing " + it->second.name + " (slot " + std::to_string(slot) + "): " + reason);
+    I.release_member(slot, true, code, reason);
+    I.publish();
+    return true;
 }
 
 bool PartyLink::drop_invader(int slot, const std::string& reason) {

@@ -114,7 +114,7 @@ inline bool FogWalkedThrough(bool seen_out, bool in, bool handled) {
 // skip (`client_skip_index`): the room is open to it as to the host until the fight really starts
 // (the intro flag on), then the fog comes up in its game as in the host's.
 enum class FirstStart : std::uint8_t {
-    none,    ///< no first-fight event behind the gate (the Celestial Emissary): the fog starts it
+    none,    ///< no first-fight event behind the gate: the fog starts it
     entry,   ///< the host walking in (position only): a guest's walk through the fog may start it
     action,  ///< something the host does inside the room: never from the fog
 };
@@ -134,7 +134,7 @@ inline const FirstFight* FirstFights(std::size_t* n) {
         {12414731, FirstStart::entry},  // Cleric Beast 12411702, region 2412805
         {12414811, FirstStart::entry},  // Father Gascoigne 12411802, region 2412815
         {12424811, FirstStart::action, 12424810, 2, "Ebrietas: the fight starts with the host's first hit on her"},
-        {12424711, FirstStart::none},   // the Celestial Emissary: no first-fight event
+        {12424711, FirstStart::entry},  // the Celestial Emissary 12421702, region 2422815 (enables the small emissaries)
         {12504811, FirstStart::entry},  // Martyr Logarius 12501802, region 2502805
         {12604846, FirstStart::entry},  // Mergo's Wet Nurse 12601802, region 2602805
         {12604861, FirstStart::entry},  // Micolash 12601852, 32 m of 2600850

@@ -492,6 +492,8 @@ void PartyHudTick(const GameSnapshot& s, party::PartyLink* link, party::MemberSt
         if (b2::BossBarLine(nullptr)) me.flags |= party::kVitalsBossBar;  // its boss fight is on (test gates)
         me.yaw = std::round(mine.yaw * 100.0f) / 100.0f;
         me.level = static_cast<std::uint16_t>(s.level > 0 && s.level < 1000 ? s.level : 0);
+        if (const char* lv = std::getenv("BB_PARTY_INVADE_LEVEL"))  // test aid (0.7.9): the level this game claims, HELLO and vitals alike
+            if (std::atoi(lv) > 0 && std::atoi(lv) < 1000) me.level = static_cast<std::uint16_t>(std::atoi(lv));
     }
     me.deaths = static_cast<std::uint16_t>(std::min(balance::LocalDeaths(), 65535));
     me.rot = static_cast<std::uint8_t>(balance::LocalRotStacks());

@@ -214,7 +214,7 @@ bool BossGateInBlock(const BossGate& g, std::uint32_t map);
 /// was taken for the fight's start and shut it in),
 /// Ebrietas (her first-fight event waits for the HOST's own hit on her, 3[23] attacker 10000),
 /// Lady Maria (her first fight follows the host's examining her in her chair, 13500948), the
-/// Celestial Emissary (no first-fight event); Rom has no fog gate (anyone's hit starts her fight,
+/// Rom has no fog gate (anyone's hit starts her fight,
 /// 3[23] attacker -1, so a guest may start it already).
 bool BossGateGuestStarts(const BossGate& g);
 /// Guest: the intro (first-fight-done) condition of a BossGateGuestStarts gate's guest-entry

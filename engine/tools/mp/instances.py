@@ -527,10 +527,15 @@ def tile_rect(slot):
     return wa.l + 8 + col * (w + 16), wa.t + row * (h + frame) + 31, w, h
 
 
-def stamp_lines(src, log, t0):
-    """--timestamps: copies a child's output into its log, each line prefixed "[+SSS.mmm] "."""
+def stamp_lines(src, log, t0, stall=None):
+    """--timestamps: copies a child's output into its log, each line prefixed "[+SSS.mmm] ".
+    stall=(start, duration): from `start` s after t0 the reader stops for `duration` s (a launcher
+    that does not read its pipe: --pipe-stall)."""
     try:
         for raw in iter(src.readline, b""):
+            if stall and not stall[2] and time.time() - t0 >= stall[0]:
+                stall[2] = True
+                time.sleep(stall[1])
             log.write(b"[+%8.3f] " % (time.time() - t0) + raw)
     except (OSError, ValueError):
         pass
@@ -691,12 +696,18 @@ def run(a):
         log, starts[i] = open_log(inst / "run.log")
         # Test games run ABOVE_NORMAL (children inherit) so agents' builds never starve them.
         prio = 0x00008000 if os.name == "nt" else 0
-        if a.timestamps:
+        stall = None
+        if a.pipe_stall:
+            # START:DURATION[:INSTANCE]: this instance's output pipe is not read for DURATION s from START s on.
+            f = a.pipe_stall.split(":")
+            if len(f) < 3 or int(f[2]) == i:
+                stall = [float(f[0]), float(f[1]), False]
+        if a.timestamps or stall:
             # Every line gets "[+SSS.mmm] " (seconds since the harness started the first
             # instance, the same clock for all instances): join / summon timelines.
             p = subprocess.Popen(["cmd", "/c", str(inst / "run.bat")], cwd=inst, env=env, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, creationflags=prio)
-            threading.Thread(target=stamp_lines, args=(p.stdout, log, ts0), daemon=True).start()
+            threading.Thread(target=stamp_lines, args=(p.stdout, log, ts0, stall), daemon=True).start()
         else:
             p = subprocess.Popen(["cmd", "/c", str(inst / "run.bat")], cwd=inst, env=env,
                                  stdout=log, stderr=subprocess.STDOUT, creationflags=prio)
@@ -1114,6 +1125,9 @@ def main():
     ap.add_argument("--start-when", action="append",
                     help="run: I/W:REGEX, instance I starts once instance W's log matched REGEX (300 s at most)")
     ap.add_argument("--ienv", action="append", help="run: I:KEY=VALUE, set for instance I only (after --env)")
+    ap.add_argument("--pipe-stall", help="run: START:DURATION[:INSTANCE] seconds; the harness stops reading that "
+                    "instance's output pipe for DURATION s from START s (a launcher that does not read: the game's "
+                    "log writes block once the pipe is full)")
     ap.add_argument("--timestamps", action="store_true",
                     help="run: prefix every log line with [+seconds] since the run started (one clock for all instances)")
     ap.add_argument("--grep")

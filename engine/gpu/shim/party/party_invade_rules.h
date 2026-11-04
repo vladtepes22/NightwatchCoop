@@ -53,6 +53,7 @@ enum class Deny : std::uint8_t {
     Travelling,     ///< the party is travelling (a lamp, a gather)
     InvaderPresent, ///< another invader is already in
     NoSlot,         ///< no free game slot (host + guests already fill 4)
+    LevelRange,     ///< 0.7.9: the invader's level is outside the host's range (LevelOk)
 };
 
 inline const char* DenyWord(Deny d) {
@@ -71,6 +72,7 @@ inline const char* DenyWord(Deny d) {
     case Deny::Travelling: return "travelling";
     case Deny::InvaderPresent: return "invader_present";
     case Deny::NoSlot: return "no_slot";
+    case Deny::LevelRange: return "level_range";
     }
     return "?";
 }
@@ -92,8 +94,36 @@ inline std::string DenyText(Deny d) {
     case Deny::Travelling: return "the party is travelling";
     case Deny::InvaderPresent: return "another invader is already in that world";
     case Deny::NoSlot: return "no free slot in the host's world (4 players)";
+    case Deny::LevelRange: return "your level is outside this host's range";
     }
     return "";
+}
+
+// ---- 0.7.9: the level range ----
+// An invader may enter when  floor(host * 0.8 - 20) <= invader <= floor(host * 1.1 + 10)  (host 100: 60..120; host 55: 24..70;
+// host 4: 1..14). Both bounds are rounded DOWN (the user's rule), in integer math so there is no float error at the edges:
+// floor(X*0.8-20) = (8X-200)/10 while 8X >= 200 (below that it is negative or 0: clamped to 1), floor(X*1.1+10) = X+10+X/10.
+// A host level of 0 (unknown) or an invader level of 0 (unknown: its game had no character yet) is not checked.
+inline int LevelLower(int host) { return host * 8 >= 210 ? (host * 8 - 200) / 10 : 1; }
+inline int LevelUpper(int host) { return host + 10 + host / 10; }
+inline bool LevelOk(int host, int invader) {
+    if (host <= 0 || invader <= 0) return true;
+    return invader >= LevelLower(host) && invader <= LevelUpper(host);
+}
+/// The refusal's words (the host's display name `host` is already masked). `verb` is "invade" or "join".
+inline std::string LevelText(const std::string& host, int host_level, int invader, bool invade = true, int lower = -1, int upper = -1) {
+    if (lower < 0) lower = LevelLower(host_level);
+    if (upper < 0) upper = LevelUpper(host_level);
+    return std::string("Can't ") + (invade ? "invade " : "join ") + host + ": your level " + std::to_string(invader) +
+           " is outside their range (" + std::to_string(lower) + "-" + std::to_string(upper) + ")";
+}
+
+// The vanilla co-op range for an OPEN party join (no password, a plain address): floor(X*0.8-20) .. floor(X*1.2+20),
+// i.e. host 100 -> 60..140, host 55 -> 24..86, host 4 -> 1..24. A password or a party code ignores it, as in the game.
+inline int OpenLevelUpper(int host) { return host + host / 5 + 20; }
+inline bool OpenLevelOk(int host, int guest) {
+    if (host <= 0 || guest <= 0) return true;
+    return guest >= LevelLower(host) && guest <= OpenLevelUpper(host);
 }
 
 /// What the host reads about itself and its party now.
@@ -110,6 +140,7 @@ struct HostView {
     int world_players = 1;          ///< the host + the guests in its world or on the way in (not invaders)
     int invaders = 0;               ///< invaders already admitted (pending or in)
     int party_max = kGameSlots;     ///< the party's "max players" setting
+    int host_level = 0;             ///< 0.7.9: the host's Blood Echoes level (0 unknown: no level check)
 };
 
 /// Can another game slot take an invader? The game has four player slots (host + three phantoms) and an invader is one
@@ -120,9 +151,10 @@ inline int Capacity(int party_max) {
 
 /// The one decision. `blocked` / `rate_limited` come from the books below. The order is the order a player is told
 /// about: the host's switch first, then who the invader is, then the host's moment, then room.
-inline Deny Admit(const HostView& h, bool blocked, bool rate_limited, bool invader_stays = false) {
+inline Deny Admit(const HostView& h, bool blocked, bool rate_limited, bool invader_stays = false, int invader_level = 0) {
     if (!h.allow) return Deny::Off;
     if (blocked) return Deny::Blocked;
+    if (!LevelOk(h.host_level, invader_level)) return Deny::LevelRange;  // before the knock counter and the rate limit
     if (rate_limited) return Deny::RateLimited;
     if (invader_stays) return Deny::InvaderStays;
     if (h.host_stays) return Deny::HostStays;
@@ -209,6 +241,7 @@ enum class End : std::uint8_t {
     Blocked,      ///< the host blocked or kicked the invader
     HostGone,     ///< the host left / the link dropped
     Timeout,      ///< the invader never got into the world
+    LevelRange,   ///< 0.7.9: its level (from its vitals) is outside the host's range
 };
 
 inline const char* EndWord(End e) {
@@ -222,12 +255,13 @@ inline const char* EndWord(End e) {
     case End::Blocked: return "blocked";
     case End::HostGone: return "host_gone";
     case End::Timeout: return "timeout";
+    case End::LevelRange: return "level_range";
     }
     return "?";
 }
 
 inline bool ParseEnd(const char* w, End* out) {
-    for (int i = 1; i <= static_cast<int>(End::Timeout); ++i) {
+    for (int i = 1; i <= static_cast<int>(End::LevelRange); ++i) {
         if (std::strcmp(EndWord(static_cast<End>(i)), w) == 0) {
             *out = static_cast<End>(i);
             return true;
@@ -247,6 +281,7 @@ inline std::string EndTextForHost(End e, const std::string& name) {
     case End::Blocked: return "The invader " + name + " is blocked for this session";
     case End::HostGone: return "The invader " + name + " left";
     case End::Timeout: return "The invader " + name + " never arrived";
+    case End::LevelRange: return "The invader " + name + " is sent home: level outside your range";
     case End::None: break;
     }
     return "";
@@ -263,6 +298,7 @@ inline std::string EndTextForInvader(End e, const std::string& host) {
     case End::Blocked: return host + " blocked you for this session";
     case End::HostGone: return host + " left the game: back home";
     case End::Timeout: return "You could not get into " + host + "'s world: back home";
+    case End::LevelRange: return "Your level is outside " + host + "'s range: back home";
     case End::None: break;
     }
     return "";
@@ -297,11 +333,15 @@ inline End CheckEnd(const Live& l) {
 
 // ---- the wire: EVENT "invade", host -> every member ----
 // {"s":<0 leave, 1 pending, 2 in>,"n":"<name>","w":"<end word>"}  `n` is a link member name (A-Za-z0-9_-, <= 16).
+// 0.7.9: a pending / in message carries ,"h":<0|1>: the host's phantom health for the invasion (1 full health, 0 the
+// game's cut), decided by the host's rules (party_levelsync_rules.h PhantomCutOn with the invasion as PvP). The
+// invader's game gets no host rules, so it follows this. A message without "h" (0.7.8) is still read (full_hp -1).
 
 struct Msg {
     int state = 0;      ///< 0 over, 1 pending (admitted, on the way), 2 in the world
     std::string name;
     End why = End::None;
+    int full_hp = -1;   ///< 0.7.9, state 1/2: 1 full health, 0 the game's cut, -1 not said
 };
 
 inline bool NameOk(const std::string& n) {
@@ -315,6 +355,8 @@ inline std::string Encode(const Msg& m) {
     char b[160];
     if (m.state == 0 && m.why != End::None)
         std::snprintf(b, sizeof b, "{\"s\":0,\"n\":\"%s\",\"w\":\"%s\"}", m.name.c_str(), EndWord(m.why));
+    else if (m.state != 0 && m.full_hp >= 0)
+        std::snprintf(b, sizeof b, "{\"s\":%d,\"n\":\"%s\",\"h\":%d}", m.state, m.name.c_str(), m.full_hp ? 1 : 0);
     else
         std::snprintf(b, sizeof b, "{\"s\":%d,\"n\":\"%s\"}", m.state, m.name.c_str());
     return b;
@@ -337,6 +379,14 @@ inline bool Decode(const std::string& body, Msg* out) {
         body[static_cast<std::size_t>(end)] == '\0') {
         if (s < 0 || s > 2 || !NameOk(name)) return false;
         *out = Msg{s, name, End::None};
+        return true;
+    }
+    end = 0;
+    int h = -1;
+    if (std::sscanf(body.c_str(), "{\"s\":%d,\"n\":\"%32[^\"]\",\"h\":%d}%n", &s, name, &h, &end) == 3 && end > 0 &&
+        body[static_cast<std::size_t>(end)] == '\0') {
+        if (s < 1 || s > 2 || !NameOk(name) || (h != 0 && h != 1)) return false;
+        *out = Msg{s, name, End::None, h};
         return true;
     }
     return false;

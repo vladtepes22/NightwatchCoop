@@ -574,6 +574,11 @@ static int hold_after_capture;
 static uint32_t director_buttons, last_sample_buttons, cross_presses;
 static int director_axes[4]={-1,-1,-1,-1};
 void runtime_pad_director_press(uint32_t buttons) { __atomic_store_n(&director_buttons,buttons,__ATOMIC_RELAXED); }
+/* runtime_pad_director_mask (visy 8a21ce20, CL-4b4614): buttons held back from the player (the title's Cross while the
+ * FROM sign-in runs: a Continue pressed meanwhile leaves the game offline). The director's own presses and the pad
+ * file's pass. */
+static volatile uint32_t director_mask;
+void runtime_pad_director_mask(uint32_t buttons) { __atomic_store_n(&director_mask,buttons,__ATOMIC_RELAXED); }
 void runtime_pad_director_sticks(int lx,int ly,int rx,int ry) {
     const int values[4]={lx,ly,rx,ry};
     for (int i=0;i<4;++i) __atomic_store_n(&director_axes[i],values[i],__ATOMIC_RELAXED);
@@ -642,6 +647,7 @@ static void sample(PadData *d) {
     record_sample(d);
     read_inject();
     replay_sample(d);
+    d->buttons&=~(__atomic_load_n(&director_mask,__ATOMIC_RELAXED) & ~(injected.buttons|__atomic_load_n(&director_buttons,__ATOMIC_RELAXED)));
     d->buttons|=injected.buttons;
     d->buttons|=__atomic_load_n(&director_buttons,__ATOMIC_RELAXED);
     if (hold_after_capture) {

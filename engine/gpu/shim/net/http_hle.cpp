@@ -181,11 +181,35 @@ const char* method_name(int m) {
 }
 
 std::atomic<int> g_ss_info{0}, g_login{0}, g_chara{0}, g_notice{0}, g_fail{0};
+std::atomic<int> g_ss_started{0}, g_pending{0};  // ss.info requests begun; FROM requests in flight
 std::atomic<long long> g_last_ms{-1};
 
 long long now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
         .count();
+}
+
+// A FROM request has begun (the answer may be late: a slow link, BB_HTTP_DELAY_SSINFO_MS): the title's sign-in is under
+// way from here, not from the first answer (online_progress; the director holds Continue meanwhile).
+struct InFlight {
+    explicit InFlight(const std::string& url) {
+        g_last_ms = now_ms();
+        ++g_pending;
+        if (url.find("/ss.info") != std::string::npos) ++g_ss_started;
+    }
+    ~InFlight() { --g_pending; }
+};
+
+// Test knob BB_HTTP_DELAY_SSINFO_MS=N: the first ss.info answer comes N ms late (a slow server / link at the title).
+void test_delay_ss_info(const std::string& url) {
+    static const long ms = [] {
+        const char* e = std::getenv("BB_HTTP_DELAY_SSINFO_MS");
+        return e && e[0] ? std::atol(e) : 0L;
+    }();
+    static std::atomic<bool> done{false};
+    if (ms <= 0 || url.find("/ss.info") == std::string::npos || done.exchange(true)) return;
+    log("http: test: delaying the first ss.info answer by %ld ms (BB_HTTP_DELAY_SSINFO_MS)", ms);
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
 void note_progress(const std::string& url, bool ok) {
@@ -206,6 +230,8 @@ void note_progress(const std::string& url, bool ok) {
 void perform(const std::string& url, int method, const Effective& eff, std::string post,
              std::shared_ptr<Response> resp) {
     const auto t0 = std::chrono::steady_clock::now();
+    const InFlight in_flight(url);
+    test_delay_ss_info(url);
     long status = 0;
     int err = 0;
     std::string body;
@@ -602,6 +628,8 @@ OnlineProgress online_progress() {
     p.chara_id = http::g_chara;
     p.notice = http::g_notice;
     p.failures = http::g_fail;
+    p.ss_info_started = http::g_ss_started;
+    p.pending = http::g_pending;
     const long long last = http::g_last_ms;
     p.since_last = last < 0 ? -1 : double(http::now_ms() - last) / 1000.0;
     return p;

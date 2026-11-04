@@ -2992,6 +2992,8 @@ void startup_main() {
     // as an invader (never a password: the link ignores it for that role).
     cfg.invader_gate = coop::invade::Gate;
     cfg.invader = !host && coop::invade::JoinAsInvader();
+    cfg.own_level = coop::invade::OwnLevel;  // 0.7.9: every guest says its level at HELLO (the open-party range, the invasion range)
+    cfg.open_level_gate = coop::invade::OpenGate;
     if (cfg.invader) cfg.password.clear();
     plog("%s %s, port %u, up to %d players; version check: eboot %s..., patches %s..., mods %s... (%s)%s",
          host ? "host" : "guest", cfg.name.c_str(), cfg.port, cfg.max_players, hex_prefix(cfg.eboot_sha256).c_str(),
