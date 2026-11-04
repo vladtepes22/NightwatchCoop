@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "win32_memory.h"
+#include "runtime_logdrain.h"
 
 typedef PVOID (WINAPI *VirtualAlloc2Fn)(HANDLE, PVOID, SIZE_T, ULONG, ULONG, MEM_EXTENDED_PARAMETER *, ULONG);
 typedef PVOID (WINAPI *MapViewOfFile3Fn)(HANDLE, HANDLE, PVOID, ULONG64, SIZE_T, ULONG, ULONG, MEM_EXTENDED_PARAMETER *, ULONG);
@@ -281,6 +282,7 @@ void *win_mem_private(uintptr_t a, uintptr_t b) {
                     (unsigned long long)((b - a) >> 10), commit_free_mib(), error);
             fflush(stdout);
             fflush(stderr);
+            runtime_logdrain_flush(3000); /* ExitProcess ends the drain's thread first */
             ExitProcess(76);
         }
         if (!attempt || attempt % 40 == 0)

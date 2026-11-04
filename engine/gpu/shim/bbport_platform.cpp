@@ -11,6 +11,7 @@
 #include <psapi.h>
 #include "bbport_platform.h"
 #include "bbport_threads.h"
+#include "../../src/runtime_logdrain.h"
 
 namespace BbPlatform {
 
@@ -138,6 +139,7 @@ bool ReadProcessMemory(const void* source, void* destination, std::size_t size) 
 
 void TerminateProcessNow(unsigned code) {
     std::fflush(nullptr);
+    runtime_logdrain_flush(3000);
     TerminateProcess(GetCurrentProcess(), code);
     _exit(static_cast<int>(code));
 }

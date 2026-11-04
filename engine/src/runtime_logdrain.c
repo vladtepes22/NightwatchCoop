@@ -43,12 +43,20 @@ static DWORD WINAPI drain_thread(LPVOID arg) {
     const char *s = getenv("BB_LOG_STALL_MS");
     unsigned stall_ms = s && *s ? (unsigned)atoi(s) : 0;
     int dead = 0;
+    unsigned empty = 0;
     for (;;) {
         /* Peek, then read what is there: a ReadFile that blocks on the pipe would also block every
-         * PeekNamedPipe on it (the flush below) behind the handle's lock. */
+         * PeekNamedPipe on it (the flush below) behind the handle's lock. Polls every 2 ms while lines
+         * come, every 10 ms after 0.1 s without any (the probe's 1 ms timer resolution made the 2 ms
+         * poll 500 wake-ups a second at above-normal priority for the whole game). */
         DWORD avail = 0, n = 0;
         if (!PeekNamedPipe(rd, NULL, 0, NULL, &avail, NULL)) break;
-        if (!avail) { InterlockedExchange(&idle, 1); Sleep(2); continue; }
+        if (!avail) {
+            InterlockedExchange(&idle, 1);
+            Sleep(++empty > 50 ? 10 : 2);
+            continue;
+        }
+        empty = 0;
         InterlockedExchange(&idle, 0);
         if (!ReadFile(rd, buf, avail < sizeof buf ? avail : (DWORD)sizeof buf, &n, NULL) || !n) break;
         DWORD off = 0;
@@ -89,6 +97,10 @@ void runtime_logdrain_start(void) {
     /* _dup2 onto fd 1 closes the handle fd 1 had: the drain keeps its own copy of it. */
     if (!DuplicateHandle(GetCurrentProcess(), out, GetCurrentProcess(), &own, 0, FALSE, DUPLICATE_SAME_ACCESS)) return;
     if (!CreatePipe(&r, &w, NULL, PIPE_BYTES)) { CloseHandle(own); return; }
+    /* A full pipe (the log file's writer stuck for seconds: antivirus, a hung disk) must not stall the
+     * game thread that prints: the writing end does not wait, a line that does not fit is dropped. */
+    DWORD nowait = PIPE_READMODE_BYTE | PIPE_NOWAIT;
+    SetNamedPipeHandleState(w, &nowait, NULL, NULL);
     rd = r; real_out = own;
     HANDLE th = CreateThread(NULL, 0, drain_thread, NULL, 0, NULL);
     int wfd = th ? _open_osfhandle((intptr_t)w, _O_WRONLY | _O_BINARY) : -1;
