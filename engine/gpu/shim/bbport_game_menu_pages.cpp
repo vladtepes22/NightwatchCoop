@@ -836,13 +836,10 @@ void DefineAll() {
 
     // ---- Party access (0.7.8, CL-7f44cd): who may join the host without a party code (docs/party/open_party.md).
     // The host's two opt-ins; a guest has no say in them, so its page is one line. ----
-    AddPage("Party access", "Доступ к группе", "Host: Nightwatch VPN lobby, open party without a password (bbport)",
-            "Хост: лобби Nightwatch VPN, открытая группа без пароля (bbport)");
-    // 0.7.7: Nightwatch VPN lobby (net/party_vpnlobby.h; the list is in the launcher's Join page). A host's row.
-    AddRow(Flag(&Values::party_vpn_lobby), AddText("Nightwatch VPN lobby", "Лобби Nightwatch VPN"),
-           AddText("Host with a password: list your character name and slots for Nightwatch VPN players (no address)",
-                   "Хост с паролем: имя героя и места видны игрокам Nightwatch VPN (без адреса)"),
-           toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
+    AddPage("Party access", "Доступ к группе", "Host: open party without a password, invaders (bbport)",
+            "Хост: открытая группа без пароля, вторжения (bbport)");
+    // bbport: no Nightwatch VPN lobby row (visy 0.7.7 had one): the launcher's "Show my party in the lobby browser" is the
+    // one switch for being listed (it writes party_vpn_lobby; user, 4 Nov).
     // 0.7.8: the open party (party/party_open_rules.h): no password, plain address joins from this PC's LAN or VPN subnets.
     // Live: the host reads it on every join. Only meaningful without a password (the password decides otherwise).
     AddRow(Flag(&Values::party_open), AddText("Open party (no password)", "Открытая группа"),
@@ -856,8 +853,8 @@ void DefineAll() {
                    "Только в списке игр: другие игроки могут вторгаться в ваш мир (по одному). Выкл.: никогда"),
            toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
     AddRow(Info(), AddText("Host's access", "Доступ хоста"),
-           AddText("The host decides who joins without a party code (Open party, Nightwatch VPN lobby)",
-                   "Хост решает, кто входит без кода группы (открытая группа, лобби Nightwatch VPN)"),
+           AddText("The host decides who joins without a party code (Open party, the launcher's lobby browser)",
+                   "Хост решает, кто входит без кода группы (открытая группа, список лобби в лаунчере)"),
            {AddText("Host only", "Только хост")}, Kind::Button,
            [] { return party::status::Snapshot().role == party::status::Role::Guest; });
 

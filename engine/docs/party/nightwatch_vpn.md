@@ -203,8 +203,9 @@ other's games. `tools/vpn/lobby/nwlobby.py` is a tiny in-memory lobby on the VPN
 `gpu/shim/net/party_vpnlobby.*`, launcher side `lobby_*` in `launcher.py`, tests `tests/test_nwlobby.py`,
 `tests/test_launcher_vpnlobby.py`, `test_vpnlobby()` in `tests/test_party_net.cpp`.
 
-Off by default: the setting `party_vpn_lobby` (bbport.ini; launcher checkbox *Nightwatch VPN lobby*; in the
-game *System > Party access > Nightwatch VPN lobby*, host's row; env `BB_PARTY_VPN_LOBBY`).
+Off by default: the setting `party_vpn_lobby` (bbport.ini; env `BB_PARTY_VPN_LOBBY`). Nightwatch sets it only from the
+launcher's *Show my party in the lobby browser* (on with Nightwatch Online); there is no switch of its own in the launcher
+or the game's menu (4 Nov).
 
 ### How a join works
 

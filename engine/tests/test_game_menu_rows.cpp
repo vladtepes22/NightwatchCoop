@@ -242,7 +242,7 @@ static void Reported() {
     names = Names(mode);
     assert(names.size() == 1 && names[0] == "Party mode");
 
-    // 0.7.8 Party access: the host has the lobby and Open party switches (live), a guest one read-only line.
+    // 0.7.8 Party access: the host has the Open party and invaders switches (live), a guest one read-only line.
     const P::Page& access = PageNamed("Party access");
     context = {};
     context.party_process = context.party_save = context.host = context.in_world = true;
@@ -251,7 +251,7 @@ static void Reported() {
     ps::SetState(ps::State::Hosting);
     P::Load();
     names = Names(access);
-    assert(names.size() == 3 && names[0] == "Nightwatch VPN lobby" && names[1] == "Open party (no password)" && names[2] == "Allow invaders");
+    assert(names.size() == 2 && names[0] == "Open party (no password)" && names[1] == "Allow invaders"); // lobby: the launcher's Show
     context = {};
     context.party_process = context.party_save = context.in_world = true;
     ps::ResetForTest(true);
