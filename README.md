@@ -32,7 +32,6 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
 
 ## Coming soon
 
-- Randomizer with custom settings
 - Permadeath mode
 - More optional community mods, like RenoDX HDR
 - Auto-hiding HUD
