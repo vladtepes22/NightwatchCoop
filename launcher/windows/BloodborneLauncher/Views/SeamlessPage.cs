@@ -580,7 +580,7 @@ public sealed class SeamlessPage : LauncherPage
 
     /// <summary>One set of the Nightwatch VPN's controls: its state and its one button (Install, then Connect / Disconnect).
     /// Host shows the bar above the password, Join inside the lobbies card.</summary>
-    private sealed record VpnUi(TextBlock Status, TextBlock Note, Wpf.Ui.Controls.ProgressRing Ring, Wpf.Ui.Controls.Button Button, Wpf.Ui.Controls.Button Uninstall, UIElement[] Shown);
+    private sealed record VpnUi(System.Windows.Shapes.Ellipse Dot, TextBlock Status, TextBlock Note, Wpf.Ui.Controls.ProgressRing Ring, Wpf.Ui.Controls.Button Button, Wpf.Ui.Controls.Button Uninstall, UIElement[] Shown);
 
     private VpnUi NewVpnUi(Func<VpnUi, UIElement[]> shown)
     {
@@ -595,12 +595,22 @@ public sealed class SeamlessPage : LauncherPage
         var uninstall = SmallButton(L.T("Uninstall"), SymbolRegular.Delete24, async (_, _) => await UninstallVpn());
         uninstall.VerticalAlignment = VerticalAlignment.Center;
         uninstall.Margin = new Thickness(8, 0, 0, 0);
-        var ui = new VpnUi(status, note, ring, button, uninstall, Array.Empty<UIElement>());
+        // The state dot left of the status (user, 4 Nov): green connected, red disconnected; the buttons stay plain.
+        var dot = new System.Windows.Shapes.Ellipse { Width = 10, Height = 10, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+        var ui = new VpnUi(dot, status, note, ring, button, uninstall, Array.Empty<UIElement>());
         ui = ui with { Shown = shown(ui) };
         _vpnUis.Add(ui);
         return ui;
     }
     private readonly List<VpnUi> _vpnUis = new();
+    private static readonly System.Windows.Media.SolidColorBrush VpnUpDot = FrozenBrush(0x4C, 0xAF, 0x50);
+    private static readonly System.Windows.Media.SolidColorBrush VpnDownDot = FrozenBrush(0xE5, 0x39, 0x35);
+    private static System.Windows.Media.SolidColorBrush FrozenBrush(byte r, byte g, byte b)
+    {
+        var brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(r, g, b));
+        brush.Freeze();
+        return brush;
+    }
 
     private Border VpnBar()
     {
@@ -610,7 +620,8 @@ public sealed class SeamlessPage : LauncherPage
         DockPanel.SetDock(right, Dock.Right);
         bar = new Border
         {
-            Child = new DockPanel { Children = { right, new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { ui.Status, ui.Note } } } },
+            Child = new DockPanel { Children = { right, new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
+                { new StackPanel { Orientation = Orientation.Horizontal, Children = { ui.Dot, ui.Status } }, ui.Note } } } },
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 10, 14, 10),
             Margin = new Thickness(14, 8, 14, 4), Visibility = Visibility.Collapsed,
         };
@@ -836,7 +847,8 @@ public sealed class SeamlessPage : LauncherPage
             ui.Status.Text = !installed ? L.T("Nightwatch VPN not installed") : up ? L.T("Nightwatch VPN connected") : L.T("Nightwatch VPN disconnected");
             ui.Button.Content = !installed ? L.T("Install") : up ? L.T("Disconnect") : L.T("Connect");
             ui.Button.Icon = new SymbolIcon { Symbol = !installed ? SymbolRegular.ArrowDownload24 : SymbolRegular.Globe24 };
-            Tint(ui.Button, installed ? up : null); // green Connect, red Disconnect; Install stays grey
+            ui.Dot.Fill = up ? VpnUpDot : VpnDownDot;
+            ui.Dot.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;
             // A tunnel another launcher window or program holds is not ours to close (ToggleVpn refuses it too).
             ui.Button.IsEnabled = !busy && !_changingHost && !(up && !NightwatchVpn.OwnedHere);
             ui.Uninstall.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;
@@ -1011,13 +1023,7 @@ public sealed class SeamlessPage : LauncherPage
         _lobbyScroll.ScrollToVerticalOffset(offset);
     }
 
-    private static readonly System.Windows.Media.SolidColorBrush ModsNoteBrush = NoteRed();
-    private static System.Windows.Media.SolidColorBrush NoteRed()
-    {
-        var brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0x6B, 0x6B));
-        brush.Freeze();
-        return brush;
-    }
+    private static readonly System.Windows.Media.SolidColorBrush ModsNoteBrush = FrozenBrush(0xFF, 0x6B, 0x6B);
 
     /// <summary>A lobby row's mods problem, in red under its details (user, 4 Nov): a Nocturne version this PC does not have
     /// links to the Workshop (underlined); other mods that differ ask for the same mods. Null when the mods match.</summary>
