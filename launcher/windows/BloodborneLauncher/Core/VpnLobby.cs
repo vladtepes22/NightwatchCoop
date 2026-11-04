@@ -40,7 +40,7 @@ public static class VpnLobby
     public const string Address = "10.8.0.1";
     private const int FlagPassword = 1, FlagOwn = 2, FlagInvaders = 4, FlagBoss = 8;
     private const byte TypeReply = 3, TypeList2 = 8, TypeReply2 = 9, TypeList3 = 11, TypeReply3 = 12;
-    public const int MaxModsLabel = 32;
+    public const int MaxModsLabel = 255;   // the length is one byte
     /// <summary>When the lobby last ignored the extended list (an older lobby): the plain list is asked instead for a while.</summary>
     private static long _capUntil;
     private static int _cap = 3;  // the newest list the lobby answered (3, 2 or 1), kept for five minutes
@@ -179,6 +179,9 @@ public static class VpnLobby
             var level = Environment.TickCount64 >= Interlocked.Read(ref _capUntil) ? 3 : Volatile.Read(ref _cap);
             for (var page = 0; page < MaxPages; page++)
             {
+                // The lobby answers 8 requests at once, then 2 a second (nwlobby RATE_BURST / RATE_PER_SEC): long mods labels
+                // mean fewer hosts per page, so later pages wait instead of going unanswered.
+                if (page >= 7) Thread.Sleep(550);
                 socket.Send(ListRequest(offset, level));
                 int n;
                 while (true)

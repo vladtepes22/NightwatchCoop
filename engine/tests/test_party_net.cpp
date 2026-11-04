@@ -1038,10 +1038,10 @@ static void test_vpnlobby() {
             x.mods = bad;
             CHECK(!valid_mods_label(bad) && encode_announce_mods(x).empty());
         }
-        x.mods = std::string(33, 'a');
+        x.mods = std::string(256, 'a');
         CHECK(encode_announce_mods(x).empty());
-        x.mods = std::string(32, 'a');
-        CHECK(encode_announce_mods(x).size() == 5 + 32);
+        x.mods = std::string(255, 'a');
+        CHECK(encode_announce_mods(x).size() == 5 + 255);
         CHECK(valid_mods_label("mods:3f9a12c0") && valid_mods_label("a-b_c.d+e:f@0"));
         std::array<std::uint8_t, 32> h{};
         h[0] = 0x3f; h[1] = 0x9a; h[2] = 0x12; h[3] = 0xc0; h[4] = 0xff;
