@@ -2472,7 +2472,7 @@
   "UPnP/VPN/LAN": "UPnP/VPN/LAN",
   "UPnP/VPN/LAN turns off the Nightwatch VPN. You can still play with friends over the internet, LAN or other VPNs.": "UPnP/VPN/LAN schaltet das Nightwatch VPN aus. Sie können weiterhin mit Freunden über das Internet, LAN oder andere VPNs spielen.",
   "LAN": "LAN",
-  "In order to play Nightwatch Online, you'll need to install our VPN sourced by OpenVPN. Press \"Install\" in the Nightwatch VPN box above the password.": "Um Nightwatch Online zu spielen, musst du unser VPN installieren, das auf OpenVPN basiert. Klicke dazu im Kasten „Nightwatch VPN“ über dem Passwort auf „Installieren“.",
+  "Nightwatch Online is optional. It needs our VPN, built on OpenVPN: press \"Install\" in the Nightwatch VPN box above the password. To play online without it, pick UPnP/VPN/LAN as the Party type (UPnP, port forwarding, Radmin or another VPN, or LAN).": "Nightwatch Online ist optional. Es braucht unser VPN, das auf OpenVPN basiert: Klicke im Kasten „Nightwatch VPN“ über dem Passwort auf „Installieren“. Um ohne VPN online zu spielen, wähle UPnP/VPN/LAN als Party-Typ (UPnP, Portweiterleitung, Radmin oder ein anderes VPN, oder LAN).",
   "Nightwatch VPN not installed": "Nightwatch VPN nicht installiert",
   "Nightwatch VPN connected": "Nightwatch VPN verbunden",
   "Nightwatch VPN disconnected": "Nightwatch VPN getrennt",
