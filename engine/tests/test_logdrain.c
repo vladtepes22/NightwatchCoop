@@ -21,14 +21,14 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     runtime_logdrain_start();
     unsigned long long t0 = GetTickCount64();
-    /* tail: 1 KiB lines, one write each (printf on an unbuffered stream writes each character on its
-     * own: 1 KiB lines would measure that, not the drain) */
+    /* One write a line: printf on an unbuffered stream (UCRT, not a console) writes each character on
+     * its own, about 1 us each into a pipe, so a busy machine timed that, not the drain (QA flake at
+     * 2000 ms for 20000 lines). tail: 1 KiB lines, to fill the 4 MiB pipe in a few thousand writes. */
     const int big = !strcmp(mode, "tail");
     for (int i = 0; i < n; ++i) {
         char line[1100];
         const int len = snprintf(line, sizeof line, "line %06d %.*s\n", i, big ? 1012 : 100, xs);
-        if (big) fwrite(line, 1, (size_t)len, stdout);
-        else printf("%s", line);
+        fwrite(line, 1, (size_t)len, stdout);
     }
     fprintf(stderr, "printed in %llu ms\n", GetTickCount64() - t0);
     if (!strcmp(mode, "stop")) {
