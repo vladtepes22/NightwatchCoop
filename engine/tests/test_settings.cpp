@@ -39,6 +39,19 @@ int main() {
 #endif
 
     {
+        // texture_quality (visy c55cd33d): auto by default, a bad value ignored, saved by name.
+        auto& d = BbSettings::Get();
+        assert(d.texture_quality == 0);
+        { std::ofstream file(path); file << "texture_quality=half\ntexture_quality=bogus\n"; }
+        BbSettings::Load();
+        assert(d.texture_quality == 2 && d.startup_texture_quality == 2);
+        BbSettings::Save();
+        assert(Read(path).find("texture_quality=half\n") != std::string::npos);
+        d.texture_quality = 0;
+        { std::ofstream file(path); file << ""; }
+        BbSettings::Load();
+    }
+    {
         // The keys from visy 0.7.5: defaults first, then each one read from and written to bbport.ini.
         auto& d = BbSettings::Get();
         assert(d.party_level_sync && d.party_phantom_hp && d.party_pvp_full_hp && d.party_boss_drops && !d.party_skip_prologue && d.party_vpn == 0 &&

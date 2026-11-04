@@ -408,6 +408,9 @@ struct Values {
     std::atomic<float> graphics_fog{1},graphics_brightness{1},graphics_contrast{1},graphics_hue{0};
     std::atomic<float> camera_fov_scale{1.0f}, camera_distance_scale{1.0f}, camera_height_scale{1.0f};
     std::atomic<int> model_lod{0};
+    /// texture_quality (BB_TEXTURE_QUALITY; after a restart): TextureQuality::Quality, auto = half
+    /// on cards with 3 GB or less (engine/texture_quality_rules.h; visy c55cd33d).
+    std::atomic<int> texture_quality{0};
     std::atomic<int> output_res{OutputDefault};
     int custom_output_w = 1920, custom_output_h = 1080;
     std::atomic<int> cheat_vials{CheatOff}, cheat_bullets{CheatOff};
@@ -449,6 +452,7 @@ struct Values {
     bool startup_object_motion = true;
     bool startup_effects[EffectCount]{};
     int startup_model_lod = 0;
+    int startup_texture_quality = 0;
     int startup_output_res = OutputDefault;
     int startup_live_resolution = 0;
     std::atomic<float> hdr_exposure{1.0f};

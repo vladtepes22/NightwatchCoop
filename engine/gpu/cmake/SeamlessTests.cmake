@@ -669,3 +669,11 @@ add_dependencies(seamless-tests name-filter-test)
 # Live FPS clock rules (shim/engine/live_clock_rules.h; target in CMakeLists.txt).
 add_test(NAME live-clock-test COMMAND live-clock-test)
 add_dependencies(seamless-tests live-clock-test)
+
+# Texture quality rules (shim/engine/texture_quality_rules.h; visy c55cd33d).
+add_executable(texture-quality-test EXCLUDE_FROM_ALL ../tests/test_texture_quality.cpp)
+target_compile_options(texture-quality-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(texture-quality-test PRIVATE shim)
+set_target_properties(texture-quality-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME texture-quality-test COMMAND texture-quality-test)
+add_dependencies(seamless-tests texture-quality-test)

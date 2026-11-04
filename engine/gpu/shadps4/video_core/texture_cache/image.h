@@ -179,6 +179,9 @@ public:
     u64 image_uid{};
 
     ImageInfo info;
+    /// bbport (texture_quality): the whole texture's description when info.skip_levels != 0
+    /// (the request it was made for: matching and upload use it); else unused.
+    ImageInfo guest_info;
     Vulkan::Runtime* runtime;
     Common::SlotVector<ImageView>* slot_image_views;
     vk::ImageAspectFlags aspect_mask = vk::ImageAspectFlagBits::eColor;

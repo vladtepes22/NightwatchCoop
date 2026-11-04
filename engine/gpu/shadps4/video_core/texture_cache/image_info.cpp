@@ -390,4 +390,20 @@ s32 ImageInfo::SliceOf(const ImageInfo& info, s32 mip) const {
     return static_cast<s32>(slice);
 }
 
+ImageInfo ImageInfo::Reduced(u32 skip) const {
+    ImageInfo out = *this;
+    out.size.width = std::max(size.width >> skip, 1u);
+    out.size.height = std::max(size.height >> skip, 1u);
+    out.pitch = std::max(pitch >> skip, 1u);
+    out.resources.levels = resources.levels - skip;
+    for (u32 level = 0; level < out.resources.levels; ++level) {
+        out.mips_layout[level] = mips_layout[level + skip];
+    }
+    for (u32 level = out.resources.levels; level < resources.levels; ++level) {
+        out.mips_layout[level] = {};
+    }
+    out.skip_levels = static_cast<u8>(skip);
+    return out;
+}
+
 } // namespace VideoCore

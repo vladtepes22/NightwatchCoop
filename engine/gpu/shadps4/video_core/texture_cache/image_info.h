@@ -95,6 +95,12 @@ struct ImageInfo {
 
     VAddr stencil_addr{};
     u32 stencil_size{};
+
+    /// bbport (texture_quality, visy c55cd33d): top mip levels this image was made without. The
+    /// guest address and size stay the whole texture's (tracking, hashes); size, pitch, levels and
+    /// mips_layout describe the levels kept, their offsets still the guest's.
+    u8 skip_levels{};
+    [[nodiscard]] ImageInfo Reduced(u32 skip) const;
 };
 
 } // namespace VideoCore
