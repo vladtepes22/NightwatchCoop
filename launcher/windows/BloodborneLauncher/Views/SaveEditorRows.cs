@@ -299,19 +299,27 @@ internal static class SaveEditorXaml
 
     // Plain rows with a divider: no selection chrome, because the controls inside are what the user touches.
     // gutter: room kept free on the right for the scroll bar that floats over that edge.
-    public static Style RowStyle(double gutter) => Parse<Style>($$"""
+    /// <summary>A list row: the whole width answers the mouse (hover), with a gutter for the scroll bar. <paramref name="selectable"/>:
+    /// the Add item list, where picked rows get a soft accent fill and the row can take the keyboard.</summary>
+    public static Style RowStyle(double gutter, bool selectable = false) => Parse<Style>($$"""
         <Style {{Header}} TargetType="ListBoxItem">
-          <Setter Property="Focusable" Value="False"/>
+          <Setter Property="Focusable" Value="{{(selectable ? "True" : "False")}}"/>
           <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
           <Setter Property="Template">
             <Setter.Value>
               <ControlTemplate TargetType="ListBoxItem">
                 <Border x:Name="Chrome" Margin="0,0,{{gutter.ToString(System.Globalization.CultureInfo.InvariantCulture)}},0" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" Background="Transparent">
-                  <ContentPresenter/>
+                  <Grid>
+                    <Border x:Name="Picked" Background="{DynamicResource AccentFillColorDefaultBrush}" Opacity="0.22" Visibility="Collapsed"/>
+                    <ContentPresenter/>
+                  </Grid>
                 </Border>
                 <ControlTemplate.Triggers>
                   <Trigger Property="IsMouseOver" Value="True">
                     <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SidebarItemHoverBrush}"/>
+                  </Trigger>
+                  <Trigger Property="IsSelected" Value="True">
+                    <Setter TargetName="Picked" Property="Visibility" Value="Visible"/>
                   </Trigger>
                 </ControlTemplate.Triggers>
               </ControlTemplate>

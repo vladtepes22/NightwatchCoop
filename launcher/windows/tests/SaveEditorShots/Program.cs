@@ -83,6 +83,27 @@ internal static class Program
                 CheckGemDialog(root);
                 Render(root, size.Item1, size.Item2, 1, Path.Combine(args[0], $"moon-{size.Item1}x{size.Item2}-gem-effects.png")); shots++; dialog.Close();
             }
+            {
+                // Add item: check boxes on the left, two rows ticked (a multiple pick), room for the scroll bar.
+                var found = Enumerable.Range(0, 14).Select(i => new { Number = 2146 + i, Name = "Sample item " + (i + 1), Icon = (string?)IconPath, Category = 4, Shape = 1 });
+                var json = JsonSerializer.Serialize(found, SaveEditor.Json);
+                var dialog = new SaveEditorAddDialog((category, _) => Task.FromResult(category == 4 ? json : "[]"), new[] { (4, 2149) }); // the save holds item 4: its note shows
+                var content = (FrameworkElement)dialog.Content; dialog.Content = null;
+                var root = new Border { Child = content, Width = 600, Height = 660 };
+                dialog.Content = root; root.SetResourceReference(Border.BackgroundProperty, "DialogBackgroundBrush");
+                SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext()); // awaits come back to this thread, as in the app
+                var load = (Task)typeof(SaveEditorAddDialog).GetMethod("Load", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(dialog, null)!;
+                while (!load.IsCompleted) System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.Background);
+                Layout(root, 600, 660);
+                var list = Descendants(root).OfType<ListBox>().First();
+                Require(list.Items.Count == 14, "Add item: the sample rows did not load: " + list.Items.Count + " rows, " + load.Status + " " + load.Exception?.GetBaseException().Message + " | " + string.Join(" | ", Descendants(root).OfType<TextBlock>().Select(b => b.Text).Where(s => s.Length > 0).Take(6)));
+                list.SelectedItems.Add(list.Items[1]); list.SelectedItems.Add(list.Items[3]);
+                Layout(root, 600, 660);
+                var boxes = Descendants(list).OfType<CheckBox>().ToList();
+                Require(boxes.Count > 3 && boxes[1].IsChecked == true && boxes[3].IsChecked == true && boxes[0].IsChecked != true, "Add item: the check boxes do not follow the pick");
+                Require(Descendants(root).OfType<TextBlock>().Any(b => b.Text.StartsWith("Already in your save") && b.Parent is Border { Visibility: Visibility.Visible }), "Add item: the held-item note is not shown");
+                Render(root, 600, 660, 1, Path.Combine(args[0], "moon-600x660-add-item.png")); shots++; dialog.Close();
+            }
             Console.WriteLine($"PASS: {shots} off-screen PNGs; fixtures, dirty state, validation, filtering, gem effects and write protection checked.");
             app.Shutdown(); return 0;
         }
