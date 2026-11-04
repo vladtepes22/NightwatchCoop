@@ -2542,9 +2542,8 @@
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN 未連線，Nightwatch Online 的玩家看不到也無法加入你的隊伍。請連線，或切換到 UPnP/VPN/LAN 以不用它來主持。",
   "Switch to UPnP/VPN/LAN": "切換到 UPnP/VPN/LAN",
   "Connect and play": "連線並開始遊戲",
-  "An optional mod that adds new weapons and hunter tools in the game. Check it out {link}. Press Try Nocturne to install it.": "一個選用模組，為遊戲加入新的武器和獵人道具。{link}查看詳情。點擊「試用 Nocturne」即可安裝。",
   "here": "點此",
-  "Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.": "Nocturne {0} 已發布：一個可選模組，為遊戲加入新的武器和獵人道具。點擊「試用 Nocturne」即可下載（{1} MB）並只啟用它（其他模組會暫停，「我的模組」可以恢復）。{link}查看它新增的內容。",
+  "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Nocturne {0} 已發布：由 Nightwatch 開發者製作的可選模組，加入新的武器和獵人道具。{link}查看它新增的內容。",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} 已發布（你目前是 {1}）。點擊「更新」即可下載（{2} MB）並取代已安裝的版本。{link}查看更新內容。",
   "The Nocturne download could not be reached: {0}": "無法連線到 Nocturne 下載位址：{0}",
   "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "你的模組資料夾中已有名為 {0} 的資料夾。請刪除或重新命名它，然後再試一次。"

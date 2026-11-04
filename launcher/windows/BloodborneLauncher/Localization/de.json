@@ -2542,9 +2542,8 @@
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Das Nightwatch VPN ist nicht verbunden, daher können Spieler in Nightwatch Online deine Party weder sehen noch beitreten. Verbinde dich oder wechsle zu UPnP/VPN/LAN, um ohne VPN zu hosten.",
   "Switch to UPnP/VPN/LAN": "Zu UPnP/VPN/LAN wechseln",
   "Connect and play": "Verbinden und spielen",
-  "An optional mod that adds new weapons and hunter tools in the game. Check it out {link}. Press Try Nocturne to install it.": "Eine optionale Mod, die dem Spiel neue Waffen und Jägerwerkzeuge hinzufügt. Schau sie dir {link} an. Klicke auf „Nocturne ausprobieren“, um sie zu installieren.",
   "here": "hier",
-  "Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.": "Nocturne {0} ist da: eine optionale Mod, die dem Spiel neue Waffen und Jägerwerkzeuge hinzufügt. „Nocturne ausprobieren“ lädt sie herunter ({1} MB) und spielt nur mit ihr (deine anderen Mods pausieren; „Meine Mods“ holt sie zurück). Was sie bietet, siehst du {link}.",
+  "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Nocturne {0} ist da: eine optionale Mod von den Entwicklern von Nightwatch, die neue Waffen und Jägerwerkzeuge hinzufügt. Was sie bietet, siehst du {link}.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Nocturne {0} ist da (du hast {1}). „Aktualisieren“ lädt sie herunter ({2} MB) und ersetzt deine installierte Version. Was neu ist, siehst du {link}.",
   "The Nocturne download could not be reached: {0}": "Der Nocturne-Download ist nicht erreichbar: {0}",
   "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Dein Mods-Ordner enthält bereits einen Ordner namens {0}. Entferne oder benenne ihn um und versuche es erneut."

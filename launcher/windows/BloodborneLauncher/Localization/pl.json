@@ -2542,9 +2542,8 @@
   "The Nightwatch VPN is not connected, so players on Nightwatch Online can't see or join your party. Connect, or switch to UPnP/VPN/LAN to host without it.": "Nightwatch VPN nie jest połączony, więc gracze Nightwatch Online nie widzą twojej drużyny i nie mogą dołączyć. Połącz się albo przełącz na UPnP/VPN/LAN, aby hostować bez niego.",
   "Switch to UPnP/VPN/LAN": "Przełącz na UPnP/VPN/LAN",
   "Connect and play": "Połącz i graj",
-  "An optional mod that adds new weapons and hunter tools in the game. Check it out {link}. Press Try Nocturne to install it.": "Opcjonalny mod, który dodaje do gry nowe bronie i narzędzia łowcy. Zobacz go {link}. Naciśnij „Wypróbuj Nocturne”, aby go zainstalować.",
   "here": "tutaj",
-  "Nocturne {0} is out: an optional mod that adds new weapons and hunter tools in the game. Try Nocturne downloads it ({1} MB) and plays it alone (your other mods are paused; My mods brings them back). See what it adds {link}.": "Wyszedł Nocturne {0}: opcjonalny mod, który dodaje do gry nowe bronie i narzędzia łowcy. „Wypróbuj Nocturne” pobiera go ({1} MB) i gra tylko z nim (twoje inne mody są wstrzymane; „Moje mody” je przywracają). Zobacz, co dodaje, {link}.",
+  "Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.": "Wyszedł Nocturne {0}: opcjonalny mod od twórców Nightwatch, który dodaje nowe bronie i narzędzia łowcy. Zobacz, co dodaje, {link}.",
   "Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.": "Wyszedł Nocturne {0} (masz {1}). „Aktualizuj” pobiera go ({2} MB) i zastępuje zainstalowaną wersję. Zobacz nowości {link}.",
   "The Nocturne download could not be reached: {0}": "Nie można połączyć się z pobieraniem Nocturne: {0}",
   "Your mods folder already has a folder named {0}. Remove or rename it, then try again.": "Twój folder modów ma już folder o nazwie {0}. Usuń go lub zmień jego nazwę, a potem spróbuj ponownie."

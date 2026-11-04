@@ -25,7 +25,7 @@ namespace BloodborneLauncher.Core
     /// <summary>What the mods folder holds under the name Nocturne.</summary>
     public sealed record InstalledMod(InstalledKind Kind, string? Version = null);
 
-    /// <summary>The launcher's start-up Nocturne popup (<see cref="CuratedMods.StartNewsOf"/>).</summary>
+    /// <summary>The Workshop's Nocturne popup (<see cref="CuratedMods.StartNewsOf"/>).</summary>
     public enum StartNews { None, Try, Update }
 
     /// <summary>Join: nothing to do. GetNocturne: switch to the host's Nocturne version (downloaded when missing).
@@ -542,7 +542,7 @@ namespace BloodborneLauncher.Core
             return null;
         }
 
-        /// <summary>What the launcher tells at its start, whatever the game mode (user, 4 Nov: advertise Nocturne): Try when
+        /// <summary>What the Workshop tells when it first opens, whatever the Mods choice (user, 4 Nov: advertise Nocturne): Try when
         /// Nocturne is not installed, Update when a known older version is, each once per manifest version
         /// (<paramref name="toldVersion"/>, the last one told). Nothing without a manifest or for an unrecognised folder
         /// (the player's own copy).</summary>

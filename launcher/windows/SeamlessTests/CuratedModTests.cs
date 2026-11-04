@@ -203,7 +203,7 @@ internal static class CuratedModTests
             Check(Directory.Exists(Path.Combine(nameMods, "Nocturne")), "A hand install (no nocturne.json) was renamed");
             Environment.SetEnvironmentVariable("BB_DATA_DIR", applyData);
 
-            // ---- start-up popup: Try without Nocturne, Update from an older known version, once per manifest version
+            // ---- Workshop popup: Try without Nocturne, Update from an older known version, once per manifest version
             var latest13 = CuratedMods.ParseManifest(Manifest());
             Check(CuratedMods.StartNewsOf(latest13, new InstalledMod(InstalledKind.None), "") == StartNews.Try, "No Nocturne: offer it");
             Check(CuratedMods.StartNewsOf(latest13, new InstalledMod(InstalledKind.Known, "1.2"), "") == StartNews.Update, "Older Nocturne: offer the update");
