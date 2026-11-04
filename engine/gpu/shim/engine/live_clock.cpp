@@ -230,6 +230,41 @@ __attribute__((sysv_abi)) void LiveClockTick(u8* pacer, float* out) {
                  target > 0 ? "" : " (uncapped)", double(dt), max_dt_hz);
 }
 
+/// The plants' wind force (visy 0.7.8 af45a20a, bbhost b2818b4): the Deltatime patch hands the wind code the
+/// live step, which it also uses as the force (V * step), so every long or short frame bent the plants by its own
+/// length and they shook. The force takes the authored 1/30; the wave time keeps the live step. visy's version
+/// loads the game's 1/30 at 0x4926364, but the Deltatime patch itself sets that constant to 1/60 (its line
+/// 0x04d26364), so his check refuses it in live mode: ours loads 1/30 from the stub page.
+bool GrassWind() {
+    // vmovdqa xmm14, [rbp - 0x170] -> vmovss xmm14, [rip + stub constant 1/30]
+    constexpr u64 force_site = 0x23149ea;
+    constexpr u8 force_was[] = {0xc5, 0x79, 0x6f, 0xb5, 0x90, 0xfe, 0xff, 0xff};
+    // lea rax, [0x5540df9]; cmp byte [rax], 0; vxorps xmm10, xmm10, xmm10; mov r8d, [rbp - 0x1b8];
+    // jne +5; vmovdqa xmm10, xmm14 -> mov r8d, [rbp - 0x1b8]; vxorps xmm10, xmm10, xmm10;
+    // cmp byte [0x5540df9], 0; jne +8; vmovdqa xmm10, [rbp - 0x170] (rax is written before it is read)
+    constexpr u64 time_site = 0x2314b26;
+    constexpr u8 time_was[] = {0x48, 0x8d, 0x05, 0xcc, 0xc2, 0x22, 0x03, 0x80, 0x38, 0x00, 0xc4, 0x41, 0x28, 0x57, 0xd2,
+                               0x44, 0x8b, 0x85, 0x48, 0xfe, 0xff, 0xff, 0x75, 0x05, 0xc4, 0x41, 0x79, 0x6f, 0xd6};
+    constexpr u8 time_now[] = {0x44, 0x8b, 0x85, 0x48, 0xfe, 0xff, 0xff, 0xc4, 0x41, 0x28, 0x57, 0xd2, 0x80, 0x3d, 0xc0,
+                               0xc2, 0x22, 0x03, 0x00, 0x75, 0x08, 0xc5, 0x79, 0x6f, 0x95, 0x90, 0xfe, 0xff, 0xff};
+    static_assert(sizeof(time_was) == sizeof(time_now));
+    if (g_size <= 0x2315000 || g_stub_used + 16 > kStubPage) return false;
+    u8* force = reinterpret_cast<u8*>(g_base + force_site);
+    u8* time = reinterpret_cast<u8*>(g_base + time_site);
+    if (std::memcmp(force, force_was, sizeof(force_was)) != 0 || std::memcmp(time, time_was, sizeof(time_was)) != 0)
+        return false;
+    u8* constant = g_stubs + g_stub_used;
+    const std::int64_t rel = std::int64_t(reinterpret_cast<u64>(constant)) - std::int64_t(g_base + force_site + 8);
+    if (rel != std::int32_t(rel)) return false;
+    const float authored = Frame30;
+    std::memcpy(constant, &authored, 4);
+    g_stub_used += 16;
+    const std::int32_t rel32 = std::int32_t(rel);
+    u8 force_now[8] = {0xc5, 0x7a, 0x10, 0x35};
+    std::memcpy(force_now + 4, &rel32, 4);
+    return WriteCode(time, time_now, sizeof(time_now)) && WriteCode(force, force_now, sizeof(force_now));
+}
+
 bool InstallLive() {
     const u8* image = reinterpret_cast<const u8*>(g_base);
     if (g_size <= 0x2035000 || std::memcmp(image + kBlockSite, kBlock, sizeof kBlock) != 0 ||
@@ -266,6 +301,7 @@ bool InstallLive() {
              "constants at 1/240 s, target %d FPS (0 = uncapped), step at most 1/%d s",
              pacer ? "on" : "NOT installed (the vblank holds the rate)", lowered, BbSettings::Get().target_fps.load(),
              BbSettings::Get().max_dt_hz.load());
+    host_log("Live clock: grass wind force at the authored 1/30 %s", GrassWind() ? "on" : "NOT installed (other code or constant)");
     return true;
 }
 } // namespace

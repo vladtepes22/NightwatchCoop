@@ -387,8 +387,8 @@ RULES_PAGES = [
     ("Party network", ["Network", "Find via public DHT", "Relay for members", "IPv6", "Join via a member",
                        "Host over a VPN"],
      ("Relay for members", "down/down/", "left", "Off", "right", "party_member_relay=0", "party_member_relay=1", None)),
-    # 0.7.8: the host's opt-ins to join without a code (a guest sees one "Host's access" line)
-    ("Party access", ["Nightwatch VPN lobby", "Open party (no password)", "Host's access"],
+    # 0.7.8: the host's opt-ins to join without a code, and to be invaded (a guest sees one "Host's access" line)
+    ("Party access", ["Nightwatch VPN lobby", "Open party (no password)", "Allow invaders", "Host's access"],
      ("Open party (no password)", "down/", "right", "On", "left", "party_open=1", "party_open=0", None)),
     # 0.7.1 / 0.7.3: the host's world rules
     ("Party rules: World", ["Enemies stay dead", "Host can gather", "NPCs as in host's world", "Covenants per player",
@@ -2691,6 +2691,11 @@ def phase_cl(only):
     return dict(
         name="cl", seconds=420, count=2, headless=0, prep=prep_chalamp, post=post_chalamp,
         env=["BB_PARTY_TRAVEL_CHOICE=party"],
+        # guest 1 starts 20 s after the host: its title join then asks a host that is already in the dungeon and is refused
+        # at once (summoned from its own world). Started at 2 s it raced the host's answer: when the room was handed out
+        # before the host was marked as in a dungeon, the title join loaded m29 without the dungeon, bailed home and
+        # counted as a join of its own (#N of the guest's script shifted by one, 4 of 4 full-smoke runs on 2026-11-03).
+        args=["--stagger", "20"],
         watch=watch,
         ienv=["0:BB_PARTY_DIRECTOR_TEST=" + host, "1:BB_PARTY_DIRECTOR_TEST=" + g1,
               "1:BB_PARTY_TRAVEL_CHOICE=alone"],
@@ -3878,7 +3883,8 @@ def check_jl(v, L, d: Path):
     own = L.find(1, r"test: start lamp %s \(from" % GM_OWN)
     v.step("jl the guest started in its own world", bool(own), own[1][:150] if own else "no start-lamp line")
     w = need(v, L, "jl the host's lamp is written into the guest's own save", 1,
-             r"written into the own save \(shared lamps; lamps.* %s" % JL_LAMP[0], 0,
+             r"written into the own save \(shared lamps; lamps.* %s|lamp repair: lamp %s had its lamp-lit flag"
+             % (JL_LAMP[0], JL_LAMP[0]), 0,  # the lamp repair can set it first (0.7.8)
              what="the host's lamp never reached the guest's save (0.7.6 report)")
     need(v, L, "jl the lamp shows lit in the host's world for the guest", 1, r"listonly: lamp %s is lit on this game" % JL_LAMP[0], 0)
     need(v, L, "jl the guest's list opens at the lamp", 1, r"test: warp menu up \(listonly\)", j or 0)
@@ -4307,7 +4313,8 @@ def check_hg(v, L):
 # (default 8) away and passive. The boss must turn to the guest in turn (BossAttentionTick) and really hit it: the
 # guest's HP falls from the boss's hits (both games log it), both boss bars are up. BB_BG_ORDER=guest: the guest
 # walks through the fog first. BB_PARTY_AI_LOG / BB_PARTY_TARGET_ANIM logs.
-BG_UNTIL = [r"1:travel step (\d+)/\1: guest_press 0x0"]
+# The mortal guest killed by the boss ends it too: its test chain then waits on a dead character until the timeout
+BG_UNTIL = [r"1:(?:travel step (\d+)/\1: guest_press 0x0|guest: own death in the host's world held)"]
 
 
 def phase_bg(only):
@@ -6802,6 +6809,9 @@ def check_eh(v, L):
     need(v, L, "eh its kill pays them (the game), the party stain goes", 1,
          r"party stain: the game paid its \d+ Blood Echoes", held or 0)
     pays = L.all(1, r"party stain: recovered \d+ Blood Echoes|party stain: the game paid its \d+ Blood Echoes")
+    # A frail guest can die again after the payment: that new stain pays on its own, so count up to it
+    deaths = L.all(1, r"party stain \(death in the host's world\)")
+    pays = [p for p in pays if len(deaths) < 2 or p[0] < deaths[1][0]]
     v.step("eh the echoes are paid exactly once", len(pays) == 1,
            "; ".join("+%.1f s %s" % (t, l[:110]) for t, l in pays) or "never paid")
     check_common(v, L, "eh")
@@ -7323,6 +7333,10 @@ def prep_sgp(root: Path):
         sys.exit("sgp: the fixture %s is missing (docs/party/test_saves.md)" % SGP_FIXTURE)
     _cl_saves(root, SGP_FIXTURE, 1)
     user = root / "inst1" / "user"
+    # The instance folder outlives the phases: a party_characters.txt of an earlier phase's character in slot 0 makes
+    # the start purge (runtime_savepolicy_side_files) drop every slot-0 line of the list below as "another
+    # character's" before the game reads it (smoke6: "3 party side file entries dropped"). Start with no record.
+    (user / "party_characters.txt").unlink(missing_ok=True)
     # A save last written as a summoned guest carries the phantom mark (chr type 1): the own world of such a save
     # does not load. The test copy has it cleared (the launcher's save editor does the same: repair_phantom_mark).
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
@@ -9049,7 +9063,7 @@ def check_rules(v, L):
             shown = [r.rsplit("=", 1)[0] for r in line[1].split("): ", 1)[1].split(" | ")]
             # the host has no "Join via a member" row (a guest's button)
             # (and a guest has no "Nightwatch VPN lobby" row: the host lists the party there)
-            want = [x for x in labels if not (i == 0 and x == "Join via a member") and not (i == 1 and x in ("Nightwatch VPN lobby", "Open party (no password)"))
+            want = [x for x in labels if not (i == 0 and x == "Join via a member") and not (i == 1 and x in ("Nightwatch VPN lobby", "Open party (no password)", "Allow invaders"))
                     and not (i == 0 and x == "Host's access")]
             if page == "Party members":  # RULES_PLAYERS member rows (their names vary), then the fixed rows
                 want = shown[:RULES_PLAYERS] + want
@@ -9217,8 +9231,10 @@ def lf_flags(L, i, after=0.0, before=1e9):
     return {int(a): int(b) for a, b in re.findall(r" (\d+)=(-?\d)", rows[-1][1])}
 
 
-def check_lf(v, L):
-    need(v, L, "lf join: 3 players", 0, r"cooperators [01] -> 2")
+def check_lf(v, L, players=3):
+    """players=2: the lfx run (host + guest 1, no observer game 2)."""
+    insts = tuple(range(players))
+    need(v, L, "lf join: %d players" % players, 0, r"cooperators [01] -> %d" % (players - 1))
     far = need(v, L, "lf host far away", 0, r"test: host_move to \(-158\.10")
     gone = L.find(0, r"test: object %s not loaded" % LF_LIFT, far or 0) if far else None
     v.step("lf host: the lift's block streamed out there", gone, "+%.1f s" % gone[0] if gone else
@@ -9230,7 +9246,7 @@ def check_lf(v, L):
     # The ride's end goes up from the first guest whose copy finished it: guest 2's copy (at the lamp, the
     # car far away) ends at once, guest 1's when it leaves the car
     over = None
-    for i in (1, 2):
+    for i in insts[1:]:
         hit = L.find(i, r"guest: lift %s ride over \(flag 12400827 = 1.*(to the host|has that end already)" % LF_LIFT,
                      ride or 0)
         over = hit[0] if hit and (over is None or hit[0] < over) else over
@@ -9246,16 +9262,16 @@ def check_lf(v, L):
         v.step("lf host's car where the guest left it (init anim 0, at the top)", car and " anim 0 " in car[1],
                ("+%.1f s inst0: %s" % (car[0], car[1][:120])) if car else "no car state after the return")
     end = 1e9
-    last = {i: lf_flags(L, i, 0, end) for i in (0, 1, 2)}
+    last = {i: lf_flags(L, i, 0, end) for i in insts}
     for key, name in ((12400827, "position"), (12400828, "busy")):
-        vals = [last[i].get(key) if last[i] else None for i in (0, 1, 2)]
+        vals = [last[i].get(key) if last[i] else None for i in insts]
         v.step("lf lift %s flag %d equal on all games at the end" % (name, key), len(set(vals)) == 1 and None not in vals,
-               "host %s, guest 1 %s, guest 2 %s" % tuple(vals))
+               ", ".join("%s %s" % ("host" if i == 0 else "guest %d" % i, vals[i]) for i in insts))
     pull = ladder_end
     if pull is not None:
         need(v, L, "lf ladder: the host's game got the kick", 0, r"ObjAct kick \(another player\).*kick event 12410206",
              pull - 1, pull + 10)
-        for i in (0, 1, 2):
+        for i in insts:
             need(v, L, "lf ladder down on game %d (12410285 = 1)" % i, i, r"test: flags .*12410285=1", pull, pull + 15)
         for i in (0, 1):
             need(v, L, "lf ladder down on game %d (its anim 2)" % i, i, r"test: object 2411204 anim 2 ", pull, pull + 20)
@@ -9279,7 +9295,7 @@ def check_lf(v, L):
     j = jumps(L, 1, st[0], en[0], (24.28, 194.17)) if st and en else None
     v.step("lf lift: guest 1 no jump on the car", j == [], ("; ".join("+%.1f s %.1f m" % x for x in j[:4])) if j else
            ("no jump over 2 m while on the car" if j == [] else "no ride seen"))
-    none_of(v, L, "lf lift: nobody died", r"local death: HP 0", 0, 1e9, (0, 1, 2))
+    none_of(v, L, "lf lift: nobody died", r"local death: HP 0", 0, 1e9, insts)
     check_common(v, L, "lf")
 
 def check_lfa(v, L):
@@ -10441,8 +10457,11 @@ def check_cl(v, L):
         if back:
             g_back = need(v, L, "cl guest 1 summoned back into the dungeon", 1, r"map .* -> m29_00", back)
             if g_back:
-                need(v, L, "cl guest 1 forced out: sent home by itself", 1, r"chalice: this guest is apart in", back - 5,
-                     g_back)
+                # two paths send it home, whichever is first: the apart tick (6 s) or the game's own OnLeave_Limit (5.9 s after
+                # the host left, not dropped: the host's dungeon is not this guest's)
+                need(v, L, "cl guest 1 forced out: sent home by itself", 1,
+                     r"chalice: this guest is apart in|funnel: guest_sent_home from \+0x138a51c \(role guest, not a party travel\)",
+                     back - 5, g_back)
                 chose = need(v, L, "cl guest 1 chose to leave (alone to the Dream)", 1, r"chalice: the guest's own choice",
                              g_back)
                 if chose:
@@ -11901,7 +11920,7 @@ def check_ngj(v, L):
 CHECKS = {"iv": lambda v, L, d: check_iv(v, L), "ivn": lambda v, L, d: check_iv(v, L, "ivn"), "ivx": lambda v, L, d: check_ivx(v, L), "ah": check_ah, "pc": check_pc, "vm": check_vm, "yj": check_yj, "s1": lambda v, L, d: check_s1(v, L), "s2": check_s2, "rules": lambda v, L, d: check_rules(v, L),
           "sc": check_sc, "sh": lambda v, L, d: check_sh(v, L), "gg": lambda v, L, d: check_gg(v, L), "ss": lambda v, L, d: check_ss(v, L), "summonfail": lambda v, L, d: check_summonfail(v, L),
           "s3": lambda v, L, d: check_s3(v, L), "sk": lambda v, L, d: check_sk(v, L), "lg": lambda v, L, d: check_lg(v, L), "lv": lambda v, L, d: check_lv(v, L),
-          "ga": lambda v, L, d: check_ga(v, L), "gl": lambda v, L, d: check_gl(v, L), "lf": lambda v, L, d: check_lf(v, L), "lfx": lambda v, L, d: check_lf(v, L), "lfa": lambda v, L, d: check_lfa(v, L), "lfw": lambda v, L, d: check_lfw(v, L, "yh", "lfw"), "lfwc": lambda v, L, d: check_lfw(v, L, "ca", "lfwc"), "lfws": lambda v, L, d: check_lfw(v, L, "yh", "lfws"), "lfwcs": lambda v, L, d: check_lfw(v, L, "ca", "lfwcs"), "lfwbs": lambda v, L, d: check_lfw(v, L, "ybs", "lfwbs"), "lfwcbs": lambda v, L, d: check_lfw(v, L, "cbs", "lfwcbs"), "lu": lambda v, L, d: check_lift_down(v, L, "lu"), "lfwf": lambda v, L, d: check_lfw(v, L, "yh", "lfwf"), "lfwcf": lambda v, L, d: check_lfw(v, L, "ca", "lfwcf"), "el": lambda v, L, d: check_el(v, L), "lt": lambda v, L, d: check_lt(v, L), "ch": lambda v, L, d: check_ch(v, L), "md": check_md, "mds": check_mds, "svl": check_svl, "rh": lambda v, L, d: check_rh(v, L), "rs": lambda v, L, d: check_rs(v, L), "fw": lambda v, L, d: check_fw(v, L), "fwg": lambda v, L, d: check_fw(v, L, "fwg", (1,)), "fwb": lambda v, L, d: check_fw(v, L, "fwb", (0, 1)), "fwe": lambda v, L, d: check_fw(v, L, "fwe", (0, 1)), "fh": lambda v, L, d: check_fw(v, L, "fh", (0, 1), FH_POS, FH_BUSY, "1", "0x16000000", (-211.25, 542.1), -20.3),
+          "ga": lambda v, L, d: check_ga(v, L), "gl": lambda v, L, d: check_gl(v, L), "lf": lambda v, L, d: check_lf(v, L), "lfx": lambda v, L, d: check_lf(v, L, 2), "lfa": lambda v, L, d: check_lfa(v, L), "lfw": lambda v, L, d: check_lfw(v, L, "yh", "lfw"), "lfwc": lambda v, L, d: check_lfw(v, L, "ca", "lfwc"), "lfws": lambda v, L, d: check_lfw(v, L, "yh", "lfws"), "lfwcs": lambda v, L, d: check_lfw(v, L, "ca", "lfwcs"), "lfwbs": lambda v, L, d: check_lfw(v, L, "ybs", "lfwbs"), "lfwcbs": lambda v, L, d: check_lfw(v, L, "cbs", "lfwcbs"), "lu": lambda v, L, d: check_lift_down(v, L, "lu"), "lfwf": lambda v, L, d: check_lfw(v, L, "yh", "lfwf"), "lfwcf": lambda v, L, d: check_lfw(v, L, "ca", "lfwcf"), "el": lambda v, L, d: check_el(v, L), "lt": lambda v, L, d: check_lt(v, L), "ch": lambda v, L, d: check_ch(v, L), "md": check_md, "mds": check_mds, "svl": check_svl, "rh": lambda v, L, d: check_rh(v, L), "rs": lambda v, L, d: check_rs(v, L), "fw": lambda v, L, d: check_fw(v, L), "fwg": lambda v, L, d: check_fw(v, L, "fwg", (1,)), "fwb": lambda v, L, d: check_fw(v, L, "fwb", (0, 1)), "fwe": lambda v, L, d: check_fw(v, L, "fwe", (0, 1)), "fh": lambda v, L, d: check_fw(v, L, "fh", (0, 1), FH_POS, FH_BUSY, "1", "0x16000000", (-211.25, 542.1), -20.3),
           "mk": lambda v, L, d: check_mk(v, L), "kd": lambda v, L, d: check_kd(v, L), "kg": lambda v, L, d: check_kg(v, L), "fdr": lambda v, L, d: check_fdr(v, L), "kw": lambda v, L, d: check_kw(v, L),
           "fl": lambda v, L, d: check_fl(v, L), "fd": lambda v, L, d: check_fd(v, L), "fdj": lambda v, L, d: check_fdj(v, L), "cd": lambda v, L, d: check_cd(v, L), "iw": lambda v, L, d: check_iw(v, L), "iwn": lambda v, L, d: check_iwn(v, L), "an": lambda v, L, d: check_an(v, L), "anl": lambda v, L, d: check_anl(v, L), "ld": lambda v, L, d: check_ld(v, L),
           "cl": lambda v, L, d: check_cl(v, L), "cy": lambda v, L, d: check_cy(v, L), "cyn": lambda v, L, d: check_cy(v, L, "cyn"), "clg": lambda v, L, d: check_clg(v, L), "cpr": lambda v, L, d: check_cpr(v, L), "chc": lambda v, L, d: check_chc(v, L), "chw": lambda v, L, d: check_chc(v, L, True), "chn": lambda v, L, d: check_chc(v, L), "cpa": lambda v, L, d: check_common(v, L, "cpa"), "cae": lambda v, L, d: check_cae(v, L), "cao": lambda v, L, d: check_cao(v, L), "cgt": lambda v, L, d: check_cgt(v, L), "cgp": lambda v, L, d: check_cgp(v, L), "cgu": lambda v, L, d: check_cgu(v, L), "cab": lambda v, L, d: check_cab(v, L), "caq": lambda v, L, d: check_common(v, L, "caq"), "caw": lambda v, L, d: check_common(v, L, "caw"), "clw": lambda v, L, d: check_clw(v, L), "cla": lambda v, L, d: check_cla(v, L), "caa": lambda v, L, d: check_caa(v, L), "cam": lambda v, L, d: check_cam(v, L), "camo": lambda v, L, d: check_cam(v, L, "offline"), "camh": lambda v, L, d: check_camh(v, L), "bf": lambda v, L, d: check_bf(v, L), "lp": check_lp, "gd": check_gd, "gh": lambda v, L, d: check_gh(v, L), "gm": check_gm, "gr": lambda v, L, d: check_gr(v, L), "gr2": lambda v, L, d: check_gr(v, L, 2), "gr3": lambda v, L, d: check_gr(v, L, 3), "gr4": lambda v, L, d: check_gr(v, L, 4), "mp": lambda v, L, d: check_mp(v, L), "mpg": lambda v, L, d: check_mp(v, L, "guest"), "mph": lambda v, L, d: check_mp(v, L, "host"), "gro": lambda v, L, d: check_gr(v, L, 1, "gro"), "gr2o": lambda v, L, d: check_gr(v, L, 2, "gr2o"), "gr3o": lambda v, L, d: check_gr(v, L, 3, "gr3o"), "gr4o": lambda v, L, d: check_gr(v, L, 4, "gr4o"), "jl": check_jl, "ml": lambda v, L, d: check_ml(v, L), "mg": lambda v, L, d: check_mg(v, L), "ll": lambda v, L, d: check_ll(v, L), "hlq": check_hlq, "hlr": check_hlr, "hs": lambda v, L, d: check_hs(v, L), "ngj": lambda v, L, d: check_ngj(v, L), "nl": lambda v, L, d: check_nl(v, L), "ff": lambda v, L, d: check_ff(v, L), "lk": lambda v, L, d: check_lk(v, L), "lkc": lambda v, L, d: check_lkc(v, L), "br": lambda v, L, d: check_br(v, L), "rf": lambda v, L, d: check_rf(v, L), "rj": lambda v, L, d: check_rj(v, L), "em": lambda v, L, d: check_em(v, L), "bd": lambda v, L, d: check_bd(v, L), "bdo": lambda v, L, d: check_bd(v, L, True), "sm": lambda v, L, d: check_sm(v, L), "ef": lambda v, L, d: check_ef(v, L), "ngp": lambda v, L, d: check_ngp(v, L), "mb": lambda v, L, d: check_mb(v, L), "gb": lambda v, L, d: check_gb(v, L), "mbs": lambda v, L, d: check_mbs(v, L), "gbs": lambda v, L, d: check_gbs(v, L), "da": lambda v, L, d: check_da(v, L), "cv": check_cv, "cvs": check_cvs, "cvo": lambda v, L, d: check_cvs(v, L, d, False), "cvr": check_cvr, "cvc": check_cvc, "cva": check_cva, "cvf": check_cvf, "cvm": check_cvm, "cvt": check_cvt, "cvh": lambda v, L, d: check_cvt(v, L, d, "host"), "ie": lambda v, L, d: check_ie(v, L), "il": check_il, "rw": lambda v, L, d: check_rw(v, L), "rwe": lambda v, L, d: check_rwe(v, L), "rwt": lambda v, L, d: check_rwt(v, L), "gag": lambda v, L, d: check_gag(v, L), "gv": lambda v, L, d: check_gv(v, L), "gvg": lambda v, L, d: check_gvg(v, L), "gvr": lambda v, L, d: check_gvr(v, L), "gvl": lambda v, L, d: check_gvl(v, L), "gvn": lambda v, L, d: check_gv(v, L, "gvn"), "gvm": lambda v, L, d: check_gvm(v, L), "gvs": lambda v, L, d: check_gvs(v, L), "rwl": lambda v, L, d: check_rwl(v, L), "nf": lambda v, L, d: check_nf(v, L), "nfa": lambda v, L, d: check_nfa(v, L), "nfe": lambda v, L, d: check_nfe(v, L), "nfw": lambda v, L, d: check_nfw(v, L), "npi": lambda v, L, d: check_npi(v, L), "npa": lambda v, L, d: check_npa(v, L), "npd": lambda v, L, d: check_npd(v, L), "pvd": lambda v, L, d: check_pvd(v, L), "pvh": lambda v, L, d: check_pvh(v, L), "pvn": lambda v, L, d: check_pvn(v, L), "npf": lambda v, L, d: check_npf(v, L), "sj": lambda v, L, d: check_sj(v, L), "bl": lambda v, L, d: check_bl(v, L), "mw": lambda v, L, d: check_mw(v, L), "px": lambda v, L, d: check_px(v, L), "pxg": lambda v, L, d: check_px(v, L, 1), "ba": lambda v, L, d: check_ba(v, L), "bh": lambda v, L, d: check_bh(v, L), "bk": lambda v, L, d: check_bk(v, L), "hg": lambda v, L, d: check_hg(v, L), "bg": lambda v, L, d: check_bg(v, L), "lr": lambda v, L, d: check_lr(v, L), "lw": lambda v, L, d: check_lw(v, L), "amp": lambda v, L, d: check_amp(v, L), "amp": lambda v, L, d: check_amp(v, L), "la": lambda v, L, d: check_la(v, L), "lb": lambda v, L, d: check_common(v, L, "lb"), "lc": lambda v, L, d: check_lc(v, L),
