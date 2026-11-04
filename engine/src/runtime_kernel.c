@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "runtime_logdrain.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -175,6 +176,7 @@ static ABI __attribute__((noreturn)) void hard_exit(int status) {
     printf("Runtime: guest requested _exit(%d)\n",status);
     runtime_report();
     fflush(stdout);
+    runtime_logdrain_flush(3000); /* _exit runs no atexit handler: the drain's last lines first */
     _exit(status);
 }
 /* libc's _Assert(message, function) raises 0xa0020007 on release mode first, then prints the
@@ -187,6 +189,7 @@ static ABI __attribute__((noreturn)) void raise_exception(uint32_t code,uint64_t
     runtime_report();
     fflush(stdout);
     fflush(stderr);
+    runtime_logdrain_flush(3000);
     _exit(23);
 }
 static ABI void raise_exception_release(uint32_t code,uint64_t argument) {

@@ -1,8 +1,9 @@
 /* The game's log output (stdout, unbuffered) goes into a big in-memory pipe that a background thread
  * forwards to the real stdout (the launcher's pipe, a log file). A reader that stops for a while (a busy
  * launcher, an antivirus scanning the log, a full 4 KiB launcher pipe) then stalls that thread, not
- * whichever game thread printed a log line. BB_LOG_ASYNC=0 (or bbport.ini log_async=0) keeps the direct
- * writes. Windows only; elsewhere the functions do nothing. */
+ * whichever game thread printed a log line; once 4 MiB wait there, further lines are dropped rather
+ * than waited for. BB_LOG_ASYNC=0 (or bbport.ini log_async=0) keeps the direct writes. Windows only;
+ * elsewhere the functions do nothing. */
 #ifndef RUNTIME_LOGDRAIN_H
 #define RUNTIME_LOGDRAIN_H
 #ifdef __cplusplus
