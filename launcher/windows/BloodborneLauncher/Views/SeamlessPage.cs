@@ -548,7 +548,7 @@ public sealed class SeamlessPage : LauncherPage
 
     /// <summary>The pointer to the Fix button, shown when Play finds Nightwatch Online without the VPN.</summary>
     public static void TellVpnNeeded() => Prompt.Tell(L.T("Nightwatch Online"),
-        L.T("In order to play Nightwatch Online, you'll need to install our VPN sourced by OpenVPN. Press \"Install\" in the Nightwatch VPN box above the password."));
+        L.T("Nightwatch Online is optional. It needs our VPN, built on OpenVPN: press \"Install\" in the Nightwatch VPN box above the password. To play online without it, pick UPnP/VPN/LAN as the Party type (UPnP, port forwarding, Radmin or another VPN, or LAN)."));
 
     /// <summary>True when the host's party type is Nightwatch Online and the VPN it needs is not installed.</summary>
     public static bool NeedsVpn(LauncherSettings s) =>
