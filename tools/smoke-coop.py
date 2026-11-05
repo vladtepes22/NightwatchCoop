@@ -38,10 +38,10 @@ def guest_roles(count):
     return ['guest'] + [f'guest{n}' for n in range(2, count + 1)]
 
 
-def load_scenario(name):
-    """A named row from tools/qa_scenarios.json: per-role director steps, the log lines each role must
+def load_scenario(name, path=None):
+    """A named row from tools/qa_scenarios.json (or `path`): per-role director steps, the log lines each role must
     show (in order) and optional extra environment switches for both games."""
-    scenarios = json.loads((REPO / 'tools' / 'qa_scenarios.json').read_text(encoding='utf-8'))
+    scenarios = json.loads((path or REPO / 'tools' / 'qa_scenarios.json').read_text(encoding='utf-8'))
     if name not in scenarios:
         raise SystemExit(f'Unknown scenario {name}; known: {", ".join(sorted(scenarios))}')
     return scenarios[name]
@@ -154,10 +154,34 @@ def main():
     parser.add_argument('--seed-host', default='host', help='Existing smoke-game save fixture name.')
     parser.add_argument('--seed-guest', default='guest', help='Existing smoke-game save fixture name.')
     parser.add_argument('--game', help='Game folder (CUSA03173), passed to smoke-game.py.')
+    parser.add_argument('--mods', type=Path, help='Mods for every game, passed to smoke-game.py.')
+    parser.add_argument('--scenarios', type=Path, help='Scenario file instead of tools/qa_scenarios.json.')
+    parser.add_argument('--port-base', type=int, default=47912,
+                        help='The host port; guests take the next ones (another run or game on the PC: another base).')
+    parser.add_argument('--host-mods', help='Mods for the host only (a folder, or "none"); overrides --mods.')
+    parser.add_argument('--guest-mods', help='Mods for every guest (a folder, or "none"); overrides --mods.')
+    parser.add_argument('--env', action='append', default=[], metavar='NAME=VALUE', help='Extra switch for every game.')
+    parser.add_argument('--host-engine', type=Path, help='Engine folder for the host (smoke-game --engine).')
+    parser.add_argument('--guest-engine', type=Path, action='append', default=[],
+                        help='Engine folder per guest, in order (games with mods need one each: a start removes '
+                             'every other mod-game-* overlay in its out folder, even a running game one).')
+    parser.add_argument('--host-env', action='append', default=[], metavar='NAME=VALUE')
+    parser.add_argument('--guest-env', action='append', default=[], metavar='NAME=VALUE')
+    parser.add_argument('--guest-start-after', type=float, default=0,
+                        help='Start the guests this many seconds after the host published its code (a late join).')
+    parser.add_argument('--no-join', action='store_true', help='The run proves a refusal: nobody may join.')
     parser.add_argument('--guests', type=int, choices=[1, 2, 3, 4],
                         help='Guests to run (default: the scenario\'s "guests", else 1); all copy --seed-guest.')
     args = parser.parse_args()
-    scenario = load_scenario(args.scenario) if args.scenario else {}
+    scenario = load_scenario(args.scenario, args.scenarios) if args.scenario else {}
+    def pairs(items):
+        out = {}
+        for item in items:
+            name, sep, value = item.partition('=')
+            if not sep or not name:
+                parser.error(f'NAME=VALUE expected: {item}')
+            out[name] = value
+        return out
     guests = guest_roles(args.guests or scenario.get('guests', 1))
     steps = {'host': args.host_steps if args.host_steps is not None else scenario.get('host', args.steps),
              'guest': args.guest_steps if args.guest_steps is not None else scenario.get('guest', args.steps)}
@@ -165,7 +189,7 @@ def main():
         steps[role] = scenario.get(role, '')
     expects = [tuple(e) for e in scenario.get('expect', [])] + args.expect
     forbids = [tuple(e) for e in scenario.get('forbid', [])]
-    no_join = scenario.get('no_join', False)  # the row proves a refusal: nobody may join
+    no_join = scenario.get('no_join', False) or args.no_join  # the row proves a refusal: nobody may join
     args.seconds = args.seconds or scenario.get('seconds', 240)
     run = f'coop-{args.label}-{datetime.now():%Y%m%d-%H%M%S}'
     artifacts = ARTIFACTS / run
@@ -179,8 +203,9 @@ def main():
     env = dict(os.environ, BB_PARTY_AUTOCONTINUE='1', BB_PARTY_PERF='1', BB_PARTY_PERF_SECONDS='5',
                BB_PARTY_TEST_INVINCIBLE='1')
     env.update(scenario.get('env', {}))  # a row's own switches (e.g. a progress clear for a boss fight)
+    env.update(pairs(args.env))
     try:
-        players = [('host', 'host', 47912)] + [('join', seed, 47913 + i) for i, seed in enumerate(guests)]
+        players = [('host', 'host', args.port_base)] + [('join', seed, args.port_base + 1 + i) for i, seed in enumerate(guests)]
         for role, seed, port in players:
             name = f'{run}-{seed}'
             user = REPO / 'work' / f'smoke-{name}' / 'user'
@@ -203,15 +228,29 @@ def main():
                        # This harness ends every game at once (its own deadline below); a game's own deadline is only
                        # a safety net. With it at args.seconds the host, started first, stopped first, and the guests'
                        # last lines read "the host left" as if the link had broken.
-                       '--seconds', str(args.seconds + 180),
+                       '--seconds', str(args.seconds + 180 + int(args.guest_start_after)),
                        '--party-max', str(scenario.get('guest_party_max', len(players)) if role != 'host' else len(players)),
                        '--party-name', 'HostSmoke' if role == 'host' else 'GuestSmoke' + seed[len('guest'):]]
             if args.game:
                 command += ['--game', args.game]
+            mods = args.mods
+            own = args.host_mods if role == 'host' else args.guest_mods
+            if own is not None:
+                mods = None if own.lower() == 'none' else Path(own)
+            if mods:
+                command += ['--mods', str(mods.resolve())]
             if args.probe:
                 command += ['--probe', str(args.probe.resolve())]
+            if role == 'host' and args.host_engine:
+                command += ['--engine', str(args.host_engine.resolve())]
+            elif role != 'host' and guests.index(seed) < len(args.guest_engine):
+                command += ['--engine', str(args.guest_engine[guests.index(seed)].resolve())]
             child_env = dict(env, BB_PAD_FILE=str(artifacts / f'{seed}-pad.txt'), BB_PARTY_DIRECTOR_TEST=steps[seed])
             child_env.update(scenario.get(f'{seed}_env', {}))  # one game's own switches (visy's ienv)
+            child_env.update(pairs(args.host_env if role == 'host' else args.guest_env))
+            if role != 'host' and seed == guests[0] and args.guest_start_after > 0:
+                print(f'Late join: the guest starts in {args.guest_start_after:.0f} s.', flush=True)
+                time.sleep(args.guest_start_after)
             child = subprocess.Popen(command, env=child_env, cwd=REPO, stdout=output, stderr=output,
                                      creationflags=subprocess.CREATE_NO_WINDOW)
             children.append(child)
