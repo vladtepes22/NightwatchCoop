@@ -93,7 +93,7 @@ static void CheckMotionInterface(const std::vector<u32>& code, bool vertex_motio
     }
     assert(motion_descriptors == (vertex_motion ? 1u : 0u));
     assert(atomic_stores == (vertex_motion ? 4u : 0u));
-    static_assert(sizeof(PushData) == 128);
+    static_assert(sizeof(PushData) == 176); // 128 + Native+'s bb_hdr words (resource.h)
 }
 
 int main(int argc, char** argv) {

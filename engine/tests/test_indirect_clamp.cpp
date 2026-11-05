@@ -192,7 +192,9 @@ int main() {
     const std::array<uint32_t, 3> wrong{3063677180u, 1, 1}, sane{5, 3, 2};
     std::memcpy(reinterpret_cast<uint8_t*>(game.mapped) + wrong_at, wrong.data(), 12);
     std::memcpy(reinterpret_cast<uint8_t*>(game.mapped) + sane_at, sane.data(), 12);
-    const std::array<uint64_t, 2> slots{0, align};
+    // Each slot holds 16 bytes (the stream's Reserve(16, align) in ClampDispatchArgs): with an alignment
+    // under 16 (4 on AMD's driver) the second slot starts at 16, not at `align`, or it overwrites the first.
+    const std::array<uint64_t, 2> slots{0, (16 + align - 1) / align * align};
 
     const VkCommandBufferBeginInfo begin{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
                                          .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};

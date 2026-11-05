@@ -676,6 +676,28 @@ add_dependencies(seamless-tests name-filter-test)
 add_test(NAME live-clock-test COMMAND live-clock-test)
 add_dependencies(seamless-tests live-clock-test)
 
+# bbport.ini reading and writing (shim/bbport_settings.cpp; target in CMakeLists.txt): HDR, Native+,
+# frame generation, pad_fresh. It was built here but never registered, so a failure went unseen.
+add_test(NAME settings-test COMMAND settings-test)
+add_dependencies(seamless-tests settings-test)
+
+# Renderer and engine tests whose targets are in CMakeLists.txt. Until 0.2.9 nothing built or ran them,
+# and six had stopped building or passing unseen. The GPU ones make a Vulkan device (label gpu:
+# `ctest -LE gpu` leaves them out on a machine without one).
+set(bb_engine_tests pipeline-cache-blob-test image-overlap-test pipeline-archive-test motion-history-test
+    occlusion-test pipeline-compile-test ui-composition-test srt-walker-test
+    upscaler-support-test engine-hooks-test frame-rate-test menu-assets-test option-rows-test
+    engine-menu-memory-test rebirth-cost-test pc-input-test widescreen-test)
+# They share the GPU, so they run one at a time; motion-shader-test takes ~10 min. scene-resolution,
+# taa-shader and camera-motion open Vulkan device 0 and crash when it is gone (a laptop's dGPU off).
+set(bb_gpu_tests scene-resolution-test taa-shader-test camera-motion-test indirect-clamp-test
+    hdr-native-shader-test motion-shader-test)
+foreach(target IN LISTS bb_engine_tests bb_gpu_tests)
+    add_test(NAME ${target} COMMAND ${target})
+    add_dependencies(seamless-tests ${target})
+endforeach()
+set_tests_properties(${bb_gpu_tests} PROPERTIES LABELS gpu RUN_SERIAL TRUE)
+
 # Texture quality rules (shim/engine/texture_quality_rules.h; visy c55cd33d).
 add_executable(texture-quality-test EXCLUDE_FROM_ALL ../tests/test_texture_quality.cpp)
 target_compile_options(texture-quality-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)

@@ -281,7 +281,10 @@ int main() {
 #endif
     BbSettings::Load();
     assert(s.hdr_mode == BbSettings::HdrModeNative);
-    assert(!s.hdr_peak_auto);
+    // The environment's values never reach the file: the one-time settings_rev save (this file
+    // has no settings_rev) wrote the file's own values, so its peak and Auto are back.
+    assert(s.hdr_peak == 1000.0f && s.hdr_peak_auto);
+    assert(Read(path).find("hdr_peak=600") == std::string::npos);
     { std::ofstream file(path); file << "hdr_peak=800\nhdr_peak_auto=1\n"; }
     BbSettings::Load();
     assert(s.hdr_peak_auto && s.hdr_peak == 800.0f);

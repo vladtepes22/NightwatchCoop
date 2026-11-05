@@ -391,12 +391,18 @@ target_compile_options(scene-resolution-test PRIVATE -UNDEBUG -fPIC)
 set_source_files_properties(../tests/test_scene_resolution.cpp PROPERTIES
     COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
 target_link_libraries(scene-resolution-test PRIVATE bbgpu)
+if (WIN32)
+    target_link_libraries(scene-resolution-test PRIVATE winmm ws2_32 psapi onecore)
+endif()
 add_executable(taa-shader-test EXCLUDE_FROM_ALL ../tests/test_taa_shader.cpp ../tests/test_gpu_runtime_stubs.cpp)
 target_include_directories(taa-shader-test PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include)
 target_compile_options(taa-shader-test PRIVATE -UNDEBUG -fPIC)
 set_source_files_properties(../tests/test_taa_shader.cpp PROPERTIES
     COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
 target_link_libraries(taa-shader-test PRIVATE bbgpu)
+if (WIN32)
+    target_link_libraries(taa-shader-test PRIVATE winmm ws2_32 psapi onecore)
+endif()
 add_dependencies(taa-shader-test host_shaders)
 
 # The in-game map's renderer drawn offscreen (tests/map_render.cpp; needs a Vulkan device and baked maps).
@@ -416,6 +422,9 @@ add_executable(camera-motion-test EXCLUDE_FROM_ALL ../tests/test_camera_motion.c
 target_include_directories(camera-motion-test PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include)
 target_compile_options(camera-motion-test PRIVATE -UNDEBUG -fPIC)
 target_link_libraries(camera-motion-test PRIVATE bbgpu)
+if (WIN32)
+    target_link_libraries(camera-motion-test PRIVATE winmm ws2_32 psapi onecore)
+endif()
 add_dependencies(camera-motion-test host_shaders)
 
 # bbport: the generated SRT walker with tables that change between draws (null and bad pointers):

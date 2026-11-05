@@ -16,6 +16,11 @@ bool ReadProcessMemory(const void* p, void* out, size_t n) {
 }
 #endif
 
+// camera_timing.cpp logs through the engine's host log (engine_state.cpp, not linked here).
+namespace BbEngine {
+void host_log(const char*, ...) {}
+}
+
 namespace {
 int failures = 0;
 void Check(bool ok, const char* what) {
