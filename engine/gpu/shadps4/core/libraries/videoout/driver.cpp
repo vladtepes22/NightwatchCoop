@@ -23,6 +23,7 @@
 #include "bbport_wait_trace.h"
 #include "bbport_freeze.h"
 #include "bbport_settings.h"
+#include "bbport_latency.h"
 #include "video_core/renderer_vulkan/vk_frame_capture.h"
 #include "common/debug.h"
 #include "common/thread.h"
@@ -1085,6 +1086,9 @@ void VideoOutDriver::SubmitFlipInternal(VideoOutPort* port, s32 index, s64 flip_
         const auto& group = port->groups[buffer.group_index];
         frame = presenter->PrepareFrame(group, buffer.address_left);
     }
+    // bbport: BB_LATENCY_LOG: the pad read this frame was simulated from (both 0 while the probe is off).
+    frame->flip_ns = BbLatency::NowNs();
+    frame->input_read_ns = BbLatency::LastReadNs();
 
     {
         std::scoped_lock lock{mutex};

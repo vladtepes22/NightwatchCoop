@@ -67,6 +67,11 @@ int bbgpu_ping_combo_enabled(void);
 void bbgpu_ping_request(void);
 /* Party text chat (gpu/shim/party/party_chat.h): on while the setting is on in a party; the pad combo opens the preset list. */
 int bbgpu_chat_enabled(void);
+/* Input latency probe (BB_LATENCY_LOG=1, gpu/shim/bbport_latency.h): the pad is being read now (before any
+ * fresh update). bbgpu_pad_fresh: 1 when the pad should be read again from the device at that moment
+ * (bbport.ini pad_fresh, BB_PAD_FRESH; default on). */
+void bbgpu_latency_pad_read(void);
+int bbgpu_pad_fresh(void);
 void bbgpu_chat_request_pad(const char *source);
 /* I5 gather the party (gpu/shim/party/party_gather.h): 1 while this game hosts a running party
  * with gathering on; the pad reader calls request on touchpad held + L3. `source` names the

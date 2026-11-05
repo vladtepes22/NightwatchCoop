@@ -46,6 +46,11 @@ void bbgpu_ping_request(void) {}
 int bbgpu_gather_combo_enabled(void) { return 0; }
 void bbgpu_gather_request(const char *source) { (void)source; }
 int bbgpu_chat_enabled(void) { return 0; }
+/* Latency probe and fresh pad read (bbgpu): every game read reports itself; the fresh update stays on, so the
+ * virtual controller below is read through SDL_UpdateGamepads at the read too. */
+static int latency_reads;
+void bbgpu_latency_pad_read(void) { ++latency_reads; }
+int bbgpu_pad_fresh(void) { return 1; }
 void bbgpu_chat_request_pad(const char *source) { (void)source; }
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *name) {
     (void)table; (void)count; (void)name;
@@ -98,6 +103,7 @@ int main(void) {
     assert(pad_read_state(1,&data)==0 && data.touch_count==1 && data.touches[0].x==1440);
     inject(path,"");
     assert(pad_read_state(1,&data)==0 && data.buttons==0 && data.touch_count==0);
+    assert(latency_reads==3);  /* one probe note per game read */
 
     SDL_VirtualJoystickTouchpadDesc touch={.nfingers=2};
     SDL_VirtualJoystickDesc desc;

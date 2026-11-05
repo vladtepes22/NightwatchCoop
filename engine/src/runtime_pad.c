@@ -644,7 +644,22 @@ static void ping_combo(PadData *d) {
 
 }
 
+/* The state SDL holds is as old as the window thread's last event pump, so the game would read input up to
+ * that much behind the device. At the game's read the gamepads are updated again, on this thread (SDL locks
+ * the joystick list; the events this makes are drained by the window thread as before). bbport.ini pad_fresh,
+ * BB_PAD_FRESH; default on. Two reads closer than 0.25 ms share an update. After visy's 8ee5500e (CL-7ae614). */
+static void fresh_pad_update(void) {
+    bbgpu_latency_pad_read(); /* BB_LATENCY_LOG: the age the state had, before the update */
+    if (sdl_ready<=0 || !bbgpu_pad_fresh()) return;
+    static uint64_t last_us;
+    const uint64_t now=now_us();
+    if (now-last_us<250) return;
+    last_us=now;
+    SDL_UpdateGamepads();
+}
+
 static void sample(PadData *d) {
+    fresh_pad_update();
     sample_host(d);
     if (bbgpu_overlay_captures_input()) { hold_after_capture=1; return; }
     record_sample(d);

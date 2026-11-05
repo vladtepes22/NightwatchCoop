@@ -58,6 +58,10 @@ struct Frame {
     bool generated_ok{false};
     /// bbport: DLSS Frame Generation (vk_streamline.h): this game frame's index and inputs.
     DlssFrameInfo dlss{};
+    /// bbport: input latency probe (BB_LATENCY_LOG, bbport_latency.h): when the flip was queued and the
+    /// game's last pad read before it (0 while the probe is off). Set again on every flip.
+    u64 flip_ns{0};
+    u64 input_read_ns{0};
     bool psycho_frame = false;
     bool psycho_encoded = true;
     std::unique_ptr<HdrGainMap> psycho_snapshot;

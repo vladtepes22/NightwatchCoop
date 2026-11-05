@@ -348,6 +348,8 @@ struct Values {
     std::atomic<int> max_dt_hz{30};
     std::atomic<bool> dlss_fg_dynamic_supported{false};
     std::atomic<int> reflex{ReflexOn};
+    /// The game's pad read updates the SDL gamepads first (ini pad_fresh, BB_PAD_FRESH; runtime_pad.c). Live.
+    std::atomic<bool> pad_fresh{true};
     std::atomic<bool> streamline_loaded{false}, dlss_fg_supported{false};
     std::atomic<int> dlss_fg_max_frames{0};
     std::atomic<const char*> dlss_fg_problem{nullptr};

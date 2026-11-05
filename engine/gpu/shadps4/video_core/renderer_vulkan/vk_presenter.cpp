@@ -1,6 +1,7 @@
 #include "bbport_headless.h"
 #include "bbport_frame_state.h"
 #include "bbport_present_hold.h"
+#include "bbport_latency.h"
 #include "video_core/renderer_vulkan/vk_hdr_channel.h"
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
@@ -1549,6 +1550,9 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     // this frame go out right before (none for a frame shown again).
     const DlssFrameInfo* dlss_info = real_game_frame ? &frame->dlss : nullptr;
     dlss_fg->BeforePresent(dlss_info, BbOverlay::MenuOpen(), hdr_output);
+    if (real_game_frame) {
+        BbLatency::NotePresent(frame->input_read_ns, frame->flip_ns); // BB_LATENCY_LOG (no-op when off)
+    }
     bool presented;
     {
         std::scoped_lock submit_lock{Scheduler::submit_mutex};

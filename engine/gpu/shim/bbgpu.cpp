@@ -5,6 +5,7 @@
 #include "bbport_overlay.h"
 #include "map/map_page.h"
 #include "bbport_settings.h"
+#include "bbport_latency.h"
 #include "bbport_copy.h"
 #ifndef _WIN32
 #include <sys/resource.h>
@@ -42,6 +43,14 @@ extern "C" void bbgpu_request_quit(void) {
     SDL_Event quit{};
     quit.type = SDL_EVENT_QUIT;
     SDL_PushEvent(&quit);
+}
+
+extern "C" void bbgpu_latency_pad_read(void) {
+    BbLatency::NotePadRead();
+}
+
+extern "C" int bbgpu_pad_fresh(void) {
+    return BbSettings::Get().pad_fresh.load(std::memory_order_relaxed) ? 1 : 0;
 }
 
 [[noreturn]] void BbHardExit(int code) {
@@ -375,6 +384,7 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
         }
         g_window_cv.notify_all();
         while (window->PollEvents()) {
+            BbLatency::NotePump();
             SDL_WaitEventTimeout(nullptr, 2);
         }
         LOG_INFO(Frontend, "Window closed by user");
