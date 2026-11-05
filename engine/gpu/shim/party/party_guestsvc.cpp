@@ -1555,8 +1555,12 @@ const std::vector<std::uint32_t>& ModHostOnlyEvents() {
         std::vector<std::uint32_t> v;
         const char* mods = std::getenv("BB_MODS_ENABLED");
         if (mods && mods[0] == '0') return v;
+        // The folder bb-start writes it to (BB_OUT_DIR: engine\out beside the package's data folder), else
+        // <data>/out as scripts/mods.py has it: the same order as party_runtime.cpp out_dir() for party_mods.txt
+        const char* o = std::getenv("BB_OUT_DIR");
         const char* d = std::getenv("BB_DATA_DIR");
-        const std::string path = std::string(d && d[0] ? d : ".") + "/out/party_host_only.txt";
+        const std::string path = (o && o[0] ? std::string(o) : std::string(d && d[0] ? d : ".") + "/out") +
+                                 "/party_host_only.txt";
         FILE* f = std::fopen(path.c_str(), "rb");
         if (!f) return v;
         std::string text;
