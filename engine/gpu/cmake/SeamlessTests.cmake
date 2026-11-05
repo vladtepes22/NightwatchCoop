@@ -510,6 +510,14 @@ target_compile_options(party-wins-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(party-wins-test PRIVATE ..)
 set_target_properties(party-wins-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
+# The mods' host-only boss events merged into out/party_host_only.txt (start/host_only.h, scripts/mods.py's rules).
+# ninja -C out/gpu start-host-only-test
+add_executable(start-host-only-test EXCLUDE_FROM_ALL ../tests/test_start_host_only.cpp)
+target_compile_options(start-host-only-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(start-host-only-test PRIVATE ..)
+set_target_properties(start-host-only-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME start-host-only-test COMMAND start-host-only-test)
+
 # Navmesh test walker (shim/party/nav_walk.h). ninja -C out/gpu nav-walk-test
 add_executable(nav-walk-test EXCLUDE_FROM_ALL ../tests/test_nav_walk.cpp)
 target_compile_options(nav-walk-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)

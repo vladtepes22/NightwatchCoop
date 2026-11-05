@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "mods.h"
 #include "elf.h"
+#include "host_only.h"
 
 #include <windows.h>
 #include <winioctl.h>
@@ -486,6 +487,45 @@ void WritePartyModsFile(const fs::path& out, const std::vector<std::pair<std::ws
     WriteText(out / "party_mods.txt", text);
 }
 
+// ---- Host-only boss events of the mods (scripts/mods.py write_party_host_only_file; host_only.h) ----
+void RemoveIfThere(const fs::path& path) {
+    if (Exists(path)) Unlink(path);
+}
+
+// out/party_host_only.txt from the layers' own party_host_only.txt (beside dvdroot_ps4: no game file, in no hash). A mod
+// with a bad list is left out with why; no ids or more than hostonly::kMax: no file.
+void WritePartyHostOnlyFile(const fs::path& out, const std::vector<std::pair<std::wstring, fs::path>>& layers) {
+    hostonly::Merged merged;
+    for (const auto& [name, root] : layers) {
+        const fs::path list = root / hostonly::kFile;
+        if (!IsFile(list)) continue;
+        std::vector<std::uint32_t> own;
+        std::string error;
+        try {
+            const Bytes bytes = ReadFile(list);
+            if (!hostonly::ParseModList(Utf8(name), std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()),
+                                        &own, &error)) {
+                Log("Mods: %s: its host-only events are not used", error.c_str());
+                continue;
+            }
+        } catch (const std::exception& e) {
+            Log("Mods: %s: %s: its host-only events are not used", Utf8(list).c_str(), e.what());
+            continue;
+        }
+        hostonly::Add(&merged, Utf8(name), own);
+    }
+    const fs::path path = out / hostonly::kFile;
+    if (merged.ids.size() > hostonly::kMax)
+        Log("Mods: %zu host-only events, more than %zu: none are used", merged.ids.size(), hostonly::kMax);
+    const std::string text = hostonly::FileText(merged);
+    if (text.empty()) {
+        RemoveIfThere(path);
+        return;
+    }
+    WriteText(path, text);
+    Log("Mods: %zu host-only boss events", merged.ids.size());
+}
+
 } // namespace
 
 void RemoveOverlay(const fs::path& path) {
@@ -499,6 +539,7 @@ void RemoveOverlay(const fs::path& path) {
 
 fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::path& mods_dir, const fs::path& config,
                           bool enabled) {
+    RemoveIfThere(out / hostonly::kFile);  // a failed start leaves none: the host then has the fixed list only
     std::vector<std::pair<std::wstring, fs::path>> layers;
     if (enabled) {
         fs::path legacy = fs::canonical(game);
@@ -512,7 +553,9 @@ fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::p
     }
     fs::create_directories(out);
     WritePartyModsFile(out, layers);
-    return BuildOverlay(game, out, layers, UpdateFolder(fs::canonical(game)));
+    const fs::path view = BuildOverlay(game, out, layers, UpdateFolder(fs::canonical(game)));
+    WritePartyHostOnlyFile(out, layers);  // after the view, as scripts/mods.py main
+    return view;
 }
 
 }
