@@ -1,6 +1,6 @@
 {
   "Allow invasions": "Разрешить вторжения",
-  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "Другие игроки могут вторгаться в ваш мир враждебным фантомом из списка Nightwatch Online без пароля. Игрокам в кооперативе он по-прежнему нужен. Один захватчик за раз.",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it.": "Другие игроки могут вторгаться в ваш мир враждебным фантомом из списка Nightwatch Online без пароля. Игрокам в кооперативе он по-прежнему нужен.",
   "Invade": "Вторгнуться",
   "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "Вторгнуться в мир {0}? Вы войдёте враждебным фантомом: хост и его гости могут убить вас, а вы их. Вы вернётесь домой, когда погибнете вы или они.",
   "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "Войти враждебным фантомом. Хост разрешает вторжения: пароль не нужен и не отправляется.",
@@ -1449,7 +1449,6 @@
   "The profile {0} has no saves in {1}.\n\n": "У профиля {0} нет сохранений в {1}.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Сохранения Bloodborne найдены в {0} (профили: {1}), последнее сохранение {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "«Использовать ту папку» — играть с ними. Если играть здесь, начнётся новая игра; сохранения в той папке останутся как есть.",
-  "Play anyway": "Всё равно играть",
   "Use that folder": "Использовать ту папку",
   "Your saves have a safety copy": "У ваших сохранений есть страховочная копия",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "Страховочная копия сохранений профиля {0} от {1:d MMM yyyy, HH:mm} хранится в {2} ",
@@ -2548,5 +2547,11 @@
   "Give items to the party": "Передача предметов",
   "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "По умолчанию выключено. Включено: в меню предмета в инвентаре есть «Передать», чтобы отправить расходники или материалы другому охотнику, и вы принимаете их подарки. Выключено: подарки других отклоняются. Каждый игрок настраивает сам.",
   "Mods and patches differ: enable the same mods and patches and try again.": "Моды и патчи не совпадают: включите те же моды и патчи и попробуйте снова.",
-  "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "Патчи не совпадают: включите те же патчи, что у хоста (собственный патч мода тоже считается)."
+  "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "Патчи не совпадают: включите те же патчи, что у хоста (собственный патч мода тоже считается).",
+  "Max invaders": "Макс. захватчиков",
+  "How many invaders can be in your world at once. They count against Max players and the game's four slots.": "Сколько захватчиков может быть в вашем мире одновременно. Они занимают места из «Макс. игроков» и четырёх слотов игры.",
+  "Give weapons and armor": "Дарить оружие и броню",
+  "Ritual Altar as a guest": "Ритуальный алтарь в гостях",
+  "Off by default. On: a weapon's or armor's menu in the inventory has Give, to send it to another hunter (a weapon keeps its upgrade level and blood gems), and you accept theirs. Never worn or story gear. Each player sets their own.": "По умолчанию выключено. Включено: в меню оружия или брони в инвентаре появляется «Отдать», чтобы отправить предмет другому охотнику (оружие сохраняет уровень улучшения и камни крови), и вы принимаете предметы от других. Надетое снаряжение и сюжетные предметы отдать нельзя. Каждый игрок настраивает сам.",
+  "Off by default. On: as a guest you can use the Ritual Altar in the host's Hunter's Dream, with your own chalice and materials. Your own setting.": "По умолчанию выключено. Включено: в гостях вы можете пользоваться Ритуальным алтарём в Сне охотника хозяина, со своими чашами и материалами. Ваша собственная настройка."
 }

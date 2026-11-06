@@ -1,6 +1,6 @@
 {
   "Allow invasions": "İstilalara izin ver",
-  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "Diğer oyuncular Nightwatch Online listesinden şifresiz olarak düşman hayalet olarak dünyanı istila edebilir. Ortak oyuncuların hâlâ şifreye ihtiyacı var. Aynı anda tek istilacı.",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it.": "Diğer oyuncular Nightwatch Online listesinden şifresiz olarak düşman hayalet olarak dünyanı istila edebilir. Ortak oyuncuların hâlâ şifreye ihtiyacı var.",
   "Invade": "İstila et",
   "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "{0} adlı oyuncunun dünyasını istila etmek mi? Düşman hayalet olarak katılırsın: ev sahibi ve misafirleri seni öldürebilir, sen de onları. Sen ya da onlar ölünce evine dönersin.",
   "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "Düşman hayalet olarak katıl. Ev sahibi istilalara izin veriyor: şifre gerekmez ve gönderilmez.",
@@ -1449,7 +1449,6 @@
   "The profile {0} has no saves in {1}.\n\n": "{0} profilinin {1} içinde kaydı yok.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Bloodborne kayıtları {0} içinde bulundu (profiller: {1}), son kayıt {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "\"O klasörü kullan\" onlarla oynatır. Burada oynamak yeni bir oyun başlatır; oradaki kayıtlar olduğu gibi kalır.",
-  "Play anyway": "Yine de oyna",
   "Use that folder": "O klasörü kullan",
   "Your saves have a safety copy": "Kayıtlarınızın bir güvenlik kopyası var",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "{0} profilinin {1:d MMM yyyy, HH:mm} tarihli kayıtlarının güvenlik kopyası {2} içinde tutuluyor ",

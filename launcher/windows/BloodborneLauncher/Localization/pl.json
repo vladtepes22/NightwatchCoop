@@ -1,6 +1,6 @@
 {
   "Allow invasions": "Zezwalaj na inwazje",
-  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "Inni gracze mogą najechać Twój świat jako wrogi fantom z listy Nightwatch Online, bez hasła. Gracze w kooperacji nadal go potrzebują. Jeden najeźdźca naraz.",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it.": "Inni gracze mogą najechać Twój świat jako wrogi fantom z listy Nightwatch Online, bez hasła. Gracze w kooperacji nadal go potrzebują.",
   "Invade": "Najedź",
   "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "Najechać świat gracza {0}? Dołączasz jako wrogi fantom: gospodarz i jego goście mogą Cię zabić, a Ty ich. Wracasz do siebie, gdy zginiesz Ty lub oni.",
   "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "Dołącz jako wrogi fantom. Gospodarz zezwala na inwazje: hasło nie jest potrzebne ani wysyłane.",
@@ -1449,7 +1449,6 @@
   "The profile {0} has no saves in {1}.\n\n": "Profil {0} nie ma zapisów w {1}.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Znaleziono zapisy Bloodborne w {0} (profile: {1}), ostatni zapis {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "„Użyj tamtego folderu” pozwala grać na nich. Granie tutaj zaczyna nową grę; tamte zapisy pozostają bez zmian.",
-  "Play anyway": "Graj mimo to",
   "Use that folder": "Użyj tamtego folderu",
   "Your saves have a safety copy": "Twoje zapisy mają kopię zabezpieczającą",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "Kopia zabezpieczająca zapisów profilu {0} z {1:d MMM yyyy, HH:mm} jest przechowywana w {2} ",

@@ -96,8 +96,13 @@ public sealed class SeamlessPage : LauncherPage
         Grid.SetColumn(modRows, 1);
         invadeMods.Children.Add(invadeRows); invadeMods.Children.Add(modRows);
         ToggleRow(SymbolRegular.Shield24, L.T("Allow invasions"),
-            L.T("Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time."),
+            L.T("Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it."),
             () => Ini.Get("party_invaders", "0") == "1", v => Ini.Set("party_invaders", v ? "1" : "0"), invadeRows);
+        // visy 0.7.9 (CL-7e748c): how many invaders at once, 1 or 2; the host's value, read live. Both count against Max players.
+        ComboRow(SymbolRegular.PeopleTeam24, L.T("Max invaders"),
+            L.T("How many invaders can be in your world at once. They count against Max players and the game's four slots."),
+            new[] { new Choice("1", "1"), new Choice("2", "2") },
+            () => Ini.Get("party_max_invaders", "1") == "2" ? "2" : "1", v => Ini.Set("party_max_invaders", v), invadeRows);
         // Load mods (Workshop > Mods): which mods the game loads; read-only here.
         Add(Card(SymbolRegular.PuzzlePiece24, L.T("Mods"), null,
             SmallButton(L.T("Change"), SymbolRegular.Open24, (_, _) => OpenModsPage()), out _gameModeHint), modRows);
@@ -256,8 +261,10 @@ public sealed class SeamlessPage : LauncherPage
             ("party_toasts", L.T("Join, leave and travel notices"), true), ("party_item_notices", L.T("Shared item notices"), true), ("party_npc_talk", L.T("Share NPC dialogue"), true),
             ("party_chat", L.T("Party chat"), false), ("party_chat_receive", L.T("Show others' chat"), true),
             ("party_give_items", L.T("Give items to the party"), false),
+            ("party_give_gear", L.T("Give weapons and armor"), false),
             ("party_hide_bad_names", L.T("Hide offensive names"), true),
             ("party_glyph_list", L.T("Chalice glyph list"), false),
+            ("party_guest_altar", L.T("Ritual Altar as a guest"), false),
             ("party_stay", L.T("Stay in my world"), false), ("party_splitscreen", L.T("Splitscreen mode"), false));
         ComboRow(SymbolRegular.Alert24, L.T("Party messages"), PartyInfo("party_messages"),
             new[] { new Choice(L.T("All"), "all"), new Choice(L.T("Errors only"), "errors"), new Choice(L.T("Off"), "off") },
@@ -1518,6 +1525,8 @@ public sealed class SeamlessPage : LauncherPage
         "party_npc_talk_range" => L.T("How close a companion has to be for you to see their NPC conversation."),
         "party_overhead" => L.T("What shows above companions in view, only for you: nothing, name, name and level, name and health, name and deaths, or name and ping."),
         "party_grant_bells" => L.T("Gives the Beckoning Bell and Small Resonant Bell after the prologue, for ringing by hand. Takes effect on the next game start."),
+        "party_give_gear" => L.T("Off by default. On: a weapon's or armor's menu in the inventory has Give, to send it to another hunter (a weapon keeps its upgrade level and blood gems), and you accept theirs. Never worn or story gear. Each player sets their own."),
+        "party_guest_altar" => L.T("Off by default. On: as a guest you can use the Ritual Altar in the host's Hunter's Dream, with your own chalice and materials. Your own setting."),
         "party_glyph_list" => L.T("At the Ritual Altar, Search by Chalice Glyph first shows a list of the party's glyphs to pick from (your own dungeons, the guests' dungeons and the shipped list), then the code keyboard: typing a code still works. Pick one and the whole party enters that dungeon together. Your own setting."),
         "party_open_world" => L.T("Removes co-op walls on area borders so the party can walk anywhere. The host's rule: guests follow it."),
         "party_guest_respawn" => L.T("A guest who dies comes back at the host's last lamp and is summoned again, instead of being sent home. The host's rule: guests follow it."),

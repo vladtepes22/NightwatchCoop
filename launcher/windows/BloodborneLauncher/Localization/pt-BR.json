@@ -1,6 +1,6 @@
 {
   "Allow invasions": "Permitir invasões",
-  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "Outros jogadores podem invadir seu mundo como fantasma hostil pela lista do Nightwatch Online, sem a senha. Jogadores cooperativos ainda precisam dela. Um invasor por vez.",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it.": "Outros jogadores podem invadir seu mundo como fantasma hostil pela lista do Nightwatch Online, sem a senha. Jogadores cooperativos ainda precisam dela.",
   "Invade": "Invadir",
   "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "Invadir o mundo de {0}? Você entra como fantasma hostil: o anfitrião e os convidados podem matar você e você pode matá-los. Você volta para casa quando morre ou quando eles morrem.",
   "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "Entrar como fantasma hostil. O anfitrião permite invasões: nenhuma senha é necessária ou enviada.",
@@ -1449,7 +1449,6 @@
   "The profile {0} has no saves in {1}.\n\n": "O perfil {0} não tem saves em {1}.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Saves de Bloodborne foram encontrados em {0} (perfis: {1}), salvos pela última vez em {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "\"Usar essa pasta\" joga com eles. Jogar aqui inicia um novo jogo; os saves de lá ficam como estão.",
-  "Play anyway": "Jogar mesmo assim",
   "Use that folder": "Usar essa pasta",
   "Your saves have a safety copy": "Seus saves têm uma cópia de segurança",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "Uma cópia de segurança dos saves do perfil {0} de {1:d MMM yyyy, HH:mm} está guardada em {2} ",

@@ -1,6 +1,6 @@
 {
   "Allow invasions": "침입 허용",
-  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "다른 플레이어가 Nightwatch Online 목록에서 비밀번호 없이 적대 팬텀으로 당신의 세계에 침입할 수 있습니다. 협동 플레이어는 여전히 비밀번호가 필요합니다. 침입자는 한 번에 한 명입니다.",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it.": "다른 플레이어가 Nightwatch Online 목록에서 비밀번호 없이 적대 팬텀으로 당신의 세계에 침입할 수 있습니다. 협동 플레이어는 여전히 비밀번호가 필요합니다.",
   "Invade": "침입",
   "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "{0}의 세계에 침입할까요? 적대 팬텀으로 참가합니다. 호스트와 게스트는 당신을 죽일 수 있고 당신도 그들을 죽일 수 있습니다. 당신이나 그들이 죽으면 집으로 돌아갑니다.",
   "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "적대 팬텀으로 참가합니다. 호스트가 침입을 허용합니다. 비밀번호가 필요 없으며 전송되지 않습니다.",
@@ -1449,7 +1449,6 @@
   "The profile {0} has no saves in {1}.\n\n": "프로필 {0}의 세이브가 {1}에 없습니다.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "{0}에서 Bloodborne 세이브를 찾았습니다(프로필: {1}, 마지막 저장: {2:d MMM yyyy, HH:mm}).\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "'그 폴더 사용'을 선택하면 그 세이브로 플레이합니다. 여기서 플레이하면 새 게임이 시작되며, 그쪽 세이브는 그대로 유지됩니다.",
-  "Play anyway": "그래도 플레이",
   "Use that folder": "그 폴더 사용",
   "Your saves have a safety copy": "세이브의 안전 사본이 있습니다",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "{1:d MMM yyyy, HH:mm} 시점의 {0} 프로필 세이브 안전 사본이 {2}에 보관되어 있습니다 ",

@@ -1,6 +1,6 @@
 {
   "Allow invasions": "Invasionen erlauben",
-  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "Andere Spieler können über die Nightwatch-Online-Liste ohne Passwort als feindliches Phantom in deine Welt eindringen. Koop-Spieler brauchen es weiterhin. Immer nur ein Eindringling.",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it.": "Andere Spieler können über die Nightwatch-Online-Liste ohne Passwort als feindliches Phantom in deine Welt eindringen. Koop-Spieler brauchen es weiterhin.",
   "Invade": "Eindringen",
   "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "In die Welt von {0} eindringen? Du kommst als feindliches Phantom: Der Host und seine Gäste können dich töten und du sie. Du kehrst heim, wenn du stirbst oder sie sterben.",
   "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "Als feindliches Phantom beitreten. Der Host erlaubt Invasionen: Kein Passwort nötig, keines wird gesendet.",
@@ -1449,7 +1449,6 @@
   "The profile {0} has no saves in {1}.\n\n": "Das Profil {0} hat keine Spielstände in {1}.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Bloodborne-Spielstände wurden in {0} gefunden (Profile: {1}), zuletzt gespeichert {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "„Anderen Ordner verwenden“ spielt mit ihnen. Hier zu spielen beginnt ein neues Spiel; die Spielstände dort bleiben unverändert.",
-  "Play anyway": "Trotzdem spielen",
   "Use that folder": "Anderen Ordner verwenden",
   "Your saves have a safety copy": "Für Ihre Spielstände gibt es eine Sicherheitskopie",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "Eine Sicherheitskopie der Spielstände des Profils {0} vom {1:d MMM yyyy, HH:mm} liegt in {2} ",

@@ -1,6 +1,6 @@
 {
   "Allow invasions": "允许入侵",
-  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "其他玩家可以从 Nightwatch Online 列表以敌对幻影身份入侵你的世界，无需密码。合作玩家仍需密码。一次只允许一名入侵者。",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it.": "其他玩家可以从 Nightwatch Online 列表以敌对幻影身份入侵你的世界，无需密码。合作玩家仍需密码。",
   "Invade": "入侵",
   "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "要入侵 {0} 的世界吗？你将以敌对幻影身份加入：房主及其访客可以杀死你，你也可以杀死他们。你或他们死亡后，你会回到自己的世界。",
   "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "以敌对幻影身份加入。房主允许入侵：无需密码，也不会发送密码。",
@@ -1170,7 +1170,7 @@
   "Engine update needed": "需要更新引擎",
   "This launcher is {0}, but the engine in this folder is older ({1}): ": "此启动器版本为 {0}，但文件夹中的引擎较旧（{1}）：",
   "the crash fixes since then are missing. Updating downloads the latest package and keeps your settings, saves and mods.": "缺少之后发布的崩溃修复。更新将下载最新安装包，并保留设置、存档和模组。",
-  "Play anyway": "仍然启动",
+  "Play anyway": "仍然游玩",
   "Connect your Hunter's Dream account on the Online page first (with Discord, or without it).": "请先在联机页面关联 Hunter's Dream 账户（可使用 Discord，也可不用）。",
   "The launcher needs the engine (the folder with run.py and bin\\bb-probe.exe). ": "启动器需要引擎（包含 run.py 和 bin\\bb-probe.exe 的文件夹）。",
   "Red lantern in betas, blue in stable releases": "测试版使用红灯笼，稳定版使用蓝灯笼",
@@ -1463,7 +1463,6 @@
   "The profile {0} has no saves in {1}.\n\n": "配置 {0} 在 {1} 中没有存档。\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "在 {0} 中找到了 Bloodborne 存档（配置：{1}），最后保存于 {2:d MMM yyyy, HH:mm}。\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "选择“使用该文件夹”即可用这些存档游玩。在此处游玩会开始新游戏，那里的存档保持原样。",
-  "Play anyway": "仍然游玩",
   "Use that folder": "使用该文件夹",
   "Your saves have a safety copy": "你的存档有安全副本",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "配置 {0} 在 {1:d MMM yyyy, HH:mm} 的存档安全副本保存在 {2} ",
@@ -2571,5 +2570,11 @@
   "Give items to the party": "向队伍赠送物品",
   "Off by default. On: an item's menu in the inventory has Give, to send consumables or materials to another hunter, and you accept theirs. Off: others' gifts are refused. Each player sets their own.": "默认关闭。开启：背包中物品的菜单会出现“赠送”，可把消耗品或材料送给其他猎人，你也会接受他们的赠送。关闭：拒绝其他人的赠送。每位玩家各自设置。",
   "Mods and patches differ: enable the same mods and patches and try again.": "模组和补丁不一致：请启用相同的模组和补丁后重试。",
-  "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "补丁不一致：请开启与主机相同的补丁（模组自带的补丁也算）。"
+  "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "补丁不一致：请开启与主机相同的补丁（模组自带的补丁也算）。",
+  "Max invaders": "最大入侵者数",
+  "How many invaders can be in your world at once. They count against Max players and the game's four slots.": "同时可以有多少名入侵者进入你的世界。入侵者会占用最大玩家数和游戏的四个位置。",
+  "Give weapons and armor": "赠送武器和防具",
+  "Ritual Altar as a guest": "作为客人使用仪式祭坛",
+  "Off by default. On: a weapon's or armor's menu in the inventory has Give, to send it to another hunter (a weapon keeps its upgrade level and blood gems), and you accept theirs. Never worn or story gear. Each player sets their own.": "默认关闭。开启后：背包中武器或防具的菜单里会有“赠送”，可将其送给另一名猎人（武器保留强化等级和血宝石），你也会接收对方赠送的装备。正在穿戴的装备和剧情装备不能赠送。每位玩家各自设置。",
+  "Off by default. On: as a guest you can use the Ritual Altar in the host's Hunter's Dream, with your own chalice and materials. Your own setting.": "默认关闭。开启后：作为客人，你可以在房主的猎人梦境中使用仪式祭坛，消耗你自己的圣杯和材料。这是你自己的设置。"
 }

@@ -1,6 +1,6 @@
 {
   "Allow invasions": "Consenti invasioni",
-  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "Altri giocatori possono invadere il tuo mondo come fantasma ostile dall'elenco Nightwatch Online, senza la password. I giocatori in co-op ne hanno ancora bisogno. Un invasore alla volta.",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it.": "Altri giocatori possono invadere il tuo mondo come fantasma ostile dall'elenco Nightwatch Online, senza la password. I giocatori in co-op ne hanno ancora bisogno.",
   "Invade": "Invadi",
   "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "Invadere il mondo di {0}? Entri come fantasma ostile: l'host e i suoi ospiti possono ucciderti e tu puoi uccidere loro. Torni a casa quando muori o quando muoiono loro.",
   "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "Entra come fantasma ostile. L'host consente le invasioni: nessuna password richiesta né inviata.",
@@ -1449,7 +1449,6 @@
   "The profile {0} has no saves in {1}.\n\n": "Il profilo {0} non ha salvataggi in {1}.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Sono stati trovati salvataggi di Bloodborne in {0} (profili: {1}), ultimo salvataggio il {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "\"Usa quella cartella\" gioca con quelli. Giocare qui avvia una nuova partita; i salvataggi lì restano come sono.",
-  "Play anyway": "Gioca comunque",
   "Use that folder": "Usa quella cartella",
   "Your saves have a safety copy": "I tuoi salvataggi hanno una copia di sicurezza",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "Una copia di sicurezza dei salvataggi del profilo {0} del {1:d MMM yyyy, HH:mm} è conservata in {2} ",

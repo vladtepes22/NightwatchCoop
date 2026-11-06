@@ -1,6 +1,6 @@
 {
   "Allow invasions": "Дозволити вторгнення",
-  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it. One invader at a time.": "Інші гравці можуть вторгатися у ваш світ ворожим фантомом зі списку Nightwatch Online без пароля. Гравцям у кооперативі він і далі потрібен. Один загарбник за раз.",
+  "Other players can invade your world as a hostile phantom from the Nightwatch Online list, without the password. Co-op players still need it.": "Інші гравці можуть вторгатися у ваш світ ворожим фантомом зі списку Nightwatch Online без пароля. Гравцям у кооперативі він і далі потрібен.",
   "Invade": "Вторгнутися",
   "Invade {0}'s world? You join as a hostile phantom: the host and their guests can kill you and you can kill them. You go home when you die or when they die.": "Вторгнутися у світ {0}? Ви увійдете ворожим фантомом: хост і його гості можуть вбити вас, а ви їх. Ви повернетеся додому, коли загинете ви або вони.",
   "Join as a hostile phantom. The host allows invasions: no password is needed or sent.": "Увійти ворожим фантомом. Хост дозволяє вторгнення: пароль не потрібен і не надсилається.",
@@ -1449,7 +1449,6 @@
   "The profile {0} has no saves in {1}.\n\n": "Профіль {0} не має збережень у {1}.\n\n",
   "Bloodborne saves were found in {0} (profiles: {1}), last saved {2:d MMM yyyy, HH:mm}.\n\n": "Збереження Bloodborne знайдено в {0} (профілі: {1}), останнє збереження {2:d MMM yyyy, HH:mm}.\n\n",
   "\"Use that folder\" plays with them. Playing here starts a new game; the saves there stay as they are.": "«Використати ту теку» — грати з ними. Якщо грати тут, почнеться нова гра; збереження в тій теці залишаться як є.",
-  "Play anyway": "Усе одно грати",
   "Use that folder": "Використати ту теку",
   "Your saves have a safety copy": "Ваші збереження мають запобіжну копію",
   "A safety copy of the {0} profile's saves from {1:d MMM yyyy, HH:mm} is kept in {2} ": "Запобіжна копія збережень профілю {0} від {1:d MMM yyyy, HH:mm} зберігається в {2} ",
