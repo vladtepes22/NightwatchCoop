@@ -46,8 +46,6 @@ struct HdrGainMap {
     VideoCore::UniqueImage image;
     vk::UniqueImageView view;
     u32 width = 0, height = 0;
-    /// bbport HDR, mode 5 (a pre-HUD snapshot): its alpha is the HUD's mask (hdr_ui_mask.comp).
-    bool ui_mask = false;
 };
 
 class HdrNative {

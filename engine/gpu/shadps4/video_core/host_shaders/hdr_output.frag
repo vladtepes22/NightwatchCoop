@@ -42,9 +42,8 @@ const uint FLAG_OVERLAY = 2u; // the menu layer has something drawn
 const uint FLAG_NATIVE = 4u;  // the gain map belongs to this frame
 const uint FLAG_DEBUG = 8u;   // BB_HDR_DEBUG: the gain as a heat map
 const uint FLAG_UI_FRAME = 16u; // native mode, a frame without a scene: all of it is UI
-// 32 HDR16 (16-bit) frame, 64 its signal encoded, 128 its pre-HUD snapshot bound (hdr_pass.h).
-const uint FLAG_NEGATIVE_PROBE = 256u; // HDR16: the 16-bit probe 6, channels below 0
-const uint FLAG_UI_MASK = 512u; // HDR16: the snapshot's alpha is the HUD's mask
+// 32 Native+ (16-bit) frame, 64 its signal encoded, 128 its pre-HUD snapshot bound (hdr_pass.h).
+const uint FLAG_NEGATIVE_PROBE = 256u; // Native+: the 16-bit probe 6, channels below 0
 const uint FLAG_COMPARE = 1024u;  // the left half as SDR (at paper white), for comparison
 
 // Linear brightness (SDR white = 1) above which the highlights are expanded: high, so large
@@ -111,68 +110,18 @@ struct PsychoSettings {
     bool hdr_channel;      // bbport: apply the HDR side channel's gains
     uint hdr_debug;        // bbport: 1 = gain heat map, 2 = pixels taken as UI in red
     float hdr_peak_nits;   // bbport: peak luminance
-    float hdr_strength;    // bbport: exponent of the channel's gains (1 = as computed)
-    float hdr_boost;       // bbport: boost of the scene's SDR highlights (0 .. 1: white to peak)
     uint hdr_compare;      // bbport: 0 HDR, 1 the game's SDR
     float hdr_ui_nits;     // bbport: nits of the HUD's white (pixels taken as UI)
-    // bbport: the scene's grading, live (in-game menu, like RenoDX's): exposure (1 neutral),
-    // contrast, highlights, shadows, saturation, highlight saturation (-1 .. 1, 0 neutral),
-    // blowout (0 .. 1).
-    float hdr_exposure;
-    float hdr_contrast;
-    float hdr_highlights;
-    float hdr_shadows;
-    float hdr_saturation;
-    float hdr_highlight_saturation;
-    float hdr_blowout;
-    uint hdr_tonemapper;   // bbport: 0 Neutwo, 1 PsychoV30 hybrid, 2 Vanilla, 3 PsychoV30 scene (mode 5)
-    uint hdr_per_channel;  // bbport: Neutwo per channel (else on luminance, hue kept)
-    float hdr_bloom;       // bbport: the game's bloom, 0 none .. 1 the game's .. 2 double
-    float hdr_vignette;    // bbport: the game's vignettes, 0 none .. 1 the game's .. 2 double
+    uint hdr_tonemapper;   // bbport: 2 Vanilla (the game's own look: the HDR preset Off), 3 tone mapped by the composite
     uint hdr_native16;     // bbport: the 16-bit chain's frame: 1 linear, 2 sRGB encoded (HDR > 1)
     float hdr_black_floor; // bbport: the game's black level taken to 0 (units of paper white)
-    bool hdr_ui_mask;      // bbport: the snapshot's alpha is the HUD's mask (else guessed)
 };
 PsychoSettings pp;
 vec2 uv;
-const uint TONEMAPPER_PSYCHOV_HYBRID = 1u;
 const uint TONEMAPPER_VANILLA = 2u;
-const uint TONEMAPPER_PSYCHOV_SCENE = 3u;
 
 const vec3 LUMA709 = vec3(0.2126390059, 0.7151686788, 0.0721923154);
 
-#include "hdr/psychov30.glsl"
-
-// Neutwo shoulder: x below k unchanged, above it rising toward `peak` (never reaching it).
-float neutwo_shoulder(float x, float k, float peak) {
-    if (x <= k) {
-        return x;
-    }
-    float over = x - k, room = max(peak - k, 1e-3);
-    return k + over * inversesqrt(1.0 + (over / room) * (over / room));
-}
-
-// The graded scene (1 = paper white; the game's curve extended above its white) to the display's
-// range: bbport's adaptation of Neutwo (unchanged up to 0.6 of the peak, a Neutwo shoulder above;
-// on luminance or per channel), or PsychoV30.
-vec3 tonemap_scene(vec3 v, float peak) {
-    if (pp.hdr_tonemapper == TONEMAPPER_PSYCHOV_HYBRID) {
-        // PsychoV30 targets the BT.2020 volume and returns BT.709 coordinates: a BT.2020 color
-        // can have negative BT.709 channels. They stay signed until the BT.2020 conversion, which
-        // drops what is still negative there (as RenoDX's FromSoftware mod).
-        return rd_psychov30(v, peak);
-    }
-    float k = 0.6 * peak;
-    if (pp.hdr_per_channel != 0u) {
-        return vec3(neutwo_shoulder(v.r, k, peak), neutwo_shoulder(v.g, k, peak),
-                    neutwo_shoulder(v.b, k, peak));
-    }
-    float l = dot(v, LUMA709);
-    v *= l > 0.0 ? neutwo_shoulder(l, k, peak) / l : 1.0;
-    // A saturated color can still have a channel above the peak: scaled down, hue kept.
-    float m = max(max(v.r, v.g), v.b);
-    return m > peak ? v * (peak / m) : v;
-}
 
 
 // The game's black level (its darkest grey, lifted by its brightness curve) taken down to 0, less
@@ -184,30 +133,6 @@ vec3 black_floor(vec3 v) {
     }
     vec3 lowered = max(v - f, 0.0) / (1.0 - f);
     return mix(lowered, v, greaterThan(v, vec3(1.0)));
-}
-
-// The scene's grading (linear BT.709, 1 = paper white), around mid grey 0.18: exposure, then
-// contrast (a power around mid grey, 0.5 .. 2), highlights (above mid grey) and shadows (below,
-// raised when positive), all on luminance with the color scaled; then saturation, more or less in
-// the highlights, and blowout (the brightest colors desaturated toward white near the peak).
-vec3 grade_scene(vec3 v, float peak) {
-    const float grey = 0.18;
-    v *= pp.hdr_exposure;
-    float l = dot(v, LUMA709);
-    if (l > 1e-6) {
-        float n = grey * pow(l / grey, exp2(pp.hdr_contrast));
-        if (n > grey) {
-            n *= pow(n / grey, 0.4 * pp.hdr_highlights);
-        } else {
-            n *= min(pow(n / grey, -0.25 * pp.hdr_shadows), 4.0);
-        }
-        v *= n / l;
-        l = n;
-    }
-    float sat = (1.0 + pp.hdr_saturation) *
-                mix(1.0, 1.0 + pp.hdr_highlight_saturation, smoothstep(grey, 1.5, l));
-    v = max(l + (v - l) * sat, 0.0);
-    return mix(v, vec3(l), pp.hdr_blowout * smoothstep(0.25 * peak, peak, l));
 }
 
 const float cutoff = 0.0031308, a = 1.055, b = 0.055, d = 12.92;
@@ -338,29 +263,14 @@ vec3 native16_nits(vec3 v) {
     lin += pp.hdr_native16 == 2u ? -pow(-below, vec3(2.2)) : below;
     float peak = max(pp.hdr_peak_nits / pp.hdr_paper_white, 1.0);
     float l_sdr = dot(lin_sdr, LUMA709);
+    // The composite tone mapped the scene to the peak (Vanilla+ or PsychoV-30): only encoded here.
     vec3 t = lin;
-    // PsychoV30 (scene): the composite already tonemapped the scene to the peak; only encoded here.
-    if (pp.hdr_tonemapper != TONEMAPPER_PSYCHOV_SCENE) {
-        float l = dot(lin, LUMA709);
-        // Strength: the luminance above white raised to this power.
-        if (l > 1.0) {
-            lin *= pow(l, max(pp.hdr_strength, 0.0) - 1.0);
-        }
-        float y = clamp((l_sdr - 0.45) / 0.55, 0.0, 1.0);
-        lin *= 1.0 + clamp(pp.hdr_boost, 0.0, 1.0) * (peak - 1.0) * y * y * y;
-        t = tonemap_scene(grade_scene(max(lin, 0.0), peak), peak);
-    }
     vec3 nits = scene_to_nits(t);
-    // The HUD: the pixels the UI changed since the scene's snapshot (bound as hdrChannel in
-    // mode 5), shown as the game's SDR at the HUD brightness. With its mask (hdr_ui_mask.comp,
-    // the UI image against the snapshot before the game's brightness curve) the snapshot's alpha
-    // says which they are; without it they are guessed from luminance: the brightness curve comes
-    // after the snapshot, so the tolerance widens with brightness (as in mode 4).
+    // The HUD: the pixels the UI changed since the scene's snapshot (bound as hdrChannel),
+    // shown as the game's SDR at the HUD brightness, told from luminance: the brightness curve
+    // comes after the snapshot, so the tolerance widens with brightness.
     float scene = 1.0;
-    if (pp.hdr_channel && pp.hdr_ui_mask) {
-        scene = 1.0 - clamp(texture(hdrChannel, uv).a, 0.0, 1.0);
-        nits = mix(ui_to_nits(signal), nits, scene);
-    } else if (pp.hdr_channel) {
+    if (pp.hdr_channel) {
         vec3 s = max(texture(hdrChannel, uv).rgb, 0.0);
         float l_snap = dot(min(s, 1.0), LUMA709);
         float l_now = dot(signal, LUMA709);
@@ -384,18 +294,6 @@ void main() {
         pp.hdr = true;
         pp.srgb_input = false;
         pp.hdr_test_pattern = false;
-        pp.hdr_strength = 1.0;
-        pp.hdr_boost = 0.0;
-        pp.hdr_exposure = 1.0;
-        pp.hdr_contrast = 0.0;
-        pp.hdr_highlights = 0.0;
-        pp.hdr_shadows = 0.0;
-        pp.hdr_saturation = 0.0;
-        pp.hdr_highlight_saturation = 0.0;
-        pp.hdr_blowout = 0.0;
-        pp.hdr_per_channel = 0u;
-        pp.hdr_bloom = 1.0;
-        pp.hdr_vignette = 1.0;
         pp.gamma = 1.0;
         pp.hdr_paper_white = hdr.paper_white;
         pp.hdr_peak_nits = hdr.peak;
@@ -403,7 +301,6 @@ void main() {
         pp.hdr_gamma22 = true;
         pp.hdr_native16 = (hdr.flags & 64u) != 0u ? 2u : 1u;
         pp.hdr_channel = (hdr.flags & 128u) != 0u;
-        pp.hdr_ui_mask = (hdr.flags & FLAG_UI_MASK) != 0u;
         pp.hdr_compare = hdr.compare;
         pp.hdr_tonemapper = hdr.tonemapper;
         pp.hdr_black_floor = hdr.black_floor;

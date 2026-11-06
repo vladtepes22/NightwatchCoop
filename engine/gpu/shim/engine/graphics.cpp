@@ -153,7 +153,7 @@ GUEST_ABI std::int64_t BeforeYebisRecord(std::uint64_t, const std::uint64_t*) {
     const bool on = On();
     const auto& s = BbSettings::Get();
     const auto block = reinterpret_cast<std::uint64_t>(g_post_block);
-    // HDR16: brightness, contrast, saturation and bloom are the HDR menu's (exposure, contrast,
+    // Native+: brightness, contrast, saturation and bloom are the HDR menu's (exposure, contrast,
     // saturation, bloom in the 16-bit chain): the game's own ones stay as drawn.
     const bool hdr_grading = s.startup_psychov30;
     const float bloom = hdr_grading ? 1.0f : Setting(s.graphics_bloom, 0.0f, 10.0f);

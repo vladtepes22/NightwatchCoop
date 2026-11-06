@@ -127,7 +127,10 @@ static SDL_Gamepad *current_gamepad(void) {
     static int on_preferred; static uint64_t last_scan;
     if (!sdl_ready) sdl_ready = SDL_WasInit(SDL_INIT_GAMEPAD) ? 1 : SDL_InitSubSystem(SDL_INIT_GAMEPAD) ? 1 : -1;
     if (sdl_ready<0) return NULL;
-    if (gamepad && !SDL_GamepadConnected(gamepad)) { SDL_CloseGamepad(gamepad); gamepad=NULL; }
+    if (gamepad && !SDL_GamepadConnected(gamepad)) {
+        printf("Runtime: gamepad disconnected: %s\n",SDL_GetGamepadName(gamepad));
+        SDL_CloseGamepad(gamepad); gamepad=NULL;
+    }
     const char *want=preferred_gamepad();
     const uint64_t now=now_us();
     if (!gamepad || (want && !on_preferred && now-last_scan>1000000)) {

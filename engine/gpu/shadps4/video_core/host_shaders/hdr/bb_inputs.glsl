@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 bbport
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// bbport HDR16: how a replacement reads the game shader's inputs. Each replacement is built twice
+// bbport Native+: how a replacement reads the game shader's inputs. Each replacement is built twice
 // (gpu/CMakeLists.txt); vk_hdr_channel.cpp picks one per game shader:
 //   - per vertex (the default): every input of the game's pixel shader is read per vertex and
 //     interpolated by GCN's own formula (the recompiler's manual interpolation on NVIDIA), so the

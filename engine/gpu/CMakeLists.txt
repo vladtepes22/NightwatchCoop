@@ -164,7 +164,7 @@ add_host_shader(hdr/bb_copy.frag bb_copy_frag)
 add_host_shader(hdr/bb_display_copy.frag bb_display_copy_frag)
 add_host_shader(hdr/bb_glow_source.frag bb_glow_source_frag)
 add_host_shader(hdr/bb_color_grading.frag bb_color_grading_frag)
-# HDR16's replacements for a game shader whose inputs the GPU interpolates (hdr/bb_inputs.glsl),
+# Native+'s replacements for a game shader whose inputs the GPU interpolates (hdr/bb_inputs.glsl),
 # and the composite's for the native shader compiler's constant buffers (a uniform buffer).
 add_host_shader(hdr/bb_composite_hdr.frag bb_composite_hdr_hw_frag BB_HW_INTERP=1)
 add_host_shader(hdr/bb_composite_hdr.frag bb_composite_hdr_ubo_frag BB_CB_UBO=1)
@@ -174,7 +174,6 @@ add_host_shader(hdr/bb_glow_source.frag bb_glow_source_hw_frag BB_HW_INTERP=1)
 add_host_shader(hdr/bb_color_grading.frag bb_color_grading_hw_frag BB_HW_INTERP=1)
 add_host_shader(hdr_upscale_transfer.comp hdr_upscale_transfer_comp)
 add_host_shader(hdr_upscale_transfer.comp hdr_upscale_transfer_snapshot_comp HDR_TRANSFER_SNAPSHOT=1)
-add_host_shader(hdr_ui_mask.comp hdr_ui_mask_comp)
 
 add_host_shader(color_to_ms_depth.frag color_to_ms_depth_frag)
 add_host_shader(ms_image_blit.frag ms_image_blit_frag)

@@ -127,6 +127,10 @@ u32 DisplayRefreshHz() {
 
 WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}, height{height_} {
     SDL_SetHint(SDL_HINT_VIDEO_WAYLAND_SCALE_TO_DISPLAY, "1");
+    // DirectInput's device scan, run on every plug or unplug, waits on each HID device; one that
+    // stops answering froze this thread and the game (dinput8 -> hid.dll). XInput and HIDAPI pads
+    // don't need it; SDL_JOYSTICK_DIRECTINPUT=1 in the environment brings it back.
+    SDL_SetHint(SDL_HINT_JOYSTICK_DIRECTINPUT, "0");
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         UNREACHABLE_MSG("Failed to initialize SDL video: {}", SDL_GetError());
     }

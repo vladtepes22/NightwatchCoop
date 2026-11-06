@@ -262,21 +262,20 @@
         public static readonly Choice[] HdrMode =
         {
             new(L.T("Native (default)"), "native"), new(L.T("Expanded"), "expand"),
-            new("HDR16 (16-bit, restart)", "psychov30",
-                "HDR16 by LRF17 (github.com/LRF17/LanternEngine-HDR16). Tone mappers: Vanilla+ by souperman9 (from his RenoDX Bloodborne mod); PsychoV-30 from RenoDX (© 2026 Carlos Lopez, MIT License, github.com/clshortfuse/renodx)."),
+            new("Native+ (restart)", "nativeplus",
+                "Native+ HDR by LRF17 (github.com/LRF17/LanternEngine-NativePlusHDR). Tone mappers: Vanilla+ by souperman9 (from his RenoDX Bloodborne mod); PsychoV built on PsychoV-30 and the hue correction from RenoDX (© 2026 Carlos Lopez, MIT License, github.com/clshortfuse/renodx)."),
         };
 
-        /// <summary>hdr_tonemapper with HDR16 (hdr_mode=psychov30): 5 Vanilla+ (souperman9's, from his RenoDX Bloodborne mod; the engine's default), 4 PsychoV-30 (as RenoDX's mods), 2 Vanilla.</summary>
+        /// <summary>hdr_tonemapper with Native+ (hdr_mode=nativeplus): 5 Vanilla+ (souperman9's, from his RenoDX Bloodborne mod; the default) or 4 PsychoV (RenoDX's PsychoV-30 with Vanilla+'s bloom; its Vanilla+ Highlights and Hue Correction are in the in-game menu). 7, Native+ 0.9.38.2's PsychoV, shows as PsychoV (HdrToneMapperValue): the engine reads it as PsychoV with both sliders at 100 %.</summary>
         public static readonly Choice[] HdrToneMapper =
         {
-            new("Vanilla+ (by souperman9, default)", "5"), new("PsychoV-30 (as RenoDX's mods)", "4"), new("Vanilla (the game's own look)", "2"),
+            // The segmented buttons show the label up to " (".
+            new("Vanilla+ (by souperman9, default)", "5"), new("PsychoV (PsychoV-30, sliders in game)", "4"),
         };
 
-        /// <summary>hdr_gamut: the color volume PsychoV-30 fits the picture into.</summary>
-        public static readonly Choice[] HdrGamut =
-        {
-            new("BT.2020 (default)", "bt2020"), new("BT.709", "bt709"),
-        };
+        /// <summary>The stored hdr_tonemapper as a HdrToneMapper choice, as the engine reads it: 4 and 7 PsychoV, anything else Vanilla+. A stored 7 is shown as PsychoV but left as it is until changed, so the engine still reads its sliders at 100 %.</summary>
+        public static string HdrToneMapperValue(string stored) => stored == "4" || stored == "7" ? "4" : "5";
+
 
         public static readonly Choice[] HdrBoost =
         {

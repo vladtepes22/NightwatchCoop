@@ -29,13 +29,6 @@ class Scheduler;
 class HdrChannel {
 public:
 
-    /// BB_HDR_TONEMAP=3, 4 or 5 with HDR output allowed (BB_HDR=1).
-    static bool Enabled();
-    /// BB_HDR_TONEMAP=4: the generic pass. The game's composite shaders are not replaced; every
-    /// standard variant of bb_tonemap_variants.h gets the channel draw (hdr/bb_composite_hdr.frag).
-    /// Also true in mode 5 (the composites are built the same way).
-    static bool Generic();
-
     // ---- BB_HDR_TONEMAP=5: the 16-bit chain (docs/HDR.md, "Chantier 16 bits") ----------------
     // The game's 8-bit targets after its composite (1920x1080 RGBA8: the composite's target, its
     // copy for the AA, and the display buffers) become RGBA16F at the port's output-size images

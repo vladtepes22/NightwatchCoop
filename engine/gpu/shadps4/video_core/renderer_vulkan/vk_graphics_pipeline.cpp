@@ -154,8 +154,8 @@ GraphicsPipeline::GraphicsPipeline(
     const auto debug_str = GetDebugString();
 
     // bbport: a composite with the tone curve extension reads its parameters after the push
-    // data (native/tone_curve.h); HDR16 (mode 5) has its own after it (HdrChannel). The two never
-    // run together (HDR16 turns native shaders off), the larger size covers both.
+    // data (native/tone_curve.h); Native+ (mode 5) has its own after it (HdrChannel). The two never
+    // run together (Native+ turns native shaders off), the larger size covers both.
     uses_tone_curve = std::ranges::any_of(stages, [](const Shader::Info* info) {
         return info && info->uses_tone_curve;
     });
@@ -563,7 +563,7 @@ GraphicsPipeline::GraphicsPipeline(
     // Meanwhile the GPU command thread decodes on and starts the next new pipelines, so a burst
     // of compiles (area loads: 50-90 at once, 0.5-1.3 s on one thread) runs in parallel.
     // bbport: the start's cached pipelines are created in parallel (WarmupJobs). A composite with
-    // an HDR16 companion compiles with it, synchronously.
+    // an Native+ companion compiles with it, synchronously.
     WarmupJobs* const warmup = preloading && !hdr_composite ? warmup_jobs : nullptr;
     if ((!preloading && !hdr_composite && AsyncPipelinesEnabled()) || warmup) {
         auto job = std::make_shared<PendingPipeline>();
@@ -685,19 +685,15 @@ GraphicsPipeline::GraphicsPipeline(
                vk::to_string(pipeline_result));
     pipeline = std::move(pipe);
     SetObjectName(device, *pipeline, "Graphics Pipeline {}", debug_str);
-    // bbport HDR: the side channel's copy of Bloodborne's tonemap pipeline (vk_hdr_channel.h):
-    // same layout, vertex input, dynamic state and vertex shader; the HDR fragment shader and an
-    // RGBA16F attachment without blending. For bbport's replacement of the tonemap shader
-    // (BB_HDR_TONEMAP=3), whose interface the HDR shader shares, or for any composite variant
-    // whose HDR shader the generic pass built with its interface (BB_HDR_TONEMAP=4).
+    // bbport Native+: the composite's HDR draw, after the game's (vk_hdr_channel.h): same layout,
+    // vertex input, dynamic state and vertex shader; the HDR fragment shader, which adds the HDR
+    // part to the game's own (now RGBA16F) target.
     const auto* fs_stage = stages[u32(Shader::SwStage::Fragment)];
     vk::ShaderModule hdr_module{};
-    if (fs_stage && HdrChannel::Enabled() && key.num_color_attachments == 1 &&
+    if (fs_stage && HdrChannel::Native16() && key.num_color_attachments == 1 &&
         key.z_format == AmdGpu::DepthBuffer::ZFormat::Invalid &&
         key.stencil_format == AmdGpu::DepthBuffer::StencilFormat::Invalid) {
-        if (HdrChannel::Generic()) {
-            hdr_module = HdrChannel::CompositeModule(instance, fs_stage->pgm_hash);
-        }
+        hdr_module = HdrChannel::CompositeModule(instance, fs_stage->pgm_hash);
     }
     if (hdr_module) {
         auto hdr_stages = shader_stages;
@@ -706,22 +702,9 @@ GraphicsPipeline::GraphicsPipeline(
                 hdr_stage.module = hdr_module;
             }
         }
-        // Two targets: the gains and reference, and the effect ratios (vk_hdr_channel.h).
-        // Mode 5 (16-bit chain): the game's own target instead, the HDR part added to it.
-        const bool delta = HdrChannel::Native16();
-        const std::array hdr_formats{vk::Format::eR16G16B16A16Sfloat,
-                                     vk::Format::eR16G16B16A16Sfloat};
+        // The game's own target, the HDR part added to it.
         auto hdr_rendering = pipeline_rendering_ci;
         hdr_rendering.pNext = nullptr;
-        if (!delta) {
-            hdr_rendering.colorAttachmentCount = 2;
-            hdr_rendering.pColorAttachmentFormats = hdr_formats.data();
-        }
-        const vk::PipelineColorBlendAttachmentState hdr_attachment{
-            .blendEnable = false,
-            .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-                              vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA,
-        };
         const vk::PipelineColorBlendAttachmentState delta_attachment{
             .blendEnable = true,
             .srcColorBlendFactor = vk::BlendFactor::eOne,
@@ -733,11 +716,10 @@ GraphicsPipeline::GraphicsPipeline(
             .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
                               vk::ColorComponentFlagBits::eB,
         };
-        const std::array hdr_attachments{hdr_attachment, hdr_attachment};
         auto hdr_blending = color_blending;
         hdr_blending.logicOpEnable = false;
-        hdr_blending.attachmentCount = delta ? 1 : 2;
-        hdr_blending.pAttachments = delta ? &delta_attachment : hdr_attachments.data();
+        hdr_blending.attachmentCount = 1;
+        hdr_blending.pAttachments = &delta_attachment;
         auto hdr_info = pipeline_info;
         hdr_info.pNext = &hdr_rendering;
         hdr_info.stageCount = static_cast<u32>(hdr_stages.size());

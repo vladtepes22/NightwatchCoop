@@ -322,7 +322,7 @@ constexpr const char* CurveNames[] = {"exp curve", "extended Reinhard", "log cur
 } // namespace
 
 void HdrChannel::NoteGameShader(u64 pgm_hash, std::span<const u32> spv) {
-    if (!Generic()) {
+    if (!Native16()) {
         return;
     }
     const TonemapVariant* v = FindVariant(pgm_hash);
@@ -369,20 +369,6 @@ vk::ShaderModule HdrChannel::CompositeModule(const Instance& instance, u64 pgm_h
     return it->second.module;
 }
 
-bool HdrChannel::Enabled() {
-    static const bool enabled = EmulatorSettings.GetHdrTonemapMode() >= 3 &&
-                                EmulatorSettings.GetHdrTonemapMode() <= 5 &&
-                                EmulatorSettings.IsHdrAllowed();
-    return enabled;
-}
-
-bool HdrChannel::Generic() {
-    static const bool generic = (EmulatorSettings.GetHdrTonemapMode() == 4 ||
-                                 EmulatorSettings.GetHdrTonemapMode() == 5) &&
-                                EmulatorSettings.IsHdrAllowed();
-    return generic;
-}
-
 namespace {
 std::atomic<bool> native16_active{false};
 std::atomic<bool> display_redirect{false};
@@ -409,11 +395,13 @@ std::pair<u32, u32> FixedRenderSize() {
 }
 
 // The chain's targets, 8-bit RGBA: 1920x1080 (the registers give the height padded to whole
-// 8-row tiles), or with the startup patch the patched render size (padded, e.g. 3840x2176).
+// 8-row tiles), or with the startup patch the patched render size, padded: the width to a
+// multiple of 128 (1708 in 1792, the scene of 1440p with DLSS or FSR Quality), the height to 64
+// (3840x2176).
 bool ChainSize(u32 width, u32 height) {
     const auto [rw, rh] = FixedRenderSize();
     if (rw != 0) {
-        return width >= rw && width < rw + 64 && height >= rh && height < rh + 64;
+        return width >= rw && width < rw + 128 && height >= rh && height < rh + 64;
     }
     return width == 1920 && height >= 1080 && height <= 1088;
 }
@@ -477,11 +465,11 @@ std::vector<u32> HdrChannel::ChainReplacement(u64 pgm_hash, std::span<const u32>
              SetDecoration(spv, ours, "fs_in_attr0", SpvDecorationLocation, input->location);
     }
     if (!ok) {
-        LOG_WARNING(Render_Vulkan, "HDR 16-bit: shader {:08x} has another interface, kept as it is",
+        LOG_WARNING(Render_Vulkan, "Native+: shader {:08x} has another interface, kept as it is",
                     pgm_hash);
         return {};
     }
-    LOG_INFO(Render_Vulkan, "HDR 16-bit: shader {:08x} replaced ({}{})", pgm_hash,
+    LOG_INFO(Render_Vulkan, "Native+: shader {:08x} replaced ({}{})", pgm_hash,
              pgm_hash == 0x57f3b8c2       ? "glow source clamped"
              : pgm_hash == 0xf7229091     ? "copy (chain probe)"
              : pgm_hash == ColorGradingHash ? "color table kept above white"
@@ -535,7 +523,7 @@ bool HdrChannel::Native16Active() {
 
 void HdrChannel::SetNative16Active(bool active) {
     if (Native16() && native16_active.exchange(active) != active) {
-        LOG_INFO(Render_Vulkan, "HDR 16-bit: {}", active ? "on (output-size images)"
+        LOG_INFO(Render_Vulkan, "Native+: {}", active ? "on (output-size images)"
                                                           : "off (no output-size images)");
     }
 }
@@ -554,7 +542,7 @@ void HdrChannel::NoteTarget(u64 ps_hash, VAddr address, u32 width, u32 height,
         static std::unordered_set<u64> logged;
         std::scoped_lock lock{logged_mutex};
         if (logged.insert(ps_hash).second) {
-            LOG_INFO(Render_Vulkan, "HDR 16-bit: target {:#x} of ps {:08x} left 8-bit ({}x{} {})",
+            LOG_INFO(Render_Vulkan, "Native+: target {:#x} of ps {:08x} left 8-bit ({}x{} {})",
                      address, ps_hash, width, height, vk::to_string(format));
         }
         return;
@@ -562,7 +550,7 @@ void HdrChannel::NoteTarget(u64 ps_hash, VAddr address, u32 width, u32 height,
     std::scoped_lock lock{native16_mutex};
     if (native16_targets.insert(address).second) {
         native16_count.store(u32(native16_targets.size()), std::memory_order_release);
-        LOG_INFO(Render_Vulkan, "HDR 16-bit: target {:#x} (from ps {:08x}) is RGBA16F", address,
+        LOG_INFO(Render_Vulkan, "Native+: target {:#x} (from ps {:08x}) is RGBA16F", address,
                  ps_hash);
     }
 }
@@ -574,7 +562,7 @@ void HdrChannel::NoteCopyTarget(VAddr address, u32 width, u32 height, vk::Format
     std::scoped_lock lock{native16_mutex};
     if (native16_targets.insert(address).second) {
         native16_count.store(u32(native16_targets.size()), std::memory_order_release);
-        LOG_INFO(Render_Vulkan, "HDR 16-bit: target {:#x} (copy of the chain) is RGBA16F",
+        LOG_INFO(Render_Vulkan, "Native+: target {:#x} (copy of the chain) is RGBA16F",
                  address);
     }
 }
@@ -625,12 +613,8 @@ u32 HdrChannel::Tonemapper() {
     if (s.hdr_preset == 0) {
         return u32(BbSettings::HdrToneMapperVanilla);
     }
-    const int tonemapper = std::clamp(s.hdr_tonemapper.load(), 0, BbSettings::HdrToneMapperPsychoScene);
-    // PsychoV30 on the scene needs the 16-bit chain (the composite); elsewhere PsychoV30.
-    if (tonemapper == BbSettings::HdrToneMapperPsychoScene && !Native16()) {
-        return 1u;
-    }
-    return u32(tonemapper);
+    // Vanilla+ and PsychoV both tone map in the composite: the final pass only encodes.
+    return u32(BbSettings::HdrToneMapperPsychoScene);
 }
 
 bool HdrChannel::VanillaChain() {
@@ -638,8 +622,7 @@ bool HdrChannel::VanillaChain() {
         return false;
     }
     const auto& s = BbSettings::Get();
-    return s.hdr_preset == 0 || s.hdr_tonemapper == BbSettings::HdrToneMapperVanilla ||
-           s.hdr16_compare == BbSettings::Values::HdrCompareSdr;
+    return s.hdr_preset == 0 || s.hdr16_compare == BbSettings::Values::HdrCompareSdr;
 }
 
 u32 HdrChannel::Debug() {

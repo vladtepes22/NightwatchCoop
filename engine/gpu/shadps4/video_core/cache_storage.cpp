@@ -93,8 +93,8 @@ void DataBase::Open() {
 
     const auto& game_info = Common::ElfInfo::Instance();
     // bbport: shaders compiled with the tone curve extension (BB_HDR_SCENE_CURVE=1) are kept in a
-    // cache of their own: turning it on or off never mixes modules with and without it. HDR16
-    // shares the usual cache: it holds the game's own shaders, HDR16's replacements are swapped
+    // cache of their own: turning it on or off never mixes modules with and without it. Native+
+    // shares the usual cache: it holds the game's own shaders, Native+'s replacements are swapped
     // in when they load (vk_pipeline_serialization.cpp LoadPipelineStage).
     const std::string serial = std::string{game_info.GameSerial()} +
                                (Shader::Native::ToneCurveEnabled() ? "-scene-curve" : "");

@@ -79,8 +79,9 @@ layout(push_constant, std430) uniform AuxData {
     // Mode 5, PsychoV30 (scene): x the display's peak (game white units), y exposure,
     // z highlights, w shadows; bb_hdr2b: x contrast, y saturation (bits plus one, 0: not set),
     // z the target gamut (PsychoV30's gamut_compression_mode: 0 BT.709, 1 BT.2020), + 2 for
-    // PsychoV30 (pure), + 4 for Vanilla+, plus one (0: not set); w PsychoV30's gamut
-    // compression and compression.
+    // PsychoV30 (pure), + 4 for Vanilla+, + 16 for PsychoV, + PsychoV's Vanilla+ Highlights in
+    // percent from bit 8, plus one (0: not set); w PsychoV's Hue Correction, 0..1 (bits plus one,
+    // 0: none).
     layout(offset = 144) uvec4 bb_hdr2a;
     layout(offset = 160) uvec4 bb_hdr2b;
 } push_data;
@@ -100,10 +101,6 @@ BB_INPUT(2, bb_in_bloom);
 BB_INPUT(3, bb_in_vig);
 
 layout(location = 0) out vec4 frag_color0;
-// The game's effects as ratios, for the live sliders of the final pass: rgb = the untonemapped
-// color without the bloom (glow) over the color (per row: red, green, blue), a = the luminance
-// without the vignettes over with (>= 1). 1 where there is nothing to change.
-layout(location = 1) out vec4 frag_aux;
 
 uint buf_off;
 
@@ -131,72 +128,101 @@ int bb_choice(uint word, int fallback) {
     return word == 0u ? fallback : int(word - 1u);
 }
 
-// Mode 5, tone mapper PsychoV30 (scene): PsychoV30 alone on the scene's linear color, in place of
-// the game's curve, to the display's peak (the final pass then only encodes). Anchored at
-// the game's mid grey, with its slope there as contrast. The menu's exposure, highlights,
-// shadows, contrast and saturation are PsychoV30's own parameters, and its target gamut
-// (BT.2020 by default, as RenoDX's HDR mods; BT.709). PsychoV30 (pure): the same, without the
-// match of the shadows to the game's.
-bool bb_curve_psychov_scene(BbComposite o, vec3 x, out vec3 t) {
-    float grey_in, slope;
+// Mode 5, PsychoV30 alone on the scene's linear color, in place of the game's curve, to the
+// display's peak (the final pass then only encodes): the tone mapper PsychoV-30 before PsychoV
+// replaced it, now PsychoV's where the composite has no curve to extend (curve 3). Anchored where the
+// game's curve gives mid grey (0.18), with the game's log-log slope there (x V'(x) / V(x)) as
+// cone_response_exponent, as RenoDX's mods pass a vanilla slope (cp2077, orderofthesinkingstar):
+// test30's cone power is contrast * cone_response_exponent but its purity purity_scale /
+// contrast, so the game's slope passed as contrast also took purity down (by 1 / 1.05 to
+// 1 / 1.17 in the scenes measured). The menu's exposure, highlights, shadows, contrast and
+// saturation are PsychoV30's own parameters (neutral at 1), its target gamut BT.2020, as
+// RenoDX's HDR mods.
+float bb_vanilla_plus_f(int curve, float v);
+
+// The anchor (the scene's mid grey for the game's curve) and the cone (the game's log-log slope
+// there) PsychoV30 takes; false without a curve to read them from.
+bool bb_psychov_anchor(BbComposite o, out float grey_in, out float cone) {
+    float slope;
+    grey_in = 0.18;
+    cone = 1.0;
     if (!bb_knee(o.curve, 0.18, grey_in, slope)) {
-        t = bb_curve(o, x);
         return false;
     }
+    cone = clamp(grey_in * slope / 0.18, 0.3, 3.0);
+    return true;
+}
+
+// PsychoV30 with the menu's parameters on a scene color, anchored at grey_in with that cone.
+vec3 bb_psychov(vec3 x, float grey_in, float game_contrast) {
     float peak = max(bb_bits(push_data.bb_hdr2a.x, BB_HDR_PEAK), 1.0);
     float exposure = bb_bits(push_data.bb_hdr2a.y, 1.0);
     float highlights = bb_bits(push_data.bb_hdr2a.z, 1.0);
     float shadows = bb_bits(push_data.bb_hdr2a.w, 1.0);
-    float game_contrast = clamp(grey_in * slope / 0.18, 0.3, 3.0);
-    float user_contrast = bb_bits(push_data.bb_hdr2b.x, 1.0);
-    float contrast = game_contrast * user_contrast;
+    float contrast = bb_bits(push_data.bb_hdr2b.x, 1.0);
     float purity = bb_bits(push_data.bb_hdr2b.y, 1.0);
-    // Both calls below take the same gamut and compressions: the shadow match's ratio compares
-    // them. bb_hdr2b.z: the gamut + 2 for the pure mode, + 1; bb_hdr2b.w: gamut compression and
-    // compression in 1/10000, bit 31 set (0: RenoDX's defaults, 1 and 1).
-    int choice = bb_choice(push_data.bb_hdr2b.z, 1);
-    int gamut = clamp(choice & 1, 0, 1);
-    bool pure = (choice & 2) != 0;
-    uint packed = push_data.bb_hdr2b.w;
-    float gamut_compression = packed == 0u ? 1.0 : float(packed & 0xFFFFu) / 10000.0;
-    float compression = packed == 0u ? 1.0 : float((packed >> 16u) & 0x7FFFu) / 10000.0;
-    vec3 game = bb_curve(o, x);
-    if (o.curve != 3) {
-        x = max(x, BB_FLOOR); // PsychoV30 needs a positive input
-    }
-    t = rd_psychov30(x, peak, exposure, highlights, shadows, max(contrast, 0.05), purity, 1.0,
-                     vec3(grey_in), vec3(0.18), gamut_compression, gamut, compression,
-                     RD_PSY30_SOURCE_BOUNDARY_BT709);
+    // bb_hdr2b.z: the gamut (1 BT.2020) plus the tone mapper's bits, + 1. Gamut compression and
+    // compression: RenoDX's defaults, 1 and 1.
+    int gamut = clamp(bb_choice(push_data.bb_hdr2b.z, 1) & 1, 0, 1);
+    const float gamut_compression = 1.0, compression = 1.0;
+    vec3 t = rd_psychov30(x, peak, exposure, highlights, shadows, max(contrast, 0.05), purity,
+                          game_contrast, vec3(grey_in), vec3(0.18), gamut_compression, gamut,
+                          compression, RD_PSY30_SOURCE_BOUNDARY_BT709);
     // BT.2020: a color outside BT.709 has BT.709 channels below 0. They are kept, signed, through
     // the 16-bit chain to the final pass, which converts to BT.2020 before it drops what is still
     // negative (as RenoDX's mods). BT.709: within the cube, as before.
-    if (gamut == 0) {
-        t = max(t, 0.0);
+    return gamut == 0 ? max(t, 0.0) : t;
+}
+
+bool bb_curve_psychov_scene(BbComposite o, vec3 x, out vec3 t) {
+    float grey_in, cone;
+    if (!bb_psychov_anchor(o, grey_in, cone)) {
+        t = bb_curve(o, x);
+        return false;
     }
-    if (pure) {
-        return true; // PsychoV30 (pure): its own shadows
+    if (o.curve != 3) {
+        x = max(x, BB_FLOOR); // PsychoV30 needs a positive input
     }
-    // Below mid grey, the game's own luminance (its curve's toe lifts the shadows, PsychoV30's
-    // single power at mid grey does not), PsychoV30's color kept; up to mid grey, PsychoV30 alone.
-    // The sliders still apply (the game's value scaled as they move PsychoV30's).
-    const vec3 luma = vec3(0.2126390059, 0.7151686788, 0.0721923154);
-    float l_game = dot(max(game, 0.0), luma);
-    float l_t = dot(t, luma);
-    if (l_t > 1e-6 && l_game < 0.18) {
-        // The sliders' effect (exposure, shadows, contrast) as a ratio on PsychoV30's own output.
-        float grade = 1.0;
-        if (exposure != 1.0 || highlights != 1.0 || shadows != 1.0 || purity != 1.0 ||
-            user_contrast != 1.0) {
-            vec3 base = rd_psychov30(x, peak, 1.0, 1.0, 1.0, game_contrast, 1.0, 1.0,
-                                     vec3(grey_in), vec3(0.18), gamut_compression, gamut,
-                                     compression, RD_PSY30_SOURCE_BOUNDARY_BT709);
-            float l_base = dot(max(base, 0.0), luma);
-            grade = l_base > 1e-6 ? l_t / l_base : 1.0;
-        }
-        float match = l_game * grade / l_t;
-        t *= mix(match, 1.0, smoothstep(0.05, 0.18, l_game));
-    }
+    t = bb_psychov(x, grey_in, cone);
     return true;
+}
+
+// Tone mapper PsychoV (+ 16). PsychoV30 with this anchor and cone maps a grey as a display map (mid
+// grey to mid grey, cone 1) maps the signal v = 0.18 (x / grey_in)^cone: PsychoV-30's own curve.
+// Above grey_in, the menu's Vanilla+ Highlights (`highlights`, 0..1) mixes v in the log with
+// Vanilla+'s extended curve (the game's tangent from mid grey; scaled to 0.18 at grey_in, where the
+// two meet), as the FromSoftware RenoDX mod feeds PsychoV a vanilla curve continued above mid grey:
+// at 1 the highlights have Vanilla+'s brightness, PsychoV30 still compressing them to the peak.
+// On the luminance, the color's ratios kept, then in Vanilla+'s order: the bloom added to v (no
+// screen blend, whose per-channel clamp turned an orange glow yellow-green), the game's color
+// matrix, then PsychoV30 on the scene color whose v that is (bb_psychov_vplus_rows), then the
+// menu's Hue Correction towards Vanilla+'s hues (bb_psychov_vplus_graded).
+const vec3 BB_Y709 = vec3(0.2126390059, 0.7151686788, 0.0721923154);
+
+bool bb_curve_psychov_vplus(BbComposite o, vec3 x, float highlights, out vec3 v) {
+    float grey_in, cone;
+    if (!bb_psychov_anchor(o, grey_in, cone)) {
+        v = bb_curve(o, x);
+        return false;
+    }
+    x = max(x, BB_FLOOR);
+    float y = dot(x, BB_Y709);
+    float signal = 0.18 * pow(y / grey_in, cone);
+    if (y > grey_in && highlights > 0.0) {
+        float vanilla_plus =
+            bb_vanilla_plus_f(o.curve, y) * (0.18 / bb_vanilla_plus_f(o.curve, grey_in));
+        signal = exp(mix(log(signal), log(max(vanilla_plus, BB_FLOOR)), highlights));
+    }
+    v = x * (signal / y);
+    return true;
+}
+
+vec3 bb_psychov_vplus_rows(BbComposite o, vec3 rows) {
+    float grey_in, cone;
+    bb_psychov_anchor(o, grey_in, cone);
+    rows = max(rows, BB_FLOOR);
+    float y = dot(rows, BB_Y709);
+    return bb_psychov(rows * (grey_in * pow(y / 0.18, 1.0 / cone) / y), grey_in, cone);
 }
 
 // Mode 5, tone mapper Vanilla+, as RenoDX's Bloodborne mod (souperman9) sets it: the game's curve
@@ -315,6 +341,41 @@ vec3 bb_vanilla_plus_rows(vec3 rows) {
     return bb_c_infinity_rolloff(rows, peak);
 }
 
+// RenoDX's hue correction (colorcorrect.hlsl, HueOKLab): the color's lightness, its (a, b) moved
+// towards the reference's by `strength`, then scaled back to the color's chroma.
+vec3 bb_correct_hue(vec3 c, vec3 reference, float strength) {
+    vec3 lab = bb_oklab(c);
+    float chroma = length(lab.yz);
+    vec2 ab = mix(lab.yz, bb_oklab(reference).yz, strength);
+    float blended = length(ab);
+    if (blended > 0.0) {
+        lab.yz = ab * (chroma / blended);
+    }
+    return bb_oklab_to_rgb(lab);
+}
+
+// PsychoV's Hue Correction (the in-game menu's, 0..1; bb_hdr2b.w).
+float bb_hue_correction() {
+    return clamp(bb_bits(push_data.bb_hdr2b.w, 0.0), 0.0, 1.0);
+}
+
+// PsychoV after the game's matrix (rows in RGB order), its hue moved towards
+// Vanilla+'s by the menu's Hue Correction (0 by default): PsychoV30's
+// compression of each cone moves a bright orange towards yellow and a violet towards pink (as the
+// eye sees a strong light); the game's curve, per channel, keeps the artists' hues. Lightness,
+// chroma and peak stay PsychoV30's; the reference is Vanilla+'s output for the same pixel (its
+// curve and bloom, matrix, roll-off without the menu's grading, whose sliders are PsychoV30's here).
+vec3 bb_psychov_vplus_graded(BbComposite o, vec3 hdr_screen, vec3 vanilla_plus_screen) {
+    vec3 t = bb_psychov_vplus_rows(o, bb_grade(o, hdr_screen));
+    float hue = bb_hue_correction();
+    if (hue > 0.0) {
+        float peak = max(bb_bits(push_data.bb_hdr2a.x, BB_HDR_PEAK), 1.0);
+        t = bb_correct_hue(t, bb_c_infinity_rolloff(max(bb_grade(o, vanilla_plus_screen), 0.0), peak),
+                           hue);
+    }
+    return (bb_choice(push_data.bb_hdr2b.z, 1) & 1) == 0 ? max(t, 0.0) : t;
+}
+
 #ifndef BB_HW_INTERP
 // The game's interpolation, as recompiled: attribute with the barycentrics.
 vec2 interp(vec4 a0, vec4 a1, vec4 a2) {
@@ -357,10 +418,19 @@ void main() {
     }
     bool psycho_scene = BB_OUTPUT_DELTA && push_data.bb_hdr2a.x != 0u;
     bool vanilla_plus = psycho_scene && (bb_choice(push_data.bb_hdr2b.z, 1) & 4) != 0;
+    // PsychoV (16), its Vanilla+ Highlights in percent from bit 8.
+    bool psychov_vplus = psycho_scene && (bb_choice(push_data.bb_hdr2b.z, 1) & 16) != 0 &&
+                         o.curve != 3;
+    float psychov_highlights =
+        clamp(float((bb_choice(push_data.bb_hdr2b.z, 1) >> 8) & 0x7F) / 100.0, 0.0, 1.0);
+    // Vanilla+ and PsychoV add the bloom to their curve, before the game's matrix.
+    bool added_bloom = vanilla_plus || psychov_vplus;
     bool has_hdr = false;
     if (!BB_ADDITIVE && vanilla_plus) {
         hdr_t = bb_curve_vanilla_plus(o, x);
         has_hdr = true;
+    } else if (!BB_ADDITIVE && psychov_vplus) {
+        has_hdr = bb_curve_psychov_vplus(o, x, psychov_highlights, hdr_t);
     } else if (!BB_ADDITIVE) {
         has_hdr = psycho_scene ? bb_curve_psychov_scene(o, x, hdr_t)
                                : bb_curve_hdr(o, x, knee, BB_HDR_PEAK, hdr_t);
@@ -369,15 +439,19 @@ void main() {
     vec3 glow = clamp(g, 0.0, 1.0);
     vec3 sdr_screen = BB_ADDITIVE ? x + g : sdr_t + glow - sdr_t * glow;
     // Screen blend on the SDR part only (above 1 it would subtract); Vanilla+ adds the bloom.
-    vec3 hdr_screen = !has_hdr      ? sdr_screen
-                      : vanilla_plus ? max(hdr_t + g, 0.0)
-                                     : hdr_t + glow * (1.0 - min(hdr_t, 1.0));
+    vec3 hdr_screen = !has_hdr     ? sdr_screen
+                      : added_bloom ? max(hdr_t + g, 0.0)
+                                    : hdr_t + glow * (1.0 - min(hdr_t, 1.0));
 
     // Export order is rows 840, 844, 848; the game's target holds them as BGR (row 848 first,
     // see hdr/bb_tonemap.frag), hence .zyx before the luminance.
     vec3 sdr_graded = bb_grade(o, sdr_screen).zyx;
-    vec3 hdr_graded = vanilla_plus ? bb_vanilla_plus_rows(bb_grade(o, hdr_screen)).zyx
-                                   : bb_grade(o, hdr_screen).zyx;
+    // The Hue Correction's reference: Vanilla+'s curve for the same pixel.
+    vec3 vplus_t = psychov_vplus && bb_hue_correction() > 0.0 ? bb_curve_vanilla_plus(o, x)
+                                                              : vec3(0.0);
+    vec3 hdr_graded = psychov_vplus  ? bb_psychov_vplus_graded(o, hdr_screen, max(vplus_t + g, 0.0)).zyx
+                      : vanilla_plus ? bb_vanilla_plus_rows(bb_grade(o, hdr_screen)).zyx
+                                     : bb_grade(o, hdr_screen).zyx;
     if (BB_OUTPUT_DELTA) {
         // The game's bloom, live (in-game menu; bb_hdr.w set for this draw by bbport: the
         // strength's bits plus one, 0 = the game's): the target is the composite with its glow
@@ -390,10 +464,12 @@ void main() {
         if (scaled) {
             vec3 glow_k = clamp(g * k, 0.0, 1.0);
             vec3 sdr_screen_k = sdr_t + glow_k - sdr_t * glow_k;
-            vec3 hdr_screen_k = !has_hdr      ? sdr_screen_k
-                                : vanilla_plus ? max(hdr_t + g * k, 0.0)
-                                               : hdr_t + glow_k * (1.0 - min(hdr_t, 1.0));
+            vec3 hdr_screen_k = !has_hdr     ? sdr_screen_k
+                                : added_bloom ? max(hdr_t + g * k, 0.0)
+                                              : hdr_t + glow_k * (1.0 - min(hdr_t, 1.0));
             target = !has_hdr      ? clamp(bb_grade(o, sdr_screen_k).zyx, 0.0, 1.0)
+                     : psychov_vplus ? bb_psychov_vplus_graded(o, hdr_screen_k,
+                                                               max(vplus_t + g * k, 0.0)).zyx
                      : vanilla_plus ? bb_vanilla_plus_rows(bb_grade(o, hdr_screen_k)).zyx
                                     : bb_grade(o, hdr_screen_k).zyx;
         }
@@ -430,56 +506,6 @@ void main() {
             // read and write of the 16-bit target for this pixel (the shadows, most of a frame).
             discard;
         }
-        // Mode 5 has a single color target; the side-channel ratios below are not used.
-        frag_aux = vec4(1.0);
         return;
     }
-
-    // Mode 4 uses a separate gain channel instead of changing the game's target.
-    const vec3 luma_bgr = vec3(0.0721923154, 0.7151686788, 0.2126390059);
-    float encode = BB_GAMMA ? bb_c(808u) : 1.0 / 2.2;
-    vec3 sdr_encoded = exp2(encode * log2(clamp(sdr_graded + BB_EPS, 0.0, 1.0)));
-    float sdr_luma = dot(max(sdr_graded, 0.0), luma_bgr);
-    float hdr_luma = dot(max(hdr_graded, 0.0), luma_bgr);
-    // A gain per channel, from the color matrix's rows (red, green, blue): the untonemapped
-    // color over the game's (a saturated light keeps its color above white); where the game's
-    // channel is near zero, the luminance gain. The final pass grades and tonemaps (BB_HDR_PEAK
-    // is 10000 nits here: the curve is the game's slope continued).
-    float gain = (has_hdr && sdr_luma > 1e-4) ? hdr_luma / sdr_luma : 1.0;
-    vec3 gains = vec3(clamp(gain, 1.0, 64.0));
-    if (has_hdr) {
-        vec3 sdr_rows = max(bb_grade(o, sdr_screen), 0.0);
-        vec3 hdr_rows = max(bb_grade(o, hdr_screen), 0.0);
-        for (int i = 0; i < 3; ++i) {
-            gains[i] = sdr_rows[i] > 0.02 ? hdr_rows[i] / sdr_rows[i] : gains[i];
-        }
-        gains = clamp(gains, 0.0, 64.0);
-    }
-    // r, b, a: gains of red, green, blue; g: the reference luminance (scene / UI test).
-    frag_color0 = vec4(gains.r, dot(sdr_encoded, luma_bgr), gains.g, gains.b);
-
-    // Effect ratios, on the untonemapped color (the final pass scales it before its grading).
-    vec4 aux = vec4(1.0);
-    if (has_hdr) {
-        vec3 rows = max(bb_grade(o, hdr_screen), 0.0);
-        vec3 rows_no_bloom = max(bb_grade(o, hdr_t), 0.0);
-        for (int i = 0; i < 3; ++i) {
-            aux[i] = rows[i] > 1e-4 ? clamp(rows_no_bloom[i] / rows[i], 0.0, 1.0) : 1.0;
-        }
-        if (BB_COS4 || BB_VIG888) {
-            BbComposite no_vig = o;
-            no_vig.cos4 = false;
-            no_vig.vig888 = false;
-            vec3 x_nv = bb_exposed(no_vig, scene, ms, vig_uv);
-            vec3 t_nv;
-            if (bb_curve_hdr(o, x_nv, knee, BB_HDR_PEAK, t_nv)) {
-                vec3 screen_nv = t_nv + glow * (1.0 - min(t_nv, 1.0));
-                float l_nv = dot(max(bb_grade(o, screen_nv), 0.0), vec3(0.2126390059, 0.7151686788,
-                                                                       0.0721923154));
-                float l = dot(rows, vec3(0.2126390059, 0.7151686788, 0.0721923154));
-                aux.a = l > 1e-4 ? clamp(l_nv / l, 1.0, 16.0) : 1.0;
-            }
-        }
-    }
-    frag_aux = aux;
 }

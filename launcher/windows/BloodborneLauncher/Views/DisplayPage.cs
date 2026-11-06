@@ -10,21 +10,27 @@ namespace BloodborneLauncher.Views
     {
         private readonly ComboBox _monitor = new() { Width = 360, VerticalAlignment = VerticalAlignment.Center };
         private bool _refreshingMonitors;
-        // HDR16's rows (tone mapper, target gamut) and the Highlight boost HDR16 does not use.
-        private FrameworkElement? _hdrBoostRow, _hdrToneMapperRow, _hdrGamutRow;
+        // Native+'s tone mapper row and the Highlight boost Native+ does not use.
+        private FrameworkElement? _hdrBoostRow, _hdrToneMapperRow;
 
         public override void OnShown()
         {
             RefreshMonitors();
-            RefreshHdr16Rows();
+            RefreshNativePlusRows();
         }
 
-        private void RefreshHdr16Rows()
+        /// <summary>hdr_mode, Native+'s name before Native+ 0.9.38.2 (psychov30) read as nativeplus.</summary>
+        private string HdrMode()
         {
-            var hdr16 = Ini.Get("hdr_mode", "native") == "psychov30";
-            if (_hdrBoostRow != null) _hdrBoostRow.Visibility = hdr16 ? Visibility.Collapsed : Visibility.Visible;
-            if (_hdrToneMapperRow != null) _hdrToneMapperRow.Visibility = hdr16 ? Visibility.Visible : Visibility.Collapsed;
-            if (_hdrGamutRow != null) _hdrGamutRow.Visibility = hdr16 ? Visibility.Visible : Visibility.Collapsed;
+            var mode = Ini.Get("hdr_mode", "native");
+            return mode == "psychov30" ? "nativeplus" : mode;
+        }
+
+        private void RefreshNativePlusRows()
+        {
+            var nativePlus = HdrMode() == "nativeplus";
+            if (_hdrBoostRow != null) _hdrBoostRow.Visibility = nativePlus ? Visibility.Collapsed : Visibility.Visible;
+            if (_hdrToneMapperRow != null) _hdrToneMapperRow.Visibility = nativePlus ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void RefreshMonitors()
@@ -235,9 +241,9 @@ namespace BloodborneLauncher.Views
             Body.Children.Add(hdrRows);
             ShowHdrRows();
             ComboRow(SymbolRegular.Lightbulb24, L.T("HDR source"),
-                "Native: highlights as bright as they are in the game's scene. Expanded: the SDR picture's bright parts made brighter. HDR16: the game's own light kept in 16 bits, tone mapped by Vanilla+ or PsychoV-30 (its settings are in the in-game menu too); entering or leaving it needs a game restart",
-                Choices.HdrMode, () => Ini.Get("hdr_mode", "native"), v => Ini.Set("hdr_mode", v), hdrRows,
-                changed: RefreshHdr16Rows);
+                "Native: highlights as bright as they are in the game's scene. Expanded: the SDR picture's bright parts made brighter. Native+: the light of the game's scene kept to the screen, tone mapped to your display's peak by Vanilla+ or PsychoV (its settings are in the in-game menu too); entering or leaving it needs a game restart",
+                Choices.HdrMode, HdrMode, v => Ini.Set("hdr_mode", v), hdrRows,
+                changed: RefreshNativePlusRows);
             SliderRow(SymbolRegular.BrightnessHigh24, L.T("Paper white"), L.T("How bright the game's white is, in nits. Range: 10–500"),
                 10, 500, 1, () => ParseDouble(Ini.Get("hdr_paper_white", "200"), 200),
                 v => Ini.Set("hdr_paper_white", v.ToString("0", System.Globalization.CultureInfo.InvariantCulture)),
@@ -255,14 +261,10 @@ namespace BloodborneLauncher.Views
                 Choices.HdrBoost, () => Ini.Get("hdr_boost", "0.25"), v => Ini.Set("hdr_boost", v), hdrRows);
             _hdrBoostRow = LastHdrRow();
             ComboRow(SymbolRegular.Lightbulb24, L.T("Tone mapper"),
-                "HDR16 only. Vanilla+ (by souperman9, from his RenoDX Bloodborne mod): the game's image up to mid grey, brighter highlights up to your display's peak. PsychoV-30: as RenoDX's mods, its own shadows. Vanilla: the game's own look. Also in the in-game menu, live",
-                Choices.HdrToneMapper, () => Ini.Get("hdr_tonemapper", "5"), v => Ini.Set("hdr_tonemapper", v), hdrRows);
+                "Native+ only. Vanilla+ (by souperman9, from his RenoDX Bloodborne mod): the game's image up to mid grey, brighter highlights up to your display's peak. PsychoV: RenoDX's PsychoV-30 with Vanilla+'s bloom; deeper blacks, softer highlights with the most detail near the peak. Its Vanilla+ Highlights and Hue Correction (in-game menu) take it towards Vanilla+'s brightness and hues. Also in the in-game menu, live",
+                Choices.HdrToneMapper, () => Choices.HdrToneMapperValue(Ini.Get("hdr_tonemapper", "5")), v => Ini.Set("hdr_tonemapper", v), hdrRows);
             _hdrToneMapperRow = LastHdrRow();
-            ComboRow(SymbolRegular.Color24, L.T("Target gamut"),
-                "HDR16 with PsychoV-30 only: the color volume it fits the picture into. BT.2020 is RenoDX's HDR default. Also in the in-game menu, live",
-                Choices.HdrGamut, () => Ini.Get("hdr_gamut", "bt2020"), v => Ini.Set("hdr_gamut", v), hdrRows);
-            _hdrGamutRow = LastHdrRow();
-            RefreshHdr16Rows();
+            RefreshNativePlusRows();
             var hdrMore = Advanced(into: hdrRows);
             ComboRow(SymbolRegular.TextFont24, L.T("UI brightness"), L.T("Native source only: how bright the HUD, menus and subtitles are, against paper white"),
                 Choices.HdrUiBrightness, () => Ini.Get("hdr_ui_brightness", "1"), v => Ini.Set("hdr_ui_brightness", v), hdrMore);
