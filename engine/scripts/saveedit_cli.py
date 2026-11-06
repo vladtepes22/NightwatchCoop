@@ -390,7 +390,11 @@ def main(argv=None, stdin=None, stdout=None, running=running_games):
         parser.add_argument("--mods", type=Path, help="the Mods folder (the Nocturne mod's goods are offered)")
         parser.add_argument("--mods-config", type=Path, help="mods.json")
         parser.add_argument("--backup")
+        parser.add_argument("--allow-running", action="store_true",
+                            help="write while the game runs (the launcher warns: the game saves its loaded character over edits)")
         args = parser.parse_args(argv)
+        if args.allow_running:
+            running = None
         if args.command == "worker":
             worker(args, stdin or sys.stdin, stdout, running)
             return 0

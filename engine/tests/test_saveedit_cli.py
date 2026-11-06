@@ -143,6 +143,15 @@ class SaveEditorCliTests(unittest.TestCase):
         self.assertEqual((code, error["type"]), (1, "EditConflict"))
         self.assertEqual(self.call("backups")[1], [])
 
+    def test_allow_running_writes_while_the_game_runs(self):
+        revision = self.call("show")[1]["revision"]
+        argv = ["apply", "--user", str(self.user), "--kind", "solo", "--slot", "0", "--allow-running"]
+        output = io.StringIO()
+        code = cli.main(argv, io.StringIO(json.dumps(dict(revision=revision, echoes=1234))), output, lambda: [1])
+        self.assertEqual(code, 0, output.getvalue())
+        self.assertEqual(model.SaveModel(self.file.read_bytes()).echoes, 1234)
+        self.assertEqual(len(self.call("backups")[1]), 1)
+
     def test_store_conflict_after_open(self):
         revision = self.call("show")[1]["revision"]
         def changed():

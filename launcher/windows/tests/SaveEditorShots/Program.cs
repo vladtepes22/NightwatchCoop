@@ -325,7 +325,7 @@ internal static class Program
         var vigor = nodes.OfType<TextBox>().FirstOrDefault(b => AutomationProperties.GetName(b) == "Vigor");
         if (vigor != null)
         {
-            vigor.Text = "42"; Require(apply.IsEnabled == !source.GameRunning, "Dirty Apply/game-running gate failed");
+            vigor.Text = "42"; Require(apply.IsEnabled, "Dirty Apply must enable, game running or not");
             Require(nodes.OfType<TextBlock>().Any(t => t.Text == "Level 82 → 96"), "Resulting level did not update");
             vigor.Text = "100"; Require(!apply.IsEnabled, "Invalid stat must disable Apply");
             vigor.Text = "28"; Require(!apply.IsEnabled, "Returning to original must clear dirty state");
@@ -336,13 +336,13 @@ internal static class Program
             name.Text = ""; Require(!apply.IsEnabled, "Empty name must disable Apply"); name.Text = "Evelyn";
         }
         foreach (var restore in nodes.OfType<Button>().Where(b => b.Content as string == "Restore"))
-            Require(restore.IsEnabled == !source.GameRunning, "Restore game-running gate failed");
+            Require(restore.IsEnabled, "Restore must enable, game running or not");
         var search = nodes.OfType<TextBox>().FirstOrDefault(b => AutomationProperties.GetName(b) == "Search items");
         if (search != null)
         {
             var count = nodes.OfType<TextBox>().First(b => AutomationProperties.GetName(b) == "Count");
             var before = count.Text;
-            count.Text = "1234"; Require(apply.IsEnabled == !source.GameRunning, "Inventory change must enable Apply");
+            count.Text = "1234"; Require(apply.IsEnabled, "Inventory change must enable Apply");
             search.Text = "no-match"; WaitSearchPause(root);
             Require(!Descendants(root).OfType<TextBox>().Any(b => AutomationProperties.GetName(b) == "Count"), "Search did not filter the list");
             search.Text = ""; WaitSearchPause(root);
@@ -355,7 +355,7 @@ internal static class Program
             var up = nodes.OfType<Button>().FirstOrDefault(b => AutomationProperties.GetName(b) == "Increase weapon level" && b.Command?.CanExecute(null) == true);
             if (up != null)
             {
-                up.Command.Execute(null); Require(apply.IsEnabled == !source.GameRunning, "A weapon level change must enable Apply");
+                up.Command.Execute(null); Require(apply.IsEnabled, "A weapon level change must enable Apply");
                 var down = nodes.OfType<Button>().First(b => AutomationProperties.GetName(b) == "Decrease weapon level" && b.DataContext == up.DataContext);
                 down.Command.Execute(null); Require(!apply.IsEnabled, "Returning the weapon level must clear dirty state");
             }
@@ -364,14 +364,14 @@ internal static class Program
         if (toggle != null)
         {
             Require(toggle.IsChecked == true, "A set flag must load switched on");
-            toggle.IsChecked = !toggle.IsChecked; Require(apply.IsEnabled == !source.GameRunning, "A progress flag must enable Apply");
+            toggle.IsChecked = !toggle.IsChecked; Require(apply.IsEnabled, "A progress flag must enable Apply");
             toggle.IsChecked = !toggle.IsChecked; Require(!apply.IsEnabled, "Returning a flag must clear dirty state");
         }
         var repair = nodes.OfType<System.Windows.Controls.CheckBox>().FirstOrDefault(b => b.Content as string == "Repair when applying");
         if (repair != null)
         {
             repair.IsChecked = true; repair.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
-            Require(apply.IsEnabled == !source.GameRunning, "A repair must enable Apply");
+            Require(apply.IsEnabled, "A repair must enable Apply");
             repair.IsChecked = false; repair.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
             Require(!apply.IsEnabled, "Unchecking a repair must clear dirty state");
         }

@@ -68,7 +68,7 @@ internal static class SaveEditor
             foreach (var argument in new[] { Path.Combine(Paths.SeamlessScripts, "saveedit_cli.py"), "worker",
                          "--user", GameEnvironment.UserDir(settings), "--kind", "solo",
                          "--game", GameEnvironment.GameDir(settings), "--mods", GameEnvironment.ModsDir(settings),
-                         "--mods-config", Mods.ProfilePath }) start.ArgumentList.Add(argument);
+                         "--mods-config", Mods.ProfilePath, "--allow-running" }) start.ArgumentList.Add(argument);
             var process = Process.Start(start) ?? throw new IOException(L.T("Could not open the save editor data."));
             process.ErrorDataReceived += (_, _) => { };
             process.BeginErrorReadLine();
@@ -89,15 +89,8 @@ internal static class SaveEditor
 
         internal async Task<string> Run(string command, string kind, int? slot = null, object? edit = null, string? backup = null)
         {
+            // Writes are allowed while the game runs (the window says why the loaded character wants the title screen).
             var writes = command is "apply" or "restore";
-            if (writes)
-            {
-                var games = ProcessTree.GamesIn(Paths.EngineDir);
-                var running = games.Length > 0;
-                foreach (var game in games) game.Dispose();
-                if (Workspace.Current.Game.Running || running)
-                    throw new InvalidOperationException(L.T("Close the game before changing saves."));
-            }
             var request = JsonSerializer.Serialize(new { command, kind, slot, backup, edit }, Json);
             await _turn.WaitAsync();
             try
@@ -114,7 +107,6 @@ internal static class SaveEditor
                 var type = reply.RootElement.TryGetProperty("type", out var value) ? value.GetString() : "";
                 throw new InvalidOperationException(type switch
                 {
-                    "GameRunning" => L.T("Close the game before changing saves."),
                     "EditConflict" => L.T("The save changed. Open the slot again before applying edits."),
                     _ => L.T("Could not complete the save operation. Check the values and save folder, then try again.")
                 });

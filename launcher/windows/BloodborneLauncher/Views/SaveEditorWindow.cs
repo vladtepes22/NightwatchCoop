@@ -78,7 +78,7 @@ public sealed partial class SaveEditorWindow : Window
     private SaveEditor.GemEffect[]? _effectChoices;
     private SaveEditor.Snapshot? _snapshot;
     private SaveEditor.Slot? _selected;
-    private bool _busy, _loading, _dirty, _running;
+    private bool _busy, _loading, _dirty;
     // Most players use the launcher for co-op, so the party saves open first.
     private int _kindIndex = 1;
     private string Kind => _kindIndex == 1 ? "party" : "solo";
@@ -99,9 +99,9 @@ public sealed partial class SaveEditorWindow : Window
             _body.RowDefinitions.Add(new() { Height = height });
         var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 18) };
         heading.Children.Add(LauncherPage.Text(L.T("Save editor"), "PageTitle"));
-        heading.Children.Add(LauncherPage.Text(L.T("Saves are backed up before every change. Close the game first."), "Muted"));
+        heading.Children.Add(LauncherPage.Text(L.T("Saves are backed up before every change."), "Muted"));
         _body.Children.Add(heading);
-        _warning = Surface(LauncherPage.Text(L.T("Close the game before changing saves."), "Muted"), 12);
+        _warning = Surface(LauncherPage.Text(L.T("The game is running. It keeps the loaded character in memory and saves over edits to it: quit to the title screen before Apply, then load the character again."), "Muted"), 12);
         _warning.SetResourceReference(Border.BorderBrushProperty, "WarningTextBrush");
         _warning.Margin = new Thickness(0, 0, 0, 14); _warning.Visibility = Visibility.Collapsed;
         Place(_body, _warning, 1);
@@ -244,7 +244,7 @@ public sealed partial class SaveEditorWindow : Window
     }
     private void UpdateRunning()
     {
-        _running = _source.GameRunning; _warning.Visibility = _running ? Visibility.Visible : Visibility.Collapsed; UpdateState();
+        _warning.Visibility = _source.GameRunning ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // What differs from the opened save, per tab, as readable lines (also the apply confirmation).
@@ -283,15 +283,15 @@ public sealed partial class SaveEditorWindow : Window
         var (lines, perTab) = Changes();
         _dirty = lines.Count > 0;
         bool valid = _fields.Values.All(f => f.Valid) && _items.All(r => r.CountValid);
-        if (_addItem != null) _addItem.IsEnabled = !_busy && !_running && _snapshot != null;
-        _apply.IsEnabled = !_busy && !_running && _dirty && valid; _revert.IsEnabled = !_busy && (_dirty || !valid);
+        if (_addItem != null) _addItem.IsEnabled = !_busy && _snapshot != null;
+        _apply.IsEnabled = !_busy && _dirty && valid; _revert.IsEnabled = !_busy && (_dirty || !valid);
         _status.Text = _snapshot != null && !_fields["name"].Valid ? L.T("Use a name of 1 to 16 characters.") :
             !valid && _snapshot != null ? L.T("Enter whole numbers within the allowed range.") :
             _dirty ? L.T("Unsaved changes") + ": " + lines.Count : "";
         _status.SetResourceReference(TextBlock.ForegroundProperty, _dirty ? "AccentTextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
         for (int i = 0; i < _tabLabels.Length; i++)
             _tabs.Buttons[i].Content = _tabLabels[i] + (perTab[i] > 0 ? "  ●" : "");
-        foreach (var button in _restoreButtons) button.IsEnabled = !_busy && !_running;
+        foreach (var button in _restoreButtons) button.IsEnabled = !_busy;
         if (_snapshot != null && Stats.All(s => _fields[s].Valid))
         {
             var result = Stats.Sum(s => _fields[s].Number) - 50;
