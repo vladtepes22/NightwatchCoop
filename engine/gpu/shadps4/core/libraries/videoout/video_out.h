@@ -126,6 +126,15 @@ s32 PS4_SYSV_ABI sceVideoOutRegisterBuffers(s32 handle, s32 startIndex, void* co
 s32 PS4_SYSV_ABI sceVideoOutGetBufferLabelAddress(s32 handle, uintptr_t* label_addr);
 s32 PS4_SYSV_ABI sceVideoOutSetFlipRate(s32 handle, s32 rate);
 s32 PS4_SYSV_ABI sceVideoOutIsFlipPending(s32 handle);
+/// bbport (low-latency pacing): waits until at most `max_pending` flips are waiting to be presented (counting the ones
+/// the swap thread is working on), or `timeout_us` passed. True when the wait ended on its own condition. The caller
+/// is the game's thread at the start of a frame.
+bool WaitFlipQueue(s32 max_pending, u32 timeout_us);
+/// Flips submitted since start (any thread): lets a caller wait once per flip.
+u64 FlipsSubmitted();
+/// The rate the game's flips are held to, in FPS (0 = none), kept by the video-out thread.
+u32 PresenterLimit();
+void SetPresenterLimit(u32 limit);
 s32 PS4_SYSV_ABI sceVideoOutWaitVblank(s32 handle);
 s32 PS4_SYSV_ABI sceVideoOutSubmitFlip(s32 handle, s32 bufferIndex, s32 flipMode, s64 flipArg);
 s32 PS4_SYSV_ABI sceVideoOutGetFlipStatus(s32 handle, FlipStatus* status);

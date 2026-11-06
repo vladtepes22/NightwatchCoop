@@ -149,6 +149,34 @@ s32 PS4_SYSV_ABI sceVideoOutSetFlipRate(s32 handle, s32 rate) {
     return ORBIS_OK;
 }
 
+static std::atomic<u32> presenter_limit{0};
+
+u32 PresenterLimit() {
+    return presenter_limit.load(std::memory_order_relaxed);
+}
+
+void SetPresenterLimit(u32 limit) {
+    presenter_limit.store(limit, std::memory_order_relaxed);
+}
+
+u64 FlipsSubmitted() {
+    return driver ? driver->FlipsSubmitted() : 0;
+}
+
+bool WaitFlipQueue(s32 max_pending, u32 timeout_us) {
+    if (!driver) {
+        return false;
+    }
+    auto* port = driver->GetPort(1);
+    if (!port || !port->is_open) {
+        return false;
+    }
+    std::unique_lock lock{port->port_mutex};
+    return port->flip_cv.wait_for(lock, std::chrono::microseconds(timeout_us), [&] {
+        return port->flip_status.flip_pending_num + driver->SwapInFlight() <= max_pending;
+    });
+}
+
 s32 PS4_SYSV_ABI sceVideoOutIsFlipPending(s32 handle) {
     LOG_TRACE(Lib_VideoOut, "called");
     auto* port = driver->GetPort(handle);

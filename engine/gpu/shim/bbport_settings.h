@@ -362,6 +362,10 @@ struct Values {
     std::atomic<int> reflex{ReflexOn};
     /// The game's pad read updates the SDL gamepads first (ini pad_fresh, BB_PAD_FRESH; runtime_pad.c). Live.
     std::atomic<bool> pad_fresh{true};
+    /// Low-latency frame pacing (ini ll_pacing, BB_LL_PACING; live): the game's pad read waits until the frames before it
+    /// have gone out (bbgpu.cpp LowLatencyGate), so the frame is simulated from fresher input. Rests while frame generation
+    /// shows generated frames. After visy f1d579c6; default on.
+    std::atomic<bool> ll_pacing{true};
     std::atomic<bool> streamline_loaded{false}, dlss_fg_supported{false};
     std::atomic<int> dlss_fg_max_frames{0};
     std::atomic<const char*> dlss_fg_problem{nullptr};

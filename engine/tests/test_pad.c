@@ -51,6 +51,7 @@ int bbgpu_chat_enabled(void) { return 0; }
 static int latency_reads;
 void bbgpu_latency_pad_read(void) { ++latency_reads; }
 int bbgpu_pad_fresh(void) { return 1; }
+void bbgpu_ll_pacing_gate(void) {}
 void bbgpu_chat_request_pad(const char *source) { (void)source; }
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *name) {
     (void)table; (void)count; (void)name;

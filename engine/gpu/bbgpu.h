@@ -75,6 +75,9 @@ int bbgpu_chat_enabled(void);
  * (bbport.ini pad_fresh, BB_PAD_FRESH; default on). */
 void bbgpu_latency_pad_read(void);
 int bbgpu_pad_fresh(void);
+/* Low-latency frame pacing (bbport.ini ll_pacing; gpu/shim/bbgpu.cpp LowLatencyGate): called at the game's pad read, which
+ * starts its next frame. Once per submitted flip it waits until the frames before it have gone out. */
+void bbgpu_ll_pacing_gate(void);
 void bbgpu_chat_request_pad(const char *source);
 /* I5 gather the party (gpu/shim/party/party_gather.h): 1 while this game hosts a running party
  * with gathering on; the pad reader calls request on touchpad held + L3. `source` names the

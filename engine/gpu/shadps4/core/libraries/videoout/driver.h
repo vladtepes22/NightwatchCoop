@@ -10,6 +10,7 @@
 #include "common/polyfill_thread.h"
 #include "core/libraries/videoout/video_out.h"
 
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <queue>
@@ -34,6 +35,8 @@ struct VideoOutPort {
     std::mutex port_mutex;
     std::condition_variable vo_cv;
     std::condition_variable vblank_cv;
+    /// bbport (low-latency pacing): notified when a flip was presented (flip_pending_num went down).
+    std::condition_variable flip_cv;
     int flip_rate = 0;
     int prev_index = -1;
     bool is_open = false;
@@ -95,6 +98,15 @@ public:
 
     bool SubmitFlip(VideoOutPort* port, s32 index, s64 flip_arg, bool is_eop = false);
 
+    /// bbport (low-latency pacing): frames handed to the swap thread that it has not finished presenting.
+    s32 SwapInFlight() const {
+        return swap_inflight.load(std::memory_order_acquire);
+    }
+    /// Flips submitted since start (any thread).
+    u64 FlipsSubmitted() const {
+        return flips_submitted.load(std::memory_order_relaxed);
+    }
+
 private:
     struct Request {
         Vulkan::Frame* frame;
@@ -124,6 +136,8 @@ private:
     std::condition_variable_any swap_cv;
     std::deque<std::function<void()>> swap_queue;
     bool swap_busy = false;
+    std::atomic<s32> swap_inflight{0};
+    std::atomic<u64> flips_submitted{0};
     bool separate_swap = true;
     std::jthread swap_thread; ///< before present_thread: destroyed after it
 

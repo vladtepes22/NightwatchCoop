@@ -111,6 +111,7 @@ void VideoOutDriver::RunPresenter(std::function<void()> work, bool if_idle) {
         if (if_idle && (swap_busy || !swap_queue.empty())) {
             return; // a redraw of the last frame is pointless while frames are queued
         }
+        swap_inflight.fetch_add(1, std::memory_order_acq_rel);
         swap_queue.push_back(std::move(work));
     }
     swap_cv.notify_one();
@@ -131,6 +132,11 @@ void VideoOutDriver::SwapThread(std::stop_token token) {
             swap_busy = true;
         }
         work();
+        swap_inflight.fetch_sub(1, std::memory_order_acq_rel);
+        {
+            std::scoped_lock port_lock{main_port.port_mutex}; // no wakeup lost against WaitFlipQueue's predicate
+        }
+        main_port.flip_cv.notify_all();
     }
 }
 
@@ -1010,6 +1016,7 @@ void VideoOutDriver::Flip(const Request& req) {
         }
         --flip_status.flip_pending_num;
     }
+    port->flip_cv.notify_all();
 
     // Trigger flip events for the port.
     for (auto event : port->flip_events) {
@@ -1063,6 +1070,7 @@ bool VideoOutDriver::SubmitFlip(VideoOutPort* port, s32 index, s64 flip_arg,
             ++port->flip_status.gc_queue_num;
         }
         ++port->flip_status.flip_pending_num; // integral GPU and CPU pending flips counter
+        flips_submitted.fetch_add(1, std::memory_order_relaxed);
         port->flip_status.submit_tsc = Libraries::Kernel::sceKernelReadTsc();
     }
 
@@ -1138,6 +1146,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     }
     auto frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
                                     : std::chrono::nanoseconds(0);
+    SetPresenterLimit(frame_limit);
     // bbport: frame generation's cap (BbSettings::frame_gen_cap, any present mode): the game at
     // half the refresh rate, so its frame and the generated one fill every refresh (with Mailbox
     // a faster game replaces generated frames before they are shown). Applied while generated
@@ -1234,6 +1243,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             frame_limit = limit;
             frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
                                        : std::chrono::nanoseconds(0);
+            SetPresenterLimit(frame_limit);
             flips.SetPeriod(pace_of());
         };
         // Flips are timed exactly (a spin of at most an eighth of the vblank period). Ticks only
@@ -1363,6 +1373,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                 frame_limit = limit;
                 frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
                                            : std::chrono::nanoseconds(0);
+                SetPresenterLimit(frame_limit);
             }
         }
 

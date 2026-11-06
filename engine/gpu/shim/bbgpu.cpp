@@ -7,6 +7,7 @@
 #include "map/map_page.h"
 #include "bbport_settings.h"
 #include "bbport_latency.h"
+#include "core/libraries/videoout/video_out.h"
 #include "bbport_copy.h"
 #ifndef _WIN32
 #include <sys/resource.h>
@@ -20,6 +21,7 @@
 #include "engine/engine_hooks.h"
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <fstream>
 #include <iterator>
@@ -52,6 +54,87 @@ extern "C" void bbgpu_latency_pad_read(void) {
 
 extern "C" int bbgpu_pad_fresh(void) {
     return BbSettings::Get().pad_fresh.load(std::memory_order_relaxed) ? 1 : 0;
+}
+
+// Low-latency frame pacing (bbport.ini ll_pacing; after visy f1d579c6): once per submitted flip, before the game reads the
+// pad for its next frame, wait until at most `depth` frames are still on their way to the display, counting the flips
+// waiting for their slot and the ones the swap thread is working on (at most BB_LL_TIMEOUT_MS, default 40, so a stalled
+// presenter never stalls the game for long). The pad read starts the game's frame: reading later means the frame is
+// simulated from fresher input. Depth 0 (nothing ahead) gives the lowest lag but needs the game's own work to fit inside
+// the limit's period with some margin; when it does not, a frame that misses its slot waits for the next and the rate
+// falls. So the depth adapts: two windows in a row of 45 frames whose mean interval (each clamped to 2 periods) is over
+// 1.12 periods, while the gate itself held the game for a fifth of it and the rate is still 70% of the limit or more
+// (below that the game is simply slower than its limit and the depth does not matter), not in the first 20 s after the
+// limit was set, raise the depth (to 2 at most) and hold it for a minute (doubling each time it has to be raised again, up
+// to 8 minutes), then 0 is tried again. BB_LL_DEPTH=n pins it. Off while there is no limit (uncapped) or it is 240+.
+static void LowLatencyGate() {
+    static std::atomic<std::uint64_t> gated_at{~0ull};
+    if (!BbSettings::Get().ll_pacing.load(std::memory_order_relaxed)) return;
+    // Measured 6 Nov (60 FPS, FSR 3 frame generation): the gate saved 8 ms of 35 but cost 3-8 FPS, because the generated
+    // frames share the queue it waits on; without frame generation 48 -> 16 ms at 60 FPS. So it rests while generated frames
+    // are shown (BB_LL_WITH_FRAME_GEN=1 lets it run).
+    static const bool with_fg = std::getenv("BB_LL_WITH_FRAME_GEN") != nullptr;
+    if (!with_fg && BbSettings::Get().frame_gen_active.load(std::memory_order_relaxed)) return;
+    const std::uint64_t submitted = Libraries::VideoOut::FlipsSubmitted();
+    if (gated_at.exchange(submitted, std::memory_order_relaxed) == submitted) return;
+    const unsigned limit = Libraries::VideoOut::PresenterLimit();
+    if (!limit || limit >= 240) return;
+    static const int pinned = [] { const char* e = std::getenv("BB_LL_DEPTH"); return e ? std::atoi(e) : -1; }();
+    static const int timeout_ms = [] { const char* e = std::getenv("BB_LL_TIMEOUT_MS"); return e ? std::atoi(e) : 40; }();
+    struct State {
+        unsigned limit = 0;
+        int depth = 0;
+        std::int64_t last_ns = 0, hold_until_ns = 0, hold_ns = 60'000'000'000ll, since_ns = 0;
+        int frames = 0, streak = 0;
+        std::int64_t sum_ns = 0, wait_ns = 0;
+    };
+    static State st;
+    const auto now_ns = [] {
+        return std::int64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch()).count());
+    };
+    const std::int64_t now = now_ns();
+    const std::int64_t period = 1'000'000'000ll / limit;
+    if (st.limit != limit) {
+        st = State{};
+        st.limit = limit;
+        st.since_ns = now;
+    } else if (st.last_ns) {
+        ++st.frames;
+        st.sum_ns += std::min<std::int64_t>(now - st.last_ns, 2 * period);
+        if (st.frames >= 45) {
+            const bool sagging = st.sum_ns * 100 > std::int64_t(st.frames) * period * 112 &&
+                                 st.sum_ns * 100 < std::int64_t(st.frames) * period * 143 && st.wait_ns * 5 > st.sum_ns &&
+                                 now - st.since_ns > 20'000'000'000ll;
+            static const bool log_windows = std::getenv("BB_LL_LOG") != nullptr;
+            if (log_windows) {
+                std::printf("Low-latency pacing window: limit %u, mean interval %.2f ms (%.2f periods), gate held %.0f%%, depth %d, sagging %d\n",
+                            limit, double(st.sum_ns) / st.frames / 1e6, double(st.sum_ns) / st.frames / double(period),
+                            100.0 * double(st.wait_ns) / double(st.sum_ns), st.depth, sagging ? 1 : 0);
+            }
+            st.streak = sagging ? st.streak + 1 : 0;
+            if (st.streak >= 2 && st.depth < 2) {
+                st.streak = 0;
+                ++st.depth;
+                st.hold_until_ns = now + st.hold_ns;
+                st.hold_ns = std::min<std::int64_t>(st.hold_ns * 2, 480'000'000'000ll);
+                std::printf("Low-latency pacing: frames take %.1f ms against a %.1f ms limit at %u FPS, %d frame(s) may stay ahead%s\n",
+                            double(st.sum_ns) / st.frames / 1e6, double(period) / 1e6, limit, st.depth,
+                            pinned >= 0 ? " (BB_LL_DEPTH pins it)" : "");
+            } else if (!sagging && st.depth > 0 && now >= st.hold_until_ns) {
+                --st.depth;
+            }
+            st.frames = 0;
+            st.sum_ns = st.wait_ns = 0;
+        }
+    }
+    st.last_ns = now;
+    Libraries::VideoOut::WaitFlipQueue(pinned >= 0 ? pinned : st.depth, unsigned(timeout_ms) * 1000u);
+    st.wait_ns += now_ns() - now;
+}
+
+extern "C" void bbgpu_ll_pacing_gate(void) {
+    LowLatencyGate();
 }
 
 [[noreturn]] void BbHardExit(int code) {
