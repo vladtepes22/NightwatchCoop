@@ -64,6 +64,7 @@ Python derivation took 18.9 s on the same machine. Cache hit: key + parse, a few
 | bossGates gateRules | `derive_worldact.cpp` `DeriveWorldAct` | `party_worldact.cpp` `BossGates()` / `GateRules()` |
 | bossEntities | `DeriveBossEntities` | `party_balance.cpp` (the boss chrs of a pass) |
 | shopGates | `derive_shop.cpp` `DeriveShopGates` | `party_items.cpp` `ShopGateWeapon` / `ShopGatesToRepair` |
+| startWeapons | `derive_shop.cpp` `DeriveStartWeapons` | `test_newgame.cpp` `StartWeaponsNow` (late-join catch-up, skip prologue) |
 | bossArenas firstFightSpots | `derive_spots.cpp` `DeriveSpots` (MSB points and parts) | `world_warper_rules.h` `BossArenaSpot`, `party_worldact.cpp` `FirstFightSpotFor` |
 | stateIds runtimeIds | `derive_progress.cpp` `DeriveProgressIds` | `party_progress.cpp` `ModeFor` / `HostCandidate` |
 | gestureNames | `build.cpp` (the item-name FMG, `fmg.cpp`) | `party_gamedata.h` `GestureText` |

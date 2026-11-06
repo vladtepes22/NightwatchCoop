@@ -583,6 +583,61 @@ static void test_sgive_repair() {
     CHECK(SgivePoisonToRepair(is_set, holds, 0).done);
 }
 
+// 0.7.9 (CL-3b4da5): a summoned guest's gate rows open for an own flag OR the item held; the own pool is written
+// when only the item is held; a row never opens for an item that is not held or unreadable.
+static void test_shop_gate_while_summoned() {
+    ShopGateDecision d = ShopGateWhileSummoned(false, 1);  // badge 4114 got while summoned
+    CHECK(d.value && d.write_own);
+    d = ShopGateWhileSummoned(true, 0);  // own flag alone (the item may be in another list): stays open, no write
+    CHECK(d.value && !d.write_own);
+    d = ShopGateWhileSummoned(true, 1);
+    CHECK(d.value && !d.write_own);
+    d = ShopGateWhileSummoned(false, 0);  // guard: nothing held, closed (the host's overlay value is reset)
+    CHECK(!d.value && !d.write_own);
+    d = ShopGateWhileSummoned(false, -1);  // unreadable counts as not held
+    CHECK(!d.value && !d.write_own);
+    // Regression 0.7.5 (itemleak, playtest 2026-10-23): common event 5500+slot ends at once for a summoned guest and
+    // sets ALL 22 completion flags in the host-world overlay. The decision takes only own + held, never the
+    // overlay's value: with no weapon owned and no own flag, every row stays closed; only the owned weapon opens.
+    int open_rows = 0;
+    for (int slot = 0; slot < 22; ++slot) {
+        const ShopGateDecision r = ShopGateWhileSummoned(false, slot == 2 ? 1 : 0);  // the one weapon really owned
+        open_rows += r.value ? 1 : 0;
+        CHECK(r.value == (slot == 2));
+    }
+    CHECK(open_rows == 1);
+}
+
+// Item F: a vanilla source lot that no longer gives the goods (key shuffle) makes the repair skip that goods.
+static void test_key_repair_moved_source() {
+    // 4114: ledger bit 60009036 (-> lot from the ledger table, absent in this test table) + quest flag.
+    auto has = [](std::int32_t g, std::int32_t lot) {
+        const std::vector<std::int32_t> v = GoodsSourceLots(g);
+        return std::find(v.begin(), v.end(), lot) != v.end();
+    };
+    CHECK(has(4110, 2410290));
+    CHECK(has(4113, 2100500) && has(4113, 2110030));  // plus the ledger lot when the tables are installed
+    CHECK(GoodsSourceLots(4312).empty());  // quest flag only: nothing to check
+    CHECK(GoodsSourceIntact(4312, [](std::int32_t, std::int32_t) { return false; }));
+    CHECK(GoodsSourceIntact(4110, [](std::int32_t lot, std::int32_t g) { return lot == 2410290 && g == 4110; }));
+    CHECK(!GoodsSourceIntact(4110, [](std::int32_t, std::int32_t) { return false; }));  // shuffled
+    CHECK(!GoodsSourceIntact(4113, [](std::int32_t lot, std::int32_t) { return lot == 2100500; }));  // others moved
+    std::set<std::uint32_t> save = {12101000};
+    std::set<std::int32_t> held = {4110, 4111};
+    auto is_set = [&](std::uint32_t id) { return save.count(id) != 0; };
+    auto holds = [&](std::int32_t g) { return held.count(g) ? 1 : 0; };
+    // Randomized keys: the Saw badge sits in another lot now, the vanilla flag is unset; held and its row open.
+    SgiveRepair r = SgivePoisonToRepair(is_set, holds, 0, [](std::int32_t g) { return g != 4110 && g != 4111; });
+    CHECK(r.complete && r.remove.empty() && r.clear.empty());
+    CHECK((r.skipped == std::vector<std::int32_t>{4110, 4111}));
+    // Only one moved: the other unearned badge is still removed.
+    r = SgivePoisonToRepair(is_set, holds, 0, [](std::int32_t g) { return g != 4110; });
+    CHECK(r.remove == std::vector<std::int32_t>{4111} && r.skipped == std::vector<std::int32_t>{4110});
+    // Without the guard (vanilla params): old behaviour.
+    r = SgivePoisonToRepair(is_set, holds, 0);
+    CHECK((r.remove == std::vector<std::int32_t>{4110, 4111}) && r.skipped.empty());
+}
+
 // 0.7.8 badge rows (playtest 2026-11-01): flag 12101000 + n is cleared only when badge 4110 + n is held nowhere;
 // a held badge keeps its row; an unreadable list clears nothing; once per save.
 static void test_badge_gate_repair() {
@@ -1732,6 +1787,8 @@ static void test_shop_gates_from_tables() {
 }
 
 int main() {
+    test_shop_gate_while_summoned();
+    test_key_repair_moved_source();
     test_shop_gates_from_tables();
     if (!coop::test::UseGameTables("party-items-test")) return 0;
     test_goods_limits();

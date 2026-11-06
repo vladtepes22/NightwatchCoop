@@ -23,7 +23,7 @@ namespace fs = std::filesystem;
 namespace {
 
 // Bump when the derivation changes what the tables hold (a cache of another version is rebuilt).
-constexpr const char* kDerivationVersion = "cpp-3";
+constexpr const char* kDerivationVersion = "cpp-4";
 constexpr const char* kCacheMagic = "BBPARTYTABLES 1";
 
 std::string Lower(std::string s) {
@@ -428,6 +428,7 @@ Sections DeriveFrom(const Scan& sc, unsigned threads, Progress* progress, Timing
                     for (auto& [name, rows] : DeriveLamps(cats)) out[4][name] = std::move(rows);
                     for (auto& [name, rows] : DeriveHostOnlyEvents(allrec)) out[4][name] = std::move(rows);
                     for (auto& [name, rows] : DeriveShopGates(params, allrec)) out[4][name] = std::move(rows);
+                    for (auto& [name, rows] : DeriveStartWeapons(params)) out[4][name] = std::move(rows);
                     for (auto& [name, rows] : DeriveProgressIds(cats, allrec)) out[4][name] = std::move(rows);
                     const Sections worldact = DeriveWorldAct(allrec);
                     for (const auto& [name, rows] : worldact) out[4][name] = rows;

@@ -73,7 +73,7 @@ void ApplyStart(bool skip_mode) {
                 std::to_string(int(w.on)) + (written ? "" : "(NOT written)");
     }
     Log("campaign-start flags into the own save: %d of %d written (%s)", ok, n, list.c_str());
-    for (const StartWeapon& w : PrologueSkipWeapons()) {
+    for (const StartWeapon& w : StartWeaponsNow()) {
         const int before = ItemCount(kItemWeapon, w.weapon);
         if (before == 0) {
             const bool given = GiveItem(kItemWeapon, w.weapon, 1);

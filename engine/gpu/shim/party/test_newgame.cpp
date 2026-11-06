@@ -300,6 +300,19 @@ const std::vector<StartWeapon>& PrologueSkipWeapons() {
     return weapons;
 }
 
+std::vector<StartWeapon> ChooseStartWeapons(const std::vector<StartWeaponPick>& picks) {
+    std::vector<StartWeapon> out = PrologueSkipWeapons();
+    for (StartWeapon& w : out) {
+        for (const StartWeaponPick& p : picks) {
+            if (p.flag == w.choice_flag && p.weapon > 0) {
+                w.weapon = p.weapon;
+                break;
+            }
+        }
+    }
+    return out;
+}
+
 bool MenuScript::Parse(const std::string& text, std::string* bad) {
     steps_.clear();
     next_ = 0;
@@ -442,6 +455,8 @@ std::uint32_t MenuScript::Step(double t, std::uint64_t screen_seq, double screen
 #include "game_state.h"
 #include "party_start.h"
 #include "party_b2.h"
+#include "party_gamedata.h"
+#include "party_gamedata.h"
 #include "../bbport_game_menu.h"
 #include "../../party_env.h"
 
@@ -471,6 +486,15 @@ extern "C" void bbport_test_note_movie(void) {
 }
 
 namespace coop {
+
+std::vector<StartWeapon> StartWeaponsNow() {
+    std::vector<StartWeaponPick> picks;
+    for (const gamedata::StartWeaponData& r : gamedata::Get().start_weapons) {
+        if (r.flag > 0 && r.weapon > 0) picks.push_back({std::uint32_t(r.flag), std::uint32_t(r.weapon)});
+    }
+    return ChooseStartWeapons(picks);
+}
+
 namespace {
 
 void Log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -542,7 +566,7 @@ void ApplySkip(T& g) {
         ok += WriteEventFlag(w.flag, w.on) ? 1 : 0;
     }
     Log("prologue skip: %d of %d flags written", ok, n);
-    for (const StartWeapon& w : PrologueSkipWeapons()) {
+    for (const StartWeapon& w : StartWeaponsNow()) {
         const int before = ItemCount(kItemWeapon, w.weapon);
         if (before == 0) {
             const bool given = GiveItem(kItemWeapon, w.weapon, 1);

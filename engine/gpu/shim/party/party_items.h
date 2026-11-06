@@ -234,6 +234,25 @@ ShopGateRepair ShopGatesToRepair(const std::function<bool(std::uint32_t)>& is_se
 std::int32_t ShopGateWeapon(std::int32_t flag);
 /// Highest upgrade level the repair looks for (weapon id + 100 * level).
 constexpr int kShopWeaponMaxLevel = 15;
+/// A summoned guest's shop-gate flag (weapon rows 5500-5521, badge rows 12101000 + n): what the overlay shows
+/// and whether the own pool is written too. `own` = the own save's value, `held` = 1 / 0 / -1 (unreadable) for
+/// the item behind the row (the weapon at any level, the badge). The row opens for an own flag OR an item held
+/// (the event that sets the flag completes in the host-world overlay for a guest and never re-runs, 0.7.9);
+/// an item held without the own flag is written to the own pool so it persists. Never opens a row for an item
+/// that is not held (unreadable counts as not held).
+struct ShopGateDecision {
+    bool value = false;      ///< what the overlay shows
+    bool write_own = false;  ///< also set the flag in the own pool
+};
+ShopGateDecision ShopGateWhileSummoned(bool own, int held);
+/// Key-item repair guard (randomizer / mods): the vanilla source lots behind GoodsEarnedFlags(goods) (a lot
+/// pickup flag 50000000 + lot, or a ledger bit 60009000 + idx -> the ledger's lot). Empty: no lot behind the
+/// flags (a quest flag), nothing to check.
+std::vector<std::int32_t> GoodsSourceLots(std::int32_t goods);
+/// True while every source lot of `goods` still gives it in the LOADED params (`lot_gives(lot, goods)`); false
+/// as soon as one does not (a key-shuffling randomizer or mod moved it: the vanilla flags then say nothing
+/// about whether the item was earned). Goods without a source lot: true.
+bool GoodsSourceIntact(std::int32_t goods, const std::function<bool(std::int32_t lot, std::int32_t goods)>& lot_gives);
 /// Key-item catch-up (playtest 1 save audit, docs/party/playtest1_save_audit.md): the ledger lots
 /// this save says were given (ledger bit set) for a boss this save has beaten (done flag set,
 /// `boss_flag(done)` true), in table order without duplicates. The playtest guest's save had the
@@ -670,9 +689,14 @@ struct SgiveRepair {
     std::vector<std::int32_t> remove;      ///< goods to take away
     std::vector<std::int32_t> kept;        ///< held without a source flag but left (too few, or NG+)
     std::vector<std::uint32_t> clear;      ///< badge row flags to clear
+    std::vector<std::int32_t> skipped;     ///< goods left alone: their source lot no longer gives them
 };
+/// `src_ok(goods)` (optional): false = the loaded params no longer give that goods from its vanilla source lot
+/// (a key-shuffling randomizer or mod): the goods is neither removed nor counted, and its badge row is only
+/// cleared when the badge is held nowhere. `skipped` lists those goods for one log line.
 SgiveRepair SgivePoisonToRepair(const std::function<bool(std::uint32_t)>& is_set,
-                                const std::function<int(std::int32_t)>& held, int ng);
+                                const std::function<int(std::int32_t)>& held, int ng,
+                                const std::function<bool(std::int32_t)>& src_ok = nullptr);
 
 class GuestItems {
 public:

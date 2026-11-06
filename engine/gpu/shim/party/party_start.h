@@ -164,7 +164,8 @@ bool HostTravelHasAudience(bool hosting_recently, const std::vector<party::Roste
 // brought up to the host before any summon: once its own world is steady (an opening cutscene is
 // skipped, or waited for), the campaign-start flags the host necessarily has (12410000, 9402,
 // 9401, 12417810, 72101000/011, 12101020/21, 12100105, 9404; 9180 off - test_newgame.h's list)
-// go into its own save, the starting weapons 7000000 / 14000000 are given when it has none, and
+// go into its own save, the starting weapons (the ones its own shop rows 2000 / 2010 sell behind 72101000 / 72101011:
+// 7000000 / 14000000 in the vanilla game, a randomizer's copies otherwise) are given when it has none, and
 // it lamp-warps to the host's last lamp (the gather). The warp's load opens C2's post-load
 // window, where the host's flag snapshot (lamps, shortcuts, bosses, ...) lands in the own save;
 // C3's full item list follows at the summon. Only a party guest connected to a host whose own

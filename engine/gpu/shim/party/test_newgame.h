@@ -27,8 +27,8 @@
 //   the game would have done by the end of the prologue: flags 9402 (first death seen), 9401
 //   (first Dream cutscene), 12417810 (sickroom lamp lit), 12101020 / 12101021 + choice flags
 //   72101000 / 72101011 (the Dream messengers' weapons), 12100105 + 9404 (Doll awake), 9180 OFF;
-//   gives the starting weapons the messengers' shop rows hand out (ShopLineupParam 2000: weapon
-//   7000000, 2010: weapon 14000000 - they are shop rows with price 0, not item lots); and warps
+//   gives the starting weapons the messengers' shop rows hand out (StartWeaponsNow, read from the
+//   player's own ShopLineupParam; vanilla row 2000: weapon 7000000, 2010: weapon 14000000 - they are shop rows with price 0, not item lots); and warps
 //   to BB_TEST_PROLOGUE_WARP (default 2412951 = Central Yharnam lamp; "sickroom" 2412950,
 //   "dream" 2102950, a ReturnPoint id, or 0 = stay). Not the vanilla way to get there: Insight
 //   stays 0, the Notebook / Beckoning messengers' items are not given (the party director's bell
@@ -182,7 +182,16 @@ struct StartWeapon {
     std::uint32_t weapon, choice_flag;
     const char* hand;
 };
+/// The vanilla ones (right 7000000, left 14000000): the fallback.
 const std::vector<StartWeapon>& PrologueSkipWeapons();
+/// A derived pick: the stock flag of a shop row and the weapon it sells (gamedata `startWeapons`).
+struct StartWeaponPick {
+    std::uint32_t flag, weapon;
+};
+/// The starting weapons for these picks: per hand the pick for its stock flag, else the vanilla weapon.
+std::vector<StartWeapon> ChooseStartWeapons(const std::vector<StartWeaponPick>& picks);
+/// ChooseStartWeapons over the player's own loaded tables (vanilla ids when they hold none).
+std::vector<StartWeapon> StartWeaponsNow();
 
 // ---- Game glue (party director tick, main thread) ----
 

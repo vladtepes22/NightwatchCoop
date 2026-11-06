@@ -75,6 +75,9 @@ Sections DeriveWorldAct(const std::vector<FileEvents>& events);
 Sections DeriveBossEntities(const std::vector<FileEvents>& events, const std::vector<bbdata::EventRec>& chalice);
 /// shopGates {gate flag, weapon id}: the Messenger shop's per-player weapon gates (derive_shop.cpp).
 Sections DeriveShopGates(const ParamSet& params, const std::vector<FileEvents>& events);
+/// startWeapons {stock flag, weapon id}: the weapons the Dream messengers' rows sell behind the starting-weapon stock
+/// flags 72101000 / 72101011 (derive_shop.cpp); a row that is not there is not in the section.
+Sections DeriveStartWeapons(const ParamSet& params);
 /// bossArenas {boss character entity, x, y, z} and firstFightSpots {intro event, x, y, z, chained, scene}
 /// (derive_spots.cpp): places in the boss arenas read from the MSBs for the gates of `worldact` (bossGates).
 Sections DeriveSpots(const std::vector<FileEvents>& events, const Sections& worldact, const std::string& msb_dir, unsigned threads);

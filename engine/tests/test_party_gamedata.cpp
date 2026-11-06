@@ -26,6 +26,7 @@ int main() {
         "[bossEntities] 3\r\n9\t0\r\n8\t1\r\n7\t0\r\n"
         "[bossGates] 1\r\n1\t2\t3\t4\t5\t6\t7\r\n[gateRules] 2\r\n10\t20\t0\r\n11\t21\t12\r\n"
         "[shopGates] 2\r\n5501\t23020000\r\n5500\t23010000\r\n"
+        "[startWeapons] 2\r\n72101000\t25500000\r\n72101011\t14500000\r\n"
         "[bossArenas] 2\r\n2300810\t134.63\t-120.12\t-85.41\r\n2200800\t-329.75\t1.60\t699.30\r\n"
         "[firstFightSpots] 2\r\n12301702\t113.50\t-120.31\t-63.68\t0\t0\r\n12401802\t57.70\t35.21\t322.60\t1\t1\r\n"
         "[stateIds] 2\r\n12400151\r\n12400150\r\n[runtimeIds] 1\r\n12100500\r\n"
@@ -43,6 +44,8 @@ int main() {
     CHECK(t.boss_entities.size() == 2 && t.boss_entities[0] == 7 && t.chalice_boss_entities.size() == 1);
     CHECK(t.boss_gates.size() == 1 && t.boss_gates[0].fog_entity == 6 && t.boss_gates[0].landing_event == 7);
     CHECK(t.shop_gates.size() == 2 && t.shop_gates[0].flag == 5500 && t.shop_gates[0].weapon == 23010000);  // sorted
+    CHECK(t.start_weapons.size() == 2 && t.start_weapons[0].flag == 72101000 && t.start_weapons[0].weapon == 25500000 &&
+          t.start_weapons[1].weapon == 14500000);
     CHECK(t.boss_arenas.size() == 2 && t.boss_arenas[0].boss == 2200800 && t.boss_arenas[1].z == -85.41f);
     CHECK(t.first_fights.size() == 2 && !t.first_fights[0].scene && t.first_fights[1].chained && t.first_fights[1].scene);
     CHECK(t.state_ids.size() == 2 && t.state_ids[0] == 12400150 && t.runtime_ids.size() == 1);

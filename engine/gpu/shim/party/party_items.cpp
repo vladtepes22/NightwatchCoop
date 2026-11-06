@@ -1487,8 +1487,47 @@ std::vector<std::uint32_t> GoodsEarnedFlags(std::int32_t goods) {
     }
 }
 
+std::vector<std::int32_t> GoodsSourceLots(std::int32_t goods) {
+    std::vector<std::int32_t> lots;
+    for (const std::uint32_t f : GoodsEarnedFlags(goods)) {
+        std::int32_t lot = kItemNone;
+        if (f >= 50000000u && f < 60000000u) {
+            lot = static_cast<std::int32_t>(f - 50000000u);
+        } else if (f >= 60009000u && f < 60009000u + 1000u) {
+            lot = kItemNone;
+            for (const LedgerRow& r : Tab().ledger) {
+                if (r.idx == static_cast<std::int32_t>(f - 60009000u)) {
+                    lot = r.lot;
+                    break;
+                }
+            }
+        }
+        if (lot > 0 && std::find(lots.begin(), lots.end(), lot) == lots.end()) {
+            lots.push_back(lot);
+        }
+    }
+    return lots;
+}
+
+bool GoodsSourceIntact(std::int32_t goods, const std::function<bool(std::int32_t, std::int32_t)>& lot_gives) {
+    for (const std::int32_t lot : GoodsSourceLots(goods)) {
+        if (!lot_gives(lot, goods)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+ShopGateDecision ShopGateWhileSummoned(bool own, int held) {
+    ShopGateDecision d;
+    d.value = own || held > 0;
+    d.write_own = !own && held > 0;
+    return d;
+}
+
 SgiveRepair SgivePoisonToRepair(const std::function<bool(std::uint32_t)>& is_set,
-                                const std::function<int(std::int32_t)>& held, int ng) {
+                                const std::function<int(std::int32_t)>& held, int ng,
+                                const std::function<bool(std::int32_t)>& src_ok) {
     SgiveRepair r;
     if (is_set(kSgiveRepaired)) {
         r.done = true;
@@ -1503,6 +1542,10 @@ SgiveRepair SgivePoisonToRepair(const std::function<bool(std::uint32_t)>& is_set
                                      4117, 4118, 4119, 4308, 4310, 4312, 4907}) {
         const std::vector<std::uint32_t> src = GoodsEarnedFlags(goods);
         if (src.empty()) {
+            continue;
+        }
+        if (src_ok && !src_ok(goods)) {
+            r.skipped.push_back(goods);  // its source lot gives something else now: the vanilla flags prove nothing
             continue;
         }
         bool earned = false;
@@ -4846,7 +4889,23 @@ void RepairSgivePoisonTick(const GameSnapshot& gs) {
     }
     next = now + 2.0;
     auto is_set = [man](std::uint32_t id) { return IsFlag(man, id); };
-    const SgiveRepair r = SgivePoisonToRepair(is_set, GoodsHeldAnywhere, NgCycleLive());
+    // A key-shuffling randomizer or mod moves the keys: the vanilla source flags then prove nothing, so a goods
+    // whose source lot no longer gives it in the loaded params is left alone (a row missing counts as moved).
+    auto lot_gives = [](std::int32_t lot, std::int32_t goods) {
+        for (const LotRowData& row : LotChain(lot)) {
+            if (row.lot != lot) {
+                continue;  // only the lot's own row: the vanilla source is that row
+            }
+            for (int i = 0; i < 8; ++i) {
+                if (SlotHasItem(row, i) && row.category[i] == 4u && row.id[i] == goods) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    const SgiveRepair r = SgivePoisonToRepair(
+        is_set, GoodsHeldAnywhere, NgCycleLive(), [&lot_gives](std::int32_t goods) { return GoodsSourceIntact(goods, lot_gives); });
     if (r.done) {
         done = true;
         return;
@@ -4857,6 +4916,11 @@ void RepairSgivePoisonTick(const GameSnapshot& gs) {
             Log("key item repair: the key items, the storage or the NG cycle are not readable yet, trying again");
         }
         return;
+    }
+    for (const std::int32_t goods : r.skipped) {
+        Log("key item repair: goods %d skipped: its vanilla source lot no longer gives it in the loaded params "
+            "(randomizer or mod)",
+            goods);
     }
     bool failed = false;
     for (const std::int32_t goods : r.remove) {
@@ -4927,14 +4991,47 @@ void ShopGateTick(const GameSnapshot& gs, int load_mode, double now) {
     }
     gates.push_back(static_cast<std::int32_t>(kFlagEyeSaleEvent));
     gates.push_back(static_cast<std::int32_t>(kFlagEyeSale));
+    // 0.7.9: a gate also opens for the item itself (weapon owned / badge 4110 + n held): the event that sets the
+    // own flag completes in the host-world overlay for a summoned guest and never re-runs, so a badge or weapon
+    // got while summoned left its rows closed for good. The own pool is written too so it persists. The Eye
+    // sale (12101100 / 12101101) is the own night / DLC state, not a held item: unchanged, own value only.
+    auto weapon_owned = [](std::int32_t base) {
+        bool unknown = false;
+        for (int lvl = 0; lvl <= kShopWeaponMaxLevel; ++lvl) {
+            const u32 id = static_cast<u32>(base + 100 * lvl);
+            const int inv = ItemCount(0, id), box = StorageItemCount(0, id);
+            if (inv > 0 || box > 0) {
+                return 1;
+            }
+            unknown = unknown || inv < 0 || box < 0;
+        }
+        return unknown ? -1 : 0;
+    };
     for (const std::int32_t f : gates) {
         bool own = false;
         if (!progress::ReadFlagOwnSave(static_cast<u32>(f), &own)) {
             return;  // the own pool is not readable now: leave everything as it is
         }
-        if (IsFlag(man, f) != own) {
-            SetFlag(man, f, own);
-            fixed += (fixed.empty() ? "" : ",") + std::to_string(f) + (own ? "=1" : "=0");
+        int held = 0;
+        if (!own) {
+            if (f >= kBadgeGateFirst && f < kBadgeGateFirst + kBadgeGateCount) {
+                held = GoodsHeldAnywhere(kBadgeGoodsFirst + (f - kBadgeGateFirst));
+            } else if (const std::int32_t w = ShopGateWeapon(f); w != 0 && f >= kShopOwnFirst && f <= kShopOwnLast) {
+                held = weapon_owned(w);
+            }
+        }
+        const ShopGateDecision d = ShopGateWhileSummoned(own, held);
+        std::string note;
+        if (d.write_own) {
+            if (progress::WriteFlagOwnSave(static_cast<u32>(f), true)) {
+                note = "+own";
+            }
+        }
+        if (IsFlag(man, f) != d.value) {
+            SetFlag(man, f, d.value);
+            fixed += (fixed.empty() ? "" : ",") + std::to_string(f) + (d.value ? "=1" : "=0") + note;
+        } else if (!note.empty()) {
+            fixed += (fixed.empty() ? "" : ",") + std::to_string(f) + "=1" + note;
         }
     }
     if (!fixed.empty() && fixed_total < 40) {

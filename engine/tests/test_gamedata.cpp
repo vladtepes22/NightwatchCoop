@@ -601,6 +601,27 @@ void TestShopGates() {
     CHECK(t.shop_gates.size() == 2 && t.shop_gates[1].flag == 5500 && t.shop_gates[1].weapon == 23010000);
 }
 
+void TestStartWeapons() {
+    using namespace bbdata;
+    coop::gamedata::ParamSet P;
+    // vanilla-like rows (synthetic ids) with a randomized world's copies behind the stock flags
+    const std::vector<DefField> f = {{"s32", "eventFlag", 4}, {"s32", "equipType", 4}, {"s32", "equipId", 4}};
+    P.shop = SynTable(f, {{2000, {72101000, 0, 25500000}}, {2001, {72101001, 0, 7010000}}, {2010, {72101010, 0, 14000000}},
+                          {2011, {72101011, 0, 14500000}}, {2012, {72101011, 0, 14600000}}});
+    auto rows = coop::gamedata::DeriveStartWeapons(P).at("startWeapons");
+    CHECK(rows.size() == 2 && rows[0] == (coop::gamedata::Row{"72101000", "25500000"}) &&
+          rows[1] == (coop::gamedata::Row{"72101011", "14500000"}));  // the lowest row of a flag wins
+    // a non-weapon row behind the flag, or no such row: nothing derived for that hand
+    P.shop = SynTable(f, {{2000, {72101000, 3, 7000000}}, {2011, {72101011, 0, 14000000}}});
+    rows = coop::gamedata::DeriveStartWeapons(P).at("startWeapons");
+    CHECK(rows.size() == 1 && rows[0] == (coop::gamedata::Row{"72101011", "14000000"}));
+    CHECK(coop::gamedata::DeriveStartWeapons(coop::gamedata::ParamSet{}).at("startWeapons").empty());
+    coop::gamedata::Tables t;
+    std::string err;
+    CHECK(coop::gamedata::Parse(coop::gamedata::RenderCache("k", coop::gamedata::DeriveStartWeapons(P)), &t, &err));
+    CHECK(t.start_weapons.size() == 1 && t.start_weapons[0].flag == 72101011 && t.start_weapons[0].weapon == 14000000);
+}
+
 // An MSB with a POINT_PARAM_ST and a PARTS_PARAM_ST list (names, positions, entity ids) for DeriveSpots.
 struct SynPoint {
     std::string name;
@@ -791,6 +812,7 @@ int main() {
     TestParallel();
     TestWorldAct();
     TestShopGates();
+    TestStartWeapons();
     TestSpots();
     TestProgressIds();
     TestDerive();

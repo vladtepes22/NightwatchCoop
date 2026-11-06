@@ -28,7 +28,7 @@ def run_cli(game, out, *extra):
 
 # Sections the engine derives that the Python oracle has no counterpart for (their reference was the hand-typed
 # tables of party_worldact.cpp, compared once on 1.09 when they moved).
-CPP_ONLY = {"bossGates", "gateRules", "bossEntities", "shopGates", "bossArenas", "firstFightSpots", "stateIds", "runtimeIds"}
+CPP_ONLY = {"bossGates", "gateRules", "bossEntities", "shopGates", "startWeapons", "bossArenas", "firstFightSpots", "stateIds", "runtimeIds"}
 
 
 def body(path):

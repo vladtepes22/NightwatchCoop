@@ -306,6 +306,20 @@ void TestSkipLists() {
     }
 }
 
+void TestChooseStartWeapons() {
+    // no derived rows: the vanilla ids
+    std::vector<StartWeapon> w = ChooseStartWeapons({});
+    CHECK(w.size() == 2 && w[0].weapon == 7000000 && w[0].choice_flag == 72101000 && w[1].weapon == 14000000 &&
+          w[1].choice_flag == 72101011);
+    // a randomized world: the rows' weapons, per hand
+    w = ChooseStartWeapons({{72101011, 14500000}, {72101000, 25500000}});
+    CHECK(w.size() == 2 && w[0].weapon == 25500000 && w[1].weapon == 14500000);
+    // one hand derived, the other falls back; a stock flag of no hand and a zero weapon are ignored
+    w = ChooseStartWeapons({{72101011, 14500000}, {72101000, 0}, {72101002, 99}});
+    CHECK(w[0].weapon == 7000000 && w[1].weapon == 14500000);
+    CHECK(PrologueSkipWeapons()[0].weapon == 7000000);  // the fallback list itself is not changed
+}
+
 // ---- MenuScript (BB_PARTY_DIRECTOR_TEST seq=) against a model of the Ritual Altar menus ----
 // Seen live: Altar -> Chalice Ritual -> chalice list -> ritual screen -> "Conduct a ritual to create a
 // Chalice Dungeon?" YES / NO with NO focused; the dialog showed up to ~3 s after the Cross, so a timed
@@ -560,6 +574,7 @@ int main() {
     TestMissedPresses();
     TestWarpParse();
     TestSkipLists();
+    TestChooseStartWeapons();
     std::printf("party-newgame-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

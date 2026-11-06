@@ -102,6 +102,10 @@ struct GateRuleRow {
 struct ShopGateData {
     std::int32_t flag, weapon;
 };
+/// A starting weapon of the Dream messengers: the stock flag of its shop row and the weapon id it sells.
+struct StartWeaponData {
+    std::int32_t flag, weapon;
+};
 /// The entry floor of a boss character's arena (MSB point): world_warper_rules.h BossArenaSpot.
 struct BossArenaRow {
     std::uint32_t boss;
@@ -145,6 +149,7 @@ struct Tables {
     std::vector<GateRuleRow> gate_rules;
     std::vector<std::uint32_t> state_ids, runtime_ids;  // sorted: flags whose state follows the host / flags never synced (counters)
     std::vector<ShopGateData> shop_gates;         // sorted by flag
+    std::vector<StartWeaponData> start_weapons;   // file order: right hand (72101000) then left (72101011)
     std::vector<BossArenaRow> boss_arenas;        // sorted by boss entity
     std::vector<FirstFightRow> first_fights;      // sorted by event
 };
@@ -329,6 +334,9 @@ inline bool Parse(const std::string& text, Tables* out, std::string* err) {
         } else if (section == "shopGates") {
             ok = f.size() >= 2 && detail::ToI32(f[0], &a) && detail::ToI32(f[1], &b);
             if (ok) t.shop_gates.push_back({a, b});
+        } else if (section == "startWeapons") {
+            ok = f.size() >= 2 && detail::ToI32(f[0], &a) && detail::ToI32(f[1], &b);
+            if (ok) t.start_weapons.push_back({a, b});
         } else if (section == "bossArenas") {
             BossArenaRow r{};
             ok = f.size() >= 4 && detail::ToU32(f[0], &r.boss) && detail::ToF(f[1], &r.x) && detail::ToF(f[2], &r.y) &&

@@ -72,4 +72,23 @@ Sections DeriveShopGates(const ParamSet& P, const std::vector<FileEvents>& event
     return s;
 }
 
+Sections DeriveStartWeapons(const ParamSet& P) {
+    // The Dream messengers' starting weapons: the shop rows whose stock flag (eventFlag) the prologue's choice
+    // events wait for (72101000 right hand, 72101011 left hand). A randomized game puts other weapons there.
+    constexpr std::int64_t kStock[] = {72101000, 72101011};
+    Sections s;
+    auto& rows = s["startWeapons"];
+    const bbdata::ParamTable& t = P.shop;
+    const int ev = t.Col("eventFlag"), type = t.Col("equipType"), id = t.Col("equipId");
+    for (const std::int64_t stock : kStock) {
+        for (std::size_t r = 0; r < t.Rows(); ++r) {  // rows are in id order: the lowest row wins
+            if (t.At(r, ev) == stock && t.At(r, type) == 0 && t.At(r, id) > 0) {
+                rows.push_back({std::to_string(stock), std::to_string(t.At(r, id))});
+                break;
+            }
+        }
+    }
+    return s;
+}
+
 }  // namespace coop::gamedata
