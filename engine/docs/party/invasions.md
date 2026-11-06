@@ -15,6 +15,8 @@ team), `net/party_vpnlobby.*` and `net/party_discovery.*` (the list flag and "wh
 | Where | What |
 |---|---|
 | bbport.ini `party_invaders=1` / env `BB_PARTY_INVADERS` | the host's **Allow invaders** (live, off by default) |
+| bbport.ini `party_max_invaders=1\|2` / env `BB_PARTY_MAX_INVADERS` | the host's **Max invaders** (0.7.9, live, default 1): how many invaders may be in at once |
+| System > Party access > **Max invaders**, launcher Party tab > **Max invaders** | the same, host only (a guest does not see the row) |
 | System > Party access > **Allow invaders** | the host's row (a guest sees it hidden; its page is the "Host's access" line) |
 | Launcher Party tab > **Allow invaders (listed games)** | host only |
 | System > Party > **Block the invader** | host, only while an invader is there; press twice |
@@ -46,10 +48,36 @@ never given the party key, so:
   *another invader is already in*, *no free slot (4 players)*.
 * **Slots.** The game has four player slots (the host and three phantoms); an invader is one of them. With the host and two
   guests there is room; with three guests there is none and the invader is refused cleanly (`Capacity`, unit tested, and live with
-  Max players 2). One invader at a time (`kMaxInvaders`).
+  Max players 2). One invader at a time by default (`kMaxInvaders`); with the host's **Max invaders 2** (0.7.9, CL-7e748c,
+`kMaxInvadersCap`) two, and then both are slots of the four and count against Max players (host + 1 guest + 2 invaders = 4; with Max
+players 3 and one guest only one invader fits; the second is refused *no free slot*). The third is always refused *another invader is
+already in that world*.
 * **Before it stands in the world** the same checks run every frame; a boss fight, cutscene, loading screen or travel that begins
   while the invader is on its way turns it away with the reason (`Party: invade: invasion of slot N ends: invasion refused: ...`).
   An invader that is not in after 120 s is sent away.
+
+## Two invaders (0.7.9, CL-7e748c)
+
+The host's **Max invaders** is 1 (default: the 0.7.8 behaviour exactly) or 2. With 2 the gate admits a second invader while the first
+is pending or in, if the slots allow (`Admit`: `invaders >= max_invaders` -> *another invader is already in*, `world_players +
+invaders >= Capacity(Max players)` -> *no free slot*; `Invadable` for the lists' flag the same way). Everything else is per invader:
+* **State.** `party_invade.cpp` keeps one `Invasion` per invader slot on the host (admitted, pending / in, fell, away) and an
+  `InvaderBook` (`party_invade_rules.h`: name, state, lamp) on every game from the host's `invade` events; the event names the invader
+  (`{"s":..,"n":"<name>",...}`) so two can be told apart; a third name is ignored.
+* **Teams.** Both invaders' chrs go on the ONE invader team (a copy of the map enemies' team, made once): enemies of the host's and the
+  guests' teams, allies of each other (`party_pvp.cpp`, one `InvChr` per invader). One invader ending puts only its chr back; the cells
+  go back when the last one is gone. The red look is per chr.
+* **Notices, level range, falls, ends.** Each invader's coming / entering / ending is its own notice (*Invader NAME has entered your
+  world: fight!*), the level recheck applies to each, `invade_fell` is matched by slot, each ends on its own (`invasion of slot N
+  ends: ...`); the host's end events name the invader, so the other invader reads *The invader NAME was defeated and goes home* and
+  is paid nothing for it.
+* **Rewards.** One payout per invader (`RewardOnce` keeps one entry per name and ending): the host is paid at 0.5 for each fallen
+  invader, each guest at 0.25, each invader for the host's death once (an invader never pays itself for the other invader's end).
+* **Block.** *Block the invader* blocks every invader that is in.
+* Smoke: `iv2` (Max invaders 2: both in together, both on the one team on all three games, each falls on its own, the host paid
+  twice) and `ivm` (Max invaders 1, the default: the second dial is refused while one is in, admitted after it fell); group
+  `invade_two`. The invaders are headless there (the machine runs two rendered clients, the third game is a headless-lite instance).
+  Unit tests: `party-invade-test` (`TwoInvaders`: the table with two invaders and Max players, the book, the payouts).
 
 ## The role limits (enforced in the link, not in the game's modules)
 
@@ -62,7 +90,9 @@ The host's link drops, on both sides:
 
 So an invader cannot write the host's world progress or items, and its own save is not changed by the party.
 An invader's slot is never kept: a lost link releases it at once (no 130 s resume), and the invader's link does not reconnect
-(it goes home).
+(it goes home). Nothing of it is held afterwards either (0.7.9): the host's 26 s sign hold ("a crashed member's connection is still
+held") is for a member whose link was RESET (a crash); an invader that goes home through its own send-home leaves the game's room
+normally, so the next invader's room request is answered at once (smoke `iv` asks again 22 s after the first one got home, when the invader's own death load is over).
 
 ## The invasion
 
@@ -104,8 +134,20 @@ What the invader sees while it waits: *Invading: waiting to be let in* (persiste
 then *Joining the host's world...*, and if the quick way fails *Invading: the quick way failed, taking the slower way in* /
 *going to the host's area first*; nothing happens silently.
 
-Placement: the invader arrives like a summoned guest, beside the host's arrival point (the vanilla invader appears away from
-the host; not changed in 0.7.9, a placement apart from the host is a separate item).
+Placement (0.7.9): the invader arrives like a summoned guest, beside the host, and is then put **away from the host**, as a vanilla
+invader appears. The game's own invader spawn is not used; the least risky spot is a **lamp the host has lit**: the host (every
+5 s while the invasion is on, in the `invade` event's `"a"` field) names the nearest lit lamp of the host's map block whose spot is
+30 to 250 m from the host on the ground plane (`PickApart` in `party_invade_rules.h`, the lamp table `lamp_travel_rules.h`, the
+return-point spots of `party_ids.h`; the lit flag is the lamp's `LitFlag`). The invader's join-arrival warp (`JoinBesideTick`)
+puts it at that lamp's spot with the same in-world warp the lamp travel uses (`WarpToLampInWorld`, no load; the fall recovery net
+applies). Why a lit lamp: it is a place the host (or the party, lit lamps are shared) has stood at, so never inside a wall, and a
+boss arena's lamp is lit only after the boss fell, so never into a living boss's arena; the invader is not in a boss arena either way
+(an invasion ends when a fog fight begins). None 30 m or more away in the block (the Hunter's Dream, a Chalice Dungeon, one lamp
+only), a lamp not in the loaded block, or `BB_PARTY_INVADE_APART=0`: beside the host as before. Test aid `BB_PARTY_INVADE_APART_ANY=1`
+(host): every lamp of the block counts as lit (a test save that lit too few). The invader logs `apart: N m from the host` every 5 s
+while it is in. Smoke phase `ivp` (group `invade_place`: host and invader both rendered, both loaded into Central Yharnam first).
+
+**Another map block (0.7.9, `invmap079`):** an invader whose own world is in another block than the host's (the Hunter's Dream while the host is in Central Yharnam) joins the host's room, then takes the A5 cross-map arrival: one load into the host's map (`CarryArrivalTick` -> `TravelAlone(Join)` -> the B2 re-join). That re-join is three b2 messages the invader role filter used to drop (the invader waited in flow state 1 for a snapshot until the host sent it home after 120 s). `party_link.cpp` now passes, matched whole by shape (`b2_shape`): invader -> host `{"op":"rejoin","pos":[x,y,z]}` (the plain form only, never the `rest` a guest can carry) and `{"op":"arrived"}`; host -> invader `{"op":"dest","stage":..,"pos":[4],"rot":[4]}`. The snapshot itself goes by the game's own transport, not the link. Everything else stays filtered. After the load the invasion is as in one block (placement apart via a lit lamp, notices, HP rule). Smoke `ivc` (group `invade_cross`): host placed in Central Yharnam, invader left in the Hunter's Dream. Not done: the host's room keeps the area it was created in after the host travels; it did not matter for the invasion (the arrival load follows the host's current map, not the room's). The host's `in the world` line comes when the invader joins the room, a moment before its load ends.
 
 ## The level range (0.7.9)
 
@@ -135,11 +177,10 @@ same sentence, name not banned). Smoke phase `ojl` (group `open_level`).
 
 ## Rewards and win / lose
 
-Winning or losing an invasion gives **no Echoes, Insight or items**. The session is a co-op session, not the game's invasion
-session, and the vanilla result flow (Blood Echoes / Insight for the winning invader, the Sinister Bell consumed) is not
-implemented: a kill in a party is a normal death (see pvp.md). The win / lose text is the notice on both sides.
-Not done: the **Sinister Resonant Bell / Bell-Ringing Woman** items are not used or consumed; the invader's maximum health is the
-phantom's (the host's *Phantom health cut* applies to it only where that rule reaches its game).
+The game's own rewards are paid, see "Rewards and costs" below (0.7.8). The Sinister Resonant Bell / Bell-Ringing Woman items are
+not used or consumed (not done). The invader's maximum health follows the host's **Full health in PvP** rule: an active invasion
+counts as PvP for it (0.7.9, CL-b4f728; the host sends its decision in the `invade` event's `h` field, a message without it reads as
+unknown), so with it on (the default) the invader is not cut to 70 %; with it off the 0.7 cut applies as for any phantom.
 
 ## The public lists: the invader flag and where the host is
 
@@ -180,6 +221,8 @@ The announcement (version 1) is unchanged. After it, the host sends a second dat
 `0xfa 'I' 1, id u32, flags u8 (bit 0 allows invaders, bit 1 boss fight), area u32, phase u8, ng u8` (14 bytes). An old listener
 drops it as junk (wrong second byte); a new one pairs it with the announcement of the same `id`, for the TTL of the announcement.
 The `Area` column shows the area and phase when the extension is there, the announcement's own area name otherwise.
+0.7.9: a host with gameplay mods sends a third datagram, its mods label (`0xfa 'M' 1, id u32, u8 len + label`;
+docs/party/version_check.md "The host's mods label"); old listeners drop it the same way.
 
 ### The words (`scripts/party_where.py`, the same table for the Nightwatch launcher)
 
@@ -260,14 +303,14 @@ ending within 120 s) and one pending outcome per game; the invader is paid once 
 * **`ivx`** (host and invader; 11 of 11): refused with the named reason while Allow invaders is off, in a boss fight, in a
   cutscene and with 4 players in the world (the host's view forced by the smoke script `BB_PARTY_INVADE_TEST`, see DEBUG_SWITCHES.md;
   a real fourth player needs five games, the table is unit tested), admitted when nothing is in the way.
-* Screenshots of the fight (host, guest) show the invader as a normal hunter with a name tag and a party-list entry: **the red
-  phantom look is not done** (see below). The notices are on the party panel's last-event line and in the log; they were not
+* Screenshots of the fight (host, guest) show the invader as a normal hunter with a name tag and a party-list entry (this run
+  was before the red phantom look of 0.7.8, see "The red phantom look"). The notices are on the party panel's last-event line and in the log; they were not
   caught by the 10-second screenshots.
 
 ## Not done / unproven
 
 * **Real networks beyond what is listed below, and the human bloodstain.** The game's Lua also has the host call CreateHeroBloodStain when a red invader falls (a bloodstain of the invader); it is not reproduced (see Rewards).
-* **Health.** The invader's health is the phantom's (the host's *Phantom health cut* applies where that rule reaches its game).
+* **Health.** *Full health in PvP* covering an invasion (CL-b4f728) is unit tested (wire, rule); it has not been run live.
 * **Boss fog / cutscene / loading** are proven by the forced view (the gate and the pending checks are the same code as for the
   real flags: `BossBarShown`, `CutscenePlaying`, `loading`); a real fog walk with an invader on the way was not run. An invader
   that is already in when a fog is entered is sent home (`CheckEnd`, unit tested; not run live).

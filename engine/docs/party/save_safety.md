@@ -60,7 +60,7 @@ When the game the launcher started ends, and at every launcher start, the newest
 | level went down; play time went back by more than a minute (an older save came back) | error |
 
 A slot whose character name changed (a new character made in it) is not compared. The flag lists
-are `party_flags.inc` rows (boss_defeated / lamp_unlocked; chalice dungeons and the DLC's lamps,
+are the flag category table (`flagRows`) rows (boss_defeated / lamp_unlocked; chalice dungeons and the DLC's lamps,
 which the DLC-removal events may clear, are left out); `tests/test_party_session.py` checks they
 still categorize that way and that the flag-group mapping equals `tools/party/save_decode.py`'s.
 The result is written to the snapshot's `CHECKED.txt` (no second nag) and to the launcher log

@@ -1,13 +1,14 @@
-# Give items to a party member (0.7.8, giveitem078, CL-63e235)
+# Give items to a party member (0.7.8, giveitem078, CL-63e235; weapons and armor 0.7.9, givegear079, CL-1b3b98)
 
-A player gives consumables or materials from the own inventory to another party member. Host to guest, guest to host
+A player gives consumables or materials (and, from 0.7.9 with a second switch, weapons and armor: section 5) from the own
+inventory to another party member. Host to guest, guest to host
 and guest to guest. Code: `gpu/shim/party/party_give_rules.h` (pure rules, wire, the two state machines; unit test
 `tests/test_party_give.cpp`, `ninja -C out/gpu party-give-test`) and `party_give.{h,cpp}` (game side). The receiving
 half of the inventory work is `ReadGiveFacts` / `GiveGoodsToOwn` / `TakeGoodsFromOwn` at the end of `party_items.cpp`.
 
 ## 1. Player view
 
-* Switch `party_give_items` (System > My party: Your items, the launcher's My Party tab, bbport.ini, the Insert menu's Party
+* Switch `party_give_items` (System > My party: Giving, the launcher's My Party tab, bbport.ini, the Insert menu's Party
   tab). **Off by default.** It is per player and has two meanings: with it on, an item's command menu in the inventory has a
   *Give* entry and you can send; with it off other hunters' gives are refused ("does not take gifts") - the consent.
   `BB_PARTY_GIVE_ITEMS=1` forces it on (tests).
@@ -39,14 +40,23 @@ polymorphic object (vtable: 0/1 clone, 2 operator(), 4/5 destructors) with the i
 * Every call into the game is behind `VtableOk` (readable vtable slots); a failure leaves the entry out or closes the picker
   (null menu object), never a crash. `BB_PARTY_GIVE_MENU_OFF=1` installs nothing.
 * Known: after a give the inventory list shows the old count until the cursor moves (the list is not told to refresh).
+* Cross on a row (found 2026-11-05, give079): the command menu view (class 0x539be10) handles Cross in vtable slot 11
+  (`FUN_01ba2600`), and it is text based. A row whose text is "Discard" activates at once; every other row first asks
+  `FUN_016e4f00(item index)` ("can this item be used now", the same test that greys Use out) and, when it says no, only plays the
+  error sound: the row's functor is never called. On the consumables tab the answer is yes (Pebble worked), on materials, key items
+  and the like it is no (Use is greyed, the cursor still starts on it; Down twice reaches Give). `CrossHook` replaces slot 11: when
+  the highlighted row (`FUN_01bea2e0` copies it) is ours (Give, or a picker entry: vtable = ours) it calls `FUN_01beaad0`, the
+  handler's own activation, and skips the check; every other row goes to the original. The functor's `operator()` is called by that
+  activation (and once more by the per-frame highlight code, hence the repeat guard above). `BB_GIVE_VTRACE=1` logs every
+  virtual call of the Use / Discard functor, predicate, finalizer and view classes (the way this was found).
 
 ## 2. What may be given (`GoodsAllowed`, `GiverVerdict`, `ReceiverVerdict`)
 
-Goods only (weapons, armor and rings are shared by the key / unique rules of items.md section 11 and are not offered).
+Goods only in this section (weapons and armor: section 5).
 
 | Rule | Reason shown |
 |---|---|
-| EquipParamGoods `goodsType` must be 0 (key items are 1) | key items cannot be given |
+| EquipParamGoods `goodsType` must be 0 (consumables) or 2 (materials: the Blood Stone Shard / Twin / Chunk / Rock 3000-3030 and the ritual materials 7000-7200; 27 rows, all maxNum 99). Key items are 1, the unique rows 6 | key items cannot be given |
 | `maxNum` must be above 1 (unique goods: badges, the Eye, tools, keys) | unique items cannot be given |
 | goods 800-822 (gestures) and 4000-4999 (the key / story band: keys, hunter badges 4110-4119, Eye 4311, Old Hunter Bell 4312, workshop tools ...) | story items cannot be given |
 | unknown param row or count | could not be given |
@@ -100,7 +110,85 @@ removed stack (the game saves on its own events; the removal also asks for a sav
 saved and then vanished for good before the DONE reached the giver, while the giver's rollback timer ran out, would
 leave both with the items (needs the link down for 90 s exactly in that window).
 
-## 4. Tests
+## 4. Bug fixed in 0.7.9: no Give on materials (CL-063e51)
+
+Player report: "I cant get it to show up for upgrade stuff". The menu hook was fine (it is the one item command menu of every
+inventory tab); `GoodsAllowed` refused every goods row whose `goodsType` is not 0, and the upgrade materials (Blood Stone Shard,
+Twin Blood Stone Shards, Blood Stone Chunk, Blood Rock) and the ritual materials are `goodsType` 2 (checked in the game's
+EquipParamGoods: 27 rows of type 2, all maxNum 99; type 0 = 189 rows, type 1 = 54 key items, type 6 = 25 unique rows). The rule now
+allows type 0 and 2; key (1), unique (maxNum 1) and the story bands stay out. Smoke `gvt` (both players, real menu presses since give079) opens the Materials tab, shows Give on
+Blood Stone Shard and completes a give.
+
+## 5. Weapons and armor (0.7.9, givegear079, CL-1b3b98)
+
+### 5.1 Player view
+
+* Switch `party_give_gear` (System > My party: Giving: *Give weapons and armor*, the launcher's My Party tab, bbport.ini,
+  the Insert menu's Party tab; `BB_PARTY_GIVE_GEAR=1` forces it on). **Off by default.** It is separate from `party_give_items`
+  (a hunter may take bullets and refuse gear): the own switch adds *Give* to a weapon's / armor's command menu in the inventory,
+  and with it off other hunters' gear gifts are refused ("does not take weapons and armor") - the consent.
+* The command menu is the same native one; Give opens the member list and gives at once (one entry: no amount list).
+* Notices: "Gave Saw Cleaver +4 (2 blood gems) to *name*", "Saw Cleaver +4 (2 blood gems) from *name*".
+
+### 5.2 What may be given (`GearAllowed`, `GearGiverVerdict`, `GearReceiverVerdict`)
+
+| Rule | Reason shown |
+|---|---|
+| the id is on the giveable list (built once at run time from the loaded params, `EnsureGearTable`): an EquipParamWeapon / Protector row with `isDeposit` 1 (a normal inventory row; NPC / internal rows are 0) that no *shared* lot gives | unique and shared gear cannot be given |
+| not worn or wielded (the 32 equip handles of the equip record) | take it off first |
+| the giver holds that entry (by GaItem handle, so two copies of one weapon are told apart) | you do not hold that many |
+| receiver: the weapon / armor row and every gem's GemGenParam / GemeffectParam rows exist, the gem data is plausible (slots 0..4 once each, flags 0..3, rank 0..1000, effects -1 or an id) | its blood gems could not be read |
+| receiver: a free inventory entry (the normal section) | no room in their inventory and storage |
+
+"Shared" is the party sharing rule of items.md sections 11 / 12: the lots of `items_audit.md` with the verdict *shared* reach every
+member exactly once, so the weapons and armor they give (Kos Parasite, the story weapons, Gascoigne's set ...) are unique party gear
+and are not offered. A weapon's family is its 10000-id block (`base + 100 * level`, variants in the next blocks), so a shared weapon
+is excluded at every upgrade level (an over-exclusion is the safe side). 741 weapon rows and 115 armor rows are giveable. Both peers
+use the same table on their own data, so a modified giver cannot make a game take a forbidden item (`GearReceiverVerdict` on the
+OFFER and again on the COMMIT). DLC gear is an ordinary row of the same param tables and follows the same rules (no separate flag
+exists in the params). The table is built from the loaded EquipParamWeapon / EquipParamProtector / ItemLotParam (and the party's own share rules, `ItemLotSharePath`), so a mod that changes them is respected; nothing from the game data is committed. The counts are logged once (`gear table: ...`).
+
+### 5.3 What moves with a weapon
+
+A weapon's upgrade level is part of its item id (`base + 100 * level`), so the OFFER's `goods` carries it. Its blood gems are not
+items in the inventory: each is a GaItem instance referenced only by one of the weapon instance's five slots (shape mask at
+`+0x38 + 0x10 * i`, the gem's handle at `+0x3C + 0x10 * i`; the game itself writes it through the refcounted assign `0x1A8BED0`, as
+`0x1A876D0` does when it builds a weapon). **Decision: the gems travel with the weapon as data** (slot, GemGenParam id, the 8
+instance ints = flags, rank, six effect ids), in the OFFER (`kind`, `gems`), and the receiver builds each as a new instance and
+assigns it to the same slot of the new weapon. The alternative (return the gems to the giver first) would need the game's gem
+detach function and would change two inventories for one give; moving them keeps the weapon exactly as it was. A gem is never in
+two places: the giver's weapon (and with it its slot references) is removed first, exactly like goods (section 3), the receiver builds
+the copy only on COMMIT, and a refund after a failed transfer builds the same weapon with the same gems again (`RefundGear`, the
+OFFER's snapshot). If a slot does not take its gem on the receiver (mask mismatch) the gem goes into the inventory as a loose gem:
+never lost. The receiver reads the gems back after building and logs `gems placed / loose / lost`.
+
+Armor has no state (an OFFER with gems for armor is malformed and dropped).
+
+### 5.4 The transfer
+
+The same two-phase protocol as goods (section 3, same state machines, `n` always 1, `kind` in the OFFER). Differences: the giver's
+re-check before the removal compares the whole entry (same handle, id and gems; a gem socketed meanwhile or a sold weapon cancels),
+the removal is by index of that handle (`0x14D0310`, never "the first entry of that id") and must leave the handle gone, and the
+refund is the rebuild above. The receiver applies on COMMIT only: new entry = the handle absent before and present after, exactly
+one (else nothing is claimed).
+
+### 5.5 Tests (gear)
+
+* `party-give-test`: the giveable table (Kos Parasite at every level, Bare Fists, unknown ids, armor vs weapon rows), giver and
+  receiver verdicts (held, worn, room, gem plausibility), the gear gate (own switch / consent), the wire (gems round trip, five gems
+  inside the body limit, malformed and implausible input) and the machines (kind carried, replay, ABORT before COMMIT).
+* Smoke group `give_gear` = phase `gvw` (host fixture: Saw Cleaver +4 with 2 gems, armor, a Kos Parasite; guest fixture: a Chikage +2
+  with a gem): the Kos Parasite refused, weapon with gems host -> guest, armor, the guest's switch off (refused, giver told) and on
+  again, guest -> host and the same weapon back (the same two gems after two moves, read back from the inventory); `gvwn` the same
+  under `BB_NET_SIM=dsl`. Test aids: `BB_PARTY_GEAR_SETUP` (fixture), `BB_PARTY_GEAR_PROBE`, `BB_PARTY_GEAR_WATCH`, and the
+  `w<id>:<slot>@s` / `a<id>:<slot>@s` / `gon@s` / `goff@s` tokens of `BB_PARTY_GIVE_TEST`.
+* Smoke group `give_armor` = phase `gva` (0.7.9): the Armor tab by REAL presses only. The test save wears Hat / Garb / Gloves / Trousers; the fixture
+  adds an unworn second Hunter Garb (same id as the worn one) and a Yharnam Garb. The menus of the worn Hat and worn Garb offer no *Give*;
+  the unworn Garb's menu (Use / Discard / Give: Down Down, the cursor starts on the disabled Use) gives that inventory entry (its handle, not
+  the worn one's): READY, then the giver removes it, COMMIT, the guest builds it, DONE; probes show the guest with both Garbs and the host
+  with the worn one only. Press timing is 6 s a key (`GVA_GAP`); the Armor tab is Right x5 (`GVA_TAB`).
+
+## 6. Tests (goods)
 
 * `party-give-test` (unit): allow / deny table, room, the gate, the wire (range checks, malformed input), the giver and
   receiver machines (happy path, refusal, no answer, removal not verified, short DONE, lost COMMIT, lost DONE, ABORT

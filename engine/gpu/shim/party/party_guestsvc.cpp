@@ -256,6 +256,25 @@ std::vector<EmevdSkipRule> ChaliceLampSkipRules() {
     return out;
 }
 
+std::vector<EmevdSkipRule> AnnaliseKneelRules() {
+    std::vector<EmevdSkipRule> out;
+    // 0.7.9 (annalise079, CL-22c416): m25_00 events 12500012 (the player's kneel: 2004[14] turn to Annalise playing 101260 when the
+    // ESD's kneel flag 72500329 rises, 2003[18] 101262 when it falls) and 12500013 / 12500014 (the oath's blood animation: player
+    // 101263 on 72500339 / 72500337) begin with 1003[6] End if Client, so a guest's own character stood still while it knelt
+    // (the host's played them). Without that end they run on the guest's game for its own chr (10000) and the net sync shows the
+    // animation to the others. Annalise's own animation (2003[18] on 2500600, index 3 of both blood events) stays the host's.
+    // Kill switch BB_PARTY_GUEST_ANNALISE=0 (the same one as the guest's kneel flags).
+    const char* k = std::getenv("BB_PARTY_GUEST_ANNALISE");
+    if (k && k[0] == '0') {
+        return out;
+    }
+    ParseEmevdSkipRules("12500012:1003:6@0,12500013:1003:6@0,12500014:1003:6@0,12500013:2003:18@3,12500014:2003:18@3", &out);
+    for (EmevdSkipRule& r : out) {
+        r.client_only = true;
+    }
+    return out;
+}
+
 std::vector<EmevdSkipRule> DollPlacementRules() {
     std::vector<EmevdSkipRule> out;
     ParseEmevdSkipRules("12100110:2003:22@25,12100110:2003:17@26", &out);
@@ -491,6 +510,21 @@ std::uint64_t BB_COOP_SYSV IsClientFilter(std::uint64_t env, std::uint64_t value
     if ((value & 0xff) != 0 && LampClientAnswer(env, value) == 0) {
         return 0;
     }
+    // CL-13f7d1 (0.7.9): bbport.ini party_guest_altar (this player's own, off by default): the Dream's chalice altars
+    // (t210050..t210110) answer a summoned guest: its own chalice, materials and dungeons (MultiFilter answers the other test).
+    if ((value & 0xff) != 0 && BbSettings::Get().party_guest_altar.load(std::memory_order_relaxed) &&
+        LocalSessionRole() == kSessionRoleClient) {  // live: the tick's g_session_role lags a load (the talk machine picks at once)
+        const std::uint32_t t = *reinterpret_cast<const std::uint32_t*>(env + 0x10);
+        if (t >= 210050 && t <= 210110 && t % 10 == 0) {
+            g_overrides.fetch_add(1, std::memory_order_relaxed);
+            static std::atomic<std::uint32_t> logged{0};  // one line per altar script
+            if (!(logged.fetch_or(1u << ((t - 210050) / 10), std::memory_order_relaxed) & (1u << ((t - 210050) / 10)))) {
+                std::printf("[coop] Party guest services: altar talk t%u: IsClientPlayer answered 0 for this guest (party_guest_altar)\n", t);
+                std::fflush(stdout);
+            }
+            return 0;
+        }
+    }
     // D8: a guest talks to the NPCs of the host's world (their quest flags then go to the host and
     // the guest's own save as world actions, party_worldact.h).
     if ((value & 0xff) != 0 && g_world_talk.load(std::memory_order_relaxed) &&
@@ -575,7 +609,10 @@ std::uint64_t BB_COOP_SYSV MultiFilter(std::uint64_t env, std::uint64_t value) {
     // Dream the altar t210100 parked in its empty machine, no prompt, so the host could not enter
     // the party's dungeon); BB_PARTY_HOST_ALTARS=0 keeps them blocked while a guest is present.
     static const bool host_altars = !(std::getenv("BB_PARTY_HOST_ALTARS") && std::getenv("BB_PARTY_HOST_ALTARS")[0] == '0');
-    const bool altar = (altars || (host_altars && LocalSessionRole() != kSessionRoleClient)) && talk >= 210050 &&
+    // CL-13f7d1 (0.7.9): bbport.ini party_guest_altar (this player's own, off by default): a summoned guest's Dream altars too.
+    const bool guest_altar = BbSettings::Get().party_guest_altar.load(std::memory_order_relaxed) &&
+                             LocalSessionRole() == kSessionRoleClient;
+    const bool altar = (altars || guest_altar || (host_altars && LocalSessionRole() != kSessionRoleClient)) && talk >= 210050 &&
                        talk <= 210110 && talk % 10 == 0;
     // A Chalice Dungeon's lamps (t290110-t290119), both roles: the host's way out of its dungeon
     // and a guest's lamp (its warp becomes the party's travel question / request as for a world lamp).
@@ -1510,6 +1547,34 @@ bool BossPhaseSyncFilterOn() {
     }();
     return on;
 }
+/// The host-only boss events a host's mods add (bossfog::ParseModHostOnlyEvents): out/party_host_only.txt beside
+/// out/party_mods.txt (scripts/mods.py), read once, at the host's first peer event state. None with mods off
+/// (BB_MODS_ENABLED=0), no file, or a broken one.
+const std::vector<std::uint32_t>& ModHostOnlyEvents() {
+    static const std::vector<std::uint32_t> ids = [] {
+        std::vector<std::uint32_t> v;
+        const char* mods = std::getenv("BB_MODS_ENABLED");
+        if (mods && mods[0] == '0') return v;
+        const char* d = std::getenv("BB_DATA_DIR");
+        const std::string path = std::string(d && d[0] ? d : ".") + "/out/party_host_only.txt";
+        FILE* f = std::fopen(path.c_str(), "rb");
+        if (!f) return v;
+        std::string text;
+        char buf[4096];
+        std::size_t n = 0;
+        while (text.size() <= (1u << 20) && (n = std::fread(buf, 1, sizeof buf, f)) > 0) text.append(buf, n);
+        std::fclose(f);
+        if (text.size() > (1u << 20) || !bossfog::ParseModHostOnlyEvents(text, &v)) {
+            Log("Boss phase: %s is not a list of at most %zu event ids, one per line: not used", path.c_str(),
+                bossfog::kMaxModHostOnlyEvents);
+            return std::vector<std::uint32_t>();
+        }
+        Log("Boss phase: %zu host-only events from the mods (%s)", v.size(), path.c_str());
+        return v;
+    }();
+    return ids;
+}
+bool HostOnlyBossOrModEvent(std::uint32_t event) { return bossfog::HostOnlyBossEvent(event, ModHostOnlyEvents()); }
 bool EventSyncLogOn() {
     static const bool on = [] {
         const char* v = std::getenv("BB_PARTY_EVENT_SYNC_LOG");
@@ -1571,11 +1636,11 @@ BB_COOP_SYSV u64 EventSyncRead(u64 man, u64 peer, u64 type, u64 buf, u64 size) {
             !((MessengerSyncFilterOn() && PerPlayerMessengerEvent(std::uint32_t(event))) ||
               (ItemGateSyncFilterOn() && PerPlayerItemGateEvent(std::uint32_t(event))) ||
               (LampSyncFilterOn() && deathrules::LampWarpEvent(std::uint32_t(event))) ||
-              (BossPhaseSyncFilterOn() && bossfog::HostOnlyBossEvent(std::uint32_t(event)) &&
-               PartyDirector::Get().Role() == PartyRole::Host))) {
+              (BossPhaseSyncFilterOn() && PartyDirector::Get().Role() == PartyRole::Host &&
+               HostOnlyBossOrModEvent(std::uint32_t(event))))) {
             return r;
         }
-        if (bossfog::HostOnlyBossEvent(std::uint32_t(event))) {
+        if (PartyDirector::Get().Role() == PartyRole::Host && HostOnlyBossOrModEvent(std::uint32_t(event))) {
             // Main thread. A guest's copy of a boss's phase event finished on its own chr: not the host's call.
             static std::atomic<int> boss_drops{0};
             if (boss_drops.fetch_add(1) < 8) {
@@ -1745,6 +1810,9 @@ std::vector<EmevdSkipRule> GuestServicesSkipRules() {
         return {};
     }
     std::vector<EmevdSkipRule> out = DollPlacementRules();
+    for (const EmevdSkipRule& r : AnnaliseKneelRules()) {
+        out.push_back(r);
+    }
     if (GuestLampsAtStart()) {
         for (const EmevdSkipRule& r : LampSkipRules()) {
             out.push_back(r);
@@ -1800,7 +1868,7 @@ void HostLampRepairTick(const GameSnapshot& s) {
     std::string fixed;
     int n_fixed = 0;
     bool wrote = false;
-    for (const lamptravel::Lamp& l : lamptravel::kLamps) {
+    for (const lamptravel::Lamp& l : lamptravel::Lamps()) {
         const std::vector<std::uint32_t> missing = lampshare::HalfLitRepair(l.aab, l.n, is_set);
         if (missing.empty()) {
             continue;
@@ -1926,7 +1994,7 @@ void GuestOwnLampsTick(const GameSnapshot& s) {
     };
     std::string held, kept;
     const bool bring = lampshare::SendOwnLamps(rule);
-    for (const lamptravel::Lamp& l : lamptravel::kLamps) {
+    for (const lamptravel::Lamp& l : lamptravel::Lamps()) {
         std::vector<std::uint32_t> add = lampshare::Missing(l.aab, l.n, mine, theirs);
         const std::uint32_t boss = lampshare::BlockBossFlag(l.aab);
         if (!add.empty() && !bring) {
@@ -1965,7 +2033,7 @@ void GuestOwnLampsTick(const GameSnapshot& s) {
     // kindled" to its object and as lit to its kindle event, so lighting it does nothing. Set the two
     // list flags in the visible tree too.
     std::string shown;
-    for (const lamptravel::Lamp& l : lamptravel::kLamps) {
+    for (const lamptravel::Lamp& l : lamptravel::Lamps()) {
         const std::vector<std::uint32_t> f = lampshare::LitFlags(l.aab, l.n);
         bool lit7 = false, lit10 = true;
         if (progress::ReadFlag(f[2], &lit7) && lit7 && progress::ReadFlag(f[0], &lit10) && !lit10 &&
@@ -2895,7 +2963,7 @@ void LastLampGuardTick(const GameSnapshot& s) {
         return;
     }
     next = now + 0.2;
-    for (const lamptravel::Lamp& l : lamptravel::kLamps) {
+    for (const lamptravel::Lamp& l : lamptravel::Lamps()) {
         const std::uint32_t rp = lamptravel::ReturnPoint(l);
         if (lamptravel::MapOf(rp) != (s.map_id & 0xffff0000u)) {
             continue;

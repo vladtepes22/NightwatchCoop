@@ -857,6 +857,16 @@ void DefineAll() {
                    "Хост решает, кто входит без кода группы (открытая группа, список лобби в лаунчере)"),
            {AddText("Host only", "Только хост")}, Kind::Button,
            [] { return party::status::Snapshot().role == party::status::Role::Guest; });
+    // A pop-up list opens over the rows below it, so the list is the page's last row (the guests' Info line is above it).
+    // 0.7.9 (CL-7e748c): how many invaders at once (1 or 2); the host's value, live. Both count against Max players.
+    AddRow(Setting(
+               Kind::List, [](const Values& v) { return std::clamp(v.party_max_invaders.load(), 1, 2) - 1; },
+               [](int i) { BbSettings::Get().party_max_invaders = std::clamp(i + 1, 1, 2); }),
+           AddText("Max invaders", "Макс. вторженцев"),
+           AddText("Invaders at once in your world: 1 or 2. They count against Max players and the game's four slots",
+                   "Вторженцев одновременно: 1 или 2. Они занимают места группы и четыре места игры"),
+           {AddText("1", "1"), AddText("2", "2")}, Kind::List,
+           [] { return party::status::Snapshot().role != party::status::Role::Guest; });
 
     // The split-travel question (party_split.cpp): a game dialog with YES / NO after a lamp,
     // headstone or Hunter's Mark in a party (docs/party/split_travel.md).
@@ -1323,11 +1333,19 @@ void DefineAll() {
            "A short notice when an item is shared with the party (key and unique items, weapons, runes)",
            "Короткое уведомление, когда предмет передан группе (ключевые и уникальные предметы, оружие, руны)", toggle,
            Kind::Toggle);
+    AddPage("My party: Giving", "Моя группа: передача",
+            "Yours: give items, weapons and armor to party members from the inventory, and receive them (bbport)",
+            "Ваше: передача предметов, оружия и брони охотникам из инвентаря и приём (bbport)");
     // visy 0.7.8: give items to a party member (the inventory's item menu: Use / Discard / Give); off by default, also the
     // consent to receive.
     AddRow(Flag(&Values::party_give_items), "Give items to the party", "Передача предметов",
            "Adds Give to an item's menu in the inventory, and lets hunters give you items. Not key or story items",
            "Добавляет «Передать» в меню предмета и разрешает охотникам передавать вам предметы. Не ключевые",
+           toggle, Kind::Toggle);
+    // 0.7.9: weapons and armor (with the weapon's upgrade level and blood gems); its own switch, off by default, also the consent to receive.
+    AddRow(Flag(&Values::party_give_gear), "Give weapons and armor", "Передача оружия и брони",
+           "Adds Give to a weapon's or armor's menu (gems kept); hunters can give you gear. Not worn or story gear",
+           "Передача оружия и брони (улучшение и самоцветы сохраняются) и приём. Не надетое и не сюжетное",
            toggle, Kind::Toggle);
 
 
@@ -1421,6 +1439,9 @@ void DefineAll() {
     own(&Values::party_glyph_list, "Chalice glyph list", "Список глифов чаши",
         "The Ritual Altar's glyph search lists the party's glyphs to pick from first. Off by default",
         "Поиск глифа у Алтаря ритуалов сначала показывает глифы группы. По умолчанию выкл.");
+    own(&Values::party_guest_altar, "Ritual Altar as a guest", "Алтарь ритуалов гостем",
+        "As a guest you can use the Ritual Altar in the host's Dream, with your own chalice. Off by default",
+        "Гость в Сне охотника может пользоваться Алтарём ритуалов: ритуал с вашей чашей. По умолчанию выкл.");
 
     // ---- My party: Names (0.7.8, namefilter): hateful member names are shown masked on this PC. ON by default (safety),
     // unlike other new party features; the real name stays the member's identity (party/name_filter.h). ----

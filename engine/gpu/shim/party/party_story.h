@@ -114,7 +114,7 @@ bool ReplayWorthy(const StoryIntent& s);
 /// the calm wait left the grabbed guest 9 s in the cell before its scene).
 bool ReplayIgnoresCalm(std::uint32_t remo_id);
 /// A remo id the game has: remo/sAA_BB_NNNN.remobnd.dcx or an EMEVD 2002 play (party_ids.h,
-/// generated from the game data by tools/party/ids_tool.py). Anything else would make the
+/// read from the player's own game, scripts/partydata/ids_tool.py). Anything else would make the
 /// guest's game look for a file that is not there.
 bool StoryRemoKnown(std::uint32_t remo_id);
 /// A story intent from the host (bbport security pass): false (with `why`) for a cutscene id

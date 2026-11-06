@@ -50,11 +50,12 @@ class BadgeRowsStayPerPlayer(unittest.TestCase):
     Tonitrus / Bolt Paper after the Spark Hunter Badge) and the Eye sale never travel between players."""
 
     def test_rows_and_eye_sale_are_never_sync(self):
-        rows = ft.load_inc(str(REPO / "gpu" / "shim" / "party" / "party_flags.inc"))
+        rows = ft.static_rows()  # our own override rows: no game data needed
         for flag in list(range(12101000, 12101010)) + [12101100, 12101101]:
             self.assertEqual(ft.categorize(rows, flag)[0], "never_sync", flag)
-        # the neighbours stay shared: 12101010 sets the time-of-day shop flags 5900-5904
-        self.assertEqual(ft.categorize(rows, 12101010)[0], "npc_quest")
+        # the neighbours are not overridden: 12101010 sets the time-of-day shop flags 5900-5904 (the derived rows
+        # of the player's game file it as npc_quest; the structural row of its group is world_state)
+        self.assertNotEqual(ft.categorize(rows, 12101010)[0], "never_sync")
 
 
 if __name__ == "__main__":

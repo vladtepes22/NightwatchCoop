@@ -17,6 +17,10 @@ import saveedit_cli as cli
 from saveedit import instances, model, names, store
 
 
+# Boss / lamp lists for the tests: the real ones are derived from the player's game files (flagsdata.derive).
+PROGRESS = {"bosses": [[12401800, 0], [12411700, 0], [13401800, 0]], "lamps": [72410200]}
+
+
 class SaveEditorCliTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -93,7 +97,8 @@ class SaveEditorCliTests(unittest.TestCase):
 
     def test_progress_findings_and_repairs(self):
         self.file.write_bytes(make_save(name="Tester", phantom=1))
-        catalogue = names.Catalogue({"names": {}, "ids": {"weapon": [22000000, 22000300, 22000500, 22001000]}})
+        catalogue = names.Catalogue({"names": {}, "ids": {"weapon": [22000000, 22000300, 22000500, 22001000]},
+                                     "progress": PROGRESS})
         with patch.object(names.Catalogue, "load", return_value=catalogue):
             shown = self.call("show")[1]
             boss = next(f for f in shown["flags"] if f["kind"] == "boss")
@@ -116,13 +121,18 @@ class SaveEditorCliTests(unittest.TestCase):
         m = model.SaveModel(self.original)
         m.set_flag(12411700, True)
         self.file.write_bytes(m.to_bytes())
-        revision = self.call("show")[1]["revision"]
-        code, result = self.call("apply", dict(revision=revision, flags=[dict(id=12411700, on=False)]))
-        self.assertEqual(code, 0, result)
-        self.assertFalse(model.SaveModel(self.file.read_bytes()).flag(12411700))
-        self.assertFalse(next(f for f in self.call("show")[1]["flags"] if f["id"] == 12411700)["on"])
+        with patch.object(names.Catalogue, "load", return_value=names.Catalogue({"progress": PROGRESS})):
+            revision = self.call("show")[1]["revision"]
+            code, result = self.call("apply", dict(revision=revision, flags=[dict(id=12411700, on=False)]))
+            self.assertEqual(code, 0, result)
+            self.assertFalse(model.SaveModel(self.file.read_bytes()).flag(12411700))
+            self.assertFalse(next(f for f in self.call("show")[1]["flags"] if f["id"] == 12411700)["on"])
 
     def test_ludwig_group_sets_and_clears(self):
+        with patch.object(names.Catalogue, "load", return_value=names.Catalogue({"progress": PROGRESS})):
+            self._ludwig()
+
+    def _ludwig(self):
         for on in (True, False):
             revision = self.call("show")[1]["revision"]
             code, result = self.call("apply", dict(revision=revision, flags=[dict(id=13401800, on=on)]))

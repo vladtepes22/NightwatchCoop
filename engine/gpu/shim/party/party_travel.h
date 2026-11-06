@@ -113,8 +113,8 @@ std::string TravelToJsonText(const TravelIntent& t);
 bool TravelFromJsonText(const std::string& text, TravelIntent* out, std::string* error = nullptr);
 
 // ---- Peer validation (bbport security pass) ----
-/// Peer ids are checked against the game's own tables (party_ids.h, generated from the game
-/// data by tools/party/ids_tool.py), not by shape.
+/// Peer ids are checked against the game's own tables (party_ids.h, read from the player's own game
+/// files by scripts/partydata/ids_tool.py), not by shape.
 /// An existing map: area << 24 | block << 16 | region << 8 | index (a packed map, a pos map).
 bool TravelMapKnown(std::uint32_t packed_map);
 /// A ReturnPointParam ("WarpParam") row 0x13CDF30 can warp to: lamp, headstone, last lamp.

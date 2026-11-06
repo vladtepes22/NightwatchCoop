@@ -163,14 +163,15 @@ bool WorldTalkAllowed(std::uint32_t talk);
 struct GateRule {
     std::uint32_t boss, gate, also = 0;  ///< also: a second boss flag the gate needs (0: none)
 };
+/// From the party tables (gamedata section gateRules); empty without them.
 const std::vector<GateRule>& GateRules();
 
 /// B2 (ERSC parity): any party member may walk through a boss fog first. Vanilla lets a guest
 /// through only after the host ("host entered" flag ON, condition 3[0] of each guest-entry event
 /// `ゲストがボス部屋入場_*`). From every map EMEVD: the guest-entry event, the host-entered flag the
 /// boss's start event waits on, the guest-entered flag the event sets (network-synced: the host's
-/// game receives it), the boss-defeated flag. Amygdala (13204831) is left out: its guest flag is
-/// an event argument.
+/// game receives it), the boss-defeated flag. Derived from the player's game when the party tables are
+/// built (gamedata section bossGates, docs/party/gamedata.md); none without the tables.
 struct BossGate {
     std::uint32_t guest_event, host_flag, guest_flag, boss_flag;
     /// The guest-entry event's other ON condition: the host's first-fight entry (usually an intro

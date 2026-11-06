@@ -37,6 +37,16 @@ class TierTests(unittest.TestCase):
         self.assertEqual(names, smoke.QUICK_PHASES.split(","))
         self.assertEqual(len(names), 40)
 
+    def test_fast_tier_is_short_and_exists(self):
+        names = smoke.phase_list_for(args(tier="fast"))
+        self.assertEqual(names, smoke.FAST_PHASES.split(","))
+        self.assertFalse([p for p in names if p not in smoke.PHASES])
+        self.assertEqual(len(names), len(set(names)))
+        seed = json.loads(smoke.SEED_TIMES.read_text())
+        # the point of the tier: under an hour on the seed times (measured 0.7.8 walls), no phase over 5 min
+        self.assertLess(sum(seed[p] for p in names), 3600)
+        self.assertLess(max(seed[p] for p in names), 300)
+
     def test_release_flag_is_every_phase(self):
         self.assertEqual(smoke.phase_list_for(args(release=True)), list(smoke.PHASES))
 
@@ -68,6 +78,47 @@ class TierTests(unittest.TestCase):
         self.assertFalse(set(smoke.PHASES) - set(seed))
 
 
+class StuckTests(unittest.TestCase):
+    def test_every_phase_has_a_stuck_limit_inside_its_cap(self):
+        for name, mk in smoke.PHASES.items():
+            try:
+                ph = mk(set())
+            except AssertionError as e:
+                # Nightwatch: our System menu pages differ from visy's (rules walk RULES_PAGES); his smoke_party.py is
+                # his gate, not ours, so a phase that walks his menu layout is left out here.
+                if "RULES_PAGES out of step" in str(e):
+                    continue
+                raise
+            self.assertTrue(0 < smoke.stuck_seconds(ph) <= max(ph["seconds"], 150), name)
+
+    def test_long_chain_delay_raises_the_limit(self):
+        ph = dict(name="x", seconds=900, env=[], ienv=["0:BB_PARTY_DIRECTOR_TEST=host_press=0@3,host_press=0@200"])
+        self.assertEqual(smoke.stuck_seconds(ph), 1.5 * 200 + 90)
+        ph["ienv"] = ["0:BB_PARTY_DIRECTOR_TEST=host_press=0@3"]
+        self.assertEqual(smoke.stuck_seconds(ph), 150)
+
+    def test_instances_run_uses_the_stuck_watch_under_its_own_name(self):
+        # 0.7.9: `watch` is the crash plan's loop variable in run(); a clash crashed every scripted run (s2, twice)
+        import re
+        src = (MP / "instances.py").read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"^\s+if watch:", src, re.M))
+        self.assertNotIn("watch.feed(", src.replace("stuck_watch.feed(", ""))
+
+    def test_watch_progress_dead_and_stuck(self):
+        import instances
+        w = instances.StuckWatch(2, 100, 50)
+        w.feed(0, "[+ 1.0] [coop] Party: test: target pos: entity 1 at (0,0,0)\n")
+        w.at -= 120
+        self.assertIn("STUCK", w.verdict())  # polling lines are no progress
+        w.feed(0, "[+ 1.0] [coop] Party: test: target pos: entity 1 at (0,0,0)\n[+ 2.0] x test: travel step 2/5: guest_press0 (world up)\n")
+        self.assertIsNone(w.verdict())
+        w.feed(1, "[+ 3.0] x test: travel step 3 (guest_press) waits: the own chr is dead\n")
+        w.dead_at -= 60
+        self.assertIn("DEAD", w.verdict())
+        w.feed(1, "[+ 3.0] x test: travel step 3 (guest_press) waits: the own chr is dead\n[+ 4.0] Party: loading screen up\n")  # a load is progress: the wait is over
+        self.assertIsNone(w.verdict())
+
+
 class ChangedSinceTests(unittest.TestCase):
     def run_diff(self, files):
         out = types.SimpleNamespace(returncode=0, stdout="\n".join(files), stderr="")
@@ -88,9 +139,9 @@ class ChangedSinceTests(unittest.TestCase):
         names, _ = self.run_diff(["gpu/shim/party/party_rudp.cpp"])
         self.assertEqual(set(names), set(smoke.QUICK_PHASES.split(",")))
 
-    def test_harness_change_runs_the_quick_tier(self):
+    def test_harness_change_runs_the_fast_tier(self):
         names, _ = self.run_diff(["tools/mp/smoke_party.py"])
-        self.assertEqual(set(names), set(smoke.QUICK_PHASES.split(",")))
+        self.assertEqual(set(names), set(smoke.FAST_PHASES.split(",")))
 
 
 class ProgressTests(unittest.TestCase):

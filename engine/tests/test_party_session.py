@@ -14,6 +14,8 @@ import flag_tool as ft  # noqa: E402
 import save_decode as sd  # noqa: E402
 
 SAVE = "1/CUSA03173/SPRJ0005"
+# the boss / lamp lists come from the player's game at run time; the test hands in the flags its saves use
+PROGRESS = {"bosses": [[12401800, 0], [12411800, 0]], "lamps": [72400200, 72400201]}
 TEST_SAVE = Path(r"E:\games\bbport\test_saves\cathedral_day\savedata\1\CUSA00207\SPRJ0005\userdata0000")
 
 
@@ -151,7 +153,7 @@ class PartySessionTests(unittest.TestCase):
         save = self.user / "savedata_party" / SAVE
         # lost boss + lamp, level and play time down
         write(save / "userdata0000", synthetic_slot(play_ms=1_000_000, level=30, flags=(72400200,)))
-        problems = ps.check(self.user)
+        problems = ps.check(self.user, progress=PROGRESS)
         text = "\n".join(m for _, m in problems)
         self.assertIn("1 boss kill from before the session are undone (flags 12401800)", text)
         self.assertIn("1 lamp lit before the session are unlit again (flags 72400201)", text)
@@ -200,14 +202,13 @@ class PartySessionTests(unittest.TestCase):
         write(self.user / "savedata_party" / SAVE / "userdata0000", synthetic_slot(name="Other", level=4, play_ms=10))
         self.assertEqual(ps.check(self.user), [])
 
-    def test_progress_flags_match_the_party_flag_table(self):
-        rows = ft.load_inc(REPO / "gpu" / "shim" / "party" / "party_flags.inc")
-        for f in ps.BOSS_FLAGS:
-            self.assertEqual(ft.categorize(rows, f)[0], "boss_defeated", f)
-        for f in ps.LAMP_FLAGS:
-            self.assertEqual(ft.categorize(rows, f)[0], "lamp_unlocked", f)
-        for f in ps.BOSS_FLAGS + ps.LAMP_FLAGS + ps.ENDING_FLAGS:
-            self.assertEqual(ps._group_key(f), sd.group_key(f))
+    def test_progress_lists_come_from_the_caller(self):
+        self.start_session()
+        # no lists (no game folder at hand): the boss / lamp comparison is skipped, the rest still runs
+        write(self.user / "savedata_party" / SAVE / "userdata0000", synthetic_slot(play_ms=4_000_000, level=40))
+        self.assertEqual(ps.check(self.user), [])
+        self.assertTrue(all(ps._group_key(f) == sd.group_key(f) for f in ps.ENDING_FLAGS))
+        self.assertTrue(all(ps._group_key(f) == sd.group_key(f) for f in (12401800, 72400200)))
 
     @unittest.skipUnless(TEST_SAVE.is_file(), "no test save on this PC")
     def test_real_save(self):
@@ -217,7 +218,7 @@ class PartySessionTests(unittest.TestCase):
         self.assertEqual(s.pool, ref.pool)
         self.assertEqual((s.ng_cycle, s.ending_type), (0, 0))
         self.assertEqual(s.character()["level"], ref.character()["level"])
-        for f in ps.BOSS_FLAGS + ps.LAMP_FLAGS:
+        for f in (12401800, 72400200, 72400201):
             self.assertEqual(s.flag(f), ref.flag(f))
         self.assertTrue(s.flag(12401800) and s.flag(72400200))
 

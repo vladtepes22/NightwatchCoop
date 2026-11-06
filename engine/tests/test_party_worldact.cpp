@@ -2,6 +2,7 @@
 // Guest world actions (gpu/shim/party/party_worldact.h): the whitelist, the request JSON and its
 // validation, the host's rate limit, the NPC talk allowance.
 // cmake --build out/gpu --target party-worldact-test && out/gpu/party-worldact-test
+#include "party_tables_test.h"
 #include "party/party_npcghost.h"
 #include "party/party_progress.h"
 #include "party/party_worldact.h"
@@ -14,6 +15,45 @@ using namespace coop::worldact;
 namespace pg = coop::progress;
 
 int main() {
+    // The boss fog gates and the area gate rules come from the party tables (derived from the player's event
+    // scripts): none without them, and exactly the installed rows with made-up tables.
+    {
+        coop::gamedata::Install(coop::gamedata::Tables{});
+        assert(BossGates().empty() && GateRules().empty() && !BossGateByEvent(1001) && !BossGateByGuestFlag(1002));
+        coop::gamedata::Tables t;
+        t.loaded = true;
+        t.boss_gates = {{1001, 1002, 1003, 1004, 1005, 1006, 0}, {2001, 2002, 2003, 2004, 0, 2006, 2007}};
+        t.gate_rules = {{1004, 2500, 0}, {1004, 2501, 2004}};
+        coop::gamedata::Install(t);
+        assert(BossGates().size() == 2 && GateRules().size() == 2 && GateRules()[1].also == 2004);
+        const BossGate& a = *BossGateByEvent(1001);
+        assert(a.host_flag == 1002 && a.guest_flag == 1003 && a.boss_flag == 1004 && a.intro_flag == 1005 &&
+               a.fog_entity == 1006 && a.landing_event == 0 && BossGateByGuestFlag(1003) == &a);
+        const BossGate& b = *BossGateByEvent(2001);
+        assert(BossGateByLandingEvent(2007) == &b && !BossGateByLandingEvent(1001));
+        assert(BossGateSkipCondition(1001, 3, 0, 1002) && BossGateSkipCondition(2007, 3, 0, 2002));
+        assert(!BossGateSkipCondition(1001, 3, 0, 1004) && !BossGateSkipCondition(3001, 3, 0, 1002));
+        assert(BossGateWaitsForHost(a, false, false, false) && !BossGateWaitsForHost(b, false, false, false));  // no intro: none
+        coop::gamedata::Install(coop::gamedata::Tables{});
+        assert(BossGates().empty() && GateRules().empty());
+    }
+    // The host's first-fight spots come from the tables too (the MSB regions of the first-fight events).
+    {
+        coop::gamedata::Install(coop::gamedata::Tables{});
+        assert(!FirstFightSpotFor(1005) && !FirstFightSpotFor(0));
+        coop::gamedata::Tables t;
+        t.loaded = true;
+        t.first_fights = {{1005, 1.0f, 2.5f, 3.0f, false, true}, {2005, -7.0f, 8.0f, 9.0f, true, false}};
+        coop::gamedata::Install(t);
+        const FirstFightSpot* a = FirstFightSpotFor(1005);
+        const FirstFightSpot* b = FirstFightSpotFor(2005);
+        assert(a && b && a->pos[1] == 2.5f && a->scene && !a->chained && b->pos[0] == -7.0f && b->chained && !b->scene);
+        assert(!FirstFightSpotFor(1006));
+        coop::gamedata::Install(coop::gamedata::Tables{});
+        assert(!FirstFightSpotFor(1005));
+    }
+    // CategoryOf reads the event-flag category table of the player's own game (flagRows): skipped without it.
+    if (!coop::test::UseGameTables("party-worldact-test")) return 0;
     const std::uint32_t m2401 = 0x18010000u, m2400 = 0x18000000u, m2200 = 0x16000000u, dream = 0x15000000u;
     // Doors / levers of the host's area: set and clear (elevators toggle).
     assert(pg::CategoryOf(12410200) == pg::Category::shortcut_door);
@@ -40,7 +80,8 @@ int main() {
     assert(!WorldActionAllowed(9074, true, m2400));       // never cleared by a guest
     assert(!WorldActionAllowed(9043, false, m2400));      // repeatable 9100 gift (Blood of Arianna ...)
     for (std::uint32_t id = 9042; id <= 9077; ++id) {
-        assert(WorldActionAllowed(id, false, m2401) == NpcGiftTrigger(id));
+        // 9042 (Annalise's Caryll rune) is the guest's own gift since 0.7.9 (OwnTalkGiftLot): never a world action
+        assert(WorldActionAllowed(id, false, m2401) == (NpcGiftTrigger(id) && id != 9042));
     }
     assert(!WorldActionAllowed(21, false, m2401));       // ending
     assert(!WorldActionAllowed(6600, false, m2401));     // own pool (personal)
@@ -428,7 +469,8 @@ int main() {
     // Valtr's rune / League Staff triggers (m27 12700906): the guest's own gift, never the host's,
     // whatever the rule.
     assert(OwnTalkGiftLot(72700321) == 43120 && OwnTalkGiftLot(72700322) == 43130);
-    assert(OwnTalkGiftLot(72700320) < 0 && OwnTalkGiftLot(9042) < 0 && OwnTalkGiftLot(0) < 0);
+    assert(OwnTalkGiftLot(72700320) < 0 && OwnTalkGiftLot(9042) == 17000 && OwnTalkGiftLot(9045) < 0 &&
+           OwnTalkGiftLot(0) < 0);  // 0.7.9: Annalise's Caryll rune, common event 9040
     for (const bool rule : {true, false}) {
         pg::SetCovenantPerPlayer(rule);
         assert(!WorldActionAllowed(72700321, false, m2700) && !WorldActionAllowed(72700322, false, m2700));

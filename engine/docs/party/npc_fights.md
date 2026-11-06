@@ -92,8 +92,8 @@ Rules tab *NPC hunters fight the whole party*, bbport.ini `party_npc_fights`,
   Valtr's 8, is untouched); every other dispatch writes the data's 27 back.
 - **Assassins** (`kAssassins`): a guest shows Brador / the Hamlet assassin (drops SpEffect 5560,
   adds 8060, clears its invincibility) while the host-world flag its appear event sets is on, and
-  hides it again when the host's forced return clears it. **Not verified live** (the fixture needs
-  the Research Hall's omen conditions); the "no hit" state (`2004[39]`) has no known field yet.
+  hides it again when the host's forced return clears it. **Live (0.7.9 `nfb` / `nfh`, section 4)**: both come out on team 23 on both games and
+  their flags reach the guest, so this tick found nothing to do in the runs; the "no hit" state (`2004[39]`) has no known field yet.
 - **Slots** (`AiSummonFits`): only the Bell signs and the Chalice NPC invader use the 5-entry slot
   table, under the game's four-player limit. The party's default of 3 players leaves one; a 4-player
   party has none (as in vanilla with three cooperators). Nothing is patched for it.
@@ -176,13 +176,38 @@ Group `npc_invader` (`smoke_party.py --only npc_invader`), loopback, 2 players, 
   dump shows HP 0 at the same second. The NPC then returns home (disabled, HP restored: the task's Return step).
 - No party-side bug was found: the case works with the code as it is. The fixture is the only way to trigger it.
 
-Not verified live:
-- a guest's real killing blow (run 3 used `guest_kill :hp`, the HP 0 a lethal hit leaves; 8 real R1
-  did 11 each against 3100 HP);
-- the mid-session transitions other than 12500053 (12400593, 12400656, 12700905, 13400920, 13500920)
-  firing while the guest stands next to the NPC; the rewrite is the same;
-- the team 23 switch on the other hunters (only Alfred in Cainhurst was fought);
-- the assassins (Brador, the Fishing Hamlet), Valtr, Djura, the DLC hunters;
+### Every story hunter, live (five of six reliable; smoke phases `nfn`, `nfr`, `nfv`, `nfd`, `nfb`, `nfh`, 0.7.9 hunters079)
+
+Loopback, 2 players, one phase per hunter, each ~5-8 min (`smoke_party.py --only <group>`). The three provoked
+hunters share one shape (`nfh`-style fixture of `phase_nfh`, like `nfw`): the NPC stands friendly in its quest
+state (set by the fixture, the rest of the state range cleared), the host stands in front of it and hits it, the
+guest stands beside it; the host's "turns hostile" event fires (HP at 90 % or the provoke flag, host-only gate), the
+guest's copy re-teams it 8 -> 23 on its game within the second, the guest locks on, its real R1s take the HP down
+identically on both games (the same series), the host's HP 0 (the game's own death) reaches the guest's chr dump
+and the quest state moves to its death state on the host AND in the guest's world view.
+
+| Phase | Hunter | Result |
+|---|---|---|
+| `nfn` | Hunter's Nightmare hunter (`kGuestRuns` 13400920, state 1720 -> hostile 1725 -> dead 1710) | 16/16: host team 27, guest team 23 after the host's blows, lock-on, 15 R1 on both games, death + state 1710 on both |
+| `nfr` | Research Hall hunter (13500920, 1722 -> 1727 -> 1712) | 16/16, same rows |
+| `nfv` | Valtr (12700905, 1800 -> 1805 -> 1790) | 16/16; his states are covenant outcomes (per player by decision), so only the host's states are required to change; the guest's chr dies with HP 0 |
+| `nfb` | Brador, the Research Hall's church assassin (3500936) | the host walks to the omen spot with the goods his event checks (one of the host's own, given by the fixture), he appears on both games (team 23 on both: no conversion needed), the guest locks on and hurts him on both games, his HP 0 reaches the guest, the done flag 13505912 on both |
+| `nfh` | A Fishing Hamlet assassin (3600900) | same rows; the omen fires when the host stands beside the waiting chr; done flag 13605970 on both |
+| `nfd` | Djura (Old Yharnam, 2300710) | Green (3 first-try greens in a row with the fixed phase, plus one run green after a check fix and retries). The guest's copy of his events already runs (gates accept chr type 0 or 1). Cause of the old flakiness was the phase, not the game: Djura stands beside a ledge (an 18 m drop) and the phase put the host and the guest 1.5 / 1.2 m east of him; his blows or the player's own R1 lunge pushed them off, a fall death sent the guest to the lamp 149 m away (the old "Djura 149 m away", no lock-on, 0 R1 on him) and the host's falls ended the fight early. Now both stand on his south side (90 deg, the safe floor). His hostile state is 1322 or 1323 run to run (both accepted). Two shared-machine runs were cut by an outside kill after 90 s; not a game fault |
+
+What these showed: the three provoked hunters needed no code change (the existing `kGuestRuns` / `TeamFor`
+rewrite does what it says for every listed event), and neither did the assassins: Brador and the Hamlet assassin
+come out on team 23 (a foe for a phantom) and the flags their events set reach the guest's world, so the guest
+fights them without the guest-side show (`kAssassins`' tick found nothing to do: its log line is absent). Not
+proven: a guest-only trigger (the assassin events need the host's chr type and goods, so a guest alone near the
+omen spot gets no assassin), the other two Hamlet assassins and the Hamlet assassin's real kill by the guest (all
+phases end with the host's HP 0 after the guest's blows), more than one guest, simulated-internet runs.
+
+Not verified live (after 0.7.9):
+- a guest's real killing blow on any of them (every phase ends with the host's HP 0 after the guest's blows; `nfe`
+  alone used a guest's last real hit);
+- a guest-only trigger of Brador / the Hamlet assassins, the other two Hamlet assassins, the second Hunter's
+  Nightmare hunter (3400903);
+- more than one guest, simulated-internet runs (BB_NET_SIM) of the hunter phases;
 - the Chalice NPC invader event 12904634 itself (prototype layout only: not reachable in the retail game; `npi` runs the same session-type-28 summon through the Bell fixture);
-- AI-player summons (Bell signs) with a full 4-player party;
-- the DLC hunters (Hunter's Nightmare 13400920, Research Hall 13500920) and Brador / the Fishing Hamlet assassins: follow-up.
+- AI-player summons (Bell signs) with a full 4-player party.

@@ -1024,3 +1024,12 @@ drops a peer's 0x31 state for them (`EventSyncRead`, log `Boss phase: event N's 
 guests still take the host's. `BB_PARTY_BOSS_PHASE_SYNC=1` restores the old behaviour (test A/B). What is not
 proven: why a real guest's copy fell below half (the stale doping row 7502 against the reloaded host chr's HP is the
 likely source); the filter does not depend on it.
+
+Mods: the list matches ids, so a mod that adds or copies a boss's phase events under ids of its own (a copy needs an
+id of the map it moves to) is not covered: a guest's state for the copy is applied on the host. A mod lists those
+ids in `party_host_only.txt` in its folder (beside `dvdroot_ps4`; one decimal id per line, `#` comments);
+`scripts/mods.py` merges the enabled mods' lists into `out/party_host_only.txt` (at most 4096 ids, a mod with a bad
+line is left out with a `Mods:` line), and the host reads it once (`party_guestsvc.cpp` `ModHostOnlyEvents`, log
+`Boss phase: N host-only events from the mods`) and drops a peer's state for those ids as for the fixed list. No
+file, mods off (`BB_MODS_ENABLED=0`) or a broken file: the fixed list only. Guests need no list (the filter is the
+host's).

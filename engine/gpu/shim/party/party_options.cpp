@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "party_options.h"
+#include "../net/party_vpnlobby.h"
 
 namespace party {
 
 namespace {
 const char* onoff(int v) { return v ? "on" : "off"; }
 const char kPrefix[] = "[host options: ";
+const char kModsPrefix[] = "[host mods: ";
 }  // namespace
 
 bool HeadstonesFromEnv(const char* v, bool lamps) {
@@ -73,6 +75,27 @@ bool reject_split_options(const std::string& text, std::string* reason, HostOpti
             if (reason) *reason = text.substr(close + 2);
             if (host) *host = o;
             return true;
+        }
+    }
+    if (reason) *reason = text;
+    return false;
+}
+
+std::string reject_with_mods(const std::string& reason, const std::string& label) {
+    return bbnet::lobby::valid_mods_label(label) ? kModsPrefix + label + "] " + reason : reason;
+}
+
+bool reject_split_mods(const std::string& text, std::string* reason, std::string* label) {
+    const std::string pre = kModsPrefix;
+    if (text.compare(0, pre.size(), pre) == 0) {
+        const std::size_t close = text.find("] ", pre.size());
+        if (close != std::string::npos) {
+            const std::string l = text.substr(pre.size(), close - pre.size());
+            if (bbnet::lobby::valid_mods_label(l)) {
+                if (reason) *reason = text.substr(close + 2);
+                if (label) *label = l;
+                return true;
+            }
         }
     }
     if (reason) *reason = text;

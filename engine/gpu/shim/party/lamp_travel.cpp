@@ -174,7 +174,7 @@ bool PlayerPos(u64 player, float out[3]) {
 
 std::vector<Spot> LampSpots() {
     std::vector<Spot> v;
-    for (const Lamp& l : kLamps) {
+    for (const Lamp& l : Lamps()) {
         float sp[4];
         if (ids::ReturnSpot(ReturnPoint(l), sp)) v.push_back({ReturnPoint(l), sp[0], sp[1], sp[2]});
     }
@@ -483,7 +483,7 @@ void MapWatchTick(const GameSnapshot& s, double now) {
     }
     std::vector<u32> lit;
     if (s.world_up && !s.loading) {
-        for (const Lamp& l : kLamps)
+        for (const Lamp& l : Lamps())
             if (MapTravelTarget(ReturnPoint(l), &Flag, &KnownReturnPoint)) lit.push_back(ReturnPoint(l));
     }
     std::lock_guard<std::mutex> lk(g_map_snap_mu);
@@ -706,7 +706,7 @@ void TestTick(const GameSnapshot& s, double now) {
         }
         if (g_t.map) {
             u32 to = g_t.map_to;
-            for (const Lamp& l : kLamps) {
+            for (const Lamp& l : Lamps()) {
                 if (to) break;
                 if (MapTravelAllowedTo(ReturnPoint(l))) to = ReturnPoint(l);
             }
@@ -729,7 +729,7 @@ void TestTick(const GameSnapshot& s, double now) {
             float me[3];
             if (!PlayerPos(s.player, me)) return;
             float best = 1e18f;
-            for (const Lamp& l : kLamps) {
+            for (const Lamp& l : Lamps()) {
                 float sp[4];
                 const u32 rp = ReturnPoint(l);
                 if (MapOf(rp) != (s.map_id & 0xffff0000u) || !Flag(LitFlag(l)) || !ids::ReturnSpot(rp, sp)) continue;

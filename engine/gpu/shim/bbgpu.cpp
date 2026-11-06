@@ -1,3 +1,4 @@
+#include "gamedata/build.h"
 #include "../../src/runtime_logdrain.h"
 #include "bbport_write_log.h"
 #include "bbport_gnm_hooks.h"
@@ -353,6 +354,9 @@ static void StartProfileWriter() {
 }
 #endif
 
+extern "C" void bbgpu_party_data_start(const char* app0, const char* user_dir) {
+    coop::gamedata::StartBackground(app0 ? app0 : "", user_dir ? user_dir : "");
+}
 extern "C" int bbgpu_init(const BbGpuConfig* config) {
     BbSettings::Load();
     Shader::RegisterSrtFaultHandler();

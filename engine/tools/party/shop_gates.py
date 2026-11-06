@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Messenger shop gates (ShopLineupParam.qwcId = an event flag): what sets each one and whether the
-party shares it (docs/party/shop_gates.md).
+party shares it (writes only the files you name, never into the repo).
 
   python -I tools/party/shop_gates.py GAME [--md OUT.md] [--json OUT.json]
 
@@ -64,7 +64,7 @@ def build(game):
     emedf = ft.load_emedf(ft.find_emedf(game / "event"))
     allrec = ft.expand_all(game / "event", emedf, cross_map=True)
     text = names(game)
-    cats = ft.load_inc(Path(__file__).resolve().parents[2] / "gpu/shim/party/party_flags.inc")
+    cats = ft.category_rows(game)[0]
 
     def cat(f):
         for lo, hi, c, _n in cats:

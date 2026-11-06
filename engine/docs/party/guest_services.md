@@ -211,7 +211,7 @@ command uses the same menu request and works, 5.).
 
 Playtest 1 (bug 10): the handshake flags went to the host as npc_quest world actions (72100100-102
 and 12100112-114 fell into the m21 NPC ranges), so the HOST knelt and its Doll gestured for the
-guest's level-up. party_flags.inc now has never_sync override rows (flag_tool.py OVERRIDE_ROWS):
+guest's level-up. the flag category table (flagRows) now has never_sync override rows (flag_tool.py OVERRIDE_ROWS):
 12100112-12100118 (kneel, gesture, SFX, bow, surprise, gesture reaction), 72100100-72100102,
 72100105-72100108 (idle talk / bow / surprise triggers), 72100110 and 72100113 (talk state). Each
 player levels up at its own Doll; the key-item gift (72100112 / 72100114) is unchanged.

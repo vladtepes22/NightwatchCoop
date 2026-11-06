@@ -697,6 +697,65 @@ std::uint32_t InventoryItemId(std::uint64_t rec, std::int32_t index) {
 }
 }  // namespace
 
+std::vector<InventoryEntry> InventoryEntries() {
+    std::vector<InventoryEntry> out;
+    const std::uint64_t rec = Field<std::uint64_t>(Slot(kGameDataMan), 8, 0);
+    if (!rec) return out;
+    const std::uint64_t list = rec + kRecInventory;
+    const std::int32_t last = Field<std::int32_t>(list, 0x88, -1);
+    const std::uint32_t split = Field<std::uint32_t>(list, 0x24, 0);
+    const std::uint64_t first = Field<std::uint64_t>(list, 0x58, 0), norm = Field<std::uint64_t>(list, 0x48, 0);
+    if (last < 0 || last > 8192 || split > 4096 || !first || !norm) return out;
+    for (std::int32_t i = 0; i <= last; ++i) {
+        const std::uint32_t u = static_cast<std::uint32_t>(i);
+        const std::uint64_t entry = u < split ? first + 16ull * u : norm + 16ull * (u - split);
+        std::uint32_t w[3] = {};
+        if (!SafeRead(entry, w, sizeof w) || w[0] == 0) continue;
+        InventoryEntry e;
+        e.index = i;
+        e.handle = w[0];
+        e.item = w[1];
+        e.count = static_cast<int>(w[2]);
+        out.push_back(e);
+    }
+    return out;
+}
+
+int InventoryFreeSlots() {
+    const std::uint64_t rec = Field<std::uint64_t>(Slot(kGameDataMan), 8, 0);
+    if (!rec) return -1;
+    const std::uint64_t list = rec + kRecInventory;
+    const std::uint32_t cap = Field<std::uint32_t>(list, 0x14, 0);
+    const std::uint64_t norm = Field<std::uint64_t>(list, 0x48, 0);
+    if (!norm || cap == 0 || cap > 8192) return -1;
+    int free_n = 0;
+    for (std::uint32_t i = 0; i < cap; ++i) {
+        std::uint32_t h = 0;
+        if (!SafeGet(norm + 16ull * i, &h)) return -1;
+        if (h == 0) ++free_n;
+    }
+    return free_n;
+}
+
+bool HandleEquipped(std::uint32_t handle) {
+    const std::uint64_t rec = Field<std::uint64_t>(Slot(kGameDataMan), 8, 0);
+    if (!rec || handle == 0 || handle == 0xffffffffu) return false;
+    for (int k = 0; k < 32; ++k) {
+        if (Field<std::uint32_t>(rec, kRecEquipHandle + 4ull * k, 0) == handle) return true;
+    }
+    return false;
+}
+
+bool RemoveInventoryIndex(int index) {
+    static int st = 0;
+    const std::uint64_t rec = Field<std::uint64_t>(Slot(kGameDataMan), 8, 0);
+    if (!rec || index < 0) return false;
+    if (!CodeOk(0x14d0310, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x53, 0x50, 0x41, 0x89, 0xd6}, "inventory remove", &st)) return false;
+    reinterpret_cast<void(BB_COOP_SYSV*)(std::uint64_t, std::int32_t, std::uint8_t)>(Guest(0x14d0310))(
+        rec + kRecEquip, index, 1);
+    return true;
+}
+
 bool SetQuickItem(int slot, std::uint32_t id, bool select) {
     static const bool ok = MatchesOriginal(kQuickNormalise, {0x8b, 0x87, 0x48, 0x02, 0x00, 0x00, 0x83, 0xf8, 0xff});
     if (!ok || slot < 0 || slot > 5) return false;

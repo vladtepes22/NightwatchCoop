@@ -3,6 +3,7 @@
 // caller -> kind table, the EVENT "travel" JSON round trip, the host queue and the guest's
 // newest-seq / replay-gate / under-way logic with an injected game state.
 // Build and run: ninja -C out/gpu party-travel-test && out/gpu/party-travel-test.exe
+#include "party_tables_test.h"
 #include "party/party_chalice.h"
 #include "party/party_travel.h"
 
@@ -477,6 +478,7 @@ static void test_empty_room() {
 }
 
 int main() {
+    if (!coop::test::UseGameTables("party-travel-test")) return 0;
     test_empty_room();
     test_follow();
     test_call_sites();

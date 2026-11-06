@@ -1896,10 +1896,10 @@ void regress_udp() {
     CHECK(gated.clients() == 1);
 }
 
-// The generated id tables (party_ids.inc, tools/party/ids_tool.py) and the checks built on them.
-template <typename T, std::size_t N>
-bool strictly_sorted(const T (&a)[N]) {
-    for (std::size_t i = 1; i < N; ++i)
+// The id tables (the player's own game, party_gamedata.h; BB_PARTY_TABLES names a cache built from the agent
+// game folder) and the checks built on them.
+bool strictly_sorted(const std::vector<std::uint32_t>& a) {
+    for (std::size_t i = 1; i < a.size(); ++i)
         if (!(a[i - 1] < a[i])) return false;
     return true;
 }
@@ -1907,10 +1907,14 @@ bool strictly_sorted(const T (&a)[N]) {
 void regress_ids() {
     namespace ids = coop::ids;
     std::string err;
-    CHECK(strictly_sorted(ids::kPartyMaps) && strictly_sorted(ids::kPartyReturnPoints) &&
-          strictly_sorted(ids::kPartyEntities) && strictly_sorted(ids::kPartyRemos));
-    CHECK(std::size(ids::kPartyReturnPoints) >= 80 && std::size(ids::kPartyRemos) >= 40 &&
-          std::size(ids::kPartyEntities) >= 1000 && std::size(ids::kPartyMaps) >= 20);
+    if (!coop::gamedata::Loaded()) {
+        std::puts("regress_ids: skipped (no party tables: BB_PARTY_TABLES)");
+        return;
+    }
+    CHECK(strictly_sorted(ids::Maps()) && strictly_sorted(ids::ReturnPoints()) &&
+          strictly_sorted(ids::Entities()) && strictly_sorted(ids::Remos()));
+    CHECK(ids::ReturnPoints().size() >= 80 && ids::Remos().size() >= 40 &&
+          ids::Entities().size() >= 1000 && ids::Maps().size() >= 20);
     // Maps: folders and MSB variants; not a shape (area 24 block 3 has the right shape, no map).
     CHECK(ids::MapKnown(0x18010000) && ids::MapKnown(0x15000000) && ids::MapKnown(0x24000000));
     CHECK(!ids::MapKnown(0x18030000) && !ids::MapKnown(0x14010000) && !ids::MapKnown(0) && !ids::MapKnown(0xffffffffu));
@@ -2068,7 +2072,7 @@ void regress_decoders() {
     s.kind = coop::StoryKind::Cutscene;
     s.id = 32000000;
     s.flags = {70002802, 12345678, 9000};
-    CHECK(coop::SanitizePeerStory(&s, &err) && s.flags == std::vector<std::uint32_t>{70002802});
+    if (coop::gamedata::Loaded()) CHECK(coop::SanitizePeerStory(&s, &err) && s.flags == std::vector<std::uint32_t>{70002802});
     s.id = 99000000;
     CHECK(!coop::SanitizePeerStory(&s, &err));
     s.id = 0xffffffffu;
@@ -2079,7 +2083,7 @@ void regress_decoders() {
     t.kind = coop::TravelKind::Lamp;
     t.lamp_id = 0x7fffffff;
     t.last_lamp = 2102961;
-    CHECK(coop::SanitizePeerTravel(&t, &err) && t.lamp_id == coop::kTravelNone && coop::HostLampFromTravel(t) == 2102961);
+    if (coop::gamedata::Loaded()) CHECK(coop::SanitizePeerTravel(&t, &err) && t.lamp_id == coop::kTravelNone && coop::HostLampFromTravel(t) == 2102961);
     t.kind = coop::TravelKind::GuestDied;
     CHECK(!coop::SanitizePeerTravel(&t, &err));
     t.kind = coop::TravelKind::Transform;
@@ -2090,7 +2094,7 @@ void regress_decoders() {
     t.kind = coop::TravelKind::ScriptedWarp;
     t.packed_map = 0x63000000;  // area 99
     CHECK(coop::SanitizePeerTravel(&t, &err) && t.packed_map == coop::kTravelNone);
-    CHECK(coop::TravelLampKnown(2412952) && coop::TravelLampKnown(2102961) && !coop::TravelLampKnown(9999999));
+    CHECK(!coop::TravelLampKnown(9999999));
     regress_ids();
     // Progress: caps and no truncation of 64-bit ids.
     std::uint64_t epoch;
@@ -2141,9 +2145,9 @@ void regress_hostsvc() {
     create(0, "!" + good.substr(1));
     CHECK(api.signs().empty());
     for (int t = 0; t < 40; ++t) create(t, good);
-    CHECK(api.signs().size() == bbnet::party::kMaxSignsPerUser);
+    if (coop::gamedata::Loaded()) CHECK(api.signs().size() == bbnet::party::kMaxSignsPerUser);
     create(1000, good);
-    CHECK(api.signs().size() == bbnet::party::kMaxSignsPerUser);
+    if (coop::gamedata::Loaded()) CHECK(api.signs().size() == bbnet::party::kMaxSignsPerUser);
 }
 
 bool wait_until(const std::function<bool()>& pred, int ms) {
@@ -2452,6 +2456,7 @@ void regress_auth_throttle() {
 }  // namespace
 
 int main(int argc, char** argv) {
+    coop::gamedata::InstallFromEnv();  // optional: the id-table regressions skip without it
 #if defined(_WIN32)
     SetUnhandledExceptionFilter(on_crash);
     _putenv("BB_PARTY_LOOPBACK=1");

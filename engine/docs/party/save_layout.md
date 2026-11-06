@@ -2,8 +2,9 @@
 
 Every offset the editor writes was pinned on the test saves (E:\games\bbport\test_saves, 23 non-empty slots
 from 14 fixtures, tests/test_saveedit.py `test_every_test_save_parses_and_roundtrips`). Anything not in the
-"pinned" table is not editable. Reference for the feature list: Noxde's Bloodborne-save-editor (GPL-3.0);
-no code of it is used, the facts below come from our saves and from docs/party/save_safety.md.
+"pinned" table is not editable. Reference for the feature list: Noxde's Bloodborne-save-editor (GPL-3.0). The layout
+facts below come from our saves and from docs/party/save_safety.md; the add-item records follow Noxde's `inventory.rs`
+(through the Nightwatch save tools, GPL-3.0) and are checked on our saves and in the game (see Adding items).
 
 `name` = the character name field: header section pair 0 at file 0x0C {u32 size, u32 end}, `name = end - size - 0x10C91`
 (held on all 23 slots, and on the NG+ save whose name has a trailing space that the old regex missed).
@@ -36,30 +37,25 @@ Gem names (menu.msgbnd 魔石名, 0 misses on all 77 gems and runes of the level
 (1:1, 2:2, 4:3, 8:4, 63:6) + 1e5 if any effect is cursed + the first effect's gemNameIdOffset. Cursed = the effect's categoryId is a
 GemCategoryParam row with isNegative (741 of 16101 effects). Effect texts: 魔石効果 by effect id.
 
-Icons (scripts/saveedit/icons.py): menu/common.tpf.dcx sheets MENU_Icon_GGSSS, 80 px cells, 12 a row, 144 a sheet; id N = group N // 1000,
-sheet (N % 1000) // 144 + 1, cell (N % 1000) % 144. PS4-tiled BC7 (TPF format 0x66) or BC1 (0). Item icon ids: EquipParamWeapon.iconId (of
-the +0 row), EquipParamProtector.iconIdM, EquipParamAccessory.iconId, EquipParamGoods.iconId; gems 3000 + shape block (1:0, 2:200, 4:400,
-8:600, 63:1000) + 100 if cursed + the first effect's gemIconIdOffset. The PNGs are cut on the player's PC into user\cache\saveedit\icons.
+Endings (docs/party/cutscenes_endings.md): the editor offers all eight ending flags by id; 21-23 roll an ending's staff roll and NG+
+on the next load and 6604 strips the key items on the next load, so only change them knowing that.
 
-Endings (docs/party/cutscenes_endings.md): only 6600-6603 (ending A / B / C / any seen: shop and messenger unlocks) are offered. 21-23 roll
-an ending's staff roll and NG+ on the next load and 6604 strips the key items on the next load, so they are never offered.
-
-Not pinned (read only / not offered): the 4th inventory u32 ("serial": a sort key built from a per item part x 40960 plus a counter that is
-shared with the weapon/armour handle numbers 0x4E.., so a new entry cannot be forged safely), moving gems between weapons, gem shapes,
-storage (a 16-byte list near 0xE1AB4, not identified), equipped slots, covenant, appearance, spawn lamp. The editor therefore edits and
-removes existing entries; adding is below.
+Not pinned (read only / not offered): moving gems between weapons, gem shapes, storage (a 16-byte list near 0xE1AB4, not
+identified), equipped slots, covenant, appearance, spawn lamp. Existing entries are edited and removed; adding is below.
 
 Names: from the player's game (msg\<lang>\item.msgbnd.dcx FMGs: goods, weapon, armor, accessory, NPC names by chr id; menu.msgbnd.dcx event text
 7000AABn = the n-th lamp of map AAB, matching the lamp flag 7AAB02nn: lamp counts per area agree, 72102410 "1st Floor Sickroom" = lamp 2412950).
 Param row ids (EquipParam*) bound valid weapon levels.
 
-Adding items (31 Oct 2026, ported from Noxde's Bloodborne Save Editor, GPL-3.0, `inventory.rs`; checked byte for byte against the
+Adding items (ported from Noxde's Bloodborne Save Editor, GPL-3.0, `inventory.rs`; checked byte for byte against the
 expected bytes of its own test `inventory_add_armor_or_weapon` on its `newsave`: record, inventory entry, both counters). Offered:
 goods (consumable, material, key item, chalice), weapons (at +0) and armour. Not offered: blood gems and runes (their effect rolls
 are a separate record), the storage box.
-- Goods: the first empty entry of the normal list gets `{0xB0000000 | id, 0x40000000 | id, count, 0}`; the serial stays 0 (saves
-  edited with Noxde's tool hold such entries and load). The list's used count and the second counter (the u32 right behind the
-  summoned key list, name + 34256) each go up by one.
+- Goods: the first empty entry of the normal list gets `{0xB0000000 | id, 0x40000000 | id, count, index}`; the index (the 4th u32) is
+  `sortId << 12 | (slot + 64)` with the goods row's sortId (what the game writes; an entry with index 0 is kept and counted but the
+  game's item menu does not list it). The list's used count goes up by one and the second counter (the u32 right behind the summoned
+  key list, name + 34256) becomes the highest slot used (+ 64) or goes up by one when there is no sortId. Counts are held to
+  EquipParamGoods.maxNum.
 - Weapon and armour: the item instance table (file 0x54, 4096 slots, packed) gets a 60-byte record
   `{handle, id (armour 0x10000000 | id), 0xC8, 0, 1, 5 x {0x80000000, 0}}` in place of its first empty 8-byte slot; the handle is
   `0x80800000` (armour `0x90800000`) `| (highest u16 handle number in the table, gems included, + 1)`. Everything behind moves 52 bytes
@@ -69,4 +65,11 @@ are a separate record), the storage box.
   name from the "FACE" appearance block (name = FACE - 34044 - 0x1C4) when the header's place does not check out, moves the flag pool
   and the header offsets that lay behind the name (NG cycle, world-state blocks) by `shift`, and `diff()` then shows the whole
   moved range. The game rewrites the header on its next save.
-- Unproven until seen in game: that a save with a record added by this port loads, shows the item and can be saved again.
+- Gems and runes: a new loose blood gem or rune is a 40-byte record (`0xC0800000 | n` handle, GemGen id, type, shape, effects) with its
+  inventory entry (category 8); a rune carries every fixed effect of its GemGen row (Milkweed's third effect transforms the Kos
+  Parasite). Blood gem effects are edited in place (24 bytes of the record).
+- Proof in the game (2026-11-05, saveedit079, release 0.7.8 build, harness instance on a copy of the default test save): a copy with a
+  goods item, two weapons, the four Gascoigne armor pieces, a blood gem and a rune added loaded ("Saves: check OK", the world up at
+  the Hunter's Dream), and the inventory screen listed the new goods item (Beast Blood Pellet x5, with its sortId index). The added
+  weapons, armor, gem and rune did not stop the load or the inventory, but their tabs were not looked at (the scripted menu walk
+  did not reach them). Not proven: that the game saves such a file again (the run was ended by the harness before a save).

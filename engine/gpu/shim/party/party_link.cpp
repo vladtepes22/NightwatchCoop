@@ -514,19 +514,29 @@ std::string identity_mismatch(const LinkConfig& host, const LinkConfig& guest) {
         parts.push_back("game executable differs (host " + short_hex(host.eboot_sha256) + ", yours " +
                         short_hex(guest.eboot_sha256) +
                         ": another game version or a patched eboot.bin; both need the clean 1.09 eboot.bin)");
-    if (host.params_sha256 != guest.params_sha256)
-        parts.push_back("game params differ (gameparam.parambnd.dcx: host " + short_hex(host.params_sha256) +
-                        ", yours " + short_hex(guest.params_sha256) +
-                        "): first check that the launcher's game folder is the right one (players fixed this by "
-                        "choosing the game folder by hand), else another game version or edited params; use the "
-                        "same game dump (1.09) as the host");
+    // 0.7.9: params_sha256 is the dump's own gameparam (party_runtime params_hash; a mod's gameparam counts under the
+    // mods), so a difference here is a real dump difference. When the mods differ too, the mods clause leads and the
+    // game-folder advice (a common mistake with identical dumps) is left out: the mods are the likelier cause.
+    const bool mods_differ = host.mods_hash != guest.mods_hash;
+    if (mods_differ)
+        parts.push_back(set_clause("gameplay mods", host.mods_hash, host.mod_names, guest.mods_hash, guest.mod_names) +
+                        ": enable the same mods as the host (launcher Mods tab)");
+    if (host.params_sha256 != guest.params_sha256) {
+        if (mods_differ)
+            parts.push_back("game params of the game dump differ too (gameparam.parambnd.dcx: host " +
+                            short_hex(host.params_sha256) + ", yours " + short_hex(guest.params_sha256) +
+                            "): use the same game dump (1.09) as the host");
+        else
+            parts.push_back("game params differ (gameparam.parambnd.dcx: host " + short_hex(host.params_sha256) +
+                            ", yours " + short_hex(guest.params_sha256) +
+                            "): first check that the launcher's game folder is the right one (players fixed this by "
+                            "choosing the game folder by hand), else another game version or edited params; use the "
+                            "same game dump (1.09) as the host");
+    }
     if (host.patches_hash != guest.patches_hash)
         parts.push_back(set_clause("gameplay patches", host.patches_hash, host.patch_names, guest.patches_hash,
                                    guest.patch_names) +
                         ": turn on the same patches as the host (launcher Patches tab)");
-    if (host.mods_hash != guest.mods_hash)
-        parts.push_back(set_clause("gameplay mods", host.mods_hash, host.mod_names, guest.mods_hash, guest.mod_names) +
-                        ": enable the same mods as the host (launcher Mods tab)");
     if (host.hooks_hash != guest.hooks_hash) {
         // 0.7.8: name each differing option in plain words when every differing hook belongs to a known one.
         std::vector<std::string> host_only, guest_only;
@@ -961,6 +971,7 @@ struct PartyLink::Impl {
     RejectCode reject = RejectCode::None;
     std::string reject_text;
     std::string reject_options_text;
+    std::string reject_mods_text;
 
     // Callback thread.
     std::mutex dmu;
@@ -1545,7 +1556,9 @@ struct PartyLink::Impl {
             if (!mismatch.empty()) {
                 HostOptions ho;
                 const bool have = !cfg.options.empty() && options_parse(cfg.options, &ho);
-                return reject_conn(c, RejectCode::Mismatch, have ? reject_with_options(mismatch, ho) : mismatch);
+                const std::string why =
+                    cfg.mods_hash != theirs.mods_hash ? reject_with_mods(mismatch, cfg.mods_label) : mismatch;
+                return reject_conn(c, RejectCode::Mismatch, have ? reject_with_options(why, ho) : why);
             }
             if (!valid_member_name(c->name))
                 return reject_conn(c, RejectCode::Name, "invalid name (1-16 of A-Z a-z 0-9 _ -)");
@@ -1854,6 +1867,7 @@ struct PartyLink::Impl {
         }
         RosterEntry e = entry_of(m);
         e.connected = false;
+        if (!notify_bye && !why.empty()) e.lost_why = why;  // 0.7.9: an invader whose link was lost (a reset = a crash)
         members.erase(it);
         if (cb.on_member_left) post([this, e] { cb.on_member_left(e, false); });
         broadcast_roster();
@@ -1879,6 +1893,8 @@ struct PartyLink::Impl {
                 reject_options_text = options_text(ho);
                 why = bare;
             }
+            reject_mods_text.clear();
+            if (reject_split_mods(why, &bare, &reject_mods_text)) why = bare;
             reject_text = why;
             close_conn(c);
             gconn = nullptr;
@@ -2714,6 +2730,11 @@ std::string PartyLink::reject_options() const {
     return impl_->reject_options_text;
 }
 
+std::string PartyLink::reject_mods_label() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    return impl_->reject_mods_text;
+}
+
 std::string PartyLink::reject_reason() const {
     std::lock_guard<std::mutex> lk(impl_->mu);
     return impl_->reject_text;
@@ -2950,8 +2971,39 @@ bool PartyLink::last_welcome_resumed() const {
     return impl_->last_resumed;
 }
 
+namespace {
+// A strict walk over a fixed b2 body: literal text, '@' = an unsigned integer, '~' = a plain decimal number ([-]digits[.digits], no
+// exponent). Neither character occurs in the bodies. Anything else (an extra key, a longer body, another op) fails the whole match.
+bool b2_shape(const std::string& s, const char* shape) {
+    size_t i = 0;
+    for (const char* p = shape; *p; ++p) {
+        if (*p == '@' || *p == '~') {
+            if (*p == '~' && i < s.size() && s[i] == '-') ++i;
+            size_t d = 0;
+            while (i < s.size() && s[i] >= '0' && s[i] <= '9' && d < 12) ++i, ++d;
+            if (!d) return false;
+            if (*p == '~' && i < s.size() && s[i] == '.') {
+                ++i;
+                size_t f = 0;
+                while (i < s.size() && s[i] >= '0' && s[i] <= '9' && f < 12) ++i, ++f;
+                if (!f) return false;
+            }
+        } else {
+            if (i >= s.size() || s[i] != *p) return false;
+            ++i;
+        }
+    }
+    return i == s.size();
+}
+} // namespace
+
 bool invader_event_from_ok(const std::string& name, const std::string& json) {
     if (name == "invade_fell" || name == "party_chat") return true;
+    // 0.7.9 (cross-map invasion): an invader whose own world is in another map block than the host's loads into the host's map by
+    // the A5 arrival re-join, which is exactly two b2 messages from the invader: "rejoin" (the host sends it the world snapshot again;
+    // the plain form only, never the "rest" a guest can carry: that would start a rest load on the host) and "arrived" (the host
+    // re-creates its chr). Matched whole.
+    if (name == "b2" && (b2_shape(json, "{\"op\":\"rejoin\",\"pos\":[~,~,~]}") || json == "{\"op\":\"arrived\"}")) return true;
     // 0.7.9: the invader's one-load direct summon needs exactly two b2 messages, matched whole (never a substring: the
     // b2 handler dispatches on substrings, so anything looser would let a hostile body carry another op).
     return name == "b2" && (json == "{\"op\":\"dsum_req\"}" || json == "{\"op\":\"dsum_done\",\"ok\":1}" ||
@@ -2959,6 +3011,13 @@ bool invader_event_from_ok(const std::string& name, const std::string& json) {
 }
 bool invader_event_to_ok(const std::string& name, const std::string& json) {
     if (name == "invade" || name == "party_chat" || name == "host_session_end") return true;
+    // 0.7.9 (CL-7e748c): the room's membership events of the host service (a member joined / left the room). The invader's game needs
+    // them to know the other players it has to talk to: without them a second invader (or a guest) that joins while an invader is
+    // in never completes its join (the invader's game never accepts it). They hold what the join_room reply gave the invader already
+    // (the members' names and endpoints), nothing of the party's progress.
+    if (name == "room_member_joined" || name == "room_member_left") return true;
+    // 0.7.9: the host's destination (where it stands) after the re-join of a cross-map arrival: the stage and two vectors, nothing else.
+    if (name == "b2" && b2_shape(json, "{\"op\":\"dest\",\"stage\":@,\"pos\":[~,~,~,~],\"rot\":[~,~,~,~]}")) return true;
     // 0.7.9: the host's answer to the invader's room request (and the boss / cutscene hold notice), nothing else of b2.
     return name == "b2" && (json.rfind("{\"op\":\"dsum_room\"", 0) == 0 || json.rfind("{\"op\":\"dsum_busy\"", 0) == 0);
 }

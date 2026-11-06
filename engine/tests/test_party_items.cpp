@@ -3,6 +3,7 @@
 // ledger tables, the deny rules, award and flag classification, the EVENT "items" JSON round trip,
 // the host's send-once ledger and the guest's queue / apply gate with an injected game state.
 // Build and run: ninja -C out/gpu party-items-test && out/gpu/party-items-test.exe
+#include "party_tables_test.h"
 #include <cstring>
 #include "party/party_items.h"
 #include "party/party_kill_award_rules.h"
@@ -119,8 +120,8 @@ static void test_deny() {
     CHECK(ItemLotDenied(10000, 6620));       // the Notebook: still each player's own
     CHECK(ItemLotDenied(10011, 6622));
     CHECK(ItemLotDenied(43120, 6676));       // DLC NPC gift with a personal flag
-    // 0.7.3: Valtr's gifts are each player's own (never replayed; a guest gives them to itself).
-    CHECK(OwnTalkGiftLotId(43120) && OwnTalkGiftLotId(43130) && !OwnTalkGiftLotId(17000));
+    // 0.7.3: Valtr's gifts are each player's own (never replayed; a guest gives them to itself). 17000 (Annalise's Caryll rune) joined them in 0.7.9.
+    CHECK(OwnTalkGiftLotId(43120) && OwnTalkGiftLotId(43130) && OwnTalkGiftLotId(17000));
     CHECK(ItemLotFlag(43120) == 6676 && ItemLotFlag(43130) == 6678 && ItemLotDenied(43130, 6678));
     CHECK(!ItemLotDenied(3401800, 6674));    // Ludwig's reward: exception
     CHECK(!ItemLotDenied(3401850, 6673));    // Laurence's reward: exception
@@ -1608,7 +1609,7 @@ static void test_goods_limits() {
     CHECK(ClassifyLotFit({badge}) == LotFit::Owned);
 }
 
-// 0.7.7 (sharing077): the generated audit (docs/party/items_audit.md). Every lot that gives a key / unique item, a weapon or a
+// 0.7.7 (sharing077): the audit of the player's own game (scripts/partydata/item_tool.py audit). Every lot that gives a key / unique item, a weapon or a
 // Caryll rune and is not one of the owner's per-player rows must have a path to every member in the shipped tables;
 // the per-player rows must have none. Fails when a table regeneration or a deny rule drops a lot.
 static void test_audit() {
@@ -1704,7 +1705,35 @@ static void test_audit() {
     }
 }
 
+// The shop gates come from the tables (derived from the shop params, item lots and common event 5500+slot): none
+// without them (the repair decides nothing and does not mark the save), exactly the installed rows with made-up ones.
+static void test_shop_gates_from_tables() {
+    gamedata::Install(gamedata::Tables{});
+    std::set<std::uint32_t> save = {5600, 5601};
+    auto is_set = [&save](std::uint32_t id) { return save.count(id) != 0; };
+    std::set<std::int32_t> held = {99010000 + 100 * 3};
+    auto owns = [&held](std::int32_t base) {
+        for (int lvl = 0; lvl <= kShopWeaponMaxLevel; ++lvl) {
+            if (held.count(base + 100 * lvl)) return 1;
+        }
+        return 0;
+    };
+    CHECK(ShopGateWeapon(5600) == 0);
+    ShopGateRepair r = ShopGatesToRepair(is_set, owns);
+    CHECK(!r.done && !r.complete && r.clear.empty());
+    gamedata::Tables t;
+    t.loaded = true;
+    t.shop_gates = {{5600, 99010000}, {5601, 99020000}, {5602, 99030000}};
+    gamedata::Install(t);
+    CHECK(ShopGateWeapon(5600) == 99010000 && ShopGateWeapon(5602) == 99030000 && ShopGateWeapon(5599) == 0);
+    r = ShopGatesToRepair(is_set, owns);
+    CHECK(!r.done && r.complete && r.clear == std::vector<std::int32_t>{5601});  // 5600 is owned, 5602 not set
+    gamedata::Install(gamedata::Tables{});
+}
+
 int main() {
+    test_shop_gates_from_tables();
+    if (!coop::test::UseGameTables("party-items-test")) return 0;
     test_goods_limits();
     test_tables();
     test_fit();

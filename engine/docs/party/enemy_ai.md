@@ -205,6 +205,21 @@ appears. Same result with `BB_PARTY_LIVING_TARGET=0` (the dead-mark fix off: it 
 wipe is not perceived by any enemy), fixed after the player's build. A log of the next stuck fight with BB_BOSS_LOG will say
 which game's copy stands still. Knobs: BB_LR_NET, BB_LR_ENV, BB_LR_DIST, BB_LR_WINDOW.
 
+## Laurence stuck in the throne, second attempt (0.7.9, repro079, CL-7b1d4e) - still not reproduced
+
+New setups (smoke `lr`, knobs `BB_LR_NET`, `BB_LR_ORDER=guest`, `BB_LR_GUESTS=2`): host-first wipe + re-fight under `mobile` (the
+fight starts again on both games, Laurence walks 40-54 m in 60 s, 3 hits, no "may be stuck"), 3 players under `dsl` (both
+guests' bars, his animations and walk on all three games; the one game that walked 4.4 m had all three players dead after his
+first hit: the 3-player boss scaling kills passive test players, not a stuck boss), and the order the reporter's fights also had:
+the GUEST dies first with his bar up and the host dies after it (phase `lrg`, group `boss_laurence_guest_first`). In that order
+the guest lies dead for 25-35 s, the host's wipe load waits for its death (C3) and the guest follows it dead to the lamp; the
+wipe works in 5 of 5 runs, but one guest game died at that wipe load with a GPU library assertion (`pm4_cmds.h SignalFence:
+Unreachable code`, a garbage EOP packet; its load carried a host decals blob of 48 bytes, the others 20), not seen again in 4
+more runs. The second fight after a guest-first wipe is not scripted stable (the two games load for 30-40 s together, the host's
+walk to the fog starts before the guest gets up): `lr` stays host-first for it.
+Still the lead from the first attempt: the stale dead mark of CL-2c1eef (fixed after the player's build); the one thing that
+would settle it is a BB_BOSS_LOG log of a stuck fight.
+
 ## Ludwig: the Holy Blade scene after a wipe, second report (0.7.8, ludwigwipe078)
 
 Report (video, a guest's view, 3 players, the 0.7.6 phase-event filter already in): Ludwig the Accursed at near full health,

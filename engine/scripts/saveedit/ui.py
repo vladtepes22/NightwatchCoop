@@ -1,6 +1,7 @@
 """The launcher's "Save editor" tab (tkinter): edit a single-player or party character save.
 
-Pages: Character (name, stats, level, Echoes, Insight, NG cycle), Items (counts, remove, weapon level),
+Pages: Character (name, stats, level, Echoes, Insight, NG cycle), Items (counts, remove, weapon level, add items),
+Gems (blood gem effects, add gems and runes, copy),
 Progress (boss kills, lamps, ending flags, any flag by id), Party (marks and one-click repairs).
 All edits are staged in a scripts/saveedit SaveModel and written by Apply after an automatic backup;
 Backups... lists them with Restore. Nothing is written while the game runs. Only fields whose offsets are
@@ -10,7 +11,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, messagebox
 
-from . import model as M, store as S, names as N, flagsdata as F
+from . import model as M, store as S, names as N, flagsdata as F, gearops as G, instances as I, dialogs as D, summary as SUM
 
 RISK_WARNING = ("Editing a save can make the game crash or break the save (cut content, unobtainable items "
                 "and values beyond the normal range are allowed here).\n\nA backup of the whole save folder is "
@@ -43,6 +44,7 @@ class SaveEditorTab(ttk.Frame):
         self.pages.grid(row=1, column=0, sticky="nsew", pady=(8, 6))
         self._character_page()
         self._items_page()
+        self._gems_page()
         self._progress_page()
         self._party_page()
         bar = ttk.Frame(self, style="Card.TFrame")
@@ -141,6 +143,39 @@ class SaveEditorTab(ttk.Frame):
         ttk.Entry(row2, textvariable=self.wlevel_var, width=4).pack(side="left", padx=4)
         self.set_level_btn = ttk.Button(row2, text="Set level", style="Secondary.TButton", command=self.set_level)
         self.set_level_btn.pack(side="left")
+        self.add_btn = ttk.Button(row2, text="Add item...", style="Secondary.TButton", command=self.add_dialog)
+        self.add_btn.pack(side="left", padx=(24, 0))
+
+    def _gems_page(self):
+        p = ttk.Frame(self.pages, padding=10)
+        self.pages.add(p, text="Gems")
+        p.columnconfigure(0, weight=1)
+        p.rowconfigure(0, weight=1)
+        self.gem_tree = ttk.Treeview(p, columns=("kind", "where"), show="tree headings", height=14, selectmode="browse",
+                                     style="SaveEdit.Treeview")
+        self.gem_tree.heading("#0", text="Gem / rune and its effects")
+        self.gem_tree.heading("kind", text="Kind")
+        self.gem_tree.heading("where", text="Where")
+        self.gem_tree.column("#0", width=380)
+        self.gem_tree.column("kind", width=90)
+        self.gem_tree.column("where", width=120)
+        self.gem_tree.grid(row=0, column=0, sticky="nsew", pady=6)
+        sb = ttk.Scrollbar(p, command=self.gem_tree.yview)
+        sb.grid(row=0, column=1, sticky="ns")
+        self.gem_tree.configure(yscrollcommand=sb.set)
+        row = ttk.Frame(p)
+        row.grid(row=1, column=0, sticky="w")
+        self.gem_edit_btn = ttk.Button(row, text="Edit effects...", style="Secondary.TButton", command=self.edit_gem)
+        self.gem_edit_btn.pack(side="left")
+        self.gem_add_btn = ttk.Button(row, text="Add blood gem...", style="Secondary.TButton",
+                                      command=lambda: self._gem_dialog(None))
+        self.gem_add_btn.pack(side="left", padx=6)
+        self.rune_add_btn = ttk.Button(row, text="Add rune...", style="Secondary.TButton", command=self.rune_dialog)
+        self.rune_add_btn.pack(side="left")
+        self.gem_copy_btn = ttk.Button(row, text="Copy selected", style="Secondary.TButton", command=self.copy_gem)
+        self.gem_copy_btn.pack(side="left", padx=6)
+        self.gem_note = tk.StringVar()
+        ttk.Label(p, textvariable=self.gem_note, wraplength=560).grid(row=2, column=0, sticky="w", pady=(4, 0))
 
     def _progress_page(self):
         p = ttk.Frame(self.pages, padding=10)
@@ -195,12 +230,16 @@ class SaveEditorTab(ttk.Frame):
     def _set_enabled(self, on):
         state = "normal" if on else "disabled"
         widgets = [self.apply_btn, self.revert_btn, self.name_entry, self.set_count_btn, self.set_level_btn, self.remove_btn,
+                   self.add_btn, self.gem_edit_btn, self.gem_add_btn, self.rune_add_btn, self.gem_copy_btn,
                    self.toggle_btn, self.lamps_btn, self.fid_get, self.fid_set, self.fid_clear, self.phantom_btn, self.dup_btn,
                    *self.stat_boxes.values(), *self.num_boxes]
         for w in widgets:
             w.configure(state=state)
         if on and not self.catalogue.valid_ids(0):
             self.set_level_btn.configure(state="disabled")  # needs the game's weapon list
+        if on and not self.catalogue.ok:
+            for w in (self.add_btn, self.gem_edit_btn, self.gem_add_btn, self.rune_add_btn):
+                w.configure(state="disabled")  # the item and gem lists come from the game's files
 
     # --- slots ---------------------------------------------------------------------------------------
     def refresh_slots(self):
@@ -230,6 +269,7 @@ class SaveEditorTab(ttk.Frame):
         self._set_enabled(True)
         self.load_character()
         self.fill_items()
+        self.fill_gems()
         self.fill_flags()
         self.fill_party()
         names = "game names loaded" if self.catalogue.ok else "game folder not found: ids only, weapon levels read-only"
@@ -317,7 +357,8 @@ class SaveEditorTab(ttk.Frame):
         if it is None or not self._risk():
             return
         try:
-            self.model.set_count(it, int(self.count_var.get()))
+            top = self.catalogue.goods_max(it.number) if it.category == 4 else None
+            self.model.set_count(it, int(self.count_var.get()), top)
         except ValueError as ex:
             messagebox.showerror("Save editor", str(ex))
         self.fill_items()
@@ -340,6 +381,98 @@ class SaveEditorTab(ttk.Frame):
         self.fill_items()
         self.fill_party()
 
+    # --- adding items, gems -------------------------------------------------------------------------------
+    def _added(self):
+        self.fill_items()
+        self.fill_gems()
+        self.fill_party()
+
+    def _guarded(self, what):
+        """Run what() after the risk confirm; True when it worked (a refused change is shown, nothing written)."""
+        if self.model is None or not self._risk():
+            return False
+        try:
+            what()
+        except ValueError as ex:
+            messagebox.showerror("Save editor", str(ex))
+            return False
+        self._added()
+        return True
+
+    def add_dialog(self):
+        if self.model is not None and self.catalogue.ok:
+            D.AddItemDialog(self)
+
+    def _can_grow(self):
+        """New weapons, armor and gems move the data behind the item table, which the guest-written save's filled-in
+        world section (editor copy) cannot take: those wait until the game has saved the character at home."""
+        if getattr(self.model, "world_changes", None):
+            messagebox.showerror("Save editor", "This save was last written in another player's world. Load it in the "
+                                 "game once as host and save, then add weapons, armor, gems and runes.")
+            return False
+        return True
+
+    def add_item(self, category, number, count):
+        if category != 4 and not self._can_grow():
+            return False
+        return self._guarded(lambda: G.add_item(self.model, self.catalogue, category, number, count))
+
+    def fill_gems(self):
+        self.gem_tree.delete(*self.gem_tree.get_children())
+        if self.model is None:
+            return
+        rows = G.gem_rows(self.model, self.catalogue) if self.catalogue.ok else []
+        if not self.catalogue.ok:
+            self.gem_note.set("Gem names and effects come from the game's own files; the game folder was not found.")
+        elif not rows and I.read(self.model) is None:
+            self.gem_note.set("This save's item table does not check out: gems are read-only.")
+        else:
+            self.gem_note.set("Blood gem effects can be changed (1 to 3); runes keep the effects the game gave them.")
+        for r in rows:
+            node = self.gem_tree.insert("", "end", iid=f"{r['handle']:x}", text=r["name"], open=False,
+                                        values=("blood gem" if r["type"] == 1 else "rune", r["where"]))
+            for _e, text in r["effects"]:
+                self.gem_tree.insert(node, "end", text=text, values=("", ""))
+
+    def _selected_gem(self):
+        sel = self.gem_tree.selection()
+        if not sel:
+            return None
+        top = self.gem_tree.parent(sel[0]) or sel[0]
+        return int(top, 16)
+
+    def edit_gem(self):
+        handle = self._selected_gem()
+        if handle is None:
+            return
+        row = next((r for r in G.gem_rows(self.model, self.catalogue) if r["handle"] == handle), None)
+        if row is None or row["type"] != 1:
+            messagebox.showinfo("Save editor", "Runes carry the effects the game gave them; only blood gems are edited.")
+        elif self._risk():
+            D.GemDialog(self, handle)
+
+    def _gem_dialog(self, handle):
+        if self.model is not None and self.catalogue.ok and self._risk():
+            D.GemDialog(self, handle)
+
+    def rune_dialog(self):
+        if self.model is not None and self.catalogue.ok and self._risk():
+            D.RuneDialog(self)
+
+    def set_gem_effects(self, handle, effects):
+        return self._guarded(lambda: G.set_gem_effects(self.model, self.catalogue, handle, effects))
+
+    def add_blood_gem(self, shape, effects):
+        return self._can_grow() and self._guarded(lambda: G.add_blood_gem(self.model, self.catalogue, shape, effects))
+
+    def add_rune(self, effect):
+        return self._can_grow() and self._guarded(lambda: G.add_rune(self.model, self.catalogue, effect))
+
+    def copy_gem(self):
+        handle = self._selected_gem()
+        if handle is not None and self._can_grow():
+            self._guarded(lambda: G.copy_gem(self.model, handle))
+
     # --- flags ------------------------------------------------------------------------------------------
     def fill_flags(self):
         self.flag_tree.delete(*self.flag_tree.get_children())
@@ -352,22 +485,22 @@ class SaveEditorTab(ttk.Frame):
             if group not in groups:
                 groups[group] = self.flag_tree.insert("", "end", iid=f"g:{group}", text=group, open=True)
             self.flag_tree.insert(groups[group], "end", iid=str(fid), text=label,
-                                  values=("yes" if all(self.model.flag(x) for x in F.flag_group(fid)) else "no",))
+                                  values=("yes" if all(self.model.flag(x) for x in F.flag_group(fid, self.catalogue)) else "no",))
 
     def toggle_flag(self):
         sel = [i for i in self.flag_tree.selection() if not i.startswith("g:")]
         if sel and self._risk():
             fid = int(sel[0])
-            on = not all(self.model.flag(x) for x in F.flag_group(fid))
-            for part in F.flag_group(fid):
-                self.model.set_flag(part, on)
+            on = not all(self.model.flag(x) for x in F.flag_group(fid, self.catalogue))
+            for f in F.flag_group(fid, self.catalogue):  # a lamp: its object flags too; a boss: the flags that go with its kill
+                self.model.set_flag(f, on)
             self.fill_flags()
 
     def light_lamps(self):
         if self._risk():
-            for fid in F.LAMP_IDS:
-                for part in F.flag_group(fid):
-                    self.model.set_flag(part, True)
+            for fid in F.lamp_ids(self.catalogue):
+                for f in F.flag_group(fid, self.catalogue):  # the lamp-lit flag and the lamp object's flags
+                    self.model.set_flag(f, True)
             self.fill_flags()
 
     def _fid(self):
@@ -404,9 +537,11 @@ class SaveEditorTab(ttk.Frame):
         if dups:
             out.append("Key items in two stacks: " + ", ".join(f"{self.catalogue.name(4, d) or d}" for d in dups) +
                        ". Merge keeps one stack of each.")
-        if m.world_empty:
-            out.append("Written in another player's world (empty world-state section). The editor leaves that "
-                       "section alone; other save editors need the launcher's Export for save editor.")
+        if m.world_empty or getattr(m, "world_changes", None):
+            out.append("Written in another player's world (empty world-state section). The editor works on a copy "
+                       "with the section filled in and writes the game's own empty one back when you apply, so "
+                       "no export or import is needed; new weapons and armor wait until the game has saved it "
+                       "once at home.")
         return out or ["Nothing to repair."]
 
     def fill_party(self):
@@ -441,6 +576,9 @@ class SaveEditorTab(ttk.Frame):
         if not self.risk_ok and not self._risk():
             return
         if self.kind == "party" and not self.confirm("Save editor", PARTY_WARNING):
+            return
+        lines = SUM.changes(self.model, self.catalogue)
+        if lines and not self.confirm("Save editor", f"Write these changes to {self.model.name}?\n\n" + "\n".join(lines)):
             return
         try:
             backup = S.apply_edit(self.get_user(), self.kind, self.slot, self.model, self.running, self.update_party)

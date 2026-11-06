@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -30,7 +31,9 @@ namespace coop::invade {
 
 constexpr const char* kEventName = "invade";
 constexpr int kGameSlots = 4;               ///< the game's player slots: the host and three phantoms (an invader is one)
-constexpr int kMaxInvaders = 1;             ///< one invader at a time
+constexpr int kMaxInvaders = 1;             ///< the default: one invader at a time (0.7.9: the host's "Max invaders" 1 or 2)
+constexpr int kMaxInvadersCap = 2;          ///< 0.7.9 (CL-7e748c): never more than this, whatever the setting
+inline int ClampMaxInvaders(int v) { return v < 1 ? 1 : v > kMaxInvadersCap ? kMaxInvadersCap : v; }
 constexpr double kRateWindowS = 600.0;      ///< an invader (address) may START this many invasions per window ...
 constexpr int kRateMax = 3;                 ///< ... then it waits for the oldest to age out
 constexpr int kSpamMax = 20;                ///< and may knock (a refused or admitted HELLO) this many times per window
@@ -140,6 +143,7 @@ struct HostView {
     int world_players = 1;          ///< the host + the guests in its world or on the way in (not invaders)
     int invaders = 0;               ///< invaders already admitted (pending or in)
     int party_max = kGameSlots;     ///< the party's "max players" setting
+    int max_invaders = kMaxInvaders;  ///< 0.7.9: the host's "Max invaders" (1 or 2): how many may be in at once
     int host_level = 0;             ///< 0.7.9: the host's Blood Echoes level (0 unknown: no level check)
 };
 
@@ -164,7 +168,7 @@ inline Deny Admit(const HostView& h, bool blocked, bool rate_limited, bool invad
     if (h.boss_fight) return Deny::BossFight;
     if (!h.alive) return Deny::HostDead;
     if (h.travelling) return Deny::Travelling;
-    if (h.invaders >= kMaxInvaders) return Deny::InvaderPresent;
+    if (h.invaders >= ClampMaxInvaders(h.max_invaders)) return Deny::InvaderPresent;
     if (h.world_players + h.invaders >= Capacity(h.party_max)) return Deny::NoSlot;
     return Deny::None;
 }
@@ -172,8 +176,8 @@ inline Deny Admit(const HostView& h, bool blocked, bool rate_limited, bool invad
 /// Is the host listed as invadable (the public list's flag, announced by the host)? A host that allows invaders,
 /// has a free slot and no invader. The lobby and the LAN list show only what the host announces; the host
 /// announces false whenever its switch is off.
-inline bool Invadable(bool allow, int world_players, int invaders, int party_max) {
-    return allow && invaders < kMaxInvaders && world_players + invaders < Capacity(party_max);
+inline bool Invadable(bool allow, int world_players, int invaders, int party_max, int max_invaders = kMaxInvaders) {
+    return allow && invaders < ClampMaxInvaders(max_invaders) && world_players + invaders < Capacity(party_max);
 }
 
 // ---- abuse limits ----
@@ -342,6 +346,7 @@ struct Msg {
     std::string name;
     End why = End::None;
     int full_hp = -1;   ///< 0.7.9, state 1/2: 1 full health, 0 the game's cut, -1 not said
+    std::uint32_t apart = 0;  ///< 0.7.9, state 1/2: the lamp (return point id) the invader appears at, away from the host; 0 none
 };
 
 inline bool NameOk(const std::string& n) {
@@ -355,6 +360,8 @@ inline std::string Encode(const Msg& m) {
     char b[160];
     if (m.state == 0 && m.why != End::None)
         std::snprintf(b, sizeof b, "{\"s\":0,\"n\":\"%s\",\"w\":\"%s\"}", m.name.c_str(), EndWord(m.why));
+    else if (m.state != 0 && m.full_hp >= 0 && m.apart)
+        std::snprintf(b, sizeof b, "{\"s\":%d,\"n\":\"%s\",\"h\":%d,\"a\":%u}", m.state, m.name.c_str(), m.full_hp ? 1 : 0, m.apart);
     else if (m.state != 0 && m.full_hp >= 0)
         std::snprintf(b, sizeof b, "{\"s\":%d,\"n\":\"%s\",\"h\":%d}", m.state, m.name.c_str(), m.full_hp ? 1 : 0);
     else
@@ -389,8 +396,64 @@ inline bool Decode(const std::string& body, Msg* out) {
         *out = Msg{s, name, End::None, h};
         return true;
     }
+    end = 0;
+    unsigned a = 0;
+    if (std::sscanf(body.c_str(), "{\"s\":%d,\"n\":\"%32[^\"]\",\"h\":%d,\"a\":%u}%n", &s, name, &h, &a, &end) == 4 && end > 0 &&
+        body[static_cast<std::size_t>(end)] == '\0') {
+        if (s < 1 || s > 2 || !NameOk(name) || (h != 0 && h != 1) || a == 0 || a > 99999999u) return false;
+        *out = Msg{s, name, End::None, h, a};
+        return true;
+    }
     return false;
 }
+
+/// 0.7.9: the invaders a member knows from the host's "invade" events (every game keeps one: the host's own announcements, the
+/// guests' and the invaders' copies), by name, in the order they came; at most kMaxInvadersCap (a third name is ignored).
+struct SeenInvader {
+    std::string name;
+    int state = 0;             ///< 1 pending, 2 in
+    std::uint32_t apart = 0;   ///< the lamp it appears at (Msg::apart)
+};
+class InvaderBook {
+public:
+    /// Applies one message: state 0 removes the name, 1 / 2 adds or updates it. True when the book changed.
+    bool Apply(const Msg& m) {
+        for (auto it = v_.begin(); it != v_.end(); ++it) {
+            if (it->name != m.name) continue;
+            if (m.state == 0) {
+                v_.erase(it);
+                return true;
+            }
+            const bool same = it->state == m.state && it->apart == m.apart;
+            it->state = m.state, it->apart = m.apart;
+            return !same;
+        }
+        if (m.state == 0 || static_cast<int>(v_.size()) >= kMaxInvadersCap) return false;
+        v_.push_back({m.name, m.state, m.apart});
+        return true;
+    }
+    bool Has(const std::string& name) const { return Find(name) != nullptr; }
+    int State(const std::string& name) const { const SeenInvader* s = Find(name); return s ? s->state : 0; }
+    std::uint32_t Apart(const std::string& name) const { const SeenInvader* s = Find(name); return s ? s->apart : 0; }
+    bool Empty() const { return v_.empty(); }
+    std::size_t Size() const { return v_.size(); }
+    std::string First() const { return v_.empty() ? std::string() : v_.front().name; }
+    std::vector<std::string> Names() const {
+        std::vector<std::string> out;
+        for (const SeenInvader& s : v_) out.push_back(s.name);
+        return out;
+    }
+    const std::vector<SeenInvader>& All() const { return v_; }
+    void Clear() { v_.clear(); }
+
+private:
+    const SeenInvader* Find(const std::string& name) const {
+        for (const SeenInvader& s : v_)
+            if (s.name == name) return &s;
+        return nullptr;
+    }
+    std::vector<SeenInvader> v_;
+};
 
 /// The invader tells the host it fell (its HP reached 0 on its own game). The host's own read of the invader's
 /// copy is the second opinion; either one ends the invasion.
@@ -468,6 +531,33 @@ inline bool ParseTest(const char* text, std::vector<TestStep>* out, std::string*
 }
 
 
+// ---- 0.7.9: where the invader appears ----
+// Vanilla places an invader away from the host. The direct summon lands it beside the host (like a co-op guest), so once it is in
+// the world the host names a LAMP of the same map block to put it at: a lamp the HOST has lit (a spot it has stood at: never inside a
+// wall, never in a boss arena whose boss is alive: its lamp is only lit after the fight), at least kApartMinM and at most kApartMaxM
+// metres from the host on the ground plane, the nearest such one (the shortest way back into the fight). No such lamp: the invader
+// stays beside the host (today's behaviour). BB_PARTY_INVADE_APART=0 turns it off.
+constexpr float kApartMinM = 30.0f;
+constexpr float kApartMaxM = 250.0f;
+struct ApartSpot {
+    std::uint32_t id = 0;   ///< the lamp's return point
+    float x = 0, y = 0, z = 0;
+};
+inline std::uint32_t PickApart(const float host[3], const std::vector<ApartSpot>& spots, float min_m = kApartMinM, float max_m = kApartMaxM,
+                               float* dist = nullptr) {
+    std::uint32_t best = 0;
+    float best_d = 0;
+    for (const ApartSpot& s : spots) {
+        if (!s.id) continue;
+        const float dx = s.x - host[0], dz = s.z - host[2];
+        const float d = std::sqrt(dx * dx + dz * dz);
+        if (!(d >= min_m && d <= max_m)) continue;
+        if (!best || d < best_d || (d == best_d && s.id < best)) best = s.id, best_d = d;
+    }
+    if (best && dist) *dist = best_d;
+    return best;
+}
+
 // ---- the invader's look (SpEffects) ----
 // The phantom look is a SpEffect: the chr's effect update plays SpEffectVfxParam row `stateInfo` of every SpEffect that has
 // useSpEffectEffect. A cooperator carries 9006 (stateInfo 272, SFX 211: the blue white-phantom glow); the game's invader
@@ -537,16 +627,27 @@ inline Reward RewardFor(Role role, End end) {
 constexpr double kRewardOnceS = 120.0;
 class RewardOnce {
 public:
+    /// 0.7.9: per invader (two may end together): each (name, ending) is paid once, the others never lose their payout.
     bool Take(const std::string& name, End end, double now) {
-        if (have_ && name == name_ && end == end_ && now - at_ < kRewardOnceS) return false;
-        have_ = true, name_ = name, end_ = end, at_ = now;
+        for (auto& e : v_) {
+            if (e.name == name && e.end == end && now - e.at < kRewardOnceS) return false;
+            if (e.name == name && e.end == end) {
+                e.at = now;
+                return true;
+            }
+        }
+        v_.erase(std::remove_if(v_.begin(), v_.end(), [&](const Entry& e) { return now - e.at >= kRewardOnceS; }), v_.end());
+        if (v_.size() >= 16) v_.erase(v_.begin());
+        v_.push_back({name, end, now});
         return true;
     }
 private:
-    bool have_ = false;
-    std::string name_;
-    End end_ = End::None;
-    double at_ = 0;
+    struct Entry {
+        std::string name;
+        End end = End::None;
+        double at = 0;
+    };
+    std::vector<Entry> v_;
 };
 
 // ---- the line the invader reads in its party status when a join is refused ----

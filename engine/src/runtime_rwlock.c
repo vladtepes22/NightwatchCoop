@@ -122,6 +122,13 @@ static int32_t acquire(Rwlock **handle, enum Operation op, const GuestTime *time
         host_unlock(&registry_lock); return error(attempt ? EBUSY : EDEADLK);
     }
     if (h && h->readers==UINT_MAX) { host_unlock(&registry_lock); return error(EAGAIN); }
+    if (h && h->readers && !writer) {
+        /* Nested read: this thread already holds the lock for reading. The host lock would make it
+           queue behind a waiting writer, who waits for this thread (a deadlock; FreeBSD's libthr
+           lets the nested read through). The first read keeps the host lock; this one only counts. */
+        ++h->readers; ++reads;
+        host_unlock(&registry_lock); return 0;
+    }
     if (!h) {
         h=calloc(1,sizeof(*h));
         if (!h) { host_unlock(&registry_lock); return error(ENOMEM); }
@@ -158,7 +165,8 @@ static ABI int32_t rw_unlock(Rwlock **handle) {
     Holder *h=r->holders;
     while (h && !host_thread_equal(h->thread,host_thread_id())) h=h->next;
     if (!h || (!h->readers && !h->writer)) { host_unlock(&registry_lock); return error(EPERM); }
-    int e=native_unlock(&r->native,h->writer);
+    int e=0;
+    if (h->writer || h->readers==1) e=native_unlock(&r->native,h->writer);
     if (!e) { if (h->writer) h->writer=0; else --h->readers; ++unlocks; }
     prune_locked(r,h);
     host_unlock(&registry_lock); return error(e);

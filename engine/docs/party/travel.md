@@ -344,7 +344,7 @@ NowLoading `0x556286B == 0`, `GSM+0x08 == 0` (no pending request), role not 4/7,
   temporarily) or redirect to the host's last lamp (`+0x1528` from the host's PROGRESS) via the same
   rewrite.
 * **Peer validation** (`SanitizePeerTravel`, bbport security pass): every id of a host's intent is looked
-  up in tables generated from the game data (`gpu/shim/party/party_ids.inc`, `tools/party/ids_tool.py`):
+  up in tables read at run time from the player's own game data (`gpu/shim/party/party_gamedata.h`, `scripts/partydata/ids_tool.py`):
   the 0x13CDF30 ids (`lamp`, the low dwords of `respawn` / `last_lamp`, the phantom event's lamp) must be
   **ReturnPointParam** rows (the param the lamp warp looks up: +0 area, +1 block, +4 returnPointEntityId,
   +8 returnAnimId, `isRegistDeadReturn` 0 = Hunter's Dream; rows 1 and 9902950 have area 0 and are left

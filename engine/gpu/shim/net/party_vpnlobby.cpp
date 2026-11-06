@@ -164,15 +164,6 @@ std::vector<std::uint8_t> encode_announce_ext(const Announce& a) {
     return v;
 }
 
-bool valid_mods_label(const std::string& label) {
-    if (label.empty() || label.size() > kMaxModsLabel) return false;
-    for (const char c : label)
-        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '@' || c == '.' || c == '_' || c == ':' ||
-              c == '+' || c == '-'))
-            return false;
-    return true;
-}
-
 std::vector<std::uint8_t> encode_announce_mods(const Announce& a) {
     if (!valid_mods_label(a.mods)) return {};
     std::vector<std::uint8_t> v = {0xfa, 'L', 1, 10, static_cast<std::uint8_t>(a.mods.size())};

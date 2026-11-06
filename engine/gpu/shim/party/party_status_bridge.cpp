@@ -10,6 +10,7 @@
 #include "party_gather.h"
 #include "party_b2.h"
 #endif
+#include "party_gamedata.h"
 
 #include <chrono>
 #include <cstdarg>
@@ -427,6 +428,20 @@ std::string SnapshotLine(const status::Board& b) {
 
 void OnRuntimeStart(bool host, const std::string& name) {
     status::SetRole(host ? Role::Host : Role::Guest);
+    const char* const missing =
+        "Party game data missing: travel, shared items and NPC help are off. The game could not read its data from "
+        "your game files (see the log line \"[party-data]\").";
+    if (coop::gamedata::Preparing()) {
+        // The engine derives the tables from the game files at start (a few seconds on the first start and after a
+        // game / mod change): the party features wait for it; say so, and report a failed build afterwards.
+        status::SetAlert("Preparing co-op data from your game files: " + std::to_string(coop::gamedata::PreparingPercent()) +
+                         "%. The party starts working as soon as it is ready.");
+        std::thread([missing] {
+            if (!coop::gamedata::Loaded()) status::SetAlert(missing);  // waits for the build
+        }).detach();
+    } else if (!coop::gamedata::Loaded()) {
+        status::SetAlert(missing);
+    }
     {
         std::lock_guard<std::mutex> lk(B().mu);
         B().local_name = name;

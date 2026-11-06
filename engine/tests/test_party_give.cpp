@@ -4,6 +4,7 @@
 #include "party/party_give_rules.h"
 
 #include <cstdio>
+#include <string>
 
 using namespace coop::give;
 
@@ -35,6 +36,12 @@ static void Allow() {
     CHECK(GiverVerdict(Vial(150), 100) == Why::NotHeld);  // more than one transfer carries
     { GoodsFacts f = Vial(); f.id = 4000; f.goods_type = 1; f.max_num = 1; CHECK(GiverVerdict(f, 1) == Why::KeyItem); }
     { GoodsFacts f = Vial(); f.goods_type = 1; f.max_num = 5; CHECK(GiverVerdict(f, 1) == Why::KeyItem); }
+    // materials are goodsType 2 (Blood Stone Shard 3000, Twin 3010, Chunk 3020, Rock 3030, ritual materials 7xxx): allowed
+    { GoodsFacts f = Vial(40); f.id = 3000; f.goods_type = 2; f.max_num = 99; CHECK(GiverVerdict(f, 40) == Why::None); }
+    { GoodsFacts f = Vial(3); f.id = 3030; f.goods_type = 2; f.max_num = 99; CHECK(GiverVerdict(f, 3) == Why::None); CHECK(ReceiverVerdict(f, 3, 99) == Why::None); }
+    { GoodsFacts f = Vial(3); f.id = 7200; f.goods_type = 2; f.max_num = 99; CHECK(GiverVerdict(f, 3) == Why::None); }
+    { GoodsFacts f = Vial(3); f.goods_type = 3; CHECK(GiverVerdict(f, 3) == Why::KeyItem); }
+    { GoodsFacts f = Vial(3); f.goods_type = 6; CHECK(GiverVerdict(f, 3) == Why::KeyItem); }
     // unique: a hunter tool / badge row that is goodsType 0 but maxNum 1
     { GoodsFacts f = Vial(1); f.id = 5555; f.max_num = 1; CHECK(GiverVerdict(f, 1) == Why::Unique); }
     // the story bands are denied even when the param row looks plain
@@ -341,7 +348,195 @@ static void Texts() {
     CHECK(RefusedText("Blood Vial", "Ann", Why::NoRoom) == "Give Blood Vial to Ann: no room in their inventory and storage");
 }
 
+// ---- 0.7.9 gear (weapons and armor) ----
+
+static GearFacts Saw(std::uint32_t id = 5000500) {  // a plain weapon row (a +5 upgrade)
+    GearFacts f;
+    f.kind = Kind::Weapon;
+    f.id = id;
+    f.held = true;
+    f.free_slots = 40;
+    return f;
+}
+
+static GearGem OneGem(int slot) {
+    GearGem g;
+    g.slot = slot;
+    g.id = 71000;
+    g.data[0] = 1;
+    g.data[1] = 4;
+    for (int k = 2; k < 8; ++k) g.data[k] = -1;
+    g.data[2] = 3210001;
+    return g;
+}
+
+static void GearRules() {
+    // The table is built from the game's params at run time (party_items.cpp EnsureGearTable); the test fills a synthetic one.
+    GearTable::Get().Set({5000500, 5000600, 5000000}, {7100, 7200});
+    // the table: a normal row is giveable, a shared / quest family or an unknown row is not
+    CHECK(GearGiveable(Kind::Weapon, 5000500));
+    CHECK(!GearGiveable(Kind::Weapon, 9000000));  // a shared lot's weapon (a shared lot's weapon)
+    CHECK(!GearGiveable(Kind::Weapon, 9000700));  // ... at every upgrade level
+    CHECK(!GearGiveable(Kind::Weapon, 71000));   // an internal row
+    CHECK(!GearGiveable(Kind::Weapon, 0));
+    CHECK(!GearGiveable(Kind::Weapon, 99999999));
+    CHECK(!GearGiveable(Kind::Armor, 5000500));    // a weapon id is not an armor row
+    CHECK(!GearGiveable(Kind::Goods, 1000));
+    CHECK(GearGiveable(Kind::Armor, 7100));
+    CHECK(!GearGiveable(Kind::Armor, 8100));     // Gascoigne's set (shared lot)
+    // the giver
+    CHECK(GearGiverVerdict(Saw()) == Why::None);
+    { GearFacts f = Saw(); f.held = false; CHECK(GearGiverVerdict(f) == Why::NotHeld); }
+    { GearFacts f = Saw(); f.equipped = true; CHECK(GearGiverVerdict(f) == Why::GearEquipped); }
+    { GearFacts f = Saw(9000000); CHECK(GearGiverVerdict(f) == Why::GearUnique); }
+    { GearFacts f = Saw(9000000); f.equipped = true; CHECK(GearGiverVerdict(f) == Why::GearUnique); }  // the rule first
+    { GearFacts f = Saw(); f.kind = Kind::Goods; CHECK(GearGiverVerdict(f) == Why::Failed); }
+    // the receiver: the same table on its own data, gems checked, room
+    GearGem g[2] = {OneGem(0), OneGem(2)};
+    CHECK(GearReceiverVerdict(Saw(), 2, g) == Why::None);
+    CHECK(GearReceiverVerdict(Saw(), 0, g) == Why::None);
+    { GearFacts f = Saw(9000100); CHECK(GearReceiverVerdict(f, 0, g) == Why::GearUnique); }  // a modified giver
+    { GearFacts f = Saw(); f.free_slots = 0; CHECK(GearReceiverVerdict(f, 0, g) == Why::NoRoom); }
+    { GearFacts f = Saw(); f.free_slots = -1; CHECK(GearReceiverVerdict(f, 0, g) == Why::Failed); }
+    {
+        GearFacts f = Saw();
+        f.kind = Kind::Armor;
+        f.id = 7100;
+        CHECK(GearReceiverVerdict(f, 0, g) == Why::None);
+        CHECK(GearReceiverVerdict(f, 1, g) == Why::BadGems);
+    }
+    GearGem dup[2] = {OneGem(0), OneGem(0)};  // the same slot twice
+    CHECK(GearReceiverVerdict(Saw(), 2, dup) == Why::BadGems);
+    { GearGem b = OneGem(5); CHECK(GearReceiverVerdict(Saw(), 1, &b) == Why::BadGems); }
+    { GearGem b = OneGem(0); b.data[0] = 9; CHECK(GearReceiverVerdict(Saw(), 1, &b) == Why::BadGems); }
+    { GearGem b = OneGem(0); b.data[1] = 5000; CHECK(GearReceiverVerdict(Saw(), 1, &b) == Why::BadGems); }
+    { GearGem b = OneGem(0); b.data[5] = -2; CHECK(GearReceiverVerdict(Saw(), 1, &b) == Why::BadGems); }
+    { GearGem b = OneGem(0); b.id = 0; CHECK(GearReceiverVerdict(Saw(), 1, &b) == Why::BadGems); }
+    CHECK(GearReceiverVerdict(Saw(), 6, g) == Why::BadGems);  // more gems than slots
+    // the slot layout: a gem needs a slot that exists; masks and aux in range
+    {
+        std::uint32_t mk[kGearSlots] = {1, kNoSlot, 8, kNoSlot, kNoSlot};
+        GearGem two[2] = {OneGem(0), OneGem(2)};
+        CHECK(GearReceiverVerdict(Saw(), 2, two, mk, 1) == Why::None);
+        GearGem three[2] = {OneGem(0), OneGem(1)};  // slot 1 has no shape
+        CHECK(GearReceiverVerdict(Saw(), 2, three, mk, 1) == Why::BadGems);
+        mk[3] = 0x10000;
+        CHECK(GearReceiverVerdict(Saw(), 0, two, mk, 1) == Why::BadGems);
+        mk[3] = kNoSlot;
+        CHECK(GearReceiverVerdict(Saw(), 0, two, mk, 0x10000) == Why::BadGems);
+        mk[3] = 0;
+        CHECK(GearReceiverVerdict(Saw(), 0, two, mk, 1) == Why::BadGems);
+    }
+    // the gear switch is its own consent
+    GateView v;
+    v.enabled = true;
+    v.world_up = true;
+    CHECK(Gate(v, false, true) == Why::None);
+    v.enabled = false;
+    CHECK(Gate(v, false, true) == Why::GearOff);
+    CHECK(Gate(v, true, true) == Why::TheirGearOff);
+    CHECK(Gate(v, true, false) == Why::TheirOff);
+    CHECK(WhyFromWord(WhyWord(Why::TheirGearOff)) == Why::TheirGearOff);
+    CHECK(WhyFromWord(WhyWord(Why::BadGems)) == Why::BadGems);
+    CHECK(WhyFromWord(WhyWord(Why::GearEquipped)) == Why::GearEquipped);
+}
+
+static void GearWire() {
+    Msg m;
+    m.op = Op::Offer;
+    m.id = 77;
+    m.from = 1;
+    m.to = 0;
+    m.goods = 5000500;
+    m.n = 1;
+    m.kind = Kind::Weapon;
+    m.gem_count = 2;
+    m.gems[0] = OneGem(0);
+    m.gems[1] = OneGem(3);
+    m.gems[1].data[1] = 1000;
+    m.masks[0] = 1;
+    m.masks[3] = 8;
+    m.aux = 1;
+    Msg r;
+    CHECK(Decode(Encode(m), &r));
+    CHECK(r.kind == Kind::Weapon && r.gem_count == 2 && r.goods == 5000500 && r.n == 1);
+    CHECK(r.gems[0] == m.gems[0] && r.gems[1] == m.gems[1]);
+    CHECK(r.masks[0] == 1 && r.masks[1] == kNoSlot && r.masks[3] == 8 && r.aux == 1);
+    // no gems, armor, and a goods offer keeps no gear fields
+    m.gem_count = 0;
+    CHECK(Decode(Encode(m), &r) && r.kind == Kind::Weapon && r.gem_count == 0);
+    m.kind = Kind::Armor;
+    m.goods = 7100;
+    CHECK(Decode(Encode(m), &r) && r.kind == Kind::Armor && r.goods == 7100);
+    m = Msg();
+    m.op = Op::Offer;
+    m.id = 5;
+    m.from = 0;
+    m.to = 1;
+    m.goods = 1000;
+    m.n = 5;
+    CHECK(Decode(Encode(m), &r) && r.kind == Kind::Goods && r.n == 5);
+    // refused input: gear with n != 1, armor with gems, a bad kind, malformed or implausible gem strings
+    const std::string head = "{\"op\":\"offer\",\"id\":1,\"from\":0,\"to\":1,";
+    CHECK(!Decode(head + "\"goods\":5000500,\"n\":2,\"kind\":\"weapon\",\"gems\":\"\"}", &r));
+    CHECK(!Decode(head + "\"goods\":7100,\"n\":1,\"kind\":\"armor\",\"gems\":\"0,71000,1,4,-1,-1,-1,-1,-1,-1\"}", &r));
+    CHECK(!Decode(head + "\"goods\":5000500,\"n\":1,\"kind\":\"ring\"}", &r));
+    CHECK(!Decode(head + "\"goods\":5000500,\"n\":1,\"kind\":\"weapon\",\"gems\":\"0,71000,1,4\"}", &r));
+    CHECK(!Decode(head + "\"goods\":5000500,\"n\":1,\"kind\":\"weapon\",\"gems\":\"9,71000,1,4,-1,-1,-1,-1,-1,-1\"}", &r));
+    CHECK(!Decode(head + "\"goods\":5000500,\"n\":1,\"kind\":\"weapon\",\"gems\":\"0,71000,1,4,-1,-1,-1,-1,-1,-1;0,71000,1,4,-1,-1,-1,-1,-1,-1\"}", &r));
+    CHECK(Decode(head + "\"goods\":5000500,\"n\":1,\"kind\":\"weapon\",\"gems\":\"0,71000,1,4,-1,-1,-1,-1,-1,-1\",\"masks\":\"1,2147483648,2147483648,2147483648,2147483648,1\"}", &r) && r.gem_count == 1);
+    // a gear offer with all five slots stays well inside the body limit
+    m = Msg();
+    m.op = Op::Offer;
+    m.id = 9;
+    m.from = 1;
+    m.to = 0;
+    m.goods = 5000500;
+    m.n = 1;
+    m.kind = Kind::Weapon;
+    m.gem_count = 5;
+    for (int i = 0; i < 5; ++i) {
+        m.gems[i] = OneGem(i);
+        m.gems[i].id = 99999999;
+        m.gems[i].data[0] = 3;
+        m.gems[i].data[1] = 1000;
+        for (int k = 2; k < 8; ++k) m.gems[i].data[k] = 99999999;
+        m.masks[i] = 0xffff;
+    }
+    CHECK(Encode(m).size() < 1000);
+    CHECK(Decode(Encode(m), &r) && r.gem_count == 5 && r.gems[4] == m.gems[4]);
+}
+
+// The two machines carry the kind through the whole transfer (the receiver applies what it reserved; the giver refunds the same).
+static void GearMachines() {
+    Giver g;
+    CHECK(g.Begin(5, 1, 5000500, 1, 0.0, Kind::Weapon) && g.kind() == Kind::Weapon);
+    CHECK(g.OnReady(5, 1, 0.1).act == Act::Remove);
+    CHECK(g.Removed(1, 0.2).act == Act::SendCommit);
+    const Step d = g.OnDone(5, 1, 0, Why::Failed);  // the receiver could not build it: the giver gets it back
+    CHECK(d.act == Act::Finished && d.refund == 1 && d.got == 0);
+    Giver g2;
+    CHECK(g2.Begin(6, 1, 5000500, 1, 0.0, Kind::Armor));
+    CHECK(g2.OnReady(6, 1, 0.1).act == Act::Remove);
+    CHECK(g2.Removed(0, 0.2).act == Act::SendAbort);  // the removal did not happen: nothing to refund
+    Receiver r;
+    CHECK(r.Reserve(1, 9, 5000500, 1, 0.0, Kind::Weapon) == Receiver::Result::Ok);
+    const RStep a = r.OnCommit(1, 9, 0.5);
+    CHECK(a.act == RAct::Apply && a.kind == Kind::Weapon && a.goods == 5000500 && a.n == 1);
+    const RStep done = r.Applied(1, Why::None);
+    CHECK(done.act == RAct::SendDone && done.got == 1 && done.kind == Kind::Weapon);
+    CHECK(r.OnCommit(1, 9, 0.6).act == RAct::SendDone);  // a replay: the same DONE, never a second weapon
+    CHECK(r.OnCommit(1, 9, 0.6).got == 1);
+    Receiver r2;
+    CHECK(r2.Reserve(1, 10, 7100, 1, 0.0, Kind::Armor) == Receiver::Result::Ok);
+    CHECK(r2.OnAbort(1, 10).got == 0);
+    CHECK(r2.OnCommit(1, 10, 0.1).got == 0);  // a COMMIT after the ABORT gives nothing
+}
+
 int main() {
+    GearRules();
+    GearWire();
+    GearMachines();
     Allow();
     RoomRules();
     Moment();

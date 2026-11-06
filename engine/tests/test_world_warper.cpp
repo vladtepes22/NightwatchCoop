@@ -2,6 +2,7 @@
 // The world warper's rules (gpu/shim/party/world_warper_rules.h): options, the route through
 // every ReturnPointParam row, the progress file and resume after a crash, the scripted steps.
 // Build and run: ninja -C out/gpu world-warper-test && out/gpu/world-warper-test.exe
+#include "party_tables_test.h"
 #include "party/party_ids.h"
 #include "party/world_warper_rules.h"
 
@@ -26,6 +27,21 @@ static bool Spot(std::uint32_t rp) {
 }
 
 int main() {
+    // The arena entry floors come from the party tables (read from the player's MSBs): none without them, and exactly
+    // the installed rows with made-up tables.
+    {
+        float a[3] = {};
+        coop::gamedata::Install(coop::gamedata::Tables{});
+        CHECK(!BossArenaSpot(1234, a));
+        coop::gamedata::Tables t;
+        t.loaded = true;
+        t.boss_arenas = {{1234, 1.0f, 2.0f, 3.0f}, {5678, -4.0f, 5.0f, 6.5f}};
+        coop::gamedata::Install(t);
+        CHECK(BossArenaSpot(5678, a) && a[0] == -4.0f && a[1] == 5.0f && a[2] == 6.5f && BossArenaSpot(1234, a) && a[2] == 3.0f);
+        CHECK(!BossArenaSpot(1233, a) && !BossArenaSpot(9999, a) && !BossArenaSpot(0, a));
+        coop::gamedata::Install(coop::gamedata::Tables{});
+    }
+    if (!coop::test::UseGameTables("world-warper-test")) return 0;
     // Options.
     CHECK(ParseOptions(nullptr).mode == Mode::Off);
     CHECK(ParseOptions("").mode == Mode::Off);
@@ -50,12 +66,11 @@ int main() {
     CHECK(ParseIds("1+x+3 4").size() == 3);
 
     // The route: every row with a spot, Dream first, then the lamps, Chalice rows never.
-    const std::vector<std::uint32_t> all(std::begin(coop::ids::kPartyReturnPoints),
-                                         std::end(coop::ids::kPartyReturnPoints));
+    const std::vector<std::uint32_t> all = coop::ids::ReturnPoints();
     const auto route = BuildRoute(all, Spot);
     CHECK(!route.empty());
     CHECK(route.front() == coop::lamptravel::kDreamReturnPoint);
-    CHECK(route[1] == coop::lamptravel::ReturnPoint(coop::lamptravel::kLamps[0]));
+    CHECK(route[1] == coop::lamptravel::ReturnPoint(coop::lamptravel::Lamps()[0]));
     std::set<std::uint32_t> uniq(route.begin(), route.end());
     CHECK(uniq.size() == route.size());
     for (std::uint32_t rp : route) {
@@ -63,8 +78,8 @@ int main() {
         CHECK(Spot(rp));
     }
     std::size_t lamps_in = 0;
-    for (const auto& l : coop::lamptravel::kLamps) lamps_in += uniq.count(coop::lamptravel::ReturnPoint(l));
-    CHECK(lamps_in == coop::lamptravel::kLampCount);  // every lamp is visited
+    for (const auto& l : coop::lamptravel::Lamps()) lamps_in += uniq.count(coop::lamptravel::ReturnPoint(l));
+    CHECK(lamps_in == coop::lamptravel::Lamps().size());  // every lamp is visited
     std::printf("route: %zu rows (%zu lamps + the Dream + %zu other rows)\n", route.size(), lamps_in,
                 route.size() - lamps_in - 1);
     {
@@ -171,10 +186,10 @@ int main() {
             armor.insert(g.armor);
             right.insert(g.right), left.insert(g.left);
         }
-        CHECK(armor.size() == std::size(kWarperArmorSets));
-        CHECK(right.size() == std::size(kWarperRightWeapons));
-        CHECK(left.size() == std::size(kWarperLeftWeapons));
-        CHECK(GearFor(0).right == kWarperRightWeapons[0] && GearFor(1).right == kWarperRightWeapons[1]);
+        CHECK(armor.size() == ArmorSets().size());
+        CHECK(right.size() == RightWeapons().size());
+        CHECK(left.size() == LeftWeapons().size());
+        CHECK(GearFor(0).right == RightWeapons()[0] && GearFor(1).right == RightWeapons()[1]);
         CHECK(Seconds(LoadoutSteps(false)) < Seconds(LoadoutSteps(true)));
         for (const auto& st : GearSteps()) CHECK(st.buttons != kRight && st.buttons != kLeft);
         std::printf("gear: %zu armor sets, %zu right-hand and %zu left-hand weapons\n", armor.size(), right.size(),
@@ -223,7 +238,7 @@ int main() {
         CHECK(!BossSpotOk(boss, fell, fell));       // fell through
         CHECK(!BossSpotOk(boss, far, far2));        // pushed out of the arena
         float a[3];
-        CHECK(BossArenaSpot(2300800, a) && std::fabs(a[0] + 88.3f) < 1e-3f && !BossArenaSpot(2300801, a));
+        CHECK(BossArenaSpot(2300800, a) && std::fabs(a[0] + 88.33f) < 1e-3f && !BossArenaSpot(2300801, a));
         const float spot[3] = {0, 10, 0}, s1[3] = {0, 10.2f, 0}, w1[3] = {0.5f, 10.2f, 0}, w0[3] = {0.1f, 10.2f, 0};
         const float down[3] = {0, 3, 0};
         CHECK(ArenaSpotOk(spot, s1, w1) && !ArenaSpotOk(spot, s1, w0) && !ArenaSpotOk(spot, down, down));

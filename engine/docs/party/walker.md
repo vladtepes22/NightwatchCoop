@@ -73,7 +73,7 @@ and ease-off.
 
 The hkaiNavMesh files are in the map part's local frame. Most maps sit at the origin (m21, m24, m25); others do not:
 `nav_cache.py` takes the candidate origins from the MSB collision / connect-collision / navmesh parts (+0x28 of a part
-entry, type at +0x14) and keeps the one that puts the most of the map's lamp spots (party_ids.inc, world frame) on the
+entry, type at +0x14) and keeps the one that puts the most of the map's lamp spots (ids_tool's return spots, world frame) on the
 mesh (at least half of them and 2, else the local frame stays). Found: m22 (-185.8, -13.9, 418.0), m23 (50, -30, 0), m26
 (0, 1000, 0), m28 (255, -37.5, 120.5), m33 (0, 1500, 0), m34 (-500, 1500, -500), m35 (-792.2, 1489.5, -723.8), m36
 (-513.2, 1594.5, -824.2); all their lamp spots land on the mesh. NOT verified (kept local, so the walker falls back to

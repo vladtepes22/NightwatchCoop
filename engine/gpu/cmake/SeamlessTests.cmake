@@ -16,7 +16,7 @@ add_executable(party-host-test EXCLUDE_FROM_ALL ../tests/test_party_host.cpp ${P
 
 target_compile_options(party-host-test PRIVATE -UNDEBUG -Wall -Wextra)
 
-target_include_directories(party-host-test PRIVATE shim/net ..)
+target_include_directories(party-host-test PRIVATE shim/net shim ..)
 
 set_target_properties(party-host-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
@@ -544,6 +544,24 @@ target_compile_options(auto-hud-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(auto-hud-test PRIVATE shim)
 set_target_properties(auto-hud-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 add_test(NAME auto-hud-test COMMAND auto-hud-test)
+# Party tables derived from the player's game files in C++ (visy 0.7.9, shim/gamedata/, in bbgpu through
+# SHIM_SOURCES). party-tables-cli compares with scripts/partydata/oracle.py; gamedata-test builds synthetic
+# DCX / BND4 / PARAM / EMEVD / MSB data; party-gamedata-test is the cache parser (party_gamedata.h).
+file(GLOB GAMEDATA_SOURCES CONFIGURE_DEPENDS shim/gamedata/*.cpp)
+add_executable(party-tables-cli EXCLUDE_FROM_ALL ../tests/party_tables_cli.cpp ${GAMEDATA_SOURCES})
+target_compile_options(party-tables-cli PRIVATE -Wall -Wextra -Werror)
+target_include_directories(party-tables-cli PRIVATE shim shim/party)
+target_link_libraries(party-tables-cli PRIVATE miniz::miniz)
+add_executable(gamedata-test EXCLUDE_FROM_ALL ../tests/test_gamedata.cpp ${GAMEDATA_SOURCES})
+target_compile_options(gamedata-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(gamedata-test PRIVATE shim shim/party)
+target_link_libraries(gamedata-test PRIVATE miniz::miniz)
+set_target_properties(gamedata-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME gamedata-test COMMAND gamedata-test)
+add_executable(party-gamedata-test EXCLUDE_FROM_ALL ../tests/test_party_gamedata.cpp)
+target_compile_options(party-gamedata-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-gamedata-test PRIVATE shim)
+set_target_properties(party-gamedata-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 
 get_property(all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 set(party_tests)
@@ -554,7 +572,7 @@ foreach(target IN LISTS all_targets)
         add_test(NAME ${target} COMMAND ${target})
     endif()
 endforeach()
-add_custom_target(seamless-tests DEPENDS ${party_tests} party-soak party-host-harness auto-hud-test)
+add_custom_target(seamless-tests DEPENDS ${party_tests} party-soak party-host-harness auto-hud-test gamedata-test)
 add_dependencies(seamless-tests boot-watch-test)
 
 target_link_libraries(party-soak PRIVATE ws2_32 iphlpapi ole32 oleaut32 crypt32 synchronization winmm)

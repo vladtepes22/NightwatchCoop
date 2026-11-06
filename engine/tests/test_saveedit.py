@@ -492,15 +492,36 @@ def test_real_save_edit_cycle_on_a_copy(tmp_path):
         (src / "1/CUSA00207/SPRJ0005/userdata0010").read_bytes()
 
 
-def test_flag_lists_match_party_session():
+def synthetic_catalogue():
+    """A catalogue with made-up progress lists (the real ones are derived from the player's game)."""
+    return N.Catalogue({"names": {"lamp": {"70002410": "Test lamp"}, "npc": {"502000": "Test boss"}}, "ids": {},
+                        "progress": {"bosses": [[12401800, 502000], [12411800, 0]],
+                                     "lamps": [72410200, 73400201, 72110200]}})
+
+
+def test_flag_lists_come_from_the_catalogue():
     import party_session as ps
     from saveedit import flagsdata as F
-    assert F.BOSS_IDS == ps.BOSS_FLAGS and F.LAMP_IDS == ps.LAMP_FLAGS and F.ENDING_IDS == ps.ENDING_FLAGS
-    assert all(M.group_key(f) is not None for f in F.BOSS_IDS + F.LAMP_IDS + F.ENDING_IDS)
-    assert len(F.bosses()) == 22 and len(F.lamps()) == 44
-    assert F.lamps()[0][1] == "Abandoned Old Workshop" and next((g, l) for f, g, l in F.bosses() if f == 12401800) == ("Cathedral Ward", "Boss [12401800]")
-    assert {g for _, g, _ in F.bosses() + F.lamps()} <= set(F.AREAS.values())
+    assert F.ENDING_IDS == ps.ENDING_FLAGS
+    assert F.bosses() == [] and F.lamps() == [] and F.lamp_ids() == ()  # no game files: nothing offered
+    c = synthetic_catalogue()
+    assert all(M.group_key(f) is not None for f in [b for b, _ in c.progress["bosses"]] + list(F.lamp_ids(c)) +
+               list(F.ENDING_IDS))
+    assert F.bosses(c)[0] == (12401800, "Cathedral Ward", "Test boss [12401800]")
+    assert F.bosses(c)[1][2] == "Boss [12411800]"
+    assert F.lamps(c)[0][2] == "Test lamp [72410200]"
+    assert {g for _, g, _ in F.bosses(c) + F.lamps(c)} <= set(F.AREAS.values())
     assert M.group_key(12401800) == party_group(12401800)
+
+
+@pytest.mark.skipif(not (GAME / "msg").is_dir(), reason="no game folder")
+def test_flag_lists_derived_from_the_game(tmp_path):
+    from saveedit import flagsdata as F
+    c = N.Catalogue.load(GAME, tmp_path)
+    assert len(F.bosses(c)) == 22 and len(F.lamps(c)) == 44 and len(F.endings()) == 4  # Nightwatch: only the "ending seen" flags
+    assert {g for _, g, _ in F.bosses(c) + F.lamps(c)} <= set(F.AREAS.values())
+    assert all(M.group_key(f) is not None for f, _g, _l in F.bosses(c) + F.lamps(c))
+    assert N.Catalogue.load(GAME, tmp_path).progress == c.progress  # the cache round-trips
 
 
 def party_group(fid):
@@ -579,6 +600,18 @@ def test_catalogue_accepts_the_eboot_folder(tmp_path):
     assert N.Catalogue.load(GAME.parent, tmp_path).ok
 
 
+def test_lamp_flags_are_the_whole_lamp_dlc_included():
+    from saveedit import flagsdata as F
+    assert F.lamp_flags(73400201) == (73400201, 13407830, 13407831)       # Nightmare Church (issue #28)
+    assert F.lamp_flags(72410201) == (72410201, 12417830, 12417831)
+    assert F.lamp_flags(73600202) == (73600202, 13607850, 13607851)       # Fishing Hamlet
+    c = synthetic_catalogue()
+    dlc = [f for f in F.lamps(c) if f[1] in ("Hunter's Nightmare", "Research Hall", "Fishing Hamlet")]
+    assert len(dlc) == 1 and dlc[0][1] == "Hunter's Nightmare"
+    assert all(M.group_key(x) is not None for f in F.lamp_ids(c) for x in F.lamp_flags(f))
+    assert len(set(F.lamp_ids(c))) == len(F.lamp_ids(c))
+
+
 @pytest.mark.skipif(not (GAME / "msg").is_dir(), reason="no game folder")
 def test_fishing_hamlet_lamps_are_named(tmp_path):
     c = N.Catalogue.load(GAME, tmp_path)
@@ -588,7 +621,8 @@ def test_fishing_hamlet_lamps_are_named(tmp_path):
 def test_lamp_and_boss_names_from_the_catalogue():
     from saveedit import flagsdata as F
     c = N.Catalogue({"names": {"lamp": {"70002410": "1st Floor Sickroom", "70002401": "Grand Cathedral"},
-                               "npc": {"502000": "Vicar Amelia"}}, "ids": {}})
+                               "npc": {"502000": "Vicar Amelia"}}, "ids": {},
+                       "progress": {"bosses": [[12401800, 502000]], "lamps": [72410200, 72500200]}})
     assert c.lamp_name(72410200) == "1st Floor Sickroom" and c.lamp_name(72400201) == "Grand Cathedral"
     assert c.lamp_name(72500200) is None
     lamps = {f: l for f, g, l in F.lamps(c)}
@@ -600,10 +634,38 @@ def test_lamp_and_boss_names_from_the_catalogue():
 def test_real_names_of_lamps_and_bosses(tmp_path):
     from saveedit import flagsdata as F
     c = N.Catalogue.load(GAME, tmp_path)
-    assert all(c.lamp_name(f) for f in F.LAMP_IDS)  # every lamp flag has a warp-list name
+    assert all(c.lamp_name(f) for f in F.lamp_ids(c) if f // 10000 % 1000 < 300)  # every main-game lamp has a warp-list name
     assert c.lamp_name(72410200) == "1st Floor Sickroom" and c.lamp_name(72110200) == "Abandoned Old Workshop"
-    named = [c.boss_name(chr_id) for chr_id in F.BOSS_CHR.values() if chr_id]
-    assert all(named) and "Vicar Amelia" in named and "Orphan of Kos" in named
+    named = [c.boss_name(chr_id) for _f, chr_id in c.progress["bosses"] if chr_id]
+    assert len(named) == 22 and all(named) and "Vicar Amelia" in named and "Orphan of Kos" in named
+    assert not any(label.startswith("Boss [") for _f, _g, label in F.bosses(c))  # no boss is left unnamed
+    by_flag = dict((f, l) for f, g, l in F.bosses(c))
+    assert by_flag[12601800].startswith("Mergo") and by_flag[13501850].startswith("Living Failures")  # bar found by its event
+
+
+def test_boss_names_come_from_the_health_bar_not_the_npc_param(monkeypatch):
+    """derive() names a boss by the 2003[11] health bar of its defeat event's entity; a defeat event that names
+    another entity than the bar (m26) is found by the bar's event, 1AAB4802 for the kill flag 1AAB1800."""
+    from saveedit import flagsdata as F
+    import types
+
+    def rec(event, markers):
+        return {"event": event, "slot": 0, "markers": [{"m": m, "v": v} for m, v in markers], "ops": [], "reads": []}
+
+    allrec = {"m24_00_00_00": [rec(12401800, [("boss_defeat", [2400800])]),
+                               rec(12404802, [("boss_bar", [1, 2400800, 0, 502000])])],
+              "m26_00_00_00": [rec(12601800, [("boss_defeat", [2600803])]),
+                               rec(12604802, [("boss_bar", [1, 2600802, 0, 551000])])],
+              "m28_00_00_00": [rec(12801800, [("boss_defeat", [2800803])])]}  # no bar at all
+    ft = types.SimpleNamespace(
+        MARKERS={}, load_emedf=lambda x: x, find_emedf=lambda x: x, expand_all=lambda ev, em: allrec,
+        category_rows=lambda game, rec_: ([(12401800, 12401800, "boss_defeated", ""), (12601800, 12601800, "boss_defeated", ""),
+                                           (12801800, 12801800, "boss_defeated", "")], None),
+        categorize=lambda rows, f: ("boss_defeated",))
+    monkeypatch.setattr(F, "_partydata", lambda: (ft, None))
+    got = F.derive("anywhere")
+    assert got["bosses"] == [[12401800, 502000], [12601800, 551000], [12801800, 0]]
+    assert ft.MARKERS == {}  # the marker was only added for this one read
 
 
 def test_same_named_armour_rows_are_told_apart():
@@ -638,20 +700,6 @@ def test_a_mod_weapon_can_be_raised_by_the_mods_level_rows():
     assert M.SaveModel(m.to_bytes()).items((0,))[0].number == 22001000
 
 
-def test_a_lamp_is_all_its_flags():
-    from saveedit import flagsdata as F
-    assert F.lamp_group(72410200) == (12417810, 12417811, 72410200)
-    assert F.lamp_group(72200201) == (12207830, 12207831, 72200201)
-    assert F.lamp_group(12401800) == (12401800,)  # a boss flag stands alone
-    assert all(M.group_key(x) is not None for f in F.LAMP_IDS for x in F.lamp_group(f))
-    m = M.SaveModel(make_save())
-    for x in F.lamp_group(72410200):
-        assert not m.flag(x)
-    for x in F.lamp_group(72410200):
-        m.set_flag(x, True)
-    assert all(M.SaveModel(m.to_bytes()).flag(x) for x in F.lamp_group(72410200))
-
-
 def test_guest_written_save_is_edited_through_a_repaired_copy(user):
     """A save the game wrote as a guest has an empty world-state section: the editor works on a copy with the
     blocks in and writes the game's own empty section back (scripts/save_editor.py), with no export / import step."""
@@ -670,25 +718,3 @@ def test_guest_written_save_is_edited_through_a_repaired_copy(user):
     assert se.world_empty(after) and S.open_slot(user, "party", 0).echoes == 777
     diff = [i for i, (a, b) in enumerate(zip(guest, after)) if a != b]
     assert 0 < len(diff) <= 4  # only the echoes changed; the game's own empty section is back
-
-
-def test_added_bosses_and_lamps():
-    from saveedit import flagsdata as F
-    assert {f: F.BOSS_CHR[f] for f in (12301700, 12411700, 12421700, 13501850, 13401850)} == {
-        12301700: 508000, 12411700: 500000, 12421700: 257000, 13501850: 403000, 13401850: 450000}
-    assert set(F.LAMP_IDS[28:]) == {73200200, 73200201, 73200202, 73200203, 73300200, 73300201,
-                                  73400200, 73400201, 73400202, 73400203, 73500200, 73500201,
-                                  73500202, 73600200, 73600201, 73600202}
-    assert F.lamp_group(73600202) == (13607850, 13607851, 73600202)
-    assert F.flag_group(13401800) == (13401800, 9471)
-    m = M.SaveModel(make_save())
-    parts = {x for f in F.BOSS_IDS + F.LAMP_IDS for x in F.flag_group(f)}
-    for x in parts:
-        assert M.group_key(x) is not None and M.group_key(x) == party_group(x)
-        m.set_flag(x, True)
-    m = M.SaveModel(m.to_bytes())
-    assert all(m.flag(x) for x in parts)
-    for x in parts:
-        m.set_flag(x, False)
-    m = M.SaveModel(m.to_bytes())
-    assert not any(m.flag(x) for x in parts)

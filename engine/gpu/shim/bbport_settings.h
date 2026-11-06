@@ -233,6 +233,10 @@ struct Values {
     /// join its world as hostile phantoms from the public lists (VPN lobby / LAN discovery). Only the host's value counts. ini
     /// party_invaders, env BB_PARTY_INVADERS. Live. Off by default.
     std::atomic<bool> party_invaders{false};
+    /// 0.7.9 (CL-7e748c): "Max invaders": how many invaders the host lets in at once, 1 or 2 (party_invade_rules.h). The HOST's
+    /// value only; both count against Max players and the game's four slots. ini party_max_invaders, env
+    /// BB_PARTY_MAX_INVADERS. Live. Default 1 (the 0.7.8 behaviour).
+    std::atomic<int> party_max_invaders{1};
     /// 0.7.7 (CL-2eec68): splitscreen mode for several windows on one screen (party/party_splitscreen_rules.h): the party
     /// HUD shows only the compass, no name tags, party messages cut to errors. Each player's own. ini
     /// party_splitscreen, env BB_PARTY_SPLITSCREEN. Live. Off by default.
@@ -255,6 +259,11 @@ struct Values {
     /// consumables and sends one to a member through a two-phase transfer. The giver's switch shows the list, the
     /// receiver's is its consent. Per player. OFF by default. ini party_give_items; env BB_PARTY_GIVE_ITEMS=1 wins.
     std::atomic<bool> party_give_items{false};
+    /// 0.7.9 (givegear079, CL-1b3b98): the same for weapons and armor (a weapon moves with its upgrade level and blood gems).
+    /// Its own switch, separate from party_give_items: gear is worth more than a stack of bullets, so a hunter can take
+    /// consumables and still refuse gear. The giver's switch adds Give to a weapon's / armor's menu, the receiver's is its
+    /// consent. Per player. OFF by default. ini party_give_gear; env BB_PARTY_GIVE_GEAR=1 wins.
+    std::atomic<bool> party_give_gear{false};
     /// Party gameplay switches (the launcher's Party Rules / My Party tabs, the game's party pages in
     /// System; PartySwitches below): ini key = the member's name, env BB_PARTY_* = 0/1 wins at start.
     /// On by default. Load puts each value into the process environment when its variable is unset,
@@ -296,6 +305,9 @@ struct Values {
     /// 0.7.8 (CL-420d9f): the Ritual Altar's "Search by Chalice Glyph" shows the party's glyphs as a pick list before the
     /// code keyboard (party_chalice_glyphs.h). This player's own, read live; OFF by default.
     std::atomic<bool> party_glyph_list{false};
+    /// 0.7.9 (CL-13f7d1): a summoned guest can use the Ritual Altar in the host's Dream (conduct a ritual with its own
+    /// chalice and materials, enter its dungeons). This player's own, read live; OFF by default.
+    std::atomic<bool> party_guest_altar{false};
     /// 0.7.3 (user decision 2026-10-22): covenant outcomes (Annalise, Alfred, Valtr) stay in each
     /// player's own save (party_progress Category::covenant_outcome). The host's; on by default.
     std::atomic<bool> party_covenant_per_player{true};

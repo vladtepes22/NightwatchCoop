@@ -176,9 +176,9 @@ void SetInvincible(u64 chr, bool on) {
 // ---- bell helpers and the boss fog (main thread, the host's game) ----
 
 struct FogState {
-    double since[std::size(kFogHelpers)] = {};  ///< seconds on the clock when the host-entered flag was first seen on
-    bool seen[std::size(kFogHelpers)] = {};
-    bool handled[std::size(kFogHelpers)] = {};
+    std::vector<double> since;  ///< seconds on the clock when the host-entered flag was first seen on
+    std::vector<char> seen;
+    std::vector<char> handled;
     std::uint32_t map = 0xffffffffu;
 };
 
@@ -218,8 +218,14 @@ void FogFollowTick(const GameSnapshot& s, double now) {
         if (s.loading || !s.world_up) return;
     }
     const bool on = RuleOn(false);
-    for (std::size_t i = 0; i < std::size(kFogHelpers); ++i) {
-        const FogHelper& h = kFogHelpers[i];
+    const std::vector<FogHelper>& helpers = FogHelpers();
+    if (st.since.size() != helpers.size()) {
+        st.since.assign(helpers.size(), 0.0);
+        st.seen.assign(helpers.size(), 0);
+        st.handled.assign(helpers.size(), 0);
+    }
+    for (std::size_t i = 0; i < helpers.size(); ++i) {
+        const FogHelper& h = helpers[i];
         if (h.npc / 100000 != (s.map_id >> 24) || (h.npc / 10000) % 10 != ((s.map_id >> 16) & 0xff)) continue;
         bool fight = false, joined = false, left = false;
         ReadEventFlag(h.host_flag, &fight);

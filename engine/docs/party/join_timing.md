@@ -158,6 +158,11 @@ Fixes:
    the peers reserved for that online id lose the id (first byte `#`) and the keep flag. The next
    summon reserves a fresh peer.
 3. `Party: Fast rejoin`: the peer keep 30 -> 10 s (0x147afe4, 0x147b0a7, 0x1480cf7, 0x1480e14).
+   The timer (+0xe8) is counted down by the game's step (0x1480d10, float seconds): measured with
+   `BB_PARTY_PEERKEEP_LOG=1` + `BB_PARTY_PEERKEEP_TEST=1` (reserves one idle peer for 10.0 and logs the timer twice a
+   second) at 30 and 60 FPS with Live FPS and at 60 and 90 FPS with the frame hooks: 1.0 per wall second, so 10 s
+   at any frame rate (it runs slower only while the game itself steps slower than real time). No FPS patch writes
+   these bytes (tests/test_patches.py).
 4. `FromApi::hold_signs`: a member that was in, joining or loading into the host's world when its
    link dropped has its new signs held for 26 s after the drop, so the host's game cannot summon
    it over the old connection. In the runs the hold ended 2-5 s after the restarted guest's sign
@@ -674,3 +679,22 @@ Blood Moon with the lamp lit and unlit (placement beside the host), host after t
 2 guests, bad with 1 guest. The only differences left to the report are the Nightwatch engine and its replaced game files
 (`Mods: 423 game files replaced`), a level 100 guest save and the player's real network. Open: a repeat with the Nightwatch
 build's log of the HOST side (what it sent after the guest's world-up) would show whether a host packet is missing.
+
+## 2026-11-05 (repro079): CL-f9b8fc, second attempt at the Yahar'gul join - still not reproduced
+
+New setups, all with the host at the Yahar'gul lamp and the guests joining it (smoke `yj` env knobs, phase `yjc` = guests from
+the Cathedral Ward save under BB_NET_SIM=mobile, 3 players): the guest's own save in another map block (`YJ_GUEST_SAVE`
+cathedral_day = m24, the real NG+ guest save = m24_01, the real 0.7.8 playtest guest save), a guest that never saw the Gaol
+(`YJ_GCLEAR=9420,9421,9422,9423`), a guest in the Blood Moon world with the host before it (`YJ_GSET`) and the reverse
+(`YJ_HSET`), the host arriving at the kidnap return spot 2802959 with the lamp unlit, 3 players under mobile and under bad
+(one run with the real NG+ guest save), a join while the host's lamp warp is still loading (`YJ_EARLY=1`, mobile, and bad with 2
+guests: the guests then follow the host's travel instead of the A5 cross-map join). Every guest ended with `loading screen gone`
+and `map - -> m28_00_00_00` after 5-8 s of loading.
+What the report's guest log has that no run had: `load started: blobs decals 80` (every harness run: 0 / 20, once 48; the game's
+decals blob of the host's world, packet 0x11, is a 20-byte header plus the blood decals the host's fights left). Smoke knob
+`YJ_FIGHT=N` (N R1 taps by the host at the lamp before the guests start) did not grow it (20 after 12 taps: nothing in reach); a host
+that has killed enemies in Yahar'gul first is the setup still untried. One real finding on the way (smoke phase `yjc`, 3 players, mobile):
+two guests starting 2 s apart, the host builds the room for the second and refuses the first (`direct summon: slot 1 refused (a
+crashed member's connection is still held ...): the bell sign path goes on`, no crash happened): the first guest then loads its OWN
+Yahar'gul (load mode 0, cooperators -1) and the old `yj` check (map m28) passed it. `yj` now also requires `A5: arrived in the host's
+map`, and `yjc` starts the guests one after the other. Not the reporter's symptom (his guest sat on the load screen of the host's world).

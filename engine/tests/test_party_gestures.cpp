@@ -4,6 +4,7 @@
 // own-world / summoned decision.
 // Build and run: ninja -C out/gpu party-gestures-test && out/gpu/party-gestures-test.exe
 #include "party/party_gestures.h"
+#include "party/party_gamedata.h"
 
 #include <cstdio>
 #include <string>
@@ -111,6 +112,12 @@ static void test_decide() {
 }
 
 int main() {
+    {
+        coop::gamedata::Tables t;  // the names are the game's own text (party tables): made-up ones here
+        t.loaded = true;
+        t.gesture_names = {{800u, "Point Forward"}, {822u, "League Oath"}};
+        coop::gamedata::Install(std::move(t));
+    }
     test_ids();
     test_json();
     test_entries();

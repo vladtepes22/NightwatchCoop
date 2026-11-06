@@ -123,6 +123,22 @@ std::vector<std::pair<std::uint32_t, int>> KeySectionItems();
 /// GiveItemDirect 0x131CB70(0, type bits, id, count); false when the code differs or no player.
 /// It shows nothing; ShowItemGet adds the native "item acquired" entry.
 bool GiveItem(std::uint32_t type_bits, std::uint32_t id, int count);
+/// One used inventory entry (16 bytes in the list: handle, type bits | id, count, ...).
+struct InventoryEntry {
+    int index = -1;
+    std::uint32_t handle = 0;  ///< GaItem handle (weapons, armor, gems: a table instance; goods: a plain tag)
+    std::uint32_t item = 0;    ///< type bits | id (a weapon's id carries its upgrade level)
+    int count = 0;
+};
+/// Every used entry of the local inventory (key section and normal section), by index. Empty when unknown.
+std::vector<InventoryEntry> InventoryEntries();
+/// Free entries of the inventory's normal section (a weapon / armor / ring / item added needs one), -1 unknown.
+int InventoryFreeSlots();
+/// Does any equipment slot (EquipGameData handles, 32 slots) hold this GaItem handle?
+bool HandleEquipped(std::uint32_t handle);
+/// 0x14D0310(EquipGameData, index, 1): the entry at inventory `index` is removed (unequipped first). The caller
+/// verifies with InventoryEntries(). False when the code differs or there is no player.
+bool RemoveInventoryIndex(int index);
 /// The game's own equip of one equipment slot (EquipGameData = PlayerGameData +0x1D0, setter
 /// 0x14CCB90: refcounted GaItem handle, id, inventory index, the chr's ChrAsm), giving one first if
 /// none is held. Slots: world_warper_rules.h EquipSlot (0..5 weapons, 8..11 armor). False when the

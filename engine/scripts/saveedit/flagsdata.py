@@ -15,6 +15,9 @@ warp-list texts and NPC/boss names). This file holds the rules and the area name
                          2003[11] of the entity its defeat event names), the key of its text in the NPC name list
 """
 BOSS_BAR = (2003, 11)
+# The 'ending seen' records the editor offers (our own labels).
+ENDINGS_SEEN = {6600: "Yharnam Sunrise seen", 6601: "Honoring Wishes seen", 6602: "Childhood's Beginning seen",
+                6603: "Any ending seen"}
 ENDING_IDS = (21, 22, 23, 6600, 6601, 6602, 6603, 6604)  # our own list: ending A/B/C reached, the endings' unlocks, "ending reached"
 AREAS = {210: "Hunter's Dream", 211: "Abandoned Old Workshop", 220: "Hemwick Charnel Lane", 230: "Old Yharnam",
          240: "Cathedral Ward", 241: "Central Yharnam", 242: "Upper Cathedral Ward", 250: "Cainhurst",
@@ -42,7 +45,7 @@ def _partydata():
 
 def derive(game):
     """{"bosses": [[flag, NPC name id or 0]], "lamps": [flag]} from the game folder (the one holding event/
-    and param/): boss kill flags 1AAB1800 / 1AAB1850 filed under boss_defeated and lit-lamp flags 7AAB02nn
+    and param/): boss kill flags 1AAB1700 / 1AAB1800 / 1AAB1850 filed under boss_defeated and lit-lamp flags 7AAB02nn
     under lamp_unlocked by the party's category table, areas below 40 without the chalice area 29. Raises when
     the files cannot be read."""
     from pathlib import Path
@@ -65,7 +68,9 @@ def derive(game):
             area = f // 10**5 % 100
             if area == 29 or area >= 40:
                 continue
-            if cat == "boss_defeated" and 10**7 <= f < 2 * 10**7 and f % 1000 in (800, 850):
+            # 1AAB1700: the mid-boss kills with a health bar (Cleric Beast, Darkbeast Paarl, Celestial Emissary);
+            # Nightwatch lists them as 0.2.7's editor did (22 bosses, not 19).
+            if cat == "boss_defeated" and 10**7 <= f < 2 * 10**7 and f % 1000 in (700, 800, 850):
                 pass
             elif cat == "lamp_unlocked" and 7 * 10**7 <= f < 8 * 10**7 and f // 100 % 100 == 2:
                 pass
@@ -136,5 +141,6 @@ def lamps(cat=None):
 
 def endings():
     """Only the 'ending seen' records (docs/party/cutscenes_endings.md). 21-23 start an ending's credits and
-    NG+ on the next load and 6604 strips the key items on the next load, so they are never offered."""
+    NG+ on the next load and 6604 strips the key items on the next load, so the editor never offers them
+    (Nightwatch; visy's editor offers all eight)."""
     return [(f, "Endings", label) for f, label in ENDINGS_SEEN.items()]

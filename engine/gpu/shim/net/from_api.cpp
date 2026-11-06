@@ -529,11 +529,14 @@ std::int64_t FromApi::udp_heard_ms(const std::string& online_id, bool probe) {
     return p2p_ms_since_heard(addr, port);
 }
 
-std::int64_t FromApi::hold_left_ms() {
+std::int64_t FromApi::hold_left_ms(const std::string& asker) {
     std::lock_guard<std::mutex> lk(mu_);
     const std::int64_t now = steady_now_ms();
     std::int64_t left = 0;
-    for (const auto& h : holds_) left = std::max(left, h.second - now);
+    for (const auto& h : holds_) {
+        if (holds_own_.count(h.first) && h.first != asker) continue;  // another member's own place: not ours to wait for
+        left = std::max(left, h.second - now);
+    }
     return left;
 }
 
@@ -558,9 +561,11 @@ void FromApi::hide_unreachable(const std::string& online_id, int ms) {
     unreach_.emplace_back(online_id, until);
 }
 
-void FromApi::hold_signs(const std::string& online_id, int ms) {
+void FromApi::hold_signs(const std::string& online_id, int ms, bool own_only) {
     std::lock_guard<std::mutex> lk(mu_);
     const std::int64_t until = steady_now_ms() + ms;
+    if (own_only) holds_own_.insert(online_id);
+    else holds_own_.erase(online_id);
     for (auto& h : holds_) {
         if (h.first == online_id) {
             h.second = until;

@@ -305,7 +305,7 @@ bool Steady(const GameSnapshot& s) {
 }
 
 std::vector<u32> AllRows() {
-    return std::vector<u32>(std::begin(ids::kPartyReturnPoints), std::end(ids::kPartyReturnPoints));
+    return std::vector<u32>(std::begin(ids::ReturnPoints()), std::end(ids::ReturnPoints()));
 }
 
 /// `dump`: the player record's words (equipment research), 8 to a line, zero lines left out.
@@ -417,8 +417,8 @@ void BeginPhase(double now) {
         g.effects = g.opt.items && g.opt.act && !g.progress.effects_done ? ItemEffects() : std::vector<int>{};
     } else if (ph == Phase::Remo) {
         if (g.state_path.size()) g.progress = ParseProgress(ReadFile(g.state_path));
-        const std::vector<u32> all = g.opt.remos.empty() ? std::vector<u32>(std::begin(ids::kPartyRemos),
-                                                                            std::end(ids::kPartyRemos))
+        const std::vector<u32> all = g.opt.remos.empty() ? std::vector<u32>(std::begin(ids::Remos()),
+                                                                            std::end(ids::Remos()))
                                                          : g.opt.remos;
         Options ro = g.opt;
         ro.lamps.clear();
@@ -487,6 +487,10 @@ bool RunSteps(double now) {
 
 /// The tour row's gear (GearFor): before its warp, so the load builds the chr with it.
 void PutOnGear(std::size_t n) {
+    if (!gamedata::Loaded()) {
+        Log("gear %zu: no party tables (game data not read yet), gear left as it is", n);
+        return;
+    }
     const Gear gear = GearFor(n);
     int ok = 0, all = 0;
     ok += EquipSlotItem(kSlotRight1, kItemWeapon, gear.right) ? 1 : 0;
@@ -554,7 +558,7 @@ bool PickEnemy(u32 rp, EnemyTarget* out, float* dist, bool* boss, u32* kind) {
 /// The cutscenes of the map the player is in that the run has not played yet.
 std::vector<u32> RemosFor(u32 map_id) {
     std::vector<u32> v;
-    for (u32 id : ids::kPartyRemos) {
+    for (u32 id : ids::Remos()) {
         if (RemoMap(id) == (map_id & 0xffff0000u) && !g.progress.remos.count(id)) v.push_back(id);
     }
     return v;
@@ -592,7 +596,7 @@ bool ChrYaw(u64 chr, float* yaw) {
     return true;
 }
 
-/// Stands the player at boss candidate spot `i` (0: the arena's entry floor, kBossArenas; 1..4:
+/// Stands the player at boss candidate spot `i` (0: the arena's entry floor, BossArenaSpot; 1..4:
 /// BossSpot round the boss, in front first, where an idle boss looks into its arena), facing the
 /// boss. `spot`: where it was put. False: no such spot (no arena entry known for spot 0).
 bool PlaceAtBoss(u64 player, const EnemyTarget& t, int i, float boss_pos[3], float spot[3]) {

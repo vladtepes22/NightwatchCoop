@@ -123,7 +123,11 @@ public:
     // transport connection to that address until the transport's own timeout (25 s), and summoning
     // the restarted game over it fails (the guest waits for summon data that goes to the dead
     // connection). Its new signs are not offered to anyone for `ms` (docs/party/join_timing.md).
-    void hold_signs(const std::string& online_id, int ms);
+    // `own_only`: a hold of the member's own place (a room just served to it, its join running): it
+    // keeps that member's signs and re-asks back, but delays NO ONE ELSE's join (0.7.9: a second guest
+    // joining 2 s after the first was refused "a crashed member's connection is still held" by the
+    // first guest's 20 s serve hold). Crash / lost-link holds (the default) hold every join.
+    void hold_signs(const std::string& online_id, int ms, bool own_only = false);
     // Playtest 1 #19: the members (online ids) still in their prologue. Their signs are not shown
     // and a member in its prologue is shown none: no summon touches a prologue world (the party
     // director sets this on the host every tick; a manual bell in the prologue finds nothing).
@@ -133,7 +137,8 @@ public:
     // holds no one else's join (hold_left_ms does not count it).
     void hide_unreachable(const std::string& online_id, int ms);
     // The longest sign hold still running, ms (0: none). The title join waits it out too.
-    std::int64_t hold_left_ms();
+    // `asker`: the member that asks; own_only holds of other members do not count for it.
+    std::int64_t hold_left_ms(const std::string& asker = std::string());
     // How long ago the host's game asked to summon a sign (summon_messenger/request), ms.
     std::int64_t ms_since_request();
     std::uint64_t user_id_of(const std::string& online_id);
@@ -160,6 +165,7 @@ private:
     std::int64_t min_sign_age_ms_ = 0;
     std::vector<Sign> signs_;
     std::vector<std::pair<std::string, std::int64_t>> holds_;
+    std::set<std::string> holds_own_;  // under mu_: holds_ entries that are own_only
     std::vector<std::pair<std::string, std::int64_t>> unreach_;  // hide_unreachable: online id -> until
     std::set<std::string> prologue_;  // under mu_  // online id -> steady ms until
     std::uint64_t next_sign_ = 1;

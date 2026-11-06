@@ -57,6 +57,15 @@ std::vector<std::pair<int, std::string>> MenuMembers();
 std::vector<int> MenuAmounts(std::uint32_t item);
 /// The picker's last step: give `n` of the item (type bits | id) to the member in `slot`.
 void MenuGive(std::uint32_t item, int n, int slot);
+/// 0.7.9 gear: the own switch for weapons and armor (BbSettings party_give_gear, or BB_PARTY_GIVE_GEAR=1). Any thread.
+bool EnabledGear();
+/// Weapon / armor (item = type bits | id, `index` = the menu's inventory index): offer Give? Needs the gear switch, a
+/// party with another member, and gear the rules allow (not worn, not shared / story gear).
+bool MenuOffersGear(std::uint32_t item, std::uint32_t index);
+/// Is this item (type bits | id) weapon / armor (no amount picker: one gives the entry)?
+bool MenuIsGear(std::uint32_t item);
+/// The picker's last step for gear: give the entry at inventory `index` (weapon with its gems) to the member in `slot`.
+void MenuGiveGear(std::uint32_t item, std::uint32_t index, int slot);
 /// The player chose Give in the item menu (item = type bits | id, inventory index).
 void MenuChosen(std::uint32_t item, std::uint32_t index);
 

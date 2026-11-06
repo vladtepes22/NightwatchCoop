@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Decode a Bloodborne 1.09 character save (userdataNNNN, save version 0x41) without the game.
 
-  python -I tools/party/save_decode.py USERDATA [--flags ID,ID...] [--dump] [--inc gpu/shim/party/party_flags.inc]
+  python -I tools/party/save_decode.py USERDATA [--flags ID,ID...] [--dump] [--tables <user dir>/party_tables.txt]
                                        [--host-log H.log ...]
 
 Saves are untrusted input: run with python -I. Prints the character (name, level, echoes, HP), the
@@ -241,7 +241,7 @@ def main():
     ap.add_argument("--check-dup", action="store_true", help="exit 1 when a key item has two stacks")
     ap.add_argument("--check-world", action="store_true",
                     help="exit 1 when the save has no world state (written in another player's world)")
-    ap.add_argument("--inc", default=str(Path(__file__).resolve().parents[2] / "gpu/shim/party/party_flags.inc"))
+    ap.add_argument("--tables", dest="inc", default=None)
     ap.add_argument("--host-log", action="append", default=[])
     a = ap.parse_args()
     s = Save.read(a.save)
@@ -262,10 +262,11 @@ def main():
     for f in filter(None, a.flags.split(",")):
         print(f"flag {f}: {s.flag(int(f))}")
     rows = []
-    if a.dump and Path(a.inc).is_file():
+    if a.dump:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import flag_tool as ft  # noqa: E402
-        rows = ft.load_inc(a.inc)
+        tables = a.inc or ft.default_tables()
+        rows = ft.load_rows(tables) if Path(tables).is_file() else []
     if a.dump:
         for f in s.set_flags():
             cat = ft.categorize(rows, f)[0] if rows else ""

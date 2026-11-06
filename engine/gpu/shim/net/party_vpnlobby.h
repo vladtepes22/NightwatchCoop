@@ -47,8 +47,16 @@ struct Announce {
 };
 // The extension datagram (type 7); always 12 bytes.
 std::vector<std::uint8_t> encode_announce_ext(const Announce& a);
-// 1..255 characters, each of a-z 0-9 @ . _ : + - (the lobby's rule).
-bool valid_mods_label(const std::string& label);
+// 1..255 characters, each of a-z 0-9 @ . _ : + - (the lobby's rule). Inline: LAN discovery (party_discovery.h)
+// and the mods refusal (party_options.h) use the same rule.
+inline bool valid_mods_label(const std::string& label) {
+    if (label.empty() || label.size() > kMaxModsLabel) return false;
+    for (const char c : label)
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '@' || c == '.' || c == '_' || c == ':' ||
+              c == '+' || c == '-'))
+            return false;
+    return true;
+}
 // The mods label datagram (type 10), or empty when a.mods is empty or not a valid label.
 std::vector<std::uint8_t> encode_announce_mods(const Announce& a);
 // The label this host announces: none without gameplay mods; else `launcher_label` (BB_PARTY_MODS_LABEL, set by the

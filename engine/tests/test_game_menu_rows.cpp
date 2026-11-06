@@ -145,6 +145,8 @@ static void EveryState() {
         // 0.7.5 partyrules: the item rows stay each player's own; the Insight list is the host's rule
         const auto items = Names(PageNamed("My party: Your items"));
         assert(Has(items, "Own key items as guest") && Has(items, "Key items at once"));
+        assert(Has(Names(PageNamed("My party: Giving")), "Give items to the party") &&
+               Has(Names(PageNamed("My party: Giving")), "Give weapons and armor"));
         const auto rewards = Names(PageNamed("Party rules: Rewards"));
         assert(Has(rewards, "Full rewards for guests") && rewards.back() == "Insight for bosses");
     }
@@ -251,7 +253,8 @@ static void Reported() {
     ps::SetState(ps::State::Hosting);
     P::Load();
     names = Names(access);
-    assert(names.size() == 2 && names[0] == "Open party (no password)" && names[1] == "Allow invaders"); // lobby: the launcher's Show
+    assert(names.size() == 3 && names[0] == "Open party (no password)" && names[1] == "Allow invaders" &&
+           names[2] == "Max invaders");  // lobby: the launcher's Show; Max invaders: visy 0.7.9 (CL-7e748c), host only
     context = {};
     context.party_process = context.party_save = context.in_world = true;
     ps::ResetForTest(true);

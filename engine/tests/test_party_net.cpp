@@ -1002,6 +1002,61 @@ static void test_discovery() {
         const auto e3 = encode_ext(x);
         CHECK(e3[12] == 0 && e3[13] == 255);
     }
+    // 0.7.9 mods label: a datagram of its own, only with a valid label (the VPN lobby's rule); old parsers drop it
+    {
+        Announce x;
+        x.id = 0xdeadbeefu;
+        CHECK(encode_mods(x).empty());  // no gameplay mods: nothing sent
+        x.mods = "nocturne@1.0.1";
+        const auto m = encode_mods(x);
+        CHECK(m.size() == 8 + x.mods.size() && m[0] == 0xfa && m[1] == 'M' && m[2] == 1 && m[7] == x.mods.size());
+        AnnounceMods o;
+        CHECK(parse_mods(m.data(), m.size(), &o) && o.id == 0xdeadbeefu && o.label == "nocturne@1.0.1");
+        Announce parsed;
+        AnnounceExt oe;
+        CHECK(!parse(m.data(), m.size(), &parsed) && !parse_ext(m.data(), m.size(), &oe));  // old listeners: junk
+        const auto pk = encode(x), ek = encode_ext(x);
+        CHECK(!parse_mods(pk.data(), pk.size(), &o) && !parse_mods(ek.data(), ek.size(), &o));
+        // the announcement itself is unchanged by a label (an old listener parses it as before)
+        Announce y = x;
+        y.port = 9307; y.players = 1; y.max_players = 4; y.name = "Alice"; y.build = "0.7.9";
+        Announce z = y;
+        z.mods.clear();
+        CHECK(encode(y) == encode(z) && parse(encode(y).data(), encode(y).size(), &parsed) && parsed.mods.empty());
+        // the longest label fits; one more character and other characters are never sent
+        x.mods = std::string(255, 'a');
+        const auto longest = encode_mods(x);
+        CHECK(longest.size() == kMaxModsPacket && parse_mods(longest.data(), longest.size(), &o) && o.label == x.mods);
+        for (const std::string& bad : {std::string(256, 'a'), std::string("Nocturne"), std::string("a b"),
+                                      std::string("x/../y"), std::string("a\x01"), std::string("\xc3\xa9")}) {
+            x.mods = bad;
+            CHECK(encode_mods(x).empty());
+        }
+        // strict on its own parser
+        x.mods = "mods:3f9a12c0";
+        const auto g = encode_mods(x);
+        CHECK(parse_mods(g.data(), g.size(), &o) && o.label == "mods:3f9a12c0");
+        auto bad = g; bad[2] = 2;          CHECK(!parse_mods(bad.data(), bad.size(), &o));  // version
+        bad = g; bad.push_back('a');       CHECK(!parse_mods(bad.data(), bad.size(), &o));  // trailing byte
+        bad = g; bad[7] += 1;              CHECK(!parse_mods(bad.data(), bad.size(), &o));  // length overruns
+        bad = g; bad[7] = 0; bad.resize(8); CHECK(!parse_mods(bad.data(), bad.size(), &o));  // empty label
+        bad = g; bad[8] = 'M';             CHECK(!parse_mods(bad.data(), bad.size(), &o));  // upper case
+        bad = g; bad[9] = '/';             CHECK(!parse_mods(bad.data(), bad.size(), &o));  // path character
+        CHECK(!parse_mods(g.data(), 8, &o) && !parse_mods(nullptr, 20, &o) && !parse_mods(g.data(), g.size(), nullptr));
+        std::vector<std::uint8_t> big(kMaxModsPacket + 1, 'a');
+        big[0] = 0xfa; big[1] = 'M'; big[2] = 1; big[7] = 255;
+        CHECK(!parse_mods(big.data(), big.size(), &o));
+        // junk never crashes or parses into an invalid label
+        unsigned seed = 777;
+        for (int i = 0; i < 20000; ++i) {
+            std::vector<std::uint8_t> j(seed % 40);
+            for (auto& c : j) { seed = seed * 1664525u + 1013904223u; c = static_cast<std::uint8_t>(seed >> 24); }
+            seed = seed * 1664525u + 1013904223u;
+            if (j.size() > 8 && (seed & 1)) { j[0] = 0xfa; j[1] = 'M'; j[2] = 1; j[7] = static_cast<std::uint8_t>(j.size() - 8); }
+            AnnounceMods q;
+            if (parse_mods(j.data(), j.size(), &q)) CHECK(bbnet::lobby::valid_mods_label(q.label));
+        }
+    }
     std::printf("party discovery: ok\n");
 }
 

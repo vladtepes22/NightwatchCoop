@@ -14,6 +14,10 @@
 //   old list keeps working): [0xfa]['I'][ver 1] id u32  flags u8 (bit 0: the host allows invaders, bit 1: a boss fight)
 //   area u32 (the host's map id 0xAABBCCDD, 0 unknown)  phase u8 (0 unknown, 1 day, 2 evening, 3 night, 4 Blood Moon)
 //   ng u8 (0 = NG, 1..7 = NG+n, 255 unknown); 14 bytes. Nothing that names a player or a place to the metre.
+//   mods label (0.7.9, its own datagram after the extension, only while the host has gameplay mods loaded; an old
+//   listener drops it as junk): [0xfa]['M'][ver 1] id u32  label: u8 len + 1..255 of a-z 0-9 @ . _ : + - (the VPN
+//   lobby's mods label, party_vpnlobby.h valid_mods_label / mods_label: "nocturne@1.0.1" from the launcher, else
+//   "mods:" + 8 hex of the party mod hash); 9..263 bytes. A listener uses it only as a key, never as a path or address.
 //   Never the password, the party secret, a party code or an address (the receiver reads the host's
 //   address from the datagram's source). Parsing is strict: any length, version or character
 //   violation drops the packet. A listener ignores its own id and rate-limits per source.
@@ -22,6 +26,7 @@
 #pragma once
 
 #include "bbnet_internal.h"
+#include "party_vpnlobby.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -55,6 +60,7 @@ struct Announce {
     bool invaders = false, boss = false;
     std::uint32_t area_id = 0;
     std::uint8_t phase = 0, ng = 255;
+    std::string mods;  // 0.7.9: the mods label (above), "" = none
 };
 struct AnnounceExt {
     std::uint32_t id = 0;
@@ -65,6 +71,15 @@ struct AnnounceExt {
 std::vector<std::uint8_t> encode_ext(const Announce& a);  // 14 bytes
 // Strict: exactly 14 bytes, magic / version, no unknown flag bit, phase <= 4, ng <= 7 or 255.
 bool parse_ext(const std::uint8_t* d, std::size_t n, AnnounceExt* out);
+struct AnnounceMods {
+    std::uint32_t id = 0;
+    std::string label;
+};
+constexpr std::size_t kMaxModsPacket = 8 + bbnet::lobby::kMaxModsLabel;
+// The mods label datagram, or empty when a.mods is empty or not a valid label.
+std::vector<std::uint8_t> encode_mods(const Announce& a);
+// Strict: magic / version, the length byte covers the rest exactly, a valid label (valid_mods_label).
+bool parse_mods(const std::uint8_t* d, std::size_t n, AnnounceMods* out);
 
 // Printable ASCII only; longer strings are cut, other bytes become '?'. The bytes to broadcast.
 std::vector<std::uint8_t> encode(const Announce& a);

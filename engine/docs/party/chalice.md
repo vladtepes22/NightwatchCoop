@@ -16,7 +16,7 @@ Code: `gpu/shim/net/from_api_channel.{h,cpp}` (the channel board), `gpu/shim/net
   and echoes: row 109 = 1000 echoes + Ritual Blood (1) (goods 7000) x2 (C, param dump).
 * **Maps**: area 29 (`m29_BB_RR_00`, 300+ pieces); a dungeon is assembled at load time from pieces
   according to the slot's layout parameters (I). Area-29 AreaIds in signs are ordinary packed maps
-  (`0x1Dbbrrii`), all in `party_ids.inc` (C).
+  (`0x1Dbbrrii`), all in the party tables read from the player's own game (`party_gamedata.h`, C).
 * **Slots** (C, 0x1ab2970 / 0x1ab2b40 / 0x1ab2f70 / 0x1ab34d0 and their callers): a player has 7
   dungeon slots. The one-hot flags 9020..9026 select the current slot (`GetEventFlagValue(9020, 7)`,
   slot = 7 - bit length; event_flags.md 2). Slot k's **record lives in the event flag store**, in
@@ -611,7 +611,7 @@ flags the party reached were in the overlay.
 **The change** (`party_chalice.cpp` `BringDungeonHome`, pure rules in `party_chalice_merge.h`): the quick-joined slot
 record is kept when the carry happens (`g_carried_rec`); on the load-mode 1 -> 0 switch (the guest leaving the host's
 world, any path) the lamp / shortcut flags that read set in the overlay are collected (`ReadReached`: the lamp
-categories and shortcut doors of area 29 block 0 from `party_flags.inc`, plus the four flags of every lamp whose lit
+categories and shortcut doors of area 29 block 0 from the flag category table (`flagRows`), plus the four flags of every lamp whose lit
 flag is set: the host's world syncs only some of them), the switch runs, and then in the guest's own store:
 1. `PlanMerge`: the dungeon already in slots 1..6 (same ChannelId) -> `Existing`: nothing is added; else the first free
    slot 1..6 (record holds no map) -> `Added`; none free or no ChannelId -> nothing. Slot 0 is never a target and a
@@ -696,3 +696,12 @@ Switch `party_glyph_list` (System > My party: Chalice, launcher My Party tab, en
 * **Limits**: a public glyph's layout is server data; without `form` in the data file an entry cannot be entered (the file ships empty). A title-joined guest exposes only dungeons readable in its current slot (flaky as cae).
 * **Smoke** `chalice_glyph`: cgt (host_glyph typed), cgp (host_pick, the list UI keys), cgu (unknown glyph, nobody enters). Aids: director `host_glyph=CODE`, `host_pick=N`.
 * **Not done / not proven**: layer travel and dungeon shops inside a glyph dungeon, leave / rejoin, death redirect and boss HP catch-up were not re-tested for glyph-entered dungeons (the entered dungeon is the same host dungeon, so the existing chalamp / clg / cis phases apply).
+
+## 12. A guest at the Dream's Ritual Altar (altar079, CL-13f7d1, 0.7.9)
+
+Switch `party_guest_altar` (System > My party: Chalice, launcher My Party tab, env BB_PARTY_GUEST_ALTAR), off by default, the guest's own setting.
+* **Cause**: the Dream's altar talk scripts t210050..t210110 ask `IsClientPlayer()` (a summoned guest = client) and `IsMultiplayerInProgress()`. The second was already answered 0 for the host (0.6.2); the first kept every guest's altar silent (the prompt "First Ritual Altar", the Cross, nothing). With the switch on, `IsClientFilter` (party_guestsvc.cpp) answers 0 for those scripts on a client; `MultiFilter` answers the other for a client too. Nothing else was needed: the altar object (SprjDungeonGateIns) and its helpers are the guest's own game's; a summoned guest's FrpgNetMan is online (+0x9f6 / +0x9f8 / +0xa50 clear), every gate object idles in mode 1 / state 1.
+* **Proven (loopback, live, smoke `cag`)**: a guest summoned into the host's Dream is given the Pthumeru Chalice (6109) and Ritual Blood by the test aid goods=; it walks to the altar, "Use the Ritual Altar", "Search by Chalice Glyph", "Select chalice to use", "Rite materials", the question, YES: "The ritual is finished, and a chalice rests upon the altar." The session stays up (cooperators 1). `chalice: dungeon 1110692594440089: FormData of slot 1 (124 bytes) for the host's board`. The guest's save on disk (decoded): slot 1 holds the dungeon record (ChannelId, map 0x1d...), no other slot changed, chalice 6109 x1 (a fixed chalice is not used up), Ritual Blood 9 -> 7, echoes -1000.
+* **Test aids** added: director `in_host` (place= / approach= wait until the player is a summoned guest; a `place=` on a guest would leave the party), `approach_join=N` (approach waits for this player's Nth party join). A probe of the 7 altar objects' mode / state (SprjDungeonGateIns +0x364 / +0x36c, helper +0x25c) showed every slot idle in mode 1 / state 1 for the guest before the ritual; it was not kept (no launcher box).
+* **Flaky**: the altar's first Cross sometimes finds the prompt gone and opens no dialog (about every other try, 0.7.9 runs; the menu walk's later Crosses do nothing); it also hits the host's altar (`cao`). The smoke retries the phase. The chain `cage` (not in the default list) continues with the host entering the guest's new dungeon via "Enter the party's dungeon"; that entry is proven by `cae` with the same dungeon from a fixture, the chain's guest follow was not seen finishing.
+* **Not proven**: a real chalice other than the fixed Pthumeru (a Root chalice's slot choice, rite materials), a ritual with the guest's slot 1..6 already full, two guests at the altars at once, two PCs (loopback only).

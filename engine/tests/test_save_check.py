@@ -9,8 +9,11 @@ sys.path.insert(0, str(ROOT / "tools" / "party"))
 import flag_tool as ft  # noqa: E402
 import save_check as sc  # noqa: E402
 
-BOSS = 12401800  # boss_defeated (party_flags.inc)
+BOSS = 12401800  # boss_defeated
 BOSS2 = 12401802  # cutscene_seen
+# a made-up category table (the real one is derived from the player's game): first match wins
+ROWS = [(BOSS, BOSS, "boss_defeated", "test"), (12401800, 12401899, "cutscene_seen", "test"),
+        (1000, 1999, "npc_quest", "test")]
 
 
 def snap(path, label, ms, mode, flags, blocks=(12401,)):
@@ -28,7 +31,7 @@ class SaveCheckTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.rows = ft.load_inc(ROOT / "gpu" / "shim" / "party" / "party_flags.inc")
+        self.rows = ROWS
 
     def tearDown(self):
         self.tmp.cleanup()

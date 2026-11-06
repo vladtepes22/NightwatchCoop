@@ -136,7 +136,7 @@ static void test_ids() {
     CHECK(std::find(got.begin(), got.end(), 72900202u) != got.end());
     CHECK(std::find(got.begin(), got.end(), 72900208u) != got.end());
     CHECK(std::find(got.begin(), got.end(), 72900201u) == got.end());
-    // boss-defeat flags of the dungeon (party_flags.inc boss_defeated rows) map into slot k like the rest
+    // boss-defeat flags of the dungeon (the flag category table (flagRows) boss_defeated rows) map into slot k like the rest
     const std::vector<IdRange> boss = {{12900166, 12900166}, {12900951, 12900951}, {12901588, 12901591}, {12901686, 12901686},
                                        {12901690, 12901690}, {12901692, 12901692}, {12901723, 12901723}, {12901725, 12901725}};
     const std::vector<std::uint32_t> bids = ProgressIds(boss);

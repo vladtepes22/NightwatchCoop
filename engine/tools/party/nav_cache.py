@@ -111,16 +111,16 @@ def part_offsets(game, m):
     return out
 
 
-def spots_of(m):
-    """Lamp / revive spots of a map (world frame) from the generated party_ids.inc."""
-    inc = Path(__file__).resolve().parents[2] / "gpu/shim/party/party_ids.inc"
+_SPOTS = []
+
+
+def spots_of(m, game):
+    """Lamp / revive spots of a map (world frame), read from the game's own files (ids_tool.derive's returnSpots)."""
+    if not _SPOTS:
+        sections, _npcs = it.derive(Path(game))
+        _SPOTS.extend(sections["returnSpots"])
     key = m[1:3] + m[5:6]  # AA + block digit of mAA_0B: the ids are AABnnnn
-    pts = []
-    for line in inc.read_text(errors="replace").splitlines():
-        r = re.match(r"\s+(-?[\d.]+)f, (-?[\d.]+)f, (-?[\d.]+)f, -?[\d.]+f,\s+// (\d{7})$", line)
-        if r and r.group(4)[:3] == key:
-            pts.append(tuple(float(r.group(i)) for i in (1, 2, 3)))
-    return pts
+    return [tuple(float(v) for v in r[1:4]) for r in _SPOTS if r[0][:3] == key]
 
 
 def on_mesh_count(verts, faces, pts, tol=1.5):
@@ -172,7 +172,7 @@ def choose_offset(game, m):
     """The placement of map m: {"default": origin+yaw, "files": {piece: origin+yaw}} that puts the most of its lamp spots
     on its navmesh (the local frame when none helps). A piece may have its own placement (m32 is two regions); a
     piece with no spot on it takes the best single placement. Returns (spec, spots on the mesh, spots, candidates)."""
-    pts = spots_of(m)
+    pts = spots_of(m, game)
     zero = (0.0, 0.0, 0.0, 0.0)
     if m.startswith("m29"):
         # Chalice dungeons: the layout is assembled from blocks at run time (the MSB holds the template), so no static

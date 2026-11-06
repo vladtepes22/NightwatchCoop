@@ -552,7 +552,7 @@ std::uint32_t GatherLampFor(std::uint32_t host_lamp, std::uint32_t host_map) {
     if (host_lamp != kTravelNone && host_lamp != 0 && in_map(host_lamp)) {
         return host_lamp;
     }
-    for (const std::uint32_t id : ids::kPartyReturnPoints) {
+    for (const std::uint32_t id : ids::ReturnPoints()) {
         if (in_map(id)) {
             return id;
         }

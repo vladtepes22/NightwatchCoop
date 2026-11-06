@@ -541,6 +541,52 @@ def stamp_lines(src, log, t0, stall=None):
         pass
 
 
+class StuckWatch:
+    """Generic fail-fast for scripted runs (smoke 0.7.9): a run whose test chains are unfinished and in which NOTHING
+    moved for `limit` s is decided (failed): the rest of its --seconds cap would only wait for something that is
+    not coming (a guest dead in a boss fight's limbo, a chain waiting for a state that never comes, a lost link).
+
+    Progress = a chain step that ran ("test: travel step N/M: ..."), a load or map change, a join / leave
+    (cooperators N -> M, world up / down, loading screen up / gone), a boss bar, a death / revive line. Pure
+    polling lines (target pos / anim, pos / hp dumps) are not progress. The text is scanned incrementally."""
+
+    PROGRESS = re.compile(
+        r"test: travel step \d+/\d+: |map - -> |map m\d+_\d+\S* -> |Party: (?:\[[^\]]*\] )?(?:world (?:up|down)|loading screen (?:up|gone))|"
+        r"cooperators -?\d+ -> -?\d+|boss health bar shown|boss clear|revived|test: seq step|guest_leave|Lamp travel: arrived|"
+        r"join: arrived")
+    WAIT = re.compile(r"test: travel step \d+ \((\w+)\) waits: (.*)")
+
+    def __init__(self, count, limit, dead_limit=90.0):
+        self.limit, self.dead_limit, self.pos = limit, dead_limit, [0] * count
+        self.at = time.time()
+        self.dead_at = None   # a step has waited for a dead own chr since then (cleared by any progress)
+        self.last_wait = {}
+
+    def feed(self, i, text):
+        """text: instance i's whole log so far; scans what is new and moves the progress clock."""
+        new = text[self.pos[i]:]
+        self.pos[i] = len(text)
+        for line in new.splitlines():
+            if "target " not in line and self.PROGRESS.search(line):
+                self.at = time.time()
+                self.dead_at = None
+            m = self.WAIT.search(line)
+            if m:
+                self.last_wait[i] = (m.group(1), m.group(2)[:80])
+                if "dead" in m.group(2) and self.dead_at is None:
+                    self.dead_at = time.time()
+
+    def verdict(self):
+        """None, or the fail-fast verdict text."""
+        now = time.time()
+        waits = "; ".join("inst%d step %s waits: %s" % (i, k, r) for i, (k, r) in sorted(self.last_wait.items())) or "no step wait line"
+        if self.dead_at is not None and self.dead_limit > 0 and now - self.dead_at >= self.dead_limit:
+            return "DEAD: a chain step has waited %.0f s for its dead own chr and nothing else moved (%s)" % (now - self.dead_at, waits)
+        if self.limit > 0 and now - self.at >= self.limit:
+            return "STUCK: the test chains are not done and nothing moved for %.0f s (%s)" % (now - self.at, waits)
+        return None
+
+
 def run(a):
     t_slot = time.time()
     # A rebuild since the last setup: copy it first, or the run would test the old exe.
@@ -789,6 +835,7 @@ def run(a):
     except ValueError:
         parent_pid = 0
     parent_check = 0.0
+    stuck_watch = StuckWatch(a.count, a.stuck) if a.stuck > 0 and any(expects_steps) and not want_crash else None  # (a crash plan restarts games: its own timing)
     while any(p.poll() is None for _, p, _ in procs) and time.time() - t0 < a.seconds + 90:
         if parent_pid > 0 and time.time() - parent_check > 2:
             parent_check = time.time()
@@ -813,6 +860,20 @@ def run(a):
                                           "out\\crash_*.log); its test chain does not run again"
                                           % (i, time.time() - t0))
             if verdict:
+                print(verdict, flush=True)
+                break
+        if stuck_watch:
+            chains_open = False
+            for i in range(a.count):
+                txt = log_text(i, starts[i])
+                stuck_watch.feed(i, txt)
+                if expects_steps[i]:
+                    last = step_rx.findall(txt)
+                    chains_open = chains_open or not (last and last[-1][0] == last[-1][1])
+            if not chains_open:
+                stuck_watch.at, stuck_watch.dead_at = time.time(), None  # the chains are done: the markers' own quiet wait applies
+            elif (v := stuck_watch.verdict()):
+                verdict = verdict or v
                 print(verdict, flush=True)
                 break
         if not until and not plan and any(expects_steps):
@@ -1117,6 +1178,9 @@ def main():
                          "I:REGEX matches instance I's log only")
     ap.add_argument("--until-hold", type=float, default=0,
                     help="run: once every --until marker is seen, run this many s more")
+    ap.add_argument("--stuck", type=float, default=float(os.environ.get("BB_MP_STUCK", "0")),
+                    help="run: with test chains, end once they are unfinished and nothing moved (no step, load, join, boss "
+                         "event) for this many s (0 = off); a chain step waiting for a dead own chr ends it after 90 s of that")
     ap.add_argument("--instance", type=int, default=1, help="crash: which instance")
     ap.add_argument("--after", type=float, default=0, help="crash: wait this many s first")
     ap.add_argument("--env", action="append")

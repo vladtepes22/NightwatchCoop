@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Party co-op H3 save-consistency check: did every player's OWN save keep the party's progress?
 
-  python -I tools/party/save_check.py ROOT [--host 0] [--inc gpu/shim/party/party_flags.inc] [--json OUT]
+  python -I tools/party/save_check.py ROOT [--host 0] [--tables <user dir>/party_tables.txt] [--json OUT]
 
 ROOT is a test root of tools/mp/instances.py (inst0 = host, inst1.. = guests: each with run.log and,
 with BB_PARTY_FLAG_DUMP=1, user/party/flags_*.bbpf), or a list of game folders / logs given as
@@ -203,7 +203,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("root")
     ap.add_argument("--host", type=int, default=0)
-    ap.add_argument("--inc", default=str(REPO / "gpu" / "shim" / "party" / "party_flags.inc"))
+    ap.add_argument("--tables", dest="inc", default=ft.default_tables())
     ap.add_argument("--json")
     a = ap.parse_args()
     if "," in a.root:
@@ -213,7 +213,7 @@ def main():
     if len(folders) < 2:
         print("need a host and at least one guest folder")
         return 2
-    rows = ft.load_inc(a.inc)
+    rows = ft.load_rows(a.inc)
     host = folders[a.host]
     hs, hl = snapshots(host), log_lines(host)
     report, bad, compared = {}, False, False

@@ -523,6 +523,34 @@ int main() {
     assert(!s.party_glyph_list);
     assert(bb_test_setenv("BB_PARTY_GLYPH_LIST", "") == 0);
     s.party_glyph_list = false;
+    // 0.7.9 (CL-13f7d1): the Ritual Altar as a guest: this player's own, OFF by default, ini key + variable
+    assert(bb_test_setenv("BB_PARTY_GUEST_ALTAR", "") == 0);
+    BbSettings::Load();
+    assert(!s.party_guest_altar);
+    s.party_guest_altar = true;
+    BbSettings::Save();
+    assert(Read(path).find("party_guest_altar=1\n") != std::string::npos);
+    BbSettings::Load();
+    assert(s.party_guest_altar);
+    assert(bb_test_setenv("BB_PARTY_GUEST_ALTAR", "0") == 0);
+    BbSettings::Load();
+    assert(!s.party_guest_altar);
+    assert(bb_test_setenv("BB_PARTY_GUEST_ALTAR", "") == 0);
+    s.party_guest_altar = false;
+    // 0.7.9: Max invaders (the host's, 1 or 2, clamped) and Give weapons and armor (own, OFF by default)
+    assert(s.party_max_invaders == 1 && !s.party_give_gear);
+    s.party_max_invaders = 2;
+    s.party_give_gear = true;
+    BbSettings::Save();
+    assert(Read(path).find("party_max_invaders=2
+") != std::string::npos &&
+           Read(path).find("party_give_gear=1
+") != std::string::npos);
+    { std::ofstream file(path); file << "party_max_invaders=9
+"; }
+    BbSettings::Load();
+    assert(s.party_max_invaders == 2 && !s.party_give_gear);
+    s.party_max_invaders = 1;
     std::filesystem::remove(temporary);
     std::puts("PASS: settings save keeps other keys, menu position");
 }

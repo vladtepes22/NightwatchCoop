@@ -2,6 +2,7 @@
 // Direct lamp travel's rules (gpu/shim/party/lamp_travel_rules.h): the lamp ids, the warp list a
 // lamp offers and which talk command it replaces.
 // Build and run: ninja -C out/gpu lamp-travel-test && out/gpu/lamp-travel-test.exe
+#include "party_tables_test.h"
 #include "party/lamp_travel_rules.h"
 #include "party/party_ids.h"
 
@@ -20,6 +21,7 @@ static int g_failures = 0;
     } while (0)
 
 int main() {
+    if (!coop::test::UseGameTables("lamp-travel-test")) return 0;
     // Ids (the headstones' talk scripts and live logs: 1st Floor Sickroom 2412950, Central Yharnam
     // 2412951 with Dream flag 72410101 and lit flag base 12417820 + 10).
     const Lamp sick{241, 0, Yharnam}, central{241, 1, Yharnam};
@@ -34,11 +36,11 @@ int main() {
 
     // Every lamp of the table is a ReturnPointParam row the game has, listed once.
     std::set<std::uint32_t> seen;
-    for (const Lamp& l : kLamps) {
+    for (const Lamp& l : Lamps()) {
         CHECK(coop::ids::ReturnPointKnown(ReturnPoint(l)));
         CHECK(seen.insert(ReturnPoint(l)).second);
     }
-    CHECK(kLampCount == 44);
+    CHECK(Lamps().size() == 44);
     CHECK(coop::ids::ReturnPointKnown(kDreamReturnPoint));
 
     // Only the lamps' "Return to the Hunter's Dream?" question is replaced.
@@ -94,7 +96,7 @@ int main() {
     // at the Great Bridge lamp: the physics position names the lamp the player stands at.
     {
         std::vector<Spot> real;
-        for (const Lamp& l : kLamps) {
+        for (const Lamp& l : Lamps()) {
             float sp[4];
             if (coop::ids::ReturnSpot(ReturnPoint(l), sp)) real.push_back({ReturnPoint(l), sp[0], sp[1], sp[2]});
         }

@@ -290,6 +290,14 @@ def undo(user, session=None):
     return session, backup
 
 
+def _had_data(session, folder: Path, p: Path) -> bool:
+    """The session-start copy of `p` held something other than zeros (no session: assume it did)."""
+    if not session:
+        return True
+    before = session.path / "savedata_party" / p.relative_to(folder)
+    return before.is_file() and bool(before.read_bytes().strip(b"\0"))
+
+
 def check(user, session=None, progress=None) -> list:
     """Problems with the party saves after the session: [(level, text)], level "error" / "warning".
     `progress`: the boss / lamp flag lists of the player's game (see the note at BOSS / lamp flags above)."""

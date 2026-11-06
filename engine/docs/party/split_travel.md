@@ -110,7 +110,7 @@ For hostdeath (party_travel.h / party_b2.h):
 ## 3a. Moves inside the loaded map: no loading screen (B4 / H1)
 
 User priority (2026-10-11): only a real map change may show a loading screen. The lamp spots come
-from the game data: `tools/party/ids_tool.py gen-inc` now also writes `kPartyReturnSpotIds` /
+from the game data: `scripts/partydata/ids_tool.py` now also derives `kPartyReturnSpotIds` /
 `kPartyReturnSpots` (x, y, z, yaw) for 75 of the 85 ReturnPointParam rows - the MSB revive event
 named by `returnPointEntityId` (EVENT_PARAM_ST entry: base data +8 entity id, type data +0 region
 index) and that region's position / rotation (POINT_PARAM_ST +0x14 / +0x20, degrees) [C]. Checked:
@@ -387,8 +387,8 @@ Note (splittravel): in the vis2-vis4 runs the host's copy did get position updat
 * **Scripted stage warps inside the loaded map** (`BB_PARTY_STAGE_INWORLD`, default off). The warp
   point of a stage warp (GSM +0x10, written by Lua WarpNextStage 0x132E010 and EMEVD 2003[14]) is the
   entity id of an MSB region (POINT_PARAM_ST entry: +0x48 entity data offset -> +0 the id; +0x14
-  position, +0x20 rotation): the earlier "not in any MSB" was the AAB-range scan. `ids_tool.py
-  gen-inc` writes `kPartyWarpSpotIds` / `kPartyWarpSpots` (12 of the 27 EMEVD warp points: Dream
+  position, +0x20 rotation): the earlier "not in any MSB" was the AAB-range scan. `ids_tool.py`
+  derives `kPartyWarpSpotIds` / `kPartyWarpSpots` (12 of the 27 EMEVD warp points: Dream
   2102808 / 2102809, m24_00 2402200, Nightmare / Hamlet / Research Hall points; the rest are Chalice
   or not in a block MSB) and `ids::WarpSpot`. The funnel hook (party_travel `SetSameMapStage`) hands
   every ScriptedWarp / LuaStageWarp site the map (+0x0C) and point; `SameMapStageWarp` makes it a

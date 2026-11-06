@@ -163,7 +163,7 @@ static void EverySettingSaved() {
         "upscaler", "preset", "sharpen", "sharpness", "jitter", "object_motion", "reactive", "reactive_scale",
         "reactive_threshold", "reactive_max", "debug_view", "show_fps", "show_hud", "hud_position", "hud_opacity",
         "hud_scale", "hud_graph", "hud_vram", "hud_gpu", "hud_cpu", "hud_ram", "mk_enabled", "mk_sens_x",
-        "mk_sens_y", "mk_invert_x", "mk_invert_y", "mk_deadzone", "mk_smoothing", "mk_wheel", "async_pipelines", "gpl",
+        "mk_sens_y", "mk_invert_x", "mk_invert_y", "mk_deadzone", "mk_smoothing", "mk_wheel", "async_pipelines", "gpl", "nan_guard",
         "compile_indicator", "party_toasts", "party_hud", "fsr4_auto_exposure", "fsr4_invert_jitter", "model_lod",
         "output_res", "live_resolution", "menu_language", "volumetric_res", "key_ramp", "texture_quality"};
     for (const char* key : overlay) {
@@ -534,7 +534,8 @@ static void RulesPages() {
                       u"Party votes on travel", u"NPC hunters fight all"};
     const V rewards = {u"Full rewards for guests", u"Boss drops for guests", u"Insight for bosses"};
     const V items = {u"Host's item rewards", u"Give the bells", u"Own key items as guest", u"Key items at once",
-                  u"Shared item notices", u"Give items to the party"};
+                  u"Shared item notices"};
+    const V giving = {u"Give items to the party", u"Give weapons and armor"};
     const V display = {u"Party HUD", u"Party name tags", u"Pings",
                        u"Show party through walls", u"Coloured name tags", u"Above companions"};
     for (const ps::Role role : {ps::Role::Host, ps::Role::Guest}) {
@@ -561,6 +562,7 @@ static void RulesPages() {
         BbSettings::Get().party_guest_gather = false;
         BbSettings::Get().party_layer_travel = false;
         BbSettings::Get().party_glyph_list = false;
+        BbSettings::Get().party_guest_altar = false;
         P::Load();
         Advance(300);
         assert(names(u"Party rules: World") == shared);
@@ -571,6 +573,7 @@ static void RulesPages() {
         assert(names(u"Party rules: Travel") == travel);
         assert(names(u"My party: Your save") == save);
         assert(names(u"My party: Your items") == items);
+        assert(names(u"My party: Giving") == giving);
         assert(names(u"Party rules: Rewards") == rewards);
         assert(names(u"My party: Display") == display);
         assert(names(u"My party: Chat & markers") == (V{u"Party chat", u"Show others' chat", u"Bloodstain marker"}));
@@ -606,7 +609,7 @@ static void RulesPages() {
         for (const char16_t* page : {u"Party rules: World", u"Party rules: PvP & lamps", u"Party rules: Deaths",
                                      u"Party rules: Rot", u"Party rules: Travel"})
             for (const P::Kind kind : kinds(page)) assert(kind == host_kind);
-        for (const char16_t* page : {u"My party: Your save", u"My party: Your items", u"My party: Display",
+        for (const char16_t* page : {u"My party: Your save", u"My party: Your items", u"My party: Giving", u"My party: Display",
                                      u"My party: Chat & markers", u"My party: Look & notices"})
             for (const P::Kind kind : kinds(page)) assert(kind != P::Kind::Button);
         for (const P::Kind kind : kinds(u"Party rules: Rewards")) assert(kind == host_kind || kind == P::Kind::List);
@@ -622,7 +625,7 @@ static void RulesPages() {
                                        u"Party rules: Travel", u"Party rules: Rewards", u"Party rules: Rot",
                                        u"Party rules: Enemies", u"My party: Bosses", u"Party rules: Phantoms",
                                        u"My party: Your save",
-                                       u"My party: Your items", u"My party: Display", u"My party: Chat & markers",
+                                       u"My party: Your items", u"My party: Giving", u"My party: Display", u"My party: Chat & markers",
                                        u"My party: Look & notices", u"My party: Splitscreen", u"My party: Chalice"};
             for (std::size_t i = 0; i < std::size(group); ++i) assert(at(group[i]) == first + long(i));
         }
@@ -687,6 +690,7 @@ static void RulesPages() {
           std::tuple{u"Party rules: Travel", u"Guests can gather", "party_guest_gather", &BbSettings::Values::party_guest_gather},
           std::tuple{u"Party rules: PvP & lamps", u"Chalice layer travel", "party_layer_travel", &BbSettings::Values::party_layer_travel},
           std::tuple{u"My party: Chalice", u"Chalice glyph list", "party_glyph_list", &BbSettings::Values::party_glyph_list},
+          std::tuple{u"My party: Chalice", u"Ritual Altar as a guest", "party_guest_altar", &BbSettings::Values::party_guest_altar},
           std::tuple{u"Party rules: World", u"NPCs as in host's world", "party_npc_mirror", &BbSettings::Values::party_npc_mirror},
           std::tuple{u"Party rules: World", u"Party votes on travel", "party_travel_vote", &BbSettings::Values::party_travel_vote},
           std::tuple{u"Party rules: World", u"NPC hunters fight all", "party_npc_fights", &BbSettings::Values::party_npc_fights},

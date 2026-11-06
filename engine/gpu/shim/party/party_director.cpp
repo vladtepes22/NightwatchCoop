@@ -3,6 +3,7 @@
 // droogie/bbhost src/engine/np_test.cpp @8f2746c (GPL-3.0-or-later): world-up detection, the
 // Insight write and the bell events.
 #include "party_director.h"
+#include "../../../src/runtime_logdrain.h"
 #include "party_log_game.h"
 #include "../boot_marks.h"
 #include "../bbport_boot_watch.h"
@@ -401,6 +402,8 @@ struct Test {
     int award_lot = -1; // award_lot=N: AwardItemLot(N) once (call-shape probe, test saves)
     std::vector<std::pair<int, int>> goods; // goods=ID:N: tops goods ID up to N once (test saves)
     bool goods_done = false;
+    int approach_join = 0; // approach_join=N: approach= waits for this player's Nth party join (needs a travel step to count joins)
+    bool in_host = false; // in_host: place= / approach= / seq= wait until this player is summoned into a host's world
     bool place = false, place_done = false; // place=MAP:X:Y:Z:YAW (hex map): one forced placement
     std::uint32_t place_map = 0;
     float place_pos[3] = {0, 0, 0}, place_yaw = 0;
@@ -1106,6 +1109,54 @@ int ClearStalePeers(const std::string& online_id) {
     return cleared;
 }
 
+/// Diagnostic (BB_PARTY_PEERKEEP_LOG=1, host): logs, about twice a second, every pool peer whose keep flag
+/// (+0xe4) is set with its timer (+0xe8) and the wall time, so the timer's real rate in seconds can be read
+/// off the lines at any frame rate ("Party: Fast rejoin" sets it to 10.0 for 10 s). Main thread only.
+void LogPeerKeepTimers(Clock::time_point now) {
+    static const bool on = [] { const char* e = std::getenv("BB_PARTY_PEERKEEP_LOG"); return e && e[0] == '1'; }();
+    static Clock::time_point last{};
+    if (!on || now - last < std::chrono::milliseconds(500)) {
+        return;
+    }
+    last = now;
+    std::uint64_t fm = 0, ssm = 0, pool = 0, head = 0, node = 0;
+    if (!SafeGet(Guest(0x553b120), &fm) || !fm || !SafeGet(fm + 0xc50, &ssm) || !ssm || !SafeGet(ssm + 0x48, &pool) ||
+        !pool || !SafeGet(pool + 0x58, &head) || !head || !SafeGet(head, &node)) {
+        static int failed = 0;
+        if (failed++ % 20 == 0) Log("peerkeep: the peer pool is not reachable (fm %llx ssm %llx pool %llx)", (unsigned long long)fm, (unsigned long long)ssm, (unsigned long long)pool);
+        return;
+    }
+    static int summary = 0;
+    static bool armed = false;
+    int seen = 0;
+    for (int guard = 0; node && node != head && guard < 64; ++guard) {
+        std::uint64_t value = 0, peer = 0;
+        std::uint8_t keep = 0;
+        float timer = 0;
+        if (SafeGet(node + 0x10, &value) && value && SafeGet(value + 0x20, &peer) && peer &&
+            SafeRead(peer + 0xe4, &keep, 1) && !keep && !armed && seen == 0 && std::getenv("BB_PARTY_PEERKEEP_TEST")) {
+            // Test aid: reserve one idle peer for 10.0 like the Fast rejoin patch does, then read the countdown below.
+            const std::uint8_t on = 1;
+            const float ten = 10.0f;
+            SafeWrite(peer + 0xe8, &ten, sizeof ten);
+            SafeWrite(peer + 0xe4, &on, 1);
+            armed = true;
+            Log("peerkeep: test: peer %llx reserved with a timer of 10.0", static_cast<unsigned long long>(peer));
+        }
+        if (SafeGet(node + 0x10, &value) && value && SafeGet(value + 0x20, &peer) && peer &&
+            SafeRead(peer + 0xe4, &keep, 1) && (++seen, keep) && SafeGet(peer + 0xe8, &timer)) {
+            Log("peerkeep: peer %llx timer %.3f at %.3f s", static_cast<unsigned long long>(peer), timer,
+                std::chrono::duration<double>(now.time_since_epoch()).count());
+        }
+        if (!SafeGet(node, &node)) {
+            break;
+        }
+    }
+    if (++summary % 10 == 1) {
+        Log("peerkeep: %d peer(s) in the pool", seen);
+    }
+}
+
 void Ring(State& st, const char* event, const char* why, Clock::time_point now) {
     if (std::strcmp(event, kHostBell) != 0 && b2::ChaliceSummonStopped()) {
         st.last_ring = now;
@@ -1430,7 +1481,7 @@ void AutoContinue(State& st, const GameSnapshot& s, PartyRole role, party::Party
             Log("test: boot loop: ending the game at Cross #%d (BB_BOOT_TEST_EXIT)", st.continue_presses);
             std::fflush(stdout);
 #ifdef _WIN32
-            TerminateProcess(GetCurrentProcess(), 3);
+            BB_TERMINATE_PROCESS(3);
 #else
             _exit(3);
 #endif
@@ -3985,6 +4036,30 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
             }
             last_idx = idx;
         }
+        // annalise079: the OTHER players' chrs (WorldChrMan player set +0x30 count, +0x38 entries 0x38 apart) on this game, so a host
+        // can see that a guest's kneel animation reached it: "test: remote anim <id> (chr slot k)"
+        std::int32_t n = 0;
+        std::uint64_t entries = 0;
+        if (s.world_chr_man && SafeGet(s.world_chr_man + 0x30, &n) && n > 0 && n <= 8 && SafeGet(s.world_chr_man + 0x38, &entries) && entries) {
+            static std::int32_t r_idx[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+            static std::int32_t r_last[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+            for (int i = 0; i < n; ++i) {
+                std::uint64_t c = 0, rcm = 0, rta = 0;
+                std::int32_t ri = -1;
+                if (!SafeGet(entries + std::uint64_t(i) * 0x38, &c) || !c || c == s.player || !SafeGet(c + 0x3b0, &rcm) || !rcm ||
+                    !SafeGet(rcm + 0x18, &rta) || !rta || !SafeGet(rta + 0xc0, &ri) || ri < 0 || ri >= 10 || ri == r_idx[i]) {
+                    continue;
+                }
+                for (int k = r_idx[i] < 0 ? ri : r_idx[i]; k != ri; k = (k + 1) % 10) {
+                    std::int32_t anim = 0;
+                    SafeGet(rta + 0x20 + std::uint64_t(k) * 0x10, &anim);
+                    if (anim == r_last[i]) continue;
+                    r_last[i] = anim;
+                    Log("test: remote anim %d (chr slot %d)", anim, i);
+                }
+                r_idx[i] = ri;
+            }
+        }
     }
     if (t.log_oath && s.world_up && !s.loading && s.player && Seconds(t.fx_at, now) >= 0.5) {
         // 6100 Corruption (Vilebloods), 6110 Radiance (Executioners), 6120 Hunter, 6142 Impurity (League),
@@ -4048,6 +4123,19 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
             SafeGet(dm + 0xfc, &hpmax);
             SafeGet(dm + 0x134, &st);
             SafeGet(dm + 0x138, &stmax);
+        }
+        // BB_PARTY_TEST_SET_HP=PCT:DELAY_S (covenant079): once, DELAY_S s after the first sample, the HP is set to PCT % of the maximum
+        // (the Corruption / Radiance amounts are keyed on low HP: the drain acts at conditionHp 12.5 %)
+        if (const char* sh = std::getenv("BB_PARTY_TEST_SET_HP"); sh && sh[0] && dm && hpmax > 0) {
+            static Clock::time_point first = now;
+            static bool done = false;
+            const char* colon = std::strchr(sh, ':');
+            if (!done && Seconds(first, now) >= (colon ? std::atof(colon + 1) : 0.0)) {
+                done = true;
+                std::int32_t v = std::max(1, int(hpmax * std::atof(sh) / 100.0));
+                SafeWrite(dm + 0xf8, &v, 4);
+                Log("test: HP set to %d of %d (BB_PARTY_TEST_SET_HP)", v, hpmax);
+            }
         }
         Log("test: oath: covenant effects on the local player: %s (role %d, map 0x%08x) vitals HP %d/%d stamina %d/%d",
             on.empty() ? "none" : on.c_str(), int(s.session_role), unsigned(s.map_id), hp, hpmax, st, stmax);
@@ -4415,7 +4503,8 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
         Log("test: nav: the walk was not ticked for %.1f s: stick released", Seconds(t.nav_last, now));
     }
     if (t.approach && !t.approach_done && s.world_up && !s.loading && Seconds(st.world_at, now) >= 12.0 &&
-        (!t.place || t.place_done) && Seconds(t.ap_at, now) >= 0.0) {
+        (!t.in_host || s.session_role == RoleClient) && t.joins >= t.approach_join && (!t.place || t.place_done) &&
+        Seconds(t.ap_at, now) >= 0.0) {
         std::uint32_t area = 0;
         float pos[3] = {0, 0, 0};
         if (ReadPlayerPos(&area, pos)) {
@@ -4674,7 +4763,8 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
             Log("test: approach done: the menu walk (seq) starts");
         }
     }
-    if (t.place && !t.place_done && Seconds(st.world_at, now) >= t.place_at && s.world_up && !s.loading) {
+    if (t.place && !t.place_done && Seconds(st.world_at, now) >= t.place_at && s.world_up && !s.loading &&
+        (!t.in_host || s.session_role == RoleClient)) {
         t.place_done = true;
         const bool ok = t.warp_point ? TravelWarpForTest(t.place_map, t.warp_point)
                                      : TravelPlaceForTest(t.place_map, t.place_pos, t.place_yaw);
@@ -4898,6 +4988,10 @@ void PartyDirector::ConfigureFromEnv() {
                     st.test.place_pos[2] = z;
                     st.test.place_yaw = yaw;
                 }
+            } else if (item.rfind("approach_join=", 0) == 0) {
+                st.test.approach_join = std::atoi(item.c_str() + 14);
+            } else if (item == "in_host") {
+                st.test.in_host = true;
             } else if (item.rfind("set_flag=", 0) == 0) {
                 for (const char* p = item.c_str() + 9; *p;) {
                     char* end = nullptr;
@@ -5866,6 +5960,9 @@ void PartyDirector::Tick() {
             st.summon_at = now;
         }
     }
+    if (role == PartyRole::Host) {
+        LogPeerKeepTimers(now);
+    }
     if (role == PartyRole::Host && st.fast_join) {
         for (std::string& name : bbnet::party::PartyHostService::instance().take_restarted()) {
             Log("%s restarted its game: its old peer is cleared once our game is out of that session", name.c_str());
@@ -5878,7 +5975,7 @@ void PartyDirector::Tick() {
                 // Playtest 1: its sign / direct summon hold (a room served to the old run, or the
                 // lost link's 26 s) refused the new run's summon ("a crashed member's connection is
                 // still held"); our game is out of that session and its peer is gone: end the hold.
-                if (bbnet::party::FromApi::instance().hold_left_ms() > 0) {
+                if (bbnet::party::FromApi::instance().hold_left_ms(name) > 0) {
                     bbnet::party::FromApi::instance().hold_signs(name, 1);
                     Log("%s: its sign hold ended (the new run can be summoned now)", name.c_str());
                 }
@@ -6145,7 +6242,7 @@ bool GatherGuest(const GameSnapshot& s, party::PartyLink* link, Clock::time_poin
                 continue;
             }
             float best = 1e18f;
-            for (const std::uint32_t id : ids::kPartyReturnPoints) {
+            for (const std::uint32_t id : ids::ReturnPoints()) {
                 float sp[4];
                 if (ids::EntityMap(id) >> 16 != host_map >> 16 || !ids::ReturnSpot(id, sp)) {
                     continue;

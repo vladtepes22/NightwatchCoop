@@ -83,7 +83,7 @@ of H5.
    - A watchdog clears a box stuck for 20 s or more across a load or death.
    - Log every grant decision. Seed the ledger only from flags present before the first join.
    - Replay the denied Old Hunter Bell when the guest gets back to its own world.
-   - **Files:** `party_items.cpp/.h`, `party_items.inc`, `game_state.cpp` (ShowItemGet only).
+   - **Files:** `party_items.cpp/.h`, party tables (`party_gamedata.h`), `game_state.cpp` (ShowItemGet only).
 4. **Batch 4: NPCs, story and flags** (#17, #11, #5, #10 flags, #14 residual, #8 residual, catch-up replay of an
    already-seen scene).
    - Clear isChangeWanderGhost for every talk-NPC row (6040-6990, 8120-8125, 113010, 804000).

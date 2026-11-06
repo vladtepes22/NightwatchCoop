@@ -3,6 +3,7 @@
 // tables (sex variants, endings, story flags, time of day), the EVENT "story" JSON round trip,
 // the host queue and GuestStory's mirror / replay / ending programs with an injected game state.
 // Build and run: ninja -C out/gpu party-story-test && out/gpu/party-story-test.exe
+#include "party_tables_test.h"
 #include "party/party_story.h"
 
 #include <algorithm>
@@ -1209,6 +1210,7 @@ static void test_ending_one_cycle() {
 }
 
 int main() {
+    if (!coop::test::UseGameTables("party-story-test")) return 0;
     test_tables();
     test_guest_phase_change();
     test_json();

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // NPC hunter fights with the whole party (gpu/shim/party/party_npcfight_rules.h, ERSC parity D11).
+#include "party_tables_test.h"
 #include "party/party_npcfight_rules.h"
 
 #include <cassert>
@@ -10,6 +11,7 @@
 using namespace coop::npcfight;
 
 int main() {
+    if (!coop::test::UseGameTables("party-npcfight-test")) return 0;
     // Slots: only the AI-player summons use them. The party's default (3 players) leaves one; a
     // 4-player party fills the game's four-player limit; the 5-entry table never overflows.
     assert(AiSummonFits(1, 0) && AiSummonFits(2, 1) && AiSummonFits(3, 0));
@@ -91,11 +93,11 @@ int main() {
     // the entry spot; one inside, or with the fight off / not joined / left / dead, is left alone.
     {
         std::set<std::uint32_t> npcs;
-        for (const FogHelper& h : kFogHelpers) {
+        for (const FogHelper& h : FogHelpers()) {
             assert(npcs.insert(h.npc).second && h.join && h.leave && h.host_flag && h.region);
             assert(h.join != h.leave);
         }
-        assert(kFogHelpers[0].npc == 2300740 && kFogHelpers[0].host_flag == 12304800 && kFogHelpers[0].region == 2302800);
+        assert(FogHelpers()[0].npc == 2300740 && FogHelpers()[0].host_flag == 12304800 && FogHelpers()[0].region == 2302800);
         assert(PlanFogFollow(true, true, true, false, true, 0.0, 40.0f, false) == FogFollow::wait);
         assert(PlanFogFollow(true, true, true, false, true, kFogFollowGrace, 40.0f, false) == FogFollow::warp);
         assert(PlanFogFollow(true, true, true, false, true, 30.0, 3.0f, false) == FogFollow::done);

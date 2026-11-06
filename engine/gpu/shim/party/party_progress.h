@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Party co-op C2: host-authoritative progress sync of event flags (design:
 // docs/party/event_flags.md). The host's flag changes in the syncable categories
-// (party_flags.inc) are captured and sent to the guests, who write them into their OWN save pool,
+// (the flag category table (flagRows)) are captured and sent to the guests, who write them into their OWN save pool,
 // so a guest's save keeps up with the host's world even though the game itself never progresses
 // a summoned phantom's save (load mode 1, see the design doc section 3).
 //
@@ -73,7 +73,7 @@ using u8 = std::uint8_t;
 using u32 = std::uint32_t;
 using u64 = std::uint64_t;
 
-// ---- categories (party_flags.inc: first match wins; no row = never_sync) ----
+// ---- categories (the flag category table (flagRows): first match wins; no row = never_sync) ----
 
 enum class Category : u8 {
     never_sync = 0,
@@ -345,7 +345,7 @@ const GroupBytes& WorldMirrorMask(int key);
 /// The item_lot_picked bits of a mirror key (D4). With instanced items on, the mirror leaves them
 /// alone: the guest's overlay shows the guest's OWN pickups (its pool), not the host's.
 const GroupBytes& WorldItemMask(int key);
-/// Shop stock is per player: the one-time ShopLineupParam rows' stock flags (party_flags.inc rows
+/// Shop stock is per player: the one-time ShopLineupParam rows' stock flags (the flag category table (flagRows) rows
 /// "shop stock row ...": the Bath Messengers' armor 70009000-70009490, the Dream's starting weapons
 /// 72101000-72101011, the bells / chalice 6610-6660). The global T7 zone 9 and the m21_00 T7 zone 1
 /// groups are host-world overlay groups in load mode 1, so without this a guest's shop read the

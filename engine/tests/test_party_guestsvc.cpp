@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Guest services (gpu/shim/party/party_guestsvc.h): the gate and the record change text.
 // ninja -C out/gpu party-guestsvc-test && out/gpu/party-guestsvc-test
+#include "party_tables_test.h"
 #include "party/party_guestsvc.h"
 
 #include <cassert>
@@ -21,6 +22,7 @@ static GuestServicesInput Guest(std::uint32_t map) {
 }
 
 int main() {
+    if (!coop::test::UseGameTables("party-guestsvc-test")) return 0;  // lamp ids come from the game
     // The lower bath messengers' animation event: per player (its 0x31 sync dropped), nothing else.
     assert(PerPlayerMessengerEvent(12105040u));
     // 0.7.3: the gift messengers' events (starting weapons, Notebook, bells, Eye) are per player too.

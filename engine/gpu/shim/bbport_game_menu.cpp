@@ -832,7 +832,8 @@ constexpr std::size_t BuilderSize = 0x1400;  // the game's builder struct is 0x1
 struct PickState {
     void* finalizer = nullptr;  ///< a clone of the item menu's finalizer functor (owns the item context)
     u64 owner = 0;              ///< the builder's +0x1180 field (the item menu's owner)
-    u32 item = 0;               ///< type bits | goods id
+    u32 item = 0;               ///< type bits | goods id (0.7.9: or a weapon / armor id)
+    u32 index = 0;              ///< the item menu's inventory index (gear: tells two copies of one weapon apart)
     int slot = -1;              ///< the chosen member
 } pick;
 enum PickKind : u32 { PickMember = 1, PickAmount = 2 };
@@ -912,10 +913,11 @@ bool BuildCommandMenu(void* out, const std::vector<PickEntry>& entries) {
 }
 
 /// The Give command was chosen: the member picker.
-void OpenMemberPicker(void* out, u32 item) {
+void OpenMemberPicker(void* out, u32 item, u32 index) {
     const auto members = coop::give::MenuMembers();
     std::vector<PickEntry> entries;
     pick.item = item;
+    pick.index = index;
     for (std::size_t i = 0; i < members.size() && i < 4; ++i) {
         P::SetPickerText(int(i), members[i].second);
         entries.push_back({P::PickerText(int(i)), PickMember, u32(members[i].first), 0});
@@ -952,7 +954,9 @@ BB_SYSV void* PickInvoke(void* out, void* self, void* /*event*/) {
     std::memcpy(&kind, static_cast<const u8*>(self) + 0x78, 4);
     std::memcpy(&a, static_cast<const u8*>(self) + 0x7c, 4);
     if (RepeatedInvoke(kind, a)) return out;
-    if (kind == PickMember) {
+    if (kind == PickMember && coop::give::MenuIsGear(pick.item)) {
+        coop::give::MenuGiveGear(pick.item, pick.index, int(a));  // gear: one entry, no amount picker
+    } else if (kind == PickMember) {
         OpenAmountPicker(out, int(a));
     } else if (kind == PickAmount && pick.slot >= 0) {
         coop::give::MenuGive(pick.item, int(a), pick.slot);
@@ -976,10 +980,11 @@ BB_SYSV void* GiveInvoke(void* out, void* self, void* /*event*/) {
     u32 item = 0, index = 0;
     std::memcpy(&item, o + 0x54, 4);
     std::memcpy(&index, o + 0x50, 4);
+    std::printf("Game menu: GiveInvoke self %p\n", self);
     if (out) *static_cast<void**>(out) = nullptr;
     if (RepeatedInvoke(0, item)) return out;
     coop::give::MenuChosen(item, index);
-    if (out) OpenMemberPicker(out, item);
+    if (out) OpenMemberPicker(out, item, index);
     return out;
 }
 void BuildGiveVtable() {
@@ -989,6 +994,62 @@ void BuildGiveVtable() {
     give_vtable[0] = reinterpret_cast<void*>(&GiveClone);
     give_vtable[1] = reinterpret_cast<void*>(&GiveClone);
     give_vtable[2] = reinterpret_cast<void*>(&GiveInvoke);
+}
+
+/// The item command menu's Cross handler (view class 0x539be10, vtable slot 11, FUN_01ba2600) is text based: a row whose text is
+/// "Discard" activates at once, any other row first asks FUN_016e4f00(item index) ("can this item be used now"), and a row that
+/// fails it (every goods tab but the consumables: materials, key items) only makes the error sound, the row's functor is never
+/// called. Our Give row is such a row. So when the highlighted row is ours the check is skipped and the row activated the way
+/// the handler does it (FUN_01beaad0).
+constexpr u64 ItemMenuViewVtable = 0x539be10, ItemMenuCrossSlot = 11;
+constexpr u64 CurrentRowCopy = 0x1bea2e0, ActivateRow = 0x1beaad0;
+constexpr std::size_t ItemViewIndexField = 0x2068;
+using CrossFn = void(BB_SYSV*)(void*);
+CrossFn cross_original = nullptr;
+
+BB_SYSV void CrossHook(void* view) {
+    using Copy = void(BB_SYSV*)(void*, void*);
+    using Act = void(BB_SYSV*)(void*);
+    bool give = false;
+    void* dbg_f = nullptr;
+    void* dbg_vt = nullptr;
+    if (view && give_vtable[0]) {
+        alignas(16) u8 row[0x300] = {};
+        Game<Copy>(CurrentRowCopy)(row, view);
+        void* f = *reinterpret_cast<void**>(row + 0xb0);
+        dbg_f = f;
+        if (f && VtableOk(f)) dbg_vt = *reinterpret_cast<void**>(f);
+        // our own rows: the Give command and the picker entries (they too are rows the handler would refuse on a tab
+        // whose items cannot be used)
+        give = f && VtableOk(f) &&
+               (*reinterpret_cast<void* const*>(f) == static_cast<void*>(give_vtable.data()) ||
+                *reinterpret_cast<void* const*>(f) == static_cast<void*>(pick_vtable.data()));
+        (*reinterpret_cast<void(BB_SYSV***)(void*)>(row))[1](row);  // the row copy's in-place destructor
+    }
+    if (std::getenv("BB_GIVE_VTRACE")) {
+        int ix = -9;
+        std::memcpy(&ix, static_cast<const u8*>(view) + ItemViewIndexField, 4);
+        std::printf("Game menu: Cross: view %p give %d index %d f %p vt %p givevt %p\n", view, give ? 1 : 0, ix, dbg_f, dbg_vt,
+                    static_cast<void*>(give_vtable.data()));
+    }
+    int index = -1;
+    if (give) std::memcpy(&index, static_cast<const u8*>(view) + ItemViewIndexField, 4);
+    if (give && index >= 0) {
+        std::printf("Game menu: Cross on the Give row (item index %d)\n", index);
+        Game<Act>(ActivateRow)(view);
+        return;
+    }
+    cross_original(view);
+}
+bool InstallCrossHook() {
+    void** slot = reinterpret_cast<void**>(image_base + ItemMenuViewVtable) + ItemMenuCrossSlot;
+#ifdef _WIN32
+    DWORD old = 0;
+    if (!VirtualProtect(slot, 8, PAGE_READWRITE, &old)) return false;
+#endif
+    cross_original = reinterpret_cast<CrossFn>(*slot);
+    *slot = reinterpret_cast<void*>(&CrossHook);
+    return cross_original != nullptr;
 }
 
 /// The item menu's finalize: the Give entry goes in just before it (after Discard's own set-up).
@@ -1018,6 +1079,38 @@ BB_SYSV void* FinalizeHook(void* out, void* list, void* fin) {
     return finalize_original(out, list, fin);
 }
 
+// ---- Diagnostic: BB_GIVE_VTRACE=1 logs every virtual call of the item menu's command / predicate / view classes ----
+template <int C, int N>
+struct VTrace {
+    static inline void* orig = nullptr;
+    static BB_SYSV void* Thunk(void* a, void* b, void* c, void* d, void* e, void* f) {
+        std::printf("VTRACE class %d slot %d self %p\n", C, N, a);
+        return reinterpret_cast<void*(BB_SYSV*)(void*, void*, void*, void*, void*, void*)>(orig)(a, b, c, d, e, f);
+    }
+};
+template <int C, int... Ns>
+void VTraceInstall(void** vt, std::integer_sequence<int, Ns...>) {
+    ((VTrace<C, Ns>::orig = vt[Ns], vt[Ns] = reinterpret_cast<void*>(&VTrace<C, Ns>::Thunk)), ...);
+}
+template <int C, int N>
+void VTraceClass(u64 va) {
+    void** vt = reinterpret_cast<void**>(image_base + va);
+#ifdef _WIN32
+    DWORD old = 0;
+    VirtualProtect(vt, N * 8, PAGE_READWRITE, &old);
+#endif
+    VTraceInstall<C>(vt, std::make_integer_sequence<int, N>{});
+    std::printf("Game menu: vtrace class %d = %#llx (%d slots)\n", C, (unsigned long long)va, N);
+}
+void VTraceAll() {
+    VTraceClass<0, 8>(0x533fea0);   // Discard functor
+    VTraceClass<1, 8>(0x5340030);   // Use functor
+    VTraceClass<2, 8>(0x533ffe0);   // Use predicate
+    VTraceClass<3, 8>(0x533fe50);   // Discard predicate
+    VTraceClass<4, 14>(0x539be10);  // the view
+    VTraceClass<5, 8>(0x533fe00);   // finalizer
+}
+
 /// The title's main menu: after its New Game item, the Party page as a title item.
 BB_SYSV void* CommandHook(void* list, void* pair, void* functor, void* x) {
     if (const void* discard = discard_text.load();
@@ -1025,9 +1118,10 @@ BB_SYSV void* CommandHook(void* list, void* pair, void* functor, void* x) {
         InItemMenuBuilder(__builtin_return_address(0))) {
         // The item menu's Discard entry is about to go in: make a Give functor for this item from Discard's.
         void* object = *reinterpret_cast<void* const*>(static_cast<const u8*>(functor) + 0x20);
-        u32 item = 0;
+        u32 item = 0, index = 0;
         if (object && bbnet::guest_read(reinterpret_cast<std::uintptr_t>(object) + 0x54, &item, 4) &&
-            coop::give::MenuOffers(item)) {
+            bbnet::guest_read(reinterpret_cast<std::uintptr_t>(object) + 0x50, &index, 4) &&
+            (coop::give::MenuOffers(item) || coop::give::MenuOffersGear(item, index))) {
             BuildGiveVtable();
             give_pending = static_cast<u8*>(GiveClone(object, nullptr));
             give_pending_item = item;
@@ -1185,6 +1279,7 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
         Detour(image, ItemMenuFinalize, FinalizePrologue, sizeof(FinalizePrologue),
                reinterpret_cast<void*>(&FinalizeHook), reinterpret_cast<void**>(&finalize_original), cursor)) {
         std::printf("Game menu: the item menu can offer Give\n");
+        if (!InstallCrossHook()) std::printf("Game menu: the item menu's Cross handler is not hooked\n");
     }
 #ifdef _WIN32
     DWORD old_protect = 0;
@@ -1193,6 +1288,7 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
 #else
     mprotect(stubs, page, PROT_READ | PROT_EXEC);
 #endif
+    if (const char* vt = std::getenv("BB_GIVE_VTRACE"); vt && vt[0] == '1') VTraceAll();
     std::printf("Game menu: %s (%zu pages in System)\n", ok ? "the port's pages are in" : "hooks failed, off",
                 P::All().size());
 }

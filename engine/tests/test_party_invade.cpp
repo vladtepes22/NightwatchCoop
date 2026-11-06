@@ -346,7 +346,94 @@ static void LevelRange() {
     CHECK(!DenyText(Deny::LevelRange).empty() && std::string(DenyWord(Deny::LevelRange)) == "level_range");
 }
 
+void Apart() {
+    const float host[3] = {0, 0, 0};
+    std::vector<ApartSpot> sp = {{2302950, 10, 0, 0}, {2302951, 0, 0, 45}, {2302952, 100, 5, 100}, {2302953, 400, 0, 0}};
+    float d = 0;
+    CHECK(PickApart(host, sp, kApartMinM, kApartMaxM, &d) == 2302951 && d > 44.9f && d < 45.1f);  // 10 m is too near, 45 m the nearest
+    sp.erase(sp.begin() + 1);
+    CHECK(PickApart(host, sp) == 2302952);       // 141 m
+    sp.erase(sp.begin() + 1);
+    CHECK(PickApart(host, sp) == 0);             // 10 m too near, 400 m too far: none, the invader stays beside the host
+    CHECK(PickApart(host, {}) == 0);
+    CHECK(PickApart(host, {{0, 50, 0, 0}}) == 0);  // id 0 is not a lamp
+    // the ground plane decides, not the height
+    CHECK(PickApart(host, {{2302950, 5, 80, 5}}) == 0);
+    CHECK(PickApart(host, {{2302950, 20, 80, 20}}) == 0);  // 28 m: too near
+    CHECK(PickApart(host, {{2302950, 25, 0, 25}}) == 2302950);   // 35 m
+    // ties: the lower id
+    CHECK(PickApart(host, {{2302951, 40, 0, 0}, {2302950, 0, 0, 40}}) == 2302950);
+    // the wire carries it (state 1 / 2 only, with the health byte)
+    Msg m;
+    Msg w{2, "Bob", End::None, 1, 2302951};
+    CHECK(Encode(w) == "{\"s\":2,\"n\":\"Bob\",\"h\":1,\"a\":2302951}");
+    CHECK(Decode(Encode(w), &m) && m.state == 2 && m.full_hp == 1 && m.apart == 2302951);
+    CHECK(Decode("{\"s\":1,\"n\":\"Bob\",\"h\":0}", &m) && m.apart == 0);  // a 0.7.9 host without it
+    CHECK(!Decode("{\"s\":1,\"n\":\"Bob\",\"h\":0,\"a\":0}", &m));
+    CHECK(!Decode("{\"s\":0,\"n\":\"Bob\",\"h\":0,\"a\":5}", &m));
+}
+
+// 0.7.9 (CL-7e748c): Max invaders 1 or 2.
+void TwoInvaders() {
+    CHECK(ClampMaxInvaders(0) == 1 && ClampMaxInvaders(1) == 1 && ClampMaxInvaders(2) == 2 && ClampMaxInvaders(3) == 2 && ClampMaxInvaders(-5) == 1);
+    HostView h;
+    h.allow = true;
+    h.party_max = 4;
+    h.world_players = 2;  // the host and one guest
+    // the default is the old behaviour: one invader, the second is refused as "another invader is already in"
+    CHECK(h.max_invaders == 1);
+    CHECK(Admit(h, false, false) == Deny::None);
+    h.invaders = 1;
+    CHECK(Admit(h, false, false) == Deny::InvaderPresent);
+    // Max invaders 2: the second one is in, the third is not
+    h.max_invaders = 2;
+    CHECK(Admit(h, false, false) == Deny::None);          // host + guest + invader + the new one = 4
+    h.invaders = 2;
+    CHECK(Admit(h, false, false) == Deny::InvaderPresent);
+    // both invaders count against Max players and the four slots
+    h.invaders = 1, h.party_max = 3;                       // host + guest + invader = 3 = Max players: no room for the second
+    CHECK(Admit(h, false, false) == Deny::NoSlot);
+    h.party_max = 4, h.world_players = 3;                  // host + 2 guests + invader = 4 slots: none left
+    CHECK(Admit(h, false, false) == Deny::NoSlot);
+    h.world_players = 1, h.invaders = 1;                   // host alone + invader: the second fits (3 of 4)
+    CHECK(Admit(h, false, false) == Deny::None);
+    h.invaders = 2;
+    CHECK(Admit(h, false, false) == Deny::InvaderPresent);
+    // a setting out of range is clamped, never more than two
+    h.max_invaders = 9, h.invaders = 2;
+    CHECK(Admit(h, false, false) == Deny::InvaderPresent);
+    // the level range applies to each: the same refusal for the second
+    h.max_invaders = 2, h.invaders = 1, h.host_level = 100;
+    CHECK(Admit(h, false, false, false, 150) == Deny::LevelRange);
+    CHECK(Admit(h, false, false, false, 100) == Deny::None);
+    // the list's flag: room for another invader
+    CHECK(Invadable(true, 2, 0, 4, 1) && !Invadable(true, 2, 1, 4, 1) && Invadable(true, 2, 1, 4, 2) && !Invadable(true, 2, 2, 4, 2));
+    CHECK(!Invadable(true, 2, 1, 3, 2) && !Invadable(false, 1, 0, 4, 2) && Invadable(true, 2, 0, 4));  // Max players 3 is full with one; the default is 1
+
+    // the book each game keeps of the announced invaders
+    InvaderBook b;
+    CHECK(b.Empty() && b.First().empty() && b.State("A") == 0);
+    CHECK(b.Apply({1, "A", End::None, 1, 0}) && b.Size() == 1 && b.State("A") == 1);
+    CHECK(!b.Apply({1, "A", End::None, 0, 0}));            // the same state again: no change (the health byte is not kept here)
+    CHECK(b.Apply({2, "A", End::None, 1, 2412951}) && b.State("A") == 2 && b.Apart("A") == 2412951);
+    CHECK(b.Apply({1, "B", End::None, 1, 0}) && b.Size() == 2 && b.First() == "A");
+    CHECK(!b.Apply({1, "C", End::None, 1, 0}) && !b.Has("C") && b.Size() == 2);   // never a third
+    CHECK(b.Names().size() == 2 && b.Names()[1] == "B");
+    CHECK(b.Apply({0, "A", End::InvaderDied}) && !b.Has("A") && b.First() == "B" && b.State("B") == 1);   // each ends on its own
+    CHECK(!b.Apply({0, "A", End::None}));
+    CHECK(b.Apply({0, "B", End::None}) && b.Empty());
+
+    // one payout per invader: two invaders that end together are both paid, a resent one is not
+    RewardOnce ro;
+    CHECK(ro.Take("A", End::InvaderDied, 10.0) && ro.Take("B", End::InvaderDied, 10.5));
+    CHECK(!ro.Take("A", End::InvaderDied, 11.0) && !ro.Take("B", End::InvaderDied, 11.0));
+    CHECK(ro.Take("A", End::HostDied, 12.0));
+    CHECK(ro.Take("A", End::InvaderDied, 10.0 + kRewardOnceS + 1.0));
+}
+
 int main() {
+    TwoInvaders();
+    Apart();
     Look();
     NameColour();
     Rewards();

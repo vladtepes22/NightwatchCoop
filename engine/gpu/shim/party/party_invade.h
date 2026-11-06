@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace party {
 class PartyLink;
@@ -60,11 +61,17 @@ void RequestBlock();
 /// Any thread: an invasion is on in this world (pending or in) and the invader's real member name ("" none). The PvP module
 /// puts that member's chr on its own team.
 std::string InvaderName();
+/// 0.7.9: every invader of this world (up to Max invaders, 2), and whether `name` (a member's real name) is one of them.
+std::vector<std::string> InvaderNames();
+bool IsInvader(const std::string& name);
 /// This game is the invader and stands in the host's world (its own chr is the invader's).
 bool LocalIsInvader();
 /// Any thread, the invader's game: the host's phantom health for this invasion (1 full health, 0 the game's cut), -1
 /// before the host said or with no invasion on. The host's rules decide it (an invasion is PvP); the invader gets no
 /// host rules, so seamless_rules ApplyPhantomHp follows this.
 int HostFullHp();
+/// Any thread, the invader's game: the lamp (return point id) the host named for the invader to appear at, away from the host
+/// (party_invade_rules.h PickApart); 0 none, no invasion, or BB_PARTY_INVADE_APART=0.
+std::uint32_t ApartLamp();
 
 }  // namespace coop::invade

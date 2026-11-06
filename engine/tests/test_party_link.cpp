@@ -1014,6 +1014,27 @@ static void test_identity() {
         CHECK(w.find("version mismatch with the host (host bbport 0.5 (v0.5-42-gabcdef1234), yours 0.5 "
                      "(v0.5-42-gabcdef1234)): ") == 0);
         CHECK(w.find("use the same game dump (1.09) as the host") != std::string::npos);
+        {
+            // 0.7.9: only the dump differs -> the game-folder advice; only mods differ (the dump's params are equal, a
+            // mod's gameparam is part of the mods hash) -> mods only, no params clause; both -> mods lead, dump after.
+            LinkConfig hm = hb, gm = hb;
+            gm.params_sha256[3] ^= 1;
+            std::string d = identity_mismatch(hm, gm);
+            CHECK(d.find("game params differ") != std::string::npos && d.find("launcher's game folder") != std::string::npos &&
+                  d.find("gameplay mods") == std::string::npos);
+            gm = hb;
+            gm.mods_hash[0] ^= 1;
+            gm.mod_names = {"synthetic mod (1 files)"};
+            d = identity_mismatch(hm, gm);
+            CHECK(d.find("gameplay mods differ") != std::string::npos && d.find("game params") == std::string::npos &&
+                  d.find("game folder") == std::string::npos);
+            gm.params_sha256[3] ^= 1;
+            d = identity_mismatch(hm, gm);
+            const std::size_t at_mods = d.find("gameplay mods differ"), at_dump = d.find("game params of the game dump differ too");
+            CHECK(at_mods != std::string::npos && at_dump != std::string::npos && at_mods < at_dump);
+            CHECK(d.find("launcher's game folder") == std::string::npos);
+            std::printf("  mods + dump: %s\n", d.c_str());
+        }
         gb.params_sha256 = hb.params_sha256;
         gb.hook_names = {"4p H1 cooperator slots (SessionSlotSummary) @+0x186fe40",
                          "talk IsClientPlayer (guest services) @+0x1234"};
@@ -1092,6 +1113,29 @@ static void test_host_options() {
     CHECK(!reject_split_options("version mismatch: y", &reason, &got) && reason == "version mismatch: y");
     CHECK(!reject_split_options("[host options: max=9] z", &reason, &got) && reason == "[host options: max=9] z");
     CHECK(reject_with_options("t", HostOptions{}) == "t");
+    // 0.7.9: the host's mods label after the options prefix; an old guest keeps it in the reason text
+    {
+        const std::string m = reject_with_mods("gameplay mods differ (x)", "nocturne@1.0.1");
+        CHECK(m == "[host mods: nocturne@1.0.1] gameplay mods differ (x)");
+        const std::string both = reject_with_options(m, h);
+        std::string label;
+        CHECK(reject_split_options(both, &reason, &got) && reason == m);  // what an older guest shows
+        CHECK(reject_split_mods(reason, &reason, &label) && label == "nocturne@1.0.1" &&
+              reason == "gameplay mods differ (x)");
+        CHECK(reject_split_mods(reject_with_mods("y", "mods:3f9a12c0"), &reason, &label) && label == "mods:3f9a12c0" &&
+              reason == "y");
+        // no label, or one the lobby would refuse: the reason unchanged, nothing read
+        for (const std::string& bad : {std::string(), std::string("Nocturne"), std::string("a b"), std::string("x/../y"),
+                                      std::string(256, 'a'), std::string("a]"), std::string("\x01")}) {
+            CHECK(reject_with_mods("z", bad) == "z");
+            label = "kept";
+            const std::string forged = "[host mods: " + bad + "] z";
+            CHECK(!reject_split_mods(forged, &reason, &label) && reason == forged && label == "kept");
+        }
+        CHECK(reject_with_mods("z", std::string(255, 'a')).size() == 12 + 255 + 2 + 1);  // the label's limit
+        CHECK(!reject_split_mods("version mismatch: y", &reason, &label) && reason == "version mismatch: y");
+        CHECK(!reject_split_mods("[host mods: nocturne@1.0.1]", &reason, &label));  // no "] " and reason
+    }
     // the diff: a guest with Max players 3 and Headstones off against a host with 4 and on
     HostOptions mine = h;
     mine.max_players = 3;
@@ -1143,6 +1187,30 @@ static void test_host_options() {
         CHECK(g3.start_guest("127.0.0.1", host2.bound_port(), &err));
         CHECK(g3.wait_state(LinkState::Rejected, 5000));
         CHECK(g3.reject_options().empty());
+        CHECK(g3.reject_mods_label().empty());  // a host without a mods label
+        // 0.7.9: a host with a mods label: its refusal over gameplay mods carries it, next to the options
+        Recorder hr4, gr4, gr5;
+        LinkConfig hm = hc;
+        hm.mods_label = "nocturne@1.0.1";
+        PartyLink host3(hm, recorder_callbacks(hr4, "host3"));
+        CHECK(host3.start_host(&err));
+        PartyLink g4(gc, recorder_callbacks(gr4, "guest4"));
+        CHECK(g4.start_guest("127.0.0.1", host3.bound_port(), &err));
+        CHECK(g4.wait_state(LinkState::Rejected, 5000));
+        CHECK(g4.reject_mods_label() == "nocturne@1.0.1");
+        CHECK(options_parse(g4.reject_options(), &p) && p == h);
+        CHECK(g4.reject_reason().rfind("version mismatch with the host", 0) == 0);  // both prefixes stripped
+        CHECK(g4.reject_reason().find("gameplay mods differ") != std::string::npos &&
+              g4.reject_reason().find("[host") == std::string::npos);
+        std::printf("  refused guest read the host's mods label: %s\n", g4.reject_mods_label().c_str());
+        // other params, same mods: refused without the label (the mods are not what differs)
+        LinkConfig gp = base_cfg("Guest_2", "hunter2");
+        gp.params_sha256[0] ^= 1;
+        PartyLink g5(gp, recorder_callbacks(gr5, "guest5"));
+        CHECK(g5.start_guest("127.0.0.1", host3.bound_port(), &err));
+        CHECK(g5.wait_state(LinkState::Rejected, 5000));
+        CHECK(g5.reject_code() == RejectCode::Mismatch && g5.reject_mods_label().empty());
+        CHECK(g5.reject_reason().find("host mods") == std::string::npos);
     }
     // the 4-player label names the real settings
     CHECK(hook_option_label("4p H4 boss doping").find("BB_PARTY_FOURP") != std::string::npos);
@@ -1259,8 +1327,22 @@ static void test_invader_b2_filter() {
     CHECK(invader_event_to_ok("b2", "{\"op\":\"dsum_busy\",\"wait\":\"boss\"}"));
     CHECK(!invader_event_to_ok("b2", "{\"op\":\"travel\"}"));
     CHECK(!invader_event_to_ok("b2", "{\"op\":\"gather\"}"));
+    // 0.7.9: the cross-map arrival re-join: rejoin (plain form), arrived, and the host's dest, matched whole
+    CHECK(invader_event_from_ok("b2", "{\"op\":\"rejoin\",\"pos\":[-193.500,-28.600,68.000]}"));
+    CHECK(invader_event_from_ok("b2", "{\"op\":\"arrived\"}"));
+    CHECK(!invader_event_from_ok("b2", "{\"op\":\"rejoin\",\"pos\":[1.000,2.000,3.000],\"rest\":2412951}"));
+    CHECK(!invader_event_from_ok("b2", "{\"op\":\"rejoin\",\"pos\":[1.000,2.000]}"));
+    CHECK(!invader_event_from_ok("b2", "{\"op\":\"rejoin\",\"pos\":[nan,2.000,3.000]}"));
+    CHECK(!invader_event_from_ok("b2", "{\"op\":\"rejoin\",\"pos\":[1,2,3]}x"));
+    CHECK(!invader_event_from_ok("b2", "{\"op\":\"respawn\",\"pos\":[1.000,2.000,3.000]}"));
+    CHECK(!invader_event_from_ok("b2", "{\"op\":\"arrived\",\"op2\":\"travel\"}"));
+    CHECK(invader_event_to_ok("b2", "{\"op\":\"dest\",\"stage\":402718720,\"pos\":[1.0000,2.0000,3.0000,1.0000],\"rot\":[0.000000,0.500000,0.000000,0.000000]}"));
+    CHECK(!invader_event_to_ok("b2", "{\"op\":\"dest\",\"stage\":1,\"pos\":[1.0,2.0,3.0],\"rot\":[0.0,0.0,0.0,0.0]}"));
+    CHECK(!invader_event_to_ok("b2", "{\"op\":\"dest\",\"stage\":1,\"pos\":[1.0,2.0,3.0,1.0],\"rot\":[0.0,0.0,0.0,0.0],\"x\":1}"));
     CHECK(!invader_event_to_ok("progress", "{}"));
     CHECK(invader_event_to_ok("invade", "{}"));
+    CHECK(invader_event_to_ok("room_member_joined", "{}") && invader_event_to_ok("room_member_left", "{}"));  // 0.7.9: the room's membership
+    CHECK(!invader_event_to_ok("room_closed", "{}") && !invader_event_to_ok("guest_invite", "{}"));
 }
 
 // ---- 0.7.8 invasions: the invader admission path (docs/party/invasions.md) ----

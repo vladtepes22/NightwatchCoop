@@ -44,6 +44,14 @@ std::string reject_with_options(const std::string& reason, const HostOptions& ho
 /// The reverse: the reason without the prefix; `*host` is set only when a valid prefix was there (true).
 bool reject_split_options(const std::string& text, std::string* reason, HostOptions* host);
 
+/// 0.7.9: a Mismatch refusal over gameplay mods carries the host's mods label (party_vpnlobby.h mods_label, the
+/// label the VPN lobby and LAN discovery show) after the options prefix: "[host mods: nocturne@1.0.1] reason", so
+/// a refused guest can name the mods it needs. An older guest shows it as part of the reason. `label` empty or
+/// not valid (valid_mods_label): the reason unchanged.
+std::string reject_with_mods(const std::string& reason, const std::string& label);
+/// The reverse (after reject_split_options): `*label` is set only for a valid prefix with a valid label (true).
+bool reject_split_mods(const std::string& text, std::string* reason, std::string* label);
+
 struct OptionDiff {
     std::string label;      // player-facing name
     std::string env;        // the variable that sets it (launcher / ini)

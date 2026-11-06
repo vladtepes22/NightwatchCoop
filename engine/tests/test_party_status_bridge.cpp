@@ -3,6 +3,7 @@
 // roster -> members, events, and the Party tab's commands -> actions.
 // ninja -C out/gpu party-status-bridge-test && out/gpu/party-status-bridge-test
 #include "party/party_status_bridge.h"
+#include "party/party_gamedata.h"
 
 #include <cassert>
 #include <cstdio>
@@ -442,6 +443,11 @@ static int test_busy_toast_gate() {
 }
 
 int main() {
+    {
+        coop::gamedata::Tables t;  // made-up tables: starting a party does not raise the missing-tables alert
+        t.loaded = true;
+        coop::gamedata::Install(std::move(t));
+    }
     if (test_map_state() || test_members() || test_board_and_commands() || test_prologue() || test_host_busy() || test_refusal() || test_busy_toast_gate()) return 1;
     std::printf("%d checks OK\n", g_checks);
     return 0;

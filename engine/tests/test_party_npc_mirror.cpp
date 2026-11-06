@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // NPC presence mirror (gpu/shim/party/party_npc_mirror.h): the guest's plan and the event body.
+#include "party_tables_test.h"
 #include "party/party_npc_mirror.h"
 
 #include <cassert>
@@ -9,6 +10,7 @@
 using namespace coop::npcmirror;
 
 int main() {
+    if (!coop::test::UseGameTables("party-npc-mirror-test")) return 0;
     // The clinic (misc071 prorun1): the host has NPC 2410700 off, the guest shows it.
     std::vector<LocalNpc> local = {{2410700, true, false}, {2410710, true, false}, {2410950, false, false}};
     Plan p = PlanMirror({2410700, 2410950}, local);
@@ -37,7 +39,7 @@ int main() {
     // One turned off by an older build of this mirror: still turned on again when the host has it on.
     p = PlanMirror({}, {{2410951, false, true}});
     assert(p.enable.size() == 1 && p.enable[0] == 2410951);
-    assert(std::is_sorted(std::begin(kNpcMirrorIds), std::end(kNpcMirrorIds)) && std::size(kNpcMirrorIds) > 100);
+    assert(std::is_sorted(coop::gamedata::Get().npc_mirror.begin(), coop::gamedata::Get().npc_mirror.end()) && coop::gamedata::Get().npc_mirror.size() > 100);
 
     // The event body.
     std::uint32_t map = 0;

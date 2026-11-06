@@ -249,8 +249,14 @@ Key findings behind the rows:
   only) does them for the guest's own position (physics position, `balance::ChrPosition`; the +0xC0 spot stays at the lamp for
   a guest), clears the blood-anim flags after 3 s, and shows the rune's flag clear once per overlay while the own save lacks the
   rune, so the guest's talk SETS it. The rune's lot is now an OwnTalkGiftLot (the guest's own grant; the host's rune award
-  still reaches a guest as a shared gift first: then its own talk logs "already given"). Not done: the guest's own kneel
-  animation (the event plays it on the host only).
+  still reaches a guest as a shared gift first: then its own talk logs "already given"). **Kneel animation (annalise079, CL-22c416)**: the player's kneel
+  (m25_00 event 12500012: 2004[14] turn to her playing 101260 on the kneel flag 72500329, 2003[18] 101262 when it falls) and the
+  oath's blood animation (12500013 / 12500014: player 101263) began with 1003[6] End if Client, so a guest stood still.
+  `AnnaliseKneelRules` (party_guestsvc.cpp, client only, same kill switch `BB_PARTY_GUEST_ANNALISE=0`) skips that end on a guest and
+  Annalise's own animation instruction (2003[18] on 2500600, index 3) of the two blood events. Smoke `cvk`: each member's own
+  chr plays 101260 / 101263 and the other game's `log_anim` ("remote anim") sees it on that member's chr, both directions. The
+  Corruption rune reaching every member is the owner's rule (Caryll runes are shared both ways, items.md), not a leak. Not
+  driven: her revival scene (a host-world event on host state, no per-player part found).
   **Rune amounts (0.7.9)**: `BB_PARTY_TEST_SET_HP=PCT:DELAY_S` sets the HP once; smoke `cvm` with `CVM_HP=10:100`: both members
   rise, i.e. a natural regeneration swamps any rune effect and no drain is seen; the stamina bonus is below the sampling
   resolution; the Radiance vial heal was not measured.

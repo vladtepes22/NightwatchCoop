@@ -31,6 +31,9 @@
 // Header only, no game dependency.
 #pragma once
 
+#include <algorithm>
+#include <mutex>
+#include <vector>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -72,14 +75,20 @@ enum class Why : std::uint8_t {
     RolledBack, ///< no reply after the item left: it was put back
     Cooldown,
     Self,       ///< to oneself
+    GearOff,       ///< the giver's gear switch is off (weapons / armor)
+    TheirGearOff,  ///< the receiver's gear switch is off (no consent)
+    GearUnique,    ///< shared / quest / not-a-normal-item gear (the table does not list it)
+    GearEquipped,  ///< worn or wielded
+    BadGems,       ///< gem data of a weapon the receiver cannot build
 };
-constexpr int kWhyCount = int(Why::Self) + 1;
+constexpr int kWhyCount = int(Why::BadGems) + 1;
 
 inline const char* WhyWord(Why w) {
     static const char* const k[kWhyCount] = {"none",     "off",     "their_off", "not_held", "key_item", "unique",
                                              "story",    "equipped", "no_room",   "busy",     "loading",  "dead",
                                              "boss",     "cutscene", "travelling", "no_member", "no_answer",
-                                             "failed",   "rolled_back", "cooldown", "self"};
+                                             "failed",   "rolled_back", "cooldown", "self",
+                                             "gear_off", "their_gear_off", "gear_unique", "gear_equipped", "bad_gems"};
     const int i = int(w);
     return i >= 0 && i < kWhyCount ? k[i] : "failed";
 }
@@ -113,6 +122,11 @@ inline const char* WhyText(Why w) {
     case Why::RolledBack: return "no confirmation, the item was put back";
     case Why::Cooldown: return "too fast";
     case Why::Self: return "that is you";
+    case Why::GearOff: return "giving weapons and armor is off (System > My party: Your items)";
+    case Why::TheirGearOff: return "does not take weapons and armor (giving gear is off for them)";
+    case Why::GearUnique: return "unique and shared gear cannot be given";
+    case Why::GearEquipped: return "take it off first";
+    case Why::BadGems: return "its blood gems could not be read";
     }
     return "";
 }
@@ -133,7 +147,7 @@ struct GoodsFacts {
     int held = -1;         ///< inventory count of the player (-1 unknown)
     int max_num = -1;      ///< maxNum (-1 unknown)
     int max_storage = -1;  ///< maxRepositoryNum (-1 unknown)
-    int goods_type = -1;   ///< goodsType (0 plain, 1 key item; -1 unknown)
+    int goods_type = -1;   ///< goodsType (0 plain, 1 key item, 2 material; -1 unknown)
     bool quick = false;    ///< assigned to a quick-item slot ("equipped")
 };
 
@@ -141,7 +155,9 @@ struct GoodsFacts {
 /// a peer cannot make a game take a key or unique item.
 inline Why GoodsAllowed(const GoodsFacts& f) {
     if (f.id == 0 || f.goods_type < 0 || f.max_num < 0) return Why::Failed;  // unknown: never
-    if (f.goods_type != 0) return Why::KeyItem;
+    // 0 = consumables, 2 = materials (blood stones 3000-3030, ritual / chalice materials 7000-7200: 27 rows, all
+    // maxNum 99). 1 = key items and every other type (6 = unique rows) stay out.
+    if (f.goods_type != 0 && f.goods_type != 2) return Why::KeyItem;
     if (f.max_num <= 1) return Why::Unique;
     if (StoryGoods(f.id)) return Why::Story;
     return Why::None;
@@ -176,6 +192,139 @@ inline Why ReceiverVerdict(const GoodsFacts& f, int n, int storage_room, int* ro
     return room >= n ? Why::None : Why::NoRoom;
 }
 
+// ---- gear (0.7.9, givegear079): weapons and armor ----
+//
+// A weapon moves with its upgrade level (the id carries it: base + 100 * level) and with its blood gems: the gems
+// travel as data (GearGem: slot, GemGenParam id, the 8 instance ints) and the receiver builds them again on the new
+// weapon, so a gem is never in two places: the giver's weapon (and the gems it carried) is removed first, exactly as
+// goods are, and a failed or lost transfer puts the same weapon back with the same gems. Armor has no state.
+
+enum class Kind : std::uint8_t { Goods, Weapon, Armor };
+inline const char* KindWord(Kind k) { return k == Kind::Weapon ? "weapon" : k == Kind::Armor ? "armor" : "goods"; }
+
+constexpr int kGearSlots = 5;  ///< gem slots on a weapon instance (handles at +0x3C, +0x4C ... +0x7C)
+
+struct GearGem {
+    int slot = 0;                  ///< 0..4
+    std::int32_t id = 0;           ///< GemGenParam id (the gem item id)
+    std::int32_t data[8] = {};     ///< the gem instance's 8 ints (flags, rank, 6 effect ids)
+    bool operator==(const GearGem& o) const {
+        if (slot != o.slot || id != o.id) return false;
+        for (int i = 0; i < 8; ++i)
+            if (data[i] != o.data[i]) return false;
+        return true;
+    }
+};
+
+/// Gem data a peer may send: slots 0..4 once each, flags 0..3, rank 0..1000, effect ids -1 or 0..99,999,999.
+inline bool GemsPlausible(const GearGem* g, int n) {
+    if (n < 0 || n > kGearSlots) return false;
+    unsigned seen = 0;
+    for (int i = 0; i < n; ++i) {
+        if (g[i].slot < 0 || g[i].slot >= kGearSlots || (seen & (1u << g[i].slot))) return false;
+        seen |= 1u << g[i].slot;
+        if (g[i].id <= 0 || g[i].id > 99999999) return false;
+        if (g[i].data[0] < 0 || g[i].data[0] > 3 || g[i].data[1] < 0 || g[i].data[1] > 1000) return false;
+        for (int k = 2; k < 8; ++k)
+            if (g[i].data[k] < -1 || g[i].data[k] > 99999999) return false;
+    }
+    return true;
+}
+
+/// The slot layout of a weapon instance: per slot the shape mask (0x80000000 = no such slot, else a small bit set) and the
+/// word at +0x28 (`aux`). A fresh weapon from the game has no slots; the layout is part of the weapon's state (a saved weapon
+/// stores it), so it travels with the gems: without it a gem has no slot to sit in.
+constexpr std::uint32_t kNoSlot = 0x80000000u;
+inline bool GearShapePlausible(const std::uint32_t* masks, std::uint32_t aux, const GearGem* g, int n) {
+    if (aux > 0xffffu) return false;
+    for (int i = 0; i < kGearSlots; ++i) {
+        if (masks[i] != kNoSlot && (masks[i] == 0 || masks[i] > 0xffffu)) return false;
+    }
+    for (int i = 0; i < n; ++i) {
+        if (masks[g[i].slot] == kNoSlot) return false;  // a gem in a slot the weapon does not have
+    }
+    return true;
+}
+
+/// The giveable gear: built once at run time from the loaded game params (party_items.cpp BuildGearTable: the EquipParamWeapon /
+/// EquipParamProtector rows with isDeposit 1 that no shared lot gives), so a mod that changes the params is respected. Sorted ids,
+/// binary search. Not built yet (or no params): nothing is giveable.
+class GearTable {
+public:
+    static GearTable& Get() {
+        static GearTable t;
+        return t;
+    }
+    void Set(std::vector<std::uint32_t> weapons, std::vector<std::uint32_t> armor) {
+        std::sort(weapons.begin(), weapons.end());
+        std::sort(armor.begin(), armor.end());
+        std::lock_guard<std::mutex> lk(mu_);
+        weapons_ = std::move(weapons);
+        armor_ = std::move(armor);
+        ready_ = true;
+    }
+    bool Ready() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return ready_;
+    }
+    bool Has(bool weapon, std::uint32_t id) const {
+        std::lock_guard<std::mutex> lk(mu_);
+        const std::vector<std::uint32_t>& t = weapon ? weapons_ : armor_;
+        return std::binary_search(t.begin(), t.end(), id);
+    }
+    std::size_t Weapons() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return weapons_.size();
+    }
+    std::size_t Armor() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return armor_.size();
+    }
+
+private:
+    mutable std::mutex mu_;
+    bool ready_ = false;
+    std::vector<std::uint32_t> weapons_, armor_;
+};
+
+/// Is this weapon / armor row on the giveable list?
+inline bool GearGiveable(Kind kind, std::uint32_t id) {
+    if (kind == Kind::Goods || id == 0) return false;
+    return GearTable::Get().Has(kind == Kind::Weapon, id);
+}
+
+struct GearFacts {
+    Kind kind = Kind::Weapon;
+    std::uint32_t id = 0;
+    bool held = false;        ///< the giver holds that entry
+    bool equipped = false;    ///< worn / wielded
+    int free_slots = -1;      ///< receiver: free inventory entries (-1 unknown)
+};
+
+/// The gear rules alone (a receiver applies them to what a giver names, too).
+inline Why GearAllowed(const GearFacts& f) {
+    if (f.kind == Kind::Goods || f.id == 0) return Why::Failed;
+    if (!GearGiveable(f.kind, f.id)) return Why::GearUnique;
+    return Why::None;
+}
+inline Why GearGiverVerdict(const GearFacts& f) {
+    if (!f.held) return Why::NotHeld;
+    const Why a = GearAllowed(f);
+    if (a != Why::None) return a;
+    if (f.equipped) return Why::GearEquipped;
+    return Why::None;
+}
+/// The receiver's check of a gear OFFER: the rules on its own table, then a free inventory entry.
+inline Why GearReceiverVerdict(const GearFacts& f, int gems, const GearGem* g, const std::uint32_t* masks = nullptr, std::uint32_t aux = 0) {
+    const Why a = GearAllowed(f);
+    if (a != Why::None) return a;
+    if (f.kind == Kind::Armor && gems != 0) return Why::BadGems;
+    if (!GemsPlausible(g, gems)) return Why::BadGems;
+    if (masks && !GearShapePlausible(masks, aux, g, gems)) return Why::BadGems;
+    if (f.free_slots < 0) return Why::Failed;
+    return f.free_slots >= 1 ? Why::None : Why::NoRoom;
+}
+
 // ---- the moment: nothing while the world is not steady ----
 
 struct GateView {
@@ -188,8 +337,8 @@ struct GateView {
     bool cutscene = false;
     bool travelling = false;  ///< a party travel / re-join / seamless load runs
 };
-inline Why Gate(const GateView& v, bool receiving = false) {
-    if (!v.enabled) return receiving ? Why::TheirOff : Why::Off;
+inline Why Gate(const GateView& v, bool receiving = false, bool gear = false) {
+    if (!v.enabled) return gear ? (receiving ? Why::TheirGearOff : Why::GearOff) : (receiving ? Why::TheirOff : Why::Off);
     if (!v.world_up || v.loading) return Why::Loading;
     if (v.travelling) return Why::Travelling;
     if (!v.alive || v.spectating) return Why::Dead;
@@ -216,15 +365,35 @@ struct Msg {
     int room = 0;             ///< Ready
     int got = 0;              ///< Done
     Why why = Why::None;      ///< Refuse, Done
+    Kind kind = Kind::Goods;  ///< Offer: goods (the goods rules) or gear (`goods` is then the weapon / armor id, n 1)
+    int gem_count = 0;        ///< Offer, weapon: the blood gems on it
+    GearGem gems[kGearSlots];
+    std::uint32_t masks[kGearSlots] = {kNoSlot, kNoSlot, kNoSlot, kNoSlot, kNoSlot};  ///< Offer, weapon: slot shape masks
+    std::uint32_t aux = 0;    ///< Offer, weapon: the word at +0x28
 };
 
 inline std::string Encode(const Msg& m) {
     char b[256];
     std::snprintf(b, sizeof b,
                   "{\"op\":\"%s\",\"id\":%u,\"from\":%d,\"to\":%d,\"goods\":%u,\"n\":%d,\"room\":%d,\"got\":%d,"
-                  "\"why\":\"%s\"}",
+                  "\"why\":\"%s\"",
                   OpWord(m.op), m.id, m.from, m.to, m.goods, m.n, m.room, m.got, WhyWord(m.why));
-    return b;
+    std::string out = b;
+    if (m.op == Op::Offer && m.kind != Kind::Goods) {
+        out += std::string(",\"kind\":\"") + KindWord(m.kind) + "\",\"gems\":\"";
+        for (int i = 0; i < m.gem_count && i < kGearSlots; ++i) {
+            const GearGem& g = m.gems[i];
+            char e[160];
+            std::snprintf(e, sizeof e, "%s%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", i ? ";" : "", g.slot, g.id, g.data[0], g.data[1],
+                          g.data[2], g.data[3], g.data[4], g.data[5], g.data[6], g.data[7]);
+            out += e;
+        }
+        out += "\"";
+        char mb[160];
+        std::snprintf(mb, sizeof mb, ",\"masks\":\"%u,%u,%u,%u,%u,%u\"", m.masks[0], m.masks[1], m.masks[2], m.masks[3], m.masks[4], m.aux);
+        out += mb;
+    }
+    return out + "}";
 }
 
 namespace detail {
@@ -244,7 +413,7 @@ inline bool Str(const std::string& s, const char* key, std::string* out) {
     const std::size_t p = s.find(k);
     if (p == std::string::npos) return false;
     const std::size_t a = p + k.size(), e = s.find('"', a);
-    if (e == std::string::npos || e - a > 24) return false;
+    if (e == std::string::npos || e - a > 600) return false;
     *out = s.substr(a, e - a);
     return true;
 }
@@ -252,7 +421,7 @@ inline bool Str(const std::string& s, const char* key, std::string* out) {
 
 /// A peer's message, every field range-checked; false on anything malformed. Fields an op does not use are 0.
 inline bool Decode(const std::string& body, Msg* out) {
-    if (body.size() > 400) return false;
+    if (body.size() > 1200) return false;
     std::string op;
     if (!detail::Str(body, "op", &op)) return false;
     Msg m;
@@ -273,6 +442,66 @@ inline bool Decode(const std::string& body, Msg* out) {
     detail::Num(body, "room", &room);
     detail::Num(body, "got", &got);
     if (m.op == Op::Offer && (goods <= 0 || goods > 99999999 || n < 1 || n > kMaxCount)) return false;
+    if (m.op == Op::Offer) {
+        std::string kind;
+        if (detail::Str(body, "kind", &kind)) {
+            if (kind == "weapon") m.kind = Kind::Weapon;
+            else if (kind == "armor") m.kind = Kind::Armor;
+            else if (kind != "goods") return false;
+        }
+        if (m.kind != Kind::Goods) {
+            if (n != 1) return false;
+            std::string gems;
+            if (detail::Str(body, "gems", &gems) && !gems.empty()) {
+                std::size_t p = 0;
+                while (p < gems.size()) {
+                    if (m.gem_count >= kGearSlots) return false;
+                    GearGem g;
+                    long long v[10];
+                    const char* c = gems.c_str() + p;
+                    for (int k = 0; k < 10; ++k) {
+                        char* end = nullptr;
+                        v[k] = std::strtoll(c, &end, 10);
+                        if (end == c) return false;
+                        c = end;
+                        if (k < 9) {
+                            if (*c != ',') return false;
+                            ++c;
+                        }
+                    }
+                    g.slot = int(v[0]);
+                    g.id = std::int32_t(v[1]);
+                    for (int k = 0; k < 8; ++k) g.data[k] = std::int32_t(v[2 + k]);
+                    m.gems[m.gem_count++] = g;
+                    p = std::size_t(c - gems.c_str());
+                    if (p < gems.size()) {
+                        if (gems[p] != ';') return false;
+                        ++p;
+                    }
+                }
+                if (!GemsPlausible(m.gems, m.gem_count)) return false;
+            }
+            if (m.kind == Kind::Armor && m.gem_count != 0) return false;
+            std::string masks;
+            if (m.kind == Kind::Weapon && detail::Str(body, "masks", &masks)) {
+                unsigned long long v[6];
+                const char* c = masks.c_str();
+                for (int k = 0; k < 6; ++k) {
+                    char* end = nullptr;
+                    v[k] = std::strtoull(c, &end, 10);
+                    if (end == c || v[k] > 0xffffffffull) return false;
+                    c = end;
+                    if (k < 5) {
+                        if (*c != ',') return false;
+                        ++c;
+                    }
+                }
+                for (int k = 0; k < kGearSlots; ++k) m.masks[k] = static_cast<std::uint32_t>(v[k]);
+                m.aux = static_cast<std::uint32_t>(v[5]);
+            }
+            if (m.kind == Kind::Weapon && !GearShapePlausible(m.masks, m.aux, m.gems, m.gem_count)) return false;
+        }
+    }
     if (m.op == Op::Ready && (room < 0 || room > 100000)) return false;
     if (m.op == Op::Done && (got < 0 || got > kMaxCount)) return false;
     std::string why;
@@ -316,10 +545,12 @@ public:
     int to() const { return to_; }
     std::uint32_t goods() const { return goods_; }
     int n() const { return n_; }
+    Kind kind() const { return kind_; }
 
     /// A new transfer (the caller checked the rules); false while one is open.
-    bool Begin(std::uint32_t id, int to, std::uint32_t goods, int n, double now) {
+    bool Begin(std::uint32_t id, int to, std::uint32_t goods, int n, double now, Kind kind = Kind::Goods) {
         if (st_ != State::Idle || id == 0) return false;
+        kind_ = kind;
         st_ = State::Offered;
         id_ = id;
         to_ = to;
@@ -411,6 +642,7 @@ private:
     State st_ = State::Idle;
     std::uint32_t id_ = 0, goods_ = 0;
     int to_ = 0, n_ = 0;
+    Kind kind_ = Kind::Goods;
     double at_ = 0, down_since_ = -1.0;
 };
 
@@ -430,6 +662,7 @@ struct RStep {
     Why why = Why::None;
     int from = 0;
     std::uint32_t id = 0;
+    Kind kind = Kind::Goods;
 };
 
 class Receiver {
@@ -438,7 +671,7 @@ public:
     /// READY was sent for the OFFER: hold the slot for the COMMIT. False: another reservation is live (Busy) or this
     /// id was seen already (a repeated OFFER: ignore).
     enum class Result : std::uint8_t { Ok, Busy, Duplicate };
-    Result Reserve(int from, std::uint32_t id, std::uint32_t goods, int n, double now) {
+    Result Reserve(int from, std::uint32_t id, std::uint32_t goods, int n, double now, Kind kind = Kind::Goods) {
         if (Find(from, id)) return Result::Duplicate;
         if (reserved_) return Result::Busy;
         reserved_ = true;
@@ -446,6 +679,7 @@ public:
         id_ = id;
         goods_ = goods;
         n_ = n;
+        kind_ = kind;
         at_ = now;
         return Result::Ok;
     }
@@ -454,7 +688,7 @@ public:
             return {RAct::SendDone, 0, 0, r->got, r->got > 0 ? Why::None : Why::Failed, from, id};
         }
         if (reserved_ && from == from_ && id == id_ && now - at_ <= kReserveS) {
-            return {RAct::Apply, goods_, n_, 0, Why::None, from, id};
+            return {RAct::Apply, goods_, n_, 0, Why::None, from, id, kind_};
         }
         Remember(from, id, 0);  // unknown or too late: the id is dead for good
         reserved_ = reserved_ && !(from == from_ && id == id_);
@@ -465,7 +699,7 @@ public:
         if (!reserved_) return {};
         reserved_ = false;
         Remember(from_, id_, got);
-        return {RAct::SendDone, goods_, n_, got, got >= n_ ? Why::None : (why == Why::None ? Why::Failed : why), from_, id_};
+        return {RAct::SendDone, goods_, n_, got, got >= n_ ? Why::None : (why == Why::None ? Why::Failed : why), from_, id_, kind_};
     }
     RStep OnAbort(int from, std::uint32_t id) {
         if (const Rec* r = Find(from, id)) {
@@ -510,6 +744,7 @@ private:
     bool reserved_ = false;
     int from_ = 0, n_ = 0;
     std::uint32_t id_ = 0, goods_ = 0;
+    Kind kind_ = Kind::Goods;
     double at_ = 0;
     Rec rec_[kRecords];
     unsigned next_ = 0;

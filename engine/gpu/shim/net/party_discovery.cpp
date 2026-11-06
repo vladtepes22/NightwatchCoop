@@ -85,6 +85,24 @@ bool parse_ext(const std::uint8_t* d, std::size_t n, AnnounceExt* out) {
     return true;
 }
 
+std::vector<std::uint8_t> encode_mods(const Announce& a) {
+    if (!bbnet::lobby::valid_mods_label(a.mods)) return {};
+    std::vector<std::uint8_t> v = {0xfa, 'M', 1};
+    for (int s = 24; s >= 0; s -= 8) v.push_back(static_cast<std::uint8_t>(a.id >> s));
+    put_str(&v, a.mods);
+    return v;
+}
+
+bool parse_mods(const std::uint8_t* d, std::size_t n, AnnounceMods* out) {
+    if (!d || !out || n < 9 || n > kMaxModsPacket || d[0] != 0xfa || d[1] != 'M' || d[2] != 1 || std::size_t(d[7]) + 8 != n)
+        return false;
+    const std::string label(reinterpret_cast<const char*>(d + 8), d[7]);
+    if (!bbnet::lobby::valid_mods_label(label)) return false;
+    out->id = (std::uint32_t(d[3]) << 24) | (std::uint32_t(d[4]) << 16) | (std::uint32_t(d[5]) << 8) | d[6];
+    out->label = label;
+    return true;
+}
+
 std::vector<std::uint8_t> encode(const Announce& a) {
     std::vector<std::uint8_t> v{0xfa, 'A', kVersion, static_cast<std::uint8_t>((a.password ? 1 : 0) | (a.open ? 2 : 0) |
                                                                 (a.opts ? 0x40 | (a.lamps ? 4 : 0) | (a.headstones ? 8 : 0) | (a.talk ? 16 : 0) |
@@ -313,7 +331,7 @@ void thread_main(Provider provider) {
                 }
             }
             a.id = id;
-            const std::vector<std::uint8_t> pkt = encode(a), ext = encode_ext(a);
+            const std::vector<std::uint8_t> pkt = encode(a), ext = encode_ext(a), mods = encode_mods(a);
             for (const Out& o : outs) {
                 sockaddr_in to{};
                 to.sin_family = AF_INET;
@@ -323,6 +341,9 @@ void thread_main(Provider provider) {
                          reinterpret_cast<sockaddr*>(&to), sizeof(to));
                 ::sendto(o.sock, reinterpret_cast<const char*>(ext.data()), static_cast<int>(ext.size()), 0,
                          reinterpret_cast<sockaddr*>(&to), sizeof(to));
+                if (!mods.empty())
+                    ::sendto(o.sock, reinterpret_cast<const char*>(mods.data()), static_cast<int>(mods.size()), 0,
+                             reinterpret_cast<sockaddr*>(&to), sizeof(to));
             }
         }
         std::unique_lock<std::mutex> lk(st.mu);
