@@ -104,6 +104,16 @@ bool PcModelGpu(const Vulkan::Instance& instance) {
                 return false;
             }
         }
+        if (instance.IsIntegrated()) {
+            // NW-42f3f92: lamp lights flicker frame to frame on a UMA iGPU (Radeon 8060S) with the
+            // model on; copies in VRAM fix it. Cause not proven, so the default is off.
+            const char* force = std::getenv("BB_GUEST_IN_PLACE_INTEGRATED");
+            if (!(force && force[0] == '1')) {
+                std::printf("Guest memory: an integrated GPU uses copies in VRAM, not the PC memory "
+                            "model (BB_GUEST_IN_PLACE_INTEGRATED=1 keeps it on)\n");
+                return false;
+            }
+        }
         if (instance.GetVendorID() != 0x1002) {
             std::printf("Guest memory: the PC memory model on this GPU (vendor 0x%04x) is new; "
                         "\"Write fault sites\" name writers its hooks miss\n",

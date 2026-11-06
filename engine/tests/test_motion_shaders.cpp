@@ -27,7 +27,7 @@ static void CheckMetadata() {
         const auto hash = HashCombine(original.pgm_hash, u64{2});
         Serialization::Archive output;
         Serialization::Writer writer{output};
-        writer.Write(u32{7});
+        writer.Write(u32{8}); // ShaderMetaVersion (vk_pipeline_serialization.cpp)
         writer.Write(version);
         writer.Write(hash);
         writer.Write(size_t{2});

@@ -52,7 +52,7 @@ int Run(int argc, char** argv) {
     const uint32_t width = argc == 11 ? uint32_t(std::atoi(argv[9])) : 1280u, height = argc == 11 ? uint32_t(std::atoi(argv[10])) : 720u;
     constexpr VkFormat kFormat = VK_FORMAT_R8G8B8A8_UNORM;
 
-    Vulkan::Instance instance(0, false);
+    Vulkan::Instance instance(-1, false);  // -1: best device (discrete first), not device 0 (often the iGPU)
     const VkDevice device = instance.GetDevice();
     const VkPhysicalDevice physical = instance.GetPhysicalDevice();
     const VkQueue queue = instance.GetGraphicsQueue();

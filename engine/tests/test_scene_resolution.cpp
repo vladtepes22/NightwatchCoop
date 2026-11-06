@@ -13,7 +13,7 @@
 
 int main() {
     using namespace Vulkan;
-    Instance instance(0, false);
+    Instance instance(-1, false);  // -1: best device (discrete first), not device 0 (often the iGPU)
     static vk::detail::DynamicLoader loader;
     vk::detail::DispatchLoaderDynamic dispatch;
     dispatch.init(
