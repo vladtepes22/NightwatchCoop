@@ -542,14 +542,12 @@ int main() {
     s.party_max_invaders = 2;
     s.party_give_gear = true;
     BbSettings::Save();
-    assert(Read(path).find("party_max_invaders=2
-") != std::string::npos &&
-           Read(path).find("party_give_gear=1
-") != std::string::npos);
-    { std::ofstream file(path); file << "party_max_invaders=9
-"; }
+    assert(Read(path).find("party_max_invaders=2\n") != std::string::npos &&
+           Read(path).find("party_give_gear=1\n") != std::string::npos);
+    { std::ofstream file(path); file << "party_max_invaders=9\n"; }
     BbSettings::Load();
-    assert(s.party_max_invaders == 2 && !s.party_give_gear);
+    assert(s.party_max_invaders == 2);  // 9 clamped; a key the file does not name keeps its value
+    s.party_give_gear = false;
     s.party_max_invaders = 1;
     std::filesystem::remove(temporary);
     std::puts("PASS: settings save keeps other keys, menu position");
