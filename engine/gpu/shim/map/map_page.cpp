@@ -852,7 +852,7 @@ void Tick() {
             travel = coop::lamptravel::MapTravelNow();
             auto to = std::make_shared<std::vector<std::uint32_t>>();
             if (travel == coop::lamptravel::MapTravel::Ready) {
-                for (const auto& l : coop::lamptravel::kLamps) {
+                for (const auto& l : coop::lamptravel::Lamps()) {
                     const std::uint32_t rp = coop::lamptravel::ReturnPoint(l);
                     if (coop::lamptravel::MapTravelAllowedTo(rp)) to->push_back(rp);
                 }
