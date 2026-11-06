@@ -130,6 +130,7 @@ private:
     std::chrono::steady_clock::time_point stats_start{};
     u32 stats_frames = 0, stats_presented = 0;
     int applied_reflex = -1;
+    u32 applied_reflex_interval_us = ~0u;
     bool failed = false;
     std::chrono::steady_clock::time_point last_present{};
     double interval_ms = 0.0;

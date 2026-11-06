@@ -33,6 +33,11 @@ enum FrameGen : int { FrameGenOff = 0, FrameGenFsr3 = 1, FrameGenDlss = 2, Frame
 inline constexpr const char* FrameGenNames[] = {"off", "fsr3", "dlss"};
 static_assert(sizeof(FrameGenNames) / sizeof(FrameGenNames[0]) == FrameGenCount);
 inline constexpr int FrameGenFramesMax = 5;
+/// The frame rate that stays inside a VRR window (the figure NVIDIA and Blur Busters give): refresh - refresh^2/3600
+/// (60 -> 59, 120 -> 116, 144 -> 138, 240 -> 224). 0 when the refresh rate is unknown or below 30.
+inline constexpr unsigned VrrCap(unsigned refresh_hz) {
+    return refresh_hz < 30 ? 0u : refresh_hz - (refresh_hz * refresh_hz + 3599u) / 3600u;
+}
 enum Reflex : int { ReflexOff = 0, ReflexOn = 1, ReflexBoost = 2, ReflexCount };
 inline constexpr const char* ReflexNames[] = {"off", "on", "boost"};
 static_assert(sizeof(ReflexNames) / sizeof(ReflexNames[0]) == ReflexCount);
@@ -366,6 +371,9 @@ struct Values {
     /// have gone out (bbgpu.cpp LowLatencyGate), so the frame is simulated from fresher input. Rests while frame generation
     /// shows generated frames. After visy f1d579c6; default on.
     std::atomic<bool> ll_pacing{true};
+    /// Variable refresh rate display (ini vrr, BB_VRR; default off, a program cannot see whether VRR is active): the frame
+    /// rate is held at VrrCap(refresh) so the display refreshes when a frame arrives and never at its top. At start.
+    std::atomic<bool> vrr{false};
     std::atomic<bool> streamline_loaded{false}, dlss_fg_supported{false};
     std::atomic<int> dlss_fg_max_frames{0};
     std::atomic<const char*> dlss_fg_problem{nullptr};

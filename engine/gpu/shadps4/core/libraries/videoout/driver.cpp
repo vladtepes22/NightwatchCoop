@@ -1144,6 +1144,14 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                     "of the frames are rendered and never shown (a lower FPS preset saves that GPU "
                     "work)\n", frame_limit, refresh, 100 - refresh * 100 / frame_limit);
     }
+    // bbport (ini vrr): on a variable refresh display the limit never reaches the refresh rate (BbSettings::VrrCap).
+    if (BbSettings::Get().vrr.load(std::memory_order_relaxed)) {
+        if (const u32 cap = BbSettings::VrrCap(Frontend::DisplayRefreshHz()); cap && (frame_limit == 0 || frame_limit > cap)) {
+            std::printf("VideoOut: frame limit %u FPS lowered to %u for the %u Hz variable refresh display\n", frame_limit, cap,
+                        Frontend::DisplayRefreshHz());
+            frame_limit = cap;
+        }
+    }
     auto frame_period = frame_limit ? std::chrono::nanoseconds(1000000000 / frame_limit)
                                     : std::chrono::nanoseconds(0);
     SetPresenterLimit(frame_limit);

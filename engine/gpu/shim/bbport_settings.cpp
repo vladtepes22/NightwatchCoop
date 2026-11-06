@@ -299,6 +299,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.pad_fresh = i != 0;
     } else if (key == "ll_pacing") {
         v.ll_pacing = i != 0;
+    } else if (key == "vrr") {
+        v.vrr = i != 0;
     } else if (key == "frame_gen_frames") {
         v.frame_gen_frames = std::clamp(i, 1, FrameGenFramesMax);
     } else if (key == "reflex") {
@@ -908,7 +910,7 @@ void Load() {
         {"BB_FRAME_GEN_CAP", "frame_gen_cap"},     {"BB_DLSS_PRESET", "dlss_preset"},
         {"BB_DLSS_MIP_BIAS", "dlss_mip_bias"},   {"BB_FRAME_GEN_FRAMES", "frame_gen_frames"},
         {"BB_REFLEX", "reflex"},                   {"BB_RENDER_SCALE", "render_scale"},
-        {"BB_MIP_BIAS", "mip_bias"},                {"BB_PAD_FRESH", "pad_fresh"}, {"BB_LL_PACING", "ll_pacing"},
+        {"BB_MIP_BIAS", "mip_bias"},                {"BB_PAD_FRESH", "pad_fresh"}, {"BB_LL_PACING", "ll_pacing"}, {"BB_VRR", "vrr"},
     };
     for (const auto& [env, key] : env_keys) {
         if (const char* value = std::getenv(env)) {
@@ -1123,6 +1125,7 @@ void Save() {
     put("reflex", ReflexNames[std::clamp(v.reflex.load(), 0, ReflexCount - 1)]);
     put("pad_fresh", flag(v.pad_fresh));
     put("ll_pacing", flag(v.ll_pacing));
+    put("vrr", flag(v.vrr));
     put("render_scale", fixed(v.render_scale, 2));
     put("mip_bias", fixed(v.mip_bias, 2));
     put("sharpen", flag(v.sharpen));

@@ -16,6 +16,7 @@
 #include "loading.h"
 #include "engine_hooks.h"
 #include "bbport_settings.h"
+#include "../sdl_window.h"
 
 #include <array>
 #include <atomic>
@@ -213,7 +214,10 @@ __attribute__((sysv_abi)) void LiveClockTick(u8* pacer, float* out) {
     float measured;
     std::memcpy(&measured, pacer + 0x264, 4);
     auto& s = BbSettings::Get();
-    const int target = s.target_fps.load(std::memory_order_relaxed);
+    int target = s.target_fps.load(std::memory_order_relaxed);
+    if (s.vrr.load(std::memory_order_relaxed)) { // uncapped (0) or above the VRR cap: the cap (BbSettings::VrrCap)
+        if (const int cap = int(BbSettings::VrrCap(Frontend::DisplayRefreshHz())); cap && (target == 0 || target > cap)) target = cap;
+    }
     const int max_dt_hz = s.max_dt_hz.load(std::memory_order_relaxed);
     float interval = Frame30;
     const float dt = LiveClockStep(g_state, measured, target, max_dt_hz, interval);

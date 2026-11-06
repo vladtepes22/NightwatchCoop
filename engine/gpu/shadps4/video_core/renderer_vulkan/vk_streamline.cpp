@@ -26,6 +26,7 @@
 
 #include "bbport_overlay.h"
 #include "bbport_settings.h"
+#include "core/libraries/videoout/video_out.h"
 #include "video_core/host_shaders/dlss_ui_alpha_comp.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_optiscaler.h"
@@ -793,14 +794,21 @@ void DlssFrameGen::SetMode(bool on) {
     if (on) {
         reflex = std::max(reflex, int(BbSettings::ReflexOn));
     }
-    if (sl_reflex_set_options && reflex != applied_reflex) {
+    // Reflex's sleep interval is the presenter's frame limit (0 = none): its sleep paces the game to the same rate the
+    // presenter holds, instead of racing ahead of it (visy 8ee5500e; the limit is kept by the video-out thread).
+    const u32 reflex_limit = Libraries::VideoOut::PresenterLimit();
+    const u32 reflex_interval_us = reflex_limit ? 1000000u / reflex_limit : 0u;
+    if (sl_reflex_set_options && (reflex != applied_reflex || reflex_interval_us != applied_reflex_interval_us)) {
         sl::ReflexOptions options{};
+        options.frameLimitUs = reflex_interval_us;
         options.mode = reflex == BbSettings::ReflexBoost ? sl::ReflexMode::eLowLatencyWithBoost
                        : reflex == BbSettings::ReflexOn  ? sl::ReflexMode::eLowLatency
                                                          : sl::ReflexMode::eOff;
         if (sl_reflex_set_options(options) == sl::Result::eOk) {
             applied_reflex = reflex;
-            std::printf("DLSS Frame Generation: Reflex %s\n", BbSettings::ReflexNames[reflex]);
+            applied_reflex_interval_us = reflex_interval_us;
+            std::printf("DLSS Frame Generation: Reflex %s, sleep interval %u us\n", BbSettings::ReflexNames[reflex],
+                        reflex_interval_us);
         }
     }
     if (!sl_dlssg_set_options ||

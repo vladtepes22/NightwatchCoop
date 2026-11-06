@@ -349,14 +349,17 @@ int main() {
     {
         std::ofstream file(path);
         file << "frame_gen=dlss\nframe_gen_frames=9\nreflex=boost\npreset=5\nrender_scale=1.3\n"
-                "mip_bias=-5\ndlss_auto_exposure=1\npad_fresh=0\nll_pacing=0\n";
+                "mip_bias=-5\ndlss_auto_exposure=1\npad_fresh=0\nll_pacing=0\nvrr=1\n";
     }
     assert(s.pad_fresh); // default on (runtime_pad.c fresh_pad_update)
     assert(s.ll_pacing); // default on (bbgpu.cpp LowLatencyGate)
+    assert(!s.vrr);      // default off: a program cannot see whether VRR is active
+    assert(BbSettings::VrrCap(60) == 59 && BbSettings::VrrCap(120) == 116 && BbSettings::VrrCap(144) == 138 &&
+           BbSettings::VrrCap(240) == 224 && BbSettings::VrrCap(0) == 0 && BbSettings::VrrCap(29) == 0);
     BbSettings::Load();
     assert(s.frame_gen == BbSettings::FrameGenDlss && s.startup_frame_gen == BbSettings::FrameGenDlss);
     assert(s.frame_gen_frames == BbSettings::FrameGenFramesMax && s.reflex == BbSettings::ReflexBoost);
-    assert(!s.pad_fresh && !s.ll_pacing);
+    assert(!s.pad_fresh && !s.ll_pacing && s.vrr);
     assert(s.preset == BbSettings::PresetCustom && s.render_scale == 1.3f && s.dlss_auto_exposure);
     assert(s.mip_bias == BbSettings::MipBiasMin);
     assert(BbSettings::PresetScale(BbSettings::PresetCustom) == 1.3f);
@@ -372,6 +375,7 @@ int main() {
         assert(text.find("reflex=boost\n") != std::string::npos);
         assert(text.find("pad_fresh=0\n") != std::string::npos);
         assert(text.find("ll_pacing=0\n") != std::string::npos);
+        assert(text.find("vrr=1\n") != std::string::npos);
         assert(text.find("render_scale=1.10\n") != std::string::npos);
         assert(text.find("mip_bias=-2.00\n") != std::string::npos);
         assert(text.find("dlss_auto_exposure=1\n") != std::string::npos);
