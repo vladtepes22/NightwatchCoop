@@ -1200,8 +1200,10 @@ def main():
         # At most max_clients game clients on this machine across all agents (tools/mp/game_queue.py).
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from game_queue import game_slots
-        with game_slots(a.count, a.root, label=a.label) as slots:
-            a.slots = slots
+        # --reserve N: hold N slots although only --count games start (performance runs: no other
+        # agent's game shares the GPU while frame times are measured).
+        with game_slots(max(a.count, a.reserve), a.root, label=a.label) as slots:
+            a.slots = slots[:a.count]
             run(a)
         return
     {"setup": setup, "run": run, "logs": logs, "kill": kill, "crash": crash}[a.cmd](a)

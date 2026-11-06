@@ -259,6 +259,14 @@ def main():
         print("world state: " + ", ".join(f"{m.decode()[::-1].strip()} {n} bytes" for m, n in zip(s.WORLD_MAGIC, w["blocks"])))
     keys = [(i, n) for _, i, n in s.goods() if 4000 <= i < 5000]
     print("key items:", ", ".join(f"{i} {KEY_ITEMS.get(i, '')} x{n}".replace("  ", " ") for i, n in keys) or "none")
+    ks = s.key_sections()
+    if ks is None:
+        print("key sections: not found")
+    else:
+        for name, sec in (("saved", ks[0]), ("summoned", ks[1])):
+            print(f"key section ({name}): {len(sec)} stack(s):", ", ".join(f"{i} x{n}" for i, n in sec) or "none")
+    dup = s.duplicate_keys()
+    print("duplicate key stacks:", "unknown" if dup is None else ", ".join(map(str, dup)) or "none")
     for f in filter(None, a.flags.split(",")):
         print(f"flag {f}: {s.flag(int(f))}")
     rows = []
