@@ -188,19 +188,23 @@ int main() {
     Buffer game = MakeBuffer(vk, 4096, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     Buffer stream = MakeBuffer(vk, 4096, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
     Buffer scratch = MakeBuffer(vk, 4096, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    const uint64_t wrong_at = align + 12, sane_at = 8 * align + 4;
-    const std::array<uint32_t, 3> wrong{3063677180u, 1, 1}, sane{5, 3, 2};
+    const uint64_t wrong_at = align + 12, sane_at = 8 * align + 4, large_at = 12 * align + 8;
+    // wrong: the RX 9070 XT count (dropped); large: over 65535 in X, still a real-sized pass (kept up to
+    // the device's X limit); sane: kept as is.
+    const std::array<uint32_t, 3> wrong{3063677180u, 1, 1}, sane{5, 3, 2}, large{200000, 1, 1};
     std::memcpy(reinterpret_cast<uint8_t*>(game.mapped) + wrong_at, wrong.data(), 12);
     std::memcpy(reinterpret_cast<uint8_t*>(game.mapped) + sane_at, sane.data(), 12);
+    std::memcpy(reinterpret_cast<uint8_t*>(game.mapped) + large_at, large.data(), 12);
     // Each slot holds 16 bytes (the stream's Reserve(16, align) in ClampDispatchArgs): with an alignment
     // under 16 (4 on AMD's driver) the second slot starts at 16, not at `align`, or it overwrites the first.
-    const std::array<uint64_t, 2> slots{0, (16 + align - 1) / align * align};
+    const uint64_t slot_size = (16 + align - 1) / align * align;
+    const std::array<uint64_t, 3> slots{0, slot_size, 2 * slot_size};
 
     const VkCommandBufferBeginInfo begin{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
                                          .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     CHECK(vkBeginCommandBuffer(vk.cmd, &begin));
-    const std::array<uint64_t, 2> args{wrong_at, sane_at};
-    for (uint32_t n = 0; n < 2; ++n) {
+    const std::array<uint64_t, 3> args{wrong_at, sane_at, large_at};
+    for (uint32_t n = 0; n < 3; ++n) {
         const uint64_t offset = args[n];
         const uint64_t src_offset = offset / align * align;
         const uint64_t src_size = offset - src_offset + 12;
@@ -262,13 +266,17 @@ int main() {
                     want[1], want[2], ok ? "ok" : "WRONG");
         failures += !ok;
     };
-    const std::array<uint32_t, 3> limit{std::min(wrong[0], vk.limits.maxComputeWorkGroupCount[0]),
-                                        std::min(wrong[1], vk.limits.maxComputeWorkGroupCount[1]),
-                                        std::min(wrong[2], vk.limits.maxComputeWorkGroupCount[2])};
-    expect("wrong counts clamped", stream.mapped + slots[0] / 4, limit);
+    // A dropped dispatch runs no group, so its scratch slot stays as MakeBuffer cleared it.
+    const std::array<uint32_t, 3> dropped{0, 0, 0};
+    const std::array<uint32_t, 3> large_kept{std::min(large[0], vk.limits.maxComputeWorkGroupCount[0]),
+                                             std::min(large[1], vk.limits.maxComputeWorkGroupCount[1]),
+                                             std::min(large[2], vk.limits.maxComputeWorkGroupCount[2])};
+    expect("wrong counts dropped", stream.mapped + slots[0] / 4, dropped);
     expect("sane counts kept", stream.mapped + slots[1] / 4, sane);
-    expect("indirect dispatch of the clamped counts", scratch.mapped + slots[0] / 4, limit);
+    expect("large counts kept", stream.mapped + slots[2] / 4, large_kept);
+    expect("indirect dispatch of the dropped counts", scratch.mapped + slots[0] / 4, dropped);
     expect("indirect dispatch of the sane counts", scratch.mapped + slots[1] / 4, sane);
+    expect("indirect dispatch of the large counts", scratch.mapped + slots[2] / 4, large_kept);
     std::printf("Indirect clamp: %s\n", failures ? "FAILED" : "all ok");
     return failures ? 1 : 0;
 }

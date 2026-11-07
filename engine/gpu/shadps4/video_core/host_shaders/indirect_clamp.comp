@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// bbport: an indirect dispatch's group counts, clamped to what the device runs, read from there
+// bbport: an indirect dispatch's group counts, checked before the device runs them, read from here
 // instead of the game's memory (vk_rasterizer.cpp ClampDispatchArgs). A count the game's GPU work
-// left wrong (3063677180 groups, RX 9070 XT on RADV, 0.9.37 beta 7) is outside the Vulkan spec and
-// hung the GPU (device lost); clamped, the dispatch runs and the game goes on.
+// left wrong (3063677180 groups, RX 9070 XT on RADV, 0.9.37 beta 7) hung the GPU (device lost).
+// Clamping to maxComputeWorkGroupCount alone does not help: AMD reports 4294967295 for X and NVIDIA
+// 2147483647, and two billion groups still hang the GPU (indirect-clamp-test, 6 Nov). So each axis is
+// clamped to the device's limit (Vulkan valid usage), and a dispatch of more than kMaxGroups groups in
+// total, far beyond any real pass (a 4K screen in 64-thread groups is 130k), is dropped (0 groups).
 #version 450
 
 layout(local_size_x = 1) in;
@@ -15,8 +18,17 @@ layout(push_constant) uniform Push {
     uint first;  // the counts' first dword in the bound source range
 } push;
 
+const uint kMaxGroups = 1u << 22;
+
 void main() {
-    for (uint i = 0; i < 3; ++i) {
-        dst[i] = min(src[push.first + i], push.limit[i]);
+    const uvec3 n = min(uvec3(src[push.first], src[push.first + 1], src[push.first + 2]), push.limit);
+    // n.x * n.y * n.z > kMaxGroups without 32-bit overflow (a zero axis is an empty dispatch: kept).
+    bool over = any(greaterThan(n, uvec3(kMaxGroups)));
+    if (!over && n.y != 0u && n.z != 0u) {
+        over = n.x > kMaxGroups / n.y || n.x * n.y > kMaxGroups / n.z;
     }
+    const uvec3 out_n = over ? uvec3(0u) : n;
+    dst[0] = out_n.x;
+    dst[1] = out_n.y;
+    dst[2] = out_n.z;
 }

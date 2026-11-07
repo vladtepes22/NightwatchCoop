@@ -2665,14 +2665,11 @@ std::pair<vk::Buffer, u64> Rasterizer::ClampDispatchArgs(const VideoCore::Buffer
                 }));
         device.destroyShaderModule(module);
         const auto& counts = instance.GetPhysicalDevice().getProperties().limits.maxComputeWorkGroupCount;
-        // bbport: AMD drivers report 4294967295 for X, which clamps nothing (a device lost came from
-        // a 3063677180-group count). 65535 per axis is what NVIDIA and Intel report and what the
-        // game's real dispatches stay under.
-        constexpr u32 kSaneGroupCount = 65535;
-        p.limit = {std::min(counts[0], kSaneGroupCount), std::min(counts[1], kSaneGroupCount),
-                   std::min(counts[2], kSaneGroupCount)};
-        std::printf("GPU: indirect dispatches read their group counts clamped to %u x %u x %u "
-                    "(BB_INDIRECT_CLAMP=0: as the game wrote them)\n",
+        // bbport: the device's limits keep each axis valid; the shader also drops a dispatch of
+        // more groups in total than any real pass uses (indirect_clamp.comp, kMaxGroups).
+        p.limit = {counts[0], counts[1], counts[2]};
+        std::printf("GPU: indirect dispatches read their group counts clamped to %u x %u x %u, "
+                    "over 4194304 groups in total dropped (BB_INDIRECT_CLAMP=0: as the game wrote them)\n",
                     p.limit[0], p.limit[1], p.limit[2]);
         return p;
     }();
