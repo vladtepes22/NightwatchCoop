@@ -8,8 +8,11 @@ Layout facts (name = the character name's UTF-16 field, 17 characters of 2 bytes
   name        = end - size - 0x10C91 of the section table's first pair (header +0x0C {size, end})
   name - 0x68 vigor, -0x60 endurance, -0x50 strength, -0x48 skill, -0x40 bloodtinge, -0x38 arcane (u32;
               -0x58 is the unused third slot, 0)           level = sum(6 stats) - 50  (u32 at name - 0x18)
-  name - 0x94 HP, -0x90 max HP (u32)  -0x14 Blood Echoes  -0x24 Insight  -0x04 remembered chr type
-              (1 = summoned guest phantom mark)
+  name - 0x94 HP, -0x90 max HP, -0x8C base max HP; -0x88/-0x84/-0x80 the same trio from endurance (graph
+              101, no bar in this game); -0x78 stamina, -0x74 max, -0x70 base max (u32)
+              -0x14 Blood Echoes  -0x24 Insight  -0x04 remembered chr type (1 = summoned guest phantom mark)
+              The game fills these trios only at character creation and level-up (eboot 0x14e63e8), never on
+              load, so set_stat rewrites them for vigor and endurance (vitals_for).
   header +0x2C {offset, 8}: u32 NG cycle, u32 ending type at that offset
   inventory   = three lists: the normal one (u32 used count + 1984 x 16-byte entries) 0x1C4 bytes behind the
               name, then the saved key list and the summoned key list (u32 count + 64 entries each)
@@ -49,6 +52,53 @@ STAT_BACK = {"vigor": 0x68, "endurance": 0x60, "strength": 0x50, "skill": 0x48, 
 LEVEL_BASE = 50
 LEVEL_BACK, ECHOES_BACK, INSIGHT_BACK, HP_BACK, PHANTOM_BACK = 0x18, 0x14, 0x24, 0x94, 4
 CATEGORIES = {0: "weapon", 1: "armor", 2: "accessory", 4: "goods", 8: "gem"}
+
+# CalcCorrectGraph rows 100 (HP from vitality) and 101 (the endurance trio), 1.09 gameparam:
+# (stageMaxVal[5], stageMaxGrowVal[5], adjPt_maxGrowVal[5]).
+_GRAPHS = {
+    100: ((1, 15, 30, 50, 99), (400, 682, 1100, 1500, 1900), (1.1, 1.2, -1.2, -1.1, 1.0)),
+    101: ((1, 15, 40, 60, 99), (0, 106, 280, 360, 450), (1.1, 1.2, -1.2, -1.1, 1.0)),
+}
+VITALS_BACK = {"hp": 0x94, "fp": 0x88, "stamina": 0x78}  # each: current, max, base max (u32)
+
+
+def _f32(x):
+    return struct.unpack("<f", struct.pack("<f", x))[0]
+
+
+def _graph(row, x):
+    """The game's CalcCorrectGraph lookup (eboot 0x1579240) in float32, truncated as the callers do."""
+    stage, grow, adj = _GRAPHS[row]
+    x = _f32(min(float(x), stage[4]))
+    if x <= 0:
+        return int(grow[0])
+    lo = next(i for i in range(4) if x <= stage[i + 1])
+    span, rise = _f32(stage[lo + 1] - stage[lo]), _f32(grow[lo + 1] - grow[lo])
+    a = _f32(adj[lo])
+    if a >= 0:
+        v = _f32(grow[lo] + _f32(rise * _f32(_f32(_f32(x - stage[lo]) / span) ** a)))
+    else:
+        r = _f32(_f32(span - _f32(x - stage[lo])) / span)
+        v = _f32(grow[lo] + _f32(rise * _f32(1.0 - _f32(r ** -a))))
+    return int(min(max(v, min(grow[lo], grow[lo + 1])), max(grow[lo], grow[lo + 1])))
+
+
+def _stamina(endurance):
+    """Base max stamina (eboot 0x14e6420): 80 + 80 * (end / 40) ** 1.4, in 80..160, + (end - 40) / 59 * 10 above 40."""
+    s = 80
+    if endurance > 0:
+        p = _f32(_f32(endurance / 40.0) ** _f32(1.4))
+        v = int(_f32(_f32(_f32(80.0 * p) + 80.0) + 0.5))
+        s = v if v < 80 else min(v, 160)
+    if endurance >= 41:
+        s += int(_f32(_f32((endurance - 40) / 59.0) * 10.0))
+    return s
+
+
+def vitals_for(stats):
+    """{vital: base max} the game derives from the stats (character creation and level-up)."""
+    return {"hp": _graph(100, stats["vigor"]), "fp": _graph(101, stats["endurance"]),
+            "stamina": _stamina(stats["endurance"])}
 
 _GLOBAL_TYPES = {0: 0, 1: 1, 5: 2, 6: 3, 7: 4}
 _MAP_TYPES = {1: 0, 5: 1, 6: 2, 7: 3, 9: 4}
@@ -204,13 +254,21 @@ class SaveModel:
         return sum(stats.values()) - LEVEL_BASE
 
     def set_stat(self, stat, value):
-        """Set one stat (1..99) and the level that follows from the stats (the level is not editable)."""
+        """Set one stat (1..99) and the level that follows from the stats (the level is not editable).
+        Vigor and endurance also refill the health / stamina trios the way a level-up does: the game reads
+        them from the save and recomputes them only on its next level-up."""
         if stat not in STAT_BACK:
             raise KeyError(stat)
         if not 1 <= int(value) <= 99:
             raise ValueError("a stat is 1 to 99")
+        changed = self.stats[stat] != int(value)  # the launcher sends all six stats: same value, same save
         self._put(self.name_at - STAT_BACK[stat], int(value))
         self._put(self.name_at - LEVEL_BACK, self.level_for(self.stats))
+        if changed and stat in ("vigor", "endurance"):
+            for vital, base in vitals_for(self.stats).items():
+                if (vital == "hp") == (stat == "vigor"):
+                    for k in range(3):
+                        self._put(self.name_at - VITALS_BACK[vital] + 4 * k, base)
 
     @property
     def hp(self):

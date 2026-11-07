@@ -109,12 +109,32 @@ def test_no_change_is_byte_identical():
     assert m.to_bytes() == raw and m.diff() == []
 
 
+def test_vitals_follow_the_games_curves():
+    # base max HP / stamina as the game writes them (real 1.09 saves and level-ups; Vitality 30 = 1100)
+    assert [M._graph(100, v) for v in (1, 10, 11, 15, 25, 30, 50, 99)] == [400, 573, 594, 682, 938, 1100, 1500, 1900]
+    assert [M._graph(101, e) for e in (10, 15)] == [65, 106]
+    assert [M._stamina(e) for e in (1, 10, 11, 13, 14, 15, 40, 41, 99)] == [80, 91, 93, 97, 98, 100, 160, 160, 170]
+
+
+def test_vigor_and_endurance_refill_the_bars_like_a_level_up():
+    m = M.SaveModel(make_save())  # vigor 10, endurance 11, HP 500/500
+    vit = lambda back: struct.unpack_from("<3I", m.to_bytes(), NAME_AT - back)
+    before = vit(0x78)
+    m.set_stat("vigor", 30)
+    assert vit(0x94) == (1100, 1100, 1100) and vit(0x78) == before  # stamina left alone
+    m.set_stat("endurance", 15)
+    assert vit(0x78) == (100, 100, 100) and vit(0x88) == (106, 106, 106) and vit(0x94) == (1100, 1100, 1100)
+    m2 = M.SaveModel(make_save())
+    m2.set_stat("vigor", 10)  # the launcher resends unchanged stats: nothing changes
+    assert m2.diff() == []
+
+
 def test_set_stat_recomputes_level_and_changes_only_its_bytes():
     raw = make_save()
     m = M.SaveModel(raw)
-    m.set_stat("vigor", 40)
-    assert m.stats["vigor"] == 40 and m.level == 25 + 30
-    assert m.diff() == [(NAME_AT - 0x68, NAME_AT - 0x68 + 1), (NAME_AT - 0x18, NAME_AT - 0x18 + 1)]
+    m.set_stat("skill", 40)
+    assert m.stats["skill"] == 40 and m.level == 25 + 27
+    assert m.diff() == [(NAME_AT - 0x48, NAME_AT - 0x48 + 1), (NAME_AT - 0x18, NAME_AT - 0x18 + 1)]
     with pytest.raises(ValueError):
         m.set_stat("arcane", 100)
     with pytest.raises(ValueError):
