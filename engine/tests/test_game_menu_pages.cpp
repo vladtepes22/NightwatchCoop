@@ -529,7 +529,7 @@ static void RulesPages() {
                       u"Guests can gather", u"Cutscenes live with host"};
     const V look = {u"No companion glow", u"Ping in the party list", u"Join/leave notices", u"Share NPC dialogue",
                     u"NPC dialogue range", u"Party discovery"};
-    const V save = {u"Share story progress", u"Share NPC quests", u"Share cutscenes, endings"};
+    const V save = {u"Share story progress", u"Share NPC quests", u"Share cutscenes, endings", u"Room for rejoin guest"};
     const V shared = {u"Enemies stay dead", u"Host can gather", u"NPCs as in host's world", u"Covenants per player",
                       u"Party votes on travel", u"NPC hunters fight all"};
     const V rewards = {u"Full rewards for guests", u"Boss drops for guests", u"Insight for bosses"};
@@ -691,6 +691,8 @@ static void RulesPages() {
           std::tuple{u"Party rules: PvP & lamps", u"Chalice layer travel", "party_layer_travel", &BbSettings::Values::party_layer_travel},
           std::tuple{u"My party: Chalice", u"Chalice glyph list", "party_glyph_list", &BbSettings::Values::party_glyph_list},
           std::tuple{u"My party: Chalice", u"Ritual Altar as a guest", "party_guest_altar", &BbSettings::Values::party_guest_altar},
+          std::tuple{u"My party: Your save", u"Room for rejoin guest", "party_title_room_hold",
+                     &BbSettings::Values::party_title_room_hold},
           std::tuple{u"Party rules: World", u"NPCs as in host's world", "party_npc_mirror", &BbSettings::Values::party_npc_mirror},
           std::tuple{u"Party rules: World", u"Party votes on travel", "party_travel_vote", &BbSettings::Values::party_travel_vote},
           std::tuple{u"Party rules: World", u"NPC hunters fight all", "party_npc_fights", &BbSettings::Values::party_npc_fights},

@@ -622,6 +622,19 @@ static void test_key_repair_moved_source() {
     CHECK(GoodsSourceIntact(4110, [](std::int32_t lot, std::int32_t g) { return lot == 2410290 && g == 4110; }));
     CHECK(!GoodsSourceIntact(4110, [](std::int32_t, std::int32_t) { return false; }));  // shuffled
     CHECK(!GoodsSourceIntact(4113, [](std::int32_t lot, std::int32_t) { return lot == 2100500; }));  // others moved
+    {
+        // A lot row that exists and gives the goods keeps it; one that gives something else moved it; no row proves nothing.
+        LotRowData row;
+        row.lot = 777;
+        row.id[0] = 4114;
+        row.category[0] = 4u;
+        row.base[0] = 1000;
+        row.num[0] = 1;
+        CHECK(LotRowKeepsGoods({row}, 777, 4114));
+        CHECK(!LotRowKeepsGoods({row}, 777, 4113));
+        CHECK(LotRowKeepsGoods({}, 777, 4114));
+        CHECK(LotRowKeepsGoods({row}, 778, 4114));  // only the chain's other rows, not the lot's own
+    }
     std::set<std::uint32_t> save = {12101000};
     std::set<std::int32_t> held = {4110, 4111};
     auto is_set = [&](std::uint32_t id) { return save.count(id) != 0; };

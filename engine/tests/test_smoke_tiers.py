@@ -167,29 +167,58 @@ class MemGuardTests(unittest.TestCase):
                                             "holders": [{"id": "h", "pid": 0, "count": 3, "t": 0, "root": "r", "since": "0", "slots": [0, 1, 2]}],
                                             "queue": []}))
         self.alive = mock.patch.object(gq, "_alive", return_value=True)
-        self.alive.start()
+        self.alive_mock = self.alive.start()
 
     def tearDown(self):
         self.alive.stop()
         gq.QUEUE_FILE = self.old
         self.tmp.cleanup()
 
-    def got(self, memguard, free, timeout=3):
-        done = []
+    PARENT = 424242  # fake BB_MP_PARENT_PID: game_slots leaves its wait loop when this pid is "dead"
+
+    def got(self, memguard, free):
+        """Run game_slots(3) in a thread against the queue file and report whether it was granted.
+
+        No sleeps decide the result. The thread's time.sleep is replaced by a shim that signals the end of one
+        full queue evaluation (the grant decision is made before the sleep), so "not granted" is concluded after
+        a few complete passes; "granted" waits on an event. A waiter that is not granted is released through the
+        parent-pid exit of game_slots and the thread is joined, so no daemon thread outlives the test and keeps
+        polling the next test's queue file (that leak was the flake: with the _alive / QUEUE_FILE patches of the
+        next test not yet in place, the old waiter pruned the next test's holder and took its slot)."""
+        granted, passes, stop = threading.Event(), threading.Semaphore(0), threading.Event()
+        real = gq.time
+
+        def fake_sleep(_s):
+            passes.release()
+            stop.wait(0.005)
+
+        shim = types.SimpleNamespace(time=real.time, strftime=real.strftime, sleep=fake_sleep)
+        self.alive_mock.side_effect = lambda pid: not (pid == self.PARENT and stop.is_set())
 
         def run():
-            with mock.patch.dict(gq.os.environ, {"BB_GAME_QUEUE_MEMGUARD": "1" if memguard else "0"}), \
-                    mock.patch.object(gq, "free_ram_mb", return_value=free):
-                try:
-                    with gq.game_slots(3, "root"):
-                        done.append(1)
-                        return
-                except BaseException:
-                    return
-        t = threading.Thread(target=run, daemon=True)
-        t.start()
-        t.join(timeout)
-        return bool(done)
+            try:
+                with gq.game_slots(3, "root"):
+                    granted.set()
+                    passes.release()
+            except BaseException:
+                pass
+            finally:
+                passes.release()  # also wakes the test when the thread ended without a grant
+
+        env = {"BB_GAME_QUEUE_MEMGUARD": "1" if memguard else "0", "BB_MP_PARENT_PID": str(self.PARENT)}
+        with mock.patch.dict(gq.os.environ, env), mock.patch.object(gq, "free_ram_mb", return_value=free),                 mock.patch.object(gq, "time", shim):
+            t = threading.Thread(target=run, daemon=True)
+            t.start()
+            try:
+                for _ in range(3):  # three complete evaluations, or the grant / the end of the thread
+                    if not passes.acquire(timeout=30) or granted.is_set():
+                        break
+                ok = granted.is_set()
+            finally:
+                stop.set()
+                t.join(30)
+        self.assertFalse(t.is_alive(), "game_slots thread did not end")
+        return ok
 
     def test_guarded_job_starts_beside_a_holder_with_room(self):
         self.assertTrue(self.got(True, 40000))

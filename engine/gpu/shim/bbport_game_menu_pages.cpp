@@ -1315,6 +1315,9 @@ void DefineAll() {
     own(&Values::party_story, "Share cutscenes, endings", "Общие ролики и концовки",
         "The host's cutscenes, time of day and ending reach your save too. Host and guests. Next start",
         "Ролики хоста, время суток и концовка попадают и в ваше сохранение. Хост и гости. Со след. запуска");
+    own(&Values::party_title_room_hold, "Room for rejoin guest", "Комната вернувш. гостю",
+        "Host: your empty room stays open for a guest restarting its game and rejoining from its title. On",
+        "Хост: пустая комната остаётся открытой для гостя, что перезапустил игру и входит с заставки. Вкл.");
 
     AddPage("My party: Your items", "Моя группа: предметы",
             "Yours: what the party brings into your own save: the host's item rewards, bells, key items (bbport)",

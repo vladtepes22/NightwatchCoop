@@ -312,6 +312,7 @@ struct Test {
     // until within R m of (X, Z), facing it; then BUTTON (cross / triangle / square / circle) once.
     bool approach = false, approach_done = false, ap_faced = false;
     int ap_taps = 0;               // face taps made (prompt=: until its text shows, 45 deg apart)
+    bool ap_snapped = false;       // verify079: the exact stand-and-face snap before the face taps was made
     bool ap_prompt_seen = false;   // prompt= showed after a tap: keep that facing (no turn warp)
     std::string ap_prompt;         // prompt=TEXT: the action prompt the face taps look for
     std::int64_t ap_tap_ms = 0;
@@ -4650,6 +4651,26 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
                 }
                 }
                 }
+            } else if (t.ap_phase == 3 && !t.ap_button && t.st_seq.size() && !t.stand && !t.ap_faced && t.ap_face &&
+                       !t.ap_prompt.empty() && !t.ap_snapped && t.ap_taps == 0 &&
+                       [&] {
+                           // verify079 (cag / cage "First Ritual Altar" never found): the nav walk ends up to ~0.6 m short
+                           // of the point and the camera-relative face taps turn the player unreliably (nav camera
+                           // mismatch). The prompt is not up now: put the player exactly on the approach point, looking
+                           // at the face= point (the turn-warp's yaw convention), before any tap.
+                           const std::int64_t seen = BbGameMenu::TextSeenMs(t.ap_prompt.c_str());
+                           const std::int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                           Clock::now().time_since_epoch()).count();
+                           return !(seen > 0 && now_ms - seen <= 600);
+                       }()) {
+                t.ap_snapped = true;
+                const float to[3] = {t.ap_x, pos[1], t.ap_z};
+                const float yaw = static_cast<float>(std::atan2(-(double(t.ap_fx) - to[0]), -(double(t.ap_fz) - to[2])));
+                const bool ok = PutChr(s, to, yaw);
+                Log("test: approach: snap to the approach point (%.2f, %.2f) from (%.2f, %.2f), yaw %.2f toward the face= point%s",
+                    double(t.ap_x), double(t.ap_z), double(pos[0]), double(pos[2]), double(yaw), ok ? "" : " FAILED");
+                t.ap_phase = 6;
+                t.ap_at = now + std::chrono::milliseconds(900);
             } else if (t.ap_phase == 3 && !t.ap_button && t.st_seq.size() && !t.stand && !t.ap_faced &&
                        [&] {
                            if (t.ap_prompt.empty()) {

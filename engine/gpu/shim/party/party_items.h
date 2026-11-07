@@ -506,6 +506,9 @@ struct LotRowData {
     std::uint16_t cumulate[8] = {};       ///< cumulateLotPoint01..08
     std::uint8_t num[8] = {};             ///< lotItemNum01..08
 };
+/// lot_gives for the repair guard: false only when the lot's OWN row exists in `chain` and none of its slots gives
+/// the goods (moved). No own row (the flag was not a lot pickup flag): true, nothing proves a move.
+bool LotRowKeepsGoods(const std::vector<LotRowData>& chain, std::int32_t lot, std::int32_t goods);
 /// The roll (0x17CEAF0) walks lot, lot + 1, ... while rows exist; this many at most here.
 constexpr std::size_t kMaxLotChain = 16;
 /// Categories the direct give (GiveItemDirect 0x131CB70, type bits category << 28) handles:

@@ -10411,6 +10411,20 @@ void TitleJoinHostTick(const GameSnapshot& s) {
         std::snprintf(tail, sizeof tail, ",\"stage\":%u,\"pos\":[%.4f,%.4f,%.4f,%.4f],\"rot\":[%.6f,%.6f,%.6f,%.6f]}",
                       Field<u32>(s.player, 0x3f8), pos[0], pos[1], pos[2], pos[3], rot[0], rot[1], rot[2], rot[3]);
         b += tail;
+        // gdrf079: the same empty-room countdown as in the direct summon (A4): a restarted guest rejoins from its
+        // title ~3 s after its old membership ended (Fast rejoin off: the link comes back first, then boot and
+        // title), and the game closes a room left empty at ~5 s: the join was cut off with the room (the guest's
+        // title join: "no snapshot within 12 s"). Held 10 s more while the joiner is served.
+        if (Role() == RoleHost && s.cooperators <= 0 && BbSettings::Get().party_title_room_hold.load()) {
+            const u64 flow = Slot(kSlotFlow);
+            const float left = Field<float>(flow, 0xb8, -1.0f);
+            if (left >= 0.0f && left < 10.0f) {
+                const float more = 10.0f;
+                SafeWrite(flow + 0xb8, &more, 4);
+                Log("title join: this host's empty room had %.1f s left before the game closes it: 10 s for the joiner",
+                    double(left));
+            }
+        }
         Send(slot, b);
         Log("title join: slot %d asked for the room: %s (%zu bytes, head %s), stage %#x", slot, ok ? "sent" : "NOT serialized",
             room.size(), Hex(room, 24).c_str(), Field<u32>(s.player, 0x3f8));        if (ok) g_title_served_at = Now();  // the host's lamp travel waits for this joiner (HostTravelHeldForJoin)

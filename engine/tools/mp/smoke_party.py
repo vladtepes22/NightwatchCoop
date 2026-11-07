@@ -3164,7 +3164,7 @@ def check_cag(v, L, full=False):
         base = 94100000
         v.step(tag + " the guest's save: slot 1 holds the ritual's dungeon", val(base, 32) == CAG_DUNGEON[0] and val(base, 64) == CAG_DUNGEON[1]
                and (val(base, 96) >> 24) == 0x1d, "record %x %x %x" % (val(base, 32), val(base, 64), val(base, 96)))
-        v.step(tag + " the guest's save: no other slot got a dungeon", all(val(94000000 + k * 100000, 96) == 0xffffffff for k in (0, 2, 3, 4, 5, 6)),
+        v.step(tag + " the guest's save: no other slot got a dungeon" + (" (slot 0 holds the quick-joined host dungeon, by design)" if full else ""), all(val(94000000 + k * 100000, 96) == 0xffffffff for k in ((2, 3, 4, 5, 6) if full else (0, 2, 3, 4, 5, 6))),
                "slot maps " + " ".join("%x" % val(94000000 + k * 100000, 96) for k in range(7)))
         g = {i: n for _, i, n in s.goods()}
         v.step(tag + " the guest's save: the Pthumeru Chalice (fixed, not consumed) is still held", g.get(6109) == 1, "6109 x%s" % g.get(6109))
@@ -4795,13 +4795,18 @@ MI_ROUTE = "/".join("%.1f:%.1f:%.1f" % (x, 1000 + y, z) for x, y, z in [(137.0, 
 MI_NEAR = "106.2:1029.4:-6.4"   # 70 m of path short of the first-fight spot, outside the 32 m of his event, not in a boss room:
                                 # the full 880 m walk from the lamp is blocked by an Iron Door / lift the harness cannot open
 MI_HOLD = 40
+MI_FOG = "145.88:-14.74"   # his fog 2601850 (X:Z)
 MI_UNTIL = [r"1:travel step (?P<n>\d+)/(?P=n): guest_press 0x0"]
 
 
 def _mi_fog(role, cond, m):
     """Walk to Micolash's fog 2601850 and through it like a player (R3: the camera behind, Cross twice)."""
-    return ["%s_obj=2601850@3%s%s" % (role, m, cond), "%s_press=0x4@1%s!" % (role, m), "%s_press=0@1%s!" % (role, m),
-            "%s_press=0x4000@2%s!" % (role, m), "%s_press=0x4000@2%s!" % (role, m)]
+    # no R3 here: an enemy (2600221) stands at the fog and R3 locks on to it (run 0.7.9: the lock-on turned the player to the
+    # enemy, the fog prompt never came); the walk to the fog already faces it
+    # then through it with the fog step (stick walk until its prompt shows, Cross, held until through): neither Cross presses
+    # (the prompt never showed) nor a stick walk (a closed fog is a wall) passed this fog (0.7.9 mig: the guest stood at it
+    # for 15 s, the fight never started)
+    return ["%s_obj=2601850@3%s%s" % (role, m, cond), "%s_fog=%s@2%s" % (role, MI_FOG, m)]
 
 
 def phase_mi(only, name="mi", guest_first=False):
@@ -4861,6 +4866,20 @@ def check_mi(v, L, tag="mi"):
         return check_common(v, L, tag)
     none_of(v, L, tag + " try 1: no bar before the host came near him", r"boss health bar shown", 0, (scene or bar1) - 0.5, (0, 1))
     need(v, L, tag + " try 1: the guest's game shows the bar", 1, r"boss health bar shown", bar1 - 5)
+    if tag == "mig":
+        # guest first: the host stays at the lamp, the guest alone is in the fight and nobody dies, so there is no wipe and
+        # no try 2; his bar must agree on both games and nobody stays stuck (the 0.7.9 run expected a wipe here)
+        a, b = bar1 + 6.0, bar1 + 6.0 + float(os.environ.get("BB_MI_WINDOW", "40"))
+        hh, gg = _mi_hp(L, 0, a, b), _mi_hp(L, 1, a, b)
+        v.step(tag + " try 1: his bar has the same HP on both games (last samples within 5%)",
+               bool(hh) and bool(gg) and abs(hh[-1][1] - gg[-1][1]) <= 0.05 * max(hh[-1][1], 1),
+               "host %s, guest %s" % (hh[-1:], gg[-1:]))
+        v.step(tag + " try 1: his HP never regains on the host or the guest (no loss-then-regain)",
+               all(y <= x for (_t, x), (_u, y) in zip(hh, hh[1:])) and all(y <= x for (_t, x), (_u, y) in zip(gg, gg[1:])),
+               "host %d samples, guest %d" % (len(hh), len(gg)))
+        none_of(v, L, tag + ": no 'boss may be stuck' within 10 m of a player on either game", r"boss state: [0-9a-f]+ may be stuck.*nearest player \d\.\d m", 0, 1e9, (0, 1))
+        none_of(v, L, tag + ": every fog walk got through", r"test: fog: NOT through", 0, 1e9, (0, 1))
+        return check_common(v, L, tag)
     wipe = need(v, L, tag + " try 1: the party wipes", 0, r"a wipe", bar1)
     if wipe is None:
         return check_common(v, L, tag)
@@ -4884,7 +4903,10 @@ def check_mi(v, L, tag="mi"):
         v.step(tag + " try 2: his HP never regains on the host or the guest (no loss-then-regain)",
                all(y <= x for (_t, x), (_u, y) in zip(hh, hh[1:])) and all(y <= x for (_t, x), (_u, y) in zip(gg, gg[1:])),
                "host %d samples, guest %d" % (len(hh), len(gg)))
-    none_of(v, L, tag + ": no 'boss may be stuck' on either game", r"boss state: [0-9a-f]+ may be stuck", 0, 1e9, (0, 1))
+    # Only a boss standing idle with a player within 10 m counts: after his first-fight scene Micolash flees to a hiding spot
+    # ~25 m from the passive fixture players and idles there until chased (0.7.9 run3 / run4: "animation 0 for 15 s, nearest
+    # player 25 m" on the host and the guest alike), which is his own behaviour, not a stuck boss.
+    none_of(v, L, tag + ": no 'boss may be stuck' within 10 m of a player on either game", r"boss state: [0-9a-f]+ may be stuck.*nearest player \d\.\d m", 0, 1e9, (0, 1))
     none_of(v, L, tag + ": every fog walk got through", r"test: fog: NOT through", 0, 1e9, (0, 1))
     check_common(v, L, tag)
 
@@ -5699,6 +5721,7 @@ def phase_br(only):
         "host_obj=3401801@6!",                                       # the wall behind Ludwig's arena
         "host_press=0x4@1!", "host_press=0@1!",                      # R3: the camera behind the player
         "host_stick=obj:3401801:4:180:%s@2!" % BR_WALK,              # through it
+        "host_press=0x4@1!", "host_press=0@1!",                      # R3 again: the camera behind him for the walk back (0.7.9: he stalled 3 m short of the goal, the camera had swung)
         "host_stick=obj:3401801:4:0:%s@2!" % BR_WALK,                # and back
     ])
     g1 = ",".join([
@@ -5711,7 +5734,7 @@ def phase_br(only):
         "guest_move=%s@2%%m34_00" % BR_SIGNAL,                        # inside: the host's skull now
         "guest_press=0x4000@10%m34_00?13401850=1", "guest_press=0x4000@2%m34_00!",  # Laurence's reward box
         "guest_press=0x4000@10?9471=1", "guest_press=0x4000@2!",      # Ludwig's
-        "guest_obj=3401801@4!",                                      # at the wall behind him
+        "guest_obj=3401801@30!",                                     # at the wall behind him, after the host's walk through and back (two bodies in the doorway jam: the host's walk back GAVE UP in 0.7.9)
         "guest_press=0x4@1!", "guest_press=0@1!",                    # R3
         "guest_stick=obj:3401801:4:180:%s@2!" % BR_WALK,
         "guest_stick=obj:3401801:4:0:%s@2!" % BR_WALK,
@@ -8677,11 +8700,18 @@ SGB4_ROW = 12101002
 SGB4_UNTIL = r"1:test: levelup: keys done"
 
 
+def prep_sgb4(root: Path):
+    # Both games start from the plain default save: a save left in inst0 / inst1 by an earlier phase (a host that
+    # is not in the Hunter's Dream) kept the guest's walk from ever starting (full smoke 0.7.9: host in m24).
+    _cl_saves(root, CL_DEFAULT, 0)
+    _cl_saves(root, CL_DEFAULT, 1)
+
+
 def phase_sgb4(only, name="sgb4", give=True):
     keys = os.environ.get("BB_SG_KEYS", "right,right,right," + ",".join(["down"] * 8))
     watch = "log_flag=%d/12101004" % SGB4_ROW
     return dict(
-        name=name, seconds=300, count=2, headless=0,
+        name=name, seconds=300, count=2, headless=0, prep=prep_sgb4,
         env=["BB_PARTY_START=immediate"],
         ienv=["0:BB_PARTY_DIRECTOR_TEST=god",
               "1:BB_PARTY_DIRECTOR_TEST=god," + ("goods=4112:1," if give else "goods=4112:0,") + watch,
@@ -12226,9 +12256,19 @@ def check_lp(v, L, d: Path):
     # Every lamp lit in the host's world (its save at the end: lit flag 1AAB7810+20n set, name /
     # blocked flag 7000AABn clear, as lamp_travel_rules.h BuildList) is in the guest's list, but the
     # one it stands at ("lamp N (...): the warp menu").
-    src = (REPO / "gpu" / "shim" / "party" / "lamp_travel_rules.h").read_text(encoding="utf-8")
-    table = src.split("kLamps[] = {", 1)[1].split("};", 1)[0]
-    lamps = [(int(a), int(n)) for a, n in re.findall(r"\{(\d{3}), (\d), \w+\}", table)]
+    # The lamp table is derived at run time from the player's game (gamedata section `lamps`: AAB, n, group), so it is
+    # read from the host instance's party_tables.txt, not from the source.
+    lamps = []
+    tabs = Path(RUN_ROOT[0]) / "inst0" / "user" / "party_tables.txt"
+    if tabs.exists():
+        sec = None
+        for ln in tabs.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = re.match(r"\[(\w+)\] \d+", ln)
+            if m:
+                sec = m.group(1)
+            elif sec == "lamps" and re.match(r"\d+	\d+	\d+", ln):
+                a, n = ln.split("	")[:2]
+                lamps.append((int(a), int(n)))
     lit_f = {(a, n): str(10000000 + a * 10000 + 7810 + 20 * n) for a, n in lamps}
     name_f = {(a, n): str(70000000 + a * 10 + n) for a, n in lamps}
     hw = lp_save_flags(d, 0, sorted(set(lit_f.values()) | set(name_f.values())))
