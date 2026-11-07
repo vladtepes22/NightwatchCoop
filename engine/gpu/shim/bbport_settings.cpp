@@ -196,6 +196,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_vpn_lobby = i != 0;
     } else if (key == "party_open") {
         v.party_open = i != 0;
+    } else if (key == "party_open_any_level") {
+        v.party_open_any_level = i != 0 || value == "on" || value == "true";
     } else if (key == "party_invaders") {
         v.party_invaders = i != 0 || value == "on" || value == "true";
     } else if (key == "party_max_invaders") {
@@ -899,7 +901,7 @@ void Load() {
         {"BB_TEXTURE_QUALITY", "texture_quality"},
         {"BB_LIVE_FPS", "live_fps"}, {"BB_MAX_DT_HZ", "max_dt_hz"}, {"BB_PARTY_INVADERS", "party_invaders"}, {"BB_PARTY_MAX_INVADERS", "party_max_invaders"},
         {"BB_AUTO_HUD", "auto_hide_hud"}, {"BB_PARTY_NAME_COLOURS", "party_name_colours"},
-        {"BB_PARTY_OPEN", "party_open"}, {"BB_PARTY_SPLITSCREEN", "party_splitscreen"}, {"BB_PARTY_STAY", "party_stay"}, {"BB_PARTY_MESSAGES", "party_messages"},  // visy 0.7.5 (2179ec17, 51fb67e9)
+        {"BB_PARTY_OPEN", "party_open"}, {"BB_PARTY_OPEN_ANY_LEVEL", "party_open_any_level"}, {"BB_PARTY_SPLITSCREEN", "party_splitscreen"}, {"BB_PARTY_STAY", "party_stay"}, {"BB_PARTY_MESSAGES", "party_messages"},  // visy 0.7.5 (2179ec17, 51fb67e9)
         {"BB_FSR_SHARPNESS", "sharpness"},        {"BB_JITTER", "jitter"},
         {"BB_REACTIVE", "reactive"},              {"BB_REACTIVE_SCALE", "reactive_scale"},
         {"BB_REACTIVE_THRESHOLD", "reactive_threshold"}, {"BB_REACTIVE_MAX", "reactive_max"},
@@ -1073,6 +1075,7 @@ void Save() {
     put("party_discovery", flag(v.party_discovery));
     put("party_vpn_lobby", flag(v.party_vpn_lobby));
     put("party_open", flag(v.party_open));
+    put("party_open_any_level", flag(v.party_open_any_level));
     put("party_invaders", flag(v.party_invaders));
     put("party_max_invaders", std::to_string(std::clamp(v.party_max_invaders.load(), 1, 2)));
     put("party_splitscreen", flag(v.party_splitscreen));

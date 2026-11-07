@@ -3892,6 +3892,14 @@ void FallbackToB1(const char* why) {
         SafeWrite(flow + 0x84, &four, 4);
     }
     g_fell_back = true;
+    if (coop::invade::FallbackPlanFor(coop::invade::LocalIsInvader()) == coop::invade::FallbackPlan::EndInvasion) {
+        // An invader is never replayed into its own world (it would stay there as a co-op white phantom in another area
+        // than the host): the invasion ends, the vanilla send-home runs.
+        g_solo_respawn = false;
+        Log("guest: FALLBACK (%s; flow was %d): an invader does not replay the travel; the invasion ends", why, fs);
+        coop::invade::EndInvasionAfterFallback(why);
+        return;
+    }
     if (g_solo_respawn.exchange(false)) {
         // A lone death's respawn that failed (no snapshot): the old death redirect - the host's
         // last lamp in the own world, a leave, the bell (live r20: a plain B1 replay of the
@@ -8624,7 +8632,8 @@ void GuestChrTypeTick(const GameSnapshot& s) {
         return !(v && v[0] == '0');
     }();
     static double since = -1;
-    const bool client = on && g_on.load() && Role() == RoleClient && s.world_up && !s.loading && s.player &&
+    const bool client = on && g_on.load() && Role() == RoleClient &&
+                        coop::invade::ChrTypeRepairAllowed(coop::invade::LocalIsInvader()) && s.world_up && !s.loading && s.player &&
                         !g_rejoin.load();
     const int type = client ? Field<int>(s.player, 0x78, -1) : -1;
     if (!client || type != 0) {

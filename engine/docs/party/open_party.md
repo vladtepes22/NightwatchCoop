@@ -11,6 +11,7 @@ and the lobby (`net/party_vpnlobby.h`: no password flag = open).
 |---|---|
 | bbport.ini | `party_open=1` (live: read on every join) |
 | env | `BB_PARTY_OPEN` (wins over the ini) |
+| bbport.ini / env | `party_open_any_level=1` / `BB_PARTY_OPEN_ANY_LEVEL=1` (0.7.9, host, live, off by default): *System > Party access > Any level can join*, launcher Party tab: an open join skips the level range below, at the gate and in the vitals recheck |
 | Launcher | Party tab, host only: *Open party: no password, join by address (LAN/VPN)*; greyed out while a password is set |
 | Game | *System > Party access > Open party (no password)*, host's row (a guest sees *Host's access*, read only) |
 
@@ -34,5 +35,5 @@ hand: paste `host:port` into *Party code* and leave *Password* empty. Smoke: pha
 
 A passwordless join by plain address is refused when the guest's level is outside `floor(X*0.8-20) .. floor(X*1.2+20)` of the
 host's level X (host 100: 60-140), with *Can't join HOST: your level N is outside their range (a-b)*. A party code or a password
-ignores the range (as in the game). Only a new member is checked at the HELLO / AUTH, then its vitals level once known; a
+ignores the range (as in the game), and so does an open join while the host has *Any level can join* on. Only a new member is checked at the HELLO / AUTH, then its vitals level once known; a
 resume is not re-gated. See `invasions.md` "The level range".

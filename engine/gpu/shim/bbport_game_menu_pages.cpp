@@ -852,6 +852,11 @@ void DefineAll() {
            AddText("Listed games only: other players may invade your world as hostile phantoms (one at a time). Off: never",
                    "Только в списке игр: другие игроки могут вторгаться в ваш мир (по одному). Выкл.: никогда"),
            toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
+    // 0.7.9: open joins skip the vanilla co-op level range (party_invade_rules.h OpenLevelOk); invaders keep theirs. Live, the host's own.
+    AddRow(Flag(&Values::party_open_any_level), AddText("Any level can join", "Любой уровень"),
+           AddText("Open party joins skip the level range (host 100: 60-140). Password joins never had one. Invaders keep theirs",
+                   "Вход в открытую группу без ограничения уровней. По паролю его и не было. У вторженцев оно остаётся"),
+           toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
     AddRow(Info(), AddText("Host's access", "Доступ хоста"),
            AddText("The host decides who joins without a party code (Open party, the launcher's lobby browser)",
                    "Хост решает, кто входит без кода группы (открытая группа, список лобби в лаунчере)"),

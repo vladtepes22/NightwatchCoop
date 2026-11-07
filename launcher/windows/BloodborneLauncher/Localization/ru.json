@@ -2549,6 +2549,8 @@
   "Mods and patches differ: enable the same mods and patches and try again.": "Моды и патчи не совпадают: включите те же моды и патчи и попробуйте снова.",
   "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "Патчи не совпадают: включите те же патчи, что у хоста (собственный патч мода тоже считается).",
   "Max invaders": "Макс. захватчиков",
+  "Any level can join my open game": "Любой уровень может войти в мою открытую игру",
+  "An open game is held to the game's co-op level range (a level 100 host takes 60 to 140). On: any level can join it, and nobody is removed later. Password and party-code joins never had a range; invaders keep theirs.": "Открытая игра ограничена диапазоном уровней совместной игры (хост 100 уровня принимает от 60 до 140). Вкл.: войти может любой уровень, и никого не удалят позже. Вход по паролю и коду группы диапазона не имел; для захватчиков он остаётся.",
   "How many invaders can be in your world at once. They count against Max players and the game's four slots.": "Сколько захватчиков может быть в вашем мире одновременно. Они занимают места из «Макс. игроков» и четырёх слотов игры.",
   "Give weapons and armor": "Дарить оружие и броню",
   "Ritual Altar as a guest": "Ритуальный алтарь в гостях",

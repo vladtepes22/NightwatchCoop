@@ -2572,6 +2572,8 @@
   "Mods and patches differ: enable the same mods and patches and try again.": "模组和补丁不一致：请启用相同的模组和补丁后重试。",
   "Patches differ: turn on the same patches as the host (a mod's own patch counts too).": "补丁不一致：请开启与主机相同的补丁（模组自带的补丁也算）。",
   "Max invaders": "最大入侵者数",
+  "Any level can join my open game": "任何等级都能加入我的公开游戏",
+  "An open game is held to the game's co-op level range (a level 100 host takes 60 to 140). On: any level can join it, and nobody is removed later. Password and party-code joins never had a range; invaders keep theirs.": "公开游戏受游戏的合作等级范围限制（100 级的主机接受 60 到 140 级）。开启：任何等级都能加入，之后也不会被移出。密码和队伍代码加入从来没有等级范围；入侵者仍受其限制。",
   "How many invaders can be in your world at once. They count against Max players and the game's four slots.": "同时可以有多少名入侵者进入你的世界。入侵者会占用最大玩家数和游戏的四个位置。",
   "Give weapons and armor": "赠送武器和防具",
   "Ritual Altar as a guest": "作为客人使用仪式祭坛",

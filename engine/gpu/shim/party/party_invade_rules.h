@@ -38,6 +38,18 @@ constexpr double kRateWindowS = 600.0;      ///< an invader (address) may START 
 constexpr int kRateMax = 3;                 ///< ... then it waits for the oldest to age out
 constexpr int kSpamMax = 20;                ///< and may knock (a refused or admitted HELLO) this many times per window
 constexpr double kPendingMaxS = 120.0;      ///< an invader that is not in the world after this long is sent away
+/// 0.7.9 (invasion that turned co-op): what a guest-side B2 step that failed (the B1 fallback, party_b2 FallbackToB1) does.
+/// A guest replays the host's travel in its own world (the bell re-summons it later). An invader must not: that path leaves it
+/// in its own world as a co-op white phantom, in another area than the host. It ends the invasion cleanly (notice, the
+/// vanilla send-home, the link ends) instead.
+enum class FallbackPlan : std::uint8_t { ReplayTravel, EndInvasion };
+inline FallbackPlan FallbackPlanFor(bool local_is_invader) {
+    return local_is_invader ? FallbackPlan::EndInvasion : FallbackPlan::ReplayTravel;
+}
+/// The guest chr-type repair (a white phantom, type 1, after a B2 load) never touches an invader's body: its chr type is
+/// the hostile one and the repair would turn it into a cooperator.
+inline bool ChrTypeRepairAllowed(bool local_is_invader) { return !local_is_invader; }
+
 constexpr double kReportEveryS = 5.0;       ///< the host repeats the state while an invader is there
 
 /// Why an invader is refused (also the plain words of the REJECT reason and the log).
@@ -124,8 +136,9 @@ inline std::string LevelText(const std::string& host, int host_level, int invade
 // The vanilla co-op range for an OPEN party join (no password, a plain address): floor(X*0.8-20) .. floor(X*1.2+20),
 // i.e. host 100 -> 60..140, host 55 -> 24..86, host 4 -> 1..24. A password or a party code ignores it, as in the game.
 inline int OpenLevelUpper(int host) { return host + host / 5 + 20; }
-inline bool OpenLevelOk(int host, int guest) {
-    if (host <= 0 || guest <= 0) return true;
+/// `any`: the host's "Any level can join my open game" (party_open_any_level): no range at all for an open join.
+inline bool OpenLevelOk(int host, int guest, bool any = false) {
+    if (any || host <= 0 || guest <= 0) return true;
     return guest >= LevelLower(host) && guest <= OpenLevelUpper(host);
 }
 

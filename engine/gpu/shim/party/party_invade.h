@@ -41,6 +41,10 @@ void OnEvent(int from_slot, const std::string& name, const std::string& body);
 /// home when it falls; everybody else only shows the notices.
 void Tick(const GameSnapshot& s, party::PartyLink* link, bool host);
 
+/// Main thread, the invader's game: a B2 step into the host's world failed for good (party_b2 FallbackToB1): tell the invader and
+/// go home through the vanilla send-home (the link ends; the host reads the invader as gone). Never a co-op phantom.
+void EndInvasionAfterFallback(const char* why);
+
 /// Any thread: what a host announces about its place and the invasions (the lobby and LAN providers). `invadable` is false
 /// whenever the switch is off, a boss fight or a loading screen is on, an invader is in or the 4 slots are taken.
 struct Where {

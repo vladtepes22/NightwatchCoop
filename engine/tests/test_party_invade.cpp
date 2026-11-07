@@ -333,6 +333,11 @@ static void LevelRange() {
     for (int x = 1; x <= 999; ++x) CHECK(OpenLevelUpper(x) == static_cast<int>(std::floor(x * 1.2 + 20 + 1e-9)));
     CHECK(OpenLevelOk(100, 60) && OpenLevelOk(100, 140) && !OpenLevelOk(100, 59) && !OpenLevelOk(100, 141));
     CHECK(OpenLevelOk(0, 999) && OpenLevelOk(100, 0));
+    // 0.7.9 "Any level can join": the toggle skips the open range (both ends); off is the same as before
+    CHECK(OpenLevelOk(100, 59, true) && OpenLevelOk(100, 141, true) && OpenLevelOk(100, 999, true) && OpenLevelOk(100, 1, true));
+    CHECK(!OpenLevelOk(100, 59, false) && !OpenLevelOk(100, 141, false) && OpenLevelOk(100, 100, false));
+    // an invader keeps the invasion range whatever the toggle: LevelOk / Admit take no such switch
+    CHECK(!LevelOk(100, 150) && LevelOk(100, 120) && !LevelOk(100, 59));
     HostView h = Good();
     h.host_level = 100;
     CHECK(Admit(h, false, false, false, 150) == Deny::LevelRange);
@@ -431,7 +436,16 @@ void TwoInvaders() {
     CHECK(ro.Take("A", End::InvaderDied, 10.0 + kRewardOnceS + 1.0));
 }
 
+// 0.7.9: the B1 fallback and the chr-type repair know the invade role.
+void FallbackRole() {
+    CHECK(FallbackPlanFor(true) == FallbackPlan::EndInvasion);
+    CHECK(FallbackPlanFor(false) == FallbackPlan::ReplayTravel);
+    CHECK(!ChrTypeRepairAllowed(true));
+    CHECK(ChrTypeRepairAllowed(false));
+}
+
 int main() {
+    FallbackRole();
     TwoInvaders();
     Apart();
     Look();
