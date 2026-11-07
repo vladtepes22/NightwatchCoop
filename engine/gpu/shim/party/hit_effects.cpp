@@ -42,6 +42,10 @@ constexpr Store kStores[] = {
     {0x189d0ab, {0x60, 0x22, 0x00, 0x00}, "hit_effects overlay id (slots 10-19, bolt 880)"},
     {0x189d209, {0xdc, 0x1e, 0x00, 0x00}, "hit_effects overlay id (slots 20-29, fire 806)"},
 };
+// HookValueFilter's stub saves rax..r11 and then the game's r12 (last push), and uses r12 as its own frame pointer
+// (coop_hooks.cpp SaveVolatile): load_args must read the game's r12 from [r12], not r12 itself (alpha.1 passed the
+// stub's save area and read r8's saved -1 as the "overlay id").
+constexpr u8 kLoadRecord[] = {0x49, 0x8b, 0x3c, 0x24, 0x48, 0x89, 0xc6};  // mov rdi, [r12]; mov rsi, rax
 
 std::vector<Row> g_rows;  // set once before the game runs, read-only after
 thread_local u64 t_attacker = 0;
@@ -88,14 +92,17 @@ BB_COOP_SYSV u64 HitHandler(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5) {
     return r;
 }
 
-/// After `mov [r12+0x20], r13d; add eax, imm`: rdi = the overlay record, rsi = rax (returned as it was).
+/// After `mov [r12+0x20], r13d; add eax, imm`: rdi = the overlay record (the game's r12), rsi = rax (returned as it
+/// was). `Slot` is the store (0: slots 0-9, 1: slots 10-19, 2: slots 20-29) for the log.
+template <int Slot>
 BB_COOP_SYSV u64 PickFilter(u64 record, u64 rax) {
+    static const char* const kSlot[] = {"0-9", "10-19", "20-29"};
     std::int32_t id = 0;
     if (!SafeGet(record + 0x20, &id)) return rax;
     const u64 attacker = t_attacker;
     if (!Watched(g_rows, id)) {
         if (g_verbose && g_logged.fetch_add(1) < 200) {
-            Log("overlay %d, attacker 0x%llx%s: no row", id, static_cast<unsigned long long>(attacker),
+            Log("store %s: overlay %d, attacker 0x%llx%s: no row", kSlot[Slot], id, static_cast<unsigned long long>(attacker),
                 attacker && attacker == LocalPlayer() ? " (local player)" : "");
         }
         return rax;
@@ -105,10 +112,12 @@ BB_COOP_SYSV u64 PickFilter(u64 record, u64 rax) {
     if (fx) SafeWrite(record + 0x20, &fx, sizeof fx);
     if ((fx || g_verbose) && g_logged.fetch_add(1) < (g_verbose ? 200 : 32)) {
         if (fx) {
-            Log("overlay %d -> %d (attacker 0x%llx%s has SpEffect %d)", id, fx, static_cast<unsigned long long>(attacker),
+            Log("store %s: overlay %d -> %d (attacker 0x%llx%s has SpEffect %d)", kSlot[Slot], id, fx,
+                static_cast<unsigned long long>(attacker),
                 attacker == LocalPlayer() ? ", local player" : "", speffect);
         } else {
-            Log("overlay %d, attacker 0x%llx%s: no row's SpEffect is on", id, static_cast<unsigned long long>(attacker),
+            Log("store %s: overlay %d, attacker 0x%llx%s: no row's SpEffect is on", kSlot[Slot], id,
+                static_cast<unsigned long long>(attacker),
                 attacker && attacker == LocalPlayer() ? " (local player)" : "");
         }
     }
@@ -165,11 +174,14 @@ void Install() {
     }
     g_handler = reinterpret_cast<HandlerFn>(original);
     int filters = 0;
-    for (const Store& s : kStores) {
+    const ValueFilter fns[] = {&PickFilter<0>, &PickFilter<1>, &PickFilter<2>};
+    for (int i = 0; i < 3; ++i) {
+        const Store& s = kStores[i];
         const auto& a = s.add_imm;
-        // mov [r12+0x20], r13d; add eax, imm32 -> load_args: mov rdi, r12; mov rsi, rax
+        const auto& l = kLoadRecord;
+        // original: mov [r12+0x20], r13d; add eax, imm32
         if (HookValueFilter(s.off, {0x45, 0x89, 0x6c, 0x24, 0x20, 0x05, a[0], a[1], a[2], a[3]},
-                            {0x4c, 0x89, 0xe7, 0x48, 0x89, 0xc6}, &PickFilter, s.off + 10, s.name)) {
+                            {l[0], l[1], l[2], l[3], l[4], l[5], l[6]}, fns[i], s.off + 10, s.name)) {
             ++filters;
         }
     }

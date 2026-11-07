@@ -56,7 +56,7 @@ overlay in the game, so there is nothing to replace for them.
 - `Mods: hit_effects: 2 rows from 1 mods` (start: the merged table)
 - `hit_effects: feature hit_effects: installed (3 of 3 id stores, 2 rows from ...)`, or `not installed (why)` when the
   game code differs from 1.09 (another patch wrote there) or `BB_HIT_EFFECTS=0` turned it off.
-- `hit_effects: overlay 880 -> 900880 (attacker 0x..., local player has SpEffect 90002)`: a swap (the first 32 of a
+- `hit_effects: store 10-19: overlay 880 -> 900880 (attacker 0x..., local player has SpEffect 90002)`: a swap (the first 32 of a
   session). `BB_HIT_EFFECTS_LOG=1` logs every overlay pick (first 200), also those without a row.
 
 ## Switches
