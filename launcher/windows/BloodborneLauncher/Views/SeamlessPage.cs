@@ -28,7 +28,7 @@ public sealed class SeamlessPage : LauncherPage
     {
         _previewPublic = previewPublic;
         Group(L.T("Party"));
-        SettingCombo(SymbolRegular.People24, L.T("Mode"), L.T("Host starts the party; Join connects to the host."),
+        _mode = SettingCombo(SymbolRegular.People24, L.T("Mode"), L.T("Host starts the party; Join connects to the host."),
             new[] { new Choice(L.T("Single player"), ""), new Choice(L.T("Host"), "host"), new Choice(L.T("Join"), "join") }, "party_mode",
             changed: () => { ShowMode(); RunCheck(); }, buttons: true);
         var party = Rows(InParty);
@@ -141,6 +141,19 @@ public sealed class SeamlessPage : LauncherPage
             out _partiesHint, wide: true), found);
         found.Children.Add(_lobbyHint);
         found.Children.Add(_lobbyCount);
+        // A host's world being built for "Build world and join": outside the rows, which redraw while it builds.
+        _worldBuildBar.Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse("""
+            <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ProgressBar">
+                <Grid SnapsToDevicePixels="True">
+                    <Border Name="PART_Track" Background="{DynamicResource ControlFillColorSecondaryBrush}" CornerRadius="2" />
+                    <Border Name="PART_Indicator" HorizontalAlignment="Left" Background="{DynamicResource AccentTextFillColorPrimaryBrush}" CornerRadius="2" />
+                </Grid>
+            </ControlTemplate>
+            """);
+        _worldBuildText.TextWrapping = TextWrapping.Wrap;
+        _worldBuild.Children.Add(_worldBuildText);
+        _worldBuild.Children.Add(_worldBuildBar);
+        found.Children.Add(_worldBuild);
         _lobbyList = new StackPanel { Margin = new Thickness(0, 0, 14, 0) }; // room for the scroll bar, which draws over the rows
         _lobbyScroll = new ScrollViewer { Content = _lobbyList, MaxHeight = 324,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -360,6 +373,9 @@ public sealed class SeamlessPage : LauncherPage
             {
                 "standard" => L.T("No mods"),
                 "nocturne" => CuratedMods.Installed(dir) is { Kind: InstalledKind.Known, Version: { } v } ? L.F($"Nocturne {v}") : L.T("Nocturne"),
+                "world" => Randomizer.Active(S) is { } world
+                    ? (CuratedMods.WorldHostLabel(dir, world.Folder) != null ? L.F($"Randomized world {world.Code}") : L.F($"Randomized world {world.Code} (not shown in the Join list: built on other mods)"))
+                    : L.T("Randomized world"),
                 _ => L.F($"My mods ({CuratedMods.MyModsCount(S, dir)})"),
             });
         }
@@ -398,6 +414,10 @@ public sealed class SeamlessPage : LauncherPage
     private volatile bool _lobbyOn;
     private string _lobbySignature = "\0";
     private readonly TextBlock _lobbyHint = Text("", "Faint");
+    // The pane captions' inset (LauncherPage) on the left; on the right the rows' content edge (list margin + row padding).
+    private readonly StackPanel _worldBuild = new() { Visibility = Visibility.Collapsed, Margin = new Thickness(14, 4, 28, 8) };
+    private readonly TextBlock _worldBuildText = Text("", "StatLabel");
+    private readonly System.Windows.Controls.ProgressBar _worldBuildBar = new() { Height = 4, Minimum = 0, Maximum = 1, Margin = new Thickness(0, 4, 0, 0) };
     private readonly StackPanel _lobbyList;
     private readonly ScrollViewer _lobbyScroll;
     private readonly TextBlock _lobbyCount = Text("", "Faint");
@@ -433,6 +453,15 @@ public sealed class SeamlessPage : LauncherPage
     private readonly Wpf.Ui.Controls.TextBox _searchBox;
     private bool _changingHost;
     private readonly bool? _previewPublic;
+    private readonly FrameworkElement _mode;
+
+    /// <summary>Puts the party mode on Host, as picking it by hand does (the Randomizer page's Load).</summary>
+    public void StartHosting()
+    {
+        if (S.Str("party_mode") == "host") return;
+        if (_mode is Segmented buttons) buttons.Select(1, notify: true);
+        else if (_mode is System.Windows.Controls.ComboBox box) box.SelectedIndex = 1;
+    }
     private bool IsPublic => _previewPublic ?? (NightwatchVpn.Shipped != null && S.Str("party_host_public") != "0");
 
     private PasswordBox _joinPassword = null!, _hostPassword = null!;
@@ -953,6 +982,74 @@ public sealed class SeamlessPage : LauncherPage
         JoinLobbyGame(game);
     }
 
+    /// <summary>"Build world and join": a heads-up (Nocturne's download size when it must be fetched, and the build), then
+    /// CuratedMods.UseWorldAsync builds or reuses the host's world and plays it, then the join as usual.</summary>
+    private void UseWorldAndJoin(LobbyGame game, JoinChoice advice, TextBlock? hint) =>
+        UseWorldAndJoin(game.Name, game.Mods, advice, hint, () => JoinLobbyGame(game), () => _lobbySignature = "\0");
+
+    /// <summary>The same for a party heard on the network (the label of its 'M' datagram, PartyDiscovery.ParseMods).</summary>
+    private void UseWorldAndJoin(FoundParty party, JoinChoice advice, TextBlock? hint) =>
+        UseWorldAndJoin(party.Info.Name, party.Mods, advice, hint, () => JoinParty(party), () => _partySignature = "\0");
+
+    private async void UseWorldAndJoin(string hostName, string hostLabel, JoinChoice advice, TextBlock? hint, Action join, Action redraw)
+    {
+        if (Ws.Game.Running)
+        {
+            Prompt.Tell(L.T("Join ") + hostName, L.T("Restart the game to join ") + hostName + ".");
+            return;
+        }
+        if (_worldBuilding) return;
+        var dir = GameEnvironment.ModsDir(S);
+        var manifest = _rowManifest;
+        // The base by content: folders here under any name (CuratedMods.ResolveBase); only a missing Nocturne is fetched.
+        var built = await Task.Run(() => CuratedMods.HasWorld(dir, advice.Code!, advice.Check!, advice.Base));
+        var missing = built ? new List<string>() : (await Task.Run(() => CuratedMods.ResolveBase(dir, advice.Base, manifest))).Missing;
+        var download = advice.Version is { } version && missing.Contains(CuratedMods.LabelKey + "@" + version.ToLowerInvariant());
+        var mb = download && manifest?.Find(advice.Version!) is { } entry ? (int)Math.Ceiling(entry.Size / 1e6) : 0;
+        var text = (advice.Version != null
+                ? string.Format(L.T("{0} plays a randomized world on Nocturne {1}."), hostName, advice.Version)
+                : string.Format(L.T("{0} plays a randomized world."), hostName)) + " " +
+            (download ? string.Format(L.T("Nocturne {0} is downloaded first ({1} MB)."), advice.Version, mb) + " " : "") +
+            (built ? "" : L.T("Your launcher builds the same world from your game files (about a minute).") + " ") +
+            L.T("Your game switches to that world, with its own saves; your mods come back when you pick another game mode on the Mods page. Continue?");
+        if (!Prompt.Confirm(L.T("Randomized world"), text, built ? L.T("Switch and join") : L.T("Build and join"))) return;
+        _worldBuilding = true;
+        ShowWorldBuild(0, string.Format(L.T("Setting up {0}'s world…"), hostName));
+        try
+        {
+            var progress = new Progress<double>(f => ShowWorldBuild(f, string.Format(L.T("Downloading Nocturne {0}: {1}%"), advice.Version, (int)(f * 100))));
+            await CuratedMods.UseWorldAsync(S, dir, advice, manifest, progress,
+                () => Dispatcher.Invoke(() => ShowWorldBuild(0, L.T("Building the world…"))), hostLabel: hostLabel,
+                buildProgress: (f, step) => Dispatcher.Invoke(() => ShowWorldBuild(f, L.T("Building the world…") + " " + step + " " + (int)(f * 100) + " %")));
+            WorldSaves.NameForGuest(S, hostName);
+            Ws.SaveSoon();
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or InvalidOperationException or System.Net.Http.HttpRequestException
+                                      or TaskCanceledException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            Prompt.Tell(L.T("Randomized world"), L.F($"The world could not be set up: {e.Message}"));
+            redraw();
+            return;
+        }
+        finally
+        {
+            _worldBuilding = false;
+            _worldBuild.Visibility = Visibility.Collapsed;
+        }
+        redraw();
+        join();
+    }
+
+    private bool _worldBuilding;
+
+    /// <summary>The join list's bar while a host's world is set up: the fraction done and what happens now.</summary>
+    private void ShowWorldBuild(double fraction, string text)
+    {
+        _worldBuild.Visibility = Visibility.Visible;
+        _worldBuildBar.Value = Math.Clamp(fraction, 0, 1);
+        SetHint(_worldBuildText, text);
+    }
+
     /// <summary>Where the poller asks: the lobby on the tunnel from this PC's tunnel address, or a test lobby; null sends nothing.</summary>
     private (IPEndPoint Target, string? Bind)? LobbySource()
     {
@@ -975,7 +1072,9 @@ public sealed class SeamlessPage : LauncherPage
         RefreshRowManifest();
         var manifest = _rowManifest;
         if (games.Count > 0) PartyHashes.Refresh(S, Ws.Game.Running); // this PC's hashes as a start would have them now
-        var local = games.Any(g => g.Mods.Length > 0) || CuratedMods.Mode(S) != "my" ? CuratedMods.Local(S, GameEnvironment.ModsDir(S), manifest)
+        // A host's world on a mod named by content ("m:" key): this PC's mods are worked out by content too (in the background).
+        var byContent = games.Any(g => CuratedMods.WorldOf(CuratedMods.ModsPart(g.Mods), out _) is { Base: { } b } && b.Contains(CuratedMods.ModToken));
+        var local = games.Any(g => g.Mods.Length > 0) || CuratedMods.Mode(S) != "my" ? CuratedMods.Local(S, GameEnvironment.ModsDir(S), manifest, byContent)
             : new LocalMods("my", null, CuratedMods.MyModsCount(S, GameEnvironment.ModsDir(S)), PartyHashes.Current.Mods, PartyHashes.Current.Patches);
         var offered = manifest?.Versions.Select(v => v.Version).ToList();
         var signature = result.Total + "|" + result.Hidden + "|" + _searchBox.Text + "|" + up + "|" + (_lobby?.Answered == true) + "|" + local + "|" +
@@ -996,11 +1095,14 @@ public sealed class SeamlessPage : LauncherPage
             var advice = CuratedMods.JoinAdvice(game.Mods, local, offered);
             TextBlock? rowHint = null;
             var useNocturne = open && advice.Kind == JoinKind.GetNocturne && advice.Version is { } wanted;
+            var buildWorld = open && advice.Kind == JoinKind.BuildWorld;
             var join = SmallButton(!sameVersion ? L.T("Different version") : !open ? L.T("Full") :
-                                   useNocturne ? string.Format(L.T("Use Nocturne {0} and join"), advice.Version) : L.T("Join"),
+                                   useNocturne ? string.Format(L.T("Use Nocturne {0} and join"), advice.Version) :
+                                   buildWorld ? L.T("Build world and join") : L.T("Join"),
                 SymbolRegular.Link24, (_, _) =>
                 {
                     if (useNocturne) UseNocturneAndJoin(picked, advice.Version!, rowHint);
+                    else if (buildWorld) UseWorldAndJoin(picked, advice, rowHint);
                     else JoinLobbyGame(picked);
                 });
             join.IsEnabled = open;
@@ -1024,7 +1126,9 @@ public sealed class SeamlessPage : LauncherPage
             var row = Card(SymbolRegular.People24, game.Name, null, WithAccessMark(!game.Password, LockInfo(game.Password), buttons), out var hint);
             rowHint = hint;
             if (!open) row.Opacity = 0.6;
-            var hostMods = CuratedMods.NocturneOf(game.Mods) is { } hv ? " · Nocturne " + hv : CuratedMods.ModsPart(game.Mods).Length > 0 ? " · " + L.T("Modded") : "";
+            var hostWorld = CuratedMods.WorldOf(CuratedMods.ModsPart(game.Mods), out _) != null;
+            var hostMods = hostWorld ? " · " + L.T("Randomized world") + (CuratedMods.NocturneOf(game.Mods) is { } wv ? " (Nocturne " + wv + ")" : "")
+                : CuratedMods.NocturneOf(game.Mods) is { } hv ? " · Nocturne " + hv : CuratedMods.ModsPart(game.Mods).Length > 0 ? " · " + L.T("Modded") : "";
             SetHint(hint, L.T("Nightwatch Online") + " · " + game.Players + " / " + game.Max + " · " + VpnLobby.VersionOf(game.Build) + hostMods +
                           (sameVersion ? "" : "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.")));
             if (sameVersion && hint.Parent is Panel details)
@@ -1044,6 +1148,14 @@ public sealed class SeamlessPage : LauncherPage
     {
         var modsDiffer = advice.Kind is JoinKind.Modded or JoinKind.MismatchJoinAnyway;
         if (advice.Kind == JoinKind.NocturneNotAvailable) yield return NocturneNote(advice, fontSize);
+        if (advice.Kind == JoinKind.WorldNewer)
+            yield return NoteLine(L.T("This host's world was made by a newer randomizer: update the launcher to join it."), fontSize);
+        else if (advice.Kind == JoinKind.WorldOlder)
+            yield return NoteLine(L.T("This host's world was made by an older randomizer: the host needs to make it again with the current launcher before you can join."), fontSize);
+        else if (advice.Kind == JoinKind.WorldNotAvailable)
+            yield return NoteLine(L.T("This host's randomized world can't be built here: you probably can't join."), fontSize);
+        else if (advice.Kind == JoinKind.WorldModMissing)
+            yield return NoteLine(CuratedMods.MissingModsText((advice.Missing ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)), fontSize);
         // Patches (user, 4 Nov: a mod's own XML patch refused a join the lobby did not warn about).
         if (modsDiffer && advice.PatchesDiffer)
             yield return NoteLine(L.T("Mods and patches differ: enable the same mods and patches and try again."), fontSize);
@@ -1151,7 +1263,18 @@ public sealed class SeamlessPage : LauncherPage
         var saved = S.Str("party_code");
         var listen = ListenLine();
         var signature = _searchBox.Text + "|" + _joinNote + "|" + _listener?.Error + "|" + waited + "|" + saved + "|" + listen + "|" + lobbyRows + "|" +
-                        string.Join(";", parties.Select(p => $"{PartyDiscovery.Tag(p, _adapters)}/{p.Info.Id}/{p.Ip}/{p.Info.Players}/{p.Info.Max}/{p.Info.Level}/{p.Info.Area}/{p.Info.Name}/{p.Info.Password}/{p.Info.Open}/{p.Info.Build}"));
+                        string.Join(";", parties.Select(p => $"{PartyDiscovery.Tag(p, _adapters)}/{p.Info.Id}/{p.Ip}/{p.Info.Players}/{p.Info.Max}/{p.Info.Level}/{p.Info.Area}/{p.Info.Name}/{p.Info.Password}/{p.Info.Open}/{p.Info.Build}/{p.Mods}"));
+        // A host's mods label (its 'M' datagram, game 0.7.9; none from older games): the same advice as the lobby's rows.
+        var manifest = _rowManifest;
+        var offered = manifest?.Versions.Select(v => v.Version).ToList();
+        LocalMods? local = null;
+        if (parties.Any(p => p.Mods.Length > 0))
+        {
+            RefreshRowManifest();
+            var byContent = parties.Any(p => CuratedMods.WorldOf(CuratedMods.ModsPart(p.Mods), out _) is { Base: { } b } && b.Contains(CuratedMods.ModToken));
+            local = CuratedMods.Local(S, GameEnvironment.ModsDir(S), manifest, byContent);
+            signature += "|" + local + "|" + (offered == null ? "-" : string.Join(",", offered));
+        }
         if (signature == _partySignature) return;
         _partySignature = signature;
         _partyList.Children.Clear();
@@ -1170,18 +1293,33 @@ public sealed class SeamlessPage : LauncherPage
                        info.Players + " / " + info.Max + (!info.Password && !info.Open ? " · " + L.T("Code required") : "") + " · " + VpnLobby.VersionOf(info.Build) + (info.Area.Length > 0 ? " · " + info.Area : "");
             if (state == PartyDiscovery.RowState.OtherBuild) text += "\n" + L.T("This host runs another version of the co-op: update the launcher or ask the host to.");
             var picked = party;
+            var advice = local != null && party.Mods.Length > 0 ? CuratedMods.JoinAdvice(party.Mods, local, offered) : (JoinChoice?)null;
+            if (party.Mods.Length > 0)
+                text += " · " + (CuratedMods.WorldOf(CuratedMods.ModsPart(party.Mods), out _) != null
+                    ? L.T("Randomized world") + (CuratedMods.NocturneOf(party.Mods) is { } wv ? " (Nocturne " + wv + ")" : "")
+                    : CuratedMods.NocturneOf(party.Mods) is { } hv ? "Nocturne " + hv : L.T("Modded"));
+            var buildWorld = state == PartyDiscovery.RowState.Join && (info.Password || info.Open) && advice?.Kind == JoinKind.BuildWorld;
+            TextBlock? rowHint = null;
             var join = SmallButton(state switch
                 {
-                    PartyDiscovery.RowState.Join => L.T("Join"),
+                    PartyDiscovery.RowState.Join => buildWorld ? L.T("Build world and join") : L.T("Join"),
                     PartyDiscovery.RowState.Full => L.T("Full"),
                     _ => L.T("Different version"),
-                }, selected ? SymbolRegular.Checkmark24 : SymbolRegular.Link24, (_, _) => JoinParty(picked),
+                }, selected ? SymbolRegular.Checkmark24 : SymbolRegular.Link24, (_, _) =>
+                {
+                    if (buildWorld) UseWorldAndJoin(picked, advice!.Value, rowHint);
+                    else JoinParty(picked);
+                },
                 selected ? ControlAppearance.Primary : ControlAppearance.Secondary);
             join.IsEnabled = state == PartyDiscovery.RowState.Join;
             var access = info.Password || info.Open ? LockInfo(info.Password) : L.T("This host has no password and shares a party code: ask the host for it.");
             var row = Card(SymbolRegular.People24, info.Name, null, WithAccessMark(!info.Password && info.Open, access, join), out var hint);
             if (state != PartyDiscovery.RowState.Join) row.Opacity = 0.6;
+            rowHint = hint;
             SetHint(hint, text);
+            if (advice is { } said && state != PartyDiscovery.RowState.OtherBuild && hint.Parent is Panel details)
+                foreach (var note in ModsNotes(said, hint.FontSize).Reverse())
+                    details.Children.Insert(details.Children.IndexOf(hint) + 1, note);
             _partyList.Children.Add(row);
         }
     }

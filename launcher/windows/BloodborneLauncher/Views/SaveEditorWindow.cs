@@ -19,16 +19,47 @@ public interface ISaveEditorSource
 {
     Task<string> Run(string command, string kind, int? slot = null, object? edit = null, string? backup = null);
     bool GameRunning { get; }
+    /// <summary>The randomized worlds whose saves can be opened (the Randomized worlds save type), host and guest copies alike.</summary>
+    Task<IReadOnlyList<WorldSaves.Entry>> Worlds() => Task.FromResult<IReadOnlyList<WorldSaves.Entry>>(Array.Empty<WorldSaves.Entry>());
+    /// <summary>The folder of the world the game plays now (one of <see cref="Worlds"/>), or null.</summary>
+    string? PlayingWorld => null;
+    /// <summary>Which saves the next requests read: a world's folder from <see cref="Worlds"/>, or null for the profile's own.</summary>
+    Task UseWorld(string? folder) => Task.CompletedTask;
 }
 
 public sealed partial class SaveEditorWindow : Window
 {
-    private sealed class LocalSource(LauncherSettings settings) : ISaveEditorSource, IDisposable
+    private sealed class LocalSource : ISaveEditorSource, IDisposable
     {
-        private readonly SaveEditor.Worker _worker = new(settings);
+        private readonly LauncherSettings _settings;
+        private readonly SaveEditor.Worker _worker;
+        // Single player and Party are the profile's own saves; a randomized world's are in its folder under worlds\.
+        private readonly string _profile;
+        public LocalSource(LauncherSettings settings)
+        {
+            _settings = settings; _worker = new(settings);
+            _profile = PlayerProfiles.Folder(settings, PlayerProfiles.Current(settings));
+            _ = _worker.UseUserDir(_profile);  // no Python side runs yet: done at once
+        }
         public Task<string> Run(string command, string kind, int? slot = null, object? edit = null, string? backup = null)
             => _worker.Run(command, kind, slot, edit, backup);
         public void Dispose() => _worker.Dispose();
+        public async Task<IReadOnlyList<WorldSaves.Entry>> Worlds()
+        {
+            var running = GameRunning;
+            var profile = _profile;
+            return await Task.Run(() =>
+            {
+                // An earlier launcher's world folder is copied first (never while a game runs); one that can't be stays listed.
+                if (!running) WorldSaves.MigrateAll(new[] { profile });
+                return (IReadOnlyList<WorldSaves.Entry>)WorldSaves.List(profile);
+            });
+        }
+        public string? PlayingWorld => Randomizer.Active(_settings) is { } world
+            ? WorldSaves.Find(_profile, world.Code, world.Hash)?.Folder ??
+              (Directory.Exists(WorldSaves.LegacyFolder(_profile, world)) ? WorldSaves.LegacyFolder(_profile, world) : null)
+            : null;
+        public Task UseWorld(string? folder) => _worker.UseUserDir(folder ?? _profile);
         public bool GameRunning
         {
             get
@@ -67,7 +98,14 @@ public sealed partial class SaveEditorWindow : Window
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly UIElement[] _pages;
     private readonly string[] _tabLabels = { L.T("Character"), L.T("Inventory"), L.T("Progress"), L.T("Backups") };
-    private Segments _kind = null!, _tabs = null!, _itemKinds = null!, _flagKinds = null!;
+    private Segments _kind = null!, _tabs = null!, _itemKinds = null!, _flagKinds = null!, _worldKind = null!;
+    // The Randomized worlds save type: which world (by its local name), then single player or party saves in it.
+    private readonly ComboBox _worldBox = new() { Margin = new Thickness(0, 6, 0, 8), HorizontalContentAlignment = HorizontalAlignment.Stretch };
+    private readonly StackPanel _worldPick = new() { Visibility = Visibility.Collapsed };
+    private readonly TextBlock _worldNote = LauncherPage.Text("", "Muted");
+    private IReadOnlyList<WorldSaves.Entry> _worldList = Array.Empty<WorldSaves.Entry>();
+    private WorldSaves.Entry? _world;
+    private int _worldKindIndex = PartyKind;
     private List<ItemRow> _items = new();
     private List<FlagRow> _flags = new();
     // Items picked in the Add item dialog; written by Apply, dropped by Revert or a reload.
@@ -79,9 +117,10 @@ public sealed partial class SaveEditorWindow : Window
     private SaveEditor.Snapshot? _snapshot;
     private SaveEditor.Slot? _selected;
     private bool _busy, _loading, _dirty;
-    // Most players use the launcher for co-op, so the party saves open first.
-    private int _kindIndex = 1;
-    private string Kind => _kindIndex == 1 ? "party" : "solo";
+    // Most players use the launcher for co-op, so the party saves open first (a world's party saves while one is played).
+    public const int SoloKind = 0, PartyKind = 1, WorldsKind = 2;
+    private int _kindIndex = PartyKind;
+    private string Kind => (_kindIndex == WorldsKind ? _worldKindIndex : _kindIndex) == PartyKind ? "party" : "solo";
 
     public SaveEditorWindow(LauncherSettings settings) : this(new LocalSource(settings)) { }
     public SaveEditorWindow(ISaveEditorSource source)
@@ -114,14 +153,46 @@ public sealed partial class SaveEditorWindow : Window
         var sidebar = new DockPanel();
         var pick = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
         pick.Children.Add(LauncherPage.Text(L.T("Save type"), "StatLabel"));
-        _kind = new Segments(new[] { L.T("Single player"), L.T("Party") }, async index =>
+        _kind = new Segments(new[] { L.T("Single player"), L.T("Party"), L.T("Randomized worlds") }, async index =>
         {
             if (_loading || _busy || index == _kindIndex) { _kind.Select(_kindIndex); return; }
             if (!CanDiscard()) { _kind.Select(_kindIndex); return; }
-            _kindIndex = index; await Guard(() => Refresh());
-        }, 6, 6, true);
+            await Guard(() => SelectKind(index));
+        }, 0, 8);
+        var kindGrid = (Grid)_kind.Panel;
+        kindGrid.ColumnDefinitions.Clear();
+        for (var i = 0; i < _kind.Buttons.Count; i++)
+        {
+            kindGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var button = _kind.Buttons[i];
+            Grid.SetColumn(button, 0); Grid.SetRow(button, i);
+            button.CornerRadius = i == 0 ? new CornerRadius(6, 6, 0, 0)
+                : i == _kind.Buttons.Count - 1 ? new CornerRadius(0, 0, 6, 6) : new CornerRadius(0);
+            button.HorizontalContentAlignment = HorizontalAlignment.Left;
+            button.FontSize = 12.5;
+        }
         _kind.Select(_kindIndex); _kind.Panel.Margin = new Thickness(0, 6, 0, 14);
-        pick.Children.Add(_kind.Panel); pick.Children.Add(LauncherPage.Text(L.T("Character slots"), "GroupHeader"));
+        pick.Children.Add(_kind.Panel);
+        _worldPick.Children.Add(LauncherPage.Text(L.T("World"), "StatLabel"));
+        _worldPick.Children.Add(_worldBox);
+        _worldKind = new Segments(new[] { L.T("Single player"), L.T("Party") }, async index =>
+        {
+            if (_loading || _busy || index == _worldKindIndex) { _worldKind.Select(_worldKindIndex); return; }
+            if (!CanDiscard()) { _worldKind.Select(_worldKindIndex); return; }
+            _worldKindIndex = index; await Guard(() => Refresh());
+        }, 4, 6);
+        _worldKind.Select(_worldKindIndex); _worldKind.Panel.Margin = new Thickness(0, 0, 0, 12);
+        _worldPick.Children.Add(_worldKind.Panel);
+        _worldNote.TextWrapping = TextWrapping.Wrap; _worldNote.Margin = new Thickness(0, 0, 0, 14);
+        _worldPick.Children.Add(_worldNote);
+        _worldBox.SelectionChanged += async (_, _) =>
+        {
+            if (_loading || _busy || (_worldBox.SelectedItem as ComboBoxItem)?.Tag is not WorldSaves.Entry chosen || chosen == _world) return;
+            if (!CanDiscard()) { SelectWorldItem(_world); return; }
+            await Guard(() => OpenWorld(chosen));
+        };
+        pick.Children.Add(_worldPick);
+        pick.Children.Add(LauncherPage.Text(L.T("Character slots"), "GroupHeader"));
         DockPanel.SetDock(pick, Dock.Top); sidebar.Children.Add(pick);
         var refresh = LauncherPage.SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24,
             async (_, _) => { if (CanDiscard()) await Guard(() => Refresh(_selected?.SlotNumber)); });
@@ -172,7 +243,63 @@ public sealed partial class SaveEditorWindow : Window
         Closed += (_, _) => { _timer.Stop(); (_source as IDisposable)?.Dispose(); };
     }
 
-    public Task LoadAsync() => Guard(() => Refresh());
+    public Task LoadAsync() => Guard(async () =>
+    {
+        // While a randomized world is played, its saves open first.
+        if (_source.PlayingWorld is { } playing) await SelectKind(WorldsKind, playing);
+        else await Refresh();
+    });
+
+    /// <summary>The save type: Single player and Party read the profile's own saves, Randomized worlds a world's (first the one
+    /// <paramref name="world"/> names, else the one open before, else the first).</summary>
+    public async Task SelectKind(int index, string? world = null)
+    {
+        _kindIndex = index; _kind.Select(index);
+        _worldPick.Visibility = index == WorldsKind ? Visibility.Visible : Visibility.Collapsed;
+        if (index != WorldsKind)
+        {
+            _world = null;
+            await _source.UseWorld(null);
+            await Refresh();
+            return;
+        }
+        _worldList = await _source.Worlds();
+        _loading = true;
+        try
+        {
+            _worldBox.Items.Clear();
+            foreach (var entry in _worldList)
+            {
+                var item = new ComboBoxItem { Content = WorldLabel(entry), Tag = entry, ToolTip = WorldLabel(entry) };
+                item.SetResourceReference(Control.ForegroundProperty, entry.Joined ? "TextFillColorTertiaryBrush" : "TextFillColorPrimaryBrush");
+                _worldBox.Items.Add(item);
+            }
+        }
+        finally { _loading = false; }
+        var pickFolder = world ?? _world?.Folder;
+        var next = _worldList.FirstOrDefault(e => string.Equals(e.Folder, pickFolder, StringComparison.OrdinalIgnoreCase)) ?? _worldList.FirstOrDefault();
+        _worldNote.Text = _worldList.Count == 0 ? L.T("No randomized worlds yet. Play one to make its saves.") : "";
+        _worldNote.Visibility = _worldNote.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _worldBox.IsEnabled = _worldList.Count > 0;
+        await OpenWorld(next);
+    }
+
+    /// <summary>A world in the list: its local name, and "(joined)" for a copy made to join a host.</summary>
+    public static string WorldLabel(WorldSaves.Entry entry) => entry.Joined ? L.F($"{entry.Name} (joined)") : entry.Name;
+
+    private void SelectWorldItem(WorldSaves.Entry? entry)
+    {
+        _loading = true;
+        try { _worldBox.SelectedItem = _worldBox.Items.Cast<ComboBoxItem>().FirstOrDefault(i => Equals(i.Tag, entry)); }
+        finally { _loading = false; }
+    }
+
+    private async Task OpenWorld(WorldSaves.Entry? entry)
+    {
+        _world = entry; SelectWorldItem(entry);
+        if (entry != null) await _source.UseWorld(entry.Folder);
+        await Refresh();
+    }
     public void SelectTab(int index)
     {
         if (index < 0 || index >= _pages.Length) return;
@@ -197,10 +324,12 @@ public sealed partial class SaveEditorWindow : Window
         try
         {
             _snapshot = null; _selected = null; _dirty = false;
-            var rows = await Run<SaveEditor.Slot[]>("slots"); _slots.Items.Clear();
+            // Randomized worlds without a world to open: nothing to read.
+            var none = _kindIndex == WorldsKind && _world == null;
+            var rows = none ? Array.Empty<SaveEditor.Slot>() : await Run<SaveEditor.Slot[]>("slots"); _slots.Items.Clear();
             foreach (var slot in rows) _slots.Items.Add(SlotCard(slot));
             _slotEmpty.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-            BuildBackups(await Run<SaveEditor.Backup[]>("backups"));
+            BuildBackups(none ? Array.Empty<SaveEditor.Backup>() : await Run<SaveEditor.Backup[]>("backups"));
             var kept = Array.FindIndex(rows, r => r.SlotNumber == keepSlot);
             _slots.SelectedIndex = rows.Length == 0 ? -1 : Math.Max(kept, 0);
         }

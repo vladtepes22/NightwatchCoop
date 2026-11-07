@@ -20,6 +20,8 @@ typedef sigjmp_buf RuntimeRecoverBuf;
 #define RUNTIME_RECOVER_JUMP(buf) siglongjmp(buf, 1)
 #endif
 extern __thread RuntimeRecoverBuf *runtime_fault_recover;
+/* Randomized world only (runtime_file.c): the last map layout and model file opened, for the fault report. */
+extern char runtime_rando_map[16], runtime_rando_chr[8];
 void runtime_restart(void);
 void runtime_relaunch(int exit_code);
 #define ABI __attribute__((sysv_abi))

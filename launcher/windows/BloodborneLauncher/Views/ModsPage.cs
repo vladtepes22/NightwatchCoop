@@ -73,7 +73,7 @@ namespace BloodborneLauncher.Views
 
         private static (string Label, string Value)[] ModeChoices() => new[]
         {
-            (L.T("No mods"), "standard"), (L.T("My mods"), "my"), (L.T("Nocturne only"), "nocturne"),
+            (L.T("No mods"), "standard"), (L.T("My mods"), "my"), (L.T("Nocturne only"), "nocturne"), (L.T("Randomized world"), "world"),
         };
 
         /// <summary>The combo, the mod list and the lock (the game reads the mods at its start only).</summary>
@@ -86,13 +86,17 @@ namespace BloodborneLauncher.Views
             _modeBox.SelectedIndex = Array.FindIndex(ModeChoices(), c => c.Value == mode);
             _modeSetting = false;
             _modList.IsEnabled = mode == "my";
+            // A randomized world is picked on the Randomizer page (or by joining one): its choice only shows while it plays.
+            if (_modeBox.Items[^1] is ComboBoxItem worldItem) worldItem.Visibility = mode == "world" ? Visibility.Visible : Visibility.Collapsed;
             var locked = Ws.Game.Running;
             _modeBox.IsEnabled = !locked && !busy;
             if (busy)
                 SetHint(_modeHint, SwitchDownloads ? DownloadText() : "");
             else
                 SetHint(_modeHint, locked ? L.T("Close the game to change which mods load.") :
-                    L.T("No mods: the game as it ships. My mods: the list below. Nocturne only: the curated mod, with your mods paused. Applied when the game starts."));
+                    mode == "world" && Randomizer.Active(S) is { } world
+                        ? L.F($"Randomized world {world.Code}: the game loads it and the mods it was built on. Pick another mode to leave it.")
+                        : L.T("No mods: the game as it ships. My mods: the list below. Nocturne only: the curated mod, with your mods paused. Applied when the game starts."));
         }
 
         private async void ModePicked()

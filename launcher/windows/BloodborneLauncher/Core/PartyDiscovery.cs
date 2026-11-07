@@ -6,8 +6,10 @@ namespace BloodborneLauncher.Core;
 /// <summary>A party a host announced (the game's engine/gpu/shim/net/party_discovery.h, version 1).</summary>
 public sealed record PartyAnnounce(uint Id, int Port, int Level, int Players, int Max, bool Password, bool Open, string Build, string Name, string Area, int Flags = 0);
 
-/// <summary>A party heard on the network: the announcement and the address of the host it came from.</summary>
-public sealed record FoundParty(PartyAnnounce Info, string Ip, long SeenMs)
+/// <summary>A party heard on the network: the announcement and the address of the host it came from. Mods: the host's mods
+/// label from its 'M' datagram (<see cref="PartyDiscovery.ParseMods"/>), "" when none was heard (no gameplay mods, or a game
+/// before the label datagram).</summary>
+public sealed record FoundParty(PartyAnnounce Info, string Ip, long SeenMs, string Mods = "")
 {
     public string Address => NetworkRoute.HostAddress(Ip, Info.Port);
 }
@@ -48,6 +50,21 @@ public static class PartyDiscovery
             !Text(d, ref pos, MaxArea, out var area) || pos != d.Length || name.Length == 0)
             return null;
         return new PartyAnnounce(id, port, level, players, max, (d[3] & 1) != 0, (d[3] & 2) != 0, build, name, area, d[3]);
+    }
+
+    /// <summary>The largest mods label datagram: 8 + a 255-byte label.</summary>
+    public const int MaxModsPacket = 8 + VpnLobby.MaxModsLabel;
+
+    /// <summary>The host's mods label datagram (party_discovery.h, game 0.7.9; sent after the 'A' announcement of the same
+    /// game, only while it has gameplay mods): fa 'M' ver 1, id u32 big endian (the 'A' announcement's id), label length u8,
+    /// the label (1-255 of a-z 0-9 @ . _ : + -, <see cref="VpnLobby.ValidModsLabel"/>). Strict: anything else, a length that
+    /// does not cover the rest exactly or another version, is null. The label is a key only, never a path or an address.</summary>
+    public static (uint Id, string Label)? ParseMods(ReadOnlySpan<byte> d)
+    {
+        if (d.Length < 9 || d.Length > MaxModsPacket || d[0] != 0xfa || d[1] != (byte)'M' || d[2] != 1 || d[7] + 8 != d.Length) return null;
+        var label = d[8..];
+        if (!VpnLobby.ValidModsLabel(label)) return null;
+        return ((uint)d[3] << 24 | (uint)d[4] << 16 | (uint)d[5] << 8 | d[6], System.Text.Encoding.ASCII.GetString(label));
     }
 
     private static bool Text(ReadOnlySpan<byte> d, ref int pos, int limit, out string text)
@@ -142,6 +159,8 @@ public static class PartyDiscovery
     public sealed class Book
     {
         private readonly Dictionary<uint, FoundParty> _entries = new();
+        // The mods labels heard, by (source, id): a label goes with the announcement of the same game from the same address.
+        private readonly Dictionary<(string Ip, uint Id), (string Label, long SeenMs)> _mods = new();
         private readonly Dictionary<string, (long Second, int Count)> _rate = new();
         private readonly HashSet<string> _own;
         private readonly object _lock = new();
@@ -161,6 +180,16 @@ public static class PartyDiscovery
                 if (_rate.Count > 4 * MaxEntries)
                     foreach (var key in _rate.Where(k => k.Value.Second < second - 1).Select(k => k.Key).ToList()) _rate.Remove(key);
                 if (count >= MaxPerSecond) return false;
+                if (ParseMods(data) is { } mods)
+                {
+                    if (!_mods.ContainsKey((ip, mods.Id)) && _mods.Count >= MaxEntries)
+                    {
+                        Expire(nowMs);
+                        if (_mods.Count >= MaxEntries) return false;
+                    }
+                    _mods[(ip, mods.Id)] = (mods.Label, nowMs);
+                    return true;
+                }
                 if (Parse(data) is not { } info) return false;
                 if (!_entries.ContainsKey(info.Id) && _entries.Count >= MaxEntries)
                 {
@@ -176,19 +205,21 @@ public static class PartyDiscovery
         {
             foreach (var id in _entries.Where(e => nowMs - e.Value.SeenMs > TtlMs).Select(e => e.Key).ToList())
                 _entries.Remove(id);
+            foreach (var key in _mods.Where(e => nowMs - e.Value.SeenMs > TtlMs).Select(e => e.Key).ToList())
+                _mods.Remove(key);
         }
 
-        /// <summary>The parties still heard, by name.</summary>
+        /// <summary>The parties still heard, by name, each with the mods label heard from its address and id ("" none).</summary>
         public List<FoundParty> Snapshot(long nowMs)
         {
             lock (_lock)
             {
                 Expire(nowMs);
-                return _entries.Values.OrderBy(e => e.Info.Name, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.Ip, StringComparer.Ordinal).ToList();
+                return _entries.Values.Select(e => _mods.TryGetValue((e.Ip, e.Info.Id), out var m) ? e with { Mods = m.Label } : e).OrderBy(e => e.Info.Name, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.Ip, StringComparer.Ordinal).ToList();
             }
         }
 
-        public void Clear() { lock (_lock) { _entries.Clear(); _rate.Clear(); } }
+        public void Clear() { lock (_lock) { _entries.Clear(); _mods.Clear(); _rate.Clear(); } }
     }
 
     /// <summary>Listens on UDP <see cref="Port"/> (shared with other listeners) on its own thread and feeds a Book with

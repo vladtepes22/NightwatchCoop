@@ -775,6 +775,10 @@ Check(firewallLines.Length == 4 && firewallLines.Skip(1).All(l => l.Contains("-A
 Check(firewallLines[1].Contains("-Protocol TCP -LocalPort 47890") && firewallLines[2].Contains("-Protocol UDP -LocalPort 47890")
     && firewallLines[3].Contains($"-LocalPort {PartyDiscovery.Port}"), "Firewall rules on the wrong ports");
 
+RandomizerTests.Run();
+WorldJoinTests.Run();
+WorldRejoinTests.Run();
+WorldSavesTests.Run();
 PartyCodeTests.Run();
 SaveEditorTests.Run();
 CoopSetupTests.Run();

@@ -25,6 +25,9 @@ const char* const kIntelTonemap = "Intel Black Tonemap Fix";
 const char* const kSfxWorkaround = "Intel 12th Gen+ SFX workaround";
 const char* const kHeapPatch = "Increased Graphics Heap Sizes";
 constexpr std::uint64_t kHeapSizes = 0x4736dd8;
+// The game's MAIN heap size (heap budget table 0x4736d40, row 1, entry 0). See where it is written.
+constexpr std::uint64_t kMainHeap = 0x4736dc0;
+constexpr std::uint64_t kMainHeapPs4 = 0x20c00000, kMainHeapGrown = 0x40000000;
 constexpr std::uint64_t kGxRegion = 0x1d9933d;
 constexpr std::uint64_t kGxHeapPs4 = 0x8ef00000;
 constexpr unsigned kGxRegionGame = 160, kGxRegionDefault = 288, kGxRegionMax = 416;
@@ -999,6 +1002,32 @@ PatchResult CompilePatches(const PatchRequest& request) {
             Log("Patches: the game's graphics heaps left at their size: this executable differs there");
         }
     }
+    // MAIN holds the loaded maps' resources (map object and character archives). A randomized world
+    // (BB_RANDO=1, mods.cpp) can put far more distinct models in a map than the game ships. After two
+    // such maps in a row, the next map's load stopped at a 34 MB map object archive: its header read,
+    // its body never, every loader thread idle, frames still running. With MAIN larger it loads.
+    // Only for a randomized world, so every other start keeps the game's memory and commit. Its direct
+    // memory comes from the 5056 MiB
+    // pool, which the game's heaps fill: the larger MAIN needs the 9152 MiB pool (main.cpp).
+    // BB_MAIN_HEAP=0 keeps the PS4's 524 MiB.
+    bool main_heap = false;
+    if (Env("BB_RANDO", "") == "1") {
+        const auto dmem = Env("BB_DMEM_MB");
+        if (Env("BB_MAIN_HEAP", "") == "0") {
+            Log("Patches: the game's MAIN heap at its PS4 size (BB_MAIN_HEAP=0)");
+        } else if (dmem && std::strtoull(dmem->c_str(), nullptr, 10) < 9152) {
+            Log("Patches: the game's MAIN heap at its PS4 size (BB_DMEM_MB=%s)", dmem->c_str());
+        } else if (!dmem && PoolRefused(9152)) {
+            Log("Patches: the game's MAIN heap at its PS4 size: Windows refused the 9152 MiB memory pool it needs");
+        } else if (OriginalBytes(elf, kMainHeap, 8) == Le<std::uint64_t>(kMainHeapPs4)) {
+            writes.emplace_back(kMainHeap, Le<std::uint64_t>(kMainHeapGrown));
+            main_heap = true;
+            Log("Patches: the game's MAIN heap %llu MiB for the randomized world (the PS4's 524)",
+                static_cast<unsigned long long>(kMainHeapGrown >> 20));
+        } else {
+            Log("Patches: the game's MAIN heap left at its size: this executable differs there");
+        }
+    }
     if (!request.patches_dir.empty()) {
         std::optional<std::pair<std::set<std::uint64_t>, Size>> resolution;
         if (!(out == kOutput)) {
@@ -1059,6 +1088,7 @@ PatchResult CompilePatches(const PatchRequest& request) {
     }
     PatchResult result;
     result.ui = Env("BB_OTHER_EDITION", "") == "1" ? kOutput : ui;
+    result.main_heap = main_heap && Env("BB_OTHER_EDITION", "") != "1";
     result.heap_patch = std::any_of(writes.begin(), writes.end(), [&](const Write& w) {
         return w.first < kHeapSizes + 16 && w.first + w.second.size() > kHeapSizes;
     });

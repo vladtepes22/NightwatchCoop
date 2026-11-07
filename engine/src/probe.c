@@ -250,6 +250,9 @@ static void report_exception(EXCEPTION_POINTERS *e) {
         LocalFree(description);
     }
     fprintf(stderr, " (thread %lu %s)\n", GetCurrentThreadId(), thread_name);
+    if (runtime_rando_map[0] || runtime_rando_chr[0])
+        fprintf(stderr, "[rando] at the fault: last map file %s, last model file %s\n",
+                runtime_rando_map[0] ? runtime_rando_map : "none", runtime_rando_chr[0] ? runtime_rando_chr : "none");
     fprintf(stderr, "  rax=%016llx rbx=%016llx rcx=%016llx rdx=%016llx\n  rsi=%016llx rdi=%016llx rbp=%016llx rsp=%016llx\n",
             c->Rax, c->Rbx, c->Rcx, c->Rdx, c->Rsi, c->Rdi, c->Rbp, c->Rsp);
     uintptr_t rbp = c->Rbp;

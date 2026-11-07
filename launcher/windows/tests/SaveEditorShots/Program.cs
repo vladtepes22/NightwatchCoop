@@ -18,7 +18,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Length != 1 && !(args.Length == 2 && args[1] == "--coop")) { Console.Error.WriteLine("Usage: SaveEditorShots <output-folder> [--coop]"); return 2; }
+        if (args.Length != 1 && !(args.Length == 2 && args[1] is "--coop" or "--randomizer")) { Console.Error.WriteLine("Usage: SaveEditorShots <output-folder> [--coop | --randomizer]"); return 2; }
         try
         {
             Directory.CreateDirectory(args[0]);
@@ -28,6 +28,7 @@ internal static class Program
             app.Resources.MergedDictionaries.Add(new ControlsDictionary());
             foreach (var file in new[] { "Charcoal", "Styles", "ScrollBar" })
                 app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri($"pack://application:,,,/Nightwatch Co-op;component/Themes/{file}.xaml") });
+            if (args.Length == 2 && args[1] == "--randomizer") { RandomizerShots(args[0]); app.Shutdown(); return 0; }
             if (args.Length == 2) { CoopShots(args[0]); app.Shutdown(); return 0; }
             int shots = 0;
             IconPath = WriteIcon(Path.Combine(args[0], "fixture-icon.png"));
@@ -70,6 +71,36 @@ internal static class Program
                 System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                 root.UpdateLayout();
                 Render(root, 1400, 800, 1, Path.Combine(args[0], "crimson-1400x800-live-theme.png")); shots++; window.Close();
+            }
+            {
+                // Randomized worlds: the world played now opens first, by its local name; another pick reads that world's folder.
+                var worlds = new[]
+                {
+                    new WorldSaves.Entry(Path.Combine("fixture", "worlds", "Night run"), "R2-0M000-01G74-ZY", "227291f8", "Night run", Named: true),
+                    new WorldSaves.Entry(Path.Combine("fixture", "worlds", "Anna s world"), "R2-1C000-035G6-0GM68", "2c534bed", "Anna's world", Joined: true),
+                };
+                var source = new FakeSource(false, false, worlds, worlds[1].Folder);
+                var window = new SaveEditorWindow(source); window.LoadAsync().GetAwaiter().GetResult();
+                var root = Mount(window, 1200, 800);
+                var box = Descendants(root).OfType<ComboBox>().Single(c => c.Items.Count == 2);
+                var labels = box.Items.Cast<ComboBoxItem>().Select(i => i.Content as string).ToArray();
+                Require(labels.SequenceEqual(new[] { "Night run", "Anna's world (joined)" }), "Worlds: the list shows the names: " + string.Join(", ", labels));
+                Require(box.SelectedIndex == 1 && source.Used.LastOrDefault() == worlds[1].Folder, "Worlds: the world played now opens first");
+                Require(Descendants(root).OfType<ListBox>().First().Items.Count == 3, "Worlds: the world's characters are listed");
+                Render(root, 1200, 800, 1, Path.Combine(args[0], "moon-1200x800-worlds.png")); shots++;
+                box.SelectedIndex = 0; root.UpdateLayout();
+                Require(source.Used.LastOrDefault() == worlds[0].Folder && source.Commands.Count(c => c == "slots") >= 2, "Worlds: another world reads its own folder");
+                Descendants(root).OfType<Button>().First(b => b.Content as string == "Single player")
+                    .RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                Require(source.Used.LastOrDefault() == null && ((FrameworkElement)box.Parent).Visibility == Visibility.Collapsed, "Worlds: Single player reads the profile's own saves again");
+                window.Close();
+
+                var none = new FakeSource(true, false, Array.Empty<WorldSaves.Entry>());
+                window = new SaveEditorWindow(none); window.LoadAsync().GetAwaiter().GetResult();
+                window.SelectKind(SaveEditorWindow.WorldsKind).GetAwaiter().GetResult();
+                root = Mount(window, 900, 700);
+                Require(Descendants(root).OfType<TextBlock>().Any(t => t.Text.StartsWith("No randomized worlds yet") && t.Visibility == Visibility.Visible && ((FrameworkElement)t.Parent).Visibility == Visibility.Visible), "Worlds: an empty list says so");
+                Render(root, 900, 700, 1, Path.Combine(args[0], "moon-900x700-worlds-empty.png")); shots++; window.Close();
             }
             foreach (var size in new[] { (620, 640), (480, 480) })
             {
@@ -170,6 +201,117 @@ internal static class Program
         var button = LauncherPage.SmallButton("Action", Wpf.Ui.Controls.SymbolRegular.Add24, (_, _) => { });
         Require(button.Background is SolidColorBrush { Color.A: >= 0xB0 }, look + ": action button background is see-through");
         Require(button.MouseOverBackground is SolidColorBrush { Color.A: >= 0xB0 }, look + ": action button hover is see-through");
+    }
+
+    /// <summary>The Randomizer page on a fixture Mods folder (one world, one plain mod): as it opens, with a pasted code
+    /// (rows locked), with every section open, and the spoiler window. Nothing outside the output folder is written.</summary>
+    private static void RandomizerShots(string output)
+    {
+        Environment.SetEnvironmentVariable("BB_LAUNCHER_CONFIG_DIR", Path.Combine(output, "fixture-config"));
+        var settings = Workspace.Current.Settings;
+        var mods = Path.Combine(output, "fixture-mods");
+        const string code = "R2-0W000-000G2-00MXE";
+        var world = Path.Combine(mods, $"Randomizer {code} 12345678");
+        Directory.CreateDirectory(Path.Combine(world, "dvdroot_ps4"));  // a mod folder counts once it holds game files
+        Directory.CreateDirectory(Path.Combine(mods, "Nocturne", "dvdroot_ps4"));
+        File.WriteAllText(Path.Combine(world, "randomizer_manifest.json"),
+            $$"""{"generator": 1, "code": "{{code}}", "input_hash": "{{new string('1', 64)}}", "mods": ["Nocturne"], "base_label": null, "lobby_label": null}""");
+        var spoilerJson = """
+            {"readable": {"areas": {"m24_01": "Central Yharnam", "m22_00": "Hemwick Charnel Lane"}, "models": {"c2090": "Blood-starved Beast", "c5020": "Vicar Amelia"},
+              "enemies": {"m24_01": [["c1000", "c2090", 3], ["c1100", "c2640", 2]], "m22_00": [["c2610", "c1290", 4]]},
+              "bosses": [["m24_01", "c2090", "c5020"]],
+              "treasure": [["m24_01", "Pebble x4", "Blood Vial"], ["m22_00", "Twin Blood Stone Shards x2", "Bold Hunter's Mark x2"]],
+              "shops": [[1, "Blood Vial", "Sedative"], [3, "Uncanny Saw Cleaver", "Lost Chikage"]],
+              "drops": [[["c2090", "c1100"], "nothing 68%, Blood Vial x2 32%", "Pebble"]], "starters": [["Hunter Axe", "Uncanny Amygdalan Arm"]]}}
+            """;
+        File.WriteAllText(Path.Combine(world, WorldSpoiler.FileName), spoilerJson);
+        settings.Set("mods_dir", mods);
+        settings.Set("mods_enabled", true);
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        foreach (var state in new[] { "new", "code", "open", "bad-code", "bosses", "bosses-stay" })
+        {
+            var page = new RandomizerPage();
+            typeof(LauncherPage).GetMethod("Sectionize", flags)!.Invoke(page, null);
+            typeof(RandomizerPage).GetMethod("Sync", flags)!.Invoke(page, null);
+            page.OnShown();
+            var codeBox = (TextBox)typeof(RandomizerPage).GetField("_codeBox", flags)!.GetValue(page)!;
+            var pasted = Randomizer.ToCode(Randomizer.Standard(2309737967) with { Bosses = true, Treasure = true })!;
+            Require(codeBox.Text.StartsWith("R2-") && WorldCode.Decode(codeBox.Text).Kind == WorldCodeKind.Ok, "a new page shows the code of its options");
+            if (state == "code") codeBox.Text = pasted.ToLowerInvariant();
+            if (state == "bad-code") codeBox.Text = "R2-124TQ-KFFZZ";
+            var content = (UIElement)page.Content; page.Content = null;
+            var root = new Border { Child = content, Width = 860, Height = state == "open" ? 2300 : state is "bosses" or "bosses-stay" ? 1400 : 1100 };
+            root.SetResourceReference(Border.BackgroundProperty, "DialogBackgroundBrush");
+            root.SetResourceReference(TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
+            Layout(root, 860, (int)root.Height);
+            if (state == "open")
+            {
+                foreach (var section in Descendants(root).OfType<AdvancedSection>().ToList()) section.IsOpen = true;
+                Layout(root, 860, (int)root.Height);
+            }
+            if (state is "bosses" or "bosses-stay")
+            {
+                foreach (var section in Descendants(root).OfType<AdvancedSection>().ToList())
+                    section.IsOpen = Descendants(section).OfType<SettingRow>().Any(r => r.Title == BloodborneLauncher.Core.Localization.T("Randomize bosses"));
+                Descendants(Descendants(root).OfType<SettingRow>().Single(r => r.Title == BloodborneLauncher.Core.Localization.T("Randomize bosses"))).OfType<ComboBox>().Single().SelectedIndex = 1;
+                Layout(root, 860, (int)root.Height);
+            }
+            SettingRow OptionRow(string title) => Descendants(root).OfType<SettingRow>().Single(r => r.Title == BloodborneLauncher.Core.Localization.T(title));
+            ComboBox Option(string title) => Descendants(OptionRow(title)).OfType<ComboBox>().Single();
+            var arenaDependents = new[] { "Witch of Hemwick", "Shadows of Yharnam", "Celestial Emissary", "Living Failures", "Randomize second phase", "Randomize bell maidens", "Include chalice dungeon bosses" };
+            if (state == "bosses-stay")
+            {
+                Option("Witch of Hemwick").SelectedIndex = 1;
+                Option("Include chalice dungeon bosses").SelectedIndex = 1;
+                Option("Randomize bosses").SelectedIndex = 0;
+                foreach (var title in arenaDependents) Require(!Option(title).IsEnabled, "bosses staying home disables " + title);
+                foreach (var title in new[] { "Rom", "Amygdala", "Ebrietas" }) Require(Option(title).IsEnabled, "bosses staying home keeps " + title + " editable");
+                Require(Option("Witch of Hemwick").SelectedIndex == 1 && Option("Include chalice dungeon bosses").SelectedIndex == 1, "arena lock preserves values");
+                Option("Randomize bosses").SelectedIndex = 1;
+                foreach (var title in arenaDependents) Require(Option(title).IsEnabled, "trading arenas re-enables " + title);
+                Require(Option("Witch of Hemwick").SelectedIndex == 1 && Option("Include chalice dungeon bosses").SelectedIndex == 1, "unlock restores kept values");
+                Option("Randomize bosses").SelectedIndex = 0;
+                Layout(root, 860, (int)root.Height);
+            }
+            var rows = Descendants(root).OfType<ComboBox>().Where(c => c.Visibility == Visibility.Visible && c.ActualWidth > 0).ToList();
+            if (state == "code")
+            {
+                var note = (TextBlock)typeof(RandomizerPage).GetField("_codeNote", flags)!.GetValue(page)!;
+                var back = (Button)typeof(RandomizerPage).GetField("_backToPasted", flags)!.GetValue(page)!;
+                Require(rows.Count >= 5 && rows.All(c => c.IsEnabled), "a pasted code leaves the rows open: " + rows.Count(c => !c.IsEnabled) + " of " + rows.Count + " locked");
+                Require(codeBox.Text == pasted && WorldCode.Decode(codeBox.Text).Seed == 2309737967 && note.Text.StartsWith("Shuffled: enemies, boss arenas, treasure"), "a pasted code fills the options and keeps its seed, in its canonical spelling: " + note.Text);
+                Require(back.Visibility != Visibility.Visible, "no way back while the options make the pasted code");
+                Option("Enemies that change").SelectedIndex = 1;
+                Require(codeBox.Text != pasted && WorldCode.Decode(codeBox.Text).Kind == WorldCodeKind.Ok && note.Text.StartsWith("Changed from the code you pasted (" + pasted + ")") &&
+                        back.Visibility == Visibility.Visible, "a row changed after a paste changes the code and says it is not that world: " + note.Text);
+                back.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                Require(codeBox.Text == pasted && back.Visibility != Visibility.Visible, "back to the pasted code makes it again");
+                page.OnShown();
+                Require(codeBox.Text == pasted, "a pasted code keeps its seed when the page opens again");
+                Layout(root, 860, (int)root.Height);
+            }
+            else if (state is "open" or "bosses-stay") Require(rows.Count >= (state == "open" ? 15 : 7) && rows.Count(c => !c.IsEnabled) == arenaDependents.Length, "bosses staying home disables exactly the dependent options: " + state);
+            else Require(rows.Count >= 5 && rows.All(c => c.IsEnabled), "rows are open: " + state + " " + rows.Count);
+            if (state == "bad-code") Require(Descendants(root).OfType<TextBlock>().Any(t => t.Text.StartsWith("Not a world code yet")), "a broken code says so");
+            Require(Descendants(root).OfType<TextBlock>().Any(t => t.Text == code), "the world's card shows its code");
+            foreach (var control in Descendants(root).OfType<FrameworkElement>().Where(c => c is Button or TextBox or ComboBox && c.Visibility == Visibility.Visible && c.ActualWidth > 0))
+            {
+                var bounds = control.TransformToAncestor(root).TransformBounds(new Rect(control.RenderSize));
+                Require(bounds.Left >= 0 && bounds.Right <= 860.5, "Randomizer control clipped horizontally: " + state);
+            }
+            Render(root, 860, (int)root.Height, 1, Path.Combine(output, "randomizer-" + state + ".png"));
+        }
+        var spoiler = WorldSpoiler.Read(world)!;
+        var window = new SpoilerWindow(code, spoiler);
+        var spoilerContent = (FrameworkElement)window.Content; window.Content = null;
+        var spoilerRoot = new Border { Child = spoilerContent, Width = 900, Height = 600 };
+        spoilerRoot.SetResourceReference(Border.BackgroundProperty, "DialogBackgroundBrush");
+        spoilerRoot.SetResourceReference(TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
+        Layout(spoilerRoot, 900, 600);
+        Require(Descendants(spoilerRoot).OfType<TextBlock>().Any(t => t.Text == "→ Blood-starved Beast (c2090) ×3"), "the spoiler lists enemy changes with names");
+        Render(spoilerRoot, 900, 600, 1, Path.Combine(output, "randomizer-spoiler.png"));
+        window.Close();
+        Console.WriteLine("PASS: Randomizer page (new, pasted code, sections open, bad code, bosses, bosses stay) and spoiler rendered off screen; arena dependencies, values, locking and restoration checked.");
     }
 
     private static Border CoopRoot(UIElement content, int width, int height, Color shade)
@@ -422,10 +564,15 @@ internal static class Program
         rows.Add(new { id = 6603, kind = "ending", group = "Endings", label = "Any ending seen", on = false });
         return rows.ToArray();
     }
-    private sealed class FakeSource(bool empty, bool running) : ISaveEditorSource
+    private sealed class FakeSource(bool empty, bool running, IReadOnlyList<WorldSaves.Entry>? worlds = null, string? playing = null) : ISaveEditorSource
     {
         public bool GameRunning => running;
         public List<string> Commands { get; } = new();
+        // The Randomized worlds save type: the folders the window pointed the requests at, in order (null: the profile's own).
+        public List<string?> Used { get; } = new();
+        public Task<IReadOnlyList<WorldSaves.Entry>> Worlds() => Task.FromResult(worlds ?? Array.Empty<WorldSaves.Entry>());
+        public string? PlayingWorld => playing;
+        public Task UseWorld(string? folder) { Used.Add(folder); return Task.CompletedTask; }
         public Task<string> Run(string command, string kind, int? slot = null, object? edit = null, string? backup = null)
         {
             Commands.Add(command);

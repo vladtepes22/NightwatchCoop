@@ -409,13 +409,33 @@
                 BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0"
                 ToolTip="{loc:Tr &#x27;Show or hide activity&#x27;}">
             <Grid Margin="12,0">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid VerticalAlignment="Center" Margin="0,0,12,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
                     <Ellipse x:Name="StatusDot" Width="5" Height="5" VerticalAlignment="Center" Fill="{DynamicResource StatusDotIdleBrush}" />
-                    <TextBlock x:Name="StatusText" Text="{loc:Tr &#x27;Ready&#x27;}" FontSize="10.5" Margin="8,0,0,0" VerticalAlignment="Center"
+                    <TextBlock Grid.Column="1" x:Name="StatusText" Text="{loc:Tr &#x27;Ready&#x27;}" FontSize="10.5" Margin="8,0,0,0" VerticalAlignment="Center"
                                Foreground="{DynamicResource TextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis" MaxWidth="620" />
-                </StackPanel>
+                    <ProgressBar Grid.Column="2" x:Name="BuildBar" Width="140" Height="4" Minimum="0" Maximum="1" Margin="10,0,0,0" VerticalAlignment="Center"
+                                 Visibility="Collapsed">
+                        <ProgressBar.Template>
+                            <ControlTemplate TargetType="ProgressBar">
+                                <Grid SnapsToDevicePixels="True">
+                                    <Border x:Name="PART_Track" Background="{DynamicResource ControlFillColorSecondaryBrush}" CornerRadius="2" />
+                                    <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{DynamicResource AccentTextFillColorPrimaryBrush}" CornerRadius="2" />
+                                </Grid>
+                            </ControlTemplate>
+                        </ProgressBar.Template>
+                    </ProgressBar>
+                </Grid>
 
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <TextBlock x:Name="SavedText" FontSize="10.5" Margin="0,0,12,0" VerticalAlignment="Center"
                                Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                     <TextBlock x:Name="LogCount" FontSize="10.5" Margin="0,0,12,0" VerticalAlignment="Center"

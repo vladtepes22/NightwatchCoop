@@ -249,6 +249,9 @@ public static partial class SeamlessSettings
             env["BB_PARTY_INVADE"] = "1";  // this start only, never saved
             env["BB_PARTY_PASSWORD"] = "";
         }
+        // The host this start joins, for a join again after building the host's world (WorldRejoin); not for an invasion.
+        if (s.Str("party_mode") == "join" && !(PendingInvade && PendingJoin != null)) WorldRejoin.Started(Code(s).Trim(), Password(s), PendingHostOptions);
+        else WorldRejoin.Forget();
     }
 
     /// <summary>A join starts with the host's options: the ones its row told, else the ones a refused join left in

@@ -450,6 +450,10 @@ void OnRuntimeStart(bool host, const std::string& name) {
         f.role = host ? Role::Host : Role::Guest;
         f.error.clear();
     });
+    if (const char* world = std::getenv("BB_WORLD_CODE"); world != nullptr && world[0] != '\0') {
+        Log("world: %s", world);
+        status::SetLastEvent(std::string("Randomizer ") + world);
+    }
 }
 
 void OnCode(const std::string& code) { status::SetCode(code); }

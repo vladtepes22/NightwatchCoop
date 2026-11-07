@@ -56,6 +56,24 @@ internal static class SaveEditor
     {
         private readonly SemaphoreSlim _turn = new(1, 1);
         private Process? _process;
+        private string? _userDir;
+
+        /// <summary>The user folder the requests read: the profile's own or a randomized world's (WorldSaves); null: the game's
+        /// user folder now (GameEnvironment.UserDir).</summary>
+        internal string UserDir => _userDir ?? GameEnvironment.UserDir(settings);
+
+        /// <summary>Points the next requests at another user folder; the Python side starts again there (it reads its folder once).</summary>
+        internal async Task UseUserDir(string folder)
+        {
+            await _turn.WaitAsync();
+            try
+            {
+                if (string.Equals(_userDir, folder, StringComparison.OrdinalIgnoreCase)) return;
+                _userDir = folder;
+                Stop();
+            }
+            finally { _turn.Release(); }
+        }
 
         private Process Start()
         {
@@ -66,7 +84,7 @@ internal static class SaveEditor
             };
             start.Environment["PYTHONUTF8"] = "1";
             foreach (var argument in new[] { Path.Combine(Paths.SeamlessScripts, "saveedit_cli.py"), "worker",
-                         "--user", GameEnvironment.UserDir(settings), "--kind", "solo",
+                         "--user", UserDir, "--kind", "solo",
                          "--game", GameEnvironment.GameDir(settings), "--mods", GameEnvironment.ModsDir(settings),
                          "--mods-config", Mods.ProfilePath, "--allow-running" }) start.ArgumentList.Add(argument);
             var process = Process.Start(start) ?? throw new IOException(L.T("Could not open the save editor data."));

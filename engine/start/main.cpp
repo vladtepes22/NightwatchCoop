@@ -567,7 +567,7 @@ int Main(std::vector<std::wstring> arguments) {
     } else {
         UnsetEnv("BB_UI_SIZE");
     }
-    if (patches.heap_patch && !Env("BB_DMEM_MB")) {
+    if ((patches.heap_patch || patches.main_heap) && !Env("BB_DMEM_MB")) {
         SetEnv("BB_DMEM_MB", "9152");
         Log("Patches: the game's heaps are enlarged; direct memory 9152 MiB");
     }

@@ -38,8 +38,13 @@ namespace BloodborneLauncher
             var hostRules = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             hostRules.Tick += async (_, _) =>
             {
-                if (_restarting || !ws.Game.Running ||
-                    !SeamlessSettings.TakeHostStartupRules(ws.Settings, ws.Ini, SeamlessSession.Read(ws.Settings))) return;
+                if (_restarting || !ws.Game.Running) return;
+                var status = SeamlessSession.Read(ws.Settings);
+                if (!SeamlessSettings.TakeHostStartupRules(ws.Settings, ws.Ini, status))
+                {
+                    await BuildHostWorldAndRejoin(status);  // refused for mods, and the host's label names a world (WorldRejoin)
+                    return;
+                }
                 ws.Log(L.T("Took the host's start-up rules: restarting the game to join."), LogLevel.Step);
                 _restarting = true;
                 try
@@ -168,6 +173,75 @@ namespace BloodborneLauncher
 
         private bool _directPlay, _directKeepOpen;
         private bool _restarting;  // the start-up rules restart: the game stops on purpose and starts again
+        private (string Label, DateTime Start)? _rejoinLooked;
+
+        /// <summary>A guest refused for other mods whose host's label names a randomized world this PC can build: stops the
+        /// game, builds (or reuses) that world with the bar in the status bar, and joins the same host again (WorldRejoin, once
+        /// per label). Nothing for any other refusal, or when the host's game sends no label (before 0.7.9).</summary>
+        private async Task BuildHostWorldAndRejoin(SeamlessSession.Status? status)
+        {
+            var ws = Workspace.Current;
+            var s = ws.Settings;
+            var label = WorldRejoin.RefusedHostLabel(status, GameEnvironment.UserDir(s), ws.Game.StartedAt.ToUniversalTime());
+            if (label == null || WorldRejoin.LastJoin is not { } target || !Randomizer.Supported ||
+                CuratedMods.WorldOf(CuratedMods.ModsPart(label), out _) is not { } world ||
+                WorldRejoin.Decide(label, new JoinChoice(JoinKind.BuildWorld)) != WorldRejoin.Answer.Build ||
+                _rejoinLooked == (label, ws.Game.StartedAt))
+                return;
+            _rejoinLooked = (label, ws.Game.StartedAt);  // one look per refusal label and game start (it reads the manifest)
+            _restarting = true;
+            try
+            {
+                var dir = GameEnvironment.ModsDir(s);
+                ModManifest? manifest = null;
+                try { manifest = await CuratedMods.FetchManifestAsync(); }
+                catch (Exception e) when (e is System.Net.Http.HttpRequestException or TaskCanceledException or FormatException or System.IO.InvalidDataException) { }
+                var byContent = world.Base is { } b && b.Contains(CuratedMods.ModToken);
+                var local = await Task.Run(() => CuratedMods.Local(s, dir, manifest, byContent));
+                var advice = CuratedMods.JoinAdvice(label, local, manifest?.Versions.Select(v => v.Version).ToList());
+                if (WorldRejoin.Decide(label, advice) != WorldRejoin.Answer.Build) return;
+                ws.Log(L.T("The host plays a randomized world you don't have: building it, then joining again."), LogLevel.Step);
+                ShowBuildBar(0, L.T("Building the host's world…"));
+                await WorldRejoin.RunAsync(label, advice,
+                    async () => { if (ws.Game.Running) await ws.StopGameAsync(); },
+                    async (choice, progress) =>
+                    {
+                        await CuratedMods.UseWorldAsync(s, dir, choice, manifest, null, hostLabel: label,
+                            buildProgress: (f, step) => Dispatcher.Invoke(() => progress(f, step)));
+                        WorldSaves.NameForGuest(s, WorldRejoin.HostName(status));
+                        ws.SaveSoon();
+                    },
+                    async () =>
+                    {
+                        ws.Log(L.T("Built the host's world: joining again."), LogLevel.Good);
+                        SeamlessSettings.PendingJoin = (target.Code, target.Password);
+                        SeamlessSettings.PendingHostOptions = target.HostOptions;
+                        try { if (!ws.Game.Running) await PlayOrStopAsync(); }
+                        finally { SeamlessSettings.PendingJoin = null; SeamlessSettings.PendingHostOptions = null; }
+                    },
+                    (f, text) => ShowBuildBar(f, text));
+            }
+            catch (Exception e) when (e is System.IO.IOException or System.IO.InvalidDataException or InvalidOperationException or OperationCanceledException
+                                          or System.Net.Http.HttpRequestException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+            {
+                ws.Log(L.F($"The host's world could not be set up: {e.Message}"), LogLevel.Bad);
+                Prompt.Tell(L.T("Randomized world"), L.F($"The world could not be set up: {e.Message}"));
+            }
+            finally
+            {
+                BuildBar.Visibility = Visibility.Collapsed;
+                _restarting = false;
+            }
+        }
+
+        /// <summary>The status bar's bar and text while the host's world builds.</summary>
+        private void ShowBuildBar(double fraction, string text)
+        {
+            BuildBar.Visibility = Visibility.Visible;
+            BuildBar.Value = Math.Clamp(fraction, 0, 1);
+            StatusText.Text = $"{text} {(int)(Math.Clamp(fraction, 0, 1) * 100)} %";
+            StatusText.ToolTip = StatusText.Text;
+        }
 
         /// <summary>--play: starts the game; the launcher closes when it ends normally, and opens when
         /// the start did not happen or the game crashed (the crash dialog first).</summary>
@@ -658,6 +732,13 @@ namespace BloodborneLauncher
                 ((MorePage)more).ShowSection(page);
             else if (item == WorkshopItem && _pages.TryGetValue(typeof(WorkshopPage), out var workshop))
                 ((WorkshopPage)workshop).ShowSection(page);
+        }
+
+        /// <summary>Opens the Co-op page with the party mode on Host.</summary>
+        public void ShowHost()
+        {
+            if (PageOf(typeof(SeamlessPage)) is SeamlessPage coop) coop.StartHosting();
+            Show("seamless");
         }
 
         private void PageFrame_Navigated(object sender, System.Windows.Navigation.NavigationEventArgs e)

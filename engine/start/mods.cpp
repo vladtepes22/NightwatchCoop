@@ -317,6 +317,26 @@ bool ChangesGameplay(const std::wstring& key) {
            (key.find(L".anibnd") != std::wstring::npos || key.find(L".behbnd") != std::wstring::npos);
 }
 
+// A randomized world is a mod folder with randomizer_manifest.json. Its [rando] header names the world, so a log tells
+// engine, co-op and randomizer bugs apart; BB_RANDO=1 turns on the game side's [rando] lines (runtime_file.c).
+// Runs once at start; nothing here touches a frame.
+bool NoteRandomizerWorld(const std::wstring& name, const fs::path& root) {
+    const fs::path path = root / L"randomizer_manifest.json";
+    if (!IsFile(path)) return false;
+    try {
+        const auto m = nlohmann::json::parse(ReadText(path));
+        std::string mods;
+        for (const auto& mod : m.value("mods", nlohmann::json::array()))
+            mods += (mods.empty() ? "" : ", ") + mod.get<std::string>();
+        Log("[rando] world %s, generator %d, built on %s, input w:%.8s",
+            m.value("code", std::string("?")).c_str(), m.value("generator", 0), mods.empty() ? "the game alone" : mods.c_str(),
+            m.value("input_hash", std::string("?")).c_str());
+    } catch (const std::exception&) {
+        Log("[rando] world %s: manifest unreadable", Utf8(name).c_str());
+    }
+    return true;
+}
+
 fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector<std::pair<std::wstring, fs::path>>& mods,
                       const std::optional<fs::path>& update) {
     game = fs::canonical(game);
@@ -335,10 +355,12 @@ fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector
         Log("Game update: %s: %zu files over the game", Utf8(update->filename()).c_str(), files.size());
     }
     std::size_t gameplay = 0;
+    UnsetEnv("BB_RANDO");
     // Files two enabled mods both ship, per (later mod, earlier mod) in load order: the later one wins.
     std::map<std::pair<std::wstring, std::wstring>, std::vector<std::wstring>> overrides;
     std::set<std::wstring> mod_names;
     for (const auto& [name, root] : mods) {
+        if (NoteRandomizerWorld(name, root)) SetEnv("BB_RANDO", "1");
         std::size_t count = 0;
         for (const auto& [relative, source] : ModFiles(root)) {
             const std::wstring key = Fold(relative.generic_wstring());

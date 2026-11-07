@@ -17,9 +17,13 @@ namespace BloodborneLauncher.Core
         public static string SavesRoot(LauncherSettings s) =>
             s.Str("user_dir") is { Length: > 0 } dir ? Paths.Expand(dir) : Path.Combine(Paths.DataDir, "user");
 
-        /// <summary>Where the game keeps saves and trophies: the current player profile's folder.</summary>
-        public static string UserDir(LauncherSettings s) =>
-            PlayerProfiles.Folder(s, PlayerProfiles.Current(s));
+        /// <summary>Where the game keeps saves and trophies: the current player profile's folder, or while a randomized world
+        /// is played that world's folder in it (WorldSaves: worlds\&lt;folder&gt;, made on first use).</summary>
+        public static string UserDir(LauncherSettings s)
+        {
+            var folder = PlayerProfiles.Folder(s, PlayerProfiles.Current(s));
+            return Randomizer.Active(s) is { } world ? WorldSaves.Folder(folder, world, ModsDir(s)) : folder;
+        }
 
         /// <summary>The dumped add-ons' folder (The Old Hunters on base-game dumps): the one chosen on
         /// the Play page, else one found next to the game folder (<see cref="FoundDlc"/>), or "".</summary>
@@ -137,8 +141,8 @@ namespace BloodborneLauncher.Core
                 ["BB_USER_DIR"] = UserDir(s),
                 ["BB_MODS_DIR"] = ModsDir(s),
                 ["BB_MODS_CONFIG"] = Path.Combine(Paths.DataDir, "mods.json"),
-                // Load mods: My mods and Nocturne only load mods, No mods none; safe mode below still wins.
-                ["BB_MODS_ENABLED"] = CuratedMods.Mode(s) != "standard" ? "1" : "0",
+                // Load mods: My mods, Nocturne only and a randomized world load mods, No mods none; safe mode below still wins.
+                ["BB_MODS_ENABLED"] = CuratedMods.ModsOn(s) ? "1" : "0",
                 ["BB_PATCHES_DIR"] = PatchesDir(s),
                 ["BB_PATCHES_CONFIG"] = Path.Combine(Paths.DataDir, "patches.json"),
                 ["BB_LANGUAGE"] = s.Str("language"),
@@ -151,6 +155,7 @@ namespace BloodborneLauncher.Core
             // settings file's dlc_enabled=false is ignored, so no party member runs without it).
             env["BB_DLC"] = "1";
             if (DlcDir(s) is { Length: > 0 } dlc) env["BB_DLC_DIR"] = dlc;
+            if (Randomizer.Active(s) is { } world) env["BB_WORLD_CODE"] = world.Code;
             if (RegionPatchOnline is { } region) env["BB_REGION_PATCH_ONLINE"] = region;
             if (ResolutionPatchChoice is { } resolution) env["BB_RESOLUTION_PATCH"] = resolution;
             if (s.Str("present_mode").Length > 0) env["BB_PRESENT_MODE"] = s.Str("present_mode");

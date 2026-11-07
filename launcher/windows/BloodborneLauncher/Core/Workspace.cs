@@ -58,6 +58,7 @@ namespace BloodborneLauncher.Core
         {
             Settings.Load();
             ResolvePort();
+            MoveWorldSaves();
 
             // Trophies: what the saves folder already holds is read silently; new unlocks after
             // this are announced. trophies.log and last_run.log are checked every two seconds, so
@@ -267,11 +268,56 @@ namespace BloodborneLauncher.Core
             });
         }
 
+        /// <summary>Copies the randomized worlds' saves of earlier launchers (profile\randomizer\CODE CHECK) to worlds\ on a
+        /// worker thread, when no game runs (WorldSaves.MigrateAll: copy, check, then use; the old folders stay as backups).
+        /// A game start waits for a copy in progress and copies the world it plays first (<see cref="MoveActiveWorldSaves"/>).</summary>
+        private void MoveWorldSaves()
+        {
+            List<string> profiles;
+            try
+            {
+                profiles = PlayerProfiles.All(Settings).Select(p => PlayerProfiles.Folder(Settings, p)).ToList();
+                if (!profiles.Any(p => WorldSaves.LegacyFolders(p).Count > 0)) return;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { return; }
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                var games = ProcessTree.GamesIn(Paths.EngineDir);
+                var running = games.Length > 0;
+                foreach (var game in games) game.Dispose();
+                if (running) return;
+                foreach (var moved in WorldSaves.MigrateAll(profiles))
+                    LogMoved(moved);
+            });
+        }
+
+        private void LogMoved(WorldSaves.Moved moved)
+        {
+            if (moved.To != null && !string.Equals(moved.From, moved.To, StringComparison.OrdinalIgnoreCase))
+                Log(L.F($"Saves: a randomized world's saves were copied to {moved.To} (the old folder {moved.From} stays as a backup)."), LogLevel.Info);
+            else if (moved.Error != null)
+                Log(L.F($"Saves: a randomized world's saves could not be copied ({moved.Error}); the game keeps using {moved.From}."), LogLevel.Warn);
+        }
+
+        /// <summary>The world this start plays: its old save folder copied to worlds\ first, when it has one.</summary>
+        private void MoveActiveWorldSaves()
+        {
+            try
+            {
+                if (Randomizer.Active(Settings) is not { } world) return;
+                var profile = PlayerProfiles.Folder(Settings, PlayerProfiles.Current(Settings));
+                if (WorldSaves.Find(profile, world.Code, world.Hash) != null || !Directory.Exists(WorldSaves.LegacyFolder(profile, world))) return;
+                LogMoved(WorldSaves.MigrateWorld(profile, world));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { }
+        }
+
         public string? StartGame()
         {
             SaveNow();
             OutputLines.Clear();
             OutputCleared?.Invoke();
+            MoveActiveWorldSaves();
             SecureSaves();
             if (Settings.Bool("save_backups"))
             {

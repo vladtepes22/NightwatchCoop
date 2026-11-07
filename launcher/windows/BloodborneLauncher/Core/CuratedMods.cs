@@ -32,18 +32,30 @@ namespace BloodborneLauncher.Core
     /// NocturneNotAvailable: the host's version is neither installed nor in the manifest. Modded: the host runs other mods
     /// whose hash differs from this PC's (label only shown, nothing fetched). ModdedUnchecked: the host runs other mods and
     /// this PC's hash is unknown (no game start since its mods last changed). MismatchJoinAnyway: the host runs no gameplay
-    /// mods and this guest does. All but Join still allow joining: the game's party mod hash decides.</summary>
-    public enum JoinKind { Join, GetNocturne, NocturneNotAvailable, Modded, ModdedUnchecked, MismatchJoinAnyway }
+    /// mods and this guest does. All but Join still allow joining: the game's party mod hash decides. A randomized world:
+    /// BuildWorld builds the host's world here (Code, Check, and Version when it is built on Nocturne); WorldNewer: made by a
+    /// newer randomizer (update the launcher); WorldOlder: made by an older randomizer, which this launcher no longer builds
+    /// (the host makes it again); WorldNotAvailable: this launcher cannot build it; WorldModMissing: the world is built on a
+    /// mod (named by content in the label) that no folder here has (Missing lists the keys).</summary>
+    public enum JoinKind { Join, GetNocturne, NocturneNotAvailable, Modded, ModdedUnchecked, MismatchJoinAnyway, BuildWorld, WorldNewer, WorldNotAvailable, WorldOlder,
+        WorldModMissing }
 
-    /// <summary>What a guest should do before joining a host (<see cref="CuratedMods.JoinAdvice"/>). PatchesDiffer: the
-    /// host's gameplay patches hash (its label's "patches:" part) is known and differs from this PC's, which the join
-    /// check refuses as surely as other mods (a mod's own XML patch counts).</summary>
-    public readonly record struct JoinChoice(JoinKind Kind, string? Version = null, bool PatchesDiffer = false);
+    /// <summary>What a guest should do before joining a host (<see cref="CuratedMods.JoinAdvice"/>). For a world: Code is the
+    /// canonical world code, Check the host's input hash (8 hex, the world folder's last part). PatchesDiffer: the host's
+    /// gameplay patches hash (its label's "patches:" part) is known and differs from this PC's, which the join check refuses
+    /// as surely as other mods (a mod's own XML patch counts). Base: the world's base mods as the label names them, in load
+    /// order ("nocturne@1.0+m:0a1b2c3d"; null for the game alone). Missing: the base keys no folder here has, comma-joined.</summary>
+    public readonly record struct JoinChoice(JoinKind Kind, string? Version = null, string? Code = null, string? Check = null,
+        bool PatchesDiffer = false, string? Base = null, string? Missing = null);
 
-    /// <summary>The guest's own mods: its game mode, its Nocturne version (null when none is installed) and how many mods
-    /// of "My mods" are on, and the first 8 hex of its party mods and patches hashes as a start would have them now
-    /// (<see cref="PartyHashes"/>; null when unknown).</summary>
-    public sealed record LocalMods(string Mode, string? NocturneVersion, int EnabledCount, string? ModsHash = null, string? PatchesHash = null);
+    /// <summary>The guest's own mods: its game mode, its Nocturne version (null when none is installed), how many mods
+    /// of "My mods" are on, the first 8 hex of its party mods and patches hashes as a start would have them now
+    /// (<see cref="PartyHashes"/>; null when unknown), the world folder world mode plays, whether this package can build
+    /// worlds, the generator that made that world (its manifest's; null when unknown), what that world's base folders stand for
+    /// now (<see cref="CuratedMods.BaseKeysOf"/>; null for the game alone, "?" when it can't be told), and the base keys this
+    /// PC's mods can stand for, sorted and comma-joined (<see cref="CuratedMods.KnownBaseTokens"/>; null when not known yet).</summary>
+    public sealed record LocalMods(string Mode, string? NocturneVersion, int EnabledCount, string? ModsHash = null, string? PatchesHash = null,
+        string? World = null, bool CanBuildWorlds = false, int? WorldGenerator = null, string? WorldBase = null, string? BaseTokens = null);
 
     /// <summary>
     /// The game mode (Standard / Nocturne / My mods) and the curated mod Nocturne: its public manifest, the content hash
@@ -167,10 +179,32 @@ namespace BloodborneLauncher.Core
             return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Concat(lines)))).ToLowerInvariant();
         }
 
+        /// <summary>A base mod's identity in a world's lobby label ("m:" + its first 8 hex), whatever its folder is called:
+        /// SHA-256 over the sorted lines "game path TAB sha256 of the file LF" of every file the game loads from the mod
+        /// (engine/start/mods.cpp ModFiles: the files under its dvdroot_ps4, or all of a bare chr/ parts/ ... layout; paths
+        /// from dvdroot_ps4, lower case, '/'), cosmetic files included. Two folders with the same hash give the generator the
+        /// same inputs and the party mods hash (WritePartyModsFile) the same part, so a world built on either is one world.</summary>
+        public static string LoadedHash(string folder)
+        {
+            var root = ContentRoot(folder);
+            var top = Directory.GetDirectories(root).FirstOrDefault(d =>
+                string.Equals(Path.GetFileName(d), "dvdroot_ps4", StringComparison.OrdinalIgnoreCase)) ?? root;
+            var lines = new List<string>();
+            foreach (var f in new DirectoryInfo(top).EnumerateFiles("*", SearchOption.AllDirectories))
+            {
+                using var stream = File.OpenRead(f.FullName);
+                var relative = Path.GetRelativePath(top, f.FullName).Replace('\\', '/').ToLowerInvariant();
+                lines.Add($"{relative}\t{Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant()}\n");
+            }
+            if (lines.Count == 0) throw new InvalidDataException(L.T("The folder holds no mod files."));
+            lines.Sort(StringComparer.Ordinal);
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Concat(lines)))).ToLowerInvariant();
+        }
+
         private static readonly Dictionary<string, (long Stamp, int Count, string Hash)> HashCache = new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>ContentHash, kept per folder until a file in it changes (newest write time and file count).</summary>
-        private static string CachedHash(string folder)
+        /// <summary>ContentHash (or LoadedHash), kept per folder until a file in it changes (newest write time and file count).</summary>
+        private static string CachedHash(string folder, bool loaded = false)
         {
             var full = Path.GetFullPath(folder);
             long stamp = 0;
@@ -180,11 +214,178 @@ namespace BloodborneLauncher.Core
                 stamp = Math.Max(stamp, f.LastWriteTimeUtc.Ticks);
                 count++;
             }
+            var key = (loaded ? "loaded|" : "content|") + full;
             lock (HashCache)
-                if (HashCache.TryGetValue(full, out var hit) && hit.Stamp == stamp && hit.Count == count) return hit.Hash;
-            var hash = ContentHash(full);
-            lock (HashCache) HashCache[full] = (stamp, count, hash);
+                if (HashCache.TryGetValue(key, out var hit) && hit.Stamp == stamp && hit.Count == count) return hit.Hash;
+            var hash = loaded ? LoadedHash(full) : ContentHash(full);
+            lock (HashCache) HashCache[key] = (stamp, count, hash);
             return hash;
+        }
+
+        // ---------------------------------------------------------------- base mods by content (randomized worlds)
+
+        /// <summary>The Nocturne version this folder holds, whatever it is called: the one its nocturne.json names when the
+        /// content still matches, else the manifest version with the same content; null otherwise (or unreadable).</summary>
+        public static string? NocturneVersionIn(string folder, ModManifest? manifest = null)
+        {
+            string hash;
+            try { hash = CachedHash(folder); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException) { return null; }
+            try
+            {
+                var marker = Path.Combine(folder, Marker);
+                if (File.Exists(marker) && JsonNode.Parse(File.ReadAllText(marker)) is JsonObject o &&
+                    o["version"] is JsonValue v && v.TryGetValue<string>(out var version) && version.Length > 0 &&
+                    o["content"] is JsonValue c && c.TryGetValue<string>(out var content) &&
+                    string.Equals(content, hash, StringComparison.OrdinalIgnoreCase))
+                    return version;
+            }
+            catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+            {
+            }
+            return manifest?.Versions.FirstOrDefault(m => string.Equals(m.Content, hash, StringComparison.OrdinalIgnoreCase))?.Version;
+        }
+
+        /// <summary>The label key a Nocturne version goes by ("nocturne@1.0.1"), or null when the version is not a plain one
+        /// (such a copy is named by its content, "m:...").</summary>
+        private static string? NocturneToken(string? version) =>
+            version is { Length: > 0 and <= 16 } v && v.ToLowerInvariant() is var lower &&
+            lower.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-') ? LabelKey + "@" + lower : null;
+
+        /// <summary>What a mod folder can stand for in a world label: "m:" + its LoadedHash's first 8 hex, and "nocturne@&lt;v&gt;"
+        /// too when it is a recognised Nocturne (any folder name). Throws on an unreadable or empty folder.</summary>
+        public static List<string> BaseTokensOf(string folder, ModManifest? manifest = null)
+        {
+            var tokens = new List<string>();
+            if (NocturneToken(NocturneVersionIn(folder, manifest)) is { } nocturne) tokens.Add(nocturne);
+            tokens.Add(ModToken + CachedHash(folder, loaded: true)[..8]);
+            return tokens;
+        }
+
+        /// <summary>A world label's key for a base mod by content: "m:" + 8 hex.</summary>
+        public const string ModToken = "m:";
+
+        /// <summary>The base mods' part of a world label, in load order (user, 5 Nov: base mods by content, not folder name):
+        /// "nocturne@&lt;version&gt;" for a recognised Nocturne in any folder, "m:" + 8 hex of LoadedHash for any other mod,
+        /// joined by '+'. Null for the game alone. Throws on a missing, unreadable or empty folder, or two mods of one content.</summary>
+        public static string? BaseLabelOf(string modsDir, IReadOnlyList<string> baseMods, ModManifest? manifest = null)
+        {
+            if (baseMods.Count == 0) return null;
+            var tokens = new List<string>();
+            var nocturne = false;
+            foreach (var name in baseMods)
+            {
+                var folder = Path.Combine(modsDir, name);
+                if (!Directory.Exists(folder)) throw new DirectoryNotFoundException(name);
+                var own = BaseTokensOf(folder, manifest);
+                // One Nocturne by version; a second copy is named by its content.
+                var token = !nocturne && own[0].StartsWith(LabelKey + "@", StringComparison.Ordinal) ? own[0] : own[^1];
+                nocturne |= token.StartsWith(LabelKey + "@", StringComparison.Ordinal);
+                if (tokens.Contains(token)) throw new InvalidDataException(L.T("Two base mods have the same files."));
+                tokens.Add(token);
+            }
+            return string.Join('+', tokens);
+        }
+
+        /// <summary>What each base folder can stand for, in load order: its keys joined by '|', the folders by '+'
+        /// ("nocturne@1.0|m:0a1b2c3d+m:ffff0000"); null for the game alone. Throws like <see cref="BaseLabelOf"/>.</summary>
+        public static string? BaseKeysOf(string modsDir, IReadOnlyList<string> baseMods) =>
+            baseMods.Count == 0 ? null : string.Join('+', baseMods.Select(name =>
+                Directory.Exists(Path.Combine(modsDir, name)) ? string.Join('|', BaseTokensOf(Path.Combine(modsDir, name)))
+                    : throw new DirectoryNotFoundException(name)));
+
+        /// <summary>A label's base part names these folders (<see cref="BaseKeysOf"/>): as many, each standing for its key. A
+        /// Nocturne copy the host named by content ("m:...") and this PC knows by version matches either way.</summary>
+        public static bool BaseMatches(string? keys, string? basePart)
+        {
+            var have = (keys ?? "").Split('+', StringSplitOptions.RemoveEmptyEntries);
+            var want = (basePart ?? "").Split('+', StringSplitOptions.RemoveEmptyEntries);
+            return have.Length == want.Length && have.Zip(want).All(p => p.First.Split('|').Contains(p.Second, StringComparer.Ordinal));
+        }
+
+        /// <summary>The mod folders here that can stand for each label key, in Mods.Discover order (worlds left out): key to
+        /// folder names. Unreadable folders are skipped.</summary>
+        public static Dictionary<string, List<string>> BaseFolders(string modsDir, ModManifest? manifest = null)
+        {
+            var found = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            if (!Directory.Exists(modsDir)) return found;
+            foreach (var name in Mods.Discover(modsDir))
+            {
+                if (Randomizer.Parse(name) != null) continue;
+                try
+                {
+                    foreach (var token in BaseTokensOf(Path.Combine(modsDir, name), manifest))
+                        (found.TryGetValue(token, out var list) ? list : found[token] = new List<string>()).Add(name);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
+                {
+                }
+            }
+            return found;
+        }
+
+        /// <summary>The local folders for a world label's base part, in its order, or null with the keys no folder here has.</summary>
+        public static (List<string>? Folders, List<string> Missing) ResolveBase(string modsDir, string? basePart, ModManifest? manifest = null)
+        {
+            var tokens = (basePart ?? "").Split('+', StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0) return (new List<string>(), new List<string>());
+            var have = BaseFolders(modsDir, manifest);
+            var folders = new List<string>();
+            var missing = new List<string>();
+            foreach (var token in tokens)
+            {
+                var pick = have.TryGetValue(token, out var list) ? list.FirstOrDefault(n => !folders.Contains(n)) : null;
+                if (pick == null) missing.Add(token);
+                else folders.Add(pick);
+            }
+            return (missing.Count == 0 ? folders : null, missing);
+        }
+
+        private static readonly object TokensGate = new();
+        private static (string Dir, string Stamp, string Tokens)? _tokens;
+        private static Task? _tokensRun;
+
+        /// <summary>The label keys this PC's mods can stand for ("m:..." and "nocturne@..."), sorted and comma-joined, as last
+        /// worked out in the background; null until that is done for the mods as they are now (the lobby asks on every refresh
+        /// while a host's world names a base mod by content).</summary>
+        public static string? KnownBaseTokens(string modsDir)
+        {
+            string stamp;
+            try
+            {
+                var text = new StringBuilder();
+                if (Directory.Exists(modsDir))
+                    foreach (var name in Mods.Discover(modsDir))
+                    {
+                        if (Randomizer.Parse(name) != null) continue;
+                        long newest = 0;
+                        var count = 0;
+                        foreach (var f in new DirectoryInfo(Path.Combine(modsDir, name)).EnumerateFiles("*", SearchOption.AllDirectories))
+                        {
+                            newest = Math.Max(newest, f.LastWriteTimeUtc.Ticks);
+                            count++;
+                        }
+                        text.Append(name).Append('|').Append(newest).Append('|').Append(count).Append('\n');
+                    }
+                stamp = text.ToString();
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+            lock (TokensGate)
+            {
+                if (_tokens is { } t && t.Dir == modsDir && t.Stamp == stamp) return t.Tokens;
+                _tokensRun ??= Task.Run(() =>
+                {
+                    string? tokens = null;
+                    try { tokens = string.Join(",", BaseFolders(modsDir).Keys.Order(StringComparer.Ordinal)); }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+                    lock (TokensGate)
+                    {
+                        if (tokens != null) _tokens = (modsDir, stamp, tokens);
+                        _tokensRun = null;
+                    }
+                });
+                return null;
+            }
         }
 
         // ---------------------------------------------------------------- what is installed
@@ -278,27 +479,8 @@ namespace BloodborneLauncher.Core
         public static InstalledMod Installed(string modsDir, ModManifest? manifest = null)
         {
             if (FolderIn(modsDir) is not { } folder) return new InstalledMod(InstalledKind.None);
-            string hash;
-            try { hash = CachedHash(folder); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
-            {
-                return new InstalledMod(InstalledKind.Unrecognised);
-            }
-            try
-            {
-                var marker = Path.Combine(folder, Marker);
-                if (File.Exists(marker) && JsonNode.Parse(File.ReadAllText(marker)) is JsonObject o &&
-                    o["version"] is JsonValue v && v.TryGetValue<string>(out var version) && version.Length > 0 &&
-                    o["content"] is JsonValue c && c.TryGetValue<string>(out var content) &&
-                    string.Equals(content, hash, StringComparison.OrdinalIgnoreCase))
-                    return new InstalledMod(InstalledKind.Known, version);
-            }
-            catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
-            {
-            }
-            if (manifest?.Versions.FirstOrDefault(m => string.Equals(m.Content, hash, StringComparison.OrdinalIgnoreCase)) is { } match)
-                return new InstalledMod(InstalledKind.Known, match.Version);
-            return new InstalledMod(InstalledKind.Unrecognised);
+            return NocturneVersionIn(folder, manifest) is { } version ? new InstalledMod(InstalledKind.Known, version)
+                : new InstalledMod(InstalledKind.Unrecognised);
         }
 
         // ---------------------------------------------------------------- install
@@ -428,11 +610,13 @@ namespace BloodborneLauncher.Core
 
         // ---------------------------------------------------------------- game mode
 
-        /// <summary>The setting's mode: standard, nocturne or my (anything else is my).</summary>
-        /// <summary>Load mods: "standard" (No mods), "my" (My mods) or "nocturne" (Nocturne only). My mods with the old Load mods
-        /// switch off (mods_enabled, before the dropdown) reads as No mods.</summary>
-        public static string Mode(LauncherSettings s) => s.Str(ProfileKey) is "standard" or "nocturne" ? s.Str(ProfileKey)
+        /// <summary>Load mods: "standard" (No mods), "my" (My mods), "nocturne" (Nocturne only) or "world" (a randomized world,
+        /// Randomizer.Use). My mods with the old Load mods switch off (mods_enabled, before the dropdown) reads as No mods.</summary>
+        public static string Mode(LauncherSettings s) => s.Str(ProfileKey) is "standard" or "nocturne" or "world" ? s.Str(ProfileKey)
             : s.Bool("mods_enabled") ? "my" : "standard";
+
+        /// <summary>The game loads mods for this start (BB_MODS_ENABLED): every choice but No mods.</summary>
+        public static bool ModsOn(LauncherSettings s) => Mode(s) != "standard";
 
         /// <summary>Writes mods.json for the game mode; call right before every game start (new folders appear enabled in
         /// Mods.Load, which would otherwise break Nocturne mode). Leaving My mods saves its list into my_mods_saved, coming back
@@ -440,9 +624,16 @@ namespace BloodborneLauncher.Core
         public static bool Apply(LauncherSettings s, string modsDir)
         {
             if (Paths.DataDir.Length == 0 || !Directory.Exists(modsDir)) return false;
+            var changed = NameFolder(s, modsDir);
+            // A world that is gone (deleted, or its manifest unreadable) leaves world mode for the mode before it.
+            var world = Mode(s) == "world" ? WorldLoad(modsDir, s.Str(Randomizer.WorldKey)) : null;
+            if (Mode(s) == "world" && world == null)
+            {
+                Randomizer.StopUsing(s);
+                changed = true;
+            }
             var mode = Mode(s);
             var written = s.Str(WrittenKey) is { Length: > 0 } w ? w : "my";
-            var changed = NameFolder(s, modsDir);
             var current = Mods.Load(modsDir);
             if (mode != "my")
             {
@@ -451,10 +642,12 @@ namespace BloodborneLauncher.Core
                     s.Set(SavedKey, SavedList(current));
                     changed = true;
                 }
+                // The load order: the kept mods in their order (a world's base as it was built), the world last, the rest off.
                 var nocturne = FolderIn(modsDir) is { } f ? Path.GetFileName(f) : null;
-                var keep = mode == "nocturne" ? current.FirstOrDefault(m =>
-                    string.Equals(m.Name, nocturne, StringComparison.OrdinalIgnoreCase))?.Name : null;
-                Mods.Save(current.Select(m => m with { Enabled = keep != null && m.Name == keep }));
+                var keep = mode == "nocturne"
+                    ? current.Where(m => string.Equals(m.Name, nocturne, StringComparison.OrdinalIgnoreCase)).Select(m => m.Name).Take(1).ToList()
+                    : world ?? new List<string>();
+                Mods.Save(keep.Select(n => new Mods.Entry(n, true)).Concat(current.Where(m => !keep.Contains(m.Name)).Select(m => m with { Enabled = false })));
             }
             else if (written != "my" && ReadSaved(s.Str(SavedKey)) is { } saved)
             {
@@ -468,6 +661,18 @@ namespace BloodborneLauncher.Core
                 changed = true;
             }
             return changed;
+        }
+
+        // World mode's load order: the world's base mods as its manifest lists them, then the world. Null when the world, its
+        // manifest or one of its base mods is missing (it would load as another world).
+        private static List<string>? WorldLoad(string modsDir, string folderName)
+        {
+            if (Randomizer.Parse(folderName) == null) return null;
+            var folder = Path.Combine(modsDir, folderName);
+            if (!Directory.Exists(folder) || Randomizer.ReadManifest(folder) is not { } manifest) return null;
+            var available = Mods.Discover(modsDir);
+            if (manifest.Mods.Any(n => !available.Contains(n))) return null;
+            return manifest.Mods.Append(folderName).ToList();
         }
 
         // The My mods list as saved: its load order and the disabled ones. A folder that was not in mods.json's order yet (Nocturne
@@ -525,12 +730,112 @@ namespace BloodborneLauncher.Core
         /// an install whose content matches its nocturne.json, else null (the game then announces "mods:" + its mod hash).</summary>
         public static string? HostLabel(LauncherSettings s, string modsDir)
         {
+            if (Mode(s) == "world") return WorldHostLabel(modsDir, s.Str(Randomizer.WorldKey));
             if (Mode(s) != "nocturne") return null;
             var installed = Installed(modsDir);
             if (installed.Kind != InstalledKind.Known || installed.Version is not { Length: > 0 } version) return null;
             var label = LabelKey + "@" + version.ToLowerInvariant();
             return VpnLobby.ValidModsLabel(System.Text.Encoding.ASCII.GetBytes(label)) ? label : null;
         }
+
+        /// <summary>A world's lobby label (its manifest's lobby_label), only when everything in it holds here: the folder name,
+        /// code and input hash agree, the code decodes, the generator is ours, and its base is shareable and is what the
+        /// label says (the game alone, or this verified Nocturne). Else null: the game announces "mods:" + its hash.</summary>
+        internal static string? WorldHostLabel(string modsDir, string folderName)
+        {
+            if (Randomizer.Parse(folderName) is not { } world || WorldLoad(modsDir, folderName) == null) return null;
+            if (Randomizer.ReadManifest(Path.Combine(modsDir, folderName)) is not { } m || m.Generator != Randomizer.GeneratorMajor) return null;
+            if (WorldCode.Decode(m.Code) is not { Kind: WorldCodeKind.Ok, Canonical: { } code } || code != m.Code || code != world.Code) return null;
+            if (!m.InputHash.StartsWith(world.Hash, StringComparison.Ordinal)) return null;
+            var (shareable, baseLabel) = Randomizer.BaseLabel(modsDir, m.Mods);
+            if (!shareable || baseLabel != m.BaseLabel) return null;
+            var expected = (baseLabel != null ? baseLabel + "+" : "") + $"rando{Randomizer.GeneratorMajor}:{code.ToLowerInvariant()}+w:{world.Hash}" +
+                (m.GeneratorBuild is { } build ? "+" + BuildKey + build[..8] : "");
+            // generate.lobby_label: "+i:" when it fits in the label
+            if (m.Inputs is { } inputs && expected.Length + InputsKey.Length + 1 + 8 * inputs.Count <= LabelMax)
+                expected += "+" + InputsKey + string.Concat(inputs.Select(h => h.Length >= 8 ? h[..8] : "00000000"));
+            return m.LobbyLabel == expected && VpnLobby.ValidModsLabel(System.Text.Encoding.ASCII.GetBytes(expected)) ? expected : null;
+        }
+
+        /// <summary>A randomized world a lobby label names: (generator number, code text, input-hash check, Nocturne version,
+        /// base part), or null when the label names none. The base part is every other key in label order, each a
+        /// "nocturne@&lt;version&gt;" (at most one) or "m:" + 8 lowercase hex (a mod by content, <see cref="LoadedHash"/>), at most
+        /// 8 and none twice; null for the game alone. Malformed: a world part is there but the label is not one this launcher
+        /// reads (more than one world or check, a part it does not know): only "modded" then.</summary>
+        public static (int Generator, string Code, string Check, string? Nocturne, string? Base)? WorldOf(string? hostLabel, out bool malformed)
+        {
+            malformed = false;
+            var parts = (hostLabel ?? "").Split('+');
+            var worlds = parts.Where(p => p.StartsWith("rando", StringComparison.Ordinal) && p.Contains(':')).ToList();
+            if (worlds.Count == 0) return null;
+            var checks = parts.Where(p => p.StartsWith("w:", StringComparison.Ordinal)).ToList();
+            // "g:" + 8 hex: the generator build (BuildOf), at most one; it is inside w: too, so it only names a mismatch.
+            var builds = parts.Where(p => p.StartsWith(BuildKey, StringComparison.Ordinal)).ToList();
+            // "i:" + 8 hex per root (InputsOf), at most one; inside w: too, so it only names what differs.
+            var inputs = parts.Where(p => p.StartsWith(InputsKey, StringComparison.Ordinal)).ToList();
+            var others = parts.Where(p => !worlds.Contains(p) && !checks.Contains(p) && !builds.Contains(p) && !inputs.Contains(p)).ToList();
+            var nocturne = NocturneOf(hostLabel);
+            static bool ModKey(string p) => p.Length == ModToken.Length + 8 && p.StartsWith(ModToken, StringComparison.Ordinal) &&
+                                            p[ModToken.Length..].All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
+            var head = worlds[0][..worlds[0].IndexOf(':')];
+            if (worlds.Count != 1 || checks.Count != 1 || others.Count > 8 || others.Distinct().Count() != others.Count ||
+                others.Count(p => p.StartsWith(LabelKey + "@", StringComparison.Ordinal)) > 1 ||
+                others.Any(p => !ModKey(p) && p != LabelKey + "@" + nocturne) ||
+                builds.Count > 1 || (builds.Count == 1 && BuildOf(hostLabel) == null) ||
+                inputs.Count > 1 || (inputs.Count == 1 && InputsOf(hostLabel) == null) ||
+                checks[0].Length != 10 || !checks[0][2..].All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f') ||
+                head.Length is < 6 or > 9 || !head[5..].All(char.IsAsciiDigit))
+            {
+                malformed = true;
+                return null;
+            }
+            return (int.Parse(head[5..]), worlds[0][(head.Length + 1)..], checks[0][2..], nocturne, others.Count > 0 ? string.Join('+', others) : null);
+        }
+
+        private const string BuildKey = "g:";
+        private const string InputsKey = "i:";
+        private const int LabelMax = 255; // VpnLobby.ValidModsLabel; generate.LABEL_MAX
+
+        /// <summary>The input-hash parts a world label names ("i:" + 8 hex per root: the game, then each base mod in load
+        /// order; generate.lobby_label), or null when it names none or a malformed one. Untrusted: only compared.</summary>
+        public static IReadOnlyList<string>? InputsOf(string? hostLabel)
+        {
+            var found = (hostLabel ?? "").Split('+').Where(p => p.StartsWith(InputsKey, StringComparison.Ordinal)).ToList();
+            if (found.Count != 1) return null;
+            var hex = found[0][InputsKey.Length..];
+            if (hex.Length == 0 || hex.Length % 8 != 0 || hex.Length > 8 * 16 || !hex.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f')) return null;
+            return Enumerable.Range(0, hex.Length / 8).Select(i => hex.Substring(i * 8, 8)).ToList();
+        }
+
+        /// <summary>Why a world built here is not the host's, from the label's "i:" against this build's own parts: the game's
+        /// files, and the names of the base mods whose copies differ. Null when either side lacks them or they do not line up
+        /// (then only "something differs" is known).</summary>
+        public static (bool Game, IReadOnlyList<string> Mods)? WhatDiffers(string? hostLabel, Randomizer.WorldManifest made)
+        {
+            if (InputsOf(hostLabel) is not { } host || made.Inputs is not { } mine || host.Count != mine.Count) return null;
+            string Short(string h) => h.Length >= 8 ? h[..8] : "00000000";
+            var mods = Enumerable.Range(1, mine.Count - 1).Where(i => host[i] != Short(mine[i])).Select(i => made.Mods[i - 1]).ToList();
+            var game = host[0] != Short(mine[0]);
+            return game || mods.Count > 0 ? (game, mods) : null;
+        }
+
+        /// <summary>The generator build a world label names ("g:" + the first 8 hex of the host generator's build id), or null
+        /// when it names none (a world of a generator before build ids, or no world). Untrusted: only compared.</summary>
+        public static string? BuildOf(string? hostLabel)
+        {
+            var found = (hostLabel ?? "").Split('+').Where(p => p.StartsWith(BuildKey, StringComparison.Ordinal)).ToList();
+            return found.Count == 1 && found[0].Length == BuildKey.Length + 8 &&
+                   found[0][BuildKey.Length..].All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f') ? found[0][BuildKey.Length..] : null;
+        }
+
+        /// <summary>True when a generator of build <paramref name="ownBuild"/> (64 hex; null: unknown) would not make the world
+        /// this host label names: the label's "g:" is another build, or it has none (a generator before build ids). False for no
+        /// label or an unknown build: nothing to tell.</summary>
+        public static bool OtherBuild(string? hostLabel, string? ownBuild) =>
+            hostLabel != null && ownBuild != null && (BuildOf(hostLabel) is not { } host || !ownBuild.StartsWith(host, StringComparison.Ordinal));
+
+        /// <summary>What the page says when this package's generator is not the host's: it would build another world.</summary>
+        public static string OtherBuildText => L.T("This world was made by another randomizer build; both players need the same Nightwatch package.");
 
         /// <summary>The Nocturne version a lobby label names, or null. The label is untrusted: it is only split into parts
         /// ('+') and compared, never used as a path or an address; the version must itself be a plain one (digits, letters, dots).</summary>
@@ -586,6 +891,35 @@ namespace BloodborneLauncher.Core
 
         private static JoinChoice ModsAdvice(string label, LocalMods local, IReadOnlyCollection<string>? offered)
         {
+            if (WorldOf(label, out var malformed) is { } world)
+            {
+                if (world.Generator > Randomizer.GeneratorMajor) return new JoinChoice(JoinKind.WorldNewer);
+                var decoded = WorldCode.Decode(world.Code);
+                if (decoded.Kind == WorldCodeKind.Newer) return new JoinChoice(JoinKind.WorldNewer);
+                if (decoded is not { Kind: WorldCodeKind.Ok, Canonical: { } code } || decoded.Canonical.ToLowerInvariant() != world.Code)
+                    return new JoinChoice(JoinKind.Modded);
+                // The folder name holds no generator: the world playing here is the host's only when its manifest's generator
+                // is the label's too (an older world still plays as built, so a guest already on it may join), and its base
+                // mods are the label's by content (the party mods hash covers every file of them, read or not).
+                if (local.Mode == "world" && local.World == $"Randomizer {code} {world.Check}" && local.WorldGenerator == world.Generator &&
+                    BaseMatches(local.WorldBase, world.Base))
+                    return new JoinChoice(JoinKind.Join, world.Nocturne, code, world.Check, Base: world.Base);
+                if (world.Generator < Randomizer.GeneratorMajor)
+                    return new JoinChoice(JoinKind.WorldOlder, world.Nocturne, code, world.Check, Base: world.Base);
+                if (!local.CanBuildWorlds)
+                    return new JoinChoice(JoinKind.WorldNotAvailable, world.Nocturne, code, world.Check, Base: world.Base);
+                var have = local.BaseTokens?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+                if (world.Nocturne is { } needed && !string.Equals(local.NocturneVersion, needed, StringComparison.OrdinalIgnoreCase) &&
+                    offered?.Contains(needed, StringComparer.OrdinalIgnoreCase) != true && have?.Contains(LabelKey + "@" + needed) != true)
+                    return new JoinChoice(JoinKind.NocturneNotAvailable, needed);
+                // A mod named by content: some folder here (any name) must hold those files; nothing can fetch it.
+                var missing = have == null ? new List<string>() : (world.Base ?? "").Split('+', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(t => t.StartsWith(ModToken, StringComparison.Ordinal) && !have.Contains(t)).ToList();
+                if (missing.Count > 0)
+                    return new JoinChoice(JoinKind.WorldModMissing, world.Nocturne, code, world.Check, Base: world.Base, Missing: string.Join(",", missing));
+                return new JoinChoice(JoinKind.BuildWorld, world.Nocturne, code, world.Check, Base: world.Base);
+            }
+            if (malformed) return new JoinChoice(JoinKind.Modded);
             if (NocturneOf(label) is { } version)
             {
                 if (local.Mode == "nocturne" && string.Equals(local.NocturneVersion, version, StringComparison.OrdinalIgnoreCase))
@@ -598,7 +932,7 @@ namespace BloodborneLauncher.Core
             // means the same gameplay files, whatever the mods are called (user, 4 Nov: Nocturne with another mod said mismatch).
             if (label.StartsWith("mods:", StringComparison.Ordinal) && local.ModsHash is { } own)
                 return new JoinChoice(string.Equals(label[5..], own, StringComparison.OrdinalIgnoreCase) ? JoinKind.Join : JoinKind.Modded);
-            var modsOn = local.Mode == "nocturne" || (local.Mode == "my" && local.EnabledCount > 0);
+            var modsOn = local.Mode is "nocturne" or "world" || (local.Mode == "my" && local.EnabledCount > 0);
             if (label.Length > 0) return new JoinChoice(local.ModsHash == null && modsOn ? JoinKind.ModdedUnchecked : JoinKind.Modded);
             if (local.ModsHash == NoGameplayMods) return new JoinChoice(JoinKind.Join);  // cosmetic mods only
             return modsOn ? new JoinChoice(JoinKind.MismatchJoinAnyway) : new JoinChoice(JoinKind.Join);
@@ -609,23 +943,155 @@ namespace BloodborneLauncher.Core
         public static async Task UseNocturneAsync(LauncherSettings s, string modsDir, string version, ModManifest? manifest,
             IProgress<double>? progress, CancellationToken ct = default)
         {
-            var installed = await Task.Run(() => Installed(modsDir, manifest), ct);
-            if (!(installed.Kind == InstalledKind.Known && string.Equals(installed.Version, version, StringComparison.OrdinalIgnoreCase)))
-            {
-                if (manifest?.Find(version) is not { } entry)
-                    throw new InvalidDataException(L.F($"Nocturne {version} is not available for download."));
-                await InstallAsync(entry, modsDir, progress, ct);
-            }
+            await EnsureNocturneAsync(modsDir, version, manifest, progress, ct);
             s.Set(ProfileKey, "nocturne");
             Apply(s, modsDir);
         }
 
-        /// <summary>The local side for JoinAdvice: mode, installed Nocturne version (any known one) and My mods' count.</summary>
-        public static LocalMods Local(LauncherSettings s, string modsDir, ModManifest? manifest) =>
-            new(Mode(s), Installed(modsDir, manifest) is { Kind: InstalledKind.Known } i ? i.Version : null, MyModsCount(s, modsDir),
-                PartyHashes.Current.Mods, PartyHashes.Current.Patches);
+        /// <summary>The local side for JoinAdvice: mode, installed Nocturne version (any known one), My mods' count, the party mods
+        /// and patches hashes as a start would have them now, the world world mode plays, whether worlds can be built, that
+        /// world's generator and base by content, and (with <paramref name="baseTokens"/>, when a host's world names a base mod
+        /// by content) the keys this PC's mods stand for, worked out in the background.</summary>
+        public static LocalMods Local(LauncherSettings s, string modsDir, ModManifest? manifest, bool baseTokens = false)
+        {
+            var world = Mode(s) == "world" ? s.Str(Randomizer.WorldKey) : null;
+            var made = world != null && Randomizer.Parse(world) != null ? Randomizer.ReadManifest(Path.Combine(modsDir, world)) : null;
+            var worldBase = made != null ? SafeBaseKeys(modsDir, made.Mods) : null;
+            return new(Mode(s), Installed(modsDir, manifest) is { Kind: InstalledKind.Known } i ? i.Version : null, MyModsCount(s, modsDir),
+                PartyHashes.Current.Mods, PartyHashes.Current.Patches, world, Randomizer.Supported, made?.Generator,
+                worldBase, baseTokens ? KnownBaseTokens(modsDir) : null);
+        }
 
         /// <summary>The party hash of a start with no gameplay mods (bb-start writes 64 zeros), first 8 hex.</summary>
         public const string NoGameplayMods = "00000000";
+
+        // Installs this Nocturne version from the manifest unless it is the one in the folder.
+        private static async Task EnsureNocturneAsync(string modsDir, string version, ModManifest? manifest, IProgress<double>? progress, CancellationToken ct)
+        {
+            var installed = await Task.Run(() => Installed(modsDir, manifest), ct);
+            if (installed.Kind == InstalledKind.Known && string.Equals(installed.Version, version, StringComparison.OrdinalIgnoreCase)) return;
+            if (manifest?.Find(version) is not { } entry)
+                throw new InvalidDataException(L.F($"Nocturne {version} is not available for download."));
+            await InstallAsync(entry, modsDir, progress, ct);
+        }
+
+        /// <summary>The guest's side of "Build world and join" (a BuildWorld choice): reuses the world when this folder already
+        /// has it (<see cref="HasWorld"/>), else finds the base mods the label names by content in folders of any name, gets the
+        /// host's Nocturne version when none here has it (any other missing mod: a message naming its key), and builds the
+        /// world from this player's game files on them; then plays it (world mode). A build whose input hash is not the host's check is
+        /// refused (another game dump or Nocturne copy would make another world) and the new folder removed. Throws with a
+        /// message the page shows; <paramref name="building"/> is told when the generator starts. With <paramref name="hostLabel"/>
+        /// (the host's lobby label), a world that must be built is refused before the build when this package's generator build
+        /// is not the label's "g:" (or the label has none: a generator before build ids), and a build that does not match says
+        /// so: another generator build makes another world from the same code and files. <paramref name="buildProgress"/> gets the
+        /// build's fraction done and step text as the generator reports them (<see cref="Randomizer.Generate"/>).</summary>
+        public static async Task UseWorldAsync(LauncherSettings s, string modsDir, JoinChoice choice, ModManifest? manifest,
+            IProgress<double>? progress, Action? building = null, CancellationToken ct = default, string? hostLabel = null,
+            Action<double, string>? buildProgress = null)
+        {
+            if (choice is not { Kind: JoinKind.BuildWorld or JoinKind.Join, Code: { } code, Check: { } check })
+                throw new InvalidOperationException(L.T("This host's world can't be built here."));
+            // The base by content (user, 5 Nov): each key of the label is a folder here under any name; only a missing Nocturne
+            // version is fetched (NameFolder first gives the launcher's install its version name).
+            if (choice.Version != null) NameFolder(s, modsDir);
+            var want = $"Randomizer {code} {check}";
+            if (!await Task.Run(() => HasWorld(modsDir, code, check, choice.Base), ct))
+            {
+                if (hostLabel != null && OtherBuild(hostLabel, await Randomizer.BuildIdAsync(ct)))
+                    throw new InvalidDataException(OtherBuildText);
+                var (baseMods, missing) = await Task.Run(() => ResolveBase(modsDir, choice.Base, manifest), ct);
+                if (baseMods == null && choice.Version is { } version && missing.Contains(LabelKey + "@" + version.ToLowerInvariant()))
+                {
+                    await EnsureNocturneAsync(modsDir, version, manifest, progress, ct);
+                    NameFolder(s, modsDir);
+                    (baseMods, missing) = await Task.Run(() => ResolveBase(modsDir, choice.Base, manifest), ct);
+                }
+                if (baseMods == null) throw new InvalidDataException(MissingModsText(missing));
+                building?.Invoke();
+                var existed = new HashSet<string>(Mods.Discover(modsDir), StringComparer.OrdinalIgnoreCase);
+                var name = await Randomizer.Generate(s, code, baseMods, buildProgress, ct);
+                void RemoveNew()
+                {
+                    if (!existed.Contains(name))
+                        try { Directory.Delete(Path.Combine(modsDir, name), recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                }
+                // A package whose generator is not the launcher's makes another world under any name: say so, not "your files".
+                if (Randomizer.ReadManifest(Path.Combine(modsDir, name)) is not { } made || made.Generator != Randomizer.GeneratorMajor)
+                {
+                    RemoveNew();
+                    throw new InvalidDataException(L.T("This package's randomizer does not match the launcher. Reinstall Nightwatch Co-op."));
+                }
+                if (name != want)
+                {
+                    var kept = KeepMismatch(Path.Combine(modsDir, name), hostLabel);
+                    RemoveNew();
+                    if (OtherBuild(hostLabel, made.GeneratorBuild)) throw new InvalidDataException(OtherBuildText);
+                    throw new InvalidDataException(MismatchText(WhatDiffers(hostLabel, made), choice.Version != null) +
+                        (kept != null ? " " + L.F($"The details are in {kept}.") : ""));
+                }
+            }
+            Randomizer.Use(s, want);
+            Apply(s, modsDir);
+        }
+
+        /// <summary>What the page says when the world built here is not the host's: what differs when the label says
+        /// (<see cref="WhatDiffers"/>), else that the game's or the base mods' files do.</summary>
+        public static string MismatchText((bool Game, IReadOnlyList<string> Mods)? differs, bool nocturne)
+        {
+            if (differs is not { } d)
+                return nocturne
+                    ? L.T("Your game files or your Nocturne files differ from the host's, so this world would not match theirs. Check that your game is version 1.09 and Nocturne came from the launcher.")
+                    : L.T("Your game files differ from the host's, so this world would not match theirs. Check that your game is version 1.09.");
+            var mods = string.Join(", ", d.Mods);
+            if (d.Game && d.Mods.Count > 0)
+                return L.F($"Your game files and your copy of {mods} differ from the host's, so this world would not match theirs.");
+            if (d.Game)
+                return L.T("Your game files differ from the host's (your mods match theirs), so this world would not match theirs. Your game folder holds changed files: another copy of the game, or a mod once copied into it.");
+            return L.F($"Your copy of {mods} differs from the host's (your game files match theirs), so this world would not match theirs. Remove it from your mods folder and join again: the launcher downloads Nocturne again; another mod, get it from the host.");
+        }
+
+        /// <summary>A failed join build's manifest (every file it read, with its hash) and the host's label, kept as
+        /// logs\world-mismatch.json before the build is removed, so the file that differs can be found later by comparing it
+        /// with the host's manifest. Returns that path, or null when it could not be written.</summary>
+        private static string? KeepMismatch(string builtFolder, string? hostLabel)
+        {
+            try
+            {
+                var target = Path.Combine(Path.GetDirectoryName(GameRunner.SessionLog)!, "world-mismatch.json");
+                var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(builtFolder, "randomizer_manifest.json")));
+                var kept = new JsonObject { ["host_label"] = hostLabel, ["built"] = Path.GetFileName(builtFolder), ["manifest"] = manifest };
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.WriteAllText(target, kept.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                return target;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>What the page says when a world's base mods are not here: their keys as the label names them ("m:" + 8 hex
+        /// of the files, or a Nocturne version), so the host can tell which mods they are.</summary>
+        public static string MissingModsText(IEnumerable<string> keys)
+        {
+            var list = keys.Select(k => k.StartsWith(LabelKey + "@", StringComparison.Ordinal) ? "Nocturne " + k[(LabelKey.Length + 1)..] : k);
+            return string.Format(L.T("This host's world is built on mods you don't have ({0}). Ask the host which mods they are and add the same files to your mods folder (any folder name works)."),
+                string.Join(", ", list));
+        }
+
+        /// <summary>This folder already holds the host's world: "Randomizer CODE CHECK" whose manifest is this generator's, with
+        /// that code and input hash, built on base mods that a label names <paramref name="basePart"/> now (by content, so a
+        /// base under another folder name counts; null: the game alone). A folder of that name from another generator is
+        /// another world (the name holds no generator): it is built again.</summary>
+        public static bool HasWorld(string modsDir, string code, string check, string? basePart) =>
+            Randomizer.ReadManifest(Path.Combine(modsDir, $"Randomizer {code} {check}")) is { } m && m.Generator == Randomizer.GeneratorMajor &&
+            m.Code == code && m.InputHash.StartsWith(check, StringComparison.Ordinal) && BaseMatches(SafeBaseKeys(modsDir, m.Mods), basePart);
+
+        // BaseKeysOf, or "?" (matches no base) when a folder is missing or can't be read.
+        private static string? SafeBaseKeys(string modsDir, IReadOnlyList<string> baseMods)
+        {
+            try { return BaseKeysOf(modsDir, baseMods); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException) { return "?"; }
+        }
     }
 }

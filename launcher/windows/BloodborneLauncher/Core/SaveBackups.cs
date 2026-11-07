@@ -25,8 +25,13 @@ namespace BloodborneLauncher.Core
 
         public static string SaveData(LauncherSettings s) => Path.Combine(GameEnvironment.UserDir(s), "savedata");
 
-        public static string Folder(LauncherSettings s) =>
-            Path.Combine(GameEnvironment.SavesRoot(s), "launcher-backups", PlayerProfiles.Current(s));
+        /// <summary>launcher-backups\&lt;profile&gt;; a randomized world's saves (WorldSaves) keep theirs in worlds\&lt;its folder&gt;
+        /// inside it, so restoring never puts one world's save into another world or the profile's own saves.</summary>
+        public static string Folder(LauncherSettings s)
+        {
+            var profile = Path.Combine(GameEnvironment.SavesRoot(s), "launcher-backups", PlayerProfiles.Current(s));
+            return Randomizer.Active(s) != null ? Path.Combine(profile, WorldSaves.RootName, Path.GetFileName(GameEnvironment.UserDir(s))) : profile;
+        }
 
         /// <summary>This profile's backups, newest first.</summary>
         public static List<Backup> List(LauncherSettings s) => ListIn(Folder(s));

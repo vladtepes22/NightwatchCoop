@@ -250,7 +250,7 @@ internal static class CuratedModTests
             }
             var patched = new LocalMods("my", null, 2, "0a1b2c3d", "d8e32e8a");
             Check(CuratedMods.JoinAdvice("mods:0a1b2c3d+patches:d8e32e8a", patched, offered) == new JoinChoice(JoinKind.Join), "Same mods and patches join");
-            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d+patches:00000001", patched, offered) == new JoinChoice(JoinKind.Join, null, true), "Other patches are told apart from mods");
+            Check(CuratedMods.JoinAdvice("mods:0a1b2c3d+patches:00000001", patched, offered) == new JoinChoice(JoinKind.Join, PatchesDiffer: true), "Other patches are told apart from mods");
             Check(CuratedMods.JoinAdvice("mods:ffff0000+patches:00000001", patched, offered) is { Kind: JoinKind.Modded, PatchesDiffer: true }, "Both differ");
             Check(CuratedMods.JoinAdvice("patches:d8e32e8a", new LocalMods("my", null, 0, CuratedMods.NoGameplayMods, "d8e32e8a")).Kind == JoinKind.Join, "A host with patches only joins the same guest");
             Check(!CuratedMods.JoinAdvice("mods:0a1b2c3d+patches:00000001", new LocalMods("my", null, 2, "0a1b2c3d")).PatchesDiffer, "Unknown own patches are not called different");

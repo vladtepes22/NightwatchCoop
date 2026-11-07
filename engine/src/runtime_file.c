@@ -652,6 +652,50 @@ static void stream_read_end(int loader,uint64_t start,int64_t n) {
 }
 static int fd_is_loader(int fd) { File *f=get(fd); return f && f->loader; }
 
+/* Randomized world (BB_RANDO=1: the start found randomizer_manifest.json in a loaded mod, engine/start/mods.cpp).
+ * "[rando] map m22_00" when another map layout opens, "[rando] load c2620 (last map file m22_00)" once per map and
+ * model, and the last of each for the fault report (probe.c). Only file opens pay for it, never a frame; without a
+ * randomized world it is one cached flag test per open. */
+char runtime_rando_map[16], runtime_rando_chr[8];
+static int rando_on(void) {
+    static int v=-1;
+    if (v<0) { const char *e=getenv("BB_RANDO"); v=e && e[0]=='1'; }
+    return v;
+}
+static void rando_note(const char *guest,uint64_t at_ns) {
+    enum { SLOTS=4096, MAX_LINES=3000 };
+    static unsigned seen[SLOTS];
+    static unsigned lines;
+    static uint64_t base;  /* seconds count from the first game file this world opened */
+    uint64_t zero=0;
+    __atomic_compare_exchange_n(&base,&zero,at_ns,0,__ATOMIC_RELAXED,__ATOMIC_RELAXED);
+    const double s=(double)(at_ns-__atomic_load_n(&base,__ATOMIC_RELAXED))/1e9;
+    const char *m=strstr(guest,"/mapstudio/m");
+    if (m) {
+        char map[16];
+        snprintf(map,sizeof(map),"%.6s",m+11);
+        if (strcmp(map,runtime_rando_map)) {
+            memcpy(runtime_rando_map,map,sizeof(map));
+            if (__atomic_fetch_add(&lines,1,__ATOMIC_RELAXED)<MAX_LINES) printf("[rando] %.1f s map %s\n",s,map);
+        }
+        return;
+    }
+    const char *c=strstr(guest,"/chr/c");
+    if (!c || !strstr(c,".chrbnd")) return;
+    char chr[8];
+    snprintf(chr,sizeof(chr),"%.5s",c+5);
+    memcpy(runtime_rando_chr,chr,sizeof(chr));
+    const unsigned map_number=(unsigned)atoi(runtime_rando_map+1)*100+(unsigned)atoi(runtime_rando_map+4);
+    const unsigned key=map_number*10000u+(unsigned)atoi(chr+1)+1u;
+    for (unsigned i=key*2654435761u%SLOTS,n=0;n<SLOTS;++n,i=(i+1)%SLOTS) {
+        unsigned cur=__atomic_load_n(&seen[i],__ATOMIC_RELAXED);
+        if (cur==key) return;
+        if (!cur && __atomic_compare_exchange_n(&seen[i],&cur,key,0,__ATOMIC_RELAXED,__ATOMIC_RELAXED)) break;
+        if (cur==key) return;
+    }
+    if (__atomic_fetch_add(&lines,1,__ATOMIC_RELAXED)<MAX_LINES)
+        printf("[rando] %.1f s load %s (last map file %s)\n",s,chr,runtime_rando_map[0] ? runtime_rando_map : "none");
+}
 static int64_t do_open(const char *guest,int flags,int mode) {
     if (game_path(guest) && (flags & (3|0x8|0x200|0x400|0x800))) return -EROFS;
     char path[1024];
@@ -709,6 +753,13 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     ++opens;
     host_unlock(&lock);
     if (audio_trace() && strstr(guest,"sound/")) printf("Audio trace: open(%s) -> fd %d, %lld bytes\n",guest,fd,(long long)s.st_size);
+    /* BB_DEBUG_CHRLOAD=1: every open of a file the randomizer cares about, with its time and size
+     * (map tiles are left out: thousands of them, and the randomizer never writes one). */
+    static int chrload=-1;
+    if (chrload<0) { const char *v=getenv("BB_DEBUG_CHRLOAD"); chrload=v && v[0]=='1'; }
+    if (chrload && !dir && game_path(guest) && (!strstr(guest,"/map/") || strstr(guest,"/mapstudio/")))
+        printf("ChrLoad: %.3f s open %s %lld\n",(double)open_start/1e9,guest,(long long)s.st_size);
+    if (!dir && rando_on() && game_path(guest)) rando_note(guest,open_start);
     const char *mod_trace=getenv("BB_MOD_TRACE"), *mod_root=getenv("BB_MODS_DIR");
     if (mod_trace && mod_trace[0]=='1' && mod_root) {
         char actual[PATH_MAX],root[PATH_MAX];

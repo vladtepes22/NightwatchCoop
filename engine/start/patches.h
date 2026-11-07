@@ -23,6 +23,7 @@ struct PatchRequest {
 };
 struct PatchResult {
     bool heap_patch = false;
+    bool main_heap = false;  // MAIN enlarged (randomized world): needs the 9152 MiB pool
     Size ui{1920, 1080};
 };
 PatchResult CompilePatches(const PatchRequest& request);

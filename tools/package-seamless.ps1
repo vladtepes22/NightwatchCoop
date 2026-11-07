@@ -19,6 +19,7 @@ param(
     # tools\map\build-generator.ps1's output: the launcher makes the in-game map with it. Required
     # for a release; without it the package has no map.
     [string]$MapGenerator = '',
+    [string]$RandomizerBuild = '',
     # A package to publish: no first-run settings with this PC's folders (the launcher finds its own).
     [switch]$Release
 )
@@ -255,4 +256,25 @@ Write-Json ([ordered]@{
     seamless = 'visy v0.7.9'
     runtime_sha256 = (Get-FileHash -LiteralPath (Join-Path $out 'bb-probe.exe')).Hash.ToLowerInvariant()
 }) (Join-Path $destinationRoot 'package.json')
+# Private tools ship compiled: no Python in their folder, and no copy of their sources anywhere in the package.
+$privateFolder = Join-Path $destinationRoot 'randomizer'
+if ($RandomizerBuild) {
+    if (!(Test-Path -LiteralPath (Join-Path $RandomizerBuild 'randomizer.exe'))) { throw "No randomizer.exe in $RandomizerBuild" }
+    Copy-Item -LiteralPath $RandomizerBuild -Destination $privateFolder -Recurse -Force
+}
+$leaks = @()
+if (Test-Path -LiteralPath $privateFolder) {
+    $leaks += Get-ChildItem -LiteralPath $privateFolder -Recurse -File | Where-Object { $_.Extension -in '.py', '.pyc', '.pdb', '.map' }
+}
+$privateSources = Join-Path $repo 'tools\randomizer'
+if (Test-Path -LiteralPath $privateSources) {
+    # Its scratch-archive-* folders hold one-off session scripts (none shipped); their names may match public files.
+    $names = @(Get-ChildItem -LiteralPath $privateSources -Recurse -File -Filter *.py |
+        Where-Object { $_.FullName.Substring($privateSources.Length) -notmatch '\\scratch-archive-' } | ForEach-Object { $_.BaseName })
+    $leaks += Get-ChildItem -LiteralPath $destinationRoot -Recurse -File | Where-Object { $_.Extension -in '.py', '.pyc', '.pyd' -and $names -contains $_.BaseName }
+}
+if ($leaks) {
+    Remove-Item -LiteralPath (Join-Path $destinationRoot 'package.json') -Force
+    throw "Private source in the package: $(($leaks | Select-Object -First 5).FullName -join ', ')"
+}
 Write-Output "Package assembled: $destinationRoot"

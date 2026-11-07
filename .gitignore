@@ -16,5 +16,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Private build files, never committed
+tools/randomizer/_stamp_key.py
+tools/randomizer/_build_id.py
+
 # AMD FSR SDK files (engine/tools/fetch_fsr_sdk.sh)
 engine/fsr_sdk/

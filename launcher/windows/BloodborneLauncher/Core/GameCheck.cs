@@ -56,6 +56,16 @@ namespace BloodborneLauncher.Core
                 : L.F($"Bloodborne {title}, version {version}"), title, version);
         }
 
+        /// <summary>The update the engine lays over the game at start (engine/scripts/mods.py update_folder, the same rule):
+        /// <see cref="UpdateFolder"/>, unless the game is already at its version (APP_VER), when the engine leaves it out.
+        /// Whatever reads the game's files as the game will see them (the randomizer) reads through this one.</summary>
+        public static string? LaidOverGame(string gameDir)
+        {
+            if (UpdateFolder(gameDir) is not { } update) return null;
+            var version = ReadSfo(Path.Combine(update, "sce_sys", "param.sfo")).GetValueOrDefault("APP_VER");
+            return version != null && ReadSfo(Path.Combine(gameDir, "sce_sys", "param.sfo")).GetValueOrDefault("APP_VER") == version ? null : update;
+        }
+
         /// <summary>The game update beside the game folder (&lt;game&gt;-UPDATE or &lt;game&gt;-patch, any case)
         /// with an eboot.bin, or null.</summary>
         public static string? UpdateFolder(string gameDir)
