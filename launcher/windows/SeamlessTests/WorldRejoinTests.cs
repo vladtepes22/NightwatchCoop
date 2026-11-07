@@ -121,7 +121,13 @@ internal static class WorldRejoinTests
         }
 
         // ---- the automatic answer (fakes): a refusal naming a world builds it, then joins again; once per label
-        var vectors = JsonNode.Parse(File.ReadAllText(WorldJoinTests.RepoFile(Path.Combine("tools", "randomizer", "tests", "r2_vectors.json"))))!;
+        if (WorldJoinTests.GeneratorVectors() is { } vectors) AutomaticAnswer(vectors);
+        JoinTargetsInScratch();
+        Console.WriteLine("PASS: world rejoin: progress lines, LAN mods label datagram and book, refusal label (text and party_host_mods.txt), build then join again on a fake refusal, join target");
+    }
+
+    private static void AutomaticAnswer(JsonNode vectors)
+    {
         var code = vectors["vectors"]!.AsArray().Select(v => v!["error"] == null ? v["canonical"]!.GetValue<string>() : null).First(c => c != null)!;
         var hostLabel = $"rando{Randomizer.GeneratorMajor}:{code.ToLowerInvariant()}+w:1b8e536a";
         var plain = new LocalMods("standard", null, 0, CanBuildWorlds: true);
@@ -155,7 +161,10 @@ internal static class WorldRejoinTests
         catch (InvalidDataException) { failed = true; }
         Check(failed && steps.Count == 0, "a failed build joins nothing and tells why");
         WorldRejoin.Reset();
+    }
 
+    private static void JoinTargetsInScratch()
+    {
         // The join again goes to the same host: a join start records its target, an invasion does not (a scratch data folder:
         // a join start reads and removes party_adopt.txt in the user folder).
         var dataBefore = Environment.GetEnvironmentVariable("BB_DATA_DIR");
@@ -170,7 +179,7 @@ internal static class WorldRejoinTests
 
         // The BBP3 party code has no spare bit (visy PR 34: all four flag bits are used, the rest is the CRC), so a code says
         // nothing about the host's mods; the refusal above is the path. The codes stay as they were.
-        Check(PartyCodes.Encode(false, false, new byte[] { 1, 2, 3, 4 }, 9307, new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }).StartsWith("BBP3-"), "codes unchanged");        Console.WriteLine("PASS: world rejoin: progress lines, LAN mods label datagram and book, refusal label (text and party_host_mods.txt), build then join again on a fake refusal, join target");
+        Check(PartyCodes.Encode(false, false, new byte[] { 1, 2, 3, 4 }, 9307, new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }).StartsWith("BBP3-"), "codes unchanged");
     }
 
     private static void JoinTargets()

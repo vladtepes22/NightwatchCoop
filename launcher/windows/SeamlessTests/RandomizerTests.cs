@@ -79,7 +79,7 @@ internal static class RandomizerTests
     /// spoiler's readable part and the clean-up after a stopped run.</summary>
     private static void Page()
     {
-        var vectors = JsonNode.Parse(File.ReadAllText(WorldJoinTests.RepoFile(Path.Combine("tools", "randomizer", "tests", "r2_vectors.json"))))!;
+        if (WorldJoinTests.GeneratorVectors() is not { } vectors) return;
         var checkedOne = false;
         foreach (var v in vectors["vectors"]!.AsArray())
         {

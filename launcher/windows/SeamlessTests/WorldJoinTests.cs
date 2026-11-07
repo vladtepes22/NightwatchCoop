@@ -23,6 +23,18 @@ internal static class WorldJoinTests
         throw new FileNotFoundException("not found above the test folder: " + relative);
     }
 
+    /// <summary>The generator's code vectors (tools/randomizer/tests/r2_vectors.json), or null in a checkout without the
+    /// private generator (the public branch): the checks that need them are skipped there and run in the generator's tree.</summary>
+    internal static JsonNode? GeneratorVectors()
+    {
+        try { return JsonNode.Parse(File.ReadAllText(RepoFile(Path.Combine("tools", "randomizer", "tests", "r2_vectors.json"))))!; }
+        catch (FileNotFoundException)
+        {
+            Console.WriteLine("SKIP: world-code checks against the generator's vectors (no tools/randomizer in this checkout)");
+            return null;
+        }
+    }
+
     private static bool SameOption(object mine, JsonNode? theirs) => mine switch
     {
         long v => theirs is JsonValue j && j.GetValue<long>() == v,
@@ -35,7 +47,7 @@ internal static class WorldJoinTests
     internal static void Run()
     {
         // ---- the decoder against the generator's vectors
-        var vectors = JsonNode.Parse(File.ReadAllText(RepoFile(Path.Combine("tools", "randomizer", "tests", "r2_vectors.json"))))!;
+        if (GeneratorVectors() is not { } vectors) return; // the rest uses codes from the vectors
         Check(vectors["schema"]!.GetValue<int>() == WorldCode.Schema && vectors["core_bits"]!.GetValue<int>() == WorldCode.CoreBits, "schema / core bits differ from the vectors");
         string? sample = null, nocturneSample = null;
         foreach (var v in vectors["vectors"]!.AsArray())
