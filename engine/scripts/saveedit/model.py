@@ -110,6 +110,14 @@ _MAPS = [(21, 0), (21, 1), (22, 0), (23, 0), (24, 0), (24, 1), (24, 2), (25, 0),
          (29, 0), (32, 0), (33, 0), (34, 0), (35, 0), (36, 0)]
 
 
+def _count_fits(count, used):
+    """The normal list's count against its used entries. The game can write a count above them: when it drops an
+    entry on load (a player's party run, an item a save editor added) it keeps the count it read and saves it
+    again, and loads that file fine. Below the used entries, or past the list, the bytes are not an inventory.
+    An item edit writes the true count back (_recount)."""
+    return used <= count <= NORMAL_ENTRIES
+
+
 class SaveFormatError(ValueError):
     pass
 
@@ -198,7 +206,7 @@ class SaveModel:
         if at + 4 + NORMAL_ENTRIES * ENTRY + 2 * (4 + KEY_ENTRIES * ENTRY) > SLOT_SIZE:
             return False
         used = sum(1 for k in range(NORMAL_ENTRIES) if not self._empty(at + 4 + k * ENTRY))
-        return self.u32(at) == used
+        return _count_fits(self.u32(at), used)
 
     # --- raw helpers -------------------------------------------------------------------------
     def u32(self, o):
@@ -217,7 +225,7 @@ class SaveModel:
     def _check_inventory(self):
         n = self.u32(self.normal_at)
         used = sum(1 for k in range(NORMAL_ENTRIES) if not self._empty(self.normal_at + 4 + k * ENTRY))
-        if n != used or self.normal_at + 4 + NORMAL_ENTRIES * ENTRY + 2 * (4 + KEY_ENTRIES * ENTRY) > SLOT_SIZE:
+        if not _count_fits(n, used) or self.normal_at + 4 + NORMAL_ENTRIES * ENTRY + 2 * (4 + KEY_ENTRIES * ENTRY) > SLOT_SIZE:
             raise SaveFormatError("the inventory is not where this save version keeps it")
 
     def _empty(self, o):

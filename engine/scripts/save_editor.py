@@ -59,14 +59,17 @@ def _u32(d, o):
     return struct.unpack_from("<I", d, o)[0]
 
 
-def layout(d: bytes) -> dict:
+def layout(d: bytes, shift: int = 0) -> dict:
     """The header's world-state entries and the end of the data (the rest of the file is the game's
-    unused buffer). SaveFormatError when they do not line up."""
+    unused buffer). SaveFormatError when they do not line up. shift: how far the data now lies behind where
+    the header says (a save editor that adds a weapon, armour or gem record moves the data up and leaves the
+    header as it was: saveedit/model.py SaveModel.shift); the offsets returned are where the data is now."""
     if len(d) != SLOT_SIZE:
         raise SaveFormatError(f"{len(d)} bytes, expected {SLOT_SIZE}")
     if _u32(d, 0) != SAVE_VERSION:
         raise SaveFormatError(f"save version {_u32(d, 0):#x}, expected {SAVE_VERSION:#x}")
     a, an, b, bspan, c, cn = struct.unpack_from("<6I", d, 0x3c)
+    a, b, c = a + shift, b + shift, c + shift
     if not (a >= 0x54 and an >= 12 and a + an == b and bspan >= an and b + bspan - an == c and c + cn + 8 <= len(d)):
         raise SaveFormatError("the save header's sections do not line up")
     end = c + cn + 8 + _u32(d, c + cn + 4) + 27  # the {u16, u16, u32 size, data} block (0x175A4E0), 27 bytes
@@ -81,17 +84,18 @@ def layout(d: bytes) -> dict:
         at += 4 + n
     if at != a + an:
         raise SaveFormatError("the world-state section is damaged")
-    return {"a": a, "an": an, "b": b, "bspan": bspan, "c": c, "end": end, "blocks": blocks}
+    return {"a": a, "an": an, "b": b, "bspan": bspan, "c": c, "end": end, "blocks": blocks, "shift": shift}
 
 
 def world_empty(d: bytes) -> bool:
     return not any(layout(d)["blocks"])
 
 
-def _replace_world(d: bytes, new: bytes, tail: bytes = b"") -> bytes:
+def _replace_world(d: bytes, new: bytes, tail: bytes = b"", shift: int = 0) -> bytes:
     """d with its world-state section replaced by new; the data after it moves, the header follows.
-    tail: the bytes for the end of the data when it moves back (the file's unused buffer as it was)."""
-    L = layout(d)
+    tail: the bytes for the end of the data when it moves back (the file's unused buffer as it was).
+    shift: as for layout; the header keeps its own (stale) offsets, moved by the change in size only."""
+    L = layout(d, shift)
     delta = len(new) - L["an"]
     if L["end"] + delta > len(d):
         raise SaveFormatError("no room in the file for the world-state blocks")
@@ -102,7 +106,7 @@ def _replace_world(d: bytes, new: bytes, tail: bytes = b"") -> bytes:
     if delta < 0:
         gap = L["end"] + delta
         out[gap:L["end"]] = (tail + bytes(-delta))[:-delta]
-    struct.pack_into("<4I", out, 0x40, len(new), L["b"] + delta, L["bspan"] + delta, L["c"] + delta)
+    struct.pack_into("<4I", out, 0x40, len(new), L["b"] - shift + delta, L["bspan"] + delta, L["c"] - shift + delta)
     assert len(out) == len(d)
     return bytes(out)
 
@@ -161,24 +165,52 @@ def describe(row: dict) -> str:
     return f"{kind}, slot {row['slot'] + 1}: {row['name'] or '?'}, level {row['level']}, {h} h {m:02d} min{note}"
 
 
-def editor_copy(d: bytes):
-    """(the copy for an editor, what was changed: a list for the manifest)."""
-    L = layout(d)
+def disk_shift(d: bytes) -> int:
+    """layout's shift of a save as it is on disk: not 0 when an editor added records and the game has not
+    saved over the file since (it rewrites the header then). SaveModel finds the data from the face block."""
+    try:
+        from saveedit.model import SaveModel
+    except ImportError:  # run with scripts\saveedit on the path
+        from model import SaveModel
+    try:
+        return SaveModel(d).shift
+    except ValueError:
+        return 0
+
+
+def editor_copy(d: bytes, shift: int = None):
+    """(the copy for an editor, what was changed: a list for the manifest). shift: as for layout (found
+    from the save when not given)."""
+    if shift is None:
+        shift = disk_shift(d)
+    L = layout(d, shift)
     if any(L["blocks"]):
         return d, []
     delta = len(MIN_WORLD) - L["an"]
     ch = {"what": "world_state", "original_hex": d[L["a"]:L["a"] + L["an"]].hex(), "inserted_hex": MIN_WORLD.hex(),
           "tail_hex": d[L["end"]:L["end"] + delta].hex()}
-    return _replace_world(d, MIN_WORLD), [ch]
+    return _replace_world(d, MIN_WORLD, shift=shift), [ch]
+
+
+def edited_shift(d: bytes, changed: list) -> int:
+    """How far an editor moved the data behind the header (see layout): found from the minimal blocks
+    editor_copy put in, which are where they were exported plus the records the editor added. 0 when none."""
+    for ch in changed:
+        if ch.get("what") == "world_state" and len(d) >= 0x40:
+            at = d.find(bytes.fromhex(ch["inserted_hex"]), _u32(d, 0x3c))
+            if at >= 0:
+                return at - _u32(d, 0x3c)
+    return 0
 
 
 def restore_from_editor(d: bytes, changed: list) -> bytes:
     """What editor_copy changed put back as the game wrote it, where the editor left it as exported."""
+    shift = edited_shift(d, changed)
     for ch in changed:
-        L = layout(d)
+        L = layout(d, shift)
         if ch.get("what") == "world_state" and d[L["a"]:L["a"] + L["an"]] == bytes.fromhex(ch["inserted_hex"]):
-            d = _replace_world(d, bytes.fromhex(ch["original_hex"]), bytes.fromhex(ch.get("tail_hex", "")))
-            layout(d)
+            d = _replace_world(d, bytes.fromhex(ch["original_hex"]), bytes.fromhex(ch.get("tail_hex", "")), shift)
+            layout(d, shift)
     return d
 
 
@@ -253,7 +285,7 @@ def check_import(user, file) -> dict:
     if kind not in KINDS or not isinstance(slot, int) or not 0 <= slot <= 9:
         raise SaveFormatError(f"{MANIFEST} names no save slot")
     d = file.read_bytes()
-    layout(d)  # SaveFormatError: the editor broke the file
+    layout(d, edited_shift(d, man.get("changed", [])))  # SaveFormatError: the editor broke the file
     d = restore_from_editor(d, man.get("changed", []))
     target = slot_files(user, kind).get(slot)
     if target is None:

@@ -327,7 +327,7 @@ def test_rejects_bad_files():
     with pytest.raises(M.SaveFormatError):
         M.SaveModel(bytes(bad))
     bad = bytearray(make_save())
-    struct.pack_into("<I", bad, NAME_AT + M.NORMAL_BEHIND_NAME, 9)  # used count disagrees
+    struct.pack_into("<I", bad, NAME_AT + M.NORMAL_BEHIND_NAME, 2)  # fewer counted than in use (above is the game's)
     with pytest.raises(M.SaveFormatError):
         M.SaveModel(bytes(bad))
 
@@ -760,3 +760,46 @@ def test_guest_written_save_is_edited_through_a_repaired_copy(user):
     assert se.world_empty(after) and S.open_slot(user, "party", 0).echoes == 777
     diff = [i for i, (a, b) in enumerate(zip(guest, after)) if a != b]
     assert 0 < len(diff) <= 4  # only the echoes changed; the game's own empty section is back
+
+
+def test_guest_written_save_takes_a_new_weapon(user):
+    """Adding a record moves the data behind the instance table up and leaves the header as it was, so putting
+    the game's empty world-state section back must find it where it now is (a player's party run vanished from
+    nothing being written: "the world-state section is damaged"). The result equals the record added straight
+    into the guest file, and the file opens again through the repaired copy."""
+    import save_editor as se
+    d = bytearray(make_save("Gwen"))
+    world = 0x1C000  # behind the name and its face block, as on a real save (the item table is in front)
+    struct.pack_into("<6I", d, 0x3C, world, 12, world + 12, 12, world + 12, 16)
+    guest = bytes(d)
+    assert se.world_empty(guest)
+    path = S.slot_files(user, "party")[0]
+    path.write_bytes(guest)
+    direct = M.SaveModel(guest)
+    direct.add_gear(0, 7020000)
+    for added in (1, 2):
+        model = S.open_slot(user, "party", 0)
+        assert model.world_changes
+        model.add_gear(0, 7020000)
+        S.apply_edit(user, "party", 0, model, not_running)
+        after = path.read_bytes()
+        shift = se.disk_shift(after)
+        assert shift == 52 * added and se.layout(after, shift)["blocks"] == [0, 0, 0]
+        assert [w.number for w in M.SaveModel(after).items((0,))].count(7020000) == added
+        if added == 1:
+            assert after == direct.to_bytes()
+
+
+def test_a_game_written_count_above_the_entries_still_opens(user):
+    """The game dropped an item on load but saved the count it had read (a player's party run: 73 counted, 72
+    entries): the run is listed, opens and takes an edit."""
+    d = bytearray(make_save("Hunter"))
+    n = NAME_AT + M.NORMAL_BEHIND_NAME
+    struct.pack_into("<I", d, n, 4)  # 3 entries in use
+    path = S.slot_files(user, "party")[0]
+    path.write_bytes(bytes(d))
+    assert "Hunter" in [r["name"] for r in S.list_slots(user, "party")]
+    model = S.open_slot(user, "party", 0)
+    model.set_echoes(1)
+    S.apply_edit(user, "party", 0, model, not_running)
+    assert S.open_slot(user, "party", 0).echoes == 1
