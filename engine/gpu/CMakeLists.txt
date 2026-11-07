@@ -385,11 +385,8 @@ target_include_directories(settings-test PRIVATE .. shim)
 
 add_executable(scene-resolution-test EXCLUDE_FROM_ALL ../tests/test_scene_resolution.cpp ../tests/test_gpu_runtime_stubs.cpp)
 target_include_directories(scene-resolution-test PRIVATE shim shadps4 third_party/gcn/include)
-# The test's Vulkan-Hpp inline methods have a different set of platform extensions
-# from vk_platform.cpp. Keep them local and use an explicit dispatcher in the test.
+# -UNDEBUG is safe with Vulkan-Hpp: vk_common.h compiles it with NDEBUG as bbgpu does.
 target_compile_options(scene-resolution-test PRIVATE -UNDEBUG -fPIC)
-set_source_files_properties(../tests/test_scene_resolution.cpp PROPERTIES
-    COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
 target_link_libraries(scene-resolution-test PRIVATE bbgpu)
 if (WIN32)
     target_link_libraries(scene-resolution-test PRIVATE winmm ws2_32 psapi onecore)
@@ -397,8 +394,6 @@ endif()
 add_executable(taa-shader-test EXCLUDE_FROM_ALL ../tests/test_taa_shader.cpp ../tests/test_gpu_runtime_stubs.cpp)
 target_include_directories(taa-shader-test PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include)
 target_compile_options(taa-shader-test PRIVATE -UNDEBUG -fPIC)
-set_source_files_properties(../tests/test_taa_shader.cpp PROPERTIES
-    COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
 target_link_libraries(taa-shader-test PRIVATE bbgpu)
 if (WIN32)
     target_link_libraries(taa-shader-test PRIVATE winmm ws2_32 psapi onecore)
