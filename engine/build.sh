@@ -166,8 +166,10 @@ echo "Built $PWD/out/bb-probe"
 fi
 # The native start (Windows): boot image, mods, patches, engine assets, then bb-probe. One static
 # program: it runs before bb-probe's DLLs are found, and replaces the Python scripts.
-if [[ -n $windows ]] && [[ ! -f out/bb-start.exe || -n $(find start src/nightwatch.rc -newer out/bb-start.exe -print -quit) ]]; then
-    "${CXX:-clang++}" -std=c++20 -O2 -Wall -Wextra -Wno-deprecated-declarations -Wno-missing-field-initializers \
+# NW_VERSION: the repo's VERSION text; a mod's nightwatch.json "requires" is checked against it (start/features.h).
+nw_version=$(head -n 1 ../VERSION | tr -d '\r\n')
+if [[ -n $windows ]] && [[ ! -f out/bb-start.exe || -n $(find start src/nightwatch.rc ../VERSION -newer out/bb-start.exe -print -quit) ]]; then
+    "${CXX:-clang++}" -std=c++20 -DNW_VERSION="\"$nw_version\"" -O2 -Wall -Wextra -Wno-deprecated-declarations -Wno-missing-field-initializers \
         -municode -static start/*.cpp out/nightwatch.res -lz -lexpat -lbcrypt -o out/bb-start.exe
     echo "Built $PWD/out/bb-start.exe"
 fi

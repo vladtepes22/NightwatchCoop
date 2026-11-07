@@ -2,6 +2,7 @@
 #include "mods.h"
 #include "elf.h"
 #include "host_only.h"
+#include "features.h"
 
 #include <windows.h>
 #include <winioctl.h>
@@ -9,6 +10,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <map>
 #include <random>
 #include <set>
 
@@ -559,6 +561,86 @@ void WritePartyHostOnlyFile(const fs::path& out, const std::vector<std::pair<std
     Log("Mods: %zu host-only boss events", merged.ids.size());
 }
 
+// ---- Mod manifests and feature tables (features.h; docs/modding/manifest.md) ----
+#ifndef NW_VERSION
+#define NW_VERSION "0.0.0-unknown"
+#endif
+
+std::string ReadSmall(const fs::path& path) {
+    const Bytes bytes = ReadFile(path);
+    return std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+// Drops the layers whose nightwatch.json is bad, needs a newer Nightwatch or names an unknown feature (one log line
+// each); `manifests` gets the kept layers' manifests (none for a mod without one).
+std::vector<std::pair<std::wstring, fs::path>> CheckManifests(const std::vector<std::pair<std::wstring, fs::path>>& layers,
+                                                              std::map<std::wstring, nwfeatures::Manifest>* manifests) {
+    std::vector<std::pair<std::wstring, fs::path>> kept;
+    for (const auto& [name, root] : layers) {
+        const fs::path file = root / nwfeatures::kManifest;
+        if (!IsFile(file)) {
+            kept.emplace_back(name, root);
+            continue;
+        }
+        nwfeatures::Manifest m;
+        std::string why;
+        try {
+            if (!nwfeatures::ParseManifest(ReadSmall(file), &m, &why)) why = "bad manifest: " + why;
+        } catch (const std::exception& e) {
+            why = std::string("cannot read ") + nwfeatures::kManifest + ": " + e.what();
+        }
+        if (why.empty()) why = nwfeatures::Refusal(m, NW_VERSION);
+        if (!why.empty()) {
+            Log("Mods: %s: %s: not loaded", Utf8(name).c_str(), why.c_str());
+            continue;
+        }
+        std::string features;
+        for (const std::string& f : m.features) features += (features.empty() ? "" : ", ") + f;
+        Log("Mods: %s: manifest %s %s, requires %s, features %s", Utf8(name).c_str(), m.id.c_str(),
+            m.version.empty() ? "-" : m.version.c_str(), m.min_version.c_str(), features.empty() ? "none" : features.c_str());
+        (*manifests)[name] = m;
+        kept.emplace_back(name, root);
+    }
+    return kept;
+}
+
+// out/nightwatch_hit_effects.txt from the layers' nightwatch/hit_effects.json (only for a manifest listing the
+// feature). A visual feature: not in the party hash (each client draws its own; vanilla look without the mod).
+void WriteHitEffectsFile(const fs::path& out, const std::vector<std::pair<std::wstring, fs::path>>& layers,
+                         const std::map<std::wstring, nwfeatures::Manifest>& manifests) {
+    nwfeatures::HitMerged merged;
+    for (const auto& [name, root] : layers) {
+        const fs::path table = root / nwfeatures::kTablesDir / (std::string(nwfeatures::kHitEffects) + ".json");
+        if (!IsFile(table)) continue;
+        const auto m = manifests.find(name);
+        if (m == manifests.end() || !m->second.Uses(nwfeatures::kHitEffects)) {
+            Log("Mods: %s: has nightwatch/hit_effects.json but its nightwatch.json does not list hit_effects: not used",
+                Utf8(name).c_str());
+            continue;
+        }
+        std::vector<nwfeatures::HitRow> rows;
+        std::string error;
+        try {
+            if (!nwfeatures::ParseHitEffects(ReadSmall(table), &rows, &error)) {
+                Log("Mods: %s: %s: its hit_effects table is not used", Utf8(name).c_str(), error.c_str());
+                continue;
+            }
+        } catch (const std::exception& e) {
+            Log("Mods: %s: %s: its hit_effects table is not used", Utf8(table).c_str(), e.what());
+            continue;
+        }
+        nwfeatures::AddHitEffects(&merged, Utf8(name), rows);
+    }
+    const fs::path path = out / nwfeatures::kHitEffectsOut;
+    const std::string text = nwfeatures::HitEffectsFileText(merged);
+    if (text.empty()) {
+        RemoveIfThere(path);
+        return;
+    }
+    WriteText(path, text);
+    Log("Mods: hit_effects: %zu rows from %zu mods", merged.rows.size(), merged.names.size());
+}
+
 } // namespace
 
 void RemoveOverlay(const fs::path& path) {
@@ -573,6 +655,7 @@ void RemoveOverlay(const fs::path& path) {
 fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::path& mods_dir, const fs::path& config,
                           bool enabled) {
     RemoveIfThere(out / hostonly::kFile);  // a failed start leaves none: the host then has the fixed list only
+    RemoveIfThere(out / nwfeatures::kHitEffectsOut);  // likewise: a failed start leaves the vanilla look
     std::vector<std::pair<std::wstring, fs::path>> layers;
     if (enabled) {
         fs::path legacy = fs::canonical(game);
@@ -584,6 +667,9 @@ fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::p
             for (const std::wstring& name : Selected(mods_dir, config)) layers.emplace_back(name, mods_dir / name);
         }
     }
+    std::map<std::wstring, nwfeatures::Manifest> manifests;
+    layers = CheckManifests(layers, &manifests);
+    Log("Mods: Nightwatch %s, features: hit_effects", NW_VERSION);
     fs::create_directories(out);
     WritePartyModsFile(out, layers);
     const std::optional<fs::path> update = UpdateFolder(fs::canonical(game));
@@ -593,6 +679,7 @@ fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::p
     else UnsetEnv("BB_GAME_UPDATE_DIR");
     const fs::path view = BuildOverlay(game, out, layers, update);
     WritePartyHostOnlyFile(out, layers);  // after the view, as scripts/mods.py main
+    WriteHitEffectsFile(out, layers, manifests);
     return view;
 }
 

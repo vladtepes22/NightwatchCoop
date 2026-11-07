@@ -518,6 +518,14 @@ target_include_directories(start-host-only-test PRIVATE ..)
 set_target_properties(start-host-only-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 add_test(NAME start-host-only-test COMMAND start-host-only-test)
 
+# Nightwatch 0.3.0 mod manifests, feature tables and the hit_effects table (start/features.h,
+# shim/party/hit_effects_rules.h). ninja -C out/gpu hit-effects-test
+add_executable(hit-effects-test EXCLUDE_FROM_ALL ../tests/test_hit_effects.cpp)
+target_compile_options(hit-effects-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(hit-effects-test PRIVATE ..)
+set_target_properties(hit-effects-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME hit-effects-test COMMAND hit-effects-test)
+
 # Navmesh test walker (shim/party/nav_walk.h). ninja -C out/gpu nav-walk-test
 add_executable(nav-walk-test EXCLUDE_FROM_ALL ../tests/test_nav_walk.cpp)
 target_compile_options(nav-walk-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
@@ -581,7 +589,7 @@ foreach(target IN LISTS all_targets)
     endif()
 endforeach()
 add_custom_target(seamless-tests DEPENDS ${party_tests} party-soak party-host-harness auto-hud-test gamedata-test)
-add_dependencies(seamless-tests boot-watch-test start-host-only-test)
+add_dependencies(seamless-tests boot-watch-test start-host-only-test hit-effects-test)
 
 target_link_libraries(party-soak PRIVATE ws2_32 iphlpapi ole32 oleaut32 crypt32 synchronization winmm)
 target_link_libraries(party-host-harness PRIVATE ws2_32 iphlpapi ole32 oleaut32 crypt32 synchronization winmm)
