@@ -175,7 +175,15 @@ internal sealed class SaveEditorAddDialog : Window
             await Task.Delay(SearchPauseMs);
             if (typed == _run) await Load();
         };
-        _count.TextChanged += (_, _) => Update();
+        _count.TextChanged += (_, _) =>
+        {
+            // Over 99 becomes 99, the most Add item gives.
+            if (int.TryParse(_count.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n > 99)
+            {
+                _count.Text = "99"; _count.CaretIndex = 2; return;  // the change raises TextChanged again
+            }
+            Update();
+        };
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { e.Handled = true; Close(); } };
         Loaded += async (_, _) => await Load();
     }

@@ -157,10 +157,16 @@ internal sealed class ItemRow : RowBase
     public bool CountEnabled => !_removed;
     public string RemoveText => _removed ? L.T("Undo") : L.T("Remove");
 
+    private const int MaxCount = 99;
     public string Count
     {
         get => _count;
-        set { _count = value; Raise(nameof(Count), nameof(CountValid), nameof(Changed)); _changed(); }
+        set
+        {
+            // Over 99 becomes 99 (the most the editor writes).
+            _count = int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n > MaxCount ? MaxCount.ToString(CultureInfo.InvariantCulture) : value;
+            Raise(nameof(Count), nameof(CountValid), nameof(Changed)); _changed();
+        }
     }
     public int Level
     {
