@@ -35,7 +35,7 @@ namespace BloodborneLauncher.Core
         public sealed record Options(ulong Seed, int Chance, string Scaling, string Rewards, IReadOnlyList<int> Exclude, bool Bosses = false, bool Treasure = false, bool Shops = false, bool Drops = false, bool TreasureByType = false, bool Starters = false, int Headroom = 100, bool ChaliceMaterials = false, int StarterMelee = 3, int StarterGuns = 2,
             bool WitchMix = false, bool ShadowsMix = false, bool EmissaryMix = false, bool FailuresMix = false,
             string BellMaidens = "off", bool ChaliceBosses = false, bool HardRom = false, bool HardAmygdala = false, bool HardEbrietas = false,
-            bool DifficultEnemies = false, bool SecondStage = false, bool AwayFromHome = false, bool FreePoses = false);
+            bool DifficultEnemies = false, bool SecondStage = false, bool AwayFromHome = false, bool FreePoses = false, bool StarterArmor = false);
 
         /// <summary>The bell maidens' choices (seedcode option bell_maidens 0-2).</summary>
         public static readonly string[] BellMaidenChoices = { "off", "normal", "difficult" };
@@ -211,7 +211,8 @@ namespace BloodborneLauncher.Core
                 B("shops"), B("drops"), B("treasure_by_type"), B("starters"), (int)I("headroom"),
                 B("chalice_materials"), (int)I("starter_melee"), (int)I("starter_guns"), B("witch_mix"), B("shadows_mix"),
                 B("emissary_mix"), B("failures_mix"), BellMaidenChoices[(int)I("bell_maidens")], B("chalice_bosses"), B("hard_rom"),
-                B("hard_amygdala"), B("hard_ebrietas"), B("difficult_enemies"), B("second_stage"), B("away_from_home"), B("free_poses"));
+                B("hard_amygdala"), B("hard_ebrietas"), B("difficult_enemies"), B("second_stage"), B("away_from_home"), B("free_poses"),
+                B("starter_armor"));
             var hidden = ((ValueTuple<long, long>[])o["area_chance"]).Length > 0 || I("oops_all") != 0 || I("fixed_effect") != 0 ||
                          I("variety") != 0 || I("map_models") != 24 || I("map_mb") != 343;
             return (options, hidden);
@@ -253,6 +254,7 @@ namespace BloodborneLauncher.Core
             c["second_stage"] = B(o.SecondStage);
             c["away_from_home"] = B(o.AwayFromHome);
             c["free_poses"] = B(o.FreePoses);
+            c["starter_armor"] = B(o.StarterArmor);
             return WorldCode.Encode((uint)o.Seed, c);
         }
 
@@ -264,6 +266,7 @@ namespace BloodborneLauncher.Core
             if (o.Treasure) parts.Add(L.T("treasure"));
             if (o.Shops) parts.Add(L.T("shops"));
             if (o.Drops) parts.Add(L.T("drops"));
+            if (o.StarterArmor) parts.Add(L.T("starting armor"));
             if (o.Starters) parts.Add(L.T("starting weapons"));
             if (o.ChaliceMaterials) parts.Add(L.T("chalice materials"));
             var text = L.T("Shuffled: ") + string.Join(", ", parts) + ".";

@@ -31,11 +31,12 @@ namespace BloodborneLauncher.Core
             (29, "failures_mix", 'i', 0), (30, "bell_maidens", 'i', 0), (31, "chalice_bosses", 'i', 0), (32, "hard_rom", 'i', 0),
             (33, "hard_amygdala", 'i', 0), (34, "hard_ebrietas", 'i', 0), (35, "difficult_enemies", 'i', 0),
             (36, "second_stage", 'i', 0), (37, "away_from_home", 'i', 0), (38, "free_poses", 'i', 0),
+            (39, "starter_armor", 'i', 0),
         };
         // seedcode.BOOL_OPTIONS_R2
         private static readonly string[] Round2Bools = { "witch_mix", "shadows_mix", "emissary_mix", "failures_mix",
             "chalice_bosses", "hard_rom", "hard_amygdala", "hard_ebrietas", "difficult_enemies", "second_stage",
-            "away_from_home", "free_poses" };
+            "away_from_home", "free_poses", "starter_armor" };
         private static readonly HashSet<int> KnownIds = new() { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22, 23, 24,
             26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37 };
 

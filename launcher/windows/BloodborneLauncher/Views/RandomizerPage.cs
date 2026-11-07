@@ -54,7 +54,7 @@ namespace BloodborneLauncher.Views
                 () => _o.Chance.ToString(), v => Set(_o with { Chance = int.Parse(v) }), enemies, changed: Changed), () => _o.Chance.ToString());
             Bool(enemies, SymbolRegular.ArrowExportUp24, L.T("Enemies away from home"), L.T("All enemies are randomized per map, and enemies native to each map never spawn there. An enemy that was waiting in a pose only a native could do just stands instead."),
                 o => o.AwayFromHome, (o, b) => o with { AwayFromHome = b });
-            Bool(enemies, SymbolRegular.ArrowShuffle24, L.T("More randomness"), L.T("Enemies sitting in a pose (eating, sleeping, sitting) can become any enemy. The new one just stands there instead."),
+            Bool(enemies, SymbolRegular.ArrowShuffle24, L.T("More randomness"), L.T("Enemies the game scripts an animation on (eating, sleeping, sitting, appearing, ambush attacks) can become any enemy. If the new one lacks that animation, it just stands there instead."),
                 o => o.FreePoses, (o, b) => o with { FreePoses = b });
             var exclude = SmallButton(L.T("None"), SymbolRegular.Prohibited24, (_, _) => PickExcluded());
             Add(Card(SymbolRegular.Prohibited24, L.T("Never use these enemies"), L.T("Enemies the randomizer will never place anywhere."), exclude, out _), enemies);
@@ -80,6 +80,7 @@ namespace BloodborneLauncher.Views
             Bool(items, SymbolRegular.Gift24, L.T("Randomize enemy drops"), L.T("Regular enemies swap what they drop. Bosses keep theirs."), o => o.Drops, (o, b) => o with { Drops = b });
             Bool(items, SymbolRegular.Gift24, L.T("Randomize chalice materials"), L.T("Chalice ritual materials can turn up anywhere, the ones sold in shops too. Not recommended: you won't know where to find them, and you may get stuck before the chalice dungeons."),
                 o => o.ChaliceMaterials, (o, b) => o with { ChaliceMaterials = b });
+            Bool(items, SymbolRegular.Gift24, L.T("Randomize starting armor"), L.T("A new character starts in a random head, chest, arms and legs piece, from any armor the game hands out (mod armor too)."), o => o.StarterArmor, (o, b) => o with { StarterArmor = b });
             Bool(items, SymbolRegular.Gift24, L.T("Randomize starting weapons"), L.T("The free weapons in the Hunter's Dream are drawn again, and you can use them with any stats."), o => o.Starters, (o, b) => o with { Starters = b });
             Bind(ComboRow(SymbolRegular.Gift24, L.T("Starting melee weapons offered"), L.T("How many free melee weapons the Hunter's Dream offers. Above 3 adds random ones you can use with any stats. You still pick one."),
                 new[] { new Choice("1", "1"), new Choice("2", "2"), new Choice(L.T("3 (standard)"), "3"), new Choice("4", "4"), new Choice("5", "5") },

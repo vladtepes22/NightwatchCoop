@@ -93,7 +93,7 @@ internal static class RandomizerTests
                   options.EmissaryMix == (I("emissary_mix") == 1) && options.FailuresMix == (I("failures_mix") == 1) &&
                   options.BellMaidens == Randomizer.BellMaidenChoices[I("bell_maidens")] && options.ChaliceBosses == (I("chalice_bosses") == 1) &&
                   options.HardRom == (I("hard_rom") == 1) && options.HardAmygdala == (I("hard_amygdala") == 1) && options.HardEbrietas == (I("hard_ebrietas") == 1) &&
-                  options.DifficultEnemies == (I("difficult_enemies") == 1) && options.SecondStage == (I("second_stage") == 1) && options.AwayFromHome == (I("away_from_home") == 1) && options.FreePoses == (I("free_poses") == 1) && options.StarterMelee == I("starter_melee") && options.StarterGuns == I("starter_guns") && options.Bosses == (I("boss_swap") == 1) && options.Treasure == (I("treasure") == 1) &&
+                  options.DifficultEnemies == (I("difficult_enemies") == 1) && options.SecondStage == (I("second_stage") == 1) && options.AwayFromHome == (I("away_from_home") == 1) && options.FreePoses == (I("free_poses") == 1) && options.StarterArmor == (I("starter_armor") == 1) && options.StarterMelee == I("starter_melee") && options.StarterGuns == I("starter_guns") && options.Bosses == (I("boss_swap") == 1) && options.Treasure == (I("treasure") == 1) &&
                   options.Shops == (I("shops") == 1) && options.Drops == (I("drops") == 1) && options.Starters == (I("starters") == 1) &&
                   options.TreasureByType == (I("treasure_by_type") == 1) &&
                   options.ChaliceMaterials == (I("chalice_materials") == 1) &&
