@@ -17,7 +17,7 @@ FMG_FILES = {"goods": "アイテム名", "weapon": "武器名", "armor": "防具
 PARAMS = {"weapon": "EquipParamWeapon", "armor": "EquipParamProtector", "accessory": "EquipParamAccessory",
           "goods": "EquipParamGoods"}
 _PLACEHOLDER = re.compile(r"^(\*|NOT NEEDED|en\d+)?$", re.I)
-CACHE_VERSION = 11  # ours 8 (icons, gems, Nocturne items) + visy 10 (progress, goods_max)
+CACHE_VERSION = 12  # ours 8 (icons, gems, Nocturne items) + visy 10 (progress, goods_max) + 12 (vitals curves)
 EVENT_TEXT = "イベントテキスト"  # menu.msgbnd FMG: the lamp warp list names (id 7000AABn)
 NPC_NAMES = "NPC名"  # item.msgbnd FMG: boss and NPC names by character id
 GEM_NAMES = "魔石名"  # menu.msgbnd FMG: blood gem and rune names (key built in gems.name_key)
@@ -144,6 +144,10 @@ def read_game(game_dir, lang="engus"):
                     drawn.add(v[2 * i + 1])
         data["reach"] = sorted(fixed | {e for e, (cat, *_rest) in p.table("GemeffectParam", ["categoryId"]).items()
                                         if cat in drawn})
+        # The curves health and the endurance trio follow (model.vitals_for): {row: [stage[5], grow[5], adj[5]]}
+        graph_cols = [f"{f}{i}" for f in ("stageMaxVal", "stageMaxGrowVal", "adjPt_maxGrowVal") for i in range(5)]
+        data["graphs"] = {i: [list(v[0:5]), list(v[5:10]), list(v[10:15])]
+                          for i, v in p.table("CalcCorrectGraph", graph_cols).items() if i in (100, 101)}
     except (OSError, ValueError, KeyError, struct.error, zlib.error):
         pass
     return data
@@ -237,6 +241,8 @@ class Catalogue:
         self._goods_max = {int(i): v for i, v in (data or {}).get("goods_max", {}).items()}
         self._reach = set((data or {}).get("reach", []))
         self._weapon_hands = {int(i): v for i, v in (data or {}).get("weapon_hands", {}).items()}
+        # CalcCorrectGraph rows 100 / 101 for SaveModel.set_stat: {row: (stage, grow, adj)}; empty without game files
+        self.graphs = {int(i): tuple(tuple(c) for c in v) for i, v in (data or {}).get("graphs", {}).items()}
 
     @classmethod
     def load(cls, game_dir, cache_dir, lang="engus"):

@@ -300,7 +300,7 @@ class SaveEditorTab(ttk.Frame):
             m.set_name(self.name_var.get())
         for k, var in self.stat_vars.items():
             if int(var.get()) != m.stats[k]:
-                m.set_stat(k, int(var.get()))
+                m.set_stat(k, int(var.get()), self.catalogue.graphs)
         if int(self.echoes_var.get()) != m.echoes:
             m.set_echoes(int(self.echoes_var.get()))
         if int(self.insight_var.get()) != m.insight:

@@ -53,12 +53,9 @@ LEVEL_BASE = 50
 LEVEL_BACK, ECHOES_BACK, INSIGHT_BACK, HP_BACK, PHANTOM_BACK = 0x18, 0x14, 0x24, 0x94, 4
 CATEGORIES = {0: "weapon", 1: "armor", 2: "accessory", 4: "goods", 8: "gem"}
 
-# CalcCorrectGraph rows 100 (HP from vitality) and 101 (the endurance trio), 1.09 gameparam:
-# (stageMaxVal[5], stageMaxGrowVal[5], adjPt_maxGrowVal[5]).
-_GRAPHS = {
-    100: ((1, 15, 30, 50, 99), (400, 682, 1100, 1500, 1900), (1.1, 1.2, -1.2, -1.1, 1.0)),
-    101: ((1, 15, 40, 60, 99), (0, 106, 280, 360, 450), (1.1, 1.2, -1.2, -1.1, 1.0)),
-}
+# CalcCorrectGraph rows the vitals follow: 100 (HP from vigor) and 101 (the endurance trio). They are read from
+# the player's own gameparam (names.Catalogue.graphs: {row: (stageMaxVal[5], stageMaxGrowVal[5], adjPt_maxGrowVal[5])}).
+GRAPH_ROWS = (100, 101)
 VITALS_BACK = {"hp": 0x94, "fp": 0x88, "stamina": 0x78}  # each: current, max, base max (u32)
 
 
@@ -66,9 +63,10 @@ def _f32(x):
     return struct.unpack("<f", struct.pack("<f", x))[0]
 
 
-def _graph(row, x):
-    """The game's CalcCorrectGraph lookup (eboot 0x1579240) in float32, truncated as the callers do."""
-    stage, grow, adj = _GRAPHS[row]
+def _graph(graph, x):
+    """The game's CalcCorrectGraph lookup (eboot 0x1579240) in float32, truncated as the callers do.
+    graph: one row, (stageMaxVal[5], stageMaxGrowVal[5], adjPt_maxGrowVal[5])."""
+    stage, grow, adj = graph
     x = _f32(min(float(x), stage[4]))
     if x <= 0:
         return int(grow[0])
@@ -95,10 +93,16 @@ def _stamina(endurance):
     return s
 
 
-def vitals_for(stats):
-    """{vital: base max} the game derives from the stats (character creation and level-up)."""
-    return {"hp": _graph(100, stats["vigor"]), "fp": _graph(101, stats["endurance"]),
-            "stamina": _stamina(stats["endurance"])}
+def vitals_for(stats, graphs=None):
+    """{vital: base max} the game derives from the stats (character creation and level-up). HP and the
+    endurance trio need the game's CalcCorrectGraph rows (graphs); without them only stamina is given."""
+    graphs = graphs or {}
+    out = {"stamina": _stamina(stats["endurance"])}
+    if 100 in graphs:
+        out["hp"] = _graph(graphs[100], stats["vigor"])
+    if 101 in graphs:
+        out["fp"] = _graph(graphs[101], stats["endurance"])
+    return out
 
 _GLOBAL_TYPES = {0: 0, 1: 1, 5: 2, 6: 3, 7: 4}
 _MAP_TYPES = {1: 0, 5: 1, 6: 2, 7: 3, 9: 4}
@@ -253,10 +257,11 @@ class SaveModel:
     def level_for(stats):
         return sum(stats.values()) - LEVEL_BASE
 
-    def set_stat(self, stat, value):
+    def set_stat(self, stat, value, graphs=None):
         """Set one stat (1..99) and the level that follows from the stats (the level is not editable).
         Vigor and endurance also refill the health / stamina trios the way a level-up does: the game reads
-        them from the save and recomputes them only on its next level-up."""
+        them from the save and recomputes them only on its next level-up. graphs: the game's CalcCorrectGraph
+        rows (names.Catalogue.graphs); without them health and the endurance trio are left as they are."""
         if stat not in STAT_BACK:
             raise KeyError(stat)
         if not 1 <= int(value) <= 99:
@@ -265,7 +270,7 @@ class SaveModel:
         self._put(self.name_at - STAT_BACK[stat], int(value))
         self._put(self.name_at - LEVEL_BACK, self.level_for(self.stats))
         if changed and stat in ("vigor", "endurance"):
-            for vital, base in vitals_for(self.stats).items():
+            for vital, base in vitals_for(self.stats, graphs).items():
                 if (vital == "hp") == (stat == "vigor"):
                     for k in range(3):
                         self._put(self.name_at - VITALS_BACK[vital] + 4 * k, base)

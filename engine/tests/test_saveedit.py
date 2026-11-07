@@ -109,10 +109,13 @@ def test_no_change_is_byte_identical():
     assert m.to_bytes() == raw and m.diff() == []
 
 
-def test_vitals_follow_the_games_curves():
-    # base max HP / stamina as the game writes them (real 1.09 saves and level-ups; Vitality 30 = 1100)
-    assert [M._graph(100, v) for v in (1, 10, 11, 15, 25, 30, 50, 99)] == [400, 573, 594, 682, 938, 1100, 1500, 1900]
-    assert [M._graph(101, e) for e in (10, 15)] == [65, 106]
+# Made-up straight-line curves (adj 1.0): the game's own rows are read from its files (test_vitals_follow_the_games_curves)
+LINEAR = {100: ((1, 25, 50, 75, 99), (100, 200, 300, 400, 500), (1.0,) * 5),
+          101: ((1, 25, 50, 75, 99), (10, 20, 30, 40, 50), (1.0,) * 5)}
+
+
+def test_stamina_follows_the_games_formula():
+    # base max stamina as the game writes it (real 1.09 saves and level-ups)
     assert [M._stamina(e) for e in (1, 10, 11, 13, 14, 15, 40, 41, 99)] == [80, 91, 93, 97, 98, 100, 160, 160, 170]
 
 
@@ -120,13 +123,22 @@ def test_vigor_and_endurance_refill_the_bars_like_a_level_up():
     m = M.SaveModel(make_save())  # vigor 10, endurance 11, HP 500/500
     vit = lambda back: struct.unpack_from("<3I", m.to_bytes(), NAME_AT - back)
     before = vit(0x78)
-    m.set_stat("vigor", 30)
-    assert vit(0x94) == (1100, 1100, 1100) and vit(0x78) == before  # stamina left alone
-    m.set_stat("endurance", 15)
-    assert vit(0x78) == (100, 100, 100) and vit(0x88) == (106, 106, 106) and vit(0x94) == (1100, 1100, 1100)
+    m.set_stat("vigor", 30, LINEAR)  # 200 + 100 * 5 / 25
+    assert vit(0x94) == (220, 220, 220) and vit(0x78) == before  # stamina left alone
+    m.set_stat("endurance", 13, LINEAR)  # 10 + 10 * 12 / 24
+    assert vit(0x78) == (97, 97, 97) and vit(0x88) == (15, 15, 15) and vit(0x94) == (220, 220, 220)
     m2 = M.SaveModel(make_save())
-    m2.set_stat("vigor", 10)  # the launcher resends unchanged stats: nothing changes
+    m2.set_stat("vigor", 10, LINEAR)  # the launcher resends unchanged stats: nothing changes
     assert m2.diff() == []
+
+
+def test_without_the_games_curves_only_stamina_is_refilled():
+    m = M.SaveModel(make_save())
+    vit = lambda back: struct.unpack_from("<3I", m.to_bytes(), NAME_AT - back)
+    hp, fp = vit(0x94), vit(0x88)
+    m.set_stat("vigor", 30)
+    m.set_stat("endurance", 15)
+    assert vit(0x94) == hp and vit(0x88) == fp and vit(0x78) == (100, 100, 100)
 
 
 def test_set_stat_recomputes_level_and_changes_only_its_bytes():
@@ -428,6 +440,16 @@ def test_catalogue_cache_roundtrip(tmp_path):
 
 
 GAME = Path(r"E:\games\bloodborne\dvdroot_ps4")
+
+
+@pytest.mark.skipif(not (GAME / "param").is_dir(), reason="no game folder")
+def test_vitals_follow_the_games_curves(tmp_path):
+    # base max HP / the endurance trio as the game writes them (real 1.09 saves and level-ups; Vigor 30 = 1100),
+    # from the CalcCorrectGraph rows of the player's own gameparam
+    g = N.Catalogue.load(GAME, tmp_path).graphs
+    assert [M._graph(g[100], v) for v in (1, 10, 11, 15, 25, 30, 50, 99)] == [400, 573, 594, 682, 938, 1100, 1500, 1900]
+    assert [M._graph(g[101], e) for e in (10, 15)] == [65, 106]
+    assert M.vitals_for({"vigor": 30, "endurance": 15}, g) == {"hp": 1100, "fp": 106, "stamina": 100}
 
 
 @pytest.mark.skipif(not (GAME / "msg").is_dir(), reason="no game folder")

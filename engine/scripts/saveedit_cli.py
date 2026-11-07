@@ -254,7 +254,7 @@ def execute(args, edit=None, running=running_games, catalogues=None):
     if "name" in edit:
         model.set_name(edit["name"])
     for stat, value in edit.get("stats", {}).items():
-        model.set_stat(stat, value)
+        model.set_stat(stat, value, catalogue.graphs)
     for field in ("echoes", "insight", "ng_cycle"):
         if field in edit:
             getattr(model, "set_" + field)(edit[field])

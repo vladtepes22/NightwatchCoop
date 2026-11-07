@@ -14,7 +14,7 @@ facts below come from our saves and from docs/party/save_safety.md; the add-item
 | name | UTF-16, 17 x u16 incl. the 0 (next field at +0x22) | 16 chars max |
 | vigor, endurance, strength, skill, bloodtinge, arcane | u32 at name-0x68, -0x60, -0x50, -0x48, -0x40, -0x38 (-0x58 = 0, the unused slot) | the 4 slots of the party fixture equal CharaInitParam rows 2004 (9,12,9,15,7,8 at level 10) and others; order = the param's baseVit, baseWil, (baseEnd 0), baseStr, baseDex, baseMag, baseFai |
 | level | u32 at name-0x18 = sum of the six stats - 50 | holds on every test save (class rows start at level 10 = sum 60, level 4 = 54) |
-| HP / max HP | u32 at name-0x94 / -0x90 | read only (the game recomputes) |
+| HP / max HP / base max HP | u32 at name-0x94 / -0x90 / -0x8C; the endurance trio at -0x88 / -0x84 / -0x80, stamina / max / base max at -0x78 / -0x74 / -0x70 | written by the editor when vigor or endurance changes, as a level-up does (the game fills them only at creation and level-up, eboot 0x14e63e8): HP and the endurance trio from CalcCorrectGraph rows 100 / 101 of the player's own gameparam (left as they are without the game files), stamina from the eboot's formula (0x14e6420); real 1.09 saves: Vigor 30 = 1100 HP, Endurance 15 = 100 stamina |
 | Blood Echoes | u32 at name-0x14 | save_decode / graft note |
 | Insight | u32 at name-0x24 | same |
 | remembered chr type (phantom mark) | u32 at name-4: 1 = last written as a summoned guest | 3 saves of the lecture_door fixture = 1, all others 0 |
