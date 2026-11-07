@@ -846,16 +846,16 @@ void DefineAll() {
            AddText("No password: players on your LAN or VPN join by plain address. You trust that network",
                    "Без пароля: игроки из вашей LAN или VPN входят по адресу. Вы доверяете этой сети"),
            toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
+    // 0.7.9: open joins skip the vanilla co-op level range (party_invade_rules.h OpenLevelOk); invaders keep theirs. Live, the host's own; on by default (user, 7 Nov), right under Open party.
+    AddRow(Flag(&Values::party_open_any_level), AddText("Any level can join", "Любой уровень"),
+           AddText("Open party joins skip the level range (host 100: 60-140). Password joins never had one. Invaders keep theirs",
+                   "Вход в открытую группу без ограничения уровней. По паролю его и не было. У вторженцев оно остаётся"),
+           toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
     // visy 0.7.8 (CL-4cc63c): invasions into open public games (party/party_invade_rules.h, docs/party/invasions.md): the host
     // lets other players join its world as hostile phantoms from the public lists. Live, the host's value only, off by default.
     AddRow(Flag(&Values::party_invaders), AddText("Allow invaders", "Разрешить вторжения"),
            AddText("Listed games only: other players may invade your world as hostile phantoms (one at a time). Off: never",
                    "Только в списке игр: другие игроки могут вторгаться в ваш мир (по одному). Выкл.: никогда"),
-           toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
-    // 0.7.9: open joins skip the vanilla co-op level range (party_invade_rules.h OpenLevelOk); invaders keep theirs. Live, the host's own.
-    AddRow(Flag(&Values::party_open_any_level), AddText("Any level can join", "Любой уровень"),
-           AddText("Open party joins skip the level range (host 100: 60-140). Password joins never had one. Invaders keep theirs",
-                   "Вход в открытую группу без ограничения уровней. По паролю его и не было. У вторженцев оно остаётся"),
            toggle, Kind::Toggle, [] { return party::status::Snapshot().role != party::status::Role::Guest; });
     AddRow(Info(), AddText("Host's access", "Доступ хоста"),
            AddText("The host decides who joins without a party code (Open party, the launcher's lobby browser)",

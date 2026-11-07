@@ -67,6 +67,11 @@ public sealed class SeamlessPage : LauncherPage
         host.Children.Add(_hostChecks);
         _hostPassword = PasswordRow(host, () => S.PartyPassword, v => { S.PartyPassword = v; UpdateInvite(); },
             L.T("Optional. Without a password, anyone who sees the party can join."), L.T("Password (optional)"));
+        // visy 0.7.9 (fc532488): an open game (no password) takes any level instead of the co-op level range; the host's own
+        // setting, read live, on by default (user, 7 Nov; right under the password, which makes a game open) (bbport.ini party_open_any_level; in the game: System > Party access).
+        ToggleRow(SymbolRegular.ArrowSwap24, L.T("Any level can join my open game"),
+            L.T("An open game is held to the game's co-op level range (a level 100 host takes 60 to 140). On: any level can join it, and nobody is removed later. Password and party-code joins never had a range; invaders keep theirs."),
+            () => Ini.Get("party_open_any_level", "1") == "1", v => Ini.Set("party_open_any_level", v ? "1" : "0"), host);
         var hostOptions = new Grid();
         hostOptions.ColumnDefinitions.Add(new ColumnDefinition());
         hostOptions.ColumnDefinitions.Add(new ColumnDefinition());
@@ -79,11 +84,6 @@ public sealed class SeamlessPage : LauncherPage
             PartySizes(), PartySize, v => S.Set("party_max", v), sizeRows, width: 90);
         ToggleRow(SymbolRegular.People24, L.T("Show my party in the lobby browser"), null,
             () => Ini.Get("party_discovery", "1") == "1", v => { ApplyHostMode(IsPublic, v); UpdateInvite(); }, showRows);
-        // visy 0.7.9 (fc532488): an open game (no password) takes any level instead of the co-op level range; the host's own
-        // setting, read live (bbport.ini party_open_any_level; in the game: System > Party access).
-        ToggleRow(SymbolRegular.ArrowSwap24, L.T("Any level can join my open game"),
-            L.T("An open game is held to the game's co-op level range (a level 100 host takes 60 to 140). On: any level can join it, and nobody is removed later. Password and party-code joins never had a range; invaders keep theirs."),
-            () => Ini.Get("party_open_any_level", "0") == "1", v => Ini.Set("party_open_any_level", v ? "1" : "0"), showRows);
         // Nightwatch Online with the party not shown: the host hands out its code by hand.
         _onlineCodeButton = SmallButton(L.T("Copy code"), SymbolRegular.Copy24, (_, _) => { if (_onlineCode.Length > 0) Copy(_onlineCode); });
         _onlineCodeButton.HorizontalAlignment = HorizontalAlignment.Right;

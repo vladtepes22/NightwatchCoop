@@ -253,8 +253,8 @@ static void Reported() {
     ps::SetState(ps::State::Hosting);
     P::Load();
     names = Names(access);
-    assert(names.size() == 4 && names[0] == "Open party (no password)" && names[1] == "Allow invaders" &&
-           names[2] == "Any level can join" && names[3] == "Max invaders");  // lobby: the launcher's Show; Max invaders: visy 0.7.9 (CL-7e748c), host only; Any level: visy fc532488
+    assert(names.size() == 4 && names[0] == "Open party (no password)" && names[1] == "Any level can join" &&
+           names[2] == "Allow invaders" && names[3] == "Max invaders");  // lobby: the launcher's Show; Max invaders: visy 0.7.9 (CL-7e748c), host only; Any level: visy fc532488
     context = {};
     context.party_process = context.party_save = context.in_world = true;
     ps::ResetForTest(true);

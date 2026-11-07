@@ -236,8 +236,8 @@ struct Values {
     std::atomic<bool> party_open{false};
     /// 0.7.9: "Any level can join my open game" (party_invade_rules.h OpenLevelOk): the HOST skips the vanilla co-op level range
     /// for an open public join (no password, plain address), at the gate and in the later recheck. Invaders keep their range;
-    /// a password or party code never had one. ini party_open_any_level, env BB_PARTY_OPEN_ANY_LEVEL. Live. Off by default.
-    std::atomic<bool> party_open_any_level{false};
+    /// a password or party code never had one. ini party_open_any_level, env BB_PARTY_OPEN_ANY_LEVEL. Live. On by default (user, 7 Nov; visy ships it off).
+    std::atomic<bool> party_open_any_level{true};
     /// 0.7.8 (CL-4cc63c): "Allow invaders" (party/party_invade_rules.h, docs/party/invasions.md): the HOST lets other players
     /// join its world as hostile phantoms from the public lists (VPN lobby / LAN discovery). Only the host's value counts. ini
     /// party_invaders, env BB_PARTY_INVADERS. Live. Off by default.
