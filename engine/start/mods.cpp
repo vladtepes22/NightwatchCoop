@@ -586,7 +586,12 @@ fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::p
     }
     fs::create_directories(out);
     WritePartyModsFile(out, layers);
-    const fs::path view = BuildOverlay(game, out, layers, UpdateFolder(fs::canonical(game)));
+    const std::optional<fs::path> update = UpdateFolder(fs::canonical(game));
+    // The party version check hashes the dump's own gameparam: with a separate update folder that is the update's
+    // file (the base folder's is the pre-update one the game never loads).
+    if (update) SetEnv("BB_GAME_UPDATE_DIR", Utf8(fs::canonical(*update)));
+    else UnsetEnv("BB_GAME_UPDATE_DIR");
+    const fs::path view = BuildOverlay(game, out, layers, update);
     WritePartyHostOnlyFile(out, layers);  // after the view, as scripts/mods.py main
     return view;
 }

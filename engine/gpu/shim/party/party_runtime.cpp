@@ -326,12 +326,15 @@ std::array<std::uint8_t, 32> eboot_hash() {
 }
 
 // A9: the game dump's own param set, <BB_GAME_DIR>/dvdroot_ps4/param/gameparam/gameparam.parambnd.dcx (the folder the
-// launcher chose, before the mods overlay). A mod that ships a gameparam counts under the gameplay mods, not here, so a
+// launcher chose, before the mods overlay; the update folder's file first when bb-start laid one over it). A mod that ships a gameparam counts under the gameplay mods, not here, so a
 // difference is a real dump difference. Without BB_GAME_DIR: the loaded game folder. Zeros (logged) when unreadable.
 std::array<std::uint8_t, 32> params_hash() {
     std::array<std::uint8_t, 32> h{};
     const fs::path rel = fs::path("dvdroot_ps4") / "param" / "gameparam" / "gameparam.parambnd.dcx";
     std::vector<std::string> dirs;
+    // A separate update folder (<game>-patch / -update, laid over the game by bb-start) holds the 1.09 file the game
+    // loads; the base folder's copy is the pre-update one, so two clean 1.09 setups would differ.
+    if (env("BB_GAME_UPDATE_DIR") && *env("BB_GAME_UPDATE_DIR")) dirs.push_back(env("BB_GAME_UPDATE_DIR"));
     if (env("BB_GAME_DIR") && *env("BB_GAME_DIR")) dirs.push_back(env("BB_GAME_DIR"));
     if (!bbnet::settings().app0.empty()) dirs.push_back(bbnet::settings().app0);
     for (const std::string& d : dirs) {

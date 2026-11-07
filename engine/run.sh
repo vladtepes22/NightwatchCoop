@@ -66,6 +66,9 @@ original_game=$game
 game=$("$PYTHON" scripts/mods.py "$game" --out "$out" \
     --mods-dir "${BB_MODS_DIR:-$data/mods}" --config "${BB_MODS_CONFIG:-$data/mods.json}" \
     --enabled "${BB_MODS_ENABLED:-1}")
+# The update folder laid over the game (as bb-start): the party version check hashes its gameparam, not the base game's.
+update_dir=$("$PYTHON" -c 'import sys; sys.path.insert(0, "scripts"); import mods; u = mods.update_folder(mods.Path(sys.argv[1]).resolve()); print(u.resolve() if u else "")' "$original_game" 2>/dev/null)
+if [[ -n $update_dir ]]; then export BB_GAME_UPDATE_DIR=$update_dir; else unset BB_GAME_UPDATE_DIR; fi
 # A private merged view lasts for this launch, including restarts. Cleanup only our own view.
 if [[ $game != "$(realpath "$original_game")" ]]; then
     mod_game=$game
