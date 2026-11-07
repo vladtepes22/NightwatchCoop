@@ -444,6 +444,18 @@ void OldHuntersEdition(const Bytes& elf, Writes& writes) {
         Log("Patches: The Old Hunters edition left alone: this executable differs there");
 }
 
+// Portuguese (Brazil): the game maps its language through a table per sales region, and this
+// content's region (param.sfo USER_DEFINED_PARAM_1 = 13: Europe) turns pt-BR (game language 7,
+// porBR) into pt-PT (17, porPT). The Europe table's entry 7 keeps porBR, so msg/porbr and the
+// *_ptb voices load as on a Brazilian console. Other languages are untouched.
+void BrazilianPortuguese(const Bytes& elf, Writes& writes) {
+    constexpr std::uint64_t kEuropePtBr = 0x47367c0 + 7 * 4;
+    if (OriginalBytes(elf, kEuropePtBr, 4) == Le<std::uint32_t>(17))
+        writes.emplace_back(kEuropePtBr, Le<std::uint32_t>(7));
+    else
+        Log("Patches: Portuguese (Brazil) left alone: this executable differs there");
+}
+
 
 int Round(double v) {
     return int(std::nearbyint(v));
@@ -921,6 +933,7 @@ PatchResult CompilePatches(const PatchRequest& request) {
                                                                    : "with the FPS++ retune (camera_tuning=fps++)");
     }
     if (Env("BB_DLC", "") == "1") OldHuntersEdition(elf, writes);
+    BrazilianPortuguese(elf, writes);
     if (Env("BB_RENDER_POOLS", "") == "0") {
         Log("Patches: render pools at the game's 256 KiB (BB_RENDER_POOLS=0)");
     } else {
