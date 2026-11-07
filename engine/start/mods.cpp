@@ -335,18 +335,29 @@ fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector
         Log("Game update: %s: %zu files over the game", Utf8(update->filename()).c_str(), files.size());
     }
     std::size_t gameplay = 0;
+    // Files two enabled mods both ship, per (later mod, earlier mod) in load order: the later one wins.
+    std::map<std::pair<std::wstring, std::wstring>, std::vector<std::wstring>> overrides;
+    std::set<std::wstring> mod_names;
     for (const auto& [name, root] : mods) {
         std::size_t count = 0;
         for (const auto& [relative, source] : ModFiles(root)) {
             const std::wstring key = Fold(relative.generic_wstring());
             gameplay += ChangesGameplay(key);
-            if (const auto it = owners.find(key); it != owners.end())
-                Log("Mods: %s: %s -> %s", Utf8(relative).c_str(), Utf8(it->second).c_str(), Utf8(name).c_str());
+            if (const auto it = owners.find(key); it != owners.end() && mod_names.count(it->second) && it->second != name)
+                overrides[{name, it->second}].push_back(relative.generic_wstring());
             owners[key] = name;
             replacements.emplace_back(relative, source);
             ++count;
         }
         Log("Mods: %s: %zu files", Utf8(name).c_str(), count);
+        mod_names.insert(name);
+    }
+    for (const auto& [pair, files] : overrides) {
+        std::string list;
+        for (std::size_t i = 0; i < files.size() && i < 5; ++i) list += (i ? ", " : "") + Utf8(files[i]);
+        if (files.size() > 5) list += " (+" + std::to_string(files.size() - 5) + " more)";
+        Log("Mods: WARNING: %s overrides %s files (%zu): %s", Utf8(pair.first).c_str(), Utf8(pair.second).c_str(),
+            files.size(), list.c_str());
     }
     if (gameplay)
         Log("Mods: %zu of these files change gameplay (parameters, map layouts, events, AI, animations): "

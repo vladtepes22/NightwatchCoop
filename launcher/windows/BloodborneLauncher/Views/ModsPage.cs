@@ -281,7 +281,12 @@ namespace BloodborneLauncher.Views
         /// <summary>The lines under an enabled mod that shares files with another enabled one.</summary>
         private string ClashText(Mods.Entry mod) =>
             !mod.Enabled || !_clashes.TryGetValue(mod.Name, out var list) ? "" :
-                string.Join("\n", list.Select(c => L.F($"Also replaced by {c.With} ({string.Join(", ", c.Examples.Select(Path.GetFileName))}): the one lower in the load order wins")));
+                string.Join("\n", list.Select(c =>
+                {
+                    var files = string.Join(", ", c.Examples.Select(Path.GetFileName));
+                    var order = _mods.FindIndex(m => m.Name == mod.Name) < _mods.FindIndex(m => m.Name == c.With);
+                    return order ? L.F($"{c.With} overrides these files ({files})") : L.F($"Overrides {c.With} files ({files})");
+                }));
 
         /// <summary>Which mods clash after a switch was flipped.</summary>
         private async void RefreshClashes()
