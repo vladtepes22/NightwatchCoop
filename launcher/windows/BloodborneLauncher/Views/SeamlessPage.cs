@@ -67,11 +67,6 @@ public sealed class SeamlessPage : LauncherPage
         host.Children.Add(_hostChecks);
         _hostPassword = PasswordRow(host, () => S.PartyPassword, v => { S.PartyPassword = v; UpdateInvite(); },
             L.T("Optional. Without a password, anyone who sees the party can join."), L.T("Password (optional)"));
-        // visy 0.7.9 (fc532488): an open game (no password) takes any level instead of the co-op level range; the host's own
-        // setting, read live, on by default (user, 7 Nov; right under the password, which makes a game open) (bbport.ini party_open_any_level; in the game: System > Party access).
-        ToggleRow(SymbolRegular.ArrowSwap24, L.T("Any level can join my open game"),
-            L.T("An open game is held to the game's co-op level range (a level 100 host takes 60 to 140). On: any level can join it, and nobody is removed later. Password and party-code joins never had a range; invaders keep theirs."),
-            () => Ini.Get("party_open_any_level", "1") == "1", v => Ini.Set("party_open_any_level", v ? "1" : "0"), host);
         var hostOptions = new Grid();
         hostOptions.ColumnDefinitions.Add(new ColumnDefinition());
         hostOptions.ColumnDefinitions.Add(new ColumnDefinition());
@@ -230,6 +225,9 @@ public sealed class SeamlessPage : LauncherPage
             SmallButton(L.T("Run Setup Wizard"), SymbolRegular.Play24, (_, _) => CoopWizard.Open()), out _));
         IniToggles(host,
             ("party_kill_record", L.T("Enemies stay dead"), true), ("party_open_world", L.T("Remove multiplayer barriers"), true),
+            // visy 0.7.9 (fc532488) party_open_any_level: open games skip the co-op level range; the host's own setting, read
+            // live, on by default and in the top five (user, 7 Nov).
+            ("party_open_any_level", L.T("Any level can join my open game"), true),
             ("party_share_lamps", L.T("Shared lamps"), true), ("party_gather", L.T("Host can gather the party"), true),
             ("party_guest_gather", L.T("Guests can gather the party"), false), ("party_layer_travel", L.T("Chalice layer travel"), false),
             ("party_guest_respawn", L.T("Guest respawn"), true), ("party_level_sync", L.T("Level sync"), true),
@@ -1533,6 +1531,7 @@ public sealed class SeamlessPage : LauncherPage
         "party_give_gear" => L.T("Off by default. On: a weapon's or armor's menu in the inventory has Give, to send it to another hunter (a weapon keeps its upgrade level and blood gems), and you accept theirs. Never worn or story gear. Each player sets their own."),
         "party_guest_altar" => L.T("Off by default. On: as a guest you can use the Ritual Altar in the host's Hunter's Dream, with your own chalice and materials. Your own setting."),
         "party_glyph_list" => L.T("At the Ritual Altar, Search by Chalice Glyph first shows a list of the party's glyphs to pick from (your own dungeons, the guests' dungeons and the shipped list), then the code keyboard: typing a code still works. Pick one and the whole party enters that dungeon together. Your own setting."),
+        "party_open_any_level" => L.T("An open game is held to the game's co-op level range (a level 100 host takes 60 to 140). On: any level can join it, and nobody is removed later. Password and party-code joins never had a range; invaders keep theirs."),
         "party_open_world" => L.T("Removes co-op walls on area borders so the party can walk anywhere. The host's rule: guests follow it."),
         "party_guest_respawn" => L.T("A guest who dies comes back at the host's last lamp and is summoned again, instead of being sent home. The host's rule: guests follow it."),
         "party_guest_refill" => L.T("Guests' Blood Vials and Quicksilver Bullets refill when the host rests, dies or travels. The host's rule: guests follow it."),
