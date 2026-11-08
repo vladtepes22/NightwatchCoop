@@ -116,6 +116,13 @@ void Install() {
     static bool done = false;
     if (done) return;
     done = true;
+    // Clip capacity (LIVE 8 Nov, headless dancer-cap1): 0xACEFD0 builds a character's clip-generator collection with room
+    // for 0x2000 clips (the player; others 0x800; array +0x20 sized from that, capacity +0x4C); 0xACF4C0 drops every clip
+    // past it, and the binder (0x1E10390) then never gives those an animation ("The animation has not been loaded.").
+    // Vanilla c0000 has 7784 clips; mods that add private clip groups pass 8192 (Nocturne 2.0.0: 8271, so ~79 vanilla
+    // a009 clips were already lost). 0x4000 doubles the room; every mode, independent of the table.
+    const bool room = PatchBytes(0xACEFF3, {0x00, 0x20}, {0x00, 0x40}, "behaviour clip capacity 0x2000 -> 0x4000");
+    std::printf("[coop] behaviour clip capacity: %s\n", room ? "16384 clips per player" : "not raised (bytes differ)");
     const char* off = std::getenv("BB_WEAPON_CLIP_GROUPS");
     if (off && off[0] == '0') {
         Log("feature weapon_clip_groups: not installed (BB_WEAPON_CLIP_GROUPS=0)");

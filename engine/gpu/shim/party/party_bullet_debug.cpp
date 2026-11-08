@@ -85,7 +85,7 @@ void Log(const char* fmt, ...) {
         std::fflush(stdout);
         return;
     }
-    char line[512];
+    char line[2048];
     va_list ap;
     va_start(ap, fmt);
     std::vsnprintf(line, sizeof line, fmt, ap);
@@ -421,6 +421,70 @@ void BB_COOP_SYSV OnCmsgPick(u64 selector, u64 context, u64, u64, u64, u64) {
         ReadGroup(ctx, 14), picked.c_str(), gates.c_str());
 }
 
+// 0xa9a110 (list, graph, pending) binds each clip generator's animationName (+0x90) to an index (+0xbc): the map is built
+// by 0xa9c3c0 from list +0x30 (bundles of 0x18: hkStringPtr name, hkArray<hkStringPtr> assets), count +0x38, index =
+// running count. Logs, per call (first 12), each bundle and where the probe names sit in it.
+constexpr u64 kClipBinder = 0xa9a110;
+int g_binder_calls = 0;
+
+void BB_COOP_SYSV OnClipBinder(u64 list, u64 graph, u64, u64, u64, u64) {
+    if (++g_binder_calls > 12) return;
+    const int bundles = list ? Field<int>(list, 0x38) : -1;
+    std::string out;
+    int running = 0;
+    static const char* const kProbe[] = {"a113_030000", "a159_030000", "a154_030000", "a161_030000"};
+    for (int b = 0; b < bundles && b < 8; ++b) {
+        const u64 e = Field<u64>(list, 0x30) + u64(b) * 0x18;
+        char bname[48] = {};
+        if (const u64 at = Field<u64>(e, 0) & ~u64(1)) SafeRead(at, bname, sizeof bname - 1);
+        const u64 assets = Field<u64>(e, 8);
+        const int n = Field<int>(e, 0x10);
+        char line[160];
+        std::snprintf(line, sizeof line, " {bundle %d '%s' %d names", b, bname, n);
+        out += line;
+        int hits[4] = {-1, -1, -1, -1};
+        char last[24] = {};
+        for (int i = 0; i < n; ++i) {
+            char name[24] = {};
+            const u64 at = Field<u64>(assets, u64(i) * 8) & ~u64(1);
+            if (!at || !SafeRead(at, name, sizeof name - 1)) continue;
+            for (int p = 0; p < 4; ++p)
+                if (hits[p] < 0 && !std::strcmp(name, kProbe[p])) hits[p] = running + i;
+            if (i == n - 1) std::memcpy(last, name, sizeof last);
+        }
+        for (int p = 0; p < 4; ++p) {
+            std::snprintf(line, sizeof line, " %s@%d", kProbe[p], hits[p]);
+            out += line;
+        }
+        std::snprintf(line, sizeof line, " last %s}", last);
+        out += line;
+        running += n;
+    }
+    Log("binder call %d: list 0x%llx graph 0x%llx bundles %d;%s", g_binder_calls, static_cast<unsigned long long>(list),
+        static_cast<unsigned long long>(graph), bundles, out.c_str());
+}
+
+// 0xacf4c0 (collection, clip) appends a clip generator to the graph's clip collection (+0x20 array, count +0x48,
+// capacity +0x4c set by 0xacefd0: 0x800 or 0x2000); at capacity it drops the clip silently, and the binder (0x1e10390)
+// never gives that clip an animation. Logs the first drops and the count each collection reaches.
+constexpr u64 kClipAppend = 0xacf4c0;
+int g_clip_drops = 0;
+
+void BB_COOP_SYSV OnClipAppend(u64 coll, u64 clip, u64, u64, u64, u64) {
+    const int count = Field<int>(coll, 0x48);
+    const int cap = Field<int>(coll, 0x4c);
+    if (count < cap) {
+        if (count == 2047 || count == 8191) Log("clip collection 0x%llx reached %d of %d", static_cast<unsigned long long>(coll),
+                                                count + 1, cap);
+        return;
+    }
+    if (++g_clip_drops > 6 && g_clip_drops % 50) return;
+    char name[48] = {};
+    if (const u64 at = Field<u64>(clip, 0x38) & ~u64(1)) SafeRead(at, name, sizeof name - 1);
+    Log("clip collection 0x%llx full (%d of %d): drop %d %s", static_cast<unsigned long long>(coll), count, cap, g_clip_drops,
+        name);
+}
+
 // 0x1a27fb0 (id, chr) is the TAE adapter: chr +0x3b0 +0x18 = TAE owner, owner +0x10 = table, table +0x30 count, +0x38 records
 // sorted by id, record +0x10 = its events. Logs each weapon-group id once, and the whole table's a144 / a159 ids once.
 constexpr u64 kTaeAdapter = 0x1a27fb0;
@@ -429,7 +493,8 @@ bool g_tae_dumped = false;
 
 void BB_COOP_SYSV OnTaeAdapter(u64 id64, u64 chr, u64, u64, u64, u64) {
     const int id = int(id64);
-    if (id / 1000000 != 144 && id / 1000000 != 159) return;
+    const int grp = id / 1000000;
+    if (g_tae_dumped && grp != 113 && grp != 144 && grp != 154 && grp != 159 && grp != 161) return;
     if (std::find(g_tae_seen.begin(), g_tae_seen.end(), id) != g_tae_seen.end()) return;
     g_tae_seen.push_back(id);
     const u64 owner = Field<u64>(Field<u64>(chr, 0x3b0), 0x18);
@@ -439,7 +504,7 @@ void BB_COOP_SYSV OnTaeAdapter(u64 id64, u64 chr, u64, u64, u64, u64) {
     u64 data = 0;
     bool found = false;
     std::string ids144, ids159;
-    int n144 = 0, n159 = 0;
+    int n113 = 0, n144 = 0, n154 = 0, n159 = 0, n161 = 0;
     for (int i = 0; i < count; ++i) {
         const u64 record = Field<u64>(records, u64(i) * 8);
         const int rid = Field<int>(record, 0);
@@ -449,16 +514,19 @@ void BB_COOP_SYSV OnTaeAdapter(u64 id64, u64 chr, u64, u64, u64, u64) {
             data = events;
         }
         if (rid / 1000000 == 144) ++n144;
-        if (rid / 1000000 == 159) {
-            ++n159;
-            ids159 += " " + std::to_string(rid % 1000000) + (events ? "" : "(null)");
+        if (rid / 1000000 == 159) ++n159;
+        const int rg = rid / 1000000;
+        if (rg == 113 || rg == 154 || rg == 161) {
+            if (rid % 1000000 == 30000 || rid % 1000000 == 30010) ids159 += " " + std::to_string(rid) + "@" + std::to_string(i);
+            ++(rg == 113 ? n113 : rg == 154 ? n154 : n161);
         }
     }
     Log("attack: TAE id %d: weapon %u, record %s, events 0x%llx, table %d records", id, g_attack_weapon, found ? "found" : "MISSING",
         static_cast<unsigned long long>(data), count);
     if (!g_tae_dumped) {
         g_tae_dumped = true;
-        Log("attack: TAE table: %d a144 records, %d a159 records:%s", n144, n159, ids159.c_str());
+        Log("attack: TAE table: a113 %d a144 %d a154 %d a159 %d a161 %d records; first rows:%s", n113, n144, n154, n159, n161,
+            ids159.c_str());
     }
 }
 
@@ -592,6 +660,9 @@ void Init() {
                                        "attack debug: selector pick");
         HookPrologue(kTaeAdapter, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x54, 0x53}, &OnTaeAdapter,
                      "attack debug: TAE adapter");
+        HookPrologue(kClipBinder, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55}, &OnClipBinder,
+                     "attack debug: clip binder");
+        HookPrologue(kClipAppend, {0x48, 0x63, 0x47, 0x48, 0x3b, 0x47, 0x4c}, &OnClipAppend, "attack debug: clip append");
         HookPrologue(kHksSetVariable, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55}, &OnHksSet,
                      "attack debug: hks set");
         HookPrologue(kVariableIndex, {0x48, 0x83, 0xc7, 0x78, 0x48, 0xc7, 0xc2, 0xff, 0xff, 0xff, 0xff}, &OnVariableIndex,
