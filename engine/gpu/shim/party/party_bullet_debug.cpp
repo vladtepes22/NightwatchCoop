@@ -391,19 +391,34 @@ void BB_COOP_SYSV OnCmsgPick(u64 selector, u64 context, u64, u64, u64, u64) {
     char want[32];
     std::snprintf(want, sizeof want, "a%03d_%06d", right, anim % 1000000);
     std::string picked = "(no child, fallback)";
+    std::string gates;  // the game's per-child test before the name match (0xacd768: vfunc +0x70 (child, 0, &zero))
     const u64 kids = Field<u64>(selector, 0x88);
     const int count = Field<int>(selector, 0x90);
+    using GateFn = bool(BB_COOP_SYSV*)(u64, u64, u64*);
     for (int i = 0; i < count; ++i) {
         char name[64] = {};
-        const u64 at = Field<u64>(Field<u64>(kids, u64(i) * 8), 0x38) & ~u64(1);
+        const u64 child = Field<u64>(kids, u64(i) * 8);
+        const u64 at = Field<u64>(child, 0x38) & ~u64(1);
         if (!at || !SafeRead(at, name, sizeof name - 1)) continue;
-        if (!std::strncmp(name, want, std::strlen(want))) {
-            picked = name;
-            break;
+        const bool interesting = i == 0 || !std::strncmp(name, "a113_", 5) || !std::strncmp(name, "a161_", 5) ||
+                                 !std::strncmp(name, want, std::strlen(want));
+        bool gate = true;
+        if (interesting) {
+            const u64 fn = Field<u64>(Field<u64>(child, 0), 0x70);
+            u64 zero = 0;
+            gate = fn && reinterpret_cast<GateFn>(fn)(child, 0, &zero);
+            char why[72] = {};
+            if (zero) SafeRead(zero & ~u64(1), why, sizeof why - 1);  // hkStringPtr the check wrote (0x436890)
+            char line[256];
+            std::snprintf(line, sizeof line, " [%d %.20s gate %d bind %d mode %d ctl 0x%llx%s%s]", i, name, int(gate),
+                          int(Field<std::int16_t>(child, 0xbc)), int(Field<std::uint8_t>(child, 0xbe)),
+                          static_cast<unsigned long long>(Field<u64>(child, 0xd0)), why[0] ? ": " : "", why);
+            gates += line;
         }
+        if (gate && picked[0] == '(' && !std::strncmp(name, want, std::strlen(want))) picked = name;
     }
-    Log("attack: weapon %u selector anim %d: WeaponRightType %d WeaponLeftType %d -> %s", g_attack_weapon, anim, right,
-        ReadGroup(ctx, 14), picked.c_str());
+    Log("attack: weapon %u selector anim %d: WeaponRightType %d WeaponLeftType %d -> %s;%s", g_attack_weapon, anim, right,
+        ReadGroup(ctx, 14), picked.c_str(), gates.c_str());
 }
 
 // 0x1a27fb0 (id, chr) is the TAE adapter: chr +0x3b0 +0x18 = TAE owner, owner +0x10 = table, table +0x30 count, +0x38 records
