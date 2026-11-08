@@ -162,13 +162,21 @@ inline std::string Refusal(const Manifest& m, std::string_view nightwatch) {
 
 struct HitRow {
     std::uint32_t attacker_speffect = 0, base_fx = 0, fx = 0;
+    std::uint32_t sp_attribute = 0, sound = 0;  // a draw row when sp_attribute != 0
     bool operator==(const HitRow& o) const {
-        return attacker_speffect == o.attacker_speffect && base_fx == o.base_fx && fx == o.fx;
+        return attacker_speffect == o.attacker_speffect && base_fx == o.base_fx && fx == o.fx &&
+               sp_attribute == o.sp_attribute && sound == o.sound;
+    }
+    /// Rows with the same key replace each other in the merge.
+    bool SameKey(const HitRow& o) const {
+        return sp_attribute ? sp_attribute == o.sp_attribute
+                            : !o.sp_attribute && attacker_speffect == o.attacker_speffect && base_fx == o.base_fx;
     }
 };
 
-/// nightwatch/hit_effects.json: {"version": 1, "rows": [{"attacker_speffect": N, "base_fx": N, "fx": N}, ...]}, each a
-/// whole number 1..2147483647. False with `error` naming the first bad row (rows count from 1).
+/// nightwatch/hit_effects.json: {"version": 1, "rows": [...]}; a row is either a swap {"attacker_speffect": N,
+/// "base_fx": N, "fx": N} or a draw {"sp_attribute": A, "fx": N, "sound": N} (A 1..255 but not 2 / 6, which the game
+/// draws itself), each N a whole number 1..2147483647. False with `error` naming the first bad row (rows count from 1).
 inline bool ParseHitEffects(std::string_view bytes, std::vector<HitRow>* rows, std::string* error) {
     rows->clear();
     const std::string file = std::string(kTablesDir) + "/" + kHitEffects + ".json";
@@ -207,8 +215,18 @@ inline bool ParseHitEffects(std::string_view bytes, std::vector<HitRow>* rows, s
             *out = std::uint32_t(v);
             return true;
         };
-        if (!field("attacker_speffect", &row.attacker_speffect) || !field("base_fx", &row.base_fx) ||
-            !field("fx", &row.fx)) {
+        if (r.is_object() && r.contains("sp_attribute")) {
+            if (!field("sp_attribute", &row.sp_attribute) || row.sp_attribute > 255 || row.sp_attribute == 2 ||
+                row.sp_attribute == 6 || !field("fx", &row.fx) || !field("sound", &row.sound) ||
+                r.contains("attacker_speffect") || r.contains("base_fx")) {
+                *error = file + ": row " + std::to_string(number) +
+                         " (a draw row) needs sp_attribute 1..255 but not 2 or 6, and whole numbers 1..2147483647 for "
+                         "fx and sound (no attacker_speffect or base_fx)";
+                rows->clear();
+                return false;
+            }
+        } else if (!field("attacker_speffect", &row.attacker_speffect) || !field("base_fx", &row.base_fx) ||
+                   !field("fx", &row.fx)) {
             *error = file + ": row " + std::to_string(number) +
                      " needs whole numbers 1..2147483647 for attacker_speffect, base_fx and fx";
             rows->clear();
@@ -232,11 +250,7 @@ inline void AddHitEffects(HitMerged* merged, std::string_view name, const std::v
     merged->names.emplace_back(name);
     for (const HitRow& row : own) {
         auto& rows = merged->rows;
-        rows.erase(std::remove_if(rows.begin(), rows.end(),
-                                  [&](const auto& r) {
-                                      return r.first.attacker_speffect == row.attacker_speffect &&
-                                             r.first.base_fx == row.base_fx;
-                                  }),
+        rows.erase(std::remove_if(rows.begin(), rows.end(), [&](const auto& r) { return r.first.SameKey(row); }),
                    rows.end());
         rows.emplace_back(row, index);
     }
@@ -249,13 +263,19 @@ inline std::string HitEffectsFileText(const HitMerged& merged) {
     std::vector<std::pair<HitRow, std::size_t>> rows = merged.rows;
     std::stable_sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
     if (rows.size() > kMaxHitRows) rows.resize(kMaxHitRows);
-    std::string text = "# hit_effects (bb-start; attacker_speffect base_fx fx, newest mod first), from: ";
+    std::string text =
+        "# hit_effects (bb-start; attacker_speffect base_fx fx | attr sp_attribute fx sound, newest mod first), from: ";
     for (std::size_t i = 0; i < merged.names.size(); ++i) text += (i ? ", " : "") + merged.names[i];
     text += "\n";
     for (const auto& [row, index] : rows) {
         (void)index;
-        text += std::to_string(row.attacker_speffect) + " " + std::to_string(row.base_fx) + " " +
-                std::to_string(row.fx) + "\n";
+        if (row.sp_attribute) {
+            text += "attr " + std::to_string(row.sp_attribute) + " " + std::to_string(row.fx) + " " +
+                    std::to_string(row.sound) + "\n";
+        } else {
+            text += std::to_string(row.attacker_speffect) + " " + std::to_string(row.base_fx) + " " +
+                    std::to_string(row.fx) + "\n";
+        }
     }
     return text;
 }

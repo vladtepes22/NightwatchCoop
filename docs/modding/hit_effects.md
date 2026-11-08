@@ -37,8 +37,26 @@ the same key. If one hit matches rows of several SpEffects, the row of the lates
 
 Which id of a family is used depends on the hit character (a byte of one of its sub-objects: 0 -> 880 / 800 / 806, 1 -> 10880 / 10800 / 10806,
 other -> 10980 / 10900 / 10906; no vanilla effect bank holds 10980); the +1 comes from a per-character check (881 exists only in a few map effect banks). A row matches the
-**exact** id the game picked, so a mod that wants every variant lists each. Other elements (magic, physical...) draw no
-overlay in the game, so there is nothing to replace for them.
+**exact** id the game picked, so a mod that wants every variant lists each. Other elements (Arcane 3, physical...) draw no
+overlay in the game, so there is nothing to replace for them: a **draw row** (next section) gives them one.
+
+## Draw rows: an overlay for an element the game draws nothing for
+
+```json
+{"sp_attribute": 3, "fx": 203050, "sound": 203001}
+```
+
+| Field | Meaning |
+|---|---|
+| `sp_attribute` | the hit's spAttribute (AtkParam `spAttribute`, or the attacker's weapon-buff SpEffect's), 1..255 but not 2 or 6 (the game draws Fire and Bolt itself; swap those with the rows above) |
+| `fx` | the effect drawn on the hit character, started like the game starts the Bolt overlay (slots 10-19) |
+| `sound` | the sound played with it (`s<id>` in a loaded sound bank); required, because the game plays the overlay's sound slot unconditionally |
+
+The game's own Fire / Bolt checks decide when it draws: the hit dealt damage, and the hit was not one the game skips
+for overlays. Key: `sp_attribute`; a later mod's draw row for the same value replaces an earlier one. A draw row never
+swaps a game overlay, and a swap row never matches a draw. Log (`BB_HIT_EFFECTS_LOG=1`): `hit_effects: draw:
+spAttribute 3, dealt 112 -> overlay 203050, sound 203001 (...)`, then `store 10-19: draw overlay 880 -> 203050, sound
+8800 -> 203001`.
 
 ## Behaviour
 

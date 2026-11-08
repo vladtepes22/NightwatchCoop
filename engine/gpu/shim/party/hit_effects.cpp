@@ -13,6 +13,16 @@
 // So: a prologue replacement on 0x1A2A770 keeps the attacker for the length of the hit (thread-local), and a value
 // filter right after each id store swaps record+0x20 when a table row matches the attacker's active SpEffects.
 // Visual class: every client runs this for the hits its own game draws, from SpEffects it already has.
+//
+// Draw rows (an overlay for a spAttribute the game draws nothing for, e.g. 3 Arcane): 0x1A2A770 tests the hit
+// record's merged spAttribute ([rbx+0x24], rbx = the hit record = its rdx) only for 2 (0x1A2DD5F -> 0x1897400) and 6
+// (0x1A2DE3D -> 0x1897AD0), each behind the same gate: [rec+0x22C] > 0, then ([rbp-0x31C] > 0 or [rec+0x7C] >= 0)
+// ([rbp-0x31C] = defender chr ->+0x3B0 ->+0x20 ->+0xF8, loaded at 0x1A2A7A8), then byte [rec+0x1B4] == 0; the starter
+// gets (chr+0x2A0, chr, rec+0x180) with chr = defender chr ([rdi+8] of the handler). Inside the dispatch no 5-byte
+// site keeps the cmp/jne flags (HookValueFilter does not preserve them) and jumps land on its instructions, so the
+// draw runs after the handler returns, with the same gate on the same record, through the Bolt starter 0x1897AD0;
+// its id store (slots 10-19) then takes the row's fx, and the filter's result (stored at record+0x24, played at
+// 0x189E3DD as sound type 5 with no "none" check) is the row's sound.
 #include "hit_effects.h"
 #include "hit_effects_rules.h"
 
@@ -47,10 +57,15 @@ constexpr Store kStores[] = {
 // stub's save area and read r8's saved -1 as the "overlay id").
 constexpr u8 kLoadRecord[] = {0x49, 0x8b, 0x3c, 0x24, 0x48, 0x89, 0xc6};  // mov rdi, [r12]; mov rsi, rax
 
+constexpr u64 kBoltStarter = 0x1897ad0;
+
 std::vector<Row> g_rows;  // set once before the game runs, read-only after
+bool g_draw_rows = false;
 thread_local u64 t_attacker = 0;
+thread_local const Row* t_draw = nullptr;  // the draw row while our own call of the Bolt starter runs
 using HandlerFn = u64(BB_COOP_SYSV*)(u64, u64, u64, u64, u64, u64);
 HandlerFn g_handler = nullptr;
+using StarterFn = u64(BB_COOP_SYSV*)(u64, u64, u64);
 bool g_verbose = false;
 std::atomic<int> g_logged{0};
 
@@ -84,10 +99,37 @@ u64 LocalPlayer() {
     return player;
 }
 
+/// After the game's hit handler: a draw row for the record's spAttribute, behind the game's own element gate
+/// (header comment), starts the overlay through the Bolt starter.
+void DrawAfterHit(u64 damage_module, u64 attacker, u64 rec) {
+    std::int32_t sp = 0, dealt = 0, guard = 0;
+    u8 skip = 0;
+    if (!rec || !SafeGet(rec + 0x24, &sp)) return;
+    const Row* row = DrawRow(g_rows, sp);
+    if (!row) return;
+    u64 chr = 0, a = 0, b = 0;
+    std::int32_t level = 0;
+    if (!SafeGet(rec + 0x22c, &dealt) || dealt <= 0) return;
+    if (!SafeGet(damage_module + 8, &chr) || !chr) return;
+    const bool level_ok = SafeGet(chr + 0x3b0, &a) && a && SafeGet(a + 0x20, &b) && b && SafeGet(b + 0xf8, &level);
+    if (!level_ok) return;
+    if (level <= 0 && (!SafeGet(rec + 0x7c, &guard) || guard < 0)) return;
+    if (!SafeGet(rec + 0x1b4, &skip) || skip != 0) return;
+    if (g_verbose && g_logged.fetch_add(1) < 200) {
+        Log("draw: spAttribute %d, dealt %d -> overlay %d, sound %d (attacker 0x%llx%s)", sp, dealt, row->fx, row->sound,
+            static_cast<unsigned long long>(attacker), attacker && attacker == LocalPlayer() ? ", local player" : "");
+    }
+    const Row* outer = t_draw;
+    t_draw = row;
+    reinterpret_cast<StarterFn>(Guest(kBoltStarter))(chr + 0x2a0, chr, rec + 0x180);
+    t_draw = outer;
+}
+
 BB_COOP_SYSV u64 HitHandler(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5) {
     const u64 outer = t_attacker;
     t_attacker = a1;
     const u64 r = g_handler(a0, a1, a2, a3, a4, a5);
+    if (g_draw_rows) DrawAfterHit(a0, a1, a2);
     t_attacker = outer;
     return r;
 }
@@ -99,6 +141,15 @@ BB_COOP_SYSV u64 PickFilter(u64 record, u64 rax) {
     static const char* const kSlot[] = {"0-9", "10-19", "20-29"};
     std::int32_t id = 0;
     if (!SafeGet(record + 0x20, &id)) return rax;
+    if (Slot == 1 && t_draw) {  // our own draw (DrawAfterHit): the row's overlay and sound
+        const std::int32_t fx = t_draw->fx;
+        SafeWrite(record + 0x20, &fx, sizeof fx);
+        if (g_verbose && g_logged.fetch_add(1) < 200) {
+            Log("store %s: draw overlay %d -> %d, sound %llu -> %d", kSlot[Slot], id, fx,
+                static_cast<unsigned long long>(rax & 0xffffffffu), t_draw->sound);
+        }
+        return static_cast<u64>(static_cast<std::uint32_t>(t_draw->sound));
+    }
     const u64 attacker = t_attacker;
     if (!Watched(g_rows, id)) {
         if (g_verbose && g_logged.fetch_add(1) < 200) {
@@ -163,6 +214,7 @@ void Install() {
     const char* v = std::getenv("BB_HIT_EFFECTS_LOG");
     g_verbose = v && v[0] == '1';
     LoadTable();
+    g_draw_rows = AnyDrawRow(g_rows);
     // Installed with or without rows: the party version check hashes the installed hooks, and a visual feature must
     // not split players whose mods differ.
     void* original = nullptr;

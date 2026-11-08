@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // hit_effects (Nightwatch 0.3.0, docs/modding/hit_effects.md): the pure half of hit_effects.cpp. The table is
 // out/nightwatch_hit_effects.txt, written by bb-start (start/features.h HitEffectsFileText) from the mods'
-// nightwatch/hit_effects.json: "<attacker_speffect> <base_fx> <fx>" per line, newest mod first, '#' comments.
+// nightwatch/hit_effects.json, newest mod first, '#' comments. Two kinds of line:
+//   "<attacker_speffect> <base_fx> <fx>"      swap: the game's overlay base_fx -> fx while the attacker has the SpEffect;
+//   "attr <sp_attribute> <fx> <sound>"         draw: an overlay fx + sound for hits whose spAttribute the game draws
+//                                              nothing for (3 Arcane: the Bolt overlay path with these ids).
 #pragma once
 
 #include <cstddef>
@@ -15,9 +18,14 @@ constexpr std::size_t kMaxRows = 4096;  // start/features.h kMaxHitRows
 
 struct Row {
     std::int32_t attacker_speffect = 0, base_fx = 0, fx = 0;
+    std::int32_t sp_attribute = 0, sound = 0;  // a draw row when sp_attribute != 0 (then attacker_speffect / base_fx are 0)
 };
 
-/// The whole file, or false (no rows used) at the first line that is not three whole numbers 1..2147483647.
+/// spAttribute values a draw row may name: 1..255 but not 2 (Fire) and 6 (Bolt), which the game draws itself.
+inline bool DrawableAttribute(std::int64_t v) { return v >= 1 && v <= 255 && v != 2 && v != 6; }
+
+/// The whole file, or false (no rows used) at the first line that is neither three whole numbers 1..2147483647 nor
+/// "attr" + a DrawableAttribute + two such numbers.
 inline bool ParseTable(std::string_view text, std::vector<Row>* rows, std::size_t* bad_line = nullptr) {
     rows->clear();
     std::size_t number = 0;
@@ -31,6 +39,9 @@ inline bool ParseTable(std::string_view text, std::vector<Row>* rows, std::size_
         int count = 0;
         bool ok = true;
         std::size_t i = 0;
+        while (i < line.size() && (line[i] == ' ' || line[i] == '\t' || line[i] == '\r')) ++i;
+        const bool draw = line.substr(i, 4) == "attr" && (i + 4 == line.size() || line[i + 4] == ' ' || line[i + 4] == '\t');
+        if (draw) i += 4;
         while (ok) {
             while (i < line.size() && (line[i] == ' ' || line[i] == '\t' || line[i] == '\r')) ++i;
             if (i == line.size()) break;
@@ -47,13 +58,18 @@ inline bool ParseTable(std::string_view text, std::vector<Row>* rows, std::size_
             if (n < 1) ok = false;
             v[count++] = n;
         }
-        if (ok && count == 0) continue;  // blank or comment
+        if (ok && count == 0 && !draw) continue;  // blank or comment
+        if (ok && draw && !DrawableAttribute(v[0])) ok = false;
         if (!ok || count != 3 || rows->size() >= kMaxRows) {
             rows->clear();
             if (bad_line) *bad_line = number;
             return false;
         }
-        rows->push_back({std::int32_t(v[0]), std::int32_t(v[1]), std::int32_t(v[2])});
+        if (draw) {
+            rows->push_back({0, 0, std::int32_t(v[1]), std::int32_t(v[0]), std::int32_t(v[2])});
+        } else {
+            rows->push_back({std::int32_t(v[0]), std::int32_t(v[1]), std::int32_t(v[2])});
+        }
     }
     return true;
 }
@@ -64,7 +80,7 @@ inline bool ParseTable(std::string_view text, std::vector<Row>* rows, std::size_
 template <class Has>
 std::int32_t Pick(const std::vector<Row>& rows, std::int32_t base_fx, Has&& has, std::int32_t* speffect = nullptr) {
     for (const Row& r : rows) {
-        if (r.base_fx == base_fx && has(r.attacker_speffect)) {
+        if (!r.sp_attribute && r.base_fx == base_fx && has(r.attacker_speffect)) {
             if (speffect) *speffect = r.attacker_speffect;
             return r.fx;
         }
@@ -75,7 +91,23 @@ std::int32_t Pick(const std::vector<Row>& rows, std::int32_t base_fx, Has&& has,
 /// True when some row replaces `base_fx` (lets the hook skip walking the attacker's SpEffects for other ids).
 inline bool Watched(const std::vector<Row>& rows, std::int32_t base_fx) {
     for (const Row& r : rows) {
-        if (r.base_fx == base_fx) return true;
+        if (!r.sp_attribute && r.base_fx == base_fx) return true;
+    }
+    return false;
+}
+
+/// The draw row for a hit whose merged spAttribute is `sp_attribute`, or null: the first listed (latest mod wins).
+inline const Row* DrawRow(const std::vector<Row>& rows, std::int32_t sp_attribute) {
+    for (const Row& r : rows) {
+        if (r.sp_attribute && r.sp_attribute == sp_attribute) return &r;
+    }
+    return nullptr;
+}
+
+/// True when the table has a draw row (lets the hit handler skip its checks otherwise).
+inline bool AnyDrawRow(const std::vector<Row>& rows) {
+    for (const Row& r : rows) {
+        if (r.sp_attribute) return true;
     }
     return false;
 }

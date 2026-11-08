@@ -164,12 +164,57 @@ static void EngineFile() {
     CHECK(!he::ParseTable(many, &rows));
 }
 
+// Draw rows: an overlay + sound for a spAttribute the game draws nothing for (3 Arcane; Vesper Blades).
+static void DrawRows() {
+    std::vector<HitRow> rows;
+    std::string e;
+    CHECK(ParseHitEffects(
+        R"({"version":1,"rows":[{"sp_attribute":3,"fx":203050,"sound":203001},{"attacker_speffect":9,"base_fx":880,"fx":5}]})",
+        &rows, &e));
+    CHECK(rows.size() == 2 && rows[0] == (HitRow{0, 0, 203050, 3, 203001}) && rows[1] == (HitRow{9, 880, 5}));
+    const char* bad[] = {
+        R"({"version":1,"rows":[{"sp_attribute":2,"fx":1,"sound":1}]})",    // the game draws Fire itself
+        R"({"version":1,"rows":[{"sp_attribute":6,"fx":1,"sound":1}]})",    // and Bolt
+        R"({"version":1,"rows":[{"sp_attribute":256,"fx":1,"sound":1}]})",
+        R"({"version":1,"rows":[{"sp_attribute":0,"fx":1,"sound":1}]})",
+        R"({"version":1,"rows":[{"sp_attribute":3,"fx":1}]})",              // sound is required
+        R"({"version":1,"rows":[{"sp_attribute":3,"fx":1,"sound":1,"base_fx":880}]})",
+    };
+    for (const char* b : bad) CHECK(!ParseHitEffects(b, &rows, &e) && rows.empty());
+    CHECK(!ParseHitEffects(bad[4], &rows, &e) && e.find("row 1 (a draw row)") != std::string::npos);
+
+    HitMerged merged;
+    AddHitEffects(&merged, "A", {{0, 0, 111, 3, 1}, {90002, 880, 900880}});
+    AddHitEffects(&merged, "B", {{0, 0, 222, 3, 2}, {0, 0, 333, 5, 3}});  // B replaces A's draw row for 3
+    CHECK(merged.rows.size() == 3);
+    const std::string text = HitEffectsFileText(merged);
+    CHECK(text.find("attr 3 222 2\n") != std::string::npos && text.find("attr 3 111") == std::string::npos);
+    std::vector<he::Row> er;
+    CHECK(he::ParseTable(text, &er));
+    CHECK(he::AnyDrawRow(er) && er.size() == 3);
+    const he::Row* r3 = he::DrawRow(er, 3);
+    CHECK(r3 && r3->fx == 222 && r3->sound == 2);
+    CHECK(he::DrawRow(er, 5) && he::DrawRow(er, 5)->fx == 333 && !he::DrawRow(er, 1) && !he::DrawRow(er, 0));
+    const auto has = [](std::int32_t sp) { return sp == 90002; };
+    CHECK(he::Pick(er, 880, has) == 900880 && he::Watched(er, 880) && !he::Watched(er, 0));  // draw rows never swap
+
+    CHECK(he::ParseTable("attr 3 203050 203001\n  attr\t5 1 2 # x\n", &er) && er.size() == 2 && er[1].sp_attribute == 5);
+    CHECK(!he::ParseTable("attr 2 1 1\n", &er));
+    CHECK(!he::ParseTable("attr 6 1 1\n", &er));
+    CHECK(!he::ParseTable("attr 256 1 1\n", &er));
+    CHECK(!he::ParseTable("attr 3 1\n", &er));
+    CHECK(!he::ParseTable("attr\n", &er));
+    CHECK(!he::ParseTable("attrx 3 1 1\n", &er));
+    CHECK(he::ParseTable("1 2 3\n", &er) && !he::AnyDrawRow(er));
+}
+
 int main() {
     Versions();
     Manifests();
     Tables();
     MergeAndEngine();
     EngineFile();
+    DrawRows();
     std::printf("hit-effects-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }
