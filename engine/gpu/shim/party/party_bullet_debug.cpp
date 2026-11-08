@@ -33,6 +33,7 @@
 #include <vector>
 
 extern "C" void runtime_pad_director_press(std::uint32_t buttons); // src/runtime_pad.c
+extern "C" void runtime_pad_director_sticks(int lx, int ly, int rx, int ry); // src/runtime_pad.c (-1: no override)
 
 namespace coop::bulletdebug {
 namespace {
@@ -588,6 +589,176 @@ void ParseAttack(const char* s) {
     if (const char* n = std::strstr(s, ":dy=")) g_near_dy = float(std::atof(n + 4));
 }
 
+// BB_DEBUG_ATTACK_SEQ=charge[:hold=MS][:from=MS][:to=MS][:every=MS] (with BB_DEBUG_ATTACK): instead of the R1/L1 chain,
+// each weapon gets L1 (transform), R2 held until the full-charge hit 42630 starts (or hold ms, default 4500), then R2 taps
+// (80 ms) every `every` ms (150) from `from` (1200) to `to` (3000) ms after 42630 started, then L1 back. Logs each new
+// player animation, each tap with the animation and SpEffects 203 / 204 / 9101, and the event names the hks fires
+// (hkbFireEvent). R2 goes through the director bit and, when BB_PAD_FILE is set, that file too (which also sets the
+// analog trigger byte, as a real pad does).
+//   chr +0x3b0 +0x18 = TimeAct module: ring of 10 {anim id, ...} at +0x20 (0x10 apart), next write index +0xc0
+//   chr +0x1c8 = SpEffect list (+8 first node; node +0x40 id, +0x58 next)
+//   0x97c810 = the hks binding hkbFireEvent (registered at 0x976fa5 like hkbSetVariable 0x977800); it looks the event
+//   name up with 0x94a2c0(table, name) (table +0x50), the twin of the variable lookup 0x94a2f0
+constexpr std::uint32_t kR2 = 0x200;
+constexpr u64 kHksFireEvent = 0x97c810;
+constexpr u64 kEventIndex = 0x94a2c0;
+bool g_seq = false;
+int g_seq_hold = 4500, g_seq_from = 1200, g_seq_to = 3000, g_seq_every = 150;
+int g_seq_step = 0;
+bool g_seq_logging = false;
+Clock::time_point g_seq_hold_at{}, g_seq_t0{}, g_seq_next_tap{}, g_seq_log_until{};
+int g_seq_tap = 0;
+int g_seq_last_anim = -1;
+const char* g_pad_file = nullptr;
+thread_local bool t_in_fire = false;
+int g_fire_lines = 0;
+char g_last_fire[64] = {};
+
+void PadFileR2(bool down) {
+    if (!g_pad_file || !*g_pad_file) return;
+    if (FILE* f = std::fopen(g_pad_file, "w")) {
+        if (down) std::fputs("r2", f);
+        std::fclose(f);
+    }
+}
+
+void PressR2(bool down) {
+    runtime_pad_director_press(down ? kR2 : 0);
+    PadFileR2(down);
+}
+
+int CurrentAnim(u64 chr) {
+    const u64 ta = Field<u64>(Field<u64>(chr, 0x3b0), 0x18);
+    const int idx = Field<int>(ta, 0xc0, -1);
+    if (!ta || idx < 0 || idx >= 10) return -1;
+    return Field<int>(ta, 0x20 + 0x10 * u64((idx + 9) % 10), -1);
+}
+
+bool ChrHasSpEffect(u64 chr, int id) {
+    u64 node = Field<u64>(Field<u64>(chr, 0x1c8), 8);
+    for (int guard = 0; node && guard < 512; ++guard, node = Field<u64>(node, 0x58))
+        if (Field<int>(node, 0x40) == id) return true;
+    return false;
+}
+
+std::string SpEffectIds(u64 chr) {
+    std::string s;
+    u64 node = Field<u64>(Field<u64>(chr, 0x1c8), 8);
+    for (int n = 0; node && n < 48; ++n, node = Field<u64>(node, 0x58)) s += " " + std::to_string(Field<int>(node, 0x40));
+    return s;
+}
+
+std::string Fx(u64 chr) {
+    char s[64];
+    std::snprintf(s, sizeof s, "203 %d 204 %d 9101 %d", int(ChrHasSpEffect(chr, 203)), int(ChrHasSpEffect(chr, 204)),
+                  int(ChrHasSpEffect(chr, 9101)));
+    return s;
+}
+
+long Ms(Clock::time_point a, Clock::time_point b) {
+    return long(std::chrono::duration_cast<std::chrono::milliseconds>(a - b).count());
+}
+
+void BB_COOP_SYSV OnHksFire(u64, u64, u64, u64, u64, u64) { t_in_fire = true; }
+
+void BB_COOP_SYSV OnEventIndex(u64, u64 name, u64, u64, u64, u64) {
+    if (!t_in_fire) return;
+    t_in_fire = false;
+    if (!g_seq_logging || g_fire_lines >= 400) return;
+    char s[64] = {};
+    if (!SafeRead(name, s, sizeof s - 1) || !std::strcmp(s, g_last_fire)) return;
+    std::memcpy(g_last_fire, s, sizeof s);
+    ++g_fire_lines;
+    const u64 me = Field<u64>(Slot(kSlotWorldChrMan), 0x60);
+    Log("seq: hks fired \"%s\" (t0%+ld ms, anim %d, %s)", s, g_seq_t0 == Clock::time_point{} ? 0L : Ms(Clock::now(), g_seq_t0),
+        CurrentAnim(me), Fx(me).c_str());
+}
+
+void ParseSeq(const char* s) {
+    g_seq = !std::strncmp(s, "charge", 6);
+    if (const char* n = std::strstr(s, ":hold=")) g_seq_hold = std::atoi(n + 6);
+    if (const char* n = std::strstr(s, ":from=")) g_seq_from = std::atoi(n + 6);
+    if (const char* n = std::strstr(s, ":to=")) g_seq_to = std::atoi(n + 4);
+    if (const char* n = std::strstr(s, ":every=")) g_seq_every = std::atoi(n + 7);
+}
+
+/// One step of the charge sequence (BB_DEBUG_ATTACK_SEQ); `me` is the player.
+void SeqTick(Clock::time_point now, u64 me) {
+    const auto press = [&](std::uint32_t button, const char* name, int ms) {
+        Log("seq: %s pressed (weapon %u), anim %d, %s", name, g_attack_weapon, CurrentAnim(me), Fx(me).c_str());
+        runtime_pad_director_press(button);
+        if (button == kR2) PadFileR2(true);
+        g_attack_pressing = true;
+        g_attack_release = now + std::chrono::milliseconds(ms);
+    };
+    switch (g_seq_step) {
+    case 0: {
+        g_seq_logging = false;
+        if (g_attack_next >= g_attack_weapons.size()) return;
+        g_attack_weapon = g_attack_weapons[g_attack_next++];
+        const bool ok = EquipSlotItem(warper::kSlotRight1, kItemWeapon, g_attack_weapon);
+        Log("seq: equip weapon %u right hand %s (slot holds %u)", g_attack_weapon, ok ? "ok" : "FAILED",
+            EquippedSlotId(warper::kSlotRight1));
+        g_attack_at = now + std::chrono::seconds(4);
+        break;
+    }
+    case 1:
+        if (g_near > 0) MoveNearEnemy(me, g_near);
+        g_attack_at = now + std::chrono::seconds(3);
+        break;
+    case 2:
+        runtime_pad_director_sticks(128, 128, 128, 128); // stick neutral: the hks sends R2 + a direction elsewhere
+        press(kL1, "L1 (transform)", 200);
+        g_attack_at = now + std::chrono::seconds(4);
+        break;
+    case 3:
+        g_seq_logging = true;
+        g_seq_last_anim = CurrentAnim(me);
+        g_seq_t0 = {};
+        g_seq_tap = 0;
+        g_last_fire[0] = 0;
+        Log("seq: R2 held down (weapon %u), anim %d, %s; SpEffects:%s", g_attack_weapon, g_seq_last_anim, Fx(me).c_str(),
+            SpEffectIds(me).c_str());
+        PressR2(true);
+        g_seq_hold_at = now;
+        g_attack_at = now;
+        break;
+    case 4: { // holding until 42630 starts
+        const int anim = CurrentAnim(me);
+        const bool hit = anim % 1000000 == 42630;
+        if (!hit && Ms(now, g_seq_hold_at) < g_seq_hold) return; // stay on this step
+        g_seq_t0 = now;
+        PressR2(false);
+        Log("seq: R2 released after %ld ms hold: %s (anim %d, %s); SpEffects:%s", Ms(now, g_seq_hold_at),
+            hit ? "42630 started" : "NO 42630", anim, Fx(me).c_str(), SpEffectIds(me).c_str());
+        g_seq_next_tap = now + std::chrono::milliseconds(g_seq_from);
+        g_attack_at = now;
+        break;
+    }
+    case 5: // the taps
+        if (now > g_seq_t0 + std::chrono::milliseconds(g_seq_to)) {
+            Log("seq: taps done (%d), anim %d, %s", g_seq_tap, CurrentAnim(me), Fx(me).c_str());
+            g_seq_log_until = now + std::chrono::seconds(3);
+            g_attack_at = now + std::chrono::seconds(3);
+            break;
+        }
+        if (now < g_seq_next_tap) return;
+        ++g_seq_tap;
+        Log("seq: tap %d at t0%+ld ms: anim %d, %s", g_seq_tap, Ms(now, g_seq_t0), CurrentAnim(me), Fx(me).c_str());
+        PressR2(true);
+        g_attack_pressing = true;
+        g_attack_release = now + std::chrono::milliseconds(80);
+        g_seq_next_tap += std::chrono::milliseconds(g_seq_every);
+        return; // stay on this step
+    case 6:
+        g_seq_logging = false;
+        press(kL1, "L1 (back)", 200);
+        g_attack_at = now + std::chrono::seconds(4);
+        break;
+    }
+    g_seq_step = (g_seq_step + 1) % 7;
+}
+
 void AttackTick() {
     const auto now = Clock::now();
     if (g_ctx[0]) {
@@ -600,12 +771,21 @@ void AttackTick() {
     }
     if (g_attack_pressing && now >= g_attack_release) {
         runtime_pad_director_press(0);
+        if (g_seq) PadFileR2(false);
         g_attack_pressing = false;
     }
     const u64 me = Field<u64>(Slot(kSlotWorldChrMan), 0x60);
     if (!me) {
         g_attack_seen = {};
         return;
+    }
+    if (g_seq && (g_seq_logging || now < g_seq_log_until)) {
+        const int anim = CurrentAnim(me);
+        if (anim != g_seq_last_anim) {
+            g_seq_last_anim = anim;
+            Log("seq: anim %d (t0%+ld ms), %s", anim, g_seq_t0 == Clock::time_point{} ? -Ms(now, g_seq_hold_at) : Ms(now, g_seq_t0),
+                Fx(me).c_str());
+        }
     }
     if (g_pinned) {
         if (const u64 fn = Field<u64>(Field<u64>(me, 0), 0x5f8))
@@ -617,6 +797,10 @@ void AttackTick() {
         g_attack_at = now + std::chrono::milliseconds(long(g_attack_delay * 1000));
     }
     if (now < g_attack_at) return;
+    if (g_seq) {
+        SeqTick(now, me);
+        return;
+    }
     const auto press = [&](std::uint32_t button, const char* name) {
         Log("attack: %s pressed (weapon %u), enemy HP %d", name, g_attack_weapon, g_target ? balance::EnemyHp(g_target) : -1);
         runtime_pad_director_press(button);
@@ -667,6 +851,17 @@ void Init() {
                      "attack debug: hks set");
         HookPrologue(kVariableIndex, {0x48, 0x83, 0xc7, 0x78, 0x48, 0xc7, 0xc2, 0xff, 0xff, 0xff, 0xff}, &OnVariableIndex,
                      "attack debug: variable index");
+        if (const char* seq = std::getenv("BB_DEBUG_ATTACK_SEQ"); seq && *seq) ParseSeq(seq);
+        if (g_seq) {
+            g_pad_file = std::getenv("BB_PAD_FILE");
+            PadFileR2(false);
+            const bool fire = HookPrologue(kHksFireEvent, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55},
+                                           &OnHksFire, "attack debug: hks fire event");
+            const bool index = HookPrologue(kEventIndex, {0x48, 0x83, 0xc7, 0x50, 0x48, 0xc7, 0xc2, 0xff, 0xff, 0xff, 0xff},
+                                            &OnEventIndex, "attack debug: event index");
+            std::printf("[coop] Bullet: attack sequence: charge (hold %d ms, taps %d-%d every %d ms; pad file %s; hooks %d %d)\n",
+                        g_seq_hold, g_seq_from, g_seq_to, g_seq_every, g_pad_file ? g_pad_file : "none", fire, index);
+        }
         std::printf("[coop] Bullet: attack test: %zu weapons, first %.0f s after the player exists (hook %d)\n",
                     g_attack_weapons.size(), g_attack_delay, pick);
         std::fflush(stdout);
