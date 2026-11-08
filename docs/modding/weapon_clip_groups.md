@@ -33,6 +33,11 @@ The anim id offset of the behaviour selectors that read a hand's weapon (offsetT
 give. Nothing else changes: the hks, the trick code and every other reader still see the row's `wepmotionCategory`.
 The weapon of a hand is the one the game reads (right: the overriding weapon when one is set, else the selected slot).
 
+A private clip group adds clips to the player's graph. The game gives a character's clip collection room for 8192 clips
+and drops the rest without an animation (the selector then plays its first child: the wrong swing, or a freeze). Vanilla
+has 7784. Nightwatch 0.3.0 raises the room to 16384 for every player, with or without a table (log line
+`behaviour clip capacity: 16384 clips per player`), so a mod with more than 8192 clips must say `requires` 0.3.0.
+
 ## Co-op
 
 Gameplay: the merged rows are part of the party version check (`out/party_mods.txt`), so players with different
