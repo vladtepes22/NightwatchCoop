@@ -147,6 +147,11 @@ int main() {
         p.pvp_full_hp = false;
         assert(FromJson(ToJson(p), &back) && !back.pvp_full_hp && back.phantom_hp && back == p && back != Rules{});
         assert(ToJson(p).find("\"pvp_full_hp\":false") != std::string::npos);
+        // Nightwatch 0.3.0: the host's Allow invaders goes with the rules (cheats off in that world); a host from before it: off.
+        assert(!old.invaders && !Rules{}.invaders);
+        Rules inv;
+        inv.invaders = true;
+        assert(FromJson(ToJson(inv), &back) && back.invaders && back == inv && back != Rules{});
     }
     // 0.7.2: Guests bring their lamps goes with the rules, off by default; a host from before it: off.
     {

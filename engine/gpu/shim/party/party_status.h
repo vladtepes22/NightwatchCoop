@@ -119,6 +119,7 @@ enum class HostRule { Rot, HostRevive, HostLimboRevive, KillRecord, NpcMirror, G
                       BossDrops,  // 0.7.6 (bossdrops): a world boss's item drop reaches every guest at the kill
                       GuestGather,  // 0.7.7 (CL-a3a9e6): a guest may gather the party too
                       LayerTravel,  // 0.7.7 (CL-48ee07): a Chalice Dungeon lamp lists the dungeon's lit lamps for the party
+                      Invaders,  // Nightwatch 0.3.0: the host allows invaders (cheats are off in such a world)
                       Count };
 void SetHostRule(HostRule rule, bool on);
 bool HostRuleOn(HostRule rule);

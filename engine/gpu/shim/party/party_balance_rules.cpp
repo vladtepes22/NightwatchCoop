@@ -26,7 +26,7 @@ bool Rules::operator==(const Rules& o) const {
            guests_bring_lamps == o.guests_bring_lamps && host_revive == o.host_revive &&
            host_limbo_revive == o.host_limbo_revive && kill_record == o.kill_record && npc_mirror == o.npc_mirror &&
            gather == o.gather && guest_gather == o.guest_gather && layer_travel == o.layer_travel && covenant_per_player == o.covenant_per_player &&
-           npc_fights == o.npc_fights && skip_prologue == o.skip_prologue && any_kidnap == o.any_kidnap && level_sync == o.level_sync && phantom_hp == o.phantom_hp && pvp_full_hp == o.pvp_full_hp && boss_drops == o.boss_drops &&
+           npc_fights == o.npc_fights && skip_prologue == o.skip_prologue && any_kidnap == o.any_kidnap && level_sync == o.level_sync && phantom_hp == o.phantom_hp && pvp_full_hp == o.pvp_full_hp && boss_drops == o.boss_drops && invaders == o.invaders &&
            rot_cleanse_boss == o.rot_cleanse_boss && rot_cleanse_killer == o.rot_cleanse_killer &&
            rot_cleanse_echoes == o.rot_cleanse_echoes && travel_vote == o.travel_vote &&
            open_world == o.open_world && guest_revive_inplace == o.guest_revive_inplace &&
@@ -140,6 +140,7 @@ std::string ToJson(const Rules& r) {
     v.set("phantom_hp", r.phantom_hp);
     v.set("pvp_full_hp", r.pvp_full_hp);
     v.set("boss_drops", r.boss_drops);
+    v.set("invaders", r.invaders);
     return json::dump(v, 0);
 }
 
@@ -172,7 +173,7 @@ bool FromJson(const std::string& text, Rules* out, std::string* error) {
                            {"covenant_per_player", &r.covenant_per_player}, {"travel_vote", &r.travel_vote},
                            {"npc_fights", &r.npc_fights}, {"skip_prologue", &r.skip_prologue}, {"any_kidnap", &r.any_kidnap},
                            {"level_sync", &r.level_sync}, {"phantom_hp", &r.phantom_hp}, {"pvp_full_hp", &r.pvp_full_hp},
-                           {"boss_drops", &r.boss_drops}})
+                           {"boss_drops", &r.boss_drops}, {"invaders", &r.invaders}})
         if (const json::Value* m = v.find(key); m && m->type == json::Value::Type::Bool) *to = m->boolean;
     for (auto [key, to] : SessionRuleFields(r))
         if (const json::Value* m = v.find(key); m && m->type == json::Value::Type::Bool) *to = m->boolean;

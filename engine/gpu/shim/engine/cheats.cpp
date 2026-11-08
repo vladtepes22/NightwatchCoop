@@ -5,6 +5,7 @@
 #include "bbport_settings.h"
 #include "../input/input.h"
 #include "../input/pad.h"
+#include "../party/party_status.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -461,16 +462,28 @@ void Disable(Extra& e, const char* why) {
     std::printf("Cheats: %s unavailable: %s\n", e.name, why);
 }
 
-// Online (BB_ONLINE=1, scripts/online.py): other players share the world, so no cheat runs. Off
-// for the whole session. A party is friends on their own saves: cheats stay available there.
-bool SharedWorld() {
-    static const bool shared = [] {
-        const char* online = std::getenv("BB_ONLINE");
-        const bool on = online && online[0] == '1';
-        if (on) std::printf("Cheats: off while playing online\n");
-        return on;
+// Why no cheat may run now, or nullptr. Online (BB_ONLINE=1, scripts/online.py): other players share the world, off
+// for the whole session. Invasions (Nightwatch 0.3.0): an invader (BB_PARTY_INVADE=1, for that whole start), and every
+// player of a party whose host allows invaders (the host's "Allow invaders", sent to the guests with the party rules:
+// party_status HostRule::Invaders) - live, so cheats come back when the host turns invaders off. A party without
+// invaders is friends on their own saves: cheats stay available there.
+const char* SharedWorld() {
+    static const bool online = [] {
+        const char* v = std::getenv("BB_ONLINE");
+        return v && v[0] == '1';
     }();
-    return shared;
+    static const bool invader = [] {
+        const char* v = std::getenv("BB_PARTY_INVADE");
+        return v && v[0] == '1';
+    }();
+    const char* why = online    ? "off while playing online (turn online off in the launcher to use cheats)"
+                      : invader ? "off while invading"
+                      : party::status::HostRuleOn(party::status::HostRule::Invaders)
+                          ? "off in a world open to invaders (the host's Allow invaders)"
+                          : nullptr;
+    static std::atomic<const char*> last{nullptr};
+    if (last.exchange(why) != why) std::printf("Cheats: %s\n", why ? why : "available again (no invaders allowed)");
+    return why;
 }
 
 int SettingOf(const Extra& e, const BbSettings::Values& s) {
@@ -871,7 +884,7 @@ bool Install(std::uint8_t* image, std::size_t size) {
 }
 
 const char* Unavailable(Which which) {
-    if (SharedWorld()) return "off while playing online (turn online off in the launcher to use cheats)";
+    if (const char* why = SharedWorld()) return why;
     if (which == Vials || which == Bullets) return g_cheats[which == Bullets ? 1 : 0].unavailable.load();
     if (which == Echoes) return g_echoes_unavailable.load();
     if (which >= WhichCount) return kNotVerified;
@@ -888,7 +901,7 @@ void AddInsight(int amount) {
 void Tick() {
     if (!g_installed) return;
     const auto& s = BbSettings::Get();
-    const bool shared = SharedWorld();
+    const bool shared = SharedWorld() != nullptr;
     if (shared) {
         g_add_echoes.store(0, std::memory_order_relaxed);
         g_add_insight.store(0, std::memory_order_relaxed);

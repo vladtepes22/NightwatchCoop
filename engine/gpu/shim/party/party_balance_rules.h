@@ -105,6 +105,9 @@ struct Rules {
     /// Rom's Kin Coldblood) is also given to every guest present at the kill, once per kill. The host's;
     /// on by default (a host from before sends none: off, it never gave them).
     bool boss_drops = true;
+    /// Nightwatch 0.3.0: the host's "Allow invaders" (BbSettings party_invaders), sent so every guest knows the world is
+    /// open to invaders: cheats are off there (party_invade.h CheatsOff). Off by default (a host from before sends none: off).
+    bool invaders = false;
     /// 0.7.4 (partyrules, user spec 2026-10-23): the session rules that were each player's own until
     /// 0.7.3 and now come from the host, so the party plays one way ("HOST DECIDES"; what reaches a
     /// guest's own save stays the guest's). Read live on every peer (party_status HostRuleOn):

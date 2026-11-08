@@ -940,6 +940,7 @@ Rules FromSettings() {
     r.phantom_hp = v.party_phantom_hp;
     r.pvp_full_hp = v.party_pvp_full_hp;
     r.boss_drops = v.party_boss_drops;
+    r.invaders = v.party_invaders;
     r.gather = v.party_gather;
     r.guest_gather = v.party_guest_gather;
     r.layer_travel = v.party_layer_travel;
@@ -1771,10 +1772,12 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool host) {
     AnnaliseSitTick(s, link);
     KillEchoTick(s);
     EnemyHpTestTick(s);
+    const Rules r = host ? FromSettings() : InForce();
+    // Nightwatch 0.3.0: a world open to invaders turns cheats off (engine/cheats.cpp), even with BB_PARTY_BALANCE=0.
+    party::status::SetHostRule(party::status::HostRule::Invaders, r.invaders);
     if (!On()) return;
     TickState& st = S();
     const auto now = Clock::now();
-    const Rules r = host ? FromSettings() : InForce();
     party::status::SetShareLamps(r.share_lamps);
     party::status::SetHostRule(party::status::HostRule::GuestsBringLamps, r.guests_bring_lamps);
     party::status::SetHostRule(party::status::HostRule::Rot, r.rot);
