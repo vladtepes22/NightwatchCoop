@@ -28,7 +28,7 @@ Mods/
 | `id` | yes | a short stable id (non-empty string) |
 | `requires` | yes | the oldest Nightwatch that can run the mod: `X.Y.Z` (or `X.Y`) |
 | `name`, `version`, `author` | no | strings, shown in logs (and later on the Mods page) |
-| `features` | no | the engine features the mod uses (list of names). 0.3.0 has: `hit_effects` |
+| `features` | no | the engine features the mod uses (list of names). 0.3.0 has: `hit_effects`, `weapon_clip_groups` |
 
 Other keys are ignored, so later Nightwatch versions can add optional ones.
 
@@ -68,3 +68,4 @@ Every feature is one of two kinds, named on its page:
 ## Features
 
 - [`hit_effects`](hit_effects.md) (visual): replace the elemental hit overlay while the attacker has a SpEffect on.
+- [`weapon_clip_groups`](weapon_clip_groups.md) (gameplay): give a weapon its own attack clip group while it keeps its `wepmotionCategory`.

@@ -526,6 +526,14 @@ target_include_directories(hit-effects-test PRIVATE ..)
 set_target_properties(hit-effects-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 add_test(NAME hit-effects-test COMMAND hit-effects-test)
 
+# Nightwatch 0.3.0 feature weapon_clip_groups (start/features.h, shim/party/weapon_clip_groups_rules.h).
+# ninja -C out/gpu weapon-clip-groups-test
+add_executable(weapon-clip-groups-test EXCLUDE_FROM_ALL ../tests/test_weapon_clip_groups.cpp)
+target_compile_options(weapon-clip-groups-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(weapon-clip-groups-test PRIVATE ..)
+set_target_properties(weapon-clip-groups-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME weapon-clip-groups-test COMMAND weapon-clip-groups-test)
+
 # Navmesh test walker (shim/party/nav_walk.h). ninja -C out/gpu nav-walk-test
 add_executable(nav-walk-test EXCLUDE_FROM_ALL ../tests/test_nav_walk.cpp)
 target_compile_options(nav-walk-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)

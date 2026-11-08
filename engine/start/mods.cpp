@@ -480,7 +480,10 @@ std::string CachedFileSha256(const fs::path& path, nlohmann::json& cache) {
     return digest;
 }
 
-void WritePartyModsFile(const fs::path& out, const std::vector<std::pair<std::wstring, fs::path>>& layers) {
+// `features`: the gameplay feature tables' rows (weapon_clip_groups), hashed after the files; "" adds nothing (so a
+// set of mods without them keeps its hash).
+void WritePartyModsFile(const fs::path& out, const std::vector<std::pair<std::wstring, fs::path>>& layers,
+                        std::string_view features) {
     std::map<std::string, std::pair<std::wstring, fs::path>> owners;  // folded game path: (mod, file)
     for (const auto& [name, root] : layers)
         for (const auto& [relative, source] : ModFiles(root)) owners[Utf8(Fold(relative.generic_wstring()))] = {name, source};
@@ -507,13 +510,17 @@ void WritePartyModsFile(const fs::path& out, const std::vector<std::pair<std::ws
         hash.Update(std::string_view("\0", 1));
         hash.Update(CachedFileSha256(source, cache));
     }
+    if (!features.empty()) {
+        hash.Update(std::string_view("\0features\0", 10));
+        hash.Update(features);
+    }
     try {
         WriteText(cache_file, cache.dump());
     } catch (const std::exception&) {
     }
     std::string text = "# Party version check (bb-start): the enabled mods that change gameplay files. Players\n"
                        "# with another hash are refused by the party host; texture/shader/sound-only mods do not count.\n";
-    text += "hash " + (counts.empty() ? std::string(64, '0') : hash.HexDigest()) + "\n";
+    text += "hash " + (counts.empty() && features.empty() ? std::string(64, '0') : hash.HexDigest()) + "\n";
     for (const auto& [name, root] : layers)
         if (const auto it = counts.find(name); it != counts.end())
             text += "mod " + Utf8(name) + " (" + std::to_string(it->second) + " files)\n";
@@ -641,6 +648,46 @@ void WriteHitEffectsFile(const fs::path& out, const std::vector<std::pair<std::w
     Log("Mods: hit_effects: %zu rows from %zu mods", merged.rows.size(), merged.names.size());
 }
 
+// out/nightwatch_weapon_clip_groups.txt from the layers' nightwatch/weapon_clip_groups.json (only for a manifest
+// listing the feature). Gameplay (which clips a weapon plays): returns the rows ("weapon group" lines, no comment)
+// for the party hash, "" when there are none.
+std::string WriteWeaponClipGroupsFile(const fs::path& out, const std::vector<std::pair<std::wstring, fs::path>>& layers,
+                                      const std::map<std::wstring, nwfeatures::Manifest>& manifests) {
+    const std::string feature = nwfeatures::kWeaponClipGroups;
+    nwfeatures::ClipMerged merged;
+    for (const auto& [name, root] : layers) {
+        const fs::path table = root / nwfeatures::kTablesDir / (feature + ".json");
+        if (!IsFile(table)) continue;
+        const auto m = manifests.find(name);
+        if (m == manifests.end() || !m->second.Uses(feature)) {
+            Log("Mods: %s: has nightwatch/%s.json but its nightwatch.json does not list %s: not used", Utf8(name).c_str(),
+                feature.c_str(), feature.c_str());
+            continue;
+        }
+        std::vector<nwfeatures::ClipRow> rows;
+        std::string error;
+        try {
+            if (!nwfeatures::ParseWeaponClipGroups(ReadSmall(table), &rows, &error)) {
+                Log("Mods: %s: %s: its %s table is not used", Utf8(name).c_str(), error.c_str(), feature.c_str());
+                continue;
+            }
+        } catch (const std::exception& e) {
+            Log("Mods: %s: %s: its %s table is not used", Utf8(table).c_str(), e.what(), feature.c_str());
+            continue;
+        }
+        nwfeatures::AddWeaponClipGroups(&merged, Utf8(name), rows);
+    }
+    const fs::path path = out / nwfeatures::kWeaponClipGroupsOut;
+    const std::string text = nwfeatures::WeaponClipGroupsFileText(merged);
+    if (text.empty()) {
+        RemoveIfThere(path);
+        return "";
+    }
+    WriteText(path, text);
+    Log("Mods: %s: %zu rows from %zu mods", feature.c_str(), merged.rows.size(), merged.names.size());
+    return text.substr(text.find('\n') + 1);
+}
+
 } // namespace
 
 void RemoveOverlay(const fs::path& path) {
@@ -656,6 +703,7 @@ fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::p
                           bool enabled) {
     RemoveIfThere(out / hostonly::kFile);  // a failed start leaves none: the host then has the fixed list only
     RemoveIfThere(out / nwfeatures::kHitEffectsOut);  // likewise: a failed start leaves the vanilla look
+    RemoveIfThere(out / nwfeatures::kWeaponClipGroupsOut);  // and the vanilla clips
     std::vector<std::pair<std::wstring, fs::path>> layers;
     if (enabled) {
         fs::path legacy = fs::canonical(game);
@@ -669,9 +717,11 @@ fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::p
     }
     std::map<std::wstring, nwfeatures::Manifest> manifests;
     layers = CheckManifests(layers, &manifests);
-    Log("Mods: Nightwatch %s, features: hit_effects", NW_VERSION);
+    std::string known;
+    for (const std::string& f : nwfeatures::Known()) known += (known.empty() ? "" : ", ") + f;
+    Log("Mods: Nightwatch %s, features: %s", NW_VERSION, known.c_str());
     fs::create_directories(out);
-    WritePartyModsFile(out, layers);
+    WritePartyModsFile(out, layers, WriteWeaponClipGroupsFile(out, layers, manifests));
     const std::optional<fs::path> update = UpdateFolder(fs::canonical(game));
     // The party version check hashes the dump's own gameparam: with a separate update folder that is the update's
     // file (the base folder's is the pre-update one the game never loads).

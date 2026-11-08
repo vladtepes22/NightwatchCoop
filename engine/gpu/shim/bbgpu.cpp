@@ -527,6 +527,7 @@ extern "C" void bbnet_initialize(void);
 #include "party/coop_hooks.h"
 #include "party/lamp_travel.h"
 #include "party/hit_effects.h"
+#include "party/weapon_clip_groups.h"
 #include "party/party_b2.h"
 #include "bbport_game_menu.h"
 extern "C" void bbgpu_start_online(void) {
@@ -613,6 +614,7 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     coop::autohud::Install();  // the auto-hide HUD (visy 0.7.8; setting off by default)
     coop::b2::InstallOwnWorldTypeGuard();  // own-world chr type repair, every mode (party save played offline)
     coop::hiteffects::Install();  // 0.3.0 feature hit_effects (mods' hit overlay table; BB_HIT_EFFECTS=0: off)
+    coop::clipgroups::Install();  // 0.3.0 feature weapon_clip_groups (mods' weapon clip groups; BB_WEAPON_CLIP_GROUPS=0: off)
     if (coop::PartyRequested()) { coop::PartyInit(image, size); bbnet_start(); }
     coop::MarkImageHooksDone();  // the party version check hashes the installed hooks after this
 }

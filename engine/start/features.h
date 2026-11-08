@@ -32,10 +32,13 @@ constexpr const char* kHitEffects = "hit_effects";
 constexpr const char* kHitEffectsOut = "nightwatch_hit_effects.txt";  // in out/, read by gpu/shim/party/hit_effects.cpp
 constexpr std::size_t kMaxFileBytes = 1u << 20;
 constexpr std::size_t kMaxHitRows = 4096;  // after the merge; hit_effects_rules.h kMaxRows
+constexpr const char* kWeaponClipGroups = "weapon_clip_groups";
+constexpr const char* kWeaponClipGroupsOut = "nightwatch_weapon_clip_groups.txt";  // gpu/shim/party/weapon_clip_groups.cpp
+constexpr std::size_t kMaxClipRows = 4096;  // after the merge; weapon_clip_groups_rules.h kMaxRows
 
 /// The features this build offers (a manifest naming any other is refused).
 inline const std::vector<std::string>& Known() {
-    static const std::vector<std::string> known = {kHitEffects};
+    static const std::vector<std::string> known = {kHitEffects, kWeaponClipGroups};
     return known;
 }
 
@@ -254,6 +257,100 @@ inline std::string HitEffectsFileText(const HitMerged& merged) {
         text += std::to_string(row.attacker_speffect) + " " + std::to_string(row.base_fx) + " " +
                 std::to_string(row.fx) + "\n";
     }
+    return text;
+}
+
+// ---- weapon_clip_groups (docs/modding/weapon_clip_groups.md) ----
+
+struct ClipRow {
+    std::uint32_t weapon = 0, clip_group = 0;  // weapon: a multiple of 10000 (covers its +0..+10 rows)
+    bool operator==(const ClipRow& o) const { return weapon == o.weapon && clip_group == o.clip_group; }
+};
+
+/// nightwatch/weapon_clip_groups.json: {"version": 1, "rows": [{"weapon": N, "clip_group": G}, ...]}: weapon a whole
+/// number 10000..2147480000 and a multiple of 10000, clip_group 1..999 (the aGGG of the clips). False with `error`
+/// naming the first bad row (rows count from 1); a weapon listed twice in one table is a bad row too.
+inline bool ParseWeaponClipGroups(std::string_view bytes, std::vector<ClipRow>* rows, std::string* error) {
+    rows->clear();
+    const std::string file = std::string(kTablesDir) + "/" + kWeaponClipGroups + ".json";
+    if (bytes.size() > kMaxFileBytes) {
+        *error = file + " is larger than 1 MiB";
+        return false;
+    }
+    const nlohmann::json j = nlohmann::json::parse(StripBom(bytes), nullptr, false);
+    if (j.is_discarded() || !j.is_object()) {
+        *error = file + " is not a JSON object";
+        return false;
+    }
+    const auto ver = j.find("version");
+    if (ver == j.end() || !ver->is_number_integer() || ver->get<long long>() != 1) {
+        *error = file + ": \"version\" is not 1";
+        return false;
+    }
+    const auto list = j.find("rows");
+    if (list == j.end() || !list->is_array()) {
+        *error = file + ": \"rows\" is not a list";
+        return false;
+    }
+    if (list->size() > kMaxClipRows) {
+        *error = file + ": more than " + std::to_string(kMaxClipRows) + " rows";
+        return false;
+    }
+    std::size_t number = 0;
+    for (const auto& r : *list) {
+        ++number;
+        const auto field = [&](const char* key, long long lo, long long hi, long long* out) {
+            const auto it = r.is_object() ? r.find(key) : r.end();
+            if (it == r.end() || !it->is_number_integer()) return false;
+            *out = it->get<long long>();
+            return *out >= lo && *out <= hi;
+        };
+        long long weapon = 0, group = 0;
+        const bool ok = field("weapon", 10000, 2147480000LL, &weapon) && weapon % 10000 == 0 &&
+                        field("clip_group", 1, 999, &group);
+        const bool twice = ok && std::any_of(rows->begin(), rows->end(),
+                                             [&](const ClipRow& c) { return c.weapon == std::uint32_t(weapon); });
+        if (!ok || twice) {
+            *error = file + ": row " + std::to_string(number) +
+                     (twice ? " lists a weapon a second time"
+                            : " needs \"weapon\" (a multiple of 10000) and \"clip_group\" (1..999)");
+            rows->clear();
+            return false;
+        }
+        rows->push_back({std::uint32_t(weapon), std::uint32_t(group)});
+    }
+    return true;
+}
+
+/// The merge in load order: a later mod's row replaces an earlier one for the same weapon.
+struct ClipMerged {
+    std::vector<std::string> names;  // the mods that gave rows, in load order
+    std::vector<ClipRow> rows;       // sorted by weapon
+};
+
+inline void AddWeaponClipGroups(ClipMerged* merged, std::string_view name, const std::vector<ClipRow>& own) {
+    if (own.empty()) return;
+    merged->names.emplace_back(name);
+    for (const ClipRow& row : own) {
+        auto& rows = merged->rows;
+        const auto it = std::lower_bound(rows.begin(), rows.end(), row.weapon,
+                                         [](const ClipRow& r, std::uint32_t w) { return r.weapon < w; });
+        if (it != rows.end() && it->weapon == row.weapon) *it = row;
+        else rows.insert(it, row);
+    }
+    if (merged->rows.size() > kMaxClipRows) merged->rows.resize(kMaxClipRows);
+}
+
+/// out/nightwatch_weapon_clip_groups.txt (weapon_clip_groups_rules.h ParseTable): a comment line, then "<weapon>
+/// <clip_group>" per row, by weapon. "" when there are no rows (no file). Gameplay: bb-start hashes this text into
+/// the party version check.
+inline std::string WeaponClipGroupsFileText(const ClipMerged& merged) {
+    if (merged.rows.empty()) return "";
+    std::string text = "# weapon_clip_groups (bb-start; weapon clip_group), from: ";
+    for (std::size_t i = 0; i < merged.names.size(); ++i) text += (i ? ", " : "") + merged.names[i];
+    text += "\n";
+    for (const ClipRow& row : merged.rows)
+        text += std::to_string(row.weapon) + " " + std::to_string(row.clip_group) + "\n";
     return text;
 }
 
