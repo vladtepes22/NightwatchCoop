@@ -4094,6 +4094,12 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
     std::array<TextureSetEntry, TextureSet::MaxImages> resolved{};
     std::array<u64, TextureSet::MaxImages> resolved_uids{};
     bool set_ok = set_slot != nullptr;
+    // The registry generation before this call's lookups: a later binding's FindImage may free
+    // or replace an image an earlier binding resolved, and a set stamped with the generation
+    // after it would serve that image's view until the next (un)registration, long after the
+    // view is destroyed (GPU device lost on a freed image, m34 reloads, 0.3.0 beta 1). Stamped
+    // with this one, such a set goes through RevalidateTextureSet (uids) on its next use.
+    const u64 set_generation = texture_cache.RegistryGeneration();
     // Every lookup an exact match without a depth redirect, every null descriptor a null T#
     // (TextureSet::exact).
     bool set_exact = set_ok;
@@ -4371,7 +4377,7 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
     if (set_ok && image_bindings.size() == stage.images.size()) {
         // Remember the set: the same T#s resolve the same way while no image is (un)registered,
         // and with exact matches while their images stay registered (RevalidateTextureSet).
-        set_slot->generation = texture_cache.RegistryGeneration();
+        set_slot->generation = set_generation;
         set_slot->scene_generation = scene_targets->Generation();
         set_slot->count = static_cast<u32>(stage.images.size());
         set_slot->exact = set_exact;
