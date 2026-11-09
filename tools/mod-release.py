@@ -2,7 +2,7 @@
 """Packs a curated mod (Nocturne) for the launcher's download and writes its manifest.
 
     python tools/mod-release.py <mod folder> --version 1.3 --base-url https://<r2 host>/nocturne [--page <url>]
-        [--manifest <old manifest.json>] [--out <dir>]
+        [--manifest <old manifest.json>] [--out <dir>] [--requires 0.3.0]
 
 <mod folder> is the folder as it sits in the install's mods dir (it holds dvdroot_ps4/, or app0/, or bare game
 folders). Writes <out>/nocturne-<version>.zip (the folder's content at the zip root) and <out>/manifest.json with
@@ -66,6 +66,8 @@ def main() -> int:
     ap.add_argument("--name", default="Nocturne")
     ap.add_argument("--page", default="", help="the mod's page (Nexus)")
     ap.add_argument("--manifest", type=Path, help="the current manifest.json, to keep its older versions")
+    ap.add_argument("--requires", help="the oldest Nightwatch that runs this version (e.g. 0.3.0): launchers 0.3.0+ offer it only "
+                                       "there; 'latest' stays the newest version without one, which is what older launchers install")
     ap.add_argument("--out", type=Path, default=Path("."))
     a = ap.parse_args()
     if not a.base_url.startswith("https://"):
@@ -89,13 +91,16 @@ def main() -> int:
         "size": zip_path.stat().st_size,
         "content": content_hash(folder),
     }
+    if a.requires:
+        entry["requires"] = a.requires
     old = json.loads(a.manifest.read_text(encoding="utf-8")) if a.manifest else {}
     versions = [v for v in old.get("versions", []) if v.get("version") != a.version]
     manifest = {
         "schema": 1,
         "name": a.name,
         "page": a.page or old.get("page", ""),
-        "latest": a.version,
+        # Launchers before 0.3.0 install "latest" and know no requires: it names the newest version without one.
+        "latest": a.version if not a.requires else next((v["version"] for v in versions if not v.get("requires")), a.version),
         "versions": [entry] + versions,
     }
     (a.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")

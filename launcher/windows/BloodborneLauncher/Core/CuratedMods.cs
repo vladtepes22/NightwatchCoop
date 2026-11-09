@@ -9,7 +9,13 @@ using System.Text.Json.Nodes;
 namespace BloodborneLauncher.Core
 {
     /// <summary>One downloadable version of the curated mod (a manifest entry).</summary>
-    public sealed record ModVersion(string Version, string Url, string Sha256, long Size, string Content);
+    /// <remarks><paramref name="Requires"/>: the oldest Nightwatch that runs this version ("0.3.0"; null: any). Launchers before
+    /// 0.3.0 ignore it, so the manifest's "latest" names the newest version without one (tools/mod-release.py).</remarks>
+    public sealed record ModVersion(string Version, string Url, string Sha256, long Size, string Content, string? Requires = null)
+    {
+        /// <summary>Whether Nightwatch <paramref name="nightwatch"/> runs it (a pre-release counts as its version, as bb-start's check).</summary>
+        public bool RunsOn(System.Version nightwatch) => Requires == null || (System.Version.TryParse(Requires, out var r) && nightwatch >= CuratedMods.Plain(r));
+    }
 
     /// <summary>The manifest tools/mod-release.py writes (schema 1).</summary>
     public sealed record ModManifest(string Name, string Page, string Latest, IReadOnlyList<ModVersion> Versions)
@@ -17,7 +23,24 @@ namespace BloodborneLauncher.Core
         public ModVersion? Find(string version) =>
             Versions.FirstOrDefault(v => string.Equals(v.Version, version, StringComparison.OrdinalIgnoreCase));
 
-        public ModVersion Newest => Find(Latest) ?? Versions[0];
+        /// <summary>The newest version this launcher's Nightwatch runs.</summary>
+        public ModVersion Newest => NewestFor(Updater.Current);
+
+        /// <summary>The newest version <paramref name="nightwatch"/> runs (the highest version number among them; "latest" when
+        /// none does).</summary>
+        public ModVersion NewestFor(Version nightwatch) =>
+            Versions.Where(v => v.RunsOn(nightwatch)).OrderByDescending(v => CuratedMods.Plain(ModNumber(v.Version))).FirstOrDefault()
+            ?? Find(Latest) ?? Versions[0];
+
+        /// <summary>A version newer than <see cref="NewestFor"/> that needs a newer Nightwatch, or null.</summary>
+        public ModVersion? NeedsNewer(Version nightwatch)
+        {
+            var newest = CuratedMods.Plain(ModNumber(NewestFor(nightwatch).Version));
+            return Versions.Where(v => !v.RunsOn(nightwatch) && CuratedMods.Plain(ModNumber(v.Version)) > newest)
+                .OrderByDescending(v => CuratedMods.Plain(ModNumber(v.Version))).FirstOrDefault();
+        }
+
+        private static Version ModNumber(string version) => Version.TryParse(version, out var v) ? v : new Version(0, 0);
     }
 
     public enum InstalledKind { None, Known, Unrecognised }
@@ -63,6 +86,9 @@ namespace BloodborneLauncher.Core
     /// </summary>
     public static class CuratedMods
     {
+        /// <summary>major.minor.patch of a version (a missing patch is 0), for comparing Nightwatch and mod versions.</summary>
+        internal static Version Plain(Version v) => new(v.Major, v.Minor, Math.Max(0, v.Build));
+
         public const string DefaultManifestUrl = "https://nightwatch-mods.mods-cdn.workers.dev/nocturne/manifest.json";
 
         /// <summary>The manifest address; BB_NOCTURNE_MANIFEST replaces it. Empty: no download.</summary>
@@ -96,7 +122,14 @@ namespace BloodborneLauncher.Core
                     if (!IsHttps(url)) throw new FormatException("a download address is not https");
                     var size = Number(v["size"]);
                     if (size is null or <= 0) throw new FormatException("a version has no size");
-                    versions.Add(new ModVersion(Text(v["version"], "version"), url, Hex(v["sha256"], "sha256"), size.Value, Hex(v["content"], "content")));
+                    string? requires = null;
+                    if (v["requires"] is { } r)
+                    {
+                        requires = r.GetValue<string>();
+                        if (!Version.TryParse(requires, out _)) throw new FormatException("a version's requires is not a version");
+                    }
+                    versions.Add(new ModVersion(Text(v["version"], "version"), url, Hex(v["sha256"], "sha256"), size.Value, Hex(v["content"], "content"),
+                        requires));
                 }
                 var latest = Text(root["latest"], "latest");
                 if (!versions.Any(v => string.Equals(v.Version, latest, StringComparison.OrdinalIgnoreCase)))

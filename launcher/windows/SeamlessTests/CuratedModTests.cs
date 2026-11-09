@@ -74,6 +74,19 @@ internal static class CuratedModTests
             Check(Throws<FormatException>(() => CuratedMods.ParseManifest(Manifest(schema: "2"))), "Schema 2 was accepted");
             Check(Throws<FormatException>(() => CuratedMods.ParseManifest(Manifest(dropSha: true))), "A missing sha256 was accepted");
             Check(Throws<FormatException>(() => CuratedMods.ParseManifest("not json")), "Garbage was accepted as a manifest");
+            // A version for a newer Nightwatch (requires): 0.2.9 keeps 2.0.0 (also "latest", what older launchers install),
+            // 0.3.0 and its betas take 3.0.0; 0.2.9 is told 3.0.0 needs a newer Nightwatch.
+            var hx = new string('a', 64);
+            string Entry(string v, string req) => "{\"version\":\"" + v + "\",\"url\":\"https://example.org/" + v + ".zip\",\"sha256\":\"" + hx +
+                "\",\"size\":10,\"content\":\"" + hx + "\"" + (req.Length > 0 ? ",\"requires\":\"" + req + "\"" : "") + "}";
+            var split = CuratedMods.ParseManifest("{\"schema\":1,\"name\":\"Nocturne\",\"page\":\"\",\"latest\":\"2.0.0\",\"versions\":[" +
+                Entry("3.0.0", "0.3.0") + "," + Entry("2.0.0", "") + "," + Entry("1.0.1", "") + "]}");
+            Check(split.NewestFor(new Version(0, 2, 9)).Version == "2.0.0" && split.NewestFor(new Version(0, 3, 0)).Version == "3.0.0" &&
+                  split.NewestFor(new Version(0, 4, 1)).Version == "3.0.0", "Newest Nocturne by Nightwatch version");
+            Check(split.NeedsNewer(new Version(0, 2, 9))?.Version == "3.0.0" && split.NeedsNewer(new Version(0, 3, 0)) == null,
+                "A Nocturne for a newer Nightwatch is named");
+            Check(Throws<FormatException>(() => CuratedMods.ParseManifest(Manifest().Replace("\"size\":10", "\"requires\":\"soon\",\"size\":10"))),
+                "A requires that is not a version was accepted");
             Check(CuratedMods.ManifestUrl.StartsWith("https://") || Environment.GetEnvironmentVariable("BB_NOCTURNE_MANIFEST") != null,
                 "The default manifest address is not https");
 

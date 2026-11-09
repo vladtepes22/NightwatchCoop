@@ -2575,5 +2575,7 @@
   "Shared map markers": "共享地圖標記",
   "Off by default. A death may also add a stack that slows your stamina recovery by 15 %. Requires Rot on death.": "預設關閉。死亡還可能疊加一層，使你的體力恢復減慢 15%。需要開啟死亡腐化。",
   "Off by default. When your appearance changes (the Dream's mirror or any editor), the other players see the new look at once, without a reload.": "預設關閉。你的外觀改變時（夢境中的鏡子或任何編輯器），其他玩家會立即看到新外觀，無需重新載入。",
-  "Off by default. A spot you mark on the in-game map (right click, P or R3) shows on every companion's map, and theirs on yours.": "預設關閉。你在遊戲地圖上標記的位置（右鍵、P 或 R3）會顯示在每位同伴的地圖上，他們的標記也會顯示在你的地圖上。"
+  "Off by default. A spot you mark on the in-game map (right click, P or R3) shows on every companion's map, and theirs on yours.": "預設關閉。你在遊戲地圖上標記的位置（右鍵、P 或 R3）會顯示在每位同伴的地圖上，他們的標記也會顯示在你的地圖上。",
+  "Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.": "Nocturne {0} 已發布，需要 Nightwatch {1} 或更新版本。請先更新 Nightwatch；在此之前你會保留目前版本可執行的 Nocturne。",
+  "Only for Nightwatch {0} or newer.": "僅適用於 Nightwatch {0} 或更新版本。"
 }

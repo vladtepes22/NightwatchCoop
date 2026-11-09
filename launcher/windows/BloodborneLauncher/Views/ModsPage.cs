@@ -157,6 +157,15 @@ namespace BloodborneLauncher.Views
             catch (Exception) { return; } // offline or a bad manifest: the next launcher run tries again
             var installed = await Task.Run(() => CuratedMods.Installed(dir, manifest));
             var news = CuratedMods.StartNewsOf(manifest, installed, s.Str(ToldKey));
+            // A Nocturne this Nightwatch cannot run (its manifest entry's requires): said once, never offered.
+            if (manifest?.NeedsNewer(Updater.Current) is { } later && news == StartNews.None && !Ws.Game.Running && Switching == null &&
+                !string.Equals(s.Str(ToldKey + "_newer"), later.Version, StringComparison.OrdinalIgnoreCase))
+            {
+                s.Set(ToldKey + "_newer", later.Version);
+                Ws.SaveSoon();
+                Prompt.Tell(L.T("Nocturne"), L.T("Nocturne {0} is out and needs Nightwatch {1} or newer. Update Nightwatch first; until then you keep the Nocturne your version runs.")
+                    .Replace("{0}", later.Version).Replace("{1}", later.Requires));
+            }
             if (news == StartNews.None || Ws.Game.Running || Switching != null) return;
             var newest = manifest!.Newest;
             s.Set(ToldKey, newest.Version);
@@ -166,7 +175,7 @@ namespace BloodborneLauncher.Views
             if (news == StartNews.Try)
             {
                 var text = L.T("Nocturne {0} is out: an optional mod made by the devs of Nightwatch that adds new weapons and hunter tools. See what it adds {link}.")
-                    .Replace("{0}", newest.Version);
+                    .Replace("{0}", newest.Version) + NeedsText(newest);
                 // Not asked yet: the switch's own question gives the download size.
                 if (Prompt.ChooseWithLink(L.T("Nocturne"), text, L.T("here"), CuratedMods.NexusPage, L.T("Not now"), L.T("Try Nocturne")) == 1)
                     error = await SwitchModeAsync(Ws, "nocturne", null);
@@ -174,7 +183,7 @@ namespace BloodborneLauncher.Views
             else
             {
                 var text = L.T("Nocturne {0} is out (you have {1}). Update downloads it ({2} MB) and replaces your installed version. See what is new {link}.")
-                    .Replace("{0}", newest.Version).Replace("{1}", installed.Version).Replace("{2}", mb);
+                    .Replace("{0}", newest.Version).Replace("{1}", installed.Version).Replace("{2}", mb) + NeedsText(newest);
                 if (Prompt.ChooseWithLink(L.T("Nocturne"), text, L.T("here"), CuratedMods.NexusPage, L.T("Not now"), L.T("Update")) == 1)
                     error = await SwitchModeAsync(Ws, CuratedMods.Mode(s), null, asked: true, update: true);
             }
@@ -183,6 +192,10 @@ namespace BloodborneLauncher.Views
             RefreshMods();
             if (error is { Length: > 0 }) Prompt.Tell(L.T("Nocturne"), error);
         }
+
+        /// <summary>" Needs Nightwatch X or newer." for a version that names one (manifest requires), else empty.</summary>
+        private static string NeedsText(ModVersion v) =>
+            v.Requires is { } r ? " " + L.T("Only for Nightwatch {0} or newer.").Replace("{0}", r) : "";
 
         /// <summary>The choice being switched to (Nocturne while it downloads), shown by the Mods page, the Host tab's Mods line
         /// until the switch ends; null when none runs. SwitchChanged fires on the UI thread.</summary>
@@ -220,8 +233,8 @@ namespace BloodborneLauncher.Views
                     {
                         var mb = (int)Math.Ceiling(want.Size / 1e6);
                         var ok = asked || Prompt.Confirm(L.T("Nocturne"), installed.Kind == InstalledKind.None
-                            ? L.F($"Nocturne {want.Version} is downloaded once ({mb} MB) and kept in your mods folder. Continue?")
-                            : L.F($"Nocturne {want.Version} is available ({mb} MB). It replaces your installed version. Continue?"), L.T("Download"));
+                            ? L.F($"Nocturne {want.Version} is downloaded once ({mb} MB) and kept in your mods folder. Continue?") + NeedsText(want)
+                            : L.F($"Nocturne {want.Version} is available ({mb} MB). It replaces your installed version. Continue?") + NeedsText(want), L.T("Download"));
                         if (!ok && installed.Kind == InstalledKind.None) return "";
                         if (ok)
                             await CuratedMods.InstallAsync(want, dir, progress, CancellationToken.None);
