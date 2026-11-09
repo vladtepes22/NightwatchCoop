@@ -757,6 +757,29 @@ def test_a_mod_weapon_can_be_raised_by_the_mods_level_rows():
     assert M.SaveModel(m.to_bytes()).items((0,))[0].number == 22001000
 
 
+NOCTURNE = Path(os.environ.get("SAVEEDIT_NOCTURNE", "-"))  # a Nocturne 3.0.0 build (the folder holding dvdroot_ps4)
+NOCTURNE_GAME = Path(os.environ.get("SAVEEDIT_GAME", str(GAME)))
+
+
+@pytest.mark.skipif(not (NOCTURNE / "dvdroot_ps4").is_dir() or not NOCTURNE_GAME.is_dir(),
+                    reason="no Nocturne build (SAVEEDIT_NOCTURNE) or game (SAVEEDIT_GAME)")
+def test_nocturne_3_items_are_read_from_the_mod(tmp_path):
+    """Nocturne 3.0.0's new weapons (each +0..+10, Uncanny and Lost rows too) and goods come from its own files."""
+    import shutil
+    mod = tmp_path / "Mods" / "Nocturne v3.0.0" / "dvdroot_ps4"
+    for part in ("param/gameparam/gameparam.parambnd.dcx", "msg/engus/item.msgbnd.dcx"):
+        (mod / part).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(NOCTURNE / "dvdroot_ps4" / part, mod / part)
+    items = N.read_mod_items(NOCTURNE_GAME, tmp_path / "Mods", None)
+    for base, name in ((9100000, "Reverie"), (27400000, "Yorukage"), (27330000, "Vesper Blades")):
+        for tier, prefix in ((0, ""), (10000, "Uncanny "), (20000, "Lost ")):
+            assert all(items[(0, base + tier + 100 * lv)][0] == prefix + name for lv in range(11))
+    assert items[(4, 2152)][0] == "Flame Bolt Paper"
+    c = N.Catalogue({})
+    c.set_mod_items(items)
+    assert (0, 27410000, "Uncanny Yorukage") in c.search_mod_items("yorukage")
+
+
 def test_guest_written_save_is_edited_through_a_repaired_copy(user):
     """A save the game wrote as a guest has an empty world-state section: the editor works on a copy with the
     blocks in and writes the game's own empty section back (scripts/save_editor.py), with no export / import step."""
