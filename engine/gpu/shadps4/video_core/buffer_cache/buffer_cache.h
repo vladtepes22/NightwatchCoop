@@ -43,6 +43,7 @@ namespace VideoCore {
 class TextureCache;
 class MemoryTracker;
 class PageManager;
+struct Image;
 
 /// bbport: an IntervalList whose every change advances `generation`: lookups of the buffer
 /// cache's residency remember their answers for as long as nothing changed (ResidencyMemo).
@@ -118,6 +119,15 @@ public:
 
     /// Flushes any GPU modified buffer in the logical page range back to CPU memory.
     void ReadMemory(VAddr device_addr, u64 size, bool is_write = false, bool assume_locks = false);
+
+    /// bbport (visy 080567ecc): unmarks a region as GPU modified (its guest memory holds the
+    /// newest data).
+    void UnmarkRegionAsGpuModified(VAddr device_addr, u64 size);
+
+    /// bbport (visy 080567ecc): flushes the GPU modified ranges of the pages an image shares
+    /// with its neighbours (the parts outside it) to guest memory, before the image is written
+    /// back over its own. Returns the flushes done (0..2).
+    u32 ReadEdgeImagePages(const Image& image);
 
     /// bbport: a new draw or dispatch is being recorded: the per-binding housekeeping of
     /// EnsureResident (unmaps, demotions, assets, late writes) runs once for it, not per binding.

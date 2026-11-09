@@ -498,6 +498,14 @@ private:
     void UnwatchPages(VAddr addr, u64 size);
 
     void MarkAsMaybeDirty(ImageId image_id, Image& image);
+
+    /// bbport (visy 080567ecc): marks the images with GPU-written contents inside the range as
+    /// maybe GPU dirty (the buffer cache was written over them), noting a hash of their memory.
+    void MarkAsMaybeGpuDirty(VAddr addr, size_t size);
+
+    /// bbport (visy 080567ecc): marks the image CPU dirty if the guest wrote its untracked first
+    /// or last page meanwhile.
+    void MarkDirtyIfEdgesModified(Image& image);
     static u64 MaybeDirtyHash(const Image& image);
 
     /// bbport: for an image with the game's button icons, its data with keycaps over them in
@@ -516,7 +524,7 @@ private:
     void FlushImageGraveyard();
 
     /// Touch the image in the LRU cache.
-    void TouchImage(const Image& image);
+    void TouchImage(Image& image);
 
     void FreeImage(ImageId image_id) {
         UntrackImage(image_id);

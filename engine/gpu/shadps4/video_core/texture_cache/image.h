@@ -7,6 +7,7 @@
 #include "common/incremental_id.h"
 #include "common/types.h"
 #include "video_core/renderer_vulkan/vk_common.h"
+#include "video_core/texture_cache/host_compatibility.h"
 #include "video_core/texture_cache/image_info.h"
 #include "video_core/texture_cache/image_view.h"
 
@@ -32,6 +33,7 @@ enum ImageFlagBits : u32 {
     GpuDirty = 1 << 2, ///< Contents have been modified from the GPU (valid data in buffer cache)
     Dirty = MaybeCpuDirty | CpuDirty | GpuDirty,
     GpuModified = 1 << 3, ///< Contents have been modified from the GPU
+    MaybeGpuDirty = 1 << 4, ///< bbport: a GPU write into the buffer cache may have changed its memory
     Registered = 1 << 6,  ///< True when the image is registered
     Picked = 1 << 7,      ///< Temporary flag to mark the image as picked
 };
@@ -123,6 +125,14 @@ struct Image {
         return True(flags & ImageFlagBits::GpuModified) && False(flags & (ImageFlagBits::Dirty));
     }
 
+    /// bbport (visy 080567ecc, from Mrsuss60 d81d63be, shadPS4 GC part 2): fit for a write-back to
+    /// guest memory: single sample, no stencil plane, and a host format that reads back as the
+    /// guest's.
+    bool CanBeDownloaded() const {
+        return SafeToDownload() && info.num_samples == 1 && !info.props.has_stencil && backing &&
+               IsVulkanFormatCompatible(info.pixel_format, backing->image.image_ci.format);
+    }
+
     void AssociateDepth(ImageId depth_image_id, u64 depth_image_uid) {
         depth_id = depth_image_id;
         depth_uid = depth_image_uid;
@@ -174,6 +184,12 @@ public:
     /// before this tick; each failure doubles the wait (store_failures).
     u64 store_retry_tick = 0;
     u8 store_failures = 0;
+    /// bbport collector verification (visy 080567ecc): the hash of the guest memory under the
+    /// image when the buffer cache was written over it (gpu_hash), and of its untracked first /
+    /// last page (0: none).
+    u64 gpu_hash{};
+    u64 head_hash{};
+    u64 tail_hash{};
     ImageId depth_id{};
     u64 depth_uid{};
     u64 image_uid{};
