@@ -784,6 +784,8 @@ PartyCodeTests.Run();
 SaveEditorTests.Run();
 CoopSetupTests.Run();
 CuratedModTests.Run();
+ModFeatureManifestTests.Run();
+Console.WriteLine("PASS: mod nightwatch.json read with the engine's rules (good, too new, beta suffix, unknown feature, bad JSON, none)");
 VpnTests.Run();
 {
     // Import saves: single player, multiplayer or both; a replaced party save is backed up (temporary user folder only).

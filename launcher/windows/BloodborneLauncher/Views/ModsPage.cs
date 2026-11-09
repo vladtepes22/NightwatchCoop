@@ -18,6 +18,7 @@ namespace BloodborneLauncher.Views
         private List<Mods.Entry> _mods = new();
         private List<(Patches.Patch Patch, bool On)> _patches = new();
         private Dictionary<string, List<Mods.Conflict>> _clashes = new();
+        private Dictionary<string, ModFeatureManifest.Verdict> _manifests = new();
         private readonly System.Windows.Controls.ComboBox _modeBox = new() { Width = 220, VerticalAlignment = VerticalAlignment.Center };
         private readonly ProgressRing _modeRing = new() { IsIndeterminate = true, Width = 18, Height = 18, Margin = new Thickness(0, 0, 10, 0), Visibility = Visibility.Collapsed };
         private readonly TextBlock _modeHint;
@@ -270,14 +271,16 @@ namespace BloodborneLauncher.Views
             var dir = GameEnvironment.ModsDir(S);
             List<Mods.Entry> mods;
             Dictionary<string, List<Mods.Conflict>> clashes;
+            Dictionary<string, ModFeatureManifest.Verdict> manifests;
             try
             {
                 var paused = CuratedMods.Mode(S) != "my";
-                (mods, clashes) = await Task.Run(() =>
+                (mods, clashes, manifests) = await Task.Run(() =>
                 {
                     var list = Mods.Load(dir);
                     return (list, paused ? new Dictionary<string, List<Mods.Conflict>>()
-                        : Mods.Conflicts(dir, list.Where(m => m.Enabled).Select(m => m.Name)));
+                        : Mods.Conflicts(dir, list.Where(m => m.Enabled).Select(m => m.Name)),
+                        list.ToDictionary(m => m.Name, m => ModFeatureManifest.Read(Path.Combine(dir, m.Name))));
                 });
             }
             catch (Exception e)
@@ -288,12 +291,13 @@ namespace BloodborneLauncher.Views
             if (read != _modReads) return;
             _mods = mods;
             _clashes = clashes;
+            _manifests = manifests;
             SetHint(_modsHint, _mods.Count == 0 ? L.F($"{dir} â€” no mods") : _mods.Count == 1 ? L.F($"{dir} â€” 1 mod") : L.F($"{dir} â€” {_mods.Count} mods"));
             if (ModsKey() == _modsShown) return;
             DrawMods();
         }
 
-        private string ModsKey() => string.Join("|", _mods.Select(m => $"{m.Name}={m.Enabled}{ClashText(m)}"));
+        private string ModsKey() => string.Join("|", _mods.Select(m => $"{m.Name}={m.Enabled}{ClashText(m)}{ManifestText(m)}"));
 
         /// <summary>The lines under an enabled mod that shares files with another enabled one.</summary>
         private string ClashText(Mods.Entry mod) =>
@@ -304,6 +308,34 @@ namespace BloodborneLauncher.Views
                     var order = _mods.FindIndex(m => m.Name == mod.Name) < _mods.FindIndex(m => m.Name == c.With);
                     return order ? L.F($"{c.With} overrides these files ({files})") : L.F($"Overrides {c.With} files ({files})");
                 }));
+
+        /// <summary>The lines under a mod with a nightwatch.json: name, version, author, needed Nightwatch, features, and the
+        /// reason the engine will not load it (same rules as bb-start; a mod without one shows nothing).</summary>
+        private string ManifestText(Mods.Entry mod)
+        {
+            if (!_manifests.TryGetValue(mod.Name, out var v) || !v.HasManifest) return "";
+            var lines = new List<string>();
+            if (v.Manifest is { } m)
+            {
+                var author = m.Author;
+                var requires = m.Requires;
+                var features = string.Join(", ", m.Features);
+                var title = (m.Name.Length > 0 ? m.Name : m.Id) + (m.Version.Length > 0 ? " " + m.Version : "")
+                    + (m.Author.Length > 0 ? " · " + L.F($"by {author}") : "");
+                lines.Add(title);
+                lines.Add(L.F($"Needs Nightwatch {requires} or newer") + " · "
+                    + (m.Features.Count > 0 ? L.F($"Features: {features}") : L.T("No features")));
+            }
+            var detail = v.Detail;
+            lines.Add(v.Problem switch
+            {
+                ModFeatureManifest.Problem.Bad => L.F($"Will not load: nightwatch.json is not valid ({detail})"),
+                ModFeatureManifest.Problem.TooNew => L.F($"Will not load: needs Nightwatch {detail} or newer, update Nightwatch"),
+                ModFeatureManifest.Problem.UnknownFeature => L.F($"Will not load: uses feature {detail}, which this Nightwatch does not have"),
+                _ => "",
+            });
+            return string.Join("\n", lines.Where(l => l.Length > 0));
+        }
 
         /// <summary>Which mods clash after a switch was flipped.</summary>
         private async void RefreshClashes()
