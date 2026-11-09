@@ -132,7 +132,7 @@ public static class PartyDiscovery
         return env;
     }
 
-    public static string? PartySize(int max) => max is >= 2 and <= 5 ? max.ToString() : null;
+    public static string? PartySize(int max) => max is >= 2 and <= 6 ? max.ToString() : null;
 
     /// <summary>How a heard party is reached: "Nightwatch Online" on the tunnel, "VPN" on another VPN's network, else "LAN".</summary>
     public static string Tag(FoundParty party, IEnumerable<NetAdapter> adapters)

@@ -662,7 +662,8 @@ if (System.IO.File.Exists(System.IO.Path.Combine(msysSdl, "SDL3.dll")) && System
           PartyDiscovery.StateOf(good! with { Players = 3, Build = "nightwatch-coop-0.2.3-ab" }, prefix) == PartyDiscovery.RowState.OtherBuild, "Join row state");
     var listed = new FoundParty(good!, "26.1.1.1", 0);
     Check(PartyDiscovery.Selected(listed, " 26.1.1.1:9307 ") && !PartyDiscovery.Selected(listed, "26.1.1.1:9308") && !PartyDiscovery.Selected(listed, ""), "Selected party");
-    Check(PartyDiscovery.PartySize(3) == "3" && PartyDiscovery.PartySize(5) == "5" && PartyDiscovery.PartySize(8) == null && PartyDiscovery.PartySize(1) == null, "Party size from the announcement");
+    Check(PartyDiscovery.PartySize(3) == "3" && PartyDiscovery.PartySize(5) == "5" && PartyDiscovery.PartySize(6) == "6" && PartyDiscovery.PartySize(7) == null && PartyDiscovery.PartySize(1) == null, "Party size from the announcement");
+    Check(SeamlessSettings.LargeParty("4") == "0" && SeamlessSettings.LargeParty("5") == "1" && SeamlessSettings.LargeParty("6") == "2", "Large-party seats from the party size");
 
     var book = new PartyDiscovery.Book(new[] { "192.168.1.20" });
     Check(!book.Feed(Packet(), "192.168.1.20", 0), "The PC's own announcement was listed");

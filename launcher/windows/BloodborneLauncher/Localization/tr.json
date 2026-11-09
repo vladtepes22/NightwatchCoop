@@ -2567,5 +2567,7 @@
   "World": "Dünya",
   "No randomized worlds yet. Play one to make its saves.": "Henüz rastgele dünya yok. Kayıtlarını oluşturmak için birini oynayın.",
   "{0} (joined)": "{0} (katılınan)",
-  "This world's saves are still in their old folder. Close the game and try again.": "Bu dünyanın kayıtları hâlâ eski klasöründe. Oyunu kapatıp yeniden deneyin."
+  "This world's saves are still in their old folder. Close the game and try again.": "Bu dünyanın kayıtları hâlâ eski klasöründe. Oyunu kapatıp yeniden deneyin.",
+  "5 (experimental)": "5 (deneysel)",
+  "6 (experimental)": "6 (deneysel)"
 }

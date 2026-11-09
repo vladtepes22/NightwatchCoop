@@ -483,7 +483,8 @@ public sealed class SeamlessPage : LauncherPage
         (System.Windows.Controls.ComboBox)ComboRow(SymbolRegular.People24, L.T("Party size"), hint, PartySizes(), PartySize, v => S.Set("party_max", v), into);
 
     private static Choice[] PartySizes() =>
-        new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice("5", "5") };
+        new[] { new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice(L.T("5 (experimental)"), "5"),
+                new Choice(L.T("6 (experimental)"), "6") };
     private static string PartySize() => S.Str("party_max") is { Length: > 0 } n ? n : "3";
 
     /// <summary>Copies text; a clipboard another program holds open is reported instead of crashing the launcher.</summary>

@@ -2567,5 +2567,7 @@
   "World": "Welt",
   "No randomized worlds yet. Play one to make its saves.": "Noch keine zufälligen Welten. Spiele eine, um ihre Spielstände anzulegen.",
   "{0} (joined)": "{0} (beigetreten)",
-  "This world's saves are still in their old folder. Close the game and try again.": "Die Spielstände dieser Welt liegen noch im alten Ordner. Schließe das Spiel und versuche es erneut."
+  "This world's saves are still in their old folder. Close the game and try again.": "Die Spielstände dieser Welt liegen noch im alten Ordner. Schließe das Spiel und versuche es erneut.",
+  "5 (experimental)": "5 (experimentell)",
+  "6 (experimental)": "6 (experimentell)"
 }

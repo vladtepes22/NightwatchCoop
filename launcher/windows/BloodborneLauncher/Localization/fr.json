@@ -2567,5 +2567,7 @@
   "World": "Monde",
   "No randomized worlds yet. Play one to make its saves.": "Pas encore de monde aléatoire. Joue à l'un d'eux pour créer ses sauvegardes.",
   "{0} (joined)": "{0} (rejoint)",
-  "This world's saves are still in their old folder. Close the game and try again.": "Les sauvegardes de ce monde sont encore dans leur ancien dossier. Ferme le jeu et réessaie."
+  "This world's saves are still in their old folder. Close the game and try again.": "Les sauvegardes de ce monde sont encore dans leur ancien dossier. Ferme le jeu et réessaie.",
+  "5 (experimental)": "5 (expérimental)",
+  "6 (experimental)": "6 (expérimental)"
 }

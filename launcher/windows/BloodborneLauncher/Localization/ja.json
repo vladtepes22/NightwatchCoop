@@ -2567,5 +2567,7 @@
   "World": "ワールド",
   "No randomized worlds yet. Play one to make its saves.": "ランダム化ワールドはまだありません。プレイするとセーブが作成されます。",
   "{0} (joined)": "{0} (参加)",
-  "This world's saves are still in their old folder. Close the game and try again.": "このワールドのセーブはまだ古いフォルダーにあります。ゲームを閉じてもう一度お試しください。"
+  "This world's saves are still in their old folder. Close the game and try again.": "このワールドのセーブはまだ古いフォルダーにあります。ゲームを閉じてもう一度お試しください。",
+  "5 (experimental)": "5（実験的）",
+  "6 (experimental)": "6（実験的）"
 }

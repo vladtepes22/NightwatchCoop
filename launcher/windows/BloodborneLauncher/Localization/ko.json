@@ -2567,5 +2567,7 @@
   "World": "월드",
   "No randomized worlds yet. Play one to make its saves.": "아직 무작위 월드가 없습니다. 하나를 플레이하면 세이브가 만들어집니다.",
   "{0} (joined)": "{0} (참가)",
-  "This world's saves are still in their old folder. Close the game and try again.": "이 월드의 세이브가 아직 이전 폴더에 있습니다. 게임을 닫고 다시 시도하세요."
+  "This world's saves are still in their old folder. Close the game and try again.": "이 월드의 세이브가 아직 이전 폴더에 있습니다. 게임을 닫고 다시 시도하세요.",
+  "5 (experimental)": "5 (실험적)",
+  "6 (experimental)": "6 (실험적)"
 }

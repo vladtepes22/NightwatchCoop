@@ -229,7 +229,7 @@ public static partial class SeamlessSettings
         env["BB_PARTY_PORT"] = s.Str("party_port") is { Length: > 0 } port ? port : "9307";
         env["BB_PARTY_CODE"] = Code(s).Trim();
         env["BB_PARTY_PASSWORD"] = Password(s);
-        env["BB_PARTY_MAX"] = s.Str("party_max") is "2" or "3" or "4" or "5" ? s.Str("party_max") : "3";
+        env["BB_PARTY_MAX"] = PartyDiscovery.PartySize(int.TryParse(s.Str("party_max"), out var max) ? max : 0) ?? "3";
         env["BB_PARTY_UPNP"] = Flag(s, "party_upnp") ? "1" : "0";
         env["BB_PARTY_STUN"] = s.Str("party_stun");
         env["BB_PARTY_PUBLIC_ADDR"] = s.Str("party_mode") == "host" ? s.Str("party_public_addr") : "";
@@ -249,10 +249,16 @@ public static partial class SeamlessSettings
             env["BB_PARTY_INVADE"] = "1";  // this start only, never saved
             env["BB_PARTY_PASSWORD"] = "";
         }
+        // The engine holds Max players at 4 unless the large-party seats are on: 5 seats (=1) or the 6-seat patch set
+        // (=2), from the size this start really uses (a guest's comes from the host).
+        env["BB_PARTY_LARGE"] = LargeParty(env["BB_PARTY_MAX"]);
         // The host this start joins, for a join again after building the host's world (WorldRejoin); not for an invasion.
         if (s.Str("party_mode") == "join" && !(PendingInvade && PendingJoin != null)) WorldRejoin.Started(Code(s).Trim(), Password(s), PendingHostOptions);
         else WorldRejoin.Forget();
     }
+
+    /// <summary>BB_PARTY_LARGE for a party size: "1" for 5 players, "2" for 6, else "0".</summary>
+    public static string LargeParty(string max) => max == "6" ? "2" : max == "5" ? "1" : "0";
 
     /// <summary>A join starts with the host's options: the ones its row told, else the ones a refused join left in
     /// party_adopt.txt (read once, ignored after two days).</summary>

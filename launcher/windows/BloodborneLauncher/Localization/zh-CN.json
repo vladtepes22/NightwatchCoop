@@ -2598,5 +2598,7 @@
   "Give weapons and armor": "赠送武器和防具",
   "Ritual Altar as a guest": "作为客人使用仪式祭坛",
   "Off by default. On: a weapon's or armor's menu in the inventory has Give, to send it to another hunter (a weapon keeps its upgrade level and blood gems), and you accept theirs. Never worn or story gear. Each player sets their own.": "默认关闭。开启后：背包中武器或防具的菜单里会有“赠送”，可将其送给另一名猎人（武器保留强化等级和血宝石），你也会接收对方赠送的装备。正在穿戴的装备和剧情装备不能赠送。每位玩家各自设置。",
-  "Off by default. On: as a guest you can use the Ritual Altar in the host's Hunter's Dream, with your own chalice and materials. Your own setting.": "默认关闭。开启后：作为客人，你可以在房主的猎人梦境中使用仪式祭坛，消耗你自己的圣杯和材料。这是你自己的设置。"
+  "Off by default. On: as a guest you can use the Ritual Altar in the host's Hunter's Dream, with your own chalice and materials. Your own setting.": "默认关闭。开启后：作为客人，你可以在房主的猎人梦境中使用仪式祭坛，消耗你自己的圣杯和材料。这是你自己的设置。",
+  "5 (experimental)": "5（实验性）",
+  "6 (experimental)": "6（实验性）"
 }

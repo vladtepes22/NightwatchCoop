@@ -2567,5 +2567,7 @@
   "World": "世界",
   "No randomized worlds yet. Play one to make its saves.": "還沒有隨機世界。玩一個世界即可建立其存檔。",
   "{0} (joined)": "{0}（已加入）",
-  "This world's saves are still in their old folder. Close the game and try again.": "此世界的存檔仍在舊資料夾中。請關閉遊戲後重試。"
+  "This world's saves are still in their old folder. Close the game and try again.": "此世界的存檔仍在舊資料夾中。請關閉遊戲後重試。",
+  "5 (experimental)": "5（實驗性）",
+  "6 (experimental)": "6（實驗性）"
 }
