@@ -484,11 +484,12 @@ internal static class Program
         {
             var count = nodes.OfType<TextBox>().First(b => AutomationProperties.GetName(b) == "Count");
             var before = count.Text;
-            count.Text = "1234"; Require(apply.IsEnabled, "Inventory change must enable Apply");
+            var edited = before == "12" ? "13" : "12";  // within the 99 a row takes (0.2.9: a count over 99 becomes 99)
+            count.Text = edited; Require(apply.IsEnabled, "Inventory change must enable Apply");
             search.Text = "no-match"; WaitSearchPause(root);
             Require(!Descendants(root).OfType<TextBox>().Any(b => AutomationProperties.GetName(b) == "Count"), "Search did not filter the list");
             search.Text = ""; WaitSearchPause(root);
-            count = Descendants(root).OfType<TextBox>().FirstOrDefault(b => b.Text == "1234")!;
+            count = Descendants(root).OfType<TextBox>().FirstOrDefault(b => b.Text == edited)!;
             Require(count != null, "Filtering discarded item edits");
             count.Text = before; Require(!apply.IsEnabled, "Inventory reset must clear dirty state");
             count.Text = "0"; Require(!apply.IsEnabled, "A zero count must disable Apply");
