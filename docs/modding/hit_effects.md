@@ -1,5 +1,16 @@
 # Feature `hit_effects` (Nightwatch 0.3.0, visual)
 
+Index: [README.md](README.md). Co-op class: **visual** (not in the party hash; each player's game decides alone).
+
+Minimal mod:
+
+```
+Mods/Gold Bolt Paper/
+  dvdroot_ps4/...                 the mod's own files, incl. the effect files for the new ids
+  nightwatch.json                 {"id": "gold-bolt-paper", "requires": "0.3.0", "features": ["hit_effects"]}
+  nightwatch/hit_effects.json     the table below
+```
+
 The game draws the elemental on-hit look (the lightning crackle of Bolt Paper or a bolt weapon, the fire burst) with an
 **overlay effect whose id is hardcoded** in the game's code; no param chooses it. `hit_effects` lets a mod replace that
 overlay id while the **attacker** has a given SpEffect active, so a buff (a paper, a weapon state) can have its own hit
@@ -25,7 +36,9 @@ look without changing every Bolt hit in the game.
 
 All three are whole numbers 1..2147483647. The manifest must list `"hit_effects"` in `features`
 ([manifest](manifest.md)). Key: (`attacker_speffect`, `base_fx`); a later mod's row replaces an earlier mod's row with
-the same key. If one hit matches rows of several SpEffects, the row of the latest mod in load order wins.
+the same key (inside one table the last row of a key wins). If one hit matches rows of several SpEffects, the row of
+the latest mod in load order wins; inside one mod the first matching row in the file wins. At most 4096 rows per file
+and after the merge.
 
 ## The overlay ids the game picks (1.09)
 
@@ -48,9 +61,11 @@ overlay in the game, so there is nothing to replace for them: a **draw row** (ne
 
 | Field | Meaning |
 |---|---|
-| `sp_attribute` | the hit's spAttribute (AtkParam `spAttribute`, or the attacker's weapon-buff SpEffect's), 1..255 but not 2 or 6 (the game draws Fire and Bolt itself; swap those with the rows above) |
-| `fx` | the effect drawn on the hit character, started like the game starts the Bolt overlay (slots 10-19) |
-| `sound` | the sound played with it (`s<id>` in a loaded sound bank); required, because the game plays the overlay's sound slot unconditionally |
+| `sp_attribute` | the hit's spAttribute (AtkParam `spAttribute`, or the attacker's weapon-buff SpEffect's), whole number 1..255 but not 2 or 6 (the game draws Fire and Bolt itself; swap those with the rows above) |
+| `fx` | the effect drawn on the hit character, started like the game starts the Bolt overlay (slots 10-19); whole number 1..2147483647 |
+| `sound` | the sound played with it (`s<id>` in a loaded sound bank); required, whole number 1..2147483647, because the game plays the overlay's sound slot unconditionally |
+
+A draw row must not also hold `attacker_speffect` or `base_fx`.
 
 The game's own Fire / Bolt checks decide when it draws: the hit dealt damage, and the hit was not one the game skips
 for overlays. Key: `sp_attribute`; a later mod's draw row for the same value replaces an earlier one. A draw row never
@@ -67,7 +82,12 @@ spAttribute 3, dealt 112 -> overlay 203050, sound 203001 (...)`, then `store 10-
   without the mod see the vanilla overlay; it does not count in the party check.
 - No mod table: nothing changes. Nightwatch before 0.3.0: the table is ignored (vanilla overlay).
 - A bad table is dropped with one log line: `Mods: <folder>: nightwatch/hit_effects.json: row 2 needs whole numbers
-  ...: its hit_effects table is not used`.
+  1..2147483647 for attacker_speffect, base_fx and fx: its hit_effects table is not used`. For a draw row the text is
+  `row N (a draw row) needs sp_attribute 1..255 but not 2 or 6, and whole numbers 1..2147483647 for fx and sound (no
+  attacker_speffect or base_fx)`.
+- If the engine cannot read the merged file (should not happen with bb-start's own output) it logs
+  `hit_effects: <path> line N is not "<attacker_speffect> <base_fx> <fx>": no rows used` and uses none.
+- With mods turned off (`BB_MODS_ENABLED=0`) no table is read.
 
 ## Log lines (`logs/last_session.log`)
 
@@ -75,7 +95,7 @@ spAttribute 3, dealt 112 -> overlay 203050, sound 203001 (...)`, then `store 10-
 - `hit_effects: feature hit_effects: installed (3 of 3 id stores, 2 rows from ...)`, or `not installed (why)` when the
   game code differs from 1.09 (another patch wrote there) or `BB_HIT_EFFECTS=0` turned it off.
 - `hit_effects: store 10-19: overlay 880 -> 900880 (attacker 0x..., local player has SpEffect 90002)`: a swap (the first 32 of a
-  session). `BB_HIT_EFFECTS_LOG=1` logs every overlay pick (first 200), also those without a row.
+  session; `local player` appears only when the attacker is the local player; the slot is `0-9`, `10-19` or `20-29`). `BB_HIT_EFFECTS_LOG=1` logs every overlay pick (first 200), also those without a row.
 
 ## Switches
 

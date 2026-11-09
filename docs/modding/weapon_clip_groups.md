@@ -1,5 +1,16 @@
 # Feature `weapon_clip_groups` (Nightwatch 0.3.0, gameplay)
 
+Index: [README.md](README.md). Co-op class: **gameplay** (in the party hash; every player needs the same table).
+
+Minimal mod:
+
+```
+Mods/Dancers Swords/
+  dvdroot_ps4/...                     the weapon rows, the clips (a161_...) and the graph's selectors for them
+  nightwatch.json                     {"id": "dancers-swords", "requires": "0.3.0", "features": ["weapon_clip_groups"]}
+  nightwatch/weapon_clip_groups.json  the table below
+```
+
 A weapon's attack clips come from its **clip group** (`aGGG_` in the character's animations), and the game takes that
 group from the weapon's `wepmotionCategory`. But the category also drives game code: Blades of Mercy's trick (the blades
 split into both hands, the tricked R1 / R2 chain) only works with category 27. A new weapon on that base that needs its
@@ -20,11 +31,13 @@ category, so everything keyed on the category still runs.
 
 | Field | Meaning |
 |---|---|
-| `weapon` | an EquipParamWeapon id, a multiple of 10000; the row covers that weapon's +0..+10 rows (`weapon` .. `weapon`+9999) |
-| `clip_group` | 1..999: the group the weapon's attacks play (`a161_030000` ...); the mod ships those clips and the graph's selectors for them |
+| `weapon` | an EquipParamWeapon id, a multiple of 10000 in 10000..2147480000; the row covers that weapon's +0..+10 rows (`weapon` .. `weapon`+9999) |
+| `clip_group` | whole number 1..999: the group the weapon's attacks play (`a161_030000` ...); the mod ships those clips and the graph's selectors for them |
 
 The manifest must list `"weapon_clip_groups"` in `features` ([manifest](manifest.md)). Key: `weapon`; a later mod's row
-replaces an earlier one. A table that lists a weapon twice is refused.
+replaces an earlier one. A table that lists a weapon twice is refused (`... row N lists a weapon a second time`). At most 4096 rows per file and
+after the merge. A bad table is dropped whole: `Mods: <folder>: nightwatch/weapon_clip_groups.json: row N needs
+"weapon" (a multiple of 10000) and "clip_group" (1..999): its weapon_clip_groups table is not used`.
 
 ## What changes in game
 
@@ -41,11 +54,16 @@ has 7784. Nightwatch 0.3.0 raises the room to 16384 for every player, with or wi
 ## Co-op
 
 Gameplay: the merged rows are part of the party version check (`out/party_mods.txt`), so players with different
-tables are refused like players with different gameplay files.
+tables are refused like players with different gameplay files. No rows: the hash is as without the feature. The hook
+is installed for every player with or without rows. With mods turned off (`BB_MODS_ENABLED=0`) no table is read.
 
 ## Checking it
 
 - `Mods: weapon_clip_groups: N rows from M mods` in the start log, and `out/nightwatch_weapon_clip_groups.txt`.
 - `feature weapon_clip_groups: installed (N rows ...)` in the session log; the first 16 remaps log one line each
   (`chr ... right weapon 27330000, anim 30000: offset 113000000 -> 161000000 (clip group 161)`);
-  `BB_WEAPON_CLIP_GROUPS_LOG=1` logs 200. `BB_WEAPON_CLIP_GROUPS=0` turns the feature off.
+  `BB_WEAPON_CLIP_GROUPS_LOG=1` logs 200. `BB_WEAPON_CLIP_GROUPS=0` turns the feature off (the log says `feature
+  weapon_clip_groups: not installed (BB_WEAPON_CLIP_GROUPS=0)`; also `not installed (adapter 0x1a1af00 bytes differ)` when
+  the game code differs from 1.09). The clip capacity patch does not depend on the switch.
+- If the engine cannot read the merged file it logs `weapon_clip_groups: <path> line N is not "<weapon> <clip_group>":
+  no rows used`.
