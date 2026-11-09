@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 using BloodborneLauncher.Core;
 
@@ -44,5 +45,53 @@ internal static class SaveEditorTests
             SaveEditor.Parse<SaveEditor.Backup[]>("[{\"name\":\"backup\",\"path\":\"folder\",\"reason\":\"before-edit\"}]")[0].Name != "backup")
             throw new Exception("Save backup JSON contract changed");
         Console.WriteLine("PASS: save editor JSON parsing and edit serialization");
+        PackageShipsImports();
+    }
+
+    // The packaged save editor (seamless\scripts) must hold every repo module its code imports. 0.2.9 shipped
+    // saveedit\flagsdata.py without scripts\partydata (flag_tool, ids_tool): the boss and lamp lists came out empty
+    // (the import error is swallowed and the empty list cached), so the Progress page showed no bosses or lamps.
+    static void PackageShipsImports()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root != null && !File.Exists(Path.Combine(root.FullName, "tools", "package-seamless.ps1")))
+            root = root.Parent;
+        if (root == null)
+        {
+            Console.WriteLine("SKIP: save editor package imports (no repo above the test exe)");
+            return;
+        }
+        var package = File.ReadAllText(Path.Combine(root.FullName, "tools", "package-seamless.ps1"));
+        var scripts = Path.Combine(root.FullName, "engine", "scripts");
+        var sources = new List<string> { Path.Combine(scripts, "saveedit_cli.py") };
+        sources.AddRange(Directory.GetFiles(Path.Combine(scripts, "saveedit"), "*.py")
+            .Where(f => Path.GetFileName(f) != "ui.py"));  // the Tk window, not packaged
+        var importLine = new System.Text.RegularExpressions.Regex(@"^\s*(?:import\s+(\w+)|from\s+(\w+)\s+import)",
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+        var seen = new HashSet<string>();
+        var queue = new Queue<string>(sources);
+        var missing = new List<string>();
+        while (queue.Count > 0)
+        {
+            var source = queue.Dequeue();
+            foreach (System.Text.RegularExpressions.Match m in importLine.Matches(File.ReadAllText(source)))
+            {
+                var module = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value;
+                foreach (var dir in new[] { "", "partydata" })
+                {
+                    var file = Path.Combine(scripts, dir, module + ".py");
+                    if (!File.Exists(file) || !seen.Add(file)) continue;
+                    if (dir.Length > 0) queue.Enqueue(file);  // partydata's own imports (ids_tool -> flag_tool);
+                    // a top-level script's imports are its own business (mods.py reaches prepare.py only in a guarded path)
+                    var shipped = dir.Length == 0 ? package.Contains($"'{module}.py'")
+                        : package.Contains($"scripts\\{dir}\\") && package.Contains($"'{module}.py'");
+                    if (!shipped) missing.Add(Path.Combine(dir, module + ".py"));
+                }
+            }
+        }
+        if (missing.Count > 0 || !seen.Any(f => f.EndsWith("flag_tool.py")))
+            throw new Exception("tools/package-seamless.ps1 does not ship the save editor's imports: " +
+                (missing.Count > 0 ? string.Join(", ", missing) : "partydata\\flag_tool.py not found by the scan"));
+        Console.WriteLine($"PASS: save editor package ships its imports ({seen.Count} repo modules)");
     }
 }

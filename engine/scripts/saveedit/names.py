@@ -87,6 +87,18 @@ def _entry(bnd, suffix):
     raise KeyError(suffix)
 
 
+def _progress(game):
+    """The boss / lamp flags the editor offers (flagsdata.derive), {} when they cannot be derived: the editor then
+    lists none, so the reason goes to stderr (the launcher's worker log)."""
+    try:
+        from . import flagsdata
+        return flagsdata.derive(game)
+    except Exception as e:  # noqa: BLE001 - any failure only empties the lists
+        import sys
+        print(f"saveedit: boss and lamp flags not derived: {type(e).__name__}: {e}", file=sys.stderr)
+        return {}
+
+
 def read_game(game_dir, lang="engus"):
     """Parse the game's files: {"names": {kind: {id: name}}, "ids": {kind: [id, ...]}}."""
     game = Path(game_dir)
@@ -99,12 +111,7 @@ def read_game(game_dir, lang="engus"):
     names["gem"] = _fmg(_entry(menu, GEM_NAMES + ".fmg"))
     names["effect"] = _fmg(_entry(menu, GEM_EFFECTS + ".fmg"))
     ids = {kind: sorted(_param_ids(_entry(par, pn + ".param"))) for kind, pn in PARAMS.items()}
-    try:  # the boss / lamp flags the editor offers (flagsdata.derive): without them the editor lists none
-        from . import flagsdata
-        progress = flagsdata.derive(game)
-    except Exception:
-        progress = {}
-    data = {"names": names, "ids": ids, "progress": progress}
+    data = {"names": names, "ids": ids, "progress": _progress(game)}
     from .params import Params  # params reads its files with this module's helpers
     try:  # hand, icon and gem rows need the paramdefs too; without them the editor still has names
         p = Params(game)
@@ -256,6 +263,10 @@ class Catalogue:
         try:
             c = json.loads(cache.read_text(encoding="utf-8"))
             if c.get("version") == CACHE_VERSION and c.get("stamp") == stamp:
+                if not c["data"].get("progress"):  # cached by a copy that could not derive them (0.2.9 shipped
+                    c["data"]["progress"] = _progress(game)  # without scripts/partydata): try again
+                    if c["data"]["progress"]:
+                        cache.write_text(json.dumps(c), encoding="utf-8")
                 return cls(c["data"])
         except (OSError, ValueError, KeyError):
             pass

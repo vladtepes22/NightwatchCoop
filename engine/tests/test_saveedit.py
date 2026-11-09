@@ -428,6 +428,21 @@ def test_catalogue_without_game_is_empty(tmp_path):
     assert not c.ok and c.name(4, 100) is None and c.valid_ids(0) is None and c.search(4) == []
 
 
+def test_catalogue_cache_without_progress_derives_again(tmp_path, monkeypatch):
+    """0.2.9 shipped without scripts/partydata: its cache holds empty boss and lamp lists under a stamp that stays
+    valid. A copy that can derive them fills them in and rewrites the cache."""
+    game = tmp_path / "game"
+    cache = tmp_path / "saveedit_names_engus.json"
+    stale = {"version": N.CACHE_VERSION, "stamp": N._stamp(game, "engus"),
+             "data": {"names": {"goods": {"100": "Blood Vial"}}, "ids": {}, "progress": {}}}
+    cache.write_text(json.dumps(stale), encoding="utf-8")
+    derived = {"bosses": [[12101800, 0]], "lamps": [72410200]}
+    monkeypatch.setattr(N, "_progress", lambda g: derived)
+    c = N.Catalogue.load(game, tmp_path)
+    assert c.progress == derived and c.name(4, 100) == "Blood Vial"
+    assert json.loads(cache.read_text(encoding="utf-8"))["data"]["progress"] == derived
+
+
 def test_catalogue_cache_roundtrip(tmp_path):
     data = {"names": {"goods": {"100": "Blood Vial"}, "weapon": {"22000000": "Saw Spear"}},
             "ids": {"goods": [100, 101], "weapon": [22000000, 22000100]}}

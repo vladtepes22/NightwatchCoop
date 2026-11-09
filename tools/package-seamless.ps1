@@ -176,6 +176,13 @@ $saveedit = Join-Path $scripts 'saveedit'
 New-Item -ItemType Directory -Force -Path $saveedit | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $engine 'scripts\saveedit') -File | Where-Object { $_.Extension -in '.py', '.json' -and $_.Name -ne 'ui.py' } |
     Copy-Item -Destination $saveedit -Force
+# saveedit\flagsdata.py derives the boss and lamp flag lists from the player's game through scripts\partydata
+# (flag_tool, ids_tool); without them the Progress page lists no bosses or lamps.
+$partydata = Join-Path $scripts 'partydata'
+New-Item -ItemType Directory -Force -Path $partydata | Out-Null
+foreach ($file in 'flag_tool.py', 'ids_tool.py') {
+    Copy-Item -LiteralPath (Join-Path $engine "scripts\partydata\$file") -Destination $partydata -Force
+}
 # The connection doctor's launcher: next to scripts\ and python\ (it finds both relative to itself).
 Copy-Item -LiteralPath (Join-Path $engine 'net_doctor.bat') -Destination $seamless -Force
 $pythonVersion = '3.12.10'
