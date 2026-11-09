@@ -66,7 +66,10 @@ void runtime_pad_director_sticks(int, int, int, int) {}
 void runtime_pad_director_mask(uint32_t) {}
 void runtime_logdrain_flush(unsigned) {}
 uint32_t runtime_pad_last_buttons(void) { return 0; }
-double runtime_pad_confirm_press_age(void) { return 1e9; }  // bbport_hifps: no pad, no recent press
+double runtime_pad_confirm_press_age(void) { return 1e9; }
+int runtime_guest_mutex_acquire(void**, uint64_t, uint64_t* waited_us) { if (waited_us) *waited_us = 0; return 3; }  // no guest mutexes here
+void runtime_guest_mutex_release(void**) {}
+int runtime_memory_is_mapped(uintptr_t, uint64_t) { return 0; }  // no guest memory in renderer tests (bbport_crash_guards)  // bbport_hifps: no pad, no recent press
 uint32_t runtime_pad_last_left(void) { return 0x8080u; }
 // Weak: bb-shader-lab (Lantern 0.9.37 beta 9) defines these four itself.
 __attribute__((weak)) int runtime_pad_type(void) { return 0; }

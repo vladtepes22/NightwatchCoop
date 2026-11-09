@@ -8,6 +8,7 @@
 #include "bbport_settings.h"
 #include "bbport_latency.h"
 #include "bbport_hifps.h"
+#include "bbport_crash_guards.h"
 #include "core/libraries/videoout/video_out.h"
 #include "bbport_copy.h"
 #ifndef _WIN32
@@ -608,6 +609,7 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     bbnet_online_set_image(image, size); // before the engine's hooks change the code it checks
     BbGnmHooks::PatchImage(image, size);
     BbEngine::Install(image, size);
+    BbCrashGuards::PatchImage(image, size);  // visy 0.8.0: Scaleform HUD lock + text-layout guard, FMOD sound-ring guard
     coop::HooksInit(image, size);
     BbHiFps::Install();  // visy 0.8.0: high-FPS fixes from droogie/bbhost (lights' blink, water wakes, boxes' OK); after the Live clock and HooksInit
     BbGxQueryGuard::Install();  // every mode: an occlusion query without a handle is skipped (visy CL-9666e3)

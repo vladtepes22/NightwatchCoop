@@ -138,6 +138,31 @@ static ABI int32_t attr_destroy(GuestAttr **attr) {
     if (!attr || !*attr) return orbis_error(EINVAL);
     free(*attr); *attr = NULL; return 0;
 }
+/* bbport (crash guards, gpu/shim/bbport_crash_guards.cpp; visy 0.8.0): lock a guest mutex from host code, the way
+ * the game's own lock does, but bounded. `slot` is the guest's mutex handle slot. Returns 0 locked (give it back with
+ * runtime_guest_mutex_release), 1 this thread holds it already (nothing to give back), 2 still busy after `usec`,
+ * 3 no usable mutex (never made, or destroyed). Never creates one. */
+int runtime_guest_mutex_acquire(void **slot, uint64_t usec, uint64_t *waited_us) {
+    if (waited_us) *waited_us = 0;
+    uintptr_t value = slot ? __atomic_load_n((uintptr_t *)slot, __ATOMIC_ACQUIRE) : 0;
+    if (value < 3) return 3;
+    NativeMutex *m = &((GuestMutex *)value)->native;
+    if (owner(m) == GetCurrentThreadId()) return 1;
+    int r = native_trylock(m);
+    if (r == EBUSY) {
+        const uint64_t start = host_realtime_ns();
+        r = native_timedlock(m, start + usec * 1000);
+        if (waited_us) *waited_us = (host_realtime_ns() - start) / 1000;
+    }
+    if (r == 0) { ++locks; return 0; }
+    return r == ETIMEDOUT ? 2 : r == EDEADLK ? 1 : 3;
+}
+void runtime_guest_mutex_release(void **slot) {
+    uintptr_t value = slot ? __atomic_load_n((uintptr_t *)slot, __ATOMIC_ACQUIRE) : 0;
+    if (value < 3) return;
+    if (native_unlock(&((GuestMutex *)value)->native) == 0) ++unlocks;
+}
+
 static ABI int32_t mutex_init(GuestMutex **out, GuestAttr **attr, const char *name) {
     if (!out || (attr && !*attr)) return orbis_error(EINVAL);
     int type = attr ? (*attr)->type : 1;
