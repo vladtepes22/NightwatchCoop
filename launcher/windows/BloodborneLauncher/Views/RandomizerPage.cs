@@ -30,6 +30,7 @@ namespace BloodborneLauncher.Views
         private WorldCodeResult? _pasted;  // the last valid code typed or pasted: its hidden settings and the note's "changed from"
         private string? _code;             // what the code box shows, null while it holds no valid code
         private bool _syncing, _busy;
+        private bool _nocturne; // a ticked mod is Nocturne v2.0.0+ (option coiled_host has a Coiled Host to act on)
         private CancellationTokenSource? _stop;
 
         private static readonly Choice[] OffOrOn = { new(L.T("Off"), "same"), new(L.T("On"), "swap") };
@@ -56,6 +57,10 @@ namespace BloodborneLauncher.Views
                 o => o.AwayFromHome, (o, b) => o with { AwayFromHome = b });
             Bool(enemies, SymbolRegular.ArrowShuffle24, L.T("More randomness"), L.T("Enemies the game scripts an animation on (eating, sleeping, sitting, appearing, ambush attacks) can become any enemy. If the new one lacks that animation, it just stands there instead."),
                 o => o.FreePoses, (o, b) => o with { FreePoses = b });
+            Bool(enemies, SymbolRegular.PeopleTeam24, L.T("Random summons in the Shadows' arena"), L.T("On, the snakes the Shadows of Yharnam summon are random enemies. Off, nothing is summoned in that arena, whoever fights there."),
+                o => o.ShadowsSummons, (o, b) => o with { ShadowsSummons = b });
+            Bool(enemies, SymbolRegular.Crown24, L.T("Include chalice dungeon enemies"), L.T("The regular enemies of the Chalice Dungeons, such as Merciless Watchers, Keepers of the Old Lords and Gravekeeper Scorpions, can replace enemies in the main game. Chalice bosses are not included (they have their own option under Bosses). They always give the echoes and drops of the enemy they replace, whatever Echoes and drops says. The dungeons themselves don't change. Making the world takes a little longer."),
+                o => o.ChaliceEnemies, (o, b) => o with { ChaliceEnemies = b });
             var exclude = SmallButton(L.T("None"), SymbolRegular.Prohibited24, (_, _) => PickExcluded());
             Add(Card(SymbolRegular.Prohibited24, L.T("Never use these enemies"), L.T("Enemies the randomizer will never place anywhere."), exclude, out _), enemies);
             _rows.Add((exclude, () => exclude.Content = ExcludeSummary(_o.Exclude), null));
@@ -64,6 +69,23 @@ namespace BloodborneLauncher.Views
                 () => _o.Headroom.ToString(), v => Set(_o with { Headroom = int.Parse(v) }), enemies, changed: Changed), () => _o.Headroom.ToString());
             Bool(enemies, SymbolRegular.Dumbbell24, L.T("Difficult enemies"), L.T("Replacements come from the toughest enemies in the game, as long as the area has the memory for them."),
                 o => o.DifficultEnemies, (o, b) => o with { DifficultEnemies = b });
+            Bool(enemies, SymbolRegular.Crown24, L.T("Bosses as enemies"), L.T("Now and then a boss turns up in place of an ordinary enemy (how often: the two rows below). Its health is cut to fit the area and is never more than in its own fight (how much: Boss HP as an enemy, below) and fights like a normal enemy there: no health bar, no fog wall, no boss music, and it drops what the enemy it replaced would have. Its own boss fight stays as it was. Bosses that need their arena to work (Moon Presence, the Witch of Hemwick, the Shadows of Yharnam, Logarius, the Wet Nurse, the One Reborn, the Orphan's second phase, the Blood-starved Beast) never do this. Chalice dungeon bosses join when they are included."),
+                o => o.BossesAsEnemies, (o, b) => o with { BossesAsEnemies = b });
+            var bossEnemyHint = L.T("Only matters when bosses as enemies is on.");
+            Bind(ComboRow(SymbolRegular.Crown24, L.T("Areas with bosses as enemies"), L.T("The chance for each area to have at least one boss in place of its ordinary enemies.") + " " + bossEnemyHint,
+                new[] { new Choice("10 %", "10"), new Choice(L.T("25 % (standard)"), "25"), new Choice("50 %", "50"), new Choice("75 %", "75"), new Choice("100 %", "100") },
+                () => _o.BossEnemyChance.ToString(), v => Set(_o with { BossEnemyChance = int.Parse(v) }), enemies, changed: Changed),
+                () => _o.BossEnemyChance.ToString(), () => _o.BossesAsEnemies);
+            Bind(ComboRow(SymbolRegular.Crown24, L.T("Bosses per area"), L.T("The most bosses one area can have as enemies. An area that gets bosses has between one and this many, each a different boss, as long as the area has the memory for them.") + " " + bossEnemyHint,
+                new[] { new Choice(L.T("1 (standard)"), "1"), new Choice("2", "2"), new Choice("3", "3"), new Choice("4", "4"), new Choice("5", "5") },
+                () => _o.BossEnemyMax.ToString(), v => Set(_o with { BossEnemyMax = int.Parse(v) }), enemies, changed: Changed),
+                () => _o.BossEnemyMax.ToString(), () => _o.BossesAsEnemies);
+            Bind(ComboRow(SymbolRegular.Crown24, L.T("Boss HP as an enemy"), L.T("A boss standing in for a normal enemy gets this many times the HP of a typical enemy of that area. Then the area's normal difficulty scaling applies to it, like to any enemy. It never goes above the boss's own HP in its real boss fight. Example: in Central Yharnam a typical enemy has about 80 base HP, so 8x gives a boss about 640 HP and 16x about 1,280. In late areas, where the scaling is much higher, the limit takes over: Father Gascoigne has 2,031 HP in his own fight, so as an enemy in the Hunter's Nightmare he has about 2,024 HP at 8x and at 16x alike, never more.") + " " + bossEnemyHint,
+                new[] { new Choice(L.T("8x (standard)"), "8"), new Choice("10x", "10"), new Choice("12x", "12"), new Choice("14x", "14"), new Choice("16x", "16") },
+                () => _o.BossEnemyHp.ToString(), v => Set(_o with { BossEnemyHp = int.Parse(v) }), enemies, changed: Changed),
+                () => _o.BossEnemyHp.ToString(), () => _o.BossesAsEnemies);
+            Bool(enemies, SymbolRegular.Crown24, L.T("Huge bosses as enemies"), L.T("Also lets the huge bosses stand in for ordinary enemies: Vicar Amelia, Darkbeast Paarl, Ebrietas, Rom, Ludwig and the big chalice dungeon bosses. They are huge and can get stuck in narrow places such as alleys, stairs and doorways.") + " " + bossEnemyHint,
+                o => o.HugeBossesAsEnemies, (o, b) => o with { HugeBossesAsEnemies = b }, null, () => _o.BossesAsEnemies);
             Bind(ComboRow(SymbolRegular.Dumbbell24, L.T("Enemy scaling"), L.T("Randomized enemies scale to the current area."),
                 new[] { new Choice(L.T("Off"), "off"), new Choice(L.T("On"), "slot") },
                 () => _o.Scaling, v => Set(_o with { Scaling = v }), enemies, changed: Changed), () => _o.Scaling);
@@ -78,6 +100,10 @@ namespace BloodborneLauncher.Views
                 () => _o.TreasureByType ? "kind" : "any", v => Set(_o with { TreasureByType = v == "kind" }), items, width: 360, changed: Changed), () => _o.TreasureByType ? "kind" : "any");
             Bool(items, SymbolRegular.Cart24, L.T("Randomize shops"), L.T("Every shop item changes except Blood Vials and Quicksilver Bullets. Weapons and armor swap places with one-of-a-kind items found in the world, so a shop weapon can become a pickup and a world-only weapon can be bought; the rest are shuffled within their shop. Consumables are shuffled between the shops. Prices fit the new item. Keys and boss drops stay where they are."), o => o.Shops, (o, b) => o with { Shops = b });
             Bool(items, SymbolRegular.Gift24, L.T("Randomize enemy drops"), L.T("Regular enemies swap what they drop. Bosses keep theirs."), o => o.Drops, (o, b) => o with { Drops = b });
+            Bool(items, SymbolRegular.Diamond24, L.T("Gem roulette"), L.T("Every blood gem lying in the world, half of the small Blood Vial and Quicksilver Bullet pickups, and every blood gem enemies drop become droplet gems with three random effects. Droplet gems fit any slot of any weapon. Gems get stronger the later the area. The effects are fixed by the world code, so everyone in the world finds the same gems, and the spoiler lists them."),
+                o => o.GemRoulette, (o, b) => o with { GemRoulette = b });
+            Bool(items, SymbolRegular.Diamond24, L.T("Cursed gems"), L.T("About one gem in seven is cursed: one of its effects is a drawback (such as lower attack or HP that drains), and in return its other two effects are stronger. Only matters when the gem roulette is on."),
+                o => o.CursedGems, (o, b) => o with { CursedGems = b }, null, () => _o.GemRoulette);
             Bool(items, SymbolRegular.Gift24, L.T("Randomize chalice materials"), L.T("Chalice ritual materials can turn up anywhere, the ones sold in shops too. Not recommended: you won't know where to find them, and you may get stuck before the chalice dungeons."),
                 o => o.ChaliceMaterials, (o, b) => o with { ChaliceMaterials = b });
             Bool(items, SymbolRegular.Gift24, L.T("Randomize starting armor"), L.T("A new character starts in a random head, chest, arms and legs piece, from any armor the game hands out (mod armor too)."), o => o.StarterArmor, (o, b) => o with { StarterArmor = b });
@@ -98,15 +124,18 @@ namespace BloodborneLauncher.Views
             Bool(bosses, SymbolRegular.ArrowSplit24, L.T("Randomize second phase"),
                 L.T("Father Gascoigne, Ludwig and the Orphan of Kos are the only bosses that change into a second form. With this on, that second form is a random boss instead, wherever they end up. Gascoigne switches at 34 % health, Ludwig and the Orphan at 50 %."),
                 o => o.SecondStage, (o, b) => o with { SecondStage = b }, null, () => _o.Bosses);
+            Bool(bosses, SymbolRegular.ArrowSwap24, L.T("Include Coiled Host (Nocturne boss)"),
+                L.T("Needs Nocturne v2.0.0 or later among the ticked mods below, which adds the Coiled Host as the Shadows of Yharnam's second phase; without it this row is greyed out and does nothing. With this on, the Coiled Host can turn up as the boss of another fight, and after the Shadows die a random boss comes out in his place."),
+                o => o.CoiledHost, (o, b) => o with { CoiledHost = b }, null, () => _o.Bosses && _nocturne);
             Bind(ComboRow(SymbolRegular.Alert24, L.T("Randomize bell maidens"), L.T("The One Reborn's bell maidens become random enemies."),
                 new[] { new Choice(L.T("Off"), Randomizer.BellMaidenChoices[0]), new Choice(L.T("On"), Randomizer.BellMaidenChoices[1]) },
                 () => _o.BellMaidens, v => Set(_o with { BellMaidens = v }), bosses, changed: Changed), () => _o.BellMaidens, () => _o.Bosses);
             Bool(bosses, SymbolRegular.Wand24, L.T("Witch of Hemwick"), fightHint,
                 o => o.WitchMix, (o, b) => o with { WitchMix = b },
-                new[] { new Choice(L.T("One boss for both"), "same"), new Choice(L.T("A boss for each"), "swap") }, () => _o.Bosses);
+                new[] { new Choice(L.T("One boss only"), "same"), new Choice(L.T("A boss for each"), "swap") }, () => _o.Bosses);
             Bool(bosses, SymbolRegular.PeopleTeam24, L.T("Shadows of Yharnam"), fightHint,
                 o => o.ShadowsMix, (o, b) => o with { ShadowsMix = b },
-                new[] { new Choice(L.T("One boss for all three"), "same"), new Choice(L.T("A boss for each"), "swap") }, () => _o.Bosses);
+                new[] { new Choice(L.T("One boss only"), "same"), new Choice(L.T("A boss for each"), "swap") }, () => _o.Bosses);
             var oneOrEach = new[] { new Choice(L.T("One boss only"), "same"), new Choice(L.T("A boss for each boss' HP"), "swap") };
             Bool(bosses, SymbolRegular.Sparkle24, L.T("Celestial Emissary"), fightHint,
                 o => o.EmissaryMix, (o, b) => o with { EmissaryMix = b }, oneOrEach, () => _o.Bosses);
@@ -114,8 +143,8 @@ namespace BloodborneLauncher.Views
                 o => o.FailuresMix, (o, b) => o with { FailuresMix = b }, oneOrEach, () => _o.Bosses);
 
             Subheading(bosses, L.T("Chalice"));
-            Bool(bosses, SymbolRegular.Crown24, L.T("Include chalice dungeon bosses"), L.T("The strongest chalice dungeon bosses join the boss pool. The dungeons themselves don't change.") + " " + fightHint,
-                o => o.ChaliceBosses, (o, b) => o with { ChaliceBosses = b }, null, () => _o.Bosses);
+            Bool(bosses, SymbolRegular.Crown24, L.T("Include chalice dungeon bosses"), L.T("The strongest chalice dungeon bosses join the boss pool, and the bosses that can replace enemies. The dungeons themselves don't change.") + " " + L.T("Only matters when bosses are randomized or bosses as enemies is on."),
+                o => o.ChaliceBosses, (o, b) => o with { ChaliceBosses = b }, null, () => _o.Bosses || _o.BossesAsEnemies);
             var strengthChoices = new[] { new Choice(L.T("Main game"), "same"), new Choice(L.T("Chalice variant (stronger)"), "swap") };
             var strengthHint = L.T("Fights as its strongest chalice dungeon version, in its own arena or wherever it ends up.");
             Bool(bosses, SymbolRegular.Dumbbell24, L.T("Rom"), strengthHint, o => o.HardRom, (o, b) => o with { HardRom = b }, strengthChoices);
@@ -283,6 +312,8 @@ namespace BloodborneLauncher.Views
             }
             var (options, hidden) = Randomizer.FromCode(WorldCode.Decode(_code));
             var note = Randomizer.Summary(options, hidden);
+            if (options.Bosses && options.CoiledHost && !_nocturne)
+                note += " " + L.T("The Coiled Host option is skipped: no Nocturne v2.0.0 or later among the ticked mods.");
             if (changed) note = L.F($"Changed from the code you pasted ({_pasted!.Canonical}): this is not that world any more.") + " " + note;
             SetHint(_codeNote, note);
         }
@@ -308,12 +339,13 @@ namespace BloodborneLauncher.Views
             {
                 var box = new CheckBox { Content = mod.Name, IsChecked = mod.Enabled && !_skipped.Contains(mod.Name), Margin = new Thickness(0, 2, 0, 2) };
                 var name = mod.Name;
-                box.Checked += (_, _) => _skipped.Remove(name);
-                box.Unchecked += (_, _) => _skipped.Add(name);
+                box.Checked += (_, _) => { _skipped.Remove(name); CheckNocturne(); };
+                box.Unchecked += (_, _) => { _skipped.Add(name); CheckNocturne(); };
                 _modChoices.Children.Add(box);
             }
             if (_modChoices.Children.Count == 0)
                 _modChoices.Children.Add(Empty(L.T("No other mods installed: the world is built on the game alone.")));
+            CheckNocturne();
 
             _worlds.Children.Clear();
             var active = Randomizer.Active(S);
@@ -324,6 +356,20 @@ namespace BloodborneLauncher.Views
             }
             if (_worlds.Children.Count == 0)
                 _worlds.Children.Add(Empty(L.T("No worlds yet. Generate one above.")));
+        }
+
+        /// <summary>Whether the ticked mods hold Nocturne v2.0.0+, worked out off the UI thread (it hashes the folder once);
+        /// the Coiled Host row follows.</summary>
+        private async void CheckNocturne()
+        {
+            var dir = GameEnvironment.ModsDir(S);
+            var picked = PickedMods();
+            bool found;
+            try { found = await Task.Run(() => Randomizer.HasCoiledHost(dir, picked)); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { found = false; }
+            if (found == _nocturne || !picked.SequenceEqual(PickedMods())) return;
+            _nocturne = found;
+            Sync();
         }
 
         // added after the page sorts rows into panes, so it gets a row's inset itself (else it sits on the pane's edge)

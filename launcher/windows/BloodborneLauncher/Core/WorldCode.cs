@@ -31,12 +31,17 @@ namespace BloodborneLauncher.Core
             (29, "failures_mix", 'i', 0), (30, "bell_maidens", 'i', 0), (31, "chalice_bosses", 'i', 0), (32, "hard_rom", 'i', 0),
             (33, "hard_amygdala", 'i', 0), (34, "hard_ebrietas", 'i', 0), (35, "difficult_enemies", 'i', 0),
             (36, "second_stage", 'i', 0), (37, "away_from_home", 'i', 0), (38, "free_poses", 'i', 0),
-            (39, "starter_armor", 'i', 0),
+            (39, "starter_armor", 'i', 0), (40, "shadows_summons", 'i', 0), (41, "chalice_enemies", 'i', 0),
+            (42, "bosses_as_enemies", 'i', 0), (43, "coiled_host", 'i', 0),
+            (44, "gem_roulette", 'i', 0), (45, "cursed_gems", 'i', 0),
+            (46, "boss_enemy_chance", 'i', 25), (47, "boss_enemy_max", 'i', 1), (48, "huge_bosses_as_enemies", 'i', 0),
+            (49, "boss_enemy_hp", 'i', 8),
         };
         // seedcode.BOOL_OPTIONS_R2
         private static readonly string[] Round2Bools = { "witch_mix", "shadows_mix", "emissary_mix", "failures_mix",
             "chalice_bosses", "hard_rom", "hard_amygdala", "hard_ebrietas", "difficult_enemies", "second_stage",
-            "away_from_home", "free_poses", "starter_armor" };
+            "away_from_home", "free_poses", "starter_armor", "shadows_summons", "chalice_enemies", "bosses_as_enemies", "coiled_host",
+            "gem_roulette", "cursed_gems", "huge_bosses_as_enemies" };
         private static readonly HashSet<int> KnownIds = new() { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22, 23, 24,
             26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37 };
 
@@ -187,6 +192,8 @@ namespace BloodborneLauncher.Core
             if ((I("scaling") == 2) != (I("fixed_effect") != 0)) throw new BadCode();
             if (I("starter_melee") is < 1 or > 5 || I("starter_guns") is < 1 or > 3) throw new BadCode();
             if (I("big_models") is < 0 or > 24) throw new BadCode();
+            if (I("boss_enemy_chance") is < 0 or > 100 || I("boss_enemy_chance") % 5 != 0 || I("boss_enemy_max") is < 1 or > 5) throw new BadCode();
+            if (I("boss_enemy_hp") is not (8 or 10 or 12 or 14 or 16)) throw new BadCode();
             if (Round2Bools.Any(f => I(f) is not (0 or 1)) || I("bell_maidens") is < 0 or > 2) throw new BadCode();
         }
 

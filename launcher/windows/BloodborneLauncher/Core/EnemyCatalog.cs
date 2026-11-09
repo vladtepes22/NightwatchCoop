@@ -27,6 +27,7 @@ namespace BloodborneLauncher.Core
             new(1140, "Hemwick Beast", true, false, new[] { "Hemwick Charnel Lane" }),
             new(1170, "Carrion Crow", false, false, new[] { "Hemwick Charnel Lane", "Old Yharnam", "Cathedral Ward", "Central Yharnam", "Upper Cathedral Ward", "Forbidden Woods", "Hunter's Nightmare", "Research Hall" }),
             new(1171, "Carrion Crow (Mensis)", true, false, new[] { "Nightmare of Mensis" }),
+            new(1180, "Wandering Nightmare (small)", true, false, new[] { "Hemwick Charnel Lane" }),
             new(1190, "Wandering Nightmare", false, false, new[] { "Nightmare Frontier" }),
             new(1220, "Bat", true, false, new[] { "Forsaken Cainhurst Castle" }),
             new(1240, "Rabid Dog", false, false, new[] { "Cathedral Ward", "Central Yharnam", "Forbidden Woods", "Yahar'gul, Unseen Village" }),
@@ -84,6 +85,25 @@ namespace BloodborneLauncher.Core
             new(4120, "Research Hall Patient, blood-drunk", true, true, new[] { "Research Hall" }),
             new(4130, "Bloodlicker (Hunter's Nightmare)", false, true, new[] { "Hunter's Nightmare" }),
             new(4140, "Scourge Beast (Hunter's Nightmare)", true, false, new[] { "Hunter's Nightmare" }),
+            new(5033, "Snake (Shadows' summon)", true, false, new[] { "Forbidden Woods" }),
+            // the Chalice Dungeons' own kinds, placed only with option chalice_enemies (generator chalice_enemies.py)
+            new(1010, "Loran Beast (priest)", true, false, new[] { "Chalice Dungeons" }),
+            new(1150, "Slime", true, false, new[] { "Chalice Dungeons" }),
+            new(1160, "Loran Hound", true, false, new[] { "Chalice Dungeons" }),
+            new(1210, "Gravekeeper Scorpion", true, false, new[] { "Chalice Dungeons" }),
+            new(1230, "Digger", true, false, new[] { "Chalice Dungeons" }),
+            new(1300, "Large Kin", true, false, new[] { "Chalice Dungeons" }),
+            new(2010, "Gravedigger", true, false, new[] { "Chalice Dungeons" }),
+            new(2040, "Puppet Corpse", true, false, new[] { "Chalice Dungeons" }),
+            new(2050, "Mad One", true, false, new[] { "Chalice Dungeons" }),
+            new(2080, "Moonlight Ghost", true, false, new[] { "Chalice Dungeons" }),
+            new(2160, "Keeper of the Old Lords", true, false, new[] { "Chalice Dungeons" }),
+            new(3000, "Labyrinth Ritekeeper", true, false, new[] { "Chalice Dungeons" }),
+            new(3010, "Labyrinth Slave", true, false, new[] { "Chalice Dungeons" }),
+            new(3020, "Labyrinth Warrior", true, false, new[] { "Chalice Dungeons" }),
+            new(3030, "Labyrinth Madman", true, false, new[] { "Chalice Dungeons" }),
+            new(3040, "Merciless Watcher", true, false, new[] { "Chalice Dungeons" }),
+            new(3120, "Female Spirit", true, false, new[] { "Chalice Dungeons" }),
         };
     }
 }

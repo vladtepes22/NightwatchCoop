@@ -93,7 +93,7 @@ internal static class RandomizerTests
                   options.EmissaryMix == (I("emissary_mix") == 1) && options.FailuresMix == (I("failures_mix") == 1) &&
                   options.BellMaidens == Randomizer.BellMaidenChoices[I("bell_maidens")] && options.ChaliceBosses == (I("chalice_bosses") == 1) &&
                   options.HardRom == (I("hard_rom") == 1) && options.HardAmygdala == (I("hard_amygdala") == 1) && options.HardEbrietas == (I("hard_ebrietas") == 1) &&
-                  options.DifficultEnemies == (I("difficult_enemies") == 1) && options.SecondStage == (I("second_stage") == 1) && options.AwayFromHome == (I("away_from_home") == 1) && options.FreePoses == (I("free_poses") == 1) && options.StarterArmor == (I("starter_armor") == 1) && options.StarterMelee == I("starter_melee") && options.StarterGuns == I("starter_guns") && options.Bosses == (I("boss_swap") == 1) && options.Treasure == (I("treasure") == 1) &&
+                  options.DifficultEnemies == (I("difficult_enemies") == 1) && options.SecondStage == (I("second_stage") == 1) && options.AwayFromHome == (I("away_from_home") == 1) && options.FreePoses == (I("free_poses") == 1) && options.StarterArmor == (I("starter_armor") == 1) && options.ShadowsSummons == (I("shadows_summons") == 1) && options.ChaliceEnemies == (I("chalice_enemies") == 1) && options.GemRoulette == (I("gem_roulette") == 1) && options.CursedGems == (I("cursed_gems") == 1) && options.BossesAsEnemies == (I("bosses_as_enemies") == 1) && options.CoiledHost == (I("coiled_host") == 1) && options.BossEnemyChance == I("boss_enemy_chance") && options.BossEnemyMax == I("boss_enemy_max") && options.BossEnemyHp == I("boss_enemy_hp") && options.HugeBossesAsEnemies == (I("huge_bosses_as_enemies") == 1) && options.StarterMelee == I("starter_melee") && options.StarterGuns == I("starter_guns") && options.Bosses == (I("boss_swap") == 1) && options.Treasure == (I("treasure") == 1) &&
                   options.Shops == (I("shops") == 1) && options.Drops == (I("drops") == 1) && options.Starters == (I("starters") == 1) &&
                   options.TreasureByType == (I("treasure_by_type") == 1) &&
                   options.ChaliceMaterials == (I("chalice_materials") == 1) &&
@@ -113,6 +113,19 @@ internal static class RandomizerTests
         try { Randomizer.FromCode(WorldCode.Decode("R2-not-a-code")); } catch (ArgumentException) { refused = true; }
         Check(refused, "a bad code fills nothing");
 
+        // option coiled_host: the page greys it out unless a ticked mod is Nocturne v2.0.0 or later
+        foreach (var v in new[] { "2.0.0", "2.0", "2", "2.1.3", "10.0.0", "2.0.0-beta" })
+            Check(Randomizer.CoiledHostVersion(v), "Nocturne " + v + " has the Coiled Host");
+        foreach (var v in new string?[] { null, "", "1.0.1", "1.9.9", "beta", "." })
+            Check(!Randomizer.CoiledHostVersion(v), "Nocturne " + (v ?? "null") + " has no Coiled Host");
+        var noMods = Path.Combine(Path.GetTempPath(), "seamless-coiled-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(noMods, "Nocturne v2.0.0"));
+        try
+        {
+            Check(!Randomizer.HasCoiledHost(noMods, Array.Empty<string>()), "no mods ticked: no Coiled Host");
+            Check(!Randomizer.HasCoiledHost(noMods, new[] { "Nocturne v2.0.0", "missing" }), "a folder named Nocturne without its files is not Nocturne");
+        }
+        finally { Directory.Delete(noMods, true); }
         Check(Randomizer.Summary(Randomizer.Standard(1)) == "Shuffled: enemies, drops.", "the card line of the standard world");
         Check(Randomizer.Summary(Randomizer.Standard(1) with { StarterMelee = 4, StarterGuns = 3 }) ==
               "Shuffled: enemies, drops. Melee starting weapons offered: 4. Firearm starting weapons offered: 3.", "the card line names the starting weapon counts");
