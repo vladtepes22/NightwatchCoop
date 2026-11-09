@@ -725,6 +725,20 @@ void BufferCache::SmallGuestCopy(const BbCopy::Item& item) {
     scheduler.NoteHostCopySource(item.source, item.size);
 }
 
+bool BufferCache::MakeWriteFaultSticky(VAddr device_addr, u64 guest_rip) {
+    // bbport (visy 2223309b8, from Mrsuss60 432d2ddb): the effect ribbon / particle vertex
+    // generators (the ribbon_leaf table in src/probe.c) keep locals in the System V red zone,
+    // which the Windows exception frame of every handled write fault destroys (CL-cd063f).
+    constexpr u64 Image = 0x800000000ull;
+    constexpr u64 RedzoneBegin = Image + 0x28ce7ba, RedzoneEnd = Image + 0x28d064e;
+    if (guest_rip < RedzoneBegin || guest_rip >= RedzoneEnd) {
+        return false;
+    }
+    // One byte: only the page the faulting access touched, even when the address is not aligned.
+    memory_tracker->MakeSticky(device_addr, 1);
+    return true;
+}
+
 void BufferCache::ExtendWriteFault(VAddr device_addr, u64 guest_rip) {
     if (GuestInPlace()) {
         NoteCpuWrite(device_addr, guest_rip);

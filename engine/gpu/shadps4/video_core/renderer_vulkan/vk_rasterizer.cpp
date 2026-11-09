@@ -5537,6 +5537,12 @@ bool Rasterizer::OnWriteFault(VAddr addr, bool assume_locks, u64 guest_rip) {
         return false;
     }
     buffer_cache.ExtendWriteFault(addr, guest_rip);
+    // bbport (visy 2223309b8): a PS4 vertex generator keeps locals in the System V red zone,
+    // which the Windows exception frame destroys on every handled fault: keep this page
+    // writable so the routine does not fault on it again.
+    if (guest_rip) {
+        buffer_cache.MakeWriteFaultSticky(addr, guest_rip);
+    }
     return true;
 }
 

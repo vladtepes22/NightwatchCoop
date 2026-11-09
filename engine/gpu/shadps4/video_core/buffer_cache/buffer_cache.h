@@ -112,6 +112,10 @@ public:
     /// bbport: a guest write fault at `device_addr` was handled; unprotect its neighbourhood.
     void ExtendWriteFault(VAddr device_addr, u64 guest_rip = 0);
 
+    /// bbport: a write fault at `device_addr` came from a red-zone vertex generator: pin its
+    /// page writable (see RegionManager::MakeSticky). False if guest_rip is not one.
+    bool MakeWriteFaultSticky(VAddr device_addr, u64 guest_rip);
+
     /// Flushes any GPU modified buffer in the logical page range back to CPU memory.
     void ReadMemory(VAddr device_addr, u64 size, bool is_write = false, bool assume_locks = false);
 

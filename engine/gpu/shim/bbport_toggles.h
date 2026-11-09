@@ -103,6 +103,8 @@ inline std::atomic<std::uint64_t> gnm_frame_waits{0}, gnm_frame_wait_ns{0};
 inline std::atomic<std::uint64_t> asc_submits{0};
 inline std::array<std::atomic<std::uint64_t>, 4> range_allocators{}, range_live{}, range_bytes{};
 inline std::atomic<std::int64_t> hot_pages{0};
+/// Pages kept writable for the red-zone vertex generators (BB_STICKY_FAULT_PAGES).
+inline std::atomic<std::uint64_t> sticky_pages{0};
 inline std::atomic<std::uint64_t> images_registered{0};
 inline std::atomic<std::uint64_t> image_upload_bytes{0};
 inline std::atomic<std::uint64_t> buffer_upload_bytes{0};
