@@ -1355,7 +1355,7 @@ ImageView& TextureCache::FindDepthTarget(ImageId image_id, const ImageDesc& desc
     }
 
     // If there is a stencil attachment, link depth and stencil.
-    if (desc.info.stencil_addr != 0) {
+    if (desc.info.stencil_addr != 0 && desc.info.stencil_addr != desc.info.guest_address) {
         ImageId stencil_id{};
         ForEachImageInRegion(desc.info.stencil_addr, desc.info.stencil_size,
                              [&](ImageId image_id, Image& image) {

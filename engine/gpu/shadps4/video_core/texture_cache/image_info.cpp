@@ -103,14 +103,36 @@ ImageInfo::ImageInfo(const AmdGpu::DepthBuffer& buffer, u32 num_slices, VAddr ht
     stencil_addr = write_buffer ? buffer.StencilWriteAddress() : buffer.StencilAddress();
     stencil_size = pitch * size.height * sizeof(u8);
 
-    guest_address = write_buffer ? buffer.DepthWriteAddress() : buffer.DepthAddress();
-    if (props.is_tiled) {
-        guest_size = buffer.GetDepthSliceSize() * resources.layers;
-        mips_layout[0] = MipInfo(guest_size, pitch, buffer.Height(), 0);
+    if (buffer.z_info.format != AmdGpu::DepthBuffer::ZFormat::Invalid) {
+        guest_address = write_buffer ? buffer.DepthWriteAddress() : buffer.DepthAddress();
+        if (props.is_tiled) {
+            guest_size = buffer.GetDepthSliceSize() * resources.layers;
+            mips_layout[0] = MipInfo(guest_size, pitch, buffer.Height(), 0);
+        } else {
+            std::tie(std::ignore, std::ignore, guest_size) =
+                ImageSizeLinearAligned(pitch, size.height, num_bits, num_samples);
+            guest_size *= resources.layers;
+            mips_layout[0] = MipInfo(guest_size, pitch, size.height, 0);
+        }
+    } else if (props.has_stencil) {
+        // Stencil-only target (visy 080567ecc, shadPS4 626f3ace): the stencil plane is the image.
+        // The size of depth + stencil targets stays as it was.
+        if (props.is_tiled) {
+            stencil_size = buffer.GetStencilSliceSize() * resources.layers;
+        } else {
+            std::tie(std::ignore, std::ignore, stencil_size) =
+                ImageSizeLinearAligned(pitch, size.height, 8, num_samples);
+            stencil_size *= resources.layers;
+        }
+        guest_address = stencil_addr;
+        guest_size = stencil_size;
+        mips_layout[0] =
+            MipInfo(guest_size, pitch, props.is_tiled ? buffer.Height() : size.height, 0);
+        num_bits = 8;
     } else {
-        std::tie(std::ignore, std::ignore, guest_size) =
-            ImageSizeLinearAligned(pitch, size.height, num_bits, num_samples);
-        guest_size *= resources.layers;
+        // Neither plane enabled: as before, the depth address with the 16 bit size.
+        guest_address = write_buffer ? buffer.DepthWriteAddress() : buffer.DepthAddress();
+        guest_size = 0;
         mips_layout[0] = MipInfo(guest_size, pitch, size.height, 0);
     }
 }
