@@ -1303,6 +1303,17 @@ void VerifyNativeDraw(std::span<const u32> packet, u64 address, u64 checksum_bef
 }
 } // namespace
 
+// Mrsuss60/bloodborne_pc_windows_port d81d63be (visy 080567ecc, shadPS4 1b9d1591): an indirect
+// buffer with the chain bit set is the rest of the submission, not a call: the buffer goes on in
+// its place (no nested task, no call depth). BB_PM4_CHAIN=0 calls it, as before.
+static bool Pm4ChainEnabled() {
+    static const bool enabled = [] {
+        const char* env = std::getenv("BB_PM4_CHAIN");
+        return !(env && env[0] == '0');
+    }();
+    return enabled;
+}
+
 Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<const u32> ccb,
                                            u64 seq, std::shared_ptr<SubmittedCopy> copy) {
     FIBER_ENTER(dcb_task_name);
@@ -1345,8 +1356,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
         RESUME_GFX(ce_task);
     }
 
-    const auto base_addr = reinterpret_cast<uintptr_t>(dcb.data());
-    const std::size_t dcb_dwords = dcb.size();
+    auto base_addr = reinterpret_cast<uintptr_t>(dcb.data());
+    std::size_t dcb_dwords = dcb.size();
     while (!dcb.empty()) {
         ProcessCommands();
 
@@ -2001,6 +2012,18 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             }
             case PM4ItOpcode::IndirectBuffer: {
                 const auto* indirect_buffer = reinterpret_cast<const PM4CmdIndirectBuffer*>(header);
+                if (indirect_buffer->chain && Pm4ChainEnabled()) {
+                    static std::atomic<u32> chained{0};
+                    if (chained.fetch_add(1) == 0) {
+                        std::printf("GPU: PM4 chained indirect buffer followed (BB_PM4_CHAIN=0: "
+                                    "called as before)
+");
+                    }
+                    dcb = {indirect_buffer->Address<const u32>(), indirect_buffer->ib_size};
+                    base_addr = reinterpret_cast<uintptr_t>(dcb.data());
+                    dcb_dwords = dcb.size();
+                    continue;
+                }
                 auto task = ProcessGraphics(
                     {indirect_buffer->Address<const u32>(), indirect_buffer->ib_size}, {});
                 // Tasks start suspended: the nested body (and its scan) runs on this resume.
@@ -2020,8 +2043,9 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             }
             case PM4ItOpcode::WaitOnCeCounter: {
                 // bbport: a signed distance, right across the u32 wrap.
+                // (no CCB in this submission: no CE task to run)
                 while (static_cast<s32>(cblock.ce_count - cblock.de_count) <= 0 &&
-                       !ce_task.handle.done()) {
+                       ce_task.handle && !ce_task.handle.done()) {
                     RESUME_GFX(ce_task);
                 }
                 break;
@@ -2179,6 +2203,14 @@ Liverpool::Task Liverpool::ProcessCompute(std::span<const u32> acb, u32 vqid) {
         }
         case PM4ItOpcode::IndirectBuffer: {
             const auto* indirect_buffer = reinterpret_cast<const PM4CmdIndirectBuffer*>(header);
+            if constexpr (is_indirect) {
+                if (indirect_buffer->chain && Pm4ChainEnabled()) {
+                    acb = {indirect_buffer->Address<const u32>(), indirect_buffer->ib_size};
+                    base_addr = reinterpret_cast<VAddr>(acb.data());
+                    acb_size = acb.size_bytes();
+                    continue;
+                }
+            }
             auto task = ProcessCompute<true>(
                 {indirect_buffer->Address<const u32>(), indirect_buffer->ib_size}, vqid);
             RESUME_ASC(task, vqid);
