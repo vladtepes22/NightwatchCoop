@@ -2016,8 +2016,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     static std::atomic<u32> chained{0};
                     if (chained.fetch_add(1) == 0) {
                         std::printf("GPU: PM4 chained indirect buffer followed (BB_PM4_CHAIN=0: "
-                                    "called as before)
-");
+                                    "called as before)\n");
                     }
                     dcb = {indirect_buffer->Address<const u32>(), indirect_buffer->ib_size};
                     base_addr = reinterpret_cast<uintptr_t>(dcb.data());
