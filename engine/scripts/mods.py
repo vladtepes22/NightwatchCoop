@@ -327,9 +327,10 @@ def file_sha256(path, cache):
     return cache[key][2]
 
 
-def party_mod_set(layers, cache_file=None):
+def party_mod_set(layers, cache_file=None, features=''):
     """(hash hex, gameplay items, cosmetic mod names) of the mods `layers` ([(name, folder)], load
-    order). The hash covers the winning gameplay files (game path, contents), not folder names."""
+    order). The hash covers the winning gameplay files (game path, contents), not folder names, then
+    `features`: the gameplay feature tables' rows (start/mods.cpp WritePartyModsFile); '' adds nothing."""
     owners = {}
     for name, root in layers:
         for relative, source in mod_files(root):
@@ -352,21 +353,23 @@ def party_mod_set(layers, cache_file=None):
         # its DCX bytes depend on the zlib build: it counts by its stamp.
         content = GENERATED_STAMPS.get(name) or file_sha256(source, cache)
         digest.update(b'\0file\0' + key.encode('utf-8') + b'\0' + content.encode())
+    if features:
+        digest.update(b'\0features\0' + features.encode('utf-8'))
     if cache_file:
         try:
             Path(cache_file).write_text(json.dumps(cache), encoding='utf-8')
         except OSError:
             pass
     items = [f'{name} ({counts[name]} files)' for name, _ in layers if name in counts]
-    if not counts:
+    if not counts and not features:
         return '0' * 64, [], sorted(cosmetic - set(counts))
     return digest.hexdigest(), items, sorted(cosmetic - set(counts))
 
 
-def write_party_mods_file(out, layers):
+def write_party_mods_file(out, layers, features=''):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    digest, items, cosmetic = party_mod_set(layers, out / PARTY_MODS_CACHE)
+    digest, items, cosmetic = party_mod_set(layers, out / PARTY_MODS_CACHE, features)
     lines = ['# Party version check (scripts/mods.py): the enabled mods that change gameplay files. Players',
              '# with another hash are refused by the party host; texture/shader/sound-only mods do not count.',
              f'hash {digest}']
@@ -375,6 +378,339 @@ def write_party_mods_file(out, layers):
     (out / PARTY_MODS_FILE).write_text('\n'.join(lines) + '\n', encoding='utf-8')
     return digest, items
 
+
+# ---- Mod manifests and feature tables (start/features.h, start/mods.cpp CheckManifests; docs/modding/manifest.md) ----
+# Mirrors the native start: a mod's nightwatch.json beside dvdroot_ps4, its nightwatch/<feature>.json tables, merged
+# in load order into out/ files of the same text format.
+MANIFEST = 'nightwatch.json'
+TABLES_DIR = 'nightwatch'
+MAX_FILE_BYTES = 1 << 20
+HIT_EFFECTS = 'hit_effects'
+HIT_EFFECTS_OUT = 'nightwatch_hit_effects.txt'
+MAX_HIT_ROWS = 4096
+WEAPON_CLIP_GROUPS = 'weapon_clip_groups'
+WEAPON_CLIP_GROUPS_OUT = 'nightwatch_weapon_clip_groups.txt'
+MAX_CLIP_ROWS = 4096
+KNOWN_FEATURES = (HIT_EFFECTS, WEAPON_CLIP_GROUPS)
+
+
+def _nightwatch_version():
+    """NW_VERSION as the native start has it: the repo's VERSION text (first line); the NW_VERSION
+    environment variable overrides it."""
+    given = os.environ.get('NW_VERSION')
+    if given:
+        return given
+    try:
+        with open(Path(__file__).resolve().parents[2] / 'VERSION', encoding='utf-8') as f:
+            return f.readline().strip('\r\n')
+    except OSError:
+        return '0.0.0-unknown'
+
+
+NW_VERSION = _nightwatch_version()
+
+
+def parse_version(text):
+    """(major, minor, patch) of "X.Y.Z" with an optional "-suffix" / "+meta" (ignored); also "X.Y"
+    (patch 0). None for anything else (features.h ParseVersion)."""
+    cut = min((i for i in (text.find('-'), text.find('+')) if i >= 0), default=len(text))
+    text = text[:cut]
+    parts = []
+    i = 0
+    while True:
+        if len(parts) == 3 or i >= len(text) or not '0' <= text[i] <= '9':
+            return None
+        n = 0
+        while i < len(text) and '0' <= text[i] <= '9':
+            n = n * 10 + int(text[i])
+            if n > 99999:
+                return None
+            i += 1
+        parts.append(n)
+        if i == len(text):
+            break
+        if text[i] != '.':
+            return None
+        i += 1
+    if len(parts) < 2:
+        return None
+    return tuple(parts + [0] * (3 - len(parts)))
+
+
+def _strict_json(data):
+    """The parsed JSON of bytes / text, or None when it is not JSON (a BOM is skipped; NaN and
+    Infinity are not JSON)."""
+    if isinstance(data, bytes):
+        try:
+            data = data.decode('utf-8')
+        except UnicodeDecodeError:
+            return None
+    data = data.removeprefix('﻿')
+
+    def refuse(_):
+        raise ValueError
+
+    try:
+        return json.loads(data, parse_constant=refuse)
+    except (ValueError, RecursionError):
+        return None
+
+
+def _is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def parse_manifest(data):
+    """(manifest dict, error): nightwatch.json is an object with string `id` and `requires` (a
+    version), optional strings `name`, `version`, `author` and an optional list of feature names.
+    Other keys are ignored."""
+    size = len(data.encode('utf-8')) if isinstance(data, str) else len(data)
+    if size > MAX_FILE_BYTES:
+        return None, f'{MANIFEST} is larger than 1 MiB'
+    j = _strict_json(data)
+    if not isinstance(j, dict):
+        return None, f'{MANIFEST} is not a JSON object'
+    m = {'id': '', 'name': '', 'version': '', 'author': '', 'requires': '', 'features': []}
+    for key, field, required in (('id', 'id', True), ('requires', 'requires', True), ('name', 'name', False),
+                                 ('version', 'version', False), ('author', 'author', False)):
+        if key not in j:
+            if required:
+                return None, f'{MANIFEST} has no "{key}"'
+            continue
+        value = j[key]
+        if not isinstance(value, str) or (required and not value):
+            return None, f'{MANIFEST}: "{key}" is not a{" non-empty" if required else ""} string'
+        m[field] = value
+    if parse_version(m['requires']) is None:
+        return None, f'{MANIFEST}: "requires" is not a version like 0.3.0: {m["requires"]}'
+    if 'features' in j:
+        if not isinstance(j['features'], list):
+            return None, f'{MANIFEST}: "features" is not a list'
+        for f in j['features']:
+            if not isinstance(f, str) or not f:
+                return None, f'{MANIFEST}: "features" holds something other than a feature name'
+            m['features'].append(f)
+    return m, ''
+
+
+def manifest_refusal(m, nightwatch=None):
+    """Why this Nightwatch cannot load the mod with manifest `m`, or '' when it can."""
+    nightwatch = NW_VERSION if nightwatch is None else nightwatch
+    need = parse_version(m['requires'])
+    have = parse_version(nightwatch)
+    if need is None:
+        return f'"requires" is not a version: {m["requires"]}'
+    if have is None:
+        return f'this Nightwatch has no version ({nightwatch})'
+    if have < need:
+        return f'needs Nightwatch {m["requires"]} or newer (this is {nightwatch})'
+    for f in m['features']:
+        if f not in KNOWN_FEATURES:
+            return f'uses the feature "{f}", which Nightwatch {nightwatch} does not have'
+    return ''
+
+
+def _log(text):
+    print(text, file=sys.stderr)
+
+
+def check_manifests(layers, manifests):
+    """The layers ([(name, folder)]) without those whose nightwatch.json is bad, needs a newer
+    Nightwatch or names an unknown feature (one log line each). `manifests` (name: manifest) gets
+    the kept layers' manifests; a mod without one loads as before."""
+    kept = []
+    for name, root in layers:
+        path = Path(root) / MANIFEST
+        if not path.is_file():
+            kept.append((name, root))
+            continue
+        try:
+            m, why = parse_manifest(path.read_bytes())
+            if m is None:
+                why = f'bad manifest: {why}'
+        except OSError as error:
+            m, why = None, f'cannot read {MANIFEST}: {error}'
+        if m is not None:
+            why = manifest_refusal(m)
+        if why:
+            _log(f'Mods: {name}: {why}: not loaded')
+            continue
+        _log(f'Mods: {name}: manifest {m["id"]} {m["version"] or "-"}, requires {m["requires"]}, '
+             f'features {", ".join(m["features"]) or "none"}')
+        manifests[name] = m
+        kept.append((name, root))
+    return kept
+
+
+def _table_header(data, name, what):
+    """(rows list, error) of a feature table: {"version": 1, "rows": [...]}."""
+    file = f'{TABLES_DIR}/{name}.json'
+    if len(data) > MAX_FILE_BYTES:
+        return None, f'{file} is larger than 1 MiB'
+    j = _strict_json(data)
+    if not isinstance(j, dict):
+        return None, f'{file} is not a JSON object'
+    if not _is_int(j.get('version')) or j['version'] != 1:
+        return None, f'{file}: "version" is not 1'
+    if not isinstance(j.get('rows'), list):
+        return None, f'{file}: "rows" is not a list'
+    if len(j['rows']) > what:
+        return None, f'{file}: more than {what} rows'
+    return j['rows'], ''
+
+
+def _whole(row, key, lo=1, hi=0x7FFFFFFF):
+    value = row.get(key) if isinstance(row, dict) else None
+    return value if _is_int(value) and lo <= value <= hi else None
+
+
+def parse_hit_effects(data):
+    """(rows, error) of nightwatch/hit_effects.json. A row is (attacker_speffect, base_fx, fx,
+    sp_attribute, sound): a swap {"attacker_speffect", "base_fx", "fx"} or a draw {"sp_attribute"
+    (1..255, not 2 / 6), "fx", "sound"} (sp_attribute != 0), each a whole number 1..2147483647."""
+    file = f'{TABLES_DIR}/{HIT_EFFECTS}.json'
+    rows, error = _table_header(data, HIT_EFFECTS, MAX_HIT_ROWS)
+    if rows is None:
+        return None, error
+    out = []
+    for number, r in enumerate(rows, 1):
+        if isinstance(r, dict) and 'sp_attribute' in r:
+            attr, fx, sound = _whole(r, 'sp_attribute'), _whole(r, 'fx'), _whole(r, 'sound')
+            if (attr is None or attr > 255 or attr in (2, 6) or fx is None or sound is None
+                    or 'attacker_speffect' in r or 'base_fx' in r):
+                return None, (f'{file}: row {number} (a draw row) needs sp_attribute 1..255 but not 2 or 6, and whole '
+                              'numbers 1..2147483647 for fx and sound (no attacker_speffect or base_fx)')
+            out.append((0, 0, fx, attr, sound))
+        else:
+            sp, base, fx = _whole(r, 'attacker_speffect'), _whole(r, 'base_fx'), _whole(r, 'fx')
+            if sp is None or base is None or fx is None:
+                return None, (f'{file}: row {number} needs whole numbers 1..2147483647 for attacker_speffect, '
+                              'base_fx and fx')
+            out.append((sp, base, fx, 0, 0))
+    return out, ''
+
+
+def _same_hit_key(a, b):
+    if a[3]:
+        return a[3] == b[3]
+    return not b[3] and a[0] == b[0] and a[1] == b[1]
+
+
+def merge_hit_effects(merged, name, own):
+    """merged = {'names': [], 'rows': [(row, mod index)]}: a later mod's row replaces one with the same key."""
+    if not own:
+        return
+    index = len(merged['names'])
+    merged['names'].append(name)
+    for row in own:
+        merged['rows'] = [r for r in merged['rows'] if not _same_hit_key(r[0], row)]
+        merged['rows'].append((row, index))
+
+
+def hit_effects_file_text(merged):
+    """out/nightwatch_hit_effects.txt text, the newest mod first; '' when there are no rows."""
+    if not merged['rows']:
+        return ''
+    rows = sorted(merged['rows'], key=lambda r: -r[1])[:MAX_HIT_ROWS]  # stable
+    lines = ['# hit_effects (bb-start; attacker_speffect base_fx fx | attr sp_attribute fx sound, newest mod first), '
+             'from: ' + ', '.join(merged['names'])]
+    for (sp, base, fx, attr, sound), _ in rows:
+        lines.append(f'attr {attr} {fx} {sound}' if attr else f'{sp} {base} {fx}')
+    return '\n'.join(lines) + '\n'
+
+
+def parse_weapon_clip_groups(data):
+    """(rows, error) of nightwatch/weapon_clip_groups.json: rows (weapon, clip_group), weapon a multiple of
+    10000 (10000..2147480000), clip_group 1..999; a weapon listed twice in one table is a bad row."""
+    file = f'{TABLES_DIR}/{WEAPON_CLIP_GROUPS}.json'
+    rows, error = _table_header(data, WEAPON_CLIP_GROUPS, MAX_CLIP_ROWS)
+    if rows is None:
+        return None, error
+    out = []
+    for number, r in enumerate(rows, 1):
+        weapon, group = _whole(r, 'weapon', 10000, 2147480000), _whole(r, 'clip_group', 1, 999)
+        ok = weapon is not None and weapon % 10000 == 0 and group is not None
+        twice = ok and any(w == weapon for w, _ in out)
+        if not ok or twice:
+            return None, f'{file}: row {number} ' + (
+                'lists a weapon a second time' if twice
+                else 'needs "weapon" (a multiple of 10000) and "clip_group" (1..999)')
+        out.append((weapon, group))
+    return out, ''
+
+
+def merge_weapon_clip_groups(merged, name, own):
+    """merged = {'names': [], 'rows': {weapon: group}}: a later mod's row replaces one for the same weapon."""
+    if not own:
+        return
+    merged['names'].append(name)
+    merged['rows'].update(own)
+    # the native merge keeps the first 4096 rows by weapon
+    for weapon in sorted(merged['rows'])[MAX_CLIP_ROWS:]:
+        del merged['rows'][weapon]
+
+
+def weapon_clip_groups_file_text(merged):
+    """out/nightwatch_weapon_clip_groups.txt text, by weapon; '' when there are no rows."""
+    if not merged['rows']:
+        return ''
+    lines = ['# weapon_clip_groups (bb-start; weapon clip_group), from: ' + ', '.join(merged['names'])]
+    lines += [f'{weapon} {merged["rows"][weapon]}' for weapon in sorted(merged['rows'])]
+    return '\n'.join(lines) + '\n'
+
+
+def _read_tables(layers, manifests, feature, parse, merge, merged):
+    for name, root in layers:
+        table = Path(root) / TABLES_DIR / f'{feature}.json'
+        if not table.is_file():
+            continue
+        m = manifests.get(name)
+        if m is None or feature not in m['features']:
+            _log(f'Mods: {name}: has nightwatch/{feature}.json but its nightwatch.json does not list {feature}: '
+                 'not used')
+            continue
+        try:
+            rows, error = parse(table.read_bytes())
+        except OSError as e:
+            _log(f'Mods: {table}: {e}: its {feature} table is not used')
+            continue
+        if rows is None:
+            _log(f'Mods: {name}: {error}: its {feature} table is not used')
+            continue
+        merge(merged, name, rows)
+
+
+def _write_feature_file(out, file, text):
+    path = Path(out) / file
+    if not text:
+        path.unlink(missing_ok=True)
+        return
+    path.write_text(text, encoding='utf-8', newline='\n')
+
+
+def write_hit_effects_file(out, layers, manifests):
+    """out/nightwatch_hit_effects.txt from the layers' nightwatch/hit_effects.json (only for a manifest
+    listing the feature). A visual feature: not in the party hash."""
+    merged = {'names': [], 'rows': []}
+    _read_tables(layers, manifests, HIT_EFFECTS, parse_hit_effects, merge_hit_effects, merged)
+    text = hit_effects_file_text(merged)
+    _write_feature_file(out, HIT_EFFECTS_OUT, text)
+    if text:
+        _log(f'Mods: hit_effects: {len(merged["rows"])} rows from {len(merged["names"])} mods')
+    return text
+
+
+def write_weapon_clip_groups_file(out, layers, manifests):
+    """out/nightwatch_weapon_clip_groups.txt likewise. Gameplay: returns the rows ("weapon group" lines,
+    no comment line) for the party hash, '' when there are none."""
+    merged = {'names': [], 'rows': {}}
+    _read_tables(layers, manifests, WEAPON_CLIP_GROUPS, parse_weapon_clip_groups, merge_weapon_clip_groups, merged)
+    text = weapon_clip_groups_file_text(merged)
+    _write_feature_file(out, WEAPON_CLIP_GROUPS_OUT, text)
+    if not text:
+        return ''
+    _log(f'Mods: {WEAPON_CLIP_GROUPS}: {len(merged["rows"])} rows from {len(merged["names"])} mods')
+    return text[text.index('\n') + 1:]
 
 
 def main():
@@ -395,8 +731,16 @@ def main():
         else:
             for name in selected(args.mods_dir, args.config):
                 layers.append((name, args.mods_dir / name))
-    write_party_mods_file(args.out,layers)
-    print(build_overlay(args.game, args.out, layers, update_folder(args.game.resolve())))
+    args.out.mkdir(parents=True, exist_ok=True)
+    for stale in (HIT_EFFECTS_OUT, WEAPON_CLIP_GROUPS_OUT):  # a failed start leaves the vanilla look and clips
+        (args.out / stale).unlink(missing_ok=True)
+    manifests = {}
+    layers = check_manifests(layers, manifests)
+    print(f'Mods: Nightwatch {NW_VERSION}, features: {", ".join(KNOWN_FEATURES)}', file=sys.stderr)
+    write_party_mods_file(args.out, layers, write_weapon_clip_groups_file(args.out, layers, manifests))
+    view = build_overlay(args.game, args.out, layers, update_folder(args.game.resolve()))
+    write_hit_effects_file(args.out, layers, manifests)
+    print(view)
 
 
 if __name__ == '__main__':
