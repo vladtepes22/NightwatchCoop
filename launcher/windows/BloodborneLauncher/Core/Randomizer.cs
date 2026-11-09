@@ -169,16 +169,46 @@ namespace BloodborneLauncher.Core
             : builtOn.Count == 0 ? L.T("Built on the game alone.")
             : L.F($"Built on {string.Join(", ", builtOn)}.");
 
-        /// <summary>Option coiled_host has something to act on: one of these mod folders is Nocturne v2.0.0 or later, which
-        /// adds the Coiled Host (the generator finds him in the files and skips the option without him). Hashes each folder
-        /// once (cached), so call it off the UI thread.</summary>
+        /// <summary>Option coiled_host has something to act on: one of these mod folders places the Coiled Host (Nocturne
+        /// v2.0.0 or later), read from its files like the generator does, so a copy from Nexus or any folder name counts, not
+        /// only one the launcher downloaded. Reads a map file, so call it off the UI thread.</summary>
         public static bool HasCoiledHost(string modsDir, IEnumerable<string> modFolders) =>
-            modFolders.Any(m => CoiledHostVersion(CuratedMods.NocturneVersionIn(Path.Combine(modsDir, m))));
+            modFolders.Any(m => PlacesCoiledHost(Path.Combine(modsDir, m)));
 
-        /// <summary>A Nocturne version with the Coiled Host: 2.0.0 or later ("2.1", "2.0.0-beta" count; null does not).</summary>
-        public static bool CoiledHostVersion(string? version) =>
-            version != null && new string(version.TakeWhile(c => char.IsDigit(c) || c == '.').ToArray()).TrimEnd('.') is { Length: > 0 } plain &&
-            Version.TryParse(plain.Contains('.') ? plain : plain + ".0", out var v) && v >= new Version(2, 0);
+        /// <summary>Nocturne's Coiled Host: entity 2700806 in m27_00_00_00's map (DATA: once in Nocturne 2.0.0 and 3.0.0,
+        /// never in the game's own m27 map).</summary>
+        public const int CoiledHostEntity = 2700806;
+
+        /// <summary>The mod ships m27_00_00_00's map and it holds the Coiled Host's entity id; false for anything unreadable.</summary>
+        public static bool PlacesCoiledHost(string folder)
+        {
+            try
+            {
+                if (!Directory.Exists(folder)) return false;
+                var root = CuratedMods.ContentRoot(folder);
+                var dvd = Path.Combine(root, "dvdroot_ps4");
+                var map = Path.Combine(Directory.Exists(dvd) ? dvd : root, "map", "MapStudio", "m27_00_00_00.msb.dcx");
+                if (!File.Exists(map)) return false;
+                var key = BitConverter.GetBytes(CoiledHostEntity);
+                return Dcx(File.ReadAllBytes(map)).AsSpan().IndexOf(key) >= 0;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException) { return false; }
+        }
+
+        /// <summary>A DCX file's data (DFLT: zlib at 0x4C, big-endian sizes at 0x1C / 0x20); bytes without a DCX header as they are.</summary>
+        internal static byte[] Dcx(byte[] file)
+        {
+            if (file.Length < 4 || file[0] != 'D' || file[1] != 'C' || file[2] != 'X' || file[3] != 0) return file;
+            if (file.Length < 0x4C || Encoding.ASCII.GetString(file, 0x28, 4) != "DFLT")
+                throw new InvalidDataException("unsupported DCX compression");
+            var size = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(file.AsSpan(0x1C));
+            var packed = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(file.AsSpan(0x20));
+            if (size < 0 || packed < 0 || 0x4C + (long)packed > file.Length) throw new InvalidDataException("bad DCX sizes");
+            using var z = new System.IO.Compression.ZLibStream(new MemoryStream(file, 0x4C, packed), System.IO.Compression.CompressionMode.Decompress);
+            var data = new byte[size];
+            z.ReadExactly(data);
+            return data;
+        }
 
         /// <summary>The other enabled mods no longer are what the world was built on.</summary>
         public static bool IsStale(IEnumerable<string> builtOn, IEnumerable<Mods.Entry> mods, string worldFolderName) =>

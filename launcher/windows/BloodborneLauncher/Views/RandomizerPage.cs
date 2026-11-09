@@ -30,7 +30,7 @@ namespace BloodborneLauncher.Views
         private WorldCodeResult? _pasted;  // the last valid code typed or pasted: its hidden settings and the note's "changed from"
         private string? _code;             // what the code box shows, null while it holds no valid code
         private bool _syncing, _busy;
-        private bool _nocturne; // a ticked mod is Nocturne v2.0.0+ (option coiled_host has a Coiled Host to act on)
+        private bool _nocturne; // a ticked mod places the Coiled Host (Nocturne v2.0.0+; option coiled_host has him to act on)
         private CancellationTokenSource? _stop;
 
         private static readonly Choice[] OffOrOn = { new(L.T("Off"), "same"), new(L.T("On"), "swap") };
@@ -358,7 +358,7 @@ namespace BloodborneLauncher.Views
                 _worlds.Children.Add(Empty(L.T("No worlds yet. Generate one above.")));
         }
 
-        /// <summary>Whether the ticked mods hold Nocturne v2.0.0+, worked out off the UI thread (it hashes the folder once);
+        /// <summary>Whether a ticked mod places the Coiled Host (Nocturne v2.0.0+), worked out off the UI thread (it reads a map file);
         /// the Coiled Host row follows.</summary>
         private async void CheckNocturne()
         {

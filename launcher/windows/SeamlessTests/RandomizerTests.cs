@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json.Nodes;
+using System.Text;
 using BloodborneLauncher.Core;
 
 internal static class RandomizerTests
@@ -77,8 +78,55 @@ internal static class RandomizerTests
 
     /// <summary>The page's model: codes fill the options, presets, the card line, the generator's progress lines, the
     /// spoiler's readable part and the clean-up after a stopped run.</summary>
+    /// <summary>Option coiled_host's row (needs no generator vectors).</summary>
+    private static void CoiledHost()
+    {
+        // option coiled_host: the page greys it out unless a ticked mod places the Coiled Host (read from its m27 map, so a
+        // Nexus copy under any folder name counts, without the launcher's nocturne.json)
+        var noMods = Path.Combine(Path.GetTempPath(), "seamless-coiled-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(noMods, "Nocturne v2.0.0"));
+        static byte[] DcxOf(byte[] data)
+        {
+            var packed = new MemoryStream();
+            using (var z = new System.IO.Compression.ZLibStream(packed, System.IO.Compression.CompressionLevel.Optimal, true)) z.Write(data);
+            var file = new byte[0x4C + packed.Length];
+            Encoding.ASCII.GetBytes("DCX\0").CopyTo(file, 0);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(file.AsSpan(0x1C), data.Length);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(file.AsSpan(0x20), (int)packed.Length);
+            Encoding.ASCII.GetBytes("DFLT").CopyTo(file, 0x28);
+            packed.ToArray().CopyTo(file, 0x4C);
+            return file;
+        }
+        void Map(string mod, string? wrapper, int entity)
+        {
+            var dir = Path.Combine(new[] { noMods, mod, wrapper ?? "", "dvdroot_ps4", "map", "MapStudio" }.Where(p => p.Length > 0).ToArray());
+            Directory.CreateDirectory(dir);
+            var data = new byte[64];
+            BitConverter.GetBytes(entity).CopyTo(data, 20);
+            File.WriteAllBytes(Path.Combine(dir, "m27_00_00_00.msb.dcx"), DcxOf(data));
+        }
+        try
+        {
+            Check(!Randomizer.HasCoiledHost(noMods, Array.Empty<string>()), "no mods ticked: no Coiled Host");
+            Check(!Randomizer.HasCoiledHost(noMods, new[] { "Nocturne v2.0.0", "missing" }), "a folder named Nocturne without its files is not Nocturne");
+            Map("from nexus", null, Randomizer.CoiledHostEntity);
+            Check(Randomizer.HasCoiledHost(noMods, new[] { "missing", "from nexus" }), "a mod whose m27 map places the Coiled Host has him, whatever its folder is called");
+            Map("wrapped", "CUSA03173", Randomizer.CoiledHostEntity);
+            Check(Randomizer.HasCoiledHost(noMods, new[] { "wrapped" }), "the Coiled Host found under a CUSA03173 wrapper");
+            Map("other m27", null, Randomizer.CoiledHostEntity + 1);
+            Check(!Randomizer.HasCoiledHost(noMods, new[] { "other m27" }), "an m27 map without his entity id has no Coiled Host");
+            File.WriteAllBytes(Path.Combine(noMods, "other m27", "dvdroot_ps4", "map", "MapStudio", "m27_00_00_00.msb.dcx"), Encoding.ASCII.GetBytes("DCX\0broken"));
+            Check(!Randomizer.HasCoiledHost(noMods, new[] { "other m27" }), "a broken map file is no Coiled Host (no crash)");
+            // a real Nocturne build when given (SAVEEDIT_NOCTURNE, as the save editor tests): it places him
+            if (Environment.GetEnvironmentVariable("SAVEEDIT_NOCTURNE") is { Length: > 0 } real && Directory.Exists(real))
+                Check(Randomizer.PlacesCoiledHost(real), "the real Nocturne build places the Coiled Host: " + Path.GetFileName(real));
+        }
+        finally { Directory.Delete(noMods, true); }
+    }
+
     private static void Page()
     {
+        CoiledHost(); // needs no generator vectors, so it runs on the public branches too
         if (WorldJoinTests.GeneratorVectors() is not { } vectors) return;
         var checkedOne = false;
         foreach (var v in vectors["vectors"]!.AsArray())
@@ -113,19 +161,6 @@ internal static class RandomizerTests
         try { Randomizer.FromCode(WorldCode.Decode("R2-not-a-code")); } catch (ArgumentException) { refused = true; }
         Check(refused, "a bad code fills nothing");
 
-        // option coiled_host: the page greys it out unless a ticked mod is Nocturne v2.0.0 or later
-        foreach (var v in new[] { "2.0.0", "2.0", "2", "2.1.3", "10.0.0", "2.0.0-beta" })
-            Check(Randomizer.CoiledHostVersion(v), "Nocturne " + v + " has the Coiled Host");
-        foreach (var v in new string?[] { null, "", "1.0.1", "1.9.9", "beta", "." })
-            Check(!Randomizer.CoiledHostVersion(v), "Nocturne " + (v ?? "null") + " has no Coiled Host");
-        var noMods = Path.Combine(Path.GetTempPath(), "seamless-coiled-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Path.Combine(noMods, "Nocturne v2.0.0"));
-        try
-        {
-            Check(!Randomizer.HasCoiledHost(noMods, Array.Empty<string>()), "no mods ticked: no Coiled Host");
-            Check(!Randomizer.HasCoiledHost(noMods, new[] { "Nocturne v2.0.0", "missing" }), "a folder named Nocturne without its files is not Nocturne");
-        }
-        finally { Directory.Delete(noMods, true); }
         Check(Randomizer.Summary(Randomizer.Standard(1)) == "Shuffled: enemies, drops.", "the card line of the standard world");
         Check(Randomizer.Summary(Randomizer.Standard(1) with { StarterMelee = 4, StarterGuns = 3 }) ==
               "Shuffled: enemies, drops. Melee starting weapons offered: 4. Firearm starting weapons offered: 3.", "the card line names the starting weapon counts");
