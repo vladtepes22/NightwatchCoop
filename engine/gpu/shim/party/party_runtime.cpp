@@ -1114,6 +1114,11 @@ void on_split_choosing(int slot, const std::string& body) {
     coop::split::OnChoosingEvent(slot, who, body);
 }
 
+bool guest_drop_home() {
+    static const bool on = !(env("BB_PARTY_GUEST_DROP_HOME") && env("BB_PARTY_GUEST_DROP_HOME")[0] == '0');
+    return on;
+}
+
 void on_roster(const std::vector<RosterEntry>& roster) {
     Runtime& r = R();
     const std::string sig = roster_text(roster, false);
@@ -1148,7 +1153,7 @@ void on_roster(const std::vector<RosterEntry>& roster) {
         static std::mutex mu;
         static std::map<std::string, MemberState> last;
         static std::set<std::string> lost;  // members whose link dropped while in the world (a crash)
-        std::vector<std::string> crashed;
+        std::vector<std::string> crashed, went_home;
         {
             std::lock_guard<std::mutex> lk(mu);
             for (const RosterEntry& e : roster) {
@@ -1169,8 +1174,44 @@ void on_roster(const std::vector<RosterEntry>& roster) {
                 } else if (e.connected && e.state == MemberState::InHostWorld) {
                     lost.erase(e.name);  // back in the world without a restart (an outage resumed)
                 }
+                // 0.8.0 (08c): a member that was in the host's world and is now at HOME has left our session with its game (an
+                // invader's send-home, a guest's Leave): our game still holds its connection to that old game. The next game from
+                // the same address and port (an invader asking again) then met that stale connection: with a second guest in
+                // the party its join stayed in trying-to-join until the bell-sign retry (~33 s, smoke iv; ivm without a guest
+                // passed). BB_PARTY_GUEST_DROP_HOME=0 turns it off.
+                if (it != last.end() && it->second == MemberState::InHostWorld && e.state == MemberState::Home && e.connected &&
+                    guest_drop_home())
+                    went_home.push_back(e.name);
                 last[e.name] = e.state;
             }
+            // The slot of a member that left is released (an invader's always): it vanishes from the roster instead of showing Home.
+            if (guest_drop_home()) {
+                std::set<std::string> now_in;
+                for (const RosterEntry& e : roster) now_in.insert(e.name);
+                for (auto it = last.begin(); it != last.end();) {
+                    if (!now_in.count(it->first) && it->second == MemberState::InHostWorld && !lost.count(it->first)) went_home.push_back(it->first);
+                    it = now_in.count(it->first) ? std::next(it) : last.erase(it);
+                }
+            }
+        }
+        // NrDropSilentPeers releases every game connection whose source has been silent 1.5 s, not only the departed member's:
+        // a member that is loading is silent too. So nothing is released while another member is Joining / Loading / Dead.
+        if (!went_home.empty()) {
+            for (const RosterEntry& e : roster)
+                if (e.slot != kHostSlot && e.slot != link->local_slot() &&
+                    (e.state == MemberState::Joining || e.state == MemberState::Loading || e.state == MemberState::Dead)) {
+                    plog("%s went home, but %s is %s: no connection released now", went_home[0].c_str(), e.name.c_str(),
+                         member_state_name(e.state));
+                    went_home.clear();
+                    break;
+                }
+        }
+        for (const std::string& name : went_home) {
+            plog("%s went home from the host's world: releasing our game's connection to its old game", name.c_str());
+            std::string host_name;  // never released: the host may be silent while it loads
+            for (const RosterEntry& e : roster)
+                if (e.slot == kHostSlot) host_name = e.name;
+            coop::b2::NrDropSilentPeers(name, 0, host_name);
         }
         for (const std::string& name : crashed) {
             plog("C6 (guest): %s is back at its title after being in the world (a restart): releasing our "

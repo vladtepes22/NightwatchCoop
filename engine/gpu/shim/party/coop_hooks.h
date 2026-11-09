@@ -94,5 +94,7 @@ bool HookValueFilter(u64 off, std::initializer_list<u8> original, std::initializ
 /// `patched` (written, or already there); false (and a log line naming `name`) when it holds
 /// neither: nothing is written then.
 bool PatchBytes(u64 off, std::initializer_list<u8> original, std::initializer_list<u8> patched, const char* name);
+/// The same for `size` bytes held elsewhere (a table-driven patch set, party_sixp.h).
+bool PatchBytes(u64 off, const u8* original, const u8* patched, std::size_t size, const char* name);
 
 } // namespace coop

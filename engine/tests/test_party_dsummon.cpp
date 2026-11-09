@@ -412,6 +412,24 @@ int main() {
               TitleJoinBusy(true, false, true, false, true) == Busy::Boss);
         CHECK(!BusyText(Busy::Chalice, false).empty() && std::string(BusyWord(Busy::Chalice)) == "chalice");
     }
+    {  // 0.8.0 (08c): the waits grow with the link's RTT; a LAN keeps the fixed values
+        CHECK(WaitSlack(0) == 0.0 && WaitSlack(1) == 0.0 && WaitSlack(kSlackFromRtt - 1) == 0.0);
+        CHECK(WaitSlack(160) > 4.0 && WaitSlack(160) < 5.5 && WaitSlack(300) > WaitSlack(160));
+        CHECK(WaitSlack(100000) == kSlackMax);
+        Guest g; OnAsked(g, 0); OnRoom(g, 0, false); OnDelivered(g, 0, true);
+        CHECK(Step(g, kJoinWait + 1, false, false) == Action::ReportFail && g.phase == Phase::Failed);  // LAN: unchanged
+        Guest s; OnAsked(s, 0); s.slack = WaitSlack(160); OnRoom(s, 0, false); OnDelivered(s, 0, true);
+        CHECK(Step(s, kJoinWait + 1, false, false) == Action::None && s.phase == Phase::Delivered);  // slow link: still waiting
+        CHECK(Step(s, kJoinWait + s.slack - 0.1, true, true) == Action::ReportOk);                  // joined late: fine
+        Guest t; OnAsked(t, 0); t.slack = WaitSlack(160); OnRoom(t, 0, false); OnDelivered(t, 0, true);
+        CHECK(Step(t, kJoinWait + t.slack + 0.5, false, false) == Action::ReportFail);              // but not for ever
+        Guest e; OnAsked(e, 0); e.slack = 5; OnRoom(e, 0, false); e.rearmed = true;
+        CHECK(Step(e, kEntryWait + 1, false, false) == Action::None && e.phase == Phase::HaveRoom);
+        CHECK(Step(e, kEntryWait + 5.5, false, false) == Action::ReportFail);
+        Guest a; OnAsked(a, 0); a.slack = 5;
+        CHECK(Step(a, kAnswerWait + 1, false, false) == Action::None && a.phase == Phase::Asked);
+        OnAsked(a, 100); CHECK(a.slack == 0);  // a new request starts from the link's current value
+    }
     std::printf("party-dsummon-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

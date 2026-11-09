@@ -369,7 +369,7 @@ What the game does now (`gpu/shim/net/net_socket.cpp`, `party_udp.cpp`, `shim/pa
 - **Kill switch:** `BB_PARTY_NW_AUTO=0` gives the 0.7.7 behaviour (no automatic choice, no Nightwatch mode).
   No new setting: this is a fix for VPN players only.
 
-**Packet size.** OpenVPN adds ~70 bytes, so a game datagram over ~1430 bytes is IP-fragmented inside the
+**Packet size.** (0.8.0: every P2P game datagram over 1200 bytes is now split at record boundaries, `BB_PARTY_NET_SPLIT`, not only toward tunnel peers; see below for the older rules.) OpenVPN adds ~70 bytes, so a game datagram over ~1430 bytes is IP-fragmented inside the
 tunnel and is lost with any one fragment.
 - The game's session transport packs datagrams past its own MTU (1232) when it catches up; those were
   already split at record boundaries (0.6.2, `BB_PARTY_OUTAGE_REPLAY`); toward a tunnel peer they are now

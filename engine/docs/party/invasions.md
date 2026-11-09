@@ -45,9 +45,10 @@ never given the party key, so:
   named reason, sent as REJECT `Invasion` (code 9). In this order: *the host does not allow invaders*, *blocked for this session*,
   *too many invasion attempts* (an address may start 3 invasions per 10 minutes and knock 20 times; refusals do not count against the 3), *Stay in my world is on*, *not in a world you can enter now* (title,
   prologue), *a loading screen*, *a cutscene*, *a boss fight is on* (fog), *the host is dead*, *the party is travelling*,
-  *another invader is already in*, *no free slot (4 players)*.
-* **Slots.** The game has four player slots (the host and three phantoms); an invader is one of them. With the host and two
-  guests there is room; with three guests there is none and the invader is refused cleanly (`Capacity`, unit tested, and live with
+  *another invader is already in*, *no free slot (the party is full)*.
+* **Slots.** The game has five seats for players (the host and four more; 0.8.0, CL-10e56b: this was counted as four before,
+  which kept an invader out of every 5-player party); an invader is one of them. Max players 4: with the host and two
+  guests there is room; with three guests there is none. Max players 5 (*Large parties*): host + 3 guests + an invader. The invader is refused cleanly (`Capacity`, unit tested, and live with
   Max players 2). One invader at a time by default (`kMaxInvaders`); with the host's **Max invaders 2** (0.7.9, CL-7e748c,
 `kMaxInvadersCap`) two, and then both are slots of the four and count against Max players (host + 1 guest + 2 invaders = 4; with Max
 players 3 and one guest only one invader fits; the second is refused *no free slot*). The third is always refused *another invader is

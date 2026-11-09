@@ -47,6 +47,7 @@ float Dist(const float a[3], const float b[3]) {
 
 std::mutex g_mu;
 Marker g_board[kMaxSlots];
+MapMark g_marks[kMaxSlots];
 
 }  // namespace
 
@@ -59,6 +60,7 @@ std::string ToJson(const PingEvent& e) {
     v.set("pos", p);
     if (e.hit) v.set("hit", 1);
     if (e.clear) v.set("clear", 1);
+    if (e.mark) v.set("mark", 1);
     v.set("t", static_cast<long long>(e.t));
     if (e.slot >= 0) v.set("slot", e.slot);
     if (!e.who.empty()) v.set("who", e.who);
@@ -76,9 +78,9 @@ bool FromJson(const std::string& text, PingEvent* out, std::string* error) {
     if (!json::parse(text, v, err)) return fail("not JSON");
     if (v.type != json::Value::Type::Object) return fail("not an object");
     PingEvent e;
-    double id = 0, map = 0, hit = 0, clear = 0, t = 0, slot = -1;
+    double id = 0, map = 0, hit = 0, clear = 0, mark = 0, t = 0, slot = -1;
     if (!Number(v, "id", 0, 4294967295.0, true, &id) || !Number(v, "map", 0, 4294967295.0, true, &map) ||
-        !Number(v, "hit", 0, 1, true, &hit) || !Number(v, "clear", 0, 1, true, &clear) ||
+        !Number(v, "hit", 0, 1, true, &hit) || !Number(v, "clear", 0, 1, true, &clear) || !Number(v, "mark", 0, 1, true, &mark) ||
         !Number(v, "t", 0, 9.0e15, true, &t) || !Number(v, "slot", -1, kMaxSlots - 1, true, &slot)) {
         return fail("bad number");
     }
@@ -86,6 +88,7 @@ bool FromJson(const std::string& text, PingEvent* out, std::string* error) {
     e.map = static_cast<std::uint32_t>(map);
     e.hit = hit != 0;
     e.clear = clear != 0;
+    e.mark = mark != 0;
     e.t = static_cast<std::int64_t>(t);
     e.slot = static_cast<int>(slot);
     if (!e.clear && (e.map == 0 || e.map == 0xffffffffu)) return fail("no map");
@@ -152,6 +155,30 @@ void Clear(int slot) {
 void ClearAll() {
     std::lock_guard<std::mutex> lk(g_mu);
     for (Marker& m : g_board) m.live = false;
+    for (MapMark& m : g_marks) m.live = false;
+}
+
+void PlaceMark(const MapMark& m) {
+    if (m.slot < 0 || m.slot >= kMaxSlots || !std::isfinite(m.x) || !std::isfinite(m.z)) return;
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_marks[m.slot] = m;
+    g_marks[m.slot].live = true;
+    g_marks[m.slot].name[kNameBytes - 1] = 0;
+}
+
+void ClearMark(int slot) {
+    if (slot < 0 || slot >= kMaxSlots) return;
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_marks[slot].live = false;
+}
+
+int ReadMarks(MapMark* out) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    int n = 0;
+    for (const MapMark& m : g_marks) {
+        if (m.live) out[n++] = m;
+    }
+    return n;
 }
 
 int Read(Marker* out, std::int64_t now_ms) {

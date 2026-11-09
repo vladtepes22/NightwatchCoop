@@ -34,6 +34,11 @@ bool SafeGet(std::uint64_t address, T* v) {
 }
 bool SafeWrite(std::uint64_t address, const void* in, std::size_t n);
 
+/// The game's map-object lookup (guest 0x13C9AF0: entity -> record, `*idx` in/out, start 0xffffffff), made safe:
+/// while a world is torn down for a load the object table (0x553B168) has a count but a null block array, and the
+/// game function then reads address 0x10 (host crash, seen in lift_walk lfwc at a lamp warp). 0 = not found / not ready.
+std::uint64_t FindMapObject(std::int32_t entity, std::uint32_t* idx);
+
 enum SessionRole : int {
     RoleIdle = 0,
     RoleTryingToHost = 1,

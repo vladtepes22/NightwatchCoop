@@ -2,6 +2,7 @@
 // Four-player parties (see party_fourp.h and docs/party/four_players.md). Every site was read in
 // the 1.09 eboot (capstone over out/eboot.elf); each install compares the bytes first.
 #include "party_fourp.h"
+#include "party_sixp.h"
 #include "party_async_io.h"
 #include "party_perf.h"
 
@@ -56,7 +57,9 @@ Config ConfigFromEnv() {
     if (const char* v = std::getenv("BB_PARTY_MAX"); v && *v) {
         m = std::atoi(v);
     }
-    c.local_max = m < 2 ? 2 : m > kMaxPlayers ? kMaxPlayers : m;
+    const char* large = std::getenv("BB_PARTY_LARGE");  // 0.8.0: a local Max players is held at 4 unless BB_PARTY_LARGE=1
+    const int cap = large && large[0] == '2' && !large[1] ? 6 : large && large[0] == '1' && !large[1] ? 5 : 4;
+    c.local_max = m < 2 ? 2 : m > cap ? cap : m;
     return c;
 }
 
@@ -72,6 +75,9 @@ std::string RulesTag(const Config& c) {
         t += ",E6";
     }
     t += ",H6";  // the SOS filter's guest literal 4 -> 5 (a 4th cooperator); every peer, whatever its own max
+    if (sixp::EnabledFromEnv()) {
+        t += std::string(",") + sixp::kRulesTag;  // 0.8.0: this game boots with the 6-seat patch set (party_sixp.h)
+    }
     return t;
 }
 
@@ -122,8 +128,8 @@ void SpotOffset(int spot, float d, float* right, float* forward) {
     // Side by side in a line on the host's right axis (upstream 12490f5: wider offsets or spots
     // behind put guests into walls at narrow lamp spots): 1 right, 2 left, 3 2x right; 4 2x left
     // for a larger party. Neighbours d apart, nobody on the host (spot 0).
-    static const float kRight[5] = {0, 1, -1, 2, -2};
-    if (spot < 0 || spot >= 5) {
+    static const float kRight[6] = {0, 1, -1, 2, -2, 3};  // 0.8.0: spot 5 (the 6th seat) 3x right
+    if (spot < 0 || spot >= 6) {
         spot = 3;
     }
     *right = kRight[spot] * d;
@@ -169,10 +175,10 @@ bool PlayerNumberValid(int n) {
 }
 
 int SpotForTry(int slot, int attempt) {
-    if (slot < 1 || slot >= 5) {
+    if (slot < 1 || slot >= 6) {
         slot = 1;
     }
-    static const int kOther[5] = {0, 2, 1, 4, 3}; // the mirrored spot
+    static const int kOther[6] = {0, 2, 1, 4, 3, 4}; // the mirrored spot
     if (attempt <= 0) {
         return slot;
     }
@@ -1076,7 +1082,11 @@ void FourpInit() {
     // cooperators + invaders + others + outgoing requests (slots +8/+0xc/+0x10, sel+0x1c8) reach 4:
     // `cmp esi, 4` at 0x1874bbe -> 5. Installed for every peer whatever its own max (a guest takes the
     // host's in WELCOME, so its hook set must not depend on its setting; the party's size caps the requests).
-    g_h6 = PatchBytes(0x1874bbe, {0x83, 0xfe, 0x04}, {0x83, 0xfe, 0x05}, "4p H6 SOS filter guests < 5 (5 players)");
+    if (sixp::EnabledFromEnv()) {  // 6 seats: the same literal, 6 (every peer of a 6-player party boots with it)
+        g_h6 = PatchBytes(0x1874bbe, {0x83, 0xfe, 0x04}, {0x83, 0xfe, 0x06}, "4p H6 SOS filter guests < 6 (6 players)");
+    } else {
+        g_h6 = PatchBytes(0x1874bbe, {0x83, 0xfe, 0x04}, {0x83, 0xfe, 0x05}, "4p H6 SOS filter guests < 5 (5 players)");
+    }
     if (g_cfg.recruit) {
         g_p5 = PatchBytes(kRecruitNum, {0xb9, 0x02, 0x00, 0x00, 0x00}, {0xb9, 0x03, 0x00, 0x00, 0x00},
                           "4p P5 RecruitNum 2 -> 3");

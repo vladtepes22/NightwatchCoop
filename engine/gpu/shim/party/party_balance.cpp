@@ -121,8 +121,8 @@ Rules g_host;
 std::atomic<u64> g_rot_list{0};         // the local player's SpEffect list (rate hook)
 // Rot kinds (ERSC: five, one at random per death). Each is a rate function of the player's
 // SpEffect list, its prologue replaced; the result is changed for the local player's list only.
-enum RotKind { kRotHealth, kRotStamina, kRotStaminaCost, kRotRally, kRotDiscovery, kRotKinds };
-const char* const kRotKindName[kRotKinds] = {"health", "stamina", "stamina cost", "rally", "discovery"};
+enum RotKind { kRotHealth, kRotStamina, kRotStaminaCost, kRotRally, kRotDiscovery, kRotRecovery, kRotKinds };
+const char* const kRotKindName[kRotKinds] = {"health", "stamina", "stamina cost", "rally", "discovery", "stamina recovery"};
 std::atomic<int> g_kind[kRotKinds];          // stacks per kind (sum = g_stacks)
 std::atomic<float> g_kind_value[kRotKinds];  // the factor (or, discovery, the points) applied now
 bool g_kind_hooked[kRotKinds]{};
@@ -320,6 +320,8 @@ void UpdateRotFactor(const Rules& r) {
         case kRotStaminaCost: v = 1.0f + 0.1f * static_cast<float>(n); break;   // costs +10 % a stack
         case kRotRally: v = std::max(0.0f, 1.0f - 0.15f * static_cast<float>(n)); break;  // rally -15 %
         case kRotDiscovery: v = -10.0f * static_cast<float>(n); break;           // discovery -10 points
+        // stamina recovery -15 % a stack (0.8.0; only while the host's rot_extra is on)
+        case kRotRecovery: v = r.rot_extra ? std::max(0.0f, 1.0f - 0.15f * static_cast<float>(n)) : 1.0f; break;
         }
         g_kind_value[k] = v;
     }
@@ -949,6 +951,7 @@ Rules FromSettings() {
     r.rot_cleanse_boss = v.party_rot_cleanse_boss;
     r.rot_cleanse_killer = v.party_rot_cleanse_killer;
     r.rot_cleanse_echoes = v.party_rot_cleanse_echoes;
+    r.rot_extra = v.party_rot_extra;
     // 0.7.4 session rules (party_balance_rules.h): live ones from bbport.ini (env overrides in),
     // the ones read once at start as their modules took them (StartupSessionRules).
     r.open_world = v.party_open_world;
@@ -1108,6 +1111,9 @@ void Init() {
     // BB_PARTY_ROT_DISCOVERY=0 leaves the kind out. BB_PARTY_ROT_ALL_KINDS=1 still hooks the sum
     // (RE only: it adds nothing the roll uses).
     g_kind_hooked[kRotDiscovery] = !EnvIsZero("BB_PARTY_ROT_DISCOVERY");
+    // Stamina recovery (0.8.0, C4 host choice): taken back by the tick like the cost kind, and only
+    // picked / in force while the host's rule rot_extra is on. BB_PARTY_ROT_RECOVERY=0 leaves it out.
+    g_kind_hooked[kRotRecovery] = !EnvIsZero("BB_PARTY_ROT_RECOVERY");
     const char* all = std::getenv("BB_PARTY_ROT_ALL_KINDS");
     if (all && all[0] == '1' && g_kind_hooked[kRotDiscovery]) {
         g_kind_hooked[kRotDiscovery] = ReplacePrologue(0x17e8010, {0x48, 0x8b, 0x47, 0x08, 0xc5, 0xf8, 0x57, 0xc0},
@@ -1800,6 +1806,7 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool host) {
     party::status::SetHostRule(party::status::HostRule::RotCleanseBoss, r.rot_cleanse_boss);
     party::status::SetHostRule(party::status::HostRule::RotCleanseKiller, r.rot_cleanse_killer);
     party::status::SetHostRule(party::status::HostRule::RotCleanseEchoes, r.rot_cleanse_echoes);
+    party::status::SetHostRule(party::status::HostRule::RotExtra, r.rot_extra);
     {   // 0.7.4 session rules: the host's on a guest (each module reads HostRuleOn).
         using HR = party::status::HostRule;
         party::status::SetHostRule(HR::OpenWorld, r.open_world);
@@ -1889,7 +1896,7 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool host) {
             // forces kind N (tests).
             int hooked[kRotKinds], nh = 0;
             for (int k = 0; k < kRotKinds; ++k)
-                if (g_kind_hooked[k]) hooked[nh++] = k;
+                if (g_kind_hooked[k] && (k != kRotRecovery || r.rot_extra)) hooked[nh++] = k;
             if (nh > 0) {
                 const auto t = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
                 kind = hooked[(t >> 10) % static_cast<std::uint64_t>(nh)];
@@ -1941,12 +1948,13 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool host) {
         if (kind >= 0) SaveRot();
         const int k = g_stacks.load();
         Log("death %d; rot %s, %d stack(s) (this one: %s): health %d, stamina %d, stamina cost %d, rally %d, "
-            "discovery %d",
+            "discovery %d, recovery %d",
             g_deaths.load(), r.rot ? "on" : "off", k, kind >= 0 ? kRotKindName[kind] : "none", g_kind[0].load(),
-            g_kind[1].load(), g_kind[2].load(), g_kind[3].load(), g_kind[4].load());
+            g_kind[1].load(), g_kind[2].load(), g_kind[3].load(), g_kind[4].load(), g_kind[5].load());
         if (r.rot) {
             static const char* const kWhat[kRotKinds] = {"max HP -10 %", "max stamina -10 %", "stamina costs +10 %",
-                                                         "rally -15 %", "item discovery -10"};
+                                                         "rally -15 %", "item discovery -10",
+                                                         "stamina recovery -15 %"};
             char b[200];
             std::snprintf(b, sizeof b, "Rot %d/%d: %s until you rest at a lamp", k, kRotMaxStacks,
                           kind >= 0 ? kWhat[kind] : "-");
@@ -2087,6 +2095,60 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool host) {
                 }
             }
             if (f <= 1.0f) carry = 0;
+            // The "stamina recovery" rot (0.8.0): part of each stamina gain is taken back (the
+            // game recovers the bar by itself; its recovery rate is not a getter anyone asks).
+            {
+                static float rcarry = 0;
+                static std::uint64_t gained = 0, taken = 0;
+                static std::chrono::steady_clock::time_point next_rec_log{};
+                const float rf = g_kind_hooked[kRotRecovery] && InForce().rot_extra ? g_kind_value[kRotRecovery].load() : 1.0f;
+                const int back = RotStaminaRecoveryTakeBack(prev_st, stn, prev_max, stmax, rf, &rcarry);
+                if (rf < 1.0f && prev_st >= 0 && stn > prev_st && prev_max == stmax) gained += std::uint64_t(stn - prev_st);
+                {   // BB_PARTY_ROT_TRACE=1 (diagnostic): every tick that moved the bar, with the value before and after the take-back
+                    static const bool trace = std::getenv("BB_PARTY_ROT_TRACE") && std::getenv("BB_PARTY_ROT_TRACE")[0] == '1';
+                    if (trace && prev_st >= 0 && stn != prev_st)
+                        Log("rot trace: stamina %d -> %d (take back %d, x%.2f)", prev_st, stn, back, double(rf));
+                }
+                if (back > 0) {
+                    const int after2 = stn - back;
+                    if (SafeWrite(dm + 0x134, &after2, sizeof after2)) {
+                        stn = after2;
+                        taken += std::uint64_t(back);
+                        Note(kRotRecovery, rf);
+                    }
+                }
+                if (rf >= 1.0f) rcarry = 0;
+                // Evidence (C4 measurement): the time from the last spend until the bar is full again, with the factor in
+                // force (one game session, rule on and off: smoke rr).
+                {
+                    static bool refilling = false;
+                    static int from = 0;
+                    static std::chrono::steady_clock::time_point t0{}, t_rise{};
+                    static bool rising = false;
+                    if (prev_st >= 0 && stn >= 0 && stn < prev_st && prev_max == stmax) {
+                        refilling = true;
+                        from = stn;
+                        t0 = now;
+                        rising = false;
+                    } else if (refilling && !rising && stn > prev_st) {
+                        rising = true;  // the game's recovery starts ~0.8 s after the spend
+                        t_rise = now;
+                    }
+                    if (refilling && stmax > 0 && stn >= stmax) {
+                        refilling = false;
+                        if (stmax - from >= 8)
+                            Log("stamina refill: %d -> %d in %.2f s, recovering for %.2f s (recovery x%.2f, %d rot stack(s))", from, stn,
+                                std::chrono::duration<double>(now - t0).count(),
+                                rising ? std::chrono::duration<double>(now - t_rise).count() : 0.0, double(rf),
+                                g_kind[kRotRecovery].load());
+                    }
+                }
+                if (rf < 1.0f && now >= next_rec_log) {
+                    next_rec_log = now + std::chrono::seconds(5);
+                    Log("rot stamina recovery x%.2f: %llu points came back, %llu taken (stamina %d / %d)", double(rf),
+                        (unsigned long long)gained, (unsigned long long)taken, stn, stmax);
+                }
+            }
             prev_st = stn;
             prev_max = stmax;
         }

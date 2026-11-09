@@ -60,4 +60,26 @@ inline bool KeyMatchesAny(const std::uint8_t* key16, const std::vector<Source>& 
     return false;
 }
 
+/// 0.8.0 (08c): `silent` without the sources in `keep` (the host's game address, which a guest never releases: the host may
+/// be silent while it loads).
+inline std::vector<Source> Without(const std::vector<Source>& silent, const std::vector<Source>& keep) {
+    std::vector<Source> out;
+    for (const Source& s : silent) {
+        bool kept = false;
+        for (const Source& k : keep)
+            if (k.addr == s.addr && k.port_nbo == s.port_nbo) kept = true;
+        if (!kept) out.push_back(s);
+    }
+    return out;
+}
+
+/// 0.8.0 (08c): the silent sources that have no connection in the game's transport array (the game released it itself when
+/// the member left its room): their outage-replay state is all that is left of the dead session. `has_conn[i]` is for `silent[i]`.
+inline std::vector<Source> Orphans(const std::vector<Source>& silent, const std::vector<bool>& has_conn) {
+    std::vector<Source> out;
+    for (std::size_t i = 0; i < silent.size(); ++i)
+        if (i >= has_conn.size() || !has_conn[i]) out.push_back(silent[i]);
+    return out;
+}
+
 }  // namespace coop::nrdrop

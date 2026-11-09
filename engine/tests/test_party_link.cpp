@@ -742,7 +742,8 @@ static void test_four_players() {
     PartyLink host(hc, recorder_callbacks(hr, "host"));
     std::string err;
     CHECK(host.start_host(&err));
-    CHECK(host.max_players() == 4 && kMaxPartyPlayers == 5);
+    CHECK(host.max_players() == 4 && kMaxPartyPlayers == 6);
+    CHECK(LocalMaxCap() == 4);  // 0.8.0: a local Max players above 4 needs BB_PARTY_LARGE=1 (5) or =2 (6)
     {
         LinkConfig big = base_cfg("Big", "");
         big.max_players = 9;  // clamped to kMaxPartyPlayers
@@ -1048,6 +1049,7 @@ static void test_identity() {
         CHECK(host_world_hook_name("progress: SetEventFlag"));
         CHECK(host_world_hook_name("progress: CompleteEvent (BroadcastSetFlag)"));
         CHECK(host_world_hook_name("story capture (EMEVD bank 2002 handler)"));
+        CHECK(host_world_hook_name("hifps: water wakes update"));  // presentation fixes are not part of the party identity
         CHECK(!host_world_hook_name("travel funnel (SessionWorldTransition)"));
         CHECK(!host_world_hook_name("lamp multiplayer gate +0x49 (party lamps)"));
         // 0.7.8: a known option is named in plain words with both values.

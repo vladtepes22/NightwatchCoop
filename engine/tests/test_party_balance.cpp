@@ -274,11 +274,41 @@ int main() {
 
     // Menu texts.
     {   // The rot as the menu and the party HUD show it.
-        const int none[kRotFileKinds] = {}, mixed[kRotFileKinds] = {2, 0, 1, 0, 0}, rally[kRotFileKinds] = {0, 0, 0, 5, 0};
+        const int none[kRotFileKinds] = {}, mixed[kRotFileKinds] = {2, 0, 1, 0, 0, 0}, rally[kRotFileKinds] = {0, 0, 0, 5, 0, 0},
+                  rec[kRotFileKinds] = {0, 0, 0, 0, 0, 2};
         assert(DescribeRot(none, false).empty());
         assert(DescribeRot(mixed, false) == "Rot 3/5: max HP -20 %, stamina costs +10 %");
         assert(DescribeRot(rally, false) == "Rot 5/5: rally -75 %");
         assert(DescribeRot(mixed, true).find("Гниль 3/5") == 0);
+        assert(DescribeRot(rec, false) == "Rot 2/5: stamina recovery -30 %");
+        assert(DescribeRotShort(rec, false) == "Rot 2/5: recovery");
+        // the sixth kind survives the rot file; a five-kind file with a stain still parses
+        SlotRot sr; sr.slot = 1; sr.kind[5] = 2; sr.kind[0] = 1; sr.stain = 5;
+        RotFile f; f.Set(sr);
+        const RotFile back = ParseRotFile(FormatRotFile(f));
+        assert(back.slots.size() == 1 && back.slots[0].kind[5] == 2 && back.slots[0].stain == 5);
+        const RotFile old = ParseRotFile("slot 2 kinds 1 0 0 0 0 stain 0\n");
+        assert(old.slots.size() == 1 && old.slots[0].kind[0] == 1 && old.slots[0].stain == 0);
+        // stamina recovery take-back: 60 -> 70 at x0.7 gives 3 back; regen of 1 per tick carries
+        float rc = 0;
+        assert(RotStaminaRecoveryTakeBack(60, 70, 100, 100, 0.7f, &rc) == 3);
+        rc = 0;
+        int tot = 0;
+        for (int i = 0; i < 10; ++i) tot += RotStaminaRecoveryTakeBack(50 + i, 51 + i, 100, 100, 0.7f, &rc);
+        assert(tot == 3);
+        rc = 0;
+        assert(RotStaminaRecoveryTakeBack(70, 60, 100, 100, 0.7f, &rc) == 0);     // a spend
+        assert(RotStaminaRecoveryTakeBack(60, 70, 100, 90, 0.7f, &rc) == 0);      // max changed
+        assert(RotStaminaRecoveryTakeBack(60, 70, 100, 100, 1.0f, &rc) == 0);     // no stack
+        assert(RotStaminaRecoveryTakeBack(-1, 70, 100, 100, 0.7f, &rc) == 0);     // unknown
+        assert(RotStaminaRecoveryTakeBack(60, 70, 100, 100, 0.0f, &rc) == 10);    // nothing comes back
+        assert(!Rules{}.rot_extra);
+        {
+            Rules r; r.rot_extra = true;
+            Rules back2; std::string err;
+            assert(FromJson(ToJson(r), &back2, &err) && back2.rot_extra);
+            Rules oldh; assert(FromJson("{\"rot\":true}", &oldh, &err) && !oldh.rot_extra);
+        }
     }
     assert(DescribeHp(150, false).find("+75 %") != std::string::npos);
     assert(DescribePoise(300, false).find("+90") != std::string::npos);

@@ -796,9 +796,11 @@ void DefineAll() {
            [] { return member_rows + 2 <= int(RowsPerPage); });
     // 0.7.6: connection warnings (party/party_connwarn.h): the firewall / router / address hints (a player's
     // own switch; Look & notices has no free slot).
-    AddRow(Flag(&Values::party_conn_warnings), "Connection warnings", "Предупреждения о связи",
-           "A notice with the fix when the firewall, router or address keeps the party from working",
-           "Уведомление с решением, когда брандмауэр, роутер или адрес мешают группе", toggle, Kind::Toggle);
+    // 0.8.0: with six hunters the member rows fill the page: the switch steps aside (launcher and overlay keep it).
+    AddRow(Flag(&Values::party_conn_warnings), AddText("Connection warnings", "Предупреждения о связи"),
+           AddText("A notice with the fix when the firewall, router or address keeps the party from working",
+                   "Уведомление с решением, когда брандмауэр, роутер или адрес мешают группе"),
+           toggle, Kind::Toggle, [] { return member_rows + 1 <= int(RowsPerPage); });
 
     // ---- Party network (F2, 0.7.1, party_netroute.h): the link's path, the member relay, IPv6 ----
     AddPage("Party network", "Сеть группы", "The link's path, the public DHT, relaying for members, IPv6 (bbport)",
@@ -1232,6 +1234,14 @@ void DefineAll() {
                "Правило хоста: подобранные отголоски снимают гниль той смерти"},
               {"The host's rule: off, picking up your Blood Echoes leaves the rot",
                "Правило хоста: выкл., подобранные отголоски гниль не снимают"});
+    host_rule(&Values::party_rot_extra, "Rot: stamina recovery", "Гниль: восстан. выносл.",
+              AddText("A death may also slow your stamina recovery by 15 % a stack. Needs Rot. Party rule",
+                      "Смерть может замедлить восстановление выносливости на 15 % за раз. Нужна гниль. Правило группы"),
+              [] { return ps::HostRuleOn(ps::HostRule::RotExtra); },
+              {"The host's rule: a death may also slow your stamina recovery",
+               "Правило хоста: смерть может замедлить восстановление выносливости"},
+              {"The host's rule: off, rot never touches your stamina recovery",
+               "Правило хоста: выкл., гниль не трогает восстановление выносливости"});
 
 
     // ---- Party rules: Enemies (party_balance.h): per extra hunter, the host's values count. ----
@@ -1454,8 +1464,8 @@ void DefineAll() {
     // ---- My party: Names (0.7.8, namefilter): hateful member names are shown masked on this PC. ON by default (safety),
     // unlike other new party features; the real name stays the member's identity (party/name_filter.h). ----
     AddPage("My party: Chat & names", "Моя группа: чат, имена",
-            "Yours: party text chat; hateful player names shown as Hunter and a short code (bbport)",
-            "Ваше: текстовый чат группы; грубые имена игроков показаны как Hunter и код (bbport)");
+            "Yours: party text chat; hateful names shown as Hunter + a code; sharing your look changes (bbport)",
+            "Ваше: чат группы; грубые имена как Hunter + код; обновление вашей внешности у других (bbport)");
     own(&Values::party_hide_bad_names, "Hide offensive names", "Скрывать грубые имена",
         "On: a hateful name shows as Hunter + a code on your screen (display only; others still see it)",
         "Вкл.: оскорбительное имя показано как Hunter и код (только на вашем экране)");
@@ -1470,6 +1480,10 @@ void DefineAll() {
     own(&Values::party_name_colours, "Coloured name tags", "Цветные имена",
         "Off by default. Name tags above companions use each hunter's party colour (as in the party panel and chat)",
         "Выкл. по умолчанию. Имена над спутниками цветом охотника (как в панели группы и чате)");
+    // visy 0.8.0 (H5): a changed appearance re-sent to the party (party_look_sync), off by default.
+    own(&Values::party_look_sync, "Share look changes", "Обновлять внешность",
+        "Off by default. A changed appearance (mirror, any editor) shows to the others without a reload",
+        "Выкл. по умолчанию. При смене вашей внешности остальные видят её сразу, без перезагрузки");
 
     // ---- Game HUD (visy 0.7.8, CL-7d51fe): the game's own HUD, like Elden Ring's "HUD: Auto". ----
     AddPage("Game HUD", "HUD игры", "The game's own bars and item slots: hide them while nothing happens (bbport)",

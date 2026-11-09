@@ -234,8 +234,8 @@ std::atomic<bool> g_host_rules[int(HostRule::Count)] = {
     true, true, false,                                // LevelSync, PhantomHp, SkipPrologue
     true,  true, true, true, true, true, true, true, true,   // OpenWorld .. FullRewards
     true, true,                                       // PvpFullHp, BossDrops
-    false, false, false};                             // GuestGather, LayerTravel, Invaders
-static_assert(int(HostRule::Count) == 31, "a HostRule without its default above");
+    false, false, false, false};                      // GuestGather, LayerTravel, RotExtra, Invaders
+static_assert(int(HostRule::Count) == 32, "a HostRule without its default above");
 }  // namespace
 void SetHostRule(HostRule rule, bool on) {
     if (rule < HostRule::Count) g_host_rules[int(rule)].store(on);

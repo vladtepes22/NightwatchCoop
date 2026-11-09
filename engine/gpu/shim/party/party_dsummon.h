@@ -175,6 +175,7 @@ struct Guest {
     double reask_at = 0;        // F5: a Settle refusal: ask again at this time (0 = not)
     int reasks = 0;
     bool rearmed = false;       // the bell was re-rung once for this request (Action::Rearm)
+    double slack = 0;           // seconds added to the answer / entry / join waits (WaitSlack of the link's RTT, set by the tick)
 };
 /// Rearm (playtest 1 G4, 8 of 10 failed): the host's room is here but the bell's waiting summon
 /// entry is not: the bell's SpEffect 9005 was "already on" from an attempt whose entry the game had
@@ -188,6 +189,19 @@ constexpr double kAnswerWait = 4.0;   // no dsum_room within this: the host does
 constexpr double kEntryWait = 8.0;    // the bell's own entry (sign sender, ~2 s) not up within this
 constexpr double kJoinWait = 8.0;     // delivered, but no session (client) within this
 constexpr double kRearmAfter = 2.5;   // the room is here, no entry yet: re-ring the bell (normal: ~2 s)
+/// 0.8.0 (Iosefka 08c): the three waits above are the LAN values. On a slow link (dsl / mobile, a lossy path) the host's
+/// session answer and the game's own join take longer than 8 s now and then, and a first try that gave up there left the
+/// guest to the slower bell sign path (smoke ivn: the second invader waited for the retry). `rtt_ms` is the party link's
+/// last round trip to the host: under kSlackFromRtt ms (every LAN, loopback) the waits stay as they are; above it each wait
+/// grows by kSlackPerRtt round trips, at most kSlackMax s. BB_PARTY_DSUMMON_ADAPTIVE=0 restores the fixed waits.
+constexpr unsigned kSlackFromRtt = 50;
+constexpr double kSlackPerRtt = 30.0;
+constexpr double kSlackMax = 12.0;
+constexpr double WaitSlack(unsigned rtt_ms) {
+    if (rtt_ms < kSlackFromRtt) return 0.0;
+    const double s = kSlackPerRtt * double(rtt_ms) / 1000.0;
+    return s > kSlackMax ? kSlackMax : s;
+}
 /// A guest that loaded the host's Chalice Dungeon empty this many times (m29 without the dungeon, sent home each time) stops
 /// ringing for it: the summon only repeats the same empty load (NW-5e27806: 10 loops). Party > Rejoin tries again.
 constexpr int kMaxEmptyLoads = 2;

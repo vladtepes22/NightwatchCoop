@@ -2848,9 +2848,7 @@ void FixtureRearm() {
 
 bool StandAtObject(std::int32_t entity, float dist, float angle_deg, std::string* what, float dy) {
     std::uint32_t idx = 0xffffffffu;
-    using Find = std::uint64_t(BB_COOP_SYSV*)(std::int32_t, std::uint32_t*);
-    const std::uint64_t fn = Guest(0x13c9af0);
-    const std::uint64_t rec = fn ? reinterpret_cast<Find>(fn)(entity, &idx) : 0;
+    const std::uint64_t rec = FindMapObject(entity, &idx);
     float m[16] = {};
     if (!rec || !SafeRead(rec + 0x230, m, sizeof m)) {
         return false;
@@ -2862,9 +2860,7 @@ bool StandAtObject(std::int32_t entity, float dist, float angle_deg, std::string
 
 bool ObjectPoint(std::int32_t entity, float dist, float angle_deg, float out[3]) {
     std::uint32_t idx = 0xffffffffu;
-    using Find = std::uint64_t(BB_COOP_SYSV*)(std::int32_t, std::uint32_t*);
-    const std::uint64_t fn = Guest(0x13c9af0);
-    const std::uint64_t rec = fn ? reinterpret_cast<Find>(fn)(entity, &idx) : 0;
+    const std::uint64_t rec = FindMapObject(entity, &idx);
     float m[16] = {};
     if (!rec || !SafeRead(rec + 0x230, m, sizeof m)) {
         return false;
@@ -2885,9 +2881,7 @@ bool ObjectPoint(std::int32_t entity, float dist, float angle_deg, float out[3])
 
 bool ReadObjAnim(std::int32_t entity, ObjAnimState* out) {
     std::uint32_t idx = 0xffffffffu;
-    using Find = std::uint64_t(BB_COOP_SYSV*)(std::int32_t, std::uint32_t*);
-    const std::uint64_t fn = Guest(0x13c9af0);
-    if (!fn || !reinterpret_cast<Find>(fn)(entity, &idx) || idx == 0xffffffffu) {
+    if (!FindMapObject(entity, &idx) || idx == 0xffffffffu) {
         return false;
     }
     std::uint64_t tab = 0, blocks = 0, data = 0;

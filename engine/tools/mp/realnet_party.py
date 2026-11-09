@@ -3,7 +3,7 @@
 through a VPN's per-app split tunnel, guest 2 on the LAN (the member relay for guest 1).
 
   python tools/mp/realnet_party.py --print-exe          (setup only: the exe paths, nothing runs)
-  python tools/mp/realnet_party.py [--phase direct,relay] [--root DIR] [--out DIR] [--guest2-headless]
+  python tools/mp/realnet_party.py [--phase direct,relay,invade,invade2] [--root DIR] [--out DIR] [--guest2-headless]
   python tools/mp/realnet_party.py --check-only --out DIR   (verdict again from the saved logs)
   python tools/mp/realnet_party.py --dry-run                (the instances.py commands, nothing runs)
 
@@ -37,6 +37,21 @@ Phase relay (~4 min, 3 players): the host with NO UPnP mapping on new ports (clo
   2's port>: its direct attempts fail and guest 2 relays for it. A party lamp travel, one host and one
   guest kill through the relay. The mapping is removed afterwards (and the direct phase's host
   mapping, which a killed host leaves on the router).
+
+Phase invade (~9 min, 2 players, both rendered): the host with Allow invaders on; guest 1 (inst1, the VPN
+  tunnel) is the INVADER (BB_PARTY_INVADE=1) and dials the host's public address. The first dial, with the
+  host still in its title, is refused with a named reason; the second is admitted, the invader stands in
+  the host's world on the hostile team (red look), the host and the invader hit each other (HP drops on both),
+  the invader falls (its game's own send-home), asks again, is admitted again, and the HOST dies: the
+  invader goes home. A kill each way, both ends defined. Checks the public path (guest 1's public IPv4
+  differs from the host's, no LAN fallback, the host saw it at its VPN address), the rewards and banners.
+Phase invade2 (~10 min, 3 players): needs the host's Max invaders 2 (BB_PARTY_MAX_INVADERS=2; the host
+  setting System > Party access > Max invaders). Invader A is inst1 (VPN tunnel), invader B is inst2 (the LAN,
+  same public address as the host); both are in the host's world together on the one invader team, both
+  fall in turn and go home. All three rendered unless --guest2-headless.
+
+Console output, the report files and verdict.txt show every IPv4 as a.b.x.x (the games' own run.log
+files keep what the games wrote).
 
 Every phase: the address lines of each game as they appear (public IPv4 by STUN, the host's view of
 each guest, the link's path) and ROOT\\realnet_report.txt; the run stops early when guest 1's public
@@ -131,6 +146,53 @@ def phase_relay(a, port0, pub):
         until_hold=10,
         watch=shots_watch(relay=True),
         ports=ports,
+    )
+
+
+# Moments of an invasion for the screenshots (every rendered game): the invader arrives, the fight, an end.
+INV_WATCH = [r"invade: invader slot \d+: in the world=inv_in@2,10", r"invade: notice: You invade =inv_told@3",
+             r"invader: own HP \d+ -> \d+=inv_hit@1,4", r"invade: the invader fell: going home=inv_fell@1,5",
+             r"invasion of slot \d+ ends: invader_died=inv_end@2", r"invade: notice: You defeated =inv_won@2,6"]
+
+
+def inv_shots():
+    out = ["--grey"]
+    for x in INV_WATCH:
+        out += ["--watch", x]
+    return out
+
+
+# BB_PARTY_INVADE_TEST / BB_PARTY_PVP_TEST (party_invade_rules.h ParseTest), as smoke_party.py's iv / iv2 phases.
+def phase_invade(a, port0):
+    hsteps = "log@5,invader@4,face=22@2,hit=3@1,log@3"
+    isteps = "log@5,invader@4,face=19@2,hit=4@1,log@3"
+    return dict(
+        name="invade", seconds=900, count=2, headless=0, env=[], crash=[],
+        # the host dies 40 s into the invader's second stay; the invader falls 45 s into its first stay and asks again
+        # 25 s after the refusal at the host's title and 22 s after getting home
+        ienv=["0:BB_PARTY_INVADERS=1", "1:BB_PARTY_INVADE=1",
+              "0:BB_PARTY_INVADE_TEST=die@40?in#2",
+              "1:BB_PARTY_INVADE_TEST=rejoin@25?home,die@45?in,rejoin@22?home",
+              "0:BB_PARTY_PVP_TEST=" + hsteps, "1:BB_PARTY_PVP_TEST=" + isteps] + G1_ENV,
+        args=["--reserve", "2"],
+        until=[r"1:invade: notice: You defeated"], until_hold=40,
+        watch=inv_shots(),
+        ports=(port0, port0 + 1),
+    )
+
+
+def phase_invade2(a, port0):
+    return dict(
+        name="invade2", seconds=900, count=3, headless=1 if a.guest2_headless else 0, env=[], crash=[],
+        ienv=["0:BB_PARTY_INVADERS=1", "0:BB_PARTY_MAX_INVADERS=2", "1:BB_PARTY_INVADE=1", "2:BB_PARTY_INVADE=1",
+              # over the Internet B gets in 20-30 s after A: A dies 5 s after B is in the world too (?other), so the
+              # overlap (A falls while B stands in the host's world) is what is tested, not left to the link speeds
+              "1:BB_PARTY_INVADE_TEST=rejoin@30?home,die@5?other",
+              "2:BB_PARTY_INVADE_TEST=rejoin@45?home,die@35?in"] + G1_ENV,
+        args=["--reserve", "3"],
+        until=[r"0:invasion of slot 2 ends: invader_died"], until_hold=40,
+        watch=inv_shots(),
+        ports=(port0, port0 + 1, port0 + 2),
     )
 
 
@@ -230,7 +292,7 @@ def check_direct(v, L):
             back = need(v, L, "direct Rejoin: back in (1 -> 2)", 0, r"cooperators 1 -> 2", rj)
             if back is not None:
                 v.step("direct Rejoin time (press -> host room)", back - rj < 45, "%.1f s (limit 45)" % (back - rj))
-    d = need(v, L, "direct guest death (scripted)", 1, r"travel step \d+/\d+: guest_die", lv or 0)
+    d = need(v, L, "direct guest death (scripted)", 1, r"travel step \d+/\d+: guest_die", 0)  # the scripted death comes before the Leave
     if d is not None:
         need(v, L, "direct guest bloodstain recorded", 1, r"guest: bloodstain recorded", d)
         need(v, L, "direct guest respawned at the host's lamp", 1,
@@ -268,7 +330,7 @@ def check_relay(v, L):
     sp.check_common(v, L, "relay")
 
 
-def vpn_check(v, L, tag):
+def vpn_check(v, L, tag, guest2=True):
     texts = ["\n".join(L.lines[i]) for i in range(3)]
     rows = [dict(instances.real_net_lines(t)) for t in texts]
     hp = instances._ip(rows[0].get("public (STUN, host)"))
@@ -277,12 +339,146 @@ def vpn_check(v, L, tag):
     v.step("%s guest 1 through the VPN (public IPv4 differs from the host's)" % tag, hp and g1 and hp != g1,
            "host %s, guest 1 %s" % ("known" if hp else "no STUN line", "differs" if hp and g1 and hp != g1 else
                                     "the same" if hp and g1 else "no STUN line"))
-    v.step("%s guest 2 outside the VPN (the host's public IPv4)" % tag, hp and g2 and hp == g2,
-           "the same" if hp and g2 and hp == g2 else "differs or unknown")
+    if guest2:
+        v.step("%s guest 2 outside the VPN (the host's public IPv4)" % tag, hp and g2 and hp == g2,
+               "the same" if hp and g2 and hp == g2 else "differs or unknown")
     seen = instances._ip(rows[1].get("seen by the host at"))
-    if tag == "direct":
-        v.step("direct host saw guest 1 at its VPN address", seen and seen == g1,
+    if tag in ("direct", "invade", "invade2"):
+        v.step("%s host saw guest 1 at its VPN address" % tag, seen and seen == g1,
                "yes" if seen and seen == g1 else "no (%s)" % ("unknown" if not seen else "another address"))
+
+
+def private_ipv4(ip):
+    """True for a LAN / loopback / link-local address (a path through the LAN, not the Internet)."""
+    try:
+        o = [int(x) for x in ip.split(".")]
+    except ValueError:
+        return False
+    return (o[0] in (10, 127) or (o[0] == 172 and 16 <= o[1] <= 31) or (o[0] == 192 and o[1] == 168)
+            or (o[0] == 169 and o[1] == 254))
+
+
+def public_path_checks(v, L, tag):
+    """Guest 1 (the invader) reached the host over the Internet, not the LAN: no LAN fallback, a link path that is
+    straight UDP / TCP (no member relay), and an address the host saw it at that is public."""
+    sp.none_of(v, L, tag + " invader: no LAN fallback (it did not find the host on the LAN)", r"LAN fallback: found host", 0, 1e9, (1,))
+    sp.need(v, L, tag + " invader: the link came up straight to the host (network path line)", 1,
+            r"network path: party link over (UDP \(the host's NAT|TCP|UDP via IPv6)")
+    sp.none_of(v, L, tag + " invader: no member relay on its path", r"network path: party link over .*relay", 0, 1e9, (1,))
+    rows = dict(instances.real_net_lines("\n".join(L.lines[1])))
+    seen = instances._ip(rows.get("seen by the host at"))
+    v.step(tag + " invader: the host's view of it is a public address (not LAN / loopback)",
+           bool(seen) and not private_ipv4(seen), "public" if seen and not private_ipv4(seen) else
+           ("private (a LAN path)" if seen else "no 'we are seen at' line"))
+
+
+def check_invade(v, L):
+    n = "invade"
+    need, none_of = sp.need, sp.none_of
+    vpn_check(v, L, n, guest2=False)
+    first = need(v, L, n + " invader: the first dial (host not in a world) is refused with a named reason, over the Internet", 1,
+                 r"refused by the host: (the host is not in a world you can enter now|the host is on a loading screen)")
+    gate = need(v, L, n + " host: the gate passes the invader (final)", 0, r"invade: gate: invader \(name hidden\) \(final\): none", first or 0)
+    adm = need(v, L, n + " host: the invasion is admitted over the public path (pending)", 0,
+               r"invade: an invader is admitted into slot \d+ \(pending\)", gate or 0)
+    public_path_checks(v, L, n)
+    inn = need(v, L, n + " host: the invader spawns in the host's world", 0, r"invade: invader slot \d+: in the world", adm or 0)
+    need(v, L, n + " invader: told it invades", 1, r"invade: notice: You invade ", adm or 0)
+    need(v, L, n + " invader: no shared progress or items arrive (the host's rules are not sent)", 1,
+         r"invade: this game invades the host's world", 0)
+    for i, who in ((0, "host"), (1, "invader")):
+        need(v, L, n + " %s: the invader's chr is on the invader team" % who, i,
+             r"invader: chr [0-9a-f]+ \((this game's own|a remote member's)\) moved from team \d+ to team \d+", adm or 0)
+    need(v, L, n + " host: the invader has the red look (SpEffect 9026)", 0,
+         r"invader: chr [0-9a-f]+ red look \(SpEffect 9026\) on \(a remote member's\)", adm or 0)
+    # the fight: blows land both ways over the Internet
+    need(v, L, n + " host: the invader's blows hurt the host", 0, r"invader: own HP \d+ -> \d+", inn or 0)
+    need(v, L, n + " invader: the host's blows hurt the invader", 1, r"invader: own HP \d+ -> \d+", inn or 0)
+    # end 1: the invader falls and goes home through the game's own send-home
+    fell = need(v, L, n + " invader: it falls and goes home", 1, r"invade: the invader fell: going home", inn or 0)
+    fell0 = max(0.0, (fell or 0) - 3)  # the host reads the invader's HP 0 from its vitals: its line can come first
+    need(v, L, n + " host: the invasion ends (invader died)", 0, r"invasion of slot \d+ ends: invader_died|ends: .*invader", fell0)
+    home = need(v, L, n + " invader: back home (no lamp revive)", 1, r"host lost \([^)]*\): home now \(OnLeave_Limit\)", fell0)
+    need(v, L, n + " host: paid for the fallen invader", 0, r"invade: reward: host, invader_died: rate 0\.50", fell0)
+    need(v, L, n + " host: the 'adversary expunged' banner", 0, r"invade: banner: host, invader_died: text effect 7", fell0)
+    # end 2: asks again, is in again, and the HOST dies
+    again = need(v, L, n + " invader: asks again", 1, r"test: script step \d+: rejoin -> ", home or 0)
+    inn2 = need(v, L, n + " host: the invader is in the world again", 0, r"invade: invader slot \d+: in the world", again or 0)
+    hd = need(v, L, n + " host: the invasion ends (host died)", 0, r"invasion of slot \d+ ends: host_died|ends: .*host", inn2 or 0)
+    need(v, L, n + " invader: told it won", 1, r"invade: notice: You defeated ", hd or 0)
+    need(v, L, n + " invader: back home when the host dies", 1, r"host lost \([^)]*\): home now \(OnLeave_Limit\)", hd or 0)
+    need(v, L, n + " the teams go back (invader chr restored)", 0, r"invader: team \d+ closed: \d+ table cell\(s\) put back", hd or 0)
+    need(v, L, n + " invader: paid for the fallen host", 1, r"invade: reward: invader, host_died: rate 0\.10", hd or 0)
+    need(v, L, n + " invader: the 'prey slaughtered' banner", 1, r"invade: banner: invader, host_died: text effect 5", hd or 0)
+    none_of(v, L, n + " no failed title join after the first refusal", r"title join: FAILED", first or 0, 1e9, (1,))
+    sp.check_common(v, L, n)
+
+
+def check_invade2(v, L):
+    n = "invade2"
+    need, none_of = sp.need, sp.none_of
+    vpn_check(v, L, n)
+    a_in = need(v, L, n + " host: invader A (inst1, VPN) is in the world", 0, r"invade: invader slot 1: in the world")
+    public_path_checks(v, L, n)
+    b_in = need(v, L, n + " host: invader B (inst2, LAN) is in the world too", 0, r"invade: invader slot 2: in the world", a_in or 0)
+    # either order is fine: A's death waits for B (?other), but a run where A fell first is still judged on its own rows
+    a_end = need(v, L, n + " host: invader A falls", 0, r"invasion of slot 1 ends: invader_died", a_in or 0)
+    if b_in is not None and a_end is not None:
+        v.step(n + " overlap: A fell while B was in the world: " + ("yes" if b_in < a_end else "no"), b_in < a_end,
+               "B in +%.1f s, A ends +%.1f s" % (b_in, a_end))
+    need(v, L, n + " host: invader B falls on its own", 0, r"invasion of slot 2 ends: invader_died", b_in or 0)
+    teams = len(L.all(0, r"invader: team \d+ is a copy of team 23", 0, 1e9))
+    # one copy when B came in while A was in; two when A had already gone (a fresh copy per stay): only the overlap run shares
+    overlap = b_in is not None and a_end is not None and b_in < a_end
+    v.step(n + " host: both invaders share ONE invader team" + ("" if overlap else " (no overlap: 1 or 2 copies)"),
+           teams == 1 if overlap else teams in (1, 2), "%d copy(ies)" % teams)
+    for i, who in ((1, "invader A"), (2, "invader B")):
+        need(v, L, n + " %s: told it invades" % who, i, r"invade: notice: You invade ", a_in or 0)
+        need(v, L, n + " %s: falls and goes home" % who, i, r"invade: the invader fell: going home", a_in or 0)
+        need(v, L, n + " %s: home through the game's own leave" % who, i, r"host lost \([^)]*\): home now \(OnLeave_Limit\)", a_in or 0)
+    paid = len(L.all(0, r"invade: reward: host, invader_died: rate 0\.50", 0, 1e9))
+    v.step(n + " host: paid once for EACH fallen invader", paid == 2, "%d payout(s)" % paid)
+    none_of(v, L, n + " no invader was refused for room or a present invader", r"refused by the host: (another invader|no free slot)", 0, 1e9, (1, 2))
+    sp.check_common(v, L, n)
+
+
+# ---- masking: no real IPv4 in the console, the reports or the verdict ----
+
+mask_ipv4 = instances.mask_ipv4
+
+
+class MaskedOut:
+    """stdout / stderr that shows every IPv4 as a.b.x.x (this script's prints and smoke_party's verdict rows)."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def write(self, text):
+        return self.inner.write(mask_ipv4(text))
+
+    def flush(self):
+        self.inner.flush()
+
+    def __getattr__(self, k):
+        return getattr(self.inner, k)
+
+
+class MaskedVerdict(sp.Verdict):
+    def step(self, name, ok, detail):
+        super().step(name, ok, mask_ipv4(str(detail)))
+
+
+def mask_files(d):
+    """The run's text outputs (harness.log, shot.log, the report; not the games' own inst*.log) with masked addresses."""
+    for n in ("harness.log", "shot.log", "realnet_report.txt"):
+        p = Path(d) / n
+        if p.exists():
+            t = p.read_text(encoding="utf-8", errors="replace")
+            if mask_ipv4(t) != t:
+                p.write_text(mask_ipv4(t), encoding="utf-8")
+
+
+CHECKS = {"direct": check_direct, "relay": check_relay, "invade": check_invade, "invade2": check_invade2}
 
 
 # ---- main ----
@@ -293,7 +489,8 @@ def main():
     ap.add_argument("--build", default=str(REPO))
     ap.add_argument("--game", default=os.environ.get("BB_GAME_DIR", str(AGENT_ROOT / "game")))
     ap.add_argument("--out", default=str(AGENT_ROOT / "realnet_runs" / time.strftime("%Y%m%d_%H%M")))
-    ap.add_argument("--phase", default="direct,relay")
+    ap.add_argument("--phase", default="direct,relay",
+                    help="comma list of: direct, relay, invade (~9 min), invade2 (~10 min, Max invaders 2)")
     ap.add_argument("--every", type=float, default=10)
     ap.add_argument("--guest2-headless", action="store_true", help="guest 2 headless-lite (no screenshots of it)")
     ap.add_argument("--no-relay-upnp", action="store_true",
@@ -303,29 +500,35 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="print the instances.py commands, run nothing")
     ap.add_argument("--check-only", action="store_true")
     a = ap.parse_args()
+    sys.stdout, sys.stderr = MaskedOut(sys.stdout), MaskedOut(sys.stderr)
     a.real_net = True
     sp.RUN_ROOT[0] = a.root
     if Path(a.game).resolve() == Path(r"E:\games\bloodborne").resolve():
         sys.exit("never the user's game folder as the test game")
     root = Path(a.root).resolve()
     a.root = str(root)
-    if a.print_exe or not (root / "inst1" / "out" / "bbport.exe").exists():
+    if a.check_only:
+        a.print_exe = a.dry_run = False  # verdict from saved logs only: no setup, no launch, no network
+    elif a.print_exe or not (root / "inst1" / "out" / "bbport.exe").exists():
         subprocess.run([sys.executable, str(HERE / "instances.py"), "setup", "--count", "3", "--root", str(root),
                         "--build", str(a.build), "--game", str(a.game)], check=True)
-    for i, who in enumerate(("host", "guest 1 (VPN split tunnel: include this one)", "guest 2")):
+    for i, who in enumerate(() if a.check_only else ("host", "guest 1 (VPN split tunnel: include this one)", "guest 2")):
         print("[realnet] inst%d %-46s %s" % (i, who, root / f"inst{i}" / "out" / "bbport.exe"), flush=True)
     if a.print_exe:
         return
-    port0 = instances.base_port(root)
+    port0 = 0 if a.check_only else instances.base_port(root)  # base_port runs netsh
     out = Path(a.out)
-    v = sp.Verdict()
-    checks = {"direct": check_direct, "relay": check_relay}
+    v = MaskedVerdict()
     for name in [p.strip() for p in a.phase.split(",") if p.strip()]:
-        if name not in checks:
-            sys.exit("unknown phase %s (direct, relay)" % name)
+        if name not in CHECKS:
+            sys.exit("unknown phase %s (%s)" % (name, ", ".join(CHECKS)))
         mapped = None
         if name == "direct":
             ph = phase_direct(a, port0)
+        elif name == "invade":
+            ph = phase_invade(a, port0)
+        elif name == "invade2":
+            ph = phase_invade2(a, port0)
         else:
             pub = None if a.check_only else instances.stun_public_ipv4()
             if not a.check_only and not a.dry_run:
@@ -341,7 +544,8 @@ def main():
                     sys.exit("relay: the router took no UPnP mapping for guest 2's UDP port %d; forward it by hand "
                              "to this PC and run again with --no-relay-upnp" % ph["ports"][2])
                 mapped = ph["ports"][2]
-        print("[realnet] %s: ports host %d, guest 1 %d, guest 2 %d" % ((name,) + tuple(ph["ports"])), flush=True)
+        print("[realnet] %s: ports %s" % (name, ", ".join("%s %d" % wp for wp in zip(("host", "guest 1", "guest 2"), ph["ports"]))),
+              flush=True)
         if a.dry_run:
             ph = dict(ph)
             print("[realnet] dry run: smoke_party.run_phase would start instances.py run --real-net with", ph, flush=True)
@@ -356,21 +560,23 @@ def main():
                 guard.close()
             if mapped:
                 upnp("remove", mapped, "UDP")
-            if name == "direct" and not a.check_only:
+            if name in ("direct", "invade", "invade2") and not a.check_only:
                 for proto in ("TCP", "UDP"):  # the host was killed: its UPnP mapping stays otherwise
                     upnp("remove", port0, proto)
+        if not a.check_only:
+            mask_files(out / name)
         print("[realnet] verdict %s" % name, flush=True)
         if guard and guard.tripped:
             v.step("%s VPN check" % name, False, guard.tripped)
-        checks[name](v, sp.Logs(out / name))
+        CHECKS[name](v, sp.Logs(out / name))
         rep = root / "realnet_report.txt"
         if rep.exists() and not a.check_only:
             (out / name).mkdir(parents=True, exist_ok=True)
-            (out / name / "realnet_report.txt").write_text(rep.read_text(encoding="utf-8"), encoding="utf-8")
+            (out / name / "realnet_report.txt").write_text(mask_ipv4(rep.read_text(encoding="utf-8")), encoding="utf-8")
     if a.dry_run:
         return
     fails = [r for r in v.rows if not r[1]]
-    text = "\n".join("%s  %s  %s" % ("PASS" if ok else "FAIL", n, d) for n, ok, d in v.rows)
+    text = mask_ipv4(chr(10).join("%s  %s  %s" % ("PASS" if ok else "FAIL", n, d) for n, ok, d in v.rows))
     text += "\n\n%d steps, %d failed\n" % (len(v.rows), len(fails))
     out.mkdir(parents=True, exist_ok=True)
     (out / "verdict.txt").write_text(text, encoding="utf-8")

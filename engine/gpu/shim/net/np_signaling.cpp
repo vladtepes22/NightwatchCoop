@@ -14,9 +14,12 @@
 #include "np_hle.h"
 #include "from_api.h"
 #include "np_session.h"
+#include "np_sig_alive.h"
 
 #include "../../party_env.h"
 
+#include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -49,6 +52,29 @@ std::map<unsigned, Conn> g_conn;  // by connection id
 unsigned g_next_ctx = 1;
 unsigned g_next_conn = 1;
 
+// Ported idea: droogie/bbhost 8ebaf88 (GPL-3.0-or-later). BB_PARTY_SIG_ALIVE (default on, =0 the old
+// behaviour): a dead connection is never announced up, and a peer silent on the party link for
+// longer than np_sig_alive.h's limit (60 s; 180 s while the F5 outage replay runs) is dead.
+// BB_PARTY_SIG_SILENT_MS: test override of the limit (x3 in an outage).
+bool sig_alive_on() {
+    static const bool on = bb_party_switch_on("BB_PARTY_SIG_ALIVE") != 0;
+    return on;
+}
+std::int64_t sig_silent_override_ms() {
+    static const std::int64_t v = [] {
+        const char* e = std::getenv("BB_PARTY_SIG_SILENT_MS");
+        return e ? static_cast<std::int64_t>(std::atoll(e)) : 0;
+    }();
+    return v;
+}
+// The connection's peer has been silent past the limit. g_mu held or not: reads only the peer table
+// and the socket layer.
+bool link_dead(const Conn& c) {
+    session::Peer peer;
+    if (!c.member_id || !session::peers_get(c.member_id, &peer) || !peer.addr) return false;
+    return sigalive::LinkDead(p2p_peer_silence_ms(peer.addr, peer.port), p2p_outage_active(), sig_silent_override_ms());
+}
+
 // (ctxId, connId, event, errorCode, arg)
 void fire(unsigned ctx, unsigned conn, std::uint16_t event, int error) {
     Ctx c;
@@ -57,10 +83,50 @@ void fire(unsigned ctx, unsigned conn, std::uint16_t event, int error) {
         auto it = g_ctx.find(ctx);
         if (it == g_ctx.end() || !it->second.cb) return;
         c = it->second;
+        if (sig_alive_on()) {
+            auto cn = g_conn.find(conn);
+            const bool exists = cn != g_conn.end() && cn->second.ctx == ctx;
+            if (!sigalive::Deliver(event, exists, exists && cn->second.dead)) {
+                log("np: NpSignaling event 0x%x conn %u not delivered: the connection is dead", event, conn);
+                return;
+            }
+        }
     }
     if (party_trace()) log("np: NpSignaling event 0x%x conn %u", event, conn);
     post_guest_call(reinterpret_cast<std::uintptr_t>(c.cb), ctx, conn, event,
                     static_cast<std::uint64_t>(static_cast<std::int64_t>(error)), reinterpret_cast<std::uint64_t>(c.arg));
+}
+
+std::atomic<bool> g_watching{false};
+void watch_tick();
+void watch_start() {
+    if (!sig_alive_on() || g_watching.exchange(true)) return;
+    session::dispatch_after(2000, session::Prio::Signaling, watch_tick);
+}
+// Every 2 s while connections are up: one whose peer's link went silent past the limit is dead for the
+// game too (DEAD +100 ms, the way a left member's connection ends).
+void watch_tick() {
+    std::vector<std::pair<unsigned, unsigned>> gone;
+    bool any = false;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        for (auto& [id, c] : g_conn) {
+            if (c.dead || !c.announced) continue;
+            any = true;
+            if (!link_dead(c)) continue;
+            c.dead = true;
+            if (c.member_id) session::peers_set_conn(c.member_id, id, 0);
+            log("np: NpSignaling conn %u (%s) dead: its peer was silent on the party link past the limit", id,
+                c.online_id.c_str());
+            gone.emplace_back(c.ctx, id);
+        }
+    }
+    for (const auto& [ctx, conn] : gone) {
+        const unsigned cx = ctx, cn = conn;
+        session::dispatch_after(100, session::Prio::Signaling, [cx, cn] { fire(cx, cn, kEvDead, 0); });
+    }
+    if (any) session::dispatch_after(2000, session::Prio::Signaling, watch_tick);
+    else g_watching.store(false);
 }
 
 // Once a connection has a known peer: ESTABLISHED at +200 ms, ACTIVE at +400.
@@ -74,6 +140,7 @@ void announce_locked(unsigned conn_id, Conn& c) {
     session::dispatch_after(fast ? 50 : 200, session::Prio::Signaling,
                             [ctx, conn_id] { fire(ctx, conn_id, kEvEstablished, 0); });
     session::dispatch_after(fast ? 100 : 400, session::Prio::Signaling, [ctx, conn_id] { fire(ctx, conn_id, kEvActive, 0); });
+    watch_start();
 }
 
 BBNET_ABI int sig_init(std::uint64_t, int, int, std::uint64_t) {
@@ -237,7 +304,10 @@ BBNET_ABI int sig_status(unsigned ctx, unsigned conn, int* st, std::uint32_t* ad
     {
         std::lock_guard<std::mutex> lk(g_mu);
         auto it = g_conn.find(conn);
-        if (it != g_conn.end() && it->second.ctx == ctx && !it->second.dead) {
+        if (it != g_conn.end() && it->second.ctx == ctx && !it->second.dead && sig_alive_on() && it->second.announced &&
+            link_dead(it->second)) {
+            status = 0;  // down for the game now; the watch marks it dead and fires DEAD
+        } else if (it != g_conn.end() && it->second.ctx == ctx && !it->second.dead) {
             session::Peer peer;
             if (it->second.member_id && session::peers_get(it->second.member_id, &peer) && peer.addr) {
                 status = it->second.announced ? 2 : 1;

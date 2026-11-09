@@ -558,3 +558,10 @@ dropped; *Last event* now steps aside at five). Memory on a 32 GB PC: five clien
 working set together (host 4.3 GB, guests 3.8 GB, private bytes about 14 GB); the free physical memory
 fell to 0.4 GB and the drawn windows ran 14-16 FPS with a 60 FPS cap: five on one PC is a stress
 test, not a play setup. Not tried: five real PCs, the late areas, invaders, chalice dungeons.
+
+## Six players (0.8.0, CL-10e56b): see six_players.md
+
+The engine's seats are five (host + four remote players, an invader is one): 0.8.0 counts them that way for invaders
+(`Capacity`, smoke `fpi5`) and offers 5 behind the launcher's *Large parties* switch (`BB_PARTY_LARGE`). A sixth player needs the
+presentation object (0xb0 bytes, 5 slots), the player ChrSet (5), the GameDataMan remote rows (4) and their `< 4` checks extended;
+the limits table, the evidence and the design are in `six_players.md`. Nothing offers 6.

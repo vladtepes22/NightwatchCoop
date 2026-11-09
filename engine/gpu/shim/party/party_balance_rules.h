@@ -42,6 +42,9 @@ struct Rules {
     bool rot_cleanse_boss = true;
     bool rot_cleanse_killer = true;
     bool rot_cleanse_echoes = true;
+    /// 0.8.0 (C4, host choice): the death debuff may also pick a sixth kind, stamina recovery (-15 %
+    /// of the stamina that comes back, per stack). Off by default; a host from before sends none: off.
+    bool rot_extra = false;
     int boss_hp = 150;     ///< % of the vanilla boss HP step (+50 % per cooperator) per extra hunter
     int boss_damage = 10;  ///< + % damage per extra hunter (vanilla: 0)
     int boss_poise = 100;  ///< % of the vanilla poise step (+30 per cooperator)
@@ -192,6 +195,10 @@ float RotHpFactor(int stacks);
 /// a swing (live: 0 calls), so the rot charges the extra itself. One tick's stamina drop (prev ->
 /// now, the max unchanged) times (factor - 1), with the fraction carried to the next drop: the
 /// whole points to take now (0 when nothing was spent, the max changed or the factor is 1).
+/// C4 (0.8.0, stamina recovery kind): how many points to take back of this tick's stamina gain
+/// (prev -> now, the max unchanged, factor < 1 = the share that still comes back). `carry` keeps
+/// the fraction. Never more than the gain, never below 0.
+int RotStaminaRecoveryTakeBack(int prev, int now, int prev_max, int now_max, float factor, float* carry);
 int RotExtraStaminaDrain(int prev, int now, int prev_max, int now_max, float factor, float* carry);
 
 /// C4 "rally" rot (0.6.2): the SpEffect regainRate getter is never asked either (live: 0 calls while
@@ -244,7 +251,7 @@ bool RotFromAnotherCharacter(int stacks, bool own_prologue, double prologue_s);
 /// whose rot it was: it is dropped (legacy_stacks says how much, for the log). Dropping a penalty
 /// costs nobody anything (a lamp would cleanse it anyway); giving it to the wrong character was
 /// the bug.
-constexpr int kRotFileKinds = 5;
+constexpr int kRotFileKinds = 6;  // 6th (0.8.0): stamina recovery, only offered while the host's rot_extra is on
 struct SlotRot {
     int slot = -1;  ///< save slot 0-9, -1 unknown
     int kind[kRotFileKinds] = {};

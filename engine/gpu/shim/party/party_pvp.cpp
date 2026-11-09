@@ -449,8 +449,17 @@ bool ChrSpEffectNode(u64 chr, int id, u64* node_out = nullptr) {
     }
     return false;
 }
+/// The chr is still one of the world's player chrs. A fallen / leaving invader's chr is torn down with its slot while this
+/// code still holds the pointer: the game's own SpEffect calls on it fault (host crash, CL-ca73b8).
+bool ChrInWorld(u64 chr) {
+    if (!chr) return false;
+    for (u64 c : PlayerChrs(Slot(kSlotWorldChrMan)))
+        if (c == chr) return true;
+    return false;
+}
 bool ChrApplySpEffect(u64 chr, int id) {
     u64 vt = 0, fn = 0;
+    if (!ChrInWorld(chr)) return false;
     if (!chr || !SafeGet(chr, &vt) || !vt || !SafeGet(vt + 0x3f0, &fn) || !fn) return false;
     using Fn = void(BB_COOP_SYSV*)(u64, u64, u64, u64, u64, u64, u64, float, float, float, float, float);
     reinterpret_cast<Fn>(fn)(chr, u64(id), chr, 0, 1, 0, 0, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
@@ -459,6 +468,7 @@ bool ChrApplySpEffect(u64 chr, int id) {
 bool ChrRemoveSpEffect(u64 chr, int id) {  // the game's RemoveSpEffect 0x17E1D90(list, node, 1)
     u64 node = 0;
     const u64 list = Field<u64>(chr, 0x1c8);
+    if (!ChrInWorld(chr)) return false;
     if (!list || !ChrSpEffectNode(chr, id, &node)) return false;
     using Fn = void(BB_COOP_SYSV*)(u64, u64, u32);
     reinterpret_cast<Fn>(Guest(0x17e1d90))(list, node, 1);
@@ -466,7 +476,9 @@ bool ChrRemoveSpEffect(u64 chr, int id) {  // the game's RemoveSpEffect 0x17E1D9
 }
 
 void InvaderRestoreOne(InvaderState& iv, InvChr& e, const char* why) {
-    if (e.chr && Field<u32>(e.chr, 0x1f0, 0) == e.entity) {
+    if (e.chr && !ChrInWorld(e.chr)) {  // the chr left the world (invader_died / left): nothing to put back on it
+        Log("invader: its chr is gone from the world (%s): nothing to restore", why);
+    } else if (e.chr && Field<u32>(e.chr, 0x1f0, 0) == e.entity) {
         if (Field<u32>(e.chr, kChrTeam, 0) == u32(iv.team)) {
             const u32 t = u32(e.from);
             if (SafeWrite(e.chr + kChrTeam, &t, 4)) Log("invader: its chr is back on team %d (%s)", e.from, why);

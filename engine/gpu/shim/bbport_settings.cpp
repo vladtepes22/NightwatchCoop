@@ -75,6 +75,7 @@ const PartySwitch PartySwitches[] = {
     {"party_rot_cleanse_boss", "BB_PARTY_ROT_CLEANSE_BOSS", &Values::party_rot_cleanse_boss, false},
     {"party_rot_cleanse_killer", "BB_PARTY_ROT_CLEANSE_KILLER", &Values::party_rot_cleanse_killer, false},
     {"party_rot_cleanse_echoes", "BB_PARTY_ROT_CLEANSE_ECHOES", &Values::party_rot_cleanse_echoes, false},
+    {"party_rot_extra", "BB_PARTY_ROT_EXTRA", &Values::party_rot_extra, false},
 };
 const int PartySwitchCount = int(std::size(PartySwitches));
 
@@ -251,6 +252,10 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_pings = i != 0;
     } else if (key == "party_name_colours") {
         v.party_name_colours = i != 0;
+    } else if (key == "party_look_sync") {
+        v.party_look_sync = i != 0;
+    } else if (key == "party_map_marks") {
+        v.party_map_marks = i != 0;
     } else if (key == "party_through_walls") {
         v.party_through_walls = i != 0;
     } else if (key == "party_hud_ping") {
@@ -901,7 +906,7 @@ void Load() {
         {"BB_PARTY_VPN", "party_vpn"},  {"BB_PARTY_DISCOVERY", "party_discovery"}, {"BB_PARTY_HIDE_BAD_NAMES", "party_hide_bad_names"}, {"BB_PARTY_VPN_LOBBY", "party_vpn_lobby"},
         {"BB_TEXTURE_QUALITY", "texture_quality"},
         {"BB_LIVE_FPS", "live_fps"}, {"BB_MAX_DT_HZ", "max_dt_hz"}, {"BB_PARTY_INVADERS", "party_invaders"}, {"BB_PARTY_MAX_INVADERS", "party_max_invaders"},
-        {"BB_AUTO_HUD", "auto_hide_hud"}, {"BB_PARTY_NAME_COLOURS", "party_name_colours"},
+        {"BB_AUTO_HUD", "auto_hide_hud"}, {"BB_PARTY_NAME_COLOURS", "party_name_colours"}, {"BB_PARTY_LOOK_SYNC", "party_look_sync"}, {"BB_PARTY_MAP_MARKS", "party_map_marks"},
         {"BB_PARTY_OPEN", "party_open"}, {"BB_PARTY_OPEN_ANY_LEVEL", "party_open_any_level"}, {"BB_PARTY_SPLITSCREEN", "party_splitscreen"}, {"BB_PARTY_STAY", "party_stay"}, {"BB_PARTY_MESSAGES", "party_messages"},  // visy 0.7.5 (2179ec17, 51fb67e9)
         {"BB_FSR_SHARPNESS", "sharpness"},        {"BB_JITTER", "jitter"},
         {"BB_REACTIVE", "reactive"},              {"BB_REACTIVE_SCALE", "reactive_scale"},
@@ -1094,6 +1099,8 @@ void Save() {
     put("party_chat_receive", flag(v.party_chat_receive));
     put("party_hide_bad_names", flag(v.party_hide_bad_names));
     put("party_name_colours", flag(v.party_name_colours));
+    put("party_look_sync", flag(v.party_look_sync));
+    put("party_map_marks", flag(v.party_map_marks));
     put("party_through_walls", flag(v.party_through_walls));
     put("party_stain_marker", flag(v.party_stain_marker));
     put("auto_hide_hud", flag(v.auto_hide_hud));

@@ -98,6 +98,48 @@ static void TestBoard() {
     assert(std::strcmp(d, "124 m") == 0);
 }
 
+static void TestMarks() {
+    P::ResetForTest();
+    // The wire: a map marker is the ping event with "mark":1; a clear marker needs no spot.
+    P::PingEvent e, back;
+    e.mark = true;
+    e.id = 7;
+    e.map = 0x18010000;
+    e.pos[0] = -33.5f, e.pos[2] = 88.1f;
+    e.t = 5;
+    std::string err;
+    assert(P::FromJson(P::ToJson(e), &back, &err) && back.mark && !back.clear && Near(back.pos[0], -33.5f) &&
+           Near(back.pos[2], 88.1f));
+    e.mark = false;
+    assert(P::FromJson(P::ToJson(e), &back, &err) && !back.mark);  // a ping stays a ping
+    assert(P::FromJson(R"({"mark":1,"clear":1,"slot":2})", &back, &err) && back.mark && back.clear);
+    assert(!P::FromJson(R"({"map":402718720,"pos":[1,2,3],"mark":2})", &back, &err));
+    assert(!P::FromJson(R"({"mark":1,"map":0,"pos":[1,2,3]})", &back, &err));
+    // The board: one per slot, no expiry, replaced, cleared, bad slots and non-finite spots ignored.
+    P::MapMark m, out[P::kMaxSlots];
+    m.slot = 1;
+    m.map = 0x18010000;
+    m.x = 10, m.z = 20;
+    std::snprintf(m.name, sizeof m.name, "Hunter1");
+    P::PlaceMark(m);
+    m.slot = 0;
+    P::PlaceMark(m);
+    assert(P::ReadMarks(out) == 2);
+    m.slot = 1;
+    m.x = 11;
+    P::PlaceMark(m);
+    assert(P::ReadMarks(out) == 2 && Near(out[1].x, 11.0f));
+    P::ClearMark(1);
+    assert(P::ReadMarks(out) == 1 && out[0].slot == 0);
+    m.slot = 99;
+    P::PlaceMark(m);
+    m.slot = 3, m.x = NAN;
+    P::PlaceMark(m);
+    assert(P::ReadMarks(out) == 1);
+    P::ClearAll();  // the party ended
+    assert(P::ReadMarks(out) == 0);
+}
+
 static void TestAim() {
     // Camera 4 m behind and 2 m above the player at the origin, looking along +z.
     const float cam[3] = {0, 2.0f, -4.0f}, player[3] = {0, 0, 0};
@@ -159,6 +201,7 @@ int main() {
     TestJson();
     TestRate();
     TestBoard();
+    TestMarks();
     TestAim();
     TestEdge();
     std::printf("party-ping-test: ok\n");

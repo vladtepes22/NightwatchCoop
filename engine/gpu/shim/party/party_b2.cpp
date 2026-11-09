@@ -30,6 +30,7 @@
 #include "../net/from_api.h"
 #include "../net/bbnet_internal.h"
 #include "../net/np_hle.h"
+#include "../net/np_session.h"
 #include "party_nr_drop.h"
 #include "party_dsummon.h"
 #include "party_chalice.h"
@@ -58,6 +59,7 @@
 #include "../bbport_camera.h"
 #include "../bbport_frame_state.h"
 #include "../bbport_settings.h"
+#include "look_sync_rules.h"
 #include "party_connwarn.h"
 #include "../bbport_toggles.h"
 
@@ -161,6 +163,16 @@ bool EnvOff(const char* name) {
 
 double Now() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+/// Seconds a loading screen was up since this timer's previous call (`last`, its own state; 0 while
+/// not loading). A wall-clock timeout that waits for something other than a load shifts its start by
+/// this, so a 45 s load on a busy machine does not use the timeout up (timeouts audit 0.8.0).
+double LoadingDt(bool loading, double now, double& last) {
+    // A gap between calls (the caller idle) is not load time: at most 5 s per call.
+    const double dt = loading && last > 0 && now > last ? std::min(now - last, 5.0) : 0.0;
+    last = now;
+    return dt;
 }
 
 template <class T>
@@ -6641,8 +6653,75 @@ void MemberRevivedTick(const GameSnapshot& s) {
 std::atomic<bool> g_own_appearance_changed{false};
 std::vector<std::pair<double, std::array<float, 3>>> g_appearance_todo;  // (due, where), under g_member_revived_mu
 
+// H5 look sync (setting party_look_sync, env BB_PARTY_LOOK_SYNC, off by default): the own player record's
+// appearance block ("FACE", looksync::kFaceSize bytes) is hashed twice a second; when it has changed and held
+// for 1.5 s (any editor writes it, not only the Dream mirror whose close already notifies), the same path as the
+// mirror's close runs: the own record is re-broadcast and the peers rebuild this chr. The block is found by its
+// magic inside the record once per record pointer.
+bool LookSyncOn() {
+    static const char* env = std::getenv("BB_PARTY_LOOK_SYNC");
+    if (env && *env) return env[0] != '0';
+    return BbSettings::Get().party_look_sync.load(std::memory_order_relaxed);
+}
+
+void LookSyncTick(const GameSnapshot& s, bool session) {
+    static looksync::Detector det;
+    static double next = 0;
+    static u64 rec_ptr = 0;
+    static long face_off = -2;  // -2 not searched, -1 not found
+    const double now = Now();
+    if (now < next) return;
+    next = now + 0.5;
+    if (!LookSyncOn() || !session || !s.world_up || s.loading) {
+        det.Reset();
+        return;
+    }
+    const u64 own = Field<u64>(Slot(kSlotGameData), 8);
+    if (!own) {
+        det.Reset();
+        return;
+    }
+    static double retry_at = 0;
+    if (own != rec_ptr) {
+        rec_ptr = own;
+        face_off = -2;
+    } else if (face_off == -1 && now >= retry_at) {
+        face_off = -3;  // the record may not have been filled yet: search again (logged only on a find)
+    }
+    if (face_off <= -2) {
+        const bool quiet = face_off == -3;
+        std::vector<std::uint8_t> buf(0x20000);
+        std::size_t got = 0;
+        for (std::size_t off = 0; off < buf.size(); off += 0x1000) {
+            if (!SafeRead(own + off, buf.data() + off, 0x1000)) break;
+            got = off + 0x1000;
+        }
+        face_off = looksync::FindFace(buf.data(), got);
+        retry_at = now + 5.0;
+        if (!quiet || face_off >= 0) Log("look sync: the appearance block %s in the own record (record %#llx, %zu bytes read)",
+            face_off >= 0 ? ("found at +" + std::to_string(face_off)).c_str() : "NOT found", (unsigned long long)own, got);
+    }
+    if (face_off < 0) return;
+    std::uint8_t blk[looksync::kFaceSize];
+    if (!SafeRead(own + face_off, blk, sizeof blk)) {
+        det.Reset();
+        return;
+    }
+    const std::uint64_t h = looksync::HashBlock(blk, sizeof blk);
+    static std::uint64_t last_h = 0;
+    if (h != last_h) {
+        Log("look sync: appearance block hash %016llx", (unsigned long long)h);
+        last_h = h;
+    }
+    if (det.Update(true, h, now)) {
+        Log("look sync: the appearance data changed: record re-sent, the peers rebuild this chr");
+        g_own_appearance_changed = true;
+    }
+}
+
 void AppearanceTick(const GameSnapshot& s) {
     const bool session = (Role() == RoleHost && s.cooperators > 0) || Role() == RoleClient;
+    LookSyncTick(s, session);
     if (g_own_appearance_changed.load() && s.world_up && !s.loading) {
         g_own_appearance_changed = false;
         float p[3] = {0, 0, 0};
@@ -8938,9 +9017,12 @@ void JoinBesideTick(const GameSnapshot& s, double now) {
         pending_since = now;
     }
     prev_role = role;
+    static double load_last = 0;
+    const double load_dt = LoadingDt(s.loading, now, load_last);
     if (!on || pending_since <= 0 || role != RoleClient) {
         return;
     }
+    pending_since += load_dt;  // the join's own load does not count
     if (now - pending_since > 60.0) {
         pending_since = 0;
         return;
@@ -9147,10 +9229,16 @@ std::atomic<double> g_carry_gd_at{-1};  // A5: the arrival started; its GameData
 /// and its player record again so the host counts it.
 void CarryGameDataTick(const GameSnapshot& s, double now) {
     const double at = g_carry_gd_at.load();
+    static double load_last = 0;
+    const double load_dt = LoadingDt(s.loading, now, load_last);
     if (at < 0) {
         return;
     }
-    if (now - at > 60.0 || Role() != RoleClient) {
+    const double shifted = at + load_dt;  // the arrival load does not count
+    if (shifted != at) {
+        g_carry_gd_at = shifted;
+    }
+    if (now - shifted > 60.0 || Role() != RoleClient) {
         g_carry_gd_at = -1;
         return;
     }
@@ -9221,9 +9309,16 @@ bool BesideHostIntent(u32 host_map, TravelIntent* t) {
 }
 
 void CarryArrivalTick(const GameSnapshot& s, double now) {
-    const double at = g_carry_join_at.load();
+    double at = g_carry_join_at.load();
+    static double load_last = 0;
+    const double load_dt = LoadingDt(s.loading, now, load_last);
     if (at < 0) {
         return;
+    }
+    if (const double dt = load_dt; dt > 0) {
+        // The guest's own loads (the gather's, the summon's) are not "no arrival load": 60 s of waiting.
+        at += dt;
+        g_carry_join_at = at;
     }
     if (now - at > 60.0) {
         g_carry_join_at = -1;
@@ -9656,8 +9751,11 @@ void GuestTick(const GameSnapshot& s, double now) {
             }
             return;
         }
-        if (now - st.since > 45.0) {  // the flow leaves by itself after 60 s in states 1-3
-            FallbackToB1(fstate == 2 ? "no host destination within 45 s" : "no host snapshot within 45 s");
+        // The flow leaves by itself after 60 s in states 1-3. The snapshot comes at the host's travel, but
+        // the destination only after the host's own load (45 s on a busy machine): once the snapshot is
+        // applied (state 2) the wait is 55 s, just under the flow's 60 (timeouts audit 0.8.0).
+        if (now - st.since > (fstate == 2 ? 55.0 : 45.0)) {
+            FallbackToB1(fstate == 2 ? "no host destination within 55 s" : "no host snapshot within 45 s");
         }
         return;
     case GuestPhase::Loading: {
@@ -10000,10 +10098,12 @@ void HostTick(const GameSnapshot& s, double now) {
             arrived = st.arrived;
             st.arrived = false;
         }
-        const bool timeout = now - st.hsince > 60.0;
+        // A guest's own host-world load can take 45 s on a busy machine and its Loading phase gives up at
+        // 90 s: the host waits a little longer than that for the "arrived" (was 60 s; timeouts audit 0.8.0).
+        const bool timeout = now - st.hsince > 100.0;
         if (arrived || timeout) {
             const int n = RewindRemoteTasks("host");
-            Log("host: %s; %d member task(s) rewound", arrived ? "a guest arrived" : "60 s without arrival", n);
+            Log("host: %s; %d member task(s) rewound", arrived ? "a guest arrived" : "100 s without arrival", n);
             if (timeout) {
                 st.hphase = HostPhase::Idle;
                 g_rejoin = false;
@@ -10745,6 +10845,13 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
         v.host_map = s.map_id;
         v.carry = dsummon::CarriesAcrossMaps(s.map_id, gather_dsum);
         v.cooperators = s.cooperators < 0 ? 0 : s.cooperators;
+        // 0.8.0 (CL-10e56b): the game's cooperator count leaves invaders out (ChrType 8), yet an invader holds one of the
+        // engine's seats (host + 4 remote): with an invader in, a party of 5 takes one cooperator fewer.
+        if (party::PartyLink* il = party::runtime_link()) {
+            for (int k = 1; k < party::kMaxPartyPlayers; ++k) {
+                if (k != slot && il->is_invader(k)) ++v.cooperators;  // not the invader that is asking (it would refuse itself)
+            }
+        }
         v.max_cooperators = dsummon::MaxCooperators(coop::fourp::FourpEffectiveMax());
         v.ms_since_sign_summon = bbnet::party::FromApi::instance().ms_since_request();
         v.ms_since_member_joined = bbnet::np::ms_since_member_joined();
@@ -10917,6 +11024,14 @@ void DirectSummonTick(const GameSnapshot& s, double now) {
     {
         std::lock_guard<std::mutex> lk(DS().mu);
         const dsummon::Phase before = DS().g.phase;
+        {  // 0.8.0 (08c): the waits grow with the link's round trip (none on a LAN); BB_PARTY_DSUMMON_ADAPTIVE=0 = fixed
+            static const bool adaptive = dsummon::SwitchOn(std::getenv("BB_PARTY_DSUMMON_ADAPTIVE"), true);
+            party::PartyLink* rl = adaptive ? party::runtime_link() : nullptr;
+            const double slack = rl ? dsummon::WaitSlack(rl->rtt_ms()) : 0.0;
+            if (slack > 0 && DS().g.slack == 0 && DS().g.phase != dsummon::Phase::Idle)
+                Log("direct summon: slow link (rtt %u ms): the answer, entry and join waits get %.1f s more", rl->rtt_ms(), slack);
+            DS().g.slack = std::max(DS().g.slack, slack);  // never shortened while a request runs
+        }
         // Playtest 1 #9: a room of another map is never handed to the game (it would join without
         // loading the host's map and sit in its own world as a client): fail, gather, ring again.
         if (dsummon::RoomElsewhere(DS().g, now, DS().room.area, s.map_id,
@@ -11751,6 +11866,7 @@ constexpr u64 kNrVtableUdpP2p = 0x52c51e0, kNrVtableUdp = 0x52c5160;  // FUN_027
 std::atomic<std::int64_t> g_nrd_at{0};  // steady ms from which to look (0 = nothing asked)
 std::mutex g_nrd_mu;
 std::string g_nrd_name;  // g_nrd_mu
+std::string g_nrd_keep;  // g_nrd_mu: a peer whose connection is never released (the host, for a guest)
 std::atomic<bool> g_nrd_busy{false};
 std::atomic<bool> g_nrd_outage{false};  // F5: the member is back after an outage (one scan)
 bool g_nrd_listed = false;  // under g_nrd_busy
@@ -11774,10 +11890,20 @@ void NrRecvHook(int sock, int where) {
     if (where == 2) return;  // inside the transport's own update: not a safe place to release
     bool expect = false;
     if (!g_nrd_busy.compare_exchange_strong(expect, true)) return;
-    std::string name;
+    std::string name, keep_name;
     {
         std::lock_guard<std::mutex> lk(g_nrd_mu);
         name = g_nrd_name;
+        keep_name = g_nrd_keep;
+    }
+    std::vector<nrdrop::Source> keep;
+    if (!keep_name.empty()) {
+        bbnet::session::Peer hp;
+        if (bbnet::session::peers_find_online(keep_name, &hp)) {
+            auto bs = [](std::uint16_t p) { return static_cast<std::uint16_t>((p >> 8) | ((p & 0xff) << 8)); };
+            keep.push_back({hp.addr, bs(hp.port)});
+            if (hp.local_addr) keep.push_back({hp.local_addr, bs(hp.local_port)});
+        }
     }
     if (now > at + 5000) {  // the hold (26 s) stays: the game times the connection out itself
         g_nrd_at.store(0);
@@ -11799,15 +11925,18 @@ void NrRecvHook(int sock, int where) {
         ++transports;
         // After an outage the member's last datagram is as old as the outage (up to the 130 s slot
         // keep plus the reconnect), so the window is wider.
-        const std::vector<nrdrop::Source> silent =
-            nrdrop::SilentSources(bbnet::p2p_heard(fd), now, 1500, outage ? 180000 : 60000);
+        const std::vector<nrdrop::Source> silent = nrdrop::Without(
+            nrdrop::SilentSources(bbnet::p2p_heard(fd), now, 1500, outage ? 180000 : 60000), keep);
         silent_n += silent.size();
+        std::vector<bool> has_el(silent.size(), false);  // 0.8.0 (08c): a silent source with a connection in the array
         for (std::uint32_t k = 0; k < cnt; ++k) {
             const u64 el = arr + k * 0xc0ull;
             std::uint8_t used = 0;
             std::uint8_t key[nrdrop::kKeySize] = {};
             if (!SafeRead(el + 0x2c, &used, 1) || !used || !SafeRead(el + 0x10, key, sizeof key)) continue;
             ++seen;
+            for (std::size_t si = 0; si < silent.size(); ++si)
+                if (nrdrop::KeyMatchesAny(key, {silent[si]})) has_el[si] = true;
             std::uint16_t port = 0;
             std::memcpy(&port, key + 0x18, 2);
             const bool match = nrdrop::KeyMatchesAny(key, silent);
@@ -11828,6 +11957,20 @@ void NrRecvHook(int sock, int where) {
                     Log("C6: its outage-replay state forgotten (%zu entr%s): no replay into its restarted game", n,
                         n == 1 ? "y" : "ies");
                 }
+            }
+        }
+        // 0.8.0 (Iosefka 08c, smoke iv 'second invader'): the game had already released its connection to the departed member
+        // (its room leave came first), so nothing matched above, but the outage replay's state for that source stayed. The
+        // member's next game (an invader asking again from the same address and port 20+ s later) was sent the dead session's
+        // reliable records at its first datagram ("outage resume ... 183 reliable record(s)"), stayed in trying-to-join and
+        // only the bell-sign retry (~33 s) got in. Forget the replay state of every silent source that has no connection.
+        // BB_PARTY_NR_FORGET_ORPHAN=0 restores the old behaviour.
+        static const bool forget_orphan = !(std::getenv("BB_PARTY_NR_FORGET_ORPHAN") && std::getenv("BB_PARTY_NR_FORGET_ORPHAN")[0] == '0');
+        if (forget_orphan && !outage) {
+            for (const nrdrop::Source& o : nrdrop::Orphans(silent, has_el)) {
+                const std::size_t n = bbnet::p2p_forget_source(std::uint64_t(o.addr) | (std::uint64_t(o.port_nbo) << 32));
+                Log("C6: %s: no game connection to a silent source (port %u) any more: its outage-replay state forgotten (%zu entr%s)",
+                    name.c_str(), unsigned(o.port_nbo >> 8 | (o.port_nbo & 0xff) << 8), n, n == 1 ? "y" : "ies");
             }
         }
     }
@@ -11855,10 +11998,11 @@ void NrRecvHook(int sock, int where) {
 }
 }  // namespace
 
-void NrDropSilentPeers(const std::string& name, int delay_ms) {
+void NrDropSilentPeers(const std::string& name, int delay_ms, const std::string& keep_name) {
     {
         std::lock_guard<std::mutex> lk(g_nrd_mu);
         g_nrd_name = name;
+        g_nrd_keep = keep_name;
     }
     g_nrd_outage = false;
     g_nrd_listed = false;
@@ -11875,6 +12019,7 @@ void NrDropAfterOutage(const std::string& name) {
     {
         std::lock_guard<std::mutex> lk(g_nrd_mu);
         g_nrd_name = name;
+        g_nrd_keep.clear();
     }
     g_nrd_listed = false;
     g_nrd_outage = true;
@@ -11995,14 +12140,15 @@ bool TitleJoinHold(const GameSnapshot& s) {
             host_state = t.host_state;
         }
         // 10 s while the host still sits at its title; a host that is loading (its Continue
-        // pressed) or in its world opens its room soon: up to 40 s then.
-        if (now - t.since > (host_state == 1 ? 40.0 : 10.0)) {
+        // pressed) or in its world opens its room soon: up to 60 s then (its load alone can take
+        // 45 s on a busy machine; timeouts audit 0.8.0).
+        if (now - t.since > (host_state == 1 ? 60.0 : 10.0)) {
             Send(0, "{\"op\":\"title_cancel\"}");
-            TitleJoinFail(host_state == 1 ? "no room from the host within 40 s" : "the host is still at its title (10 s)");
+            TitleJoinFail(host_state == 1 ? "no room from the host within 60 s" : "the host is still at its title (10 s)");
             return false;
         }
-        if (now - t.since > 70.0) {
-            TitleJoinFail("no answer from the host within 70 s");
+        if (now - t.since > 90.0) {
+            TitleJoinFail("no answer from the host within 90 s");
             return false;
         }
         return true;

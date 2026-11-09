@@ -49,7 +49,6 @@ constexpr u64 kMenuFlags = 0x176b7e0;     // u32 (): open-menu bits; OpenWarpMen
 constexpr u32 kMenuMask = 0xeffffb33u;
 constexpr u64 kLampWarp = 0x13cdf30;      // void (u32 ReturnPointParam id): lamp / headstone warp
 constexpr u64 kFlipperUpdate = 0x2034770; // main-thread tick (as party_director)
-constexpr u64 kMapObject = 0x13c9af0;     // (entity, u32* index) -> map object record (+0x240 3x4 rows)
 constexpr u32 kPadCross = 0x4000, kPadDown = 0x40, kPadRight = 0x20, kPadLeft = 0x80, kPadCircle = 0x2000;
 
 
@@ -188,7 +187,7 @@ std::vector<Spot> ChaliceLampSpots() {
     for (int n = 0; n < kChaliceLamps; ++n) {
         const u32 rp = kChaliceFirstReturn + static_cast<u32>(n);
         u32 idx = 0xffffffffu;
-        const u64 rec = reinterpret_cast<u64(BB_COOP_SYSV*)(i32, u32*)>(Guest(kMapObject))(static_cast<i32>(rp - 1000), &idx);
+        const u64 rec = FindMapObject(static_cast<i32>(rp - 1000), &idx);
         float m[12] = {};
         if (rec && SafeRead(rec + 0x240, m, sizeof m)) v.push_back({rp, m[3], m[7], m[11]});
     }
@@ -579,7 +578,7 @@ void Press(u32 buttons, double now) {
 /// Stands the player 1 m in front of lamp `rp`'s object, facing it (test aid, as guestsvc's lampwalk).
 bool WalkTo(const GameSnapshot& s, u32 rp) {
     u32 idx = 0xffffffffu;
-    const u64 rec = reinterpret_cast<u64(BB_COOP_SYSV*)(i32, u32*)>(Guest(kMapObject))(static_cast<i32>(rp - 1000), &idx);
+    const u64 rec = FindMapObject(static_cast<i32>(rp - 1000), &idx);
     float m[12] = {}, me[3] = {};
     if (!rec || !SafeRead(rec + 0x240, m, sizeof m) || !PlayerPos(s.player, me)) return false;
     const float t[3] = {m[3], m[7], m[11]};
@@ -612,7 +611,7 @@ bool PlacePose(const GameSnapshot& s, u32 rp, int k) {
     } else {
         u32 idx = 0xffffffffu;
         float m[12] = {};
-        const u64 rec = reinterpret_cast<u64(BB_COOP_SYSV*)(i32, u32*)>(Guest(kMapObject))(static_cast<i32>(rp - 1000), &idx);
+        const u64 rec = FindMapObject(static_cast<i32>(rp - 1000), &idx);
         if (!rec || !SafeRead(rec + 0x240, m, sizeof m)) return false;
         const float a = 1.5707963f * static_cast<float>(k - 4);
         pos[0] = m[3] + 1.2f * std::sin(a), pos[1] = m[7], pos[2] = m[11] + 1.2f * std::cos(a);
@@ -775,7 +774,7 @@ void TestTick(const GameSnapshot& s, double now) {
             if (PlayerPos(s.player, me)) {
                 u32 idx = 0xffffffffu;
                 float m[12] = {};
-                const u64 rec = reinterpret_cast<u64(BB_COOP_SYSV*)(i32, u32*)>(Guest(kMapObject))(
+                const u64 rec = FindMapObject(
                     static_cast<i32>(g_t.walked - 1000), &idx);
                 float d = -1.0f;
                 if (rec && SafeRead(rec + 0x240, m, sizeof m)) {

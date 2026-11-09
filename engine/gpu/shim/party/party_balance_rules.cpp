@@ -28,7 +28,7 @@ bool Rules::operator==(const Rules& o) const {
            gather == o.gather && guest_gather == o.guest_gather && layer_travel == o.layer_travel && covenant_per_player == o.covenant_per_player &&
            npc_fights == o.npc_fights && skip_prologue == o.skip_prologue && any_kidnap == o.any_kidnap && level_sync == o.level_sync && phantom_hp == o.phantom_hp && pvp_full_hp == o.pvp_full_hp && boss_drops == o.boss_drops && invaders == o.invaders &&
            rot_cleanse_boss == o.rot_cleanse_boss && rot_cleanse_killer == o.rot_cleanse_killer &&
-           rot_cleanse_echoes == o.rot_cleanse_echoes && travel_vote == o.travel_vote &&
+           rot_cleanse_echoes == o.rot_cleanse_echoes && rot_extra == o.rot_extra && travel_vote == o.travel_vote &&
            open_world == o.open_world && guest_revive_inplace == o.guest_revive_inplace &&
            guest_respawn == o.guest_respawn && guest_refill == o.guest_refill && chalice_rejoin == o.chalice_rejoin &&
            story_mirror == o.story_mirror && guest_lamps == o.guest_lamps && guest_mark == o.guest_mark &&
@@ -114,6 +114,7 @@ std::string ToJson(const Rules& r) {
     v.set("rot_cleanse_boss", r.rot_cleanse_boss);
     v.set("rot_cleanse_killer", r.rot_cleanse_killer);
     v.set("rot_cleanse_echoes", r.rot_cleanse_echoes);
+    v.set("rot_extra", r.rot_extra);
     v.set("boss_hp", r.boss_hp);
     v.set("boss_damage", r.boss_damage);
     v.set("boss_poise", r.boss_poise);
@@ -156,7 +157,8 @@ bool FromJson(const std::string& text, Rules* out, std::string* error) {
     r.rot_cleanse_boss = r.rot_cleanse_killer = r.rot_cleanse_echoes = false;
     if (const json::Value* m = v.find("rot"); m && m->type == json::Value::Type::Bool) r.rot = m->boolean;
     for (auto [key, to] : {std::pair<const char*, bool*>{"rot_cleanse_boss", &r.rot_cleanse_boss},
-                           {"rot_cleanse_killer", &r.rot_cleanse_killer}, {"rot_cleanse_echoes", &r.rot_cleanse_echoes}})
+                           {"rot_cleanse_killer", &r.rot_cleanse_killer}, {"rot_cleanse_echoes", &r.rot_cleanse_echoes},
+                           {"rot_extra", &r.rot_extra}})
         if (const json::Value* m = v.find(key); m && m->type == json::Value::Type::Bool) *to = m->boolean;
     if (const json::Value* m = v.find("friendly_fire"); m && m->type == json::Value::Type::Bool)
         r.friendly_fire = m->boolean;
@@ -231,6 +233,19 @@ int BossHpCatchUp(int hp, int max_hp, int base_hp, float rate, int* new_hp) {
     if (hp < max_hp) return 0;         // damaged already: the game's own update owns it
     if (new_hp) *new_hp = want;
     return want;
+}
+
+int RotStaminaRecoveryTakeBack(int prev, int now, int prev_max, int now_max, float factor, float* carry) {
+    if (prev < 0 || now <= prev || prev_max <= 0 || prev_max != now_max || !(factor < 1.0f)) return 0;
+    const float f = factor < 0.0f ? 0.0f : factor;
+    const float back = static_cast<float>(now - prev) * (1.0f - f) + (carry ? *carry : 0.0f) + 1e-4f;
+    int whole = static_cast<int>(back);
+    if (whole > now - prev) whole = now - prev;
+    if (carry) {
+        *carry = back - 1e-4f - static_cast<float>(static_cast<int>(back));
+        if (*carry < 0) *carry = 0;
+    }
+    return whole < 0 ? 0 : whole;
 }
 
 int RotExtraStaminaDrain(int prev, int now, int prev_max, int now_max, float factor, float* carry) {
@@ -331,6 +346,7 @@ RotFile ParseRotFile(const std::string& text) {
             k = std::clamp(n, 0, left);
             left -= k;
         }
+        l.clear();  // a file from before the sixth kind has five numbers, then " stain K"
         int stain = -1;
         if (l >> word && word == "stain" && l >> stain && stain >= 0 && stain < kRotFileKinds && r.kind[stain] > 0)
             r.stain = stain;
@@ -344,7 +360,9 @@ std::string FormatRotFile(const RotFile& f) {
     for (const SlotRot& r : f.slots) {
         if (r.Stacks() <= 0) continue;
         out += "slot " + std::to_string(r.slot) + " kinds";
-        for (int k : r.kind) out += " " + std::to_string(k);
+        // (the sixth number only when it is not 0: a file of five kinds stays what an older build reads)
+        for (int i = 0; i < kRotFileKinds; ++i)
+            if (i < 5 || r.kind[i] > 0) out += " " + std::to_string(r.kind[i]);
         if (r.stain >= 0 && r.stain < kRotFileKinds && r.kind[r.stain] > 0) out += " stain " + std::to_string(r.stain);
         out += "\n";
     }
@@ -372,10 +390,12 @@ std::string DescribeDamage(int percent, bool russian) {
 std::string DescribeRotEffect(int k, int stacks, bool russian) {
     // Per stack, as party_balance's UpdateRotFactor applies them.
     static const char* const kEn[kRotFileKinds] = {"max HP -%d %%", "max stamina -%d %%", "stamina costs +%d %%",
-                                                    "rally -%d %%", "item discovery -%d"};
+                                                    "rally -%d %%", "item discovery -%d",
+                                                    "stamina recovery -%d %%"};
     static const char* const kRu[kRotFileKinds] = {"здоровье -%d %%", "выносливость -%d %%", "траты выносл. +%d %%",
-                                                    "отыгрыш -%d %%", "находки -%d"};
-    static const int kPer[kRotFileKinds] = {kRotHpPercentPerStack, kRotHpPercentPerStack, 10, 15, 10};
+                                                    "отыгрыш -%d %%", "находки -%d",
+                                                    "восстан. выносл. -%d %%"};
+    static const int kPer[kRotFileKinds] = {kRotHpPercentPerStack, kRotHpPercentPerStack, 10, 15, 10, 15};
     const int n = std::clamp(stacks, 0, kRotMaxStacks);
     if (k < 0 || k >= kRotFileKinds || n == 0) return {};
     char b[64];
@@ -394,8 +414,8 @@ std::string DescribeRotHead(const int kind[kRotFileKinds], bool russian) {
 }
 
 std::string DescribeRotShort(const int kind[kRotFileKinds], bool russian) {
-    static const char* const kEn[kRotFileKinds] = {"HP", "stamina", "costs", "rally", "finds"};
-    static const char* const kRu[kRotFileKinds] = {"здор.", "выносл.", "траты", "отыгрыш", "находки"};
+    static const char* const kEn[kRotFileKinds] = {"HP", "stamina", "costs", "rally", "finds", "recovery"};
+    static const char* const kRu[kRotFileKinds] = {"здор.", "выносл.", "траты", "отыгрыш", "находки", "восст."};
     std::string head = DescribeRotHead(kind, russian);
     if (head.empty()) return head;
     std::string what;

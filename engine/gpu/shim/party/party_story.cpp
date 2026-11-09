@@ -871,6 +871,12 @@ std::optional<StoryAction> GuestStory::Run(const StoryState& st, double now) {
 }
 
 std::optional<StoryAction> GuestStory::Step(const StoryState& st, double now) {
+    // The mirror's wait is for its gate, not for a loading screen (45 s on a busy machine): time spent
+    // loading does not age it (timeouts audit 0.8.0).
+    if (st.loading && last_step_ >= 0 && now > last_step_) {
+        mirror_since_ += now - last_step_;
+    }
+    last_step_ = now;
     const bool base = st.world_up && !st.loading && !st.transition_requested && !st.remo_playing;
     stable_mirror_ = base && st.session_role == 6 ? stable_mirror_ + 1 : 0;
     const bool own = st.own_world && st.session_role != 4 && st.session_role != 6 && st.session_role != 7;

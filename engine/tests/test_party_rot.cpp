@@ -252,11 +252,11 @@ int main() {
 
     // The party HUD's short line while a boss bar is up (2+ kinds on one line).
     {
-        const int two[kKinds] = {1, 0, 0, 1, 0};
+        const int two[bal::kRotFileKinds] = {1, 0, 0, 1, 0};  // the 6th kind (0.8.0) left 0
         assert(bal::DescribeRotShort(two, false) == "Rot 2/5: HP, rally");
-        const int none[kKinds] = {};
+        const int none[bal::kRotFileKinds] = {};
         assert(bal::DescribeRotShort(none, false).empty());
-        const int all[kKinds] = {1, 1, 1, 1, 1};
+        const int all[bal::kRotFileKinds] = {1, 1, 1, 1, 1};
         assert(bal::DescribeRotShort(all, false) == "Rot 5/5: HP, stamina, costs, rally, finds");
     }
 

@@ -309,6 +309,43 @@ static void test_catchup() {
     CHECK(c.Step(in).kind == CatchupAction::Finished && !c.Busy() && c.Applied());
     CHECK(c.Step(in).kind == CatchupAction::None);
 
+    // A slow load (a busy machine, 55 s of loading screen) does not run the 40 s warp timeout out:
+    // the catch-up ends by the arrival, not by the timeout (timeouts audit 0.8.0).
+    {
+        Catchup slow;
+        CatchupInput sin = in;
+        sin.in_world = true;
+        sin.t = 100;
+        slow.Step(sin);
+        sin.t = 103.1;
+        CHECK(slow.Step(sin).kind == CatchupAction::ApplyStart);
+        sin.t = 104.2;
+        CHECK(slow.Step(sin).kind == CatchupAction::Warp);
+        sin.in_world = false;
+        for (double t = 105; t <= 160; t += 5) {
+            sin.t = t;
+            CHECK(slow.Step(sin).kind == CatchupAction::None && slow.Busy());
+        }
+        sin.in_world = true;
+        sin.t = 161;
+        CHECK(slow.Step(sin).kind == CatchupAction::None && slow.Busy());
+        sin.t = 164.5;
+        a = slow.Step(sin);
+        CHECK(a.kind == CatchupAction::Finished && a.why == "arrived after the gather warp");
+        // No load at all: the timeout still ends it.
+        Catchup none;
+        sin.t = 200;
+        none.Step(sin);
+        sin.t = 203.1;
+        none.Step(sin);
+        sin.t = 204.2;
+        CHECK(none.Step(sin).kind == CatchupAction::Warp);
+        sin.t = 230;
+        CHECK(none.Step(sin).kind == CatchupAction::None);
+        sin.t = 245;
+        CHECK(none.Step(sin).kind == CatchupAction::Finished);
+    }
+
     // Ready already: nothing applied.
     Catchup r;
     in = CatchupInput{};

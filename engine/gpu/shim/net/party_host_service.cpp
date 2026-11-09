@@ -407,7 +407,7 @@ struct PartyHostService::Impl {
         room.id = next_room++;
         room.session_id = new_session_id();
         const int asked = static_cast<int>(int_of(rq, "MaxMembers", 0));
-        room.max_members = asked > 0 ? asked : party_max_members();
+        room.max_members = asked > 0 ? std::max(asked, party_max_members()) : party_max_members();  // 0.8.0: the game asks 5; a 6-seat party needs 6
         Member m;
         m.id = room.next_member++;
         m.online_id = id;

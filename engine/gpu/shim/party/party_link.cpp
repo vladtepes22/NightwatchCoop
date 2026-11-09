@@ -613,7 +613,8 @@ bool diagnostic_hook_name(const std::string& name) {
 }
 
 bool host_world_hook_name(const std::string& name) {
-    return name.rfind("progress:", 0) == 0 || name.rfind("story capture", 0) == 0;
+    return name.rfind("progress:", 0) == 0 || name.rfind("story capture", 0) == 0 ||
+           name.rfind("hifps:", 0) == 0;  // presentation only (bbport_hifps.cpp), not part of the party identity
 }
 
 std::string hook_option_label(const std::string& name) {
@@ -723,7 +724,7 @@ void apply_link_env(LinkConfig& cfg) {
     }
     if (const char* v = std::getenv("BB_PARTY_MAX"); v && *v) {
         long m = std::strtol(v, nullptr, 10);
-        cfg.max_players = static_cast<int>(std::clamp<long>(m, 2, kMaxPartyPlayers));
+        cfg.max_players = static_cast<int>(std::clamp<long>(m, 2, LocalMaxCap()));
     }
     if (const char* v = std::getenv("BB_PARTY_PASSWORD"); v && *v) cfg.password = v;
     // F5: how long a host keeps a silent member's slot (and its events) for a resume.

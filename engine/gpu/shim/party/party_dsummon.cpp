@@ -316,6 +316,7 @@ void OnAsked(Guest& g, double now) {
     g.reask_at = 0;
     g.reasks = 0;
     g.rearmed = false;
+    g.slack = 0;
 }
 
 void OnRoom(Guest& g, double now, bool refused, Busy wait) {
@@ -387,7 +388,7 @@ Action Step(Guest& g, double now, bool entry_waiting, bool joined) {
             return Action::Reask;
         }
         if (g.reask_at > 0) return Action::None;
-        if (now - g.since > kAnswerWait) {
+        if (now - g.since > kAnswerWait + g.slack) {
             g.phase = Phase::Failed;
             g.fail_why = "no answer from the host";
             return Action::None;  // the host never answered: it holds nothing
@@ -403,11 +404,11 @@ Action Step(Guest& g, double now, bool entry_waiting, bool joined) {
             g.since = now;  // the entry wait counts from the re-ring
             return Action::Rearm;
         }
-        if (now - g.since > kEntryWait || g.deliver_tries >= 3) {
+        if (now - g.since > kEntryWait + g.slack || g.deliver_tries >= 3) {
             g.phase = Phase::Failed;
             g.fail_why = g.deliver_tries >= 3 ? "the game refused the summon message 3 times"
                          : g.rearmed          ? "the bell's own summon entry did not come up, not even after a re-ring"
-                                              : "the bell's own summon entry did not come up within 8 s";
+                                              : "the bell's own summon entry did not come up in time";
             return Action::ReportFail;
         }
         return entry_waiting ? Action::Deliver : Action::None;
@@ -416,9 +417,9 @@ Action Step(Guest& g, double now, bool entry_waiting, bool joined) {
             g.phase = Phase::Done;
             return Action::ReportOk;
         }
-        if (now - g.since > kJoinWait) {
+        if (now - g.since > kJoinWait + g.slack) {
             g.phase = Phase::Failed;
-            g.fail_why = "delivered, but the game did not join the host's room within 8 s";
+            g.fail_why = "delivered, but the game did not join the host's room in time";
             return Action::ReportFail;
         }
         return Action::None;

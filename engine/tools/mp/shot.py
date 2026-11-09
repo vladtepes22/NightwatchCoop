@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Screenshots of the test instances' game windows (PrintWindow, works for background windows).
+"""Screenshots of the test instances' game windows.
+
+How a shot is taken (0.8.0): the GAME writes its own presented frame on request (BB_SHOT_TRIGGER /
+BB_SHOT_DIR, set by instances.py): this tool creates inst<i>/shot.trigger, the renderer's next
+presents copy the swapchain image into inst<i>/shotdump/f<N>_shot_<w>x<h>_bgra.raw. That is the
+image the game sent to the display, so a covered, background or locked-desktop window cannot make
+it black (PrintWindow / BitBlt read DWM's redirection surface, which a flip-model Vulkan swapchain
+does not fill while the window is occluded or the session locked). Fallback when the game does not
+answer within 2 s (an old build, a game still booting, HDR output, a minimised window that does
+not present): PrintWindow with PW_RENDERFULLCONTENT. Every shot is checked for a black frame
+(tools/mp/shotcheck.py); black ones are named in the log ("BLACK") and in <out>/capture.log.
 
   python tools/mp/shot.py --root DIR --out DIR [--tag NAME]
       one PNG per bbport.exe window whose process runs from DIR\\inst*\\out
@@ -16,10 +26,18 @@
       uniform for over 3 s while its log says the world is up (no loading screen) is a grey
       screen: "GREY SCREEN instN" on stdout and in DIR/grey.log, with a PNG in --out.
 """
-import argparse, ctypes, ctypes.wintypes as wt, os, re, time
+import argparse, ctypes, ctypes.wintypes as wt, os, re, sys, time
 from pathlib import Path
 
-from PIL import Image
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import shotcheck  # noqa: E402
+
+try:
+    Image = shotcheck.require_pil()
+except shotcheck.ShotDependencyError as e:
+    # Loud, and with a non-zero exit the harness can see (it used to die inside the subprocess).
+    print("shot.py: ERROR: " + str(e), file=sys.stderr, flush=True)
+    sys.exit(3)
 
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
@@ -50,7 +68,7 @@ def proc_path(pid):
     return buf.value if ok else ""
 
 
-def windows(root):
+def windows(root, any_size=False):
     root = str(Path(root).resolve()).lower()
     found = []
 
@@ -65,7 +83,7 @@ def windows(root):
             m = re.search(r"inst(\d+)", p)
             r = wt.RECT()
             user32.GetClientRect(hwnd, ctypes.byref(r))
-            if r.right > 100:
+            if r.right > 100 or any_size:  # a minimised window has no client area, its game still runs
                 found.append((int(m.group(1)) if m else -1, hwnd))
         return True
 
@@ -103,20 +121,102 @@ def grab(hwnd):
     return img
 
 
-def shoot(root, out, tag):
-    out.mkdir(parents=True, exist_ok=True)
-    names = []
-    for inst, hwnd in windows(root):
-        p = out / f"{tag}_inst{inst}.png"
+def read_raw(path):
+    """A BB_SHOT dump (f<N>_shot_<w>x<h>_<bgra|rgba>.raw) as a PIL RGB image, or None."""
+    m = re.search(r"_(\d+)x(\d+)_(bgra|rgba)\.raw$", path.name)
+    if not m:
+        return None
+    w, h, fmt = int(m.group(1)), int(m.group(2)), m.group(3)
+    data = path.read_bytes()
+    if len(data) < w * h * 4:
+        return None
+    return Image.frombytes("RGBA", (w, h), data[:w * h * 4], "raw", "BGRA" if fmt == "bgra" else "RGBA").convert("RGB")
+
+
+def ask_game(root, insts, timeout=2.0):
+    """Asks each instance's game for its presented frame (all at once); {inst: image} of those that
+    answered within `timeout` s."""
+    root = Path(root)
+    pending = {}
+    for inst in insts:
+        d = root / f"inst{inst}" / "shotdump"
+        d.mkdir(parents=True, exist_ok=True)
+        for old in d.glob("f*_shot_*.raw"):
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        trig = root / f"inst{inst}" / "shot.trigger"
         try:
-            img = grab(hwnd)
+            trig.write_bytes(b"1")
+        except OSError:
+            continue
+        pending[inst] = (d, trig)
+    got, t0 = {}, time.time()
+    while pending and time.time() - t0 < timeout:
+        for inst, (d, trig) in list(pending.items()):
+            files = sorted(d.glob("f*_shot_*.raw"))
+            if files:
+                try:
+                    img = read_raw(files[-1])
+                except OSError:
+                    continue
+                if img is not None:
+                    got[inst] = img
+                    del pending[inst]
+        time.sleep(0.03)
+    for inst, (d, trig) in pending.items():  # not consumed: take it back so it is not a late stale shot
+        try:
+            trig.unlink()
+        except OSError:
+            pass
+    return got
+
+
+def capture(root, tag, out):
+    """[(inst, image, method)] for every game window of `root`: the game's own frame, else PrintWindow."""
+    wins = dict(windows(root, any_size=True))
+    if not wins:
+        return []
+    # BB_SHOT_METHOD=printwindow: only the old window capture (the A/B of the occlusion proof).
+    frames = {} if os.environ.get("BB_SHOT_METHOD") == "printwindow" else ask_game(root, sorted(wins))
+    result = []
+    for inst in sorted(wins):
+        if inst in frames:
+            result.append((inst, frames[inst], "ingame"))
+            continue
+        try:
+            img = grab(wins[inst])
         except Exception as e:  # one bad capture must not end the series
             print(f"shot {tag} inst{inst}: capture failed ({e})", flush=True)
             continue
-        if img is None:
-            continue
+        if img is not None:
+            result.append((inst, img, "printwindow"))
+    return result
+
+
+def note_capture(out, tag, inst, method, black, stats):
+    line = "%s inst%d method=%s%s luma max=%d mean=%.1f std=%.1f" % (
+        tag, inst, method, " BLACK" if black else "", stats[0], stats[1], stats[2])
+    try:
+        with open(Path(out) / "capture.log", "a", encoding="utf-8") as f:
+            f.write(line + chr(10))
+    except OSError:
+        pass
+
+
+def shoot(root, out, tag):
+    out.mkdir(parents=True, exist_ok=True)
+    names = []
+    for inst, img, method in capture(root, tag, out):
+        p = out / f"{tag}_inst{inst}.png"
         img.save(p)
         names.append(p.name)
+        st = shotcheck.frame_stats(img)
+        black = shotcheck.is_black_stats(*st)
+        note_capture(out, tag, inst, method, black, st)
+        if black:
+            print(f"BLACK {p.name} (method {method}, max luma {st[0]}, std {st[2]:.1f})", flush=True)
     print("shot", tag, names, flush=True)
 
 
@@ -149,12 +249,16 @@ class GreyCheck:
         if now < self.next:
             return
         self.next = now + 2.0
-        for inst, hwnd in windows(self.root):
-            if self.loading.get(inst, True):
+        live = [i for i, _ in windows(self.root, any_size=True) if not self.loading.get(i, True)]
+        for inst in list(self.since):
+            if inst not in live:
                 self.since.pop(inst, None)
-                continue
+        frames = ask_game(self.root, live) if live else {}
+        for inst in live:
             try:
-                img = grab(hwnd)
+                img = frames.get(inst)
+                if img is None:
+                    img = grab(dict(windows(self.root))[inst])
                 sd = view_stddev(img)
             except Exception:
                 continue
@@ -225,7 +329,10 @@ def main():
         for p in logs:
             if not p.exists():
                 continue
-            size = p.stat().st_size
+            try:
+                size = p.stat().st_size
+            except OSError:  # hfix080: the instance's run.log was replaced between exists() and stat() (a restart)
+                continue
             if size < pos.get(p, 0):
                 pos[p] = 0
             with open(p, "rb") as f:

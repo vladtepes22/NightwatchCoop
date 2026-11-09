@@ -173,6 +173,13 @@ struct Values {
     /// Overhead name tags in each member's party colour (the party panel's / chat's MemberColour) with a strong outline,
     /// instead of the plate's blue (ini party_name_colours; off by default, 0.7.8). Live, local.
     std::atomic<bool> party_name_colours{false};
+    /// H5 look sync: a change of this player's appearance data (any editor, not only the Dream mirror's close)
+    /// re-sends the player record and the peers rebuild this hunter's chr (ini party_look_sync; env
+    /// BB_PARTY_LOOK_SYNC=0/1 over it; off by default, 0.8.0). Live, local.
+    std::atomic<bool> party_look_sync{false};
+    /// I7/E3 map markers: a spot a player puts on the in-game map (right click / R3 / P) is seen on every party
+    /// member's map (party_ping.h; ini party_map_marks; env BB_PARTY_MAP_MARKS=0/1 over it; off by default, 0.8.0). Live.
+    std::atomic<bool> party_map_marks{false};
     /// I2: every party member on this map drawn through walls as a small marker with its distance
     /// in its colour (ini party_through_walls; off by default: busy next to the name plates). Live.
     std::atomic<bool> party_through_walls{false};
@@ -285,6 +292,7 @@ struct Values {
     std::atomic<bool> party_rot_cleanse_boss{true};   ///< a boss's death: all of it, for the whole party
     std::atomic<bool> party_rot_cleanse_killer{true}; ///< your killer's death: that death's stack
     std::atomic<bool> party_rot_cleanse_echoes{true}; ///< your bloodstain picked up: its death's stack
+    std::atomic<bool> party_rot_extra{false};         ///< 0.8.0 (C4): the rot may also take stamina recovery (host's rule)
     /// Each player's own (applies while it is a guest, or to its own world):
     std::atomic<bool> party_guest_revive_inplace{true}; ///< a guest gets up at the lamp without a load
     std::atomic<bool> party_guest_respawn{true};  ///< a dead guest comes back at the host's lamp

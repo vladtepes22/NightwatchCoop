@@ -11,6 +11,8 @@ can get: its run.bat shells and games are ended (the harness then sees them exit
 import argparse, json, re, subprocess, sys, time
 from pathlib import Path
 
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # pythonw has no console: without this every child pops a window
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from game_queue import _alive, _locked, _prune, QUEUE_FILE  # noqa: E402
 
@@ -58,7 +60,7 @@ def end_run(root: Path):
           "($_.Name -in 'bbport.exe','cmd.exe') -and "
           f"((\"$($_.ExecutablePath)\".ToLower().StartsWith('{r}\\')) -or (\"$($_.CommandLine)\".ToLower().Contains('{r}\\'))) "
           "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }")
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True).stdout
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, creationflags=NO_WINDOW, text=True).stdout
     return out.split()
 
 
@@ -76,7 +78,7 @@ def tile_windows():
     ps = (r"Get-Process bbport -ErrorAction SilentlyContinue | Where-Object { $_.Path -like 'E:\games\bbport\*' } | "
           "Sort-Object StartTime | ForEach-Object { $_.Id }")
     pids = [int(x) for x in subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                                           capture_output=True, text=True).stdout.split()]
+                                           capture_output=True, creationflags=NO_WINDOW, text=True).stdout.split()]
     if not pids:
         return
     wins = {}
@@ -172,7 +174,7 @@ def list_test_procs():
     ps = (r"Get-CimInstance Win32_Process -Filter \"Name='bbport.exe' or Name='cmd.exe'\" | "
           r"ForEach-Object { $_.ProcessId.ToString() + '|' + $_.ParentProcessId + '|' + $_.Name + '|' + "
           r"$_.ExecutablePath + '|' + $_.CommandLine }")
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True).stdout
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, creationflags=NO_WINDOW, text=True).stdout
     procs = {}
     for line in out.splitlines():
         parts = line.split("|", 4)
@@ -186,8 +188,8 @@ def list_test_procs():
 def stop_unqueued(holders, state, now):
     for pid, path, shells in plan_unqueued(list_test_procs(), holders, state, now):
         for sh in shells:  # the run.bat shell first: no crash restart of the game
-            subprocess.run(["taskkill", "/PID", str(sh), "/F"], capture_output=True)
-        subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"], capture_output=True)
+            subprocess.run(["taskkill", "/PID", str(sh), "/F"], capture_output=True, creationflags=NO_WINDOW)
+        subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"], capture_output=True, creationflags=NO_WINDOW)
         print(time.strftime("%H:%M:%S"), f"unqueued game ended: {path}"
               + (f" (and its run.bat shell {shells[0]})" if shells else ""), flush=True)
 
@@ -243,14 +245,14 @@ def main():
             r = e["root"].replace("/", "\\").lower()
             if any(b in r for b in blocked):
                 end_run(Path(e["root"]))
-                subprocess.run(["taskkill", "/PID", str(e["pid"]), "/T", "/F"], capture_output=True)
+                subprocess.run(["taskkill", "/PID", str(e["pid"]), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
                 print(time.strftime("%H:%M:%S"), "blocked: stopped", e.get("label") or e["root"], flush=True)
                 holders.remove(e)
         # Harness gone (smoke_party.py killed): its instances.py still holds the slots and runs
         # the games to their cap. End them now (instances.py also watches BB_MP_PARENT_PID itself).
         for e in orphaned_holders(holders, _alive):
             end_run(Path(e["root"]))
-            subprocess.run(["taskkill", "/PID", str(e["pid"]), "/T", "/F"], capture_output=True)
+            subprocess.run(["taskkill", "/PID", str(e["pid"]), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
             print(time.strftime("%H:%M:%S"), "harness gone: stopped", e.get("label") or e["root"], flush=True)
             holders.remove(e)
         # Gate: while agents/gate.txt exists only priority roots (priority.txt) may hold game slots;
@@ -265,7 +267,7 @@ def main():
                 r = e["root"].replace("/", "\\").lower()
                 if not any(f in r for f in prio):
                     end_run(Path(e["root"]))
-                    subprocess.run(["taskkill", "/PID", str(e["pid"]), "/T", "/F"], capture_output=True)
+                    subprocess.run(["taskkill", "/PID", str(e["pid"]), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
                     print(time.strftime("%H:%M:%S"), "gate: stopped", e.get("label") or e["root"], flush=True)
             holders = [e for e in holders if any(f in e["root"].replace("/", "\\").lower() for f in prio)]
         # Required build features (require.txt next to the queue file: one regex per line that
@@ -294,7 +296,7 @@ def main():
                 missing = [r.pattern for r in reqs if party and not all(r.search(t) for t in texts)]
                 if missing:
                     end_run(root)
-                    subprocess.run(["taskkill", "/PID", str(e["pid"]), "/T", "/F"], capture_output=True)
+                    subprocess.run(["taskkill", "/PID", str(e["pid"]), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
                     print(time.strftime("%H:%M:%S"), "require: stopped", e.get("label") or e["root"],
                           "- build lacks", missing, flush=True)
                     holders.remove(e)

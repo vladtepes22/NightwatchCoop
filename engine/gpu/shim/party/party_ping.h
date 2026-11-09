@@ -23,6 +23,10 @@
 //            (party_hud.h WorldToScreen), clamped to the screen edge with an arrow when off
 //            screen; hidden under the game's menus, dialogs, cutscenes and loading screens.
 //
+// Map markers (0.8.0 I7/E3): the same event with "mark":1 (pos[0], pos[2] = the spot on the in-game map, no expiry,
+// at most one per player, "clear":1 removes it); the map view (map/map_view.cpp) places them with a right click /
+// R3 / P and draws every member's. Setting party_map_marks (off by default), env BB_PARTY_MAP_MARKS=0/1.
+//
 // Settings: bbport.ini party_pings (default on), party_through_walls (default off); System >
 // Pings, the overlay's Party tab, the launcher's Party tab. Env: BB_PARTY_PINGS=0/1 over the
 // setting; BB_PARTY_PING_LOG=1 logs the aim samples. Test aid: BB_PAD_FILE "ping" line (tools/mp).
@@ -54,6 +58,7 @@ struct PingEvent {
     float pos[3] = {0, 0, 0};
     bool hit = false;       // on a surface (depth) or the fallback point
     bool clear = false;     // the sender took its ping down
+    bool mark = false;      // a map marker (0.8.0 I7/E3), not a ping: pos[0], pos[2] are its map spot, no expiry
     std::int64_t t = 0;
     int slot = -1;
     std::string who;
@@ -91,6 +96,21 @@ void Place(const Marker& m);
 void Clear(int slot);
 void ClearAll();
 int Read(Marker* out, std::int64_t now_ms);
+/// A map marker (I7/E3): a spot a player put on the in-game map. One per slot, no expiry: it stays until the
+/// player moves or removes it, or leaves the party. Position: x / z in the map's world metres.
+struct MapMark {
+    bool live = false;
+    bool mine = false;
+    int slot = -1;
+    char name[kNameBytes] = {};
+    std::uint32_t map = 0;  // 0xAABBCCDD (the map view compares the high 16 bits)
+    float x = 0, z = 0;
+    std::uint32_t id = 0;
+};
+constexpr std::int64_t kMarkResendMs = 30000;  // the owner repeats its marker (a late joiner gets it)
+void PlaceMark(const MapMark& m);  // replaces the slot's marker
+void ClearMark(int slot);
+int ReadMarks(MapMark* out);       // the live ones (kMaxSlots entries), returns how many
 /// Opacity of a marker with `left_ms` to live: 1, fading to 0 over the last kFadeMs.
 float Alpha(std::int64_t left_ms);
 /// How long a ping sent at host time `t` still shows at host time `now` (0: expired / bogus).
@@ -147,6 +167,10 @@ struct GameSnapshot;
 namespace ping {
 /// Pings on (the setting, BB_PARTY_PINGS over it) and a party running: the combo is ours.
 bool Enabled();
+/// Map markers on (the setting party_map_marks, BB_PARTY_MAP_MARKS over it) and a party running.
+bool MarksEnabled();
+/// Present thread (the map view): put / take down this player's map marker; the next tick sends it.
+void RequestMapMark(std::uint32_t map, float x, float z, bool remove);
 /// Input (any thread): the ping button was pressed.
 void Request(const char* source);
 /// Link thread: EVENT map_ping from `slot` (host: a guest's; guest: the host's / relayed).

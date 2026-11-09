@@ -54,6 +54,18 @@ int main() {
     CHECK(!KeyMatches(empty, Source{}));  // a free connection never matches
     CHECK(!KeyMatchesAny(key, {}));
 
+    {  // 0.8.0 (08c): silent sources without a connection are the orphans
+        std::vector<Source> sil{Source{0x0100007f, 1}, Source{0x0100007f, 2}, Source{0x0100007f, 3}};
+        CHECK(Orphans(sil, {true, true, true}).empty());
+        CHECK(Orphans(sil, {true, false, true}).size() == 1 && Orphans(sil, {true, false, true})[0].port_nbo == 2);
+        CHECK(Orphans(sil, {}).size() == 3 && Orphans({}, {}).empty());
+    }
+    {  // 0.8.0 (08c): the host's address is never in the set to release
+        std::vector<Source> sil{Source{0x0100007f, 1}, Source{0x0100007f, 2}}, keep{Source{0x0100007f, 1}};
+        CHECK(Without(sil, keep).size() == 1 && Without(sil, keep)[0].port_nbo == 2);
+        CHECK(Without(sil, {}).size() == 2 && Without({}, keep).empty());
+        CHECK(Without(sil, {Source{0x0200007f, 2}}).size() == 2);  // same port, other address: kept in the set
+    }
     std::printf("%d/%d checks passed\n", g_checks - g_failures, g_checks);
     return g_failures ? 1 : 0;
 }

@@ -119,6 +119,7 @@ enum class HostRule { Rot, HostRevive, HostLimboRevive, KillRecord, NpcMirror, G
                       BossDrops,  // 0.7.6 (bossdrops): a world boss's item drop reaches every guest at the kill
                       GuestGather,  // 0.7.7 (CL-a3a9e6): a guest may gather the party too
                       LayerTravel,  // 0.7.7 (CL-48ee07): a Chalice Dungeon lamp lists the dungeon's lit lamps for the party
+                      RotExtra,  // 0.8.0 (C4): the death debuff may also take stamina recovery
                       Invaders,  // Nightwatch 0.3.0: the host allows invaders (cheats are off in such a world)
                       Count };
 void SetHostRule(HostRule rule, bool on);
@@ -132,7 +133,7 @@ void HostScaling(int value[kScalingValues]);
 /// C4: this player's rot stacks per kind (party_balance; health, stamina, stamina cost, rally,
 /// discovery; all 0 while rot is not in force), for System > Party and the party HUD. Cheap
 /// (atomics); set by the party tick.
-constexpr int kRotKinds = 5;
+constexpr int kRotKinds = 6;
 void SetRot(const int kind[kRotKinds]);
 void Rot(int kind[kRotKinds]);
 /// BB_PARTY turns party mode on for this run (party_env.h: unset, empty, 0, off, false, no = off) (read once, or forced by tests via ResetForTest).

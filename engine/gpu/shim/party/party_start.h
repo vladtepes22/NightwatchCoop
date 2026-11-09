@@ -195,7 +195,7 @@ public:
     static constexpr double kSteady = 3.0;        ///< s in the own world before deciding
     static constexpr double kSkipEvery = 1.0;     ///< s between two skip requests (the remo turns skippable after its fade-in)
     static constexpr int kSkipTries = 60;
-    static constexpr double kWarpTimeout = 40.0;  ///< s for the gather warp's load
+    static constexpr double kWarpTimeout = 40.0;  ///< s for the gather warp's load to start; the load itself (world down) does not count
     /// Once a frame.
     CatchupAction Step(const CatchupInput& in);
     Phase phase() const { return phase_; }
@@ -205,7 +205,7 @@ public:
 
 private:
     Phase phase_ = Phase::Idle;
-    double world_at_ = -1, phase_at_ = 0, skip_at_ = -1e9;
+    double world_at_ = -1, phase_at_ = 0, skip_at_ = -1e9, last_t_ = -1;
     int skips_ = 0;
     bool load_seen_ = false, applied_ = false;
 };

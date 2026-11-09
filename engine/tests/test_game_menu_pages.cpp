@@ -66,6 +66,8 @@ static void CheckText(P::u32 id, std::size_t limit, const char* what) {
         const std::size_t n = Length(id, ru);
         if (n == 0 || n > limit) {
             std::fprintf(stderr, "%s text %#x (%s): length %zu, limit %zu\n", what, id, ru ? "ru" : "en", n, limit);
+            for (std::size_t i = 0; i < n; ++i) std::fputc(P::Text(id, ru)[i] < 128 ? int(P::Text(id, ru)[i]) : 63, stderr);
+            std::fputc(10, stderr);
             assert(false);
         }
     }
@@ -331,7 +333,7 @@ static void Party() {
     assert(std::u16string(P::Text(party.rows[1].name, false)) == u"Rot");
     assert(std::u16string(P::Text(party.rows[1].choices[0], false)) == u"None");
     {
-        const int kinds[ps::kRotKinds] = {2, 0, 1, 0, 0};
+        const int kinds[ps::kRotKinds] = {2, 0, 1, 0, 0, 0};
         ps::SetRot(kinds);
         P::Load();
         assert(std::u16string(P::Text(party.rows[1].choices[0], false)) == u"3/5");
@@ -522,7 +524,7 @@ static void RulesPages() {
     const V deaths = {u"Host gets up, no load", u"Up after boss kill", u"Anyone can be abducted",
                       u"Guest gets up, no load", u"Respawn at host's lamp", u"Refill vials, bullets"};
     // 0.7.2: rot and what else cleanses it, the host's rules, on a page of their own.
-    const V rot = {u"Rot on death", u"Rot: boss kill cleanses", u"Rot: kill your killer", u"Rot: echoes back"};
+    const V rot = {u"Rot on death", u"Rot: boss kill cleanses", u"Rot: kill your killer", u"Rot: echoes back", u"Rot: stamina recovery"};
     const V world = {u"Friendly fire / PvP", u"Full health in PvP", u"Shared lamps", u"Guests bring their lamps",
                    u"Chalice layer travel"};
     const V travel = {u"Guests use lamps", u"Guests use Hunter's Mark", u"Open world", u"Stay in Chalice Dungeons",
@@ -576,7 +578,7 @@ static void RulesPages() {
         assert(names(u"My party: Giving") == giving);
         assert(names(u"Party rules: Rewards") == rewards);
         assert(names(u"My party: Display") == display);
-        assert(names(u"My party: Chat & markers") == (V{u"Party chat", u"Show others' chat", u"Bloodstain marker"}));
+        assert(names(u"My party: Chat & markers") == (V{u"Party chat", u"Show others' chat", u"Bloodstain marker", u"Shared map markers"}));
         assert(names(u"My party: Look & notices") == look);
         assert(names(u"My party: Splitscreen") == (V{u"Splitscreen mode", u"Party messages"}));
         assert(kinds(u"My party: Splitscreen").back() == P::Kind::List);
@@ -686,6 +688,8 @@ static void RulesPages() {
                      &BbSettings::Values::party_rot_cleanse_killer},
           std::tuple{u"Party rules: Rot", u"Rot: echoes back", "party_rot_cleanse_echoes",
                      &BbSettings::Values::party_rot_cleanse_echoes},
+          std::tuple{u"Party rules: Rot", u"Rot: stamina recovery", "party_rot_extra",
+                     &BbSettings::Values::party_rot_extra},
           std::tuple{u"Party rules: World", u"Host can gather", "party_gather", &BbSettings::Values::party_gather},
           std::tuple{u"Party rules: Travel", u"Guests can gather", "party_guest_gather", &BbSettings::Values::party_guest_gather},
           std::tuple{u"Party rules: PvP & lamps", u"Chalice layer travel", "party_layer_travel", &BbSettings::Values::party_layer_travel},

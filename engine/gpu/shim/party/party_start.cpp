@@ -241,6 +241,10 @@ const char* CatchupPhaseName(Catchup::Phase p) {
 
 CatchupAction Catchup::Step(const CatchupInput& in) {
     CatchupAction a;
+    // Seconds are wall-clock; the warp's load (world down, 45 s on a busy machine) must not eat the
+    // warp timeout, which is for the load to start (timeouts audit 0.8.0).
+    const double dt = last_t_ >= 0 && in.t > last_t_ ? in.t - last_t_ : 0;
+    last_t_ = in.t;
     if (in.in_world && in.own_idle) {
         if (world_at_ < 0) {
             world_at_ = in.t;
@@ -322,6 +326,7 @@ CatchupAction Catchup::Step(const CatchupInput& in) {
     case Phase::WaitWarp:
         if (!in.in_world) {
             load_seen_ = true;
+            phase_at_ += dt;
         }
         if ((load_seen_ && steady) || in.t - phase_at_ >= kWarpTimeout) {
             phase_ = Phase::Done;

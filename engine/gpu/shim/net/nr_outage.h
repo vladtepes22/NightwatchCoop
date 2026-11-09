@@ -117,16 +117,26 @@ inline std::size_t strip_dup_acks(const std::uint8_t* d, std::size_t n, std::vec
 // The transport's datagram size (the config's 0x4d0).
 constexpr std::size_t kGameMtu = 0x4d0;
 
+// 0.8.0 (ported idea: droogie/bbhost bdc5cdf8, GPL-3): a game datagram over this many bytes is split at record
+// boundaries. 1200 game bytes + the 4-byte vport header + the 12-byte relay frame = 1216 bytes of UDP payload,
+// under the 1232 an IPv6 path with the 1280 minimum MTU carries (1280 - 40 - 8) and under a 1400-byte tunnel
+// payload, so nothing leaves as IP fragments (some NATs / CGNAT drop those). Every piece is a valid game
+// datagram of whole records, so the peer needs NO change: no reassembly and no negotiation, a 0.7.9 peer reads
+// the pieces as it read the outage-replay split. A single record up to kGameMtu is never cut.
+constexpr std::size_t kSplitPayload = 1200;
+
 // Splits a datagram of records into datagrams of at most `max` bytes at record boundaries; false
-// when it does not parse as records or one record alone is larger than `max`.
+// when it does not parse as records or one record alone is larger than `hard` (default: `max`).
+// A record between `max` and `hard` stands alone in its piece.
 inline bool split_records(const std::uint8_t* d, std::size_t n, std::size_t max,
-                          std::vector<std::vector<std::uint8_t>>* out) {
+                          std::vector<std::vector<std::uint8_t>>* out, std::size_t hard = 0) {
+    if (hard < max) hard = max;
     out->clear();
     std::vector<std::uint8_t> cur;
     bool fits = true;
     const bool ok = for_each_record(d, n, [&](const Record& r) {
         const std::size_t sz = 3 + r.len;
-        if (sz > max) fits = false;
+        if (sz > hard) fits = false;
         if (!cur.empty() && cur.size() + sz > max) {
             out->push_back(std::move(cur));
             cur.clear();

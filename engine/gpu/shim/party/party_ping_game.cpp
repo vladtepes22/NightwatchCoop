@@ -21,6 +21,7 @@
 #include <mutex>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace coop::ping {
 
@@ -49,6 +50,14 @@ std::atomic<const char*> g_source{"?"};
 std::mutex g_mu;
 std::deque<std::pair<int, std::string>> g_in;
 
+// A map marker asked for by the map view (present thread), taken by the tick.
+struct MarkReq {
+    bool pending = false, remove = false;
+    std::uint32_t map = 0;
+    float x = 0, z = 0;
+};
+MarkReq g_mark_req;  // under g_mu
+
 struct State {
     std::uint32_t seen_requests = 0;
     std::int64_t last_ping_ms = -1000000;
@@ -61,6 +70,9 @@ struct State {
     float me[3] = {0, 0, 0};
     std::uint32_t map = 0;
     BbCamera::State cam;
+    // This player's own map marker (resent every kMarkResendMs), and the housekeeping clock.
+    P::MapMark mymark;
+    std::int64_t mark_sent_ms = 0, mark_check_ms = 0;
 };
 State& S() {
     static State s;
@@ -76,6 +88,25 @@ std::string SlotName(party::PartyLink* link, int slot) {
 }
 
 void PlaceMarker(const P::PingEvent& e, std::int64_t left_ms, const char* from) {
+    if (e.mark) {  // a map marker: no expiry (I7/E3)
+        if (e.clear) {
+            P::ClearMark(e.slot);
+            Log("%s: %s (slot %d) took its map marker down", from, e.who.c_str(), e.slot);
+            return;
+        }
+        P::MapMark m;
+        m.slot = e.slot;
+        std::snprintf(m.name, sizeof m.name, "%s", e.who.c_str());
+        m.map = e.map;
+        m.x = e.pos[0];
+        m.z = e.pos[2];
+        m.id = e.id;
+        m.mine = std::strcmp(from, "local") == 0;
+        P::PlaceMark(m);
+        if (m.mine || m.id != 0) Log("%s: %s (slot %d) map marker %u at (%.1f, %.1f) map %s", from, e.who.c_str(),
+                                     e.slot, e.id, double(m.x), double(m.z), MapName(e.map).c_str());
+        return;
+    }
     if (e.clear) {
         P::Clear(e.slot);
         Log("%s: %s (slot %d) took its ping down", from, e.who.c_str(), e.slot);
@@ -135,6 +166,79 @@ void Send(party::PartyLink* link, State& st, const float pos[3], bool hit, const
     PlaceMarker(e, P::kLifeMs, "local");
 }
 
+void SendEvent(party::PartyLink* link, const P::PingEvent& e) {
+    if (link->is_host()) {
+        link->post_event(party::kBroadcast, P::kEventName, P::ToJson(e));
+    } else {
+        P::PingEvent up = e;  // the host fills in the slot and the name from its roster
+        up.slot = -1;
+        up.who.clear();
+        link->post_event(party::kHostSlot, P::kEventName, P::ToJson(up));
+    }
+}
+
+/// The map view's request and the owner's resend: this player's map marker out to the party.
+void MarkTick(party::PartyLink* link, State& st, std::int64_t now) {
+    MarkReq req;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        req = g_mark_req;
+        g_mark_req.pending = false;
+    }
+    P::PingEvent e;
+    e.mark = true;
+    e.slot = link->local_slot();
+    e.who = SlotName(link, e.slot);
+    if (e.who.empty()) e.who = link->is_host() ? "Host" : "Hunter";
+    if (req.pending && MarksEnabled()) {
+        e.id = st.next_id++;
+        e.t = link->host_clock_ms();
+        if (req.remove) {
+            e.clear = true;
+            st.mymark.live = false;
+        } else {
+            e.map = req.map;
+            e.pos[0] = req.x;
+            e.pos[2] = req.z;
+            st.mymark.live = true;
+            st.mymark.map = req.map;
+            st.mymark.x = req.x;
+            st.mymark.z = req.z;
+        }
+        st.mark_sent_ms = now;
+        SendEvent(link, e);
+        PlaceMarker(e, 0, "local");
+        return;
+    }
+    if (st.mymark.live && now - st.mark_sent_ms >= P::kMarkResendMs && MarksEnabled()) {
+        st.mark_sent_ms = now;
+        e.id = st.next_id++;
+        e.map = st.mymark.map;
+        e.pos[0] = st.mymark.x;
+        e.pos[2] = st.mymark.z;
+        SendEvent(link, e);
+    }
+}
+
+/// Every two seconds: the marker of a member who is gone goes with it.
+void MarkSweep(party::PartyLink* link, State& st, std::int64_t now) {
+    if (now - st.mark_check_ms < 2000) return;
+    st.mark_check_ms = now;
+    P::MapMark marks[P::kMaxSlots];
+    const int n = P::ReadMarks(marks);
+    if (n == 0) return;
+    const std::vector<party::RosterEntry> roster = link->roster();
+    for (int i = 0; i < n; ++i) {
+        if (marks[i].slot == link->local_slot() || marks[i].slot == party::kHostSlot) continue;
+        bool here = false;
+        for (const party::RosterEntry& r : roster) here = here || (r.slot == marks[i].slot && r.connected);
+        if (!here) {
+            P::ClearMark(marks[i].slot);
+            Log("map marker of slot %d dropped: it left", marks[i].slot);
+        }
+    }
+}
+
 void Incoming(party::PartyLink* link, State& st) {
     std::deque<std::pair<int, std::string>> in;
     {
@@ -170,7 +274,7 @@ void Incoming(party::PartyLink* link, State& st) {
             if (e.slot == link->local_slot()) continue;  // our own back
             if (e.who.empty()) e.who = SlotName(link, e.slot);
         }
-        PlaceMarker(e, P::LifeLeft(e.t, link->host_clock_ms()), link->is_host() ? "from guest" : "from host");
+        PlaceMarker(e, e.mark ? 0 : P::LifeLeft(e.t, link->host_clock_ms()), link->is_host() ? "from guest" : "from host");
     }
 }
 
@@ -180,6 +284,17 @@ bool Enabled() {
     static const char* const env = std::getenv("BB_PARTY_PINGS");  // over the setting (tests)
     const bool on = env && *env ? env[0] != '0' : BbSettings::Get().party_pings.load();
     return on && party::status::Enabled();
+}
+
+bool MarksEnabled() {
+    static const char* const env = std::getenv("BB_PARTY_MAP_MARKS");  // over the setting (tests)
+    const bool on = env && *env ? env[0] != '0' : BbSettings::Get().party_map_marks.load();
+    return on && party::status::Enabled();
+}
+
+void RequestMapMark(std::uint32_t map, float x, float z, bool remove) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_mark_req = MarkReq{true, remove, map, x, z};
 }
 
 void Request(const char* source) {
@@ -196,16 +311,20 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool in_world) {
     State& st = S();
     if (!link) {
         if (st.had_link) P::ClearAll();
+        st.mymark = P::MapMark();
+        std::lock_guard<std::mutex> lk0(g_mu);
+        g_mark_req.pending = false;
         st.had_link = false;
         st.probe_seq = 0;
         st.seen_requests = g_requests.load();
-        std::lock_guard<std::mutex> lk(g_mu);
         g_in.clear();
         return;
     }
     st.had_link = true;
     Incoming(link, st);
     const std::int64_t now = party::hud::NowMs();
+    MarkTick(link, st, now);
+    MarkSweep(link, st, now);
 
     // A probe in flight: the depth's answer, or the fallback point once it is late.
     if (st.probe_seq) {

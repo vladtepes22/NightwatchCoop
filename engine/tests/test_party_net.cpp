@@ -1485,6 +1485,36 @@ static void test_nr_outage() {
     CHECK(oversize_shape(junk.data(), junk.size(), kGameMtu).rfind("not session records (first bytes ee ee ee ee)", 0) == 0);
     CHECK(oversize_shape(big.data(), big.size(), kGameMtu) == "50 record(s), each fits");
 
+    // 0.8.0 net split: pieces of whole records of at most kSplitPayload; order, count and bytes kept; the old-peer
+    // path (BB_PARTY_NET_SPLIT=0) is the 1-arg-less call with kGameMtu, which keeps 1232-byte pieces.
+    {
+        std::vector<std::uint8_t> m;
+        for (int i = 0; i < 70; ++i) {  // 70 records of 3 + 40 = 43 bytes = 3010 bytes
+            m.push_back(0x01); m.push_back(0x00); m.push_back(40);
+            m.insert(m.end(), 40, static_cast<std::uint8_t>(i));
+        }
+        std::vector<std::vector<std::uint8_t>> pc;
+        CHECK(split_records(m.data(), m.size(), kSplitPayload, &pc, kGameMtu) && pc.size() == 3);
+        std::vector<std::uint8_t> joined;
+        for (const auto& x : pc) {
+            CHECK(x.size() <= kSplitPayload);
+            joined.insert(joined.end(), x.begin(), x.end());
+        }
+        CHECK(joined == m);  // in order, nothing lost or duplicated; each piece re-parses as records
+        std::vector<std::vector<std::uint8_t>> old;
+        CHECK(split_records(m.data(), m.size(), kGameMtu, &old) && old.size() == 3 && old[0].size() > kSplitPayload);
+        // one record of 1220 bytes (over 1200, within the 1232 the game reads): alone, whole; one of 1300: refused
+        std::vector<std::uint8_t> a{0x01, 0x04, 0xc9};  // len 1225 -> 1228 in all
+        a.insert(a.end(), 1225, 0);
+        std::vector<std::uint8_t> two = m;
+        two.insert(two.end(), a.begin(), a.end());
+        CHECK(split_records(two.data(), two.size(), kSplitPayload, &pc, kGameMtu) && pc.back().size() == a.size());
+        std::vector<std::uint8_t> big{0x01, 0x05, 0x14};  // 1300 + 3
+        big.insert(big.end(), 1300, 0);
+        CHECK(!split_records(big.data(), big.size(), kSplitPayload, &pc, kGameMtu));
+        CHECK(bbnet::udp::kMaxDatagram >= 9184 + 4);  // the game's biggest datagram no longer fails with EMSGSIZE
+    }
+
     // Resume replay: the peer heard until t=10 s, silent to t=30 s.
     PeerReplay rp;
     const Clock::time_point t0 = Clock::now();

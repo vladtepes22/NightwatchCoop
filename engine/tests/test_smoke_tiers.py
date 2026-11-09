@@ -232,3 +232,23 @@ class MemGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_only_runs_every_phase_of_its_groups(monkeypatch):
+    """--only <group> runs all of that group's phases, also ones the ordered list in main() does not name."""
+    import smoke_party as sp
+    seen = {}
+
+    def capture(a):
+        seen["phase"] = a.phase
+        raise SystemExit(0)
+
+    monkeypatch.setattr(sp, "phase_list_for", capture)
+    for group in ("six_join", "lift_walk", "invade_two"):
+        seen.clear()
+        try:
+            monkeypatch.setattr(sys, "argv", ["smoke_party.py", "--only", group, "--no-shots", "--game", "E:/nonexistent_game"])
+            sp.main()
+        except SystemExit:
+            pass
+        assert set(seen.get("phase", "").split(",")) >= set(sp.GROUPS[group].split(",")), group

@@ -912,7 +912,7 @@ BBNET_ABI int m2_create_join_room(unsigned ctx, const std::uint8_t* reqp, const 
                 g.room_since_ms = session::now_ms();
                 session::peers_clear();
                 session::room_set(sid, g.member_id);
-                resp = build_room_response(room, g.member_id, g.member_id, max_slot);
+                resp = build_room_response(room, g.member_id, g.member_id, g.max_slot);  // 0.8.0: the room as the host sized it (6 seats: 6)
                 log("np: room %llu created, we are member %u", static_cast<unsigned long long>(room), g.member_id);
             }
         }

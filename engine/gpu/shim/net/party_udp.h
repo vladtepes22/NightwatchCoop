@@ -35,7 +35,7 @@ namespace bbnet::udp {
 
 using Clock = std::chrono::steady_clock;
 
-constexpr std::size_t kMaxDatagram = 2048;  // the game's payload + vport header, at most
+constexpr std::size_t kMaxDatagram = 9216 + 16;  // the game's payload + vport header, at most (0.8.0: was 2048, EMSGSIZE above it; the game packs up to 9184 B)
 
 // ---- vport header ----
 constexpr std::uint8_t kP2pMagic = 0xff;

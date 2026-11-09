@@ -352,6 +352,7 @@ using M2Req = int(BBNET_ABI*)(unsigned, const void*, const RequestOptParam*, uns
 using M2Status = int(BBNET_ABI*)(unsigned, std::uint64_t, std::uint16_t, int*, std::uint32_t*, std::uint16_t*);
 using SigCreate = int(BBNET_ABI*)(const void*, void*, void*, unsigned*);
 using SigActivate = int(BBNET_ABI*)(unsigned, const void*, unsigned*);
+using SigDeactivate = int(BBNET_ABI*)(unsigned, unsigned);
 using SigStatus = int(BBNET_ABI*)(unsigned, unsigned, int*, std::uint32_t*, std::uint16_t*);
 
 static unsigned g_ctx = 0;
@@ -436,6 +437,24 @@ static void test_matching2_host() {
     CHECK(wait_cb([&](const Cb& x) { return is(x, "sig", 0x0c, 2) && x.a[1] == conn_e; }));
     CHECK(fn<SigStatus>("sceNpSignalingGetConnectionStatus")(sctx, conn_e, &st, &addr, &port) == 0 && st == 2 &&
           addr == bbnet::party::ip_parse("10.0.0.9"));
+    // sigalive080 (ported idea: bbhost 8ebaf88): a connection that dies between activate and its queued
+    // ESTABLISHED / ACTIVE is never announced up.
+    call(s, "GuestF", "context_start", obj({{"OnlineId", "GuestF"}, {"SignalingAddr", "10.0.0.11"}, {"SignalingPort", 9402}}));
+    std::uint8_t f_npid[36] = {};
+    std::snprintf(reinterpret_cast<char*>(f_npid), 17, "GuestF");
+    unsigned conn_f = 0;
+    CHECK(fn<SigActivate>("sceNpSignalingActivateConnection")(sctx, f_npid, &conn_f) == 0 && conn_f > 0);
+    {   // announced (status 2) but its ESTABLISHED / ACTIVE still queued: the window is 50 ms
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        int stf = 0;
+        while (stf != 2 && std::chrono::steady_clock::now() < until)
+            fn<SigStatus>("sceNpSignalingGetConnectionStatus")(sctx, conn_f, &stf, &addr, &port);
+        CHECK(stf == 2);
+    }
+    CHECK(fn<SigDeactivate>("sceNpSignalingDeactivateConnection")(sctx, conn_f) == 0);
+    CHECK(!wait_cb([&](const Cb& x) { return is(x, "sig", 0x01, 2) && x.a[1] == conn_f; }, nullptr, 900));
+    CHECK(!wait_cb([&](const Cb& x) { return is(x, "sig", 0x0c, 2) && x.a[1] == conn_f; }, nullptr, 100));
+    CHECK(fn<SigStatus>("sceNpSignalingGetConnectionStatus")(sctx, conn_f, &st, &addr, &port) == 0 && st == 0);
     std::printf("matching2 host: ok (room %llu)\n", static_cast<unsigned long long>(g_host_room));
 }
 

@@ -479,18 +479,26 @@ bool HookValueFilter(u64 off, std::initializer_list<u8> original, std::initializ
 }
 
 bool PatchBytes(u64 off, std::initializer_list<u8> original, std::initializer_list<u8> patched, const char* name) {
-    std::lock_guard<std::mutex> lk(g_mu);
-    if (!g_image || original.size() != patched.size() || !patched.size()) {
+    if (original.size() != patched.size()) {
         std::printf("[coop] Coop hooks: %s: no image or bad patch; not written\n", name);
         return false;
     }
-    const std::size_t n = patched.size();
-    if (Matches(off, patched.begin(), n)) {
+    return PatchBytes(off, original.begin(), patched.begin(), patched.size(), name);
+}
+
+bool PatchBytes(u64 off, const u8* original, const u8* patched, std::size_t size, const char* name) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    if (!g_image || !size) {
+        std::printf("[coop] Coop hooks: %s: no image or bad patch; not written\n", name);
+        return false;
+    }
+    const std::size_t n = size;
+    if (Matches(off, patched, n)) {
         NoteInstalled(off, name);
         std::printf("[coop] Coop hooks: %s: guest +0x%llx already patched\n", name, ull(off));
         return true;
     }
-    if (!Matches(off, original.begin(), n)) {
+    if (!Matches(off, original, n)) {
         std::printf("[coop] Coop hooks: %s: guest +0x%llx is not the expected code (another game version or a patch); "
                     "not written\n",
                     name, ull(off));
@@ -502,12 +510,12 @@ bool PatchBytes(u64 off, std::initializer_list<u8> original, std::initializer_li
         std::printf("[coop] Coop hooks: %s: guest +0x%llx not writable; not written\n", name, ull(off));
         return false;
     }
-    std::memcpy(g_image + off, patched.begin(), n);
+    std::memcpy(g_image + off, patched, n);
     DWORD unused = 0;
     VirtualProtect(g_image + off, n, old, &unused);
     FlushInstructionCache(GetCurrentProcess(), g_image + off, n);
 #else
-    std::memcpy(g_image + off, patched.begin(), n);
+    std::memcpy(g_image + off, patched, n);
 #endif
     NoteInstalled(off, name);
     std::printf("[coop] Coop hooks: %s: patched %zu bytes at guest +0x%llx\n", name, n, ull(off));

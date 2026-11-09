@@ -54,7 +54,15 @@ static void test_config_and_tag() {
     set_env("BB_PARTY_MAX", "3");
     CHECK(FourpRulesTag() == "4p:v2:H1,H5,H2,H3,H4,E6,H6");
     set_env("BB_PARTY_MAX", "9");
+    CHECK(ConfigFromEnv().local_max == 4);  // 0.8.0: held at 4 without BB_PARTY_LARGE
+    set_env("BB_PARTY_MAX", "5");
+    CHECK(ConfigFromEnv().local_max == 4);
+    set_env("BB_PARTY_LARGE", "1");
     CHECK(ConfigFromEnv().local_max == 5);
+    set_env("BB_PARTY_MAX", "9");
+    CHECK(ConfigFromEnv().local_max == 5);
+    set_env("BB_PARTY_LARGE", "0");
+    CHECK(ConfigFromEnv().local_max == 4);
     CHECK(FourpRulesTag() == "4p:v2:H1,H5,H2,H3,H4,E6,H6");
     set_env("BB_PARTY_MAX", "1");
     CHECK(ConfigFromEnv().local_max == 2);
@@ -82,7 +90,7 @@ static void test_effective_max() {
     CHECK(EffectiveMaxPlayers(3, true, true, 4) == 4);    // guest takes the host's
     CHECK(EffectiveMaxPlayers(4, true, true, 2) == 2);
     CHECK(EffectiveMaxPlayers(4, true, true, 0) == 4);    // no WELCOME value
-    CHECK(EffectiveMaxPlayers(4, true, true, 7) == 5);    // clamped (kMaxPlayers)
+    CHECK(EffectiveMaxPlayers(4, true, true, 7) == 6);    // clamped (kMaxPlayers)
 }
 
 static void test_h1() {
@@ -188,7 +196,9 @@ static void test_spots() {
     float rx = 0, fz = 0;
     SpotOffset(99, d, &rx, &fz);  // out of range: slot 3's spot
     CHECK(rx == 2 * d && fz == 0);
-    CHECK(kMaxPlayers == 5);
+    SpotOffset(5, d, &rx, &fz);  // 0.8.0: the 6th seat, 3x right
+    CHECK(rx == 3 * d && fz == 0 && SpotForTry(5, 0) == 5 && SpotForTry(5, 1) == 4);
+    CHECK(kMaxPlayers == 6);
 }
 
 static void test_player_numbers() {

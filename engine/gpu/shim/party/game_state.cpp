@@ -18,6 +18,20 @@
 #include <string>
 
 namespace coop {
+
+std::uint64_t FindMapObject(std::int32_t entity, std::uint32_t* idx) {
+    std::uint64_t tab = 0, blocks = 0, rows = 0;
+    std::int32_t n = 0, nb = 0;
+    if (!SafeGet(Guest(0x553b168), &tab) || !tab || !SafeGet(tab + 0x10, &n) || !SafeGet(tab + 0x18, &rows) ||
+        !SafeGet(tab + 0x20, &nb) || !SafeGet(tab + 0x28, &blocks)) {
+        return 0;
+    }
+    if (n > 0 && !rows) return 0;
+    if (nb > 0 && !blocks) return 0;
+    using Find = std::uint64_t(BB_COOP_SYSV*)(std::int32_t, std::uint32_t*);
+    return reinterpret_cast<Find>(Guest(0x13c9af0))(entity, idx);
+}
+
 namespace {
 
 constexpr std::uint64_t kWorldChrMan = 0x553e878;

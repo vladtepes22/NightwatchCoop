@@ -229,7 +229,7 @@ bool SceneBlockLoaded(const StoryState& st, std::uint32_t remo);
 class GuestStory {
 public:
     static constexpr int kStableTicks = 30;
-    static constexpr double kMirrorTimeout = 60.0;   ///< s a mirror may wait for its gate
+    static constexpr double kMirrorTimeout = 60.0;   ///< s a mirror may wait for its gate (loading screens not counted)
     static constexpr double kRemoStartTimeout = 5.0; ///< s for the playing bit to rise
     /// A live mirror shorter than this was cut (the guest's own load or travel stopped it: live parg,
     /// the Blood Moon mirror ran 1.4 s on a guest that was still loading the host's map): not
@@ -352,7 +352,7 @@ private:
     void Finish(bool ok);
 
     std::optional<StoryIntent> mirror_;
-    double mirror_since_ = 0;
+    double mirror_since_ = 0, last_step_ = -1;  ///< last_step_: the previous Step's time (a load does not age a mirror)
     std::deque<StoryIntent> queue_;
     std::set<std::uint32_t> seen_;
     std::uint32_t mirror_cut_ = 0; ///< a live mirror stopped early (kMirrorMinSeen); TakeMirrorCut

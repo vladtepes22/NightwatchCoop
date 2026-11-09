@@ -251,6 +251,44 @@ static void test_mirror_then_replay() {
     CHECK(!g.Busy());
 }
 
+// Timeouts audit 0.8.0: a mirror waits at most kMirrorTimeout for its gate, but a loading screen (45 s on a
+// busy machine) is not waiting: the guest in its load keeps the mirror, and plays it after the load.
+static void test_mirror_survives_a_long_load() {
+    GuestStory g;
+    double t = 100;
+    StoryIntent s;
+    s.seq = 1;
+    s.kind = StoryKind::Cutscene;
+    s.id = 32000000;
+    s.mode = 0;
+    s.instr = 7;
+    s.tod = 3;
+    s.flags = {70002802};
+    CHECK(g.Offer(s, true, t));
+    StoryState ph = Phantom();
+    ph.loading = true;
+    ph.world_up = false;
+    for (int i = 0; i < 100; ++i) { // 100 s of loading in 1 s steps
+        t += 1.0;
+        CHECK(!g.Step(ph, t));
+    }
+    CHECK(g.MirrorPending());
+    ph = Phantom();
+    auto a = Until(g, ph, t);
+    CHECK(a && a->kind == StoryAction::PlayRemo && a->id == 32000000 && a->mirror);
+    // Not loading and no gate (a menu stays up): the timeout still drops it.
+    GuestStory h;
+    t = 500;
+    CHECK(h.Offer(s, true, t));
+    StoryState gate = Phantom();
+    gate.remo_playing = true;
+    for (int i = 0; i < 70; ++i) {
+        t += 1.0;
+        h.Step(gate, t);
+    }
+    CHECK(!h.MirrorPending());
+}
+
 // kidnap071 (a player report): the host's Gaol waking scene (28000010, m28) reached guests that
 // were still in the Cathedral Ward (m24_00) and played there without the cell's scenery. A live
 // mirror plays only in its own map; on a guest in another map it is dropped (TakeMirrorOtherMap).
@@ -1216,6 +1254,7 @@ int main() {
     test_json();
     test_host_queue();
     test_mirror_then_replay();
+    test_mirror_survives_a_long_load();
     test_mirror_needs_its_map();
     test_guest_replays_gaol_scene();
     test_cut_mirror_replayed();

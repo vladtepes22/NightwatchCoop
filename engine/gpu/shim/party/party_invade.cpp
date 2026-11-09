@@ -240,9 +240,9 @@ struct ScriptState {
     std::vector<TestStep> steps;
     std::size_t next = 0;
     double ready_at = -1;          // when the previous step ran (the first: when the world came up)
-    bool was_in = false, was_home = false;
-    int in_edges = 0, home_edges = 0;
-    double in_since = -1, home_since = -1;
+    bool was_in = false, was_home = false, was_other = false;
+    int in_edges = 0, home_edges = 0, other_edges = 0;
+    double in_since = -1, home_since = -1, other_since = -1;
 };
 ScriptState g_script;
 
@@ -251,7 +251,7 @@ ScriptState g_script;
 void TestView(const std::string& word);
 
 namespace {
-void ScriptTick(const GameSnapshot& s, bool in_state, bool home_state, double now) {
+void ScriptTick(const GameSnapshot& s, bool in_state, bool home_state, bool other_state, double now) {
     ScriptState& sc = g_script;
     if (!sc.parsed) {
         sc.parsed = true;
@@ -266,7 +266,8 @@ void ScriptTick(const GameSnapshot& s, bool in_state, bool home_state, double no
     if (sc.steps.empty()) return;
     if (in_state && !sc.was_in) ++sc.in_edges, sc.in_since = now;
     if (home_state && !sc.was_home) ++sc.home_edges, sc.home_since = now;
-    sc.was_in = in_state, sc.was_home = home_state;
+    if (other_state && !sc.was_other) ++sc.other_edges, sc.other_since = now;
+    sc.was_in = in_state, sc.was_home = home_state, sc.was_other = other_state;
     if (sc.next >= sc.steps.size()) return;
     const bool world = s.world_up && !s.loading && s.player;
     if (!world) return;
@@ -279,6 +280,9 @@ void ScriptTick(const GameSnapshot& s, bool in_state, bool home_state, double no
     } else if (st.cond == 2) {
         if (!home_state || sc.home_edges < std::max(1, st.nth)) return;
         from = std::max(from, sc.home_since);
+    } else if (st.cond == 3) {
+        if (!other_state || sc.other_edges < std::max(1, st.nth)) return;
+        from = std::max(from, sc.other_since);
     }
     if (now - from < st.delay) return;
     ++sc.next;
@@ -679,18 +683,22 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool host) {
     TickImpl(s, link, host);
     PayTick(s);
     // The smoke's script, after the tick has updated the state it reads.
-    bool in_state, home_state;
+    bool in_state, home_state, other_state = false;
     if (host) {
         in_state = false;
-        for (const auto& kv : g_invs) in_state = in_state || kv.second.announced == 2;
+        int inside = 0;
+        for (const auto& kv : g_invs) in_state = in_state || kv.second.announced == 2, inside += kv.second.announced == 2;
+        other_state = inside >= 2;
         home_state = g_invs.empty();
     } else {
         std::lock_guard<std::mutex> lk(G().mu);
         const bool in_host = JoinAsInvader() && G().book.State(G().own_name) == 2 && link->state() == party::LinkState::Connected;
         in_state = in_host;
+        if (in_host)
+            for (const SeenInvader& iv : G().book.All()) other_state = other_state || (iv.name != G().own_name && iv.state == 2);
         home_state = JoinAsInvader() && !in_host && link->state() != party::LinkState::Connected;
     }
-    ScriptTick(s, in_state, home_state, Now());
+    ScriptTick(s, in_state, home_state, other_state, Now());
 }
 
 namespace {

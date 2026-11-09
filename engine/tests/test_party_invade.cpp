@@ -77,10 +77,20 @@ static void FourPlayers() {
     CHECK(Admit(h, false, false) == Deny::None);
     h.world_players = 4;  // no invader slot
     CHECK(Admit(h, false, false) == Deny::NoSlot);
-    // A party of 5 (the link's max) still has the game's four slots.
+    // 0.8.0 (CL-10e56b): a party of 5 (the link's max) has the engine's five seats: host + 3 guests leave one for an invader,
+    // host + 4 guests none; nothing is ever more than five.
     h.party_max = 5;
-    CHECK(Capacity(5) == 4);
+    CHECK(Capacity(5) == 5 && Capacity(6) == 6 && Capacity(9) == 6 && Capacity(4) == 4 && kEngineSeats == 6);
+    CHECK(Admit(h, false, false) == Deny::None);  // world_players 4 (host + 3), party of 5
+    h.world_players = 5;
     CHECK(Admit(h, false, false) == Deny::NoSlot);
+    // two invaders in a party of 5: host + 2 guests + 2 invaders fills it, host + 3 guests + 1 invader too
+    h.max_invaders = 2, h.world_players = 3, h.invaders = 1;
+    CHECK(Admit(h, false, false) == Deny::None);
+    h.world_players = 4, h.invaders = 1;
+    CHECK(Admit(h, false, false) == Deny::NoSlot);
+    CHECK(Invadable(true, 4, 0, 5) && !Invadable(true, 5, 0, 5) && !Invadable(true, 4, 0, 4));
+    h = Good();
     // A party set to two players: host + guest fill it.
     h = Good();
     h.party_max = 2;
@@ -230,6 +240,7 @@ static void Script() {
     CHECK(st[2].kind == TestStep::Kind::Rejoin && st[2].cond == 2 && st[2].delay == 20);
     CHECK(st[3].kind == TestStep::Kind::Die && st[3].cond == 1 && st[3].nth == 0);
     CHECK(st[4].cond == 1 && st[4].nth == 2);
+    CHECK(ParseTest("die@5?other,rejoin@3?other#2", &st, &bad) && st.size() == 2 && st[0].cond == 3 && st[0].delay == 5 && st[1].nth == 2);
     CHECK(ParseTest(nullptr, &st) && st.empty());
     CHECK(ParseTest("", &st) && st.empty());
     for (const char* b : {"allow=2", "view=maybe", "rejoin=1", "die#2", "die?out", "jump@1", "die@x", "die@-1", "die?in#0", "die?in#21"})

@@ -203,11 +203,23 @@ proven: a guest-only trigger (the assassin events need the host's chr type and g
 omen spot gets no assassin), the other two Hamlet assassins and the Hamlet assassin's real kill by the guest (all
 phases end with the host's HP 0 after the guest's blows), more than one guest, simulated-internet runs.
 
-Not verified live (after 0.7.9):
-- a guest's real killing blow on any of them (every phase ends with the host's HP 0 after the guest's blows; `nfe`
-  alone used a guest's last real hit);
-- a guest-only trigger of Brador / the Hamlet assassins, the other two Hamlet assassins, the second Hunter's
-  Nightmare hunter (3400903);
-- more than one guest, simulated-internet runs (BB_NET_SIM) of the hunter phases;
+Round 0.8.0 (agent npcfight080, loopback, then `BB_NET_SIM=dsl` and `mobile` on both games; every phase green in all
+three unless noted): `nf`, `nfa`, `npa`, `npd`, `nfh` and `nfn` (after the phase fixes below), plus new phases:
+
+| Phase | What it proves |
+|---|---|
+| `nfn2` | the second Hunter's Nightmare hunter (3400903: states 1721 -> 1726 -> 1711, same event 13400920 slot 3): same rows as `nfn` |
+| `nfnk` / `nfn2k` / `nfrk` | the guest's REAL killing blow: the host only sets the NPC's HP to 2 %, the guest's own R1s (one per placement: the hunter backs away 4-7 m at low HP) kill it; its death state follows on the host within 12 s of the guest's last R1, its HP 0 shows on the guest |
+| `nfhk` | the same for a Fishing Hamlet assassin (host sets HP 2 % early: his forced return ends the fight ~80 s after he appears) |
+
+Phase fixes: `nfn` failed one run in two on harness timing (no lock-on after the hunter moved; the death state comes
+~9 s after HP 0 and the run ended 11 s after it): a lock-on press after every re-placement, `until_hold` 25 s.
+No game code changed.
+
+Not verified live (after 0.8.0):
+- the other two Hamlet assassins (3600901 / 3600902): from a host standing beside them the omen never starts
+  (events 13605900 slots 1 / 2 wait on a condition slot 0 does not have; 2 x 3 runs, no phase kept);
+- a guest-only trigger of Brador / the Hamlet assassins;
+- more than one guest;
 - the Chalice NPC invader event 12904634 itself (prototype layout only: not reachable in the retail game; `npi` runs the same session-type-28 summon through the Bell fixture);
 - AI-player summons (Bell signs) with a full 4-player party.

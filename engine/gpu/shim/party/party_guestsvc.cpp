@@ -2395,8 +2395,7 @@ bool WalkToLamp(const GameSnapshot& s) {
             continue;
         }
         std::uint32_t idx = 0xffffffffu;
-        using Find = std::uint64_t(BB_COOP_SYSV*)(std::int32_t, std::uint32_t*);
-        const std::uint64_t rec = reinterpret_cast<Find>(Guest(0x13c9af0))(ent, &idx);
+        const std::uint64_t rec = FindMapObject(ent, &idx);
         float m[16] = {};
         if (!rec || !SafeRead(rec + 0x230, m, sizeof m)) {
             continue;
@@ -2624,8 +2623,7 @@ void LampTick(const GameSnapshot& s, party::PartyLink* link) {
             const std::int32_t ent = static_cast<std::int32_t>(std::strtol(q, &qe, 10));
             q = (qe && *qe == ':') ? qe + 1 : "";
             std::uint32_t idx = 0xffffffffu;
-            using Find = std::uint64_t(BB_COOP_SYSV*)(std::int32_t, std::uint32_t*);
-            const std::uint64_t rec = reinterpret_cast<Find>(Guest(0x13c9af0))(ent, &idx);
+            const std::uint64_t rec = FindMapObject(ent, &idx);
             float m[12] = {}, me[4] = {};
             if (s.player) SafeRead(s.player + 0xc0, me, sizeof me);
             if (rec && SafeRead(rec + 0x240, m, sizeof m)) {

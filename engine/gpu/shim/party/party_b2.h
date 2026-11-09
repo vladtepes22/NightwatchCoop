@@ -265,7 +265,8 @@ std::vector<NrTransport> NrTransports();
 /// later, on the game's own thread, the game's transport connections to sources silent since
 /// then are released through the transport's own release (vtable +0x28), and the sign hold for
 /// `name` ends 1 s after that (party_nr_drop.h). BB_PARTY_NR_DROP=0 turns it off.
-void NrDropSilentPeers(const std::string& name, int delay_ms = 1500);
+// `keep_name` (a guest: the host's online id): that peer's game address is never released, silent or not.
+void NrDropSilentPeers(const std::string& name, int delay_ms = 1500, const std::string& keep_name = std::string());
 /// F5 (host): `name` is back after a network outage (its link went silent and resumed; slot kept)
 /// while its sign hold runs. 1.5 s later (one scan, on the game's own thread) a game connection
 /// to a source silent since then is released as above: that member's game left our session during
