@@ -87,4 +87,17 @@ inline float LoadingInterval(float interval, bool fast_loading_pace) {
     return fast_loading_pace ? std::max(interval, Frame30) : interval;
 }
 
+/// Whole 1/30 s steps of game time, however many frames they take (visy 0.8.0, droogie/bbhost 57d2b9f, f24d18f): a
+/// frame closes a step once the time banked reaches three quarters of one, and a step takes a whole 1/30 s from the
+/// bank, so the steps are 30 a game second at any rate and every frame at 30 (the quarter is for the clock's rounding;
+/// `closes` 0.98: a step closed only when whole, for what counts the time between steps, the lights' blink). The
+/// water wakes and the lights' blink begin their steps only on these frames, as at 30 (bbport_hifps.cpp).
+inline bool Step30Gate(float& banked, float dt, float closes = 0.75f) {
+    banked += dt;
+    if (!(banked >= closes * Frame30)) return false;
+    banked -= Frame30;
+    if (banked > Frame30) banked = Frame30;
+    return true;
+}
+
 } // namespace BbEngine::LiveClock

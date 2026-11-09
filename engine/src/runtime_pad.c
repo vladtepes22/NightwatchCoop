@@ -587,6 +587,14 @@ void runtime_pad_director_sticks(int lx,int ly,int rx,int ry) {
     for (int i=0;i<4;++i) __atomic_store_n(&director_axes[i],values[i],__ATOMIC_RELAXED);
 }
 uint32_t runtime_pad_last_buttons(void) { return __atomic_load_n(&last_sample_buttons,__ATOMIC_RELAXED); }
+/* When Cross or Circle last went down in what the game was handed (monotonic us, 0 = never): a confirm box
+ * tells a fresh press from one still held from the window before it (gpu/shim/bbport_hifps.cpp; visy 0.8.0,
+ * droogie/bbhost 602a958's idea). */
+static uint64_t confirm_down_us;
+double runtime_pad_confirm_press_age(void) {
+    const uint64_t at=__atomic_load_n(&confirm_down_us,__ATOMIC_RELAXED);
+    return at ? (double)(now_us()-at)/1e6 : 1e9;
+}
 /* runtime_pad_last_left: the left stick of the last sample the game read, lx | ly << 8 (0..255, 128
  * neutral; the party's host-death lock log compares it with the chr's movement; visy 0.7.0). */
 static uint32_t last_sample_left=0x8080u;
@@ -686,6 +694,8 @@ static void sample(PadData *d) {
     }
     if ((d->buttons & BTN_CROSS) && !(last_sample_buttons & BTN_CROSS))
         __atomic_add_fetch(&cross_presses,1,__ATOMIC_RELAXED);
+    if (d->buttons & ~last_sample_buttons & (BTN_CROSS|BTN_CIRCLE))
+        __atomic_store_n(&confirm_down_us,now_us(),__ATOMIC_RELAXED);
     __atomic_store_n(&last_sample_buttons,d->buttons,__ATOMIC_RELAXED);
     __atomic_store_n(&last_sample_left,(uint32_t)d->left_x|(uint32_t)d->left_y<<8,__ATOMIC_RELAXED);
     ping_combo(d);

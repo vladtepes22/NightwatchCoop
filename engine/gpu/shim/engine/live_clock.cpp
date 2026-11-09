@@ -127,6 +127,8 @@ std::atomic<int> g_logged_target{-1};
 std::atomic<u64> g_steps{0};
 std::atomic<double> g_game_seconds{0.0};
 std::atomic<float> g_last_dt{0.0f};
+float g_banked30 = 0.0f, g_banked30x = 0.0f;  // game time not yet closed into a whole 1/30 s (the step thread's)
+std::atomic<bool> g_whole30{true}, g_whole30x{true};
 
 /// A page within rel32 reach of the image: the next block of the runtime's low area, as the game
 /// menu's stubs do (bbport_game_menu.cpp), else a free spot 16 MiB steps around the image.
@@ -231,6 +233,8 @@ __attribute__((sysv_abi)) void LiveClockTick(u8* pacer, float* out) {
     std::memcpy(reinterpret_cast<u8*>(g_base + kGlobalDt), &dt, 4);
     *out = dt;
     g_last_dt.store(dt, std::memory_order_relaxed);
+    g_whole30.store(Step30Gate(g_banked30, dt), std::memory_order_relaxed);
+    g_whole30x.store(Step30Gate(g_banked30x, dt, 0.98f), std::memory_order_relaxed);
     g_game_seconds.store(g_game_seconds.load(std::memory_order_relaxed) + dt, std::memory_order_relaxed);
     g_steps.fetch_add(1, std::memory_order_relaxed);
     if (g_logged_target.exchange(target, std::memory_order_relaxed) != target)
@@ -238,9 +242,17 @@ __attribute__((sysv_abi)) void LiveClockTick(u8* pacer, float* out) {
                  target > 0 ? "" : " (uncapped)", double(dt), max_dt_hz);
 }
 
+/// BB_WIND_PACE=0: the plants' wind as before visy 0.8.0 (the authored 1/30 force, the frame's whole step).
+bool WindPaceOn() {
+    const char* v = std::getenv("BB_WIND_PACE");
+    return !(v && (!std::strcmp(v, "0") || !std::strcmp(v, "off") || !std::strcmp(v, "false")));
+}
+
 /// The plants' wind force (visy 0.7.8 af45a20a, bbhost b2818b4): the Deltatime patch hands the wind code the
 /// live step, which it also uses as the force (V * step), so every long or short frame bent the plants by its own
-/// length and they shook. The force takes the authored 1/30; the wave time keeps the live step. visy's version
+/// length and they shook. At 30 the game steps the wind a fixed 1/60 s each 1/30 s frame and bends it by that 1/60
+/// (0x4929e70, the GX device's +0x100 at 1): the force takes the game's 1/60 (visy 0.8.0 ebf2ebf67, bbhost 5cee912;
+/// BB_WIND_PACE=0: the authored 1/30 as before), and WindPace halves the step. visy's version
 /// loads the game's 1/30 at 0x4926364, but the Deltatime patch itself sets that constant to 1/60 (its line
 /// 0x04d26364), so his check refuses it in live mode: ours loads 1/30 from the stub page.
 bool GrassWind() {
@@ -264,13 +276,31 @@ bool GrassWind() {
     u8* constant = g_stubs + g_stub_used;
     const std::int64_t rel = std::int64_t(reinterpret_cast<u64>(constant)) - std::int64_t(g_base + force_site + 8);
     if (rel != std::int32_t(rel)) return false;
-    const float authored = Frame30;
-    std::memcpy(constant, &authored, 4);
+    const float weight = WindPaceOn() ? Frame30 * 0.5f : Frame30;
+    std::memcpy(constant, &weight, 4);
     g_stub_used += 16;
     const std::int32_t rel32 = std::int32_t(rel);
     u8 force_now[8] = {0xc5, 0x7a, 0x10, 0x35};
     std::memcpy(force_now + 4, &rel32, 4);
     return WriteCode(time, time_now, sizeof(time_now)) && WriteCode(force, force_now, sizeof(force_now));
+}
+
+/// The wind's step (visy 0.8.0 ebf2ebf67, droogie/bbhost 5cee912): 0x2313d8d is the Deltatime patch's
+/// `jmp 0x2315d79` after xmm4 = min(the measured frame time, 1/30), the step every swaying model's wind moves by (its
+/// gusts' times, how long a push takes to fade). Above 30 that ran the wind at twice 30's pace (a push from walking
+/// through grass faded in 0.75 s against 1.5 s). A stub halves xmm4 first: 30's pace at every rate.
+bool WindPace() {
+    constexpr u64 site = 0x2313d8d, back = 0x2315d79;
+    constexpr u8 patched_jump[] = {0xe9, 0xe7, 0x1f, 0x00, 0x00}; // jmp 0x2315d79
+    if (!WindPaceOn() || g_size <= 0x2316000 || g_stub_used + 16 > kStubPage) return false;
+    if (std::memcmp(reinterpret_cast<const u8*>(g_base + site), patched_jump, sizeof patched_jump) != 0) return false;
+    static const float half = 0.5f;
+    Emitter e;
+    e.Bytes({0x50, 0x48, 0xb8}); // push rax; movabs rax, &half
+    e.U64(reinterpret_cast<u64>(&half));
+    e.Bytes({0xc5, 0xda, 0x59, 0x20, 0x58}); // vmulss xmm4, xmm4, [rax]; pop rax
+    e.JmpAbs(g_base + back);
+    return Detour(site, patched_jump, sizeof patched_jump, e);
 }
 
 bool InstallLive() {
@@ -309,7 +339,10 @@ bool InstallLive() {
              "constants at 1/240 s, target %d FPS (0 = uncapped), step at most 1/%d s",
              pacer ? "on" : "NOT installed (the vblank holds the rate)", lowered, BbSettings::Get().target_fps.load(),
              BbSettings::Get().max_dt_hz.load());
-    host_log("Live clock: grass wind force at the authored 1/30 %s", GrassWind() ? "on" : "NOT installed (other code or constant)");
+    const bool grass = GrassWind();
+    host_log("Live clock: grass wind force at %s %s, wind step at half the frame's (30's pace) %s",
+             WindPaceOn() ? "the game's 1/60" : "the authored 1/30", grass ? "on" : "NOT installed (other code or constant)",
+             grass && WindPace() ? "on" : "off");
     return true;
 }
 } // namespace
@@ -338,4 +371,6 @@ bool Active() { return g_active.load(std::memory_order_relaxed); }
 std::uint64_t Steps() { return g_steps.load(std::memory_order_relaxed); }
 double GameSeconds() { return g_game_seconds.load(std::memory_order_relaxed); }
 float LastDt() { return g_last_dt.load(std::memory_order_relaxed); }
+bool WholeStep30() { return !Active() || g_whole30.load(std::memory_order_relaxed); }
+bool WholeStep30Exact() { return !Active() || g_whole30x.load(std::memory_order_relaxed); }
 } // namespace BbEngine::LiveClock

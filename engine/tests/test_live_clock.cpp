@@ -12,6 +12,17 @@ using namespace BbEngine::LiveClock;
 static bool Near(float a, float b, float eps = 1e-5f) { return std::fabs(a - b) <= eps; }
 
 int main() {
+    // Whole 1/30 s steps (bbport_hifps): 30 a game second at 30, 60, 120 and 144 FPS; every frame at 30.
+    for (const int fps : {30, 60, 120, 144}) {
+        float banked = 0.0f, exact = 0.0f;
+        int steps = 0, whole = 0;
+        for (int i = 0; i < fps * 10; ++i) {
+            steps += Step30Gate(banked, 1.0f / float(fps));
+            whole += Step30Gate(exact, 1.0f / float(fps), 0.98f);
+        }
+        assert(steps >= 299 && steps <= 301 && whole >= 299 && whole <= 301);
+        if (fps == 30) assert(steps == 300);
+    }
     assert(!LiveWanted("uncap", nullptr, false));
     assert(LiveWanted("uncap", nullptr, true));
     assert(LiveWanted("60", nullptr, true));

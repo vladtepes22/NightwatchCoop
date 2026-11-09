@@ -7,6 +7,7 @@
 #include "map/map_page.h"
 #include "bbport_settings.h"
 #include "bbport_latency.h"
+#include "bbport_hifps.h"
 #include "core/libraries/videoout/video_out.h"
 #include "bbport_copy.h"
 #ifndef _WIN32
@@ -608,6 +609,7 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbGnmHooks::PatchImage(image, size);
     BbEngine::Install(image, size);
     coop::HooksInit(image, size);
+    BbHiFps::Install();  // visy 0.8.0: high-FPS fixes from droogie/bbhost (lights' blink, water wakes, boxes' OK); after the Live clock and HooksInit
     BbGxQueryGuard::Install();  // every mode: an occlusion query without a handle is skipped (visy CL-9666e3)
     BbGameMenu::PatchImage(image, size);
     coop::lamptravel::Install(image, size);

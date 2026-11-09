@@ -13,4 +13,8 @@ bool Active();
 std::uint64_t Steps();
 double GameSeconds();
 float LastDt();
+/// Whether the frame in progress closes a whole 1/30 s of game time (Step30Gate; true every frame while the clock is
+/// off): the water wakes and the lights' blink step only on these (bbport_hifps.cpp). Exact: closed only when whole.
+bool WholeStep30();
+bool WholeStep30Exact();
 }
