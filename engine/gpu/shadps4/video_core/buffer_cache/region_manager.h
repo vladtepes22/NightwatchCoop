@@ -43,8 +43,7 @@ inline u32 StickyFaultPageBudget() {
         const char* env = std::getenv("BB_STICKY_FAULT_PAGES");
         const long value = env ? std::strtol(env, nullptr, 10) : 2048;
         const u32 pages = static_cast<u32>(value > 0 ? value : 0);
-        std::printf("Sticky fault pages: %s (budget %u pages, BB_STICKY_FAULT_PAGES)
-",
+        std::printf("Sticky fault pages: %s (budget %u pages, BB_STICKY_FAULT_PAGES)\n",
                     pages ? "on" : "off", pages);
         return pages;
     }();
@@ -197,8 +196,7 @@ public:
         BbStats::sticky_pages.fetch_add(num_new, std::memory_order_relaxed);
         if (total >= budget && total - num_new < budget) {
             std::printf("Sticky fault pages: budget of %u pages reached; later red-zone writer "
-                        "faults re-protect as before
-",
+                        "faults re-protect as before\n",
                         budget);
         }
         UpdateProtection<false, false>();
