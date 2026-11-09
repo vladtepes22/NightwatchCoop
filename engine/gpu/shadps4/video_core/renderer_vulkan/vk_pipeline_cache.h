@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <chrono>
+#include <condition_variable>
+#include <thread>
 #include <unordered_map>
 #include <mutex>
 #include <shared_mutex>
@@ -185,6 +188,20 @@ public:
 private:
     void CreateNativeCache();
     void SaveNativeCache();
+    /// bbport (visy 2223309b8): writes the driver cache about once a minute while new pipelines
+    /// exist, on a saver thread (never the GPU thread), so a crashed or killed session leaves the
+    /// pipelines it compiled behind. The first new pipeline is written at once. BB_DRIVER_CACHE_SAVE=0
+    /// turns it off (the exit save stays).
+    void MaybeSaveDriverCache();
+    void DriverCacheSaveLoop();
+    void StopDriverCacheSaver();
+    std::chrono::steady_clock::time_point last_driver_cache_save{};
+    u32 num_new_pipelines_at_last_save{};
+    std::mutex driver_save_mutex;
+    std::condition_variable driver_save_cv;
+    std::thread driver_save_thread;
+    bool driver_save_pending{};
+    bool driver_save_stop{};
     // Only pipeline creation and shutdown snapshots take this lock, never cache hits.
     std::mutex native_cache_mutex;
     static std::mutex progress_mutex;

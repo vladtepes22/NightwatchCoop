@@ -785,6 +785,8 @@ void PipelineCache::WarmUp() {
 }
 
 void PipelineCache::Sync() {
+    // bbport (visy 2223309b8): join the periodic saver before taking the lock it also takes.
+    StopDriverCacheSaver();
     std::scoped_lock lock{native_cache_mutex};
     try {
         SaveNativeCache();

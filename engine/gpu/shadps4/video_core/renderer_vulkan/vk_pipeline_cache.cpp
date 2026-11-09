@@ -11,6 +11,7 @@
 #include <unordered_set>
 
 #include "common/hash.h"
+#include "common/thread.h"
 #include "video_core/renderer_vulkan/vk_hdr_channel.h"
 #include "video_core/renderer_vulkan/vk_frame_capture.h"
 #include "common/elf_info.h"
@@ -621,8 +622,75 @@ const GraphicsPipeline* PipelineCache::TryPreparedPipeline(const PreparedDraw& p
     return it != graphics_pipelines.end() ? it->second.get() : nullptr;
 }
 
+void PipelineCache::MaybeSaveDriverCache() {
+    if (num_new_pipelines == num_new_pipelines_at_last_save) {
+        return;
+    }
+    static const bool enabled = [] {
+        const char* env = std::getenv("BB_DRIVER_CACHE_SAVE");
+        return !(env && env[0] == '0');
+    }();
+    if (!enabled) {
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    // The first new pipeline is written at once (a small dump), later ones are spaced out.
+    if (last_driver_cache_save.time_since_epoch().count() != 0 &&
+        now - last_driver_cache_save < std::chrono::minutes(1)) {
+        return;
+    }
+    {
+        std::scoped_lock lk{driver_save_mutex};
+        if (driver_save_stop) {
+            return;
+        }
+        last_driver_cache_save = now;
+        num_new_pipelines_at_last_save = num_new_pipelines;
+        if (!driver_save_thread.joinable()) {
+            driver_save_thread = std::thread([this] { DriverCacheSaveLoop(); });
+        }
+        driver_save_pending = true;
+    }
+    driver_save_cv.notify_one();
+}
+
+void PipelineCache::DriverCacheSaveLoop() {
+    Common::SetCurrentThreadName("bb:DriverCacheSave");
+    std::unique_lock lk{driver_save_mutex};
+    for (;;) {
+        driver_save_cv.wait(lk, [&] { return driver_save_stop || driver_save_pending; });
+        if (driver_save_stop) {
+            return;
+        }
+        driver_save_pending = false;
+        lk.unlock();
+        try {
+            std::scoped_lock cache_lock{native_cache_mutex};
+            SaveNativeCache();
+            LOG_INFO(Render_Vulkan, "Driver pipeline cache saved (periodic)");
+        } catch (const std::exception& error) {
+            LOG_WARNING(Render_Vulkan, "Periodic driver cache save failed: {}", error.what());
+        }
+        lk.lock();
+    }
+}
+
+void PipelineCache::StopDriverCacheSaver() {
+    {
+        std::scoped_lock lk{driver_save_mutex};
+        if (!driver_save_thread.joinable()) {
+            driver_save_stop = true;
+            return;
+        }
+        driver_save_stop = true;
+    }
+    driver_save_cv.notify_all();
+    driver_save_thread.join();
+}
+
 const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectParams params,
                                                            const PreparedDraw* prepared) {
+    MaybeSaveDriverCache();
     used_prepared = nullptr;
     if (prepared) {
         if (const auto* pipeline = TryPreparedPipeline(*prepared)) {
@@ -663,6 +731,7 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
 }
 
 const ComputePipeline* PipelineCache::GetComputePipeline() {
+    MaybeSaveDriverCache();
     if (!RefreshComputeKey()) {
         return nullptr;
     }
