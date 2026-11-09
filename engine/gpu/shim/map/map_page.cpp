@@ -22,6 +22,7 @@
 #include "../party/party_b2.h"
 #include "../party/party_balance.h"
 #include "../party/party_hud.h"
+#include "../party/party_ping.h"
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -440,6 +441,12 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
     const bool click = pad && hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
                        io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < io.MouseDragThreshold * io.MouseDragThreshold;
     bool confirm = false;  // Cross / Enter
+    // Shared map markers (visy 0.8.0, I7/E3; party_map_marks): 0 none, 1 at the mouse, 2 at the controller's pointer,
+    // 3 at the view's centre. A right click, P, R3 (pressed) or the footer's Marker puts this player's marker there (or
+    // takes it down when it is already there).
+    int mark = 0;
+    const bool marks_on = pad && coop::ping::MarksEnabled();
+    if (marks_on && hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) mark = 1;
     int floor_step = 0;
     if (io.MouseDelta.x != 0 || io.MouseDelta.y != 0) v.controller = false;
     // Its first frames take no presses: a key or button from before it opened (the one that opened
@@ -471,6 +478,8 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         if (Pressed(ImGuiKey_GamepadDpadUp) || Pressed(ImGuiKey_PageUp)) floor_step = 1;
         if (Pressed(ImGuiKey_GamepadDpadDown) || Pressed(ImGuiKey_PageDown)) floor_step = -1;
         if (Pressed(ImGuiKey_GamepadFaceDown) || Pressed(ImGuiKey_Enter) || Pressed(ImGuiKey_KeypadEnter)) confirm = true;
+        if (marks_on && Pressed(ImGuiKey_GamepadR3)) mark = v.controller ? 2 : 3;
+        if (marks_on && Pressed(ImGuiKey_P)) mark = hovered ? 1 : 3;
         for (ImGuiKey k : {ImGuiKey_GamepadL1, ImGuiKey_GamepadR1, ImGuiKey_GamepadFaceUp, ImGuiKey_GamepadFaceLeft, ImGuiKey_GamepadL2, ImGuiKey_GamepadR2,
                            ImGuiKey_GamepadFaceDown, ImGuiKey_GamepadDpadUp, ImGuiKey_GamepadDpadDown})
             if (ImGui::IsKeyDown(k)) v.controller = true;
@@ -487,6 +496,7 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
     case 6: r.back = true; break;
     case 7: floor_step = footer_side > 0 ? 1 : -1; break;
     case 8: confirm = true; break;
+    case 9: mark = marks_on ? (v.controller ? 2 : 3) : 0; break;
     default: break;
     }
     if (zoom_steps != 0) v.zoom = WheelZoom(v.zoom, zoom_steps);
@@ -625,6 +635,55 @@ CanvasResult Canvas(ImDrawList* draw, ImVec2 origin, ImVec2 size, float s, bool 
         if (v.preview && v.lamp == i) draw->AddCircle(p, 20 * s, IM_COL32(233, 206, 143, 220), 32, 1.5f * s);
         icon("lamp", p, 32, l.available ? IM_COL32_WHITE : IM_COL32(100, 100, 100, 125));
         tips.push_back({p, 20 * s, l.lamp->name, i});
+    }
+    // Shared map markers: this player's command first, then every member's marker on this map (a pin in the member's
+    // colour, a ring so it is never taken for a lamp).
+    if (marks_on) {
+        party::ping::MapMark marks[party::ping::kMaxSlots];
+        const int nm = party::ping::ReadMarks(marks);
+        const auto to_world = [&](ImVec2 p, float* x, float* zz) {
+            *x = v.cx + (p.x - center.x) / z;
+            *zz = v.cz - (p.y - center.y) / z;
+        };
+        if (mark) {
+            const ImVec2 at = mark == 1 ? io.MousePos : mark == 2 ? ImVec2(origin.x + size.x * v.pu, origin.y + size.y * v.pv) : center;
+            if (on_canvas(at, 0)) {
+                bool own_hit = false;
+                for (int i = 0; i < nm; ++i) {
+                    if (!marks[i].mine || !MarkOnMap(marks[i].map, v.region)) continue;
+                    const ImVec2 mp = project(marks[i].x, marks[i].z);
+                    if (std::abs(mp.x - at.x) < 18 * s && std::abs(mp.y - at.y) < 18 * s) own_hit = true;
+                }
+                float wx = 0, wz = 0;
+                to_world(at, &wx, &wz);
+                if (own_hit) {
+                    coop::ping::RequestMapMark(0, 0, 0, true);
+                    std::printf("Map: marker taken down\n");
+                } else if (const std::uint32_t map = MapIdOf(v.region)) {
+                    coop::ping::RequestMapMark(map, wx, wz, false);
+                    std::printf("Map: marker asked at (%.1f %.1f) on %s\n", double(wx), double(wz), v.region.c_str());
+                }
+            }
+        }
+        for (int i = 0; i < nm; ++i) {
+            const party::ping::MapMark& m = marks[i];
+            if (!MarkOnMap(m.map, v.region)) continue;
+            const ImVec2 p = project(m.x, m.z);
+            if (!on_canvas(p, 40 * s)) continue;
+            float rgb[3] = {1, 1, 1};
+            party::hud::MemberColour(m.slot, rgb);
+            const ImU32 col = IM_COL32(int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255), 255), dark = IM_COL32(10, 8, 6, 255);
+            const float r = (m.mine ? 9.0f : 8.0f) * s;
+            const ImVec2 c0(p.x, p.y - r * 2.4f);
+            draw->AddLine(p, c0, dark, 3.5f * s);
+            draw->AddLine(p, c0, col, 1.6f * s);
+            draw->AddQuadFilled(ImVec2(c0.x, c0.y - r), ImVec2(c0.x + r, c0.y), ImVec2(c0.x, c0.y + r), ImVec2(c0.x - r, c0.y), col);
+            draw->AddQuad(ImVec2(c0.x, c0.y - r), ImVec2(c0.x + r, c0.y), ImVec2(c0.x, c0.y + r), ImVec2(c0.x - r, c0.y), dark, 2.0f * s);
+            draw->AddCircle(c0, r * 1.7f, IM_COL32(255, 255, 255, 230), 20, std::max(1.2f, 1.6f * s));
+            draw->AddCircleFilled(p, 3.0f * s, dark, 12);
+            draw->AddText(ImGui::GetFont(), 14 * s, ImVec2(p.x + r + 5 * s, c0.y - 8 * s), col, m.name);
+            tips.push_back({c0, 14 * s, std::string(m.name) + BbSettings::MenuText(": marker", ": метка")});
+        }
     }
     // The party: members on this map, in this world (their facing when their chr is here) or in
     // their own world (faded, no facing: VITALS give a position only), each named in its list colour.
@@ -967,6 +1026,8 @@ bool DrawView() {
     controls.push_back({BbSettings::MenuText("Zoom", "Масштаб"), controller ? "L2/R2" : "-/+", 2});
     if (!v.region.empty() && BbMapVector::Floors(v.region) > 1)
         controls.push_back({BbSettings::MenuText("Floor", "Этаж"), controller ? "Up/Down" : "PgUp/PgDn", 7});
+    if (coop::ping::MarksEnabled())
+        controls.push_back({BbSettings::MenuText("Marker", "Метка"), controller ? "Press R3" : BbSettings::MenuText("Right click/P", "ПКМ/P"), 9});
     controls.push_back({BbSettings::MenuText("Recentre", "К себе"), controller ? "Triangle" : "C", 3});
     controls.push_back({BbSettings::MenuText("Shading", "Высоты"), controller ? "Square" : "H", 5});
     controls.push_back({BbSettings::MenuText("Back", "Назад"), controller ? "Circle" : "Esc", 6});

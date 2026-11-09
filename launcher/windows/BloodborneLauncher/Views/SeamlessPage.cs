@@ -264,7 +264,8 @@ public sealed class SeamlessPage : LauncherPage
         IniToggles(Fold(L.T("Rot on death"), Hosting),
             ("party_rot", L.T("Rot on death"), false), ("party_rot_cleanse_boss", L.T("Boss kill cleanses rot"), true),
             ("party_rot_cleanse_killer", L.T("Killing your killer cleanses its rot"), true),
-            ("party_rot_cleanse_echoes", L.T("Retrieving Blood Echoes cleanses its rot"), true));
+            ("party_rot_cleanse_echoes", L.T("Retrieving Blood Echoes cleanses its rot"), true),
+            ("party_rot_extra", L.T("Rot: stamina recovery"), false));
         host = Fold(L.T("Start-up rules"), Hosting, L.T("Read when the game starts. A guest with other values is refused and takes the host's."));
         StartupRows(host);
         IniToggles(host, ("party_skip_prologue", L.T("Skip the prologue (new characters)"), false));
@@ -279,6 +280,7 @@ public sealed class SeamlessPage : LauncherPage
             ("party_give_items", L.T("Give items to the party"), false),
             ("party_give_gear", L.T("Give weapons and armor"), false),
             ("party_hide_bad_names", L.T("Hide offensive names"), true),
+            ("party_look_sync", L.T("Share look changes"), false), ("party_map_marks", L.T("Shared map markers"), false),
             ("party_glyph_list", L.T("Chalice glyph list"), false),
             ("party_guest_altar", L.T("Ritual Altar as a guest"), false),
             ("party_stay", L.T("Stay in my world"), false), ("party_splitscreen", L.T("Splitscreen mode"), false));
@@ -1639,6 +1641,9 @@ public sealed class SeamlessPage : LauncherPage
         "party_rot" => L.T("Each death adds a penalty, stacking up to five times; resting at a lamp removes it."),
         "party_rot_cleanse_boss" => L.T("A boss's death removes all rot from everyone in the host's world. Requires Rot on death."),
         "party_rot_cleanse_killer" => L.T("When the enemy that killed you dies, the rot from that death is removed. Requires Rot on death."),
+        "party_rot_extra" => L.T("Off by default. A death may also add a stack that slows your stamina recovery by 15 %. Requires Rot on death."),
+        "party_look_sync" => L.T("Off by default. When your appearance changes (the Dream's mirror or any editor), the other players see the new look at once, without a reload."),
+        "party_map_marks" => L.T("Off by default. A spot you mark on the in-game map (right click, P or R3) shows on every companion's map, and theirs on yours."),
         "party_rot_cleanse_echoes" => L.T("Retrieving your Blood Echoes removes the rot from the death that dropped them. Requires Rot on death."),
         "party_boss_hp" => L.T("Controls how much boss health scales for each additional guest."),
         "party_boss_damage" => L.T("Controls how much boss damage scales for each additional guest."),

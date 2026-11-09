@@ -2569,5 +2569,11 @@
   "{0} (joined)": "{0}（已加入）",
   "This world's saves are still in their old folder. Close the game and try again.": "此世界的存檔仍在舊資料夾中。請關閉遊戲後重試。",
   "5 (experimental)": "5（實驗性）",
-  "6 (experimental)": "6（實驗性）"
+  "6 (experimental)": "6（實驗性）",
+  "Rot: stamina recovery": "腐化：體力恢復",
+  "Share look changes": "同步外觀變化",
+  "Shared map markers": "共享地圖標記",
+  "Off by default. A death may also add a stack that slows your stamina recovery by 15 %. Requires Rot on death.": "預設關閉。死亡還可能疊加一層，使你的體力恢復減慢 15%。需要開啟死亡腐化。",
+  "Off by default. When your appearance changes (the Dream's mirror or any editor), the other players see the new look at once, without a reload.": "預設關閉。你的外觀改變時（夢境中的鏡子或任何編輯器），其他玩家會立即看到新外觀，無需重新載入。",
+  "Off by default. A spot you mark on the in-game map (right click, P or R3) shows on every companion's map, and theirs on yours.": "預設關閉。你在遊戲地圖上標記的位置（右鍵、P 或 R3）會顯示在每位同伴的地圖上，他們的標記也會顯示在你的地圖上。"
 }

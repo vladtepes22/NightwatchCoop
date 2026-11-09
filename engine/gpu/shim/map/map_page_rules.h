@@ -27,6 +27,19 @@ inline std::string Region(std::uint32_t map_id) {
     return text;
 }
 
+/// The game's map id for an area name ("m24_01_00_00" -> 0x18010000); 0 when it is not one.
+inline std::uint32_t MapIdOf(const std::string& region) {
+    unsigned a = 0, b = 0, c = 0, d = 0;
+    if (std::sscanf(region.c_str(), "m%2u_%2u_%2u_%2u", &a, &b, &c, &d) != 4 || a > 255 || b > 255 || c > 255 || d > 255) return 0;
+    return std::uint32_t(a << 24 | b << 16 | c << 8 | d);
+}
+
+/// A shared map marker (visy 0.8.0, I7/E3) shows on the map of its area: the same first two parts of the map id.
+inline bool MarkOnMap(std::uint32_t mark_map, const std::string& region) {
+    const std::uint32_t here = MapIdOf(region);
+    return mark_map != 0 && here != 0 && (mark_map & 0xffff0000u) == (here & 0xffff0000u);
+}
+
 constexpr float kMinZoom = 0.15f, kMaxZoom = 25.0f, kDefaultZoom = 4.0f;
 
 /// One mouse wheel step's zoom (pixels per world unit), kept in range; a bad value resets.

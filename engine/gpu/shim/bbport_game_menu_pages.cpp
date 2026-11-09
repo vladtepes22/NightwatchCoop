@@ -1464,8 +1464,8 @@ void DefineAll() {
     // ---- My party: Names (0.7.8, namefilter): hateful member names are shown masked on this PC. ON by default (safety),
     // unlike other new party features; the real name stays the member's identity (party/name_filter.h). ----
     AddPage("My party: Chat & names", "Моя группа: чат, имена",
-            "Yours: party text chat; hateful names shown as Hunter + a code; sharing your look changes (bbport)",
-            "Ваше: чат группы; грубые имена как Hunter + код; обновление вашей внешности у других (bbport)");
+            "Yours: party chat; hateful names as Hunter + a code; your look changes; shared map markers (bbport)",
+            "Ваше: чат; грубые имена как Hunter + код; ваша внешность у других; общие метки на карте (bbport)");
     own(&Values::party_hide_bad_names, "Hide offensive names", "Скрывать грубые имена",
         "On: a hateful name shows as Hunter + a code on your screen (display only; others still see it)",
         "Вкл.: оскорбительное имя показано как Hunter и код (только на вашем экране)");
@@ -1484,6 +1484,10 @@ void DefineAll() {
     own(&Values::party_look_sync, "Share look changes", "Обновлять внешность",
         "Off by default. A changed appearance (mirror, any editor) shows to the others without a reload",
         "Выкл. по умолчанию. При смене вашей внешности остальные видят её сразу, без перезагрузки");
+    // visy 0.8.0 (I7/E3): a marker on the in-game map every member sees (map/map_page.cpp), off by default.
+    own(&Values::party_map_marks, "Shared map markers", "Общие метки на карте",
+        "Off by default. A spot you mark on the map (right click, P or R3) shows on every companion's map",
+        "Выкл. по умолчанию. Метка на карте (ПКМ, P или R3) видна на картах всех спутников");
 
     // ---- Game HUD (visy 0.7.8, CL-7d51fe): the game's own HUD, like Elden Ring's "HUD: Auto". ----
     AddPage("Game HUD", "HUD игры", "The game's own bars and item slots: hide them while nothing happens (bbport)",

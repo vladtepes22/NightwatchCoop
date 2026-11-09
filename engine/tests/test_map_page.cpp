@@ -225,6 +225,10 @@ int main(int argc, char** argv) {
     CHECK(StepFloor({2, NAN}, 0, 1) == 1 && StepFloor({2}, 0, 1) == -1 && StepFloor(heights, 1, 0) == -1);
     // Party members on the map: in this world, in their own world on the same map, or not shown.
     CHECK(MemberOnMap(true, true, true, 0x18000000u, "m24_00_00_00") == MemberDot::Here);
+    // Shared map markers: the map id of an area, and a marker shows on its area's map (first two parts).
+    CHECK(MapIdOf("m24_01_00_00") == 0x18010000u && MapIdOf("m21_00_00_00") == 0x15000000u && MapIdOf("") == 0 && MapIdOf("x") == 0);
+    CHECK(MarkOnMap(0x18010000u, "m24_01_00_00") && MarkOnMap(0x18010003u, "m24_01_00_00") && !MarkOnMap(0x18000000u, "m24_01_00_00"));
+    CHECK(!MarkOnMap(0, "m24_01_00_00") && !MarkOnMap(0x18010000u, ""));
     CHECK(MemberOnMap(true, true, false, 0x18000000u, "m24_00_00_00") == MemberDot::OwnWorld);
     CHECK(MemberOnMap(true, true, true, 0x18010000u, "m24_00_00_00") == MemberDot::Hidden);  // another area
     CHECK(MemberOnMap(false, true, true, 0x18000000u, "m24_00_00_00") == MemberDot::Hidden);  // lost
