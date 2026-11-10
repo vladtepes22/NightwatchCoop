@@ -411,7 +411,8 @@ bool DataBase::TakeAhead(BlobType type, const std::string& name, std::vector<u8>
     if (found == ahead.end()) {
         return false;
     }
-    data = found->second;
+    data = std::move(found->second);
+    ahead.erase(found);
     return true;
 }
 
@@ -438,8 +439,7 @@ void DataBase::ReadAhead() {
     }
     const u32 threads = ReadAheadRules::ThreadCount(env, files.size());
     if (threads == 0) {
-        std::printf("GPU cache: read-ahead off (BB_CACHE_READ_AHEAD=0)
-");
+        std::printf("GPU cache: read-ahead off (BB_CACHE_READ_AHEAD=0)\n");
         return;
     }
     std::vector<std::vector<u8>> data(files.size());
