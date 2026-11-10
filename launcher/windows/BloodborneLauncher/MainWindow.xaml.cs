@@ -102,6 +102,10 @@ namespace BloodborneLauncher
             {
                 TitleUpdate.Visibility = ws.Update != null ? Visibility.Visible : Visibility.Collapsed;
                 if (ws.Update != null) TitleUpdateText.Text = L.F($"Update {ws.Update.Tag}");
+                // Every newer release is mandatory (0.3.0 beta 2): it installs without asking. Not while the game
+                // runs (the engine is replaced); the button stays and the next check or start does it.
+                if (ws.Update is { } update && update.IsNewerThan(Updater.Current, Updater.CurrentBeta) && !ws.Game.Running)
+                    _ = InstallUpdateAsync(forced: true);
             };
 
             Loaded += async (_, _) =>
@@ -999,13 +1003,14 @@ namespace BloodborneLauncher
             }
         }
 
-        /// <summary>Asks, downloads the newer launcher, swaps it in and restarts.</summary>
-        public async Task InstallUpdateAsync()
+        /// <summary>Downloads the newer launcher (and engine), swaps it in and restarts; asks first unless forced
+        /// (a newer release found by the update check: updates are mandatory).</summary>
+        public async Task InstallUpdateAsync(bool forced = false)
         {
             var ws = Workspace.Current;
             if (ws.Update is not { } release) return;
             if (await PackageCheck(() => Updater.NeedsPackageAsync(release)) is { } package)
-                await InstallAsync(release, package);
+                await InstallAsync(release, package, forced: forced);
         }
 
         /// <summary>Whether an update needs the whole package, or null (logged) when the release manifest
@@ -1047,7 +1052,7 @@ namespace BloodborneLauncher
 
         private bool _updating;
 
-        private async Task InstallAsync(Updater.Release release, bool package, bool chosen = false)
+        private async Task InstallAsync(Updater.Release release, bool package, bool chosen = false, bool forced = false)
         {
             if (_updating) return;
             var ws = Workspace.Current;
@@ -1082,7 +1087,9 @@ namespace BloodborneLauncher
                            : "") +
                        (notes.Length > 0 ? $"\n\n{(chosen && older ? L.T("This version's notes") : L.T("What's new"))}:\n" + notes : "");
             var verb = chosen ? L.T("Switch") : L.T("Update");
-            if (!Prompt.Confirm(L.F($"{verb} to {release.Name}?"), body, L.F($"{verb} now")))
+            if (forced)
+                ws.Log(L.F($"Mandatory update to {release.Tag}: installing (you have {Updater.CurrentLabel})"), LogLevel.Warn);
+            else if (!Prompt.Confirm(L.F($"{verb} to {release.Name}?"), body, L.F($"{verb} now")))
                 return;
 
             TitleUpdate.Visibility = Visibility.Visible;
