@@ -2577,5 +2577,12 @@
   "Off by default. On: a weapon's or armor's menu in the inventory has Give, to send it to another hunter (a weapon keeps its upgrade level and blood gems), and you accept theirs. Never worn or story gear. Each player sets their own.": "По умолчанию выключено. Включено: в меню оружия или брони в инвентаре появляется «Отдать», чтобы отправить предмет другому охотнику (оружие сохраняет уровень улучшения и камни крови), и вы принимаете предметы от других. Надетое снаряжение и сюжетные предметы отдать нельзя. Каждый игрок настраивает сам.",
   "Off by default. On: as a guest you can use the Ritual Altar in the host's Hunter's Dream, with your own chalice and materials. Your own setting.": "По умолчанию выключено. Включено: в гостях вы можете пользоваться Ритуальным алтарём в Сне охотника хозяина, со своими чашами и материалами. Ваша собственная настройка.",
   "5 (experimental)": "5 (экспериментально)",
-  "6 (experimental)": "6 (экспериментально)"
+  "6 (experimental)": "6 (экспериментально)",
+  "Sun shadow resolution": "Разрешение теней солнца",
+  "Lamp shadow resolution": "Разрешение теней ламп",
+  "Higher needs more video memory": "Выше требует больше видеопамяти",
+  "High (4096)": "Высокое (4096)",
+  "Highest (8192)": "Максимальное (8192)",
+  "High (x2)": "Высокое (x2)",
+  "Highest (x4)": "Максимальное (x4)"
 }

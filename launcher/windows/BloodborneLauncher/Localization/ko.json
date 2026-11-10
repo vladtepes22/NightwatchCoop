@@ -2569,5 +2569,12 @@
   "{0} (joined)": "{0} (참가)",
   "This world's saves are still in their old folder. Close the game and try again.": "이 월드의 세이브가 아직 이전 폴더에 있습니다. 게임을 닫고 다시 시도하세요.",
   "5 (experimental)": "5 (실험적)",
-  "6 (experimental)": "6 (실험적)"
+  "6 (experimental)": "6 (실험적)",
+  "Sun shadow resolution": "태양 그림자 해상도",
+  "Lamp shadow resolution": "램프 그림자 해상도",
+  "Higher needs more video memory": "높을수록 비디오 메모리가 더 필요합니다",
+  "High (4096)": "높음 (4096)",
+  "Highest (8192)": "최고 (8192)",
+  "High (x2)": "높음 (x2)",
+  "Highest (x4)": "최고 (x4)"
 }

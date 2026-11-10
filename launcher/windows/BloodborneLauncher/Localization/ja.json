@@ -2569,5 +2569,12 @@
   "{0} (joined)": "{0} (参加)",
   "This world's saves are still in their old folder. Close the game and try again.": "このワールドのセーブはまだ古いフォルダーにあります。ゲームを閉じてもう一度お試しください。",
   "5 (experimental)": "5（実験的）",
-  "6 (experimental)": "6（実験的）"
+  "6 (experimental)": "6（実験的）",
+  "Sun shadow resolution": "太陽の影の解像度",
+  "Lamp shadow resolution": "ランプの影の解像度",
+  "Higher needs more video memory": "高いほどビデオメモリを多く使います",
+  "High (4096)": "高 (4096)",
+  "Highest (8192)": "最高 (8192)",
+  "High (x2)": "高 (x2)",
+  "Highest (x4)": "最高 (x4)"
 }

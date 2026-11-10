@@ -2569,5 +2569,12 @@
   "{0} (joined)": "{0} (katılınan)",
   "This world's saves are still in their old folder. Close the game and try again.": "Bu dünyanın kayıtları hâlâ eski klasöründe. Oyunu kapatıp yeniden deneyin.",
   "5 (experimental)": "5 (deneysel)",
-  "6 (experimental)": "6 (deneysel)"
+  "6 (experimental)": "6 (deneysel)",
+  "Sun shadow resolution": "Güneş gölgesi çözünürlüğü",
+  "Lamp shadow resolution": "Lamba gölgesi çözünürlüğü",
+  "Higher needs more video memory": "Daha yüksek ayar daha fazla video belleği gerektirir",
+  "High (4096)": "Yüksek (4096)",
+  "Highest (8192)": "En yüksek (8192)",
+  "High (x2)": "Yüksek (x2)",
+  "Highest (x4)": "En yüksek (x4)"
 }

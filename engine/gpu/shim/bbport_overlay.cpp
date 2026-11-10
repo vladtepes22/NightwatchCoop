@@ -986,6 +986,27 @@ void EffectsSection() {
             "Большие сжатые текстуры загружаются без самых крупных мип-уровней: меньше видеопамяти, "
             "вблизи поверхности мягче. Авто: половина на картах до 3 ГБ."));
     }
+    // Lantern 4889a8a8b (engine/graphics.cpp): the game's own shadow map sizes, after a restart.
+    const auto shadow_pick = [](const char* english, const char* russian, std::atomic<int>& value,
+                                const char* high, const char* highest) {
+        const char* label = Item(english, russian);
+        if (!label) return;
+        const char* names[] = {BbSettings::MenuText("Game default", "Как в игре"), high, highest};
+        const int current = std::clamp(value.load(), 0, 2);
+        if (ImGui::BeginCombo(label, names[current])) {
+            for (int i = 0; i < 3; ++i) {
+                if (ImGui::Selectable(names[i], i == current)) Store(value, i, true);
+            }
+            ImGui::EndCombo();
+        }
+        Hint(BbSettings::MenuText("Higher needs more video memory.", "Выше требует больше видеопамяти."));
+    };
+    shadow_pick("Sun shadow resolution", "Разрешение теней солнца", s.graphics_shadow_resolution,
+                BbSettings::MenuText("High (4096)", "Высокое (4096)"),
+                BbSettings::MenuText("Highest (8192)", "Максимальное (8192)"));
+    shadow_pick("Lamp shadow resolution", "Разрешение теней ламп", s.graphics_local_shadow_resolution,
+                BbSettings::MenuText("High (x2)", "Высокое (x2)"),
+                BbSettings::MenuText("Highest (x4)", "Максимальное (x4)"));
     for (int e = 0; e < BbSettings::EffectCount; ++e) {
         const auto& effect = BbSettings::Effects[e];
         const char* label = Item(effect.label, effect.label_ru);
@@ -2180,6 +2201,8 @@ void Menu() {
     bool restart =
         s.object_motion != s.startup_object_motion || s.model_lod != s.startup_model_lod ||
         s.texture_quality != s.startup_texture_quality ||
+        s.graphics_shadow_resolution != s.startup_shadow_resolution ||
+        s.graphics_local_shadow_resolution != s.startup_local_shadow_resolution ||
         s.live_resolution != s.startup_live_resolution || s.hdr != s.startup_hdr ||
         ((s.hdr_mode == BbSettings::HdrModePsychoV30) != s.startup_psychov30) ||
         BbSettings::ResolutionNeedsRestart();

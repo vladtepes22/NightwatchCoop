@@ -2569,5 +2569,12 @@
   "{0} (joined)": "{0} (приєднання)",
   "This world's saves are still in their old folder. Close the game and try again.": "Збереження цього світу ще в старій теці. Закрийте гру й спробуйте знову.",
   "5 (experimental)": "5 (експериментально)",
-  "6 (experimental)": "6 (експериментально)"
+  "6 (experimental)": "6 (експериментально)",
+  "Sun shadow resolution": "Роздільність тіней сонця",
+  "Lamp shadow resolution": "Роздільність тіней ламп",
+  "Higher needs more video memory": "Вище потребує більше відеопам'яті",
+  "High (4096)": "Висока (4096)",
+  "Highest (8192)": "Максимальна (8192)",
+  "High (x2)": "Висока (x2)",
+  "Highest (x4)": "Максимальна (x4)"
 }

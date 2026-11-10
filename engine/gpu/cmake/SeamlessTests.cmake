@@ -786,3 +786,11 @@ target_compile_options(cache-read-ahead-test PRIVATE -UNDEBUG -Wall -Wextra -Wer
 target_include_directories(cache-read-ahead-test PRIVATE shadps4)
 add_test(NAME cache-read-ahead-test COMMAND cache-read-ahead-test)
 add_dependencies(seamless-tests cache-read-ahead-test)
+
+# Shadow map sizes (engine/graphics.cpp; Lantern 4889a8a8b test, without the cascade overlap).
+add_executable(native-local-shadows-test EXCLUDE_FROM_ALL ../tests/test_native_local_shadows.cpp
+    shim/engine/graphics.cpp shim/engine/engine_hooks.cpp shim/bbport_settings.cpp shim/bbport_menu_i18n.cpp)
+target_include_directories(native-local-shadows-test PRIVATE shim)
+target_compile_options(native-local-shadows-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME native-local-shadows-test COMMAND native-local-shadows-test)
+add_dependencies(seamless-tests native-local-shadows-test)

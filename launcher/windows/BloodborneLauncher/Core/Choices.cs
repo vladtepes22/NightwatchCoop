@@ -147,6 +147,20 @@
             new(L.T("Lower (1)"), "1"),
         };
 
+        // Shadow map sizes (engine/graphics.cpp, Lantern 4889a8a8b): 0 the game's, 1 high, 2 highest; after a restart.
+        public static readonly Choice[] SunShadows =
+        {
+            new(L.T("As in the game"), "0"),
+            new(L.T("High (4096)"), "1"),
+            new(L.T("Highest (8192)"), "2"),
+        };
+        public static readonly Choice[] LampShadows =
+        {
+            new(L.T("As in the game"), "0"),
+            new(L.T("High (x2)"), "1"),
+            new(L.T("Highest (x4)"), "2"),
+        };
+
         public static string ModelLodShown(string value) => value switch { "2" => "1", "-2" or "0" or "1" => value, _ => "0" };
 
         public static readonly Choice[] FpsModes =

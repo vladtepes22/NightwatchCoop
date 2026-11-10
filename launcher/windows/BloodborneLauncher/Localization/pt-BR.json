@@ -2569,5 +2569,12 @@
   "{0} (joined)": "{0} (entrou)",
   "This world's saves are still in their old folder. Close the game and try again.": "Os saves deste mundo ainda estão na pasta antiga. Feche o jogo e tente novamente.",
   "5 (experimental)": "5 (experimental)",
-  "6 (experimental)": "6 (experimental)"
+  "6 (experimental)": "6 (experimental)",
+  "Sun shadow resolution": "Resolução das sombras do sol",
+  "Lamp shadow resolution": "Resolução das sombras das lâmpadas",
+  "Higher needs more video memory": "Mais alto precisa de mais memória de vídeo",
+  "High (4096)": "Alta (4096)",
+  "Highest (8192)": "Máxima (8192)",
+  "High (x2)": "Alta (x2)",
+  "Highest (x4)": "Máxima (x4)"
 }

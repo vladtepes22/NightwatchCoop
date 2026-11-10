@@ -56,6 +56,22 @@ int main() {
         BbSettings::Load();
     }
     {
+        // Shadow map sizes (Lantern 4889a8a8b): game default, clamped to 0-2, kept for the restart check.
+        auto& d = BbSettings::Get();
+        assert(d.graphics_shadow_resolution == 0 && d.graphics_local_shadow_resolution == 0);
+        { std::ofstream file(path); file << "graphics_shadow_resolution=9\ngraphics_local_shadow_resolution=1\n"; }
+        BbSettings::Load();
+        assert(d.graphics_shadow_resolution == 2 && d.startup_shadow_resolution == 2);
+        assert(d.graphics_local_shadow_resolution == 1 && d.startup_local_shadow_resolution == 1);
+        BbSettings::Save();
+        assert(Read(path).find("graphics_shadow_resolution=2\n") != std::string::npos);
+        assert(Read(path).find("graphics_local_shadow_resolution=1\n") != std::string::npos);
+        d.graphics_shadow_resolution = 0;
+        d.graphics_local_shadow_resolution = 0;
+        { std::ofstream file(path); file << ""; }
+        BbSettings::Load();
+    }
+    {
         // The keys from visy 0.7.5: defaults first, then each one read from and written to bbport.ini.
         auto& d = BbSettings::Get();
         assert(d.party_level_sync && d.party_phantom_hp && d.party_pvp_full_hp && d.party_boss_drops && !d.party_skip_prologue && d.party_vpn == 0 &&

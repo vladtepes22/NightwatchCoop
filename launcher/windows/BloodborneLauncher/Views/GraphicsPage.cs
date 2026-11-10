@@ -112,6 +112,10 @@ namespace BloodborneLauncher.Views
             Body.Children.Add(Text(L.T("Patches to the game, applied when it starts."), "Faint"));
             ComboRow(SymbolRegular.Cube24, L.T("Model detail"), null, Choices.ModelLod,
                 () => Choices.ModelLodShown(Ini.Get("model_lod")), v => Ini.Set("model_lod", v));
+            IniCombo(SymbolRegular.WeatherSunny24, L.T("Sun shadow resolution"), L.T("Higher needs more video memory"),
+                Choices.SunShadows, "graphics_shadow_resolution");
+            IniCombo(SymbolRegular.Lightbulb24, L.T("Lamp shadow resolution"), L.T("Higher needs more video memory"),
+                Choices.LampShadows, "graphics_local_shadow_resolution");
             IniCombo(SymbolRegular.Camera24, L.T("Follow camera"), L.T("Original keeps the game's camera distance, angle and follow speed at 60 FPS and above"), Choices.CameraTuning, "camera_tuning");
             foreach (var effect in Choices.Effects)
             {

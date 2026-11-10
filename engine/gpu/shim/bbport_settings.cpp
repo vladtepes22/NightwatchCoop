@@ -524,6 +524,10 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         // at all, so Central Yharnam's corpses popped in close and vanished again further away.
         // A -2 saved before settings_rev 2 is turned into 0 once (Load).
         v.model_lod = i == -2 ? -2 : std::clamp(i, 0, 1);
+    } else if (key == "graphics_shadow_resolution") {
+        v.graphics_shadow_resolution = std::clamp(i, 0, 2);
+    } else if (key == "graphics_local_shadow_resolution") {
+        v.graphics_local_shadow_resolution = std::clamp(i, 0, 2);
     } else if (key == "texture_quality") {
         // A name in any case ("Half"); anything else keeps the value (auto by default).
         if (const int q = TextureQuality::Parse(value.c_str()); q >= 0) v.texture_quality = q;
@@ -981,6 +985,8 @@ void Load() {
     }
     v.startup_model_lod = v.model_lod;
     v.startup_texture_quality = v.texture_quality;
+    v.startup_shadow_resolution = v.graphics_shadow_resolution;
+    v.startup_local_shadow_resolution = v.graphics_local_shadow_resolution;
     v.startup_output_res = v.output_res;
     v.startup_live_resolution = v.live_resolution;
     v.startup_hdr = v.hdr;
@@ -1265,6 +1271,9 @@ void Save() {
     put("camera_height_scale", fixed(v.camera_height_scale, 2));
     put("model_lod", std::to_string(v.model_lod.load()));
     put("texture_quality", TextureQuality::Name(v.texture_quality.load()));
+    put("graphics_shadow_resolution", std::to_string(std::clamp(v.graphics_shadow_resolution.load(), 0, 2)));
+    put("graphics_local_shadow_resolution",
+        std::to_string(std::clamp(v.graphics_local_shadow_resolution.load(), 0, 2)));
     put("cheat_vials", CheatText(v.cheat_vials));
     put("cheat_bullets", CheatText(v.cheat_bullets));
     put("cheat_stamina", flag(v.cheat_stamina));

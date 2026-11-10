@@ -124,6 +124,10 @@ void Install(std::uint8_t* image, std::size_t size) {
     const bool camera = Camera::Install(image, size);
     const bool wide = Widescreen::Install(image, size);
     const bool graphics = Graphics::Install(image, size);
+    const bool local_shadows = Graphics::InstallLocalShadows(image, size);
+    const bool spot_shadows = Graphics::InstallSpotShadows(image, size);
+    Graphics::InstallLocalShadowSoftness(image, size, local_shadows, spot_shadows);
+    const bool sun_shadows = Graphics::InstallDirectionalShadowResolution(image, size);
     const bool menus = Options::Install(image, size);
     bool editor = false;
     const bool list = ChangeAppearance::Watch(image);
@@ -145,7 +149,8 @@ void Install(std::uint8_t* image, std::size_t size) {
     const bool slots = JobSlots::Install(image, size);
     const bool status = GameStatus::Install(image, size);
     CameraTiming::Install(image, size);
-    if (!(editor || input || camera || wide || graphics || menus || rebirth || cheats || online || guard || timing ||
+    if (!(editor || input || camera || wide || graphics || local_shadows || spot_shadows || sun_shadows || menus ||
+          rebirth || cheats || online || guard || timing ||
           frame_rate || slots || status)) {
         for (auto& h : hooks) Discard(h);
         host_log("engine features off: none could be prepared");
