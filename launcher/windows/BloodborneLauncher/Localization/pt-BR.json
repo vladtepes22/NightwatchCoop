@@ -2576,5 +2576,7 @@
   "High (4096)": "Alta (4096)",
   "Highest (8192)": "Máxima (8192)",
   "High (x2)": "Alta (x2)",
-  "Highest (x4)": "Máxima (x4)"
+  "Highest (x4)": "Máxima (x4)",
+  "Motion blur quality": "Qualidade do desfoque de movimento",
+  "Smoother motion blur; motion blur must be on": "Desfoque de movimento mais suave; o desfoque precisa estar ligado"
 }

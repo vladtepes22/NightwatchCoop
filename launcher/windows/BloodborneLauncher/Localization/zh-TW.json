@@ -2591,5 +2591,7 @@
   "High (4096)": "高 (4096)",
   "Highest (8192)": "最高 (8192)",
   "High (x2)": "高 (x2)",
-  "Highest (x4)": "最高 (x4)"
+  "Highest (x4)": "最高 (x4)",
+  "Motion blur quality": "動態模糊品質",
+  "Smoother motion blur; motion blur must be on": "更平滑的動態模糊；需開啟動態模糊"
 }

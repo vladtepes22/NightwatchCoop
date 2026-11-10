@@ -23,6 +23,7 @@ namespace BloodborneLauncher.Core
             ("model_lod", "0"),
             ("graphics_shadow_resolution", "0"),
             ("graphics_local_shadow_resolution", "0"),
+            ("graphics_motion_blur_quality", "0"),
             ("camera_tuning", "original"),
             ("live_resolution", "0"),
             ("frame_gen", "off"),

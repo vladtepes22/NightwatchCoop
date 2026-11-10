@@ -2576,5 +2576,7 @@
   "High (4096)": "Élevée (4096)",
   "Highest (8192)": "Maximale (8192)",
   "High (x2)": "Élevée (x2)",
-  "Highest (x4)": "Maximale (x4)"
+  "Highest (x4)": "Maximale (x4)",
+  "Motion blur quality": "Qualité du flou de mouvement",
+  "Smoother motion blur; motion blur must be on": "Flou de mouvement plus doux ; le flou de mouvement doit être activé"
 }

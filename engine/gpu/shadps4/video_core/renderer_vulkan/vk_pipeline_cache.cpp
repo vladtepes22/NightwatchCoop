@@ -12,6 +12,7 @@
 
 #include "common/hash.h"
 #include "common/thread.h"
+#include "video_core/renderer_vulkan/vk_effect_shaders.h"
 #include "video_core/renderer_vulkan/vk_hdr_channel.h"
 #include "video_core/renderer_vulkan/vk_frame_capture.h"
 #include "common/elf_info.h"
@@ -1093,6 +1094,7 @@ vk::ShaderModule PipelineCache::CompileModule(Shader::Info& info, Shader::Runtim
     const auto ir_program = Shader::TranslateProgram(code, pools, info, runtime_info, profile);
     Shader::Native::Capture(info, runtime_before, code, profile);
     Shader::Native::StoreState(info, runtime_before, code, perm_idx);
+    const auto binding_before = binding;
     auto spv = Shader::Backend::SPIRV::EmitSPIRV(profile, runtime_info, ir_program, binding);
     DumpShader(spv, info.pgm_hash, info.hw_stage, perm_idx, "spv");
 
@@ -1113,9 +1115,13 @@ vk::ShaderModule PipelineCache::CompileModule(Shader::Info& info, Shader::Runtim
 
     auto patch = GetShaderPatch(info.pgm_hash, info.hw_stage, perm_idx, "spv");
     const bool is_patched = patch && EmulatorSettings.IsPatchShaders();
+    // bbport: our version of a game shader (vk_effect_shaders.cpp); the cache keeps the game's own.
+    const auto effect_shader = EffectShaders::Replacement(info, profile, binding_before);
     if (is_patched) {
         LOG_INFO(Loader, "Loaded patch for {} shader {:#x}", info.hw_stage, info.pgm_hash);
         module = CompileSPV(*patch, instance.GetDevice());
+    } else if (!effect_shader.empty()) {
+        module = CompileSPV(effect_shader, instance.GetDevice());
     } else {
         module = CompileSPV(spv, instance.GetDevice());
     }

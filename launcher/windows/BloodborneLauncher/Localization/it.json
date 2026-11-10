@@ -2576,5 +2576,7 @@
   "High (4096)": "Alta (4096)",
   "Highest (8192)": "Massima (8192)",
   "High (x2)": "Alta (x2)",
-  "Highest (x4)": "Massima (x4)"
+  "Highest (x4)": "Massima (x4)",
+  "Motion blur quality": "Qualità del motion blur",
+  "Smoother motion blur; motion blur must be on": "Motion blur più morbido; il motion blur deve essere attivo"
 }

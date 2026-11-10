@@ -116,6 +116,8 @@ namespace BloodborneLauncher.Views
                 Choices.SunShadows, "graphics_shadow_resolution");
             IniCombo(SymbolRegular.Lightbulb24, L.T("Lamp shadow resolution"), L.T("Higher needs more video memory"),
                 Choices.LampShadows, "graphics_local_shadow_resolution");
+            IniCombo(SymbolRegular.Blur24, L.T("Motion blur quality"), L.T("Smoother motion blur; motion blur must be on"),
+                Choices.MotionBlurQuality, "graphics_motion_blur_quality");
             IniCombo(SymbolRegular.Camera24, L.T("Follow camera"), L.T("Original keeps the game's camera distance, angle and follow speed at 60 FPS and above"), Choices.CameraTuning, "camera_tuning");
             foreach (var effect in Choices.Effects)
             {

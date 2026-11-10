@@ -19,6 +19,7 @@
 #include "shader_recompiler/frontend/fetch_shader.h"
 #include "shader_recompiler/info.h"
 #include "video_core/cache_storage.h"
+#include "video_core/renderer_vulkan/vk_effect_shaders.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_hdr_channel.h"
@@ -457,8 +458,11 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage, 
         }
         module = target->modules[perm_idx].module;
     } else {
+        // bbport: our version of a game shader (vk_effect_shaders.cpp), as CompileModule does.
+        const auto effect_shader = EffectShaders::Replacement(program->info, profile, spec.start);
+        const std::span<const u32> code = !effect_shader.empty() ? effect_shader : std::span<const u32>(spv);
         const auto [result, compiled] = instance.GetDevice().createShaderModule(
-            {.codeSize = spv.size() * sizeof(u32), .pCode = spv.data()});
+            {.codeSize = code.size_bytes(), .pCode = code.data()});
         if (result != vk::Result::eSuccess) {
             throw Serialization::CorruptData{"cached SPIR-V rejected by the driver"};
         }

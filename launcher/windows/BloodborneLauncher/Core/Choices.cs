@@ -161,6 +161,12 @@
             new(L.T("Highest (x4)"), "2"),
         };
 
+        public static readonly Choice[] MotionBlurQuality =
+        {
+            new(L.T("As in the game"), "0"),
+            new(L.T("High"), "1"),
+        };
+
         public static string ModelLodShown(string value) => value switch { "2" => "1", "-2" or "0" or "1" => value, _ => "0" };
 
         public static readonly Choice[] FpsModes =

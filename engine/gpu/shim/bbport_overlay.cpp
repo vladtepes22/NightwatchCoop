@@ -1007,6 +1007,19 @@ void EffectsSection() {
     shadow_pick("Lamp shadow resolution", "Разрешение теней ламп", s.graphics_local_shadow_resolution,
                 BbSettings::MenuText("High (x2)", "Высокое (x2)"),
                 BbSettings::MenuText("Highest (x4)", "Максимальное (x4)"));
+    if (const char* label = Item("Motion blur quality", "Качество размытия")) {
+        const char* names[] = {BbSettings::MenuText("Game default", "Как в игре"),
+                               BbSettings::MenuText("High", "Высокое")};
+        const int current = std::clamp(s.graphics_motion_blur_quality.load(), 0, 1);
+        if (ImGui::BeginCombo(label, names[current])) {
+            for (int i = 0; i < 2; ++i) {
+                if (ImGui::Selectable(names[i], i == current)) Store(s.graphics_motion_blur_quality, i, true);
+            }
+            ImGui::EndCombo();
+        }
+        Hint(BbSettings::MenuText("Smoother motion blur, more samples along the motion. Motion blur must be on.",
+                                  "Более плавное размытие, больше выборок вдоль движения. Размытие должно быть включено."));
+    }
     for (int e = 0; e < BbSettings::EffectCount; ++e) {
         const auto& effect = BbSettings::Effects[e];
         const char* label = Item(effect.label, effect.label_ru);
@@ -2203,6 +2216,7 @@ void Menu() {
         s.texture_quality != s.startup_texture_quality ||
         s.graphics_shadow_resolution != s.startup_shadow_resolution ||
         s.graphics_local_shadow_resolution != s.startup_local_shadow_resolution ||
+        s.graphics_motion_blur_quality != s.startup_motion_blur_quality ||
         s.live_resolution != s.startup_live_resolution || s.hdr != s.startup_hdr ||
         ((s.hdr_mode == BbSettings::HdrModePsychoV30) != s.startup_psychov30) ||
         BbSettings::ResolutionNeedsRestart();

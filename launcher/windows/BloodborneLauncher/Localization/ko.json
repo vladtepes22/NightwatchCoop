@@ -2576,5 +2576,7 @@
   "High (4096)": "높음 (4096)",
   "Highest (8192)": "최고 (8192)",
   "High (x2)": "높음 (x2)",
-  "Highest (x4)": "최고 (x4)"
+  "Highest (x4)": "최고 (x4)",
+  "Motion blur quality": "모션 블러 품질",
+  "Smoother motion blur; motion blur must be on": "더 부드러운 모션 블러. 모션 블러가 켜져 있어야 합니다"
 }

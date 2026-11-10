@@ -152,14 +152,21 @@ function(add_host_shader FILENAME SHADER_NAME)
     if (IS_ABSOLUTE ${FILENAME}) # the port's own shaders (shim/map)
         set(SOURCE ${FILENAME})
     endif()
+    set(INCLUDES "")
+    if (FILENAME MATCHES "^native_motion_blur")
+        list(APPEND INCLUDES ${SHADER_SRC}/native_motion_blur.glsl)
+    endif()
     add_custom_command(OUTPUT ${OUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_DIR}
         COMMAND ${GLSLANG_COMPILER} --target-env vulkan1.3 -o ${OUT} --vn ${SYMBOL} ${DEFINES} ${SOURCE}
         COMMAND ${CMAKE_COMMAND} "-DHEADER_FILE=${OUT}" -P ${SHADER_SRC}/AddShaderHeaderInclude.cmake
-        DEPENDS ${SOURCE} VERBATIM)
+        DEPENDS ${SOURCE} ${INCLUDES} VERBATIM)
     set(SHADER_HEADERS ${SHADER_HEADERS} ${OUT} PARENT_SCOPE)
 endfunction()
 add_host_shader(hdr/bb_composite_hdr.frag bb_composite_hdr_frag)
+# graphics_motion_blur_quality=1 (vk_effect_shaders.cpp; Lantern 4889a8a8b) and its GPU test.
+add_host_shader(native_motion_blur.frag native_motion_blur_frag)
+add_host_shader(native_motion_blur_test.comp native_motion_blur_test_comp)
 add_host_shader(hdr/bb_copy.frag bb_copy_frag)
 add_host_shader(hdr/bb_display_copy.frag bb_display_copy_frag)
 add_host_shader(hdr/bb_glow_source.frag bb_glow_source_frag)

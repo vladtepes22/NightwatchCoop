@@ -2576,5 +2576,7 @@
   "High (4096)": "Yüksek (4096)",
   "Highest (8192)": "En yüksek (8192)",
   "High (x2)": "Yüksek (x2)",
-  "Highest (x4)": "En yüksek (x4)"
+  "Highest (x4)": "En yüksek (x4)",
+  "Motion blur quality": "Hareket bulanıklığı kalitesi",
+  "Smoother motion blur; motion blur must be on": "Daha yumuşak hareket bulanıklığı; hareket bulanıklığı açık olmalı"
 }

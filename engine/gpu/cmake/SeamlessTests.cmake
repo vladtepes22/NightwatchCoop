@@ -739,8 +739,14 @@ set(bb_engine_tests pipeline-cache-blob-test image-overlap-test pipeline-archive
     engine-menu-memory-test rebirth-cost-test pc-input-test widescreen-test)
 # They share the GPU, so they run one at a time; motion-shader-test takes ~10 min. scene-resolution,
 # taa-shader and camera-motion open Vulkan device 0 and crash when it is gone (a laptop's dGPU off).
+# The high-quality motion blur against the game's own on a GPU (Lantern test_motion_blur.cpp).
+add_executable(motion-blur-shader-test EXCLUDE_FROM_ALL ../tests/test_motion_blur.cpp)
+target_include_directories(motion-blur-shader-test PRIVATE ${SHADER_INCLUDE})
+target_compile_options(motion-blur-shader-test PRIVATE -UNDEBUG -Wall -Werror)
+target_link_libraries(motion-blur-shader-test PRIVATE Vulkan::Vulkan)
+add_dependencies(motion-blur-shader-test host_shaders)
 set(bb_gpu_tests scene-resolution-test taa-shader-test camera-motion-test indirect-clamp-test
-    hdr-native-shader-test motion-shader-test)
+    hdr-native-shader-test motion-shader-test motion-blur-shader-test)
 foreach(target IN LISTS bb_engine_tests bb_gpu_tests)
     add_test(NAME ${target} COMMAND ${target})
     add_dependencies(seamless-tests ${target})

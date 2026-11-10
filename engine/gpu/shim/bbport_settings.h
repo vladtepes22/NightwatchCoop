@@ -456,6 +456,9 @@ struct Values {
     /// 2 highest): the sun's shadow atlas 2048 -> 4096 / 8192 and the lamps' point and spotlight
     /// shadow maps x2 / x4 (engine/graphics.cpp; Lantern 4889a8a8b). More video memory.
     std::atomic<int> graphics_shadow_resolution{0}, graphics_local_shadow_resolution{0};
+    /// graphics_motion_blur_quality (after a restart; 0 game, 1 high): the game's motion blur shader is
+    /// swapped for one with up to 16 taps per side (vk_effect_shaders.cpp; Lantern 4889a8a8b).
+    std::atomic<int> graphics_motion_blur_quality{0};
     std::atomic<int> output_res{OutputDefault};
     int custom_output_w = 1920, custom_output_h = 1080;
     std::atomic<int> cheat_vials{CheatOff}, cheat_bullets{CheatOff};
@@ -498,7 +501,7 @@ struct Values {
     bool startup_effects[EffectCount]{};
     int startup_model_lod = 0;
     int startup_texture_quality = 0;
-    int startup_shadow_resolution = 0, startup_local_shadow_resolution = 0;
+    int startup_shadow_resolution = 0, startup_local_shadow_resolution = 0, startup_motion_blur_quality = 0;
     int startup_output_res = OutputDefault;
     int startup_live_resolution = 0;
     std::atomic<float> hdr_exposure{1.0f};
