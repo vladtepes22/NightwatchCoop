@@ -1875,7 +1875,7 @@
   "Use the same password on every PC. Stored encrypted for your Windows user.": "모든 PC에서 같은 비밀번호를 사용하세요. 현재 Windows 사용자용으로 암호화하여 저장합니다.",
   "Party size": "파티 인원 제한",
   "Host and guests use the same limit. Five players is experimental.": "호스트와 게스트는 같은 인원 제한을 사용합니다. 5인 플레이는 실험 기능입니다.",
-  "5 (experimental)": "5명 (실험 기능)",
+  "5 (experimental)": "5 (실험적)",
   "Party port": "파티 포트",
   "TCP and UDP. Default: 9307.": "TCP 및 UDP. 기본값: 9307.",
   "UPnP": "UPnP",
@@ -2568,7 +2568,6 @@
   "No randomized worlds yet. Play one to make its saves.": "아직 무작위 월드가 없습니다. 하나를 플레이하면 세이브가 만들어집니다.",
   "{0} (joined)": "{0} (참가)",
   "This world's saves are still in their old folder. Close the game and try again.": "이 월드의 세이브가 아직 이전 폴더에 있습니다. 게임을 닫고 다시 시도하세요.",
-  "5 (experimental)": "5 (실험적)",
   "6 (experimental)": "6 (실험적)",
   "Sun shadow resolution": "태양 그림자 해상도",
   "Lamp shadow resolution": "램프 그림자 해상도",
@@ -2578,5 +2577,12 @@
   "High (x2)": "높음 (x2)",
   "Highest (x4)": "최고 (x4)",
   "Motion blur quality": "모션 블러 품질",
-  "Smoother motion blur; motion blur must be on": "더 부드러운 모션 블러. 모션 블러가 켜져 있어야 합니다"
+  "Smoother motion blur; motion blur must be on": "더 부드러운 모션 블러. 모션 블러가 켜져 있어야 합니다",
+  "Please update. Older versions will not be supported for online play in the future: hosts and players on the new version will not be able to play with you, and bugs reported from an old version cannot be looked at.": "업데이트해 주세요. 이전 버전은 앞으로 온라인 플레이를 지원하지 않습니다. 새 버전의 호스트와 플레이어는 당신과 함께 플레이할 수 없고, 이전 버전에서 보고된 버그는 확인할 수 없습니다.",
+  "Important update: {0}": "중요 업데이트: {0}",
+  "Include Winter Lanterns": "겨울 등불 포함",
+  "Whether Winter Lanterns can replace other enemies. They inflict Frenzy from a distance just by seeing you, often before you see them, and from up high where you can't reach them. Off, they never turn up anywhere new; the ones the game places itself can still be replaced by other enemies. The Brain of Mensis never moves either way.": "겨울 등불이 다른 적을 대신할 수 있는지 여부입니다. 겨울 등불은 멀리서도 당신을 보기만 하면 광란을 일으키며, 당신이 보기 전에 먼저 보는 경우가 많고, 닿을 수 없는 높은 곳에서도 나타납니다. 끄면 새로운 곳에는 나타나지 않으며, 게임이 직접 배치한 것은 여전히 다른 적으로 대체될 수 있습니다. 멘시스의 뇌는 어느 설정에서도 움직이지 않습니다.",
+  "No Winter Lanterns.": "겨울 등불 없음.",
+  "Father Gascoigne, Ludwig and the Orphan of Kos are the only bosses that change into a second form. With this on, they always turn into another boss at that point, one that fights nowhere else in the world, and that boss never changes again. Two chalice bosses join the pool for this, even when chalice bosses are off. With this off, one of the three in an arena that isn't its own fights its first phase only, and the fight ends when that phase dies.": "게르만 사제 가스코인, 루드비히, 코스의 고아는 두 번째 형태로 변하는 유일한 보스입니다. 켜면 이 셋은 그 시점에서 항상 다른 보스로 변하며, 그 보스는 세상 어디에서도 따로 싸우지 않고 다시 변하지 않습니다. 이를 위해 성배 보스 두 명이 풀에 추가됩니다(성배 보스가 꺼져 있어도 마찬가지). 끄면 셋 중 하나가 자신의 구역이 아닌 아레나에 있을 때 첫 번째 단계만 싸우고, 그 단계를 처치하면 전투가 끝납니다.",
+  "This fight normally has several bosses at once. \"One boss only\" puts a single boss alone in the room; \"A boss for each\" gives every one its own boss. Only matters when bosses are randomized.": "이 전투는 보통 여러 보스가 동시에 등장합니다. \"One boss only\"는 방에 보스를 한 명만 두고, \"A boss for each\"는 각각에게 별도의 보스를 줍니다. 보스 무작위화가 켜져 있을 때만 적용됩니다."
 }

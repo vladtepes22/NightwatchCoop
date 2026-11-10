@@ -2568,7 +2568,6 @@
   "No randomized worlds yet. Play one to make its saves.": "Випадкових світів ще немає. Зіграйте в один, щоб створити його збереження.",
   "{0} (joined)": "{0} (приєднання)",
   "This world's saves are still in their old folder. Close the game and try again.": "Збереження цього світу ще в старій теці. Закрийте гру й спробуйте знову.",
-  "5 (experimental)": "5 (експериментально)",
   "6 (experimental)": "6 (експериментально)",
   "Sun shadow resolution": "Роздільність тіней сонця",
   "Lamp shadow resolution": "Роздільність тіней ламп",
@@ -2578,5 +2577,12 @@
   "High (x2)": "Висока (x2)",
   "Highest (x4)": "Максимальна (x4)",
   "Motion blur quality": "Якість розмиття в русі",
-  "Smoother motion blur; motion blur must be on": "Плавніше розмиття; розмиття в русі має бути увімкнене"
+  "Smoother motion blur; motion blur must be on": "Плавніше розмиття; розмиття в русі має бути увімкнене",
+  "Please update. Older versions will not be supported for online play in the future: hosts and players on the new version will not be able to play with you, and bugs reported from an old version cannot be looked at.": "Будь ласка, оновіть гру. Старі версії надалі не підтримуватимуться для онлайн-гри: хости та гравці нової версії не зможуть грати з вами, а баги, повідомлені зі старої версії, розглядатися не будуть.",
+  "Important update: {0}": "Важливе оновлення: {0}",
+  "Include Winter Lanterns": "Включати зимові ліхтарі",
+  "Whether Winter Lanterns can replace other enemies. They inflict Frenzy from a distance just by seeing you, often before you see them, and from up high where you can't reach them. Off, they never turn up anywhere new; the ones the game places itself can still be replaced by other enemies. The Brain of Mensis never moves either way.": "Чи можуть зимові ліхтарі замінювати інших ворогів. Вони викликають божевілля на відстані, варто їм побачити вас, часто раніше, ніж ви їх, а також зверху, куди ви не дотягнетеся. Вимкнено — вони ніколи не з'являються в нових місцях; ті, що розставила сама гра, все одно можуть бути замінені іншими ворогами. Мозок Менсіса не рухається за жодного з налаштувань.",
+  "No Winter Lanterns.": "Немає зимових ліхтарів.",
+  "Father Gascoigne, Ludwig and the Orphan of Kos are the only bosses that change into a second form. With this on, they always turn into another boss at that point, one that fights nowhere else in the world, and that boss never changes again. Two chalice bosses join the pool for this, even when chalice bosses are off. With this off, one of the three in an arena that isn't its own fights its first phase only, and the fight ends when that phase dies.": "Отець Гаскойн, Людвіг і Сирота Коса - єдині боси, які переходять у другу форму. Якщо увімкнено, у цей момент вони завжди перетворюються на іншого боса, який більше ніде у світі не б'ється, і цей бос більше не змінюється. Для цього до пулу додаються два боси чаш, навіть якщо боси чаш вимкнені. Якщо вимкнено, коли один із трьох потрапляє не на свою арену, він б'ється лише в першій фазі, і бій закінчується, коли цю фазу переможено.",
+  "This fight normally has several bosses at once. \"One boss only\" puts a single boss alone in the room; \"A boss for each\" gives every one its own boss. Only matters when bosses are randomized.": "У цьому бою зазвичай кілька босів одночасно. «One boss only» ставить у кімнату одного боса самого; «A boss for each» дає кожному свого боса. Має значення лише при випадкових босах."
 }

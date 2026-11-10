@@ -122,9 +122,9 @@ namespace BloodborneLauncher.Views
                 o => o.Bosses, (o, b) => o with { Bosses = b });
 
             Subheading(bosses, L.T("Fights"));
-            var fightHint = L.T("Only matters when bosses are randomized.");
+            var fightHint = L.T("This fight normally has several bosses at once. \"One boss only\" puts a single boss alone in the room; \"A boss for each\" gives every one its own boss. Only matters when bosses are randomized.");
             Bool(bosses, SymbolRegular.ArrowSplit24, L.T("Randomize second phase"),
-                L.T("Father Gascoigne, Ludwig and the Orphan of Kos are the only bosses that change into a second form. With this on, that second form is a random boss instead, wherever they end up. Gascoigne switches at 34 % health, Ludwig and the Orphan at 50 %."),
+                L.T("Father Gascoigne, Ludwig and the Orphan of Kos are the only bosses that change into a second form. With this on, they always turn into another boss at that point, one that fights nowhere else in the world, and that boss never changes again. Two chalice bosses join the pool for this, even when chalice bosses are off. With this off, one of the three in an arena that isn't its own fights its first phase only, and the fight ends when that phase dies."),
                 o => o.SecondStage, (o, b) => o with { SecondStage = b }, null, () => _o.Bosses);
             Bool(bosses, SymbolRegular.ArrowSwap24, L.T("Include Coiled Host (Nocturne boss)"),
                 L.T("Needs Nocturne v2.0.0 or later among the ticked mods below, which adds the Coiled Host as the Shadows of Yharnam's second phase; without it this row is greyed out and does nothing. With this on, the Coiled Host can turn up as the boss of another fight, and after the Shadows die a random boss comes out in his place."),

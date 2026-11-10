@@ -2576,7 +2576,6 @@
   "Ritual Altar as a guest": "Ритуальный алтарь в гостях",
   "Off by default. On: a weapon's or armor's menu in the inventory has Give, to send it to another hunter (a weapon keeps its upgrade level and blood gems), and you accept theirs. Never worn or story gear. Each player sets their own.": "По умолчанию выключено. Включено: в меню оружия или брони в инвентаре появляется «Отдать», чтобы отправить предмет другому охотнику (оружие сохраняет уровень улучшения и камни крови), и вы принимаете предметы от других. Надетое снаряжение и сюжетные предметы отдать нельзя. Каждый игрок настраивает сам.",
   "Off by default. On: as a guest you can use the Ritual Altar in the host's Hunter's Dream, with your own chalice and materials. Your own setting.": "По умолчанию выключено. Включено: в гостях вы можете пользоваться Ритуальным алтарём в Сне охотника хозяина, со своими чашами и материалами. Ваша собственная настройка.",
-  "5 (experimental)": "5 (экспериментально)",
   "6 (experimental)": "6 (экспериментально)",
   "Sun shadow resolution": "Разрешение теней солнца",
   "Lamp shadow resolution": "Разрешение теней ламп",
@@ -2586,5 +2585,12 @@
   "High (x2)": "Высокое (x2)",
   "Highest (x4)": "Максимальное (x4)",
   "Motion blur quality": "Качество размытия в движении",
-  "Smoother motion blur; motion blur must be on": "Более плавное размытие; размытие в движении должно быть включено"
+  "Smoother motion blur; motion blur must be on": "Более плавное размытие; размытие в движении должно быть включено",
+  "Please update. Older versions will not be supported for online play in the future: hosts and players on the new version will not be able to play with you, and bugs reported from an old version cannot be looked at.": "Обновите игру. Старые версии в будущем не будут поддерживаться для онлайн-игры: хосты и игроки новой версии не смогут играть с вами, а баги, сообщённые из старой версии, рассматриваться не будут.",
+  "Important update: {0}": "Важное обновление: {0}",
+  "Include Winter Lanterns": "Включить зимние фонари",
+  "Whether Winter Lanterns can replace other enemies. They inflict Frenzy from a distance just by seeing you, often before you see them, and from up high where you can't reach them. Off, they never turn up anywhere new; the ones the game places itself can still be replaced by other enemies. The Brain of Mensis never moves either way.": "Могут ли зимние фонари заменять других врагов. Они наводят безумие на расстоянии, стоит им увидеть вас, часто раньше, чем вы их, а также сверху, куда вы не можете дотянуться. Если выключено, они никогда не появляются в новых местах; фонари, расставленные самой игрой, всё равно могут быть заменены другими врагами. Мозг Менсиса не двигается ни при одном из вариантов.",
+  "No Winter Lanterns.": "Без зимних фонарей.",
+  "Father Gascoigne, Ludwig and the Orphan of Kos are the only bosses that change into a second form. With this on, they always turn into another boss at that point, one that fights nowhere else in the world, and that boss never changes again. Two chalice bosses join the pool for this, even when chalice bosses are off. With this off, one of the three in an arena that isn't its own fights its first phase only, and the fight ends when that phase dies.": "Отец Гасконь, Людвиг и Сирота Коса - единственные боссы, которые переходят во вторую форму. Если включено, в этот момент они всегда превращаются в другого босса, который больше нигде в мире не сражается, и этот босс уже не меняется. Для этого в пул добавляются два босса чаш, даже если боссы чаш выключены. Если выключено, то когда один из троих оказывается не на своей арене, он сражается только в первой фазе, и бой заканчивается, когда эта фаза побеждена.",
+  "This fight normally has several bosses at once. \"One boss only\" puts a single boss alone in the room; \"A boss for each\" gives every one its own boss. Only matters when bosses are randomized.": "В этом бою обычно несколько боссов одновременно. «One boss only» ставит в комнату одного босса в одиночку; «A boss for each» даёт каждому своего босса. Имеет значение только при случайных боссах."
 }

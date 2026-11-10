@@ -2575,7 +2575,6 @@
   "No randomized worlds yet. Play one to make its saves.": "還沒有隨機世界。玩一個世界即可建立其存檔。",
   "{0} (joined)": "{0}（已加入）",
   "This world's saves are still in their old folder. Close the game and try again.": "此世界的存檔仍在舊資料夾中。請關閉遊戲後重試。",
-  "5 (experimental)": "5（實驗性）",
   "6 (experimental)": "6（實驗性）",
   "Rot: stamina recovery": "腐化：體力恢復",
   "Share look changes": "同步外觀變化",
@@ -2593,5 +2592,12 @@
   "High (x2)": "高 (x2)",
   "Highest (x4)": "最高 (x4)",
   "Motion blur quality": "動態模糊品質",
-  "Smoother motion blur; motion blur must be on": "更平滑的動態模糊；需開啟動態模糊"
+  "Smoother motion blur; motion blur must be on": "更平滑的動態模糊；需開啟動態模糊",
+  "Please update. Older versions will not be supported for online play in the future: hosts and players on the new version will not be able to play with you, and bugs reported from an old version cannot be looked at.": "請更新。舊版本未來將不再支援線上遊戲：新版本的主機與玩家將無法與您一起遊玩，舊版本回報的錯誤也將無法處理。",
+  "Important update: {0}": "重要更新：{0}",
+  "Include Winter Lanterns": "包含冬季燈籠",
+  "Whether Winter Lanterns can replace other enemies. They inflict Frenzy from a distance just by seeing you, often before you see them, and from up high where you can't reach them. Off, they never turn up anywhere new; the ones the game places itself can still be replaced by other enemies. The Brain of Mensis never moves either way.": "冬季燈籠能否取代其他敵人。它們只要看到你就會從遠處造成狂亂，常常在你發現它們之前，也會從你搆不到的高處出現。關閉時，它們不會出現在新的位置；遊戲自己放置的燈籠仍可能被其他敵人取代。無論哪種設定，孟西斯之腦都不會移動。",
+  "No Winter Lanterns.": "沒有冬季燈籠。",
+  "Father Gascoigne, Ludwig and the Orphan of Kos are the only bosses that change into a second form. With this on, they always turn into another boss at that point, one that fights nowhere else in the world, and that boss never changes again. Two chalice bosses join the pool for this, even when chalice bosses are off. With this off, one of the three in an arena that isn't its own fights its first phase only, and the fight ends when that phase dies.": "加斯科因神父、路德維希和科斯的孤兒是僅有的會變成第二形態的Boss。開啟後，他們在此時總是變成另一個Boss，該Boss不會在世界上其他任何地方出戰，也不會再次變身。為此會有兩個聖杯Boss加入候選池，即使聖杯Boss處於關閉狀態。關閉時，若三者之一出現在不屬於自己的場地，則只打第一階段，該階段被擊敗後戰鬥即結束。",
+  "This fight normally has several bosses at once. \"One boss only\" puts a single boss alone in the room; \"A boss for each\" gives every one its own boss. Only matters when bosses are randomized.": "這場戰鬥通常同時有多個Boss。「One boss only」只在房間裡放一個Boss；「A boss for each」則給每個Boss各自分配一個Boss。僅在Boss隨機化開啟時有效。"
 }

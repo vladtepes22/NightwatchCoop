@@ -2606,7 +2606,6 @@
   "Ritual Altar as a guest": "作为客人使用仪式祭坛",
   "Off by default. On: a weapon's or armor's menu in the inventory has Give, to send it to another hunter (a weapon keeps its upgrade level and blood gems), and you accept theirs. Never worn or story gear. Each player sets their own.": "默认关闭。开启后：背包中武器或防具的菜单里会有“赠送”，可将其送给另一名猎人（武器保留强化等级和血宝石），你也会接收对方赠送的装备。正在穿戴的装备和剧情装备不能赠送。每位玩家各自设置。",
   "Off by default. On: as a guest you can use the Ritual Altar in the host's Hunter's Dream, with your own chalice and materials. Your own setting.": "默认关闭。开启后：作为客人，你可以在房主的猎人梦境中使用仪式祭坛，消耗你自己的圣杯和材料。这是你自己的设置。",
-  "5 (experimental)": "5（实验性）",
   "6 (experimental)": "6（实验性）",
   "Rot: stamina recovery": "腐化：体力恢复",
   "Share look changes": "同步外观变化",
@@ -2624,5 +2623,12 @@
   "High (x2)": "高 (x2)",
   "Highest (x4)": "最高 (x4)",
   "Motion blur quality": "动态模糊质量",
-  "Smoother motion blur; motion blur must be on": "更平滑的动态模糊；需开启动态模糊"
+  "Smoother motion blur; motion blur must be on": "更平滑的动态模糊；需开启动态模糊",
+  "Please update. Older versions will not be supported for online play in the future: hosts and players on the new version will not be able to play with you, and bugs reported from an old version cannot be looked at.": "请更新。旧版本将来不再支持联机游戏：新版本的房主和玩家将无法与您一起游玩，旧版本提交的错误报告也将无法处理。",
+  "Important update: {0}": "重要更新：{0}",
+  "Include Winter Lanterns": "包含冬季灯笼",
+  "Whether Winter Lanterns can replace other enemies. They inflict Frenzy from a distance just by seeing you, often before you see them, and from up high where you can't reach them. Off, they never turn up anywhere new; the ones the game places itself can still be replaced by other enemies. The Brain of Mensis never moves either way.": "冬季灯笼能否替换其他敌人。它们只要看到你就会在远处造成狂乱，常常在你发现它们之前，也会从你够不到的高处出现。关闭后，它们不会出现在新的位置；游戏自己放置的灯笼仍可能被其他敌人替换。无论哪种设置，孟西斯之脑都不会移动。",
+  "No Winter Lanterns.": "没有冬季灯笼。",
+  "Father Gascoigne, Ludwig and the Orphan of Kos are the only bosses that change into a second form. With this on, they always turn into another boss at that point, one that fights nowhere else in the world, and that boss never changes again. Two chalice bosses join the pool for this, even when chalice bosses are off. With this off, one of the three in an arena that isn't its own fights its first phase only, and the fight ends when that phase dies.": "加斯科因神父、路德维希和科斯的孤儿是仅有的会变成第二形态的Boss。开启后，他们在此时总是变成另一个Boss，该Boss不会在世界上其他任何地方出战，也不会再次变身。为此会有两个圣杯Boss加入候选池，即使圣杯Boss处于关闭状态。关闭时，若三者之一出现在不属于自己的场地，则只打第一阶段，该阶段被击败后战斗即结束。",
+  "This fight normally has several bosses at once. \"One boss only\" puts a single boss alone in the room; \"A boss for each\" gives every one its own boss. Only matters when bosses are randomized.": "这场战斗通常同时有多个Boss。“One boss only”只在房间里放一个Boss；“A boss for each”则给每个Boss各自分配一个Boss。仅在Boss随机化开启时有效。"
 }

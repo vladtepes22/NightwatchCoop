@@ -2568,7 +2568,6 @@
   "No randomized worlds yet. Play one to make its saves.": "Pas encore de monde aléatoire. Joue à l'un d'eux pour créer ses sauvegardes.",
   "{0} (joined)": "{0} (rejoint)",
   "This world's saves are still in their old folder. Close the game and try again.": "Les sauvegardes de ce monde sont encore dans leur ancien dossier. Ferme le jeu et réessaie.",
-  "5 (experimental)": "5 (expérimental)",
   "6 (experimental)": "6 (expérimental)",
   "Sun shadow resolution": "Résolution des ombres du soleil",
   "Lamp shadow resolution": "Résolution des ombres des lampes",
@@ -2578,5 +2577,12 @@
   "High (x2)": "Élevée (x2)",
   "Highest (x4)": "Maximale (x4)",
   "Motion blur quality": "Qualité du flou de mouvement",
-  "Smoother motion blur; motion blur must be on": "Flou de mouvement plus doux ; le flou de mouvement doit être activé"
+  "Smoother motion blur; motion blur must be on": "Flou de mouvement plus doux ; le flou de mouvement doit être activé",
+  "Please update. Older versions will not be supported for online play in the future: hosts and players on the new version will not be able to play with you, and bugs reported from an old version cannot be looked at.": "Veuillez mettre à jour. Les anciennes versions ne seront plus prises en charge pour le jeu en ligne à l'avenir : les hôtes et joueurs de la nouvelle version ne pourront pas jouer avec vous, et les bugs signalés sur une ancienne version ne pourront pas être examinés.",
+  "Important update: {0}": "Mise à jour importante : {0}",
+  "Include Winter Lanterns": "Inclure les lanternes hivernales",
+  "Whether Winter Lanterns can replace other enemies. They inflict Frenzy from a distance just by seeing you, often before you see them, and from up high where you can't reach them. Off, they never turn up anywhere new; the ones the game places itself can still be replaced by other enemies. The Brain of Mensis never moves either way.": "Si les lanternes hivernales peuvent remplacer d'autres ennemis. Elles infligent la frénésie à distance, rien qu'en vous voyant, souvent avant que vous ne les voyiez, et depuis les hauteurs où vous ne pouvez pas les atteindre. Désactivé, elles n'apparaissent jamais à de nouveaux endroits ; celles placées par le jeu peuvent quand même être remplacées par d'autres ennemis. Le cerveau de Mensis ne bouge jamais, dans les deux cas.",
+  "No Winter Lanterns.": "Aucune lanterne hivernale.",
+  "Father Gascoigne, Ludwig and the Orphan of Kos are the only bosses that change into a second form. With this on, they always turn into another boss at that point, one that fights nowhere else in the world, and that boss never changes again. Two chalice bosses join the pool for this, even when chalice bosses are off. With this off, one of the three in an arena that isn't its own fights its first phase only, and the fight ends when that phase dies.": "Père Gascoigne, Ludwig et l'Orphelin de Kos sont les seuls boss qui prennent une seconde forme. Activée, cette option les fait toujours se transformer en un autre boss à ce moment, un boss qui ne combat nulle part ailleurs dans le monde et qui ne se transforme plus ensuite. Deux boss de calice rejoignent la liste pour cela, même si les boss de calice sont désactivés. Désactivée, si l'un des trois se retrouve dans une arène qui n'est pas la sienne, il ne combat que sa première phase et le combat se termine quand cette phase est vaincue.",
+  "This fight normally has several bosses at once. \"One boss only\" puts a single boss alone in the room; \"A boss for each\" gives every one its own boss. Only matters when bosses are randomized.": "Ce combat oppose normalement plusieurs boss à la fois. « One boss only » place un seul boss, seul dans la salle ; « A boss for each » donne à chacun son propre boss. Ne compte que si les boss sont aléatoires."
 }
