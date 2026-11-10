@@ -19,6 +19,8 @@
 #include "../sdl_window.h"
 
 #include <array>
+#include <cmath>
+#include <cstdlib>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -129,6 +131,11 @@ std::atomic<double> g_game_seconds{0.0};
 std::atomic<float> g_last_dt{0.0f};
 float g_banked30 = 0.0f, g_banked30x = 0.0f;  // game time not yet closed into a whole 1/30 s (the step thread's)
 std::atomic<bool> g_whole30{true}, g_whole30x{true};
+// The steep-ground slide's gain and decay (0x5128370, 0x5128374; SlopeGain / SlopeDecay): null while off.
+constexpr u64 kSlopeGain = 0x5128370, kSlopeDecay = 0x5128374;
+std::uint32_t* g_slope = nullptr;
+float g_slope_game[2] = {1.0f, 0.65f};
+bool g_slope_ticked = true;
 
 /// A page within rel32 reach of the image: the next block of the runtime's low area, as the game
 /// menu's stubs do (bbport_game_menu.cpp), else a free spot 16 MiB steps around the image.
@@ -234,7 +241,16 @@ __attribute__((sysv_abi)) void LiveClockTick(u8* pacer, float* out) {
     *out = dt;
     g_last_dt.store(dt, std::memory_order_relaxed);
     g_whole30.store(Step30Gate(g_banked30, dt), std::memory_order_relaxed);
-    g_whole30x.store(Step30Gate(g_banked30x, dt, 0.98f), std::memory_order_relaxed);
+    const bool whole30x = Step30Gate(g_banked30x, dt, 0.98f);
+    g_whole30x.store(whole30x, std::memory_order_relaxed);
+    if (g_slope) {
+        const float values[2] = {SlopeGain(g_slope_game[0], dt, whole30x, g_slope_ticked), SlopeDecay(g_slope_game[1], dt)};
+        for (int i = 0; i < 2; ++i) {
+            std::uint32_t bits;
+            std::memcpy(&bits, &values[i], 4);
+            __atomic_store_n(g_slope + i, bits, __ATOMIC_RELAXED);
+        }
+    }
     g_game_seconds.store(g_game_seconds.load(std::memory_order_relaxed) + dt, std::memory_order_relaxed);
     g_steps.fetch_add(1, std::memory_order_relaxed);
     if (g_logged_target.exchange(target, std::memory_order_relaxed) != target)
@@ -303,6 +319,37 @@ bool WindPace() {
     return Detour(site, patched_jump, sizeof patched_jump, e);
 }
 
+bool SwitchOff(const char* name) {
+    const char* v = std::getenv(name);
+    return v && (!std::strcmp(v, "0") || !std::strcmp(v, "off") || !std::strcmp(v, "false"));
+}
+
+/// The steep-ground slide follows the step (Lantern 0.9.40's LANTERN_FRAMERATE_SLOPE / _SLOPE_TICK, on our clock):
+/// the Deltatime patch leaves its two per-frame values at the game's 30 FPS ones. BB_FRAMERATE_SLOPE=0: as before.
+const char* InstallSlope() {
+    if (SwitchOff("BB_FRAMERATE_SLOPE")) return "off (BB_FRAMERATE_SLOPE=0)";
+    if (g_size < kSlopeDecay + 4) return "NOT installed (image too small)";
+    u8* at = reinterpret_cast<u8*>(g_base + kSlopeGain);
+    float game[2];
+    std::memcpy(game, at, sizeof game);
+    if (game[0] != 1.0f || std::fabs(game[1] - 0.65f) > 1e-6f) return "NOT installed (not the game's 1.0 and 0.65)";
+#ifdef _WIN32
+    MEMORY_BASIC_INFORMATION info{};
+    if (!VirtualQuery(at, &info, sizeof info)) return "NOT installed (page not mapped)";
+    const DWORD p = info.Protect & 0xff;
+    if (p != PAGE_READWRITE && p != PAGE_EXECUTE_READWRITE) {
+        DWORD unused = 0;
+        const DWORD now = (p & (PAGE_EXECUTE | PAGE_EXECUTE_READ)) ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
+        if (!VirtualProtect(at, 8, now, &unused)) return "NOT installed (page not writable)";
+    }
+#endif
+    std::memcpy(g_slope_game, game, sizeof game);
+    g_slope_ticked = !SwitchOff("BB_FRAMERATE_SLOPE_TICK");
+    g_slope = reinterpret_cast<std::uint32_t*>(at);
+    return g_slope_ticked ? "on: its gain on whole 1/30 s steps, its decay by the step (BB_FRAMERATE_SLOPE=0 off)"
+                          : "on: gain and decay by the step (BB_FRAMERATE_SLOPE_TICK=0)";
+}
+
 bool InstallLive() {
     const u8* image = reinterpret_cast<const u8*>(g_base);
     if (g_size <= 0x2035000 || std::memcmp(image + kBlockSite, kBlock, sizeof kBlock) != 0 ||
@@ -343,6 +390,7 @@ bool InstallLive() {
     host_log("Live clock: grass wind force at %s %s, wind step at half the frame's (30's pace) %s",
              WindPaceOn() ? "the game's 1/60" : "the authored 1/30", grass ? "on" : "NOT installed (other code or constant)",
              grass && WindPace() ? "on" : "off");
+    host_log("Live clock: steep-ground slide %s", InstallSlope());
     return true;
 }
 } // namespace

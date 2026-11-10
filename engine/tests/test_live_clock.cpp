@@ -23,6 +23,22 @@ int main() {
         assert(steps >= 299 && steps <= 301 && whole >= 299 && whole <= 301);
         if (fps == 30) assert(steps == 300);
     }
+    // The steep-ground slide: the game's values at 30; above it a game second gains and keeps as much as at 30.
+    assert(SlopeGain(1.0f, Frame30, true, true) == 1.0f && Near(SlopeDecay(0.65f, Frame30), 0.65f));
+    for (const int fps : {30, 45, 60, 90, 120, 144}) {
+        const float dt = 1.0f / float(fps);
+        float exact = 0.0f;
+        double ticked = 0, spread = 0, kept = 1;
+        for (int i = 0; i < fps * 10; ++i) {
+            ticked += SlopeGain(1.0f, dt, Step30Gate(exact, dt, 0.98f), true);
+            spread += SlopeGain(1.0f, dt, false, false);
+            kept *= SlopeDecay(0.65f, dt);
+        }
+        assert(ticked >= 299 && ticked <= 301 && std::fabs(spread - 300.0) < 0.05);
+        assert(std::fabs(std::log(kept) / std::log(0.65) - 300.0) < 0.05);
+        // Ticked: at most the game's 1.0 on any frame, never more than one a frame.
+        assert(SlopeGain(1.0f, dt, false, true) == 0.0f);
+    }
     assert(!LiveWanted("uncap", nullptr, false));
     assert(LiveWanted("uncap", nullptr, true));
     assert(LiveWanted("60", nullptr, true));
