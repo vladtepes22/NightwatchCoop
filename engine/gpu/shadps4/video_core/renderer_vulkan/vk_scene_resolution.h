@@ -6,6 +6,7 @@
 #include <functional>
 #include <unordered_map>
 #include <unordered_set>
+#include "video_core/renderer_vulkan/scene_proxy_release.h"
 #include "video_core/renderer_vulkan/scene_resolution.h"
 #include "video_core/texture_cache/image.h"
 
@@ -75,6 +76,16 @@ public:
     /// resolve them).
     [[nodiscard]] bool NativeStale(const VideoCore::Image& image) const;
     void ResolveAll();
+    /// bbport (Lantern 0.9.39 beta 31): the texture cache deleted an image; its proxies (the
+    /// reduced-size copies) go at the next Get instead of staying in VRAM until a mode change.
+    /// Safe from any thread.
+    void Forget(u64 image_uid) {
+        releases.Add(image_uid);
+    }
+    [[nodiscard]] std::size_t ProxyCount() const noexcept {
+        return entries.size();
+    }
+    void DropForgotten();
     bool debug = false; ///< BB_SCENE_DEBUG frame: print resolves and fills
 private:
     struct Entry {
@@ -110,6 +121,8 @@ private:
     SceneResolution::Size size;
     std::unordered_map<u64, std::unique_ptr<Entry>> entries; ///< by Key(uid, level)
     std::unordered_set<u64> tracked; ///< uids with proxies
+    ProxyReleases releases;          ///< uids of deleted images, dropped by DropForgotten
+    u64 released_proxies = 0, released_bytes = 0, release_report_proxies = 0;
     bool copying = false;
     bool force_stencil_bits = false; ///< test the portable resampler on any driver
     bool proxies_at_native = false;  ///< HDR mode 5: proxies even at the native 1920x1080

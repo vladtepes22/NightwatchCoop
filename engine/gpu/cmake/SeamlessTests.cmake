@@ -747,6 +747,13 @@ target_include_directories(texture-quality-test PRIVATE shim)
 set_target_properties(texture-quality-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 add_test(NAME texture-quality-test COMMAND texture-quality-test)
 add_dependencies(seamless-tests texture-quality-test)
+
+add_executable(scene-proxy-release-test EXCLUDE_FROM_ALL ../tests/test_scene_proxy_release.cpp)
+target_compile_options(scene-proxy-release-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(scene-proxy-release-test PRIVATE shadps4)
+set_target_properties(scene-proxy-release-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME scene-proxy-release-test COMMAND scene-proxy-release-test)
+add_dependencies(seamless-tests scene-proxy-release-test)
 # visy 0.8.0: NpSignaling alive check (shim/net/np_sig_alive.h), H5 look sync rules (shim/party/look_sync_rules.h),
 # six-seat patch set (shim/party/party_sixp.h).
 foreach(t np-sig-alive look-sync party-sixp)
