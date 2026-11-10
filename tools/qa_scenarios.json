@@ -367,15 +367,15 @@
       ],
       [
         "host",
+        "Cheats: off in a world open to invaders"
+      ],
+      [
+        "host",
         "Party: invade: an invader is admitted into slot \\d+"
       ],
       [
         "host",
         "Party: invade: invader slot \\d+: in the world"
-      ],
-      [
-        "host",
-        "Cheats: off in a world open to invaders"
       ],
       [
         "guest",
