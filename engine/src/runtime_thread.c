@@ -94,10 +94,34 @@ static void *low_alloc(size_t size) {
     if (p) memset(p,0,size);
     return p;
 }
+/* TLS blocks of finished guest threads, reused by the next thread (visy 50a4f7954: the game starts ~18 threads per
+ * loading screen and each took a fresh block from low memory for good, so a long session ran low memory down).
+ * Every block has the same size (offset+256); the first 8 bytes hold the list link while a block is free.
+ * BB_THREAD_RELEASE=0 restores the old behaviour (finished threads keep their block). */
+static unsigned char *free_tls;
+static size_t tls_reused;
+static int thread_release_enabled(void) {
+    static int v=-1;
+    if (v<0) { const char *e=getenv("BB_THREAD_RELEASE"); v=!(e && e[0]=='0'); }
+    return v;
+}
+static unsigned char *take_free_tls(void) {
+    host_lock(&low_lock);
+    unsigned char *b=free_tls;
+    if (b) { memcpy(&free_tls,b,sizeof(free_tls)); ++tls_reused; }
+    host_unlock(&low_lock);
+    return b;
+}
+static void give_free_tls(unsigned char *b) {
+    host_lock(&low_lock);
+    memcpy(b,&free_tls,sizeof(free_tls)); free_tls=b;
+    host_unlock(&low_lock);
+}
 static void attach(GuestThread *t) {
     uint64_t offset=tls_offset();
     size_t total=offset+256;
-    unsigned char *block=low_alloc(total);
+    unsigned char *block=take_free_tls();
+    if (!block) block=low_alloc(total);
     if (!block) { fputs("Cannot allocate guest TLS\n",stderr); exit(1); }
     memset(block,0,total);
     if (tls_filesz) memcpy(block,tls_template,tls_filesz);
@@ -281,7 +305,13 @@ static void *host_start(void *p) {
     if (t->attr.prio<=HIGH_PRIO_LAST) apply_priority(t->attr.prio);
     if (!EXIT_SET(t->exit_jump)) t->result=t->entry(t->argument);
     runtime_thread_keys_cleanup();
-    host_lock(&lock); t->finished=1; ++exited; host_unlock(&lock);
+    unsigned char *tls=NULL;
+    host_lock(&lock);
+    t->finished=1; ++exited;
+    /* The record stays (join / find_thread read it); its TLS block goes back for the next thread. */
+    if (thread_release_enabled() && !t->host_owned) { tls=t->tls_block; t->tls_block=NULL; t->tcb=NULL; }
+    host_unlock(&lock);
+    if (tls) give_free_tls(tls);
     return t->result;
 }
 static int32_t create(GuestThread **out,ThreadAttr **attr_slot,GuestEntry entry,void *argument,const char *name) {
@@ -426,6 +456,7 @@ void runtime_thread_census(uint64_t *made, uint64_t *finished, uint64_t *found, 
 }
 void runtime_thread_report(void) {
     host_lock(&lock);
-    printf("Runtime: guest threads created=%zu, exited=%zu, joined=%zu\n",created,exited,joined_count);
+    printf("Runtime: guest threads created=%zu, exited=%zu, joined=%zu, TLS blocks reused=%zu\n",created,exited,
+           joined_count,tls_reused);
     host_unlock(&lock);
 }
