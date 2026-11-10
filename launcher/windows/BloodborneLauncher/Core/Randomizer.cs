@@ -38,7 +38,7 @@ namespace BloodborneLauncher.Core
             bool DifficultEnemies = false, bool SecondStage = false, bool AwayFromHome = false, bool FreePoses = false, bool StarterArmor = false,
             bool ShadowsSummons = false, bool ChaliceEnemies = false, bool BossesAsEnemies = false, bool CoiledHost = false, bool GemRoulette = false,
             bool CursedGems = false, int BossEnemyChance = 25, int BossEnemyMax = 1, bool HugeBossesAsEnemies = false,
-            int BossEnemyHp = 8);
+            int BossEnemyHp = 8, bool NoWinterLanterns = false);
 
         /// <summary>The bell maidens' choices (seedcode option bell_maidens 0-2).</summary>
         public static readonly string[] BellMaidenChoices = { "off", "normal", "difficult" };
@@ -258,7 +258,7 @@ namespace BloodborneLauncher.Core
                 B("hard_amygdala"), B("hard_ebrietas"), B("difficult_enemies"), B("second_stage"), B("away_from_home"), B("free_poses"),
                 B("starter_armor"), B("shadows_summons"), B("chalice_enemies"), B("bosses_as_enemies"), B("coiled_host"), B("gem_roulette"),
                 B("cursed_gems"), (int)I("boss_enemy_chance"), (int)I("boss_enemy_max"), B("huge_bosses_as_enemies"),
-                (int)I("boss_enemy_hp"));
+                (int)I("boss_enemy_hp"), B("no_winter_lanterns"));
             var hidden = ((ValueTuple<long, long>[])o["area_chance"]).Length > 0 || I("oops_all") != 0 || I("fixed_effect") != 0 ||
                          I("variety") != 0 || I("map_models") != 24 || I("map_mb") != 343;
             return (options, hidden);
@@ -311,6 +311,7 @@ namespace BloodborneLauncher.Core
             c["huge_bosses_as_enemies"] = B(o.HugeBossesAsEnemies);
             c["boss_enemy_hp"] = (long)o.BossEnemyHp;
             c["coiled_host"] = B(o.CoiledHost);
+            c["no_winter_lanterns"] = B(o.NoWinterLanterns);
             return WorldCode.Encode((uint)o.Seed, c);
         }
 
@@ -342,6 +343,7 @@ namespace BloodborneLauncher.Core
             if (o.AwayFromHome) text += " " + L.T("Enemies away from home.");
             if (o.FreePoses) text += " " + L.T("More randomness.");
             if (o.ChaliceEnemies) text += " " + L.T("Chalice dungeon enemies.");
+            if (o.NoWinterLanterns) text += " " + L.T("No Winter Lanterns.");
             if (o.BellMaidens != "off")
                 text += " " + (o.BellMaidens == "difficult" ? L.T("Bell maidens: difficult enemies.") : L.T("Bell maidens: enemies."));
             if ((o.Bosses || o.BossesAsEnemies) && o.ChaliceBosses) text += " " + L.T("Chalice bosses in the pool.");

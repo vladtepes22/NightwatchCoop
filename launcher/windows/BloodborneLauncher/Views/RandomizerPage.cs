@@ -61,6 +61,8 @@ namespace BloodborneLauncher.Views
                 o => o.ShadowsSummons, (o, b) => o with { ShadowsSummons = b });
             Bool(enemies, SymbolRegular.Crown24, L.T("Include chalice dungeon enemies"), L.T("The regular enemies of the Chalice Dungeons, such as Merciless Watchers, Keepers of the Old Lords and Gravekeeper Scorpions, can replace enemies in the main game. Chalice bosses are not included (they have their own option under Bosses). They always give the echoes and drops of the enemy they replace, whatever Echoes and drops says. The dungeons themselves don't change. Making the world takes a little longer."),
                 o => o.ChaliceEnemies, (o, b) => o with { ChaliceEnemies = b });
+            Bool(enemies, SymbolRegular.Lightbulb24, L.T("Include Winter Lanterns"), L.T("Whether Winter Lanterns can replace other enemies. They inflict Frenzy from a distance just by seeing you, often before you see them, and from up high where you can't reach them. Off, they never turn up anywhere new; the ones the game places itself can still be replaced by other enemies. The Brain of Mensis never moves either way."),
+                o => !o.NoWinterLanterns, (o, b) => o with { NoWinterLanterns = !b });
             var exclude = SmallButton(L.T("None"), SymbolRegular.Prohibited24, (_, _) => PickExcluded());
             Add(Card(SymbolRegular.Prohibited24, L.T("Never use these enemies"), L.T("Enemies the randomizer will never place anywhere."), exclude, out _), enemies);
             _rows.Add((exclude, () => exclude.Content = ExcludeSummary(_o.Exclude), null));
