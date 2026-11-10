@@ -426,6 +426,38 @@ void TextureCache::ProcessDownloadImages() {
     download_images.clear();
 }
 
+// bbport (Lantern 0.9.41): the part of an image's guest memory whose pages the image still
+// watches. A guest write beside the image on its first or last page (the game's heap header in
+// front of it) ends the watch of that page (UntrackImageHead / Tail); after the game freed the
+// block its heap keeps the free list in those bytes, and storing the whole image put pixels over
+// it (crash in the game's heap after a death and reload). Those pages keep the game's bytes.
+// BB_STORE_WATCHED_ONLY=0: the whole image, as before.
+static std::pair<VAddr, u64> WatchedPart(Image& image, VAddr address, u64 size) {
+    static const bool enabled = [] {
+        const char* env = std::getenv("BB_STORE_WATCHED_ONLY");
+        return !(env && env[0] == '0');
+    }();
+    if (!enabled || !image.IsTracked()) {
+        return {address, size};
+    }
+    const VAddr begin = std::max(address, image.track_addr);
+    const VAddr end = std::min(address + size, image.track_addr_end);
+    if (begin >= end) {
+        return {address, 0};
+    }
+    if (end - begin != size) {
+        static std::atomic<u32> said{0};
+        if (said.fetch_add(1, std::memory_order_relaxed) < 6) {
+            std::printf("Texture cache: image at %#llx stored back without %llu bytes on its first "
+                        "or last page (the game wrote beside it; BB_STORE_WATCHED_ONLY=0: all of "
+                        "it)\n",
+                        static_cast<unsigned long long>(address),
+                        static_cast<unsigned long long>(size - (end - begin)));
+        }
+    }
+    return {begin, end - begin};
+}
+
 void TextureCache::DownloadImageMemory(ImageId image_id, bool sync) {
     Image& image = slot_images[image_id];
     if (False(image.flags & ImageFlagBits::GpuModified)) {
@@ -484,8 +516,12 @@ void TextureCache::DownloadImageMemory(ImageId image_id, bool sync) {
         download.Invalidate();
         BbFreeCheck::Check(image.info.guest_address, download_size, download.mapped,
                            BbFreeCheck::ImageDownload);
-        Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(image.info.guest_address),
-                                                  download.mapped, download_size);
+        const auto watched = WatchedPart(image, image.info.guest_address, download_size);
+        if (watched.second != 0) {
+            Core::Memory::Instance()->TryWriteBacking(
+                std::bit_cast<u8*>(watched.first),
+                download.mapped + (watched.first - image.info.guest_address), watched.second);
+        }
         if (!WriteTracking()) {
             // bbport: the caches' own thread (stage A drained, or the draw recording thread):
             // a readback the range needs runs here. Sent to the GPU command thread, it waited
@@ -493,13 +529,18 @@ void TextureCache::DownloadImageMemory(ImageId image_id, bool sync) {
             buffer_cache.InvalidateMemory(image.info.guest_address, download_size, true);
         }
     } else {
+        // The watched part as it stands now: the image may be gone when this runs.
+        const auto watched = WatchedPart(image, image.info.guest_address, download_size);
         scheduler.DeferPriorityOperation(
-            [this, device_addr = image.info.guest_address, download, download_size] {
+            [this, device_addr = image.info.guest_address, download, download_size, watched] {
                 download.Invalidate();
                 BbFreeCheck::Check(device_addr, download_size, download.mapped,
                                    BbFreeCheck::ImageDownload);
-                Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(device_addr),
-                                                          download.mapped, download_size);
+                if (watched.second != 0) {
+                    Core::Memory::Instance()->TryWriteBacking(
+                        std::bit_cast<u8*>(watched.first),
+                        download.mapped + (watched.first - device_addr), watched.second);
+                }
                 if (!WriteTracking()) {
                     buffer_cache.InvalidateMemory(device_addr, download_size);
                 }
@@ -523,6 +564,10 @@ bool TextureCache::StoreTiledImage(ImageId image_id) {
     const VAddr address = info.guest_address;
     const u64 size = info.guest_size;
     if (!info.props.is_tiled || address == 0 || size == 0 || !image.backing) {
+        return false;
+    }
+    const auto watched = WatchedPart(image, address, size);
+    if (watched.second == 0) {
         return false;
     }
 
@@ -615,7 +660,9 @@ bool TextureCache::StoreTiledImage(ImageId image_id) {
     scheduler.Finish();
     host.Invalidate();
     BbFreeCheck::Check(address, size, host.mapped, BbFreeCheck::ImageDownload);
-    const bool stored = memory->TryWriteBacking(std::bit_cast<u8*>(address), host.mapped, size);
+    const bool stored = memory->TryWriteBacking(std::bit_cast<u8*>(watched.first),
+                                                host.mapped + (watched.first - address),
+                                                watched.second);
     image.mip_hashes_current = false;
     // Guest memory changed under the copies made of it (also by a partial store).
     if (!WriteTracking()) {
@@ -2202,6 +2249,11 @@ void TextureCache::DeleteImage(ImageId image_id) {
         if (download_images.contains(image_id)) {
             download_images.erase(image_id);
         }
+    }
+    // bbport (Lantern 0.9.39 beta 31): its reduced-size proxies are released too (they stayed in
+    // VRAM until a resolution change: a leak on long sessions, worst on <= 8 GB cards).
+    if (image.scene_proxy && runtime.scene_targets) {
+        runtime.scene_targets->Forget(image.image_uid);
     }
 
     // bbport (visy 90a18103): its memory counts as free for the collector until it is destroyed
