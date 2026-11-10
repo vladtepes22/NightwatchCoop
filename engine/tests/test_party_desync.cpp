@@ -6,6 +6,7 @@
 // game-side queues (GuestOnDigest / GuestPopResync / HostQueueResync, BB_PARTY_DESYNC_TEST).
 // Build and run: cmake --build out/gpu --target party-desync-test && out/gpu/party-desync-test.exe
 #include "party/party_desync.h"
+#include "party/party_gamedata.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -53,7 +54,10 @@ void TestBuckets() {
         CHECK(b >= 0 && b < kBuckets);
         fb.insert(b);
     }
-    CHECK(fb.size() >= kBuckets / 2);
+    // The candidate blocks come from the game-data tables (user/party_tables.txt, BB_PARTY_TABLES); without them
+    // there are only a few and the spread says nothing.
+    if (gamedata::Loaded()) CHECK(fb.size() >= kBuckets / 2);
+    else std::printf("party-desync-test: no game-data tables (BB_PARTY_TABLES): candidate-block spread not checked\n");
     // An absent group digests like a zero one; a set byte changes exactly its bucket.
     WorldImage a, z;
     a.full = z.full = true;
@@ -532,11 +536,11 @@ void TestCensus() {
 
 int main() {
     TestBuckets();
-    TestFlagModel();
+    if (gamedata::Loaded()) TestFlagModel();  // its random flags come from the tables' candidate blocks
     TestWorld();
     TestCheckerLimits();
     TestJson();
-    TestGameQueues();
+    if (gamedata::Loaded()) TestGameQueues();  // its host mutates the tables' candidate blocks
     TestCensus();
     std::printf("party-desync-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

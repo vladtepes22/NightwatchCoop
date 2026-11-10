@@ -113,7 +113,7 @@ class Party(unittest.TestCase):
 class CrashLines(unittest.TestCase):
     def test_engine_faults_fail(self):
         for line in ['Guest fault (signal 11) at guest offset 0xebc0cb, address 0x28',
-                     'uncaught C++ exception: std::bad_alloc', 'C++ exception, thread 4242:',
+                     'uncaught C++ exception: std::bad_alloc',
                      'vkQueueSubmit: VK_ERROR_DEVICE_LOST', 'STOP: guest raised debug exception code=0x1',
                      'Party: Session lost', '[WATCHDOG] Boot stalled for 20 s']:
             self.assertTrue(re.search(coop.CRASH_RX, line), line)
@@ -123,8 +123,9 @@ class CrashLines(unittest.TestCase):
     def test_benign_lines_pass(self):
         for line in ["[coop] Party: host gone: waiting for it to come back (its crash restart) up to 180 s",
                      'Crash reports: another module replaced the unhandled exception filter (an overlay?); set again',
-                     'BB_LOG_CXX_EXCEPTIONS=1']:
+                     'BB_LOG_CXX_EXCEPTIONS=1', 'C++ exception, thread 4242:']:
             self.assertIsNone(re.search(coop.CRASH_RX, line), line)
+            self.assertIsNone(re.search(qa.CRASH_RX, line), line)
 
 
 class FailureNote(unittest.TestCase):

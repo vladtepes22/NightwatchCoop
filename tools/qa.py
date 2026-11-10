@@ -53,8 +53,8 @@ RULES = [
     (r'^tools/(smoke-|qa)', ['python']),
 ]
 # Engine fault / stop lines, Vulkan errors and visy's common smoke negatives (Session lost, boot stall),
-# as tools/smoke-coop.py.
-CRASH_RX = r'(?i)(?:guest|host) fault|uncaught C\+\+ exception|C\+\+ exception, thread|VK_ERROR|STOP: guest raised|assertion failed|EXCEPTION_ACCESS|fatal error|Session lost|\[WATCHDOG\] Boot stalled'
+# as tools/smoke-coop.py (not the optional trace of a caught C++ exception, "C++ exception, thread N").
+CRASH_RX = r'(?i)(?:guest|host) fault|uncaught C\+\+ exception|VK_ERROR|STOP: guest raised|assertion failed|EXCEPTION_ACCESS|fatal error|Session lost|\[WATCHDOG\] Boot stalled'
 GAME_FILES = ('eboot.elf', 'boot-linked.bin')
 
 
