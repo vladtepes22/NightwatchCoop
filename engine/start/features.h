@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -35,10 +36,13 @@ constexpr std::size_t kMaxHitRows = 4096;  // after the merge; hit_effects_rules
 constexpr const char* kWeaponClipGroups = "weapon_clip_groups";
 constexpr const char* kWeaponClipGroupsOut = "nightwatch_weapon_clip_groups.txt";  // gpu/shim/party/weapon_clip_groups.cpp
 constexpr std::size_t kMaxClipRows = 4096;  // after the merge; weapon_clip_groups_rules.h kMaxRows
+constexpr const char* kSounds = "sounds";
+constexpr const char* kSoundsOut = "nightwatch_sounds.txt";  // gpu/shim/party/sounds.cpp
+constexpr std::size_t kMaxSoundRows = 256;  // after the merge; sounds_rules.h kMaxRows
 
 /// The features this build offers (a manifest naming any other is refused).
 inline const std::vector<std::string>& Known() {
-    static const std::vector<std::string> known = {kHitEffects, kWeaponClipGroups};
+    static const std::vector<std::string> known = {kHitEffects, kWeaponClipGroups, kSounds};
     return known;
 }
 
@@ -371,6 +375,138 @@ inline std::string WeaponClipGroupsFileText(const ClipMerged& merged) {
     text += "\n";
     for (const ClipRow& row : merged.rows)
         text += std::to_string(row.weapon) + " " + std::to_string(row.clip_group) + "\n";
+    return text;
+}
+
+// ---- sounds (docs/modding/sounds.md) ----
+
+struct SoundRow {
+    std::string event;  // a type letter of "acfopsmvxbgyz" and 9 digits, e.g. "s000252531"
+    std::string file;   // relative to the mod with '/' (bb-start makes it absolute before the merge)
+    double volume = 1.0;
+    bool replace = false;
+};
+
+/// True for an event name the game builds: one of the letters "acfopsmvxbgyz" and exactly 9 digits.
+inline bool IsSoundEvent(std::string_view e) {
+    if (e.size() != 10 || std::string_view("acfopsmvxbgyz").find(e[0]) == std::string_view::npos) return false;
+    return std::all_of(e.begin() + 1, e.end(), [](char c) { return c >= '0' && c <= '9'; });
+}
+
+/// A relative file path inside the mod: not empty, at most 200 bytes, no drive, no leading slash, no "..", no
+/// control characters. '\' becomes '/'. False when it is not one.
+inline bool SoundFilePath(std::string_view in, std::string* out) {
+    if (in.empty() || in.size() > 200) return false;
+    std::string p(in);
+    std::replace(p.begin(), p.end(), '\\', '/');
+    if (p[0] == '/' || p.find(':') != std::string::npos) return false;
+    if (std::any_of(p.begin(), p.end(), [](char c) { return static_cast<unsigned char>(c) < 0x20; })) return false;
+    std::size_t start = 0;
+    while (start <= p.size()) {
+        const std::size_t end = std::min(p.find('/', start), p.size());
+        const std::string_view part(p.data() + start, end - start);
+        if (part.empty() || part == "." || part == "..") return false;
+        start = end + 1;
+    }
+    *out = p;
+    return true;
+}
+
+/// nightwatch/sounds.json: {"version": 1, "rows": [{"event": "s000252531", "file": "sound/shot.wav", "volume": 1.0,
+/// "replace": false}, ...]}: event as IsSoundEvent, file as SoundFilePath (a WAV), volume 0..4 (default 1), replace
+/// true / false (default false). False with `error` naming the first bad row (rows count from 1); an event listed
+/// twice in one table is a bad row too.
+inline bool ParseSounds(std::string_view bytes, std::vector<SoundRow>* rows, std::string* error) {
+    rows->clear();
+    const std::string file = std::string(kTablesDir) + "/" + kSounds + ".json";
+    if (bytes.size() > kMaxFileBytes) {
+        *error = file + " is larger than 1 MiB";
+        return false;
+    }
+    const nlohmann::json j = nlohmann::json::parse(StripBom(bytes), nullptr, false);
+    if (j.is_discarded() || !j.is_object()) {
+        *error = file + " is not a JSON object";
+        return false;
+    }
+    const auto ver = j.find("version");
+    if (ver == j.end() || !ver->is_number_integer() || ver->get<long long>() != 1) {
+        *error = file + ": \"version\" is not 1";
+        return false;
+    }
+    const auto list = j.find("rows");
+    if (list == j.end() || !list->is_array()) {
+        *error = file + ": \"rows\" is not a list";
+        return false;
+    }
+    if (list->size() > kMaxSoundRows) {
+        *error = file + ": more than " + std::to_string(kMaxSoundRows) + " rows";
+        return false;
+    }
+    std::size_t number = 0;
+    for (const auto& r : *list) {
+        ++number;
+        SoundRow row;
+        bool ok = r.is_object();
+        if (ok) {
+            const auto ev = r.find("event"), fi = r.find("file"), vo = r.find("volume"), re = r.find("replace");
+            ok = ev != r.end() && ev->is_string() && IsSoundEvent(ev->get<std::string>()) && fi != r.end() &&
+                 fi->is_string() && SoundFilePath(fi->get<std::string>(), &row.file);
+            if (ok) row.event = ev->get<std::string>();
+            if (ok && vo != r.end()) {
+                ok = vo->is_number() && vo->get<double>() >= 0.0 && vo->get<double>() <= 4.0;
+                if (ok) row.volume = vo->get<double>();
+            }
+            if (ok && re != r.end()) {
+                ok = re->is_boolean();
+                if (ok) row.replace = re->get<bool>();
+            }
+        }
+        const bool twice = ok && std::any_of(rows->begin(), rows->end(),
+                                             [&](const SoundRow& s) { return s.event == row.event; });
+        if (!ok || twice) {
+            *error = file + ": row " + std::to_string(number) +
+                     (twice ? " lists an event a second time"
+                            : " needs \"event\" (e.g. \"s000252531\"), \"file\" (a path inside the mod), "
+                              "\"volume\" 0..4 and \"replace\" true/false");
+            rows->clear();
+            return false;
+        }
+        rows->push_back(std::move(row));
+    }
+    return true;
+}
+
+/// The merge in load order: a later mod's row replaces an earlier one for the same event.
+struct SoundMerged {
+    std::vector<std::string> names;  // the mods that gave rows, in load order
+    std::vector<SoundRow> rows;      // sorted by event
+};
+
+inline void AddSounds(SoundMerged* merged, std::string_view name, const std::vector<SoundRow>& own) {
+    if (own.empty()) return;
+    merged->names.emplace_back(name);
+    for (const SoundRow& row : own) {
+        auto& rows = merged->rows;
+        const auto it = std::lower_bound(rows.begin(), rows.end(), row.event,
+                                         [](const SoundRow& r, const std::string& e) { return r.event < e; });
+        if (it != rows.end() && it->event == row.event) *it = row;
+        else rows.insert(it, row);
+    }
+    if (merged->rows.size() > kMaxSoundRows) merged->rows.resize(kMaxSoundRows);
+}
+
+/// out/nightwatch_sounds.txt (sounds_rules.h ParseTable): a comment line, then "<event> <volume> <0|1 replace>
+/// <absolute file>" per row, by event. "" when there are no rows (no file). Cosmetic: not in the party hash.
+inline std::string SoundsFileText(const SoundMerged& merged) {
+    if (merged.rows.empty()) return "";
+    std::string text = "# sounds (bb-start; event volume replace file), from: ";
+    for (std::size_t i = 0; i < merged.names.size(); ++i) text += (i ? ", " : "") + merged.names[i];
+    text += "\n";
+    for (const SoundRow& row : merged.rows) {
+        char volume[32];
+        std::snprintf(volume, sizeof volume, "%.3f", row.volume);
+        text += row.event + " " + volume + " " + (row.replace ? "1" : "0") + " " + row.file + "\n";
+    }
     return text;
 }
 

@@ -391,7 +391,11 @@ MAX_HIT_ROWS = 4096
 WEAPON_CLIP_GROUPS = 'weapon_clip_groups'
 WEAPON_CLIP_GROUPS_OUT = 'nightwatch_weapon_clip_groups.txt'
 MAX_CLIP_ROWS = 4096
-KNOWN_FEATURES = (HIT_EFFECTS, WEAPON_CLIP_GROUPS)
+SOUNDS = 'sounds'
+SOUNDS_OUT = 'nightwatch_sounds.txt'
+MAX_SOUND_ROWS = 256
+MAX_SOUND_FILE_BYTES = 4 << 20
+KNOWN_FEATURES = (HIT_EFFECTS, WEAPON_CLIP_GROUPS, SOUNDS)
 
 
 def _nightwatch_version():
@@ -659,6 +663,62 @@ def weapon_clip_groups_file_text(merged):
     return '\n'.join(lines) + '\n'
 
 
+def is_sound_event(e):
+    """An event name the game builds: one of the letters "acfopsmvxbgyz" and exactly 9 digits."""
+    return (isinstance(e, str) and len(e) == 10 and e[0] in 'acfopsmvxbgyz'
+            and all('0' <= c <= '9' for c in e[1:]))
+
+
+def sound_file_path(p):
+    """A relative file path inside the mod ('\\' becomes '/'), or None: not empty, at most 200 bytes, no
+    drive, no leading slash, no '.' / '..' / empty part, no control characters."""
+    if not isinstance(p, str) or not p or len(p.encode('utf-8')) > 200:
+        return None
+    p = p.replace('\\', '/')
+    if p[0] == '/' or ':' in p or any(ord(c) < 0x20 for c in p):
+        return None
+    if any(part in ('', '.', '..') for part in p.split('/')):
+        return None
+    return p
+
+
+def parse_sounds(data):
+    """(rows, error) of nightwatch/sounds.json: rows (event, file, volume, replace); volume 0..4 (default
+    1), replace true / false (default false); an event listed twice in one table is a bad row."""
+    file = f'{TABLES_DIR}/{SOUNDS}.json'
+    rows, error = _table_header(data, SOUNDS, MAX_SOUND_ROWS)
+    if rows is None:
+        return None, error
+    out = []
+    for number, r in enumerate(rows, 1):
+        ok = isinstance(r, dict) and is_sound_event(r.get('event'))
+        path = sound_file_path(r.get('file')) if ok else None
+        ok = ok and path is not None
+        volume = r.get('volume', 1.0) if ok else None
+        ok = ok and isinstance(volume, (int, float)) and not isinstance(volume, bool) and 0 <= volume <= 4
+        replace = r.get('replace', False) if ok else None
+        ok = ok and isinstance(replace, bool)
+        twice = ok and any(e == r['event'] for e, _, _, _ in out)
+        if not ok or twice:
+            return None, f'{file}: row {number} ' + (
+                'lists an event a second time' if twice
+                else 'needs "event" (e.g. "s000252531"), "file" (a path inside the mod), "volume" 0..4 and '
+                     '"replace" true/false')
+        out.append((r['event'], path, float(volume), replace))
+    return out, ''
+
+
+def sounds_file_text(merged):
+    """out/nightwatch_sounds.txt text, by event; '' when there are no rows."""
+    if not merged['rows']:
+        return ''
+    lines = ['# sounds (bb-start; event volume replace file), from: ' + ', '.join(merged['names'])]
+    for event in sorted(merged['rows'])[:MAX_SOUND_ROWS]:
+        file, volume, replace = merged['rows'][event]
+        lines.append(f'{event} {volume:.3f} {1 if replace else 0} {file}')
+    return '\n'.join(lines) + '\n'
+
+
 def _read_tables(layers, manifests, feature, parse, merge, merged):
     for name, root in layers:
         table = Path(root) / TABLES_DIR / f'{feature}.json'
@@ -713,6 +773,34 @@ def write_weapon_clip_groups_file(out, layers, manifests):
     return text[text.index('\n') + 1:]
 
 
+def write_sounds_file(out, layers, manifests):
+    """out/nightwatch_sounds.txt from the layers' nightwatch/sounds.json (only for a manifest listing the
+    feature). A row whose file is missing or not 1 byte..4 MiB is dropped (one log line). Cosmetic: not in
+    the party hash."""
+    roots = dict(layers)
+    merged = {'names': [], 'rows': {}}
+
+    def merge(merged, name, own):
+        found = {}
+        for event, file, volume, replace in own:
+            path = (Path(roots[name]) / file).resolve()
+            size = path.stat().st_size if path.is_file() else 0
+            if not 0 < size <= MAX_SOUND_FILE_BYTES:
+                _log(f'Mods: {name}: sounds: {event}: {file} is missing or not a file of 1 byte..4 MiB: row not used')
+                continue
+            found[event] = (str(path), volume, replace)
+        if found:
+            merged['names'].append(name)
+            merged['rows'].update(found)
+
+    _read_tables(layers, manifests, SOUNDS, parse_sounds, merge, merged)
+    text = sounds_file_text(merged)
+    _write_feature_file(out, SOUNDS_OUT, text)
+    if text:
+        _log(f'Mods: {SOUNDS}: {len(merged["rows"])} rows from {len(merged["names"])} mods')
+    return text
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('game', type=Path)
@@ -732,7 +820,7 @@ def main():
             for name in selected(args.mods_dir, args.config):
                 layers.append((name, args.mods_dir / name))
     args.out.mkdir(parents=True, exist_ok=True)
-    for stale in (HIT_EFFECTS_OUT, WEAPON_CLIP_GROUPS_OUT):  # a failed start leaves the vanilla look and clips
+    for stale in (HIT_EFFECTS_OUT, WEAPON_CLIP_GROUPS_OUT, SOUNDS_OUT):  # a failed start: vanilla look, clips, sounds
         (args.out / stale).unlink(missing_ok=True)
     manifests = {}
     layers = check_manifests(layers, manifests)
@@ -740,6 +828,7 @@ def main():
     write_party_mods_file(args.out, layers, write_weapon_clip_groups_file(args.out, layers, manifests))
     view = build_overlay(args.game, args.out, layers, update_folder(args.game.resolve()))
     write_hit_effects_file(args.out, layers, manifests)
+    write_sounds_file(args.out, layers, manifests)
     print(view)
 
 

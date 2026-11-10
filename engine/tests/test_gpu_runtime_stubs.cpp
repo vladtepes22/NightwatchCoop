@@ -71,6 +71,7 @@ int runtime_guest_mutex_acquire(void**, uint64_t, uint64_t* waited_us) { if (wai
 void runtime_guest_mutex_release(void**) {}
 int runtime_memory_is_mapped(uintptr_t, uint64_t) { return 0; }  // no guest memory in renderer tests (bbport_crash_guards)  // bbport_hifps: no pad, no recent press
 uint32_t runtime_pad_last_left(void) { return 0x8080u; }
+void runtime_audio_play(const float*, int, float, float) {}  // no audio in renderer tests (party/sounds.cpp)
 // Weak: bb-shader-lab (Lantern 0.9.37 beta 9) defines these four itself.
 __attribute__((weak)) int runtime_pad_type(void) { return 0; }
 __attribute__((weak)) int runtime_pad_button(uint32_t, int) { return 0; }

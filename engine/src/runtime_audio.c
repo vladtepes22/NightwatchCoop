@@ -47,6 +47,55 @@ static Port ports[PORTS];
 static int initialized, sdl_ready=-1;
 static size_t buffers_out, ports_opened;
 
+/* Mod sounds (gpu/shim/party/sounds.cpp, feature "sounds"): 48 kHz mono float clips the shim keeps for the whole
+   run, mixed into the main port's front left / right before the stereo fold (its limiter and the unfocused mute
+   apply). Queued from game threads, mixed on the guest's audio thread; the oldest voice gives way when all are busy. */
+#define VOICES 32
+typedef struct { const float *pcm; int frames, at; float left, right; } Voice;
+static Voice voices[VOICES];
+static HostMutex voice_lock=HOST_MUTEX_INIT;
+void runtime_audio_play(const float *mono48k, int frames, float left, float right) {
+    if (!mono48k || frames<=0) return;
+    host_lock(&voice_lock);
+    int slot=0;
+    for (int i=0;i<VOICES;++i) {
+        if (!voices[i].pcm) { slot=i; break; }
+        if (voices[i].at>voices[slot].at) slot=i;
+    }
+    voices[slot]=(Voice){mono48k,frames,0,left,right};
+    host_unlock(&voice_lock);
+}
+static void mix_voices(Port *p, unsigned char *buffer) {
+    if (p->type!=0 || p!=&ports[0]) return;
+    host_lock(&voice_lock);
+    const float full=p->is_float ? 1.0f : 32767.0f;
+    const int right_channel=p->channels>1 ? 1 : 0;
+    for (int i=0;i<VOICES;++i) {
+        Voice *v=&voices[i];
+        if (!v->pcm) continue;
+        const int n=v->frames-v->at<p->frames ? v->frames-v->at : p->frames;
+        for (int f=0;f<n;++f) {
+            const float s=v->pcm[v->at+f]*full;
+            const float add[2]={s*v->left, s*v->right};
+            for (int c=0;c<2;++c) {
+                const int ch=c ? right_channel : 0;
+                const size_t at=(size_t)f*(size_t)p->channels+(size_t)ch;
+                const float mono=p->channels>1 ? 1.0f : 0.5f;
+                if (p->is_float) { float o; memcpy(&o,buffer+at*4,4); o+=add[c]*mono; memcpy(buffer+at*4,&o,4); }
+                else {
+                    int16_t o; memcpy(&o,buffer+at*2,2);
+                    float t=(float)o+add[c]*mono;
+                    t=t>32767.0f ? 32767.0f : t<-32768.0f ? -32768.0f : t;
+                    o=(int16_t)t; memcpy(buffer+at*2,&o,2);
+                }
+            }
+        }
+        v->at+=n;
+        if (v->at>=v->frames) v->pcm=NULL;
+    }
+    host_unlock(&voice_lock);
+}
+
 static uint64_t now_ns(void) { return host_monotonic_ns(); }
 static void sleep_until(uint64_t deadline) { host_sleep_until_ns(deadline); }
 static int sdl_audio(void) {
@@ -207,6 +256,7 @@ static int32_t output_port(int32_t handle, const void *data, int pace) {
             if (p->is_float) { float v; memcpy(&v,(const char *)data+from*4,4); v*=gain; memcpy(converted+to*4,&v,4); }
             else { int16_t v; memcpy(&v,(const char *)data+from*2,2); v=(int16_t)((float)v*gain); memcpy(converted+to*2,&v,2); }
         }
+        mix_voices(p,converted);
         if (p->out_channels==2 && p->channels==8) {
             const float k=0.70710678f, full=p->is_float ? 1.0f : 32767.0f, ceiling=0.97f*full;
             const float release=1.0f/(0.05f*48000.0f);

@@ -13,7 +13,7 @@ namespace BloodborneLauncher.Core
         private const int MaxBytes = 1 << 20;
 
         /// <summary>The features this Nightwatch offers (engine/start/features.h Known(); a manifest naming any other is refused).</summary>
-        public static readonly IReadOnlyList<string> KnownFeatures = new[] { "hit_effects", "weapon_clip_groups" };
+        public static readonly IReadOnlyList<string> KnownFeatures = new[] { "hit_effects", "weapon_clip_groups", "sounds" };
 
         public enum Problem { None, Bad, TooNew, UnknownFeature }
 

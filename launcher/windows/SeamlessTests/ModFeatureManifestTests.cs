@@ -27,9 +27,9 @@ internal static class ModFeatureManifestTests
 
     internal static void Run()
     {
-        var good = Judge("{\"id\":\"nocturne\",\"name\":\"Nocturne\",\"version\":\"3.0.0\",\"author\":\"x\",\"requires\":\"0.3.0\",\"features\":[\"hit_effects\",\"weapon_clip_groups\"]}");
+        var good = Judge("{\"id\":\"nocturne\",\"name\":\"Nocturne\",\"version\":\"3.0.0\",\"author\":\"x\",\"requires\":\"0.3.0\",\"features\":[\"hit_effects\",\"weapon_clip_groups\",\"sounds\"]}");
         Check(good.HasManifest && !good.Refused && good.Manifest!.Name == "Nocturne" && good.Manifest.Version == "3.0.0"
-            && good.Manifest.Author == "x" && good.Manifest.Requires == "0.3.0" && good.Manifest.Features.Count == 2, "Good manifest is not read");
+            && good.Manifest.Author == "x" && good.Manifest.Requires == "0.3.0" && good.Manifest.Features.Count == 3, "Good manifest is not read");
 
         var tooNew = Judge("{\"id\":\"a\",\"requires\":\"0.4.0\"}");
         Check(tooNew.Problem == ModFeatureManifest.Problem.TooNew && tooNew.Detail == "0.4.0", "A newer requires is not refused");

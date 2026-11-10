@@ -369,6 +369,39 @@ class FeatureFiles(unittest.TestCase):
         mods.write_hit_effects_file(self.out, [unlisted], manifests)
         self.assertFalse((self.out / mods.HIT_EFFECTS_OUT).exists())
 
+    def test_sounds_parse(self):
+        ok = (b'{"version":1,"rows":[{"event":"s000252531","file":"sound\\\\x.wav","volume":0.5,"replace":true},'
+              b'{"event":"c000000911","file":"a/b.wav"}]}')
+        self.assertEqual(mods.parse_sounds(ok)[0],
+                         [('s000252531', 'sound/x.wav', 0.5, True), ('c000000911', 'a/b.wav', 1.0, False)])
+        for bad in (b'{"version":1,"rows":[{"event":"s00025253","file":"a.wav"}]}',
+                    b'{"version":1,"rows":[{"event":"q000252531","file":"a.wav"}]}',
+                    b'{"version":1,"rows":[{"event":"s000252531","file":"../a.wav"}]}',
+                    b'{"version":1,"rows":[{"event":"s000252531","file":"C:/a.wav"}]}',
+                    b'{"version":1,"rows":[{"event":"s000252531","file":"a//b.wav"}]}',
+                    b'{"version":1,"rows":[{"event":"s000252531","file":"a.wav","volume":5}]}',
+                    b'{"version":1,"rows":[{"event":"s000252531","file":"a.wav","replace":1}]}'):
+            self.assertIsNone(mods.parse_sounds(bad)[0], bad)
+        rows, e = mods.parse_sounds(b'{"version":1,"rows":[{"event":"s000000001","file":"a.wav"},'
+                                    b'{"event":"s000000001","file":"b.wav"}]}')
+        self.assertEqual((rows, e), (None, 'nightwatch/sounds.json: row 2 lists an event a second time'))
+
+    def test_sounds_file(self):
+        m = '{"id":"m","requires":"0.3.0","features":["sounds"]}'
+        a = self.mod('a', m, sounds='{"version":1,"rows":[{"event":"s000000002","file":"s/two.wav"},'
+                                    '{"event":"s000000001","file":"s/missing.wav","replace":true}]}')
+        b = self.mod('b', m, sounds='{"version":1,"rows":[{"event":"s000000002","file":"two.wav","volume":2}]}')
+        (a[1] / 's').mkdir()
+        (a[1] / 's' / 'two.wav').write_bytes(b'RIFF')
+        (b[1] / 'two.wav').write_bytes(b'RIFF')
+        layers, manifests = self.check([a, b])
+        text = mods.write_sounds_file(self.out, layers, manifests)
+        self.assertEqual(text, '# sounds (bb-start; event volume replace file), from: a, b\n'
+                               f's000000002 2.000 0 {(b[1] / "two.wav").resolve()}\n')
+        self.assertEqual((self.out / mods.SOUNDS_OUT).read_text(encoding='utf-8'), text)
+        mods.write_sounds_file(self.out, [self.mod('plain')], {})
+        self.assertFalse((self.out / mods.SOUNDS_OUT).exists())
+
     def test_clip_groups_in_the_party_hash_and_hit_effects_not(self):
         clip = '{"version":1,"rows":[{"weapon":10000,"clip_group":5}]}'
         m = '{"id":"m","requires":"0.3.0","features":["weapon_clip_groups","hit_effects"]}'

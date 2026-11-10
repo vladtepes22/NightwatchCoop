@@ -688,6 +688,58 @@ std::string WriteWeaponClipGroupsFile(const fs::path& out, const std::vector<std
     return text.substr(text.find('\n') + 1);
 }
 
+// out/nightwatch_sounds.txt from the layers' nightwatch/sounds.json (only for a manifest listing the feature). Each
+// row's file must be a file of at most 4 MiB inside that mod; a row whose file is missing is dropped (one log line),
+// the rest of the table is used. Cosmetic (each client plays its own): not in the party hash.
+void WriteSoundsFile(const fs::path& out, const std::vector<std::pair<std::wstring, fs::path>>& layers,
+                     const std::map<std::wstring, nwfeatures::Manifest>& manifests) {
+    const std::string feature = nwfeatures::kSounds;
+    nwfeatures::SoundMerged merged;
+    for (const auto& [name, root] : layers) {
+        const fs::path table = root / nwfeatures::kTablesDir / (feature + ".json");
+        if (!IsFile(table)) continue;
+        const auto m = manifests.find(name);
+        if (m == manifests.end() || !m->second.Uses(feature)) {
+            Log("Mods: %s: has nightwatch/%s.json but its nightwatch.json does not list %s: not used", Utf8(name).c_str(),
+                feature.c_str(), feature.c_str());
+            continue;
+        }
+        std::vector<nwfeatures::SoundRow> rows;
+        std::string error;
+        try {
+            if (!nwfeatures::ParseSounds(ReadSmall(table), &rows, &error)) {
+                Log("Mods: %s: %s: its %s table is not used", Utf8(name).c_str(), error.c_str(), feature.c_str());
+                continue;
+            }
+        } catch (const std::exception& e) {
+            Log("Mods: %s: %s: its %s table is not used", Utf8(table).c_str(), e.what(), feature.c_str());
+            continue;
+        }
+        std::vector<nwfeatures::SoundRow> found;
+        for (nwfeatures::SoundRow row : rows) {
+            const fs::path file = fs::absolute(root / Wide(row.file));
+            std::error_code ec;
+            const auto size = IsFile(file) ? fs::file_size(file, ec) : 0;
+            if (!IsFile(file) || ec || size == 0 || size > (4u << 20)) {
+                Log("Mods: %s: sounds: %s: %s is missing or not a file of 1 byte..4 MiB: row not used", Utf8(name).c_str(),
+                    row.event.c_str(), row.file.c_str());
+                continue;
+            }
+            row.file = Utf8(file);
+            found.push_back(std::move(row));
+        }
+        nwfeatures::AddSounds(&merged, Utf8(name), found);
+    }
+    const fs::path path = out / nwfeatures::kSoundsOut;
+    const std::string text = nwfeatures::SoundsFileText(merged);
+    if (text.empty()) {
+        RemoveIfThere(path);
+        return;
+    }
+    WriteText(path, text);
+    Log("Mods: %s: %zu rows from %zu mods", feature.c_str(), merged.rows.size(), merged.names.size());
+}
+
 } // namespace
 
 void RemoveOverlay(const fs::path& path) {
@@ -704,6 +756,7 @@ fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::p
     RemoveIfThere(out / hostonly::kFile);  // a failed start leaves none: the host then has the fixed list only
     RemoveIfThere(out / nwfeatures::kHitEffectsOut);  // likewise: a failed start leaves the vanilla look
     RemoveIfThere(out / nwfeatures::kWeaponClipGroupsOut);  // and the vanilla clips
+    RemoveIfThere(out / nwfeatures::kSoundsOut);  // and the game's own sounds
     std::vector<std::pair<std::wstring, fs::path>> layers;
     if (enabled) {
         fs::path legacy = fs::canonical(game);
@@ -730,6 +783,7 @@ fs::path BuildModsOverlay(const fs::path& game, const fs::path& out, const fs::p
     const fs::path view = BuildOverlay(game, out, layers, update);
     WritePartyHostOnlyFile(out, layers);  // after the view, as scripts/mods.py main
     WriteHitEffectsFile(out, layers, manifests);
+    WriteSoundsFile(out, layers, manifests);
     return view;
 }
 
