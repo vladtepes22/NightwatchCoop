@@ -392,6 +392,26 @@ int Main(std::vector<std::wstring> arguments) {
             Utf8(original).c_str(), missing.c_str());
         return 1;
     }
+    // Lantern 0.9.41: a map archive's data half (.tpfbdt and the like) missing or empty beside its header: the
+    // area loads without textures or never finishes loading. Logged only (players' logs showed endless loads).
+    {
+        int lost = 0;
+        std::error_code walk;
+        for (fs::recursive_directory_iterator it(merged / "dvdroot_ps4" / "map", fs::directory_options::skip_permission_denied, walk), end;
+             !walk && it != end; it.increment(walk)) {
+            const std::string ext = it->path().extension().string();
+            if (ext.size() < 4 || ext.compare(ext.size() - 3, 3, "bhd")) continue;
+            fs::path data = it->path();
+            data.replace_extension(ext.substr(0, ext.size() - 3) + "bdt");
+            std::error_code none;
+            if (fs::is_regular_file(data, none) && fs::file_size(data, none) > 0) continue;
+            if (++lost <= 8)
+                Log("Game check: %s is missing or empty: the game copy is incomplete. Its area loads without textures or "
+                    "never finishes loading. Copy the game again from your dump (base game plus the 1.09 update).",
+                    Utf8(data).c_str());
+        }
+        if (lost > 8) Log("Game check: %d of the game's map archives are missing in all", lost);
+    }
     SetEnv("BB_GAME_MERGED", Utf8(merged));
 
     try {
