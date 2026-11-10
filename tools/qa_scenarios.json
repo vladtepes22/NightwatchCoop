@@ -348,7 +348,7 @@
     ]
   },
   "invade": {
-    "about": "visy 0.7.8 invasions (docs/party/invasions.md): the host has a password and Allow invaders on; the second game starts as an invader (BB_PARTY_INVADE=1, no password, what the launcher's Invade button sets), is admitted past the password and stands in the host's world.",
+    "about": "visy 0.7.8 invasions (docs/party/invasions.md): the host has a password and Allow invaders on; the second game starts as an invader (BB_PARTY_INVADE=1, no password, what the launcher's Invade button sets), is admitted past the password and stands in the host's world. 0.3.0 G1: cheats are off on both (host: Allow invaders; guest: invading).",
     "seconds": 240,
     "host": "",
     "guest": "",
@@ -372,6 +372,14 @@
       [
         "host",
         "Party: invade: invader slot \\d+: in the world"
+      ],
+      [
+        "host",
+        "Cheats: off in a world open to invaders"
+      ],
+      [
+        "guest",
+        "Cheats: off while invading"
       ]
     ]
   }
