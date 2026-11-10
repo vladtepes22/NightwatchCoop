@@ -100,4 +100,20 @@ inline bool Step30Gate(float& banked, float dt, float closes = 0.75f) {
     return true;
 }
 
+/// The steep-ground slide (0x1a46bc0, no step of its own: it runs once a frame): while the ground is steeper than
+/// 35 degrees it adds the game's gain (1.0, 0x5128370) to the slide each frame, else it keeps the decay's share
+/// (0.65, 0x5128374). Both are 30 FPS values; above 30 the hunter was pushed off a step's corner 2 to 4 times as
+/// often and held there, the feet into the step (Lantern 0.9.40, notes ground-stuck-high-fps). `ticked`: the game's
+/// gain once a whole 1/30 s has passed (`tick_closed`, Step30Gate exact) and none between, as the console samples
+/// it; else the gain spread over the frames (dt x 30). BB_FRAMERATE_SLOPE_TICK=0 picks the spread.
+inline float SlopeGain(float game_gain, float dt, bool tick_closed, bool ticked) {
+    if (ticked) return tick_closed ? game_gain : 0.0f;
+    return game_gain * dt / Frame30;
+}
+
+/// The decay for a frame of `dt` s: the game's per-frame share at 30, so a second keeps as much at any rate.
+inline float SlopeDecay(float game_decay, float dt) {
+    return std::pow(game_decay, dt / Frame30);
+}
+
 } // namespace BbEngine::LiveClock
