@@ -122,8 +122,9 @@ def failure_note(rows, text, crashes, joined_seconds, harness, ended='', tail=12
 
 # The engine's own fault / stop lines (probe.c, runtime_kernel.c), Vulkan errors and visy's common smoke
 # negatives (smoke_party.py check_common: Session lost, boot stall); not the party's
-# benign "host gone ... its crash restart" notice.
-CRASH_RX = r'(?i)(?:guest|host) fault|uncaught C\+\+ exception|C\+\+ exception, thread|VK_ERROR|STOP: guest raised|assertion failed|EXCEPTION_ACCESS|fatal error|Session lost|\[WATCHDOG\] Boot stalled'
+# benign "host gone ... its crash restart" notice, nor the optional trace of a caught C++ exception
+# ("C++ exception, thread N", BB_LOG_CXX_EXCEPTIONS from smoke-game.py; as tools/log_digest.py).
+CRASH_RX = r'(?i)(?:guest|host) fault|uncaught C\+\+ exception|VK_ERROR|STOP: guest raised|assertion failed|EXCEPTION_ACCESS|fatal error|Session lost|\[WATCHDOG\] Boot stalled'
 CRASH_BYTES_RX = re.compile(CRASH_RX.encode())
 
 
