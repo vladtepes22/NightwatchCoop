@@ -38,7 +38,11 @@ def gem_save():
 
 
 def catalogue():
-    return N.Catalogue({
+    return N.Catalogue(catalogue_data())
+
+
+def catalogue_data():
+    return ({
         "names": {"weapon": {22000000: "Test Cleaver", 7000000: "Saw Test"}, "goods": {1000: "Blood Vial", 1230: "Pebble"},
                   "armor": {40000: "Test Hat"},
                   "effect": {13105: "Add blood ATK +2.5", 13106: "Cut effect text", 28101: "ATK DOWN -0.3%", 600: "Rune effect",
@@ -53,6 +57,55 @@ def catalogue():
         "gemrows": {127000: [0, 1, 13105], 127002: [0, 2, 13105], 100301: [10000000, 1, 700]},
         "reach": [13105, 700, 28101],
         "progress": {"bosses": [[12401800, 0]], "lamps": [72410200, 73600202]}})  # made-up lists (the real ones come from the game)
+
+
+# ---- weapon levels open the gem slots the game gives that level (WeaponGenParam) --------------------------
+def _slots(m, handle):
+    o = m._ga_record(handle)
+    return [struct.unpack_from("<2I", m.d, o + 20 + 8 * k) for k in range(5)]
+
+
+def test_weapon_level_opens_the_slots_of_its_level_and_keeps_the_gem():
+    no = M.NO_SLOT
+    c = N.Catalogue({**catalogue_data(), "weapon_slots": {22000300: [1, no, no, no, no],
+                                                         22001000: [1, 1, 2, no, no]}})
+    m = M.SaveModel(gem_save())
+    w = m.items((0,))[0]
+    m.set_weapon_level(w, 10, c.valid_ids(0), c.weapon_slots)
+    back = M.SaveModel(m.to_bytes())
+    assert _slots(back, 0x80800010) == [(1, 0xC0800002), (1, 0), (2, 0), (no, 0), (no, 0)]
+    assert I.read(back) is not None and I.read(back).weapons[0x80800010][0] == (1, 0xC0800002)
+
+
+def test_weapon_level_refuses_to_close_a_slot_holding_a_gem():
+    no = M.NO_SLOT
+    c = N.Catalogue({**catalogue_data(), "weapon_slots": {22000300: [1, no, no, no, no],
+                                                         22001000: [no, no, no, no, no]}})
+    m = M.SaveModel(gem_save())
+    before = m.to_bytes()
+    with pytest.raises(ValueError, match="take it out first"):
+        m.set_weapon_level(m.items((0,))[0], 10, c.valid_ids(0), c.weapon_slots)
+    assert m.to_bytes() == before
+
+
+def test_weapon_level_without_a_slot_row_leaves_the_slots():
+    m = M.SaveModel(gem_save())
+    c = catalogue()
+    m.set_weapon_level(m.items((0,))[0], 10, c.valid_ids(0), c.weapon_slots)
+    assert _slots(m, 0x80800010)[0] == (1, 0xC0800002) and _slots(m, 0x80800010)[1][0] == M.NO_SLOT
+
+
+def test_added_weapon_takes_the_slots_its_id_has():
+    no = M.NO_SLOT
+    c = N.Catalogue({**catalogue_data(), "weapon_slots": {7000000: [8, no, no, no, no]}})
+    m = M.SaveModel(gem_save())
+    G.add_item(m, c, 0, 7000000)
+    G.add_item(m, c, 1, 40000)
+    back = M.SaveModel(m.to_bytes())
+    weapon = [i for i in back.items((0,)) if i.number == 7000000][0]
+    armor = [i for i in back.items((0,)) if i.number == 40000][0]
+    assert _slots(back, weapon.handle) == [(8, 0)] + [(no, 0)] * 4
+    assert _slots(back, armor.handle) == [(no, 0)] * 5
 
 
 # ---- adding items ------------------------------------------------------------------------------------------

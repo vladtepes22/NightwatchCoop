@@ -17,7 +17,8 @@ FMG_FILES = {"goods": "アイテム名", "weapon": "武器名", "armor": "防具
 PARAMS = {"weapon": "EquipParamWeapon", "armor": "EquipParamProtector", "accessory": "EquipParamAccessory",
           "goods": "EquipParamGoods"}
 _PLACEHOLDER = re.compile(r"^(\*|NOT NEEDED|en\d+)?$", re.I)
-CACHE_VERSION = 12  # ours 8 (icons, gems, Nocturne items) + visy 10 (progress, goods_max) + 12 (vitals curves)
+CACHE_VERSION = 13  # ours 8 (icons, gems, Nocturne items) + visy 10 (progress, goods_max) + 12 (vitals curves)
+# + 13 (weapon gem slot shapes)
 EVENT_TEXT = "イベントテキスト"  # menu.msgbnd FMG: the lamp warp list names (id 7000AABn)
 NPC_NAMES = "NPC名"  # item.msgbnd FMG: boss and NPC names by character id
 GEM_NAMES = "魔石名"  # menu.msgbnd FMG: blood gem and rune names (key built in gems.name_key)
@@ -120,6 +121,10 @@ def read_game(game_dir, lang="engus"):
         data["weapon_hands"] = {i: "left" if left and not right else "right"
                                 for i, (right, left) in p.table("EquipParamWeapon",
                                     ["rightHandEquipable", "leftHandEquipable"]).items()}
+        # WeaponGenParam (row = weapon id at its level): the gem slot shapes the game opens; closed = 0x80000000
+        # as a save holds it (the param's 0x80000100)
+        data["weapon_slots"] = {i: [s if not s & 0x80000000 else 0x80000000 for s in v]
+                                for i, v in p.table("WeaponGenParam", [f"gemSlotType_{k}" for k in range(5)]).items()}
         data["icons"] = {kind: {i: v[0] for i, v in p.table(pn, ["iconIdM" if kind == "armor" else "iconId"]).items()
                                 if v[0] > 0 and not (kind == "weapon" and (i % 10000) // 100)}
                          for kind, pn in PARAMS.items()}
@@ -248,6 +253,7 @@ class Catalogue:
         self._goods_max = {int(i): v for i, v in (data or {}).get("goods_max", {}).items()}
         self._reach = set((data or {}).get("reach", []))
         self._weapon_hands = {int(i): v for i, v in (data or {}).get("weapon_hands", {}).items()}
+        self._weapon_slots = {int(i): tuple(v) for i, v in (data or {}).get("weapon_slots", {}).items()}
         # CalcCorrectGraph rows 100 / 101 for SaveModel.set_stat: {row: (stage, grow, adj)}; empty without game files
         self.graphs = {int(i): tuple(tuple(c) for c in v) for i, v in (data or {}).get("graphs", {}).items()}
 
@@ -322,6 +328,10 @@ class Catalogue:
         """Equip hand; unknown or dual-hand rows stay in the right-hand filter."""
         base = number - (number % 10000) // 100 * 100
         return self._weapon_hands.get(number, self._weapon_hands.get(base, "right"))
+
+    def weapon_slots(self, number):
+        """The five gem slot shapes the game gives this weapon id (level included), None when unknown."""
+        return self._weapon_slots.get(number)
 
     def icon(self, category, number):
         """Icon id of an inventory item (the menu sheets' numbering), None when unknown."""

@@ -384,9 +384,12 @@ class SaveModel:
         self.d[o:o + ENTRY] = struct.pack("<IIII", 0, EMPTY_ID, 0, 0)
         self._recount(item.section)
 
-    def set_weapon_level(self, item, level, valid_ids=None):
+    def set_weapon_level(self, item, level, valid_ids=None, slot_shapes=None):
         """Weapon reinforcement: id = base + 100 * level. valid_ids (the game's EquipParamWeapon ids) is
-        required: a level without a param row would crash the game."""
+        required: a level without a param row would crash the game. slot_shapes(id) -> the five gem slot shapes
+        of that level (Catalogue.weapon_slots): the game opens a weapon's slots only when it reinforces it, and
+        keeps whatever the save holds, so a level raised here opens them here. None (a weapon the game's
+        WeaponGenParam does not list, e.g. a mod's): the slots stay as they are."""
         if item.level is None:
             raise ValueError("this weapon has no reinforcement levels")
         if valid_ids is None:
@@ -396,9 +399,17 @@ class SaveModel:
         if new not in valid_ids:
             raise ValueError(f"this weapon has no level {level}")
         record = self._ga_record(item.handle)  # the game reads the id from here too; checked before anything is written
+        shapes = slot_shapes(new) if slot_shapes else None
+        if shapes:
+            for k, shape in enumerate(shapes):
+                if shape == NO_SLOT and self.u32(record + 24 + 8 * k):
+                    raise ValueError("a gem sits in a slot this level does not have: take it out first")
         o = self._item_off(item)
         self._put(o + 4, (0 << 28) | new)
         self._put(record + 4, new)
+        if shapes:
+            for k, shape in enumerate(shapes):
+                self._put(record + 20 + 8 * k, shape)
         item.iid = new
 
     # --- adding items --------------------------------------------------------------------------------------
@@ -475,17 +486,21 @@ class SaveModel:
             o += GA_SIZES[kind]
         raise ValueError("the weapon is not in the item instance table")
 
-    def add_gear(self, category, number):
-        """A weapon (category 0) or armour piece (1) with five closed gem slots. The caller validates the id."""
+    def add_gear(self, category, number, slot_shapes=None):
+        """A weapon (category 0) or armour piece (1). Its five gem slots are slot_shapes (the shapes of that
+        weapon id the game opens, Catalogue.weapon_slots), closed when not given. The caller validates the id."""
         if category not in (0, 1) or not 0 < number < 0x10000000:
             raise ValueError("not a weapon or armour id")
+        shapes = list(slot_shapes) if category == 0 and slot_shapes else [NO_SLOT] * 5
+        if len(shapes) != 5:
+            raise ValueError("a weapon has five gem slots")
         entry = self._free_entry()  # fails before anything moves
         first, top = self._ga_walk()
         if first is None or top >= 0xFFFF:
             raise ValueError("the save has no free item slot")
         handle = (0x90800000 if category == 1 else 0x80800000) | (top + 1)
         iid = (0x10000000 if category == 1 else 0) | number
-        record = struct.pack("<5I", handle, iid, GEAR_DURABILITY, 0, 1) + struct.pack("<2I", NO_SLOT, 0) * 5
+        record = struct.pack("<5I", handle, iid, GEAR_DURABILITY, 0, 1) + b"".join(struct.pack("<2I", s, 0) for s in shapes)
         assert len(record) == 60
         self._insert_instance(first, entry, record, handle, iid)
 

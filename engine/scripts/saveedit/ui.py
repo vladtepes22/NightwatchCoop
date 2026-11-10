@@ -368,7 +368,7 @@ class SaveEditorTab(ttk.Frame):
         if it is None or it.category != 0 or not self._risk():
             return
         try:
-            self.model.set_weapon_level(it, int(self.wlevel_var.get()), self.catalogue.valid_ids(0))
+            self.model.set_weapon_level(it, int(self.wlevel_var.get()), self.catalogue.valid_ids(0), self.catalogue.weapon_slots)
         except ValueError as ex:
             messagebox.showerror("Save editor", str(ex))
         self.fill_items()

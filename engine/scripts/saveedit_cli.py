@@ -274,7 +274,7 @@ def execute(args, edit=None, running=running_games, catalogues=None):
             if "count" in change:
                 model.set_count(item, change["count"])
             if "level" in change:
-                model.set_weapon_level(item, change["level"], catalogue.valid_ids(0))
+                model.set_weapon_level(item, change["level"], catalogue.valid_ids(0), catalogue.weapon_slots)
     gem_edits = edit.get("gems", [])
     if gem_edits:
         table = instances.read(model)
@@ -330,7 +330,7 @@ def execute(args, edit=None, running=running_games, catalogues=None):
                 raise ValueError(f"the count is 1 to {ADD_MAX_COUNT}")
             model.add_goods(number, count, catalogue.goods_sort(number))
         else:
-            model.add_gear(category, number)
+            model.add_gear(category, number, catalogue.weapon_slots(number))
     add_gems(model, catalogue, edit.get("add_gems", []))
     copies = edit.get("copy_gems", [])
     if not isinstance(copies, list) or len(copies) > 50:

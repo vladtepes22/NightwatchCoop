@@ -51,7 +51,7 @@ def add_item(model, catalogue, category, number, count=1):
             raise ValueError(f"the game holds 1 to {top} of this item")
         model.add_goods(number, count, catalogue.goods_sort(number))
     else:
-        model.add_gear(category, number)
+        model.add_gear(category, number, catalogue.weapon_slots(number))
 
 
 # --- gems and runes -------------------------------------------------------------------------------------------
