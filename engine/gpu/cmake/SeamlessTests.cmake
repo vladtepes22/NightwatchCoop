@@ -706,6 +706,13 @@ target_compile_options(gc-policy-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME gc-policy-test COMMAND gc-policy-test)
 add_dependencies(seamless-tests gc-policy-test)
 
+# The WAIT_REG_MEM can-never-pass rule (video_core/amdgpu/wait_reg_mem_logic.h; visy 5d7918142).
+add_executable(wait-reg-mem-test EXCLUDE_FROM_ALL ../tests/test_wait_reg_mem.cpp)
+target_include_directories(wait-reg-mem-test PRIVATE ..)
+target_compile_options(wait-reg-mem-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME wait-reg-mem-test COMMAND wait-reg-mem-test)
+add_dependencies(seamless-tests wait-reg-mem-test)
+
 # Offensive-name filter (visy 0.7.8, party/name_filter.cpp): shared vectors with scripts/namefilter.py.
 add_executable(name-filter-test EXCLUDE_FROM_ALL ../tests/test_name_filter.cpp shim/party/name_filter.cpp)
 target_compile_options(name-filter-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
