@@ -765,3 +765,10 @@ target_include_directories(crash-guards-test PRIVATE shim)
 set_target_properties(crash-guards-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 add_test(NAME crash-guards-test COMMAND crash-guards-test)
 add_dependencies(seamless-tests crash-guards-test)
+
+# Shader cache read-ahead thread count (shadps4/video_core/cache_read_ahead_rules.h).
+add_executable(cache-read-ahead-test EXCLUDE_FROM_ALL ../tests/test_cache_read_ahead.cpp)
+target_compile_options(cache-read-ahead-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(cache-read-ahead-test PRIVATE shadps4)
+add_test(NAME cache-read-ahead-test COMMAND cache-read-ahead-test)
+add_dependencies(seamless-tests cache-read-ahead-test)
