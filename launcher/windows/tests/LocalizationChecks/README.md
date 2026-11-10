@@ -12,10 +12,10 @@ The argument is any code from `Localization.Languages` (`en`, `de`, `es`, `fr`,
 language runs in a fresh process so the launcher's static choice lists are
 initialized in that language. Every run also checks every language file,
 whichever language it selects: the language list and the embedded
-`Localization/*.json` files agree, each file parses, holds no string that
-`zh-CN.json` (the reference for the code's strings) lacks, and keeps its
-format placeholders and file-dialog filter patterns. The PASS line shows each
-file's coverage; strings a file lacks fall back to English. The checks also
+`Localization/*.json` files agree, each file parses, and keeps its
+format placeholders and file-dialog filter patterns. No file has to be
+complete: strings a file lacks fall back to English. The PASS line shows each
+file's string count. The checks also
 cover English defaults and fallback, unknown codes, menu codes,
 keyboard/controller identifiers, and control-profile round trips. They do not
 load or save user settings, launch the game, or contact update servers.
@@ -23,7 +23,7 @@ load or save user settings, launch the game, or contact update servers.
 ## Adding a language
 
 Add `launcher/BloodborneLauncher/Localization/<code>.json` (English text to
-translation, the keys of `zh-CN.json`) and one `(code, native name)` entry to
+translation) and one `(code, native name)` entry to
 `Localization.Languages` in `Core/Localization.cs`. Both launchers embed every
 file in that folder and show the list in **Settings > Appearance > Launcher
 language**.

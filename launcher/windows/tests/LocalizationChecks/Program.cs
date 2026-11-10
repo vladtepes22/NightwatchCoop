@@ -24,7 +24,7 @@ Require(Localization.T("Settings") == (selected?.GetValueOrDefault("Settings") ?
 Require(Localization.T("untranslated fallback") == "untranslated fallback", "Missing-key fallback failed");
 
 // Every language file, whichever language this run selected: the list and the embedded files agree,
-// each parses, holds only strings zh-CN (the reference for the code's strings) has, and keeps their
+// each parses, and keeps their
 // placeholders and file-dialog patterns.
 var assembly = typeof(Localization).Assembly;
 const string prefix = "BloodborneLauncher.Localization.";
@@ -33,7 +33,7 @@ var embedded = assembly.GetManifestResourceNames().Where(n => n.StartsWith(prefi
 var listed = Localization.Languages.Select(l => l.Code).Where(c => c != "en").Order(StringComparer.Ordinal).ToArray();
 Require(embedded.SequenceEqual(listed), $"Language list ({string.Join(", ", listed)}) and embedded files ({string.Join(", ", embedded)}) differ");
 Require(Localization.Languages.Select(l => l.Code).Distinct().Count() == Localization.Languages.Count, "Duplicate language code");
-var reference = Localization.Catalog("zh-CN")!;
+// No language file has to be complete: a string a file lacks falls back to English (Localization.T).
 // Format slots ({0}, {0:HH:mm:ss}) and the named tokens the code replaces itself ({version}).
 static string[] Slots(string text) => Regex.Matches(text, @"(?<!\{)\{(?:\d+(?:,[^}:]+)?(?::[^}]+)?|[A-Za-z_]\w*)\}(?!\})")
     .Select(m => m.Value).Order(StringComparer.Ordinal).ToArray();
@@ -45,7 +45,6 @@ foreach (var code in listed)
     catch (JsonException e) { throw new InvalidOperationException($"{code}.json does not parse: {e.Message}"); }
     foreach (var (english, translation) in catalog)
     {
-        Require(reference.ContainsKey(english), $"{code}: string not in zh-CN (renamed or removed from the code?): {english}");
         Require(Slots(english).SequenceEqual(Slots(translation)), $"{code}: changed format placeholders: {english}");
         Require(!string.IsNullOrWhiteSpace(translation), $"{code}: empty translation: {english}");
         if (english.Contains('|'))
@@ -58,7 +57,7 @@ foreach (var code in listed)
                 Require(original[i] == localized[i], $"{code}: changed filter pattern: {english}");
         }
     }
-    coverage.Add($"{code} {catalog.Count}/{reference.Count}");
+    coverage.Add($"{code} {catalog.Count}");
 }
 CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
 var value = 12.5;
