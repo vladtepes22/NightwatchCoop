@@ -1134,7 +1134,7 @@ void DefineAll() {
                "Правило хоста: вне подземелья хоста после смерти или переноса - вас призовут обратно"},
               {"The host decides; off: a death in the host's dungeon takes you to your own lamp",
                "Решает хост; выкл.: смерть в подземелье хоста ведёт к вашему фонарю"});
-    // CL-a3a9e6: guests may gather the party too; off by default (the guest's Gather the party row follows it).
+    // CL-a3a9e6: guests may gather the party too; on by default (the guest's Gather the party row follows it).
     host_rule(&Values::party_guest_gather, "Guests can gather", "Гости собирают группу",
               AddText("A guest's Gather the party brings you and the other guests to it (each is asked). Party rule",
                       "Сбор группы гостем переносит вас и других гостей к нему (каждого спросят). Правило группы"),
@@ -1295,8 +1295,8 @@ void DefineAll() {
               {"The host decides; off: every hunter keeps its full stats whatever its level",
                "Решает хост; выкл.: у каждого охотника полные характеристики, каким бы ни был уровень"});
     host_rule(&Values::party_phantom_hp, "Phantom health cut", "Штраф здоровья призрака",
-              AddText("Joining hunters get 30 % less maximum health, as in the game. Off: full health. Party rule",
-                      "Присоединившиеся охотники теряют 30 % макс. здоровья, как в игре. Выкл.: полное. Правило группы"),
+              AddText("Off by default. On: joining hunters get 30 % less maximum health, as in the game. Party rule",
+                      "По умолчанию выкл. Вкл.: присоединившиеся охотники теряют 30 % макс. здоровья, как в игре. Правило группы"),
               [] { return ps::HostRuleOn(ps::HostRule::PhantomHp); },
               {"The host's rule: hunters who join the party have 30 % less maximum health",
                "Правило хоста: у присоединившихся охотников на 30 % меньше максимального здоровья"},
@@ -1354,13 +1354,13 @@ void DefineAll() {
     AddPage("My party: Giving", "Моя группа: передача",
             "Yours: give items, weapons and armor to party members from the inventory, and receive them (bbport)",
             "Ваше: передача предметов, оружия и брони охотникам из инвентаря и приём (bbport)");
-    // visy 0.7.8: give items to a party member (the inventory's item menu: Use / Discard / Give); off by default, also the
+    // visy 0.7.8: give items to a party member (the inventory's item menu: Use / Discard / Give); on by default, also the
     // consent to receive.
     AddRow(Flag(&Values::party_give_items), "Give items to the party", "Передача предметов",
            "Adds Give to an item's menu in the inventory, and lets hunters give you items. Not key or story items",
            "Добавляет «Передать» в меню предмета и разрешает охотникам передавать вам предметы. Не ключевые",
            toggle, Kind::Toggle);
-    // 0.7.9: weapons and armor (with the weapon's upgrade level and blood gems); its own switch, off by default, also the consent to receive.
+    // 0.7.9: weapons and armor (with the weapon's upgrade level and blood gems); its own switch, on by default, also the consent to receive.
     AddRow(Flag(&Values::party_give_gear), "Give weapons and armor", "Передача оружия и брони",
            "Adds Give to a weapon's or armor's menu (gems kept); hunters can give you gear. Not worn or story gear",
            "Передача оружия и брони (улучшение и самоцветы сохраняются) и приём. Не надетое и не сюжетное",
@@ -1455,11 +1455,11 @@ void DefineAll() {
             "Yours: the Ritual Altar lists the party's Chalice Glyphs to pick from (bbport)",
             "Ваше: Алтарь ритуалов показывает глифы чаши группы на выбор (bbport)");
     own(&Values::party_glyph_list, "Chalice glyph list", "Список глифов чаши",
-        "The Ritual Altar's glyph search lists the party's glyphs to pick from first. Off by default",
-        "Поиск глифа у Алтаря ритуалов сначала показывает глифы группы. По умолчанию выкл.");
+        "The Ritual Altar's glyph search lists the party's glyphs to pick from first. On by default",
+        "Поиск глифа у Алтаря ритуалов сначала показывает глифы группы. По умолчанию вкл.");
     own(&Values::party_guest_altar, "Ritual Altar as a guest", "Алтарь ритуалов гостем",
-        "As a guest you can use the Ritual Altar in the host's Dream, with your own chalice. Off by default",
-        "Гость в Сне охотника может пользоваться Алтарём ритуалов: ритуал с вашей чашей. По умолчанию выкл.");
+        "As a guest you can use the Ritual Altar in the host's Dream, with your own chalice. On by default",
+        "Гость в Сне охотника может пользоваться Алтарём ритуалов: ритуал с вашей чашей. По умолчанию вкл.");
 
     // ---- My party: Names (0.7.8, namefilter): hateful member names are shown masked on this PC. ON by default (safety),
     // unlike other new party features; the real name stays the member's identity (party/name_filter.h). ----
@@ -1469,10 +1469,10 @@ void DefineAll() {
     own(&Values::party_hide_bad_names, "Hide offensive names", "Скрывать грубые имена",
         "On: a hateful name shows as Hunter + a code on your screen (display only; others still see it)",
         "Вкл.: оскорбительное имя показано как Hunter и код (только на вашем экране)");
-    // Party text chat (party_chat.h), off by default.
+    // Party text chat (party_chat.h), on by default.
     own(&Values::party_chat, "Party chat", "Чат группы",
-        "Off by default. T (keyboard) or touchpad + L1 (pad: a list of short lines) writes to the party; lines show in your colour",
-        "Выкл. по умолчанию. T (клавиатура) или тачпад + L1 (геймпад: список коротких фраз) пишет группе; строки цветом отправителя");
+        "On by default. T (keyboard) or touchpad + L1 (pad: a list of short lines) writes to the party; lines show in your colour",
+        "Вкл. по умолчанию. T (клавиатура) или тачпад + L1 (геймпад: список коротких фраз) пишет группе; строки цветом отправителя");
     own(&Values::party_chat_receive, "Show others' chat", "Чат других игроков",
         "With party chat on: show the lines the other hunters write (off = mute them)",
         "При включённом чате: показывать строки других охотников (выкл. = скрыть)");
@@ -1480,14 +1480,14 @@ void DefineAll() {
     own(&Values::party_name_colours, "Coloured name tags", "Цветные имена",
         "Off by default. Name tags above companions use each hunter's party colour (as in the party panel and chat)",
         "Выкл. по умолчанию. Имена над спутниками цветом охотника (как в панели группы и чате)");
-    // visy 0.8.0 (H5): a changed appearance re-sent to the party (party_look_sync), off by default.
+    // visy 0.8.0 (H5): a changed appearance re-sent to the party (party_look_sync), on by default.
     own(&Values::party_look_sync, "Share look changes", "Обновлять внешность",
-        "Off by default. A changed appearance (mirror, any editor) shows to the others without a reload",
-        "Выкл. по умолчанию. При смене вашей внешности остальные видят её сразу, без перезагрузки");
-    // visy 0.8.0 (I7/E3): a marker on the in-game map every member sees (map/map_page.cpp), off by default.
+        "On by default. A changed appearance (mirror, any editor) shows to the others without a reload",
+        "Вкл. по умолчанию. При смене вашей внешности остальные видят её сразу, без перезагрузки");
+    // visy 0.8.0 (I7/E3): a marker on the in-game map every member sees (map/map_page.cpp), on by default.
     own(&Values::party_map_marks, "Shared map markers", "Общие метки на карте",
-        "Off by default. A spot you mark on the map (right click, P or R3) shows on every companion's map",
-        "Выкл. по умолчанию. Метка на карте (ПКМ, P или R3) видна на картах всех спутников");
+        "On by default. A spot you mark on the map (right click, P or R3) shows on every companion's map",
+        "Вкл. по умолчанию. Метка на карте (ПКМ, P или R3) видна на картах всех спутников");
 
     // ---- Game HUD (visy 0.7.8, CL-7d51fe): the game's own HUD, like Elden Ring's "HUD: Auto". ----
     AddPage("Game HUD", "HUD игры", "The game's own bars and item slots: hide them while nothing happens (bbport)",

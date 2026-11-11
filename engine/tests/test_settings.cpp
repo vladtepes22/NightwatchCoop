@@ -74,16 +74,16 @@ int main() {
     {
         // The keys from visy 0.7.5: defaults first, then each one read from and written to bbport.ini.
         auto& d = BbSettings::Get();
-        assert(d.party_level_sync && d.party_phantom_hp && d.party_pvp_full_hp && d.party_boss_drops && !d.party_skip_prologue && d.party_vpn == 0 &&
+        assert(d.party_level_sync && !d.party_phantom_hp && d.party_pvp_full_hp && d.party_boss_drops && !d.party_skip_prologue && d.party_vpn == 0 &&
                d.party_discovery && d.party_hud_ping);
-        { std::ofstream file(path); file << "party_level_sync=0\nparty_phantom_hp=0\nparty_skip_prologue=1\n"
+        { std::ofstream file(path); file << "settings_rev=4\nparty_level_sync=0\nparty_phantom_hp=1\nparty_skip_prologue=1\n"
                                              "party_vpn=Radmin VPN\nparty_discovery=0\nparty_hud_ping=0\n"; }
         BbSettings::Load();
-        assert(!d.party_level_sync && !d.party_phantom_hp && d.party_skip_prologue && d.party_vpn == 2 &&
+        assert(!d.party_level_sync && d.party_phantom_hp && d.party_skip_prologue && d.party_vpn == 2 &&
                !d.party_discovery && !d.party_hud_ping);
         BbSettings::Save();
         const std::string text = Read(path);
-        for (const char* line : {"party_level_sync=0\n", "party_phantom_hp=0\n", "party_skip_prologue=1\n",
+        for (const char* line : {"party_level_sync=0\n", "party_phantom_hp=1\n", "party_skip_prologue=1\n",
                                  "party_vpn=Radmin VPN\n", "party_discovery=0\n", "party_hud_ping=0\n"})
             assert(text.find(line) != std::string::npos);
         // Load put the value into BB_PARTY_VPN for the network library; an explicit variable wins.
@@ -97,7 +97,7 @@ int main() {
         BbSettings::Load();
         assert(d.party_vpn == 1);
         d.party_level_sync = true;
-        d.party_phantom_hp = true;
+        d.party_phantom_hp = false;
         d.party_skip_prologue = false;
         d.party_vpn = 0;
         d.party_discovery = true;
@@ -105,26 +105,26 @@ int main() {
         { std::ofstream file(path); file << ini; assert(file.good()); }
     }
     {
-        // visy 0.7.7 host rules (CL-a3a9e6 guest gather, CL-48ee07 Chalice layer travel): off by default,
-        // read from and written to bbport.ini, and an explicit variable wins over the ini.
+        // visy 0.7.7 host rules (CL-a3a9e6 guest gather, CL-48ee07 Chalice layer travel): on by default
+        // (settings_rev 4), read from and written to bbport.ini, and an explicit variable wins over the ini.
         auto& d = BbSettings::Get();
-        assert(!d.party_guest_gather && !d.party_layer_travel);
-        { std::ofstream file(path); file << "party_guest_gather=1\nparty_layer_travel=1\n"; }
-        BbSettings::Load();
         assert(d.party_guest_gather && d.party_layer_travel);
+        { std::ofstream file(path); file << "settings_rev=4\nparty_guest_gather=0\nparty_layer_travel=0\n"; }
+        BbSettings::Load();
+        assert(!d.party_guest_gather && !d.party_layer_travel);
         BbSettings::Save();
         const std::string text = Read(path);
-        assert(text.find("party_guest_gather=1\n") != std::string::npos);
-        assert(text.find("party_layer_travel=1\n") != std::string::npos);
+        assert(text.find("party_guest_gather=0\n") != std::string::npos);
+        assert(text.find("party_layer_travel=0\n") != std::string::npos);
 #ifdef _WIN32
-        _putenv_s("BB_PARTY_GUEST_GATHER", "0");
-        _putenv_s("BB_PARTY_LAYER_TRAVEL", "0");
+        _putenv_s("BB_PARTY_GUEST_GATHER", "1");
+        _putenv_s("BB_PARTY_LAYER_TRAVEL", "1");
 #else
-        setenv("BB_PARTY_GUEST_GATHER", "0", 1);
-        setenv("BB_PARTY_LAYER_TRAVEL", "0", 1);
+        setenv("BB_PARTY_GUEST_GATHER", "1", 1);
+        setenv("BB_PARTY_LAYER_TRAVEL", "1", 1);
 #endif
         BbSettings::Load();
-        assert(!d.party_guest_gather && !d.party_layer_travel);
+        assert(d.party_guest_gather && d.party_layer_travel);
 #ifdef _WIN32
         _putenv_s("BB_PARTY_GUEST_GATHER", "");
         _putenv_s("BB_PARTY_LAYER_TRAVEL", "");
@@ -132,8 +132,8 @@ int main() {
         unsetenv("BB_PARTY_GUEST_GATHER");
         unsetenv("BB_PARTY_LAYER_TRAVEL");
 #endif
-        d.party_guest_gather = false;
-        d.party_layer_travel = false;
+        d.party_guest_gather = true;
+        d.party_layer_travel = true;
         { std::ofstream file(path); file << ini; assert(file.good()); }
     }
     BbSettings::Load();
@@ -531,46 +531,67 @@ int main() {
     assert(s.hdr_ui_nits == 203.0f);
     BbSettings::SelectHdrPreset(1);
     assert(s.hdr_ui_nits == 150.0f);
-    // 0.7.8 (CL-420d9f): the Chalice glyph pick list: this player's own, OFF by default, ini key + variable
+    // 0.7.8 (CL-420d9f): the Chalice glyph pick list: this player's own, ON by default (settings_rev 4), ini key + variable
     assert(bb_test_setenv("BB_PARTY_GLYPH_LIST", "") == 0);
-    BbSettings::Load();
-    assert(!s.party_glyph_list);
-    s.party_glyph_list = true;
-    BbSettings::Save();
-    assert(Read(path).find("party_glyph_list=1\n") != std::string::npos);
     BbSettings::Load();
     assert(s.party_glyph_list);
-    assert(bb_test_setenv("BB_PARTY_GLYPH_LIST", "0") == 0);
+    s.party_glyph_list = false;
+    BbSettings::Save();
+    assert(Read(path).find("party_glyph_list=0\n") != std::string::npos);
     BbSettings::Load();
     assert(!s.party_glyph_list);
-    assert(bb_test_setenv("BB_PARTY_GLYPH_LIST", "") == 0);
-    s.party_glyph_list = false;
-    // 0.7.9 (CL-13f7d1): the Ritual Altar as a guest: this player's own, OFF by default, ini key + variable
-    assert(bb_test_setenv("BB_PARTY_GUEST_ALTAR", "") == 0);
+    assert(bb_test_setenv("BB_PARTY_GLYPH_LIST", "1") == 0);
     BbSettings::Load();
-    assert(!s.party_guest_altar);
-    s.party_guest_altar = true;
-    BbSettings::Save();
-    assert(Read(path).find("party_guest_altar=1\n") != std::string::npos);
+    assert(s.party_glyph_list);
+    assert(bb_test_setenv("BB_PARTY_GLYPH_LIST", "") == 0);
+    s.party_glyph_list = true;
+    // 0.7.9 (CL-13f7d1): the Ritual Altar as a guest: this player's own, ON by default (settings_rev 4), ini key + variable
+    assert(bb_test_setenv("BB_PARTY_GUEST_ALTAR", "") == 0);
     BbSettings::Load();
     assert(s.party_guest_altar);
-    assert(bb_test_setenv("BB_PARTY_GUEST_ALTAR", "0") == 0);
+    s.party_guest_altar = false;
+    BbSettings::Save();
+    assert(Read(path).find("party_guest_altar=0\n") != std::string::npos);
     BbSettings::Load();
     assert(!s.party_guest_altar);
+    assert(bb_test_setenv("BB_PARTY_GUEST_ALTAR", "1") == 0);
+    BbSettings::Load();
+    assert(s.party_guest_altar);
     assert(bb_test_setenv("BB_PARTY_GUEST_ALTAR", "") == 0);
-    s.party_guest_altar = false;
-    // 0.7.9: Max invaders (the host's, 1 or 2, clamped) and Give weapons and armor (own, OFF by default)
-    assert(s.party_max_invaders == 1 && !s.party_give_gear);
+    s.party_guest_altar = true;
+    // 0.7.9: Max invaders (the host's, 1 or 2, clamped) and Give weapons and armor (own, ON by default since settings_rev 4)
+    assert(s.party_max_invaders == 1 && s.party_give_gear);
     s.party_max_invaders = 2;
-    s.party_give_gear = true;
+    s.party_give_gear = false;
     BbSettings::Save();
     assert(Read(path).find("party_max_invaders=2\n") != std::string::npos &&
-           Read(path).find("party_give_gear=1\n") != std::string::npos);
-    { std::ofstream file(path); file << "party_max_invaders=9\n"; }
+           Read(path).find("party_give_gear=0\n") != std::string::npos);
+    { std::ofstream file(path); file << "settings_rev=4\nparty_max_invaders=9\n"; }
     BbSettings::Load();
-    assert(s.party_max_invaders == 2);  // 9 clamped; a key the file does not name keeps its value
-    s.party_give_gear = false;
+    assert(s.party_max_invaders == 2 && !s.party_give_gear);  // 9 clamped; a key the file does not name keeps its value
+    s.party_give_gear = true;
     s.party_max_invaders = 1;
+    // settings_rev 4 (0.3.0): a file from before it gets the new party defaults once (its saved 0s, and the phantom
+    // health cut's 1, were the old defaults); a file at rev 4 keeps what the player chose afterwards.
+    {
+        const char* keys[] = {"party_guest_gather", "party_layer_travel", "party_chat", "party_give_items", "party_give_gear",
+                              "party_look_sync", "party_map_marks", "party_glyph_list", "party_guest_altar"};
+        std::string old = "settings_rev=3\nparty_phantom_hp=1\n";
+        for (const char* key : keys) old += std::string(key) + "=0\n";
+        { std::ofstream file(path); file << old; }
+        BbSettings::Load();
+        assert(s.settings_rev == BbSettings::kSettingsRev && !s.party_phantom_hp && s.party_chat && s.party_give_items &&
+               s.party_give_gear && s.party_look_sync && s.party_map_marks && s.party_glyph_list && s.party_guest_altar &&
+               s.party_guest_gather && s.party_layer_travel);
+        const std::string text = Read(path);
+        assert(text.find("settings_rev=4\n") != std::string::npos && text.find("party_phantom_hp=0\n") != std::string::npos);
+        for (const char* key : keys) assert(text.find(std::string(key) + "=1\n") != std::string::npos);
+        { std::ofstream file(path); file << "settings_rev=4\nparty_chat=0\nparty_phantom_hp=1\n"; }
+        BbSettings::Load();
+        assert(!s.party_chat && s.party_phantom_hp && Read(path).find("party_chat=0\n") != std::string::npos);
+        s.party_chat = true;
+        s.party_phantom_hp = false;
+    }
     std::filesystem::remove(temporary);
     std::puts("PASS: settings save keeps other keys, menu position");
 }

@@ -161,9 +161,9 @@ struct Values {
     /// BB_PARTY_PINGS overrides). Live, local: off = no combo, no sending, others' pings not drawn.
     std::atomic<bool> party_pings{true};
     /// Party text chat (0.7.8, party_chat.h): the chat key (T) or touchpad + L1 opens a box / preset list; lines reach every
-    /// member in a small fading log in the sender's colour. Off by default: off = no key, no sending, others' lines
+    /// member in a small fading log in the sender's colour. On by default (settings_rev 4): off = no key, no sending, others' lines
     /// ignored (ini party_chat; env BB_PARTY_CHAT overrides). Live, local.
-    std::atomic<bool> party_chat{false};
+    std::atomic<bool> party_chat{true};
     /// Chat on: show the lines of the other members (ini party_chat_receive, default on); off = they are dropped on arrival.
     std::atomic<bool> party_chat_receive{true};
     /// Hateful member names (slurs, hate codes; party/name_filter.h) are shown as "Hunter 3F2" on this PC: the party
@@ -175,11 +175,11 @@ struct Values {
     std::atomic<bool> party_name_colours{false};
     /// H5 look sync: a change of this player's appearance data (any editor, not only the Dream mirror's close)
     /// re-sends the player record and the peers rebuild this hunter's chr (ini party_look_sync; env
-    /// BB_PARTY_LOOK_SYNC=0/1 over it; off by default, 0.8.0). Live, local.
-    std::atomic<bool> party_look_sync{false};
+    /// BB_PARTY_LOOK_SYNC=0/1 over it; 0.8.0, on by default since settings_rev 4). Live, local.
+    std::atomic<bool> party_look_sync{true};
     /// I7/E3 map markers: a spot a player puts on the in-game map (right click / R3 / P) is seen on every party
-    /// member's map (party_ping.h; ini party_map_marks; env BB_PARTY_MAP_MARKS=0/1 over it; off by default, 0.8.0). Live.
-    std::atomic<bool> party_map_marks{false};
+    /// member's map (party_ping.h; ini party_map_marks; env BB_PARTY_MAP_MARKS=0/1 over it; 0.8.0, on by default since settings_rev 4). Live.
+    std::atomic<bool> party_map_marks{true};
     /// I2: every party member on this map drawn through walls as a small marker with its distance
     /// in its colour (ini party_through_walls; off by default: busy next to the name plates). Live.
     std::atomic<bool> party_through_walls{false};
@@ -273,13 +273,13 @@ struct Values {
     std::atomic<bool> party_item_notices{true};
     /// 0.7.8: give items to a party member (party/party_give_rules.h): the Insert menu's Party tab lists the own
     /// consumables and sends one to a member through a two-phase transfer. The giver's switch shows the list, the
-    /// receiver's is its consent. Per player. OFF by default. ini party_give_items; env BB_PARTY_GIVE_ITEMS=1 wins.
-    std::atomic<bool> party_give_items{false};
+    /// receiver's is its consent. Per player. ON by default (settings_rev 4). ini party_give_items; env BB_PARTY_GIVE_ITEMS wins.
+    std::atomic<bool> party_give_items{true};
     /// 0.7.9 (givegear079, CL-1b3b98): the same for weapons and armor (a weapon moves with its upgrade level and blood gems).
     /// Its own switch, separate from party_give_items: gear is worth more than a stack of bullets, so a hunter can take
     /// consumables and still refuse gear. The giver's switch adds Give to a weapon's / armor's menu, the receiver's is its
-    /// consent. Per player. OFF by default. ini party_give_gear; env BB_PARTY_GIVE_GEAR=1 wins.
-    std::atomic<bool> party_give_gear{false};
+    /// consent. Per player. ON by default (settings_rev 4). ini party_give_gear; env BB_PARTY_GIVE_GEAR wins.
+    std::atomic<bool> party_give_gear{true};
     /// Party gameplay switches (the launcher's Party Rules / My Party tabs, the game's party pages in
     /// System; PartySwitches below): ini key = the member's name, env BB_PARTY_* = 0/1 wins at start.
     /// On by default. Load puts each value into the process environment when its variable is unset,
@@ -314,17 +314,17 @@ struct Values {
     std::atomic<bool> party_npc_mirror{true};   ///< an NPC gone from the host's world is gone on guests
     std::atomic<bool> party_gather{true};       ///< I5: the host may gather the party (party_gather.h)
     /// 0.7.7 (CL-a3a9e6): guests may gather the party too (party_gather.h, a guest asks the host, which asks the others).
-    /// The host's rule, sent to the guests; OFF by default.
-    std::atomic<bool> party_guest_gather{false};
+    /// The host's rule, sent to the guests; ON by default (settings_rev 4).
+    std::atomic<bool> party_guest_gather{true};
     /// 0.7.7 (CL-48ee07): a Chalice Dungeon lamp lists the dungeon's other lit lamps (layers) and the host's choice
-    /// takes the whole party there (lamp_travel.h). The host's rule, sent to the guests; OFF by default.
-    std::atomic<bool> party_layer_travel{false};
+    /// takes the whole party there (lamp_travel.h). The host's rule, sent to the guests; ON by default (settings_rev 4).
+    std::atomic<bool> party_layer_travel{true};
     /// 0.7.8 (CL-420d9f): the Ritual Altar's "Search by Chalice Glyph" shows the party's glyphs as a pick list before the
-    /// code keyboard (party_chalice_glyphs.h). This player's own, read live; OFF by default.
-    std::atomic<bool> party_glyph_list{false};
+    /// code keyboard (party_chalice_glyphs.h). This player's own, read live; ON by default (settings_rev 4).
+    std::atomic<bool> party_glyph_list{true};
     /// 0.7.9 (CL-13f7d1): a summoned guest can use the Ritual Altar in the host's Dream (conduct a ritual with its own
-    /// chalice and materials, enter its dungeons). This player's own, read live; OFF by default.
-    std::atomic<bool> party_guest_altar{false};
+    /// chalice and materials, enter its dungeons). This player's own, read live; ON by default (settings_rev 4).
+    std::atomic<bool> party_guest_altar{true};
     /// 0.7.9 (gdrf079): a host whose game would close its empty room (~5 s after the last member left) keeps it open
     /// while a title join (a restarted guest) is being served. The host's own, read live; ON by default (a bug fix).
     std::atomic<bool> party_title_room_hold{true};
@@ -344,9 +344,10 @@ struct Values {
     std::atomic<bool> party_any_kidnap{true};   ///< 0.7.3: a Snatcher grabbing a guest takes the party to the Gaol (party_kidnap_rules.h)
     /// 0.7.5 (levelsync, party_levelsync_rules.h): the host's rules, both ON = Bloodborne's own co-op.
     /// Level sync: a hunter above the host's level is scaled down (max HP, stamina, defence, resistances)
-    /// as in password co-op; phantom health: a hunter joining a party has 30 % less max HP.
+    /// as in password co-op; phantom health: a hunter joining a party has 30 % less max HP (off by default since
+    /// settings_rev 4: full health for everyone).
     std::atomic<bool> party_level_sync{true};
-    std::atomic<bool> party_phantom_hp{true};
+    std::atomic<bool> party_phantom_hp{false};
     /// 0.7.6 (pvphp): the host's rule "Full health in PvP": no phantom health cut while friendly fire is on.
     std::atomic<bool> party_pvp_full_hp{true};
     /// 0.7.6 (bossdrops): the host's rule: a world boss's item drop also goes to the guests present at the kill.
@@ -565,7 +566,12 @@ extern const PartySwitch PartySwitches[];
 ///              2026-10-22: turn it off once; a later explicit 1 stays).
 ///   2 (0.2.1 beta 2): model_lod -2 -> 0 once. Highest came back as an opt-in; files saved before
 ///              still hold the old -2 that 0.2.1 beta 1 read as 0, so it is not switched on silently.
-constexpr int kSettingsRev = 3;
+///   3 (0.2.5): change_appearance = rebirth = 1 once (the Dream mirror and Rebirth became on by default).
+///   4 (0.3.0): once, these party settings became the defaults (user decision 2026-11-11; each can be
+///              switched back off afterwards): on = party_guest_gather, party_layer_travel, party_chat,
+///              party_give_items, party_give_gear, party_look_sync, party_map_marks, party_glyph_list,
+///              party_guest_altar; off = party_phantom_hp.
+constexpr int kSettingsRev = 4;
 extern const int PartySwitchCount;
 /// party_guest_insight's ini / env values by index (parity, full, 0).
 const char* GuestInsightName(int mode);

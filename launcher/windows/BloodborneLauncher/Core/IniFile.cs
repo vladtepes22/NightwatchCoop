@@ -135,8 +135,16 @@ namespace BloodborneLauncher.Core
         /// rot became off by default and older games saved their default 1 with every change.
         /// 2: model_lod -2 -> 0 once, Highest came back as an opt-in and older files still hold the
         /// -2 that 0.2.1 beta 1 read as 0. 3 (0.2.5): change_appearance=1 and rebirth=1 once, the Dream
-        /// mirror and Rebirth at the Altar of Despair became on by default.</summary>
-        public const int SettingsRev = 3;
+        /// mirror and Rebirth at the Altar of Despair became on by default. 4 (0.3.0): the party defaults of
+        /// <see cref="Rev4PartyOn"/> on and party_phantom_hp off once (user, 11 Nov 2026); each can be switched back off.</summary>
+        public const int SettingsRev = 4;
+
+        /// <summary>The party settings settings_rev 4 turned on once (bbport_settings.cpp does the same).</summary>
+        public static readonly string[] Rev4PartyOn =
+        {
+            "party_guest_gather", "party_layer_travel", "party_chat", "party_give_items", "party_give_gear",
+            "party_look_sync", "party_map_marks", "party_glyph_list", "party_guest_altar",
+        };
 
         /// <summary>Applies the one-time changes a bbport.ini below <see cref="SettingsRev"/> still
         /// needs; a new file only gets the revision.</summary>
@@ -149,6 +157,11 @@ namespace BloodborneLauncher.Core
                 if (rev < 1) Set("party_rot", "0");
                 if (rev < 2 && Get("model_lod", "0") == "-2") Set("model_lod", "0");
                 if (rev < 3) { Set("change_appearance", "1"); Set("rebirth", "1"); }
+                if (rev < 4)
+                {
+                    foreach (var key in Rev4PartyOn) Set(key, "1");
+                    Set("party_phantom_hp", "0");
+                }
                 Set("settings_rev", SettingsRev.ToString());
                 Save();
             }

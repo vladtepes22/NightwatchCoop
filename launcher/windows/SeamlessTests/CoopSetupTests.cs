@@ -15,7 +15,7 @@ internal static class CoopSetupTests
         CoopPresets.ApplyRecommended((k, v) => set[k] = v);
         var want = new Dictionary<string, string>
         {
-            ["party_phantom_hp"] = "1", ["party_level_sync"] = "1", ["party_boss_drops"] = "1", ["party_travel_vote"] = "0", ["party_rot"] = "0",
+            ["party_phantom_hp"] = "0", ["party_level_sync"] = "1", ["party_boss_drops"] = "1", ["party_travel_vote"] = "0", ["party_rot"] = "0",
             ["party_boss_hp"] = "150", ["party_boss_damage"] = "10", ["party_enemy_hp"] = "50", ["party_enemy_damage"] = "0",
         };
         Check(set.Count == want.Count && want.All(w => set[w.Key] == w.Value), "Use recommended is not exactly the shipped defaults with Seamless scaling");

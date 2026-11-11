@@ -18,7 +18,7 @@ namespace BloodborneLauncher.Core
         /// <summary>The values the engine uses when the ini has no entry (visy's, as shipped).</summary>
         private static readonly Dictionary<string, string> Shipped = new()
         {
-            ["party_phantom_hp"] = "1", ["party_level_sync"] = "1", ["party_boss_drops"] = "1", ["party_travel_vote"] = "0",
+            ["party_phantom_hp"] = "0", ["party_level_sync"] = "1", ["party_boss_drops"] = "1", ["party_travel_vote"] = "0",
             ["party_boss_hp"] = "150", ["party_boss_damage"] = "10", ["party_enemy_hp"] = "50", ["party_enemy_damage"] = "0",
             ["party_rot"] = "0",
         };
