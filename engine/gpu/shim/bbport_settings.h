@@ -346,8 +346,8 @@ struct Values {
     /// chalice and materials, enter its dungeons). This player's own, read live; ON by default (settings_rev 4).
     std::atomic<bool> party_guest_altar{true};
     /// visy 0.8.1 (glyphdb081): Noxde's community Chalice glyph list at the Ritual Altar (solo and party host; the
-    /// launcher fetches it). OFF by default.
-    std::atomic<bool> chalice_glyphdb{false};
+    /// launcher fetches it). ON by default (Nightwatch 0.3.1; visy: off).
+    std::atomic<bool> chalice_glyphdb{true};
     /// visy 0.8.1 loading speed-ups, on by default, read at start: map load fades twice as fast (fast_fades,
     /// BB_FAST_FADES=0 off), 4 resource worker threads instead of 3 on a PC with 6+ CPUs (load_workers,
     /// BB_LOAD_WORKERS=0 off). His unpaced loading screen is not taken (engine/loading.cpp paces ours).

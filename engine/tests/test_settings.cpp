@@ -559,20 +559,20 @@ int main() {
     assert(s.party_guest_altar);
     assert(bb_test_setenv("BB_PARTY_GUEST_ALTAR", "") == 0);
     s.party_guest_altar = true;
-    // visy 0.8.1 (glyphdb081): Noxde's community glyph list: OFF by default, ini key + variable
+    // visy 0.8.1 (glyphdb081): Noxde's community glyph list: ON by default (Nightwatch 0.3.1), ini key + variable
     assert(bb_test_setenv("BB_CHALICE_GLYPHDB", "") == 0);
-    BbSettings::Load();
-    assert(!s.chalice_glyphdb);
-    s.chalice_glyphdb = true;
-    BbSettings::Save();
-    assert(Read(path).find("chalice_glyphdb=1\n") != std::string::npos);
     BbSettings::Load();
     assert(s.chalice_glyphdb);
-    assert(bb_test_setenv("BB_CHALICE_GLYPHDB", "0") == 0);
+    s.chalice_glyphdb = false;
+    BbSettings::Save();
+    assert(Read(path).find("chalice_glyphdb=0\n") != std::string::npos);
     BbSettings::Load();
     assert(!s.chalice_glyphdb);
+    assert(bb_test_setenv("BB_CHALICE_GLYPHDB", "1") == 0);
+    BbSettings::Load();
+    assert(s.chalice_glyphdb);
     assert(bb_test_setenv("BB_CHALICE_GLYPHDB", "") == 0);
-    s.chalice_glyphdb = false;
+    s.chalice_glyphdb = true;
     // visy 0.8.1 loading speed-ups: fast_fades and load_workers ON by default, saved and read back
     assert(s.fast_fades && s.load_workers);
     s.fast_fades = false;

@@ -1458,8 +1458,8 @@ void DefineAll() {
         "The Ritual Altar's glyph search lists the party's glyphs to pick from first. On by default",
         "Поиск глифа у Алтаря ритуалов сначала показывает глифы группы. По умолчанию вкл.");
     own(&Values::chalice_glyphdb, "Community Chalice glyphs (Noxde's list)", "Глифы чаш сообщества (список Noxde)",
-        "The Ritual Altar's glyph search offers Noxde's community glyph list (fetched by the launcher). Solo or as host. Off by default",
-        "Поиск глифа у Алтаря предлагает список глифов сообщества от Noxde (его загружает лаунчер). Соло или хост. По умолчанию выкл.");
+        "The Ritual Altar's glyph search offers Noxde's community glyph list (fetched by the launcher). Solo or as host. On by default",
+        "Поиск глифа у Алтаря предлагает список глифов сообщества от Noxde (его загружает лаунчер). Соло или хост. По умолчанию вкл.");
     own(&Values::party_guest_altar, "Ritual Altar as a guest", "Алтарь ритуалов гостем",
         "As a guest you can use the Ritual Altar in the host's Dream, with your own chalice. On by default",
         "Гость в Сне охотника может пользоваться Алтарём ритуалов: ритуал с вашей чашей. По умолчанию вкл.");

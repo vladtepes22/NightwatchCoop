@@ -21,7 +21,10 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
 - **Made for PC.** 120 FPS and beyond, ultrawide, popular community patches, DLSS and FSR upscaling,
   frame generation, and cheats you can switch on or off.
 - **Your controls.** Remap every key and gamepad button.
-- **Chalice Dungeons together.** Explore every Chalice Dungeon that ships with the game as a party.
+- **Chalice Dungeons together.** Explore every Chalice Dungeon that ships with the game as a party,
+  or pick one of about 200 community glyphs (Noxde's list) right at the Ritual Altar.
+- **Faster loading.** Shorter loading screens and fades, and an optional one-time conversion of your
+  game files (Engine page) that loads them faster still.
 - **An in-game map**, made from your own game files (see [The map](#the-map)).
 - **Splitscreen** on one PC through Nucleus Co-op: Co-op tab → Splitscreen mode gives each window a
   compass-only party HUD, no name tags and errors-only party messages.
@@ -80,7 +83,7 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 
 ## Install
 
-1. Download `NightwatchCoop-v0.3.0-beta.2-win64.zip` from
+1. Download `NightwatchCoop-v0.3.1-win64.zip` from
    [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
 2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
    Not `Program Files` or OneDrive.
