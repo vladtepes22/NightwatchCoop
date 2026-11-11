@@ -5,6 +5,10 @@
 #include <cstdlib>
 #include <cstring>
 
+namespace coop::b2 {
+void NoteOwnAppearanceChanged();  // party/party_b2.h: re-send the own record, the peers rebuild this hunter
+}
+
 namespace BbEngine::ChangeAppearance {
 namespace {
 constexpr std::uint64_t kListStepType = 7;
@@ -125,6 +129,9 @@ void Tick() {
         if (g_descriptor) CloseWindow();
         menu_step_release(g_step);
         g_step = 0;
+        // visy 0.8.1 mirror_frame: the editor closed in the world: the party sees the new look at once (look sync's
+        // poll would take up to 2 s).
+        coop::b2::NoteOwnAppearanceChanged();
     }
     g_preview.store(g_step || g_title_step, std::memory_order_relaxed);
 }

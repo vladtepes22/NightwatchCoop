@@ -6,6 +6,7 @@
 #include "bbport_load_trace.h"
 #include "bbport_stall_probe.h"
 #include "party/party_seam.h"
+#include "party/world_warper.h"
 #include "party/auto_hud.h"
 #include "bbport_overlay.h"
 #include "map/map_page.h"
@@ -628,6 +629,7 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     coop::seam::Install();  // visy 0.8.1 seamless join: held / settled loading screen drop, frame-end quiet point
     coop::lamptravel::Install(image, size);
     coop::autohud::Install();  // the auto-hide HUD (visy 0.7.8; setting off by default)
+    coop::warper::Install(image, size);  // visy's world warper: solo shader-cache builder, only with BB_WORLD_WARPER
     coop::b2::InstallOwnWorldTypeGuard();  // own-world chr type repair, every mode (party save played offline)
     coop::hiteffects::Install();  // 0.3.0 feature hit_effects (mods' hit overlay table; BB_HIT_EFFECTS=0: off)
     coop::clipgroups::Install();  // 0.3.0 feature weapon_clip_groups (mods' weapon clip groups; BB_WEAPON_CLIP_GROUPS=0: off)
