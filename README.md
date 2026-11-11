@@ -1,6 +1,6 @@
 # Nightwatch Co-op
 
-**Play the whole of Bloodborne, and all Chalice Dungeons, together with friends, on PC.** Seamless co-op for up to 5 hunters:
+**Play the whole of Bloodborne, and all Chalice Dungeons, together with friends, on PC.** Seamless co-op for up to now 6 hunters:
 no bells, no summon signs, no fog walls. Deaths, boss kills and lamp travel don't end the session,
 and everyone's save keeps the progress. Free and open source. Needs your own game dump (update
 1.09); no game files included.
@@ -11,7 +11,7 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
 
 ## Features
 
-- **Seamless co-op for up to 5 hunters.** Play through the whole game together, all the way
+- **Seamless co-op for up to 6 hunters.** Play through the whole game together, all the way
   through NG+ and beyond.
 - **Your party, your rules.** Enemy health scaling by party size, party voting on lamp travel,
   rot, shared or personal lamps and more.
@@ -27,29 +27,15 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
   compass-only party HUD, no name tags and errors-only party messages.
 - **Save editor** for single-player and party saves (stats, echoes, insight, items, weapons, armour,
   flags), with automatic backups.
-- **Mods that stay optional.** Game-data mods available soon on Nexus Mods, that ship never seen before 
-  new hunter tools and weapons that do not replace any original items in the game.
-
-## Coming soon
-
-- Permadeath mode
-- More optional community mods, like RenoDX HDR
-- Auto-hiding HUD
-- NPC forgiveness
-
-> **Unofficial fan project.** Nightwatch Co-op is made by vladtepes22 and is not made, supported or
-> endorsed by FromSoftware or Sony.
->
-> Bloodborne is a trademark of Sony Interactive Entertainment; the game is by FromSoftware. This
-> project ships no game files, art, music or other content from the game: you need your own copy.
+- **Mods that stay optional.** Nightwatch includes Nocturne, a mod that introduce many new weapons, hunter tools, and more.
+-  **A fully functional, seamless ready built in Randomizer with more than 30 options to customize from**
 
 ## What you need
 
 - **Windows 10 or 11, 64-bit**, and a GPU supporting **Vulkan 1.3**, with current drivers.
   Vulkan support alone does not guarantee playable performance.
 - **Your own decrypted Bloodborne dump**: the `CUSA03173` folder (or another retail release) with
-  **update 1.09 copied over the base game**. No game files are included; the base game alone
-  (1.00) does not start.
+  **update 1.09 copied over the base game**.
 - **The clean `eboot.bin` from that 1.09 update**, exactly as dumped. **Pre-patched eboots are not
   supported** (a "60 FPS" / "1080p 60 FPS" package, or any eboot.bin already patched by another
   tool): Nightwatch makes the 60 FPS, the resolution and every co-op change itself, and each of
@@ -57,6 +43,18 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
   differs: the game runs at **30 FPS** and a co-op party is held at 30. The launcher's game folder
   line warns about it after the first start.
 - For co-op: **everyone on the same Nightwatch release** and the same mods.
+
+## Install
+
+1. Download `NightwatchCoop-v0.3.0-beta.2-win64.zip` from
+   [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
+2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
+   Not `Program Files` or OneDrive.
+3. Open the extracted `NightwatchCoop` folder and run **`Nightwatch Co-op.exe`**.
+   If Windows shows "Windows protected your PC", click **More info → Run anyway** (the files are
+   not code-signed; only run a zip from this repository's Releases page). (`Bloodborne.exe` starts
+   the game straight away with your launcher settings, e.g. from Steam.)
+4. Choose your game folder: the one with `eboot.bin` in it.
 
 ## Co-op in four steps
 
@@ -74,17 +72,6 @@ Can't connect? The host's **Network line** (Co-op tab) says why: see
 [Nightwatch Online](#nightwatch-online) · [Saves](#where-the-saves-are) · [Reporting a bug](#reporting-a-bug) ·
 [My party settings](engine/docs/party/my_party_settings.md) · [Credits](#credits)
 
-## Install
-
-1. Download `NightwatchCoop-v0.3.0-beta.2-win64.zip` from
-   [Releases](https://github.com/vladtepes22/NightwatchCoop/releases).
-2. Right-click the zip → **Extract All…** → choose a normal folder, for example `C:\Games`.
-   Not `Program Files` or OneDrive.
-3. Open the extracted `NightwatchCoop` folder and run **`Nightwatch Co-op.exe`**.
-   If Windows shows "Windows protected your PC", click **More info → Run anyway** (the files are
-   not code-signed; only run a zip from this repository's Releases page). (`Bloodborne.exe` starts
-   the game straight away with your launcher settings, e.g. from Steam.)
-4. Choose your game folder: the one with `eboot.bin` in it.
 
 ### Quick FAQ
 
