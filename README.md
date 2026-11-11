@@ -189,7 +189,7 @@ clipboard (addresses, user folder, player name and passwords hidden); paste them
 |---|---|
 | Seamless co-op | [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port), v0.7.7+e3169e38 |
 | **Lantern Engine by Awaken (https://github.com/Awakenchan/LanternEngine)** | the engine and launcher this project started from. Nightwatch Co-op is a modified version, not an official Lantern Engine release |
-| Adding items in the save editor (how a weapon, armour piece or item is written into a save) | ported from [Noxde/Bloodborne-save-editor](https://github.com/Noxde/Bloodborne-save-editor) by Noxde, GPL-3.0 |
+| Save editor: | [Noxde/Bloodborne-save-editor](https://github.com/Noxde/Bloodborne-save-editor) by Noxde |
 | The map: its generator, drawing, art and controls | [Hunter's Atlas](https://github.com/MikeTat1988/HuntersAtlas) by MikeTat1988 |
 | Engine starting point | [DarkIzuku/bloodborne_pc](https://github.com/DarkIzuku/bloodborne_pc) (built on [bbport](https://github.com/deadinside28/bloodborne_pc) and [shadPS4](https://github.com/shadps4-emu/shadPS4)) |
 | Older CPU support (AMD FX, Intel 2nd/3rd generation Core) | the translation plan and its checks from [Supermedo/bloodborne_pc](https://github.com/Supermedo/bloodborne_pc), with the CPU part of T0ug's Ivy Bridge work there, as integrated by visy (GPL-2.0-or-later) |
