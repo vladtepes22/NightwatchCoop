@@ -27,6 +27,10 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
   compass-only party HUD, no name tags and errors-only party messages.
 - **Save editor** for single-player and party saves (stats, echoes, insight, items, weapons, armour,
   flags), with automatic backups.
+- **Randomizer** (Workshop → Randomizer): random enemies, bosses, items, shops and starting gear from one
+  world code your whole party shares. Gems get stronger the further into the game you find them, and
+  the Insight shop starts selling blood stones as you beat Cleric Beast, the Shadows, the One Reborn
+  and the Wet Nurse.
 - **Mods that stay optional.** Game-data mods available soon on Nexus Mods, that ship never seen before 
   new hunter tools and weapons that do not replace any original items in the game.
 
