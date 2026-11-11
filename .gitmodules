@@ -11,3 +11,6 @@
 [submodule "engine/gpu/third_party/zlib-ng"]
 	path = engine/gpu/third_party/zlib-ng
 	url = https://github.com/zlib-ng/zlib-ng
+[submodule "engine/third_party/zstd"]
+	path = engine/third_party/zstd
+	url = https://github.com/facebook/zstd

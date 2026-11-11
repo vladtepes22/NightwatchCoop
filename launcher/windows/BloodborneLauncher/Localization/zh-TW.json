@@ -2609,5 +2609,19 @@
   "On by default. A party travel's load puts you beside the host, with no jump after the loading screen.": "預設開啟。隊伍傳送的載入會讓你出現在房主身旁，載入畫面結束後不會再跳位置。",
   "On by default. Party > Rejoin in the host's world reloads you beside the host with one loading screen, without leaving and going home first.": "預設開啟。在房主的世界中選擇 隊伍 > 重新加入，會用一個載入畫面把你重新載入到房主身旁，無須先離開並回到自己的世界。",
   "Off by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more).": "預設關閉。在隊伍中，載入畫面會一直保留到世界運行順暢為止（最多再多 3 秒）。",
-  "Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link.": "預設關閉。透過 Nightwatch VPN，會與同樣允許直連的隊伍成員嘗試直接連線約 3 秒，僅在明顯快於通道時才使用。該成員隨後會看到你的公開 IP。下次建立隊伍連線時生效。"
+  "Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link.": "預設關閉。透過 Nightwatch VPN，會與同樣允許直連的隊伍成員嘗試直接連線約 3 秒，僅在明顯快於通道時才使用。該成員隨後會看到你的公開 IP。下次建立隊伍連線時生效。",
+  "Faster loading: converted game files": "更快載入：已轉換的遊戲檔案",
+  "Loading screens get a little shorter (about 0.2 s per lamp trip): the button below copies the game's packed files once in a format that unpacks about twice as fast, into a folder next to the game folder. Your game folder is never changed, and the party still compares the original files. A mod that replaces a file still wins. To go back, turn this off or delete the folder. Off by default; takes effect at the next start": "載入畫面會稍短一些（每次提燈傳送約 0.2 秒）：下方按鈕會將遊戲的封裝檔案一次性複製為解包速度約快一倍的格式，存放在遊戲資料夾旁邊的資料夾中。您的遊戲資料夾不會被更改，隊伍仍會比較原始檔案。取代檔案的模組仍然優先。如需還原，請關閉此選項或刪除該資料夾。預設關閉；下次啟動時生效",
+  "Convert the game files first (the button below the option).": "請先轉換遊戲檔案（選項下方的按鈕）。",
+  "Faster loading": "更快載入",
+  "Not converted yet.": "尚未轉換。",
+  "{0} files converted ({1:0.0} GB).": "已轉換 {0} 個檔案（{1:0.0} GB）。",
+  "{0} files converted ({1:0.0} GB), not finished: convert again to continue.": "已轉換 {0} 個檔案（{1:0.0} GB），未完成：請再次轉換以繼續。",
+  "Convert": "轉換",
+  "Faster loading: converting the game files to {0}": "更快載入：正在將遊戲檔案轉換為 {0}",
+  "Faster loading: the game files are converted and checked; the option is on (from the next start).": "更快載入：遊戲檔案已轉換並檢查完畢；選項已開啟（下次啟動起生效）。",
+  "Faster loading: not enough free space for the converted files ({0}).": "更快載入：可用空間不足，無法存放轉換後的檔案（{0}）。",
+  "Faster loading: the conversion did not finish: {0} (exit code {1}). Convert again to continue.": "更快載入：轉換未完成：{0}（結束代碼 {1}）。請再次轉換以繼續。",
+  "Convert game files (one-time, about 15 GB)": "轉換遊戲檔案（僅需一次，約 15 GB）",
+  "Reads your game folder once and writes the converted files to a folder next to it (game folder name + -zstd). 5 to 15 minutes depending on the CPU; needs about 15 GB free on that drive. Resumable: convert again after an interruption. Every converted file is checked against the original. Turns the option above on when it is done": "讀取一次您的遊戲資料夾，並將轉換後的檔案寫入其旁邊的資料夾（遊戲資料夾名稱 + -zstd）。耗時 5 到 15 分鐘，取決於 CPU；該磁碟需要約 15 GB 可用空間。可續傳：中斷後再次轉換即可。每個轉換後的檔案都會與原檔核對。完成後會自動開啟上方的選項"
 }

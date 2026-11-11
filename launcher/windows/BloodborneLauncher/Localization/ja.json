@@ -2594,5 +2594,19 @@
   "On by default. A party travel's load puts you beside the host, with no jump after the loading screen.": "デフォルトでオン。パーティー移動の読み込み後、ホストの隣に配置され、読み込み画面のあとに位置が飛ぶことはありません。",
   "On by default. Party > Rejoin in the host's world reloads you beside the host with one loading screen, without leaving and going home first.": "デフォルトでオン。ホストの世界で パーティー > 再参加 を選ぶと、いったん離脱して自分の世界に戻ることなく、1 つの読み込み画面でホストの隣に読み込み直されます。",
   "Off by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more).": "デフォルトでオフ。パーティー中、世界が滑らかに動くまで読み込み画面を表示し続けます（最大でさらに 3 秒）。",
-  "Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link.": "デフォルトでオフ。Nightwatch VPN 経由で、同じく許可しているパーティーメンバーに約 3 秒間直接接続を試み、トンネルより明らかに速い場合だけ使います。そのメンバーにはあなたの公開 IP が見えます。次のパーティー接続から有効になります。"
+  "Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link.": "デフォルトでオフ。Nightwatch VPN 経由で、同じく許可しているパーティーメンバーに約 3 秒間直接接続を試み、トンネルより明らかに速い場合だけ使います。そのメンバーにはあなたの公開 IP が見えます。次のパーティー接続から有効になります。",
+  "Faster loading: converted game files": "高速ロード：変換済みゲームファイル",
+  "Loading screens get a little shorter (about 0.2 s per lamp trip): the button below copies the game's packed files once in a format that unpacks about twice as fast, into a folder next to the game folder. Your game folder is never changed, and the party still compares the original files. A mod that replaces a file still wins. To go back, turn this off or delete the folder. Off by default; takes effect at the next start": "ロード画面が少し短くなります（灯りでの移動1回あたり約0.2秒）。下のボタンで、ゲームのパック済みファイルを約2倍の速さで展開できる形式に一度だけコピーし、ゲームフォルダの隣のフォルダに保存します。ゲームフォルダは変更されず、パーティーは引き続き元のファイルを比較します。ファイルを置き換えるModが引き続き優先されます。元に戻すには、これをオフにするか、そのフォルダを削除してください。初期設定ではオフ。次回の起動から有効になります",
+  "Convert the game files first (the button below the option).": "先にゲームファイルを変換してください（オプションの下のボタン）。",
+  "Faster loading": "高速ロード",
+  "Not converted yet.": "まだ変換されていません。",
+  "{0} files converted ({1:0.0} GB).": "{0} 個のファイルを変換済み（{1:0.0} GB）。",
+  "{0} files converted ({1:0.0} GB), not finished: convert again to continue.": "{0} 個のファイルを変換済み（{1:0.0} GB）。未完了：続けるには再度変換してください。",
+  "Convert": "変換",
+  "Faster loading: converting the game files to {0}": "高速ロード：ゲームファイルを {0} に変換中",
+  "Faster loading: the game files are converted and checked; the option is on (from the next start).": "高速ロード：ゲームファイルの変換と検証が完了しました。オプションはオンです（次回の起動から）。",
+  "Faster loading: not enough free space for the converted files ({0}).": "高速ロード：変換後のファイル用の空き容量が足りません（{0}）。",
+  "Faster loading: the conversion did not finish: {0} (exit code {1}). Convert again to continue.": "高速ロード：変換が完了しませんでした：{0}（終了コード {1}）。続けるには再度変換してください。",
+  "Convert game files (one-time, about 15 GB)": "ゲームファイルを変換（初回のみ、約15 GB）",
+  "Reads your game folder once and writes the converted files to a folder next to it (game folder name + -zstd). 5 to 15 minutes depending on the CPU; needs about 15 GB free on that drive. Resumable: convert again after an interruption. Every converted file is checked against the original. Turns the option above on when it is done": "ゲームフォルダを一度読み込み、変換後のファイルを隣のフォルダ（ゲームフォルダ名 + -zstd）に書き込みます。CPU により5〜15分かかり、そのドライブに約15 GBの空き容量が必要です。再開可能：中断した場合は再度変換してください。変換したファイルはすべて元のファイルと照合されます。完了すると上のオプションがオンになります"
 }

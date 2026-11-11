@@ -100,6 +100,7 @@ namespace BloodborneLauncher.Core
             ["sound_output"] = "",
             ["mute_unfocused"] = false,
             ["load_profile"] = false,
+            ["zstd_files"] = false,
             ["occlusion_default_on"] = true,
             ["vram_budget_default_on"] = true,
             ["section_stats"] = false,

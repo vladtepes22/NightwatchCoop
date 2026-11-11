@@ -272,6 +272,7 @@ namespace BloodborneLauncher.Core
 
             // The in-game map (MapPrep): its folder, also while the maps are still being made.
             MapPrep.AddEnvironment(s, env);
+            ZstdFiles.AddEnvironment(s, env);
 
             // Extra variables last: they win over everything above.
             foreach (var (variable, value) in ExtraVariables(s))

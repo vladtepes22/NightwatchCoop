@@ -2594,5 +2594,19 @@
   "On by default. A party travel's load puts you beside the host, with no jump after the loading screen.": "기본값은 켜짐입니다. 파티 이동의 로딩이 끝나면 호스트 옆에 배치되며, 로딩 화면 뒤에 위치가 튀지 않습니다.",
   "On by default. Party > Rejoin in the host's world reloads you beside the host with one loading screen, without leaving and going home first.": "기본값은 켜짐입니다. 호스트의 세계에서 파티 > 재참가를 누르면, 먼저 나가서 집으로 돌아가지 않고 하나의 로딩 화면으로 호스트 옆에 다시 불러옵니다.",
   "Off by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more).": "기본값은 꺼짐입니다. 파티 중에는 월드가 원활하게 돌아갈 때까지 로딩 화면이 유지됩니다(최대 3초 추가).",
-  "Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link.": "기본값은 꺼짐입니다. Nightwatch VPN을 통해, 이를 함께 허용한 파티원에게 약 3초 동안 직접 연결을 시도하고 터널보다 확실히 빠를 때만 사용합니다. 그 파티원에게는 내 공개 IP가 보입니다. 다음 파티 연결부터 적용됩니다."
+  "Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link.": "기본값은 꺼짐입니다. Nightwatch VPN을 통해, 이를 함께 허용한 파티원에게 약 3초 동안 직접 연결을 시도하고 터널보다 확실히 빠를 때만 사용합니다. 그 파티원에게는 내 공개 IP가 보입니다. 다음 파티 연결부터 적용됩니다.",
+  "Faster loading: converted game files": "더 빠른 로딩: 변환된 게임 파일",
+  "Loading screens get a little shorter (about 0.2 s per lamp trip): the button below copies the game's packed files once in a format that unpacks about twice as fast, into a folder next to the game folder. Your game folder is never changed, and the party still compares the original files. A mod that replaces a file still wins. To go back, turn this off or delete the folder. Off by default; takes effect at the next start": "로딩 화면이 조금 짧아집니다(등불 이동 1회당 약 0.2초). 아래 버튼은 게임의 압축된 파일을 약 2배 빠르게 풀리는 형식으로 한 번만 복사하여 게임 폴더 옆의 폴더에 저장합니다. 게임 폴더는 절대 변경되지 않으며, 파티는 계속 원본 파일을 비교합니다. 파일을 교체하는 모드가 여전히 우선합니다. 되돌리려면 이 옵션을 끄거나 해당 폴더를 삭제하세요. 기본값은 꺼짐이며, 다음 시작부터 적용됩니다",
+  "Convert the game files first (the button below the option).": "먼저 게임 파일을 변환하세요(옵션 아래의 버튼).",
+  "Faster loading": "더 빠른 로딩",
+  "Not converted yet.": "아직 변환되지 않았습니다.",
+  "{0} files converted ({1:0.0} GB).": "파일 {0}개 변환됨({1:0.0} GB).",
+  "{0} files converted ({1:0.0} GB), not finished: convert again to continue.": "파일 {0}개 변환됨({1:0.0} GB), 완료되지 않음: 계속하려면 다시 변환하세요.",
+  "Convert": "변환",
+  "Faster loading: converting the game files to {0}": "더 빠른 로딩: 게임 파일을 {0}(으)로 변환하는 중",
+  "Faster loading: the game files are converted and checked; the option is on (from the next start).": "더 빠른 로딩: 게임 파일이 변환되고 검사되었습니다. 옵션이 켜졌습니다(다음 시작부터).",
+  "Faster loading: not enough free space for the converted files ({0}).": "더 빠른 로딩: 변환된 파일을 저장할 여유 공간이 부족합니다({0}).",
+  "Faster loading: the conversion did not finish: {0} (exit code {1}). Convert again to continue.": "더 빠른 로딩: 변환이 완료되지 않았습니다: {0}(종료 코드 {1}). 계속하려면 다시 변환하세요.",
+  "Convert game files (one-time, about 15 GB)": "게임 파일 변환(한 번만, 약 15 GB)",
+  "Reads your game folder once and writes the converted files to a folder next to it (game folder name + -zstd). 5 to 15 minutes depending on the CPU; needs about 15 GB free on that drive. Resumable: convert again after an interruption. Every converted file is checked against the original. Turns the option above on when it is done": "게임 폴더를 한 번 읽어서 변환된 파일을 옆의 폴더(게임 폴더 이름 + -zstd)에 씁니다. CPU에 따라 5~15분 걸리며, 해당 드라이브에 약 15 GB의 여유 공간이 필요합니다. 이어서 진행 가능: 중단된 뒤에는 다시 변환하세요. 변환된 모든 파일은 원본과 대조해 검사됩니다. 완료되면 위의 옵션이 켜집니다"
 }

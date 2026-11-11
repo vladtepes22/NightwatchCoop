@@ -36,7 +36,7 @@ $base = (Resolve-Path -LiteralPath $Base).Path
 if (!$Destination) { $Destination = Join-Path $repo 'work\package\NightwatchCoop' }
 $destinationRoot = [IO.Path]::GetFullPath($Destination)
 
-$programs = 'bb-start.exe', 'bb-probe.exe', 'bb-shader-lab.exe', 'bb-engine-assets.exe', 'bb-gpu-capabilities.exe', 'bb-map-bake.exe'
+$programs = 'bb-start.exe', 'bb-probe.exe', 'bb-shader-lab.exe', 'bb-engine-assets.exe', 'bb-gpu-capabilities.exe', 'bb-map-bake.exe', 'bb-zstdpack.exe'
 if ($MapGenerator -and !(Test-Path -LiteralPath (Join-Path $MapGenerator 'generate_atlas_lite.exe'))) { throw "Not a built map generator: $MapGenerator" }
 if ($Release -and !$MapGenerator) { throw "A release needs the map generator: tools\map\build-generator.ps1, then -MapGenerator." }
 if ($MapGenerator) {
@@ -152,6 +152,9 @@ $licenses = Join-Path $destinationRoot 'engine\licenses'
 New-Item -ItemType Directory -Force -Path (Join-Path $licenses 'msys2') | Out-Null
 Copy-Item -Path (Join-Path $MsysRoot 'clang64\share\licenses\*') -Destination (Join-Path $licenses 'msys2') -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $engine 'gpu\third_party\monocypher\LICENCE.md') -Destination (Join-Path $licenses 'Monocypher.md') -Force
+# visy 0.8.1: zlib-ng (zlib licence) and zstd (BSD: its notice travels with the binaries), both linked statically.
+Copy-Item -LiteralPath (Join-Path $engine 'gpu\third_party\zlib-ng\LICENSE.md') -Destination (Join-Path $licenses 'zlib-ng.md') -Force
+Copy-Item -LiteralPath (Join-Path $engine 'third_party\zstd\LICENSE') -Destination (Join-Path $licenses 'zstd.txt') -Force
 # AMD's FSR SDK upscaler (Radeon cards) goes to engine\fsr_sdk, where the engine looks. engine/tools/fetch_fsr_sdk.sh
 # fills engine\fsr_sdk (pinned SHA-256); AMD's license, which binary redistribution requires, travels with the DLLs.
 $fsrSdk = Join-Path $engine 'fsr_sdk'

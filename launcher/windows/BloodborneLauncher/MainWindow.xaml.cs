@@ -176,7 +176,7 @@ namespace BloodborneLauncher
                     _ = Dispatcher.BeginInvoke(AskEnginePreset, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             };
             Closing += OnClosing;
-            Closed += (_, _) => MapPrep.Stop();
+            Closed += (_, _) => { MapPrep.Stop(); ZstdFiles.Stop(); };
         }
 
         private bool _directPlay, _directKeepOpen;

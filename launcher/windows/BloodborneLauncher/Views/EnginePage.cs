@@ -1,9 +1,11 @@
 ﻿using System.Windows;
+using System.IO;
 using System.Windows.Controls;
 using BloodborneLauncher.Core;
 using Wpf.Ui.Controls;
 using MessageBoxButton = System.Windows.MessageBoxButton;
 using TextBlock = System.Windows.Controls.TextBlock;
+using Button = System.Windows.Controls.Button;
 
 namespace BloodborneLauncher.Views
 {
@@ -96,6 +98,7 @@ namespace BloodborneLauncher.Views
             SettingToggle(SymbolRegular.ArrowForward24, L.T("Fast loading"),
                 L.T("Loading screens run at 30 FPS: fewer frames leave the CPU to the loading work itself. Not before cutscenes. On by default"),
                 "exp_fast_loading", exp);
+            if (ZstdFiles.Supported) ZstdRows(exp);
             SettingToggle(SymbolRegular.Flash24, L.T("Fewer memory write checks"),
                 L.T("Memory the game rewrites before almost every use is no longer watched for changes, saving up to about 2 ms a frame in busy areas. On by default"),
                 "exp_hot_pages", exp);
@@ -184,6 +187,72 @@ namespace BloodborneLauncher.Views
                     L.T("For CPUs with many slower cores (older Xeons and similar): the game's sound runs before its other threads, against late or stuttering sound. Off by default"),
                     "audio_priority");
             }
+        }
+
+        /// <summary>Faster loading with converted game files (Core/ZstdFiles.cs): the option and its Convert button.</summary>
+        private void ZstdRows(Panel into)
+        {
+            ToggleSwitch? toggle = null;
+            toggle = ToggleRow(SymbolRegular.ArrowDownload24, L.T("Faster loading: converted game files"),
+                L.T("Loading screens get a little shorter (about 0.2 s per lamp trip): the button below copies the game's packed files once in a format that unpacks about twice as fast, into a folder next to the game folder. Your game folder is never changed, and the party still compares the original files. A mod that replaces a file still wins. To go back, turn this off or delete the folder. Off by default; takes effect at the next start"),
+                () => S.Bool("zstd_files"), v =>
+                {
+                    if (v && ZstdFiles.Summary(ZstdFiles.Dir(S)).Count == 0)
+                    {
+                        toggle!.IsChecked = false;
+                        System.Windows.MessageBox.Show(Application.Current.MainWindow!, L.T("Convert the game files first (the button below the option)."),
+                            L.T("Faster loading"));
+                        return;
+                    }
+                    S.Set("zstd_files", v);
+                }, into);
+            TextBlock status = null!;
+            Button? convert = null;
+            void Show()
+            {
+                var (count, done, bytes) = ZstdFiles.Summary(ZstdFiles.Dir(S));
+                SetHint(status, count == 0 ? L.T("Not converted yet.")
+                    : done ? L.F($"{count} files converted ({bytes / 1073741824.0:0.0} GB).")
+                    : L.F($"{count} files converted ({bytes / 1073741824.0:0.0} GB), not finished: convert again to continue."));
+            }
+            convert = SmallButton(L.T("Convert"), SymbolRegular.ArrowSync24, async (_, _) =>
+            {
+                var game = GameEnvironment.GameDir(S);
+                if (game.Length == 0 || ZstdFiles.Busy) return;
+                var dir = ZstdFiles.Dir(S);
+                convert!.IsEnabled = false;
+                SetHint(status, L.T("Starting"));
+                Ws.Log(L.F($"Faster loading: converting the game files to {dir}"), LogLevel.Step);
+                int code;
+                string tail;
+                try
+                {
+                    (code, tail) = await ZstdFiles.Convert(Path.GetFullPath(game), dir, line => Dispatcher.BeginInvoke(() =>
+                    {
+                        if (line.StartsWith("Progress", StringComparison.Ordinal) || line.StartsWith("Verified", StringComparison.Ordinal))
+                            SetHint(status, line);
+                        else Ws.Log("bb-zstdpack: " + line);
+                    }));
+                }
+                catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception) { (code, tail) = (-1, e.Message); }
+                convert.IsEnabled = true;
+                Show();
+                if (code == 0)
+                {
+                    S.Set("zstd_files", true);
+                    toggle.IsChecked = true;
+                    Ws.SaveSoon();
+                    Ws.Log(L.T("Faster loading: the game files are converted and checked; the option is on (from the next start)."), LogLevel.Step);
+                }
+                else if (code == 3)
+                    Ws.Log(L.F($"Faster loading: not enough free space for the converted files ({tail})."), LogLevel.Warn);
+                else
+                    Ws.Log(L.F($"Faster loading: the conversion did not finish: {tail} (exit code {code}). Convert again to continue."), LogLevel.Warn);
+            });
+            Add(Card(SymbolRegular.ArrowSync24, L.T("Convert game files (one-time, about 15 GB)"),
+                L.T("Reads your game folder once and writes the converted files to a folder next to it (game folder name + -zstd). 5 to 15 minutes depending on the CPU; needs about 15 GB free on that drive. Resumable: convert again after an interruption. Every converted file is checked against the original. Turns the option above on when it is done"),
+                convert, out status), into);
+            Show();
         }
 
         private void ShowPort() => SetHint(_portHint, Paths.IsPortDir(Paths.PortDir)
