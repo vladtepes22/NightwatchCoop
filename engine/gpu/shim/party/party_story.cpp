@@ -418,7 +418,11 @@ bool GuestStory::Offer(const StoryIntent& s, bool in_host_world, double now) {
     }
     last_seq_ = s.seq;
     dirty_ = true;
-    if (s.kind == StoryKind::Cutscene && in_host_world && mirror_enabled && EndingTypeOfRemo(s.id) == 0) {
+    // 0.8.1: a mode 0 intent is an OFFER (nothing plays on the host: a later Snatcher grab's waking scene); a guest that saw the
+    // scene needs no live mirror of it. With the parallel follow (A) the guest's own load lands in the scene's map while the
+    // offer's mirror still waits, and it played the waking scene a second time (smoke kg, guest 2).
+    const bool offer_seen = s.mode == 0 && s.kind == StoryKind::Cutscene && Seen(s.id);
+    if (s.kind == StoryKind::Cutscene && in_host_world && mirror_enabled && EndingTypeOfRemo(s.id) == 0 && !offer_seen) {
         mirror_ = s;
         mirror_since_ = now;
     }

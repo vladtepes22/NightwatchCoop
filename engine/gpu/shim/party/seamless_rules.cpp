@@ -594,6 +594,59 @@ bool FogFirstSkip(u64 event, u64 instr, i32 event_id, i32 bank, i32 id) {
     return true;
 }
 
+// B6 (re081): a boss music event's guest-entered wait (party_phantom.h BossMusicEntryWaitSkip), matched by the
+// instruction before it (the event's instruction records are the EMEVD file's, 0x20 bytes each, in order).
+bool BossMusicSkip(u64 event, u64 instr, i32 event_id, i32 bank, i32 id) {
+    static const bool on = BossMusicEntrySkipEnabled(std::getenv("BB_PARTY_BOSS_MUSIC"));
+    if (!on || bank != 3 || id != 0) {
+        return false;
+    }
+    static const bool diag = std::getenv("BB_PARTY_BOSS_MUSIC_LOG") && std::getenv("BB_PARTY_BOSS_MUSIC_LOG")[0] == '1';
+    i32 index = -1, prev_bank = -1, prev_id = -1;
+    SafeGet(event + 0xa0, &index);
+    const u64 prev_rec = instr - 0x20;
+    if (index > 0) {
+        SafeGet(prev_rec, &prev_bank);
+        SafeGet(prev_rec + 4, &prev_id);
+    }
+    // The previous record's own argument bytes, read from the script file (not the copied argument buffer at event
+    // +0xB8, which holds the CURRENT instruction's arguments in a parameterised event): file base (event +0xA8 -> +8)
+    // + the args section (+0x78) + the record's offset (+0x10). 1003[5]'s arguments are constants in every event.
+    u8 prev[2] = {0xff, 0xff};
+    u32 prev_size = 0;
+    if (prev_bank == 1003 && prev_id == 5) {
+        u64 runtime = 0, base = 0, section = 0;
+        i64 off = 0;
+        if (SafeGet(prev_rec + 8, &prev_size) && SafeGet(prev_rec + 0x10, &off) && SafeGet(event + 0xa8, &runtime) &&
+            runtime && SafeGet(runtime + 8, &base) && base && SafeGet(base + 0x78, &section) && section != ~0ull) {
+            if (!SafeRead(base + section + u64(off), prev, 2)) prev_size = 0;
+        } else {
+            prev_size = 0;
+        }
+    }
+    const bool hit = BossMusicEntryWaitSkip(bank, id, index, prev_bank, prev_id, prev, prev_size);
+    if (diag && index > 0) {
+        Log("boss music diag: event %d [%d] 3[0], previous record %d[%d] args(%u) %02x %02x: %s", event_id, index, prev_bank,
+            prev_id, prev_size, unsigned(prev[0]), unsigned(prev[1]), hit ? "skipped" : "kept");
+    }
+    if (!hit) {
+        return false;
+    }
+    static std::atomic<u32> logged{0};
+    if (logged.exchange(u32(event_id)) != u32(event_id)) {
+        u8 a[8] = {};
+        u32 asz = 0;
+        const u64 fa = EmevdInstructionArgs(event, instr, &asz);
+        u32 flag = 0;
+        if (fa && asz >= 8 && SafeRead(fa, a, 8)) {
+            std::memcpy(&flag, a + 4, 4);
+        }
+        Log("boss music: event %d [%d] does not wait for the guest-entered flag %u (as the host's; "
+            "BB_PARTY_BOSS_MUSIC=0 off)", event_id, index, flag);
+    }
+    return true;
+}
+
 // A11: the boss health bar (EMEVD 2003[11] DisplayBossHealthBar: first argument 1 on, 0 off).
 std::atomic<bool> g_boss_bar{false};
 // The bar slots (2003[11] third argument, 0 the bottom bar) shown since the bar came up: the party
@@ -631,6 +684,9 @@ BB_COOP_SYSV u8 EmevdDispatch(u64 self, u64 event, float dt) {
     }
     if (!skip && instr && g_fog_first) {
         skip = FogFirstSkip(event, instr, event_id, bank, id);
+    }
+    if (!skip && instr && bank == 3 && id == 0) {
+        skip = BossMusicSkip(event, instr, event_id, bank, id);
     }
     if (!skip && instr) {
         if (const EmevdSkipPredicate pred = g_skip_pred.load(std::memory_order_relaxed)) {

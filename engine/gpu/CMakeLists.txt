@@ -261,7 +261,7 @@ file(GLOB_RECURSE BB_ID_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*.h ../src/*.c
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION" BB_VERSION_FULL LIMIT_COUNT 1)
 set(BB_COOP_VERSION "${BB_VERSION_FULL}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION")
-set(BB_ID_CONTENT "nightwatch-coop-${BB_COOP_VERSION}-visy-0.8.0-05fb2aaf9")
+set(BB_ID_CONTENT "nightwatch-coop-${BB_COOP_VERSION}-visy-0.8.1-f0bc557d3")
 foreach(source IN LISTS BB_ID_SOURCES)
     file(SHA256 "${source}" source_hash)
     string(APPEND BB_ID_CONTENT "${source_hash}")
@@ -310,6 +310,28 @@ target_link_libraries(bbgpu PRIVATE ffx-vulkan::portable ffx-vulkan::fsr4-v07-vu
 target_link_libraries(bbgpu PUBLIC Vulkan::Headers fmt::fmt Boost::headers magic_enum::magic_enum
     tsl::robin_map GPUOpen::VulkanMemoryAllocator PkgConfig::XXHASH PkgConfig::SDL3 PkgConfig::FFMPEG miniz::miniz Zydis::Zydis sirit
     xbyak::xbyak)
+# visy 0.8.1: zlib-ng 2.2.x, built from the pinned submodule third_party/zlib-ng (zlib licence) as a static library
+# behind the engine's inflate (shim/bbport_fast_inflate.h, BB_FAST_INFLATE=0 off). Runtime CPU dispatch: its SIMD
+# files carry their own per-file flags, so it stays safe on older CPUs.
+if (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib-ng/CMakeLists.txt")
+    message(FATAL_ERROR "zlib-ng submodule missing: run `git submodule update --init engine/gpu/third_party/zlib-ng`")
+endif()
+set(ZLIB_COMPAT OFF CACHE BOOL "" FORCE)
+set(ZLIB_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(WITH_GTEST OFF CACHE BOOL "" FORCE)
+set(WITH_FUZZERS OFF CACHE BOOL "" FORCE)
+set(WITH_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(WITH_BENCHMARK_APPS OFF CACHE BOOL "" FORCE)
+set(WITH_NATIVE_INSTRUCTIONS OFF CACHE BOOL "" FORCE)
+set(WITH_RUNTIME_CPU_DETECTION ON CACHE BOOL "" FORCE)
+set(bb_saved_shared_libs "${BUILD_SHARED_LIBS}")
+set(BUILD_SHARED_LIBS OFF)
+add_subdirectory(third_party/zlib-ng EXCLUDE_FROM_ALL)
+set(BUILD_SHARED_LIBS "${bb_saved_shared_libs}")
+add_library(zlibng::zlibng INTERFACE IMPORTED)
+target_link_libraries(zlibng::zlibng INTERFACE zlib)
+target_compile_definitions(zlibng::zlibng INTERFACE BB_HAVE_ZLIB_NG)
+target_link_libraries(bbgpu PUBLIC zlibng::zlibng)
 # The in-game map (shim/map): compiled maps are zlib streams checked by SHA-256.
 find_package(ZLIB REQUIRED)
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)

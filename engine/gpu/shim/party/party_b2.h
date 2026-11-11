@@ -253,6 +253,10 @@ void NoteChosenApart(const char* why);
 /// Guest: Party > Rejoin pressed. True: it was apart in the session from a host in a Chalice Dungeon
 /// and now leaves the session (its own world); the bell's summon quick-joins it in.
 bool ChaliceRejoinPressed();
+/// 0.8.1 seam D (party_quick_rejoin, off by default): Party > Rejoin pressed by a guest in the host's world (any
+/// thread). True: taken; the main-thread tick reloads beside the host with one loading screen (a B2 re-join with
+/// the host's snapshot), no Leave and no trip home.
+bool QuickRejoinPressed();
 /// C6 (RE): the game's NexusRevolution transports seen created (0xCDB250 via 0xCDAC45) and, per
 /// transport, where its copy of the transport config lives (the word 0x4d0, then 3000, 5000, 6000,
 /// 25000 idle, 20000, 200). Newest first; entries can be stale (check before use).

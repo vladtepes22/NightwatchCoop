@@ -114,8 +114,10 @@ void DataBase::Open() {
         cache_path = GetUserPath(PathType::CacheDir) /
                      std::filesystem::path{serial}.replace_extension(".zip");
 
+        // Mrsuss60 2cc3764f / ac726e63 (HatsyRei): WRITE_ALLOW_READING exists in miniz < 3.1; the reader ignores it
+        // and FinishPreload() reopens the archive for writing, so the cache stays writable.
         if (!mz_zip_reader_init_file(&zip_ar, cache_path.string().c_str(),
-                                     MZ_ZIP_FLAG_READ_ALLOW_WRITING) ||
+                                     MZ_ZIP_FLAG_WRITE_ALLOW_READING) ||
             !mz_zip_validate_archive(&zip_ar, 0)) {
             LOG_INFO(Render, "Cache archive {} is not found or archive is corrupted",
                      cache_path.string().c_str());

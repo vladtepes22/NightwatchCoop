@@ -115,6 +115,49 @@ inline std::string DenyText(Deny d) {
     return "";
 }
 
+// ---- 0.8.1: a refusal is transient (wait and ask again) or final (the invader is told, it plays on alone) ----
+// Transient: the host's moment, not the host's choice or the invader's: not in a world yet (the host is at the title or in its
+// prologue: it may be a few seconds behind), a loading screen, a cutscene, a boss fight, a travel, a dead host, another invader
+// in, no free slot, too many knocks. The invader waits and asks again by itself (RetryDelayS) and shows a quiet status line, no
+// modal notice. Final: the host's switch (Off), a block, a stay-in-my-world switch (either side), the level range.
+inline bool IsTransient(Deny d) {
+    switch (d) {
+    case Deny::NotInWorld: case Deny::Loading: case Deny::Cutscene: case Deny::BossFight: case Deny::HostDead:
+    case Deny::Travelling: case Deny::InvaderPresent: case Deny::NoSlot: case Deny::RateLimited:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/// The refusal arrives as text (REJECT reason, or the host's kick text "invasion refused: <reason>"): which Deny says it?
+/// Deny::None when it is none of the gate's words (a handshake failure, a lost connection ...: final).
+inline Deny DenyOfText(const std::string& reason) {
+    for (int i = 1; i <= static_cast<int>(Deny::LevelRange); ++i) {
+        const Deny d = static_cast<Deny>(i);
+        if (d == Deny::LevelRange) continue;  // its text is built per refusal (LevelText) and is final anyway
+        const std::string t = DenyText(d);
+        if (!t.empty() && reason.find(t) != std::string::npos) return d;
+    }
+    return Deny::None;
+}
+/// 0.8.1: the link itself went away (the host travelled / went to the title and dropped the invader, or was not reachable yet):
+/// the host's moment too, a quiet wait and ask again, never a modal (smoke ivc: "the connection to the host was lost").
+inline bool ConnectionGone(const std::string& reason) {
+    return reason.find("the connection to the host was lost") != std::string::npos ||
+           reason.find("the host cannot be reached") != std::string::npos;
+}
+inline bool TransientRefusal(const std::string& reason) { return IsTransient(DenyOfText(reason)) || ConnectionGone(reason); }
+
+/// Seconds the invader waits before asking again after refusal number `attempt` (1 = the first): 5 10 20 30 45 60 60 ...
+/// (the host's knock limit kSpamMax per kRateWindowS stays far away); a rate-limited invader waits at least a minute.
+inline int RetryDelayS(int attempt, bool rate_limited = false) {
+    static const int steps[] = {5, 10, 20, 30, 45, 60};
+    const int n = attempt < 1 ? 0 : attempt - 1;
+    const int d = steps[n < 6 ? n : 5];
+    return rate_limited && d < 60 ? 60 : d;
+}
+
 // ---- 0.7.9: the level range ----
 // An invader may enter when  floor(host * 0.8 - 20) <= invader <= floor(host * 1.1 + 10)  (host 100: 60..120; host 55: 24..70;
 // host 4: 1..14). Both bounds are rounded DOWN (the user's rule), in integer math so there is no float error at the edges:
@@ -321,6 +364,13 @@ inline std::string EndTextForInvader(End e, const std::string& host) {
     case End::None: break;
     }
     return "";
+}
+
+/// 0.8.1: the invader reads one of the host's end texts (EndTextForInvader, all but Blocked end in ": back home") as the reject
+/// reason of its link. The invade notice already tells it (a toast), so this is no refusal and no modal box.
+inline bool EndedByHost(const std::string& reason) {
+    static const std::string tail = ": back home";
+    return reason.size() >= tail.size() && reason.compare(reason.size() - tail.size(), tail.size(), tail) == 0;
 }
 
 /// What the host's game sees of an invasion in progress (its own state; checked every frame).

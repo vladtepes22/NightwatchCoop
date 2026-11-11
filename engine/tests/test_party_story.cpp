@@ -337,6 +337,18 @@ static void test_guest_replays_gaol_scene() {
         auto b = Until(h, hurt, th, 120);
         CHECK(b && b->kind == StoryAction::PlayRemo && b->id == 28000010);
     }
+    // 0.8.1: a later grab only OFFERS the scene (mode 0); a guest that saw it gets no live mirror of the offer (the parallel
+    // follow's own load reaching the Gaol while the offer's mirror waited played it twice: smoke kg, guest 2).
+    {
+        GuestStory m;
+        m.NoteSeen(28000010);
+        StoryIntent o = s;
+        o.seq = 9;
+        o.mode = 0;
+        CHECK(m.Offer(o, true, t) && !m.MirrorPending());
+        GuestStory n;  // one that never saw it still mirrors the offer (as before)
+        CHECK(n.Offer(o, true, t) && n.MirrorPending());
+    }
     // A guest that watched it live (Seen) keeps only the flags.
     GuestStory w;
     w.NoteSeen(28000010);

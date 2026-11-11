@@ -206,6 +206,24 @@ bool nightwatch_auto_enabled();
 bool nightwatch_vpn_mode();
 // addr (network order) is a tunnel player address and nightwatch_vpn_mode() holds.
 bool nightwatch_tunnel_peer(std::uint32_t addr);
+// --- Opt-in direct path between Nightwatch VPN party members (0.8.1, CL-4a20f7; party/party_nwdirect.h) ---
+// Test aid: BB_NW_DIRECT_TEST=1 plays 127.0.0.1 as the tunnel and 127.0.0.2 as the direct (WAN) address.
+bool nwd_test_mode();
+// This PC plays over the Nightwatch tunnel (or the test aid).
+bool nwd_tunnel_mode();
+// addr (network order) is a tunnel peer (or the test aid's 127.0.0.1).
+bool nwd_tunnel_peer(std::uint32_t addr);
+// Answer the path probes of a pair under test while true.
+void p2p_nwd_arm(bool on);
+// Acks of our probes: tag (0 tunnel, 1 direct) and the probe's sequence number. Reader thread; keep it short.
+void p2p_nwd_set_ack_handler(std::function<void(std::uint8_t tag, std::uint32_t seq)> h);
+// One probe datagram from the party port to addr:port (network order); tag 0 = tunnel address, 1 = candidate.
+bool p2p_nwd_probe(std::uint32_t addr, std::uint16_t port_nbo, std::uint8_t tag, std::uint32_t seq);
+// The switch: the game keeps the peer's tunnel address (addr:port, network order); its datagrams leave for the
+// candidate and the candidate's come back as the tunnel address's. Set once, cleared once (the fallback). On a guest
+// also pins the peer in PeerPaths (no relay switching while direct).
+void p2p_nwd_alias(std::uint32_t tun_addr, std::uint16_t tun_port_nbo, std::uint32_t cand_addr,
+                   std::uint16_t cand_port_nbo, bool on);
 // --- Is the VPN really online? (0.7.6) --- Windows keeps an overlay VPN's adapter Up with its address
 // while the VPN app is switched off, so the adapter state proves nothing. The evidence: the vendor's
 // own local status (Radmin's service.log, `tailscale status --json`, `zerotier-cli info`; no network

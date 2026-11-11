@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2025-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "bbport_handle_trace.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -370,6 +371,7 @@ static void PrintMemory() {
     const u64 device = BbStats::device_alloc_bytes.load() - BbStats::device_free_bytes.load();
     u64 vma_blocks = 0, vma_used = 0;
     Vulkan::VmaDeviceUsage(vma_blocks, vma_used);
+    BbHandleTrace::Tick();
     std::printf("Memory: VRAM %llu MiB, GTT %llu MiB, RSS %llu MiB; Vulkan memory %llu MiB "
                 "allocated (VMA blocks %llu MiB, %llu MiB of them used); Vulkan images %llu MiB; "
                 "cached images %llu MiB in %llu; guest blocks in VRAM %llu MiB allocated, "
@@ -941,6 +943,18 @@ void VideoOutDriver::Flip(const Request& req) {
             if (const u64 early = BbStats::idle_flushes.exchange(0)) {
                 std::printf("Honest labels: %.1f submissions/frame sent early (GPU idle)\n",
                             early / double(frames));
+            }
+            {
+                static u64 last_dumps = 0, last_in_order = 0;
+                u64 dumps = 0, in_order = 0;
+                AmdGpu::OcclusionDumpCounts(dumps, in_order);
+                if (dumps != last_dumps && frames != 0) {
+                    std::printf("Occlusion dumps: %.1f a frame (%.1f in order)\n",
+                                double(dumps - last_dumps) / frames,
+                                double(in_order - last_in_order) / frames);
+                }
+                last_dumps = dumps;
+                last_in_order = in_order;
             }
             {
                 uint64_t sleeps = 0, sleep_ns = 0;

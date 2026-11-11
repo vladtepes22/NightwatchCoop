@@ -92,6 +92,20 @@ static void test_skip_rules() {
         CHECK(!EmevdSkipMatches(rooms[7], 13204821, 2004, 15, 8));  // the guest copy keeps its own on / off
         CHECK(DescribeSkipRule(rooms[1]) == "12424810:1003:5@2 (on a client)");
     }
+    {
+        // B6 (re081): a boss music event's guest-entered wait, by shape: 3[0] right after 1003[5](1, Host).
+        const std::uint8_t host1[2] = {1, 0}, client1[2] = {1, 1}, host2[2] = {2, 0};
+        CHECK(BossMusicEntryWaitSkip(3, 0, 8, 1003, 5, host1, 2));
+        CHECK(BossMusicEntryWaitSkip(3, 0, 34, 1003, 5, host1, 4));      // Lady Maria's third wait
+        CHECK(!BossMusicEntryWaitSkip(3, 0, 6, 1003, 5, client1, 2));    // "skip if client": the wandering-madness events
+        CHECK(!BossMusicEntryWaitSkip(3, 0, 8, 1003, 5, host2, 2));      // another skip count
+        CHECK(!BossMusicEntryWaitSkip(3, 2, 9, 1003, 5, host1, 2));      // the position condition stays
+        CHECK(!BossMusicEntryWaitSkip(3, 0, 8, 1003, 6, host1, 2));
+        CHECK(!BossMusicEntryWaitSkip(3, 0, 0, 1003, 5, host1, 2));      // no instruction before it
+        CHECK(!BossMusicEntryWaitSkip(3, 0, 8, 1003, 5, host1, 1));
+        CHECK(!BossMusicEntryWaitSkip(3, 0, 8, 1003, 5, nullptr, 2));
+        CHECK(BossMusicEntrySkipEnabled(nullptr) && BossMusicEntrySkipEnabled("1") && !BossMusicEntrySkipEnabled("0"));
+    }
     // Event 7600 as the data has it (common.emevd), and its Chalice Dungeon copy 12907600
     // (m29.emevd, the same 12 instructions): only 6 and 7 are skipped.
     const int banks[12][2] = {{2000, 2}, {2005, 3}, {2006, 1}, {3, 6}, {3, 6}, {0, 0},

@@ -21,6 +21,7 @@
 #include "nr_loadgap.h"
 #include "nr_outage.h"
 #include "nr_rxgap.h"
+#include "party_nw_direct_rules.h"
 #include "party_route.h"
 #include "party_udp.h"
 #include "party_vpnlobby.h"
@@ -227,8 +228,46 @@ std::function<void(std::uint32_t, std::uint16_t, const std::uint8_t*, std::size_
 ssize_type raw_recvfrom(sockfd_t fd, void* buf, std::size_t len, int flags, sockaddr_in* sa, socklen_type* sl) {
     return ::recvfrom(fd, static_cast<char*>(buf), static_cast<int>(len), flags, reinterpret_cast<sockaddr*>(sa), sl);
 }
+// 0.8.1 (CL-4a20f7) test aid, loopback runs only (BB_NW_DIRECT_TEST=1): the opt-in direct path of two instances on
+// one PC. The tunnel is 127.0.0.1 (BB_NET_SIM slows it), the "direct" candidate is 127.0.0.2: datagrams to it skip
+// the simulator (BB_NW_DIRECT_TEST_NET unset / "fast"), or are dropped for good ("drop"), or from `ms` after the
+// pair switched ("drop_after=<ms>": a direct path that dies). The party port of a loopback run is bound to
+// 127.0.0.1 only, so the datagram is delivered to 127.0.0.1 (same socket) after it skipped the simulator.
+bool nwd_test_on() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_NW_DIRECT_TEST");
+        return v && v[0] == '1';
+    }();
+    return on;
+}
+std::atomic<long long> g_nwd_switched_ms{-1};
+long long steady_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
+}
+bool nwd_test_drops() {
+    static const std::string mode = [] {
+        const char* v = std::getenv("BB_NW_DIRECT_TEST_NET");
+        return std::string(v ? v : "fast");
+    }();
+    if (mode == "drop") return true;
+    if (mode.rfind("drop_after=", 0) == 0) {
+        const long long sw = g_nwd_switched_ms.load();
+        return sw >= 0 && steady_ms() - sw >= std::atoll(mode.c_str() + 11);
+    }
+    return false;
+}
+
 // Every UDP datagram leaves here: through the network simulator when BB_NET_SIM is on.
 ssize_type raw_sendto(sockfd_t fd, const void* buf, std::size_t len, const sockaddr_in* sa) {
+    if (nwd_test_on() && sa->sin_addr.s_addr == 0x0200007fu) {
+        if (nwd_test_drops()) return static_cast<ssize_type>(len);
+        // The test party port is bound to 127.0.0.1 only (no firewall prompt): the "public" address 127.0.0.2 is the
+        // same socket, delivered without the simulator.
+        sockaddr_in real = *sa;
+        real.sin_addr.s_addr = 0x0100007fu;
+        return ::sendto(fd, static_cast<const char*>(buf), static_cast<int>(len), 0,
+                        reinterpret_cast<const sockaddr*>(&real), sizeof(real));
+    }
     if (netsim::enabled() && netsim::config().nat) netsim::nat_note_out(sa->sin_addr.s_addr, sa->sin_port);
     if (netsim::enabled() && netsim::applies_to(netsim::config(), sa->sin_addr.s_addr)) {
         return netsim::sendto(static_cast<std::uintptr_t>(fd), buf, len, sa->sin_addr.s_addr, sa->sin_port);
@@ -508,6 +547,12 @@ void alias_in(sockaddr_in& sa) {
         sa.sin_port = p;
     }
 }
+
+// 0.8.1 (CL-4a20f7): the opt-in direct path's hooks (party/party_nwdirect.cpp drives them).
+std::atomic<bool> g_nwd_armed{false};
+std::mutex g_nwd_mu;
+std::function<void(std::uint8_t, std::uint32_t)> g_nwd_ack;
+std::set<std::uint64_t> g_nwd_keys;  // peers whose alias is the direct path (a punch must not clear it)
 
 udp::PeerPaths& paths() {
     static udp::PeerPaths* p = [] {
@@ -928,6 +973,27 @@ void p2p_reader(std::shared_ptr<P2pPort> port) {
         if (!hdr) {
             // Not the game's: a peer's hole-punch probe, a STUN request (answered) or the
             // STUN server's answer to our request. None reaches a game socket.
+            std::uint8_t nty = 0, ntg = 0;
+            std::uint32_t nsq = 0;
+            if (nwd::decode_probe(buf, static_cast<std::size_t>(n), &nty, &ntg, &nsq)) {
+                // Opt-in direct path probes: a request is answered while armed (the pair is being tested), an
+                // ack goes to the driver. Neither is the game's.
+                if (nty == 0 && g_nwd_armed.load()) {
+                    std::uint8_t ack[nwd::kProbeLen];
+                    nwd::encode_probe(ack, sizeof(ack), 1, ntg, nsq);
+                    sockaddr_in to = sa;
+                    if (nwd_test_on() && ntg == 1) to.sin_addr.s_addr = 0x0200007fu;
+                    raw_sendto(port->fd, ack, sizeof(ack), &to);
+                } else if (nty == 1) {
+                    std::function<void(std::uint8_t, std::uint32_t)> h;
+                    {
+                        std::lock_guard<std::mutex> lk(g_nwd_mu);
+                        h = g_nwd_ack;
+                    }
+                    if (h) h(ntg, nsq);
+                }
+                continue;
+            }
             if (udp::is_probe(buf, static_cast<std::size_t>(n))) {
                 if (udp::is_probe_ack(buf, static_cast<std::size_t>(n))) {
                     std::uint32_t pa = sa.sin_addr.s_addr;
@@ -3166,7 +3232,12 @@ void p2p_punch(const char* label, std::uint32_t addr, std::uint16_t port_host, s
                     lip, bswap16(targets[1].sin_port), primary_heard ? ", the public one too" : "", pip,
                     bswap16(targets[0].sin_port));
             } else {
-                aliases().clear(targets[0].sin_addr.s_addr, targets[0].sin_port);
+                bool nwd_keep;
+                {
+                    std::lock_guard<std::mutex> lk(g_nwd_mu);
+                    nwd_keep = g_nwd_keys.count(source_key(targets[0].sin_addr.s_addr, targets[0].sin_port)) != 0;
+                }
+                if (!nwd_keep) aliases().clear(targets[0].sin_addr.s_addr, targets[0].sin_port);
             }
         }
         char ip[32];
@@ -3190,6 +3261,59 @@ std::int64_t p2p_ms_since_heard(std::uint32_t addr, std::uint16_t port_host) {
     auto it = port->heard.find(source_key(addr, bswap16(port_host)));
     if (it == port->heard.end()) return -1;
     return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - it->second).count();
+}
+
+bool nwd_test_mode() { return nwd_test_on(); }
+
+bool nwd_tunnel_mode() { return nightwatch_vpn_mode() || nwd_test_on(); }
+
+bool nwd_tunnel_peer(std::uint32_t addr) {
+    return nightwatch_tunnel_peer(addr) || (nwd_test_on() && addr == 0x0100007fu);
+}
+
+void p2p_nwd_arm(bool on) { g_nwd_armed.store(on); }
+
+void p2p_nwd_set_ack_handler(std::function<void(std::uint8_t, std::uint32_t)> h) {
+    std::lock_guard<std::mutex> lk(g_nwd_mu);
+    g_nwd_ack = std::move(h);
+}
+
+bool p2p_nwd_probe(std::uint32_t addr, std::uint16_t port_nbo, std::uint8_t tag, std::uint32_t seq) {
+    std::shared_ptr<P2pPort> port;
+    {
+        std::lock_guard<std::mutex> lock(g_net_mu);
+        auto it = g_p2p_ports.find(g_bound_port.load());
+        if (it != g_p2p_ports.end()) port = it->second;
+    }
+    if (!port || !addr || !port_nbo) return false;
+    std::uint8_t d[nwd::kProbeLen];
+    nwd::encode_probe(d, sizeof(d), 0, tag, seq);
+    sockaddr_in sa{};
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = addr;
+    sa.sin_port = port_nbo;
+    return raw_sendto(port->fd, d, sizeof(d), &sa) >= 0;
+}
+
+void p2p_nwd_alias(std::uint32_t tun_addr, std::uint16_t tun_port_nbo, std::uint32_t cand_addr,
+                   std::uint16_t cand_port_nbo, bool on) {
+    const std::uint64_t k = source_key(tun_addr, tun_port_nbo);
+    if (on) {
+        aliases().set(tun_addr, tun_port_nbo, cand_addr, cand_port_nbo);
+        {
+            std::lock_guard<std::mutex> lk(g_nwd_mu);
+            g_nwd_keys.insert(k);
+        }
+        g_nwd_switched_ms.store(steady_ms());
+        if (!settings().host) paths().pin_direct(tun_addr, tun_port_nbo, true);
+    } else {
+        {
+            std::lock_guard<std::mutex> lk(g_nwd_mu);
+            g_nwd_keys.erase(k);
+        }
+        aliases().clear(tun_addr, tun_port_nbo);
+        if (!settings().host) paths().pin_direct(tun_addr, tun_port_nbo, false);
+    }
 }
 
 std::string p2p_status() {

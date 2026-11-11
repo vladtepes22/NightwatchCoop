@@ -43,6 +43,7 @@
 #include "party_lan.h"
 #include "party_traversal.h"
 #include "party_netroute.h"
+#include "party_nwdirect.h"
 #include "party_connwarn.h"
 
 #include "../net/bbnet_internal.h"
@@ -867,6 +868,39 @@ void host_lost(const std::string& why) {
     else plog("host lost (%s): not in the host's world", why.c_str());
 }
 
+// ---- 0.8.1: the invader's quiet retry (party_invade_rules.h IsTransient / RetryDelayS) ----
+static std::atomic<int> g_invader_retries{0};
+static std::atomic<bool> g_invader_retry_pending{false};
+
+static void schedule_invader_retry(const std::string& reason) {
+    static const bool off = [] { const char* v = std::getenv("BB_PARTY_INVADE_RETRY"); return v && v[0] == '0'; }();
+    if (off) return;  // test aid: the scripted smoke phases (iv ...) time their own dials
+    if (g_invader_retry_pending.exchange(true)) return;
+    const int attempt = ++g_invader_retries;
+    const int delay = coop::invade::RetryDelayS(
+        attempt, coop::invade::DenyOfText(reason) == coop::invade::Deny::RateLimited);
+    plog("invasion refused for now (%s): asking again in %d s (attempt %d)", reason.c_str(), delay, attempt);
+    std::thread([delay] {
+        for (int i = 0; i < delay * 4; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            Runtime& r = R();
+            std::lock_guard<std::mutex> lk(r.mu);
+            if (r.stopping || r.shut || r.left) {
+                g_invader_retry_pending = false;
+                return;
+            }
+        }
+        g_invader_retry_pending = false;
+        bool rejected;
+        {
+            Runtime& r = R();
+            std::lock_guard<std::mutex> lk(r.mu);
+            rejected = r.link && r.link->state() == LinkState::Rejected;
+        }
+        if (rejected) plog("invader retry -> %d", runtime_rejoin());
+    }).detach();
+}
+
 void on_state(LinkState s, const std::string& detail) {
     Runtime& r = R();
     PartyLink* link;
@@ -911,6 +945,14 @@ void on_state(LinkState s, const std::string& detail) {
         }
     }
     bridge::OnLinkState(s, detail, link->reject_code(), reason);
+    // 0.8.1: an invader refused for the host's moment (not in a world yet, loading, a boss fight ...) waits and asks again.
+    if (!host && s == LinkState::Rejected && !coop::invade::TransientRefusal(reason) &&
+        !(link->reject_code() == RejectCode::Invasion && coop::invade::EndedByHost(reason)) && bridge::RefusalPlaysSolo(link->reject_code()))
+        plog("refusal notice (modal): %s", reason.c_str());
+    if (!host && s == LinkState::Connected) g_invader_retries = 0;
+    if (!host && s == LinkState::Rejected && link->reject_code() == RejectCode::Invasion &&
+        coop::invade::TransientRefusal(reason))
+        schedule_invader_retry(reason);
     if (!host && s == LinkState::Rejected && link->reject_code() == RejectCode::Auth) {
         // A1 live test aid: BB_PARTY_TEST_REJOIN_PASSWORD=<password>: 20 s after a wrong-password
         // refusal, the player "types" this password in System > Party and chooses Rejoin the host.
@@ -1354,6 +1396,7 @@ LinkCallbacks make_callbacks(bool host) {
         };
         cb.on_event = [](int slot, std::uint64_t, const std::string& name, const std::string& body) {
             if (netroute::OnEvent(true, slot, name, body)) return;  // F2: a guest's IPv6 endpoint
+            if (nwdirect::OnEvent(true, slot, name, body)) return;  // 0.8.1: the opt-in direct path
             if (name == coop::split::kChoosingEventName) {  // a guest asks "Travel with the party?"
                 on_split_choosing(slot, body);
                 return;
@@ -1491,6 +1534,7 @@ LinkCallbacks make_callbacks(bool host) {
         bbnet::np::set_host_closed_room_hook(&host_lost);
         cb.on_event = [](int slot, std::uint64_t, const std::string& name, const std::string& body) {
             if (netroute::OnEvent(false, slot, name, body)) return;  // F2: IPv6 table, relay punch
+            if (nwdirect::OnEvent(false, slot, name, body)) return;  // 0.8.1: the opt-in direct path
             if (name == coop::split::kChoosingEventName) {  // the host asks "Travel with the party?"
                 on_split_choosing(slot, body);
                 return;
@@ -2876,6 +2920,10 @@ bool lan_fallback(const PartyCode& code, const LinkConfig& cfg, std::array<std::
     const bool lb = loopback_mode();
     std::uint32_t nbo = 0;
     std::memcpy(&nbo, ip->data(), 4);
+    // NW-03d11e5: a partial code's guessed address is in the Nightwatch /22: the host may be in another /24 of
+    // it. Three more unicast probes (same last octet) ride along with the broadcast; they cross the tunnel.
+    std::vector<std::array<std::uint8_t, 4>> tun_cands;
+    if (code.lan_partial) tun_cands = tunnel_lan_candidates(*ip);
     std::string why;
     if (forced) {
         why = forced;
@@ -2900,7 +2948,12 @@ bool lan_fallback(const PartyCode& code, const LinkConfig& cfg, std::array<std::
     if (why.empty()) return false;
     const std::array<std::uint8_t, 8> no_secret{};
     const crypto::Key key = crypto::derive_party_key(cfg.password, code.plain ? no_secret.data() : code.secret.data());
-    const std::vector<std::uint32_t> targets = lb ? std::vector<std::uint32_t>{0x0100007fu} : lan::broadcast_targets();
+    std::vector<std::uint32_t> targets = lb ? std::vector<std::uint32_t>{0x0100007fu} : lan::broadcast_targets();
+    for (const auto& c : tun_cands) {
+        std::uint32_t n = 0;
+        std::memcpy(&n, c.data(), 4);
+        targets.push_back(n);
+    }
     plog("LAN fallback: %s; looking for the host on this network (port %u)", why.c_str(), *port);
     lan::Found f;
     std::string note;
@@ -3110,6 +3163,11 @@ void startup_main() {
                              bridge::OnNetwork(line);
                          },
                          [] { return stopping(); }});
+    nwdirect::Configure({[] { return runtime_link(); }, [](const std::string& m) { plog("%s", m.c_str()); },
+                         [] { return stopping(); }, [] {
+                             std::lock_guard<std::mutex> lk(R().mu);
+                             return R().have_local_state ? static_cast<int>(R().local_state) : 0;
+                         }});
     if (host) start_host(std::move(cfg));
     else start_guest(std::move(cfg));
     bool have;
@@ -3149,6 +3207,7 @@ void do_shutdown() {
     }
     traversal::stop();
     netroute::Stop();
+    nwdirect::Stop();
     if (upnp) upnp->stop(2000);
 }
 

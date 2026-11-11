@@ -5,6 +5,7 @@
 #include "game_state.h"
 
 #include "coop_hooks.h"
+#include "party_seam.h"
 #include "party_start.h"
 #include "party_async_io.h"
 #include "../bbport_threads.h"
@@ -258,6 +259,11 @@ GameSnapshot ReadGameState(bool call_game) {
     const std::uint64_t helper = Slot(kNowLoadingHelper);
     s.in_game_frame = helper && (Field<std::uint8_t>(helper, 0x50, 0) || Field<std::uint8_t>(helper, 0x51, 0));
     s.loading = requested && !s.in_game_frame;
+    // seam native hold: the map is loaded and the player exists, only MoveMapStep's screen gate is kept shut by us (so
+    // InGameStart has not run and no in-game frame is seen): to the party code the load is over, the screen is the seam's.
+    if (s.loading && s.world_up && coop::seam::NativeHeld()) {
+        s.loading = false;
+    }
     s.game_data_man = Slot(kGameDataMan);
     s.player_rec = Field<std::uint64_t>(s.game_data_man, 8, 0);
     if (s.player_rec) {

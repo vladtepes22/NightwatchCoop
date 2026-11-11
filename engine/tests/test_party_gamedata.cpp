@@ -17,6 +17,10 @@ static int g_fail = 0;
     } while (0)
 
 int main() {
+    CHECK(!coop::gamedata::ShouldShowRebuildNotice(false, 30.0));  // cache hit: never
+    CHECK(!coop::gamedata::ShouldShowRebuildNotice(true, 0.4));    // quick rebuild: not yet
+    CHECK(coop::gamedata::ShouldShowRebuildNotice(true, 1.2));
+
     using namespace coop::gamedata;
     const std::string good =
         "BBPARTYTABLES 1\r\nkey x\r\n[maps] 2\r\n20\r\n10\r\n[returnPoints] 1\r\n7\r\n"

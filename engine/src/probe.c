@@ -10,6 +10,7 @@
 #include "../gpu/bbnet.h"
 #include "gpu/bbgpu.h"
 #include "respawn_patch.h"
+#include "havok_event_guard.h"
 #if !defined(__x86_64__) || !defined(__GNUC__)
 #error This prototype requires x86-64 GCC or Clang (including MinGW).
 #endif
@@ -550,6 +551,42 @@ static void write_crash_dump(EXCEPTION_POINTERS *e) {
     DWORD written;
     WriteFile(GetStdHandle(STD_ERROR_HANDLE), line, (DWORD)strlen(line), &written, NULL);
 }
+/* visy 0.8.1 crashfix081 (CL-078659): a Havok behaviour event whose animation object was freed (0x1a21100 / its
+ * annotation walker 0xf5bc30 read garbage) returns as if the animation had no annotations. havok_event_guard.h has
+ * the layout; BB_HAVOK_EVENT_GUARD=0 off. */
+static int havok_event_guard(EXCEPTION_POINTERS *e) {
+    CONTEXT *c = e->ContextRecord;
+    if (!image || c->Rip - (uintptr_t)image >= image_size) return 0;
+    const uint64_t off = c->Rip - (uintptr_t)image;
+    if (!((off >= HEG_BODY_FROM && off < HEG_EXIT) || (off >= HEG_WALK_BODY_FROM && off < HEG_WALK_BODY_TO))) return 0;
+    static volatile LONG guard_state; /* 0 unknown, 1 on, 2 off */
+    if (guard_state == 0) {
+        const char *env = getenv("BB_HAVOK_EVENT_GUARD");
+        const int on = !(env && env[0] == '0') && heg_image_matches(image, image_size);
+        InterlockedCompareExchange(&guard_state, on ? 1 : 2, 0);
+    }
+    const uint64_t *stack = (const uint64_t *)(uintptr_t)c->Rsp;
+    if (guard_state != 1 || IsBadReadPtr(stack, 5 * sizeof(uint64_t))) return 0;
+    heg_regs regs = {off, c->Rsp, c->Rbp, c->Rbx, c->R14, c->R15};
+    if (heg_recover(&regs, stack, (uint64_t)(uintptr_t)image) == HEG_NONE) return 0;
+    c->Rip = (uintptr_t)image + regs.rip;
+    c->Rsp = regs.rsp;
+    c->Rbp = regs.rbp;
+    c->Rbx = regs.rbx;
+    c->R14 = regs.r14;
+    c->R15 = regs.r15;
+    static volatile LONG hits;
+    const LONG n = InterlockedIncrement(&hits);
+    if (n <= 5 || (n & (n - 1)) == 0) {
+        char line[200];
+        snprintf(line, sizeof line, "Runtime: Havok event guard: animation event of a freed animation skipped "
+                 "(fault at +0x%llx reading %p, %ld so far)\n", (unsigned long long)off,
+                 (void *)e->ExceptionRecord->ExceptionInformation[1], (long)n);
+        DWORD written;
+        WriteFile(GetStdHandle(STD_ERROR_HANDLE), line, (DWORD)strlen(line), &written, NULL);
+    }
+    return 1;
+}
 static LONG CALLBACK vectored_handler(EXCEPTION_POINTERS *e) {
     EXCEPTION_RECORD *r = e->ExceptionRecord;
     if (r->ExceptionCode==0x20474343 && getenv("BB_LOG_CXX_EXCEPTIONS")) {
@@ -575,6 +612,7 @@ static LONG CALLBACK vectored_handler(EXCEPTION_POINTERS *e) {
             c->Rip = (DWORD64)(uintptr_t)recover_jump;
             return EXCEPTION_CONTINUE_EXECUTION;
         }
+        if (havok_event_guard(e)) return EXCEPTION_CONTINUE_EXECUTION;
     }
     if (!fatal(r->ExceptionCode)) return EXCEPTION_CONTINUE_SEARCH;
     if (!guest_address((uintptr_t)e->ContextRecord->Rip) && !host_fault_dead_end(e->ContextRecord)) {

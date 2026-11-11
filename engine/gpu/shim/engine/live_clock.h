@@ -10,6 +10,8 @@ namespace BbEngine::LiveClock {
 /// Hooks the step block the Deltatime patch left; false (logged) leaves the patch's static 60 FPS.
 bool Install(std::uint8_t* image, std::size_t size);
 bool Active();
+/// True once after the live clock asked for a swapchain re-create (visy's issue #35): the presenter does it next.
+bool TakeSwapchainRefresh();
 std::uint64_t Steps();
 double GameSeconds();
 float LastDt();

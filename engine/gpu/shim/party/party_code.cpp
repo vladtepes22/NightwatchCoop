@@ -477,12 +477,31 @@ std::string make_party_code(const std::array<std::uint8_t, 4>& ipv4, std::uint16
     return encode_party_code(pc);
 }
 
+bool is_nw_tunnel_ipv4(const std::array<std::uint8_t, 4>& ip) { return ip[0] == 10 && ip[1] == 8 && ip[2] <= 3; }
+
+std::vector<std::array<std::uint8_t, 4>> tunnel_lan_candidates(const std::array<std::uint8_t, 4>& guess) {
+    std::vector<std::array<std::uint8_t, 4>> v;
+    if (!is_nw_tunnel_ipv4(guess)) return v;
+    for (std::uint8_t third = 0; third <= 3; ++third)
+        if (third != guess[2]) v.push_back({10, 8, third, guess[3]});
+    return v;
+}
+
+bool make_lan_code_for(const std::array<std::uint8_t, 4>& ip, std::uint16_t port,
+                       const std::array<std::uint8_t, 8>& secret, std::uint8_t flags, std::string* code) {
+    const char* off = std::getenv("BB_PARTY_VPN_FULL_CODE");
+    const bool full = is_nw_tunnel_ipv4(ip) && !(off && off[0] == '0');
+    const std::uint8_t f = full ? static_cast<std::uint8_t>(flags & ~kCodeFlagLan)
+                                : static_cast<std::uint8_t>(flags | kCodeFlagLan);
+    *code = make_party_code(ip, port, secret, f);
+    return true;
+}
+
 bool make_lan_code(std::uint16_t port, const std::array<std::uint8_t, 8>& secret, std::uint8_t flags,
                    std::string* code) {
     std::array<std::uint8_t, 4> ip{};
     if (!best_local_ipv4(&ip)) return false;
-    *code = make_party_code(ip, port, secret, static_cast<std::uint8_t>(flags | kCodeFlagLan));
-    return true;
+    return make_lan_code_for(ip, port, secret, flags, code);
 }
 
 #if defined(_WIN32)

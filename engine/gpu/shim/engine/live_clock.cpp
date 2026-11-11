@@ -13,12 +13,15 @@
 // stands aside while this runs; the party code reads Steps / GameSeconds / LastDt from it as before.
 #include "live_clock.h"
 #include "live_clock_rules.h"
+#include "bbport_live_refresh_logic.h"
+#include "party/game_state.h"
 #include "loading.h"
 #include "engine_hooks.h"
 #include "bbport_settings.h"
 #include "../sdl_window.h"
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <atomic>
@@ -219,6 +222,36 @@ bool HookPacerLate() {
 }
 
 /// The main loop's step (rdi: the pacer; rsi: where the step goes, [rbp - 0x38]).
+/// visy 0.8.1 (livefps081, his issue #35: Live FPS stuck after a respawn, cleared by minimising and restoring the window
+/// = a swapchain re-create): once a real second the rate of the steps is judged (bbport_live_refresh_logic.h); a
+/// sustained drop under the stay before the last load asks the presenter for one swapchain re-create (a safety net).
+/// BB_LIVE_FPS_REFRESH=0 off; BB_TEST_SWAPCHAIN_RECREATE_AT=N (test aid): N in-world seconds after every load.
+std::atomic<bool> g_swapchain_refresh{false};
+void LiveRefreshTick(int target) {
+    static const bool on = [] { const char* v = std::getenv("BB_LIVE_FPS_REFRESH"); return !(v && *v == '0'); }();
+    static const int test_at = [] { const char* v = std::getenv("BB_TEST_SWAPCHAIN_RECREATE_AT"); return v ? std::atoi(v) : 0; }();
+    if (!on && test_at <= 0) return;
+    using clock = std::chrono::steady_clock;
+    static clock::time_point last = clock::now();
+    static std::uint64_t last_steps = 0;
+    static BbLiveRefresh::State st;
+    const auto now = clock::now();
+    const double secs = std::chrono::duration<double>(now - last).count();
+    if (secs < 1.0) return;
+    const std::uint64_t n = g_steps.load(std::memory_order_relaxed);
+    const double fps = double(n - last_steps) / secs;
+    last = now, last_steps = n;
+    const auto gs = coop::ReadGameState(false);
+    const bool in_world = gs.world_up && !gs.loading && gs.in_game_frame;
+    const double before = st.baseline;
+    if (BbLiveRefresh::Second(st, fps, in_world, target, test_at)) {
+        g_swapchain_refresh.store(true, std::memory_order_relaxed);
+        host_log("Live clock: %s, %.1f steps/s (stay before the load %.1f/s): the swapchain is re-created once "
+                 "(BB_LIVE_FPS_REFRESH=0 off)", test_at > 0 ? "test aid" : "frame rate stuck below the stay before the load",
+                 fps, before);
+    }
+}
+
 __attribute__((sysv_abi)) void LiveClockTick(u8* pacer, float* out) {
     float measured;
     std::memcpy(&measured, pacer + 0x264, 4);
@@ -253,6 +286,7 @@ __attribute__((sysv_abi)) void LiveClockTick(u8* pacer, float* out) {
     }
     g_game_seconds.store(g_game_seconds.load(std::memory_order_relaxed) + dt, std::memory_order_relaxed);
     g_steps.fetch_add(1, std::memory_order_relaxed);
+    LiveRefreshTick(target);
     if (g_logged_target.exchange(target, std::memory_order_relaxed) != target)
         host_log("Live clock: target %d FPS%s, step %.5f s (max 1/%d s)", target > 0 ? target : LiveCeiling,
                  target > 0 ? "" : " (uncapped)", double(dt), max_dt_hz);
@@ -415,6 +449,7 @@ bool Install(std::uint8_t* image, std::size_t size) {
     return ok;
 }
 
+bool TakeSwapchainRefresh() { return g_swapchain_refresh.exchange(false, std::memory_order_relaxed); }
 bool Active() { return g_active.load(std::memory_order_relaxed); }
 std::uint64_t Steps() { return g_steps.load(std::memory_order_relaxed); }
 double GameSeconds() { return g_game_seconds.load(std::memory_order_relaxed); }

@@ -48,6 +48,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 #include <string_view>
 
 namespace party {
@@ -118,6 +119,15 @@ std::string make_party_code(const std::array<std::uint8_t, 4>& ipv4, std::uint16
                             const std::array<std::uint8_t, 16>* ipv6 = nullptr);
 bool make_lan_code(std::uint16_t port, const std::array<std::uint8_t, 8>& secret, std::uint8_t flags,
                    std::string* code);
+// The same for a given local address. NW-03d11e5: a Nightwatch tunnel address (10.8.0.0/22, four /24s)
+// gets a FULL code (no kCodeFlagLan: a short LAN code holds only the last octet and the guest fills in
+// its own /24, wrong in another /24 of the pool). BB_PARTY_VPN_FULL_CODE=0 turns that off.
+bool make_lan_code_for(const std::array<std::uint8_t, 4>& ip, std::uint16_t port,
+                       const std::array<std::uint8_t, 8>& secret, std::uint8_t flags, std::string* code);
+bool is_nw_tunnel_ipv4(const std::array<std::uint8_t, 4>& ip);  // 10.8.0.0 - 10.8.3.255
+// The other candidates for a partial LAN code whose guessed address `guess` is a tunnel address: the same
+// last octet in the other three /24s of the /22 (guess itself excluded). Empty for any other address.
+std::vector<std::array<std::uint8_t, 4>> tunnel_lan_candidates(const std::array<std::uint8_t, 4>& guess);
 
 // A guest joining with this code uses no password: a party code whose host set none
 // (no kCodeFlagPasswordRequired). A plain host:port carries no flags: the password is kept.

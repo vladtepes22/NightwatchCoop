@@ -1,0 +1,15 @@
+# input<TAB>expected  (scripts/ipmask.py and src/runtime_ipmask.c must both give the expected text)
+send 4 -> 192.168.1.5:9307 vport 1->2: 40 bytes	send 4 -> 192.168.x.x:9307 vport 1->2: 40 bytes
+joining 8.8.4.4:9307 as x (LAN code)	joining 8.8.x.x:9307 as x (LAN code)
+STUN at 203.0.113.77:3478, seen 203.0.113.8	STUN at 203.0.x.x:3478, seen 203.0.x.x
+loopback 127.0.0.1 127.1.2.3 any 0.0.0.0 bcast 255.255.255.255	loopback 127.0.0.1 127.1.2.3 any 0.0.0.0 bcast 255.255.255.255
+version 1.2.3.4.5 build 10.0.26200.1 driver 566.14.0.0 ip 300.1.1.1	version 1.2.3.4.5 build 10.0.26200.1 driver 566.14.0.0 ip 300.1.1.1
+a 100.64.7.9, b 26.1.2.3.	a 100.64.x.x, b 26.1.x.x.
+tunnel=10.8.0.2/24 gw 10.8.0.1	tunnel=10.8.x.x/24 gw 10.8.x.x
+x1.2.3.4 1.2.3.4x v1.2.3.4	x1.2.3.4 1.2.x.xx v1.2.3.4
+already 1.2.x.x and 10.0.x.x	already 1.2.x.x and 10.0.x.x
+[2001:db8:1:2::5]:9307	[2001:db8:x:x:x:x:x:x]:9307
+2001:0db8:0:0:0:0:0:1 fe80::1%12	2001:0db8:x:x:x:x:x:x fe80:x:x:x:x:x:x:x%12
+::1 :: 19:49:49 7600:2005:3 Party::Log	::1 :: 19:49:49 7600:2005:3 Party::Log
+IPv6: on; this PC is [2a00:1450:4001:81b::200e] (adapter)	IPv6: on; this PC is [2a00:1450:x:x:x:x:x:x] (adapter)
+peer=ip:10.2.3.4,gw:8.8.8.8	peer=ip:10.2.x.x,gw:8.8.x.x

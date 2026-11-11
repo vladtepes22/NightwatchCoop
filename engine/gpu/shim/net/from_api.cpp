@@ -163,6 +163,11 @@ std::string from_api_ss_info() {
     return x;
 }
 
+bool ss_info_answered_locally(bool host, const std::string& url, bool relay) {
+    if (host || relay) return false;
+    return ends_with(parse_url(url).path, "ss.info");
+}
+
 FromApi::FromApi(PartyHostService& service) : service_(service) {}
 
 FromApi& FromApi::instance() {

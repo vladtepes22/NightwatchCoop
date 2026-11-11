@@ -82,7 +82,7 @@ std::string AuthRejectText(bool coded, bool code_needs_password, bool sent_passw
 bool RefusalPlaysSolo(RejectCode code);
 /// The message box for a guest's refusal ("title\nwhat to do"); `reason` as for RejectText (an
 /// Auth refusal: AuthRejectText). Empty when RefusalPlaysSolo is false.
-std::string RefusalNotice(RejectCode code, const std::string& reason);
+std::string RefusalNotice(RejectCode code, const std::string& reason, bool was_in = false);
 /// The password a guest's Rejoin sends: System > Party's when it changed since the link started
 /// (`flow_at_start` -> `flow_now`), else the one it joined with; none for a code that carries none.
 std::string RejoinPassword(const std::string& joined_with, const std::string& flow_at_start,

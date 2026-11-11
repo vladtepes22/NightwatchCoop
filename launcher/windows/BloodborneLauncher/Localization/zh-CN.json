@@ -2630,5 +2630,15 @@
   "Whether Winter Lanterns can replace other enemies. They inflict Frenzy from a distance just by seeing you, often before you see them, and from up high where you can't reach them. Off, they never turn up anywhere new; the ones the game places itself can still be replaced by other enemies. The Brain of Mensis never moves either way.": "冬季灯笼能否替换其他敌人。它们只要看到你就会在远处造成狂乱，常常在你发现它们之前，也会从你够不到的高处出现。关闭后，它们不会出现在新的位置；游戏自己放置的灯笼仍可能被其他敌人替换。无论哪种设置，孟西斯之脑都不会移动。",
   "No Winter Lanterns.": "没有冬季灯笼。",
   "Father Gascoigne, Ludwig and the Orphan of Kos are the only bosses that change into a second form. With this on, they always turn into another boss at that point, one that fights nowhere else in the world, and that boss never changes again. Two chalice bosses join the pool for this, even when chalice bosses are off. With this off, one of the three in an arena that isn't its own fights its first phase only, and the fight ends when that phase dies.": "加斯科因神父、路德维希和科斯的孤儿是仅有的会变成第二形态的Boss。开启后，他们在此时总是变成另一个Boss，该Boss不会在世界上其他任何地方出战，也不会再次变身。为此会有两个圣杯Boss加入候选池，即使圣杯Boss处于关闭状态。关闭时，若三者之一出现在不属于自己的场地，则只打第一阶段，该阶段被击败后战斗即结束。",
-  "This fight normally has several bosses at once. \"One boss only\" puts a single boss alone in the room; \"A boss for each\" gives every one its own boss. Only matters when bosses are randomized.": "这场战斗通常同时有多个Boss。“One boss only”只在房间里放一个Boss；“A boss for each”则给每个Boss各自分配一个Boss。仅在Boss随机化开启时有效。"
+  "This fight normally has several bosses at once. \"One boss only\" puts a single boss alone in the room; \"A boss for each\" gives every one its own boss. Only matters when bosses are randomized.": "这场战斗通常同时有多个Boss。“One boss only”只在房间里放一个Boss；“A boss for each”则给每个Boss各自分配一个Boss。仅在Boss随机化开启时有效。",
+  "Load with the host": "与房主一同加载",
+  "Arrive beside the host": "在房主身旁到达",
+  "Rejoin in place": "原地重新加入",
+  "Hold the screen until smooth": "保持画面直到流畅",
+  "Allow direct connection (lower ping, party members see your IP)": "允许直连（延迟更低，队伍成员可看到你的 IP）",
+  "On by default. When the host travels by lamp, headstone or Hunter's Mark, your game starts loading at once, behind one loading screen, instead of after the host's load.": "默认开启。房主通过灯、墓碑或猎人标记传送时，你的游戏会立即开始加载，只显示一个加载画面，而不是等房主加载完之后再开始。",
+  "On by default. A party travel's load puts you beside the host, with no jump after the loading screen.": "默认开启。队伍传送的加载会让你出现在房主身旁，加载画面结束后不会再跳位置。",
+  "On by default. Party > Rejoin in the host's world reloads you beside the host with one loading screen, without leaving and going home first.": "默认开启。在房主的世界中选择 队伍 > 重新加入，会用一个加载画面把你重新加载到房主身旁，无需先离开并回到自己的世界。",
+  "Off by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more).": "默认关闭。在队伍中，加载画面会一直保留到世界运行流畅为止（最多再多 3 秒）。",
+  "Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link.": "默认关闭。通过 Nightwatch VPN，会与同样允许直连的队伍成员尝试直接连接约 3 秒，仅在明显快于隧道时才使用。该成员随后会看到你的公网 IP。下次建立队伍连接时生效。"
 }

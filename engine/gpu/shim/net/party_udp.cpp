@@ -402,11 +402,20 @@ void PeerPaths::on_ack(std::uint32_t addr, std::uint16_t port_nbo, Clock::time_p
     it->second.v.answered = true;
 }
 
+bool PeerPaths::pin_direct(std::uint32_t addr, std::uint16_t port_nbo, bool on) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = peers_.find(key(addr, port_nbo));
+    if (it == peers_.end()) return false;
+    it->second.nwd_pin = on;
+    if (on) it->second.v.relayed = false;
+    return true;
+}
+
 bool PeerPaths::note_gap(std::uint32_t addr, std::uint16_t port_nbo, Clock::time_point now, std::string* note) {
     std::lock_guard<std::mutex> lk(mu_);
     if (cfg_.gaps_to_relay <= 0 || cfg_.force) return false;
     auto it = peers_.find(key(addr, port_nbo));
-    if (it == peers_.end() || !it->second.v.relay_port) return false;
+    if (it == peers_.end() || !it->second.v.relay_port || it->second.nwd_pin) return false;
     Peer& p = it->second;
     if (p.v.relayed && p.by_gaps) {
         // The gaps go on over the relay: the direct path was not the cause.
@@ -483,7 +492,7 @@ void PeerPaths::tick(Clock::time_point now, std::vector<std::pair<std::uint32_t,
                                             : std::string(": IPv6 no longer needed or answered")));
             }
         }
-        if (cfg_.force || !p.v.relay_port) continue;
+        if (cfg_.force || !p.v.relay_port || p.nwd_pin) continue;
         const bool any_answered = p.v.answered || p.v.answered6;
         const Clock::time_point last_any = std::max(p.last_ack, p.v.answered6 ? p.last_ack6 : p.last_ack);
         const bool fresh_ack = fresh4 || fresh6;

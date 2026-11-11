@@ -254,6 +254,16 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.party_name_colours = i != 0;
     } else if (key == "party_look_sync") {
         v.party_look_sync = i != 0;
+    } else if (key == "party_parallel_follow") {
+        v.party_parallel_follow = i != 0;
+    } else if (key == "party_settled_drop") {
+        v.party_settled_drop = i != 0;
+    } else if (key == "party_load_beside") {
+        v.party_load_beside = i != 0;
+    } else if (key == "party_nw_direct") {
+        v.party_nw_direct = i != 0;
+    } else if (key == "party_quick_rejoin") {
+        v.party_quick_rejoin = i != 0;
     } else if (key == "party_map_marks") {
         v.party_map_marks = i != 0;
     } else if (key == "party_through_walls") {
@@ -920,6 +930,8 @@ void Load() {
         {"BB_TEXTURE_QUALITY", "texture_quality"},
         {"BB_LIVE_FPS", "live_fps"}, {"BB_MAX_DT_HZ", "max_dt_hz"}, {"BB_PARTY_INVADERS", "party_invaders"}, {"BB_PARTY_MAX_INVADERS", "party_max_invaders"},
         {"BB_AUTO_HUD", "auto_hide_hud"}, {"BB_PARTY_NAME_COLOURS", "party_name_colours"}, {"BB_PARTY_LOOK_SYNC", "party_look_sync"}, {"BB_PARTY_MAP_MARKS", "party_map_marks"},
+        {"BB_PARTY_PARALLEL_FOLLOW", "party_parallel_follow"}, {"BB_PARTY_SETTLED_DROP", "party_settled_drop"}, {"BB_PARTY_LOAD_BESIDE", "party_load_beside"},
+        {"BB_PARTY_QUICK_REJOIN", "party_quick_rejoin"}, {"BB_PARTY_NW_DIRECT", "party_nw_direct"},
         {"BB_PARTY_OPEN", "party_open"}, {"BB_PARTY_OPEN_ANY_LEVEL", "party_open_any_level"}, {"BB_PARTY_SPLITSCREEN", "party_splitscreen"}, {"BB_PARTY_STAY", "party_stay"}, {"BB_PARTY_MESSAGES", "party_messages"},  // visy 0.7.5 (2179ec17, 51fb67e9)
         {"BB_FSR_SHARPNESS", "sharpness"},        {"BB_JITTER", "jitter"},
         {"BB_REACTIVE", "reactive"},              {"BB_REACTIVE_SCALE", "reactive_scale"},
@@ -1116,6 +1128,11 @@ void Save() {
     put("party_hide_bad_names", flag(v.party_hide_bad_names));
     put("party_name_colours", flag(v.party_name_colours));
     put("party_look_sync", flag(v.party_look_sync));
+    put("party_parallel_follow", flag(v.party_parallel_follow));
+    put("party_settled_drop", flag(v.party_settled_drop));
+    put("party_load_beside", flag(v.party_load_beside));
+    put("party_quick_rejoin", flag(v.party_quick_rejoin));
+    put("party_nw_direct", flag(v.party_nw_direct));
     put("party_map_marks", flag(v.party_map_marks));
     put("party_through_walls", flag(v.party_through_walls));
     put("party_stain_marker", flag(v.party_stain_marker));

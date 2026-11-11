@@ -526,6 +526,26 @@ static json::Value guest_http(const char* guest, const char* method, const std::
     return parse(std::string(b.begin(), b.end()));
 }
 
+// chalice081 (NW-cec05db, NW-be0f493, NW-cab726f): a guest answers its own ss.info (the document's index N is the asking
+// game's region's); the host, every other FROM request and the BB_PARTY_SSINFO_LOCAL=0 relay keep the old route.
+static void test_ss_info_local() {
+    using bbnet::party::ss_info_answered_locally;
+    const std::string ss = "https://ss4.scej-network.jp:20443/bb-us/ss.info";
+    CHECK(ss_info_answered_locally(false, ss, false));
+    CHECK(ss_info_answered_locally(false, "https://ss4.scej-network.jp:20443/bb-eu/ss.info", false));
+    CHECK(!ss_info_answered_locally(true, ss, false));   // the host builds it in-process anyway
+    CHECK(!ss_info_answered_locally(false, ss, true));   // the relay switch
+    CHECK(!ss_info_answered_locally(false, "http://bbparty.invalid:18671/basic_utils/login", false));
+    CHECK(!ss_info_answered_locally(false, "http://bbparty.invalid:18671/channel/get_details_info?user_id=1", false));
+    // The document the asking process builds: <ss>0</ss> and a <gameurlN> with all 37 api tags (N = this process's
+    // FrpgNetMan+0x9e8 when readable - the harness's fake image here - else every fallback index).
+    const std::string doc = bbnet::party::from_api_ss_info();
+    CHECK(doc.find("<ss>0</ss>") != std::string::npos);
+    CHECK(doc.find("<gameurl") != std::string::npos);
+    CHECK(doc.find("<api_Login>http://bbparty.invalid:18671</api_Login>") != std::string::npos);
+    CHECK(doc.find("<api_WanderingGhostGet>") != std::string::npos);
+}
+
 static void test_from_api() {
     Http h;
     h.ctx = fn<HttpInit>("sceHttpInit")(1, 1, 0x10000);
@@ -1389,6 +1409,7 @@ int main() {
     test_remote_guest_lan();
     test_matching2_host();
     test_from_api();
+    test_ss_info_local();
     test_hold_scope();
     test_chalice_channels();
     test_matching2_leave_and_join();

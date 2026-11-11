@@ -60,6 +60,8 @@
 #include "../bbport_frame_state.h"
 #include "../bbport_settings.h"
 #include "look_sync_rules.h"
+#include "party_seam.h"
+#include "seam_rules.h"
 #include "party_connwarn.h"
 #include "../bbport_toggles.h"
 
@@ -1281,6 +1283,32 @@ struct FunnelKeepRoom {
 // old one), so it stayed invisible with its plate up (split24 / hd22 / hd26). Every task we rewind
 // is remembered; once its chr exists it gets InGameStart's two steps.
 std::map<u64, double> g_rewound;  // task -> when rewound (main thread)
+std::map<u64, double> g_rebuilt_alive;  // task -> when rewound: its chr's dead bit is cleared once HP > 0 (main thread)
+int ChrHp(u64 chr);
+
+/// C2 (rec2): a member copy rebuilt without a load (a rewound task: in-place revive, new look, the host's revive,
+/// a wipe's re-join) is born with the dead mark (target-bank entry [[chr+0x3B0]+0x40]+8 -> +0x18 -> +0x30, +0x18
+/// bit 0) although its HP is full: no enemy perceives it, so a boss with the host dead goes idle beside a living
+/// guest. Cleared once, as soon as the copy reads HP > 0. BB_PARTY_REBUILT_ALIVE=0 off (A/B).
+bool RebuiltAliveOn() {
+    static const bool on = !(std::getenv("BB_PARTY_REBUILT_ALIVE") && std::getenv("BB_PARTY_REBUILT_ALIVE")[0] == '0');
+    return on;
+}
+/// Returns true when done (cleared, or nothing to clear), false when the copy is not ready yet.
+bool ClearRebuiltDeadBit(u64 c, const char* why) {
+    if (ChrHp(c) <= 0) return false;
+    const u64 ent = Field<u64>(Field<u64>(Field<u64>(c, 0x3b0), 0x40), 8);
+    const u64 e3 = ent ? Field<u64>(ent, 0x18) : 0, e30 = e3 ? Field<u64>(e3, 0x30) : 0;
+    if (!e30) return false;
+    const u8 b = Field<u8>(e30, 0x18);
+    if (b & 1) {
+        const u8 nb = u8(b & ~1u);
+        SafeWrite(e30 + 0x18, &nb, 1);
+    }
+    Log("rebuilt member chr %08x (HP %d, %s): target-bank state +0x18 was %02x%s", Field<u32>(c, 8), ChrHp(c), why,
+        unsigned(b), (b & 1) ? ": dead mark cleared once, enemies perceive it" : " (no dead mark)");
+    return true;
+}
 
 void ShowLikeInGameStart(u64 c, const char* why) {
     using Bool = u8(BB_COOP_SYSV*)(u64);
@@ -1324,6 +1352,7 @@ int RewindRemoteTasks(const char* why) {
         SafeWrite(t.task + kTaskNext, &next, 4);
         ++n;
         g_rewound[t.task] = Now();
+        if (RebuiltAliveOn()) g_rebuilt_alive[t.task] = Now();
         Log("%s: task mode %d (step %d) rewound to STEP_Create", why, t.mode, t.step);
     }
     if (n > 0) Log("%s: player numbers at the rewind: %s", why, DescribePlayerNumbers().c_str());
@@ -1622,7 +1651,9 @@ std::string DescribePresence(bool deep = false) {
     return out;
 }
 
-enum class GuestPhase { Idle, AwaitSnapshot, Loading, Rewinding, AwayLoading, InWorldFollow };
+// ParallelLoading (0.8.1 seam A, party_parallel_follow): the guest loads the host's party lamp at once, then waits
+// under the held screen for the host's spot (party_seam.h).
+enum class GuestPhase { Idle, AwaitSnapshot, Loading, Rewinding, AwayLoading, InWorldFollow, ParallelLoading };
 enum class HostPhase { Idle, Loading, Resynced };
 
 struct State {
@@ -1657,6 +1688,13 @@ struct State {
     bool respawn_have_pos = false;  // where it died (its member chr here stands there)
     float respawn_pos[3] = {};
     bool have_dest = false; // guest: the host's post-load transform (under mu)
+    // guest, seam A: this follow loads in parallel with the host (set at the travel event, under mu); its own
+    // load is over (main thread) since parallel_since; it set its chr's invincibility for the wait.
+    bool parallel = false;
+    bool parallel_loaded = false;
+    double parallel_since = 0;
+    bool parallel_inv = false;
+    double parallel_rewind_at = 0;  // guest, seam A: the remote tasks' rewind, once the records are in
     int hp_before = -1;      // guest: its HP at the host's travel event (kept through the B2 load)
     std::vector<std::pair<int, float>> buffs_before;  // guest: timed SpEffects (id, s left) at the travel
     u32 dest_stage = 0;
@@ -2775,6 +2813,16 @@ void RemoteVisibleTick(double now) {
         return;
     }
     next = now + 0.25;
+    if (!g_rebuilt_alive.empty()) {
+        for (const TaskInfo& t : Tasks(false)) {
+            const auto it = g_rebuilt_alive.find(t.task);
+            if (it == g_rebuilt_alive.end() || g_rewound.count(t.task)) continue;  // the new chr exists once shown
+            const u64 c = PlayerForPeer(t.task + kTaskPeer);
+            if (c && ClearRebuiltDeadBit(c, "rebuilt")) g_rebuilt_alive.erase(it);
+        }
+        for (auto it = g_rebuilt_alive.begin(); it != g_rebuilt_alive.end();)
+            it = now - it->second > 30.0 ? g_rebuilt_alive.erase(it) : std::next(it);
+    }
     for (const TaskInfo& t : Tasks(false)) {
         if ((t.mode != 1 && t.mode != 2) || t.step != kStepUpdate || (t.flags & 2)) {
             continue;
@@ -3876,7 +3924,7 @@ void FallRecoveryTick(const GameSnapshot& s, double now) {
 /// vanilla) and the director's bells re-summon it. Never leaves the guest stranded.
 extern std::atomic<bool> g_dead_follow;
 extern std::atomic<bool> g_solo_respawn;
-bool BeginRejoin(const TravelIntent& t, bool main_thread, bool solo);
+bool BeginRejoin(const TravelIntent& t, bool main_thread, bool solo, bool parallel = false);
 
 void FallbackToB1(const char* why) {
     State& st = S();
@@ -3889,6 +3937,12 @@ void FallbackToB1(const char* why) {
         st.gphase = GuestPhase::Idle;
         st.solo = false;
         st.enter_state1 = false;
+        st.parallel = false;
+        st.parallel_loaded = false;
+        st.parallel_rewind_at = 0;
+    }
+    if (seam::ReleaseHold(why, false)) {
+        g_early_screen = true;  // seam A held the screen: DropLoadingScreen below takes it down
     }
     if (st.saved_1521 >= 0) {
         const u8 v = u8(st.saved_1521);
@@ -6834,6 +6888,7 @@ void BossTargetDump(u64 boss, u32 bh, const char* tag) {
         float t38 = 0, t3c = 0;
         SafeGet(n + 0x38, &t38);
         SafeGet(n + 0x3c, &t3c);
+        if (kind == 0) handle = Field<u32>(n, 0x50);  // a perceived entry (kind 0): the chr handle sits at +0x50 as in kind 1
         std::snprintf(b, sizeof b, " [fl %02x kind %u t20 %u t38 %.2f t3c %.2f b40 %u h %08x]", unsigned(Field<u8>(n, 2)), kind,
                       Field<u32>(n, 0x20), double(t38), double(t3c), unsigned(Field<u8>(n, 0x40)), handle);
         out += b;
@@ -6971,6 +7026,92 @@ void BossStateTick(const GameSnapshot& s, double now) {
     }
 }
 
+/// C2 (rec2) limbo perception diagnostic, host, main thread: while the host lies in its limbo and a boss bar is up, every
+/// 5 s per boss: how the boss's perception (bank search 0x12ADC50, mode 0) sees each living member copy: [chr +0x18]
+/// = A (+0x10 must be 4, +0x20 bits 1 / 4 exclude), X = [A +0x30] (+0x18 bit 0 dead mark, +0xD bit 0x10 excludes), the
+/// team, and whether the boss's target list holds an entry (kind 0 / 1, handle at +0x50) for it. The detail lines are behind
+/// BB_PARTY_LIMBO_DIAG=1 (off); the warning "boss perceives none of N living members" is always on, it only fires in
+/// the failure (a living guest the boss cannot see: the dead mark on a rebuilt copy, or anything else that hides it).
+void BossLimboPerceptionTick(const GameSnapshot& s, double now) {
+    static double next = 0;
+    static const bool diag = std::getenv("BB_PARTY_LIMBO_DIAG") && std::getenv("BB_PARTY_LIMBO_DIAG")[0] == '1';
+    static std::map<u32, double> blind_since;  // boss handle -> since when it perceived none of the living members
+    if (now < next) return;
+    next = now + 1.0;
+    static std::map<u32, double> last_diag;
+    const u64 hud = (Role() == RoleHost && g_host_limbo.load() && s.world_up && !s.loading) ? Slot(0x5562878) : 0;
+    if (!hud) {
+        blind_since.clear();
+        last_diag.clear();
+        return;
+    }
+    std::vector<u64> members;
+    for (const TaskInfo& t : Tasks(false)) {
+        const u64 c = (t.mode == 1 || t.mode == 2) ? PlayerForPeer(t.task + kTaskPeer) : 0;
+        if (c && ChrHp(c) > 0) members.push_back(c);
+    }
+    if (members.empty()) {
+        blind_since.clear();
+        return;
+    }
+    for (int i = 0; i < 3; ++i) {
+        const u32 h = Field<u32>(hud, 0x165c + u64(i) * 0x14, ~0u);
+        const u64 boss = h == ~0u ? 0 : ChrOfHandle(h);
+        if (!boss || ChrHp(boss) <= 0) continue;
+        u64 vt = 0, fn = 0;
+        if (!SafeGet(boss, &vt) || !vt || !SafeGet(vt + 0x160, &fn) || !fn) continue;
+        const u64 ai = reinterpret_cast<u64(BB_COOP_SYSV*)(u64)>(fn)(boss);
+        const u64 holder = ai ? Field<u64>(Field<u64>(ai, 0xb0), 0x560) : 0;
+        if (!holder) continue;
+        std::set<u32> seen;  // handles of the kind-0 (perceived) entries
+        u64 n = Field<u64>(holder, 0x18);
+        for (int k = 0; n && k < 12; ++k, n = Field<u64>(n, 8))
+            if (Field<u32>(n, 0x28) <= 1) seen.insert(Field<u32>(n, 0x50));  // live: the entries for players are kind 1 (hit / perceived), handle at +0x50
+        int perceived = 0;
+        std::string out;
+        for (u64 c : members) {
+            const u32 ch = Field<u32>(c, 8);
+            const bool in_list = seen.count(ch) != 0;
+            perceived += in_list ? 1 : 0;
+            if (!diag) continue;
+            const u64 ent = Field<u64>(Field<u64>(Field<u64>(c, 0x3b0), 0x40), 8);
+            const u64 a = ent ? Field<u64>(ent, 0x18) : 0, x = a ? Field<u64>(a, 0x30) : 0;
+            char b[200];
+            std::snprintf(b, sizeof b, " [chr %08x hp %d team %d A+10 %d A+20 %02x X+18 %02x X+0d %02x listed %d]", ch, ChrHp(c),
+                          Field<int>(c, 0x88), a ? Field<int>(a, 0x10) : -1, a ? unsigned(Field<u8>(a, 0x20)) : 0xffu,
+                          x ? unsigned(Field<u8>(x, 0x18)) : 0xffu, x ? unsigned(Field<u8>(x, 0xd)) : 0xffu, in_list ? 1 : 0);
+            out += b;
+        }
+        if (diag && now - last_diag[h] >= 5.0) {
+            last_diag[h] = now;
+            Log("limbo perception: boss %08x, %zu living member(s), %d in its target list:%s", h, members.size(), perceived, out.c_str());
+        }
+        if (perceived > 0) {
+            blind_since.erase(h);
+            continue;
+        }
+        const auto it = blind_since.emplace(h, now).first;
+        if (now - it->second >= 5.0 && it->second > 0) {
+            Log("limbo perception: boss %08x perceives none of %zu living members for %.0f s (host dead)", h, members.size(),
+                now - it->second);
+            it->second = now;  // once per 5 s
+            if (!diag) {
+                std::string o;
+                for (u64 c : members) {
+                    const u64 ent = Field<u64>(Field<u64>(Field<u64>(c, 0x3b0), 0x40), 8);
+                    const u64 a = ent ? Field<u64>(ent, 0x18) : 0, x = a ? Field<u64>(a, 0x30) : 0;
+                    char b[160];
+                    std::snprintf(b, sizeof b, " [chr %08x A+10 %d A+20 %02x X+18 %02x X+0d %02x]", Field<u32>(c, 8),
+                                  a ? Field<int>(a, 0x10) : -1, a ? unsigned(Field<u8>(a, 0x20)) : 0xffu,
+                                  x ? unsigned(Field<u8>(x, 0x18)) : 0xffu, x ? unsigned(Field<u8>(x, 0xd)) : 0xffu);
+                    o += b;
+                }
+                Log("limbo perception: members as the bank search sees them:%s", o.c_str());
+            }
+        }
+    }
+}
+
 /// Host (the boss AI's owner), main thread, twice a second: while a boss bar is up and two or more
 /// living players (the host's own chr and the members' copies) are within reach of the boss, the boss
 /// is handed each of them in turn as a forced target (the event ChangeTarget path 0x1299CD0, as the
@@ -7091,7 +7232,8 @@ void LivingTargetMarkTick(const GameSnapshot& s) {
         SafeWrite(e30 + 0x18, &nb, 1);
         const u32 h = Field<u32>(c, 8);
         if (logged.insert(h).second)
-            Log("living target: chr %08x (HP %d) is alive but its target-bank entry still had the dead mark (+0x18 bit 0, "
+            Log("living target (diagnostic: something set the dead mark after the rebuild clear, or the rebuild clear is "
+                "off): chr %08x (HP %d) is alive but its target-bank entry still had the dead mark (+0x18 bit 0, "
                 "%02x): cleared, enemies perceive it again", h, ChrHp(c), unsigned(b));
     }
     if (players.empty()) logged.clear();
@@ -9308,6 +9450,47 @@ bool BesideHostIntent(u32 host_map, TravelIntent* t) {
     return true;
 }
 
+/// 0.8.1 seam D (party_quick_rejoin): Party > Rejoin in the host's world -> a re-join in place.
+std::atomic<bool> g_quick_rejoin{false};
+bool QuickRejoinOn() { return BbSettings::Get().party_quick_rejoin.load(std::memory_order_relaxed); }
+/// seam D (main thread): the quick rejoin pressed by QuickRejoinPressed. The lamp of the host's map nearest the
+/// host (else a transform beside it), as the cross-map join's arrival does, as a B2 re-join (not solo: the summoned
+/// placement is the host's spot, the guest is put beside it); the host re-sends its snapshot and spot ("rejoin").
+void QuickRejoinTick(const GameSnapshot& s) {
+    if (!g_quick_rejoin.exchange(false)) {
+        return;
+    }
+    const u32 host = HostMap();
+    const char* refused = !s.world_up || s.loading || !s.player ? "not in the world"
+                          : Role() != RoleClient                ? "not a guest in the host's world"
+                          : g_rejoin.load()                     ? "a re-join runs already"
+                          : host == 0 || host == 0xffffffffu    ? "the host's map is not known"
+                          : AreaOf(host) != AreaOf(s.map_id)    ? "apart from the host (the bell brings this guest)"
+                          : ChrHp(s.player) <= 0                ? "dead"
+                          : BossFightActive()                   ? "a boss fight runs"
+                                                                : nullptr;
+    TravelIntent t;
+    const u32 lamp = refused ? 0 : LampNearHost(host);
+    if (!refused && (lamp == 0 ? !BesideHostIntent(host, &t) : !LampIntent(lamp, &t))) {
+        refused = "no lamp of the host's map and no host position known";
+    }
+    if (!refused && !BeginRejoin(t, true, false)) {
+        refused = "a re-join could not start";
+    }
+    if (refused) {
+        Log("guest: quick rejoin (seam D) refused: %s", refused);
+        party::status::SetLastEvent(std::string("Rejoin in place: ") + refused);
+        return;
+    }
+    float p[3] = {0, 0, 0};
+    ChrPos(s.player, p);
+    char b[128];
+    std::snprintf(b, sizeof b, "{\"op\":\"rejoin\",\"pos\":[%.3f,%.3f,%.3f]}", p[0], p[1], p[2]);
+    Send(0, b);
+    Log("guest: quick rejoin (seam D): a re-join beside the host in %s without the trip home (one loading screen; %s)",
+        MapName(host).c_str(), lamp ? ("by lamp " + std::to_string(lamp)).c_str() : "a transform beside the host");
+}
+
 void CarryArrivalTick(const GameSnapshot& s, double now) {
     double at = g_carry_join_at.load();
     static double load_last = 0;
@@ -9433,6 +9616,256 @@ bool ArrivalWarpMode() {
 }
 bool g_arrival_warp_pending = false;
 alignas(16) float g_arrival_pos[4] = {}, g_arrival_rot[4] = {};
+/// 0.8.1 seam C (party_load_beside): the follow load's screen is held past its InGameStart (party_seam.h) until the
+/// arrival warp has put the guest beside the host, so the move is never seen. (Writing the beside spot into the
+/// summoned placement does not place it: smoke lb1 of a79b2eba, the lamp load still landed on the host's own spot,
+/// 0.3 m inside the host; the warp is needed, only hidden.)
+bool LoadBesideOn() { return BbSettings::Get().party_load_beside.load(std::memory_order_relaxed); }
+
+// ---- seam A (0.8.1, party_parallel_follow): the guest loads in parallel with the host ----
+// research/reseam081.md 3.1. At the host's party lamp travel the guest does not wait in flow state 1 for the
+// host's load and snapshot (run 1: ~7 s of an idle screen): it loads the same lamp at once as an alone load in
+// host-world mode does (summoned placement = the lamp's spot, GSM +0x1521 cleared for the load, flow 3), under a
+// loading screen held past its InGameStart (party_seam.h). Once the host's spot ("dest") is in and both stand in
+// the same block, it is placed beside the host as the in-world follow does (no snapshot applied: drained), the
+// records are exchanged, the remote tasks rewound, "arrived" sent; the screen drops when the host's chr is here.
+// Anything off (another map, no spot within 30 s, a host death meanwhile) falls back to today's re-join.
+
+/// The lamp the parallel load replays: the travel's own, else (a Hunter's Mark) the host's last lamp.
+u32 ParallelLamp(const TravelIntent& t) {
+    return t.lamp_id != kTravelNone && t.lamp_id != 0 ? t.lamp_id : static_cast<u32>(t.last_lamp);
+}
+
+/// Null: seam A may run for the host's travel `t` (link thread: reads only).
+const char* ParallelRefusal(const TravelIntent& t) {
+    seam::FollowCase c;
+    c.hold_hook = seam::HoldHookIn();
+    c.alone = t.alone;
+    c.host_death = t.kind == TravelKind::HostDeath;
+    c.lamp_kind = t.kind == TravelKind::Lamp || t.kind == TravelKind::HuntersMark;
+    c.dead_follow = g_dead_follow.load();
+    const GameSnapshot g = ReadGameState(false);
+    c.hp_left = g.player && ChrHp(g.player) > 0;
+    c.boss_fight = BossFightActive();
+    c.lamp = ParallelLamp(t);
+    float spot[4];
+    c.spot_known = c.lamp != 0 && c.lamp != kTravelNone && ids::ReturnSpot(c.lamp, spot);
+    c.in_world = g.world_up && !g.loading && Field<int>(Slot(kSlotFlow), 0x84, -1) == 4;
+    {
+        std::lock_guard<std::mutex> lk(S().mu);
+        c.idle = S().gphase == GuestPhase::Idle;
+    }
+    return seam::ParallelFollowRefusal(c);
+}
+
+/// Main thread, at the travel (after the early screen): the guest's own load of the lamp. False: not started
+/// (the caller takes today's path).
+bool StartParallelLoad(const GameSnapshot& s, const TravelIntent& t) {
+    State& st = S();
+    const u64 flow = Slot(kSlotFlow);
+    const u32 lamp = ParallelLamp(t);
+    float spot[4];
+    const int fs = Field<int>(flow, 0x84, -1);
+    if (fs != 4 || !s.world_up || s.loading || !s.player || lamp == 0 || lamp == kTravelNone || lamp / 100000 == 29 ||
+        !ids::ReturnSpot(lamp, spot) || !seam::HoldHookIn()) {
+        Log("guest: parallel follow refused at the start (flow %d, lamp %u): the host's load first, as before", fs, lamp);
+        return false;
+    }
+    const u32 stage = ids::EntityMap(lamp);
+    DrainSnapshotQueue("parallel follow");
+    const u64 gsm = Slot(kSlotGsm);
+    const u8 was = Field<u8>(gsm, 0x1521), zero = 0;
+    {
+        std::lock_guard<std::mutex> lk(st.mu);
+        st.saved_1521 = was ? int(was) : -1;
+        st.gphase = GuestPhase::ParallelLoading;
+        st.since = Now();
+        st.load_seen = false;
+        st.stable = 0;
+        st.parallel_loaded = false;
+        st.parallel_inv = false;
+        st.parallel_rewind_at = 0;
+    }
+    if (was) {
+        SafeWrite(gsm + 0x1521, &zero, 1);  // the load goes to the lamp, not beside the host's old spot
+    }
+    // GSM +0x1593 / +0x1594 (the host's NG cycle for a summoned load) stay: the destination is the host's
+    // world. BB_PARTY_PARALLEL_CLEAR_NG=1 clears them as an alone load to another area does.
+    static const bool clear_ng = std::getenv("BB_PARTY_PARALLEL_CLEAR_NG") && std::getenv("BB_PARTY_PARALLEL_CLEAR_NG")[0] == '1';
+    if (clear_ng) {
+        g_ng_alone_pending = true;
+        g_ng_alone_at = Now();
+        SafeWrite(gsm + 0x1598, &zero, 1);
+        SafeWrite(gsm + 0x1593, &zero, 1);
+    }
+    RestoreHostBlobs();
+    alignas(16) float p16[4] = {spot[0], spot[1], spot[2], 1.0f};
+    alignas(16) float r16[4] = {0.0f, spot[3], 0.0f, 0.0f};
+    Log("guest: parallel follow: summoned placement stage %#x -> %#x (lamp %u at (%.1f, %.1f, %.1f)), GSM +0x1521 %u, "
+        "+0x1593 %u", Field<u32>(gsm, 0x14c4), stage, lamp, p16[0], p16[1], p16[2], unsigned(was),
+        unsigned(Field<u8>(gsm, 0x1593)));
+    WriteSummonedPlacement(gsm, &stage, p16, r16);
+    seam::Hold("parallel follow: until this guest stands beside the host");
+    const int three = 3;
+    SafeWrite(flow + 0x84, &three, 4);
+    bool ok;
+    {
+        FunnelKeepRoom keep;
+        TravelIntent lt = t;
+        lt.kind = TravelKind::Lamp;
+        lt.lamp_id = lamp;
+        lt.has_pos = false;
+        Log("guest: parallel follow: own load of lamp %u (%s) now, in parallel with the host's (K7 %s)", lamp,
+            MapName(stage).c_str(), keep.armed ? "armed" : "NOT armed: the room will close");
+        ok = ReplayTravelNow(lt);
+    }
+    if (!ok) {
+        const int four = 4;
+        SafeWrite(flow + 0x84, &four, 4);
+        if (was) {
+            SafeWrite(gsm + 0x1521, &was, 1);
+        }
+        seam::ReleaseHold("parallel follow: no usable destination", true);
+        std::lock_guard<std::mutex> lk(st.mu);
+        st.gphase = GuestPhase::AwaitSnapshot;
+        st.saved_1521 = -1;
+        Log("guest: parallel follow: the lamp warp was refused; the host's load first, as before");
+        return false;
+    }
+    return true;
+}
+
+void ParallelInvincible(u64 player, bool on) {
+    State& st = S();
+    u32 f = 0;
+    if (!player || !SafeRead(player + 0x1e1, &f, 4)) return;
+    if (on && !(f & (1u << 14))) {
+        f |= 1u << 14;
+        SafeWrite(player + 0x1e1, &f, 4);
+        st.parallel_inv = true;
+    } else if (!on && st.parallel_inv) {
+        f &= ~(1u << 14);
+        SafeWrite(player + 0x1e1, &f, 4);
+        st.parallel_inv = false;
+    }
+}
+
+/// Main thread: back to today's path from a parallel follow that cannot finish (the screen stays up).
+void ParallelFallback(const GameSnapshot& s, const char* why) {
+    State& st = S();
+    ParallelInvincible(s.player, false);
+    if (st.saved_1521 >= 0) {
+        const u8 v = u8(st.saved_1521);
+        SafeWrite(Slot(kSlotGsm) + 0x1521, &v, 1);
+        st.saved_1521 = -1;
+    }
+    TravelIntent t;
+    bool loaded;
+    {
+        std::lock_guard<std::mutex> lk(st.mu);
+        t = st.intent;
+        loaded = st.parallel_loaded;
+        st.parallel = false;
+        st.parallel_loaded = false;
+        st.parallel_rewind_at = 0;
+        st.gphase = GuestPhase::Idle;
+    }
+    Log("guest: parallel follow FALLBACK (%s): a re-join with the host's snapshot (today's path)", why);
+    if (!loaded || !s.world_up || s.loading) {
+        FallbackToB1(why);
+        return;
+    }
+    if (seam::ReleaseHold(why, false)) {
+        g_early_screen = true;  // the re-join's load (or its fallback) takes the screen down
+    }
+    if (!BeginRejoin(t, true, false, false)) {
+        FallbackToB1(why);
+        return;
+    }
+    // The host re-sends its snapshot and spot as for a guest travelling into its area.
+    float p[3] = {0, 0, 0};
+    ChrPos(s.player, p);
+    char b[128];
+    std::snprintf(b, sizeof b, "{\"op\":\"rejoin\",\"pos\":[%.3f,%.3f,%.3f]}", p[0], p[1], p[2]);
+    Send(0, b);
+}
+
+/// Main thread: the host's spot is in and in this block: beside it, no load.
+void ParallelArrive(const GameSnapshot& s, double now, float pos[4], const float rot[4]) {
+    State& st = S();
+    g_early_screen = false;  // the held load's screen is the seam's now (ReleaseHold drops it)
+    DrainSnapshotQueue("parallel follow");
+    BesideHost(pos, rot, g_local_slot.load());
+    {
+        // The guest's HP as before the host's travel (the load may refill it), as after a B2 load.
+        const u64 dm = Field<u64>(Field<u64>(s.player, 0x3b0), 0x20);
+        const int hp = Field<int>(dm, 0xf8, -1), mx = Field<int>(dm, 0xfc, -1);
+        if (!RestedFromTravel(st.intent) && dm && st.hp_before > 0 && hp >= 0 && hp != st.hp_before) {
+            const int keep = st.hp_before < mx ? st.hp_before : mx;
+            SafeWrite(dm + 0xf8, &keep, 4);
+            Log("guest: HP %d after the parallel load -> %d as before the travel (max %d)", hp, keep, mx);
+        }
+    }
+    RestoreBuffs(s.player, st.buffs_before);
+    st.buffs_before.clear();
+    ParallelInvincible(s.player, false);
+    float before[3] = {};
+    ChrPos(s.player, before);
+    WarpLocal(pos, rot[1], "parallel follow: beside the host");
+    SendDeadEnemies(s, "parallel follow");
+    // The host loaded too and may hold this guest's record from before; this game's copy of the host's record
+    // may be the old one: both re-sent (as a meet does), the rewind once they are in.
+    RebroadcastOwnRecord("parallel follow");
+    Send(0, "{\"op\":\"record\"}");
+    g_arrived_at = now + 1.5;
+    LogGuestState(s, "after the parallel follow");
+    double travel_s, wait_s;
+    {
+        std::lock_guard<std::mutex> lk(st.mu);
+        travel_s = now - st.since;
+        wait_s = now - st.parallel_since;
+        st.parallel = false;
+        st.parallel_loaded = false;
+        st.parallel_rewind_at = now + 1.5;
+        st.gphase = GuestPhase::Rewinding;
+        st.since = now;
+    }
+    Log("guest: parallel follow: placed beside the host in %s (%.1f, %.1f, %.1f) from (%.1f, %.1f, %.1f), %.1f s after "
+        "its load started, %.1f s of it waiting for the host; records exchanged, rewind in 1.5 s",
+        MapName(s.map_id).c_str(), pos[0], pos[1], pos[2], before[0], before[1], before[2], travel_s, wait_s);
+}
+
+/// seam D (party_quick_rejoin) with the game's own re-sync (remp081 7): packet 0xA, "send me your record", is what a load
+/// sends to every pending member at its step 7 and what answers with 0xB / 8 / 0x3B / 0x3C / 0xC / 0xD / 0x13. When a member's
+/// chr is still not back 0.8 s after a re-join's load, ask it that way (the peer's game answers at once, no JSON op and no
+/// main-thread tick between), up to 4 times 1.5 s apart. BB_PARTY_RESYNC_0XA=0 leaves it out.
+bool NativeResyncOn() {
+    static const bool off = std::getenv("BB_PARTY_RESYNC_0XA") && std::getenv("BB_PARTY_RESYNC_0XA")[0] == '0';
+    return QuickRejoinOn() && !off;
+}
+void NativeResyncTick(double now, double since) {
+    static double base = -1, last = 0;
+    static int n = 0;
+    if (base != since) {
+        base = since;
+        last = 0;
+        n = 0;
+    }
+    if (now - since < 0.8 || now - last < 1.5 || n >= 4) {
+        return;
+    }
+    last = now;
+    ++n;
+    using SendFn = int(BB_COOP_SYSV*)(u64, u64, u32, const void*, u32);
+    for (const TaskInfo& t : Tasks(false)) {
+        if ((t.mode == 1 || t.mode == 2) && !PlayerForPeer(t.task + kTaskPeer)) {
+            const u8 zero = 0;
+            const int r = reinterpret_cast<SendFn>(Guest(kSendPacket))(Slot(kSlotFlow), t.task + kTaskPeer, 0xa, &zero, 1);
+            Log("guest: re-sync (seam D): the game's own record request (0xA) #%d to a member whose chr is not back, %.1f s "
+                "after the load -> %d", n, now - since, r);
+        }
+    }
+}
 
 void GuestTick(const GameSnapshot& s, double now) {
     State& st = S();
@@ -9442,6 +9875,12 @@ void GuestTick(const GameSnapshot& s, double now) {
     {
         std::lock_guard<std::mutex> lk(st.mu);
         phase = st.gphase;
+    }
+    if (phase == GuestPhase::Idle) {
+        seam::DisarmPlacement("the follow ended");
+    }
+    if (phase == GuestPhase::Idle && seam::Holding()) {
+        seam::ReleaseHold("the follow ended", true);  // never a screen held past its follow
     }
     switch (phase) {
     case GuestPhase::Idle: {
@@ -9556,6 +9995,12 @@ void GuestTick(const GameSnapshot& s, double now) {
         return;
     }
     case GuestPhase::AwaitSnapshot:
+        if (st.enter_state1 && [&] {
+                std::lock_guard<std::mutex> lk(st.mu);
+                return st.parallel;
+            }()) {
+            st.enter_state1 = false;  // seam A: no flow state 1; the own load starts below
+        }
         if (st.enter_state1) {
             // A follow taken on the link thread: flow state 1 from the main thread, after the
             // stale snapshot packets are gone (split travel; DrainSnapshotQueue).
@@ -9585,6 +10030,30 @@ void GuestTick(const GameSnapshot& s, double now) {
                                         std::getenv("BB_PARTY_B2_EARLY_SCREEN")[0] == '0');
             if (early) {
                 RaiseLoadingScreen();
+            }
+        }
+        {
+            bool par;
+            TravelIntent pt;
+            {
+                std::lock_guard<std::mutex> lk(st.mu);
+                par = st.parallel;
+                pt = st.intent;
+            }
+            if (par) {
+                if (StartParallelLoad(s, pt)) {
+                    return;
+                }
+                {
+                    std::lock_guard<std::mutex> lk(st.mu);
+                    st.parallel = false;
+                }
+                DrainSnapshotQueue("the host travels");  // today's path: flow state 1 now
+                const int one = 1;
+                const float zero = 0.0f;
+                SafeWrite(flow + 0x84, &one, 4);
+                SafeWrite(flow + 0x108, &zero, 4);
+                return;
             }
         }
         bool have_dest;
@@ -9684,6 +10153,10 @@ void GuestTick(const GameSnapshot& s, double now) {
                 float pos[4];
                 std::memcpy(pos, st.dest_pos, sizeof pos);
                 BesideHost(pos, st.dest_rot, g_local_slot.load());
+                if (ArrivalWarpMode() && LoadBesideOn() && !g_dead_follow.load() && seam::HoldHookIn() &&
+                    !seam::PlacementHookIn()) {
+                    seam::Hold("load beside the host: until the arrival warp");  // seam C without the in-load placement hooks
+                }
                 if (ArrivalWarpMode()) {
                     // The host-world load takes its stage from +0x14C4: the host's spot itself (the
                     // guest is put beside it with a chr warp after the load, ArrivalWarpTick).
@@ -9714,6 +10187,11 @@ void GuestTick(const GameSnapshot& s, double now) {
                     std::memcpy(g_arrival_pos, st.dest_pos, sizeof g_arrival_pos);
                     std::memcpy(g_arrival_rot, st.dest_rot, sizeof g_arrival_rot);
                     BesideHost(g_arrival_pos, g_arrival_rot, g_local_slot.load());
+                    if (LoadBesideOn() && seam::PlacementHookIn()) {
+                        // seam C: the spot goes into the load's own spawn position (no warp after, no held screen); when the
+                        // load cannot take it the screen is held as before (party_seam.cpp).
+                        seam::ArmPlacement(st.dest_stage, g_arrival_pos, g_arrival_rot);
+                    }
                 } else if (SummonOffset() > 0.0f) {
                     t.kind = TravelKind::Transform;
                     t.has_pos = true;
@@ -9805,11 +10283,30 @@ void GuestTick(const GameSnapshot& s, double now) {
             }
             const int n = RewindRemoteTasks("guest");
             Log("guest: arrived in the host world (flow 4); %d remote task(s) rewound", n);
+            float landed[3] = {};
+            const bool have_landed = s.player && ChrPos(s.player, landed);
+            const float ldx = landed[0] - g_arrival_pos[0], ldy = landed[1] - g_arrival_pos[1], ldz = landed[2] - g_arrival_pos[2];
+            const float landed_m = std::sqrt(ldx * ldx + ldy * ldy + ldz * ldz);
+            (void)have_landed;
+            const seam::PlacementState placed = seam::Placement();
+            seam::DisarmPlacement("the load ended");
+            if (g_arrival_warp_pending && s.player && placed.applied && seam::PlacementLanded(double(landed_m))) {
+                g_arrival_warp_pending = false;
+                Log("guest: arrival warp skipped: the load itself put this guest %.2f m from the spot beside the host "
+                    "(placed inside the load, %.2f m from the game's own spawn)", double(landed_m), double(placed.shift_m));
+            }
             if (g_arrival_warp_pending && s.player) {
                 g_arrival_warp_pending = false;
+                if (placed.applied) {
+                    Log("guest: the in-load placement landed %.2f m from the spot (over %.1f m): the arrival warp runs",
+                        double(landed_m), seam::kPlaceLandedM);
+                }
                 alignas(16) float p16[4] = {g_arrival_pos[0], g_arrival_pos[1], g_arrival_pos[2], 1.0f};
                 alignas(16) float r16[4] = {g_arrival_rot[0], g_arrival_rot[1], g_arrival_rot[2], g_arrival_rot[3]};
+                Log("guest: arrival warp: the load put this guest %.2f m from the spot beside the host (%s)",
+                    double(landed_m), seam::ScreenHeld() ? "under the held screen" : "the screen is down");
                 LocalChrWarpImpl(s.player, p16, r16, "arrival beside the host");
+                // seam C: the held screen goes in Rewinding, once the host's chr is here again (remp081 proposal 3).
                 const u64 gsm = Slot(kSlotGsm);
                 Log("guest: arrived by the host's own travel; placed beside the host (%.2f, %.2f, %.2f); forced placement "
                     "(own save spot) map %#x (%.1f, %.1f, %.1f)",
@@ -9853,12 +10350,82 @@ void GuestTick(const GameSnapshot& s, double now) {
         }
         return;
     }
+    case GuestPhase::ParallelLoading: {
+        if (!st.parallel_loaded) {
+            const bool loading = s.loading || !s.world_up;
+            st.load_seen = st.load_seen || loading;
+            st.stable = (!loading && st.load_seen) ? st.stable + 1 : 0;
+            if (st.stable >= 30 && fstate == 4) {
+                if (st.saved_1521 >= 0) {
+                    const u8 v = u8(st.saved_1521);
+                    SafeWrite(Slot(kSlotGsm) + 0x1521, &v, 1);
+                    st.saved_1521 = -1;
+                }
+                ParallelInvincible(s.player, true);  // under the held screen until beside the host
+                std::lock_guard<std::mutex> lk(st.mu);
+                st.parallel_loaded = true;
+                st.parallel_since = now;
+                Log("guest: parallel follow: own load done in %.1f s (%s, %s); %s", now - st.since, MapName(s.map_id).c_str(),
+                    DescribeChr(s.player).c_str(),
+                    st.have_dest ? "the host's spot is already in" : "waiting for the host's spot under the screen");
+            } else if (now - st.since > seam::kParallelLoadCapS) {
+                ParallelFallback(s, "the own load did not finish within 90 s");
+            }
+            return;
+        }
+        bool have_dest;
+        u32 dstage;
+        float pos[4], rot[4];
+        TravelKind kind;
+        {
+            std::lock_guard<std::mutex> lk(st.mu);
+            have_dest = st.have_dest;
+            dstage = st.dest_stage;
+            std::memcpy(pos, st.dest_pos, sizeof pos);
+            std::memcpy(rot, st.dest_rot, sizeof rot);
+            kind = st.intent.kind;
+        }
+        if (kind != TravelKind::Lamp && kind != TravelKind::HuntersMark) {
+            ParallelFallback(s, "another kind of host travel came meanwhile");
+        } else if (have_dest && s.world_up && !s.loading && s.player) {
+            if (!seam::SameBlock(dstage, s.map_id)) {
+                char why[160];
+                std::snprintf(why, sizeof why, "the host's spot is in %s, this guest is in %s", MapName(dstage).c_str(),
+                              MapName(s.map_id).c_str());
+                ParallelFallback(s, why);
+            } else {
+                ParallelArrive(s, now, pos, rot);
+            }
+        } else if (now - st.parallel_since > seam::kParallelDestWaitS) {
+            ParallelFallback(s, "no host spot within 30 s after the own load");
+        }
+        return;
+    }
     case GuestPhase::Rewinding: {
+        if (st.parallel_rewind_at > 0) {
+            // seam A: the records exchanged 1.5 s ago; now the remote tasks are rebuilt from them.
+            if (now < st.parallel_rewind_at) {
+                return;
+            }
+            st.parallel_rewind_at = 0;
+            const int n = RewindRemoteTasks("guest parallel follow");
+            Log("guest: parallel follow: %d remote task(s) rewound", n);
+            st.since = now;
+            return;
+        }
         bool all = true;
         for (const TaskInfo& t : Tasks(false)) {
             if ((t.mode == 1 || t.mode == 2) && !PlayerForPeer(t.task + kTaskPeer)) {
                 all = false;
             }
+        }
+        if (!all && NativeResyncOn()) {
+            NativeResyncTick(now, st.since);
+        }
+        if (seam::Holding() && (all || now - st.since > 2.0)) {
+            // seam A / C: the screen goes once the host's chr is here again (its task back at step 6; at most 2 s
+            // after the rewind), which also hides the 1.0-1.6 s before the other player appears (remp081 3, proposal 3).
+            seam::ReleaseHold(all ? "placed; the host's chr is here" : "placed; 2 s after the rewind", true);
         }
         if (all || now - st.since > 60.0) {
             const u64 remo = Field<u64>(Slot(0x5540058), 8);
@@ -11294,6 +11861,21 @@ void NoteChosenApart(const char* why) {
     g_chalice_chosen = true;
     Log("chalice: the guest's own choice (%s): while the host is in a Chalice Dungeon it stays out until Party > "
         "Rejoin", why);
+}
+
+bool QuickRejoinPressed() {
+    if (!g_on.load() || !QuickRejoinOn() || Role() != RoleClient || g_rejoin.load()) {
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lk(S().mu);
+        if (S().gphase != GuestPhase::Idle) {
+            return false;
+        }
+    }
+    g_quick_rejoin = true;
+    Log("guest: Party > Rejoin in the host's world: a re-join in place (seam D, party_quick_rejoin)");
+    return true;
 }
 
 bool ChaliceRejoinPressed() {
@@ -12867,10 +13449,12 @@ void Tick(const GameSnapshot& s) {
     DeadPlayerUntargetTick(s, now);
     LivingTargetMarkTick(s);
     BossStateTick(s, now);
+    BossLimboPerceptionTick(s, now);
     BossAttentionTick(s, now);
     HostRevivedTick(s);
     JoinBesideTick(s, Now());
     CarryArrivalTick(s, Now());
+    QuickRejoinTick(s);
     CarryGameDataTick(s, Now());
     PlayerNumberTick(s, now);
     SpectatorRemoveTick(s);
@@ -12949,7 +13533,7 @@ namespace {
 /// The guest's B2 follow / re-join: flow state 1, then GuestTick. `main_thread`: state 1 now
 /// (after dropping stale snapshot packets); else the next GuestTick enters it (the link thread
 /// must not call the game). `solo`: the guest's own travel (split travel).
-bool BeginRejoin(const TravelIntent& t, bool main_thread, bool solo) {
+bool BeginRejoin(const TravelIntent& t, bool main_thread, bool solo, bool parallel) {
     State& st = S();
     {
         std::lock_guard<std::mutex> lk(st.mu);
@@ -12970,6 +13554,9 @@ bool BeginRejoin(const TravelIntent& t, bool main_thread, bool solo) {
         st.screen_done = false;
         st.blobs_saved = false;
         st.solo = solo;
+        st.parallel = parallel && !solo;
+        st.parallel_loaded = false;
+        st.parallel_rewind_at = 0;
         st.gphase = GuestPhase::AwaitSnapshot;
         st.since = Now();
         st.enter_state1 = !main_thread;
@@ -12985,9 +13572,9 @@ bool BeginRejoin(const TravelIntent& t, bool main_thread, bool solo) {
         SafeWrite(flow + 0x84, &one, 4);
         SafeWrite(flow + 0x108, &zero, 4);
     }
-    Log("guest: %s (%s); waiting in flow state 1 for the host's snapshot", solo ? "travels alone into the host's area"
-                                                                               : "host travels",
-        DescribeTravel(t).c_str());
+    Log("guest: %s (%s); %s", solo ? "travels alone into the host's area" : "host travels", DescribeTravel(t).c_str(),
+        parallel && !solo ? "seam A: its own load of the same lamp starts at once (parallel follow)"
+                          : "waiting in flow state 1 for the host's snapshot");
     return true;
 }
 } // namespace
@@ -13129,7 +13716,12 @@ bool OnHostTravel(const TravelIntent& t) {
             }
         }
     }
-    return BeginRejoin(t, false, false);
+    const bool par_on = seam::ParallelFollowOn();
+    const char* refusal = par_on ? ParallelRefusal(t) : "off";
+    if (par_on && refusal) {
+        Log("guest: parallel follow not used for this travel (%s): the host's load first, as before", refusal);
+    }
+    return BeginRejoin(t, false, false, par_on && !refusal);
 }
 
 void OnLinkEvent(int from_slot, const std::string& body) {

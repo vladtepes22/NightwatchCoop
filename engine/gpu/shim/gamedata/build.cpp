@@ -18,6 +18,13 @@
 #include <sstream>
 #include <thread>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace coop::gamedata {
 namespace fs = std::filesystem;
 namespace {
@@ -37,11 +44,43 @@ struct FileInfo {
     std::int64_t mtime = 0;
 };
 
+#ifdef _WIN32
+// 0.8.1 tools081: the key check took 2.7 s per start because std::filesystem asks the OS three times per file (type, size,
+// time: ~25k files under event/ and map/mapstudio/). FindFirstFileEx returns name, size and time of a whole folder in one
+// call (about 30 ms for the same files). The time is converted to the value std::filesystem's last_write_time gave before
+// (nanoseconds from 2174-01-01 at one second resolution), so the cache key stays what it was and no cache is rebuilt.
+void WalkFind(const fs::path& dir, const std::function<bool(const std::string&)>& match, std::vector<FileInfo>& out) {
+    WIN32_FIND_DATAW d;
+    HANDLE h = FindFirstFileExW((dir / L"*").c_str(), FindExInfoBasic, &d, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        const wchar_t* n = d.cFileName;
+        if (n[0] == L'.' && (!n[1] || (n[1] == L'.' && !n[2]))) continue;
+        if (d.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            if (!(d.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) WalkFind(dir / n, match, out);  // like the iterator: no links
+            continue;
+        }
+        if (d.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) continue;
+        FileInfo f;
+        f.path = dir / n;
+        if (!match(f.path.filename().string())) continue;
+        f.size = (static_cast<std::uint64_t>(d.nFileSizeHigh) << 32) | d.nFileSizeLow;
+        const std::uint64_t ft = (static_cast<std::uint64_t>(d.ftLastWriteTime.dwHighDateTime) << 32) | d.ftLastWriteTime.dwLowDateTime;
+        f.mtime = (static_cast<std::int64_t>(ft / 10000000ull) - 11644473600ll - 6437667600ll) * 1000000000ll;
+        out.push_back(std::move(f));
+    } while (FindNextFileW(h, &d));
+    FindClose(h);
+}
+#endif
+
 // Files under `dir` (recursive) whose name matches, sorted like the Python tools (case folded path parts).
 std::vector<FileInfo> ListFiles(const fs::path& dir, const std::function<bool(const std::string&)>& match) {
     std::vector<FileInfo> out;
     std::error_code ec;
     if (!fs::is_directory(dir, ec)) return out;
+#ifdef _WIN32
+    WalkFind(dir, match, out);
+#else
     for (fs::recursive_directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec)) {
         if (ec) break;
         std::error_code e2;
@@ -54,6 +93,7 @@ std::vector<FileInfo> ListFiles(const fs::path& dir, const std::function<bool(co
             out.push_back(std::move(f));
         }
     }
+#endif
     // Python's sort of Windows paths: tuple of case folded parts (not the joined string)
     std::vector<std::pair<std::vector<std::string>, FileInfo>> keyed;
     keyed.reserve(out.size());
@@ -550,6 +590,7 @@ bool CachedText(const std::string& root, const std::string& cache_path, bool for
         return true;
     }
     *rebuilt = true;
+    MarkRebuild();  // only now is there something to wait for (the in-game notice keys on this, not on the key check)
     Timings tm;
     tm.Note("key", key_ms);
     const auto t0 = std::chrono::steady_clock::now();

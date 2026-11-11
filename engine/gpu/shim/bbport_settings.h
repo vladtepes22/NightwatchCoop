@@ -177,6 +177,26 @@ struct Values {
     /// re-sends the player record and the peers rebuild this hunter's chr (ini party_look_sync; env
     /// BB_PARTY_LOOK_SYNC=0/1 over it; 0.8.0, on by default since settings_rev 4). Live, local.
     std::atomic<bool> party_look_sync{true};
+    /// 0.8.1 seamless join A: at the host's party lamp travel this guest loads the same lamp at once, in parallel
+    /// with the host, behind one loading screen (party_seam.cpp; ini party_parallel_follow; env
+    /// BB_PARTY_PARALLEL_FOLLOW=0/1 over it; on by default since 0.8.1). Live, local (a guest's own load).
+    std::atomic<bool> party_parallel_follow{true};
+    /// 0.8.1 seamless join B: in a party, the loading screen stays up after a load until the frames ran under 50 ms
+    /// for 1 s without a break (at most 3 s), and the drop runs at the frame end's quiet point (party_seam.cpp; ini
+    /// party_settled_drop; env BB_PARTY_SETTLED_DROP=0/1 over it; off by default). Live, local.
+    std::atomic<bool> party_settled_drop{false};
+    /// 0.8.1 seamless join C: a guest's follow load writes the spot beside the host into the summoned placement, so
+    /// the load itself puts it there (no warp after the screen drops unless it landed elsewhere) (ini
+    /// party_load_beside; env BB_PARTY_LOAD_BESIDE=0/1 over it; on by default since 0.8.1). Live, local.
+    std::atomic<bool> party_load_beside{true};
+    /// 0.8.1 seamless join D: Party > Rejoin pressed while in the host's world reloads beside the host with one loading
+    /// screen (no Leave, no trip home) (ini party_quick_rejoin; env BB_PARTY_QUICK_REJOIN=0/1 over it; on by
+    /// default since 0.8.1). Live, local.
+    std::atomic<bool> party_quick_rejoin{true};
+    /// 0.8.1 (CL-4a20f7): over the Nightwatch VPN, allow a direct connection to a party member who allows it too, used
+    /// only when clearly faster than the tunnel (party/party_nwdirect.h; ini party_nw_direct; env BB_PARTY_NW_DIRECT=0/1
+    /// over it; off by default). The peer sees your public IP. Read when the party link comes up.
+    std::atomic<bool> party_nw_direct{false};
     /// I7/E3 map markers: a spot a player puts on the in-game map (right click / R3 / P) is seen on every party
     /// member's map (party_ping.h; ini party_map_marks; env BB_PARTY_MAP_MARKS=0/1 over it; 0.8.0, on by default since settings_rev 4). Live.
     std::atomic<bool> party_map_marks{true};

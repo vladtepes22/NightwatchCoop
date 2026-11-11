@@ -35,6 +35,11 @@ bool IsDualSourceBlendFactor(AmdGpu::BlendControl::BlendFactor factor);
 
 vk::BlendOp BlendOp(AmdGpu::BlendControl::BlendFunc func);
 
+/// Mrsuss60 0a71dd17 (shadPS4 c5dd8b8b): min/max with zero/one factors on UNORM/sRGB targets
+/// becomes an equivalent ADD (Vulkan ignores factors for min/max).
+void NormalizeMinMaxBlend(vk::BlendOp& op, vk::BlendFactor& src, vk::BlendFactor& dst,
+                          AmdGpu::NumberFormat format);
+
 vk::LogicOp LogicOp(AmdGpu::ColorControl::LogicOp logic_op);
 
 vk::SamplerAddressMode ClampMode(AmdGpu::ClampMode mode);

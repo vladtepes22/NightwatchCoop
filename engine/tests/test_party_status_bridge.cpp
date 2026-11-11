@@ -362,6 +362,12 @@ static int test_refusal() {
     CHECK(RefusalNotice(RejectCode::Shutdown, "x").empty() && RefusalNotice(RejectCode::None, "").empty());
     const std::string auth = RefusalNotice(RejectCode::Auth, bridge::AuthRejectText(true, true, true));
     CHECK(auth.find("Wrong party password") != std::string::npos && auth.find("Rejoin the host") != std::string::npos);
+    // 0.8.1: "over" only for an invader that was in the host's world.
+    CHECK(RefusalNotice(RejectCode::Invasion, "the host does not allow invaders").find("Can't invade: the host") != std::string::npos);
+    CHECK(RefusalNotice(RejectCode::Invasion, "the host does not allow invaders").find("is over") == std::string::npos);
+    CHECK(RefusalNotice(RejectCode::Invasion, "sent home", true).find("The invasion is over: sent home") != std::string::npos);
+    CHECK(RefusalNotice(RejectCode::Invasion, "").find("Can't invade") != std::string::npos);
+    CHECK(RefusalNotice(RejectCode::Invasion, "", true).find("The invasion is over") != std::string::npos);
     CHECK(RefusalNotice(RejectCode::Full, "").find("full") != std::string::npos);
     CHECK(RefusalNotice(RejectCode::Mismatch, "eboot.bin differs").find("eboot.bin differs") != std::string::npos);
     // Rejoin: System > Party's password when it changed, else what the link joined with.

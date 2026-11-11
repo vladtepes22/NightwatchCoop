@@ -1496,6 +1496,33 @@ void DefineAll() {
            "Off by default. Bars and slots fade out when idle; damage, fights, lock-on, items, menus bring them back",
            "Выкл. по умолчанию. Полосы и слоты скрываются в покое; урон, бой, захват, предметы, меню возвращают",
            toggle, Kind::Toggle);
+
+    // ---- My party: Loading (0.8.1 seam081): a smoother join and party travel (party_seam.cpp,
+    // research/reseam081.md 3). Each player's own, three on by default; any glitch falls back to today's screens. ----
+    AddPage("My party: Loading", "Моя группа: загрузка",
+            "Yours: shorter, smoother loading screens on party travel and joins (bbport)",
+            "Ваше: короче и плавнее экраны загрузки при переходах и входе в группу (bbport)");
+    own(&Values::party_parallel_follow, "Load with the host", "Загрузка с хостом",
+        "On by default. On the host's party lamp travel your game loads at once, not after the host's load",
+        "Вкл. по умолчанию. При переходе хоста к фонарю ваша игра грузится сразу, а не после хоста");
+    own(&Values::party_settled_drop, "Hold screen till smooth", "Экран до плавности",
+        "Off by default. In a party the loading screen stays up until the world runs smoothly (at most 3 s)",
+        "Выкл. по умолчанию. В группе экран загрузки держится, пока мир не пойдёт плавно (до 3 с)");
+    own(&Values::party_load_beside, "Arrive beside the host", "Сразу рядом с хостом",
+        "On by default. A party travel's load puts you beside the host, no jump after the screen",
+        "Вкл. по умолчанию. Загрузка при переходе ставит вас рядом с хостом, без прыжка после экрана");
+    own(&Values::party_quick_rejoin, "Rejoin in place", "Возврат на месте",
+        "On by default. Party > Rejoin in the host's world: one loading screen beside the host, no trip home",
+        "Вкл. по умолчанию. Группа > Вернуться в мире хоста: один экран загрузки рядом с хостом");
+
+    // 0.8.1 (CL-4a20f7): the opt-in direct path between Nightwatch VPN members (party/party_nwdirect.h); on this page
+    // with the other connection-timing choices.
+    own(&Values::party_nw_direct, "Allow direct connection (lower ping, party members see your IP)",
+        "Разрешить прямое соединение (меньше пинг, участники видят ваш IP)",
+        "Off by default. Over the Nightwatch VPN: a member who allows it too is tried directly for 3 s and used "
+        "only if clearly faster than the tunnel; members then see your public IP. Takes effect at the next party link",
+        "Выкл. по умолчанию. Через Nightwatch VPN: участник с той же настройкой проверяется напрямую 3 с и "
+        "используется, только если заметно быстрее туннеля; участники видят ваш публичный IP");
 }
 
 /// The party rules' help lines: the current value, and on a guest that the host's rules count.

@@ -22,6 +22,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ipmask  # the one address mask (0.8.1, NW-019b146)
+
 VPN_NAMES = ("Radmin", "Hamachi", "ZeroTier", "Tailscale", "WireGuard")
 
 R = {
@@ -63,9 +66,21 @@ R = {
 ROSTER_ENTRY = re.compile(r"(\S+?)\(slot (\d+), ([a-z_]+)(?:, lost)?, map \d+, (\d+) ms\)")
 
 
+def is_masked(ip):
+    """An address a 0.8.1 log (or the net doctor's own mask) already hid: 1.2.x.x or an IPv6 with x groups."""
+    return bool(ip) and (ip.endswith(".x.x") or ":x:x" in ip)
+
+
+def _addr(ip):
+    """The address as ipaddress reads it; a masked 1.2.x.x as 1.2.0.0 (its network is all that is left to classify)."""
+    if ip and ip.endswith(".x.x"):
+        ip = ip[:-4] + ".0.0"
+    return ipaddress.ip_address(ip)
+
+
 def is_vpn_ip(ip):
     try:
-        a = ipaddress.ip_address(ip)
+        a = _addr(ip)
     except ValueError:
         return False
     return a in ipaddress.ip_network("26.0.0.0/8") or a in ipaddress.ip_network("25.0.0.0/8") or \
@@ -74,7 +89,7 @@ def is_vpn_ip(ip):
 
 def is_public(ip):
     try:
-        a = ipaddress.ip_address(ip)
+        a = _addr(ip)
     except ValueError:
         return False
     return a.is_global and not is_vpn_ip(ip)
@@ -193,7 +208,7 @@ def parse(path):
                 lg.local_adapter = m.group(3)
                 lg.tether = lg.tether or "Remote NDIS" in line
                 for seg in line.split(";"):
-                    cand = re.search(r"(\d+\.\d+\.\d+\.\d+) ([^/;]+?) /", seg)
+                    cand = re.search(r"(\d+\.\d+\.(?:\d+|x)\.(?:\d+|x)) ([^/;]+?) /", seg)
                     if not cand or "offline VPN" in seg:  # 0.7.6: an offline VPN is listed but skipped
                         continue
                     if any(v.lower() in cand.group(2).lower() for v in VPN_NAMES) and cand.group(1) != lg.local:
@@ -313,6 +328,8 @@ IP_RX = re.compile(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b")
 
 
 def redact(text, logs, names, ips):
+    """names: Host / Guest N. ips: public addresses hidden, VPN / LAN ones cut to their first number, and every
+    address that is left (IPv6, anything the pass above did not know) masked as scripts/ipmask.py does (NW-019b146)."""
     if names:
         order = []
         host = [l.name for l in logs if l.role == "host" and l.name]
@@ -344,6 +361,7 @@ def redact(text, logs, names, ips):
                 return "<public IP>"
             return m.group(1) + ".x.x.x"
         text = IP_RX.sub(mask, text)
+        text = ipmask.mask_ips(text)  # IPv6 too
     return text
 
 
@@ -591,6 +609,8 @@ def diagnose(logs, show_ips):
 
 def setx_steps(who, var, value, why=""):
     """Plain steps for setting a Windows user environment variable and making the game see it."""
+    if is_masked(value):  # the log hides its addresses (0.8.1): the player reads the real one in the VPN app
+        value = "<your own VPN address, as the VPN app shows it>"
     return (f"{who}: {why}set `{var}` to `{value}`:\n"
             f"   a. Press the Windows key, type `cmd` and press Enter (a black Command Prompt window opens).\n"
             f"   b. Type `setx {var} {value}` and press Enter. It must answer `SUCCESS: Specified value was saved.`\n"

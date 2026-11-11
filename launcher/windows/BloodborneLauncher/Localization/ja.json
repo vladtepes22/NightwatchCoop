@@ -2584,5 +2584,15 @@
   "Whether Winter Lanterns can replace other enemies. They inflict Frenzy from a distance just by seeing you, often before you see them, and from up high where you can't reach them. Off, they never turn up anywhere new; the ones the game places itself can still be replaced by other enemies. The Brain of Mensis never moves either way.": "冬の灯火が他の敵と入れ替わるかどうか。冬の灯火は、あなたを見ただけで遠くから狂乱を与えることが多く、あなたが気づく前に、また手の届かない高所からも現れます。オフにすると新しい場所には現れません。ゲームが配置したものは他の敵と入れ替わることがあります。メンシスの脳はどちらの設定でも動きません。",
   "No Winter Lanterns.": "冬の灯火なし。",
   "Father Gascoigne, Ludwig and the Orphan of Kos are the only bosses that change into a second form. With this on, they always turn into another boss at that point, one that fights nowhere else in the world, and that boss never changes again. Two chalice bosses join the pool for this, even when chalice bosses are off. With this off, one of the three in an arena that isn't its own fights its first phase only, and the fight ends when that phase dies.": "ガスコイン神父、ルドウイーク、コスの孤児は、第二形態に変化する唯一のボスです。オンにすると、この3体は変化の時点で必ず別のボスに変わります。そのボスは世界中のほかの場所では戦わず、二度と変化しません。このために聖杯ボスが2体プールに加わります(聖杯ボスがオフでも同様です)。オフの場合、3体のうち1体が自分のものではないアリーナに来たときは第一形態のみで戦い、その形態を倒すと戦闘が終わります。",
-  "This fight normally has several bosses at once. \"One boss only\" puts a single boss alone in the room; \"A boss for each\" gives every one its own boss. Only matters when bosses are randomized.": "この戦闘は通常、複数のボスが同時に登場します。「One boss only」は部屋にボスを1体だけ置き、「A boss for each」は各個体に別々のボスを割り当てます。ボスのランダム化がオンのときのみ有効です。"
+  "This fight normally has several bosses at once. \"One boss only\" puts a single boss alone in the room; \"A boss for each\" gives every one its own boss. Only matters when bosses are randomized.": "この戦闘は通常、複数のボスが同時に登場します。「One boss only」は部屋にボスを1体だけ置き、「A boss for each」は各個体に別々のボスを割り当てます。ボスのランダム化がオンのときのみ有効です。",
+  "Load with the host": "ホストと一緒に読み込む",
+  "Arrive beside the host": "ホストの隣に到着する",
+  "Rejoin in place": "その場で再参加",
+  "Hold the screen until smooth": "滑らかになるまで画面を維持する",
+  "Allow direct connection (lower ping, party members see your IP)": "直接接続を許可（ping が低くなる。パーティーメンバーに IP が見える）",
+  "On by default. When the host travels by lamp, headstone or Hunter's Mark, your game starts loading at once, behind one loading screen, instead of after the host's load.": "デフォルトでオン。ホストが灯り、墓石、狩人の徴で移動すると、ホストの読み込みを待たず、1 つの読み込み画面のもとで、あなたのゲームもすぐに読み込みを始めます。",
+  "On by default. A party travel's load puts you beside the host, with no jump after the loading screen.": "デフォルトでオン。パーティー移動の読み込み後、ホストの隣に配置され、読み込み画面のあとに位置が飛ぶことはありません。",
+  "On by default. Party > Rejoin in the host's world reloads you beside the host with one loading screen, without leaving and going home first.": "デフォルトでオン。ホストの世界で パーティー > 再参加 を選ぶと、いったん離脱して自分の世界に戻ることなく、1 つの読み込み画面でホストの隣に読み込み直されます。",
+  "Off by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more).": "デフォルトでオフ。パーティー中、世界が滑らかに動くまで読み込み画面を表示し続けます（最大でさらに 3 秒）。",
+  "Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link.": "デフォルトでオフ。Nightwatch VPN 経由で、同じく許可しているパーティーメンバーに約 3 秒間直接接続を試み、トンネルより明らかに速い場合だけ使います。そのメンバーにはあなたの公開 IP が見えます。次のパーティー接続から有効になります。"
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!-- bb-probe and bb-start manifest (src/nightwatch.rc; visy 0.8.1 src/bbport.manifest). UTF-8 as the process's code page
+       (Windows 10 version 1903 and later): the narrow strings Windows hands
+       the exe (environment, command line, own path) are UTF-8 and so are the
+       ones it hands back, as std::filesystem and the config take them to be.
+       Without it a user or folder name outside ASCII can stop the start.
+       By intent from bbhost 5b78718 by droogie and team (GPL-3.0-or-later). -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+    </windowsSettings>
+  </application>
+</assembly>

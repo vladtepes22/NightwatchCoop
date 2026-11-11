@@ -50,7 +50,7 @@ typedef struct { char guest[64]; char host[512]; } Mount;
 static File files[MAX_FILES];
 static Mount mounts[MAX_MOUNTS];
 static size_t mount_count, opens, reads, writes, missing;
-static uint64_t bytes_read;
+static uint64_t bytes_read, read_ns; /* read_ns: wall time inside the host read calls (visy BB_LOAD_TRACE) */
 static HostMutex lock=HOST_MUTEX_INIT;
 
 static int save_path(const char *p) { return p && !strncmp(p,"/savedata",9); }
@@ -216,6 +216,11 @@ void runtime_file_configure(const char *app0,const char *user) {
         runtime_file_mount(guest,path);
     }
 }
+/* zstd081: set by the shim when a folder of converted game files is in use (bbport_zstd_files.cpp). Called for a path under
+ * /app0 or /hostapp with the guest path after the mount ("/dvdroot_ps4/chr/x.dcx") and the host path made for it; it
+ * may rewrite the host path to the converted file. */
+int (*runtime_file_redirect)(const char *rest,char *host,size_t size)=NULL;
+/* Resolve a guest path to a host path; returns 0 or a host errno. */
 static int translate(const char *guest,char *out,size_t size) {
     if (!guest || !*guest) return ENOENT;
     char buffer[1024];
@@ -233,9 +238,11 @@ static int translate(const char *guest,char *out,size_t size) {
         if (!strncmp(buffer,mounts[i].guest,n) && (buffer[n]=='/' || !buffer[n]) && n>best) { best=n; m=&mounts[i]; }
     }
     int result=0;
+    int on_app0=m && (!strcmp(m->guest,"/app0") || !strcmp(m->guest,"/hostapp"));
     if (!m) result=ENOENT;
     else if ((size_t)snprintf(out,size,"%s%s",m->host,buffer+best)>=size) result=ENAMETOOLONG;
     host_unlock(&lock);
+    if (result==0 && on_app0 && runtime_file_redirect) runtime_file_redirect(buffer+best,out,size); /* visy 0.8.1 zstd081 */
     if (result==ENOENT) fprintf(stderr,"Runtime: no mount for guest path %s\n",guest);
     return result;
 }
@@ -862,9 +869,11 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
     touch_for_write(buffer,size);
     const int loader=fd_is_loader(fd);
     const uint64_t start=stream_read_begin(loader);
+    const uint64_t t0=host_monotonic_ns();
     ssize_t n=read(h,buffer,size);
     if (n<0 && size && runtime_memory_guest_writable((uintptr_t)buffer,size)) n=read_bounced(h,buffer,size,-1);
     stream_read_end(loader,start,n);
+    __atomic_add_fetch(&read_ns,host_monotonic_ns()-t0,__ATOMIC_RELAXED);
     if (n<0) { int e=errno; note_read_failure(fd,size,-1,e); return -e; }
     if (n>0) runtime_memory_note_write((uintptr_t)buffer,(uint64_t)n);
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
@@ -877,9 +886,11 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     touch_for_write(buffer,size);
     const int loader=fd_is_loader(fd);
     const uint64_t start=stream_read_begin(loader);
+    const uint64_t t0=host_monotonic_ns();
     ssize_t n=pread(h,buffer,size,offset);
     if (n<0 && size && offset>=0 && runtime_memory_guest_writable((uintptr_t)buffer,size)) n=read_bounced(h,buffer,size,offset);
     stream_read_end(loader,start,n);
+    __atomic_add_fetch(&read_ns,host_monotonic_ns()-t0,__ATOMIC_RELAXED);
     if (n<0) { int e=errno; note_read_failure(fd,size,offset,e); return -e; }
     if (n>0) runtime_memory_note_write((uintptr_t)buffer,(uint64_t)n);
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
@@ -1068,6 +1079,13 @@ int64_t runtime_file_stat(const char *p,void *s) { return do_stat(p,s); }
 int64_t runtime_file_fstat(int fd,void *s) { return do_fstat(fd,s); }
 int64_t runtime_file_getdents(int fd,char *b,uint64_t n,int64_t *base) { return do_getdents(fd,b,n,base); }
 int runtime_file_translate(const char *guest,char *out,size_t size) { return translate(guest,out,size); }
+/* Counters for the load trace (BB_LOAD_TRACE): opens, reads, bytes read, wall time inside the host reads. */
+void runtime_file_io_stats(uint64_t *opens_,uint64_t *reads_,uint64_t *bytes_,uint64_t *read_ns_) {
+    if (opens_) *opens_=__atomic_load_n(&opens,__ATOMIC_RELAXED);
+    if (reads_) *reads_=__atomic_load_n(&reads,__ATOMIC_RELAXED);
+    if (bytes_) *bytes_=__atomic_load_n(&bytes_read,__ATOMIC_RELAXED);
+    if (read_ns_) *read_ns_=__atomic_load_n(&read_ns,__ATOMIC_RELAXED);
+}
 void runtime_file_report(void) {
     printf("Runtime: files opened=%zu, reads=%zu (%llu bytes), writes=%zu, not found=%zu\n",
            opens,reads,(unsigned long long)bytes_read,writes,missing);

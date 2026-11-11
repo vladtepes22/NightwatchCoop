@@ -86,8 +86,8 @@ bool RateOk(const std::string& key, int* suppressed) {
 void TraceEvent(const char* dir, int slot, const std::string& name, const std::string& body) {
     const unsigned area = AreaOfEvent(name);
     if (!On(kNet | area)) return;
-    // Chat lines are players' text: never in a log, at any level (the size only).
-    const bool private_body = name == party::chat::kEventName;
+    // Chat lines are players' text, and the direct path's candidate is a public IP: never in a log, at any level (the size only).
+    const bool private_body = name == party::chat::kEventName || name == "nwd";  // "nwd": the opt-in direct path's public candidate (party_nwdirect.h)
     int suppressed = 0;
     if (!RateOk(std::string(dir) + name, &suppressed)) return;
     std::string text = Fmt("net: %s '%s' %s %s (%zu B)", dir, name.c_str(), dir[0] == 's' ? "->" : "<-",

@@ -2,6 +2,10 @@
 #include "../../src/runtime_logdrain.h"
 #include "bbport_write_log.h"
 #include "bbport_gnm_hooks.h"
+#include "bbport_load_speed.h"
+#include "bbport_load_trace.h"
+#include "bbport_stall_probe.h"
+#include "party/party_seam.h"
 #include "party/auto_hud.h"
 #include "bbport_overlay.h"
 #include "map/map_page.h"
@@ -618,6 +622,10 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbHiFps::Install();  // visy 0.8.0: high-FPS fixes from droogie/bbhost (lights' blink, water wakes, boxes' OK); after the Live clock and HooksInit
     BbGxQueryGuard::Install();  // every mode: an occlusion query without a handle is skipped (visy CL-9666e3)
     BbGameMenu::PatchImage(image, size);
+    BbStallProbe::Install();  // visy 0.8.1: BB_STALL_PROBE, long main-loop frames split into main work / render wait (diagnostic)
+    BbLoadTrace::Install();  // visy 0.8.1: BB_LOAD_TRACE, the map load step by step with IO / GPU / CPU counters (diagnostic)
+    BbLoadSpeed::Install();  // visy 0.8.1: BB_LOAD_WORKERS / BB_FAST_INFLATE, more post-processor threads, zlib-ng inflate
+    coop::seam::Install();  // visy 0.8.1 seamless join: held / settled loading screen drop, frame-end quiet point
     coop::lamptravel::Install(image, size);
     coop::autohud::Install();  // the auto-hide HUD (visy 0.7.8; setting off by default)
     coop::b2::InstallOwnWorldTypeGuard();  // own-world chr type repair, every mode (party save played offline)

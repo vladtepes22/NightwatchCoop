@@ -15,6 +15,13 @@ extern "C" {
 void* runtime_low_map(size_t, int) { return nullptr; }
 int runtime_file_mount(const char*, const char*) { return -1; }
 void runtime_file_unmount(const char*) {}
+void runtime_file_io_stats(uint64_t* opens, uint64_t* reads, uint64_t* bytes, uint64_t* read_ns) {
+    if (opens) *opens = 0;
+    if (reads) *reads = 0;
+    if (bytes) *bytes = 0;
+    if (read_ns) *read_ns = 0;
+}
+int (*runtime_file_redirect)(const char*, char*, size_t) = nullptr;
 __thread RuntimeRecoverBuf* runtime_fault_recover = nullptr;
 int runtime_setjmp(RuntimeRecoverBuf*) { return 0; }
 [[noreturn]] void runtime_longjmp(RuntimeRecoverBuf*) { std::abort(); }

@@ -3,6 +3,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <bit>
+#include <cstdio>
+#include <unordered_map>
+#include <vector>
+#include <xxhash.h>
 #include "shader_recompiler/native/tone_curve.h"
 #include <condition_variable>
 #include <cstdlib>
@@ -47,6 +52,45 @@ bool AsyncPipelinesEnabled() {
 }
 
 namespace {
+/// visy 0.8.1 (port of the intent of Mrsuss60 bb91ba05): the auxiliary shader modules (rect/quad-list TCS,
+/// passthrough TES, discard fragment) are shared by every pipeline with the same SPIR-V; before, each pipeline
+/// creation made a new module that was never destroyed. Entries compare the full SPIR-V, the hash only picks the
+/// bucket. BB_AUX_MODULE_CACHE=0 restores a module per use.
+vk::ShaderModule AuxShaderModule(std::span<const u32> spv, vk::Device device) {
+    static const bool enabled = [] {
+        const char* e = std::getenv("BB_AUX_MODULE_CACHE");
+        return !(e && e[0] == '0');
+    }();
+    if (!enabled) {
+        return CompileSPV(spv, device);
+    }
+    struct Entry {
+        std::vector<u32> code;
+        vk::ShaderModule module;
+    };
+    static std::mutex mutex;
+    static std::unordered_map<u64, std::vector<Entry>> cache;
+    static u64 hits = 0, misses = 0;
+    const u64 hash = XXH3_64bits(spv.data(), spv.size() * sizeof(u32));
+    std::scoped_lock lock{mutex};
+    auto& bucket = cache[hash];
+    for (const auto& e : bucket) {
+        if (std::equal(e.code.begin(), e.code.end(), spv.begin(), spv.end())) {
+            ++hits;
+            return e.module;
+        }
+    }
+    ++misses;
+    const auto module = CompileSPV(spv, device);
+    if (module) {
+        bucket.push_back({std::vector<u32>(spv.begin(), spv.end()), module});
+    }
+    if (std::has_single_bit(misses)) {
+        std::printf("GPU: aux shader module cache: %llu created, %llu reused\n", (unsigned long long)misses,
+                    (unsigned long long)hits);
+    }
+    return module;
+}
 /// A graphics pipeline's create info with everything it points to owned by the job.
 struct PendingPipeline {
     vk::GraphicsPipelineCreateInfo info;
@@ -327,7 +371,7 @@ GraphicsPipeline::GraphicsPipeline(
         }
         shader_stages.emplace_back(vk::PipelineShaderStageCreateInfo{
             .stage = vk::ShaderStageFlagBits::eTessellationControl,
-            .module = CompileSPV(sdata.tcs, instance.GetDevice()),
+            .module = AuxShaderModule(sdata.tcs, instance.GetDevice()),
             .pName = "main",
         });
     }
@@ -346,7 +390,7 @@ GraphicsPipeline::GraphicsPipeline(
         }
         shader_stages.emplace_back(vk::PipelineShaderStageCreateInfo{
             .stage = vk::ShaderStageFlagBits::eTessellationEvaluation,
-            .module = CompileSPV(sdata.tes, instance.GetDevice()),
+            .module = AuxShaderModule(sdata.tes, instance.GetDevice()),
             .pName = "main",
         });
     }
@@ -366,7 +410,7 @@ GraphicsPipeline::GraphicsPipeline(
         }
         shader_stages.emplace_back(vk::PipelineShaderStageCreateInfo{
             .stage = vk::ShaderStageFlagBits::eFragment,
-            .module = CompileSPV(sdata.fragment, instance.GetDevice()),
+            .module = AuxShaderModule(sdata.fragment, instance.GetDevice()),
             .pName = "main",
         });
     }
@@ -421,6 +465,10 @@ GraphicsPipeline::GraphicsPipeline(
     };
 
     std::array<vk::PipelineColorBlendAttachmentState, AmdGpu::NUM_COLOR_BUFFERS> attachments;
+    static const bool minmax_norm = [] {
+        const char* e = std::getenv("BB_BLEND_MINMAX_NORM");
+        return !(e && e[0] == '0');
+    }();
     for (u32 i = 0; i < key.num_color_attachments; i++) {
         const auto& control = key.blend_controls[i];
 
@@ -444,7 +492,9 @@ GraphicsPipeline::GraphicsPipeline(
         auto eff_src_alpha = src_alpha;
         auto eff_dst_alpha = dst_alpha;
         auto eff_alpha_blend = alpha_blend;
-        if (alpha_blend == vk::BlendOp::eMin || alpha_blend == vk::BlendOp::eMax) {
+        // BB_BLEND_MINMAX_NORM (default on): NormalizeMinMaxBlend below replaces this rewrite.
+        if (!minmax_norm &&
+            (alpha_blend == vk::BlendOp::eMin || alpha_blend == vk::BlendOp::eMax)) {
             const bool takes_max = alpha_blend == vk::BlendOp::eMax;
             if (src_alpha == vk::BlendFactor::eOne && dst_alpha == vk::BlendFactor::eZero) {
                 eff_alpha_blend = vk::BlendOp::eAdd;
@@ -516,6 +566,19 @@ GraphicsPipeline::GraphicsPipeline(
             attachments[i].dstColorBlendFactor = dst_color == vk::BlendFactor::eSrcAlpha
                                                      ? vk::BlendFactor::eOne
                                                      : vk::BlendFactor::eZero; // 1-A
+        }
+        // visy 0.8.1 (port of Mrsuss60 0a71dd17, shadPS4 c5dd8b8b): min/max blend with zero/one factors on
+        // UNORM/sRGB targets becomes the equivalent ADD, for color and alpha. BB_BLEND_MINMAX_NORM=0: the older
+        // alpha-only rewrite above.
+        if (minmax_norm) {
+            auto& att = attachments[i];
+            const auto fmt = key.color_buffers[i].num_format;
+            if (!key.color_buffers[i].blend_self_scale) {
+                LiverpoolToVK::NormalizeMinMaxBlend(att.colorBlendOp, att.srcColorBlendFactor,
+                                                    att.dstColorBlendFactor, fmt);
+            }
+            LiverpoolToVK::NormalizeMinMaxBlend(att.alphaBlendOp, att.srcAlphaBlendFactor,
+                                                att.dstAlphaBlendFactor, fmt);
         }
         const auto* fs = stages[u32(Shader::SwStage::Fragment)];
         if (i == 0 && control.enable && fs && fs->pgm_hash == HdrChannel::GlowAddHash &&

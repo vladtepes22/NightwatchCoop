@@ -130,6 +130,13 @@ SIGNED_OUT, so every party member went offline on its first world load; the part
 * `N` (gameurl/all numeric tags/msg) = `*(u32*)(FrpgNetMan+0x9e8)`, set in the FrpgNetMan ctor
   (0x1489330 ← 0x201bd00) from table **0x4736550[region]** = `{jp:3, us:1, eu:2, asia:4, 4:2, 5:3}`.
 * `L` (lang) = table 0x4736570[`*(u32*)0x55992f0` system language] = 1..21.
+* **N is the asking game's, not the host's** (0.8.1, chalice081: NW-cec05db / NW-be0f493 / NW-cab726f). `from_api_ss_info()` reads N from
+  the process that builds the document; a guest's ss.info used to be relayed to the host's FromApi, so a host in region eu (N 2)
+  answered a guest in region us (N 1, or 3 with Unlock Game Region) with `<gameurl2>` only. The guest's completion 0x1e89850 then
+  frees mgr+0x18 and only sets the error string at +0x20 (decompiled: no +0x3e4 failure count, no reload, no drop-offline message),
+  so the login never ran, `Party: online mode 1 -> 0` at Continue, and every Chalice summon stopped with the offline notice. Now a
+  guest answers its own ss.info in-process (`http_hle.cpp`, `ss_info_answered_locally`; `BB_PARTY_SSINFO_LOCAL=0` relays as
+  before). The same PC worked as the host because the host's own N was the one emitted.
 * Emitting the same content for every N in 0..9 is safe (each lookup is a substring search).
 
 ### 2.3 Grammar — C (it is not a real XML parser: substring searches, no whitespace trimming)

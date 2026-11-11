@@ -222,6 +222,16 @@ Before this work the party answered `word_search` / `random_join` with `{"ResKin
   (`dsummon::kMaxEmptyLoads`) stop the guest's ringing (notice; Party > Rejoin resets). Cause of the live loops: the
   "Unlock Game Region" patch (sell region 5, no ss.info URL: the game offline; from_api_schema.md 2.1), fixed by pointing
   region 5's URL at the others'. Smoke `caa`.
+* **A guest of another game region played offline** (0.8.1, chalice081: NW-cec05db, NW-be0f493, NW-cab726f; research/chalice081.md).
+  All three reports are one cause: the guest's title ss.info was answered by the HOST's FromApi over the party link with the host's
+  element index N (FrpgNetMan+0x9e8 follows the sell region: us 1, eu 2, jp 3, asia 4; Unlock Game Region = 3), and the guest's parser
+  wanted its own `<gameurlN>` (cec05db: host bb-eu, guest bb-us). The parse failure is silent (0x1e89850 frees the document, no failure
+  count, no reload, no message), the login never ran and the game fell back to offline mode when Continue loaded the world
+  (`online mode 1 -> 0`); every later Chalice summon stopped with the offline notice (0.7.7: kicked home, the summon's "This game is
+  offline"; 0.7.8+: held in the host's previous map, "This game is in offline mode"). The same PC worked as the host because the host's own
+  N was emitted. Now a guest answers its own ss.info in-process (`http_hle.cpp` perform, `from_api.h ss_info_answered_locally`;
+  `BB_PARTY_SSINFO_LOCAL=0` = the old relay). Smoke `crg` (group chalice_alias: the guest with the region patch, the host without;
+  `CRG_LOCAL=0` reproduces). The notices and the hold below stay for a guest that really is offline.
 * **Offline-mode guests stay out** (0.7.8, NW-cab726f): the Nightwatch log line "Online: offline mode" is printed by every Nightwatch start (its engine
   has no shadNet; the party's own in-process server answers the FROM client), so it is NOT the cause. The cause is FrpgNetMan +8 clear:
   +0xa clear = the game is in offline mode (the title's online step fell back / was skipped: `Party: online mode 1 -> 0`), +0xa set = the

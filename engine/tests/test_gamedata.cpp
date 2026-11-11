@@ -10,6 +10,7 @@
 #include "gamedata/param.h"
 #include "party/party_gamedata.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -413,6 +414,48 @@ std::vector<ParamSpec> BaseParams(bool extra_lot) {
     return v;
 }
 
+// The cache key (0.8.1 tools081: sizes + mtimes read in one folder pass, was 2.7 s): it follows every kind of change a
+// game / mod / update makes and stays the same when nothing changed.
+void TestKey() {
+    const fs::path d = fs::temp_directory_path() / "bb_gamedata_key_test";
+    std::error_code ec;
+    fs::remove_all(d, ec);
+    const fs::path root = d / "dvdroot_ps4";
+    WriteGame(root, BaseParams(false));
+    const std::string& r = root.string();
+    const std::string k0 = coop::gamedata::ComputeKey(r);
+    CHECK(!k0.empty() && coop::gamedata::ComputeKey(r) == k0);
+    // an event file appears / grows / is edited in place (same size, later time)
+    WriteFile(root / "event/m10_00_00_00.emevd.dcx", Bytes(8, 1));
+    const std::string k1 = coop::gamedata::ComputeKey(r);
+    CHECK(k1 != k0);
+    WriteFile(root / "event/m10_00_00_00.emevd.dcx", Bytes(9, 1));
+    const std::string k2 = coop::gamedata::ComputeKey(r);
+    CHECK(k2 != k1);
+    fs::last_write_time(root / "event/m10_00_00_00.emevd.dcx", fs::last_write_time(root / "event/m10_00_00_00.emevd.dcx") + std::chrono::hours(2), ec);
+    const std::string k3 = coop::gamedata::ComputeKey(r);
+    CHECK(!ec && k3 != k2 && coop::gamedata::ComputeKey(r) == k3);
+    // a nested folder under event/ counts, a map and a remo entry (names only) count, an msb counts
+    WriteFile(root / "event/sub/deep.dcx", Bytes(4, 2));
+    const std::string k4 = coop::gamedata::ComputeKey(r);
+    CHECK(k4 != k3);
+    WriteFile(root / "map/mapstudio/m10_00_00_00.msb.dcx", Bytes(4, 3));
+    const std::string k5 = coop::gamedata::ComputeKey(r);
+    CHECK(k5 != k4);
+    WriteFile(root / "map/mapstudio/readme.txt", Bytes(4, 3));  // not an msb: ignored
+    CHECK(coop::gamedata::ComputeKey(r) == k5);
+    fs::create_directories(root / "map/m11_00_00_00", ec);
+    const std::string k6 = coop::gamedata::ComputeKey(r);
+    CHECK(k6 != k5);
+    WriteFile(root / "remo/cut.remobnd.dcx", Bytes(4, 4));
+    CHECK(coop::gamedata::ComputeKey(r) != k6);
+    // the params (a game update or a mod)
+    const std::string k7 = coop::gamedata::ComputeKey(r);
+    WriteGame(root, BaseParams(true));
+    CHECK(coop::gamedata::ComputeKey(r) != k7);
+    fs::remove_all(d, ec);
+}
+
 void TestDerive() {
     const fs::path d = fs::temp_directory_path() / "bb_gamedata_test";
     std::error_code ec;
@@ -446,9 +489,13 @@ void TestDerive() {
     std::string log;
     CHECK(!coop::gamedata::BuildToFile((d / "nothing").string(), (d / "out.txt").string(), false, 1, &err, &log));
     // BuildToFile: build, then a current cache is left alone
+    coop::gamedata::ResetRebuildFlag();
     CHECK(coop::gamedata::BuildToFile(d.string(), (d / "cache.txt").string(), false, 2, &err, &log) && fs::exists(d / "cache.txt"));
+    CHECK(coop::gamedata::Rebuilding());  // a real build raises the flag the in-game notice keys on
+    coop::gamedata::ResetRebuildFlag();
     const auto t1 = fs::last_write_time(d / "cache.txt");
     CHECK(coop::gamedata::BuildToFile(d.string(), (d / "cache.txt").string(), false, 2, &err, &log) && log.find("cache current") != std::string::npos);
+    CHECK(!coop::gamedata::Rebuilding());  // a cache hit stays silent: no popup
     CHECK(fs::last_write_time(d / "cache.txt") == t1);
     fs::remove_all(d, ec);
 }
@@ -816,6 +863,7 @@ int main() {
     TestSpots();
     TestProgressIds();
     TestDerive();
+    TestKey();
     std::printf(g_fail ? "gamedata-test: %d FAILED\n" : "gamedata-test: all passed\n", g_fail);
     return g_fail ? 1 : 0;
 }

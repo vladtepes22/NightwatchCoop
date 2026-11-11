@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
@@ -453,8 +454,13 @@ struct Async {
     std::condition_variable cv;
     std::atomic<int> state{0};
     std::atomic<int> percent{0};
+    std::atomic<bool> rebuilding{false};
     std::string label;
 };
+inline std::chrono::steady_clock::time_point& RebuildT0() {
+    static std::chrono::steady_clock::time_point t;
+    return t;
+}
 inline Async& A() {
     static Async a;
     return a;
@@ -496,6 +502,23 @@ inline void FinishBuild(Tables t) {
     }
     detail::A().cv.notify_all();
 }
+/// A real rebuild (cache missing / key changed) started: the builder calls this after the key check. A cache hit
+/// never does, so the in-game "preparing" notice can wait for it (the key check alone takes seconds on a big install).
+inline void MarkRebuild() {
+    detail::RebuildT0() = std::chrono::steady_clock::now();
+    detail::A().rebuilding.store(true);
+}
+inline bool Rebuilding() { return detail::A().rebuilding.load(); }
+/// Seconds since MarkRebuild() (0 when none).
+inline double RebuildSeconds() {
+    return Rebuilding() ? std::chrono::duration<double>(std::chrono::steady_clock::now() - detail::RebuildT0()).count() : 0.0;
+}
+/// Show the "preparing co-op data" notice only for a real rebuild that is taking a noticeable time.
+inline bool ShouldShowRebuildNotice(bool rebuilding, double rebuild_seconds, double min_seconds = 1.0) {
+    return rebuilding && rebuild_seconds >= min_seconds;
+}
+/// Test helper.
+inline void ResetRebuildFlag() { detail::A().rebuilding.store(false); }
 /// True while the background build runs (never blocks).
 inline bool Preparing() { return detail::A().state.load() == 1; }
 inline int PreparingPercent() { return detail::A().percent.load(); }

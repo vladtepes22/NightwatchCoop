@@ -8,3 +8,6 @@
 [submodule "engine/third_party/LibAtrac9"]
 	path = engine/third_party/LibAtrac9
 	url = https://github.com/Thealexbarney/LibAtrac9.git
+[submodule "engine/gpu/third_party/zlib-ng"]
+	path = engine/gpu/third_party/zlib-ng
+	url = https://github.com/zlib-ng/zlib-ng

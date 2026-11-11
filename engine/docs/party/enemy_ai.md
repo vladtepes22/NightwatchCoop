@@ -247,3 +247,23 @@ arena (`BB_LW_WALK=1`, `BB_LW_WALK_AT`, `BB_LW_WALK_TO`; the walk does not reach
 fight itself was not re-entered). Leads that stay open: the guests' flag syncs; real network timing. Smoke knobs:
 `BB_LW_LATE_HP` / `BB_LW_LATE_AT` (a second boss HP set after the host's death), `BB_LW_ENV="A=1;B=2"`, `BB_LW_DIE`, `BB_LW_GDIE`.
 
+
+## The host dead, a passive guest (0.8.1, re081, parity C2 re-check)
+
+The players' "the boss stops fighting when the host dies" (0.7.6 / 0.7.7 reports) was traced to three causes, all fixed
+before this round: dead players kept in the target bank (DeadPlayerUntargetTick, 0.7.7), the boss's goals following the
+hate record rather than the ChangeTarget entry (BossLockEntry, 0.7.8), and a re-created member copy keeping the dead mark
+so perception never saw it (LivingTargetMarkTick, 0.7.8). The earlier smokes (`bh`, `amp`) had the guest hitting the boss or
+a wipe in between. Smoke `hdp` (group `boss_host_dead_passive`) is the plain case: Laurence's first fight, the party in like
+players (his open fog, the host's skull at the altar), both invincible through his close-up start (test aid
+`god_bar=S`: mortal S s after this game's boss bar), the frail host draws him with R1 and dies by his hits, the guest moves
+`BB_HDP_GUESTDIST` m (8) away at the bar and never attacks (no hate record of its own), mortal 40 s after the bar.
+Current build (0.8.1 branch): the host died 13.7 s after the bar, `host limbo: boss ... targets the living member` at once,
+Laurence on the guest (screenshots: the host's spectate view and the guest's own, the boss over the guest), its first hit
+26.7 s after the host's death (0.4 s after it turned mortal: he was already swinging at it), the guest dead, no
+"may be stuck" line. The same run with the three fixes off (`BB_PARTY_DEAD_UNTARGET=0 BB_PARTY_LIVING_TARGET=0
+BB_PARTY_LIMBO_RETARGET=0`) also passed (first hit 27.7 s after the death): in a fresh first fight Laurence's AI keeps
+swinging at its target spot, and the spectate carries the dead host's chr onto the guest, so his blows land on the guest
+anyway; this phase does not tell the fixes apart. What does: `bh` (a corpse target, Cleric Beast) and `amp` (the wipe's
+stale dead mark, Amelia), both green on this build (research/re081.md). No new cause found; C2's open part is a real
+two-PC session.

@@ -247,9 +247,14 @@ public:
     // A relay delivery from relay port `relay_port` (host order): the peer's direct address.
     bool direct_of_relay(std::uint16_t relay_port, std::uint32_t* addr, std::uint16_t* port_nbo) const;
     std::vector<PeerView> peers() const;
+    // 0.8.1 (CL-4a20f7): the sticky mode of an opt-in Nightwatch direct path (party_nw_direct_rules.h). A pinned peer
+    // is on its (aliased) direct address for good: no relay switch, no gap relay, no per-packet choice. Unpinned
+    // (also after the direct path was lost) it behaves as before. Returns false for an unknown peer.
+    bool pin_direct(std::uint32_t addr, std::uint16_t port_nbo, bool on);
 
 private:
     struct Peer {
+        bool nwd_pin = false;
         PeerView v;
         Clock::time_point added, last_ack, next_probe, last_ack6, next_probe6;
         Clock::time_point relay_since{}, stable_since{}, gap_off_until{};

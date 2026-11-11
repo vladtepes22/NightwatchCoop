@@ -177,4 +177,13 @@ private:
 // The ss.info document as FromApi serves it (tests).
 std::string from_api_ss_info();
 
+// A guest's ss.info is answered in its own process (http_hle.cpp perform), not by the host's FromApi over the party
+// link: the document's element index N (<gameurlN>, every numeric tag) is the ASKING game's FrpgNetMan+0x9e8, which
+// follows its sell region (us 1, eu 2, jp 3, asia 4, region 4 = 2, region 5 = 3), and from_api_ss_info() reads it from the
+// process that builds the document. The host's answer carried the host's N, so a guest of another region never parsed it:
+// the completion 0x1e89850 frees the document and only sets an error string (no failure count, no reload, no message), the
+// login never runs and the game falls back to offline mode when Continue loads the world (NW-cec05db, NW-be0f493,
+// NW-cab726f: every Chalice summon then stops with the offline notice). `relay` = BB_PARTY_SSINFO_LOCAL=0: the old path.
+bool ss_info_answered_locally(bool host, const std::string& url, bool relay);
+
 }  // namespace bbnet::party

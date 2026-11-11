@@ -82,6 +82,19 @@ std::vector<EmevdSkipRule> ConfinementWallRules();
 /// skip of the bosses whose first fight starts by the host's action (bossfog::FirstFights: the
 /// room stays open until the fight starts).
 std::vector<EmevdSkipRule> BossRoomRules();
+/// B6 (re081): the "a guest went through the fog" wait of every boss music event. Each boss's music-on event
+/// (EMELD `ボスBGM ON_*`, every map and the Chalice Dungeons' parameterised ones) waits on the fight's start flag,
+/// the player's own position in the fight area and, behind `1003[5] skip 1 if Host`, a `3[0]` on the guest-entered
+/// flag that only that boss's guest-entry event sets (a press at the fog, then a step into the arena). Alone or as
+/// the host the skip jumps over it; a guest that never pressed the fog (the boss's first fight starts by the host's
+/// action in an open room: Ebrietas, Rom, Laurence, Lady Maria; the Dream fights without a fog) never heard the
+/// music. The pattern "1003[5](1, 0) then 3[0]" occurs in the game's scripts only in those events (static scan of
+/// every EMEVD), so it is matched by shape, not by id: `true` = skip this `3[0]` (the guest waits as the host does).
+/// `prev_args`: the previous instruction's argument bytes (1003[5]: u8 skip count, s8 MultiplayerState).
+bool BossMusicEntryWaitSkip(std::int32_t bank, std::int32_t id, std::int32_t index, std::int32_t prev_bank,
+                            std::int32_t prev_id, const std::uint8_t* prev_args, std::uint32_t prev_size);
+/// On by default (a plain fix of the party's boss fights); `BB_PARTY_BOSS_MUSIC=0` restores the old behaviour.
+bool BossMusicEntrySkipEnabled(const char* env_value);
 
 // ---- EVENT "phantom" (host -> guests) ----
 constexpr const char* kPhantomEventName = "phantom";

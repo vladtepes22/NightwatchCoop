@@ -27,6 +27,38 @@ static HostView Good() {
     return h;
 }
 
+// 0.8.1: transient (ask again quietly) or final (tell the invader) refusals.
+static void RefusalKinds() {
+    for (Deny d : {Deny::NotInWorld, Deny::Loading, Deny::Cutscene, Deny::BossFight, Deny::HostDead, Deny::Travelling,
+                   Deny::InvaderPresent, Deny::NoSlot, Deny::RateLimited})
+        CHECK(IsTransient(d));
+    for (Deny d : {Deny::None, Deny::Off, Deny::Blocked, Deny::HostStays, Deny::InvaderStays, Deny::LevelRange})
+        CHECK(!IsTransient(d));
+    // From the wire text (the REJECT reason, the host's kick text).
+    CHECK(DenyOfText(DenyText(Deny::NotInWorld)) == Deny::NotInWorld);
+    CHECK(DenyOfText(RefusedText(DenyText(Deny::BossFight))) == Deny::BossFight);
+    CHECK(TransientRefusal("the host is not in a world you can enter now"));
+    CHECK(TransientRefusal(RefusedText(DenyText(Deny::Loading))));
+    CHECK(!TransientRefusal(DenyText(Deny::Off)) && !TransientRefusal(DenyText(Deny::Blocked)));
+    CHECK(!TransientRefusal(DenyText(Deny::HostStays)) && !TransientRefusal(DenyText(Deny::InvaderStays)));
+    CHECK(!TransientRefusal(LevelText("Host", 100, 5, true)));
+    CHECK(!TransientRefusal("the invasion handshake failed") && !TransientRefusal(""));
+    CHECK(TransientRefusal("the connection to the host was lost"));  // quiet wait + retry, no modal
+    CHECK(TransientRefusal("the host cannot be reached (connection refused)"));
+    CHECK(EndedByHost(EndTextForInvader(End::Travel, "Host")) && EndedByHost(EndTextForInvader(End::BossFight, "Host")));
+    CHECK(!EndedByHost(EndTextForInvader(End::Blocked, "Host")) && !EndedByHost(DenyText(Deny::Off)) && !EndedByHost(""));
+    CHECK(ConnectionGone("the connection to the host was lost") && !ConnectionGone(DenyText(Deny::Off)));
+    // Every transient DenyText is found again by its own text, final ones never.
+    for (int i = 1; i <= static_cast<int>(Deny::LevelRange); ++i) {
+        const Deny d = static_cast<Deny>(i);
+        if (d != Deny::LevelRange) CHECK(DenyOfText(DenyText(d)) == d);
+    }
+    // Backoff: grows, is capped, a rate-limited invader waits a minute.
+    CHECK(RetryDelayS(1) == 5 && RetryDelayS(2) == 10 && RetryDelayS(6) == 60 && RetryDelayS(50) == 60 && RetryDelayS(0) == 5);
+    CHECK(RetryDelayS(1, true) == 60 && RetryDelayS(3, true) == 60);
+    for (int a = 1; a < 20; ++a) CHECK(RetryDelayS(a + 1) >= RetryDelayS(a));
+}
+
 static void AllowDenyTable() {
     CHECK(Admit(Good(), false, false) == Deny::None);
     // The host's switch decides first, whatever else is true.
@@ -464,6 +496,7 @@ int main() {
     Rewards();
     Script();
     AllowDenyTable();
+    RefusalKinds();
     FourPlayers();
     ListedAsInvadable();
     RateLimit();

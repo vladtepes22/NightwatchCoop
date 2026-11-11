@@ -159,6 +159,17 @@ std::vector<EmevdSkipRule> ConfinementWallRules() {
     return out;
 }
 
+bool BossMusicEntryWaitSkip(std::int32_t bank, std::int32_t id, std::int32_t index, std::int32_t prev_bank,
+                            std::int32_t prev_id, const std::uint8_t* prev_args, std::uint32_t prev_size) {
+    // 3[0] IfEventFlag right after 1003[5] SkipIfMultiplayerState(skip 1, state 0 = Host)
+    return bank == 3 && id == 0 && index > 0 && prev_bank == 1003 && prev_id == 5 && prev_args && prev_size >= 2 &&
+           prev_args[0] == 1 && prev_args[1] == 0;
+}
+
+bool BossMusicEntrySkipEnabled(const char* env_value) {
+    return !(env_value && env_value[0] == '0');
+}
+
 std::vector<EmevdSkipRule> BossRoomRules() {
     std::vector<EmevdSkipRule> out;
     std::size_t n = 0;

@@ -20,3 +20,6 @@ BEGIN
     VALUE "Translation", 0x409, 1200
   END
 END
+
+// UTF-8 as the process code page (visy 0.8.1, by intent from bbhost 5b78718): non-ASCII user or folder names.
+1 24 "nightwatch.manifest"

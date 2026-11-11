@@ -4975,6 +4975,10 @@ void ShopGateTick(const GameSnapshot& gs, int load_mode, double now) {
     static double next = 0.0;
     static int fixed_total = 0;
     static bool off = std::getenv("BB_PARTY_SHOP_GATES") && std::string(std::getenv("BB_PARTY_SHOP_GATES")) == "0";
+    // 0.8.1 (NW-2ed6d82): BB_PARTY_SHOP_HELD_OPEN=0 returns to the own save's value alone (a held badge / owned weapon
+    // opens no row for a summoned guest that its own game event did not already open).
+    static const bool held_opens =
+        !(std::getenv("BB_PARTY_SHOP_HELD_OPEN") && std::string(std::getenv("BB_PARTY_SHOP_HELD_OPEN")) == "0");
     if (off || load_mode != 1 || gs.session_role != RoleClient || !gs.world_up || now < next) {
         return;
     }
@@ -5017,7 +5021,7 @@ void ShopGateTick(const GameSnapshot& gs, int load_mode, double now) {
             return;  // the own pool is not readable now: leave everything as it is
         }
         int held = 0;
-        if (!own) {
+        if (!own && held_opens) {
             if (f >= kBadgeGateFirst && f < kBadgeGateFirst + kBadgeGateCount) {
                 held = GoodsHeldAnywhere(kBadgeGoodsFirst + (f - kBadgeGateFirst));
             } else if (const std::int32_t w = ShopGateWeapon(f); w != 0 && f >= kShopOwnFirst && f <= kShopOwnLast) {

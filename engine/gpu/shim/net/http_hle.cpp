@@ -244,7 +244,18 @@ void perform(const std::string& url, int method, const Effective& eff, std::stri
         rq.headers = eff.headers;
         if (!eff.ua.empty()) rq.headers.push_back("User-Agent: " + eff.ua);
         rq.body = std::move(post);
-        if (settings().host) {
+        // A guest's ss.info is built here, with THIS game's element index N (from_api.h ss_info_answered_locally: the
+        // host's answer carried the host's region's N and a guest of another region never parsed it, NW-cec05db).
+        static const bool relay_ss_info = std::getenv("BB_PARTY_SSINFO_LOCAL") && std::getenv("BB_PARTY_SSINFO_LOCAL")[0] == '0';
+        if (party::ss_info_answered_locally(settings().host, url, relay_ss_info)) {
+            status = 200;
+            body = party::b64_encode(party::from_api_ss_info());
+            static std::atomic<bool> said{false};
+            if (!said.exchange(true)) {
+                log("http: ss.info answered in this process with this game's own server index (the host's answer carried "
+                    "the host's; BB_PARTY_SSINFO_LOCAL=0 asks the host as before)");
+            }
+        } else if (settings().host) {
             party::HttpResponse out;
             party::FromApi::instance().handle(party::Caller{settings().online_id, 0}, rq, out);
             status = out.status;

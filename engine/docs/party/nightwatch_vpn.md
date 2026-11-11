@@ -397,6 +397,55 @@ synthetic TAP / DCO / Wintun / commercial / LAN adapters and checks the candidat
 **Still to look at in the next VPN session:** `BB_NET_RXGAP_LOG=1` on every PC and the VPN server's tun0
 drop counters, to tell whether gaps remain once every path stays on the tunnel.
 
+## Opt-in direct connection (0.8.1, CL-4a20f7)
+
+The rule above stays: ONE path per pair at any time, the tunnel by default. This adds one sticky, opt-in exception for
+players who want a lower ping and accept that the other member sees their public IP.
+
+**Setting** `party_nw_direct` (bbport.ini; env `BB_PARTY_NW_DIRECT=0/1` over it), **off by default**. System menu:
+*My party: Loading*, label "Allow direct connection (lower ping, party members see your IP)"; launcher: My Party tab.
+Read when the party link comes up (a change applies to the next party). A password or not does not matter. The pair
+is tried only when BOTH members have it on: each sends its flag over the party link (the `nwd` event; a guest's
+message for another guest is forwarded by the host, which stamps the sender's tunnel address from the link itself).
+A member with it off sends nothing and ignores everything; the other side logs `direct path: -> tunnel (not opted in)`
+after 20 s and stays on the tunnel. Toggle off means today's behaviour: no candidate gathered, so no STUN or UPnP
+query, no probes.
+
+**What happens** (`gpu/shim/party/party_nwdirect.cpp` drives `gpu/shim/net/party_nw_direct_rules.h`, the pure rules):
+
+1. Link up over the tunnel (our own address is a tunnel address), both flags on: this PC gathers its public
+   candidate once (UPnP mapping or STUN from the game's party port, the existing code; no STUN/UPnP otherwise in
+   Nightwatch mode) and sends it to the peer over the party link, never the lobby. A candidate that is not a
+   public IPv4 is refused.
+2. For about 3 s each side sends 20 probes over the tunnel and 20 to the peer's candidate (150 ms apart, the game
+   stays on the tunnel) and measures both round trips on the same wire format (`fe b b n d`, a separate datagram
+   type from the hole-punch probes).
+3. A side votes direct only if **every** direct probe answered and the direct median RTT beats the tunnel's by
+   at least 20 ms or 30 %. Both sides must vote direct; the lower slot (the host for a host pair) then sends `go`,
+   the other side switches and answers `ready`, the first switches and sends `done`.
+4. The switch happens once per side, only when the pair is safe (`safe_pair`): either side on a loading screen, or no
+   guest of the pair playing in the host's world (before the world, at a join, at a load). Not mid-fight; if it never
+   is, the pair simply stays on the tunnel until the next load.
+5. After the switch that path only: the game keeps addressing the peer's tunnel address; one endpoint alias
+   (`p2p_nwd_alias`, the existing `EndpointAliases`) sends its datagrams to the candidate and maps the candidate's back,
+   and `PeerPaths::pin_direct` keeps the host relay / gap-relay logic away from the pair. No per-packet choice.
+6. A direct keepalive (every 250 ms) not answered for 2 s: the alias is cleared and the pair is back on the tunnel for
+   the rest of the session; the peer is told and follows. It never switches again (no flapping).
+
+**Log lines** (one per pair and side, no IPs): `direct path: tunnel 92 ms, direct 18 ms -> direct`,
+`... -> tunnel`, `... -> tunnel (loss 3/20)`, `... -> tunnel (peer declined)`, `direct path: -> tunnel (not opted in)`,
+`direct path: -> tunnel (no public address)`, and on loss `direct path: lost (no answer for 2 s) -> tunnel (for the
+rest of the session)`.
+
+**Tests.** `cmake --build out/gpu --target nw-direct-test` (margin, loss in the probe window, sticky fallback, opt-in on
+both sides, wire format, candidate filter, safe moments). Smoke group `nw_direct` (phases `nd1`..`nd5`, 2 instances):
+`BB_NW_DIRECT_TEST=1` plays 127.0.0.1 as the tunnel (slow under `BB_NET_SIM=lat=40`) and 127.0.0.2 as the public
+address; `BB_NW_DIRECT_TEST_NET=drop` blocks it, `drop_after=<ms>` kills it that long after the switch.
+
+**Not tested:** a real two-PC session over the real VPN with a real NAT (STUN candidate, router hairpin, UPnP on the
+tunnel host). Guest-to-guest pairs (host-forwarded messages) are covered by the rules tests only, not by a smoke
+phase (two instances).
+
 ## Tests
 
 `python -m unittest tests.test_nwsign` needs the `openssl` CLI (Git for Windows' is fine). Tests that need

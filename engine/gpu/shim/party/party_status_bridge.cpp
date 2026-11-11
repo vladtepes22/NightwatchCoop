@@ -2,6 +2,7 @@
 // Party status bridge (party_status_bridge.h): party runtime / director -> status board, and the
 // Party tab's commands back.
 #include "party_status_bridge.h"
+#include "party_invade_rules.h"
 #include "party_async_io.h"
 
 #ifndef BB_PARTY_BRIDGE_NO_GAME
@@ -132,6 +133,8 @@ Actions DefaultActions() {
         // A guest apart from a host in a Chalice Dungeon (still in the session) goes home first; the
         // bell then gets it summoned into the dungeon (quick join; deathrules::ChaliceRejoinLeavesFirst).
         coop::b2::ChaliceRejoinPressed();
+        // 0.8.1 seam D (party_quick_rejoin): a guest in the host's world reloads in place (one loading screen).
+        if (coop::b2::QuickRejoinPressed()) return 3;
         return party::runtime_rejoin();
     };
     a.kick = [](const std::string& name) {
@@ -180,12 +183,15 @@ void HandleCommand(Bridge& b, const status::Command& c, const TickIn& in, TickOu
         Log("status: Rejoin pressed: %s", r == 0   ? "link up, ringing now"
                                           : r == 1 ? "reconnecting now"
                                           : r == 2 ? "starting a fresh link"
+                                          : r == 3 ? "a re-join in place (one loading screen)"
                                                    : "nothing to do");
         if (r == 0) {
             out->ring_now = true;
             status::SetLastEvent(in.host ? "Ringing the Beckoning Bell now" : "Ringing the Small Resonant Bell now");
         } else if (r == 1) {
             status::SetLastEvent("Reconnecting now");
+        } else if (r == 3) {
+            status::SetLastEvent("Rejoining beside the host");
         }
         break;
     }
@@ -272,7 +278,7 @@ bool RefusalPlaysSolo(RejectCode code) {
     return code != RejectCode::None && code != RejectCode::Shutdown;
 }
 
-std::string RefusalNotice(RejectCode code, const std::string& reason) {
+std::string RefusalNotice(RejectCode code, const std::string& reason, bool was_in) {
     if (!RefusalPlaysSolo(code)) return {};
     std::string title, todo;
     switch (code) {
@@ -295,7 +301,11 @@ std::string RefusalNotice(RejectCode code, const std::string& reason) {
         todo = "System > Party > Rejoin the host asks to join again.";
         break;
     case RejectCode::Invasion:
-        title = reason.empty() ? "The invasion is over" : reason.rfind("Can't ", 0) == 0 ? reason : "The invasion is over: " + reason;
+        // 0.8.1: "over" only for an invader that stood in the host's world; a refusal at the door reads "Can't invade".
+        if (was_in)
+            title = reason.empty() ? "The invasion is over" : reason.rfind("Can't ", 0) == 0 ? reason : "The invasion is over: " + reason;
+        else
+            title = reason.empty() ? "Can't invade" : reason.rfind("Can't ", 0) == 0 ? reason : "Can't invade: " + reason;
         todo = "Pick another game in the launcher's list, or try again later.";
         break;
     case RejectCode::Level:
@@ -432,12 +442,22 @@ void OnRuntimeStart(bool host, const std::string& name) {
         "Party game data missing: travel, shared items and NPC help are off. The game could not read its data from "
         "your game files (see the log line \"[party-data]\").";
     if (coop::gamedata::Preparing()) {
-        // The engine derives the tables from the game files at start (a few seconds on the first start and after a
-        // game / mod change): the party features wait for it; say so, and report a failed build afterwards.
-        status::SetAlert("Preparing co-op data from your game files: " + std::to_string(coop::gamedata::PreparingPercent()) +
-                         "%. The party starts working as soon as it is ready.");
+        // The engine derives the tables from the game files at start. A cache hit (the normal start) is silent; only a
+        // real rebuild (first start, game / mod change) that takes over a second raises the notice. Report a failed
+        // build afterwards.
         std::thread([missing] {
-            if (!coop::gamedata::Loaded()) status::SetAlert(missing);  // waits for the build
+            bool shown = false;
+            while (coop::gamedata::Preparing()) {
+                if (!shown && coop::gamedata::ShouldShowRebuildNotice(coop::gamedata::Rebuilding(), coop::gamedata::RebuildSeconds())) {
+                    status::SetAlert("Preparing co-op data from your game files: " + std::to_string(coop::gamedata::PreparingPercent()) +
+                                     "%. The party starts working as soon as it is ready.");
+                    std::printf("[party-data] rebuild notice shown\n");
+                    std::fflush(stdout);
+                    shown = true;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            if (!coop::gamedata::Loaded()) status::SetAlert(missing);
         }).detach();
     } else if (!coop::gamedata::Loaded()) {
         status::SetAlert(missing);
@@ -511,8 +531,20 @@ void OnLinkState(LinkState state, const std::string& detail, RejectCode reject, 
     } else if (state == LinkState::Reconnecting && (was == LinkState::Connected)) {
         status::SetLastEvent("Connection to the host lost");
     } else if (state == LinkState::Rejected) {
-        status::SetLastEvent(RejectText(reject, reason));
-        if (!host) status::SetAlert(RefusalNotice(reject, reason));
+        if (!host && reject == RejectCode::Invasion && coop::invade::TransientRefusal(reason)) {
+            // 0.8.1: the host's moment, not a verdict: no modal notice; the runtime asks again by itself.
+            std::string r = reason;
+            const std::string pre = "invasion refused: ";
+            if (r.rfind(pre, 0) == 0) r = r.substr(pre.size());
+            status::SetLastEvent("Waiting for the host's world: " + r);
+        } else if (!host && reject == RejectCode::Invasion && coop::invade::EndedByHost(reason)) {
+            // 0.8.1: the host ended the invasion (it travelled, a boss fight began ...): the invade notice told the invader,
+            // no modal box on top of it.
+            status::SetLastEvent(reason);
+        } else {
+            status::SetLastEvent(RejectText(reject, reason));
+            if (!host) status::SetAlert(RefusalNotice(reject, reason, was == LinkState::Connected || was == LinkState::Reconnecting));
+        }
     } else if (state == LinkState::Hosting && host) {
         status::SetLastEvent("Party open");
     }

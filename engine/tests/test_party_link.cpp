@@ -260,6 +260,38 @@ static void test_codes() {
           lan_port.size() == 5 + 17 + 4);
     std::printf("  LAN code: %s, port 47001: %s\n", lan_code.c_str(), lan_port.c_str());
 
+    // NW-03d11e5: over the Nightwatch tunnel (10.8.0.0/22) a host publishes the FULL address.
+    {
+        std::string vc, oc;
+        const std::array<std::uint8_t, 4> host_ip{10, 8, 0, 7};
+        _putenv_s("BB_PARTY_VPN_FULL_CODE", "1");
+        CHECK(is_nw_tunnel_ipv4(host_ip) && is_nw_tunnel_ipv4({10, 8, 3, 254}) && !is_nw_tunnel_ipv4({10, 8, 4, 1}) &&
+              !is_nw_tunnel_ipv4({10, 9, 0, 1}) && !is_nw_tunnel_ipv4({192, 168, 1, 7}));
+        CHECK(make_lan_code_for(host_ip, 9307, secret, 0, &vc));
+        CHECK(decode_party_code(vc, &pc2, &err) && !pc2.lan_partial && !(pc2.flags & kCodeFlagLan) &&
+              pc2.ipv4 == host_ip && pc2.port == 9307 && pc2.secret == secret);
+        // a guest at 10.8.2.5 needs no prefix guess: it dials 10.8.0.7
+        CHECK(pc2.address() == "10.8.0.7:9307");
+        // plain LAN address: still the short code
+        CHECK(make_lan_code_for({192, 168, 1, 42}, 9307, secret, 0, &oc));
+        CHECK(decode_party_code(oc, &pc2, &err) && pc2.lan_partial && pc2.ipv4[3] == 42);
+        // kill switch: the old partial code
+        _putenv_s("BB_PARTY_VPN_FULL_CODE", "0");
+        CHECK(make_lan_code_for(host_ip, 9307, secret, 0, &oc));
+        CHECK(decode_party_code(oc, &pc2, &err) && pc2.lan_partial && pc2.ipv4[3] == 7);
+        _putenv_s("BB_PARTY_VPN_FULL_CODE", "");
+        // an old 0.8.0 partial code at a guest in the same /24 still lands on the host; from another /24 the
+        // guess is wrong but the other three /24s are offered as candidates
+        fill_lan_prefix(&pc2, {10, 8, 2, 5});
+        CHECK(pc2.address() == "10.8.2.7:9307");
+        const auto cands = tunnel_lan_candidates(pc2.ipv4);
+        CHECK(cands.size() == 3);
+        bool has_host = false;
+        for (const auto& c : cands) has_host |= (c == host_ip);
+        CHECK(has_host);
+        CHECK(tunnel_lan_candidates({192, 168, 1, 7}).empty());
+    }
+
     std::array<std::uint8_t, 4> lan{};
     if (best_local_ipv4(&lan)) {
         std::string lc;
@@ -1050,6 +1082,7 @@ static void test_identity() {
         CHECK(host_world_hook_name("progress: CompleteEvent (BroadcastSetFlag)"));
         CHECK(host_world_hook_name("story capture (EMEVD bank 2002 handler)"));
         CHECK(host_world_hook_name("hifps: water wakes update"));  // presentation fixes are not part of the party identity
+        CHECK(host_world_hook_name("load speed: inflate"));  // load speed hooks change no game state
         CHECK(!host_world_hook_name("travel funnel (SessionWorldTransition)"));
         CHECK(!host_world_hook_name("lamp multiplayer gate +0x49 (party lamps)"));
         // 0.7.8: a known option is named in plain words with both values.

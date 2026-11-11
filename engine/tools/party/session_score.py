@@ -355,9 +355,10 @@ IPV6 = re.compile(r"(?<![\w:])(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}(?![\w:])|
 def mask(text, ndlogs):
     """net_doctor's masking (names -> Host / Guest N, public IPs hidden, VPN / LAN IPs cut to the first number)
     plus IPv6 and party codes."""
+    # IPv6 first: net_doctor's redact keeps an address's first two groups (2001:db8:x:...), this kit hides it whole.
+    text = IPV6.sub(lambda m: m.group(0) if m.group(0).count(":") < 3 or re.fullmatch(r"[\d:.]+", m.group(0)) else "<ip6>", text)
     text = nd.redact(text, ndlogs, True, True)
-    text = PARTY_CODE.sub("<party code>", text)
-    return IPV6.sub(lambda m: m.group(0) if m.group(0).count(":") < 3 or re.fullmatch(r"[\d:.]+", m.group(0)) else "<ip6>", text)
+    return PARTY_CODE.sub("<party code>", text)
 
 
 # ---------------------------------------------------------------- scoring

@@ -21,9 +21,11 @@
 #include "game_state.h"
 #include "lua_events.h"
 #include "party_b2.h"
+#include "party_seam.h"
 #include "party_death_rules.h"
 #include "party_dsummon.h"
 #include "../net/from_api.h"
+#include "bbport_stall_probe.h"
 #include "party_fourp.h"
 #include "party_sixp.h"
 #include "party_link.h"
@@ -369,6 +371,9 @@ struct Test {
     std::string st_last_texts;
     Clock::time_point st_at{};
     bool god = false;     // god: the own chr kept invincible (test aid)
+    float god_bar = -1;   // god_bar=S (re081): invincible until S s after this game's boss bar came up, then mortal
+    Clock::time_point god_bar_seen{};
+    bool god_bar_up = false, god_bar_done = false;
     bool clear_enemies = false;  // clear_enemies[=R] (flaky078): every loaded regular enemy (not bosses / NPCs) dies quietly, each second, also after a load
     float clear_radius = 0;      // 0: the whole loaded map, else only within R m of the player
     Clock::time_point clear_at{};
@@ -960,7 +965,7 @@ void LogTransitions(State& st, const GameSnapshot& now) {
     }
     // A guest's travel re-join shows the game's loading card well before its loading flag rises
     // (smoke s1: card at +100 s, flag at +110 s): the overlay hides from the host's travel on.
-    BbFrameState::NoteGameLoading(now.loading || b2::GuestTravelPending());
+    BbFrameState::NoteGameLoading(now.loading || b2::GuestTravelPending() || seam::ScreenHeld());
     if (now.loading != was.loading) {
         Log("loading screen %s", now.loading ? "up" : "gone");
         static int load_marks = 0;
@@ -2203,7 +2208,9 @@ void TestAidTick(Test& t, Clock::time_point now) {
                 t.fog_on = false;
                 Log("test: fog: through the fog at (%.2f, %.2f), %.2f m past it, boss bar up", double(me[0]), double(me[2]),
                     double(past));
-            } else if (Seconds(t.fog_t, now) > 5.0) {
+            } else if (Seconds(t.fog_t, now) > (past > 0.3f ? 20.0 : 5.0)) {
+                // past the fog point already: the boss's intro scene (about 6 s for Micolash) holds the bar back, so a
+                // retry walk after 5 s walked on through a fog already passed and then found no prompt (mig081)
                 if (++t.fog_tries >= 3) {
                     t.fog_on = false;
                     Log("test: fog: NOT through after 3 tries (at (%.2f, %.2f), %.2f m past the fog point, bar %d)",
@@ -4012,6 +4019,26 @@ void RunTest(State& st, const GameSnapshot& s, Clock::time_point now) {
     }
     // god: this player's chr stays invincible (chr +0x1E1 bit 14, as a11_move), e.g. a scripted
     // event walk through an area full of enemies (B6 live triggers).
+    if (t.god && t.god_bar >= 0 && s.world_up && !s.loading && s.player) {
+        // god_bar=S: mortal S s after the boss bar is up here (a mortal player that lives through a boss intro's
+        // close-up start, then fights as a player would)
+        const bool bar = b2::BossBarLine(nullptr);
+        if (bar && !t.god_bar_up) {
+            t.god_bar_up = true;
+            t.god_bar_seen = Clock::now();
+        }
+        if (t.god_bar_up &&
+            std::chrono::duration<double>(Clock::now() - t.god_bar_seen).count() >= double(t.god_bar)) {
+            t.god = false;
+            t.god_bar_done = true;
+            std::uint32_t f = 0;
+            if (SafeRead(s.player + 0x1e1, &f, 4) && (f & (1u << 14))) {
+                f &= ~(1u << 14);
+                SafeWrite(s.player + 0x1e1, &f, 4);
+            }
+            Log("test: god_bar: mortal now (%.1f s after the boss bar)", double(t.god_bar));
+        }
+    }
     if (t.god && s.world_up && !s.loading && s.player) {
         std::uint32_t f = 0;
         if (SafeRead(s.player + 0x1e1, &f, 4) && !(f & (1u << 14))) {
@@ -5120,6 +5147,9 @@ void PartyDirector::ConfigureFromEnv() {
                 }
             } else if (item == "god") {
                 st.test.god = true;
+            } else if (item.rfind("god_bar=", 0) == 0) {
+                st.test.god = true;
+                st.test.god_bar = static_cast<float>(std::atof(item.c_str() + 8));
             } else if (item == "clear_enemies" || item.rfind("clear_enemies=", 0) == 0) {
                 st.test.clear_enemies = true;
                 st.test.clear_radius = item.size() > 14 ? static_cast<float>(std::atof(item.c_str() + 14)) : 0.0f;
@@ -6409,6 +6439,7 @@ bool PartyRequested() {
 
 void CoopTick() {
     using perf::Zone;
+    BbStallProbe::ZoneScope stall_zone(BbStallProbe::kZonePartyTick); // BB_STALL_PROBE: samples here are ours
     perf::FrameBoundary(); // BB_PARTY_PERF=1: closes the last frame's per-zone sums
     perf::Scope total(Zone::Tick);
     perf::Scope z(Zone::LuaEvents);
