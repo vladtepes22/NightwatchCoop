@@ -51,13 +51,16 @@ bool GoodsFromJsonText(const std::string& text, std::vector<std::uint32_t>* out,
 #ifndef BB_PARTY_CHALICE_NO_GAME
 #include "coop_hooks.h"
 #include "game_state.h"
+#include "party_chalice_glyphdb.h"
 #include "party_chalice_glyphs.h"
 #include "party_chalice_merge.h"
+#include "party_director.h"
 #include "party_progress.h"
 #include "party_status.h"
 
 #include "../bbport_game_menu.h"
 #include "../bbport_settings.h"
+#include "../net/bbnet_internal.h"
 #include "../net/from_api.h"
 #include "../net/party_util.h"
 
@@ -66,6 +69,7 @@ bool GoodsFromJsonText(const std::string& text, std::vector<std::uint32_t>* out,
 #include <chrono>
 #include <cstdio>
 #include <deque>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -158,8 +162,18 @@ bool g_curated_loaded = false;
 std::string g_test_glyph;                 // host_glyph=CODE: typed into the next glyph box
 int g_test_pick = 0;                      // host_pick=N: the N-th row of the list picked (1-based)
 
+// Noxde's community list (party_chalice_glyphdb.h): the launcher's cache, read when the switch is on.
+std::vector<glyphdb::Entry> g_db;           // under g_list_mu
+std::atomic<bool> g_db_ready{false};        // the cache holds entries (read from any thread)
+
+bool DbOn() {
+    return BbSettings::Get().chalice_glyphdb.load();
+}
+
+// The pick list is on for the party switch, or for the community list when its cache has entries (without a cache
+// the feature is quietly absent).
 bool ListOn() {
-    return BbSettings::Get().party_glyph_list.load();
+    return BbSettings::Get().party_glyph_list.load() || (DbOn() && g_db_ready.load(std::memory_order_acquire));
 }
 
 // The glyph box the altar opened: its menu item was shown within the last 20 s.
@@ -202,6 +216,59 @@ void LoadCurated() {
     }
     std::printf("[coop] Party: chalice: glyph list: no patches/chalice_glyphs.json found\n");
     std::fflush(stdout);
+}
+
+// <user dir>/community/chalice_glyphs.json (BB_CHALICE_GLYPHDB_FILE overrides): the launcher writes it. Re-read when
+// its time stamp changes (the launcher may refresh it while the game runs), looked for again every 30 s when missing.
+void LoadDb() {
+    static double next = 0;
+    static std::filesystem::file_time_type seen{};
+    static bool have_seen = false;
+    const double now = Seconds();
+    if (now < next) return;
+    next = now + 30.0;
+    // The launcher's cache only: nothing of the list ships with the game.
+    std::vector<std::filesystem::path> candidates;
+    if (const char* e = std::getenv("BB_CHALICE_GLYPHDB_FILE"); e && e[0]) {
+        candidates.push_back(e);
+    } else {
+        std::string dir = bbnet::settings().user_dir;
+        if (dir.empty()) {
+            if (const char* u = std::getenv("BB_GPU_USER_DIR")) dir = u;
+            else if (const char* u2 = std::getenv("BB_USER_DIR")) dir = u2;
+            else dir = std::string(std::getenv("BB_DATA_DIR") ? std::getenv("BB_DATA_DIR") : ".") + "/user";
+        }
+        candidates.push_back(std::filesystem::path(dir) / "community" / "chalice_glyphs.json");
+    }
+    std::filesystem::path p;
+    std::filesystem::file_time_type t{};
+    for (const std::filesystem::path& c : candidates) {
+        std::error_code ec;
+        const auto ct = std::filesystem::last_write_time(c, ec);
+        if (!ec) {
+            p = c;
+            t = ct;
+            break;
+        }
+    }
+    if (p.empty()) return;  // no cache and no snapshot: the feature stays absent
+    if (have_seen && t == seen) return;
+    seen = t;
+    have_seen = true;
+    const std::string text = ReadWhole(p.string());
+    std::vector<glyphdb::Entry> db;
+    std::string err;
+    int skipped = 0;
+    if (!glyphdb::ParseCache(text, &db, &err, &skipped)) {
+        std::printf("[coop] Party: chalice: community glyph cache unusable (%s)\n", err.c_str());
+        std::fflush(stdout);
+        return;
+    }
+    std::printf("[coop] Party: chalice: community glyph cache: %zu glyph(s) (%d skipped)\n", db.size(), skipped);
+    std::fflush(stdout);
+    std::lock_guard<std::mutex> lk(g_list_mu);
+    g_db = std::move(db);
+    g_db_ready.store(!g_db.empty(), std::memory_order_release);
 }
 
 // The ImeDialog opens: with the list on, the altar's glyph box gets the party's glyphs to pick from. The test
@@ -257,7 +324,9 @@ void GlyphClosed(std::uint32_t max_length, const char* text, bool cancelled) {
                 if (e.glyph == glyph && !e.form_on_board && !e.form.empty()) {
                     // A curated glyph: its layout goes on the board before the game's search asks for it.
                     const std::uint64_t id = bbnet::party::ChannelBoard::IdOf(e.form);
-                    if (board.known(id) || board.adopt(id, e.form, "curated", glyph)) how = "curated, put on the board";
+                    if (board.known(id) ? board.rename_glyph(id, glyph) : board.adopt(id, e.form, "curated", glyph)) {
+                        how = "curated, put on the board";
+                    }
                     break;
                 }
             }
@@ -766,6 +835,8 @@ BB_COOP_SYSV std::uint32_t GetValueHook(u64 man, std::uint32_t id, std::uint32_t
 }
 } // namespace
 
+void InstallEsdCount();  // defined below (the Ritual Altar's inventory test, community glyph list)
+
 void InstallProbes() {
     static bool done = false;
     if (done) {
@@ -776,6 +847,7 @@ void InstallProbes() {
     BbGameMenu::SetImePreset(&PartyGlyph);
     BbGameMenu::SetImeChoices(&GlyphChoices);
     BbGameMenu::SetImeClosed(&GlyphClosed);
+    InstallEsdCount();
     HookPrologue(0x14ba340, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &SummonMessageProbe, "chalice: summon message probe");
     HookPrologue(0x1aa5280, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &QuickJoinRequestProbe, "chalice: quick join request probe");
     HookPrologue(0x1aa81d0, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &QuickJoinStepProbe, "chalice: quick join step probe");
@@ -958,6 +1030,7 @@ void HostGlyphList(const State& s, const std::string& me) {
     const double now = Seconds();
     if (now < next) return;
     next = now + 3.0;
+    if (DbOn()) LoadDb();
     if (!ListOn()) {
         std::lock_guard<std::mutex> lk(g_list_mu);
         if (!g_list.empty()) {
@@ -992,22 +1065,33 @@ void HostGlyphList(const State& s, const std::string& me) {
         b.touched = c.touched;
         items.push_back(std::move(b));
     }
-    std::vector<glyphs::Entry> list = glyphs::BuildList(me, std::move(items), g_curated);
+    std::vector<glyphs::Entry> community;
+    if (DbOn()) {
+        std::lock_guard<std::mutex> lk(g_list_mu);
+        community = glyphdb::ToRows(g_db, [](const std::uint8_t* d, std::size_t n) { return bbnet::party::b64_encode(d, n); });
+    }
+    std::vector<glyphs::Entry> list = glyphs::BuildList(me, std::move(items), g_curated, community);
     const std::string choices = glyphs::EncodeChoices(list);
     std::lock_guard<std::mutex> lk(g_list_mu);
     if (choices != g_list_choices) {
         g_list = std::move(list);
         g_list_choices = choices;
         std::printf("[coop] Party: chalice: glyph list: %zu glyph(s)\n", g_list.size());
-        for (const glyphs::Entry& e : g_list) std::printf("[coop] Party: chalice: glyph list: %s [%s] %s\n", e.glyph.c_str(), e.source.c_str(), e.label.c_str());
+        int community = 0;  // the community rows: the first three only (the list can hold 200)
+        for (const glyphs::Entry& e : g_list) {
+            if (e.source == "glyphdb" && ++community > 3) continue;
+            std::printf("[coop] Party: chalice: glyph list: %s [%s] %s\n", e.glyph.c_str(), e.source.c_str(), e.label.c_str());
+        }
         std::fflush(stdout);
     }
     if (g_list.empty() == g_list_text.load()) {
         g_list_text.store(!g_list.empty(), std::memory_order_release);
         if (!g_list.empty() && !g_party_dungeon.load()) {
-            CopyU16(g_party_label, sizeof g_party_label / sizeof g_party_label[0], "Enter a party glyph");
+            const bool solo_db = DbOn() && !BbSettings::Get().party_glyph_list.load();
+            CopyU16(g_party_label, sizeof g_party_label / sizeof g_party_label[0], solo_db ? "Pick a Chalice Glyph" : "Enter a party glyph");
             CopyU16(g_party_help, sizeof g_party_help / sizeof g_party_help[0],
-                    "Pick one of the party's Chalice Glyphs from a list, or type a code.");
+                    solo_db ? "Pick a Chalice Glyph from the community list (Noxde's), or type a code."
+                            : "Pick one of the party's Chalice Glyphs from a list, or type a code.");
         }
     }
 }
@@ -1040,6 +1124,67 @@ void GuestSlotForms(const State& s, double now) {
 }
 
 } // namespace
+
+// The Ritual Altars' talk scripts (ESD t210060..t210110) open with a test of the player's inventory: ESD function 0x2f
+// (0x6f in the bytecode) called with (3, chalice goods id, 0, 0, 0) for every chalice, OR'ed, and the altar answers "A
+// Holy Chalice is required to conduct a ritual." (text 10011120) when none is owned. The count behind it is the
+// inventory's (FUN_014d9310(inventory + 0x328, type, id), the one call in the ESD function dispatcher, 0x203eaea).
+// Noxde's tool avoids the refusal by writing a ready slot into the save; with the community list on and loaded this
+// answers 1 for the Pthumeru Chalice (6109) to that one call when the inventory holds none, so the altar offers its menu
+// and the glyph search. No item is ever added; every other count is the game's.
+constexpr std::uint64_t kEsdCountCall = 0x203eaea;
+constexpr std::uint64_t kInventoryCount = 0x14d9310;
+constexpr std::uint64_t kItemTypeTable = 0x49250e0;  // ESD item type (1..) -> the inventory's type; [3] = goods
+
+BB_COOP_SYSV std::uint32_t EsdItemCountHook(u64 inventory, std::uint32_t type, std::uint32_t id) {
+    const std::uint32_t real = reinterpret_cast<std::uint32_t(BB_COOP_SYSV*)(u64, std::uint32_t, std::uint32_t)>(Guest(kInventoryCount))(
+        inventory, type, id);
+    if (real != 0 || id != 6109 || !DbOn() || !g_db_ready.load(std::memory_order_acquire)) return real;
+    std::uint32_t goods_type = 0;
+    if (!SafeGet(Guest(kItemTypeTable) + 12, &goods_type) || type != goods_type) return real;
+    static std::atomic<bool> logged{false};
+    if (!logged.exchange(true)) {
+        std::printf("[coop] Party: chalice: community glyphs: no chalice owned; the Ritual Altar's inventory test counts the "
+                    "Pthumeru Chalice for the glyph search (nothing is added to the inventory)\n");
+        std::fflush(stdout);
+    }
+    return 1;
+}
+
+void InstallEsdCount() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    HookCallSite(kEsdCountCall, kInventoryCount, reinterpret_cast<const void*>(&EsdItemCountHook),
+                 "chalice: the Ritual Altar's inventory test (community glyph list)");
+}
+
+// No party (solo): the community glyph list only. The same menu hooks as the party's, and a tick of its own
+// (lamp_travel.cpp's main-thread tick calls SoloTick). Every callback is a no-op while the switch is off.
+void InstallSolo() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    BbGameMenu::SetTextOverride(&AltarText);
+    BbGameMenu::SetImeChoices(&GlyphChoices);
+    BbGameMenu::SetImeClosed(&GlyphClosed);
+    InstallEsdCount();
+    std::printf("[coop] Party: chalice: community glyph list hooks installed (no party; bbport.ini chalice_glyphdb)\n");
+    std::fflush(stdout);
+}
+
+void SoloTick() {
+    static double next = 0;
+    if (PartyRequested() || (!DbOn() && !g_list_text.load(std::memory_order_acquire))) return;
+    const double now = Seconds();
+    if (now < next) return;
+    next = now + 2.0;
+    const GameSnapshot g = ReadGameState(false);
+    if (!g.world_up || g.loading) return;
+    const State s = Read();
+    if (!s.valid) return;
+    HostGlyphList(s, "you");
+}
 
 void Tick(bool host) {
     static double next = 0;

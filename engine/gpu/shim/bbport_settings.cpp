@@ -56,6 +56,7 @@ const PartySwitch PartySwitches[] = {
     {"party_layer_travel", "BB_PARTY_LAYER_TRAVEL", &Values::party_layer_travel, false},  // 0.7.7, CL-48ee07
     {"party_glyph_list", "BB_PARTY_GLYPH_LIST", &Values::party_glyph_list, false},  // 0.7.8, CL-420d9f
     {"party_guest_altar", "BB_PARTY_GUEST_ALTAR", &Values::party_guest_altar, false},  // 0.7.9, CL-13f7d1
+    {"chalice_glyphdb", "BB_CHALICE_GLYPHDB", &Values::chalice_glyphdb, false},  // visy 0.8.1, glyphdb081
     {"party_title_room_hold", "BB_PARTY_TITLE_ROOM_HOLD", &Values::party_title_room_hold, true},  // 0.7.9, gdrf079
     {"party_covenant_per_player", "BB_PARTY_COVENANT_PER_PLAYER", &Values::party_covenant_per_player, false},
     // 0.7.3: lamp travel voting (party_vote.h reads it live; the host's rule, off by default).
@@ -642,6 +643,10 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.cheat_no_durability = i != 0;
     } else if (key == "cheat_consumables") {
         v.cheat_consumables = i != 0;
+    } else if (key == "fast_fades") {
+        v.fast_fades = i != 0;
+    } else if (key == "load_workers") {
+        v.load_workers = i != 0;
     } else if (key == "cheat_gun_range") {
         v.cheat_gun_range = CheatChoice(key, value, CheatGunRanges, "off, 150, 200 or 300");
     } else if (key == "cheat_echo_multiplier") {
@@ -1312,6 +1317,8 @@ void Save() {
     put("cheat_echo_multiplier", std::to_string(v.cheat_echo_multiplier.load()));
     put("cheat_no_durability", flag(v.cheat_no_durability));
     put("cheat_consumables", flag(v.cheat_consumables));
+    put("fast_fades", flag(v.fast_fades));
+    put("load_workers", flag(v.load_workers));
     put("output_res", v.output_res == OutputAuto ? std::string("auto")
                                                   : std::to_string(OutputWidth(v.output_res)) + "x" +
                                                         std::to_string(OutputHeight(v.output_res)));

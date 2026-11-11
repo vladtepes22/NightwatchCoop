@@ -11,6 +11,8 @@
 #include <cstring>
 #include <thread>
 
+#include "bbport_load_policy.h"
+#include "bbport_settings.h"
 #include "party/coop_hooks.h"
 
 #ifdef _WIN32
@@ -48,19 +50,15 @@ BB_COOP_SYSV u32 PostProcessorNum(u64 registry, u64 name, u32 fallback) {
     return n;
 }
 
-// Default: the game's own count. With the guarded take below, 4-8 threads are safe (research/workers081.md: 192 loads,
-// no hang, no panic) and shorten a lamp warp by 0.1-0.2 s on the mean with zlib-ng in (0.3-0.5 s on CPU-bound warps,
-// nothing on the long I/O-bound ones): under the bar for a default change, so this stays opt-in. If it ever becomes
-// the default: min(4, cores - 2), never below the game's 3.
-u32 DefaultWorkers(u32) { return 0; }
-
-// "0" / "off": no change. Unset: the default. A number: that many (1..8).
-u32 ParseWorkers(const char* v, u32 hw) {
-    if (!v || !*v) return DefaultWorkers(hw);
-    if (!std::strcmp(v, "off") || !std::strcmp(v, "false")) return 0;
-    const long n = std::strtol(v, nullptr, 10);
-    return n <= 0 ? 0 : u32(std::min<long>(n, 8));
+// Default (0.8.1, loadux081): min(4, max(3, usable CPUs - 2)): never below the game's 3, 4 on a PC with 6+ logical CPUs.
+// With the guarded take below, 4-8 threads are safe (research/workers081.md: 192 loads, no hang, no panic) and shorten a
+// lamp warp by 0.1-0.2 s on the mean with zlib-ng in (0.3-0.5 s on CPU-bound warps). bbport.ini load_workers=0 (launcher:
+// Advanced) or BB_LOAD_WORKERS=0 keeps the game's own count; BB_LOAD_WORKERS=N (1..8) always wins.
+u32 DefaultWorkers(u32 usable_cpus) {
+    return bbport::loadpolicy::DefaultWorkers(usable_cpus, BbSettings::Get().load_workers.load());
 }
+
+u32 ParseWorkers(const char* v, u32 hw) { return bbport::loadpolicy::ParseWorkers(v, DefaultWorkers(hw)); }
 
 // Logical CPUs the game may run on: the machine's, less what an affinity mask takes away (BB_AFFINITY_MASK is applied
 // later by the audio start, so it is read here too).
@@ -448,8 +446,9 @@ void InstallWorkers() {
         const long v = std::strtol(w, nullptr, 10);
         g_workbuf.store(v <= 0 ? 0 : u32(std::min<long>(v, 256)));
     }
-    if (n == 0 && g_workbuf.load() == 0) {
-        std::printf("Load speed: post-processor threads are the game's own (BB_LOAD_WORKERS=0)\n");
+    if (n <= 3 && g_workbuf.load() == 0) {   // the game starts 3: nothing to add (off, or a PC with fewer than 6 CPUs)
+        std::printf("Load speed: post-processor threads are the game's own (BB_LOAD_WORKERS=%s, %u usable CPUs)\n",
+                    std::getenv("BB_LOAD_WORKERS") ? std::getenv("BB_LOAD_WORKERS") : "unset", hw);
         return;
     }
     // All or nothing: the count only grows when the guarded take is in (the registry call sites are checked by

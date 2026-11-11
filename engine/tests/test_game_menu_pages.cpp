@@ -565,6 +565,7 @@ static void RulesPages() {
         BbSettings::Get().party_layer_travel = false;
         BbSettings::Get().party_glyph_list = false;
         BbSettings::Get().party_guest_altar = false;
+        BbSettings::Get().chalice_glyphdb = false;
         P::Load();
         Advance(300);
         assert(names(u"Party rules: World") == shared);
@@ -694,6 +695,7 @@ static void RulesPages() {
           std::tuple{u"Party rules: Travel", u"Guests can gather", "party_guest_gather", &BbSettings::Values::party_guest_gather},
           std::tuple{u"Party rules: PvP & lamps", u"Chalice layer travel", "party_layer_travel", &BbSettings::Values::party_layer_travel},
           std::tuple{u"My party: Chalice", u"Chalice glyph list", "party_glyph_list", &BbSettings::Values::party_glyph_list},
+          std::tuple{u"My party: Chalice", u"Community Chalice glyphs (Noxde's list)", "chalice_glyphdb", &BbSettings::Values::chalice_glyphdb},
           std::tuple{u"My party: Chalice", u"Ritual Altar as a guest", "party_guest_altar", &BbSettings::Values::party_guest_altar},
           std::tuple{u"My party: Your save", u"Room for rejoin guest", "party_title_room_hold",
                      &BbSettings::Values::party_title_room_hold},

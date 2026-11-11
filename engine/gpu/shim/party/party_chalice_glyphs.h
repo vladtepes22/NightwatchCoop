@@ -165,9 +165,10 @@ inline std::string KindText(std::uint32_t goods, int depth) {
 }
 
 /// The list: the host's own dungeons first, then the guests', then the curated ones the board does not
-/// have already; at most kMaxList; one row per glyph; board items without FormData are left out (they
+/// have already; at most kMaxList (the community rows come after, all of them); one row per glyph; board items without FormData are left out (they
 /// cannot be entered). `me` is the host's name on the board.
-inline std::vector<Entry> BuildList(const std::string& me, std::vector<BoardItem> board, const std::vector<Curated>& curated) {
+inline std::vector<Entry> BuildList(const std::string& me, std::vector<BoardItem> board, const std::vector<Curated>& curated,
+                                    const std::vector<Entry>& community = {}) {
     std::stable_sort(board.begin(), board.end(), [&](const BoardItem& a, const BoardItem& b) {
         const bool am = a.owner == me, bm = b.owner == me;
         if (am != bm) return am;
@@ -198,6 +199,10 @@ inline std::vector<Entry> BuildList(const std::string& me, std::vector<BoardItem
         if (c.depth > 0) e.label += ", depth " + std::to_string(c.depth);
         if (!c.notes.empty()) e.label += " (" + c.notes + ")";
         out.push_back(std::move(e));
+    }
+    // The community list (party_chalice_glyphdb.h): already grouped, not held to kMaxList, below everything else.
+    for (const Entry& e : community) {
+        if (!have(e.glyph)) out.push_back(e);
     }
     return out;
 }

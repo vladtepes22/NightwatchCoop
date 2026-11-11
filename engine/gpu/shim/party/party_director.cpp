@@ -5546,6 +5546,25 @@ void AltarAutopilotTick(const GameSnapshot& s) {
     if (!line.empty()) {
         Log("altar: %s", line.c_str());
     }
+    {
+        // Every second: the texts on screen now (first 60 ASCII chars each), so a stuck walk shows which box or menu it stood at.
+        static std::int64_t texts_logged = 0;
+        static std::string last_texts;
+        if (now_ms - texts_logged >= 1000) {
+            texts_logged = now_ms;
+            std::string all;
+            BbGameMenu::RecentTexts(now_ms - 600, [](const char16_t* text, std::int64_t, void* user) {
+                std::string& out = *static_cast<std::string*>(user);
+                std::string a;
+                for (const char16_t* c = text; *c && a.size() < 60; ++c) a += *c < 128 && *c >= 32 ? char(*c) : '.';
+                if (out.find(a) == std::string::npos && out.size() < 1500) out += " | " + a;
+            }, &all);
+            if (all != last_texts) {
+                last_texts = all;
+                Log("altar: texts now:%s", all.c_str());
+            }
+        }
+    }
     if (script.finished()) {
         runtime_pad_director_press(0);
         on = false;

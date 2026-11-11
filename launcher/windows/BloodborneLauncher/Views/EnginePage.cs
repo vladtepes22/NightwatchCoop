@@ -99,6 +99,12 @@ namespace BloodborneLauncher.Views
                 L.T("Loading screens run at 30 FPS: fewer frames leave the CPU to the loading work itself. Not before cutscenes. On by default"),
                 "exp_fast_loading", exp);
             if (ZstdFiles.Supported) ZstdRows(exp);
+            ToggleRow(SymbolRegular.Flash24, L.T("Faster fades around loading screens"),
+                L.T("Map load fades run twice as fast, so loading screens start and end sooner. On by default"),
+                () => Ini.Get("fast_fades", "1") == "1", v => Ini.Set("fast_fades", v ? "1" : "0"), exp);
+            ToggleRow(SymbolRegular.TopSpeed24, L.T("More loading threads"),
+                L.T("On a PC with 6 or more CPU threads the game loads its files on 4 helper threads instead of 3. On by default"),
+                () => Ini.Get("load_workers", "1") == "1", v => Ini.Set("load_workers", v ? "1" : "0"), exp);
             SettingToggle(SymbolRegular.Flash24, L.T("Fewer memory write checks"),
                 L.T("Memory the game rewrites before almost every use is no longer watched for changes, saving up to about 2 ms a frame in busy areas. On by default"),
                 "exp_hot_pages", exp);

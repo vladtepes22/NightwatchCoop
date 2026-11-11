@@ -282,6 +282,7 @@ public sealed class SeamlessPage : LauncherPage
             ("party_hide_bad_names", L.T("Hide offensive names"), true),
             ("party_look_sync", L.T("Share look changes"), true), ("party_map_marks", L.T("Shared map markers"), true),
             ("party_glyph_list", L.T("Chalice glyph list"), true),
+            ("chalice_glyphdb", L.T("Community Chalice glyphs (Noxde's list)"), false),
             ("party_guest_altar", L.T("Ritual Altar as a guest"), true),
             ("party_parallel_follow", L.T("Load with the host"), true), ("party_load_beside", L.T("Arrive beside the host"), true),
             ("party_quick_rejoin", L.T("Rejoin in place"), true), ("party_settled_drop", L.T("Hold the screen until smooth"), false),
@@ -1683,6 +1684,7 @@ public sealed class SeamlessPage : LauncherPage
         "party_give_gear" => L.T("On by default. On: a weapon's or armor's menu in the inventory has Give, to send it to another hunter (a weapon keeps its upgrade level and blood gems), and you accept theirs. Never worn or story gear. Each player sets their own."),
         "party_guest_altar" => L.T("On by default. On: as a guest you can use the Ritual Altar in the host's Hunter's Dream, with your own chalice and materials. Your own setting."),
         "party_glyph_list" => L.T("On by default. At the Ritual Altar, Search by Chalice Glyph first shows a list of the party's glyphs to pick from (your own dungeons, the guests' dungeons and the shipped list), then the code keyboard: typing a code still works. Pick one and the whole party enters that dungeon together. Your own setting."),
+        "chalice_glyphdb" => L.T("Off by default. At the Ritual Altar, Search by Chalice Glyph also offers the community's glyph list (Noxde's list on GitHub, Nexus mod 121), grouped by purpose: farming, equipment, blood gems. The launcher fetches the list from GitHub when this is turned on and before a game start (at most once a week), keeps it in your own data folder and checks every entry; creators' names are never kept. Works solo or as host."),
         "party_open_any_level" => L.T("An open game is held to the game's co-op level range (a level 100 host takes 60 to 140). On: any level can join it, and nobody is removed later. Password and party-code joins never had a range; invaders keep theirs."),
         "party_open_world" => L.T("Removes co-op walls on area borders so the party can walk anywhere. The host's rule: guests follow it."),
         "party_guest_respawn" => L.T("A guest who dies comes back at the host's last lamp and is summoned again, instead of being sent home. The host's rule: guests follow it."),
@@ -1709,7 +1711,11 @@ public sealed class SeamlessPage : LauncherPage
     private void IniToggles(Panel into, params (string Key, string Label, bool Fallback)[] rows)
     {
         foreach (var (key, label, fallback) in rows)
-            ToggleRow(SymbolRegular.People24, label, PartyInfo(key), () => Ini.Get(key, fallback ? "1" : "0") == "1", v => Ini.Set(key, v ? "1" : "0"), into);
+            ToggleRow(SymbolRegular.People24, label, PartyInfo(key), () => Ini.Get(key, fallback ? "1" : "0") == "1", v =>
+            {
+                Ini.Set(key, v ? "1" : "0");
+                if (key == "chalice_glyphdb" && v) ChaliceGlyphDb.StartRefresh(GameEnvironment.UserDir(S), line => Ws.Log(line));
+            }, into);
     }
     private void IniNumbers(Panel into, params (string Key, string Label, int Value)[] rows)
     {

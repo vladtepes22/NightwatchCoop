@@ -552,6 +552,17 @@ add_executable(party-chalice-glyphs-test EXCLUDE_FROM_ALL ../tests/test_party_ch
 target_compile_options(party-chalice-glyphs-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(party-chalice-glyphs-test PRIVATE shim)
 set_target_properties(party-chalice-glyphs-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# Community Chalice glyph list (visy 0.8.1): cache parser, record to FormData (party_chalice_glyphdb.h). ninja -C out/gpu party-chalice-glyphdb-test
+add_executable(party-chalice-glyphdb-test EXCLUDE_FROM_ALL ../tests/test_party_chalice_glyphdb.cpp shim/net/json.cpp)
+target_compile_options(party-chalice-glyphdb-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(party-chalice-glyphdb-test PRIVATE shim)
+set_target_properties(party-chalice-glyphdb-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+# visy 0.8.1 loading speed-up rules (bbport_load_policy.h: load threads, faster fades). ninja -C out/gpu load-policy-test
+add_executable(load-policy-test EXCLUDE_FROM_ALL ../tests/test_load_policy.cpp)
+target_compile_options(load-policy-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(load-policy-test PRIVATE shim)
+set_target_properties(load-policy-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME load-policy-test COMMAND load-policy-test)
 
 # Party text chat (visy 0.7.8, shim/party/party_chat.cpp): sanitising, EVENT party_chat JSON, rate limits, word masking.
 add_executable(party-chat-test EXCLUDE_FROM_ALL ../tests/test_party_chat.cpp shim/party/party_chat.cpp
@@ -623,7 +634,7 @@ target_compile_options(savecommit-test PRIVATE -UNDEBUG -Wall -Wextra)
 target_include_directories(savecommit-test PRIVATE ../src)
 target_link_libraries(savecommit-test PRIVATE ws2_32 bcrypt winpthread)
 set_target_properties(savecommit-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
-add_dependencies(seamless-tests savecommit-test nav-walk-test logdrain-test)
+add_dependencies(seamless-tests savecommit-test nav-walk-test logdrain-test load-policy-test)
 add_test(NAME nav-walk-test COMMAND nav-walk-test)
 
 add_executable(save-policy-test EXCLUDE_FROM_ALL ../tests/test_save_policy.c ../src/runtime_savepolicy.c)

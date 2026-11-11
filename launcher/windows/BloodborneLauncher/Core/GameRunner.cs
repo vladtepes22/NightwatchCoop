@@ -60,6 +60,9 @@ namespace BloodborneLauncher.Core
                 return L.T("The game is already running.");
             PartyHashes.StopForGameStart(); // the lobby's hash check uses the same out folder
             SdlPad.Stop(); // the game takes the controllers
+            // Noxde's community glyph list: only while its switch is on, in the background; a failure only logs.
+            if (Workspace.Current?.Ini.Get("chalice_glyphdb", "0") == "1")
+                ChaliceGlyphDb.StartRefresh(GameEnvironment.UserDir(s), line => Workspace.Current?.Log(line));
 
             ProcessStartInfo info;
             if (Custom(s))

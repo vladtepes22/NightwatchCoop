@@ -447,6 +447,18 @@ bool ChannelBoard::find_glyph(const std::string& glyph, Channel* out) const {
     return false;
 }
 
+bool ChannelBoard::rename_glyph(std::uint64_t id, const std::string& glyph) {
+    if (glyph.empty()) return false;
+    std::lock_guard<std::mutex> lk(mu_);
+    Channel* c = find_id(id);
+    if (!c) return false;
+    for (const Channel& o : channels_) {
+        if (o.glyph == glyph) return &o == c;
+    }
+    c->glyph = glyph;
+    return true;
+}
+
 bool ChannelBoard::adopt(std::uint64_t id, const std::string& b64, const std::string& owner, const std::string& glyph) {
     if (!id || !form_data_ok(b64)) return false;
     std::lock_guard<std::mutex> lk(mu_);

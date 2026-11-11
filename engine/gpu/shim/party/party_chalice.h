@@ -106,6 +106,10 @@ State Read();
 /// every member notes the chalices it owns (PopHostGoods) and gives itself the peers' chalices it
 /// lacks (in its own world; a host always): any member can perform the next ritual.
 void Tick(bool host);
+/// No party: the community glyph list's own hooks (once) and tick (bbport.ini chalice_glyphdb; party_director.h
+/// PartyRequested() false). SoloTick is called from the solo main-thread tick (lamp_travel.cpp).
+void InstallSolo();
+void SoloTick();
 /// The local chalices to send (when they changed, and every 60 s for members that rejoined):
 /// a host broadcasts them, a guest sends them to the host (which then has them and re-broadcasts).
 bool PopHostGoods(std::vector<std::uint32_t>* out);

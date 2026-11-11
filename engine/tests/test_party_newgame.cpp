@@ -508,6 +508,10 @@ void TestMenuScriptTexts() {
     CHECK(RunAltar(script, true) == AltarModel::Done);     // with the first-time tutorial message
     CHECK(RunAltar(script, false) == AltarModel::Done);    // without it (skipped after 3 s)
     CHECK(RunAltar(script, true, 1) == AltarModel::Done);  // its OK swallowed once: Cross again
+    // A strict (!) wait keeps pressing: two swallowed presses still end at the altar (the awaken menu of the two-PC session).
+    CHECK(RunAltar("cross@First Ritual Altar/!cross@Use the Ritual Altar/cross@Search by Chalice Glyph/"
+                   "cross@Select chalice to use/cross@Rite materials/"
+                   "left@Conduct a ritual to create a Chalice Dungeon?/cross", true, 2) == AltarModel::Done);
     // The previous '+' script miscounts screens when the tutorial shows up.
     CHECK(RunAltar("cross/+cross/+cross/+cross/+left/cross", true) != AltarModel::Done);
     // The previous text script (an examine before its prompt, texts expected to be looked up every frame).

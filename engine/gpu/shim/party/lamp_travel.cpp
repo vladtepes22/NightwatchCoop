@@ -10,6 +10,7 @@
 #include "auto_hud.h"
 #include "party_async_io.h"
 #include "party_b2.h"
+#include "party_chalice.h"
 #include "party_balance.h"
 #include "party_director.h"
 #include "party_guestsvc.h"
@@ -1031,6 +1032,7 @@ bool RequestMapTravel(std::uint32_t return_point) {
 }
 
 void Tick() {
+    chalice::SoloTick();  // the community Chalice glyph list at the altar (solo; nothing while the setting is off)
     warper::Tick();  // the world warper (solo; nothing while it is off)
     mirror::Tick();  // the Dream mirror's editor frame (solo and party)
     autohud::Tick();  // the auto-hide HUD (solo and party; nothing while the setting is off)

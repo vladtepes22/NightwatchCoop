@@ -4,6 +4,9 @@
 #include "bbport_gnm_hooks.h"
 #include "bbport_load_speed.h"
 #include "bbport_load_trace.h"
+#include "bbport_fast_fades.h"
+#include "bbport_parts_budget.h"
+#include "party/party_chalice.h"
 #include "bbport_stall_probe.h"
 #include "party/party_seam.h"
 #include "party/world_warper.h"
@@ -634,7 +637,14 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     coop::hiteffects::Install();  // 0.3.0 feature hit_effects (mods' hit overlay table; BB_HIT_EFFECTS=0: off)
     coop::clipgroups::Install();  // 0.3.0 feature weapon_clip_groups (mods' weapon clip groups; BB_WEAPON_CLIP_GROUPS=0: off)
     coop::sounds::Install();  // 0.3.0 feature sounds (mods' WAVs for game sound events; BB_SOUNDS=0: off)
-    if (coop::PartyRequested()) { coop::PartyInit(image, size); bbnet_start(); }
+    BbFastFades::Install();  // visy 0.8.1: map load fades twice as fast (fast_fades; BB_FAST_FADES=0 off)
+    BbPartsBudget::Install();  // visy 0.8.1: more map parts per frame while the loading screen is up (BB_LOAD_PARTS_BUDGET=0 off)
+    if (coop::PartyRequested()) {
+        coop::PartyInit(image, size);
+        bbnet_start();
+    } else {
+        coop::chalice::InstallSolo();  // visy 0.8.1: the community Chalice glyph list (chalice_glyphdb, off by default)
+    }
     coop::MarkImageHooksDone();  // the party version check hashes the installed hooks after this
 }
 

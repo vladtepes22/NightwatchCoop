@@ -4,6 +4,7 @@
 // (BB_TEST_NEWGAME_NO_GAME, party-newgame-test).
 #include "test_newgame.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -398,7 +399,10 @@ std::uint32_t MenuScript::Step(double t, std::uint64_t screen_seq, double screen
             }
             // The previous Cross may have been swallowed (seen live: the tutorial's OK while it
             // opened): press it once more after 3.5 s without the text.
-            if (t - wait_from_ >= 3.5 && !retried_ && next_ > 0 && steps_[next_ - 1].buttons == kPadCross) {
+            // A strict wait (the altar autopilot) keeps pressing every 3.5 s until its 15 s are up: the two-PC
+            // session's awaken menu stayed shut after two presses (a box answered late), a third opened it.
+            if (t - (p.strict ? std::max(wait_from_, pressed_at_) : wait_from_) >= 3.5 && (!retried_ || p.strict) && next_ > 0 &&
+                steps_[next_ - 1].buttons == kPadCross) {
                 retried_ = true;
                 holding_ = true;
                 until_ = t + 0.12;
@@ -407,9 +411,9 @@ std::uint32_t MenuScript::Step(double t, std::uint64_t screen_seq, double screen
                 return kPadCross; // held as steps_[next_ - 1] (the previous Cross), then the gap
             }
             if (p.strict) {
-                if (t - wait_from_ >= 10.0) {
+                if (t - wait_from_ >= 15.0) {
                     stuck_ = true;
-                    if (log) *log = "STUCK at step " + std::to_string(next_ + 1) + ": no '" + p.text + "' in 10 s";
+                    if (log) *log = "STUCK at step " + std::to_string(next_ + 1) + ": no '" + p.text + "' in 15 s";
                 }
                 return 0;
             }

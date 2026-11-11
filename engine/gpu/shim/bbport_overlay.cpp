@@ -2457,7 +2457,17 @@ void TextPrompt() {
     ImGui::Separator();
     if (!choices.empty()) {
         // The party's Chalice glyphs to pick from (docs/party/chalice.md 11): Up / Down, Enter; typing a code still works.
-        for (std::size_t i = 0; i < choices.size(); ++i) {
+        // A long list (the community glyphs) shows a window of rows around the pick, with the position.
+        constexpr std::size_t kRows = 14;
+        std::size_t from = 0, to = choices.size();
+        if (choices.size() > kRows) {
+            const std::size_t at = selected < 0 ? 0 : std::size_t(selected);
+            from = at > kRows / 2 ? at - kRows / 2 : 0;
+            if (from + kRows > choices.size()) from = choices.size() - kRows;
+            to = from + kRows;
+            ImGui::TextDisabled("%zu / %zu   (PageUp / PageDown or L1 / R1 jump ten)", at + 1, choices.size());
+        }
+        for (std::size_t i = from; i < to; ++i) {
             const bool on = int(i) == selected;
             ImGui::TextColored(on ? ImVec4(1.0f, 0.88f, 0.45f, 1.0f) : ImVec4(0.78f, 0.78f, 0.78f, 1.0f), "%s %s",
                                on ? ">" : " ", choices[i].c_str());

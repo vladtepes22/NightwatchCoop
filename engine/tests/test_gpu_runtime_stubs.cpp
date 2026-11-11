@@ -35,6 +35,7 @@ int runtime_memory_region(uintptr_t, uintptr_t*, uintptr_t*, int*) { std::abort(
 void runtime_memory_set_gpu_hooks(void (*)(uintptr_t, uint64_t),
     void (*)(uintptr_t, uint64_t), void (*)(uintptr_t, uint64_t)) { std::abort(); }
 void runtime_thread_attach_host(const char*) {}
+void runtime_win_set_thread_name(const char*) {}  // visy 0.8.1 load profiler / parts budget threads
 int32_t runtime_thread_spawn(void**, void* (*)(void*), void*, uint64_t, const char*) { std::abort(); }
 int32_t runtime_thread_join_spawned(void*, void**) { std::abort(); }
 void runtime_memory_gpu_protect(uintptr_t, uint64_t, int, int) { std::abort(); }

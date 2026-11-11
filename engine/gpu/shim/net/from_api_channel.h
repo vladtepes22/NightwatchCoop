@@ -107,6 +107,9 @@ public:
     /// session's ritual: the board lives in the host's process): add it with its FormData, so
     /// summons into it work. False when known already or the FormData is unusable.
     bool adopt(std::uint64_t id, const std::string& b64, const std::string& owner, const std::string& glyph = {});
+    /// The board holds dungeon `id` under its own hash glyph, and a named glyph (a community list's) is its word too:
+    /// the channel answers `glyph` from now on. False when `id` is unknown or another channel already has `glyph`.
+    bool rename_glyph(std::uint64_t id, const std::string& glyph);
     /// A glyph word the board answers a word_search with ("" -> none): the channel that has it.
     bool find_glyph(const std::string& glyph, Channel* out) const;
     /// A member's game holds dungeon `id` in its current slot (its own ritual, this session or an
