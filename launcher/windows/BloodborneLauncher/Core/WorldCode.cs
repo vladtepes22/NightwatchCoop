@@ -35,7 +35,7 @@ namespace BloodborneLauncher.Core
             (42, "bosses_as_enemies", 'i', 0), (43, "coiled_host", 'i', 0),
             (44, "gem_roulette", 'i', 0), (45, "cursed_gems", 'i', 0),
             (46, "boss_enemy_chance", 'i', 25), (47, "boss_enemy_max", 'i', 1), (48, "huge_bosses_as_enemies", 'i', 0),
-            (49, "boss_enemy_hp", 'i', 8), (50, "no_winter_lanterns", 'i', 0),
+            (49, "boss_enemy_hp", 'i', 8), (50, "no_winter_lanterns", 'i', 0), (51, "include_only", 'l', 0),
         };
         // seedcode.BOOL_OPTIONS_R2
         private static readonly string[] Round2Bools = { "witch_mix", "shadows_mix", "emissary_mix", "failures_mix",
@@ -176,10 +176,11 @@ namespace BloodborneLauncher.Core
 
         private static long Step(string name, long value) => name == "headroom" ? (value - 100) / 5 : name == "enemy_chance" ? value / 5 : value;
 
-        // seedcode.normalize: lists sorted (exclude without duplicates, area pairs by area, the last percent kept), ranges checked.
+        // seedcode.normalize: lists sorted (exclude and include_only without duplicates, area pairs by area, the last percent kept), ranges checked.
         private static void Normalize(Dictionary<string, object> o)
         {
             o["exclude"] = ((long[])o["exclude"]).Distinct().OrderBy(x => x).ToArray();
+            o["include_only"] = ((long[])o["include_only"]).Distinct().OrderBy(x => x).ToArray();
             var areas = new Dictionary<long, long>();
             foreach (var (area, percent) in (ValueTuple<long, long>[])o["area_chance"]) areas[area] = percent;
             o["area_chance"] = areas.OrderBy(p => p.Key).Select(p => (p.Key, p.Value)).ToArray();

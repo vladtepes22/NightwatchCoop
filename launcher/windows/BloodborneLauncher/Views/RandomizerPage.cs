@@ -66,6 +66,9 @@ namespace BloodborneLauncher.Views
             var exclude = SmallButton(L.T("None"), SymbolRegular.Prohibited24, (_, _) => PickExcluded());
             Add(Card(SymbolRegular.Prohibited24, L.T("Never use these enemies"), L.T("Enemies the randomizer will never place anywhere."), exclude, out _), enemies);
             _rows.Add((exclude, () => exclude.Content = ExcludeSummary(_o.Exclude), null));
+            var only = SmallButton(L.T("Any"), SymbolRegular.Filter24, (_, _) => PickOnly());
+            Add(Card(SymbolRegular.Filter24, L.T("Only use these enemies"), L.T("Replacements come only from the enemies you tick here; tick none to allow every enemy. Never use these enemies still wins. An enemy the game scripts an animation on stays as it is when none of your picks has that animation, and an area keeps its own enemies where your picks don't fit its memory. Bosses are not affected."), only, out _), enemies);
+            _rows.Add((only, () => only.Content = _o.IncludeOnly is { Count: > 0 } picks ? ExcludeSummary(picks) : L.T("Any"), null));
             Bind(ComboRow(SymbolRegular.ArrowShuffle24, L.T("Enemy variety"), L.T("Every area has a memory limit: how much the game loads there as it ships. A replacement has to fit under that limit, and this setting raises it, along with how many kinds of enemies an area can hold. 100 % keeps the limit as it is: the fewest crashes, but less variety. 150 % and 200 % give you more kinds of enemies, but can crash weaker PCs when memory runs out. 100 to 150 % crashes the least."),
                 new[] { new Choice(L.T("100 % (as the game ships)"), "100"), new Choice("150 %", "150"), new Choice("200 %", "200") },
                 () => _o.Headroom.ToString(), v => Set(_o with { Headroom = int.Parse(v) }), enemies, changed: Changed), () => _o.Headroom.ToString());
@@ -252,6 +255,14 @@ namespace BloodborneLauncher.Views
             var picker = new EnemyPickerDialog(_o.Exclude) { Owner = Window.GetWindow(this) };
             if (picker.ShowDialog() != true) return;
             _o = _o with { Exclude = picker.Result };
+            Sync();
+        }
+
+        private void PickOnly()
+        {
+            var picker = new EnemyPickerDialog(_o.IncludeOnly ?? Array.Empty<int>(), only: true) { Owner = Window.GetWindow(this) };
+            if (picker.ShowDialog() != true) return;
+            _o = _o with { IncludeOnly = picker.Result };
             Sync();
         }
 

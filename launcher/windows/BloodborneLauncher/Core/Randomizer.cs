@@ -38,7 +38,7 @@ namespace BloodborneLauncher.Core
             bool DifficultEnemies = false, bool SecondStage = false, bool AwayFromHome = false, bool FreePoses = false, bool StarterArmor = false,
             bool ShadowsSummons = false, bool ChaliceEnemies = false, bool BossesAsEnemies = false, bool CoiledHost = false, bool GemRoulette = false,
             bool CursedGems = false, int BossEnemyChance = 25, int BossEnemyMax = 1, bool HugeBossesAsEnemies = false,
-            int BossEnemyHp = 8, bool NoWinterLanterns = false);
+            int BossEnemyHp = 8, bool NoWinterLanterns = false, IReadOnlyList<int>? IncludeOnly = null);
 
         /// <summary>The bell maidens' choices (seedcode option bell_maidens 0-2).</summary>
         public static readonly string[] BellMaidenChoices = { "off", "normal", "difficult" };
@@ -258,7 +258,7 @@ namespace BloodborneLauncher.Core
                 B("hard_amygdala"), B("hard_ebrietas"), B("difficult_enemies"), B("second_stage"), B("away_from_home"), B("free_poses"),
                 B("starter_armor"), B("shadows_summons"), B("chalice_enemies"), B("bosses_as_enemies"), B("coiled_host"), B("gem_roulette"),
                 B("cursed_gems"), (int)I("boss_enemy_chance"), (int)I("boss_enemy_max"), B("huge_bosses_as_enemies"),
-                (int)I("boss_enemy_hp"), B("no_winter_lanterns"));
+                (int)I("boss_enemy_hp"), B("no_winter_lanterns"), ((long[])o["include_only"]).Select(x => (int)x).ToList());
             var hidden = ((ValueTuple<long, long>[])o["area_chance"]).Length > 0 || I("oops_all") != 0 || I("fixed_effect") != 0 ||
                          I("variety") != 0 || I("map_models") != 24 || I("map_mb") != 343;
             return (options, hidden);
@@ -312,6 +312,7 @@ namespace BloodborneLauncher.Core
             c["boss_enemy_hp"] = (long)o.BossEnemyHp;
             c["coiled_host"] = B(o.CoiledHost);
             c["no_winter_lanterns"] = B(o.NoWinterLanterns);
+            c["include_only"] = (o.IncludeOnly ?? Array.Empty<int>()).Select(x => (long)x).ToArray();
             return WorldCode.Encode((uint)o.Seed, c);
         }
 
@@ -362,6 +363,7 @@ namespace BloodborneLauncher.Core
             if (o.StarterMelee != 3) text += " " + L.F($"Melee starting weapons offered: {o.StarterMelee}.");
             if (o.StarterGuns != 2) text += " " + L.F($"Firearm starting weapons offered: {o.StarterGuns}.");
             if (o.Exclude.Count > 0) text += " " + L.F($"{o.Exclude.Count} enemies left out.");
+            if (o.IncludeOnly is { Count: > 0 } only) text += " " + L.F($"Only {only.Count} kinds of enemies.");
             if (hidden) text += " " + L.T("Also has settings this page has no row for.");
             return text;
         }

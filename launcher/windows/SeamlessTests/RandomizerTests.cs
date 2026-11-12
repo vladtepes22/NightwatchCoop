@@ -147,7 +147,8 @@ internal static class RandomizerTests
                   options.ChaliceMaterials == (I("chalice_materials") == 1) &&
                   options.Scaling == (I("scaling") switch { 1 => "off", 2 => "fixed", _ => "slot" }) &&
                   options.Rewards == (I("rewards") == 1 ? "replacement" : "slot") &&
-                  options.Exclude.SequenceEqual(o["exclude"]!.AsArray().Select(x => x!.GetValue<int>())), "a code fills the page's options: " + name);
+                  options.Exclude.SequenceEqual(o["exclude"]!.AsArray().Select(x => x!.GetValue<int>())) &&
+                  (options.IncludeOnly ?? Array.Empty<int>()).SequenceEqual(o["include_only"]!.AsArray().Select(x => x!.GetValue<int>())), "a code fills the page's options: " + name);
             var expectHidden = o["area_chance"]!.AsArray().Count > 0 || I("oops_all") != 0 || I("fixed_effect") != 0 || I("variety") != 0 ||
                                I("map_models") != 24 || I("map_mb") != 343;
             Check(hidden == expectHidden, "a code's settings without a row are noticed: " + name);

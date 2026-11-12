@@ -2,7 +2,7 @@ namespace BloodborneLauncher.Core
 {
     /// <summary>
     /// The enemies the randomizer can place (the generator's census of the game alone, 5 Nov 2026: models with AI of their
-    /// own that some map places as an ordinary enemy), for the "Never use these enemies" picker. The game has no names
+    /// own that some map places as an ordinary enemy), for the "Never use these enemies" and "Only use these enemies" pickers. The game has no names
     /// for ordinary enemies, so the names are ours; Guess marks a name not yet checked in game. A mod that adds
     /// enemies is not listed here; the picker's search box still takes any model number.
     /// </summary>

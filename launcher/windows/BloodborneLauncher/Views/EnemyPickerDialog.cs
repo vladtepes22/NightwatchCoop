@@ -9,8 +9,8 @@ using TextBox = Wpf.Ui.Controls.TextBox;
 
 namespace BloodborneLauncher.Views;
 
-// The randomizer's "Never use these enemies" list: search, filter by kind and area, tick to leave an enemy out.
-// Nothing changes until OK. Models outside the catalogue (from a code or a mod) stay in the result as they were.
+// The randomizer's "Never use these enemies" and "Only use these enemies" lists: search, filter by kind and area, tick to
+// leave an enemy out (or, for the only list, to keep it in). Nothing changes until OK. Models outside the catalogue (from a code or a mod) stay in the result as they were.
 internal sealed class EnemyPickerDialog : Window
 {
     private sealed record Entry(EnemyCatalog.Enemy Enemy, CheckBox Box);
@@ -22,13 +22,16 @@ internal sealed class EnemyPickerDialog : Window
     private readonly TextBlock _count = LauncherPage.Text("", "Muted"), _empty = LauncherPage.Text(L.T("No enemy matches."), "Muted");
     private readonly int[] _outside;
     private readonly string[] _areas;
+    private readonly bool _only;
     public List<int> Result { get; private set; } = new();
 
-    public EnemyPickerDialog(IReadOnlyList<int> excluded)
+    /// <param name="only">The "Only use these enemies" list: ticked enemies are the only replacements.</param>
+    public EnemyPickerDialog(IReadOnlyList<int> ticked, bool only = false)
     {
+        _only = only;
         var known = EnemyCatalog.All.Select(e => e.Model).ToHashSet();
-        _outside = excluded.Where(m => !known.Contains(m)).ToArray();
-        Title = L.T("Never use these enemies"); Width = 640; Height = 680; MinWidth = 480; MinHeight = 420;
+        _outside = ticked.Where(m => !known.Contains(m)).ToArray();
+        Title = only ? L.T("Only use these enemies") : L.T("Never use these enemies"); Width = 640; Height = 680; MinWidth = 480; MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         SetResourceReference(BackgroundProperty, "DialogBackgroundBrush");
         SetResourceReference(ForegroundProperty, "TextFillColorPrimaryBrush");
@@ -56,11 +59,13 @@ internal sealed class EnemyPickerDialog : Window
         Grid.SetColumn(_area, 2); top.Children.Add(_area);
         Put(top, 0);
 
-        var hint = LauncherPage.Text(L.T("Ticked enemies never appear in the world. Names marked with ? are our best guess: the game has no names for ordinary enemies."), "Muted");
+        var hint = LauncherPage.Text(only
+            ? L.T("Only ticked enemies replace others; with none ticked, every enemy can. Never use these enemies still wins. Names marked with ? are our best guess: the game has no names for ordinary enemies.")
+            : L.T("Ticked enemies never appear in the world. Names marked with ? are our best guess: the game has no names for ordinary enemies."), "Muted");
         hint.Margin = new Thickness(0, 0, 0, 10); Put(hint, 1);
 
         var list = new StackPanel();
-        var picked = excluded.ToHashSet();
+        var picked = ticked.ToHashSet();
         foreach (var enemy in EnemyCatalog.All.OrderBy(e => e.Name, StringComparer.CurrentCulture))
         {
             var name = new TextBlock { Text = enemy.Name + (enemy.Guess ? " ?" : ""), FontSize = 14 };
@@ -139,6 +144,6 @@ internal sealed class EnemyPickerDialog : Window
     private void UpdateCount()
     {
         var count = _entries.Count(e => e.Box.IsChecked == true) + _outside.Length;
-        _count.Text = count == 0 ? L.T("Every enemy can appear.") : L.F($"{count} left out");
+        _count.Text = count == 0 ? L.T("Every enemy can appear.") : _only ? L.F($"Only {count}") : L.F($"{count} left out");
     }
 }
