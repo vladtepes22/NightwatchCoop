@@ -54,6 +54,10 @@ static size_t buffers_out, ports_opened;
 typedef struct { const float *pcm; int frames, at; float left, right; } Voice;
 static Voice voices[VOICES];
 static HostMutex voice_lock=HOST_MUTEX_INIT;
+/* The game's sound-effect level (Sound Effects option, master fades), read by the shim once per mixed buffer so a
+   playing clip follows the slider live; null = 1. Also the port's own front left / right volume, as the game's data. */
+static float (*voice_level)(void);
+void runtime_audio_set_mod_level(float (*level)(void)) { voice_level=level; }
 void runtime_audio_play(const float *mono48k, int frames, float left, float right) {
     if (!mono48k || frames<=0) return;
     host_lock(&voice_lock);
@@ -68,15 +72,18 @@ void runtime_audio_play(const float *mono48k, int frames, float left, float righ
 static void mix_voices(Port *p, unsigned char *buffer) {
     if (p->type!=0 || p!=&ports[0]) return;
     host_lock(&voice_lock);
-    const float full=p->is_float ? 1.0f : 32767.0f;
     const int right_channel=p->channels>1 ? 1 : 0;
+    float level=-1.0f;
     for (int i=0;i<VOICES;++i) {
         Voice *v=&voices[i];
         if (!v->pcm) continue;
+        if (level<0.0f) level=voice_level ? voice_level() : 1.0f;
+        const float full=(p->is_float ? 1.0f : 32767.0f)*level;
+        const float port[2]={(float)p->volume[0]/VOLUME_0DB, (float)p->volume[right_channel]/VOLUME_0DB};
         const int n=v->frames-v->at<p->frames ? v->frames-v->at : p->frames;
         for (int f=0;f<n;++f) {
             const float s=v->pcm[v->at+f]*full;
-            const float add[2]={s*v->left, s*v->right};
+            const float add[2]={s*v->left*port[0], s*v->right*port[1]};
             for (int c=0;c<2;++c) {
                 const int ch=c ? right_channel : 0;
                 const size_t at=(size_t)f*(size_t)p->channels+(size_t)ch;

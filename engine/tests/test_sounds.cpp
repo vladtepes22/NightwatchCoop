@@ -102,11 +102,20 @@ static void Gains() {
     CHECK(!snd::Gains(true, view, 1.0f, ahead, 0.0f, &l, &r));
 }
 
+static void Sfx() {
+    CHECK(snd::SfxGain(1.0f, 1.0f) == 1.0f);
+    CHECK(std::fabs(snd::SfxGain(0.5f, 0.8f) - 0.4f) < 1e-6f);  // option 5/10, master fader 0.8
+    CHECK(snd::SfxGain(0.0f, 1.0f) == 0.0f);                    // option 0: silent, like the game's sounds
+    CHECK(snd::SfxGain(3.0f, -1.0f) == 0.0f);                   // clamped
+    CHECK(snd::SfxGain(std::nanf(""), 0.3f) == 0.3f);           // unreadable: 1
+}
+
 int main() {
     Json();
     MergeAndFile();
     Keys();
     Gains();
+    Sfx();
     std::printf("sounds-test: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

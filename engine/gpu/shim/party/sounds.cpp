@@ -13,7 +13,8 @@
 //
 // So: a prologue replacement on 0x27D3A80. A name in the table queues the mod's sound (runtime_audio.c mixes it into
 // the main port, panned and attenuated from the camera at that moment); "replace" then returns the invalid handle
-// without the game's call, else the game's function runs as before.
+// without the game's call, else the game's function runs as before. The mixer scales the clips by the game's own
+// sound-effect level (Level below, sounds_rules.h SfxGain), read per buffer so a playing clip follows the slider.
 #include "sounds.h"
 #include "sounds_rules.h"
 
@@ -25,6 +26,7 @@
 #include <SDL3/SDL.h>
 
 #include <atomic>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -32,6 +34,7 @@
 #include <vector>
 
 extern "C" void runtime_audio_play(const float* mono48k, int frames, float left, float right);
+extern "C" void runtime_audio_set_mod_level(float (*level)(void));
 
 namespace coop::sounds {
 namespace {
@@ -57,6 +60,17 @@ void Log(const char* fmt, ...) {
     coop::asyncio::Print(std::string("sounds: ") + line + "\n");
 }
 
+/// The game's sound-effect level (sounds_rules.h SfxGain), on the audio thread once per mixed buffer while a mod
+/// sound plays: the levels the game last sent to FMOD for its SE category and its master. No manager yet: 1.
+float Level() {
+    u64 manager = 0;
+    if (!SafeGet(Guest(kVolumeManager), &manager) || !manager) return 1.0f;
+    float se = std::nanf(""), master = std::nanf("");
+    SafeGet(manager + kSeSent, &se);
+    SafeGet(manager + kMasterSent, &master);
+    return SfxGain(se, master);
+}
+
 BB_COOP_SYSV u64* PlayAt(u64* out, const char* name, const float* pos, u64 a3, u64 a4, u64 a5, u64 a6) {
     std::uint64_t key = 0;
     const Row* row = nullptr;
@@ -76,9 +90,9 @@ BB_COOP_SYSV u64* PlayAt(u64* out, const char* name, const float* pos, u64 a3, u
     const bool heard = pos && Gains(cam.valid, cam.view.data(), cam.proj[0], pos, row->volume, &left, &right);
     if (heard) runtime_audio_play(pcm.data(), int(pcm.size()), left, right);
     if (g_logged.fetch_add(1) < (g_verbose ? 400 : 8)) {
-        Log("%.10s at (%.1f, %.1f, %.1f): %s (gains %.2f / %.2f%s)%s", name, pos ? pos[0] : 0.0f, pos ? pos[1] : 0.0f,
-            pos ? pos[2] : 0.0f, heard ? "played" : "too far", left, right, cam.valid ? "" : ", no camera: centred",
-            row->replace ? ", game's sound replaced" : "");
+        Log("%.10s at (%.1f, %.1f, %.1f): %s (gains %.2f / %.2f%s, game SFX level %.2f)%s", name, pos ? pos[0] : 0.0f,
+            pos ? pos[1] : 0.0f, pos ? pos[2] : 0.0f, heard ? "played" : "too far", left, right,
+            cam.valid ? "" : ", no camera: centred", double(Level()), row->replace ? ", game's sound replaced" : "");
     }
     if (!row->replace) return g_play(out, name, pos, a3, a4, a5, a6);
     std::uint32_t id = 0, gen = 0;
@@ -172,6 +186,7 @@ void Install() {
         return;
     }
     g_play = reinterpret_cast<PlayAtFn>(original);
+    if (!g_rows.empty()) runtime_audio_set_mod_level(&Level);
     std::printf("[coop] feature sounds: installed (%zu rows)\n", g_rows.size());
     Log("feature sounds: installed (%zu rows from %s)%s", g_rows.size(), g_rows.empty() ? "no mod table" : TablePath().c_str(),
         g_verbose ? ", BB_SOUNDS_LOG=1" : "");

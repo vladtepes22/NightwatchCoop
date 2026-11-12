@@ -51,15 +51,31 @@ the sound is placed in the world, so stereo is mixed down). At most 30 s are pla
 - Volume falls off past 3 m (volume x 3 / distance) and the sound is not played past 60 m; it is panned left / right
   from the camera. Without a camera (title screen) it plays centred.
 - Up to 32 mod sounds at once; a 33rd takes the place of the one that has played longest. It is mixed into the game's
-  main output, after the game's own volume settings (the in-game sound effect slider does not change it; use `volume`).
+  main output and follows the game's Sound Effects option and master fades like the game's own sound effects
+  (`volume` x that level; a change of the slider applies to a sound already playing). See "Volume" below.
 - 2D sounds (menus) are not covered.
+
+## Volume (how the engine reads the game's level; 1.09 disassembly, 12 Nov 2026)
+
+- The game's sound volume manager (pointer at 0x556BCE0, created by 0x1F8D1DA, built by 0x17F3F50) has six faders
+  of {current, target, time left} from +0x1C: Master, MenuMaster, InGameMaster, Bgm, Se, Voice (names: its debug
+  printer 0x17F67F0). Its frame update 0x17F4DC0 sets the Bgm / Se / Voice targets from the option bytes +4 / +5 / +6 of
+  `[[0x553B130]+0x48]` (GameDataMan's option block) divided by 10, clamped to 0..1.
+- Six FMOD categories (set up at 0x17F44D3, names from sprj_mixer.fev): Default, Ghost, SE (fader Se), Music (Bgm),
+  Voice (Voice), Multi. Each gets fader x InGameMaster x MenuMaster (flags per category), sent with 0x27D7BC0 (sound
+  message 6) when it changes; the value sent is kept at +0x6C of its 12-byte slot, for SE at manager +0x84. The Master
+  fader goes to 0x27D7D60 (message 10, the master level), the value sent kept at +0xAC.
+- The engine multiplies mod sounds by `[manager+0x84] x [manager+0xAC]` (each clamped to 0..1; unreadable = 1),
+  read on the audio thread once per mixed buffer, and by the main port's own front volume (sceAudioOutSetVolume).
+  Unproven by ear: that message 10 scales every category (LIKELY: one float, named Master in the debug list).
 
 ## Logs
 
 - `Mods: sounds: N rows from M mods` (bb-start): the table was read.
 - `feature sounds: installed (N rows from ...)`: the hook is in; `N` counts the rows whose WAV could be read.
 - `sounds: <file>: not a WAV SDL can read (...)`: that row is not used.
-- `sounds: s000252531 at (x, y, z): played (gains l / r)`: the first 8 plays; `BB_SOUNDS_LOG=1` logs up to 400 and each
+- `sounds: s000252531 at (x, y, z): played (gains l / r, game SFX level v)`: the first 8 plays (v = the
+  game's level at that moment, 0..1); `BB_SOUNDS_LOG=1` logs up to 400 and each
   file's length. `BB_SOUNDS=0` turns the feature off.
 - `sounds: the game asks for c000000911 at (x, y, z)`: with `BB_SOUNDS_LOG=1`, the first 50 names the game asks for
   that no row lists: a way to find the event name of a sound you want to answer.

@@ -116,4 +116,18 @@ inline bool Gains(bool camera, const float* view, float proj_x, const float* pos
     return gain > 0.0f;
 }
 
+// The game's own sound-effect level (1.09 disassembly, docs/modding/sounds.md "Volume"): the sound volume manager
+// (slot 0x556BCE0) computes each frame, in 0x17F4DC0, the SE category's volume = SE option byte / 10 (Se fader) *
+// InGameMaster * MenuMaster, sends it to FMOD when it changes and keeps the value sent at +0x84; its Master fader goes
+// to the master volume message (0x27D7D60), the value sent kept at +0xAC.
+constexpr std::uint64_t kVolumeManager = 0x556bce0;
+constexpr std::uint64_t kSeSent = 0x84, kMasterSent = 0xac;
+
+/// The factor a mod sound gets from the game's levels (`se` = +0x84, `master` = +0xAC as read): their product,
+/// each clamped to 0..1; a value that is not a number (unreadable) counts as 1.
+inline float SfxGain(float se, float master) {
+    const auto unit = [](float v) { return std::isnan(v) ? 1.0f : std::clamp(v, 0.0f, 1.0f); };
+    return unit(se) * unit(master);
+}
+
 }  // namespace coop::sounds
