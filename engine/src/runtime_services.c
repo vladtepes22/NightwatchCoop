@@ -248,7 +248,10 @@ static ABI int32_t ime_init(const ImeParam *param, const void *extended) {
     if (ime.running) return (int32_t)0x80BC0003;                                  /* BUSY */
     __atomic_add_fetch(&ime_opened,1,__ATOMIC_RELAXED);
     memset(&ime,0,sizeof(ime));
-    ime.buffer=param->buffer; ime.max_length=param->max_length; ime.running=1;
+    /* maxTextLength excludes the terminator (the buffer holds max_length + 1 UTF-16 units; visy 0.8.1):
+       counted without it, the close callback saw 7 for the 8-character Chalice Glyph box, so a picked
+       community glyph never reached the board and the search answered "not found". */
+    ime.buffer=param->buffer; ime.max_length=param->max_length + 1; ime.running=1;
     char initial[512], prompt[256];
     utf16_to_utf8(param->buffer,param->max_length,initial,sizeof(initial));
     utf16_to_utf8(param->title,128,prompt,sizeof(prompt));
