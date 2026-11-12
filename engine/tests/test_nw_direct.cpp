@@ -43,6 +43,7 @@ int main() {
     // Log lines.
     assert(log_line(Verdict::Direct, 92, 18, 0, 20) == "direct path: tunnel 92 ms, direct 18 ms -> direct");
     assert(log_line(Verdict::Loss, 92, 18, 3, 20) == "direct path: tunnel 92 ms, direct 18 ms -> tunnel (loss 3/20)");
+    assert(log_line(Verdict::Loss, 131, 0, 20, 20) == "direct path: tunnel 131 ms, direct no answer -> tunnel (loss 20/20)");
     assert(log_line(Verdict::PeerDeclined, 92, 18, 0, 20) ==
            "direct path: tunnel 92 ms, direct 18 ms -> tunnel (peer declined)");
     assert(log_line(Verdict::NoCandidate, 0, 0, 0, 0) == "direct path: -> tunnel (no public address)");

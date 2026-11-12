@@ -5,7 +5,8 @@
 //    off by default); the flag, the public candidate and every decision travel as the party link's "nwd" EVENT
 //    (never the lobby); a guest's message for another guest is forwarded by the host, which stamps the sender's tunnel
 //    address from the link itself;
-//  - only once the link is up over the tunnel: the candidate is gathered (UPnP or STUN, existing code) when the first
+//  - only once the link is up over the tunnel: the candidate is gathered (UPnP first, as a mapping opens the port;
+//    STUN when UPnP gives no public address; existing code) when the first
 //    opted-in peer is known, ~20 probes run over BOTH the tunnel and the candidate for ~3 s (the game stays on the
 //    tunnel), and the pair goes direct only if every direct probe answered and it beats the tunnel by 20 ms / 30 %;
 //  - the switch happens once, on both sides, at a loading screen or before the world (rules safe_moment), as an

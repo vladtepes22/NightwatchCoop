@@ -158,10 +158,31 @@ void gather_thread() {
         ok = true;
         how = "test address";
     } else {
-        // The existing STUN code, from the game's party port (so the mapping is the one the peer must hit).
+        // UPnP first: a mapping opens the game's party port on the router, so the peer's probes get in whatever the
+        // router does with unsolicited packets (the plain UPnP party path works where the STUN one lost 20/20, 12 Nov).
+        // Only a public external address counts (a router behind carrier NAT reports 100.64.x or a private one).
+        if (UpnpMapper::enabled_by_env() && !S().stop.load()) {
+            auto m = std::make_unique<UpnpMapper>();
+            m->start(own);
+            const UpnpResult u = m->wait(3000);
+            const std::uint32_t ip = u.ok && !u.external_ip.empty() ? ip_parse(u.external_ip) : 0;
+            if (ip && nwd::candidate_ok(sw32(ip), own, false)) {
+                addr = ip;
+                port = sw16(own);
+                ok = true;
+                how = "UPnP";
+                std::lock_guard<std::mutex> lk(S().mu);
+                S().upnp = std::move(m);
+            } else {
+                log(u.ok ? "direct path: the UPnP mapping gives no public address (none reported, or carrier NAT); trying STUN"
+                         : "direct path: no UPnP answer from the router; trying STUN");
+            }
+        }
+        // Then the existing STUN code, from the game's party port (so the mapping is the one the peer must hit).
+        // Without a port mapping, the direct path only works if both routers let the punched packets through.
         const char* e = std::getenv("BB_PARTY_STUN");
         const std::string server = e && *e ? e : "stun.l.google.com:19302";
-        if (server != "off" && server != "0") {
+        if (!ok && server != "off" && server != "0") {
             std::string h = server;
             std::uint16_t sp = 19302;
             if (const auto c = server.rfind(':'); c != std::string::npos) {
@@ -175,19 +196,6 @@ void gather_thread() {
                 addr = ma;
                 port = mp;  // as p2p_stun reports it (network order, like the party code's)
                 how = "STUN";
-            }
-        }
-        if (!ok && UpnpMapper::enabled_by_env() && !S().stop.load()) {
-            auto m = std::make_unique<UpnpMapper>();
-            m->start(own);
-            const UpnpResult u = m->wait(3000);
-            if (u.ok && !u.external_ip.empty() && ip_parse(u.external_ip)) {
-                addr = ip_parse(u.external_ip);
-                port = sw16(own);
-                ok = true;
-                how = "UPnP";
-                std::lock_guard<std::mutex> lk(S().mu);
-                S().upnp = std::move(m);
             }
         }
     }
