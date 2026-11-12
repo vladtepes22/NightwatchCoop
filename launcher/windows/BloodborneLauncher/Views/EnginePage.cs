@@ -195,38 +195,41 @@ namespace BloodborneLauncher.Views
             }
         }
 
-        /// <summary>Faster loading with converted game files (Core/ZstdFiles.cs): the option and its Convert button.</summary>
+        /// <summary>Faster loading with converted game files (Core/ZstdFiles.cs), one row: Convert first; once the
+        /// files are converted, Delete converted files, Re-Convert and the switch.</summary>
         private void ZstdRows(Panel into)
         {
-            ToggleSwitch? toggle = null;
-            toggle = ToggleRow(SymbolRegular.ArrowDownload24, L.T("Faster loading: converted game files"),
-                L.T("Loading screens get a little shorter (about 0.2 s per lamp trip): the button below copies the game's packed files once in a format that unpacks about twice as fast, into a folder next to the game folder. Your game folder is never changed, and the party still compares the original files. A mod that replaces a file still wins. To go back, turn this off or delete the folder. Off by default; takes effect at the next start"),
-                () => S.Bool("zstd_files"), v =>
-                {
-                    if (v && ZstdFiles.Summary(ZstdFiles.Dir(S)).Count == 0)
-                    {
-                        toggle!.IsChecked = false;
-                        System.Windows.MessageBox.Show(Application.Current.MainWindow!, L.T("Convert the game files first (the button below the option)."),
-                            L.T("Faster loading"));
-                        return;
-                    }
-                    S.Set("zstd_files", v);
-                }, into);
             TextBlock status = null!;
-            Button? convert = null;
+            Button convert = null!, delete = null!;
+            var toggle = new ToggleSwitch
+            {
+                IsChecked = S.Bool("zstd_files"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0),
+            };
+            toggle.Click += (_, _) =>
+            {
+                S.Set("zstd_files", toggle.IsChecked == true);
+                Ws.SaveSoon();
+            };
             void Show()
             {
                 var (count, done, bytes) = ZstdFiles.Summary(ZstdFiles.Dir(S));
                 SetHint(status, count == 0 ? L.T("Not converted yet.")
                     : done ? L.F($"{count} files converted ({bytes / 1073741824.0:0.0} GB).")
                     : L.F($"{count} files converted ({bytes / 1073741824.0:0.0} GB), not finished: convert again to continue."));
+                convert.Content = done ? L.T("Re-Convert") : L.T("Convert");
+                delete.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+                toggle.Visibility = done ? Visibility.Visible : Visibility.Collapsed;
+                toggle.IsChecked = S.Bool("zstd_files");
             }
+            void Working(bool busy) => convert.IsEnabled = delete.IsEnabled = toggle.IsEnabled = !busy;
             convert = SmallButton(L.T("Convert"), SymbolRegular.ArrowSync24, async (_, _) =>
             {
                 var game = GameEnvironment.GameDir(S);
                 if (game.Length == 0 || ZstdFiles.Busy) return;
                 var dir = ZstdFiles.Dir(S);
-                convert!.IsEnabled = false;
+                Working(true);
                 SetHint(status, L.T("Starting"));
                 Ws.Log(L.F($"Faster loading: converting the game files to {dir}"), LogLevel.Step);
                 int code;
@@ -241,12 +244,9 @@ namespace BloodborneLauncher.Views
                     }));
                 }
                 catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception) { (code, tail) = (-1, e.Message); }
-                convert.IsEnabled = true;
-                Show();
                 if (code == 0)
                 {
                     S.Set("zstd_files", true);
-                    toggle.IsChecked = true;
                     Ws.SaveSoon();
                     Ws.Log(L.T("Faster loading: the game files are converted and checked; the option is on (from the next start)."), LogLevel.Step);
                 }
@@ -254,10 +254,41 @@ namespace BloodborneLauncher.Views
                     Ws.Log(L.F($"Faster loading: not enough free space for the converted files ({tail})."), LogLevel.Warn);
                 else
                     Ws.Log(L.F($"Faster loading: the conversion did not finish: {tail} (exit code {code}). Convert again to continue."), LogLevel.Warn);
+                Working(false);
+                Show();
             });
-            Add(Card(SymbolRegular.ArrowSync24, L.T("Convert game files (one-time, about 15 GB)"),
-                L.T("Reads your game folder once and writes the converted files to a folder next to it (game folder name + -zstd). 5 to 15 minutes depending on the CPU; needs about 15 GB free on that drive. Resumable: convert again after an interruption. Every converted file is checked against the original. Turns the option above on when it is done"),
-                convert, out status), into);
+            delete = SmallButton(L.T("Delete converted files"), SymbolRegular.Delete24, async (_, _) =>
+            {
+                var dir = ZstdFiles.Dir(S);
+                if (ZstdFiles.Busy) return;
+                var (_, _, bytes) = ZstdFiles.Summary(dir);
+                if (!Prompt.Confirm(L.T("Delete the converted files?"),
+                        L.F($"This deletes {dir} ({bytes / 1073741824.0:0.0} GB) and turns faster loading off. Your game folder is not touched; you can convert again at any time."),
+                        L.T("Delete")))
+                    return;
+                Working(true);
+                SetHint(status, L.T("Deleting"));
+                S.Set("zstd_files", false);
+                Ws.SaveSoon();
+                try
+                {
+                    await Task.Run(() => ZstdFiles.Delete(dir));
+                    Ws.Log(L.F($"Faster loading: deleted the converted files ({dir})."), LogLevel.Step);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    Ws.Log(L.F($"Faster loading: could not delete the converted files: {e.Message}"), LogLevel.Warn);
+                }
+                Working(false);
+                Show();
+            });
+            var controls = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            controls.Children.Add(delete);
+            controls.Children.Add(convert);
+            controls.Children.Add(toggle);
+            Add(Card(SymbolRegular.ArrowDownload24, L.T("Faster loading by converting game files (one-time, about 15 GB)"),
+                L.T("Loading screens get a little shorter (about 0.2 s per lamp trip). Convert copies the game's packed files once, in a format that unpacks about twice as fast, into a folder next to the game folder (game folder name + -zstd): 5 to 15 minutes depending on the CPU, about 15 GB free on that drive. Resumable after an interruption; every converted file is checked against the original. Your game folder is never changed, the party still compares the original files, and a mod that replaces a file still wins. The switch appears once the files are converted (on by then; takes effect at the next start). Re-Convert redoes the files whose original changed (after a game update) and checks them all again; Delete converted files removes the folder"),
+                controls, out status), into);
             Show();
         }
 

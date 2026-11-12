@@ -72,6 +72,15 @@ namespace BloodborneLauncher.Core
             return (code, tail);
         }
 
+        /// <summary>Deletes a converted folder. Only a folder with our manifest in it: the path is the game folder's
+        /// name + -zstd, which could also be a folder of the player's own.</summary>
+        public static void Delete(string dir)
+        {
+            if (dir.Length == 0 || !File.Exists(Path.Combine(dir, "bbzstd.manifest")))
+                throw new IOException(dir + " has no bbzstd.manifest: not a converted-files folder");
+            Directory.Delete(dir, recursive: true);
+        }
+
         public static void Stop()
         {
             try { _running?.Kill(entireProcessTree: true); } catch { /* already gone */ }
