@@ -120,6 +120,11 @@ constexpr u32 ControlsTitle = 113020;           // the ControllSetting layout's 
 
 const u8 MsgLookupPrologue[] = {0x89, 0xf0, 0x48, 0x8b, 0x77, 0x08, 0x48, 0x8b, 0x34, 0xc6};
 const u8 AddPageItemPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57};
+// Nightwatch: the pause menu's System item factory (out, arg): it runs the System menu builder (0x1bb3ad0:
+// an "OptionSetting" list, the game's rows through AddPageItem, which returns the menu it was given) and
+// stores the list in *out. Party Settings is the same list, built while AddHook swaps in the party pages.
+constexpr u64 SystemListFactory = 0x1bb3a40;
+const u8 SystemListFactoryPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x56, 0x53, 0x48, 0x83, 0xec, 0x10};
 // The title screen's main menu (builder 0x1b4a3d0, docs/party/ingame_flow.md §3): its command items
 // (Continue 0x61f95, Load Game 0x61f96, New Game 0x61f97, ...) go through AddCommandItem; the
 // party flow adds the Party page as a title item right after New Game (BB_PARTY_TITLE_ENTRY=0: not).
@@ -501,6 +506,10 @@ std::atomic<ImePresetFn> ime_preset{nullptr};
 std::atomic<ImeChoicesFn> ime_choices{nullptr};
 std::atomic<ImeClosedFn> ime_closed{nullptr};
 std::atomic<const char16_t*> title_override{nullptr}; // while the game builds one of our pages (its menu thread)
+// Nightwatch lists (AddHook below): on, and which list the System builder runs for (its menu thread).
+bool lists_ok = false;
+thread_local P::MenuList building = P::MenuList::System;
+constexpr u32 SystemTitle = 110020; // the System list's title ("System"), looked up while it is built
 // Called by the game's menu code (guest threads, System V ABI like the game), one set per page.
 bool Trace();
 template <int N>
@@ -564,6 +573,16 @@ AddFn command_original = nullptr;
 std::atomic<const void*> screen_sound_text{nullptr};
 std::atomic<const void*> new_game_text{nullptr}; // the title's "New Game" text, as looked up
 std::atomic<const void*> discard_text{nullptr};  // the item menu's "Discard" text (give items, below)
+// Nightwatch: the System list's row names (110000 Controls .. 110015 the PC menus' Quit to Desktop) as
+// looked up: AddHook / CommandHook tell the game's rows apart by them (P::PlaceGameRow).
+std::array<std::atomic<const void*>, P::QuitToDesktopRow - P::ControlsRow + 1> system_row_text{};
+/// The System row id whose name `pair` holds, or 0 when it is none of them.
+u32 SystemRowOf(const void* pair) {
+    const void* name = *static_cast<const void* const*>(pair);
+    for (std::size_t i = 0; i < system_row_text.size(); ++i)
+        if (name && system_row_text[i].load() == name) return P::ControlsRow + u32(i);
+    return 0;
+}
 
 /// BB_GAME_MENU_TRACE=1: menu events in the log for scripted tests (tools driving the menu with
 /// BB_PAD_FILE wait for them): "Game menu: new text", "Game menu: System menu built",
@@ -672,6 +691,9 @@ BB_SYSV const char16_t* LookupHook(void* repository, u32 table, u32 category, u3
     if (title_override && category == TextName && id == ControlsTitle) {
         return title_override;
     }
+    if (building != P::MenuList::System && category == TextName && id == SystemTitle) {
+        return TextOf(building == P::MenuList::GameSettings ? P::GameSettingsName() : P::PartySettingsName());
+    }
     last_table.store(table, std::memory_order_relaxed);
     last_repository.store(repository, std::memory_order_release);
     const char16_t* text = lookup_original(repository, table, category, id);
@@ -742,6 +764,9 @@ BB_SYSV const char16_t* LookupHook(void* repository, u32 table, u32 category, u3
     if (category == TextName && id == ItemMenuDiscard && text) {
         discard_text = text;
     }
+    if (category == TextName && id >= P::ControlsRow && id <= P::QuitToDesktopRow && text) {
+        system_row_text[id - P::ControlsRow] = text;
+    }
     if (category == TextName && id == ScreenSoundItem && text) {
         screen_sound_text = text;
         bool cyrillic = false;
@@ -769,19 +794,79 @@ void AddItem(void* menu, u32 name, u32 help, void* factory) {
     DestroyTexts(pair);
 }
 
-BB_SYSV void* AddHook(void* menu, void* pair, void* function, void* out) {
-    void* result = add_original(menu, pair, function, out);
-    const void* screen_sound = screen_sound_text.load();
-    if (screen_sound && *reinterpret_cast<const void* const*>(pair) == screen_sound) {
-        const auto& pages = P::All();
-        for (std::size_t i = 0; i < pages.size() && i < MaxPages; ++i) {
-            AddItem(menu, pages[i].name, pages[i].help, factories[i]);
-        }
-        if (Trace()) {
-            std::printf("Game menu: System menu built\n");
-        }
+// Nightwatch: Game Settings and Party Settings, lists of their own built with the game's System list
+// (P::PlaceGameRow, P::SystemEntries). Off (the port's pages flat after Environment, the game's rows as
+// they were) when the game's System list factory is not the expected code or CommandHook is not in.
+// The builder's own show / drop checks (P::BuilderDrops): reads of the game's build flags, no side effects.
+constexpr u64 FullGameCheck = 0x1ae9a90, OnlineCheck = 0x1ae9b40;
+const u8 FullGameCheckCode[] = {0x83, 0x3d, 0x41, 0xf5, 0xa8, 0x03, 0x00, 0x0f, 0x9e, 0xc0, 0xc3};
+const u8 OnlineCheckCode[] = {0x31, 0xc0, 0x83, 0x3d, 0x8f, 0xf4, 0xa8, 0x03, 0x00, 0x7f, 0x14, 0x8b, 0x0d, 0xe7, 0xee, 0xa8,
+                              0x03, 0x85, 0xc9, 0x7f, 0x0a, 0x83, 0x3d, 0xac, 0xf1, 0xa8, 0x03, 0x00, 0x0f, 0x9e, 0xc0, 0xc3};
+/// Will the builder drop this skipped row right after adding it? With the builder's flag 0: the Nightwatch
+/// lists come from the System list factory, which passes 0; the rows System skips do not depend on it.
+bool BuilderDrops(u32 row) {
+    using Check = bool(BB_SYSV*)();
+    return P::BuilderDrops(row, false, Game<Check>(FullGameCheck)(), Game<Check>(OnlineCheck)());
+}
+
+template <P::MenuList L>
+BB_SYSV void* ListFactory(void* out, void* arg) {
+    using Factory = void*(BB_SYSV*)(void*, void*);
+    building = L;
+    void* result = Game<Factory>(SystemListFactory)(out, arg);
+    building = P::MenuList::System;
+    if (Trace()) {
+        std::printf("Game menu: %s list built\n", L == P::MenuList::GameSettings ? "Game Settings" : "Party Settings");
     }
     return result;
+}
+
+void AddPage(void* menu, int index) {
+    const auto& pages = P::All();
+    if (index >= 0 && std::size_t(index) < pages.size() && std::size_t(index) < MaxPages) {
+        AddItem(menu, pages[std::size_t(index)].name, pages[std::size_t(index)].help, factories[std::size_t(index)]);
+    }
+}
+
+/// System: Game Settings, Party Settings and the port's pages left in System (P::SystemEntries).
+void AddSystemItems(void* menu) {
+    AddItem(menu, P::GameSettingsName(), P::GameSettingsHelp(),
+            reinterpret_cast<void*>(&ListFactory<P::MenuList::GameSettings>));
+    for (const int entry : P::SystemEntries()) {
+        if (entry == P::PartySettingsEntry) {
+            AddItem(menu, P::PartySettingsName(), P::PartySettingsHelp(),
+                    reinterpret_cast<void*>(&ListFactory<P::MenuList::PartySettings>));
+        } else {
+            AddPage(menu, entry);
+        }
+    }
+}
+
+BB_SYSV void* AddHook(void* menu, void* pair, void* function, void* out) {
+    const void* screen_sound = screen_sound_text.load();
+    const bool after_screen_sound = screen_sound && *reinterpret_cast<const void* const*>(pair) == screen_sound;
+    if (!lists_ok) {
+        void* result = add_original(menu, pair, function, out);
+        if (after_screen_sound) {
+            for (std::size_t i = 0; i < P::All().size(); ++i) AddPage(menu, int(i));
+            if (Trace()) std::printf("Game menu: System menu built\n");
+        }
+        return result;
+    }
+    // Our items go in before the row at hand: a row the builder drops right after it must be the last item.
+    const u32 row = SystemRowOf(pair);
+    if (building == P::MenuList::PartySettings && after_screen_sound) {
+        for (const int index : P::PartySettingsEntries()) AddPage(menu, index);
+    }
+    if (building == P::MenuList::System && row == P::ControlsRow) {
+        AddSystemItems(menu);
+        if (Trace()) std::printf("Game menu: System menu built\n");
+    }
+    const bool keep = P::PlaceGameRow(building, row ? row : P::QuitToDesktopRow + 1) == P::GameRow::Keep;
+    if (!keep && !BuilderDrops(row)) {
+        return menu; // skipped as AddPageItem returns: the menu
+    }
+    return add_original(menu, pair, function, out);
 }
 
 /// The Party page's index in P::All() (-1 when there is none).
@@ -1113,6 +1198,13 @@ void VTraceAll() {
 
 /// The title's main menu: after its New Game item, the Party page as a title item.
 BB_SYSV void* CommandHook(void* list, void* pair, void* functor, void* x) {
+    // Nightwatch lists (AddHook): Game / Party Settings have no exit rows (the game's Exit Game, the PC menus'
+    // Quit to Desktop), skipped as AddCommandItem returns (the list); Exit Game, which the builder drops
+    // there itself (its flag 0), goes in for it to drop (P::BuilderDrops).
+    if (lists_ok && building != P::MenuList::System) {
+        const u32 row = SystemRowOf(pair);
+        if (!(row && BuilderDrops(row))) return list;
+    }
     if (const void* discard = discard_text.load();
         discard && *reinterpret_cast<const void* const*>(pair) == discard && functor &&
         InItemMenuBuilder(__builtin_return_address(0))) {
@@ -1274,6 +1366,16 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
         Detour(image, AddCommandItem, AddCommandItemPrologue, sizeof(AddCommandItemPrologue),
                reinterpret_cast<void*>(&CommandHook), reinterpret_cast<void**>(&command_original), cursor)) {
         std::printf("Game menu: the Party page is also on the title screen (after New Game)\n");
+    }
+    // Game / Party Settings need the System list factory as expected and CommandHook (the exit rows).
+    lists_ok = ok && command_original &&
+               std::memcmp(image + SystemListFactory, SystemListFactoryPrologue, sizeof(SystemListFactoryPrologue)) == 0 &&
+               std::memcmp(image + FullGameCheck, FullGameCheckCode, sizeof(FullGameCheckCode)) == 0 &&
+               std::memcmp(image + OnlineCheck, OnlineCheckCode, sizeof(OnlineCheckCode)) == 0;
+    if (ok) {
+        std::printf("Game menu: Game Settings and Party Settings %s (%zu party pages)\n",
+                    lists_ok ? "in System" : "off (pages flat in System): no command hook or unexpected code",
+                    P::PartySettingsEntries().size());
     }
     if (ok && command_original && !std::getenv("BB_PARTY_GIVE_MENU_OFF") &&
         Detour(image, ItemMenuFinalize, FinalizePrologue, sizeof(FinalizePrologue),

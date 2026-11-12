@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -178,6 +179,8 @@ constexpr int kPickerTexts = 8;
 u32 picker_text[kPickerTexts] = {};  // visy 0.7.8: item menu Give pickers: run-time labels (members, amounts)
 u32 guest_gather_text[1] = {0};  // CL-a3a9e6: a guest gathers the party (run-time: who)
 u32 vote_text[1] = {0};  // 0.7.3: the travel vote's question (run-time: who, where)
+u32 party_settings_text[2] = {0, 0};  // Nightwatch: the System menu's Party Settings item: name, help
+u32 game_settings_text[2] = {0, 0};   // Nightwatch: the System menu's Game Settings item: name, help
 
 /// A confirmed button's help line: the row's own help, or "press again to confirm" while armed
 /// (a run-time text of its own wrapping the row's).
@@ -1526,6 +1529,15 @@ void DefineAll() {
         "only if clearly faster than the tunnel; members then see your public IP. Takes effect at the next party link",
         "Выкл. по умолчанию. Через Nightwatch VPN: участник с той же настройкой проверяется напрямую 3 с и "
         "используется, только если заметно быстрее туннеля; участники видят ваш публичный IP");
+
+    // Nightwatch: the System item that opens the party pages' list (SystemEntries). Defined last so the
+    // pages' text ids stay as they were.
+    party_settings_text[0] = AddText("Party Settings", "Настройки группы");
+    party_settings_text[1] = AddText("Party co-op: mode, members, network, rules and your own party settings (bbport)",
+                                     "Совместная игра: режим, участники, сеть, правила и ваши настройки (bbport)");
+    game_settings_text[0] = AddText("Game Settings", "Настройки игры");
+    game_settings_text[1] = AddText("Controls, environment, brightness and the PC settings",
+                                    "Управление, окружение, яркость и настройки ПК");
 }
 
 /// The party rules' help lines: the current value, and on a guest that the host's rules count.
@@ -1723,6 +1735,76 @@ const std::vector<Page>& All() {
 
 int FieldCount() {
     return int(fields.size());
+}
+
+bool IsPartyPage(const Page& page) {
+    const char16_t* name = Text(page.name, false);
+    std::string ascii;
+    for (const char16_t* c = name; c && *c; ++c) {
+        ascii.push_back(*c < 128 ? char(std::tolower(int(*c))) : '?');
+    }
+    return ascii.find("party") != std::string::npos;
+}
+
+std::vector<int> SystemEntries() {
+    std::vector<int> entries;
+    bool grouped = false;
+    for (std::size_t i = 0; i < pages.size(); ++i) {
+        if (!IsPartyPage(pages[i])) {
+            entries.push_back(int(i));
+        } else if (!grouped) {
+            entries.push_back(PartySettingsEntry);
+            grouped = true;
+        }
+    }
+    return entries;
+}
+
+std::vector<int> PartySettingsEntries() {
+    std::vector<int> entries;
+    for (std::size_t i = 0; i < pages.size(); ++i) {
+        if (IsPartyPage(pages[i])) entries.push_back(int(i));
+    }
+    return entries;
+}
+
+u32 PartySettingsName() {
+    return party_settings_text[0];
+}
+u32 PartySettingsHelp() {
+    return party_settings_text[1];
+}
+
+GameRow PlaceGameRow(MenuList list, u32 id) {
+    const bool pc_page = id >= FirstPcRow && id <= LastPcRow;
+    switch (list) {
+    case MenuList::System:
+        return id <= NetworkRow || pc_page ? GameRow::Skip : GameRow::Keep; // Network: not this port's
+    case MenuList::GameSettings:
+        return id == ControlsRow || id == EnvironmentRow || id == BrightnessRow || pc_page ? GameRow::Keep
+                                                                                           : GameRow::Skip;
+    case MenuList::PartySettings:
+        break;
+    }
+    return GameRow::Skip;
+}
+
+bool BuilderDrops(u32 id, bool flag, bool full, bool online) {
+    switch (id) {
+    case EnvironmentRow:
+    case BrightnessRow: return !full;
+    case NetworkRow: return !online;
+    case ExitGameRow: return !flag;
+    case LanguageRow: return flag || !online;
+    default: return false;
+    }
+}
+
+u32 GameSettingsName() {
+    return game_settings_text[0];
+}
+u32 GameSettingsHelp() {
+    return game_settings_text[1];
 }
 
 const char16_t* Text(u32 id, bool russian) {
