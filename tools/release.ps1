@@ -40,6 +40,10 @@ if (-not (Test-Path -LiteralPath $packageManifest)) {
     if ($pkg.version -ne $version) { $problems.Add("package is version $($pkg.version), VERSION says $version") }
     if ($pkg.source -ne $head) { $problems.Add("package was built from $($pkg.source), HEAD is ${head}: rebuild the package") }
 }
+# The launcher's Randomizer page needs the compiled generator (0.3.1 shipped without it: package-seamless.ps1 -RandomizerBuild).
+if (-not (Test-Path -LiteralPath (Join-Path $Package 'randomizer\randomizer.exe'))) {
+    $problems.Add("no randomizer\randomizer.exe in $Package`: package again with -RandomizerBuild <generator build folder>")
+}
 
 # Clean repo (the fsr-vulkan submodule always shows as modified; it is never committed).
 $dirty = @(git -C $repo status --porcelain --ignore-submodules=dirty)
