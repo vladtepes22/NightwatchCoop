@@ -100,6 +100,10 @@ static void test_steps() {
     {
         StartFlags f = Flags(true, true, false, false);  // m24_01, no picks
         CHECK(ClassifyStart(f, true) == StartStep::FirstDream);  // a first playthrough still needs them
+        f.doll_awake = true;  // Insight: past the prologue without the picks (level 47 invader stuck, 0.3.2-beta.1)
+        CHECK(ClassifyStart(f, true) == StartStep::Ready);
+        CHECK(StartReady(StartMode::PrologueSolo, f, true));
+        f.doll_awake = false;
         f.ng_plus = true;
         CHECK(ClassifyStart(f, true) == StartStep::Ready);
         CHECK(StartReady(StartMode::PrologueSolo, f, true));
