@@ -413,8 +413,9 @@ struct Values {
     std::atomic<bool> pad_fresh{true};
     /// Low-latency frame pacing (ini ll_pacing, BB_LL_PACING; live): the game's pad read waits until the frames before it
     /// have gone out (bbgpu.cpp LowLatencyGate), so the frame is simulated from fresher input. Rests while frame generation
-    /// shows generated frames. After visy f1d579c6; default on.
-    std::atomic<bool> ll_pacing{true};
+    /// shows generated frames. After visy f1d579c6; default off since 0.3.2 beta 2 (settings_rev 5): on a 14900 / 60 FPS it
+    /// let streaming spikes through, 88 stalls over 40 ms on one route against 50 with it off (NW-69aae50).
+    std::atomic<bool> ll_pacing{false};
     /// Variable refresh rate display (ini vrr, BB_VRR; default off, a program cannot see whether VRR is active): the frame
     /// rate is held at VrrCap(refresh) so the display refreshes when a frame arrives and never at its top. At start.
     std::atomic<bool> vrr{false};
@@ -599,7 +600,8 @@ extern const PartySwitch PartySwitches[];
 ///              switched back off afterwards): on = party_guest_gather, party_layer_travel, party_chat,
 ///              party_give_items, party_give_gear, party_look_sync, party_map_marks, party_glyph_list,
 ///              party_guest_altar; off = party_phantom_hp.
-constexpr int kSettingsRev = 4;
+///   5 (0.3.2): ll_pacing off once (it was on by default and every save wrote its 1; NW-69aae50).
+constexpr int kSettingsRev = 5;
 extern const int PartySwitchCount;
 /// party_guest_insight's ini / env values by index (parity, full, 0).
 const char* GuestInsightName(int mode);

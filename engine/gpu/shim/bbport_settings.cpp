@@ -911,6 +911,7 @@ void Load() {
                 v.*on = true;
             v.party_phantom_hp = false;
         }
+        if (was < 5) v.ll_pacing = false;  // rev 5 (0.3.2): low-latency pacing off by default (NW-69aae50)
         v.settings_rev = kSettingsRev;
         std::printf("Settings: bbport.ini settings_rev %d -> %d (one-time changes)\n", was, kSettingsRev);
         Save();  // every saved key rewritten with its value (the ones changed above too), settings_rev with it

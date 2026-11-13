@@ -658,7 +658,6 @@ static void ping_combo(PadData *d) {
  * BB_PAD_FRESH; default on. Two reads closer than 0.25 ms share an update. After visy's 8ee5500e (CL-7ae614). */
 static void fresh_pad_update(void) {
     bbgpu_ll_pacing_gate(); /* ll_pacing: a later read means fresher input for the frame the game starts now */
-    bbgpu_ll_pacing_gate(); /* ll_pacing: a later read means fresher input for the frame the game starts now */
     bbgpu_latency_pad_read(); /* BB_LATENCY_LOG: the age the state had, before the update */
     if (sdl_ready<=0 || !bbgpu_pad_fresh()) return;
     static uint64_t last_us;

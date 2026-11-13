@@ -136,8 +136,9 @@ namespace BloodborneLauncher.Core
         /// 2: model_lod -2 -> 0 once, Highest came back as an opt-in and older files still hold the
         /// -2 that 0.2.1 beta 1 read as 0. 3 (0.2.5): change_appearance=1 and rebirth=1 once, the Dream
         /// mirror and Rebirth at the Altar of Despair became on by default. 4 (0.3.0): the party defaults of
-        /// <see cref="Rev4PartyOn"/> on and party_phantom_hp off once (user, 11 Nov 2026); each can be switched back off.</summary>
-        public const int SettingsRev = 4;
+        /// <see cref="Rev4PartyOn"/> on and party_phantom_hp off once (user, 11 Nov 2026); each can be switched back off.
+        /// 5 (0.3.2): ll_pacing=0 once, low-latency pacing became off by default (NW-69aae50).</summary>
+        public const int SettingsRev = 5;
 
         /// <summary>The party settings settings_rev 4 turned on once (bbport_settings.cpp does the same).</summary>
         public static readonly string[] Rev4PartyOn =
@@ -162,6 +163,7 @@ namespace BloodborneLauncher.Core
                     foreach (var key in Rev4PartyOn) Set(key, "1");
                     Set("party_phantom_hp", "0");
                 }
+                if (rev < 5) Set("ll_pacing", "0");
                 Set("settings_rev", SettingsRev.ToString());
                 Save();
             }
