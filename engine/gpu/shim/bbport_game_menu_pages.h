@@ -82,6 +82,42 @@ void SetTravelVoteQuestion(const std::string& who, const std::u16string& lamp);
 const std::vector<Page>& All();
 int FieldCount();
 
+/// Nightwatch: the System menu groups the pages whose English name has "party" in it (any case) in one
+/// "Party Settings" list (bbport_game_menu.cpp builds it with the game's own System list). An entry of
+/// SystemEntries() is a page index into All(), or PartySettingsEntry for the Party Settings item, which
+/// takes the place of the first party page.
+constexpr int PartySettingsEntry = -1;
+bool IsPartyPage(const Page& page);
+std::vector<int> SystemEntries();
+std::vector<int> PartySettingsEntries(); ///< the party pages' indices, in All() order
+u32 PartySettingsName();
+u32 PartySettingsHelp();
+
+/// Nightwatch: the lists built with the game's System list builder, and where a row the game (110000
+/// Controls ... 110005 Language) or the PC menus (110006..110014 their pages, 110015 Quit to Desktop) add
+/// goes, by its name's text id. System: Game Settings, Party Settings and the pages SystemEntries() keeps
+/// go in at Controls, before every game row. Game Settings: Controls, Environment, Brightness, then the PC
+/// pages. Party Settings: none of them (its pages go in at Environment).
+enum class MenuList { System, PartySettings, GameSettings };
+enum class GameRow { Keep, Skip };
+constexpr u32 ControlsRow = 110000, EnvironmentRow = 110001, BrightnessRow = 110002, NetworkRow = 110003,
+              ExitGameRow = 110004, LanguageRow = 110005, FirstPcRow = 110006, LastPcRow = 110014,
+              QuitToDesktopRow = 110015;
+GameRow PlaceGameRow(MenuList list, u32 id);
+/// The System builder (0x1bb3ad0) drops a row it does not show right after adding it, as "the list's
+/// last item": a skipped row (nothing added) would cost the item before it. A skipped row the builder
+/// will drop goes in anyway, so the builder drops it, not ours. Its rules (1.09): Environment and
+/// Brightness when `full` (0x1ae9a90) is false, Network when `online` (0x1ae9b40) is false, Exit Game
+/// when the builder's flag (its third argument: 1 in the game's in-game System, 0 from the factory the
+/// Nightwatch lists use) is 0, Language when the flag is set or `online` is false. The PC menus' rows
+/// come after all of them (at the list's finish): never dropped.
+bool BuilderDrops(u32 id, bool flag, bool full, bool online);
+/// Nightwatch: Auto-Hide HUD (a toggle, no page of its own): the game's Environment screen adds it right after
+/// Display HUD, as its third row (bbport_game_menu.cpp; the prepared option movie has its slot).
+const Row& AutoHideHudRow();
+u32 GameSettingsName();
+u32 GameSettingsHelp();
+
 /// The port's text `id` in English or Russian, or null when it is not one of ours.
 const char16_t* Text(u32 id, bool russian);
 std::size_t TextCount();

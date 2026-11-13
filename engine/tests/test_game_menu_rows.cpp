@@ -6,7 +6,9 @@
 // players reported show what they should (Continue party game from the party saves, the Status
 // line in a launcher-started party process).
 // ninja -C out/gpu game-menu-rows-test && out/gpu/game-menu-rows-test
+#include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -265,6 +267,133 @@ static void Reported() {
     assert(names.size() == 1 && names[0] == "Host's access");
 }
 
+static std::size_t Length(P::u32 id, bool russian) {
+    std::size_t n = 0;
+    for (const char16_t* t = P::Text(id, russian); t && *t; ++t) ++n;
+    return n;
+}
+
+/// Nightwatch: System holds one Party Settings item in place of the pages named "party" (any case), and
+/// Party Settings holds those pages in order: every page is in exactly one of the two lists.
+static void PartySettings() {
+    const auto& pages = P::All();
+    for (bool ru : {false, true}) {
+        assert(Length(P::PartySettingsName(), ru) > 0 && Length(P::PartySettingsName(), ru) <= P::MaxNameLength);
+        assert(Length(P::PartySettingsHelp(), ru) > 0 && Length(P::PartySettingsHelp(), ru) <= P::MaxHelpLength);
+    }
+    assert(std::u16string(P::Text(P::PartySettingsName(), false)) == u"Party Settings");
+    assert(std::u16string(P::Text(P::PartySettingsName(), true)) == u"Настройки группы");
+
+    const std::vector<int> system = P::SystemEntries();
+    const std::vector<int> party = P::PartySettingsEntries();
+    auto english = [&](int i) { return Ascii(P::Text(pages[std::size_t(i)].name, false)); };
+    auto count = [](const std::vector<int>& v, int x) { return std::count(v.begin(), v.end(), x); };
+    assert(count(system, P::PartySettingsEntry) == 1);
+    assert(system.front() == P::PartySettingsEntry); // Party is the first page: the item stays after Screen/Sound
+    assert(!party.empty() && english(party.front()) == "Party" && std::is_sorted(party.begin(), party.end()));
+    std::vector<int> seen(pages.size(), 0);
+    for (const int i : party) {
+        std::string lower = english(i);
+        for (char& c : lower) c = char(std::tolower(static_cast<unsigned char>(c)));
+        assert(lower.find("party") != std::string::npos && P::IsPartyPage(pages[std::size_t(i)]));
+        ++seen[std::size_t(i)];
+    }
+    for (const int i : system) {
+        if (i == P::PartySettingsEntry) continue;
+        assert(!P::IsPartyPage(pages[std::size_t(i)]));
+        ++seen[std::size_t(i)];
+    }
+    for (const int n : seen) assert(n == 1);
+    // Both kinds of party page move; no other port page is left (Game HUD's row is on Environment now).
+    auto index_of = [&](const char* name) { return int(&PageNamed(name) - pages.data()); };
+    for (const char* name : {"Party mode", "Party rules: World", "My party: Loading"}) assert(count(party, index_of(name)) == 1);
+    assert(system == std::vector<int>{P::PartySettingsEntry});
+    for (const P::Page& page : pages) assert(Ascii(P::Text(page.name, false)) != "Game HUD");
+    std::printf("party settings: %zu pages grouped, %zu entries left in System\n", party.size(), system.size());
+}
+
+/// Nightwatch: the three lists the System builder makes, from the rows it adds in 1.09's order (0x1bb3ad0:
+/// Controls, Environment, Brightness, Network, Exit Game, Language; then the PC menus' pages and Quit to
+/// Desktop), placed the way AddHook / CommandHook place them (P::PlaceGameRow).
+static void GameSettings() {
+    for (bool ru : {false, true}) {
+        assert(Length(P::GameSettingsName(), ru) > 0 && Length(P::GameSettingsName(), ru) <= P::MaxNameLength);
+        assert(Length(P::GameSettingsHelp(), ru) > 0 && Length(P::GameSettingsHelp(), ru) <= P::MaxHelpLength);
+    }
+    assert(std::u16string(P::Text(P::GameSettingsName(), false)) == u"Game Settings");
+    assert(std::u16string(P::Text(P::GameSettingsName(), true)) == u"Настройки игры");
+    // PC Enhancements, PC Graphics, PC Effects, PC Colour, PC Controls, Key Bindings, PC Camera (option_menu.cpp).
+    const std::vector<P::u32> pc = {110013, 110007, 110010, 110014, 110008, 110009, 110011};
+    std::vector<P::u32> rows = {P::ControlsRow, P::EnvironmentRow, P::BrightnessRow, P::NetworkRow, P::ExitGameRow,
+                                P::LanguageRow};
+    rows.insert(rows.end(), pc.begin(), pc.end());
+    rows.push_back(P::QuitToDesktopRow);
+    constexpr P::u32 GameSettingsItem = 1, PartySettingsItem = 2, PartyPages = 4; // the port's
+    // The builder as 1.09 runs it: each game row added (or skipped by the hook), then dropped as the list's last
+    // item when it is not shown (P::BuilderDrops); the PC menus' rows at the finish, never dropped. The hook adds
+    // its own items before the row at hand and lets a skipped row in when the builder will drop it.
+    auto build = [&](P::MenuList list, bool flag, bool full, bool online) {
+        std::vector<P::u32> shown;
+        for (const P::u32 row : rows) {
+            if (list == P::MenuList::System && row == P::ControlsRow) {
+                shown.insert(shown.end(), {GameSettingsItem, PartySettingsItem});
+            }
+            if (list == P::MenuList::PartySettings && row == P::EnvironmentRow) shown.push_back(PartyPages);
+            const bool drops = P::BuilderDrops(row, flag, full, online);
+            const bool skipped_drops = P::BuilderDrops(row, false, full, online); // what the hook predicts (flag 0)
+            if (P::PlaceGameRow(list, row) == P::GameRow::Keep || skipped_drops) shown.push_back(row);
+            if (drops && !shown.empty()) shown.pop_back();
+        }
+        return shown;
+    };
+    // The game's in-game System (flag 1): Exit Game shown, Language not (as before the port's lists).
+    const std::vector<P::u32> system = {GameSettingsItem, PartySettingsItem, P::ExitGameRow, P::QuitToDesktopRow};
+    assert(build(P::MenuList::System, true, true, true) == system);
+    // The Nightwatch lists: the System list factory's flag 0 drops Exit Game; nothing of ours is lost.
+    std::vector<P::u32> game = {P::ControlsRow, P::EnvironmentRow, P::BrightnessRow};
+    game.insert(game.end(), pc.begin(), pc.end());
+    assert(build(P::MenuList::GameSettings, false, true, true) == game);
+    assert(build(P::MenuList::PartySettings, false, true, true) == std::vector<P::u32>{PartyPages});
+    // Builds that hide more (no full game, offline): the builder drops its own rows, never one of ours.
+    for (bool full : {false, true}) {
+        for (bool online : {false, true}) {
+            const auto s = build(P::MenuList::System, true, full, online);
+            assert(std::vector<P::u32>(s.begin(), s.begin() + 2) ==
+                   (std::vector<P::u32>{GameSettingsItem, PartySettingsItem}));
+            const auto g = build(P::MenuList::GameSettings, false, full, online);
+            assert(g.front() == P::ControlsRow && g.size() == (full ? 3 : 1) + pc.size());
+            assert(build(P::MenuList::PartySettings, false, full, online) == std::vector<P::u32>{PartyPages});
+        }
+    }
+    // Network is in none of the lists.
+    for (auto list : {P::MenuList::System, P::MenuList::GameSettings, P::MenuList::PartySettings})
+        assert(P::PlaceGameRow(list, P::NetworkRow) == P::GameRow::Skip);
+    std::printf("game settings: System %zu items, Game Settings %zu rows\n", system.size(), game.size());
+}
+
+/// Nightwatch: Auto-Hide HUD, a row of the game's Environment screen (no page of its own): a toggle whose
+/// change is the setting, saved like a page row's.
+static void AutoHideHud() {
+    const P::Row& row = P::AutoHideHudRow();
+    assert(row.kind == P::Kind::Toggle && row.choices.size() == 2 && P::ByteField(row.field));
+    assert(Ascii(P::Text(row.name, false)) == "Auto-Hide HUD" && std::u16string(P::Text(row.name, true)) == u"Автоскрытие HUD");
+    for (bool ru : {false, true}) {
+        assert(Length(row.name, ru) > 0 && Length(row.name, ru) <= P::MaxNameLength);
+        assert(Length(row.help, ru) > 0 && Length(row.help, ru) <= P::MaxHelpLength);
+    }
+    for (const P::Page& page : P::All())
+        for (const P::Row& r : page.rows) assert(r.field != row.field); // on no page any more
+    P::Load();
+    assert(!BbSettings::Get().auto_hide_hud && *P::Byte(row.field) == 0 && *P::DefaultByte(row.field) == 0);
+    *P::Byte(row.field) = 1; // the row turned on, as the game's widget writes it
+    P::Poll(now += 1000);
+    assert(BbSettings::Get().auto_hide_hud);
+    *P::Byte(row.field) = 0;
+    P::Poll(now += 1000);
+    assert(!BbSettings::Get().auto_hide_hud);
+    std::printf("auto-hide hud: a toggle on Environment, saved to the settings\n");
+}
+
 int main() {
     const auto ini = std::filesystem::temp_directory_path() / "bbport-game-menu-rows-test.ini";
     { std::ofstream file(ini); }
@@ -281,6 +410,9 @@ int main() {
     P::Define();
     EveryState();
     Reported();
+    PartySettings();
+    GameSettings();
+    AutoHideHud();
     std::filesystem::remove(ini);
     std::printf("game menu rows: ok\n");
     return 0;

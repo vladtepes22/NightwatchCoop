@@ -4,10 +4,13 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <string>
+#include <vector>
 
 using namespace menu_assets;
 
@@ -96,8 +99,99 @@ Bytes Sprite(int id, int frames, const Bytes& tags) {
     b.insert(b.end(), {0, 0});
     return Tag(39, b);
 }
-Bytes Movie() {
-    const Bytes tags = Tag(2, {1, 0, 0});
+/// A shape whose bounds are 0..width x 0..height twips (only its bounds are read).
+Bytes Shape(int id, int height, int width = 2000) {
+    Bytes b;
+    Le(b, id, 2);
+    int at = 0;
+    Bytes rect(10, 0);
+    auto put = [&](std::uint64_t v, int n) {
+        for (int i = n - 1; i >= 0; --i, ++at) rect[at / 8] |= std::uint8_t((v >> i & 1) << (7 - at % 8));
+    };
+    put(16, 5), put(0, 16), put(std::uint16_t(width), 16), put(0, 16), put(std::uint16_t(height), 16);
+    return Tag(2, b + rect + Bytes{0, 0});
+}
+/// A placement flipped both ways (scale -1, -1), as 1.09's right-hand stone in the Environment window.
+Bytes FlippedPlace(int depth, int character, int tx, int ty) {
+    Bytes b{0x02 | 0x04};
+    Le(b, depth, 2);
+    Le(b, character, 2);
+    Bytes m(9, 0);
+    int at = 0;
+    auto put = [&](std::uint64_t v, int n) {
+        for (int i = n - 1; i >= 0; --i, ++at) m[at / 8] |= std::uint8_t((v >> i & 1) << (7 - at % 8));
+    };
+    put(1, 1), put(18, 5), put(std::uint64_t(-65536) & 0x3ffff, 18), put(std::uint64_t(-65536) & 0x3ffff, 18);
+    put(0, 1), put(16, 5), put(std::uint16_t(tx), 16), put(std::uint16_t(ty), 16);
+    m.resize(std::size_t(at + 7) / 8);
+    return Tag(26, b + m);
+}
+/// Nightwatch: an Environment screen laid out as 1.09's (a window: a tall background, parts above and below
+/// Display HUD, a flipped picture whose origin is below it but whose top is above, a thin line across it; five
+/// rows and Defaults, two headers, the help line; a second frame moves the rows).
+Bytes Environment(bool status_bar) {
+    Bytes window = Place(1, 8, 0, -1000, "") + Place(2, 1, 0, -200, "") + Place(3, 1, 0, 1200, "") +
+                   Place(4, 1, 0, 3000, "") + FlippedPlace(5, 10, 3000, 2500) + Place(6, 11, 0, 1000, "") + Tag(1, {});
+    Bytes env = Place(3, 7, 0, 1000, "");
+    for (int r = 0; r < 5; ++r) env = env + Place(64 + 9 * r, 1, 1840, 1500 + 1050 * r, "Item_" + std::to_string(r) + "_0");
+    env = env + Place(109, 1, 10800, 9500, "Item_5_0") + Place(116, 1, 600, 1300, "StaticText_111010") +
+          Place(117, 1, 600, 3600, "StaticText_111011");
+    if (status_bar) env = env + Place(61, 1, 9000, 6600, "StatusBar");
+    env = env + Tag(1, {});
+    for (int r = 0; r < 5; ++r) env = env + Place(64 + 9 * r, 0, 1840, 1460 + 1050 * r, "");
+    env = env + Tag(1, {});
+    return Shape(8, 9000) + Shape(10, 2000) + Shape(11, 1500, 100) + Sprite(7, 1, window) + Sprite(9, 2, env);
+}
+
+struct At {
+    int y = 0;
+    double sy = 1;
+};
+/// The y (twips) and vertical scale of each placement in sprite `id` of a movie, by depth: its first frame.
+std::map<int, At> PlacedY(const Bytes& movie, int id) {
+    auto tags = [](const Bytes& b, std::size_t at, std::size_t end) {
+        std::vector<std::pair<int, Bytes>> out;
+        while (at + 2 <= end) {
+            const int head = b[at] | b[at + 1] << 8;
+            std::size_t n = head & 0x3f;
+            at += 2;
+            if (n == 0x3f) n = std::size_t(b[at] | b[at + 1] << 8 | b[at + 2] << 16 | b[at + 3] << 24), at += 4;
+            out.emplace_back(head >> 6, Bytes(b.begin() + std::ptrdiff_t(at), b.begin() + std::ptrdiff_t(at + n)));
+            at += n;
+            if ((head >> 6) == 0) break;
+        }
+        return out;
+    };
+    std::map<int, At> ys;
+    const std::size_t start = 8 + (5 + 4 * (movie[8] >> 3) + 7) / 8 + 4;
+    for (const auto& [code, body] : tags(movie, start, movie.size())) {
+        if (code != 39 || (body[0] | body[1] << 8) != id) continue;
+        for (const auto& [c, p] : tags(body, 4, body.size())) {
+            if (c == 1) return ys;
+            if (c != 26 || !(p[0] & 0x04)) continue;
+            int bit = 8 * (p[0] & 0x02 ? 5 : 3);
+            auto get = [&](int n, bool sign) {
+                std::int64_t v = 0;
+                for (int i = 0; i < n; ++i, ++bit) v = v << 1 | (p[std::size_t(bit / 8)] >> (7 - bit % 8) & 1);
+                return sign && n && (v >> (n - 1) & 1) ? v - (std::int64_t(1) << n) : v;
+            };
+            At a;
+            if (get(1, false)) {
+                const int n = int(get(5, false));
+                get(n, true);
+                a.sy = double(get(n, true)) / 65536.0;
+            }
+            if (get(1, false)) { const int n = int(get(5, false)); get(n, true), get(n, true); }
+            const int n = int(get(5, false));
+            get(n, true);
+            a.y = int(get(n, true));
+            ys[p[1] | p[2] << 8] = a;
+        }
+    }
+    return ys;
+}
+Bytes Movie(bool environment = true, bool status_bar = true) {
+    const Bytes tags = Tag(2, {1, 0, 0}) + (environment ? Environment(status_bar) : Bytes{});
     Bytes title = Place(1, 1, 40, 40, "StaticText_113020") + Tag(1, {});
     Bytes donor;
     for (int r = 0; r < 6; ++r) donor = donor + Place(56 + 9 * r, 1, 1840, 1060 + 1143 * r, "Item_" + std::to_string(r) + "_0");
@@ -117,7 +211,9 @@ Bytes Movie() {
     const std::string cls = "OptionSetting_fla._ControllSetting";
     classes.insert(classes.end(), cls.begin(), cls.end()), classes.push_back(0);
     Bytes body = tags + Sprite(2, 1, title) + Sprite(3, 2, donor) + Sprite(4, 1, list) + Sprite(5, 1, top) +
-                 Place(382, 3, 10046, 4134, "ControllSetting") + Place(500, 5, 13754, 6089, "Top") + Tag(76, classes) +
+                 Place(382, 3, 10046, 4134, "ControllSetting") +
+                 (environment ? Place(300, 9, 10046, 4094, "EnvironmentSetting") : Bytes{}) +
+                 Place(500, 5, 13754, 6089, "Top") + Tag(76, classes) +
                  Tag(1, {}) + Tag(0, {});
     Bytes head = Ascii("GFX");
     head.push_back(11);
@@ -218,8 +314,30 @@ int main(int argc, char** argv) {
         assert(Count(movie, std::string("StaticText_") + title) == 1);
     assert(Count(movie, "StaticText_113020") == 1);
     assert(Count(movie, "Item_7_0") == 2);
-    assert(Count(movie, "Item_6_0") == 1 + 1 + 2);
-    assert(Count(movie, "Item_3_0") == 1 + 1 + 7);
+    // + 1: Environment's Defaults moved on to Item_6_0 (its rows Item_0_0 .. Item_5_0, the new one Item_2_0).
+    assert(Count(movie, "Item_6_0") == 1 + 1 + 2 + 1);
+    assert(Count(movie, "Item_3_0") == 1 + 1 + 7 + 1);
+    assert(Count(movie, "Item_2_0") == Count(OptionMovie(Movie(false)), "Item_2_0") + 1);
+    assert(Count(movie, "EnvironmentSetting") == 1 && Count(movie, "StaticText_111011") == 1);
+    {   // The window: parts whose top is under Display HUD one row (1050) lower, the rest where they were; the
+        // flipped picture by its top (its origin is below Display HUD) and at its size; the background and the
+        // thin line across Display HUD one row taller, their tops in place.
+        const auto before = PlacedY(Movie(), 7), after = PlacedY(movie, 7);
+        assert(after.at(4).y == before.at(4).y + 1050 && after.at(3).y == before.at(3).y && after.at(2).y == before.at(2).y);
+        assert(after.at(5).y == before.at(5).y && after.at(5).sy == before.at(5).sy);
+        assert(after.at(1).y == before.at(1).y && std::abs(after.at(1).sy - (9000.0 + 1050) / 9000) < 1e-4);
+        assert(after.at(6).y == before.at(6).y && std::abs(after.at(6).sy - (1500.0 + 1050) / 1500) < 1e-4);
+        // The screen: the new row one row under Display HUD, the Sound rows and Defaults one row lower.
+        const auto env = PlacedY(movie, 9), old = PlacedY(Movie(), 9);
+        assert(old.at(73).y == 2550 && env.at(73).y == 2550 && old.size() + 1 == env.size());
+        for (const auto& [depth, a] : env)
+            if (!old.count(depth)) assert(a.y == 2550 + 1050);  // the new row
+        for (int depth : {82, 91, 100, 109, 117, 61}) assert(env.at(depth).y == old.at(depth).y + 1050);
+        for (int depth : {3, 64, 116}) assert(env.at(depth).y == old.at(depth).y);
+    }
+    refused = false;
+    try { OptionMovie(Movie(true, false)); } catch (const Error&) { refused = true; }
+    assert(refused);  // an Environment not laid out as 1.09's: no movie (the PC menus stay off)
     assert(Count(movie, "ScrollBarV") == 2);
     assert(Count(movie, "OptionSetting_fla._ControllSetting") == 8);
     assert(movie[4] == (movie.size() & 0xff) && movie[5] == (movie.size() >> 8 & 0xff));
