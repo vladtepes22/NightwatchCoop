@@ -85,6 +85,14 @@ def git(*args):
     return subprocess.run(['git', '-C', str(REPO), *args], capture_output=True, text=True).stdout
 
 
+def default_base():
+    """The release line's main: fork/main here, upstream/main or origin/main in a contributor's clone."""
+    for ref in ('fork/main', 'upstream/main', 'origin/main'):
+        if git('rev-parse', '--verify', '--quiet', ref).strip():
+            return ref
+    return 'fork/main'
+
+
 def touched(base):
     names = set(git('diff', '--name-only', f'{base}...HEAD').split())
     names |= set(git('diff', '--name-only', 'HEAD').split())
@@ -371,7 +379,7 @@ def main():
     parser.add_argument('action', choices=['plan', 'run'])
     parser.add_argument('--level', choices=['change', 'merge', 'release'])
     parser.add_argument('--only', help='Comma-separated layers instead of a level.')
-    parser.add_argument('--base', default='fork/main', help='change level: diff base (default fork/main).')
+    parser.add_argument('--base', help='change level: diff base (default the first of fork/main, upstream/main, origin/main).')
     parser.add_argument('--scenario', help='coop rows to run (comma-separated; default join for a change, every release row for a release).')
     parser.add_argument('--package', type=Path, help='Package folder for the privacy layer.')
     parser.add_argument('--game', default=os.environ.get('BB_QA_GAME', r'C:\Games\CUSA03173'))
@@ -381,6 +389,7 @@ def main():
     parser.add_argument('--repeat', type=int, default=1, help='coop: run each row N times (timing-sensitive rows: 3).')
     parser.add_argument('--label', help='Name part of the run folder.')
     args = parser.parse_args()
+    args.base = args.base or default_base()
     if not args.level and not args.only:
         parser.error('give --level or --only')
     if args.only:

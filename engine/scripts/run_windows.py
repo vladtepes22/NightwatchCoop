@@ -298,6 +298,8 @@ def main():
             remove_overlay(overlay)
         sys.exit(f'The game folder {original} is incomplete: {", ".join(missing)} missing. '
                  'Dump or extract the game again (base game plus the 1.09 update).')
+    # As bb-start (start/main.cpp): the PC menus check their prepared files against the merged game.
+    os.environ['BB_GAME_MERGED'] = str(merged)
     try:
         prepare_image(merged, out)
         prebuilt = os.environ.get('BB_PREBUILT') == '1'
