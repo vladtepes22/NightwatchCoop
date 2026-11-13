@@ -107,6 +107,8 @@ std::vector<std::unique_ptr<Generation>> g_generations;
 const Generation* g_glyphs = nullptr;
 std::atomic<bool> g_have_glyphs{false};  // the glyph screen is on (hooks in, community glyphs read); any thread
 std::atomic<bool> g_installed{false};    // every hook of the glyph screen is in
+std::atomic<bool> g_screen{false};       // the chalice picker is the glyph screen (from the glyph item to a real Chalice
+                                         // Ritual): its title, help line and tab names are ours (Text)
 std::filesystem::file_time_type g_seen{};
 bool g_have_seen = false;
 u32 g_family_goods[4] = {};  // a chalice of each HolygrailParam family (our rows pass the tab filters as one)
@@ -246,6 +248,7 @@ BB_COOP_SYSV u64 GlyphItem(u64 out, u64 ctx) {
         g_opening = true;
         g_from_glyph = true;
         g_glyph_menu = 0;
+        g_screen.store(true, std::memory_order_release);  // before the picker's setup asks for its title
     }
     std::printf("Glyph screen: the glyph item opens the glyph screen (%zu glyphs)\n", g_glyphs->size());
     std::fflush(stdout);
@@ -271,6 +274,7 @@ BB_COOP_SYSV void RitualEntry(u64, u64, u64, u64, u64, u64) {
     if (g_from_glyph) return;
     g_opening = false;
     g_glyph_menu = 0;
+    g_screen.store(false, std::memory_order_release);
 }
 
 // After the screen filter: `tab` = the tab descriptor (the game's r12), `frame` = the builder's rbp (the fresh list
@@ -529,6 +533,24 @@ BB_COOP_SYSV u64 GlyphNetCheck(u64 net, u64) {
 }
 
 } // namespace
+
+const char16_t* Text(std::uint32_t category, std::uint32_t id) {
+    if (!g_installed.load(std::memory_order_acquire) || !g_screen.load(std::memory_order_acquire)) return nullptr;
+    // The chalice picker's own texts (the title and help at 0x1c74d2a / 0x1c74db8, the tab names at 0x1c69a05..):
+    // names 0xc8, help lines 0xc9.
+    if (category == 0xc8) {
+        switch (id) {
+        case 263100: return u"Search by Chalice Glyph";
+        case 40435: return u"Farming";
+        case 40436: return u"Equipment";
+        case 40437: return u"Blood Gems";
+        case 40438: return u"Testing";
+        default: return nullptr;
+        }
+    }
+    if (category == 0xc9 && id == 263000) return u"Select a Chalice Glyph to join its dungeon.";
+    return nullptr;
+}
 
 bool KeepsGameText(std::uint32_t id) {
     // The altar names its items before it builds them (before the glyph list is first read), so: the screen's hooks
