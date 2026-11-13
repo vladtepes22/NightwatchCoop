@@ -777,8 +777,193 @@ Bytes MenuMessages(const Bytes& file, Language language) {
     return packed ? DcxWrite(dcx) : dcx.data;
 }
 
+// Nightwatch: Environment gets a row under Display HUD (the port's Auto-Hide HUD, gpu/shim/bbport_game_menu.cpp
+// adds it as the screen's third row): a copy of Display HUD's slot one row lower as Item_2_0; Music .. Voice and
+// Defaults one slot on (Item_3_0 ..); everything under Display HUD (the Sound band and header, its rows, the
+// help line, the window's lower edge) one row lower; the window's background and the Display section's line one
+// row taller (pictures keep their size), in every frame (the screen slides in). Only EnvironmentSetting places its
+// window (checked), so no other screen changes.
+namespace {
+struct Span {
+    std::int64_t top = 0, bottom = 0, left = 0, right = 0;  // twips
+};
+std::optional<Span> CharacterSpan(const Movie& m, std::uint16_t id) {
+    for (const Tag& t : m.tags) {
+        if (t.code == kSprite && U16(t.body, 0) == id) {
+            std::optional<Span> only;
+            int parts = 0;
+            for (const Tag& c : ReadSprite(t).tags) {
+                if (!IsPlace(c)) continue;
+                const Place p = ReadPlace(c);
+                if (!p.character) continue;
+                if (++parts > 1 || (p.matrix && (p.matrix->scaled || p.matrix->rotated))) return std::nullopt;
+                if (auto s = CharacterSpan(m, *p.character)) {
+                    const std::int64_t dx = p.matrix ? p.matrix->tx : 0, dy = p.matrix ? p.matrix->ty : 0;
+                    only = Span{s->top + dy, s->bottom + dy, s->left + dx, s->right + dx};
+                }
+            }
+            return only;
+        }
+        if ((t.code == 2 || t.code == 22 || t.code == 32 || t.code == 83) && U16(t.body, 0) == id) {
+            BitReader r{t.body, 2};
+            const int n = int(r.Unsigned(5));
+            const std::int64_t left = r.Signed(n), right = r.Signed(n), top = r.Signed(n);
+            return Span{top, r.Signed(n), left, right};
+        }
+    }
+    return std::nullopt;
+}
+Matrix ScaledY(Matrix m, double by, std::int64_t top) {
+    const double sx = m.scaled ? Fixed(m.sx, m.scale_bits) : 1, sy = m.scaled ? Fixed(m.sy, m.scale_bits) : 1;
+    const std::int64_t x = std::llround(sx * 65536), y = std::llround(sy * by * 65536);
+    m.ty -= std::llround(double(top) * sy * (by - 1));  // the top edge stays where it was
+    m.scaled = true;
+    m.scale_bits = std::max(BitsFor(x), BitsFor(y));
+    const std::uint64_t mask = (std::uint64_t(1) << m.scale_bits) - 1;
+    m.sx = std::uint32_t(std::uint64_t(x) & mask), m.sy = std::uint32_t(std::uint64_t(y) & mask);
+    return m;
+}
+void EnvironmentRow(Movie& m) {
+    const Place placed = ReadPlace(m.tags[FindPlaced(m, "EnvironmentSetting")]);
+    if (!placed.character) throw Error("EnvironmentSetting is placed without a character");
+    const std::size_t env_at = FindSprite(m, *placed.character);
+    Sprite env = ReadSprite(m.tags[env_at]);
+    std::map<std::string, Place> named;
+    std::set<std::uint16_t> depths;
+    std::optional<Place> panel;
+    std::size_t panel_parts = 0;
+    for (const Tag& t : env.tags) {
+        if (t.code == kShowFrame) break;  // the first frame places everything
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        depths.insert(p.depth);
+        if (p.name) {
+            named[*p.name] = p;
+        } else if (p.character && p.matrix) {  // the window: the unnamed sprite of the most parts
+            for (const Tag& s : m.tags) {
+                if (s.code != kSprite || U16(s.body, 0) != *p.character) continue;
+                std::size_t parts = 0;
+                for (const Tag& c : ReadSprite(s).tags) parts += IsPlace(c) && ReadPlace(c).character;
+                if (parts > panel_parts) panel_parts = parts, panel = p;
+            }
+        }
+    }
+    for (const char* need : {"Item_0_0", "Item_1_0", "Item_2_0", "Item_3_0", "Item_4_0", "Item_5_0", "StaticText_111011",
+                             "StatusBar"})
+        if (!named.count(need) || !named[need].matrix) throw Error(std::string("EnvironmentSetting has no ") + need);
+    if (named.count("Item_6_0") || !panel || panel_parts < 4)
+        throw Error("EnvironmentSetting is not laid out as 1.09's (five rows, Defaults, a window)");
+    for (const Tag& s : m.tags)  // the window is EnvironmentSetting's own
+        if (s.code == kSprite && U16(s.body, 0) != env.id)
+            for (const Tag& c : ReadSprite(s).tags)
+                if (IsPlace(c) && ReadPlace(c).character == panel->character)
+                    throw Error("EnvironmentSetting's window is shared with another sprite");
+    const std::int64_t pitch = named["Item_1_0"].matrix->ty - named["Item_0_0"].matrix->ty;
+    const std::int64_t split = named["Item_1_0"].matrix->ty;
+    if (pitch <= 0) throw Error("EnvironmentSetting's rows are not laid out downwards");
+    std::map<std::uint16_t, std::optional<std::string>> moved;  // depth -> its new name (rows) or as it was
+    for (int r = 2; r <= 5; ++r) moved[named[RowName(r)].depth] = RowName(r + 1);
+    moved[named["StaticText_111011"].depth] = std::nullopt;
+    moved[named["StatusBar"].depth] = std::nullopt;
+    const std::uint16_t row1 = named["Item_1_0"].depth;
+    std::uint16_t added = row1 + 1;
+    while (depths.count(added)) ++added;
+
+    std::vector<Tag> tags;
+    for (const Tag& t : env.tags) {
+        if (!IsPlace(t)) {
+            tags.push_back(t);
+            continue;
+        }
+        const Place p = ReadPlace(t);
+        if (const auto it = moved.find(p.depth); it != moved.end() && p.matrix) {
+            Matrix lower = *p.matrix;
+            lower.ty += pitch;
+            tags.push_back(Changed(t.code, Rewrite(t, p, {}, {}, lower, p.name ? it->second : std::nullopt)));
+        } else {
+            tags.push_back(t);
+        }
+        if (p.depth == row1 && p.matrix) {  // Display HUD's slot, one row lower: the new row's
+            Matrix lower = *p.matrix;
+            lower.ty += pitch;
+            tags.push_back(
+                Changed(t.code, Rewrite(t, p, added, {}, lower, p.name ? std::optional<std::string>(RowName(2)) : std::nullopt)));
+        }
+    }
+    env.tags = std::move(tags);
+
+    const std::size_t panel_at = FindSprite(m, *panel->character);
+    Sprite window = ReadSprite(m.tags[panel_at]);
+    const std::int64_t window_split = split - panel->matrix->ty;  // in the window's own space
+    // Each part by its edges (its top, not its origin: the right-hand stone is the left one flipped, scale -1, its
+    // origin its lower corner), decided from the first frame, per depth: under Display HUD -> one row lower; across
+    // it -> the background and lines (narrower than a row) one row taller, their top kept; pictures as they are.
+    struct Grow {
+        double by;
+        std::int64_t top;  // the part's own top (unscaled), kept in place
+    };
+    std::set<std::uint16_t> lower_parts;
+    std::map<std::uint16_t, Grow> grown;
+    std::optional<std::uint16_t> back;
+    std::int64_t tallest = 0;
+    struct Seen {
+        std::uint16_t depth;
+        Span span;
+        double sy;
+        std::int64_t top, bottom, width;
+    };
+    std::vector<Seen> seen;
+    for (const Tag& t : window.tags) {
+        if (t.code == kShowFrame) break;
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (!p.character || !p.matrix) continue;
+        const auto s = CharacterSpan(m, *p.character);
+        const double sx = p.matrix->scaled ? Fixed(p.matrix->sx, p.matrix->scale_bits) : 1;
+        const double sy = p.matrix->scaled ? Fixed(p.matrix->sy, p.matrix->scale_bits) : 1;
+        if (!s) {
+            if (p.matrix->ty > window_split) lower_parts.insert(p.depth);
+            continue;
+        }
+        const std::int64_t top = p.matrix->ty + std::llround(std::min(sy * double(s->top), sy * double(s->bottom)));
+        const std::int64_t bottom = p.matrix->ty + std::llround(std::max(sy * double(s->top), sy * double(s->bottom)));
+        seen.push_back({p.depth, *s, sy, top, bottom, std::llround(std::abs(sx) * double(s->right - s->left))});
+        if (bottom - top > tallest) tallest = bottom - top, back = p.depth;
+    }
+    if (!back || tallest <= pitch) throw Error("EnvironmentSetting's window has no background to grow");
+    for (const Seen& s : seen) {
+        if (s.top > window_split) {
+            lower_parts.insert(s.depth);
+        } else if (s.bottom > window_split && s.sy > 0 && (s.depth == *back || s.width < pitch)) {
+            grown[s.depth] = Grow{double(s.bottom - s.top + pitch) / double(s.bottom - s.top), s.span.top};
+        }
+    }
+    if (!grown.count(*back)) throw Error("EnvironmentSetting's window background does not reach under Display HUD");
+    std::vector<Tag> parts;
+    for (const Tag& t : window.tags) {
+        const Place p = IsPlace(t) ? ReadPlace(t) : Place{};
+        if (!IsPlace(t) || !p.matrix) {
+            parts.push_back(t);
+        } else if (const auto g = grown.find(p.depth); g != grown.end()) {
+            const Matrix taller = ScaledY(*p.matrix, g->second.by, g->second.top);
+            parts.push_back(Changed(t.code, Rewrite(t, p, {}, {}, taller, {})));
+        } else if (lower_parts.count(p.depth)) {
+            Matrix lower = *p.matrix;
+            lower.ty += pitch;
+            parts.push_back(Changed(t.code, Rewrite(t, p, {}, {}, lower, {})));
+        } else {
+            parts.push_back(t);
+        }
+    }
+    window.tags = std::move(parts);
+    m.tags[env_at] = WriteSprite(env);
+    m.tags[panel_at] = WriteSprite(window);
+}
+}  // namespace
+
 Bytes OptionMovie(const Bytes& gfx) {
     Movie m = ReadMovie(gfx);
+    if (Placed(m, "EnvironmentSetting")) EnvironmentRow(m);
     for (const Section& s : kSections)
         if (Placed(m, s.name)) throw Error(std::string("the movie already has ") + s.name);
     const Donor d = ReadDonor(m);

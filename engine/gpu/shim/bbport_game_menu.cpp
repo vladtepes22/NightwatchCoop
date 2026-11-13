@@ -57,6 +57,7 @@
 
 #include "bbport_game_menu_pages.h"
 #include "bbport_settings.h"
+#include "engine/option_menu.h"
 
 extern "C" void* runtime_low_map(size_t size, int prot); // src/runtime_memory.c
 extern "C" void runtime_restart(void);                  // src/probe.c
@@ -125,6 +126,15 @@ const u8 AddPageItemPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57};
 // stores the list in *out. Party Settings is the same list, built while AddHook swaps in the party pages.
 constexpr u64 SystemListFactory = 0x1bb3a40;
 const u8 SystemListFactoryPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x56, 0x53, 0x48, 0x83, 0xec, 0x10};
+// Nightwatch: the Environment screen's rows (EnvironmentSetting; 0x1bdb980 opens it with them): Subtitles,
+// Display HUD (PairRow), Music, Sound Effects, Voice. Auto-Hide HUD goes in right after Display HUD (PairRowHook),
+// with the game's own OFF / ON values (OnOffList, as engine/option_rows.cpp's AddToggle).
+constexpr u64 EnvironmentRows = 0x1b21840, EnvironmentRowsEnd = 0x1b21e80;
+constexpr u32 DisplayHudName = 111002;
+constexpr u64 OnOffList = 0x1b2b3b0; ///< (two-value list): the game's OFF / ON values
+constexpr std::size_t PairCount = 0x98; ///< a two-value list's count
+const u8 PairRowPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53};
+const u8 OnOffListPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x56, 0x53, 0x48, 0x81, 0xec, 0x20, 0x01, 0x00, 0x00};
 // The title screen's main menu (builder 0x1b4a3d0, docs/party/ingame_flow.md §3): its command items
 // (Continue 0x61f95, Load Game 0x61f96, New Game 0x61f97, ...) go through AddCommandItem; the
 // party flow adds the Party page as a title item right after New Game (BB_PARTY_TITLE_ENTRY=0: not).
@@ -509,7 +519,10 @@ std::atomic<const char16_t*> title_override{nullptr}; // while the game builds o
 // Nightwatch lists (AddHook below): on, and which list the System builder runs for (its menu thread).
 bool lists_ok = false;
 thread_local P::MenuList building = P::MenuList::System;
-constexpr u32 SystemTitle = 110020; // the System list's title ("System"), looked up while it is built
+// The list screen's title ("System", the option movie's StaticText_110020) is looked up when the screen's movie
+// loads, after the list is built: a Nightwatch list leaves its own name for that next lookup (ListFactory).
+constexpr u32 SystemTitle = 110020;
+std::atomic<const char16_t*> list_title{nullptr};
 // Called by the game's menu code (guest threads, System V ABI like the game), one set per page.
 bool Trace();
 template <int N>
@@ -576,6 +589,7 @@ std::atomic<const void*> discard_text{nullptr};  // the item menu's "Discard" te
 // Nightwatch: the System list's row names (110000 Controls .. 110015 the PC menus' Quit to Desktop) as
 // looked up: AddHook / CommandHook tell the game's rows apart by them (P::PlaceGameRow).
 std::array<std::atomic<const void*>, P::QuitToDesktopRow - P::ControlsRow + 1> system_row_text{};
+std::atomic<const void*> display_hud_text{nullptr}; // Environment's "Display HUD", as looked up (PairRowHook)
 /// The System row id whose name `pair` holds, or 0 when it is none of them.
 u32 SystemRowOf(const void* pair) {
     const void* name = *static_cast<const void* const*>(pair);
@@ -691,8 +705,11 @@ BB_SYSV const char16_t* LookupHook(void* repository, u32 table, u32 category, u3
     if (title_override && category == TextName && id == ControlsTitle) {
         return title_override;
     }
-    if (building != P::MenuList::System && category == TextName && id == SystemTitle) {
-        return TextOf(building == P::MenuList::GameSettings ? P::GameSettingsName() : P::PartySettingsName());
+    if (category == TextName && id == SystemTitle) {
+        if (const char16_t* title = list_title.exchange(nullptr)) {
+            if (Trace()) std::printf("Game menu: list title from the Nightwatch list\n");
+            return title;
+        }
     }
     last_table.store(table, std::memory_order_relaxed);
     last_repository.store(repository, std::memory_order_release);
@@ -767,6 +784,9 @@ BB_SYSV const char16_t* LookupHook(void* repository, u32 table, u32 category, u3
     if (category == TextName && id >= P::ControlsRow && id <= P::QuitToDesktopRow && text) {
         system_row_text[id - P::ControlsRow] = text;
     }
+    if (category == TextName && id == DisplayHudName && text) {
+        display_hud_text = text;
+    }
     if (category == TextName && id == ScreenSoundItem && text) {
         screen_sound_text = text;
         bool cyrillic = false;
@@ -815,6 +835,7 @@ BB_SYSV void* ListFactory(void* out, void* arg) {
     building = L;
     void* result = Game<Factory>(SystemListFactory)(out, arg);
     building = P::MenuList::System;
+    list_title = TextOf(L == P::MenuList::GameSettings ? P::GameSettingsName() : P::PartySettingsName());
     if (Trace()) {
         std::printf("Game menu: %s list built\n", L == P::MenuList::GameSettings ? "Game Settings" : "Party Settings");
     }
@@ -826,6 +847,40 @@ void AddPage(void* menu, int index) {
     if (index >= 0 && std::size_t(index) < pages.size() && std::size_t(index) < MaxPages) {
         AddItem(menu, pages[std::size_t(index)].name, pages[std::size_t(index)].help, factories[std::size_t(index)]);
     }
+}
+
+// Nightwatch: Auto-Hide HUD on the game's Environment screen (P::AutoHideHudRow): PairRow hooked; the row goes in
+// right after Display HUD (its slot, Item_2_0, is in the prepared option movie: tools/engine/menu_assets.cpp).
+using PairRowFn = void*(BB_SYSV*)(void*, void*, u8*, void*, const u8*);
+PairRowFn pair_row_original = nullptr;
+bool environment_row_ok = false;
+
+void AddAutoHideHudRow(void* page) {
+    const P::Row& row = P::AutoHideHudRow();
+    P::Load();
+    alignas(16) u8 pair[2 * TextSize] = {};
+    MakeTexts(pair, row.name, row.help);
+    alignas(16) u8 list[PairListSize] = {};
+    using OnOff = void(BB_SYSV*)(void*);
+    Game<OnOff>(OnOffList)(list);
+    pair_row_original(page, pair, P::Byte(row.field), list, P::DefaultByte(row.field));
+    const u64 count = *reinterpret_cast<const u64*>(list + PairCount);
+    for (u64 i = 0; i < count && i < 2; ++i) DestroyText(list + i * ValueSize + 8);
+    DestroyTexts(pair);
+    if (Trace()) {
+        std::printf("Game menu: Environment: Auto-Hide HUD after Display HUD\n");
+    }
+}
+
+BB_SYSV void* PairRowHook(void* page, void* pair, u8* value, void* list, const u8* def) {
+    void* result = pair_row_original(page, pair, value, list, def);
+    const u64 from = reinterpret_cast<u64>(__builtin_return_address(0)) - image_base;
+    const void* hud = display_hud_text.load();
+    if (environment_row_ok && hud && *static_cast<const void* const*>(pair) == hud && from >= EnvironmentRows &&
+        from < EnvironmentRowsEnd && BbEngine::Options::Installed()) {
+        AddAutoHideHudRow(page);
+    }
+    return result;
 }
 
 /// System: Game Settings, Party Settings and the port's pages left in System (P::SystemEntries).
@@ -859,6 +914,7 @@ BB_SYSV void* AddHook(void* menu, void* pair, void* function, void* out) {
         for (const int index : P::PartySettingsEntries()) AddPage(menu, index);
     }
     if (building == P::MenuList::System && row == P::ControlsRow) {
+        list_title = nullptr; // System's own screen: its own title
         AddSystemItems(menu);
         if (Trace()) std::printf("Game menu: System menu built\n");
     }
@@ -1372,6 +1428,14 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
                std::memcmp(image + SystemListFactory, SystemListFactoryPrologue, sizeof(SystemListFactoryPrologue)) == 0 &&
                std::memcmp(image + FullGameCheck, FullGameCheckCode, sizeof(FullGameCheckCode)) == 0 &&
                std::memcmp(image + OnlineCheck, OnlineCheckCode, sizeof(OnlineCheckCode)) == 0;
+    // Auto-Hide HUD on Environment: PairRow hooked and the game's OFF / ON list as expected (the row also needs the
+    // prepared option movie, checked when Environment opens: BbEngine::Options::Installed).
+    environment_row_ok = ok && std::memcmp(image + OnOffList, OnOffListPrologue, sizeof(OnOffListPrologue)) == 0 &&
+                         Detour(image, PairRow, PairRowPrologue, sizeof(PairRowPrologue),
+                                reinterpret_cast<void*>(&PairRowHook), reinterpret_cast<void**>(&pair_row_original), cursor);
+    if (ok) {
+        std::printf("Game menu: Auto-Hide HUD on Environment %s\n", environment_row_ok ? "on" : "off (unexpected code)");
+    }
     if (ok) {
         std::printf("Game menu: Game Settings and Party Settings %s (%zu party pages)\n",
                     lists_ok ? "in System" : "off (pages flat in System): no command hook or unexpected code",

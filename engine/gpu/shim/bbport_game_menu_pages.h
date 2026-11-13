@@ -112,6 +112,9 @@ GameRow PlaceGameRow(MenuList list, u32 id);
 /// Nightwatch lists use) is 0, Language when the flag is set or `online` is false. The PC menus' rows
 /// come after all of them (at the list's finish): never dropped.
 bool BuilderDrops(u32 id, bool flag, bool full, bool online);
+/// Nightwatch: Auto-Hide HUD (a toggle, no page of its own): the game's Environment screen adds it right after
+/// Display HUD, as its third row (bbport_game_menu.cpp; the prepared option movie has its slot).
+const Row& AutoHideHudRow();
 u32 GameSettingsName();
 u32 GameSettingsHelp();
 

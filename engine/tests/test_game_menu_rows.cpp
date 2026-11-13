@@ -304,10 +304,11 @@ static void PartySettings() {
         ++seen[std::size_t(i)];
     }
     for (const int n : seen) assert(n == 1);
-    // Both kinds of party page move; Game HUD stays in System.
+    // Both kinds of party page move; no other port page is left (Game HUD's row is on Environment now).
     auto index_of = [&](const char* name) { return int(&PageNamed(name) - pages.data()); };
     for (const char* name : {"Party mode", "Party rules: World", "My party: Loading"}) assert(count(party, index_of(name)) == 1);
-    assert(count(system, index_of("Game HUD")) == 1);
+    assert(system == std::vector<int>{P::PartySettingsEntry});
+    for (const P::Page& page : pages) assert(Ascii(P::Text(page.name, false)) != "Game HUD");
     std::printf("party settings: %zu pages grouped, %zu entries left in System\n", party.size(), system.size());
 }
 
@@ -327,7 +328,7 @@ static void GameSettings() {
                                 P::LanguageRow};
     rows.insert(rows.end(), pc.begin(), pc.end());
     rows.push_back(P::QuitToDesktopRow);
-    constexpr P::u32 GameSettingsItem = 1, PartySettingsItem = 2, GameHudItem = 3, PartyPages = 4; // the port's
+    constexpr P::u32 GameSettingsItem = 1, PartySettingsItem = 2, PartyPages = 4; // the port's
     // The builder as 1.09 runs it: each game row added (or skipped by the hook), then dropped as the list's last
     // item when it is not shown (P::BuilderDrops); the PC menus' rows at the finish, never dropped. The hook adds
     // its own items before the row at hand and lets a skipped row in when the builder will drop it.
@@ -335,7 +336,7 @@ static void GameSettings() {
         std::vector<P::u32> shown;
         for (const P::u32 row : rows) {
             if (list == P::MenuList::System && row == P::ControlsRow) {
-                shown.insert(shown.end(), {GameSettingsItem, PartySettingsItem, GameHudItem});
+                shown.insert(shown.end(), {GameSettingsItem, PartySettingsItem});
             }
             if (list == P::MenuList::PartySettings && row == P::EnvironmentRow) shown.push_back(PartyPages);
             const bool drops = P::BuilderDrops(row, flag, full, online);
@@ -346,8 +347,7 @@ static void GameSettings() {
         return shown;
     };
     // The game's in-game System (flag 1): Exit Game shown, Language not (as before the port's lists).
-    const std::vector<P::u32> system = {GameSettingsItem, PartySettingsItem, GameHudItem, P::ExitGameRow,
-                                        P::QuitToDesktopRow};
+    const std::vector<P::u32> system = {GameSettingsItem, PartySettingsItem, P::ExitGameRow, P::QuitToDesktopRow};
     assert(build(P::MenuList::System, true, true, true) == system);
     // The Nightwatch lists: the System list factory's flag 0 drops Exit Game; nothing of ours is lost.
     std::vector<P::u32> game = {P::ControlsRow, P::EnvironmentRow, P::BrightnessRow};
@@ -358,20 +358,40 @@ static void GameSettings() {
     for (bool full : {false, true}) {
         for (bool online : {false, true}) {
             const auto s = build(P::MenuList::System, true, full, online);
-            assert(std::vector<P::u32>(s.begin(), s.begin() + 3) ==
-                   (std::vector<P::u32>{GameSettingsItem, PartySettingsItem, GameHudItem}));
+            assert(std::vector<P::u32>(s.begin(), s.begin() + 2) ==
+                   (std::vector<P::u32>{GameSettingsItem, PartySettingsItem}));
             const auto g = build(P::MenuList::GameSettings, false, full, online);
             assert(g.front() == P::ControlsRow && g.size() == (full ? 3 : 1) + pc.size());
             assert(build(P::MenuList::PartySettings, false, full, online) == std::vector<P::u32>{PartyPages});
         }
     }
-    // Network is in none of the lists; Game HUD is the one port page left in System (until Environment has its row).
+    // Network is in none of the lists.
     for (auto list : {P::MenuList::System, P::MenuList::GameSettings, P::MenuList::PartySettings})
         assert(P::PlaceGameRow(list, P::NetworkRow) == P::GameRow::Skip);
-    const std::vector<int> left = P::SystemEntries();
-    assert(left.size() == 2 && left[0] == P::PartySettingsEntry &&
-           Ascii(P::Text(P::All()[std::size_t(left[1])].name, false)) == "Game HUD");
     std::printf("game settings: System %zu items, Game Settings %zu rows\n", system.size(), game.size());
+}
+
+/// Nightwatch: Auto-Hide HUD, a row of the game's Environment screen (no page of its own): a toggle whose
+/// change is the setting, saved like a page row's.
+static void AutoHideHud() {
+    const P::Row& row = P::AutoHideHudRow();
+    assert(row.kind == P::Kind::Toggle && row.choices.size() == 2 && P::ByteField(row.field));
+    assert(Ascii(P::Text(row.name, false)) == "Auto-Hide HUD" && std::u16string(P::Text(row.name, true)) == u"Автоскрытие HUD");
+    for (bool ru : {false, true}) {
+        assert(Length(row.name, ru) > 0 && Length(row.name, ru) <= P::MaxNameLength);
+        assert(Length(row.help, ru) > 0 && Length(row.help, ru) <= P::MaxHelpLength);
+    }
+    for (const P::Page& page : P::All())
+        for (const P::Row& r : page.rows) assert(r.field != row.field); // on no page any more
+    P::Load();
+    assert(!BbSettings::Get().auto_hide_hud && *P::Byte(row.field) == 0 && *P::DefaultByte(row.field) == 0);
+    *P::Byte(row.field) = 1; // the row turned on, as the game's widget writes it
+    P::Poll(now += 1000);
+    assert(BbSettings::Get().auto_hide_hud);
+    *P::Byte(row.field) = 0;
+    P::Poll(now += 1000);
+    assert(!BbSettings::Get().auto_hide_hud);
+    std::printf("auto-hide hud: a toggle on Environment, saved to the settings\n");
 }
 
 int main() {
@@ -392,6 +412,7 @@ int main() {
     Reported();
     PartySettings();
     GameSettings();
+    AutoHideHud();
     std::filesystem::remove(ini);
     std::printf("game menu rows: ok\n");
     return 0;

@@ -181,6 +181,7 @@ u32 guest_gather_text[1] = {0};  // CL-a3a9e6: a guest gathers the party (run-ti
 u32 vote_text[1] = {0};  // 0.7.3: the travel vote's question (run-time: who, where)
 u32 party_settings_text[2] = {0, 0};  // Nightwatch: the System menu's Party Settings item: name, help
 u32 game_settings_text[2] = {0, 0};   // Nightwatch: the System menu's Game Settings item: name, help
+Row auto_hide_hud_row;                // Nightwatch: Auto-Hide HUD, a row on the game's Environment screen
 
 /// A confirmed button's help line: the row's own help, or "press again to confirm" while armed
 /// (a run-time text of its own wrapping the row's).
@@ -1495,13 +1496,15 @@ void DefineAll() {
         "On by default. A spot you mark on the map (right click, P or R3) shows on every companion's map",
         "Вкл. по умолчанию. Метка на карте (ПКМ, P или R3) видна на картах всех спутников");
 
-    // ---- Game HUD (visy 0.7.8, CL-7d51fe): the game's own HUD, like Elden Ring's "HUD: Auto". ----
-    AddPage("Game HUD", "HUD игры", "The game's own bars and item slots: hide them while nothing happens (bbport)",
-            "Полосы и слоты игры: скрывать, пока ничего не происходит (bbport)");
-    AddRow(Flag(&Values::auto_hide_hud), "Auto-hide HUD", "Автоскрытие HUD",
-           "Off by default. Bars and slots fade out when idle; damage, fights, lock-on, items, menus bring them back",
-           "Выкл. по умолчанию. Полосы и слоты скрываются в покое; урон, бой, захват, предметы, меню возвращают",
-           toggle, Kind::Toggle);
+    // ---- Auto-Hide HUD (visy 0.7.8, CL-7d51fe): the game's own HUD, like Elden Ring's "HUD: Auto". Nightwatch:
+    // not a page of its own (visy's "Game HUD"): the game's Environment screen holds it under Display HUD
+    // (bbport_game_menu.cpp, AutoHideHudRow). ----
+    auto_hide_hud_row = {Flag(&Values::auto_hide_hud), AddText("Auto-Hide HUD", "Автоскрытие HUD"),
+                         AddText("Off by default. Bars and slots fade out when idle; damage, fights, lock-on, items, "
+                                 "menus bring them back",
+                                 "Выкл. по умолчанию. Полосы и слоты скрываются в покое; урон, бой, захват, предметы, "
+                                 "меню возвращают"),
+                         toggle, Kind::Toggle, nullptr};
 
     // ---- My party: Loading (0.8.1 seam081): a smoother join and party travel (party_seam.cpp,
     // research/reseam081.md 3). Each player's own, three on by default; any glitch falls back to today's screens. ----
@@ -1720,6 +1723,7 @@ void Define() {
             if (r.kind == Kind::Steps) f.steps = int(r.choices.size());
         }
     }
+    fields[std::size_t(auto_hide_hud_row.field)].kind = auto_hide_hud_row.kind;
     const Values& d = DefaultSettings();
     for (std::size_t i = 0; i < n; ++i) {
         const Field& f = fields[i];
@@ -1798,6 +1802,10 @@ bool BuilderDrops(u32 id, bool flag, bool full, bool online) {
     case LanguageRow: return flag || !online;
     default: return false;
     }
+}
+
+const Row& AutoHideHudRow() {
+    return auto_hide_hud_row;
 }
 
 u32 GameSettingsName() {

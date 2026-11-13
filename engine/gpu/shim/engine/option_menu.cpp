@@ -393,6 +393,8 @@ bool Install(std::uint8_t* image, std::size_t size) {
     return true;
 }
 
+bool Installed() { return g_installed; }
+
 bool ClickDecides(std::uint8_t* list, int index) { return g_installed && OptionKeys::ClickDecides(list, index); }
 
 void ListUpdate(std::uint8_t* list, bool focused) {
