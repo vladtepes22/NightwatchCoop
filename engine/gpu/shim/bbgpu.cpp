@@ -544,6 +544,7 @@ extern "C" void bbnet_initialize(void);
 #include "party/sounds.h"
 #include "party/party_b2.h"
 #include "bbport_game_menu.h"
+#include "bbport_glyph_screen.h"
 extern "C" void bbgpu_start_online(void) {
     const char* online = std::getenv("BB_ONLINE");
     if (online && online[0] == '1') bbnet_initialize();
@@ -626,6 +627,7 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbHiFps::Install();  // visy 0.8.0: high-FPS fixes from droogie/bbhost (lights' blink, water wakes, boxes' OK); after the Live clock and HooksInit
     BbGxQueryGuard::Install();  // every mode: an occlusion query without a handle is skipped (visy CL-9666e3)
     BbGameMenu::PatchImage(image, size);
+    BbGlyphScreen::Install();  // the community Chalice glyph list as the altar's native item-list screen
     BbStallProbe::Install();  // visy 0.8.1: BB_STALL_PROBE, long main-loop frames split into main work / render wait (diagnostic)
     BbLoadTrace::Install();  // visy 0.8.1: BB_LOAD_TRACE, the map load step by step with IO / GPU / CPU counters (diagnostic)
     BbLoadSpeed::Install();  // visy 0.8.1: BB_LOAD_WORKERS / BB_FAST_INFLATE, more post-processor threads, zlib-ng inflate

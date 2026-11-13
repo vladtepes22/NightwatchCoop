@@ -27,6 +27,7 @@
 //    leave 40; the notices switch and the last event are on Party members).
 //  - New pages: add them in Pages::DefineAll (MaxPages below caps the System items).
 #include "bbport_game_menu.h"
+#include "bbport_glyph_screen.h"
 #include "party/party_give.h"
 #include "party/party_flow.h"
 #include "net/bbnet_internal.h"
@@ -714,7 +715,8 @@ BB_SYSV const char16_t* LookupHook(void* repository, u32 table, u32 category, u3
     last_table.store(table, std::memory_order_relaxed);
     last_repository.store(repository, std::memory_order_release);
     const char16_t* text = lookup_original(repository, table, category, id);
-    if (const TextOverrideFn fn = text_override.load(std::memory_order_acquire)) {
+    const TextOverrideFn fn = text_override.load(std::memory_order_acquire);
+    if (fn && !BbGlyphScreen::KeepsGameText(id)) {  // the glyph screen keeps "Search by Chalice Glyph" as the game has it
         if (const char16_t* other = fn(category, id, text)) text = other;
     }
     RedrawChangedValues();  // the game's menu code (our page's own texts are not looked up again)
@@ -1525,6 +1527,7 @@ void ImeClosed(std::uint32_t max_length, const char* text, bool cancelled) {
 }
 
 const char* ImePreset(std::uint32_t max_length) {
+    if (const char* picked = BbGlyphScreen::PickedGlyph(max_length)) return picked;  // a glyph screen pick first
     const ImePresetFn fn = ime_preset.load(std::memory_order_acquire);
     return fn ? fn(max_length) : nullptr;
 }
