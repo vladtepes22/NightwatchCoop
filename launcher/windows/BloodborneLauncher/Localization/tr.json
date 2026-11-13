@@ -234,6 +234,7 @@
   "The graphics driver stopped responding: the GPU hung or lost the game's memory.": "Grafik sürücüsü yanıt vermeyi durdurdu: GPU takıldı veya oyunun belleğini kaybetti.",
   "The engine stopped on an internal check: ": "Motor dahili bir denetimde durdu: ",
   "The game's own code crashed ({0}), usually a rare timing race in the game.": "Oyunun kendi kodu çöktü ({0}), genellikle oyundaki nadir bir zamanlama yarışı.",
+  "The game's main memory heap ran out while loading ({0}). Mods that replace or add game files use more of it; with them on, Nightwatch gives this heap 1 GiB. If it still happens, try once with mods off and send the log.": "Oyunun ana bellek yığını yükleme sırasında doldu ({0}). Oyun dosyalarını değiştiren veya ekleyen modlar ondan daha fazla kullanır; bunlar açıkken Nightwatch bu yığına 1 GiB verir. Yine olursa bir kez modlar kapalı deneyin ve günlüğü gönderin.",
   "The engine crashed in {0} ({1}).": "Motor {0} içinde çöktü ({1}).",
   "The engine stopped itself on an error (exit code 23); the report has the details.": "Motor bir hata nedeniyle kendini durdurdu (çıkış kodu 23); rapor ayrıntıları içerir.",
   "The engine crashed on a bad memory access (0xC0000005).": "Motor hatalı bir bellek erişiminde çöktü (0xC0000005).",

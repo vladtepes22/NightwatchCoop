@@ -234,6 +234,7 @@
   "The graphics driver stopped responding: the GPU hung or lost the game's memory.": "그래픽 드라이버가 응답을 멈췄습니다. GPU가 멈췄거나 게임 메모리를 잃었습니다.",
   "The engine stopped on an internal check: ": "엔진이 내부 검사에서 중지되었습니다: ",
   "The game's own code crashed ({0}), usually a rare timing race in the game.": "게임 자체 코드가 충돌했습니다({0}). 보통 게임의 드문 타이밍 경합 때문입니다.",
+  "The game's main memory heap ran out while loading ({0}). Mods that replace or add game files use more of it; with them on, Nightwatch gives this heap 1 GiB. If it still happens, try once with mods off and send the log.": "로딩 중 게임의 메인 메모리 힙이 부족했습니다 ({0}). 게임 파일을 교체하거나 추가하는 모드는 이 힙을 더 많이 사용합니다. 모드가 켜져 있으면 Nightwatch가 이 힙에 1 GiB를 줍니다. 계속 발생하면 모드를 끄고 한 번 시도한 뒤 로그를 보내 주세요.",
   "The engine crashed in {0} ({1}).": "엔진이 {0}에서 충돌했습니다({1}).",
   "The engine stopped itself on an error (exit code 23); the report has the details.": "엔진이 오류로 스스로 중지했습니다(종료 코드 23). 보고서에 세부 정보가 있습니다.",
   "The engine crashed on a bad memory access (0xC0000005).": "엔진이 잘못된 메모리 접근으로 충돌했습니다(0xC0000005).",

@@ -225,6 +225,7 @@
   "The graphics driver stopped responding: the GPU hung or lost the game's memory.": "显卡驱动停止响应：GPU 已挂起，或无法访问游戏占用的内存。",
   "The engine stopped on an internal check: ": "引擎未通过内部检查并停止运行：",
   "The game's own code crashed ({0}), usually a rare timing race in the game.": "游戏本体代码发生崩溃（{0}），通常是游戏中罕见的时序竞争。",
+  "The game's main memory heap ran out while loading ({0}). Mods that replace or add game files use more of it; with them on, Nightwatch gives this heap 1 GiB. If it still happens, try once with mods off and send the log.": "游戏的主内存堆在加载时耗尽 ({0})。替换或添加游戏文件的模组会占用更多空间；启用这些模组时，Nightwatch 会为这个堆分配 1 GiB。如果仍然发生，请关闭模组试一次并发送日志。",
   "The engine crashed in {0} ({1}).": "引擎在 {0} 处发生崩溃（{1}）。",
   "The engine stopped itself on an error (exit code 23); the report has the details.": "引擎遇到错误后自行停止（退出代码 23）；详情见报告。",
   "The engine crashed on a bad memory access (0xC0000005).": "引擎因非法内存访问而崩溃（0xC0000005）。",

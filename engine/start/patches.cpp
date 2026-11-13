@@ -1006,12 +1006,16 @@ PatchResult CompilePatches(const PatchRequest& request) {
     // (BB_RANDO=1, mods.cpp) can put far more distinct models in a map than the game ships. After two
     // such maps in a row, the next map's load stopped at a 34 MB map object archive: its header read,
     // its body never, every loader thread idle, frames still running. With MAIN larger it loads.
-    // Only for a randomized world, so every other start keeps the game's memory and commit. Its direct
-    // memory comes from the 5056 MiB
+    // Mods that replace or add game files (larger character, animation, parts and effect archives) fill
+    // it as well: with Nocturne a chalice dungeon load got a null block from MAIN (the caller at guest
+    // +0x1e0e82a does not check it) and wrote to address 0 at +0x518c6d (NW-cdb2308, NW-2c221ea).
+    // Only for a randomized world or game-file mods, so every other start keeps the game's memory and
+    // commit. Its direct memory comes from the 5056 MiB
     // pool, which the game's heaps fill: the larger MAIN needs the 9152 MiB pool (main.cpp).
     // BB_MAIN_HEAP=0 keeps the PS4's 524 MiB.
     bool main_heap = false;
-    if (Env("BB_RANDO", "") == "1") {
+    const bool rando = Env("BB_RANDO", "") == "1";
+    if (rando || request.game_mods) {
         const auto dmem = Env("BB_DMEM_MB");
         if (Env("BB_MAIN_HEAP", "") == "0") {
             Log("Patches: the game's MAIN heap at its PS4 size (BB_MAIN_HEAP=0)");
@@ -1022,8 +1026,9 @@ PatchResult CompilePatches(const PatchRequest& request) {
         } else if (OriginalBytes(elf, kMainHeap, 8) == Le<std::uint64_t>(kMainHeapPs4)) {
             writes.emplace_back(kMainHeap, Le<std::uint64_t>(kMainHeapGrown));
             main_heap = true;
-            Log("Patches: the game's MAIN heap %llu MiB for the randomized world (the PS4's 524)",
-                static_cast<unsigned long long>(kMainHeapGrown >> 20));
+            Log("Patches: the game's MAIN heap %llu MiB for %s (the PS4's 524)",
+                static_cast<unsigned long long>(kMainHeapGrown >> 20),
+                rando ? "the randomized world" : "mods that replace game files");
         } else {
             Log("Patches: the game's MAIN heap left at its size: this executable differs there");
         }

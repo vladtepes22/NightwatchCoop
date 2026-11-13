@@ -126,6 +126,10 @@ namespace BloodborneLauncher.Core
                 return $"The game crashed drawing an effect trail ({fault.Groups[3].Value}), a known crash on newer Intel CPUs. " +
                        "Turn on Graphics › Experimental › Effect trail crash fix: it stops this crash, " +
                        "and that kind of effect trail is no longer drawn.";
+            // The game's MAIN heap returned no block and its caller (image 0x1e0e82a) wrote its header to
+            // address 0: game-file mods filled MAIN in a load (NW-cdb2308; start/patches.cpp kMainHeap).
+            if (fault != null && fault.Groups[3].Value == "guest+0x518c6d")
+                return L.F($"The game's main memory heap ran out while loading ({fault.Groups[3].Value}). Mods that replace or add game files use more of it; with them on, Nightwatch gives this heap 1 GiB. If it still happens, try once with mods off and send the log.");
             if (fault != null)
                 return fault.Groups[1].Value == "Guest"
                     ? L.F($"The game's own code crashed ({fault.Groups[3].Value}), usually a rare timing race in the game.")

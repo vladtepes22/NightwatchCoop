@@ -234,6 +234,7 @@
   "The graphics driver stopped responding: the GPU hung or lost the game's memory.": "Le pilote graphique a cessé de répondre : le GPU s'est bloqué ou a perdu la mémoire du jeu.",
   "The engine stopped on an internal check: ": "Le moteur s'est arrêté sur une vérification interne : ",
   "The game's own code crashed ({0}), usually a rare timing race in the game.": "Le code du jeu lui-même a planté ({0}), généralement à cause d'une rare course de synchronisation dans le jeu.",
+  "The game's main memory heap ran out while loading ({0}). Mods that replace or add game files use more of it; with them on, Nightwatch gives this heap 1 GiB. If it still happens, try once with mods off and send the log.": "Le tas mémoire principal du jeu était plein pendant le chargement ({0}). Les mods qui remplacent ou ajoutent des fichiers du jeu en utilisent davantage ; avec eux, Nightwatch donne 1 Gio à ce tas. Si cela se reproduit, essaie une fois sans mods et envoie le journal.",
   "The engine crashed in {0} ({1}).": "Le moteur a planté dans {0} ({1}).",
   "The engine stopped itself on an error (exit code 23); the report has the details.": "Le moteur s'est arrêté sur une erreur (code de sortie 23) ; le rapport contient les détails.",
   "The engine crashed on a bad memory access (0xC0000005).": "Le moteur a planté sur un accès mémoire invalide (0xC0000005).",

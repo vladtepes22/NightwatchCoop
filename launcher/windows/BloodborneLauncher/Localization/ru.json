@@ -234,6 +234,7 @@
   "The graphics driver stopped responding: the GPU hung or lost the game's memory.": "Графический драйвер перестал отвечать: GPU завис или потерял память игры.",
   "The engine stopped on an internal check: ": "Движок остановился на внутренней проверке: ",
   "The game's own code crashed ({0}), usually a rare timing race in the game.": "Упал собственный код игры ({0}), обычно из-за редкой гонки по времени в игре.",
+  "The game's main memory heap ran out while loading ({0}). Mods that replace or add game files use more of it; with them on, Nightwatch gives this heap 1 GiB. If it still happens, try once with mods off and send the log.": "Основная куча памяти игры закончилась во время загрузки ({0}). Моды, которые заменяют или добавляют файлы игры, занимают в ней больше места; когда они включены, Nightwatch даёт этой куче 1 ГиБ. Если это повторяется, попробуйте один раз без модов и пришлите лог.",
   "The engine crashed in {0} ({1}).": "Движок упал в {0} ({1}).",
   "The engine stopped itself on an error (exit code 23); the report has the details.": "Движок остановился из-за ошибки (код выхода 23); подробности в отчёте.",
   "The engine crashed on a bad memory access (0xC0000005).": "Движок упал из-за недопустимого обращения к памяти (0xC0000005).",

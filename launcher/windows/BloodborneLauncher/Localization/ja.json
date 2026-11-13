@@ -234,6 +234,7 @@
   "The graphics driver stopped responding: the GPU hung or lost the game's memory.": "グラフィックドライバーが応答しなくなりました: GPU がハングしたか、ゲームのメモリが失われました。",
   "The engine stopped on an internal check: ": "エンジンが内部チェックで停止しました: ",
   "The game's own code crashed ({0}), usually a rare timing race in the game.": "ゲーム本体のコードがクラッシュしました ({0})。通常はゲーム内のまれなタイミング競合が原因です。",
+  "The game's main memory heap ran out while loading ({0}). Mods that replace or add game files use more of it; with them on, Nightwatch gives this heap 1 GiB. If it still happens, try once with mods off and send the log.": "読み込み中にゲームのメインメモリヒープが不足しました ({0})。ゲームファイルを置き換えたり追加したりするModはこのヒープを多く使います。Modが有効なとき、Nightwatchはこのヒープに1 GiBを割り当てます。それでも起きる場合は、一度Modをオフにして試し、ログを送ってください。",
   "The engine crashed in {0} ({1}).": "エンジンが {0} でクラッシュしました ({1})。",
   "The engine stopped itself on an error (exit code 23); the report has the details.": "エンジンがエラーにより自ら停止しました (終了コード 23)。詳細はレポートにあります。",
   "The engine crashed on a bad memory access (0xC0000005).": "エンジンが不正なメモリアクセスでクラッシュしました (0xC0000005)。",

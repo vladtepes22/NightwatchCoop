@@ -20,10 +20,11 @@ struct PatchRequest {
     fs::path out, xml, settings, game;
     fs::path patches_dir, patches_config;
     std::string fps, extra, render_res, output_res;
+    bool game_mods = false;  // mods replace or add game files (the mods overlay is in use)
 };
 struct PatchResult {
     bool heap_patch = false;
-    bool main_heap = false;  // MAIN enlarged (randomized world): needs the 9152 MiB pool
+    bool main_heap = false;  // MAIN enlarged (randomized world or game-file mods): needs the 9152 MiB pool
     Size ui{1920, 1080};
 };
 PatchResult CompilePatches(const PatchRequest& request);

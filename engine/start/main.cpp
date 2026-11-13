@@ -553,6 +553,7 @@ int Main(std::vector<std::wstring> arguments) {
             .extra = Env("BB_PATCHES", ""),
             .render_res = Env("BB_RENDER_RES", ""),
             .output_res = Env("BB_OUTPUT_RES", ""),
+            .game_mods = overlay.has_value(),
         });
     } catch (const std::exception& e) {
         Log("Patches: %s", e.what());
