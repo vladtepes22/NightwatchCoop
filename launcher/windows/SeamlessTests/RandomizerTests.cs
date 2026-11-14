@@ -36,9 +36,12 @@ internal static class RandomizerTests
         Check(after.Single(m => m.Name == a).Enabled == false, "other worlds go off");
         Check(after.Single(m => m.Name == "Cinder").Enabled && !after.Single(m => m.Name == "Off").Enabled, "other mods keep their state");
 
-        Check(!Randomizer.IsStale(new[] { "Cinder" }, mods, a), "same list: not stale");
-        Check(Randomizer.IsStale(Array.Empty<string>(), mods, a), "a mod added: stale");
-        Check(Randomizer.IsStale(new[] { "Cinder", "Off" }, mods, a), "a mod removed: stale");
+        var none = new Dictionary<string, bool>();
+        Check(Randomizer.Picked(mods, none).SequenceEqual(new[] { "Cinder" }), "untouched ticks: the mods on in My mods, no worlds");
+        Check(Randomizer.Picked(mods, new Dictionary<string, bool> { ["Off"] = true }).SequenceEqual(new[] { "Cinder", "Off" }),
+            "a mod off in My mods counts once ticked (an updated Nocturne's new folder)");
+        Check(!Randomizer.Picked(mods, new Dictionary<string, bool> { ["Cinder"] = false }).Any(), "an unticked mod is left out");
+        Check(!Randomizer.Picked(mods, new Dictionary<string, bool> { [a] = true }).Contains(a), "a world is never a base mod");
         Page();
         EndToEnd();
         Console.WriteLine("Randomizer tests passed");

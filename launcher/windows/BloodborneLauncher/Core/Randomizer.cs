@@ -210,9 +210,12 @@ namespace BloodborneLauncher.Core
             return data;
         }
 
-        /// <summary>The other enabled mods no longer are what the world was built on.</summary>
-        public static bool IsStale(IEnumerable<string> builtOn, IEnumerable<Mods.Entry> mods, string worldFolderName) =>
-            !builtOn.SequenceEqual(mods.Where(m => m.Enabled && m.Name != worldFolderName && Parse(m.Name) == null).Select(m => m.Name));
+        /// <summary>The mods a new world is built on, in load order: every installed mod but the worlds, ticked by the page's
+        /// choice, else by its My mods state. A world loads its own base mods (its manifest), so a mod that is off in My mods
+        /// still counts once ticked (an updated Nocturne's new folder starts off there).</summary>
+        public static List<string> Picked(IEnumerable<Mods.Entry> mods, IReadOnlyDictionary<string, bool> ticks) =>
+            mods.Where(m => Parse(m.Name) == null && (ticks.TryGetValue(m.Name, out var ticked) ? ticked : m.Enabled))
+                .Select(m => m.Name).ToList();
 
         /// <summary>Puts this world last and enabled, and turns the other worlds off; other mods keep their state.</summary>
         public static List<Mods.Entry> WithWorld(IEnumerable<Mods.Entry> mods, string worldFolderName) =>

@@ -20,7 +20,7 @@ namespace BloodborneLauncher.Views
     public sealed class RandomizerPage : LauncherPage
     {
         private readonly StackPanel _modChoices = new(), _worlds = new();
-        private readonly HashSet<string> _skipped = new();
+        private readonly Dictionary<string, bool> _ticks = new(); // the mod list's ticks the player changed (Randomizer.Picked)
         private readonly TextBlock _status, _codeNote;
         private readonly Wpf.Ui.Controls.TextBox _codeBox, _nameBox;
         private readonly Button _generate, _cancel, _backToPasted;
@@ -337,9 +337,7 @@ namespace BloodborneLauncher.Views
 
         private List<Mods.Entry> Installed() => Mods.Load(GameEnvironment.ModsDir(S));
 
-        /// <summary>The enabled mods a new world is built on, in load order (worlds and unticked mods left out).</summary>
-        private List<string> PickedMods() =>
-            Installed().Where(m => Randomizer.Parse(m.Name) == null && m.Enabled && !_skipped.Contains(m.Name)).Select(m => m.Name).ToList();
+        private List<string> PickedMods() => Randomizer.Picked(Installed(), _ticks);
 
         private string ProfileFolder => PlayerProfiles.Folder(S, PlayerProfiles.Current(S));
 
@@ -348,12 +346,13 @@ namespace BloodborneLauncher.Views
             _nameBox.PlaceholderText = WorldSaves.DefaultName(ProfileFolder);
             var mods = Installed();
             _modChoices.Children.Clear();
+            var picked = Randomizer.Picked(mods, _ticks);
             foreach (var mod in mods.Where(m => Randomizer.Parse(m.Name) == null))
             {
-                var box = new CheckBox { Content = mod.Name, IsChecked = mod.Enabled && !_skipped.Contains(mod.Name), Margin = new Thickness(0, 2, 0, 2) };
+                var box = new CheckBox { Content = mod.Name, IsChecked = picked.Contains(mod.Name), Margin = new Thickness(0, 2, 0, 2) };
                 var name = mod.Name;
-                box.Checked += (_, _) => { _skipped.Remove(name); CheckNocturne(); };
-                box.Unchecked += (_, _) => { _skipped.Add(name); CheckNocturne(); };
+                box.Checked += (_, _) => { _ticks[name] = true; CheckNocturne(); };
+                box.Unchecked += (_, _) => { _ticks[name] = false; CheckNocturne(); };
                 _modChoices.Children.Add(box);
             }
             if (_modChoices.Children.Count == 0)
@@ -365,7 +364,7 @@ namespace BloodborneLauncher.Views
             foreach (var mod in mods)
             {
                 if (Randomizer.Parse(mod.Name) is not { } world) continue;
-                _worlds.Children.Add(WorldCard(world, world == active, mods));
+                _worlds.Children.Add(WorldCard(world, world == active, picked));
             }
             if (_worlds.Children.Count == 0)
                 _worlds.Children.Add(Empty(L.T("No worlds yet. Generate one above.")));
@@ -393,12 +392,12 @@ namespace BloodborneLauncher.Views
             return block;
         }
 
-        private SettingRow WorldCard(Randomizer.World world, bool inUse, List<Mods.Entry> mods)
+        private SettingRow WorldCard(Randomizer.World world, bool inUse, List<string> picked)
         {
             var name = world.Folder;
             var folder = Path.Combine(GameEnvironment.ModsDir(S), name);
             var builtOn = Randomizer.BuiltOn(folder);
-            var stale = builtOn != null && Randomizer.IsStale(builtOn, mods, name);
+            var stale = builtOn != null && !builtOn.SequenceEqual(picked);
             var (shareable, baseLabel) = builtOn != null ? Randomizer.BaseLabel(GameEnvironment.ModsDir(S), builtOn) : (false, null);
             // Base mods by content (one key per mod, in order): a friend needs the same files, under any folder name.
             var keys = (baseLabel ?? "").Split('+', StringSplitOptions.RemoveEmptyEntries);
@@ -416,7 +415,7 @@ namespace BloodborneLauncher.Views
             var note = (inUse ? L.T("In use.") : L.T("Not in use.")) + " " + summary + Randomizer.BuiltOnText(builtOn) +
                        (builtOn != null && !shareable ? " " + L.T("Friends can't join it from the Join list: one of the mods it is built on is missing, can't be read or has the same files as another.") : "") +
                        (byContent.Count > 0 ? " " + L.F($"Friends who join it from the Join list need the same files of: {string.Join(", ", byContent)} (any folder name).") : "") +
-                       (stale ? " " + L.T("Your mod list changed since this world was made: make it again on your mods, with a new character.") : "");
+                       (stale ? " " + L.T("The mods ticked above are not the ones this world was made on: make it again on them, with a new character.") : "");
             var buttons = Row(
                 inUse ? SmallButton(L.T("Stop using"), SymbolRegular.Power24, (_, _) => StopUsing())
                       : SmallButton(L.T("Load"), SymbolRegular.Play24, (_, _) => Load(name)),
@@ -551,8 +550,8 @@ namespace BloodborneLauncher.Views
         /// <summary>The same code again on today's mods: a new world (its own saves); the old one stays until deleted.</summary>
         private async Task Regenerate(Randomizer.World world)
         {
-            if (!Prompt.Confirm(L.T("Make again"), L.F($"Make {world.Code} again on the mods you have on now? It becomes a new world with its own characters; the old one stays until you delete it."), L.T("Make again"))) return;
-            await Build(world.Code, Installed().Where(m => Randomizer.Parse(m.Name) == null && m.Enabled).Select(m => m.Name).ToList(),
+            if (!Prompt.Confirm(L.T("Make again"), L.F($"Make {world.Code} again on the mods ticked above? It becomes a new world with its own characters; the old one stays until you delete it."), L.T("Make again"))) return;
+            await Build(world.Code, PickedMods(),
                 name => L.F($"Made {name} on your current mods. It is on, and has its own saves."));
         }
 
