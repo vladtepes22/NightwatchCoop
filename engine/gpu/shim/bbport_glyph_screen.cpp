@@ -26,6 +26,7 @@
 // Test stage: BB_GLYPH_SCREEN_TEST=1 only.
 #include "bbport_glyph_screen.h"
 #include "bbport_game_menu.h"
+#include "input/input.h"
 
 #include "party/coop_hooks.h"
 #include "party/game_state.h"
@@ -741,14 +742,216 @@ BB_COOP_SYSV u64 ListPath(u64 out, const char* format) {
 }
 // The list parts for `screen`: on the glyph screen its own, on any other NormalItem. Once per screen, as soon as its
 // list widget has found its movie.
+// The root of `screen`'s list movie, once its list widget has found the movie.
+bool ListRoot(u64 screen, Wrapper& root) {
+    const auto it = g_list_widgets.find(screen);
+    if (it == g_list_widgets.end()) return false;
+    u64 movie = 0;
+    if (!coop::SafeGet(it->second + kWidgetMovie, &movie) || !movie) return false;  // not found yet
+    reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kResolveHandle))(root.at(), it->second + kWidgetRoot);
+    return true;
+}
+// A display object wrapper's object (its value's data + 0x88), or 0.
+u64 DisplayObject(Wrapper& w) {
+    u64 data = 0, object = 0;
+    if ((w.Type() & 0x8f) != 10 || !coop::SafeGet(w.at() + 0x50, &data) || !data) return 0;
+    return coop::SafeGet(data + 0x88, &object) ? object : 0;
+}
+
+// The search bar's focus. The glyph screen's card list is one of the game's generic lists (0x1acff30 updates the
+// focused one each frame: rdi the list, rsi its input, whose first byte is the focus); a list's +0x74 is its cursor
+// (+0x78 an override when >= 0), +0x24c the first line shown, +0x258 its item provider (vtable +0x18 makes the
+// wrapper of a shown cell), +0xc8 / +0xd0 its root value (type, data; the display object at data + 0x88). A move is
+// made in one of two places: a one-column list's early step 0x1ad10f0(list, &{x, y}) at call 0x1ad0062, or the
+// step 0x1ad2860(list + 0x290, input, functor) at call 0x1ad00a1 returns ({x, y} in its low and high halves). On the
+// glyph list, Up on its first card gives the bar the focus (the cards' highlight hidden with 0x1acf0e0, the bar's
+// Cursor shown); while the bar has it, no move reaches the list and Down gives the focus back to the first card.
+// The screen opens, and every tab starts, with the bar's focus. The mouse: over the bar it takes the focus, over the
+// cards it gives the cards the focus (the game's pointer code then moves their highlight; a click is an OK press).
+// OK: an item screen's controls (its controls setup 0x1b999c0, AddControl 0x1ad5730(screen, key, action,
+// condition), each a std::function) begin with Back (action 0x1ba9b00: the screen ends with 3 through its vtable
+// +0x40; on while no child screen is open) and then OK (action 0x1ba80f0, the screen at functor + 8: decides the
+// list's current item; on while the list has one, vtable +0x48). On the glyph screen with the bar's focus OK decides
+// nothing (the first card would be picked); the bar takes it. Back is left as it is.
+constexpr u64 kOkAction = 0x1ba80f0;
+constexpr u64 kEarlyStepCall = 0x1ad0062, kEarlyStep = 0x1ad10f0;
+constexpr u64 kStepCall = 0x1ad00a1, kStep = 0x1ad2860, kStepOffset = 0x290;
+constexpr u64 kSetCursor = 0x1acf6b0;
+constexpr u64 kBoundsSlot = 0x1f0, kStageMatrix = 0x2040;  // a display object's bounds; its matrix to the stage
+constexpr u64 kHideCursors = 0x1acf0e0, kCursorName = 0x4934044;  // kCursorName: the item's highlight, "Cursor"
+constexpr u64 kListCursor = 0x74, kListCursorOverride = 0x78, kListFirstLine = 0x24c, kListProvider = 0x258;
+constexpr u64 kListRootType = 0xc8, kListRootData = 0xd0;
+constexpr u64 kMenuSound = 0x557fc60, kMenuSoundLabel = 0x557fc68, kCursorMoveLabel = 0x49344e4;
+std::atomic<u64> g_glyph_list_object{0};  // GlyphNormalItem's display object while the glyph screen is up
+std::atomic<bool> g_bar_focus{false};
+std::atomic<u64> g_glyph_list{0};             // the glyph screen's card list, once a step has seen it
+bool g_bar_cursor_shown = false;              // the bar's Cursor as last set (menu thread)
+bool g_pointer_seen = false;                  // the pointer's last place (menu thread; reset when the screen opens)
+float g_pointer_x = 0, g_pointer_y = 0;
+
+bool IsGlyphList(u64 list) {
+    const u64 ours = g_glyph_list_object.load(std::memory_order_acquire);
+    u32 type = 0;
+    u64 data = 0, object = 0;
+    const bool is = ours && coop::SafeGet(list + kListRootType, &type) && (type & 0x8f) == 10 &&
+                    coop::SafeGet(list + kListRootData, &data) && data && coop::SafeGet(data + 0x88, &object) &&
+                    object == ours;
+    if (is) g_glyph_list.store(list, std::memory_order_release);
+    return is;
+}
+// Whether the stage point (x, y) is on `object` (its bounds through its matrix to the stage, in twips), as the
+// game's pointer code tests its list items.
+bool PointOn(u64 object, float x, float y) {
+    u64 vtable = 0, bounds_fn = 0;
+    if (!object || !coop::SafeGet(object, &vtable) || !coop::SafeGet(vtable + kBoundsSlot, &bounds_fn) || !bounds_fn)
+        return false;
+    alignas(16) float identity[8] = {1, 0, 0, 0, 0, 1, 0, 0};
+    alignas(16) float b[4] = {};
+    reinterpret_cast<void(BB_COOP_SYSV*)(float*, u64, float*)>(bounds_fn)(b, object, identity);
+    if (!(b[2] > b[0] && b[3] > b[1])) return false;
+    alignas(16) float m[8] = {1, 0, 0, 0, 0, 1, 0, 0};
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64, float*)>(coop::Guest(kStageMatrix))(object, m);
+    const float det = m[0] * m[5] - m[1] * m[4];
+    if (det > -1e-12f && det < 1e-12f) return false;
+    const float px = x * 20 - m[3], py = y * 20 - m[7];
+    const float lx = (m[5] * px - m[1] * py) / det, ly = (m[0] * py - m[4] * px) / det;
+    return lx >= b[0] && lx <= b[2] && ly >= b[1] && ly <= b[3];
+}
+// Where the menu pointer is on the bar's screen: 1 on the bar, -1 on the cards, 0 elsewhere or no menu pointer.
+int PointerPlace(u64 screen, bool* moved) {
+    float x = 0, y = 0;
+    if (moved) *moved = false;
+    if (!BbInput::MouseIsMenuPointer() || !BbInput::PointerOnStage(x, y) || BbInput::TextEntryOpen()) return 0;
+    if (moved) {
+        *moved = g_pointer_seen && (x != g_pointer_x || y != g_pointer_y);
+        g_pointer_seen = true;
+        g_pointer_x = x;
+        g_pointer_y = y;
+    }
+    Wrapper root, bar;
+    if (!ListRoot(screen, root) || !bar.Fetch(root.at(), "ItemList/GlyphSearch")) return 0;
+    if (PointOn(DisplayObject(bar), x, y)) return 1;
+    return PointOn(g_glyph_list_object.load(std::memory_order_acquire), x, y) ? -1 : 0;
+}
+void CursorMoveSound() {  // as the game's own cursor move
+    auto* sound = reinterpret_cast<std::int32_t*>(coop::Guest(kMenuSound));
+    if (sound[1] > 0) return;
+    sound[0] = 0;
+    sound[1] = 0;
+    const u64 label = coop::Guest(kCursorMoveLabel);
+    std::memcpy(reinterpret_cast<void*>(coop::Guest(kMenuSoundLabel)), &label, sizeof label);
+}
+// The highlight of the card shown at `line` (one column: the cell is {0, line}).
+void ShowCardCursor(u64 list, u32 line) {
+    u64 provider = 0, vtable = 0, make = 0;
+    if (!coop::SafeGet(list + kListProvider, &provider) || !provider || !coop::SafeGet(provider, &vtable) ||
+        !coop::SafeGet(vtable + 0x18, &make) || !make)
+        return;
+    Wrapper item;
+    u64 cell = u64(line) << 32;
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64*)>(make)(item.at(), provider, &cell);
+    if (!DisplayObject(item)) return;
+    Wrapper highlight;
+    if (highlight.Fetch(item.at(), reinterpret_cast<const char*>(coop::Guest(kCursorName)))) highlight.SetVisible(true);
+}
+// The vertical move `dy` on `list` once the bar has had its say (0: no move).
+int BarStep(u64 list, int dy, const char* path) {
+    if (!IsGlyphList(list)) return dy;
+    std::int32_t cursor = -1, over = -1, first = -1;
+    coop::SafeGet(list + kListCursor, &cursor);
+    coop::SafeGet(list + kListCursorOverride, &over);
+    coop::SafeGet(list + kListFirstLine, &first);
+    const bool on_first = (over >= 0 ? over : cursor) == 0 && first == 0;
+    if (g_bar_focus.load(std::memory_order_acquire)) {
+        // the game shows the first card's highlight again when it fills the list (a new tab, the screen opening)
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(coop::Guest(kHideCursors))(list);
+        if (dy > 0) {
+            g_bar_focus.store(false, std::memory_order_release);
+            if (!on_first) reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kSetCursor))(list, 0);
+            reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(coop::Guest(kHideCursors))(list);
+            ShowCardCursor(list, 0);
+            CursorMoveSound();
+            std::printf("Glyph screen: the cards have the focus again (Down, %s)\n", path);
+            std::fflush(stdout);
+        }
+        return 0;
+    }
+    if (dy >= 0 || !on_first) return dy;
+    g_bar_focus.store(true, std::memory_order_release);
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(coop::Guest(kHideCursors))(list);
+    CursorMoveSound();
+    std::printf("Glyph screen: the search bar has the focus (Up on the first card, %s)\n", path);
+    std::fflush(stdout);
+    return 0;
+}
+BB_COOP_SYSV u64 EarlyStep(u64 list, u64 step) {
+    std::int32_t xy[2] = {};
+    if (coop::SafeGet(step, &xy) && IsGlyphList(list)) {
+        const int dy = BarStep(list, xy[1], "early step");
+        if (g_bar_focus.load(std::memory_order_acquire) || (dy == 0 && xy[1] != 0)) return 0;  // no move
+    }
+    return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kEarlyStep))(list, step);
+}
+BB_COOP_SYSV u64 Step(u64 at, u64 input, u64 functor) {
+    const u64 r = reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64, u64)>(coop::Guest(kStep))(at, input, functor);
+    const u64 list = at - kStepOffset;
+    const int dy = static_cast<std::int32_t>(r >> 32);
+    if (!IsGlyphList(list)) return r;
+    const int now = BarStep(list, dy, "step");
+    if (g_bar_focus.load(std::memory_order_acquire)) return 0;
+    return (r & 0xffffffffull) | (u64(static_cast<u32>(now)) << 32);
+}
+// The cards take the focus from the bar (the mouse): the highlight shown on the card the list's cursor is on.
+void CardsTakeFocus(u64 list, const char* why) {
+    g_bar_focus.store(false, std::memory_order_release);
+    std::int32_t cursor = -1, over = -1, first = 0;
+    coop::SafeGet(list + kListCursor, &cursor);
+    coop::SafeGet(list + kListCursorOverride, &over);
+    coop::SafeGet(list + kListFirstLine, &first);
+    const std::int32_t at = (over >= 0 ? over : cursor) - first;
+    if (at >= 0) ShowCardCursor(list, static_cast<u32>(at));
+    std::printf("Glyph screen: the cards have the focus again (%s)\n", why);
+    std::fflush(stdout);
+}
+// The mouse on the glyph screen (each frame): moved onto the bar, the bar takes the focus; onto the cards, they do.
+void BarHover(u64 screen) {
+    bool moved = false;
+    const int place = PointerPlace(screen, &moved);
+    const u64 list = g_glyph_list.load(std::memory_order_acquire);
+    if (!moved || !place || !list || !IsGlyphList(list)) return;
+    const bool focus = g_bar_focus.load(std::memory_order_acquire);
+    if (place > 0 && !focus) {
+        g_bar_focus.store(true, std::memory_order_release);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(coop::Guest(kHideCursors))(list);
+        CursorMoveSound();
+        std::printf("Glyph screen: the search bar has the focus (the mouse)\n");
+        std::fflush(stdout);
+    } else if (place < 0 && focus) {
+        CardsTakeFocus(list, "the mouse");
+    }
+}
+using OkFn = void(BB_COOP_SYSV*)(u64);
+OkFn g_ok_original = nullptr;
+BB_COOP_SYSV void OkAction(u64 functor) {
+    u64 screen = 0;
+    if (g_bar_focus.load(std::memory_order_acquire) && coop::SafeGet(functor + 8, &screen) && IsGlyphScreen(screen)) {
+        // a click on a card the pointer rests on (not moved since the screen opened) is the cards' OK
+        const u64 list = g_glyph_list.load(std::memory_order_acquire);
+        if (PointerPlace(screen, nullptr) < 0 && list && IsGlyphList(list)) {
+            CardsTakeFocus(list, "a click");
+        } else {
+            std::printf("Glyph screen: OK on the search bar (typing comes in the next stage)\n");
+            std::fflush(stdout);
+            return;
+        }
+    }
+    g_ok_original(functor);
+}
+
 void ShowList(u64 screen) {
     if (!g_list || screen == g_list_screen) return;
-    const auto it = g_list_widgets.find(screen);
-    if (it == g_list_widgets.end()) return;
-    u64 movie = 0;
-    if (!coop::SafeGet(it->second + kWidgetMovie, &movie) || !movie) return;  // not found yet: the next frame
     Wrapper root;
-    reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kResolveHandle))(root.at(), it->second + kWidgetRoot);
+    if (!ListRoot(screen, root)) return;  // not found yet: the next frame
     Wrapper normal;
     if (!normal.Fetch(root.at(), "ItemList/NormalItem")) {
         std::printf("Glyph screen: screen 0x%llx: its list movie has no ItemList/NormalItem (type 0x%x)\n",
@@ -771,15 +974,37 @@ void ShowList(u64 screen) {
         std::printf("Glyph screen: only %d of the %zu glyph list parts found\n", found, std::size(kGlyphListParts));
         std::fflush(stdout);
     }
+    Wrapper cards, bar_cursor;
+    g_glyph_list_object.store(ours && cards.Fetch(root.at(), kGlyphListPath) ? DisplayObject(cards) : 0,
+                              std::memory_order_release);
+    // the glyph screen opens with the bar's focus (the cards' highlight hidden at the list's next update)
+    g_bar_focus.store(g_glyph_list_object.load(std::memory_order_acquire) != 0, std::memory_order_release);
+    if (bar_cursor.Fetch(root.at(), "ItemList/GlyphSearch/Cursor")) bar_cursor.SetVisible(false);
+    g_bar_cursor_shown = false;
+    g_pointer_seen = false;
     if (ours) {
         Wrapper bar;
         if (bar.Fetch(root.at(), "ItemList/GlyphSearch")) SetFieldText(bar.at(), "Query", u"");
-        std::printf("Glyph screen: its card list and search bar shown\n");
+        std::printf("Glyph screen: its card list and search bar shown%s\n",
+                    g_glyph_list_object.load() ? "" : " (its cards' list NOT found: the bar cannot take the focus)");
         std::fflush(stdout);
     }
 }
+// The bar's highlight follows its focus (on the glyph screen).
+void ShowBarCursor(u64 screen) {
+    const bool focus = g_bar_focus.load(std::memory_order_acquire);
+    if (focus == g_bar_cursor_shown) return;
+    Wrapper root, cursor;
+    if (!ListRoot(screen, root) || !cursor.Fetch(root.at(), "ItemList/GlyphSearch/Cursor")) return;
+    cursor.SetVisible(focus);
+    g_bar_cursor_shown = focus;
+}
 BB_COOP_SYSV void ScreenUpdate(u64 screen, u64, u64, u64, u64, u64) {
     ShowList(screen);
+    if (IsGlyphScreen(screen)) {
+        BarHover(screen);
+        ShowBarCursor(screen);
+    }
     ExpandDisplay(screen, "after the screen opened", true);
     if (IsGlyphScreen(screen)) WriteRows(screen);
 }
@@ -885,6 +1110,9 @@ BB_COOP_SYSV u64 AfterScreenFilter(u64 tab, u64 frame, u64 menu) {
 
 // The tab filter's collector on the glyph screen: the player's rows are turned away, ours pass and get their mark.
 BB_COOP_SYSV u64 TabCollect(u64 out, u64 src_ref, u64 filter) {
+    // a new tab on the glyph screen: the bar has the focus (its cards' list is known while the screen is up)
+    if (g_glyph_list_object.load(std::memory_order_acquire) && !g_bar_focus.exchange(true))
+        std::printf("Glyph screen: the search bar has the focus (a new tab)\n");
     const auto collect = reinterpret_cast<CollectFn>(coop::Guest(kCollect));
     std::unique_lock<std::mutex> lk(g_mu);
     u64 src = 0;
@@ -1222,6 +1450,14 @@ void Install() {
                                               "glyph screen: its card list");
         g_list = g_list && coop::HookCallSite(kListMakeCall, kListMake, reinterpret_cast<const void*>(&ListMake),
                                               "glyph screen: its card list's name");
+        g_list = g_list && coop::HookCallSite(kEarlyStepCall, kEarlyStep, reinterpret_cast<const void*>(&EarlyStep),
+                                              "glyph screen: search bar focus (one-column step)");
+        g_list = g_list && coop::HookCallSite(kStepCall, kStep, reinterpret_cast<const void*>(&Step),
+                                              "glyph screen: search bar focus (list step)");
+        g_list = g_list && coop::ReplacePrologue(kOkAction, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56},
+                                                 reinterpret_cast<const void*>(&OkAction),
+                                                 reinterpret_cast<void**>(&g_ok_original),
+                                                 "glyph screen: OK on the search bar");
         if (!g_list) runtime_file_unmount(kGuestList);
     }
     g_installed.store(ok, std::memory_order_release);
