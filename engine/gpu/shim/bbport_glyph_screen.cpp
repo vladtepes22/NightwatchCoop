@@ -456,6 +456,93 @@ BB_COOP_SYSV u64 PanelFetch(u64 out, u64 parent, u64 path) {
     return r;
 }
 
+// The glyph screen's controls: Display is always on and neither Display nor Toggle Stats is offered.
+//
+// The item screen's controls setup 0x1b999c0 (rdi = the screen) adds each control with 0x1ad5730(screen, control,
+// action, ...): Display at call 0x1b9a660, Toggle Stats at call 0x1b9a7f0; the glyph screen skips both (their keys and
+// their hints). It starts the screen in display mode 0 (+0x1168; +0x1300 the number of modes, 3) and applies it with
+// 0x1b9ac30(screen, animate) (call 0x1b99e04). The mode's listeners (std::function-like objects from +0x1190, 16-byte
+// aligned, 0x30 apart; call: vtable +0x10 (listener, &selected)) set the screen up for each mode: 0 and 1 the card
+// list's parts (0x1baa1f0), 2 the description panel (0x1ba9f30, its show / hide). Mode 2 is Display's expanded view.
+//
+// The glyph screen goes to mode 2 itself, without Display's action (0x1ba6760, which also plays the Display sound) and
+// without the apply (which puts the mode back to 0 while no card is selected): right before the screen opens (its open
+// 0x1b9b2c0, rdi = the screen, fades every shown part in together), so the panel opens with the rest of the screen. The
+// per-frame update 0x1b9bfa0 (vtable slot 3; rdi = the screen) does the same if the open came first. The screen's setup
+// puts the mode back to 0 on every open (also for Chalice Ritual).
+constexpr u64 kAddControl = 0x1ad5730;
+constexpr u64 kAddDisplayCall = 0x1b9a660;
+constexpr u64 kAddToggleStatsCall = 0x1b9a7f0;
+constexpr u64 kApplyMode = 0x1b9ac30;
+constexpr u64 kStartModeCall = 0x1b99e04;
+constexpr u64 kScreenOpen = 0x1b9b2c0;
+constexpr u64 kScreenUpdate = 0x1b9bfa0;
+constexpr u64 kDisplayMode = 0x1168, kDisplayModes = 0x1300, kSavedMode = 0x1380, kModeListeners = 0x1190;
+constexpr u32 kExpanded = 2;
+std::atomic<u64> g_display_pending{0};  // the glyph screen, until its Display mode is on
+bool IsGlyphScreen(u64 screen) { return screen && screen == g_panel_screen.load(std::memory_order_acquire); }
+BB_COOP_SYSV u64 AddControl(u64 screen, u64 control, u64 action, u64 extra) {
+    if (IsGlyphScreen(screen)) return 0;
+    return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64, u64, u64)>(coop::Guest(kAddControl))(screen, control, action, extra);
+}
+BB_COOP_SYSV u64 StartMode(u64 screen, u64 animate) {
+    const u64 r = reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kApplyMode))(screen, animate);
+    g_display_pending.store(IsGlyphScreen(screen) ? screen : 0, std::memory_order_release);
+    return r;
+}
+// The panel movie's FadeIn, as the screen's open plays it on a panel that is shown when it opens (0x1b9b3dc: the panel
+// handle at +0xda8 resolved by 0x1adb030, its value copied by the wrapper's vtable +0 (value +8, interface +0x18, type
+// +0x20, data +0x28), then the interface's +0x150 (interface, data, label, 0): gotoAndPlay).
+constexpr u64 kPanelHandle = 0xda8;
+constexpr u64 kResolveHandle = 0x1adb030;
+constexpr u64 kFadeInLabel = 0x4934476;  // "FadeIn"
+void PanelFadeIn(u64 screen) {
+    Wrapper panel;
+    reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kResolveHandle))(panel.at(), screen + kPanelHandle);
+    const u64 vtable = *reinterpret_cast<const u64*>(panel.at());
+    if (!vtable) return;
+    alignas(16) std::uint8_t value[0x40]{};
+    const u64 v = reinterpret_cast<u64>(value);
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(*reinterpret_cast<const u64*>(vtable))(v, panel.at());
+    const u64 iface = *reinterpret_cast<const u64*>(v + 0x18);
+    const u32 type = *reinterpret_cast<const u32*>(v + 0x20);
+    const u64 data = *reinterpret_cast<const u64*>(v + 0x28);
+    if (iface && (type & 0x8f)) {
+        const u64 play = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0x150);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64, u64)>(play)(iface, data, coop::Guest(kFadeInLabel), 0);
+    }
+    if ((type & 0x40) && iface) {
+        const u64 release = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0x18);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64)>(release)(iface, v + 8, data);
+    }
+}
+// The glyph screen into Display's expanded view: the mode set and its listeners told, as Display's action does; after
+// the screen's open, the panel is faded in as the open would have.
+void ExpandDisplay(u64 screen, const char* when, bool fade_in) {
+    if (!screen || g_display_pending.load(std::memory_order_acquire) != screen) return;
+    g_display_pending.store(0, std::memory_order_release);
+    const u64 modes = *reinterpret_cast<const u64*>(screen + kDisplayModes);
+    if (!IsGlyphScreen(screen) || modes <= kExpanded || modes > 8) return;
+    const u64 listeners = screen + kModeListeners + ((0 - (screen + kModeListeners - 0x20)) & 0xf);
+    for (u64 i = 0; i < modes; ++i)
+        if (!*reinterpret_cast<const u64*>(listeners + 0x30 * i)) return;  // the game's own call would fail here too
+    *reinterpret_cast<u32*>(screen + kDisplayMode) = kExpanded;
+    *reinterpret_cast<u32*>(screen + kSavedMode) = kExpanded;
+    for (u64 i = 0; i < modes; ++i) {
+        const u64 listener = *reinterpret_cast<const u64*>(listeners + 0x30 * i);
+        bool selected = i == kExpanded;
+        const u64 call = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(listener) + 0x10);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(call)(listener, reinterpret_cast<u64>(&selected));
+    }
+    if (fade_in) PanelFadeIn(screen);
+    std::printf("Glyph screen: Display on (%s)\n", when);
+    std::fflush(stdout);
+}
+BB_COOP_SYSV void ScreenOpen(u64 screen, u64, u64, u64, u64, u64) { ExpandDisplay(screen, "as the screen opens", false); }
+BB_COOP_SYSV void ScreenUpdate(u64 screen, u64, u64, u64, u64, u64) {
+    ExpandDisplay(screen, "after the screen opened", true);
+}
+
 // The generated panel movie, when bb-start made it (BB_PC_MENU_ASSETS): the game reads every menu movie once, at start.
 bool MountPanel() {
     const char* assets = std::getenv("BB_PC_MENU_ASSETS");
@@ -830,6 +917,17 @@ void Install() {
                                                 "glyph screen: item screen stats refresh");
         g_panel = g_panel && coop::HookCallSite(kRuneFillCall, kRuneFill, reinterpret_cast<const void*>(&RuneFill),
                                                 "glyph screen: the stats panel's rune list");
+        g_panel = g_panel && coop::HookCallSite(kAddDisplayCall, kAddControl, reinterpret_cast<const void*>(&AddControl),
+                                                "glyph screen: no Display control");
+        g_panel = g_panel && coop::HookCallSite(kAddToggleStatsCall, kAddControl,
+                                                reinterpret_cast<const void*>(&AddControl),
+                                                "glyph screen: no Toggle Stats control");
+        g_panel = g_panel && coop::HookCallSite(kStartModeCall, kApplyMode, reinterpret_cast<const void*>(&StartMode),
+                                                "glyph screen: opens with Display on");
+        g_panel = g_panel && coop::HookPrologue(kScreenOpen, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &ScreenOpen,
+                                                "glyph screen: item screen open");
+        g_panel = g_panel && coop::HookPrologue(kScreenUpdate, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x56}, &ScreenUpdate,
+                                                "glyph screen: item screen update");
         if (!g_panel) runtime_file_unmount(kGuestPanel);
     }
     g_installed.store(ok, std::memory_order_release);
