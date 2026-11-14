@@ -30,6 +30,7 @@
 #include "party/coop_hooks.h"
 #include "party/game_state.h"
 #include "party/party_chalice_glyphdb.h"
+#include "party/party_chalice_glyphs.h"
 #include "net/bbnet_internal.h"
 #include "net/from_api.h"
 #include "net/party_util.h"
@@ -82,9 +83,11 @@ constexpr u64 kPushRow = 0x1c64a10;
 constexpr u64 kHolygrailLookup = 0x1f1f720;    // (&{u32, u64 row}, goods id): the chalice's HolygrailParam row
 constexpr u64 kTabFilters[4] = {0x1c686d0, 0x1c68750, 0x1c687d0, 0x1c68850};  // family 0..3
 constexpr u64 kRowSize = 0xd8;
-constexpr u32 kFirstPickerTab = 0x24, kLastPickerTab = 0x27;
+constexpr u32 kFirstPickerTab = 0x24, kLastPickerTab = 0x28;  // 0x28: the Custom tab (AddCustomTab)
 constexpr u32 kMark = 0x47000000u;  // row +0x58 of our rows: kMark | glyph index (into *g_glyphs)
-constexpr const char* kCategories[4] = {"farming", "equipment", "bloodgems", "testing"};  // tab order
+// tab order; "custom": the party board's dungeons that are not community glyphs (the player's own, the party's)
+constexpr const char* kCategories[5] = {"farming", "equipment", "bloodgems", "testing", "custom"};
+constexpr int kCustom = 4;
 
 using HandlerFn = u64(BB_COOP_SYSV*)(u64 out, u64 ctx);
 using PickedFn = u64(BB_COOP_SYSV*)(u64 out, u64 functor, u64 a2, u64 row, u64 ctx);
@@ -210,6 +213,38 @@ std::filesystem::path CachePath() {
 }
 
 // Re-read when the cache's time stamp changes (the launcher may refresh it). Under g_mu, game thread.
+// The Custom category: the party board's dungeons (the host's own, which the party's glyph list puts there, and the
+// guests') that can be entered and are not community glyphs. A new generation only when they change (the cards of
+// an open screen keep pointing at the one they were made from).
+Generation g_community;
+std::string g_custom_key;
+void AddBoardGlyphs() {
+    if (g_community.empty()) return;
+    Generation custom;
+    std::string key;
+    for (const bbnet::party::ChannelBoard::Channel& c : bbnet::party::FromApi::instance().channels().channels()) {
+        if (c.form_data.empty() || c.glyph.size() != 8) continue;
+        std::string code = c.glyph;
+        for (char& ch : code) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        const bool community = std::any_of(g_community.begin(), g_community.end(), [&](const Glyph& g) { return g.code == code; });
+        const bool twice = std::any_of(custom.begin(), custom.end(), [&](const Glyph& g) { return g.code == code; });
+        const u32 goods = coop::chalice::glyphs::GoodsOfForm(c.form_data);
+        if (community || twice || ChaliceFamily(goods) < 0) continue;
+        const std::string desc = c.owner.empty() ? std::string("A Chalice Dungeon on the party's board.")
+                                                 : "A Chalice Dungeon on the party's board, from " + c.owner + ".";
+        custom.push_back({goods, kCustom, Utf8To16(code, 16), Utf8To16(desc, 400), code, c.form_data});
+        key += code + ";";
+    }
+    if (key == g_custom_key) return;
+    g_custom_key = key;
+    auto gen = std::make_unique<Generation>(g_community);
+    gen->insert(gen->end(), custom.begin(), custom.end());
+    std::printf("Glyph screen: %zu Custom glyph(s) from the party board\n", custom.size());
+    std::fflush(stdout);
+    g_glyphs = gen.get();
+    g_generations.push_back(std::move(gen));
+}
+
 void LoadGlyphs() {
     if (!g_family_goods[0]) {
         for (u32 goods = 6000; goods < 7000; ++goods) {
@@ -222,7 +257,10 @@ void LoadGlyphs() {
     const std::filesystem::path p = CachePath();
     std::error_code ec;
     const auto t = std::filesystem::last_write_time(p, ec);
-    if (ec || (g_have_seen && t == g_seen)) return;
+    if (ec || (g_have_seen && t == g_seen)) {
+        AddBoardGlyphs();
+        return;
+    }
     g_seen = t;
     g_have_seen = true;
     std::ifstream f(p, std::ios::binary);
@@ -255,9 +293,59 @@ void LoadGlyphs() {
     std::printf("Glyph screen: %zu glyph(s) from the community cache (%d skipped, %d without a known chalice): "
                 "farming %d, equipment %d, bloodgems %d, testing %d\n",
                 gen->size(), skipped, not_chalice, per[0], per[1], per[2], per[3]);
+    g_community = *gen;
+    g_custom_key.clear();
     g_glyphs = gen.get();
     g_have_glyphs.store(!gen->empty(), std::memory_order_release);
     g_generations.push_back(std::move(gen));
+    AddBoardGlyphs();
+}
+
+// The Custom tab. The picker's tabs are made by 0x1c77a50(?, menu): each by its own maker (0x1c84ad0 the first, a
+// 0x150-byte descriptor: +0 the tab id, +0xf0 the filter, std::function slots at +0x60 / +0x90 / +0xc0 / +0xf0 / +0x120
+// whose pointers are at +0x80 / +0xb0 / +0xe0 / +0x110 / +0x140), then added with 0x1baadf0(slot, descriptor) to the
+// menu's tab array (16-byte aligned from the menu, 0x150 apart, up to 24; the count at menu +0x1e40). On the glyph
+// screen a fifth tab follows: the first tab's descriptor with the id 0x28 (its rows: the Custom category; its filter
+// the first tab's, which our rows pass as one of its chalices). A tab's name is made by 0x1c69700(out, descriptor):
+// for 0x28 it is our text (kCustomTabText), the other tabs keep theirs.
+constexpr u64 kMakeTabs = 0x1c77a50, kFirstTabMaker = 0x1c84ad0, kAddTab = 0x1baadf0, kTabName = 0x1c69700;
+constexpr u64 kTabCount = 0x1e40, kTabSize = 0x150, kMostTabs = 0x18;
+constexpr u32 kCustomTab = 0x28;
+constexpr u32 kCustomTabText = 263190;  // a menu text id of ours (0xc8), not one the game has
+using MakeTabsFn = u64(BB_COOP_SYSV*)(u64, u64);
+using TabNameFn = u64(BB_COOP_SYSV*)(u64 out, u64 tab);
+MakeTabsFn g_make_tabs_original = nullptr;
+TabNameFn g_tab_name_original = nullptr;
+BB_COOP_SYSV u64 MakeTabs(u64 a0, u64 menu) {
+    const u64 r = g_make_tabs_original(a0, menu);
+    bool opening = false;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        opening = g_opening;
+    }
+    const u64 count = *reinterpret_cast<const u64*>(menu + kTabCount);
+    if (!opening || count + 1 >= kMostTabs) return r;
+    alignas(16) std::uint8_t tab[kTabSize]{};
+    const u64 t = reinterpret_cast<u64>(tab);
+    reinterpret_cast<u64(BB_COOP_SYSV*)(u64)>(coop::Guest(kFirstTabMaker))(t);
+    *reinterpret_cast<u32*>(t) = kCustomTab;
+    const u64 tabs = menu + ((0 - menu) & 0xf);
+    reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kAddTab))(tabs + kTabSize * count, t);
+    *reinterpret_cast<u64*>(menu + kTabCount) = count + 1;
+    for (const u64 at : {0x80, 0xb0, 0xe0, 0x110, 0x140}) {  // the maker's std::functions, as 0x1c77a50 ends them
+        const u64 f = *reinterpret_cast<const u64*>(t + at);
+        if (!f) continue;
+        const u64 destroy = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(f) + 0x20);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(destroy)(f, f != t + at - 0x20 ? 1 : 0);
+    }
+    std::printf("Glyph screen: the Custom tab added (tab %llu)\n", static_cast<unsigned long long>(count + 1));
+    std::fflush(stdout);
+    return r;
+}
+BB_COOP_SYSV u64 TabName(u64 out, u64 tab) {
+    if (*reinterpret_cast<const u32*>(tab) == kCustomTab && g_screen.load(std::memory_order_acquire))
+        return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64, u64)>(coop::Guest(0x1ae8cc0))(out, 0xc8, kCustomTabText);
+    return g_tab_name_original(out, tab);
 }
 
 // The altar's "Search by Chalice Glyph": with community glyphs, the chalice picker opens as the glyph screen.
@@ -930,6 +1018,7 @@ const char16_t* Text(std::uint32_t category, std::uint32_t id) {
         case 40436: return u"Equipment";
         case 40437: return u"Blood Gems";
         case 40438: return u"Testing";
+        case kCustomTabText: return u"Your Dungeons";
         default: return nullptr;
         }
     }
@@ -986,6 +1075,10 @@ void Install() {
                                      {0x49, 0x8b, 0x3c, 0x24, 0x48, 0x89, 0xee, 0x4c, 0x89, 0xfa},
                                      reinterpret_cast<coop::ValueFilter>(&AfterScreenFilter), kResume,
                                      "glyph screen: rows after the screen filter");
+    ok = ok && coop::ReplacePrologue(kMakeTabs, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, reinterpret_cast<const void*>(&MakeTabs),
+                                     reinterpret_cast<void**>(&g_make_tabs_original), "glyph screen: the Custom tab");
+    ok = ok && coop::ReplacePrologue(kTabName, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, reinterpret_cast<const void*>(&TabName),
+                                     reinterpret_cast<void**>(&g_tab_name_original), "glyph screen: the Custom tab's name");
     ok = ok && coop::HookCallSite(kTabCollectCall, kCollect, reinterpret_cast<const void*>(&TabCollect),
                                   "glyph screen: the tab filter's collector");
     ok = ok && coop::HookCallSite(kNameCall, kItemName, reinterpret_cast<const void*>(&ItemName),
