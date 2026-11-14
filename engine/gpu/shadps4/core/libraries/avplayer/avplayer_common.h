@@ -56,7 +56,11 @@ struct AvPlayerEvent {
 template <class T>
 class AvPlayerQueue {
 public:
+    // bbport: every access holds the lock. Pop checked Size() before locking, so a Clear() from
+    // the player stopping could empty the queue in between and front() read an empty deque (movie
+    // audio thread crash, NW-1a98eff); Front() handed out a reference Clear() could destroy.
     size_t Size() {
+        std::lock_guard guard(m_mutex);
         return m_queue.size();
     }
 
@@ -65,15 +69,21 @@ public:
         m_queue.emplace(std::forward<T>(value));
     }
 
-    T& Front() {
-        return m_queue.front();
+    // What fn reads from the front element, or nullopt when the queue is empty.
+    template <class Fn>
+    auto PeekFront(Fn&& fn) -> std::optional<decltype(fn(std::declval<const T&>()))> {
+        std::lock_guard guard(m_mutex);
+        if (m_queue.empty()) {
+            return std::nullopt;
+        }
+        return fn(std::as_const(m_queue.front()));
     }
 
     std::optional<T> Pop() {
-        if (Size() == 0) {
+        std::lock_guard guard(m_mutex);
+        if (m_queue.empty()) {
             return std::nullopt;
         }
-        std::lock_guard guard(m_mutex);
         auto result = std::move(m_queue.front());
         m_queue.pop();
         return result;

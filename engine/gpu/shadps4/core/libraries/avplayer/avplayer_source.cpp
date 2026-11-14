@@ -368,14 +368,15 @@ bool AvPlayerSource::GetVideoData(AvPlayerFrameInfoEx& video_info) {
         return false;
     }
 
-    if (m_video_frames.Size() == 0) {
+    // bbport: the timestamp is read under the queue's lock (the player stopping clears it).
+    const auto new_timestamp = m_video_frames.PeekFront([](const auto& f) { return f.info.timestamp; });
+    if (!new_timestamp.has_value()) {
         return false;
     }
 
     const auto current_time = CurrentTime();
-    const auto& new_frame = m_video_frames.Front();
     if (m_state.GetSyncMode() == AvPlayerAvSyncMode::Default) {
-        if (new_frame.info.timestamp > current_time) {
+        if (*new_timestamp > current_time) {
             return false;
         }
     }
@@ -387,6 +388,9 @@ bool AvPlayerSource::GetVideoData(AvPlayerFrameInfoEx& video_info) {
     }
 
     auto frame = m_video_frames.Pop();
+    if (!frame.has_value()) { // bbport: cleared since the check above (player stopped)
+        return false;
+    }
     video_info = frame->info;
 
     m_current_video_frame = std::move(frame);
@@ -409,6 +413,9 @@ bool AvPlayerSource::GetAudioData(AvPlayerFrameInfo& audio_info) {
     }
 
     auto frame = m_audio_frames.Pop();
+    if (!frame.has_value()) { // bbport: cleared since the check above (player stopped)
+        return false;
+    }
     m_last_audio_ts = frame->info.timestamp;
     m_last_data_time = std::chrono::high_resolution_clock::now();
     m_pause_duration = std::chrono::high_resolution_clock::duration(0);
