@@ -754,6 +754,12 @@ extern "C" int bbgpu_text_input_begin(const char* initial, const char* prompt) {
     return 1;
 }
 
+extern "C" int bbgpu_text_input_begin_quiet(const char* initial) {
+    if (!g_window) return 0;
+    g_window->BeginTextInput(initial ? initial : "", "Search", {}, true);
+    return 1;
+}
+
 extern "C" int bbgpu_text_input_is_active(void) {
     return g_window && g_window->IsTextInputActive();
 }

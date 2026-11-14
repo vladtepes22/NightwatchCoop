@@ -36,8 +36,9 @@ public:
     /// `choices`: a pick list (value, label) shown above the box - Up / Down (keyboard, d-pad) move the
     /// selection, which sets the text, Enter / Cross confirm; typing or Backspace leaves the list for the
     /// keyboard. Empty: the plain box. (Chalice glyphs, docs/party/chalice.md 11.)
+    /// `quiet`: the box takes the keys but draws nothing (no prompt window, no title): the caller shows the text.
     void BeginTextInput(const std::string& initial, const std::string& prompt,
-                        const std::vector<std::pair<std::string, std::string>>& choices = {});
+                        const std::vector<std::pair<std::string, std::string>>& choices = {}, bool quiet = false);
     /// Test aid (any thread): keys (TestType's) the next text box takes as soon as it opens.
     void QueueTestKeys(const std::string& keys);
     int PollTextInput(std::string& text);
@@ -50,6 +51,7 @@ private:
     std::mutex text_mutex;
     bool text_requested{}, text_active{};
     bool text_selected{};
+    bool text_quiet{};  ///< BeginTextInput's quiet: nothing drawn
     int text_state{};
     std::string text, text_prompt, base_title;
     std::vector<std::pair<std::string, std::string>> text_choices;

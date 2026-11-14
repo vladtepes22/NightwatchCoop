@@ -27,6 +27,7 @@
 #include "bbport_glyph_screen.h"
 #include "bbport_game_menu.h"
 #include "input/input.h"
+#include "../bbgpu.h"
 
 #include "party/coop_hooks.h"
 #include "party/game_state.h"
@@ -37,6 +38,7 @@
 #include "net/party_util.h"
 
 #include <algorithm>
+#include <cctype>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -773,7 +775,7 @@ u64 DisplayObject(Wrapper& w) {
 // +0x40; on while no child screen is open) and then OK (action 0x1ba80f0, the screen at functor + 8: decides the
 // list's current item; on while the list has one, vtable +0x48). On the glyph screen with the bar's focus OK decides
 // nothing (the first card would be picked); the bar takes it. Back is left as it is.
-constexpr u64 kOkAction = 0x1ba80f0;
+constexpr u64 kOkAction = 0x1ba80f0, kBackAction = 0x1ba9b00;
 constexpr u64 kEarlyStepCall = 0x1ad0062, kEarlyStep = 0x1ad10f0;
 constexpr u64 kStepCall = 0x1ad00a1, kStep = 0x1ad2860, kStepOffset = 0x290;
 constexpr u64 kSetCursor = 0x1acf6b0;
@@ -785,7 +787,10 @@ constexpr u64 kMenuSound = 0x557fc60, kMenuSoundLabel = 0x557fc68, kCursorMoveLa
 std::atomic<u64> g_glyph_list_object{0};  // GlyphNormalItem's display object while the glyph screen is up
 std::atomic<bool> g_bar_focus{false};
 std::atomic<u64> g_glyph_list{0};             // the glyph screen's card list, once a step has seen it
+std::atomic<bool> g_typing{false};            // the bar is typed in (a quiet text box is open)
+std::atomic<bool> g_swallow{false};           // OK / Back after the typing ended, until their buttons are let go
 bool g_bar_cursor_shown = false;              // the bar's Cursor as last set (menu thread)
+bool g_bar_active_shown = false;              // the bar's Active (typed in) as last set (menu thread)
 bool g_pointer_seen = false;                  // the pointer's last place (menu thread; reset when the screen opens)
 float g_pointer_x = 0, g_pointer_y = 0;
 
@@ -863,8 +868,10 @@ int BarStep(u64 list, int dy, const char* path) {
     coop::SafeGet(list + kListFirstLine, &first);
     const bool on_first = (over >= 0 ? over : cursor) == 0 && first == 0;
     if (g_bar_focus.load(std::memory_order_acquire)) {
-        // the game shows the first card's highlight again when it fills the list (a new tab, the screen opening)
-        reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(coop::Guest(kHideCursors))(list);
+        // the game shows the first card's highlight again when it fills the list (a new tab, the screen opening);
+        // while the bar is typed in, the highlight is the matching card's
+        if (!g_typing.load(std::memory_order_acquire))
+            reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(coop::Guest(kHideCursors))(list);
         if (dy > 0) {
             g_bar_focus.store(false, std::memory_order_release);
             if (!on_first) reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kSetCursor))(list, 0);
@@ -932,20 +939,208 @@ void BarHover(u64 screen) {
 }
 using OkFn = void(BB_COOP_SYSV*)(u64);
 OkFn g_ok_original = nullptr;
+void BeginTyping(u64 screen);
 BB_COOP_SYSV void OkAction(u64 functor) {
     u64 screen = 0;
+    if (g_swallow.load(std::memory_order_acquire) && coop::SafeGet(functor + 8, &screen) && IsGlyphScreen(screen))
+        return;  // the key that ended the typing
     if (g_bar_focus.load(std::memory_order_acquire) && coop::SafeGet(functor + 8, &screen) && IsGlyphScreen(screen)) {
         // a click on a card the pointer rests on (not moved since the screen opened) is the cards' OK
         const u64 list = g_glyph_list.load(std::memory_order_acquire);
         if (PointerPlace(screen, nullptr) < 0 && list && IsGlyphList(list)) {
             CardsTakeFocus(list, "a click");
         } else {
-            std::printf("Glyph screen: OK on the search bar (typing comes in the next stage)\n");
-            std::fflush(stdout);
+            BeginTyping(screen);
             return;
         }
     }
     g_ok_original(functor);
+}
+using BackFn = void(BB_COOP_SYSV*)(u64);
+BackFn g_back_original = nullptr;
+BB_COOP_SYSV void BackAction(u64 functor) {
+    u64 screen = 0;
+    if (g_swallow.load(std::memory_order_acquire) && coop::SafeGet(functor + 8, &screen) && IsGlyphScreen(screen))
+        return;  // the key that ended the typing
+    g_back_original(functor);
+}
+
+// Typing in the bar. OK on the bar opens a quiet text box (the window takes the keys and the game none: Enter or
+// Cross ends it with the cards' focus on the match, Esc or Circle with the bar's; Backspace or Square deletes). Each
+// frame the bar shows the text with a blinking cursor, and a changed text jumps to the first glyph whose code
+// begins with it (none: the highlight stays), looked for from the shown tab on in tab order (a tab is a category:
+// tab index = category). Another tab is chosen as Left / Right choose one: the screen's tab list (a generic list
+// at screen + 0xae0, its cursor at +0xb54 as OK's action reads it) moved with SetCursor, then its change listener's call
+// (0x1baa470: the functor's screen) 0x1b9b690(screen, tab, 0), the screen's show-tab (the tab's name, its list
+// and rows). A jump plays the cards' cursor sound. The card once the shown rows are that tab's: the
+// card list's rows are the list holder's (screen + 0xf10) widget (+0xc0) source (+0x3a0): 0xd8-byte rows from
+// source + 0x18, in the cursor's order.
+constexpr u64 kTabList = 0xae0, kListItems = 0x70, kShowTab = 0x1b9b690;
+constexpr u64 kHolderWidget = 0xc0, kWidgetSource = 0x3a0, kSourceRows = 0x18;
+constexpr double kJumpWait = 1.5;  // seconds a jump waits for its tab's rows
+std::string g_typed;               // the bar's text (game thread)
+std::string g_matched_for;         // the text the last jump was for
+int g_jump_glyph = -1;             // a jump waiting for its tab's rows: the glyph, its tab
+int g_jump_tab = -1;
+double g_jump_at = 0;
+int g_swallow_frames = 0;
+int g_match_glyph = -1;            // the glyph the cards' highlight is on (the last jump's)
+const Glyph* GlyphOfRow(u64 row);
+
+std::u16string Utf16(const std::string& s) {  // the codes are ASCII; anything else shows as '?'
+    std::u16string out;
+    for (const unsigned char c : s) {
+        if (c < 0x80) out += static_cast<char16_t>(c);
+        else if ((c & 0xc0) != 0x80) out += u'?';
+    }
+    return out;
+}
+void ShowTyped(u64 screen, bool cursor) {
+    Wrapper root, bar;
+    if (!ListRoot(screen, root) || !bar.Fetch(root.at(), "ItemList/GlyphSearch")) return;
+    const std::u16string shown = Utf16(g_typed) + (cursor ? u"|" : u"");
+    SetFieldText(bar.at(), "Query", shown.c_str());
+}
+void BeginTyping(u64 screen) {
+    if (!bbgpu_text_input_begin_quiet(g_typed.c_str())) {
+        std::printf("Glyph screen: OK on the search bar, but there is no window to type in\n");
+        std::fflush(stdout);
+        return;
+    }
+    g_typing.store(true, std::memory_order_release);
+    std::int32_t tabs = 0, tab = -1;
+    coop::SafeGet(screen + kTabList + kListItems, &tabs);
+    coop::SafeGet(screen + kTabList + kListCursor, &tab);
+    std::printf("Glyph screen: typing in the search bar (tab list: %d tabs, on %d)\n", tabs, tab);
+    std::fflush(stdout);
+}
+int ShownTab(u64 screen) {
+    std::int32_t tab = -1, over = -1;
+    coop::SafeGet(screen + kTabList + kListCursor, &tab);
+    coop::SafeGet(screen + kTabList + kListCursorOverride, &over);
+    return over >= 0 ? over : tab;
+}
+// The card of glyph `k` in the shown card list, or -1 (the rows are not that tab's yet). Under g_mu.
+int CardOf(u64 screen, int k) {
+    u64 widget = 0, source = 0, begin = 0, end = 0;
+    if (!coop::SafeGet(screen + kListHolder + kHolderWidget, &widget) || !widget ||
+        !coop::SafeGet(widget + kWidgetSource, &source) || !source || !coop::SafeGet(source + kSourceRows, &begin) ||
+        !coop::SafeGet(source + kSourceRows + 8, &end) || end < begin)
+        return -1;
+    const u64 n = (end - begin) / kRowSize;
+    for (u64 i = 0; i < n && i < 4096; ++i) {
+        const Glyph* g = GlyphOfRow(begin + i * kRowSize);
+        if (g && g - g_glyphs->data() == k) return static_cast<int>(i);
+    }
+    return -1;
+}
+// The glyph a text jumps to: the first whose code begins with it, from the shown tab on. Under g_mu.
+int MatchOf(const std::string& typed, int from_tab) {
+    if (typed.empty() || !g_glyphs) return -1;
+    std::string want;
+    for (const unsigned char c : typed) want += static_cast<char>(std::tolower(c));
+    const int tabs = static_cast<int>(std::size(kCategories));
+    for (int t = 0; t < tabs; ++t) {
+        const int cat = ((from_tab < 0 ? 0 : from_tab) + t) % tabs;
+        for (std::size_t k = 0; k < g_glyphs->size(); ++k) {
+            const Glyph& g = (*g_glyphs)[k];
+            if (g.category != cat || g.code.size() < want.size()) continue;
+            bool same = true;
+            for (std::size_t i = 0; same && i < want.size(); ++i)
+                same = std::tolower(static_cast<unsigned char>(g.code[i])) == static_cast<unsigned char>(want[i]);
+            if (same) return static_cast<int>(k);
+        }
+    }
+    return -1;
+}
+// The cards' highlight on card `card` of the shown list.
+void HighlightCard(u64 list, int card) {
+    reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kSetCursor))(list, static_cast<u64>(card));
+    std::int32_t first = 0;
+    coop::SafeGet(list + kListFirstLine, &first);
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(coop::Guest(kHideCursors))(list);
+    if (card - first >= 0) ShowCardCursor(list, static_cast<u32>(card - first));
+}
+// A waiting jump, once the shown rows are its tab's.
+void FinishJump(u64 screen) {
+    if (g_jump_glyph < 0) return;
+    const u64 list = g_glyph_list.load(std::memory_order_acquire);
+    int card = -1;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        card = CardOf(screen, g_jump_glyph);
+    }
+    if (card >= 0 && list && IsGlyphList(list) && ShownTab(screen) == g_jump_tab) {
+        if (g_jump_glyph != g_match_glyph) CursorMoveSound();
+        HighlightCard(list, card);
+        g_match_glyph = g_jump_glyph;
+        std::printf("Glyph screen: \"%s\" is on tab %d, card %d\n", g_typed.c_str(), g_jump_tab, card);
+        std::fflush(stdout);
+        g_jump_glyph = -1;
+    } else if (Seconds() - g_jump_at > kJumpWait) {
+        std::printf("Glyph screen: \"%s\": tab %d's rows never came (shown tab %d, card %d)\n", g_typed.c_str(),
+                    g_jump_tab, ShownTab(screen), card);
+        std::fflush(stdout);
+        g_jump_glyph = -1;
+    }
+}
+void Jump(u64 screen) {
+    if (g_typed == g_matched_for) return;
+    g_matched_for = g_typed;
+    int k = -1, tab = -1;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        k = MatchOf(g_typed, ShownTab(screen));
+        if (k >= 0) tab = (*g_glyphs)[static_cast<std::size_t>(k)].category;
+    }
+    if (k < 0) {
+        if (!g_typed.empty()) {
+            std::printf("Glyph screen: \"%s\" matches no glyph\n", g_typed.c_str());
+            std::fflush(stdout);
+        }
+        return;
+    }
+    if (tab != ShownTab(screen)) {
+        reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kSetCursor))(screen + kTabList,
+                                                                                 static_cast<u64>(tab));
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u32, u32)>(coop::Guest(kShowTab))(screen, static_cast<u32>(tab), 0);
+        std::printf("Glyph screen: \"%s\": to tab %d (shown tab now %d)\n", g_typed.c_str(), tab, ShownTab(screen));
+        std::fflush(stdout);
+    }
+    g_jump_glyph = k;
+    g_jump_tab = tab;
+    g_jump_at = Seconds();
+    FinishJump(screen);
+}
+// Each frame on the glyph screen: the typed text, the typing's end, and the keys that ended it.
+void Typing(u64 screen) {
+    if (g_swallow.load(std::memory_order_acquire)) {
+        const std::uint32_t held = BbInput::LastPad().buttons;
+        g_swallow_frames = held & (PadBits::kCross | PadBits::kCircle) ? 0 : g_swallow_frames + 1;
+        if (g_swallow_frames >= 10) g_swallow.store(false, std::memory_order_release);
+    }
+    FinishJump(screen);
+    if (!g_typing.load(std::memory_order_acquire)) return;
+    char text[64] = {};
+    const int state = bbgpu_text_input_poll(text, sizeof text);
+    g_typed = text;
+    Jump(screen);
+    const bool blink = static_cast<long long>(Seconds() * 2) % 2 == 0;
+    ShowTyped(screen, state == 0 && blink);
+    if (state == 0) return;
+    g_typing.store(false, std::memory_order_release);
+    g_swallow_frames = 0;
+    g_swallow.store(true, std::memory_order_release);
+    const u64 list = g_glyph_list.load(std::memory_order_acquire);
+    const bool to_card = state == 1 && g_match_glyph >= 0 && g_jump_glyph < 0 && list && IsGlyphList(list);
+    if (to_card) {
+        g_bar_focus.store(false, std::memory_order_release);
+    } else if (list && IsGlyphList(list)) {
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(coop::Guest(kHideCursors))(list);
+    }
+    std::printf("Glyph screen: typing ended (%s): \"%s\"; the %s has the focus\n",
+                state == 1 ? "confirmed" : "cancelled", g_typed.c_str(), to_card ? "matching card" : "search bar");
+    std::fflush(stdout);
 }
 
 void ShowList(u64 screen) {
@@ -980,8 +1175,14 @@ void ShowList(u64 screen) {
     // the glyph screen opens with the bar's focus (the cards' highlight hidden at the list's next update)
     g_bar_focus.store(g_glyph_list_object.load(std::memory_order_acquire) != 0, std::memory_order_release);
     if (bar_cursor.Fetch(root.at(), "ItemList/GlyphSearch/Cursor")) bar_cursor.SetVisible(false);
+    Wrapper bar_active;
+    if (bar_active.Fetch(root.at(), "ItemList/GlyphSearch/Active")) bar_active.SetVisible(false);
+    g_bar_active_shown = false;
     g_bar_cursor_shown = false;
     g_pointer_seen = false;
+    g_typed.clear();
+    g_matched_for.clear();
+    g_jump_glyph = g_match_glyph = -1;
     if (ours) {
         Wrapper bar;
         if (bar.Fetch(root.at(), "ItemList/GlyphSearch")) SetFieldText(bar.at(), "Query", u"");
@@ -991,17 +1192,25 @@ void ShowList(u64 screen) {
     }
 }
 // The bar's highlight follows its focus (on the glyph screen).
+// The bar's look follows its state: focused, its Cursor (the cards' pulsing highlight); typed in, Active (a steady
+// gold frame) instead.
 void ShowBarCursor(u64 screen) {
-    const bool focus = g_bar_focus.load(std::memory_order_acquire);
-    if (focus == g_bar_cursor_shown) return;
-    Wrapper root, cursor;
-    if (!ListRoot(screen, root) || !cursor.Fetch(root.at(), "ItemList/GlyphSearch/Cursor")) return;
+    const bool typing = g_typing.load(std::memory_order_acquire);
+    const bool focus = g_bar_focus.load(std::memory_order_acquire) && !typing;
+    if (focus == g_bar_cursor_shown && typing == g_bar_active_shown) return;
+    Wrapper root, cursor, active;
+    if (!ListRoot(screen, root) || !cursor.Fetch(root.at(), "ItemList/GlyphSearch/Cursor") ||
+        !active.Fetch(root.at(), "ItemList/GlyphSearch/Active"))
+        return;
     cursor.SetVisible(focus);
+    active.SetVisible(typing);
     g_bar_cursor_shown = focus;
+    g_bar_active_shown = typing;
 }
 BB_COOP_SYSV void ScreenUpdate(u64 screen, u64, u64, u64, u64, u64) {
     ShowList(screen);
     if (IsGlyphScreen(screen)) {
+        Typing(screen);
         BarHover(screen);
         ShowBarCursor(screen);
     }
@@ -1458,6 +1667,10 @@ void Install() {
                                                  reinterpret_cast<const void*>(&OkAction),
                                                  reinterpret_cast<void**>(&g_ok_original),
                                                  "glyph screen: OK on the search bar");
+        g_list = g_list && coop::ReplacePrologue(kBackAction, {0x55, 0x48, 0x89, 0xe5, 0x48, 0x8b, 0x7f, 0x08},
+                                                 reinterpret_cast<const void*>(&BackAction),
+                                                 reinterpret_cast<void**>(&g_back_original),
+                                                 "glyph screen: Back after typing in the search bar");
         if (!g_list) runtime_file_unmount(kGuestList);
     }
     g_installed.store(ok, std::memory_order_release);

@@ -1477,8 +1477,8 @@ Box Bounds(const Movie& m, std::uint16_t id) {
 //                    top and bottom of the whole list, kept where it was);
 //   GlyphSearch      the search bar in the top row's place, over a card's footprint: a dark field with a thin light
 //                    border, a caption ("Search by glyph code": a card's small grey text, smaller) and the typed text
-//                    Query (a card name's gold text) over an underline, and the card's focus highlight Cursor
-//                    (hidden). Sizes and colours from the agreed mock (work/mockups/3-card-height-bar-with-caption).
+//                    Query (a card name's gold text) over an underline, the card's focus highlight Cursor and
+//                    Active, the bar being typed in (a steady gold frame and underline; both hidden). Sizes and colours from the agreed mock (work/mockups/3-card-height-bar-with-caption).
 // The glyph screen's list widget is made on "ItemList/GlyphNormalItem" (gpu/shim/bbport_glyph_screen.cpp).
 Bytes GlyphListMovie(const Bytes& gfx) {
     constexpr double kPitch = 93.85, kCard = 90;  // the rows' spacing; a card's height
@@ -1614,6 +1614,24 @@ Bytes GlyphListMovie(const Bytes& gfx) {
                                     WithScale(At(bx + kTextX, by + kCaptionY), kCaptionScale, kCaptionScale),
                                     std::string("Caption"), true));
     search.tags.push_back(Placement(query_text, 5, At(bx + kTextX, by + kQueryY), std::string("Query"), true));
+    // Active (hidden): the bar while it is typed in, a steady frame and underline in the typed text's gold over the
+    // border and the underline (the pulsing Cursor is the bar's focus only).
+    constexpr std::uint32_t kActiveRgb = 0xa0895f;
+    constexpr double kActiveLine = 2;
+    const std::uint16_t edge_h = ++next, edge_v = ++next, active_line = ++next;
+    defs.push_back(RectShape(edge_h, twips(bw), twips(kBorder), kActiveRgb));
+    defs.push_back(RectShape(edge_v, twips(kBorder), twips(bh), kActiveRgb));
+    defs.push_back(RectShape(active_line, twips(bw - 2 * kLineInset), twips(kActiveLine), kActiveRgb));
+    Sprite active{++next, 1, {}};
+    active.tags.push_back(Placement(edge_h, 1, At(bx, by), std::nullopt, true));
+    active.tags.push_back(Placement(edge_h, 2, At(bx, by + bh - kBorder), std::nullopt, true));
+    active.tags.push_back(Placement(edge_v, 3, At(bx, by), std::nullopt, true));
+    active.tags.push_back(Placement(edge_v, 4, At(bx + bw - kBorder, by), std::nullopt, true));
+    active.tags.push_back(Placement(active_line, 5, At(bx + kLineInset, by + kLineY), std::nullopt, true));
+    active.tags.push_back(Tag{kShowFrame, {}, {}});
+    active.tags.push_back(Tag{kEnd, {}, {}});
+    defs.push_back(WriteSprite(active));
+    search.tags.push_back(Placement(active.id, 6, At(0, 0), std::string("Active"), false));
     search.tags.push_back(Placement(*cursor->character, 7, *cursor->matrix, std::string("Cursor"), false));
     search.tags.push_back(Tag{kShowFrame, {}, {}});
     search.tags.push_back(Tag{kEnd, {}, {}});

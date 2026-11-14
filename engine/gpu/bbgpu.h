@@ -35,6 +35,8 @@ void bbgpu_dump_guest_writes(void *ucontext);
 /* Keyboard text entry through the game window (IME dialog). begin returns 0 when
  * no window exists; poll returns 0 typing, 1 confirmed, 2 cancelled (UTF-8 text). */
 int bbgpu_text_input_begin(const char *initial_utf8, const char *prompt_utf8);
+/* Like bbgpu_text_input_begin, but nothing is drawn (no prompt window): the caller shows the text it polls. */
+int bbgpu_text_input_begin_quiet(const char *initial_utf8);
 /* Party co-op (Chalice glyph pick list): called when an ImeDialog of max_length characters opens and no
  * preset answered. Returns the box's pick list, one "value<TAB>label" line per choice, or NULL for the
  * plain keyboard box. Also where the test aids queue their keys. */

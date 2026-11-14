@@ -248,12 +248,13 @@ u32 BackgroundFrameLimit() {
 }
 
 void WindowSDL::BeginTextInput(const std::string& initial, const std::string& prompt,
-                               const std::vector<std::pair<std::string, std::string>>& choices) {
+                               const std::vector<std::pair<std::string, std::string>>& choices, bool quiet) {
     std::string keys;
     {
         std::scoped_lock lock{text_mutex};
+        text_quiet = quiet;
         text = initial;
-        text_selected = choices.empty() && !initial.empty();
+        text_selected = !quiet && choices.empty() && !initial.empty();  // quiet: nothing shows a selection
         text_prompt = prompt;
         text_state = 0;
         text_choices = choices;
@@ -277,6 +278,11 @@ int WindowSDL::PollTextInput(std::string& out) {
 }
 
 void WindowSDL::UpdateTextTitle() {
+    if (text_quiet) {  // the caller shows the text (the Chalice glyph screen's search bar)
+        SDL_SetWindowTitle(window, base_title.c_str());
+        BbOverlay::SetTextPrompt(false, text_prompt, text);
+        return;
+    }
     std::string prompt_lower=text_prompt;
     std::transform(prompt_lower.begin(),prompt_lower.end(),prompt_lower.begin(),[](unsigned char c){ return char(std::tolower(c)); });
     const std::string body=prompt_lower.find("password")!=std::string::npos ? std::string(text.size(),'*') : text;
@@ -409,6 +415,17 @@ bool WindowSDL::PollEvents() {
             text = text_choices[size_t(text_sel)].first;
             text_selected = false;
             UpdateTextTitle();
+            continue;
+        }
+        // A quiet box (the Chalice glyph screen's search): West deletes the last character.
+        if (text_active && text_quiet && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&
+            event.gbutton.button == SDL_GAMEPAD_BUTTON_WEST) {
+            std::scoped_lock lock{text_mutex};
+            if (!text.empty()) {
+                size_t cut = text.size() - 1;
+                while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
+                text.erase(cut);
+            }
             continue;
         }
         if (text_active && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&
