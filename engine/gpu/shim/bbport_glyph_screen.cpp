@@ -25,6 +25,7 @@
 //    its long description (0x1c5dd70 -> call 0x1c5df17 to 0x1f01180).
 // Test stage: BB_GLYPH_SCREEN_TEST=1 only.
 #include "bbport_glyph_screen.h"
+#include "bbport_game_menu.h"
 
 #include "party/coop_hooks.h"
 #include "party/game_state.h"
@@ -318,7 +319,8 @@ BB_COOP_SYSV void PanelGetter(u64, u64 src, u64, u64, u64, u64) {
 // A display object is a wrapper from 0x1adb220(out, parent wrapper, name): its vtable's +8 sets its visibility; its
 // value at +0x30 (interface +0x40, type +0x48, data +0x50; type & 0x8f == 10 a display object, & 0x40 counted,
 // released by the interface's +0x18).
-constexpr const char* kGlyphParts[] = {"GlyphPart_1", "GlyphPart_23", "GlyphPart_34", "DetailDesc", "ItemName"};
+constexpr const char* kGlyphParts[] = {"GlyphPart_1", "GlyphPart_15", "GlyphPart_19", "GlyphPart_23", "GlyphPart_34",
+                                       "DetailDesc",  "ItemName",     "GlyphDepth",   "GlyphArea"};
 constexpr const char* kGameParts[] = {"GlyphPart_1",  "GlyphPart_11",   "ItemKnowledgeIcon", "GlyphPart_15",
                                       "GlyphPart_19", "GlyphPart_23",   "GlyphPart_26",      "GlyphPart_30",
                                       "GlyphPart_34", "Item_1_TP_Add",  "Item_1_TP_Base",    "Item_0_TP_Add",
@@ -539,8 +541,60 @@ void ExpandDisplay(u64 screen, const char* when, bool fade_in) {
     std::fflush(stdout);
 }
 BB_COOP_SYSV void ScreenOpen(u64 screen, u64, u64, u64, u64, u64) { ExpandDisplay(screen, "as the screen opens", false); }
+// The panel's Depth and Area rows (GlyphDepth / GlyphArea: Text_0 the label, Value_0 the value), written on the frame
+// after the selected glyph changes: labels "Depth" / "Area" and the area's name are the game's own menu texts (category
+// 0xc8: 17001, 17002, 17100 + the chalice's HolygrailParam family: Pthumeru, Hintertomb, Loran, Isz). A text field's
+// text: its wrapper's value (vtable +0), then the interface's +0x138 (interface, data, UTF-16 text, 1).
+constexpr u32 kMenuText = 0xc8, kDepthLabel = 17001, kAreaLabel = 17002, kAreaNames = 17100;
+std::atomic<u32> g_shown_goods{0};  // the chalice of the glyph whose description was filled last (0: none)
+u32 g_rows_goods = 0;               // the chalice the rows were written for (menu thread)
+u64 g_rows_screen = 0;
+void SetFieldText(u64 root, const char* path, const char16_t* text) {
+    Wrapper field;
+    if (!text || !field.Fetch(root, path)) return;
+    alignas(16) std::uint8_t value[0x40]{};
+    const u64 v = reinterpret_cast<u64>(value);
+    const u64 vtable = *reinterpret_cast<const u64*>(field.at());
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(*reinterpret_cast<const u64*>(vtable))(v, field.at());
+    const u64 iface = *reinterpret_cast<const u64*>(v + 0x18);
+    const u32 type = *reinterpret_cast<const u32*>(v + 0x20);
+    const u64 data = *reinterpret_cast<const u64*>(v + 0x28);
+    if (iface && (type & 0x8f)) {
+        const u64 set = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0x138);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64, u32)>(set)(iface, data, reinterpret_cast<u64>(text), 1);
+    }
+    if ((type & 0x40) && iface) {
+        const u64 release = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0x18);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64)>(release)(iface, v + 8, data);
+    }
+}
+void WriteRows(u64 screen) {
+    const u32 goods = g_shown_goods.load(std::memory_order_acquire);
+    if (!goods || (goods == g_rows_goods && screen == g_rows_screen)) return;
+    Wrapper root;
+    reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kResolveHandle))(root.at(), screen + kPanelHandle);
+    if (!*reinterpret_cast<const u64*>(root.at())) return;
+    g_rows_goods = goods;
+    g_rows_screen = screen;
+    const int family = ChaliceFamily(goods);
+    // the depth: the HolygrailParam row's first byte (checked against the cards on every tab)
+    std::u16string depth;
+    {
+        ParamRef ref;
+        reinterpret_cast<LookupFn>(coop::Guest(kHolygrailLookup))(&ref, goods);
+        std::uint8_t d = 0;
+        if (ref.row && coop::SafeGet(ref.row, &d) && d > 0 && d < 100)
+            for (const char c : std::to_string(d)) depth.push_back(char16_t(c));
+    }
+    SetFieldText(root.at(), "GlyphDetailText/GlyphDepth/Text_0", BbGameMenu::GameText(kMenuText, kDepthLabel));
+    SetFieldText(root.at(), "GlyphDetailText/GlyphDepth/Value_0", depth.c_str());
+    SetFieldText(root.at(), "GlyphDetailText/GlyphArea/Text_0", BbGameMenu::GameText(kMenuText, kAreaLabel));
+    SetFieldText(root.at(), "GlyphDetailText/GlyphArea/Value_0",
+                 family >= 0 ? BbGameMenu::GameText(kMenuText, kAreaNames + u32(family)) : u"");
+}
 BB_COOP_SYSV void ScreenUpdate(u64 screen, u64, u64, u64, u64, u64) {
     ExpandDisplay(screen, "after the screen opened", true);
+    if (IsGlyphScreen(screen)) WriteRows(screen);
 }
 
 // The generated panel movie, when bb-start made it (BB_PC_MENU_ASSETS): the game reads every menu movie once, at start.
@@ -725,7 +779,10 @@ BB_COOP_SYSV u64 DescText(u64 msg, u64 iid) {
     t_desc_row = 0;
     {
         std::lock_guard<std::mutex> lk(g_mu);
-        if (const Glyph* g = GlyphOfRow(row)) return reinterpret_cast<u64>(g->desc.c_str());
+        if (const Glyph* g = GlyphOfRow(row)) {
+            g_shown_goods.store(g->goods, std::memory_order_release);  // the panel's Depth / Area rows (WriteRows)
+            return reinterpret_cast<u64>(g->desc.c_str());
+        }
     }
     return reinterpret_cast<DescFn>(coop::Guest(kGoodsDesc))(msg, iid);
 }

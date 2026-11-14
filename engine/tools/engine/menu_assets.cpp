@@ -1092,9 +1092,9 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
     // is at 1162, so the column's parts are 147 px wider than the game's
     constexpr double kBackLeft = 419, kBackRight = 1309, kGameRight = 1162;
     constexpr std::int64_t kWider = std::int64_t((kBackRight - kGameRight) * 20);  // twips
-    // the column's parts by depth: 1 the background, 23 the name's underline, 34 the ruled lines, 74 DetailDesc,
-    // 76 ItemName
-    const std::set<std::uint16_t> keep = {1, 23, 34, 74, 76};
+    // the column's parts by depth: 1 the background, 15 / 19 the long ornaments along the top and bottom (narrowed to
+    // the background, the same margins), 23 the name's underline, 34 the ruled lines, 74 DetailDesc, 76 ItemName
+    const std::set<std::uint16_t> keep = {1, 15, 19, 23, 34, 74, 76};
     Movie m = ReadMovie(gfx);
     if (Placed(m, "GlyphDetailText")) throw Error("the movie already has GlyphDetailText");
     const std::size_t first = FindPlaced(m, "ItemDetailText");
@@ -1193,12 +1193,71 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
             at.tx = std::llround(kBackLeft * 20);
             const Tag moved = Changed(t.code, Rewrite(t, p, {}, back.id, at, {}));
             column.tags.push_back(HiddenPart(moved, part_name(p.depth)));
+        } else if (p.depth == 15 || p.depth == 19) {
+            const auto span = p.matrix && p.character ? CharacterSpan(m, *p.character) : std::nullopt;
+            if (!span || p.matrix->rotated) throw Error("ItemDetailText's ornaments are not 1.09's");
+            const double width = double(span->right - span->left) / 20;
+            const double margin_left = double(p.matrix->tx) / 20, margin_right = kGameRight - margin_left - width;
+            Matrix at = ScaledX(*p.matrix, (kBackRight - kBackLeft - margin_left - margin_right) / width);
+            at.tx = std::llround((kBackLeft + margin_left) * 20);
+            const Tag narrowed = Changed(t.code, Rewrite(t, p, {}, {}, at, {}));
+            column.tags.push_back(HiddenPart(narrowed, part_name(p.depth)));
         } else {
             const Tag own = Changed(t.code, Rewrite(t, p, {}, wider.at(*p.character), {}, {}));
             column.tags.push_back(HiddenPart(own, p.name ? std::nullopt : std::optional<std::string>(part_name(p.depth))));
         }
     }
     if (kept != keep.size()) throw Error("ItemDetailText's sprite is not 1.09's");
+
+    // Two rows under the description box, GlyphDepth and GlyphArea (filled at run time), laid out as the game's
+    // No. Held / Stored rows (Item_*_TP_Base): the label Text_0, the right-aligned value Value_0 and the held rows'
+    // curled underline, at the held rows' positions from the row's left: label 2, the value's right end 400, the
+    // underline -13.65 (its left) and 27.25 down; rows 55 apart at the held rows' height (550.8, under the bottom
+    // ornament). The row's left is set so the label lines up with the description text.
+    constexpr double kRowX = 449, kRowsY = 550.8, kRowPitch = 55, kLabelX = 2, kValueRight = 400, kValueWidth = 171.05;
+    constexpr double kLineX = -13.65, kLineY = 27.25;
+    std::optional<Tag> label, value, line;
+    for (const Tag& t : game.tags) {
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (p.name == "Item_0_TP_Base") {
+            for (const Tag& c : ReadSprite(m.tags[FindSprite(m, *p.character)]).tags) {
+                if (!IsPlace(c)) continue;
+                const Place q = ReadPlace(c);
+                if (q.name == "Text_0") label = c;
+                if (q.name == "Value_0") value = c;
+            }
+        }
+        if (p.depth == 26) line = t;  // the held row's underline
+    }
+    if (!label || !value || !line) throw Error("ItemDetailText's rows are not 1.09's");
+    const auto moved = [](const Tag& t, double x, double y, std::optional<std::uint16_t> depth) {
+        const Place p = ReadPlace(t);
+        Matrix at = p.matrix.value_or(Matrix{});
+        at.tx = std::llround(x * 20), at.ty = std::llround(y * 20);
+        return Changed(t.code, Rewrite(t, p, depth, {}, at, {}));
+    };
+    std::vector<Sprite> row_sprites;
+    std::vector<Tag> rows;
+    {
+        Sprite row{std::uint16_t(column.id + 1), 1, {}};
+        row.tags.push_back(moved(*label, kLabelX, 6, std::uint16_t(1)));
+        row.tags.push_back(moved(*value, kValueRight - kValueWidth, 6, std::uint16_t(3)));
+        row.tags.push_back(moved(*line, kLineX, kLineY, std::uint16_t(5)));
+        row.tags.push_back(Tag{kShowFrame, {}, {}});
+        row.tags.push_back(Tag{kEnd, {}, {}});
+        const char* names[] = {"GlyphDepth", "GlyphArea"};
+        for (int i = 0; i < 2; ++i) {
+            Matrix at;
+            at.tx = std::llround(kRowX * 20), at.ty = std::llround((kRowsY + i * kRowPitch) * 20);
+            rows.push_back(HiddenPlacement(row.id, std::uint16_t(80 + 2 * i), at, names[i]));
+        }
+        row_sprites.push_back(row);
+    }
+    {
+        const auto frame = std::find_if(column.tags.begin(), column.tags.end(), [](const Tag& t) { return t.code == kShowFrame; });
+        column.tags.insert(frame, rows.begin(), rows.end());
+    }
 
     // ItemDetailText: its unnamed parts named, nothing else changed.
     for (Tag& t : game.tags)
@@ -1212,6 +1271,7 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
             tags.push_back(WriteSprite(game));
             tags.push_back(WriteSprite(back));
             tags.insert(tags.end(), wider_tags.begin(), wider_tags.end());
+            for (const Sprite& r : row_sprites) tags.push_back(WriteSprite(r));
             tags.push_back(WriteSprite(column));
             continue;
         }
