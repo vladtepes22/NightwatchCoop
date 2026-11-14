@@ -44,6 +44,22 @@ if (-not (Test-Path -LiteralPath $packageManifest)) {
 if (-not (Test-Path -LiteralPath (Join-Path $Package 'randomizer\randomizer.exe'))) {
     $problems.Add("no randomizer\randomizer.exe in $Package`: package again with -RandomizerBuild <generator build folder>")
 }
+# The zip must extract on Linux too (Proton): '/' in entry names, and the engine and generator where the launcher looks.
+if (Test-Path -LiteralPath $zip) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+    try {
+        $names = @($archive.Entries | ForEach-Object { $_.FullName })
+    } finally { $archive.Dispose() }
+    $backslash = @($names | Where-Object { $_.Contains('\') })
+    if ($backslash.Count) {
+        $problems.Add("zip has $($backslash.Count) entries with '\' (e.g. $($backslash[0])): make it with tools\package-zip.ps1")
+    }
+    foreach ($needed in 'NightwatchCoop/Nightwatch Co-op.exe', 'NightwatchCoop/engine/out/bb-probe.exe',
+                        'NightwatchCoop/engine/out/bb-start.exe', 'NightwatchCoop/randomizer/randomizer.exe') {
+        if ($names -notcontains $needed) { $problems.Add("zip has no $needed") }
+    }
+}
 
 # Clean repo (the fsr-vulkan submodule always shows as modified; it is never committed).
 $dirty = @(git -C $repo status --porcelain --ignore-submodules=dirty)
