@@ -63,5 +63,7 @@ Kind KindOf(std::int32_t id);
 Bytes MenuMessages(const Bytes& dcx, Language language);
 Bytes MenuMessages(const Bytes& dcx, bool chinese = false);
 Bytes OptionMovie(const Bytes& gfx);
+// itemdetailtext.gfx with a second description panel, GlyphDetailText, for the Chalice glyph screen.
+Bytes GlyphPanelMovie(const Bytes& gfx);
 Bytes AltarScripts(const Bytes& dcx);
 }

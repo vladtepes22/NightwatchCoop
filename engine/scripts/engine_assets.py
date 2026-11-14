@@ -280,6 +280,10 @@ def prepare_menu_assets(game, elf_path, cache, tool, rebirth=False):
         raise ValueError('Native options require valid menu bundles for every installed language')
     if rebirth:
         sources.append((Path('dvdroot_ps4/script/talk/m24_02_00_00.talkesdbnd.dcx'), 'rebirth'))
+    # The Chalice glyph screen's panel is optional: if it cannot be made, only that screen goes without it.
+    glyph_panel = Path('dvdroot_ps4/menu/itemdetailtext.gfx')
+    if (game / glyph_panel).is_file():
+        sources.append((glyph_panel, 'glyph-panel'))
     generator = sha(tool.read_bytes())
     manifest_path = root / 'manifest.json'
     try:
@@ -289,31 +293,36 @@ def prepare_menu_assets(game, elf_path, cache, tool, rebirth=False):
     rows = {}
     for relative, kind in sources:
         source, destination = game / relative, root / relative
-        if source.stat().st_size > 64 * 1024 * 1024:
-            raise ValueError(f'Native menu source is oversized: {relative}')
-        digest = sha(source.read_bytes())
-        prior = previous.get('files', {}).get(relative.as_posix(), {})
-        current = None
-        if previous.get('generator') == generator and prior.get('input') == digest:
-            try:
-                current = sha(destination.read_bytes())
-                if current != prior.get('output'):
-                    current = None
-            except OSError:
-                pass
-        if current is None:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            temporary = destination.with_name(destination.name + f'.{os.getpid()}.tmp')
-            try:
-                result = subprocess.run([str(tool), kind, str(source), str(temporary)],
-                                        capture_output=True, text=True, errors='replace')
-                if result.returncode:
-                    raise ValueError(result.stderr.strip() or f'Menu generator failed: {relative}')
-                current = sha(temporary.read_bytes())
-                os.replace(temporary, destination)
-            finally:
-                temporary.unlink(missing_ok=True)
-        rows[relative.as_posix()] = {'input': digest, 'output': current}
+        try:
+            if source.stat().st_size > 64 * 1024 * 1024:
+                raise ValueError(f'Native menu source is oversized: {relative}')
+            digest = sha(source.read_bytes())
+            prior = previous.get('files', {}).get(relative.as_posix(), {})
+            current = None
+            if previous.get('generator') == generator and prior.get('input') == digest:
+                try:
+                    current = sha(destination.read_bytes())
+                    if current != prior.get('output'):
+                        current = None
+                except OSError:
+                    pass
+            if current is None:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                temporary = destination.with_name(destination.name + f'.{os.getpid()}.tmp')
+                try:
+                    result = subprocess.run([str(tool), kind, str(source), str(temporary)],
+                                            capture_output=True, text=True, errors='replace')
+                    if result.returncode:
+                        raise ValueError(result.stderr.strip() or f'Menu generator failed: {relative}')
+                    current = sha(temporary.read_bytes())
+                    os.replace(temporary, destination)
+                finally:
+                    temporary.unlink(missing_ok=True)
+            rows[relative.as_posix()] = {'input': digest, 'output': current}
+        except (OSError, ValueError):
+            if kind != 'glyph-panel':
+                raise
+            destination.unlink(missing_ok=True)
     root.mkdir(parents=True, exist_ok=True)
     temporary = manifest_path.with_suffix(f'.{os.getpid()}.tmp')
     temporary.write_text(json.dumps({'generator': generator, 'files': rows}, indent=2), encoding='utf-8')

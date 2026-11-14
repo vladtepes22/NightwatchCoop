@@ -47,6 +47,9 @@
 #include <string>
 #include <vector>
 
+extern "C" int runtime_file_mount(const char*, const char*);
+extern "C" void runtime_file_unmount(const char*);
+
 namespace BbGlyphScreen {
 namespace {
 
@@ -119,6 +122,25 @@ bool g_from_glyph = false;
 u64 g_glyph_menu = 0;
 HandlerFn g_glyph_item_original = nullptr;
 PickedFn g_picked_original = nullptr;
+
+// The glyph screen's own description panel (GlyphDetailText, a second panel in the generated itemdetailtext.gfx:
+// tools/engine/menu_assets.cpp GlyphPanelMovie). An item screen finds its panel by name with 0x1adb220(out, parent,
+// printf-style path) twice: once in its setup 0x1b98fb0 (rdi = the screen; call 0x1b9914f) and again whenever its
+// text is filled in, through the getter 0x1b98d80(out, screen + 0xda0) (call 0x1b98e93). The first setup after the
+// glyph item is the glyph screen's; both lookups of that screen ask for GlyphDetailText.
+constexpr u64 kScreenSetup = 0x1b98fb0;
+constexpr u64 kSetupFetchCall = 0x1b9914f;
+constexpr u64 kPanelGetter = 0x1b98d80;
+constexpr u64 kPanelGetterOffset = 0xda0;
+constexpr u64 kGetterFetchCall = 0x1b98e93;
+constexpr u64 kChildFetch = 0x1adb220;
+constexpr char kGuestPanel[] = "/app0/dvdroot_ps4/menu/itemdetailtext.gfx";
+using FetchFn = u64(BB_COOP_SYSV*)(u64 out, u64 parent, const char* path);
+bool g_panel = false;                // the generated panel movie is mounted and its hooks in
+bool g_panel_pending = false;        // the next item screen's setup is the glyph screen's
+std::atomic<u64> g_panel_screen{0};  // the glyph screen's item screen object (0: none)
+thread_local bool t_panel_ours = false;  // the lookup now running is the glyph screen's
+thread_local bool t_in_getter = false;  // the getter (a text fill) is running
 
 // A picked glyph: the game's glyph box (opened by the Search by Chalice Glyph step) is filled with it and confirmed.
 std::string g_pick;           // "" when none
@@ -246,6 +268,7 @@ BB_COOP_SYSV u64 GlyphItem(u64 out, u64 ctx) {
             return g_glyph_item_original(out, ctx);
         }
         g_opening = true;
+        g_panel_pending = g_panel;
         g_from_glyph = true;
         g_glyph_menu = 0;
         g_screen.store(true, std::memory_order_release);  // before the picker's setup asks for its title
@@ -256,6 +279,112 @@ BB_COOP_SYSV u64 GlyphItem(u64 out, u64 ctx) {
     std::lock_guard<std::mutex> lk(g_mu);
     g_from_glyph = false;
     return r;
+}
+
+// An item screen's setup: the first after the glyph item is the glyph screen's; a later setup of the same object is
+// another screen's.
+BB_COOP_SYSV void ScreenSetup(u64 screen, u64, u64, u64, u64, u64) {
+    bool ours = false;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        ours = g_panel_pending;
+        g_panel_pending = false;
+    }
+    if (ours) {
+        g_panel_screen.store(screen, std::memory_order_release);
+        std::printf("Glyph screen: item screen 0x%llx uses GlyphDetailText\n", static_cast<unsigned long long>(screen));
+        std::fflush(stdout);
+    } else if (g_panel_screen.load(std::memory_order_acquire) == screen) {
+        g_panel_screen.store(0, std::memory_order_release);
+    }
+    t_panel_ours = ours;
+    t_in_getter = false;
+}
+BB_COOP_SYSV void PanelGetter(u64, u64 src, u64, u64, u64, u64) {
+    const u64 screen = g_panel_screen.load(std::memory_order_acquire);
+    t_panel_ours = screen && src == screen + kPanelGetterOffset;
+    t_in_getter = true;
+}
+
+// Both panels live in the one panel movie that every item screen shares, and each keeps the text last written to it:
+// the glyph screen shows only GlyphDetailText's parts (hidden in the movie), every other screen only ItemDetailText's.
+// Only the parts inside the panels are shown or hidden, never the panels: a display object changed by code no longer
+// follows the timeline, and the panels fade in and out by the timeline. The unnamed parts are named GlyphPart_<depth>
+// in the generated movie (tools/engine/menu_assets.cpp GlyphPanelMovie).
+//
+// A display object is a wrapper from 0x1adb220(out, parent wrapper, name): its vtable's +8 sets its visibility; its
+// value at +0x30 (interface +0x40, type +0x48, data +0x50; type & 0x8f == 10 a display object, & 0x40 counted,
+// released by the interface's +0x18).
+constexpr const char* kGlyphParts[] = {"GlyphPart_1", "GlyphPart_23", "GlyphPart_34", "DetailDesc", "ItemName"};
+constexpr const char* kGameParts[] = {"GlyphPart_1",  "GlyphPart_11",   "ItemKnowledgeIcon", "GlyphPart_15",
+                                      "GlyphPart_19", "GlyphPart_23",   "GlyphPart_26",      "GlyphPart_30",
+                                      "GlyphPart_34", "Item_1_TP_Add",  "Item_1_TP_Base",    "Item_0_TP_Add",
+                                      "Item_0_TP_Base", "DetailDesc",   "ItemName"};
+struct Wrapper {
+    alignas(16) std::uint8_t bytes[0x100]{};
+    u64 at() { return reinterpret_cast<u64>(bytes); }
+    bool Fetch(u64 parent, const char* name) {
+        reinterpret_cast<FetchFn>(coop::Guest(kChildFetch))(at(), parent, name);
+        return (Type() & 0x8f) == 10;
+    }
+    u32 Type() { return *reinterpret_cast<const u32*>(at() + 0x48); }
+    void SetVisible(bool visible) {
+        const u64 vtable = *reinterpret_cast<const u64*>(at());
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u32)>(*reinterpret_cast<const u64*>(vtable + 8))(at(), visible ? 1 : 0);
+    }
+    ~Wrapper() {
+        if (!(Type() & 0x40)) return;
+        const u64 iface = *reinterpret_cast<const u64*>(at() + 0x40);
+        const u64 release = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0x18);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64)>(release)(iface, at() + 0x30,
+                                                                       *reinterpret_cast<const u64*>(at() + 0x50));
+    }
+};
+// The parts of one panel (`panel`, a display object wrapper) shown or hidden; how many were found.
+template <std::size_t N>
+int ShowParts(u64 panel, const char* const (&parts)[N], bool visible) {
+    int found = 0;
+    for (const char* name : parts) {
+        Wrapper part;
+        if (!part.Fetch(panel, name)) continue;
+        part.SetVisible(visible);
+        ++found;
+    }
+    return found;
+}
+bool g_glyph_panel_shown = false;  // the movie now shows GlyphDetailText's parts (menu thread)
+
+BB_COOP_SYSV u64 PanelFetch(u64 out, u64 parent, u64 path) {
+    const bool ours = t_panel_ours;
+    const bool getter = t_in_getter;
+    t_in_getter = false;
+    const u64 r = reinterpret_cast<FetchFn>(coop::Guest(kChildFetch))(
+        out, parent, ours ? "GlyphDetailText" : reinterpret_cast<const char*>(path));
+    // a text fill (the getter, the movie ready): the screen's own panel's parts shown, the other's hidden
+    if (getter && (ours || g_glyph_panel_shown) && (*reinterpret_cast<const u32*>(out + 0x48) & 0x8f) == 10) {
+        Wrapper glyph, game;
+        const int glyph_parts = glyph.Fetch(parent, "GlyphDetailText") ? ShowParts(glyph.at(), kGlyphParts, ours) : 0;
+        const int game_parts = game.Fetch(parent, "ItemDetailText") ? ShowParts(game.at(), kGameParts, !ours) : 0;
+        if (g_glyph_panel_shown != ours) {
+            std::printf("Glyph screen: the panel movie shows %s (parts %d / %zu shown, %d / %zu hidden)\n",
+                        ours ? "GlyphDetailText" : "ItemDetailText", ours ? glyph_parts : game_parts,
+                        ours ? std::size(kGlyphParts) : std::size(kGameParts), ours ? game_parts : glyph_parts,
+                        ours ? std::size(kGameParts) : std::size(kGlyphParts));
+            std::fflush(stdout);
+        }
+        g_glyph_panel_shown = ours;
+    }
+    return r;
+}
+
+// The generated panel movie, when bb-start made it (BB_PC_MENU_ASSETS): the game reads every menu movie once, at start.
+bool MountPanel() {
+    const char* assets = std::getenv("BB_PC_MENU_ASSETS");
+    if (!assets || !*assets) return false;
+    std::error_code ec;
+    const std::filesystem::path panel = std::filesystem::path(assets) / "dvdroot_ps4/menu/itemdetailtext.gfx";
+    if (!std::filesystem::is_regular_file(panel, ec)) return false;
+    return runtime_file_mount(kGuestPanel, panel.string().c_str()) == 0;
 }
 
 // The altar menu greys "Search by Chalice Glyph" without the network (0x553b120: +8, +0x9f8, +0x9f6, +0xa50 -> a byte
@@ -609,8 +738,20 @@ void Install() {
                                   "glyph screen: description rows");
     ok = ok && coop::HookCallSite(kDescCall, kGoodsDesc, reinterpret_cast<const void*>(&DescText),
                                   "glyph screen: descriptions");
+    if (ok && MountPanel()) {
+        g_panel = coop::HookPrologue(kScreenSetup, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &ScreenSetup,
+                                     "glyph screen: item screen setup");
+        g_panel = g_panel && coop::HookPrologue(kPanelGetter, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &PanelGetter,
+                                                "glyph screen: item screen panel getter");
+        g_panel = g_panel && coop::HookCallSite(kSetupFetchCall, kChildFetch, reinterpret_cast<const void*>(&PanelFetch),
+                                                "glyph screen: its description panel (setup)");
+        g_panel = g_panel && coop::HookCallSite(kGetterFetchCall, kChildFetch, reinterpret_cast<const void*>(&PanelFetch),
+                                                "glyph screen: its description panel (text)");
+        if (!g_panel) runtime_file_unmount(kGuestPanel);
+    }
     g_installed.store(ok, std::memory_order_release);
-    std::printf("Glyph screen: %s\n", ok ? "on (BB_GLYPH_SCREEN_TEST)" : "FAILED to install");
+    std::printf("Glyph screen: %s%s\n", ok ? "on (BB_GLYPH_SCREEN_TEST)" : "FAILED to install",
+                ok ? (g_panel ? ", its own panel" : ", the game's panel") : "");
     std::fflush(stdout);
 }
 

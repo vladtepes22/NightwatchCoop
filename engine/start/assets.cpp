@@ -399,6 +399,9 @@ fs::path PrepareMenuAssets(const fs::path& game, const fs::path& elf, const fs::
     if (sources.size() < 2 || sources.size() > 24)
         throw Error("Native options require valid menu bundles for every installed language");
     if (rebirth) sources.emplace_back("dvdroot_ps4/script/talk/m24_02_00_00.talkesdbnd.dcx", "rebirth");
+    // The Chalice glyph screen's panel is optional: if it cannot be made, only that screen goes without it.
+    const std::string glyph_panel = "dvdroot_ps4/menu/itemdetailtext.gfx";
+    if (fs::is_regular_file(game / Path(glyph_panel), error)) sources.emplace_back(glyph_panel, "glyph-panel");
     const std::string generator = Sha256Hex(ReadFile(tool));
     const fs::path manifest_path = root / "manifest.json";
     nlohmann::json previous = nlohmann::json::object();
@@ -409,36 +412,41 @@ fs::path PrepareMenuAssets(const fs::path& game, const fs::path& elf, const fs::
     nlohmann::ordered_json rows = nlohmann::ordered_json::object();
     for (const auto& [relative, kind] : sources) {
         const fs::path source = game / Path(relative), destination = root / Path(relative);
-        if (fs::file_size(source) > 64ull * 1024 * 1024) throw Error("Native menu source is oversized: " + relative);
-        const std::string digest = Sha256Hex(ReadFile(source));
-        std::optional<std::string> current;
-        const auto prior = previous.contains("files") && previous["files"].contains(relative) ? previous["files"][relative]
-                                                                                             : nlohmann::json::object();
-        if (previous.value("generator", "") == generator && prior.value("input", "") == digest) {
-            try {
-                const std::string now = Sha256Hex(ReadFile(destination));
-                if (now == prior.value("output", "")) current = now;
-            } catch (const Error&) {
+        try {
+            if (fs::file_size(source) > 64ull * 1024 * 1024) throw Error("Native menu source is oversized: " + relative);
+            const std::string digest = Sha256Hex(ReadFile(source));
+            std::optional<std::string> current;
+            const auto prior = previous.contains("files") && previous["files"].contains(relative) ? previous["files"][relative]
+                                                                                                 : nlohmann::json::object();
+            if (previous.value("generator", "") == generator && prior.value("input", "") == digest) {
+                try {
+                    const std::string now = Sha256Hex(ReadFile(destination));
+                    if (now == prior.value("output", "")) current = now;
+                } catch (const Error&) {
+                }
             }
+            if (!current) {
+                fs::create_directories(destination.parent_path());
+                fs::path temporary = destination;
+                temporary += L"." + std::to_wstring(GetCurrentProcessId()) + L".tmp";
+                std::string errors;
+                const int code = RunProgram(tool, {Wide(kind), source.native(), temporary.native()}, &errors);
+                if (code) {
+                    fs::remove(temporary, error);
+                    const std::string message = Trim(errors);
+                    throw Error(message.empty() ? "Menu generator failed: " + relative : message);
+                }
+                current = Sha256Hex(ReadFile(temporary));
+                if (!MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+                    fs::remove(temporary, error);
+                    throw Error("cannot write " + Utf8(destination));
+                }
+            }
+            rows[relative] = {{"input", digest}, {"output", *current}};
+        } catch (const std::exception&) {
+            if (kind != "glyph-panel") throw;
+            fs::remove(destination, error);
         }
-        if (!current) {
-            fs::create_directories(destination.parent_path());
-            fs::path temporary = destination;
-            temporary += L"." + std::to_wstring(GetCurrentProcessId()) + L".tmp";
-            std::string errors;
-            const int code = RunProgram(tool, {Wide(kind), source.native(), temporary.native()}, &errors);
-            if (code) {
-                fs::remove(temporary, error);
-                const std::string message = Trim(errors);
-                throw Error(message.empty() ? "Menu generator failed: " + relative : message);
-            }
-            current = Sha256Hex(ReadFile(temporary));
-            if (!MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-                fs::remove(temporary, error);
-                throw Error("cannot write " + Utf8(destination));
-            }
-        }
-        rows[relative] = {{"input", digest}, {"output", *current}};
     }
     fs::create_directories(root);
     WriteText(manifest_path, nlohmann::ordered_json{{"generator", generator}, {"files", rows}}.dump(2));

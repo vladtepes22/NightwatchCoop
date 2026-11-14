@@ -989,6 +989,172 @@ Bytes OptionMovie(const Bytes& gfx) {
     return WriteMovie(m);
 }
 
+namespace {
+// A matrix stretched across: x scaled by `by`, y and the position as they were.
+Matrix ScaledX(Matrix m, double by) {
+    const double sx = m.scaled ? Fixed(m.sx, m.scale_bits) : 1, sy = m.scaled ? Fixed(m.sy, m.scale_bits) : 1;
+    const std::int64_t x = std::llround(sx * by * 65536), y = std::llround(sy * 65536);
+    m.scaled = true;
+    m.scale_bits = std::max(BitsFor(x), BitsFor(y));
+    const std::uint64_t mask = (std::uint64_t(1) << m.scale_bits) - 1;
+    m.sx = std::uint32_t(std::uint64_t(x) & mask), m.sy = std::uint32_t(std::uint64_t(y) & mask);
+    return m;
+}
+// A sprite part's placement (PlaceObject2 or 3, placing a character) with the instance name `name` when it has none.
+Tag NamedPart(const Tag& t, const std::optional<std::string>& name) {
+    const Place p = ReadPlace(t);
+    if (!p.character || (p.flags & (0x01 | 0x80))) throw Error("ItemDetailText's parts are not 1.09's");
+    if (!name || p.name) return t;
+    Bytes body = t.body;
+    body[0] |= 0x20;
+    body.insert(body.begin() + std::ptrdiff_t(p.name_at), name->begin(), name->end());
+    body.insert(body.begin() + std::ptrdiff_t(p.name_at + name->size()), 0);
+    return Changed(t.code, std::move(body));
+}
+// The same part placed hidden (PlaceObject3 with visible 0), named `name` when it has no name of its own.
+Tag HiddenPart(const Tag& t, const std::optional<std::string>& name) {
+    const Tag named = NamedPart(t, name);
+    Bytes body = named.body;
+    if (named.code == kPlace2) {
+        body.insert(body.begin() + 1, 0x20);
+    } else {
+        if (body[1] & (0x20 | 0x40)) throw Error("ItemDetailText's parts are not 1.09's");
+        body[1] |= 0x20;
+    }
+    body.push_back(0);  // not visible
+    body.push_back(0);
+    return Changed(kPlace3, std::move(body));
+}
+}  // namespace
+
+// The Chalice glyph screen's description panel: a second copy of ItemDetailText (the sprite placed at root depth 1)
+// at depth 2, named GlyphDetailText, with only its right-hand column (name, underline, ruled lines, description) on a
+// background of its own (the panel's, narrowed: the edges kept, the middle stretched), moved right so it sits beside
+// the item cards. It follows ItemDetailText's FadeIn / Loop / FadeOut moves.
+//
+// Which panel shows is set on the parts inside the two panels, never on the panels: a display object changed by code
+// no longer follows the timeline's fade. GlyphDetailText's parts start hidden (the glyph screen shows them), and the
+// unnamed parts of both panels get names (GlyphPart_<depth>) so that bbport_glyph_screen.cpp can reach them.
+// ItemDetailText otherwise stays as it is.
+Bytes GlyphPanelMovie(const Bytes& gfx) {
+    constexpr std::uint16_t kPanelDepth = 1, kGlyphDepth = 2;
+    // px: the panel moved right so the column's frame (from x 440 in the panel) starts at ~948 on screen
+    constexpr double kShift = 298;
+    // px, in the panel: the new background from 419 (on screen ~927: the same gap after the cards as the item status
+    // panel's, measured) to the panel's own right edge, 1162
+    constexpr double kBackLeft = 419, kBackRight = 1162;
+    // the column's parts by depth: 1 the background, 23 the name's underline, 34 the ruled lines, 74 DetailDesc,
+    // 76 ItemName
+    const std::set<std::uint16_t> keep = {1, 23, 34, 74, 76};
+    Movie m = ReadMovie(gfx);
+    if (Placed(m, "GlyphDetailText")) throw Error("the movie already has GlyphDetailText");
+    const std::size_t first = FindPlaced(m, "ItemDetailText");
+    const Place panel = ReadPlace(m.tags[first]);
+    if (panel.depth != kPanelDepth || !panel.character || !panel.matrix) throw Error("ItemDetailText is not 1.09's");
+    for (const Tag& t : m.tags)
+        if (IsPlace(t) && ReadPlace(t).depth == kGlyphDepth) throw Error("the movie already uses depth 2");
+    const std::size_t sprite_at = FindSprite(m, *panel.character);
+    if (sprite_at > first) throw Error("ItemDetailText's timeline is not 1.09's");
+    Sprite game = ReadSprite(m.tags[sprite_at]);
+    if (game.frames != 1) throw Error("ItemDetailText's sprite is not 1.09's");
+    const auto part_name = [](std::uint16_t depth) { return "GlyphPart_" + std::to_string(depth); };
+
+    // The background: the panel's (fill, left edge, right edge, top and bottom lines) with the fill and the lines
+    // stretched to the new width and the edges at their own width.
+    std::optional<std::uint16_t> back_id;
+    for (const Tag& t : game.tags)
+        if (IsPlace(t) && ReadPlace(t).depth == 1) back_id = ReadPlace(t).character;
+    if (!back_id) throw Error("ItemDetailText has no background");
+    Sprite back = ReadSprite(m.tags[FindSprite(m, *back_id)]);
+    back.id = std::uint16_t(HighestCharacter(m) + 1);
+    // 1 the fill and 7 / 9 the lines run from x 5.05 to 1157.05; 3 the left edge (serrated, 5.05 wide) at 0; 5 the
+    // right edge (a plain line: in the game it meets the stats panel) at 1157.05. Ours has the left edge mirrored on
+    // the right too.
+    constexpr double kFillLeft = 5.05, kFillFull = 1152, kEdge = 5.05;
+    constexpr double kEdges = 2 * kEdge;
+    std::optional<Place> left_edge;
+    const double fill = (kBackRight - kBackLeft) - kEdges;
+    const double by = fill / kFillFull;
+    std::set<std::uint16_t> back_parts;
+    for (Tag& t : back.tags) {
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (!p.matrix || p.matrix->rotated) throw Error("ItemDetailText's background is not 1.09's");
+        back_parts.insert(p.depth);
+        if (p.depth == 1 || p.depth == 7 || p.depth == 9) {
+            t = Changed(t.code, Rewrite(t, p, {}, {}, ScaledX(*p.matrix, by), {}));
+        } else if (p.depth == 3) {
+            left_edge = p;
+        } else if (p.depth == 5) {
+            if (!left_edge || !left_edge->character || left_edge->matrix->scaled) throw Error("ItemDetailText's background is not 1.09's");
+            Matrix at = ScaledX(*left_edge->matrix, -1);
+            at.tx = std::llround((kFillLeft + fill + kEdge) * 20);
+            at.ty = left_edge->matrix->ty;
+            t = Changed(t.code, Rewrite(t, p, {}, left_edge->character, at, {}));
+        }
+    }
+    if (back_parts != std::set<std::uint16_t>{1, 3, 5, 7, 9}) throw Error("ItemDetailText's background is not 1.09's");
+
+    // GlyphDetailText: the column, every part hidden and named.
+    Sprite column = game;
+    column.id = std::uint16_t(back.id + 1);
+    column.tags.clear();
+    std::size_t kept = 0;
+    for (const Tag& t : game.tags) {
+        if (!IsPlace(t)) {
+            if (t.code != kShowFrame && t.code != kEnd) throw Error("ItemDetailText's sprite is not 1.09's");
+            column.tags.push_back(t);
+            continue;
+        }
+        const Place p = ReadPlace(t);
+        if (!keep.count(p.depth)) continue;
+        ++kept;
+        if (p.depth == 1) {
+            if (!p.matrix || p.matrix->scaled || p.matrix->rotated || p.matrix->tx || p.matrix->ty)
+                throw Error("ItemDetailText's background is not 1.09's");
+            Matrix at = *p.matrix;
+            at.tx = std::llround(kBackLeft * 20);
+            const Tag moved = Changed(t.code, Rewrite(t, p, {}, back.id, at, {}));
+            column.tags.push_back(HiddenPart(moved, part_name(p.depth)));
+        } else {
+            column.tags.push_back(HiddenPart(t, p.name ? std::nullopt : std::optional<std::string>(part_name(p.depth))));
+        }
+    }
+    if (kept != keep.size()) throw Error("ItemDetailText's sprite is not 1.09's");
+
+    // ItemDetailText: its unnamed parts named, nothing else changed.
+    for (Tag& t : game.tags)
+        if (IsPlace(t) && !ReadPlace(t).name) t = NamedPart(t, part_name(ReadPlace(t).depth));
+
+    std::vector<Tag> tags;
+    std::size_t moves = 0;
+    for (std::size_t i = 0; i < m.tags.size(); ++i) {
+        const Tag& t = m.tags[i];
+        if (i == sprite_at) {
+            tags.push_back(WriteSprite(game));
+            tags.push_back(WriteSprite(back));
+            tags.push_back(WriteSprite(column));
+            continue;
+        }
+        tags.push_back(t);
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (p.depth != kPanelDepth || !p.matrix) continue;
+        Matrix at = *p.matrix;
+        at.tx += std::llround(kShift * 20);
+        if (i == first) {
+            tags.push_back(Changed(t.code, Rewrite(t, p, kGlyphDepth, column.id, at, std::string("GlyphDetailText"))));
+        } else {
+            if (p.character || p.name) throw Error("ItemDetailText's moves are not 1.09's");
+            tags.push_back(Changed(t.code, Rewrite(t, p, kGlyphDepth, {}, at, {})));
+            ++moves;
+        }
+    }
+    if (moves < 12) throw Error("ItemDetailText's timeline is not 1.09's");
+    m.tags = std::move(tags);
+    return WriteMovie(m);
+}
+
 Bytes AltarScripts(const Bytes& file) {
     Dcx dcx = DcxRead(file);
     Binder scripts = BinderRead(dcx.data);
