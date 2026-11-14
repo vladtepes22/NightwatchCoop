@@ -388,11 +388,19 @@ bool Instance::CreateDevice() {
     buffer_marker = add_extension(VK_AMD_BUFFER_MARKER_EXTENSION_NAME);
     device_fault = feature_chain.get<vk::PhysicalDeviceFaultFeaturesEXT>().deviceFault &&
                    add_extension(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
-    address_binding_report =
+    // bbport (NW-b66467b): opt-in, BB_ADDRESS_REPORT=1. On the AMD driver (2.0.388) the report
+    // makes each submission slower the longer the game runs (60 -> 16 FPS in minutes, the GPU
+    // idle between submissions); off, the frame rate held. GPU faults still name the command.
+    const bool address_report_supported =
         device_fault &&
-        feature_chain.get<vk::PhysicalDeviceAddressBindingReportFeaturesEXT>().reportAddressBinding &&
-        !(std::getenv("BB_ADDRESS_REPORT") && std::getenv("BB_ADDRESS_REPORT")[0] == '0') &&
-        add_extension(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
+        feature_chain.get<vk::PhysicalDeviceAddressBindingReportFeaturesEXT>().reportAddressBinding;
+    const char* address_report_env = std::getenv("BB_ADDRESS_REPORT");
+    address_binding_report = address_report_supported && address_report_env &&
+                             address_report_env[0] == '1' &&
+                             add_extension(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
+    if (address_report_supported && !address_binding_report) {
+        std::printf("GPU fault reports: memory binds not tracked (BB_ADDRESS_REPORT=1 tracks them)\n");
+    }
     attachment_feedback_loop = add_extension(VK_EXT_ATTACHMENT_FEEDBACK_LOOP_LAYOUT_EXTENSION_NAME);
     if (attachment_feedback_loop) {
         attachment_feedback_loop =
