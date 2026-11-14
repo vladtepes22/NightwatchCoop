@@ -1025,6 +1025,36 @@ Tag HiddenPart(const Tag& t, const std::optional<std::string>& name) {
     body.push_back(0);
     return Changed(kPlace3, std::move(body));
 }
+// A filled rectangle (DefineShape) from (0, 0), `width` x `height` twips: a mask.
+Tag RectShape(std::uint16_t id, std::int64_t width, std::int64_t height) {
+    Bytes body;
+    PutLe(body, id, 2);
+    BitWriter bounds;
+    const int n = std::max(BitsFor(width), BitsFor(height));
+    bounds.Put(std::uint64_t(n), 5);
+    for (const std::int64_t v : {std::int64_t(0), width, std::int64_t(0), height})
+        bounds.Put(std::uint64_t(v) & ((std::uint64_t(1) << n) - 1), n);
+    Append(body, bounds.out);
+    body.insert(body.end(), {0x01, 0x00, 0xff, 0xff, 0xff, 0x00});  // one solid white fill, no line styles
+    BitWriter shape;
+    shape.Put(1, 4);  // fill index bits
+    shape.Put(0, 4);  // line index bits
+    shape.Put(0b000011, 6);  // a style change: fill style 0 and a move
+    shape.Put(1, 5), shape.Put(0, 1), shape.Put(0, 1);  // move to (0, 0)
+    shape.Put(1, 1);  // fill style 0 = 1
+    const int bits = std::max({BitsFor(width), BitsFor(-width), BitsFor(height), BitsFor(-height)});
+    const auto edge = [&](bool vertical, std::int64_t delta) {
+        shape.Put(0b11, 2);
+        shape.Put(std::uint64_t(bits - 2), 4);
+        shape.Put(0, 1);  // a horizontal or vertical line
+        shape.Put(vertical ? 1 : 0, 1);
+        shape.Put(std::uint64_t(delta) & ((std::uint64_t(1) << bits) - 1), bits);
+    };
+    edge(false, width), edge(true, height), edge(false, -width), edge(true, -height);
+    shape.Put(0, 6);  // the end
+    Append(body, shape.out);
+    return Changed(2, std::move(body));
+}
 // An edit text (DefineEditText) as character `id`, its bounds `by` twips wider (the right edge moved).
 Tag WiderEditText(const Movie& m, std::uint16_t of, std::uint16_t id, std::int64_t by) {
     for (const Tag& t : m.tags) {
@@ -1211,10 +1241,21 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
 
     // Two rows under the description box, GlyphDepth and GlyphArea (filled at run time), laid out as the game's
     // No. Held / Stored rows (Item_*_TP_Base): the label Text_0, the right-aligned value Value_0 and the held rows'
-    // curled underline, at the held rows' positions from the row's left: label 2, the value's right end 400, the
-    // underline -13.65 (its left) and 27.25 down; rows 55 apart at the held rows' height (550.8, under the bottom
-    // ornament). The row's left is set so the label lines up with the description text.
-    constexpr double kRowX = 449, kRowsY = 550.8, kRowPitch = 55, kLabelX = 2, kValueRight = 400, kValueWidth = 171.05;
+    // curled underline, at the held rows' positions from the row's left: the value's right end 400, the underline
+    // -13.65 (its left) and 27.25 down. The Area row is at the second held row's height (605.85), the Depth row 63
+    // above it (8 more than the held rows' 55) so the Area icon clears the Depth underline. In front, as in the chalice
+    // status panel's rows, the Depth / Area icon (32 x 32), 6 px up so it clears its own underline (its curl starts 32
+    // down), with the label 12 px after it; the label and value 3 px up. The row's left is set so the icon lines up
+    // with the description text.
+    //
+    // The icons are cells of the menu icon sheet MENU_Icon_07001 (the movie's image MENU_DummyIcon_07001 is that whole
+    // sheet: 32 x 32 cells, 32 across; icon id 7000 + row * 32 + column, as the game's icon lookup 0x1ad3020 has it):
+    // Depth 7078 (row 2, column 14), Area 7077 (row 2, column 13). Each is the sheet behind a 32 x 32 mask, moved so
+    // the cell shows.
+    constexpr double kRowX = 449, kRowsY = 542.85, kRowPitch = 63, kLabelX = 44, kValueRight = 400, kValueWidth = 171.05;
+    constexpr double kTextY = 3, kIconY = -6;
+    constexpr int kIconSize = 32;
+    constexpr int kIconCells[2][2] = {{14, 2}, {13, 2}};  // column, row: Depth, Area
     constexpr double kLineX = -13.65, kLineY = 27.25;
     std::optional<Tag> label, value, line;
     for (const Tag& t : game.tags) {
@@ -1237,22 +1278,51 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
         at.tx = std::llround(x * 20), at.ty = std::llround(y * 20);
         return Changed(t.code, Rewrite(t, p, depth, {}, at, {}));
     };
-    std::vector<Sprite> row_sprites;
+    std::uint16_t sheet = 0;
+    for (const auto& [id, name] : SymbolClasses(m))
+        if (name == "MENU_DummyIcon_07001") sheet = id;
+    if (!sheet) throw Error("ItemDetailText has no MENU_DummyIcon_07001");
+    std::vector<Tag> row_defs;
     std::vector<Tag> rows;
-    {
-        Sprite row{std::uint16_t(column.id + 1), 1, {}};
-        row.tags.push_back(moved(*label, kLabelX, 6, std::uint16_t(1)));
-        row.tags.push_back(moved(*value, kValueRight - kValueWidth, 6, std::uint16_t(3)));
-        row.tags.push_back(moved(*line, kLineX, kLineY, std::uint16_t(5)));
+    std::uint16_t next_id = column.id;
+    const std::uint16_t mask = ++next_id;
+    row_defs.push_back(RectShape(mask, kIconSize * 20, kIconSize * 20));
+    const char* names[] = {"GlyphDepth", "GlyphArea"};
+    for (int i = 0; i < 2; ++i) {
+        Sprite icon{++next_id, 1, {}};
+        Bytes clip{0x02 | 0x04 | 0x40};  // the mask: character, matrix, clip depth
+        PutLe(clip, 1, 2);
+        PutLe(clip, mask, 2);
+        Append(clip, WriteMatrix(Matrix{}));
+        PutLe(clip, 2, 2);
+        icon.tags.push_back(Changed(kPlace2, clip));
+        Bytes image{0x06, 0x10};  // the sheet: an image character (PlaceObject3), as the game's icon parts place it
+        PutLe(image, 2, 2);
+        PutLe(image, sheet, 2);
+        Matrix at;
+        at.tx = -std::int64_t(kIconCells[i][0]) * kIconSize * 20, at.ty = -std::int64_t(kIconCells[i][1]) * kIconSize * 20;
+        Append(image, WriteMatrix(at));
+        icon.tags.push_back(Changed(kPlace3, image));
+        icon.tags.push_back(Tag{kShowFrame, {}, {}});
+        icon.tags.push_back(Tag{kEnd, {}, {}});
+        Sprite row{++next_id, 1, {}};
+        Bytes icon_place{0x02 | 0x04};
+        PutLe(icon_place, 1, 2);
+        PutLe(icon_place, icon.id, 2);
+        Matrix icon_at;
+        icon_at.ty = std::llround(kIconY * 20);
+        Append(icon_place, WriteMatrix(icon_at));
+        row.tags.push_back(Changed(kPlace2, icon_place));
+        row.tags.push_back(moved(*label, kLabelX, kTextY, std::uint16_t(3)));
+        row.tags.push_back(moved(*value, kValueRight - kValueWidth, kTextY, std::uint16_t(5)));
+        row.tags.push_back(moved(*line, kLineX, kLineY, std::uint16_t(7)));
         row.tags.push_back(Tag{kShowFrame, {}, {}});
         row.tags.push_back(Tag{kEnd, {}, {}});
-        const char* names[] = {"GlyphDepth", "GlyphArea"};
-        for (int i = 0; i < 2; ++i) {
-            Matrix at;
-            at.tx = std::llround(kRowX * 20), at.ty = std::llround((kRowsY + i * kRowPitch) * 20);
-            rows.push_back(HiddenPlacement(row.id, std::uint16_t(80 + 2 * i), at, names[i]));
-        }
-        row_sprites.push_back(row);
+        Matrix place;
+        place.tx = std::llround(kRowX * 20), place.ty = std::llround((kRowsY + i * kRowPitch) * 20);
+        rows.push_back(HiddenPlacement(row.id, std::uint16_t(80 + 2 * i), place, names[i]));
+        row_defs.push_back(WriteSprite(icon));
+        row_defs.push_back(WriteSprite(row));
     }
     {
         const auto frame = std::find_if(column.tags.begin(), column.tags.end(), [](const Tag& t) { return t.code == kShowFrame; });
@@ -1271,7 +1341,7 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
             tags.push_back(WriteSprite(game));
             tags.push_back(WriteSprite(back));
             tags.insert(tags.end(), wider_tags.begin(), wider_tags.end());
-            for (const Sprite& r : row_sprites) tags.push_back(WriteSprite(r));
+            tags.insert(tags.end(), row_defs.begin(), row_defs.end());
             tags.push_back(WriteSprite(column));
             continue;
         }
