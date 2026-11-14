@@ -770,6 +770,39 @@ BB_COOP_SYSV u64 ItemName(u64 iid_at) {
     return reinterpret_cast<NameFn>(coop::Guest(kItemName))(iid_at);
 }
 
+// A card's icon: 0x1c5d680(out, row) makes an item row's icon descriptor (0x38 bytes: +0 the sheet frame, +4..+0x13
+// the cell rectangle; all zero for no icon) from its item's icon id. A glyph's chalice can be one without an icon
+// (the game has no icon for it); its card then gets the icon of its area's chalice (g_family_goods).
+constexpr u64 kRowIcon = 0x1c5d680;
+using RowIconFn = u64(BB_COOP_SYSV*)(u64 out, u64 row);
+RowIconFn g_row_icon_original = nullptr;
+BB_COOP_SYSV u64 RowIcon(u64 out, u64 row) {
+    const u64 r = g_row_icon_original(out, row);
+    std::uint8_t descriptor[0x14]{};
+    std::memcpy(descriptor, reinterpret_cast<const void*>(out), sizeof descriptor);
+    if (std::any_of(std::begin(descriptor), std::end(descriptor), [](std::uint8_t b) { return b != 0; })) return r;
+    u32 fallback = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        if (const Glyph* g = GlyphOfRow(row)) {
+            const int family = ChaliceFamily(g->goods);
+            if (family >= 0 && g_family_goods[family] && g_family_goods[family] != g->goods) fallback = g_family_goods[family];
+            static std::vector<u32> logged;
+            if (fallback && std::find(logged.begin(), logged.end(), g->goods) == logged.end()) {
+                logged.push_back(g->goods);
+                std::printf("Glyph screen: chalice %u has no icon; its cards show chalice %u's\n", g->goods, fallback);
+                std::fflush(stdout);
+            }
+        }
+    }
+    if (!fallback) return r;
+    alignas(16) std::uint8_t copy[0xd8];
+    std::memcpy(copy, reinterpret_cast<const void*>(row), sizeof copy);
+    const u32 iid = 0x40000000u | fallback;
+    std::memcpy(copy + 0x4c, &iid, 4);
+    return g_row_icon_original(out, reinterpret_cast<u64>(copy));
+}
+
 // The long description: 0x1c5dd70(out, row) asks 0x1f01180(msg, item id) for a goods row's text (call 0x1c5df17);
 // the row is not kept for that call, so the entry hook notes it for this thread.
 thread_local u64 t_desc_row = 0;
@@ -957,6 +990,8 @@ void Install() {
                                   "glyph screen: the tab filter's collector");
     ok = ok && coop::HookCallSite(kNameCall, kItemName, reinterpret_cast<const void*>(&ItemName),
                                   "glyph screen: card names");
+    ok = ok && coop::ReplacePrologue(kRowIcon, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, reinterpret_cast<const void*>(&RowIcon),
+                                     reinterpret_cast<void**>(&g_row_icon_original), "glyph screen: card icons");
     ok = ok && coop::HookPrologue(kDescBinder, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &DescEntry,
                                   "glyph screen: description rows");
     ok = ok && coop::HookCallSite(kDescCall, kGoodsDesc, reinterpret_cast<const void*>(&DescText),
