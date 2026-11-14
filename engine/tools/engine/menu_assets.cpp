@@ -1025,6 +1025,53 @@ Tag HiddenPart(const Tag& t, const std::optional<std::string>& name) {
     body.push_back(0);
     return Changed(kPlace3, std::move(body));
 }
+// An edit text (DefineEditText) as character `id`, its bounds `by` twips wider (the right edge moved).
+Tag WiderEditText(const Movie& m, std::uint16_t of, std::uint16_t id, std::int64_t by) {
+    for (const Tag& t : m.tags) {
+        if (t.code != 37 || U16(t.body, 0) != of) continue;
+        BitReader r{t.body, 2};
+        const int n = int(r.Unsigned(5));
+        const std::int64_t left = r.Signed(n), right = r.Signed(n), top = r.Signed(n), bottom = r.Signed(n);
+        const std::size_t rest = r.End();
+        const int bits = std::max({BitsFor(left), BitsFor(right + by), BitsFor(top), BitsFor(bottom)});
+        BitWriter w;
+        w.Put(std::uint64_t(bits), 5);
+        for (const std::int64_t v : {left, right + by, top, bottom}) w.Put(std::uint64_t(v) & ((std::uint64_t(1) << bits) - 1), bits);
+        Bytes body;
+        PutLe(body, id, 2);
+        Append(body, w.out);
+        body.insert(body.end(), t.body.begin() + std::ptrdiff_t(rest), t.body.end());
+        return Changed(37, std::move(body));
+    }
+    throw Error("no edit text " + std::to_string(of) + " in the movie");
+}
+// A copy of sprite `of` as `id`, `by` twips wider: each wide part (over 100 px) stretched across, each narrow part
+// that sits right of 100 px moved right; `character` (if set) placed in place of the sprite's only character.
+Sprite WiderSprite(const Movie& m, std::uint16_t of, std::uint16_t id, std::int64_t by,
+                   std::optional<std::uint16_t> character = std::nullopt) {
+    Sprite s = ReadSprite(m.tags[FindSprite(m, of)]);
+    s.id = id;
+    for (Tag& t : s.tags) {
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (!p.character || !p.matrix || p.matrix->rotated) throw Error("ItemDetailText's parts are not 1.09's");
+        if (character) {
+            t = Changed(t.code, Rewrite(t, p, {}, character, {}, {}));
+            continue;
+        }
+        const auto span = CharacterSpan(m, *p.character);
+        if (!span) throw Error("ItemDetailText's parts are not 1.09's");
+        const std::int64_t width = span->right - span->left;
+        if (width > 100 * 20) {
+            t = Changed(t.code, Rewrite(t, p, {}, {}, ScaledX(*p.matrix, double(width + by) / double(width)), {}));
+        } else if (p.matrix->tx > 100 * 20) {
+            Matrix at = *p.matrix;
+            at.tx += by;
+            t = Changed(t.code, Rewrite(t, p, {}, {}, at, {}));
+        }
+    }
+    return s;
+}
 }  // namespace
 
 // The Chalice glyph screen's description panel: a second copy of ItemDetailText (the sprite placed at root depth 1)
@@ -1041,8 +1088,10 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
     // px: the panel moved right so the column's frame (from x 440 in the panel) starts at ~948 on screen
     constexpr double kShift = 298;
     // px, in the panel: the new background from 419 (on screen ~927: the same gap after the cards as the item status
-    // panel's, measured) to the panel's own right edge, 1162
-    constexpr double kBackLeft = 419, kBackRight = 1162;
+    // panel's, measured) to 1309 (on screen ~1817, where the stats panel ends, measured); the game panel's right edge
+    // is at 1162, so the column's parts are 147 px wider than the game's
+    constexpr double kBackLeft = 419, kBackRight = 1309, kGameRight = 1162;
+    constexpr std::int64_t kWider = std::int64_t((kBackRight - kGameRight) * 20);  // twips
     // the column's parts by depth: 1 the background, 23 the name's underline, 34 the ruled lines, 74 DetailDesc,
     // 76 ItemName
     const std::set<std::uint16_t> keep = {1, 23, 34, 74, 76};
@@ -1095,9 +1144,37 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
     }
     if (back_parts != std::set<std::uint16_t>{1, 3, 5, 7, 9}) throw Error("ItemDetailText's background is not 1.09's");
 
+    // The column's own parts, kWider wider than the game's (which stay as they are): the name's underline (one shape,
+    // stretched), the ruled lines (the horizontal lines stretched, the right-hand line moved) and the name and
+    // description text boxes (their edit texts' bounds widened).
+    std::map<std::uint16_t, std::uint16_t> wider;  // the game's part -> the column's
+    std::vector<Tag> wider_tags;
+    std::uint16_t next = back.id;
+    for (const Tag& t : game.tags) {
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (!p.character) continue;
+        if (p.depth == 23 || p.depth == 34) {
+            wider[*p.character] = ++next;
+            wider_tags.push_back(WriteSprite(WiderSprite(m, *p.character, next, kWider)));
+        } else if (p.depth == 74 || p.depth == 76) {
+            // a text box: a sprite holding one edit text (Value_0)
+            const Sprite box = ReadSprite(m.tags[FindSprite(m, *p.character)]);
+            std::optional<std::uint16_t> text;
+            for (const Tag& c : box.tags)
+                if (IsPlace(c)) text = ReadPlace(c).character;
+            if (!text) throw Error("ItemDetailText's text boxes are not 1.09's");
+            const std::uint16_t text_id = ++next;
+            wider_tags.push_back(WiderEditText(m, *text, text_id, kWider));
+            wider[*p.character] = ++next;
+            wider_tags.push_back(WriteSprite(WiderSprite(m, *p.character, next, kWider, text_id)));
+        }
+    }
+    if (wider.size() != 4) throw Error("ItemDetailText's column is not 1.09's");
+
     // GlyphDetailText: the column, every part hidden and named.
     Sprite column = game;
-    column.id = std::uint16_t(back.id + 1);
+    column.id = std::uint16_t(next + 1);
     column.tags.clear();
     std::size_t kept = 0;
     for (const Tag& t : game.tags) {
@@ -1117,7 +1194,8 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
             const Tag moved = Changed(t.code, Rewrite(t, p, {}, back.id, at, {}));
             column.tags.push_back(HiddenPart(moved, part_name(p.depth)));
         } else {
-            column.tags.push_back(HiddenPart(t, p.name ? std::nullopt : std::optional<std::string>(part_name(p.depth))));
+            const Tag own = Changed(t.code, Rewrite(t, p, {}, wider.at(*p.character), {}, {}));
+            column.tags.push_back(HiddenPart(own, p.name ? std::nullopt : std::optional<std::string>(part_name(p.depth))));
         }
     }
     if (kept != keep.size()) throw Error("ItemDetailText's sprite is not 1.09's");
@@ -1133,6 +1211,7 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
         if (i == sprite_at) {
             tags.push_back(WriteSprite(game));
             tags.push_back(WriteSprite(back));
+            tags.insert(tags.end(), wider_tags.begin(), wider_tags.end());
             tags.push_back(WriteSprite(column));
             continue;
         }
