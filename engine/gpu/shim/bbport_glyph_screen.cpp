@@ -47,6 +47,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 extern "C" int runtime_file_mount(const char*, const char*);
@@ -147,6 +148,40 @@ thread_local bool t_panel_ours = false;  // the lookup now running is the glyph 
 thread_local bool t_in_getter = false;  // the getter (a text fill) is running
 thread_local u64 t_getter_screen = 0;    // the item screen whose text is being filled
 constexpr u64 kScreenMovie = 0xa70;     // an item screen's wrapper of its own movie's root (set in its setup)
+
+// The glyph screen's own card list (in the generated itemlist_normalitem.gfx: tools/engine/menu_assets.cpp
+// GlyphListMovie): six cards under the search bar. An item screen's list widget is made by 0x1b10dd0(holder = the
+// screen + 0xf10, type; 0 the item cards), which names the widget's display object with 0x1acd650(out, printf-style
+// format) at call 0x1b10e61 ("ItemList/NormalItem"; the glyph screen's "ItemList/GlyphNormalItem"). Its first lookup
+// (0x1f688a0 from holder + 0x68) finds nothing: the list movie is not that root's child (checked on every screen).
+// The widget then finds its list lazily: 0x1ad8580(out, widget + 0x40) fills widget + 0x70 by the movie's name
+// (0x1ad8750) and fetches the path from the root 0x1adb030(root, widget + 0x48) resolves. ShowList finds the list
+// parts the same way, once widget + 0x70 is set. The list movie is shared, as the panel movie is: the glyph screen
+// shows its list parts and hides NormalItem, every other screen the reverse; none of them is moved by a timeline
+// (ItemList, their parent, is).
+constexpr char kGuestList[] = "/app0/dvdroot_ps4/menu/itemlist_normalitem.gfx";
+constexpr u64 kListFactory = 0x1b10dd0;
+constexpr u64 kListPathCall = 0x1b10e61;
+constexpr u64 kFormat = 0x1acd650;
+// The widget is then made by 0x1b10500(widget, list wrapper, name) at call 0x1b10f14, `name` a 24-byte record passed
+// on the stack ({4, u"ItemList_NormalItem", "ItemList/NormalItem"}) that it keeps at +0x58; the glyph screen's names
+// its own list there too.
+constexpr u64 kListMakeCall = 0x1b10f14;
+constexpr u64 kListMake = 0x1b10500;
+struct ListName {
+    u64 kind;
+    u64 wide;
+    const char* path;
+};
+constexpr u64 kListHolder = 0xf10;
+constexpr u64 kWidgetMovie = 0x70, kWidgetRoot = 0x48;  // the widget's movie (0 until found) and its root handle
+constexpr const char* kGlyphListPath = "ItemList/GlyphNormalItem";
+constexpr const char* kGlyphListParts[] = {"ItemList/GlyphListBack", "ItemList/GlyphNormalItem", "ItemList/GlyphSearch"};
+bool g_list = false;                 // the generated list movie is mounted and its hooks in
+thread_local u64 t_list_holder = 0;  // the list factory now running: its holder
+thread_local bool t_list_ours = false;  // ... and it makes the glyph screen's card list
+std::unordered_map<u64, u64> g_list_widgets;  // screen -> its card list widget (menu thread)
+u64 g_list_screen = 0;               // the screen the list parts were last set for (menu thread)
 
 // A picked glyph: the game's glyph box (opened by the Search by Chalice Glyph step) is filled with it and confirmed.
 std::string g_pick;           // "" when none
@@ -680,20 +715,85 @@ void WriteRows(u64 screen) {
     SetFieldText(root.at(), "GlyphDetailText/GlyphArea/Value_0",
                  family >= 0 ? BbGameMenu::GameText(kMenuText, kAreaNames + u32(family)) : u"");
 }
+// The list factory: which screen's list is being made (ListPath).
+BB_COOP_SYSV void ListFactory(u64 holder, u64, u64, u64, u64, u64) {
+    t_list_holder = holder;
+    t_list_ours = false;
+}
+BB_COOP_SYSV u64 ListMake(u64 widget, u64 list, ListName name) {
+    if (t_list_ours) name.path = kGlyphListPath;
+    if (t_list_holder >= kListHolder) {
+        const u64 screen = t_list_holder - kListHolder;
+        g_list_widgets[screen] = widget;
+        if (g_list_screen == screen) g_list_screen = 0;  // a new list (or a new screen at a freed one's address)
+    }
+    return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64, ListName)>(coop::Guest(kListMake))(widget, list, name);
+}
+BB_COOP_SYSV u64 ListPath(u64 out, const char* format) {
+    const bool ours = t_list_holder >= kListHolder && IsGlyphScreen(t_list_holder - kListHolder);
+    t_list_ours = ours;
+    if (ours) {
+        std::printf("Glyph screen: its card list is %s\n", kGlyphListPath);
+        std::fflush(stdout);
+    }
+    return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, const char*, ...)>(coop::Guest(kFormat))(out, ours ? kGlyphListPath
+                                                                                                   : format);
+}
+// The list parts for `screen`: on the glyph screen its own, on any other NormalItem. Once per screen, as soon as its
+// list widget has found its movie.
+void ShowList(u64 screen) {
+    if (!g_list || screen == g_list_screen) return;
+    const auto it = g_list_widgets.find(screen);
+    if (it == g_list_widgets.end()) return;
+    u64 movie = 0;
+    if (!coop::SafeGet(it->second + kWidgetMovie, &movie) || !movie) return;  // not found yet: the next frame
+    Wrapper root;
+    reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kResolveHandle))(root.at(), it->second + kWidgetRoot);
+    Wrapper normal;
+    if (!normal.Fetch(root.at(), "ItemList/NormalItem")) {
+        std::printf("Glyph screen: screen 0x%llx: its list movie has no ItemList/NormalItem (type 0x%x)\n",
+                    static_cast<unsigned long long>(screen), normal.Type());
+        std::fflush(stdout);
+        g_list_screen = screen;  // once
+        return;
+    }
+    const bool ours = IsGlyphScreen(screen);
+    int found = 0;
+    for (const char* path : kGlyphListParts) {
+        Wrapper part;
+        if (!part.Fetch(root.at(), path)) continue;
+        part.SetVisible(ours);
+        ++found;
+    }
+    normal.SetVisible(!ours);
+    g_list_screen = screen;
+    if (found != static_cast<int>(std::size(kGlyphListParts))) {
+        std::printf("Glyph screen: only %d of the %zu glyph list parts found\n", found, std::size(kGlyphListParts));
+        std::fflush(stdout);
+    }
+    if (ours) {
+        Wrapper bar;
+        if (bar.Fetch(root.at(), "ItemList/GlyphSearch")) SetFieldText(bar.at(), "Query", u"");
+        std::printf("Glyph screen: its card list and search bar shown\n");
+        std::fflush(stdout);
+    }
+}
 BB_COOP_SYSV void ScreenUpdate(u64 screen, u64, u64, u64, u64, u64) {
+    ShowList(screen);
     ExpandDisplay(screen, "after the screen opened", true);
     if (IsGlyphScreen(screen)) WriteRows(screen);
 }
 
-// The generated panel movie, when bb-start made it (BB_PC_MENU_ASSETS): the game reads every menu movie once, at start.
-bool MountPanel() {
+// A generated movie, when bb-start made it (BB_PC_MENU_ASSETS): the game reads every menu movie once, at start.
+bool MountMovie(const char* guest, const char* relative) {
     const char* assets = std::getenv("BB_PC_MENU_ASSETS");
     if (!assets || !*assets) return false;
     std::error_code ec;
-    const std::filesystem::path panel = std::filesystem::path(assets) / "dvdroot_ps4/menu/itemdetailtext.gfx";
-    if (!std::filesystem::is_regular_file(panel, ec)) return false;
-    return runtime_file_mount(kGuestPanel, panel.string().c_str()) == 0;
+    const std::filesystem::path movie = std::filesystem::path(assets) / relative;
+    if (!std::filesystem::is_regular_file(movie, ec)) return false;
+    return runtime_file_mount(guest, movie.string().c_str()) == 0;
 }
+bool MountPanel() { return MountMovie(kGuestPanel, "dvdroot_ps4/menu/itemdetailtext.gfx"); }
 
 // The altar menu greys "Search by Chalice Glyph" without the network (0x553b120: +8, +0x9f8, +0x9f6, +0xa50 -> a byte
 // at the builder's rbp - 0x1458, stored on the row at 0x1b66823). The glyph screen needs no network: with community
@@ -1115,9 +1215,18 @@ void Install() {
                                                 "glyph screen: item screen update");
         if (!g_panel) runtime_file_unmount(kGuestPanel);
     }
+    if (g_panel && MountMovie(kGuestList, "dvdroot_ps4/menu/itemlist_normalitem.gfx")) {
+        g_list = coop::HookPrologue(kListFactory, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &ListFactory,
+                                    "glyph screen: item screen list factory");
+        g_list = g_list && coop::HookCallSite(kListPathCall, kFormat, reinterpret_cast<const void*>(&ListPath),
+                                              "glyph screen: its card list");
+        g_list = g_list && coop::HookCallSite(kListMakeCall, kListMake, reinterpret_cast<const void*>(&ListMake),
+                                              "glyph screen: its card list's name");
+        if (!g_list) runtime_file_unmount(kGuestList);
+    }
     g_installed.store(ok, std::memory_order_release);
-    std::printf("Glyph screen: %s%s\n", ok ? "on (BB_GLYPH_SCREEN_TEST)" : "FAILED to install",
-                ok ? (g_panel ? ", its own panel" : ", the game's panel") : "");
+    std::printf("Glyph screen: %s%s%s\n", ok ? "on (BB_GLYPH_SCREEN_TEST)" : "FAILED to install",
+                ok ? (g_panel ? ", its own panel" : ", the game's panel") : "", ok && g_list ? ", its own card list" : "");
     std::fflush(stdout);
 }
 

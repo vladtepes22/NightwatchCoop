@@ -1025,8 +1025,8 @@ Tag HiddenPart(const Tag& t, const std::optional<std::string>& name) {
     body.push_back(0);
     return Changed(kPlace3, std::move(body));
 }
-// A filled rectangle (DefineShape) from (0, 0), `width` x `height` twips: a mask.
-Tag RectShape(std::uint16_t id, std::int64_t width, std::int64_t height) {
+// A filled rectangle (DefineShape) from (0, 0), `width` x `height` twips, in `rgb` (white: a mask).
+Tag RectShape(std::uint16_t id, std::int64_t width, std::int64_t height, std::uint32_t rgb = 0xffffff) {
     Bytes body;
     PutLe(body, id, 2);
     BitWriter bounds;
@@ -1035,7 +1035,8 @@ Tag RectShape(std::uint16_t id, std::int64_t width, std::int64_t height) {
     for (const std::int64_t v : {std::int64_t(0), width, std::int64_t(0), height})
         bounds.Put(std::uint64_t(v) & ((std::uint64_t(1) << n) - 1), n);
     Append(body, bounds.out);
-    body.insert(body.end(), {0x01, 0x00, 0xff, 0xff, 0xff, 0x00});  // one solid white fill, no line styles
+    body.insert(body.end(), {0x01, 0x00, std::uint8_t(rgb >> 16), std::uint8_t(rgb >> 8), std::uint8_t(rgb),
+                             0x00});  // one solid fill, no line styles
     BitWriter shape;
     shape.Put(1, 4);  // fill index bits
     shape.Put(0, 4);  // line index bits
@@ -1360,6 +1361,282 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
         }
     }
     if (moves < 12) throw Error("ItemDetailText's timeline is not 1.09's");
+    m.tags = std::move(tags);
+    return WriteMovie(m);
+}
+
+namespace {
+// A matrix with the scale set to (sx, sy), its position as it was.
+Matrix WithScale(Matrix m, double sx, double sy) {
+    const std::int64_t x = std::llround(sx * 65536), y = std::llround(sy * 65536);
+    m.scaled = true;
+    m.scale_bits = std::max(BitsFor(x), BitsFor(y));
+    const std::uint64_t mask = (std::uint64_t(1) << m.scale_bits) - 1;
+    m.sx = std::uint32_t(std::uint64_t(x) & mask), m.sy = std::uint32_t(std::uint64_t(y) & mask);
+    return m;
+}
+// A copy of edit text `of` (DefineEditText) as `id` with the initial text `text`.
+Tag EditTextWithText(const Movie& m, std::uint16_t of, std::uint16_t id, const std::string& text) {
+    for (const Tag& t : m.tags) {
+        if (t.code != 37 || U16(t.body, 0) != of) continue;
+        const Bytes& b = t.body;
+        BitReader r{b, 2};
+        const int n = int(r.Unsigned(5));
+        for (int i = 0; i < 4; ++i) r.Signed(n);
+        std::size_t at = r.End();
+        const std::size_t flags_at = at;
+        const std::uint8_t f1 = b[at], f2 = b[at + 1];
+        at += 2;
+        if (f1 & 0x01) at += 2;  // the font
+        if (f2 & 0x80) {         // the font class
+            while (at < b.size() && b[at]) ++at;
+            ++at;
+        }
+        if ((f1 & 0x01) || (f2 & 0x80)) at += 2;  // the height
+        if (f1 & 0x04) at += 4;                   // the colour
+        if (f1 & 0x02) at += 2;                   // the most characters
+        if (f2 & 0x20) at += 9;                   // the layout
+        while (at < b.size() && b[at]) ++at;      // the variable name
+        if (at >= b.size()) throw Error("the list's text boxes are not 1.09's");
+        Bytes body(b.begin(), b.begin() + std::ptrdiff_t(at + 1));
+        SetLe(body, 0, id, 2);
+        body[flags_at] |= 0x80;
+        body.insert(body.end(), text.begin(), text.end());
+        body.push_back(0);
+        return Changed(37, std::move(body));
+    }
+    throw Error("no edit text " + std::to_string(of) + " in the movie");
+}
+// A placement (PlaceObject3) of character `id` at `depth`, named `name` if set, hidden unless `visible`.
+Tag Placement(std::uint16_t id, std::uint16_t depth, const Matrix& at, const std::optional<std::string>& name,
+              bool visible) {
+    Bytes b{std::uint8_t(0x02 | 0x04 | (name ? 0x20 : 0)), std::uint8_t(visible ? 0x00 : 0x20)};
+    PutLe(b, depth, 2);
+    PutLe(b, id, 2);
+    Append(b, WriteMatrix(at));
+    if (name) {
+        b.insert(b.end(), name->begin(), name->end());
+        b.push_back(0);
+    }
+    if (!visible) b.push_back(0);
+    return Changed(kPlace3, std::move(b));
+}
+Matrix At(double x, double y) {
+    Matrix m;
+    m.tx = std::llround(x * 20), m.ty = std::llround(y * 20);
+    return m;
+}
+// A character's bounds, twips: a shape's (DefineShape 1-4) own; a sprite's, its first frame's parts' (placed
+// without rotation).
+struct Box {
+    std::int64_t x0, x1, y0, y1;
+};
+double ScaleOf(std::uint32_t raw, int bits) {
+    const std::int64_t v = bits && (raw >> (bits - 1) & 1) ? std::int64_t(raw) - (std::int64_t(1) << bits)
+                                                            : std::int64_t(raw);
+    return double(v) / 65536;
+}
+Box Bounds(const Movie& m, std::uint16_t id) {
+    for (const Tag& t : m.tags) {
+        if ((t.code != 2 && t.code != 22 && t.code != 32 && t.code != 83) || U16(t.body, 0) != id) continue;
+        BitReader r{t.body, 2};
+        const int n = int(r.Unsigned(5));
+        Box b{};
+        b.x0 = r.Signed(n), b.x1 = r.Signed(n), b.y0 = r.Signed(n), b.y1 = r.Signed(n);
+        return b;
+    }
+    const Sprite s = ReadSprite(m.tags[FindSprite(m, id)]);
+    std::optional<Box> all;
+    for (const Tag& t : s.tags) {
+        if (t.code == kShowFrame) break;
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (!p.character) continue;
+        const Matrix at = p.matrix.value_or(Matrix{});
+        if (at.rotated) throw Error("a rotated part in character " + std::to_string(id));
+        const double sx = at.scaled ? ScaleOf(at.sx, at.scale_bits) : 1, sy = at.scaled ? ScaleOf(at.sy, at.scale_bits) : 1;
+        const Box c = Bounds(m, *p.character);
+        const std::int64_t xa = at.tx + std::llround(c.x0 * sx), xb = at.tx + std::llround(c.x1 * sx);
+        const std::int64_t ya = at.ty + std::llround(c.y0 * sy), yb = at.ty + std::llround(c.y1 * sy);
+        const Box b{std::min(xa, xb), std::max(xa, xb), std::min(ya, yb), std::max(ya, yb)};
+        all = all ? Box{std::min(all->x0, b.x0), std::max(all->x1, b.x1), std::min(all->y0, b.y0),
+                        std::max(all->y1, b.y1)}
+                  : b;
+    }
+    if (!all) throw Error("character " + std::to_string(id) + " has no parts");
+    return *all;
+}
+}  // namespace
+
+// The Chalice glyph screen's card list: ItemList (its one sprite) gets, beside the game's NormalItem (left as it is),
+// the glyph screen's own list parts, all hidden (the glyph screen shows them and hides NormalItem; every other screen
+// keeps NormalItem):
+//   GlyphListBack    the list's frame (NormalItem's first part), where NormalItem has it;
+//   GlyphNormalItem  NormalItem's rows and scroll bar without the frame and the last row (Item_0_0 .. Item_5_0), one
+//                    row lower; the scroll bar shortened to the six rows (its first part, the ornaments along the
+//                    top and bottom of the whole list, kept where it was);
+//   GlyphSearch      the search bar in the top row's place, over a card's footprint: a dark field with a thin light
+//                    border, a caption ("Search by glyph code": a card's small grey text, smaller) and the typed text
+//                    Query (a card name's gold text) over an underline, and the card's focus highlight Cursor
+//                    (hidden). Sizes and colours from the agreed mock (work/mockups/3-card-height-bar-with-caption).
+// The glyph screen's list widget is made on "ItemList/GlyphNormalItem" (gpu/shim/bbport_glyph_screen.cpp).
+Bytes GlyphListMovie(const Bytes& gfx) {
+    constexpr double kPitch = 93.85, kCard = 90;  // the rows' spacing; a card's height
+    Movie m = ReadMovie(gfx);
+    const std::size_t list_place = FindPlaced(m, "ItemList");
+    const Place list_at = ReadPlace(m.tags[list_place]);
+    if (!list_at.character) throw Error("ItemList is not 1.09's");
+    const std::size_t list_sprite_at = FindSprite(m, *list_at.character);
+    if (list_sprite_at > list_place) throw Error("ItemList is not 1.09's");
+    Sprite list = ReadSprite(m.tags[list_sprite_at]);
+    std::optional<Place> normal_at;
+    for (const Tag& t : list.tags) {
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (p.name == "GlyphNormalItem") throw Error("the movie already has GlyphNormalItem");
+        if (p.name != "NormalItem") throw Error("ItemList is not 1.09's");
+        normal_at = p;
+    }
+    if (!normal_at || !normal_at->character || list.frames != 1 ||
+        (normal_at->matrix && (normal_at->matrix->tx || normal_at->matrix->ty || normal_at->matrix->scaled ||
+                               normal_at->matrix->rotated)))
+        throw Error("ItemList is not 1.09's");
+    const Sprite normal = ReadSprite(m.tags[FindSprite(m, *normal_at->character)]);
+
+    std::uint16_t next = HighestCharacter(m);
+    std::vector<Tag> defs;
+    std::optional<Place> back, bar_at, card;
+    double last_row_y = -1;
+    int rows = 0;
+    Sprite items{++next, normal.frames, {}};
+    for (const Tag& t : normal.tags) {
+        if (!IsPlace(t)) {
+            items.tags.push_back(t);
+            continue;
+        }
+        const Place p = ReadPlace(t);
+        if (!p.character || !p.matrix || p.matrix->rotated) throw Error("NormalItem is not 1.09's");
+        const int row = p.name ? RowIndex(*p.name) : -1;
+        if (p.depth == 1 && !p.name) {
+            back = p;
+        } else if (row >= 0) {
+            ++rows;
+            if (row == 0 && !p.matrix->tx && !p.matrix->ty) card = p;
+            if (row == 6) {
+                last_row_y = double(p.matrix->ty) / 20;
+                continue;  // the bar takes a row
+            }
+            items.tags.push_back(t);
+        } else if (p.name == "ScrollBarV") {
+            bar_at = p;
+        } else {
+            throw Error("NormalItem is not 1.09's");
+        }
+    }
+    if (!back || !bar_at || !card || rows != 7 || std::abs(last_row_y - 6 * kPitch) > 0.1 || bar_at->matrix->scaled)
+        throw Error("NormalItem is not 1.09's");
+
+    // The scroll bar, scaled from the first row's top to six rows' height; its first part (the list's ornaments) put
+    // back where it was, at its own size.
+    const double scale = (5 * kPitch + kCard) / (6 * kPitch + kCard);
+    Sprite bar = ReadSprite(m.tags[FindSprite(m, *bar_at->character)]);
+    bar.id = ++next;
+    const double bar_y = double(bar_at->matrix->ty) / 20, new_bar_y = bar_y * scale;  // new_bar_y: in GlyphNormalItem
+    bool ornaments = false;
+    for (Tag& t : bar.tags) {
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (p.depth != 1) continue;
+        if (!p.matrix || p.matrix->scaled || p.matrix->rotated) throw Error("ScrollBarV is not 1.09's");
+        const double list_y = bar_y + double(p.matrix->ty) / 20;  // where it is in ItemList
+        Matrix at = WithScale(*p.matrix, 1, 1 / scale);
+        at.ty = std::llround((list_y - kPitch - new_bar_y) / scale * 20);
+        t = Changed(t.code, Rewrite(t, p, {}, {}, at, {}));
+        ornaments = true;
+    }
+    if (!ornaments) throw Error("ScrollBarV is not 1.09's");
+    defs.push_back(WriteSprite(bar));
+    {
+        Matrix at = WithScale(*bar_at->matrix, 1, scale);
+        at.ty = std::llround(new_bar_y * 20);
+        const auto end = std::find_if(items.tags.begin(), items.tags.end(), [](const Tag& t) { return t.code == kShowFrame; });
+        items.tags.insert(end, Placement(bar.id, bar_at->depth, at, std::string("ScrollBarV"), true));
+    }
+    defs.push_back(WriteSprite(items));
+
+    // The search bar, from the card's parts: its background (depth 1), Param_0_T's text (the small grey one),
+    // ItemName's text (the gold one) and the focus highlight Cursor.
+    const Sprite card_sprite = ReadSprite(m.tags[FindSprite(m, *card->character)]);
+    std::optional<Place> card_back, cursor, name_box, small_box;
+    for (const Tag& t : card_sprite.tags) {
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (p.depth == 1 && !p.name) card_back = p;
+        if (p.name == "Cursor") cursor = p;
+        if (p.name == "ItemName") name_box = p;
+        if (p.name == "Param_0_T") small_box = p;
+    }
+    if (!card_back || !card_back->character || !cursor || !cursor->matrix || !name_box || !small_box)
+        throw Error("the list's card is not 1.09's");
+    const auto only_text = [&](const Place& box) {
+        std::optional<std::uint16_t> text;
+        for (const Tag& t : ReadSprite(m.tags[FindSprite(m, *box.character)]).tags)
+            if (IsPlace(t)) text = ReadPlace(t).character;
+        if (!text) throw Error("the list's card is not 1.09's");
+        return *text;
+    };
+    const std::uint16_t caption_text = ++next, query_text = ++next;
+    defs.push_back(EditTextWithText(m, only_text(*small_box), caption_text, "Search by glyph code"));
+    defs.push_back(EditTextWithText(m, only_text(*name_box), query_text,
+                                    "<p align=\"left\"><font size=\"22\" color=\"#a0895f\" letterSpacing=\"0.000000\" "
+                                    "kerning=\"1\"><b></b></font></p>"));
+    // The bar covers the card background's footprint (the shape's bounds where the card places it).
+    const Matrix back_at = card_back->matrix.value_or(Matrix{});
+    if (back_at.scaled || back_at.rotated) throw Error("the list's card is not 1.09's");
+    const Box shape = Bounds(m, *card_back->character);
+    const double bx = double(back_at.tx + shape.x0) / 20, by = double(back_at.ty + shape.y0) / 20;
+    const double bw = double(shape.x1 - shape.x0) / 20, bh = double(shape.y1 - shape.y0) / 20;
+    // px in the bar, from its top left: the border's width, the caption and the typed text from the left, the
+    // caption's and the typed text's tops, the underline (inset from both sides)
+    constexpr double kBorder = 2, kTextX = 17, kCaptionY = 13, kCaptionScale = 0.66, kQueryY = 41, kLineY = 70,
+                     kLineInset = 14;
+    constexpr std::uint32_t kBorderRgb = 0x78746c, kFieldRgb = 0x181716, kLineRgb = 0x46433e;
+    const std::uint16_t border = ++next, field = ++next, line = ++next;
+    const auto twips = [](double px) { return std::int64_t(std::llround(px * 20)); };
+    defs.push_back(RectShape(border, twips(bw), twips(bh), kBorderRgb));
+    defs.push_back(RectShape(field, twips(bw - 2 * kBorder), twips(bh - 2 * kBorder), kFieldRgb));
+    defs.push_back(RectShape(line, twips(bw - 2 * kLineInset), 20, kLineRgb));
+    Sprite search{++next, 1, {}};
+    search.tags.push_back(Placement(border, 1, At(bx, by), std::nullopt, true));
+    search.tags.push_back(Placement(field, 2, At(bx + kBorder, by + kBorder), std::nullopt, true));
+    search.tags.push_back(Placement(line, 3, At(bx + kLineInset, by + kLineY), std::nullopt, true));
+    search.tags.push_back(Placement(caption_text, 4,
+                                    WithScale(At(bx + kTextX, by + kCaptionY), kCaptionScale, kCaptionScale),
+                                    std::string("Caption"), true));
+    search.tags.push_back(Placement(query_text, 5, At(bx + kTextX, by + kQueryY), std::string("Query"), true));
+    search.tags.push_back(Placement(*cursor->character, 7, *cursor->matrix, std::string("Cursor"), false));
+    search.tags.push_back(Tag{kShowFrame, {}, {}});
+    search.tags.push_back(Tag{kEnd, {}, {}});
+    defs.push_back(WriteSprite(search));
+
+    // ItemList: the glyph screen's parts after NormalItem, hidden.
+    const auto frame = std::find_if(list.tags.begin(), list.tags.end(), [](const Tag& t) { return t.code == kShowFrame; });
+    const std::vector<Tag> parts = {
+        Placement(*back->character, 3, *back->matrix, std::string("GlyphListBack"), false),
+        Placement(items.id, 5, At(0, kPitch), std::string("GlyphNormalItem"), false),
+        Placement(search.id, 7, At(0, 0), std::string("GlyphSearch"), false),
+    };
+    list.tags.insert(frame, parts.begin(), parts.end());
+
+    std::vector<Tag> tags;
+    for (std::size_t i = 0; i < m.tags.size(); ++i) {
+        if (i == list_sprite_at) {
+            tags.insert(tags.end(), defs.begin(), defs.end());
+            tags.push_back(WriteSprite(list));
+            continue;
+        }
+        tags.push_back(m.tags[i]);
+    }
     m.tags = std::move(tags);
     return WriteMovie(m);
 }

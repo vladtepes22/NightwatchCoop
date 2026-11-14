@@ -23,8 +23,9 @@ int main(int argc, char** argv) {
     for (int i = 0; i < argc; ++i) args.emplace_back(argv[i]);
 #endif
     if (args.size() != 4 ||
-        (args[1] != "movie" && args[1] != "messages" && args[1] != "rebirth" && args[1] != "glyph-panel")) {
-        std::fputs("Usage: bb-engine-assets movie|messages|rebirth|glyph-panel SOURCE DEST\n", stderr);
+        (args[1] != "movie" && args[1] != "messages" && args[1] != "rebirth" && args[1] != "glyph-panel" &&
+         args[1] != "glyph-list")) {
+        std::fputs("Usage: bb-engine-assets movie|messages|rebirth|glyph-panel|glyph-list SOURCE DEST\n", stderr);
         return 2;
     }
     std::error_code same;
@@ -43,6 +44,7 @@ int main(int argc, char** argv) {
             args[1] == "movie"     ? menu_assets::OptionMovie(source)
             : args[1] == "rebirth" ? menu_assets::AltarScripts(source)
             : args[1] == "glyph-panel" ? menu_assets::GlyphPanelMovie(source)
+            : args[1] == "glyph-list"  ? menu_assets::GlyphListMovie(source)
                                    : menu_assets::MenuMessages(source, menu_assets::LanguageOf(args[2].parent_path().filename().string()));
         std::ofstream out(args[3], std::ios::binary | std::ios::trunc);
         if (!out.write(reinterpret_cast<const char*>(made.data()), std::streamsize(made.size())) || !out.flush())
