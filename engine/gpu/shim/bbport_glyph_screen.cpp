@@ -141,6 +141,8 @@ bool g_panel_pending = false;        // the next item screen's setup is the glyp
 std::atomic<u64> g_panel_screen{0};  // the glyph screen's item screen object (0: none)
 thread_local bool t_panel_ours = false;  // the lookup now running is the glyph screen's
 thread_local bool t_in_getter = false;  // the getter (a text fill) is running
+thread_local u64 t_getter_screen = 0;    // the item screen whose text is being filled
+constexpr u64 kScreenMovie = 0xa70;     // an item screen's wrapper of its own movie's root (set in its setup)
 
 // A picked glyph: the game's glyph box (opened by the Search by Chalice Glyph step) is filled with it and confirmed.
 std::string g_pick;           // "" when none
@@ -304,6 +306,7 @@ BB_COOP_SYSV void PanelGetter(u64, u64 src, u64, u64, u64, u64) {
     const u64 screen = g_panel_screen.load(std::memory_order_acquire);
     t_panel_ours = screen && src == screen + kPanelGetterOffset;
     t_in_getter = true;
+    t_getter_screen = src - kPanelGetterOffset;
 }
 
 // Both panels live in the one panel movie that every item screen shares, and each keeps the text last written to it:
@@ -354,6 +357,80 @@ int ShowParts(u64 panel, const char* const (&parts)[N], bool visible) {
 }
 bool g_glyph_panel_shown = false;  // the movie now shows GlyphDetailText's parts (menu thread)
 
+// The stats panel (PlayerStatus, root depth 10 of the item screen's own movie, found from screen + 0xa70; faded by
+// its timeline) has two parts,
+// Normal (the stats) and BodyGemList. The glyph screen hides both; the visibility each had is put back on the next
+// other screen. A display object's visibility: the wrapper's vtable +0 copies its value out (value +8, interface
+// +0x18, type +0x20, data +0x28); the interface's +0xe0 (interface, data, info) fills a display info whose +0xd6 is
+// the visible byte.
+constexpr const char* kStatsParts[] = {"Normal", "BodyGemList"};
+bool g_stats_hidden = false;
+bool g_stats_were_visible[std::size(kStatsParts)] = {};
+bool IsVisible(Wrapper& w) {
+    alignas(16) std::uint8_t value[0x40]{};
+    const u64 v = reinterpret_cast<u64>(value);
+    const u64 vtable = *reinterpret_cast<const u64*>(w.at());
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(*reinterpret_cast<const u64*>(vtable))(v, w.at());
+    const u64 iface = *reinterpret_cast<const u64*>(v + 0x18);
+    const u32 type = *reinterpret_cast<const u32*>(v + 0x20);
+    const u64 data = *reinterpret_cast<const u64*>(v + 0x28);
+    bool visible = true;
+    if ((type & 0x8f) == 10 && iface) {
+        alignas(16) std::uint8_t info[0x100]{};
+        const u64 get = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0xe0);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64)>(get)(iface, data, reinterpret_cast<u64>(info));
+        visible = info[0xd6] != 0;
+    }
+    if ((type & 0x40) && iface) {
+        const u64 release = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0x18);
+        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64)>(release)(iface, v + 8, data);
+    }
+    return visible;
+}
+void ShowStats(u64 parent, bool ours) {
+    if (!ours && !g_stats_hidden) return;
+    Wrapper stats;
+    if (!stats.Fetch(parent, "PlayerStatus")) {
+        if (ours && !g_stats_hidden) std::printf("Glyph screen: no stats panel (PlayerStatus) to hide\n");
+        return;
+    }
+    int found = 0;
+    for (std::size_t i = 0; i < std::size(kStatsParts); ++i) {
+        Wrapper part;
+        if (!part.Fetch(stats.at(), kStatsParts[i])) continue;
+        ++found;
+        if (ours) {
+            if (!g_stats_hidden) g_stats_were_visible[i] = IsVisible(part);
+            part.SetVisible(false);
+        } else {
+            part.SetVisible(g_stats_were_visible[i]);
+        }
+    }
+    if (ours != g_stats_hidden) {
+        std::printf("Glyph screen: the stats panel %s (%d / %zu parts; before: Normal %d, BodyGemList %d)\n",
+                    ours ? "hidden" : "back", found, std::size(kStatsParts), int(g_stats_were_visible[0]),
+                    int(g_stats_were_visible[1]));
+        std::fflush(stdout);
+    }
+    g_stats_hidden = ours;
+}
+
+// The item screen's stats refresh 0x1b9c010 (rdi = the screen; at its start and on Display) fills the rune list with
+// 0x1c88290(list, BodyGemList wrapper) (call 0x1b9c799), which shows BodyGemList again. After it, the stats panel is
+// hidden again on the glyph screen, or put back on another screen.
+constexpr u64 kStatsRefresh = 0x1b9c010;
+constexpr u64 kRuneFillCall = 0x1b9c799;
+constexpr u64 kRuneFill = 0x1c88290;
+thread_local u64 t_stats_screen = 0;
+BB_COOP_SYSV void StatsRefresh(u64 screen, u64, u64, u64, u64, u64) { t_stats_screen = screen; }
+BB_COOP_SYSV u64 RuneFill(u64 list, u64 wrapper) {
+    const u64 r = reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kRuneFill))(list, wrapper);
+    const u64 screen = t_stats_screen;
+    const bool ours = screen && screen == g_panel_screen.load(std::memory_order_acquire);
+    if (screen && (ours || g_stats_hidden)) ShowStats(screen + kScreenMovie, ours);
+    return r;
+}
+
 BB_COOP_SYSV u64 PanelFetch(u64 out, u64 parent, u64 path) {
     const bool ours = t_panel_ours;
     const bool getter = t_in_getter;
@@ -374,6 +451,8 @@ BB_COOP_SYSV u64 PanelFetch(u64 out, u64 parent, u64 path) {
         }
         g_glyph_panel_shown = ours;
     }
+    if (getter && (ours || g_stats_hidden) && (*reinterpret_cast<const u32*>(out + 0x48) & 0x8f) == 10)
+        ShowStats(t_getter_screen + kScreenMovie, ours);
     return r;
 }
 
@@ -747,6 +826,10 @@ void Install() {
                                                 "glyph screen: its description panel (setup)");
         g_panel = g_panel && coop::HookCallSite(kGetterFetchCall, kChildFetch, reinterpret_cast<const void*>(&PanelFetch),
                                                 "glyph screen: its description panel (text)");
+        g_panel = g_panel && coop::HookPrologue(kStatsRefresh, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &StatsRefresh,
+                                                "glyph screen: item screen stats refresh");
+        g_panel = g_panel && coop::HookCallSite(kRuneFillCall, kRuneFill, reinterpret_cast<const void*>(&RuneFill),
+                                                "glyph screen: the stats panel's rune list");
         if (!g_panel) runtime_file_unmount(kGuestPanel);
     }
     g_installed.store(ok, std::memory_order_release);
