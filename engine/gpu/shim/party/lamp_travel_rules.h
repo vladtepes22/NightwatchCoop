@@ -154,6 +154,27 @@ inline std::uint32_t NearestLamp(const std::vector<Spot>& spots, std::uint32_t m
     return best;
 }
 
+/// NearestLamp over every block of `map`'s area (AA): the snapshot's map (the player's history +0x48)
+/// keeps the block of the last load while the player walks on into another block of the same area
+/// without one (NW-505508c: walked from the 1st Floor Sickroom side, m24_01, to the Cathedral Ward
+/// lamp, m24_00: still m24_01, no lamp within 15 m, the vanilla Dream question). The blocks of one
+/// area share their coordinates (the position read there matched the m24_00 lamp spot).
+inline std::uint32_t NearestLampInArea(const std::vector<Spot>& spots, std::uint32_t map, const float pos[3],
+                                       float max_m) {
+    std::uint32_t best = 0;
+    float best_d = max_m * max_m;
+    for (const Spot& s : spots) {
+        if ((MapOf(s.id) >> 24) != (map >> 24)) continue;
+        const float dx = s.x - pos[0], dy = s.y - pos[1], dz = s.z - pos[2];
+        const float d = dx * dx + dy * dy + dz * dz;
+        if (d <= best_d) {
+            best_d = d;
+            best = s.id;
+        }
+    }
+    return best;
+}
+
 /// Where the player stands for NearestLamp: its physics position when readable, else the drawn
 /// one (chr +0xC0). An in-place warp (vtbl +0x5F8: the test aids, the party's no-load placements)
 /// moves the physics position at once and the drawn one only once the player moves (lamprule run 5:
