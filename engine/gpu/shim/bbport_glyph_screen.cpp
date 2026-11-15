@@ -28,6 +28,7 @@
 #include "bbport_game_menu.h"
 #include "input/input.h"
 #include "../bbgpu.h"
+#include "input/bindings.h"
 
 #include "party/coop_hooks.h"
 #include "party/game_state.h"
@@ -584,11 +585,12 @@ BB_COOP_SYSV u64 PanelFetch(u64 out, u64 parent, u64 path) {
     return r;
 }
 
-// The glyph screen's controls: Display is always on and neither Display nor Toggle Stats is offered.
+// The glyph screen's controls: Display is always on, Toggle Stats is not offered and Display's control is Search.
 //
 // The item screen's controls setup 0x1b999c0 (rdi = the screen) adds each control with 0x1ad5730(screen, control,
-// action, ...): Display at call 0x1b9a660, Toggle Stats at call 0x1b9a7f0; the glyph screen skips both (their keys and
-// their hints). It starts the screen in display mode 0 (+0x1168; +0x1300 the number of modes, 3) and applies it with
+// action, ...): Display at call 0x1b9a660, Toggle Stats at call 0x1b9a7f0; the glyph screen skips Toggle Stats (its
+// key and its hint). Display's key (0x1ae1340: button code 0x14, its label the text made at call 0x1b9a5d5) is
+// Search's on the glyph screen (the search bar's section). It starts the screen in display mode 0 (+0x1168; +0x1300 the number of modes, 3) and applies it with
 // 0x1b9ac30(screen, animate) (call 0x1b99e04). The mode's listeners (std::function-like objects from +0x1190, 16-byte
 // aligned, 0x30 apart; call: vtable +0x10 (listener, &selected)) set the screen up for each mode: 0 and 1 the card
 // list's parts (0x1baa1f0), 2 the description panel (0x1ba9f30, its show / hide). Mode 2 is Display's expanded view.
@@ -599,7 +601,6 @@ BB_COOP_SYSV u64 PanelFetch(u64 out, u64 parent, u64 path) {
 // per-frame update 0x1b9bfa0 (vtable slot 3; rdi = the screen) does the same if the open came first. The screen's setup
 // puts the mode back to 0 on every open (also for Chalice Ritual).
 constexpr u64 kAddControl = 0x1ad5730;
-constexpr u64 kAddDisplayCall = 0x1b9a660;
 constexpr u64 kAddToggleStatsCall = 0x1b9a7f0;
 constexpr u64 kApplyMode = 0x1b9ac30;
 constexpr u64 kStartModeCall = 0x1b99e04;
@@ -776,6 +777,14 @@ u64 DisplayObject(Wrapper& w) {
 // list's current item; on while the list has one, vtable +0x48). On the glyph screen with the bar's focus OK decides
 // nothing (the first card would be picked); the bar takes it. Back is left as it is.
 constexpr u64 kOkAction = 0x1ba80f0, kBackAction = 0x1ba9b00;
+// Search: Display's control on the glyph screen (its label our text, its action and condition replaced there: on
+// while no child screen is open, the search bar taking the focus and the typing starting at once). On the keyboard
+// a letter or digit starts the search with itself (TypeStartsSearch, from the window before the game sees the key),
+// but for Search's own key.
+constexpr u64 kControlsSetup = 0x1b999c0, kDisplayLabelCall = 0x1b9a5d5, kTextOf = 0x1ae8cc0;
+constexpr u64 kDisplayAction = 0x1ba6760, kDisplayCondition = 0x1ba6400;
+constexpr u32 kSearchLabel = 263191;  // a menu text id of ours (0xca), not one the game has
+constexpr u64 kChildScreen = 0x40, kChildScreen2 = 0x10;  // as OK's condition: no screen over this one
 constexpr u64 kEarlyStepCall = 0x1ad0062, kEarlyStep = 0x1ad10f0;
 constexpr u64 kStepCall = 0x1ad00a1, kStep = 0x1ad2860, kStepOffset = 0x290;
 constexpr u64 kSetCursor = 0x1acf6b0;
@@ -783,12 +792,20 @@ constexpr u64 kBoundsSlot = 0x1f0, kStageMatrix = 0x2040;  // a display object's
 constexpr u64 kHideCursors = 0x1acf0e0, kCursorName = 0x4934044;  // kCursorName: the item's highlight, "Cursor"
 constexpr u64 kListCursor = 0x74, kListCursorOverride = 0x78, kListFirstLine = 0x24c, kListProvider = 0x258;
 constexpr u64 kListRootType = 0xc8, kListRootData = 0xd0;
+// The menu's next sound: {value, priority} at 0x557fc60, its label at 0x557fc68; a sound is set only over one of no
+// higher priority. The cursor's move: {0, 0} and the label at 0x49344e4 ("cursor move" in Japanese); a decision, as a
+// menu deciding: {0x64, 1} and the label at 0x493451b ("decide", as 0x1b26e05 sets it); the top menu entering one
+// of its menus: {0x7da, 9} and the label at 0x4933506 ("top menu category select", as 0x1af47b9 sets it).
 constexpr u64 kMenuSound = 0x557fc60, kMenuSoundLabel = 0x557fc68, kCursorMoveLabel = 0x49344e4;
+constexpr u64 kDecideLabel = 0x493451b, kEnterMenuLabel = 0x4933506;
 std::atomic<u64> g_glyph_list_object{0};  // GlyphNormalItem's display object while the glyph screen is up
 std::atomic<bool> g_bar_focus{false};
 std::atomic<u64> g_glyph_list{0};             // the glyph screen's card list, once a step has seen it
 std::atomic<bool> g_typing{false};            // the bar is typed in (a quiet text box is open)
 std::atomic<bool> g_swallow{false};           // OK / Back after the typing ended, until their buttons are let go
+std::atomic<long long> g_search_ready_ms{0};  // the last frame the glyph screen could start its search (any thread)
+std::atomic<bool> g_search_started{false};    // the window started the search with a letter (taken by the screen)
+thread_local u64 t_controls_screen = 0;       // the screen whose controls are being set up
 bool g_bar_cursor_shown = false;              // the bar's Cursor as last set (menu thread)
 bool g_bar_active_shown = false;              // the bar's Active (typed in) as last set (menu thread)
 bool g_pointer_seen = false;                  // the pointer's last place (menu thread; reset when the screen opens)
@@ -838,14 +855,17 @@ int PointerPlace(u64 screen, bool* moved) {
     if (PointOn(DisplayObject(bar), x, y)) return 1;
     return PointOn(g_glyph_list_object.load(std::memory_order_acquire), x, y) ? -1 : 0;
 }
-void CursorMoveSound() {  // as the game's own cursor move
+void MenuSound(std::int32_t value, std::int32_t priority, u64 label_at) {
     auto* sound = reinterpret_cast<std::int32_t*>(coop::Guest(kMenuSound));
-    if (sound[1] > 0) return;
-    sound[0] = 0;
-    sound[1] = 0;
-    const u64 label = coop::Guest(kCursorMoveLabel);
+    if (sound[1] > priority) return;
+    sound[0] = value;
+    sound[1] = priority;
+    const u64 label = coop::Guest(label_at);
     std::memcpy(reinterpret_cast<void*>(coop::Guest(kMenuSoundLabel)), &label, sizeof label);
 }
+void CursorMoveSound() { MenuSound(0, 0, kCursorMoveLabel); }  // as the game's own cursor move
+void DecideSound() { MenuSound(0x64, 1, kDecideLabel); }        // as a menu's decision (the typed text confirmed)
+void EnterSound() { MenuSound(0x7da, 9, kEnterMenuLabel); }      // as the top menu entering a menu (typing starts)
 // The highlight of the card shown at `line` (one column: the cell is {0, line}).
 void ShowCardCursor(u64 list, u32 line) {
     u64 provider = 0, vtable = 0, make = 0;
@@ -956,8 +976,35 @@ BB_COOP_SYSV void OkAction(u64 functor) {
     }
     g_ok_original(functor);
 }
+void StartSearch(u64 screen, bool open_box);
 using BackFn = void(BB_COOP_SYSV*)(u64);
 BackFn g_back_original = nullptr;
+BackFn g_display_original = nullptr;
+using ConditionFn = bool(BB_COOP_SYSV*)(u64);
+ConditionFn g_display_condition_original = nullptr;
+bool NoChildScreen(u64 screen) {
+    u64 a = 1, b = 1;
+    return coop::SafeGet(screen + kChildScreen, &a) && coop::SafeGet(screen + kChildScreen2, &b) && !a && !b;
+}
+BB_COOP_SYSV void DisplayAction(u64 functor) {
+    u64 screen = 0;
+    if (coop::SafeGet(functor + 8, &screen) && IsGlyphScreen(screen)) {
+        if (!g_swallow.load(std::memory_order_acquire) && !g_typing.load(std::memory_order_acquire))
+            StartSearch(screen, true);
+        return;
+    }
+    g_display_original(functor);
+}
+BB_COOP_SYSV bool DisplayCondition(u64 functor) {
+    u64 screen = 0;
+    if (coop::SafeGet(functor + 8, &screen) && IsGlyphScreen(screen)) return NoChildScreen(screen);
+    return g_display_condition_original(functor);
+}
+BB_COOP_SYSV void ControlsSetup(u64 screen, u64, u64, u64, u64, u64) { t_controls_screen = screen; }
+BB_COOP_SYSV u64 DisplayLabel(u64 out, u32 category, u32 id) {
+    if (IsGlyphScreen(t_controls_screen)) id = kSearchLabel;
+    return reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u32, u32)>(coop::Guest(kTextOf))(out, category, id);
+}
 BB_COOP_SYSV void BackAction(u64 functor) {
     u64 screen = 0;
     if (g_swallow.load(std::memory_order_acquire) && coop::SafeGet(functor + 8, &screen) && IsGlyphScreen(screen))
@@ -1008,6 +1055,7 @@ void BeginTyping(u64 screen) {
         return;
     }
     g_typing.store(true, std::memory_order_release);
+    EnterSound();
     std::int32_t tabs = 0, tab = -1;
     coop::SafeGet(screen + kTabList + kListItems, &tabs);
     coop::SafeGet(screen + kTabList + kListCursor, &tab);
@@ -1112,8 +1160,27 @@ void Jump(u64 screen) {
     g_jump_at = Seconds();
     FinishJump(screen);
 }
+// The search starts: the bar takes the focus (the cards' highlight hidden) and the typing starts (`open_box`: the
+// quiet text box opened here; else the window has opened it with the first letter).
+void StartSearch(u64 screen, bool open_box) {
+    const u64 list = g_glyph_list.load(std::memory_order_acquire);
+    g_bar_focus.store(true, std::memory_order_release);
+    if (list && IsGlyphList(list)) reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(coop::Guest(kHideCursors))(list);
+    if (open_box) {
+        BeginTyping(screen);
+        return;
+    }
+    g_typing.store(true, std::memory_order_release);
+    EnterSound();
+    std::printf("Glyph screen: typing in the search bar (started by a letter)\n");
+    std::fflush(stdout);
+}
 // Each frame on the glyph screen: the typed text, the typing's end, and the keys that ended it.
 void Typing(u64 screen) {
+    if (g_search_started.exchange(false, std::memory_order_acq_rel)) StartSearch(screen, false);
+    const bool ready = !g_typing.load(std::memory_order_acquire) && !g_swallow.load(std::memory_order_acquire) &&
+                       g_glyph_list_object.load(std::memory_order_acquire) && NoChildScreen(screen);
+    g_search_ready_ms.store(ready ? static_cast<long long>(Seconds() * 1000) : 0, std::memory_order_release);
     if (g_swallow.load(std::memory_order_acquire)) {
         const std::uint32_t held = BbInput::LastPad().buttons;
         g_swallow_frames = held & (PadBits::kCross | PadBits::kCircle) ? 0 : g_swallow_frames + 1;
@@ -1129,6 +1196,7 @@ void Typing(u64 screen) {
     ShowTyped(screen, state == 0 && blink);
     if (state == 0) return;
     g_typing.store(false, std::memory_order_release);
+    if (state == 1) DecideSound();
     g_swallow_frames = 0;
     g_swallow.store(true, std::memory_order_release);
     const u64 list = g_glyph_list.load(std::memory_order_acquire);
@@ -1560,7 +1628,17 @@ const char16_t* Text(std::uint32_t category, std::uint32_t id) {
         }
     }
     if (category == 0xc9 && id == 263000) return u"Select a Chalice Glyph to join its dungeon.";
+    if (category == 0xca && id == kSearchLabel) return u"Search";
     return nullptr;
+}
+
+bool TypeStartsSearch(int scancode) {
+    const long long ready = g_search_ready_ms.load(std::memory_order_acquire);
+    if (!ready || static_cast<long long>(Seconds() * 1000) - ready > 100) return false;  // not up, or gone
+    if (scancode == host_binding_key(kBindUseItem)) return false;  // Search's own key (Square): its action
+    g_search_ready_ms.store(0, std::memory_order_release);
+    g_search_started.store(true, std::memory_order_release);
+    return true;
 }
 
 bool KeepsGameText(std::uint32_t id) {
@@ -1639,8 +1717,6 @@ void Install() {
                                                 "glyph screen: item screen stats refresh");
         g_panel = g_panel && coop::HookCallSite(kRuneFillCall, kRuneFill, reinterpret_cast<const void*>(&RuneFill),
                                                 "glyph screen: the stats panel's rune list");
-        g_panel = g_panel && coop::HookCallSite(kAddDisplayCall, kAddControl, reinterpret_cast<const void*>(&AddControl),
-                                                "glyph screen: no Display control");
         g_panel = g_panel && coop::HookCallSite(kAddToggleStatsCall, kAddControl,
                                                 reinterpret_cast<const void*>(&AddControl),
                                                 "glyph screen: no Toggle Stats control");
@@ -1667,6 +1743,18 @@ void Install() {
                                                  reinterpret_cast<const void*>(&OkAction),
                                                  reinterpret_cast<void**>(&g_ok_original),
                                                  "glyph screen: OK on the search bar");
+        g_list = g_list && coop::HookPrologue(kControlsSetup, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &ControlsSetup,
+                                              "glyph screen: item screen controls setup");
+        g_list = g_list && coop::HookCallSite(kDisplayLabelCall, kTextOf, reinterpret_cast<const void*>(&DisplayLabel),
+                                              "glyph screen: Search's label (Display's control)");
+        g_list = g_list && coop::ReplacePrologue(kDisplayAction, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56},
+                                                 reinterpret_cast<const void*>(&DisplayAction),
+                                                 reinterpret_cast<void**>(&g_display_original),
+                                                 "glyph screen: Search (Display's action)");
+        g_list = g_list && coop::ReplacePrologue(kDisplayCondition, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56},
+                                                 reinterpret_cast<const void*>(&DisplayCondition),
+                                                 reinterpret_cast<void**>(&g_display_condition_original),
+                                                 "glyph screen: Search's condition (Display's)");
         g_list = g_list && coop::ReplacePrologue(kBackAction, {0x55, 0x48, 0x89, 0xe5, 0x48, 0x8b, 0x7f, 0x08},
                                                  reinterpret_cast<const void*>(&BackAction),
                                                  reinterpret_cast<void**>(&g_back_original),

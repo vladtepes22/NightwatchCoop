@@ -14,6 +14,7 @@
 #include "common/logging/log.h"
 #include "sdl_window.h"
 #include "bbport_overlay.h"
+#include "bbport_glyph_screen.h"
 #include "bbport_settings.h"
 #include "input/input.h"
 #include "lantern_pacing.h"
@@ -343,7 +344,26 @@ bool WindowSDL::PollEvents() {
         BbOverlay::UpdateTextInput(window);
     }
     SDL_Event event;
+    char search_letter = 0;  // the letter that started a search (already its text: its text event, if any, is skipped)
     while (SDL_PollEvent(&event)) {
+        // The Chalice glyph screen: a letter or digit starts its search with that letter, before the game sees the key.
+        if (!text_active && event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+            !(event.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) && !BbOverlay::CapturesInput()) {
+            const SDL_Keycode k = event.key.key;
+            const char c = k >= SDLK_A && k <= SDLK_Z   ? char('a' + (k - SDLK_A))
+                           : k >= SDLK_0 && k <= SDLK_9 ? char('0' + (k - SDLK_0))
+                                                        : 0;
+            if (c && BbGlyphScreen::TypeStartsSearch(int(event.key.scancode))) {
+                BeginTextInput(std::string(1, c), "Search", {}, true);
+                std::scoped_lock lock{text_mutex};
+                text_requested = false;
+                text_active = true;
+                SDL_StartTextInput(window);
+                UpdateTextTitle();
+                search_letter = c;
+                continue;
+            }
+        }
         BbInput::Event(event,text_active || BbOverlay::CapturesInput());
         if (event.type == SDL_EVENT_MOUSE_MOTION) {
             last_mouse_motion_ms = SDL_GetTicks();
@@ -351,7 +371,10 @@ bool WindowSDL::PollEvents() {
         if (text_active && (event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_KEY_DOWN)) {
             std::scoped_lock lock{text_mutex};
             const bool ctrl = event.type == SDL_EVENT_KEY_DOWN && (event.key.mod & SDL_KMOD_CTRL);
-            if (event.type == SDL_EVENT_TEXT_INPUT) {
+            if (event.type == SDL_EVENT_TEXT_INPUT && search_letter &&
+                std::tolower(static_cast<unsigned char>(event.text.text[0])) == search_letter && !event.text.text[1]) {
+                search_letter = 0;
+            } else if (event.type == SDL_EVENT_TEXT_INPUT) {
                 if (text_selected || text_sel >= 0) text.clear();  // the list's answer gives way to typing
                 text_selected = false;
                 text_sel = -1;

@@ -18,6 +18,10 @@ const char16_t* Text(std::uint32_t category, std::uint32_t id);
 /// and its help line) while the glyph screen is on.
 bool KeepsGameText(std::uint32_t id);
 
+/// The window thread, a letter or digit key (SDL `scancode`) pressed while no text box is open: whether it starts the
+/// glyph screen's search (the screen is up with nothing over it and the key is not Search's own, Square's). True:
+/// the window opens the quiet text box with that letter and the game never sees the key.
+bool TypeStartsSearch(int scancode);
 /// The glyph box's preset: a glyph picked on the glyph screen (once, within a few seconds of the pick), else nullptr.
 const char* PickedGlyph(std::uint32_t max_length);
 
