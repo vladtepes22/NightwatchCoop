@@ -74,6 +74,7 @@ struct State {
     bool mouse_camera = false;
     std::uint64_t serial = 0;
     bool xbox = false;
+    bool typing = false;  // a text box is open: its keys (Enter, Esc, Backspace) are the prompts' keys
     bool operator==(const State&) const = default;
 };
 
@@ -102,6 +103,7 @@ State Current() {
         s.confirm = menu_confirm_button();
         s.mouse_camera = settings.mouse_camera;
         s.serial = host_bindings_serial();
+        s.typing = BbInput::TextEntryOpen();
     } else {
         s.xbox = XboxIcons();
     }
@@ -214,6 +216,14 @@ std::optional<Keycap::Spec> IconSpec(int icon, const State& s) {
     using Keycap::Spec;
     if (!s.keys) {
         return s.xbox ? PadSpec(icon) : std::nullopt;
+    }
+    if (s.typing) {
+        // a text box takes the keyboard: Enter confirms, Esc cancels, Backspace deletes, whatever is bound
+        if (icon == kCross || icon == kCircle) {
+            const bool confirms = (icon == kCross) == (s.confirm == kPadCross);
+            return Spec{Spec::Key, {confirms ? "Enter" : "Esc"}};
+        }
+        if (icon == kSquare) return Spec{Spec::Key, {"Bksp"}};
     }
     if (s.preview && (icon == kL1 || icon == kR1)) {
         return Spec{Spec::Mouse, {}, icon == kR1 ? 6 : 7};

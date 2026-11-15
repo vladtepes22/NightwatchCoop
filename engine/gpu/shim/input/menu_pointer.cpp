@@ -468,6 +468,8 @@ void Click() {
 }
 
 std::uint32_t TakePress() { return g_press.exchange(0); }
+
+bool TakeClick() { return ClickWaiting() && g_click.exchange(false, std::memory_order_relaxed); }
 }
 
 std::uint32_t menu_confirm_button() {

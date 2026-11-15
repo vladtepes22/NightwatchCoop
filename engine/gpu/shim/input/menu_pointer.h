@@ -20,5 +20,9 @@ void Click();
 
 std::uint32_t TakePress();
 
+/// A left click not yet taken by a list (within the click window), taken: for a screen's own part that is no list
+/// item (the Chalice glyph screen's search bar).
+bool TakeClick();
+
 void HoldRow(bool hold);
 }

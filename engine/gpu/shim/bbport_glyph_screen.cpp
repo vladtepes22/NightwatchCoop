@@ -27,6 +27,7 @@
 #include "bbport_glyph_screen.h"
 #include "bbport_game_menu.h"
 #include "input/input.h"
+#include "input/menu_pointer.h"
 #include "../bbgpu.h"
 #include "input/bindings.h"
 
@@ -711,13 +712,18 @@ constexpr u32 kMenuText = 0xc8, kDepthLabel = 17001, kAreaLabel = 17002, kAreaNa
 std::atomic<u32> g_shown_goods{0};  // the chalice of the glyph whose description was filled last (0: none)
 u32 g_rows_goods = 0;               // the chalice the rows were written for (menu thread)
 u64 g_rows_screen = 0;
+void SetValueText(u64 wrapper, const char16_t* text);
 void SetFieldText(u64 root, const char* path, const char16_t* text) {
     Wrapper field;
-    if (!text || !field.Fetch(root, path)) return;
+    if (text && field.Fetch(root, path)) SetValueText(field.at(), text);
+}
+// A text field's text (HTML) through its wrapper object (as the game sets its help line and button prompts).
+void SetValueText(u64 wrapper, const char16_t* text) {
+    if (!wrapper || !text) return;
     alignas(16) std::uint8_t value[0x40]{};
     const u64 v = reinterpret_cast<u64>(value);
-    const u64 vtable = *reinterpret_cast<const u64*>(field.at());
-    reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(*reinterpret_cast<const u64*>(vtable))(v, field.at());
+    const u64 vtable = *reinterpret_cast<const u64*>(wrapper);
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(*reinterpret_cast<const u64*>(vtable))(v, wrapper);
     const u64 iface = *reinterpret_cast<const u64*>(v + 0x18);
     const u32 type = *reinterpret_cast<const u32*>(v + 0x20);
     const u64 data = *reinterpret_cast<const u64*>(v + 0x28);
@@ -984,11 +990,21 @@ void CardsTakeFocus(u64 list, const char* why) {
     std::printf("Glyph screen: the cards have the focus again (%s)\n", why);
     std::fflush(stdout);
 }
+void StartSearch(u64 screen, bool open_box);
 // The mouse on the glyph screen (each frame): moved onto the bar, the bar takes the focus; onto the cards, they do.
+// A click on the bar (no list item: the menu pointer leaves it waiting) starts the search, as OK on the bar does.
 void BarHover(u64 screen) {
     bool moved = false;
     const int place = PointerPlace(screen, &moved);
     const u64 list = g_glyph_list.load(std::memory_order_acquire);
+    if (place > 0 && MenuPointer::TakeClick()) {
+        if (g_search_ready_ms.load(std::memory_order_acquire)) {
+            std::printf("Glyph screen: a click on the search bar\n");
+            std::fflush(stdout);
+            StartSearch(screen, true);
+        }
+        return;
+    }
     if (!moved || !place || !list || !IsGlyphList(list)) return;
     const bool focus = g_bar_focus.load(std::memory_order_acquire);
     if (place > 0 && !focus) {
@@ -1415,6 +1431,58 @@ void ShowNoMatch(u64 screen) {
     line.SetVisible(!want.empty());
     g_no_match_shown = want;
 }
+// While the search bar is typed in, the screen's help line and button prompts are the typing's: the help line set by
+// 0x1ad6210(screen, text) into the field at screen + 0x1f8; the prompts rebuilt by 0x1ad6450(screen) (every screen's
+// vtable +0x28; the item screen's too) from the controls whose condition holds, as the key guide's markup ("<font
+// color='#A5A58C'>%s(U+FF1A)%s</font>", U+3000 between) into the field at screen + 0x2a8. Both replaced: the game's
+// own runs, then ours over it while typing. The keys: the game's button images (the engine's key prompts draw them
+// for the device; with a text box open on the keyboard Cross reads Enter, Circle Esc and Square Bksp). Options
+// (Done on a controller) has no image in the item screen's movies: not listed.
+constexpr u64 kSetHelp = 0x1ad6210, kRefreshPrompts = 0x1ad6450, kHelpField = 0x1f8, kPromptsField = 0x2a8;
+using SetHelpFn = void(BB_COOP_SYSV*)(u64, u64);
+using RefreshPromptsFn = void(BB_COOP_SYSV*)(u64);
+SetHelpFn g_set_help_original = nullptr;
+RefreshPromptsFn g_refresh_prompts_original = nullptr;
+int g_prompts_mode = 0;  // the prompts shown: 0 the screen's, 1 typing on the keyboard, 2 on the controller's keyboard
+int PromptsMode() {
+    if (!g_typing.load(std::memory_order_acquire)) return 0;
+    return g_keyboard_wanted.load(std::memory_order_acquire) ? 2 : 1;
+}
+std::u16string Prompt(const char16_t* image, const char16_t* label) {
+    return std::u16string(u"<font color='#A5A58C'><img src='") + image + u"' vspace='-8'>\xff1a" + label + u"</font>";
+}
+void TypingPrompts(u64 screen, int mode) {
+    u64 help = 0, prompts = 0;
+    coop::SafeGet(screen + kHelpField, &help);
+    coop::SafeGet(screen + kPromptsField, &prompts);
+    SetValueText(help, mode ? u"Type a glyph code to narrow the list." : Text(0xc9, 263000));
+    if (!mode) return;
+    const std::u16string gap = u"\x3000";
+    const std::u16string row =
+        mode == 2 ? Prompt(u"KG_L_UDLR", u"Move") + gap + Prompt(u"KG_OK", u"Type") + gap + Prompt(u"KG_R_L", u"Delete") +
+                        gap + Prompt(u"KG_Cancel", u"Cancel")
+                  : Prompt(u"KG_OK", u"Done") + gap + Prompt(u"KG_Cancel", u"Cancel") + gap + Prompt(u"KG_R_L", u"Delete");
+    SetValueText(prompts, row.c_str());
+}
+BB_COOP_SYSV void SetHelp(u64 screen, u64 text) {
+    g_set_help_original(screen, text);
+    if (IsGlyphScreen(screen) && g_prompts_mode) TypingPrompts(screen, g_prompts_mode);
+}
+BB_COOP_SYSV void RefreshPrompts(u64 screen) {
+    g_refresh_prompts_original(screen);
+    if (IsGlyphScreen(screen) && g_prompts_mode) TypingPrompts(screen, g_prompts_mode);
+}
+// Each frame: the prompts follow the typing (started, ended, the controller's keyboard shown or hidden).
+void ShowTypingPrompts(u64 screen) {
+    const int mode = PromptsMode();
+    if (mode == g_prompts_mode) return;
+    g_prompts_mode = mode;
+    reinterpret_cast<RefreshPromptsFn>(coop::Guest(kRefreshPrompts))(screen);  // ours over the game's, or the game's
+    if (!mode) TypingPrompts(screen, 0);  // the screen's help line back
+    std::printf("Glyph screen: the button prompts: %s\n",
+                mode == 2 ? "the controller's keyboard" : mode == 1 ? "typing on the keyboard" : "the screen's");
+    std::fflush(stdout);
+}
 // Each frame on the glyph screen: the typed text, the typing's end, and the keys that ended it.
 void Typing(u64 screen) {
     if (g_search_started.exchange(false, std::memory_order_acq_rel)) StartSearch(screen, false);
@@ -1494,6 +1562,7 @@ void ShowList(u64 screen) {
     g_matched_for.clear();
     g_no_match_shown.clear();
     g_panel_blank.store(false, std::memory_order_release);
+    g_prompts_mode = 0;
     g_jump_glyph = g_match_glyph = -1;
     if (ours) {
         Wrapper bar;
@@ -1523,6 +1592,7 @@ BB_COOP_SYSV void ScreenUpdate(u64 screen, u64, u64, u64, u64, u64) {
     ShowList(screen);
     if (IsGlyphScreen(screen)) {
         Typing(screen);
+        ShowTypingPrompts(screen);
         ShowNoMatch(screen);
         BarHover(screen);
         ShowBarCursor(screen);
@@ -2025,6 +2095,14 @@ void Install() {
                                                  reinterpret_cast<const void*>(&OkAction),
                                                  reinterpret_cast<void**>(&g_ok_original),
                                                  "glyph screen: OK on the search bar");
+        g_list = g_list && coop::ReplacePrologue(kSetHelp, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x56, 0x53},
+                                                 reinterpret_cast<const void*>(&SetHelp),
+                                                 reinterpret_cast<void**>(&g_set_help_original),
+                                                 "glyph screen: the help line while typing");
+        g_list = g_list && coop::ReplacePrologue(kRefreshPrompts, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56},
+                                                 reinterpret_cast<const void*>(&RefreshPrompts),
+                                                 reinterpret_cast<void**>(&g_refresh_prompts_original),
+                                                 "glyph screen: the button prompts while typing");
         g_list = g_list && coop::ReplacePrologue(kPanelShown, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56},
                                                  reinterpret_cast<const void*>(&PanelShown),
                                                  reinterpret_cast<void**>(&g_panel_shown_original),
