@@ -42,6 +42,7 @@
 #include <cctype>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -198,6 +199,24 @@ thread_local bool t_picking = false;  // our call of the Search by Chalice Glyph
 
 double Seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// The search's filter (under g_mu): while the bar holds text, a tab's rows are only its glyphs whose code holds it
+// (lowercase), those whose code begins with it first, then by where it is (the cache's order within); empty: all.
+// Kept after Done (the screen's next search starts from it), cleared by a cancel, an emptied bar or the screen opening.
+std::string g_filter;
+std::string g_search_text;               // the bar's text as typed, for the window's next search (under g_mu)
+std::atomic<unsigned> g_rows_serial{0};  // the glyph tabs' rows built so far (TabCollect)
+std::string Lower(const std::string& text) {
+    std::string out;
+    for (const unsigned char c : text) out += static_cast<char>(std::tolower(c));
+    return out;
+}
+// Where `want` (lowercase) is in `code`: its first place (0: the code begins with it), or -1.
+int MatchAt(const std::string& code, const std::string& want) {
+    if (want.empty()) return 0;
+    const std::size_t at = Lower(code).find(want);
+    return at == std::string::npos ? -1 : static_cast<int>(at);
 }
 
 // Rows added for the tab being built, until its tab filter ran.
@@ -398,6 +417,8 @@ BB_COOP_SYSV u64 GlyphItem(u64 out, u64 ctx) {
             return g_glyph_item_original(out, ctx);
         }
         g_opening = true;
+        g_filter.clear();
+        g_search_text.clear();
         g_panel_pending = g_panel;
         g_from_glyph = true;
         g_glyph_menu = 0;
@@ -485,6 +506,17 @@ int ShowParts(u64 panel, const char* const (&parts)[N], bool visible) {
     return found;
 }
 bool g_glyph_panel_shown = false;  // the movie now shows GlyphDetailText's parts (menu thread)
+// The controller's keyboard (GlyphDetailText/GlyphKeyboard, tools/engine/menu_assets.cpp): shown in the column's
+// place while a controller types in the search bar; the column's parts but its background hidden meanwhile (the
+// text fills show them again: PanelFetch hides them after).
+constexpr const char* kKeyboardHides[] = {"GlyphPart_15", "GlyphPart_19", "GlyphPart_23", "GlyphPart_34",
+                                          "DetailDesc",   "ItemName",     "GlyphDepth",   "GlyphArea"};
+std::atomic<bool> g_keyboard_shown{false};
+std::atomic<bool> g_panel_blank{false};  // the game asked the glyph screen's panel hidden: no card to show (PanelShown)
+// The keyboard's cursor (any thread): its view (<< 8: 0 the A-Z grid, 1 QWERTY; kept for the session, through
+// searches and the screen closing) and its key in that view (& 0xff), in one value (one store moves both).
+std::atomic<int> g_key{0};
+std::atomic<bool> g_keyboard_wanted{false};   // a controller types (any thread)
 
 // The stats panel (PlayerStatus, root depth 10 of the item screen's own movie, found from screen + 0xa70; faded by
 // its timeline) has two parts,
@@ -570,6 +602,9 @@ BB_COOP_SYSV u64 PanelFetch(u64 out, u64 parent, u64 path) {
     if (getter && (ours || g_glyph_panel_shown) && (*reinterpret_cast<const u32*>(out + 0x48) & 0x8f) == 10) {
         Wrapper glyph, game;
         const int glyph_parts = glyph.Fetch(parent, "GlyphDetailText") ? ShowParts(glyph.at(), kGlyphParts, ours) : 0;
+        if (ours && (g_keyboard_shown.load(std::memory_order_acquire) || g_panel_blank.load(std::memory_order_acquire)) &&
+            glyph_parts)
+            ShowParts(glyph.at(), kKeyboardHides, false);
         const int game_parts = game.Fetch(parent, "ItemDetailText") ? ShowParts(game.at(), kGameParts, !ours) : 0;
         if (g_glyph_panel_shown != ours) {
             std::printf("Glyph screen: the panel movie shows %s (parts %d / %zu shown, %d / %zu hidden)\n",
@@ -777,6 +812,11 @@ u64 DisplayObject(Wrapper& w) {
 // list's current item; on while the list has one, vtable +0x48). On the glyph screen with the bar's focus OK decides
 // nothing (the first card would be picked); the bar takes it. Back is left as it is.
 constexpr u64 kOkAction = 0x1ba80f0, kBackAction = 0x1ba9b00;
+// The item screen's "panel shown" listener (a std::function's call: functor + 8 = the screen, the argument a bool):
+// SetVisible(bool) on the description panel (the wrapper at screen + 0xdd8, else the panel's root, screen + 0xda8, at
+// 0x1ba9fd1 / 0x1baa04f). The game hides the panel when the list has no item to show: on the glyph screen, a search
+// that leaves the tab empty; the controller's keyboard lives in that panel.
+constexpr u64 kPanelShown = 0x1ba9f30;
 // Search: Display's control on the glyph screen (its label our text, its action and condition replaced there: on
 // while no child screen is open, the search bar taking the focus and the typing starting at once). On the keyboard
 // a letter or digit starts the search with itself (TypeStartsSearch, from the window before the game sees the key),
@@ -798,6 +838,8 @@ constexpr u64 kListRootType = 0xc8, kListRootData = 0xd0;
 // of its menus: {0x7da, 9} and the label at 0x4933506 ("top menu category select", as 0x1af47b9 sets it).
 constexpr u64 kMenuSound = 0x557fc60, kMenuSoundLabel = 0x557fc68, kCursorMoveLabel = 0x49344e4;
 constexpr u64 kDecideLabel = 0x493451b, kEnterMenuLabel = 0x4933506;
+// "cancel" (0xc8, priority 1: 0x1b26b5f) and "display switch" (0x3fc, priority 5: Display's action, 0x1ba678c)
+constexpr u64 kCancelLabel = 0x493450b, kSwitchLabel = 0x49340d5;
 std::atomic<u64> g_glyph_list_object{0};  // GlyphNormalItem's display object while the glyph screen is up
 std::atomic<bool> g_bar_focus{false};
 std::atomic<u64> g_glyph_list{0};             // the glyph screen's card list, once a step has seen it
@@ -866,6 +908,8 @@ void MenuSound(std::int32_t value, std::int32_t priority, u64 label_at) {
 void CursorMoveSound() { MenuSound(0, 0, kCursorMoveLabel); }  // as the game's own cursor move
 void DecideSound() { MenuSound(0x64, 1, kDecideLabel); }        // as a menu's decision (the typed text confirmed)
 void EnterSound() { MenuSound(0x7da, 9, kEnterMenuLabel); }      // as the top menu entering a menu (typing starts)
+void CancelSound() { MenuSound(0xc8, 1, kCancelLabel); }         // as a menu's cancel (the keyboard hidden)
+void SwitchSound() { MenuSound(0x3fc, 5, kSwitchLabel); }        // as Display's switch (the keyboard's other view)
 // The highlight of the card shown at `line` (one column: the cell is {0, line}).
 void ShowCardCursor(u64 list, u32 line) {
     u64 provider = 0, vtable = 0, make = 0;
@@ -976,6 +1020,35 @@ BB_COOP_SYSV void OkAction(u64 functor) {
     }
     g_ok_original(functor);
 }
+// On the glyph screen the panel is never hidden: with no card to show (a search matching nothing, an empty tab) it
+// stays, blank (GlyphDetailText's parts but its background hidden, as under the controller's keyboard), so the
+// keyboard and the panel's frame stay where they are whichever way the search is typed.
+using PanelShownFn = void(BB_COOP_SYSV*)(u64, const std::uint8_t*);
+PanelShownFn g_panel_shown_original = nullptr;
+// GlyphDetailText's parts shown or hidden (its background stays).
+void ShowPanelParts(u64 screen, bool visible) {
+    Wrapper root, column;
+    reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kResolveHandle))(root.at(), screen + kPanelHandle);
+    if (*reinterpret_cast<const u64*>(root.at()) && column.Fetch(root.at(), "GlyphDetailText"))
+        ShowParts(column.at(), kKeyboardHides, visible);
+}
+BB_COOP_SYSV void PanelShown(u64 functor, const std::uint8_t* shown) {
+    u64 screen = 0;
+    std::uint8_t want = 1;
+    if (!coop::SafeGet(functor + 8, &screen) || !IsGlyphScreen(screen) ||
+        !coop::SafeGet(reinterpret_cast<u64>(shown), &want)) {
+        g_panel_shown_original(functor, shown);
+        return;
+    }
+    static const std::uint8_t kOn = 1;
+    g_panel_shown_original(functor, &kOn);
+    const bool blank = !want;
+    if (blank != g_panel_blank.exchange(blank, std::memory_order_acq_rel)) {
+        std::printf("Glyph screen: the panel %s\n", blank ? "stays shown, blank (no card to show)" : "shows a card again");
+        std::fflush(stdout);
+    }
+    if (!g_keyboard_shown.load(std::memory_order_acquire)) ShowPanelParts(screen, !blank);
+}
 void StartSearch(u64 screen, bool open_box);
 using BackFn = void(BB_COOP_SYSV*)(u64);
 BackFn g_back_original = nullptr;
@@ -1032,6 +1105,7 @@ int g_jump_tab = -1;
 double g_jump_at = 0;
 int g_swallow_frames = 0;
 int g_match_glyph = -1;            // the glyph the cards' highlight is on (the last jump's)
+unsigned g_jump_serial = 0;        // g_rows_serial when the jump asked for its rows
 const Glyph* GlyphOfRow(u64 row);
 
 std::u16string Utf16(const std::string& s) {  // the codes are ASCII; anything else shows as '?'
@@ -1056,6 +1130,10 @@ void BeginTyping(u64 screen) {
     }
     g_typing.store(true, std::memory_order_release);
     EnterSound();
+    if (host_input_device() == InputDevice::Pad) {
+        g_key.store(g_key.load(std::memory_order_acquire) & ~0xff, std::memory_order_release);  // the view kept
+        g_keyboard_wanted.store(true, std::memory_order_release);
+    }
     std::int32_t tabs = 0, tab = -1;
     coop::SafeGet(screen + kTabList + kListItems, &tabs);
     coop::SafeGet(screen + kTabList + kListCursor, &tab);
@@ -1082,24 +1160,32 @@ int CardOf(u64 screen, int k) {
     }
     return -1;
 }
-// The glyph a text jumps to: the first whose code begins with it, from the shown tab on. Under g_mu.
+// The glyph a text jumps to: on the shown tab when it has a match, else on the first tab after it that has one; that
+// tab's best (its filtered rows' first: the code beginning with the text, else the earliest place). Under g_mu.
 int MatchOf(const std::string& typed, int from_tab) {
     if (typed.empty() || !g_glyphs) return -1;
-    std::string want;
-    for (const unsigned char c : typed) want += static_cast<char>(std::tolower(c));
+    const std::string want = Lower(typed);
     const int tabs = static_cast<int>(std::size(kCategories));
     for (int t = 0; t < tabs; ++t) {
         const int cat = ((from_tab < 0 ? 0 : from_tab) + t) % tabs;
+        int best = -1, best_at = 0;
         for (std::size_t k = 0; k < g_glyphs->size(); ++k) {
             const Glyph& g = (*g_glyphs)[k];
-            if (g.category != cat || g.code.size() < want.size()) continue;
-            bool same = true;
-            for (std::size_t i = 0; same && i < want.size(); ++i)
-                same = std::tolower(static_cast<unsigned char>(g.code[i])) == static_cast<unsigned char>(want[i]);
-            if (same) return static_cast<int>(k);
+            if (g.category != cat) continue;
+            const int at = MatchAt(g.code, want);
+            if (at >= 0 && (best < 0 || at < best_at)) best = static_cast<int>(k), best_at = at;
         }
+        if (best >= 0) return best;
     }
     return -1;
+}
+// The filter's matches on `tab`. Under g_mu.
+int MatchesOn(int tab) {
+    if (!g_glyphs) return 0;
+    int n = 0;
+    for (const Glyph& g : *g_glyphs)
+        if (g.category == tab && MatchAt(g.code, g_filter) >= 0) ++n;
+    return n;
 }
 // The cards' highlight on card `card` of the shown list.
 void HighlightCard(u64 list, int card) {
@@ -1118,42 +1204,53 @@ void FinishJump(u64 screen) {
         std::lock_guard<std::mutex> lk(g_mu);
         card = CardOf(screen, g_jump_glyph);
     }
-    if (card >= 0 && list && IsGlyphList(list) && ShownTab(screen) == g_jump_tab) {
+    const bool rebuilt = g_rows_serial.load(std::memory_order_acquire) != g_jump_serial;
+    const bool late = Seconds() - g_jump_at > kJumpWait;
+    if (card >= 0 && list && IsGlyphList(list) && ShownTab(screen) == g_jump_tab && (rebuilt || late)) {
+        if (!rebuilt) {
+            std::printf("Glyph screen: \"%s\": tab %d's rows were not built again (the filter not applied)\n",
+                        g_typed.c_str(), g_jump_tab);
+        }
         if (g_jump_glyph != g_match_glyph) CursorMoveSound();
         HighlightCard(list, card);
         g_match_glyph = g_jump_glyph;
         std::printf("Glyph screen: \"%s\" is on tab %d, card %d\n", g_typed.c_str(), g_jump_tab, card);
         std::fflush(stdout);
         g_jump_glyph = -1;
-    } else if (Seconds() - g_jump_at > kJumpWait) {
+    } else if (late) {
         std::printf("Glyph screen: \"%s\": tab %d's rows never came (shown tab %d, card %d)\n", g_typed.c_str(),
                     g_jump_tab, ShownTab(screen), card);
         std::fflush(stdout);
         g_jump_glyph = -1;
     }
 }
+// The bar's text changed: the filter follows it, the best match's tab (or the shown one, without a match) shows its
+// rows again, filtered, and the best card takes the highlight once they are built (FinishJump).
 void Jump(u64 screen) {
     if (g_typed == g_matched_for) return;
     g_matched_for = g_typed;
+    const int shown = ShownTab(screen);
     int k = -1, tab = -1;
     {
         std::lock_guard<std::mutex> lk(g_mu);
-        k = MatchOf(g_typed, ShownTab(screen));
+        g_filter = Lower(g_typed);
+        g_search_text = g_typed;
+        k = MatchOf(g_typed, shown);
         if (k >= 0) tab = (*g_glyphs)[static_cast<std::size_t>(k)].category;
     }
-    if (k < 0) {
-        if (!g_typed.empty()) {
-            std::printf("Glyph screen: \"%s\" matches no glyph\n", g_typed.c_str());
-            std::fflush(stdout);
-        }
-        return;
-    }
-    if (tab != ShownTab(screen)) {
+    if (tab < 0) tab = shown;
+    if (tab < 0) return;
+    if (tab != shown)
         reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kSetCursor))(screen + kTabList,
                                                                                  static_cast<u64>(tab));
-        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u32, u32)>(coop::Guest(kShowTab))(screen, static_cast<u32>(tab), 0);
-        std::printf("Glyph screen: \"%s\": to tab %d (shown tab now %d)\n", g_typed.c_str(), tab, ShownTab(screen));
-        std::fflush(stdout);
+    g_jump_serial = g_rows_serial.load(std::memory_order_acquire);
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64, u32, u32)>(coop::Guest(kShowTab))(screen, static_cast<u32>(tab), 0);
+    std::printf("Glyph screen: \"%s\": tab %d filtered (%s; shown tab now %d)\n", g_typed.c_str(), tab,
+                k >= 0 ? "a match" : g_typed.empty() ? "no filter" : "no match", ShownTab(screen));
+    std::fflush(stdout);
+    if (k < 0) {
+        g_jump_glyph = g_match_glyph = -1;
+        return;
     }
     g_jump_glyph = k;
     g_jump_tab = tab;
@@ -1175,6 +1272,149 @@ void StartSearch(u64 screen, bool open_box) {
     std::printf("Glyph screen: typing in the search bar (started by a letter)\n");
     std::fflush(stdout);
 }
+// The controller's keyboard (GlyphDetailText/GlyphKeyboard): two views of 38 keys, the A-Z grid (Grid: a..z, 0..9 in
+// 6 rows of 6) and QWERTY (Qwerty: 1..0, q..p, a..l, z..m, its rows staggered), each Key_0 .. Key_35 in its letters'
+// order, then Delete (Key_36) and Done (Key_37) under them. The window thread moves its cursor, switches its view
+// (Triangle / Y) and presses its keys (KeyboardPress); the screen shows it (from the first controller press, or when
+// a controller started the typing), its view and its key's highlight (Hot).
+constexpr int kLetterKeys = 36, kDeleteKey = 36, kDoneKey = 37, kRowsMax = 6;
+struct KeyView {
+    const char* name;         // its sprite under GlyphKeyboard
+    const char* letters;      // Key_0 .. Key_35
+    int rows[kRowsMax];       // keys per row (0: no more rows)
+    double shift[kRowsMax];   // each row's offset, in keys
+    double width;             // the rows' width, in keys: Delete under its left half, Done under its right
+};
+constexpr KeyView kViews[2] = {
+    {"Grid", "abcdefghijklmnopqrstuvwxyz0123456789", {6, 6, 6, 6, 6, 6}, {0, 0, 0, 0, 0, 0}, 6},
+    {"Qwerty", "1234567890qwertyuiopasdfghjklzxcvbnm", {10, 10, 9, 7, 0, 0}, {0, 0, 0.5, 1.5, 0, 0}, 10},
+};
+int KeyPacked(int view, int key) { return view << 8 | key; }
+int g_key_shown = -1;   // the key whose Hot shows (menu thread)
+int g_view_shown = -1;  // the view shown (menu thread)
+int RowCount(const KeyView& v) {
+    int n = 0;
+    while (n < kRowsMax && v.rows[n]) ++n;
+    return n;
+}
+int RowStart(const KeyView& v, int row) {
+    int first = 0;
+    for (int r = 0; r < row; ++r) first += v.rows[r];
+    return first;
+}
+// The key in `row` whose centre is nearest `x` (in keys; the leftmost of two as near).
+int NearestIn(const KeyView& v, int row, double x) {
+    const int first = RowStart(v, row);
+    int best = first;
+    double best_d = 1e9;
+    for (int c = 0; c < v.rows[row]; ++c) {
+        const double d = std::abs(c + v.shift[row] + 0.5 - x);
+        if (d < best_d) best_d = d, best = first + c;
+    }
+    return best;
+}
+// Left / Right wrap in a row; Up / Down go to the nearest key of the next row, and past the first or last row to
+// Delete or Done (the half under the key); from Delete / Done, Up and Down go to the nearest key of the last or first
+// row, Left / Right to the other one.
+int MovedKey(int view, int key, PadKey move) {
+    const KeyView& v = kViews[view];
+    const int rows = RowCount(v);
+    if (key >= kLetterKeys) {
+        if (move == PadKey::kLeft || move == PadKey::kRight) return key == kDeleteKey ? kDoneKey : kDeleteKey;
+        const double x = key == kDeleteKey ? v.width / 4 : v.width * 3 / 4;
+        return move == PadKey::kUp ? NearestIn(v, rows - 1, x) : move == PadKey::kDown ? NearestIn(v, 0, x) : key;
+    }
+    int row = 0;
+    while (row < rows - 1 && key >= RowStart(v, row + 1)) ++row;
+    const int first = RowStart(v, row), column = key - first, n = v.rows[row];
+    const double x = column + v.shift[row] + 0.5;
+    const int below = x < v.width / 2 ? kDeleteKey : kDoneKey;
+    switch (move) {
+    case PadKey::kLeft: return first + (column + n - 1) % n;
+    case PadKey::kRight: return first + (column + 1) % n;
+    case PadKey::kUp: return row == 0 ? below : NearestIn(v, row - 1, x);
+    case PadKey::kDown: return row == rows - 1 ? below : NearestIn(v, row + 1, x);
+    default: return key;
+    }
+}
+// The same key in the other view: a letter stays on its letter, Delete and Done stay.
+int KeyInView(int from, int to, int key) {
+    if (key >= kLetterKeys) return key;
+    const char* at = std::strchr(kViews[to].letters, kViews[from].letters[key]);
+    return at ? int(at - kViews[to].letters) : 0;
+}
+std::string HotPath(int view, int key) { return std::string(kViews[view].name) + "/Key_" + std::to_string(key) + "/Hot"; }
+// The glyph screen's keyboard part (`path` under GlyphDetailText/GlyphKeyboard) shown or hidden.
+void ShowKeyboardPart(u64 screen, const std::string& path, bool visible) {
+    Wrapper root, part;
+    reinterpret_cast<u64(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kResolveHandle))(root.at(), screen + kPanelHandle);
+    if (!*reinterpret_cast<const u64*>(root.at())) return;
+    if (part.Fetch(root.at(), ("GlyphDetailText/GlyphKeyboard" + (path.empty() ? "" : "/" + path)).c_str()))
+        part.SetVisible(visible);
+}
+void HideKeyHot(u64 screen) {
+    if (g_key_shown >= 0 && g_view_shown >= 0) ShowKeyboardPart(screen, HotPath(g_view_shown, g_key_shown), false);
+    g_key_shown = -1;
+}
+// The keyboard shown or hidden (the column's parts the other way); shown, with the enter sound; hidden, with the
+// cancel sound (Done's decide sound, queued after it at the same priority, takes its place).
+void ShowKeyboard(u64 screen, bool visible) {
+    if (visible == g_keyboard_shown.load(std::memory_order_acquire)) return;
+    g_keyboard_shown.store(visible, std::memory_order_release);
+    // the column's parts: hidden under the keyboard; back with it gone, unless the panel is blank (no card to show)
+    ShowPanelParts(screen, !visible && !g_panel_blank.load(std::memory_order_acquire));
+    HideKeyHot(screen);
+    g_view_shown = -1;
+    ShowKeyboardPart(screen, "", visible);
+    // shown: the sound of the search starting (a controller taking over from the keyboard sounds as it would have)
+    if (visible) EnterSound();
+    else CancelSound();
+    std::printf("Glyph screen: the controller's keyboard %s\n", visible ? "shown" : "hidden");
+    std::fflush(stdout);
+}
+// Each frame while typed in: the keyboard, its view and its key's highlight.
+void DrawKeyboard(u64 screen) {
+    const bool want = g_typing.load(std::memory_order_acquire) && g_keyboard_wanted.load(std::memory_order_acquire);
+    ShowKeyboard(screen, want);
+    if (!want) return;
+    const int packed = g_key.load(std::memory_order_acquire);
+    const int view = packed >> 8 & 1, key = packed & 0xff;
+    if (view != g_view_shown) {
+        HideKeyHot(screen);
+        for (int i = 0; i < 2; ++i) ShowKeyboardPart(screen, kViews[i].name, i == view);
+        if (g_view_shown >= 0) {
+            SwitchSound();
+            std::printf("Glyph screen: the controller's keyboard: the %s view\n", view ? "QWERTY" : "A-Z grid");
+            std::fflush(stdout);
+        }
+        g_view_shown = view;
+    } else if (key == g_key_shown) {
+        return;
+    } else if (g_key_shown >= 0) {
+        HideKeyHot(screen);
+        CursorMoveSound();
+    }
+    ShowKeyboardPart(screen, HotPath(view, key), true);
+    g_key_shown = key;
+}
+// The list's "No Chalice Glyphs match ..." line: shown while the filter leaves the shown tab no card.
+std::string g_no_match_shown;  // the text it shows, "" hidden (menu thread)
+void ShowNoMatch(u64 screen) {
+    std::string want;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        if (!g_filter.empty() && MatchesOn(ShownTab(screen)) == 0) want = g_search_text;
+    }
+    if (want == g_no_match_shown) return;
+    Wrapper root, line;
+    if (!ListRoot(screen, root) || !line.Fetch(root.at(), "ItemList/GlyphNoMatch")) return;
+    if (!want.empty()) {
+        const std::u16string text = u"No Chalice Glyphs match \"" + Utf16(want) + u"\"";
+        SetFieldText(root.at(), "ItemList/GlyphNoMatch", text.c_str());
+    }
+    line.SetVisible(!want.empty());
+    g_no_match_shown = want;
+}
 // Each frame on the glyph screen: the typed text, the typing's end, and the keys that ended it.
 void Typing(u64 screen) {
     if (g_search_started.exchange(false, std::memory_order_acq_rel)) StartSearch(screen, false);
@@ -1190,6 +1430,8 @@ void Typing(u64 screen) {
     if (!g_typing.load(std::memory_order_acquire)) return;
     char text[64] = {};
     const int state = bbgpu_text_input_poll(text, sizeof text);
+    if (state != 0) g_keyboard_wanted.store(false, std::memory_order_release);
+    DrawKeyboard(screen);
     g_typed = text;
     Jump(screen);
     const bool blink = static_cast<long long>(Seconds() * 2) % 2 == 0;
@@ -1250,6 +1492,8 @@ void ShowList(u64 screen) {
     g_pointer_seen = false;
     g_typed.clear();
     g_matched_for.clear();
+    g_no_match_shown.clear();
+    g_panel_blank.store(false, std::memory_order_release);
     g_jump_glyph = g_match_glyph = -1;
     if (ours) {
         Wrapper bar;
@@ -1279,6 +1523,7 @@ BB_COOP_SYSV void ScreenUpdate(u64 screen, u64, u64, u64, u64, u64) {
     ShowList(screen);
     if (IsGlyphScreen(screen)) {
         Typing(screen);
+        ShowNoMatch(screen);
         BarHover(screen);
         ShowBarCursor(screen);
     }
@@ -1365,9 +1610,16 @@ BB_COOP_SYSV u64 AfterScreenFilter(u64 tab, u64 frame, u64 menu) {
     g_pending.list = list;
     g_pending.first = original_rows;
     g_pending.family = family;
+    std::vector<std::pair<int, std::size_t>> order;  // (where the filter is in the code, the glyph)
     for (std::size_t i = 0; i < g_glyphs->size(); ++i) {
         const Glyph& g = (*g_glyphs)[i];
         if (g.category != category) continue;
+        const int at = MatchAt(g.code, g_filter);
+        if (at >= 0) order.emplace_back(at, i);
+    }
+    std::stable_sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (const auto& [at, i] : order) {
+        const Glyph& g = (*g_glyphs)[i];
         u64 b = 0;
         coop::SafeGet(list + 0x18, &b);
         push(list + 0x10, b + tmpl_index * kRowSize);  // the push takes care of a source inside the vector
@@ -1379,8 +1631,9 @@ BB_COOP_SYSV u64 AfterScreenFilter(u64 tab, u64 frame, u64 menu) {
         *reinterpret_cast<u32*>(row + 0x70) = 0xb0000000u | g.goods;
         g_pending.glyph.push_back(static_cast<int>(i));
     }
-    std::printf("Glyph screen: tab 0x%x (%s): %zu glyph row(s)\n", tab_id, kCategories[category],
-                g_pending.glyph.size());
+    std::printf("Glyph screen: tab 0x%x (%s): %zu glyph row(s)%s%s%s\n", tab_id, kCategories[category],
+                g_pending.glyph.size(), g_filter.empty() ? "" : " matching \"", g_filter.c_str(),
+                g_filter.empty() ? "" : "\"");
     std::fflush(stdout);
     return 0;
 }
@@ -1440,6 +1693,7 @@ BB_COOP_SYSV u64 TabCollect(u64 out, u64 src_ref, u64 filter) {
     }
     std::printf("Glyph screen: tab shows %zu glyph row(s), %zu other row(s)\n", kept, others);
     std::fflush(stdout);
+    g_rows_serial.fetch_add(1, std::memory_order_acq_rel);
     return r;
 }
 
@@ -1632,6 +1886,34 @@ const char16_t* Text(std::uint32_t category, std::uint32_t id) {
     return nullptr;
 }
 
+int KeyboardPress(PadKey key) {
+    if (key == PadKey::kNone) return 0;
+    if (!g_keyboard_wanted.exchange(true, std::memory_order_acq_rel)) {  // the first press shows the keyboard
+        g_key.store(g_key.load(std::memory_order_acquire) & ~0xff, std::memory_order_release);  // its view kept
+        if (key != PadKey::kDelete && key != PadKey::kDone && key != PadKey::kCancel) return 0;
+    }
+    const int packed = g_key.load(std::memory_order_acquire);
+    const int view = packed >> 8 & 1, k = packed & 0xff;
+    switch (key) {
+    case PadKey::kUp:
+    case PadKey::kDown:
+    case PadKey::kLeft:
+    case PadKey::kRight: g_key.store(KeyPacked(view, MovedKey(view, k, key)), std::memory_order_release); return 0;
+    case PadKey::kToggle: g_key.store(KeyPacked(1 - view, KeyInView(view, 1 - view, k)), std::memory_order_release); return 0;
+    case PadKey::kPress: return k < kLetterKeys ? kViews[view].letters[k] : k == kDeleteKey ? kTypedDelete : kTypedDone;
+    case PadKey::kDelete: return kTypedDelete;
+    case PadKey::kDone: return kTypedDone;
+    case PadKey::kCancel: return kTypedCancel;
+    default: return 0;
+    }
+}
+void KeyboardKeyTyped() { g_keyboard_wanted.store(false, std::memory_order_release); }
+
+std::string SearchText() {
+    std::lock_guard<std::mutex> lk(g_mu);
+    return g_search_text;
+}
+
 bool TypeStartsSearch(int scancode) {
     const long long ready = g_search_ready_ms.load(std::memory_order_acquire);
     if (!ready || static_cast<long long>(Seconds() * 1000) - ready > 100) return false;  // not up, or gone
@@ -1743,6 +2025,10 @@ void Install() {
                                                  reinterpret_cast<const void*>(&OkAction),
                                                  reinterpret_cast<void**>(&g_ok_original),
                                                  "glyph screen: OK on the search bar");
+        g_list = g_list && coop::ReplacePrologue(kPanelShown, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56},
+                                                 reinterpret_cast<const void*>(&PanelShown),
+                                                 reinterpret_cast<void**>(&g_panel_shown_original),
+                                                 "glyph screen: the panel kept for the controller's keyboard");
         g_list = g_list && coop::HookPrologue(kControlsSetup, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57}, &ControlsSetup,
                                               "glyph screen: item screen controls setup");
         g_list = g_list && coop::HookCallSite(kDisplayLabelCall, kTextOf, reinterpret_cast<const void*>(&DisplayLabel),

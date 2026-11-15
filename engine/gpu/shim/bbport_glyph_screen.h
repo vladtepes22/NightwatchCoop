@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace BbGlyphScreen {
 
@@ -22,6 +23,17 @@ bool KeepsGameText(std::uint32_t id);
 /// glyph screen's search (the screen is up with nothing over it and the key is not Search's own, Square's). True:
 /// the window opens the quiet text box with that letter and the game never sees the key.
 bool TypeStartsSearch(int scancode);
+/// The search bar's text as last typed (kept after Done; empty after a cancel or the screen opening): a search started
+/// by a letter continues it.
+std::string SearchText();
+/// The window thread, the quiet text box's controller button: the glyph screen's keyboard (shown from the first
+/// press) moves its key, switches its view (kToggle: the A-Z grid / QWERTY) or presses its key. Returns the letter
+/// typed (> 0), 0 for nothing or one of kTyped*.
+enum class PadKey { kNone, kUp, kDown, kLeft, kRight, kPress, kDelete, kDone, kCancel, kToggle };
+constexpr int kTypedDelete = -1, kTypedDone = -2, kTypedCancel = -3;
+int KeyboardPress(PadKey key);
+/// The window thread, a key typed on the keyboard in the quiet text box: the glyph screen's keyboard hides.
+void KeyboardKeyTyped();
 /// The glyph box's preset: a glyph picked on the glyph screen (once, within a few seconds of the pick), else nullptr.
 const char* PickedGlyph(std::uint32_t max_length);
 

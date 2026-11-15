@@ -354,7 +354,7 @@ bool WindowSDL::PollEvents() {
                            : k >= SDLK_0 && k <= SDLK_9 ? char('0' + (k - SDLK_0))
                                                         : 0;
             if (c && BbGlyphScreen::TypeStartsSearch(int(event.key.scancode))) {
-                BeginTextInput(std::string(1, c), "Search", {}, true);
+                BeginTextInput(BbGlyphScreen::SearchText() + c, "Search", {}, true);
                 std::scoped_lock lock{text_mutex};
                 text_requested = false;
                 text_active = true;
@@ -369,6 +369,7 @@ bool WindowSDL::PollEvents() {
             last_mouse_motion_ms = SDL_GetTicks();
         }
         if (text_active && (event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_KEY_DOWN)) {
+            if (text_quiet) BbGlyphScreen::KeyboardKeyTyped();  // the glyph screen's controller keyboard hides
             std::scoped_lock lock{text_mutex};
             const bool ctrl = event.type == SDL_EVENT_KEY_DOWN && (event.key.mod & SDL_KMOD_CTRL);
             if (event.type == SDL_EVENT_TEXT_INPUT && search_letter &&
@@ -440,15 +441,35 @@ bool WindowSDL::PollEvents() {
             UpdateTextTitle();
             continue;
         }
-        // A quiet box (the Chalice glyph screen's search): West deletes the last character.
-        if (text_active && text_quiet && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&
-            event.gbutton.button == SDL_GAMEPAD_BUTTON_WEST) {
+        // A quiet box (the Chalice glyph screen's search): the controller types on the screen's keyboard (the d-pad
+        // moves on it, South presses the key, West deletes, Start is Done, East cancels, North switches its view).
+        if (text_active && text_quiet && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+            using BbGlyphScreen::PadKey;
+            const auto b = event.gbutton.button;
+            const PadKey key = b == SDL_GAMEPAD_BUTTON_DPAD_UP      ? PadKey::kUp
+                               : b == SDL_GAMEPAD_BUTTON_DPAD_DOWN  ? PadKey::kDown
+                               : b == SDL_GAMEPAD_BUTTON_DPAD_LEFT  ? PadKey::kLeft
+                               : b == SDL_GAMEPAD_BUTTON_DPAD_RIGHT ? PadKey::kRight
+                               : b == SDL_GAMEPAD_BUTTON_SOUTH      ? PadKey::kPress
+                               : b == SDL_GAMEPAD_BUTTON_WEST       ? PadKey::kDelete
+                               : b == SDL_GAMEPAD_BUTTON_START      ? PadKey::kDone
+                               : b == SDL_GAMEPAD_BUTTON_EAST       ? PadKey::kCancel
+                               : b == SDL_GAMEPAD_BUTTON_NORTH      ? PadKey::kToggle
+                                                                    : PadKey::kNone;
+            const int typed = BbGlyphScreen::KeyboardPress(key);
             std::scoped_lock lock{text_mutex};
-            if (!text.empty()) {
+            if (typed > 0) {
+                text += char(typed);
+            } else if (typed == BbGlyphScreen::kTypedDelete && !text.empty()) {
                 size_t cut = text.size() - 1;
                 while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
                 text.erase(cut);
+            } else if (typed == BbGlyphScreen::kTypedDone || typed == BbGlyphScreen::kTypedCancel) {
+                text_state = typed == BbGlyphScreen::kTypedDone ? 1 : 2;
+                text_active = false;
+                SDL_StopTextInput(window);
             }
+            UpdateTextTitle();
             continue;
         }
         if (text_active && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&

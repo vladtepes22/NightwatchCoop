@@ -1105,6 +1105,110 @@ Sprite WiderSprite(const Movie& m, std::uint16_t of, std::uint16_t id, std::int6
 }
 }  // namespace
 
+namespace {
+// A matrix with the scale set to (sx, sy), its position as it was.
+Matrix WithScale(Matrix m, double sx, double sy) {
+    const std::int64_t x = std::llround(sx * 65536), y = std::llround(sy * 65536);
+    m.scaled = true;
+    m.scale_bits = std::max(BitsFor(x), BitsFor(y));
+    const std::uint64_t mask = (std::uint64_t(1) << m.scale_bits) - 1;
+    m.sx = std::uint32_t(std::uint64_t(x) & mask), m.sy = std::uint32_t(std::uint64_t(y) & mask);
+    return m;
+}
+// A copy of edit text `of` (DefineEditText) as `id` with the initial text `text`.
+Tag EditTextWithText(const Movie& m, std::uint16_t of, std::uint16_t id, const std::string& text) {
+    for (const Tag& t : m.tags) {
+        if (t.code != 37 || U16(t.body, 0) != of) continue;
+        const Bytes& b = t.body;
+        BitReader r{b, 2};
+        const int n = int(r.Unsigned(5));
+        for (int i = 0; i < 4; ++i) r.Signed(n);
+        std::size_t at = r.End();
+        const std::size_t flags_at = at;
+        const std::uint8_t f1 = b[at], f2 = b[at + 1];
+        at += 2;
+        if (f1 & 0x01) at += 2;  // the font
+        if (f2 & 0x80) {         // the font class
+            while (at < b.size() && b[at]) ++at;
+            ++at;
+        }
+        if ((f1 & 0x01) || (f2 & 0x80)) at += 2;  // the height
+        if (f1 & 0x04) at += 4;                   // the colour
+        if (f1 & 0x02) at += 2;                   // the most characters
+        if (f2 & 0x20) at += 9;                   // the layout
+        while (at < b.size() && b[at]) ++at;      // the variable name
+        if (at >= b.size()) throw Error("the list's text boxes are not 1.09's");
+        Bytes body(b.begin(), b.begin() + std::ptrdiff_t(at + 1));
+        SetLe(body, 0, id, 2);
+        body[flags_at] |= 0x80;
+        if (!text.empty() && text[0] == '<') body[flags_at + 1] |= 0x02;  // HTML text
+        body.insert(body.end(), text.begin(), text.end());
+        body.push_back(0);
+        return Changed(37, std::move(body));
+    }
+    throw Error("no edit text " + std::to_string(of) + " in the movie");
+}
+// A placement (PlaceObject3) of character `id` at `depth`, named `name` if set, hidden unless `visible`.
+Tag Placement(std::uint16_t id, std::uint16_t depth, const Matrix& at, const std::optional<std::string>& name,
+              bool visible) {
+    Bytes b{std::uint8_t(0x02 | 0x04 | (name ? 0x20 : 0)), std::uint8_t(visible ? 0x00 : 0x20)};
+    PutLe(b, depth, 2);
+    PutLe(b, id, 2);
+    Append(b, WriteMatrix(at));
+    if (name) {
+        b.insert(b.end(), name->begin(), name->end());
+        b.push_back(0);
+    }
+    if (!visible) b.push_back(0);
+    return Changed(kPlace3, std::move(b));
+}
+Matrix At(double x, double y) {
+    Matrix m;
+    m.tx = std::llround(x * 20), m.ty = std::llround(y * 20);
+    return m;
+}
+// A character's bounds, twips: a shape's (DefineShape 1-4) own; a sprite's, its first frame's parts' (placed
+// without rotation).
+struct Box {
+    std::int64_t x0, x1, y0, y1;
+};
+double ScaleOf(std::uint32_t raw, int bits) {
+    const std::int64_t v = bits && (raw >> (bits - 1) & 1) ? std::int64_t(raw) - (std::int64_t(1) << bits)
+                                                            : std::int64_t(raw);
+    return double(v) / 65536;
+}
+Box Bounds(const Movie& m, std::uint16_t id) {
+    for (const Tag& t : m.tags) {
+        if ((t.code != 2 && t.code != 22 && t.code != 32 && t.code != 83) || U16(t.body, 0) != id) continue;
+        BitReader r{t.body, 2};
+        const int n = int(r.Unsigned(5));
+        Box b{};
+        b.x0 = r.Signed(n), b.x1 = r.Signed(n), b.y0 = r.Signed(n), b.y1 = r.Signed(n);
+        return b;
+    }
+    const Sprite s = ReadSprite(m.tags[FindSprite(m, id)]);
+    std::optional<Box> all;
+    for (const Tag& t : s.tags) {
+        if (t.code == kShowFrame) break;
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (!p.character) continue;
+        const Matrix at = p.matrix.value_or(Matrix{});
+        if (at.rotated) throw Error("a rotated part in character " + std::to_string(id));
+        const double sx = at.scaled ? ScaleOf(at.sx, at.scale_bits) : 1, sy = at.scaled ? ScaleOf(at.sy, at.scale_bits) : 1;
+        const Box c = Bounds(m, *p.character);
+        const std::int64_t xa = at.tx + std::llround(c.x0 * sx), xb = at.tx + std::llround(c.x1 * sx);
+        const std::int64_t ya = at.ty + std::llround(c.y0 * sy), yb = at.ty + std::llround(c.y1 * sy);
+        const Box b{std::min(xa, xb), std::max(xa, xb), std::min(ya, yb), std::max(ya, yb)};
+        all = all ? Box{std::min(all->x0, b.x0), std::max(all->x1, b.x1), std::min(all->y0, b.y0),
+                        std::max(all->y1, b.y1)}
+                  : b;
+    }
+    if (!all) throw Error("character " + std::to_string(id) + " has no parts");
+    return *all;
+}
+}  // namespace
+
 // The Chalice glyph screen's description panel: a second copy of ItemDetailText (the sprite placed at root depth 1)
 // at depth 2, named GlyphDetailText, with only its right-hand column (name, underline, ruled lines, description) on a
 // background of its own (the panel's, narrowed: the edges kept, the middle stretched), moved right so it sits beside
@@ -1180,6 +1284,7 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
     // description text boxes (their edit texts' bounds widened).
     std::map<std::uint16_t, std::uint16_t> wider;  // the game's part -> the column's
     std::vector<Tag> wider_tags;
+    std::optional<std::uint16_t> name_text;  // ItemName's edit text (the gold one)
     std::uint16_t next = back.id;
     for (const Tag& t : game.tags) {
         if (!IsPlace(t)) continue;
@@ -1195,6 +1300,7 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
             for (const Tag& c : box.tags)
                 if (IsPlace(c)) text = ReadPlace(c).character;
             if (!text) throw Error("ItemDetailText's text boxes are not 1.09's");
+            if (p.depth == 76) name_text = text;
             const std::uint16_t text_id = ++next;
             wider_tags.push_back(WiderEditText(m, *text, text_id, kWider));
             wider[*p.character] = ++next;
@@ -1325,6 +1431,152 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
         row_defs.push_back(WriteSprite(icon));
         row_defs.push_back(WriteSprite(row));
     }
+    // GlyphKeyboard (hidden): the controller's keyboard for the search bar, shown in the column's place while a
+    // controller types (the column's parts hidden but its background). A title ("Enter a Glyph Code", the name's
+    // gold text) over a line, then a 6 x 6 grid of keys a..z, 0..9 (Key_0 .. Key_35) and under it Delete (Key_36)
+    // and Done (Key_37). A key: a 1 px border, its face, its letter (centred) and Hot, its highlight (a 3 px frame,
+    // hidden). Sizes and colours from the agreed mock (work/mockups/keyboard-A-right-panel-grid).
+    {
+        if (!name_text) throw Error("ItemDetailText's name is not 1.09's");
+        constexpr double kKey = 70, kGap = 10, kWideH = 56, kHot = 3, kTitleX = 31, kTitleY = 26, kLineY = 77,
+                         kLineInset = 20, kGridY = 100;
+        constexpr std::uint32_t kBorderRgb = 0x4e4b46, kFaceRgb = 0x242220, kHotRgb = 0xd6bc82, kLineRgb = 0x78746c;
+        const Box panel_box = Bounds(m, *back_id);
+        const double top = double(panel_box.y0) / 20;
+        const double grid_w = 6 * kKey + 5 * kGap;
+        const double gx = (kBackLeft + kBackRight - grid_w) / 2;
+        const double gy = top + kGridY;
+        const auto twips = [](double px) { return std::int64_t(std::llround(px * 20)); };
+        // the name's edit text: its height, for the letters' vertical centre
+        std::int64_t text_top = 0, text_bottom = 0;
+        for (const Tag& t : m.tags) {
+            if (t.code != 37 || U16(t.body, 0) != *name_text) continue;
+            BitReader r{t.body, 2};
+            const int n = int(r.Unsigned(5));
+            r.Signed(n), r.Signed(n);
+            text_top = r.Signed(n), text_bottom = r.Signed(n);
+        }
+        const double text_h = double(text_bottom - text_top) / 20;
+        // shapes and the Hot frames, by size
+        struct KeySize {
+            double w, h;
+            std::uint16_t border, face, hot;
+        };
+        const auto key_size = [&](double w, double h) {
+            KeySize k{w, h, ++next_id, ++next_id, 0};
+            row_defs.push_back(RectShape(k.border, twips(w), twips(h), kBorderRgb));
+            row_defs.push_back(RectShape(k.face, twips(w - 2), twips(h - 2), kFaceRgb));
+            const std::uint16_t edge_h = ++next_id, edge_v = ++next_id;
+            row_defs.push_back(RectShape(edge_h, twips(w), twips(kHot), kHotRgb));
+            row_defs.push_back(RectShape(edge_v, twips(kHot), twips(h), kHotRgb));
+            Sprite hot{++next_id, 1, {}};
+            hot.tags.push_back(Placement(edge_h, 1, At(0, 0), std::nullopt, true));
+            hot.tags.push_back(Placement(edge_h, 2, At(0, h - kHot), std::nullopt, true));
+            hot.tags.push_back(Placement(edge_v, 3, At(0, 0), std::nullopt, true));
+            hot.tags.push_back(Placement(edge_v, 4, At(w - kHot, 0), std::nullopt, true));
+            hot.tags.push_back(Tag{kShowFrame, {}, {}});
+            hot.tags.push_back(Tag{kEnd, {}, {}});
+            row_defs.push_back(WriteSprite(hot));
+            k.hot = hot.id;
+            return k;
+        };
+        const double qwerty_w = 10 * kKey + 9 * kGap;
+        const KeySize small = key_size(kKey, kKey), wide = key_size((grid_w - kGap) / 2, kWideH),
+                      qwerty_wide = key_size((qwerty_w - kGap) / 2, kWideH);
+        // an edit text of the name's, `w` wide, with `html`
+        const auto text_of = [&](double w, const std::string& html) {
+            const std::uint16_t sized = ++next_id;
+            std::int64_t left = 0, right = 0;
+            for (const Tag& t : m.tags) {
+                if (t.code != 37 || U16(t.body, 0) != *name_text) continue;
+                BitReader r{t.body, 2};
+                const int n = int(r.Unsigned(5));
+                left = r.Signed(n), right = r.Signed(n);
+            }
+            Movie one;
+            one.tags.push_back(WiderEditText(m, *name_text, sized, twips(w) - (right - left)));
+            Tag t = EditTextWithText(one, sized, sized, html);
+            return std::make_pair(t, left);
+        };
+        // the name's look: bold gold (as the game's own panel text, all <b>)
+        const auto html = [](int size, const std::string& align, const std::string& text) {
+            return "<p align=\"" + align + "\"><font size=\"" + std::to_string(size) +
+                   "\" color=\"#a0895f\" letterSpacing=\"0.000000\" kerning=\"1\"><b>" + text + "</b></font></p>";
+        };
+        Sprite board{++next_id, 1, {}};
+        std::uint16_t depth = 1;
+        // the title and its line
+        {
+            auto [title, left] = text_of(kBackRight - kBackLeft - 2 * kTitleX, html(22, "left", "Enter a Glyph Code"));
+            row_defs.push_back(title);
+            board.tags.push_back(Placement(U16(title.body, 0), depth++,
+                                           At(kBackLeft + kTitleX - double(left) / 20, top + kTitleY - double(text_top) / 20),
+                                           std::nullopt, true));
+            const std::uint16_t line = ++next_id;
+            row_defs.push_back(RectShape(line, twips(kBackRight - kBackLeft - 2 * kLineInset), 20, kLineRgb));
+            board.tags.push_back(Placement(line, depth++, At(kBackLeft + kLineInset, top + kLineY), std::nullopt, true));
+        }
+        // a view (Grid, Qwerty): its keys Key_0 .. Key_35 (its letters' order), Delete (Key_36) and Done (Key_37), and
+        // right of the title its toggle's hint, as the game's button prompts show one (the key guide's own markup,
+        // "<font color='#A5A58C'>%s：%s</font>" with "<img src='%s' vspace='-8'>": KG_R_U is Triangle, the
+        // engine's key prompts redraw it for the device in use).
+        Sprite* view = nullptr;
+        std::uint16_t view_depth = 1;
+        const auto key = [&](int index, const KeySize& k, double x, double y, const std::string& label, int size) {
+            auto [text, left] = text_of(k.w, html(size, "center", label));
+            row_defs.push_back(text);
+            Sprite one{++next_id, 1, {}};
+            one.tags.push_back(Placement(k.border, 1, At(0, 0), std::nullopt, true));
+            one.tags.push_back(Placement(k.face, 2, At(1, 1), std::nullopt, true));
+            one.tags.push_back(Placement(U16(text.body, 0), 3,
+                                         At(-double(left) / 20, (k.h - text_h) / 2 - double(text_top) / 20),
+                                         std::nullopt, true));
+            one.tags.push_back(Placement(k.hot, 4, At(0, 0), std::string("Hot"), false));
+            one.tags.push_back(Tag{kShowFrame, {}, {}});
+            one.tags.push_back(Tag{kEnd, {}, {}});
+            row_defs.push_back(WriteSprite(one));
+            view->tags.push_back(Placement(one.id, view_depth++, At(x, y), "Key_" + std::to_string(index), true));
+        };
+        const auto make_view = [&](const char* name, bool visible, const std::string& hint,
+                                   const std::vector<std::pair<std::string, double>>& rows_of, double width,
+                                   const KeySize& wide_key) {
+            Sprite v{++next_id, 1, {}};
+            view = &v;
+            view_depth = 1;
+            const double hint_w = 300;
+            auto [hint_text, left] = text_of(
+                hint_w, "<p align=\"right\"><font size=\"22\" color=\"#A5A58C\" letterSpacing=\"0.000000\" kerning=\"1\">"
+                        "<img src='KG_R_U' vspace='-8'>\xef\xbc\x9a" + hint + "</font></p>");
+            row_defs.push_back(hint_text);
+            v.tags.push_back(Placement(U16(hint_text.body, 0), view_depth++,
+                                       At(kBackRight - kTitleX - hint_w - double(left) / 20, top + kTitleY - double(text_top) / 20),
+                                       std::nullopt, true));
+            const double x0 = (kBackLeft + kBackRight - width) / 2;
+            int index = 0;
+            double y = gy;
+            for (const auto& [row, shift] : rows_of) {
+                for (std::size_t c = 0; c < row.size(); ++c)
+                    key(index++, small, x0 + (double(c) + shift) * (kKey + kGap), y, row.substr(c, 1), 28);
+                y += kKey + kGap;
+            }
+            const double wy = y + 4;
+            key(36, wide_key, x0, wy, "Delete", 22);
+            key(37, wide_key, x0 + wide_key.w + kGap, wy, "Done", 22);
+            v.tags.push_back(Tag{kShowFrame, {}, {}});
+            v.tags.push_back(Tag{kEnd, {}, {}});
+            row_defs.push_back(WriteSprite(v));
+            board.tags.push_back(Placement(v.id, depth++, At(0, 0), std::string(name), visible));
+            view = nullptr;
+        };
+        make_view("Grid", true, "QWERTY",
+                  {{"abcdef", 0}, {"ghijkl", 0}, {"mnopqr", 0}, {"stuvwx", 0}, {"yz0123", 0}, {"456789", 0}}, grid_w, wide);
+        make_view("Qwerty", false, "A-Z Grid", {{"1234567890", 0}, {"qwertyuiop", 0}, {"asdfghjkl", 0.5}, {"zxcvbnm", 1.5}},
+                  qwerty_w, qwerty_wide);
+        board.tags.push_back(Tag{kShowFrame, {}, {}});
+        board.tags.push_back(Tag{kEnd, {}, {}});
+        row_defs.push_back(WriteSprite(board));
+        rows.push_back(HiddenPlacement(board.id, 90, Matrix{}, "GlyphKeyboard"));
+    }
     {
         const auto frame = std::find_if(column.tags.begin(), column.tags.end(), [](const Tag& t) { return t.code == kShowFrame; });
         column.tags.insert(frame, rows.begin(), rows.end());
@@ -1365,108 +1617,6 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
     return WriteMovie(m);
 }
 
-namespace {
-// A matrix with the scale set to (sx, sy), its position as it was.
-Matrix WithScale(Matrix m, double sx, double sy) {
-    const std::int64_t x = std::llround(sx * 65536), y = std::llround(sy * 65536);
-    m.scaled = true;
-    m.scale_bits = std::max(BitsFor(x), BitsFor(y));
-    const std::uint64_t mask = (std::uint64_t(1) << m.scale_bits) - 1;
-    m.sx = std::uint32_t(std::uint64_t(x) & mask), m.sy = std::uint32_t(std::uint64_t(y) & mask);
-    return m;
-}
-// A copy of edit text `of` (DefineEditText) as `id` with the initial text `text`.
-Tag EditTextWithText(const Movie& m, std::uint16_t of, std::uint16_t id, const std::string& text) {
-    for (const Tag& t : m.tags) {
-        if (t.code != 37 || U16(t.body, 0) != of) continue;
-        const Bytes& b = t.body;
-        BitReader r{b, 2};
-        const int n = int(r.Unsigned(5));
-        for (int i = 0; i < 4; ++i) r.Signed(n);
-        std::size_t at = r.End();
-        const std::size_t flags_at = at;
-        const std::uint8_t f1 = b[at], f2 = b[at + 1];
-        at += 2;
-        if (f1 & 0x01) at += 2;  // the font
-        if (f2 & 0x80) {         // the font class
-            while (at < b.size() && b[at]) ++at;
-            ++at;
-        }
-        if ((f1 & 0x01) || (f2 & 0x80)) at += 2;  // the height
-        if (f1 & 0x04) at += 4;                   // the colour
-        if (f1 & 0x02) at += 2;                   // the most characters
-        if (f2 & 0x20) at += 9;                   // the layout
-        while (at < b.size() && b[at]) ++at;      // the variable name
-        if (at >= b.size()) throw Error("the list's text boxes are not 1.09's");
-        Bytes body(b.begin(), b.begin() + std::ptrdiff_t(at + 1));
-        SetLe(body, 0, id, 2);
-        body[flags_at] |= 0x80;
-        body.insert(body.end(), text.begin(), text.end());
-        body.push_back(0);
-        return Changed(37, std::move(body));
-    }
-    throw Error("no edit text " + std::to_string(of) + " in the movie");
-}
-// A placement (PlaceObject3) of character `id` at `depth`, named `name` if set, hidden unless `visible`.
-Tag Placement(std::uint16_t id, std::uint16_t depth, const Matrix& at, const std::optional<std::string>& name,
-              bool visible) {
-    Bytes b{std::uint8_t(0x02 | 0x04 | (name ? 0x20 : 0)), std::uint8_t(visible ? 0x00 : 0x20)};
-    PutLe(b, depth, 2);
-    PutLe(b, id, 2);
-    Append(b, WriteMatrix(at));
-    if (name) {
-        b.insert(b.end(), name->begin(), name->end());
-        b.push_back(0);
-    }
-    if (!visible) b.push_back(0);
-    return Changed(kPlace3, std::move(b));
-}
-Matrix At(double x, double y) {
-    Matrix m;
-    m.tx = std::llround(x * 20), m.ty = std::llround(y * 20);
-    return m;
-}
-// A character's bounds, twips: a shape's (DefineShape 1-4) own; a sprite's, its first frame's parts' (placed
-// without rotation).
-struct Box {
-    std::int64_t x0, x1, y0, y1;
-};
-double ScaleOf(std::uint32_t raw, int bits) {
-    const std::int64_t v = bits && (raw >> (bits - 1) & 1) ? std::int64_t(raw) - (std::int64_t(1) << bits)
-                                                            : std::int64_t(raw);
-    return double(v) / 65536;
-}
-Box Bounds(const Movie& m, std::uint16_t id) {
-    for (const Tag& t : m.tags) {
-        if ((t.code != 2 && t.code != 22 && t.code != 32 && t.code != 83) || U16(t.body, 0) != id) continue;
-        BitReader r{t.body, 2};
-        const int n = int(r.Unsigned(5));
-        Box b{};
-        b.x0 = r.Signed(n), b.x1 = r.Signed(n), b.y0 = r.Signed(n), b.y1 = r.Signed(n);
-        return b;
-    }
-    const Sprite s = ReadSprite(m.tags[FindSprite(m, id)]);
-    std::optional<Box> all;
-    for (const Tag& t : s.tags) {
-        if (t.code == kShowFrame) break;
-        if (!IsPlace(t)) continue;
-        const Place p = ReadPlace(t);
-        if (!p.character) continue;
-        const Matrix at = p.matrix.value_or(Matrix{});
-        if (at.rotated) throw Error("a rotated part in character " + std::to_string(id));
-        const double sx = at.scaled ? ScaleOf(at.sx, at.scale_bits) : 1, sy = at.scaled ? ScaleOf(at.sy, at.scale_bits) : 1;
-        const Box c = Bounds(m, *p.character);
-        const std::int64_t xa = at.tx + std::llround(c.x0 * sx), xb = at.tx + std::llround(c.x1 * sx);
-        const std::int64_t ya = at.ty + std::llround(c.y0 * sy), yb = at.ty + std::llround(c.y1 * sy);
-        const Box b{std::min(xa, xb), std::max(xa, xb), std::min(ya, yb), std::max(ya, yb)};
-        all = all ? Box{std::min(all->x0, b.x0), std::max(all->x1, b.x1), std::min(all->y0, b.y0),
-                        std::max(all->y1, b.y1)}
-                  : b;
-    }
-    if (!all) throw Error("character " + std::to_string(id) + " has no parts");
-    return *all;
-}
-}  // namespace
 
 // The Chalice glyph screen's card list: ItemList (its one sprite) gets, beside the game's NormalItem (left as it is),
 // the glyph screen's own list parts, all hidden (the glyph screen shows them and hides NormalItem; every other screen
@@ -1476,7 +1626,7 @@ Box Bounds(const Movie& m, std::uint16_t id) {
 //                    row lower; the scroll bar shortened to the six rows (its first part, the ornaments along the
 //                    top and bottom of the whole list, kept where it was);
 //   GlyphSearch      the search bar in the top row's place, over a card's footprint: a dark field with a thin light
-//                    border, a caption ("Search by glyph code": a card's small grey text, smaller) and the typed text
+//                    border, a caption ("Search by Glyph Code": a card's small grey text, smaller) and the typed text
 //                    Query (a card name's gold text) over an underline, the card's focus highlight Cursor and
 //                    Active, the bar being typed in (a steady gold frame and underline; both hidden). Sizes and colours from the agreed mock (work/mockups/3-card-height-bar-with-caption).
 // The glyph screen's list widget is made on "ItemList/GlyphNormalItem" (gpu/shim/bbport_glyph_screen.cpp).
@@ -1586,7 +1736,7 @@ Bytes GlyphListMovie(const Bytes& gfx) {
         return *text;
     };
     const std::uint16_t caption_text = ++next, query_text = ++next;
-    defs.push_back(EditTextWithText(m, only_text(*small_box), caption_text, "Search by glyph code"));
+    defs.push_back(EditTextWithText(m, only_text(*small_box), caption_text, "Search by Glyph Code"));
     defs.push_back(EditTextWithText(m, only_text(*name_box), query_text,
                                     "<p align=\"left\"><font size=\"22\" color=\"#a0895f\" letterSpacing=\"0.000000\" "
                                     "kerning=\"1\"><b></b></font></p>"));
@@ -1637,12 +1787,36 @@ Bytes GlyphListMovie(const Bytes& gfx) {
     search.tags.push_back(Tag{kEnd, {}, {}});
     defs.push_back(WriteSprite(search));
 
+    // GlyphNoMatch (hidden): the line a search with no matching card shows in the list's place ("No Chalice Glyphs
+    // match ...", set by the screen): the card name's text, as wide as the bar less its margins, centred, in the
+    // game's grey (the stats' #a0a08c). From the agreed mock (work/mockups/filter-E2-no-match).
+    constexpr double kNoMatchY = 40;  // px under the first card's top
+    const std::uint16_t no_match = ++next;
+    std::int64_t name_left = 0, name_right = 0, name_top = 0;
+    for (const Tag& t : m.tags) {
+        if (t.code != 37 || U16(t.body, 0) != only_text(*name_box)) continue;
+        BitReader r{t.body, 2};
+        const int n = int(r.Unsigned(5));
+        name_left = r.Signed(n), name_right = r.Signed(n), name_top = r.Signed(n);
+    }
+    {
+        Movie one;
+        one.tags.push_back(
+            WiderEditText(m, only_text(*name_box), no_match, twips(bw - 2 * kTextX) - (name_right - name_left)));
+        defs.push_back(EditTextWithText(one, no_match, no_match,
+                                        "<p align=\"center\"><font size=\"22\" color=\"#a0a08c\" "
+                                        "letterSpacing=\"0.000000\" kerning=\"1\"><b></b></font></p>"));
+    }
+
     // ItemList: the glyph screen's parts after NormalItem, hidden.
     const auto frame = std::find_if(list.tags.begin(), list.tags.end(), [](const Tag& t) { return t.code == kShowFrame; });
     const std::vector<Tag> parts = {
         Placement(*back->character, 3, *back->matrix, std::string("GlyphListBack"), false),
         Placement(items.id, 5, At(0, kPitch), std::string("GlyphNormalItem"), false),
         Placement(search.id, 7, At(0, 0), std::string("GlyphSearch"), false),
+        Placement(no_match, 9,
+                  At(bx + kTextX - double(name_left) / 20, by + kPitch + kNoMatchY - double(name_top) / 20),
+                  std::string("GlyphNoMatch"), false),
     };
     list.tags.insert(frame, parts.begin(), parts.end());
 
