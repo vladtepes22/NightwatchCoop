@@ -209,7 +209,15 @@ u32 HereLamp(const GameSnapshot& s) {
     const bool phys_ok = s.player && balance::ChrPosition(s.player, phys);
     if (!PlayerPos(s.player, drawn) && !phys_ok) return 0;
     static const std::vector<Spot> spots = LampSpots();
-    return NearestLamp(spots, s.map_id, StandingPos(phys_ok, phys, drawn), 15.0f);
+    const float* at = StandingPos(phys_ok, phys, drawn);
+    if (const u32 here = NearestLamp(spots, s.map_id, at, 15.0f)) return here;
+    // NW-505508c: walked into another block of the area without a load, the map is still the old block's.
+    static const bool area = !(std::getenv("BB_LAMP_AREA_FALLBACK") && std::getenv("BB_LAMP_AREA_FALLBACK")[0] == '0');
+    if (!area || s.map_id == 0xffffffffu) return 0;
+    const u32 here = NearestLampInArea(spots, s.map_id, at, 15.0f);
+    if (here) Log("lamp %u found in another block of the area (the map still reads %s: walked over without a load)",
+                  here, MapName(s.map_id).c_str());
+    return here;
 }
 
 bool Flag(u32 id) {

@@ -92,6 +92,11 @@ int main() {
     CHECK(NearestLamp(spots, 0x18010000u, p, 15.0f) == 2412951);
     CHECK(NearestLamp(spots, 0x18000000u, p, 15.0f) == 2402950);
     CHECK(NearestLamp(spots, 0x18010000u, p, 0.5f) == 0);
+    // NW-505508c: the map still the old block (m24_01) at the Cathedral Ward lamp (m24_00): the area search finds it.
+    const float cw[3] = {1.5f, 0, 0};
+    CHECK(NearestLamp(spots, 0x18010000u, cw, 0.4f) == 0);
+    CHECK(NearestLampInArea(spots, 0x18010000u, cw, 0.6f) == 2402950);
+    CHECK(NearestLampInArea(spots, 0x15000000u, cw, 15.0f) == 0);  // another area: none
     // lamprule run 5: at Central Yharnam's lamp object after an in-place warp, the drawn position still
     // at the Great Bridge lamp: the physics position names the lamp the player stands at.
     {
