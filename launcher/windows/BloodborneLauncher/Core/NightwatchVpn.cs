@@ -19,18 +19,21 @@ public sealed record VpnEndpoint(string Host, int Port, string Pin)
     public override string ToString() => "VpnEndpoint";
 }
 
-public enum VpnFailure { Unreachable, PinMismatch, Blocked, RateLimited, Refused, BadReply, Protect }
+public enum VpnFailure { Unreachable, PinMismatch, Blocked, RateLimited, Refused, BadReply, Protect, Host }
 
 /// <summary>A failure the page can say in words. Holds no address, key or server text.</summary>
 public sealed class VpnException : Exception
 {
     public VpnFailure Failure { get; }
     public int RetryAfterSeconds { get; }
+    /// <summary>For <see cref="VpnFailure.Host"/>: what the Linux side said (Wine / Proton).</summary>
+    public LinuxVpnResult Host { get; }
     public VpnException(VpnFailure failure, int retryAfterSeconds = 0) : base("Nightwatch VPN: " + failure)
     {
         Failure = failure;
         RetryAfterSeconds = retryAfterSeconds;
     }
+    public VpnException(LinuxVpnResult host) : this(VpnFailure.Host) { Host = host; }
 }
 
 /// <summary>One enrolled install, as saved. The private key and the tls-crypt-v2 key are DPAPI-wrapped (Secret).</summary>
@@ -95,6 +98,12 @@ public static class NightwatchVpn
         var temp = InstallFile(dir) + ".new";
         File.WriteAllText(temp, JsonSerializer.Serialize(install));
         File.Move(temp, InstallFile(dir), overwrite: true);
+        // Under Wine / Proton the imported NetworkManager connection reads separate key files: a renewal rewrites them in place.
+        if (WineHost.IsWine && install.KeyProtected.Length > 0 && Secret.IsProtected(install.KeyProtected))
+        {
+            try { LinuxVpn.RefreshFiles(install, Unprotect(install.KeyProtected), Unprotect(install.TlsProtected)); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or VpnException or System.Security.Cryptography.CryptographicException) { }
+        }
     }
 
     private static string Protect(string plain) =>
@@ -122,12 +131,6 @@ public static class NightwatchVpn
     public static string BuildProfile(VpnInstall install, string key, string tls) =>
         install.Profile.TrimEnd('\n') + "\n<ca>\n" + install.CaBundle.Trim() + "\n</ca>\n<cert>\n" + install.Cert.Trim() +
         "\n</cert>\n<key>\n" + key.Trim() + "\n</key>\n<tls-crypt-v2>\n" + tls.Trim() + "\n</tls-crypt-v2>\n";
-
-    private static (ECDsa Key, string Csr) NewKey()
-    {
-        var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        return (key, new CertificateRequest("CN=nwvpn", key, HashAlgorithmName.SHA256).CreateSigningRequestPem());
-    }
 
     /// <summary>POST over TLS, trusting only the pin: the handshake fails on another key, before anything is sent.
     /// No proxy and no redirects. Every failure becomes a VpnException without the address in its text.</summary>
@@ -208,7 +211,7 @@ public static class NightwatchVpn
         catch (JsonException) { throw new VpnException(VpnFailure.BadReply); }
     }
 
-    private static VpnInstall FromReply(JsonElement reply, ECDsa key)
+    private static VpnInstall FromReply(JsonElement reply, string keyPem)
     {
         try
         {
@@ -225,7 +228,7 @@ public static class NightwatchVpn
             if (!InstallIdShape.IsMatch(install.InstallId) || tls.Length == 0 || install.Cert.Length == 0 ||
                 install.CaBundle.Length == 0 || install.Profile.Length == 0)
                 throw new VpnException(VpnFailure.BadReply);
-            install.KeyProtected = Protect(key.ExportECPrivateKeyPem());
+            install.KeyProtected = Protect(keyPem);
             install.TlsProtected = Protect(tls);
             return install;
         }
@@ -237,42 +240,33 @@ public static class NightwatchVpn
 
     public static async Task<VpnInstall> EnrollAsync(VpnEndpoint endpoint, string dir)
     {
-        var (key, csr) = NewKey();
-        using (key)
-        {
-            var install = FromReply(await PostAsync(endpoint, "/v1/enroll", new Dictionary<string, object> { ["csr"] = csr }), key);
-            Save(dir, install);
-            return install;
-        }
+        var (keyPem, csr) = VpnKey.New();
+        var install = FromReply(await PostAsync(endpoint, "/v1/enroll", new Dictionary<string, object> { ["csr"] = csr }), keyPem);
+        Save(dir, install);
+        return install;
     }
 
     /// <summary>A new key, signed for by the old one. A 401 means the server no longer knows the install: enroll again,
     /// once. Any other failure leaves the saved install alone (it works until it expires).</summary>
     public static async Task<VpnInstall> RenewAsync(VpnEndpoint endpoint, string dir, VpnInstall old)
     {
-        var (key, csr) = NewKey();
-        using (key)
-        using (var oldKey = ECDsa.Create())
+        var (keyPem, csr) = VpnKey.New();
+        var timestamp = Now;
+        var signature = VpnKey.Sign(Unprotect(old.KeyProtected), Encoding.UTF8.GetBytes(RenewMessage(old.InstallId, csr, timestamp)));
+        try
         {
-            oldKey.ImportFromPem(Unprotect(old.KeyProtected));
-            var timestamp = Now;
-            var signature = oldKey.SignData(Encoding.UTF8.GetBytes(RenewMessage(old.InstallId, csr, timestamp)),
-                HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
-            try
+            var reply = await PostAsync(endpoint, "/v1/renew", new Dictionary<string, object>
             {
-                var reply = await PostAsync(endpoint, "/v1/renew", new Dictionary<string, object>
-                {
-                    ["install_id"] = old.InstallId, ["csr"] = csr, ["timestamp"] = timestamp,
-                    ["signature"] = Convert.ToBase64String(signature), ["cert"] = old.Cert,
-                });
-                var install = FromReply(reply, key);
-                Save(dir, install);
-                return install;
-            }
-            catch (VpnException e) when (e.Failure == VpnFailure.Refused)
-            {
-                return await EnrollAsync(endpoint, dir);
-            }
+                ["install_id"] = old.InstallId, ["csr"] = csr, ["timestamp"] = timestamp,
+                ["signature"] = Convert.ToBase64String(signature), ["cert"] = old.Cert,
+            });
+            var install = FromReply(reply, keyPem);
+            Save(dir, install);
+            return install;
+        }
+        catch (VpnException e) when (e.Failure == VpnFailure.Refused)
+        {
+            return await EnrollAsync(endpoint, dir);
         }
     }
 
@@ -324,7 +318,12 @@ public static class NightwatchVpn
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "OpenVPN", "config");
     }
 
-    public static string ProfilePath => Path.Combine(GuiConfigDir(), ConfigName + ".ovpn");
+    public static string ProfilePath => WineHost.IsWine && LinuxVpn.ProfilePath is { } linux ? linux : Path.Combine(GuiConfigDir(), ConfigName + ".ovpn");
+
+    /// <summary>What runs the tunnel: OpenVPN GUI's exe on Windows; under Wine / Proton the Linux helper script once it has set
+    /// NetworkManager up (<see cref="LinuxVpn.Ready"/>). Null while there is nothing to connect with. The value is only a
+    /// handle to pass back to <see cref="Connect"/> and <see cref="Disconnect"/>.</summary>
+    public static string? Backend() => WineHost.IsWine ? (LinuxVpn.Ready ? LinuxVpn.ScriptUnixPath : null) : GuiExe();
 
     /// <summary>A new file only this Windows user can read: the permissions are set when it is created, before the text.</summary>
     public static void WriteUserOnly(string path, string text)
@@ -342,6 +341,7 @@ public static class NightwatchVpn
     /// a reconnect; <see cref="Disconnect"/> and the launcher's next start without a tunnel delete it.</summary>
     public static void Connect(VpnInstall install, string guiExe)
     {
+        if (WineHost.IsWine) { ConnectLinux(install); return; }
         lock (GuiLock)
         {
             if (_closing) return;
@@ -351,17 +351,36 @@ public static class NightwatchVpn
         }
     }
 
+    /// <summary>Wine / Proton: the key, certificates, profile and script for the NetworkManager connection, in ~/.local/share/nightwatch-vpn.</summary>
+    public static void WriteLinuxFiles(VpnInstall install) =>
+        LinuxVpn.WriteFiles(install, Unprotect(install.KeyProtected), Unprotect(install.TlsProtected));
+
+    /// <summary>Wine / Proton: the files for the NetworkManager connection, then the script brings it up. A failure is told in
+    /// words (VpnFailure.Host).</summary>
+    private static void ConnectLinux(VpnInstall install)
+    {
+        lock (GuiLock)
+        {
+            if (_closing) return;
+            WriteLinuxFiles(install);
+            var result = LinuxVpn.RunAsync("up", 90).GetAwaiter().GetResult();
+            if (result != LinuxVpnResult.Ok) throw new VpnException(result);
+        }
+    }
+
     public static void Disconnect(string guiExe)
     {
+        if (WineHost.IsWine) { LinuxVpn.RunAsync("down", 30).GetAwaiter().GetResult(); return; }
         Gui(guiExe, "--command", "disconnect", ConfigName);
         DeleteProfile();
     }
 
     /// <summary>Closes OpenVPN GUI, so the uninstaller finds no running program.</summary>
-    public static void ExitGui(string guiExe) => Gui(guiExe, "--command", "exit");
+    public static void ExitGui(string guiExe) { if (!WineHost.IsWine) Gui(guiExe, "--command", "exit"); }
 
     public static void DeleteProfile()
     {
+        if (WineHost.IsWine) return;  // the NetworkManager connection reads those files (mode only the user can read); Uninstall removes them
         try { File.Delete(ProfilePath); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
@@ -411,9 +430,10 @@ public static class NightwatchVpn
         var locked = Monitor.TryEnter(GuiLock, TimeSpan.FromSeconds(4));
         try
         {
-            if (GuiExe() is { } gui)
+            if (Backend() is { } gui)
             {
-                Gui(gui, "--command", "disconnect", ConfigName);
+                if (WineHost.IsWine) LinuxVpn.RunAsync("down", 12).GetAwaiter().GetResult();
+                else Gui(gui, "--command", "disconnect", ConfigName);
                 var until = DateTime.UtcNow.AddSeconds(6);
                 while (VpnLobby.TunnelIp(NetworkRoute.Enumerate()) != null)
                 {

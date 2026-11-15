@@ -603,7 +603,7 @@ public sealed class SeamlessPage : LauncherPage
 
     /// <summary>A Nightwatch Online host with the VPN installed: Play checks the tunnel (<see cref="ReadyToHostOnline"/>).</summary>
     public static bool HostsOnline(LauncherSettings s) =>
-        s.Str("party_mode") == "host" && NightwatchVpn.Shipped != null && s.Str("party_host_public") != "0" && NightwatchVpn.GuiExe() != null;
+        s.Str("party_mode") == "host" && NightwatchVpn.Shipped != null && s.Str("party_host_public") != "0" && NightwatchVpn.Backend() != null;
 
     /// <summary>Play as a Nightwatch Online host with the tunnel down: no one on Nightwatch Online could see the party, so the
     /// player connects (their own press, VpnIdle's rule) or switches to UPnP/VPN/LAN; there is no "play anyway" (user, 4 Nov).
@@ -624,7 +624,7 @@ public sealed class SeamlessPage : LauncherPage
 
     /// <summary>True when the host's party type is Nightwatch Online and the VPN it needs is not installed.</summary>
     public static bool NeedsVpn(LauncherSettings s) =>
-        s.Str("party_mode") == "host" && NightwatchVpn.Shipped != null && s.Str("party_host_public") != "0" && NightwatchVpn.GuiExe() == null;
+        s.Str("party_mode") == "host" && NightwatchVpn.Shipped != null && s.Str("party_host_public") != "0" && NightwatchVpn.Backend() == null;
 
     /// <summary>One set of the Nightwatch VPN's controls: its state and its one button (Install, then Connect / Disconnect).
     /// Host shows the bar above the password, Join inside the lobbies card.</summary>
@@ -681,7 +681,7 @@ public sealed class SeamlessPage : LauncherPage
     private async Task VpnBarClick()
     {
         if (_vpn.Busy || _vpnSetup) return;
-        if (NightwatchVpn.GuiExe() == null) await InstallVpn(); else await ToggleVpn();
+        if (NightwatchVpn.Backend() == null) await InstallVpn(); else await ToggleVpn();
     }
 
     /// <summary>Installs OpenVPN once the player agreed, then connects. A host is put on Nightwatch Online.</summary>
@@ -697,13 +697,15 @@ public sealed class SeamlessPage : LauncherPage
     /// enrolling is limited per day, and a ban is per install, so a reinstall must not make a new one.</summary>
     private async Task UninstallVpn()
     {
-        if (_vpn.Busy || _vpnSetup || NightwatchVpn.GuiExe() is not { } gui) return;
+        if (_vpn.Busy || _vpnSetup || NightwatchVpn.Backend() is not { } gui) return;
         if (Ws.Game.Running) { Prompt.Tell(L.T("Nightwatch VPN"), L.T("Close the game before uninstalling the Nightwatch VPN.")); return; }
         _adapters = await Task.Run(NetworkRoute.Enumerate);
         var up = VpnLobby.TunnelIp(_adapters) != null;
         if (up && !NightwatchVpn.OwnedHere) { _vpnNote = L.T("Another launcher window holds the connection."); UpdateVpn(); return; }
         if (!Prompt.Confirm(L.T("Uninstall Nightwatch VPN"),
-                L.T("This removes OpenVPN GUI and its network components, and ends the connection. Windows may ask for administrator permission. Your personal VPN key stays on this PC for a later install."),
+                WineHost.IsWine
+                    ? L.T("This ends the connection, removes the Nightwatch connection from NetworkManager and deletes the key files in ~/.local/share/nightwatch-vpn. NetworkManager's OpenVPN plugin stays. Your personal VPN key stays in the launcher for a later setup.")
+                    : L.T("This removes OpenVPN GUI and its network components, and ends the connection. Windows may ask for administrator permission. Your personal VPN key stays on this PC for a later install."),
                 L.T("Uninstall")))
             return;
         if (up)
@@ -715,13 +717,16 @@ public sealed class SeamlessPage : LauncherPage
         _vpnNote = L.T("Uninstalling…");
         UpdateVpn();
         await Task.Run(() => NightwatchVpn.ExitGui(gui));
-        var result = await OpenVpnSetup.UninstallAsync();
+        var result = WineHost.IsWine
+            ? await LinuxVpn.RemoveAsync() ? OpenVpnSetupResult.Installed : OpenVpnSetupResult.Failed
+            : await OpenVpnSetup.UninstallAsync();
         _vpnSetup = false;
         _vpnNote = result switch
         {
             OpenVpnSetupResult.Installed => L.T("Nightwatch VPN uninstalled."),
             OpenVpnSetupResult.Declined => L.T("Uninstall was cancelled, so nothing was removed."),
             OpenVpnSetupResult.Busy => L.T("Another installer is running. Wait for it to finish and press Uninstall again."),
+            OpenVpnSetupResult.Failed when WineHost.IsWine => L.T("The Nightwatch connection could not be removed. Remove it in NetworkManager (connection Nightwatch) or run: ") + LinuxVpn.ManualCommand("remove"),
             OpenVpnSetupResult.NotOurs => L.T("This OpenVPN was not installed by Nightwatch Co-op. Remove it in Windows Settings, under Apps."),
             OpenVpnSetupResult.Tampered or OpenVpnSetupResult.Missing => L.T("The OpenVPN installer in this package is damaged or missing. Reinstall Nightwatch Co-op, or play with UPnP, VPN or LAN."),
             _ => L.T("OpenVPN could not be removed. Try again, or remove it in Windows Settings, under Apps."),
@@ -737,7 +742,8 @@ public sealed class SeamlessPage : LauncherPage
     /// <summary>The Co-op tab on a PC without OpenVPN offers the setup once per launcher version: a new install, and again after an update.</summary>
     private void OfferVpnSetup() => Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, async () =>
     {
-        if (_previewPublic != null || NightwatchVpn.Shipped == null || NightwatchVpn.GuiExe() != null || _vpn.Busy || _vpnSetup) return;
+        if (_previewPublic != null || NightwatchVpn.Shipped == null || NightwatchVpn.Backend() != null || _vpn.Busy || _vpnSetup) return;
+        if (WineHost.IsWine) return;  // Linux: the player presses Install / Connect (it may need a terminal, so it is never a surprise)
         var version = BuildVersion();
         if (S.Str("party_vpn_offered") == version) return;
         S.Set("party_vpn_offered", version);
@@ -745,10 +751,78 @@ public sealed class SeamlessPage : LauncherPage
         await InstallVpn();
     });
 
+    /// <summary>First use under Wine / Proton (Linux, Steam Deck): enrolls, writes the key files and the profile into
+    /// ~/.local/share/nightwatch-vpn and has the helper script add the NetworkManager connection. If the script cannot run from
+    /// inside Proton, or NetworkManager's OpenVPN plugin is missing, the player gets the exact commands with a copy button.
+    /// Null: nothing to connect with yet.</summary>
+    private async Task<string?> SetUpLinuxVpn()
+    {
+        if (NightwatchVpn.Shipped is not { } endpoint) return null;
+        if (LinuxVpn.Dir == null)
+        {
+            Prompt.Tell(L.T("Nightwatch VPN"), L.T("The Linux home folder could not be found from inside Proton, so the Nightwatch VPN cannot be set up here. You can still play with UPnP, VPN or LAN."));
+            return null;
+        }
+        if (!Prompt.Confirm(L.T("Set up online play"),
+                L.T("Online play uses the Nightwatch VPN network. On Linux and Steam Deck it runs through NetworkManager's OpenVPN: setup adds one connection called Nightwatch and keeps its key files in ~/.local/share/nightwatch-vpn. If NetworkManager's OpenVPN plugin is missing, the next window shows the commands to install it."),
+                L.T("Set up and continue"), L.T("Want to know more?"), OpenVpnSetup.LearnMoreUrl))
+            return null;
+        _vpnSetup = true;
+        _vpnNote = L.T("Setting up online play…");
+        UpdateVpn();
+        var result = LinuxVpnResult.Failed;
+        try
+        {
+            var install = await NightwatchVpn.ReadyAsync(endpoint, Paths.ConfigDir);
+            await Task.Run(() => NightwatchVpn.WriteLinuxFiles(install));
+            result = await LinuxVpn.RunAsync("setup", 60);
+        }
+        catch (VpnException e) { _vpnSetup = false; _vpnNote = VpnMessage(e); UpdateVpn(); return null; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            _vpnSetup = false;
+            _vpnNote = L.T("Could not write the VPN key files in the Linux home folder.");
+            UpdateVpn();
+            return null;
+        }
+        _vpnSetup = false;
+        _vpnNote = result == LinuxVpnResult.Ok ? "" : HostMessage(result);
+        UpdateVpn();
+        if (result != LinuxVpnResult.Ok) TellHostSetup(result, "setup");
+        UpdateVpn();
+        return NightwatchVpn.Backend();
+    }
+
+    private static string HostMessage(LinuxVpnResult host) => host switch
+    {
+        LinuxVpnResult.NoHost => L.T("The launcher could not run the Nightwatch VPN setup on the Linux side. Run the command it shows in a terminal."),
+        LinuxVpnResult.NoNmcli or LinuxVpnResult.NoPlugin => L.T("NetworkManager's OpenVPN plugin is not installed."),
+        LinuxVpnResult.NmDown => L.T("NetworkManager is not running."),
+        LinuxVpnResult.Denied => L.T("NetworkManager did not allow the launcher to change connections. Run the command it shows in a terminal of your own desktop session."),
+        LinuxVpnResult.NoProfile or LinuxVpnResult.NoConnection => L.T("The Nightwatch connection is missing in NetworkManager. Press Install to set it up again."),
+        _ => L.T("NetworkManager could not start the connection."),
+    };
+
+    /// <summary>What to do by hand: the exact commands and a button that copies them. Failed (no usable detail) only gets the note.</summary>
+    private void TellHostSetup(LinuxVpnResult host, string verb)
+    {
+        if (host is LinuxVpnResult.Ok or LinuxVpnResult.Failed) return;
+        var steamOs = host is LinuxVpnResult.NoPlugin or LinuxVpnResult.NoNmcli;
+        var command = steamOs ? LinuxVpn.SteamOsCommands(verb) : LinuxVpn.ManualCommand(verb);
+        var message = steamOs
+            ? L.T("The Nightwatch VPN on Linux needs NetworkManager's OpenVPN plugin. On a Steam Deck switch to Desktop Mode, open Konsole and run these lines once (the first lines unlock the read-only system; a SteamOS update can remove the plugin again). On other distributions install the plugin your distribution calls network-manager-openvpn or NetworkManager-openvpn, then run the last line only. When it says ok, come back here: the launcher notices.")
+            : host == LinuxVpnResult.Denied
+                ? L.T("NetworkManager did not allow the launcher to do this from inside Proton. Open a terminal in your own desktop session (on a Steam Deck: Desktop Mode, Konsole) and run this line. When it says ok, come back here: the launcher notices.")
+                : L.T("The launcher could not do this step from inside Proton. Open a terminal (on a Steam Deck: Desktop Mode, Konsole) and run this line once. When it says ok, come back here: the launcher notices.");
+        if (Prompt.Choose(L.T("Nightwatch VPN on Linux"), message + "\n\n" + command, L.T("Close"), L.T("Copy the commands")) == 1)
+            ClipboardText.Set(command);
+    }
+
     /// <summary>First use on a PC without OpenVPN: the player agrees, then the shipped installer runs (one UAC prompt).
     /// Cancel installs nothing. Null: no OpenVPN to connect with, and the note says why.</summary>
     private async Task<string?> SetUpOpenVpn()
     {
+        if (WineHost.IsWine) return await SetUpLinuxVpn();
         if (!File.Exists(OpenVpnSetup.PackagedMsi))
         {
             Prompt.Tell(L.T("Nightwatch VPN"), L.T("The OpenVPN installer in this package is damaged or missing. Reinstall Nightwatch Co-op, or play with UPnP, VPN or LAN."));
@@ -765,14 +839,14 @@ public sealed class SeamlessPage : LauncherPage
         _vpnSetup = false;
         _vpnNote = result switch
         {
-            OpenVpnSetupResult.Installed when NightwatchVpn.GuiExe() != null => "",
+            OpenVpnSetupResult.Installed when NightwatchVpn.Backend() != null => "",
             OpenVpnSetupResult.Declined => L.T("Setup was cancelled, so nothing was installed. You can still play with UPnP, VPN or LAN."),
             OpenVpnSetupResult.Busy => L.T("Another installer is running. Wait for it to finish and press Connect again."),
             OpenVpnSetupResult.Tampered or OpenVpnSetupResult.Missing => L.T("The OpenVPN installer in this package is damaged or missing. Reinstall Nightwatch Co-op, or play with UPnP, VPN or LAN."),
             _ => L.T("OpenVPN could not be installed. You can still play with UPnP, VPN or LAN."),
         };
         UpdateVpn();
-        return NightwatchVpn.GuiExe();
+        return NightwatchVpn.Backend();
     }
 
     /// <summary>Connect / Disconnect: sets up OpenVPN and enrolls on first use, renews when due, then OpenVPN GUI runs the
@@ -781,7 +855,7 @@ public sealed class SeamlessPage : LauncherPage
     /// brings back one the player wanted. Uses the same connect / disconnect path as the button.</summary>
     public async Task VpnIdleCheck(VpnIdleTrigger trigger, bool windowActive, DateTime? inactiveSince)
     {
-        if (NightwatchVpn.Shipped == null || NightwatchVpn.GuiExe() == null || !_vpnWanted) return;
+        if (NightwatchVpn.Shipped == null || NightwatchVpn.Backend() == null || !_vpnWanted) return;
         _adapters = await Task.Run(NetworkRoute.Enumerate);
         var state = new VpnIdleState(S.Bool("vpn_idle_disconnect"), _vpnWanted, NightwatchVpn.OwnedHere,
             VpnLobby.TunnelIp(_adapters) != null, _vpn.Busy || _vpnSetup, Ws.Game.Running, windowActive, inactiveSince,
@@ -805,8 +879,8 @@ public sealed class SeamlessPage : LauncherPage
         _adapters = await Task.Run(NetworkRoute.Enumerate);
         var up = VpnLobby.TunnelIp(_adapters) != null;
         if (up && !NightwatchVpn.OwnedHere) return;
-        if (up && NightwatchVpn.GuiExe() == null) { _vpnNote = L.T("Could not start the connection through OpenVPN."); UpdateVpn(); return; }
-        if (NightwatchVpn.GuiExe() is not { } gui)
+        if (up && NightwatchVpn.Backend() == null) { _vpnNote = L.T("Could not start the connection through OpenVPN."); UpdateVpn(); return; }
+        if (NightwatchVpn.Backend() is not { } gui)
         {
             if (await SetUpOpenVpn() is not { } installed) return;
             gui = installed;
@@ -838,7 +912,11 @@ public sealed class SeamlessPage : LauncherPage
             await WatchVpn(gui);
             return;
         }
-        catch (VpnException e) { _vpnNote = VpnMessage(e); }
+        catch (VpnException e)
+        {
+            _vpnNote = VpnMessage(e);
+            if (e.Failure == VpnFailure.Host) { _vpn.Abort(false); UpdateVpn(); TellHostSetup(e.Host, "up"); }
+        }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or System.Security.Cryptography.CryptographicException)
         {
             _vpnNote = L.T("Could not start the connection through OpenVPN.");
@@ -864,7 +942,9 @@ public sealed class SeamlessPage : LauncherPage
         {
             _vpnNote = connecting
                 ? L.T("The connection did not come up: the VPN server may be full, or a firewall blocks it. You can still play with UPnP, VPN or LAN.")
-                : L.T("OpenVPN did not confirm the disconnect. Check its tray icon.");
+                : WineHost.IsWine
+                    ? L.T("NetworkManager did not confirm the disconnect. Disconnect Nightwatch in its network menu, or run: ") + LinuxVpn.ManualCommand("down")
+                    : L.T("OpenVPN did not confirm the disconnect. Check its tray icon.");
             if (connecting) await Task.Run(() => NightwatchVpn.Disconnect(gui));
         }
         if (_vpn.Phase == VpnPhase.Off) NightwatchVpn.ReleaseOwnership();
@@ -879,6 +959,7 @@ public sealed class SeamlessPage : LauncherPage
         VpnFailure.PinMismatch => L.T("The VPN server could not prove who it is, so nothing was sent."),
         VpnFailure.Unreachable => L.T("Could not reach the VPN server. Check your connection and try again."),
         VpnFailure.Protect => L.T("Could not read the VPN keys for this Windows user."),
+        VpnFailure.Host => HostMessage(e.Host),
         _ => L.T("The VPN server refused the request."),
     };
 
@@ -886,7 +967,7 @@ public sealed class SeamlessPage : LauncherPage
     {
         var up = VpnLobby.TunnelIp(_adapters) != null;
         var busy = _vpn.Busy || _vpnSetup;
-        var installed = NightwatchVpn.GuiExe() != null;
+        var installed = NightwatchVpn.Backend() != null;
         var shown = NightwatchVpn.Shipped != null || _previewPublic != null ? Visibility.Visible : Visibility.Collapsed;
         var note = _vpnNote.Length > 0 ? _vpnNote : _vpn.Phase == VpnPhase.Disconnecting ? L.T("Disconnecting…") : busy ? L.T("Connecting…") : "";
         foreach (var ui in _vpnUis)
@@ -1601,7 +1682,7 @@ public sealed class SeamlessPage : LauncherPage
             S.Set("party_host_public", isPublic ? "1" : "0");
             ApplyHostMode(isPublic, Ini.Get("party_discovery", "1") == "1");
             Ws.SaveSoon(); ShowMode();
-            if (isPublic && !up && NightwatchVpn.GuiExe() != null) await ToggleVpn();
+            if (isPublic && !up && NightwatchVpn.Backend() != null) await ToggleVpn();
         }
         finally { _changingHost = false; _hostMode.IsEnabled = true; UpdateVpn(); RunCheck(); }
     }

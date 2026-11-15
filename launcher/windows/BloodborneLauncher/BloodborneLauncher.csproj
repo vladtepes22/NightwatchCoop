@@ -31,11 +31,15 @@
     <Resource Include="Assets\red_moon_splash.gif" />
     <Resource Include="Themes\Eldritch\*.png;Themes\Eldritch\*.jpg" />
     <EmbeddedResource Include="Localization\*.json" LogicalName="BloodborneLauncher.Localization.%(Filename)%(Extension)" />
+    <!-- The Linux side of the Nightwatch VPN (Wine / Proton): written beside the key files, see Core/LinuxVpn.cs. -->
+    <EmbeddedResource Include="Assets/nightwatch-vpn-linux.sh" LogicalName="BloodborneLauncher.Assets.nightwatch-vpn-linux.sh" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="SeamlessTests" />
     <InternalsVisibleTo Include="SaveEditorShots" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />
+    <!-- Wine / Proton cannot make or load an EC P-256 key with Windows CNG: see Core/VpnKey.cs. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
   </ItemGroup>
 
 </Project>

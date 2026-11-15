@@ -291,6 +291,16 @@ public static class NetworkRoute
         catch (Exception e) when (e is NetworkInformationException or InvalidOperationException or NotSupportedException) { return null; }
     }
 
+    /// <summary>The adapter's name as shown and judged: friendly name, " / ", description. Under Wine / Proton the Nightwatch tunnel
+    /// is a plain "tun0" (type PPP, no mark in the name that says VPN), so a tunnel address (10.8.0.0/22 with the /22 mask) on an
+    /// adapter that is not Ethernet or Wi-Fi is named as the OpenVPN adapter it is, which is what Windows' TAP / DCO adapter's name
+    /// says by itself: the route rules then never take it for the LAN. A real LAN on 10.8.x is Ethernet or Wi-Fi and is left alone.</summary>
+    public static string AdapterName(string name, string description, bool physical, uint ip, uint mask)
+    {
+        var text = name + " / " + description;
+        return !physical && mask == 0xfffffc00u && VpnLobby.IsTunnelAddress(ip) && !IsVirtual(text) ? "OpenVPN " + text : text;
+    }
+
     /// <summary>The up IPv4 adapters and local VPN evidence. May wait 2 s for counters and up to 4 s per vendor CLI:
     /// call it off the UI thread.</summary>
     public static List<NetAdapter> Enumerate()
@@ -310,7 +320,7 @@ public static class NetworkRoute
                     if (unicast.Address.AddressFamily != AddressFamily.InterNetwork) continue;
                     var ip = Parse(unicast.Address.ToString());
                     var mask = unicast.IPv4Mask is { } m ? Parse(m.ToString()) : 0;
-                    found.Add(new NetAdapter(nic.Name + " / " + nic.Description, ip, mask, Tunnel: nic.NetworkInterfaceType == NetworkInterfaceType.Tunnel,
+                    found.Add(new NetAdapter(AdapterName(nic.Name, nic.Description, physical, ip, mask), ip, mask, Tunnel: nic.NetworkInterfaceType == NetworkInterfaceType.Tunnel,
                         Gateway: gateway, Physical: physical));
                     if (IsOverlay(found[^1])) overlays.Add((found.Count - 1, nic));
                 }
