@@ -1189,12 +1189,60 @@ static void TestDerivedLists() {
     coop::gamedata::Install(real);
 }
 
+// The join snapshot's map zones 4-6 (the parallel follow drains the packet; the mirror leaves them out): synthetic INFE blob.
+static std::vector<u8> MakeInfe(const std::vector<std::pair<int, u8>>& groups, bool absolute) {
+    const u32 count = u32(groups.size()), table = 0x14, data = table + count * 12;
+    std::vector<u8> b(data + count * kBlockBytes, 0);
+    std::memcpy(b.data(), "INFE", 4);
+    b[4] = 1;
+    std::memcpy(b.data() + 8, &count, 4);
+    std::memcpy(b.data() + 12, &table, 4);
+    std::memcpy(b.data() + 16, &data, 4);
+    for (u32 i = 0; i < count; ++i) {
+        const u32 key = u32(groups[i].first), off = (absolute ? data : 0) + i * kBlockBytes, len = kBlockBytes;
+        std::memcpy(b.data() + table + i * 12, &key, 4);
+        std::memcpy(b.data() + table + i * 12 + 4, &off, 4);
+        std::memcpy(b.data() + table + i * 12 + 8, &len, 4);
+        b[data + i * kBlockBytes + 3] = groups[i].second;
+    }
+    return b;
+}
+
+static void TestSnapshotZones() {
+    const int dream_z5 = PoolKeyOfId(12105045), dream_z1 = PoolKeyOfId(12101000), dream_z0 = PoolKeyOfId(12100000);
+    const int global_z5 = PoolKeyOfId(1005);  // a T1 global zone: the mirror carries it
+    const int chalice_z5 = PoolKeyOfId(12905045);
+    CHECK(dream_z5 >= 0 && dream_z1 >= 0 && global_z5 >= 0);
+    for (bool absolute : {false, true}) {
+        const auto blob = MakeInfe({{dream_z1, 0x11}, {dream_z5, 0x22}, {global_z5, 0x33}, {dream_z0, 0x44},
+                                    {chalice_z5 >= 0 ? chalice_z5 : dream_z5, 0x55}},
+                                   absolute);
+        const auto g = SnapshotMapZoneGroups(blob.data(), blob.size());
+        CHECK(g.size() >= 1);
+        bool found = false;
+        for (const auto& [key, bytes] : g) {
+            CHECK(key != u32(dream_z1) && key != u32(global_z5) && key != u32(dream_z0));  // only zones 4-6 of a map
+            if (key == u32(dream_z5) && bytes[3] == 0x22) {
+                found = true;
+            }
+        }
+        CHECK(found);  // the Dream's zone 5 group (12105045's), with its own bytes
+    }
+    CHECK(SnapshotMapZoneGroups(nullptr, 0).empty());
+    std::vector<u8> bad(64, 0);
+    CHECK(SnapshotMapZoneGroups(bad.data(), bad.size()).empty());  // no INFE magic
+    auto cut = MakeInfe({{dream_z5, 0x22}}, false);
+    cut.resize(cut.size() - 10);
+    CHECK(SnapshotMapZoneGroups(cut.data(), cut.size()).empty());  // truncated data
+}
+
 int main(int argc, char** argv) {
     const char* source_dir = argc > 1 ? argv[1] : BB_SOURCE_DIR;
     // The category table (flagRows) is read from the player's own game files: the tests that use real flag
     // ids run with BB_PARTY_TABLES and are skipped without it (tests/party_tables_test.h).
     const bool tables = coop::test::UseGameTables("party-progress-test");
     TestKeys();
+    TestSnapshotZones();
     TestBits();
     TestJson();
     if (tables) {

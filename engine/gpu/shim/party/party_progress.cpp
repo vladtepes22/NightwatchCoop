@@ -275,6 +275,55 @@ u32 BlockOfPoolKey(int key) {
     return key >= 0 && key < int(kPoolBlocks) ? InverseKeys()[key] : 0xffffffffu;
 }
 
+std::vector<std::pair<u32, GroupBytes>> SnapshotMapZoneGroups(const u8* blob, std::size_t size) {
+    std::vector<std::pair<u32, GroupBytes>> out;
+    auto rd32 = [&](std::size_t at, u32* v) {
+        if (at + 4 > size) {
+            return false;
+        }
+        std::memcpy(v, blob + at, 4);
+        return true;
+    };
+    u32 count = 0, table = 0, data = 0;
+    if (!blob || size < 0x14 || std::memcmp(blob, "INFE", 4) != 0 || !rd32(8, &count) || !rd32(12, &table) ||
+        !rd32(16, &data) || count == 0 || count > 64) {
+        return out;
+    }
+    // The data offsets are relative to the data section; absolute ones (the first group at `data`) are told apart
+    // by their smallest value.
+    u32 first_off = 0xffffffffu;
+    for (u32 i = 0; i < count; ++i) {
+        u32 off = 0;
+        if (rd32(std::size_t(table) + std::size_t(i) * 12 + 4, &off) && off < first_off) {
+            first_off = off;
+        }
+    }
+    const bool absolute = first_off == data;
+    for (u32 i = 0; i < count; ++i) {
+        u32 key = 0, off = 0, len = 0;
+        const std::size_t at = std::size_t(table) + std::size_t(i) * 12;
+        if (!rd32(at, &key) || !rd32(at + 4, &off) || !rd32(at + 8, &len) || len != kBlockBytes || key >= kPoolBlocks) {
+            continue;
+        }
+        const u32 block = BlockOfPoolKey(int(key));
+        if (block == 0xffffffffu) {
+            continue;
+        }
+        const u32 type = block / 10000, area = block / 100 % 100, mblock = block / 10 % 10, zone = block % 10;
+        if (type != 1 || (area == 0 && mblock == 0) || area == 29 || (area >= 40 && area <= 47) || zone < 4 || zone > 6) {
+            continue;
+        }
+        const std::size_t from = absolute ? std::size_t(off) : std::size_t(data) + off;
+        if (from + len > size) {
+            continue;
+        }
+        GroupBytes g{};
+        std::memcpy(g.data(), blob + from, kBlockBytes);
+        out.emplace_back(key, g);
+    }
+    return out;
+}
+
 bool NeverWritable(u32 id) {
     if (id >= 9020 && id <= 9026) {
         return true;
@@ -2716,6 +2765,36 @@ void GuestMirrorTick(Global& g, bool force_full, const char* why) {
 }
 
 } // namespace
+
+std::size_t ApplyMapZonesFromSnapshot(const u8* blob, std::size_t size) {
+    const auto groups = SnapshotMapZoneGroups(blob, size);
+    if (groups.empty()) {
+        return 0;
+    }
+    const FlagStore store(Manager(), GameOps());
+    std::map<u32, u64> overlay;
+    if (!store.Valid() || !store.OverlayGroups(&overlay) || overlay.empty()) {
+        return 0;
+    }
+    std::size_t bits = 0;
+    for (const auto& [key, want] : groups) {
+        const auto it = overlay.find(key);
+        GroupBytes cur;
+        if (it == overlay.end() || !it->second || !store.ops().read(it->second, cur.data(), kBlockBytes)) {
+            continue;
+        }
+        GroupBytes next = cur;
+        std::size_t n = 0;
+        for (u32 i = 0; i < kBlockBytes; ++i) {
+            next[i] = u8(cur[i] | want[i]);
+            n += std::size_t(__builtin_popcount(u8(next[i] ^ cur[i])));
+        }
+        if (n && store.ops().write(it->second, next.data(), kBlockBytes)) {
+            bits += n;
+        }
+    }
+    return bits;
+}
 
 void OnVanillaSnapshotApplied() {
     Global& g = G();
