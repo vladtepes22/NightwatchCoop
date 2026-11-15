@@ -165,7 +165,14 @@ std::vector<std::pair<fs::path, fs::path>> ModFiles(const fs::path& folder) {
                 throw Error("Executable/system replacement is unsupported: " + Utf8(source));
             continue;
         }
-        if (!IsFile(source)) throw Error("Not a regular mod file: " + Utf8(source));
+        if (!IsFile(source)) {
+            // past MAX_PATH Windows opens nothing here, so a file there reads as no file
+            if (source.native().size() >= MAX_PATH)
+                throw Error("This mod file's path is too long (" + std::to_string(source.native().size()) +
+                            " characters, Windows opens 259): move the mods folder to a shorter path or shorten the mod "
+                            "folder's name: " + Utf8(source));
+            throw Error("Not a regular mod file: " + Utf8(source));
+        }
         out.emplace_back(game_path, source);
     }
     return out;
