@@ -57,6 +57,7 @@ bool GoodsFromJsonText(const std::string& text, std::vector<std::uint32_t>* out,
 #include "party_director.h"
 #include "party_progress.h"
 #include "party_status.h"
+#include "seamless_rules.h"
 
 #include "../bbport_game_menu.h"
 #include "../bbport_settings.h"
@@ -72,6 +73,7 @@ bool GoodsFromJsonText(const std::string& text, std::vector<std::uint32_t>* out,
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <cstdlib>
 #include <string>
@@ -176,7 +178,27 @@ bool ListOn() {
     return BbSettings::Get().party_glyph_list.load() || (DbOn() && g_db_ready.load(std::memory_order_acquire));
 }
 
-// The glyph box the altar opened: its menu item was shown within the last 20 s.
+// "The list was offered in the altar's glyph box": set when that box opens with the list, cleared when it closes or
+// another text box opens. (A 20 s window here made a slow pick silently do nothing: "no dungeons found".)
+glyphs::GlyphBox g_box;
+
+// The chalice goods ids the game's loaded EquipParamGoods holds, read once the param is loaded (never a table in the
+// source). A community record whose goods id is not among them would make the game's dungeon generator write through
+// a null table lookup (guest fault) and persist the bad slot.
+std::set<std::uint32_t> g_goods;            // under g_list_mu
+std::atomic<bool> g_goods_ready{false};
+
+void LoadGoods() {
+    if (g_goods_ready.load(std::memory_order_acquire)) return;
+    std::set<std::uint32_t> ids;
+    for (const auto& r : GameParamRows("EquipParamGoods", "EQUIP_PARAM_GOODS_ST")) ids.insert(r.first);
+    if (ids.empty()) return;  // the params are not loaded yet: the community rows wait
+    std::lock_guard<std::mutex> lk(g_list_mu);
+    g_goods = std::move(ids);
+    g_goods_ready.store(true, std::memory_order_release);
+}
+
+// The glyph box the altar opened: its menu item was shown within the last 20 s (checked when the box OPENS).
 bool GlyphBoxRecent() {
     const std::int64_t seen = BbGameMenu::LastLookupMs(kGlyphSearchText);
     const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -274,6 +296,7 @@ void LoadDb() {
 // The ImeDialog opens: with the list on, the altar's glyph box gets the party's glyphs to pick from. The test
 // aids queue their keys into the box here (host_glyph types a code, host_pick picks a row).
 const char* GlyphChoices(std::uint32_t max_length) {
+    g_box.Clear();  // a new text box: whatever was offered before is over
     if (max_length != glyphs::kGlyphLength || !GlyphBoxRecent()) return nullptr;
     std::string list;
     std::size_t rows = 0;
@@ -300,6 +323,7 @@ const char* GlyphChoices(std::uint32_t max_length) {
     static std::string keep;  // the caller copies it at once (runtime_services.c ime_init)
     keep = list;
     if (!keep.empty()) {
+        g_box.Offer();
         std::printf("[coop] Party: chalice: the altar's glyph box opens with a list of %zu party glyph(s)\n", rows);
         std::fflush(stdout);
     }
@@ -309,12 +333,21 @@ const char* GlyphChoices(std::uint32_t max_length) {
 // The box ended: with the list on, a glyph the party has is welcome (the autopilot may walk the rest); one it does
 // not gets a clear notice (the game's own search then answers "not found").
 void GlyphClosed(std::uint32_t max_length, const char* text, bool cancelled) {
-    if (max_length != glyphs::kGlyphLength || cancelled || !text || !GlyphBoxRecent() || !ListOn()) return;
+    if (max_length != glyphs::kGlyphLength) return;
+    const bool offered = g_box.Close();
+    if (cancelled || !text) return;
+    if (!offered || !ListOn()) {
+        std::printf("[coop] Party: chalice: glyph box closed with '%s': the pick list was not offered in this box (list %s); left to the game\n",
+                    text, ListOn() ? "on" : "off");
+        std::fflush(stdout);
+        return;
+    }
     const std::string typed = text;
     const std::string glyph = glyphs::LowerGlyph(typed);
     bbnet::party::ChannelBoard& board = bbnet::party::FromApi::instance().channels();
     bbnet::party::ChannelBoard::Channel c;
     const char* how = nullptr;
+    bool refused = false;
     if (glyphs::ValidGlyph(glyph)) {
         if (board.find_glyph(glyph, &c) && !c.form_data.empty()) {
             how = "on the board";
@@ -322,6 +355,14 @@ void GlyphClosed(std::uint32_t max_length, const char* text, bool cancelled) {
             std::lock_guard<std::mutex> lk(g_list_mu);
             for (const glyphs::Entry& e : g_list) {
                 if (e.glyph == glyph && !e.form_on_board && !e.form.empty()) {
+                    const std::uint32_t goods = glyphs::GoodsOfForm(e.form);
+                    if (g_goods_ready.load(std::memory_order_acquire) && g_goods.count(goods) == 0) {
+                        std::printf("[coop] Party: chalice: glyph %s refused at the altar: chalice goods %u is not in the game's data (nothing put on the board)\n",
+                                    glyph.c_str(), goods);
+                        std::fflush(stdout);
+                        refused = true;
+                        break;
+                    }
                     // A curated glyph: its layout goes on the board before the game's search asks for it.
                     const std::uint64_t id = bbnet::party::ChannelBoard::IdOf(e.form);
                     if (board.known(id) ? board.rename_glyph(id, glyph) : board.adopt(id, e.form, "curated", glyph)) {
@@ -336,6 +377,10 @@ void GlyphClosed(std::uint32_t max_length, const char* text, bool cancelled) {
         std::printf("[coop] Party: chalice: glyph %s chosen at the altar (%s)\n", glyph.c_str(), how);
         std::fflush(stdout);
         g_altar_auto.store(true, std::memory_order_release);
+        return;
+    }
+    if (refused) {
+        party::status::SetAlert("Chalice Glyph\nThis glyph's dungeon cannot be built in this game. Pick another one.");
         return;
     }
     const std::string msg = glyphs::UnknownGlyphText(typed);
@@ -1067,8 +1112,20 @@ void HostGlyphList(const State& s, const std::string& me) {
     }
     std::vector<glyphs::Entry> community;
     if (DbOn()) {
+        LoadGoods();
         std::lock_guard<std::mutex> lk(g_list_mu);
-        community = glyphdb::ToRows(g_db, [](const std::uint8_t* d, std::size_t n) { return bbnet::party::b64_encode(d, n); });
+        if (g_goods_ready.load(std::memory_order_acquire)) {  // rows wait for the game's params: they are checked against them
+            std::vector<std::string> dropped;
+            community = glyphdb::ToRows(
+                g_db, [](const std::uint8_t* d, std::size_t n) { return bbnet::party::b64_encode(d, n); },
+                [](std::uint32_t goods) { return g_goods.count(goods) != 0; }, &dropped);
+            static std::set<std::string> logged;
+            for (const std::string& g : dropped) {
+                if (logged.insert(g).second) {
+                    std::printf("[coop] Party: chalice: community glyph %s dropped: its chalice goods id is not in the game's data\n", g.c_str());
+                }
+            }
+        }
     }
     std::vector<glyphs::Entry> list = glyphs::BuildList(me, std::move(items), g_curated, community);
     const std::string choices = glyphs::EncodeChoices(list);

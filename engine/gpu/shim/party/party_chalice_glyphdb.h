@@ -17,6 +17,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -164,12 +165,21 @@ inline int CategoryRank(const std::string& c) {
 /// The pick list rows of the database: grouped by category (farming, equipment, blood gems, testing), in
 /// file order inside a group; only 8-character glyphs (the altar's glyph box takes 8); `form` = base64 FormData.
 /// `b64(const uint8_t*, size_t)` encodes bytes (party_util.h b64_encode).
+/// `goods_ok(goods)` (when set) tells whether the game's loaded EquipParamGoods has that chalice goods id: an entry it
+/// refuses is left out and its glyph appended to `*dropped` (the caller logs one line each). The set is derived from the
+/// loaded game data at run time, never from a table in the source.
 template <class B64>
-inline std::vector<glyphs::Entry> ToRows(const std::vector<Entry>& db, B64 b64) {
+inline std::vector<glyphs::Entry> ToRows(const std::vector<Entry>& db, B64 b64,
+                                         const std::function<bool(std::uint32_t)>& goods_ok = {},
+                                         std::vector<std::string>* dropped = nullptr) {
     std::vector<glyphs::Entry> rows;
     for (int rank = 0; rank < 4; ++rank) {
         for (const Entry& d : db) {
             if (CategoryRank(d.category) != rank || d.glyph.size() != glyphs::kGlyphLength) continue;
+            if (goods_ok && !goods_ok(RecordGoods(d.rec))) {
+                if (dropped) dropped->push_back(d.glyph);
+                continue;
+            }
             glyphs::Entry e;
             e.glyph = d.glyph;
             e.source = "glyphdb";

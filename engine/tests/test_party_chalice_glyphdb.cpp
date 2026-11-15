@@ -5,6 +5,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <set>
 
 using namespace coop::chalice;
 
@@ -145,7 +146,43 @@ static void TestRows() {
     CHECK(cut.size() == 1 && cut[0].label.size() <= 80 && cut[0].label.back() == '.');
 }
 
+static glyphdb::Entry Db(const std::string& glyph, const std::string& cat, const std::string& desc, std::uint32_t goods = 6109) {
+    glyphdb::Entry e;
+    e.glyph = glyph;
+    e.category = cat;
+    e.desc = desc;
+    e.rec = Synth(0x1d123456u, goods);
+    return e;
+}
+
+// Crash guard: only rows whose chalice goods id the game's loaded EquipParamGoods holds reach the list.
+static void TestGoodsGuard() {
+    const std::vector<glyphdb::Entry> db = {Db("aaaa0001", "farming", "ok", 6100), Db("aaaa0002", "farming", "bad", 6809),
+                                            Db("aaaa0003", "equipment", "ok", 6500), Db("aaaa0004", "bloodgems", "bad", 0x12345)};
+    const std::set<std::uint32_t> valid = {6100, 6109, 6500};  // injected: the repo has no game data
+    std::vector<std::string> dropped;
+    const auto rows = glyphdb::ToRows(db, Raw, [&](std::uint32_t g) { return valid.count(g) != 0; }, &dropped);
+    CHECK(rows.size() == 2 && rows[0].glyph == "aaaa0001" && rows[1].glyph == "aaaa0003");
+    CHECK(dropped.size() == 2 && dropped[0] == "aaaa0002" && dropped[1] == "aaaa0004");
+    CHECK(glyphdb::ToRows(db, Raw).size() == 4);  // no predicate: nothing is checked
+}
+
+// The glyph box flag: a pick after any wait still counts (the list was offered in that box); it ends with the box.
+static void TestSlowPick() {
+    glyphs::GlyphBox box;
+    CHECK(!box.Offered() && !box.Close());           // nothing offered: the close is not ours
+    box.Offer();                                     // the box opens with the list
+    // 60 s, 10 min pass: there is no clock in the flag
+    CHECK(box.Offered());
+    CHECK(box.Close() && !box.Offered());            // the pick comes: it was the offered box, and the flag is cleared
+    box.Offer();
+    box.Clear();                                     // another text box opened
+    CHECK(!box.Close());
+}
+
 int main() {
+    TestGoodsGuard();
+    TestSlowPick();
     TestConversion();
     TestValidation();
     TestCache();
