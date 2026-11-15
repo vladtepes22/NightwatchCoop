@@ -644,23 +644,24 @@ void VideoOutDriver::Flip(const Request& req) {
                         (sys_us - last_sys) / 1e3, static_cast<unsigned long long>(invol - last_invol),
                         static_cast<unsigned long long>(vol - last_vol));
         }
+        // bbport: the parts of image create and refresh (texture loading). Kept per frame like the
+        // totals above them: read only on a long frame, they summed every frame since the last
+        // stall line and made an idle frame look like texture work.
+        static u64 last_parts[5];
+        const u64 parts[5] = {BbStats::t_image_query.load(), BbStats::t_image_alloc.load(),
+                              BbStats::t_refresh_hash.load(), BbStats::t_refresh_obtain.load(),
+                              BbStats::t_refresh_detile.load()};
         if (frame_ms > 40.0 && last_gpu_ns != 0) {
             std::printf("       ms in: resident %.1f, protect %.1f, image create %.1f, "
                         "image refresh %.1f, staging %.1f, waiting for host copies %.1f\n",
                         (t_now[0] - last_t[0]) / 1e6, (t_now[1] - last_t[1]) / 1e6,
                         (t_now[2] - last_t[2]) / 1e6, (t_now[3] - last_t[3]) / 1e6,
                         (t_now[4] - last_t[4]) / 1e6, (t_now[5] - last_t[5]) / 1e6);
-            // bbport: the parts of image create and refresh (texture loading).
-            static u64 last_parts[5];
-            const u64 parts[5] = {BbStats::t_image_query.load(), BbStats::t_image_alloc.load(),
-                                  BbStats::t_refresh_hash.load(), BbStats::t_refresh_obtain.load(),
-                                  BbStats::t_refresh_detile.load()};
             std::printf("       of which: format query %.1f, allocation %.1f; hashing %.1f, "
                         "source data %.1f, detiling %.1f\n",
                         (parts[0] - last_parts[0]) / 1e6, (parts[1] - last_parts[1]) / 1e6,
                         (parts[2] - last_parts[2]) / 1e6, (parts[3] - last_parts[3]) / 1e6,
                         (parts[4] - last_parts[4]) / 1e6);
-            std::copy(std::begin(parts), std::end(parts), std::begin(last_parts));
             std::printf("       GPU thread page faults %llu (process %llu), protection faults %llu; "
                         "protect calls %llu (%llu pages), of which write-revoking %llu (%llu pages)\n",
                         static_cast<unsigned long long>(minflt - last_minflt),
@@ -671,6 +672,7 @@ void VideoOutDriver::Flip(const Request& req) {
                         static_cast<unsigned long long>(rc - last_rc),
                         static_cast<unsigned long long>(rp - last_rp));
         }
+        std::copy(std::begin(parts), std::end(parts), std::begin(last_parts));
         last_pc = pc;
         last_pp = pp;
         last_rc = rc;
