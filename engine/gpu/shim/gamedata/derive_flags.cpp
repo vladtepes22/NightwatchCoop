@@ -348,7 +348,7 @@ std::vector<FlagCatRow> FlagCategories::Rows() const {
 }
 
 namespace {
-// The Hunter's Dream headstones' menus (talk scripts t210000..t210003, t210721): the groups in the order the
+// The Hunter's Dream headstones' menus (talk scripts t210000..t210003, the DLC's t210721 in its headstone stage): the groups in the order the
 // headstones list them, and for each the maps (AAB = area * 10 + block) in listing order. Our own layout of the
 // warp menu; which lamps exist comes from the game. Map 320 is split between two headstones by lamp index.
 struct Headstone {

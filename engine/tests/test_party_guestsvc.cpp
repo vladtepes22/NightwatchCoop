@@ -2,6 +2,7 @@
 // Guest services (gpu/shim/party/party_guestsvc.h): the gate and the record change text.
 // ninja -C out/gpu party-guestsvc-test && out/gpu/party-guestsvc-test
 #include "party_tables_test.h"
+#include "party/party_death_rules.h"
 #include "party/party_guestsvc.h"
 
 #include <cassert>
@@ -100,6 +101,20 @@ int main() {
     // Headstones (lamp part).
     assert(HeadstoneTalk(210000) && HeadstoneTalk(210003) && HeadstoneTalk(210721));
     assert(!HeadstoneTalk(210004) && !HeadstoneTalk(210720) && !HeadstoneTalk(210304));
+    // The DLC headstone t210721: lifted for a guest in its headstone stage only (flag 12105034), the base ones always.
+    assert(GuestHeadstoneOverride(true, 210721, true) && GuestHeadstoneOverride(true, 210002, false));
+    assert(!GuestHeadstoneOverride(true, 210721, false));  // still the Beckoning Bell messenger
+    assert(!GuestHeadstoneOverride(false, 210721, true) && !GuestHeadstoneOverride(false, 210000, true));
+    assert(!GuestHeadstoneOverride(true, 210720, true));
+    assert(kDlcHeadstoneTalk == 210721 && kDlcHeadstoneFlag == 12105034);
+    // Its picks warp through the same m21 event as the base headstones (12107000 slots 55-67): one skip rule, one 0x31 drop.
+    {
+        bool rule = false;
+        for (const EmevdSkipRule& r : LampSkipRules()) {
+            rule = rule || r.event == 12107000;
+        }
+        assert(rule && deathrules::LampWarpEvent(12107000));
+    }
     assert(LampTalk(241000) && LampTalk(241003) && LampTalk(210001) && LampTalk(361002) && LampTalk(242000));
     assert(LampLitFlagAllowed(12417830) && LampLitFlagAllowed(12417831) && LampLitFlagAllowed(72410201));
     assert(!LampLitFlagAllowed(12417820) && !LampLitFlagAllowed(12417832) && !LampLitFlagAllowed(12416830) &&
