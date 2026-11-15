@@ -192,7 +192,28 @@ std::atomic<u64> g_killer_chr{0};    // the attacker of the local player's letha
 std::atomic<std::int64_t> g_killer_at{0};  // when (steady clock ticks; 0 none)
 std::atomic<std::uint32_t> g_killed_by_calls{0};
 
+// Kill record: victims whose lethal hit came from a chr that is no player (the kill record must not
+// spread such deaths). Keyed by the victim chr and its census key; recorded by the kill log hook.
+bool AttackerIsNpc(u64 attacker);
+struct NpcKill {
+    u32 key = 0;
+    std::int64_t at = 0;
+};
+std::mutex g_npc_kill_mu;
+std::map<u64, NpcKill> g_npc_kills;  // under g_npc_kill_mu
+
+bool NpcKillEnabled() {
+    static const bool on = !EnvIsZero("BB_PARTY_KILL_RECORD_NPC");
+    return on;
+}
+
 BB_COOP_SYSV void KilledByHook(u64 victim, u64 attacker, u32 x) {
+    if (victim && attacker && victim != attacker && NpcKillEnabled() && AttackerIsNpc(attacker)) {
+        const std::int64_t t = Clock::now().time_since_epoch().count();
+        std::lock_guard<std::mutex> lk(g_npc_kill_mu);
+        if (g_npc_kills.size() > 1024) g_npc_kills.clear();
+        g_npc_kills[victim] = {Field<u32>(victim, 0x3b8, 0), t};
+    }
     if (victim && victim == g_local_chr.load(std::memory_order_relaxed)) {
         g_killer_chr.store(attacker);
         g_killer_at.store(Clock::now().time_since_epoch().count());
@@ -514,6 +535,11 @@ bool IsPlayer(u64 wcm, u64 chr) {
     for (int i = 0; entries && n > 0 && n <= 8 && i < n; ++i)
         if (Field<u64>(entries + u64(i) * 0x38, 0) == chr) return true;
     return chr == Field<u64>(wcm, 0x60);
+}
+
+bool AttackerIsNpc(u64 attacker) {
+    const u64 wcm = Slot(kSlotWorldChrMan);
+    return wcm && !IsPlayer(wcm, attacker);
 }
 
 // The loaded map's enemies (team 23, entity id chr +0x3B8, HP +0xF8 > 0 = alive, position the
@@ -2236,6 +2262,17 @@ void Tick(const GameSnapshot& s, party::PartyLink* link, bool host) {
             if (EnemyPass(s, scale)) st.next_enemies = now;  // 0.7.8: the rest of a sliced pass, next frame
         }
     }
+}
+
+void TestNoteNpcKill(u64 chr) {
+    std::lock_guard<std::mutex> lk(g_npc_kill_mu);
+    g_npc_kills[chr] = {Field<u32>(chr, 0x3b8, 0), Clock::now().time_since_epoch().count()};
+}
+
+bool KilledByNonPlayer(u64 chr, u32 key) {
+    std::lock_guard<std::mutex> lk(g_npc_kill_mu);
+    const auto it = g_npc_kills.find(chr);
+    return it != g_npc_kills.end() && it->second.key == key;
 }
 
 std::vector<EnemyKillCandidate> LoadedEnemies() {

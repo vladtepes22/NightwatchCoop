@@ -91,6 +91,11 @@ float RotDropDiscovery(float own);
 /// The loaded map's enemies as the H4 census sees them (team 23, entity id chr +0x3B8, HP +0xF8,
 /// position): the host_kill / guest_kill test steps pick from this list (main thread).
 std::vector<EnemyKillCandidate> LoadedEnemies();
+/// Kill record: this chr (with its census key) died from a lethal hit by a chr that is no player
+/// (an NPC, another enemy); the kill record does not spread such deaths. BB_PARTY_KILL_RECORD_NPC=0: never.
+bool KilledByNonPlayer(std::uint64_t chr, std::uint32_t key);
+/// Test aid (director guest_kill=...:npc): mark this chr's death as a non-player's hit.
+void TestNoteNpcKill(std::uint64_t chr);
 /// A chr's HP (+0xF8 of its data module; -1 unreadable) and physics position.
 int EnemyHp(std::uint64_t chr);
 /// "HP a / max b (base c), doping 7500:0 7501:1 7502:0" of a boss chr ("not loaded" for 0): BB_PARTY_BOSS_HP_LOG.

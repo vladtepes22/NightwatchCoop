@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// Only deaths whose lethal hit came from a player (or from no known chr: bleed, fall ...) count; an enemy killed by
+// an NPC or another enemy stays that game's own business(BB_PARTY_KILL_RECORD_NPC=0 counts all).
 // B / D parity (streamsync, 0.7.1): the party's kill record. Only a rest or a death load resets the
 // world, for everyone; until then an enemy killed in the party stays dead on every game.
 //
@@ -39,6 +41,9 @@ struct Obs {
     bool alive = false;
     std::uint64_t chr = 0;     ///< the chr instance
     std::uint32_t key = 0;     ///< census key (chr +0x3B8): another chr instance has another key
+    /// The lethal hit came from a chr that is no player (an NPC's gatling, another enemy): that death
+    /// is this game's own world's business, not the party's. Only meaningful when !alive.
+    bool npc_kill = false;
 };
 
 /// Put `chr` to death; `silent`: no echoes, no drop (an enemy already killed and paid for).
@@ -101,7 +106,8 @@ public:
 
     /// This game's loaded enemies now. Returns what to put to death; `died` gets the deaths seen
     /// here that are new to the record (for the party).
-    std::vector<Action> Update(const std::vector<Obs>& list, double now, std::vector<std::uint32_t>* died) {
+    std::vector<Action> Update(const std::vector<Obs>& list, double now, std::vector<std::uint32_t>* died,
+                               std::vector<std::uint32_t>* ignored = nullptr) {
         std::vector<Action> out;
         // Several chrs of one entity id (rare): left alone.
         std::map<std::uint32_t, int> count;
@@ -119,7 +125,12 @@ public:
                 if (it == m_.end()) {
                     // Seen alive here before: a death here (dead at first sight: dead before this
                     // game looked, e.g. a load's dead chr: not a kill of this party's).
-                    if (alive_.count(id)) {
+                    if (alive_.count(id) && o->npc_kill) {
+                        // Killed by a non-player (an NPC's fire, another enemy): in a party every game
+                        // runs its own copy of such fights, so that death must not spread (seen in Old Yharnam:
+                        // dozens of enemies and Djura killed on the other games).
+                        if (ignored) ignored->push_back(id);
+                    } else if (alive_.count(id)) {
                         E& e = m_[id];
                         e.seen_dead = true;
                         e.chr = o->chr;
