@@ -337,6 +337,10 @@ bool SnapshotFromJson(const std::string& text, FlagSnapshot* out, std::string* e
 
 struct MemOps;
 using GroupBytes = std::array<u8, kBlockBytes>;
+/// The groups of a join snapshot's inflated "INFE" blob (event_flags.md section 4: {magic, u16 version, u32 count, u32
+/// table, u32 data}, per group {key, data offset, 125}) that the world mirror leaves out: a map's T1 zones 4-6 (1AAB4nnn
+/// - 1AAB6nnn, not the Chalice areas). Empty for a blob that is not one. Pure.
+std::vector<std::pair<u32, GroupBytes>> SnapshotMapZoneGroups(const u8* blob, std::size_t size);
 bool WorldMirrorKey(int key);
 /// Every mirror key, ascending.
 const std::vector<int>& WorldMirrorKeys();
@@ -610,6 +614,9 @@ void ApplyHostSnapshot(const FlagSnapshot& snap);
 /// Guest, the thread of the vanilla packet-0x10 apply (party_b2 K11, right after 0x13BECA0): the
 /// host's world image into the freshly built overlay, before the host-world load reads it.
 void OnVanillaSnapshotApplied();
+/// Guest main thread: those groups OR-ed into the overlay (set-only), for a follow that drained the snapshot packet
+/// instead of applying it (party_b2 parallel follow). Returns the bits set.
+std::size_t ApplyMapZonesFromSnapshot(const u8* blob, std::size_t size);
 bool OnLinkEvent(const std::string& name, const std::string& body, std::string* error = nullptr);
 void SetPolicy(const Policy& p);
 Policy CurrentPolicy();

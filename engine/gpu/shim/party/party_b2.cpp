@@ -21,6 +21,7 @@
 #include "game_state.h"
 #include "party_phantom.h"
 #include "party_progress.h"
+#include <miniz.h>
 #include "party_travel.h"
 #include "party_story.h"
 #include "party_ids.h"
@@ -2049,7 +2050,7 @@ u64 ChrNear(const float p[3]) {
 /// 0x10) that arrived while this guest did not follow wait in the receive queue (0x1783160 pops
 /// them only in state 1) and would be applied first - another map's, older flags. Popped and
 /// dropped with the game's own receive 0x17893E0(flow, type, buf, size) (role 3/6 only).
-void DrainSnapshotQueue(const char* why) {
+void DrainSnapshotQueue(const char* why, std::vector<u8>* flags_packet = nullptr) {
     static std::vector<u8> buf(0x10000);
     using Recv = int(BB_COOP_SYSV*)(u64, u32, void*, u32);
     const u64 flow = Slot(kSlotFlow);
@@ -2065,6 +2066,9 @@ void DrainSnapshotQueue(const char* why) {
                 break;
             }
             ++n;
+            if (flags_packet && type == 0x10u) {
+                flags_packet->assign(buf.begin(), buf.begin() + std::min<std::size_t>(std::size_t(r), buf.size()));
+            }
         }
         if (n) {
             char b[32];
@@ -9790,11 +9794,55 @@ void ParallelFallback(const GameSnapshot& s, const char* why) {
     Send(0, b);
 }
 
+/// The host's join snapshot (packet 0x10: a 16-byte "MNSE" header and the deflated "INFE" blob, event_flags.md
+/// section 4) carries the host's current map's T1 zones 4-6 (1AAB4nnn-1AAB6nnn: event / NPC / enemy state), which the
+/// world mirror leaves out. The parallel follow drains that packet; without those groups the guest's own load of the
+/// Dream left them as the Chalice Dungeon's overlay had them: the Dream's Insight messenger flag 12105045 stayed 0 and
+/// the bath said "there are no messengers" (smoke cis / cim). They go into the overlay set-only now.
+/// BB_PARTY_PARALLEL_ZONES=0 leaves it out.
+void ApplySnapshotMapZones(const std::vector<u8>& packet) {
+    static const bool off = std::getenv("BB_PARTY_PARALLEL_ZONES") && std::getenv("BB_PARTY_PARALLEL_ZONES")[0] == '0';
+    if (off) {
+        return;
+    }
+    if (packet.size() < 24) {
+        Log("parallel follow: no flag snapshot from the host to take the map's zones 4-6 from (%zu bytes)", packet.size());
+        return;
+    }
+    std::vector<u8> blob;
+    for (std::size_t at : {std::size_t(16), std::size_t(12), std::size_t(8), std::size_t(20)}) {
+        if (at + 8 >= packet.size()) {
+            continue;
+        }
+        std::vector<u8> out(0x4000);
+        mz_ulong n = mz_ulong(out.size());
+        if (mz_uncompress(out.data(), &n, packet.data() + at, mz_ulong(packet.size() - at)) == MZ_OK && n >= 0x14 &&
+            std::memcmp(out.data(), "INFE", 4) == 0) {
+            out.resize(n);
+            blob.swap(out);
+            break;
+        }
+    }
+    if (blob.empty()) {
+        char head[64] = {};
+        for (std::size_t i = 0; i < 16 && i < packet.size(); ++i) {
+            std::snprintf(head + i * 3, 4, "%02x ", unsigned(packet[i]));
+        }
+        Log("parallel follow: the host's flag snapshot did not inflate to an INFE blob (%zu bytes, head %s)",
+            packet.size(), head);
+        return;
+    }
+    const std::size_t bits = coop::progress::ApplyMapZonesFromSnapshot(blob.data(), blob.size());
+    Log("parallel follow: the host's map zones 4-6 from its flag snapshot: %zu bit(s) set in the overlay", bits);
+}
+
 /// Main thread: the host's spot is in and in this block: beside it, no load.
 void ParallelArrive(const GameSnapshot& s, double now, float pos[4], const float rot[4]) {
     State& st = S();
     g_early_screen = false;  // the held load's screen is the seam's now (ReleaseHold drops it)
-    DrainSnapshotQueue("parallel follow");
+    std::vector<u8> flags_packet;
+    DrainSnapshotQueue("parallel follow", &flags_packet);
+    ApplySnapshotMapZones(flags_packet);
     BesideHost(pos, rot, g_local_slot.load());
     {
         // The guest's HP as before the host's travel (the load may refill it), as after a B2 load.
