@@ -449,6 +449,8 @@ bool BrowserOn() {
         const char* e = std::getenv("BB_GLYPH_SCREEN_TEST");
         return e && e[0] == '1';
     }();
+    // A hook that failed its byte check leaves the ones before it in: they do nothing then (the game's altar).
+    if (!g_installed.load(std::memory_order_acquire)) return false;
     if (forced) return true;
     const auto& s = BbSettings::Get();
     return s.chalice_glyph_browser.load(std::memory_order_relaxed) && s.chalice_glyphdb.load(std::memory_order_relaxed);

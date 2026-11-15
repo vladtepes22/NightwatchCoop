@@ -8,7 +8,8 @@
 
 namespace BbGlyphScreen {
 
-/// Installs the hooks (bbgpu_patch_image, after coop::HooksInit). Test stage: BB_GLYPH_SCREEN_TEST=1 only.
+/// Installs the hooks (bbgpu_patch_image, after coop::HooksInit). Live with the setting chalice_glyph_browser
+/// (BB_GLYPH_SCREEN_TEST=1 forces it on); nothing changes unless every hook passed its byte check.
 void Install();
 
 /// The glyph screen's own text for the game's text (`category`, `id`) while the chalice picker is the glyph screen
