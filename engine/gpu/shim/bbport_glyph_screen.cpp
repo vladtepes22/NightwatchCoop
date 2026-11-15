@@ -23,9 +23,12 @@
 //    copies get their real chalice back;
 //  - a card with the mark: the glyph code as its name (0x1c5d340 -> call 0x1c5d4cf to 0x17ca200), the glyph's text as
 //    its long description (0x1c5dd70 -> call 0x1c5df17 to 0x1f01180).
-// Test stage: BB_GLYPH_SCREEN_TEST=1 only.
+// The setting "Chalice Glyph Browser" (bbport.ini chalice_glyph_browser, on by default; off falls back to the text list; it needs the community list,
+// chalice_glyphdb), read each time the altar's glyph item is chosen: the hooks are always in and do nothing while it
+// is off. BB_GLYPH_SCREEN_TEST=1 turns it on whatever the setting (the test scripts).
 #include "bbport_glyph_screen.h"
 #include "bbport_game_menu.h"
+#include "bbport_settings.h"
 #include "input/input.h"
 #include "input/menu_pointer.h"
 #include "../bbgpu.h"
@@ -407,8 +410,19 @@ BB_COOP_SYSV u64 TabName(u64 out, u64 tab) {
     return g_tab_name_original(out, tab);
 }
 
+// The setting (or the test switch): the glyph screen replaces the altar's community glyph list.
+bool BrowserOn() {
+    static const bool forced = [] {
+        const char* e = std::getenv("BB_GLYPH_SCREEN_TEST");
+        return e && e[0] == '1';
+    }();
+    if (forced) return true;
+    const auto& s = BbSettings::Get();
+    return s.chalice_glyph_browser.load(std::memory_order_relaxed) && s.chalice_glyphdb.load(std::memory_order_relaxed);
+}
 // The altar's "Search by Chalice Glyph": with community glyphs, the chalice picker opens as the glyph screen.
 BB_COOP_SYSV u64 GlyphItem(u64 out, u64 ctx) {
+    if (!BrowserOn()) return g_glyph_item_original(out, ctx);
     {
         std::lock_guard<std::mutex> lk(g_mu);
         LoadGlyphs();
@@ -1616,6 +1630,7 @@ bool MountPanel() { return MountMovie(kGuestPanel, "dvdroot_ps4/menu/itemdetailt
 // at the builder's rbp - 0x1458, stored on the row at 0x1b66823). The glyph screen needs no network: with community
 // glyphs the row stays usable.
 BB_COOP_SYSV u64 GlyphRowGrey(u64 frame, u64) {
+    if (!BrowserOn()) return 0;
     std::lock_guard<std::mutex> lk(g_mu);
     LoadGlyphs();
     if (g_glyphs && !g_glyphs->empty()) *reinterpret_cast<std::uint8_t*>(frame - 0x1458) = 0;
@@ -1996,7 +2011,7 @@ bool TypeStartsSearch(int scancode) {
 bool KeepsGameText(std::uint32_t id) {
     // The altar names its items before it builds them (before the glyph list is first read), so: the screen's hooks
     // are in and the community list's file is there (the glyph item then opens the glyph screen).
-    if (id != kGlyphSearchText || !g_installed.load(std::memory_order_acquire)) return false;
+    if (id != kGlyphSearchText || !g_installed.load(std::memory_order_acquire) || !BrowserOn()) return false;
     if (g_have_glyphs.load(std::memory_order_acquire)) return true;
     std::error_code ec;
     return std::filesystem::is_regular_file(CachePath(), ec);
@@ -2014,7 +2029,6 @@ const char* PickedGlyph(std::uint32_t max_length) {
 }
 
 void Install() {
-    if (const char* e = std::getenv("BB_GLYPH_SCREEN_TEST"); !e || e[0] != '1') return;
     bool ok = coop::ReplacePrologue(kGlyphItem, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57},
                                     reinterpret_cast<const void*>(&GlyphItem),
                                     reinterpret_cast<void**>(&g_glyph_item_original), "glyph screen: the glyph item");
@@ -2126,8 +2140,9 @@ void Install() {
         if (!g_list) runtime_file_unmount(kGuestList);
     }
     g_installed.store(ok, std::memory_order_release);
-    std::printf("Glyph screen: %s%s%s\n", ok ? "on (BB_GLYPH_SCREEN_TEST)" : "FAILED to install",
-                ok ? (g_panel ? ", its own panel" : ", the game's panel") : "", ok && g_list ? ", its own card list" : "");
+    std::printf("Glyph screen: %s%s%s (Chalice Glyph Browser %s)\n", ok ? "installed" : "FAILED to install",
+                ok ? (g_panel ? ", its own panel" : ", the game's panel") : "", ok && g_list ? ", its own card list" : "",
+                BrowserOn() ? "on" : "off: the hooks do nothing");
     std::fflush(stdout);
 }
 

@@ -348,6 +348,11 @@ struct Values {
     /// visy 0.8.1 (glyphdb081): Noxde's community Chalice glyph list at the Ritual Altar (solo and party host; the
     /// launcher fetches it). ON by default (Nightwatch 0.3.1; visy: off).
     std::atomic<bool> chalice_glyphdb{true};
+    /// Nightwatch: the Chalice Glyph Browser (bbport_glyph_screen.h): with the community list on, the altar's glyph
+    /// search opens a card list with tabs, a search bar and a controller keyboard instead of the text list. On by
+    /// default (it replaces the text list; off is the fallback to it); read live (each time the search opens). Env
+    /// BB_CHALICE_GLYPH_BROWSER=0/1.
+    std::atomic<bool> chalice_glyph_browser{true};
     /// visy 0.8.1 loading speed-ups, on by default, read at start: map load fades twice as fast (fast_fades,
     /// BB_FAST_FADES=0 off), 4 resource worker threads instead of 3 on a PC with 6+ CPUs (load_workers,
     /// BB_LOAD_WORKERS=0 off). His unpaced loading screen is not taken (engine/loading.cpp paces ours).

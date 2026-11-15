@@ -2615,6 +2615,8 @@
   "Deleting": "삭제 중",
   "Community Chalice glyphs (Noxde's list)": "커뮤니티 성배 글리프 (Noxde의 목록)",
   "On by default. At the Ritual Altar, Search by Chalice Glyph also offers the community's glyph list (Noxde's list on GitHub, Nexus mod 121), grouped by purpose: farming, equipment, blood gems. The launcher fetches the list from GitHub when this is turned on and before a game start (at most once a week), keeps it in your own data folder and checks every entry; creators' names are never kept. Works solo or as host.": "기본값은 켜짐입니다. 의식의 제단에서 성배 글리프로 검색하면 커뮤니티 글리프 목록(GitHub의 Noxde 목록, Nexus 모드 121)도 용도별(파밍, 장비, 피의 보석)로 나타납니다. 런처는 이 옵션을 켤 때와 게임을 시작하기 전(최대 주 1회)에 GitHub에서 목록을 받아 사용자 데이터 폴더에 저장하고 모든 항목을 검사합니다. 제작자 이름은 보관하지 않습니다. 혼자서도, 호스트로도 작동합니다.",
+  "Chalice Glyph Browser": "성배 글리프 브라우저",
+  "On by default. At the Ritual Altar, Search by Chalice Glyph shows the community glyphs as a list of cards with tabs, a search bar and an on-screen keyboard for controllers, instead of the text list. Needs Community Chalice glyphs. Works solo or as host.": "기본값은 켜짐. 의식의 제단에서 글리프 검색이 커뮤니티 글리프를 텍스트 목록 대신 탭, 검색창, 컨트롤러용 화면 키보드가 있는 카드 목록으로 보여 줍니다. 커뮤니티 성배 글리프가 필요합니다. 솔로 또는 호스트로 사용할 수 있습니다.",
   "Faster fades around loading screens": "로딩 화면 전후의 페이드 가속",
   "Map load fades run twice as fast, so loading screens start and end sooner. On by default": "맵 로딩 페이드가 두 배 빨라져 로딩 화면이 더 일찍 시작하고 끝납니다. 기본값은 켜짐",
   "More loading threads": "로딩 스레드 늘리기",

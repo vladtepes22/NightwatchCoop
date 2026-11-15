@@ -2661,6 +2661,8 @@
   "Deleting": "正在删除",
   "Community Chalice glyphs (Noxde's list)": "社区圣杯字形(Noxde 的列表)",
   "On by default. At the Ritual Altar, Search by Chalice Glyph also offers the community's glyph list (Noxde's list on GitHub, Nexus mod 121), grouped by purpose: farming, equipment, blood gems. The launcher fetches the list from GitHub when this is turned on and before a game start (at most once a week), keeps it in your own data folder and checks every entry; creators' names are never kept. Works solo or as host.": "默认开启。在仪式祭坛处,按圣杯字形搜索时还会提供社区的字形列表(GitHub 上 Noxde 的列表,Nexus 模组 121),按用途分组:刷取、装备、血宝石。启动器会在开启此项时以及游戏启动前(每周最多一次)从 GitHub 获取该列表,保存在你自己的数据文件夹中并检查每一项;创作者的名字不会被保留。单人或作为主机时均可使用。",
+  "Chalice Glyph Browser": "圣杯字形浏览器",
+  "On by default. At the Ritual Altar, Search by Chalice Glyph shows the community glyphs as a list of cards with tabs, a search bar and an on-screen keyboard for controllers, instead of the text list. Needs Community Chalice glyphs. Works solo or as host.": "默认开启。在仪式祭坛，字形搜索会以带有标签页、搜索栏和手柄屏幕键盘的卡片列表显示社区字形，而不是文本列表。需要开启社区圣杯字形。单人或作为主机时可用。",
   "Faster fades around loading screens": "加快载入画面前后的淡入淡出",
   "Map load fades run twice as fast, so loading screens start and end sooner. On by default": "地图载入时的淡入淡出速度加倍,载入画面更早开始、更早结束。默认开启",
   "More loading threads": "更多载入线程",
