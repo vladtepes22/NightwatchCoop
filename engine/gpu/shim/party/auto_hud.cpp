@@ -6,8 +6,8 @@
 //     subtitles and item notices are other clips of the view: untouched.
 //   The component is a Scaleform value wrapper (vtable 0x5399F90): +0x38 the object interface, +0x40 the value
 //     type (& 0x8f == 10: a display object), +0x48 the display object. 0x1ACB760 (value, visible) shows the
-//     interface's use: GetDisplayInfo is vtable +0xE0, SetDisplayInfo +0xE8 (pdata, DisplayInfo*). We set only
-//     the alpha (flag 0x20) so nothing else of the clip changes.
+//     interface's use: GetDisplayInfo is vtable +0xE0, SetDisplayInfo +0xE8 (pdata, DisplayInfo*). We set the
+//     alpha (flag 0x20) and, at 0, the visibility (flag 0x40) so nothing else of the clip changes.
 #include "auto_hud.h"
 
 #include "auto_hud_rules.h"
@@ -48,9 +48,11 @@ constexpr u64 kInfoGet = 0xe0, kInfoSet = 0xe8;
 constexpr std::size_t kInfoSize = 0x100;
 constexpr std::size_t kAlphaOff = 0x28;   // DisplayInfo.Alpha (double, 0..100); checked live (the log line)
 constexpr std::size_t kFlagsOff = 0xd4;   // DisplayInfo.VarsSet (u16)
-constexpr std::uint16_t kFlagAlpha = 0x20;
+constexpr std::size_t kVisibleOff = 0xd6; // DisplayInfo.Visible (bool; as 0x1ACB760 writes it, flag 0x40)
+constexpr std::uint16_t kFlagAlpha = 0x20, kFlagVisible = 0x40;
 
 std::atomic<u64> g_view{0};
+u64 g_hidden_comp = 0;  // the clip we made invisible (alpha 0); 0 = none
 Machine g_machine;
 bool g_on = false;
 bool g_applied_any = false;
@@ -112,6 +114,9 @@ void InitInfo(u8* info) {
 }
 
 /// Sets the clip's alpha (0..1); false when the interface refuses. `read_back`: the alpha as read first.
+/// At 0 the clip is made invisible instead, the game's own way to hide a clip (0x1ACB760): a visible clip at
+/// alpha 0 crashed the game's UI mask clear with no pixel shader bound (+0x33e2b0 -> +0x109a992; NW-c679fc2,
+/// NW-38b6c6f, NW-cdb2308, all seconds after the HUD faded out). Visibility is given back only if we took it.
 bool SetAlpha(u64 comp, double a01, double* read_back) {
     const u64 iface = Rd(comp + kIface), pdata = Rd(comp + kPdata);
     const u64 get = Rd(Rd(iface) + kInfoGet), set = Rd(Rd(iface) + kInfoSet);
@@ -123,9 +128,28 @@ bool SetAlpha(u64 comp, double a01, double* read_back) {
     double alpha = 0;
     std::memcpy(&alpha, info + kAlphaOff, 8);
     if (read_back) *read_back = alpha;
-    const double want = a01 * 100.0;
-    std::memcpy(info + kAlphaOff, &want, 8);
-    std::memcpy(info + kFlagsOff, &kFlagAlpha, 2);
+    const bool visible = info[kVisibleOff] != 0;
+    std::uint16_t flags = 0;
+    if (a01 <= 0) {
+        if (!visible) return true;  // hidden already (by us or by the game)
+        info[kVisibleOff] = 0;      // the alpha stays at the fade's last, non-zero value
+        flags = kFlagVisible;
+        g_hidden_comp = comp;
+        Log("alpha 0: the clip made invisible");
+    } else {
+        const double want = a01 * 100.0;
+        std::memcpy(info + kAlphaOff, &want, 8);
+        flags = kFlagAlpha;
+        if (g_hidden_comp == comp) {
+            if (!visible) {
+                info[kVisibleOff] = 1;
+                flags |= kFlagVisible;
+                Log("the clip made visible again");
+            }
+            g_hidden_comp = 0;
+        }
+    }
+    std::memcpy(info + kFlagsOff, &flags, 2);
     reinterpret_cast<Fn>(set)(iface, pdata, info);
     return true;
 }
