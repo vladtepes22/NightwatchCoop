@@ -211,7 +211,7 @@ internal static class Program
         var settings = Workspace.Current.Settings;
         var mods = Path.Combine(output, "fixture-mods");
         const string code = "R2-0W000-000G2-00MXE";
-        var world = Path.Combine(mods, $"Randomizer {code} 12345678");
+        var world = Path.Combine(mods, Randomizer.FolderName(code, "11111111"));
         Directory.CreateDirectory(Path.Combine(world, "dvdroot_ps4"));  // a mod folder counts once it holds game files
         Directory.CreateDirectory(Path.Combine(mods, "Nocturne", "dvdroot_ps4"));
         File.WriteAllText(Path.Combine(world, "randomizer_manifest.json"),

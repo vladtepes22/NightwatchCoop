@@ -353,7 +353,7 @@ namespace BloodborneLauncher.Views
             var mods = Installed();
             _modChoices.Children.Clear();
             var picked = Randomizer.Picked(mods, _ticks);
-            foreach (var mod in mods.Where(m => Randomizer.Parse(m.Name) == null))
+            foreach (var mod in mods.Where(m => !Randomizer.IsWorld(m.Name)))
             {
                 var box = new CheckBox { Content = mod.Name, IsChecked = picked.Contains(mod.Name), Margin = new Thickness(0, 2, 0, 2) };
                 var name = mod.Name;
@@ -369,7 +369,7 @@ namespace BloodborneLauncher.Views
             var active = Randomizer.Active(S);
             foreach (var mod in mods)
             {
-                if (Randomizer.Parse(mod.Name) is not { } world) continue;
+                if (Randomizer.Load(GameEnvironment.ModsDir(S), mod.Name) is not { } world) continue;
                 _worlds.Children.Add(WorldCard(world, world == active, picked));
             }
             if (_worlds.Children.Count == 0)
@@ -568,7 +568,7 @@ namespace BloodborneLauncher.Views
         // The host's name for the world it built (WorldSaves); a name it had here before stays unless a new one was typed.
         private void NameBuilt(string folder, string? worldName)
         {
-            if (Randomizer.Parse(folder) is not { } world) return;
+            if (Randomizer.Load(GameEnvironment.ModsDir(S), folder) is not { } world) return;
             try
             {
                 if (worldName != null) WorldSaves.SetName(ProfileFolder, world, worldName, GameEnvironment.ModsDir(S), mayCopy: !Ws.Game.Running);

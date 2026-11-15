@@ -121,14 +121,14 @@ internal static class WorldJoinTests
         Check(CuratedMods.JoinAdvice(nlabel, plain, new[] { "1.0" }) == new JoinChoice(JoinKind.BuildWorld, "1.0", sample, "1b8e536a", Base: "nocturne@1.0"), "a world on an offered Nocturne is built");
         Check(CuratedMods.JoinAdvice(nlabel, new LocalMods("nocturne", "1.0", 0, null, null, null, true), null).Kind == JoinKind.BuildWorld, "an installed Nocturne needs no manifest");
         Check(CuratedMods.JoinAdvice(nlabel, plain, new[] { "1.1" }) == new JoinChoice(JoinKind.NocturneNotAvailable, "1.0"), "a Nocturne not offered is not available");
-        Check(CuratedMods.JoinAdvice(nlabel, new LocalMods("world", "1.0", 0, World: $"Randomizer {sample} 1b8e536a", CanBuildWorlds: true, WorldGenerator: g,
+        Check(CuratedMods.JoinAdvice(nlabel, new LocalMods("world", "1.0", 0, World: Randomizer.FolderName(sample, "1b8e536a"), CanBuildWorlds: true, WorldGenerator: g,
             WorldBase: "nocturne@1.0|m:12345678"), null).Kind == JoinKind.Join, "the same world plays: join");
-        Check(CuratedMods.JoinAdvice(nlabel, new LocalMods("world", "1.0", 0, World: $"Randomizer {sample} 1b8e536a", CanBuildWorlds: true, WorldGenerator: g,
+        Check(CuratedMods.JoinAdvice(nlabel, new LocalMods("world", "1.0", 0, World: Randomizer.FolderName(sample, "1b8e536a"), CanBuildWorlds: true, WorldGenerator: g,
             WorldBase: "m:12345678"), null).Kind == JoinKind.BuildWorld, "the same world on another base here is no match (the party hash covers the base)");
-        Check(CuratedMods.JoinAdvice(label, new LocalMods("world", null, 0, World: $"Randomizer {sample} 00000000", CanBuildWorlds: true, WorldGenerator: g), null).Kind == JoinKind.BuildWorld, "another build of the code is no match");
+        Check(CuratedMods.JoinAdvice(label, new LocalMods("world", null, 0, World: Randomizer.FolderName(sample, "00000000"), CanBuildWorlds: true, WorldGenerator: g), null).Kind == JoinKind.BuildWorld, "another build of the code is no match");
         Check(CuratedMods.JoinAdvice(label, plain with { CanBuildWorlds = false }, null).Kind == JoinKind.WorldNotAvailable, "a package without the generator can't build");
         Check(CuratedMods.JoinAdvice($"rando{g + 1}:{code}+w:1b8e536a", plain, null).Kind == JoinKind.WorldNewer, "a newer generator: update");
-        Check(CuratedMods.JoinAdvice($"rando{g + 1}:{code}+w:1b8e536a", new LocalMods("world", null, 0, World: $"Randomizer {sample} 1b8e536a", CanBuildWorlds: true, WorldGenerator: g), null).Kind == JoinKind.WorldNewer,
+        Check(CuratedMods.JoinAdvice($"rando{g + 1}:{code}+w:1b8e536a", new LocalMods("world", null, 0, World: Randomizer.FolderName(sample, "1b8e536a"), CanBuildWorlds: true, WorldGenerator: g), null).Kind == JoinKind.WorldNewer,
             "a newer generator's world is not the one of that name here");
         Check(CuratedMods.JoinAdvice($"rando{g}:r3-00000-00+w:1b8e536a", plain, null).Kind == JoinKind.WorldNewer, "a newer code schema: update");
         Check(CuratedMods.JoinAdvice($"rando{g}:r2-00000-00+w:1b8e536a", plain, null).Kind == JoinKind.Modded, "a bad code only shows modded");
@@ -141,15 +141,15 @@ internal static class WorldJoinTests
         Check(CuratedMods.JoinAdvice(oldLabel, plain, null) == new JoinChoice(JoinKind.WorldOlder, null, sample, "1b8e536a"), "an older generator's world: the host makes it again");
         Check(CuratedMods.JoinAdvice("nocturne@1.0+" + oldLabel, plain, new[] { "1.0" }).Kind == JoinKind.WorldOlder, "an older world on Nocturne: older, nothing fetched");
         Check(CuratedMods.JoinAdvice($"rando0:{code}+w:1b8e536a", plain, null).Kind == JoinKind.WorldOlder, "any older generator is older");
-        Check(CuratedMods.JoinAdvice(oldLabel, new LocalMods("world", null, 0, World: $"Randomizer {sample} 1b8e536a", CanBuildWorlds: true, WorldGenerator: g), null).Kind == JoinKind.WorldOlder,
+        Check(CuratedMods.JoinAdvice(oldLabel, new LocalMods("world", null, 0, World: Randomizer.FolderName(sample, "1b8e536a"), CanBuildWorlds: true, WorldGenerator: g), null).Kind == JoinKind.WorldOlder,
             "this generator's world of the same name is not the host's older world");
-        Check(CuratedMods.JoinAdvice(oldLabel, new LocalMods("world", null, 0, World: $"Randomizer {sample} 1b8e536a", CanBuildWorlds: true, WorldGenerator: g - 1), null).Kind == JoinKind.Join,
+        Check(CuratedMods.JoinAdvice(oldLabel, new LocalMods("world", null, 0, World: Randomizer.FolderName(sample, "1b8e536a"), CanBuildWorlds: true, WorldGenerator: g - 1), null).Kind == JoinKind.Join,
             "a guest already playing that older world joins it");
-        Check(CuratedMods.JoinAdvice(label, new LocalMods("world", null, 0, World: $"Randomizer {sample} 1b8e536a", CanBuildWorlds: true, WorldGenerator: g - 1), null) == new JoinChoice(JoinKind.BuildWorld, null, sample, "1b8e536a"),
+        Check(CuratedMods.JoinAdvice(label, new LocalMods("world", null, 0, World: Randomizer.FolderName(sample, "1b8e536a"), CanBuildWorlds: true, WorldGenerator: g - 1), null) == new JoinChoice(JoinKind.BuildWorld, null, sample, "1b8e536a"),
             "an older world of the host's name here is no match: built again");
-        Check(CuratedMods.JoinAdvice(label, new LocalMods("world", null, 0, World: $"Randomizer {sample} 1b8e536a", CanBuildWorlds: true, WorldGenerator: null), null).Kind == JoinKind.BuildWorld,
+        Check(CuratedMods.JoinAdvice(label, new LocalMods("world", null, 0, World: Randomizer.FolderName(sample, "1b8e536a"), CanBuildWorlds: true, WorldGenerator: null), null).Kind == JoinKind.BuildWorld,
             "a world of that name with an unreadable manifest is no match");
-        Check(CuratedMods.JoinAdvice(label, new LocalMods("world", null, 0, World: $"Randomizer {sample} 1b8e536a", CanBuildWorlds: false, WorldGenerator: g - 1), null).Kind == JoinKind.WorldNotAvailable,
+        Check(CuratedMods.JoinAdvice(label, new LocalMods("world", null, 0, World: Randomizer.FolderName(sample, "1b8e536a"), CanBuildWorlds: false, WorldGenerator: g - 1), null).Kind == JoinKind.WorldNotAvailable,
             "an older world of that name and no generator: not available");
 
         // The happy path, like "Use Nocturne X and join": a guest without the world who can build it gets "Build world and
@@ -185,7 +185,7 @@ internal static class WorldJoinTests
             "a renamed Nocturne of the host's version is used (no manifest needed)");
         Check(CuratedMods.JoinAdvice(nlabel, plain with { BaseTokens = "m:12121212,nocturne@0.9" }, null).Kind == JoinKind.NocturneNotAvailable,
             "another Nocturne version here and none offered: not available");
-        Check(CuratedMods.JoinAdvice(mlabel, new LocalMods("world", null, 0, World: $"Randomizer {sample} 1b8e536a", CanBuildWorlds: true, WorldGenerator: g,
+        Check(CuratedMods.JoinAdvice(mlabel, new LocalMods("world", null, 0, World: Randomizer.FolderName(sample, "1b8e536a"), CanBuildWorlds: true, WorldGenerator: g,
             WorldBase: "nocturne@1.0|m:0a1b2c3d"), null).Kind == JoinKind.Join, "a host's Nocturne copy named by content matches a Nocturne known by version here");
 
         // ---- world mode: mods.json holds the world's base and the world, My mods comes back after
@@ -203,7 +203,7 @@ internal static class WorldJoinTests
             var hash = new string('a', 8) + new string('0', 56);
             string World(string c, string h, IEnumerable<string> baseMods, string? baseLabel, int? generator = null, string? build = null)
             {
-                var folder = $"Randomizer {c} {h[..8]}";
+                var folder = Randomizer.FolderName(c, h[..8]);
                 var lobby = (baseLabel != null ? baseLabel + "+" : "") + $"rando{generator ?? g}:{c.ToLowerInvariant()}+w:{h[..8]}" +
                             (build != null ? "+g:" + build[..8] : "");
                 var manifest = new JsonObject

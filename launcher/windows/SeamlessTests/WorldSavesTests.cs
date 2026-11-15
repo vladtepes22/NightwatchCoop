@@ -39,7 +39,7 @@ internal static class WorldSavesTests
         Console.WriteLine("PASS: world saves (worlds\\ folders, names, copy of old folders and its check, guest names, save editor list)");
     }
 
-    private static Randomizer.World World(string code, string check) => Randomizer.Parse($"Randomizer {code} {check}")!;
+    private static Randomizer.World World(string code, string check) => new(Randomizer.FolderName(code, check), code, check);
 
     /// <summary>Settings whose saves folder and mods folder are in <paramref name="dir"/>, playing this world (its mod folder made).</summary>
     private static LauncherSettings Playing(string dir, Randomizer.World world)
@@ -48,6 +48,8 @@ internal static class WorldSavesTests
         s.Set("user_dir", Path.Combine(dir, "user"));
         s.Set("mods_dir", Path.Combine(dir, "mods"));
         Directory.CreateDirectory(Path.Combine(dir, "mods", world.Folder));
+        File.WriteAllText(Path.Combine(dir, "mods", world.Folder, "randomizer_manifest.json"),
+            "{\"generator\":2,\"code\":\"" + world.Code + "\",\"input_hash\":\"" + world.Hash + new string('0', 56) + "\",\"mods\":[]}");
         Randomizer.Use(s, world.Folder);
         return s;
     }
@@ -191,7 +193,8 @@ internal static class WorldSavesTests
         var twin = WorldSaves.SetName(profile, World(CodeB, CheckB), "Yharnam après minuit 2 3");
         Check(twin.Folder != made.Folder && Path.GetFileName(twin.Folder) == "Yharnam apres minuit 2 3 2", "a taken folder name gets a number: " + twin.Folder);
         // The name stays local: nothing of it in the world's mod folder, and the folder name reads as the same world.
-        Check(!Directory.EnumerateFiles(Path.Combine(dir, "mods"), "*", SearchOption.AllDirectories).Any(), "the world's files are not written");
+        Check(Directory.EnumerateFiles(Path.Combine(dir, "mods"), "*", SearchOption.AllDirectories).All(f =>
+            Path.GetFileName(f) == "randomizer_manifest.json" && !File.ReadAllText(f).Contains("name")), "the world's files are not written");
         Check(Randomizer.Active(s)?.Folder == world.Folder, "the world is still the same world");
         try { WorldSaves.SetName(profile, world, " \t "); Check(false, "an empty name is refused"); }
         catch (ArgumentException) { }

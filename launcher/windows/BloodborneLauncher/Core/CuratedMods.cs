@@ -344,7 +344,7 @@ namespace BloodborneLauncher.Core
             if (!Directory.Exists(modsDir)) return found;
             foreach (var name in Mods.Discover(modsDir))
             {
-                if (Randomizer.Parse(name) != null) continue;
+                if (Randomizer.IsWorld(name)) continue;
                 try
                 {
                     foreach (var token in BaseTokensOf(Path.Combine(modsDir, name), manifest))
@@ -390,7 +390,7 @@ namespace BloodborneLauncher.Core
                 if (Directory.Exists(modsDir))
                     foreach (var name in Mods.Discover(modsDir))
                     {
-                        if (Randomizer.Parse(name) != null) continue;
+                        if (Randomizer.IsWorld(name)) continue;
                         long newest = 0;
                         var count = 0;
                         foreach (var f in new DirectoryInfo(Path.Combine(modsDir, name)).EnumerateFiles("*", SearchOption.AllDirectories))
@@ -700,7 +700,7 @@ namespace BloodborneLauncher.Core
         // manifest or one of its base mods is missing (it would load as another world).
         private static List<string>? WorldLoad(string modsDir, string folderName)
         {
-            if (Randomizer.Parse(folderName) == null) return null;
+            if (!Randomizer.IsWorld(folderName)) return null;
             var folder = Path.Combine(modsDir, folderName);
             if (!Directory.Exists(folder) || Randomizer.ReadManifest(folder) is not { } manifest) return null;
             var available = Mods.Discover(modsDir);
@@ -776,7 +776,7 @@ namespace BloodborneLauncher.Core
         /// label says (the game alone, or this verified Nocturne). Else null: the game announces "mods:" + its hash.</summary>
         internal static string? WorldHostLabel(string modsDir, string folderName)
         {
-            if (Randomizer.Parse(folderName) is not { } world || WorldLoad(modsDir, folderName) == null) return null;
+            if (Randomizer.Load(modsDir, folderName) is not { } world || WorldLoad(modsDir, folderName) == null) return null;
             if (Randomizer.ReadManifest(Path.Combine(modsDir, folderName)) is not { } m || m.Generator != Randomizer.GeneratorMajor) return null;
             if (WorldCode.Decode(m.Code) is not { Kind: WorldCodeKind.Ok, Canonical: { } code } || code != m.Code || code != world.Code) return null;
             if (!m.InputHash.StartsWith(world.Hash, StringComparison.Ordinal)) return null;
@@ -934,7 +934,7 @@ namespace BloodborneLauncher.Core
                 // The folder name holds no generator: the world playing here is the host's only when its manifest's generator
                 // is the label's too (an older world still plays as built, so a guest already on it may join), and its base
                 // mods are the label's by content (the party mods hash covers every file of them, read or not).
-                if (local.Mode == "world" && local.World == $"Randomizer {code} {world.Check}" && local.WorldGenerator == world.Generator &&
+                if (local.Mode == "world" && local.World == Randomizer.FolderName(code, world.Check) && local.WorldGenerator == world.Generator &&
                     BaseMatches(local.WorldBase, world.Base))
                     return new JoinChoice(JoinKind.Join, world.Nocturne, code, world.Check, Base: world.Base);
                 if (world.Generator < Randomizer.GeneratorMajor)
@@ -988,7 +988,7 @@ namespace BloodborneLauncher.Core
         public static LocalMods Local(LauncherSettings s, string modsDir, ModManifest? manifest, bool baseTokens = false)
         {
             var world = Mode(s) == "world" ? s.Str(Randomizer.WorldKey) : null;
-            var made = world != null && Randomizer.Parse(world) != null ? Randomizer.ReadManifest(Path.Combine(modsDir, world)) : null;
+            var made = world != null && Randomizer.IsWorld(world) ? Randomizer.ReadManifest(Path.Combine(modsDir, world)) : null;
             var worldBase = made != null ? SafeBaseKeys(modsDir, made.Mods) : null;
             return new(Mode(s), Installed(modsDir, manifest) is { Kind: InstalledKind.Known } i ? i.Version : null, MyModsCount(s, modsDir),
                 PartyHashes.Current.Mods, PartyHashes.Current.Patches, world, Randomizer.Supported, made?.Generator,
@@ -1027,7 +1027,7 @@ namespace BloodborneLauncher.Core
             // The base by content (user, 5 Nov): each key of the label is a folder here under any name; only a missing Nocturne
             // version is fetched (NameFolder first gives the launcher's install its version name).
             if (choice.Version != null) NameFolder(s, modsDir);
-            var want = $"Randomizer {code} {check}";
+            var want = Randomizer.FolderName(code, check);
             if (!await Task.Run(() => HasWorld(modsDir, code, check, choice.Base), ct))
             {
                 if (hostLabel != null && OtherBuild(hostLabel, await Randomizer.BuildIdAsync(ct)))
@@ -1112,12 +1112,12 @@ namespace BloodborneLauncher.Core
                 string.Join(", ", list));
         }
 
-        /// <summary>This folder already holds the host's world: "Randomizer CODE CHECK" whose manifest is this generator's, with
+        /// <summary>This folder already holds the host's world: its folder (Randomizer.FolderName) whose manifest is this generator's, with
         /// that code and input hash, built on base mods that a label names <paramref name="basePart"/> now (by content, so a
         /// base under another folder name counts; null: the game alone). A folder of that name from another generator is
         /// another world (the name holds no generator): it is built again.</summary>
         public static bool HasWorld(string modsDir, string code, string check, string? basePart) =>
-            Randomizer.ReadManifest(Path.Combine(modsDir, $"Randomizer {code} {check}")) is { } m && m.Generator == Randomizer.GeneratorMajor &&
+            Randomizer.ReadManifest(Path.Combine(modsDir, Randomizer.FolderName(code, check))) is { } m && m.Generator == Randomizer.GeneratorMajor &&
             m.Code == code && m.InputHash.StartsWith(check, StringComparison.Ordinal) && BaseMatches(SafeBaseKeys(modsDir, m.Mods), basePart);
 
         // BaseKeysOf, or "?" (matches no base) when a folder is missing or can't be read.

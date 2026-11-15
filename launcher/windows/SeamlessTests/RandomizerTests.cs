@@ -12,12 +12,38 @@ internal static class RandomizerTests
 
     internal static void Run()
     {
-        var world = Randomizer.Parse("Randomizer R2-0M000-01G74-ZY 227291f8");
-        Check(world is { Code: "R2-0M000-01G74-ZY", Hash: "227291f8" }, "a world's folder name reads back");
-        foreach (var bad in new[] { "Randomizer", "Randomizer R2 227291f8", "Randomizer r2-00 227291f8", "Randomizer R2-00 22729", "Randomizer R2-00/.. 227291f8", "Cinder Rain", "Randomizer R2-00 227291f8 " })
-            Check(Randomizer.Parse(bad) == null, "not a world: " + bad);
+        // The folder name holds no code (a long one put the world's files past Windows' 259-character paths): 32 characters
+        // for any code, the same as generate.folder_name writes.
+        var name = Randomizer.FolderName("R2-0M000-01G74-ZY", "227291f8");
+        Check(name == "Randomizer 6def8a9ecc26 227291f8", "a world's folder name: " + name);
+        Check(Randomizer.FolderName("R2-" + string.Join("-", Enumerable.Repeat("AD2XE", 60)), "227291f8").Length == 32, "a long code makes no longer name");
+        Check(Randomizer.IsWorld(name) && Randomizer.IsWorld("Randomizer R2-0M000-01G74-ZY 227291f8"), "a world's folder by name (an earlier generator's too)");
+        foreach (var bad in new[] { "Randomizer", "Randomizer 227291f8", "Randomizer R2-00 22729", "Randomizer R2-00/.. 227291f8", "Cinder Rain", "Randomizer R2-00 227291f8 " })
+            Check(!Randomizer.IsWorld(bad), "not a world: " + bad);
+        var loadRoot = Path.Combine(Path.GetTempPath(), "randomizer-load-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            void Manifest(string folder, string code, string hash)
+            {
+                Directory.CreateDirectory(Path.Combine(loadRoot, folder));
+                File.WriteAllText(Path.Combine(loadRoot, folder, "randomizer_manifest.json"),
+                    "{\"generator\":2,\"code\":\"" + code + "\",\"input_hash\":\"" + hash + "\",\"mods\":[]}");
+            }
+            Manifest(name, "R2-0M000-01G74-ZY", "227291f8" + new string('0', 56));
+            Check(Randomizer.Load(loadRoot, name) == new Randomizer.World(name, "R2-0M000-01G74-ZY", "227291f8"), "a world's code comes from its manifest");
+            Directory.CreateDirectory(Path.Combine(loadRoot, "Randomizer 000000000000 11111111"));
+            Check(Randomizer.Load(loadRoot, "Randomizer 000000000000 11111111") == null, "no manifest, no world");
+            Manifest("Randomizer 000000000000 22222222", "R2-0M000-01G74-ZY", "227291f8" + new string('0', 56));
+            Check(Randomizer.Load(loadRoot, "Randomizer 000000000000 22222222") == null, "a manifest of another check is not this folder's world");
+            Check(Randomizer.Load(loadRoot, "Cinder Rain") == null && Randomizer.Load(loadRoot, "Randomizer 000000000000 33333333") == null, "other and missing folders are no worlds");
+        }
+        finally
+        {
+            Directory.Delete(loadRoot, true);
+        }
+        var world = new Randomizer.World(name, "R2-0M000-01G74-ZY", "227291f8");
 
-        var folder = Randomizer.SaveFolder(Path.Combine("saves", "profiles", "Anna"), world!);
+        var folder = Randomizer.SaveFolder(Path.Combine("saves", "profiles", "Anna"), world);
         Check(folder == Path.Combine("saves", "profiles", "Anna", "randomizer", "R2-0M000-01G74-ZY 227291f8"), "save folder under the profile");
         Check(Path.GetFileName(folder).All(c => char.IsLetterOrDigit(c) || c is '-' or ' '), "save folder has only safe characters");
 
@@ -255,8 +281,8 @@ internal static class RandomizerTests
             var options = new Randomizer.Options(4242, 100, "slot", "slot", new[] { 2630 }, Bosses: true, Treasure: true, Shops: true, Drops: true);
             var code = Randomizer.ToCode(options)!;
             var name = Randomizer.Generate(settings, code, Array.Empty<string>()).GetAwaiter().GetResult();
-            var world = Randomizer.Parse(name);
-            Check(world != null && world.Code == code, "the new folder reads as this world: " + name);
+            var world = Randomizer.Load(GameEnvironment.ModsDir(settings), name);
+            Check(world != null && world.Code == code && name == Randomizer.FolderName(code, world.Hash), "the new folder reads as this world: " + name);
             Check(Mods.Load(GameEnvironment.ModsDir(settings)).Last() == new Mods.Entry(name, true), "the world loads last and on");
             Check(Randomizer.Active(settings) == world, "the world is the active one");
             var built = Randomizer.BuiltOn(Path.Combine(GameEnvironment.ModsDir(settings), name));

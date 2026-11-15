@@ -148,7 +148,7 @@ internal static class WorldRejoinTests
         Check(!Run(hostLabel, advice) && steps.Count == 0, "a second refusal for the same world is left to the player (no loop)");
         Check(!Run("nocturne@1.0.1", CuratedMods.JoinAdvice("nocturne@1.0.1", plain, new[] { "1.0.1" })) && steps.Count == 0, "a Nocturne host builds nothing");
         Check(!Run("mods:3f9a12c0", CuratedMods.JoinAdvice("mods:3f9a12c0", plain, null)) && steps.Count == 0, "other mods build nothing");
-        var playing = new LocalMods("world", null, 0, World: $"Randomizer {code} 1b8e536a", CanBuildWorlds: true, WorldGenerator: Randomizer.GeneratorMajor);
+        var playing = new LocalMods("world", null, 0, World: Randomizer.FolderName(code, "1b8e536a"), CanBuildWorlds: true, WorldGenerator: Randomizer.GeneratorMajor);
         WorldRejoin.Reset();
         Check(!Run(hostLabel, CuratedMods.JoinAdvice(hostLabel, playing, null)) && steps.Count == 0, "the world already plays here: another cause, nothing built");
         Check(!Run(hostLabel, CuratedMods.JoinAdvice(hostLabel, plain with { CanBuildWorlds = false }, null)) && steps.Count == 0, "a package without the generator builds nothing");

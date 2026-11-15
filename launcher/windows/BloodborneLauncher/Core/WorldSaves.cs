@@ -32,6 +32,9 @@ namespace BloodborneLauncher.Core
         /// <summary>What happened to one old save folder: To is the new folder (null: not moved, Error says why).</summary>
         public sealed record Moved(string From, string? To, string? Error);
 
+        // An earlier launcher's save folder: "<code> <check>".
+        private static readonly System.Text.RegularExpressions.Regex LegacyName =
+            new(@"^(R\d+(?:-[0-9A-Z]+)+) ([0-9a-f]{8})$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         private static readonly object Lock = new();
         // Copies wait for each other and a game start waits for them (MigrateWorld): never two copies of one folder.
         private static readonly object MigrationLock = new();
@@ -177,8 +180,8 @@ namespace BloodborneLauncher.Core
             {
                 if (Directory.Exists(root))
                     foreach (var folder in Directory.EnumerateDirectories(root))
-                        if (Randomizer.Parse("Randomizer " + Path.GetFileName(folder)) is { } world)
-                            list.Add((folder, world));
+                        if (LegacyName.Match(Path.GetFileName(folder)) is { Success: true } m)
+                            list.Add((folder, new Randomizer.World(Randomizer.FolderName(m.Groups[1].Value, m.Groups[2].Value), m.Groups[1].Value, m.Groups[2].Value)));
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
             return list;

@@ -8,9 +8,9 @@ namespace BloodborneLauncher.Core
 {
     /// <summary>
     /// Randomized worlds. The package's generator (randomizer\) reads the player's own game and writes a
-    /// normal mod folder, "Randomizer CODE HASH", kept last in the load order. Each world has its own
-    /// saves: while one is enabled, the current profile's user folder moves to randomizer\CODE HASH inside
-    /// it, so a save never crosses worlds and turning the mod off brings back the old saves.
+    /// normal mod folder, "Randomizer ID HASH" (<see cref="FolderName"/>), kept last in the load order. The world's code is
+    /// in its randomizer_manifest.json, never in the folder name: a code grows with its lists, and a long one in the name
+    /// put the world's files past Windows' 259-character paths. Each world has its own saves (<see cref="WorldSaves"/>).
     /// </summary>
     public static class Randomizer
     {
@@ -43,17 +43,40 @@ namespace BloodborneLauncher.Core
         /// <summary>The bell maidens' choices (seedcode option bell_maidens 0-2).</summary>
         public static readonly string[] BellMaidenChoices = { "off", "normal", "difficult" };
 
-        private static readonly Regex WorldName = new(@"^Randomizer (R\d+(?:-[0-9A-Z]+)+) ([0-9a-f]{8})$", RegexOptions.CultureInvariant);
+        // "Randomizer <id> <check>". The id is FolderName's; a world made before it has its code there, and plays on.
+        private static readonly Regex WorldName = new(@"^Randomizer [0-9A-Za-z-]+ ([0-9a-f]{8})$", RegexOptions.CultureInvariant);
+        private static readonly Dictionary<string, (DateTime Written, World? World)> Loaded = new(StringComparer.OrdinalIgnoreCase);
 
         public static string Generator => Path.Combine(Paths.PortDir, "randomizer", "randomizer.exe");
 
         /// <summary>This package has a generator (the page stays hidden without one).</summary>
         public static bool Supported => File.Exists(Generator);
 
-        public static World? Parse(string folder)
+        /// <summary>The folder the generator writes this world to (generate.folder_name): "Randomizer", the first 12 hex of
+        /// the code's SHA-256, and the check (the first 8 hex of the input hash). 32 characters for any code.</summary>
+        public static string FolderName(string code, string check) =>
+            $"Randomizer {Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.ASCII.GetBytes(code)))[..12].ToLowerInvariant()} {check}";
+
+        /// <summary>A world's folder by its name alone (nothing is read).</summary>
+        public static bool IsWorld(string folderName) => WorldName.IsMatch(folderName);
+
+        /// <summary>The world in this folder of the mods folder: its code and check from its manifest, which must agree with
+        /// the name's check. Null for any other folder. Kept until the manifest changes (the pages ask often).</summary>
+        public static World? Load(string modsDir, string folderName)
         {
-            var match = WorldName.Match(folder);
-            return match.Success ? new World(folder, match.Groups[1].Value, match.Groups[2].Value) : null;
+            var match = WorldName.Match(folderName);
+            if (!match.Success) return null;
+            var folder = Path.Combine(modsDir, folderName);
+            DateTime written;
+            try { written = File.GetLastWriteTimeUtc(Path.Combine(folder, "randomizer_manifest.json")); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+            lock (Loaded)
+                if (Loaded.TryGetValue(folder, out var known) && known.Written == written) return known.World;
+            var check = match.Groups[1].Value;
+            var world = ReadManifest(folder) is { } m && m.InputHash.StartsWith(check, StringComparison.Ordinal)
+                ? new World(folderName, m.Code, check) : null;
+            lock (Loaded) Loaded[folder] = (written, world);
+            return world;
         }
 
         /// <summary>The world the game would load now: game mode "world"'s world, else in My mods the last enabled one; none
@@ -63,9 +86,10 @@ namespace BloodborneLauncher.Core
             if (s.Bool("safe_mode_next")) return null;
             var mode = CuratedMods.Mode(s);
             if (mode == "world")
-                return Parse(s.Str(WorldKey)) is { } w && Directory.Exists(Path.Combine(GameEnvironment.ModsDir(s), w.Folder)) ? w : null;
+                return Load(GameEnvironment.ModsDir(s), s.Str(WorldKey));
             if (mode != "my" || !s.Bool("mods_enabled")) return null;
-            return Mods.Load(GameEnvironment.ModsDir(s)).Where(m => m.Enabled).Select(m => Parse(m.Name)).LastOrDefault(w => w != null);
+            var dir = GameEnvironment.ModsDir(s);
+            return Mods.Load(dir).Where(m => m.Enabled).Select(m => Load(dir, m.Name)).LastOrDefault(w => w != null);
         }
 
         /// <summary>Plays this world: game mode "world" loads it and the mods it was built on, nothing else, and keeps My mods'
@@ -128,6 +152,7 @@ namespace BloodborneLauncher.Core
             }
         }
 
+        /// <summary>An earlier launcher's save folder of this world (<see cref="WorldSaves.LegacyFolder"/>).</summary>
         public static string SaveFolder(string profileFolder, World world) =>
             Path.Combine(profileFolder, "randomizer", world.Code + " " + world.Hash);
 
@@ -227,13 +252,13 @@ namespace BloodborneLauncher.Core
         /// choice, else by its My mods state. A world loads its own base mods (its manifest), so a mod that is off in My mods
         /// still counts once ticked (an updated Nocturne's new folder starts off there).</summary>
         public static List<string> Picked(IEnumerable<Mods.Entry> mods, IReadOnlyDictionary<string, bool> ticks) =>
-            mods.Where(m => Parse(m.Name) == null && (ticks.TryGetValue(m.Name, out var ticked) ? ticked : m.Enabled))
+            mods.Where(m => !IsWorld(m.Name) && (ticks.TryGetValue(m.Name, out var ticked) ? ticked : m.Enabled))
                 .Select(m => m.Name).ToList();
 
         /// <summary>Puts this world last and enabled, and turns the other worlds off; other mods keep their state.</summary>
         public static List<Mods.Entry> WithWorld(IEnumerable<Mods.Entry> mods, string worldFolderName) =>
             mods.Where(m => m.Name != worldFolderName)
-                .Select(m => Parse(m.Name) != null ? m with { Enabled = false } : m)
+                .Select(m => IsWorld(m.Name) ? m with { Enabled = false } : m)
                 .Append(new Mods.Entry(worldFolderName, true)).ToList();
 
         /// <summary>The id BuildIdAsync found (tests set it: no generator runs there).</summary>
@@ -450,7 +475,7 @@ namespace BloodborneLauncher.Core
             }
             var wrote = output.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("wrote "));
             var name = wrote == null ? null : Path.GetFileName(wrote[6..].TrimEnd('\\', '/'));
-            if (name == null || Parse(name) == null) throw new InvalidOperationException(L.T("The generator ended without writing a world."));
+            if (name == null || !IsWorld(name)) throw new InvalidOperationException(L.T("The generator ended without writing a world."));
             return name;
         }
 
@@ -459,7 +484,7 @@ namespace BloodborneLauncher.Core
         {
             if (!Directory.Exists(modsDir)) return;
             foreach (var folder in Directory.EnumerateDirectories(modsDir, "Randomizer *.tmp"))
-                if (Parse(Path.GetFileName(folder)[..^4]) != null)
+                if (IsWorld(Path.GetFileName(folder)[..^4]))
                     try { Directory.Delete(folder, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
 
