@@ -92,9 +92,19 @@ constexpr std::uint32_t kRuneWorkshopTool = 4104;
 bool MemoryAltarUsable(bool flag_set, int tool_count);
 bool GehrmanLastEvent(bool f1028, bool f1029, bool f1030);
 
-/// Dream headstones and warp menus whose multiplayer / client tests the lamp part lifts:
-/// 210000-210003 (headstones), 210721 (warp menu with StartWarpMenuInit).
+/// Dream headstones whose multiplayer / client tests the lamp part lifts: 210000-210003 (the four base headstones) and
+/// 210721, the DLC headstone (Hunter's Nightmare, Research Hall, Fishing Hamlet lamps; ReturnPoints 3402950..).
+/// t210721 (chr 2100231) is two scripts in one (talk ESD, read 2026-11-15): its root machine runs the Beckoning Bell
+/// messenger until m21 flag 12105034 is on (event 12105024: any DLC lamp object flag 13407810.. / 13507810.. / 13607810..),
+/// then the headstone machine (IsMultiplayerInProgress gate, prompt 6140, the same warp list commands as t210000-3;
+/// a pick sets 72103400 + n and m21 event 12107000 slots 55-67 warp, as for the base headstones). Event 12105004
+/// short-warps the chr from the bell spot to region 2102305 (beside the workshop) when the flag rises.
 bool HeadstoneTalk(std::uint32_t talk);
+constexpr std::uint32_t kDlcHeadstoneTalk = 210721;
+constexpr std::uint32_t kDlcHeadstoneFlag = 12105034;
+/// The guest's IsClientPlayer override for a headstone: the party lamps on and a headstone talk; the DLC's t210721 only
+/// in its headstone stage (`dlc_stage` = flag kDlcHeadstoneFlag of the host's world), never as the bell messenger.
+bool GuestHeadstoneOverride(bool lamps_on, std::uint32_t talk, bool dlc_stage);
 /// Lamp talk scripts: tAAB000-tAAB003 of a map (m24_01 -> t241000..t241003; the Dream's are its
 /// headstones t210000..t210003). Their talk tests IsMultiplayerInProgress / IsClientPlayer keep a
 /// lamp shut while a session is up; the party lifts them (host: party mode, guest: BB_PARTY_GUEST_LAMPS).

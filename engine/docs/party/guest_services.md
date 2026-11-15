@@ -117,7 +117,8 @@ The filter allows by talk script id; the entity column is where the script is pl
 | 2100600 | t210305 | Gehrman: ordinary lines (72100120-72100129, 72100133-72100135); last event: the ending choice | yes, outside his last event (2.7) |
 | 2100800 | t210306 | (Gehrman / Doll death branch) | no |
 | 2100950.. | t210000-3 | headstones (travel) | no (lamp phase) |
-| 2100230, 2100231 | t210720, t210721 | Dream lamp / warp menus | no (lamp phase) |
+| 2100230 | t210720 | Notebook messenger | no |
+| 2100231 | t210721 | Beckoning Bell messenger, and the **DLC headstone** once flag 12105034 is on (3.4) | headstone stage: lamp phase; bell stage: no |
 | 2100954, 2100959, 2100960 | t210050, t210100, t210110 | chalice altars (all of t210050..t210110) | no; the host's since 0.6.2 (G1: IsMultiplayerInProgress answered 0 for the host, `BB_PARTY_HOST_ALTARS`) |
 
 t210140 / t210141 / t210200 / t2107xx (other `OpenSoul` scripts) are not placed in the m21 MSB;
@@ -310,7 +311,7 @@ whoever uses a lamp or headstone, **the whole party travels**, led by the host (
   its `0x13CDF30(2412950)` becomes `lamp: request 2412950 sent to the host`, the host warps (`host
   travel ... lamp 2412950`), the guest follows (B2 `replay now ... lamp 2412950`, `arrived in the
   host world`) and stands beside the host in the clinic. No crash. The guest's IsClientPlayer
-  answer is lifted for t210000-t210003 whenever `BB_PARTY_GUEST_LAMPS=1` (t210721 stays excluded).
+  answer is lifted for t210000-t210003 whenever `BB_PARTY_GUEST_LAMPS=1` (t210721: only in its headstone stage, 3.4).
 * **Host headstone with a guest present [R]** (`hostheadstone;keys=cross,cross,left,cross,cross`, host
   side): the headstone's menu opened for the host (the IsMultiplayerInProgress lift), the host
   chose a lamp and warped (`host travel ... lamp 2412950`, one TRAVEL); the guest replayed it (B2:
@@ -381,6 +382,28 @@ whoever uses a lamp or headstone, **the whole party travels**, led by the host (
 * Excluded talkers (Gehrman's ending, travel menus, chalice altars) keep the vanilla client wait.
 * The filter reads the talker id from the environment the game just dereferenced; no allocation,
   no lock (main thread).
+
+### 3.4 The DLC headstone is t210721 [C talk ESD + EMEVD + MSB, R smoke hsd 2026-11-15]
+
+* The headstone that lists the Hunter's Nightmare / Research Hall / Fishing Hamlet lamps is not a fifth t21000x: it is
+  talk **t210721** on chr **2100231** (MSB part "メッセンジャー_マルチアイテムくれる", the Beckoning Bell messenger).
+  The ESD's root machine runs the bell messenger's machine until `GetEventStatus(12105034) == 1` and the headstone
+  machine after it: `IsMultiplayerInProgress()` (test 52) gate, prompt ActionButton 6140, the client wait
+  (`IsClientPlayer`, test 19) of the prompt machine, list rows text 7000340n..7000360n shown by the lamp object flags
+  13407810 + 20n / 13507810.. / 13607810.., a pick sets **72103400 + n** (7210350n, 7210360n).
+* Flag 12105034: m21 event 12105024 ("墓石メッセンジャーアニメ可否判定_墓石4") sets it while any of those ten lamp
+  object flags is on. Event 12105004 (slot 3, chr 2100231) then short-warps the chr from the bell spot beside the Doll
+  to region **2102305** ("DLCワープメッセンジャー出現", beside the workshop: -12.4, -1.0, 1.4).
+* The warp: the same m21 event **12107000** as the base headstones (slots 55-58 -> ReturnPoints 3402950-3402953,
+  60-62 -> 3502950-2, 65-67 -> 3602950-2), so the client-end skip `12107000:1003:6@0` and the 0x31 event-state drop
+  already cover it.
+* Why a guest got no menu (player report, 0.8.x): the IsClientPlayer lift tested `talk in 210000..210003` while the
+  IsMultiplayerInProgress lift used HeadstoneTalk (with 210721), so the DLC headstone's prompt machine stayed in its
+  client wait. Now `GuestHeadstoneOverride(lamps, talk, dlc_stage)`: t210721 is lifted while flag 12105034 is on in
+  the host's world (never as the bell messenger).
+* Live (smoke `hsd`, host flag 13407810 by test aid): guest flag 12105034 0 -> 1 right after the host's lamp flag came
+  with the mirror, the chr's body at the region on the guest too, prompt 6140 registered, menu, `lamp flag 72103400`,
+  `lamp: request 3402950 sent to the host`, both in m34_00 side by side (screenshots).
 
 ## 5. Runtime evidence
 
