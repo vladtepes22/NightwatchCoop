@@ -6,6 +6,8 @@ namespace BloodborneLauncher.Core
     /// <summary>
     /// One play session from the engine's output: how long it ran, the frame rate (from the
     /// "Frame stats:" lines, printed with Frame statistics on) and the stutters ("Stall:" lines).
+    /// Stutters count during play only; stalls on loading screens, at start-up and in the 5 seconds
+    /// after a load are counted apart (LoadingStutters), and so are the frame windows that touch them.
     /// Playtime adds up per player profile in the settings (playtime.&lt;profile&gt;, seconds).
     /// </summary>
     public sealed class SessionStats
@@ -15,24 +17,58 @@ namespace BloodborneLauncher.Core
         private static readonly Regex Memory = new(@"^Memory: game (\d+) MiB in RAM", RegexOptions.Compiled);
 
         private readonly List<double> _fps = new();
+        private bool _inGame;                       // the first in-game frame was shown
+        private bool _loading;                      // a loading screen is up
+        private int _quietWindows = 0;              // frame windows still to skip after a load
+        private bool _windowTouchedLoading = true;  // the current frame window had a load or start-up in it
+        private bool _sawFrameStats;
+        private bool _sawLoadingLine;
+        private int _frameStatsLines;
 
         public DateTime Started { get; } = DateTime.Now;
         public TimeSpan Length { get; private set; }
         public double WorstFrameMs { get; private set; }
         public int Stutters { get; private set; }
+        /// <summary>Stalls at start-up, on loading screens and in the 5 seconds after one.</summary>
+        public int LoadingStutters { get; private set; }
         public double AverageFps => _fps.Count > 0 ? _fps.Average() : 0;
         public double LowestFps => _fps.Count > 0 ? _fps.Min() : 0;
-        public bool HasFrameStats => _fps.Count > 0;
+        public bool HasFrameStats => _sawFrameStats;
         /// <summary>The game's RAM in MiB, first and last of the once-a-minute lines (0: none).</summary>
         public long RamStartMiB { get; private set; }
         public long RamEndMiB { get; private set; }
 
         public void Observe(string line)
         {
-            if (line.StartsWith("Frame stats: ", StringComparison.Ordinal) && FrameStats.Match(line) is { Success: true } m)
+            if (line.StartsWith("Loading: ", StringComparison.Ordinal))
             {
-                _fps.Add(Parse(m.Groups[1].Value));
-                WorstFrameMs = Math.Max(WorstFrameMs, Parse(m.Groups[2].Value));
+                _sawLoadingLine = true;
+                if (line.StartsWith("Loading: begins", StringComparison.Ordinal))
+                {
+                    _loading = true;
+                    _windowTouchedLoading = true;
+                }
+                else if (line.Length > 9 && line[9] >= '0' && line[9] <= '9')
+                {
+                    _loading = false;
+                    _quietWindows = 1;
+                    _windowTouchedLoading = true;
+                }
+                else if (line.StartsWith("Loading: the first in-game frame", StringComparison.Ordinal))
+                    _inGame = true;
+            }
+            else if (line.StartsWith("Frame stats: ", StringComparison.Ordinal) && FrameStats.Match(line) is { Success: true } m)
+            {
+                _sawFrameStats = true;
+                _frameStatsLines++;
+                AssumeInGameForOldLogs();
+                if (_inGame && !_windowTouchedLoading && _quietWindows == 0)
+                {
+                    _fps.Add(Parse(m.Groups[1].Value));
+                    WorstFrameMs = Math.Max(WorstFrameMs, Parse(m.Groups[2].Value));
+                }
+                if (!_loading && _quietWindows > 0) _quietWindows--;
+                _windowTouchedLoading = _loading;
             }
             else if (line.StartsWith("Memory: game ", StringComparison.Ordinal) && Memory.Match(line) is { Success: true } r)
             {
@@ -41,18 +77,30 @@ namespace BloodborneLauncher.Core
             }
             else if (line.StartsWith("Stall: ", StringComparison.Ordinal) && Stall.Match(line) is { Success: true } s)
             {
-                Stutters++;
-                WorstFrameMs = Math.Max(WorstFrameMs, Parse(s.Groups[1].Value));
+                AssumeInGameForOldLogs();
+                if (_inGame && !_loading && _quietWindows == 0)
+                {
+                    Stutters++;
+                    WorstFrameMs = Math.Max(WorstFrameMs, Parse(s.Groups[1].Value));
+                }
+                else LoadingStutters++;
             }
+        }
+
+        // An engine that never prints the Loading lines: after 60 s of frame stats the game is running.
+        private void AssumeInGameForOldLogs()
+        {
+            if (!_sawLoadingLine && _frameStatsLines >= 12) _inGame = true;
         }
 
         public void Finish() => Length = DateTime.Now - Started;
 
-        /// <summary>"1 h 12 min · 112 FPS average (lowest 98) · worst frame 107 ms · 3 stutters".</summary>
+        /// <summary>"1 h 12 min · 112 FPS average (lowest 98) · worst frame 107 ms · 3 stutters (+2 while loading)".</summary>
         public string Summary =>
             Duration(Length) + (HasFrameStats
                 ? L.F($" · {AverageFps:0} FPS average (lowest {LowestFps:0}) · worst frame {WorstFrameMs:0} ms · ") +
-                  (Stutters == 1 ? L.T("1 stutter") : L.F($"{Stutters} stutters"))
+                  (Stutters == 1 ? L.T("1 stutter") : L.F($"{Stutters} stutters")) +
+                  (LoadingStutters > 0 ? L.F($" (+{LoadingStutters} while loading)") : "")
                 : " · turn on Frame statistics (Settings) for FPS and stutters") +
             (RamEndMiB > 0 ? L.F($" · RAM {RamStartMiB / 1024.0:0.0} → {RamEndMiB / 1024.0:0.0} GB") : "");
 

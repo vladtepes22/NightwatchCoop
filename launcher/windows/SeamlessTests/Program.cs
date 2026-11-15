@@ -788,6 +788,7 @@ ModFeatureManifestTests.Run();
 Console.WriteLine("PASS: mod nightwatch.json read with the engine's rules (good, too new, beta suffix, unknown feature, bad JSON, none)");
 VpnTests.Run();
 ChaliceGlyphDbTests.Run();
+SessionStatsTests.Run();
 {
     // Import saves: single player, multiplayer or both; a replaced party save is backed up (temporary user folder only).
     var tmp = Path.Combine(Path.GetTempPath(), "nw-import-" + Guid.NewGuid().ToString("N"));
