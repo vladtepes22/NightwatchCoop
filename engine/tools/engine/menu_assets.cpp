@@ -3,6 +3,7 @@
 #include "rebirth_script.h"
 #include <zlib.h>
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -1825,6 +1826,406 @@ Bytes GlyphListMovie(const Bytes& gfx) {
         if (i == list_sprite_at) {
             tags.insert(tags.end(), defs.begin(), defs.end());
             tags.push_back(WriteSprite(list));
+            continue;
+        }
+        tags.push_back(m.tags[i]);
+    }
+    m.tags = std::move(tags);
+    return WriteMovie(m);
+}
+
+// The Chalice glyph screen's tab icons. An item screen's tab tile (inventory.gfx sprite 228, ItemCategory's
+// Item_0_N) shows one frame per tab kind: the frame number is the tab descriptor's +8 (gotoAndStop), each frame a
+// shape filled from the menu sheet MENU_Common_00100 (80 px cells). The glyph screen's Testing and Your Dungeons tabs
+// get two frames of their own after the game's 60: grey copies of the in-game menu's sepia System (gear) and Status
+// (figure) icons, made here from the player's own common.tpf.dcx, toned to the grey tab icons beside them (Farming,
+// Equipment and Blood Gems: frames 2, 4 and 8). The game's frames stay as they are.
+namespace {
+constexpr int kCell = 80;
+struct Picture {  // kCell x kCell RGBA
+    std::vector<std::uint8_t> px = std::vector<std::uint8_t>(kCell * kCell * 4);
+    std::uint8_t* at(int x, int y) { return &px[(std::size_t(y) * kCell + x) * 4]; }
+    const std::uint8_t* at(int x, int y) const { return &px[(std::size_t(y) * kCell + x) * 4]; }
+};
+
+// One 80 px cell of a PS4-tiled BC1 texture (TPF format 0): 4x4 blocks, 8x8-block tiles in Morton order, tiles
+// row-major.
+Picture SheetCell(const Bytes& tpf, const std::string& name, int x0, int y0) {
+    if (!Has(tpf, 0, "TPF\0", 4)) throw Error("common.tpf.dcx holds no TPF");
+    const std::uint32_t count = U32(tpf, 8);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        const std::size_t h = 0x10 + std::size_t(i) * 0x24;
+        if (h + 0x24 > tpf.size()) break;
+        const std::size_t name_at = U32(tpf, h + 0x18);
+        std::string n;
+        for (std::size_t p = name_at; p + 1 < tpf.size() && (tpf[p] || tpf[p + 1]); p += 2) n.push_back(char(tpf[p]));
+        if (n != name) continue;
+        const std::size_t off = U32(tpf, h), size = U32(tpf, h + 4);
+        const int w = U16(tpf, h + 0xc), hh = U16(tpf, h + 0xe);
+        if (tpf[h + 8] != 0 || w % 32 || x0 < 0 || y0 < 0 || x0 + kCell > w || y0 + kCell > hh ||
+            off > tpf.size() || size > tpf.size() - off)
+            throw Error(name + " is not 1.09's BC1 sheet");
+        const int bw = w / 4;
+        Picture out;
+        for (int by = 0; by < kCell / 4; ++by)
+            for (int bx = 0; bx < kCell / 4; ++bx) {
+                const int x = x0 / 4 + bx, y = y0 / 4 + by;
+                int k = 0;
+                for (int b = 0; b < 3; ++b) k |= ((x >> b) & 1) << (2 * b) | ((y >> b) & 1) << (2 * b + 1);
+                const std::size_t block = off + (std::size_t((y / 8) * ((bw + 7) / 8) + x / 8) * 64 + k) * 8;
+                if (block + 8 > off + size) throw Error(name + " is shorter than its size");
+                const std::uint16_t c0 = U16(tpf, block), c1 = U16(tpf, block + 2);
+                const std::uint32_t bits = U32(tpf, block + 4);
+                const auto rgb = [](std::uint16_t c) {
+                    const int r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+                    return std::array<int, 4>{(r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2), 255};
+                };
+                const auto a = rgb(c0), b = rgb(c1);
+                std::array<std::array<int, 4>, 4> pal{a, b};
+                for (int c = 0; c < 3; ++c) {
+                    pal[2][c] = c0 > c1 ? (2 * a[c] + b[c] + 1) / 3 : (a[c] + b[c]) / 2;
+                    pal[3][c] = c0 > c1 ? (a[c] + 2 * b[c] + 1) / 3 : 0;
+                }
+                pal[2][3] = 255, pal[3][3] = c0 > c1 ? 255 : 0;
+                for (int i = 0; i < 16; ++i) {
+                    const auto& p = pal[(bits >> (2 * i)) & 3];
+                    std::uint8_t* d = out.at(bx * 4 + i % 4, by * 4 + i / 4);
+                    for (int c = 0; c < 4; ++c) d[c] = std::uint8_t(p[c]);
+                }
+            }
+        return out;
+    }
+    throw Error("common.tpf.dcx has no " + name);
+}
+
+// Pillow's RGB -> L (ITU-R 601-2 luma, fixed point), as the approved mockups were made with.
+int Luma(const std::uint8_t* p) { return (p[0] * 19595 + p[1] * 38470 + p[2] * 7471 + 0x8000) >> 16; }
+using Plane = std::vector<int>;  // kCell x kCell values
+Plane LumaPlane(const Picture& s) {
+    Plane l(kCell * kCell);
+    for (int i = 0; i < kCell * kCell; ++i) l[i] = Luma(&s.px[std::size_t(i) * 4]);
+    return l;
+}
+// Mean and population standard deviation (Pillow's ImageStat).
+std::pair<double, double> MeanSpread(const Plane& l) {
+    double sum = 0, sum2 = 0;
+    for (const int v : l) sum += v, sum2 += double(v) * v;
+    const double n = double(l.size()), mean = sum / n;
+    return {mean, std::sqrt(std::max(0.0, (sum2 - sum * sum / n) / n))};
+}
+// Python's round(): halves to even.
+int RoundHalfEven(double v) { return int(std::nearbyint(v)); }
+int Clamp255(int v) { return std::clamp(v, 0, 255); }
+
+// The grey tab icons' tone: luminance mean / spread, and per brightness band (<60, <120, the rest) the average colour
+// offset from the pixel's luma (R - L, G - L, B - L): their slight blue-grey.
+struct Tone {
+    double mean = 0, spread = 0;
+    double offs[3][3] = {};
+};
+Tone ToneOf(const std::vector<Picture>& refs) {
+    Tone t;
+    for (const Picture& r : refs) {
+        const auto [m, s] = MeanSpread(LumaPlane(r));
+        t.mean += m / double(refs.size()), t.spread += s / double(refs.size());
+        double sums[3][3] = {};
+        int counts[3] = {};
+        for (int i = 0; i < kCell * kCell; ++i) {
+            const std::uint8_t* p = &r.px[std::size_t(i) * 4];
+            const int band_luma = (p[0] * 299 + p[1] * 587 + p[2] * 114) / 1000;
+            const int band = band_luma < 60 ? 0 : band_luma < 120 ? 1 : 2;
+            const double luma = (p[0] * 299 + p[1] * 587 + p[2] * 114) / 1000.0;
+            for (int c = 0; c < 3; ++c) sums[band][c] += p[c] - luma;
+            ++counts[band];
+        }
+        for (int b = 0; b < 3; ++b)
+            for (int c = 0; c < 3; ++c) t.offs[b][c] += sums[b][c] / std::max(counts[b], 1) / double(refs.size());
+    }
+    return t;
+}
+// The colour offset at luminance v, blended between the band centres (30, 90, 188).
+std::array<double, 3> OffsetAt(double v, const Tone& t) {
+    constexpr double centres[3] = {30, 90, 188};
+    if (v <= centres[0]) return {t.offs[0][0], t.offs[0][1], t.offs[0][2]};
+    if (v >= centres[2]) return {t.offs[2][0], t.offs[2][1], t.offs[2][2]};
+    const int i = v < centres[1] ? 0 : 1;
+    const double f = (v - centres[i]) / (centres[i + 1] - centres[i]);
+    std::array<double, 3> o{};
+    for (int c = 0; c < 3; ++c) o[c] = t.offs[i][c] * (1 - f) + t.offs[i + 1][c] * f;
+    return o;
+}
+// Each pixel's colour from its luma through `tone_of` (luma -> toned luminance) and the tint at that luminance.
+template <class F>
+Picture Tinted(const Picture& src, const Plane& luma, const Tone& t, F tone_of) {
+    std::array<std::array<std::uint8_t, 3>, 256> lut{};
+    for (int v = 0; v < 256; ++v) {
+        const double l = tone_of(v);
+        const auto o = OffsetAt(l, t);
+        for (int c = 0; c < 3; ++c) lut[v][c] = std::uint8_t(Clamp255(RoundHalfEven(l + o[c])));
+    }
+    Picture out = src;
+    for (int i = 0; i < kCell * kCell; ++i)
+        for (int c = 0; c < 3; ++c) out.px[std::size_t(i) * 4 + c] = lut[luma[i]][c];
+    return out;
+}
+// Sepia -> the grey tabs' tone: luminance matched to their mean / spread, tinted by brightness.
+Picture Greyed(const Picture& src, const Tone& t) {
+    const Plane luma = LumaPlane(src);
+    const auto [mean, spread] = MeanSpread(luma);
+    const double k = t.spread / std::max(spread, 1.0);
+    return Tinted(src, luma, t, [&](int v) { return std::clamp((v - mean) * k + t.mean, 0.0, 255.0); });
+}
+constexpr int kRing = 12;  // a tile's ornamented background: the outer band of the cell
+double RingMean(const Picture& p) {
+    double sum = 0;
+    int n = 0;
+    for (int y = 0; y < kCell; ++y)
+        for (int x = 0; x < kCell; ++x)
+            if (x < kRing || y < kRing || x >= kCell - kRing || y >= kCell - kRing) sum += Luma(p.at(x, y)), ++n;
+    return sum / n;
+}
+// Greyed, the background ring at the grey tabs' brightness, and the tones above `knee` compressed by `ratio`.
+Picture GreyedKnee(const Picture& src, const std::vector<Picture>& refs, const Tone& t, double knee, double ratio) {
+    const Picture base = Greyed(src, t);
+    double target = 0;
+    for (const Picture& r : refs) target += RingMean(r) / double(refs.size());
+    const double lift = target - RingMean(base);
+    return Tinted(base, LumaPlane(base), t, [&](int v) {
+        double l = v + lift;
+        if (l > knee) l = knee + (l - knee) * ratio;
+        return std::clamp(l, 0.0, 255.0);
+    });
+}
+
+// Pillow's rank filters (MaxFilter / MinFilter): the square window over the image with its edge pixels repeated.
+Plane Rank(const Plane& in, int size, bool most) {
+    const int r = size / 2;
+    Plane out(in.size());
+    for (int y = 0; y < kCell; ++y)
+        for (int x = 0; x < kCell; ++x) {
+            int v = most ? 0 : 255;
+            for (int dy = -r; dy <= r; ++dy)
+                for (int dx = -r; dx <= r; ++dx) {
+                    const int s = in[std::clamp(y + dy, 0, kCell - 1) * kCell + std::clamp(x + dx, 0, kCell - 1)];
+                    v = most ? std::max(v, s) : std::min(v, s);
+                }
+            out[y * kCell + x] = v;
+        }
+    return out;
+}
+// Pillow's GaussianBlur: three extended box blurs (BoxBlur.c), all the rows' passes, then all the columns'.
+void BoxBlurLine(const int* in, int* out, int stride, int r, double radius) {
+    const int last = kCell - 1;
+    const std::uint32_t ww = std::uint32_t(double(1u << 24) / (radius * 2 + 1));
+    const std::uint32_t fw = ((1u << 24) - std::uint32_t(r * 2 + 1) * ww) / 2;
+    const int edge_a = std::min(r + 1, kCell), edge_b = std::max(kCell - r - 1, 0);
+    const auto at = [&](int i) { return std::uint32_t(in[i * stride]); };
+    std::uint32_t acc = at(0) * std::uint32_t(r + 1);
+    for (int x = 0; x < edge_a - 1; ++x) acc += at(x);
+    acc += at(last) * std::uint32_t(r - edge_a + 1);
+    const auto save = [&](int x, std::uint32_t bulk) { out[x * stride] = int((bulk + (1u << 23)) >> 24); };
+    if (edge_a <= edge_b) {
+        for (int x = 0; x < edge_a; ++x) {
+            acc += at(x + r) - at(0);
+            save(x, acc * ww + (at(0) + at(x + r + 1)) * fw);
+        }
+        for (int x = edge_a; x < edge_b; ++x) {
+            acc += at(x + r) - at(x - r - 1);
+            save(x, acc * ww + (at(x - r - 1) + at(x + r + 1)) * fw);
+        }
+        for (int x = edge_b; x <= last; ++x) {
+            acc += at(last) - at(x - r - 1);
+            save(x, acc * ww + (at(x - r - 1) + at(last)) * fw);
+        }
+    } else {
+        for (int x = 0; x < edge_b; ++x) {
+            acc += at(x + r) - at(0);
+            save(x, acc * ww + (at(0) + at(x + r + 1)) * fw);
+        }
+        for (int x = edge_b; x < edge_a; ++x) {
+            acc += at(last) - at(0);
+            save(x, acc * ww + (at(0) + at(last)) * fw);
+        }
+        for (int x = edge_a; x <= last; ++x) {
+            acc += at(last) - at(x - r - 1);
+            save(x, acc * ww + (at(x - r - 1) + at(last)) * fw);
+        }
+    }
+}
+Plane GaussianBlur(Plane p, double radius) {
+    constexpr int passes = 3;
+    const double sigma2 = radius * radius / passes;
+    const double big = std::sqrt(12.0 * sigma2 + 1.0);
+    const double small = std::floor((big - 1.0) / 2.0);
+    double a = (2 * small + 1) * (small * (small + 1) - 3 * sigma2);
+    a /= 6 * (sigma2 - (small + 1) * (small + 1));
+    const double box = small + a;
+    const int whole = int(box);
+    Plane next(p.size());
+    for (int pass = 0; pass < passes; ++pass) {
+        for (int y = 0; y < kCell; ++y) BoxBlurLine(&p[y * kCell], &next[y * kCell], 1, whole, box);
+        p.swap(next);
+    }
+    for (int pass = 0; pass < passes; ++pass) {
+        for (int x = 0; x < kCell; ++x) BoxBlurLine(&p[x], &next[x], kCell, whole, box);
+        p.swap(next);
+    }
+    return p;
+}
+// The Status icon's pale figure: luma above 150 inside its area, holes closed, the edge softened.
+Plane FigureMask(const Picture& status) {
+    constexpr int kThreshold = 150, kBox[4] = {16, 4, 66, 80};
+    const Plane luma = LumaPlane(status);
+    Plane m(luma.size(), 0);
+    for (int y = kBox[1]; y < kBox[3]; ++y)
+        for (int x = kBox[0]; x < kBox[2]; ++x)
+            if (luma[y * kCell + x] > kThreshold) m[y * kCell + x] = 255;
+    return GaussianBlur(Rank(Rank(m, 5, true), 3, false), 1.2);
+}
+// Pillow's composite (paste through an L mask): over * m + under * (255 - m), divided by 255 with rounding.
+Picture Composite(const Picture& over, const Picture& under, const Plane& mask) {
+    Picture out = under;
+    for (int i = 0; i < kCell * kCell; ++i)
+        for (int c = 0; c < 4; ++c) {
+            const std::size_t at = std::size_t(i) * 4 + c;
+            const std::uint32_t t =
+                std::uint32_t(under.px[at]) * std::uint32_t(255 - mask[i]) + std::uint32_t(over.px[at]) * std::uint32_t(mask[i]) + 128;
+            out.px[at] = std::uint8_t(((t >> 8) + t) >> 8);
+        }
+    return out;
+}
+
+// The two pictures, from the sheet: [0] System (gear) for Testing, [1] Status (figure) for Your Dungeons.
+std::array<Picture, 2> GlyphTabPictures(const Bytes& tpf) {
+    const std::string sheet = "MENU_Common_00100";
+    const std::vector<Picture> refs = {SheetCell(tpf, sheet, 80, 0), SheetCell(tpf, sheet, 240, 0),
+                                       SheetCell(tpf, sheet, 480, 0)};
+    const Tone tone = ToneOf(refs);
+    const Picture system = Greyed(SheetCell(tpf, sheet, 0, 240), tone);
+    const Picture status_src = SheetCell(tpf, sheet, 800, 160);
+    // The figure's whites quieted, the tile background as light as the other tiles; then the figure alone lifted.
+    const Picture status_quiet = GreyedKnee(status_src, refs, tone, 150, 0.45);
+    Picture lighter = status_quiet;
+    for (int i = 0; i < kCell * kCell; ++i)
+        for (int c = 0; c < 3; ++c) {
+            std::uint8_t& v = lighter.px[std::size_t(i) * 4 + c];
+            v = std::uint8_t(RoundHalfEven(255 * std::pow(v / 255.0, 0.72)));
+        }
+    return {system, Composite(lighter, status_quiet, FigureMask(status_src))};
+}
+
+// DefineBitsLossless2 (tag 36): a 32-bit ARGB bitmap, premultiplied, zlib-packed.
+Tag BitmapTag(std::uint16_t id, const Picture& p) {
+    Bytes argb;
+    argb.reserve(p.px.size());
+    for (int i = 0; i < kCell * kCell; ++i) {
+        const std::uint8_t* s = &p.px[std::size_t(i) * 4];
+        const int a = s[3];
+        argb.push_back(std::uint8_t(a));
+        for (int c = 0; c < 3; ++c) argb.push_back(std::uint8_t((s[c] * a + 127) / 255));
+    }
+    uLongf packed = compressBound(uLong(argb.size()));
+    Bytes z(packed);
+    if (compress2(z.data(), &packed, argb.data(), uLong(argb.size()), 9) != Z_OK) throw Error("zlib");
+    Bytes body;
+    PutLe(body, id, 2);
+    body.push_back(5);  // 32-bit ARGB
+    PutLe(body, kCell, 2);
+    PutLe(body, kCell, 2);
+    body.insert(body.end(), z.begin(), z.begin() + std::ptrdiff_t(packed));
+    return Changed(36, std::move(body));
+}
+// A kCell-pixel square shape filled with bitmap `bitmap` at 1:1, with the fill type the game's tab pictures use.
+Tag BitmapSquare(std::uint16_t id, std::uint16_t bitmap, std::uint8_t fill_type) {
+    const std::int64_t side = kCell * 20;
+    Bytes body;
+    PutLe(body, id, 2);
+    BitWriter bounds;
+    const int n = BitsFor(side);
+    bounds.Put(std::uint64_t(n), 5);
+    for (const std::int64_t v : {std::int64_t(0), side, std::int64_t(0), side})
+        bounds.Put(std::uint64_t(v) & ((std::uint64_t(1) << n) - 1), n);
+    Append(body, bounds.out);
+    body.push_back(1);  // one fill style
+    body.push_back(fill_type);
+    PutLe(body, bitmap, 2);
+    Matrix fill;  // 20 twips a bitmap pixel
+    fill.scaled = true, fill.sx = fill.sy = 20u << 16, fill.scale_bits = BitsFor(std::int64_t(20) << 16);
+    Append(body, WriteMatrix(fill));
+    body.push_back(0);  // no line styles
+    BitWriter shape;
+    shape.Put(1, 4);  // fill index bits
+    shape.Put(0, 4);  // line index bits
+    shape.Put(0b000011, 6);  // a style change: fill style 0 and a move
+    shape.Put(1, 5), shape.Put(0, 1), shape.Put(0, 1);  // move to (0, 0)
+    shape.Put(1, 1);  // fill style 0 = 1
+    const int bits = std::max(BitsFor(side), BitsFor(-side));
+    const auto edge = [&](bool vertical, std::int64_t delta) {
+        shape.Put(0b11, 2);
+        shape.Put(std::uint64_t(bits - 2), 4);
+        shape.Put(0, 1);
+        shape.Put(vertical ? 1 : 0, 1);
+        shape.Put(std::uint64_t(delta) & ((std::uint64_t(1) << bits) - 1), bits);
+    };
+    edge(false, side), edge(true, side), edge(false, -side), edge(true, -side);
+    shape.Put(0, 6);  // the end
+    Append(body, shape.out);
+    return Changed(2, std::move(body));
+}
+// PlaceObject2 that swaps the character on `depth` (move + character), as the tab tile's own frames do.
+Tag SwapOnDepth(std::uint16_t depth, std::uint16_t id) {
+    Bytes b{0x01 | 0x02};
+    PutLe(b, depth, 2);
+    PutLe(b, id, 2);
+    return Changed(kPlace2, std::move(b));
+}
+}  // namespace
+
+Bytes GlyphTabsMovie(const Bytes& gfx, const Bytes& common_tpf_dcx) {
+    constexpr std::uint16_t kTabTile = 228, kGameFrames = 60, kIconDepth = 1;
+    Movie m = ReadMovie(gfx);
+    const std::size_t tile_at = FindSprite(m, kTabTile);
+    Sprite tile = ReadSprite(m.tags[tile_at]);
+    if (tile.frames != kGameFrames || tile.tags.empty() || tile.tags.back().code != kEnd)
+        throw Error("inventory.gfx's tab tile is not 1.09's");
+    // The fill type of the game's own tab pictures: the shape on the picture depth in the last frame.
+    std::optional<std::uint16_t> last_picture;
+    for (const Tag& t : tile.tags)
+        if (IsPlace(t)) {
+            const Place p = ReadPlace(t);
+            if (p.depth == kIconDepth && p.character) last_picture = *p.character;
+        }
+    std::optional<std::uint8_t> fill_type;
+    for (const Tag& t : m.tags)
+        if (t.code == 2 && last_picture && t.body.size() > 12 && U16(t.body, 0) == *last_picture) {
+            BitReader r{t.body, 2};
+            const int n = int(r.Unsigned(5));
+            const std::size_t after = 2 + (5 + 4 * std::size_t(n) + 7) / 8;
+            if (after + 1 < t.body.size() && t.body[after] == 1) fill_type = t.body[after + 1];
+        }
+    if (!fill_type || *fill_type < 0x40 || *fill_type > 0x43) throw Error("inventory.gfx's tab pictures are not 1.09's");
+    const auto pictures = GlyphTabPictures(DcxRead(common_tpf_dcx).data);
+    std::uint16_t next = HighestCharacter(m);
+    std::vector<Tag> defs;
+    std::vector<std::uint16_t> shapes;
+    for (const Picture& p : pictures) {
+        const std::uint16_t bitmap = ++next, shape = ++next;
+        defs.push_back(BitmapTag(bitmap, p));
+        defs.push_back(BitmapSquare(shape, bitmap, *fill_type));
+        shapes.push_back(shape);
+    }
+    tile.tags.pop_back();  // the End tag
+    for (const std::uint16_t s : shapes) {
+        tile.tags.push_back(SwapOnDepth(kIconDepth, s));
+        tile.tags.push_back(Changed(kShowFrame, {}));
+    }
+    tile.tags.push_back(Changed(kEnd, {}));
+    tile.frames = std::uint16_t(kGameFrames + shapes.size());
+    std::vector<Tag> tags;
+    for (std::size_t i = 0; i < m.tags.size(); ++i) {
+        if (i == tile_at) {
+            tags.insert(tags.end(), defs.begin(), defs.end());
+            tags.push_back(WriteSprite(tile));
             continue;
         }
         tags.push_back(m.tags[i]);

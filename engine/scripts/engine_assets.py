@@ -280,14 +280,17 @@ def prepare_menu_assets(game, elf_path, cache, tool, rebirth=False):
         raise ValueError('Native options require valid menu bundles for every installed language')
     if rebirth:
         sources.append((Path('dvdroot_ps4/script/talk/m24_02_00_00.talkesdbnd.dcx'), 'rebirth'))
-    # The Chalice glyph screen's panel and card list are optional: if one cannot be made, only that screen goes
-    # without it.
+    # The Chalice glyph screen's panel, card list and tab icons are optional: if one cannot be made, only that screen
+    # goes without it. The tab icons are made from inventory.gfx and the menu sheet beside it (common.tpf.dcx).
     glyph_panel = Path('dvdroot_ps4/menu/itemdetailtext.gfx')
     if (game / glyph_panel).is_file():
         sources.append((glyph_panel, 'glyph-panel'))
     glyph_list = Path('dvdroot_ps4/menu/itemlist_normalitem.gfx')
     if (game / glyph_list).is_file():
         sources.append((glyph_list, 'glyph-list'))
+    glyph_tabs = Path('dvdroot_ps4/menu/inventory.gfx')
+    if (game / glyph_tabs).is_file() and (game / 'dvdroot_ps4/menu/common.tpf.dcx').is_file():
+        sources.append((glyph_tabs, 'glyph-tabs'))
     generator = sha(tool.read_bytes())
     manifest_path = root / 'manifest.json'
     try:
@@ -324,7 +327,7 @@ def prepare_menu_assets(game, elf_path, cache, tool, rebirth=False):
                     temporary.unlink(missing_ok=True)
             rows[relative.as_posix()] = {'input': digest, 'output': current}
         except (OSError, ValueError):
-            if kind not in ('glyph-panel', 'glyph-list'):
+            if kind not in ('glyph-panel', 'glyph-list', 'glyph-tabs'):
                 raise
             destination.unlink(missing_ok=True)
     root.mkdir(parents=True, exist_ok=True)

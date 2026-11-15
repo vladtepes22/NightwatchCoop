@@ -67,5 +67,8 @@ Bytes OptionMovie(const Bytes& gfx);
 Bytes GlyphPanelMovie(const Bytes& gfx);
 // itemlist_normalitem.gfx with the Chalice glyph screen's own card list: six rows under a search bar.
 Bytes GlyphListMovie(const Bytes& gfx);
+// inventory.gfx with two more tab-tile frames (61, 62) for the Chalice glyph screen's Testing and Your Dungeons tabs:
+// grey copies of the in-game menu's System and Status icons, made from common.tpf.dcx (the same menu folder).
+Bytes GlyphTabsMovie(const Bytes& gfx, const Bytes& common_tpf_dcx);
 Bytes AltarScripts(const Bytes& dcx);
 }

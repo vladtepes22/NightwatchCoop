@@ -24,8 +24,9 @@ int main(int argc, char** argv) {
 #endif
     if (args.size() != 4 ||
         (args[1] != "movie" && args[1] != "messages" && args[1] != "rebirth" && args[1] != "glyph-panel" &&
-         args[1] != "glyph-list")) {
-        std::fputs("Usage: bb-engine-assets movie|messages|rebirth|glyph-panel|glyph-list SOURCE DEST\n", stderr);
+         args[1] != "glyph-list" && args[1] != "glyph-tabs")) {
+        std::fputs("Usage: bb-engine-assets movie|messages|rebirth|glyph-panel|glyph-list|glyph-tabs SOURCE DEST\n",
+                   stderr);
         return 2;
     }
     std::error_code same;
@@ -34,17 +35,24 @@ int main(int argc, char** argv) {
         return 1;
     }
     try {
-        std::ifstream in(args[2], std::ios::binary | std::ios::ate);
-        const auto size = in ? std::streamoff(in.tellg()) : -1;
-        if (size < 0 || std::size_t(size) > menu_assets::kMostBytes) throw menu_assets::Error("the source is missing or too large");
-        menu_assets::Bytes source(static_cast<std::size_t>(size));
-        in.seekg(0);
-        if (!in.read(reinterpret_cast<char*>(source.data()), size)) throw menu_assets::Error("the source cannot be read");
+        const auto read = [](const fs::path& path) {
+            std::ifstream in(path, std::ios::binary | std::ios::ate);
+            const auto size = in ? std::streamoff(in.tellg()) : -1;
+            if (size < 0 || std::size_t(size) > menu_assets::kMostBytes)
+                throw menu_assets::Error("the source is missing or too large");
+            menu_assets::Bytes bytes(static_cast<std::size_t>(size));
+            in.seekg(0);
+            if (!in.read(reinterpret_cast<char*>(bytes.data()), size)) throw menu_assets::Error("the source cannot be read");
+            return bytes;
+        };
+        const menu_assets::Bytes source = read(args[2]);
         const menu_assets::Bytes made =
             args[1] == "movie"     ? menu_assets::OptionMovie(source)
             : args[1] == "rebirth" ? menu_assets::AltarScripts(source)
             : args[1] == "glyph-panel" ? menu_assets::GlyphPanelMovie(source)
             : args[1] == "glyph-list"  ? menu_assets::GlyphListMovie(source)
+            // the tab pictures come from the menu sheet beside the movie
+            : args[1] == "glyph-tabs" ? menu_assets::GlyphTabsMovie(source, read(args[2].parent_path() / "common.tpf.dcx"))
                                    : menu_assets::MenuMessages(source, menu_assets::LanguageOf(args[2].parent_path().filename().string()));
         std::ofstream out(args[3], std::ios::binary | std::ios::trunc);
         if (!out.write(reinterpret_cast<const char*>(made.data()), std::streamsize(made.size())) || !out.flush())

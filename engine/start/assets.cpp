@@ -399,12 +399,16 @@ fs::path PrepareMenuAssets(const fs::path& game, const fs::path& elf, const fs::
     if (sources.size() < 2 || sources.size() > 24)
         throw Error("Native options require valid menu bundles for every installed language");
     if (rebirth) sources.emplace_back("dvdroot_ps4/script/talk/m24_02_00_00.talkesdbnd.dcx", "rebirth");
-    // The Chalice glyph screen's panel and card list are optional: if one cannot be made, only that screen goes
-    // without it.
+    // The Chalice glyph screen's panel, card list and tab icons are optional: if one cannot be made, only that screen
+    // goes without it. The tab icons are made from inventory.gfx and the menu sheet beside it (common.tpf.dcx).
     const std::string glyph_panel = "dvdroot_ps4/menu/itemdetailtext.gfx";
     if (fs::is_regular_file(game / Path(glyph_panel), error)) sources.emplace_back(glyph_panel, "glyph-panel");
     const std::string glyph_list = "dvdroot_ps4/menu/itemlist_normalitem.gfx";
     if (fs::is_regular_file(game / Path(glyph_list), error)) sources.emplace_back(glyph_list, "glyph-list");
+    const std::string glyph_tabs = "dvdroot_ps4/menu/inventory.gfx";
+    if (fs::is_regular_file(game / Path(glyph_tabs), error) &&
+        fs::is_regular_file(game / Path("dvdroot_ps4/menu/common.tpf.dcx"), error))
+        sources.emplace_back(glyph_tabs, "glyph-tabs");
     const std::string generator = Sha256Hex(ReadFile(tool));
     const fs::path manifest_path = root / "manifest.json";
     nlohmann::json previous = nlohmann::json::object();
@@ -447,7 +451,7 @@ fs::path PrepareMenuAssets(const fs::path& game, const fs::path& elf, const fs::
             }
             rows[relative] = {{"input", digest}, {"output", *current}};
         } catch (const std::exception&) {
-            if (kind != "glyph-panel" && kind != "glyph-list") throw;
+            if (kind != "glyph-panel" && kind != "glyph-list" && kind != "glyph-tabs") throw;
             fs::remove(destination, error);
         }
     }

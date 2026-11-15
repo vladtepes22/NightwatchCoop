@@ -718,7 +718,9 @@ BB_SYSV const char16_t* LookupHook(void* repository, u32 table, u32 category, u3
     const TextOverrideFn fn = text_override.load(std::memory_order_acquire);
     if (const char16_t* glyph_screen = BbGlyphScreen::Text(category, id)) {  // the glyph screen's title, help, tabs
         text = glyph_screen;
-    } else if (fn && !BbGlyphScreen::KeepsGameText(id)) {  // "Search by Chalice Glyph" stays as the game has it
+    } else if (const char16_t* item = BbGlyphScreen::AltarItemText(category, id)) {  // "Chalice Glyph Browser"
+        text = item;
+    } else if (fn && !BbGlyphScreen::KeepsGameText(id)) {  // the altar item's offline notice stays the game's
         if (const char16_t* other = fn(category, id, text)) text = other;
     }
     RedrawChangedValues();  // the game's menu code (our page's own texts are not looked up again)

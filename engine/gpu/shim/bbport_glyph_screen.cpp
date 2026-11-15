@@ -378,6 +378,34 @@ using MakeTabsFn = u64(BB_COOP_SYSV*)(u64, u64);
 using TabNameFn = u64(BB_COOP_SYSV*)(u64 out, u64 tab);
 MakeTabsFn g_make_tabs_original = nullptr;
 TabNameFn g_tab_name_original = nullptr;
+
+// The tabs' icons. A tab tile shows the frame of inventory.gfx's tab tile (sprite 228) named by the descriptor's +8
+// (0x1c6a400 -> 0x1ad9ab0 -> gotoAndStop; the picker's own tabs: 0x39..0x3c, its four chalices). On the glyph
+// screen: Farming the ritual materials (2), Equipment the weapon hand (4), Blood Gems the blood gem (8); Testing and
+// Your Dungeons the generated movie's grey System and Status icons (61, 62: tools/engine/menu_assets.cpp
+// GlyphTabsMovie), or, without that movie, the picker's chalice (60) and first chalice (57) as before.
+constexpr u64 kTabFrame = 0x8;
+constexpr char kGuestInventory[] = "/app0/dvdroot_ps4/menu/inventory.gfx";
+bool g_tab_icons = false;  // the generated inventory.gfx (frames 61, 62) is mounted
+u32 TabFrame(u32 tab) {
+    switch (tab) {
+        case 0x24: return 2;
+        case 0x25: return 4;
+        case 0x26: return 8;
+        case 0x27: return g_tab_icons ? 61 : 0x3c;
+        case kCustomTab: return g_tab_icons ? 62 : 0x39;
+        default: return 0;
+    }
+}
+void SetTabIcons(u64 menu) {
+    const u64 tabs = menu + ((0 - menu) & 0xf);
+    const u64 count = std::min<u64>(*reinterpret_cast<const u64*>(menu + kTabCount), kMostTabs);
+    for (u64 i = 0; i < count; ++i) {
+        const u64 t = tabs + kTabSize * i;
+        if (const u32 frame = TabFrame(*reinterpret_cast<const u32*>(t))) *reinterpret_cast<u32*>(t + kTabFrame) = frame;
+    }
+}
+
 BB_COOP_SYSV u64 MakeTabs(u64 a0, u64 menu) {
     const u64 r = g_make_tabs_original(a0, menu);
     bool opening = false;
@@ -386,7 +414,12 @@ BB_COOP_SYSV u64 MakeTabs(u64 a0, u64 menu) {
         opening = g_opening;
     }
     const u64 count = *reinterpret_cast<const u64*>(menu + kTabCount);
-    if (!opening || count + 1 >= kMostTabs) return r;
+    if (!opening) return r;
+    struct TabIcons {  // the icons once the tabs are all in, whichever way MakeTabs leaves
+        u64 menu;
+        ~TabIcons() { SetTabIcons(menu); }
+    } icons{menu};
+    if (count + 1 >= kMostTabs) return r;
     alignas(16) std::uint8_t tab[kTabSize]{};
     const u64 t = reinterpret_cast<u64>(tab);
     reinterpret_cast<u64(BB_COOP_SYSV*)(u64)>(coop::Guest(kFirstTabMaker))(t);
@@ -1626,11 +1659,41 @@ bool MountMovie(const char* guest, const char* relative) {
 }
 bool MountPanel() { return MountMovie(kGuestPanel, "dvdroot_ps4/menu/itemdetailtext.gfx"); }
 
+// The altar menu (builder 0x1b66470) adds its rows with 0x1b76150(list, texts, handler, 0), each followed by setting
+// the list's LAST row's network rule. Its rows: 0x180 bytes from the list's +0x68 to +0x70; it adds Chalice Ritual
+// (262000), Chalice Dungeon Search (262001) and Search by Chalice Glyph (262002) unconditionally, in that order.
+// While the browser is on, Chalice Dungeon Search goes, as the game erases a row (the System builder, 0x1bb403d):
+// each later row moved down with 0x1bab760(to, from), the last one destroyed by its vtable +8, the end moved back.
+// Done right after the glyph row is added and before its network rule is set (that rule then lands on it, the last
+// row again): the filter below runs there.
+constexpr u64 kAltarRowsBegin = 0x68, kAltarRowsEnd = 0x70, kAltarRowSize = 0x180, kRowMove = 0x1bab760;
+void DropDungeonSearch(u64 list) {
+    u64& end = *reinterpret_cast<u64*>(list + kAltarRowsEnd);
+    const u64 begin = *reinterpret_cast<const u64*>(list + kAltarRowsBegin);
+    if (end < begin || (end - begin) != 3 * kAltarRowSize) {  // not the three rows the builder makes first: left alone
+        std::printf("Glyph screen: the altar menu has %llu rows here, not 3: Chalice Dungeon Search kept\n",
+                    static_cast<unsigned long long>(end >= begin ? (end - begin) / kAltarRowSize : 0));
+        std::fflush(stdout);
+        return;
+    }
+    const u64 search = begin + kAltarRowSize, glyph = begin + 2 * kAltarRowSize;
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(coop::Guest(kRowMove))(search, glyph);
+    const u64 vtable = *reinterpret_cast<const u64*>(glyph);
+    reinterpret_cast<void(BB_COOP_SYSV*)(u64)>(*reinterpret_cast<const u64*>(vtable + 8))(glyph);
+    end -= kAltarRowSize;
+    static std::atomic<bool> logged{false};
+    if (!logged.exchange(true)) {
+        std::printf("Glyph screen: the altar menu without Chalice Dungeon Search\n");
+        std::fflush(stdout);
+    }
+}
+
 // The altar menu greys "Search by Chalice Glyph" without the network (0x553b120: +8, +0x9f8, +0x9f6, +0xa50 -> a byte
 // at the builder's rbp - 0x1458, stored on the row at 0x1b66823). The glyph screen needs no network: with community
-// glyphs the row stays usable.
-BB_COOP_SYSV u64 GlyphRowGrey(u64 frame, u64) {
+// glyphs the row stays usable. `list`: the altar's row list (r12, just returned by the glyph row's add).
+BB_COOP_SYSV u64 GlyphRowGrey(u64 frame, u64 list) {
     if (!BrowserOn()) return 0;
+    DropDungeonSearch(list);
     std::lock_guard<std::mutex> lk(g_mu);
     LoadGlyphs();
     if (g_glyphs && !g_glyphs->empty()) *reinterpret_cast<std::uint8_t*>(frame - 0x1458) = 0;
@@ -1957,7 +2020,7 @@ const char16_t* Text(std::uint32_t category, std::uint32_t id) {
     // names 0xc8, help lines 0xc9.
     if (category == 0xc8) {
         switch (id) {
-        case 263100: return u"Search by Chalice Glyph";
+        case 263100: return u"Chalice Glyph Browser";
         case 40435: return u"Farming";
         case 40436: return u"Equipment";
         case 40437: return u"Blood Gems";
@@ -2017,6 +2080,14 @@ bool KeepsGameText(std::uint32_t id) {
     return std::filesystem::is_regular_file(CachePath(), ec);
 }
 
+const char16_t* AltarItemText(std::uint32_t category, std::uint32_t id) {
+    // The same id is the item's name (0xc8), its help line (0xc9) and its offline notice (0xcc: the game's, kept).
+    if (!KeepsGameText(id)) return nullptr;
+    if (category == 0xc8) return u"Chalice Glyph Browser";
+    if (category == 0xc9) return u"Browse community-favorite Chalice Dungeons made using Glyphs.";
+    return nullptr;
+}
+
 const char* PickedGlyph(std::uint32_t max_length) {
     std::lock_guard<std::mutex> lk(g_mu);
     if (g_pick.empty() || max_length < g_pick.size() || Seconds() - g_pick_at > kPickSeconds) return nullptr;
@@ -2033,8 +2104,11 @@ void Install() {
                                     reinterpret_cast<const void*>(&GlyphItem),
                                     reinterpret_cast<void**>(&g_glyph_item_original), "glyph screen: the glyph item");
     ok = ok && coop::HookValueFilter(kGlyphRowGrey, {0x88, 0x8d, 0xa8, 0xeb, 0xff, 0xff},  // mov [rbp-0x1458], cl
-                                     {0x48, 0x89, 0xef},                                    // mov rdi, rbp
-                                     &GlyphRowGrey, kGlyphRowGrey + 6, "glyph screen: the glyph row usable");
+                                     // mov rdi, rbp; mov rsi, [r12]: the stub keeps r12 for itself, the game's r12
+                                     // (the altar's row list) is the value it pushed there (coop_hooks SaveVolatile)
+                                     {0x48, 0x89, 0xef, 0x49, 0x8b, 0x34, 0x24},
+                                     &GlyphRowGrey, kGlyphRowGrey + 6,
+                                     "glyph screen: the glyph row usable, no Chalice Dungeon Search");
     ok = ok && coop::HookValueFilter(kGlyphNetCheck, {0x48, 0x8b, 0x03, 0x48, 0x85, 0xc0},  // mov rax,[rbx]; test
                                      {0x48, 0x89, 0xc7},                                    // mov rdi, rax
                                      &GlyphNetCheck, kGlyphNetChecks, "glyph screen: the glyph box's network check");
@@ -2139,9 +2213,12 @@ void Install() {
                                                  "glyph screen: Back after typing in the search bar");
         if (!g_list) runtime_file_unmount(kGuestList);
     }
+    // The tab icons' movie: the game's inventory.gfx and two frames more, which only the glyph screen's tabs name.
+    g_tab_icons = ok && MountMovie(kGuestInventory, "dvdroot_ps4/menu/inventory.gfx");
     g_installed.store(ok, std::memory_order_release);
-    std::printf("Glyph screen: %s%s%s (Chalice Glyph Browser %s)\n", ok ? "installed" : "FAILED to install",
+    std::printf("Glyph screen: %s%s%s%s (Chalice Glyph Browser %s)\n", ok ? "installed" : "FAILED to install",
                 ok ? (g_panel ? ", its own panel" : ", the game's panel") : "", ok && g_list ? ", its own card list" : "",
+                ok ? (g_tab_icons ? ", its own tab icons" : ", the chalice tab icons for Testing and Your Dungeons") : "",
                 BrowserOn() ? "on" : "off: the hooks do nothing");
     std::fflush(stdout);
 }

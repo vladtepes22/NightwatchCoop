@@ -15,9 +15,13 @@ void Install();
 /// (its title, help line and tab names), else nullptr.
 const char16_t* Text(std::uint32_t category, std::uint32_t id);
 
-/// The game's text `id` stays as the game has it (no other override): "Search by Chalice Glyph" (262002, the altar item
-/// and its help line) while the glyph screen is on.
+/// The game's text `id` gets no other override (visy's party texts): the altar item "Search by Chalice Glyph" (262002:
+/// its name, help line and offline notice) while the glyph screen is on.
 bool KeepsGameText(std::uint32_t id);
+
+/// While the glyph screen is on, the altar item's own name and help line (262002 in the names 0xc8 / help 0xc9):
+/// "Chalice Glyph Browser" and its description; else nullptr (the offline notice, 0xcc, stays the game's).
+const char16_t* AltarItemText(std::uint32_t category, std::uint32_t id);
 
 /// The window thread, a letter or digit key (SDL `scancode`) pressed while no text box is open: whether it starts the
 /// glyph screen's search (the screen is up with nothing over it and the key is not Search's own, Square's). True:
