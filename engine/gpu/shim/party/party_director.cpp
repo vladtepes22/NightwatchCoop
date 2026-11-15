@@ -1829,7 +1829,8 @@ int TestHpValue(std::uint64_t data, int pct) {
     return std::max(1, int(std::int64_t(max) * std::min(pct, 99) / 100));
 }
 
-void KillLoadedEnemyForTest(const char* what, std::uint32_t want, bool by_id, bool hp_only = false, int hp_pct = 0) {
+void KillLoadedEnemyForTest(const char* what, std::uint32_t want, bool by_id, bool hp_only = false, int hp_pct = 0,
+                            bool npc_hit = false) {
     const auto list = balance::LoadedEnemies();
     float me[3] = {};
     const std::uint64_t player = LocalPlayer();
@@ -1894,6 +1895,8 @@ void KillLoadedEnemyForTest(const char* what, std::uint32_t want, bool by_id, bo
     const char* how = "none";
     if (hp_only) {
         // ':hp': only HP 0, the state a lethal hit leaves: the chr's own update runs its death.
+        // ':npc' (guest_kill=0:npc): the lethal hit is marked as a non-player's (an NPC's fire).
+        if (npc_hit) balance::TestNoteNpcKill(t.chr);
         std::uint64_t ins = 0, d = 0;
         if (SafeGet(t.chr + 0x3b0, &ins) && ins && SafeGet(ins + 0x20, &d) && d) {
             const int v = TestHpValue(d, hp_pct);
@@ -3272,8 +3275,9 @@ void RunTravelSteps(State& st, const GameSnapshot& s, PartyRole role, Clock::tim
         // guest_kill=ENTITY@S%MAP (0: the nearest living enemy within 500 m): a kill on the guest's
         // own copy (split travel: an enemy killed while the players are apart).
         // guest_kill=ENTITY:hp on a boss: its HP 0 on the guest's game (a lone guest's boss kill).
-        KillLoadedEnemyForTest("guest_kill", step.id, false, step.args.rfind("hp", 0) == 0,
-                               std::atoi(step.args.c_str() + (step.args.rfind("hp", 0) == 0 ? 2 : 0)));
+        const bool npc_hit = step.args.rfind("npc", 0) == 0;  // guest_kill=0:npc: HP 0 by a non-player's hit
+        KillLoadedEnemyForTest("guest_kill", step.id, false, step.args.rfind("hp", 0) == 0 || npc_hit,
+                               std::atoi(step.args.c_str() + (step.args.rfind("hp", 0) == 0 ? 2 : 0)), npc_hit);
     } else if (step.kind == TravelStep::HostKill) {
         // A boss (or any enemy) killed as the game's own death path: ForceDead on its entity id; the
         // boss-defeat EMEVD (4[00] death state -> 2003[12]) and the Lua boss clear follow.

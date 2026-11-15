@@ -180,7 +180,7 @@ struct KillRecordGame {
     bool was_active = false;
     std::set<int> members;  // host: the members its full record went to
     double next = 0;
-    u64 respawns = 0, remote = 0, sent = 0;
+    u64 respawns = 0, remote = 0, sent = 0, npc_ignored = 0;
 };
 KillRecordGame& KR() {
     static KillRecordGame k;
@@ -306,9 +306,15 @@ void KillRecordTick(party::PartyLink* link, bool host, bool active, const std::m
     if (!active || down || now < k.next) return;
     k.next = now + 0.5;
     std::vector<killrec::Obs> obs;
-    for (const EnemyKillCandidate& e : balance::LoadedEnemies()) obs.push_back({e.entity, e.alive, e.chr, e.id});
-    std::vector<u32> died;
-    const std::vector<killrec::Action> acts = k.rec.Update(obs, now, &died);
+    for (const EnemyKillCandidate& e : balance::LoadedEnemies())
+        obs.push_back({e.entity, e.alive, e.chr, e.id, !e.alive && balance::KilledByNonPlayer(e.chr, e.id)});
+    std::vector<u32> died, ignored;
+    const std::vector<killrec::Action> acts = k.rec.Update(obs, now, &died, &ignored);
+    if (!ignored.empty()) {
+        k.npc_ignored += ignored.size();
+        BLog("kill record: %zu death(s) here by a non-player's hit not spread (%s; %llu so far)", ignored.size(),
+             IdList(ignored).c_str(), static_cast<unsigned long long>(k.npc_ignored));
+    }
     for (u32 id : died) balance::NotePartyKill(id, "seen dead here");
     if (!died.empty() && (host || k.rec.epoch() != 0)) {
         k.sent += died.size();

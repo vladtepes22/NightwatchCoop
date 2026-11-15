@@ -118,6 +118,17 @@ int main() {
         r.Update(L{{2410300, false, 0xD0, 1}}, 1, &died);
         assert(r.Update(L{{2410300, true, 0xD0, 1}}, 2, &died).empty() && !r.Dead(2410300));
         died.clear();
+        // an enemy killed by a non-player's hit (an NPC's fire, another enemy) is no party kill.
+        KillRecord n;
+        n.Reset(2);
+        std::vector<std::uint32_t> ign;
+        died.clear();
+        n.Update(L{{2300400, true, 0x1A0, 21}, {2300750, true, 0x1B0, 22}, {2300401, true, 0x1C0, 23}}, 0, &died, &ign);
+        Obs npc{2300400, false, 0x1A0, 21, true}, npc2{2300750, false, 0x1B0, 22, true}, hit{2300401, false, 0x1C0, 23, false};
+        assert(n.Update(L{npc, npc2, hit}, 1, &died, &ign).empty());
+        assert(died.size() == 1 && died[0] == 2300401 && ign.size() == 2);
+        assert(!n.Dead(2300400) && !n.Dead(2300750) && n.Dead(2300401));
+        died.clear();
         // A party member's kill: loaded and alive here at the kill -> after the grace, with echoes.
         KillRecord g;
         g.Reset(4);
