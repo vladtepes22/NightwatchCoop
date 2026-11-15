@@ -2400,11 +2400,19 @@ bool adapter_is_virtual(const std::string& name) {
     return false;
 }
 
+// Under Wine / Proton the Nightwatch tunnel (NetworkManager's OpenVPN, Linux side) is a plain "tun0": type PPP and
+// no mark in its name that says VPN. A tunnel player address on an adapter that is neither Ethernet nor Wi-Fi is the
+// OpenVPN adapter it is (Windows' TAP / DCO / Wintun adapters say so by name). A real LAN on 10.8.x is Ethernet or
+// Wi-Fi (physical) and is left alone.
+bool is_nightwatch_tunnel_adapter(const LanAdapter& a) {
+    return a.ip && !a.physical && !a.loopback && !a.tunnel && lobby::is_tunnel_player_address(bswap32(a.ip));
+}
+
 int lan_adapter_score(const LanAdapter& a) {
     if (!a.ip || a.loopback || a.tunnel || a.vpn_offline) return -1;
     const std::uint32_t host = bswap32(a.ip);
     if ((host >> 24) == 127 || (host >> 16) == 0xa9feu) return -1;  // loopback; 169.254/16: no DHCP answer
-    int score = adapter_is_virtual(a.name) ? 0 : 100;
+    int score = adapter_is_virtual(a.name) || is_nightwatch_tunnel_adapter(a) ? 0 : 100;
     if (a.default_route) score += 8;
     if (a.gateway) score += 4;
     if (a.physical) score += 2;
@@ -2426,7 +2434,7 @@ VpnKind vpn_kind(const LanAdapter& a) {
     if (has("hamachi")) return VpnKind::Hamachi;
     if (has("zerotier")) return VpnKind::ZeroTier;
     if (has("tailscale")) return VpnKind::Tailscale;
-    if (!adapter_is_virtual(a.name)) return VpnKind::None;
+    if (!adapter_is_virtual(a.name) && !is_nightwatch_tunnel_adapter(a)) return VpnKind::None;
     const std::uint32_t host = bswap32(a.ip);
     // 0.7.8 (CL-79fe9c): the Nightwatch OpenVPN tunnel (the adapter's name varies: TAP-Windows, OpenVPN
     // Data Channel Offload, Wintun): a tunnel player address on an adapter that is not the PC's route to

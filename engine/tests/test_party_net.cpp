@@ -1212,6 +1212,16 @@ static void test_vpn_nightwatch(Make adapter) {
     CHECK(bbnet::vpn_kind(tap_server) == VpnKind::Other);   // 10.8.0.1 is the server, not a player
     CHECK(bbnet::vpn_kind(home_10_8) == VpnKind::None);     // a real LAN that happens to use 10.8.x
     CHECK(bbnet::vpn_label(dco) == "Nightwatch VPN");
+    // Wine / Proton: NetworkManager's tunnel is a plain "tun0" (type PPP: not physical, no VPN word in its name)
+    const LanAdapter tun0 = adapter("tun0 / tun0", "10.8.1.175", false, false, false);
+    const LanAdapter tun0_other = adapter("tun0 / tun0", "10.9.1.175", false, false, false);
+    const LanAdapter tun0_server = adapter("tun0 / tun0", "10.8.0.1", false, false, false);
+    CHECK(!bbnet::adapter_is_virtual("tun0 / tun0") && bbnet::is_nightwatch_tunnel_adapter(tun0));
+    CHECK(bbnet::vpn_kind(tun0) == VpnKind::Nightwatch && bbnet::vpn_label(tun0) == "Nightwatch VPN");
+    CHECK(bbnet::lan_adapter_score(tun0) == 0 && bbnet::select_vpn_adapter({lan, tun0}, "auto") == 1);
+    CHECK(!bbnet::is_nightwatch_tunnel_adapter(home_10_8));                       // Ethernet on 10.8.x: a real LAN
+    CHECK(bbnet::vpn_kind(tun0_other) == VpnKind::None && bbnet::vpn_kind(tun0_server) == VpnKind::None);
+    CHECK(bbnet::select_vpn_adapter({lan, tun0_other}, "auto") == -1);
     // before 0.7.8 the LAN won (score 114 vs 2: a virtual adapter); now auto takes the tunnel
     CHECK(bbnet::lan_adapter_score(lan) == 114 && bbnet::lan_adapter_score(tap) < 100);
     CHECK(bbnet::select_vpn_adapter({lan, tap}, "auto") == 1);

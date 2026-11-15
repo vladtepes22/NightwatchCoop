@@ -115,6 +115,76 @@ static class VpnTests
         Store();
         PendingJoin();
         Service();
+        WineSupport();
+    }
+
+    /// <summary>Wine / Proton (Linux, Steam Deck): the helper script's answers, the file profile, the Unix home, the tunnel
+    /// adapter that is a plain "tun0", and the managed P-256 keys (Wine's CNG cannot make one) against the real thing.</summary>
+    private static void WineSupport()
+    {
+        // The script's status.txt: its first word.
+        Check(LinuxVpn.Parse("ok connected") == LinuxVpnResult.Ok, "status ok");
+        Check(LinuxVpn.Parse("no-plugin NetworkManager's OpenVPN plugin is not installed\n") == LinuxVpnResult.NoPlugin, "status no-plugin");
+        Check(LinuxVpn.Parse("denied Error: Insufficient privileges") == LinuxVpnResult.Denied, "status denied");
+        Check(LinuxVpn.Parse("nm-down x") == LinuxVpnResult.NmDown && LinuxVpn.Parse("no-nmcli") == LinuxVpnResult.NoNmcli, "status words");
+        Check(LinuxVpn.Parse("") == LinuxVpnResult.Failed && LinuxVpn.Parse("what") == LinuxVpnResult.Failed && LinuxVpn.Parse(null) == LinuxVpnResult.Failed, "unknown status");
+
+        // The profile names the key files; it holds no secret and quotes what OpenVPN would split.
+        var install = new VpnInstall { Profile = "client\ndev tun\n\n" };
+        Check(LinuxVpn.FileProfile(install, "/home/deck/.local/share/nightwatch-vpn") ==
+              "client\ndev tun\nca /home/deck/.local/share/nightwatch-vpn/ca.crt\ncert /home/deck/.local/share/nightwatch-vpn/client.crt\n" +
+              "key /home/deck/.local/share/nightwatch-vpn/client.key\ntls-crypt-v2 /home/deck/.local/share/nightwatch-vpn/tls-crypt-v2.key\n", "file profile");
+        Check(LinuxVpn.Quote("/home/a b/x") == "\"/home/a b/x\"" && LinuxVpn.Quote("/home/x\"y") == "\"/home/x\\\"y\"" && LinuxVpn.Quote("/home/deck/x") == "/home/deck/x", "quote");
+
+        // WINEHOMEDIR in the three shapes Wine / Proton give it.
+        var savedHome = Environment.GetEnvironmentVariable("WINEHOMEDIR");
+        try
+        {
+            Environment.SetEnvironmentVariable("WINEHOMEDIR", @"\??\X:\");
+            Check(WineHost.WindowsHome() == @"X:\", "home X:");
+            Environment.SetEnvironmentVariable("WINEHOMEDIR", @"\??\Z:\home\deck");
+            Check(WineHost.WindowsHome() == @"Z:\home\deck", "home Z:");
+            Environment.SetEnvironmentVariable("WINEHOMEDIR", @"\??\unix\home\deck");
+            Check(WineHost.WindowsHome() == @"Z:\home\deck", "home unix");
+            Environment.SetEnvironmentVariable("WINEHOMEDIR", null);
+            Check(WineHost.WindowsHome() == null, "no home");
+        }
+        finally { Environment.SetEnvironmentVariable("WINEHOMEDIR", savedHome); }
+        Check(!WineHost.IsWine && WineHost.UnixPath(@"C:\x") == null, "this test PC is not Wine");
+
+        // Wine's tun0 is type PPP, named "tun0": a tunnel address with the /22 mask on a non-Ethernet adapter is the OpenVPN adapter.
+        const uint mask22 = 0xfffffc00u, ip = 0x0a080005u;  // 10.8.0.5
+        var named = NetworkRoute.AdapterName("tun0", "tun0", physical: false, ip, mask22);
+        Check(NetworkRoute.IsVirtual(named) && NetworkRoute.KindOf(new NetAdapter(named, ip, mask22)) == VpnKind.Other, "tun0 is a VPN adapter");
+        Check(!NetworkRoute.Choose(new[] { new NetAdapter(named, ip, mask22) }, "auto", 9307).Vpn, "it is not an auto VPN (the Nightwatch tunnel is chosen by address)");
+        Check(NetworkRoute.AdapterName("Ethernet", "Intel", physical: true, ip, mask22) == "Ethernet / Intel", "a real LAN on 10.8.x is left alone");
+        Check(NetworkRoute.AdapterName("tun0", "tun0", physical: false, ip, 0xffffff00u) == "tun0 / tun0", "only the /22 tunnel");
+        Check(NetworkRoute.AdapterName("tun0", "tun0", physical: false, 0xc0a80005u, mask22) == "tun0 / tun0", "only tunnel addresses");
+        Check(NetworkRoute.AdapterName("OpenVPN TAP-Windows6", "TAP", physical: true, ip, mask22) == "OpenVPN TAP-Windows6 / TAP", "Windows' adapter keeps its name");
+        Check(VpnLobby.TunnelIp(new[] { new NetAdapter("tun0 / tun0", ip, mask22) }) == "10.8.0.5", "the tunnel is found by its address, not its name");
+
+        // The keys Wine's CNG cannot make: BouncyCastle writes what ECDsa and OpenSSL write, and CNG accepts it.
+        var saved = Environment.GetEnvironmentVariable("BB_VPN_KEYS");
+        try
+        {
+            Environment.SetEnvironmentVariable("BB_VPN_KEYS", "managed");
+            var (keyPem, csrPem) = VpnKey.New();
+            Check(keyPem.StartsWith("-----BEGIN EC PRIVATE KEY-----") && csrPem.StartsWith("-----BEGIN CERTIFICATE REQUEST-----"), "managed pem headers");
+            var request = CertificateRequest.LoadSigningRequestPem(csrPem, HashAlgorithmName.SHA256);
+            Check(request.SubjectName.Name == "CN=nwvpn", "managed csr subject");
+            var curve = request.PublicKey.GetECDsaPublicKey()!.ExportParameters(false).Curve;
+            Check(curve.Oid.FriendlyName is "nistP256" or "ECDSA_P256" && curve.IsNamed, "managed csr: named P-256 (not explicit parameters)");
+            var message = Encoding.UTF8.GetBytes("nwsign-renew-v1\nid\nhash\n1");
+            var signature = VpnKey.Sign(keyPem, message);
+            using var cng = ECDsa.Create();
+            cng.ImportFromPem(keyPem);
+            Check(cng.VerifyData(message, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence), "managed signature verifies with CNG");
+            Check(VpnKey.New().KeyPem != keyPem, "fresh keys");
+            // The whole enroll / renew flow of Service() with these keys.
+            typeof(NightwatchVpn).GetField("_waitUntil", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.SetValue(null, 0L);  // the first run's 429 wait
+            Service();
+        }
+        finally { Environment.SetEnvironmentVariable("BB_VPN_KEYS", saved); }
     }
 
     private static void Formats()

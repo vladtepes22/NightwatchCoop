@@ -169,6 +169,28 @@ any port forwarding, and the hosts of the network show up in the Join list.
   components (one Windows administrator prompt). Your private key stays on your PC for a later
   install. An OpenVPN you installed yourself is left alone; remove that one in Windows Settings.
 
+### On Linux and Steam Deck (Proton)
+
+OpenVPN's Windows drivers cannot load under Wine, so there the tunnel is
+[NetworkManager](https://networkmanager.dev)'s OpenVPN. **Install** (or **Connect**) on the Co-op tab
+makes your key as usual and writes it, with the profile, to `~/.local/share/nightwatch-vpn`; a helper
+script (`nightwatch-vpn-linux.sh`, written beside the files) adds one NetworkManager connection called
+**Nightwatch** and starts and stops it. The launcher runs the script itself from inside Proton. What you may
+have to do once, by hand:
+
+- **Install NetworkManager's OpenVPN plugin.** SteamOS does not ship it (a SteamOS update can remove it
+  again). On a Steam Deck, in Desktop Mode, in Konsole:
+  `sudo steamos-readonly disable`, `sudo pacman-key --init && sudo pacman-key --populate`,
+  `sudo pacman -S --needed networkmanager-openvpn`, `sudo steamos-readonly enable`. On other
+  distributions: `network-manager-openvpn` (Debian, Ubuntu) or `NetworkManager-openvpn` (Fedora).
+  Without NetworkManager's plugin, `sudo bash ~/.local/share/nightwatch-vpn/nightwatch-vpn-linux.sh up`
+  starts the tunnel with plain `openvpn` (and `... down` ends it).
+- **Run the script yourself** if the launcher says it cannot start it from inside Proton: it shows the
+  exact line with a **Copy** button, and notices when the tunnel is up.
+
+The connection is never started by itself, carries no Internet traffic and no DNS, and **Uninstall**
+removes it and the key files.
+
 ## Where the saves are
 
 In your `NightwatchCoop` folder:
