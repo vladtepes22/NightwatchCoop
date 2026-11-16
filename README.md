@@ -75,9 +75,10 @@ Nightwatch runs through Steam's Proton; there is no native Linux build.
 4. Start it from Steam. In the launcher, choose the game folder: Linux folders are under the `Z:` drive
    (`Z:\home\<you>\Games\CUSA03173`; on a Deck `Z:\home\deck\...`).
 
-Mods work as on Windows (the game reads their files in place, as on an exFAT drive). For the
+Mods should work as on Windows (the game reads their files in place, as on an exFAT drive). For the
 Nightwatch VPN on Linux see [On Linux and Steam Deck](#on-linux-and-steam-deck-proton). This is the
-first release with Linux support: please report anything that differs from Windows.
+first release with Linux support and it was built without a Deck to test on: please report
+anything that differs from Windows. The map generator may not work under Proton yet.
 
 ## Co-op in four steps
 
