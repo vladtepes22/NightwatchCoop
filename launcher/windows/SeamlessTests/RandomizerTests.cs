@@ -125,6 +125,34 @@ internal static class RandomizerTests
                 Check(Randomizer.PlacesCoiledHost(real), "the real Nocturne build places the Coiled Host: " + Path.GetFileName(real));
         }
         finally { Directory.Delete(noMods, true); }
+        ScorchedBeast();
+    }
+
+    /// <summary>Option scorched_beast's row: a ticked mod must place entity 2300820 in its m23 map.</summary>
+    private static void ScorchedBeast()
+    {
+        var mods = Path.Combine(Path.GetTempPath(), "seamless-beast-" + Guid.NewGuid().ToString("N"));
+        void Map(string mod, string stem, int entity, bool dcx)
+        {
+            var dir = Path.Combine(mods, mod, "dvdroot_ps4", "map", "MapStudio");
+            Directory.CreateDirectory(dir);
+            var data = new byte[64];
+            BitConverter.GetBytes(entity).CopyTo(data, 20);
+            File.WriteAllBytes(Path.Combine(dir, stem + ".msb.dcx"), data);
+        }
+        try
+        {
+            Check(!Randomizer.HasScorchedBeast(mods, Array.Empty<string>()), "no mods ticked: no Scorched Beast");
+            Map("nocturne", "m23_00_00_00", Randomizer.ScorchedBeastEntity, false);
+            Check(Randomizer.HasScorchedBeast(mods, new[] { "missing", "nocturne" }), "a mod whose m23 map places the Scorched Beast has him");
+            Map("older", "m23_00_00_00", Randomizer.ScorchedBeastEntity + 1, false);
+            Check(!Randomizer.HasScorchedBeast(mods, new[] { "older" }), "an m23 map without his entity id has no Scorched Beast");
+            Map("coiled only", "m27_00_00_00", Randomizer.ScorchedBeastEntity, false);
+            Check(!Randomizer.HasScorchedBeast(mods, new[] { "coiled only" }), "his id in another map does not count");
+            if (Environment.GetEnvironmentVariable("SAVEEDIT_NOCTURNE") is { Length: > 0 } real && Directory.Exists(real))
+                Check(Randomizer.PlacesScorchedBeast(real), "the real Nocturne 5 build places the Scorched Beast: " + Path.GetFileName(real));
+        }
+        finally { Directory.Delete(mods, true); }
     }
 
     private static void Page()

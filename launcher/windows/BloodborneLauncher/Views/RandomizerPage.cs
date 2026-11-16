@@ -30,6 +30,7 @@ namespace BloodborneLauncher.Views
         private WorldCodeResult? _pasted;  // the last valid code typed or pasted: its hidden settings and the note's "changed from"
         private string? _code;             // what the code box shows, null while it holds no valid code
         private bool _syncing, _busy;
+        private bool _beast; // a ticked mod places the Scorched Beast (Nocturne v5.0.0+; option scorched_beast has him to act on)
         private bool _nocturne; // a ticked mod places the Coiled Host (Nocturne v2.0.0+; option coiled_host has him to act on)
         private CancellationTokenSource? _stop;
 
@@ -132,6 +133,9 @@ namespace BloodborneLauncher.Views
             Bool(bosses, SymbolRegular.ArrowSwap24, L.T("Include Coiled Host (Nocturne boss)"),
                 L.T("Needs Nocturne v2.0.0 or later among the ticked mods below, which adds the Coiled Host as the Shadows of Yharnam's second phase; without it this row is greyed out and does nothing. With this on, the Coiled Host can turn up as the boss of another fight, and after the Shadows die a random boss comes out in his place."),
                 o => o.CoiledHost, (o, b) => o with { CoiledHost = b }, null, () => _o.Bosses && _nocturne);
+            Bool(bosses, SymbolRegular.ArrowSwap24, L.T("Include Scorched Beast (Nocturne boss)"),
+                L.T("Needs Nocturne v5.0.0 or later among the ticked mods below, which adds the Scorched Beast to Old Yharnam; without it this row is greyed out and does nothing. With this on, the Scorched Beast can turn up as the boss of another fight, and another boss can stand in his place in Old Yharnam."),
+                o => o.ScorchedBeast, (o, b) => o with { ScorchedBeast = b }, null, () => _o.Bosses && _beast);
             Bind(ComboRow(SymbolRegular.Alert24, L.T("Randomize bell maidens"), L.T("The One Reborn's bell maidens become random enemies."),
                 new[] { new Choice(L.T("Off"), Randomizer.BellMaidenChoices[0]), new Choice(L.T("On"), Randomizer.BellMaidenChoices[1]) },
                 () => _o.BellMaidens, v => Set(_o with { BellMaidens = v }), bosses, changed: Changed), () => _o.BellMaidens, () => _o.Bosses);
@@ -327,6 +331,8 @@ namespace BloodborneLauncher.Views
             var note = Randomizer.Summary(options, hidden);
             if (options.Bosses && options.CoiledHost && !_nocturne)
                 note += " " + L.T("The Coiled Host option is skipped: no Nocturne v2.0.0 or later among the ticked mods.");
+            if (options.Bosses && options.ScorchedBeast && !_beast)
+                note += " " + L.T("The Scorched Beast option is skipped: no Nocturne v5.0.0 or later among the ticked mods.");
             if (changed) note = L.F($"Changed from the code you pasted ({_pasted!.Canonical}): this is not that world any more.") + " " + note;
             SetHint(_codeNote, note);
         }
@@ -376,11 +382,15 @@ namespace BloodborneLauncher.Views
         {
             var dir = GameEnvironment.ModsDir(S);
             var picked = PickedMods();
-            bool found;
-            try { found = await Task.Run(() => Randomizer.HasCoiledHost(dir, picked)); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { found = false; }
-            if (found == _nocturne || !picked.SequenceEqual(PickedMods())) return;
+            bool found, beast;
+            try
+            {
+                (found, beast) = await Task.Run(() => (Randomizer.HasCoiledHost(dir, picked), Randomizer.HasScorchedBeast(dir, picked)));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { found = beast = false; }
+            if ((found == _nocturne && beast == _beast) || !picked.SequenceEqual(PickedMods())) return;
             _nocturne = found;
+            _beast = beast;
             Sync();
         }
 

@@ -38,7 +38,7 @@ namespace BloodborneLauncher.Core
             bool DifficultEnemies = false, bool SecondStage = false, bool AwayFromHome = false, bool FreePoses = false, bool StarterArmor = false,
             bool ShadowsSummons = false, bool ChaliceEnemies = false, bool BossesAsEnemies = false, bool CoiledHost = false, bool GemRoulette = false,
             bool CursedGems = false, int BossEnemyChance = 25, int BossEnemyMax = 1, bool HugeBossesAsEnemies = false,
-            int BossEnemyHp = 8, bool NoWinterLanterns = false, IReadOnlyList<int>? IncludeOnly = null);
+            int BossEnemyHp = 8, bool NoWinterLanterns = false, IReadOnlyList<int>? IncludeOnly = null, bool ScorchedBeast = false);
 
         /// <summary>The bell maidens' choices (seedcode option bell_maidens 0-2).</summary>
         public static readonly string[] BellMaidenChoices = { "off", "normal", "difficult" };
@@ -180,17 +180,30 @@ namespace BloodborneLauncher.Core
         public const int CoiledHostEntity = 2700806;
 
         /// <summary>The mod ships m27_00_00_00's map and it holds the Coiled Host's entity id; false for anything unreadable.</summary>
-        public static bool PlacesCoiledHost(string folder)
+        public static bool PlacesCoiledHost(string folder) => PlacesEntity(folder, "m27_00_00_00", CoiledHostEntity);
+
+        /// <summary>Option scorched_beast has something to act on: a ticked mod places the Scorched Beast (Nocturne v5.0.0 or
+        /// later), found the same way as the Coiled Host. Reads a map file, so call it off the UI thread.</summary>
+        public static bool HasScorchedBeast(string modsDir, IEnumerable<string> modFolders) =>
+            modFolders.Any(m => PlacesScorchedBeast(Path.Combine(modsDir, m)));
+
+        /// <summary>Nocturne's Scorched Beast (the Lesser Demon): entity 2300820 in m23_00_00_00's map (in no game map).</summary>
+        public const int ScorchedBeastEntity = 2300820;
+
+        public static bool PlacesScorchedBeast(string folder) => PlacesEntity(folder, "m23_00_00_00", ScorchedBeastEntity);
+
+        /// <summary>The mod ships this map and its bytes hold the entity id (a 4-byte search); false for anything unreadable.</summary>
+        public static bool PlacesEntity(string folder, string map, int entity)
         {
             try
             {
                 if (!Directory.Exists(folder)) return false;
                 var root = CuratedMods.ContentRoot(folder);
                 var dvd = Path.Combine(root, "dvdroot_ps4");
-                var map = Path.Combine(Directory.Exists(dvd) ? dvd : root, "map", "MapStudio", "m27_00_00_00.msb.dcx");
-                if (!File.Exists(map)) return false;
-                var key = BitConverter.GetBytes(CoiledHostEntity);
-                return Dcx(File.ReadAllBytes(map)).AsSpan().IndexOf(key) >= 0;
+                var file = Path.Combine(Directory.Exists(dvd) ? dvd : root, "map", "MapStudio", map + ".msb.dcx");
+                if (!File.Exists(file)) return false;
+                var key = BitConverter.GetBytes(entity);
+                return Dcx(File.ReadAllBytes(file)).AsSpan().IndexOf(key) >= 0;
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException) { return false; }
         }
@@ -261,7 +274,7 @@ namespace BloodborneLauncher.Core
                 B("hard_amygdala"), B("hard_ebrietas"), B("difficult_enemies"), B("second_stage"), B("away_from_home"), B("free_poses"),
                 B("starter_armor"), B("shadows_summons"), B("chalice_enemies"), B("bosses_as_enemies"), B("coiled_host"), B("gem_roulette"),
                 B("cursed_gems"), (int)I("boss_enemy_chance"), (int)I("boss_enemy_max"), B("huge_bosses_as_enemies"),
-                (int)I("boss_enemy_hp"), B("no_winter_lanterns"), ((long[])o["include_only"]).Select(x => (int)x).ToList());
+                (int)I("boss_enemy_hp"), B("no_winter_lanterns"), ((long[])o["include_only"]).Select(x => (int)x).ToList(), B("scorched_beast"));
             var hidden = ((ValueTuple<long, long>[])o["area_chance"]).Length > 0 || I("oops_all") != 0 || I("fixed_effect") != 0 ||
                          I("variety") != 0 || I("map_models") != 24 || I("map_mb") != 343;
             return (options, hidden);
@@ -315,6 +328,7 @@ namespace BloodborneLauncher.Core
             c["boss_enemy_hp"] = (long)o.BossEnemyHp;
             c["coiled_host"] = B(o.CoiledHost);
             c["no_winter_lanterns"] = B(o.NoWinterLanterns);
+            c["scorched_beast"] = B(o.ScorchedBeast);
             c["include_only"] = (o.IncludeOnly ?? Array.Empty<int>()).Select(x => (long)x).ToArray();
             return WorldCode.Encode((uint)o.Seed, c);
         }
@@ -343,6 +357,7 @@ namespace BloodborneLauncher.Core
             if (o.Bosses && mixed.Count > 0) text += " " + L.T("Mixed fights: ") + string.Join(", ", mixed) + ".";
             if (o.Bosses && o.SecondStage) text += " " + L.T("Gascoigne, Ludwig and the Orphan turn into another boss.");
             if (o.Bosses && o.CoiledHost) text += " " + L.T("Coiled Host in the boss swaps.");
+            if (o.Bosses && o.ScorchedBeast) text += " " + L.T("Scorched Beast in the boss swaps.");
             if (o.DifficultEnemies) text += " " + L.T("Difficult enemies.");
             if (o.AwayFromHome) text += " " + L.T("Enemies away from home.");
             if (o.FreePoses) text += " " + L.T("More randomness.");
