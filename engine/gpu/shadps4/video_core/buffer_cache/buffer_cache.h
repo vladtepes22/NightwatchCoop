@@ -76,6 +76,7 @@ class BufferCache {
     u64 ARENA_PAGE_BITS = ARENA_PAGE_BITS_MAX;
     u64 ARENA_PAGE_SIZE = u64{1} << ARENA_PAGE_BITS_MAX;
     u64 num_arena_pages = u64{1} << (ADDRESS_SPACE_BITS - ARENA_PAGE_BITS_MAX);
+    u64 max_buffer_size = ~u64{0}; ///< the device's maxBufferSize (arena merges cannot pass it)
     static constexpr u64 MIN_BLOCK_SIZE = 16_KB;
 
 public:
@@ -230,6 +231,18 @@ public:
                in_place_blocks.Overlaps(addr >> block_shift, ((addr + size - 1) >> block_shift) + 1);
     }
 
+    /// bbport door082: copies [addr, addr + size) into the arena as its first binding would (new arena memory,
+    /// the upload, write protection). Returns the bytes uploaded (0 in place).
+    u64 PreuploadBuffer(VAddr addr, u64 size);
+    void KeepBuffer(VAddr addr, u64 size);
+    void ReleaseKeptBuffer(VAddr addr, u64 size);
+    /// bbport door082: no copies ahead now: a card under BB_BUF_PREUPLOAD_MIN_VRAM_MB (5120), or VRAM tight
+    /// (vram_level).
+    bool BufferPreuploadPaused() const;
+    u64 KeptBufferBytes() const {
+        return kept_buffer_bytes;
+    }
+
 private:
     struct ArenaBinds {
         const Buffer* arena;
@@ -345,6 +358,12 @@ private:
     /// game's data unused for 30 s (10 s when full) leave VRAM; their slots take the next blocks
     /// instead of new VRAM, and they are uploaded again from the game's memory when bound.
     void EvictIdleCopies(u32 now);
+    /// bbport door082 (visy 0.8.2): buffers the game created that the renderer copied ahead of their first draw
+    /// (Rasterizer::PreuploadBuffers): while VRAM has room their copies stay (EvictIdleCopies), until the game frees
+    /// them. [begin, end) by begin.
+    std::map<VAddr, VAddr> kept_buffers;
+    u64 kept_buffer_bytes = 0;
+    bool KeptBufferOverlaps(VAddr begin, VAddr end) const;
     u32 last_cleanup_scan = 0; ///< bbport: EvictIdleCopies with room in VRAM, every 10 s
     /// Residency chunks without blocks for 5 s, the rebinds away from them done: back to the driver.
     void FreeEmptyChunks(u32 now);

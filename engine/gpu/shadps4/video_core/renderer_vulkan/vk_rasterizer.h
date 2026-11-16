@@ -839,6 +839,13 @@ private:
     u32 prereg_report_frame = 0; ///< bbport: frame of the last texture pre-registration report
     /// bbport hitch082: registers textures the game created ahead of their first draw (bbport_tex_prereg.h).
     void PreregisterTextures(u32 frame);
+    /// bbport door082: copies buffers the game created into VRAM ahead of their first draw (bbport_buf_prereg.h).
+    void PreuploadBuffers(u32 frame);
+    /// Whether [addr, addr + size) lies in one guest GPU mapping.
+    bool InOneMapping(VAddr addr, u64 size);
+    u32 bufprereg_report_frame = 0;
+    VAddr bufprereg_address = 0; ///< the buffer being copied (in parts while in the world), 0: none
+    u64 bufprereg_size = 0, bufprereg_done = 0;
     bool PendingWriteOverlaps(VAddr address, u64 size);
     /// Stage B: the ring bindings of the stages of the packet being recorded.
     struct RingStage {

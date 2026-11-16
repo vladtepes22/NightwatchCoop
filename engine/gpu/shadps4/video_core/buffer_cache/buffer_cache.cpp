@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <iterator>
+#include <limits>
 #include <chrono>
 #include <thread>
 #include <array>
@@ -615,6 +617,7 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
             bits = env[1] == '1' ? ARENA_PAGE_BITS_MIN : ARENA_PAGE_BITS_MAX;
         }
         ARENA_PAGE_BITS = bits;
+        max_buffer_size = max_buffer;
         ARENA_PAGE_SIZE = u64{1} << bits;
         num_arena_pages = u64{1} << (ADDRESS_SPACE_BITS - bits);
         if (bits != ARENA_PAGE_BITS_MAX) {
@@ -1440,6 +1443,16 @@ const Buffer* BufferCache::GetArena(u64 first_block, u64 last_block) {
     const u64 base_block = first_addr >> block_shift;
     const u64 total_size = first_size + last_size;
     const u64 end_block = (first_addr + total_size) >> block_shift;
+    if (total_size > max_buffer_size) {
+        // A buffer across two arenas needs one sparse buffer over both; this GPU cannot create one that large
+        // (maxBufferSize; 2 GiB arena pages, Linux / Steam Deck). Known limit, said before the driver refuses it.
+        std::printf("Guest memory: a buffer at %#llx crosses two arenas and this GPU cannot create the %llu MiB buffer "
+                    "over both (maxBufferSize %llu MiB): please report this log\n",
+                    static_cast<unsigned long long>(first_block << block_shift),
+                    static_cast<unsigned long long>(total_size >> 20),
+                    static_cast<unsigned long long>(max_buffer_size >> 20));
+        std::fflush(stdout);
+    }
     auto* new_arena = &arenas.emplace_back(instance, first_addr, total_size, MemoryType::Sparse);
     std::printf("Guest memory: arena migrated to [%#llx, %#llx) at GPU address %#llx\n",
                 static_cast<unsigned long long>(first_addr),
@@ -2069,6 +2082,61 @@ void BufferCache::ProcessIdleBlocks() {
     FreeEmptyChunks(now);
 }
 
+bool BufferCache::KeptBufferOverlaps(VAddr begin, VAddr end) const {
+    auto it = kept_buffers.lower_bound(end);
+    return it != kept_buffers.begin() && std::prev(it)->second > begin;
+}
+
+u64 BufferCache::PreuploadBuffer(VAddr addr, u64 size) {
+    if (GuestInPlace() || size == 0 || size > std::numeric_limits<u32>::max()) {
+        return 0; // in place: the GPU reads the game's memory itself
+    }
+    const u64 before = BbStats::buffer_upload_bytes.load(std::memory_order_relaxed);
+    const u64 first_block = addr >> block_shift;
+    const u64 last_block = (addr + size - 1) >> block_shift;
+    const auto* arena = GetArena(first_block, last_block);
+    EnsureResident(arena, first_block, last_block);
+    SynchronizeMemory(arena, addr, static_cast<u32>(size), false, false);
+    return BbStats::buffer_upload_bytes.load(std::memory_order_relaxed) - before;
+}
+
+void BufferCache::KeepBuffer(VAddr addr, u64 size) {
+    for (auto it = kept_buffers.lower_bound(addr + size); it != kept_buffers.begin();) {
+        --it;
+        if (it->second <= addr) {
+            break;
+        }
+        kept_buffer_bytes -= it->second - it->first;
+        it = kept_buffers.erase(it);
+    }
+    kept_buffers[addr] = addr + size;
+    kept_buffer_bytes += size;
+}
+
+void BufferCache::ReleaseKeptBuffer(VAddr addr, u64 size) {
+    (void)size;
+    if (const auto it = kept_buffers.find(addr); it != kept_buffers.end()) {
+        kept_buffer_bytes -= it->second - it->first;
+        kept_buffers.erase(it);
+    }
+}
+
+bool BufferCache::BufferPreuploadPaused() const {
+    static const bool small_card = [this] {
+        const char* env = std::getenv("BB_BUF_PREUPLOAD_MIN_VRAM_MB");
+        const u64 min_vram = (env && *env ? std::strtoull(env, nullptr, 10) : 5120ull) << 20;
+        const u64 total = instance.GetTotalMemoryBudget();
+        const bool small = total != 0 && total < min_vram;
+        if (small) {
+            std::printf("Buffer pre-upload: off on this card (%llu MiB of video memory, under %llu; "
+                        "BB_BUF_PREUPLOAD_MIN_VRAM_MB=0 turns it on)\n",
+                        (unsigned long long)(total >> 20), (unsigned long long)(min_vram >> 20));
+        }
+        return small;
+    }();
+    return small_card || vram_level.load(std::memory_order_relaxed) != 0;
+}
+
 void BufferCache::EvictIdleCopies(u32 now) {
     // bbport: without the PC memory model (it needs an AMD GPU) every block of the game's memory
     // the GPU used kept its VRAM copy, and a 4 GB card ran out (exit 23). While VRAM is tight the
@@ -2116,7 +2184,8 @@ void BufferCache::EvictIdleCopies(u32 now) {
             const VAddr address = block << block_shift;
             const u64 group = std::min<u64>(address >> USE_GROUP_BITS, group_use.size() - 1);
             if (now - group_use[group] < idle || gpu_modified_ranges.Intersects(address, block_size) ||
-                memory_tracker->IsRegionGpuModified(address, block_size)) {
+                memory_tracker->IsRegionGpuModified(address, block_size) ||
+                (level == 0 && KeptBufferOverlaps(address, address + block_size))) { // door082: kept while room
                 continue;
             }
             blocks.push_back(block);

@@ -21,6 +21,7 @@
 #include "bbport_copy.h"
 #include "bbport_stall_probe.h"
 #include "bbport_tex_prereg.h"
+#include "bbport_buf_prereg.h"
 #include "bbport_ce_stats.h"
 #include "bbport_toggles.h"
 #include "bbport_write_log.h"
@@ -2007,6 +2008,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         }();
         buffer_cache.Preupload(budget);
         PreregisterTextures(frame);
+        PreuploadBuffers(frame);
     }
     const auto& regs = Regs();
     // bbport: the pass copying a finished frame to a display buffer; the previous draw's
@@ -3933,6 +3935,92 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
 // A descriptor waits BB_TEX_PREREGISTER_QUIET frames (20) after the game built it: the texture's bytes
 // may still be on their way. Registering early is safe either way (the image write-protects its pages; a
 // later write marks it dirty and the first draw refreshes it), only wasted.
+bool Rasterizer::InOneMapping(VAddr addr, u64 size) {
+    Common::RecursiveSharedLock lock{mapped_ranges_mutex};
+    const auto it = mapped_ranges.find(addr);
+    return it != mapped_ranges.end() && it->upper() >= addr + size;
+}
+
+// bbport door082 (visy 0.8.2 2d8c76bc2, bbport_buf_prereg.h): vertex and index buffers the game created with their
+// data are copied into the arena here, ahead of their first draw, once a frame beside the texture pre-registration:
+// up to 256 MiB a frame while the game's loading screen is requested, BB_BUF_PREUPLOAD_MB (3) a frame in the world, a
+// large buffer in parts over several frames (a frame with 16 MiB of it took 4-6 ms longer and missed its flip every
+// third time). The copy is what the buffer's first binding would make (new arena memory, the upload, write
+// protection): a buffer the game writes later is uploaded again at its next binding, as always, and one drawn before
+// its turn here is copied by that draw. Doorway hitches, NW-69aae50.
+void Rasterizer::PreuploadBuffers(u32 frame) {
+    if (!BbBufPrereg::Enabled()) {
+        return;
+    }
+    static const u64 world_budget = [] {
+        const char* env = std::getenv("BB_BUF_PREUPLOAD_MB");
+        return (env && *env ? std::strtoull(env, nullptr, 10) : 3ull) << 20;
+    }();
+    static const u32 quiet = [] {
+        const char* env = std::getenv("BB_BUF_PREUPLOAD_QUIET");
+        return env && *env ? u32(std::strtoul(env, nullptr, 10)) : 2u;
+    }();
+    static const bool stats = std::getenv("BB_FRAME_STATS") != nullptr;
+    BbBufPrereg::Entry batch[64];
+    // Buffers the game freed: their copies may go idle.
+    for (std::size_t n; (n = BbBufPrereg::TakeFreed(batch, std::size(batch))) != 0;) {
+        for (std::size_t i = 0; i < n; ++i) {
+            buffer_cache.ReleaseKeptBuffer(batch[i].address, batch[i].size);
+            if (batch[i].address == bufprereg_address) {
+                bufprereg_address = 0; // freed half way: the rest is not copied
+            }
+        }
+    }
+    if (VideoCore::GuestInPlace()) {
+        // The GPU reads the game memory itself: nothing to copy, the queue is emptied.
+        while (BbBufPrereg::Take(batch, std::size(batch), frame, 0) != 0) {
+        }
+        return;
+    }
+    const bool paused = buffer_cache.BufferPreuploadPaused();
+    if (stats && frame - bufprereg_report_frame >= 600) {
+        bufprereg_report_frame = frame;
+        BbBufPrereg::Report(buffer_cache.KeptBufferBytes(), paused);
+    }
+    if (paused) {
+        return; // the queue waits (a buffer drawn meanwhile is copied by its draw)
+    }
+    const u64 budget = BbTexPrereg::LoadingScreenUp() ? (256ull << 20) : world_budget;
+    u64 used = 0, uploaded_buffers = 0, uploaded_bytes = 0, bound_bytes = 0, rejected = 0;
+    while (used < budget) {
+        if (bufprereg_address == 0) {
+            if (BbBufPrereg::Take(batch, 1, frame, quiet) == 0) {
+                break;
+            }
+            const VAddr address = batch[0].address;
+            const u64 size = batch[0].size;
+            if (!InOneMapping(address, size)) {
+                ++rejected; // not GPU memory (the game's CPU heap), or unmapped since
+                continue;
+            }
+            bufprereg_address = address;
+            bufprereg_size = size;
+            bufprereg_done = 0;
+            buffer_cache.KeepBuffer(address, size);
+            ++uploaded_buffers;
+            bound_bytes += size;
+        }
+        // The part that fits the frame's budget, in whole 64 KiB steps (at least one).
+        const u64 part = std::min(bufprereg_size - bufprereg_done,
+                                  std::max<u64>(Common::AlignDown(budget - used, 64_KB), 64_KB));
+        const u64 uploaded = buffer_cache.PreuploadBuffer(bufprereg_address + bufprereg_done, part);
+        uploaded_bytes += uploaded;
+        used += std::max<u64>(uploaded, 16_KB); // a part in VRAM already still costs the walk
+        bufprereg_done += part;
+        if (bufprereg_done >= bufprereg_size) {
+            bufprereg_address = 0;
+        }
+    }
+    if (uploaded_buffers | rejected) {
+        BbBufPrereg::Count(uploaded_buffers, uploaded_bytes, bound_bytes, rejected);
+    }
+}
+
 void Rasterizer::PreregisterTextures(u32 frame) {
     if (!BbTexPrereg::Enabled()) {
         return;

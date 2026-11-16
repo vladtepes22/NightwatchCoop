@@ -4,6 +4,7 @@
 #include "bbport_gnm_hooks.h"
 #include "bbport_load_speed.h"
 #include "bbport_tex_prereg.h"
+#include "bbport_buf_prereg.h"
 #include "bbport_load_trace.h"
 #include "bbport_fast_fades.h"
 #include "bbport_parts_budget.h"
@@ -641,6 +642,7 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbLoadTrace::Install();  // visy 0.8.1: BB_LOAD_TRACE, the map load step by step with IO / GPU / CPU counters (diagnostic)
     BbLoadSpeed::Install();  // visy 0.8.1: BB_LOAD_WORKERS / BB_FAST_INFLATE, more post-processor threads, zlib-ng inflate
     BbTexPrereg::Install();  // visy 0.8.2 hitch082: textures registered when the game creates them (BB_TEX_PREREGISTER=0 off)
+    BbBufPrereg::Install(); // door082: vertex / index buffers copied to VRAM ahead (BB_BUF_PREUPLOAD=0 off)
     coop::seam::Install();  // visy 0.8.1 seamless join: held / settled loading screen drop, frame-end quiet point
     coop::lamptravel::Install(image, size);
     coop::autohud::Install();  // the auto-hide HUD (visy 0.7.8; setting off by default)
