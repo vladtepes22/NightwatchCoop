@@ -195,6 +195,7 @@ public:
 
     /// Retrieves image whose address matches provided
     [[nodiscard]] ImageId FindImageFromRange(VAddr address, size_t size, bool ensure_valid = true);
+    [[nodiscard]] ImageId FindImageLayer(VAddr address, size_t size, u32& layer);
 
     /// bbport: a FindView result remembered by the caller for the same image and view info.
     struct ViewMemo {

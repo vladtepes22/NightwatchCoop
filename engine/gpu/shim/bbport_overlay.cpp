@@ -104,6 +104,8 @@ std::atomic<bool> prompt_active{false};
 std::string prompt_title, prompt_text;
 std::vector<std::string> prompt_choices;
 int prompt_selected = -1;
+std::vector<std::string> prompt_tabs;
+int prompt_tab = 0;
 
 std::chrono::steady_clock::time_point last_present{};
 float frame_ms_avg = 0.0f;
@@ -2437,8 +2439,12 @@ void TextPrompt() {
     std::string title, text;
     std::vector<std::string> choices;
     int selected = -1;
+    std::vector<std::string> tabs;
+    int tab = 0;
     {
         std::scoped_lock lock{prompt_mutex};
+        tabs = prompt_tabs;
+        tab = prompt_tab;
         title = prompt_title;
         text = prompt_text;
         choices = prompt_choices;
@@ -2455,6 +2461,17 @@ void TextPrompt() {
                      ImGuiWindowFlags_NoFocusOnAppearing);
     ImGui::TextUnformatted(title.c_str());
     ImGui::Separator();
+    if (!tabs.empty()) {  // the community list's categories (L1 / R1, Left / Right)
+        ImGui::TextDisabled("<");
+        for (std::size_t i = 0; i < tabs.size(); ++i) {
+            ImGui::SameLine();
+            const bool on = int(i) == tab;
+            ImGui::TextColored(on ? ImVec4(1.0f, 0.88f, 0.45f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f), on ? "[%s]" : " %s ", tabs[i].c_str());
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled(">");
+        ImGui::Separator();
+    }
     if (!choices.empty()) {
         // The party's Chalice glyphs to pick from (docs/party/chalice.md 11): Up / Down, Enter; typing a code still works.
         // A long list (the community glyphs) shows a window of rows around the pick, with the position.
@@ -2465,7 +2482,7 @@ void TextPrompt() {
             from = at > kRows / 2 ? at - kRows / 2 : 0;
             if (from + kRows > choices.size()) from = choices.size() - kRows;
             to = from + kRows;
-            ImGui::TextDisabled("%zu / %zu   (PageUp / PageDown or L1 / R1 jump ten)", at + 1, choices.size());
+            ImGui::TextDisabled("%zu / %zu   (PageUp / PageDown%s jump ten)", at + 1, choices.size(), tabs.empty() ? " or L1 / R1" : "");
         }
         for (std::size_t i = from; i < to; ++i) {
             const bool on = int(i) == selected;
@@ -2477,8 +2494,10 @@ void TextPrompt() {
     ImGui::Text("%s_", text.c_str());
     ImGui::Separator();
     if (!choices.empty()) {
-        ImGui::TextUnformatted(BbSettings::MenuText("Keyboard: Up / Down pick, or type a code, Enter = OK, Esc = cancel"));
-        ImGui::TextUnformatted(BbSettings::MenuText("Controller: D-pad pick, Cross (A) = OK, Circle (B) = cancel"));
+        ImGui::TextUnformatted(tabs.empty() ? "Keyboard: Up / Down pick, or type a code, Enter = OK, Esc = cancel"
+                                            : "Keyboard: Up / Down pick, Left / Right category, or type a code, Enter = OK, Esc = cancel");
+        ImGui::TextUnformatted(tabs.empty() ? "Controller: D-pad pick, Cross (A) = OK, Circle (B) = cancel"
+                                            : "Controller: D-pad Up / Down pick, L1 / R1 category, Cross (A) = OK, Circle (B) = cancel");
     } else {
         ImGui::TextUnformatted(BbSettings::MenuText("Keyboard: type, Backspace = delete, Enter = OK, Esc = cancel"));
     }
@@ -2487,8 +2506,10 @@ void TextPrompt() {
 
 }
 
-void SetTextChoices(const std::vector<std::string>& lines, int selected) {
+void SetTextChoices(const std::vector<std::string>& lines, int selected, const std::vector<std::string>& tabs, int tab) {
     std::scoped_lock lock{prompt_mutex};
+    prompt_tabs = tabs;
+    prompt_tab = tab;
     prompt_choices = lines;
     prompt_selected = selected;
 }

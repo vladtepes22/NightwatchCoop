@@ -13,7 +13,7 @@ The host's settings are the party's: `balance::Tick` (director tick, party mode)
 the guest's runtime hands it to `balance::OnHostRules` (JSON parsed with limits, every value clamped
 to the menu's range). The host also sends it at once when a guest connects (0.7.3), so a guest
 uses its own settings only until that first event arrives. On a guest every rule is a read-only line
-with the host's value (System > Party rules: Enemies: "The host's setting: ...", from
+with the host's value (System > Party Settings > Party rules: Enemies: "The host's setting: ...", from
 `party_status::HostScaling`; the overlay's Party tab: notes); the guest's own `bbport.ini` values
 are never changed by the host's and count again when it hosts. `BB_PARTY_BALANCE=0`: nothing (no hook, no param write, no
 event).
@@ -44,7 +44,7 @@ the code (docs/party/four_players.md section 4):
 
 ### 2.2 Settings
 
-System > Party rules: Enemies: six sliders (boss / enemy health, damage, poise; the help line shows the
+System > Party Settings > Party rules: Enemies: six sliders (boss / enemy health, damage, poise; the help line shows the
 value), also in the overlay's Party tab and bbport.ini. The page layout the port uses
 ("ControllSetting") has six rows; the System list itself scrolls, and the port's page cap
 (MaxPages, one factory per page: our own constant, not the game's) is now 16. Live 2026-10-11
@@ -150,7 +150,7 @@ stamina cost, rally and item discovery (see the table).
 - A lamp / headstone warp the player starts (0x13CDF30, party_travel `SetLampUseObserver`,
   before the guest lamp interceptor) cleanses it; the respawn warp of a death (within 20 s of it)
   does not. Travelling along with the party (a replay) does not either: only who rests is cleansed.
-- Shown (2026-10-20): System > Party has a *Rot* row (value "3/5", help "Rot 3/5: max HP -20 %,
+- Shown (2026-10-20): System > Party Settings > Party has a *Rot* row (value "3/5", help "Rot 3/5: max HP -20 %,
   stamina costs +10 %. A lamp rest cleanses it"; `DescribeRot`), and the party HUD panel a line
   with the same text under the companions while there is rot. Each player shows its own stacks
   (party_status `SetRot`, set by the balance tick; zeros while the party's rule is off); the
@@ -159,14 +159,14 @@ stamina cost, rally and item discovery (see the table).
   "Rot 1/5: stamina costs +10 %" under the party HUD after the respawn (screenshots); the Party
   page row is unit-tested (game-menu-pages-test), not seen live.
 - Kept in `<user>/party_rot.txt` across restarts. Party mode only; host and guests alike; the
-  host's on/off is the party's. Setting: System > Party rules: Rot > "Rot on death" (0.7.2: its own page; before on Deaths & revives) (and the overlay's Party tab, the
+  host's on/off is the party's. Setting: System > Party Settings > Party rules: Rot > "Rot on death" (0.7.2: its own page; before on Deaths & revives) (and the overlay's Party tab, the
   launcher's Party Rules tab). Off by default since 0.7.2 (user decision 2026-10-22; on 0.6.0 - 0.7.1): an unset
   `party_rot` is off. The game's settings save (`BbSettings::Save`) wrote every key, so 0.6.0 - 0.7.1 left
   `party_rot=1` in most bbport.ini files unchosen: bbport.ini `settings_rev` 1 (`kSettingsRev`, launcher
   `INI_SETTINGS_REV`) sets `party_rot=0` once, in the game's settings load or the launcher's start, whichever comes
   first (coordinator decision 2026-10-22); a later explicit 1 stays.
 - 0.7.2, what else cleanses it (`party_rot_rules.h`, unit test `party-rot-test`; three host rules on by default, rows
-  under "Rot on death" on System > Party rules: Rot, ini `party_rot_cleanse_boss` / `_killer` / `_echoes`, an older host's rules: off). The
+  under "Rot on death" on System > Party Settings > Party rules: Rot, ini `party_rot_cleanse_boss` / `_killer` / `_echoes`, an older host's rules: off). The
   `Ledger` keeps one entry per death that added a stack: its kind, its killer (entity id / chr / census key) and
   whether its killer still lives (this world) and its bloodstain is still there (the last death's only).
   - boss: the game's boss clear here (`BossBonusHook`, 0x1335400 with the boss entity) or the host's boss notice
@@ -189,7 +189,7 @@ stamina cost, rally and item discovery (see the table).
 
 ERSC `overhead_player_display`: normal / none / ping / level / death count. Ours: the party HUD's
 name tags (projected with the game camera above each companion in view, 1-80 m), now a setting of
-their own, independent of the HUD panel: System > My party: Display > "Above companions": Nothing / Name
+their own, independent of the HUD panel: System > Party Settings > My party: Display > "Above companions": Nothing / Name
 / Name and level ("Hunter1  Lv 37") / Name and health (default, the HP bar as before) / Name and
 deaths ("Hunter0  deaths 1, rot 1"). Local only. Bloodborne itself draws a phantom plate
 (FrpgMenuDlgFloatingPCGauge: blue role line, name, thin HP bar), but hides it whenever anything is
@@ -227,7 +227,7 @@ must say count 1 now.
 
 ## 5. Level sync and phantom health (0.7.5, levelsync)
 
-Rules `level_sync` / `phantom_hp` (host's, default on = vanilla; System > Party rules: Phantoms; ini
+Rules `level_sync` / `phantom_hp` (host's, default on = vanilla; System > Party Settings > Party rules: Phantoms; ini
 `party_level_sync` / `party_phantom_hp`; party_levelsync_rules.h).
 
 **What the game does (Ghidra, 1.09).**
@@ -279,7 +279,7 @@ guest's own chr, `BB_PARTY_LEVELSYNC_LOG`, host rules flipped inside one session
 | 1 / 100 | off | on | 503 | 100 | 1.000 |
 | 1 / 100 | on | on | 245 | 82 | 0.208 |
 
-The icon: with the game's own name plate (System > My party: Display > Party name tags off) the blue icon
+The icon: with the game's own name plate (System > Party Settings > My party: Display > Party name tags off) the blue icon
 sits left of "Co-operator Hunter1" with the sync on and is gone with it off (screenshots). Our own name tag
 (default) replaces the game's plate and does not draw the icon.
 

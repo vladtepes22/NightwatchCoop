@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "bbport_gpu_logic.h"
 #include <xxhash.h>
 #include <algorithm>
 #include <array>
@@ -1362,6 +1363,28 @@ bool TextureCache::IsExactMatch(ImageId image_id, const ImageInfo& info) const {
            whole.size == info.size && whole.pixel_format == info.pixel_format &&
            whole.type == info.type && whole.resources == info.resources &&
            whole.LayoutKey() == info.LayoutKey();
+}
+
+// bbport: the layer of an array or cube image that `size` bytes at `address` are exactly (one face of the
+// point lights' shadow cube cleared by a compute shader). Ported from deadinside28/bloodborne_pc
+// 0fc2921c (GPL-2.0-or-later) FindImageLayer, written for our texture cache.
+ImageId TextureCache::FindImageLayer(VAddr address, size_t size, u32& layer) {
+    ImageId found{};
+    ForEachImageInRegion(address, size, [&](ImageId id, Image& image) {
+        const auto& info = image.info;
+        const u32 layers = info.resources.layers;
+        if (found || info.skip_levels != 0 || info.resources.levels != 1 || layers < 2 ||
+            info.guest_size % layers != 0 || address < info.guest_address) {
+            return;
+        }
+        const int index =
+            BbGpuLogic::LayerOfRange(address, size, info.guest_address, info.guest_size, layers);
+        if (index >= 0) {
+            layer = u32(index);
+            found = id;
+        }
+    });
+    return found;
 }
 
 ImageId TextureCache::FindImageFromRange(VAddr address, size_t size, bool ensure_valid) {

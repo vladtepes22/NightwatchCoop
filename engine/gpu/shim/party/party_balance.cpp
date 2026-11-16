@@ -192,7 +192,7 @@ std::atomic<u64> g_killer_chr{0};    // the attacker of the local player's letha
 std::atomic<std::int64_t> g_killer_at{0};  // when (steady clock ticks; 0 none)
 std::atomic<std::uint32_t> g_killed_by_calls{0};
 
-// Kill record: victims whose lethal hit came from a chr that is no player (the kill record must not
+// 0.8.2 (NW-c18f60b): victims whose lethal hit came from a chr that is no player (the kill record must not
 // spread such deaths). Keyed by the victim chr and its census key; recorded by the kill log hook.
 bool AttackerIsNpc(u64 attacker);
 struct NpcKill {

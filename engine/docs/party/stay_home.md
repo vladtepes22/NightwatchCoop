@@ -6,7 +6,7 @@ Chalice ritual of its own, shopping, a break in the Dream. Pure rules: `gpu/shim
 
 | Setting | Where | Default |
 |---|---|---|
-| `party_stay` (env `BB_PARTY_STAY=0/1` wins at start) | System > Party > Stay in my world (a guest's row); launcher My Party > Start & saves; bbport.ini | off |
+| `party_stay` (env `BB_PARTY_STAY=0/1` wins at start) | System > Party Settings > Party > Stay in my world (a guest's row); launcher My Party > Start & saves; bbport.ini | off |
 
 It is the player's own, live, and unrelated to `BB_PARTY_AUTO` (which switches the bells off for the whole process and
 is a test aid). Off = joining exactly as before.

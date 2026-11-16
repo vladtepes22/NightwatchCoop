@@ -325,6 +325,10 @@ Sections DeriveFrom(const Scan& sc, unsigned threads, Progress* progress, Timing
     ParamSet params;
     std::vector<Parsed> parsed(files.size());
     std::vector<MsbInfo> infos(msbs.size());
+    // BB_PARTY_TABLES_SKIP_BAD_MSB=0: an unreadable chalice piece fails the whole build (the old behaviour).
+    const char* skip_env = std::getenv("BB_PARTY_TABLES_SKIP_BAD_MSB");
+    const bool skip_bad_msb = !(skip_env && skip_env[0] == '0');
+    std::vector<char> bad_msb(msbs.size(), 0);
     bbdata::Emedf emedf;
     {
         StepTimer t(timings, "read");
@@ -355,7 +359,11 @@ Sections DeriveFrom(const Scan& sc, unsigned threads, Progress* progress, Timing
                              }});
         }
         for (std::size_t i = 0; i < msbs.size(); ++i) {
-            tasks.push_back({msbs[i].size, [&, i] { infos[i] = ReadMsb(msbs[i]); }});
+            tasks.push_back({msbs[i].size, [&, i] {
+                                 bool skipped = false;
+                                 infos[i] = ReadMsbForBuild(msbs[i], skip_bad_msb, &skipped);
+                                 if (skipped) bad_msb[i] = 1;
+                             }});
         }
         std::vector<std::size_t> order(tasks.size());
         for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
@@ -499,6 +507,18 @@ Sections DeriveFrom(const Scan& sc, unsigned threads, Progress* progress, Timing
     Sections all;
     for (Sections& s : out) {
         for (auto& [name, rows] : s) all[name] = std::move(rows);
+    }
+    {
+        // skippedMsb: the unreadable chalice pieces, sorted. Their entity ids are missing from `entities`; listing them
+        // makes the cache text of a damaged copy differ from a clean build (and the older game ignores the section).
+        std::vector<std::string> names;
+        for (std::size_t i = 0; i < msbs.size(); ++i) {
+            if (!bad_msb[i]) continue;
+            names.push_back(fs::path(msbs[i].path).filename().string());
+            std::printf("[party-data] skipping the unreadable map file %s (damaged copy?); the tables are built without it\n", msbs[i].path.c_str());
+        }
+        std::sort(names.begin(), names.end());
+        for (const std::string& n : names) all["skippedMsb"].push_back({n});
     }
     return all;
 }

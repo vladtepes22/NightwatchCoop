@@ -11,9 +11,9 @@ and the lobby (`net/party_vpnlobby.h`: no password flag = open).
 |---|---|
 | bbport.ini | `party_open=1` (live: read on every join) |
 | env | `BB_PARTY_OPEN` (wins over the ini) |
-| bbport.ini / env | `party_open_any_level=1` / `BB_PARTY_OPEN_ANY_LEVEL=1` (0.7.9, host, live, off by default): *System > Party access > Any level can join*, launcher Party tab: an open join skips the level range below, at the gate and in the vitals recheck |
+| bbport.ini / env | `party_open_any_level=1` / `BB_PARTY_OPEN_ANY_LEVEL=1` (0.7.9, host, live, off by default): *System > Party Settings > Party access > Any level can join*, launcher Party tab: an open join skips the level range below, at the gate and in the vitals recheck |
 | Launcher | Party tab, host only: *Open party: no password, join by address (LAN/VPN)*; greyed out while a password is set |
-| Game | *System > Party access > Open party (no password)*, host's row (a guest sees *Host's access*, read only) |
+| Game | *System > Party Settings > Party access > Open party (no password)*, host's row (a guest sees *Host's access*, read only) |
 
 ## Rules
 

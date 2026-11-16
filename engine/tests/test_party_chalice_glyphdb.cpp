@@ -90,7 +90,7 @@ static void TestCache() {
     const std::string doc = "{\"version\":1,\"glyphs\":[" + Row("aaaa1111", "farming", "Echoes", rec) + "," +
                             Row("BBBB2222", "equipment", "Gear", rec) + "," +      // upper case: folded
                             Row("short", "farming", "x", rec) + "," +               // bad glyph
-                            Row("cccc3333", "weird", "x", rec) + "," +              // bad category
+                            Row("cccc3333", "weird", "x", rec) + "," +              // unknown category: kept as "other"
                             Row("dddd4444", "testing", "", rec) + "," +             // empty desc
                             Row("eeee5555", "testing", "x", rec.substr(2)) + "," +  // short record
                             Row("aaaa1111", "bloodgems", "dup", rec) + "," +        // duplicate glyph
@@ -100,8 +100,8 @@ static void TestCache() {
     std::string err;
     int skipped = 0;
     CHECK(glyphdb::ParseCache(doc, &db, &err, &skipped));
-    CHECK(db.size() == 3 && skipped == 6);
-    CHECK(db.size() == 3 && db[1].glyph == "bbbb2222" && db[1].category == "equipment");
+    CHECK(db.size() == 4 && skipped == 5);
+    CHECK(db.size() == 4 && db[1].glyph == "bbbb2222" && db[1].category == "equipment" && db[2].category == "other");
     CHECK(!glyphdb::ParseCache("[]", &db, &err) && !glyphdb::ParseCache("{\"version\":2,\"glyphs\":[]}", &db, &err) &&
           !glyphdb::ParseCache("{\"version\":1}", &db, &err) && !glyphdb::ParseCache("garbage", &db, &err));
     CHECK(glyphdb::ParseCache("{\"version\":1,\"glyphs\":[]}", &db, &err) && db.empty());
@@ -118,8 +118,9 @@ static void TestRows() {
     CHECK(glyphdb::ParseCache(doc, &db));
     const auto rows = glyphdb::ToRows(db, Raw);
     CHECK(rows.size() == 4);  // the 9-character glyph cannot be typed into the altar's box
-    CHECK(rows[0].glyph == "ffff1111" && rows[1].glyph == "eeee3333" && rows[2].glyph == "gggg2222" && rows[3].glyph == "tttt0000");
-    CHECK(rows[0].label == "Farming: First" && rows[2].label == "Blood gems: Gems");
+    // Tab order: Blood gems, Equipment, Farming, (Other), Testing last.
+    CHECK(rows[0].glyph == "gggg2222" && rows[1].glyph == "eeee3333" && rows[2].glyph == "ffff1111" && rows[3].glyph == "tttt0000");
+    CHECK(rows[0].label == "Gems" && rows[0].cat == "Blood gems" && rows[2].cat == "Farming" && rows[3].cat == "Testing");
     CHECK(!rows[0].form_on_board && rows[0].form.size() == 0x7c && rows[0].source == "glyphdb");
     // BuildList: the community rows follow the party's, a glyph the board has already is not repeated, no cap at 40.
     std::vector<glyphs::BoardItem> board(1);
@@ -129,6 +130,7 @@ static void TestRows() {
     board[0].has_form = true;
     const auto list = glyphs::BuildList("me", board, {}, rows);
     CHECK(list.size() == 4 && list[0].glyph == "gggg2222" && list[0].source == "own");
+    CHECK(glyphs::EncodeChoices({rows[0]}) == "gggg2222\tGems\tBlood gems\n");  // the tab name travels as a third field
     std::vector<glyphs::Entry> many;
     for (int i = 0; i < 100; ++i) {
         glyphs::Entry e;
@@ -162,9 +164,30 @@ static void TestGoodsGuard() {
     const std::set<std::uint32_t> valid = {6100, 6109, 6500};  // injected: the repo has no game data
     std::vector<std::string> dropped;
     const auto rows = glyphdb::ToRows(db, Raw, [&](std::uint32_t g) { return valid.count(g) != 0; }, &dropped);
-    CHECK(rows.size() == 2 && rows[0].glyph == "aaaa0001" && rows[1].glyph == "aaaa0003");
-    CHECK(dropped.size() == 2 && dropped[0] == "aaaa0002" && dropped[1] == "aaaa0004");
+    CHECK(rows.size() == 2 && rows[0].glyph == "aaaa0003" && rows[1].glyph == "aaaa0001");
+    CHECK(dropped.size() == 2 && dropped[0] == "aaaa0004" && dropped[1] == "aaaa0002");
     CHECK(glyphdb::ToRows(db, Raw).size() == 4);  // no predicate: nothing is checked
+    auto goods_of = [](const std::string& f) { return static_cast<std::uint32_t>(static_cast<unsigned char>(f[12])) | static_cast<std::uint32_t>(static_cast<unsigned char>(f[13])) << 8; };
+    CHECK(goods_of(rows[0].form) == 6500 && goods_of(rows[1].form) == 6100);
+}
+
+// Tabs: Blood gems sorted by the gem type named in the description, then the description; unknown categories go to Other.
+static void TestTabsAndGems() {
+    CHECK(glyphdb::GemTypeRank("Radials | L1: boss drops Triangles") == 0);
+    CHECK(glyphdb::GemTypeRank("Triangles | L1: Radial") == 1 && glyphdb::GemTypeRank("Abyssal Fire (Waning)") == 2);
+    CHECK(glyphdb::GemTypeRank("Circle/Out of Shape") == 3 && glyphdb::GemTypeRank("Coffin treasure") == 9);
+    CHECK(glyphdb::GemTypeRank("Gem Farm | Radials") == 9);  // only the first segment names the type
+    CHECK(glyphdb::NormalizeCategory("") == "other" && glyphdb::NormalizeCategory("weird") == "other" &&
+          glyphdb::NormalizeCategory("farming") == "farming");
+    const std::vector<glyphdb::Entry> db = {Db("tt000001", "testing", "t"), Db("oo000001", "other", "o"), Db("ff000001", "farming", "f"),
+                                            Db("eq000001", "equipment", "e"), Db("gm000001", "bloodgems", "Waning b"),
+                                            Db("gm000002", "bloodgems", "Radials | z"), Db("gm000003", "bloodgems", "Coffin"),
+                                            Db("gm000004", "bloodgems", "Radials | a"), Db("gm000005", "bloodgems", "Triangle x")};
+    const auto rows = glyphdb::ToRows(db, Raw);
+    std::string order;
+    for (const auto& r : rows) order += r.glyph.substr(0, 2) + (r.glyph.substr(6)) + " ";
+    CHECK(order == "gm04 gm02 gm05 gm01 gm03 eq01 ff01 oo01 tt01 ");
+    CHECK(rows[5].cat == "Equipment" && rows[7].cat == "Other" && rows.back().cat == "Testing");
 }
 
 // The glyph box flag: a pick after any wait still counts (the list was offered in that box); it ends with the box.
@@ -182,6 +205,7 @@ static void TestSlowPick() {
 
 int main() {
     TestGoodsGuard();
+    TestTabsAndGems();
     TestSlowPick();
     TestConversion();
     TestValidation();

@@ -2640,7 +2640,7 @@
   "On by default. When the host travels by lamp, headstone or Hunter's Mark, your game starts loading at once, behind one loading screen, instead of after the host's load.": "默认开启。房主通过灯、墓碑或猎人标记传送时，你的游戏会立即开始加载，只显示一个加载画面，而不是等房主加载完之后再开始。",
   "On by default. A party travel's load puts you beside the host, with no jump after the loading screen.": "默认开启。队伍传送的加载会让你出现在房主身旁，加载画面结束后不会再跳位置。",
   "On by default. Party > Rejoin in the host's world reloads you beside the host with one loading screen, without leaving and going home first.": "默认开启。在房主的世界中选择 队伍 > 重新加入，会用一个加载画面把你重新加载到房主身旁，无需先离开并回到自己的世界。",
-  "Off by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more).": "默认关闭。在队伍中，加载画面会一直保留到世界运行流畅为止（最多再多 3 秒）。",
+  "On by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more).": "默认开启。在队伍中，加载画面会一直保留到世界运行流畅为止（最多再多 3 秒）。",
   "Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link.": "默认关闭。通过 Nightwatch VPN，会与同样允许直连的队伍成员尝试直接连接约 3 秒，仅在明显快于隧道时才使用。该成员随后会看到你的公网 IP。下次建立队伍连接时生效。",
   "Not converted yet.": "尚未转换。",
   "{0} files converted ({1:0.0} GB).": "已转换 {0} 个文件（{1:0.0} GB）。",

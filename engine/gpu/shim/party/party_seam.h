@@ -12,7 +12,7 @@
 //    Opt-in (BB_PARTY_NATIVE_HOLD=1; +0.7 s measured); the InGameStart clear hook above is the default and the fallback.
 //  - in-load placement (0.8.2, C): the spawn position the load resolves (MoveMapStep +0xF0 / +0x100; 0x19423A0 resolves it,
 //    0x1939C80 applies it) is replaced by the beside-host spot before it is applied (BB_PARTY_LOAD_PLACE=0: off).
-// Toggles (My party: Loading, launcher My Party tab, bbport.ini; off by default):
+// Toggles (My party: Loading, launcher My Party tab, bbport.ini; on by default since 0.8.2):
 //  A party_parallel_follow (BB_PARTY_PARALLEL_FOLLOW): the guest loads the host's party lamp at once (party_b2.cpp
 //    GuestPhase::ParallelLoading), the screen held until it is placed beside the host.
 //  B party_settled_drop (BB_PARTY_SETTLED_DROP): in a party, every InGameStart drop waits until frames run under 50 ms

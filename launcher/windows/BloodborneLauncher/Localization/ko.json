@@ -2594,7 +2594,7 @@
   "On by default. When the host travels by lamp, headstone or Hunter's Mark, your game starts loading at once, behind one loading screen, instead of after the host's load.": "기본값은 켜짐입니다. 호스트가 등불, 묘비 또는 사냥꾼의 표식으로 이동하면 호스트의 로딩이 끝나길 기다리지 않고, 하나의 로딩 화면 뒤에서 내 게임도 바로 불러오기를 시작합니다.",
   "On by default. A party travel's load puts you beside the host, with no jump after the loading screen.": "기본값은 켜짐입니다. 파티 이동의 로딩이 끝나면 호스트 옆에 배치되며, 로딩 화면 뒤에 위치가 튀지 않습니다.",
   "On by default. Party > Rejoin in the host's world reloads you beside the host with one loading screen, without leaving and going home first.": "기본값은 켜짐입니다. 호스트의 세계에서 파티 > 재참가를 누르면, 먼저 나가서 집으로 돌아가지 않고 하나의 로딩 화면으로 호스트 옆에 다시 불러옵니다.",
-  "Off by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more).": "기본값은 꺼짐입니다. 파티 중에는 월드가 원활하게 돌아갈 때까지 로딩 화면이 유지됩니다(최대 3초 추가).",
+  "On by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more).": "기본값은 켜짐입니다. 파티 중에는 월드가 원활하게 돌아갈 때까지 로딩 화면이 유지됩니다(최대 3초 추가).",
   "Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link.": "기본값은 꺼짐입니다. Nightwatch VPN을 통해, 이를 함께 허용한 파티원에게 약 3초 동안 직접 연결을 시도하고 터널보다 확실히 빠를 때만 사용합니다. 그 파티원에게는 내 공개 IP가 보입니다. 다음 파티 연결부터 적용됩니다.",
   "Not converted yet.": "아직 변환되지 않았습니다.",
   "{0} files converted ({1:0.0} GB).": "파일 {0}개 변환됨({1:0.0} GB).",

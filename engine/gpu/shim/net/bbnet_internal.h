@@ -176,6 +176,9 @@ struct LanAdapter {
 // Hyper-V / WSL / Docker switches, VirtualBox / VMware host-only adapters, VPN and overlay
 // adapters (TAP, Wintun, WireGuard, Tailscale, ZeroTier, Hamachi, Radmin ...): by name.
 bool adapter_is_virtual(const std::string& name);
+// A tunnel player address (10.8.0.0/22 minus the server) on an adapter that is not Ethernet / Wi-Fi: Nightwatch's OpenVPN
+// under Wine / Proton, where the adapter is just "tun0". Treated as a virtual adapter (never the LAN, a Nightwatch VPN).
+bool is_nightwatch_tunnel_adapter(const LanAdapter& a);
 // < 0: never chosen (loopback, tunnel, 169.254/16, no address). Otherwise higher wins: a
 // non-virtual adapter always beats a virtual one; then default route, gateway, physical type.
 int lan_adapter_score(const LanAdapter& a);

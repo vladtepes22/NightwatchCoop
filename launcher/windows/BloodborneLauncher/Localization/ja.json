@@ -2594,7 +2594,7 @@
   "On by default. When the host travels by lamp, headstone or Hunter's Mark, your game starts loading at once, behind one loading screen, instead of after the host's load.": "デフォルトでオン。ホストが灯り、墓石、狩人の徴で移動すると、ホストの読み込みを待たず、1 つの読み込み画面のもとで、あなたのゲームもすぐに読み込みを始めます。",
   "On by default. A party travel's load puts you beside the host, with no jump after the loading screen.": "デフォルトでオン。パーティー移動の読み込み後、ホストの隣に配置され、読み込み画面のあとに位置が飛ぶことはありません。",
   "On by default. Party > Rejoin in the host's world reloads you beside the host with one loading screen, without leaving and going home first.": "デフォルトでオン。ホストの世界で パーティー > 再参加 を選ぶと、いったん離脱して自分の世界に戻ることなく、1 つの読み込み画面でホストの隣に読み込み直されます。",
-  "Off by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more).": "デフォルトでオフ。パーティー中、世界が滑らかに動くまで読み込み画面を表示し続けます（最大でさらに 3 秒）。",
+  "On by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more).": "既定ではオン。パーティー中、世界が滑らかに動くまで読み込み画面を表示し続けます（最大でさらに 3 秒）。",
   "Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link.": "デフォルトでオフ。Nightwatch VPN 経由で、同じく許可しているパーティーメンバーに約 3 秒間直接接続を試み、トンネルより明らかに速い場合だけ使います。そのメンバーにはあなたの公開 IP が見えます。次のパーティー接続から有効になります。",
   "Not converted yet.": "まだ変換されていません。",
   "{0} files converted ({1:0.0} GB).": "{0} 個のファイルを変換済み（{1:0.0} GB）。",

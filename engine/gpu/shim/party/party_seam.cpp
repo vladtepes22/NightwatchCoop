@@ -10,6 +10,7 @@
 #include "seam_rules.h"
 #include "../bbport_settings.h"
 #include "../bbport_stall_probe.h"
+#include "../bbport_tex_prereg.h"
 #include "../net/bbnet_internal.h"
 
 #include <atomic>
@@ -118,7 +119,8 @@ void Clear(const char* why) {
     g_pending = false;
     using Fn = u64(BB_COOP_SYSV*)();
     reinterpret_cast<Fn>(Guest(kNowLoadingClear))();
-    Log("loading screen dropped (%s), %.0f ms after InGameStart", why, after);
+    Log("loading screen dropped (%s), %.0f ms after InGameStart; %zu texture(s) wait for pre-registration", why, after,
+        BbTexPrereg::Queued());
 }
 
 /// The settle watch's end: the drop, at the quiet point (we are in it).
@@ -147,8 +149,9 @@ BB_COOP_SYSV u64 InGameStartClearHook() {
         g_pending_at = now;
         g_watch_for_hold = g_after_native.exchange(false);
         g_watch.Start(now);
-        Log("InGameStart: the loading screen stays up until frames run under %.0f ms for %.0f ms (at most %.0f ms)",
-            kSettledFrameMs, kSettledRunMs, kSettleCapMs);
+        Log("InGameStart: the loading screen stays up until frames run under %.0f ms for %.0f ms (at most %.0f ms); "
+            "%zu texture(s) wait for pre-registration",
+            kSettledFrameMs, kSettledRunMs, kSettleCapMs, BbTexPrereg::Queued());
         return 0;
     }
     using Fn = u64(BB_COOP_SYSV*)();
@@ -307,7 +310,12 @@ bool ParallelFollowOn() {
     return PartyProcess() && BbSettings::Get().party_parallel_follow.load(std::memory_order_relaxed);
 }
 bool SettledDropOn() {
-    return PartyProcess() && BbSettings::Get().party_settled_drop.load(std::memory_order_relaxed);
+    // hitch082b: outside a party too. The first frames after InGameStart are the same in a solo game (the world's
+    // first draw: 150-180 texture registrations, 90-180 MB of buffer uploads, the game thread's write faults behind
+    // them: 80-190 ms, then 0.5-0.9 s of 25-45 ms frames; research/hitch082.md 10), and the vanilla drop showed
+    // them. BB_SETTLED_DROP_SOLO=0: party processes only, as before.
+    static const bool solo = !EnvOff("BB_SETTLED_DROP_SOLO");
+    return (PartyProcess() || solo) && BbSettings::Get().party_settled_drop.load(std::memory_order_relaxed);
 }
 bool HoldHookIn() { return g_hook.load(); }
 bool NativeHoldIn() { return g_native_hook.load(); }

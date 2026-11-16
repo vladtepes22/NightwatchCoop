@@ -5,6 +5,7 @@
 #include "gamedata/build.h"
 #include "gamedata/container.h"
 #include "gamedata/derive.h"
+#include "gamedata/derive_ids.h"
 #include "gamedata/events.h"
 #include "gamedata/msb.h"
 #include "gamedata/param.h"
@@ -368,6 +369,47 @@ void WriteFile(const fs::path& p, const Bytes& b) {
     fs::create_directories(p.parent_path());
     std::ofstream f(p, std::ios::binary | std::ios::trunc);
     f.write(reinterpret_cast<const char*>(b.data()), static_cast<std::streamsize>(b.size()));
+}
+
+// A damaged chalice piece is skipped (empty info, flagged); a damaged main map still throws; the kill switch restores it.
+void TestBadMsbSkipped() {
+    using namespace coop::gamedata;
+    const fs::path d = fs::temp_directory_path() / "bb_gamedata_badmsb_test";
+    fs::remove_all(d);
+    Bytes junk(64, 0x41);  // not an MSB (and not a DCX)
+    Bytes good(0x40, 0);
+    std::memcpy(good.data(), "MSB ", 4);
+    Put<std::int32_t>(good, 0x20, 2412951);
+    WriteFile(d / "m29_05_00_11.msb", junk);
+    WriteFile(d / "m29_05_00_00.msb", junk);
+    WriteFile(d / "m24_01_00_11.msb", good);
+    auto file = [&](const char* n, int a, int b, int c, int dd) {
+        MsbFile f;
+        f.a = a, f.b = b, f.c = c, f.d = dd;
+        f.path = (d / n).string();
+        return f;
+    };
+    bool skipped = false;
+    MsbInfo i = ReadMsbForBuild(file("m29_05_00_11.msb", 29, 5, 0, 11), true, &skipped);
+    CHECK(skipped && i.entities.empty());
+    skipped = false;
+    i = ReadMsbForBuild(file("m24_01_00_11.msb", 24, 1, 0, 11), true, &skipped);
+    CHECK(!skipped && i.entities.size() == 1 && i.entities[0] == 2412951);
+    bool threw = false;
+    try {
+        ReadMsbForBuild(file("m29_05_00_11.msb", 29, 5, 0, 11), false, &skipped);
+    } catch (const FormatError&) {
+        threw = true;
+    }
+    CHECK(threw);
+    threw = false;
+    try {
+        ReadMsbForBuild(file("m29_05_00_00.msb", 29, 5, 0, 0), true, &skipped);
+    } catch (const FormatError&) {
+        threw = true;
+    }
+    CHECK(threw);
+    fs::remove_all(d);
 }
 
 struct ParamSpec {
@@ -856,6 +898,7 @@ int main() {
     TestParam();
     TestEvents();
     TestMsb();
+    TestBadMsbSkipped();
     TestParallel();
     TestWorldAct();
     TestShopGates();

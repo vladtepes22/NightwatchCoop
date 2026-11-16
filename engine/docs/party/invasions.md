@@ -16,10 +16,10 @@ team), `net/party_vpnlobby.*` and `net/party_discovery.*` (the list flag and "wh
 |---|---|
 | bbport.ini `party_invaders=1` / env `BB_PARTY_INVADERS` | the host's **Allow invaders** (live, off by default) |
 | bbport.ini `party_max_invaders=1\|2` / env `BB_PARTY_MAX_INVADERS` | the host's **Max invaders** (0.7.9, live, default 1): how many invaders may be in at once |
-| System > Party access > **Max invaders**, launcher Party tab > **Max invaders** | the same, host only (a guest does not see the row) |
-| System > Party access > **Allow invaders** | the host's row (a guest sees it hidden; its page is the "Host's access" line) |
+| System > Party Settings > Party access > **Max invaders**, launcher Party tab > **Max invaders** | the same, host only (a guest does not see the row) |
+| System > Party Settings > Party access > **Allow invaders** | the host's row (a guest sees it hidden; its page is the "Host's access" line) |
 | Launcher Party tab > **Allow invaders (listed games)** | host only |
-| System > Party > **Block the invader** | host, only while an invader is there; press twice |
+| System > Party Settings > Party > **Block the invader** | host, only while an invader is there; press twice |
 | Launcher Join page > **Invade** | next to **Join**, on the Parties found (VPN / LAN) list and the Nightwatch VPN games list; enabled for a row whose host allows invaders and has room |
 | env `BB_PARTY_INVADE=1` | what the launcher sets for that one start when you press Invade (never saved); the game joins the address in `BB_PARTY_CODE` as an invader |
 

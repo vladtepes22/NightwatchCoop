@@ -213,7 +213,7 @@ on 127.0.0.1.
   `party_rdv.h`, `party_traversal.h`). Without any server of ours, the guest's public UDP endpoint
   reaches the host through the public BitTorrent DHT (BEP 5 "mainline", as any torrent client
   uses). **Off by default** (user decision 2026-10-14: it posts the guest's IP on public DHT
-  nodes): launcher *Party* tab *Find each other through the public DHT* or *System > Party network*
+  nodes): launcher *Party* tab *Find each other through the public DHT* or *System > Party Settings > Party network*
   (`BB_PARTY_RENDEZVOUS=1/0`, which wins over bbport.ini `party_rendezvous`; unset = the ini,
   default 0). Host **and** guest need it on. Off, the host's *Network* line says "with their guest
   code (Add a guest code; automatic punching is off: turn on the DHT option on both PCs ...)" and
@@ -335,7 +335,7 @@ IPv4 endpoints only and need no change:
   member behind a port-restricted NAT: every guest endpoint it punches (guest code / DHT) also goes
   to the members (`relay_punch`), which open their NAT towards it.
 - **Switches**: `BB_PARTY_MEMBER_RELAY` (bbport.ini `party_member_relay`, launcher Party tab,
-  System > Party network; on: party members only, capped) and `BB_PARTY_IPV6` (`party_ipv6`; **off**
+  System > Party Settings > Party network; on: party members only, capped) and `BB_PARTY_IPV6` (`party_ipv6`; **off**
   by default, user decision for 0.7.1: with it the code carries the PC's IPv6 address).
   The *Network* line and the log say which path the link took: `party link over UDP via IPv6
   [addr]:port` / `through Hunter1's relay`; the member logs whom it relays for.
@@ -662,7 +662,7 @@ restarted before the grace ran out) - the guest:
    then `host wait: the host is back ...`, the corner says "The host is back: joining it", and the
    direct summon brings the guest beside the host with **one loading screen**;
 4. after `BB_PARTY_HOST_WAIT_S` (180 s; 0 = no limit) without the host: a notice ("the host did not
-   come back within 3 min - you play on alone in your own world; System > Party > Rejoin the host
+   come back within 3 min - you play on alone in your own world; System > Party Settings > Party > Rejoin the host
    joins again") and the party is left (the guest is not pulled away later while playing alone).
 
 A refusal, the host ending the party (BYE) or the player's own Leave never start the wait. Outages

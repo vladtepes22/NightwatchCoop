@@ -184,6 +184,40 @@ int main() {
             assert(reached > 0.15 && reached < 0.3);
         }
     }
+    // The default hides fully (the game side then makes the clip invisible instead of writing alpha 0).
+    {
+        Machine m;
+        Run(m, Idle(0), 0, 10.0);
+        assert(m.alpha() == 0.0);
+    }
+    // The opt-in hidden floor (BB_AUTO_HUD_FLOOR=1): never fully transparent.
+    {
+        Tuning t;
+        t.min_alpha = kHiddenFloor;
+        Machine m(t);
+        Run(m, Idle(0), 0, 10.0);
+        assert(m.alpha() == kHiddenFloor && m.alpha() > 0.0);
+        Inputs hit = Idle(10.0);
+        hit.hp = 300;
+        Run(m, hit, 10.0, 10.5);
+        assert(m.alpha() == 1.0);
+        Run(m, hit, 10.5, 30.0);
+        assert(m.alpha() == kHiddenFloor);
+    }
+    // The load gate: nothing during a load, not for settle_s after it, restarts on every load.
+    {
+        LoadGate g(3.0);
+        assert(!g.Step(false, false, false, 0.0));          // no world
+        assert(!g.Step(true, true, true, 1.0) && !g.steady());  // loading screen
+        assert(!g.Step(true, false, false, 2.0));           // map unknown
+        assert(!g.Step(true, false, true, 3.0) && g.steady());  // just up
+        assert(!g.Step(true, false, true, 5.9));
+        assert(g.Step(true, false, true, 6.0));
+        assert(g.Step(true, false, true, 100.0));
+        assert(!g.Step(true, true, true, 101.0));           // the next load closes it again
+        assert(!g.Step(true, false, true, 102.0) && !g.Step(true, false, true, 104.9));
+        assert(g.Step(true, false, true, 105.0));
+    }
     assert(Hash("abc", 3) != Hash("abd", 3) && Hash("abc", 3) == Hash("abc", 3));
     std::puts("auto hud: ok");
     return 0;

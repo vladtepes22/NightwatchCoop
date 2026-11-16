@@ -913,6 +913,9 @@ void Load() {
             v.party_phantom_hp = false;
         }
         if (was < 5) v.ll_pacing = false;  // rev 5 (0.3.2): low-latency pacing off by default (NW-69aae50)
+        // rev 6 (0.3.2, visy 0.8.2): Hold the screen until smooth became on by default; the saves before wrote an
+        // explicit 0 for everyone. Turn it on once; a later 0 stays.
+        if (was < 6) v.party_settled_drop = true;
         v.settings_rev = kSettingsRev;
         std::printf("Settings: bbport.ini settings_rev %d -> %d (one-time changes)\n", was, kSettingsRev);
         Save();  // every saved key rewritten with its value (the ones changed above too), settings_rev with it

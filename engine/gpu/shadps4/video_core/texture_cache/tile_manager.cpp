@@ -198,6 +198,11 @@ vk::Pipeline TileManager::GetTilingPipeline(const ImageInfo& info, bool is_tiler
 void TileManager::RecordTilingDispatch(vk::Pipeline pipeline, const vk::DescriptorBufferInfo& tiled,
                                        const vk::DescriptorBufferInfo& linear,
                                        const vk::DescriptorBufferInfo& params, u32 dim_x) {
+    // bbport: a null pipeline or an empty dispatch records nothing (yharnam-pc c993ce0,
+    // xiaodoudou, GPL-2.0-or-later; from Mrsuss60 bb3f67b).
+    if (!pipeline || dim_x == 0) {
+        return;
+    }
     scheduler.RecordCrumb({.name = "tiling"}, [pipeline, layout = *pl_layout, tiled, linear,
                                               params, dim_x](vk::CommandBuffer cmdbuf) {
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);

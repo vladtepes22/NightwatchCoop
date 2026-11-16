@@ -54,10 +54,13 @@ struct Tuning {
     double fade_in_s = 0.2;      // hidden -> shown
     double fade_out_s = 1.0;     // shown -> hidden
     double low_hp_fraction = 0.5;
-    double min_alpha = 0.0;      // the hidden level (0 = gone)
+    double min_alpha = 0.0;      // the hidden level (0 = gone, the default; the game hides the clip by visibility at 0)
 };
 
 inline constexpr double kEnemyRadiusM = 8.0;
+// Opt-in fallback (BB_AUTO_HUD_FLOOR=1): the game side never makes the clip fully transparent. Off by default:
+// at 0 the clip is made invisible instead (Nightwatch 52bd3d51c).
+inline constexpr double kHiddenFloor = 0.02;
 
 class Machine {
 public:
@@ -116,6 +119,28 @@ private:
     double until_ = 0, last_t_ = 0, peek_until_ = 0;
     double alpha_ = 1.0;
     unsigned reason_ = kNone, lastWhy_ = kNone;
+};
+
+/// The load gate (NW-c679fc2): the HUD clip is touched only while the world has been up, with no loading screen and a
+/// known map, for `settle_s` seconds in a row. The fade used to run during map loads (the view is rebuilt then) and
+/// the render thread faulted seconds later. Pure; Step() once per tick.
+class LoadGate {
+public:
+    explicit LoadGate(double settle_s = 3.0) : settle_(settle_s) {}
+    /// True when the HUD may be touched now.
+    bool Step(bool world_up, bool loading, bool map_known, double now) {
+        if (!world_up || loading || !map_known) {
+            steady_since_ = -1;
+            return false;
+        }
+        if (steady_since_ < 0) steady_since_ = now;
+        return now - steady_since_ >= settle_;
+    }
+    bool steady() const { return steady_since_ >= 0; }
+
+private:
+    double settle_;
+    double steady_since_ = -1;
 };
 
 /// A FNV-1a hash over `n` bytes (the equipment block).

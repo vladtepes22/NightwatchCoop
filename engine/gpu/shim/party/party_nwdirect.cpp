@@ -158,9 +158,9 @@ void gather_thread() {
         ok = true;
         how = "test address";
     } else {
-        // UPnP first: a mapping opens the game's party port on the router, so the peer's probes get in whatever the
-        // router does with unsolicited packets (the plain UPnP party path works where the STUN one lost 20/20, 12 Nov).
-        // Only a public external address counts (a router behind carrier NAT reports 100.64.x or a private one).
+        // UPnP first (Nightwatch ed6043c, vladtepes22): a mapping opens the game's party port on the router, so the
+        // peer's probes get in; a STUN address without a mapping lost every probe where plain UPnP worked.
+        // Only a public external address counts (carrier NAT reports 100.64.x or a private one).
         if (UpnpMapper::enabled_by_env() && !S().stop.load()) {
             auto m = std::make_unique<UpnpMapper>();
             m->start(own);
@@ -179,7 +179,6 @@ void gather_thread() {
             }
         }
         // Then the existing STUN code, from the game's party port (so the mapping is the one the peer must hit).
-        // Without a port mapping, the direct path only works if both routers let the punched packets through.
         const char* e = std::getenv("BB_PARTY_STUN");
         const std::string server = e && *e ? e : "stun.l.google.com:19302";
         if (!ok && server != "off" && server != "0") {

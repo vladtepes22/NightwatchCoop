@@ -128,6 +128,8 @@ bool TakeAltarAutopilot();
 /// list row (1-based) picked with Down / Enter. One shot.
 void SetTestGlyph(const std::string& code);
 void SetTestPick(int row);
+void SetTestTabs(int n);     ///< test aid: N tab switches before the pick
+void SetTestWait(int seconds);  ///< test aid: the test keys come N s after the box opened
 /// Host: its own online id (the roster's host entry), so the party's dungeon at its altar is
 /// another member's ritual (docs/party/chalice.md 7).
 void SetHostName(const std::string& name);

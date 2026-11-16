@@ -108,8 +108,13 @@ inline std::atomic<std::uint64_t> sticky_pages{0};
 inline std::atomic<std::uint64_t> images_registered{0};
 inline std::atomic<std::uint64_t> image_upload_bytes{0};
 inline std::atomic<std::uint64_t> buffer_upload_bytes{0};
-inline std::atomic<int> gpu_thread_clock{-1};
-inline std::atomic<std::uint64_t> draws{0}, dispatches{0}, submissions{0};
+inline std::atomic<int> gpu_thread_clock{-1}; ///< clockid_t of the GPU command thread
+inline std::atomic<unsigned long> gpu_tid{0}; ///< Windows thread id of the GPU command thread (stall probe dump)
+inline std::atomic<unsigned long> drawrec_tid{0}; ///< and of the draw pipe's recording thread (bb:DrawRec)
+inline std::atomic<unsigned long> recorder_tid{0}; ///< and of the first Vulkan recorder thread (bb:VkRecorder)
+inline std::atomic<unsigned long> copy_tid{0}; ///< and of the first guest copy thread (bb:Copy0)
+inline std::atomic<std::uint64_t> draws{0}, dispatches{0}, submissions{0}, flips{0};
+/// Frames the GPU command thread has started (display pass), for per-frame diagnostics.
 inline std::atomic<std::uint64_t> gpu_frames{0};
 inline std::atomic<std::uint64_t> t_resident{0}, t_protect{0}, t_image_create{0}, t_refresh{0},
     t_staging{0}, t_host_wait{0}, t_copy{0}, copy_bytes{0}, t_read_faults{0}, read_faults{0},
@@ -173,6 +178,9 @@ struct WaitTimer {
 inline std::atomic<std::uint64_t> gpu_sys_us{0}, gpu_user_us{0}, gpu_invol_switches{0},
     gpu_vol_switches{0}, gpu_minor_faults{0};
 inline std::atomic<std::uint64_t> gpu_signal_faults{0};
+/// Protection changes: calls and pages, those removing write access (TLB shootdowns) apart.
+/// hitch082b: image trap runs collected by PageManager's trap batches, and the joined runs they were set as.
+inline std::atomic<std::uint64_t> trap_batch_runs{0}, trap_batch_joined{0};
 inline std::atomic<std::uint64_t> protect_calls{0}, protect_pages{0}, protect_revoke_calls{0},
     protect_revoke_pages{0};
 enum ProtectKind : unsigned {

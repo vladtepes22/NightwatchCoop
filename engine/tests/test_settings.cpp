@@ -76,7 +76,7 @@ int main() {
         auto& d = BbSettings::Get();
         assert(d.party_level_sync && !d.party_phantom_hp && d.party_pvp_full_hp && d.party_boss_drops && !d.party_skip_prologue && d.party_vpn == 0 &&
                d.party_discovery && d.party_hud_ping);
-        { std::ofstream file(path); file << "settings_rev=5\nparty_level_sync=0\nparty_phantom_hp=1\nparty_skip_prologue=1\n"
+        { std::ofstream file(path); file << "settings_rev=6\nparty_level_sync=0\nparty_phantom_hp=1\nparty_skip_prologue=1\n"
                                              "party_vpn=Radmin VPN\nparty_discovery=0\nparty_hud_ping=0\n"; }
         BbSettings::Load();
         assert(!d.party_level_sync && d.party_phantom_hp && d.party_skip_prologue && d.party_vpn == 2 &&
@@ -109,7 +109,7 @@ int main() {
         // (settings_rev 4), read from and written to bbport.ini, and an explicit variable wins over the ini.
         auto& d = BbSettings::Get();
         assert(d.party_guest_gather && d.party_layer_travel);
-        { std::ofstream file(path); file << "settings_rev=5\nparty_guest_gather=0\nparty_layer_travel=0\n"; }
+        { std::ofstream file(path); file << "settings_rev=6\nparty_guest_gather=0\nparty_layer_travel=0\n"; }
         BbSettings::Load();
         assert(!d.party_guest_gather && !d.party_layer_travel);
         BbSettings::Save();
@@ -591,7 +591,7 @@ int main() {
     BbSettings::Save();
     assert(Read(path).find("party_max_invaders=2\n") != std::string::npos &&
            Read(path).find("party_give_gear=0\n") != std::string::npos);
-    { std::ofstream file(path); file << "settings_rev=5\nparty_max_invaders=9\n"; }
+    { std::ofstream file(path); file << "settings_rev=6\nparty_max_invaders=9\n"; }
     BbSettings::Load();
     assert(s.party_max_invaders == 2 && !s.party_give_gear);  // 9 clamped; a key the file does not name keeps its value
     s.party_give_gear = true;
@@ -609,15 +609,27 @@ int main() {
                s.party_give_gear && s.party_look_sync && s.party_map_marks && s.party_glyph_list && s.party_guest_altar &&
                s.party_guest_gather && s.party_layer_travel && !s.ll_pacing);
         const std::string text = Read(path);
-        assert(text.find("settings_rev=5\n") != std::string::npos && text.find("ll_pacing=0\n") != std::string::npos &&
+        assert(text.find("settings_rev=6\n") != std::string::npos && text.find("ll_pacing=0\n") != std::string::npos &&
                text.find("party_phantom_hp=0\n") != std::string::npos);
         for (const char* key : keys) assert(text.find(std::string(key) + "=1\n") != std::string::npos);
-        { std::ofstream file(path); file << "settings_rev=5\nparty_chat=0\nparty_phantom_hp=1\nll_pacing=1\n"; }
+        { std::ofstream file(path); file << "settings_rev=6\nparty_chat=0\nparty_phantom_hp=1\nll_pacing=1\n"; }
         BbSettings::Load();
         assert(!s.party_chat && s.party_phantom_hp && s.ll_pacing && Read(path).find("party_chat=0\n") != std::string::npos);
         s.party_chat = true;
         s.party_phantom_hp = false;
         s.ll_pacing = false;
+    }
+    // settings_rev 6 (visy 0.8.2): Hold the screen until smooth is on by default; an older file's 0 goes to 1 once,
+    // a rev 6 file's 0 stays.
+    {
+        { std::ofstream file(path); file << "settings_rev=5\nparty_settled_drop=0\n"; }
+        BbSettings::Load();
+        assert(s.party_settled_drop && s.settings_rev == BbSettings::kSettingsRev);
+        assert(Read(path).find("party_settled_drop=1\n") != std::string::npos);
+        { std::ofstream file(path); file << "settings_rev=6\nparty_settled_drop=0\n"; }
+        BbSettings::Load();
+        assert(!s.party_settled_drop);
+        s.party_settled_drop = true;
     }
     std::filesystem::remove(temporary);
     std::puts("PASS: settings save keeps other keys, menu position");

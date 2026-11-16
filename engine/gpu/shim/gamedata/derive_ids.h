@@ -27,6 +27,12 @@ struct MsbInfo {
 /// Decodes one MSB for the tables. Throws FormatError.
 MsbInfo ReadMsb(const MsbFile& f);
 
+/// ReadMsb for the build: an unreadable chalice piece (c or d set: it only contributes entity ids) is skipped, not fatal
+/// (*skipped = true, empty info), unless skip_bad is false (BB_PARTY_TABLES_SKIP_BAD_MSB=0, the old all-or-nothing).
+/// A damaged main map (c == d == 0) still throws: its points, events and NPCs feed the return / warp / mirror tables and
+/// a half-built table would be wrong on one PC only.
+MsbInfo ReadMsbForBuild(const MsbFile& f, bool skip_bad, bool* skipped);
+
 struct IdsInput {
     std::set<std::int64_t> maps;             // packed map ids (folders and MSBs)
     std::set<std::int64_t> remo_files;       // ids of remo/sAA_BB_NNNN.remobnd(.dcx)

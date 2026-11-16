@@ -39,4 +39,11 @@ void Install();
 using FrameEndFn = void (*)(std::uint64_t prev_exit_ns, std::uint64_t entry_ns, std::uint64_t exit_ns);
 bool SetFrameEndCallback(FrameEndFn fn);
 
+/// RE aid (BB_TSHARP_FIND=N, off by default, hitch082): where in the game's memory a texture descriptor
+/// (T#, 32 bytes) is kept. For the first N textures (256 px wide or more) bound 40 s or more after the
+/// start, all committed readable memory from 0x800000000 to 0x2000000000 is searched for the descriptor's
+/// first 16 bytes and every hit is printed with the 12 qwords before and the 8 from it on ("T# find:"
+/// lines). Each search stalls the caller for a second or more. Any thread.
+void NoteTsharp(const void* tsharp32, std::uint64_t address, unsigned width);
+
 } // namespace BbStallProbe

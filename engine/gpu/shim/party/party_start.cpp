@@ -72,8 +72,7 @@ StartStep ClassifyStart(const StartFlags& f, bool in_world) {
         return StartStep::Clinic;
     }
     // The Doll wakes only with Insight, which no first Dream visit gives: the prologue is over even when the starting
-    // weapons were never picked (a first playthrough that left without them stayed 'first-dream' for good: invasions
-    // and summons never came, 0.3.2-beta.1).
+    // weapons were never picked. Ported from Nightwatch 783c7b9 (vladtepes22).
     if (f.doll_awake) {
         return StartStep::Ready;
     }

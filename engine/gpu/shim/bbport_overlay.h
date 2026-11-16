@@ -37,6 +37,7 @@ bool MenuOpen();
 
 void SetTextPrompt(bool active, const std::string& prompt, const std::string& text);
 /// The text box's pick list (window.cpp): one line per choice, `selected` highlighted (-1: typing). Empty: none.
-void SetTextChoices(const std::vector<std::string>& lines, int selected);
+/// `tabs` (two or more) are drawn as a tab bar with `tab` highlighted; `lines` are the shown tab's rows.
+void SetTextChoices(const std::vector<std::string>& lines, int selected, const std::vector<std::string>& tabs = {}, int tab = 0);
 
 }

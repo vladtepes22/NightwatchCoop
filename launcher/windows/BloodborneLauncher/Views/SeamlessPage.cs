@@ -286,7 +286,7 @@ public sealed class SeamlessPage : LauncherPage
             ("chalice_glyph_browser", L.T("Chalice Glyph Browser"), true),
             ("party_guest_altar", L.T("Ritual Altar as a guest"), true),
             ("party_parallel_follow", L.T("Load with the host"), true), ("party_load_beside", L.T("Arrive beside the host"), true),
-            ("party_quick_rejoin", L.T("Rejoin in place"), true), ("party_settled_drop", L.T("Hold the screen until smooth"), false),
+            ("party_quick_rejoin", L.T("Rejoin in place"), true), ("party_settled_drop", L.T("Hold the screen until smooth"), true),
             ("party_nw_direct", L.T("Allow direct connection (lower ping, party members see your IP)"), false),
             ("party_stay", L.T("Stay in my world"), false), ("party_splitscreen", L.T("Splitscreen mode"), false));
         ComboRow(SymbolRegular.Alert24, L.T("Party messages"), PartyInfo("party_messages"),
@@ -1652,7 +1652,7 @@ public sealed class SeamlessPage : LauncherPage
         "party_parallel_follow" => L.T("On by default. When the host travels by lamp, headstone or Hunter's Mark, your game starts loading at once, behind one loading screen, instead of after the host's load."),
         "party_load_beside" => L.T("On by default. A party travel's load puts you beside the host, with no jump after the loading screen."),
         "party_quick_rejoin" => L.T("On by default. Party > Rejoin in the host's world reloads you beside the host with one loading screen, without leaving and going home first."),
-        "party_settled_drop" => L.T("Off by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more)."),
+        "party_settled_drop" => L.T("On by default. In a party the loading screen stays up until the world runs smoothly (at most 3 seconds more)."),
         "party_nw_direct" => L.T("Off by default. Over the Nightwatch VPN, a party member who also allows it is tried directly for about 3 seconds and used only if clearly faster than the tunnel. That member then sees your public IP. Takes effect at the next party link."),
         "party_rot_cleanse_echoes" => L.T("Retrieving your Blood Echoes removes the rot from the death that dropped them. Requires Rot on death."),
         "party_boss_hp" => L.T("Controls how much boss health scales for each additional guest."),

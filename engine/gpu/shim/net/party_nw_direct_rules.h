@@ -76,7 +76,8 @@ inline std::string log_line(Verdict v, double tunnel_ms, double direct_ms, int d
         std::snprintf(b, sizeof(b), "direct path: tunnel %.0f ms, direct %.0f ms -> tunnel", tunnel_ms, direct_ms);
         break;
     case Verdict::Loss:
-        if (direct_sent > 0 && direct_lost >= direct_sent) {  // nothing came back: there is no direct time to show
+        // Nightwatch ed6043c (vladtepes22): nothing came back -> no direct time to show.
+        if (direct_sent > 0 && direct_lost >= direct_sent) {
             std::snprintf(b, sizeof(b), "direct path: tunnel %.0f ms, direct no answer -> tunnel (loss %d/%d)",
                           tunnel_ms, direct_lost, direct_sent);
             break;

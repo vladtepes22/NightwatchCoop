@@ -1895,7 +1895,7 @@ void KillLoadedEnemyForTest(const char* what, std::uint32_t want, bool by_id, bo
     const char* how = "none";
     if (hp_only) {
         // ':hp': only HP 0, the state a lethal hit leaves: the chr's own update runs its death.
-        // ':npc' (guest_kill=0:npc): the lethal hit is marked as a non-player's (an NPC's fire).
+        // ':npc' (guest_kill=0:npc, NW-c18f60b): the lethal hit is marked as a non-player's (an NPC's fire).
         if (npc_hit) balance::TestNoteNpcKill(t.chr);
         std::uint64_t ins = 0, d = 0;
         if (SafeGet(t.chr + 0x3b0, &ins) && ins && SafeGet(ins + 0x20, &d) && d) {
@@ -5106,6 +5106,10 @@ void PartyDirector::ConfigureFromEnv() {
                 // host_pick=N: the altar's glyph box picks the N-th row of the pick list (Down, Enter)
                 chalice::SetTestPick(std::atoi(item.c_str() + 10));
                 Log("BB_PARTY_DIRECTOR_TEST: host_pick %d", std::atoi(item.c_str() + 10));
+            } else if (item.rfind("host_tabs=", 0) == 0) {
+                chalice::SetTestTabs(std::atoi(item.c_str() + 10));  // N tab switches before the pick
+            } else if (item.rfind("host_wait=", 0) == 0) {
+                chalice::SetTestWait(std::atoi(item.c_str() + 10));  // the test keys come N seconds after the box opened
             } else if (item.rfind("prompt=", 0) == 0) {
                 st.test.ap_prompt = item.substr(7);
             } else if (item.rfind("face=", 0) == 0) {
@@ -5268,7 +5272,9 @@ void PartyDirector::ConfigureFromEnv() {
                 if (step.kind == TravelStep::HostWarp || step.kind == TravelStep::HostKill) {
                     step.id = static_cast<std::uint32_t>(std::strtoul(item.c_str() + 10, nullptr, 10));
                 }
-                if ((step.kind == TravelStep::HostKill || step.kind == TravelStep::GuestKill) && item.find(":hp") != std::string::npos) {
+                if (step.kind == TravelStep::GuestKill && item.find(":npc") != std::string::npos) {
+                    step.args = "npc";  // guest_kill=ID:npc@S: HP 0 marked as a non-player's lethal hit (NW-c18f60b)
+                } else if ((step.kind == TravelStep::HostKill || step.kind == TravelStep::GuestKill) && item.find(":hp") != std::string::npos) {
                     step.args = "hp";  // host_kill=ID:hp@S: HP 0 only (the game's own death path)
                     // host_kill=ID:hpNN@S: HP set to NN % of its max (a fight's damage; the chr lives)
                     const int pct = std::atoi(item.c_str() + item.find(":hp") + 3);

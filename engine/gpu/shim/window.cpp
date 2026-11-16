@@ -1,3 +1,5 @@
+// bbport: SDL3 window for the Vulkan swapchain (X11 or Wayland).
+#include <algorithm>
 #include "bbport_headless.h"
 // bbport: SDL3 window for the Vulkan swapchain (X11, Wayland or Win32).
 #include <algorithm>
@@ -248,8 +250,22 @@ u32 BackgroundFrameLimit() {
     return limit;
 }
 
-void WindowSDL::BeginTextInput(const std::string& initial, const std::string& prompt,
-                               const std::vector<std::pair<std::string, std::string>>& choices, bool quiet) {
+void WindowSDL::SelectTab(int tab) {
+    text_tab = tab;
+    text_choices.clear();
+    for (const TextChoice& c : text_all) {
+        if (text_tabs.empty() || c.tab == text_tabs[size_t(tab)]) text_choices.emplace_back(c.value, c.label);
+    }
+    text_sel = text_choices.empty() ? -1 : 0;
+    if (text_sel == 0) text = text_choices[0].first;
+    if (!text_tabs.empty()) {
+        std::printf("[coop] Party: chalice: glyph list tab -> %s (%zu rows)\n", text_tabs[size_t(tab)].c_str(), text_choices.size());
+        std::fflush(stdout);
+    }
+}
+
+void WindowSDL::BeginTextInput(const std::string& initial, const std::string& prompt, const std::vector<TextChoice>& choices,
+                               bool quiet) {
     std::string keys;
     {
         std::scoped_lock lock{text_mutex};
@@ -258,9 +274,22 @@ void WindowSDL::BeginTextInput(const std::string& initial, const std::string& pr
         text_selected = !quiet && choices.empty() && !initial.empty();  // quiet: nothing shows a selection
         text_prompt = prompt;
         text_state = 0;
-        text_choices = choices;
-        text_sel = choices.empty() ? -1 : 0;
-        if (text_sel == 0) text = text_choices[0].first;  // the first choice is the answer until the player moves or types
+        text_all = choices;
+        text_tabs.clear();
+        for (const TextChoice& c : choices) {
+            if (!c.tab.empty() && std::find(text_tabs.begin(), text_tabs.end(), c.tab) == text_tabs.end()) text_tabs.push_back(c.tab);
+        }
+        for (const TextChoice& c : choices) {  // a row without a tab joins a tab of its own at the front
+            if (c.tab.empty() && !text_tabs.empty()) {
+                text_tabs.insert(text_tabs.begin(), "Party");
+                for (TextChoice& a : text_all) a.tab = a.tab.empty() ? "Party" : a.tab;
+                break;
+            }
+        }
+        if (text_tabs.size() < 2) text_tabs.clear();  // one tab is no tab
+        text_choices.clear();
+        text_tab = 0;
+        SelectTab(0);  // the first choice is the answer until the player moves or types
         text_requested = true;
         keys.swap(text_test_keys);
     }
@@ -268,8 +297,13 @@ void WindowSDL::BeginTextInput(const std::string& initial, const std::string& pr
 }
 
 void WindowSDL::QueueTestKeys(const std::string& keys) {
-    std::scoped_lock lock{text_mutex};
-    text_test_keys += keys;
+    bool now = false;
+    {
+        std::scoped_lock lock{text_mutex};
+        now = text_active;  // a box that is open already takes them at once (a slow pick)
+        if (!now) text_test_keys += keys;
+    }
+    if (now) TestType(keys);
 }
 
 int WindowSDL::PollTextInput(std::string& out) {
@@ -300,7 +334,7 @@ void WindowSDL::UpdateChoices() {
     if (text_active) {
         for (const auto& c : text_choices) lines.push_back(c.first + "   " + c.second);
     }
-    BbOverlay::SetTextChoices(lines, text_sel);
+    BbOverlay::SetTextChoices(lines, text_sel, text_active ? text_tabs : std::vector<std::string>{}, text_tab);
 }
 
 bool WindowSDL::IsTextInputActive() {
@@ -388,6 +422,10 @@ bool WindowSDL::PollEvents() {
                 text_sel = text_sel + 1 >= int(text_choices.size()) ? 0 : text_sel + 1;
                 text = text_choices[size_t(text_sel)].first;
                 text_selected = false;
+            } else if (event.type == SDL_EVENT_KEY_DOWN && !text_tabs.empty() &&
+                       (event.key.key == SDLK_LEFT || event.key.key == SDLK_RIGHT)) {
+                const int n = int(text_tabs.size());
+                SelectTab((text_tab + (event.key.key == SDLK_LEFT ? n - 1 : 1)) % n);
             } else if (event.type == SDL_EVENT_KEY_DOWN && !text_choices.empty() &&
                        (event.key.key == SDLK_PAGEUP || event.key.key == SDLK_PAGEDOWN)) {
                 const int n = int(text_choices.size());  // a long list (the community glyphs): ten rows at a time
@@ -429,12 +467,24 @@ bool WindowSDL::PollEvents() {
         // A pick list (Chalice glyphs): the d-pad moves the selection (a controller has no arrow keys here).
         if (text_active && !text_choices.empty() && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&
             (event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP || event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN ||
-             event.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER || event.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)) {
+             event.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER || event.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER ||
+             event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_LEFT || event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) {
             std::scoped_lock lock{text_mutex};
-            const int n = int(text_choices.size());  // L1 / R1: ten rows at a time (a long list: the community glyphs)
+            const int n = int(text_choices.size());
+            const bool shoulder = event.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER || event.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER;
+            const bool side = event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_LEFT || event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_RIGHT;
+            const bool left = event.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER || event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_LEFT;
+            if (!text_tabs.empty() && shoulder) {  // tabs: L1 / R1 switch the tab
+                const int t = int(text_tabs.size());
+                SelectTab((text_tab + (left ? t - 1 : 1)) % t);
+                UpdateTextTitle();
+                continue;
+            }
+            if (side && text_tabs.empty()) continue;  // no tabs: Left / Right do nothing
             if (event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP) text_sel = text_sel <= 0 ? n - 1 : text_sel - 1;
-            else if (event.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) text_sel = std::max(0, (text_sel < 0 ? 0 : text_sel) - 10);
-            else if (event.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER) text_sel = std::min(n - 1, (text_sel < 0 ? 0 : text_sel) + 10);
+            else if (left) text_sel = std::max(0, (text_sel < 0 ? 0 : text_sel) - 10);  // L1 / D-pad Left: ten rows up
+            else if (event.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER || event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_RIGHT)
+                text_sel = std::min(n - 1, (text_sel < 0 ? 0 : text_sel) + 10);
             else text_sel = text_sel + 1 >= n ? 0 : text_sel + 1;
             text = text_choices[size_t(text_sel)].first;
             text_selected = false;

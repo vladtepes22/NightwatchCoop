@@ -941,7 +941,17 @@ Liverpool::Task Liverpool::ProcessCeUpdate(std::span<const u32> ccb) {
         }
         case PM4ItOpcode::WaitOnDeCounterDiff: {
             const auto diff = it_body[0];
-            while ((cblock.de_count - cblock.ce_count) >= diff) {
+            // bbport: hold the CE only while it is `diff` or more ahead of the DE. The unsigned
+            // de - ce underflowed when the CE was ahead and counted a DE ahead of the CE as the
+            // CE being ahead. From Jgamrot/yharnam-pc 682e7f1 (GPL-2.0-or-later), itself from
+            // shadps4-emu/shadPS4 e6c79a5fe (Marcin Mitura). BB_CE_DE_COUNTER_FIX=0: old compare.
+            static const bool ce_de_fix = []() {
+                const char* e = std::getenv("BB_CE_DE_COUNTER_FIX");
+                return !(e && e[0] == '0');
+            }();
+            while (ce_de_fix ? (cblock.ce_count >= cblock.de_count &&
+                                (cblock.ce_count - cblock.de_count) >= diff)
+                             : ((cblock.de_count - cblock.ce_count) >= diff)) {
                 YIELD_CE();
             }
             break;

@@ -19,6 +19,8 @@
 #include "bbport_sections.h"
 #include "bbport_settings.h"
 #include "bbport_copy.h"
+#include "bbport_stall_probe.h"
+#include "bbport_tex_prereg.h"
 #include "bbport_ce_stats.h"
 #include "bbport_toggles.h"
 #include "bbport_write_log.h"
@@ -2004,6 +2006,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
             return (env ? std::strtoull(env, nullptr, 10) : 16ull) << 20;
         }();
         buffer_cache.Preupload(budget);
+        PreregisterTextures(frame);
     }
     const auto& regs = Regs();
     // bbport: the pass copying a finished frame to a display buffer; the previous draw's
@@ -3212,6 +3215,58 @@ void Rasterizer::EmitVertexBuffers() {
     });
 }
 
+// bbport: the first draws whose vertex attributes have a V# without records (a zeroed V# was a
+// VK_FORMAT_UNDEFINED attribute before BB_NULL_VERTEX_INPUT; an NVIDIA device loss followed).
+static void NoteNullVertexInputs(const GraphicsPipeline* pipeline,
+                                 std::span<const AmdGpu::Buffer> buffers) {
+    static std::atomic<u32> reports{0};
+    if (reports.load(std::memory_order_relaxed) >= 8 ||
+        std::ranges::none_of(buffers, [](const AmdGpu::Buffer& b) { return !b; })) {
+        return;
+    }
+    if (reports.fetch_add(1, std::memory_order_relaxed) >= 8) {
+        return;
+    }
+    const bool fixed = Shader::Gcn::IsNullVertexInput(AmdGpu::Buffer{});
+    std::string list;
+    for (u32 i = 0; i < buffers.size(); ++i) {
+        const auto& b = buffers[i];
+        if (b) {
+            continue;
+        }
+        const auto input = Shader::Gcn::GetVertexInputFormat(b, false);
+        list += fmt::format(" [{}: address {:#x} stride {} format {}/{} -> {}]", i,
+                            u64(b.base_address), u32(b.stride), u32(b.data_format),
+                            u32(b.num_format),
+                            vk::to_string(LiverpoolToVK::TrySurfaceFormat(input.data_format,
+                                                                          input.num_format)));
+    }
+    std::printf("Vertex input: vs %#llx draws %zu attributes, null V#s (no records):%s; %s\n",
+                static_cast<unsigned long long>(
+                    pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash),
+                buffers.size(), list.c_str(),
+                fixed ? "bound as zero float4 from no buffer"
+                      : "bound with their own format (BB_NULL_VERTEX_INPUT=0)");
+}
+
+// bbport: draws whose prepared vertex inputs were stale, reported every 5 s at most.
+static void NoteStaleVertexInputs() {
+    static std::atomic<u64> stale{0};
+    static std::atomic<s64> last_report{0};
+    const u64 count = stale.fetch_add(1, std::memory_order_relaxed) + 1;
+    const s64 now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch())
+                        .count();
+    s64 last = last_report.load(std::memory_order_relaxed);
+    if ((count != 1 && now - last < 5000) ||
+        !last_report.compare_exchange_strong(last, now, std::memory_order_relaxed)) {
+        return;
+    }
+    std::printf("Vertex inputs: %llu draws in all read their V#s again (the prepared ones were "
+                "stale)\n",
+                static_cast<unsigned long long>(count));
+}
+
 void Rasterizer::ResolveVertexBuffers(const GraphicsPipeline* pipeline,
                                       const PreparedDraw* prepared) {
     BB_SECTION(ResolveVertexBuffers);
@@ -3236,13 +3291,28 @@ void Rasterizer::ResolveVertexBuffers(const GraphicsPipeline* pipeline,
                 !BbToggle::Disabled(BbToggle::PreparedResources)
             ? &prepared->vertex
             : nullptr;
-    // bbport: the V#s this draw's packet carries are the truth. If the worker's copy differs
-    // (the game rewrote the table after the worker read it), its addresses or strides are stale
-    // and vertex fetch reads the wrong data ("vertex explosion"): read them here instead.
-    if (ready && packet_vsharps.size() == ready->count &&
-        std::memcmp(ready->buffers, packet_vsharps.data(),
-                    ready->count * sizeof(AmdGpu::Buffer)) != 0) {
-        ready = nullptr;
+    // bbport: a draw-preparation worker that read the V#s before the game rewrote their table
+    // left stale addresses or strides (stretched polygons across the screen). The prepared copy
+    // is compared with the V#s the draw packet carries, or with a fresh read of the table when
+    // the packet has none; a differing one is read again below. BB_STALE_VSHARP_CHECK=0 skips the
+    // check. Ported by intent from yharnam-pc 54b2ca5 (xiaodoudou, GPL-2.0-or-later).
+    if (ready) {
+        static const bool check = [] {
+            const char* value = std::getenv("BB_STALE_VSHARP_CHECK");
+            return !value || value[0] != '0';
+        }();
+        if (check) {
+            const bool same =
+                packet_vsharps.size() == ready->count
+                    ? std::memcmp(ready->buffers, packet_vsharps.data(),
+                                  ready->count * sizeof(AmdGpu::Buffer)) == 0
+                    : fetch->SharpsUnchanged(pipeline->GetStage(Shader::SwStage::Vertex),
+                                             ready->buffers);
+            if (!same) {
+                NoteStaleVertexInputs();
+                ready = nullptr;
+            }
+        }
     }
     if (ready) {
         attributes.assign(ready->attributes, ready->attributes + ready->count);
@@ -3376,8 +3446,9 @@ void Rasterizer::ResolveVertexBuffers(const GraphicsPipeline* pipeline,
             host_offsets.push_back(0);
         }
         host_sizes.push_back(buffer.GetSize());
-        host_strides.push_back(buffer.GetStride());
+        host_strides.push_back(Shader::Gcn::GetVertexInputFormat(buffer).stride);
     }
+    NoteNullVertexInputs(pipeline, {guest_buffers.data(), guest_buffers.size()});
 
     v.num_buffers = static_cast<u32>(guest_buffers.size());
 }
@@ -3573,17 +3644,33 @@ bool Rasterizer::IsComputeImageClear(const Pipeline* pipeline) {
         return false;
     }
 
-    // Find image the buffer alias
-    const auto image1_id =
-        texture_cache.FindImageFromRange(buf1.base_address, buf1.GetSize(), false);
+    // Find image the buffer alias. bbport: or one layer of an array / cube (the point lights'
+    // shadow cube is cleared a face at a time: the real shader only wrote memory, the other
+    // faces kept older shadows that showed as wedges of light). Port of deadinside28/bloodborne_pc
+    // 0fc2921c (GPL-2.0-or-later); BB_CLEAR_LAYER=0 restores whole-image clears only.
+    static const bool layer_clear = [] {
+        const char* env = std::getenv("BB_CLEAR_LAYER");
+        return !env || env[0] != '0';
+    }();
+    auto image1_id = texture_cache.FindImageFromRange(buf1.base_address, buf1.GetSize(), false);
+    u32 layer = 0;
+    bool one_layer = false;
+    if (layer_clear &&
+        (!image1_id || texture_cache.GetImage(image1_id).info.guest_size != buf1.GetSize())) {
+        const auto layer_id = texture_cache.FindImageLayer(buf1.base_address, buf1.GetSize(), layer);
+        if (layer_id) {
+            image1_id = layer_id;
+            one_layer = true;
+        }
+    }
     if (!image1_id) {
         return false;
     }
 
     // Image clear must be valid
     VideoCore::Image& image1 = texture_cache.GetImage(image1_id);
-    if (image1.info.guest_size != buf1.GetSize() || image1.info.num_bits != buf1_bpp ||
-        image1.info.props.is_depth) {
+    if ((!one_layer && image1.info.guest_size != buf1.GetSize()) ||
+        image1.info.num_bits != buf1_bpp || image1.info.props.is_depth) {
         return false;
     }
 
@@ -3592,14 +3679,11 @@ bool Rasterizer::IsComputeImageClear(const Pipeline* pipeline) {
     const vk::ClearValue clear = {
         .color = {.float32 = std::array<float, 4>{values[0], values[1], values[2], values[3]}},
     };
-    const VideoCore::SubresourceRange range = {
-        .base =
-            {
-                .level = 0,
-                .layer = 0,
-            },
-        .extent = image1.info.resources,
-    };
+    const VideoCore::SubresourceRange range =
+        one_layer ? VideoCore::SubresourceRange{.base = {.level = 0, .layer = layer},
+                                                .extent = {.levels = 1, .layers = 1}}
+                  : VideoCore::SubresourceRange{.base = {.level = 0, .layer = 0},
+                                                .extent = image1.info.resources};
     runtime.ClearImage(&image1, range, clear);
     return true;
 }
@@ -3839,6 +3923,78 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                                                    : vk::DescriptorType::eStorageBuffer;
         set_write.pBufferInfo = &buffer_infos.back();
         ++binding.buffer;
+    }
+}
+
+// bbport hitch082 (bbport_tex_prereg.h): textures the game created are registered here, ahead of their
+// first draw, so a doorway does not bring hundreds of first-use registrations into one frame. Once a
+// frame, on the thread that binds textures. Everything that is due while the loading screen is up (at
+// most 256 MiB a frame, so the screen keeps animating); BB_TEX_PREREGISTER_MB (12) a frame in the world.
+// A descriptor waits BB_TEX_PREREGISTER_QUIET frames (20) after the game built it: the texture's bytes
+// may still be on their way. Registering early is safe either way (the image write-protects its pages; a
+// later write marks it dirty and the first draw refreshes it), only wasted.
+void Rasterizer::PreregisterTextures(u32 frame) {
+    if (!BbTexPrereg::Enabled()) {
+        return;
+    }
+    static const u64 world_budget = [] {
+        const char* env = std::getenv("BB_TEX_PREREGISTER_MB");
+        return (env && *env ? std::strtoull(env, nullptr, 10) : 12ull) << 20;
+    }();
+    static const u32 quiet = [] {
+        const char* env = std::getenv("BB_TEX_PREREGISTER_QUIET");
+        return env && *env ? u32(std::strtoul(env, nullptr, 10)) : 20u;
+    }();
+    static const bool stats = std::getenv("BB_FRAME_STATS") != nullptr;
+    if (stats && frame - prereg_report_frame >= 600) {
+        prereg_report_frame = frame;
+        BbTexPrereg::Report();
+    }
+    const bool loading = BbTexPrereg::LoadingScreenUp();
+    const u64 budget = loading ? (256ull << 20) : world_budget;
+    u64 used = 0, registered = 0, registered_bytes = 0, already = 0, rejected = 0;
+    BbTexPrereg::Entry batch[32];
+    while (used < budget) {
+        const std::size_t n = BbTexPrereg::Take(batch, std::size(batch), frame, quiet);
+        if (n == 0) {
+            break;
+        }
+        for (std::size_t i = 0; i < n; ++i) {
+            AmdGpu::Image tsharp;
+            static_assert(sizeof(tsharp) == sizeof(batch[i].sharp));
+            std::memcpy(&tsharp, batch[i].sharp, sizeof(tsharp));
+            const auto data_fmt = tsharp.GetDataFmt();
+            const auto num_fmt = tsharp.GetNumberFmt();
+            if (!tsharp.Valid() || tsharp.Address() == 0 || !IsKnownFormat(data_fmt, num_fmt) ||
+                !memory->IsValidGpuMapping(tsharp.Address(), 0)) {
+                ++rejected; // freed since, or not GPU memory
+                continue;
+            }
+            const Shader::ImageResource res{};
+            VideoCore::TextureCache::ImageDesc desc{tsharp, res};
+            if (desc.info.guest_size == 0 ||
+                !memory->IsValidGpuMapping(tsharp.Address() + desc.info.guest_size - 1, 0)) {
+                ++rejected;
+                continue;
+            }
+            const u64 generation = texture_cache.RegistryGeneration();
+            const VideoCore::ImageId image_id = texture_cache.FindImage(desc);
+            if (!image_id) {
+                ++rejected;
+                continue;
+            }
+            if (texture_cache.RegistryGeneration() == generation && texture_cache.IsUpToDate(image_id)) {
+                ++already;
+                continue;
+            }
+            texture_cache.UpdateImage(image_id);
+            ++registered;
+            registered_bytes += desc.info.guest_size;
+            used += desc.info.guest_size;
+        }
+    }
+    if (registered | already | rejected) {
+        BbTexPrereg::Count(registered, registered_bytes, already, rejected);
     }
 }
 
@@ -4172,6 +4328,9 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
                                      !image_desc.needs_native && !image_desc.is_written &&
                                      mip_fallback_mode == Shader::MipStorageFallbackMode::None;
 
+        if (static const bool tfind = std::getenv("BB_TSHARP_FIND") != nullptr; tfind && !on_helper) {
+            BbStallProbe::NoteTsharp(&tsharp, tsharp.Address(), u32(tsharp.width) + 1); // RE aid (hitch082)
+        }
         auto& desc_entry =
             images ? CachedImageDescEntry(tsharp, image_desc, images->image_hashes[image_index])
                    : CachedImageDescEntry(tsharp, image_desc);

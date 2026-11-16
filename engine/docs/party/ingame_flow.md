@@ -14,7 +14,7 @@ the relaunch file; unit-tested by `tests/test_party_flow.cpp`, target `party-flo
 1. Host: title screen → **Party** (right after *New Game*) → **New party game** (press Cross
    twice: the first press asks *Press again to confirm* on the help line). The game restarts by itself (a few seconds) into the party game: online title, party
    saves (`user\savedata_party`, empty the first time), hosting. Choose **New Game**, make the
-   character. The party code is on *System → Party* (*Copy party code*) and in
+   character. The party code is on *System → Party Settings → Party* (*Copy party code*) and in
    `user\party_code.txt`; it stays the same in later sessions (§4).
 2. Friends: title → **Party** → **Host address** (type or paste the host's party code or
    `host:port`, Enter) → **Password** (if the host set one) → **Join party game** (Cross twice). The game
@@ -30,10 +30,10 @@ game** (their last role was *join*: the saved address and password are used) –
 character loads, the game joins the host and the summon follows by itself. *Continue* /
 *New Game* on the title stay the single-player game.
 
-**In the world (party game):** *System → Party* has the party status, *Copy party code* (a host:
+**In the world (party game):** *System → Party Settings → Party* has the party status, *Copy party code* (a host:
 *Copy Internet code*, with *Copy LAN code* on the *Party mode* page; the help line shows the code,
 the value *Copy* / *Copied*), *Summon again* / *Rejoin
-the host*, the host's **Gather the party** (I5, party_gather.h) and *Leave the party*; *System → Party mode* has **Host party** / **Join party** (the
+the host*, the host's **Gather the party** (I5, party_gather.h) and *Leave the party*; *System → Party Settings → Party mode* has **Host party** / **Join party** (the
 other role: a restart, the character continues; or hosting / joining again after *Leave*) and
 **Single player** (restart into the single-player game and saves). In a launcher-started party
 game the title has *Party* (the status: role and "not open yet" / "not joined yet" before the
@@ -64,7 +64,7 @@ widgets (kept with a reference from page+0xE50's rows) redraw their items (0x1AC
 run-time text changed, from the game's menu thread (`bbport_game_menu.cpp` live value columns;
 `BB_GAME_MENU_LIVE_VALUES=0` turns it off).
 
-**Leave in the world (guest)**: *System > Party > Leave the party* (Cross twice) first runs the game's own
+**Leave in the world (guest)**: *System > Party Settings > Party > Leave the party* (Cross twice) first runs the game's own
 voluntary leave and stops the party link once the game's session is idle (`party_status_bridge.cpp`).
 The vanilla path (Ghidra): `OnLeaveMenu_Yes 0x1389FB0` = session leave (0x13CDDA0: BeginLeaveSession
 0x1ED07A0 + drop) and, for a phantom, `OnLeave_Limit 0x138A4A0` at once (pre-summon spot, the funnel
@@ -150,9 +150,9 @@ online-only items – and page items through AddPageItem 0x1B4E2A0 (0x61F99, 0x6
 already hooks AddPageItem (System pages); the flow adds a byte-verified detour on AddCommandItem
 (prologue `55 48 89 E5 41 57`, the same 6 bytes the System hook moves): right after the item whose
 name text is New Game's (the pointer the message lookup returned for 200/0x61F97), it adds the
-port's **Party** page as a title page item, with the same page factory as *System → Party*. So the
+port's **Party** page as a title page item, with the same page factory as *System → Party Settings → Party*. So the
 title shows *Continue / Load Game / New Game / Party / ...*; *Party* opens the same page as
-*System → Party*. `BB_PARTY_TITLE_ENTRY=0` leaves the title menu alone (*System → Party* still has
+*System → Party Settings → Party*. `BB_PARTY_TITLE_ENTRY=0` leaves the title menu alone (*System → Party Settings → Party* still has
 everything).
 
 ## 4. user\party.json

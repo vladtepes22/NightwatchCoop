@@ -100,6 +100,17 @@ MsbInfo ReadMsb(const MsbFile& f) {
     return info;
 }
 
+MsbInfo ReadMsbForBuild(const MsbFile& f, bool skip_bad, bool* skipped) {
+    *skipped = false;
+    if (!skip_bad || (!f.c && !f.d)) return ReadMsb(f);
+    try {
+        return ReadMsb(f);
+    } catch (const std::exception&) {
+        *skipped = true;
+        return MsbInfo{};
+    }
+}
+
 Sections DeriveIds(const IdsInput& in) {
     const ParamSet& P = *in.params;
     const std::vector<MsbFile>& msbs = *in.msbs;

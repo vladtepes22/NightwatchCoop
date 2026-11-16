@@ -5,8 +5,8 @@ and the party messages are cut down. Every setting is the player's own; nothing 
 
 | Setting | Where | Default |
 |---|---|---|
-| `party_splitscreen` (env `BB_PARTY_SPLITSCREEN`) | System > My party: Splitscreen > Splitscreen mode; launcher My Party > Splitscreen; bbport.ini | off |
-| `party_messages` = `all` / `errors` / `off` (env `BB_PARTY_MESSAGES`) | System > My party: Splitscreen > Party messages; launcher My Party > Party messages; bbport.ini | all |
+| `party_splitscreen` (env `BB_PARTY_SPLITSCREEN`) | System > Party Settings > My party: Splitscreen > Splitscreen mode; launcher My Party > Splitscreen; bbport.ini | off |
+| `party_messages` = `all` / `errors` / `off` (env `BB_PARTY_MESSAGES`) | System > Party Settings > My party: Splitscreen > Party messages; launcher My Party > Party messages; bbport.ini | all |
 
 Both are live (no restart). The pure rules are in `gpu/shim/party/party_splitscreen_rules.h`
 (unit test `party-splitscreen-test`, `tests/test_party_splitscreen.cpp`); the drawing is in `bbport_overlay.cpp`

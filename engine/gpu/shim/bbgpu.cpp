@@ -3,6 +3,7 @@
 #include "bbport_write_log.h"
 #include "bbport_gnm_hooks.h"
 #include "bbport_load_speed.h"
+#include "bbport_tex_prereg.h"
 #include "bbport_load_trace.h"
 #include "bbport_fast_fades.h"
 #include "bbport_parts_budget.h"
@@ -631,6 +632,7 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbStallProbe::Install();  // visy 0.8.1: BB_STALL_PROBE, long main-loop frames split into main work / render wait (diagnostic)
     BbLoadTrace::Install();  // visy 0.8.1: BB_LOAD_TRACE, the map load step by step with IO / GPU / CPU counters (diagnostic)
     BbLoadSpeed::Install();  // visy 0.8.1: BB_LOAD_WORKERS / BB_FAST_INFLATE, more post-processor threads, zlib-ng inflate
+    BbTexPrereg::Install();  // visy 0.8.2 hitch082: textures registered when the game creates them (BB_TEX_PREREGISTER=0 off)
     coop::seam::Install();  // visy 0.8.1 seamless join: held / settled loading screen drop, frame-end quiet point
     coop::lamptravel::Install(image, size);
     coop::autohud::Install();  // the auto-hide HUD (visy 0.7.8; setting off by default)
@@ -729,12 +731,21 @@ extern "C" void bbgpu_ime_closed(uint32_t max_length, const char* text, int canc
 
 extern "C" int bbgpu_text_input_begin_list(const char* initial, const char* prompt, const char* choices) {
     if (!g_window) return 0;
-    std::vector<std::pair<std::string, std::string>> list;
+    std::vector<Frontend::WindowSDL::TextChoice> list;
     for (const char* p = choices ? choices : ""; *p;) {
         const char* end = std::strchr(p, '\n');
         const std::string line(p, end ? size_t(end - p) : std::strlen(p));
         const size_t tab = line.find('\t');
-        if (!line.empty()) list.emplace_back(line.substr(0, tab), tab == std::string::npos ? "" : line.substr(tab + 1));
+        if (!line.empty()) {  // value TAB label [TAB tab name]
+            Frontend::WindowSDL::TextChoice c;
+            c.value = line.substr(0, tab);
+            if (tab != std::string::npos) {
+                const size_t tab2 = line.find('\t', tab + 1);
+                c.label = line.substr(tab + 1, tab2 == std::string::npos ? std::string::npos : tab2 - tab - 1);
+                if (tab2 != std::string::npos) c.tab = line.substr(tab2 + 1);
+            }
+            list.push_back(std::move(c));
+        }
         if (!end) break;
         p = end + 1;
     }

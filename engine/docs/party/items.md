@@ -1127,7 +1127,7 @@ blow the damage hook missed or to something else (the log has no per-hit lines).
 (`Full`), marks, tests, Chalice grants or lots without a share path; text `<item>: shared with the party` with the game's
 own item name (runes: "Caryll rune"); at most one every 2.5 s, the same text not again within 20 s, 4 waiting at most;
 shown through the party notice corner, so it follows the party notices (`party_toasts`) and the planned on-screen-messages
-setting; own switch `party_item_notices` (System > Party members, launcher My Party, bbport.ini; default on).
+setting; own switch `party_item_notices` (System > Party Settings > Party members, launcher My Party, bbport.ini; default on).
 Test aids: `BB_PARTY_GUEST_PICKUP_TEST=lot,...` (a guest "picks up" shared treasure 20 s after its world is steady: the
 D4 pickup path's flag write and `ReportGuestKeyTreasure`), smoke groups `reward_guest_kill` (rw), `reward_eye` (rwe),
 `reward_treasure` (rwt).

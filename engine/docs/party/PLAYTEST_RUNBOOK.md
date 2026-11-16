@@ -15,7 +15,7 @@ a plain home connection (no VPN) - that alone is what proves F1 and F2. Everyone
 1. **Version.** Everyone installs the same 0.8.0 release (the launcher header shows the version; the host
    reads it out). A different build is a refusal, which is the point of step A9, so do not test it by accident.
 2. **Characters.** Anyone with a character past the clinic keeps it. For a brand-new guest character the
-   host turns on *System > Party rules: Phantoms > Skip the prologue*, so the character starts at the Central
+   host turns on *System > Party Settings > Party rules: Phantoms > Skip the prologue*, so the character starts at the Central
    Yharnam lamp (the real prologue is not part of this run). The host's character has the Cleric Beast and
    Father Gascoigne alive and the Central Yharnam and Cathedral Ward lamps lit (back up the saves first,
    as for any playtest). Leave the Hunter's Dream's other lamps alone.
@@ -28,10 +28,10 @@ a plain home connection (no VPN) - that alone is what proves F1 and F2. Everyone
 
 | Who | Where | Switch |
 |---|---|---|
-| Host | System > Party rules: Rot | **Rot on death** ON (C4; leave the three cleanse options on) |
-| Host | System > Party rules: World | **Party votes on travel** ON; the host turns it OFF again after block B3 |
-| Guest 1 | System > My party: Chalice | **Ritual Altar as a guest** ON (G1) |
-| Guest 2 | System > My party: Display (or the launcher's game settings) | **Auto-hide HUD** ON and **Party name tags** = name + level (E2) |
+| Host | System > Party Settings > Party rules: Rot | **Rot on death** ON (C4; leave the three cleanse options on) |
+| Host | System > Party Settings > Party rules: World | **Party votes on travel** ON; the host turns it OFF again after block B3 |
+| Guest 1 | System > Party Settings > My party: Chalice | **Ritual Altar as a guest** ON (G1) |
+| Guest 2 | System > Party Settings > My party: Display (or the launcher's game settings) | **Auto-hide HUD** ON and **Party name tags** = name + level (E2) |
 
 6. **Save hashes (A2), on every PC, before the game starts.** From the bbport folder:
    `python\python.exe -I scripts\save_hash.py . -o savehash_pre.json`. Keep the file. Do not start the game
@@ -72,7 +72,7 @@ Everyone is in the host's Dream. Order below is the order to do things in.
 
 ### A7 Player count, 4 PCs (while joining)
 - **Who:** all.
-- **Do:** all three guests in the Dream together. Open *System > Party > Members*.
+- **Do:** all three guests in the Dream together. Open *System > Party Settings > Party > Members*.
 - **Look for:** four rows, slots 0-3, pings and maps.
 - **Proof marker:** host log `Party: cooperators N -> 3` and a roster line with `(slot 3, ...)`.
 
@@ -123,7 +123,7 @@ Everyone is in the host's Dream. Order below is the order to do things in.
 
 ### A3 Start / join in game (Leave and Rejoin), A6 Leave cleanly
 - **Who:** Guest 2 presses, Host watches and times it.
-- **Do:** *System > Party > Leave and Rejoin* (Leave). Wait until the host's log shows it (host counts seconds). Then
+- **Do:** *System > Party Settings > Party > Leave and Rejoin* (Leave). Wait until the host's log shows it (host counts seconds). Then
   rejoin from the same page.
 - **Look for:** no "Session lost" message, the guest is home in a few seconds, the host sees it leave in
   under 3 s, the rejoin lands beside the host.

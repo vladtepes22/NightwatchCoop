@@ -183,8 +183,8 @@ struct Values {
     std::atomic<bool> party_parallel_follow{true};
     /// 0.8.1 seamless join B: in a party, the loading screen stays up after a load until the frames ran under 50 ms
     /// for 1 s without a break (at most 3 s), and the drop runs at the frame end's quiet point (party_seam.cpp; ini
-    /// party_settled_drop; env BB_PARTY_SETTLED_DROP=0/1 over it; off by default). Live, local.
-    std::atomic<bool> party_settled_drop{false};
+    /// party_settled_drop; env BB_PARTY_SETTLED_DROP=0/1 over it; on by default since 0.8.2). Live, local.
+    std::atomic<bool> party_settled_drop{true};
     /// 0.8.1 seamless join C: a guest's follow load writes the spot beside the host into the summoned placement, so
     /// the load itself puts it there (no warp after the screen drops unless it landed elsewhere) (ini
     /// party_load_beside; env BB_PARTY_LOAD_BESIDE=0/1 over it; on by default since 0.8.1). Live, local.
@@ -606,7 +606,8 @@ extern const PartySwitch PartySwitches[];
 ///              party_give_items, party_give_gear, party_look_sync, party_map_marks, party_glyph_list,
 ///              party_guest_altar; off = party_phantom_hp.
 ///   5 (0.3.2): ll_pacing off once (it was on by default and every save wrote its 1; NW-69aae50).
-constexpr int kSettingsRev = 5;
+///   6 (0.3.2, visy 0.8.2): party_settled_drop on once (on by default now; older saves wrote its 0).
+constexpr int kSettingsRev = 6;
 extern const int PartySwitchCount;
 /// party_guest_insight's ini / env values by index (parity, full, 0).
 const char* GuestInsightName(int mode);

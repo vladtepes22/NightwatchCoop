@@ -16,6 +16,16 @@
 #include "bbport_toggles.h"
 #include "common/thread.h"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace BbCopy {
 namespace {
 
@@ -199,6 +209,11 @@ private:
     void Loop(unsigned index) {
         Common::SetCurrentThreadName(("bb:Copy" + std::to_string(index)).c_str());
         BbThreads::MakeCritical( true);
+#ifdef _WIN32
+        if (index == 0) {
+            BbStats::copy_tid.store(GetCurrentThreadId()); // stall probe dump
+        }
+#endif
         u64 seen = 0;
         std::unique_lock lk{mutex};
         while (true) {

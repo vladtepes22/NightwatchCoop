@@ -8,7 +8,7 @@ half of the inventory work is `ReadGiveFacts` / `GiveGoodsToOwn` / `TakeGoodsFro
 
 ## 1. Player view
 
-* Switch `party_give_items` (System > My party: Giving, the launcher's My Party tab, bbport.ini, the Insert menu's Party
+* Switch `party_give_items` (System > Party Settings > My party: Giving, the launcher's My Party tab, bbport.ini, the Insert menu's Party
   tab). **Off by default.** It is per player and has two meanings: with it on, an item's command menu in the inventory has a
   *Give* entry and you can send; with it off other hunters' gives are refused ("does not take gifts") - the consent.
   `BB_PARTY_GIVE_ITEMS=1` forces it on (tests).
@@ -123,7 +123,7 @@ Blood Stone Shard and completes a give.
 
 ### 5.1 Player view
 
-* Switch `party_give_gear` (System > My party: Giving: *Give weapons and armor*, the launcher's My Party tab, bbport.ini,
+* Switch `party_give_gear` (System > Party Settings > My party: Giving: *Give weapons and armor*, the launcher's My Party tab, bbport.ini,
   the Insert menu's Party tab; `BB_PARTY_GIVE_GEAR=1` forces it on). **Off by default.** It is separate from `party_give_items`
   (a hunter may take bullets and refuse gear): the own switch adds *Give* to a weapon's / armor's command menu in the inventory,
   and with it off other hunters' gear gifts are refused ("does not take weapons and armor") - the consent.

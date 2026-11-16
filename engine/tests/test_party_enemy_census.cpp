@@ -118,7 +118,7 @@ int main() {
         r.Update(L{{2410300, false, 0xD0, 1}}, 1, &died);
         assert(r.Update(L{{2410300, true, 0xD0, 1}}, 2, &died).empty() && !r.Dead(2410300));
         died.clear();
-        // an enemy killed by a non-player's hit (an NPC's fire, another enemy) is no party kill.
+        // NW-c18f60b: an enemy killed by a non-player's hit (an NPC's fire, another enemy) is no party kill.
         KillRecord n;
         n.Reset(2);
         std::vector<std::uint32_t> ign;

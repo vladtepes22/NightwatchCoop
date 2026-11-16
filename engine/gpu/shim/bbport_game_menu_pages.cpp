@@ -1519,8 +1519,8 @@ void DefineAll() {
         "On by default. On the host's party lamp travel your game loads at once, not after the host's load",
         "Вкл. по умолчанию. При переходе хоста к фонарю ваша игра грузится сразу, а не после хоста");
     own(&Values::party_settled_drop, "Hold screen till smooth", "Экран до плавности",
-        "Off by default. In a party the loading screen stays up until the world runs smoothly (at most 3 s)",
-        "Выкл. по умолчанию. В группе экран загрузки держится, пока мир не пойдёт плавно (до 3 с)");
+        "On by default. In a party the loading screen stays up until the world runs smoothly (at most 3 s)",
+        "Вкл. по умолчанию. В группе экран загрузки держится, пока мир не пойдёт плавно (до 3 с)");
     own(&Values::party_load_beside, "Arrive beside the host", "Сразу рядом с хостом",
         "On by default. A party travel's load puts you beside the host, no jump after the screen",
         "Вкл. по умолчанию. Загрузка при переходе ставит вас рядом с хостом, без прыжка после экрана");

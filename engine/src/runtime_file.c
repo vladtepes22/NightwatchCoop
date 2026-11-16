@@ -832,6 +832,28 @@ static void touch_for_write(void *buffer,uint64_t size) {
         *b=*b;
     }
 }
+/* Credit: Jgamrot/yharnam-pc 1e6fb99 (GPL-2.0-or-later), ported by intent (visy 0.8.2). On Windows pread/pwrite
+ * move the descriptor's file offset and put it back (win32_compat.c positional()); a read, write or lseek of
+ * another thread in between used or lost the wrong offset, and the game reads its archives both ways (map pieces
+ * loaded without model or collision). Everything that uses the offset holds the descriptor's lock.
+ * BB_FILE_OFFSET_LOCK=0 restores the old unlocked behaviour. */
+#ifdef _WIN32
+static SRWLOCK offset_locks[MAX_FILES];
+static int offset_lock_on(void) {
+    static int on=-1;
+    if (on<0) { const char *e=getenv("BB_FILE_OFFSET_LOCK"); on=!(e && e[0]=='0'); }
+    return on;
+}
+static int offset_lock(int fd) {
+    if (fd<3 || fd>=MAX_FILES || !offset_lock_on()) return 0;
+    AcquireSRWLockExclusive(&offset_locks[fd]);
+    return 1;
+}
+static void offset_unlock(int fd,int held) { if (held) ReleaseSRWLockExclusive(&offset_locks[fd]); }
+#else
+static int offset_lock(int fd) { (void)fd; return 0; }
+static void offset_unlock(int fd,int held) { (void)fd; (void)held; }
+#endif
 static ssize_t read_bounced(int h,void *buffer,uint64_t size,int64_t offset) {
     enum { BOUNCE=1<<20 };
     unsigned char *bounce=malloc(size<BOUNCE ? size : BOUNCE);
@@ -870,8 +892,10 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
     const int loader=fd_is_loader(fd);
     const uint64_t start=stream_read_begin(loader);
     const uint64_t t0=host_monotonic_ns();
+    const int held=offset_lock(fd);
     ssize_t n=read(h,buffer,size);
     if (n<0 && size && runtime_memory_guest_writable((uintptr_t)buffer,size)) n=read_bounced(h,buffer,size,-1);
+    { const int e=errno; offset_unlock(fd,held); errno=e; }
     stream_read_end(loader,start,n);
     __atomic_add_fetch(&read_ns,host_monotonic_ns()-t0,__ATOMIC_RELAXED);
     if (n<0) { int e=errno; note_read_failure(fd,size,-1,e); return -e; }
@@ -887,8 +911,10 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     const int loader=fd_is_loader(fd);
     const uint64_t start=stream_read_begin(loader);
     const uint64_t t0=host_monotonic_ns();
+    const int held=offset_lock(fd);
     ssize_t n=pread(h,buffer,size,offset);
     if (n<0 && size && offset>=0 && runtime_memory_guest_writable((uintptr_t)buffer,size)) n=read_bounced(h,buffer,size,offset);
+    { const int e=errno; offset_unlock(fd,held); errno=e; }
     stream_read_end(loader,start,n);
     __atomic_add_fetch(&read_ns,host_monotonic_ns()-t0,__ATOMIC_RELAXED);
     if (n<0) { int e=errno; note_read_failure(fd,size,offset,e); return -e; }
@@ -899,16 +925,22 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
 static int64_t do_write(int fd,const void *buffer,uint64_t size) {
     int h=host_fd_written(fd);
     if (h<0) return -EBADF;
+    const int held=offset_lock(fd);
     ssize_t n=write(h,buffer,size);
-    if (n<0) return -errno;
+    int e=errno;
+    offset_unlock(fd,held);
+    if (n<0) return -e;
     __atomic_add_fetch(&writes,1,__ATOMIC_RELAXED);
     return n;
 }
 static int64_t do_pwrite(int fd,const void *buffer,uint64_t size,int64_t offset) {
     int h=host_fd_written(fd);
     if (h<0) return -EBADF;
+    const int held=offset_lock(fd);
     ssize_t n=pwrite(h,buffer,size,offset);
-    return n<0 ? -errno : n;
+    int e=errno;
+    offset_unlock(fd,held);
+    return n<0 ? -e : n;
 }
 static int64_t do_lseek(int fd,int64_t offset,int whence) {
     File *f=get(fd);
@@ -918,8 +950,11 @@ static int64_t do_lseek(int fd,int64_t offset,int whence) {
         if (whence==0 && offset>=0) { f->position=(size_t)offset; return offset; }
         return -EINVAL;
     }
+    const int held=offset_lock(fd);
     int64_t r=lseek(f->host,offset,whence);
-    return r<0 ? -errno : r;
+    const int e=errno;
+    offset_unlock(fd,held);
+    return r<0 ? -e : r;
 }
 static int64_t do_stat(const char *guest,GuestStat *out);
 static int64_t do_fstat(int fd,GuestStat *out) {

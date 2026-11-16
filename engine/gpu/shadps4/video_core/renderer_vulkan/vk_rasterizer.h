@@ -836,6 +836,9 @@ private:
     bool color_table_gone = false;   ///< CheckColorTablePresence: the absence is logged
     std::shared_ptr<std::atomic<u64>> color_table_hash =
         std::make_shared<std::atomic<u64>>(0); ///< the last table logged (read-back thread)
+    u32 prereg_report_frame = 0; ///< bbport: frame of the last texture pre-registration report
+    /// bbport hitch082: registers textures the game created ahead of their first draw (bbport_tex_prereg.h).
+    void PreregisterTextures(u32 frame);
     bool PendingWriteOverlaps(VAddr address, u64 size);
     /// Stage B: the ring bindings of the stages of the packet being recorded.
     struct RingStage {

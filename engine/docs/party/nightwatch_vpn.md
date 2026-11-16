@@ -203,9 +203,8 @@ other's games. `tools/vpn/lobby/nwlobby.py` is a tiny in-memory lobby on the VPN
 `gpu/shim/net/party_vpnlobby.*`, launcher side `lobby_*` in `launcher.py`, tests `tests/test_nwlobby.py`,
 `tests/test_launcher_vpnlobby.py`, `test_vpnlobby()` in `tests/test_party_net.cpp`.
 
-Off by default: the setting `party_vpn_lobby` (bbport.ini; env `BB_PARTY_VPN_LOBBY`). Nightwatch sets it only from the
-launcher's *Show my party in the lobby browser* (on with Nightwatch Online); there is no switch of its own in the launcher
-or the game's menu (4 Nov).
+Off by default: the setting `party_vpn_lobby` (bbport.ini; launcher checkbox *Nightwatch VPN lobby*; in the
+game *System > Party Settings > Party access > Nightwatch VPN lobby*, host's row; env `BB_PARTY_VPN_LOBBY`).
 
 ### How a join works
 
@@ -221,7 +220,7 @@ host game (10.8.0.x)                 lobby 10.8.0.1:9310                guest la
 
 Joining a plain `host:port` needs the host's password, or an open party. A listed host without a password
 is an open party for the tunnel's subnet (`party_open_rules.h`; `party_open` extends it to the host's LAN
-and other VPN subnets), and its row has an open lock (a password: a closed lock). Anyone on that network can join and holds the same link
+and other VPN subnets), and the list says *open*: the launcher's **Join** asks for no password for it. Anyone on that network can join and holds the same link
 key, so the link's encryption does not protect an open party from them. With a password the guest types
 the password the host told them; the launcher starts the game as a guest with `BB_PARTY_CODE=<tunnel address>:<port>` and
 `BB_PARTY_PASSWORD`. The VPN firewall already lets clients reach each other's party port 9307 (UDP and

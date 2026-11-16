@@ -854,3 +854,19 @@ foreach(target ipmask-test havok-event-guard-test stall-probe-test seam-rules-te
     add_dependencies(seamless-tests ${target})
 endforeach()
 add_test(NAME ipmask-test COMMAND ipmask-test ${CMAKE_CURRENT_SOURCE_DIR}/../tests/ipmask_vectors.txt)
+# visy 0.8.2: rules of the deadinside28 0fc2921c ports (shim/bbport_gpu_logic.h: the shadow cube face a clear hits).
+add_executable(gpu-logic-test EXCLUDE_FROM_ALL ../tests/test_gpu_logic.cpp)
+target_compile_options(gpu-logic-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(gpu-logic-test PRIVATE shim)
+set_target_properties(gpu-logic-test PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+add_test(NAME gpu-logic-test COMMAND gpu-logic-test)
+add_dependencies(seamless-tests gpu-logic-test)
+# visy 0.8.2 (Jgamrot 1e6fb99): lseek + read on one thread, pread on others, same descriptor: the offset lock
+# in runtime_file.c keeps the reads right (BB_FILE_OFFSET_LOCK=0 fails it).
+add_executable(file-offsets-test EXCLUDE_FROM_ALL ../tests/test_file_offsets.c ../src/win32_compat.c ../src/runtime_savecommit.c)
+target_include_directories(file-offsets-test PRIVATE ../src ..)
+target_compile_options(file-offsets-test PRIVATE -UNDEBUG -w)
+target_compile_definitions(file-offsets-test PRIVATE _WIN32_WINNT=0x0A00)
+target_link_libraries(file-offsets-test PRIVATE winpthread ws2_32)
+add_test(NAME file-offsets-test COMMAND file-offsets-test)
+add_dependencies(seamless-tests file-offsets-test)

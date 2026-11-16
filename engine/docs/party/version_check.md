@@ -4,7 +4,7 @@ ERSC needs the same mod and game version on every machine. bbport's PartyLink ch
 handshake: the guest's HELLO carries its identity, the host compares it with its own
 (`identity_mismatch`, `gpu/shim/party/party_link.cpp`) and refuses a guest whose game differs with a
 Mismatch REJECT. The reason names what differs and what to do about it. The guest's party UI
-shows it: the status board's "host refused: ..." (System > Party, the Party page's status row and
+shows it: the status board's "host refused: ..." (System > Party Settings > Party, the Party page's status row and
 the last event on Party members) and the overlay.
 
 Since 0.6.2 the refusal always names **both bbport versions**: "version mismatch with the host
@@ -30,7 +30,7 @@ flag capture `progress: ...` and `story capture ...`). A guest with `BB_PARTY_PR
 that has them on (it just does not receive them; player report CL-aa5a64, same build both sides). When the hook sets still differ,
 the refusal names each known option in plain words with both values (`hook_option_label`: Guest lamps, Headstones, Guest
 services, Shared enemy drop roll, 4-player rules): `party options differ (Guest lamps (BB_PARTY_GUEST_LAMPS): host ON, you OFF):
-change it in System > Party or the launcher so it matches the host`; a difference with an unknown hook keeps the old list of names.
+change it in System > Party Settings > Party or the launcher so it matches the host`; a difference with an unknown hook keeps the old list of names.
 
 ### Invaders (0.7.8)
 

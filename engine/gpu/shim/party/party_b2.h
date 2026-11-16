@@ -253,7 +253,7 @@ void NoteChosenApart(const char* why);
 /// Guest: Party > Rejoin pressed. True: it was apart in the session from a host in a Chalice Dungeon
 /// and now leaves the session (its own world); the bell's summon quick-joins it in.
 bool ChaliceRejoinPressed();
-/// 0.8.1 seam D (party_quick_rejoin, off by default): Party > Rejoin pressed by a guest in the host's world (any
+/// 0.8.1 seam D (party_quick_rejoin, on by default): Party > Rejoin pressed by a guest in the host's world (any
 /// thread). True: taken; the main-thread tick reloads beside the host with one loading screen (a B2 re-join with
 /// the host's snapshot), no Leave and no trip home.
 bool QuickRejoinPressed();

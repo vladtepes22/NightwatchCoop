@@ -8,7 +8,7 @@ that is unlocked (the layers), and the choice takes the party along.
 
 | Setting | Where | Default |
 |---|---|---|
-| `party_layer_travel` (env `BB_PARTY_LAYER_TRAVEL=0/1` wins at start) | System > Party rules: PvP & lamps > Chalice layer travel (host); launcher Party Rules tab; bbport.ini | off |
+| `party_layer_travel` (env `BB_PARTY_LAYER_TRAVEL=0/1` wins at start) | System > Party Settings > Party rules: PvP & lamps > Chalice layer travel (host); launcher Party Rules tab; bbport.ini | off |
 
 The host's rule goes to the guests with the other host rules (`party_balance` Rules `layer_travel`, `HostRule::LayerTravel`;
 a host from before it sends none: off); a guest sees a read-only line. Pure rules: `lamp_travel_rules.h`

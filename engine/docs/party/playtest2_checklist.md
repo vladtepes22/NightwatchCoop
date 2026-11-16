@@ -59,7 +59,7 @@ F2 table to fill in (router model, NAT type the Network line showed, which of 1a
 
 ## 2. Playing (F1, 60-120 min) - just play, but cover these
 
-Turn on *System -> Party rules -> Above companions -> Name and ping* for the whole session: the ping
+Turn on *System -> Party Settings -> Party rules -> Above companions -> Name and ping* for the whole session: the ping
 over each companion is the number to write down every 15 min (a few values, e.g. "host 80-95 ms").
 
 Tick each when it happened at least once; press **F9** the moment anything looks wrong (it marks every
@@ -112,7 +112,7 @@ time). A row's "ERSC parity" number in ERSC_PARITY.md only goes above 95 once it
 | R2 | Outages up to 50-120 s keep the session (F5) | section 3, rows 3a-3d, with a real cable pull / Wi-Fi off on each PC | no loading screen for 10 / 25 / 60 s cuts; 3e goes home and comes back by itself | |
 | R3 | The campaign works as a party (D6 / H3) | play a stretch for real with no test aids (e.g. Central Yharnam -> Cathedral Ward -> Old Yharnam), every player's progress noted | every boss / lamp / shortcut reached by one is on everyone's save afterwards (support bundles: save_check) | |
 | R4 | No repeated summons (H2) | count every summon / loading screen a guest sees that it did not ask for | zero re-summons that were not after a death, a crash or a Leave | |
-| R5 | Join speed (A4) | 5 title joins (*Continue party game*) and 5 Rejoins from System > Party; note the seconds from the press to standing beside the host | every join works the first time; title join under ~30 s, Rejoin under ~15 s | |
+| R5 | Join speed (A4) | 5 title joins (*Continue party game*) and 5 Rejoins from System > Party Settings > Party; note the seconds from the press to standing beside the host | every join works the first time; title join under ~30 s, Rejoin under ~15 s | |
 | R6 | Four players (A7) | if 4 PCs are available: 4 rendered games, each one joins, travels, dies once | everybody sees everybody, nobody crashes | |
 | R7 | Crash rejoin (C6) | section 4, 4a three times (on the slower PC at least once), 4b once | 4a back beside the host in about 30 s each time; 4b the guests back by themselves | |
 | R8 | Decided differences feel right (C2 / H1 / B1) | the host dies alone 3 times while guests are elsewhere; note who sees a loading screen | the whole party loads with the host (the decision); say whether that felt acceptable or should be ERSC's "others play on" | |

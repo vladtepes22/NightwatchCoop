@@ -74,6 +74,7 @@ bool GoodsFromJsonText(const std::string& text, std::vector<std::uint32_t>* out,
 #include <fstream>
 #include <map>
 #include <set>
+#include <thread>
 #include <sstream>
 #include <cstdlib>
 #include <string>
@@ -163,6 +164,8 @@ std::vector<glyphs::Curated> g_curated;
 bool g_curated_loaded = false;
 std::string g_test_glyph;                 // host_glyph=CODE: typed into the next glyph box
 int g_test_pick = 0;                      // host_pick=N: the N-th row of the list picked (1-based)
+int g_test_tabs = 0;                      // host_tabs=N: N tab switches (Right) before the pick
+int g_test_wait_s = 0;                    // host_wait=N: the test keys come N seconds after the box opened (a slow pick)
 
 // Noxde's community list (party_chalice_glyphdb.h): the launcher's cache, read when the switch is on.
 std::vector<glyphdb::Entry> g_db;           // under g_list_mu
@@ -306,18 +309,34 @@ const char* GlyphChoices(std::uint32_t max_length) {
             list = g_list_choices;
             rows = g_list.size();
         }
+        std::string keys;
         if (!g_test_glyph.empty()) {
-            const std::string keys = g_test_glyph + "\n";
-            bbgpu_text_input_test_queue(keys.c_str());
-            std::printf("[coop] Party: chalice: test: host_glyph %s typed into the glyph box (%zu list row(s))\n", g_test_glyph.c_str(), rows);
+            keys.assign(static_cast<std::size_t>(g_test_tabs), '\x04');  // tab switches first (host_tabs), then the code typed
+            keys += g_test_glyph + "\n";
+            g_test_tabs = 0;
+            std::printf("[coop] Party: chalice: test: host_glyph %s typed into the glyph box (%zu list row(s)) after %d s\n", g_test_glyph.c_str(),
+                        rows, g_test_wait_s);
             g_test_glyph.clear();
-        } else if (g_test_pick > 0 && rows > 0) {
-            std::string keys;
-            for (int i = 1; i < g_test_pick && i < static_cast<int>(rows); ++i) keys += '\x02';
+        } else if ((g_test_pick > 0 || g_test_tabs > 0) && rows > 0) {
+            const int pick = g_test_pick > 0 ? g_test_pick : 1;
+            keys.assign(static_cast<std::size_t>(g_test_tabs), '\x04');
+            for (int i = 1; i < pick && i < static_cast<int>(rows); ++i) keys += '\x02';
             keys += '\n';
-            bbgpu_text_input_test_queue(keys.c_str());
-            std::printf("[coop] Party: chalice: test: host_pick %d (of %zu): Down x%zu, Enter\n", g_test_pick, rows, keys.size() - 1);
+            std::printf("[coop] Party: chalice: test: host_pick %d (of %zu): %d tab(s) right, Down x%d, Enter, after %d s\n", pick, rows, g_test_tabs,
+                        std::max(0, std::min(pick, static_cast<int>(rows)) - 1), g_test_wait_s);
             g_test_pick = 0;
+            g_test_tabs = 0;
+        }
+        if (!keys.empty()) {
+            if (g_test_wait_s > 0) {
+                std::thread([keys, wait = g_test_wait_s] {
+                    std::this_thread::sleep_for(std::chrono::seconds(wait));
+                    bbgpu_text_input_test_queue(keys.c_str());
+                }).detach();
+            } else {
+                bbgpu_text_input_test_queue(keys.c_str());
+            }
+            g_test_wait_s = 0;
         }
     }
     static std::string keep;  // the caller copies it at once (runtime_services.c ime_init)
@@ -1496,6 +1515,16 @@ void Tick(bool host) {
 void SetTestGlyph(const std::string& code) {
     std::lock_guard<std::mutex> lk(g_list_mu);
     g_test_glyph = code;
+}
+
+void SetTestTabs(int n) {
+    std::lock_guard<std::mutex> lk(g_list_mu);
+    g_test_tabs = n;
+}
+
+void SetTestWait(int seconds) {
+    std::lock_guard<std::mutex> lk(g_list_mu);
+    g_test_wait_s = seconds;
 }
 
 void SetTestPick(int row) {

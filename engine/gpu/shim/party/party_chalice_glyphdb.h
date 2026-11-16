@@ -15,6 +15,7 @@
 
 #include "party_chalice_glyphs.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -30,7 +31,7 @@ constexpr std::size_t kMaxDesc = 200;
 
 struct Entry {
     std::string glyph;                          ///< lower case, 8 or 9 letters / digits
-    std::string category;                       ///< farming / equipment / bloodgems / testing
+    std::string category;                       ///< bloodgems / equipment / farming / testing, else "other"
     std::string desc;
     std::array<std::uint8_t, kRecordBytes> rec{};
 };
@@ -53,8 +54,13 @@ inline bool ValidDesc(const std::string& d) {
     return true;
 }
 
-inline bool ValidCategory(const std::string& c) {
+inline bool KnownCategory(const std::string& c) {
     return c == "farming" || c == "equipment" || c == "bloodgems" || c == "testing";
+}
+
+/// A missing or unknown category is "other" (the entry is kept, under the Other tab).
+inline std::string NormalizeCategory(const std::string& c) {
+    return KnownCategory(c) ? c : std::string("other");
 }
 
 /// 248 hex digits -> the record; false on any other text.
@@ -132,9 +138,9 @@ inline bool ParseCache(const std::string& text, std::vector<Entry>* out, std::st
         if (out->size() >= kMaxEntries) break;
         Entry d;
         d.glyph = glyphs::LowerGlyph(str(e, "glyph"));
-        d.category = str(e, "cat");
+        d.category = NormalizeCategory(str(e, "cat"));
         d.desc = str(e, "desc");
-        if (e.type != json::Value::Type::Object || !ValidDbGlyph(d.glyph) || !ValidCategory(d.category) || !ValidDesc(d.desc) ||
+        if (e.type != json::Value::Type::Object || !ValidDbGlyph(d.glyph) || !ValidDesc(d.desc) ||
             !HexToRecord(str(e, "rec"), &d.rec) || !RecordUsable(d.rec)) {
             ++bad;
             continue;
@@ -155,43 +161,84 @@ inline const char* CategoryTitle(const std::string& c) {
     if (c == "farming") return "Farming";
     if (c == "equipment") return "Equipment";
     if (c == "bloodgems") return "Blood gems";
-    return "Testing";
+    if (c == "testing") return "Testing";
+    return "Other";
 }
 
+/// The tab order: Blood gems, Equipment, Farming, Other, Testing (last).
 inline int CategoryRank(const std::string& c) {
-    return c == "farming" ? 0 : c == "equipment" ? 1 : c == "bloodgems" ? 2 : 3;
+    return c == "bloodgems" ? 0 : c == "equipment" ? 1 : c == "farming" ? 2 : c == "testing" ? 4 : 3;
 }
 
-/// The pick list rows of the database: grouped by category (farming, equipment, blood gems, testing), in
-/// file order inside a group; only 8-character glyphs (the altar's glyph box takes 8); `form` = base64 FormData.
-/// `b64(const uint8_t*, size_t)` encodes bytes (party_util.h b64_encode).
-/// `goods_ok(goods)` (when set) tells whether the game's loaded EquipParamGoods has that chalice goods id: an entry it
-/// refuses is left out and its glyph appended to `*dropped` (the caller logs one line each). The set is derived from the
-/// loaded game data at run time, never from a table in the source.
+inline std::string LowerAscii(std::string s) {
+    for (char& c : s) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    return s;
+}
+
+/// The blood gem type named at the start of a description ("Radials | L1: ...", "Abyssal Fire (Waning)",
+/// "Triangle BLT gem farming"): 0 radial, 1 triangle, 2 waning, 3 circle, 9 none named. Only the first
+/// segment (up to " | ", at most 40 bytes) is read, the earliest named type wins.
+inline int GemTypeRank(const std::string& desc) {
+    std::string head = LowerAscii(desc.substr(0, desc.find(" | ")));
+    if (head.size() > 40) head.resize(40);
+    struct T { const char* word; int rank; };
+    static const T kTypes[] = {{"radial", 0}, {"triangle", 1}, {"waning", 2}, {"circle", 3}};
+    std::size_t best = std::string::npos;
+    int rank = 9;
+    for (const T& t : kTypes) {
+        const std::size_t at = head.find(t.word);
+        if (at != std::string::npos && at < best) {
+            best = at;
+            rank = t.rank;
+        }
+    }
+    return rank;
+}
+
+/// Rows of the database in tab order. Blood gems: by gem type (GemTypeRank) then description; the others keep
+/// file order (the list is curated that way). Only 8-character glyphs (the altar's glyph box takes 8).
+/// `goods_ok(goods)` (when set) tells whether the game's loaded EquipParamGoods has that chalice goods id: an
+/// entry it refuses is left out and its glyph appended to `*dropped` (the caller logs one line each). The set
+/// is derived from the loaded game data at run time, never from a table in the source.
 template <class B64>
 inline std::vector<glyphs::Entry> ToRows(const std::vector<Entry>& db, B64 b64,
                                          const std::function<bool(std::uint32_t)>& goods_ok = {},
                                          std::vector<std::string>* dropped = nullptr) {
-    std::vector<glyphs::Entry> rows;
-    for (int rank = 0; rank < 4; ++rank) {
+    std::vector<const Entry*> order;
+    for (int rank = 0; rank < 5; ++rank) {
+        const std::size_t first = order.size();
         for (const Entry& d : db) {
             if (CategoryRank(d.category) != rank || d.glyph.size() != glyphs::kGlyphLength) continue;
             if (goods_ok && !goods_ok(RecordGoods(d.rec))) {
                 if (dropped) dropped->push_back(d.glyph);
                 continue;
             }
-            glyphs::Entry e;
-            e.glyph = d.glyph;
-            e.source = "glyphdb";
-            e.form_on_board = false;
-            const std::vector<std::uint8_t> fd = RecordToFormData(d.rec);
-            e.form = b64(fd.data(), fd.size());
-            std::size_t cut = d.desc.size() > 70 ? 67 : d.desc.size();
-            while (cut > 0 && cut < d.desc.size() && (static_cast<unsigned char>(d.desc[cut]) & 0xC0) == 0x80) --cut;
-            const std::string desc = cut < d.desc.size() ? d.desc.substr(0, cut) + "..." : d.desc;
-            e.label = std::string(CategoryTitle(d.category)) + ": " + desc;
-            rows.push_back(std::move(e));
+            order.push_back(&d);
         }
+        if (rank == 0) {
+            std::stable_sort(order.begin() + static_cast<std::ptrdiff_t>(first), order.end(), [](const Entry* a, const Entry* b) {
+                const int ra = GemTypeRank(a->desc), rb = GemTypeRank(b->desc);
+                return ra != rb ? ra < rb : LowerAscii(a->desc) < LowerAscii(b->desc);
+            });
+        }
+    }
+    std::vector<glyphs::Entry> rows;
+    for (const Entry* dp : order) {
+        const Entry& d = *dp;
+        glyphs::Entry e;
+        e.glyph = d.glyph;
+        e.source = "glyphdb";
+        e.form_on_board = false;
+        const std::vector<std::uint8_t> fd = RecordToFormData(d.rec);
+        e.form = b64(fd.data(), fd.size());
+        std::size_t cut = d.desc.size() > 70 ? 67 : d.desc.size();
+        while (cut > 0 && cut < d.desc.size() && (static_cast<unsigned char>(d.desc[cut]) & 0xC0) == 0x80) --cut;
+        const std::string desc = cut < d.desc.size() ? d.desc.substr(0, cut) + "..." : d.desc;
+        e.label = desc;
+        e.cat = CategoryTitle(d.category);
+        rows.push_back(std::move(e));
     }
     return rows;
 }

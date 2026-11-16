@@ -36,9 +36,15 @@ public:
     /// `choices`: a pick list (value, label) shown above the box - Up / Down (keyboard, d-pad) move the
     /// selection, which sets the text, Enter / Cross confirm; typing or Backspace leaves the list for the
     /// keyboard. Empty: the plain box. (Chalice glyphs, docs/party/chalice.md 11.)
+    /// A choice with a `tab` name (the community Chalice list: Blood gems, Equipment...) is shown under that tab;
+    /// with two or more tabs, Left / Right (keyboard) or L1 / R1 (controller) switch tab, D-pad Left / Right and
+    /// PageUp / PageDown jump ten rows.
+    struct TextChoice {
+        std::string value, label, tab;
+    };
     /// `quiet`: the box takes the keys but draws nothing (no prompt window, no title): the caller shows the text.
-    void BeginTextInput(const std::string& initial, const std::string& prompt,
-                        const std::vector<std::pair<std::string, std::string>>& choices = {}, bool quiet = false);
+    void BeginTextInput(const std::string& initial, const std::string& prompt, const std::vector<TextChoice>& choices = {},
+                        bool quiet = false);
     /// Test aid (any thread): keys (TestType's) the next text box takes as soon as it opens.
     void QueueTestKeys(const std::string& keys);
     int PollTextInput(std::string& text);
@@ -54,7 +60,11 @@ private:
     bool text_quiet{};  ///< BeginTextInput's quiet: nothing drawn
     int text_state{};
     std::string text, text_prompt, base_title;
-    std::vector<std::pair<std::string, std::string>> text_choices;
+    std::vector<std::pair<std::string, std::string>> text_choices;  ///< the shown tab's rows (all rows without tabs)
+    std::vector<TextChoice> text_all;
+    std::vector<std::string> text_tabs;  ///< tab names in order of appearance (empty: no tabs)
+    int text_tab{0};
+    void SelectTab(int tab);  ///< text_mutex held
     int text_sel{-1};  ///< the selected choice, -1: typing
     std::string text_test_keys;
     void UpdateChoices();

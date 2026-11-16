@@ -6,10 +6,10 @@ other direction: a guest pulls the host and the other guests to itself. Pure rul
 
 | Setting | Where | Default |
 |---|---|---|
-| `party_guest_gather` (env `BB_PARTY_GUEST_GATHER=0/1` wins at start) | System > Party rules: Travel > Guests can gather (host); launcher Party Rules tab; bbport.ini | off |
+| `party_guest_gather` (env `BB_PARTY_GUEST_GATHER=0/1` wins at start) | System > Party Settings > Party rules: Travel > Guests can gather (host); launcher Party Rules tab; bbport.ini | off |
 
 The host's rule goes to the guests with the other host rules (`party_balance` Rules `guest_gather`, `HostRule::GuestGather`; a
-host from before it sends none: off). A guest's *Gather the party* row (System > Party) is shown only while it is on; the
+host from before it sends none: off). A guest's *Gather the party* row (System > Party Settings > Party) is shown only while it is on; the
 Travel page shows the guest a read-only line with the host's value.
 
 ## Flow
