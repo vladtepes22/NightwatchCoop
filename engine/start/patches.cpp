@@ -447,16 +447,20 @@ void OldHuntersEdition(const Bytes& elf, Writes& writes) {
         Log("Patches: The Old Hunters edition left alone: this executable differs there");
 }
 
-// Portuguese (Brazil): the game maps its language through a table per sales region, and this
-// content's region (param.sfo USER_DEFINED_PARAM_1 = 13: Europe) turns pt-BR (game language 7,
-// porBR) into pt-PT (17, porPT). The Europe table's entry 7 keeps porBR, so msg/porbr and the
-// *_ptb voices load as on a Brazilian console. Other languages are untouched.
+// Portuguese (Brazil): the game maps its language through tables per sales region, and this
+// content's region (param.sfo USER_DEFINED_PARAM_1 = 13: Europe) has no pt-BR. Its text table turns
+// pt-BR (game language 7, porBR) into pt-PT (17, porPT), and its voice table (a separate one, read
+// at 0x1fb98f8) turns it into English (1, engb). Entry 7 of both keeps pt-BR, so msg/porbr and the
+// *_ptb voices (on the disc) load as on a Brazilian console. Other languages are untouched.
 void BrazilianPortuguese(const Bytes& elf, Writes& writes) {
-    constexpr std::uint64_t kEuropePtBr = 0x47367c0 + 7 * 4;
-    if (OriginalBytes(elf, kEuropePtBr, 4) == Le<std::uint32_t>(17))
-        writes.emplace_back(kEuropePtBr, Le<std::uint32_t>(7));
-    else
+    constexpr std::uint64_t kEuropeText = 0x47367c0 + 7 * 4, kEuropeVoice = 0x4736a80 + 7 * 4;
+    if (OriginalBytes(elf, kEuropeText, 4) == Le<std::uint32_t>(17) &&
+        OriginalBytes(elf, kEuropeVoice, 4) == Le<std::uint32_t>(1)) {
+        writes.emplace_back(kEuropeText, Le<std::uint32_t>(7));
+        writes.emplace_back(kEuropeVoice, Le<std::uint32_t>(7));
+    } else {
         Log("Patches: Portuguese (Brazil) left alone: this executable differs there");
+    }
 }
 
 
