@@ -533,8 +533,8 @@ bool Instance::CreateDevice() {
         pipeline_shading_rate =
             feature_chain.get<vk::PhysicalDeviceFragmentShadingRateFeaturesKHR>().pipelineFragmentShadingRate &&
             add_extension(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
-        LOG_INFO(Render_Vulkan, "Reflection shading rate: {}",
-                 pipeline_shading_rate ? "available" : "not supported by this GPU");
+        std::printf("Reflections (SSR): pixel-block shading %s\n",
+                    pipeline_shading_rate ? "available" : "not supported by this GPU (every pixel)");
     }
     shader_clock = add_extension(VK_KHR_SHADER_CLOCK_EXTENSION_NAME);
     if (shader_clock) {
