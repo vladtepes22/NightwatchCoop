@@ -502,8 +502,8 @@ void DefineBuiltinPartyRows() {
         if (status_hooks.describe && status_hooks.describe(b, &value, &help)) return help;
         if (!b.enabled) {
             // The party flow's rows (party_flow_rows.cpp) start or join a party game on the title.
-            return T2("Single-player saves. Party games start on the title screen (System > Party)",
-                      "Одиночные сохранения. Игра группой начинается на титульном экране (Система > Группа)");
+            return T2("Single-player saves. Party games start on the title screen (System > Party Settings)",
+                      "Одиночные сохранения. Игра группой начинается на титульном экране (Система > Настройки группы)");
         }
         Texts t;
         for (bool r : {false, true}) {
@@ -769,8 +769,8 @@ void DefineAll() {
     // The Party mode page in a single-player process (no mode rows): one line says where to go.
     party.mode_none = AddDynamic(MaxValueLength);
     AddRow(Info(), AddText("Party mode", "Режим группы"),
-           AddText("Single player. Party games start on the title screen (Party)",
-                   "Одиночная игра. Игра группой начинается на титульном экране (Группа)"),
+           AddText("Single player. Party games start on the title screen (System > Party Settings)",
+                   "Одиночная игра. Игра группой начинается на титульном экране (Система > Настройки группы)"),
            {party.mode_none}, Kind::Button, [] {
                for (std::size_t i = 0; i < party_rows.size(); ++i)
                    if (party_rows[i].spec.page == 1 && party_row_visible[i]) return false;

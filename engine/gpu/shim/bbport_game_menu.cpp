@@ -138,9 +138,28 @@ const u8 PairRowPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x
 const u8 OnOffListPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x56, 0x53, 0x48, 0x81, 0xec, 0x20, 0x01, 0x00, 0x00};
 // The title screen's main menu (builder 0x1b4a3d0, docs/party/ingame_flow.md §3): its command items
 // (Continue 0x61f95, Load Game 0x61f96, New Game 0x61f97, ...) go through AddCommandItem; the
-// party flow adds the Party page as a title item right after New Game (BB_PARTY_TITLE_ENTRY=0: not).
+// party flow's Party / Party mode title items after New Game are off (System > Party Settings has both;
+// BB_PARTY_TITLE_ENTRY=1 brings them back for scripted title walks).
 constexpr u64 AddCommandItem = 0x1b4c9a0; ///< (command list, name+help texts, functor, 0) -> the list
 constexpr u32 TitleNewGame = 0x61f97;
+// Nightwatch: the title's Information page item (0x61f99, through AddPageItem at 0x1b4ab2e, nothing after it reads
+// the list's end) is left out: it does nothing in this port. Byte-checked: `mov edx, 0x61f99` and the call.
+constexpr u32 TitleInformation = 0x61f99;
+constexpr u64 TitleInformationId = 0x1b4aaba, TitleInformationCall = 0x1b4ab2e;
+const u8 TitleInformationIdCode[] = {0xba, 0x99, 0x1f, 0x06, 0x00};
+const u8 TitleInformationCallCode[] = {0xe8, 0x6d, 0x37, 0x00, 0x00};  // call AddPageItem
+// Nightwatch: the title's Log In command item (0x61f9a, through AddCommandItem at 0x1b4b1f4; the builder does not read
+// its result) is left out too: the port starts the game with its online stack off (start/online.cpp), so it can do
+// nothing. The game shows it or Information in that place. Byte-checked: `mov edx, 0x61f9a` and the call.
+constexpr u32 TitleLogIn = 0x61f9a;
+constexpr u64 TitleLogInId = 0x1b4aa48, TitleLogInCall = 0x1b4b1f4;
+const u8 TitleLogInIdCode[] = {0xba, 0x9a, 0x1f, 0x06, 0x00};
+const u8 TitleLogInCallCode[] = {0xe8, 0xa7, 0x17, 0x00, 0x00};  // call AddCommandItem
+// Nightwatch: the title's System list (the System builder 0x1bb3ad0 called at 0x1b46e51 with flag 0) has no Quit to
+// Desktop: the title menu has its own. The builder is hooked to know whose list it builds.
+constexpr u64 SystemBuilder = 0x1bb3ad0, TitleSystemCall = 0x1b46e51;
+const u8 SystemBuilderPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53};
+const u8 TitleSystemCallCode[] = {0xe8, 0x7a, 0xcc, 0x06, 0x00};  // call 0x1bb3ad0
 const u8 AddCommandItemPrologue[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57};
 // 0.7.8 give items (party_give.h): the inventory's item command menu (FUN_01ba0e70, "CommandList": Use, Discard ...)
 // builds its entries with AddCommandItem; each entry's functor is a polymorphic object {vtable, item context copy
@@ -584,9 +603,17 @@ std::atomic<void*> last_repository{nullptr};
 std::atomic<u32> last_table{0};
 AddFn add_original = nullptr;
 AddFn command_original = nullptr;
+using BuilderFn = void*(BB_SYSV*)(void*, void*, u64);
+BuilderFn system_builder_original = nullptr;
+thread_local bool title_system = false;  // the System builder is building the title's System list
 std::atomic<const void*> screen_sound_text{nullptr};
 std::atomic<const void*> new_game_text{nullptr}; // the title's "New Game" text, as looked up
 std::atomic<const void*> discard_text{nullptr};  // the item menu's "Discard" text (give items, below)
+std::atomic<const void*> information_text{nullptr};  // the title's "Information" text, as looked up
+std::atomic<const void*> log_in_text{nullptr};       // the title's "Log In" text, as looked up
+bool title_party_entry = false;    // BB_PARTY_TITLE_ENTRY=1: Party / Party mode on the title again
+bool title_information_ok = false; // the title builder's Information call is 1.09's (left out)
+bool title_log_in_ok = false;      // the title builder's Log In call is 1.09's (left out)
 // Nightwatch: the System list's row names (110000 Controls .. 110015 the PC menus' Quit to Desktop) as
 // looked up: AddHook / CommandHook tell the game's rows apart by them (P::PlaceGameRow).
 std::array<std::atomic<const void*>, P::QuitToDesktopRow - P::ControlsRow + 1> system_row_text{};
@@ -784,6 +811,12 @@ BB_SYSV const char16_t* LookupHook(void* repository, u32 table, u32 category, u3
     if (category == TextName && id == TitleNewGame && text) {
         new_game_text = text;
     }
+    if (category == TextName && id == TitleInformation && text) {
+        information_text = text;
+    }
+    if (category == TextName && id == TitleLogIn && text) {
+        log_in_text = text;
+    }
     if (category == TextName && id == ItemMenuDiscard && text) {
         discard_text = text;
     }
@@ -904,6 +937,14 @@ void AddSystemItems(void* menu) {
 }
 
 BB_SYSV void* AddHook(void* menu, void* pair, void* function, void* out) {
+    // The title's Information item: left out, as AddPageItem returns (the menu; the builder does not read it).
+    if (const void* information = information_text.load();
+        title_information_ok && information && *reinterpret_cast<const void* const*>(pair) == information &&
+        reinterpret_cast<u64>(__builtin_return_address(0)) - image_base == TitleInformationCall + 5) {
+        static bool logged = false;
+        if (!std::exchange(logged, true)) std::printf("Game menu: the title menu without Information\n");
+        return menu;
+    }
     const void* screen_sound = screen_sound_text.load();
     const bool after_screen_sound = screen_sound && *reinterpret_cast<const void* const*>(pair) == screen_sound;
     if (!lists_ok) {
@@ -1258,14 +1299,37 @@ void VTraceAll() {
     VTraceClass<5, 8>(0x533fe00);   // finalizer
 }
 
+/// The System builder: whether it builds the title's System list (called from the title, 0x1b46e51).
+BB_SYSV void* SystemBuilderHook(void* out, void* arg, u64 flag) {
+    const bool was = title_system;
+    title_system = reinterpret_cast<u64>(__builtin_return_address(0)) - image_base == TitleSystemCall + 5;
+    void* result = system_builder_original(out, arg, flag);
+    title_system = was;
+    return result;
+}
+
 /// The title's main menu: after its New Game item, the Party page as a title item.
 BB_SYSV void* CommandHook(void* list, void* pair, void* functor, void* x) {
+    // The title's Log In item: left out, as AddCommandItem returns (the list; the builder does not read it).
+    if (const void* log_in = log_in_text.load();
+        title_log_in_ok && log_in && *reinterpret_cast<const void* const*>(pair) == log_in &&
+        reinterpret_cast<u64>(__builtin_return_address(0)) - image_base == TitleLogInCall + 5) {
+        static bool logged = false;
+        if (!std::exchange(logged, true)) std::printf("Game menu: the title menu without Log In\n");
+        return list;
+    }
     // Nightwatch lists (AddHook): Game / Party Settings have no exit rows (the game's Exit Game, the PC menus'
     // Quit to Desktop), skipped as AddCommandItem returns (the list); Exit Game, which the builder drops
     // there itself (its flag 0), goes in for it to drop (P::BuilderDrops).
     if (lists_ok && building != P::MenuList::System) {
         const u32 row = SystemRowOf(pair);
         if (!(row && BuilderDrops(row))) return list;
+    }
+    // The title's System: no Quit to Desktop (the last item, added at the list's finish: nothing drops it after).
+    if (title_system && building == P::MenuList::System && SystemRowOf(pair) == P::QuitToDesktopRow) {
+        static bool logged = false;
+        if (!std::exchange(logged, true)) std::printf("Game menu: the title's System list built without Quit to Desktop\n");
+        return list;
     }
     if (const void* discard = discard_text.load();
         discard && *reinterpret_cast<const void* const*>(pair) == discard && functor &&
@@ -1283,7 +1347,7 @@ BB_SYSV void* CommandHook(void* list, void* pair, void* functor, void* x) {
     }
     void* result = command_original(list, pair, functor, x);
     const void* new_game = new_game_text.load();
-    if (new_game && *reinterpret_cast<const void* const*>(pair) == new_game) {
+    if (title_party_entry && new_game && *reinterpret_cast<const void* const*>(pair) == new_game) {
         static const int party = PartyPageIndex();
         if (party >= 0) {
             const auto& page = P::All()[std::size_t(party)];
@@ -1422,12 +1486,30 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
                reinterpret_cast<void*>(&LookupHook), reinterpret_cast<void**>(&lookup_original), cursor) &&
         Detour(image, AddPageItem, AddPageItemPrologue, sizeof(AddPageItemPrologue),
                reinterpret_cast<void*>(&AddHook), reinterpret_cast<void**>(&add_original), cursor);
-    // The title entry (party flow): needs the Party page and AddPageItem's original.
+    // AddCommandItem (the lists' exit rows, the item menu's Give; the title's Party items only with
+    // BB_PARTY_TITLE_ENTRY=1): needs the Party page and AddPageItem's original.
     const char* title_entry = std::getenv("BB_PARTY_TITLE_ENTRY");
-    if (ok && (!title_entry || title_entry[0] != '0') && PartyPageIndex() >= 0 &&
+    title_party_entry = title_entry && title_entry[0] == '1';
+    if (ok && PartyPageIndex() >= 0 &&
         Detour(image, AddCommandItem, AddCommandItemPrologue, sizeof(AddCommandItemPrologue),
                reinterpret_cast<void*>(&CommandHook), reinterpret_cast<void**>(&command_original), cursor)) {
-        std::printf("Game menu: the Party page is also on the title screen (after New Game)\n");
+        std::printf("Game menu: the title menu %s\n", title_party_entry
+                                                          ? "has the Party page after New Game (BB_PARTY_TITLE_ENTRY=1)"
+                                                          : "without Party (in System > Party Settings)");
+    }
+    title_information_ok =
+        ok && std::memcmp(image + TitleInformationId, TitleInformationIdCode, sizeof(TitleInformationIdCode)) == 0 &&
+        std::memcmp(image + TitleInformationCall, TitleInformationCallCode, sizeof(TitleInformationCallCode)) == 0;
+    if (ok && !title_information_ok) std::printf("Game menu: the title's Information call is not 1.09's: kept\n");
+    title_log_in_ok = command_original &&
+                      std::memcmp(image + TitleLogInId, TitleLogInIdCode, sizeof(TitleLogInIdCode)) == 0 &&
+                      std::memcmp(image + TitleLogInCall, TitleLogInCallCode, sizeof(TitleLogInCallCode)) == 0;
+    if (command_original && !title_log_in_ok) std::printf("Game menu: the title's Log In call is not 1.09's: kept\n");
+    if (ok && command_original &&
+        std::memcmp(image + TitleSystemCall, TitleSystemCallCode, sizeof(TitleSystemCallCode)) == 0 &&
+        Detour(image, SystemBuilder, SystemBuilderPrologue, sizeof(SystemBuilderPrologue),
+               reinterpret_cast<void*>(&SystemBuilderHook), reinterpret_cast<void**>(&system_builder_original), cursor)) {
+        std::printf("Game menu: the title's System will have no Quit to Desktop\n");
     }
     // Game / Party Settings need the System list factory as expected and CommandHook (the exit rows).
     lists_ok = ok && command_original &&

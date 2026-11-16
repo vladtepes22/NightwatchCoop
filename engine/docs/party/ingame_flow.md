@@ -152,8 +152,9 @@ already hooks AddPageItem (System pages); the flow adds a byte-verified detour o
 name text is New Game's (the pointer the message lookup returned for 200/0x61F97), it adds the
 port's **Party** page as a title page item, with the same page factory as *System → Party Settings → Party*. So the
 title shows *Continue / Load Game / New Game / Party / ...*; *Party* opens the same page as
-*System → Party Settings → Party*. `BB_PARTY_TITLE_ENTRY=0` leaves the title menu alone (*System → Party Settings → Party* still has
-everything).
+*System → Party Settings → Party*. Nightwatch: off by default since the title menu cleanup (the title shows Continue / Load
+Game / New Game / System / Quit to Desktop; Information and Log In are left out too); `BB_PARTY_TITLE_ENTRY=1` brings the
+title items back (*System → Party Settings → Party* has everything either way).
 
 ## 4. user\party.json
 

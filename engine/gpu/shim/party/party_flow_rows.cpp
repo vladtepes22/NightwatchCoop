@@ -78,8 +78,8 @@ void RegisterMenuRows() {
             const Saved s = Current();
             *value = T("Guest, not joined yet", "Гость, ещё не вошли");
             *help = WithMessage(s.host_address.empty()
-                                    ? T("Party game as guest: no host address set (title screen, Party)",
-                                        "Игра группой, гость: адрес хоста не задан (титульный экран, Группа)")
+                                    ? T("Party game as guest: no host address set (title screen, System > Party Settings)",
+                                        "Игра группой, гость: адрес хоста не задан (титульный экран, Система > Настройки группы)")
                                     : Texts{"Party game as guest: joins " + s.host_address + " with your hunter in the world",
                                             "Игра группой, гость: вход к " + s.host_address + ", когда охотник в мире"});
         }
