@@ -2,7 +2,6 @@
 #include "frame_rate.h"
 #include "engine_hooks.h"
 #include "engine_state.h"
-#include "live_clock.h"
 #include "live_clock_rules.h"
 #include <algorithm>
 #include <atomic>
@@ -252,11 +251,11 @@ __attribute__((sysv_abi)) float ClothStiffnessFactor(const std::uint8_t* set, in
     std::uint32_t type;
     std::memcpy(&type, set + 0x18, 4);
     const float frames = g_cloth_live.load(std::memory_order_relaxed)
-                             ? LiveClock::ClothScale(LiveClock::LastDt(), g_cloth_power)
+                             ? LiveClock::ClothScale(LastDt(), g_cloth_power)
                              : 30.0f / std::max(g_cloth_rate.load(std::memory_order_relaxed), kSlowest);
     if (g_cloth_calls.fetch_add(1, std::memory_order_relaxed) == 20000)
         host_log("Frame rate: cloth stiffness factor: constraint type %u, %.0f FPS: factor x%.3f", type,
-                 double(g_cloth_live ? 1.0f / std::max(LiveClock::LastDt(), 1e-4f) : 30.0f / frames), double(frames));
+                 double(g_cloth_live ? 1.0f / std::max(LastDt(), 1e-4f) : 30.0f / frames), double(frames));
     const bool adapts = mode == 2 && !(substeps == 1 && a == 1.0f && b == 1.0f);
     if (adapts && type == 8) return float(iteration + 1) / float(substeps);
     if (adapts && (type == 5 || type == 10)) return substeps - 1 == iteration ? 1.0f : 0.0f;
