@@ -116,4 +116,14 @@ inline float SlopeDecay(float game_decay, float dt) {
     return std::pow(game_decay, dt / Frame30);
 }
 
+/// Cloth above 30 FPS (#37, visy 0.8.2 cloth082 `pow2`, measured with the Noble Dress): the scale on Havok's cloth
+/// constraint stiffness for a step of `dt` seconds, (30 x dt)^power, 1 at 30 FPS and slower. power 2 keeps the skirt's
+/// hem where it is at 30 FPS at every rate; 1 (`lin`) is the older hooks mode's 30 / FPS.
+inline float ClothScale(float dt, float power) {
+    if (!(dt > 0.0f) || !std::isfinite(dt)) return 1.0f;
+    const float frames = dt * 30.0f;
+    if (frames >= 1.0f) return 1.0f;
+    return power == 1.0f ? frames : std::pow(frames, power);
+}
+
 } // namespace BbEngine::LiveClock

@@ -92,6 +92,11 @@ int main() {
     assert(Near(LoadingInterval(1.0f / 60, true), Frame30, 1e-7f));
     assert(Near(LoadingInterval(1.0f / 240, true), Frame30, 1e-7f));
     assert(Near(LoadingInterval(1.0f / 60, false), 1.0f / 60, 1e-7f));
+    // Cloth (#37): 1 at 30 FPS and slower, (30 dt)^2 above; linear for power 1; bad input keeps the game's.
+    assert(Near(ClothScale(Frame30, 2.0f), 1.0f, 1e-6f) && Near(ClothScale(0.05f, 2.0f), 1.0f, 1e-6f));
+    assert(Near(ClothScale(1.0f / 60, 2.0f), 0.25f, 1e-5f) && Near(ClothScale(1.0f / 120, 2.0f), 0.0625f, 1e-5f));
+    assert(Near(ClothScale(1.0f / 60, 1.0f), 0.5f, 1e-5f));
+    assert(ClothScale(NAN, 2.0f) == 1.0f && ClothScale(0.0f, 2.0f) == 1.0f);
     std::puts("live-clock-test: OK");
     return 0;
 }

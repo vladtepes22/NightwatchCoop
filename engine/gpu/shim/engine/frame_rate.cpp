@@ -2,6 +2,8 @@
 #include "frame_rate.h"
 #include "engine_hooks.h"
 #include "engine_state.h"
+#include "live_clock.h"
+#include "live_clock_rules.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -240,15 +242,21 @@ constexpr std::size_t kClothBend = 0x7387f4; // Steady cloth's bend-constraint s
 float g_cloth_exponent = -1.725f;
 std::atomic<float> g_cloth_rate{30.0f};
 std::atomic<std::uint64_t> g_cloth_calls{0};
+// Under the Live FPS clock (visy 0.8.2 cloth082, #37): the scale follows the step's own time, squared
+// (LiveClock::ClothScale); BB_CLOTH_FIX=lin the linear scale, 0 no hook (the game's stiffness, 0.3.1).
+std::atomic<bool> g_cloth_live{false};
+float g_cloth_power = 2.0f;
 
 __attribute__((sysv_abi)) float ClothStiffnessFactor(const std::uint8_t* set, int mode, int iteration, int substeps,
                                                      float a, float b) {
     std::uint32_t type;
     std::memcpy(&type, set + 0x18, 4);
-    const float frames = 30.0f / std::max(g_cloth_rate.load(std::memory_order_relaxed), kSlowest);
+    const float frames = g_cloth_live.load(std::memory_order_relaxed)
+                             ? LiveClock::ClothScale(LiveClock::LastDt(), g_cloth_power)
+                             : 30.0f / std::max(g_cloth_rate.load(std::memory_order_relaxed), kSlowest);
     if (g_cloth_calls.fetch_add(1, std::memory_order_relaxed) == 20000)
         host_log("Frame rate: cloth stiffness factor: constraint type %u, %.0f FPS: factor x%.3f", type,
-                 double(30.0f / frames), double(frames));
+                 double(g_cloth_live ? 1.0f / std::max(LiveClock::LastDt(), 1e-4f) : 30.0f / frames), double(frames));
     const bool adapts = mode == 2 && !(substeps == 1 && a == 1.0f && b == 1.0f);
     if (adapts && type == 8) return float(iteration + 1) / float(substeps);
     if (adapts && (type == 5 || type == 10)) return substeps - 1 == iteration ? 1.0f : 0.0f;
@@ -304,6 +312,18 @@ bool Install(std::uint8_t* image, std::size_t size) {
         g_follow = true;
         g_held = g_target;
         host_log("Frame rate: the Live FPS clock runs the frame rate (no native frame-rate sites)");
+        // #37: the Live path had no cloth hook, so above 30 FPS the cloth was solved stiffer (skirt hems
+        // riding up into the legs). BB_CLOTH_FIX: unset/pow2 = (30 dt)^2, lin = 30 dt, 0 = off.
+        const char* fix = std::getenv("BB_CLOTH_FIX");
+        if (fix && fix[0] == '0') {
+            host_log("Frame rate: cloth fix off (BB_CLOTH_FIX=0)");
+        } else {
+            g_cloth_power = fix && !std::strcmp(fix, "lin") ? 1.0f : 2.0f;
+            g_cloth_live.store(true, std::memory_order_relaxed);
+            if (!InstallClothFactor(image, size)) g_cloth_live.store(false, std::memory_order_relaxed);
+            else host_log("Frame rate: cloth stiffness follows the Live FPS step, (30 x frame time)^%.0f (BB_CLOTH_FIX=0 off, =lin linear)",
+                          double(g_cloth_power));
+        }
         return true;
     }
     if (!Switch("LANTERN_FRAMERATE", true)) {
