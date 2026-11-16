@@ -263,7 +263,7 @@ if ($Release) {
 $baseInfo = Get-Content -LiteralPath (Join-Path $base 'package.json') -Raw | ConvertFrom-Json
 Write-Json ([ordered]@{
     version = $Version; engine = $engineId; source = (git -C $repo rev-parse HEAD)
-    seamless = 'visy v0.8.1+35dd8953f'
+    seamless = 'visy v0.8.2+168c45ef7'
     runtime_sha256 = (Get-FileHash -LiteralPath (Join-Path $out 'bb-probe.exe')).Hash.ToLowerInvariant()
 }) (Join-Path $destinationRoot 'package.json')
 # Private tools ship compiled: no Python in their folder, and no copy of their sources anywhere in the package.
