@@ -222,16 +222,32 @@ void CreateJunction(const fs::path& target, const fs::path& link) {
     }
 }
 
+// Whether a junction in `folder` really shows its target: a drive without them (exFAT / FAT32) refuses one, and
+// Wine / Proton (Linux, Steam Deck) can make one that lists nothing, so the overlay would have no sce_module folder
+// (visy 0.8.2 found that in his mods.py). Either way the mod files are read in place instead.
 bool JunctionsWork(const fs::path& folder) {
-    const fs::path probe = folder / L"mod-junction-test";
+    const fs::path probe = folder / L"mod-junction-test", target = folder / L"mod-junction-target";
+    const fs::path marker = target / L"marker";
     RemoveDirectoryW(probe.c_str());
-    try {
-        CreateJunction(folder, probe);
-    } catch (const Error&) {
-        return false;
+    DeleteFileW(marker.c_str());
+    RemoveDirectoryW(target.c_str());
+    bool works = false;
+    if (CreateDirectoryW(target.c_str(), nullptr)) {
+        HANDLE file = CreateFileW(marker.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file != INVALID_HANDLE_VALUE) {
+            CloseHandle(file);
+            try {
+                CreateJunction(target, probe);
+                const DWORD a = GetFileAttributesW((probe / L"marker").c_str());
+                works = a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
+            } catch (const Error&) {
+            }
+        }
     }
     RemoveDirectoryW(probe.c_str());
-    return true;
+    DeleteFileW(marker.c_str());
+    RemoveDirectoryW(target.c_str());
+    return works;
 }
 
 void Link(const fs::path& path, const fs::path& target) {
@@ -401,7 +417,8 @@ fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector
         }
         WriteText(list, text);
         SetEnv("BB_MOD_FILES", Utf8(list));
-        Log("Mods: %s cannot hold links (an exFAT or FAT32 drive?): the engine reads the %zu mod files in place",
+        Log("Mods: %s cannot hold links (an exFAT or FAT32 drive, or Wine / Proton): the engine reads the %zu mod "
+            "files in place",
             Utf8(out.root_path()).c_str(), seen.size());
         return game;
     }

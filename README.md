@@ -37,7 +37,8 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
 
 ## What you need
 
-- **Windows 10 or 11, 64-bit**, and a GPU supporting **Vulkan 1.3**, with current drivers.
+- **Windows 10 or 11, 64-bit**, or **Linux / Steam Deck through Proton** (see below), and a GPU supporting
+  **Vulkan 1.3**, with current drivers. The CPU needs AVX (every Steam Deck has it).
   Vulkan support alone does not guarantee playable performance.
 - **Your own decrypted Bloodborne dump**: the `CUSA03173` folder (or another retail release) with
   **update 1.09 copied over the base game**.
@@ -60,6 +61,23 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
    not code-signed; only run a zip from this repository's Releases page). (`Bloodborne.exe` starts
    the game straight away with your launcher settings, e.g. from Steam.)
 4. Choose your game folder: the one with `eboot.bin` in it.
+
+### Linux and Steam Deck (Proton)
+
+Nightwatch runs through Steam's Proton; there is no native Linux build.
+
+1. Extract the zip to a folder in your home, for example `~/Games/NightwatchCoop`, and put your game
+   dump beside it (`~/Games/CUSA03173`).
+2. In Steam (Desktop Mode on a Deck): **Games → Add a Non-Steam Game to My Library → Browse**, pick
+   `Nightwatch Co-op.exe`.
+3. The new entry's **Properties → Compatibility**: tick **Force the use of a specific Steam Play
+   compatibility tool** and choose **Proton 10** (or newer).
+4. Start it from Steam. In the launcher, choose the game folder: Linux folders are under the `Z:` drive
+   (`Z:\home\<you>\Games\CUSA03173`; on a Deck `Z:\home\deck\...`).
+
+Mods work as on Windows (the game reads their files in place, as on an exFAT drive). For the
+Nightwatch VPN on Linux see [On Linux and Steam Deck](#on-linux-and-steam-deck-proton). This is the
+first release with Linux support: please report anything that differs from Windows.
 
 ## Co-op in four steps
 
@@ -178,8 +196,8 @@ script (`nightwatch-vpn-linux.sh`, written beside the files) adds one NetworkMan
 **Nightwatch** and starts and stops it. The launcher runs the script itself from inside Proton. What you may
 have to do once, by hand:
 
-- **Install NetworkManager's OpenVPN plugin.** SteamOS does not ship it (a SteamOS update can remove it
-  again). On a Steam Deck, in Desktop Mode, in Konsole:
+- **Install NetworkManager's OpenVPN plugin** if it is missing. SteamOS 3.8 ships it; on an older SteamOS
+  (or if an update removed it), on a Steam Deck in Desktop Mode, in Konsole:
   `sudo steamos-readonly disable`, `sudo pacman-key --init && sudo pacman-key --populate`,
   `sudo pacman -S --needed networkmanager-openvpn`, `sudo steamos-readonly enable`. On other
   distributions: `network-manager-openvpn` (Debian, Ubuntu) or `NetworkManager-openvpn` (Fedora).
