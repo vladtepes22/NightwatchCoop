@@ -29,6 +29,8 @@
 #include "bbport_glyph_screen.h"
 #include "bbport_game_menu.h"
 #include "bbport_settings.h"
+#include "bbport_menu_widgets.h"
+#include "bbport_osk.h"
 #include "input/input.h"
 #include "input/menu_pointer.h"
 #include "../bbgpu.h"
@@ -523,27 +525,7 @@ constexpr const char* kGameParts[] = {"GlyphPart_1",  "GlyphPart_11",   "ItemKno
                                       "GlyphPart_19", "GlyphPart_23",   "GlyphPart_26",      "GlyphPart_30",
                                       "GlyphPart_34", "Item_1_TP_Add",  "Item_1_TP_Base",    "Item_0_TP_Add",
                                       "Item_0_TP_Base", "DetailDesc",   "ItemName"};
-struct Wrapper {
-    alignas(16) std::uint8_t bytes[0x100]{};
-    u64 at() { return reinterpret_cast<u64>(bytes); }
-    bool Fetch(u64 parent, const char* name) {
-        reinterpret_cast<FetchFn>(coop::Guest(kChildFetch))(at(), parent, name);
-        return (Type() & 0x8f) == 10;
-    }
-    u32 Type() { return *reinterpret_cast<const u32*>(at() + 0x48); }
-    void SetVisible(bool visible) {
-        const u64 vtable = *reinterpret_cast<const u64*>(at());
-        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u32)>(*reinterpret_cast<const u64*>(vtable + 8))(at(), visible ? 1 : 0);
-    }
-    ~Wrapper() {
-        if (!(Type() & 0x40)) return;
-        const u64 iface = *reinterpret_cast<const u64*>(at() + 0x40);
-        const u64 release = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0x18);
-        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64)>(release)(iface, at() + 0x30,
-                                                                       *reinterpret_cast<const u64*>(at() + 0x50));
-    }
-};
-// The parts of one panel (`panel`, a display object wrapper) shown or hidden; how many were found.
+using BbMenuWidgets::Wrapper;// The parts of one panel (`panel`, a display object wrapper) shown or hidden; how many were found.
 template <std::size_t N>
 int ShowParts(u64 panel, const char* const (&parts)[N], bool visible) {
     int found = 0;
@@ -761,30 +743,8 @@ constexpr u32 kMenuText = 0xc8, kDepthLabel = 17001, kAreaLabel = 17002, kAreaNa
 std::atomic<u32> g_shown_goods{0};  // the chalice of the glyph whose description was filled last (0: none)
 u32 g_rows_goods = 0;               // the chalice the rows were written for (menu thread)
 u64 g_rows_screen = 0;
-void SetValueText(u64 wrapper, const char16_t* text);
-void SetFieldText(u64 root, const char* path, const char16_t* text) {
-    Wrapper field;
-    if (text && field.Fetch(root, path)) SetValueText(field.at(), text);
-}
-// A text field's text (HTML) through its wrapper object (as the game sets its help line and button prompts).
-void SetValueText(u64 wrapper, const char16_t* text) {
-    if (!wrapper || !text) return;
-    alignas(16) std::uint8_t value[0x40]{};
-    const u64 v = reinterpret_cast<u64>(value);
-    const u64 vtable = *reinterpret_cast<const u64*>(wrapper);
-    reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64)>(*reinterpret_cast<const u64*>(vtable))(v, wrapper);
-    const u64 iface = *reinterpret_cast<const u64*>(v + 0x18);
-    const u32 type = *reinterpret_cast<const u32*>(v + 0x20);
-    const u64 data = *reinterpret_cast<const u64*>(v + 0x28);
-    if (iface && (type & 0x8f)) {
-        const u64 set = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0x138);
-        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64, u32)>(set)(iface, data, reinterpret_cast<u64>(text), 1);
-    }
-    if ((type & 0x40) && iface) {
-        const u64 release = *reinterpret_cast<const u64*>(*reinterpret_cast<const u64*>(iface) + 0x18);
-        reinterpret_cast<void(BB_COOP_SYSV*)(u64, u64, u64)>(release)(iface, v + 8, data);
-    }
-}
+using BbMenuWidgets::SetFieldText;
+using BbMenuWidgets::SetValueText;
 void WriteRows(u64 screen) {
     const u32 goods = g_shown_goods.load(std::memory_order_acquire);
     if (!goods || (goods == g_rows_goods && screen == g_rows_screen)) return;
@@ -887,14 +847,6 @@ constexpr u64 kBoundsSlot = 0x1f0, kStageMatrix = 0x2040;  // a display object's
 constexpr u64 kHideCursors = 0x1acf0e0, kCursorName = 0x4934044;  // kCursorName: the item's highlight, "Cursor"
 constexpr u64 kListCursor = 0x74, kListCursorOverride = 0x78, kListFirstLine = 0x24c, kListProvider = 0x258;
 constexpr u64 kListRootType = 0xc8, kListRootData = 0xd0;
-// The menu's next sound: {value, priority} at 0x557fc60, its label at 0x557fc68; a sound is set only over one of no
-// higher priority. The cursor's move: {0, 0} and the label at 0x49344e4 ("cursor move" in Japanese); a decision, as a
-// menu deciding: {0x64, 1} and the label at 0x493451b ("decide", as 0x1b26e05 sets it); the top menu entering one
-// of its menus: {0x7da, 9} and the label at 0x4933506 ("top menu category select", as 0x1af47b9 sets it).
-constexpr u64 kMenuSound = 0x557fc60, kMenuSoundLabel = 0x557fc68, kCursorMoveLabel = 0x49344e4;
-constexpr u64 kDecideLabel = 0x493451b, kEnterMenuLabel = 0x4933506;
-// "cancel" (0xc8, priority 1: 0x1b26b5f) and "display switch" (0x3fc, priority 5: Display's action, 0x1ba678c)
-constexpr u64 kCancelLabel = 0x493450b, kSwitchLabel = 0x49340d5;
 std::atomic<u64> g_glyph_list_object{0};  // GlyphNormalItem's display object while the glyph screen is up
 std::atomic<bool> g_bar_focus{false};
 std::atomic<u64> g_glyph_list{0};             // the glyph screen's card list, once a step has seen it
@@ -952,19 +904,12 @@ int PointerPlace(u64 screen, bool* moved) {
     if (PointOn(DisplayObject(bar), x, y)) return 1;
     return PointOn(g_glyph_list_object.load(std::memory_order_acquire), x, y) ? -1 : 0;
 }
-void MenuSound(std::int32_t value, std::int32_t priority, u64 label_at) {
-    auto* sound = reinterpret_cast<std::int32_t*>(coop::Guest(kMenuSound));
-    if (sound[1] > priority) return;
-    sound[0] = value;
-    sound[1] = priority;
-    const u64 label = coop::Guest(label_at);
-    std::memcpy(reinterpret_cast<void*>(coop::Guest(kMenuSoundLabel)), &label, sizeof label);
-}
-void CursorMoveSound() { MenuSound(0, 0, kCursorMoveLabel); }  // as the game's own cursor move
-void DecideSound() { MenuSound(0x64, 1, kDecideLabel); }        // as a menu's decision (the typed text confirmed)
-void EnterSound() { MenuSound(0x7da, 9, kEnterMenuLabel); }      // as the top menu entering a menu (typing starts)
-void CancelSound() { MenuSound(0xc8, 1, kCancelLabel); }         // as a menu's cancel (the keyboard hidden)
-void SwitchSound() { MenuSound(0x3fc, 5, kSwitchLabel); }        // as Display's switch (the keyboard's other view)
+using BbMenuWidgets::CancelSound;
+using BbMenuWidgets::CursorMoveSound;
+using BbMenuWidgets::DecideSound;
+using BbMenuWidgets::EnterSound;
+using BbMenuWidgets::SwitchSound;
+using BbMenuWidgets::TypeSound;
 // The highlight of the card shown at `line` (one column: the cell is {0, line}).
 void ShowCardCursor(u64 list, u32 line) {
     u64 provider = 0, vtable = 0, make = 0;
@@ -1276,8 +1221,7 @@ void FinishJump(u64 screen) {
             std::printf("Glyph screen: \"%s\": tab %d's rows were not built again (the filter not applied)\n",
                         g_typed.c_str(), g_jump_tab);
         }
-        if (g_jump_glyph != g_match_glyph) CursorMoveSound();
-        HighlightCard(list, card);
+        HighlightCard(list, card);  // silent: the typing that moved it has its own sound
         g_match_glyph = g_jump_glyph;
         std::printf("Glyph screen: \"%s\" is on tab %d, card %d\n", g_typed.c_str(), g_jump_tab, card);
         std::fflush(stdout);
@@ -1342,73 +1286,13 @@ void StartSearch(u64 screen, bool open_box) {
 // order, then Delete (Key_36) and Done (Key_37) under them. The window thread moves its cursor, switches its view
 // (Triangle / Y) and presses its keys (KeyboardPress); the screen shows it (from the first controller press, or when
 // a controller started the typing), its view and its key's highlight (Hot).
-constexpr int kLetterKeys = 36, kDeleteKey = 36, kDoneKey = 37, kRowsMax = 6;
-struct KeyView {
-    const char* name;         // its sprite under GlyphKeyboard
-    const char* letters;      // Key_0 .. Key_35
-    int rows[kRowsMax];       // keys per row (0: no more rows)
-    double shift[kRowsMax];   // each row's offset, in keys
-    double width;             // the rows' width, in keys: Delete under its left half, Done under its right
-};
-constexpr KeyView kViews[2] = {
-    {"Grid", "abcdefghijklmnopqrstuvwxyz0123456789", {6, 6, 6, 6, 6, 6}, {0, 0, 0, 0, 0, 0}, 6},
-    {"Qwerty", "1234567890qwertyuiopasdfghjklzxcvbnm", {10, 10, 9, 7, 0, 0}, {0, 0, 0.5, 1.5, 0, 0}, 10},
-};
+const BbOsk::Layout& Keys() { return BbOsk::GlyphLayout(); }
 int KeyPacked(int view, int key) { return view << 8 | key; }
 int g_key_shown = -1;   // the key whose Hot shows (menu thread)
 int g_view_shown = -1;  // the view shown (menu thread)
-int RowCount(const KeyView& v) {
-    int n = 0;
-    while (n < kRowsMax && v.rows[n]) ++n;
-    return n;
+std::string HotPath(int view, int key) {
+    return Keys().views[std::size_t(view)].name + "/Key_" + std::to_string(key) + "/Hot";
 }
-int RowStart(const KeyView& v, int row) {
-    int first = 0;
-    for (int r = 0; r < row; ++r) first += v.rows[r];
-    return first;
-}
-// The key in `row` whose centre is nearest `x` (in keys; the leftmost of two as near).
-int NearestIn(const KeyView& v, int row, double x) {
-    const int first = RowStart(v, row);
-    int best = first;
-    double best_d = 1e9;
-    for (int c = 0; c < v.rows[row]; ++c) {
-        const double d = std::abs(c + v.shift[row] + 0.5 - x);
-        if (d < best_d) best_d = d, best = first + c;
-    }
-    return best;
-}
-// Left / Right wrap in a row; Up / Down go to the nearest key of the next row, and past the first or last row to
-// Delete or Done (the half under the key); from Delete / Done, Up and Down go to the nearest key of the last or first
-// row, Left / Right to the other one.
-int MovedKey(int view, int key, PadKey move) {
-    const KeyView& v = kViews[view];
-    const int rows = RowCount(v);
-    if (key >= kLetterKeys) {
-        if (move == PadKey::kLeft || move == PadKey::kRight) return key == kDeleteKey ? kDoneKey : kDeleteKey;
-        const double x = key == kDeleteKey ? v.width / 4 : v.width * 3 / 4;
-        return move == PadKey::kUp ? NearestIn(v, rows - 1, x) : move == PadKey::kDown ? NearestIn(v, 0, x) : key;
-    }
-    int row = 0;
-    while (row < rows - 1 && key >= RowStart(v, row + 1)) ++row;
-    const int first = RowStart(v, row), column = key - first, n = v.rows[row];
-    const double x = column + v.shift[row] + 0.5;
-    const int below = x < v.width / 2 ? kDeleteKey : kDoneKey;
-    switch (move) {
-    case PadKey::kLeft: return first + (column + n - 1) % n;
-    case PadKey::kRight: return first + (column + 1) % n;
-    case PadKey::kUp: return row == 0 ? below : NearestIn(v, row - 1, x);
-    case PadKey::kDown: return row == rows - 1 ? below : NearestIn(v, row + 1, x);
-    default: return key;
-    }
-}
-// The same key in the other view: a letter stays on its letter, Delete and Done stay.
-int KeyInView(int from, int to, int key) {
-    if (key >= kLetterKeys) return key;
-    const char* at = std::strchr(kViews[to].letters, kViews[from].letters[key]);
-    return at ? int(at - kViews[to].letters) : 0;
-}
-std::string HotPath(int view, int key) { return std::string(kViews[view].name) + "/Key_" + std::to_string(key) + "/Hot"; }
 // The glyph screen's keyboard part (`path` under GlyphDetailText/GlyphKeyboard) shown or hidden.
 void ShowKeyboardPart(u64 screen, const std::string& path, bool visible) {
     Wrapper root, part;
@@ -1446,7 +1330,7 @@ void DrawKeyboard(u64 screen) {
     const int view = packed >> 8 & 1, key = packed & 0xff;
     if (view != g_view_shown) {
         HideKeyHot(screen);
-        for (int i = 0; i < 2; ++i) ShowKeyboardPart(screen, kViews[i].name, i == view);
+        for (int i = 0; i < 2; ++i) ShowKeyboardPart(screen, Keys().views[std::size_t(i)].name, i == view);
         if (g_view_shown >= 0) {
             SwitchSound();
             std::printf("Glyph screen: the controller's keyboard: the %s view\n", view ? "QWERTY" : "A-Z grid");
@@ -1487,18 +1371,13 @@ void ShowNoMatch(u64 screen) {
 // own runs, then ours over it while typing. The keys: the game's button images (the engine's key prompts draw them
 // for the device; with a text box open on the keyboard Cross reads Enter, Circle Esc and Square Bksp). Options
 // (Done on a controller) has no image in the item screen's movies: not listed.
-constexpr u64 kSetHelp = 0x1ad6210, kRefreshPrompts = 0x1ad6450, kHelpField = 0x1f8, kPromptsField = 0x2a8;
-using SetHelpFn = void(BB_COOP_SYSV*)(u64, u64);
-using RefreshPromptsFn = void(BB_COOP_SYSV*)(u64);
-SetHelpFn g_set_help_original = nullptr;
-RefreshPromptsFn g_refresh_prompts_original = nullptr;
+using BbMenuWidgets::kHelpField;
+using BbMenuWidgets::kPromptsField;
+using BbMenuWidgets::Prompt;
 int g_prompts_mode = 0;  // the prompts shown: 0 the screen's, 1 typing on the keyboard, 2 on the controller's keyboard
 int PromptsMode() {
     if (!g_typing.load(std::memory_order_acquire)) return 0;
     return g_keyboard_wanted.load(std::memory_order_acquire) ? 2 : 1;
-}
-std::u16string Prompt(const char16_t* image, const char16_t* label) {
-    return std::u16string(u"<font color='#A5A58C'><img src='") + image + u"' vspace='-8'>\xff1a" + label + u"</font>";
 }
 void TypingPrompts(u64 screen, int mode) {
     u64 help = 0, prompts = 0;
@@ -1513,12 +1392,9 @@ void TypingPrompts(u64 screen, int mode) {
                   : Prompt(u"KG_OK", u"Done") + gap + Prompt(u"KG_Cancel", u"Cancel") + gap + Prompt(u"KG_R_L", u"Delete");
     SetValueText(prompts, row.c_str());
 }
-BB_COOP_SYSV void SetHelp(u64 screen, u64 text) {
-    g_set_help_original(screen, text);
-    if (IsGlyphScreen(screen) && g_prompts_mode) TypingPrompts(screen, g_prompts_mode);
-}
-BB_COOP_SYSV void RefreshPrompts(u64 screen) {
-    g_refresh_prompts_original(screen);
+// After the game sets any screen's help line or redraws its prompts (BbMenuWidgets::AddPromptsHook): the glyph
+// screen's typing ones over them.
+void GlyphPrompts(u64 screen) {
     if (IsGlyphScreen(screen) && g_prompts_mode) TypingPrompts(screen, g_prompts_mode);
 }
 // Each frame: the prompts follow the typing (started, ended, the controller's keyboard shown or hidden).
@@ -1526,7 +1402,7 @@ void ShowTypingPrompts(u64 screen) {
     const int mode = PromptsMode();
     if (mode == g_prompts_mode) return;
     g_prompts_mode = mode;
-    reinterpret_cast<RefreshPromptsFn>(coop::Guest(kRefreshPrompts))(screen);  // ours over the game's, or the game's
+    BbMenuWidgets::RefreshPrompts(screen);  // ours over the game's, or the game's
     if (!mode) TypingPrompts(screen, 0);  // the screen's help line back
     std::printf("Glyph screen: the button prompts: %s\n",
                 mode == 2 ? "the controller's keyboard" : mode == 1 ? "typing on the keyboard" : "the screen's");
@@ -1549,8 +1425,12 @@ void Typing(u64 screen) {
     const int state = bbgpu_text_input_poll(text, sizeof text);
     if (state != 0) g_keyboard_wanted.store(false, std::memory_order_release);
     DrawKeyboard(screen);
+    const bool changed = state == 0 && std::strlen(text) != g_typed.size();
     g_typed = text;
     Jump(screen);
+    // typed or deleted (any way), as the name entry sounds it: after the list's refresh (the game's tab switch), so
+    // that the typing's sound is the one this frame plays
+    if (changed) TypeSound();
     const bool blink = static_cast<long long>(Seconds() * 2) % 2 == 0;
     ShowTyped(screen, state == 0 && blink);
     if (state == 0) return;
@@ -2048,9 +1928,13 @@ int KeyboardPress(PadKey key) {
     case PadKey::kUp:
     case PadKey::kDown:
     case PadKey::kLeft:
-    case PadKey::kRight: g_key.store(KeyPacked(view, MovedKey(view, k, key)), std::memory_order_release); return 0;
-    case PadKey::kToggle: g_key.store(KeyPacked(1 - view, KeyInView(view, 1 - view, k)), std::memory_order_release); return 0;
-    case PadKey::kPress: return k < kLetterKeys ? kViews[view].letters[k] : k == kDeleteKey ? kTypedDelete : kTypedDone;
+    case PadKey::kRight: g_key.store(KeyPacked(view, BbOsk::Moved(Keys(), view, k, key)), std::memory_order_release); return 0;
+    case PadKey::kToggle:
+        g_key.store(KeyPacked(1 - view, BbOsk::InView(Keys(), view, 1 - view, k)), std::memory_order_release);
+        return 0;
+    case PadKey::kPress:
+        return k < Keys().Letters() ? Keys().views[std::size_t(view)].letters[std::size_t(k)]
+               : k == Keys().Wide("Delete") ? kTypedDelete : kTypedDone;
     case PadKey::kDelete: return kTypedDelete;
     case PadKey::kDone: return kTypedDone;
     case PadKey::kCancel: return kTypedCancel;
@@ -2185,14 +2069,7 @@ void Install() {
                                                  reinterpret_cast<const void*>(&OkAction),
                                                  reinterpret_cast<void**>(&g_ok_original),
                                                  "glyph screen: OK on the search bar");
-        g_list = g_list && coop::ReplacePrologue(kSetHelp, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x56, 0x53},
-                                                 reinterpret_cast<const void*>(&SetHelp),
-                                                 reinterpret_cast<void**>(&g_set_help_original),
-                                                 "glyph screen: the help line while typing");
-        g_list = g_list && coop::ReplacePrologue(kRefreshPrompts, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56},
-                                                 reinterpret_cast<const void*>(&RefreshPrompts),
-                                                 reinterpret_cast<void**>(&g_refresh_prompts_original),
-                                                 "glyph screen: the button prompts while typing");
+        g_list = g_list && BbMenuWidgets::AddPromptsHook(&GlyphPrompts);  // the help line and prompts while typing
         g_list = g_list && coop::ReplacePrologue(kPanelShown, {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56},
                                                  reinterpret_cast<const void*>(&PanelShown),
                                                  reinterpret_cast<void**>(&g_panel_shown_original),

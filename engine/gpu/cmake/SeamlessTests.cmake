@@ -671,6 +671,13 @@ set_target_properties(game-menu-rows-test PROPERTIES INTERPROCEDURAL_OPTIMIZATIO
 add_test(NAME game-menu-rows-test COMMAND game-menu-rows-test)
 add_dependencies(seamless-tests game-menu-rows-test)
 
+# The on-screen keyboards' layouts and d-pad moves (the glyph browser's search, the Contract screen's name).
+add_executable(osk-test EXCLUDE_FROM_ALL ../tests/test_osk.cpp shim/bbport_osk.cpp)
+target_compile_options(osk-test PRIVATE -UNDEBUG)
+target_include_directories(osk-test PRIVATE shim)
+add_test(NAME osk-test COMMAND osk-test)
+add_dependencies(seamless-tests osk-test)
+
 # Low host memory with Windows refusing commits (src/win32_memory.c).
 if (WIN32)
     add_executable(win32-memory-test EXCLUDE_FROM_ALL ../tests/test_win32_memory.c ../src/win32_memory.c ../src/runtime_logdrain.c

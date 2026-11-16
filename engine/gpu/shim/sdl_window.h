@@ -43,8 +43,9 @@ public:
         std::string value, label, tab;
     };
     /// `quiet`: the box takes the keys but draws nothing (no prompt window, no title): the caller shows the text.
+    /// `limit`: the most characters (0: any).
     void BeginTextInput(const std::string& initial, const std::string& prompt, const std::vector<TextChoice>& choices = {},
-                        bool quiet = false);
+                        bool quiet = false, std::size_t limit = 0);
     /// Test aid (any thread): keys (TestType's) the next text box takes as soon as it opens.
     void QueueTestKeys(const std::string& keys);
     int PollTextInput(std::string& text);
@@ -58,6 +59,12 @@ private:
     bool text_requested{}, text_active{};
     bool text_selected{};
     bool text_quiet{};  ///< BeginTextInput's quiet: nothing drawn
+    std::size_t text_limit{};  ///< BeginTextInput's limit: the most characters (0: any)
+    void AppendText(const std::string& more);  ///< `more` added up to the limit (text_mutex held)
+    /// A quiet box's controller keyboard: what a press typed applied to the text (text_mutex held).
+    void PadTyped(int typed);
+    int pad_repeat_button{-1};      ///< the held button that types again (South: the key, West: delete), or -1
+    std::uint64_t pad_repeat_at{};  ///< when it types next (SDL ticks, ms)
     int text_state{};
     std::string text, text_prompt, base_title;
     std::vector<std::pair<std::string, std::string>> text_choices;  ///< the shown tab's rows (all rows without tabs)

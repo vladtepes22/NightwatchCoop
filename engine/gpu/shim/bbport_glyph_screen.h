@@ -3,6 +3,8 @@
 // game's own chalice cards, one per glyph of the launcher's cache (party/party_chalice_glyphdb.h).
 #pragma once
 
+#include "bbport_osk.h"
+
 #include <cstdint>
 #include <string>
 
@@ -34,8 +36,10 @@ std::string SearchText();
 /// The window thread, the quiet text box's controller button: the glyph screen's keyboard (shown from the first
 /// press) moves its key, switches its view (kToggle: the A-Z grid / QWERTY) or presses its key. Returns the letter
 /// typed (> 0), 0 for nothing or one of kTyped*.
-enum class PadKey { kNone, kUp, kDown, kLeft, kRight, kPress, kDelete, kDone, kCancel, kToggle };
-constexpr int kTypedDelete = -1, kTypedDone = -2, kTypedCancel = -3;
+using PadKey = BbOsk::PadKey;
+using BbOsk::kTypedCancel;
+using BbOsk::kTypedDelete;
+using BbOsk::kTypedDone;
 int KeyboardPress(PadKey key);
 /// The window thread, a key typed on the keyboard in the quiet text box: the glyph screen's keyboard hides.
 void KeyboardKeyTyped();

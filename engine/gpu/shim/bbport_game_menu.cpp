@@ -28,6 +28,7 @@
 //  - New pages: add them in Pages::DefineAll (MaxPages below caps the System items).
 #include "bbport_game_menu.h"
 #include "bbport_glyph_screen.h"
+#include "bbport_name_entry.h"
 #include "party/party_give.h"
 #include "party/party_flow.h"
 #include "net/bbnet_internal.h"
@@ -1613,6 +1614,7 @@ void ImeClosed(std::uint32_t max_length, const char* text, bool cancelled) {
 }
 
 const char* ImePreset(std::uint32_t max_length) {
+    BbNameEntry::NoteImeLength(max_length);  // the Contract screen's name box: its most characters
     if (const char* picked = BbGlyphScreen::PickedGlyph(max_length)) return picked;  // a glyph screen pick first
     const ImePresetFn fn = ime_preset.load(std::memory_order_acquire);
     return fn ? fn(max_length) : nullptr;

@@ -555,6 +555,7 @@ extern "C" void bbnet_initialize(void);
 #include "party/party_b2.h"
 #include "bbport_game_menu.h"
 #include "bbport_glyph_screen.h"
+#include "bbport_name_entry.h"
 extern "C" void bbgpu_start_online(void) {
     const char* online = std::getenv("BB_ONLINE");
     if (online && online[0] == '1') bbnet_initialize();
@@ -638,6 +639,7 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbGxQueryGuard::Install();  // every mode: an occlusion query without a handle is skipped (visy CL-9666e3)
     BbGameMenu::PatchImage(image, size);
     BbGlyphScreen::Install();  // the community Chalice glyph list as the altar's native item-list screen
+    BbNameEntry::Install();    // the Contract screen's name typed in its own row (no text window)
     BbStallProbe::Install();  // visy 0.8.1: BB_STALL_PROBE, long main-loop frames split into main work / render wait (diagnostic)
     BbLoadTrace::Install();  // visy 0.8.1: BB_LOAD_TRACE, the map load step by step with IO / GPU / CPU counters (diagnostic)
     BbLoadSpeed::Install();  // visy 0.8.1: BB_LOAD_WORKERS / BB_FAST_INFLATE, more post-processor threads, zlib-ng inflate
@@ -771,6 +773,12 @@ extern "C" int bbgpu_text_input_test_queue(const char* keys) {
 
 extern "C" int bbgpu_text_input_begin(const char* initial, const char* prompt) {
     if (!g_window) return 0;
+    std::string name;
+    std::size_t limit = 0;
+    if (BbNameEntry::Begin(&name, &limit)) {  // the Contract screen's name: typed in its own row, no window
+        g_window->BeginTextInput(name, prompt ? prompt : "Text", {}, true, limit);
+        return 1;
+    }
     g_window->BeginTextInput(initial ? initial : "", prompt ? prompt : "Text");
     return 1;
 }

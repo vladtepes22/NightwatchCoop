@@ -462,12 +462,17 @@ extern "C" int bbgpu_pc_input(BbPcPad* d, const bool* keys, int nkeys, int gamep
     bool any_down = mouse.held != 0;
     for (int i = 0; keys && i < nkeys && !any_down; ++i) any_down = keys[i];
     host_bind_capture_note_held(any_down);
+    // Nightwatch: a button still held when a text box closes (Cross on Done, Enter) is not seen by the game until it
+    // is let go: the game would take it as a new press (the Contract screen opening its name box again).
+    static std::uint32_t held_from_text = 0;
     if (!g_focused || g_text_entry || host_bind_capture_blocking()) {
-
+        if (g_text_entry) held_from_text = ~0u;
         pad = PadState{};
         g_wants_relative = false;
     } else {
         AddKeyboardAndMouse(pad, keys, nkeys, mouse, menu, keys_move_hunter, camera);
+        held_from_text &= pad.buttons;
+        pad.buttons &= ~held_from_text;
     }
     {
         std::scoped_lock lock(g_pad_lock);

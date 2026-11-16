@@ -17,6 +17,7 @@
 #include "sdl_window.h"
 #include "bbport_overlay.h"
 #include "bbport_glyph_screen.h"
+#include "bbport_name_entry.h"
 #include "bbport_settings.h"
 #include "input/input.h"
 #include "lantern_pacing.h"
@@ -265,12 +266,14 @@ void WindowSDL::SelectTab(int tab) {
 }
 
 void WindowSDL::BeginTextInput(const std::string& initial, const std::string& prompt, const std::vector<TextChoice>& choices,
-                               bool quiet) {
+                               bool quiet, std::size_t limit) {
     std::string keys;
     {
         std::scoped_lock lock{text_mutex};
         text_quiet = quiet;
-        text = initial;
+        text_limit = limit;
+        text.clear();
+        AppendText(initial);
         text_selected = !quiet && choices.empty() && !initial.empty();  // quiet: nothing shows a selection
         text_prompt = prompt;
         text_state = 0;
@@ -294,6 +297,26 @@ void WindowSDL::BeginTextInput(const std::string& initial, const std::string& pr
         keys.swap(text_test_keys);
     }
     if (!keys.empty()) TestType(keys);
+}
+
+// A held key on a controller keyboard: types again after this pause, then at this rate (about a keyboard's own).
+constexpr std::uint64_t kPadRepeatDelayMs = 500, kPadRepeatRateMs = 50;
+
+void WindowSDL::AppendText(const std::string& more) {
+    if (!text_limit) {
+        text += more;
+        return;
+    }
+    std::size_t count = 0;  // characters (UTF-8 lead bytes)
+    for (const unsigned char c : text) count += (c & 0xc0) != 0x80;
+    for (std::size_t i = 0; i < more.size();) {
+        std::size_t n = 1;
+        while (i + n < more.size() && (static_cast<unsigned char>(more[i + n]) & 0xc0) == 0x80) ++n;
+        if (count >= text_limit) break;
+        text.append(more, i, n);
+        ++count;
+        i += n;
+    }
 }
 
 void WindowSDL::QueueTestKeys(const std::string& keys) {
@@ -403,7 +426,8 @@ bool WindowSDL::PollEvents() {
             last_mouse_motion_ms = SDL_GetTicks();
         }
         if (text_active && (event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_KEY_DOWN)) {
-            if (text_quiet) BbGlyphScreen::KeyboardKeyTyped();  // the glyph screen's controller keyboard hides
+            if (text_quiet && BbNameEntry::Typing()) BbNameEntry::KeyboardKeyTyped();  // the name keyboard hides
+            else if (text_quiet) BbGlyphScreen::KeyboardKeyTyped();  // the glyph screen's controller keyboard hides
             std::scoped_lock lock{text_mutex};
             const bool ctrl = event.type == SDL_EVENT_KEY_DOWN && (event.key.mod & SDL_KMOD_CTRL);
             if (event.type == SDL_EVENT_TEXT_INPUT && search_letter &&
@@ -413,7 +437,7 @@ bool WindowSDL::PollEvents() {
                 if (text_selected || text_sel >= 0) text.clear();  // the list's answer gives way to typing
                 text_selected = false;
                 text_sel = -1;
-                text += event.text.text;
+                AppendText(event.text.text);
             } else if (event.type == SDL_EVENT_KEY_DOWN && !text_choices.empty() && event.key.key == SDLK_UP) {
                 text_sel = text_sel <= 0 ? int(text_choices.size()) - 1 : text_sel - 1;
                 text = text_choices[size_t(text_sel)].first;
@@ -443,7 +467,7 @@ bool WindowSDL::PollEvents() {
                     if (text_selected || text_sel >= 0) text.clear();
                     text_selected = false;
                     text_sel = -1;
-                    text += pasted;
+                    AppendText(pasted);
                 }
             } else if (ctrl && event.key.key == SDLK_A) {
                 text_selected = !text.empty();
@@ -506,21 +530,19 @@ bool WindowSDL::PollEvents() {
                                : b == SDL_GAMEPAD_BUTTON_EAST       ? PadKey::kCancel
                                : b == SDL_GAMEPAD_BUTTON_NORTH      ? PadKey::kToggle
                                                                     : PadKey::kNone;
-            const int typed = BbGlyphScreen::KeyboardPress(key);
+            const int typed = BbNameEntry::Typing() ? BbNameEntry::KeyboardPress(key) : BbGlyphScreen::KeyboardPress(key);
             std::scoped_lock lock{text_mutex};
-            if (typed > 0) {
-                text += char(typed);
-            } else if (typed == BbGlyphScreen::kTypedDelete && !text.empty()) {
-                size_t cut = text.size() - 1;
-                while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
-                text.erase(cut);
-            } else if (typed == BbGlyphScreen::kTypedDone || typed == BbGlyphScreen::kTypedCancel) {
-                text_state = typed == BbGlyphScreen::kTypedDone ? 1 : 2;
-                text_active = false;
-                SDL_StopTextInput(window);
-            }
+            PadTyped(typed);
+            // held, a press that typed or deleted repeats (as a held key on a keyboard); any other press stops it
+            const bool repeats = (key == PadKey::kPress || key == PadKey::kDelete) &&
+                                 (typed > 0 || typed == BbGlyphScreen::kTypedDelete);
+            pad_repeat_button = repeats ? int(b) : -1;
+            pad_repeat_at = SDL_GetTicks() + kPadRepeatDelayMs;
             UpdateTextTitle();
             continue;
+        }
+        if (event.type == SDL_EVENT_GAMEPAD_BUTTON_UP && int(event.gbutton.button) == pad_repeat_button) {
+            pad_repeat_button = -1;
         }
         if (text_active && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&
             (event.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH ||
@@ -589,9 +611,36 @@ bool WindowSDL::PollEvents() {
         window_unfocused.store(unfocused, std::memory_order_relaxed);
         window_minimized.store(minimized, std::memory_order_relaxed);
     }
+    // A held Cross / Square on a controller keyboard: the key again, after a pause, then at a steady rate.
+    if (pad_repeat_button >= 0 && (!text_active || !text_quiet)) pad_repeat_button = -1;
+    if (pad_repeat_button >= 0 && SDL_GetTicks() >= pad_repeat_at) {
+        pad_repeat_at = SDL_GetTicks() + kPadRepeatRateMs;
+        using BbGlyphScreen::PadKey;
+        const PadKey key = pad_repeat_button == SDL_GAMEPAD_BUTTON_SOUTH ? PadKey::kPress : PadKey::kDelete;
+        const int typed = BbNameEntry::Typing() ? BbNameEntry::KeyboardPress(key) : BbGlyphScreen::KeyboardPress(key);
+        std::scoped_lock lock{text_mutex};
+        if (typed > 0 || typed == BbGlyphScreen::kTypedDelete) PadTyped(typed);
+        else pad_repeat_button = -1;  // the key under the cursor no longer types (cannot happen: the cursor holds)
+        UpdateTextTitle();
+    }
     BbInput::Pump(window,text_active);
     UpdateCursor();
     return is_open;
+}
+
+void WindowSDL::PadTyped(int typed) {
+    if (typed > 0) {
+        AppendText(std::string(1, char(typed)));
+    } else if (typed == BbGlyphScreen::kTypedDelete && !text.empty()) {
+        size_t cut = text.size() - 1;
+        while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
+        text.erase(cut);
+    } else if (typed == BbGlyphScreen::kTypedDone || typed == BbGlyphScreen::kTypedCancel) {
+        text_state = typed == BbGlyphScreen::kTypedDone ? 1 : 2;
+        text_active = false;
+        pad_repeat_button = -1;
+        SDL_StopTextInput(window);
+    }
 }
 
 void WindowSDL::UpdateCursor() {

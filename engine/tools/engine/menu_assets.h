@@ -70,5 +70,8 @@ Bytes GlyphListMovie(const Bytes& gfx);
 // inventory.gfx with two more tab-tile frames (61, 62) for the Chalice glyph screen's Testing and Your Dungeons tabs:
 // grey copies of the in-game menu's System and Status icons, made from common.tpf.dcx (the same menu folder).
 Bytes GlyphTabsMovie(const Bytes& gfx, const Bytes& common_tpf_dcx);
+// chrmaketop.gfx (the Contract screen) with the name entry's parts: NameField over the name row (the row while typed
+// in) and NameKeyboard over the preview (the controller's keyboard).
+Bytes NameEntryMovie(const Bytes& gfx);
 Bytes AltarScripts(const Bytes& dcx);
 }

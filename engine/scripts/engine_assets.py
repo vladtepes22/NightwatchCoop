@@ -291,6 +291,10 @@ def prepare_menu_assets(game, elf_path, cache, tool, rebirth=False):
     glyph_tabs = Path('dvdroot_ps4/menu/inventory.gfx')
     if (game / glyph_tabs).is_file() and (game / 'dvdroot_ps4/menu/common.tpf.dcx').is_file():
         sources.append((glyph_tabs, 'glyph-tabs'))
+    # The Contract screen's name entry (optional too: without it the name row has no typing field and no keyboard).
+    name_entry = Path('dvdroot_ps4/menu/chrmaketop.gfx')
+    if (game / name_entry).is_file():
+        sources.append((name_entry, 'name-entry'))
     generator = sha(tool.read_bytes())
     manifest_path = root / 'manifest.json'
     try:
@@ -327,7 +331,7 @@ def prepare_menu_assets(game, elf_path, cache, tool, rebirth=False):
                     temporary.unlink(missing_ok=True)
             rows[relative.as_posix()] = {'input': digest, 'output': current}
         except (OSError, ValueError):
-            if kind not in ('glyph-panel', 'glyph-list', 'glyph-tabs'):
+            if kind not in ('glyph-panel', 'glyph-list', 'glyph-tabs', 'name-entry'):
                 raise
             destination.unlink(missing_ok=True)
     root.mkdir(parents=True, exist_ok=True)

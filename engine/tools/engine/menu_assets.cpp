@@ -184,7 +184,9 @@ Place ReadPlace(const Tag& t) {
     if (t.code == kPlace3) more = std::uint8_t(Le(b, at++, 1));
     p.depth = U16(b, at);
     at += 2;
-    if (t.code == kPlace3 && ((more & 0x08) || ((more & 0x10) && (p.flags & 0x02)))) {
+    // a class name only with its own flag: the game's movies place an image character with "has image" and "has
+    // character" set and no class name (chrmaketop.gfx's icon frames: 06 10 <depth> <image id> <matrix>)
+    if (t.code == kPlace3 && (more & 0x08)) {
         while (at < b.size() && b[at]) ++at;
         ++at;
     }
@@ -1210,6 +1212,182 @@ Box Bounds(const Movie& m, std::uint16_t id) {
 }
 }  // namespace
 
+namespace {
+// An on-screen keyboard (a sprite, for a controller to type with; the caller places it, hidden): an optional backing,
+// a title over a line, then one sprite per view (Grid, Qwerty ...), each with its keys Key_0 .. Key_<n> (the letter
+// keys in the view's order, then the wide keys under them) and, right of the title, the hint of the view switch
+// (Triangle / Y). A key: a 1 px border, its face, its label (centred) and Hot, its highlight (a 3 px frame, hidden).
+// A key with a second label (a letter's upper case, a lit Shift) has its labels named Label and Alt (Alt hidden).
+// The texts are copies of `font_text` (an edit text of the movie, for its font), all in the menu's gold.
+struct BoardView {
+    std::string name;  // its sprite's name
+    bool visible;
+    std::string hint;  // the view switch's label ("QWERTY", "A-Z Grid")
+    std::vector<std::pair<std::string, double>> rows;  // each row's letters and its offset, in keys
+    double units;      // the rows' width, in keys (the wide keys share it)
+};
+struct BoardWideKey {
+    std::string label;
+    std::optional<std::string> lit;  // a second label in the highlight's colour (Alt), for a key that toggles
+};
+struct BoardSpec {
+    double left, right, top;  // px in the parent: the area the title and line span, and the title's top
+    double key = 70, gap = 10, wide_h = 56;
+    std::string title;
+    std::optional<std::string> title_name;  // the title's name, for the screen to set its own (localized) text
+    std::vector<BoardView> views;
+    std::vector<BoardWideKey> wide;
+    bool upper = false;  // the letter keys have an upper-case Alt label
+    double wide_label_dy = 0;  // px down: the wide keys' smaller labels sit high in the font text's box
+    std::optional<std::array<double, 4>> backing;  // a solid backing: left, top, right, bottom (px)
+};
+constexpr std::uint32_t kBoardBackingRgb = 0x141312;
+std::uint16_t KeyboardBoard(const Movie& m, std::uint16_t font_text, std::uint16_t& next_id, std::vector<Tag>& defs,
+                            const BoardSpec& s) {
+    constexpr double kHot = 3, kTitleX = 31, kTitleY = 26, kLineY = 77, kLineInset = 20, kGridY = 100;
+    constexpr std::uint32_t kBorderRgb = 0x4e4b46, kFaceRgb = 0x242220, kHotRgb = 0xd6bc82, kLineRgb = 0x78746c;
+    const auto twips = [](double px) { return std::int64_t(std::llround(px * 20)); };
+    // the font text's bounds: its left and right, and its height for the labels' vertical centre
+    std::int64_t text_left = 0, text_right = 0, text_top = 0, text_bottom = 0;
+    bool found = false;
+    for (const Tag& t : m.tags) {
+        if (t.code != 37 || U16(t.body, 0) != font_text) continue;
+        BitReader r{t.body, 2};
+        const int n = int(r.Unsigned(5));
+        text_left = r.Signed(n), text_right = r.Signed(n), text_top = r.Signed(n), text_bottom = r.Signed(n);
+        found = true;
+    }
+    if (!found) throw Error("no edit text " + std::to_string(font_text) + " for the keyboard");
+    const double text_h = double(text_bottom - text_top) / 20;
+    // shapes and the Hot frames, by size
+    struct KeySize {
+        double w, h;
+        std::uint16_t border, face, hot;
+    };
+    const auto key_size = [&](double w, double h) {
+        KeySize k{w, h, ++next_id, ++next_id, 0};
+        defs.push_back(RectShape(k.border, twips(w), twips(h), kBorderRgb));
+        defs.push_back(RectShape(k.face, twips(w - 2), twips(h - 2), kFaceRgb));
+        const std::uint16_t edge_h = ++next_id, edge_v = ++next_id;
+        defs.push_back(RectShape(edge_h, twips(w), twips(kHot), kHotRgb));
+        defs.push_back(RectShape(edge_v, twips(kHot), twips(h), kHotRgb));
+        Sprite hot{++next_id, 1, {}};
+        hot.tags.push_back(Placement(edge_h, 1, At(0, 0), std::nullopt, true));
+        hot.tags.push_back(Placement(edge_h, 2, At(0, h - kHot), std::nullopt, true));
+        hot.tags.push_back(Placement(edge_v, 3, At(0, 0), std::nullopt, true));
+        hot.tags.push_back(Placement(edge_v, 4, At(w - kHot, 0), std::nullopt, true));
+        hot.tags.push_back(Tag{kShowFrame, {}, {}});
+        hot.tags.push_back(Tag{kEnd, {}, {}});
+        defs.push_back(WriteSprite(hot));
+        k.hot = hot.id;
+        return k;
+    };
+    const auto width_of = [&](const BoardView& v) { return v.units * (s.key + s.gap) - s.gap; };
+    const auto wide_w = [&](const BoardView& v) {
+        const double n = double(s.wide.size());
+        return (width_of(v) - (n - 1) * s.gap) / n;
+    };
+    const KeySize small = key_size(s.key, s.key);
+    std::vector<KeySize> wide_sizes;
+    for (const BoardView& v : s.views) wide_sizes.push_back(key_size(wide_w(v), s.wide_h));
+    // an edit text of the font text's, `w` wide, with `html`
+    const auto text_of = [&](double w, const std::string& html) {
+        const std::uint16_t sized = ++next_id;
+        Movie one;
+        one.tags.push_back(WiderEditText(m, font_text, sized, twips(w) - (text_right - text_left)));
+        return EditTextWithText(one, sized, sized, html);
+    };
+    // the menu's gold, bold (as the game's own panel text, all <b>)
+    const auto html = [](int size, const std::string& align, const std::string& text, const char* colour = "#a0895f") {
+        return "<p align=\"" + align + "\"><font size=\"" + std::to_string(size) + "\" color=\"" + colour +
+               "\" letterSpacing=\"0.000000\" kerning=\"1\"><b>" + text + "</b></font></p>";
+    };
+    Sprite board{++next_id, 1, {}};
+    std::uint16_t depth = 1;
+    if (s.backing) {
+        const auto& b = *s.backing;
+        const std::uint16_t backing = ++next_id;
+        defs.push_back(RectShape(backing, twips(b[2] - b[0]), twips(b[3] - b[1]), kBoardBackingRgb));
+        board.tags.push_back(Placement(backing, depth++, At(b[0], b[1]), std::nullopt, true));
+    }
+    // the title and its line
+    {
+        const Tag title = text_of(s.right - s.left - 2 * kTitleX, html(22, "left", s.title));
+        defs.push_back(title);
+        board.tags.push_back(Placement(U16(title.body, 0), depth++,
+                                       At(s.left + kTitleX - double(text_left) / 20, s.top + kTitleY - double(text_top) / 20),
+                                       s.title_name, true));
+        const std::uint16_t line = ++next_id;
+        defs.push_back(RectShape(line, twips(s.right - s.left - 2 * kLineInset), 20, kLineRgb));
+        board.tags.push_back(Placement(line, depth++, At(s.left + kLineInset, s.top + kLineY), std::nullopt, true));
+    }
+    // a view: its hint (the key guide's own markup, "<font color='#A5A58C'>%s：%s</font>" with
+    // "<img src='%s' vspace='-8'>": KG_R_U is Triangle, the engine's key prompts redraw it for the device in use),
+    // its letter keys and its wide keys
+    for (std::size_t vi = 0; vi < s.views.size(); ++vi) {
+        const BoardView& v = s.views[vi];
+        Sprite view{++next_id, 1, {}};
+        std::uint16_t view_depth = 1;
+        const auto key = [&](int index, const KeySize& k, double x, double y, const std::string& label,
+                             const std::optional<std::string>& alt, const char* alt_colour, int size, double dy) {
+            const Tag text = text_of(k.w, html(size, "center", label));
+            defs.push_back(text);
+            Sprite one{++next_id, 1, {}};
+            const double label_y = (k.h - text_h) / 2 - double(text_top) / 20 + dy;
+            one.tags.push_back(Placement(k.border, 1, At(0, 0), std::nullopt, true));
+            one.tags.push_back(Placement(k.face, 2, At(1, 1), std::nullopt, true));
+            one.tags.push_back(Placement(U16(text.body, 0), 3, At(-double(text_left) / 20, label_y),
+                                         alt ? std::optional<std::string>("Label") : std::nullopt, true));
+            one.tags.push_back(Placement(k.hot, 4, At(0, 0), std::string("Hot"), false));
+            if (alt) {
+                const Tag second = text_of(k.w, html(size, "center", *alt, alt_colour));
+                defs.push_back(second);
+                one.tags.push_back(Placement(U16(second.body, 0), 5, At(-double(text_left) / 20, label_y),
+                                             std::string("Alt"), false));
+            }
+            one.tags.push_back(Tag{kShowFrame, {}, {}});
+            one.tags.push_back(Tag{kEnd, {}, {}});
+            defs.push_back(WriteSprite(one));
+            view.tags.push_back(Placement(one.id, view_depth++, At(x, y), "Key_" + std::to_string(index), true));
+        };
+        const double hint_w = 300;
+        const Tag hint = text_of(
+            hint_w, "<p align=\"right\"><font size=\"22\" color=\"#A5A58C\" letterSpacing=\"0.000000\" kerning=\"1\">"
+                    "<img src='KG_R_U' vspace='-8'>\xef\xbc\x9a" + v.hint + "</font></p>");
+        defs.push_back(hint);
+        view.tags.push_back(Placement(U16(hint.body, 0), view_depth++,
+                                      At(s.right - kTitleX - hint_w - double(text_left) / 20, s.top + kTitleY - double(text_top) / 20),
+                                      std::nullopt, true));
+        const double x0 = (s.left + s.right - width_of(v)) / 2;
+        int index = 0;
+        double y = s.top + kGridY;
+        for (const auto& [row, shift] : v.rows) {
+            for (std::size_t c = 0; c < row.size(); ++c) {
+                const std::string label = row.substr(c, 1);
+                std::string upper = label;
+                upper[0] = char(std::toupper(static_cast<unsigned char>(upper[0])));
+                key(index++, small, x0 + (double(c) + shift) * (s.key + s.gap), y, label,
+                    s.upper && upper != label ? std::optional<std::string>(upper) : std::nullopt, "#a0895f", 28, 0);
+            }
+            y += s.key + s.gap;
+        }
+        const double wy = y + 4;
+        const KeySize& wk = wide_sizes[vi];
+        for (std::size_t i = 0; i < s.wide.size(); ++i)
+            key(index++, wk, x0 + double(i) * (wk.w + s.gap), wy, s.wide[i].label, s.wide[i].lit, "#d6bc82", 22,
+                s.wide_label_dy);
+        view.tags.push_back(Tag{kShowFrame, {}, {}});
+        view.tags.push_back(Tag{kEnd, {}, {}});
+        defs.push_back(WriteSprite(view));
+        board.tags.push_back(Placement(view.id, depth++, At(0, 0), v.name, v.visible));
+    }
+    board.tags.push_back(Tag{kShowFrame, {}, {}});
+    board.tags.push_back(Tag{kEnd, {}, {}});
+    defs.push_back(WriteSprite(board));
+    return board.id;
+}
+}  // namespace
+
 // The Chalice glyph screen's description panel: a second copy of ItemDetailText (the sprite placed at root depth 1)
 // at depth 2, named GlyphDetailText, with only its right-hand column (name, underline, ruled lines, description) on a
 // background of its own (the panel's, narrowed: the edges kept, the middle stretched), moved right so it sits beside
@@ -1433,150 +1611,21 @@ Bytes GlyphPanelMovie(const Bytes& gfx) {
         row_defs.push_back(WriteSprite(row));
     }
     // GlyphKeyboard (hidden): the controller's keyboard for the search bar, shown in the column's place while a
-    // controller types (the column's parts hidden but its background). A title ("Enter a Glyph Code", the name's
-    // gold text) over a line, then a 6 x 6 grid of keys a..z, 0..9 (Key_0 .. Key_35) and under it Delete (Key_36)
-    // and Done (Key_37). A key: a 1 px border, its face, its letter (centred) and Hot, its highlight (a 3 px frame,
-    // hidden). Sizes and colours from the agreed mock (work/mockups/keyboard-A-right-panel-grid).
+    // controller types (the column's parts hidden but its background). A title ("Enter a Glyph Code") over a line,
+    // then a 6 x 6 grid of keys a..z, 0..9 (Key_0 .. Key_35) and under it Delete (Key_36) and Done (Key_37); QWERTY
+    // the same keys. Sizes and colours from the agreed mock (work/mockups/keyboard-A-right-panel-grid).
     {
         if (!name_text) throw Error("ItemDetailText's name is not 1.09's");
-        constexpr double kKey = 70, kGap = 10, kWideH = 56, kHot = 3, kTitleX = 31, kTitleY = 26, kLineY = 77,
-                         kLineInset = 20, kGridY = 100;
-        constexpr std::uint32_t kBorderRgb = 0x4e4b46, kFaceRgb = 0x242220, kHotRgb = 0xd6bc82, kLineRgb = 0x78746c;
-        const Box panel_box = Bounds(m, *back_id);
-        const double top = double(panel_box.y0) / 20;
-        const double grid_w = 6 * kKey + 5 * kGap;
-        const double gx = (kBackLeft + kBackRight - grid_w) / 2;
-        const double gy = top + kGridY;
-        const auto twips = [](double px) { return std::int64_t(std::llround(px * 20)); };
-        // the name's edit text: its height, for the letters' vertical centre
-        std::int64_t text_top = 0, text_bottom = 0;
-        for (const Tag& t : m.tags) {
-            if (t.code != 37 || U16(t.body, 0) != *name_text) continue;
-            BitReader r{t.body, 2};
-            const int n = int(r.Unsigned(5));
-            r.Signed(n), r.Signed(n);
-            text_top = r.Signed(n), text_bottom = r.Signed(n);
-        }
-        const double text_h = double(text_bottom - text_top) / 20;
-        // shapes and the Hot frames, by size
-        struct KeySize {
-            double w, h;
-            std::uint16_t border, face, hot;
-        };
-        const auto key_size = [&](double w, double h) {
-            KeySize k{w, h, ++next_id, ++next_id, 0};
-            row_defs.push_back(RectShape(k.border, twips(w), twips(h), kBorderRgb));
-            row_defs.push_back(RectShape(k.face, twips(w - 2), twips(h - 2), kFaceRgb));
-            const std::uint16_t edge_h = ++next_id, edge_v = ++next_id;
-            row_defs.push_back(RectShape(edge_h, twips(w), twips(kHot), kHotRgb));
-            row_defs.push_back(RectShape(edge_v, twips(kHot), twips(h), kHotRgb));
-            Sprite hot{++next_id, 1, {}};
-            hot.tags.push_back(Placement(edge_h, 1, At(0, 0), std::nullopt, true));
-            hot.tags.push_back(Placement(edge_h, 2, At(0, h - kHot), std::nullopt, true));
-            hot.tags.push_back(Placement(edge_v, 3, At(0, 0), std::nullopt, true));
-            hot.tags.push_back(Placement(edge_v, 4, At(w - kHot, 0), std::nullopt, true));
-            hot.tags.push_back(Tag{kShowFrame, {}, {}});
-            hot.tags.push_back(Tag{kEnd, {}, {}});
-            row_defs.push_back(WriteSprite(hot));
-            k.hot = hot.id;
-            return k;
-        };
-        const double qwerty_w = 10 * kKey + 9 * kGap;
-        const KeySize small = key_size(kKey, kKey), wide = key_size((grid_w - kGap) / 2, kWideH),
-                      qwerty_wide = key_size((qwerty_w - kGap) / 2, kWideH);
-        // an edit text of the name's, `w` wide, with `html`
-        const auto text_of = [&](double w, const std::string& html) {
-            const std::uint16_t sized = ++next_id;
-            std::int64_t left = 0, right = 0;
-            for (const Tag& t : m.tags) {
-                if (t.code != 37 || U16(t.body, 0) != *name_text) continue;
-                BitReader r{t.body, 2};
-                const int n = int(r.Unsigned(5));
-                left = r.Signed(n), right = r.Signed(n);
-            }
-            Movie one;
-            one.tags.push_back(WiderEditText(m, *name_text, sized, twips(w) - (right - left)));
-            Tag t = EditTextWithText(one, sized, sized, html);
-            return std::make_pair(t, left);
-        };
-        // the name's look: bold gold (as the game's own panel text, all <b>)
-        const auto html = [](int size, const std::string& align, const std::string& text) {
-            return "<p align=\"" + align + "\"><font size=\"" + std::to_string(size) +
-                   "\" color=\"#a0895f\" letterSpacing=\"0.000000\" kerning=\"1\"><b>" + text + "</b></font></p>";
-        };
-        Sprite board{++next_id, 1, {}};
-        std::uint16_t depth = 1;
-        // the title and its line
-        {
-            auto [title, left] = text_of(kBackRight - kBackLeft - 2 * kTitleX, html(22, "left", "Enter a Glyph Code"));
-            row_defs.push_back(title);
-            board.tags.push_back(Placement(U16(title.body, 0), depth++,
-                                           At(kBackLeft + kTitleX - double(left) / 20, top + kTitleY - double(text_top) / 20),
-                                           std::nullopt, true));
-            const std::uint16_t line = ++next_id;
-            row_defs.push_back(RectShape(line, twips(kBackRight - kBackLeft - 2 * kLineInset), 20, kLineRgb));
-            board.tags.push_back(Placement(line, depth++, At(kBackLeft + kLineInset, top + kLineY), std::nullopt, true));
-        }
-        // a view (Grid, Qwerty): its keys Key_0 .. Key_35 (its letters' order), Delete (Key_36) and Done (Key_37), and
-        // right of the title its toggle's hint, as the game's button prompts show one (the key guide's own markup,
-        // "<font color='#A5A58C'>%s：%s</font>" with "<img src='%s' vspace='-8'>": KG_R_U is Triangle, the
-        // engine's key prompts redraw it for the device in use).
-        Sprite* view = nullptr;
-        std::uint16_t view_depth = 1;
-        const auto key = [&](int index, const KeySize& k, double x, double y, const std::string& label, int size) {
-            auto [text, left] = text_of(k.w, html(size, "center", label));
-            row_defs.push_back(text);
-            Sprite one{++next_id, 1, {}};
-            one.tags.push_back(Placement(k.border, 1, At(0, 0), std::nullopt, true));
-            one.tags.push_back(Placement(k.face, 2, At(1, 1), std::nullopt, true));
-            one.tags.push_back(Placement(U16(text.body, 0), 3,
-                                         At(-double(left) / 20, (k.h - text_h) / 2 - double(text_top) / 20),
-                                         std::nullopt, true));
-            one.tags.push_back(Placement(k.hot, 4, At(0, 0), std::string("Hot"), false));
-            one.tags.push_back(Tag{kShowFrame, {}, {}});
-            one.tags.push_back(Tag{kEnd, {}, {}});
-            row_defs.push_back(WriteSprite(one));
-            view->tags.push_back(Placement(one.id, view_depth++, At(x, y), "Key_" + std::to_string(index), true));
-        };
-        const auto make_view = [&](const char* name, bool visible, const std::string& hint,
-                                   const std::vector<std::pair<std::string, double>>& rows_of, double width,
-                                   const KeySize& wide_key) {
-            Sprite v{++next_id, 1, {}};
-            view = &v;
-            view_depth = 1;
-            const double hint_w = 300;
-            auto [hint_text, left] = text_of(
-                hint_w, "<p align=\"right\"><font size=\"22\" color=\"#A5A58C\" letterSpacing=\"0.000000\" kerning=\"1\">"
-                        "<img src='KG_R_U' vspace='-8'>\xef\xbc\x9a" + hint + "</font></p>");
-            row_defs.push_back(hint_text);
-            v.tags.push_back(Placement(U16(hint_text.body, 0), view_depth++,
-                                       At(kBackRight - kTitleX - hint_w - double(left) / 20, top + kTitleY - double(text_top) / 20),
-                                       std::nullopt, true));
-            const double x0 = (kBackLeft + kBackRight - width) / 2;
-            int index = 0;
-            double y = gy;
-            for (const auto& [row, shift] : rows_of) {
-                for (std::size_t c = 0; c < row.size(); ++c)
-                    key(index++, small, x0 + (double(c) + shift) * (kKey + kGap), y, row.substr(c, 1), 28);
-                y += kKey + kGap;
-            }
-            const double wy = y + 4;
-            key(36, wide_key, x0, wy, "Delete", 22);
-            key(37, wide_key, x0 + wide_key.w + kGap, wy, "Done", 22);
-            v.tags.push_back(Tag{kShowFrame, {}, {}});
-            v.tags.push_back(Tag{kEnd, {}, {}});
-            row_defs.push_back(WriteSprite(v));
-            board.tags.push_back(Placement(v.id, depth++, At(0, 0), std::string(name), visible));
-            view = nullptr;
-        };
-        make_view("Grid", true, "QWERTY",
-                  {{"abcdef", 0}, {"ghijkl", 0}, {"mnopqr", 0}, {"stuvwx", 0}, {"yz0123", 0}, {"456789", 0}}, grid_w, wide);
-        make_view("Qwerty", false, "A-Z Grid", {{"1234567890", 0}, {"qwertyuiop", 0}, {"asdfghjkl", 0.5}, {"zxcvbnm", 1.5}},
-                  qwerty_w, qwerty_wide);
-        board.tags.push_back(Tag{kShowFrame, {}, {}});
-        board.tags.push_back(Tag{kEnd, {}, {}});
-        row_defs.push_back(WriteSprite(board));
-        rows.push_back(HiddenPlacement(board.id, 90, Matrix{}, "GlyphKeyboard"));
+        BoardSpec spec;
+        spec.left = kBackLeft, spec.right = kBackRight, spec.top = double(Bounds(m, *back_id).y0) / 20;
+        spec.title = "Enter a Glyph Code";
+        spec.views = {{"Grid", true, "QWERTY",
+                       {{"abcdef", 0}, {"ghijkl", 0}, {"mnopqr", 0}, {"stuvwx", 0}, {"yz0123", 0}, {"456789", 0}}, 6},
+                      {"Qwerty", false, "A-Z Grid",
+                       {{"1234567890", 0}, {"qwertyuiop", 0}, {"asdfghjkl", 0.5}, {"zxcvbnm", 1.5}}, 10}};
+        spec.wide = {{"Delete", std::nullopt}, {"Done", std::nullopt}};
+        const std::uint16_t board = KeyboardBoard(m, *name_text, next_id, row_defs, spec);
+        rows.push_back(HiddenPlacement(board, 90, Matrix{}, "GlyphKeyboard"));
     }
     {
         const auto frame = std::find_if(column.tags.begin(), column.tags.end(), [](const Tag& t) { return t.code == kShowFrame; });
@@ -2180,6 +2229,124 @@ Tag SwapOnDepth(std::uint16_t depth, std::uint16_t id) {
     return Changed(kPlace2, std::move(b));
 }
 }  // namespace
+
+// chrmaketop.gfx (the Contract screen) with the name entry's own parts, all hidden (bbport_name_entry.cpp shows them):
+//   NameField     over the name row (in Status, placed as CharacterName is): the row while its name is typed in, as
+//                 the Chalice Glyph Browser's search bar shows it: a dark field in a 2 px gold frame, and Text, a copy
+//                 of the row's value text (its font and look) for the typed name and its cursor, raised so that
+//                 the name sits in the field's middle. The field ends above the row's ornament (its line at y ~33),
+//                 which stays (named Ornament in the rows' sprite all the same).
+//   NameKeyboard  on top of the root, over the character preview's frame: the controller's keyboard. A solid backing
+//                 filling the frame's inside, a title (named Title: the screen writes the game's own "Enter Name"),
+//                 the A-Z grid (a..z, 0..9, - ' .) and QWERTY views of the same 39 letter keys (Key_0 .. Key_38, each
+//                 letter with its upper case as Alt) and under them Shift (lit: Alt), Space, Delete and Done (Key_39
+//                 .. Key_42). Sizes from the agreed mock (work/mockups/name-N1-controller-grid): the browser's keys,
+//                 smaller (62 px, 8 px apart) so that QWERTY fits the frame. Its texts are copies of the value text.
+Bytes NameEntryMovie(const Bytes& gfx) {
+    // px, 1080p stage: the preview frame's inside (measured on a 2557 x 1437 screenshot: 1386..2405, 172..1186)
+    constexpr double kLeft = 1043, kTop = 131, kRight = 1804, kBottom = 888;
+    constexpr double kKey = 62, kGap = 8, kWideH = 52, kGridY = 100, kRows = 7;
+    // px, in the row's sprite: the field spans the ornament (x -26.9, 482.1 wide; the ornament at y 31, 12 tall, its
+    // line at ~33) and ends 4 px above its line (agreed mock: work/mockups/field-O2-above-ornament); the text 3 px
+    // above the row's (its capitals, 4.5 .. 23.5 there, then about the field's inside, -4 .. 27)
+    constexpr double kFieldX = -26.9, kFieldW = 482.1, kFieldY = -6, kFieldH = 35, kFrame = 2, kTextUp = 3;
+    constexpr std::uint32_t kFieldRgb = 0x181716, kFrameRgb = 0xa0895f;  // the search bar's field and typing frame
+    Movie m = ReadMovie(gfx);
+    if (Placed(m, "NameKeyboard")) throw Error("the movie already has NameKeyboard");
+    const auto twips = [](double px) { return std::int64_t(std::llround(px * 20)); };
+
+    // Status (the sprite placing CharacterName), the row's sprite and its parts: Value_0 and the ornament
+    std::optional<std::size_t> status_at;
+    std::optional<Place> row_place;
+    for (std::size_t i = 0; i < m.tags.size(); ++i) {
+        if (m.tags[i].code != kSprite) continue;
+        for (const Tag& part : ReadSprite(m.tags[i]).tags)
+            if (IsPlace(part) && ReadPlace(part).name == "CharacterName" && ReadPlace(part).character) {
+                status_at = i;
+                row_place = ReadPlace(part);
+            }
+    }
+    if (!status_at || !row_place->matrix) throw Error("chrmaketop.gfx's CharacterName is not 1.09's");
+    const std::size_t row_at = FindSprite(m, *row_place->character);
+    Sprite row = ReadSprite(m.tags[row_at]);
+    std::optional<Place> value;
+    int ornaments = 0;
+    for (Tag& t : row.tags) {
+        if (!IsPlace(t)) continue;
+        const Place p = ReadPlace(t);
+        if (p.name == "Value_0") value = p;
+        else if (!p.name && p.character) t = NamedPart(t, std::string("Ornament")), ++ornaments;
+    }
+    if (!value || !value->character || !value->matrix || ornaments != 1)
+        throw Error("chrmaketop.gfx's name row is not 1.09's");
+    const std::uint16_t font_text = *value->character;
+    if (row_at > *status_at) throw Error("chrmaketop.gfx's Status is not 1.09's");
+    m.tags[row_at] = WriteSprite(row);  // the ornament named (every row's: the rows share the sprite)
+
+    std::uint16_t next_id = HighestCharacter(m);
+
+    // NameField, in Status
+    {
+        std::vector<Tag> defs;
+        const std::uint16_t field = ++next_id, edge_h = ++next_id, edge_v = ++next_id, text = ++next_id;
+        defs.push_back(RectShape(field, twips(kFieldW - 2 * kFrame), twips(kFieldH - 2 * kFrame), kFieldRgb));
+        defs.push_back(RectShape(edge_h, twips(kFieldW), twips(kFrame), kFrameRgb));
+        defs.push_back(RectShape(edge_v, twips(kFrame), twips(kFieldH), kFrameRgb));
+        defs.push_back(EditTextWithText(m, font_text, text, ""));
+        Sprite name_field{++next_id, 1, {}};
+        name_field.tags.push_back(Placement(field, 1, At(kFieldX + kFrame, kFieldY + kFrame), std::nullopt, true));
+        name_field.tags.push_back(Placement(edge_h, 2, At(kFieldX, kFieldY), std::nullopt, true));
+        name_field.tags.push_back(Placement(edge_h, 3, At(kFieldX, kFieldY + kFieldH - kFrame), std::nullopt, true));
+        name_field.tags.push_back(Placement(edge_v, 4, At(kFieldX, kFieldY), std::nullopt, true));
+        name_field.tags.push_back(Placement(edge_v, 5, At(kFieldX + kFieldW - kFrame, kFieldY), std::nullopt, true));
+        Matrix text_at = *value->matrix;
+        text_at.ty -= std::llround(kTextUp * 20);
+        name_field.tags.push_back(Placement(text, 6, text_at, std::string("Text"), true));
+        name_field.tags.push_back(Tag{kShowFrame, {}, {}});
+        name_field.tags.push_back(Tag{kEnd, {}, {}});
+        defs.push_back(WriteSprite(name_field));
+        Sprite status = ReadSprite(m.tags[*status_at]);
+        if (status.frames != 1) throw Error("chrmaketop.gfx's Status is not 1.09's");
+        std::uint16_t top = 0;
+        for (const Tag& t : status.tags)
+            if (IsPlace(t)) top = std::max(top, ReadPlace(t).depth);
+        const auto frame = std::find_if(status.tags.begin(), status.tags.end(), [](const Tag& t) { return t.code == kShowFrame; });
+        if (frame == status.tags.end()) throw Error("chrmaketop.gfx's Status is not 1.09's");
+        status.tags.insert(frame, HiddenPlacement(name_field.id, std::uint16_t(top + 1), *row_place->matrix, "NameField"));
+        m.tags[*status_at] = WriteSprite(status);
+        m.tags.insert(m.tags.begin() + std::ptrdiff_t(*status_at), defs.begin(), defs.end());
+    }
+
+    // NameKeyboard, on top of the root
+    std::optional<std::size_t> first_frame;
+    std::uint16_t depth = 0;
+    for (std::size_t i = 0; i < m.tags.size(); ++i) {
+        if (m.tags[i].code == kShowFrame && !first_frame) first_frame = i;
+        if (IsPlace(m.tags[i])) depth = std::max(depth, ReadPlace(m.tags[i]).depth);
+    }
+    if (!first_frame) throw Error("chrmaketop.gfx has no frame");
+    std::vector<Tag> defs;
+    BoardSpec spec;
+    spec.key = kKey, spec.gap = kGap, spec.wide_h = kWideH;
+    spec.left = kLeft, spec.right = kRight;
+    const double height = kGridY + kRows * (kKey + kGap) + 4 + kWideH;  // the taller view, the grid
+    spec.top = kTop + (kBottom - kTop - height) / 2;
+    spec.title = "Enter Name";
+    spec.title_name = "Title";
+    spec.views = {{"Grid", true, "QWERTY",
+                   {{"abcdef", 0}, {"ghijkl", 0}, {"mnopqr", 0}, {"stuvwx", 0}, {"yz0123", 0}, {"456789", 0}, {"-'.", 1.5}},
+                   6},
+                  {"Qwerty", false, "A-Z Grid",
+                   {{"1234567890", 0}, {"qwertyuiop", 0}, {"asdfghjkl'", 0.5}, {"zxcvbnm-.", 1}}, 10.5}};
+    spec.wide = {{"Shift", std::string("Shift")}, {"Space", std::nullopt}, {"Delete", std::nullopt}, {"Done", std::nullopt}};
+    spec.upper = true;
+    spec.wide_label_dy = 3;  // Shift / Space / Delete / Done centred in their keys (the user's check)
+    spec.backing = std::array<double, 4>{kLeft, kTop, kRight, kBottom};
+    const std::uint16_t board = KeyboardBoard(m, font_text, next_id, defs, spec);
+    defs.push_back(HiddenPlacement(board, std::uint16_t(depth + 1), Matrix{}, "NameKeyboard"));
+    m.tags.insert(m.tags.begin() + std::ptrdiff_t(*first_frame), defs.begin(), defs.end());
+    return WriteMovie(m);
+}
 
 Bytes GlyphTabsMovie(const Bytes& gfx, const Bytes& common_tpf_dcx) {
     constexpr std::uint16_t kTabTile = 228, kGameFrames = 60, kIconDepth = 1;

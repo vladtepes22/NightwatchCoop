@@ -409,6 +409,9 @@ fs::path PrepareMenuAssets(const fs::path& game, const fs::path& elf, const fs::
     if (fs::is_regular_file(game / Path(glyph_tabs), error) &&
         fs::is_regular_file(game / Path("dvdroot_ps4/menu/common.tpf.dcx"), error))
         sources.emplace_back(glyph_tabs, "glyph-tabs");
+    // The Contract screen's name entry (optional too: without it the name row has no typing field and no keyboard).
+    const std::string name_entry = "dvdroot_ps4/menu/chrmaketop.gfx";
+    if (fs::is_regular_file(game / Path(name_entry), error)) sources.emplace_back(name_entry, "name-entry");
     const std::string generator = Sha256Hex(ReadFile(tool));
     const fs::path manifest_path = root / "manifest.json";
     nlohmann::json previous = nlohmann::json::object();
@@ -451,7 +454,7 @@ fs::path PrepareMenuAssets(const fs::path& game, const fs::path& elf, const fs::
             }
             rows[relative] = {{"input", digest}, {"output", *current}};
         } catch (const std::exception&) {
-            if (kind != "glyph-panel" && kind != "glyph-list" && kind != "glyph-tabs") throw;
+            if (kind != "glyph-panel" && kind != "glyph-list" && kind != "glyph-tabs" && kind != "name-entry") throw;
             fs::remove(destination, error);
         }
     }
