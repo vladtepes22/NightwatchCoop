@@ -67,9 +67,15 @@ public:
 
 class BufferCache {
     static constexpr u64 ADDRESS_SPACE_BITS = 40;
-    static constexpr u64 ARENA_PAGE_BITS = 32;
-    static constexpr u64 ARENA_PAGE_SIZE = u64{1} << ARENA_PAGE_BITS;
-    static constexpr u64 NUM_ARENA_PAGES = u64{1} << (ADDRESS_SPACE_BITS - ARENA_PAGE_BITS);
+    // bbport (visy 0.8.2 bb2e98bc3): an arena page is one sparse buffer: 4 GiB, or 2 GiB where the device's
+    // maxBufferSize is below 4 GiB (a 4 GiB vkCreateBuffer fails there: Mesa lavapipe; RADV has reported just under
+    // 4 GiB). BB_ARENA_PAGE_BITS=31|32 forces one. MAX_ARENA_PAGES sizes the table for the smaller page.
+    static constexpr u64 ARENA_PAGE_BITS_MAX = 32;
+    static constexpr u64 ARENA_PAGE_BITS_MIN = 31;
+    static constexpr u64 MAX_ARENA_PAGES = u64{1} << (ADDRESS_SPACE_BITS - ARENA_PAGE_BITS_MIN);
+    u64 ARENA_PAGE_BITS = ARENA_PAGE_BITS_MAX;
+    u64 ARENA_PAGE_SIZE = u64{1} << ARENA_PAGE_BITS_MAX;
+    u64 num_arena_pages = u64{1} << (ADDRESS_SPACE_BITS - ARENA_PAGE_BITS_MAX);
     static constexpr u64 MIN_BLOCK_SIZE = 16_KB;
 
 public:
@@ -447,7 +453,7 @@ private:
     std::unique_ptr<FaultManager> fault_manager;
     std::unique_ptr<Buffer> bda_pagetable_buffer;
 
-    std::array<const Buffer*, NUM_ARENA_PAGES> address_space{};
+    std::array<const Buffer*, MAX_ARENA_PAGES> address_space{};
     std::deque<Buffer> arenas;
     std::vector<ArenaBinds> pending_binds;
     std::mutex preupload_mutex;               ///< the map hooks come from guest threads

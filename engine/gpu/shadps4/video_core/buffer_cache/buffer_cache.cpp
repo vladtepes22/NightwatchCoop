@@ -602,6 +602,26 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     tracker.AllowDeferredProtects(WriteTracking() && !GuestInPlace() && !TwinsEnabled() &&
                                   EmulatorSettings.GetReadbacksMode() !=
                                       GpuReadbacksMode::Precise);
+    {
+        // bbport (visy 0.8.2 bb2e98bc3): 2 GiB arena pages where the device cannot create a 4 GiB buffer.
+        const u64 max_buffer = instance.GetPhysicalDevice()
+                                   .getProperties2<vk::PhysicalDeviceProperties2,
+                                                   vk::PhysicalDeviceVulkan13Properties>()
+                                   .get<vk::PhysicalDeviceVulkan13Properties>()
+                                   .maxBufferSize;
+        u64 bits = max_buffer >= (u64{1} << ARENA_PAGE_BITS_MAX) ? ARENA_PAGE_BITS_MAX : ARENA_PAGE_BITS_MIN;
+        if (const char* env = std::getenv("BB_ARENA_PAGE_BITS");
+            env && env[0] == '3' && (env[1] == '1' || env[1] == '2') && !env[2]) {
+            bits = env[1] == '1' ? ARENA_PAGE_BITS_MIN : ARENA_PAGE_BITS_MAX;
+        }
+        ARENA_PAGE_BITS = bits;
+        ARENA_PAGE_SIZE = u64{1} << bits;
+        num_arena_pages = u64{1} << (ADDRESS_SPACE_BITS - bits);
+        if (bits != ARENA_PAGE_BITS_MAX) {
+            std::printf("Guest memory: sparse arena pages of 2 GiB (the device's maxBufferSize is %llu MiB; "
+                        "BB_ARENA_PAGE_BITS=32 forces 4 GiB)\n", (unsigned long long)(max_buffer >> 20));
+        }
+    }
     const std::array<u32, 2> families = {instance.GetGraphicsQueueFamilyIndex(),
                                          instance.GetReadbackQueueFamilyIndex()};
     const bool shared = bool(instance.GetReadbackQueue()); // as Buffer creates the arenas
@@ -673,9 +693,9 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     }
 
     const u64 bda_pagetable_size =
-        (blocks_per_arena_page * NUM_ARENA_PAGES) * sizeof(vk::DeviceAddress);
+        (blocks_per_arena_page * num_arena_pages) * sizeof(vk::DeviceAddress);
     fault_manager = std::make_unique<FaultManager>(instance, scheduler, *this, block_shift,
-                                                   blocks_per_arena_page * NUM_ARENA_PAGES);
+                                                   blocks_per_arena_page * num_arena_pages);
     bda_pagetable_buffer = std::make_unique<Buffer>(
         instance, 0, bda_pagetable_size, MemoryType::DeviceLocal, "BDA Page Table Buffer");
     runtime.FillBuffer(bda_pagetable_buffer.get(), 0u, bda_pagetable_size, 0u);
@@ -1393,7 +1413,7 @@ const Buffer* BufferCache::GetArena(u64 first_block, u64 last_block) {
             u64 begin = first_page, end = last_page + 1;
             const u64 group = Common::AlignDownPow2<u64>(first_page, arena_group_pages);
             while (begin > group && !address_space[begin - 1]) --begin;
-            while (end < std::min<u64>(group + arena_group_pages, NUM_ARENA_PAGES) &&
+            while (end < std::min<u64>(group + arena_group_pages, num_arena_pages) &&
                    !address_space[end]) {
                 ++end;
             }
