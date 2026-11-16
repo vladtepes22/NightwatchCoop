@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "bbport_settings.h"
+#include <string_view>
+#include <atomic>
 #include <algorithm>
 #include <bit>
 #include <cstdio>
@@ -39,6 +42,62 @@
 namespace Vulkan {
 
 using Shader::Backend::SPIRV::AuxShaderType;
+
+// bbport (visy 0.8.2 31df5d007, after Supermedo bloodborne_pc 6085365d, GPL-2.0-or-later): the game's
+// screen-space reflections (bbport.ini effect_ssr) march a fixed number of steps for every pixel of a target half the
+// scene's size: 5.0 ms a frame at native 4K on an RTX 5080. With SSR on the pass shades blocks of pixels once
+// (VK_KHR_fragment_shading_rate), by the scene's size at start: 2x2 from 6 megapixels (4K), 2x1 from 3 megapixels
+// (1440p), every pixel below. The scene is BB_RENDER_RES, else the output divided by the upscaler preset's scale (the
+// game's 1080p with the upscaler off). BB_SSR_VRS=0 off; BB_SSR_SHADING_RATE=2x2|2x1|1x2|1x1 chooses the block.
+constexpr u64 kReflectionShader = 0x6c2323c2; // the SSR pass's fragment shader (Supermedo)
+vk::Extent2D ReflectionShadingRate() {
+    static const vk::Extent2D rate = [] {
+        const char* off = std::getenv("BB_SSR_VRS");
+        if (off && off[0] == '0') {
+            return vk::Extent2D{1, 1};
+        }
+        const auto& settings = BbSettings::Get();
+        bool ssr = false;
+        for (int e = 0; e < BbSettings::EffectCount; ++e) {
+            if (std::string_view{BbSettings::Effects[e].key} == "effect_ssr") {
+                ssr = settings.startup_effects[e];
+            }
+        }
+        if (!ssr) {
+            return vk::Extent2D{1, 1};
+        }
+        const char* env = std::getenv("BB_SSR_SHADING_RATE");
+        const std::string_view text = env && env[0] ? env : "auto";
+        if (text == "2x2") return vk::Extent2D{2, 2};
+        if (text == "2x1") return vk::Extent2D{2, 1};
+        if (text == "1x2") return vk::Extent2D{1, 2};
+        if (text != "auto") return vk::Extent2D{1, 1};
+        int width = 1920, height = 1080;
+        const char* scene = std::getenv("BB_RENDER_RES");
+        if (scene && scene[0]) {
+            if (std::sscanf(scene, "%dx%d", &width, &height) != 2) {
+                width = 1920;
+                height = 1080;
+            }
+        } else if (settings.startup_upscaler != BbSettings::UpscalerOff && settings.startup_output_res >= 0 &&
+                   settings.startup_output_res < BbSettings::OutputCount &&
+                   BbSettings::OutputWidths[settings.startup_output_res] > 0) {
+            const float scale = BbSettings::PresetScale(settings.startup_preset);
+            width = int(BbSettings::OutputWidths[settings.startup_output_res] / scale);
+            height = int(BbSettings::OutputHeights[settings.startup_output_res] / scale);
+        }
+        const double pixels = double(width) * double(height);
+        const vk::Extent2D chosen = pixels >= 6.0e6   ? vk::Extent2D{2, 2}
+                                    : pixels >= 3.0e6 ? vk::Extent2D{2, 1}
+                                                      : vk::Extent2D{1, 1};
+        if (chosen.width > 1) {
+            std::printf("Reflections (SSR): scene %dx%d, the reflection pass shades %ux%u pixel blocks once "
+                        "(BB_SSR_VRS=0: every pixel)\n", width, height, chosen.width, chosen.height);
+        }
+        return chosen;
+    }();
+    return rate;
+}
 
 /// bbport: pipelines first created during play go to compile threads (BB_ASYNC_PIPELINES=0:
 /// on the GPU command thread, as before). Pipelines loaded from the cache at startup are
@@ -604,8 +663,29 @@ GraphicsPipeline::GraphicsPipeline(
     // In practice, we use dynamic state for all of it.
     constexpr vk::PipelineDepthStencilStateCreateInfo depth_stencil_info = {};
 
-    const vk::GraphicsPipelineCreateInfo pipeline_info = {
+    // bbport: the SSR pass shades blocks of pixels (ReflectionShadingRate); such a pipeline is created here,
+    // not by the pipeline job below (its copy does not own this chain).
+    const Shader::Info* reflection_fs = stages[u32(Shader::SwStage::Fragment)];
+    const vk::Extent2D reflection_rate = ReflectionShadingRate();
+    const bool coarse_shading = instance.IsPipelineShadingRateEnabled() && reflection_fs &&
+                                reflection_fs->pgm_hash == kReflectionShader &&
+                                (reflection_rate.width > 1 || reflection_rate.height > 1);
+    const vk::PipelineFragmentShadingRateStateCreateInfoKHR shading_rate_ci = {
         .pNext = &pipeline_rendering_ci,
+        .fragmentSize = reflection_rate,
+        .combinerOps = std::array{vk::FragmentShadingRateCombinerOpKHR::eKeep,
+                                  vk::FragmentShadingRateCombinerOpKHR::eKeep},
+    };
+    if (coarse_shading) {
+        static std::atomic_flag said = ATOMIC_FLAG_INIT;
+        if (!said.test_and_set()) {
+            std::printf("Reflections (SSR): pass built with %ux%u blocks\n", reflection_rate.width,
+                        reflection_rate.height);
+        }
+    }
+    const vk::GraphicsPipelineCreateInfo pipeline_info = {
+        .pNext = coarse_shading ? static_cast<const void*>(&shading_rate_ci)
+                                : static_cast<const void*>(&pipeline_rendering_ci),
         .stageCount = static_cast<u32>(shader_stages.size()),
         .pStages = shader_stages.data(),
         .pVertexInputState = !instance.IsVertexInputDynamicState() ? &vertex_input_info : nullptr,
@@ -696,6 +776,7 @@ GraphicsPipeline::GraphicsPipeline(
               clip_control.pNext == nullptr && dynamic_info.pNext == nullptr &&
               mixed_samples.pNext == nullptr && pipeline_info.pRasterizationState == &raster_chain.get() &&
               pipeline_info.pMultisampleState == &sdata.multisampling;
+        ok &= !coarse_shading;
         j.info.pNext = &j.rendering;
         j.info.stageCount = static_cast<u32>(j.stages.size());
         j.info.pStages = j.stages.data();

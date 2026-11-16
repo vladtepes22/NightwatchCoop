@@ -20,6 +20,14 @@ VK_DEFINE_HANDLE(VmaAllocator)
 
 namespace Vulkan {
 
+/// bbport: the shading rate of the game's screen-space reflection pass (vk_graphics_pipeline.cpp);
+/// {1, 1} = every pixel.
+vk::Extent2D ReflectionShadingRate();
+inline bool ReflectionShadingRateWanted() {
+    const vk::Extent2D rate = ReflectionShadingRate();
+    return rate.width > 1 || rate.height > 1;
+}
+
 class Instance {
 public:
     explicit Instance(bool validation = false, bool crash_diagnostic = false);
@@ -112,6 +120,12 @@ public:
     }
 
     /// Returns true if anisotropic filtering is supported
+    /// bbport: a pipeline may shade blocks of pixels once (VK_KHR_fragment_shading_rate,
+    /// pipelineFragmentShadingRate); enabled only when the reflection pass asks for it.
+    bool IsPipelineShadingRateEnabled() const {
+        return pipeline_shading_rate;
+    }
+
     bool IsAnisotropicFilteringSupported() const {
         return features.samplerAnisotropy;
     }
@@ -687,6 +701,7 @@ private:
     bool image_2d_view_of_3d{};
     bool image_view_min_lod{};
     bool shader_clock{};
+    bool pipeline_shading_rate{};
     bool compute_shader_derivatives{};
     bool mixed_float_dot_product{}; // bbport: VK_VALVE_shader_mixed_float_dot_product (FSR 4.1.1)
     bool fsr_sdk{};

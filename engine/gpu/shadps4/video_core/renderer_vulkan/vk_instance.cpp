@@ -328,7 +328,8 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR, vk::PhysicalDeviceShaderFloat8FeaturesEXT,
         vk::PhysicalDeviceMutableDescriptorTypeFeaturesEXT,
         vk::PhysicalDeviceDescriptorBufferFeaturesEXT, vk::PhysicalDeviceFaultFeaturesEXT,
-        vk::PhysicalDeviceAddressBindingReportFeaturesEXT>();
+        vk::PhysicalDeviceAddressBindingReportFeaturesEXT,
+        vk::PhysicalDeviceFragmentShadingRateFeaturesKHR>();
     features = feature_chain.get().features;
 
     const vk::StructureChain properties_chain = physical_device.getProperties2<
@@ -526,6 +527,15 @@ bool Instance::CreateDevice() {
     const bool nvx_binary_import = add_extension(VK_NVX_BINARY_IMPORT_EXTENSION_NAME);
     dlss_extensions =
         add_extension(VK_NVX_IMAGE_VIEW_HANDLE_EXTENSION_NAME) && nvx_binary_import;
+    // bbport: pipeline shading rates, only when the reflection pass asks for one
+    // (vk_graphics_pipeline.cpp ReflectionShadingRate); otherwise the extension stays off.
+    if (ReflectionShadingRateWanted()) {
+        pipeline_shading_rate =
+            feature_chain.get<vk::PhysicalDeviceFragmentShadingRateFeaturesKHR>().pipelineFragmentShadingRate &&
+            add_extension(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+        LOG_INFO(Render_Vulkan, "Reflection shading rate: {}",
+                 pipeline_shading_rate ? "available" : "not supported by this GPU");
+    }
     shader_clock = add_extension(VK_KHR_SHADER_CLOCK_EXTENSION_NAME);
     if (shader_clock) {
         shader_clock_features = feature_chain.get<vk::PhysicalDeviceShaderClockFeaturesKHR>();
@@ -845,6 +855,9 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceAddressBindingReportFeaturesEXT{
             .reportAddressBinding = true,
         },
+        vk::PhysicalDeviceFragmentShadingRateFeaturesKHR{
+            .pipelineFragmentShadingRate = true,
+        },
     };
 
     if (!custom_border_color) {
@@ -879,6 +892,9 @@ bool Instance::CreateDevice() {
     }
     if (!device_fault) {
         device_chain.unlink<vk::PhysicalDeviceFaultFeaturesEXT>();
+    }
+    if (!pipeline_shading_rate) {
+        device_chain.unlink<vk::PhysicalDeviceFragmentShadingRateFeaturesKHR>();
     }
     if (!address_binding_report) {
         device_chain.unlink<vk::PhysicalDeviceAddressBindingReportFeaturesEXT>();
