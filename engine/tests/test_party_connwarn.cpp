@@ -60,6 +60,14 @@ static void test_classify() {
     FwRule b = Allow(17, "*", kExe);
     b.allow = false;
     assert(Classify({Allow(256, "*", kExe), b}, pub, kExe, 9307).state == FwState::Blocked);
+    // A rule for another Windows account (a sandbox user's block of everything) is not about this game.
+    FwRule s;
+    s.allow = false;
+    s.this_user = false;
+    assert(Classify({Allow(256, "*", kExe), s}, pub, kExe, 9307).state == FwState::Allowed);
+    FwRule a = Allow(256, "*", kExe);
+    a.this_user = false;
+    assert(Classify({a}, pub, kExe, 9307).state == FwState::Missing);
     // Disabled and outbound rules never count.
     FwRule d = Allow(256, "*", kExe);
     d.enabled = false;

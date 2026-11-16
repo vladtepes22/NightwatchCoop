@@ -56,7 +56,7 @@ bool SamePath(const std::string& a, const std::string& b) {
 
 namespace {
 bool Matches(const FwRule& r, int proto, int profile_bit, const std::string& exe, int port) {
-    if (!r.enabled || !r.inbound) return false;
+    if (!r.enabled || !r.inbound || !r.this_user) return false;
     if (r.protocol != 256 && r.protocol != proto) return false;
     if (!(r.profiles & profile_bit)) return false;
     if (!r.app.empty() && !SamePath(r.app, exe)) return false;

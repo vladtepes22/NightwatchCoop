@@ -41,6 +41,7 @@ struct FwRule {
     std::string app;              // full path; empty: any program
     std::string local_ports;      // "9307", "1000-2000", "80,443", "*" or empty: any
     int profiles = 0x7fffffff;    // bit 1 domain, 2 private, 4 public; all by default
+    bool this_user = true;        // false: the rule is for other Windows accounts only (a sandbox user's block)
 };
 struct FwProfile {
     int bit = 0;                  // 1, 2 or 4

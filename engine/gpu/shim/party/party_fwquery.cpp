@@ -8,6 +8,7 @@
 #include <objbase.h>
 #include <oleauto.h>
 #include <netfw.h>
+#include <sddl.h>
 
 namespace party::connwarn {
 namespace {
@@ -26,6 +27,38 @@ std::string ExpandEnv(const std::string& s) {
     char buf[MAX_PATH * 2] = {};
     const DWORD n = ExpandEnvironmentStringsA(s.c_str(), buf, sizeof buf);
     return n > 0 && n < sizeof buf ? std::string(buf) : s;
+}
+
+// Whether a rule's user list (SDDL, INetFwRule3 LocalUserAuthorizedList) covers this process: the first entry that
+// names this account or one of its groups decides. Empty: every account. Unreadable: counted, as before.
+bool ForThisUser(BSTR sddl) {
+    if (!sddl || !*sddl) return true;
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, SDDL_REVISION_1, &sd, nullptr)) return true;
+    bool known = false, mine = false;
+    BOOL present = FALSE, defaulted = FALSE;
+    PACL acl = nullptr;
+    if (GetSecurityDescriptorDacl(sd, &present, &acl, &defaulted) && present && acl) {
+        known = true;
+        for (DWORD i = 0; i < acl->AceCount; ++i) {
+            void* ace = nullptr;
+            if (!GetAce(acl, i, &ace)) continue;
+            const BYTE type = static_cast<ACE_HEADER*>(ace)->AceType;
+            if (type != ACCESS_ALLOWED_ACE_TYPE && type != ACCESS_DENIED_ACE_TYPE) continue;
+            // Both entry types have the same layout: the SID starts at SidStart.
+            BOOL member = FALSE;
+            if (!CheckTokenMembership(nullptr, &static_cast<ACCESS_ALLOWED_ACE*>(ace)->SidStart, &member)) {
+                known = false;
+                break;
+            }
+            if (member) {
+                mine = type == ACCESS_ALLOWED_ACE_TYPE;
+                break;
+            }
+        }
+    }
+    LocalFree(sd);
+    return !known || mine;
 }
 
 template <class T>
@@ -105,6 +138,13 @@ FwReport QueryFirewallWindows(const std::string& exe, int port) {
                         fr.local_ports = Narrow(ports);
                         SysFreeString(app);
                         SysFreeString(ports);
+                        INetFwRule3* r3 = nullptr;
+                        if (SUCCEEDED(r->QueryInterface(__uuidof(INetFwRule3), reinterpret_cast<void**>(&r3))) && r3) {
+                            BSTR users = nullptr;
+                            if (SUCCEEDED(r3->get_LocalUserAuthorizedList(&users))) fr.this_user = ForThisUser(users);
+                            SysFreeString(users);
+                            r3->Release();
+                        }
                         rules.push_back(std::move(fr));
                     }
                     r->Release();
