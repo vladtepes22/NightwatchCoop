@@ -139,8 +139,16 @@ static void LowLatencyGate() {
             st.sum_ns = st.wait_ns = 0;
         }
     }
+    // Hitch-aware (visy 0.8.2 perf082, NW-69aae50): after a long frame (over 1.5 periods: a streaming hitch, a texture
+    // refresh) the flips queued behind it would only turn into an extra game-thread stall, so that frame is not gated;
+    // and the wait never exceeds one frame period. BB_LL_HITCH=0 restores the old gate (up to BB_LL_TIMEOUT_MS).
+    static const bool hitch_aware = [] { const char* e = std::getenv("BB_LL_HITCH"); return !(e && e[0] == '0'); }();
+    const bool after_hitch = hitch_aware && st.last_ns && now - st.last_ns > period + period / 2;
     st.last_ns = now;
-    Libraries::VideoOut::WaitFlipQueue(pinned >= 0 ? pinned : st.depth, unsigned(timeout_ms) * 1000u);
+    if (after_hitch) return;
+    std::int64_t wait_us = std::int64_t(timeout_ms) * 1000;
+    if (hitch_aware) wait_us = std::min<std::int64_t>(wait_us, period / 1000);
+    Libraries::VideoOut::WaitFlipQueue(pinned >= 0 ? pinned : st.depth, unsigned(wait_us));
     st.wait_ns += now_ns() - now;
 }
 
