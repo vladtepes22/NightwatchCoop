@@ -2943,5 +2943,8 @@
   "{0} left out": "{0} dejados fuera",
   "{0} of {1} changes": "{0} de {1} cambios",
   "{0} plays a randomized world on Nocturne {1}.": "{0} juega un mundo aleatorio con Nocturne {1}.",
-  "{0} plays a randomized world.": "{0} juega un mundo aleatorio."
+  "{0} plays a randomized world.": "{0} juega un mundo aleatorio.",
+  "Enable Nocturne": "Activar Nocturne",
+  "Use the newest Nocturne in the editor: its items and its Scorched Beast boss. Your mod settings stay as they are.": "Usa la última versión de Nocturne en el editor: sus objetos y su jefe Scorched Beast. Tus ajustes de mods no cambian.",
+  "Nocturne was not downloaded.": "Nocturne no se descargó."
 }

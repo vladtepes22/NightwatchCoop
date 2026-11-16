@@ -2944,5 +2944,8 @@
   "{0} left out": "已排除 {0} 个",
   "{0} of {1} changes": "{1} 处更改中的 {0} 处",
   "{0} plays a randomized world on Nocturne {1}.": "{0} 正在 Nocturne {1} 上游玩随机化世界。",
-  "{0} plays a randomized world.": "{0} 正在游玩随机化世界。"
+  "{0} plays a randomized world.": "{0} 正在游玩随机化世界。",
+  "Enable Nocturne": "启用 Nocturne",
+  "Use the newest Nocturne in the editor: its items and its Scorched Beast boss. Your mod settings stay as they are.": "在编辑器中使用最新的 Nocturne：其物品和首领 Scorched Beast。你的模组设置不会改变。",
+  "Nocturne was not downloaded.": "Nocturne 未下载。"
 }

@@ -45,7 +45,30 @@ internal static class SaveEditorTests
             SaveEditor.Parse<SaveEditor.Backup[]>("[{\"name\":\"backup\",\"path\":\"folder\",\"reason\":\"before-edit\"}]")[0].Name != "backup")
             throw new Exception("Save backup JSON contract changed");
         Console.WriteLine("PASS: save editor JSON parsing and edit serialization");
+        NocturneOnlyConfig();
         PackageShipsImports();
+    }
+
+    // The editor's "Enable Nocturne" switch reads a config of its own: Nocturne first and on, every other mod off; no Nocturne folder: none.
+    private static void NocturneOnlyConfig()
+    {
+        var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "seamless-editor-nocturne-" + Guid.NewGuid());
+        try
+        {
+            var mods = System.IO.Path.Combine(root, "Mods"); var config = System.IO.Path.Combine(root, "data", "save-editor-mods.json");
+            foreach (var name in new[] { "Nocturne v5.0.0", "Other mod" })
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(mods, name, "dvdroot_ps4", "event"));
+            if (SaveEditor.WriteNocturneOnlyConfig(System.IO.Path.Combine(root, "nowhere"), config) != null)
+                throw new Exception("A config was written without a Nocturne folder");
+            if (SaveEditor.WriteNocturneOnlyConfig(mods, config) != config) throw new Exception("No config for an installed Nocturne");
+            using var json = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllText(config));
+            var order = json.RootElement.GetProperty("order").EnumerateArray().Select(e => e.GetString()).ToArray();
+            var disabled = json.RootElement.GetProperty("disabled").EnumerateArray().Select(e => e.GetString()).ToArray();
+            if (!order.SequenceEqual(new[] { "Nocturne v5.0.0" }) || !disabled.SequenceEqual(new[] { "Other mod" }))
+                throw new Exception("The editor's Nocturne config is not Nocturne only");
+            Console.WriteLine("PASS: save editor Nocturne-only mods config");
+        }
+        finally { try { System.IO.Directory.Delete(root, true); } catch (System.IO.IOException) { } }
     }
 
     // The packaged save editor (seamless\scripts) must hold every repo module its code imports. 0.2.9 shipped

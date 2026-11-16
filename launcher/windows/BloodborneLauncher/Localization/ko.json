@@ -2943,5 +2943,8 @@
   "{0} left out": "{0} 제외됨",
   "{0} of {1} changes": "변경 {1}개 중 {0}개",
   "{0} plays a randomized world on Nocturne {1}.": "{0}이(가) Nocturne {1}에서 무작위 세계를 플레이합니다.",
-  "{0} plays a randomized world.": "{0}이(가) 무작위 세계를 플레이합니다."
+  "{0} plays a randomized world.": "{0}이(가) 무작위 세계를 플레이합니다.",
+  "Enable Nocturne": "Nocturne 사용",
+  "Use the newest Nocturne in the editor: its items and its Scorched Beast boss. Your mod settings stay as they are.": "편집기에서 최신 Nocturne을 사용합니다. Nocturne의 아이템과 보스 Scorched Beast를 편집할 수 있습니다. 모드 설정은 바뀌지 않습니다.",
+  "Nocturne was not downloaded.": "Nocturne을 다운로드하지 않았습니다."
 }

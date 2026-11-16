@@ -2943,5 +2943,8 @@
   "{0} left out": "{0} dışarıda",
   "{0} of {1} changes": "{1} değişikliğin {0} tanesi",
   "{0} plays a randomized world on Nocturne {1}.": "{0}, Nocturne {1} üzerinde rastgeleleştirilmiş bir dünyada oynuyor.",
-  "{0} plays a randomized world.": "{0} rastgeleleştirilmiş bir dünyada oynuyor."
+  "{0} plays a randomized world.": "{0} rastgeleleştirilmiş bir dünyada oynuyor.",
+  "Enable Nocturne": "Nocturne'u etkinleştir",
+  "Use the newest Nocturne in the editor: its items and its Scorched Beast boss. Your mod settings stay as they are.": "Düzenleyicide en yeni Nocturne'u kullanır: eşyaları ve Scorched Beast patronu. Mod ayarların değişmez.",
+  "Nocturne was not downloaded.": "Nocturne indirilmedi."
 }

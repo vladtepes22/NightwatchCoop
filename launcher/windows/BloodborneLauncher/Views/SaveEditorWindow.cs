@@ -25,6 +25,11 @@ public interface ISaveEditorSource
     string? PlayingWorld => null;
     /// <summary>Which saves the next requests read: a world's folder from <see cref="Worlds"/>, or null for the profile's own.</summary>
     Task UseWorld(string? folder) => Task.CompletedTask;
+    /// <summary>The "Enable Nocturne" switch: its state, or null when it is not offered (Nocturne is the game's mode already).</summary>
+    bool? NocturneOn => null;
+    /// <summary>Switches the editor to the newest Nocturne (downloaded after asking when missing or older) or back to the player's
+    /// mods; the player's mod settings are never changed. Throws InvalidOperationException with a message to show.</summary>
+    Task SetNocturne(bool on) => Task.CompletedTask;
 }
 
 public sealed partial class SaveEditorWindow : Window
@@ -40,6 +45,8 @@ public sealed partial class SaveEditorWindow : Window
             _settings = settings; _worker = new(settings);
             _profile = PlayerProfiles.Folder(settings, PlayerProfiles.Current(settings));
             _ = _worker.UseUserDir(_profile);  // no Python side runs yet: done at once
+            if (NocturneOn == true)  // the switch stays as the player left it; an installed Nocturne is read, nothing is downloaded
+                _ = _worker.UseModsConfig(SaveEditor.WriteNocturneOnlyConfig(GameEnvironment.ModsDir(settings), NocturneConfig));
         }
         public Task<string> Run(string command, string kind, int? slot = null, object? edit = null, string? backup = null)
             => _worker.Run(command, kind, slot, edit, backup);
@@ -60,6 +67,40 @@ public sealed partial class SaveEditorWindow : Window
               (Directory.Exists(WorldSaves.LegacyFolder(_profile, world)) ? WorldSaves.LegacyFolder(_profile, world) : null)
             : null;
         public Task UseWorld(string? folder) => _worker.UseUserDir(folder ?? _profile);
+        private const string NocturneKey = "save_editor_nocturne";
+        private static string NocturneConfig => Path.Combine(Paths.DataDir, "save-editor-mods.json");
+        public bool? NocturneOn => CuratedMods.Mode(_settings) == "nocturne" ? null : _settings.Bool(NocturneKey);
+        public async Task SetNocturne(bool on)
+        {
+            var modsDir = GameEnvironment.ModsDir(_settings);
+            if (on)
+            {
+                ModManifest? manifest = null; string? unreachable = null;
+                try { manifest = await CuratedMods.FetchManifestAsync(); } catch (Exception e) { unreachable = e.Message; }
+                var installed = await Task.Run(() => CuratedMods.Installed(modsDir, manifest));
+                var newest = manifest?.Newest;
+                var want = newest != null && (installed.Kind == InstalledKind.None ||
+                    (installed.Kind == InstalledKind.Known && installed.Version != newest.Version)) ? newest : null;
+                if (want == null && installed.Kind == InstalledKind.None)
+                    throw new InvalidOperationException(unreachable != null
+                        ? L.F($"Nocturne is not installed and its download could not be reached: {unreachable}")
+                        : L.T("Nocturne is not installed and no download is set up."));
+                if (want != null)
+                {
+                    var mb = (int)Math.Ceiling(want.Size / 1e6);
+                    var ok = Prompt.Confirm(L.T("Nocturne"), installed.Kind == InstalledKind.None
+                        ? L.F($"Nocturne {want.Version} is downloaded once ({mb} MB) and kept in your mods folder. Continue?")
+                        : L.F($"Nocturne {want.Version} is available ({mb} MB). It replaces your installed version. Continue?"), L.T("Download"));
+                    if (!ok && installed.Kind == InstalledKind.None) throw new InvalidOperationException(L.T("Nocturne was not downloaded."));
+                    if (ok)
+                        try { await CuratedMods.InstallAsync(want, modsDir, null, CancellationToken.None); }
+                        catch (Exception e) { throw new InvalidOperationException(L.F($"Nocturne could not be set up: {e.Message}")); }
+                }
+                await _worker.UseModsConfig(await Task.Run(() => SaveEditor.WriteNocturneOnlyConfig(modsDir, NocturneConfig)));
+            }
+            else await _worker.UseModsConfig(null);
+            _settings.Set(NocturneKey, on); _settings.Save();
+        }
         public bool GameRunning
         {
             get
@@ -98,6 +139,7 @@ public sealed partial class SaveEditorWindow : Window
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly UIElement[] _pages;
     private readonly string[] _tabLabels = { L.T("Character"), L.T("Inventory"), L.T("Progress"), L.T("Backups") };
+    private ToggleSwitch? _nocturne;
     private Segments _kind = null!, _tabs = null!, _itemKinds = null!, _flagKinds = null!, _worldKind = null!;
     // The Randomized worlds save type: which world (by its local name), then single player or party saves in it.
     private readonly ComboBox _worldBox = new() { Margin = new Thickness(0, 6, 0, 8), HorizontalContentAlignment = HorizontalAlignment.Stretch };
@@ -192,6 +234,20 @@ public sealed partial class SaveEditorWindow : Window
             await Guard(() => OpenWorld(chosen));
         };
         pick.Children.Add(_worldPick);
+        if (_source.NocturneOn is { } nocturneOn)
+        {
+            _nocturne = new ToggleSwitch { IsChecked = nocturneOn, Content = L.T("Enable Nocturne"), Margin = new Thickness(0, 0, 0, 12),
+                ToolTip = L.T("Use the newest Nocturne in the editor: its items and its Scorched Beast boss. Your mod settings stay as they are.") };
+            _nocturne.Click += async (_, _) =>
+            {
+                var want = _nocturne.IsChecked == true;
+                if (_loading || _busy || !CanDiscard()) { _nocturne.IsChecked = !want; return; }
+                var ok = false;
+                await Guard(async () => { await _source.SetNocturne(want); ok = true; await Refresh(_selected?.SlotNumber); });
+                if (!ok) _nocturne.IsChecked = !want;
+            };
+            pick.Children.Add(_nocturne);
+        }
         pick.Children.Add(LauncherPage.Text(L.T("Character slots"), "GroupHeader"));
         DockPanel.SetDock(pick, Dock.Top); sidebar.Children.Add(pick);
         var refresh = LauncherPage.SmallButton(L.T("Refresh"), SymbolRegular.ArrowClockwise24,

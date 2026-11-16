@@ -46,6 +46,23 @@ internal static class SaveEditor
     }
     internal sealed record WriteResult(string? Backup);
 
+    /// <summary>Writes the editor's own mods config with only the installed Nocturne folder enabled (what Game mode "Nocturne"
+    /// does to mods.json) and returns its path; null when no Nocturne folder is installed.</summary>
+    internal static string? WriteNocturneOnlyConfig(string modsDir, string path)
+    {
+        if (CuratedMods.FolderIn(modsDir) is not { } folder) return null;
+        var nocturne = Path.GetFileName(folder);
+        var profile = new System.Text.Json.Nodes.JsonObject
+        {
+            ["order"] = new System.Text.Json.Nodes.JsonArray(nocturne),
+            ["disabled"] = new System.Text.Json.Nodes.JsonArray(Mods.Discover(modsDir).Where(n => n != nocturne)
+                .Select(n => (System.Text.Json.Nodes.JsonNode?)n).ToArray()),
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, profile.ToJsonString() + "\n");
+        return path;
+    }
+
     internal static T Parse<T>(string text) => JsonSerializer.Deserialize<T>(text, Json)
         ?? throw new JsonException();
 
@@ -75,6 +92,23 @@ internal static class SaveEditor
             finally { _turn.Release(); }
         }
 
+        // The mods config the Python side reads: null = the launcher's own (mods.json). The "Enable Nocturne" switch of the
+        // editor points it at a file of its own, so the player's mod settings stay as they are.
+        private string? _modsConfig;
+
+        /// <summary>Reads mods from another config file (null: mods.json); the Python side starts again with it.</summary>
+        internal async Task UseModsConfig(string? path)
+        {
+            await _turn.WaitAsync();
+            try
+            {
+                if (string.Equals(_modsConfig, path, StringComparison.OrdinalIgnoreCase)) return;
+                _modsConfig = path;
+                Stop();
+            }
+            finally { _turn.Release(); }
+        }
+
         private Process Start()
         {
             var start = new ProcessStartInfo(Paths.SeamlessPython)
@@ -86,7 +120,7 @@ internal static class SaveEditor
             foreach (var argument in new[] { Path.Combine(Paths.SeamlessScripts, "saveedit_cli.py"), "worker",
                          "--user", UserDir, "--kind", "solo",
                          "--game", GameEnvironment.GameDir(settings), "--mods", GameEnvironment.ModsDir(settings),
-                         "--mods-config", Mods.ProfilePath, "--allow-running" }) start.ArgumentList.Add(argument);
+                         "--mods-config", _modsConfig ?? Mods.ProfilePath, "--allow-running" }) start.ArgumentList.Add(argument);
             var process = Process.Start(start) ?? throw new IOException(L.T("Could not open the save editor data."));
             process.ErrorDataReceived += (_, _) => { };
             process.BeginErrorReadLine();

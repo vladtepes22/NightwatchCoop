@@ -503,7 +503,7 @@ internal static class Program
                 down.Command.Execute(null); Require(!apply.IsEnabled, "Returning the weapon level must clear dirty state");
             }
         }
-        var toggle = nodes.OfType<Wpf.Ui.Controls.ToggleSwitch>().FirstOrDefault();
+        var toggle = nodes.OfType<Wpf.Ui.Controls.ToggleSwitch>().FirstOrDefault(t => t.Content as string != "Enable Nocturne");
         if (toggle != null)
         {
             Require(toggle.IsChecked == true, "A set flag must load switched on");
@@ -568,6 +568,7 @@ internal static class Program
     private sealed class FakeSource(bool empty, bool running, IReadOnlyList<WorldSaves.Entry>? worlds = null, string? playing = null) : ISaveEditorSource
     {
         public bool GameRunning => running;
+        public bool? NocturneOn => true;  // the "Enable Nocturne" switch shows in every shot
         public List<string> Commands { get; } = new();
         // The Randomized worlds save type: the folders the window pointed the requests at, in order (null: the profile's own).
         public List<string?> Used { get; } = new();

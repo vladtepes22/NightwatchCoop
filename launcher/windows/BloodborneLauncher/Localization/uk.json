@@ -2943,5 +2943,8 @@
   "{0} left out": "Не взято: {0}",
   "{0} of {1} changes": "Змін: {0} з {1}",
   "{0} plays a randomized world on Nocturne {1}.": "{0} грає у випадковому світі на Nocturne {1}.",
-  "{0} plays a randomized world.": "{0} грає у випадковому світі."
+  "{0} plays a randomized world.": "{0} грає у випадковому світі.",
+  "Enable Nocturne": "Увімкнути Nocturne",
+  "Use the newest Nocturne in the editor: its items and its Scorched Beast boss. Your mod settings stay as they are.": "Використовувати в редакторі найновіший Nocturne: його предмети та боса Scorched Beast. Налаштування модів не змінюються.",
+  "Nocturne was not downloaded.": "Nocturne не завантажено."
 }

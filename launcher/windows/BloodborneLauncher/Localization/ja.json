@@ -2943,5 +2943,8 @@
   "{0} left out": "{0} 件を除外",
   "{0} of {1} changes": "{1} 件中 {0} 件の変更",
   "{0} plays a randomized world on Nocturne {1}.": "{0} は Nocturne {1} でランダム化ワールドを遊んでいます。",
-  "{0} plays a randomized world.": "{0} はランダム化ワールドで遊んでいます。"
+  "{0} plays a randomized world.": "{0} はランダム化ワールドで遊んでいます。",
+  "Enable Nocturne": "Nocturneを有効にする",
+  "Use the newest Nocturne in the editor: its items and its Scorched Beast boss. Your mod settings stay as they are.": "エディターで最新のNocturneを使用します。Nocturneのアイテムとボス「Scorched Beast」を扱えます。Modの設定は変更されません。",
+  "Nocturne was not downloaded.": "Nocturneはダウンロードされませんでした。"
 }
