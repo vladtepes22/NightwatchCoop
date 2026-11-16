@@ -224,6 +224,7 @@ def execute(args, edit=None, running=running_games, catalogues=None):
             catalogues[user] = catalogue
     if args.mods and args.game:
         catalogue.set_mod_items(names.read_mod_items(args.game, args.mods, args.mods_config))
+        catalogue.set_mod_bosses(names.read_mod_bosses(args.game, args.mods, args.mods_config, catalogue.progress))
     art = icons.source(args.game, args.mods, args.mods_config) if args.game else None  # the icon sheet in game
     if args.command == "effects":
         return [dict(id=e, text=text) for e, text in catalogue.effects_for(0)]  # blood gem effects

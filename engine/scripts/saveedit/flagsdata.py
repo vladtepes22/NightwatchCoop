@@ -97,11 +97,46 @@ def derive(game):
     return {"bosses": out, "lamps": sorted(lamps)}
 
 
+def derive_mod(game, event_dir, known=()):
+    """[[flag, bar name id]] of the bosses the mod's own event files (a Nocturne `event` folder) define whose kill
+    flag is not in `known` (the game's list [[flag, name id]]): the defeat markers (2003[12] / [53] / [15]) of its map
+    events, the flag being the event's id, so a boss outside the 1AAB1700/1800/1850 pattern (the Lesser Demon,
+    12301820) is found too. `game` is the game folder holding event/common.emedf. Raises when unreadable."""
+    from pathlib import Path
+    ft, _ = _partydata()
+    saved = dict(ft.MARKERS)
+    ft.MARKERS[BOSS_BAR] = "boss_bar"
+    try:
+        allrec = ft.expand_all(Path(event_dir), ft.load_emedf(ft.find_emedf(Path(game) / "event")))
+    finally:
+        ft.MARKERS.clear()
+        ft.MARKERS.update(saved)
+    seen = {f for f, _n in known}
+    out = {}
+    for stem, recs in allrec.items():
+        if stem == "common":
+            continue
+        for r in recs:
+            f = r["event"] + r["slot"]
+            area = f // 10**5 % 100
+            if f in seen or not 10**7 <= f < 2 * 10**7 or area == 29 or area >= 40:
+                continue
+            ents = [m["v"][0] for m in r["markers"] if m["m"] in ("boss_defeat", "midboss_defeat") and m["v"]]
+            if ents:
+                bar = next((m["v"][3] for m in r["markers"] if m["m"] == "boss_bar" and len(m["v"]) >= 4
+                            and m["v"][1] == ents[0] and m["v"][3] > 0), 0)
+                out[f] = bar or out.get(f, 0)
+    return [[f, out[f]] for f in sorted(out)]
+
+
 def bosses(cat=None):
-    """[(flag, group, label)] with the flag id in brackets."""
+    """[(flag, group, label)] with the flag id in brackets; the enabled Nocturne mod's own bosses
+    (names.read_mod_bosses, Catalogue.mod_bosses) follow the game's."""
     out = []
     for f, chr_id in (cat.progress.get("bosses", ()) if cat is not None else ()):
         name = (cat.boss_name(chr_id) if chr_id else None) or "Boss"
+        out.append((f, group_of(f), f"{name} [{f}]"))
+    for f, name in (getattr(cat, "mod_bosses", None) or ()):
         out.append((f, group_of(f), f"{name} [{f}]"))
     return out
 

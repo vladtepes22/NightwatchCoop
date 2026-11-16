@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from saveedit import model as M  # noqa: E402
 from saveedit import store as S  # noqa: E402
 from saveedit import names as N  # noqa: E402
+from saveedit import flagsdata  # noqa: E402
 
 TEST_SAVES = Path(r"E:\games\bbport\test_saves")
 LIVE = Path(r"E:\games\bloodborne\user")
@@ -778,6 +779,29 @@ def test_nocturne_3_items_are_read_from_the_mod(tmp_path):
     c = N.Catalogue({})
     c.set_mod_items(items)
     assert (0, 27410000, "Uncanny Yorukage") in c.search_mod_items("yorukage")
+
+
+def test_a_mod_boss_is_listed_after_the_games_bosses():
+    c = N.Catalogue({"names": {"npc": {503000: "Coiled Host"}}, "progress": {"bosses": [[12701800, 503000]], "lamps": []}})
+    c.set_mod_bosses([(12301820, "Scorched Beast")])
+    rows = [(f, label) for f, _g, label in flagsdata.bosses(c)]
+    assert rows == [(12701800, "Coiled Host [12701800]"), (12301820, "Scorched Beast [12301820]")]
+    assert flagsdata.group_of(12301820) == "Old Yharnam"
+
+
+@pytest.mark.skipif(not (NOCTURNE / "dvdroot_ps4" / "event").is_dir() or not NOCTURNE_GAME.is_dir(),
+                    reason="no Nocturne 5 build (SAVEEDIT_NOCTURNE) or game (SAVEEDIT_GAME)")
+def test_nocturne_5_lesser_demon_is_read_from_the_mod_events(tmp_path):
+    """The Lesser Demon's kill flag (12301820, his m23 defeat event) and bar name come from Nocturne's own files; the
+    game's bosses and the Coiled Host (the Shadows' flag) are not listed again."""
+    import shutil
+    mod = tmp_path / "Mods" / "Nocturne v5.0.0" / "dvdroot_ps4"
+    for part in ("event/m23_00_00_00.emevd.dcx", "msg/engus/item.msgbnd.dcx"):
+        (mod / part).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(NOCTURNE / "dvdroot_ps4" / part, mod / part)
+    progress = flagsdata.derive(NOCTURNE_GAME)
+    assert N.read_mod_bosses(NOCTURNE_GAME, tmp_path / "Mods", None, progress) == [(12301820, "Scorched Beast")]
+    assert N.read_mod_bosses(NOCTURNE_GAME, tmp_path / "Nowhere", None, progress) == []
 
 
 def test_guest_written_save_is_edited_through_a_repaired_copy(user):

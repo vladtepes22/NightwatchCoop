@@ -208,6 +208,40 @@ def read_mod_items(game_dir, mods_dir, config, lang="engus"):
     return out
 
 
+def read_mod_bosses(game_dir, mods_dir, config, progress, lang="engus"):
+    """[(kill flag, name)] of the bosses the installed, enabled Nocturne mod adds (its own map events, flagsdata.derive_mod)
+    that the game does not have, named by the mod's NPC name list (else "Boss"). `progress` is the game's derived
+    progress ({"bosses": [[flag, name id]]}). Empty when no such mod or anything unreadable."""
+    from . import flagsdata
+    import mods
+    game = Path(game_dir)
+    if not (game / "msg").is_dir() and (game / "dvdroot_ps4" / "msg").is_dir():
+        game = game / "dvdroot_ps4"
+    out = {}
+    try:
+        for name in mods.selected(mods_dir, config):
+            if not name.casefold().startswith(MOD_PREFIX.casefold()):
+                continue
+            base, prefix = mods.content_root(Path(mods_dir) / name)
+            root = mods.child(base, "dvdroot_ps4") if not prefix else base
+            event = mods.child(root, "event")
+            if not event.is_dir():
+                continue
+            found = flagsdata.derive_mod(game, event, (progress or {}).get("bosses", ()))
+            if not found:
+                continue
+            try:
+                msg = _bnd4(_dcx(mods.child(mods.child(mods.child(root, "msg"), lang), "item.msgbnd.dcx").read_bytes()))
+                texts = _fmg(_entry(msg, NPC_NAMES + ".fmg"))
+            except (OSError, ValueError, KeyError):
+                texts = {}
+            for flag, name_id in found:
+                out[flag] = texts.get(name_id) or "Boss"
+    except Exception:  # noqa: BLE001 - an unreadable mod only leaves its bosses out
+        return []
+    return sorted(out.items())
+
+
 def _stamp(game, lang):
     out = []
     for p in (game / "msg" / lang / "item.msgbnd.dcx", game / "param" / "gameparam" / "gameparam.parambnd.dcx",
@@ -249,6 +283,7 @@ class Catalogue:
         self._gemgen = {int(i): v for i, v in (data or {}).get("gemgen", {}).items()}
         self._gemrows = {int(i): v for i, v in (data or {}).get("gemrows", {}).items()}
         self._goods_sort = {int(i): v for i, v in (data or {}).get("goods_sort", {}).items()}
+        self.mod_bosses = []
         self.mod_items = {}  # (category, id) -> [name, goods sortId, icon id] of the Nocturne mod (set_mod_items)
         self._goods_max = {int(i): v for i, v in (data or {}).get("goods_max", {}).items()}
         self._reach = set((data or {}).get("reach", []))
@@ -289,6 +324,9 @@ class Catalogue:
 
     def set_mod_items(self, items):
         self.mod_items = dict(items)
+
+    def set_mod_bosses(self, bosses):
+        self.mod_bosses = list(bosses)  # [(kill flag, name)] of the Nocturne mod (read_mod_bosses)
 
     def goods_max(self, number):
         """How many of a goods item the game lets you hold (EquipParamGoods.maxNum), None when unknown."""
