@@ -30,7 +30,7 @@ and everyone's save keeps the progress. Free and open source. Needs your own gam
   compass-only party HUD, no name tags and errors-only party messages.
 - **Save editor** for single-player and party saves (stats, echoes, insight, items, weapons, armour,
   flags), with automatic backups.
-- **Mods that stay optional.** Nightwatch includes Nocturne, a mod that introduce many new weapons, hunter tools, and more.
+- **Mods that stay optional.** Nightwatch includes [Nocturne](https://www.nexusmods.com/bloodborne/mods/747), a mod that introduce many new weapons, hunter tools, and more.
 - **A fully functional, seamless ready built in Randomizer with more than 30 options to customize from**
   (Workshop → Randomizer): gems get stronger the further into the game you find them, and the Insight
   shop sells blood stones as you beat Cleric Beast, the Shadows, the One Reborn and the Wet Nurse.
