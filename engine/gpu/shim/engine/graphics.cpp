@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "graphics.h"
 #include "engine_hooks.h"
+#include "fog_scale.h"
 #include "bbport_platform.h"
 #include "bbport_settings.h"
 #include <algorithm>
@@ -8,8 +9,10 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <vector>
 
 namespace BbEngine::Graphics {
 namespace {
@@ -79,10 +82,14 @@ constexpr std::size_t kFogJump = 0x22daadf, kFogPadding = 0x22daaf3, kTableUploa
 constexpr std::uint8_t kPadding[] = {0x66, 0x66, 0x66, 0x66, 0x2e, 0x0f, 0x1f, 0x84, 0, 0, 0, 0, 0};
 constexpr std::size_t kFogMap = 0x248, kFogTable = 0x250, kFogCount = 0x258, kFogStride = 0x60 / 4;
 constexpr int kFogOpacities[] = {0, 8, 12};
+constexpr std::size_t kUploadBuffer = 0x70, kUploadSize = 0x2c, kUploadKind = 0x38, kUploadFlags = 0x3b;
+constexpr std::uint8_t kUploadCopy = 1, kUploadOther = 4;
 
 bool g_enabled = false;
 std::uint8_t* g_post_block = nullptr;
 thread_local std::uint64_t t_fog_manager = 0;
+thread_local std::vector<std::uint8_t> t_fog_scratch;
+std::atomic<bool> g_fog_kind_said{false}, g_fog_size_said{false};
 
 template <typename T> bool Peek(std::uint64_t at, T* out) {
     return at && BbPlatform::ReadProcessMemory(reinterpret_cast<const void*>(at), out, sizeof(T));
@@ -210,15 +217,54 @@ GUEST_ABI std::int64_t BeforeFogRebuild(std::uint64_t, const std::uint64_t* save
     return 0;
 }
 
+// The table upload (guest 0xe2e6b0, map in RDI, table in RDX) runs the copy at 0x2168a20 with the table as its data:
+// an upload of kind 1, or one flagged 4, reads view+0x2c bytes of it before returning.
+bool FogCopyOn() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_FOG_SCALE_COPY");
+        const bool off = v && std::strcmp(v, "0") == 0;
+        if (off) std::printf("Engine: fog scaled in the game's own table (BB_FOG_SCALE_COPY=0)\n");
+        return !off;
+    }();
+    return on;
+}
+
 GUEST_ABI std::int64_t BeforeFogUpload(std::uint64_t, const std::uint64_t* saved) {
     const std::uint64_t manager = t_fog_manager;
     t_fog_manager = 0;
     const float k = Setting(BbSettings::Get().graphics_fog, 0.0f, 5.0f);
+    if (FogScale::Untouched(On(), k)) return 0;
     std::uint64_t map = 0, table = 0;
     std::uint32_t count = 0;
-    if (!On() || k == 1 || !Peek(manager + kFogMap, &map) || !Peek(manager + kFogTable, &table) ||
-        !Peek(manager + kFogCount, &count) || map != saved[5] || table != saved[3] || !table || !count ||
-        count > 4096) return 0;
+    if (!Peek(manager + kFogMap, &map) || !Peek(manager + kFogTable, &table) || !Peek(manager + kFogCount, &count) ||
+        map != saved[5] || table != saved[3] || !table || !count || count > FogScale::kMaxBlocks) return 0;
+    if (FogCopyOn()) {
+        // The game's table keeps its own values: a copy is scaled and the upload reads it. Scaling the table in place
+        // compounded on every upload, so the fog drifted and flickered.
+        std::uint64_t buffer = 0, view = 0;
+        std::uint32_t upload = 0;
+        std::uint8_t kind = 0, flags = 0;
+        if (!Peek(map + kUploadBuffer, &buffer) || !Peek(buffer, &view) || !view) return 0;
+        if (!Peek(view + kUploadSize, &upload) || !Peek(view + kUploadKind, &kind) || !Peek(view + kUploadFlags, &flags) ||
+            (!(flags & kUploadOther) && kind != kUploadCopy)) {
+            if (!g_fog_kind_said.exchange(true))
+                std::printf("Engine: fog left at the game's own for an upload of kind %u\n", unsigned(kind));
+            return 0;
+        }
+        const std::size_t bytes = FogScale::CopyBytes(count, upload);
+        if (!bytes) {
+            if (!g_fog_size_said.exchange(true))
+                std::printf("Engine: fog left at the game's own: %u blocks, %u bytes is over the copy's %zu\n", count,
+                            upload, FogScale::kMaxBytes);
+            return 0;
+        }
+        if (t_fog_scratch.size() < bytes) t_fog_scratch.resize(bytes);
+        // saved[] is the stub's frame: the stub pops RDX back from saved[3] before it jumps on (engine_hooks.cpp
+        // WriteStub), so this points the upload at the copy.
+        const_cast<std::uint64_t*>(saved)[3] = reinterpret_cast<std::uint64_t>(
+            FogScale::ScaleCopy(reinterpret_cast<const std::uint8_t*>(table), count, bytes, k, t_fog_scratch.data()));
+        return 0;
+    }
     auto* fog = reinterpret_cast<float*>(table);
     for (std::uint32_t i = 0; i < count; ++i) {
         for (const int o : kFogOpacities) {
