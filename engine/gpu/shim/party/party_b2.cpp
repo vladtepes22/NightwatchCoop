@@ -5714,6 +5714,7 @@ void ReviveLocal(const GameSnapshot& s, const LampSpot& sp, bool host) {
             std::memcpy(rot, sp.rot, sizeof rot);
             pos[3] = 1.0f;
             LocalChrWarpImpl(p, pos, rot, host ? "host revive: the body first" : "guest revive: the body first");
+            BbSettings::Get().history_cuts.fetch_add(1, std::memory_order_relaxed);  // upscaler history: the view jumped
             g_pending_revive.on = true;
             g_pending_revive.sp = sp;
             g_pending_revive.host = host;
@@ -5958,6 +5959,7 @@ void ReviveLocal(const GameSnapshot& s, const LampSpot& sp, bool host) {
     DeathFields after;
     ReadDeathFields(p, &after);
     g_revivals.fetch_add(1);
+    BbSettings::Get().history_cuts.fetch_add(1, std::memory_order_relaxed);  // upscaler history: the view jumped
     g_seen_dying = false;
     char where[80];
     if (!sp.valid) {
@@ -10384,6 +10386,7 @@ void GuestTick(const GameSnapshot& s, double now) {
                     BesideHost(pos, rot, g_local_slot.load());
                     alignas(16) float p16[4] = {pos[0], pos[1], pos[2], 1.0f}, r16[4] = {rot[0], rot[1], rot[2], rot[3]};
                     if (LocalChrWarpImpl(s.player, p16, r16, "beside the host after the death follow")) {
+                        BbSettings::Get().history_cuts.fetch_add(1, std::memory_order_relaxed);
                         Log("guest: placed beside the host after the death follow (%.2f, %.2f, %.2f)", double(pos[0]),
                             double(pos[1]), double(pos[2]));
                     }

@@ -23,6 +23,7 @@
 #include "video_core/renderer_vulkan/vk_dlss.h"
 #include "video_core/renderer_vulkan/vk_fsr4.h"
 #include "video_core/renderer_vulkan/vk_hdr_native.h"
+#include "video_core/renderer_vulkan/upscaler_skips.h"
 #include "video_core/texture_cache/image.h"
 
 struct FfxVkPortableUpscaleContext;
@@ -244,6 +245,16 @@ private:
     float applied_scale = 0.0f; ///< bbport: PresetScale of applied_preset (the Custom ratio moves)
     int applied_upscaler = -1;
     bool dispatched_last_frame = false;
+    /// bbport (upscaler_skips.h, BB_UPSCALER_SKIPS=0 off): frames in a row the upscaler did not
+    /// resolve; from kUnresolvedFramesBeforeNative on, scene LOD bias 0 and no jitter until it runs.
+    u32 unresolved_frames = 0;
+    UpscalerSkips::Path frame_path = UpscalerSkips::Path::None;
+    UpscalerSkips::Reason frame_reason = UpscalerSkips::Reason::NoUiDraw;
+    UpscalerSkips::Window path_window{};
+    std::chrono::steady_clock::time_point path_window_start = std::chrono::steady_clock::now();
+    UpscalerSkips::AfterLoad after_load{};
+    void NoteResolvedFrame(bool active);
+    u32 history_cuts_seen = 0; ///< BbSettings::history_cuts at the last frame start
     bool last_active = false, last_jitter = false;
 
 

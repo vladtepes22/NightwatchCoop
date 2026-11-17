@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_settings.h"
 #include "bbport_menu_i18n.h"
+#include "dlss_rules.h"
 #include "engine/texture_quality_rules.h"
 #include "input/ini_bindings.h"
 
@@ -1428,12 +1429,20 @@ int DlssPresetFromText(const char* text) {
     }
     const char letter = char(std::tolower(static_cast<unsigned char>(text[0])));
     if (letter >= 'a' && letter <= 'z' && text[1] == '\0') {
-        if (!DlssPresetValid(letter - 'a' + 1)) {
-            std::printf("Settings: DLSS preset '%s' is not in NVIDIA's DLSS 310.9 (E, F, J, K, L, M); k\n",
-                        text);
+        const int preset = letter - 'a' + 1;
+        // NVIDIA retired presets E and F (dlss_rules.h): a saved one runs as auto.
+        // BB_DLSS_PRESET_RULES=0 keeps them.
+        static const bool rules = !(std::getenv("BB_DLSS_PRESET_RULES") && std::getenv("BB_DLSS_PRESET_RULES")[0] == '0');
+        if (rules && BbDlss::Deprecated(preset)) {
+            std::printf("Settings: DLSS preset '%s' is deprecated by NVIDIA; auto\n", text);
+            return BbDlss::FromSaved(preset);
+        }
+        if (!DlssPresetValid(preset)) {
+            std::printf("Settings: DLSS preset '%s' is not in NVIDIA's DLSS 310.9 (%s); k\n", text,
+                        rules ? "J, K, L, M" : "E, F, J, K, L, M");
             return DlssPresetK;
         }
-        return letter - 'a' + 1;
+        return preset;
     }
     std::printf("Settings: unknown dlss_preset '%s' (expected default or a letter); k\n", text);
     return DlssPresetK;

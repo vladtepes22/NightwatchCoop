@@ -2,6 +2,8 @@
 #include "loading.h"
 #include "engine_hooks.h"
 #include "bbport_platform.h"
+#include "bbport_settings.h"
+#include "dlss_rules.h"
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -23,6 +25,7 @@ constexpr float kLoadingTarget = 1.0f / 30.0f;
 using Clock = std::chrono::steady_clock;
 std::uint8_t* g_image = nullptr;
 std::atomic<bool> g_up{false};
+bool g_asked = false; // the game's load request last frame (Tick, main thread)
 Clock::time_point g_started, g_load_began;
 std::uint64_t g_frames = 0;
 bool g_world_seen = false;
@@ -101,6 +104,10 @@ void Tick(std::uint64_t pacer) {
     const bool world = helper && ((Peek(helper + kWorldShownA, &shown_a) && shown_a) ||
                                   (Peek(helper + kWorldShownB, &shown_b) && shown_b));
     const bool loading = asked && !world;
+    // The load request clearing (lamp travel, a death's reload, any area load) cuts the upscaler's
+    // history: the first frames after it must not blend with the frames before the load.
+    if (BbDlss::LoadArrived(g_asked, asked != 0)) BbSettings::Get().history_cuts.fetch_add(1, std::memory_order_relaxed);
+    g_asked = asked != 0;
     const auto now = Clock::now();
     ++g_frames;
     const bool was = g_up.exchange(loading, std::memory_order_relaxed);

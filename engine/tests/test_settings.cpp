@@ -330,7 +330,7 @@ int main() {
         file << "dlss_preset=e\ndlss_mip_bias=0\noptiscaler_compat=0\noptiscaler_sync_submit=1\n";
     }
     BbSettings::Load();
-    assert(s.dlss_preset == 5 && !s.dlss_mip_bias && !s.optiscaler_compat &&
+    assert(s.dlss_preset == BbSettings::DlssPresetAuto && !s.dlss_mip_bias && !s.optiscaler_compat &&
            s.optiscaler_sync_submit == BbSettings::OptiSubmitOn);
     assert(!s.startup_optiscaler.compat && s.startup_optiscaler.sync_submit == BbSettings::OptiSubmitOn);
     s.dlss_preset = BbSettings::DlssPresetDefault;
@@ -361,7 +361,7 @@ int main() {
     assert(std::string(BbSettings::DlssPresetText(BbSettings::DlssPresetDefault)) == "default");
     assert(BbSettings::DlssPresetFromText("a") == BbSettings::DlssPresetK);
     assert(BbSettings::DlssPresetFromText("h") == BbSettings::DlssPresetK);
-    assert(BbSettings::DlssPresetFromText("j") == 10 && BbSettings::DlssPresetFromText("f") == 6);
+    assert(BbSettings::DlssPresetFromText("j") == 10 && BbSettings::DlssPresetFromText("f") == BbSettings::DlssPresetAuto);
     {
         std::ofstream file(path);
         file << "frame_gen=dlss\nframe_gen_frames=9\nreflex=boost\npreset=5\nrender_scale=1.3\n"

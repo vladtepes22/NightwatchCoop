@@ -7,6 +7,8 @@
 #include "video_core/renderer_vulkan/motion_history.h"
 #include "video_core/renderer_vulkan/vk_scene_resolution.h"
 #include "video_core/renderer_vulkan/ui_composition.h"
+#include "video_core/renderer_vulkan/upscaler_skips.h"
+#include "engine/loading.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,6 +22,7 @@
 
 #include "bbport_sections.h"
 #include "bbport_settings.h"
+#include "dlss_rules.h"
 #include "bbport_toggles.h"
 #include "ffx_vk_portable.h"
 #include "video_core/host_shaders/upscale_merge_comp.h"
@@ -45,6 +48,36 @@
 namespace Vulkan {
 
 namespace {
+
+/// bbport: an environment switch that is on unless set to 0 (read once by the caller's static).
+bool SwitchOn(const char* name) {
+    const char* v = std::getenv(name);
+    return !(v && v[0] == '0');
+}
+/// Off unless asked for (NAME=1): changes not yet seen on a screen.
+bool OptIn(const char* name) {
+    const char* v = std::getenv(name);
+    return v && v[0] == '1';
+}
+/// A load ending or a respawn (BbSettings::history_cuts) drops the upscaler's history.
+bool HistoryCutOn() {
+    static const bool on = SwitchOn("BB_UPSCALER_HISTORY_CUT");
+    return on;
+}
+/// Frames the upscaler did not resolve (upscaler_skips.h): LOD bias and jitter off after a few,
+/// the UI draw's own frame-size target accepted, an earlier G-buffer pass's depth when the last one's
+/// size is not the frame's. Native 16-bit HDR (RunPsychoScaled) keeps its frame and depth choice.
+bool SkipsOn() {
+    static const bool on = OptIn("BB_UPSCALER_SKIPS");
+    return on;
+}
+bool FrameStatsOn() {
+    static const bool on = [] {
+        const char* v = std::getenv("BB_FRAME_STATS");
+        return v && (v[0] == '1' || v[0] == 'y' || v[0] == 't');
+    }();
+    return on;
+}
 
 FfxVkPortableImage Describe(vk::Image image, vk::Format format, u32 width, u32 height,
                             vk::ImageUsageFlags usage, vk::ImageAspectFlags aspect,
@@ -492,7 +525,12 @@ bool TemporalUpscaler::OnFrameStart() {
     }();
     BbSettings::Get().motion_blur_held.store(no_blur != 0 && active && (Scaled() || no_blur == 2),
                                              std::memory_order_relaxed);
-    if (changed || !dispatched_last_frame) reset = true;
+    // bbport: a load ending (lamp travel, a death's reload) or a revive in place bumps
+    // history_cuts: the history before it must not blend into the new place (item 13: a pixelated
+    // picture after lamp travel or a death). BB_UPSCALER_HISTORY_CUT=0: not a reset.
+    const u32 history_cuts = HistoryCutOn() ? settings.history_cuts.load(std::memory_order_relaxed) : history_cuts_seen;
+    if (BbDlss::ResetHistory(changed, dispatched_last_frame, history_cuts_seen, history_cuts)) reset = true;
+    history_cuts_seen = history_cuts;
     if (changed) jitter_index = 0;
     applied_hdr_path = hdr_path;
     snapshot_ready = false;
@@ -502,6 +540,7 @@ bool TemporalUpscaler::OnFrameStart() {
     applied_upscaler = upscaler;
     last_active = active;
     last_jitter = jitter_on;
+    NoteResolvedFrame(active);
     dispatched_last_frame = false;
 
     // The display pass of an upscaled frame reads the upscaled UI image.
@@ -515,8 +554,9 @@ bool TemporalUpscaler::OnFrameStart() {
     snapshot_taken = false;
     opaque_valid = false;
     mask_ready = false;
-    // Halton(2, 3); the menu or toggle 1 << 25 disables it.
-    if (!jitter_on) {
+    // Halton(2, 3); the menu or toggle 1 << 25 disables it. Frames the upscaler does not resolve
+    // get none either (upscaler_skips.h): a jittered frame shown as it is shakes.
+    if (!jitter_on || (SkipsOn() && !UpscalerSkips::TemporalInputs(unresolved_frames))) {
         jitter = {};
         return changed;
     }
@@ -527,6 +567,34 @@ bool TemporalUpscaler::OnFrameStart() {
     jitter_index = jitter_index % phases + 1;
     jitter = {Halton(jitter_index, 2) - 0.5f, Halton(jitter_index, 3) - 0.5f};
     return changed;
+}
+
+void TemporalUpscaler::NoteResolvedFrame(bool active) {
+    const bool resolved = dispatched_last_frame;
+    const auto path = resolved ? UpscalerSkips::Path::Upscaled : frame_path;
+    const auto reason = resolved ? UpscalerSkips::Reason::Upscaled : frame_reason;
+    frame_path = UpscalerSkips::Path::None;
+    frame_reason = UpscalerSkips::Reason::NoUiDraw;
+    unresolved_frames = UpscalerSkips::NextUnresolved(unresolved_frames, resolved);
+    if (!active || !SkipsOn()) {
+        return;
+    }
+    if (after_load.Frame(BbEngine::Loading::ScreenUp(), resolved)) {
+        std::printf("Upscaler: %s has not run for %u frames since the load ended (%s, %s); scene LOD "
+                    "bias 0 and no jitter until it runs\n",
+                    BbSettings::UpscalerName(applied_upscaler), UpscalerSkips::kUnresolvedFramesBeforeNative,
+                    path == UpscalerSkips::Path::Copy ? "copy" : "none", UpscalerSkips::ReasonName(reason));
+    }
+    if (!FrameStatsOn()) {
+        return;
+    }
+    path_window.Add(path, reason);
+    if (const auto now = std::chrono::steady_clock::now(); now - path_window_start >= std::chrono::seconds(5)) {
+        std::printf("Upscaler frames: %s\n",
+                    UpscalerSkips::Describe(BbSettings::UpscalerName(applied_upscaler), path_window).c_str());
+        path_window = {};
+        path_window_start = now;
+    }
 }
 
 void TemporalUpscaler::OnDispatch(u64 cs_hash) {
@@ -1388,10 +1456,13 @@ void TemporalUpscaler::Run() {
     runtime.FlushBarriers();
     vk::Image input_color = color.GetImage(), input_depth = depth.GetImage();
     vk::ImageView input_color_view = color_view, input_depth_view = depth_view;
+    // The scene colour is RGBA16F with storage here (checked above); a reduced copy may lack it.
+    bool color_storage = bool(color.usage_flags & vk::ImageUsageFlagBits::eStorage);
     if (reduced) {
         VideoCore::ImageViewInfo ci;
         ci.format = color.info.pixel_format;
         const auto c = scene_targets.Read(scene_color, ci);
+        color_storage = bool(c.usage & vk::ImageUsageFlagBits::eStorage);
         ci.format = depth.info.pixel_format;
         const auto d = scene_targets.Read(camera_motion.Depth(), ci);
         input_color = c.image;
@@ -1430,7 +1501,15 @@ void TemporalUpscaler::Run() {
     own_barrier(vk::Image(output_image), vk::ImageLayout::eUndefined, all,
                 vk::AccessFlagBits2::eNone, vk::ImageLayout::eGeneral, all, rw);
 
-    camera_motion.RecordMotion(input_depth_view, *motion_view, w, h);
+    // bbport: DLSS only: NaN or infinite scene pixels are zeroed in the motion pass before DLSS
+    // reads them (DLSS smeared one broken pixel over its neighbours for many frames); finite pixels
+    // are not written. Off by default, BB_DLSS_CLEAN_COLOR=1 turns it on (not yet seen on a screen).
+    static const bool clean_color = OptIn("BB_DLSS_CLEAN_COLOR");
+    const bool dlss_input = BbSettings::Get().upscaler == BbSettings::UpscalerDlss && UseFsr4();
+    const bool clean = clean_color && dlss_input &&
+                       BbDlss::ColorNeedsCleaning(color.info.pixel_format == vk::Format::eR16G16B16A16Sfloat,
+                                                  color_storage);
+    camera_motion.RecordMotion(input_depth_view, *motion_view, w, h, clean ? input_color_view : vk::ImageView{});
     own_barrier(vk::Image(motion_image), vk::ImageLayout::eGeneral,
                 vk::PipelineStageFlagBits2::eComputeShader, vk::AccessFlagBits2::eShaderWrite,
                 vk::ImageLayout::eGeneral, all, vk::AccessFlagBits2::eShaderRead);
@@ -1664,10 +1743,10 @@ std::array<u32, 2> TemporalUpscaler::SceneSize(u32 w, u32 h) const {
 }
 
 float TemporalUpscaler::SceneMipBias() const {
-    if (!Active() || BbSettings::Get().upscaler == BbSettings::UpscalerTaa) return 0.0f;
+    const bool active = Active();
+    if (!active) return 0.0f;
     const float render = float(BbSettings::Get().active_render_width.load());
     const float output = float(Scaled() ? target_width : 1920u);
-    const float scale_bias = render > 0.0f && render < output ? std::log2(render / output) : 0.0f;
     // DLSS (DLAA too) wants one more mip level of texture detail than the render/output ratio
     // (NVIDIA's DLSS programming guide). From AwesomeObserver/bloodborne_pc b3164c1
     // (Evgeniy Doronin). dlss_mip_bias=0 (menu, BB_DLSS_MIP_BIAS=0): the ratio only, as before.
@@ -1676,7 +1755,11 @@ float TemporalUpscaler::SceneMipBias() const {
     // bbport: mip_bias (menu, launcher), the player's own offset on top, as OptiScaler's override.
     const float offset = std::clamp(BbSettings::Get().mip_bias.load(std::memory_order_relaxed),
                                     BbSettings::MipBiasMin, BbSettings::MipBiasMax);
-    return scale_bias - (dlss_extra && dlss_on ? 1.0f : 0.0f) + offset;
+    // bbport (upscaler_skips.h): frames the upscaler has stopped resolving get bias 0 (a sharpened
+    // frame shown as it is shimmers); Only with BB_UPSCALER_SKIPS=1; otherwise the bias as before.
+    return UpscalerSkips::SceneBias(active, BbSettings::Get().upscaler == BbSettings::UpscalerTaa,
+                                    SkipsOn() ? unresolved_frames : 0u, render, output, dlss_extra && dlss_on,
+                                    offset);
 }
 
 void TemporalUpscaler::ApplyFsr3Tuning() {
@@ -1724,6 +1807,8 @@ void TemporalUpscaler::OnColorTarget(VideoCore::ImageId color) {
     }
     const auto& image = texture_cache.GetImage(color);
     const auto& depth = texture_cache.GetImage(camera_motion.Depth());
+    // RGBA8 UNORM only: upstream also takes an sRGB frame here, but RunScaled's TAA, FSR 4 and
+    // DLSS paths were never checked with one (not taken).
     if (image.info.pixel_format == vk::Format::eR8G8B8A8Unorm &&
         image.info.size.width == depth.info.size.width &&
         image.info.size.height == depth.info.size.height) {
@@ -1786,17 +1871,34 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
                         !UiComposition::SceneHasUiViewportSize(render_width, render_height)) ||
                        (scaled_session && widened_ui_viewport &&
                         !UiComposition::SceneNearUiSize(render_width, render_height));
-    const bool ui_draw = movie &&
-        (image.info.pixel_format == vk::Format::eR8G8B8A8Unorm ||
-         image.info.pixel_format == vk::Format::eR8G8B8A8Srgb) &&
+    const bool ui_draw = movie && UiComposition::FrameFormat(image.info.pixel_format) &&
         RenderTarget(image.info.size.width, image.info.size.height) &&
         !FrameCapture::IsDisplayBuffer(image.info.guest_address);
-    switch (UiComposition::Choose(UiComposed(), ui_draw,
-                                  camera_motion.Ready() && ldr_target == color,
-                                  Active() && !failed)) {
+    const bool temporal_ready = Active() && !failed;
+    const bool world = ldr_target && ldr_target == color;
+    // bbport (upscaler_skips.h): the UI draw's own RGBA8 UNORM target of the scene's size is the
+    // finished frame too (the frame's last colour target was not seen as it); not under native
+    // 16-bit HDR, and not an sRGB target (RunScaled only ever had UNORM frames).
+    // Only with BB_UPSCALER_SKIPS=1; otherwise only the target seen as the frame, as before.
+    const bool accept_any = SkipsOn() && !HdrChannel::Native16();
+    const bool frame_accepted =
+        accept_any ? UpscalerSkips::AcceptFrame(world, image.info.pixel_format == vk::Format::eR8G8B8A8Unorm,
+                                                RenderTarget(image.info.size.width, image.info.size.height))
+                   : ldr_target == color;
+    const auto background =
+        UiComposition::Choose(UiComposed(), ui_draw, camera_motion.Ready() && frame_accepted, temporal_ready);
+    if (background != UiComposition::Background::None) {
+        frame_path = UpscalerSkips::Path::Copy;
+        frame_reason = background == UiComposition::Background::Temporal
+                           ? UpscalerSkips::Reason::NotDispatched
+                           : UpscalerSkips::CopyReason(temporal_ready, ldr_target || frame_accepted,
+                                                       frame_accepted, camera_motion.Ready());
+    }
+    switch (background) {
     case UiComposition::Background::None:
         return;
     case UiComposition::Background::Temporal:
+        ldr_target = color; // RunScaled upscales the accepted frame
         RunScaled();
         if (ui_phase) {
             break;
@@ -1804,7 +1906,7 @@ void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
         // A failed FSR dispatch must not force UI text back to the scene resolution.
         [[fallthrough]];
     case UiComposition::Background::Copy:
-        RunUiOnly(color, depth, ldr_target && ldr_target == color);
+        RunUiOnly(color, depth, world);
         break;
     }
     if (ui_phase) {
@@ -1821,8 +1923,7 @@ bool TemporalUpscaler::LdrFrame(VideoCore::ImageId id) const {
         return false;
     }
     const auto& image = texture_cache.GetImage(id);
-    return (image.info.pixel_format == vk::Format::eR8G8B8A8Unorm ||
-            image.info.pixel_format == vk::Format::eR8G8B8A8Srgb) &&
+    return UiComposition::FrameFormat(image.info.pixel_format) &&
            RenderTarget(image.info.size.width, image.info.size.height) &&
            !FrameCapture::IsDisplayBuffer(image.info.guest_address);
 }
@@ -2201,12 +2302,19 @@ void TemporalUpscaler::RunScaled() {
                        [label] { return std::string{label}; });
     }
     auto& color = texture_cache.GetImage(ldr_target);
-    auto& depth = texture_cache.GetImage(camera_motion.Depth());
     // The scene fills the top-left w x h of its targets (iw x ih, aligned by the game).
     const u32 iw = color.info.size.width, ih = color.info.size.height;
+    // bbport (upscaler_skips.h): the frame's last G-buffer pass of another size (a small
+    // reflection or preview pass): an earlier pass of the frame's size, with its camera.
+    if (const auto& last = texture_cache.GetImage(camera_motion.Depth());
+        SkipsOn() && (last.info.size.width != iw || last.info.size.height != ih)) {
+        camera_motion.RepickDepth(iw, ih);
+    }
+    auto& depth = texture_cache.GetImage(camera_motion.Depth());
     const auto [w, h] = SceneSize(iw, ih);
     const u32 ow = target_width, oh = target_height;
     if (depth.info.size.width != iw || depth.info.size.height != ih || w > ow || h > oh) {
+        frame_reason = UpscalerSkips::Reason::SizeMismatch;
         return;
     }
     if (!EnsureResources(w, h, ow, oh, false)) {

@@ -22,6 +22,7 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_streamline.h"
 #include "bbport_settings.h"
+#include "dlss_rules.h"
 
 namespace Vulkan {
 
@@ -129,7 +130,7 @@ void SetP(NgxParameter* p, const char* name, void* v) {
 }
 /// bbport: NVSDK_NGX_DLSS_Hint_Render_Preset (0 the DLL's default, 1 A ... 11 K): dlss_preset in
 /// bbport.ini, BB_DLSS_PRESET overrides it ("k" when neither); live from the menu.
-unsigned DlssPreset(int quality);
+unsigned DlssPreset(int quality, bool turing_or_ampere);
 /// The same preset for every quality mode: the feature is created again when the mode changes.
 void SetPreset(NgxParameter* p, unsigned preset) {
     for (const char* name : {"DLSS.Hint.Render.Preset.DLAA", "DLSS.Hint.Render.Preset.Quality",
@@ -182,9 +183,22 @@ int Quality(int preset) {
 }
 
 /// The preset for a quality mode: dlss_preset, or with "auto" the model NVIDIA's DLSS 4.5 pairs
-/// with the mode (M for Performance, L for Ultra Performance, K for the others).
-unsigned DlssPreset(int quality) {
+/// with the mode and the GPU (dlss_rules.h: on RTX 40/50 M for Performance, L for Ultra
+/// Performance, K for the others; on RTX 20/30 K for every mode). NVIDIA retired E and F: one
+/// still set runs as auto. BB_DLSS_PRESET_RULES=0: the table before (auto M/L/K on every GPU, E
+/// and F as they are).
+bool PresetRules() {
+    static const bool rules = [] {
+        const char* v = std::getenv("BB_DLSS_PRESET_RULES");
+        return !(v && v[0] == '0');
+    }();
+    return rules;
+}
+unsigned DlssPreset(int quality, bool turing_or_ampere) {
     const int preset = BbSettings::Get().dlss_preset.load(std::memory_order_relaxed);
+    if (PresetRules()) {
+        return unsigned(BbDlss::Applied(preset, quality, turing_or_ampere));
+    }
     if (preset == BbSettings::DlssPresetAuto) {
         return unsigned(quality == MaxPerf            ? BbSettings::DlssPresetM
                         : quality == UltraPerformance ? BbSettings::DlssPresetL
@@ -213,6 +227,8 @@ ResourceVk Resource(const Fsr4Upscaler::Image& image, vk::ImageAspectFlags aspec
 struct DlssUpscaler::Impl {
     const Instance& instance;
     Scheduler& scheduler;
+    /// RTX 20/30 (dlss_rules.h, by PCI device id): "auto" keeps preset K in every mode there.
+    const bool turing_or_ampere = BbDlss::TuringOrAmpere(instance.GetVendorID(), instance.GetDeviceID());
     bool available = false;
     bool fatal = false;
     std::string problem;
@@ -444,7 +460,7 @@ struct DlssUpscaler::Impl {
         const int quality = native ? int(Dlaa) : Quality(f.preset);
         const Key wanted{f.render_width, f.render_height, f.output.width, f.output.height,
                          quality, IsFloatFormat(f.color.format),
-                         DlssPreset(quality),
+                         DlssPreset(quality, turing_or_ampere),
                          BbSettings::Get().dlss_auto_exposure.load(std::memory_order_relaxed)};
         if (!feature || !(wanted == key)) {
             if (feature) {
@@ -500,10 +516,13 @@ struct DlssUpscaler::Impl {
             }
             key = wanted;
             BbSettings::Get().dlss_applied_preset = int(applied_preset);
-            std::printf("DLSS: %ux%u -> %ux%u, quality mode %d, %s input, preset %s",
+            const bool auto_preset = PresetRules() && BbSettings::Get().dlss_preset.load(
+                                                          std::memory_order_relaxed) == BbSettings::DlssPresetAuto;
+            std::printf("DLSS: %ux%u -> %ux%u, quality mode %d, %s input, preset %s%s",
                         key.render_width, key.render_height, key.out_width, key.out_height,
                         key.quality, key.hdr ? "HDR" : "LDR",
-                        applied_preset ? std::string(1, char('A' + applied_preset - 1)).c_str() : "default");
+                        applied_preset ? std::string(1, char('A' + applied_preset - 1)).c_str() : "default",
+                        !auto_preset ? "" : turing_or_ampere ? " (auto, RTX 20/30: K)" : " (auto)");
             std::putchar(10);
         }
         ResourceVk color = Resource(f.color, vk::ImageAspectFlagBits::eColor, false);

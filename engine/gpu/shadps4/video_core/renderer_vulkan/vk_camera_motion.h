@@ -62,6 +62,10 @@ public:
     [[nodiscard]] VideoCore::ImageId Depth() const noexcept {
         return depth_id;
     }
+    /// bbport (upscaler_skips.h): the frame's last G-buffer depth is not `width` x `height`: an
+    /// earlier pass of this frame of that size with a camera becomes Depth() and the pass camera
+    /// (before the frame's camera is committed). False: none, or already committed.
+    bool RepickDepth(u32 width, u32 height);
     /// The render size in the scene constants (the game's viewport; its targets may be
     /// allocated larger, e.g. 1916x1080 for a 1916x1078 scene), or zero before the first camera.
     [[nodiscard]] std::array<u32, 2> RenderSize() const noexcept {
@@ -90,7 +94,10 @@ public:
 
     /// Records the motion vector pass (Scheduler::Record): `depth_view` (depth aspect, General
     /// layout) into `motion_view` (RG16F storage, General), pixels, previous minus current.
-    void RecordMotion(vk::ImageView depth_view, vk::ImageView motion_view, u32 width, u32 height);
+    /// `color_view` (RGBA16F storage, General; DLSS's input): NaN or infinite pixels zeroed in the
+    /// same pass (camera_motion.comp CLEAN_COLOR); null: not touched.
+    void RecordMotion(vk::ImageView depth_view, vk::ImageView motion_view, u32 width, u32 height,
+                      vk::ImageView color_view = {});
 
     /// A bound constant buffer of 864 bytes: checks the scene constant signature.
     void OnConstants(const float* data);
@@ -127,6 +134,9 @@ private:
     vk::UniqueDescriptorSetLayout motion_desc_layout;
     vk::UniquePipelineLayout motion_pipeline_layout;
     vk::UniquePipeline motion_pipeline;
+    vk::UniqueDescriptorSetLayout clean_desc_layout;
+    vk::UniquePipelineLayout clean_pipeline_layout;
+    vk::UniquePipeline clean_pipeline;
 
     ObjectMotion* object_motion = nullptr;
     Camera current, previous;
@@ -146,6 +156,14 @@ private:
     std::array<float, 2> jitter{}, previous_jitter{};
     std::array<u32, 2> render_size{};
     VideoCore::ImageId depth_id{};
+    /// The frame's G-buffer passes before the last one (RepickDepth), oldest first.
+    struct EarlierPass {
+        VideoCore::ImageId depth{};
+        Camera camera{};
+        bool has_camera = false;
+    };
+    std::array<EarlierPass, 4> earlier_passes{};
+    u32 earlier_count = 0;
     float gbuffer_x_sign = 1.0f; ///< bbport: signs of the G-buffer viewport scales (OnGBufferPass)
     float gbuffer_y_sign = 1.0f;
 

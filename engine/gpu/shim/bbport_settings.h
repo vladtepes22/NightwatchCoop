@@ -517,6 +517,9 @@ struct Values {
     std::atomic<bool> fsr4_supported{false}, fsr411_supported{false}, dlss_supported{false},
         fsr_sdk_supported{false};
     std::atomic<int> dlss_preset{DlssPresetK}, dlss_applied_preset{-1};
+    /// Bumped when a load ends or the local hunter is stood up / moved after a death: the upscaler
+    /// drops its history (a lamp warp or respawn is a cut, not motion). BB_UPSCALER_HISTORY_CUT=0 ignores it.
+    std::atomic<unsigned> history_cuts{0};
     std::atomic<bool> dlss_mip_bias{true};
     std::atomic<bool> dlss_auto_exposure{false};
     std::atomic<float> render_scale{1.3f};

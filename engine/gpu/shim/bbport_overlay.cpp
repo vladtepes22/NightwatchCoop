@@ -1374,18 +1374,15 @@ void DlssSection() {
     }
     Section("DLSS");
     if (const char* label = Item("DLSS model", "Модель DLSS")) {
-        static constexpr int presets[] = {BbSettings::DlssPresetAuto, 11, 10, 13, 12, 5, 6,
-                                          BbSettings::DlssPresetDefault};
+        static constexpr int presets[] = {BbSettings::DlssPresetAuto, 11, 10, 13, 12, BbSettings::DlssPresetDefault};
         const char* names[] = {
-            BbSettings::MenuText("Auto: K, M for Performance, L for Ultra Performance",
-                                 "Авто: K, M для Performance, L для Ultra Performance"),
+            BbSettings::MenuText("Auto: NVIDIA's choice for the quality mode and GPU",
+                                 "Авто: выбор NVIDIA по режиму качества и GPU"),
             BbSettings::MenuText("K: transformer (default)", "K: трансформер (по умолчанию)"),
             BbSettings::MenuText("J: transformer", "J: трансформер"),
             BbSettings::MenuText("M: transformer, 2nd generation", "M: трансформер 2-го поколения"),
             BbSettings::MenuText("L: transformer, 2nd generation (Ultra Performance)",
                                  "L: трансформер 2-го поколения (Ultra Performance)"),
-            BbSettings::MenuText("E: CNN", "E: CNN"),
-            BbSettings::MenuText("F: CNN (Ultra Performance, DLAA)", "F: CNN (Ultra Performance, DLAA)"),
             BbSettings::MenuText("The DLL's default", "По умолчанию DLL"),
         };
         static_assert(std::size(presets) == std::size(names));
@@ -1407,11 +1404,13 @@ void DlssSection() {
         }
         Hint(BbSettings::MenuText(
             "Which NVIDIA model DLSS runs; it changes at once (a brief pause). K keeps thin and moving "
-            "objects steadier; E is a little faster on RTX 20 and 30 cards but softer in motion. M and L "
+            "objects steadier. Auto follows NVIDIA: K for DLAA, Quality and Balanced, M for Performance, L for "
+            "Ultra Performance, and K for all on RTX 20 and 30 cards, where M is much slower. M and L "
             "need a DLSS 4.5 nvngx_dlss.dll (310.5 or newer). A preset the DLL refuses runs its default. "
             "The launcher's Graphics page has the same setting.",
             "Какую модель NVIDIA запускает DLSS; меняется сразу (короткая пауза). K устойчивее на тонких "
-            "и движущихся объектах; E чуть быстрее на RTX 20 и 30, но мягче в движении. Для M и L нужен "
+            "и движущихся объектах. Авто следует NVIDIA: K для DLAA, Quality и Balanced, M для Performance, L для "
+            "Ultra Performance, а на RTX 20 и 30 везде K: M там намного медленнее. Для M и L нужен "
             "nvngx_dlss.dll из DLSS 4.5 (310.5 или новее). Пресет, который DLL не принимает, заменяется "
             "её пресетом по умолчанию. Та же настройка есть на странице «Графика» лаунчера."));
         const int applied = s.dlss_applied_preset;
