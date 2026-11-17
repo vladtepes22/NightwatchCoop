@@ -342,6 +342,18 @@ bool ChangesGameplay(const std::wstring& key) {
            (key.find(L".anibnd") != std::wstring::npos || key.find(L".behbnd") != std::wstring::npos);
 }
 
+// A model or texture of a map, character, part or object (not a map layout): patches.cpp enlarges the game's
+// graphics heaps for them (BB_MOD_MODELS), as large map mods lost walls and floors in the PS4's.
+bool ChangesModels(const std::wstring& key) {
+    bool model_folder = false;
+    for (const wchar_t* folder : {L"dvdroot_ps4/map/", L"dvdroot_ps4/chr/", L"dvdroot_ps4/parts/", L"dvdroot_ps4/obj/"})
+        model_folder |= key.rfind(folder, 0) == 0;
+    if (!model_folder || key.rfind(L"dvdroot_ps4/map/mapstudio/", 0) == 0) return false;
+    for (const wchar_t* type : {L".flver", L".partsbnd", L".chrbnd", L".objbnd", L".tpf", L".tpfbhd", L".tpfbdt", L".mapbnd"})
+        if (key.find(type) != std::wstring::npos) return true;
+    return false;
+}
+
 // A randomized world is a mod folder with randomizer_manifest.json. Its [rando] header names the world, so a log tells
 // engine, co-op and randomizer bugs apart; BB_RANDO=1 turns on the game side's [rando] lines (runtime_file.c).
 // Runs once at start; nothing here touches a frame.
@@ -379,8 +391,9 @@ fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector
         }
         Log("Game update: %s: %zu files over the game", Utf8(update->filename()).c_str(), files.size());
     }
-    std::size_t gameplay = 0;
+    std::size_t gameplay = 0, models = 0;
     UnsetEnv("BB_RANDO");
+    UnsetEnv("BB_MOD_MODELS");
     // Files two enabled mods both ship, per (later mod, earlier mod) in load order: the later one wins.
     std::map<std::pair<std::wstring, std::wstring>, std::vector<std::wstring>> overrides;
     std::set<std::wstring> mod_names;
@@ -390,6 +403,7 @@ fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector
         for (const auto& [relative, source] : ModFiles(root)) {
             const std::wstring key = Fold(relative.generic_wstring());
             gameplay += ChangesGameplay(key);
+            models += ChangesModels(key);
             if (const auto it = owners.find(key); it != owners.end() && mod_names.count(it->second) && it->second != name)
                 overrides[{name, it->second}].push_back(relative.generic_wstring());
             owners[key] = name;
@@ -410,6 +424,12 @@ fs::path BuildOverlay(fs::path game, const fs::path& out_base, const std::vector
         Log("Mods: %zu of these files change gameplay (parameters, map layouts, events, AI, animations): "
             "co-op partners need the same files, or enemies and items desync between you",
             gameplay);
+    if (models) {
+        SetEnv("BB_MOD_MODELS", std::to_string(models));
+        Log("Mods: %zu of these files are models or textures (maps, characters, parts, objects): they ask for the "
+            "enlarged graphics heaps (BB_MOD_MODEL_HEAPS=0: not)",
+            models);
+    }
     UnsetEnv("BB_MOD_FILES");
     if (replacements.empty()) return game;
     fs::create_directories(out);

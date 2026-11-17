@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "patches.h"
 #include "elf.h"
+#include "game_heaps.h"
 #include "party.h"
 #include "party_wins.h"
 #include "xml.h"
@@ -24,12 +25,10 @@ const char* const kSprint = "Sprint Fix (High FPS)";
 const char* const kIntelTonemap = "Intel Black Tonemap Fix";
 const char* const kSfxWorkaround = "Intel 12th Gen+ SFX workaround";
 const char* const kHeapPatch = "Increased Graphics Heap Sizes";
-constexpr std::uint64_t kHeapSizes = 0x4736dd8;
 // The game's MAIN heap size (heap budget table 0x4736d40, row 1, entry 0). See where it is written.
 constexpr std::uint64_t kMainHeap = 0x4736dc0;
 constexpr std::uint64_t kMainHeapPs4 = 0x20c00000, kMainHeapGrown = 0x40000000;
 constexpr std::uint64_t kGxRegion = 0x1d9933d;
-constexpr std::uint64_t kGxHeapPs4 = 0x8ef00000;
 constexpr unsigned kGxRegionGame = 160, kGxRegionDefault = 288, kGxRegionMax = 416;
 
 using Write = std::pair<std::uint64_t, Bytes>;
@@ -461,6 +460,84 @@ void BrazilianPortuguese(const Bytes& elf, Writes& writes) {
     } else {
         Log("Patches: Portuguese (Brazil) left alone: this executable differs there");
     }
+}
+
+// ---- The game's graphics heaps (game_heaps.h) ----
+bool HeapsArePs4(const Bytes& elf) {
+    return OriginalBytes(elf, game_heaps::kGraphicsPrivateAt, game_heaps::kHeapWord) ==
+               Le<std::uint64_t>(game_heaps::kGraphicsPrivatePs4) &&
+           OriginalBytes(elf, game_heaps::kGraphicsPrivateBAt, game_heaps::kHeapWord) ==
+               Le<std::uint64_t>(game_heaps::kGraphicsPrivateBPs4);
+}
+
+// The enlarged heaps' own refusals (BB_GAME_HEAPS=0, BB_DMEM_MB, commit limit, a refused pool), for growing them only
+// to make room for the sun shadow atlas.
+bool EnlargeAllowed() {
+    const auto dmem = Env("BB_DMEM_MB");
+    const std::uint64_t commit = CommitLimitMb();
+    return Env("BB_GAME_HEAPS", "") != "0" &&
+           !(dmem && std::strtoull(dmem->c_str(), nullptr, 10) < game_heaps::kPoolEnlargedMib) &&
+           !(commit && commit < 16384) && !PoolRefused(game_heaps::kPoolEnlargedMib);
+}
+
+std::uint64_t PoolFor(game_heaps::Base base) {
+    const auto dmem = Env("BB_DMEM_MB");
+    return game_heaps::PoolMib(dmem.has_value(), dmem ? std::strtoull(dmem->c_str(), nullptr, 10) : 0, base);
+}
+
+unsigned long long Mib(std::uint64_t bytes) {
+    return (unsigned long long)(bytes / game_heaps::kMiB);
+}
+
+game_heaps::Decision DecideHeaps(game_heaps::Inputs in) {
+    in.pool_ps4_mib = PoolFor(game_heaps::Base::Ps4);
+    in.pool_enlarged_mib = PoolFor(game_heaps::Base::Enlarged);
+    game_heaps::Decision d = game_heaps::Decide(in);
+    // The large pool is probed only when the PS4 one has no room for the chosen atlas.
+    if (d.outcome == game_heaps::Outcome::Sized && d.base == game_heaps::Base::Ps4 && (d.sun_room_reduced || !d.fits) &&
+        !in.enlarge_allowed && EnlargeAllowed()) {
+        in.enlarge_allowed = true;
+        d = game_heaps::Decide(in);
+    }
+    return d;
+}
+
+Writes HeapWrites(const game_heaps::Decision& d, int chosen_sun, std::uint64_t gx_region_extra) {
+    using game_heaps::Outcome;
+    if (d.outcome == Outcome::PatchOwnsTable) {
+        if (chosen_sun > game_heaps::kSunShadowGame)
+            Log("Patches: the game's graphics heaps are set by a patch, which wins: no room added for the %llux%llu "
+                "sun shadow atlas",
+                (unsigned long long)game_heaps::SunAtlasSide(chosen_sun),
+                (unsigned long long)game_heaps::SunAtlasSide(chosen_sun));
+        return {};
+    }
+    if (d.outcome == Outcome::TableDiffers) {
+        Log("Patches: the game's graphics heaps left at their size: this executable differs there");
+        return {};
+    }
+    if (d.sun_room_reduced)
+        Log("Patches: the %llu MiB memory pool has no room for the %llux%llu sun shadow atlas; the heaps hold a "
+            "%llux%llu one, so a lower sun shadow resolution is safer",
+            (unsigned long long)PoolFor(d.base), (unsigned long long)game_heaps::SunAtlasSide(chosen_sun),
+            (unsigned long long)game_heaps::SunAtlasSide(chosen_sun),
+            (unsigned long long)game_heaps::SunAtlasSide(d.sun_quality),
+            (unsigned long long)game_heaps::SunAtlasSide(d.sun_quality));
+    if (d.enlarged_for_room) Log("Patches: the game's graphics heaps enlarged to make room for the sun shadow atlas");
+    Writes out;
+    if (d.write_private) out.emplace_back(game_heaps::kGraphicsPrivateAt, Le<std::uint64_t>(d.sizes.graphics_private));
+    if (d.write_private_b)
+        out.emplace_back(game_heaps::kGraphicsPrivateBAt, Le<std::uint64_t>(d.sizes.graphics_private_b));
+    if (!out.empty())
+        Log("Patches: the game's graphics heaps %llu and %llu MiB (the PS4's %llu and %llu): GX range +%llu MiB, sun "
+            "shadow atlas %llux%llu +%llu MiB; %llu of %llu MiB direct memory",
+            Mib(d.sizes.graphics_private), Mib(d.sizes.graphics_private_b), Mib(game_heaps::kGraphicsPrivatePs4),
+            Mib(game_heaps::kGraphicsPrivateBPs4), Mib(d.base == game_heaps::Base::Ps4 ? gx_region_extra : 0),
+            (unsigned long long)game_heaps::SunAtlasSide(d.sun_quality),
+            (unsigned long long)game_heaps::SunAtlasSide(d.sun_quality),
+            Mib(game_heaps::SunShadowExtraBytes(d.sun_quality)), Mib(game_heaps::DirectMemoryNeed(d.sizes)),
+            (unsigned long long)PoolFor(d.base));
+    return out;
 }
 
 
@@ -968,21 +1045,31 @@ PatchResult CompilePatches(const PatchRequest& request) {
         writes.insert(writes.end(), resolution.begin(), resolution.end());
         Log("Patches: scene %dx%d; UI %dx%d", size->w, size->h, ui.w, ui.h);
     }
+    bool enlarge_wanted = false;
     {
         const bool large_scene = size && std::int64_t(size->w) * size->h > std::int64_t(kOutput.w) * kOutput.h;
         // The UI's render targets come from the same heap: a 720p scene with a 2560x1440 UI ran it
         // out in the Forbidden Woods (a texture the game then used as null, guest +0xebc0cb).
         const bool large_ui = std::int64_t(ui.w) * ui.h > std::int64_t(kOutput.w) * kOutput.h;
-        const bool needs = large_scene || large_ui || std::find(names.begin(), names.end(), "Model LOD -2 (Highest)") != names.end() ||
-                           std::find(names.begin(), names.end(), "Enable Screen Space Reflections (READ NOTE)") != names.end();
+        // Enabled mods that replace map, character, parts or object models or textures (mods.cpp sets BB_MOD_MODELS
+        // to their count): with the PS4's heaps large map mods lost walls and floors. BB_MOD_MODEL_HEAPS=0: not a
+        // reason.
+        const bool mod_models = Env("BB_MOD_MODEL_HEAPS", "") != "0" &&
+                                std::strtoull(Env("BB_MOD_MODELS", "0").c_str(), nullptr, 10) > 0;
+        // The player's own choices enlarge the heaps even past a small BB_DMEM_MB or commit limit (as before); mod
+        // models alone do not: a PC short of memory keeps the PS4 heaps it started with until now.
+        const bool chosen = large_scene || large_ui ||
+                            std::find(names.begin(), names.end(), "Model LOD -2 (Highest)") != names.end() ||
+                            std::find(names.begin(), names.end(), "Enable Screen Space Reflections (READ NOTE)") != names.end();
+        const bool needs = chosen || mod_models;
         const std::uint64_t commit = CommitLimitMb();
         const auto dmem = Env("BB_DMEM_MB");
         std::string keep;
         if (Env("BB_GAME_HEAPS", "") == "0")
             keep = "BB_GAME_HEAPS=0";
         else if (!needs && Env("BB_GAME_HEAPS", "") != "1")
-            keep = "a 1080p or smaller scene and UI without highest model detail or screen space reflections fit them; "
-                   "BB_GAME_HEAPS=1 enlarges them";
+            keep = "a 1080p or smaller scene and UI without highest model detail, screen space reflections or mod "
+                   "models fit them; BB_GAME_HEAPS=1 enlarges them";
         else if (dmem && std::strtoull(dmem->c_str(), nullptr, 10) < 9152)
             keep = "BB_DMEM_MB=" + *dmem;
         else if (commit && commit < 16384)
@@ -995,15 +1082,10 @@ PatchResult CompilePatches(const PatchRequest& request) {
                 refused = true;
             }
         }
-        if (!keep.empty() && (!needs || refused || Env("BB_GAME_HEAPS", "") == "0")) {
+        if (!keep.empty() && (!chosen || refused || Env("BB_GAME_HEAPS", "") == "0")) {
             Log("Patches: the game's graphics heaps at their PS4 size (%s)", keep.c_str());
-        } else if (OriginalBytes(elf, kHeapSizes, 8) == Le<std::uint64_t>(0x8ef00000) &&
-                   OriginalBytes(elf, kHeapSizes + 8, 8) == Le<std::uint64_t>(0x37600000)) {
-            writes.emplace_back(kHeapSizes, Le<std::uint64_t>(0xf7000000));
-            writes.emplace_back(kHeapSizes + 8, Le<std::uint64_t>(0xa0000000));
-            Log("Patches: the game's graphics heaps 3952 and 2560 MiB (the PS4's 2287 and 886)");
         } else {
-            Log("Patches: the game's graphics heaps left at their size: this executable differs there");
+            enlarge_wanted = true;  // written after the external patches (HeapWrites), unless one sizes them
         }
     }
     // MAIN holds the loaded maps' resources (map object and character archives). A randomized world
@@ -1098,10 +1180,14 @@ PatchResult CompilePatches(const PatchRequest& request) {
     PatchResult result;
     result.ui = Env("BB_OTHER_EDITION", "") == "1" ? kOutput : ui;
     result.main_heap = main_heap && Env("BB_OTHER_EDITION", "") != "1";
-    result.heap_patch = std::any_of(writes.begin(), writes.end(), [&](const Write& w) {
-        return w.first < kHeapSizes + 16 && w.first + w.second.size() > kHeapSizes;
+    // A patch (the XML's "Increased Graphics Heap Sizes" or an external one) that writes the heap table owns it.
+    const bool table_written_by_patch = std::any_of(writes.begin(), writes.end(), [&](const Write& w) {
+        return w.first < game_heaps::kHeapTable + game_heaps::kHeapTableBytes &&
+               w.first + w.second.size() > game_heaps::kHeapTable;
     });
+    result.heap_patch = table_written_by_patch;
     if (Env("BB_OTHER_EDITION", "") != "1") {
+        std::uint64_t gx_region_extra = 0;
         const std::string value = Env("BB_GX_REGION_MB", "");
         unsigned mib = kGxRegionDefault;
         if (!value.empty() && std::all_of(value.begin(), value.end(), [](char c) { return c >= '0' && c <= '9'; }))
@@ -1109,20 +1195,29 @@ PatchResult CompilePatches(const PatchRequest& request) {
         const Bytes code = Concat({FromHex("c78388000000"), Le<std::uint32_t>(0x8000000)});
         if (mib <= kGxRegionGame) {
             Log("Patches: the GX range allocator at the game's %u MiB (BB_GX_REGION_MB)", kGxRegionGame);
-        } else if (OriginalBytes(elf, kGxRegion, code.size()) != code ||
-                   (!result.heap_patch && OriginalBytes(elf, kHeapSizes, 8) != Le<std::uint64_t>(kGxHeapPs4))) {
+        } else if (OriginalBytes(elf, kGxRegion, code.size()) != code || (!table_written_by_patch && !HeapsArePs4(elf))) {
             Log("Patches: the GX range allocator left at the game's size: this executable differs there");
         } else {
             mib = std::min(mib, kGxRegionMax);
             writes.emplace_back(kGxRegion + 6, Le<std::uint32_t>((mib - kGxRegionGame + 128) << 20));
-            if (result.heap_patch) {
-                Log("Patches: the GX range allocator %u MiB (the game's %u)", mib, kGxRegionGame);
-            } else {
-                writes.emplace_back(kHeapSizes, Le<std::uint64_t>(kGxHeapPs4 + (std::uint64_t(mib - kGxRegionGame) << 20)));
-                Log("Patches: the GX range allocator %u MiB (the game's %u), the graphics heap %llu MiB", mib,
-                    kGxRegionGame, (unsigned long long)((kGxHeapPs4 >> 20) + mib - kGxRegionGame));
-            }
+            Log("Patches: the GX range allocator %u MiB (the game's %u)", mib, kGxRegionGame);
+            gx_region_extra = std::uint64_t(mib - kGxRegionGame) * game_heaps::kMiB;
         }
+        // The sun shadow atlas (graphics_shadow_resolution, drawn by the engine's InstallDirectionalShadowResolution)
+        // comes from the first graphics heap: 4096 needs 60 MiB more, 8192 252 MiB, or the shadow is not drawn.
+        // BB_SUN_SHADOW_HEAP=0 sizes the heaps for the game's own atlas.
+        const std::string chosen = Setting(settings, "graphics_shadow_resolution").value_or("0");
+        const int sun = Env("BB_SUN_SHADOW_HEAP", "") == "0"
+                            ? game_heaps::kSunShadowGame
+                            : game_heaps::SunShadowQuality(std::strtol(chosen.c_str(), nullptr, 10));
+        const game_heaps::Decision heaps = DecideHeaps({.table_is_ps4 = HeapsArePs4(elf),
+                                                        .table_written_by_patch = table_written_by_patch,
+                                                        .enlarge_wanted = enlarge_wanted,
+                                                        .gx_region_extra = gx_region_extra,
+                                                        .sun_quality = sun});
+        result.heap_patch = heaps.heap_patch;
+        const Writes heap_writes = HeapWrites(heaps, sun, gx_region_extra);
+        writes.insert(writes.end(), heap_writes.begin(), heap_writes.end());
     }
     Bytes blob;
     Append(blob, "BBPATCH2", 8);
