@@ -1486,6 +1486,10 @@ void ShowList(u64 screen) {
     if (bar_active.Fetch(root.at(), "ItemList/GlyphSearch/Active")) bar_active.SetVisible(false);
     g_bar_active_shown = false;
     g_bar_cursor_shown = false;
+    // The "No Chalice Glyphs match ..." line starts hidden on every screen of this movie (Inventory, Chalice Ritual,
+    // the glyph screen again): the last search's line would otherwise stay over their lists.
+    Wrapper no_match;
+    if (no_match.Fetch(root.at(), "ItemList/GlyphNoMatch")) no_match.SetVisible(false);
     g_pointer_seen = false;
     g_typed.clear();
     g_matched_for.clear();
