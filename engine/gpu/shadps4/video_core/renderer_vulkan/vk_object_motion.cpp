@@ -155,6 +155,15 @@ ObjectMotion::ObjectMotion(const Instance& instance_, Scheduler& scheduler_)
         return value && value[0] ? u32(std::strtoul(value, nullptr, 10)) : 30u;
     }();
     history.SetHold(hold);
+    // bbport: BB_MOTION_INCUMBENCY=0 is the old first-come choice of the draws that keep
+    // history when the positions buffer is full, and the old index-range revalidation timing
+    // (Motion::History::SetIncumbency, IndexRangeCache::spread).
+    static const bool incumbency = [] {
+        const char* value = std::getenv("BB_MOTION_INCUMBENCY");
+        return !(value && value[0] == '0');
+    }();
+    history.SetIncumbency(incumbency);
+    index_ranges.spread = incumbency;
     enabled = true;
     std::printf("Object motion: on (%u vertices per frame, moved small skeletons held %u frames)\n",
                 PositionsPerFrame, hold);
@@ -196,6 +205,7 @@ void ObjectMotion::OnFrameStart() {
         index_ranges.stats = {};
         history.stats = {};
     }
+    LogFill();
     history.NextFrame();
     ++frame;
     if (frame % Motion::IndexRangeCache::Unused == 0) {
@@ -225,11 +235,50 @@ void ObjectMotion::OnFrameStart() {
     });
 }
 
-u32 ObjectMotion::PrepareDraw(const DrawInfo& draw) {
+// bbport (upstream v0.9.43): how full the positions buffer runs. Printed at most once a
+// minute and only when draws were skipped for space, so a scene that fits logs nothing new.
+void ObjectMotion::LogFill() {
+    const auto now = std::chrono::steady_clock::now();
+    if (fill_start == std::chrono::steady_clock::time_point{}) {
+        fill_start = now;
+        fill_base = history.totals;
+    }
+    const u32 used = history.Used();
+    ++fill_frames;
+    fill_sum += used;
+    fill_max = std::max(fill_max, used);
+    if (now - fill_start < std::chrono::seconds(60)) {
+        return;
+    }
+    const auto& t = history.totals;
+    const u64 draws = t.draws - fill_base.draws;
+    const u64 skipped = t.exhausted - fill_base.exhausted;
+    if (draws && skipped) {
+        const double capacity = history.Capacity();
+        std::printf("Object motion: %llu frames in %.1f s, positions %.0f%% full on average, %.0f%% at most "
+                    "(%u per frame); %llu of %llu draws skipped for space (%llu of characters, %.1f M "
+                    "vertices)\n",
+                    (unsigned long long)fill_frames,
+                    std::chrono::duration<double>(now - fill_start).count(),
+                    100.0 * double(fill_sum) / (double(fill_frames) * capacity),
+                    100.0 * fill_max / capacity, history.Capacity(), (unsigned long long)skipped,
+                    (unsigned long long)draws,
+                    (unsigned long long)(t.exhausted_characters - fill_base.exhausted_characters),
+                    double(t.exhausted_vertices - fill_base.exhausted_vertices) / 1e6);
+    }
+    fill_start = now;
+    fill_base = t;
+    fill_frames = 0;
+    fill_sum = 0;
+    fill_max = 0;
+}
+
+u32 ObjectMotion::PrepareDraw(const DrawInfo& draw, u64 object, bool character) {
     if (!enabled || BbToggle::Disabled(1u << 29) || params_used >= ParamsPerFrame) {
+        history.SkipGate();
         return 0;
     }
-    const auto allocation = history.Prepare(draw);
+    const auto allocation = history.Prepare(draw, object, character);
     u32 flags = (allocation.store ? Shader::MotionVectors::FlagStore : 0) |
                 (allocation.load ? Shader::MotionVectors::FlagLoad : 0);
     if (!flags) {

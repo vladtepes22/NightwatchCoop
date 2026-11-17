@@ -2,6 +2,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -71,7 +72,16 @@ public:
     struct Stats {
         uint64_t hits{}, scans{}, stale{};
     } stats;
+    /// bbport (upstream v0.9.43): the first check of an entry is backdated by a phase from
+    /// its key hash, so entries first seen in one frame (a level load) are revalidated
+    /// spread over Revalidate frames instead of all in one frame every Revalidate frames.
+    /// Off (BB_MOTION_INCUMBENCY=0): every entry is revalidated Revalidate frames after it
+    /// was first seen, as before. Only the timing of rescans changes, never a result.
+    bool spread = true;
 
+    uint64_t Phase(const Key& key) const {
+        return spread ? (uint64_t(KeyHash{}(key)) >> 32) % Revalidate : 0;
+    }
     template <class Scan>
     Result Get(const Key& key, uint64_t frame, Scan&& scan) {
         auto& entry = entries[key];
@@ -87,7 +97,7 @@ public:
             ++stats.stale; // the cached result was wrong for up to Revalidate frames
         }
         entry.result = fresh;
-        entry.verified = frame;
+        entry.verified = entry.valid ? frame : frame - Phase(key);
         entry.valid = true;
         return entry.result;
     }
@@ -229,8 +239,27 @@ public:
     };
     struct Stats {
         uint64_t draws{}, stored{}, loaded{}, unmatched{}, exhausted{}, invalid{}, still{},
-            held{};
+            held{}, exhausted_characters{};
     } stats;
+    /// Never reset (stats is, by the 600-frame stats line): for the fill line of ObjectMotion.
+    struct Totals {
+        uint64_t draws{}, exhausted{}, exhausted_characters{}, exhausted_vertices{};
+    } totals;
+
+    // bbport (upstream v0.9.43, "object motion stutter"): when the positions buffer runs
+    // short, which draws got history used to follow draw order (first come, first stored),
+    // and the order changes from frame to frame, so objects flickered between object and
+    // camera vectors. Draws now belong to objects (the skeleton palette address the
+    // rasterizer passes, else the draw itself) and space goes by tier: characters before
+    // props, and objects stored last frame before newcomers. Space for objects of last
+    // frame not drawn yet this frame is reserved; an object whose palette stopped changing
+    // (Moving) gives its reservation back.
+    //
+    // bbport: tiers apply only on a frame after one that skipped draws for space. After a
+    // frame that stored every draw, selection is first come as before, so a scene that fits
+    // gets exactly the same stores and loads as before. Off (BB_MOTION_INCUMBENCY=0,
+    // SetIncumbency(false)): always first come.
+    void SetIncumbency(bool on) { incumbency = on; }
 
     // A small skeleton (weapon, prop; most are static world pieces) only needs history
     // while its bone palette changes: with last frame's bones its motion is the camera's.
@@ -270,10 +299,17 @@ public:
             state.hold = prev->hold - 1;
             ++stats.held;
         }
-        gate_current.emplace(key, state);
+        if (!moving && prev) {
+            Release(prev->object); // a still object reserves nothing
+        }
+        GateState& slot = gate_current[key];
+        slot = state;
+        gate_slot = moving ? &slot : nullptr;
         stats.still += moving ? 0 : 1;
         return moving;
     }
+    /// A draw that passed Moving but is not prepared (no parameter slot left).
+    void SkipGate() { gate_slot = nullptr; }
 
     void NextFrame() {
         previous.swap(current);
@@ -282,12 +318,29 @@ public:
         gate_previous.swap(gate_current);
         gate_current.clear();
         gate_occurrences.clear();
+        gate_slot = nullptr;
+        prev_objects.swap(objects);
+        objects.clear();
+        object_ids.clear();
+        pending = {};
+        for (auto& object : prev_objects) {
+            object.tier = Tier(object.character, object.admitted);
+            object.claimed = false;
+            pending[object.tier] += object.demand;
+        }
+        promised = 0;
+        tiered = incumbency && frame_exhausted != 0;
+        frame_exhausted = 0;
         ++frame;
         used = 0;
     }
 
-    Allocation Prepare(const Draw& draw) {
+    /// `object`: identity shared by the draws of one object (0: the draw is its own object).
+    /// `character`: a character-size skeleton, served before props when space runs short.
+    Allocation Prepare(const Draw& draw, uint64_t object = 0, bool character = false) {
+        GateState* const gate = std::exchange(gate_slot, nullptr);
         ++stats.draws;
+        ++totals.draws;
         Key key{draw, 0};
         key.occurrence = occurrences[key]++;
         const uint64_t count = uint64_t(draw.vertices.count) * draw.instances;
@@ -296,29 +349,103 @@ public:
             ++stats.invalid;
             return {};
         }
-        const auto* prev = previous.find(key);
+        const Slot* prev = previous.find(key);
         Allocation result{0, 0, draw.vertices.count, draw.instances,
                           draw.vertices.first, draw.first_instance};
-        if (prev) {
-            result.load = *prev;
+        if (prev && prev->store) {
+            result.load = prev->store;
             ++stats.loaded;
         } else {
             ++stats.unmatched;
         }
-        if (count <= capacity - used) {
+        if (!object) {
+            object = uint64_t(Hash{}(key)) | (uint64_t(1) << 63);
+        }
+        const ObjectState* last =
+            prev && prev->object < prev_objects.size() ? &prev_objects[prev->object] : nullptr;
+        if (last) {
+            Release(prev->object);
+        }
+        uint32_t index;
+        if (const uint32_t* found = object_ids.find(object)) {
+            index = *found;
+        } else {
+            index = uint32_t(objects.size());
+            object_ids.emplace(object, index);
+            ObjectState& fresh = objects.emplace_back();
+            fresh.character = character;
+            if (tiered) {
+                const bool incumbent = last && last->admitted;
+                const uint64_t expected = last ? std::max(last->demand, count) : count;
+                const uint32_t tier = Tier(fresh.character, incumbent);
+                uint64_t ahead = 0;
+                for (uint32_t t = 0; t < tier; ++t) {
+                    ahead += pending[t];
+                }
+                fresh.admitted = uint64_t(used) + promised + expected + ahead <= capacity;
+                if (fresh.admitted) {
+                    fresh.remaining = expected;
+                    promised += expected;
+                }
+            }
+        }
+        ObjectState& owner = objects[index];
+        owner.demand += count;
+        if (owner.admitted) {
+            const uint64_t charge = std::min(count, owner.remaining);
+            owner.remaining -= charge;
+            promised -= charge;
+        }
+        // First come (not tiered): exactly the old rule, every draw that fits is stored.
+        if ((owner.admitted || !tiered) && count <= capacity - used) {
             result.store = 1 + uint32_t(frame & 1) * capacity + used;
             used += uint32_t(count);
-            current.emplace(key, result.store);
+            owner.admitted = true;
             ++stats.stored;
         } else {
             ++stats.exhausted;
+            ++frame_exhausted;
+            ++totals.exhausted;
+            totals.exhausted_vertices += count;
+            if (character) {
+                ++stats.exhausted_characters;
+                ++totals.exhausted_characters;
+            }
+        }
+        current.emplace(key, Slot{result.store, index});
+        if (gate) {
+            gate->object = index;
         }
         return result;
     }
 
     uint32_t Used() const { return used; }
+    uint32_t Capacity() const { return capacity; }
 
 private:
+    static constexpr uint32_t NoObject = UINT32_MAX;
+    static uint32_t Tier(bool character, bool incumbent) {
+        return (character ? 0u : 2u) + (incumbent ? 0u : 1u);
+    }
+    void Release(uint32_t index) {
+        if (index >= prev_objects.size() || prev_objects[index].claimed) {
+            return;
+        }
+        ObjectState& object = prev_objects[index];
+        object.claimed = true;
+        pending[object.tier] -= object.demand;
+    }
+    struct Slot {
+        uint32_t store{}, object{NoObject};
+    };
+    struct ObjectState {
+        uint64_t demand{}, remaining{};
+        uint32_t tier{};
+        bool character{}, admitted{}, claimed{};
+    };
+    struct IdHash {
+        size_t operator()(uint64_t id) const { return size_t(id ^ (id >> 32)); }
+    };
     struct Key {
         Draw draw;
         uint32_t occurrence;
@@ -338,7 +465,14 @@ private:
     uint32_t capacity{}, used{};
     uint32_t hold{}; ///< frames a small skeleton keeps its history after a change (SetHold)
     uint64_t frame{};
-    FlatMap<Key, uint32_t, Hash> previous, current, occurrences;
+    FlatMap<Key, Slot, Hash> previous, current;
+    FlatMap<Key, uint32_t, Hash> occurrences;
+    std::vector<ObjectState> objects, prev_objects;
+    FlatMap<uint64_t, uint32_t, IdHash> object_ids;
+    std::array<uint64_t, 4> pending{}; ///< demand of last frame's objects not drawn yet, by tier
+    uint64_t promised{};               ///< reserved for admitted objects, not yet drawn
+    uint64_t frame_exhausted{};        ///< draws skipped for space this frame
+    bool incumbency = true, tiered = false;
     struct GateHash {
         size_t operator()(const GateKey& key) const {
             uint64_t h = 0;
@@ -351,9 +485,11 @@ private:
     struct GateState {
         uint64_t palette{};
         uint32_t hold{}; ///< further frames this draw keeps its history (Moving)
+        uint32_t object{NoObject}; ///< its object in `objects` (Prepare), for Release
     };
     FlatMap<GateKey, GateState, GateHash> gate_previous, gate_current;
     FlatMap<GateKey, uint32_t, GateHash> gate_occurrences;
+    GateState* gate_slot{}; ///< of the last Moving draw, until its Prepare
 };
 
 } // namespace Vulkan::Motion

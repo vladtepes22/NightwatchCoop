@@ -8,6 +8,7 @@
 #pragma once
 
 #include <array>
+#include <chrono>
 #include "video_core/renderer_vulkan/motion_history.h"
 
 #include "common/types.h"
@@ -32,7 +33,9 @@ public:
     }
 
     using DrawInfo = Motion::Draw;
-    u32 PrepareDraw(const DrawInfo& draw);
+    /// `object`: the draw's skeleton palette address (0: the draw alone), `character`: a
+    /// character-size skeleton; they pick who keeps history when space runs short.
+    u32 PrepareDraw(const DrawInfo& draw, u64 object = 0, bool character = false);
     /// Small skeletons: whether the bone palette changed (Motion::History::Moving).
     bool Moving(const Motion::History::GateKey& key, u64 palette) {
         return history.Moving(key, palette);
@@ -116,6 +119,11 @@ private:
 
     u64 frame = 0;
     u32 params_used = 0;
+    void LogFill();
+    std::chrono::steady_clock::time_point fill_start{};
+    u64 fill_frames = 0, fill_sum = 0;
+    u32 fill_max = 0;
+    Motion::History::Totals fill_base{};
     std::array<Target, MaxTargets> targets;
     const Target* read_target = nullptr; ///< of the last PrepareRead
 };

@@ -2094,6 +2094,10 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         }();
         bool gated = !all_motion;
         u64 palette = 0;
+        // bbport (upstream v0.9.43): the object a draw belongs to (its skeleton palette) and
+        // whether it is a character, for who keeps history when the positions buffer is full.
+        u64 motion_object = 0;
+        bool character = false;
         for (const auto& resource : vs.buffers) {
             if (resource.IsSpecial()) continue;
             const auto buffer = resource.GetSharp(vs);
@@ -2102,9 +2106,14 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
             const auto role = Motion::ClassifyBuffer(size);
             if (role == Motion::BufferRole::Skeleton) {
                 gated = false;
+                character = true;
+                motion_object = buffer.base_address;
                 break;
             }
             const VAddr address = buffer.base_address;
+            if (role == Motion::BufferRole::SmallSkeleton && !motion_object) {
+                motion_object = address;
+            }
             if (role == Motion::BufferRole::SmallSkeleton &&
                 buffer_cache.IsRegionGpuModified(address, size)) {
                 gated = false;
@@ -2161,7 +2170,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
                 .instances = regs.num_instances.NumInstances(),
                 .first_instance = first_instance,
                 .vertices = range,
-            });
+            }, motion_object, character);
         }
     }
     // bbport HDR, mode 5: the strength of the game's color table (Scene grading), for bbport's
